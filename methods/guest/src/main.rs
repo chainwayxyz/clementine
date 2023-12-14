@@ -9,12 +9,19 @@ use crypto_bigint::Encoding;
 use crypto_bigint::U256;
 
 pub fn main() {
-    let block_header: BlockHeader = env::read();
+    let n: u32 = env::read();
     let initial_work: [u8; 32] = env::read();
-    let data = block_header.as_bytes();
-    let block_hash = calculate_double_sha256(&data);
-    let initial_work = U256::from_be_bytes(initial_work);
-    let work = validate_threshold_and_add_work(block_header, block_hash, initial_work);
+    let mut work = U256::from_be_bytes(initial_work);
+
+    let mut block_hash: [u8; 32] = [0; 32];
+
+    for _ in 0..n {
+        let block_header: BlockHeader = env::read();
+
+        let data = block_header.as_bytes();
+        block_hash = calculate_double_sha256(&data);
+        work = validate_threshold_and_add_work(block_header, block_hash, work);
+    }
     env::commit(&block_hash);
     env::commit(&work.to_be_bytes());
 }

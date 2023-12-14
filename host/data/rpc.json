@@ -36,5 +36,24 @@
     },
     "error": null,
     "id": "curltest"
+  },
+  {
+    "result": {
+      "chain": "main",
+      "blocks": 821168,
+      "headers": 821168,
+      "bestblockhash": "000000000000000000016dbaeac494f3939e7fde86a1e031846395d6f0fab193",
+      "difficulty": 67305906902031.39,
+      "time": 1702562296,
+      "mediantime": 1702559437,
+      "verificationprogress": 0.9999963766958833,
+      "initialblockdownload": false,
+      "chainwork": "0000000000000000000000000000000000000000610721276012477a408c4893",
+      "size_on_disk": 605593391068,
+      "pruned": false,
+      "warnings": ""
+    },
+    "error": null,
+    "id": "curltest"
   }
 ]
