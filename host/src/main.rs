@@ -5,14 +5,6 @@ use bridge_methods::{GUEST_ELF, GUEST_ID};
 use risc0_zkvm::{default_prover, ExecutorEnv};
 use serde_json::Value;
 
-// fn calculate_double_sha256(header: &[u8]) -> Vec<u8> {
-//     let mut hasher = Sha256::new();
-//     hasher.update(header);
-//     let result = hasher.finalize_reset();
-//     hasher.update(result);
-//     hasher.finalize().to_vec()
-// }
-
 fn main() {
     // Initialize tracing. In order to view logs, run `RUST_LOG=info cargo run`
     env_logger::init();
@@ -53,19 +45,10 @@ fn main() {
     //     .unwrap()
     //     .try_into()
     //     .unwrap();
-    // let input1: [u8; 8] = input[0..8].try_into().unwrap();
-    // let input2: [u8; 32] = input[8..40].try_into().unwrap();
-    // let input3: [u8; 32] = input[40..72].try_into().unwrap();
-    // let input4: [u8; 8] = input[72..80].try_into().unwrap();
+    // let block_header = BlockHeader::from_slice(&input);
     let env = ExecutorEnv::builder()
         .write(&block_header)
         .unwrap()
-        // .write(&input2)
-        // .unwrap()
-        // .write(&input3)
-        // .unwrap()
-        // .write(&input4)
-        // .unwrap()
         .build()
         .unwrap();
 
