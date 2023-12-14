@@ -29,6 +29,7 @@ fn main() {
     // To access this method, you'll need to use ExecutorEnv::builder(), which
     // creates an ExecutorEnvBuilder. When you're done adding input, call
     // ExecutorEnvBuilder::build().
+    // This is the json data from https://mempool.space/api/v1/block/000000004ebadb55ee9096c9a2f8880e09da59c0d68b1c228da88e48844a1485
     let json_data = r#"{"id":"000000004ebadb55ee9096c9a2f8880e09da59c0d68b1c228da88e48844a1485","height":4,"version":1,"timestamp":1231470988,"bits":486604799,"nonce":2850094635,"difficulty":1,"merkle_root":"df2b060fa2e5e9c8ed5eaf6a45c13753ec8c63282b2688322eba40cd98ea067a","tx_count":1,"size":215,"weight":860,"previousblockhash":"0000000082b5015589a3fdf2d4baff403e6f0be035a5d9742c1cae6295464449","mediantime":1231469744,"extras":{"totalFees":0,"medianFee":0,"feeRange":[0,0,0,0,0,0,0],"reward":5000000000,"pool":{"id":0,"name":"Unknown","slug":"unknown"},"avgFee":0,"avgFeeRate":0,"coinbaseRaw":"04ffff001d011a","coinbaseAddress":null,"coinbaseSignature":"OP_PUSHBYTES_65 04184f32b212815c6e522e66686324030ff7e5bf08efb21f8b00614fb7690e19131dd31304c54f37baa40db231c918106bb9fd43373e37ae31a0befc6ecaefb867 OP_CHECKSIG","coinbaseSignatureAscii":"\u0004ÿÿ\u0000\u001d\u0001\u001a","avgTxSize":0,"totalInputs":0,"totalOutputs":1,"totalOutputAmt":0,"medianFeeAmt":0,"feePercentiles":[0,0,0,0,0,0,0],"segwitTotalTxs":0,"segwitTotalSize":0,"segwitTotalWeight":0,"header":"010000004944469562ae1c2c74d9a535e00b6f3e40ffbad4f2fda3895501b582000000007a06ea98cd40ba2e3288262b28638cec5337c1456aaf5eedc8e9e5a20f062bdf8cc16649ffff001d2bfee0a9","utxoSetChange":1,"utxoSetSize":4,"totalInputAmt":0,"virtualSize":215,"orphans":[],"matchRate":null,"expectedFees":null,"expectedWeight":null}}"#;
 
     let v: Value = serde_json::from_str(json_data).unwrap();
@@ -37,7 +38,7 @@ fn main() {
     let mut previous_block_hash = hex::decode(v["previousblockhash"].as_str().unwrap()).unwrap();
     previous_block_hash.reverse();
     let mut merkle_root = hex::decode(v["merkle_root"].as_str().unwrap()).unwrap();
-    // merkle_root.reverse();
+    merkle_root.reverse();
     let nbits = CompactTarget::from_consensus(u32::try_from(v["bits"].as_u64().unwrap()).unwrap());
     println!("nbits: {:?}", nbits);
 
@@ -66,7 +67,7 @@ fn main() {
 
     let input: [u8; 80] = header.try_into().unwrap();
 
-    let input: [u8; 80] = hex::decode("02000000b6ff0b1b1680a2862a30ca44d346d9e8910d334beb48ca0c00000000000000009d10aa52ee949386ca9385695f04ede270dda20810decd12bc9b048aaab3147124d95a5430c31b18fe9f0864").unwrap().try_into().unwrap();
+    // let input: [u8; 80] = hex::decode("02000000b6ff0b1b1680a2862a30ca44d346d9e8910d334beb48ca0c00000000000000009d10aa52ee949386ca9385695f04ede270dda20810decd12bc9b048aaab3147124d95a5430c31b18fe9f0864").unwrap().try_into().unwrap();
 
     println!("Input: {}", hex::encode(input));
 
