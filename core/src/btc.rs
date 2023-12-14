@@ -1,16 +1,55 @@
-use crate::BlockHeader;
-use crypto_bigint::AddMod;
 use crypto_bigint::U256;
-use crypto_bigint::Pow;
-use crypto_bigint::PowBoundedExp;
 use crypto_bigint::Encoding;
 
-pub fn calculate_work(bits: [u8; 4]) -> U256 {
-    let target = decode_compact_target(bits);
-    let target = U256::from_be_bytes(target);
-    let target = target.pow(&U256::from(256));
-    let target = target / U256::from(2u32.pow(208));
-    target
+use serde::{Deserialize, Serialize};
+use sha2::{Digest, Sha256};
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+pub struct BlockHeader {
+    pub version: [u8; 4],
+    pub previous_block_hash: [u8; 32],
+    pub merkle_root: [u8; 32],
+    pub timestamp: [u8; 4],
+    pub bits: [u8; 4],
+    pub nonce: [u8; 4],
+}
+
+impl BlockHeader {
+    pub fn from_slice(input: &[u8; 80]) -> Self {
+        BlockHeader {
+            version: input[0..4].try_into().unwrap(),
+            previous_block_hash: input[4..36].try_into().unwrap(),
+            merkle_root: input[36..68].try_into().unwrap(),
+            timestamp: input[68..72].try_into().unwrap(),
+            bits: input[72..76].try_into().unwrap(),
+            nonce: input[76..80].try_into().unwrap(),
+        }
+    }
+
+    pub fn as_bytes(&self) -> [u8; 80] {
+        let mut output: [u8; 80] = [0; 80];
+        output[0..4].copy_from_slice(&self.version);
+        output[4..36].copy_from_slice(&self.previous_block_hash);
+        output[36..68].copy_from_slice(&self.merkle_root);
+        output[68..72].copy_from_slice(&self.timestamp);
+        output[72..76].copy_from_slice(&self.bits);
+        output[76..80].copy_from_slice(&self.nonce);
+        output
+    }
+}
+
+pub fn calculate_double_sha256(input: &[u8]) -> [u8; 32] {
+    let mut hasher = Sha256::new();
+    hasher.update(input);
+    let result = hasher.finalize_reset();
+    hasher.update(result);
+    hasher.finalize().try_into().unwrap()
+}
+
+pub fn calculate_work(target: [u8; 32]) -> U256 {
+    let target_plus_one = U256::from_le_bytes(target).saturating_add(&U256::ONE);
+    let work = U256::MAX.wrapping_div(&target_plus_one);
+    work
 }
 
 pub fn validate_threshold(block_header: BlockHeader, block_hash: [u8; 32]) {
@@ -21,10 +60,10 @@ pub fn validate_threshold(block_header: BlockHeader, block_hash: [u8; 32]) {
     check_hash_valid(block_hash, target);
 
     // Step 3: Calculate work
-    let work = calculate_work(block_header.bits);
+    let _work = calculate_work(target);
 }
 
-fn decode_compact_target(bits: [u8; 4]) -> [u8; 32] {
+pub fn decode_compact_target(bits: [u8; 4]) -> [u8; 32] {
     let mut target = [0u8; 32];
     let exponent = bits[0] as usize;
     let value = ((bits[1] as u32) << 16) | ((bits[2] as u32) << 8) | (bits[3] as u32);
@@ -57,4 +96,8 @@ fn check_hash_valid(hash: [u8; 32], target: [u8; 32]) {
         // If the bytes are equal, continue to the next byte
     }
     // If we reach this point, all bytes are equal, so the hash is valid
+}
+
+pub fn tt(target: [u8; 32]) -> U256 {
+    U256::from_be_bytes(target)
 }
