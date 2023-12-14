@@ -1,5 +1,5 @@
-use crypto_bigint::U256;
 use crypto_bigint::Encoding;
+use crypto_bigint::U256;
 
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
@@ -46,13 +46,11 @@ pub fn calculate_double_sha256(input: &[u8]) -> [u8; 32] {
     hasher.finalize().try_into().unwrap()
 }
 
-pub fn calculate_work(target: [u8; 32]) -> U256 {
-    let target_plus_one = U256::from_le_bytes(target).saturating_add(&U256::ONE);
-    let work = U256::MAX.wrapping_div(&target_plus_one);
-    work
-}
-
-pub fn validate_threshold(block_header: BlockHeader, block_hash: [u8; 32]) {
+pub fn validate_threshold_and_add_work(
+    block_header: BlockHeader,
+    block_hash: [u8; 32],
+    old_work: U256,
+) -> U256 {
     // Step 1: Decode the target from the 'bits' field
     let target = decode_compact_target(block_header.bits);
 
@@ -60,10 +58,15 @@ pub fn validate_threshold(block_header: BlockHeader, block_hash: [u8; 32]) {
     check_hash_valid(block_hash, target);
 
     // Step 3: Calculate work
-    let _work = calculate_work(target);
+    let work = calculate_work(target);
+
+    old_work.wrapping_add(&work)
 }
 
 pub fn decode_compact_target(bits: [u8; 4]) -> [u8; 32] {
+    let mut bits = bits;
+    bits.reverse();
+
     let mut target = [0u8; 32];
     let exponent = bits[0] as usize;
     let value = ((bits[1] as u32) << 16) | ((bits[2] as u32) << 8) | (bits[3] as u32);
@@ -85,7 +88,8 @@ pub fn decode_compact_target(bits: [u8; 4]) -> [u8; 32] {
 }
 
 fn check_hash_valid(hash: [u8; 32], target: [u8; 32]) {
-    for i in 0..32 {
+    // for loop from 31 to 0
+    for i in  (0..32).rev() {
         if hash[i] < target[i] {
             // The hash is valid because a byte in hash is less than the corresponding byte in target
             return;
@@ -98,6 +102,8 @@ fn check_hash_valid(hash: [u8; 32], target: [u8; 32]) {
     // If we reach this point, all bytes are equal, so the hash is valid
 }
 
-pub fn tt(target: [u8; 32]) -> U256 {
-    U256::from_be_bytes(target)
+pub fn calculate_work(target: [u8; 32]) -> U256 {
+    let target_plus_one = U256::from_le_bytes(target).saturating_add(&U256::ONE);
+    let work = U256::MAX.wrapping_div(&target_plus_one);
+    work
 }

@@ -9,6 +9,8 @@ edition = "2021"
 # If you want to try (experimental) std support, add `features = [ "std" ]` to risc0-zkvm
 risc0-zkvm = { version = "0.19.1", default-features = false }
 bridge-core = { path = "../../core" }
+crypto-bigint = {version="=0.5.2", default-features = false}
+sha2 = {version="=0.10.6", default-features = false}
 
 [patch.crates-io]
 # Placing these patch statement in the workspace Cargo.toml will add RISC Zero SHA-256 and bigint
