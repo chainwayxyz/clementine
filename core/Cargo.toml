@@ -4,5 +4,7 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
+crypto-bigint = {version="=0.5.2", default-features = false}
+sha2 = {version="=0.10.6", default-features = false}
 serde = { version = "1.0", default-features = false }
-risc0-zkvm = { version = "0.19.1", default-features = false }
+

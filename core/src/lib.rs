@@ -1,8 +1,8 @@
 #![no_main]
 #![no_std]
-
-use risc0_zkvm::sha::{Impl, Sha256};
+pub mod btc;
 use serde::{Deserialize, Serialize};
+use sha2::{Digest, Sha256};
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 pub struct BlockHeader {
@@ -39,8 +39,9 @@ impl BlockHeader {
 }
 
 pub fn calculate_double_sha256(input: &[u8]) -> [u8; 32] {
-    Impl::hash_bytes(Impl::hash_bytes(&input).as_bytes())
-        .as_bytes()
-        .try_into()
-        .unwrap()
+    let mut hasher = Sha256::new();
+    hasher.update(input);
+    let result = hasher.finalize_reset();
+    hasher.update(result);
+    hasher.finalize().try_into().unwrap()
 }
