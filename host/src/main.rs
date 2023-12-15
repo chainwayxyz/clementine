@@ -7,9 +7,14 @@ use bridge_methods::{GUEST_ELF, GUEST_ID};
 use risc0_zkvm::{default_prover, ExecutorEnv};
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
 use serde_json::Value;
-use bridge_core::merkle::{MerkleTree, Node, self};
-use bridge_core::utils::char_to_digit;
+use bridge_core::merkle::{MerkleTree, self};
+// use bridge_core::utils::char_to_digit;
 use bridge_core::utils::parse_str;
+// use bridge_core::btc::calculate_double_sha256;
+use bitcoin::hash_types::Txid;
+use bitcoin::hashes::Hash;
+// use bitcoin::hex::FromHex;
+use bitcoin::merkle_tree::{self, PartialMerkleTree};
 
 #[allow(non_snake_case)]
 #[derive(Serialize, Deserialize, Clone, Debug)]
@@ -121,40 +126,36 @@ fn main() {
         tx_id_arr
     }).collect::<Vec<[u8; 32]>>();
     let merkle_tree = MerkleTree::new(12, &transactions[0..3730], 3730);
+    let mut tx_hashes: Vec<Txid> = transactions[0..3730].iter().map(|tx_id| {
+        let mut tx_id_clone = tx_id.clone();
+        tx_id_clone.reverse();
+        Txid::from_slice(&tx_id_clone).unwrap()}).collect();
 
-    // println!("transaction0: {:?}", transactions[0]);
+    let root = merkle_tree::calculate_root(tx_hashes.clone().into_iter()).unwrap();
+    println!("root: {:?}", root);
+    let true_vec = vec![true; 3730];
+    let original_merkle_tree  = PartialMerkleTree::from_txids(&tx_hashes, &true_vec);
 
-    println!("merkle_tree: {:?}", merkle_tree);
-    // let elem = merkle_tree.get_element(2, 1);
-    // println!("elem: {:?}", elem);
+    let mut idx_vec = vec![];
+
+    for i in 0..3730 {
+        idx_vec.push(i as u32);
+    }
+
+    let original_root = original_merkle_tree.extract_matches(&mut tx_hashes, &mut idx_vec).unwrap();
+    println!("original root: {:?}", original_root);
+
     let mut merkle_root = merkle_tree.merkle_root();
     println!("merkle_root: {:?}", merkle_root);
-    // merkle_root.reverse();
+    merkle_root.reverse();
     let hex_merkle_root = hex::encode(merkle_root);
     println!("hex_merkle_root: {:?}", hex_merkle_root);
-    let mut bytes_zero_elem = merkle_tree.get_element(0, 0).get_data();
-    // bytes_zero_elem.reverse();
-    let zero_elem = hex::encode(bytes_zero_elem);
-    println!("0th_elem: {:?}", zero_elem);
-    let mut bytes_first_elem = merkle_tree.get_element(0, 1).get_data();
-    // bytes_first_elem.reverse();
-    let first_elem = hex::encode(bytes_first_elem);
-    println!("1st_elem: {:?}", first_elem);
 
-    println!("first element after leaves: {:?}", hex::encode(merkle_tree.get_element(1, 0).get_data()));
+
     let root_index = merkle_tree.get_root_index();
-    println!("root_index: {:?}", root_index);
+
     let root_element = merkle_tree.get_element_from_index(root_index);
     println!("root_element: {:?}", root_element);
-    println!("final level 0 bytes: {:?}", merkle_tree.get_element(11, 0).get_data());
-    println!("final level 1 bytes: {:?}", merkle_tree.get_element(11, 1).get_data());
-    let temp0 = hex::encode(merkle_tree.get_element(11, 0).get_data());
-    let temp1 = hex::encode(merkle_tree.get_element(11, 1).get_data());
-    println!("final level 0: {:?}", temp0);
-    println!("final level 1: {:?}", temp1);
-    println!("final level 0: {:?}", merkle_tree.get_element_from_index(7462));
-    println!("final level 1: {:?}", merkle_tree.get_element_from_index(7463));
-
 
     let env_build = env.build().unwrap();
 
