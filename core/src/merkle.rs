@@ -1,5 +1,3 @@
-use core::panic::UnwindSafe;
-
 use crypto_bigint::Encoding;
 use crypto_bigint::U256;
 
@@ -9,7 +7,7 @@ use crate::btc::calculate_double_sha256;
 
 const MAX_TRANSACTIONS: usize = 4096; // Maximum number of transactions = 2^12 Theoretical limit is approximately 2^16
 const MAX_NODES: usize = MAX_TRANSACTIONS * 2; // Maximum number of nodes in the tree
-const MAX_DEPTH: u8 = 254; // Maximum depth of the tree
+const MAX_DEPTH: u8 = 16; // Maximum depth of the tree
 
 // A simplistic representation of a Merkle tree node
 
@@ -21,18 +19,26 @@ pub struct Node {
     data: [u8; 32], // Placeholder for the hash
     is_empty: bool,
     level: u8,
+    index: u32,
 }
 
 impl Node {
-    fn new(data: [u8; 32], level: u8) -> Self {
-        Node { data, is_empty: false , level: level}
+    fn new(data: [u8; 32], level: u8, index: u32) -> Self {
+        Node { data, is_empty: false , level: level, index: index}
     }
 
     fn empty() -> Self {
-        Node { data: [0 as u8; 32], is_empty: true , level: 0}
+        Node { data: [0 as u8; 32], is_empty: true , level: 0, index: 0}
     }
     pub fn get_data(&self) -> [u8; 32] {
         return self.data;
+    }
+
+    pub fn get_index(&self) -> u32 {
+        return self.index;
+    }
+    pub fn get_level(&self) -> u8 {
+        return self.level;
     }
 }
 
@@ -42,6 +48,7 @@ pub struct MerkleTree {
     depth: u8,
     nodes: [Node; MAX_NODES],
     number_of_transactions: u32,
+    number_of_elems_per_level: [u32; MAX_DEPTH as usize],
 }
 
 impl MerkleTree {
@@ -54,16 +61,16 @@ impl MerkleTree {
             depth: depth,
             nodes: [Node::empty(); MAX_NODES as usize],
             number_of_transactions: number_of_txs,
+            number_of_elems_per_level: [0; MAX_DEPTH as usize],
         };
 
         // Populate leaf nodes
         for (i, &tx) in transactions.iter().enumerate() {
-            // let double_hash_of_tx = calculate_double_sha256(&tx);
-            // tree.nodes[i] = Node::new(double_hash_of_tx, 0);
             let mut tx_clone = tx.clone();
             tx_clone.reverse();
-            tree.nodes[i] = Node::new(tx_clone, 0);
+            tree.nodes[i] = Node::new(tx_clone, 0, i as u32);
         }
+        tree.number_of_elems_per_level[0] = number_of_txs;
 
         // Construct the tree
         let mut curr_level_offset: u8 = 1;
@@ -77,19 +84,20 @@ impl MerkleTree {
                 preimage[..32].copy_from_slice(&tree.nodes[prev_level_index_offset + i * 2].data);
                 preimage[32..].copy_from_slice(&tree.nodes[prev_level_index_offset + i * 2 + 1].data);
                 let combined_hash = calculate_double_sha256(&preimage);
-                tree.nodes[curr_level_index_offset + i] = Node::new(combined_hash, curr_level_offset as u8);
+                tree.nodes[curr_level_index_offset + i] = Node::new(combined_hash, curr_level_offset as u8, i as u32);
             }
             if prev_level_size % 2 == 1 {
                 let mut preimage: [u8; 64] = [0; 64];
                 preimage[..32].copy_from_slice(&tree.nodes[prev_level_index_offset + prev_level_size - 1].data);
                 preimage[32..].copy_from_slice(&tree.nodes[prev_level_index_offset + prev_level_size - 1].data);
                 let combined_hash = calculate_double_sha256(&preimage);
-                tree.nodes[curr_level_index_offset + (prev_level_size / 2)] = Node::new(combined_hash, curr_level_offset as u8);
+                tree.nodes[curr_level_index_offset + (prev_level_size / 2)] = Node::new(combined_hash, curr_level_offset as u8, (prev_level_size / 2) as u32);
             }
             curr_level_offset += 1;
             prev_level_size = (prev_level_size + 1) / 2;
             prev_level_index_offset = curr_level_index_offset;
             curr_level_index_offset += prev_level_size;
+            tree.number_of_elems_per_level[curr_level_offset as usize - 1] = prev_level_size as u32;
         }
         tree
     }
@@ -131,28 +139,50 @@ impl MerkleTree {
         return self.nodes[index as usize];
     }
 
+    pub fn get_no_of_elem_arr(&self) -> [u32; MAX_DEPTH as usize] {
+        return self.number_of_elems_per_level;
+    }
+
+    pub fn get_tx_id_path(&self, index: u32) -> [Node; MAX_DEPTH as usize] {
+        assert!(index < self.number_of_transactions, "Index out of bounds");
+        let mut path: [Node; MAX_DEPTH as usize] = [Node::empty(); MAX_DEPTH as usize];
+        let mut i = index;
+        let mut level: u8 = 0;
+        while level < self.depth {
+            if i % 2 == 1 {
+                path[level as usize] = self.get_element(level, i - 1);
+            } else {
+                if (self.number_of_elems_per_level[level as usize] - 1) == i {
+                    path[level as usize] = self.get_element(level, i);
+                } else {
+                    path[level as usize] = self.get_element(level, i + 1);
+                }
+            }
+            level += 1;
+            i = i / 2;
+        }
+        return path;
+    }
+
+    pub fn calculate_root_with_merkle_proof(&self, tx_id: [u8; 32], merkle_proof: [Node; MAX_DEPTH as usize]) -> [u8; 32] {
+        let mut preimage: [u8; 64] = [0; 64];
+        let mut combined_hash: [u8; 32] = tx_id.clone();
+        let mut level: u8 = 0;
+        while level < self.depth {
+            if merkle_proof[level as usize].index % 2 == 1 {
+                preimage[..32].copy_from_slice(&combined_hash);
+                preimage[32..].copy_from_slice(&merkle_proof[level as usize].data);
+                combined_hash = calculate_double_sha256(&preimage);
+            } else {
+                preimage[..32].copy_from_slice(&merkle_proof[level as usize].data);
+                preimage[32..].copy_from_slice(&combined_hash);
+                combined_hash = calculate_double_sha256(&preimage);
+            }
+            level += 1;
+        }
+        combined_hash.reverse();
+        return combined_hash;
+    }
+
 }
-
-// mod test {
-
-//     use super::*;
-
-//     #[test]
-//     fn test_merkle_tree() {
-//         let transactions: [[u8; 32]; 5] = [
-//             parse_str_to_little_endian_array("29872ac19d9efbcfa619517ffc043713dcded089c0f9994aad91298fc33ca1f9"),
-//             parse_str_to_little_endian_array("747e1eb73d9bc7d6d3e109fadf306f75e3285fb5da255508f991052dce4b5b37"),
-//             parse_str_to_little_endian_array("6abfac15d53f62ed850ce70879c6bca4460017c7533efc4ed6ea5f2713bdaf5d"),
-//             parse_str_to_little_endian_array("c423e4af2a2790f874b2d33be13dd871b969679f6252001cdb840840bfa6d691"),
-//             parse_str_to_little_endian_array("c6fb683c9a2390926432de41b0a68bf78ec00696cdba7c082e2d9af2049f7e0e"),
-//         ];
-//         let merkle_tree = MerkleTree::new(3, &transactions, 5);
-//     }
-
-//     #[test]
-//     fn test_get_element() {
-//         //TODO: create a merkle tree with given tx ids, and then test get_element
-
-//     }
-// }
 

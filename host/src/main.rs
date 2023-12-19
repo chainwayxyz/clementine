@@ -10,7 +10,7 @@ use serde_json::Value;
 use bridge_core::merkle::{MerkleTree, self};
 // use bridge_core::utils::char_to_digit;
 use bridge_core::utils::parse_str;
-// use bridge_core::btc::calculate_double_sha256;
+use bridge_core::btc::calculate_double_sha256;
 use bitcoin::hash_types::Txid;
 use bitcoin::hashes::Hash;
 // use bitcoin::hex::FromHex;
@@ -126,34 +126,76 @@ fn main() {
         tx_id_arr
     }).collect::<Vec<[u8; 32]>>();
     let merkle_tree = MerkleTree::new(12, &transactions[0..3730], 3730);
-    let mut tx_hashes: Vec<Txid> = transactions[0..3730].iter().map(|tx_id| {
-        let mut tx_id_clone = tx_id.clone();
-        tx_id_clone.reverse();
-        Txid::from_slice(&tx_id_clone).unwrap()}).collect();
-
-    let root = merkle_tree::calculate_root(tx_hashes.clone().into_iter()).unwrap();
-    println!("root: {:?}", root);
-    let true_vec = vec![true; 3730];
-    let original_merkle_tree  = PartialMerkleTree::from_txids(&tx_hashes, &true_vec);
-
-    let mut idx_vec = vec![];
-
-    for i in 0..3730 {
-        idx_vec.push(i as u32);
-    }
-
-    let original_root = original_merkle_tree.extract_matches(&mut tx_hashes, &mut idx_vec).unwrap();
-    println!("original root: {:?}", original_root);
 
     let mut merkle_root = merkle_tree.merkle_root();
-    println!("merkle_root: {:?}", merkle_root);
+    // println!("merkle_root: {:?}", merkle_root);
     merkle_root.reverse();
     let hex_merkle_root = hex::encode(merkle_root);
     println!("hex_merkle_root: {:?}", hex_merkle_root);
 
+    let no_of_elem_arr = merkle_tree.get_no_of_elem_arr();
+    println!("no_of_elem_arr: {:?}", no_of_elem_arr);
+
+    let tx_id_path0 = merkle_tree.get_tx_id_path(31);
+    let hex_tx_id_path_idx0 = tx_id_path0.iter().map(|node| {
+        let tx_id_clone = node.get_index().clone();
+        tx_id_clone.to_string()
+    }).collect::<Vec<String>>();
+    println!("hex_tx_id_path_idx: {:?}", hex_tx_id_path_idx0);
+
+
+    let tx_id_path1 = merkle_tree.get_tx_id_path(3729);
+    let hex_tx_id_path1 = tx_id_path1.iter().map(|node| {
+        let tx_id_clone = node.get_index().clone();
+        tx_id_clone.to_string()
+    }).collect::<Vec<String>>();
+    println!("hex_tx_id_path: {:?}", hex_tx_id_path1);
+
+    let tx_id_path2 = merkle_tree.get_tx_id_path(1648);
+    let hex_tx_id_path2 = tx_id_path2.iter().map(|node| {
+        let tx_id_clone = node.get_index().clone();
+        tx_id_clone.to_string()
+    }).collect::<Vec<String>>();
+    println!("hex_tx_id_path: {:?}", hex_tx_id_path2);
+    
+    let tx_id_path3 = merkle_tree.get_tx_id_path(769);
+    let hex_tx_id_path3 = tx_id_path3.iter().map(|node| {
+        let tx_id_clone = node.get_index().clone();
+        tx_id_clone.to_string()
+    }).collect::<Vec<String>>();
+    println!("hex_tx_id_path: {:?}", hex_tx_id_path3);
+
+    let tx_id_path4 = merkle_tree.get_tx_id_path(0);
+    let hex_tx_id_path4 = tx_id_path4.iter().map(|node| {
+        let tx_id_clone = node.get_index().clone();
+        tx_id_clone.to_string()
+    }).collect::<Vec<String>>();
+    println!("hex_tx_id_path: {:?}", hex_tx_id_path4);
+
+
+
+    let test_calculate_root0 = merkle_tree.calculate_root_with_merkle_proof(merkle_tree.get_element(0, 31).get_data(), tx_id_path0);
+    let test_calculate_root_str0 = hex::encode(test_calculate_root0);
+    println!("test_calculate_root: {:?}", test_calculate_root_str0);
+
+    let test_calculate_root1 = merkle_tree.calculate_root_with_merkle_proof(merkle_tree.get_element(0, 3729).get_data(), tx_id_path1);
+    let test_calculate_root_str1 = hex::encode(test_calculate_root1);
+    println!("test_calculate_root: {:?}", test_calculate_root_str1);
+
+    let test_calculate_root2 = merkle_tree.calculate_root_with_merkle_proof(merkle_tree.get_element(0, 1648).get_data(), tx_id_path2);
+    let test_calculate_root_str2 = hex::encode(test_calculate_root2);
+    println!("test_calculate_root: {:?}", test_calculate_root_str2);
+
+    let test_calculate_root3 = merkle_tree.calculate_root_with_merkle_proof(merkle_tree.get_element(0, 769).get_data(), tx_id_path3);
+    let test_calculate_root_str3 = hex::encode(test_calculate_root3);
+    println!("test_calculate_root: {:?}", test_calculate_root_str3);
+
+    let test_calculate_root4 = merkle_tree.calculate_root_with_merkle_proof(merkle_tree.get_element(0, 0).get_data(), tx_id_path4);
+    let test_calculate_root_str4 = hex::encode(test_calculate_root4);
+    println!("test_calculate_root: {:?}", test_calculate_root_str4);
+
 
     let root_index = merkle_tree.get_root_index();
-
     let root_element = merkle_tree.get_element_from_index(root_index);
     println!("root_element: {:?}", root_element);
 
