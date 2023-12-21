@@ -1,19 +1,19 @@
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
-use crate::btc::calculate_double_sha256;
+use crate::{btc::calculate_double_sha256, utils::from_hex_to_bytes};
 
 const SCRIPT_SIG_MAX_SIZE: usize = 256; // Define a suitable max size
 const SCRIPT_PUB_KEY_MAX_SIZE: usize = 256; // Define a suitable max size
 const MAX_INPUTS: usize = 1; // Arbitrary fixed number of maximum inputs
-const MAX_OUTPUTS: usize = 2; // Arbitrary fixed number of maximum outputs
+const MAX_OUTPUTS: usize = 26; // Arbitrary fixed number of maximum outputs
 
 #[derive(Debug, Clone, Copy)]
 pub struct TxInput {
-    prev_tx_hash: [u8; 32],
-    output_index: u32,
-    script_sig_size: u8,
-    script_sig: [u8; SCRIPT_SIG_MAX_SIZE],
-    sequence: u32,
+    pub prev_tx_hash: [u8; 32],
+    pub output_index: u32,
+    pub script_sig_size: u8,
+    pub script_sig: [u8; SCRIPT_SIG_MAX_SIZE],
+    pub sequence: u32,
 }
 
 impl TxInput {
@@ -28,8 +28,18 @@ impl TxInput {
         }
     }
 
-    pub fn as_bytes(&self) -> ([u8; 1024], usize) {
-        let mut bytes = [0u8; 1024];
+    pub fn empty() -> Self {
+        Self {
+            prev_tx_hash: [0u8; 32],
+            output_index: 0,
+            script_sig_size: 0,
+            script_sig: [0u8; SCRIPT_SIG_MAX_SIZE],
+            sequence: 0,
+        }
+    }
+
+    pub fn as_bytes(&self) -> ([u8; 2048], usize) {
+        let mut bytes = [0u8; 2048];
         let mut index = 0;
         bytes[index..index+32].copy_from_slice(&self.prev_tx_hash);
         index += 32;
@@ -48,9 +58,9 @@ impl TxInput {
 
 #[derive(Debug, Clone, Copy)]
 pub struct TxOutput {
-    value: u64,
-    script_pub_key_size: u8,
-    script_pub_key: [u8; SCRIPT_PUB_KEY_MAX_SIZE],
+    pub value: u64,
+    pub script_pub_key_size: u8,
+    pub script_pub_key: [u8; SCRIPT_PUB_KEY_MAX_SIZE],
 }
 
 impl TxOutput {
@@ -63,8 +73,16 @@ impl TxOutput {
         }
     }
 
-    pub fn serialize(&self) -> ([u8; 1024], usize) {
-        let mut bytes = [0u8; 1024];
+    pub fn empty() -> Self {
+        Self {
+            value: 0,
+            script_pub_key_size: 0,
+            script_pub_key: [0u8; SCRIPT_PUB_KEY_MAX_SIZE],
+        }
+    }
+
+    pub fn serialize(&self) -> ([u8; 2048], usize) {
+        let mut bytes = [0u8; 2048];
         let mut index = 0;
         bytes[index..index+8].copy_from_slice(&self.value.to_le_bytes());
         index += 8;
@@ -78,12 +96,12 @@ impl TxOutput {
 
 #[derive(Debug, Clone, Copy)]
 pub struct Transaction {
-    version: i32,
-    input_count: u8,
-    inputs: [TxInput; MAX_INPUTS],
-    output_count: u8,
-    outputs: [TxOutput; MAX_OUTPUTS],
-    lock_time: u32,
+    pub version: i32,
+    pub input_count: u8,
+    pub inputs: [TxInput; MAX_INPUTS],
+    pub output_count: u8,
+    pub outputs: [TxOutput; MAX_OUTPUTS],
+    pub lock_time: u32,
 }
 
 impl Transaction {
@@ -98,11 +116,22 @@ impl Transaction {
         }
     }
 
+    pub fn empty() -> Self {
+        Self {
+            version: 0,
+            input_count: 0,
+            inputs: [TxInput::empty(); MAX_INPUTS],
+            output_count: 0,
+            outputs: [TxOutput::empty(); MAX_OUTPUTS],
+            lock_time: 0,
+        }
+    }
+
     // Add methods to set inputs and outputs as needed
     // Serialization and other functionalities would also be added here
 
-    pub fn serialize(&self) -> ([u8; 1024], usize) {  // Fixed size array for simplicity
-        let mut bytes = [0u8; 1024];
+    pub fn serialize(&self) -> ([u8; 2048], usize) {  // Fixed size array for simplicity
+        let mut bytes = [0u8; 2048];
         let mut index = 0;
         bytes[index..index+4].copy_from_slice(&self.version.to_le_bytes());
         index += 4;
@@ -131,5 +160,10 @@ impl Transaction {
         let hash = calculate_double_sha256(&preimage);
         hash
     }
-}
 
+    pub fn check_first_output_valid(&self, address: &str) -> bool {
+        let address_bytes = from_hex_to_bytes(address);
+        &self.outputs[0].script_pub_key[2..self.outputs[0].script_pub_key_size as usize] == &address_bytes.0[0..address_bytes.1]
+    }
+}
+        
