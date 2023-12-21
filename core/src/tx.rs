@@ -4,8 +4,8 @@ use crate::btc::calculate_double_sha256;
 
 const SCRIPT_SIG_MAX_SIZE: usize = 256; // Define a suitable max size
 const SCRIPT_PUB_KEY_MAX_SIZE: usize = 256; // Define a suitable max size
-const MAX_INPUTS: usize = 2; // Arbitrary fixed number of maximum inputs
-const MAX_OUTPUTS: usize = 1; // Arbitrary fixed number of maximum outputs
+const MAX_INPUTS: usize = 1; // Arbitrary fixed number of maximum inputs
+const MAX_OUTPUTS: usize = 2; // Arbitrary fixed number of maximum outputs
 
 #[derive(Debug, Clone, Copy)]
 pub struct TxInput {
@@ -23,7 +23,7 @@ impl TxInput {
             prev_tx_hash: prev_tx_id,
             output_index: output_index,
             script_sig_size: script_sig_size,
-            script_sig: [0u8; SCRIPT_SIG_MAX_SIZE],
+            script_sig: script_sig,
             sequence: sequence,
         }
     }

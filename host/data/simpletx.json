@@ -1,0 +1,51 @@
+{
+    "txid": "1ebf2dd645b815a59e35485dd4ceebc0587a1b7588b810e42085b479ce507bfa",
+    "size": 403,
+    "version": 1,
+    "locktime": 0,
+    "fee": 1000000,
+    "inputs": [
+      {
+        "coinbase": false,
+        "txid": "6c10b188fda4a03305440bc7d3833f63f120f51fc614845cac2eb8ce6f4dce1d",
+        "output": 0,
+        "sigscript": "483045022057f1b13aa42d3ccbc0a8e5a3b879b0c59611f62fa3c11ec61275f1f492a95eb702210082934bdd903d66b43f27865ba3eab0c2efca3f604977055844643e05378ead5c014104138d152dfbe4017547582f7dc8570500708da8868e9a0896f06a927d76ea8af82699f034adca2270e064602dc7a27f1b42fa4d33686e85528895317f268eacd7",
+        "sequence": 4294967295,
+        "pkscript": "76a91439aa3d569e06a1d7926dc4be1193c99bf2eb9ee088ac",
+        "value": 100000000,
+        "address": "16FuTPaeRSPVxxCnwQmdyx2PQWxX6HWzhQ",
+        "witness": []
+      },
+      {
+        "coinbase": false,
+        "txid": "e9a66845e05d5abc0ad04ec80f774a7e585c6e8db975962d069a522137b80c1d",
+        "output": 0,
+        "sigscript": "47304402205ddfdcad3a8511a6d36fffb6fce1761dc9d4108c1b4cdb5faa7e8c29d739fc3402202220e21e7fe53d60bb7881517ec8b38f8977232dfde583d96fc9dc34de45c171014104138d152dfbe4017547582f7dc8570500708da8868e9a0896f06a927d76ea8af82699f034adca2270e064602dc7a27f1b42fa4d33686e85528895317f268eacd7",
+        "sequence": 4294967295,
+        "pkscript": "76a91439aa3d569e06a1d7926dc4be1193c99bf2eb9ee088ac",
+        "value": 1000000,
+        "address": "16FuTPaeRSPVxxCnwQmdyx2PQWxX6HWzhQ",
+        "witness": []
+      }
+    ],
+    "outputs": [
+      {
+        "address": "1LwTznd4zF7ggDjTCN1A81oumVevmVTYWC",
+        "pkscript": "76a914dab76320f7d423c5d27735f4a9fa2a2bd057c1fd88ac",
+        "value": 100000000,
+        "spent": true,
+        "spender": {
+          "txid": "fdbc32f2d46d13fa47a152082cc6b895fb12afd25be8cb2189e2f171f9287987",
+          "input": 0
+        }
+      }
+    ],
+    "block": {
+      "height": 100078,
+      "position": 1
+    },
+    "deleted": false,
+    "time": 1293666859,
+    "rbf": false,
+    "weight": 1612
+  }
