@@ -1,20 +1,21 @@
-use bridge_core::btc::calculate_double_sha256;
+use bridge_core::{btc::calculate_double_sha256, incremental_merkle::{IncrementalMerkleTree, Data}};
 use risc0_zkvm::guest::env;
 
-
-
-pub fn add_to_incremental_merkle_tree(merkle_tree_data: u32, leaf: [u8; 32]) {}
-
-pub fn get_incremental_merkle_tree_root(merkle_tree_data: u32) -> [u8; 32] {
-    return [0; 32];
+pub fn add_to_incremental_merkle_tree(mut merkle_tree_data: IncrementalMerkleTree, leaf: Data) {
+    merkle_tree_data.add(leaf);
 }
 
-pub fn get_incremental_merkle_tree_index(merkle_tree_data: u32) -> u32 {
-    return 0;
+pub fn get_incremental_merkle_tree_root(merkle_tree_data: IncrementalMerkleTree) -> Data {
+    merkle_tree_data.root
 }
-pub fn verify_incremental_merkle_path(merkle_tree_data: u32, index: u32) -> [u8; 32] {
+
+pub fn get_incremental_merkle_tree_index(merkle_tree_data: IncrementalMerkleTree) -> u32 {
+    merkle_tree_data.index
+}
+
+pub fn verify_incremental_merkle_path(merkle_tree_data: IncrementalMerkleTree, index: u32) -> Data {
     let leaf = env::read();
-    let mut hash: [u8; 32] = leaf;
+    let mut hash: Data = leaf;
     let mut index: u32 = index;
     let mut levels: u32 = 32;
     for _ in 0..levels {

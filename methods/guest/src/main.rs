@@ -1,9 +1,8 @@
 #![no_main]
 #![no_std]
 
-use core::marker::PhantomData;
-
 use bridge_core::btc::{calculate_double_sha256, validate_threshold_and_add_work, BlockHeader};
+use bridge_core::incremental_merkle::IncrementalMerkleTree;
 use guest::bitcoin::verify_txid_input;
 use guest::bitcoin::verify_txid_merkle_path;
 use guest::bitcoin::verify_txid_output_address;
@@ -16,7 +15,7 @@ risc0_zkvm::guest::entry!(main);
 use crypto_bigint::Encoding;
 use crypto_bigint::U256;
 
-pub fn handle_withdrawals(merkle_tree_data: u32, merkle_root: [u8; 32] ) {
+pub fn handle_withdrawals(merkle_tree_data: IncrementalMerkleTree, merkle_root: [u8; 32] ) {
     let num_withdrawals: u32 = env::read();
     for _ in 0..num_withdrawals {
         let withdrawal_txid: [u8; 32] = env::read();
@@ -30,7 +29,7 @@ pub fn handle_withdrawals(merkle_tree_data: u32, merkle_root: [u8; 32] ) {
 
 pub fn verify_light_client(block_hash: [u8; 32], withdrawal_merkle_root: [u8; 32], deposit_merkle_root: [u8; 32]) {}
 
-pub fn handle_deposits(start_deposit_index: u32, deposit_merkle_tree_data: u32, bridge_funds_merkle_tree_data: u32) {
+pub fn handle_deposits(start_deposit_index: u32, deposit_merkle_tree_data: IncrementalMerkleTree, bridge_funds_merkle_tree_data: IncrementalMerkleTree) {
     let num_deposits: u32 = env::read();
     for _ in 0..num_deposits {
         let deposit_txid: [u8; 32] = env::read();
@@ -41,7 +40,7 @@ pub fn handle_deposits(start_deposit_index: u32, deposit_merkle_tree_data: u32, 
 
 
 
-pub fn handle_moved_bridge_funds(bridge_funds_merkle_tree_data: u32, last_unspent_bridge_fund_index: u32, bitcoin_merkle_root: [u8; 32] ) -> u32 {
+pub fn handle_moved_bridge_funds(bridge_funds_merkle_tree_data: IncrementalMerkleTree, last_unspent_bridge_fund_index: u32, bitcoin_merkle_root: [u8; 32] ) -> u32 {
     let num_moved_bridge_funds: u32 = env::read();
     for i in 0..num_moved_bridge_funds {
         let moved_bridge_funds_utxo: [u8; 32] = verify_incremental_merkle_path(bridge_funds_merkle_tree_data, last_unspent_bridge_fund_index + i);
@@ -69,9 +68,9 @@ pub fn main() {
 
     
 
-    let mut withdrawal_merkle_tree_data: u32 = env::read(); // We should check that start_withdrawal_index matches
-    let mut deposit_merkle_tree_data: u32 = env::read(); // We should check that start_deposit_index matches
-    let mut bridge_funds_merkle_tree_data: u32 = env::read(); // We should check that initial_bridge_funds_merkle_root matches
+    let mut withdrawal_merkle_tree_data: IncrementalMerkleTree = env::read(); // We should check that start_withdrawal_index matches
+    let mut deposit_merkle_tree_data: IncrementalMerkleTree = env::read(); // We should check that start_deposit_index matches
+    let mut bridge_funds_merkle_tree_data: IncrementalMerkleTree = env::read(); // We should check that initial_bridge_funds_merkle_root matches
 
     handle_deposits(start_deposit_index, deposit_merkle_tree_data, bridge_funds_merkle_tree_data);
     let mut last_unspent_bridge_fund_index: u32 = env::read();
