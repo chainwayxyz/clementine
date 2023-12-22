@@ -1,0 +1,71 @@
+{
+  "txid": "f2dfdf90181e7b98d0a64f5841e8ce792ea3b8c2312d42cb93aa10c6e69f4f69",
+  "hash": "e421c63e11a946ccf53225e174edf21b4dbced910a15f15059219c8da063e40b",
+  "version": 2,
+  "size": 355,
+  "vsize": 255,
+  "weight": 1018,
+  "locktime": 0,
+  "vin": [
+    {
+      "txid": "e0bc6bee5a56b34541c2d2e933aca9d55503b67ae5f839f7c3e1f900c40b295c",
+      "vout": 0,
+      "scriptSig": {
+        "asm": "",
+        "hex": ""
+      },
+      "txinwitness": [
+        "5de61774dc0275f491eb46561bc1b36148ef30467bf43f2b33796991d61a29a3a4b7e2047712e73fe983806f0d636b64c8a6202490daff202bca521a0faa70ae"
+      ],
+      "sequence": 4294967293
+    },
+    {
+      "txid": "de46f4019fe9b508003b9895778c75aa2c57608e098982da5b5ffe8fe39f9aa4",
+      "vout": 0,
+      "scriptSig": {
+        "asm": "",
+        "hex": ""
+      },
+      "txinwitness": [
+        "f80f92541832d6d8908df9a57d994b90ee74129c8943a17109da88d49cd1531314d051c8082be3b79d3281edde719ab2fab34fa3dfbe3ad60e5a2ab8a306d431"
+      ],
+      "sequence": 4294967293
+    }
+  ],
+  "vout": [
+    {
+      "value": 1.00000000,
+      "n": 0,
+      "scriptPubKey": {
+        "asm": "1 df6f4ee3a0a625db6fa6a88176656541f4a63591f8b7174f7054cc52afbeaec8",
+        "desc": "rawtr(df6f4ee3a0a625db6fa6a88176656541f4a63591f8b7174f7054cc52afbeaec8)#aqrtrn94",
+        "hex": "5120df6f4ee3a0a625db6fa6a88176656541f4a63591f8b7174f7054cc52afbeaec8",
+        "address": "bcrt1pmah5acaq5cjakmax4zqhvet9g862vdv3lzm3wnms2nx99ta74myqvw5825",
+        "type": "witness_v1_taproot"
+      }
+    },
+    {
+      "value": 1.00000000,
+      "n": 1,
+      "scriptPubKey": {
+        "asm": "1 8c61eec2e14c785da78dd8ab98797996f866a6aac8c8d2389d77f38c3f4feff1",
+        "desc": "rawtr(8c61eec2e14c785da78dd8ab98797996f866a6aac8c8d2389d77f38c3f4feff1)#6880wc7m",
+        "hex": "51208c61eec2e14c785da78dd8ab98797996f866a6aac8c8d2389d77f38c3f4feff1",
+        "address": "bcrt1p33s7ashpf3u9mfudmz4es7tejmuxdf42erydywyawlecc060alcsfclc5e",
+        "type": "witness_v1_taproot"
+      }
+    },
+    {
+      "value": 0.00000546,
+      "n": 2,
+      "scriptPubKey": {
+        "asm": "1 8c61eec2e14c785da78dd8ab98797996f866a6aac8c8d2389d77f38c3f4feff1",
+        "desc": "rawtr(8c61eec2e14c785da78dd8ab98797996f866a6aac8c8d2389d77f38c3f4feff1)#6880wc7m",
+        "hex": "51208c61eec2e14c785da78dd8ab98797996f866a6aac8c8d2389d77f38c3f4feff1",
+        "address": "bcrt1p33s7ashpf3u9mfudmz4es7tejmuxdf42erydywyawlecc060alcsfclc5e",
+        "type": "witness_v1_taproot"
+      }
+    }
+  ],
+  "hex": "020000000001025c290bc400f9e1c3f739f8e57ab60355d5a9ac33e9d2c24145b3565aee6bbce00000000000fdffffffa49a9fe38ffe5f5bda8289098e60572caa758c7795983b0008b5e99f01f446de0000000000fdffffff0300e1f50500000000225120df6f4ee3a0a625db6fa6a88176656541f4a63591f8b7174f7054cc52afbeaec800e1f505000000002251208c61eec2e14c785da78dd8ab98797996f866a6aac8c8d2389d77f38c3f4feff122020000000000002251208c61eec2e14c785da78dd8ab98797996f866a6aac8c8d2389d77f38c3f4feff101405de61774dc0275f491eb46561bc1b36148ef30467bf43f2b33796991d61a29a3a4b7e2047712e73fe983806f0d636b64c8a6202490daff202bca521a0faa70ae0140f80f92541832d6d8908df9a57d994b90ee74129c8943a17109da88d49cd1531314d051c8082be3b79d3281edde719ab2fab34fa3dfbe3ad60e5a2ab8a306d43100000000"
+}

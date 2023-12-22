@@ -15,7 +15,9 @@ pub fn verify_txid_merkle_path(txid: [u8; 32], merkle_root: [u8; 32]) {
     assert_eq!(hash, merkle_root);
 }
 
-pub fn verify_txid_output_address(txid: [u8; 32], output_address: [u8; 32]) {}
+pub fn verify_txid_output_address(txid: [u8; 32], output_address: [u8; 32]) {
+    
+}
 pub fn verify_txid_input(txid: [u8; 32], input_utxo: [u8; 32]) -> [u8; 32] {
     return [0; 32];
 }
