@@ -5,7 +5,7 @@ use lazy_static::lazy_static;
 pub type Data = [u8; 32];
 const EMPTYDATA: Data = [0; 32];
 
-const DEPTH: usize = 3;
+pub const DEPTH: usize = 32;
 const MAX_DEPTH: usize = 32;
 
 lazy_static! {
