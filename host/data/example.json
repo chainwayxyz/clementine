@@ -1,0 +1,38 @@
+{
+    "txid": "string",
+    "hash": "string",
+    "version": 0,
+    "size": 0,
+    "vsize": 0, 
+    "weight": 0,
+    "locktime": 0, 
+    "vin": [ 
+        {
+            "txid": "string", 
+            "vout": 0,
+            "scriptSig": { 
+                "asm": "string", 
+                "hex": "string" 
+            },
+            "txinwitness": [
+                "string"
+            ],
+            "sequence": 0
+        }
+    ],
+    "vout": [ 
+        {
+            "value": 0.0,
+            "n": 0,
+            "scriptPubKey": { 
+                "asm": "string", 
+                "hex": "string", 
+                "reqSigs": 0, 
+                "type": "string",
+                "addresses": [
+                    "string"
+                ] 
+            }
+        }
+    ]
+}

@@ -21,6 +21,7 @@ pub fn main() {
         let data = block_header.as_bytes();
         block_hash = calculate_double_sha256(&data);
         work = validate_threshold_and_add_work(block_header, block_hash, work);
+        
     }
     env::commit(&block_hash);
     env::commit(&work.to_be_bytes());

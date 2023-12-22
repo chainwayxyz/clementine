@@ -1,8 +1,3 @@
-use crypto_bigint::Encoding;
-use crypto_bigint::U256;
-
-use serde::{Deserialize, Serialize};
-use sha2::{Digest, Sha256};
 use crate::btc::calculate_double_sha256;
 
 const MAX_TRANSACTIONS: usize = 4096; // Maximum number of transactions = 2^12 Theoretical limit is approximately 2^16
