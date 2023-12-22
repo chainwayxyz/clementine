@@ -3,13 +3,13 @@ use serde::{Deserialize, Serialize};
 use lazy_static::lazy_static;
 
 pub type Data = [u8; 32];
-const EMPTYDATA: Data = [0; 32];
+pub const EMPTYDATA: Data = [0; 32];
 
 pub const DEPTH: usize = 32;
 const MAX_DEPTH: usize = 32;
 
 lazy_static! {
-    static ref ZEROES: [Data; MAX_DEPTH + 1] = {
+    pub static ref ZEROES: [Data; MAX_DEPTH + 1] = {
         let mut a = [EMPTYDATA; MAX_DEPTH + 1];
         for i in 0..DEPTH {
             a[i + 1] = IncrementalMerkleTree::HASH_FUNCTION(a[i], a[i]);
@@ -35,7 +35,7 @@ pub struct IncrementalMerkleTree {
 }
 
 impl IncrementalMerkleTree {
-    const HASH_FUNCTION: fn(Data, Data) -> Data = sha256;
+    pub const HASH_FUNCTION: fn(Data, Data) -> Data = sha256;
 
     pub fn initial() -> Self {
         Self {
