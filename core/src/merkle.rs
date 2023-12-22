@@ -5,7 +5,7 @@ use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use crate::btc::calculate_double_sha256;
 
-const MAX_TRANSACTIONS: usize = 8; // Maximum number of transactions = 2^12 Theoretical limit is approximately 2^16
+const MAX_TRANSACTIONS: usize = 4096; // Maximum number of transactions = 2^12 Theoretical limit is approximately 2^16
 const MAX_NODES: usize = MAX_TRANSACTIONS * 2; // Maximum number of nodes in the tree
 const MAX_DEPTH: u8 = 16; // Maximum depth of the tree
 
@@ -184,12 +184,4 @@ impl MerkleTree {
         return combined_hash;
     }
 
-}
-
-#[cfg(test)]
-mod tests {
-    #[test]
-    fn test_merkle_tree() {
-        todo!();
-    }
 }
