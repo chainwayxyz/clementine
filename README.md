@@ -16,7 +16,51 @@
 - informs verifiers about new deposits
 - verifier binary that is actively listening operator for new deposits and proofs
 
-
 ## user
 
 - simple js script for making a deposit transaction in bitcoin and in the rollup
+
+# folder structure
+
+```text
+bridge
+├── Cargo.toml
+├── contracts
+│   ├── lib
+│   ├── script
+│   ├── src
+│   │   ├── Bridge.sol
+│   │   └── MerkleTree.sol
+│   └── test
+├── circuits
+│   ├── core                                   common functionality
+│   │   ├── Cargo.toml
+│   │   └── src
+│   │       ├── lib.rs
+│   │       ├── merkle.rs                      hash function, zeroes, depth, etc.
+│   │       └── btc.rs                         btc operations
+│   ├── host
+│   │   ├── Cargo.toml
+│   │   ├── data                               rpc block data
+│   │   └── src
+│   │       ├── lib.rs
+│   │       ├── main.rs                        <-- [Host code goes here]
+│   │       └── merkle.rs                      MerkleTree
+│   └── methods
+│       ├── Cargo.toml
+│       ├── build.rs
+│       ├── guest
+│       │   ├── Cargo.toml
+│       │   └── src
+│       │       ├── lib.rs
+│       │       ├── main.rs                   <-- [Guest code goes here]
+│       │       ├── bitcoin.rs                btc operations
+│       │       └── merkle.rs                 IncrementalMerkleTree, verify_merkle_path
+│       └── src
+│           └── lib.rs
+├── operator
+│   ├── Cargo.toml
+│   └── src
+│       └── lib.rs
+└── user
+```
