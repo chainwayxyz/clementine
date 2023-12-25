@@ -9,7 +9,7 @@ pub const DEPTH: usize = 32;
 const MAX_DEPTH: usize = 32;
 
 lazy_static! {
-    pub static ref ZEROES: [Data; MAX_DEPTH + 1] = {
+    static ref ZEROES: [Data; MAX_DEPTH + 1] = {
         let mut a = [EMPTYDATA; MAX_DEPTH + 1];
         for i in 0..DEPTH {
             a[i + 1] = IncrementalMerkleTree::HASH_FUNCTION(a[i], a[i]);
@@ -35,7 +35,7 @@ pub struct IncrementalMerkleTree {
 }
 
 impl IncrementalMerkleTree {
-    pub const HASH_FUNCTION: fn(Data, Data) -> Data = sha256;
+    const HASH_FUNCTION: fn(Data, Data) -> Data = sha256;
 
     pub fn initial() -> Self {
         Self {
