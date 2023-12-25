@@ -3,4 +3,5 @@
 
 pub mod btc;
 pub mod merkle;
+pub mod incremental_merkle;
 pub mod config;

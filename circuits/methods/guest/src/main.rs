@@ -3,10 +3,10 @@
 
 use bridge_core::btc::{calculate_double_sha256, validate_threshold_and_add_work, BlockHeader};
 use bridge_core::config::{PERIOD3, N};
+use bridge_core::incremental_merkle::IncrementalMerkleTree;
 use guest::bitcoin::verify_txid_input;
 use guest::bitcoin::verify_txid_merkle_path;
 use guest::bitcoin::verify_txid_output_address;
-use guest::merkle::IncrementalMerkleTree;
 use guest::merkle::verify_incremental_merkle_path;
 use bridge_core::merkle::Data;
 use risc0_zkvm::guest::env;
