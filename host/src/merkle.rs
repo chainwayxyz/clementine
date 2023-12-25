@@ -75,13 +75,8 @@ impl MerkleTree {
         let mut p = [EMPTYDATA; DEPTH];
         let mut i = index as usize;
         for level in 0..DEPTH {
-            let n = self.data[level].len();
-            if i % 2 == 0 {
-                p[level] = if i + 1 < n {self.data[level][i + 1]} else {ZEROES[level]};
-            }
-            else {
-                p[level] = if i + 1 < n {self.data[level][i - 1]} else {ZEROES[level]};
-            }
+            let s = if i % 2 == 0 {i + 1} else {i - 1};
+            p[level] = if s < self.data[level].len() {self.data[level][s]} else {ZEROES[level]};
             i /= 2;
         }
         p
@@ -89,6 +84,17 @@ impl MerkleTree {
 
     pub fn root(&self) -> Data {
         self.data[DEPTH][0]
+    }
+
+    pub fn filled_subtrees(&self, index: u32) -> [Data; DEPTH] {
+        let mut fst = [EMPTYDATA; DEPTH];
+        let mut i = index;
+        for level in 0..DEPTH {
+            i = 2 * (i / 2);
+            fst[level] = self.data[level][i as usize];
+            i /= 2;
+        }
+        fst
     }
 }
 
