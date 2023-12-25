@@ -2,6 +2,7 @@
 #![no_std]
 
 use bridge_core::btc::{calculate_double_sha256, validate_threshold_and_add_work, BlockHeader};
+use bridge_core::config::{PERIOD3, N};
 use guest::bitcoin::verify_txid_input;
 use guest::bitcoin::verify_txid_merkle_path;
 use guest::bitcoin::verify_txid_output_address;
@@ -60,15 +61,15 @@ pub fn main() {
     let initial_work: [u8; 32] = env::read();
     let initial_bridge_funds_merkle_root: [u8; 32] = env::read();
 
-
     let mut previous_block_hash = initial_block_hash;
     let mut work = U256::from_be_bytes(initial_work);
 
-    
-
-    let mut withdrawal_merkle_tree_data: IncrementalMerkleTree = env::read(); // We should check that start_withdrawal_index matches
-    let mut deposit_merkle_tree_data: IncrementalMerkleTree = env::read(); // We should check that start_deposit_index matches
-    let mut bridge_funds_merkle_tree_data: IncrementalMerkleTree = env::read(); // We should check that initial_bridge_funds_merkle_root matches
+    // let mut withdrawal_merkle_tree_data: IncrementalMerkleTree = env::read(); // We should check that start_withdrawal_index matches
+    // let mut deposit_merkle_tree_data: IncrementalMerkleTree = env::read(); // We should check that start_deposit_index matches
+    // let mut bridge_funds_merkle_tree_data: IncrementalMerkleTree = env::read(); // We should check that initial_bridge_funds_merkle_root matches
+    let mut withdrawal_merkle_tree_data = IncrementalMerkleTree::initial(); // We should check that start_withdrawal_index matches
+    let mut deposit_merkle_tree_data = IncrementalMerkleTree::initial(); // We should check that start_deposit_index matches
+    let mut bridge_funds_merkle_tree_data = IncrementalMerkleTree::initial(); // We should check that initial_bridge_funds_merkle_root matches
 
     handle_deposits(start_deposit_index, deposit_merkle_tree_data, bridge_funds_merkle_tree_data);
     let mut last_unspent_bridge_fund_index: u32 = env::read();
@@ -76,16 +77,14 @@ pub fn main() {
     let mut light_client_block_hash: [u8; 32] = [0; 32];
     let mut light_client_pow: U256 = work.clone();
 
-    let n: u32 = 4096;
-
-    for height in 0..n {
+    for height in 0..N {
         let block_header: BlockHeader = env::read();
         assert_eq!(block_header.previous_block_hash, previous_block_hash);
         let data = &block_header.as_bytes();
         let block_hash = calculate_double_sha256(data);
         work = validate_threshold_and_add_work(block_header.clone(), block_hash, work);
 
-        if height == n/2 {
+        if height == N / 2 {
             light_client_block_hash = block_hash; // This is the block hash that the light client will verify
             light_client_pow = work;
         }
@@ -99,7 +98,7 @@ pub fn main() {
 
     let last_finalized_block_hash = previous_block_hash;
 
-    for _ in n..n + 500 {
+    for _ in N..N + PERIOD3 {
         let block_header: BlockHeader = env::read();
         assert_eq!(block_header.previous_block_hash, previous_block_hash);
         let data = &block_header.as_bytes();

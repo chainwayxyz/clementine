@@ -3,3 +3,4 @@
 
 pub mod btc;
 pub mod merkle;
+pub mod config;
