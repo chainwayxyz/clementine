@@ -3,7 +3,7 @@ use sha2::{Digest, Sha256};
 use serde::{Deserialize, Serialize};
 use lazy_static::lazy_static;
 
-pub const DEPTH: usize = 32;
+pub const DEPTH: usize = 3;
 const MAX_DEPTH: usize = 32;
 
 lazy_static! {
@@ -59,7 +59,7 @@ impl MerkleTree {
             else {
                 (self.data[i][current_index as usize - 1], current_level_hash)
             };
-            if i <= trz as usize {
+            if i > trz as usize {
                 self.data[i][current_index as usize] = current_level_hash;
             }
             else {
@@ -75,11 +75,12 @@ impl MerkleTree {
         let mut p = [EMPTYDATA; DEPTH];
         let mut i = index as usize;
         for level in 0..DEPTH {
+            let n = self.data[level].len();
             if i % 2 == 0 {
-                p[i] = self.data[level][i + 1];
+                p[level] = if i + 1 < n {self.data[level][i + 1]} else {ZEROES[level]};
             }
             else {
-                p[i] = self.data[level][i - 1];
+                p[level] = if i + 1 < n {self.data[level][i - 1]} else {ZEROES[level]};
             }
             i /= 2;
         }
@@ -87,11 +88,8 @@ impl MerkleTree {
     }
 
     pub fn root(&self) -> Data {
-        self.data[DEPTH + 1][0]
+        self.data[DEPTH][0]
     }
 }
 
-pub fn merkle_test() {
-
-}
 
