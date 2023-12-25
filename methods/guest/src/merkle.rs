@@ -1,31 +1,53 @@
-use bridge_core::btc::calculate_double_sha256;
+use bridge_core::merkle::{Data, DEPTH, HASH_FUNCTION, ZEROES, EMPTYDATA};
 use risc0_zkvm::guest::env;
+use serde::{Deserialize, Serialize};
 
-
-
-pub fn add_to_incremental_merkle_tree(merkle_tree_data: u32, leaf: [u8; 32]) {}
-
-pub fn get_incremental_merkle_tree_root(merkle_tree_data: u32) -> [u8; 32] {
-    return [0; 32];
+#[derive(Clone, Copy, Debug, Deserialize, Serialize)]
+pub struct IncrementalMerkleTree {
+    pub filled_subtrees: [Data; DEPTH],
+    pub root: Data,
+    pub index: u32,
 }
 
-pub fn get_incremental_merkle_tree_index(merkle_tree_data: u32) -> u32 {
-    return 0;
-}
-pub fn verify_incremental_merkle_path(merkle_tree_data: u32, index: u32) -> [u8; 32] {
-    let leaf = env::read();
-    let mut hash: [u8; 32] = leaf;
-    let mut index: u32 = index;
-    let mut levels: u32 = 32;
-    for _ in 0..levels {
-        let node: [u8; 32] = env::read();
-        let mut preimage: [u8; 64] = [0; 64];
-        preimage[..32].copy_from_slice(&hash);
-        preimage[32..].copy_from_slice(&node);
-        hash = calculate_double_sha256(&preimage);
-        index = index / 2;
+impl IncrementalMerkleTree {
+    pub fn initial() -> Self {
+        Self {
+            filled_subtrees: [EMPTYDATA; DEPTH],
+            root: ZEROES[DEPTH],
+            index: 0,
+        }
     }
-    // assert that merkle root is correct
-    // assert_eq!(merkle_tree_data.root, hash);
+
+    pub fn add(&mut self, a: Data) {
+        let mut current_index = self.index;
+        let mut current_level_hash = a;
+
+        for i in 0..DEPTH {
+            let (left, right) = if current_index % 2 == 0 {
+                self.filled_subtrees[i] = current_level_hash;
+                (current_level_hash, ZEROES[i])
+            }
+            else {
+                (self.filled_subtrees[i], current_level_hash)
+            };
+            current_level_hash = HASH_FUNCTION(left, right);
+            current_index /= 2;
+        }
+        self.root = current_level_hash;
+        self.index += 1;
+    }
+}
+
+
+pub fn verify_incremental_merkle_path(merkle_tree_data: IncrementalMerkleTree, index: u32) -> Data {
+    let leaf: Data = env::read();
+    let mut hash: Data = leaf;
+    let mut i: u32 = index;
+    for _ in 0..DEPTH {
+        let node: Data = env::read();
+        hash = if i % 2 == 0 {HASH_FUNCTION(hash, node)} else {HASH_FUNCTION(node, hash)};
+        i /= 2;
+    }
+    assert_eq!(merkle_tree_data.root, hash);
     return leaf;
 }
