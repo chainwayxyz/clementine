@@ -2,3 +2,4 @@
 #![no_std]
 
 pub mod btc;
+pub mod merkle;
