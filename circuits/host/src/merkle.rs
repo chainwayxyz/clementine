@@ -1,4 +1,5 @@
 use bridge_core::merkle::{Data, EMPTYDATA, HASH_FUNCTION, DEPTH, ZEROES};
+use bridge_core::incremental_merkle::IncrementalMerkleTree;
 use serde::{Deserialize, Serialize};
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
@@ -60,15 +61,22 @@ impl MerkleTree {
         self.data[DEPTH][0]
     }
 
-    pub fn filled_subtrees(&self, index: u32) -> [Data; DEPTH] {
+    pub fn to_incremental_tree(&self, index: u32) -> IncrementalMerkleTree {
         let mut fst = [EMPTYDATA; DEPTH];
-        let mut i = index;
+        let mut i = index as usize;
+        let mut current_level_hash = self.data[0][i];
         for level in 0..DEPTH {
-            i = 2 * (i / 2);
-            fst[level] = self.data[level][i as usize];
+            if i % 2 == 0 {
+                fst[level] = current_level_hash;
+            }
+            else {
+                fst[level] = self.data[level][i - 1];
+            }
+            let (left, right) = if i % 2 == 0 {(current_level_hash, ZEROES[level])} else {(self.data[level][i - 1], current_level_hash)};
+            current_level_hash = HASH_FUNCTION(left, right);
             i /= 2;
         }
-        fst
+        IncrementalMerkleTree { filled_subtrees: fst, root: current_level_hash, index }
     }
 }
 
