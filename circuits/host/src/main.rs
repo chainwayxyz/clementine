@@ -62,7 +62,7 @@ pub fn json_to_obj<T: DeserializeOwned>(file_path: &str) -> T {
 fn main() {
     env_logger::init();
 
-    let block_info_list: Vec<BlockInfo> = json_to_obj::<Value>("./host/data/block.json")
+    let block_info_list: Vec<BlockInfo> = json_to_obj::<Value>("./circuits/host/data/block.json")
         .as_array()
         .unwrap()
         .iter()
@@ -71,7 +71,7 @@ fn main() {
         })
         .collect();
 
-    let rpc_info_list: Vec<RpcInfo> = json_to_obj::<Value>("./host/data/rpc.json")
+    let rpc_info_list: Vec<RpcInfo> = json_to_obj::<Value>("./circuits/host/data/rpc.json")
         .as_array()
         .unwrap()
         .iter()
