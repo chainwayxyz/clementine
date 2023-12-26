@@ -14,7 +14,7 @@ risc0_zkvm::guest::entry!(main);
 use crypto_bigint::Encoding;
 use crypto_bigint::U256;
 
-pub fn handle_withdrawals(mut merkle_tree_data: IncrementalMerkleTree, merkle_root: Data ) {
+pub fn handle_withdrawals(merkle_tree_data: &mut IncrementalMerkleTree, merkle_root: Data ) {
     let num_withdrawals: u32 = env::read();
     for _ in 0..num_withdrawals {
         let withdrawal_txid: [u8; 32] = env::read();
@@ -30,7 +30,7 @@ pub fn verify_light_client(block_hash: Data, withdrawal_merkle_root: Data, depos
     
 }
 
-pub fn handle_deposits(start_deposit_index: u32, mut deposit_merkle_tree: IncrementalMerkleTree, mut bridge_funds_merkle_tree: IncrementalMerkleTree) {
+pub fn handle_deposits(start_deposit_index: u32, deposit_merkle_tree: &mut IncrementalMerkleTree, bridge_funds_merkle_tree: &mut IncrementalMerkleTree) {
     let num_deposits: u32 = env::read();
     for _ in 0..num_deposits {
         let deposit_txid: [u8; 32] = env::read();
@@ -39,10 +39,10 @@ pub fn handle_deposits(start_deposit_index: u32, mut deposit_merkle_tree: Increm
     }
 }
 
-pub fn handle_moved_bridge_funds(mut bridge_funds_merkle_tree_data: IncrementalMerkleTree, last_unspent_bridge_fund_index: u32, bitcoin_merkle_root: Data ) -> u32 {
+pub fn handle_moved_bridge_funds(bridge_funds_merkle_tree_data: &mut IncrementalMerkleTree, last_unspent_bridge_fund_index: u32, bitcoin_merkle_root: Data ) -> u32 {
     let num_moved_bridge_funds: u32 = env::read();
     for i in 0..num_moved_bridge_funds {
-        let moved_bridge_funds_utxo: [u8; 32] = verify_incremental_merkle_path(bridge_funds_merkle_tree_data, last_unspent_bridge_fund_index + i);
+        let moved_bridge_funds_utxo: [u8; 32] = verify_incremental_merkle_path(*bridge_funds_merkle_tree_data, last_unspent_bridge_fund_index + i);
 
         let move_txid = env::read();
         verify_txid_merkle_path(move_txid, bitcoin_merkle_root.clone());
@@ -72,7 +72,7 @@ pub fn main() {
     let mut bridge_funds_merkle_tree: IncrementalMerkleTree = env::read();
     assert_eq!(initial_bridge_funds_merkle_root, bridge_funds_merkle_tree.root);
 
-    handle_deposits(start_deposit_index, deposit_merkle_tree, bridge_funds_merkle_tree);
+    handle_deposits(start_deposit_index, &mut deposit_merkle_tree, &mut bridge_funds_merkle_tree);
 
     let mut last_unspent_bridge_fund_index: u32 = env::read();
 
@@ -91,9 +91,8 @@ pub fn main() {
             light_client_pow = work;
         }
 
-        handle_withdrawals(withdrawal_merkle_tree, block_header.merkle_root);
-        last_unspent_bridge_fund_index = handle_moved_bridge_funds(bridge_funds_merkle_tree, last_unspent_bridge_fund_index, block_header.merkle_root);
-
+        handle_withdrawals(&mut withdrawal_merkle_tree, block_header.merkle_root);
+        last_unspent_bridge_fund_index = handle_moved_bridge_funds(&mut bridge_funds_merkle_tree, last_unspent_bridge_fund_index, block_header.merkle_root);
         previous_block_hash = block_hash;
         
     }
