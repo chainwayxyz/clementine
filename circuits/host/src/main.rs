@@ -106,16 +106,20 @@ fn main() {
     env.write(&withdrawal_merkle_tree).unwrap();
     env.write(&bridge_funds_merkle_tree).unwrap();
 
-    let deposits = [[7_u8; 32], [5_u8; 32], [3_u8; 32]];
+    let withdrawals: Vec<[u8; 32]> = Vec::new();
+    let num_withdrawals = withdrawals.len() as u32;
+    env.write(&num_withdrawals).unwrap();  // num_withdrawals
+
+    // let deposits = [[7_u8; 32], [5_u8; 32], [3_u8; 32]];
+    let deposits: [[u8; 32]; 0] = [];
     let mut host_bridge_funds_merkle_tree = bridge_funds_merkle_tree.clone();
-    let number_of_deposits = deposits.len() as u32;
-    env.write(&number_of_deposits).unwrap();
+    let num_deposits = deposits.len() as u32;
+    env.write(&num_deposits).unwrap();
     for d in deposits {
         env.write(&d).unwrap();
         host_bridge_funds_merkle_tree.add(d);
     }
 
-    env.write(&0).unwrap();  // last_unspent_bridge_fund_index
 
     for i in 0..N as usize {
         let block_header: [u8; 80] = hex::decode(block_info_list[i].extras.header.clone())
@@ -126,7 +130,11 @@ fn main() {
         env.write(&block_header).unwrap();
 
         env.write(&0).unwrap();  // number of withdrawals
-        env.write(&0).unwrap();  // number of deposits
+        env.write(&0).unwrap();  // number of moved funds
+    }
+
+    for i in 0 ..num_withdrawals-num_deposits {
+        env.write(&withdrawals[(num_withdrawals - num_deposits + i) as usize]).unwrap();
     }
 
     let env_build = env.build().unwrap();
@@ -157,7 +165,7 @@ fn main() {
         rpc_info_list[rpc_info_list.len() - 1].result.bestblockhash
     );
 
-    assert_eq!(deposit_last_index, start_deposit_index + number_of_deposits);
+    assert_eq!(deposit_last_index, start_deposit_index + num_deposits);
 
     assert_eq!(bridge_funds_merkle_root, host_bridge_funds_merkle_tree.root);
 
