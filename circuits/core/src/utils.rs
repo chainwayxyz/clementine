@@ -58,6 +58,46 @@ pub fn from_le_bytes_to_u64(input: [u8; 8]) -> u64 {
     result
 }
 
+pub fn byte_to_hex(byte: u8) -> [char; 2] {
+    let hex_chars: [char; 16] = [
+        '0', '1', '2', '3', '4', '5', '6', '7',
+        '8', '9', 'a', 'b', 'c', 'd', 'e', 'f',
+    ];
+
+    let high_nibble = (byte >> 4) as usize; // Extract the high nibble
+    let low_nibble = (byte & 0x0F) as usize; // Extract the low nibble
+
+    [hex_chars[high_nibble], hex_chars[low_nibble]]
+}
+
+pub fn from_bytes_to_hex(input: [u8; 1024], size: usize) -> ([char; 2048], usize) {
+    let mut result = [0 as char; 2048];
+    let mut index = 0;
+
+    // Iterate over each character pair in the input string
+    while index < size {
+        let hex = byte_to_hex(input[index]);
+        result[index * 2] = hex[0];
+        result[index * 2 + 1] = hex[1];
+        index += 1;
+    }
+    (result, size)
+}
+
+pub fn char_array_to_str<'a>(output_buffer: &'a mut [u8], input_array: &'a [char; 2048], size: usize) -> Option<&'a str> {
+    if size > output_buffer.len() || size > input_array.len() {
+        return None; // size is too large
+    }
+
+    let mut index = 0;
+    while index < size {
+        output_buffer[index] = input_array[index] as u8;
+        index += 1;
+    }
+
+    core::str::from_utf8(&output_buffer[..size]).ok()
+}
+
 pub fn from_hex_to_tx(input: &str) -> Transaction {
     let mut index = 0;
     let version_hex = &input[0..8];

@@ -1,10 +1,9 @@
-//Add core tests here
-
 #[cfg(test)]
 mod tests {
     use bridge_core::utils::*;
     use bridge_core::tx::*;
     use bridge_core::btc::*;
+    use bridge_core::vector::*;
 
     #[test]
     fn test_char_to_digit() {
@@ -59,6 +58,24 @@ mod tests {
     #[test]
     fn test_tx_calculate_tx_id() {
 
+    }
+
+    #[test]
+    fn test_char_array_to_str() {
+        let mut output_buffer = [0u8; 2048];
+        let input_array = ['a'; 2048];
+        let size = 2048;
+        let result = char_array_to_str(&mut output_buffer, &input_array, size).unwrap();
+        println!("{:?}", result);
+    }
+
+    #[test]
+    fn test_vector() {
+        let mut vec = Vector::new();
+        vec.push(1);
+        vec.push(2);
+        vec.push(3);
+        println!("{:?}", vec);
     }
     
 }
