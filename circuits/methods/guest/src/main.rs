@@ -10,7 +10,6 @@ use bridge_core::merkle::Data;
 use guest::bitcoin::verify_txid_input;
 use guest::bitcoin::verify_txid_merkle_path;
 use guest::bitcoin::verify_txid_output_address;
-use guest::merkle::verify_incremental_merkle_path;
 use risc0_zkvm::guest::env;
 risc0_zkvm::guest::entry!(main);
 use crypto_bigint::Encoding;
