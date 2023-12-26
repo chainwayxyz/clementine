@@ -30,12 +30,12 @@ pub fn verify_light_client(block_hash: Data, withdrawal_merkle_root: Data, depos
     
 }
 
-pub fn handle_deposits(start_deposit_index: u32, mut deposit_merkle_tree_data: IncrementalMerkleTree, mut bridge_funds_merkle_tree_data: IncrementalMerkleTree) {
+pub fn handle_deposits(start_deposit_index: u32, mut deposit_merkle_tree: IncrementalMerkleTree, mut bridge_funds_merkle_tree: IncrementalMerkleTree) {
     let num_deposits: u32 = env::read();
     for _ in 0..num_deposits {
         let deposit_txid: [u8; 32] = env::read();
-        deposit_merkle_tree_data.add(deposit_txid);
-        bridge_funds_merkle_tree_data.add(deposit_txid);
+        deposit_merkle_tree.add(deposit_txid);
+        bridge_funds_merkle_tree.add(deposit_txid);
     }
 }
 
@@ -62,16 +62,18 @@ pub fn main() {
     let initial_bridge_funds_merkle_root: [u8; 32] = env::read();
 
     let mut previous_block_hash = initial_block_hash;
+    previous_block_hash.reverse();
     let mut work = U256::from_be_bytes(initial_work);
 
-    // let mut withdrawal_merkle_tree_data: IncrementalMerkleTree = env::read(); // We should check that start_withdrawal_index matches
-    // let mut deposit_merkle_tree_data: IncrementalMerkleTree = env::read(); // We should check that start_deposit_index matches
-    // let mut bridge_funds_merkle_tree_data: IncrementalMerkleTree = env::read(); // We should check that initial_bridge_funds_merkle_root matches
-    let mut withdrawal_merkle_tree_data = IncrementalMerkleTree::initial(); // We should check that start_withdrawal_index matches
-    let mut deposit_merkle_tree_data = IncrementalMerkleTree::initial(); // We should check that start_deposit_index matches
-    let mut bridge_funds_merkle_tree_data = IncrementalMerkleTree::initial(); // We should check that initial_bridge_funds_merkle_root matches
+    let mut deposit_merkle_tree: IncrementalMerkleTree = env::read();
+    assert_eq!(start_deposit_index, deposit_merkle_tree.index);
+    let mut withdrawal_merkle_tree: IncrementalMerkleTree = env::read();
+    assert_eq!(start_withdrawal_index, withdrawal_merkle_tree.index);
+    let mut bridge_funds_merkle_tree: IncrementalMerkleTree = env::read();
+    assert_eq!(initial_bridge_funds_merkle_root, bridge_funds_merkle_tree.root);
 
-    handle_deposits(start_deposit_index, deposit_merkle_tree_data, bridge_funds_merkle_tree_data);
+    handle_deposits(start_deposit_index, deposit_merkle_tree, bridge_funds_merkle_tree);
+
     let mut last_unspent_bridge_fund_index: u32 = env::read();
 
     let mut light_client_block_hash: [u8; 32] = [0; 32];
@@ -89,8 +91,8 @@ pub fn main() {
             light_client_pow = work;
         }
 
-        handle_withdrawals(withdrawal_merkle_tree_data, block_header.merkle_root);
-        last_unspent_bridge_fund_index = handle_moved_bridge_funds(bridge_funds_merkle_tree_data, last_unspent_bridge_fund_index, block_header.merkle_root);
+        handle_withdrawals(withdrawal_merkle_tree, block_header.merkle_root);
+        last_unspent_bridge_fund_index = handle_moved_bridge_funds(bridge_funds_merkle_tree, last_unspent_bridge_fund_index, block_header.merkle_root);
 
         previous_block_hash = block_hash;
         
@@ -109,12 +111,12 @@ pub fn main() {
 
 
     
-    let withdrawal_merkle_root = withdrawal_merkle_tree_data.root;
-    let deposit_merkle_root = deposit_merkle_tree_data.root;
-    let bridge_funds_merkle_root = bridge_funds_merkle_tree_data.root;
+    let withdrawal_merkle_root = withdrawal_merkle_tree.root;
+    let deposit_merkle_root = deposit_merkle_tree.root;
+    let bridge_funds_merkle_root = bridge_funds_merkle_tree.root;
 
-    let withdrawal_last_index = withdrawal_merkle_tree_data.index;
-    let deposit_last_index = deposit_merkle_tree_data.index;
+    let withdrawal_last_index = withdrawal_merkle_tree.index;
+    let deposit_last_index = deposit_merkle_tree.index;
 
     // Verify lightclient
     verify_light_client(light_client_block_hash, withdrawal_merkle_root, deposit_merkle_root);
