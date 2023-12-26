@@ -32,7 +32,19 @@ pub fn verify_txid_output_address(tx_id: [u8; 32], output_address: [u8; 32]) {
 }
 
 pub fn verify_txid_input(tx_id: [u8; 32], input_utxo: [u8; 32]) -> [u8; 32] {
-    
+    let size_in_bytes = env::read();
+    let mut tx_bytes: [u8; 1024] = [0; 1024];
+    for i in 0..1024 {
+        tx_bytes[i] = env::read();
+    }
+    let (tx_hex, size_in_hex) = from_bytes_to_hex(tx_bytes, size_in_bytes);
+    let mut hex_buffer = [0u8; 2048];
+    let tx_hex_str = char_array_to_str(&mut hex_buffer, &tx_hex, size_in_hex).unwrap();
+    let tx = from_hex_to_tx(&tx_hex_str);
+    let calculated_tx_id = tx.calculate_txid();
+    assert_eq!(calculated_tx_id, tx_id);
+    let calculated_input_utxo = tx.inputs[0].prev_tx_hash;
+    assert_eq!(calculated_input_utxo, input_utxo);
     return [0; 32];
 }
 
