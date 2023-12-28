@@ -53,7 +53,14 @@ pub fn handle_moved_bridge_funds(mut bridge_funds_merkle_tree_data: IncrementalM
     return last_unspent_bridge_fund_index + num_moved_bridge_funds;
 }
 
-pub fn main() {
+pub fn main(){
+    let n: u32 = env::read();
+    let n = n + 31;
+
+    env::commit(&n);
+}
+
+pub fn main2() {
     let start_deposit_index: u32 = env::read();
     let start_withdrawal_index: u32 = env::read();
     let initial_block_hash: [u8; 32] = env::read();

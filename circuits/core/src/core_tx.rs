@@ -1,6 +1,6 @@
 use crate::btc::calculate_double_sha256;
-pub const INPUTS_COUNT: usize = 2;
-pub const OUTPUTS_COUNT: usize = 3;
+pub const MAX_INPUTS_COUNT: usize = 2;
+pub const MAX_OUTPUTS_COUNT: usize = 3;
 pub const MAX_SCRIPT_SIZE: usize = 256;
 pub const MAX_TX_INPUT_SIZE: usize = 512;
 pub const MAX_TX_OUTPUT_SIZE: usize = 512;
@@ -94,7 +94,7 @@ impl TxOutput {
 }
 
 #[derive(Debug, Clone, Copy)]
-pub struct Transaction {
+pub struct Transaction <const INPUTS_COUNT: usize, const OUTPUTS_COUNT: usize> {
     pub version: i32,
     pub input_count: u8,
     pub inputs: [TxInput; INPUTS_COUNT],
@@ -103,7 +103,7 @@ pub struct Transaction {
     pub lock_time: u32,
 }
 
-impl Transaction {
+impl <const INPUTS_COUNT: usize, const OUTPUTS_COUNT: usize> Transaction <INPUTS_COUNT, OUTPUTS_COUNT> {
     pub fn new(version: i32, input_count: u8, inputs: [TxInput; INPUTS_COUNT], output_count: u8, outputs: [TxOutput; OUTPUTS_COUNT], lock_time: u32) -> Self {
         Self {
             version,

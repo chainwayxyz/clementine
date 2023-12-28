@@ -1,9 +1,9 @@
+use crate::core_tx::MAX_INPUTS_COUNT;
+use crate::core_tx::MAX_OUTPUTS_COUNT;
 use crate::core_tx::Transaction;
 use crate::core_tx::TxInput;
 use crate::core_tx::TxOutput;
-use crate::core_tx::INPUTS_COUNT;
 use crate::core_tx::MAX_SCRIPT_SIZE;
-use crate::core_tx::OUTPUTS_COUNT;
 
 pub const MAX_HEX_SIZE: usize = 1024;
 
@@ -101,7 +101,7 @@ pub fn char_array_to_str<'a>(
     core::str::from_utf8(&output_buffer[..size]).ok()
 }
 
-pub fn from_hex_to_tx(input: &str) -> Transaction {
+pub fn from_hex_to_tx<const INPUTS_COUNT: usize, const OUTPUTS_COUNT: usize>(input: &str) -> Transaction <INPUTS_COUNT, OUTPUTS_COUNT> {
     let mut index = 0;
     let version_hex = &input[0..8];
     let version_bytes = from_hex_to_bytes(version_hex);
@@ -116,7 +116,7 @@ pub fn from_hex_to_tx(input: &str) -> Transaction {
     let hex_input_count = &input[index..index + 2];
     let input_count = from_hex_to_u8(hex_input_count);
     index += 2;
-    let mut inputs = [TxInput::empty(); INPUTS_COUNT as usize];
+    let mut inputs = [TxInput::empty(); MAX_INPUTS_COUNT as usize];
     for i in 0..input_count {
         let hex_tx_id = &input[index..index + 64];
         let tx_id = from_hex_to_bytes(hex_tx_id).0[0..32].try_into().unwrap();
@@ -145,7 +145,7 @@ pub fn from_hex_to_tx(input: &str) -> Transaction {
     let hex_output_count = &input[index..index + 2];
     let output_count = from_hex_to_u8(hex_output_count);
     index += 2;
-    let mut outputs = [TxOutput::empty(); OUTPUTS_COUNT as usize];
+    let mut outputs = [TxOutput::empty(); MAX_OUTPUTS_COUNT as usize];
     for i in 0..output_count {
         let hex_value = &input[index..index + 16];
         index += 16;
@@ -185,9 +185,9 @@ pub fn from_hex_to_tx(input: &str) -> Transaction {
     Transaction {
         version,
         input_count,
-        inputs,
+        inputs: inputs[0..INPUTS_COUNT].try_into().unwrap(),
         output_count,
-        outputs,
+        outputs: outputs[0..OUTPUTS_COUNT].try_into().unwrap(),
         lock_time: locktime,
     }
 }

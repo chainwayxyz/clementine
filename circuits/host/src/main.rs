@@ -61,6 +61,24 @@ pub fn json_to_obj<T: DeserializeOwned>(file_path: &str) -> T {
 
 fn main() {
     env_logger::init();
+    let mut env = ExecutorEnv::builder();
+    let n: u32 = 32;
+    env.write(&n).unwrap();
+
+    let env_build = env.build().unwrap();
+
+    // Obtain the default prover.
+    let prover = default_prover();
+
+    // Produce a receipt by proving the specified ELF binary.
+    let receipt = prover.prove_elf(env_build, GUEST_ELF).unwrap();
+
+    let (output,): (u32,) = receipt.journal.decode().unwrap();
+    println!("Output: {}", output);
+}
+
+fn main2() {
+    env_logger::init();
 
     let block_info_list: Vec<BlockInfo> = json_to_obj::<Value>("./circuits/host/data/block.json")
         .as_array()
