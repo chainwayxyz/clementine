@@ -1,8 +1,8 @@
-use crate::core_tx::MAX_INPUTS_COUNT;
-use crate::core_tx::MAX_OUTPUTS_COUNT;
 use crate::core_tx::Transaction;
 use crate::core_tx::TxInput;
 use crate::core_tx::TxOutput;
+use crate::core_tx::MAX_INPUTS_COUNT;
+use crate::core_tx::MAX_OUTPUTS_COUNT;
 use crate::core_tx::MAX_SCRIPT_SIZE;
 
 pub const MAX_HEX_SIZE: usize = 1024;
@@ -101,7 +101,9 @@ pub fn char_array_to_str<'a>(
     core::str::from_utf8(&output_buffer[..size]).ok()
 }
 
-pub fn from_hex_to_tx<const INPUTS_COUNT: usize, const OUTPUTS_COUNT: usize>(input: &str) -> Transaction <INPUTS_COUNT, OUTPUTS_COUNT> {
+pub fn from_hex_to_tx<const INPUTS_COUNT: usize, const OUTPUTS_COUNT: usize>(
+    input: &str,
+) -> Transaction<INPUTS_COUNT, OUTPUTS_COUNT, 256, 256> {
     let mut index = 0;
     let version_hex = &input[0..8];
     let version_bytes = from_hex_to_bytes(version_hex);
@@ -139,7 +141,7 @@ pub fn from_hex_to_tx<const INPUTS_COUNT: usize, const OUTPUTS_COUNT: usize>(inp
         index += 8;
         let sequence_bytes = from_hex_to_bytes(hex_sequence);
         let sequence = from_le_bytes_to_u32(sequence_bytes.0[0..4].try_into().unwrap()) as u32;
-        let tx_in = TxInput::new(tx_id, output_index, script_sig_size, script_sig, sequence);
+        let tx_in = TxInput::new(tx_id, output_index, sequence);
         inputs[i as usize] = tx_in;
     }
     let hex_output_count = &input[index..index + 2];
@@ -154,13 +156,14 @@ pub fn from_hex_to_tx<const INPUTS_COUNT: usize, const OUTPUTS_COUNT: usize>(inp
         let hex_script_pub_key_size = &input[index..index + 2];
         let script_pub_key_size = from_hex_to_u8(hex_script_pub_key_size);
         index += 2;
-        let script_pub_key =
+        let script_pub_key: [u8; 34] =
             (from_hex_to_bytes(&input[index..index + (script_pub_key_size as usize) * 2]).0)
                 [..MAX_SCRIPT_SIZE]
                 .try_into()
                 .unwrap();
+        let taproot_address: [u8; 32] = script_pub_key[2..34].try_into().unwrap();
         index += (script_pub_key_size as usize) * 2;
-        let tx_out = TxOutput::new(value, script_pub_key_size, script_pub_key);
+        let tx_out = TxOutput::new(value, taproot_address);
         outputs[i as usize] = tx_out;
     }
     if hex_flag != "" {
