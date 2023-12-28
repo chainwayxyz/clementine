@@ -1,3 +1,6 @@
+use serde::de::DeserializeOwned;
+use serde::Serialize;
+
 use crate::core_tx::Transaction;
 use crate::core_tx::TxInput;
 use crate::core_tx::TxOutput;
@@ -103,7 +106,11 @@ pub fn char_array_to_str<'a>(
 
 pub fn from_hex_to_tx<const INPUTS_COUNT: usize, const OUTPUTS_COUNT: usize>(
     input: &str,
-) -> Transaction<INPUTS_COUNT, OUTPUTS_COUNT, 256, 256> {
+) -> Transaction<INPUTS_COUNT, OUTPUTS_COUNT, 221>
+where
+    [TxInput; INPUTS_COUNT]: Serialize + DeserializeOwned + Copy,
+    [TxOutput; OUTPUTS_COUNT]: Serialize + DeserializeOwned + Copy,
+{
     let mut index = 0;
     let version_hex = &input[0..8];
     let version_bytes = from_hex_to_bytes(version_hex);

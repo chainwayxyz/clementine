@@ -4,29 +4,19 @@ use crate::btc::calculate_double_sha256;
 pub const MAX_INPUTS_COUNT: usize = 2;
 pub const MAX_OUTPUTS_COUNT: usize = 3;
 pub const MAX_SCRIPT_SIZE: usize = 34;
-pub const MAX_TX_INPUT_SIZE: usize = 512;
-pub const MAX_TX_OUTPUT_SIZE: usize = 512;
+pub const MAX_TX_INPUT_SIZE: usize = 41;
+pub const MAX_TX_OUTPUT_SIZE: usize = 43;
 pub const MAX_TX_SIZE: usize = 1024;
 
-#[derive(Debug, Clone, Copy)]
-pub struct TxInput<const SCRIPT_SIG_SIZE: usize>
-where
-    [u8; SCRIPT_SIG_SIZE]: Copy,
-{
+#[derive(Debug, Clone, Copy, Serialize, Deserialize)]
+pub struct TxInput {
     pub prev_tx_hash: [u8; 32],
     pub output_index: u32,
     pub sequence: u32,
 }
 
-impl<const SCRIPT_SIG_SIZE: usize> TxInput<SCRIPT_SIG_SIZE>
-where
-    [u8; SCRIPT_SIG_SIZE]: Copy,
-{
-    pub fn new(
-        prev_tx_id: [u8; 32],
-        output_index: u32,
-        sequence: u32,
-    ) -> Self {
+impl TxInput {
+    pub fn new(prev_tx_id: [u8; 32], output_index: u32, sequence: u32) -> Self {
         Self {
             prev_tx_hash: prev_tx_id,
             output_index: output_index,
@@ -42,7 +32,7 @@ where
         }
     }
 
-    pub fn as_bytes(&self) -> ([u8; MAX_TX_INPUT_SIZE], usize) {
+    pub fn as_bytes(&self) -> [u8; MAX_TX_INPUT_SIZE] {
         let mut bytes = [0u8; MAX_TX_INPUT_SIZE];
         let mut index = 0;
         bytes[index..index + 32].copy_from_slice(&self.prev_tx_hash);
@@ -53,25 +43,19 @@ where
         index += 1;
         bytes[index..index + 4].copy_from_slice(&self.sequence.to_le_bytes());
         index += 4;
-        (bytes, index)
+        bytes
     }
 }
 
-#[derive(Debug, Clone, Copy)]
-pub struct TxOutput<const SCRIPT_PUB_KEY_SIZE: usize>
-where
-    [u8; SCRIPT_PUB_KEY_SIZE]: Copy,
-{
+#[derive(Debug, Clone, Copy, Serialize, Deserialize)]
+pub struct TxOutput {
     pub value: u64,
     // pub script_pub_key_size: u8,
     // pub script_pub_key: [u8; 32],
     pub taproot_address: [u8; 32],
 }
 
-impl<const SCRIPT_PUB_KEY_SIZE: usize> TxOutput<SCRIPT_PUB_KEY_SIZE>
-where
-    [u8; SCRIPT_PUB_KEY_SIZE]: Copy,
-{
+impl TxOutput {
     pub fn new(
         value: u64,
         // script_pub_key_size: u8,
@@ -95,7 +79,7 @@ where
         }
     }
 
-    pub fn serialize(&self) -> ([u8; MAX_TX_OUTPUT_SIZE], usize) {
+    pub fn serialize(&self) -> [u8; MAX_TX_OUTPUT_SIZE] {
         let mut bytes = [0u8; MAX_TX_OUTPUT_SIZE];
         let mut index = 0;
         bytes[index..index + 8].copy_from_slice(&self.value.to_le_bytes());
@@ -106,47 +90,41 @@ where
         index += 1;
         bytes[index..index + 1].copy_from_slice(&32u8.to_le_bytes()); // OP_PUSHBYTES_32
         index += 1;
-        bytes[index..index + 32 as usize]
-            .copy_from_slice(&self.taproot_address);
+        bytes[index..index + 32 as usize].copy_from_slice(&self.taproot_address);
         index += 32 as usize;
-        (bytes, index)
+        bytes
     }
 }
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, Serialize, Deserialize)]
 pub struct Transaction<
     const INPUTS_COUNT: usize,
     const OUTPUTS_COUNT: usize,
-    const SCRIPT_SIG_SIZE: usize,
-    const SCRIPT_PUB_KEY_SIZE: usize,
+    const TOTAL_SIZE: usize,
 > where
-    [u8; SCRIPT_PUB_KEY_SIZE]: Copy,
-    [u8; SCRIPT_SIG_SIZE]: Copy,
+    [TxInput; INPUTS_COUNT]: Serialize + DeserializeOwned + Copy,
+    [TxOutput; OUTPUTS_COUNT]: Serialize + DeserializeOwned + Copy,
 {
     pub version: i32,
     pub input_count: u8,
-    pub inputs: [TxInput<SCRIPT_SIG_SIZE>; INPUTS_COUNT],
+    pub inputs: [TxInput; INPUTS_COUNT],
     pub output_count: u8,
-    pub outputs: [TxOutput<SCRIPT_PUB_KEY_SIZE>; OUTPUTS_COUNT],
+    pub outputs: [TxOutput; OUTPUTS_COUNT],
     pub lock_time: u32,
 }
 
-impl<
-        const INPUTS_COUNT: usize,
-        const OUTPUTS_COUNT: usize,
-        const SCRIPT_SIG_SIZE: usize,
-        const SCRIPT_PUB_KEY_SIZE: usize,
-    > Transaction<INPUTS_COUNT, OUTPUTS_COUNT, SCRIPT_SIG_SIZE, SCRIPT_PUB_KEY_SIZE>
+impl<const INPUTS_COUNT: usize, const OUTPUTS_COUNT: usize, const TOTAL_SIZE: usize>
+    Transaction<INPUTS_COUNT, OUTPUTS_COUNT, TOTAL_SIZE>
 where
-    [u8; SCRIPT_PUB_KEY_SIZE]: Copy,
-    [u8; SCRIPT_SIG_SIZE]: Copy,
+    [TxInput; INPUTS_COUNT]: Serialize + DeserializeOwned + Copy,
+    [TxOutput; OUTPUTS_COUNT]: Serialize + DeserializeOwned + Copy,
 {
     pub fn new(
         version: i32,
         input_count: u8,
-        inputs: [TxInput<SCRIPT_SIG_SIZE>; INPUTS_COUNT],
+        inputs: [TxInput; INPUTS_COUNT],
         output_count: u8,
-        outputs: [TxOutput<SCRIPT_PUB_KEY_SIZE>; OUTPUTS_COUNT],
+        outputs: [TxOutput; OUTPUTS_COUNT],
         lock_time: u32,
     ) -> Self {
         Self {
@@ -173,35 +151,34 @@ where
     // Add methods to set inputs and outputs as needed
     // Serialization and other functionalities would also be added here
 
-    pub fn serialize(&self) -> ([u8; MAX_TX_SIZE], usize) {
+    pub fn serialize(&self) -> [u8; TOTAL_SIZE] {
         // Fixed size array for simplicity
-        let mut bytes: [u8; 1024] = [0; MAX_TX_SIZE];
+        let mut bytes = [0u8; TOTAL_SIZE];
         let mut index = 0;
         bytes[index..index + 4].copy_from_slice(&self.version.to_le_bytes());
         index += 4;
         bytes[index..index + 1].copy_from_slice(&self.input_count.to_le_bytes());
         index += 1;
         for i in 0..self.input_count as usize {
-            let (input_bytes, input_size) = self.inputs[i].as_bytes();
-            bytes[index..index + input_size].copy_from_slice(&input_bytes[..input_size]);
-            index += input_size;
+            let input_bytes = self.inputs[i].as_bytes();
+            bytes[index..index + MAX_TX_INPUT_SIZE].copy_from_slice(&input_bytes);
+            index += MAX_TX_INPUT_SIZE;
         }
         bytes[index..index + 1].copy_from_slice(&self.output_count.to_le_bytes());
         index += 1;
         for i in 0..self.output_count as usize {
-            let (output_bytes, output_size) = self.outputs[i].serialize();
-            bytes[index..index + output_size].copy_from_slice(&output_bytes[0..output_size]);
-            index += output_size;
+            let output_bytes = self.outputs[i].serialize();
+            bytes[index..index + MAX_TX_OUTPUT_SIZE].copy_from_slice(&output_bytes);
+            index += MAX_TX_OUTPUT_SIZE;
         }
         bytes[index..index + 4].copy_from_slice(&self.lock_time.to_le_bytes());
         index += 4;
-        (bytes, index)
+        bytes
     }
 
     pub fn calculate_txid(&self) -> [u8; 32] {
-        let (serialized_tx, size) = self.serialize();
-        let preimage = &serialized_tx[0..size];
-        let hash = calculate_double_sha256(&preimage);
+        let serialized_tx = self.serialize();
+        let hash = calculate_double_sha256(&serialized_tx);
         hash
     }
 }

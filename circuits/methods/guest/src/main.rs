@@ -2,6 +2,7 @@
 #![no_std]
 
 use bridge_core::btc::{calculate_double_sha256, validate_threshold_and_add_work, BlockHeader};
+use bridge_core::core_tx::Transaction;
 use guest::bitcoin::verify_txid_input;
 use guest::bitcoin::verify_txid_merkle_path;
 use guest::bitcoin::verify_txid_output_address;
@@ -54,10 +55,11 @@ pub fn handle_moved_bridge_funds(mut bridge_funds_merkle_tree_data: IncrementalM
 }
 
 pub fn main(){
-    let n: u32 = env::read();
-    let n = n + 31;
+    let tx: Transaction<2, 3, 221> = env::read();
 
-    env::commit(&n);
+    let txid = tx.calculate_txid();
+
+    env::commit(&txid);
 }
 
 pub fn main2() {
