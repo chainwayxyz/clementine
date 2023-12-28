@@ -1,9 +1,9 @@
-use crate::tx::Transaction;
-use crate::tx::TxInput;
-use crate::tx::TxOutput;
-use crate::tx::INPUTS_COUNT;
-use crate::tx::OUTPUTS_COUNT;
-use crate::tx::MAX_SCRIPT_SIZE;
+use crate::core_tx::Transaction;
+use crate::core_tx::TxInput;
+use crate::core_tx::TxOutput;
+use crate::core_tx::INPUTS_COUNT;
+use crate::core_tx::MAX_SCRIPT_SIZE;
+use crate::core_tx::OUTPUTS_COUNT;
 
 pub const MAX_HEX_SIZE: usize = 1024;
 
@@ -60,8 +60,7 @@ pub fn from_le_bytes_to_u64(input: [u8; 8]) -> u64 {
 
 pub fn byte_to_hex(byte: u8) -> [char; 2] {
     let hex_chars: [char; 16] = [
-        '0', '1', '2', '3', '4', '5', '6', '7',
-        '8', '9', 'a', 'b', 'c', 'd', 'e', 'f',
+        '0', '1', '2', '3', '4', '5', '6', '7', '8', '9', 'a', 'b', 'c', 'd', 'e', 'f',
     ];
 
     let high_nibble = (byte >> 4) as usize; // Extract the high nibble
@@ -84,7 +83,11 @@ pub fn from_bytes_to_hex(input: [u8; 1024], size: usize) -> ([char; 2048], usize
     (result, size)
 }
 
-pub fn char_array_to_str<'a>(output_buffer: &'a mut [u8], input_array: &'a [char; 2048], size: usize) -> Option<&'a str> {
+pub fn char_array_to_str<'a>(
+    output_buffer: &'a mut [u8],
+    input_array: &'a [char; 2048],
+    size: usize,
+) -> Option<&'a str> {
     if size > output_buffer.len() || size > input_array.len() {
         return None; // size is too large
     }
@@ -127,7 +130,10 @@ pub fn from_hex_to_tx(input: &str) -> Transaction {
         let script_sig_size = from_hex_to_u8(hex_script_sig_size);
         index += 2;
         let script_sig: [u8; MAX_SCRIPT_SIZE] =
-            (from_hex_to_bytes(&input[index..index + (script_sig_size as usize) * 2]).0)[..MAX_SCRIPT_SIZE].try_into().unwrap();
+            (from_hex_to_bytes(&input[index..index + (script_sig_size as usize) * 2]).0)
+                [..MAX_SCRIPT_SIZE]
+                .try_into()
+                .unwrap();
         index += (script_sig_size as usize) * 2;
         let hex_sequence = &input[index..index + 8];
         index += 8;
@@ -149,21 +155,27 @@ pub fn from_hex_to_tx(input: &str) -> Transaction {
         let script_pub_key_size = from_hex_to_u8(hex_script_pub_key_size);
         index += 2;
         let script_pub_key =
-            (from_hex_to_bytes(&input[index..index + (script_pub_key_size as usize) * 2]).0)[..MAX_SCRIPT_SIZE].try_into().unwrap();
+            (from_hex_to_bytes(&input[index..index + (script_pub_key_size as usize) * 2]).0)
+                [..MAX_SCRIPT_SIZE]
+                .try_into()
+                .unwrap();
         index += (script_pub_key_size as usize) * 2;
         let tx_out = TxOutput::new(value, script_pub_key_size, script_pub_key);
         outputs[i as usize] = tx_out;
     }
     if hex_flag != "" {
-        let hex_witness_count = &input[index..index + 2];
-        index += 2;
-        let witness_count = from_hex_to_u8(hex_witness_count);
-        for _i in 0..witness_count {
-            let hex_witness_size = &input[index..index + 2];
-            let witness_size = from_hex_to_u8(hex_witness_size);
+        for _ in 0..input_count {
+            let hex_witness_count = &input[index..index + 2];
             index += 2;
-            let _witness = from_hex_to_bytes(&input[index..index + (witness_size as usize) * 2]).0;
-            index += (witness_size as usize) * 2;
+            let witness_count = from_hex_to_u8(hex_witness_count);
+            for _i in 0..witness_count {
+                let hex_witness_size = &input[index..index + 2];
+                let witness_size = from_hex_to_u8(hex_witness_size);
+                index += 2;
+                let _witness =
+                    from_hex_to_bytes(&input[index..index + (witness_size as usize) * 2]).0;
+                index += (witness_size as usize) * 2;
+            }
         }
     }
     let hex_locktime = &input[index..index + 8];

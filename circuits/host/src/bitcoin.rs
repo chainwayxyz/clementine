@@ -1,6 +1,7 @@
 use crate::utils::json_to_obj;
 use serde::{Deserialize, Serialize};
 use bridge_core::btc::calculate_double_sha256;
+use bitcoin::{blockdata::transaction::Transaction, consensus::Decodable};
 
 #[allow(non_snake_case)]
 #[derive(Serialize, Deserialize, Clone, Debug)]
@@ -8,9 +9,6 @@ pub struct HostTransaction {
     txid: String,
     hash: String,
     version: i32,
-    size: u32,
-    vsize: u32,
-    weight: u32,
     locktime: u32,
     vin: Vec<HostTxInput>,
     vout: Vec<HostTxOutput>,
@@ -22,8 +20,7 @@ pub struct HostTransaction {
 pub struct HostTxInput {
     txid: String,
     vout: u32,
-    scriptSig: VinScriptSig,
-    txinwitness: Vec<String>,
+    script_sig: VinScriptSig,
     sequence: u32,
 }
 
@@ -38,15 +35,12 @@ pub struct HostTxOutput {
 #[allow(non_snake_case)]
 #[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct VinScriptSig {
-    asm: String,
     hex: String,
 }
 
 #[allow(non_snake_case)]
 #[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct VoutScriptPubKey {
-    asm: String,
-    desc: String,
     hex: String,
     address: String,
 }
@@ -211,6 +205,70 @@ impl BitcoinMerkleTree {
 
 }
 
+pub fn parse_hex_to_btc_tx(
+    tx_hex: &str,
+) -> Result<Transaction, bitcoin::consensus::encode::Error> {
+    if let Ok(reader) = hex::decode(tx_hex) {
+        Transaction::consensus_decode(&mut &reader[..])
+    } else {
+        Err(bitcoin::consensus::encode::Error::ParseFailed(
+            "Could not decode hex",
+        ))
+    }
+}
+
+pub fn from_btc_tx_to_host_tx(input: Transaction) -> HostTransaction {
+    let txid = input.txid().to_string();
+    let hash = input.wtxid().to_string();
+    let version = input.version.0;
+    let locktime = input.lock_time.to_consensus_u32();
+    let mut vin: Vec<HostTxInput> = vec![];
+    for input in input.input.iter() {
+        let txid = input.previous_output.txid.to_string();
+        let vout = input.previous_output.vout;
+        let script_sig = VinScriptSig {
+            hex: input.script_sig.to_hex_string()
+        };
+        let sequence = input.sequence.0;
+        let host_tx_input = HostTxInput {
+            txid,
+            vout,
+            script_sig,
+            sequence,
+        };
+        vin.push(host_tx_input);
+    }
+    let mut vout: Vec<HostTxOutput> = vec![];
+    for output in input.output.iter() {
+        let value = output.value.to_btc();
+        let n = output.script_pubkey.len() as u32;
+        let script_pubkey = VoutScriptPubKey {
+            hex: output.script_pubkey.to_hex_string(),
+            address: output.script_pubkey.to_hex_string()
+        };
+        let host_tx_output = HostTxOutput {
+            value,
+            n,
+            scriptPubKey: script_pubkey,
+        };
+        vout.push(host_tx_output);
+    }
+    let tx_id = input.txid();
+    println!("{:?}", tx_id);
+    let btc_tx_bytes = bitcoin::consensus::encode::serialize(&input);
+    println!("{:?}", hex::encode(&btc_tx_bytes));
+    let hex = hex::encode(&btc_tx_bytes);
+    HostTransaction {
+        txid,
+        hash,
+        version,
+        locktime,
+        vin,
+        vout,
+        hex,
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use serde_json::Value;
@@ -236,4 +294,24 @@ mod tests {
         let merkle_tree = BitcoinMerkleTree::new(12, tx_vec.clone(), tx_vec.len() as u32);
         println!("{:?}", hex::encode(merkle_tree.root()));
     }
+
+    #[test]
+    fn test_parse_hex_to_btc_tx() {
+        let hex: Value = json_to_obj("data/example_tx.json");
+        println!("{:?}", hex);
+        let btc_tx = parse_hex_to_btc_tx(hex["hex"].as_str().unwrap()).unwrap();
+        println!("{:?}", btc_tx);
+        println!("{:?}", btc_tx.txid());
+    }
+
+    #[test]
+    fn test_from_btc_tx_to_host_tx() {
+        let hex: Value = json_to_obj("data/example_tx.json");
+        let try_btc_tx = parse_hex_to_btc_tx(hex["hex"].as_str().unwrap()).unwrap();
+        let host_tx = from_btc_tx_to_host_tx(try_btc_tx);
+        println!("{:?}", host_tx);
+    }
+
+    
+
 }

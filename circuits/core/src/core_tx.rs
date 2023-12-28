@@ -1,5 +1,4 @@
 use crate::btc::calculate_double_sha256;
-
 pub const INPUTS_COUNT: usize = 2;
 pub const OUTPUTS_COUNT: usize = 3;
 pub const MAX_SCRIPT_SIZE: usize = 256;
@@ -139,7 +138,7 @@ impl Transaction {
         index += 1;
         for i in 0..self.input_count as usize {
             let (input_bytes, input_size) = self.inputs[i].as_bytes();
-            bytes[index..index+input_size].copy_from_slice(&input_bytes[0..input_size]);
+            bytes[index..index+input_size].copy_from_slice(&input_bytes[..input_size]);
             index += input_size;
         }
         bytes[index..index+1].copy_from_slice(&self.output_count.to_le_bytes());
