@@ -1,12 +1,12 @@
 use serde::de::DeserializeOwned;
 use serde::Serialize;
 
-use crate::core_tx::Transaction;
-use crate::core_tx::TxInput;
-use crate::core_tx::TxOutput;
-use crate::core_tx::MAX_INPUTS_COUNT;
-use crate::core_tx::MAX_OUTPUTS_COUNT;
-use crate::core_tx::MAX_SCRIPT_SIZE;
+use bridge_core::core_tx::Transaction;
+use bridge_core::core_tx::TxInput;
+use bridge_core::core_tx::TxOutput;
+use bridge_core::core_tx::MAX_INPUTS_COUNT;
+use bridge_core::core_tx::MAX_OUTPUTS_COUNT;
+use bridge_core::core_tx::MAX_SCRIPT_SIZE;
 
 pub const MAX_HEX_SIZE: usize = 1024;
 

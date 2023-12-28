@@ -1,7 +1,6 @@
 use bridge_core::{
     btc::calculate_double_sha256,
     core_tx::Transaction,
-    utils::{char_array_to_str, from_bytes_to_hex, from_hex_to_tx},
 };
 use risc0_zkvm::guest::env;
 

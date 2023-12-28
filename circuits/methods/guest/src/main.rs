@@ -47,9 +47,9 @@ pub fn handle_moved_bridge_funds(mut bridge_funds_merkle_tree_data: IncrementalM
         let move_txid = env::read();
         verify_txid_merkle_path(move_txid, bitcoin_merkle_root.clone());
 
-        let new_bridge_funds_utxo = verify_txid_input(move_txid, moved_bridge_funds_utxo);
+        verify_txid_input(move_txid, moved_bridge_funds_utxo);
 
-        bridge_funds_merkle_tree_data.add(new_bridge_funds_utxo);
+        bridge_funds_merkle_tree_data.add(move_txid);
     }
     return last_unspent_bridge_fund_index + num_moved_bridge_funds;
 }

@@ -1,9 +1,7 @@
 #[cfg(test)]
 mod tests {
 
-    use bridge_core::utils::*;
-    use bridge_core::core_tx::*;
-    use bridge_core::btc::*;
+    use crate::core_tx_utils::*;
     use bridge_core::vector::*;
     use risc0_zkvm::ExecutorEnv;
     use risc0_zkvm::guest::env;
