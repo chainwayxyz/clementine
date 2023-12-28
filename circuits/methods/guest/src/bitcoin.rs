@@ -1,6 +1,9 @@
-use bridge_core::{btc::calculate_double_sha256, utils::{from_hex_to_tx, from_bytes_to_hex, char_array_to_str}};
+use bridge_core::{
+    btc::calculate_double_sha256,
+    core_tx::Transaction,
+    utils::{char_array_to_str, from_bytes_to_hex, from_hex_to_tx},
+};
 use risc0_zkvm::guest::env;
-
 
 pub fn verify_txid_merkle_path(txid: [u8; 32], merkle_root: [u8; 32]) {
     let mut hash = txid;
@@ -16,36 +19,13 @@ pub fn verify_txid_merkle_path(txid: [u8; 32], merkle_root: [u8; 32]) {
 }
 
 pub fn verify_txid_output_address(tx_id: [u8; 32], output_address: [u8; 32]) {
-    let size_in_bytes = env::read();
-    let mut tx_bytes: [u8; 1024] = [0; 1024];
-    for i in 0..1024 {
-        tx_bytes[i] = env::read();
-    }
-    let (tx_hex, size_in_hex) = from_bytes_to_hex(tx_bytes, size_in_bytes);
-    let mut hex_buffer = [0u8; 2048];
-    let tx_hex_str = char_array_to_str(&mut hex_buffer, &tx_hex, size_in_hex).unwrap();
-    let tx = from_hex_to_tx::<2, 3>(&tx_hex_str);
-    let calculated_tx_id = tx.calculate_txid();
-    assert_eq!(calculated_tx_id, tx_id);
-    let calculated_output_address = [0u8; 32];
-    assert_eq!(calculated_output_address, output_address[..32]);
+    let tx: Transaction<2, 3, 221> = env::read();
+    assert_eq!(tx.outputs[0].taproot_address, output_address);
+    assert_eq!(tx.calculate_txid(), tx_id);
 }
 
 pub fn verify_txid_input(tx_id: [u8; 32], input_utxo: [u8; 32]) -> [u8; 32] {
-    let size_in_bytes = env::read();
-    let mut tx_bytes: [u8; 1024] = [0; 1024];
-    for i in 0..1024 {
-        tx_bytes[i] = env::read();
-    }
-    let (tx_hex, size_in_hex) = from_bytes_to_hex(tx_bytes, size_in_bytes);
-    let mut hex_buffer = [0u8; 2048];
-    let tx_hex_str = char_array_to_str(&mut hex_buffer, &tx_hex, size_in_hex).unwrap();
-    let tx = from_hex_to_tx::<2, 3>(&tx_hex_str);
-    let calculated_tx_id = tx.calculate_txid();
-    assert_eq!(calculated_tx_id, tx_id);
-    let calculated_input_utxo = tx.inputs[0].prev_tx_hash;
-    assert_eq!(calculated_input_utxo, input_utxo);
-    return [0; 32];
+    let tx: Transaction<2, 3, 221> = env::read();
+    assert_eq!(tx.inputs[0].prev_tx_hash, input_utxo);
+    return tx.calculate_txid();
 }
-
-
