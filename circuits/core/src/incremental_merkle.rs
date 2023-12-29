@@ -1,5 +1,4 @@
-use bridge_core::merkle::{Data, DEPTH, HASH_FUNCTION, ZEROES, EMPTYDATA};
-use risc0_zkvm::guest::env;
+use crate::merkle::{DEPTH, ZEROES, Data, EMPTYDATA, HASH_FUNCTION};
 use serde::{Deserialize, Serialize};
 
 #[derive(Clone, Copy, Debug, Deserialize, Serialize)]
@@ -36,18 +35,4 @@ impl IncrementalMerkleTree {
         self.root = current_level_hash;
         self.index += 1;
     }
-}
-
-
-pub fn verify_incremental_merkle_path(merkle_tree_data: IncrementalMerkleTree, index: u32) -> Data {
-    let leaf: Data = env::read();
-    let mut hash: Data = leaf;
-    let mut i: u32 = index;
-    for _ in 0..DEPTH {
-        let node: Data = env::read();
-        hash = if i % 2 == 0 {HASH_FUNCTION(hash, node)} else {HASH_FUNCTION(node, hash)};
-        i /= 2;
-    }
-    assert_eq!(merkle_tree_data.root, hash);
-    return leaf;
 }

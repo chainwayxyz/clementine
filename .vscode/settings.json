@@ -2,6 +2,7 @@
     "rust-analyzer.linkedProjects": [
         "./circuits/methods/guest/Cargo.toml",
         "./circuits/host/Cargo.toml",
-        "./circuits/core/Cargo.toml"
+        "./circuits/core/Cargo.toml",
+        "./operator/Cargo.toml",
     ]
 }

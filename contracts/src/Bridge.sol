@@ -21,12 +21,12 @@ contract Bridge is MerkleTree, ERC20, Ownable {
         }
     }
 
-    function getMessageHash(bytes32 txid, address deposit_address, bytes32 _hash, uint256 index)
+    function getMessageHash(bytes32 txid, address deposit_address, bytes32 _hash)
         public
         pure
         returns (bytes32)
     {
-        return keccak256(abi.encodePacked(txid, deposit_address, _hash, index));
+        return sha256(abi.encodePacked(txid, deposit_address, _hash));
     }
 
     /// @notice          Implements bitcoin's hash256 (double sha2)
@@ -49,7 +49,7 @@ contract Bridge is MerkleTree, ERC20, Ownable {
         require(s.length == numVerifiers, "s length mismatch");
         require(v.length == numVerifiers, "v length mismatch");
         bytes32 _hash = hash256(preimage);
-        bytes32 messageHash = getMessageHash(txid, deposit_address, _hash, depositTree.nextIndex);
+        bytes32 messageHash = getMessageHash(txid, deposit_address, _hash);
         for (uint256 i = 0; i < numVerifiers; i++) {
             require(ecrecover(messageHash, v[i], r[i], s[i]) == verifiers[i], "invalid signature");
         }
