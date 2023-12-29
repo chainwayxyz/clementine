@@ -32,6 +32,18 @@ pub fn from_hex_to_bytes(input: &str) -> ([u8; MAX_HEX_SIZE], usize) {
     (result, index)
 }
 
+pub fn from_hex64_to_bytes32(input: &str) -> [u8; 32] {
+    assert_eq!(input.len(), 64);
+    let mut result = [0u8; 32];
+    let mut index = 0;
+    while index < input.len() / 2 {
+        result[index] = char_to_digit(input.chars().nth(index * 2).unwrap()) * 16
+            + char_to_digit(input.chars().nth(index * 2 + 1).unwrap());
+        index += 1;
+    }
+    return result;
+}
+
 pub fn from_hex_to_u8(input: &str) -> u8 {
     return char_to_digit(input.chars().nth(0).unwrap()) * 16
         + char_to_digit(input.chars().nth(1).unwrap());

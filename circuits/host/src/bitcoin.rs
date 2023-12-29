@@ -71,7 +71,6 @@ impl BitcoinMerkleTree {
         for tx in transactions.iter() {
             tree.nodes[0].push(*tx);
         }
-        println!("tree.nodes[0] length: {:?}", tree.nodes[0].len());
 
         // Construct the tree
         let mut curr_level_offset: usize = 1;

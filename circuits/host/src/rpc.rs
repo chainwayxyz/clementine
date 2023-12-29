@@ -34,7 +34,7 @@ async fn handle_withdrawals(all_withdrawals: Vec<[u8; 32]>, cur_blockhash: [u8; 
         "jsonrpc": "1.0",
         "id": "rustclient",
         "method": "getblock",
-        "params": [blockhash_hex, 2]
+        "params": [blockhash_hex, 1]
     });
 
     let res = client.post(rpc_url)
@@ -45,11 +45,11 @@ async fn handle_withdrawals(all_withdrawals: Vec<[u8; 32]>, cur_blockhash: [u8; 
 
     let response_json: Value = res.json().await.unwrap();
 
-    let json_string = serde_json::to_string(&response_json).unwrap();
+    // let json_string = serde_json::to_string(&response_json).unwrap();
     // println!("json_string: {:?}", json_string);
 
-    let mut file = File::create("./data/block_verbose_2.json").unwrap();
-    file.write_all(json_string.as_bytes()).unwrap();
+    // let mut file = File::create("./data/block_verbose_2.json").unwrap();
+    // file.write_all(json_string.as_bytes()).unwrap();
 
     let tx_id_array = response_json["result"]["tx"].as_array().unwrap();
 
@@ -59,6 +59,7 @@ async fn handle_withdrawals(all_withdrawals: Vec<[u8; 32]>, cur_blockhash: [u8; 
             tx_id_map.insert(txid_str.to_string(), index);
         }
     }
+    // println!("tx_id_map: {:?}", tx_id_map);
 
     let mut withdrawal_indices = HashMap::new();
     for withdrawal_tx_id in all_withdrawals {
@@ -67,6 +68,8 @@ async fn handle_withdrawals(all_withdrawals: Vec<[u8; 32]>, cur_blockhash: [u8; 
             withdrawal_indices.insert(withdrawal_tx_id, index);
         }
     }
+    // println!("withdrawal_indices: {:?}", withdrawal_indices);
+
     let tx_id_bytes_vec = tx_id_array.iter().map(|tx_id| {
         if let Some(txid_str) = tx_id.as_str() {
             let mut bytes: Vec<u8> = hex::decode(txid_str).unwrap().try_into().unwrap();
@@ -80,15 +83,21 @@ async fn handle_withdrawals(all_withdrawals: Vec<[u8; 32]>, cur_blockhash: [u8; 
 
     let depth = (tx_id_array.len() - 1).ilog(2) + 1;
     let merkle_tree = BitcoinMerkleTree::new(depth, tx_id_bytes_vec);
+    // println!("merkle_tree: {:?}", merkle_tree);
     let mut root_bytes = merkle_tree.root();
+    // println!("root_bytes: {:?}", root_bytes);
     root_bytes.reverse();
+    // println!("root_bytes: {:?}", root_bytes);
     let root = hex::encode(root_bytes);
     let rpc_root = response_json["result"]["merkleroot"].as_str().unwrap();
+    // println!("rpc root: {:?}", rpc_root);
     assert_eq!(root, rpc_root);
+    // println!("withdrawal map: {:?}", withdrawal_indices);
 
     let mut merkle_path_vec = Vec::new();
     for (_, index) in withdrawal_indices {
         let merkle_path = merkle_tree.get_idx_path(index as u32);
+        // println!("merkle_path: {:?}", merkle_path);
         merkle_tree.verify_tx_merkle_proof(index as u32);
         merkle_path_vec.push(merkle_path);
     }
@@ -100,17 +109,20 @@ async fn handle_withdrawals(all_withdrawals: Vec<[u8; 32]>, cur_blockhash: [u8; 
 #[cfg(test)]
 mod tests {
 
+    use crate::core_tx_utils::from_hex64_to_bytes32;
+
     use super::*;
 
     #[test]
     fn test_handle_withdrawals() {
-        let cur_blockhash_hex = "000000000003ba27aa200b1cecaad478d2b00432346c3f1f3986da1afd33e506";
-        let cur_blockhash = cur_blockhash_hex.as_bytes().try_into().unwrap();
+        let cur_blockhash_hex = "0000000000000a3290f20e75860d505ce0e948a1d1d846bec7e39015d242884b";
+        let cur_blockhash = from_hex64_to_bytes32(cur_blockhash_hex);
         let mut all_withdrawals = Vec::new();
-        let withdraw_1 = hex::decode("f7f4c281ee20ab8d1b00734b92b60582b922211a7e470accd147c6d70c9714a3").unwrap().try_into().unwrap();
-        let withdraw_2 = hex::decode("57eef4da5edacc1247e71d3a93ed2ccaae69c302612e414f98abf8db0b671eae").unwrap().try_into().unwrap();
+        let withdraw_1: [u8; 32] = hex::decode("4206f171f06913b1d40597edcaf75780559231fb504c49ba85a4a9ae949e8b95").unwrap().try_into().unwrap();
+        let withdraw_2: [u8; 32] = hex::decode("13e3167d46334600b59a5aa286dd02147ac33e64bfc2e188e1f0c0a442182584").unwrap().try_into().unwrap();
         all_withdrawals.push(withdraw_1);
         all_withdrawals.push(withdraw_2);
+        // println!("all_withdrawals: {:?}", all_withdrawals);
         let merkle_paths = handle_withdrawals(all_withdrawals, cur_blockhash);
         println!("merkle_paths: {:?}", merkle_paths);
     }
