@@ -20,6 +20,20 @@
 
 - simple js script for making a deposit transaction in bitcoin and in the rollup
 
+# bitcoin commands
+
+```sh
+bitcoind -regtest -rpcuser=admin -rpcpassword=admin -rpcport=18443 -fallbackfee=0.00001 -wallet=admin
+```
+
+```sh
+bitcoin-cli -regtest -rpcuser=admin -rpcpassword=admin createwallet "admin"
+```
+
+```sh
+bitcoin-cli -regtest -rpcuser=admin -rpcpassword=admin generatetoaddress 101 $(bitcoin-cli -regtest -rpcuser=admin -rpcpassword=admin getnewaddress)
+```
+
 # folder structure
 
 ```text
