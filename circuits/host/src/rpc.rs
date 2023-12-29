@@ -1,8 +1,10 @@
 use dotenv::dotenv;
-use std::env;
+use std::{env, collections::HashMap, vec, fs::File, io::Write};
 // use bitcoincore_rpc::{Auth, Client, RpcApi};
 use reqwest::header::{HeaderMap, HeaderValue, CONTENT_TYPE, AUTHORIZATION};
-use serde_json::json;
+use serde_json::{json, Value};
+
+use crate::bitcoin::BitcoinMerkleTree;
 
 //For each block, return the merkle path of each withdrawal transaction
 
@@ -26,39 +28,90 @@ async fn handle_withdrawals(all_withdrawals: Vec<[u8; 32]>, cur_blockhash: [u8; 
 
     let client = reqwest::Client::new();
 
+    let blockhash_hex = hex::encode(cur_blockhash);
+
     let body = json!({
         "jsonrpc": "1.0",
         "id": "rustclient",
-        "method": "getrawtransaction",
-        "params": [
-            "9bac53ea183fd9b7044997a3db3dea3ecf5552256bb1575912fa2556f9973e54",
-            true
-        ]
+        "method": "getblock",
+        "params": [blockhash_hex, 2]
     });
 
-    let res = client.post("https://svc.blockdaemon.com/bitcoin/mainnet/native")
+    let res = client.post(rpc_url)
         .headers(headers)
         .json(&body)
         .send()
         .await.unwrap();
 
-    let response_text = res.text().await.unwrap();
+    let response_json: Value = res.json().await.unwrap();
 
-    println!("Response: {}", response_text);
+    let json_string = serde_json::to_string(&response_json).unwrap();
+    // println!("json_string: {:?}", json_string);
 
-    return Vec::new();
+    let mut file = File::create("./data/block_verbose_2.json").unwrap();
+    file.write_all(json_string.as_bytes()).unwrap();
+
+    let tx_id_array = response_json["result"]["tx"].as_array().unwrap();
+
+    let mut tx_id_map: HashMap<String, usize> = HashMap::new();
+    for (index, tx_id) in tx_id_array.iter().enumerate() {
+        if let Some(txid_str) = tx_id.as_str() {
+            tx_id_map.insert(txid_str.to_string(), index);
+        }
+    }
+
+    let mut withdrawal_indices = HashMap::new();
+    for withdrawal_tx_id in all_withdrawals {
+        let withdrawal_tx_id_hex = hex::encode(withdrawal_tx_id);
+        if let Some(&index) = tx_id_map.get(&withdrawal_tx_id_hex) {
+            withdrawal_indices.insert(withdrawal_tx_id, index);
+        }
+    }
+    let tx_id_bytes_vec = tx_id_array.iter().map(|tx_id| {
+        if let Some(txid_str) = tx_id.as_str() {
+            let mut bytes: Vec<u8> = hex::decode(txid_str).unwrap().try_into().unwrap();
+            bytes.reverse();
+            bytes.try_into().unwrap()
+        } else {
+            let empty = [0u8; 32];
+            empty
+        }
+    }).collect::<Vec<[u8; 32]>>();
+
+    let depth = (tx_id_array.len() - 1).ilog(2) + 1;
+    let merkle_tree = BitcoinMerkleTree::new(depth, tx_id_bytes_vec);
+    let mut root_bytes = merkle_tree.root();
+    root_bytes.reverse();
+    let root = hex::encode(root_bytes);
+    let rpc_root = response_json["result"]["merkleroot"].as_str().unwrap();
+    assert_eq!(root, rpc_root);
+
+    let mut merkle_path_vec = Vec::new();
+    for (_, index) in withdrawal_indices {
+        let merkle_path = merkle_tree.get_idx_path(index as u32);
+        merkle_tree.verify_tx_merkle_proof(index as u32);
+        merkle_path_vec.push(merkle_path);
+    }
+
+    return merkle_path_vec;
 
 }
 
 #[cfg(test)]
 mod tests {
+
     use super::*;
 
     #[test]
     fn test_handle_withdrawals() {
-        let all_withdrawals = Vec::new();
-        let cur_blockhash = [0; 32];
+        let cur_blockhash_hex = "000000000003ba27aa200b1cecaad478d2b00432346c3f1f3986da1afd33e506";
+        let cur_blockhash = cur_blockhash_hex.as_bytes().try_into().unwrap();
+        let mut all_withdrawals = Vec::new();
+        let withdraw_1 = hex::decode("f7f4c281ee20ab8d1b00734b92b60582b922211a7e470accd147c6d70c9714a3").unwrap().try_into().unwrap();
+        let withdraw_2 = hex::decode("57eef4da5edacc1247e71d3a93ed2ccaae69c302612e414f98abf8db0b671eae").unwrap().try_into().unwrap();
+        all_withdrawals.push(withdraw_1);
+        all_withdrawals.push(withdraw_2);
         let merkle_paths = handle_withdrawals(all_withdrawals, cur_blockhash);
-        assert_eq!(merkle_paths.len(), 0);
+        println!("merkle_paths: {:?}", merkle_paths);
     }
 }
