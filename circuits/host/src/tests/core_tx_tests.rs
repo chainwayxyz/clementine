@@ -2,7 +2,6 @@
 mod tests {
 
     use crate::core_tx_utils::*;
-    use bridge_core::vector::*;
     use risc0_zkvm::ExecutorEnv;
     use risc0_zkvm::guest::env;
 
@@ -46,13 +45,4 @@ mod tests {
         println!("{:?}", result);
     }
 
-    #[test]
-    fn test_vector() {
-        let mut vec = Vector::new();
-        vec.push(1);
-        vec.push(2);
-        vec.push(3);
-        println!("{:?}", vec);
-    }
-    
 }
