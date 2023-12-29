@@ -73,9 +73,9 @@ pub fn handle_moved_bridge_funds(
         
         verify_txid_merkle_path(move_txid, bitcoin_merkle_root.clone());
 
-        verify_txid_input(move_txid, moved_bridge_funds_utxo);
+        verify_txid_input(move_txid, moved_bridge_funds_txid);
 
-        bridge_funds_merkle_tree_data.add(move_txid);
+        bridge_funds_new_merkle_tree.add(move_txid);
 
     }
     return num_moved_bridge_funds;
