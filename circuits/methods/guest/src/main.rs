@@ -75,6 +75,7 @@ pub fn handle_moved_bridge_funds(
 
         verify_txid_input(move_txid, moved_bridge_funds_txid);
 
+        bridge_funds_old_merkle_tree.add(moved_bridge_funds_txid);
         bridge_funds_new_merkle_tree.add(move_txid);
 
     }
