@@ -4,6 +4,7 @@
 use core::num;
 
 use bridge_core::btc::{calculate_double_sha256, validate_threshold_and_add_work, BlockHeader};
+use bridge_core::core_tx::Transaction;
 use bridge_core::config::{N, PERIOD3};
 use bridge_core::incremental_merkle::IncrementalMerkleTree;
 use bridge_core::merkle::Data;
@@ -72,13 +73,14 @@ pub fn handle_moved_bridge_funds(
         
         verify_txid_merkle_path(move_txid, bitcoin_merkle_root.clone());
 
-        let new_bridge_funds_utxo = verify_txid_input(move_txid, moved_bridge_funds_txid);
+        verify_txid_input(move_txid, moved_bridge_funds_txid);
 
-        bridge_funds_old_merkle_tree.add(move_txid);
-        bridge_funds_new_merkle_tree.add(new_bridge_funds_utxo);
+        bridge_funds_new_merkle_tree.add(move_txid);
+
     }
     return num_moved_bridge_funds;
 }
+
 
 pub fn main() {
     let deposit_start_index: u32 = env::read();

@@ -1,17 +1,17 @@
 use bitcoin::hashes::sha256;
-use bitcoin::secp256k1::rand::rngs::StdRng;
-use bitcoin::secp256k1::rand::SeedableRng;
+use bitcoin::secp256k1::rand::rngs::OsRng;
+use bitcoin::secp256k1::rand::RngCore;
 use bitcoin::TapNodeHash;
 use bitcoin::{
     hashes::Hash,
     secp256k1::{
-        ecdsa, rand, schnorr, All, Keypair, Message, PublicKey, Secp256k1, SecretKey,
-        XOnlyPublicKey,
+        ecdsa, schnorr, All, Keypair, Message, PublicKey, Secp256k1, SecretKey, XOnlyPublicKey,
     },
     Address, TapSighash, TapTweakHash,
 };
 use tiny_keccak::{Hasher, Keccak};
 
+#[derive(Clone, Debug)]
 pub struct Actor {
     secp: Secp256k1<All>,
     keypair: Keypair,
@@ -24,16 +24,14 @@ pub struct Actor {
 
 impl Default for Actor {
     fn default() -> Self {
-        Self::new()
+        Self::new(&mut OsRng)
     }
 }
 
 impl Actor {
-    pub fn new() -> Self {
+    pub fn new<R: RngCore>(rng: &mut R) -> Self {
         let secp: Secp256k1<All> = Secp256k1::new();
-        // let mut rng = StdRng::seed_from_u64(0);
-        let mut rng = rand::thread_rng();
-        let (sk, pk) = secp.generate_keypair(&mut rng);
+        let (sk, pk) = secp.generate_keypair(rng);
         let keypair = Keypair::from_secret_key(&secp, &sk);
         let (xonly, _parity) = XOnlyPublicKey::from_keypair(&keypair);
         let address = Address::p2tr(&secp, xonly, None, bitcoin::Network::Regtest);
@@ -107,8 +105,8 @@ impl Actor {
         );
         let (rec_id, signature): (ecdsa::RecoveryId, [u8; 64]) = signature.serialize_compact();
         let v = rec_id.to_i32() as u8 + 27;
-        let r:[u8; 32] = signature[..32].try_into().unwrap();
-        let s:[u8; 32] = signature[32..].try_into().unwrap();
+        let r: [u8; 32] = signature[..32].try_into().unwrap();
+        let s: [u8; 32] = signature[32..].try_into().unwrap();
 
         return (v, r, s);
     }
@@ -120,20 +118,25 @@ mod tests {
 
     #[test]
     fn test_ecdsa() {
-        let prover = Actor::new();
+        let prover = Actor::new(&mut OsRng);
         let txid = [1; 32];
         let deposit_address = [2; 20];
         let hash = [3; 32];
 
         let (v, r, s) = prover.sign_deposit(txid, deposit_address, hash);
-        
 
-        // println!("bytes32 txid = bytes32(0x{});", hex::encode(txid));
-        // println!("address deposit_address = address(bytes20(hex\"{}\"));", hex::encode(deposit_address));
-        // println!("bytes32 _hash = bytes32(0x{});", hex::encode(hash));
-        // println!("bytes32 r = bytes32(0x{});", hex::encode(r));
-        // println!("bytes32 s = bytes32(0x{});", hex::encode(s));
-        // println!("uint8 v = {};", v);
-        // println!("address expected = address(bytes20(hex\"{}\"));", hex::encode(prover.evm_address));
+        println!("bytes32 txid = bytes32(0x{});", hex::encode(txid));
+        println!(
+            "address deposit_address = address(bytes20(hex\"{}\"));",
+            hex::encode(deposit_address)
+        );
+        println!("bytes32 _hash = bytes32(0x{});", hex::encode(hash));
+        println!("bytes32 r = bytes32(0x{});", hex::encode(r));
+        println!("bytes32 s = bytes32(0x{});", hex::encode(s));
+        println!("uint8 v = {};", v);
+        println!(
+            "address expected = address(bytes20(hex\"{}\"));",
+            hex::encode(prover.evm_address)
+        );
     }
 }

@@ -1,6 +1,8 @@
-use bridge_core::btc::calculate_double_sha256;
+use bridge_core::{
+    btc::calculate_double_sha256,
+    core_tx::Transaction,
+};
 use risc0_zkvm::guest::env;
-
 
 pub fn verify_txid_merkle_path(txid: [u8; 32], merkle_root: [u8; 32]) {
     let mut hash = txid;
@@ -15,7 +17,14 @@ pub fn verify_txid_merkle_path(txid: [u8; 32], merkle_root: [u8; 32]) {
     assert_eq!(hash, merkle_root);
 }
 
-pub fn verify_txid_output_address(txid: [u8; 32], output_address: [u8; 32]) {}
-pub fn verify_txid_input(txid: [u8; 32], input_utxo: [u8; 32]) -> [u8; 32] {
-    return [0; 32];
+pub fn verify_txid_output_address(tx_id: [u8; 32], output_address: [u8; 32]) {
+    let tx: Transaction<2, 3, 221> = env::read();
+    assert_eq!(tx.outputs[0].taproot_address, output_address);
+    assert_eq!(tx.calculate_txid(), tx_id);
+}
+
+pub fn verify_txid_input(tx_id: [u8; 32], input_utxo: [u8; 32]) -> [u8; 32] {
+    let tx: Transaction<2, 3, 221> = env::read();
+    assert_eq!(tx.inputs[0].prev_tx_hash, input_utxo);
+    return tx.calculate_txid();
 }
