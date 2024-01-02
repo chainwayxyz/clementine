@@ -3,7 +3,7 @@ use bitcoincore_rpc::{Client, Auth, RpcApi};
 
 use crate::{actor::Actor, user::deposit_tx};
 
-pub fn mock_lightclient(num_blocks: u32, num_deposits: u32, num_withdrawals: u32, n: u32) -> (Vec<block::BlockHash>, Vec<bitcoin::Txid>, Vec<bitcoin::Txid>) {
+pub fn mock_lightclient(num_blocks: u32, num_deposits: u32, num_withdrawals: u32, n: u32) -> (Vec<block::BlockHash>, Vec<bitcoin::Txid>, Vec<bitcoin::Address>) {
     let rpc = Client::new(
         "http://localhost:18443/wallet/admin",
         Auth::UserPass("admin".to_string(), "admin".to_string()),
@@ -23,7 +23,7 @@ pub fn mock_lightclient(num_blocks: u32, num_deposits: u32, num_withdrawals: u32
 
 
     let other = Actor::new();
-    let amount: u64 = 10_000_000;
+    let amount: u64 = 100_000_000;
     let secp = Secp256k1::new();
     let mut verifiers = Vec::new();
     for i in 0..n {
@@ -37,7 +37,7 @@ pub fn mock_lightclient(num_blocks: u32, num_deposits: u32, num_withdrawals: u32
             depositors[i as usize].clone(),
             [i as u8; 32],
             &other,
-            10_000_000,
+            amount,
             &secp,
             &verifiers
         );
@@ -45,11 +45,11 @@ pub fn mock_lightclient(num_blocks: u32, num_deposits: u32, num_withdrawals: u32
     }
 
     let mut withdrawal_txs = Vec::new();
-
+    let mut withdraw_addresses = Vec::new();
     for i in 0..num_withdrawals {
         let withdrawal_tx_id = rpc
             .send_to_address(
-                &withdrawers[i as usize].address,
+                &withdrawers[i as usize].address.clone(),
                 Amount::from_sat(amount),
                 None,
                 None,
@@ -60,6 +60,7 @@ pub fn mock_lightclient(num_blocks: u32, num_deposits: u32, num_withdrawals: u32
             )
             .unwrap_or_else(|e| panic!("Failed to send to address: {}", e));
         withdrawal_txs.push(withdrawal_tx_id);
+        withdraw_addresses.push(withdrawers[i as usize].address.clone());
     }
 
     let mut miners = Vec::new();
@@ -72,7 +73,7 @@ pub fn mock_lightclient(num_blocks: u32, num_deposits: u32, num_withdrawals: u32
         block_hash_vec.push(rpc.generate_to_address(1, &miners[i as usize].address).unwrap()[0]);
     }
 
-    return (block_hash_vec, deposit_txs, withdrawal_txs);
+    return (block_hash_vec, deposit_txs, withdraw_addresses);
 
 }
 
@@ -83,10 +84,11 @@ mod tests {
 
     #[test]
     fn test_mock_lightclient() {
-        let (block_hash_vec, deposit_txs, withdrawal_txs) = mock_lightclient(10, 10, 10, 10);
+        let (block_hash_vec, deposit_txs, withdrawal_addresses) = mock_lightclient(10, 10, 10, 10);
         println!("block_hash_vec: {:?}", block_hash_vec);
         println!("deposit_txs: {:?}", deposit_txs);
-        println!("withdrawal_txs: {:?}", withdrawal_txs);
+        println!("withdrawal_txs: {:?}", withdrawal_addresses);
+
     }
-    
+
 }

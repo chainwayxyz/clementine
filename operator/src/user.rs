@@ -337,8 +337,8 @@ pub fn deposit_tx(rpc: &Client, depositor: Actor, eth_address: [u8; 32], other: 
         .unwrap_or_else(|e| panic!("Failed to send raw transaction: {}", e));
     println!("initial kickoff tx = {:?}", kickoff_tx);
 
-    let new_address = rpc.get_new_address(None, None).unwrap().assume_checked();
-    rpc.generate_to_address(160, &new_address).unwrap();
+    // let new_address = rpc.get_new_address(None, None).unwrap().assume_checked();
+    // rpc.generate_to_address(1, &new_address).unwrap();
 
     let vout = 0;
 
