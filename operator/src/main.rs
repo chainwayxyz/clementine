@@ -3,13 +3,13 @@ use std::borrow::BorrowMut;
 use bitcoin::{
     absolute::{Height, LockTime},
     hashes::Hash,
-    secp256k1::{rand, All, Keypair, Message, Secp256k1},
+    secp256k1::{rand::{self, rngs::OsRng}, All, Keypair, Message, Secp256k1},
     sighash::SighashCache,
     Address, Amount, OutPoint, ScriptBuf, TapTweakHash, Transaction, TxIn, TxOut, Witness,
     XOnlyPublicKey,
 };
 use bitcoincore_rpc::{Auth, Client, RpcApi};
-use operator::user::deposit_tx;
+use operator::{user::deposit_tx, actor::Actor};
 
 pub fn f() {
     let rpc = Client::new(
@@ -173,5 +173,18 @@ pub fn f() {
 }
 
 fn main() {
-    // deposit_tx();
+
+    let rpc = Client::new(
+        "http://localhost:18443/wallet/admin",
+        Auth::UserPass("admin".to_string(), "admin".to_string()),
+    )
+    .unwrap_or_else(|e| panic!("Failed to connect to Bitcoin RPC: {}", e));
+
+    let mut verifiers = Vec::new();
+    for _ in 0..10 {
+        let verifier = Actor::new(&mut OsRng);
+        verifiers.push(verifier);
+    }
+
+
 }
