@@ -2,6 +2,7 @@ use bitcoin::hashes::sha256;
 use bitcoin::secp256k1::rand::rngs::StdRng;
 use bitcoin::secp256k1::rand::SeedableRng;
 use bitcoin::TapNodeHash;
+use bitcoin::secp256k1::serde::de;
 use bitcoin::{
     hashes::Hash,
     secp256k1::{
@@ -12,6 +13,7 @@ use bitcoin::{
 };
 use tiny_keccak::{Hasher, Keccak};
 
+#[derive(Clone, Debug)]
 pub struct Actor {
     secp: Secp256k1<All>,
     keypair: Keypair,
