@@ -9,8 +9,9 @@ use bitcoin::{
     XOnlyPublicKey,
 };
 use bitcoincore_rpc::{Auth, Client, RpcApi};
+use operator::user::deposit_tx;
 
-fn main() {
+pub fn f() {
     let rpc = Client::new(
         "http://localhost:18443/wallet/admin",
         Auth::UserPass("admin".to_string(), "admin".to_string()),
@@ -169,4 +170,8 @@ fn main() {
         .unwrap_or_else(|e| panic!("Failed to send raw transaction: {}", e));
 
     println!("Transaction sent: {}", txid)
+}
+
+fn main() {
+    deposit_tx();
 }

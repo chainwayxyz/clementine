@@ -29,6 +29,33 @@ impl Default for Actor {
 }
 
 impl Actor {
+    pub fn new_with_seed(seed: u64) -> Self {
+        let secp: Secp256k1<All> = Secp256k1::new();
+        let mut rng = StdRng::seed_from_u64(seed);
+        //let mut rng = rand::thread_rng();
+        let (sk, pk) = secp.generate_keypair(&mut rng);
+        let keypair = Keypair::from_secret_key(&secp, &sk);
+        let (xonly, _parity) = XOnlyPublicKey::from_keypair(&keypair);
+        let address = Address::p2tr(&secp, xonly, None, bitcoin::Network::Regtest);
+
+        let pk_serialized = pk.serialize_uncompressed();
+        let pk_serialized: [u8; 64] = pk_serialized[1..].try_into().unwrap();
+        let mut evm_address = [0u8; 32];
+        let mut keccak_hasher = Keccak::v256();
+        keccak_hasher.update(&pk_serialized);
+        keccak_hasher.finalize(&mut evm_address);
+        let evm_address: [u8; 20] = evm_address[12..].try_into().unwrap();
+
+        Actor {
+            secp,
+            keypair,
+            secret_key: keypair.secret_key(),
+            public_key: pk,
+            xonly_public_key: xonly,
+            address,
+            evm_address,
+        }
+    }
     pub fn new() -> Self {
         let secp: Secp256k1<All> = Secp256k1::new();
         // let mut rng = StdRng::seed_from_u64(0);
@@ -128,12 +155,12 @@ mod tests {
         let (v, r, s) = prover.sign_deposit(txid, deposit_address, hash);
         
 
-        // println!("bytes32 txid = bytes32(0x{});", hex::encode(txid));
-        // println!("address deposit_address = address(bytes20(hex\"{}\"));", hex::encode(deposit_address));
-        // println!("bytes32 _hash = bytes32(0x{});", hex::encode(hash));
-        // println!("bytes32 r = bytes32(0x{});", hex::encode(r));
-        // println!("bytes32 s = bytes32(0x{});", hex::encode(s));
-        // println!("uint8 v = {};", v);
-        // println!("address expected = address(bytes20(hex\"{}\"));", hex::encode(prover.evm_address));
+        println!("bytes32 txid = bytes32(0x{});", hex::encode(txid));
+        println!("address deposit_address = address(bytes20(hex\"{}\"));", hex::encode(deposit_address));
+        println!("bytes32 _hash = bytes32(0x{});", hex::encode(hash));
+        println!("bytes32 r = bytes32(0x{});", hex::encode(r));
+        println!("bytes32 s = bytes32(0x{});", hex::encode(s));
+        println!("uint8 v = {};", v);
+        println!("address expected = address(bytes20(hex\"{}\"));", hex::encode(prover.evm_address));
     }
 }
