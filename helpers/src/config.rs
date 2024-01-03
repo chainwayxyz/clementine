@@ -1,12 +1,19 @@
-use sha2::{Digest, Sha256};
 use lazy_static::lazy_static;
 
+use crate::hashes::sha256;
+
+// Types
 pub type Data = [u8; 32];
+pub type Path = [Data; DEPTH];
+
+// Constants
+pub const PERIOD3: u32 = 0; // 500
+pub const N: u32 = 18; // 4096
 pub const EMPTYDATA: Data = [0; 32];
 pub const DEPTH: usize = 32;
-pub type Path = [Data; DEPTH];
 pub const HASH_FUNCTION: fn(Data, Data) -> Data = sha256;
 
+// Zero subtree hashes
 lazy_static! {
     pub static ref ZEROES: [Data; DEPTH + 1] = {
         let mut a = [EMPTYDATA; DEPTH + 1];
@@ -15,13 +22,4 @@ lazy_static! {
         }
         a
     };
-}
-
-pub fn sha256(a: Data, b: Data) -> Data {
-    let mut c = [0_u8; 2 * 32];
-    c[..32].copy_from_slice(&a);
-    c[32..].copy_from_slice(&b);
-    let mut hasher = Sha256::new();
-    hasher.update(c);
-    hasher.finalize().try_into().unwrap()
 }

@@ -1,5 +1,5 @@
 [package]
-name = "bridge-methods"
+name = "verifier-circuit"
 version = "0.1.0"
 edition = "2021"
 

@@ -1,4 +1,4 @@
-use crate::merkle::{DEPTH, ZEROES, Data, EMPTYDATA, HASH_FUNCTION};
+use crate::config::{DEPTH, ZEROES, Data, EMPTYDATA, HASH_FUNCTION};
 use serde::{Deserialize, Serialize};
 
 #[derive(Clone, Copy, Debug, Deserialize, Serialize)]

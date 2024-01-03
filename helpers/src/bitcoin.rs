@@ -2,7 +2,6 @@ use crypto_bigint::Encoding;
 use crypto_bigint::U256;
 
 use serde::{Deserialize, Serialize};
-use sha2::{Digest, Sha256};
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 pub struct BlockHeader {
@@ -36,14 +35,6 @@ impl BlockHeader {
         output[76..80].copy_from_slice(&self.nonce);
         output
     }
-}
-
-pub fn calculate_double_sha256(input: &[u8]) -> [u8; 32] {
-    let mut hasher = Sha256::new();
-    hasher.update(input);
-    let result = hasher.finalize_reset();
-    hasher.update(result);
-    hasher.finalize().try_into().unwrap()
 }
 
 pub fn validate_threshold_and_add_work(
