@@ -1,4 +1,4 @@
-use bitcoin::{hashes::Hash, BlockHash, Txid};
+use bitcoin::{hashes::Hash, Address, BlockHash, Txid};
 use serde_json::{json, Value};
 use std::{collections::HashMap, env, fs::File, io::Write, vec};
 
@@ -6,8 +6,8 @@ use bitcoincore_rpc::{Auth, Client, RpcApi};
 
 use crate::bitcoin_merkle::BitcoinMerkleTree;
 
-fn handle_withdrawals(
-    rpc: Client,
+pub fn handle_withdrawals(
+    rpc: &Client,
     all_withdrawals: Vec<Txid>,
     cur_blockhash: [u8; 32],
 ) -> Vec<Vec<[u8; 32]>> {
@@ -73,6 +73,25 @@ fn handle_withdrawals(
     return merkle_path_vec;
 }
 
+pub fn pay_withdrawals(rpc: &Client, withdrawal_addresses: Vec<Address>) -> BlockHash {
+    withdrawal_addresses.iter().for_each(|address| {
+        rpc.send_to_address(
+            &address,
+            bitcoin::Amount::from_sat(100_000_000),
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+        )
+        .unwrap();
+    });
+    let address = rpc.get_new_address(None, None).unwrap().assume_checked();
+
+    rpc.generate_to_address(1, &address).unwrap()[0]
+}
+
 #[cfg(test)]
 mod tests {
 
@@ -106,7 +125,25 @@ mod tests {
             .map(|tx| tx.txid())
             .collect::<Vec<Txid>>();
 
-        let merkle_paths = handle_withdrawals(rpc, all_withdrawals, block_hash.to_byte_array());
+        let merkle_paths = handle_withdrawals(&rpc, all_withdrawals, block_hash.to_byte_array());
         assert_eq!(merkle_paths.len(), num_withdrawals);
+    }
+
+    #[test]
+    fn test_pay_withdrawals() {
+        let rpc = Client::new(
+            "http://localhost:18443/wallet/admin",
+            Auth::UserPass("admin".to_string(), "admin".to_string()),
+        )
+        .unwrap_or_else(|e| panic!("Failed to connect to Bitcoin RPC: {}", e));
+
+        let mut withdrawal_addresses = Vec::new();
+        for _ in 0..5 {
+            withdrawal_addresses.push(rpc.get_new_address(None, None).unwrap().assume_checked());
+        }
+
+        let block_hash = pay_withdrawals(&rpc, withdrawal_addresses);
+        let block = rpc.get_block(&block_hash).unwrap();
+        // TODO: check that the block contains the withdrawal transactions
     }
 }

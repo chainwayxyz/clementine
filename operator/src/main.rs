@@ -12,7 +12,9 @@ use bitcoin::{
     XOnlyPublicKey,
 };
 use bitcoincore_rpc::{Auth, Client, RpcApi};
-use operator::{actor::Actor, transactions::tx_deposit, user::deposit_tx};
+use operator::{
+    actor::Actor, lightclient::mock_lightclient, transactions::tx_deposit, user::deposit_tx, proof::withdrawals::pay_withdrawals,
+};
 
 pub fn f() {
     let rpc = Client::new(
@@ -43,18 +45,28 @@ pub fn f() {
     // do_tx(&rpc, tx_d);
 }
 
-fn main() {
-    // let rpc = Client::new(
-    //     "http://localhost:18443/wallet/admin",
-    //     Auth::UserPass("admin".to_string(), "admin".to_string()),
-    // )
-    // .unwrap_or_else(|e| panic!("Failed to connect to Bitcoin RPC: {}", e));
+const NUM_VERIFIERS: usize = 10;
 
-    // let mut verifiers = Vec::new();
-    // for _ in 0..10 {
-    //     let verifier = Actor::new(&mut OsRng);
-    //     verifiers.push(verifier);
-    // }
+fn main() {
+    let rpc = Client::new(
+        "http://localhost:18443/wallet/admin",
+        Auth::UserPass("admin".to_string(), "admin".to_string()),
+    )
+    .unwrap_or_else(|e| panic!("Failed to connect to Bitcoin RPC: {}", e));
+
+    let mut verifiers = Vec::new();
+    for _ in 0..NUM_VERIFIERS {
+        let verifier = Actor::new(&mut OsRng);
+        verifiers.push(verifier);
+    }
+
+    let bridge_funds: Vec<bitcoin::Txid> = Vec::new();
+
+    let (block_hash_vec, deposit_txs, withdrawal_addresses) =
+        mock_lightclient(&mut OsRng, &rpc, verifiers, 100, 5, 3);
 
     println!("Hello, world!");
+
+    let withdrawal_block_hash = pay_withdrawals(&rpc, withdrawal_addresses);
+
 }
