@@ -58,7 +58,6 @@ pub fn generate_nofn_script(
     verifiers_pks.iter().fold(Builder::new(), |builder, vpk| builder.push_x_only_key(&vpk).push_opcode(OP_CHECKSIGVERIFY)).push_opcode(OP_SHA256).push_slice(hash).push_opcode(OP_EQUAL).into_script()
 }
 
-// TODO: this is wrong, fix
 pub fn generate_timelock_script(actor_pk: XOnlyPublicKey, block_count: u32) -> ScriptBuf {
     Builder::new()
         .push_int(block_count as i64)
