@@ -1,23 +1,40 @@
 use bitcoin::{secp256k1::{Secp256k1}, secp256k1, Address, TapSighash, Txid, hashes::Hash};
 use bitcoincore_rpc::Client;
+use secp256k1::rand::rngs::OsRng;
 
-use crate::{actor::Actor, operator::{DepositPresigns, check_deposit, NUM_ROUNDS}};
+use crate::{actor::{Actor, EVMAddress}, operator::{DepositPresigns, check_deposit, NUM_ROUNDS}};
 
 use circuit_helpers::config::NUM_VERIFIERS;
 
 
-pub struct Verifier {
-    pub rpc: Client,
+pub struct Verifier<'a>  {
+    pub rpc: &'a Client,
     pub secp: Secp256k1<secp256k1::All>,
     pub signer: Actor,
-    pub verifier_evm_address: [u8; 32],
     pub operator: secp256k1::PublicKey,
-    pub verifiers: [secp256k1::PublicKey; NUM_VERIFIERS],
+    pub verifiers: Vec<secp256k1::PublicKey>,
 }
 
 
 
-impl Verifier {
+impl<'a>  Verifier<'a>  {
+    pub fn new(rng: &mut OsRng, rpc: &'a Client, operator_pk: secp256k1::PublicKey) -> Self {
+        let signer = Actor::new(rng);
+        let secp: Secp256k1<secp256k1::All> = Secp256k1::new();
+        let verifiers = Vec::new();
+        Verifier {
+            rpc,
+            secp,
+            signer,
+            operator: operator_pk,
+            verifiers,
+        }
+    }
+
+    pub fn set_verifiers(&mut self, verifiers: Vec<secp256k1::PublicKey>) {
+        self.verifiers = verifiers;
+    }
+
     // this is a public endpoint that only depositor can call
     pub fn new_deposit(
         &self,

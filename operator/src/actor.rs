@@ -14,7 +14,7 @@ use circuit_helpers::config::REGTEST;
 
 
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Copy)]
 pub struct EVMSignature {
     v: u8,
     r: [u8; 32],

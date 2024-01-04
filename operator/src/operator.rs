@@ -1,27 +1,31 @@
+use std::collections::HashMap;
+
+use crate::actor::{Actor, EVMAddress, EVMSignature};
+use crate::merkle::MerkleTree;
 use crate::verifier::Verifier;
-use crate::{
-    actor::{Actor, EVMAddress, EVMSignature},
-    verifier,
-};
 use bitcoin::{
     absolute,
     hashes::Hash,
     secp256k1,
-    secp256k1::{schnorr, PublicKey, Secp256k1},
-    Address, TapSighash, Txid,
+    secp256k1::{schnorr, PublicKey},
+    Address, Txid,
 };
 use bitcoincore_rpc::Client;
 use circuit_helpers::config::NUM_VERIFIERS;
+use circuit_helpers::hashes::sha256;
 use secp256k1::rand::rngs::OsRng;
+use sha2::{Digest, Sha256};
 
 pub const NUM_ROUNDS: usize = 10;
+type PreimageType = [u8; 32];
+type HashType = [u8; 32];
 
 pub fn check_deposit(
-    rpc: Client,
-    txid: [u8; 32],
-    hash: [u8; 32],
-    return_address: Address,
-    verifiers_pks: Vec<PublicKey>,
+    _rpc: &Client,
+    _txid: [u8; 32],
+    _hash: [u8; 32],
+    _return_address: Address,
+    _verifiers_pks: Vec<PublicKey>,
 ) -> absolute::Time {
     // 1. Check if txid is mined in bitcoin
     // 2. Check if 0th output of the txid has 1 BTC
@@ -39,13 +43,16 @@ pub struct DepositPresigns {
     pub operator_take_sign: Vec<schnorr::Signature>,
 }
 
-pub struct Operator {
-    rpc: Client,
+pub struct Operator<'a> {
+    rpc: &'a Client,
     signer: Actor,
     verifiers: Vec<PublicKey>,
     verifier_evm_addresses: Vec<EVMAddress>,
     deposit_presigns: Vec<[DepositPresigns; NUM_VERIFIERS]>,
-    mock_verifier_access: Vec<Verifier>, // on production this will be removed rather we will call the verifier's API
+    deposit_merkle_tree: MerkleTree,
+    withdrawals_merkle_tree: MerkleTree,
+    mock_verifier_access: Vec<Verifier<'a>>, // on production this will be removed rather we will call the verifier's API
+    waiting_deposists: HashMap<Txid, HashType>
 }
 
 pub fn check_presigns(
@@ -55,31 +62,43 @@ pub fn check_presigns(
 ) {
 }
 
-impl Operator {
-    pub fn new(rng: &mut OsRng, rpc: Client, verifiers: Vec<Verifier>) -> Self {
+impl<'a> Operator<'a> {
+    pub fn new(rng: &mut OsRng, rpc: &'a Client) -> Self {
         let signer = Actor::new(rng);
+        let mut verifiers = Vec::new();
+        for _ in 0..NUM_VERIFIERS {
+            verifiers.push(Verifier::new(rng, rpc, signer.public_key));
+        }
         let verifiers_pks = verifiers
             .iter()
             .map(|verifier| verifier.signer.public_key)
             .collect::<Vec<_>>();
+
+        verifiers.iter_mut().for_each(|verifier| {
+            verifier.set_verifiers(verifiers_pks.clone());
+        });
+
         let verifier_evm_addresses = verifiers
             .iter()
             .map(|verifier| verifier.signer.evm_address)
             .collect::<Vec<_>>();
         let deposit_presigns = vec![];
-        let mock_verifier_access = verifiers;
+        
         Self {
             rpc,
             signer,
             verifiers: verifiers_pks,
             verifier_evm_addresses,
             deposit_presigns,
-            mock_verifier_access,
+            deposit_merkle_tree: MerkleTree::initial(),
+            withdrawals_merkle_tree: MerkleTree::initial(),
+            mock_verifier_access: verifiers,
+            waiting_deposists: HashMap::new(),
         }
     }
     // this is a public endpoint that every depositor can call
     pub fn new_deposit(
-        self,
+        &self,
         txid: [u8; 32],
         hash: [u8; 32],
         return_address: Address,
@@ -129,8 +148,18 @@ impl Operator {
     }
 
     // this is called when a Deposit event emitted on rollup
-    pub fn preimage_revealed(&self, preimage: [u8; 32]) {
+    pub fn preimage_revealed(&mut self, preimage: [u8; 32], txid: Txid) {
+        let hash = self.waiting_deposists.get(&txid).unwrap().clone();
+        // calculate hash of preimage
+        let mut hasher = Sha256::new();
+        hasher.update(preimage);
+        let calculated_hash: HashType = hasher.finalize().try_into().unwrap();
+        if calculated_hash != hash {
+            panic!("preimage does not match with the hash");
+        }
+
         // 1. Add the corresponding txid to DepositsMerkleTree
+        self.deposit_merkle_tree.add(txid.to_byte_array());
         // this function is interal, where it checks if the preimage is revealed, then if it is revealed
         // it starts the kickoff tx.
     }
