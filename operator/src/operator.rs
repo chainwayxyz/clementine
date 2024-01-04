@@ -3,6 +3,7 @@ use std::collections::HashMap;
 use crate::actor::{Actor, EVMAddress, EVMSignature};
 use crate::merkle::MerkleTree;
 use crate::verifier::Verifier;
+use bitcoin::address::NetworkChecked;
 use bitcoin::{
     absolute,
     hashes::Hash,
@@ -10,10 +11,11 @@ use bitcoin::{
     secp256k1::{schnorr, PublicKey},
     Address, Txid,
 };
-use bitcoincore_rpc::Client;
+use bitcoincore_rpc::{Client, RpcApi};
 use circuit_helpers::config::NUM_VERIFIERS;
 use circuit_helpers::hashes::sha256;
 use secp256k1::rand::rngs::OsRng;
+use secp256k1::XOnlyPublicKey;
 use sha2::{Digest, Sha256};
 
 pub const NUM_ROUNDS: usize = 10;
@@ -22,10 +24,10 @@ type HashType = [u8; 32];
 
 pub fn check_deposit(
     _rpc: &Client,
-    _txid: [u8; 32],
+    _txid: Txid,
     _hash: [u8; 32],
-    _return_address: Address,
-    _verifiers_pks: Vec<PublicKey>,
+    _return_address: XOnlyPublicKey,
+    _verifiers_pks: &Vec<XOnlyPublicKey>,
 ) -> absolute::Time {
     // 1. Check if txid is mined in bitcoin
     // 2. Check if 0th output of the txid has 1 BTC
@@ -46,17 +48,18 @@ pub struct DepositPresigns {
 pub struct Operator<'a> {
     pub rpc: &'a Client,
     pub signer: Actor,
-    pub verifiers: Vec<PublicKey>,
+    pub verifiers: Vec<XOnlyPublicKey>,
     pub verifier_evm_addresses: Vec<EVMAddress>,
     pub deposit_presigns: Vec<[DepositPresigns; NUM_VERIFIERS]>,
     pub deposit_merkle_tree: MerkleTree,
     pub withdrawals_merkle_tree: MerkleTree,
+    pub withdrawals_payment_txids: Vec<Txid>,
     pub mock_verifier_access: Vec<Verifier<'a>>, // on production this will be removed rather we will call the verifier's API
-    pub waiting_deposists: HashMap<Txid, HashType>
+    pub waiting_deposists: HashMap<Txid, HashType>,
 }
 
 pub fn check_presigns(
-    txid: [u8; 32],
+    txid: Txid,
     timestamp: absolute::Time,
     deposit_presigns: &DepositPresigns,
 ) {
@@ -67,11 +70,11 @@ impl<'a> Operator<'a> {
         let signer = Actor::new(rng);
         let mut verifiers = Vec::new();
         for _ in 0..NUM_VERIFIERS {
-            verifiers.push(Verifier::new(rng, rpc, signer.public_key));
+            verifiers.push(Verifier::new(rng, rpc, signer.xonly_public_key));
         }
         let verifiers_pks = verifiers
             .iter()
-            .map(|verifier| verifier.signer.public_key)
+            .map(|verifier| verifier.signer.xonly_public_key)
             .collect::<Vec<_>>();
 
         verifiers.iter_mut().for_each(|verifier| {
@@ -83,7 +86,7 @@ impl<'a> Operator<'a> {
             .map(|verifier| verifier.signer.evm_address)
             .collect::<Vec<_>>();
         let deposit_presigns = vec![];
-        
+
         Self {
             rpc,
             signer,
@@ -92,6 +95,7 @@ impl<'a> Operator<'a> {
             deposit_presigns,
             deposit_merkle_tree: MerkleTree::initial(),
             withdrawals_merkle_tree: MerkleTree::initial(),
+            withdrawals_payment_txids: Vec::new(),
             mock_verifier_access: verifiers,
             waiting_deposists: HashMap::new(),
         }
@@ -99,20 +103,14 @@ impl<'a> Operator<'a> {
     // this is a public endpoint that every depositor can call
     pub fn new_deposit(
         &self,
-        txid: [u8; 32],
+        txid: Txid,
         hash: [u8; 32],
-        return_address: Address,
+        return_address: XOnlyPublicKey,
     ) -> Vec<EVMSignature> {
         // self.verifiers + signer.public_key
         let mut all_verifiers = self.verifiers.to_vec();
-        all_verifiers.push(self.signer.public_key);
-        let timestamp = check_deposit(
-            self.rpc,
-            txid,
-            hash,
-            return_address.clone(),
-            all_verifiers.to_vec(),
-        );
+        all_verifiers.push(self.signer.xonly_public_key);
+        let timestamp = check_deposit(self.rpc, txid, hash, return_address.clone(), &all_verifiers);
 
         let presigns_from_all_verifiers = self
             .mock_verifier_access
@@ -142,12 +140,32 @@ impl<'a> Operator<'a> {
     }
 
     // this is called when a Withdrawal event emitted on rollup
-    pub fn new_withdrawal(&mut self, withdrawal_address: Address) {
+    pub fn new_withdrawal(&mut self, withdrawal_address: Address<NetworkChecked>) {
+        let taproot_script = withdrawal_address.script_pubkey();
+        // we are assuming that the withdrawal_address is a taproot address so we get the last 32 bytes
+        let hash: [u8; 34] = taproot_script.as_bytes().try_into().unwrap();
+        let hash: [u8; 32] = hash[2..].try_into().unwrap();
+
         // 1. Add the address to WithdrawalsMerkleTree
-        let x = withdrawal_address.script_pubkey();
+        self.withdrawals_merkle_tree.add(hash);
+
         // self.withdrawals_merkle_tree.add(withdrawal_address.to);
-        
+
         // 2. Pay to the address and save the txid
+        let txid = self
+            .rpc
+            .send_to_address(
+                &withdrawal_address,
+                bitcoin::Amount::from_sat(1),
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+            )
+            .unwrap();
+        self.withdrawals_payment_txids.push(txid);
     }
 
     // this is called when a Deposit event emitted on rollup

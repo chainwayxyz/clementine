@@ -13,7 +13,7 @@ use bitcoin::{
 };
 use bitcoincore_rpc::{Auth, Client, RpcApi};
 use operator::{
-    actor::Actor, lightclient::mock_lightclient, transactions::tx_deposit, user::deposit_tx, proof::withdrawals::pay_withdrawals,
+    actor::Actor, transactions::tx_deposit, proof::withdrawals::pay_withdrawals,
 };
 use circuit_helpers::config::NUM_VERIFIERS;
 
@@ -63,11 +63,11 @@ fn main() {
 
     let bridge_funds: Vec<bitcoin::Txid> = Vec::new();
 
-    let (block_hash_vec, deposit_txs, withdrawal_addresses) =
-        mock_lightclient(&mut OsRng, &rpc, verifiers, 100, 5, 3);
+    // let (block_hash_vec, deposit_txs, withdrawal_addresses) =
+    //     mock_lightclient(&mut OsRng, &rpc, verifiers, 100, 5, 3);
 
-    println!("Hello, world!");
+    // println!("Hello, world!");
 
-    let withdrawal_block_hash = pay_withdrawals(&rpc, withdrawal_addresses);
+    // let withdrawal_block_hash = pay_withdrawals(&rpc, withdrawal_addresses);
 
 }

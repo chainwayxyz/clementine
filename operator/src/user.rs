@@ -1,4 +1,4 @@
-
+use crate::actor::Actor;
 use bitcoin::opcodes::all::*;
 use bitcoin::script::Builder;
 use bitcoin::secp256k1::All;
@@ -12,22 +12,20 @@ use bitcoin::Transaction;
 use bitcoin::XOnlyPublicKey;
 use bitcoincore_rpc::Client;
 use bitcoincore_rpc::RpcApi;
-use crate::actor::Actor;
 use circuit_helpers::config::REGTEST;
+use secp256k1::rand::rngs::OsRng;
 
 pub struct User<'a> {
     rpc: &'a Client,
-    secp: &'a Secp256k1<secp256k1::All>,
-    signer: Actor,
+    secp: Secp256k1<secp256k1::All>,
+    pub signer: Actor,
 }
 
 impl<'a> User<'a> {
-    pub fn new(rpc: &Client, secp: &Secp256k1<All>, signer: Actor) -> Self {
-        User {
-            rpc,
-            secp,
-            signer,
-        }
+    pub fn new(rng: &mut OsRng, rpc: &'a Client) -> Self {
+        let secp = Secp256k1::new();
+        let signer = Actor::new(&mut OsRng);
+        User { rpc, secp, signer }
     }
 
     pub fn generate_n_of_n_script(verifiers_pks: Vec<XOnlyPublicKey>, hash: [u8; 32]) -> ScriptBuf {
@@ -40,7 +38,7 @@ impl<'a> User<'a> {
             .push_opcode(OP_SHA256)
             .push_slice(hash)
             .push_opcode(OP_EQUAL);
-    
+
         builder.into_script()
     }
 
@@ -52,14 +50,14 @@ impl<'a> User<'a> {
             .push_opcode(OP_CHECKSIG)
             .into_script()
     }
-    
+
     pub fn generate_dust_script(eth_address: [u8; 20]) -> ScriptBuf {
         Builder::new()
             .push_opcode(OP_RETURN)
             .push_slice(&eth_address)
             .into_script()
     }
-    
+
     pub fn generate_deposit_address(
         &self,
         secp: &Secp256k1<All>,
@@ -75,15 +73,10 @@ impl<'a> User<'a> {
             .unwrap();
         let internal_key = self.signer.xonly_public_key;
         let tree_info = taproot.finalize(secp, internal_key).unwrap();
-        let address = Address::p2tr(
-            secp,
-            internal_key,
-            tree_info.merkle_root(),
-            REGTEST,
-        );
+        let address = Address::p2tr(secp, internal_key, tree_info.merkle_root(), REGTEST);
         (address, tree_info)
     }
-    
+
     pub fn deposit_tx(
         &self,
         rpc: &Client,
@@ -91,7 +84,7 @@ impl<'a> User<'a> {
         secp: &Secp256k1<All>,
         verifier_pks: Vec<XOnlyPublicKey>,
         hash: [u8; 32],
-    ) -> Transaction {
+    ) -> (Transaction, [u8; 32], XOnlyPublicKey) {
         let deposit_address = self.generate_deposit_address(secp, verifier_pks, hash);
         let initial_tx_id = rpc
             .send_to_address(
@@ -108,11 +101,10 @@ impl<'a> User<'a> {
         let initial_tx = rpc
             .get_raw_transaction(&initial_tx_id, None)
             .unwrap_or_else(|e| panic!("Failed to get transaction: {}", e));
-    
+
         println!("initial tx = {:?}", initial_tx);
-        initial_tx
+        (initial_tx, hash, self.signer.xonly_public_key)
     }
-    
 }
 #[cfg(test)]
 mod tests {
@@ -130,16 +122,15 @@ mod tests {
             Auth::UserPass("admin".to_string(), "admin".to_string()),
         )
         .unwrap_or_else(|e| panic!("Failed to connect to Bitcoin RPC: {}", e));
-        let secp = Secp256k1::new();
-        let signer = Actor::new(&mut OsRng);
-        let operator = Operator::new( &mut OsRng, &rpc);
-        let user = User {
-            rpc,
-            secp,
-            signer,
-        };
+
+
+        let operator = Operator::new(&mut OsRng, &rpc);
+        let user = User::new(&mut OsRng, &rpc);
         let amount = 10_000_000;
-        let tx = user.deposit_tx(&user.rpc, amount, &user.secp, operator.verifiers, [0; 32]);
-        operator.new_deposit(tx.txid(), hash, return_address)
+        let (tx, hash, return_address) =
+            user.deposit_tx(&user.rpc, amount, &user.secp, operator.verifiers.clone(), [0; 32]);
+        let signatures = operator.new_deposit(tx.txid(), hash, return_address);
+        // TEST IF SIGNATURES ARE VALID
+        // operator.preimage_revealed(preimage, txid);
     }
 }
