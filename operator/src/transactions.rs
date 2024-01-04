@@ -1,5 +1,6 @@
 use std::borrow::BorrowMut;
 use std::str::FromStr;
+use std::vec;
 
 use bitcoin::Address;
 use bitcoin::Amount;
@@ -18,8 +19,15 @@ use bitcoin::hashes::Hash;
 use bitcoin::hashes::sha256;
 use bitcoin::script::Builder;
 use bitcoin::secp256k1::All;
+use bitcoin::secp256k1::SecretKey;
+use bitcoin::secp256k1::PublicKey;
 use bitcoin::secp256k1::Secp256k1;
+use bitcoin::secp256k1::constants::CURVE_ORDER;
+use bitcoin:: secp256k1::Error;
 use bitcoin::XOnlyPublicKey;
+use bitcoin::secp256k1::schnorr;
+use bitcoin::secp256k1::schnorr::Signature;
+use bitcoin::secp256k1::Scalar;
 use bitcoin::sighash::SighashCache;
 use bitcoin::taproot::LeafVersion;
 use bitcoin::taproot::TaprootBuilder;
@@ -209,4 +217,3 @@ pub fn tx_deposit(secp: &Secp256k1<All>, txid: Txid, vout: u32, amount: u64, act
 pub fn tx_bridge() {
 
 }
-
