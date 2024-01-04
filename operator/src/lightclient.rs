@@ -52,7 +52,7 @@ pub fn mock_lightclient<R: RngCore>(
         let deposit_tx_id = deposit_tx(
             &rpc,
             depositors[i as usize].clone(),
-            [i as u8; 32],
+            [i as u8; 20],
             &other,
             amount,
             &secp,

@@ -206,7 +206,7 @@ pub fn generate_timelock_script(actor_pk: XOnlyPublicKey, block_count: u32) -> S
         .into_script()
 }
 
-pub fn generate_dust_script(eth_address: [u8; 32]) -> ScriptBuf {
+pub fn generate_dust_script(eth_address: [u8; 20]) -> ScriptBuf {
     Builder::new()
         .push_opcode(OP_RETURN)
         .push_slice(&eth_address)
@@ -242,7 +242,7 @@ pub fn generate_deposit_address(
 
 pub fn generate_dust_address(
     secp: &Secp256k1<All>,
-    eth_address: [u8; 32],
+    eth_address: [u8; 20],
 ) -> (Address, TaprootSpendInfo) {
     let script = generate_dust_script(eth_address);
     let taproot = TaprootBuilder::new().add_leaf(0, script.clone()).unwrap();
@@ -263,7 +263,7 @@ pub fn generate_dust_address(
 pub fn deposit_tx(
     rpc: &Client,
     depositor: Actor,
-    eth_address: [u8; 32],
+    eth_address: [u8; 20],
     other: &Actor,
     amount: u64,
     secp: &Secp256k1<All>,
@@ -437,7 +437,7 @@ mod tests {
         )
         .unwrap_or_else(|e| panic!("Failed to connect to Bitcoin RPC: {}", e));
         let depositor = Actor::new(&mut OsRng);
-        let eth_address = [0xf_u8; 32];
+        let eth_address = [0xf_u8; 20];
         let other = Actor::new(&mut OsRng);
         let amount: u64 = 10_000;
         let secp = Secp256k1::new();
