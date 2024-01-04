@@ -5,9 +5,10 @@ use bitcoin::{
 };
 use bitcoincore_rpc::{Client, RpcApi};
 
-use crate::{actor::Actor, user::deposit_tx};
+use crate::{actor::Actor, user::User};
 
 pub fn mock_lightclient<R: RngCore>(
+    secp: &Secp256k1<bitcoin::secp256k1::All>,
     rng: &mut R,
     rpc: &Client,
     verifiers: Vec<Actor>,
@@ -19,9 +20,9 @@ pub fn mock_lightclient<R: RngCore>(
     Vec<bitcoin::Txid>,
     Vec<bitcoin::Address>,
 ) {
-    let mut depositors: Vec<Actor> = Vec::new();
+    let mut depositors: Vec<User> = Vec::new();
     for _ in 0..num_deposits {
-        depositors.push(Actor::new(rng));
+        depositors.push(User::new(rpc, secp, rng));
     }
 
     let mut withdrawers: Vec<Actor> = Vec::new();
@@ -49,7 +50,7 @@ pub fn mock_lightclient<R: RngCore>(
 
     let mut deposit_txs = Vec::new();
     for i in 0..num_deposits {
-        let deposit_tx_id = deposit_tx(
+        let deposit_tx_id = depositors.deposit_tx(
             &rpc,
             depositors[i as usize].clone(),
             [i as u8; 20],

@@ -15,13 +15,21 @@ use bitcoincore_rpc::RpcApi;
 use crate::actor::Actor;
 use circuit_helpers::config::REGTEST;
 
-pub struct User {
-    rpc: Client,
-    secp: Secp256k1<secp256k1::All>,
+pub struct User<'a> {
+    rpc: &'a Client,
+    secp: &'a Secp256k1<secp256k1::All>,
     signer: Actor,
 }
 
-impl User {
+impl<'a> User<'a> {
+    pub fn new(rpc: &Client, secp: &Secp256k1<All>, signer: Actor) -> Self {
+        User {
+            rpc,
+            secp,
+            signer,
+        }
+    }
+
     pub fn generate_n_of_n_script(verifiers_pks: Vec<XOnlyPublicKey>, hash: [u8; 32]) -> ScriptBuf {
         let mut builder = Builder::new();
         for vpk in verifiers_pks {
