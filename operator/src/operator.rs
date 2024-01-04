@@ -1,12 +1,18 @@
-use crate::actor::{EVMSignature, Actor};
-use bitcoin::{
-    absolute, secp256k1,
-    secp256k1::{schnorr, PublicKey, Secp256k1},
-    Address, Txid, TapSighash, hashes::Hash,
-};
 use crate::verifier::Verifier;
+use crate::{
+    actor::{Actor, EVMAddress, EVMSignature},
+    verifier,
+};
+use bitcoin::{
+    absolute,
+    hashes::Hash,
+    secp256k1,
+    secp256k1::{schnorr, PublicKey, Secp256k1},
+    Address, TapSighash, Txid,
+};
 use bitcoincore_rpc::Client;
 use circuit_helpers::config::NUM_VERIFIERS;
+use secp256k1::rand::rngs::OsRng;
 
 pub const NUM_ROUNDS: usize = 10;
 
@@ -35,12 +41,11 @@ pub struct DepositPresigns {
 
 pub struct Operator {
     rpc: Client,
-    secp: Secp256k1<secp256k1::All>,
     signer: Actor,
-    verifiers: [PublicKey; NUM_VERIFIERS],
-    verifier_evm_addresses: [[u8; 32]; NUM_VERIFIERS],
+    verifiers: Vec<PublicKey>,
+    verifier_evm_addresses: Vec<EVMAddress>,
     deposit_presigns: Vec<[DepositPresigns; NUM_VERIFIERS]>,
-    mock_verifier_access: [Verifier; NUM_VERIFIERS], // on production this will be removed rather we will call the verifier's API
+    mock_verifier_access: Vec<Verifier>, // on production this will be removed rather we will call the verifier's API
 }
 
 pub fn check_presigns(
@@ -51,6 +56,27 @@ pub fn check_presigns(
 }
 
 impl Operator {
+    pub fn new(rng: &mut OsRng, rpc: Client, verifiers: Vec<Verifier>) -> Self {
+        let signer = Actor::new(rng);
+        let verifiers_pks = verifiers
+            .iter()
+            .map(|verifier| verifier.signer.public_key)
+            .collect::<Vec<_>>();
+        let verifier_evm_addresses = verifiers
+            .iter()
+            .map(|verifier| verifier.signer.evm_address)
+            .collect::<Vec<_>>();
+        let deposit_presigns = vec![];
+        let mock_verifier_access = verifiers;
+        Self {
+            rpc,
+            signer,
+            verifiers: verifiers_pks,
+            verifier_evm_addresses,
+            deposit_presigns,
+            mock_verifier_access,
+        }
+    }
     // this is a public endpoint that every depositor can call
     pub fn new_deposit(
         self,
@@ -69,13 +95,16 @@ impl Operator {
             all_verifiers.to_vec(),
         );
 
-        let presigns_from_all_verifiers = self.mock_verifier_access.map(|verifier| {
-            // Note: In this part we will need to call the verifier's API to get the presigns
-            let deposit_presigns = verifier.new_deposit(txid, hash, return_address.clone());
-            check_presigns(txid, timestamp, &deposit_presigns);
-            deposit_presigns
-        });
-
+        let presigns_from_all_verifiers = self
+            .mock_verifier_access
+            .iter()
+            .map(|verifier| {
+                // Note: In this part we will need to call the verifier's API to get the presigns
+                let deposit_presigns = verifier.new_deposit(txid, hash, return_address.clone());
+                check_presigns(txid, timestamp, &deposit_presigns);
+                deposit_presigns
+            })
+            .collect::<Vec<_>>();
 
         let kickoff_txid = Txid::all_zeros();
 
@@ -85,8 +114,9 @@ impl Operator {
             hash,
         );
         let mut all_rollup_signs = presigns_from_all_verifiers
+            .iter()
             .map(|presigns| presigns.rollup_sign)
-            .to_vec();
+            .collect::<Vec<_>>();
         all_rollup_signs.push(rollup_sign);
 
         all_rollup_signs
@@ -105,7 +135,7 @@ impl Operator {
         // it starts the kickoff tx.
     }
 
-    // this function is interal, where it checks if the current bitcoin height reaced to th end of the period, 
+    // this function is interal, where it checks if the current bitcoin height reaced to th end of the period,
     pub fn period1_end(&self) {
         self.move_bridge_funds();
 
@@ -113,21 +143,19 @@ impl Operator {
     }
 
     // this function is interal, where it checks if the current bitcoin height reaced to th end of the period,
-    pub fn period2_end(&self){
+    pub fn period2_end(&self) {
         // This is the time we generate proof.
     }
 
     // this function is interal, where it checks if the current bitcoin height reaced to th end of the period,
-    pub fn period3_end(&self){
+    pub fn period3_end(&self) {
         // This is the time send generated proof along with k-deep proof
         // and revealing bit-commitments for the next bitVM instance.
     }
 
     // this function is interal, where it moves remaining bridge funds to a new multisig using DepositPresigns
-    fn move_bridge_funds(&self) {
-    }
+    fn move_bridge_funds(&self) {}
 
     // This function is internal, it gives the appropriate response for a bitvm challenge
-    pub fn challenge_received() {
-    }
+    pub fn challenge_received() {}
 }

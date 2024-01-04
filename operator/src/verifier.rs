@@ -7,12 +7,12 @@ use circuit_helpers::config::NUM_VERIFIERS;
 
 
 pub struct Verifier {
-    rpc: Client,
-    secp: Secp256k1<secp256k1::All>,
-    signer: Actor,
-    verifier_evm_address: [u8; 32],
-    operator: secp256k1::PublicKey,
-    verifiers: [secp256k1::PublicKey; NUM_VERIFIERS],
+    pub rpc: Client,
+    pub secp: Secp256k1<secp256k1::All>,
+    pub signer: Actor,
+    pub verifier_evm_address: [u8; 32],
+    pub operator: secp256k1::PublicKey,
+    pub verifiers: [secp256k1::PublicKey; NUM_VERIFIERS],
 }
 
 
@@ -20,7 +20,7 @@ pub struct Verifier {
 impl Verifier {
     // this is a public endpoint that only depositor can call
     pub fn new_deposit(
-        self,
+        &self,
         txid: [u8; 32],
         hash: [u8; 32],
         return_address: Address,

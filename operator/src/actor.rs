@@ -12,6 +12,16 @@ use bitcoin::{
 use tiny_keccak::{Hasher, Keccak};
 use circuit_helpers::config::REGTEST;
 
+
+
+#[derive(Clone, Debug)]
+pub struct EVMSignature {
+    v: u8,
+    r: [u8; 32],
+    s: [u8; 32],
+}
+
+pub type EVMAddress = [u8; 20];
 #[derive(Clone, Debug)]
 pub struct Actor {
     secp: Secp256k1<All>,
@@ -20,7 +30,7 @@ pub struct Actor {
     pub public_key: PublicKey,
     pub xonly_public_key: XOnlyPublicKey,
     pub address: Address,
-    pub evm_address: [u8; 20],
+    pub evm_address: EVMAddress,
 }
 
 impl Default for Actor {
@@ -29,12 +39,6 @@ impl Default for Actor {
     }
 }
 
-#[derive(Clone, Debug)]
-pub struct EVMSignature {
-    v: u8,
-    r: [u8; 32],
-    s: [u8; 32],
-}
 
 impl Actor {
     pub fn new<R: RngCore>(rng: &mut R) -> Self {
@@ -50,7 +54,7 @@ impl Actor {
         let mut keccak_hasher = Keccak::v256();
         keccak_hasher.update(&pk_serialized);
         keccak_hasher.finalize(&mut evm_address);
-        let evm_address: [u8; 20] = evm_address[12..].try_into().unwrap();
+        let evm_address: EVMAddress = evm_address[12..].try_into().unwrap();
 
         Actor {
             secp,
