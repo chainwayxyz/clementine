@@ -48,7 +48,7 @@ impl TxInput {
 pub struct TxOutput {
     pub value: u64,
     // pub script_pub_key_size: u8,
-    // pub script_pub_key: [u8; 32],
+    // pub script_opcode: u8,
     pub taproot_address: [u8; 32],
 }
 
@@ -56,13 +56,13 @@ impl TxOutput {
     pub fn new(
         value: u64,
         // script_pub_key_size: u8,
-        // script_pub_key: [u8; SCRIPT_PUB_KEY_SIZE],
+        // script_opcode: u8,
         taproot_address: [u8; 32],
     ) -> Self {
         Self {
             value: value,
             // script_pub_key_size: script_pub_key_size,
-            // script_pub_key: script_pub_key,
+            // script_opcode: script_opcode,
             taproot_address: taproot_address,
         }
     }
@@ -71,7 +71,7 @@ impl TxOutput {
         Self {
             value: 0,
             // script_pub_key_size: 0,
-            // script_pub_key: [0u8; SCRIPT_PUB_KEY_SIZE],
+            // script_opcode: 0,
             taproot_address: [0u8; 32],
         }
     }
