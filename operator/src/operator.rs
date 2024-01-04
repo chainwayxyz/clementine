@@ -44,15 +44,15 @@ pub struct DepositPresigns {
 }
 
 pub struct Operator<'a> {
-    rpc: &'a Client,
-    signer: Actor,
-    verifiers: Vec<PublicKey>,
-    verifier_evm_addresses: Vec<EVMAddress>,
-    deposit_presigns: Vec<[DepositPresigns; NUM_VERIFIERS]>,
-    deposit_merkle_tree: MerkleTree,
-    withdrawals_merkle_tree: MerkleTree,
-    mock_verifier_access: Vec<Verifier<'a>>, // on production this will be removed rather we will call the verifier's API
-    waiting_deposists: HashMap<Txid, HashType>
+    pub rpc: &'a Client,
+    pub signer: Actor,
+    pub verifiers: Vec<PublicKey>,
+    pub verifier_evm_addresses: Vec<EVMAddress>,
+    pub deposit_presigns: Vec<[DepositPresigns; NUM_VERIFIERS]>,
+    pub deposit_merkle_tree: MerkleTree,
+    pub withdrawals_merkle_tree: MerkleTree,
+    pub mock_verifier_access: Vec<Verifier<'a>>, // on production this will be removed rather we will call the verifier's API
+    pub waiting_deposists: HashMap<Txid, HashType>
 }
 
 pub fn check_presigns(
@@ -142,8 +142,11 @@ impl<'a> Operator<'a> {
     }
 
     // this is called when a Withdrawal event emitted on rollup
-    pub fn new_withdrawal(withdrawal_address: Address) {
+    pub fn new_withdrawal(&mut self, withdrawal_address: Address) {
         // 1. Add the address to WithdrawalsMerkleTree
+        let x = withdrawal_address.script_pubkey();
+        // self.withdrawals_merkle_tree.add(withdrawal_address.to);
+        
         // 2. Pay to the address and save the txid
     }
 
