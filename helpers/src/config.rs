@@ -1,6 +1,7 @@
 use lazy_static::lazy_static;
 
 use crate::hashes::sha256;
+use bitcoin::Network;
 
 // Types
 pub type Data = [u8; 32];
@@ -22,6 +23,8 @@ pub const DUST: u64 = 546;
 pub const FEE: u64 = 154;
 pub const USER_TAKES_AFTER: u32 = 200;
 pub const FED_TAKES_AFTER: u32 = 1000;
+pub const REGTEST: Network = bitcoin::Network::Regtest;
+pub const NUM_VERIFIERS: usize = 10;
 
 // Zero subtree hashes
 lazy_static! {

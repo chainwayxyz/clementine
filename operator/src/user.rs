@@ -180,8 +180,8 @@ use bitcoin::Witness;
 use bitcoin::XOnlyPublicKey;
 use bitcoincore_rpc::Client;
 use bitcoincore_rpc::RpcApi;
-
 use crate::actor::Actor;
+use circuit_helpers::config::REGTEST;
 
 pub fn generate_n_of_n_script(verifiers_pks: Vec<XOnlyPublicKey>, hash: [u8; 32]) -> ScriptBuf {
     let mut builder = Builder::new();
@@ -235,7 +235,7 @@ pub fn generate_deposit_address(
         secp,
         internal_key,
         tree_info.merkle_root(),
-        bitcoin::Network::Regtest,
+        REGTEST,
     );
     (address, tree_info)
 }
@@ -255,7 +255,7 @@ pub fn generate_dust_address(
         secp,
         internal_key,
         tree_info.merkle_root(),
-        bitcoin::Network::Regtest,
+        REGTEST,
     );
     (address, tree_info)
 }

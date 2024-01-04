@@ -34,7 +34,7 @@ use crate::actor::Actor;
 use circuit_helpers::config::DUST;
 use circuit_helpers::config::FEE;
 use circuit_helpers::config::USER_TAKES_AFTER;
-use circuit_helpers::config::FED_TAKES_AFTER;
+use circuit_helpers::config::REGTEST;
 
 lazy_static! {
     pub static ref INTERNAL_KEY: XOnlyPublicKey = XOnlyPublicKey::from_str("93c7378d96518a75448821c4f7c8f4bae7ce60f804d03d1f0628dd5dd0f5de51").unwrap();
@@ -81,7 +81,7 @@ pub fn generate_deposit_address(
         secp,
         *INTERNAL_KEY,
         tree_info.merkle_root(),
-        bitcoin::Network::Regtest,
+        REGTEST,
     );
     (address, tree_info)
 }
@@ -97,7 +97,7 @@ pub fn generate_dust_address(
         secp,
         *INTERNAL_KEY,
         tree_info.merkle_root(),
-        bitcoin::Network::Regtest,
+        REGTEST,
     );
     (address, tree_info)
 }

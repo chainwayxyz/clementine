@@ -15,6 +15,7 @@ use bitcoincore_rpc::{Auth, Client, RpcApi};
 use operator::{
     actor::Actor, lightclient::mock_lightclient, transactions::tx_deposit, user::deposit_tx, proof::withdrawals::pay_withdrawals,
 };
+use circuit_helpers::config::NUM_VERIFIERS;
 
 pub fn f() {
     let rpc = Client::new(
@@ -45,7 +46,7 @@ pub fn f() {
     // do_tx(&rpc, tx_d);
 }
 
-const NUM_VERIFIERS: usize = 10;
+
 
 fn main() {
     let rpc = Client::new(

@@ -10,6 +10,7 @@ use bitcoin::{
     Address, TapSighash, TapTweakHash,
 };
 use tiny_keccak::{Hasher, Keccak};
+use circuit_helpers::config::REGTEST;
 
 #[derive(Clone, Debug)]
 pub struct Actor {
@@ -34,7 +35,7 @@ impl Actor {
         let (sk, pk) = secp.generate_keypair(rng);
         let keypair = Keypair::from_secret_key(&secp, &sk);
         let (xonly, _parity) = XOnlyPublicKey::from_keypair(&keypair);
-        let address = Address::p2tr(&secp, xonly, None, bitcoin::Network::Regtest);
+        let address = Address::p2tr(&secp, xonly, None, REGTEST);
 
         let pk_serialized = pk.serialize_uncompressed();
         let pk_serialized: [u8; 64] = pk_serialized[1..].try_into().unwrap();
