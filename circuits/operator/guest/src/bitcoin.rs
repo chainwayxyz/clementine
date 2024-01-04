@@ -1,5 +1,5 @@
-use bridge_core::{
-    btc::calculate_double_sha256,
+use circuit_helpers::{
+    hashes::calculate_double_sha256,
     core_tx::Transaction,
 };
 use risc0_zkvm::guest::env;

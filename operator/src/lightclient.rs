@@ -10,16 +10,15 @@ use crate::{actor::Actor, user::deposit_tx};
 pub fn mock_lightclient<R: RngCore>(
     rng: &mut R,
     rpc: &Client,
+    verifiers: Vec<Actor>,
     num_blocks: u32,
     num_deposits: u32,
     num_withdrawals: u32,
-    n: u32,
 ) -> (
     Vec<block::BlockHash>,
     Vec<bitcoin::Txid>,
     Vec<bitcoin::Address>,
 ) {
-
     let mut depositors: Vec<Actor> = Vec::new();
     for _ in 0..num_deposits {
         depositors.push(Actor::new(rng));
@@ -33,24 +32,19 @@ pub fn mock_lightclient<R: RngCore>(
     let other = Actor::new(rng);
     let amount: u64 = 100_000_000;
     let secp = Secp256k1::new();
-    let mut verifiers = Vec::new();
-    for _ in 0..n {
-        verifiers.push(Actor::new(rng));
-    }
 
     for i in 0..num_deposits {
-        rpc
-            .send_to_address(
-                &depositors[i as usize].address.clone(),
-                Amount::from_sat(amount),
-                None,
-                None,
-                None,
-                None,
-                None,
-                None,
-            )
-            .unwrap_or_else(|e| panic!("Failed to send to address: {}", e));
+        rpc.send_to_address(
+            &depositors[i as usize].address.clone(),
+            Amount::from_sat(amount),
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+        )
+        .unwrap_or_else(|e| panic!("Failed to send to address: {}", e));
     }
 
     let mut deposit_txs = Vec::new();
@@ -58,7 +52,7 @@ pub fn mock_lightclient<R: RngCore>(
         let deposit_tx_id = deposit_tx(
             &rpc,
             depositors[i as usize].clone(),
-            [i as u8; 32],
+            [i as u8; 20],
             &other,
             amount,
             &secp,
@@ -121,8 +115,19 @@ mod tests {
             Auth::UserPass("admin".to_string(), "admin".to_string()),
         )
         .unwrap_or_else(|e| panic!("Failed to connect to Bitcoin RPC: {}", e));
-        let (block_hash_vec, deposit_txs, withdrawal_addresses) =
-            mock_lightclient(&mut OsRng, &rpc, num_blocks, num_deposits, num_withdrawals, n);
+        let mut verifiers = Vec::new();
+        for _ in 0..n {
+            verifiers.push(Actor::new(&mut OsRng));
+        }
+
+        let (block_hash_vec, deposit_txs, withdrawal_addresses) = mock_lightclient(
+            &mut OsRng,
+            &rpc,
+            verifiers,
+            num_blocks,
+            num_deposits,
+            num_withdrawals,
+        );
 
         // Asert block_hash_vec len,
         // Assert every block hash has correct prev block hash,
@@ -134,19 +139,21 @@ mod tests {
             assert_eq!(
                 rpc.get_block_header_info(&block_hash_vec[i as usize])
                     .unwrap()
-                    .previous_block_hash.unwrap(),
+                    .previous_block_hash
+                    .unwrap(),
                 block_hash_vec[(i - 1) as usize]
             );
         }
         assert_eq!(deposit_txs.len(), 10);
         assert_eq!(withdrawal_addresses.len(), 10);
         for i in 0..10 {
-            rpc.get_raw_transaction(&deposit_txs[i as usize], None).unwrap_or_else(|e| {
-                panic!(
-                    "Failed to get raw transaction: {}, txid: {}",
-                    e, deposit_txs[i as usize]
-                )
-            });
+            rpc.get_raw_transaction(&deposit_txs[i as usize], None)
+                .unwrap_or_else(|e| {
+                    panic!(
+                        "Failed to get raw transaction: {}, txid: {}",
+                        e, deposit_txs[i as usize]
+                    )
+                });
         }
         println!("block_hash_vec: {:?}", block_hash_vec);
         println!("deposit_txs: {:?}", deposit_txs);

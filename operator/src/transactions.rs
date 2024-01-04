@@ -1,5 +1,6 @@
 use std::borrow::BorrowMut;
 use std::str::FromStr;
+use std::vec;
 
 use bitcoin::Address;
 use bitcoin::Amount;
@@ -18,8 +19,15 @@ use bitcoin::hashes::Hash;
 use bitcoin::hashes::sha256;
 use bitcoin::script::Builder;
 use bitcoin::secp256k1::All;
+use bitcoin::secp256k1::SecretKey;
+use bitcoin::secp256k1::PublicKey;
 use bitcoin::secp256k1::Secp256k1;
+use bitcoin::secp256k1::constants::CURVE_ORDER;
+use bitcoin:: secp256k1::Error;
 use bitcoin::XOnlyPublicKey;
+use bitcoin::secp256k1::schnorr;
+use bitcoin::secp256k1::schnorr::Signature;
+use bitcoin::secp256k1::Scalar;
 use bitcoin::sighash::SighashCache;
 use bitcoin::taproot::LeafVersion;
 use bitcoin::taproot::TaprootBuilder;
@@ -31,15 +39,16 @@ use bitcoincore_rpc::RpcApi;
 use lazy_static::lazy_static;
 
 use crate::actor::Actor;
+use circuit_helpers::config::DUST;
+use circuit_helpers::config::FEE;
+use circuit_helpers::config::USER_TAKES_AFTER;
+use circuit_helpers::config::REGTEST;
 
-pub const DUST: u64 = 546;
-pub const FEE: u64 = 154;
 lazy_static! {
     pub static ref INTERNAL_KEY: XOnlyPublicKey = XOnlyPublicKey::from_str("93c7378d96518a75448821c4f7c8f4bae7ce60f804d03d1f0628dd5dd0f5de51").unwrap();
 }
 
-pub const USER_TAKES_AFTER: u32 = 200;
-pub const FED_TAKES_AFTER: u32 = 1000;
+
 
 
 pub fn generate_nofn_script(
@@ -80,7 +89,7 @@ pub fn generate_deposit_address(
         secp,
         *INTERNAL_KEY,
         tree_info.merkle_root(),
-        bitcoin::Network::Regtest,
+        REGTEST,
     );
     (address, tree_info)
 }
@@ -96,7 +105,7 @@ pub fn generate_dust_address(
         secp,
         *INTERNAL_KEY,
         tree_info.merkle_root(),
-        bitcoin::Network::Regtest,
+        REGTEST,
     );
     (address, tree_info)
 }
@@ -208,4 +217,3 @@ pub fn tx_deposit(secp: &Secp256k1<All>, txid: Txid, vout: u32, amount: u64, act
 pub fn tx_bridge() {
 
 }
-

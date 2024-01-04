@@ -1,6 +1,6 @@
 use crate::utils::json_to_obj;
 use serde::{Deserialize, Serialize};
-use bridge_core::btc::calculate_double_sha256;
+use circuit_helpers::hashes::calculate_double_sha256;
 use bitcoin::{blockdata::transaction::Transaction, consensus::Decodable};
 
 #[allow(non_snake_case)]

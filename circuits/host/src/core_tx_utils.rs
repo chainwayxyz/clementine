@@ -1,14 +1,13 @@
 use serde::de::DeserializeOwned;
 use serde::Serialize;
 
-use bridge_core::core_tx::Transaction;
-use bridge_core::core_tx::TxInput;
-use bridge_core::core_tx::TxOutput;
-use bridge_core::core_tx::MAX_INPUTS_COUNT;
-use bridge_core::core_tx::MAX_OUTPUTS_COUNT;
-use bridge_core::core_tx::MAX_SCRIPT_SIZE;
-
-pub const MAX_HEX_SIZE: usize = 1024;
+use circuit_helpers::core_tx::Transaction;
+use circuit_helpers::core_tx::TxInput;
+use circuit_helpers::core_tx::TxOutput;
+use circuit_helpers::config::MAX_HEX_SIZE;
+use circuit_helpers::config::MAX_INPUTS_COUNT;
+use circuit_helpers::config::MAX_OUTPUTS_COUNT;
+use circuit_helpers::config::MAX_SCRIPT_SIZE;
 
 pub fn char_to_digit(c: char) -> u8 {
     match c {

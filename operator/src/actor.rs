@@ -1,7 +1,7 @@
 use bitcoin::hashes::sha256;
 use bitcoin::secp256k1::rand::rngs::OsRng;
 use bitcoin::secp256k1::rand::RngCore;
-use bitcoin::TapNodeHash;
+use bitcoin::{TapNodeHash, Txid};
 use bitcoin::{
     hashes::Hash,
     secp256k1::{
@@ -10,6 +10,7 @@ use bitcoin::{
     Address, TapSighash, TapTweakHash,
 };
 use tiny_keccak::{Hasher, Keccak};
+use circuit_helpers::config::REGTEST;
 
 #[derive(Clone, Debug)]
 pub struct Actor {
@@ -28,13 +29,20 @@ impl Default for Actor {
     }
 }
 
+#[derive(Clone, Debug)]
+pub struct EVMSignature {
+    v: u8,
+    r: [u8; 32],
+    s: [u8; 32],
+}
+
 impl Actor {
     pub fn new<R: RngCore>(rng: &mut R) -> Self {
         let secp: Secp256k1<All> = Secp256k1::new();
         let (sk, pk) = secp.generate_keypair(rng);
         let keypair = Keypair::from_secret_key(&secp, &sk);
         let (xonly, _parity) = XOnlyPublicKey::from_keypair(&keypair);
-        let address = Address::p2tr(&secp, xonly, None, bitcoin::Network::Regtest);
+        let address = Address::p2tr(&secp, xonly, None, REGTEST);
 
         let pk_serialized = pk.serialize_uncompressed();
         let pk_serialized: [u8; 64] = pk_serialized[1..].try_into().unwrap();
@@ -89,14 +97,14 @@ impl Actor {
 
     pub fn sign_deposit(
         &self,
-        txid: [u8; 32],
-        deposit_address: [u8; 20],
+        txid: Txid,
+        deposit_address: [u8; 4],
         hash: [u8; 32],
-    ) -> (u8, [u8; 32], [u8; 32]) {
-        let mut message = [0; 84];
-        message[..32].copy_from_slice(&txid);
-        message[32..52].copy_from_slice(&deposit_address);
-        message[52..].copy_from_slice(&hash);
+    ) -> EVMSignature {
+        let mut message = [0; 68];
+        message[..32].copy_from_slice(&txid.to_byte_array());
+        message[32..36].copy_from_slice(&deposit_address);
+        message[36..].copy_from_slice(&hash);
 
         let message = sha256::Hash::hash(&message);
         let signature = self.secp.sign_ecdsa_recoverable(
@@ -108,7 +116,11 @@ impl Actor {
         let r: [u8; 32] = signature[..32].try_into().unwrap();
         let s: [u8; 32] = signature[32..].try_into().unwrap();
 
-        return (v, r, s);
+        EVMSignature {
+            v,
+            r,
+            s,
+        }
     }
 }
 
@@ -119,11 +131,14 @@ mod tests {
     #[test]
     fn test_ecdsa() {
         let prover = Actor::new(&mut OsRng);
-        let txid = [1; 32];
-        let deposit_address = [2; 20];
+        let txid = Txid::all_zeros();
+        let deposit_address = [2; 4];
         let hash = [3; 32];
 
-        let (v, r, s) = prover.sign_deposit(txid, deposit_address, hash);
+        let sig = prover.sign_deposit(txid, deposit_address, hash);
+        let v = sig.v;
+        let r = sig.r;
+        let s = sig.s;
 
         println!("bytes32 txid = bytes32(0x{});", hex::encode(txid));
         println!(

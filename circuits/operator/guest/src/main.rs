@@ -1,20 +1,20 @@
 #![no_main]
 #![no_std]
 
-use core::num;
+use circuit_helpers::bitcoin::{validate_threshold_and_add_work, BlockHeader};
+use circuit_helpers::hashes::calculate_double_sha256;
+use circuit_helpers::config::{N, PERIOD3, Data};
+use circuit_helpers::incremental_merkle::IncrementalMerkleTree;
 
-use bridge_core::btc::{calculate_double_sha256, validate_threshold_and_add_work, BlockHeader};
-use bridge_core::core_tx::Transaction;
-use bridge_core::config::{N, PERIOD3};
-use bridge_core::incremental_merkle::IncrementalMerkleTree;
-use bridge_core::merkle::Data;
+
 use guest::bitcoin::verify_txid_input;
 use guest::bitcoin::verify_txid_merkle_path;
 use guest::bitcoin::verify_txid_output_address;
 use risc0_zkvm::guest::env;
-risc0_zkvm::guest::entry!(main);
 use crypto_bigint::Encoding;
 use crypto_bigint::U256;
+
+risc0_zkvm::guest::entry!(main);
 
 pub fn handle_withdrawals(merkle_tree_data: &mut IncrementalMerkleTree, merkle_root: Data) -> u32 {
     let num_withdrawals: u32 = env::read();
@@ -30,9 +30,9 @@ pub fn handle_withdrawals(merkle_tree_data: &mut IncrementalMerkleTree, merkle_r
 }
 
 pub fn verify_light_client(
-    block_hash: Data,
-    withdrawal_merkle_root: Data,
-    deposit_merkle_root: Data,
+    _block_hash: Data,
+    _withdrawal_merkle_root: Data,
+    _deposit_merkle_root: Data,
 ) {
 }
 
