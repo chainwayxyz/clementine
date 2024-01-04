@@ -2,8 +2,8 @@ use serde::{de::DeserializeOwned, Deserialize, Serialize};
 
 use crate::hashes::calculate_double_sha256;
 
-const TX_INPUT_SIZE: usize = 41;
-const TX_OUTPUT_SIZE: usize = 43;
+use crate::config::TX_INPUT_SIZE;
+use crate::config::TX_OUTPUT_SIZE;
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize)]
 pub struct TxInput {

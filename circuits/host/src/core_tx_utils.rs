@@ -4,12 +4,10 @@ use serde::Serialize;
 use circuit_helpers::core_tx::Transaction;
 use circuit_helpers::core_tx::TxInput;
 use circuit_helpers::core_tx::TxOutput;
-
-const MAX_INPUTS_COUNT: u8 = 2;
-const MAX_OUTPUTS_COUNT: u8 = 3;
-const MAX_SCRIPT_SIZE: usize = 2096;
-
-pub const MAX_HEX_SIZE: usize = 1024;
+use circuit_helpers::config::MAX_HEX_SIZE;
+use circuit_helpers::config::MAX_INPUTS_COUNT;
+use circuit_helpers::config::MAX_OUTPUTS_COUNT;
+use circuit_helpers::config::MAX_SCRIPT_SIZE;
 
 pub fn char_to_digit(c: char) -> u8 {
     match c {

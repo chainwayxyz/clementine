@@ -14,12 +14,9 @@ use circuit_helpers::core_tx::TxOutput;
 
 use byteorder::{ByteOrder, LittleEndian};
 use hex;
-
-const MAX_INPUTS_COUNT: u8 = 2;
-const MAX_OUTPUTS_COUNT: u8 = 3;
-const MAX_SCRIPT_SIZE: usize = 34;
-
-pub const MAX_HEX_SIZE: usize = 1024;
+use circuit_helpers::config::MAX_INPUTS_COUNT;
+use circuit_helpers::config::MAX_OUTPUTS_COUNT;
+use circuit_helpers::config::MAX_SCRIPT_SIZE;
 
 pub fn take_stdin<T: std::str::FromStr>(prompt: &str) -> Result<T, T::Err> {
     print!("{}", prompt);

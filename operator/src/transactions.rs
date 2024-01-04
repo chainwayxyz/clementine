@@ -31,15 +31,16 @@ use bitcoincore_rpc::RpcApi;
 use lazy_static::lazy_static;
 
 use crate::actor::Actor;
+use circuit_helpers::config::DUST;
+use circuit_helpers::config::FEE;
+use circuit_helpers::config::USER_TAKES_AFTER;
+use circuit_helpers::config::FED_TAKES_AFTER;
 
-pub const DUST: u64 = 546;
-pub const FEE: u64 = 154;
 lazy_static! {
     pub static ref INTERNAL_KEY: XOnlyPublicKey = XOnlyPublicKey::from_str("93c7378d96518a75448821c4f7c8f4bae7ce60f804d03d1f0628dd5dd0f5de51").unwrap();
 }
 
-pub const USER_TAKES_AFTER: u32 = 200;
-pub const FED_TAKES_AFTER: u32 = 1000;
+
 
 
 pub fn generate_nofn_script(
