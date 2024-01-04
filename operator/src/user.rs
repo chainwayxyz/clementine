@@ -13,14 +13,12 @@ use bitcoin::XOnlyPublicKey;
 use bitcoincore_rpc::Client;
 use bitcoincore_rpc::RpcApi;
 use crate::actor::Actor;
-use crate::operator::Operator;
 use circuit_helpers::config::REGTEST;
 
 pub struct User {
     rpc: Client,
     secp: Secp256k1<secp256k1::All>,
     signer: Actor,
-    operator: Operator,
 }
 
 impl User {
@@ -113,6 +111,8 @@ mod tests {
     use bitcoin::secp256k1::rand::rngs::OsRng;
     use bitcoincore_rpc::Auth;
 
+    use crate::operator::Operator;
+
     use super::*;
 
     #[test]
@@ -123,14 +123,15 @@ mod tests {
         )
         .unwrap_or_else(|e| panic!("Failed to connect to Bitcoin RPC: {}", e));
         let secp = Secp256k1::new();
-        let mut rng = OsRng::new().unwrap();
-        let signer = Actor::new(&secp, &mut rng);
-        let operator = Operator::new(&rpc, &secp, signer.clone());
+        let signer = Actor::new(&mut OsRng);
+        let operator = Operator::new( &mut OsRng, &rpc);
         let user = User {
             rpc,
             secp,
             signer,
-            operator,
         };
+        let amount = 10_000_000;
+        let tx = user.deposit_tx(&user.rpc, amount, &user.secp, operator.verifiers, [0; 32]);
+        operator.new_deposit(tx.txid(), hash, return_address)
     }
 }
