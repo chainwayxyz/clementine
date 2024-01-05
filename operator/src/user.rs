@@ -145,6 +145,20 @@ mod tests {
         let amount = 100_000_000;
         let mut verifiers = operator.verifiers.clone();
         verifiers.push(operator.signer.xonly_public_key.clone());
+
+        let mut verifiers_evm_addresses = operator.verifier_evm_addresses.clone();
+        verifiers_evm_addresses.push(operator.signer.evm_address);
+        // for verifier_evm_address in verifiers_evm_addresses {
+        //     // print!("_verifiers[{}] = address(bytes20(hex\"", );
+        // }
+        for verifier_evm_address in verifiers_evm_addresses {
+            print!(
+                "address(bytes20(hex\"{}\")),",
+                hex::encode(verifier_evm_address)
+            );
+        }
+        println!();
+
         let (utxo, hash, return_address) =
             user.deposit_tx(&user.rpc, amount, &user.secp, verifiers);
         rpc.generate_to_address(1, &operator.signer.address)

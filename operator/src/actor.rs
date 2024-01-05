@@ -102,13 +102,15 @@ impl Actor {
     pub fn sign_deposit(
         &self,
         txid: Txid,
-        deposit_address: [u8; 4],
+        evm_address: EVMAddress,
         hash: [u8; 32],
+        timestamp: [u8; 4],
     ) -> EVMSignature {
-        let mut message = [0; 68];
+        let mut message = [0; 88];
         message[..32].copy_from_slice(&txid.to_byte_array());
-        message[32..36].copy_from_slice(&deposit_address);
-        message[36..].copy_from_slice(&hash);
+        message[32..52].copy_from_slice(&evm_address);
+        message[52..84].copy_from_slice(&hash);
+        message[84..].copy_from_slice(&timestamp);
 
         let message = sha256::Hash::hash(&message);
         let signature = self.secp.sign_ecdsa_recoverable(
@@ -136,10 +138,12 @@ mod tests {
     fn test_ecdsa() {
         let prover = Actor::new(&mut OsRng);
         let txid = Txid::all_zeros();
-        let deposit_address = [2; 4];
+        let timestamp = [2; 4];
         let hash = [3; 32];
+        let evm_address = prover.evm_address;
 
-        let sig = prover.sign_deposit(txid, deposit_address, hash);
+
+        let sig = prover.sign_deposit(txid, evm_address, hash, timestamp);
         let v = sig.v;
         let r = sig.r;
         let s = sig.s;
@@ -147,9 +151,10 @@ mod tests {
         println!("bytes32 txid = bytes32(0x{});", hex::encode(txid));
         println!(
             "address deposit_address = address(bytes20(hex\"{}\"));",
-            hex::encode(deposit_address)
+            hex::encode(evm_address)
         );
         println!("bytes32 _hash = bytes32(0x{});", hex::encode(hash));
+        println!("bytes4 timestamp = bytes4(0x{});", hex::encode(timestamp));
         println!("bytes32 r = bytes32(0x{});", hex::encode(r));
         println!("bytes32 s = bytes32(0x{});", hex::encode(s));
         println!("uint8 v = {};", v);

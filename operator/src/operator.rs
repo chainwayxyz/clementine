@@ -3,15 +3,15 @@ use std::collections::HashMap;
 use crate::actor::{Actor, EVMSignature};
 use crate::merkle::MerkleTree;
 use crate::user::User;
-use crate::utils::{generate_n_of_n_script, UTXO, generate_n_of_n_script_without_hash};
+use crate::utils::{generate_n_of_n_script, generate_n_of_n_script_without_hash, UTXO};
 use crate::verifier::Verifier;
 use bitcoin::address::{self, NetworkChecked};
 use bitcoin::taproot::TaprootBuilder;
 use bitcoin::transaction::Version;
 use bitcoin::{absolute, hashes::Hash, secp256k1, secp256k1::schnorr, Address, Txid};
-use bitcoin::{script, Transaction, TxIn, TxOut, OutPoint, Witness, ScriptBuf};
+use bitcoin::{script, OutPoint, ScriptBuf, Transaction, TxIn, TxOut, Witness};
 use bitcoincore_rpc::{Client, RpcApi};
-use circuit_helpers::config::{NUM_VERIFIERS, REGTEST, USER_TAKES_AFTER, DUST, EVMAddress};
+use circuit_helpers::config::{EVMAddress, DUST, NUM_VERIFIERS, REGTEST, USER_TAKES_AFTER};
 use secp256k1::rand::rngs::OsRng;
 use secp256k1::{All, Secp256k1, XOnlyPublicKey};
 use sha2::{Digest, Sha256};
@@ -108,7 +108,7 @@ impl<'a> Operator<'a> {
         utxo: UTXO,
         hash: [u8; 32],
         return_address: XOnlyPublicKey,
-        eth_address: EVMAddress,
+        evm_address: EVMAddress,
     ) -> Vec<EVMSignature> {
         // self.verifiers + signer.public_key
         let mut all_verifiers = self.verifiers.to_vec();
@@ -127,7 +127,8 @@ impl<'a> Operator<'a> {
             .iter()
             .map(|verifier| {
                 // Note: In this part we will need to call the verifier's API to get the presigns
-                let deposit_presigns = verifier.new_deposit(utxo, hash, return_address.clone());
+                let deposit_presigns =
+                    verifier.new_deposit(utxo, hash, return_address.clone(), evm_address);
                 check_presigns(utxo, timestamp, &deposit_presigns);
                 deposit_presigns
             })
@@ -145,22 +146,25 @@ impl<'a> Operator<'a> {
                 script_sig: ScriptBuf::default(),
                 witness: Witness::new(),
             }],
-            output: vec![TxOut {
-                value: bitcoin::Amount::from_sat(100_000_000 - DUST),
-                script_pubkey: generate_n_of_n_script_without_hash(&all_verifiers),
-            },
-            TxOut {
-                value: bitcoin::Amount::from_sat(DUST),
-                script_pubkey: ScriptBuf::new(),
-            }],
+            output: vec![
+                TxOut {
+                    value: bitcoin::Amount::from_sat(100_000_000 - DUST),
+                    script_pubkey: generate_n_of_n_script_without_hash(&all_verifiers),
+                },
+                TxOut {
+                    value: bitcoin::Amount::from_sat(DUST),
+                    script_pubkey: ScriptBuf::new(),
+                },
+            ],
         };
 
         let kickoff_txid = kickoff_tx.txid();
 
         let rollup_sign = self.signer.sign_deposit(
             kickoff_txid,
-            timestamp.to_consensus_u32().to_be_bytes(),
+            evm_address,
             hash,
+            timestamp.to_consensus_u32().to_be_bytes(),
         );
         let mut all_rollup_signs = presigns_from_all_verifiers
             .iter()

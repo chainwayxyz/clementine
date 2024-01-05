@@ -42,6 +42,7 @@ impl<'a> Verifier<'a> {
         utxo: UTXO,
         hash: [u8; 32],
         return_address: XOnlyPublicKey,
+        evm_address: EVMAddress,
     ) -> DepositPresigns {
         let mut all_verifiers = self.verifiers.to_vec();
         all_verifiers.push(self.operator);
@@ -63,8 +64,9 @@ impl<'a> Verifier<'a> {
         }
         let rollup_sign = self.signer.sign_deposit(
             kickoff_txid,
-            timestamp.to_consensus_u32().to_be_bytes(),
+            evm_address,
             hash,
+            timestamp.to_consensus_u32().to_be_bytes(),
         );
         DepositPresigns {
             rollup_sign,
