@@ -1,4 +1,5 @@
 use crate::actor::Actor;
+use crate::utils::generate_n_of_n_script;
 use bitcoin::opcodes::all::*;
 use bitcoin::script::Builder;
 use bitcoin::secp256k1::All;
@@ -13,33 +14,25 @@ use bitcoin::XOnlyPublicKey;
 use bitcoincore_rpc::Client;
 use bitcoincore_rpc::RpcApi;
 use circuit_helpers::config::REGTEST;
+use circuit_helpers::config::USER_TAKES_AFTER;
+use secp256k1::rand::Rng;
 use secp256k1::rand::rngs::OsRng;
+use circuit_helpers::hashes::sha256_32bytes;
+use serde::de;
 
 pub struct User<'a> {
     rpc: &'a Client,
     secp: Secp256k1<secp256k1::All>,
     pub signer: Actor,
+    preimage: [u8; 32],
 }
 
 impl<'a> User<'a> {
     pub fn new(rng: &mut OsRng, rpc: &'a Client) -> Self {
         let secp = Secp256k1::new();
         let signer = Actor::new(&mut OsRng);
-        User { rpc, secp, signer }
-    }
-
-    pub fn generate_n_of_n_script(verifiers_pks: Vec<XOnlyPublicKey>, hash: [u8; 32]) -> ScriptBuf {
-        let mut builder = Builder::new();
-        for vpk in verifiers_pks {
-            builder = builder.push_x_only_key(&vpk).push_opcode(OP_CHECKSIGVERIFY);
-        }
-        // builder = builder.push_x_only_key(&verifiers_pks[0]).push_opcode(OP_CHECKSIGVERIFY);
-        builder = builder
-            .push_opcode(OP_SHA256)
-            .push_slice(hash)
-            .push_opcode(OP_EQUAL);
-
-        builder.into_script()
+        let preimage: [u8; 32] = OsRng.gen();
+        User { rpc, secp, signer, preimage }
     }
 
     pub fn generate_timelock_script(&self, block_count: u32) -> ScriptBuf {
@@ -51,21 +44,15 @@ impl<'a> User<'a> {
             .into_script()
     }
 
-    pub fn generate_dust_script(eth_address: [u8; 20]) -> ScriptBuf {
-        Builder::new()
-            .push_opcode(OP_RETURN)
-            .push_slice(&eth_address)
-            .into_script()
-    }
-
     pub fn generate_deposit_address(
         &self,
         secp: &Secp256k1<All>,
         verifier_pks: Vec<XOnlyPublicKey>,
         hash: [u8; 32],
     ) -> (Address, TaprootSpendInfo) {
-        let script_n_of_n = User::generate_n_of_n_script(verifier_pks, hash);
-        let script_timelock = self.generate_timelock_script(150);
+        // println!("inputs: {:?} {:?} {:?}", secp, verifier_pks, hash);
+        let script_n_of_n = generate_n_of_n_script(verifier_pks, hash);
+        let script_timelock = self.generate_timelock_script(USER_TAKES_AFTER);
         let taproot = TaprootBuilder::new()
             .add_leaf(1, script_n_of_n.clone())
             .unwrap()
@@ -82,10 +69,13 @@ impl<'a> User<'a> {
         rpc: &Client,
         amount: u64,
         secp: &Secp256k1<All>,
-        verifier_pks: Vec<XOnlyPublicKey>,
-        hash: [u8; 32],
+        verifiers_pks: Vec<XOnlyPublicKey>,
     ) -> (Transaction, [u8; 32], XOnlyPublicKey) {
-        let deposit_address = self.generate_deposit_address(secp, verifier_pks, hash);
+        let hash = sha256_32bytes(self.preimage);
+        let deposit_address = self.generate_deposit_address(secp, verifiers_pks, hash);
+        // println!("deposit address: {:?}", deposit_address.0);
+        // println!("deposit address script spend info: {:?}", deposit_address.1);
+        // println!("deposit address script_pubkey: {:?}", deposit_address.0.script_pubkey());
         let initial_tx_id = rpc
             .send_to_address(
                 &deposit_address.0,
@@ -102,9 +92,14 @@ impl<'a> User<'a> {
             .get_raw_transaction(&initial_tx_id, None)
             .unwrap_or_else(|e| panic!("Failed to get transaction: {}", e));
 
-        println!("initial tx = {:?}", initial_tx);
+        // println!("initial tx = {:?}", initial_tx);
         (initial_tx, hash, self.signer.xonly_public_key)
     }
+
+    pub fn reveal_preimage(&self) -> [u8; 32] {
+        self.preimage
+    }
+
 }
 #[cfg(test)]
 mod tests {
@@ -122,14 +117,15 @@ mod tests {
             Auth::UserPass("admin".to_string(), "admin".to_string()),
         )
         .unwrap_or_else(|e| panic!("Failed to connect to Bitcoin RPC: {}", e));
-
-
         let operator = Operator::new(&mut OsRng, &rpc);
         let user = User::new(&mut OsRng, &rpc);
-        let amount = 10_000_000;
+        let amount = 100_000_000;
+        let mut verifiers = operator.verifiers.clone();
+        verifiers.push(operator.signer.xonly_public_key.clone());
         let (tx, hash, return_address) =
-            user.deposit_tx(&user.rpc, amount, &user.secp, operator.verifiers.clone(), [0; 32]);
-        let signatures = operator.new_deposit(tx.txid(), hash, return_address);
+            user.deposit_tx(&user.rpc, amount, &user.secp, verifiers);
+        let mine_block = rpc.generate_to_address(1, &operator.signer.address).unwrap();
+        let signatures = operator.new_deposit(&user, tx.txid(), hash, return_address);
         // TEST IF SIGNATURES ARE VALID
         // operator.preimage_revealed(preimage, txid);
     }

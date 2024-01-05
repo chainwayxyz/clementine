@@ -24,7 +24,7 @@ pub struct EVMSignature {
 pub type EVMAddress = [u8; 20];
 #[derive(Clone, Debug)]
 pub struct Actor {
-    secp: Secp256k1<All>,
+    pub secp: Secp256k1<All>,
     keypair: Keypair,
     pub secret_key: SecretKey,
     pub public_key: PublicKey,

@@ -4,7 +4,7 @@ use secp256k1::{rand::rngs::OsRng, XOnlyPublicKey};
 
 use crate::{
     actor::{Actor, EVMAddress},
-    operator::{check_deposit, DepositPresigns, NUM_ROUNDS},
+    operator::{check_deposit, DepositPresigns, NUM_ROUNDS}, user::User,
 };
 
 use circuit_helpers::config::NUM_VERIFIERS;
@@ -38,13 +38,14 @@ impl<'a> Verifier<'a> {
     // this is a public endpoint that only depositor can call
     pub fn new_deposit(
         &self,
+        depositor: &User,
         txid: Txid,
         hash: [u8; 32],
         return_address: XOnlyPublicKey,
     ) -> DepositPresigns {
         let mut all_verifiers = self.verifiers.to_vec();
         all_verifiers.push(self.operator);
-        let timestamp = check_deposit(self.rpc, txid, hash, return_address, &all_verifiers);
+        let timestamp = check_deposit(&self.secp, self.rpc, depositor, txid, hash, return_address, all_verifiers);
         let kickoff_sign = self.signer.sign(TapSighash::all_zeros());
         let kickoff_txid = Txid::all_zeros();
         let mut move_bridge_sign = Vec::new();

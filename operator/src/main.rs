@@ -13,7 +13,7 @@ use bitcoin::{
 };
 use bitcoincore_rpc::{Auth, Client, RpcApi};
 use operator::{
-    actor::Actor, transactions::tx_deposit, proof::withdrawals::pay_withdrawals,
+    actor::Actor, transactions::tx_deposit, proof::withdrawals::pay_withdrawals, operator::Operator, verifier::Verifier, user::User,
 };
 use circuit_helpers::config::NUM_VERIFIERS;
 
@@ -55,11 +55,21 @@ fn main() {
     )
     .unwrap_or_else(|e| panic!("Failed to connect to Bitcoin RPC: {}", e));
 
+    let mut operator = Operator::new(&mut OsRng, &rpc);
+
     let mut verifiers = Vec::new();
     for _ in 0..NUM_VERIFIERS {
-        let verifier = Actor::new(&mut OsRng);
+        let verifier = Verifier::new(&mut OsRng, &rpc, operator.signer.xonly_public_key);
         verifiers.push(verifier);
     }
+
+    let mut depositors = Vec::new();
+    for _ in 0..10 {
+        let depositor = User::new(&mut OsRng, &rpc);
+        depositors.push(depositor);
+    }
+
+    
 
     let bridge_funds: Vec<bitcoin::Txid> = Vec::new();
 

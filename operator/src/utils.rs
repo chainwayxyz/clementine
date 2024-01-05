@@ -2,9 +2,15 @@ use std::io::{self, Write};
 
 use bitcoin;
 
+use bitcoin::ScriptBuf;
 use bitcoin::consensus::Decodable;
+use bitcoin::opcodes::all::OP_CHECKSIGVERIFY;
+use bitcoin::opcodes::all::OP_EQUAL;
+use bitcoin::opcodes::all::OP_SHA256;
+use bitcoin::script::Builder;
 use bitcoincore_rpc::Client;
 use bitcoincore_rpc::RpcApi;
+use secp256k1::XOnlyPublicKey;
 use serde::de::DeserializeOwned;
 use serde::Serialize;
 
@@ -24,6 +30,19 @@ pub fn take_stdin<T: std::str::FromStr>(prompt: &str) -> Result<T, T::Err> {
         .expect("Failed to read line");
 
     string.trim().parse::<T>()
+}
+
+pub fn generate_n_of_n_script(verifiers_pks: Vec<XOnlyPublicKey>, hash: [u8; 32]) -> ScriptBuf {
+    let mut builder = Builder::new();
+    for vpk in verifiers_pks {
+        builder = builder.push_x_only_key(&vpk).push_opcode(OP_CHECKSIGVERIFY);
+    }
+    builder = builder
+        .push_opcode(OP_SHA256)
+        .push_slice(hash)
+        .push_opcode(OP_EQUAL);
+
+    builder.into_script()
 }
 
 pub fn char_to_digit(c: char) -> Result<u8, std::num::ParseIntError> {
