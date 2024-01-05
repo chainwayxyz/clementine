@@ -33,7 +33,7 @@ impl<'a> User<'a> {
     pub fn new(rng: &mut OsRng, rpc: &'a Client) -> Self {
         let secp = Secp256k1::new();
         let signer = Actor::new(&mut OsRng);
-        let preimage: [u8; 32] = OsRng.gen();
+        let preimage: [u8; 32] = rng.gen();
         User {
             rpc,
             secp,
