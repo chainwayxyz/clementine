@@ -140,17 +140,20 @@ mod tests {
             Auth::UserPass("admin".to_string(), "admin".to_string()),
         )
         .unwrap_or_else(|e| panic!("Failed to connect to Bitcoin RPC: {}", e));
-        let operator = Operator::new(&mut OsRng, &rpc);
+        let mut operator = Operator::new(&mut OsRng, &rpc);
         let user = User::new(&mut OsRng, &rpc);
         let amount = 100_000_000;
         let mut verifiers = operator.verifiers.clone();
         verifiers.push(operator.signer.xonly_public_key.clone());
         let (utxo, hash, return_address) =
             user.deposit_tx(&user.rpc, amount, &user.secp, verifiers);
-        let mine_block = rpc
-            .generate_to_address(1, &operator.signer.address)
+        rpc.generate_to_address(1, &operator.signer.address)
             .unwrap();
         let signatures = operator.new_deposit(utxo, hash, return_address);
+
+        println!("signatures: {:?}", signatures);
+
+        operator.preimage_revealed(user.preimage, utxo.txid);
         // TEST IF SIGNATURES ARE VALID
         // operator.preimage_revealed(preimage, txid);
     }

@@ -62,7 +62,7 @@ pub struct Operator<'a> {
     pub withdrawals_merkle_tree: MerkleTree,
     pub withdrawals_payment_txids: Vec<Txid>,
     pub mock_verifier_access: Vec<Verifier<'a>>, // on production this will be removed rather we will call the verifier's API
-    pub waiting_deposists: HashMap<Txid, HashType>,
+    pub preimages: Vec<PreimageType>,
 }
 
 pub fn check_presigns(utxo: UTXO, timestamp: absolute::Time, deposit_presigns: &DepositPresigns) {}
@@ -99,7 +99,7 @@ impl<'a> Operator<'a> {
             withdrawals_merkle_tree: MerkleTree::initial(),
             withdrawals_payment_txids: Vec::new(),
             mock_verifier_access: verifiers,
-            waiting_deposists: HashMap::new(),
+            preimages: Vec::new(),
         }
     }
     // this is a public endpoint that every depositor can call
@@ -179,16 +179,8 @@ impl<'a> Operator<'a> {
     }
 
     // this is called when a Deposit event emitted on rollup
-    pub fn preimage_revealed(&mut self, preimage: [u8; 32], txid: Txid) {
-        let hash = self.waiting_deposists.get(&txid).unwrap().clone();
-        // calculate hash of preimage
-        let mut hasher = Sha256::new();
-        hasher.update(preimage);
-        let calculated_hash: HashType = hasher.finalize().try_into().unwrap();
-        if calculated_hash != hash {
-            panic!("preimage does not match with the hash");
-        }
-
+    pub fn preimage_revealed(&mut self, preimage: PreimageType, txid: Txid) {
+        self.preimages.push(preimage);
         // 1. Add the corresponding txid to DepositsMerkleTree
         self.deposit_merkle_tree.add(txid.to_byte_array());
         // this function is interal, where it checks if the preimage is revealed, then if it is revealed
