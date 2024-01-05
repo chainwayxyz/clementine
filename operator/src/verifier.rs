@@ -3,12 +3,12 @@ use bitcoincore_rpc::Client;
 use secp256k1::{rand::rngs::OsRng, XOnlyPublicKey};
 
 use crate::{
-    actor::{Actor, EVMAddress},
+    actor::Actor,
     operator::{check_deposit, DepositPresigns, NUM_ROUNDS},
     user::User, utils::UTXO,
 };
 
-use circuit_helpers::config::NUM_VERIFIERS;
+use circuit_helpers::config::EVMAddress;
 
 pub struct Verifier<'a> {
     pub rpc: &'a Client,
@@ -51,7 +51,7 @@ impl<'a> Verifier<'a> {
             utxo,
             hash,
             return_address,
-            all_verifiers,
+            &all_verifiers,
         );
         let kickoff_sign = self.signer.sign(TapSighash::all_zeros());
         let kickoff_txid = Txid::all_zeros();

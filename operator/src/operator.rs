@@ -1,20 +1,20 @@
 use std::collections::HashMap;
 
-use crate::actor::{Actor, EVMAddress, EVMSignature};
+use crate::actor::{Actor, EVMSignature};
 use crate::merkle::MerkleTree;
 use crate::user::User;
-use crate::utils::{generate_n_of_n_script, UTXO};
+use crate::utils::{generate_n_of_n_script, UTXO, generate_n_of_n_script_without_hash};
 use crate::verifier::Verifier;
 use bitcoin::address::{self, NetworkChecked};
-use bitcoin::script;
 use bitcoin::taproot::TaprootBuilder;
+use bitcoin::transaction::Version;
 use bitcoin::{absolute, hashes::Hash, secp256k1, secp256k1::schnorr, Address, Txid};
+use bitcoin::{script, Transaction, TxIn, TxOut, OutPoint, Witness, ScriptBuf};
 use bitcoincore_rpc::{Client, RpcApi};
-use circuit_helpers::config::{NUM_VERIFIERS, REGTEST, USER_TAKES_AFTER};
+use circuit_helpers::config::{NUM_VERIFIERS, REGTEST, USER_TAKES_AFTER, DUST, EVMAddress};
 use secp256k1::rand::rngs::OsRng;
 use secp256k1::{All, Secp256k1, XOnlyPublicKey};
 use sha2::{Digest, Sha256};
-
 pub const NUM_ROUNDS: usize = 10;
 type PreimageType = [u8; 32];
 type HashType = [u8; 32];
@@ -25,7 +25,7 @@ pub fn check_deposit(
     utxo: UTXO,
     hash: [u8; 32],
     return_address: XOnlyPublicKey,
-    verifiers_pks: Vec<XOnlyPublicKey>,
+    verifiers_pks: &Vec<XOnlyPublicKey>,
 ) -> absolute::Time {
     // 1. Check if txid is mined in bitcoin
     // 2. Check if 0th output of the txid has 1 BTC
@@ -108,6 +108,7 @@ impl<'a> Operator<'a> {
         utxo: UTXO,
         hash: [u8; 32],
         return_address: XOnlyPublicKey,
+        eth_address: EVMAddress,
     ) -> Vec<EVMSignature> {
         // self.verifiers + signer.public_key
         let mut all_verifiers = self.verifiers.to_vec();
@@ -118,7 +119,7 @@ impl<'a> Operator<'a> {
             utxo,
             hash,
             return_address.clone(),
-            all_verifiers,
+            &all_verifiers,
         );
 
         let presigns_from_all_verifiers = self
@@ -126,14 +127,35 @@ impl<'a> Operator<'a> {
             .iter()
             .map(|verifier| {
                 // Note: In this part we will need to call the verifier's API to get the presigns
-                let deposit_presigns =
-                    verifier.new_deposit(utxo, hash, return_address.clone());
+                let deposit_presigns = verifier.new_deposit(utxo, hash, return_address.clone());
                 check_presigns(utxo, timestamp, &deposit_presigns);
                 deposit_presigns
             })
             .collect::<Vec<_>>();
 
-        let kickoff_txid = Txid::all_zeros();
+        let kickoff_tx = Transaction {
+            version: Version(2),
+            lock_time: absolute::LockTime::from_consensus(0),
+            input: vec![TxIn {
+                previous_output: OutPoint {
+                    txid: utxo.txid,
+                    vout: utxo.vout,
+                },
+                sequence: bitcoin::transaction::Sequence::ENABLE_RBF_NO_LOCKTIME,
+                script_sig: ScriptBuf::default(),
+                witness: Witness::new(),
+            }],
+            output: vec![TxOut {
+                value: bitcoin::Amount::from_sat(100_000_000 - DUST),
+                script_pubkey: generate_n_of_n_script_without_hash(&all_verifiers),
+            },
+            TxOut {
+                value: bitcoin::Amount::from_sat(DUST),
+                script_pubkey: ScriptBuf::new(),
+            }],
+        };
+
+        let kickoff_txid = kickoff_tx.txid();
 
         let rollup_sign = self.signer.sign_deposit(
             kickoff_txid,

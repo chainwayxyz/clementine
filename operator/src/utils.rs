@@ -8,6 +8,7 @@ use bitcoin::consensus::Decodable;
 use bitcoin::opcodes::all::OP_CHECKSIGVERIFY;
 use bitcoin::opcodes::all::OP_EQUAL;
 use bitcoin::opcodes::all::OP_SHA256;
+use bitcoin::psbt::raw;
 use bitcoin::script::Builder;
 use bitcoincore_rpc::Client;
 use bitcoincore_rpc::RpcApi;
@@ -39,17 +40,33 @@ pub fn take_stdin<T: std::str::FromStr>(prompt: &str) -> Result<T, T::Err> {
     string.trim().parse::<T>()
 }
 
-pub fn generate_n_of_n_script(verifiers_pks: Vec<XOnlyPublicKey>, hash: [u8; 32]) -> ScriptBuf {
+pub fn generate_n_of_n_script(verifiers_pks: &Vec<XOnlyPublicKey>, hash: [u8; 32]) -> ScriptBuf {
+    let raw_script = generate_n_of_n_script_without_hash(&verifiers_pks);
+    let mut script_buf = convert_scriptbuf_into_builder(raw_script);
+    script_buf.push_opcode(OP_SHA256).push_slice(hash).push_opcode(OP_EQUAL).into_script()
+}
+
+pub fn generate_n_of_n_script_without_hash(verifiers_pks: &Vec<XOnlyPublicKey>) -> ScriptBuf {
     let mut builder = Builder::new();
     for vpk in verifiers_pks {
         builder = builder.push_x_only_key(&vpk).push_opcode(OP_CHECKSIGVERIFY);
     }
+    builder.into_script()
+}
+
+pub fn add_hash_to_script(script: ScriptBuf, hash: [u8; 32]) -> ScriptBuf {
+    let script_bytes = script.as_bytes().to_vec();
+    let mut builder = Builder::from(script_bytes);
     builder = builder
         .push_opcode(OP_SHA256)
         .push_slice(hash)
         .push_opcode(OP_EQUAL);
-
     builder.into_script()
+}
+
+pub fn convert_scriptbuf_into_builder(script: ScriptBuf) -> Builder {
+    let script_bytes = script.as_bytes().to_vec();
+    Builder::from(script_bytes)
 }
 
 pub fn char_to_digit(c: char) -> Result<u8, std::num::ParseIntError> {

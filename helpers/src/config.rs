@@ -25,6 +25,7 @@ pub const USER_TAKES_AFTER: u32 = 200;
 pub const FED_TAKES_AFTER: u32 = 1000;
 pub const REGTEST: Network = bitcoin::Network::Regtest;
 pub const NUM_VERIFIERS: usize = 10;
+pub type EVMAddress = [u8; 20];
 
 // Zero subtree hashes
 lazy_static! {

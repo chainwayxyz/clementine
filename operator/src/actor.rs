@@ -11,6 +11,7 @@ use bitcoin::{
 };
 use tiny_keccak::{Hasher, Keccak};
 use circuit_helpers::config::REGTEST;
+use circuit_helpers::config::EVMAddress;
 
 
 
@@ -21,7 +22,6 @@ pub struct EVMSignature {
     s: [u8; 32],
 }
 
-pub type EVMAddress = [u8; 20];
 #[derive(Clone, Debug)]
 pub struct Actor {
     pub secp: Secp256k1<All>,

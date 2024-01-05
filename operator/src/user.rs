@@ -53,12 +53,12 @@ impl<'a> User<'a> {
 
     pub fn generate_deposit_address(
         secp: &Secp256k1<All>,
-        verifier_pks: Vec<XOnlyPublicKey>,
+        verifier_pks: &Vec<XOnlyPublicKey>,
         hash: [u8; 32],
         public_key: XOnlyPublicKey,
     ) -> (Address, TaprootSpendInfo) {
         // println!("inputs: {:?} {:?} {:?}", secp, verifier_pks, hash);
-        let script_n_of_n = generate_n_of_n_script(verifier_pks, hash);
+        let script_n_of_n = generate_n_of_n_script(&verifier_pks, hash);
         let script_timelock = User::generate_timelock_script(USER_TAKES_AFTER, public_key);
         let taproot = TaprootBuilder::new()
             .add_leaf(1, script_n_of_n.clone())
@@ -80,7 +80,7 @@ impl<'a> User<'a> {
     ) -> (UTXO, [u8; 32], XOnlyPublicKey) {
         let hash = sha256_32bytes(self.preimage);
         let (deposit_address, _) =
-            User::generate_deposit_address(secp, verifiers_pks, hash, self.signer.xonly_public_key);
+            User::generate_deposit_address(secp, &verifiers_pks, hash, self.signer.xonly_public_key);
         // println!("deposit address: {:?}", deposit_address.0);
         // println!("deposit address script spend info: {:?}", deposit_address.1);
         // println!("deposit address script_pubkey: {:?}", deposit_address.0.script_pubkey());
@@ -149,7 +149,7 @@ mod tests {
             user.deposit_tx(&user.rpc, amount, &user.secp, verifiers);
         rpc.generate_to_address(1, &operator.signer.address)
             .unwrap();
-        let signatures = operator.new_deposit(utxo, hash, return_address);
+        let signatures = operator.new_deposit(utxo, hash, return_address, user.signer.evm_address);
 
         println!("signatures: {:?}", signatures);
 
