@@ -3,15 +3,14 @@ use std::collections::HashMap;
 use crate::actor::{Actor, EVMSignature};
 use crate::merkle::MerkleTree;
 use crate::user::User;
-use crate::utils::{generate_n_of_n_script, generate_n_of_n_script_without_hash, UTXO};
+use crate::utils::{generate_n_of_n_script, generate_n_of_n_script_without_hash};
 use crate::verifier::Verifier;
 use bitcoin::address::{self, NetworkChecked};
-use bitcoin::taproot::TaprootBuilder;
 use bitcoin::transaction::Version;
 use bitcoin::{absolute, hashes::Hash, secp256k1, secp256k1::schnorr, Address, Txid};
-use bitcoin::{script, OutPoint, ScriptBuf, Transaction, TxIn, TxOut, Witness};
+use bitcoin::{script, Amount, OutPoint, ScriptBuf, Transaction, TxIn, TxOut, Witness};
 use bitcoincore_rpc::{Client, RpcApi};
-use circuit_helpers::config::{EVMAddress, DUST, NUM_VERIFIERS, REGTEST, USER_TAKES_AFTER};
+use circuit_helpers::config::{EVMAddress, DUST, FEE, NUM_VERIFIERS, REGTEST, USER_TAKES_AFTER};
 use secp256k1::rand::rngs::OsRng;
 use secp256k1::{All, Secp256k1, XOnlyPublicKey};
 use sha2::{Digest, Sha256};
@@ -22,7 +21,7 @@ type HashType = [u8; 32];
 pub fn check_deposit(
     secp: &Secp256k1<All>,
     rpc: &Client,
-    utxo: UTXO,
+    utxo: OutPoint,
     hash: [u8; 32],
     return_address: XOnlyPublicKey,
     verifiers_pks: &Vec<XOnlyPublicKey>,
@@ -47,7 +46,6 @@ pub fn check_deposit(
 pub struct DepositPresigns {
     pub rollup_sign: EVMSignature,
     pub kickoff_sign: schnorr::Signature,
-    pub kickoff_txid: Txid,
     pub move_bridge_sign: Vec<schnorr::Signature>,
     pub operator_take_sign: Vec<schnorr::Signature>,
 }
@@ -57,7 +55,7 @@ pub struct Operator<'a> {
     pub signer: Actor,
     pub verifiers: Vec<XOnlyPublicKey>,
     pub verifier_evm_addresses: Vec<EVMAddress>,
-    pub deposit_presigns: Vec<[DepositPresigns; NUM_VERIFIERS]>,
+    pub deposit_presigns: HashMap<Txid, Vec<DepositPresigns>>,
     pub deposit_merkle_tree: MerkleTree,
     pub withdrawals_merkle_tree: MerkleTree,
     pub withdrawals_payment_txids: Vec<Txid>,
@@ -65,7 +63,12 @@ pub struct Operator<'a> {
     pub preimages: Vec<PreimageType>,
 }
 
-pub fn check_presigns(utxo: UTXO, timestamp: absolute::Time, deposit_presigns: &DepositPresigns) {}
+pub fn check_presigns(
+    utxo: OutPoint,
+    timestamp: absolute::Time,
+    deposit_presigns: &DepositPresigns,
+) {
+}
 
 impl<'a> Operator<'a> {
     pub fn new(rng: &mut OsRng, rpc: &'a Client) -> Self {
@@ -87,7 +90,7 @@ impl<'a> Operator<'a> {
             .iter()
             .map(|verifier| verifier.signer.evm_address)
             .collect::<Vec<_>>();
-        let deposit_presigns = vec![];
+        let deposit_presigns = HashMap::new();
 
         Self {
             rpc,
@@ -104,8 +107,8 @@ impl<'a> Operator<'a> {
     }
     // this is a public endpoint that every depositor can call
     pub fn new_deposit(
-        &self,
-        utxo: UTXO,
+        &mut self,
+        utxo: OutPoint,
         hash: [u8; 32],
         return_address: XOnlyPublicKey,
         evm_address: EVMAddress,
@@ -138,10 +141,7 @@ impl<'a> Operator<'a> {
             version: Version(2),
             lock_time: absolute::LockTime::from_consensus(0),
             input: vec![TxIn {
-                previous_output: OutPoint {
-                    txid: utxo.txid,
-                    vout: utxo.vout,
-                },
+                previous_output: utxo,
                 sequence: bitcoin::transaction::Sequence::ENABLE_RBF_NO_LOCKTIME,
                 script_sig: ScriptBuf::default(),
                 witness: Witness::new(),
@@ -171,7 +171,8 @@ impl<'a> Operator<'a> {
             .map(|presigns| presigns.rollup_sign)
             .collect::<Vec<_>>();
         all_rollup_signs.push(rollup_sign);
-
+        self.deposit_presigns
+            .insert(kickoff_txid, presigns_from_all_verifiers);
         all_rollup_signs
     }
 
@@ -205,12 +206,114 @@ impl<'a> Operator<'a> {
     }
 
     // this is called when a Deposit event emitted on rollup
-    pub fn preimage_revealed(&mut self, preimage: PreimageType, txid: Txid) {
+    pub fn preimage_revealed(
+        &mut self,
+        preimage: PreimageType,
+        txid: Txid,
+    ) {
         self.preimages.push(preimage);
         // 1. Add the corresponding txid to DepositsMerkleTree
         self.deposit_merkle_tree.add(txid.to_byte_array());
-        // this function is interal, where it checks if the preimage is revealed, then if it is revealed
-        // it starts the kickoff tx.
+        let kickoff_presigns = self.deposit_presigns.get(&txid).unwrap().iter().map(|presigns| presigns.kickoff_sign.serialize()).collect::<Vec<_>>();
+        // let content = kickoff_presigns
+        //     .iter()
+        //     .map(|presign| presign.to_vec())
+        //     .flatten()
+        //     .collect::<Vec<_>>();
+        // let witness = Witness {
+        //     content: content,
+        //     witness_elements: (NUM_VERIFIERS + 1) as usize,
+        //     indices_start: 64,
+        // }
+        let mut witness = Witness::new();
+        for presign in kickoff_presigns {
+            witness.push(presign);
+        }
+        witness.push(preimage);
+
+        let utxo = OutPoint { txid, vout: 0 };
+        let kickoff_tx = Transaction {
+            version: Version(2),
+            lock_time: absolute::LockTime::from_consensus(0),
+            input: vec![TxIn {
+                previous_output: utxo,
+                sequence: bitcoin::transaction::Sequence::ENABLE_RBF_NO_LOCKTIME,
+                script_sig: ScriptBuf::default(),
+                witness: witness,
+            }],
+            output: vec![
+                TxOut {
+                    value: bitcoin::Amount::from_sat(100_000_000 - DUST),
+                    script_pubkey: generate_n_of_n_script_without_hash(&self.verifiers),
+                },
+                TxOut {
+                    value: bitcoin::Amount::from_sat(DUST),
+                    script_pubkey: ScriptBuf::new(),
+                },
+            ],
+        };
+        let kickoff_txid = kickoff_tx.txid();
+        let utxo_for_child = OutPoint {
+            txid: kickoff_txid,
+            vout: 1,
+        };
+        let child_tx = self.create_child_pays_for_parent(utxo_for_child);
+        let rpc_kickoff_txid = self.rpc.send_raw_transaction(&kickoff_tx).unwrap();
+        let child_kickoff_txid = self.rpc.send_raw_transaction(&child_tx).unwrap();
+    }
+
+    pub fn create_child_pays_for_parent(&self, parent_outpoint: OutPoint) -> Transaction {
+        let resource_tx_id = self
+            .rpc
+            .send_to_address(
+                &self.signer.address,
+                bitcoin::Amount::from_sat(100_000_000),
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+            )
+            .unwrap();
+        let resource_tx = self.rpc.get_raw_transaction(&resource_tx_id, None).unwrap();
+
+        let mut all_verifiers = self.verifiers.to_vec();
+        all_verifiers.push(self.signer.xonly_public_key.clone());
+
+        let child_tx = Transaction {
+            version: Version(2),
+            lock_time: absolute::LockTime::from_consensus(0),
+            input: vec![
+                TxIn {
+                    previous_output: parent_outpoint,
+                    sequence: bitcoin::transaction::Sequence::ENABLE_RBF_NO_LOCKTIME,
+                    script_sig: ScriptBuf::default(),
+                    witness: Witness::new(),
+                },
+                TxIn {
+                    previous_output: OutPoint {
+                        txid: resource_tx_id,
+                        vout: 0,
+                    },
+                    sequence: bitcoin::transaction::Sequence::ENABLE_RBF_NO_LOCKTIME,
+                    script_sig: ScriptBuf::default(),
+                    witness: Witness::new(),
+                },
+            ],
+            output: vec![
+                TxOut {
+                    value: Amount::from_sat(resource_tx.output[0].value.to_sat() + DUST - FEE),
+                    script_pubkey: generate_n_of_n_script_without_hash(&all_verifiers),
+                },
+                TxOut {
+                    value: bitcoin::Amount::from_sat(DUST),
+                    script_pubkey: ScriptBuf::new(),
+                },
+            ],
+        };
+
+        child_tx
     }
 
     // this function is interal, where it checks if the current bitcoin height reaced to th end of the period,

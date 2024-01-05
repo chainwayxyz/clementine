@@ -1,11 +1,11 @@
-use bitcoin::{hashes::Hash, secp256k1, secp256k1::Secp256k1, Address, TapSighash, Txid};
+use bitcoin::{hashes::Hash, secp256k1, secp256k1::Secp256k1, Address, TapSighash, Txid, OutPoint};
 use bitcoincore_rpc::Client;
 use secp256k1::{rand::rngs::OsRng, XOnlyPublicKey};
 
 use crate::{
     actor::Actor,
     operator::{check_deposit, DepositPresigns, NUM_ROUNDS},
-    user::User, utils::UTXO,
+    user::User,
 };
 
 use circuit_helpers::config::EVMAddress;
@@ -39,7 +39,7 @@ impl<'a> Verifier<'a> {
     // this is a public endpoint that only depositor can call
     pub fn new_deposit(
         &self,
-        utxo: UTXO,
+        utxo: OutPoint,
         hash: [u8; 32],
         return_address: XOnlyPublicKey,
         evm_address: EVMAddress,
@@ -71,7 +71,6 @@ impl<'a> Verifier<'a> {
         DepositPresigns {
             rollup_sign,
             kickoff_sign,
-            kickoff_txid,
             move_bridge_sign,
             operator_take_sign,
         }

@@ -1,7 +1,7 @@
 use crate::actor::Actor;
 use crate::transactions::INTERNAL_KEY;
 use crate::utils::generate_n_of_n_script;
-use crate::utils::UTXO;
+use bitcoin::OutPoint;
 use bitcoin::opcodes::all::*;
 use bitcoin::script::Builder;
 use bitcoin::secp256k1::All;
@@ -53,12 +53,12 @@ impl<'a> User<'a> {
 
     pub fn generate_deposit_address(
         secp: &Secp256k1<All>,
-        verifier_pks: &Vec<XOnlyPublicKey>,
+        verifiers_pks: &Vec<XOnlyPublicKey>,
         hash: [u8; 32],
         public_key: XOnlyPublicKey,
     ) -> (Address, TaprootSpendInfo) {
         // println!("inputs: {:?} {:?} {:?}", secp, verifier_pks, hash);
-        let script_n_of_n = generate_n_of_n_script(&verifier_pks, hash);
+        let script_n_of_n = generate_n_of_n_script(&verifiers_pks, hash);
         let script_timelock = User::generate_timelock_script(USER_TAKES_AFTER, public_key);
         let taproot = TaprootBuilder::new()
             .add_leaf(1, script_n_of_n.clone())
@@ -77,7 +77,7 @@ impl<'a> User<'a> {
         amount: u64,
         secp: &Secp256k1<All>,
         verifiers_pks: Vec<XOnlyPublicKey>,
-    ) -> (UTXO, [u8; 32], XOnlyPublicKey) {
+    ) -> (OutPoint, [u8; 32], XOnlyPublicKey) {
         let hash = sha256_32bytes(self.preimage);
         let (deposit_address, _) =
             User::generate_deposit_address(secp, &verifiers_pks, hash, self.signer.xonly_public_key);
@@ -111,7 +111,7 @@ impl<'a> User<'a> {
             .unwrap();
         let vout = initial_tx.details[found_output_index].vout;
         (
-            UTXO {
+            OutPoint {
                 txid: initial_tx_id,
                 vout,
             },

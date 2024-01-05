@@ -23,12 +23,6 @@ use circuit_helpers::core_tx::TxOutput;
 use byteorder::{ByteOrder, LittleEndian};
 use hex;
 
-#[derive(Debug, Clone, Copy)]
-pub struct UTXO {
-    pub txid: Txid,
-    pub vout: u32,
-}
-
 pub fn take_stdin<T: std::str::FromStr>(prompt: &str) -> Result<T, T::Err> {
     print!("{}", prompt);
     io::stdout().flush().unwrap();
