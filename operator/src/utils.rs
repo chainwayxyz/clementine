@@ -3,6 +3,7 @@ use std::io::{self, Write};
 use bitcoin;
 
 use bitcoin::ScriptBuf;
+use bitcoin::Txid;
 use bitcoin::consensus::Decodable;
 use bitcoin::opcodes::all::OP_CHECKSIGVERIFY;
 use bitcoin::opcodes::all::OP_EQUAL;
@@ -20,6 +21,12 @@ use circuit_helpers::core_tx::TxOutput;
 
 use byteorder::{ByteOrder, LittleEndian};
 use hex;
+
+#[derive(Debug, Clone, Copy)]
+pub struct UTXO {
+    pub txid: Txid,
+    pub vout: u32,
+}
 
 pub fn take_stdin<T: std::str::FromStr>(prompt: &str) -> Result<T, T::Err> {
     print!("{}", prompt);

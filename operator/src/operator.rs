@@ -3,16 +3,16 @@ use std::collections::HashMap;
 use crate::actor::{Actor, EVMAddress, EVMSignature};
 use crate::merkle::MerkleTree;
 use crate::user::User;
-use crate::utils::generate_n_of_n_script;
+use crate::utils::{generate_n_of_n_script, UTXO};
 use crate::verifier::Verifier;
-use bitcoin::address::{NetworkChecked, self};
+use bitcoin::address::{self, NetworkChecked};
 use bitcoin::script;
 use bitcoin::taproot::TaprootBuilder;
 use bitcoin::{absolute, hashes::Hash, secp256k1, secp256k1::schnorr, Address, Txid};
 use bitcoincore_rpc::{Client, RpcApi};
 use circuit_helpers::config::{NUM_VERIFIERS, REGTEST, USER_TAKES_AFTER};
 use secp256k1::rand::rngs::OsRng;
-use secp256k1::{Secp256k1, XOnlyPublicKey, All};
+use secp256k1::{All, Secp256k1, XOnlyPublicKey};
 use sha2::{Digest, Sha256};
 
 pub const NUM_ROUNDS: usize = 10;
@@ -20,37 +20,26 @@ type PreimageType = [u8; 32];
 type HashType = [u8; 32];
 
 pub fn check_deposit(
-    _secp: &Secp256k1<All>,
-    _rpc: &Client,
-    _depositor: &User,
-    _txid: Txid,
-    _hash: [u8; 32],
-    _return_address: XOnlyPublicKey,
-    _verifiers_pks: Vec<XOnlyPublicKey>,
+    secp: &Secp256k1<All>,
+    rpc: &Client,
+    utxo: UTXO,
+    hash: [u8; 32],
+    return_address: XOnlyPublicKey,
+    verifiers_pks: Vec<XOnlyPublicKey>,
 ) -> absolute::Time {
     // 1. Check if txid is mined in bitcoin
     // 2. Check if 0th output of the txid has 1 BTC
     // 3. Check if 0th output of the txid's scriptpubkey is N-of-N multisig and Hash of preimage or return_address after 200 blocks
     // 4. If all checks pass, return true
     // 5. Return the blockheight of the block in which the txid was mined
-    let tx_res = _rpc
-        .get_transaction(&_txid, None)
-        .unwrap_or_else(|e| panic!("Failed to get raw transaction: {}, txid: {}", e, _txid));
+    let tx_res = rpc
+        .get_transaction(&utxo.txid, None)
+        .unwrap_or_else(|e| panic!("Failed to get raw transaction: {}, txid: {}", e, utxo.txid));
     let tx = tx_res.transaction().unwrap();
-    // println!("tx = {:?}", tx);
-    //For now the index of the output with value 1 BTC is random since the transaction is auto-generated
-    let flag1 = (tx.output[0].value == bitcoin::Amount::from_sat(100_000_000))
-        || (tx.output[1].value == bitcoin::Amount::from_sat(100_000_000));
-    assert!(flag1);
-    // println!("inputs: {:?} {:?} {:?}", _secp, _verifiers_pks, _hash);
-    let address = _depositor.generate_deposit_address(_secp, _verifiers_pks, _hash);
-    // println!("address = {:?}", address);
-    let script_pubkey_res = address.0.script_pubkey();
-    // println!("script_pubkey_res = {:?}", script_pubkey_res);
-    let script_pubkey0 = tx.output[0].script_pubkey.clone();
-    let script_pubkey1 = tx.output[1].script_pubkey.clone();
-    let flag2 = (script_pubkey_res == script_pubkey0) || (script_pubkey_res == script_pubkey1); 
-    assert!(flag2);
+
+    assert!(tx.output[utxo.vout as usize].value == bitcoin::Amount::from_sat(100_000_000));
+    let (address, _) = User::generate_deposit_address(secp, verifiers_pks, hash, return_address);
+    assert!(tx.output[utxo.vout as usize].script_pubkey == address.script_pubkey());
     let time = tx_res.info.blocktime.unwrap() as u32;
     return absolute::Time::from_consensus(time).unwrap();
 }
@@ -76,7 +65,7 @@ pub struct Operator<'a> {
     pub waiting_deposists: HashMap<Txid, HashType>,
 }
 
-pub fn check_presigns(txid: Txid, timestamp: absolute::Time, deposit_presigns: &DepositPresigns) {}
+pub fn check_presigns(utxo: UTXO, timestamp: absolute::Time, deposit_presigns: &DepositPresigns) {}
 
 impl<'a> Operator<'a> {
     pub fn new(rng: &mut OsRng, rpc: &'a Client) -> Self {
@@ -117,7 +106,7 @@ impl<'a> Operator<'a> {
     pub fn new_deposit(
         &self,
         depositor: &User,
-        txid: Txid,
+        utxo: UTXO,
         hash: [u8; 32],
         return_address: XOnlyPublicKey,
     ) -> Vec<EVMSignature> {
@@ -127,8 +116,7 @@ impl<'a> Operator<'a> {
         let timestamp = check_deposit(
             &self.signer.secp,
             self.rpc,
-            depositor,
-            txid,
+            utxo,
             hash,
             return_address.clone(),
             all_verifiers,
@@ -140,8 +128,8 @@ impl<'a> Operator<'a> {
             .map(|verifier| {
                 // Note: In this part we will need to call the verifier's API to get the presigns
                 let deposit_presigns =
-                    verifier.new_deposit(depositor, txid, hash, return_address.clone());
-                check_presigns(txid, timestamp, &deposit_presigns);
+                    verifier.new_deposit(utxo, hash, return_address.clone());
+                check_presigns(utxo, timestamp, &deposit_presigns);
                 deposit_presigns
             })
             .collect::<Vec<_>>();
