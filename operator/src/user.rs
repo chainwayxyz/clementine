@@ -150,7 +150,7 @@ mod tests {
         let mine_block = rpc
             .generate_to_address(1, &operator.signer.address)
             .unwrap();
-        let signatures = operator.new_deposit(&user, utxo, hash, return_address);
+        let signatures = operator.new_deposit(utxo, hash, return_address);
         // TEST IF SIGNATURES ARE VALID
         // operator.preimage_revealed(preimage, txid);
     }

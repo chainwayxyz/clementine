@@ -105,7 +105,6 @@ impl<'a> Operator<'a> {
     // this is a public endpoint that every depositor can call
     pub fn new_deposit(
         &self,
-        depositor: &User,
         utxo: UTXO,
         hash: [u8; 32],
         return_address: XOnlyPublicKey,
