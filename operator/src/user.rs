@@ -167,7 +167,7 @@ mod tests {
 
         println!("signatures: {:?}", signatures);
 
-        operator.preimage_revealed(user.preimage, utxo.txid);
+        operator.preimage_revealed(user.preimage, utxo, return_address);
         // TEST IF SIGNATURES ARE VALID
         // operator.preimage_revealed(preimage, txid);
     }

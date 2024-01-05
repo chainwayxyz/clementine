@@ -1,7 +1,6 @@
 use bitcoin::hashes::sha256;
 use bitcoin::secp256k1::rand::rngs::OsRng;
 use bitcoin::secp256k1::rand::RngCore;
-use bitcoin::{TapNodeHash, Txid};
 use bitcoin::{
     hashes::Hash,
     secp256k1::{
@@ -9,11 +8,10 @@ use bitcoin::{
     },
     Address, TapSighash, TapTweakHash,
 };
-use tiny_keccak::{Hasher, Keccak};
-use circuit_helpers::config::REGTEST;
+use bitcoin::{TapNodeHash, Txid};
 use circuit_helpers::config::EVMAddress;
-
-
+use circuit_helpers::config::REGTEST;
+use tiny_keccak::{Hasher, Keccak};
 
 #[derive(Clone, Debug, Copy)]
 pub struct EVMSignature {
@@ -38,7 +36,6 @@ impl Default for Actor {
         Self::new(&mut OsRng)
     }
 }
-
 
 impl Actor {
     pub fn new<R: RngCore>(rng: &mut R) -> Self {
@@ -86,9 +83,10 @@ impl Actor {
     }
 
     pub fn sign(&self, sighash: TapSighash) -> schnorr::Signature {
-        self.secp.sign_schnorr(
+        self.secp.sign_schnorr_with_rng(
             &Message::from_digest_slice(sighash.as_byte_array()).expect("should be hash"),
             &self.keypair,
+            &mut OsRng,
         )
     }
 
@@ -122,11 +120,7 @@ impl Actor {
         let r: [u8; 32] = signature[..32].try_into().unwrap();
         let s: [u8; 32] = signature[32..].try_into().unwrap();
 
-        EVMSignature {
-            v,
-            r,
-            s,
-        }
+        EVMSignature { v, r, s }
     }
 }
 
@@ -141,7 +135,6 @@ mod tests {
         let timestamp = [2; 4];
         let hash = [3; 32];
         let evm_address = prover.evm_address;
-
 
         let sig = prover.sign_deposit(txid, evm_address, hash, timestamp);
         let v = sig.v;
