@@ -15,7 +15,7 @@ use bitcoincore_rpc::{Auth, Client, RpcApi};
 use operator::{
     actor::Actor, transactions::tx_deposit, proof::withdrawals::pay_withdrawals, operator::Operator, verifier::Verifier, user::User,
 };
-use circuit_helpers::config::NUM_VERIFIERS;
+use circuit_helpers::config::{NUM_VERIFIERS, BRIDGE_AMOUNT_SATS};
 
 pub fn f() {
     let rpc = Client::new(
@@ -54,22 +54,25 @@ fn main() {
         Auth::UserPass("admin".to_string(), "admin".to_string()),
     )
     .unwrap_or_else(|e| panic!("Failed to connect to Bitcoin RPC: {}", e));
-
     let mut operator = Operator::new(&mut OsRng, &rpc);
+    let user = User::new(&mut OsRng, &rpc);
+    let mut verifiers = operator.verifiers.clone();
+    verifiers.push(operator.signer.xonly_public_key.clone());
 
-    let mut verifiers = Vec::new();
-    for _ in 0..NUM_VERIFIERS {
-        let verifier = Verifier::new(&mut OsRng, &rpc, operator.signer.xonly_public_key);
-        verifiers.push(verifier);
-    }
+    let mut verifiers_evm_addresses = operator.verifier_evm_addresses.clone();
+    verifiers_evm_addresses.push(operator.signer.evm_address);
 
-    let mut depositors = Vec::new();
-    for _ in 0..10 {
-        let depositor = User::new(&mut OsRng, &rpc);
-        depositors.push(depositor);
-    }
+    let (utxo, hash, return_address) =
+        user.deposit_tx(&user.rpc, BRIDGE_AMOUNT_SATS, &user.secp, verifiers);
+    rpc.generate_to_address(1, &operator.signer.address)
+        .unwrap();
+    let signatures = operator.new_deposit(utxo, hash, return_address, user.signer.evm_address);
 
-    
+    let fund = operator.preimage_revealed(user.reveal_preimage(), utxo, return_address);
+    println!("fund: {:?}", fund);
+    operator.move_single_bridge_fund(fund);
+    // TEST IF SIGNATURES ARE VALID
+    // operator.preimage_revealed(preimage, txid);
 
     let bridge_funds: Vec<bitcoin::Txid> = Vec::new();
 

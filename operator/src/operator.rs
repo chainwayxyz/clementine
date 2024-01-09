@@ -17,13 +17,12 @@ use bitcoin::{absolute, hashes::Hash, secp256k1, secp256k1::schnorr, Address, Tx
 use bitcoin::{Amount, OutPoint, ScriptBuf, TapLeafHash, Transaction, TxIn, TxOut, Witness};
 use bitcoincore_rpc::{Client, RpcApi};
 use circuit_helpers::config::{
-    EVMAddress, BRIDGE_AMOUNT_SATS, FEE, MIN_RELAY_FEE, NUM_VERIFIERS, REGTEST,
+    EVMAddress, BRIDGE_AMOUNT_SATS, FEE, MIN_RELAY_FEE, NUM_VERIFIERS, REGTEST, NUM_ROUNDS,
 };
 use circuit_helpers::hashes::sha256_32bytes;
 use secp256k1::rand::rngs::OsRng;
 use secp256k1::schnorr::Signature;
 use secp256k1::{All, Secp256k1, XOnlyPublicKey};
-pub const NUM_ROUNDS: usize = 10;
 type PreimageType = [u8; 32];
 
 pub fn check_deposit(
@@ -54,8 +53,8 @@ pub fn check_deposit(
 pub struct DepositPresigns {
     pub rollup_sign: EVMSignature,
     pub kickoff_sign: schnorr::Signature,
-    pub move_bridge_sign: Vec<schnorr::Signature>,
-    pub operator_take_sign: Vec<schnorr::Signature>,
+    pub move_bridge_signs: Vec<schnorr::Signature>,
+    pub operator_take_signs: Vec<schnorr::Signature>,
 }
 
 pub struct Operator<'a> {
@@ -187,7 +186,7 @@ impl<'a> Operator<'a> {
             .collect::<Vec<_>>();
         all_rollup_signs.push(rollup_sign);
         self.deposit_presigns
-            .insert(kickoff_txid, presigns_from_all_verifiers);
+            .insert(utxo.txid, presigns_from_all_verifiers);
         all_rollup_signs
     }
 
@@ -278,26 +277,20 @@ impl<'a> Operator<'a> {
         let mut sighash_cache = SighashCache::new(kickoff_tx.borrow_mut());
 
         let (deposit_address, deposit_taproot_info) =
-            User::generate_deposit_address(&self.signer.secp, &all_verifiers, hash, return_address); // TODO: Add operator into verifiers
+            User::generate_deposit_address(&self.signer.secp, &all_verifiers, hash, return_address);
 
         let prevouts = vec![TxOut {
             script_pubkey: deposit_address.script_pubkey(),
             value: bitcoin::Amount::from_sat(BRIDGE_AMOUNT_SATS),
         }];
 
-        let mut signatures: Vec<Signature> = Vec::new();
-        for verifier in self.mock_verifier_access.iter() {
-            let sig_hash = sighash_cache
-                .taproot_script_spend_signature_hash(
-                    0_usize,
-                    &bitcoin::sighash::Prevouts::All(&prevouts),
-                    TapLeafHash::from_script(&script_n_of_n, LeafVersion::TapScript),
-                    bitcoin::sighash::TapSighashType::Default,
-                )
-                .unwrap();
-            let sig = verifier.signer.sign(sig_hash);
-            // witness.push(sig.as_ref());
-            signatures.push(sig);
+        let mut kickoff_signatures: Vec<Signature> = Vec::new();
+        let deposit_presigns_for_kickoff = self
+            .deposit_presigns
+            .get(&utxo.txid)
+            .expect("Deposit presigns not found");
+        for presign in deposit_presigns_for_kickoff.iter() {
+            kickoff_signatures.push(presign.kickoff_sign);
         }
 
         let sig_hash = sighash_cache
@@ -310,7 +303,7 @@ impl<'a> Operator<'a> {
             .unwrap();
         let sig = self.signer.sign(sig_hash);
         // witness.push(sig.as_ref());
-        signatures.push(sig);
+        kickoff_signatures.push(sig);
 
         let spend_control_block = deposit_taproot_info
             .control_block(&(script_n_of_n.clone(), LeafVersion::TapScript))
@@ -319,8 +312,8 @@ impl<'a> Operator<'a> {
         let witness = sighash_cache.witness_mut(0).unwrap();
         // push signatures to witness
         witness.push(preimage);
-        signatures.reverse();
-        for sig in signatures.iter() {
+        kickoff_signatures.reverse();
+        for sig in kickoff_signatures.iter() {
             witness.push(sig.as_ref());
         }
 
@@ -448,13 +441,13 @@ impl<'a> Operator<'a> {
     }
 
     // this function is interal, where it moves remaining bridge funds to a new multisig using DepositPresigns
-    pub fn move_single_bridge_fund(&self, prev_outpoint: OutPoint) {
+    pub fn move_single_bridge_fund(&self, prev_outpoint: OutPoint) -> OutPoint {
         // 1. Get the deposit tx
-        let deposit_tx = self
+        let prev_tx = self
             .rpc
             .get_raw_transaction(&prev_outpoint.txid, None)
             .unwrap();
-        let utxo_amount = deposit_tx.output[prev_outpoint.vout as usize].value;
+        let utxo_amount = prev_tx.output[prev_outpoint.vout as usize].value;
         let mut all_verifiers = self.verifiers.to_vec();
         all_verifiers.push(self.signer.xonly_public_key.clone());
 
@@ -550,6 +543,10 @@ impl<'a> Operator<'a> {
         println!("move_txid: {:?}", move_txid);
         let move_tx_from_rpc = self.rpc.get_raw_transaction(&move_txid, None).unwrap();
         println!("move_tx_from_rpc: {:?}", move_tx_from_rpc);
+        OutPoint {
+            txid: move_txid,
+            vout: 0,
+        }
     }
 
     // This function is internal, it gives the appropriate response for a bitvm challenge

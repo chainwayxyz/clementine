@@ -27,6 +27,7 @@ pub const REGTEST: Network = bitcoin::Network::Regtest;
 pub const NUM_VERIFIERS: usize = 10;
 pub const MIN_RELAY_FEE: u64 = 445;
 pub const BRIDGE_AMOUNT_SATS: u64 = 100_000_000;
+pub const NUM_ROUNDS: usize = 10;
 pub type EVMAddress = [u8; 20];
 
 // Zero subtree hashes

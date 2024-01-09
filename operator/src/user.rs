@@ -23,8 +23,8 @@ use secp256k1::rand::Rng;
 use serde::de;
 
 pub struct User<'a> {
-    rpc: &'a Client,
-    secp: Secp256k1<secp256k1::All>,
+    pub rpc: &'a Client,
+    pub secp: Secp256k1<secp256k1::All>,
     pub signer: Actor,
     preimage: [u8; 32],
 }
@@ -128,6 +128,7 @@ impl<'a> User<'a> {
 mod tests {
     use bitcoin::secp256k1::rand::rngs::OsRng;
     use bitcoincore_rpc::Auth;
+    use circuit_helpers::config::{BRIDGE_AMOUNT_SATS, NUM_ROUNDS};
 
     use crate::operator::Operator;
 
@@ -142,34 +143,23 @@ mod tests {
         .unwrap_or_else(|e| panic!("Failed to connect to Bitcoin RPC: {}", e));
         let mut operator = Operator::new(&mut OsRng, &rpc);
         let user = User::new(&mut OsRng, &rpc);
-        let amount = 100_000_000;
         let mut verifiers = operator.verifiers.clone();
         verifiers.push(operator.signer.xonly_public_key.clone());
 
         let mut verifiers_evm_addresses = operator.verifier_evm_addresses.clone();
         verifiers_evm_addresses.push(operator.signer.evm_address);
-        // for verifier_evm_address in verifiers_evm_addresses {
-        //     // print!("_verifiers[{}] = address(bytes20(hex\"", );
-        // }
-        // for verifier_evm_address in verifiers_evm_addresses {
-        //     print!(
-        //         "address(bytes20(hex\"{}\")),",
-        //         hex::encode(verifier_evm_address)
-        //     );
-        // }
-        // println!();
 
         let (utxo, hash, return_address) =
-            user.deposit_tx(&user.rpc, amount, &user.secp, verifiers);
+            user.deposit_tx(&user.rpc, BRIDGE_AMOUNT_SATS, &user.secp, verifiers);
         rpc.generate_to_address(1, &operator.signer.address)
             .unwrap();
         let signatures = operator.new_deposit(utxo, hash, return_address, user.signer.evm_address);
 
-        // println!("signatures: {:?}", signatures);
-
-        let fund = operator.preimage_revealed(user.preimage, utxo, return_address);
-        println!("fund: {:?}", fund);
-        operator.move_single_bridge_fund(fund);
+        let mut fund = operator.preimage_revealed(user.preimage, utxo, return_address);
+        for i in 0..NUM_ROUNDS {
+        fund = operator.move_single_bridge_fund(fund);
+        println!("fund moving in round {i}: {:?}", fund);
+        }
         // TEST IF SIGNATURES ARE VALID
         // operator.preimage_revealed(preimage, txid);
     }
