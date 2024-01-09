@@ -151,13 +151,13 @@ mod tests {
         // for verifier_evm_address in verifiers_evm_addresses {
         //     // print!("_verifiers[{}] = address(bytes20(hex\"", );
         // }
-        for verifier_evm_address in verifiers_evm_addresses {
-            print!(
-                "address(bytes20(hex\"{}\")),",
-                hex::encode(verifier_evm_address)
-            );
-        }
-        println!();
+        // for verifier_evm_address in verifiers_evm_addresses {
+        //     print!(
+        //         "address(bytes20(hex\"{}\")),",
+        //         hex::encode(verifier_evm_address)
+        //     );
+        // }
+        // println!();
 
         let (utxo, hash, return_address) =
             user.deposit_tx(&user.rpc, amount, &user.secp, verifiers);
@@ -165,7 +165,7 @@ mod tests {
             .unwrap();
         let signatures = operator.new_deposit(utxo, hash, return_address, user.signer.evm_address);
 
-        println!("signatures: {:?}", signatures);
+        // println!("signatures: {:?}", signatures);
 
         operator.preimage_revealed(user.preimage, utxo, return_address);
         // TEST IF SIGNATURES ARE VALID
