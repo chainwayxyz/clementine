@@ -17,7 +17,7 @@ use bitcoin::{absolute, hashes::Hash, secp256k1, secp256k1::schnorr, Address, Tx
 use bitcoin::{Amount, OutPoint, ScriptBuf, TapLeafHash, Transaction, TxIn, TxOut, Witness};
 use bitcoincore_rpc::{Client, RpcApi};
 use circuit_helpers::config::{
-    EVMAddress, BRIDGE_AMOUNT_SATS, FEE, MIN_RELAY_FEE, NUM_VERIFIERS, REGTEST, NUM_ROUNDS,
+    EVMAddress, BRIDGE_AMOUNT_SATS, FEE, MIN_RELAY_FEE, NUM_VERIFIERS, REGTEST,
 };
 use circuit_helpers::hashes::sha256_32bytes;
 use secp256k1::rand::rngs::OsRng;
@@ -53,7 +53,7 @@ pub fn check_deposit(
 pub struct DepositPresigns {
     pub rollup_sign: EVMSignature,
     pub kickoff_sign: schnorr::Signature,
-    pub move_bridge_signs: Vec<schnorr::Signature>,
+    pub move_bridge_sign_utxo_pairs: HashMap<OutPoint, schnorr::Signature>,
     pub operator_take_signs: Vec<schnorr::Signature>,
 }
 
@@ -330,8 +330,9 @@ impl<'a> Operator<'a> {
 
         let child_tx = self.create_child_pays_for_parent(utxo_for_child);
         let rpc_kickoff_txid = self.rpc.send_raw_transaction(&kickoff_tx).unwrap();
-        // println!("child_tx: {:?}", child_tx);
-        let child_kickoff_txid = self.rpc.send_raw_transaction(&child_tx).unwrap();
+        println!("rpc_kickoff_txid: {:?}", rpc_kickoff_txid);
+        let child_of_kickoff_txid = self.rpc.send_raw_transaction(&child_tx).unwrap();
+        println!("child_of_kickoff_txid: {:?}", child_of_kickoff_txid);
         OutPoint {
             txid: kickoff_txid,
             vout: 0,
@@ -441,7 +442,7 @@ impl<'a> Operator<'a> {
     }
 
     // this function is interal, where it moves remaining bridge funds to a new multisig using DepositPresigns
-    pub fn move_single_bridge_fund(&self, prev_outpoint: OutPoint) -> OutPoint {
+    pub fn move_single_bridge_fund(&self, deposit_txid: Txid, prev_outpoint: OutPoint) -> OutPoint {
         // 1. Get the deposit tx
         let prev_tx = self
             .rpc
@@ -498,19 +499,13 @@ impl<'a> Operator<'a> {
             value: utxo_amount,
         }];
 
-        let mut signatures: Vec<Signature> = Vec::new();
-        for verifier in self.mock_verifier_access.iter() {
-            let sig_hash = sighash_cache
-                .taproot_script_spend_signature_hash(
-                    0_usize,
-                    &bitcoin::sighash::Prevouts::All(&prevouts),
-                    TapLeafHash::from_script(&script_n_of_n_without_hash, LeafVersion::TapScript),
-                    bitcoin::sighash::TapSighashType::Default,
-                )
-                .unwrap();
-            let sig = verifier.signer.sign(sig_hash);
-            // witness.push(sig.as_ref());
-            signatures.push(sig);
+        let mut move_signatures: Vec<Signature> = Vec::new();
+        let deposit_presigns_from_txid = self
+            .deposit_presigns
+            .get(&deposit_txid)
+            .expect("Deposit presigns not found");
+        for presign in deposit_presigns_from_txid.iter() {
+            move_signatures.push(presign.move_bridge_sign_utxo_pairs.get(&prev_outpoint).expect("No signatures for such utxo").clone());
         }
 
         let sig_hash = sighash_cache
@@ -523,7 +518,7 @@ impl<'a> Operator<'a> {
             .unwrap();
         let sig = self.signer.sign(sig_hash);
         // witness.push(sig.as_ref());
-        signatures.push(sig);
+        move_signatures.push(sig);
 
         let spend_control_block = tree_info
             .control_block(&(script_n_of_n_without_hash.clone(), LeafVersion::TapScript))
@@ -531,8 +526,8 @@ impl<'a> Operator<'a> {
 
         let witness = sighash_cache.witness_mut(0).unwrap();
         // push signatures to witness
-        signatures.reverse();
-        for sig in signatures.iter() {
+        move_signatures.reverse();
+        for sig in move_signatures.iter() {
             witness.push(sig.as_ref());
         }
 

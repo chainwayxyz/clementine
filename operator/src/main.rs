@@ -70,7 +70,7 @@ fn main() {
 
     let fund = operator.preimage_revealed(user.reveal_preimage(), utxo, return_address);
     println!("fund: {:?}", fund);
-    operator.move_single_bridge_fund(fund);
+    operator.move_single_bridge_fund( utxo.txid, utxo);
     // TEST IF SIGNATURES ARE VALID
     // operator.preimage_revealed(preimage, txid);
 

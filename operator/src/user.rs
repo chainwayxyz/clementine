@@ -11,7 +11,6 @@ use bitcoin::taproot::TaprootSpendInfo;
 use bitcoin::Address;
 use bitcoin::Amount;
 use bitcoin::ScriptBuf;
-use bitcoin::Transaction;
 use bitcoin::XOnlyPublicKey;
 use bitcoincore_rpc::Client;
 use bitcoincore_rpc::RpcApi;
@@ -20,7 +19,6 @@ use circuit_helpers::config::USER_TAKES_AFTER;
 use circuit_helpers::hashes::sha256_32bytes;
 use secp256k1::rand::rngs::OsRng;
 use secp256k1::rand::Rng;
-use serde::de;
 
 pub struct User<'a> {
     pub rpc: &'a Client,
@@ -154,11 +152,11 @@ mod tests {
         rpc.generate_to_address(1, &operator.signer.address)
             .unwrap();
         let signatures = operator.new_deposit(utxo, hash, return_address, user.signer.evm_address);
-
+        
         let mut fund = operator.preimage_revealed(user.preimage, utxo, return_address);
         for i in 0..NUM_ROUNDS {
-        fund = operator.move_single_bridge_fund(fund);
-        println!("fund moving in round {i}: {:?}", fund);
+            fund = operator.move_single_bridge_fund(utxo.txid, fund);
+            println!("fund moving in round {i}: {:?}", fund);
         }
         // TEST IF SIGNATURES ARE VALID
         // operator.preimage_revealed(preimage, txid);

@@ -1,4 +1,5 @@
 use std::borrow::BorrowMut;
+use std::collections::HashMap;
 
 use bitcoin::taproot::LeafVersion;
 use bitcoin::TapLeafHash;
@@ -7,8 +8,7 @@ use bitcoin::{
     sighash::SighashCache, taproot::TaprootBuilder, transaction::Version, Address, OutPoint,
     ScriptBuf, TapSighash, Transaction, TxIn, TxOut, Txid, Witness,
 };
-use bitcoincore_rpc::{Client, RpcApi};
-use secp256k1::schnorr::Signature;
+use bitcoincore_rpc::Client;
 use secp256k1::{rand::rngs::OsRng, XOnlyPublicKey};
 
 use crate::utils::generate_n_of_n_script;
@@ -137,7 +137,7 @@ impl<'a> Verifier<'a> {
         - dust_value
         - bitcoin::Amount::from_sat(MIN_RELAY_FEE);
 
-        let mut move_bridge_signs = Vec::new();
+        let mut move_bridge_sign_utxo_pairs = HashMap::new();
         let mut operator_take_signs = Vec::new();
 
         for _ in 0..NUM_ROUNDS {
@@ -178,8 +178,8 @@ impl<'a> Verifier<'a> {
                 )
                 .unwrap();
             let move_fund_sign = self.signer.sign(sig_hash);
-
-            move_bridge_signs.push(move_fund_sign);
+            
+            move_bridge_sign_utxo_pairs.insert(prev_outpoint, move_fund_sign);
             operator_take_signs.push(self.signer.sign(TapSighash::all_zeros()));
 
             prev_outpoint = OutPoint {
@@ -198,7 +198,7 @@ impl<'a> Verifier<'a> {
         DepositPresigns {
             rollup_sign,
             kickoff_sign,
-            move_bridge_signs,
+            move_bridge_sign_utxo_pairs,
             operator_take_signs,
         }
     }
