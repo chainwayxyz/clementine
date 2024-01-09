@@ -167,7 +167,9 @@ mod tests {
 
         // println!("signatures: {:?}", signatures);
 
-        operator.preimage_revealed(user.preimage, utxo, return_address);
+        let fund = operator.preimage_revealed(user.preimage, utxo, return_address);
+        println!("fund: {:?}", fund);
+        operator.move_single_bridge_fund(fund);
         // TEST IF SIGNATURES ARE VALID
         // operator.preimage_revealed(preimage, txid);
     }

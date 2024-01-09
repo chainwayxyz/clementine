@@ -14,9 +14,7 @@ use bitcoin::sighash::SighashCache;
 use bitcoin::taproot::{LeafVersion, TaprootBuilder};
 use bitcoin::transaction::Version;
 use bitcoin::{absolute, hashes::Hash, secp256k1, secp256k1::schnorr, Address, Txid};
-use bitcoin::{
-    Amount, OutPoint, ScriptBuf, TapLeafHash, Transaction, TxIn, TxOut, Witness,
-};
+use bitcoin::{Amount, OutPoint, ScriptBuf, TapLeafHash, Transaction, TxIn, TxOut, Witness};
 use bitcoincore_rpc::{Client, RpcApi};
 use circuit_helpers::config::{
     EVMAddress, BRIDGE_AMOUNT_SATS, FEE, MIN_RELAY_FEE, NUM_VERIFIERS, REGTEST,
@@ -162,7 +160,9 @@ impl<'a> Operator<'a> {
             }],
             output: vec![
                 TxOut {
-                    value: bitcoin::Amount::from_sat(BRIDGE_AMOUNT_SATS) - dust_value - bitcoin::Amount::from_sat(MIN_RELAY_FEE),
+                    value: bitcoin::Amount::from_sat(BRIDGE_AMOUNT_SATS)
+                        - dust_value
+                        - bitcoin::Amount::from_sat(MIN_RELAY_FEE),
                     script_pubkey: generate_n_of_n_script_without_hash(&all_verifiers),
                 },
                 TxOut {
@@ -226,7 +226,7 @@ impl<'a> Operator<'a> {
         preimage: PreimageType,
         utxo: OutPoint,
         return_address: XOnlyPublicKey, // TODO: SAVE THIS TO STRUCT
-    ) {
+    ) -> OutPoint {
         self.preimages.push(preimage);
         // 1. Add the corresponding txid to DepositsMerkleTree
         self.deposit_merkle_tree.add(utxo.txid.to_byte_array());
@@ -263,7 +263,9 @@ impl<'a> Operator<'a> {
             }],
             output: vec![
                 TxOut {
-                    value: bitcoin::Amount::from_sat(BRIDGE_AMOUNT_SATS) - dust_value - bitcoin::Amount::from_sat(MIN_RELAY_FEE),
+                    value: bitcoin::Amount::from_sat(BRIDGE_AMOUNT_SATS)
+                        - dust_value
+                        - bitcoin::Amount::from_sat(MIN_RELAY_FEE),
                     script_pubkey: address.script_pubkey(),
                 },
                 TxOut {
@@ -324,7 +326,8 @@ impl<'a> Operator<'a> {
 
         witness.push(script_n_of_n);
         witness.push(&spend_control_block.serialize());
-
+        // println!("witness size: {:?}", witness.size());
+        println!("kickoff_tx: {:?}", kickoff_tx);
         let kickoff_txid = kickoff_tx.txid();
         // println!("kickoff_txid: {:?}", kickoff_txid);
         let utxo_for_child = OutPoint {
@@ -336,6 +339,10 @@ impl<'a> Operator<'a> {
         let rpc_kickoff_txid = self.rpc.send_raw_transaction(&kickoff_tx).unwrap();
         // println!("child_tx: {:?}", child_tx);
         let child_kickoff_txid = self.rpc.send_raw_transaction(&child_tx).unwrap();
+        OutPoint {
+            txid: kickoff_txid,
+            vout: 0,
+        }
     }
 
     pub fn create_child_pays_for_parent(&self, parent_outpoint: OutPoint) -> Transaction {
@@ -352,10 +359,14 @@ impl<'a> Operator<'a> {
                 None,
             )
             .unwrap();
-        // let resource_tx_res = self.rpc.get_transaction(&resource_tx_id, None).unwrap();
-        // println!("resource_tx result: {:?}", resource_tx_res);
-        // let resource_tx = self.rpc.get_raw_transaction(&resource_tx_id, None).unwrap();
-        // println!("resource_tx: {:?}", resource_tx);
+        let resource_tx = self.rpc.get_raw_transaction(&resource_tx_id, None).unwrap();
+        println!("resource_tx: {:?}", resource_tx);
+        let vout = resource_tx
+            .output
+            .iter()
+            .position(|x| x.value == bitcoin::Amount::from_sat(BRIDGE_AMOUNT_SATS))
+            .unwrap();
+
         let mut all_verifiers = self.verifiers.to_vec();
         all_verifiers.push(self.signer.xonly_public_key.clone());
 
@@ -377,22 +388,18 @@ impl<'a> Operator<'a> {
                 TxIn {
                     previous_output: OutPoint {
                         txid: resource_tx_id,
-                        vout: 0,
+                        vout: vout as u32,
                     },
                     sequence: bitcoin::transaction::Sequence::ENABLE_RBF_NO_LOCKTIME,
                     script_sig: ScriptBuf::default(),
                     witness: Witness::new(),
                 },
             ],
-            output: vec![
-                TxOut {
-                    value: Amount::from_sat(BRIDGE_AMOUNT_SATS) + dust_value - Amount::from_sat(FEE),
-                    script_pubkey: self.signer.address.script_pubkey(),
-                },
-            ],
+            output: vec![TxOut {
+                value: Amount::from_sat(BRIDGE_AMOUNT_SATS) + dust_value - Amount::from_sat(FEE),
+                script_pubkey: self.signer.address.script_pubkey(),
+            }],
         };
-
-        let mut sighash_cache = SighashCache::new(child_tx.borrow_mut());
 
         let prevouts = vec![
             TxOut {
@@ -405,6 +412,8 @@ impl<'a> Operator<'a> {
             },
         ];
 
+        let mut sighash_cache = SighashCache::new(child_tx.borrow_mut());
+
         let sig_hash = sighash_cache
             .taproot_key_spend_signature_hash(
                 1,
@@ -415,13 +424,14 @@ impl<'a> Operator<'a> {
         let sig = self.signer.sign_with_tweak(sig_hash, None);
         let witness = sighash_cache.witness_mut(1).unwrap();
         witness.push(sig.as_ref());
-
+        println!("child_tx: {:?}", child_tx);
+        println!("child_txid: {:?}", child_tx.txid());
         child_tx
     }
 
     // this function is interal, where it checks if the current bitcoin height reaced to th end of the period,
     pub fn period1_end(&self) {
-        self.move_bridge_funds();
+        // self.move_bridge_funds();
 
         // Check if all deposists are satisifed, all remaning bridge funds are moved to a new multisig
     }
@@ -438,7 +448,109 @@ impl<'a> Operator<'a> {
     }
 
     // this function is interal, where it moves remaining bridge funds to a new multisig using DepositPresigns
-    fn move_bridge_funds(&self) {}
+    pub fn move_single_bridge_fund(&self, prev_outpoint: OutPoint) {
+        // 1. Get the deposit tx
+        let deposit_tx = self
+            .rpc
+            .get_raw_transaction(&prev_outpoint.txid, None)
+            .unwrap();
+        let utxo_amount = deposit_tx.output[prev_outpoint.vout as usize].value;
+        let mut all_verifiers = self.verifiers.to_vec();
+        all_verifiers.push(self.signer.xonly_public_key.clone());
+
+        let script_n_of_n_without_hash = generate_n_of_n_script_without_hash(&all_verifiers);
+        let taproot = TaprootBuilder::new()
+            .add_leaf(0, script_n_of_n_without_hash.clone())
+            .unwrap();
+        let internal_key = *INTERNAL_KEY;
+        let tree_info = taproot.finalize(&self.signer.secp, internal_key).unwrap();
+        let address = Address::p2tr(
+            &self.signer.secp,
+            internal_key,
+            tree_info.merkle_root(),
+            REGTEST,
+        );
+        
+        let script_anyone_can_spend = Builder::new().push_opcode(OP_TRUE).into_script();
+        let anyone_can_spend_script_pub_key = script_anyone_can_spend.to_p2wsh();
+        let dust_value = script_anyone_can_spend.dust_value();
+
+        let mut move_tx = Transaction {
+            version: Version(2),
+            lock_time: absolute::LockTime::from_consensus(0),
+            input: vec![TxIn {
+                previous_output: prev_outpoint,
+                sequence: bitcoin::transaction::Sequence::ENABLE_RBF_NO_LOCKTIME,
+                script_sig: ScriptBuf::default(),
+                witness: Witness::new(),
+            }],
+            output: vec![
+                TxOut {
+                    value: utxo_amount
+                        - dust_value
+                        - bitcoin::Amount::from_sat(MIN_RELAY_FEE),
+                    script_pubkey: address.script_pubkey(),
+                },
+                TxOut {
+                    value: dust_value,
+                    script_pubkey: anyone_can_spend_script_pub_key,
+                },
+            ],
+        };
+
+        let mut sighash_cache = SighashCache::new(move_tx.borrow_mut());
+
+        let prevouts = vec![TxOut {
+            script_pubkey: address.script_pubkey(),
+            value: utxo_amount,
+        }];
+
+        let mut signatures: Vec<Signature> = Vec::new();
+        for verifier in self.mock_verifier_access.iter() {
+            let sig_hash = sighash_cache
+                .taproot_script_spend_signature_hash(
+                    0_usize,
+                    &bitcoin::sighash::Prevouts::All(&prevouts),
+                    TapLeafHash::from_script(&script_n_of_n_without_hash, LeafVersion::TapScript),
+                    bitcoin::sighash::TapSighashType::Default,
+                )
+                .unwrap();
+            let sig = verifier.signer.sign(sig_hash);
+            // witness.push(sig.as_ref());
+            signatures.push(sig);
+        }
+
+        let sig_hash = sighash_cache
+            .taproot_script_spend_signature_hash(
+                0_usize,
+                &bitcoin::sighash::Prevouts::All(&prevouts),
+                TapLeafHash::from_script(&script_n_of_n_without_hash, LeafVersion::TapScript),
+                bitcoin::sighash::TapSighashType::Default,
+            )
+            .unwrap();
+        let sig = self.signer.sign(sig_hash);
+        // witness.push(sig.as_ref());
+        signatures.push(sig);
+
+        let spend_control_block = tree_info
+            .control_block(&(script_n_of_n_without_hash.clone(), LeafVersion::TapScript))
+            .expect("Cannot create control block");
+
+        let witness = sighash_cache.witness_mut(0).unwrap();
+        // push signatures to witness
+        signatures.reverse();
+        for sig in signatures.iter() {
+            witness.push(sig.as_ref());
+        }
+
+        witness.push(script_n_of_n_without_hash);
+        witness.push(&spend_control_block.serialize());
+        println!("move_tx: {:?}", move_tx);
+        let move_txid = self.rpc.send_raw_transaction(&move_tx).unwrap();
+        println!("move_txid: {:?}", move_txid);
+        let move_tx_from_rpc = self.rpc.get_raw_transaction(&move_txid, None).unwrap();
+        println!("move_tx_from_rpc: {:?}", move_tx_from_rpc);
+    }
 
     // This function is internal, it gives the appropriate response for a bitvm challenge
     pub fn challenge_received() {}
