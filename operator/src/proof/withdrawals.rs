@@ -98,7 +98,6 @@ mod tests {
     use bitcoin::secp256k1::rand::{rngs::OsRng, seq::SliceRandom};
 
     use crate::{
-        transactions,
         utils::{from_hex64_to_bytes32, generate_dummy_block},
     };
 

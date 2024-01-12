@@ -1,6 +1,8 @@
 use bitcoin::hashes::sha256;
 use bitcoin::secp256k1::rand::rngs::OsRng;
 use bitcoin::secp256k1::rand::RngCore;
+use bitcoin::sighash::SighashCache;
+use bitcoin::taproot::LeafVersion;
 use bitcoin::{
     hashes::Hash,
     secp256k1::{
@@ -8,7 +10,7 @@ use bitcoin::{
     },
     Address, TapSighash, TapTweakHash,
 };
-use bitcoin::{TapNodeHash, Txid};
+use bitcoin::{TapNodeHash, Txid, TxOut, TapLeafHash};
 use circuit_helpers::config::EVMAddress;
 use circuit_helpers::config::REGTEST;
 use tiny_keccak::{Hasher, Keccak};
@@ -95,6 +97,31 @@ impl Actor {
             &Message::from_digest_slice(&data).expect("should be hash"),
             &self.secret_key,
         )
+    }
+
+    pub fn sign_taproot_script_spend_tx(&self, tx: &mut bitcoin::Transaction, prevouts: Vec<TxOut>, spend_script: &bitcoin::Script, input_index: usize) -> schnorr::Signature {
+        let mut sighash_cache = SighashCache::new(tx);
+        let sig_hash = sighash_cache
+                .taproot_script_spend_signature_hash(
+                    input_index,
+                    &bitcoin::sighash::Prevouts::All(&prevouts),
+                    TapLeafHash::from_script(&spend_script, LeafVersion::TapScript),
+                    bitcoin::sighash::TapSighashType::Default,
+                )
+                .unwrap();
+        self.sign(sig_hash)
+    }
+
+    pub fn sign_taproot_pubkey_spend_tx(&self, tx: &mut bitcoin::Transaction, prevouts: Vec<TxOut>, input_index: usize) -> schnorr::Signature{
+        let mut sighash_cache = SighashCache::new(tx);
+        let sig_hash = sighash_cache
+            .taproot_key_spend_signature_hash(
+                input_index,
+                &bitcoin::sighash::Prevouts::All(&prevouts),
+                bitcoin::sighash::TapSighashType::Default,
+            )
+            .unwrap();
+        self.sign_with_tweak(sig_hash, None)
     }
 
     pub fn sign_deposit(

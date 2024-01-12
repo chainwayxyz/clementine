@@ -3,21 +3,22 @@ use std::collections::HashMap;
 
 use crate::actor::{Actor, EVMSignature};
 use crate::merkle::MerkleTree;
-use crate::transactions::INTERNAL_KEY;
 use crate::user::User;
-use crate::utils::{generate_n_of_n_script, generate_n_of_n_script_without_hash};
+use crate::utils::{
+    create_btc_tx, create_tx_ins, create_tx_outs, generate_n_of_n_script,
+    generate_n_of_n_script_without_hash, create_taproot_address, create_control_block,
+};
 use crate::verifier::Verifier;
 use bitcoin::address::NetworkChecked;
 use bitcoin::opcodes::OP_TRUE;
 use bitcoin::script::Builder;
 use bitcoin::sighash::SighashCache;
-use bitcoin::taproot::{LeafVersion, TaprootBuilder};
-use bitcoin::transaction::Version;
+use bitcoin::taproot::LeafVersion;
 use bitcoin::{absolute, hashes::Hash, secp256k1, secp256k1::schnorr, Address, Txid};
-use bitcoin::{Amount, OutPoint, ScriptBuf, TapLeafHash, Transaction, TxIn, TxOut, Witness};
+use bitcoin::{ OutPoint, Transaction, TxOut};
 use bitcoincore_rpc::{Client, RpcApi};
 use circuit_helpers::config::{
-    EVMAddress, BRIDGE_AMOUNT_SATS, FEE, MIN_RELAY_FEE, NUM_VERIFIERS, REGTEST,
+    EVMAddress, BRIDGE_AMOUNT_SATS, MIN_RELAY_FEE, NUM_VERIFIERS,
 };
 use circuit_helpers::hashes::sha256_32bytes;
 use secp256k1::rand::rngs::OsRng;
@@ -147,30 +148,20 @@ impl<'a> Operator<'a> {
         let script_anyone_can_spend = Builder::new().push_opcode(OP_TRUE).into_script();
         let anyone_can_spend_script_pub_key = script_anyone_can_spend.to_p2wsh();
         let dust_value = script_anyone_can_spend.dust_value();
-        // println!("dust_value: {:?}", dust_value);
-        let kickoff_tx = Transaction {
-            version: Version(2),
-            lock_time: absolute::LockTime::from_consensus(0),
-            input: vec![TxIn {
-                previous_output: utxo,
-                sequence: bitcoin::transaction::Sequence::ENABLE_RBF_NO_LOCKTIME,
-                script_sig: ScriptBuf::default(),
-                witness: Witness::new(),
-            }],
-            output: vec![
-                TxOut {
-                    value: bitcoin::Amount::from_sat(BRIDGE_AMOUNT_SATS)
-                        - dust_value
-                        - bitcoin::Amount::from_sat(MIN_RELAY_FEE),
-                    script_pubkey: generate_n_of_n_script_without_hash(&all_verifiers),
-                },
-                TxOut {
-                    value: dust_value,
-                    script_pubkey: anyone_can_spend_script_pub_key,
-                },
-            ],
-        };
-        // println!("kickoff_tx: {:?}", kickoff_tx);
+
+        let kickoff_tx_ins = create_tx_ins(vec![utxo]);
+
+        let kickoff_tx_outs = create_tx_outs(vec![
+            (
+                bitcoin::Amount::from_sat(BRIDGE_AMOUNT_SATS)
+                    - dust_value
+                    - bitcoin::Amount::from_sat(MIN_RELAY_FEE),
+                generate_n_of_n_script_without_hash(&all_verifiers),
+            ),
+            (dust_value, anyone_can_spend_script_pub_key),
+        ]);
+
+        let kickoff_tx = create_btc_tx(kickoff_tx_ins, kickoff_tx_outs);
 
         let kickoff_txid = kickoff_tx.txid();
 
@@ -235,54 +226,34 @@ impl<'a> Operator<'a> {
         let script_n_of_n = generate_n_of_n_script(&all_verifiers, hash);
 
         let script_n_of_n_without_hash = generate_n_of_n_script_without_hash(&all_verifiers);
-        let taproot = TaprootBuilder::new()
-            .add_leaf(0, script_n_of_n_without_hash.clone())
-            .unwrap();
-        let internal_key = *INTERNAL_KEY;
-        let tree_info = taproot.finalize(&self.signer.secp, internal_key).unwrap();
-        let address = Address::p2tr(
-            &self.signer.secp,
-            internal_key,
-            tree_info.merkle_root(),
-            REGTEST,
-        );
+        let (address, _) = create_taproot_address(&self.signer.secp, vec![script_n_of_n_without_hash.clone()]);
 
         let script_anyone_can_spend = Builder::new().push_opcode(OP_TRUE).into_script();
         let anyone_can_spend_script_pub_key = script_anyone_can_spend.to_p2wsh();
         let dust_value = script_anyone_can_spend.dust_value();
 
-        let mut kickoff_tx = Transaction {
-            version: Version(2),
-            lock_time: absolute::LockTime::from_consensus(0),
-            input: vec![TxIn {
-                previous_output: utxo,
-                sequence: bitcoin::transaction::Sequence::ENABLE_RBF_NO_LOCKTIME,
-                script_sig: ScriptBuf::default(),
-                witness: Witness::new(),
-            }],
-            output: vec![
-                TxOut {
-                    value: bitcoin::Amount::from_sat(BRIDGE_AMOUNT_SATS)
-                        - dust_value
-                        - bitcoin::Amount::from_sat(MIN_RELAY_FEE),
-                    script_pubkey: address.script_pubkey(),
-                },
-                TxOut {
-                    value: dust_value,
-                    script_pubkey: anyone_can_spend_script_pub_key,
-                },
-            ],
-        };
+        let kickoff_tx_ins = create_tx_ins(vec![utxo]);
+
+        let kickoff_tx_outs = create_tx_outs(vec![
+            (
+                bitcoin::Amount::from_sat(BRIDGE_AMOUNT_SATS)
+                    - dust_value
+                    - bitcoin::Amount::from_sat(MIN_RELAY_FEE),
+                address.script_pubkey(),
+            ),
+            (dust_value, anyone_can_spend_script_pub_key),
+        ]);
+
+        let mut kickoff_tx = create_btc_tx(kickoff_tx_ins, kickoff_tx_outs);
         // println!("kickoff_tx: {:?}", kickoff_tx);
-        let mut sighash_cache = SighashCache::new(kickoff_tx.borrow_mut());
 
         let (deposit_address, deposit_taproot_info) =
             User::generate_deposit_address(&self.signer.secp, &all_verifiers, hash, return_address);
 
-        let prevouts = vec![TxOut {
-            script_pubkey: deposit_address.script_pubkey(),
-            value: bitcoin::Amount::from_sat(BRIDGE_AMOUNT_SATS),
-        }];
+        let prevouts = create_tx_outs(vec![(
+            bitcoin::Amount::from_sat(BRIDGE_AMOUNT_SATS),
+            deposit_address.script_pubkey(),
+        )]);
 
         let mut kickoff_signatures: Vec<Signature> = Vec::new();
         let deposit_presigns_for_kickoff = self
@@ -293,22 +264,14 @@ impl<'a> Operator<'a> {
             kickoff_signatures.push(presign.kickoff_sign);
         }
 
-        let sig_hash = sighash_cache
-            .taproot_script_spend_signature_hash(
-                0_usize,
-                &bitcoin::sighash::Prevouts::All(&prevouts),
-                TapLeafHash::from_script(&script_n_of_n, LeafVersion::TapScript),
-                bitcoin::sighash::TapSighashType::Default,
-            )
-            .unwrap();
-        let sig = self.signer.sign(sig_hash);
-        // witness.push(sig.as_ref());
+        let sig = self.signer.sign_taproot_script_spend_tx(&mut kickoff_tx, prevouts, &script_n_of_n, 0);
         kickoff_signatures.push(sig);
 
         let spend_control_block = deposit_taproot_info
             .control_block(&(script_n_of_n.clone(), LeafVersion::TapScript))
             .expect("Cannot create control block");
 
+        let mut sighash_cache = SighashCache::new(kickoff_tx.borrow_mut());
         let witness = sighash_cache.witness_mut(0).unwrap();
         // push signatures to witness
         witness.push(preimage);
@@ -364,58 +327,39 @@ impl<'a> Operator<'a> {
         let mut all_verifiers = self.verifiers.to_vec();
         all_verifiers.push(self.signer.xonly_public_key.clone());
 
+        let script_n_of_n_without_hash = generate_n_of_n_script_without_hash(&all_verifiers);
+        let (address, _) = create_taproot_address(&self.signer.secp, vec![script_n_of_n_without_hash.clone()]);
+
         let script_anyone_can_spend = Builder::new().push_opcode(OP_TRUE).into_script();
         let anyone_can_spend_script_pub_key = script_anyone_can_spend.to_p2wsh();
         let dust_value = script_anyone_can_spend.dust_value();
         // println!("dust_value: {:?}", dust_value);
 
-        let mut child_tx = Transaction {
-            version: Version(2),
-            lock_time: absolute::LockTime::from_consensus(0),
-            input: vec![
-                TxIn {
-                    previous_output: parent_outpoint,
-                    sequence: bitcoin::transaction::Sequence::ENABLE_RBF_NO_LOCKTIME,
-                    script_sig: ScriptBuf::default(),
-                    witness: Witness::from(vec![vec![0x51]]),
-                },
-                TxIn {
-                    previous_output: OutPoint {
-                        txid: resource_tx_id,
-                        vout: vout as u32,
-                    },
-                    sequence: bitcoin::transaction::Sequence::ENABLE_RBF_NO_LOCKTIME,
-                    script_sig: ScriptBuf::default(),
-                    witness: Witness::new(),
-                },
-            ],
-            output: vec![TxOut {
-                value: Amount::from_sat(BRIDGE_AMOUNT_SATS) + dust_value - Amount::from_sat(FEE),
-                script_pubkey: self.signer.address.script_pubkey(),
-            }],
-        };
-
-        let prevouts = vec![
-            TxOut {
-                script_pubkey: anyone_can_spend_script_pub_key,
-                value: dust_value,
+        let child_tx_ins = create_tx_ins(vec![
+            parent_outpoint,
+            OutPoint {
+                txid: resource_tx_id,
+                vout: vout as u32,
             },
-            TxOut {
-                script_pubkey: self.signer.address.script_pubkey(),
-                value: Amount::from_sat(BRIDGE_AMOUNT_SATS),
-            },
-        ];
+        ]);
 
+        let child_tx_outs = create_tx_outs(vec![
+            (
+                bitcoin::Amount::from_sat(BRIDGE_AMOUNT_SATS)
+                    - dust_value
+                    - bitcoin::Amount::from_sat(MIN_RELAY_FEE),
+                address.script_pubkey(),
+            ),
+            (dust_value, anyone_can_spend_script_pub_key.clone()),
+        ]);
+
+        let mut child_tx = create_btc_tx(child_tx_ins, child_tx_outs);
+
+        child_tx.input[0].witness.push([0x51]);
+
+        let prevouts = create_tx_outs(vec![(dust_value, anyone_can_spend_script_pub_key), (bitcoin::Amount::from_sat(BRIDGE_AMOUNT_SATS), self.signer.address.script_pubkey())]);
+        let sig = self.signer.sign_taproot_pubkey_spend_tx(&mut child_tx, prevouts, 1);
         let mut sighash_cache = SighashCache::new(child_tx.borrow_mut());
-
-        let sig_hash = sighash_cache
-            .taproot_key_spend_signature_hash(
-                1,
-                &bitcoin::sighash::Prevouts::All(&prevouts),
-                bitcoin::sighash::TapSighashType::Default,
-            )
-            .unwrap();
-        let sig = self.signer.sign_with_tweak(sig_hash, None);
         let witness = sighash_cache.witness_mut(1).unwrap();
         witness.push(sig.as_ref());
         println!("child_tx: {:?}", child_tx);
@@ -453,51 +397,17 @@ impl<'a> Operator<'a> {
         all_verifiers.push(self.signer.xonly_public_key.clone());
 
         let script_n_of_n_without_hash = generate_n_of_n_script_without_hash(&all_verifiers);
-        let taproot = TaprootBuilder::new()
-            .add_leaf(0, script_n_of_n_without_hash.clone())
-            .unwrap();
-        let internal_key = *INTERNAL_KEY;
-        let tree_info = taproot.finalize(&self.signer.secp, internal_key).unwrap();
-        let address = Address::p2tr(
-            &self.signer.secp,
-            internal_key,
-            tree_info.merkle_root(),
-            REGTEST,
-        );
-        
+        let (address, tree_info) = create_taproot_address(&self.signer.secp, vec![script_n_of_n_without_hash.clone()]);
+
         let script_anyone_can_spend = Builder::new().push_opcode(OP_TRUE).into_script();
         let anyone_can_spend_script_pub_key = script_anyone_can_spend.to_p2wsh();
         let dust_value = script_anyone_can_spend.dust_value();
 
-        let mut move_tx = Transaction {
-            version: Version(2),
-            lock_time: absolute::LockTime::from_consensus(0),
-            input: vec![TxIn {
-                previous_output: prev_outpoint,
-                sequence: bitcoin::transaction::Sequence::ENABLE_RBF_NO_LOCKTIME,
-                script_sig: ScriptBuf::default(),
-                witness: Witness::new(),
-            }],
-            output: vec![
-                TxOut {
-                    value: utxo_amount
-                        - dust_value
-                        - bitcoin::Amount::from_sat(MIN_RELAY_FEE),
-                    script_pubkey: address.script_pubkey(),
-                },
-                TxOut {
-                    value: dust_value,
-                    script_pubkey: anyone_can_spend_script_pub_key,
-                },
-            ],
-        };
+        let move_tx_ins = create_tx_ins(vec![prev_outpoint]);
 
-        let mut sighash_cache = SighashCache::new(move_tx.borrow_mut());
+        let move_tx_outs = create_tx_outs(vec![(utxo_amount - dust_value - bitcoin::Amount::from_sat(MIN_RELAY_FEE), address.script_pubkey()), (dust_value, anyone_can_spend_script_pub_key)]);
 
-        let prevouts = vec![TxOut {
-            script_pubkey: address.script_pubkey(),
-            value: utxo_amount,
-        }];
+        let mut move_tx = create_btc_tx(move_tx_ins, move_tx_outs);
 
         let mut move_signatures: Vec<Signature> = Vec::new();
         let deposit_presigns_from_txid = self
@@ -505,25 +415,26 @@ impl<'a> Operator<'a> {
             .get(&deposit_txid)
             .expect("Deposit presigns not found");
         for presign in deposit_presigns_from_txid.iter() {
-            move_signatures.push(presign.move_bridge_sign_utxo_pairs.get(&prev_outpoint).expect("No signatures for such utxo").clone());
+            move_signatures.push(
+                presign
+                    .move_bridge_sign_utxo_pairs
+                    .get(&prev_outpoint)
+                    .expect("No signatures for such utxo")
+                    .clone(),
+            );
         }
 
-        let sig_hash = sighash_cache
-            .taproot_script_spend_signature_hash(
-                0_usize,
-                &bitcoin::sighash::Prevouts::All(&prevouts),
-                TapLeafHash::from_script(&script_n_of_n_without_hash, LeafVersion::TapScript),
-                bitcoin::sighash::TapSighashType::Default,
-            )
-            .unwrap();
-        let sig = self.signer.sign(sig_hash);
-        // witness.push(sig.as_ref());
+        let prevouts = vec![TxOut {
+            script_pubkey: address.script_pubkey(),
+            value: utxo_amount,
+        }];
+
+        let sig = self.signer.sign_taproot_script_spend_tx(&mut move_tx, prevouts, &script_n_of_n_without_hash, 0);
         move_signatures.push(sig);
 
-        let spend_control_block = tree_info
-            .control_block(&(script_n_of_n_without_hash.clone(), LeafVersion::TapScript))
-            .expect("Cannot create control block");
+        let spend_control_block = create_control_block(tree_info, &script_n_of_n_without_hash);
 
+        let mut sighash_cache = SighashCache::new(move_tx.borrow_mut());
         let witness = sighash_cache.witness_mut(0).unwrap();
         // push signatures to witness
         move_signatures.reverse();

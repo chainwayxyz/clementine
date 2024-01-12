@@ -1,12 +1,11 @@
 use crate::actor::Actor;
-use crate::transactions::INTERNAL_KEY;
+use crate::utils::create_taproot_address;
 use crate::utils::generate_n_of_n_script;
 use bitcoin::OutPoint;
 use bitcoin::opcodes::all::*;
 use bitcoin::script::Builder;
 use bitcoin::secp256k1::All;
 use bitcoin::secp256k1::Secp256k1;
-use bitcoin::taproot::TaprootBuilder;
 use bitcoin::taproot::TaprootSpendInfo;
 use bitcoin::Address;
 use bitcoin::Amount;
@@ -14,7 +13,6 @@ use bitcoin::ScriptBuf;
 use bitcoin::XOnlyPublicKey;
 use bitcoincore_rpc::Client;
 use bitcoincore_rpc::RpcApi;
-use circuit_helpers::config::REGTEST;
 use circuit_helpers::config::USER_TAKES_AFTER;
 use circuit_helpers::hashes::sha256_32bytes;
 use secp256k1::rand::rngs::OsRng;
@@ -58,15 +56,7 @@ impl<'a> User<'a> {
         // println!("inputs: {:?} {:?} {:?}", secp, verifier_pks, hash);
         let script_n_of_n = generate_n_of_n_script(&verifiers_pks, hash);
         let script_timelock = User::generate_timelock_script(USER_TAKES_AFTER, public_key);
-        let taproot = TaprootBuilder::new()
-            .add_leaf(1, script_n_of_n.clone())
-            .unwrap()
-            .add_leaf(1, script_timelock.clone())
-            .unwrap();
-        let internal_key = *INTERNAL_KEY;
-        let tree_info = taproot.finalize(secp, internal_key).unwrap();
-        let address = Address::p2tr(secp, internal_key, tree_info.merkle_root(), REGTEST);
-        (address, tree_info)
+        create_taproot_address(secp, vec![script_n_of_n, script_timelock])
     }
 
     pub fn deposit_tx(
