@@ -1,12 +1,13 @@
 use std::borrow::BorrowMut;
 use std::collections::HashMap;
+use std::sync::{Arc, Mutex};
 
 use crate::actor::{Actor, EVMSignature};
 use crate::merkle::MerkleTree;
 use crate::user::User;
 use crate::utils::{
-    create_btc_tx, create_tx_ins, create_tx_outs, generate_n_of_n_script,
-    generate_n_of_n_script_without_hash, create_taproot_address, create_control_block,
+    create_btc_tx, create_control_block, create_taproot_address, create_tx_ins, create_tx_outs,
+    generate_n_of_n_script, generate_n_of_n_script_without_hash,
 };
 use crate::verifier::Verifier;
 use bitcoin::address::NetworkChecked;
@@ -15,11 +16,9 @@ use bitcoin::script::Builder;
 use bitcoin::sighash::SighashCache;
 use bitcoin::taproot::LeafVersion;
 use bitcoin::{absolute, hashes::Hash, secp256k1, secp256k1::schnorr, Address, Txid};
-use bitcoin::{ OutPoint, Transaction, TxOut};
+use bitcoin::{OutPoint, Transaction, TxOut};
 use bitcoincore_rpc::{Client, RpcApi};
-use circuit_helpers::config::{
-    EVMAddress, BRIDGE_AMOUNT_SATS, MIN_RELAY_FEE, NUM_VERIFIERS,
-};
+use circuit_helpers::config::{EVMAddress, BRIDGE_AMOUNT_SATS, MIN_RELAY_FEE, NUM_VERIFIERS};
 use circuit_helpers::hashes::sha256_32bytes;
 use secp256k1::rand::rngs::OsRng;
 use secp256k1::schnorr::Signature;
@@ -43,14 +42,20 @@ pub fn check_deposit(
         .get_transaction(&utxo.txid, None)
         .unwrap_or_else(|e| panic!("Failed to get raw transaction: {}, txid: {}", e, utxo.txid));
     let tx = tx_res.transaction().unwrap();
-
+    // println!("tx: {:?}", tx);
+    println!("txid: {:?}", tx.txid());
+    println!("utxo: {:?}", utxo);
     assert!(tx.output[utxo.vout as usize].value == bitcoin::Amount::from_sat(BRIDGE_AMOUNT_SATS));
     let (address, _) = User::generate_deposit_address(secp, verifiers_pks, hash, return_address);
+    // println!("address: {:?}", address);
+    // println!("address.script_pubkey(): {:?}", address.script_pubkey());
     assert!(tx.output[utxo.vout as usize].script_pubkey == address.script_pubkey());
     let time = tx_res.info.blocktime.unwrap() as u32;
+    println!("time: {:?}", time);
     return absolute::Time::from_consensus(time).unwrap();
 }
 
+#[derive(Debug, Clone)]
 pub struct DepositPresigns {
     pub rollup_sign: EVMSignature,
     pub kickoff_sign: schnorr::Signature,
@@ -58,10 +63,11 @@ pub struct DepositPresigns {
     pub operator_take_signs: Vec<schnorr::Signature>,
 }
 
+#[derive(Debug, Clone)]
 pub struct Operator<'a> {
     pub rpc: &'a Client,
     pub signer: Actor,
-    pub verifiers: Vec<XOnlyPublicKey>,
+    pub verifiers_pks: Vec<XOnlyPublicKey>,
     pub verifier_evm_addresses: Vec<EVMAddress>,
     pub deposit_presigns: HashMap<Txid, Vec<DepositPresigns>>,
     pub deposit_merkle_tree: MerkleTree,
@@ -81,37 +87,33 @@ pub fn check_presigns(
 impl<'a> Operator<'a> {
     pub fn new(rng: &mut OsRng, rpc: &'a Client) -> Self {
         let signer = Actor::new(rng);
-        let mut verifiers = Vec::new();
-        for _ in 0..NUM_VERIFIERS {
-            verifiers.push(Verifier::new(rng, rpc, signer.xonly_public_key));
-        }
-        let verifiers_pks = verifiers
-            .iter()
-            .map(|verifier| verifier.signer.xonly_public_key)
-            .collect::<Vec<_>>();
-
-        verifiers.iter_mut().for_each(|verifier| {
-            verifier.set_verifiers(verifiers_pks.clone());
-        });
-
-        let verifier_evm_addresses = verifiers
-            .iter()
-            .map(|verifier| verifier.signer.evm_address)
-            .collect::<Vec<_>>();
-        let deposit_presigns = HashMap::new();
 
         Self {
             rpc,
             signer,
-            verifiers: verifiers_pks,
-            verifier_evm_addresses,
-            deposit_presigns,
+            verifiers_pks: Vec::new(),
+            verifier_evm_addresses: Vec::new(),
+            deposit_presigns: HashMap::new(),
             deposit_merkle_tree: MerkleTree::initial(),
             withdrawals_merkle_tree: MerkleTree::initial(),
             withdrawals_payment_txids: Vec::new(),
-            mock_verifier_access: verifiers,
+            mock_verifier_access: Vec::new(),
             preimages: Vec::new(),
         }
+    }
+
+    pub fn add_verifier(&mut self, verifier: &Verifier<'a>) {
+        self
+            .mock_verifier_access
+            .push(verifier.clone());
+        self.verifiers_pks.push(verifier.signer.xonly_public_key.clone());
+        self.verifier_evm_addresses.push(verifier.signer.evm_address.clone());
+    }
+
+    pub fn get_all_verifiers(&self) -> Vec<XOnlyPublicKey> {
+        let mut all_verifiers = self.verifiers_pks.to_vec();
+        all_verifiers.push(self.signer.xonly_public_key.clone());
+        all_verifiers
     }
     // this is a public endpoint that every depositor can call
     pub fn new_deposit(
@@ -122,8 +124,8 @@ impl<'a> Operator<'a> {
         evm_address: EVMAddress,
     ) -> Vec<EVMSignature> {
         // self.verifiers + signer.public_key
-        let mut all_verifiers = self.verifiers.to_vec();
-        all_verifiers.push(self.signer.xonly_public_key.clone());
+        let all_verifiers = self.get_all_verifiers();
+        // println!("all_verifiers checking: {:?}", all_verifiers);
         let timestamp = check_deposit(
             &self.signer.secp,
             self.rpc,
@@ -132,18 +134,22 @@ impl<'a> Operator<'a> {
             return_address.clone(),
             &all_verifiers,
         );
-
+        println!("mock verifier access: {:?}", self.mock_verifier_access);
         let presigns_from_all_verifiers = self
             .mock_verifier_access
             .iter()
             .map(|verifier| {
+                println!("verifier in the closure: {:?}", verifier);
                 // Note: In this part we will need to call the verifier's API to get the presigns
                 let deposit_presigns =
-                    verifier.new_deposit(utxo, hash, return_address.clone(), evm_address);
+                    verifier.new_deposit(utxo, hash, return_address.clone(), evm_address, &all_verifiers);
+                    println!("checked new deposit");
                 check_presigns(utxo, timestamp, &deposit_presigns);
+                println!("checked presigns");
                 deposit_presigns
             })
             .collect::<Vec<_>>();
+        println!("presigns_from_all_verifiers: done");
 
         let script_anyone_can_spend = Builder::new().push_opcode(OP_TRUE).into_script();
         let anyone_can_spend_script_pub_key = script_anyone_can_spend.to_p2wsh();
@@ -221,12 +227,12 @@ impl<'a> Operator<'a> {
         // 1. Add the corresponding txid to DepositsMerkleTree
         self.deposit_merkle_tree.add(utxo.txid.to_byte_array());
         let hash = sha256_32bytes(preimage);
-        let mut all_verifiers = self.verifiers.to_vec();
-        all_verifiers.push(self.signer.xonly_public_key.clone());
+        let all_verifiers = self.get_all_verifiers();
         let script_n_of_n = generate_n_of_n_script(&all_verifiers, hash);
 
         let script_n_of_n_without_hash = generate_n_of_n_script_without_hash(&all_verifiers);
-        let (address, _) = create_taproot_address(&self.signer.secp, vec![script_n_of_n_without_hash.clone()]);
+        let (address, _) =
+            create_taproot_address(&self.signer.secp, vec![script_n_of_n_without_hash.clone()]);
 
         let script_anyone_can_spend = Builder::new().push_opcode(OP_TRUE).into_script();
         let anyone_can_spend_script_pub_key = script_anyone_can_spend.to_p2wsh();
@@ -264,7 +270,9 @@ impl<'a> Operator<'a> {
             kickoff_signatures.push(presign.kickoff_sign);
         }
 
-        let sig = self.signer.sign_taproot_script_spend_tx(&mut kickoff_tx, prevouts, &script_n_of_n, 0);
+        let sig =
+            self.signer
+                .sign_taproot_script_spend_tx(&mut kickoff_tx, prevouts, &script_n_of_n, 0);
         kickoff_signatures.push(sig);
 
         let spend_control_block = deposit_taproot_info
@@ -324,11 +332,11 @@ impl<'a> Operator<'a> {
             .position(|x| x.value == bitcoin::Amount::from_sat(BRIDGE_AMOUNT_SATS))
             .unwrap();
 
-        let mut all_verifiers = self.verifiers.to_vec();
-        all_verifiers.push(self.signer.xonly_public_key.clone());
+        let all_verifiers = self.get_all_verifiers();
 
         let script_n_of_n_without_hash = generate_n_of_n_script_without_hash(&all_verifiers);
-        let (address, _) = create_taproot_address(&self.signer.secp, vec![script_n_of_n_without_hash.clone()]);
+        let (address, _) =
+            create_taproot_address(&self.signer.secp, vec![script_n_of_n_without_hash.clone()]);
 
         let script_anyone_can_spend = Builder::new().push_opcode(OP_TRUE).into_script();
         let anyone_can_spend_script_pub_key = script_anyone_can_spend.to_p2wsh();
@@ -357,8 +365,16 @@ impl<'a> Operator<'a> {
 
         child_tx.input[0].witness.push([0x51]);
 
-        let prevouts = create_tx_outs(vec![(dust_value, anyone_can_spend_script_pub_key), (bitcoin::Amount::from_sat(BRIDGE_AMOUNT_SATS), self.signer.address.script_pubkey())]);
-        let sig = self.signer.sign_taproot_pubkey_spend_tx(&mut child_tx, prevouts, 1);
+        let prevouts = create_tx_outs(vec![
+            (dust_value, anyone_can_spend_script_pub_key),
+            (
+                bitcoin::Amount::from_sat(BRIDGE_AMOUNT_SATS),
+                self.signer.address.script_pubkey(),
+            ),
+        ]);
+        let sig = self
+            .signer
+            .sign_taproot_pubkey_spend_tx(&mut child_tx, prevouts, 1);
         let mut sighash_cache = SighashCache::new(child_tx.borrow_mut());
         let witness = sighash_cache.witness_mut(1).unwrap();
         witness.push(sig.as_ref());
@@ -393,11 +409,11 @@ impl<'a> Operator<'a> {
             .get_raw_transaction(&prev_outpoint.txid, None)
             .unwrap();
         let utxo_amount = prev_tx.output[prev_outpoint.vout as usize].value;
-        let mut all_verifiers = self.verifiers.to_vec();
-        all_verifiers.push(self.signer.xonly_public_key.clone());
+        let all_verifiers = self.get_all_verifiers();
 
         let script_n_of_n_without_hash = generate_n_of_n_script_without_hash(&all_verifiers);
-        let (address, tree_info) = create_taproot_address(&self.signer.secp, vec![script_n_of_n_without_hash.clone()]);
+        let (address, tree_info) =
+            create_taproot_address(&self.signer.secp, vec![script_n_of_n_without_hash.clone()]);
 
         let script_anyone_can_spend = Builder::new().push_opcode(OP_TRUE).into_script();
         let anyone_can_spend_script_pub_key = script_anyone_can_spend.to_p2wsh();
@@ -405,7 +421,13 @@ impl<'a> Operator<'a> {
 
         let move_tx_ins = create_tx_ins(vec![prev_outpoint]);
 
-        let move_tx_outs = create_tx_outs(vec![(utxo_amount - dust_value - bitcoin::Amount::from_sat(MIN_RELAY_FEE), address.script_pubkey()), (dust_value, anyone_can_spend_script_pub_key)]);
+        let move_tx_outs = create_tx_outs(vec![
+            (
+                utxo_amount - dust_value - bitcoin::Amount::from_sat(MIN_RELAY_FEE),
+                address.script_pubkey(),
+            ),
+            (dust_value, anyone_can_spend_script_pub_key),
+        ]);
 
         let mut move_tx = create_btc_tx(move_tx_ins, move_tx_outs);
 
@@ -429,7 +451,12 @@ impl<'a> Operator<'a> {
             value: utxo_amount,
         }];
 
-        let sig = self.signer.sign_taproot_script_spend_tx(&mut move_tx, prevouts, &script_n_of_n_without_hash, 0);
+        let sig = self.signer.sign_taproot_script_spend_tx(
+            &mut move_tx,
+            prevouts,
+            &script_n_of_n_without_hash,
+            0,
+        );
         move_signatures.push(sig);
 
         let spend_control_block = create_control_block(tree_info, &script_n_of_n_without_hash);

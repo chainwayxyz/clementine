@@ -1,11 +1,14 @@
 use std::collections::HashMap;
+use std::sync::{Arc, Mutex};
 
+use bitcoin::opcodes::all;
 use bitcoin::{
     hashes::Hash, opcodes::OP_TRUE, script::Builder, secp256k1, secp256k1::Secp256k1, OutPoint, TapSighash,
 };
 use bitcoincore_rpc::Client;
 use secp256k1::{rand::rngs::OsRng, XOnlyPublicKey};
 
+use crate::operator::Operator;
 use crate::utils::{create_btc_tx, create_tx_ins, create_tx_outs, generate_n_of_n_script, create_taproot_address};
 use crate::{
     actor::Actor,
@@ -16,16 +19,17 @@ use crate::{
 
 use circuit_helpers::config::{EVMAddress, BRIDGE_AMOUNT_SATS, MIN_RELAY_FEE, NUM_ROUNDS};
 
+#[derive(Debug, Clone)]
 pub struct Verifier<'a> {
     pub rpc: &'a Client,
     pub secp: Secp256k1<secp256k1::All>,
     pub signer: Actor,
-    pub operator: XOnlyPublicKey,
+    pub mock_operator_access: Arc<Mutex<Operator<'a>>>,
     pub verifiers: Vec<XOnlyPublicKey>,
 }
 
 impl<'a> Verifier<'a> {
-    pub fn new(rng: &mut OsRng, rpc: &'a Client, operator_pk: XOnlyPublicKey) -> Self {
+    pub fn new(rng: &mut OsRng, rpc: &'a Client, operator: Arc<Mutex<Operator<'a>>>) -> Self {
         let signer = Actor::new(rng);
         let secp: Secp256k1<secp256k1::All> = Secp256k1::new();
         let verifiers = Vec::new();
@@ -33,7 +37,7 @@ impl<'a> Verifier<'a> {
             rpc,
             secp,
             signer,
-            operator: operator_pk,
+            mock_operator_access: operator,
             verifiers,
         }
     }
@@ -49,9 +53,9 @@ impl<'a> Verifier<'a> {
         hash: [u8; 32],
         return_address: XOnlyPublicKey,
         evm_address: EVMAddress,
+        all_verifiers: &Vec<XOnlyPublicKey>,
     ) -> DepositPresigns {
-        let mut all_verifiers = self.verifiers.to_vec();
-        all_verifiers.push(self.operator);
+        println!("all_verifiers in new_deposit, in verifier now: {:?}", all_verifiers);
         let timestamp = check_deposit(
             &self.secp,
             self.rpc,

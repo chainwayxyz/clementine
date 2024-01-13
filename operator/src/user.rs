@@ -18,6 +18,7 @@ use circuit_helpers::hashes::sha256_32bytes;
 use secp256k1::rand::rngs::OsRng;
 use secp256k1::rand::Rng;
 
+#[derive(Debug, Clone)]
 pub struct User<'a> {
     pub rpc: &'a Client,
     pub secp: Secp256k1<secp256k1::All>,
@@ -131,8 +132,7 @@ mod tests {
         .unwrap_or_else(|e| panic!("Failed to connect to Bitcoin RPC: {}", e));
         let mut operator = Operator::new(&mut OsRng, &rpc);
         let user = User::new(&mut OsRng, &rpc);
-        let mut verifiers = operator.verifiers.clone();
-        verifiers.push(operator.signer.xonly_public_key.clone());
+        let mut verifiers = operator.get_all_verifiers();
 
         let mut verifiers_evm_addresses = operator.verifier_evm_addresses.clone();
         verifiers_evm_addresses.push(operator.signer.evm_address);

@@ -85,10 +85,9 @@ impl Actor {
     }
 
     pub fn sign(&self, sighash: TapSighash) -> schnorr::Signature {
-        self.secp.sign_schnorr_with_rng(
+        self.secp.sign_schnorr(
             &Message::from_digest_slice(sighash.as_byte_array()).expect("should be hash"),
-            &self.keypair,
-            &mut OsRng,
+            &self.keypair
         )
     }
 
