@@ -1,15 +1,15 @@
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 
-use bitcoin::opcodes::all;
 use bitcoin::{
-    hashes::Hash, opcodes::OP_TRUE, script::Builder, secp256k1, secp256k1::Secp256k1, OutPoint, TapSighash,
+    hashes::Hash, secp256k1, secp256k1::Secp256k1, OutPoint, TapSighash,
 };
 use bitcoincore_rpc::Client;
+use circuit_helpers::constant::{EVMAddress, MIN_RELAY_FEE};
 use secp256k1::{rand::rngs::OsRng, XOnlyPublicKey};
 
 use crate::operator::Operator;
-use crate::utils::{create_btc_tx, create_tx_ins, create_tx_outs, generate_n_of_n_script, create_taproot_address};
+use crate::utils::{create_btc_tx, create_tx_ins, create_tx_outs, generate_n_of_n_script, create_taproot_address, handle_anyone_can_spend_script, create_kickoff_tx};
 use crate::{
     actor::Actor,
     operator::{check_deposit, DepositPresigns},
@@ -17,7 +17,7 @@ use crate::{
     utils::generate_n_of_n_script_without_hash,
 };
 
-use circuit_helpers::config::{EVMAddress, BRIDGE_AMOUNT_SATS, MIN_RELAY_FEE, NUM_ROUNDS};
+use circuit_helpers::config::{BRIDGE_AMOUNT_SATS, NUM_ROUNDS};
 
 #[derive(Debug, Clone)]
 pub struct Verifier<'a> {
@@ -69,13 +69,9 @@ impl<'a> Verifier<'a> {
         let script_n_of_n_without_hash = generate_n_of_n_script_without_hash(&all_verifiers);
         let (address, _) = create_taproot_address(&self.signer.secp, vec![script_n_of_n_without_hash.clone()]);
 
-        let script_anyone_can_spend = Builder::new().push_opcode(OP_TRUE).into_script();
-        let anyone_can_spend_script_pub_key = script_anyone_can_spend.to_p2wsh();
-        let dust_value = script_anyone_can_spend.dust_value();
-
-        let kickoff_tx_ins = create_tx_ins(vec![utxo]);
-
-        let kickoff_tx_outs = create_tx_outs(vec![
+        let (anyone_can_spend_script_pub_key, dust_value) = handle_anyone_can_spend_script();
+        
+        let mut kickoff_tx = create_kickoff_tx(vec![utxo], vec![
             (
                 bitcoin::Amount::from_sat(BRIDGE_AMOUNT_SATS)
                     - dust_value
@@ -85,7 +81,7 @@ impl<'a> Verifier<'a> {
             (dust_value, anyone_can_spend_script_pub_key.clone()),
         ]);
 
-        let mut kickoff_tx = create_btc_tx(kickoff_tx_ins, kickoff_tx_outs);
+        
 
         let (deposit_address, _) =
             User::generate_deposit_address(&self.signer.secp, &all_verifiers, hash, return_address);

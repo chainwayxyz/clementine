@@ -25,7 +25,7 @@ use bitcoin::taproot::TaprootSpendInfo;
 use bitcoin::transaction::Version;
 use bitcoincore_rpc::Client;
 use bitcoincore_rpc::RpcApi;
-use circuit_helpers::config::REGTEST;
+use circuit_helpers::constant::REGTEST;
 use secp256k1::All;
 use secp256k1::Secp256k1;
 use secp256k1::XOnlyPublicKey;
@@ -326,6 +326,21 @@ pub fn mine_blocks(rpc: &Client, block_num: u64) {
 pub fn check_balance(rpc: &Client) {
     let balance = rpc.get_balance(None, None).unwrap();
     println!("balance: {}", balance);
+}
+
+pub fn handle_anyone_can_spend_script() -> (ScriptBuf, Amount) {
+    let script = Builder::new()
+        .push_opcode(OP_TRUE)
+        .into_script();
+    let script_pubkey = script.to_p2wsh();
+    let amount = script.dust_value();
+    (script_pubkey, amount)
+}
+
+pub fn create_kickoff_tx(ins: Vec<OutPoint>, outs: Vec<(Amount, ScriptBuf)>) -> bitcoin::Transaction {
+    let tx_ins = create_tx_ins(ins);
+    let tx_outs = create_tx_outs(outs);
+    create_btc_tx(tx_ins, tx_outs)
 }
 
 #[cfg(test)]

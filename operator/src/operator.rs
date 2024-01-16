@@ -1,25 +1,22 @@
 use std::borrow::BorrowMut;
 use std::collections::HashMap;
-use std::sync::{Arc, Mutex};
 
 use crate::actor::{Actor, EVMSignature};
 use crate::merkle::MerkleTree;
 use crate::user::User;
 use crate::utils::{
     create_btc_tx, create_control_block, create_taproot_address, create_tx_ins, create_tx_outs,
-    generate_n_of_n_script, generate_n_of_n_script_without_hash,
+    generate_n_of_n_script, generate_n_of_n_script_without_hash, handle_anyone_can_spend_script, create_kickoff_tx,
 };
 use crate::verifier::Verifier;
 use bitcoin::address::NetworkChecked;
-use bitcoin::opcodes::OP_TRUE;
-use bitcoin::script::Builder;
 use bitcoin::sighash::SighashCache;
 use bitcoin::taproot::LeafVersion;
 use bitcoin::{absolute, hashes::Hash, secp256k1, secp256k1::schnorr, Address, Txid};
 use bitcoin::{OutPoint, Transaction, TxOut};
 use bitcoincore_rpc::{Client, RpcApi};
-use circuit_helpers::config::{EVMAddress, BRIDGE_AMOUNT_SATS, MIN_RELAY_FEE, NUM_VERIFIERS};
-use circuit_helpers::hashes::sha256_32bytes;
+use circuit_helpers::config::BRIDGE_AMOUNT_SATS;
+use circuit_helpers::constant::{EVMAddress, MIN_RELAY_FEE, HASH_FUNCTION_32};
 use secp256k1::rand::rngs::OsRng;
 use secp256k1::schnorr::Signature;
 use secp256k1::{All, Secp256k1, XOnlyPublicKey};
@@ -151,13 +148,9 @@ impl<'a> Operator<'a> {
             .collect::<Vec<_>>();
         println!("presigns_from_all_verifiers: done");
 
-        let script_anyone_can_spend = Builder::new().push_opcode(OP_TRUE).into_script();
-        let anyone_can_spend_script_pub_key = script_anyone_can_spend.to_p2wsh();
-        let dust_value = script_anyone_can_spend.dust_value();
+        let (anyone_can_spend_script_pub_key, dust_value) = handle_anyone_can_spend_script();
 
-        let kickoff_tx_ins = create_tx_ins(vec![utxo]);
-
-        let kickoff_tx_outs = create_tx_outs(vec![
+        let kickoff_tx = create_kickoff_tx(vec![utxo], vec![
             (
                 bitcoin::Amount::from_sat(BRIDGE_AMOUNT_SATS)
                     - dust_value
@@ -166,8 +159,6 @@ impl<'a> Operator<'a> {
             ),
             (dust_value, anyone_can_spend_script_pub_key),
         ]);
-
-        let kickoff_tx = create_btc_tx(kickoff_tx_ins, kickoff_tx_outs);
 
         let kickoff_txid = kickoff_tx.txid();
 
@@ -226,7 +217,7 @@ impl<'a> Operator<'a> {
         self.preimages.push(preimage);
         // 1. Add the corresponding txid to DepositsMerkleTree
         self.deposit_merkle_tree.add(utxo.txid.to_byte_array());
-        let hash = sha256_32bytes(preimage);
+        let hash = HASH_FUNCTION_32(preimage);
         let all_verifiers = self.get_all_verifiers();
         let script_n_of_n = generate_n_of_n_script(&all_verifiers, hash);
 
@@ -234,13 +225,9 @@ impl<'a> Operator<'a> {
         let (address, _) =
             create_taproot_address(&self.signer.secp, vec![script_n_of_n_without_hash.clone()]);
 
-        let script_anyone_can_spend = Builder::new().push_opcode(OP_TRUE).into_script();
-        let anyone_can_spend_script_pub_key = script_anyone_can_spend.to_p2wsh();
-        let dust_value = script_anyone_can_spend.dust_value();
+        let (anyone_can_spend_script_pub_key, dust_value) = handle_anyone_can_spend_script();
 
-        let kickoff_tx_ins = create_tx_ins(vec![utxo]);
-
-        let kickoff_tx_outs = create_tx_outs(vec![
+        let mut kickoff_tx = create_kickoff_tx(vec![utxo], vec![
             (
                 bitcoin::Amount::from_sat(BRIDGE_AMOUNT_SATS)
                     - dust_value
@@ -249,9 +236,6 @@ impl<'a> Operator<'a> {
             ),
             (dust_value, anyone_can_spend_script_pub_key),
         ]);
-
-        let mut kickoff_tx = create_btc_tx(kickoff_tx_ins, kickoff_tx_outs);
-        // println!("kickoff_tx: {:?}", kickoff_tx);
 
         let (deposit_address, deposit_taproot_info) =
             User::generate_deposit_address(&self.signer.secp, &all_verifiers, hash, return_address);
@@ -338,10 +322,7 @@ impl<'a> Operator<'a> {
         let (address, _) =
             create_taproot_address(&self.signer.secp, vec![script_n_of_n_without_hash.clone()]);
 
-        let script_anyone_can_spend = Builder::new().push_opcode(OP_TRUE).into_script();
-        let anyone_can_spend_script_pub_key = script_anyone_can_spend.to_p2wsh();
-        let dust_value = script_anyone_can_spend.dust_value();
-        // println!("dust_value: {:?}", dust_value);
+        let (anyone_can_spend_script_pub_key, dust_value) = handle_anyone_can_spend_script();
 
         let child_tx_ins = create_tx_ins(vec![
             parent_outpoint,
@@ -415,9 +396,7 @@ impl<'a> Operator<'a> {
         let (address, tree_info) =
             create_taproot_address(&self.signer.secp, vec![script_n_of_n_without_hash.clone()]);
 
-        let script_anyone_can_spend = Builder::new().push_opcode(OP_TRUE).into_script();
-        let anyone_can_spend_script_pub_key = script_anyone_can_spend.to_p2wsh();
-        let dust_value = script_anyone_can_spend.dust_value();
+        let (anyone_can_spend_script_pub_key, dust_value) = handle_anyone_can_spend_script();
 
         let move_tx_ins = create_tx_ins(vec![prev_outpoint]);
 

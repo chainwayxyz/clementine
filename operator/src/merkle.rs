@@ -1,4 +1,5 @@
-use circuit_helpers::config::{Data, EMPTYDATA, HASH_FUNCTION, DEPTH, ZEROES};
+use circuit_helpers::config::{DEPTH, ZEROES};
+use circuit_helpers::constant::{Data, HASH_FUNCTION_64, EMPTYDATA};
 use circuit_helpers::incremental_merkle::IncrementalMerkleTree;
 use serde::{Deserialize, Serialize};
 
@@ -40,7 +41,7 @@ impl MerkleTree {
             else {
                 self.data[i].push(current_level_hash);
             }
-            current_level_hash = HASH_FUNCTION(left, right);
+            current_level_hash = HASH_FUNCTION_64(left, right);
             current_index /= 2;
         }
         self.index += 1;
@@ -73,7 +74,7 @@ impl MerkleTree {
                 fst[level] = self.data[level][i - 1];
             }
             let (left, right) = if i % 2 == 0 {(current_level_hash, ZEROES[level])} else {(self.data[level][i - 1], current_level_hash)};
-            current_level_hash = HASH_FUNCTION(left, right);
+            current_level_hash = HASH_FUNCTION_64(left, right);
             i /= 2;
         }
         IncrementalMerkleTree { filled_subtrees: fst, root: current_level_hash, index }

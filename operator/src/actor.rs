@@ -11,8 +11,7 @@ use bitcoin::{
     Address, TapSighash, TapTweakHash,
 };
 use bitcoin::{TapNodeHash, Txid, TxOut, TapLeafHash};
-use circuit_helpers::config::EVMAddress;
-use circuit_helpers::config::REGTEST;
+use circuit_helpers::constant::{EVMAddress, REGTEST};
 use tiny_keccak::{Hasher, Keccak};
 
 #[derive(Clone, Debug, Copy)]

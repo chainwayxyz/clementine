@@ -14,7 +14,7 @@ use bitcoin::XOnlyPublicKey;
 use bitcoincore_rpc::Client;
 use bitcoincore_rpc::RpcApi;
 use circuit_helpers::config::USER_TAKES_AFTER;
-use circuit_helpers::hashes::sha256_32bytes;
+use circuit_helpers::constant::HASH_FUNCTION_32;
 use secp256k1::rand::rngs::OsRng;
 use secp256k1::rand::Rng;
 
@@ -67,7 +67,7 @@ impl<'a> User<'a> {
         secp: &Secp256k1<All>,
         verifiers_pks: Vec<XOnlyPublicKey>,
     ) -> (OutPoint, [u8; 32], XOnlyPublicKey) {
-        let hash = sha256_32bytes(self.preimage);
+        let hash = HASH_FUNCTION_32(self.preimage);
         let (deposit_address, _) =
             User::generate_deposit_address(secp, &verifiers_pks, hash, self.signer.xonly_public_key);
         // println!("deposit address: {:?}", deposit_address.0);
