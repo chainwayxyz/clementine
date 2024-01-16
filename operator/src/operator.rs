@@ -463,4 +463,25 @@ impl<'a> Operator<'a> {
 
     // This function is internal, it gives the appropriate response for a bitvm challenge
     pub fn challenge_received() {}
+
+    // This function creates the connector binary tree for operator to be able to claim the funds that they paid out of their pocket.
+    // Depth will be equal to 20 for experimental purposes.
+    pub fn create_connector_binary_tree(&self, depth: u32, utxo: OutPoint) {
+        let mut utxo_binary_tree: Vec<Vec<OutPoint>> = Vec::new();
+        let mut tx_binary_tree: Vec<Vec<Transaction>> = Vec::new();
+        for i in 0..depth {
+            let mut current_level: Vec<OutPoint> = Vec::new();
+            for _ in 0..2u32.pow(i) {
+
+            }
+            utxo_binary_tree.push(current_level);
+        }
+    }
+
+    pub fn create_connector_tree_tx(&self, utxo: OutPoint, depth: u32) -> Transaction {
+        let ins = create_tx_ins(vec![utxo]);
+        let outs = create_tx_outs(vec![(bitcoin::Amount::from_sat(49_999_000), self.signer.address.script_pubkey())]);
+        create_btc_tx(ins, outs)
+    }
+
 }
