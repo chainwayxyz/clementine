@@ -1,4 +1,4 @@
-use crate::config::{DEPTH, ZEROES, Data, EMPTYDATA, HASH_FUNCTION};
+use crate::{config::{DEPTH, ZEROES}, constant::{Data, EMPTYDATA, HASH_FUNCTION_64}};
 use serde::{Deserialize, Serialize};
 
 #[derive(Clone, Copy, Debug, Deserialize, Serialize)]
@@ -29,7 +29,7 @@ impl IncrementalMerkleTree {
             else {
                 (self.filled_subtrees[i], current_level_hash)
             };
-            current_level_hash = HASH_FUNCTION(left, right);
+            current_level_hash = HASH_FUNCTION_64(left, right);
             current_index /= 2;
         }
         self.root = current_level_hash;

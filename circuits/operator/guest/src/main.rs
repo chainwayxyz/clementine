@@ -2,8 +2,9 @@
 #![no_std]
 
 use circuit_helpers::bitcoin::{validate_threshold_and_add_work, BlockHeader};
+use circuit_helpers::constant::Data;
 use circuit_helpers::hashes::calculate_double_sha256;
-use circuit_helpers::config::{N, PERIOD3, Data};
+use circuit_helpers::config::{N, PERIOD3};
 use circuit_helpers::incremental_merkle::IncrementalMerkleTree;
 
 

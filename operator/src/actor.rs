@@ -1,7 +1,8 @@
 use bitcoin::hashes::sha256;
 use bitcoin::secp256k1::rand::rngs::OsRng;
 use bitcoin::secp256k1::rand::RngCore;
-use bitcoin::{TapNodeHash, Txid};
+use bitcoin::sighash::SighashCache;
+use bitcoin::taproot::LeafVersion;
 use bitcoin::{
     hashes::Hash,
     secp256k1::{
@@ -9,10 +10,9 @@ use bitcoin::{
     },
     Address, TapSighash, TapTweakHash,
 };
+use bitcoin::{TapNodeHash, Txid, TxOut, TapLeafHash};
+use circuit_helpers::constant::{EVMAddress, REGTEST};
 use tiny_keccak::{Hasher, Keccak};
-use circuit_helpers::config::REGTEST;
-
-
 
 #[derive(Clone, Debug, Copy)]
 pub struct EVMSignature {
@@ -21,10 +21,9 @@ pub struct EVMSignature {
     s: [u8; 32],
 }
 
-pub type EVMAddress = [u8; 20];
 #[derive(Clone, Debug)]
 pub struct Actor {
-    secp: Secp256k1<All>,
+    pub secp: Secp256k1<All>,
     keypair: Keypair,
     pub secret_key: SecretKey,
     pub public_key: PublicKey,
@@ -38,7 +37,6 @@ impl Default for Actor {
         Self::new(&mut OsRng)
     }
 }
-
 
 impl Actor {
     pub fn new<R: RngCore>(rng: &mut R) -> Self {
@@ -88,7 +86,7 @@ impl Actor {
     pub fn sign(&self, sighash: TapSighash) -> schnorr::Signature {
         self.secp.sign_schnorr(
             &Message::from_digest_slice(sighash.as_byte_array()).expect("should be hash"),
-            &self.keypair,
+            &self.keypair
         )
     }
 
@@ -99,16 +97,43 @@ impl Actor {
         )
     }
 
+    pub fn sign_taproot_script_spend_tx(&self, tx: &mut bitcoin::Transaction, prevouts: Vec<TxOut>, spend_script: &bitcoin::Script, input_index: usize) -> schnorr::Signature {
+        let mut sighash_cache = SighashCache::new(tx);
+        let sig_hash = sighash_cache
+                .taproot_script_spend_signature_hash(
+                    input_index,
+                    &bitcoin::sighash::Prevouts::All(&prevouts),
+                    TapLeafHash::from_script(&spend_script, LeafVersion::TapScript),
+                    bitcoin::sighash::TapSighashType::Default,
+                )
+                .unwrap();
+        self.sign(sig_hash)
+    }
+
+    pub fn sign_taproot_pubkey_spend_tx(&self, tx: &mut bitcoin::Transaction, prevouts: Vec<TxOut>, input_index: usize) -> schnorr::Signature{
+        let mut sighash_cache = SighashCache::new(tx);
+        let sig_hash = sighash_cache
+            .taproot_key_spend_signature_hash(
+                input_index,
+                &bitcoin::sighash::Prevouts::All(&prevouts),
+                bitcoin::sighash::TapSighashType::Default,
+            )
+            .unwrap();
+        self.sign_with_tweak(sig_hash, None)
+    }
+
     pub fn sign_deposit(
         &self,
         txid: Txid,
-        deposit_address: [u8; 4],
+        evm_address: EVMAddress,
         hash: [u8; 32],
+        timestamp: [u8; 4],
     ) -> EVMSignature {
-        let mut message = [0; 68];
+        let mut message = [0; 88];
         message[..32].copy_from_slice(&txid.to_byte_array());
-        message[32..36].copy_from_slice(&deposit_address);
-        message[36..].copy_from_slice(&hash);
+        message[32..52].copy_from_slice(&evm_address);
+        message[52..84].copy_from_slice(&hash);
+        message[84..].copy_from_slice(&timestamp);
 
         let message = sha256::Hash::hash(&message);
         let signature = self.secp.sign_ecdsa_recoverable(
@@ -120,11 +145,7 @@ impl Actor {
         let r: [u8; 32] = signature[..32].try_into().unwrap();
         let s: [u8; 32] = signature[32..].try_into().unwrap();
 
-        EVMSignature {
-            v,
-            r,
-            s,
-        }
+        EVMSignature { v, r, s }
     }
 }
 
@@ -136,10 +157,11 @@ mod tests {
     fn test_ecdsa() {
         let prover = Actor::new(&mut OsRng);
         let txid = Txid::all_zeros();
-        let deposit_address = [2; 4];
+        let timestamp = [2; 4];
         let hash = [3; 32];
+        let evm_address = prover.evm_address;
 
-        let sig = prover.sign_deposit(txid, deposit_address, hash);
+        let sig = prover.sign_deposit(txid, evm_address, hash, timestamp);
         let v = sig.v;
         let r = sig.r;
         let s = sig.s;
@@ -147,9 +169,10 @@ mod tests {
         println!("bytes32 txid = bytes32(0x{});", hex::encode(txid));
         println!(
             "address deposit_address = address(bytes20(hex\"{}\"));",
-            hex::encode(deposit_address)
+            hex::encode(evm_address)
         );
         println!("bytes32 _hash = bytes32(0x{});", hex::encode(hash));
+        println!("bytes4 timestamp = bytes4(0x{});", hex::encode(timestamp));
         println!("bytes32 r = bytes32(0x{});", hex::encode(r));
         println!("bytes32 s = bytes32(0x{});", hex::encode(s));
         println!("uint8 v = {};", v);
