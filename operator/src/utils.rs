@@ -1,7 +1,6 @@
 use std::io::{self, Write};
-use std::ops::Add;
 
-use bitcoin;
+use bitcoin::{self};
 
 use bitcoin::absolute;
 use bitcoin::consensus::Decodable;
@@ -213,6 +212,19 @@ pub fn create_tx_ins(utxos: Vec<OutPoint>) -> Vec<TxIn> {
     tx_ins
 }
 
+pub fn create_tx_ins_with_sequence(utxo_sequence_pairs: Vec<(OutPoint, u16)>) ->Vec<TxIn> {
+    let mut tx_ins = Vec::new();
+    for (utxo, sequence) in utxo_sequence_pairs {
+        tx_ins.push(TxIn {
+            previous_output: utxo,
+            sequence: bitcoin::transaction::Sequence::from_height(sequence),
+            script_sig: ScriptBuf::default(),
+            witness: Witness::new(),
+        });
+    }
+    tx_ins
+}
+
 pub fn create_tx_outs(pairs: Vec<(Amount, ScriptBuf)>) -> Vec<TxOut> {
     let mut tx_outs = Vec::new();
     for pair in pairs {
@@ -373,6 +385,113 @@ pub fn handle_connector_binary_tree_script(
     (amount, script_pubkey, address, tree_info)
 }
 
+pub fn create_connector_tree_tx(
+    utxo: &OutPoint,
+    depth: u32,
+    first_address: Address,
+    second_address: Address,
+    dust_value: Amount,
+    fee: Amount,
+) -> bitcoin::Transaction {
+    // UTXO value should be at least 2^depth * dust_value + (2^depth-1) * fee
+    let tx_ins = create_tx_ins_with_sequence(vec![(*utxo, 2)]);
+    let tx_outs = create_tx_outs(vec![
+        ((dust_value * 2u64.pow(depth)) + (fee * (2u64.pow(depth) - 1)), first_address.script_pubkey()),
+        ((dust_value * 2u64.pow(depth)) + (fee * (2u64.pow(depth) - 1)), second_address.script_pubkey()),
+    ]);
+    create_btc_tx(tx_ins, tx_outs)
+}
+
+// This function creates the connector binary tree for operator to be able to claim the funds that they paid out of their pocket.
+// Depth will be determined later.
+pub fn create_connector_binary_tree(
+    rpc: &Client,
+    secp: &Secp256k1<All>,
+    xonly_public_key: XOnlyPublicKey,
+    root_utxo: OutPoint,
+    depth: u32,
+    dust_value: Amount,
+    fee: Amount,
+    connector_tree_hashes: Vec<Vec<[u8; 32]>>,
+) -> Vec<Vec<OutPoint>> {
+    // UTXO value should be at least 2^depth * dust_value + (2^depth-1) * fee
+    let total_amount = (dust_value * 2u64.pow(depth)) + (fee * (2u64.pow(depth) - 1));
+    println!("total_amount: {:?}", total_amount);
+
+    let (_, _, root_address, _) = handle_connector_binary_tree_script(
+        &secp,
+        xonly_public_key,
+        1, // MAKE THIS CONFIGURABLE
+        connector_tree_hashes[0][0],
+    );
+    println!(
+        "root dust value: {:?}",
+        root_address.clone().script_pubkey().dust_value()
+    );
+
+    let root_txid = root_utxo.txid;
+    let root_tx = rpc.get_raw_transaction(&root_txid, None).unwrap();
+
+    assert!(root_tx.output[root_utxo.vout as usize].value == total_amount);
+
+    mine_blocks(rpc, 3);
+
+    // let vout = rpc.get_raw_transaction(&root_txid, None).unwrap().output.iter().position(|x| x.value == total_amount).unwrap();
+
+    let mut utxo_binary_tree: Vec<Vec<OutPoint>> = Vec::new();
+    let mut tx_binary_tree: Vec<Vec<bitcoin::Transaction>> = Vec::new();
+    // let root_utxo = OutPoint {
+    //     txid: rpc_txid,
+    //     vout: vout as u32,
+    // };
+
+    utxo_binary_tree.push(vec![root_utxo.clone()]);
+
+    for i in 0..depth {
+        let mut utxo_tree_current_level: Vec<OutPoint> = Vec::new();
+        let utxo_tree_previous_level = utxo_binary_tree.last().unwrap();
+
+        let mut tx_tree_current_level: Vec<bitcoin::Transaction> = Vec::new();
+
+        for (j, utxo) in utxo_tree_previous_level.iter().enumerate() {
+            let (_, _, first_address, _) = handle_connector_binary_tree_script(
+                &secp,
+                xonly_public_key,
+                1, // MAKE THIS CONFIGURABLE
+                connector_tree_hashes[(i + 1) as usize][2 * j],
+            );
+            let (_, _, second_address, _) = handle_connector_binary_tree_script(
+                &secp,
+                xonly_public_key,
+                1, // MAKE THIS CONFIGURABLE
+                connector_tree_hashes[(i + 1) as usize][2 * j + 1],
+            );
+
+            let tx = create_connector_tree_tx(
+                utxo,
+                depth - i - 1,
+                first_address.clone(),
+                second_address.clone(),
+                dust_value,
+                fee,
+            );
+            let txid = tx.txid();
+            let first_utxo = OutPoint { txid, vout: 0 };
+            let second_utxo = OutPoint { txid, vout: 1 };
+            utxo_tree_current_level.push(first_utxo);
+            utxo_tree_current_level.push(second_utxo);
+            tx_tree_current_level.push(tx);
+        }
+        utxo_binary_tree.push(utxo_tree_current_level);
+        tx_binary_tree.push(tx_tree_current_level);
+    }
+
+    println!("utxo_binary_tree: {:?}", utxo_binary_tree);
+    println!("tx_binary_tree: {:?}", tx_binary_tree);
+
+    utxo_binary_tree
+}
+
 #[cfg(test)]
 mod tests {
 
@@ -496,14 +615,16 @@ mod tests {
                 sequence: Sequence::from_height(3), // Sequence::MAX,
                 witness: Witness::new(),
             }],
-            output: vec![TxOut {
-                value: Amount::from_sat(49_999_000),
-                script_pubkey: address.script_pubkey(),
-            },
-            TxOut {
-                value: Amount::from_sat(49_999_000),
-                script_pubkey: address.script_pubkey(),
-            }],
+            output: vec![
+                TxOut {
+                    value: Amount::from_sat(49_999_000),
+                    script_pubkey: address.script_pubkey(),
+                },
+                TxOut {
+                    value: Amount::from_sat(49_999_000),
+                    script_pubkey: address.script_pubkey(),
+                },
+            ],
         };
         println!("dust value: {:?}", address.script_pubkey().dust_value());
         println!("connector_tree_tx: {:?}", connector_tree_tx);
@@ -525,7 +646,10 @@ mod tests {
         witness.push(timelock_script);
         witness.push(&spend_control_block.serialize());
         let bytes_connector_tree_tx = serialize(&connector_tree_tx);
-        println!("bytes_connector_tree_tx length: {:?}", bytes_connector_tree_tx.len());
+        println!(
+            "bytes_connector_tree_tx length: {:?}",
+            bytes_connector_tree_tx.len()
+        );
         // let hex_utxo_tx = hex::encode(bytes_utxo_tx.clone());
         mine_blocks(&rpc, 2);
         mine_blocks(&rpc, 6);
