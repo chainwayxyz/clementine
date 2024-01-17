@@ -145,4 +145,7 @@ impl<'a> Verifier<'a> {
 
     // This is a function to reduce gas costs when moving bridge funds
     pub fn do_me_a_favor() {}
+
+    pub fn watch_connector_tree(&self) {}
+    
 }

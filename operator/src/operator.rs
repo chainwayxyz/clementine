@@ -1,12 +1,13 @@
+use core::num;
 use std::borrow::BorrowMut;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 use crate::actor::{Actor, EVMSignature};
 use crate::merkle::MerkleTree;
 use crate::user::User;
 use crate::utils::{
     create_btc_tx, create_control_block, create_taproot_address, create_tx_ins, create_tx_outs,
-    generate_n_of_n_script, generate_n_of_n_script_without_hash, handle_anyone_can_spend_script, create_kickoff_tx, handle_connector_binary_tree_script, generate_timelock_script, mine_blocks, create_connector_tree_tx,
+    generate_n_of_n_script, generate_n_of_n_script_without_hash, handle_anyone_can_spend_script, create_kickoff_tx, handle_connector_binary_tree_script, generate_timelock_script, mine_blocks, create_connector_tree_tx, get_indices,
 };
 use crate::verifier::Verifier;
 use bitcoin::address::NetworkChecked;
@@ -557,6 +558,16 @@ impl<'a> Operator<'a> {
         println!("spending_txid: {:?}", spending_txid);
     }
 
+    fn reveal_connector_tree_preimages(&self, number_of_funds_claim: u32) -> HashSet<PreimageType> {
+        let indices = get_indices((self.connector_tree_hashes.len() - 1) as u32, number_of_funds_claim);
+        println!("indices: {:?}", indices);
+        let mut preimages: HashSet<PreimageType> = HashSet::new();
+        for (depth, index) in indices {
+            preimages.insert(self.connector_tree_preimages[depth as usize][index as usize]);
+        }
+        preimages
+    }
+
 }
 
 #[cfg(test)]
@@ -626,6 +637,10 @@ mod tests {
             }
             mine_blocks(&rpc, 3);
         }
+
+        let preimages = operator.reveal_connector_tree_preimages(3);
+        println!("preimages: {:?}", preimages);
+        
 
     }   
 
