@@ -43,6 +43,7 @@ impl<'a> User<'a> {
         Builder::new()
             .push_int(block_count as i64)
             .push_opcode(OP_CSV)
+            .push_opcode(OP_DROP)
             .push_x_only_key(&public_key)
             .push_opcode(OP_CHECKSIG)
             .into_script()
@@ -132,6 +133,7 @@ mod tests {
         .unwrap_or_else(|e| panic!("Failed to connect to Bitcoin RPC: {}", e));
         let mut operator = Operator::new(&mut OsRng, &rpc);
         let user = User::new(&mut OsRng, &rpc);
+        
         let mut verifiers = operator.get_all_verifiers();
 
         let mut verifiers_evm_addresses = operator.verifier_evm_addresses.clone();

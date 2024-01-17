@@ -6,17 +6,19 @@ use crate::merkle::MerkleTree;
 use crate::user::User;
 use crate::utils::{
     create_btc_tx, create_control_block, create_taproot_address, create_tx_ins, create_tx_outs,
-    generate_n_of_n_script, generate_n_of_n_script_without_hash, handle_anyone_can_spend_script, create_kickoff_tx,
+    generate_n_of_n_script, generate_n_of_n_script_without_hash, handle_anyone_can_spend_script, create_kickoff_tx, handle_connector_binary_tree_script, generate_timelock_script, mine_blocks, create_connector_tree_tx,
 };
 use crate::verifier::Verifier;
 use bitcoin::address::NetworkChecked;
+use bitcoin::consensus::serialize;
 use bitcoin::sighash::SighashCache;
 use bitcoin::taproot::LeafVersion;
 use bitcoin::{absolute, hashes::Hash, secp256k1, secp256k1::schnorr, Address, Txid};
-use bitcoin::{OutPoint, Transaction, TxOut};
+use bitcoin::{OutPoint, Transaction, TxOut, Amount};
 use bitcoincore_rpc::{Client, RpcApi};
 use circuit_helpers::config::BRIDGE_AMOUNT_SATS;
 use circuit_helpers::constant::{EVMAddress, MIN_RELAY_FEE, HASH_FUNCTION_32};
+use secp256k1::rand::Rng;
 use secp256k1::rand::rngs::OsRng;
 use secp256k1::schnorr::Signature;
 use secp256k1::{All, Secp256k1, XOnlyPublicKey};
@@ -52,6 +54,27 @@ pub fn check_deposit(
     return absolute::Time::from_consensus(time).unwrap();
 }
 
+pub fn create_connector_tree_preimages_and_hashes(depth: u32, rng: &mut OsRng) -> (Vec<Vec<PreimageType>>, Vec<Vec<[u8; 32]>>) {
+    let mut connector_tree_preimages: Vec<Vec<PreimageType>> = Vec::new();
+    let mut connector_tree_hashes: Vec<Vec<[u8; 32]>> = Vec::new();
+    let root_preimage: PreimageType = rng.gen();
+    connector_tree_preimages.push(vec![root_preimage]);
+    connector_tree_hashes.push(vec![HASH_FUNCTION_32(root_preimage)]);
+    for i in 1..(depth + 1) {
+        let mut preimages_current_level: Vec<PreimageType> = Vec::new();
+        let mut hashes_current_level: Vec<PreimageType> = Vec::new();
+        for _ in 0..2u32.pow(i) {
+            let temp: PreimageType = rng.gen();
+            preimages_current_level.push(temp);
+            hashes_current_level.push(HASH_FUNCTION_32(temp));
+        }
+        connector_tree_preimages.push(preimages_current_level);
+        connector_tree_hashes.push(hashes_current_level);
+    }
+    (connector_tree_preimages, connector_tree_hashes)
+}
+
+
 #[derive(Debug, Clone)]
 pub struct DepositPresigns {
     pub rollup_sign: EVMSignature,
@@ -72,6 +95,8 @@ pub struct Operator<'a> {
     pub withdrawals_payment_txids: Vec<Txid>,
     pub mock_verifier_access: Vec<Verifier<'a>>, // on production this will be removed rather we will call the verifier's API
     pub preimages: Vec<PreimageType>,
+    connector_tree_preimages: Vec<Vec<PreimageType>>,
+    pub connector_tree_hashes: Vec<Vec<[u8; 32]>>,
 }
 
 pub fn check_presigns(
@@ -84,7 +109,7 @@ pub fn check_presigns(
 impl<'a> Operator<'a> {
     pub fn new(rng: &mut OsRng, rpc: &'a Client) -> Self {
         let signer = Actor::new(rng);
-
+        let (connector_tree_preimages, connector_tree_hashes) = create_connector_tree_preimages_and_hashes(3, rng);
         Self {
             rpc,
             signer,
@@ -96,6 +121,8 @@ impl<'a> Operator<'a> {
             withdrawals_payment_txids: Vec::new(),
             mock_verifier_access: Vec::new(),
             preimages: Vec::new(),
+            connector_tree_preimages: connector_tree_preimages,
+            connector_tree_hashes: connector_tree_hashes,
         }
     }
 
@@ -463,4 +490,143 @@ impl<'a> Operator<'a> {
 
     // This function is internal, it gives the appropriate response for a bitvm challenge
     pub fn challenge_received() {}
+
+    pub fn spend_connector_tree_utxo(&self, utxo: OutPoint, preimage: PreimageType, dust_value: Amount, fee: Amount, tree_depth: u32) {
+        let hash = HASH_FUNCTION_32(preimage);
+        let (_, _, _, tree_info) =
+        handle_connector_binary_tree_script(
+            &self.signer.secp,
+            self.signer.xonly_public_key,
+            1, // MAKE THIS CONFIGURABLE
+            hash,
+        );
+
+        let base_tx = self.rpc.get_raw_transaction(&utxo.txid, None).unwrap();
+        println!("base_tx: {:?}", base_tx);
+        let depth = u32::ilog2(((base_tx.output[utxo.vout as usize].value + fee).to_sat() / (dust_value + fee).to_sat()) as u32);
+        println!("depth: {:?}", depth);
+        let level = tree_depth - depth;
+        //find the index of preimage in the connector_tree_preimages[level as usize]
+        let index = self.connector_tree_preimages[level as usize].iter().position(|x| *x == preimage).unwrap();
+        let hashes = (self.connector_tree_hashes[(level + 1) as usize][2 * index], self.connector_tree_hashes[(level + 1) as usize][2 * index + 1]);
+
+        let utxo_tx = self.rpc.get_raw_transaction(&utxo.txid, None).unwrap();
+        // println!("utxo_tx: {:?}", utxo_tx);
+        // println!("utxo_txid: {:?}", utxo_tx.txid());
+        let timelock_script = generate_timelock_script(self.signer.xonly_public_key, 1);
+
+        let (_, _, first_address, _) = handle_connector_binary_tree_script(
+            &self.signer.secp,
+            self.signer.xonly_public_key,
+            1, // MAKE THIS CONFIGURABLE
+            hashes.0,
+        );
+
+
+        let (_, _, second_address, _) = handle_connector_binary_tree_script(
+            &self.signer.secp,
+            self.signer.xonly_public_key,
+            1, // MAKE THIS CONFIGURABLE
+            hashes.1,
+        );
+
+        let mut tx = create_connector_tree_tx(&utxo, depth - 1, first_address, second_address, dust_value, fee);
+        println!("created spend tx: {:?}", tx);
+
+        let sig = self.signer.sign_taproot_script_spend_tx(
+            &mut tx,
+            vec![utxo_tx.output[utxo.vout as usize].clone()],
+            &timelock_script,
+            0,
+        );
+        let spend_control_block = tree_info
+            .control_block(&(timelock_script.clone(), LeafVersion::TapScript))
+            .expect("Cannot create control block");
+        let mut sighash_cache = SighashCache::new(tx.borrow_mut());
+        let witness = sighash_cache.witness_mut(0).unwrap();
+        witness.push(sig.as_ref());
+        witness.push(timelock_script);
+        witness.push(&spend_control_block.serialize());
+        let bytes_tx = serialize(&tx);
+        // println!("bytes_connector_tree_tx length: {:?}", bytes_connector_tree_tx.len());
+        // let hex_utxo_tx = hex::encode(bytes_utxo_tx.clone());
+        let spending_txid = self
+            .rpc
+            .send_raw_transaction(&bytes_tx)
+            .unwrap();
+        println!("spending_txid: {:?}", spending_txid);
+    }
+
+}
+
+#[cfg(test)]
+mod tests {
+
+    use bitcoin::OutPoint;
+    use bitcoincore_rpc::{Client, Auth, RpcApi};
+    use secp256k1::rand::rngs::OsRng;
+
+    use crate::{operator::Operator, utils::{mine_blocks, handle_connector_binary_tree_script, create_connector_binary_tree}};
+
+
+
+    #[test]
+    fn test_connector_tree_tx() {
+        let rpc = Client::new(
+            "http://localhost:18443/wallet/admin",
+            Auth::UserPass("admin".to_string(), "admin".to_string()),
+        )
+        .unwrap_or_else(|e| panic!("Failed to connect to Bitcoin RPC: {}", e));
+    let fee = bitcoin::Amount::from_sat(300);
+    let dust_value = bitcoin::Amount::from_sat(1000);
+    let depth: u32 = 3;
+    let total_amount = fee * (2u64.pow(depth) - 1) + dust_value * 2u64.pow(depth);
+        let operator = Operator::new(&mut OsRng, &rpc);
+        let (_, _, root_address, _) = handle_connector_binary_tree_script(&operator.signer.secp, operator.signer.xonly_public_key, 1, operator.connector_tree_hashes[0][0]);
+        let root_txid = operator
+            .rpc
+            .send_to_address(
+                &root_address,
+                total_amount,
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+            )
+            .unwrap();
+        let root_tx = operator
+            .rpc
+            .get_raw_transaction(&root_txid, None)
+            .unwrap();
+        println!("resource_tx: {:?}", root_tx);
+
+        let vout = root_tx
+            .output
+            .iter()
+            .position(|x| x.value == total_amount)
+            .unwrap();
+    
+        let root_utxo = OutPoint {
+            txid: root_txid,
+            vout: vout as u32,
+        };
+        println!("resource_utxo: {:?}", root_utxo);
+
+        let utxo_tree = create_connector_binary_tree(&rpc, &operator.signer.secp, operator.signer.xonly_public_key, root_utxo, 3, dust_value, fee, operator.connector_tree_hashes.clone());
+
+        mine_blocks(&rpc, 3);
+
+        for (i, utxo_level) in utxo_tree[0..utxo_tree.len() - 1].iter().enumerate() {
+            for (j, utxo) in utxo_level.iter().enumerate() {
+                let preimage = operator.connector_tree_preimages[i][j];
+                println!("preimage: {:?}", preimage);
+                operator.spend_connector_tree_utxo(*utxo, preimage, dust_value, fee, 3);
+            }
+            mine_blocks(&rpc, 3);
+        }
+
+    }   
+
 }
