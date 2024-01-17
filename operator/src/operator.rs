@@ -56,19 +56,26 @@ pub fn check_deposit(
     return absolute::Time::from_consensus(time).unwrap();
 }
 
-pub fn create_connector_tree_preimages(depth: u32, rng: &mut OsRng) -> Vec<Vec<PreimageType>> {
+pub fn create_connector_tree_preimages_and_hashes(depth: u32, rng: &mut OsRng) -> (Vec<Vec<PreimageType>>, Vec<Vec<[u8; 32]>>) {
     let mut connector_tree_preimages: Vec<Vec<PreimageType>> = Vec::new();
+    let mut connector_tree_hashes: Vec<Vec<[u8; 32]>> = Vec::new();
     let root_preimage: PreimageType = rng.gen();
     connector_tree_preimages.push(vec![root_preimage]);
+    connector_tree_hashes.push(vec![HASH_FUNCTION_32(root_preimage)]);
     for i in 1..(depth + 1) {
-        let mut current_level: Vec<PreimageType> = Vec::new();
+        let mut preimages_current_level: Vec<PreimageType> = Vec::new();
+        let mut hashes_current_level: Vec<PreimageType> = Vec::new();
         for _ in 0..2u32.pow(i) {
-            current_level.push(rng.gen());
+            let temp: PreimageType = rng.gen();
+            preimages_current_level.push(temp);
+            hashes_current_level.push(HASH_FUNCTION_32(temp));
         }
-        connector_tree_preimages.push(current_level);
+        connector_tree_preimages.push(preimages_current_level);
+        connector_tree_hashes.push(hashes_current_level);
     }
-    connector_tree_preimages
+    (connector_tree_preimages, connector_tree_hashes)
 }
+
 
 #[derive(Debug, Clone)]
 pub struct DepositPresigns {
@@ -91,7 +98,7 @@ pub struct Operator<'a> {
     pub mock_verifier_access: Vec<Verifier<'a>>, // on production this will be removed rather we will call the verifier's API
     pub preimages: Vec<PreimageType>,
     connector_tree_preimages: Vec<Vec<PreimageType>>,
-
+    pub connector_tree_hashes: Vec<Vec<[u8; 32]>>,
 }
 
 pub fn check_presigns(
@@ -104,7 +111,7 @@ pub fn check_presigns(
 impl<'a> Operator<'a> {
     pub fn new(rng: &mut OsRng, rpc: &'a Client) -> Self {
         let signer = Actor::new(rng);
-        let connector_tree_preimages = create_connector_tree_preimages(3, rng);
+        let (connector_tree_preimages, connector_tree_hashes) = create_connector_tree_preimages_and_hashes(3, rng);
         Self {
             rpc,
             signer,
@@ -117,6 +124,7 @@ impl<'a> Operator<'a> {
             mock_verifier_access: Vec::new(),
             preimages: Vec::new(),
             connector_tree_preimages: connector_tree_preimages,
+            connector_tree_hashes: connector_tree_hashes,
         }
     }
 
@@ -548,7 +556,7 @@ pub fn create_connector_tree_tx(utxo: &OutPoint, depth: u32, first_address: Addr
 
     // This function creates the connector binary tree for operator to be able to claim the funds that they paid out of their pocket.
     // Depth will be determined later.
-    pub fn create_connector_binary_tree(rpc: &Client, signer: &Actor, depth: u32, resource_utxo: OutPoint, dust_value: Amount, fee: Amount, connector_tree_preimages: Vec<Vec<PreimageType>>) -> (Vec<Vec<OutPoint>>, Vec<Vec<Transaction>>) {
+    pub fn create_connector_binary_tree(rpc: &Client, signer: &Actor, root_utxo: OutPoint, depth: u32, dust_value: Amount, fee: Amount, connector_tree_preimages: Vec<Vec<PreimageType>>) -> (Vec<Vec<OutPoint>>, Vec<Vec<Transaction>>) {
         // UTXO value should be at least 2^depth * dust_value + (2^depth-1) * fee
         let total_amount = (dust_value * 2u64.pow(depth)) + (fee * (2u64.pow(depth) - 1));
         println!("total_amount: {:?}", total_amount);
@@ -660,7 +668,7 @@ mod tests {
     use bitcoincore_rpc::{Client, Auth, RpcApi};
     use secp256k1::rand::rngs::OsRng;
 
-    use crate::{operator::{Operator, create_connector_binary_tree}, user::User, utils::mine_blocks};
+    use crate::{operator::{Operator, create_connector_binary_tree}, user::User, utils::{mine_blocks, handle_connector_binary_tree_script}};
 
 
 
@@ -672,10 +680,11 @@ mod tests {
         )
         .unwrap_or_else(|e| panic!("Failed to connect to Bitcoin RPC: {}", e));
         let operator = Operator::new(&mut OsRng, &rpc);
-        let resource_tx_id = operator
+        let (_, _, root_address, _) = handle_connector_binary_tree_script(&operator.signer.secp, operator.signer.xonly_public_key, 1, operator.connector_tree_hashes[0][0]);
+        let root_txid = operator
             .rpc
             .send_to_address(
-                &operator.signer.address,
+                &root_address,
                 bitcoin::Amount::from_sat(100_000_000),
                 None,
                 None,
@@ -685,26 +694,25 @@ mod tests {
                 None,
             )
             .unwrap();
-        let resource_tx = operator
+        let root_tx = operator
             .rpc
-            .get_raw_transaction(&resource_tx_id, None)
+            .get_raw_transaction(&root_txid, None)
             .unwrap();
-        println!("resource_tx: {:?}", resource_tx);
+        println!("resource_tx: {:?}", root_tx);
 
-        let resource_txid = resource_tx.txid();
-        let vout = resource_tx
+        let vout = root_tx
             .output
             .iter()
             .position(|x| x.value == bitcoin::Amount::from_sat(100_000_000))
             .unwrap();
     
-        let resource_utxo = OutPoint {
-            txid: resource_txid,
+        let root_utxo = OutPoint {
+            txid: root_txid,
             vout: vout as u32,
         };
-        println!("resource_utxo: {:?}", resource_utxo);
+        println!("resource_utxo: {:?}", root_utxo);
 
-        let (utxo_tree, tx_tree) = create_connector_binary_tree(&rpc, &operator.signer, 3, resource_utxo, bitcoin::Amount::from_sat(1000), bitcoin::Amount::from_sat(300), operator.connector_tree_preimages.clone());
+        let (utxo_tree, tx_tree) = create_connector_binary_tree(&rpc, &operator.signer, root_utxo, 3, bitcoin::Amount::from_sat(1000), bitcoin::Amount::from_sat(300), operator.connector_tree_preimages.clone());
 
         mine_blocks(&rpc, 3);
 
