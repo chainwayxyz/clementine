@@ -413,6 +413,8 @@ mod tests {
 
     #[test]
     fn test_connector_tree_tx() {
+        // ATTENTION: If you want to spend a UTXO using timelock script, the condition is that
+        // # in the script < # in the sequence of the tx < # of blocks mined after UTXO appears on the chain
         let rpc = Client::new(
             "http://localhost:18443/wallet/admin",
             Auth::UserPass("admin".to_string(), "admin".to_string()),
@@ -503,7 +505,7 @@ mod tests {
                 script_pubkey: address.script_pubkey(),
             }],
         };
-
+        println!("dust value: {:?}", address.script_pubkey().dust_value());
         println!("connector_tree_tx: {:?}", connector_tree_tx);
         println!("connector_tree_txid: {:?}", connector_tree_tx.txid());
 
