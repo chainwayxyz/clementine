@@ -1,15 +1,18 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::sync::{Arc, Mutex};
 
+use bitcoin::{Address, ScriptBuf, TxOut};
+use bitcoin::psbt::Output;
 use bitcoin::{
     hashes::Hash, secp256k1, secp256k1::Secp256k1, OutPoint, TapSighash,
 };
-use bitcoincore_rpc::Client;
-use circuit_helpers::constant::{EVMAddress, MIN_RELAY_FEE};
+use bitcoincore_rpc::{Client, RpcApi};
+use circuit_helpers::constant::{EVMAddress, MIN_RELAY_FEE, HASH_FUNCTION_32};
+use secp256k1::All;
 use secp256k1::{rand::rngs::OsRng, XOnlyPublicKey};
 
-use crate::operator::Operator;
-use crate::utils::{create_btc_tx, create_tx_ins, create_tx_outs, generate_n_of_n_script, create_taproot_address, handle_anyone_can_spend_script, create_kickoff_tx};
+use crate::operator::{Operator, PreimageType};
+use crate::utils::{create_btc_tx, create_tx_ins, create_tx_outs, generate_n_of_n_script, create_taproot_address, handle_anyone_can_spend_script, create_kickoff_tx, generate_timelock_script, handle_connector_binary_tree_script};
 use crate::{
     actor::Actor,
     operator::{check_deposit, DepositPresigns},
@@ -146,6 +149,63 @@ impl<'a> Verifier<'a> {
     // This is a function to reduce gas costs when moving bridge funds
     pub fn do_me_a_favor() {}
 
-    pub fn watch_connector_tree(&self) {}
-    
+    pub fn did_connector_tree_process_start(&self, utxo: OutPoint) -> bool {
+        let last_block_hash = self.rpc.get_best_block_hash().unwrap();
+        let last_block = self.rpc.get_block(&last_block_hash).unwrap();
+        for tx in last_block.txdata {
+            if tx.txid() == utxo.txid {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    pub fn watch_connector_tree(&self, operator_pk: XOnlyPublicKey, preimage_script_pubkey_pairs: &mut HashMap<PreimageType, ScriptBuf>, utxos: &mut HashMap<OutPoint, (u32, u32)>) -> (HashMap<PreimageType, ScriptBuf>, HashMap<OutPoint, (u32, u32)>) {
+        let last_block_hash = self.rpc.get_best_block_hash().unwrap();
+        let last_block = self.rpc.get_block(&last_block_hash).unwrap();
+        for tx in last_block.txdata {
+            if utxos.contains_key(&tx.input[0].previous_output) {
+                let (depth, index) = utxos.remove(&tx.input[0].previous_output).unwrap();
+                utxos.insert(OutPoint {
+                    txid: tx.txid(),
+                    vout: 0,
+                }, (depth + 1, index * 2));
+                utxos.insert(OutPoint {
+                    txid: tx.txid(),
+                    vout: 1,
+                }, (depth + 1, index * 2 + 1));
+                
+                for tx_out in tx.output {
+                    for preimage in preimage_script_pubkey_pairs.keys() {
+                        if is_spendable_with_preimage(&self.secp, operator_pk, tx_out.clone(), *preimage) {
+                            // self.spend_connector_tree_utxo();
+                            
+                        }
+                    }
+                }
+
+
+            }
+
+        }
+
+        return (preimage_script_pubkey_pairs.clone(), utxos.clone());
+    }
+
+    pub fn spend_connector_tree_utxo(&self, utxo: OutPoint, preimage: PreimageType, script_pubkey: ScriptBuf) {
+
+    }
+
+}
+
+pub fn is_spendable_with_preimage(secp: &Secp256k1<All>, operator_pk: XOnlyPublicKey, tx_out: TxOut, preimage: PreimageType) -> bool {
+    let hash = HASH_FUNCTION_32(preimage);
+    let (_, pubkey, address, _) = handle_connector_binary_tree_script(
+        secp,
+        operator_pk,
+        1, // MAKE THIS CONFIGURABLE
+        hash,
+    );
+
+    address.script_pubkey() == tx_out.script_pubkey
 }

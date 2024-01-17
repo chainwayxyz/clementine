@@ -23,7 +23,7 @@ use secp256k1::rand::Rng;
 use secp256k1::rand::rngs::OsRng;
 use secp256k1::schnorr::Signature;
 use secp256k1::{All, Secp256k1, XOnlyPublicKey};
-type PreimageType = [u8; 32];
+pub type PreimageType = [u8; 32];
 
 pub fn check_deposit(
     secp: &Secp256k1<All>,
@@ -640,7 +640,7 @@ mod tests {
 
         let preimages = operator.reveal_connector_tree_preimages(3);
         println!("preimages: {:?}", preimages);
-        
+
 
     }   
 
