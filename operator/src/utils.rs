@@ -25,7 +25,7 @@ use bitcoin::Txid;
 use bitcoin::Witness;
 use bitcoincore_rpc::Client;
 use bitcoincore_rpc::RpcApi;
-use circuit_helpers::constant::Data;
+use circuit_helpers::constant::{Data, DUST_VALUE, MIN_RELAY_FEE};
 use circuit_helpers::constant::REGTEST;
 use secp256k1::All;
 use secp256k1::Secp256k1;
@@ -44,7 +44,7 @@ use bitcoin::opcodes::all::*;
 use lazy_static::lazy_static;
 use std::str::FromStr;
 
-use circuit_helpers::config::USER_TAKES_AFTER;
+use circuit_helpers::config::{USER_TAKES_AFTER, CONNECTOR_TREE_OPERATOR_TAKES_AFTER};
 
 lazy_static! {
     pub static ref INTERNAL_KEY: XOnlyPublicKey = XOnlyPublicKey::from_str(
@@ -234,12 +234,12 @@ pub fn create_tx_ins(utxos: Vec<OutPoint>) -> Vec<TxIn> {
     tx_ins
 }
 
-pub fn create_tx_ins_with_sequence(utxo_sequence_pairs: Vec<(OutPoint, u16)>) ->Vec<TxIn> {
+pub fn create_tx_ins_with_sequence(utxos: Vec<OutPoint>) ->Vec<TxIn> {
     let mut tx_ins = Vec::new();
-    for (utxo, sequence) in utxo_sequence_pairs {
+    for utxo in utxos {
         tx_ins.push(TxIn {
             previous_output: utxo,
-            sequence: bitcoin::transaction::Sequence::from_height(sequence),
+            sequence: bitcoin::transaction::Sequence::from_height(CONNECTOR_TREE_OPERATOR_TAKES_AFTER),
             script_sig: ScriptBuf::default(),
             witness: Witness::new(),
         });
@@ -399,10 +399,9 @@ pub fn create_kickoff_tx(
 pub fn handle_connector_binary_tree_script(
     secp: &Secp256k1<All>,
     actor_pk: XOnlyPublicKey,
-    block_count: u32,
     hash: Data,
 ) -> (Amount, ScriptBuf, Address, TaprootSpendInfo) {
-    let timelock_script = generate_timelock_script(actor_pk, block_count);
+    let timelock_script = generate_timelock_script(actor_pk, CONNECTOR_TREE_OPERATOR_TAKES_AFTER as u32);
     let preimage_script = Builder::new()
         .push_opcode(OP_SHA256)
         .push_slice(hash)
@@ -420,14 +419,12 @@ pub fn create_connector_tree_tx(
     depth: u32,
     first_address: Address,
     second_address: Address,
-    dust_value: Amount,
-    fee: Amount,
 ) -> bitcoin::Transaction {
     // UTXO value should be at least 2^depth * dust_value + (2^depth-1) * fee
-    let tx_ins = create_tx_ins_with_sequence(vec![(*utxo, 2)]);
+    let tx_ins = create_tx_ins_with_sequence(vec![*utxo]);
     let tx_outs = create_tx_outs(vec![
-        ((dust_value * 2u64.pow(depth)) + (fee * (2u64.pow(depth) - 1)), first_address.script_pubkey()),
-        ((dust_value * 2u64.pow(depth)) + (fee * (2u64.pow(depth) - 1)), second_address.script_pubkey()),
+        ((DUST_VALUE * 2u64.pow(depth)) + (MIN_RELAY_FEE * (2u64.pow(depth) - 1)), first_address.script_pubkey()),
+        ((DUST_VALUE * 2u64.pow(depth)) + (MIN_RELAY_FEE * (2u64.pow(depth) - 1)), second_address.script_pubkey()),
     ]);
     create_btc_tx(tx_ins, tx_outs)
 }
@@ -440,18 +437,15 @@ pub fn create_connector_binary_tree(
     xonly_public_key: XOnlyPublicKey,
     root_utxo: OutPoint,
     depth: u32,
-    dust_value: Amount,
-    fee: Amount,
     connector_tree_hashes: Vec<Vec<[u8; 32]>>,
 ) -> Vec<Vec<OutPoint>> {
     // UTXO value should be at least 2^depth * dust_value + (2^depth-1) * fee
-    let total_amount = (dust_value * 2u64.pow(depth)) + (fee * (2u64.pow(depth) - 1));
+    let total_amount = (DUST_VALUE * 2u64.pow(depth)) + (MIN_RELAY_FEE * (2u64.pow(depth) - 1));
     println!("total_amount: {:?}", total_amount);
 
     let (_, _, root_address, _) = handle_connector_binary_tree_script(
         &secp,
         xonly_public_key,
-        1, // MAKE THIS CONFIGURABLE
         connector_tree_hashes[0][0],
     );
     println!(
@@ -487,13 +481,11 @@ pub fn create_connector_binary_tree(
             let (_, _, first_address, _) = handle_connector_binary_tree_script(
                 &secp,
                 xonly_public_key,
-                1, // MAKE THIS CONFIGURABLE
                 connector_tree_hashes[(i + 1) as usize][2 * j],
             );
             let (_, _, second_address, _) = handle_connector_binary_tree_script(
                 &secp,
                 xonly_public_key,
-                1, // MAKE THIS CONFIGURABLE
                 connector_tree_hashes[(i + 1) as usize][2 * j + 1],
             );
 
@@ -502,8 +494,6 @@ pub fn create_connector_binary_tree(
                 depth - i - 1,
                 first_address.clone(),
                 second_address.clone(),
-                dust_value,
-                fee,
             );
             let txid = tx.txid();
             let first_utxo = OutPoint { txid, vout: 0 };
@@ -535,6 +525,7 @@ mod tests {
         Witness,
     };
     use bitcoincore_rpc::{Auth, Client, RpcApi};
+    use circuit_helpers::config::NUM_VERIFIERS;
     use secp256k1::rand::rngs::OsRng;
 
     use crate::utils::get_indices;
@@ -612,7 +603,7 @@ mod tests {
             Auth::UserPass("admin".to_string(), "admin".to_string()),
         )
         .unwrap_or_else(|e| panic!("Failed to connect to Bitcoin RPC: {}", e));
-        let operator = Operator::new(&mut OsRng, &rpc);
+        let operator = Operator::new(&mut OsRng, &rpc, NUM_VERIFIERS as u32);
         let user = User::new(&mut OsRng, &rpc);
         let resource_tx_id = operator
             .rpc
@@ -655,7 +646,6 @@ mod tests {
             handle_connector_binary_tree_script(
                 &operator.signer.secp,
                 operator.signer.xonly_public_key,
-                2,
                 [0u8; 32],
             );
         println!("utxo_tx_amount: {:?}", utxo_tx_amount);

@@ -1,5 +1,5 @@
 use lazy_static::lazy_static;
-use bitcoin::Network;
+use bitcoin::{Network, Amount};
 
 use crate::constant::{Data, EMPTYDATA, HASH_FUNCTION_64};
 
@@ -20,8 +20,9 @@ pub const USER_TAKES_AFTER: u32 = 200;
 pub const FED_TAKES_AFTER: u32 = 1000;
 pub const NUM_VERIFIERS: usize = 10;
 pub const NUM_USERS: usize = 10;
-pub const BRIDGE_AMOUNT_SATS: u64 = 100_000_000;
+pub const BRIDGE_AMOUNT_SATS: Amount = Amount::from_sat(100_000_000);
 pub const NUM_ROUNDS: usize = 10;
+pub const CONNECTOR_TREE_OPERATOR_TAKES_AFTER: u16 = 1;
 
 // Zero subtree hashes
 lazy_static! {

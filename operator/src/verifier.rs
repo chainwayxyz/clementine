@@ -3,18 +3,18 @@ use std::collections::{HashMap, HashSet};
 use std::sync::{Arc, Mutex};
 
 use bitcoin::sighash::SighashCache;
-use bitcoin::{Address, ScriptBuf, TxOut, Amount, amount};
-use bitcoin::psbt::Output;
+use bitcoin::transaction::Version;
+use bitcoin::{Address, ScriptBuf, TxOut, Amount, Transaction, absolute, TxIn, Witness};
 use bitcoin::{
-    hashes::Hash, secp256k1, secp256k1::Secp256k1, OutPoint, TapSighash,
+    secp256k1, secp256k1::Secp256k1, OutPoint, TapSighash,
 };
 use bitcoin::consensus::serialize;
 use bitcoincore_rpc::{Client, RpcApi};
-use circuit_helpers::constant::{EVMAddress, MIN_RELAY_FEE, HASH_FUNCTION_32};
+use circuit_helpers::constant::{EVMAddress, MIN_RELAY_FEE, HASH_FUNCTION_32, DUST_VALUE};
 use secp256k1::All;
 use secp256k1::{rand::rngs::OsRng, XOnlyPublicKey};
 
-use crate::operator::{Operator, PreimageType};
+use crate::operator::{Operator, PreimageType, self};
 use crate::utils::{create_btc_tx, create_tx_ins, create_tx_outs, generate_n_of_n_script, create_taproot_address, handle_anyone_can_spend_script, create_kickoff_tx, generate_timelock_script, handle_connector_binary_tree_script, create_tx_ins_with_sequence, generate_hash_script, create_control_block};
 use crate::{
     actor::Actor,
@@ -23,28 +23,34 @@ use crate::{
     utils::generate_n_of_n_script_without_hash,
 };
 
-use circuit_helpers::config::{BRIDGE_AMOUNT_SATS, NUM_ROUNDS};
+use circuit_helpers::config::{BRIDGE_AMOUNT_SATS, CONNECTOR_TREE_OPERATOR_TAKES_AFTER};
 
 #[derive(Debug, Clone)]
 pub struct Verifier<'a> {
     pub rpc: &'a Client,
     pub secp: Secp256k1<secp256k1::All>,
     pub signer: Actor,
-    pub mock_operator_access: Arc<Mutex<Operator<'a>>>,
     pub verifiers: Vec<XOnlyPublicKey>,
+    pub connector_tree_utxos: Vec<Vec<OutPoint>>,
+    pub connector_tree_hashes: Vec<Vec<[u8; 32]>>,
+    pub operator_pk: XOnlyPublicKey,
 }
 
 impl<'a> Verifier<'a> {
-    pub fn new(rng: &mut OsRng, rpc: &'a Client, operator: Arc<Mutex<Operator<'a>>>) -> Self {
+    pub fn new(rng: &mut OsRng, rpc: &'a Client, operator_pk: XOnlyPublicKey) -> Self {
         let signer = Actor::new(rng);
         let secp: Secp256k1<secp256k1::All> = Secp256k1::new();
         let verifiers = Vec::new();
+        let connector_tree_utxos = Vec::new();
+        let connector_tree_hashes = Vec::new();
         Verifier {
             rpc,
             secp,
             signer,
-            mock_operator_access: operator,
             verifiers,
+            connector_tree_utxos,
+            connector_tree_hashes,
+            operator_pk
         }
     }
 
@@ -52,16 +58,24 @@ impl<'a> Verifier<'a> {
         self.verifiers = verifiers;
     }
 
-    // this is a public endpoint that only depositor can call
+    pub fn set_connector_tree_utxos(&mut self, connector_tree_utxos: Vec<Vec<OutPoint>>) {
+        self.connector_tree_utxos = connector_tree_utxos;
+    }
+
+    pub fn set_connector_tree_hashes(&mut self, connector_tree_hashes: Vec<Vec<[u8; 32]>>) {
+        self.connector_tree_hashes = connector_tree_hashes;
+    }
+
     pub fn new_deposit(
         &self,
         utxo: OutPoint,
+        index: u32,
         hash: [u8; 32],
         return_address: XOnlyPublicKey,
         evm_address: EVMAddress,
         all_verifiers: &Vec<XOnlyPublicKey>,
     ) -> DepositPresigns {
-        println!("all_verifiers in new_deposit, in verifier now: {:?}", all_verifiers);
+        // println!("all_verifiers in new_deposit, in verifier now: {:?}", all_verifiers);
         let timestamp = check_deposit(
             &self.secp,
             self.rpc,
@@ -79,12 +93,11 @@ impl<'a> Verifier<'a> {
         
         let mut kickoff_tx = create_kickoff_tx(vec![utxo], vec![
             (
-                bitcoin::Amount::from_sat(BRIDGE_AMOUNT_SATS)
-                    - dust_value
-                    - bitcoin::Amount::from_sat(MIN_RELAY_FEE),
-                address.script_pubkey(),
+                BRIDGE_AMOUNT_SATS
+                    - MIN_RELAY_FEE,
+                address.script_pubkey().clone(),
             ),
-            (dust_value, anyone_can_spend_script_pub_key.clone()),
+            // (DUST_VALUE, anyone_can_spend_script_pub_key.clone()),
         ]);
 
         
@@ -92,48 +105,45 @@ impl<'a> Verifier<'a> {
         let (deposit_address, _) =
             User::generate_deposit_address(&self.signer.secp, &all_verifiers, hash, return_address);
 
-        let prevouts = create_tx_outs(vec![(bitcoin::Amount::from_sat(BRIDGE_AMOUNT_SATS), deposit_address.script_pubkey())]);
+        let prevouts = create_tx_outs(vec![(BRIDGE_AMOUNT_SATS, deposit_address.script_pubkey())]);
 
         let kickoff_sign = self.signer.sign_taproot_script_spend_tx(&mut kickoff_tx, prevouts, &script_n_of_n, 0);
         let kickoff_txid = kickoff_tx.txid();
 
-        let mut prev_outpoint = OutPoint {
+        let prev_outpoint = OutPoint {
             txid: kickoff_txid,
             vout: 0,
         };
-        let mut prev_amount = bitcoin::Amount::from_sat(BRIDGE_AMOUNT_SATS)
-            - dust_value
-            - bitcoin::Amount::from_sat(MIN_RELAY_FEE);
+        let prev_amount = BRIDGE_AMOUNT_SATS
+            - MIN_RELAY_FEE;
+        println!("creating operator claim tx");
+        println!("index: {:?}", index);
+        // println!("connector_tree_utxos: {:?}", self.connector_tree_utxos);
+        let mut operator_claim_tx = Transaction {
+            version: Version(2),
+            lock_time: absolute::LockTime::from_consensus(0),
+            input: vec![TxIn {
+                previous_output: prev_outpoint,
+                script_sig: ScriptBuf::new(),
+                sequence: bitcoin::transaction::Sequence::ENABLE_RBF_NO_LOCKTIME,
+                witness: Witness::new(),
+            },
+            TxIn {
+                previous_output: self.connector_tree_utxos.last().unwrap()[index as usize],
+                script_sig: ScriptBuf::new(),
+                sequence: bitcoin::transaction::Sequence::ENABLE_RBF_NO_LOCKTIME,
+                witness: Witness::new(),
+            }],
+            output: vec![TxOut {
+                value: prev_amount + DUST_VALUE - MIN_RELAY_FEE,
+                script_pubkey: address.script_pubkey(),
+            }],
+        };
+        let (_, _, address, _) = handle_connector_binary_tree_script(&self.secp, self.operator_pk, self.connector_tree_hashes.last().unwrap()[index as usize]);
 
-        let mut move_bridge_sign_utxo_pairs = HashMap::new();
-        let mut operator_take_signs = Vec::new();
+        let prevouts = create_tx_outs(vec![(prev_amount, address.script_pubkey().clone()), (DUST_VALUE, address.script_pubkey())]);
 
-        for _ in 0..NUM_ROUNDS {
-            let move_tx_ins = create_tx_ins(vec![prev_outpoint]);
-
-            let move_tx_outs = create_tx_outs(vec![(
-                prev_amount - dust_value - bitcoin::Amount::from_sat(MIN_RELAY_FEE),
-                address.script_pubkey()
-            ), (
-                dust_value,
-                anyone_can_spend_script_pub_key.clone()
-            )]);
-
-            let mut move_tx = create_btc_tx(move_tx_ins, move_tx_outs);
-
-            let prevouts = create_tx_outs(vec![(prev_amount, address.script_pubkey())]);
-
-            let move_fund_sign = self.signer.sign_taproot_script_spend_tx(&mut move_tx, prevouts, &script_n_of_n_without_hash, 0);
-
-            move_bridge_sign_utxo_pairs.insert(prev_outpoint, move_fund_sign);
-            operator_take_signs.push(self.signer.sign(TapSighash::all_zeros()));
-
-            prev_outpoint = OutPoint {
-                txid: move_tx.txid(),
-                vout: 0,
-            };
-            prev_amount = prev_amount - dust_value - bitcoin::Amount::from_sat(MIN_RELAY_FEE);
-        }
+        let operator_claim_sign = self.signer.sign_taproot_script_spend_tx(&mut operator_claim_tx, prevouts, &script_n_of_n, 0);
 
         let rollup_sign = self.signer.sign_deposit(
             kickoff_txid,
@@ -141,11 +151,11 @@ impl<'a> Verifier<'a> {
             hash,
             timestamp.to_consensus_u32().to_be_bytes(),
         );
+
         DepositPresigns {
             rollup_sign,
             kickoff_sign,
-            move_bridge_sign_utxo_pairs,
-            operator_take_signs,
+            operator_claim_sign,
         }
     }
 
@@ -193,7 +203,7 @@ impl<'a> Verifier<'a> {
                                 txid: tx.txid(),
                                 vout: i as u32,
                             };
-                            self.spend_connector_tree_utxo(utxo_to_spend, operator_pk, *preimage, depth + 1, new_amount, Amount::from_sat(300));
+                            self.spend_connector_tree_utxo(utxo_to_spend, operator_pk, *preimage, depth + 1, new_amount);
                             utxos.remove(&OutPoint {
                                 txid: tx.txid(),
                                 vout: i as u32,
@@ -214,16 +224,15 @@ impl<'a> Verifier<'a> {
         return (preimage_script_pubkey_pairs.clone(), utxos.clone());
     }
 
-    pub fn spend_connector_tree_utxo(&self, utxo: OutPoint, operator_pk: XOnlyPublicKey, preimage: PreimageType, level: u32, amount: Amount, fee: Amount) {
+    pub fn spend_connector_tree_utxo(&self, utxo: OutPoint, operator_pk: XOnlyPublicKey, preimage: PreimageType, level: u32, amount: Amount) {
         let hash = HASH_FUNCTION_32(preimage);
         let (_, _, address, tree_info) = handle_connector_binary_tree_script(
             &self.secp,
             operator_pk,
-            level,
             hash,
         );
-        let tx_ins = create_tx_ins_with_sequence(vec![(utxo, 1)]);
-        let tx_outs = create_tx_outs(vec![(amount - fee, self.signer.address.script_pubkey())]);
+        let tx_ins = create_tx_ins_with_sequence(vec![utxo]);
+        let tx_outs = create_tx_outs(vec![(amount - MIN_RELAY_FEE, self.signer.address.script_pubkey())]);
         let mut tx = create_btc_tx(tx_ins, tx_outs);
         let prevouts = create_tx_outs(vec![(amount, address.script_pubkey())]);
         let hash_script = generate_hash_script(hash);
@@ -249,7 +258,6 @@ pub fn is_spendable_with_preimage(secp: &Secp256k1<All>, operator_pk: XOnlyPubli
     let (_, _, address, _) = handle_connector_binary_tree_script(
         secp,
         operator_pk,
-        1, // MAKE THIS CONFIGURABLE
         hash,
     );
 
