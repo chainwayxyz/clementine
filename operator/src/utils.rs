@@ -292,6 +292,14 @@ pub fn generate_timelock_script(actor_pk: XOnlyPublicKey, block_count: u32) -> S
         .into_script()
 }
 
+pub fn generate_hash_script(hash: [u8; 32]) -> ScriptBuf {
+    Builder::new()
+        .push_opcode(OP_SHA256)
+        .push_slice(hash)
+        .push_opcode(OP_EQUAL)
+        .into_script()
+}
+
 pub fn generate_dust_script(eth_address: [u8; 20]) -> ScriptBuf {
     Builder::new()
         .push_opcode(OP_RETURN)

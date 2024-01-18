@@ -6,8 +6,10 @@ use crate::actor::{Actor, EVMSignature};
 use crate::merkle::MerkleTree;
 use crate::user::User;
 use crate::utils::{
-    create_btc_tx, create_control_block, create_taproot_address, create_tx_ins, create_tx_outs,
-    generate_n_of_n_script, generate_n_of_n_script_without_hash, handle_anyone_can_spend_script, create_kickoff_tx, handle_connector_binary_tree_script, generate_timelock_script, mine_blocks, create_connector_tree_tx, get_indices,
+    create_btc_tx, create_connector_tree_tx, create_control_block, create_kickoff_tx,
+    create_taproot_address, create_tx_ins, create_tx_outs, generate_n_of_n_script,
+    generate_n_of_n_script_without_hash, generate_timelock_script, get_indices,
+    handle_anyone_can_spend_script, handle_connector_binary_tree_script, mine_blocks,
 };
 use crate::verifier::Verifier;
 use bitcoin::address::NetworkChecked;
@@ -15,12 +17,12 @@ use bitcoin::consensus::serialize;
 use bitcoin::sighash::SighashCache;
 use bitcoin::taproot::LeafVersion;
 use bitcoin::{absolute, hashes::Hash, secp256k1, secp256k1::schnorr, Address, Txid};
-use bitcoin::{OutPoint, Transaction, TxOut, Amount};
+use bitcoin::{Amount, OutPoint, Transaction, TxOut};
 use bitcoincore_rpc::{Client, RpcApi};
 use circuit_helpers::config::BRIDGE_AMOUNT_SATS;
-use circuit_helpers::constant::{EVMAddress, MIN_RELAY_FEE, HASH_FUNCTION_32};
-use secp256k1::rand::Rng;
+use circuit_helpers::constant::{EVMAddress, HASH_FUNCTION_32, MIN_RELAY_FEE};
 use secp256k1::rand::rngs::OsRng;
+use secp256k1::rand::Rng;
 use secp256k1::schnorr::Signature;
 use secp256k1::{All, Secp256k1, XOnlyPublicKey};
 pub type PreimageType = [u8; 32];
@@ -55,7 +57,10 @@ pub fn check_deposit(
     return absolute::Time::from_consensus(time).unwrap();
 }
 
-pub fn create_connector_tree_preimages_and_hashes(depth: u32, rng: &mut OsRng) -> (Vec<Vec<PreimageType>>, Vec<Vec<[u8; 32]>>) {
+pub fn create_connector_tree_preimages_and_hashes(
+    depth: u32,
+    rng: &mut OsRng,
+) -> (Vec<Vec<PreimageType>>, Vec<Vec<[u8; 32]>>) {
     let mut connector_tree_preimages: Vec<Vec<PreimageType>> = Vec::new();
     let mut connector_tree_hashes: Vec<Vec<[u8; 32]>> = Vec::new();
     let root_preimage: PreimageType = rng.gen();
@@ -74,7 +79,6 @@ pub fn create_connector_tree_preimages_and_hashes(depth: u32, rng: &mut OsRng) -
     }
     (connector_tree_preimages, connector_tree_hashes)
 }
-
 
 #[derive(Debug, Clone)]
 pub struct DepositPresigns {
@@ -110,7 +114,8 @@ pub fn check_presigns(
 impl<'a> Operator<'a> {
     pub fn new(rng: &mut OsRng, rpc: &'a Client) -> Self {
         let signer = Actor::new(rng);
-        let (connector_tree_preimages, connector_tree_hashes) = create_connector_tree_preimages_and_hashes(3, rng);
+        let (connector_tree_preimages, connector_tree_hashes) =
+            create_connector_tree_preimages_and_hashes(3, rng);
         Self {
             rpc,
             signer,
@@ -128,11 +133,11 @@ impl<'a> Operator<'a> {
     }
 
     pub fn add_verifier(&mut self, verifier: &Verifier<'a>) {
-        self
-            .mock_verifier_access
-            .push(verifier.clone());
-        self.verifiers_pks.push(verifier.signer.xonly_public_key.clone());
-        self.verifier_evm_addresses.push(verifier.signer.evm_address.clone());
+        self.mock_verifier_access.push(verifier.clone());
+        self.verifiers_pks
+            .push(verifier.signer.xonly_public_key.clone());
+        self.verifier_evm_addresses
+            .push(verifier.signer.evm_address.clone());
     }
 
     pub fn get_all_verifiers(&self) -> Vec<XOnlyPublicKey> {
@@ -166,9 +171,14 @@ impl<'a> Operator<'a> {
             .map(|verifier| {
                 println!("verifier in the closure: {:?}", verifier);
                 // Note: In this part we will need to call the verifier's API to get the presigns
-                let deposit_presigns =
-                    verifier.new_deposit(utxo, hash, return_address.clone(), evm_address, &all_verifiers);
-                    println!("checked new deposit");
+                let deposit_presigns = verifier.new_deposit(
+                    utxo,
+                    hash,
+                    return_address.clone(),
+                    evm_address,
+                    &all_verifiers,
+                );
+                println!("checked new deposit");
                 check_presigns(utxo, timestamp, &deposit_presigns);
                 println!("checked presigns");
                 deposit_presigns
@@ -178,15 +188,18 @@ impl<'a> Operator<'a> {
 
         let (anyone_can_spend_script_pub_key, dust_value) = handle_anyone_can_spend_script();
 
-        let kickoff_tx = create_kickoff_tx(vec![utxo], vec![
-            (
-                bitcoin::Amount::from_sat(BRIDGE_AMOUNT_SATS)
-                    - dust_value
-                    - bitcoin::Amount::from_sat(MIN_RELAY_FEE),
-                generate_n_of_n_script_without_hash(&all_verifiers),
-            ),
-            (dust_value, anyone_can_spend_script_pub_key),
-        ]);
+        let kickoff_tx = create_kickoff_tx(
+            vec![utxo],
+            vec![
+                (
+                    bitcoin::Amount::from_sat(BRIDGE_AMOUNT_SATS)
+                        - dust_value
+                        - bitcoin::Amount::from_sat(MIN_RELAY_FEE),
+                    generate_n_of_n_script_without_hash(&all_verifiers),
+                ),
+                (dust_value, anyone_can_spend_script_pub_key),
+            ],
+        );
 
         let kickoff_txid = kickoff_tx.txid();
 
@@ -255,15 +268,18 @@ impl<'a> Operator<'a> {
 
         let (anyone_can_spend_script_pub_key, dust_value) = handle_anyone_can_spend_script();
 
-        let mut kickoff_tx = create_kickoff_tx(vec![utxo], vec![
-            (
-                bitcoin::Amount::from_sat(BRIDGE_AMOUNT_SATS)
-                    - dust_value
-                    - bitcoin::Amount::from_sat(MIN_RELAY_FEE),
-                address.script_pubkey(),
-            ),
-            (dust_value, anyone_can_spend_script_pub_key),
-        ]);
+        let mut kickoff_tx = create_kickoff_tx(
+            vec![utxo],
+            vec![
+                (
+                    bitcoin::Amount::from_sat(BRIDGE_AMOUNT_SATS)
+                        - dust_value
+                        - bitcoin::Amount::from_sat(MIN_RELAY_FEE),
+                    address.script_pubkey(),
+                ),
+                (dust_value, anyone_can_spend_script_pub_key),
+            ],
+        );
 
         let (deposit_address, deposit_taproot_info) =
             User::generate_deposit_address(&self.signer.secp, &all_verifiers, hash, return_address);
@@ -492,10 +508,16 @@ impl<'a> Operator<'a> {
     // This function is internal, it gives the appropriate response for a bitvm challenge
     pub fn challenge_received() {}
 
-    pub fn spend_connector_tree_utxo(&self, utxo: OutPoint, preimage: PreimageType, dust_value: Amount, fee: Amount, tree_depth: u32) {
+    pub fn spend_connector_tree_utxo(
+        &self,
+        utxo: OutPoint,
+        preimage: PreimageType,
+        dust_value: Amount,
+        fee: Amount,
+        tree_depth: u32,
+    ) {
         let hash = HASH_FUNCTION_32(preimage);
-        let (_, _, _, tree_info) =
-        handle_connector_binary_tree_script(
+        let (_, _, _, tree_info) = handle_connector_binary_tree_script(
             &self.signer.secp,
             self.signer.xonly_public_key,
             1, // MAKE THIS CONFIGURABLE
@@ -504,12 +526,21 @@ impl<'a> Operator<'a> {
 
         let base_tx = self.rpc.get_raw_transaction(&utxo.txid, None).unwrap();
         println!("base_tx: {:?}", base_tx);
-        let depth = u32::ilog2(((base_tx.output[utxo.vout as usize].value + fee).to_sat() / (dust_value + fee).to_sat()) as u32);
+        let depth = u32::ilog2(
+            ((base_tx.output[utxo.vout as usize].value + fee).to_sat()
+                / (dust_value + fee).to_sat()) as u32,
+        );
         println!("depth: {:?}", depth);
         let level = tree_depth - depth;
         //find the index of preimage in the connector_tree_preimages[level as usize]
-        let index = self.connector_tree_preimages[level as usize].iter().position(|x| *x == preimage).unwrap();
-        let hashes = (self.connector_tree_hashes[(level + 1) as usize][2 * index], self.connector_tree_hashes[(level + 1) as usize][2 * index + 1]);
+        let index = self.connector_tree_preimages[level as usize]
+            .iter()
+            .position(|x| *x == preimage)
+            .unwrap();
+        let hashes = (
+            self.connector_tree_hashes[(level + 1) as usize][2 * index],
+            self.connector_tree_hashes[(level + 1) as usize][2 * index + 1],
+        );
 
         let utxo_tx = self.rpc.get_raw_transaction(&utxo.txid, None).unwrap();
         // println!("utxo_tx: {:?}", utxo_tx);
@@ -523,7 +554,6 @@ impl<'a> Operator<'a> {
             hashes.0,
         );
 
-
         let (_, _, second_address, _) = handle_connector_binary_tree_script(
             &self.signer.secp,
             self.signer.xonly_public_key,
@@ -531,7 +561,14 @@ impl<'a> Operator<'a> {
             hashes.1,
         );
 
-        let mut tx = create_connector_tree_tx(&utxo, depth - 1, first_address, second_address, dust_value, fee);
+        let mut tx = create_connector_tree_tx(
+            &utxo,
+            depth - 1,
+            first_address,
+            second_address,
+            dust_value,
+            fee,
+        );
         println!("created spend tx: {:?}", tx);
 
         let sig = self.signer.sign_taproot_script_spend_tx(
@@ -551,15 +588,21 @@ impl<'a> Operator<'a> {
         let bytes_tx = serialize(&tx);
         // println!("bytes_connector_tree_tx length: {:?}", bytes_connector_tree_tx.len());
         // let hex_utxo_tx = hex::encode(bytes_utxo_tx.clone());
-        let spending_txid = self
-            .rpc
-            .send_raw_transaction(&bytes_tx)
-            .unwrap();
+        let spending_txid = match self.rpc.send_raw_transaction(&bytes_tx) {
+            Ok(txid) => Some(txid),
+            Err(e) => {
+                eprintln!("Failed to send raw transaction: {}", e);
+                None
+            }
+        };
         println!("spending_txid: {:?}", spending_txid);
     }
 
     fn reveal_connector_tree_preimages(&self, number_of_funds_claim: u32) -> HashSet<PreimageType> {
-        let indices = get_indices((self.connector_tree_hashes.len() - 1) as u32, number_of_funds_claim);
+        let indices = get_indices(
+            (self.connector_tree_hashes.len() - 1) as u32,
+            number_of_funds_claim,
+        );
         println!("indices: {:?}", indices);
         let mut preimages: HashSet<PreimageType> = HashSet::new();
         for (depth, index) in indices {
@@ -567,19 +610,21 @@ impl<'a> Operator<'a> {
         }
         preimages
     }
-
 }
 
 #[cfg(test)]
 mod tests {
 
-    use bitcoin::OutPoint;
-    use bitcoincore_rpc::{Client, Auth, RpcApi};
+    use std::{sync::{Arc, Mutex}, collections::HashMap};
+
+    use bitcoin::{OutPoint, ScriptBuf};
+    use bitcoincore_rpc::{Auth, Client, RpcApi};
     use secp256k1::rand::rngs::OsRng;
 
-    use crate::{operator::Operator, utils::{mine_blocks, handle_connector_binary_tree_script, create_connector_binary_tree}};
-
-
+    use crate::{
+        operator::{Operator, PreimageType},
+        utils::{create_connector_binary_tree, handle_connector_binary_tree_script, mine_blocks}, verifier::Verifier,
+    };
 
     #[test]
     fn test_connector_tree_tx() {
@@ -588,12 +633,21 @@ mod tests {
             Auth::UserPass("admin".to_string(), "admin".to_string()),
         )
         .unwrap_or_else(|e| panic!("Failed to connect to Bitcoin RPC: {}", e));
-    let fee = bitcoin::Amount::from_sat(300);
-    let dust_value = bitcoin::Amount::from_sat(1000);
-    let depth: u32 = 3;
-    let total_amount = fee * (2u64.pow(depth) - 1) + dust_value * 2u64.pow(depth);
-        let operator = Operator::new(&mut OsRng, &rpc);
-        let (_, _, root_address, _) = handle_connector_binary_tree_script(&operator.signer.secp, operator.signer.xonly_public_key, 1, operator.connector_tree_hashes[0][0]);
+
+        let fee = bitcoin::Amount::from_sat(300);
+        let dust_value = bitcoin::Amount::from_sat(1000);
+        let depth: u32 = 3;
+        let total_amount = fee * (2u64.pow(depth) - 1) + dust_value * 2u64.pow(depth);
+        let operator_arc = Arc::new(Mutex::new(Operator::new(&mut OsRng, &rpc)));
+        let operator = operator_arc.lock().unwrap();
+        let verifier = Verifier::new(&mut OsRng, &rpc, operator_arc.clone());
+
+        let (_, _, root_address, _) = handle_connector_binary_tree_script(
+            &operator.signer.secp,
+            operator.signer.xonly_public_key,
+            1,
+            operator.connector_tree_hashes[0][0],
+        );
         let root_txid = operator
             .rpc
             .send_to_address(
@@ -607,10 +661,7 @@ mod tests {
                 None,
             )
             .unwrap();
-        let root_tx = operator
-            .rpc
-            .get_raw_transaction(&root_txid, None)
-            .unwrap();
+        let root_tx = operator.rpc.get_raw_transaction(&root_txid, None).unwrap();
         println!("resource_tx: {:?}", root_tx);
 
         let vout = root_tx
@@ -618,16 +669,43 @@ mod tests {
             .iter()
             .position(|x| x.value == total_amount)
             .unwrap();
-    
+
         let root_utxo = OutPoint {
             txid: root_txid,
             vout: vout as u32,
         };
+        let mut preimage_script_pubkey_pairs: HashMap<PreimageType, ScriptBuf> = HashMap::new();
+        let mut utxos: HashMap<OutPoint, (u32, u32)> = HashMap::new();
+
+        let mut flag = verifier.did_connector_tree_process_start(root_utxo.clone());
+        println!("flag: {:?}", flag);
+        if flag {
+            verifier.watch_connector_tree(operator.signer.xonly_public_key, &mut preimage_script_pubkey_pairs, &mut utxos);
+        }
+
         println!("resource_utxo: {:?}", root_utxo);
 
-        let utxo_tree = create_connector_binary_tree(&rpc, &operator.signer.secp, operator.signer.xonly_public_key, root_utxo, 3, dust_value, fee, operator.connector_tree_hashes.clone());
+        let utxo_tree = create_connector_binary_tree(
+            &rpc,
+            &operator.signer.secp,
+            operator.signer.xonly_public_key,
+            root_utxo,
+            3,
+            dust_value,
+            fee,
+            operator.connector_tree_hashes.clone(),
+        );
+
+        let mut flag = verifier.did_connector_tree_process_start(root_utxo.clone());
+        println!("flag: {:?}", flag);
+        if flag {
+            verifier.watch_connector_tree(operator.signer.xonly_public_key, &mut preimage_script_pubkey_pairs, &mut utxos);
+        }
 
         mine_blocks(&rpc, 3);
+
+        let preimages = operator.reveal_connector_tree_preimages(3);
+        println!("preimages: {:?}", preimages);
 
         for (i, utxo_level) in utxo_tree[0..utxo_tree.len() - 1].iter().enumerate() {
             for (j, utxo) in utxo_level.iter().enumerate() {
@@ -637,11 +715,5 @@ mod tests {
             }
             mine_blocks(&rpc, 3);
         }
-
-        let preimages = operator.reveal_connector_tree_preimages(3);
-        println!("preimages: {:?}", preimages);
-
-
-    }   
-
+    }
 }

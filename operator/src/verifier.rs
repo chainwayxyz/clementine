@@ -1,18 +1,21 @@
+use std::borrow::BorrowMut;
 use std::collections::{HashMap, HashSet};
 use std::sync::{Arc, Mutex};
 
-use bitcoin::{Address, ScriptBuf, TxOut};
+use bitcoin::sighash::SighashCache;
+use bitcoin::{Address, ScriptBuf, TxOut, Amount, amount};
 use bitcoin::psbt::Output;
 use bitcoin::{
     hashes::Hash, secp256k1, secp256k1::Secp256k1, OutPoint, TapSighash,
 };
+use bitcoin::consensus::serialize;
 use bitcoincore_rpc::{Client, RpcApi};
 use circuit_helpers::constant::{EVMAddress, MIN_RELAY_FEE, HASH_FUNCTION_32};
 use secp256k1::All;
 use secp256k1::{rand::rngs::OsRng, XOnlyPublicKey};
 
 use crate::operator::{Operator, PreimageType};
-use crate::utils::{create_btc_tx, create_tx_ins, create_tx_outs, generate_n_of_n_script, create_taproot_address, handle_anyone_can_spend_script, create_kickoff_tx, generate_timelock_script, handle_connector_binary_tree_script};
+use crate::utils::{create_btc_tx, create_tx_ins, create_tx_outs, generate_n_of_n_script, create_taproot_address, handle_anyone_can_spend_script, create_kickoff_tx, generate_timelock_script, handle_connector_binary_tree_script, create_tx_ins_with_sequence, generate_hash_script, create_control_block};
 use crate::{
     actor::Actor,
     operator::{check_deposit, DepositPresigns},
@@ -153,8 +156,11 @@ impl<'a> Verifier<'a> {
         let last_block_hash = self.rpc.get_best_block_hash().unwrap();
         let last_block = self.rpc.get_block(&last_block_hash).unwrap();
         for tx in last_block.txdata {
-            if tx.txid() == utxo.txid {
-                return true;
+            // if any of the tx.input.previous_output == utxo return true
+            for input in tx.input {
+                if input.previous_output == utxo {
+                    return true;
+                }
             }
         }
         return false;
@@ -165,6 +171,7 @@ impl<'a> Verifier<'a> {
         let last_block = self.rpc.get_block(&last_block_hash).unwrap();
         for tx in last_block.txdata {
             if utxos.contains_key(&tx.input[0].previous_output) {
+                // Check if any of the UTXOs have been spent
                 let (depth, index) = utxos.remove(&tx.input[0].previous_output).unwrap();
                 utxos.insert(OutPoint {
                     txid: tx.txid(),
@@ -174,12 +181,22 @@ impl<'a> Verifier<'a> {
                     txid: tx.txid(),
                     vout: 1,
                 }, (depth + 1, index * 2 + 1));
-                
-                for tx_out in tx.output {
+                //Assert the two new UTXOs have the same value
+                assert_eq!(tx.output[0].value, tx.output[1].value);
+                let new_amount = tx.output[0].value;
+                //Check if any one of the UTXOs can be spent with a preimage
+                for (i, tx_out) in tx.output.iter().enumerate() {
                     for preimage in preimage_script_pubkey_pairs.keys() {
                         if is_spendable_with_preimage(&self.secp, operator_pk, tx_out.clone(), *preimage) {
-                            // self.spend_connector_tree_utxo();
-                            
+                            let utxo_to_spend = OutPoint {
+                                txid: tx.txid(),
+                                vout: i as u32,
+                            };
+                            self.spend_connector_tree_utxo(utxo_to_spend, operator_pk, *preimage, depth + 1, new_amount, Amount::from_sat(300));
+                            utxos.remove(&OutPoint {
+                                txid: tx.txid(),
+                                vout: i as u32,
+                            });
                         }
                     }
                 }
@@ -192,15 +209,39 @@ impl<'a> Verifier<'a> {
         return (preimage_script_pubkey_pairs.clone(), utxos.clone());
     }
 
-    pub fn spend_connector_tree_utxo(&self, utxo: OutPoint, preimage: PreimageType, script_pubkey: ScriptBuf) {
-
+    pub fn spend_connector_tree_utxo(&self, utxo: OutPoint, operator_pk: XOnlyPublicKey, preimage: PreimageType, level: u32, amount: Amount, fee: Amount) {
+        let hash = HASH_FUNCTION_32(preimage);
+        let (_, _, address, tree_info) = handle_connector_binary_tree_script(
+            &self.secp,
+            operator_pk,
+            level,
+            hash,
+        );
+        let tx_ins = create_tx_ins_with_sequence(vec![(utxo, 1)]);
+        let tx_outs = create_tx_outs(vec![(amount - fee, self.signer.address.script_pubkey())]);
+        let mut tx = create_btc_tx(tx_ins, tx_outs);
+        let prevouts = create_tx_outs(vec![(amount, address.script_pubkey())]);
+        let hash_script = generate_hash_script(hash);
+        let sig = self.signer.sign_taproot_script_spend_tx(&mut tx, prevouts, &hash_script, 0);
+        let spend_control_block = create_control_block(tree_info, &hash_script);
+        let mut sighash_cache = SighashCache::new(tx.borrow_mut());
+        let witness = sighash_cache.witness_mut(0).unwrap();
+        witness.push(preimage);
+        witness.push(hash_script);
+        witness.push(&spend_control_block.serialize());
+        let bytes_tx = serialize(&tx);
+        let spending_txid = self
+            .rpc
+            .send_raw_transaction(&bytes_tx)
+            .unwrap();
+        println!("spending_txid: {:?}", spending_txid);
     }
 
 }
 
 pub fn is_spendable_with_preimage(secp: &Secp256k1<All>, operator_pk: XOnlyPublicKey, tx_out: TxOut, preimage: PreimageType) -> bool {
     let hash = HASH_FUNCTION_32(preimage);
-    let (_, pubkey, address, _) = handle_connector_binary_tree_script(
+    let (_, _, address, _) = handle_connector_binary_tree_script(
         secp,
         operator_pk,
         1, // MAKE THIS CONFIGURABLE
