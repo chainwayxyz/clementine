@@ -166,7 +166,7 @@ impl<'a> Verifier<'a> {
         return false;
     }
 
-    pub fn watch_connector_tree(&self, operator_pk: XOnlyPublicKey, preimage_script_pubkey_pairs: &mut HashMap<PreimageType, ScriptBuf>, utxos: &mut HashMap<OutPoint, (u32, u32)>) -> (HashMap<PreimageType, ScriptBuf>, HashMap<OutPoint, (u32, u32)>) {
+    pub fn watch_connector_tree(&self, operator_pk: XOnlyPublicKey, preimage_script_pubkey_pairs: &mut HashSet<PreimageType>, utxos: &mut HashMap<OutPoint, (u32, u32)>) -> (HashSet<PreimageType>, HashMap<OutPoint, (u32, u32)>) {
         let last_block_hash = self.rpc.get_best_block_hash().unwrap();
         let last_block = self.rpc.get_block(&last_block_hash).unwrap();
         for tx in last_block.txdata {
@@ -186,7 +186,8 @@ impl<'a> Verifier<'a> {
                 let new_amount = tx.output[0].value;
                 //Check if any one of the UTXOs can be spent with a preimage
                 for (i, tx_out) in tx.output.iter().enumerate() {
-                    for preimage in preimage_script_pubkey_pairs.keys() {
+                    let mut preimages_to_remove = Vec::new();
+                    for preimage in preimage_script_pubkey_pairs.iter() {
                         if is_spendable_with_preimage(&self.secp, operator_pk, tx_out.clone(), *preimage) {
                             let utxo_to_spend = OutPoint {
                                 txid: tx.txid(),
@@ -197,7 +198,11 @@ impl<'a> Verifier<'a> {
                                 txid: tx.txid(),
                                 vout: i as u32,
                             });
+                            preimages_to_remove.push(*preimage);
                         }
+                    }
+                    for preimage in preimages_to_remove {
+                        preimage_script_pubkey_pairs.remove(&preimage);
                     }
                 }
 

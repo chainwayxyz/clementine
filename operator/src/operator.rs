@@ -524,78 +524,89 @@ impl<'a> Operator<'a> {
             hash,
         );
 
-        let base_tx = self.rpc.get_raw_transaction(&utxo.txid, None).unwrap();
-        println!("base_tx: {:?}", base_tx);
-        let depth = u32::ilog2(
-            ((base_tx.output[utxo.vout as usize].value + fee).to_sat()
-                / (dust_value + fee).to_sat()) as u32,
-        );
-        println!("depth: {:?}", depth);
-        let level = tree_depth - depth;
-        //find the index of preimage in the connector_tree_preimages[level as usize]
-        let index = self.connector_tree_preimages[level as usize]
-            .iter()
-            .position(|x| *x == preimage)
-            .unwrap();
-        let hashes = (
-            self.connector_tree_hashes[(level + 1) as usize][2 * index],
-            self.connector_tree_hashes[(level + 1) as usize][2 * index + 1],
-        );
-
-        let utxo_tx = self.rpc.get_raw_transaction(&utxo.txid, None).unwrap();
-        // println!("utxo_tx: {:?}", utxo_tx);
-        // println!("utxo_txid: {:?}", utxo_tx.txid());
-        let timelock_script = generate_timelock_script(self.signer.xonly_public_key, 1);
-
-        let (_, _, first_address, _) = handle_connector_binary_tree_script(
-            &self.signer.secp,
-            self.signer.xonly_public_key,
-            1, // MAKE THIS CONFIGURABLE
-            hashes.0,
-        );
-
-        let (_, _, second_address, _) = handle_connector_binary_tree_script(
-            &self.signer.secp,
-            self.signer.xonly_public_key,
-            1, // MAKE THIS CONFIGURABLE
-            hashes.1,
-        );
-
-        let mut tx = create_connector_tree_tx(
-            &utxo,
-            depth - 1,
-            first_address,
-            second_address,
-            dust_value,
-            fee,
-        );
-        println!("created spend tx: {:?}", tx);
-
-        let sig = self.signer.sign_taproot_script_spend_tx(
-            &mut tx,
-            vec![utxo_tx.output[utxo.vout as usize].clone()],
-            &timelock_script,
-            0,
-        );
-        let spend_control_block = tree_info
-            .control_block(&(timelock_script.clone(), LeafVersion::TapScript))
-            .expect("Cannot create control block");
-        let mut sighash_cache = SighashCache::new(tx.borrow_mut());
-        let witness = sighash_cache.witness_mut(0).unwrap();
-        witness.push(sig.as_ref());
-        witness.push(timelock_script);
-        witness.push(&spend_control_block.serialize());
-        let bytes_tx = serialize(&tx);
-        // println!("bytes_connector_tree_tx length: {:?}", bytes_connector_tree_tx.len());
-        // let hex_utxo_tx = hex::encode(bytes_utxo_tx.clone());
-        let spending_txid = match self.rpc.send_raw_transaction(&bytes_tx) {
+        let base_tx = match self.rpc.get_raw_transaction(&utxo.txid, None) {
             Ok(txid) => Some(txid),
             Err(e) => {
-                eprintln!("Failed to send raw transaction: {}", e);
+                eprintln!("Failed to get raw transaction: {}", e);
                 None
-            }
+            },
         };
-        println!("spending_txid: {:?}", spending_txid);
+        println!("base_tx: {:?}", base_tx);
+
+        if base_tx.is_none() {
+            return;
+        } else {
+            let depth = u32::ilog2(
+                ((base_tx.unwrap().output[utxo.vout as usize].value + fee).to_sat()
+                    / (dust_value + fee).to_sat()) as u32,
+            );
+            println!("depth: {:?}", depth);
+            let level = tree_depth - depth;
+            //find the index of preimage in the connector_tree_preimages[level as usize]
+            let index = self.connector_tree_preimages[level as usize]
+                .iter()
+                .position(|x| *x == preimage)
+                .unwrap();
+            let hashes = (
+                self.connector_tree_hashes[(level + 1) as usize][2 * index],
+                self.connector_tree_hashes[(level + 1) as usize][2 * index + 1],
+            );
+    
+            let utxo_tx = self.rpc.get_raw_transaction(&utxo.txid, None).unwrap();
+            // println!("utxo_tx: {:?}", utxo_tx);
+            // println!("utxo_txid: {:?}", utxo_tx.txid());
+            let timelock_script = generate_timelock_script(self.signer.xonly_public_key, 1);
+    
+            let (_, _, first_address, _) = handle_connector_binary_tree_script(
+                &self.signer.secp,
+                self.signer.xonly_public_key,
+                1, // MAKE THIS CONFIGURABLE
+                hashes.0,
+            );
+    
+            let (_, _, second_address, _) = handle_connector_binary_tree_script(
+                &self.signer.secp,
+                self.signer.xonly_public_key,
+                1, // MAKE THIS CONFIGURABLE
+                hashes.1,
+            );
+    
+            let mut tx = create_connector_tree_tx(
+                &utxo,
+                depth - 1,
+                first_address,
+                second_address,
+                dust_value,
+                fee,
+            );
+            println!("created spend tx: {:?}", tx);
+    
+            let sig = self.signer.sign_taproot_script_spend_tx(
+                &mut tx,
+                vec![utxo_tx.output[utxo.vout as usize].clone()],
+                &timelock_script,
+                0,
+            );
+            let spend_control_block = tree_info
+                .control_block(&(timelock_script.clone(), LeafVersion::TapScript))
+                .expect("Cannot create control block");
+            let mut sighash_cache = SighashCache::new(tx.borrow_mut());
+            let witness = sighash_cache.witness_mut(0).unwrap();
+            witness.push(sig.as_ref());
+            witness.push(timelock_script);
+            witness.push(&spend_control_block.serialize());
+            let bytes_tx = serialize(&tx);
+            // println!("bytes_connector_tree_tx length: {:?}", bytes_connector_tree_tx.len());
+            // let hex_utxo_tx = hex::encode(bytes_utxo_tx.clone());
+            let spending_txid = match self.rpc.send_raw_transaction(&bytes_tx) {
+                Ok(txid) => Some(txid),
+                Err(e) => {
+                    eprintln!("Failed to send raw transaction: {}", e);
+                    None
+                }
+            };
+            println!("spending_txid: {:?}", spending_txid);
+        }
     }
 
     fn reveal_connector_tree_preimages(&self, number_of_funds_claim: u32) -> HashSet<PreimageType> {
@@ -615,7 +626,7 @@ impl<'a> Operator<'a> {
 #[cfg(test)]
 mod tests {
 
-    use std::{sync::{Arc, Mutex}, collections::HashMap};
+    use std::{sync::{Arc, Mutex}, collections::{HashMap, HashSet}};
 
     use bitcoin::{OutPoint, ScriptBuf};
     use bitcoincore_rpc::{Auth, Client, RpcApi};
@@ -674,7 +685,7 @@ mod tests {
             txid: root_txid,
             vout: vout as u32,
         };
-        let mut preimage_script_pubkey_pairs: HashMap<PreimageType, ScriptBuf> = HashMap::new();
+        let mut preimage_script_pubkey_pairs: HashSet<PreimageType> = HashSet::new();
         let mut utxos: HashMap<OutPoint, (u32, u32)> = HashMap::new();
 
         let mut flag = verifier.did_connector_tree_process_start(root_utxo.clone());
@@ -696,7 +707,8 @@ mod tests {
             operator.connector_tree_hashes.clone(),
         );
 
-        let mut flag = verifier.did_connector_tree_process_start(root_utxo.clone());
+
+        flag = verifier.did_connector_tree_process_start(root_utxo.clone());
         println!("flag: {:?}", flag);
         if flag {
             verifier.watch_connector_tree(operator.signer.xonly_public_key, &mut preimage_script_pubkey_pairs, &mut utxos);
@@ -705,15 +717,20 @@ mod tests {
         mine_blocks(&rpc, 3);
 
         let preimages = operator.reveal_connector_tree_preimages(3);
-        println!("preimages: {:?}", preimages);
+        println!("preimages revealed: {:?}", preimages);
 
         for (i, utxo_level) in utxo_tree[0..utxo_tree.len() - 1].iter().enumerate() {
+            flag = verifier.did_connector_tree_process_start(root_utxo.clone());
+            println!("flag: {:?}", flag);
+            if flag {
+                verifier.watch_connector_tree(operator.signer.xonly_public_key, &mut preimage_script_pubkey_pairs, &mut utxos);
+            }
             for (j, utxo) in utxo_level.iter().enumerate() {
                 let preimage = operator.connector_tree_preimages[i][j];
                 println!("preimage: {:?}", preimage);
                 operator.spend_connector_tree_utxo(*utxo, preimage, dust_value, fee, 3);
             }
-            mine_blocks(&rpc, 3);
+            mine_blocks(&rpc, 1);
         }
     }
 }
