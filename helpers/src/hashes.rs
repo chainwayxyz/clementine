@@ -25,3 +25,13 @@ pub fn sha256_32bytes(a: Data) -> Data {
     hasher.update(a);
     hasher.finalize().try_into().unwrap()
 }
+
+pub fn sha256_96bytes(a: Data, b: Data, c: Data) -> Data {
+    let mut d = [0_u8; 3 * 32];
+    d[..32].copy_from_slice(&a);
+    d[32..64].copy_from_slice(&b);
+    d[64..].copy_from_slice(&c);
+    let mut hasher = Sha256::new();
+    hasher.update(d);
+    hasher.finalize().try_into().unwrap()
+}

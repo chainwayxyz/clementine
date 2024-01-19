@@ -75,6 +75,28 @@ pub fn get_indices(depth: u32, count: u32) -> Vec<(u32, u32)> {
     return indices;
 }
 
+pub fn get_internal_indices(depth: u32, count: u32) -> Vec<(u32, u32)> {
+    assert!(count <= 2u32.pow(depth));
+
+    if count == 2u32.pow(depth) {
+        return vec![(0, 0)];
+    }
+
+    let mut indices: Vec<(u32, u32)> = Vec::new();
+    if count == 0 {
+        return indices;
+    }
+
+    if count % 2 == 1 {
+        indices.push((depth, count - 1));
+        indices.extend(get_internal_indices(depth - 1, (count - 1) / 2));
+    } else {
+        indices.extend(get_internal_indices(depth - 1, count / 2));
+    }
+
+    return indices;
+}
+
 pub fn take_stdin<T: std::str::FromStr>(prompt: &str) -> Result<T, T::Err> {
     print!("{}", prompt);
     io::stdout().flush().unwrap();
@@ -528,7 +550,7 @@ mod tests {
     use circuit_helpers::config::NUM_VERIFIERS;
     use secp256k1::rand::rngs::OsRng;
 
-    use crate::utils::get_indices;
+    use crate::utils::{get_indices, get_internal_indices};
     use crate::{
         operator::{self, Operator},
         user::User,
@@ -581,6 +603,49 @@ mod tests {
         let indices = get_indices(3, 8);
         println!("indices: {:?}", indices);
     }
+
+    #[test]
+    fn test_get_internal_indices() {
+        let indices = get_internal_indices(0, 0);
+        println!("indices: {:?}", indices);
+        let indices = get_internal_indices(0, 1);
+        println!("indices: {:?}", indices);
+        let indices = get_internal_indices(1, 0);
+        println!("indices: {:?}", indices);
+        let indices = get_internal_indices(1, 1);
+        println!("indices: {:?}", indices);
+        let indices = get_internal_indices(1, 2);
+        println!("indices: {:?}", indices);
+        let indices = get_internal_indices(2, 0);
+        println!("indices: {:?}", indices);
+        let indices = get_internal_indices(2, 1);
+        println!("indices: {:?}", indices);
+        let indices = get_internal_indices(2, 2);
+        println!("indices: {:?}", indices);
+        let indices = get_internal_indices(2, 3);
+        println!("indices: {:?}", indices);
+        let indices = get_internal_indices(2, 4);
+        println!("indices: {:?}", indices);
+        let indices = get_internal_indices(3, 0);
+        println!("indices: {:?}", indices);
+        let indices = get_internal_indices(3, 1);
+        println!("indices: {:?}", indices);
+        let indices = get_internal_indices(3, 2);
+        println!("indices: {:?}", indices);
+        let indices = get_internal_indices(3, 3);
+        println!("indices: {:?}", indices);
+        let indices = get_internal_indices(3, 4);
+        println!("indices: {:?}", indices);
+        let indices = get_internal_indices(3, 5);
+        println!("indices: {:?}", indices);
+        let indices = get_internal_indices(3, 6);
+        println!("indices: {:?}", indices);
+        let indices = get_internal_indices(3, 7);
+        println!("indices: {:?}", indices);
+        let indices = get_internal_indices(3, 8);
+        println!("indices: {:?}", indices);
+    }
+
 
     #[test]
     fn test_from_hex_to_tx() {
