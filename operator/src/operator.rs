@@ -16,6 +16,7 @@ use crate::utils::{
 use crate::verifier::Verifier;
 use bitcoin::address::NetworkChecked;
 use bitcoin::consensus::serialize;
+use bitcoin::opcodes::all;
 use bitcoin::psbt::Output;
 use bitcoin::sighash::SighashCache;
 use bitcoin::taproot::LeafVersion;
@@ -121,7 +122,7 @@ impl<'a> Operator<'a> {
     pub fn new(rng: &mut OsRng, rpc: &'a Client, num_verifier: u32) -> Self {
         let signer = Actor::new(rng);
         let (connector_tree_preimages, connector_tree_hashes) =
-            create_connector_tree_preimages_and_hashes(3, rng);
+            create_connector_tree_preimages_and_hashes(2, rng);
         let mut verifiers = Vec::new();
         let mut verifiers_pks = Vec::new();
         for _ in 0..num_verifier {
@@ -204,6 +205,7 @@ impl<'a> Operator<'a> {
                     return_address.clone(),
                     evm_address,
                     &all_verifiers,
+                    self.signer.address.clone(),
                 );
                 println!("checked new deposit");
                 check_presigns(utxo, timestamp, &deposit_presigns);
@@ -290,8 +292,10 @@ impl<'a> Operator<'a> {
         let script_n_of_n_without_hash = generate_n_of_n_script_without_hash(&all_verifiers);
         let (address, _) =
             create_taproot_address(&self.signer.secp, vec![script_n_of_n_without_hash.clone()]);
+        println!("address while taking deposit: {:?}", address);
+        println!("address.script_pubkey() while taking deposit: {:?}", address.script_pubkey());
 
-        let (anyone_can_spend_script_pub_key, dust_value) = handle_anyone_can_spend_script();
+        // let (anyone_can_spend_script_pub_key, dust_value) = handle_anyone_can_spend_script();
 
         let mut kickoff_tx = create_kickoff_tx(
             vec![utxo],
@@ -337,7 +341,7 @@ impl<'a> Operator<'a> {
         witness.push(script_n_of_n);
         witness.push(&spend_control_block.serialize());
         // println!("witness size: {:?}", witness.size());
-        println!("kickoff_tx: {:?}", kickoff_tx);
+        // println!("kickoff_tx: {:?}", kickoff_tx);
         let kickoff_txid = kickoff_tx.txid();
         let deposit_utxo = OutPoint {
             txid: kickoff_txid,
@@ -587,7 +591,7 @@ impl<'a> Operator<'a> {
             );
 
             let mut tx = create_connector_tree_tx(&utxo, depth - 1, first_address, second_address);
-            println!("created spend tx: {:?}", tx);
+            // println!("created spend tx: {:?}", tx);
 
             let sig = self.signer.sign_taproot_script_spend_tx(
                 &mut tx,
@@ -613,7 +617,7 @@ impl<'a> Operator<'a> {
                     None
                 }
             };
-            println!("spending_txid: {:?}", spending_txid);
+            println!("operator_spending_txid: {:?}", spending_txid);
         }
     }
 
@@ -660,15 +664,18 @@ impl<'a> Operator<'a> {
             input: tx_ins,
             output: tx_outs,
         };
-        println!("claim_tx: {:?}", claim_tx);
+        println!("operator ready to send claim_tx: {:?}", claim_tx);
+
+        let all_verifiers = self.get_all_verifiers();
+
+        let script_n_of_n_without_hash = generate_n_of_n_script_without_hash(&all_verifiers.clone());
+        let (multisig_address, tree_info0) =
+            create_taproot_address(&self.signer.secp, vec![script_n_of_n_without_hash.clone()]);
 
         let timelock_script = generate_timelock_script(
             self.signer.xonly_public_key,
             CONNECTOR_TREE_OPERATOR_TAKES_AFTER as u32,
         );
-        let script_n_of_n_without_hash = generate_n_of_n_script_without_hash(&self.verifiers_pks);
-        let (multisig_address, tree_info0) =
-            create_taproot_address(&self.signer.secp, vec![script_n_of_n_without_hash.clone()]);
 
         let prevouts = create_tx_outs(vec![
             (
@@ -677,43 +684,71 @@ impl<'a> Operator<'a> {
             ),
             (DUST_VALUE, address.script_pubkey()),
         ]);
-
-        let spend_control_block1 = tree_info1
-            .control_block(&(timelock_script.clone(), LeafVersion::TapScript))
-            .expect("Cannot create control block");
+        println!("multisig address: {:?}", multisig_address);
+        println!("multisig script pubkey: {:?}", multisig_address.script_pubkey());
 
         let spend_control_block0 = tree_info0
             .control_block(&(script_n_of_n_without_hash.clone(), LeafVersion::TapScript))
             .expect("Cannot create control block");
 
-        let sig0 =
-            self.signer
-                .sign_taproot_script_spend_tx(&mut claim_tx, prevouts.clone(), &script_n_of_n_without_hash, 0);
+            let spend_control_block1 = tree_info1
+            .control_block(&(timelock_script.clone(), LeafVersion::TapScript))
+            .expect("Cannot create control block");
+
+        let sig0 = self.signer.sign_taproot_script_spend_tx(
+            &mut claim_tx,
+            prevouts.clone(),
+            &script_n_of_n_without_hash,
+            0,
+        );
+        // let mut claim_sigs = self.mock_verifier_access.iter().map(|verifier| 
+        //     verifier.signer.sign_taproot_script_spend_tx(&mut claim_tx, prevouts.clone(), &script_n_of_n_without_hash, 0)
+        // ).collect::<Vec<_>>();
+
+        // println!("claim_sigs: {:?}", claim_sigs);
+
         let sig1 =
             self.signer
                 .sign_taproot_script_spend_tx(&mut claim_tx, prevouts, &timelock_script, 1);
-        // println!("deposit presigns: {:?}", self.deposit_presigns);
-        println!("deposit_utxo.txid: {:?}", deposit_utxo.txid);
-        let sig_vec = self.deposit_presigns.get(&deposit_utxo.txid).unwrap();
 
         let mut sighash_cache = SighashCache::new(claim_tx.borrow_mut());
-        let witness1 = sighash_cache.witness_mut(1).unwrap();
-        // witness1.push(sig0.as_ref());
-        witness1.push(timelock_script);
-        witness1.push(&spend_control_block1.serialize());
+        let mut sig_vec = self.deposit_presigns.get(&deposit_utxo.txid).unwrap();
 
         let witness0 = sighash_cache.witness_mut(0).unwrap();
-        witness0.push(sig0.as_ref());
-        for index in 0..sig_vec.len() {
-            witness0.push(sig_vec[index as usize].operator_claim_sign.as_ref());
+        let mut claim_sigs = sig_vec
+            .iter()
+            .map(|presig| presig.operator_claim_sign)
+            .collect::<Vec<_>>();
+        println!("claim_sigs: {:?}", claim_sigs);
+        claim_sigs.push(sig0);
+        claim_sigs.reverse();
+        for sig in claim_sigs.iter() {
+            witness0.push(sig.as_ref());
         }
         witness0.push(script_n_of_n_without_hash.clone());
         witness0.push(&spend_control_block0.serialize());
 
+        println!("deposit_utxo.txid: {:?}", deposit_utxo.txid);
+        let witness1 = sighash_cache.witness_mut(1).unwrap();
+        witness1.push(sig1.as_ref());
+        witness1.push(timelock_script);
+        witness1.push(&spend_control_block1.serialize());
+
         println!("claim_tx: {:?}", claim_tx);
         let tx_bytes = serialize(&claim_tx);
-        let txid = self.rpc.send_raw_transaction(&tx_bytes).unwrap();
-        println!("claim successful, txid: {:?}", txid);
+        let txid = match self.rpc.send_raw_transaction(&tx_bytes) {
+            Ok(txid) => Some(txid),
+            Err(e) => {
+                eprintln!("Failed to send raw transaction: {}", e);
+                None
+            }
+        };
+        if txid.is_none() {
+            println!("claim failed");
+            return;
+        } else {
+            println!("claim successful, txid: {:?}", txid);
+        }
     }
 }
 
@@ -746,17 +781,18 @@ mod tests {
         )
         .unwrap_or_else(|e| panic!("Failed to connect to Bitcoin RPC: {}", e));
 
-        let depth: u32 = 3;
+        let depth: u32 = 2;
         let total_amount = MIN_RELAY_FEE * (2u64.pow(depth) - 1) + DUST_VALUE * 2u64.pow(depth);
-        let mut operator = Operator::new(&mut OsRng, &rpc, NUM_VERIFIERS as u32);
+        let mut operator = Operator::new(&mut OsRng, &rpc, 4 as u32);
         let mut users = Vec::new();
-        for _ in 0..NUM_USERS {
+        for _ in 0..4 {
             users.push(User::new(&mut OsRng, &rpc));
         }
         let verifiers_pks = operator.get_all_verifiers();
         for verifier in &mut operator.mock_verifier_access {
             verifier.set_verifiers(verifiers_pks.clone());
         }
+        println!("verifiers_pks.len: {:?}", verifiers_pks.len());
         let mut verifiers_evm_addresses = operator.verifier_evm_addresses.clone();
         verifiers_evm_addresses.push(operator.signer.evm_address);
         let mut utxo_vec = Vec::new();
@@ -793,8 +829,9 @@ mod tests {
             txid: root_txid,
             vout: vout as u32,
         };
-        let mut preimage_script_pubkey_pairs: HashSet<PreimageType> = HashSet::new();
-        let mut utxos: HashMap<OutPoint, (u32, u32)> = HashMap::new();
+        let mut preimages_verifier_track: HashSet<PreimageType> = HashSet::new();
+        let mut utxos_verifier_track: HashMap<OutPoint, (u32, u32)> = HashMap::new();
+        utxos_verifier_track.insert(root_utxo, (0, 0));
 
         let mut flag =
             operator.mock_verifier_access[0].did_connector_tree_process_start(root_utxo.clone());
@@ -802,8 +839,8 @@ mod tests {
         if flag {
             operator.mock_verifier_access[0].watch_connector_tree(
                 operator.signer.xonly_public_key,
-                &mut preimage_script_pubkey_pairs,
-                &mut utxos,
+                &mut preimages_verifier_track,
+                &mut utxos_verifier_track,
             );
         }
 
@@ -814,7 +851,7 @@ mod tests {
             &operator.signer.secp,
             operator.signer.xonly_public_key,
             root_utxo,
-            3,
+            2,
             operator.connector_tree_hashes.clone(),
         );
 
@@ -832,7 +869,7 @@ mod tests {
             // );
         }
 
-        for i in 0..8 {
+        for i in 0..4 {
             let user = &users[i];
             // println!("verifiers_pks in for: {:?}", verifiers_pks);
             let (mut utxo, mut hash, mut return_address) = user.deposit_tx(
@@ -857,7 +894,7 @@ mod tests {
 
         let mut fund_utxos = Vec::new();
 
-        for i in 0..8 {
+        for i in 0..4 {
             let fund = operator.preimage_revealed(
                 users[i].reveal_preimage(),
                 utxo_vec[i],
@@ -871,38 +908,55 @@ mod tests {
         if flag {
             operator.mock_verifier_access[0].watch_connector_tree(
                 operator.signer.xonly_public_key,
-                &mut preimage_script_pubkey_pairs,
-                &mut utxos,
+                &mut preimages_verifier_track,
+                &mut utxos_verifier_track,
             );
         }
 
+        println!("utxos verifier track: {:?}", utxos_verifier_track);
+        println!("preimages verifier track: {:?}", preimages_verifier_track);
+
         mine_blocks(&rpc, 3);
 
-        let preimages = operator.reveal_connector_tree_preimages(3);
+        let preimages = operator.reveal_connector_tree_preimages(1);
         println!("preimages revealed: {:?}", preimages);
+        preimages_verifier_track = preimages.clone();
 
         for (i, utxo_level) in utxo_tree[0..utxo_tree.len() - 1].iter().enumerate() {
-            flag = operator.mock_verifier_access[0]
-                .did_connector_tree_process_start(root_utxo.clone());
-            println!("flag: {:?}", flag);
-            if flag {
-                operator.mock_verifier_access[0].watch_connector_tree(
-                    operator.signer.xonly_public_key,
-                    &mut preimage_script_pubkey_pairs,
-                    &mut utxos,
-                );
-            }
+
             for (j, utxo) in utxo_level.iter().enumerate() {
                 let preimage = operator.connector_tree_preimages[i][j];
                 println!("preimage: {:?}", preimage);
-                operator.spend_connector_tree_utxo(*utxo, preimage, 3);
+                operator.spend_connector_tree_utxo(*utxo, preimage, 2);
+                operator.mock_verifier_access[0].watch_connector_tree(
+                    operator.signer.xonly_public_key,
+                    &mut preimages_verifier_track,
+                    &mut utxos_verifier_track,
+                );
+                println!("utxos verifier track: {:?}", utxos_verifier_track);
+                println!("preimages verifier track: {:?}", preimages_verifier_track);
             }
             mine_blocks(&rpc, 1);
         }
 
+        operator.mock_verifier_access[0].watch_connector_tree(
+            operator.signer.xonly_public_key,
+            &mut preimages_verifier_track,
+            &mut utxos_verifier_track,
+        );
+        println!("utxos verifier track: {:?}", utxos_verifier_track);
+        println!("preimages verifier track: {:?}", preimages_verifier_track);
+
+        // for (i, utxo_to_claim_with) in utxo_tree[utxo_tree.len() - 1].iter().enumerate() {
+
+        //         let preimage = operator.connector_tree_preimages[utxo_tree.len() - 1][i];
+        //         println!("preimage: {:?}", preimage);
+        //         operator.claim_deposit(i as u32);
+        // }
+
         mine_blocks(&rpc, 2);
 
-        for i in 0..3 {
+        for i in 0..4 {
             operator.claim_deposit(i);
         }
     }

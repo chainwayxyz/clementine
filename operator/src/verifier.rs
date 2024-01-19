@@ -74,6 +74,7 @@ impl<'a> Verifier<'a> {
         return_address: XOnlyPublicKey,
         evm_address: EVMAddress,
         all_verifiers: &Vec<XOnlyPublicKey>,
+        operator_address: Address,
     ) -> DepositPresigns {
         // println!("all_verifiers in new_deposit, in verifier now: {:?}", all_verifiers);
         let timestamp = check_deposit(
@@ -87,15 +88,17 @@ impl<'a> Verifier<'a> {
         let script_n_of_n = generate_n_of_n_script(&all_verifiers, hash);
 
         let script_n_of_n_without_hash = generate_n_of_n_script_without_hash(&all_verifiers);
-        let (address, _) = create_taproot_address(&self.signer.secp, vec![script_n_of_n_without_hash.clone()]);
+        let (multisig_address, _) = create_taproot_address(&self.signer.secp, vec![script_n_of_n_without_hash.clone()]);
+        println!("verifier presigning multisig address: {:?}", multisig_address);
+        println!("verifier presigning multisig script pubkey: {:?}", multisig_address.script_pubkey());
 
-        let (anyone_can_spend_script_pub_key, dust_value) = handle_anyone_can_spend_script();
+        // let (anyone_can_spend_script_pub_key, dust_value) = handle_anyone_can_spend_script();
         
         let mut kickoff_tx = create_kickoff_tx(vec![utxo], vec![
             (
                 BRIDGE_AMOUNT_SATS
                     - MIN_RELAY_FEE,
-                address.script_pubkey().clone(),
+                multisig_address.script_pubkey().clone(),
             ),
             // (DUST_VALUE, anyone_can_spend_script_pub_key.clone()),
         ]);
@@ -131,20 +134,21 @@ impl<'a> Verifier<'a> {
             TxIn {
                 previous_output: self.connector_tree_utxos.last().unwrap()[index as usize],
                 script_sig: ScriptBuf::new(),
-                sequence: bitcoin::transaction::Sequence::ENABLE_RBF_NO_LOCKTIME,
+                sequence: bitcoin::Sequence::from_height(CONNECTOR_TREE_OPERATOR_TAKES_AFTER),
                 witness: Witness::new(),
             }],
             output: vec![TxOut {
                 value: prev_amount + DUST_VALUE - MIN_RELAY_FEE,
-                script_pubkey: address.script_pubkey(),
+                script_pubkey: operator_address.script_pubkey(),
             }],
         };
-        let (_, _, address, _) = handle_connector_binary_tree_script(&self.secp, self.operator_pk, self.connector_tree_hashes.last().unwrap()[index as usize]);
+        println!("verifier presigning operator_claim_tx: {:?}", operator_claim_tx);
+        let (_, _, address, _) = handle_connector_binary_tree_script(&self.secp, self.operator_pk, self.connector_tree_hashes[self.connector_tree_hashes.len() - 1][index as usize]);
 
-        let prevouts = create_tx_outs(vec![(prev_amount, address.script_pubkey().clone()), (DUST_VALUE, address.script_pubkey())]);
+        let prevouts = create_tx_outs(vec![(prev_amount, multisig_address.script_pubkey().clone()), (DUST_VALUE, address.script_pubkey())]);
 
-        let operator_claim_sign = self.signer.sign_taproot_script_spend_tx(&mut operator_claim_tx, prevouts, &script_n_of_n, 0);
-
+        let operator_claim_sign = self.signer.sign_taproot_script_spend_tx(&mut operator_claim_tx, prevouts, &script_n_of_n_without_hash, 0);
+        println!("verifier presigning operator_claim_tx, sign: {:?}", operator_claim_sign);
         let rollup_sign = self.signer.sign_deposit(
             kickoff_txid,
             evm_address,
@@ -177,6 +181,7 @@ impl<'a> Verifier<'a> {
     }
 
     pub fn watch_connector_tree(&self, operator_pk: XOnlyPublicKey, preimage_script_pubkey_pairs: &mut HashSet<PreimageType>, utxos: &mut HashMap<OutPoint, (u32, u32)>) -> (HashSet<PreimageType>, HashMap<OutPoint, (u32, u32)>) {
+        println!("verifier watching connector tree...");
         let last_block_hash = self.rpc.get_best_block_hash().unwrap();
         let last_block = self.rpc.get_block(&last_block_hash).unwrap();
         for tx in last_block.txdata {
@@ -220,7 +225,7 @@ impl<'a> Verifier<'a> {
             }
 
         }
-
+        println!("verifier finished watching connector tree...");
         return (preimage_script_pubkey_pairs.clone(), utxos.clone());
     }
 
@@ -248,7 +253,34 @@ impl<'a> Verifier<'a> {
             .rpc
             .send_raw_transaction(&bytes_tx)
             .unwrap();
-        println!("spending_txid: {:?}", spending_txid);
+        println!("verifier_spending_txid: {:?}", spending_txid);
+    }
+
+    pub fn spend_connector_tree_leaf_utxo(&self, utxo: OutPoint, operator_pk: XOnlyPublicKey, preimage: PreimageType, amount: Amount) {
+        let hash = HASH_FUNCTION_32(preimage);
+        let (_, _, address, tree_info) = handle_connector_binary_tree_script(
+            &self.secp,
+            operator_pk,
+            hash,
+        );
+        let tx_ins = create_tx_ins_with_sequence(vec![utxo]);
+        let tx_outs = create_tx_outs(vec![(amount - MIN_RELAY_FEE, self.signer.address.script_pubkey())]);
+        let mut tx = create_btc_tx(tx_ins, tx_outs);
+        let prevouts = create_tx_outs(vec![(amount, address.script_pubkey())]);
+        let hash_script = generate_hash_script(hash);
+        let sig = self.signer.sign_taproot_script_spend_tx(&mut tx, prevouts, &hash_script, 0);
+        let spend_control_block = create_control_block(tree_info, &hash_script);
+        let mut sighash_cache = SighashCache::new(tx.borrow_mut());
+        let witness = sighash_cache.witness_mut(0).unwrap();
+        witness.push(preimage);
+        witness.push(hash_script);
+        witness.push(&spend_control_block.serialize());
+        let bytes_tx = serialize(&tx);
+        let spending_txid = self
+            .rpc
+            .send_raw_transaction(&bytes_tx)
+            .unwrap();
+        println!("verifier_spending_txid: {:?}", spending_txid);
     }
 
 }
