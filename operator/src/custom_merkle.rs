@@ -342,4 +342,27 @@ mod tests {
         println!("verify proof_8: {:?}", merkle_tree.verify_proof(proof_8, 8));
         // let res = merkle_tree.verify_proof(proof_3, 3);
     }
+
+    #[test]
+    fn more_test() {
+        let mut rng = OsRng;
+        let mut preimages: Vec<Vec<[u8; 32]>> = Vec::new();
+        for i in 0..10 {
+            let mut preimages_level: Vec<[u8; 32]> = Vec::new();
+            for _ in 0..2u32.pow(i) {
+                preimages_level.push(rng.gen());
+            }
+            preimages.push(preimages_level);
+        }
+        // println!("preimages: {:?}", preimages);
+        let merkle_tree_4 = CustomMerkleTree::new(4, preimages[..5].to_vec());
+        let proof_5 = merkle_tree_4.generate_proof(5);
+        println!("verify proof_5: {:?}", merkle_tree_4.verify_proof(proof_5, 5));
+
+        let merkle_tree_7 = CustomMerkleTree::new(7, preimages[..8].to_vec());
+        let proof_31 = merkle_tree_7.generate_proof(31);
+        println!("verify proof_31: {:?}", merkle_tree_7.verify_proof(proof_31, 31));
+
+    }
+
 }
