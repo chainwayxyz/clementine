@@ -97,6 +97,38 @@ pub fn get_internal_indices(depth: u32, count: u32) -> Vec<(u32, u32)> {
     return indices;
 }
 
+pub fn get_custom_merkle_indices(depth: u32, count: u32) -> Vec<(u32, u32)> {
+    assert!(count <= 2u32.pow(depth));
+
+    if count == 0 {
+        return vec![];
+    }
+
+    if count == 2u32.pow(depth) {
+        return vec![];
+    }
+
+    let mut indices: Vec<(u32, u32)> = Vec::new();
+    let mut level = 0;
+    let mut index = count;
+    while index % 2 == 0 {
+        index = index / 2;
+        level += 1;
+    }
+
+    while level < depth {
+        if index % 2 == 1 {
+            indices.push((level + 1, (index - 1) / 2));
+        } else {
+            indices.push((level + 1, index / 2))
+        }
+        level = level + 1;
+        index = index / 2;
+    }
+
+    return indices;
+}
+
 pub fn take_stdin<T: std::str::FromStr>(prompt: &str) -> Result<T, T::Err> {
     print!("{}", prompt);
     io::stdout().flush().unwrap();
@@ -559,7 +591,7 @@ mod tests {
 
     use super::{
         create_btc_tx, create_tx_ins, create_tx_outs, generate_timelock_script,
-        handle_connector_binary_tree_script, mine_blocks,
+        handle_connector_binary_tree_script, mine_blocks, get_custom_merkle_indices,
     };
 
     #[test]
@@ -644,6 +676,49 @@ mod tests {
         println!("indices: {:?}", indices);
         let indices = get_internal_indices(3, 8);
         println!("indices: {:?}", indices);
+    }
+
+    #[test]
+    fn test_custom_merkle_indices() {
+        let indices = get_custom_merkle_indices(0, 0);
+        println!("indices: {:?}", indices);
+        let indices = get_custom_merkle_indices(0, 1);
+        println!("indices: {:?}", indices);
+        let indices = get_custom_merkle_indices(1, 0);
+        println!("indices: {:?}", indices);
+        let indices = get_custom_merkle_indices(1, 1);
+        println!("indices: {:?}", indices);
+        let indices = get_custom_merkle_indices(1, 2);
+        println!("indices: {:?}", indices);
+        let indices = get_custom_merkle_indices(2, 0);
+        println!("indices: {:?}", indices);
+        let indices = get_custom_merkle_indices(2, 1);
+        println!("indices: {:?}", indices);
+        let indices = get_custom_merkle_indices(2, 2);
+        println!("indices: {:?}", indices);
+        let indices = get_custom_merkle_indices(2, 3);
+        println!("indices: {:?}", indices);
+        let indices = get_custom_merkle_indices(2, 4);
+        println!("indices: {:?}", indices);
+        let indices = get_custom_merkle_indices(3, 0);
+        println!("indices: {:?}", indices);
+        let indices = get_custom_merkle_indices(3, 1);
+        println!("indices: {:?}", indices);
+        let indices = get_custom_merkle_indices(3, 2);
+        println!("indices: {:?}", indices);
+        let indices = get_custom_merkle_indices(3, 3);
+        println!("indices: {:?}", indices);
+        let indices = get_custom_merkle_indices(3, 4);
+        println!("indices: {:?}", indices);
+        let indices = get_custom_merkle_indices(3, 5);
+        println!("indices: {:?}", indices);
+        let indices = get_custom_merkle_indices(3, 6);
+        println!("indices: {:?}", indices);
+        let indices = get_custom_merkle_indices(3, 7);
+        println!("indices: {:?}", indices);
+        let indices = get_custom_merkle_indices(3, 8);
+        println!("indices: {:?}", indices);
+
     }
 
 
