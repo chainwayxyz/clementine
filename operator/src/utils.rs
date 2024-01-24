@@ -513,7 +513,7 @@ pub fn create_connector_binary_tree(
     connector_tree_hashes: Vec<Vec<[u8; 32]>>,
 ) -> Vec<Vec<OutPoint>> {
     // UTXO value should be at least 2^depth * dust_value + (2^depth-1) * fee
-    let total_amount = (DUST_VALUE * 2u64.pow(depth as u32)) + (MIN_RELAY_FEE * (2u64.pow(depth as u32) - 1));
+    let total_amount = calculate_amount(depth, DUST_VALUE, MIN_RELAY_FEE);
     println!("total_amount: {:?}", total_amount);
 
     let (root_address, _) = handle_connector_binary_tree_script(
@@ -530,8 +530,6 @@ pub fn create_connector_binary_tree(
     let root_tx = rpc.get_raw_transaction(&root_txid, None).unwrap();
 
     assert!(root_tx.output[root_utxo.vout as usize].value == total_amount);
-
-    mine_blocks(rpc, 3);
 
     // let vout = rpc.get_raw_transaction(&root_txid, None).unwrap().output.iter().position(|x| x.value == total_amount).unwrap();
 
