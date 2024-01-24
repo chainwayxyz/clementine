@@ -1,9 +1,6 @@
-use std::hash;
 use std::vec;
 
-use circuit_helpers::constant::HASH_FUNCTION_32;
 use circuit_helpers::constant::HASH_FUNCTION_64;
-use circuit_helpers::constant::HASH_FUNCTION_96;
 
 use crate::utils::get_custom_merkle_indices;
 use crate::utils::get_indices;
@@ -13,13 +10,13 @@ use crate::utils::get_internal_indices;
 pub struct CustomMerkleProofPreimageElement {
     pub children_hash: [u8; 32],
     pub preimage: [u8; 32],
-    pub level: u32,
+    pub level: usize,
 }
 
 #[derive(Debug, Clone)]
 pub struct CustomMerkleProofHashElement {
     pub hash: [u8; 32],
-    pub level: u32,
+    pub level: usize,
 }
 
 #[derive(Debug, Clone)]
@@ -53,7 +50,7 @@ impl CustomMerkleProof {
 
 #[derive(Debug, Clone)]
 pub struct CustomMerkleTree {
-    depth: u32,
+    depth: usize,
     pub preimage_hashes: Vec<Vec<[u8; 32]>>,
     pub children_hashes: Vec<Vec<[u8; 32]>>,
     pub node_hashes: Vec<Vec<[u8; 32]>>,
@@ -62,7 +59,7 @@ pub struct CustomMerkleTree {
 }
 
 impl CustomMerkleTree {
-    pub fn new(depth: u32, preimages: Vec<Vec<[u8; 32]>>) -> Self {
+    pub fn new(depth: usize, preimages: Vec<Vec<[u8; 32]>>) -> Self {
         let mut preimage_hashes: Vec<Vec<[u8; 32]>> = Vec::new();
         let mut children_hashes: Vec<Vec<[u8; 32]>> = Vec::new();
         let mut node_hashes: Vec<Vec<[u8; 32]>> = Vec::new();
@@ -70,7 +67,7 @@ impl CustomMerkleTree {
             let mut level_preimage_hashes = Vec::new();
             let mut level_node_hashes = Vec::new();
             let mut level_children_hashes = Vec::new();
-            if (level.len() as u32) == 2u32.pow(depth) {
+            if (level.len() as u32) == 2u32.pow(depth as u32) {
                 for elem in level {
                     let preimage_hash = HASH_FUNCTION_64([i as u8; 32], *elem);
                     let hash = HASH_FUNCTION_64([0u8; 32], preimage_hash);
@@ -109,7 +106,7 @@ impl CustomMerkleTree {
         if no_of_claims == 0 {
             return CustomMerkleProof {
                 preimage_elements: vec![CustomMerkleProofPreimageElement {
-                    children_hash: self.children_hashes[self.depth as usize][0],
+                    children_hash: self.children_hashes[self.depth][0],
                     preimage: self.preimages[0][0],
                     level: self.depth,
                 }],
@@ -117,7 +114,7 @@ impl CustomMerkleTree {
                 node_hash_elements: vec![],
             };
         }
-        if no_of_claims == 2u32.pow(self.depth) {
+        if no_of_claims == 2u32.pow(self.depth as u32) {
             return CustomMerkleProof {
                 preimage_elements: vec![],
                 preimage_hash_elements: vec![],
@@ -175,7 +172,7 @@ impl CustomMerkleTree {
             );
             return self.root == res;
         }
-        if no_of_claims == 2u32.pow(self.depth) {
+        if no_of_claims == 2u32.pow(self.depth as u32) {
             return self.root == proof.node_hash_elements[0].hash;
         }
         // // let mut proof_copy = proof.clone();
@@ -222,7 +219,7 @@ impl CustomMerkleTree {
 
         assert_eq!(
             power_of_two,
-            (self.depth - proof.preimage_hash_elements.len() as u32)
+            (self.depth - proof.preimage_hash_elements.len())
         );
 
         assert_eq!(

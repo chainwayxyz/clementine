@@ -1,5 +1,7 @@
+use std::borrow::BorrowMut;
 use std::io::{self, Write};
 
+use bitcoin::sighash::SighashCache;
 use bitcoin::{self};
 
 use bitcoin::absolute;
@@ -53,15 +55,15 @@ lazy_static! {
     .unwrap();
 }
 
-pub fn get_indices(depth: u32, count: u32) -> Vec<(u32, u32)> {
-    assert!(count <= 2u32.pow(depth));
+pub fn get_indices(depth: usize, count: u32) -> Vec<(usize, u32)> {
+    assert!(count <= 2u32.pow(depth as u32));
 
     if count == 0 {
         return vec![(0, 0)];
     }
 
-    let mut indices: Vec<(u32, u32)> = Vec::new();
-    if count == 2u32.pow(depth) {
+    let mut indices: Vec<(usize, u32)> = Vec::new();
+    if count == 2u32.pow(depth as u32) {
         return indices;
     }
 
@@ -75,14 +77,14 @@ pub fn get_indices(depth: u32, count: u32) -> Vec<(u32, u32)> {
     return indices;
 }
 
-pub fn get_internal_indices(depth: u32, count: u32) -> Vec<(u32, u32)> {
-    assert!(count <= 2u32.pow(depth));
+pub fn get_internal_indices(depth: usize, count: u32) -> Vec<(usize, u32)> {
+    assert!(count <= 2u32.pow(depth as u32));
 
-    if count == 2u32.pow(depth) {
+    if count == 2u32.pow(depth as u32) {
         return vec![(0, 0)];
     }
 
-    let mut indices: Vec<(u32, u32)> = Vec::new();
+    let mut indices: Vec<(usize, u32)> = Vec::new();
     if count == 0 {
         return indices;
     }
@@ -97,18 +99,18 @@ pub fn get_internal_indices(depth: u32, count: u32) -> Vec<(u32, u32)> {
     return indices;
 }
 
-pub fn get_custom_merkle_indices(depth: u32, count: u32) -> Vec<(u32, u32)> {
-    assert!(count <= 2u32.pow(depth));
+pub fn get_custom_merkle_indices(depth: usize, count: u32) -> Vec<(usize, u32)> {
+    assert!(count <= 2u32.pow(depth as u32));
 
     if count == 0 {
         return vec![];
     }
 
-    if count == 2u32.pow(depth) {
+    if count == 2u32.pow(depth as u32) {
         return vec![];
     }
 
-    let mut indices: Vec<(u32, u32)> = Vec::new();
+    let mut indices: Vec<(usize, u32)> = Vec::new();
     let mut level = 0;
     let mut index = count;
     while index % 2 == 0 {
@@ -441,6 +443,10 @@ pub fn handle_anyone_can_spend_script() -> (ScriptBuf, Amount) {
     (script_pubkey, amount)
 }
 
+pub fn create_utxo(txid: Txid, vout: u32) -> OutPoint {
+    OutPoint { txid, vout }
+}
+
 pub fn create_kickoff_tx(
     ins: Vec<OutPoint>,
     outs: Vec<(Amount, ScriptBuf)>,
@@ -454,7 +460,7 @@ pub fn handle_connector_binary_tree_script(
     secp: &Secp256k1<All>,
     actor_pk: XOnlyPublicKey,
     hash: Data,
-) -> (Amount, ScriptBuf, Address, TaprootSpendInfo) {
+) -> (Address, TaprootSpendInfo) {
     let timelock_script = generate_timelock_script(actor_pk, CONNECTOR_TREE_OPERATOR_TAKES_AFTER as u32);
     let preimage_script = Builder::new()
         .push_opcode(OP_SHA256)
@@ -463,24 +469,37 @@ pub fn handle_connector_binary_tree_script(
         .into_script();
     let (address, tree_info) =
         create_taproot_address(secp, vec![timelock_script.clone(), preimage_script]);
-    let script_pubkey = address.script_pubkey();
-    let amount = timelock_script.dust_value();
-    (amount, script_pubkey, address, tree_info)
+    (address, tree_info)
+}
+
+pub fn calculate_amount(depth: usize, value: Amount, fee: Amount) -> Amount {
+    (value * 2u64.pow(depth as u32)) + (fee * (2u64.pow(depth as u32) - 1))
 }
 
 pub fn create_connector_tree_tx(
     utxo: &OutPoint,
-    depth: u32,
+    depth: usize,
     first_address: Address,
     second_address: Address,
 ) -> bitcoin::Transaction {
     // UTXO value should be at least 2^depth * dust_value + (2^depth-1) * fee
     let tx_ins = create_tx_ins_with_sequence(vec![*utxo]);
     let tx_outs = create_tx_outs(vec![
-        ((DUST_VALUE * 2u64.pow(depth)) + (MIN_RELAY_FEE * (2u64.pow(depth) - 1)), first_address.script_pubkey()),
-        ((DUST_VALUE * 2u64.pow(depth)) + (MIN_RELAY_FEE * (2u64.pow(depth) - 1)), second_address.script_pubkey()),
+        (calculate_amount(depth, DUST_VALUE, MIN_RELAY_FEE), first_address.script_pubkey()),
+        (calculate_amount(depth, DUST_VALUE, MIN_RELAY_FEE), second_address.script_pubkey()),
     ]);
     create_btc_tx(tx_ins, tx_outs)
+}
+
+pub fn handle_taproot_witness<T: AsRef<[u8]>>(tx: &mut bitcoin::Transaction, index: usize, witness_elements: Vec<T>, script: ScriptBuf, tree_info: TaprootSpendInfo) {
+    let mut sighash_cache = SighashCache::new(tx.borrow_mut());
+    let witness = sighash_cache.witness_mut(index).unwrap();
+    for elem in witness_elements {
+        witness.push(elem);
+    }
+    let spend_control_block = tree_info.control_block(&(script.clone(), LeafVersion::TapScript)).unwrap();
+    witness.push(script);
+    witness.push(&spend_control_block.serialize());
 }
 
 // This function creates the connector binary tree for operator to be able to claim the funds that they paid out of their pocket.
@@ -490,14 +509,14 @@ pub fn create_connector_binary_tree(
     secp: &Secp256k1<All>,
     xonly_public_key: XOnlyPublicKey,
     root_utxo: OutPoint,
-    depth: u32,
+    depth: usize,
     connector_tree_hashes: Vec<Vec<[u8; 32]>>,
 ) -> Vec<Vec<OutPoint>> {
     // UTXO value should be at least 2^depth * dust_value + (2^depth-1) * fee
-    let total_amount = (DUST_VALUE * 2u64.pow(depth)) + (MIN_RELAY_FEE * (2u64.pow(depth) - 1));
+    let total_amount = (DUST_VALUE * 2u64.pow(depth as u32)) + (MIN_RELAY_FEE * (2u64.pow(depth as u32) - 1));
     println!("total_amount: {:?}", total_amount);
 
-    let (_, _, root_address, _) = handle_connector_binary_tree_script(
+    let (root_address, _) = handle_connector_binary_tree_script(
         &secp,
         xonly_public_key,
         connector_tree_hashes[0][0],
@@ -532,12 +551,12 @@ pub fn create_connector_binary_tree(
         let mut tx_tree_current_level: Vec<bitcoin::Transaction> = Vec::new();
 
         for (j, utxo) in utxo_tree_previous_level.iter().enumerate() {
-            let (_, _, first_address, _) = handle_connector_binary_tree_script(
+            let (first_address, _) = handle_connector_binary_tree_script(
                 &secp,
                 xonly_public_key,
                 connector_tree_hashes[(i + 1) as usize][2 * j],
             );
-            let (_, _, second_address, _) = handle_connector_binary_tree_script(
+            let (second_address, _) = handle_connector_binary_tree_script(
                 &secp,
                 xonly_public_key,
                 connector_tree_hashes[(i + 1) as usize][2 * j + 1],
@@ -550,8 +569,8 @@ pub fn create_connector_binary_tree(
                 second_address.clone(),
             );
             let txid = tx.txid();
-            let first_utxo = OutPoint { txid, vout: 0 };
-            let second_utxo = OutPoint { txid, vout: 1 };
+            let first_utxo = create_utxo(txid, 0);
+            let second_utxo = create_utxo(txid, 1);
             utxo_tree_current_level.push(first_utxo);
             utxo_tree_current_level.push(second_utxo);
             tx_tree_current_level.push(tx);
@@ -584,13 +603,13 @@ mod tests {
 
     use crate::utils::{get_indices, get_internal_indices};
     use crate::{
-        operator::{self, Operator},
+        operator::Operator,
         user::User,
         utils::{from_hex_to_tx, parse_hex_to_btc_tx},
     };
 
     use super::{
-        create_btc_tx, create_tx_ins, create_tx_outs, generate_timelock_script,
+        create_btc_tx, create_tx_outs, generate_timelock_script,
         handle_connector_binary_tree_script, mine_blocks, get_custom_merkle_indices,
     };
 
@@ -744,7 +763,7 @@ mod tests {
         )
         .unwrap_or_else(|e| panic!("Failed to connect to Bitcoin RPC: {}", e));
         let operator = Operator::new(&mut OsRng, &rpc, NUM_VERIFIERS as u32);
-        let user = User::new(&mut OsRng, &rpc);
+        // let user = User::new(&mut OsRng, &rpc);
         let resource_tx_id = operator
             .rpc
             .send_to_address(
@@ -782,14 +801,14 @@ mod tests {
 
         println!("utxo_tx_ins: {:?}", utxo_tx_ins);
 
-        let (utxo_tx_amount, utxo_tx_pubkey, address, tree_info) =
+        let (address, tree_info) =
             handle_connector_binary_tree_script(
                 &operator.signer.secp,
                 operator.signer.xonly_public_key,
                 [0u8; 32],
             );
-        println!("utxo_tx_amount: {:?}", utxo_tx_amount);
-        let utxo_tx_outs = create_tx_outs(vec![(Amount::from_sat(99_999_000), utxo_tx_pubkey)]);
+
+        let utxo_tx_outs = create_tx_outs(vec![(Amount::from_sat(99_999_000), address.script_pubkey())]);
         let mut utxo_tx = create_btc_tx(utxo_tx_ins, utxo_tx_outs);
         let sig = operator.signer.sign_taproot_pubkey_spend_tx(
             &mut utxo_tx,
