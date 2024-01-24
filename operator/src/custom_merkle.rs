@@ -66,25 +66,25 @@ impl CustomMerkleTree {
         let mut preimage_hashes: Vec<Vec<[u8; 32]>> = Vec::new();
         let mut children_hashes: Vec<Vec<[u8; 32]>> = Vec::new();
         let mut node_hashes: Vec<Vec<[u8; 32]>> = Vec::new();
-        for level in preimages.iter().rev() {
+        for (i, level) in preimages.iter().rev().enumerate() {
             let mut level_preimage_hashes = Vec::new();
             let mut level_node_hashes = Vec::new();
             let mut level_children_hashes = Vec::new();
             if (level.len() as u32) == 2u32.pow(depth) {
                 for elem in level {
-                    let preimage_hash = HASH_FUNCTION_32(*elem);
+                    let preimage_hash = HASH_FUNCTION_64([i as u8; 32], *elem);
                     let hash = HASH_FUNCTION_64([0u8; 32], preimage_hash);
                     level_children_hashes.push([0u8; 32]);
                     level_preimage_hashes.push(preimage_hash);
                     level_node_hashes.push(hash);
                 }
             } else {
-                for (i, elem) in level.iter().enumerate() {
-                    let child0 = node_hashes[node_hashes.len() - 1][2 * i];
-                    let child1 = node_hashes[node_hashes.len() - 1][2 * i + 1];
+                for (j, elem) in level.iter().enumerate() {
+                    let child0 = node_hashes[node_hashes.len() - 1][2 * j];
+                    let child1 = node_hashes[node_hashes.len() - 1][2 * j + 1];
                     let children_hash = HASH_FUNCTION_64(child0, child1);
                     level_children_hashes.push(children_hash);
-                    let curr_hash = HASH_FUNCTION_32(*elem);
+                    let curr_hash = HASH_FUNCTION_64([i as u8; 32], *elem);
                     level_preimage_hashes.push(curr_hash);
                     let hash = HASH_FUNCTION_64(children_hash, curr_hash);
                     level_node_hashes.push(hash);
@@ -171,7 +171,7 @@ impl CustomMerkleTree {
         if no_of_claims == 0 {
             let res = HASH_FUNCTION_64(
                 proof.preimage_elements[0].children_hash,
-                HASH_FUNCTION_32(proof.preimage_elements[0].preimage),
+                HASH_FUNCTION_64([self.depth as u8; 32], proof.preimage_elements[0].preimage),
             );
             return self.root == res;
         }
@@ -234,11 +234,10 @@ impl CustomMerkleTree {
 
         let mut pre_idx = 0;
         let mut hash_idx = 0;
-        let mut level_idx = 0;
 
         temp = HASH_FUNCTION_64(
             proof.preimage_elements[pre_idx].children_hash,
-            HASH_FUNCTION_32(proof.preimage_elements[pre_idx].preimage),
+            HASH_FUNCTION_64([proof.preimage_elements[pre_idx].level as u8; 32], proof.preimage_elements[pre_idx].preimage),
         );
         println!("temp: {:?}", temp);
         pre_idx += 1;
@@ -255,7 +254,7 @@ impl CustomMerkleTree {
             if pre_idx < proof.preimage_elements.len() && level_idx + power_of_two + 1 == proof.preimage_elements[pre_idx].level {
                 println!("if");
                 temp = HASH_FUNCTION_64(temp, proof.preimage_hash_elements[level_idx as usize].hash);
-                temp = HASH_FUNCTION_64(temp, HASH_FUNCTION_64(proof.preimage_elements[pre_idx].children_hash, HASH_FUNCTION_32(proof.preimage_elements[pre_idx].preimage)));
+                temp = HASH_FUNCTION_64(temp, HASH_FUNCTION_64(proof.preimage_elements[pre_idx].children_hash, HASH_FUNCTION_64([proof.preimage_elements[pre_idx].level as u8; 32], proof.preimage_elements[pre_idx].preimage)));
                 pre_idx += 1;
             } else {
                 println!("else");
