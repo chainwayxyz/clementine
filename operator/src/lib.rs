@@ -7,3 +7,4 @@ pub mod merkle;
 pub mod proof;
 pub mod operator;
 pub mod verifier;
+pub mod custom_merkle;

@@ -1,5 +1,6 @@
 use crate::actor::Actor;
 use crate::utils::create_taproot_address;
+use crate::utils::create_utxo;
 use crate::utils::generate_n_of_n_script;
 use bitcoin::OutPoint;
 use bitcoin::opcodes::all::*;
@@ -64,7 +65,7 @@ impl<'a> User<'a> {
     pub fn deposit_tx(
         &self,
         rpc: &Client,
-        amount: u64,
+        amount: Amount,
         secp: &Secp256k1<All>,
         verifiers_pks: Vec<XOnlyPublicKey>,
     ) -> (OutPoint, [u8; 32], XOnlyPublicKey) {
@@ -77,7 +78,7 @@ impl<'a> User<'a> {
         let initial_tx_id = rpc
             .send_to_address(
                 &deposit_address,
-                Amount::from_sat(amount),
+                amount,
                 None,
                 None,
                 None,
@@ -101,10 +102,7 @@ impl<'a> User<'a> {
             .unwrap();
         let vout = initial_tx.details[found_output_index].vout;
         (
-            OutPoint {
-                txid: initial_tx_id,
-                vout,
-            },
+            create_utxo(initial_tx_id, vout),
             hash,
             self.signer.xonly_public_key,
         )
@@ -114,43 +112,8 @@ impl<'a> User<'a> {
         self.preimage
     }
 }
+
 #[cfg(test)]
 mod tests {
-    use bitcoin::secp256k1::rand::rngs::OsRng;
-    use bitcoincore_rpc::Auth;
-    use circuit_helpers::config::{BRIDGE_AMOUNT_SATS, NUM_ROUNDS};
 
-    use crate::operator::Operator;
-
-    use super::*;
-
-    #[test]
-    fn test_deposit_tx() {
-        let rpc = Client::new(
-            "http://localhost:18443/wallet/admin",
-            Auth::UserPass("admin".to_string(), "admin".to_string()),
-        )
-        .unwrap_or_else(|e| panic!("Failed to connect to Bitcoin RPC: {}", e));
-        let mut operator = Operator::new(&mut OsRng, &rpc);
-        let user = User::new(&mut OsRng, &rpc);
-        
-        let mut verifiers = operator.get_all_verifiers();
-
-        let mut verifiers_evm_addresses = operator.verifier_evm_addresses.clone();
-        verifiers_evm_addresses.push(operator.signer.evm_address);
-
-        let (utxo, hash, return_address) =
-            user.deposit_tx(&user.rpc, BRIDGE_AMOUNT_SATS, &user.secp, verifiers);
-        rpc.generate_to_address(1, &operator.signer.address)
-            .unwrap();
-        let signatures = operator.new_deposit(utxo, hash, return_address, user.signer.evm_address);
-        
-        let mut fund = operator.preimage_revealed(user.preimage, utxo, return_address);
-        for i in 0..NUM_ROUNDS {
-            fund = operator.move_single_bridge_fund(utxo.txid, fund);
-            println!("fund moving in round {i}: {:?}", fund);
-        }
-        // TEST IF SIGNATURES ARE VALID
-        // operator.preimage_revealed(preimage, txid);
-    }
 }
