@@ -10,7 +10,7 @@ use bitcoin::opcodes::all::OP_CHECKSIGVERIFY;
 use bitcoin::opcodes::all::OP_EQUAL;
 use bitcoin::opcodes::all::OP_SHA256;
 use bitcoin::opcodes::all::OP_VERIFY;
-use bitcoin::opcodes::OP_TRUE;
+use bitcoin::opcodes::{OP_FALSE, OP_TRUE};
 use bitcoin::script::Builder;
 use bitcoin::taproot::ControlBlock;
 use bitcoin::taproot::LeafVersion;
@@ -47,6 +47,8 @@ use lazy_static::lazy_static;
 use std::str::FromStr;
 
 use circuit_helpers::config::{USER_TAKES_AFTER, CONNECTOR_TREE_OPERATOR_TAKES_AFTER};
+
+use crate::actor::Actor;
 
 lazy_static! {
     pub static ref INTERNAL_KEY: XOnlyPublicKey = XOnlyPublicKey::from_str(
@@ -581,6 +583,54 @@ pub fn create_connector_binary_tree(
     println!("tx_binary_tree: {:?}", tx_binary_tree);
 
     utxo_binary_tree
+}
+
+pub fn create_inscription_script_32_bytes(xonly_public_key: XOnlyPublicKey, data: Vec<[u8; 32]>) -> ScriptBuf {
+    let mut inscribe_preimage_script_builder = Builder::new()
+    .push_x_only_key(&xonly_public_key)
+    .push_opcode(OP_CHECKSIG)
+    .push_opcode(OP_FALSE)
+    .push_opcode(OP_IF);
+    for elem in data {
+        inscribe_preimage_script_builder = inscribe_preimage_script_builder.push_slice(&elem);
+    }
+    inscribe_preimage_script_builder = inscribe_preimage_script_builder.push_opcode(OP_ENDIF);
+    let inscribe_preimage_script = inscribe_preimage_script_builder.into_script();
+    inscribe_preimage_script
+}
+
+pub fn create_inscription_transactions(actor: &Actor, utxo: OutPoint, preimages: Vec<[u8; 32]>) -> (bitcoin::Transaction, bitcoin::Transaction) {
+    let inscribe_preimage_script = create_inscription_script_32_bytes(actor.xonly_public_key, preimages);
+
+    let (incription_address, inscription_tree_info) = create_taproot_address(&actor.secp, vec![inscribe_preimage_script.clone()]);
+    let commit_tx_ins = create_tx_ins(vec![utxo]);
+    let commit_tx_outs = create_tx_outs(vec![(DUST_VALUE * 2, incription_address.script_pubkey())]);
+    let mut commit_tx = create_btc_tx(commit_tx_ins, commit_tx_outs);
+    let commit_tx_prevouts = vec![TxOut {
+        value: DUST_VALUE * 3,
+        script_pubkey: actor.address.script_pubkey(),
+    }];
+    
+    let commit_tx_sig = actor.sign_taproot_pubkey_spend_tx(&mut commit_tx, commit_tx_prevouts, 0);
+    let mut commit_tx_sighash_cache = SighashCache::new(commit_tx.borrow_mut());
+    let witness = commit_tx_sighash_cache.witness_mut(0).unwrap();
+    witness.push(commit_tx_sig.as_ref());
+
+    let reveal_tx_ins = create_tx_ins(vec![create_utxo(commit_tx.txid(), 0)]);
+    let reveal_tx_outs = create_tx_outs(vec![(DUST_VALUE, actor.address.script_pubkey())]);
+    let mut reveal_tx = create_btc_tx(reveal_tx_ins, reveal_tx_outs);
+
+    let reveal_tx_prevouts = vec![TxOut {
+        value: DUST_VALUE * 2,
+        script_pubkey: incription_address.script_pubkey(),
+    }];
+    let reveal_tx_sig = actor.sign_taproot_script_spend_tx(&mut reveal_tx, reveal_tx_prevouts, &inscribe_preimage_script, 0);
+    let mut reveal_tx_witness_elements: Vec<&[u8]> = Vec::new();
+    reveal_tx_witness_elements.push(reveal_tx_sig.as_ref());
+    handle_taproot_witness(&mut reveal_tx, 0, reveal_tx_witness_elements, inscribe_preimage_script, inscription_tree_info);
+
+    (commit_tx, reveal_tx)
+
 }
 
 #[cfg(test)]

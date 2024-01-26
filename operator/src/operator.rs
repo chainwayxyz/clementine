@@ -6,11 +6,11 @@ use crate::actor::{Actor, EVMSignature};
 use crate::merkle::MerkleTree;
 use crate::user::User;
 use crate::utils::{
-    create_btc_tx, create_connector_tree_tx, create_kickoff_tx, create_taproot_address,
-    create_tx_ins, create_tx_ins_with_sequence, create_tx_outs, create_utxo,
-    generate_n_of_n_script, generate_n_of_n_script_without_hash, generate_timelock_script,
-    get_indices, handle_anyone_can_spend_script, handle_connector_binary_tree_script,
-    handle_taproot_witness,
+    create_btc_tx, create_connector_tree_tx, create_inscription_script_32_bytes,
+    create_inscription_transactions, create_kickoff_tx, create_taproot_address, create_tx_ins,
+    create_tx_ins_with_sequence, create_tx_outs, create_utxo, generate_n_of_n_script,
+    generate_n_of_n_script_without_hash, generate_timelock_script, get_indices,
+    handle_anyone_can_spend_script, handle_connector_binary_tree_script, handle_taproot_witness,
 };
 use crate::verifier::Verifier;
 use bitcoin::address::NetworkChecked;
@@ -19,7 +19,9 @@ use bitcoin::sighash::SighashCache;
 use bitcoin::{absolute, hashes::Hash, secp256k1, secp256k1::schnorr, Address, Txid};
 use bitcoin::{OutPoint, Transaction};
 use bitcoincore_rpc::{Client, RpcApi};
-use circuit_helpers::config::{BRIDGE_AMOUNT_SATS, CONNECTOR_TREE_DEPTH, CONNECTOR_TREE_OPERATOR_TAKES_AFTER};
+use circuit_helpers::config::{
+    BRIDGE_AMOUNT_SATS, CONNECTOR_TREE_DEPTH, CONNECTOR_TREE_OPERATOR_TAKES_AFTER,
+};
 use circuit_helpers::constant::{EVMAddress, DUST_VALUE, HASH_FUNCTION_32, MIN_RELAY_FEE};
 use secp256k1::rand::rngs::OsRng;
 use secp256k1::rand::Rng;
@@ -510,7 +512,8 @@ impl<'a> Operator<'a> {
             hashes.1,
         );
 
-        let mut tx = create_connector_tree_tx(&utxo, depth as usize - 1, first_address, second_address);
+        let mut tx =
+            create_connector_tree_tx(&utxo, depth as usize - 1, first_address, second_address);
         // println!("created spend tx: {:?}", tx);
 
         let sig = self.signer.sign_taproot_script_spend_tx(
@@ -547,16 +550,52 @@ impl<'a> Operator<'a> {
     }
 
     fn reveal_connector_tree_preimages(&self, number_of_funds_claim: u32) -> HashSet<PreimageType> {
-        let indices = get_indices(
-            self.connector_tree_hashes.len() - 1,
-            number_of_funds_claim,
-        );
+        let indices = get_indices(self.connector_tree_hashes.len() - 1, number_of_funds_claim);
         println!("indices: {:?}", indices);
         let mut preimages: HashSet<PreimageType> = HashSet::new();
         for (depth, index) in indices {
             preimages.insert(self.connector_tree_preimages[depth as usize][index as usize]);
         }
         preimages
+    }
+
+    fn inscribe_connector_tree_preimages(&self, number_of_funds_claim: u32) -> Txid {
+
+        let indices = get_indices(self.connector_tree_hashes.len() - 1, number_of_funds_claim);
+        println!("indices: {:?}", indices);
+        let mut preimages: Vec<PreimageType> = Vec::new();
+
+        for (depth, index) in indices {
+            preimages.push(self.connector_tree_preimages[depth as usize][index as usize]);
+        }
+
+        let inscription_source_txid = self
+            .rpc
+            .send_to_address(
+                &self.signer.address,
+                DUST_VALUE * 3,
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+            )
+            .unwrap();
+        let inscription_source_tx = self
+            .rpc
+            .get_raw_transaction(&inscription_source_txid, None)
+            .unwrap();
+        let inscription_source_vout = inscription_source_tx.output.iter().position(|x| {
+            x.value == DUST_VALUE * 3
+        }).unwrap();
+        let source_utxo = create_utxo(inscription_source_txid, inscription_source_vout as u32);
+        let (commit_tx, reveal_tx) = create_inscription_transactions(&self.signer, source_utxo, preimages);
+        let commit_txid = self.rpc.send_raw_transaction(&serialize(&commit_tx)).unwrap();
+        println!("commit_txid: {:?}", commit_txid);
+        let reveal_txid = self.rpc.send_raw_transaction(&serialize(&reveal_tx)).unwrap();
+        println!("reveal_txid: {:?}", reveal_txid);
+        return reveal_txid;
     }
 
     pub fn claim_deposit(&self, index: usize) {
@@ -654,11 +693,23 @@ impl<'a> Operator<'a> {
         for sig in claim_sigs.iter() {
             witness_elements_0.push(sig.as_ref());
         }
-        handle_taproot_witness(&mut claim_tx, 0, witness_elements_0, script_n_of_n_without_hash, tree_info_0);
+        handle_taproot_witness(
+            &mut claim_tx,
+            0,
+            witness_elements_0,
+            script_n_of_n_without_hash,
+            tree_info_0,
+        );
 
         let mut witness_elements_1: Vec<&[u8]> = Vec::new();
         witness_elements_1.push(sig_1.as_ref());
-        handle_taproot_witness(&mut claim_tx, 1, witness_elements_1, timelock_script, tree_info_1);
+        handle_taproot_witness(
+            &mut claim_tx,
+            1,
+            witness_elements_1,
+            timelock_script,
+            tree_info_1,
+        );
 
         // println!("deposit_utxo.txid: {:?}", deposit_utxo.txid);
         // let witness1 = sighash_cache.witness_mut(1).unwrap();
@@ -701,7 +752,8 @@ mod tests {
         operator::{Operator, PreimageType},
         user::User,
         utils::{
-            calculate_amount, create_connector_binary_tree, create_utxo, handle_connector_binary_tree_script, mine_blocks
+            calculate_amount, create_connector_binary_tree, create_utxo,
+            handle_connector_binary_tree_script, mine_blocks,
         },
     };
 
@@ -849,8 +901,24 @@ mod tests {
         mine_blocks(&rpc, 3);
 
         let preimages = operator.reveal_connector_tree_preimages(3);
+        let reveal_txid = operator.inscribe_connector_tree_preimages(3);
         println!("preimages revealed: {:?}", preimages);
         preimages_verifier_track = preimages.clone();
+        let inscription_tx = operator.mock_verifier_access[0].rpc.get_raw_transaction(&reveal_txid, None).unwrap();
+        println!("verifier reads inscription tx: {:?}", inscription_tx);
+
+        let witness_array = inscription_tx.input[0].witness.to_vec();
+        println!("witness_array: {:?}", witness_array[1]);
+        let inscribed_data = witness_array[1][36..witness_array[1].len() - 1].to_vec();
+        println!("inscribed_data: {:?}", inscribed_data);
+        println!("inscribed_data length: {:?}", inscribed_data.len());
+        let mut verifier_got_preimages = Vec::new();
+        for i in 0..(inscribed_data.len() / 33) {
+            let preimage = inscribed_data[i * 33 + 1..(i + 1) * 33].to_vec();
+            verifier_got_preimages.push(preimage);
+        }
+
+        println!("verifier_got_preimages: {:?}", verifier_got_preimages);
 
         for (i, utxo_level) in utxo_tree[0..utxo_tree.len() - 1].iter().enumerate() {
             for (j, utxo) in utxo_level.iter().enumerate() {
