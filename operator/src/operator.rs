@@ -559,7 +559,7 @@ impl<'a> Operator<'a> {
         preimages
     }
 
-    fn inscribe_connector_tree_preimages(&self, number_of_funds_claim: u32) -> Txid {
+    fn inscribe_connector_tree_preimages(&self, number_of_funds_claim: u32) -> (Txid, Txid) {
 
         let indices = get_indices(self.connector_tree_hashes.len() - 1, number_of_funds_claim);
         println!("indices: {:?}", indices);
@@ -595,7 +595,7 @@ impl<'a> Operator<'a> {
         println!("commit_txid: {:?}", commit_txid);
         let reveal_txid = self.rpc.send_raw_transaction(&serialize(&reveal_tx)).unwrap();
         println!("reveal_txid: {:?}", reveal_txid);
-        return reveal_txid;
+        return (commit_txid, reveal_txid);
     }
 
     pub fn claim_deposit(&self, index: usize) {
@@ -745,16 +745,15 @@ mod tests {
     use circuit_helpers::{
         config::{BRIDGE_AMOUNT_SATS, CONNECTOR_TREE_DEPTH, NUM_USERS, NUM_VERIFIERS},
         constant::{DUST_VALUE, MIN_RELAY_FEE},
+        bitcoin::verify_preimage_reveal_taproot_address,
     };
     use secp256k1::rand::rngs::OsRng;
 
     use crate::{
-        operator::{Operator, PreimageType},
-        user::User,
-        utils::{
+        operator::{Operator, PreimageType}, user::User, utils::{
             calculate_amount, create_connector_binary_tree, create_utxo,
             handle_connector_binary_tree_script, mine_blocks,
-        },
+        }, verifier
     };
 
     #[test]
@@ -901,11 +900,17 @@ mod tests {
         mine_blocks(&rpc, 3);
 
         let preimages = operator.reveal_connector_tree_preimages(3);
-        let reveal_txid = operator.inscribe_connector_tree_preimages(3);
+        let (commit_txid, reveal_txid) = operator.inscribe_connector_tree_preimages(3);
         println!("preimages revealed: {:?}", preimages);
         preimages_verifier_track = preimages.clone();
         let inscription_tx = operator.mock_verifier_access[0].rpc.get_raw_transaction(&reveal_txid, None).unwrap();
         println!("verifier reads inscription tx: {:?}", inscription_tx);
+
+        let commit_tx = operator.mock_verifier_access[0].rpc.get_raw_transaction(&commit_txid, None).unwrap();
+        println!("verifier reads commit tx: {:?}", commit_tx);
+        let inscription_script_pubkey = &commit_tx.output[0].script_pubkey;
+        let inscription_address_bytes: [u8; 32] = inscription_script_pubkey.as_bytes()[2..].try_into().unwrap();
+        println!("inscription address in bytes: {:?}", inscription_address_bytes);
 
         let witness_array = inscription_tx.input[0].witness.to_vec();
         println!("witness_array: {:?}", witness_array[1]);
@@ -914,11 +919,15 @@ mod tests {
         println!("inscribed_data length: {:?}", inscribed_data.len());
         let mut verifier_got_preimages = Vec::new();
         for i in 0..(inscribed_data.len() / 33) {
-            let preimage = inscribed_data[i * 33 + 1..(i + 1) * 33].to_vec();
+            let preimage: [u8; 32] = inscribed_data[i * 33 + 1..(i + 1) * 33].try_into().unwrap();
             verifier_got_preimages.push(preimage);
         }
 
         println!("verifier_got_preimages: {:?}", verifier_got_preimages);
+
+        let test_res = verify_preimage_reveal_taproot_address(&operator.signer.secp, operator.signer.xonly_public_key, verifier_got_preimages.try_into().unwrap(), inscription_address_bytes);
+        println!("test_res: {:?}", test_res);
+        
 
         for (i, utxo_level) in utxo_tree[0..utxo_tree.len() - 1].iter().enumerate() {
             for (j, utxo) in utxo_level.iter().enumerate() {

@@ -326,13 +326,14 @@ pub fn create_taproot_address(
     for script in scripts {
         taproot_builder = taproot_builder.add_leaf(depth, script).unwrap();
     }
+    // println!("taproot_builder: {:?}", taproot_builder);
     let internal_key = *INTERNAL_KEY;
     let tree_info = taproot_builder.finalize(&secp, internal_key).unwrap();
     (
         Address::p2tr(&secp, internal_key, tree_info.merkle_root(), REGTEST),
         tree_info,
     )
-}
+}  
 
 pub fn create_control_block(tree_info: TaprootSpendInfo, script: &ScriptBuf) -> ControlBlock {
     tree_info
@@ -603,6 +604,7 @@ pub fn create_inscription_transactions(actor: &Actor, utxo: OutPoint, preimages:
     let inscribe_preimage_script = create_inscription_script_32_bytes(actor.xonly_public_key, preimages);
 
     let (incription_address, inscription_tree_info) = create_taproot_address(&actor.secp, vec![inscribe_preimage_script.clone()]);
+    println!("inscription tree merkle root: {:?}", inscription_tree_info.merkle_root());
     let commit_tx_ins = create_tx_ins(vec![utxo]);
     let commit_tx_outs = create_tx_outs(vec![(DUST_VALUE * 2, incription_address.script_pubkey())]);
     let mut commit_tx = create_btc_tx(commit_tx_ins, commit_tx_outs);
@@ -610,6 +612,9 @@ pub fn create_inscription_transactions(actor: &Actor, utxo: OutPoint, preimages:
         value: DUST_VALUE * 3,
         script_pubkey: actor.address.script_pubkey(),
     }];
+
+    println!("inscription merkle root: {:?}", inscription_tree_info.merkle_root());
+    println!("inscription output key: {:?}", inscription_tree_info.output_key());
     
     let commit_tx_sig = actor.sign_taproot_pubkey_spend_tx(&mut commit_tx, commit_tx_prevouts, 0);
     let mut commit_tx_sighash_cache = SighashCache::new(commit_tx.borrow_mut());

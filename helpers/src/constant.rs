@@ -14,3 +14,4 @@ pub const DUST_VALUE: Amount = Amount::from_sat(1000);
 pub const REGTEST: Network = bitcoin::Network::Regtest;
 pub const MIN_RELAY_FEE: Amount = Amount::from_sat(500);
 pub type EVMAddress = [u8; 20];
+pub const TAPROOT_LEAF_TAPSCRIPT: u8 = 192;

@@ -7,3 +7,4 @@ pub mod core_tx;
 pub mod incremental_merkle;
 pub mod bitcoin;
 pub mod constant;
+pub mod core_utils;
