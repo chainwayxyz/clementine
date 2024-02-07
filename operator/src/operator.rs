@@ -925,7 +925,7 @@ mod tests {
 
         println!("verifier_got_preimages: {:?}", verifier_got_preimages);
 
-        let test_res = verify_preimage_reveal_taproot_address(&operator.signer.secp, operator.signer.xonly_public_key, verifier_got_preimages.try_into().unwrap(), inscription_address_bytes);
+        let test_res = verify_preimage_reveal_taproot_address(operator.signer.xonly_public_key.serialize(), verifier_got_preimages.try_into().unwrap(), inscription_address_bytes);
         println!("test_res: {:?}", test_res);
         
 

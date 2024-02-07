@@ -1,10 +1,13 @@
-use bitcoin::secp256k1::XOnlyPublicKey;
-use bitcoin::secp256k1::All;
-use bitcoin::secp256k1::Secp256k1;
-use bitcoin::secp256k1::scalar::Scalar;
-use bitcoin::taproot::TAPROOT_LEAF_TAPSCRIPT;
+use bitcoin::address;
 use crypto_bigint::Encoding;
 use crypto_bigint::U256;
+use k256::elliptic_curve::group::GroupEncoding;
+use k256::elliptic_curve::ScalarPrimitive;
+use k256::FieldBytes;
+use k256::FieldElement;
+use k256::ProjectivePoint;
+use k256::{AffinePoint, PublicKey, Scalar, Secp256k1};
+use k256::elliptic_curve::Field;
 
 use serde::{Deserialize, Serialize};
 
@@ -110,10 +113,15 @@ pub fn calculate_work(target: [u8; 32]) -> U256 {
 
 
 //change preimages length later
-pub fn verify_preimage_reveal_taproot_address(secp: &Secp256k1<All>, actor_pk: XOnlyPublicKey, preimages: [[u8; 32]; 2], taproot_address: [u8; 32]) -> bool {
-    let actor_pk_bytes = actor_pk.serialize();
-    let internal_key_bytes: [u8; 32] = from_hex64_to_bytes32("93c7378d96518a75448821c4f7c8f4bae7ce60f804d03d1f0628dd5dd0f5de51");
-    let internal_key = XOnlyPublicKey::from_slice(&internal_key_bytes).unwrap();
+pub fn verify_preimage_reveal_taproot_address(actor_pk: [u8; 32], preimages: [[u8; 32]; 2], taproot_address: [u8; 32]) -> (bool, [u8; 33]) {
+    let actor_pk_bytes = actor_pk;
+    let internal_key_x_only_bytes: [u8; 32] = from_hex64_to_bytes32("93c7378d96518a75448821c4f7c8f4bae7ce60f804d03d1f0628dd5dd0f5de51");
+    let internal_key_y_only_bytes: [u8; 32] = from_hex64_to_bytes32("b7e6488df5418b4c37f61271aca50390670138b7dc4f4d1c2b927fc43b900f28");
+    let mut internal_key_bytes = [0u8; 65];
+    internal_key_bytes[0] = 4;
+    internal_key_bytes[1..33].copy_from_slice(&internal_key_x_only_bytes);
+    internal_key_bytes[33..65].copy_from_slice(&internal_key_y_only_bytes);
+    let internal_key = PublicKey::from_sec1_bytes(&internal_key_bytes).unwrap();
     let mut script = [0u8; 37 + 33 * 2];
     script[0] = 32;
     script[1..33].copy_from_slice(&actor_pk_bytes);
@@ -125,50 +133,33 @@ pub fn verify_preimage_reveal_taproot_address(secp: &Secp256k1<All>, actor_pk: X
         script[37 + 33 * i..36 + 33 * (i + 1)].copy_from_slice(&preimages[i]);
     }
     script[102] = 104;
-    // let mut script_rev = script.clone();
-    // script_rev.reverse();
     let tap_leaf_str = "TapLeaf";
-    // let mut tap_leaf_bytes = [0u8; 7];
-    // tap_leaf_bytes.copy_from_slice(tap_leaf_str.as_bytes());
-    // tap_leaf_bytes.reverse();
     let tap_leaf_tag_hash = calculate_single_sha256(&tap_leaf_str.as_bytes());
-    // tap_leaf_tag_hash.reverse();
     const LEN_TAP_LEAF_HASH_INPUT: usize = 102 + 33 * 2 + 1;
     let mut tap_leaf_hash_input = [0u8; LEN_TAP_LEAF_HASH_INPUT];
     tap_leaf_hash_input[..32].copy_from_slice(&tap_leaf_tag_hash);
     tap_leaf_hash_input[32..64].copy_from_slice(&tap_leaf_tag_hash);
-    tap_leaf_hash_input[64] = TAPROOT_LEAF_TAPSCRIPT;
+    tap_leaf_hash_input[64] = 192;
     tap_leaf_hash_input[65] = 103;
     tap_leaf_hash_input[66..LEN_TAP_LEAF_HASH_INPUT].copy_from_slice(&script);
     // tap_leaf_hash is the merkle tree root
     let tap_leaf_hash = calculate_single_sha256(&tap_leaf_hash_input);
-    // let tap_node_str = "TapBranch";
-    // let tap_node_tag_hash = calculate_single_sha256(&tap_node_str.as_bytes());
-    // tap_node_tag_hash.reverse();
-    // let mut tap_node_hash_input: [u8; 96] = [0u8; 96];
-    // tap_node_hash_input[..32].copy_from_slice(&tap_node_tag_hash);
-    // tap_node_hash_input[32..64].copy_from_slice(&tap_node_tag_hash);
-    // tap_node_hash_input[64..96].copy_from_slice(&tap_leaf_hash);
-    // tap_node_hash_input.reverse();
-    // let tap_node_hash = calculate_single_sha256(&tap_node_hash_input);
     let tap_tweak_str = "TapTweak";
     let tap_tweak_tag_hash = calculate_single_sha256(&tap_tweak_str.as_bytes());
-    // tap_tweak_tag_hash.reverse();
-    // let tag_pubkey_hash = calculate_double_sha256(&tap_tweak_bytes);
     let mut tweak_hash_input: [u8; 128] = [0u8; 128];
     tweak_hash_input[..32].copy_from_slice(&tap_tweak_tag_hash);
     tweak_hash_input[32..64].copy_from_slice(&tap_tweak_tag_hash);
-    tweak_hash_input[64..96].copy_from_slice(&internal_key_bytes);
+    tweak_hash_input[64..96].copy_from_slice(&internal_key_x_only_bytes);
     tweak_hash_input[96..128].copy_from_slice(&tap_leaf_hash);
-    // let mut tweak: [u8; 128] = [0u8; 128];
-    // tweak[..32].copy_from_slice(&tag_pubkey_hash);
-    // tweak[32..64].copy_from_slice(&tag_pubkey_hash);
-    // tweak[64..128].copy_from_slice(&tweak_input);
     // tweak_hash is the tweak scalar
     let tweak_hash = calculate_single_sha256(&tweak_hash_input);
-    let scalar = Scalar::from_be_bytes(tweak_hash).unwrap();
-    let (output, _parity) = internal_key.add_tweak(secp, &scalar).unwrap();
-    let address = output.serialize();
+    let scalar_primitive = ScalarPrimitive::from_slice(&tweak_hash).unwrap();
+    let scalar = Scalar::from(scalar_primitive);
+    let scalar_point = AffinePoint::GENERATOR * scalar;
+    let tweaked_output = internal_key.to_projective() + scalar_point;
+    let address = tweaked_output.to_affine();
+    let mut address_bytes = [0u8; 33];
+    address_bytes[0..33].copy_from_slice(&address.to_bytes()[0..33]);
     // internal_key.tap_tweak(secp, merkle_root);
-    return address == taproot_address;
+    return (address_bytes[1..33] == taproot_address, address_bytes);
 }
