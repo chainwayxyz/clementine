@@ -743,11 +743,10 @@ mod tests {
     use bitcoin::OutPoint;
     use bitcoincore_rpc::{Auth, Client, RpcApi};
     use circuit_helpers::{
-        config::{BRIDGE_AMOUNT_SATS, CONNECTOR_TREE_DEPTH, NUM_USERS, NUM_VERIFIERS},
-        constant::{DUST_VALUE, MIN_RELAY_FEE},
-        bitcoin::verify_preimage_reveal_taproot_address,
+        bitcoin::{get_script_hash, verify_script_hash_taproot_address}, config::{BRIDGE_AMOUNT_SATS, CONNECTOR_TREE_DEPTH, NUM_USERS, NUM_VERIFIERS}, constant::{DUST_VALUE, MIN_RELAY_FEE}
     };
     use secp256k1::rand::rngs::OsRng;
+    use sha2::{Digest, Sha256};
 
     use crate::{
         operator::{Operator, PreimageType}, user::User, utils::{
@@ -925,7 +924,25 @@ mod tests {
 
         println!("verifier_got_preimages: {:?}", verifier_got_preimages);
 
-        let test_res = verify_preimage_reveal_taproot_address(operator.signer.xonly_public_key.serialize(), verifier_got_preimages.try_into().unwrap(), inscription_address_bytes);
+        let flattened_preimages: Vec<u8> = verifier_got_preimages.iter()
+        .flat_map(|array| array.iter().copied())
+        .collect();
+
+        let flattened_slice: &[u8] = &flattened_preimages;
+
+        // let mut test_hasher_1 = Sha256::new();
+        // test_hasher_1.update([1u8]);
+        // test_hasher_1.update([2u8]);
+        // let test_hash_1: [u8; 32] = test_hasher_1.finalize().try_into().unwrap();
+        // println!("test_hash_1: {:?}", test_hash_1);
+        // let mut test_hasher_2 = Sha256::new();
+        // test_hasher_2.update([1u8, 2u8]);
+        // let test_hash_2: [u8; 32] = test_hasher_2.finalize().try_into().unwrap();
+        // println!("test_hash_2: {:?}", test_hash_2);
+        
+        let calculated_merkle_root = get_script_hash(operator.signer.xonly_public_key.serialize(), flattened_slice, 2);
+        println!("calculated_merkle_root: {:?}", calculated_merkle_root);
+        let test_res = verify_script_hash_taproot_address(operator.signer.xonly_public_key.serialize(), flattened_slice, 2, calculated_merkle_root, inscription_address_bytes);
         println!("test_res: {:?}", test_res);
         
 

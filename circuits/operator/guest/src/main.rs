@@ -4,8 +4,10 @@
 use circuit_helpers::bitcoin::{validate_threshold_and_add_work, BlockHeader};
 use circuit_helpers::constant::Data;
 use circuit_helpers::hashes::calculate_double_sha256;
+use circuit_helpers::hashes::calculate_single_sha256;
 use circuit_helpers::config::{N, PERIOD3};
 use circuit_helpers::incremental_merkle::IncrementalMerkleTree;
+use sha2::{Digest, Sha256};
 
 
 use guest::bitcoin::verify_txid_input;
@@ -28,6 +30,29 @@ pub fn handle_withdrawals(merkle_tree_data: &mut IncrementalMerkleTree, merkle_r
         merkle_tree_data.add(output_address);
     }
     return num_withdrawals;
+}
+
+
+pub fn get_preimage_inscription_script_hash(actor_pk_bytes: [u8; 32]) -> [u8; 32] {
+    let mut hasher = Sha256::new();
+    let tap_leaf_str = "TapLeaf";
+    let tap_leaf_tag_hash: [u8; 32] = calculate_single_sha256(&tap_leaf_str.as_bytes());
+    hasher.update(&tap_leaf_tag_hash);
+    hasher.update(&tap_leaf_tag_hash);
+    let num_preimages = env::read();
+    hasher.update(&[192]);
+    let script_length: u8 = 37 + 33 * num_preimages as u8;
+    hasher.update(&[script_length]);
+    hasher.update(&[32]);
+    hasher.update(&actor_pk_bytes);
+    hasher.update(&[172, 0, 99]);
+    for _ in 0..num_preimages {
+        let preimage: [u8; 32] = env::read();
+        hasher.update(&[32]);
+        hasher.update(&preimage);
+    }
+    hasher.update(&[104]);
+    hasher.finalize().try_into().unwrap()
 }
 
 pub fn verify_light_client(
