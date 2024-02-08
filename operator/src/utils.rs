@@ -57,20 +57,20 @@ lazy_static! {
     .unwrap();
 }
 
-pub fn get_indices(depth: usize, count: u32) -> Vec<(usize, u32)> {
+pub fn get_indices(depth: usize, count: u32) -> Vec<(usize, usize)> {
     assert!(count <= 2u32.pow(depth as u32));
 
     if count == 0 {
         return vec![(0, 0)];
     }
 
-    let mut indices: Vec<(usize, u32)> = Vec::new();
+    let mut indices: Vec<(usize, usize)> = Vec::new();
     if count == 2u32.pow(depth as u32) {
         return indices;
     }
 
     if count % 2 == 1 {
-        indices.push((depth, count));
+        indices.push((depth, count as usize));
         indices.extend(get_indices(depth - 1, (count + 1) / 2));
     } else {
         indices.extend(get_indices(depth - 1, count / 2));
@@ -79,20 +79,20 @@ pub fn get_indices(depth: usize, count: u32) -> Vec<(usize, u32)> {
     return indices;
 }
 
-pub fn get_internal_indices(depth: usize, count: u32) -> Vec<(usize, u32)> {
+pub fn get_internal_indices(depth: usize, count: u32) -> Vec<(usize, usize)> {
     assert!(count <= 2u32.pow(depth as u32));
 
     if count == 2u32.pow(depth as u32) {
         return vec![(0, 0)];
     }
 
-    let mut indices: Vec<(usize, u32)> = Vec::new();
+    let mut indices: Vec<(usize, usize)> = Vec::new();
     if count == 0 {
         return indices;
     }
 
     if count % 2 == 1 {
-        indices.push((depth, count - 1));
+        indices.push((depth, count as usize - 1));
         indices.extend(get_internal_indices(depth - 1, (count - 1) / 2));
     } else {
         indices.extend(get_internal_indices(depth - 1, count / 2));
@@ -101,7 +101,7 @@ pub fn get_internal_indices(depth: usize, count: u32) -> Vec<(usize, u32)> {
     return indices;
 }
 
-pub fn get_custom_merkle_indices(depth: usize, count: u32) -> Vec<(usize, u32)> {
+pub fn get_custom_merkle_indices(depth: usize, count: u32) -> Vec<(usize, usize)> {
     assert!(count <= 2u32.pow(depth as u32));
 
     if count == 0 {
@@ -112,7 +112,7 @@ pub fn get_custom_merkle_indices(depth: usize, count: u32) -> Vec<(usize, u32)> 
         return vec![];
     }
 
-    let mut indices: Vec<(usize, u32)> = Vec::new();
+    let mut indices: Vec<(usize, usize)> = Vec::new();
     let mut level = 0;
     let mut index = count;
     while index % 2 == 0 {
@@ -122,9 +122,9 @@ pub fn get_custom_merkle_indices(depth: usize, count: u32) -> Vec<(usize, u32)> 
 
     while level < depth {
         if index % 2 == 1 {
-            indices.push((level + 1, (index - 1) / 2));
+            indices.push((level + 1, (index as usize - 1) / 2));
         } else {
-            indices.push((level + 1, index / 2))
+            indices.push((level + 1, index as usize / 2))
         }
         level = level + 1;
         index = index / 2;
@@ -368,14 +368,14 @@ pub fn generate_dust_script(eth_address: [u8; 20]) -> ScriptBuf {
 
 pub fn generate_deposit_address(
     secp: &Secp256k1<All>,
-    verifiers_pks: Vec<XOnlyPublicKey>,
+    verifiers_pks: &Vec<XOnlyPublicKey>,
     user_pk: XOnlyPublicKey,
     hash: [u8; 32],
 ) -> (Address, TaprootSpendInfo) {
-    let script_nofn = generate_n_of_n_script(&verifiers_pks, hash);
+    let script_n_of_n = generate_n_of_n_script(&verifiers_pks, hash);
     let script_timelock = generate_timelock_script(user_pk, USER_TAKES_AFTER);
     let taproot = TaprootBuilder::new()
-        .add_leaf(1, script_nofn.clone())
+        .add_leaf(1, script_n_of_n.clone())
         .unwrap()
         .add_leaf(1, script_timelock.clone())
         .unwrap();
@@ -450,7 +450,7 @@ pub fn create_utxo(txid: Txid, vout: u32) -> OutPoint {
     OutPoint { txid, vout }
 }
 
-pub fn create_kickoff_tx(
+pub fn create_move_tx(
     ins: Vec<OutPoint>,
     outs: Vec<(Amount, ScriptBuf)>,
 ) -> bitcoin::Transaction {
@@ -524,10 +524,10 @@ pub fn create_connector_binary_tree(
         xonly_public_key,
         connector_tree_hashes[0][0],
     );
-    println!(
-        "root dust value: {:?}",
-        root_address.clone().script_pubkey().dust_value()
-    );
+    // println!(
+    //     "root dust value: {:?}",
+    //     root_address.clone().script_pubkey().dust_value()
+    // );
 
     let root_txid = root_utxo.txid;
     let root_tx = rpc.get_raw_transaction(&root_txid, None).unwrap();
@@ -580,8 +580,8 @@ pub fn create_connector_binary_tree(
         tx_binary_tree.push(tx_tree_current_level);
     }
 
-    println!("utxo_binary_tree: {:?}", utxo_binary_tree);
-    println!("tx_binary_tree: {:?}", tx_binary_tree);
+    // println!("utxo_binary_tree: {:?}", utxo_binary_tree);
+    // println!("tx_binary_tree: {:?}", tx_binary_tree);
 
     utxo_binary_tree
 }
@@ -604,7 +604,7 @@ pub fn create_inscription_transactions(actor: &Actor, utxo: OutPoint, preimages:
     let inscribe_preimage_script = create_inscription_script_32_bytes(actor.xonly_public_key, preimages);
 
     let (incription_address, inscription_tree_info) = create_taproot_address(&actor.secp, vec![inscribe_preimage_script.clone()]);
-    println!("inscription tree merkle root: {:?}", inscription_tree_info.merkle_root());
+    // println!("inscription tree merkle root: {:?}", inscription_tree_info.merkle_root());
     let commit_tx_ins = create_tx_ins(vec![utxo]);
     let commit_tx_outs = create_tx_outs(vec![(DUST_VALUE * 2, incription_address.script_pubkey())]);
     let mut commit_tx = create_btc_tx(commit_tx_ins, commit_tx_outs);
@@ -657,7 +657,6 @@ mod tests {
     use crate::utils::{get_indices, get_internal_indices};
     use crate::{
         operator::Operator,
-        user::User,
         utils::{from_hex_to_tx, parse_hex_to_btc_tx},
     };
 

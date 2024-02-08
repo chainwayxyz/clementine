@@ -32,7 +32,7 @@ pub fn handle_withdrawals(merkle_tree_data: &mut IncrementalMerkleTree, merkle_r
     return num_withdrawals;
 }
 
-
+//calculates leaf hash (merkle root) for the preimage inscription taptree
 pub fn get_preimage_inscription_script_hash(actor_pk_bytes: [u8; 32]) -> [u8; 32] {
     let mut hasher = Sha256::new();
     let tap_leaf_str = "TapLeaf";

@@ -1,3 +1,5 @@
+use std::borrow::BorrowMut;
+
 use bitcoin::hashes::sha256;
 use bitcoin::secp256k1::rand::rngs::OsRng;
 use bitcoin::secp256k1::rand::RngCore;
@@ -10,9 +12,12 @@ use bitcoin::{
     },
     Address, TapSighash, TapTweakHash,
 };
-use bitcoin::{TapNodeHash, Txid, TxOut, TapLeafHash};
+use bitcoin::{Amount, OutPoint, TapLeafHash, TapNodeHash, TxOut, Txid};
+use bitcoincore_rpc::{Client, RpcApi};
 use circuit_helpers::constant::{EVMAddress, REGTEST};
 use tiny_keccak::{Hasher, Keccak};
+
+use crate::utils::{create_btc_tx, create_tx_ins, create_tx_outs, create_utxo};
 
 #[derive(Clone, Debug, Copy)]
 pub struct EVMSignature {
@@ -122,18 +127,56 @@ impl Actor {
         self.sign_with_tweak(sig_hash, None)
     }
 
+    pub fn create_self_utxo(&self, rpc: &Client, amount: Amount) -> (OutPoint, Amount) {
+        let txid = rpc
+            .send_to_address(&self.address, amount, None, None, None, None, None, None)
+            .unwrap();
+        let tx = rpc.get_raw_transaction(&txid, None).unwrap();
+        let vout = tx
+            .output
+            .iter()
+            .position(|x| x.value == amount)
+            .unwrap();
+        println!("user created start utxo: {:?}", txid);
+        (OutPoint { txid, vout: vout as u32 }, amount)
+    }
+
+    pub fn spend_self_utxo(&self, rpc: &Client, utxo: OutPoint, amount: Amount, address: Address) -> (OutPoint, Amount) {
+        let prev_tx = rpc.get_raw_transaction(&utxo.txid, None).unwrap();
+        let prev_amount = prev_tx.output[utxo.vout as usize].value;
+
+        let tx_ins = create_tx_ins(vec![utxo]);
+        let tx_outs = create_tx_outs(vec![(amount, address.script_pubkey())]);
+        let mut spend_tx = create_btc_tx(tx_ins, tx_outs);
+
+        let prevouts = create_tx_outs(vec![
+            (prev_amount, self.address.script_pubkey())
+        ]);
+
+        let sig = self
+            .sign_taproot_pubkey_spend_tx(&mut spend_tx, prevouts, 0);
+        let mut deposit_tx_sighash_cache = SighashCache::new(spend_tx.borrow_mut());
+        let witness = deposit_tx_sighash_cache.witness_mut(0).unwrap();
+        witness.push(sig.as_ref());
+
+        let spend_txid = rpc
+            .send_raw_transaction(&spend_tx)
+            .unwrap_or_else(|e| panic!("Failed to send raw transaction: {}", e));
+        println!("user spent start utxo: {:?}", utxo);
+        println!("user spent txid: {:?}", spend_txid);
+        (create_utxo(spend_txid, 0), amount)
+    }
+
     pub fn sign_deposit(
         &self,
         txid: Txid,
         evm_address: EVMAddress,
         hash: [u8; 32],
-        timestamp: [u8; 4],
     ) -> EVMSignature {
-        let mut message = [0; 88];
+        let mut message = [0; 84];
         message[..32].copy_from_slice(&txid.to_byte_array());
         message[32..52].copy_from_slice(&evm_address);
         message[52..84].copy_from_slice(&hash);
-        message[84..].copy_from_slice(&timestamp);
 
         let message = sha256::Hash::hash(&message);
         let signature = self.secp.sign_ecdsa_recoverable(
@@ -161,7 +204,7 @@ mod tests {
         let hash = [3; 32];
         let evm_address = prover.evm_address;
 
-        let sig = prover.sign_deposit(txid, evm_address, hash, timestamp);
+        let sig = prover.sign_deposit(txid, evm_address, hash);
         let v = sig.v;
         let r = sig.r;
         let s = sig.s;

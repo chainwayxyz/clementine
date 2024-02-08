@@ -7,7 +7,6 @@ use k256::{AffinePoint, PublicKey, Scalar};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 
-use crate::config::CONNECTOR_TREE_DEPTH;
 use crate::core_utils::from_hex64_to_bytes32;
 use crate::hashes::calculate_single_sha256;
 
@@ -115,7 +114,6 @@ pub fn get_script_hash(actor_pk_bytes: [u8; 32], preimages: &[u8], number_of_pre
     hash_tag[..32].copy_from_slice(&tap_leaf_tag_hash);
     hash_tag[32..64].copy_from_slice(&tap_leaf_tag_hash);
     hasher.update(&hash_tag);
-    // let script: &[u8] = 
     hasher.update(&[192u8]);
     let script_length: u8 = 37 + 33 * number_of_preimages;
     hasher.update(&[script_length]);
@@ -131,16 +129,16 @@ pub fn get_script_hash(actor_pk_bytes: [u8; 32], preimages: &[u8], number_of_pre
     hasher.finalize().try_into().unwrap()
 }
 
-
-//change preimages length later
 pub fn verify_script_hash_taproot_address(actor_pk_bytes: [u8; 32], preimages: &[u8], number_of_preimages: u8, tap_leaf_hash: [u8; 32], taproot_address: [u8; 32]) -> (bool, [u8; 33], &[u8]) {
     assert!(get_script_hash(actor_pk_bytes, preimages, number_of_preimages) == tap_leaf_hash, "Script hash does not match tap leaf hash");
+    // internal key as bytes
     let internal_key_x_only_bytes: [u8; 32] = from_hex64_to_bytes32("93c7378d96518a75448821c4f7c8f4bae7ce60f804d03d1f0628dd5dd0f5de51");
     let internal_key_y_only_bytes: [u8; 32] = from_hex64_to_bytes32("b7e6488df5418b4c37f61271aca50390670138b7dc4f4d1c2b927fc43b900f28");
     let mut internal_key_bytes = [0u8; 65];
     internal_key_bytes[0] = 4;
     internal_key_bytes[1..33].copy_from_slice(&internal_key_x_only_bytes);
     internal_key_bytes[33..65].copy_from_slice(&internal_key_y_only_bytes);
+    //internal key as public key
     let internal_key = PublicKey::from_sec1_bytes(&internal_key_bytes).unwrap();
     // tap_leaf_hash is the merkle tree root
     let tap_tweak_str = "TapTweak";
