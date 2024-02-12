@@ -14,7 +14,7 @@ use bitcoin::{
 };
 use bitcoin::{Amount, OutPoint, TapLeafHash, TapNodeHash, TxOut, Txid};
 use bitcoincore_rpc::{Client, RpcApi};
-use circuit_helpers::constant::{EVMAddress, REGTEST};
+use circuit_helpers::constant::EVMAddress;
 use tiny_keccak::{Hasher, Keccak};
 
 use crate::utils::{create_btc_tx, create_tx_ins, create_tx_outs, create_utxo};
@@ -49,7 +49,7 @@ impl Actor {
         let (sk, pk) = secp.generate_keypair(rng);
         let keypair = Keypair::from_secret_key(&secp, &sk);
         let (xonly, _parity) = XOnlyPublicKey::from_keypair(&keypair);
-        let address = Address::p2tr(&secp, xonly, None, REGTEST);
+        let address = Address::p2tr(&secp, xonly, None, bitcoin::Network::Regtest);
 
         let pk_serialized = pk.serialize_uncompressed();
         let pk_serialized: [u8; 64] = pk_serialized[1..].try_into().unwrap();

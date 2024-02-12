@@ -1,6 +1,8 @@
+
+
 use std::collections::{HashMap, HashSet};
 
-use bitcoin::{secp256k1::rand::rngs::OsRng, OutPoint};
+use bitcoin::{secp256k1::rand::rngs::OsRng, Amount, OutPoint};
 use bitcoincore_rpc::{Auth, Client, RpcApi};
 use circuit_helpers::{
     bitcoin::{get_script_hash, verify_script_hash_taproot_address},
@@ -25,7 +27,7 @@ fn main() {
     )
     .unwrap_or_else(|e| panic!("Failed to connect to Bitcoin RPC: {}", e));
 
-    let total_amount = calculate_amount(CONNECTOR_TREE_DEPTH, DUST_VALUE, MIN_RELAY_FEE);
+    let total_amount = calculate_amount(CONNECTOR_TREE_DEPTH, Amount::from_sat(DUST_VALUE), Amount::from_sat(MIN_RELAY_FEE));
     let mut operator = Operator::new(&mut OsRng, &rpc, NUM_VERIFIERS as u32);
     let mut users = Vec::new();
     for _ in 0..NUM_USERS {
@@ -115,7 +117,7 @@ fn main() {
     for i in 0..NUM_USERS {
         let user = &users[i];
         let (start_utxo, start_amount) =
-            user.create_start_utxo(&rpc, BRIDGE_AMOUNT_SATS + MIN_RELAY_FEE);
+            user.create_start_utxo(&rpc, Amount::from_sat(BRIDGE_AMOUNT_SATS) + Amount::from_sat(MIN_RELAY_FEE));
         let hash = HASH_FUNCTION_32(operator.current_preimage_for_deposit_requests);
 
         let signatures = operator.new_deposit(
@@ -131,7 +133,7 @@ fn main() {
         let (user_deposit_utxo, return_address) = user.deposit_tx(
             &user.rpc,
             start_utxo,
-            BRIDGE_AMOUNT_SATS,
+            Amount::from_sat(BRIDGE_AMOUNT_SATS),
             &user.secp,
             verifiers_pks.clone(),
             hash,

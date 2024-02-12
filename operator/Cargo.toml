@@ -5,6 +5,7 @@ edition = "2021"
 
 [dependencies]
 circuit-helpers = {path = "../helpers"}
+operator-circuit = {path = "../circuits/operator/methods"}
 bitcoin = { version = "0.31.0", features = ["rand"] }
 bitcoincore-rpc = "0.18.0"
 hex = "0.4.3"
@@ -12,7 +13,6 @@ tiny-keccak = { version = "2.0.2", features = ["keccak"] }
 lazy_static = {version="1.4.0", default-features = false, features = ["spin_no_std"]}
 sha2 = "=0.10.6"
 risc0-zkvm = { version = "0.19.1" }
-env_logger = "0.10"
 serde = "1.0"
 serde_json = "1.0.108"
 byteorder = "1.5.0"

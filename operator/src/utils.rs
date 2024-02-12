@@ -28,7 +28,6 @@ use bitcoin::Witness;
 use bitcoincore_rpc::Client;
 use bitcoincore_rpc::RpcApi;
 use circuit_helpers::constant::{Data, DUST_VALUE, MIN_RELAY_FEE};
-use circuit_helpers::constant::REGTEST;
 use secp256k1::All;
 use secp256k1::Secp256k1;
 use secp256k1::XOnlyPublicKey;
@@ -330,7 +329,7 @@ pub fn create_taproot_address(
     let internal_key = *INTERNAL_KEY;
     let tree_info = taproot_builder.finalize(&secp, internal_key).unwrap();
     (
-        Address::p2tr(&secp, internal_key, tree_info.merkle_root(), REGTEST),
+        Address::p2tr(&secp, internal_key, tree_info.merkle_root(), bitcoin::Network::Regtest),
         tree_info,
     )
 }  
@@ -380,7 +379,7 @@ pub fn generate_deposit_address(
         .add_leaf(1, script_timelock.clone())
         .unwrap();
     let tree_info = taproot.finalize(secp, *INTERNAL_KEY).unwrap();
-    let address = Address::p2tr(secp, *INTERNAL_KEY, tree_info.merkle_root(), REGTEST);
+    let address = Address::p2tr(secp, *INTERNAL_KEY, tree_info.merkle_root(), bitcoin::Network::Regtest);
     (address, tree_info)
 }
 
@@ -391,7 +390,7 @@ pub fn generate_dust_address(
     let script = generate_dust_script(eth_address);
     let taproot = TaprootBuilder::new().add_leaf(0, script.clone()).unwrap();
     let tree_info = taproot.finalize(secp, *INTERNAL_KEY).unwrap();
-    let address = Address::p2tr(secp, *INTERNAL_KEY, tree_info.merkle_root(), REGTEST);
+    let address = Address::p2tr(secp, *INTERNAL_KEY, tree_info.merkle_root(), bitcoin::Network::Regtest);
     (address, tree_info)
 }
 
@@ -488,8 +487,8 @@ pub fn create_connector_tree_tx(
     // UTXO value should be at least 2^depth * dust_value + (2^depth-1) * fee
     let tx_ins = create_tx_ins_with_sequence(vec![*utxo]);
     let tx_outs = create_tx_outs(vec![
-        (calculate_amount(depth, DUST_VALUE, MIN_RELAY_FEE), first_address.script_pubkey()),
-        (calculate_amount(depth, DUST_VALUE, MIN_RELAY_FEE), second_address.script_pubkey()),
+        (calculate_amount(depth, Amount::from_sat(DUST_VALUE), Amount::from_sat(MIN_RELAY_FEE)), first_address.script_pubkey()),
+        (calculate_amount(depth, Amount::from_sat(DUST_VALUE), Amount::from_sat(MIN_RELAY_FEE)), second_address.script_pubkey()),
     ]);
     create_btc_tx(tx_ins, tx_outs)
 }
@@ -516,7 +515,7 @@ pub fn create_connector_binary_tree(
     connector_tree_hashes: Vec<Vec<[u8; 32]>>,
 ) -> Vec<Vec<OutPoint>> {
     // UTXO value should be at least 2^depth * dust_value + (2^depth-1) * fee
-    let total_amount = calculate_amount(depth, DUST_VALUE, MIN_RELAY_FEE);
+    let total_amount = calculate_amount(depth, Amount::from_sat(DUST_VALUE), Amount::from_sat(MIN_RELAY_FEE));
     println!("total_amount: {:?}", total_amount);
 
     let (root_address, _) = handle_connector_binary_tree_script(
@@ -606,10 +605,10 @@ pub fn create_inscription_transactions(actor: &Actor, utxo: OutPoint, preimages:
     let (incription_address, inscription_tree_info) = create_taproot_address(&actor.secp, vec![inscribe_preimage_script.clone()]);
     // println!("inscription tree merkle root: {:?}", inscription_tree_info.merkle_root());
     let commit_tx_ins = create_tx_ins(vec![utxo]);
-    let commit_tx_outs = create_tx_outs(vec![(DUST_VALUE * 2, incription_address.script_pubkey())]);
+    let commit_tx_outs = create_tx_outs(vec![(Amount::from_sat(DUST_VALUE) * 2, incription_address.script_pubkey())]);
     let mut commit_tx = create_btc_tx(commit_tx_ins, commit_tx_outs);
     let commit_tx_prevouts = vec![TxOut {
-        value: DUST_VALUE * 3,
+        value: Amount::from_sat(DUST_VALUE) * 3,
         script_pubkey: actor.address.script_pubkey(),
     }];
 
@@ -622,11 +621,11 @@ pub fn create_inscription_transactions(actor: &Actor, utxo: OutPoint, preimages:
     witness.push(commit_tx_sig.as_ref());
 
     let reveal_tx_ins = create_tx_ins(vec![create_utxo(commit_tx.txid(), 0)]);
-    let reveal_tx_outs = create_tx_outs(vec![(DUST_VALUE, actor.address.script_pubkey())]);
+    let reveal_tx_outs = create_tx_outs(vec![(Amount::from_sat(DUST_VALUE), actor.address.script_pubkey())]);
     let mut reveal_tx = create_btc_tx(reveal_tx_ins, reveal_tx_outs);
 
     let reveal_tx_prevouts = vec![TxOut {
-        value: DUST_VALUE * 2,
+        value: Amount::from_sat(DUST_VALUE) * 2,
         script_pubkey: incription_address.script_pubkey(),
     }];
     let reveal_tx_sig = actor.sign_taproot_script_spend_tx(&mut reveal_tx, reveal_tx_prevouts, &inscribe_preimage_script, 0);

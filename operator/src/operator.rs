@@ -12,7 +12,7 @@ use bitcoin::address::NetworkChecked;
 use bitcoin::consensus::serialize;
 use bitcoin::sighash::SighashCache;
 use bitcoin::{hashes::Hash, secp256k1, secp256k1::schnorr, Address, Txid};
-use bitcoin::{OutPoint, Transaction};
+use bitcoin::{Amount, OutPoint, Transaction};
 use bitcoincore_rpc::{Client, RpcApi};
 use circuit_helpers::config::{
     BRIDGE_AMOUNT_SATS, CONNECTOR_TREE_DEPTH, CONNECTOR_TREE_OPERATOR_TAKES_AFTER,
@@ -45,7 +45,7 @@ pub fn check_deposit(
     println!("user deposit utxo: {:?}", deposit_utxo);
     assert!(tx.input[0].previous_output == start_utxo);
     println!("from user start utxo: {:?}", start_utxo);
-    assert!(tx.output[deposit_utxo.vout as usize].value == BRIDGE_AMOUNT_SATS);
+    assert!(tx.output[deposit_utxo.vout as usize].value == Amount::from_sat(BRIDGE_AMOUNT_SATS));
     println!("amount: {:?}", tx.output[deposit_utxo.vout as usize].value);
     let (address, _) = generate_deposit_address(secp, verifiers_pks, return_address, hash);
     assert!(tx.output[deposit_utxo.vout as usize].script_pubkey == address.script_pubkey());
@@ -171,7 +171,7 @@ impl<'a> Operator<'a> {
         let (deposit_address, _) =
         generate_deposit_address(&self.signer.secp, &all_verifiers, return_address, hash);
         let deposit_tx_ins = create_tx_ins(vec![start_utxo]);
-        let deposit_tx_outs = create_tx_outs(vec![(BRIDGE_AMOUNT_SATS, deposit_address.script_pubkey())]);
+        let deposit_tx_outs = create_tx_outs(vec![(Amount::from_sat(BRIDGE_AMOUNT_SATS), deposit_address.script_pubkey())]);
         let deposit_tx = create_btc_tx(deposit_tx_ins, deposit_tx_outs);
         let deposit_txid = deposit_tx.txid();
         let deposit_utxo = create_utxo(deposit_txid, 0);
@@ -185,7 +185,7 @@ impl<'a> Operator<'a> {
                 // Note: In this part we will need to call the verifier's API to get the presigns
                 let deposit_presigns = verifier.new_deposit(
                     start_utxo,
-                    BRIDGE_AMOUNT_SATS,
+                    Amount::from_sat(BRIDGE_AMOUNT_SATS),
                     index,
                     hash,
                     return_address.clone(),
@@ -207,10 +207,10 @@ impl<'a> Operator<'a> {
             vec![deposit_utxo],
             vec![
                 (
-                    BRIDGE_AMOUNT_SATS - DUST_VALUE - MIN_RELAY_FEE,
+                    Amount::from_sat(BRIDGE_AMOUNT_SATS) - Amount::from_sat(DUST_VALUE) - Amount::from_sat(MIN_RELAY_FEE),
                     generate_n_of_n_script_without_hash(&all_verifiers),
                 ),
-                (DUST_VALUE, anyone_can_spend_script_pub_key),
+                (Amount::from_sat(DUST_VALUE), anyone_can_spend_script_pub_key),
             ],
         );
 
@@ -297,7 +297,7 @@ impl<'a> Operator<'a> {
         let mut move_tx = create_move_tx(
             vec![deposit_utxo],
             vec![
-                (BRIDGE_AMOUNT_SATS - MIN_RELAY_FEE, address.script_pubkey())
+                (Amount::from_sat(BRIDGE_AMOUNT_SATS) - Amount::from_sat(MIN_RELAY_FEE), address.script_pubkey())
             ],
         );
         println!("move_tx is from: {:?}", deposit_utxo);
@@ -306,7 +306,7 @@ impl<'a> Operator<'a> {
         let (deposit_address, deposit_taproot_info) =
             generate_deposit_address(&self.signer.secp, &all_verifiers, return_address, hash);
 
-        let prevouts = create_tx_outs(vec![(BRIDGE_AMOUNT_SATS, deposit_address.script_pubkey())]);
+        let prevouts = create_tx_outs(vec![(Amount::from_sat(BRIDGE_AMOUNT_SATS), deposit_address.script_pubkey())]);
 
         let mut move_signatures: Vec<Signature> = Vec::new();
         let deposit_presigns_for_move = self
@@ -353,7 +353,7 @@ impl<'a> Operator<'a> {
             .rpc
             .send_to_address(
                 &self.signer.address,
-                BRIDGE_AMOUNT_SATS,
+                Amount::from_sat(BRIDGE_AMOUNT_SATS),
                 None,
                 None,
                 None,
@@ -367,7 +367,7 @@ impl<'a> Operator<'a> {
         let vout = resource_tx
             .output
             .iter()
-            .position(|x| x.value == BRIDGE_AMOUNT_SATS)
+            .position(|x| x.value == Amount::from_sat(BRIDGE_AMOUNT_SATS))
             .unwrap();
 
         let all_verifiers = self.get_all_verifiers();
@@ -388,10 +388,10 @@ impl<'a> Operator<'a> {
 
         let child_tx_outs = create_tx_outs(vec![
             (
-                BRIDGE_AMOUNT_SATS - DUST_VALUE - MIN_RELAY_FEE,
+                Amount::from_sat(BRIDGE_AMOUNT_SATS) - Amount::from_sat(DUST_VALUE) - Amount::from_sat(MIN_RELAY_FEE),
                 address.script_pubkey(),
             ),
-            (DUST_VALUE, anyone_can_spend_script_pub_key.clone()),
+            (Amount::from_sat(DUST_VALUE), anyone_can_spend_script_pub_key.clone()),
         ]);
 
         let mut child_tx = create_btc_tx(child_tx_ins, child_tx_outs);
@@ -399,8 +399,8 @@ impl<'a> Operator<'a> {
         child_tx.input[0].witness.push([0x51]);
 
         let prevouts = create_tx_outs(vec![
-            (DUST_VALUE, anyone_can_spend_script_pub_key),
-            (BRIDGE_AMOUNT_SATS, self.signer.address.script_pubkey()),
+            (Amount::from_sat(DUST_VALUE), anyone_can_spend_script_pub_key),
+            (Amount::from_sat(BRIDGE_AMOUNT_SATS), self.signer.address.script_pubkey()),
         ]);
         let sig = self
             .signer
@@ -460,8 +460,8 @@ impl<'a> Operator<'a> {
             return;
         }
         let depth = u32::ilog2(
-            ((base_tx.unwrap().output[utxo.vout as usize].value + MIN_RELAY_FEE).to_sat()
-                / (DUST_VALUE + MIN_RELAY_FEE).to_sat()) as u32,
+            ((base_tx.unwrap().output[utxo.vout as usize].value.to_sat() + MIN_RELAY_FEE)
+                / (DUST_VALUE + MIN_RELAY_FEE)) as u32,
         );
         println!("depth: {:?}", depth);
         let level = tree_depth - depth as usize;
@@ -553,7 +553,7 @@ impl<'a> Operator<'a> {
             .rpc
             .send_to_address(
                 &self.signer.address,
-                DUST_VALUE * 3,
+                Amount::from_sat(DUST_VALUE) * 3,
                 None,
                 None,
                 None,
@@ -567,7 +567,7 @@ impl<'a> Operator<'a> {
             .get_raw_transaction(&inscription_source_txid, None)
             .unwrap();
         let inscription_source_vout = inscription_source_tx.output.iter().position(|x| {
-            x.value == DUST_VALUE * 3
+            x.value == Amount::from_sat(DUST_VALUE) * 3
         }).unwrap();
         let source_utxo = create_utxo(inscription_source_txid, inscription_source_vout as u32);
         let (commit_tx, reveal_tx) = create_inscription_transactions(&self.signer, source_utxo, preimages);
@@ -595,7 +595,7 @@ impl<'a> Operator<'a> {
         tx_ins.extend(create_tx_ins_with_sequence(vec![connector_utxo]));
 
         let tx_outs = create_tx_outs(vec![(
-            BRIDGE_AMOUNT_SATS + DUST_VALUE - MIN_RELAY_FEE * 2,
+            Amount::from_sat(BRIDGE_AMOUNT_SATS) + Amount::from_sat(DUST_VALUE) - Amount::from_sat(MIN_RELAY_FEE) * 2,
             self.signer.address.script_pubkey(),
         )]);
 
@@ -617,10 +617,10 @@ impl<'a> Operator<'a> {
 
         let prevouts = create_tx_outs(vec![
             (
-                BRIDGE_AMOUNT_SATS - MIN_RELAY_FEE,
+                Amount::from_sat(BRIDGE_AMOUNT_SATS) - Amount::from_sat(MIN_RELAY_FEE),
                 multisig_address.script_pubkey(),
             ),
-            (DUST_VALUE, address.script_pubkey()),
+            (Amount::from_sat(DUST_VALUE), address.script_pubkey()),
         ]);
         // println!("multisig address: {:?}", multisig_address);
         // println!(
@@ -720,7 +720,7 @@ mod tests {
 
     use std::collections::{HashMap, HashSet};
 
-    use bitcoin::OutPoint;
+    use bitcoin::{Amount, OutPoint};
     use bitcoincore_rpc::{Auth, Client, RpcApi};
     use circuit_helpers::{
         bitcoin::{get_script_hash, verify_script_hash_taproot_address}, config::{BRIDGE_AMOUNT_SATS, CONNECTOR_TREE_DEPTH, NUM_USERS, NUM_VERIFIERS}, constant::{DUST_VALUE, HASH_FUNCTION_32, MIN_RELAY_FEE}
@@ -743,7 +743,7 @@ mod tests {
         )
         .unwrap_or_else(|e| panic!("Failed to connect to Bitcoin RPC: {}", e));
 
-        let total_amount = calculate_amount(CONNECTOR_TREE_DEPTH, DUST_VALUE, MIN_RELAY_FEE);
+        let total_amount = calculate_amount(CONNECTOR_TREE_DEPTH, Amount::from_sat(DUST_VALUE), Amount::from_sat(MIN_RELAY_FEE));
         let mut operator = Operator::new(&mut OsRng, &rpc, NUM_VERIFIERS as u32);
         let mut users = Vec::new();
         for _ in 0..NUM_USERS {
@@ -832,7 +832,7 @@ mod tests {
 
         for i in 0..NUM_USERS {
             let user = &users[i];
-            let (start_utxo, start_amount) = user.create_start_utxo(&rpc, BRIDGE_AMOUNT_SATS + MIN_RELAY_FEE);
+            let (start_utxo, start_amount) = user.create_start_utxo(&rpc, Amount::from_sat(BRIDGE_AMOUNT_SATS) + Amount::from_sat(MIN_RELAY_FEE));
             let hash= HASH_FUNCTION_32(operator.current_preimage_for_deposit_requests);
 
             let signatures = operator.new_deposit(
@@ -848,7 +848,7 @@ mod tests {
             let (user_deposit_utxo, return_address) = user.deposit_tx(
                 &user.rpc,
                 start_utxo,
-                BRIDGE_AMOUNT_SATS,
+                Amount::from_sat(BRIDGE_AMOUNT_SATS),
                 &user.secp,
                 verifiers_pks.clone(),
                 hash

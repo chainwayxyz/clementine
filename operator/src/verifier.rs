@@ -91,7 +91,7 @@ impl<'a> Verifier<'a> {
 
         let mut move_tx = create_move_tx(vec![deposit_utxo], vec![
             (
-                deposit_amount - MIN_RELAY_FEE,
+                deposit_amount - Amount::from_sat(MIN_RELAY_FEE),
                 multisig_address.script_pubkey().clone(),
             )
         ]);
@@ -103,7 +103,7 @@ impl<'a> Verifier<'a> {
 
         let prev_outpoint = create_utxo(move_txid, 0);
         let prev_amount = deposit_amount
-            - MIN_RELAY_FEE;
+            - Amount::from_sat(MIN_RELAY_FEE);
 
         println!("creating operator claim tx");
         println!("index: {:?}", index);
@@ -112,13 +112,13 @@ impl<'a> Verifier<'a> {
 
         operator_claim_tx_ins.extend(create_tx_ins_with_sequence(vec![self.connector_tree_utxos[self.connector_tree_utxos.len() - 1][index as usize]]));
 
-        let operator_claim_tx_outs = create_tx_outs(vec![(prev_amount + DUST_VALUE - MIN_RELAY_FEE, operator_address.script_pubkey())]);
+        let operator_claim_tx_outs = create_tx_outs(vec![(prev_amount + Amount::from_sat(DUST_VALUE) - Amount::from_sat(MIN_RELAY_FEE), operator_address.script_pubkey())]);
 
         let mut operator_claim_tx = create_btc_tx(operator_claim_tx_ins, operator_claim_tx_outs);
 
         let (address, _) = handle_connector_binary_tree_script(&self.secp, self.operator_pk, self.connector_tree_hashes[self.connector_tree_hashes.len() - 1][index as usize]);
 
-        let prevouts = create_tx_outs(vec![(prev_amount, multisig_address.script_pubkey().clone()), (DUST_VALUE, address.script_pubkey())]);
+        let prevouts = create_tx_outs(vec![(prev_amount, multisig_address.script_pubkey().clone()), (Amount::from_sat(DUST_VALUE), address.script_pubkey())]);
 
         let operator_claim_sign = self.signer.sign_taproot_script_spend_tx(&mut operator_claim_tx, prevouts, &script_n_of_n_without_hash, 0);
 
@@ -205,7 +205,7 @@ impl<'a> Verifier<'a> {
             hash,
         );
         let tx_ins = create_tx_ins_with_sequence(vec![utxo]);
-        let tx_outs = create_tx_outs(vec![(amount - MIN_RELAY_FEE, self.signer.address.script_pubkey())]);
+        let tx_outs = create_tx_outs(vec![(amount - Amount::from_sat(MIN_RELAY_FEE), self.signer.address.script_pubkey())]);
         let mut tx = create_btc_tx(tx_ins, tx_outs);
         let prevouts = create_tx_outs(vec![(amount, address.script_pubkey())]);
         let hash_script = generate_hash_script(hash);
@@ -241,7 +241,7 @@ impl<'a> Verifier<'a> {
             hash,
         );
         let tx_ins = create_tx_ins_with_sequence(vec![utxo]);
-        let tx_outs = create_tx_outs(vec![(amount - MIN_RELAY_FEE, self.signer.address.script_pubkey())]);
+        let tx_outs = create_tx_outs(vec![(amount - Amount::from_sat(MIN_RELAY_FEE), self.signer.address.script_pubkey())]);
         let mut tx = create_btc_tx(tx_ins, tx_outs);
         let prevouts = create_tx_outs(vec![(amount, address.script_pubkey())]);
         let hash_script = generate_hash_script(hash);
