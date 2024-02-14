@@ -2,7 +2,7 @@ use std::borrow::BorrowMut;
 use std::io::{self, Write};
 
 use bitcoin::sighash::SighashCache;
-use bitcoin::{self};
+use bitcoin::{self, Target, Work};
 
 use bitcoin::absolute;
 use bitcoin::consensus::Decodable;
@@ -27,8 +27,10 @@ use bitcoin::Txid;
 use bitcoin::Witness;
 use bitcoincore_rpc::Client;
 use bitcoincore_rpc::RpcApi;
+use circuit_helpers::bitcoin::validate_threshold_and_add_work;
 use circuit_helpers::constant::{Data, DUST_VALUE, MIN_RELAY_FEE};
-use secp256k1::All;
+use crypto_bigint::{Encoding, U256};
+use secp256k1::{schnorr, All};
 use secp256k1::Secp256k1;
 use secp256k1::XOnlyPublicKey;
 use serde::de::DeserializeOwned;
@@ -267,6 +269,10 @@ pub fn generate_dummy_block(rpc: &Client) -> Vec<bitcoin::BlockHash> {
             .unwrap();
     }
     rpc.generate_to_address(1, &address).unwrap()
+}
+
+pub fn check_presigns(tx: &bitcoin::Transaction, presigns: Vec<schnorr::Signature>, xonly_public_keys: Vec<XOnlyPublicKey>) {
+    
 }
 
 pub fn create_btc_tx(tx_ins: Vec<TxIn>, tx_outs: Vec<TxOut>) -> bitcoin::Transaction {
@@ -637,6 +643,67 @@ pub fn create_inscription_transactions(actor: &Actor, utxo: OutPoint, preimages:
 
 }
 
+pub fn get_work_at_block(rpc: &Client, blockheight: u64) -> Work {
+    let block_hash = rpc.get_block_hash(blockheight).unwrap();
+    let block = rpc.get_block(&block_hash).unwrap();
+    let work = block.header.work();
+    // println!("work: {:?}", work);
+    work
+}
+
+pub fn calculate_total_work_between_blocks(rpc: &Client, start: u64, end: u64) -> U256 {
+    if start == end {
+        return U256::from_be_bytes([0u8; 32]);
+    }
+    let mut total_work = Work::from_be_bytes([0u8; 32]);
+    for i in start + 1..end + 1 {
+        let block_hash = rpc.get_block_hash(i as u64).unwrap();
+        let block = rpc.get_block(&block_hash).unwrap();
+        let work = block.header.work();
+        // println!("work work work: {:?}", work);
+        total_work = total_work + work;
+    }
+    let work_bytes = total_work.to_be_bytes();
+    let res = U256::from_be_bytes(work_bytes);
+    return res;
+}
+
+pub fn get_total_work_at_block(blockheight: u64, rpc: &Client) -> Work {
+    let mut curr_work = get_total_work(rpc);
+    let mut curr_block_height = get_block_height(rpc);
+
+    while curr_block_height > blockheight {
+        let block_hash = rpc.get_block_hash(curr_block_height).unwrap();
+        let block = rpc.get_block(&block_hash).unwrap();
+        let work = block.header.work();
+        // println!("work work work: {:?}", block.header.work());
+        curr_work = curr_work - work;
+        curr_block_height = curr_block_height - 1;
+    }
+    return curr_work;
+}
+
+pub fn get_total_work_as_u256(rpc: &Client) -> U256 {
+    let chain_info = rpc.get_blockchain_info().unwrap();
+    let total_work_bytes = chain_info.chain_work;
+    let total_work: U256 = U256::from_be_bytes(total_work_bytes.try_into().unwrap());
+    return total_work;
+}
+
+pub fn get_total_work(rpc: &Client) -> Work {
+    let chain_info = rpc.get_blockchain_info().unwrap();
+    let total_work_bytes = chain_info.chain_work;
+    let total_work: Work = Work::from_be_bytes(total_work_bytes.try_into().unwrap());
+    return total_work;
+
+}
+
+pub fn get_block_height(rpc: &Client) -> u64 {
+    let chain_info = rpc.get_blockchain_info().unwrap();
+    let block_height = chain_info.blocks;
+    return block_height;
+}
+
 #[cfg(test)]
 mod tests {
 
@@ -875,7 +942,7 @@ mod tests {
         println!("utxo_txid: {:?}", utxo_txid);
         let rpc_utxo_tx = operator.rpc.get_raw_transaction(&utxo_txid, None).unwrap();
         println!("rpc_utxo_tx: {:?}", rpc_utxo_tx);
-        // mine_blocks(&rpc, 5);
+        mine_blocks(&rpc, 5);
         let mut connector_tree_tx = Transaction {
             version: Version(2),
             lock_time: absolute::LockTime::from_consensus(0),

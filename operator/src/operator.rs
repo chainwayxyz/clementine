@@ -101,12 +101,6 @@ pub struct Operator<'a> {
     pub current_preimage_for_deposit_requests: PreimageType,
 }
 
-pub fn check_presigns(
-    utxo: OutPoint,
-    deposit_presigns: &DepositPresigns,
-) {
-}
-
 impl<'a> Operator<'a> {
     pub fn new(rng: &mut OsRng, rpc: &'a Client, num_verifier: u32) -> Self {
         let signer = Actor::new(rng);
@@ -194,7 +188,7 @@ impl<'a> Operator<'a> {
                     self.signer.address.clone(),
                 );
                 println!("checked new deposit");
-                check_presigns(deposit_utxo, &deposit_presigns);
+                // check_presigns(deposit_utxo, &deposit_presigns);
                 println!("checked presigns");
                 deposit_presigns
             })
@@ -249,7 +243,7 @@ impl<'a> Operator<'a> {
             .rpc
             .send_to_address(
                 &withdrawal_address,
-                bitcoin::Amount::from_sat(1),
+                bitcoin::Amount::from_sat(100_000_000),
                 None,
                 None,
                 None,
@@ -258,6 +252,7 @@ impl<'a> Operator<'a> {
                 None,
             )
             .unwrap();
+        println!("operator paid to withdrawal address: {:?}, txid: {:?}", withdrawal_address, txid);
         self.withdrawals_payment_txids.push(txid);
     }
 
@@ -832,7 +827,7 @@ mod tests {
 
         for i in 0..NUM_USERS {
             let user = &users[i];
-            let (start_utxo, start_amount) = user.create_start_utxo(&rpc, Amount::from_sat(BRIDGE_AMOUNT_SATS) + Amount::from_sat(MIN_RELAY_FEE));
+            let (start_utxo, _) = user.create_start_utxo(&rpc, Amount::from_sat(BRIDGE_AMOUNT_SATS) + Amount::from_sat(MIN_RELAY_FEE));
             let hash= HASH_FUNCTION_32(operator.current_preimage_for_deposit_requests);
 
             let signatures = operator.new_deposit(

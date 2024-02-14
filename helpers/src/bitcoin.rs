@@ -61,6 +61,23 @@ pub fn validate_threshold_and_add_work(
     old_work.wrapping_add(&work)
 }
 
+pub fn validate_threshold_and_subtract_work(
+    block_header: BlockHeader,
+    block_hash: [u8; 32],
+    old_work: U256,
+) -> U256 {
+    // Step 1: Decode the target from the 'bits' field
+    let target = decode_compact_target(block_header.bits);
+
+    // Step 2: Compare the block hash with the target
+    check_hash_valid(block_hash, target);
+
+    // Step 3: Calculate work
+    let work = calculate_work(target);
+
+    old_work.wrapping_sub(&work)
+}
+
 pub fn decode_compact_target(bits: [u8; 4]) -> [u8; 32] {
     let mut bits = bits;
     bits.reverse();

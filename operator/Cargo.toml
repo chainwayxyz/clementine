@@ -17,3 +17,4 @@ serde = "1.0"
 serde_json = "1.0.108"
 byteorder = "1.5.0"
 secp256k1 = "0.28.1"
+crypto-bigint = {version="=0.5.2"}

@@ -13,11 +13,11 @@ use operator::{
     operator::{Operator, PreimageType},
     user::User,
     utils::{
-        calculate_amount, create_connector_binary_tree, create_utxo,
-        handle_connector_binary_tree_script, mine_blocks,
+        calculate_amount, calculate_total_work_between_blocks, create_connector_binary_tree, create_utxo, handle_connector_binary_tree_script, mine_blocks
     },
     verifier::Verifier,
 };
+use crypto_bigint::{Encoding, U256};
 
 fn main() {
     let mut bridge_funds: Vec<bitcoin::Txid> = Vec::new();
@@ -116,7 +116,7 @@ fn main() {
 
     for i in 0..NUM_USERS {
         let user = &users[i];
-        let (start_utxo, start_amount) =
+        let (start_utxo, _) =
             user.create_start_utxo(&rpc, Amount::from_sat(BRIDGE_AMOUNT_SATS) + Amount::from_sat(MIN_RELAY_FEE));
         let hash = HASH_FUNCTION_32(operator.current_preimage_for_deposit_requests);
 
@@ -207,16 +207,6 @@ fn main() {
 
     let flattened_slice: &[u8] = &flattened_preimages;
 
-    // let mut test_hasher_1 = Sha256::new();
-    // test_hasher_1.update([1u8]);
-    // test_hasher_1.update([2u8]);
-    // let test_hash_1: [u8; 32] = test_hasher_1.finalize().try_into().unwrap();
-    // println!("test_hash_1: {:?}", test_hash_1);
-    // let mut test_hasher_2 = Sha256::new();
-    // test_hasher_2.update([1u8, 2u8]);
-    // let test_hash_2: [u8; 32] = test_hasher_2.finalize().try_into().unwrap();
-    // println!("test_hash_2: {:?}", test_hash_2);
-
     let calculated_merkle_root = get_script_hash(
         operator.signer.xonly_public_key.serialize(),
         flattened_slice,
@@ -256,16 +246,50 @@ fn main() {
     println!("utxos verifier track: {:?}", utxos_verifier_track);
     println!("preimages verifier track: {:?}", preimages_verifier_track);
 
-    // for (i, utxo_to_claim_with) in utxo_tree[utxo_tree.len() - 1].iter().enumerate() {
-
-    //         let preimage = operator.connector_tree_preimages[utxo_tree.len() - 1][i];
-    //         println!("preimage: {:?}", preimage);
-    //         operator.claim_deposit(i as u32);
-    // }
-
-    mine_blocks(&rpc, 2);
-
-    for i in 0..NUM_USERS {
-        operator.claim_deposit(i);
+    for i in 0..3 {
+        operator.new_withdrawal(users[i].signer.address.clone());
+        mine_blocks(&rpc, 1)
     }
+
+    //k-deep assumption
+    mine_blocks(&rpc, 10);
+
+    let chain_info = rpc.get_blockchain_info().unwrap();
+    let total_work_bytes = chain_info.chain_work;
+    let total_work: U256 = U256::from_be_bytes(total_work_bytes.try_into().unwrap());
+    let curr_blockheight = rpc.get_block_count().unwrap();
+    let curr_block_hash = rpc.get_best_block_hash().unwrap();
+    println!("curr_block_height: {:?}", curr_blockheight);
+    println!("curr_block_hash: {:?}", curr_block_hash);
+    println!("total_work: {:?}", total_work);
+
+    let done_wd_pi_inscription_blockheight: u64;
+    let mut wd_blockheight = 0;
+
+    for wd_txid in operator.withdrawals_payment_txids.clone() {
+        println!("for withdrawal txid: {:?}", wd_txid);
+        wd_blockheight = rpc.get_transaction(&wd_txid, None).unwrap().info.blockheight.unwrap() as u64;
+        println!("wd blockheight: {:?}", wd_blockheight);
+    }
+
+    done_wd_pi_inscription_blockheight = wd_blockheight;
+    println!("prover done with withdrawals and preimages inscription, blockheight: {:?}", done_wd_pi_inscription_blockheight);
+    // let done_wd_pi_inscription_blockhash = rpc.get_block_hash(done_wd_pi_inscription_blockheight as u64).unwrap();
+
+    let test_work = calculate_total_work_between_blocks(&rpc, curr_blockheight - 100, curr_blockheight);
+    println!("test_work: {:?}", test_work);
+
+
+    let wanted_work = calculate_total_work_between_blocks(&rpc, done_wd_pi_inscription_blockheight, curr_blockheight);
+    let wanted_blockhash = curr_block_hash;
+    let wanted_blockheight = curr_blockheight;
+
+    println!("wanted_work: {:?}", wanted_work);
+    println!("wanted_blockhash: {:?}", wanted_blockhash);
+    println!("wanted_blockheight: {:?}", wanted_blockheight);
+    // println!("test: {:?}", test);
+
+    // for i in 0..NUM_USERS {
+    //     operator.claim_deposit(i);
+    // }
 }
