@@ -6,7 +6,7 @@ edition = "2021"
 [workspace]
 
 [dependencies]
-circuit-helpers = { path = "../../../../helpers" }
+circuit-helpers = { path = "../../../helpers" }
 risc0-zkvm = { version = "0.19.1", default-features = false}
 crypto-bigint = {version="=0.5.2", default-features = false}
 sha2 = {version="=0.10.6", default-features = false}

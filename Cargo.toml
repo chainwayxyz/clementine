@@ -1,6 +1,6 @@
 [workspace]
 resolver = "2"
-members = ["circuits/operator/methods",  "circuits/verifier", "operator", "helpers"]
+members = ["circuits/operator",  "circuits/verifier", "operator", "helpers"]
 
 # Always optimize; building and running the guest takes much longer without optimization.
 [profile.dev]
