@@ -13,11 +13,10 @@ use secp256k1::All;
 use secp256k1::{rand::rngs::OsRng, XOnlyPublicKey};
 
 use crate::operator::PreimageType;
-use crate::utils::{create_btc_tx, create_control_block, create_kickoff_tx, create_taproot_address, create_tx_ins, create_tx_ins_with_sequence, create_tx_outs, create_utxo, generate_hash_script, generate_n_of_n_script, handle_connector_binary_tree_script, handle_taproot_witness};
+use crate::utils::{create_btc_tx, create_control_block, create_move_tx, create_taproot_address, create_tx_ins, create_tx_ins_with_sequence, create_tx_outs, create_utxo, generate_deposit_address, generate_hash_script, generate_n_of_n_script, handle_connector_binary_tree_script, handle_taproot_witness};
 use crate::{
     actor::Actor,
-    operator::{check_deposit, DepositPresigns},
-    user::User,
+    operator::DepositPresigns,
     utils::generate_n_of_n_script_without_hash,
 };
 
@@ -66,7 +65,8 @@ impl<'a> Verifier<'a> {
 
     pub fn new_deposit(
         &self,
-        utxo: OutPoint,
+        start_utxo: OutPoint,
+        deposit_amount: Amount,
         index: u32,
         hash: [u8; 32],
         return_address: XOnlyPublicKey,
@@ -75,78 +75,64 @@ impl<'a> Verifier<'a> {
         operator_address: Address,
     ) -> DepositPresigns {
         // println!("all_verifiers in new_deposit, in verifier now: {:?}", all_verifiers);
-        let timestamp = check_deposit(
-            &self.secp,
-            self.rpc,
-            utxo,
-            hash,
-            return_address,
-            &all_verifiers,
-        );
+        let (deposit_address, _) =
+        generate_deposit_address(&self.signer.secp, &all_verifiers, return_address, hash);
+        let deposit_tx_ins = create_tx_ins(vec![start_utxo]);
+        let deposit_tx_outs = create_tx_outs(vec![(deposit_amount, deposit_address.script_pubkey())]);
+        let deposit_tx = create_btc_tx(deposit_tx_ins, deposit_tx_outs);
+        let deposit_txid = deposit_tx.txid();
+        println!("verifier calculated deposit_txid: {:?}", deposit_txid);
+        let deposit_utxo = create_utxo(deposit_txid, 0);
         let script_n_of_n = generate_n_of_n_script(&all_verifiers, hash);
-
         let script_n_of_n_without_hash = generate_n_of_n_script_without_hash(&all_verifiers);
+
         let (multisig_address, _) = create_taproot_address(&self.signer.secp, vec![script_n_of_n_without_hash.clone()]);
         println!("verifier presigning multisig address: {:?}", multisig_address);
-        println!("verifier presigning multisig script pubkey: {:?}", multisig_address.script_pubkey());
 
-        // let (anyone_can_spend_script_pub_key, dust_value) = handle_anyone_can_spend_script();
-        
-        let mut kickoff_tx = create_kickoff_tx(vec![utxo], vec![
+        let mut move_tx = create_move_tx(vec![deposit_utxo], vec![
             (
-                BRIDGE_AMOUNT_SATS
-                    - MIN_RELAY_FEE,
+                deposit_amount - Amount::from_sat(MIN_RELAY_FEE),
                 multisig_address.script_pubkey().clone(),
-            ),
-            // (DUST_VALUE, anyone_can_spend_script_pub_key.clone()),
+            )
         ]);
 
-        
+        let prevouts = create_tx_outs(vec![(deposit_amount, deposit_address.script_pubkey())]);
 
-        let (deposit_address, _) =
-            User::generate_deposit_address(&self.signer.secp, &all_verifiers, hash, return_address);
+        let move_sign = self.signer.sign_taproot_script_spend_tx(&mut move_tx, prevouts, &script_n_of_n, 0);
+        let move_txid = move_tx.txid();
 
-        let prevouts = create_tx_outs(vec![(BRIDGE_AMOUNT_SATS, deposit_address.script_pubkey())]);
-
-        let kickoff_sign = self.signer.sign_taproot_script_spend_tx(&mut kickoff_tx, prevouts, &script_n_of_n, 0);
-        let kickoff_txid = kickoff_tx.txid();
-
-        let prev_outpoint = create_utxo(kickoff_txid, 0);
-        let prev_amount = BRIDGE_AMOUNT_SATS
-            - MIN_RELAY_FEE;
+        let prev_outpoint = create_utxo(move_txid, 0);
+        let prev_amount = deposit_amount
+            - Amount::from_sat(MIN_RELAY_FEE);
 
         println!("creating operator claim tx");
         println!("index: {:?}", index);
-
-        // println!("connector_tree_utxos: {:?}", self.connector_tree_utxos);
 
         let mut operator_claim_tx_ins = create_tx_ins(vec![prev_outpoint]);
 
         operator_claim_tx_ins.extend(create_tx_ins_with_sequence(vec![self.connector_tree_utxos[self.connector_tree_utxos.len() - 1][index as usize]]));
 
-        let operator_claim_tx_outs = create_tx_outs(vec![(prev_amount + DUST_VALUE - MIN_RELAY_FEE, operator_address.script_pubkey())]);
+        let operator_claim_tx_outs = create_tx_outs(vec![(prev_amount + Amount::from_sat(DUST_VALUE) - Amount::from_sat(MIN_RELAY_FEE), operator_address.script_pubkey())]);
 
         let mut operator_claim_tx = create_btc_tx(operator_claim_tx_ins, operator_claim_tx_outs);
 
-        // println!("verifier presigning operator_claim_tx: {:?}", operator_claim_tx);
         let (address, _) = handle_connector_binary_tree_script(&self.secp, self.operator_pk, self.connector_tree_hashes[self.connector_tree_hashes.len() - 1][index as usize]);
 
-        let prevouts = create_tx_outs(vec![(prev_amount, multisig_address.script_pubkey().clone()), (DUST_VALUE, address.script_pubkey())]);
+        let prevouts = create_tx_outs(vec![(prev_amount, multisig_address.script_pubkey().clone()), (Amount::from_sat(DUST_VALUE), address.script_pubkey())]);
 
         let operator_claim_sign = self.signer.sign_taproot_script_spend_tx(&mut operator_claim_tx, prevouts, &script_n_of_n_without_hash, 0);
 
         // println!("verifier presigning operator_claim_tx, sign: {:?}", operator_claim_sign);
 
         let rollup_sign = self.signer.sign_deposit(
-            kickoff_txid,
+            move_txid,
             evm_address,
             hash,
-            timestamp.to_consensus_u32().to_be_bytes(),
         );
 
         DepositPresigns {
             rollup_sign,
-            kickoff_sign,
+            move_sign,
             operator_claim_sign,
         }
     }
@@ -219,7 +205,7 @@ impl<'a> Verifier<'a> {
             hash,
         );
         let tx_ins = create_tx_ins_with_sequence(vec![utxo]);
-        let tx_outs = create_tx_outs(vec![(amount - MIN_RELAY_FEE, self.signer.address.script_pubkey())]);
+        let tx_outs = create_tx_outs(vec![(amount - Amount::from_sat(MIN_RELAY_FEE), self.signer.address.script_pubkey())]);
         let mut tx = create_btc_tx(tx_ins, tx_outs);
         let prevouts = create_tx_outs(vec![(amount, address.script_pubkey())]);
         let hash_script = generate_hash_script(hash);
@@ -255,7 +241,7 @@ impl<'a> Verifier<'a> {
             hash,
         );
         let tx_ins = create_tx_ins_with_sequence(vec![utxo]);
-        let tx_outs = create_tx_outs(vec![(amount - MIN_RELAY_FEE, self.signer.address.script_pubkey())]);
+        let tx_outs = create_tx_outs(vec![(amount - Amount::from_sat(MIN_RELAY_FEE), self.signer.address.script_pubkey())]);
         let mut tx = create_btc_tx(tx_ins, tx_outs);
         let prevouts = create_tx_outs(vec![(amount, address.script_pubkey())]);
         let hash_script = generate_hash_script(hash);

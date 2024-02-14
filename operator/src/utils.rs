@@ -28,7 +28,6 @@ use bitcoin::Witness;
 use bitcoincore_rpc::Client;
 use bitcoincore_rpc::RpcApi;
 use circuit_helpers::constant::{Data, DUST_VALUE, MIN_RELAY_FEE};
-use circuit_helpers::constant::REGTEST;
 use secp256k1::All;
 use secp256k1::Secp256k1;
 use secp256k1::XOnlyPublicKey;
@@ -57,20 +56,20 @@ lazy_static! {
     .unwrap();
 }
 
-pub fn get_indices(depth: usize, count: u32) -> Vec<(usize, u32)> {
+pub fn get_indices(depth: usize, count: u32) -> Vec<(usize, usize)> {
     assert!(count <= 2u32.pow(depth as u32));
 
     if count == 0 {
         return vec![(0, 0)];
     }
 
-    let mut indices: Vec<(usize, u32)> = Vec::new();
+    let mut indices: Vec<(usize, usize)> = Vec::new();
     if count == 2u32.pow(depth as u32) {
         return indices;
     }
 
     if count % 2 == 1 {
-        indices.push((depth, count));
+        indices.push((depth, count as usize));
         indices.extend(get_indices(depth - 1, (count + 1) / 2));
     } else {
         indices.extend(get_indices(depth - 1, count / 2));
@@ -79,20 +78,20 @@ pub fn get_indices(depth: usize, count: u32) -> Vec<(usize, u32)> {
     return indices;
 }
 
-pub fn get_internal_indices(depth: usize, count: u32) -> Vec<(usize, u32)> {
+pub fn get_internal_indices(depth: usize, count: u32) -> Vec<(usize, usize)> {
     assert!(count <= 2u32.pow(depth as u32));
 
     if count == 2u32.pow(depth as u32) {
         return vec![(0, 0)];
     }
 
-    let mut indices: Vec<(usize, u32)> = Vec::new();
+    let mut indices: Vec<(usize, usize)> = Vec::new();
     if count == 0 {
         return indices;
     }
 
     if count % 2 == 1 {
-        indices.push((depth, count - 1));
+        indices.push((depth, count as usize - 1));
         indices.extend(get_internal_indices(depth - 1, (count - 1) / 2));
     } else {
         indices.extend(get_internal_indices(depth - 1, count / 2));
@@ -101,7 +100,7 @@ pub fn get_internal_indices(depth: usize, count: u32) -> Vec<(usize, u32)> {
     return indices;
 }
 
-pub fn get_custom_merkle_indices(depth: usize, count: u32) -> Vec<(usize, u32)> {
+pub fn get_custom_merkle_indices(depth: usize, count: u32) -> Vec<(usize, usize)> {
     assert!(count <= 2u32.pow(depth as u32));
 
     if count == 0 {
@@ -112,7 +111,7 @@ pub fn get_custom_merkle_indices(depth: usize, count: u32) -> Vec<(usize, u32)> 
         return vec![];
     }
 
-    let mut indices: Vec<(usize, u32)> = Vec::new();
+    let mut indices: Vec<(usize, usize)> = Vec::new();
     let mut level = 0;
     let mut index = count;
     while index % 2 == 0 {
@@ -122,9 +121,9 @@ pub fn get_custom_merkle_indices(depth: usize, count: u32) -> Vec<(usize, u32)> 
 
     while level < depth {
         if index % 2 == 1 {
-            indices.push((level + 1, (index - 1) / 2));
+            indices.push((level + 1, (index as usize - 1) / 2));
         } else {
-            indices.push((level + 1, index / 2))
+            indices.push((level + 1, index as usize / 2))
         }
         level = level + 1;
         index = index / 2;
@@ -326,13 +325,14 @@ pub fn create_taproot_address(
     for script in scripts {
         taproot_builder = taproot_builder.add_leaf(depth, script).unwrap();
     }
+    // println!("taproot_builder: {:?}", taproot_builder);
     let internal_key = *INTERNAL_KEY;
     let tree_info = taproot_builder.finalize(&secp, internal_key).unwrap();
     (
-        Address::p2tr(&secp, internal_key, tree_info.merkle_root(), REGTEST),
+        Address::p2tr(&secp, internal_key, tree_info.merkle_root(), bitcoin::Network::Regtest),
         tree_info,
     )
-}
+}  
 
 pub fn create_control_block(tree_info: TaprootSpendInfo, script: &ScriptBuf) -> ControlBlock {
     tree_info
@@ -367,19 +367,19 @@ pub fn generate_dust_script(eth_address: [u8; 20]) -> ScriptBuf {
 
 pub fn generate_deposit_address(
     secp: &Secp256k1<All>,
-    verifiers_pks: Vec<XOnlyPublicKey>,
+    verifiers_pks: &Vec<XOnlyPublicKey>,
     user_pk: XOnlyPublicKey,
     hash: [u8; 32],
 ) -> (Address, TaprootSpendInfo) {
-    let script_nofn = generate_n_of_n_script(&verifiers_pks, hash);
+    let script_n_of_n = generate_n_of_n_script(&verifiers_pks, hash);
     let script_timelock = generate_timelock_script(user_pk, USER_TAKES_AFTER);
     let taproot = TaprootBuilder::new()
-        .add_leaf(1, script_nofn.clone())
+        .add_leaf(1, script_n_of_n.clone())
         .unwrap()
         .add_leaf(1, script_timelock.clone())
         .unwrap();
     let tree_info = taproot.finalize(secp, *INTERNAL_KEY).unwrap();
-    let address = Address::p2tr(secp, *INTERNAL_KEY, tree_info.merkle_root(), REGTEST);
+    let address = Address::p2tr(secp, *INTERNAL_KEY, tree_info.merkle_root(), bitcoin::Network::Regtest);
     (address, tree_info)
 }
 
@@ -390,7 +390,7 @@ pub fn generate_dust_address(
     let script = generate_dust_script(eth_address);
     let taproot = TaprootBuilder::new().add_leaf(0, script.clone()).unwrap();
     let tree_info = taproot.finalize(secp, *INTERNAL_KEY).unwrap();
-    let address = Address::p2tr(secp, *INTERNAL_KEY, tree_info.merkle_root(), REGTEST);
+    let address = Address::p2tr(secp, *INTERNAL_KEY, tree_info.merkle_root(), bitcoin::Network::Regtest);
     (address, tree_info)
 }
 
@@ -449,7 +449,7 @@ pub fn create_utxo(txid: Txid, vout: u32) -> OutPoint {
     OutPoint { txid, vout }
 }
 
-pub fn create_kickoff_tx(
+pub fn create_move_tx(
     ins: Vec<OutPoint>,
     outs: Vec<(Amount, ScriptBuf)>,
 ) -> bitcoin::Transaction {
@@ -487,8 +487,8 @@ pub fn create_connector_tree_tx(
     // UTXO value should be at least 2^depth * dust_value + (2^depth-1) * fee
     let tx_ins = create_tx_ins_with_sequence(vec![*utxo]);
     let tx_outs = create_tx_outs(vec![
-        (calculate_amount(depth, DUST_VALUE, MIN_RELAY_FEE), first_address.script_pubkey()),
-        (calculate_amount(depth, DUST_VALUE, MIN_RELAY_FEE), second_address.script_pubkey()),
+        (calculate_amount(depth, Amount::from_sat(DUST_VALUE), Amount::from_sat(MIN_RELAY_FEE)), first_address.script_pubkey()),
+        (calculate_amount(depth, Amount::from_sat(DUST_VALUE), Amount::from_sat(MIN_RELAY_FEE)), second_address.script_pubkey()),
     ]);
     create_btc_tx(tx_ins, tx_outs)
 }
@@ -515,7 +515,7 @@ pub fn create_connector_binary_tree(
     connector_tree_hashes: Vec<Vec<[u8; 32]>>,
 ) -> Vec<Vec<OutPoint>> {
     // UTXO value should be at least 2^depth * dust_value + (2^depth-1) * fee
-    let total_amount = calculate_amount(depth, DUST_VALUE, MIN_RELAY_FEE);
+    let total_amount = calculate_amount(depth, Amount::from_sat(DUST_VALUE), Amount::from_sat(MIN_RELAY_FEE));
     println!("total_amount: {:?}", total_amount);
 
     let (root_address, _) = handle_connector_binary_tree_script(
@@ -523,10 +523,10 @@ pub fn create_connector_binary_tree(
         xonly_public_key,
         connector_tree_hashes[0][0],
     );
-    println!(
-        "root dust value: {:?}",
-        root_address.clone().script_pubkey().dust_value()
-    );
+    // println!(
+    //     "root dust value: {:?}",
+    //     root_address.clone().script_pubkey().dust_value()
+    // );
 
     let root_txid = root_utxo.txid;
     let root_tx = rpc.get_raw_transaction(&root_txid, None).unwrap();
@@ -579,8 +579,8 @@ pub fn create_connector_binary_tree(
         tx_binary_tree.push(tx_tree_current_level);
     }
 
-    println!("utxo_binary_tree: {:?}", utxo_binary_tree);
-    println!("tx_binary_tree: {:?}", tx_binary_tree);
+    // println!("utxo_binary_tree: {:?}", utxo_binary_tree);
+    // println!("tx_binary_tree: {:?}", tx_binary_tree);
 
     utxo_binary_tree
 }
@@ -603,13 +603,17 @@ pub fn create_inscription_transactions(actor: &Actor, utxo: OutPoint, preimages:
     let inscribe_preimage_script = create_inscription_script_32_bytes(actor.xonly_public_key, preimages);
 
     let (incription_address, inscription_tree_info) = create_taproot_address(&actor.secp, vec![inscribe_preimage_script.clone()]);
+    // println!("inscription tree merkle root: {:?}", inscription_tree_info.merkle_root());
     let commit_tx_ins = create_tx_ins(vec![utxo]);
-    let commit_tx_outs = create_tx_outs(vec![(DUST_VALUE * 2, incription_address.script_pubkey())]);
+    let commit_tx_outs = create_tx_outs(vec![(Amount::from_sat(DUST_VALUE) * 2, incription_address.script_pubkey())]);
     let mut commit_tx = create_btc_tx(commit_tx_ins, commit_tx_outs);
     let commit_tx_prevouts = vec![TxOut {
-        value: DUST_VALUE * 3,
+        value: Amount::from_sat(DUST_VALUE) * 3,
         script_pubkey: actor.address.script_pubkey(),
     }];
+
+    println!("inscription merkle root: {:?}", inscription_tree_info.merkle_root());
+    println!("inscription output key: {:?}", inscription_tree_info.output_key());
     
     let commit_tx_sig = actor.sign_taproot_pubkey_spend_tx(&mut commit_tx, commit_tx_prevouts, 0);
     let mut commit_tx_sighash_cache = SighashCache::new(commit_tx.borrow_mut());
@@ -617,11 +621,11 @@ pub fn create_inscription_transactions(actor: &Actor, utxo: OutPoint, preimages:
     witness.push(commit_tx_sig.as_ref());
 
     let reveal_tx_ins = create_tx_ins(vec![create_utxo(commit_tx.txid(), 0)]);
-    let reveal_tx_outs = create_tx_outs(vec![(DUST_VALUE, actor.address.script_pubkey())]);
+    let reveal_tx_outs = create_tx_outs(vec![(Amount::from_sat(DUST_VALUE), actor.address.script_pubkey())]);
     let mut reveal_tx = create_btc_tx(reveal_tx_ins, reveal_tx_outs);
 
     let reveal_tx_prevouts = vec![TxOut {
-        value: DUST_VALUE * 2,
+        value: Amount::from_sat(DUST_VALUE) * 2,
         script_pubkey: incription_address.script_pubkey(),
     }];
     let reveal_tx_sig = actor.sign_taproot_script_spend_tx(&mut reveal_tx, reveal_tx_prevouts, &inscribe_preimage_script, 0);
@@ -652,7 +656,6 @@ mod tests {
     use crate::utils::{get_indices, get_internal_indices};
     use crate::{
         operator::Operator,
-        user::User,
         utils::{from_hex_to_tx, parse_hex_to_btc_tx},
     };
 
