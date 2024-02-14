@@ -268,6 +268,8 @@ fn main() {
 
     for wd_txid in operator.withdrawals_payment_txids.clone() {
         println!("for withdrawal txid: {:?}", wd_txid);
+        let wd_tx = rpc.get_raw_transaction(&wd_txid, None).unwrap();
+        println!("wd_tx: {:?}", wd_tx);
         wd_blockheight = rpc.get_transaction(&wd_txid, None).unwrap().info.blockheight.unwrap() as u64;
         println!("wd blockheight: {:?}", wd_blockheight);
     }

@@ -36,7 +36,7 @@ use secp256k1::XOnlyPublicKey;
 use serde::de::DeserializeOwned;
 use serde::Serialize;
 
-use circuit_helpers::core_tx::Transaction;
+use circuit_helpers::core_tx::CoreTransaction;
 use circuit_helpers::core_tx::TxInput;
 use circuit_helpers::core_tx::TxOutput;
 
@@ -214,13 +214,13 @@ pub fn from_bytes_to_hex(input: &[u8]) -> String {
 
 pub fn from_hex_to_tx<const INPUTS_COUNT: usize, const OUTPUTS_COUNT: usize>(
     input: &str,
-) -> Transaction<INPUTS_COUNT, OUTPUTS_COUNT, 221>
+) -> CoreTransaction<INPUTS_COUNT, OUTPUTS_COUNT, 221>
 where
     [TxInput; INPUTS_COUNT]: Serialize + DeserializeOwned + Copy,
     [TxOutput; OUTPUTS_COUNT]: Serialize + DeserializeOwned + Copy,
 {
     let btc_tx = parse_hex_to_btc_tx(input).unwrap();
-    let mut tx = Transaction::<INPUTS_COUNT, OUTPUTS_COUNT, 221>::empty();
+    let mut tx = CoreTransaction::<INPUTS_COUNT, OUTPUTS_COUNT, 221>::empty();
     tx.version = btc_tx.version.0;
     tx.input_count = btc_tx.input.len() as u8;
     for i in 0..btc_tx.input.len() {

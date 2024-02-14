@@ -94,7 +94,7 @@ impl TxOutput {
 }
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize)]
-pub struct Transaction<
+pub struct CoreTransaction<
     const INPUTS_COUNT: usize,
     const OUTPUTS_COUNT: usize,
     const TOTAL_SIZE: usize,
@@ -111,7 +111,7 @@ pub struct Transaction<
 }
 
 impl<const INPUTS_COUNT: usize, const OUTPUTS_COUNT: usize, const TOTAL_SIZE: usize>
-    Transaction<INPUTS_COUNT, OUTPUTS_COUNT, TOTAL_SIZE>
+    CoreTransaction<INPUTS_COUNT, OUTPUTS_COUNT, TOTAL_SIZE>
 where
     [TxInput; INPUTS_COUNT]: Serialize + DeserializeOwned + Copy,
     [TxOutput; OUTPUTS_COUNT]: Serialize + DeserializeOwned + Copy,
@@ -174,7 +174,7 @@ where
     }
 
     pub fn calculate_txid(&self) -> [u8; 32] {
-        let serialized_tx = self.serialize();
+        let serialized_tx: [u8; TOTAL_SIZE] = self.serialize();
         let hash = calculate_double_sha256(&serialized_tx);
         hash
     }
