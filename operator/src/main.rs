@@ -21,11 +21,6 @@ fn main() {
     let mut bridge_funds: Vec<bitcoin::Txid> = Vec::new();
     let rpc = ExtendedRpc::new();
 
-    let total_amount = calculate_amount(
-        CONNECTOR_TREE_DEPTH,
-        Amount::from_sat(DUST_VALUE),
-        Amount::from_sat(MIN_RELAY_FEE),
-    );
     let mut operator = Operator::new(&mut OsRng, &rpc, NUM_VERIFIERS as u32);
     let mut users = Vec::new();
     for _ in 0..NUM_USERS {
@@ -41,21 +36,17 @@ fn main() {
     let mut start_utxo_vec = Vec::new();
     let mut return_addresses = Vec::new();
 
-    let (root_address, _) = TransactionBuilder::create_connector_tree_node_address(
-        &operator.signer.secp,
-        operator.signer.xonly_public_key,
-        operator.connector_tree_hashes[0][0],
-    );
-    let root_utxo = operator
-        .rpc
-        .send_to_address(&root_address, total_amount.to_sat());
+    let connector_root_utxo = operator.create_connector_root();
+    for verifier in &mut operator.mock_verifier_access {
+        verifier.connector_root_utxo_created(operator.connector_tree_hashes.clone(), connector_root_utxo);
+    }
 
     let mut preimages_verifier_track: HashSet<PreimageType> = HashSet::new();
     let mut utxos_verifier_track: HashMap<OutPoint, (u32, u32)> = HashMap::new();
-    utxos_verifier_track.insert(root_utxo, (0, 0));
+    utxos_verifier_track.insert(connector_root_utxo, (0, 0));
 
     let mut flag =
-        operator.mock_verifier_access[0].did_connector_tree_process_start(root_utxo.clone());
+        operator.mock_verifier_access[0].did_connector_tree_process_start(connector_root_utxo.clone());
     println!("flag: {:?}", flag);
     if flag {
         operator.mock_verifier_access[0].watch_connector_tree(
@@ -67,28 +58,18 @@ fn main() {
 
     // println!("resource_utxo: {:?}", root_utxo);
 
-    let utxo_tree = create_connector_binary_tree(
-        &rpc.inner,
-        &operator.signer.secp,
-        operator.signer.xonly_public_key,
-        root_utxo,
-        CONNECTOR_TREE_DEPTH,
-        operator.connector_tree_hashes.clone(),
-    );
-
-    operator.set_connector_tree_utxos(utxo_tree.clone());
     // println!(
     //     "operator.connector_tree_utxos: {:?}",
     //     operator.connector_tree_utxos
     // );
-    for verifier in &mut operator.mock_verifier_access {
-        verifier.set_connector_tree_utxos(utxo_tree.clone());
-        verifier.set_connector_tree_hashes(operator.connector_tree_hashes.clone());
-        // println!(
-        //     "verifier.connector_tree_utxos: {:?}",
-        //     verifier.connector_tree_utxos
-        // );
-    }
+    // for verifier in &mut operator.mock_verifier_access {
+    //     verifier.set_connector_tree_utxos(utxo_tree.clone());
+    //     verifier.set_connector_tree_hashes(operator.connector_tree_hashes.clone());
+    //     // println!(
+    //     //     "verifier.connector_tree_utxos: {:?}",
+    //     //     verifier.connector_tree_utxos
+    //     // );
+    // }
 
     let mut fund_utxos = Vec::new();
 
@@ -128,7 +109,7 @@ fn main() {
         operator.change_preimage_for_deposit_requests(&mut OsRng);
     }
 
-    flag = operator.mock_verifier_access[0].did_connector_tree_process_start(root_utxo.clone());
+    flag = operator.mock_verifier_access[0].did_connector_tree_process_start(connector_root_utxo.clone());
     println!("flag: {:?}", flag);
     if flag {
         operator.mock_verifier_access[0].watch_connector_tree(
@@ -202,7 +183,7 @@ fn main() {
     );
     println!("test_res: {:?}", test_res);
 
-    for (i, utxo_level) in utxo_tree[0..utxo_tree.len() - 1].iter().enumerate() {
+    for (i, utxo_level) in operator.connector_tree_utxos[0..operator.connector_tree_utxos.len() - 1].iter().enumerate() {
         for (j, utxo) in utxo_level.iter().enumerate() {
             let preimage = operator.connector_tree_preimages[i][j];
             println!("preimage: {:?}", preimage);

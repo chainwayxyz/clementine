@@ -9,7 +9,7 @@ use crate::merkle::MerkleTree;
 use crate::script_builder::ScriptBuilder;
 use crate::transaction_builder::{self, TransactionBuilder};
 use crate::utils::{
-    create_connector_tree_tx, handle_anyone_can_spend_script, handle_taproot_witness,
+    calculate_amount, create_connector_binary_tree, create_connector_tree_tx, handle_anyone_can_spend_script, handle_taproot_witness
 };
 use crate::verifier::Verifier;
 use bitcoin::address::NetworkChecked;
@@ -371,7 +371,10 @@ impl<'a> Operator<'a> {
         let resource_utxo = self
             .rpc
             .send_to_address(&self.signer.address, BRIDGE_AMOUNT_SATS);
-        let resource_tx = self.rpc.get_raw_transaction(&resource_utxo.txid, None).unwrap();
+        let resource_tx = self
+            .rpc
+            .get_raw_transaction(&resource_utxo.txid, None)
+            .unwrap();
 
         let all_verifiers = self.get_all_verifiers();
 
@@ -383,10 +386,7 @@ impl<'a> Operator<'a> {
 
         let (anyone_can_spend_script_pub_key, _) = handle_anyone_can_spend_script();
 
-        let child_tx_ins = TransactionBuilder::create_tx_ins(vec![
-            parent_outpoint,
-            resource_utxo,
-        ]);
+        let child_tx_ins = TransactionBuilder::create_tx_ins(vec![parent_outpoint, resource_utxo]);
 
         let child_tx_outs = TransactionBuilder::create_tx_outs(vec![
             (
@@ -573,10 +573,7 @@ impl<'a> Operator<'a> {
 
         let inscription_source_utxo = self
             .rpc
-            .send_to_address(
-                &self.signer.address,
-                DUST_VALUE * 3,
-            );
+            .send_to_address(&self.signer.address, DUST_VALUE * 3);
         let (commit_tx, reveal_tx) = TransactionBuilder::create_inscription_transactions(
             &self.signer,
             inscription_source_utxo,
@@ -734,6 +731,34 @@ impl<'a> Operator<'a> {
             println!("claim successful, txid: {:?}", txid);
         }
     }
+
+    pub fn create_connector_root(&mut self) -> OutPoint {
+        let total_amount = calculate_amount(
+            CONNECTOR_TREE_DEPTH,
+            Amount::from_sat(DUST_VALUE),
+            Amount::from_sat(MIN_RELAY_FEE),
+        );
+        let (root_address, _) = TransactionBuilder::create_connector_tree_node_address(
+            &self.signer.secp,
+            self.signer.xonly_public_key,
+            self.connector_tree_hashes[0][0],
+        );
+        let root_utxo = self
+            .rpc
+            .send_to_address(&root_address, total_amount.to_sat());
+
+        let utxo_tree = create_connector_binary_tree(
+            &self.rpc.inner,
+            &self.signer.secp,
+            self.signer.xonly_public_key,
+            root_utxo,
+            CONNECTOR_TREE_DEPTH,
+            self.connector_tree_hashes.clone(),
+        );
+
+        self.set_connector_tree_utxos(utxo_tree.clone());
+        root_utxo
+    }
 }
 
 #[cfg(test)]
@@ -790,10 +815,7 @@ mod tests {
         );
         let root_utxo = operator
             .rpc
-            .send_to_address(
-                &root_address,
-                total_amount.to_sat(),
-            );
+            .send_to_address(&root_address, total_amount.to_sat());
 
         let mut preimages_verifier_track: HashSet<PreimageType> = HashSet::new();
         let mut utxos_verifier_track: HashMap<OutPoint, (u32, u32)> = HashMap::new();

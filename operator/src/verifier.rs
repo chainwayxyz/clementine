@@ -13,10 +13,10 @@ use secp256k1::{rand::rngs::OsRng, XOnlyPublicKey};
 use crate::operator::PreimageType;
 use crate::script_builder::ScriptBuilder;
 use crate::transaction_builder::TransactionBuilder;
-use crate::utils::{create_control_block, handle_taproot_witness};
+use crate::utils::{create_connector_binary_tree, create_control_block, handle_taproot_witness};
 use crate::{actor::Actor, operator::DepositPresigns};
 
-use circuit_helpers::config::BRIDGE_AMOUNT_SATS;
+use circuit_helpers::config::{BRIDGE_AMOUNT_SATS, CONNECTOR_TREE_DEPTH};
 
 #[derive(Debug, Clone)]
 pub struct Verifier<'a> {
@@ -65,6 +65,24 @@ impl<'a> Verifier<'a> {
 
     pub fn set_connector_tree_hashes(&mut self, connector_tree_hashes: Vec<Vec<[u8; 32]>>) {
         self.connector_tree_hashes = connector_tree_hashes;
+    }
+
+    pub fn connector_root_utxo_created(
+        &mut self,
+        connector_tree_hashes: Vec<Vec<[u8; 32]>>,
+        connector_root_utxo: OutPoint,
+    ) {
+        self.connector_tree_hashes = connector_tree_hashes;
+        let utxo_tree = create_connector_binary_tree(
+            &self.rpc,
+            &self.signer.secp,
+            self.signer.xonly_public_key,
+            connector_root_utxo,
+            CONNECTOR_TREE_DEPTH,
+            self.connector_tree_hashes.clone(),
+        );
+
+        self.set_connector_tree_utxos(utxo_tree.clone());
     }
 
     pub fn new_deposit(
