@@ -285,17 +285,17 @@ impl CustomMerkleTree {
 
         let flag = temp == self.root;
 
-        let mut total_claim = 0;
-        for hash_elem in proof.node_hash_elements {
-            total_claim += 2u32.pow(hash_elem.level as u32) as u32;
-        }
-        // println!("total claimed: {}", total_claim);
+        // let mut total_claim = 0;
+        // for hash_elem in proof.node_hash_elements {
+        //     total_claim += 2u32.pow(hash_elem.level as u32) as u32;
+        // }
+        // // println!("total claimed: {}", total_claim);
 
-        let mut total_not_claim = 0;
-        for preimage_elem in proof.preimage_elements {
-            total_not_claim += 2u32.pow(preimage_elem.level as u32) as u32;
-        }
-        // println!("total not claimed: {}", total_not_claim);
+        // let mut total_not_claim = 0;
+        // for preimage_elem in proof.preimage_elements {
+        //     total_not_claim += 2u32.pow(preimage_elem.level as u32) as u32;
+        // }
+        // // println!("total not claimed: {}", total_not_claim);
 
         return flag;
     }

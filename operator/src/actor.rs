@@ -21,9 +21,9 @@ use crate::transaction_builder::TransactionBuilder;
 
 #[derive(Clone, Debug, Copy)]
 pub struct EVMSignature {
-    v: u8,
-    r: [u8; 32],
-    s: [u8; 32],
+    pub v: u8,
+    pub r: [u8; 32],
+    pub s: [u8; 32],
 }
 
 #[derive(Clone, Debug)]

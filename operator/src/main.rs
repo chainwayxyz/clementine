@@ -1,7 +1,6 @@
 use std::collections::{HashMap, HashSet};
 
 use bitcoin::{secp256k1::rand::rngs::OsRng, Amount, OutPoint};
-use bitcoincore_rpc::{Auth, Client, RpcApi};
 use circuit_helpers::{
     bitcoin::{get_script_hash, verify_script_hash_taproot_address},
     config::{BRIDGE_AMOUNT_SATS, CONNECTOR_TREE_DEPTH, NUM_USERS, NUM_VERIFIERS},
@@ -65,7 +64,7 @@ fn main() {
         );
         let hash = HASH_FUNCTION_32(operator.current_preimage_for_deposit_requests);
 
-        let signatures = operator.new_deposit(
+        let _signatures = operator.new_deposit(
             start_utxo,
             i as u32,
             hash,

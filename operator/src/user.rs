@@ -39,7 +39,7 @@ impl<'a> User<'a> {
         rpc: &Client,
         start_utxo: OutPoint,
         deposit_amount: Amount,
-        secp: &Secp256k1<All>,
+        _secp: &Secp256k1<All>,
         verifiers_pks: Vec<XOnlyPublicKey>,
         hash: [u8; 32],
     ) -> (OutPoint, XOnlyPublicKey) {

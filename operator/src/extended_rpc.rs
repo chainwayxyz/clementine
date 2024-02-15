@@ -1,7 +1,7 @@
 use bitcoin::Address;
 use bitcoin::Amount;
 use bitcoin::OutPoint;
-use bitcoin::Txid;
+
 use bitcoin::Work;
 use bitcoincore_rpc::Auth;
 use bitcoincore_rpc::Client;

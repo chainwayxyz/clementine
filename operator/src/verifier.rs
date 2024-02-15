@@ -5,7 +5,6 @@ use bitcoin::consensus::serialize;
 use bitcoin::sighash::SighashCache;
 use bitcoin::{secp256k1, secp256k1::Secp256k1, OutPoint};
 use bitcoin::{Address, Amount, TxOut};
-use bitcoincore_rpc::{Client, RpcApi};
 use circuit_helpers::constant::{EVMAddress, DUST_VALUE, HASH_FUNCTION_32, MIN_RELAY_FEE};
 use secp256k1::All;
 use secp256k1::{rand::rngs::OsRng, XOnlyPublicKey};
@@ -17,7 +16,7 @@ use crate::transaction_builder::TransactionBuilder;
 use crate::utils::{create_control_block, handle_taproot_witness};
 use crate::{actor::Actor, operator::DepositPresigns};
 
-use circuit_helpers::config::{BRIDGE_AMOUNT_SATS, CONNECTOR_TREE_DEPTH};
+use circuit_helpers::config::CONNECTOR_TREE_DEPTH;
 
 #[derive(Debug, Clone)]
 pub struct Verifier<'a> {
@@ -92,7 +91,7 @@ impl<'a> Verifier<'a> {
         hash: [u8; 32],
         return_address: XOnlyPublicKey,
         evm_address: EVMAddress,
-        all_verifiers: &Vec<XOnlyPublicKey>,
+        _all_verifiers: &Vec<XOnlyPublicKey>,
         operator_address: Address,
     ) -> DepositPresigns {
         // println!("all_verifiers in new_deposit, in verifier now: {:?}", all_verifiers);
@@ -283,7 +282,7 @@ impl<'a> Verifier<'a> {
         let mut tx = TransactionBuilder::create_btc_tx(tx_ins, tx_outs);
         let prevouts = TransactionBuilder::create_tx_outs(vec![(amount, address.script_pubkey())]);
         let hash_script = ScriptBuilder::generate_hash_script(hash);
-        let sig = self
+        let _sig = self
             .signer
             .sign_taproot_script_spend_tx(&mut tx, prevouts, &hash_script, 0);
         // let spend_control_block = create_control_block(tree_info, &hash_script);
@@ -322,7 +321,7 @@ impl<'a> Verifier<'a> {
         let mut tx = TransactionBuilder::create_btc_tx(tx_ins, tx_outs);
         let prevouts = TransactionBuilder::create_tx_outs(vec![(amount, address.script_pubkey())]);
         let hash_script = ScriptBuilder::generate_hash_script(hash);
-        let sig = self
+        let _sig = self
             .signer
             .sign_taproot_script_spend_tx(&mut tx, prevouts, &hash_script, 0);
         let spend_control_block = create_control_block(tree_info, &hash_script);

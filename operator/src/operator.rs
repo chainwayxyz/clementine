@@ -7,7 +7,7 @@ use crate::custom_merkle::CustomMerkleTree;
 use crate::extended_rpc::ExtendedRpc;
 use crate::merkle::MerkleTree;
 use crate::script_builder::ScriptBuilder;
-use crate::transaction_builder::{self, TransactionBuilder};
+use crate::transaction_builder::TransactionBuilder;
 use crate::utils::{calculate_amount, handle_anyone_can_spend_script, handle_taproot_witness};
 use crate::verifier::Verifier;
 use bitcoin::address::NetworkChecked;
@@ -27,13 +27,13 @@ use secp256k1::{All, Secp256k1, XOnlyPublicKey};
 pub type PreimageType = [u8; 32];
 
 pub fn check_deposit(
-    secp: &Secp256k1<All>,
+    _secp: &Secp256k1<All>,
     rpc: &Client,
     start_utxo: OutPoint,
     deposit_utxo: OutPoint,
-    hash: [u8; 32],
-    return_address: XOnlyPublicKey,
-    verifiers_pks: &Vec<XOnlyPublicKey>,
+    _hash: [u8; 32],
+    _return_address: XOnlyPublicKey,
+    _verifiers_pks: &Vec<XOnlyPublicKey>,
 ) {
     // 1. Check if tx is mined in bitcoin
     // 2. Check if the start_utxo matches input[0].previous_output
@@ -233,7 +233,7 @@ impl<'a> Operator<'a> {
             ],
         );
 
-        let move_txid = move_tx.txid();
+        let _move_txid = move_tx.txid();
 
         let rollup_sign = self.signer.sign_deposit(deposit_txid, evm_address, hash);
         let mut all_rollup_signs = presigns_from_all_verifiers
@@ -293,7 +293,7 @@ impl<'a> Operator<'a> {
             .add(deposit_utxo.txid.to_byte_array());
         let preimage = self.current_preimage_for_deposit_requests.clone();
         let hash = HASH_FUNCTION_32(preimage);
-        let all_verifiers = self.get_all_verifiers();
+        let _all_verifiers = self.get_all_verifiers();
         let script_n_of_n = self.script_builder.generate_n_of_n_script(hash);
 
         let script_n_of_n_without_hash = self.script_builder.generate_n_of_n_script_without_hash();
@@ -369,12 +369,12 @@ impl<'a> Operator<'a> {
         let resource_utxo = self
             .rpc
             .send_to_address(&self.signer.address, BRIDGE_AMOUNT_SATS);
-        let resource_tx = self
+        let _resource_tx = self
             .rpc
             .get_raw_transaction(&resource_utxo.txid, None)
             .unwrap();
 
-        let all_verifiers = self.get_all_verifiers();
+        let _all_verifiers = self.get_all_verifiers();
 
         let script_n_of_n_without_hash = self.script_builder.generate_n_of_n_script_without_hash();
         let (address, _) = TransactionBuilder::create_taproot_address(
@@ -622,7 +622,7 @@ impl<'a> Operator<'a> {
 
         println!("operator ready to send claim_tx: {:?}", claim_tx);
 
-        let all_verifiers = self.get_all_verifiers();
+        let _all_verifiers = self.get_all_verifiers();
 
         let script_n_of_n_without_hash = self.script_builder.generate_n_of_n_script_without_hash();
         let (multisig_address, tree_info_0) = TransactionBuilder::create_taproot_address(
@@ -767,7 +767,6 @@ mod tests {
     use std::collections::{HashMap, HashSet};
 
     use bitcoin::{Amount, OutPoint};
-    use bitcoincore_rpc::{Auth, Client, RpcApi};
     use circuit_helpers::{
         bitcoin::{get_script_hash, verify_script_hash_taproot_address},
         config::{BRIDGE_AMOUNT_SATS, CONNECTOR_TREE_DEPTH, NUM_USERS, NUM_VERIFIERS},
@@ -778,7 +777,6 @@ mod tests {
     use crate::{
         extended_rpc::ExtendedRpc,
         operator::{Operator, PreimageType},
-        transaction_builder::TransactionBuilder,
         user::User,
         utils::calculate_amount,
     };
@@ -788,7 +786,7 @@ mod tests {
         let mut bridge_funds: Vec<bitcoin::Txid> = Vec::new();
         let rpc = ExtendedRpc::new();
 
-        let total_amount = calculate_amount(
+        let _total_amount = calculate_amount(
             CONNECTOR_TREE_DEPTH,
             Amount::from_sat(DUST_VALUE),
             Amount::from_sat(MIN_RELAY_FEE),
@@ -841,7 +839,7 @@ mod tests {
             );
             let hash = HASH_FUNCTION_32(operator.current_preimage_for_deposit_requests);
 
-            let signatures = operator.new_deposit(
+            let _signatures = operator.new_deposit(
                 start_utxo,
                 i as u32,
                 hash,

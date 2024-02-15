@@ -1,11 +1,11 @@
 use std::borrow::BorrowMut;
-use std::io::{self, Write};
 
+
+use bitcoin::opcodes::OP_TRUE;
 use bitcoin::sighash::SighashCache;
-use bitcoin::{self, Target, Work};
+use bitcoin::{self};
 
 use bitcoin::consensus::Decodable;
-use bitcoin::opcodes::{OP_FALSE, OP_TRUE};
 use bitcoin::script::Builder;
 use bitcoin::taproot::ControlBlock;
 use bitcoin::taproot::LeafVersion;
@@ -13,11 +13,9 @@ use bitcoin::taproot::TaprootBuilder;
 use bitcoin::taproot::TaprootSpendInfo;
 use bitcoin::Address;
 use bitcoin::Amount;
-use bitcoin::OutPoint;
+
 use bitcoin::ScriptBuf;
-use bitcoincore_rpc::Client;
-use bitcoincore_rpc::RpcApi;
-use circuit_helpers::constant::{Data, DUST_VALUE, MIN_RELAY_FEE};
+
 use secp256k1::Secp256k1;
 use secp256k1::XOnlyPublicKey;
 use secp256k1::{schnorr, All};
@@ -31,15 +29,15 @@ use circuit_helpers::core_tx::TxOutput;
 use byteorder::{ByteOrder, LittleEndian};
 use hex;
 
-use bitcoin::opcodes::all::*;
+
 use lazy_static::lazy_static;
 use std::str::FromStr;
 
-use circuit_helpers::config::{CONNECTOR_TREE_OPERATOR_TAKES_AFTER, USER_TAKES_AFTER};
 
-use crate::actor::Actor;
+
+
 use crate::script_builder::ScriptBuilder;
-use crate::transaction_builder::TransactionBuilder;
+
 
 lazy_static! {
     pub static ref INTERNAL_KEY: XOnlyPublicKey = XOnlyPublicKey::from_str(
@@ -127,9 +125,9 @@ pub fn parse_hex_to_btc_tx(
 }
 
 pub fn check_presigns(
-    tx: &bitcoin::Transaction,
-    presigns: Vec<schnorr::Signature>,
-    xonly_public_keys: Vec<XOnlyPublicKey>,
+    _tx: &bitcoin::Transaction,
+    _presigns: Vec<schnorr::Signature>,
+    _xonly_public_keys: Vec<XOnlyPublicKey>,
 ) {
 }
 
@@ -197,7 +195,6 @@ mod tests {
         sighash::SighashCache, taproot::LeafVersion, OutPoint, ScriptBuf, Transaction, TxIn,
         Witness,
     };
-    use bitcoincore_rpc::{Auth, Client, RpcApi};
     use circuit_helpers::config::NUM_VERIFIERS;
     use secp256k1::rand::rngs::OsRng;
 

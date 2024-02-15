@@ -296,7 +296,7 @@ impl TransactionBuilder {
         );
         println!("total_amount: {:?}", total_amount);
 
-        let (root_address, _) = TransactionBuilder::create_connector_tree_node_address(
+        let (_root_address, _) = TransactionBuilder::create_connector_tree_node_address(
             &self.secp,
             xonly_public_key,
             connector_tree_hashes[0][0],
