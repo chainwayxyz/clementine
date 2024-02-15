@@ -1,5 +1,6 @@
 use bitcoin::Address;
 use bitcoin::Amount;
+use bitcoin::OutPoint;
 use bitcoin::Txid;
 use bitcoin::Work;
 use bitcoincore_rpc::Auth;
@@ -8,6 +9,7 @@ use bitcoincore_rpc::RpcApi;
 use crypto_bigint::Encoding;
 use crypto_bigint::U256;
 
+#[derive(Debug)]
 pub struct ExtendedRpc {
     pub inner: Client,
 }
@@ -55,12 +57,12 @@ impl ExtendedRpc {
             .unwrap();
     }
 
-    pub fn send_to_address(&self, address: &Address, amount: u64) -> (Txid, u32) {
+    pub fn send_to_address(&self, address: &Address, amount_sats: u64) -> OutPoint {
         let txid = self
             .inner
             .send_to_address(
                 &address,
-                Amount::from_sat(amount),
+                Amount::from_sat(amount_sats),
                 None,
                 None,
                 None,
@@ -75,7 +77,7 @@ impl ExtendedRpc {
             .unwrap_or_else(|e| panic!("Failed to get transaction: {}", e));
 
         let vout = tx_result.details[0].vout;
-        (txid, vout)
+        OutPoint { txid, vout }
     }
 
     pub fn get_work_at_block(&self, blockheight: u64) -> Work {
@@ -148,5 +150,12 @@ impl ExtendedRpc {
         include_watchonly: Option<bool>,
     ) -> Result<bitcoincore_rpc::json::GetTransactionResult, bitcoincore_rpc::Error> {
         self.inner.get_transaction(txid, include_watchonly)
+    }
+
+    pub fn send_raw_transaction(
+        &self,
+        tx: &Vec<u8>,
+    ) -> Result<bitcoin::Txid, bitcoincore_rpc::Error> {
+        self.inner.send_raw_transaction(tx)
     }
 }

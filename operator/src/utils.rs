@@ -339,44 +339,20 @@ mod tests {
     fn test_connector_tree_tx() {
         // ATTENTION: If you want to spend a UTXO using timelock script, the condition is that
         // # in the script < # in the sequence of the tx < # of blocks mined after UTXO appears on the chain
-        let rpc = Client::new(
-            "http://localhost:18443/wallet/admin",
-            Auth::UserPass("admin".to_string(), "admin".to_string()),
-        )
-        .unwrap_or_else(|e| panic!("Failed to connect to Bitcoin RPC: {}", e));
-        let extended_rpc = ExtendedRpc::new();
+        let rpc = ExtendedRpc::new();
         let operator = Operator::new(&mut OsRng, &rpc, NUM_VERIFIERS as u32);
         // let user = User::new(&mut OsRng, &rpc);
-        let resource_tx_id = operator
+        let resource_utxo = operator
             .rpc
-            .send_to_address(
-                &operator.signer.address,
-                bitcoin::Amount::from_sat(100_000_000),
-                None,
-                None,
-                None,
-                None,
-                None,
-                None,
-            )
-            .unwrap();
+            .send_to_address(&operator.signer.address, 100_000_000);
+
         let resource_tx = operator
             .rpc
-            .get_raw_transaction(&resource_tx_id, None)
-            .unwrap();
-
-        println!("resource_tx: {:?}", resource_tx);
-        let vout = resource_tx
-            .output
-            .iter()
-            .position(|x| x.value == bitcoin::Amount::from_sat(100_000_000))
+            .get_raw_transaction(&resource_utxo.txid, None)
             .unwrap();
 
         let utxo_tx_ins = vec![TxIn {
-            previous_output: OutPoint {
-                txid: resource_tx.txid(),
-                vout: vout as u32,
-            },
+            previous_output: resource_utxo,
             script_sig: ScriptBuf::new(),
             sequence: bitcoin::transaction::Sequence::ENABLE_RBF_NO_LOCKTIME,
             witness: Witness::new(),
@@ -397,7 +373,7 @@ mod tests {
         let mut utxo_tx = TransactionBuilder::create_btc_tx(utxo_tx_ins, utxo_tx_outs);
         let sig = operator.signer.sign_taproot_pubkey_spend_tx(
             &mut utxo_tx,
-            vec![resource_tx.output[vout].clone()],
+            vec![resource_tx.output[resource_utxo.vout as usize].clone()],
             0,
         );
         let mut sighash_cache = SighashCache::new(utxo_tx.borrow_mut());
@@ -409,7 +385,7 @@ mod tests {
         println!("utxo_txid: {:?}", utxo_txid);
         let rpc_utxo_tx = operator.rpc.get_raw_transaction(&utxo_txid, None).unwrap();
         println!("rpc_utxo_tx: {:?}", rpc_utxo_tx);
-        extended_rpc.mine_blocks(5);
+        rpc.mine_blocks(5);
         let mut connector_tree_tx = Transaction {
             version: Version(2),
             lock_time: absolute::LockTime::from_consensus(0),
@@ -459,8 +435,8 @@ mod tests {
             bytes_connector_tree_tx.len()
         );
         // let hex_utxo_tx = hex::encode(bytes_utxo_tx.clone());
-        extended_rpc.mine_blocks(2);
-        extended_rpc.mine_blocks(6);
+        rpc.mine_blocks(2);
+        rpc.mine_blocks(6);
         let connector_tree_txid = operator
             .rpc
             .send_raw_transaction(&bytes_connector_tree_tx)

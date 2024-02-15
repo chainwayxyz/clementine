@@ -9,9 +9,12 @@ use circuit_helpers::{
 };
 use crypto_bigint::{Encoding, U256};
 use operator::{
-    extended_rpc::ExtendedRpc, operator::{Operator, PreimageType}, transaction_builder::TransactionBuilder, user::User, utils::{
-        calculate_amount, create_connector_binary_tree
-    }, verifier::Verifier
+    extended_rpc::ExtendedRpc,
+    operator::{Operator, PreimageType},
+    transaction_builder::TransactionBuilder,
+    user::User,
+    utils::{calculate_amount, create_connector_binary_tree},
+    verifier::Verifier,
 };
 
 fn main() {
@@ -23,7 +26,7 @@ fn main() {
         Amount::from_sat(DUST_VALUE),
         Amount::from_sat(MIN_RELAY_FEE),
     );
-    let mut operator = Operator::new(&mut OsRng, &rpc.inner, NUM_VERIFIERS as u32);
+    let mut operator = Operator::new(&mut OsRng, &rpc, NUM_VERIFIERS as u32);
     let mut users = Vec::new();
     for _ in 0..NUM_USERS {
         users.push(User::new(&mut OsRng, &rpc.inner));
@@ -43,29 +46,9 @@ fn main() {
         operator.signer.xonly_public_key,
         operator.connector_tree_hashes[0][0],
     );
-    let root_txid = operator
+    let root_utxo = operator
         .rpc
-        .send_to_address(
-            &root_address,
-            total_amount,
-            None,
-            None,
-            None,
-            None,
-            None,
-            None,
-        )
-        .unwrap();
-    let root_tx = operator.rpc.get_raw_transaction(&root_txid, None).unwrap();
-    // println!("resource_tx: {:?}", root_tx);
-
-    let vout = root_tx
-        .output
-        .iter()
-        .position(|x| x.value == total_amount)
-        .unwrap();
-
-    let root_utxo = TransactionBuilder::create_utxo(root_txid, vout as u32);
+        .send_to_address(&root_address, total_amount.to_sat());
 
     let mut preimages_verifier_track: HashSet<PreimageType> = HashSet::new();
     let mut utxos_verifier_track: HashMap<OutPoint, (u32, u32)> = HashMap::new();

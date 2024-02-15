@@ -4,12 +4,12 @@ use std::vec;
 
 use crate::actor::{Actor, EVMSignature};
 use crate::custom_merkle::CustomMerkleTree;
+use crate::extended_rpc::ExtendedRpc;
 use crate::merkle::MerkleTree;
 use crate::script_builder::ScriptBuilder;
 use crate::transaction_builder::{self, TransactionBuilder};
 use crate::utils::{
-    create_connector_tree_tx, handle_anyone_can_spend_script,
-    handle_taproot_witness,
+    create_connector_tree_tx, handle_anyone_can_spend_script, handle_taproot_witness,
 };
 use crate::verifier::Verifier;
 use bitcoin::address::NetworkChecked;
@@ -92,7 +92,7 @@ pub struct DepositPresigns {
 
 #[derive(Debug, Clone)]
 pub struct Operator<'a> {
-    pub rpc: &'a Client,
+    pub rpc: &'a ExtendedRpc,
     pub signer: Actor,
     pub script_builder: ScriptBuilder,
     pub transaction_builder: TransactionBuilder,
@@ -113,14 +113,14 @@ pub struct Operator<'a> {
 }
 
 impl<'a> Operator<'a> {
-    pub fn new(rng: &mut OsRng, rpc: &'a Client, num_verifier: u32) -> Self {
+    pub fn new(rng: &mut OsRng, rpc: &'a ExtendedRpc, num_verifier: u32) -> Self {
         let signer = Actor::new(rng);
         let (connector_tree_preimages, connector_tree_hashes) =
             create_connector_tree_preimages_and_hashes(CONNECTOR_TREE_DEPTH, rng);
         let mut verifiers = Vec::new();
         let mut verifiers_pks = Vec::new();
         for _ in 0..num_verifier {
-            let verifier = Verifier::new(rng, rpc, signer.xonly_public_key.clone());
+            let verifier = Verifier::new(rng, &rpc.inner, signer.xonly_public_key.clone());
             verifiers_pks.push(verifier.signer.xonly_public_key.clone());
             verifiers.push(verifier);
         }
@@ -264,17 +264,8 @@ impl<'a> Operator<'a> {
         // 2. Pay to the address and save the txid
         let txid = self
             .rpc
-            .send_to_address(
-                &withdrawal_address,
-                bitcoin::Amount::from_sat(100_000_000),
-                None,
-                None,
-                None,
-                None,
-                None,
-                None,
-            )
-            .unwrap();
+            .send_to_address(&withdrawal_address, 100_000_000)
+            .txid;
         println!(
             "operator paid to withdrawal address: {:?}, txid: {:?}",
             withdrawal_address, txid
@@ -292,7 +283,7 @@ impl<'a> Operator<'a> {
     ) -> OutPoint {
         check_deposit(
             &self.signer.secp,
-            self.rpc,
+            &self.rpc.inner,
             start_utxo,
             deposit_utxo,
             hash,
@@ -369,7 +360,7 @@ impl<'a> Operator<'a> {
         // println!("witness size: {:?}", witness.size());
         // println!("kickoff_tx: {:?}", kickoff_tx);
 
-        let rpc_move_txid = self.rpc.send_raw_transaction(&move_tx).unwrap();
+        let rpc_move_txid = self.rpc.inner.send_raw_transaction(&move_tx).unwrap();
         println!("rpc_move_txid: {:?}", rpc_move_txid);
         let move_utxo = TransactionBuilder::create_utxo(rpc_move_txid, 0);
         self.move_utxos.push(move_utxo.clone());
@@ -377,26 +368,10 @@ impl<'a> Operator<'a> {
     }
 
     pub fn create_child_pays_for_parent(&self, parent_outpoint: OutPoint) -> Transaction {
-        let resource_tx_id = self
+        let resource_utxo = self
             .rpc
-            .send_to_address(
-                &self.signer.address,
-                Amount::from_sat(BRIDGE_AMOUNT_SATS),
-                None,
-                None,
-                None,
-                None,
-                None,
-                None,
-            )
-            .unwrap();
-        let resource_tx = self.rpc.get_raw_transaction(&resource_tx_id, None).unwrap();
-        // println!("resource_tx: {:?}", resource_tx);
-        let vout = resource_tx
-            .output
-            .iter()
-            .position(|x| x.value == Amount::from_sat(BRIDGE_AMOUNT_SATS))
-            .unwrap();
+            .send_to_address(&self.signer.address, BRIDGE_AMOUNT_SATS);
+        let resource_tx = self.rpc.get_raw_transaction(&resource_utxo.txid, None).unwrap();
 
         let all_verifiers = self.get_all_verifiers();
 
@@ -410,10 +385,7 @@ impl<'a> Operator<'a> {
 
         let child_tx_ins = TransactionBuilder::create_tx_ins(vec![
             parent_outpoint,
-            OutPoint {
-                txid: resource_tx_id,
-                vout: vout as u32,
-            },
+            resource_utxo,
         ]);
 
         let child_tx_outs = TransactionBuilder::create_tx_outs(vec![
@@ -599,35 +571,15 @@ impl<'a> Operator<'a> {
             preimages.push(self.connector_tree_preimages[depth as usize][index as usize]);
         }
 
-        let inscription_source_txid = self
+        let inscription_source_utxo = self
             .rpc
             .send_to_address(
                 &self.signer.address,
-                Amount::from_sat(DUST_VALUE) * 3,
-                None,
-                None,
-                None,
-                None,
-                None,
-                None,
-            )
-            .unwrap();
-        let inscription_source_tx = self
-            .rpc
-            .get_raw_transaction(&inscription_source_txid, None)
-            .unwrap();
-        let inscription_source_vout = inscription_source_tx
-            .output
-            .iter()
-            .position(|x| x.value == Amount::from_sat(DUST_VALUE) * 3)
-            .unwrap();
-        let source_utxo = TransactionBuilder::create_utxo(
-            inscription_source_txid,
-            inscription_source_vout as u32,
-        );
+                DUST_VALUE * 3,
+            );
         let (commit_tx, reveal_tx) = TransactionBuilder::create_inscription_transactions(
             &self.signer,
-            source_utxo,
+            inscription_source_utxo,
             preimages,
         );
         let commit_txid = self
@@ -657,7 +609,9 @@ impl<'a> Operator<'a> {
         let connector_utxo = self.connector_tree_utxos.last().unwrap()[index as usize];
 
         let mut tx_ins = TransactionBuilder::create_tx_ins(vec![fund_utxo]);
-        tx_ins.extend(TransactionBuilder::create_tx_ins_with_sequence(vec![connector_utxo]));
+        tx_ins.extend(TransactionBuilder::create_tx_ins_with_sequence(vec![
+            connector_utxo,
+        ]));
 
         let tx_outs = TransactionBuilder::create_tx_outs(vec![(
             Amount::from_sat(BRIDGE_AMOUNT_SATS) + Amount::from_sat(DUST_VALUE)
@@ -672,8 +626,10 @@ impl<'a> Operator<'a> {
         let all_verifiers = self.get_all_verifiers();
 
         let script_n_of_n_without_hash = self.script_builder.generate_n_of_n_script_without_hash();
-        let (multisig_address, tree_info_0) =
-        TransactionBuilder::create_taproot_address(&self.signer.secp, vec![script_n_of_n_without_hash.clone()]);
+        let (multisig_address, tree_info_0) = TransactionBuilder::create_taproot_address(
+            &self.signer.secp,
+            vec![script_n_of_n_without_hash.clone()],
+        );
 
         let timelock_script = ScriptBuilder::generate_timelock_script(
             self.signer.xonly_public_key,
@@ -812,7 +768,7 @@ mod tests {
             Amount::from_sat(DUST_VALUE),
             Amount::from_sat(MIN_RELAY_FEE),
         );
-        let mut operator = Operator::new(&mut OsRng, &rpc.inner, NUM_VERIFIERS as u32);
+        let mut operator = Operator::new(&mut OsRng, &rpc, NUM_VERIFIERS as u32);
         let mut users = Vec::new();
         for _ in 0..NUM_USERS {
             users.push(User::new(&mut OsRng, &rpc.inner));
@@ -832,29 +788,12 @@ mod tests {
             operator.signer.xonly_public_key,
             operator.connector_tree_hashes[0][0],
         );
-        let root_txid = operator
+        let root_utxo = operator
             .rpc
             .send_to_address(
                 &root_address,
-                total_amount,
-                None,
-                None,
-                None,
-                None,
-                None,
-                None,
-            )
-            .unwrap();
-        let root_tx = operator.rpc.get_raw_transaction(&root_txid, None).unwrap();
-        // println!("resource_tx: {:?}", root_tx);
-
-        let vout = root_tx
-            .output
-            .iter()
-            .position(|x| x.value == total_amount)
-            .unwrap();
-
-        let root_utxo = TransactionBuilder::create_utxo(root_txid, vout as u32);
+                total_amount.to_sat(),
+            );
 
         let mut preimages_verifier_track: HashSet<PreimageType> = HashSet::new();
         let mut utxos_verifier_track: HashMap<OutPoint, (u32, u32)> = HashMap::new();
