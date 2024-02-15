@@ -4,7 +4,7 @@ use bitcoin::{taproot::{TaprootBuilder, TaprootSpendInfo}, Address};
 use circuit_helpers::config::USER_TAKES_AFTER;
 use secp256k1::{Secp256k1, XOnlyPublicKey};
 
-use crate::{script_builder::ScriptBuilder, utils::generate_timelock_script};
+use crate::{script_builder::ScriptBuilder};
 use lazy_static::lazy_static;
 
 // This is an unspendable pubkey 
@@ -40,7 +40,7 @@ impl TransactionBuilder {
         hash: [u8; 32],
     ) -> (Address, TaprootSpendInfo) {
         let script_n_of_n = self.script_builder.generate_n_of_n_script(hash);
-        let script_timelock = generate_timelock_script(user_pk, USER_TAKES_AFTER);
+        let script_timelock = ScriptBuilder::generate_timelock_script(user_pk, USER_TAKES_AFTER);
         let taproot = TaprootBuilder::new()
             .add_leaf(1, script_n_of_n.clone())
             .unwrap()

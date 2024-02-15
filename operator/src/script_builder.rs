@@ -1,4 +1,5 @@
-use bitcoin::{opcodes::{all::{OP_CHECKSIGVERIFY, OP_EQUAL, OP_SHA256, OP_VERIFY}, OP_TRUE}, script::Builder, ScriptBuf};
+use bitcoin::{opcodes::{all::*, OP_TRUE}, script::Builder, ScriptBuf};
+use circuit_helpers::constant::EVMAddress;
 use secp256k1::XOnlyPublicKey;
 
 #[derive(Debug, Clone)]
@@ -8,15 +9,10 @@ pub struct ScriptBuilder {
 
 impl ScriptBuilder {
     pub fn new(verifiers_pks: Vec<XOnlyPublicKey>) -> Self {
-        Self {
-            verifiers_pks,
-        }
+        Self { verifiers_pks }
     }
 
-    pub fn generate_n_of_n_script(
-        &self,
-        hash: [u8; 32],
-    ) -> ScriptBuf {
+    pub fn generate_n_of_n_script(&self, hash: [u8; 32]) -> ScriptBuf {
         let raw_script = self.generate_n_of_n_script_without_hash();
         let script_buf = ScriptBuilder::convert_scriptbuf_into_builder(raw_script).into_script();
         ScriptBuilder::add_hash_to_script(script_buf, hash)
@@ -45,5 +41,30 @@ impl ScriptBuilder {
     pub fn convert_scriptbuf_into_builder(script: ScriptBuf) -> Builder {
         let script_bytes = script.as_bytes().to_vec();
         Builder::from(script_bytes)
+    }
+
+    pub fn generate_timelock_script(actor_pk: XOnlyPublicKey, block_count: u32) -> ScriptBuf {
+        Builder::new()
+            .push_int(block_count as i64)
+            .push_opcode(OP_CSV)
+            .push_opcode(OP_DROP)
+            .push_x_only_key(&actor_pk)
+            .push_opcode(OP_CHECKSIG)
+            .into_script()
+    }
+
+    pub fn generate_hash_script(hash: [u8; 32]) -> ScriptBuf {
+        Builder::new()
+            .push_opcode(OP_SHA256)
+            .push_slice(hash)
+            .push_opcode(OP_EQUAL)
+            .into_script()
+    }
+
+    pub fn generate_dust_script(evm_address: EVMAddress) -> ScriptBuf {
+        Builder::new()
+            .push_opcode(OP_RETURN)
+            .push_slice(&evm_address)
+            .into_script()
     }
 }

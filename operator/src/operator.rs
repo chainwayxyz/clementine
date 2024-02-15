@@ -8,7 +8,10 @@ use crate::merkle::MerkleTree;
 use crate::script_builder::ScriptBuilder;
 use crate::transaction_builder::{self, TransactionBuilder};
 use crate::utils::{
-    create_btc_tx, create_connector_tree_tx, create_inscription_transactions, create_move_tx, create_taproot_address, create_tx_ins, create_tx_ins_with_sequence, create_tx_outs, create_utxo, generate_timelock_script, handle_anyone_can_spend_script, handle_connector_binary_tree_script, handle_taproot_witness
+    create_btc_tx, create_connector_tree_tx, create_inscription_transactions, create_move_tx,
+    create_taproot_address, create_tx_ins, create_tx_ins_with_sequence, create_tx_outs,
+    create_utxo, handle_anyone_can_spend_script, handle_connector_binary_tree_script,
+    handle_taproot_witness,
 };
 use crate::verifier::Verifier;
 use bitcoin::address::NetworkChecked;
@@ -44,7 +47,12 @@ pub fn check_deposit(
     // 5. Return the blockheight of the block in which the txid was mined
     let tx = rpc
         .get_raw_transaction(&deposit_utxo.txid, None)
-        .unwrap_or_else(|e| panic!("Failed to get raw transaction: {}, txid: {}", e, deposit_utxo.txid));
+        .unwrap_or_else(|e| {
+            panic!(
+                "Failed to get raw transaction: {}, txid: {}",
+                e, deposit_utxo.txid
+            )
+        });
     println!("user deposit utxo: {:?}", deposit_utxo);
     assert!(tx.input[0].previous_output == start_utxo);
     println!("from user start utxo: {:?}", start_utxo);
@@ -174,10 +182,14 @@ impl<'a> Operator<'a> {
     ) -> Vec<EVMSignature> {
         // self.verifiers + signer.public_key
         let all_verifiers = self.get_all_verifiers();
-        let (deposit_address, _) =
-        self.transaction_builder.generate_deposit_address(return_address, hash);
+        let (deposit_address, _) = self
+            .transaction_builder
+            .generate_deposit_address(return_address, hash);
         let deposit_tx_ins = create_tx_ins(vec![start_utxo]);
-        let deposit_tx_outs = create_tx_outs(vec![(Amount::from_sat(BRIDGE_AMOUNT_SATS), deposit_address.script_pubkey())]);
+        let deposit_tx_outs = create_tx_outs(vec![(
+            Amount::from_sat(BRIDGE_AMOUNT_SATS),
+            deposit_address.script_pubkey(),
+        )]);
         let deposit_tx = create_btc_tx(deposit_tx_ins, deposit_tx_outs);
         let deposit_txid = deposit_tx.txid();
         let deposit_utxo = create_utxo(deposit_txid, 0);
@@ -213,20 +225,21 @@ impl<'a> Operator<'a> {
             vec![deposit_utxo],
             vec![
                 (
-                    Amount::from_sat(BRIDGE_AMOUNT_SATS) - Amount::from_sat(DUST_VALUE) - Amount::from_sat(MIN_RELAY_FEE),
+                    Amount::from_sat(BRIDGE_AMOUNT_SATS)
+                        - Amount::from_sat(DUST_VALUE)
+                        - Amount::from_sat(MIN_RELAY_FEE),
                     self.script_builder.generate_n_of_n_script_without_hash(),
                 ),
-                (Amount::from_sat(DUST_VALUE), anyone_can_spend_script_pub_key),
+                (
+                    Amount::from_sat(DUST_VALUE),
+                    anyone_can_spend_script_pub_key,
+                ),
             ],
         );
 
         let move_txid = move_tx.txid();
 
-        let rollup_sign = self.signer.sign_deposit(
-            deposit_txid,
-            evm_address,
-            hash,
-        );
+        let rollup_sign = self.signer.sign_deposit(deposit_txid, evm_address, hash);
         let mut all_rollup_signs = presigns_from_all_verifiers
             .iter()
             .map(|presigns| presigns.rollup_sign)
@@ -264,7 +277,10 @@ impl<'a> Operator<'a> {
                 None,
             )
             .unwrap();
-        println!("operator paid to withdrawal address: {:?}, txid: {:?}", withdrawal_address, txid);
+        println!(
+            "operator paid to withdrawal address: {:?}, txid: {:?}",
+            withdrawal_address, txid
+        );
         self.withdrawals_payment_txids.push(txid);
     }
 
@@ -286,7 +302,8 @@ impl<'a> Operator<'a> {
             &self.get_all_verifiers(),
         );
         // 1. Add the corresponding txid to DepositsMerkleTree
-        self.deposit_merkle_tree.add(deposit_utxo.txid.to_byte_array());
+        self.deposit_merkle_tree
+            .add(deposit_utxo.txid.to_byte_array());
         let preimage = self.current_preimage_for_deposit_requests.clone();
         let hash = HASH_FUNCTION_32(preimage);
         let all_verifiers = self.get_all_verifiers();
@@ -303,17 +320,22 @@ impl<'a> Operator<'a> {
 
         let mut move_tx = create_move_tx(
             vec![deposit_utxo],
-            vec![
-                (Amount::from_sat(BRIDGE_AMOUNT_SATS) - Amount::from_sat(MIN_RELAY_FEE), address.script_pubkey())
-            ],
+            vec![(
+                Amount::from_sat(BRIDGE_AMOUNT_SATS) - Amount::from_sat(MIN_RELAY_FEE),
+                address.script_pubkey(),
+            )],
         );
         println!("move_tx is from: {:?}", deposit_utxo);
         self.add_deposit_utxo(deposit_utxo);
 
-        let (deposit_address, deposit_taproot_info) =
-            self.transaction_builder.generate_deposit_address(return_address, hash);
+        let (deposit_address, deposit_taproot_info) = self
+            .transaction_builder
+            .generate_deposit_address(return_address, hash);
 
-        let prevouts = create_tx_outs(vec![(Amount::from_sat(BRIDGE_AMOUNT_SATS), deposit_address.script_pubkey())]);
+        let prevouts = create_tx_outs(vec![(
+            Amount::from_sat(BRIDGE_AMOUNT_SATS),
+            deposit_address.script_pubkey(),
+        )]);
 
         let mut move_signatures: Vec<Signature> = Vec::new();
         let deposit_presigns_for_move = self
@@ -346,7 +368,6 @@ impl<'a> Operator<'a> {
 
         // println!("witness size: {:?}", witness.size());
         // println!("kickoff_tx: {:?}", kickoff_tx);
-
 
         let rpc_move_txid = self.rpc.send_raw_transaction(&move_tx).unwrap();
         println!("rpc_move_txid: {:?}", rpc_move_txid);
@@ -395,10 +416,15 @@ impl<'a> Operator<'a> {
 
         let child_tx_outs = create_tx_outs(vec![
             (
-                Amount::from_sat(BRIDGE_AMOUNT_SATS) - Amount::from_sat(DUST_VALUE) - Amount::from_sat(MIN_RELAY_FEE),
+                Amount::from_sat(BRIDGE_AMOUNT_SATS)
+                    - Amount::from_sat(DUST_VALUE)
+                    - Amount::from_sat(MIN_RELAY_FEE),
                 address.script_pubkey(),
             ),
-            (Amount::from_sat(DUST_VALUE), anyone_can_spend_script_pub_key.clone()),
+            (
+                Amount::from_sat(DUST_VALUE),
+                anyone_can_spend_script_pub_key.clone(),
+            ),
         ]);
 
         let mut child_tx = create_btc_tx(child_tx_ins, child_tx_outs);
@@ -406,8 +432,14 @@ impl<'a> Operator<'a> {
         child_tx.input[0].witness.push([0x51]);
 
         let prevouts = create_tx_outs(vec![
-            (Amount::from_sat(DUST_VALUE), anyone_can_spend_script_pub_key),
-            (Amount::from_sat(BRIDGE_AMOUNT_SATS), self.signer.address.script_pubkey()),
+            (
+                Amount::from_sat(DUST_VALUE),
+                anyone_can_spend_script_pub_key,
+            ),
+            (
+                Amount::from_sat(BRIDGE_AMOUNT_SATS),
+                self.signer.address.script_pubkey(),
+            ),
         ]);
         let sig = self
             .signer
@@ -485,7 +517,7 @@ impl<'a> Operator<'a> {
         let utxo_tx = self.rpc.get_raw_transaction(&utxo.txid, None).unwrap();
         // println!("utxo_tx: {:?}", utxo_tx);
         // println!("utxo_txid: {:?}", utxo_tx.txid());
-        let timelock_script = generate_timelock_script(self.signer.xonly_public_key, 1);
+        let timelock_script = ScriptBuilder::generate_timelock_script(self.signer.xonly_public_key, 1);
 
         let (first_address, _) = handle_connector_binary_tree_script(
             &self.signer.secp,
@@ -536,8 +568,14 @@ impl<'a> Operator<'a> {
         println!("operator_spending_txid: {:?}", spending_txid);
     }
 
-    pub fn reveal_connector_tree_preimages(&self, number_of_funds_claim: u32) -> HashSet<PreimageType> {
-        let indices = CustomMerkleTree::get_indices(self.connector_tree_hashes.len() - 1, number_of_funds_claim);
+    pub fn reveal_connector_tree_preimages(
+        &self,
+        number_of_funds_claim: u32,
+    ) -> HashSet<PreimageType> {
+        let indices = CustomMerkleTree::get_indices(
+            self.connector_tree_hashes.len() - 1,
+            number_of_funds_claim,
+        );
         println!("indices: {:?}", indices);
         let mut preimages: HashSet<PreimageType> = HashSet::new();
         for (depth, index) in indices {
@@ -547,8 +585,10 @@ impl<'a> Operator<'a> {
     }
 
     pub fn inscribe_connector_tree_preimages(&self, number_of_funds_claim: u32) -> (Txid, Txid) {
-
-        let indices = CustomMerkleTree::get_indices(self.connector_tree_hashes.len() - 1, number_of_funds_claim);
+        let indices = CustomMerkleTree::get_indices(
+            self.connector_tree_hashes.len() - 1,
+            number_of_funds_claim,
+        );
         println!("indices: {:?}", indices);
         let mut preimages: Vec<PreimageType> = Vec::new();
 
@@ -573,14 +613,23 @@ impl<'a> Operator<'a> {
             .rpc
             .get_raw_transaction(&inscription_source_txid, None)
             .unwrap();
-        let inscription_source_vout = inscription_source_tx.output.iter().position(|x| {
-            x.value == Amount::from_sat(DUST_VALUE) * 3
-        }).unwrap();
+        let inscription_source_vout = inscription_source_tx
+            .output
+            .iter()
+            .position(|x| x.value == Amount::from_sat(DUST_VALUE) * 3)
+            .unwrap();
         let source_utxo = create_utxo(inscription_source_txid, inscription_source_vout as u32);
-        let (commit_tx, reveal_tx) = create_inscription_transactions(&self.signer, source_utxo, preimages);
-        let commit_txid = self.rpc.send_raw_transaction(&serialize(&commit_tx)).unwrap();
+        let (commit_tx, reveal_tx) =
+            create_inscription_transactions(&self.signer, source_utxo, preimages);
+        let commit_txid = self
+            .rpc
+            .send_raw_transaction(&serialize(&commit_tx))
+            .unwrap();
         println!("commit_txid: {:?}", commit_txid);
-        let reveal_txid = self.rpc.send_raw_transaction(&serialize(&reveal_tx)).unwrap();
+        let reveal_txid = self
+            .rpc
+            .send_raw_transaction(&serialize(&reveal_tx))
+            .unwrap();
         println!("reveal_txid: {:?}", reveal_txid);
         return (commit_txid, reveal_txid);
     }
@@ -602,7 +651,8 @@ impl<'a> Operator<'a> {
         tx_ins.extend(create_tx_ins_with_sequence(vec![connector_utxo]));
 
         let tx_outs = create_tx_outs(vec![(
-            Amount::from_sat(BRIDGE_AMOUNT_SATS) + Amount::from_sat(DUST_VALUE) - Amount::from_sat(MIN_RELAY_FEE) * 2,
+            Amount::from_sat(BRIDGE_AMOUNT_SATS) + Amount::from_sat(DUST_VALUE)
+                - Amount::from_sat(MIN_RELAY_FEE) * 2,
             self.signer.address.script_pubkey(),
         )]);
 
@@ -616,7 +666,7 @@ impl<'a> Operator<'a> {
         let (multisig_address, tree_info_0) =
             create_taproot_address(&self.signer.secp, vec![script_n_of_n_without_hash.clone()]);
 
-        let timelock_script = generate_timelock_script(
+        let timelock_script = ScriptBuilder::generate_timelock_script(
             self.signer.xonly_public_key,
             CONNECTOR_TREE_OPERATOR_TAKES_AFTER as u32,
         );
@@ -729,12 +779,16 @@ mod tests {
     use bitcoin::{Amount, OutPoint};
     use bitcoincore_rpc::{Auth, Client, RpcApi};
     use circuit_helpers::{
-        bitcoin::{get_script_hash, verify_script_hash_taproot_address}, config::{BRIDGE_AMOUNT_SATS, CONNECTOR_TREE_DEPTH, NUM_USERS, NUM_VERIFIERS}, constant::{DUST_VALUE, HASH_FUNCTION_32, MIN_RELAY_FEE}
+        bitcoin::{get_script_hash, verify_script_hash_taproot_address},
+        config::{BRIDGE_AMOUNT_SATS, CONNECTOR_TREE_DEPTH, NUM_USERS, NUM_VERIFIERS},
+        constant::{DUST_VALUE, HASH_FUNCTION_32, MIN_RELAY_FEE},
     };
     use secp256k1::rand::rngs::OsRng;
 
     use crate::{
-        operator::{Operator, PreimageType}, user::User, utils::{
+        operator::{Operator, PreimageType},
+        user::User,
+        utils::{
             calculate_amount, create_connector_binary_tree, create_utxo,
             handle_connector_binary_tree_script, mine_blocks,
         },
@@ -749,7 +803,11 @@ mod tests {
         )
         .unwrap_or_else(|e| panic!("Failed to connect to Bitcoin RPC: {}", e));
 
-        let total_amount = calculate_amount(CONNECTOR_TREE_DEPTH, Amount::from_sat(DUST_VALUE), Amount::from_sat(MIN_RELAY_FEE));
+        let total_amount = calculate_amount(
+            CONNECTOR_TREE_DEPTH,
+            Amount::from_sat(DUST_VALUE),
+            Amount::from_sat(MIN_RELAY_FEE),
+        );
         let mut operator = Operator::new(&mut OsRng, &rpc, NUM_VERIFIERS as u32);
         let mut users = Vec::new();
         for _ in 0..NUM_USERS {
@@ -838,8 +896,11 @@ mod tests {
 
         for i in 0..NUM_USERS {
             let user = &users[i];
-            let (start_utxo, _) = user.create_start_utxo(&rpc, Amount::from_sat(BRIDGE_AMOUNT_SATS) + Amount::from_sat(MIN_RELAY_FEE));
-            let hash= HASH_FUNCTION_32(operator.current_preimage_for_deposit_requests);
+            let (start_utxo, _) = user.create_start_utxo(
+                &rpc,
+                Amount::from_sat(BRIDGE_AMOUNT_SATS) + Amount::from_sat(MIN_RELAY_FEE),
+            );
+            let hash = HASH_FUNCTION_32(operator.current_preimage_for_deposit_requests);
 
             let signatures = operator.new_deposit(
                 start_utxo,
@@ -857,18 +918,14 @@ mod tests {
                 Amount::from_sat(BRIDGE_AMOUNT_SATS),
                 &user.secp,
                 verifiers_pks.clone(),
-                hash
+                hash,
             );
             bridge_funds.push(user_deposit_utxo.txid);
             return_addresses.push(return_address);
             start_utxo_vec.push(start_utxo);
             mine_blocks(&rpc, 1);
-            let fund = operator.deposit_happened(
-                start_utxo,
-                hash,
-                user_deposit_utxo,
-                return_addresses[i],
-            );
+            let fund =
+                operator.deposit_happened(start_utxo, hash, user_deposit_utxo, return_addresses[i]);
             fund_utxos.push(fund);
             operator.change_preimage_for_deposit_requests(&mut OsRng);
         }
@@ -892,14 +949,25 @@ mod tests {
         let (commit_txid, reveal_txid) = operator.inscribe_connector_tree_preimages(3);
         println!("preimages revealed: {:?}", preimages);
         preimages_verifier_track = preimages.clone();
-        let inscription_tx = operator.mock_verifier_access[0].rpc.get_raw_transaction(&reveal_txid, None).unwrap();
+        let inscription_tx = operator.mock_verifier_access[0]
+            .rpc
+            .get_raw_transaction(&reveal_txid, None)
+            .unwrap();
         println!("verifier reads inscription tx: {:?}", inscription_tx);
 
-        let commit_tx = operator.mock_verifier_access[0].rpc.get_raw_transaction(&commit_txid, None).unwrap();
+        let commit_tx = operator.mock_verifier_access[0]
+            .rpc
+            .get_raw_transaction(&commit_txid, None)
+            .unwrap();
         println!("verifier reads commit tx: {:?}", commit_tx);
         let inscription_script_pubkey = &commit_tx.output[0].script_pubkey;
-        let inscription_address_bytes: [u8; 32] = inscription_script_pubkey.as_bytes()[2..].try_into().unwrap();
-        println!("inscription address in bytes: {:?}", inscription_address_bytes);
+        let inscription_address_bytes: [u8; 32] = inscription_script_pubkey.as_bytes()[2..]
+            .try_into()
+            .unwrap();
+        println!(
+            "inscription address in bytes: {:?}",
+            inscription_address_bytes
+        );
 
         let witness_array = inscription_tx.input[0].witness.to_vec();
         println!("witness_array: {:?}", witness_array[1]);
@@ -914,9 +982,10 @@ mod tests {
 
         println!("verifier_got_preimages: {:?}", verifier_got_preimages);
 
-        let flattened_preimages: Vec<u8> = verifier_got_preimages.iter()
-        .flat_map(|array| array.iter().copied())
-        .collect();
+        let flattened_preimages: Vec<u8> = verifier_got_preimages
+            .iter()
+            .flat_map(|array| array.iter().copied())
+            .collect();
 
         let flattened_slice: &[u8] = &flattened_preimages;
 
@@ -930,11 +999,20 @@ mod tests {
         // let test_hash_2: [u8; 32] = test_hasher_2.finalize().try_into().unwrap();
         // println!("test_hash_2: {:?}", test_hash_2);
 
-        let calculated_merkle_root = get_script_hash(operator.signer.xonly_public_key.serialize(), flattened_slice, 2);
+        let calculated_merkle_root = get_script_hash(
+            operator.signer.xonly_public_key.serialize(),
+            flattened_slice,
+            2,
+        );
         println!("calculated_merkle_root: {:?}", calculated_merkle_root);
-        let test_res = verify_script_hash_taproot_address(operator.signer.xonly_public_key.serialize(), flattened_slice, 2, calculated_merkle_root, inscription_address_bytes);
+        let test_res = verify_script_hash_taproot_address(
+            operator.signer.xonly_public_key.serialize(),
+            flattened_slice,
+            2,
+            calculated_merkle_root,
+            inscription_address_bytes,
+        );
         println!("test_res: {:?}", test_res);
-        
 
         for (i, utxo_level) in utxo_tree[0..utxo_tree.len() - 1].iter().enumerate() {
             for (j, utxo) in utxo_level.iter().enumerate() {

@@ -50,6 +50,7 @@ use std::str::FromStr;
 use circuit_helpers::config::{USER_TAKES_AFTER, CONNECTOR_TREE_OPERATOR_TAKES_AFTER};
 
 use crate::actor::Actor;
+use crate::script_builder::ScriptBuilder;
 
 lazy_static! {
     pub static ref INTERNAL_KEY: XOnlyPublicKey = XOnlyPublicKey::from_str(
@@ -136,22 +137,6 @@ pub fn parse_hex_to_btc_tx(
     }
 }
 
-// Dummy function to generate a block with given transactions
-pub fn generate_dummy_block(rpc: &Client) -> Vec<bitcoin::BlockHash> {
-    // Use `generatetoaddress` or similar RPC method to mine a new block
-    // containing the specified transactions
-    let address = rpc.get_new_address(None, None).unwrap().assume_checked();
-    // txs.iter().for_each(|tx| {
-    //     rpc.send_raw_transaction(tx).unwrap();
-    // });
-    for _ in 0..10 {
-        let new_address = rpc.get_new_address(None, None).unwrap().assume_checked();
-        let amount = bitcoin::Amount::from_sat(1000); // Specify the amount to send
-        rpc.send_to_address(&new_address, amount, None, None, None, None, None, None)
-            .unwrap();
-    }
-    rpc.generate_to_address(1, &address).unwrap()
-}
 
 pub fn check_presigns(tx: &bitcoin::Transaction, presigns: Vec<schnorr::Signature>, xonly_public_keys: Vec<XOnlyPublicKey>) {
     
@@ -228,36 +213,11 @@ pub fn create_control_block(tree_info: TaprootSpendInfo, script: &ScriptBuf) -> 
         .expect("Cannot create control block")
 }
 
-pub fn generate_timelock_script(actor_pk: XOnlyPublicKey, block_count: u32) -> ScriptBuf {
-    Builder::new()
-        .push_int(block_count as i64)
-        .push_opcode(OP_CSV)
-        .push_opcode(OP_DROP)
-        .push_x_only_key(&actor_pk)
-        .push_opcode(OP_CHECKSIG)
-        .into_script()
-}
-
-pub fn generate_hash_script(hash: [u8; 32]) -> ScriptBuf {
-    Builder::new()
-        .push_opcode(OP_SHA256)
-        .push_slice(hash)
-        .push_opcode(OP_EQUAL)
-        .into_script()
-}
-
-pub fn generate_dust_script(eth_address: [u8; 20]) -> ScriptBuf {
-    Builder::new()
-        .push_opcode(OP_RETURN)
-        .push_slice(&eth_address)
-        .into_script()
-}
-
 pub fn generate_dust_address(
     secp: &Secp256k1<All>,
-    eth_address: [u8; 20],
+    evm_address: [u8; 20],
 ) -> (Address, TaprootSpendInfo) {
-    let script = generate_dust_script(eth_address);
+    let script = ScriptBuilder::generate_dust_script(evm_address);
     let taproot = TaprootBuilder::new().add_leaf(0, script.clone()).unwrap();
     let tree_info = taproot.finalize(secp, *INTERNAL_KEY).unwrap();
     let address = Address::p2tr(secp, *INTERNAL_KEY, tree_info.merkle_root(), bitcoin::Network::Regtest);
@@ -333,7 +293,7 @@ pub fn handle_connector_binary_tree_script(
     actor_pk: XOnlyPublicKey,
     hash: Data,
 ) -> (Address, TaprootSpendInfo) {
-    let timelock_script = generate_timelock_script(actor_pk, CONNECTOR_TREE_OPERATOR_TAKES_AFTER as u32);
+    let timelock_script = ScriptBuilder::generate_timelock_script(actor_pk, CONNECTOR_TREE_OPERATOR_TAKES_AFTER as u32);
     let preimage_script = Builder::new()
         .push_opcode(OP_SHA256)
         .push_slice(hash)
@@ -584,13 +544,14 @@ mod tests {
     use circuit_helpers::config::NUM_VERIFIERS;
     use secp256k1::rand::rngs::OsRng;
 
+    use crate::script_builder::ScriptBuilder;
     use crate::{
         operator::Operator,
         utils::{from_hex_to_tx, parse_hex_to_btc_tx},
     };
 
     use super::{
-        create_btc_tx, create_tx_outs, generate_timelock_script,
+        create_btc_tx, create_tx_outs,
         handle_connector_binary_tree_script, mine_blocks,
     };
 
@@ -707,7 +668,7 @@ mod tests {
         println!("connector_tree_tx: {:?}", connector_tree_tx);
         println!("connector_tree_txid: {:?}", connector_tree_tx.txid());
 
-        let timelock_script = generate_timelock_script(operator.signer.xonly_public_key, 2);
+        let timelock_script = ScriptBuilder::generate_timelock_script(operator.signer.xonly_public_key, 2);
         let sig = operator.signer.sign_taproot_script_spend_tx(
             &mut connector_tree_tx,
             vec![utxo_tx.output[0].clone()],

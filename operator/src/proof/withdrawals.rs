@@ -98,7 +98,7 @@ mod tests {
     use bitcoin::secp256k1::rand::{rngs::OsRng, seq::SliceRandom};
 
     use crate::{
-        utils::{from_hex64_to_bytes32, generate_dummy_block},
+        extended_rpc::ExtendedRpc, utils::from_hex64_to_bytes32
     };
 
     use super::*;
@@ -111,11 +111,12 @@ mod tests {
             Auth::UserPass("admin".to_string(), "admin".to_string()),
         )
         .unwrap_or_else(|e| panic!("Failed to connect to Bitcoin RPC: {}", e));
+        let rpc = ExtendedRpc::new(rpc);
 
         // TODO: Make 2 dummy transactions and add them to the blockchain
 
-        let block_hash = generate_dummy_block(&rpc)[0];
-        let transactions = rpc.get_block(&block_hash).unwrap().txdata;
+        let block_hash = rpc.generate_dummy_block()[0];
+        let transactions = rpc.inner.get_block(&block_hash).unwrap().txdata;
         //  randomly sample 5 transactions
         let mut rng = OsRng;
         let all_withdrawals = transactions
@@ -124,7 +125,7 @@ mod tests {
             .map(|tx| tx.txid())
             .collect::<Vec<Txid>>();
 
-        let merkle_paths = handle_withdrawals(&rpc, all_withdrawals, block_hash.to_byte_array());
+        let merkle_paths = handle_withdrawals(&rpc.inner, all_withdrawals, block_hash.to_byte_array());
         assert_eq!(merkle_paths.len(), num_withdrawals);
     }
 
