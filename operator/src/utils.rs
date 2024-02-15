@@ -58,48 +58,6 @@ lazy_static! {
     .unwrap();
 }
 
-pub fn take_stdin<T: std::str::FromStr>(prompt: &str) -> Result<T, T::Err> {
-    print!("{}", prompt);
-    io::stdout().flush().unwrap();
-    let mut string = String::new();
-    io::stdin()
-        .read_line(&mut string)
-        .expect("Failed to read line");
-
-    string.trim().parse::<T>()
-}
-
-pub fn generate_n_of_n_script(verifiers_pks: &Vec<XOnlyPublicKey>, hash: [u8; 32]) -> ScriptBuf {
-    let raw_script = generate_n_of_n_script_without_hash(&verifiers_pks);
-    let script_buf = convert_scriptbuf_into_builder(raw_script).into_script();
-    add_hash_to_script(script_buf, hash)
-}
-
-pub fn generate_n_of_n_script_without_hash(verifiers_pks: &Vec<XOnlyPublicKey>) -> ScriptBuf {
-    let mut builder = Builder::new();
-    for vpk in verifiers_pks {
-        builder = builder.push_x_only_key(&vpk).push_opcode(OP_CHECKSIGVERIFY);
-    }
-    builder = builder.push_opcode(OP_TRUE);
-    builder.into_script()
-}
-
-pub fn add_hash_to_script(script: ScriptBuf, hash: [u8; 32]) -> ScriptBuf {
-    let script_bytes = script.as_bytes().to_vec();
-    let mut builder = Builder::from(script_bytes);
-    builder = builder.push_opcode(OP_VERIFY);
-    builder = builder
-        .push_opcode(OP_SHA256)
-        .push_slice(hash)
-        .push_opcode(OP_EQUAL);
-    builder.into_script()
-}
-
-pub fn convert_scriptbuf_into_builder(script: ScriptBuf) -> Builder {
-    let script_bytes = script.as_bytes().to_vec();
-    Builder::from(script_bytes)
-}
-
 pub fn char_to_digit(c: char) -> Result<u8, std::num::ParseIntError> {
     u8::from_str_radix(&c.to_string(), 16)
 }
@@ -293,24 +251,6 @@ pub fn generate_dust_script(eth_address: [u8; 20]) -> ScriptBuf {
         .push_opcode(OP_RETURN)
         .push_slice(&eth_address)
         .into_script()
-}
-
-pub fn generate_deposit_address(
-    secp: &Secp256k1<All>,
-    verifiers_pks: &Vec<XOnlyPublicKey>,
-    user_pk: XOnlyPublicKey,
-    hash: [u8; 32],
-) -> (Address, TaprootSpendInfo) {
-    let script_n_of_n = generate_n_of_n_script(&verifiers_pks, hash);
-    let script_timelock = generate_timelock_script(user_pk, USER_TAKES_AFTER);
-    let taproot = TaprootBuilder::new()
-        .add_leaf(1, script_n_of_n.clone())
-        .unwrap()
-        .add_leaf(1, script_timelock.clone())
-        .unwrap();
-    let tree_info = taproot.finalize(secp, *INTERNAL_KEY).unwrap();
-    let address = Address::p2tr(secp, *INTERNAL_KEY, tree_info.merkle_root(), bitcoin::Network::Regtest);
-    (address, tree_info)
 }
 
 pub fn generate_dust_address(

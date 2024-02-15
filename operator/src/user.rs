@@ -1,5 +1,5 @@
 use crate::actor::Actor;
-use crate::utils::generate_deposit_address;
+use crate::transaction_builder::TransactionBuilder;
 use bitcoin::OutPoint;
 use bitcoin::secp256k1::All;
 use bitcoin::secp256k1::Secp256k1;
@@ -43,9 +43,10 @@ impl<'a> User<'a> {
         verifiers_pks: Vec<XOnlyPublicKey>,
         hash: [u8; 32],
     ) -> (OutPoint, XOnlyPublicKey) {
+        let transaction_builder = TransactionBuilder::new(verifiers_pks);
 
         let (deposit_address, _) =
-            generate_deposit_address(secp, &verifiers_pks, self.signer.xonly_public_key, hash);
+        transaction_builder.generate_deposit_address(self.signer.xonly_public_key, hash);
 
         let res = self.signer.spend_self_utxo(rpc, start_utxo, deposit_amount, deposit_address);
 

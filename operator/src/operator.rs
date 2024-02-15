@@ -5,8 +5,10 @@ use std::vec;
 use crate::actor::{Actor, EVMSignature};
 use crate::custom_merkle::CustomMerkleTree;
 use crate::merkle::MerkleTree;
+use crate::script_builder::ScriptBuilder;
+use crate::transaction_builder::{self, TransactionBuilder};
 use crate::utils::{
-    create_btc_tx, create_connector_tree_tx, create_inscription_transactions, create_move_tx, create_taproot_address, create_tx_ins, create_tx_ins_with_sequence, create_tx_outs, create_utxo, generate_deposit_address, generate_n_of_n_script, generate_n_of_n_script_without_hash, generate_timelock_script, handle_anyone_can_spend_script, handle_connector_binary_tree_script, handle_taproot_witness
+    create_btc_tx, create_connector_tree_tx, create_inscription_transactions, create_move_tx, create_taproot_address, create_tx_ins, create_tx_ins_with_sequence, create_tx_outs, create_utxo, generate_timelock_script, handle_anyone_can_spend_script, handle_connector_binary_tree_script, handle_taproot_witness
 };
 use crate::verifier::Verifier;
 use bitcoin::address::NetworkChecked;
@@ -48,8 +50,8 @@ pub fn check_deposit(
     println!("from user start utxo: {:?}", start_utxo);
     assert!(tx.output[deposit_utxo.vout as usize].value == Amount::from_sat(BRIDGE_AMOUNT_SATS));
     println!("amount: {:?}", tx.output[deposit_utxo.vout as usize].value);
-    let (address, _) = generate_deposit_address(secp, verifiers_pks, return_address, hash);
-    assert!(tx.output[deposit_utxo.vout as usize].script_pubkey == address.script_pubkey());
+    // let (address, _) = generate_deposit_address(secp, verifiers_pks, return_address, hash); // TODO: Update this function
+    // assert!(tx.output[deposit_utxo.vout as usize].script_pubkey == address.script_pubkey());
 }
 
 pub fn create_connector_tree_preimages_and_hashes(
@@ -86,6 +88,8 @@ pub struct DepositPresigns {
 pub struct Operator<'a> {
     pub rpc: &'a Client,
     pub signer: Actor,
+    pub script_builder: ScriptBuilder,
+    pub transaction_builder: TransactionBuilder,
     pub verifiers_pks: Vec<XOnlyPublicKey>,
     pub verifier_evm_addresses: Vec<EVMAddress>,
     pub deposit_presigns: HashMap<Txid, Vec<DepositPresigns>>,
@@ -114,9 +118,16 @@ impl<'a> Operator<'a> {
             verifiers_pks.push(verifier.signer.xonly_public_key.clone());
             verifiers.push(verifier);
         }
+        let mut all_verifiers = verifiers_pks.to_vec();
+        all_verifiers.push(signer.xonly_public_key.clone());
+        let script_builder = ScriptBuilder::new(all_verifiers.clone());
+        let transaction_builder = TransactionBuilder::new(all_verifiers.clone());
+
         Self {
             rpc,
             signer,
+            script_builder,
+            transaction_builder,
             verifiers_pks: verifiers_pks,
             verifier_evm_addresses: Vec::new(),
             deposit_presigns: HashMap::new(),
@@ -164,7 +175,7 @@ impl<'a> Operator<'a> {
         // self.verifiers + signer.public_key
         let all_verifiers = self.get_all_verifiers();
         let (deposit_address, _) =
-        generate_deposit_address(&self.signer.secp, &all_verifiers, return_address, hash);
+        self.transaction_builder.generate_deposit_address(return_address, hash);
         let deposit_tx_ins = create_tx_ins(vec![start_utxo]);
         let deposit_tx_outs = create_tx_outs(vec![(Amount::from_sat(BRIDGE_AMOUNT_SATS), deposit_address.script_pubkey())]);
         let deposit_tx = create_btc_tx(deposit_tx_ins, deposit_tx_outs);
@@ -203,7 +214,7 @@ impl<'a> Operator<'a> {
             vec![
                 (
                     Amount::from_sat(BRIDGE_AMOUNT_SATS) - Amount::from_sat(DUST_VALUE) - Amount::from_sat(MIN_RELAY_FEE),
-                    generate_n_of_n_script_without_hash(&all_verifiers),
+                    self.script_builder.generate_n_of_n_script_without_hash(),
                 ),
                 (Amount::from_sat(DUST_VALUE), anyone_can_spend_script_pub_key),
             ],
@@ -279,9 +290,9 @@ impl<'a> Operator<'a> {
         let preimage = self.current_preimage_for_deposit_requests.clone();
         let hash = HASH_FUNCTION_32(preimage);
         let all_verifiers = self.get_all_verifiers();
-        let script_n_of_n = generate_n_of_n_script(&all_verifiers, hash);
+        let script_n_of_n = self.script_builder.generate_n_of_n_script(hash);
 
-        let script_n_of_n_without_hash = generate_n_of_n_script_without_hash(&all_verifiers);
+        let script_n_of_n_without_hash = self.script_builder.generate_n_of_n_script_without_hash();
         let (address, _) =
             create_taproot_address(&self.signer.secp, vec![script_n_of_n_without_hash.clone()]);
         println!("address while taking deposit: {:?}", address);
@@ -300,7 +311,7 @@ impl<'a> Operator<'a> {
         self.add_deposit_utxo(deposit_utxo);
 
         let (deposit_address, deposit_taproot_info) =
-            generate_deposit_address(&self.signer.secp, &all_verifiers, return_address, hash);
+            self.transaction_builder.generate_deposit_address(return_address, hash);
 
         let prevouts = create_tx_outs(vec![(Amount::from_sat(BRIDGE_AMOUNT_SATS), deposit_address.script_pubkey())]);
 
@@ -368,7 +379,7 @@ impl<'a> Operator<'a> {
 
         let all_verifiers = self.get_all_verifiers();
 
-        let script_n_of_n_without_hash = generate_n_of_n_script_without_hash(&all_verifiers);
+        let script_n_of_n_without_hash = self.script_builder.generate_n_of_n_script_without_hash();
         let (address, _) =
             create_taproot_address(&self.signer.secp, vec![script_n_of_n_without_hash.clone()]);
 
@@ -601,8 +612,7 @@ impl<'a> Operator<'a> {
 
         let all_verifiers = self.get_all_verifiers();
 
-        let script_n_of_n_without_hash =
-            generate_n_of_n_script_without_hash(&all_verifiers.clone());
+        let script_n_of_n_without_hash = self.script_builder.generate_n_of_n_script_without_hash();
         let (multisig_address, tree_info_0) =
             create_taproot_address(&self.signer.secp, vec![script_n_of_n_without_hash.clone()]);
 

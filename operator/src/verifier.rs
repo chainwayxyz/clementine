@@ -13,11 +13,12 @@ use secp256k1::All;
 use secp256k1::{rand::rngs::OsRng, XOnlyPublicKey};
 
 use crate::operator::PreimageType;
-use crate::utils::{create_btc_tx, create_control_block, create_move_tx, create_taproot_address, create_tx_ins, create_tx_ins_with_sequence, create_tx_outs, create_utxo, generate_deposit_address, generate_hash_script, generate_n_of_n_script, handle_connector_binary_tree_script, handle_taproot_witness};
+use crate::script_builder::ScriptBuilder;
+use crate::transaction_builder::TransactionBuilder;
+use crate::utils::{create_btc_tx, create_control_block, create_move_tx, create_taproot_address, create_tx_ins, create_tx_ins_with_sequence, create_tx_outs, create_utxo, generate_hash_script, handle_connector_binary_tree_script, handle_taproot_witness};
 use crate::{
     actor::Actor,
     operator::DepositPresigns,
-    utils::generate_n_of_n_script_without_hash,
 };
 
 use circuit_helpers::config::BRIDGE_AMOUNT_SATS;
@@ -27,6 +28,8 @@ pub struct Verifier<'a> {
     pub rpc: &'a Client,
     pub secp: Secp256k1<secp256k1::All>,
     pub signer: Actor,
+    pub script_builder: ScriptBuilder,
+    pub transaction_builder: TransactionBuilder,
     pub verifiers: Vec<XOnlyPublicKey>,
     pub connector_tree_utxos: Vec<Vec<OutPoint>>,
     pub connector_tree_hashes: Vec<Vec<[u8; 32]>>,
@@ -40,10 +43,14 @@ impl<'a> Verifier<'a> {
         let verifiers = Vec::new();
         let connector_tree_utxos = Vec::new();
         let connector_tree_hashes = Vec::new();
+        let script_builder = ScriptBuilder::new(vec![]);
+        let transaction_builder = TransactionBuilder::new(vec![]);
         Verifier {
             rpc,
             secp,
             signer,
+            script_builder,
+            transaction_builder,
             verifiers,
             connector_tree_utxos,
             connector_tree_hashes,
@@ -53,6 +60,8 @@ impl<'a> Verifier<'a> {
 
     pub fn set_verifiers(&mut self, verifiers: Vec<XOnlyPublicKey>) {
         self.verifiers = verifiers;
+        self.script_builder = ScriptBuilder::new(self.verifiers.clone());
+        self.transaction_builder = TransactionBuilder::new(self.verifiers.clone());
     }
 
     pub fn set_connector_tree_utxos(&mut self, connector_tree_utxos: Vec<Vec<OutPoint>>) {
@@ -76,15 +85,15 @@ impl<'a> Verifier<'a> {
     ) -> DepositPresigns {
         // println!("all_verifiers in new_deposit, in verifier now: {:?}", all_verifiers);
         let (deposit_address, _) =
-        generate_deposit_address(&self.signer.secp, &all_verifiers, return_address, hash);
+        self.transaction_builder.generate_deposit_address(return_address, hash);
         let deposit_tx_ins = create_tx_ins(vec![start_utxo]);
         let deposit_tx_outs = create_tx_outs(vec![(deposit_amount, deposit_address.script_pubkey())]);
         let deposit_tx = create_btc_tx(deposit_tx_ins, deposit_tx_outs);
         let deposit_txid = deposit_tx.txid();
         println!("verifier calculated deposit_txid: {:?}", deposit_txid);
         let deposit_utxo = create_utxo(deposit_txid, 0);
-        let script_n_of_n = generate_n_of_n_script(&all_verifiers, hash);
-        let script_n_of_n_without_hash = generate_n_of_n_script_without_hash(&all_verifiers);
+        let script_n_of_n = self.script_builder.generate_n_of_n_script(hash);
+        let script_n_of_n_without_hash = self.script_builder.generate_n_of_n_script_without_hash();
 
         let (multisig_address, _) = create_taproot_address(&self.signer.secp, vec![script_n_of_n_without_hash.clone()]);
         println!("verifier presigning multisig address: {:?}", multisig_address);

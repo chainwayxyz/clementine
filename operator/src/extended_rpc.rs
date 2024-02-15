@@ -1,7 +1,7 @@
 use bitcoincore_rpc::Client;
 use bitcoincore_rpc::RpcApi;
 
-struct ExtendedRpc {
+pub struct ExtendedRpc {
     pub inner: Client,
 }
 
