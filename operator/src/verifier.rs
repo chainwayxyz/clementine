@@ -14,7 +14,7 @@ use crate::extended_rpc::ExtendedRpc;
 use crate::operator::PreimageType;
 use crate::script_builder::ScriptBuilder;
 use crate::transaction_builder::TransactionBuilder;
-use crate::utils::{create_connector_binary_tree, create_control_block, handle_taproot_witness};
+use crate::utils::{create_control_block, handle_taproot_witness};
 use crate::{actor::Actor, operator::DepositPresigns};
 
 use circuit_helpers::config::{BRIDGE_AMOUNT_SATS, CONNECTOR_TREE_DEPTH};
@@ -74,9 +74,7 @@ impl<'a> Verifier<'a> {
         connector_root_utxo: OutPoint,
     ) {
         self.connector_tree_hashes = connector_tree_hashes;
-        let utxo_tree = create_connector_binary_tree(
-            &self.rpc.inner,
-            &self.signer.secp,
+        let utxo_tree = self.transaction_builder.create_connector_binary_tree(
             self.signer.xonly_public_key,
             connector_root_utxo,
             CONNECTOR_TREE_DEPTH,

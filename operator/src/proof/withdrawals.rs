@@ -97,9 +97,7 @@ mod tests {
 
     use bitcoin::secp256k1::rand::{rngs::OsRng, seq::SliceRandom};
 
-    use crate::{
-        extended_rpc::ExtendedRpc, utils::from_hex64_to_bytes32
-    };
+    use crate::{extended_rpc::ExtendedRpc, utils::from_hex64_to_bytes32};
 
     use super::*;
 
@@ -120,7 +118,8 @@ mod tests {
             .map(|tx| tx.txid())
             .collect::<Vec<Txid>>();
 
-        let merkle_paths = handle_withdrawals(&rpc.inner, all_withdrawals, block_hash.to_byte_array());
+        let merkle_paths =
+            handle_withdrawals(&rpc.inner, all_withdrawals, block_hash.to_byte_array());
         assert_eq!(merkle_paths.len(), num_withdrawals);
     }
 

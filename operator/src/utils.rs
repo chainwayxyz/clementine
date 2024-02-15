@@ -166,35 +166,6 @@ pub fn calculate_amount(depth: usize, value: Amount, fee: Amount) -> Amount {
     (value * 2u64.pow(depth as u32)) + (fee * (2u64.pow(depth as u32) - 1))
 }
 
-pub fn create_connector_tree_tx(
-    utxo: &OutPoint,
-    depth: usize,
-    first_address: Address,
-    second_address: Address,
-) -> bitcoin::Transaction {
-    // UTXO value should be at least 2^depth * dust_value + (2^depth-1) * fee
-    let tx_ins = TransactionBuilder::create_tx_ins_with_sequence(vec![*utxo]);
-    let tx_outs = TransactionBuilder::create_tx_outs(vec![
-        (
-            calculate_amount(
-                depth,
-                Amount::from_sat(DUST_VALUE),
-                Amount::from_sat(MIN_RELAY_FEE),
-            ),
-            first_address.script_pubkey(),
-        ),
-        (
-            calculate_amount(
-                depth,
-                Amount::from_sat(DUST_VALUE),
-                Amount::from_sat(MIN_RELAY_FEE),
-            ),
-            second_address.script_pubkey(),
-        ),
-    ]);
-    TransactionBuilder::create_btc_tx(tx_ins, tx_outs)
-}
-
 pub fn handle_taproot_witness<T: AsRef<[u8]>>(
     tx: &mut bitcoin::Transaction,
     index: usize,
@@ -212,91 +183,6 @@ pub fn handle_taproot_witness<T: AsRef<[u8]>>(
         .unwrap();
     witness.push(script);
     witness.push(&spend_control_block.serialize());
-}
-
-// This function creates the connector binary tree for operator to be able to claim the funds that they paid out of their pocket.
-// Depth will be determined later.
-pub fn create_connector_binary_tree(
-    rpc: &Client,
-    secp: &Secp256k1<All>,
-    xonly_public_key: XOnlyPublicKey,
-    root_utxo: OutPoint,
-    depth: usize,
-    connector_tree_hashes: Vec<Vec<[u8; 32]>>,
-) -> Vec<Vec<OutPoint>> {
-    // UTXO value should be at least 2^depth * dust_value + (2^depth-1) * fee
-    let total_amount = calculate_amount(
-        depth,
-        Amount::from_sat(DUST_VALUE),
-        Amount::from_sat(MIN_RELAY_FEE),
-    );
-    println!("total_amount: {:?}", total_amount);
-
-    let (root_address, _) = TransactionBuilder::create_connector_tree_node_address(
-        &secp,
-        xonly_public_key,
-        connector_tree_hashes[0][0],
-    );
-    // println!(
-    //     "root dust value: {:?}",
-    //     root_address.clone().script_pubkey().dust_value()
-    // );
-
-    let root_txid = root_utxo.txid;
-    let root_tx = rpc.get_raw_transaction(&root_txid, None).unwrap();
-
-    assert!(root_tx.output[root_utxo.vout as usize].value == total_amount);
-
-    // let vout = rpc.get_raw_transaction(&root_txid, None).unwrap().output.iter().position(|x| x.value == total_amount).unwrap();
-
-    let mut utxo_binary_tree: Vec<Vec<OutPoint>> = Vec::new();
-    let mut tx_binary_tree: Vec<Vec<bitcoin::Transaction>> = Vec::new();
-    // let root_utxo = OutPoint {
-    //     txid: rpc_txid,
-    //     vout: vout as u32,
-    // };
-
-    utxo_binary_tree.push(vec![root_utxo.clone()]);
-
-    for i in 0..depth {
-        let mut utxo_tree_current_level: Vec<OutPoint> = Vec::new();
-        let utxo_tree_previous_level = utxo_binary_tree.last().unwrap();
-
-        let mut tx_tree_current_level: Vec<bitcoin::Transaction> = Vec::new();
-
-        for (j, utxo) in utxo_tree_previous_level.iter().enumerate() {
-            let (first_address, _) = TransactionBuilder::create_connector_tree_node_address(
-                &secp,
-                xonly_public_key,
-                connector_tree_hashes[(i + 1) as usize][2 * j],
-            );
-            let (second_address, _) = TransactionBuilder::create_connector_tree_node_address(
-                &secp,
-                xonly_public_key,
-                connector_tree_hashes[(i + 1) as usize][2 * j + 1],
-            );
-
-            let tx = create_connector_tree_tx(
-                utxo,
-                depth - i - 1,
-                first_address.clone(),
-                second_address.clone(),
-            );
-            let txid = tx.txid();
-            let first_utxo = TransactionBuilder::create_utxo(txid, 0);
-            let second_utxo = TransactionBuilder::create_utxo(txid, 1);
-            utxo_tree_current_level.push(first_utxo);
-            utxo_tree_current_level.push(second_utxo);
-            tx_tree_current_level.push(tx);
-        }
-        utxo_binary_tree.push(utxo_tree_current_level);
-        tx_binary_tree.push(tx_tree_current_level);
-    }
-
-    // println!("utxo_binary_tree: {:?}", utxo_binary_tree);
-    // println!("tx_binary_tree: {:?}", tx_binary_tree);
-
-    utxo_binary_tree
 }
 
 #[cfg(test)]

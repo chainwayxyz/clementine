@@ -42,7 +42,6 @@ impl ScriptBuilder {
         builder.into_script()
     }
 
-
     pub fn create_inscription_script_32_bytes(
         public_key: XOnlyPublicKey,
         data: Vec<[u8; 32]>,

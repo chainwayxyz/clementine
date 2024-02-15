@@ -104,7 +104,7 @@ pub fn decode_compact_target(bits: [u8; 4]) -> [u8; 32] {
 
 fn check_hash_valid(hash: [u8; 32], target: [u8; 32]) {
     // for loop from 31 to 0
-    for i in  (0..32).rev() {
+    for i in (0..32).rev() {
         if hash[i] < target[i] {
             // The hash is valid because a byte in hash is less than the corresponding byte in target
             return;
@@ -123,7 +123,11 @@ pub fn calculate_work(target: [u8; 32]) -> U256 {
     work
 }
 
-pub fn get_script_hash(actor_pk_bytes: [u8; 32], preimages: &[u8], number_of_preimages: u8) -> [u8; 32] {
+pub fn get_script_hash(
+    actor_pk_bytes: [u8; 32],
+    preimages: &[u8],
+    number_of_preimages: u8,
+) -> [u8; 32] {
     let mut hasher = Sha256::new();
     let tap_leaf_str = "TapLeaf";
     let tap_leaf_tag_hash: [u8; 32] = calculate_single_sha256(&tap_leaf_str.as_bytes());
@@ -138,7 +142,7 @@ pub fn get_script_hash(actor_pk_bytes: [u8; 32], preimages: &[u8], number_of_pre
     hasher.update(&actor_pk_bytes);
     hasher.update(&[172u8, 0u8, 99u8]);
     for i in 0..number_of_preimages as usize {
-        let preimage = &preimages[i * 32..(i+1) * 32];
+        let preimage = &preimages[i * 32..(i + 1) * 32];
         hasher.update(&[32u8]);
         hasher.update(preimage);
     }
@@ -146,11 +150,22 @@ pub fn get_script_hash(actor_pk_bytes: [u8; 32], preimages: &[u8], number_of_pre
     hasher.finalize().try_into().unwrap()
 }
 
-pub fn verify_script_hash_taproot_address(actor_pk_bytes: [u8; 32], preimages: &[u8], number_of_preimages: u8, tap_leaf_hash: [u8; 32], taproot_address: [u8; 32]) -> (bool, [u8; 33], &[u8]) {
-    assert!(get_script_hash(actor_pk_bytes, preimages, number_of_preimages) == tap_leaf_hash, "Script hash does not match tap leaf hash");
+pub fn verify_script_hash_taproot_address(
+    actor_pk_bytes: [u8; 32],
+    preimages: &[u8],
+    number_of_preimages: u8,
+    tap_leaf_hash: [u8; 32],
+    taproot_address: [u8; 32],
+) -> (bool, [u8; 33], &[u8]) {
+    assert!(
+        get_script_hash(actor_pk_bytes, preimages, number_of_preimages) == tap_leaf_hash,
+        "Script hash does not match tap leaf hash"
+    );
     // internal key as bytes
-    let internal_key_x_only_bytes: [u8; 32] = from_hex64_to_bytes32("93c7378d96518a75448821c4f7c8f4bae7ce60f804d03d1f0628dd5dd0f5de51");
-    let internal_key_y_only_bytes: [u8; 32] = from_hex64_to_bytes32("b7e6488df5418b4c37f61271aca50390670138b7dc4f4d1c2b927fc43b900f28");
+    let internal_key_x_only_bytes: [u8; 32] =
+        from_hex64_to_bytes32("93c7378d96518a75448821c4f7c8f4bae7ce60f804d03d1f0628dd5dd0f5de51");
+    let internal_key_y_only_bytes: [u8; 32] =
+        from_hex64_to_bytes32("b7e6488df5418b4c37f61271aca50390670138b7dc4f4d1c2b927fc43b900f28");
     let mut internal_key_bytes = [0u8; 65];
     internal_key_bytes[0] = 4;
     internal_key_bytes[1..33].copy_from_slice(&internal_key_x_only_bytes);
@@ -175,5 +190,9 @@ pub fn verify_script_hash_taproot_address(actor_pk_bytes: [u8; 32], preimages: &
     let mut address_bytes = [0u8; 33];
     address_bytes[0..33].copy_from_slice(&address.to_bytes()[0..33]);
     // internal_key.tap_tweak(secp, merkle_root);
-    return (address_bytes[1..33] == taproot_address, address_bytes, preimages);
+    return (
+        address_bytes[1..33] == taproot_address,
+        address_bytes,
+        preimages,
+    );
 }

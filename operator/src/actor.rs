@@ -19,7 +19,6 @@ use tiny_keccak::{Hasher, Keccak};
 
 use crate::transaction_builder::TransactionBuilder;
 
-
 #[derive(Clone, Debug, Copy)]
 pub struct EVMSignature {
     v: u8,
@@ -92,7 +91,7 @@ impl Actor {
     pub fn sign(&self, sighash: TapSighash) -> schnorr::Signature {
         self.secp.sign_schnorr(
             &Message::from_digest_slice(sighash.as_byte_array()).expect("should be hash"),
-            &self.keypair
+            &self.keypair,
         )
     }
 
@@ -103,20 +102,31 @@ impl Actor {
         )
     }
 
-    pub fn sign_taproot_script_spend_tx(&self, tx: &mut bitcoin::Transaction, prevouts: Vec<TxOut>, spend_script: &bitcoin::Script, input_index: usize) -> schnorr::Signature {
+    pub fn sign_taproot_script_spend_tx(
+        &self,
+        tx: &mut bitcoin::Transaction,
+        prevouts: Vec<TxOut>,
+        spend_script: &bitcoin::Script,
+        input_index: usize,
+    ) -> schnorr::Signature {
         let mut sighash_cache = SighashCache::new(tx);
         let sig_hash = sighash_cache
-                .taproot_script_spend_signature_hash(
-                    input_index,
-                    &bitcoin::sighash::Prevouts::All(&prevouts),
-                    TapLeafHash::from_script(&spend_script, LeafVersion::TapScript),
-                    bitcoin::sighash::TapSighashType::Default,
-                )
-                .unwrap();
+            .taproot_script_spend_signature_hash(
+                input_index,
+                &bitcoin::sighash::Prevouts::All(&prevouts),
+                TapLeafHash::from_script(&spend_script, LeafVersion::TapScript),
+                bitcoin::sighash::TapSighashType::Default,
+            )
+            .unwrap();
         self.sign(sig_hash)
     }
 
-    pub fn sign_taproot_pubkey_spend_tx(&self, tx: &mut bitcoin::Transaction, prevouts: Vec<TxOut>, input_index: usize) -> schnorr::Signature{
+    pub fn sign_taproot_pubkey_spend_tx(
+        &self,
+        tx: &mut bitcoin::Transaction,
+        prevouts: Vec<TxOut>,
+        input_index: usize,
+    ) -> schnorr::Signature {
         let mut sighash_cache = SighashCache::new(tx);
         let sig_hash = sighash_cache
             .taproot_key_spend_signature_hash(
@@ -133,16 +143,24 @@ impl Actor {
             .send_to_address(&self.address, amount, None, None, None, None, None, None)
             .unwrap();
         let tx = rpc.get_raw_transaction(&txid, None).unwrap();
-        let vout = tx
-            .output
-            .iter()
-            .position(|x| x.value == amount)
-            .unwrap();
+        let vout = tx.output.iter().position(|x| x.value == amount).unwrap();
         println!("user created start utxo: {:?}", txid);
-        (OutPoint { txid, vout: vout as u32 }, amount)
+        (
+            OutPoint {
+                txid,
+                vout: vout as u32,
+            },
+            amount,
+        )
     }
 
-    pub fn spend_self_utxo(&self, rpc: &Client, utxo: OutPoint, amount: Amount, address: Address) -> (OutPoint, Amount) {
+    pub fn spend_self_utxo(
+        &self,
+        rpc: &Client,
+        utxo: OutPoint,
+        amount: Amount,
+        address: Address,
+    ) -> (OutPoint, Amount) {
         let prev_tx = rpc.get_raw_transaction(&utxo.txid, None).unwrap();
         let prev_amount = prev_tx.output[utxo.vout as usize].value;
 
@@ -150,12 +168,10 @@ impl Actor {
         let tx_outs = TransactionBuilder::create_tx_outs(vec![(amount, address.script_pubkey())]);
         let mut spend_tx = TransactionBuilder::create_btc_tx(tx_ins, tx_outs);
 
-        let prevouts = TransactionBuilder::create_tx_outs(vec![
-            (prev_amount, self.address.script_pubkey())
-        ]);
+        let prevouts =
+            TransactionBuilder::create_tx_outs(vec![(prev_amount, self.address.script_pubkey())]);
 
-        let sig = self
-            .sign_taproot_pubkey_spend_tx(&mut spend_tx, prevouts, 0);
+        let sig = self.sign_taproot_pubkey_spend_tx(&mut spend_tx, prevouts, 0);
         let mut deposit_tx_sighash_cache = SighashCache::new(spend_tx.borrow_mut());
         let witness = deposit_tx_sighash_cache.witness_mut(0).unwrap();
         witness.push(sig.as_ref());

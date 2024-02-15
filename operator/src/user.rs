@@ -1,9 +1,9 @@
 use crate::actor::Actor;
 use crate::transaction_builder::TransactionBuilder;
-use bitcoin::OutPoint;
 use bitcoin::secp256k1::All;
 use bitcoin::secp256k1::Secp256k1;
 use bitcoin::Amount;
+use bitcoin::OutPoint;
 use bitcoin::XOnlyPublicKey;
 use bitcoincore_rpc::Client;
 use secp256k1::rand::rngs::OsRng;
@@ -46,14 +46,13 @@ impl<'a> User<'a> {
         let transaction_builder = TransactionBuilder::new(verifiers_pks);
 
         let (deposit_address, _) =
-        transaction_builder.generate_deposit_address(self.signer.xonly_public_key, hash);
+            transaction_builder.generate_deposit_address(self.signer.xonly_public_key, hash);
 
-        let res = self.signer.spend_self_utxo(rpc, start_utxo, deposit_amount, deposit_address);
+        let res = self
+            .signer
+            .spend_self_utxo(rpc, start_utxo, deposit_amount, deposit_address);
 
-        (
-            res.0,
-            self.signer.xonly_public_key,
-        )
+        (res.0, self.signer.xonly_public_key)
     }
 
     pub fn reveal_preimage(&self) -> [u8; 32] {
@@ -62,6 +61,4 @@ impl<'a> User<'a> {
 }
 
 #[cfg(test)]
-mod tests {
-
-}
+mod tests {}

@@ -4,17 +4,14 @@ use bitcoin::{secp256k1::rand::rngs::OsRng, Amount, OutPoint};
 use bitcoincore_rpc::{Auth, Client, RpcApi};
 use circuit_helpers::{
     bitcoin::{get_script_hash, verify_script_hash_taproot_address},
-    config::{BRIDGE_AMOUNT_SATS, CONNECTOR_TREE_DEPTH, NUM_ROUNDS, NUM_USERS, NUM_VERIFIERS},
-    constant::{DUST_VALUE, HASH_FUNCTION_32, MIN_RELAY_FEE},
+    config::{BRIDGE_AMOUNT_SATS, CONNECTOR_TREE_DEPTH, NUM_USERS, NUM_VERIFIERS},
+    constant::{HASH_FUNCTION_32, MIN_RELAY_FEE},
 };
 use crypto_bigint::{Encoding, U256};
 use operator::{
     extended_rpc::ExtendedRpc,
     operator::{Operator, PreimageType},
-    transaction_builder::TransactionBuilder,
     user::User,
-    utils::{calculate_amount, create_connector_binary_tree},
-    verifier::Verifier,
 };
 
 fn main() {
@@ -37,15 +34,18 @@ fn main() {
 
     let connector_root_utxo = operator.create_connector_root();
     for verifier in &mut operator.mock_verifier_access {
-        verifier.connector_root_utxo_created(operator.connector_tree_hashes.clone(), connector_root_utxo);
+        verifier.connector_root_utxo_created(
+            operator.connector_tree_hashes.clone(),
+            connector_root_utxo,
+        );
     }
 
     let mut preimages_verifier_track: HashSet<PreimageType> = HashSet::new();
     let mut utxos_verifier_track: HashMap<OutPoint, (u32, u32)> = HashMap::new();
     utxos_verifier_track.insert(connector_root_utxo, (0, 0));
 
-    let mut flag =
-        operator.mock_verifier_access[0].did_connector_tree_process_start(connector_root_utxo.clone());
+    let mut flag = operator.mock_verifier_access[0]
+        .did_connector_tree_process_start(connector_root_utxo.clone());
     println!("flag: {:?}", flag);
     if flag {
         operator.mock_verifier_access[0].watch_connector_tree(
@@ -93,7 +93,8 @@ fn main() {
         operator.change_preimage_for_deposit_requests(&mut OsRng);
     }
 
-    flag = operator.mock_verifier_access[0].did_connector_tree_process_start(connector_root_utxo.clone());
+    flag = operator.mock_verifier_access[0]
+        .did_connector_tree_process_start(connector_root_utxo.clone());
     println!("flag: {:?}", flag);
     if flag {
         operator.mock_verifier_access[0].watch_connector_tree(
@@ -167,7 +168,10 @@ fn main() {
     );
     println!("test_res: {:?}", test_res);
 
-    for (i, utxo_level) in operator.connector_tree_utxos[0..operator.connector_tree_utxos.len() - 1].iter().enumerate() {
+    for (i, utxo_level) in operator.connector_tree_utxos[0..operator.connector_tree_utxos.len() - 1]
+        .iter()
+        .enumerate()
+    {
         for (j, utxo) in utxo_level.iter().enumerate() {
             let preimage = operator.connector_tree_preimages[i][j];
             println!("preimage: {:?}", preimage);

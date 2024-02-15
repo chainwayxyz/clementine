@@ -1,5 +1,5 @@
 use circuit_helpers::config::{DEPTH, ZEROES};
-use circuit_helpers::constant::{Data, HASH_FUNCTION_64, EMPTYDATA};
+use circuit_helpers::constant::{Data, EMPTYDATA, HASH_FUNCTION_64};
 use circuit_helpers::incremental_merkle::IncrementalMerkleTree;
 use serde::{Deserialize, Serialize};
 
@@ -31,14 +31,12 @@ impl MerkleTree {
         for i in 0..DEPTH + 1 {
             let (left, right) = if current_index % 2 == 0 {
                 (current_level_hash, ZEROES[i])
-            }
-            else {
+            } else {
                 (self.data[i][current_index as usize - 1], current_level_hash)
             };
             if i > trz as usize {
                 self.data[i][current_index as usize] = current_level_hash;
-            }
-            else {
+            } else {
                 self.data[i].push(current_level_hash);
             }
             current_level_hash = HASH_FUNCTION_64(left, right);
@@ -51,8 +49,12 @@ impl MerkleTree {
         let mut p = [EMPTYDATA; DEPTH];
         let mut i = index as usize;
         for level in 0..DEPTH {
-            let s = if i % 2 == 0 {i + 1} else {i - 1};
-            p[level] = if s < self.data[level].len() {self.data[level][s]} else {ZEROES[level]};
+            let s = if i % 2 == 0 { i + 1 } else { i - 1 };
+            p[level] = if s < self.data[level].len() {
+                self.data[level][s]
+            } else {
+                ZEROES[level]
+            };
             i /= 2;
         }
         p
@@ -69,16 +71,21 @@ impl MerkleTree {
         for level in 0..DEPTH {
             if i % 2 == 0 {
                 fst[level] = current_level_hash;
-            }
-            else {
+            } else {
                 fst[level] = self.data[level][i - 1];
             }
-            let (left, right) = if i % 2 == 0 {(current_level_hash, ZEROES[level])} else {(self.data[level][i - 1], current_level_hash)};
+            let (left, right) = if i % 2 == 0 {
+                (current_level_hash, ZEROES[level])
+            } else {
+                (self.data[level][i - 1], current_level_hash)
+            };
             current_level_hash = HASH_FUNCTION_64(left, right);
             i /= 2;
         }
-        IncrementalMerkleTree { filled_subtrees: fst, root: current_level_hash, index }
+        IncrementalMerkleTree {
+            filled_subtrees: fst,
+            root: current_level_hash,
+            index,
+        }
     }
 }
-
-
