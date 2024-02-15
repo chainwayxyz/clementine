@@ -58,82 +58,6 @@ lazy_static! {
     .unwrap();
 }
 
-pub fn get_indices(depth: usize, count: u32) -> Vec<(usize, usize)> {
-    assert!(count <= 2u32.pow(depth as u32));
-
-    if count == 0 {
-        return vec![(0, 0)];
-    }
-
-    let mut indices: Vec<(usize, usize)> = Vec::new();
-    if count == 2u32.pow(depth as u32) {
-        return indices;
-    }
-
-    if count % 2 == 1 {
-        indices.push((depth, count as usize));
-        indices.extend(get_indices(depth - 1, (count + 1) / 2));
-    } else {
-        indices.extend(get_indices(depth - 1, count / 2));
-    }
-
-    return indices;
-}
-
-pub fn get_internal_indices(depth: usize, count: u32) -> Vec<(usize, usize)> {
-    assert!(count <= 2u32.pow(depth as u32));
-
-    if count == 2u32.pow(depth as u32) {
-        return vec![(0, 0)];
-    }
-
-    let mut indices: Vec<(usize, usize)> = Vec::new();
-    if count == 0 {
-        return indices;
-    }
-
-    if count % 2 == 1 {
-        indices.push((depth, count as usize - 1));
-        indices.extend(get_internal_indices(depth - 1, (count - 1) / 2));
-    } else {
-        indices.extend(get_internal_indices(depth - 1, count / 2));
-    }
-
-    return indices;
-}
-
-pub fn get_custom_merkle_indices(depth: usize, count: u32) -> Vec<(usize, usize)> {
-    assert!(count <= 2u32.pow(depth as u32));
-
-    if count == 0 {
-        return vec![];
-    }
-
-    if count == 2u32.pow(depth as u32) {
-        return vec![];
-    }
-
-    let mut indices: Vec<(usize, usize)> = Vec::new();
-    let mut level = 0;
-    let mut index = count;
-    while index % 2 == 0 {
-        index = index / 2;
-        level += 1;
-    }
-
-    while level < depth {
-        if index % 2 == 1 {
-            indices.push((level + 1, (index as usize - 1) / 2));
-        } else {
-            indices.push((level + 1, index as usize / 2))
-        }
-        level = level + 1;
-        index = index / 2;
-    }
-
-    return indices;
-}
-
 pub fn take_stdin<T: std::str::FromStr>(prompt: &str) -> Result<T, T::Err> {
     print!("{}", prompt);
     io::stdout().flush().unwrap();
@@ -720,7 +644,6 @@ mod tests {
     use circuit_helpers::config::NUM_VERIFIERS;
     use secp256k1::rand::rngs::OsRng;
 
-    use crate::utils::{get_indices, get_internal_indices};
     use crate::{
         operator::Operator,
         utils::{from_hex_to_tx, parse_hex_to_btc_tx},
@@ -728,135 +651,9 @@ mod tests {
 
     use super::{
         create_btc_tx, create_tx_outs, generate_timelock_script,
-        handle_connector_binary_tree_script, mine_blocks, get_custom_merkle_indices,
+        handle_connector_binary_tree_script, mine_blocks,
     };
 
-    #[test]
-    fn test_get_indices() {
-        let indices = get_indices(0, 0);
-        println!("indices: {:?}", indices);
-        let indices = get_indices(0, 1);
-        println!("indices: {:?}", indices);
-        let indices = get_indices(1, 0);
-        println!("indices: {:?}", indices);
-        let indices = get_indices(1, 1);
-        println!("indices: {:?}", indices);
-        let indices = get_indices(1, 2);
-        println!("indices: {:?}", indices);
-        let indices = get_indices(2, 0);
-        println!("indices: {:?}", indices);
-        let indices = get_indices(2, 1);
-        println!("indices: {:?}", indices);
-        let indices = get_indices(2, 2);
-        println!("indices: {:?}", indices);
-        let indices = get_indices(2, 3);
-        println!("indices: {:?}", indices);
-        let indices = get_indices(2, 4);
-        println!("indices: {:?}", indices);
-        let indices = get_indices(3, 0);
-        println!("indices: {:?}", indices);
-        let indices = get_indices(3, 1);
-        println!("indices: {:?}", indices);
-        let indices = get_indices(3, 2);
-        println!("indices: {:?}", indices);
-        let indices = get_indices(3, 3);
-        println!("indices: {:?}", indices);
-        let indices = get_indices(3, 4);
-        println!("indices: {:?}", indices);
-        let indices = get_indices(3, 5);
-        println!("indices: {:?}", indices);
-        let indices = get_indices(3, 6);
-        println!("indices: {:?}", indices);
-        let indices = get_indices(3, 7);
-        println!("indices: {:?}", indices);
-        let indices = get_indices(3, 8);
-        println!("indices: {:?}", indices);
-    }
-
-    #[test]
-    fn test_get_internal_indices() {
-        let indices = get_internal_indices(0, 0);
-        println!("indices: {:?}", indices);
-        let indices = get_internal_indices(0, 1);
-        println!("indices: {:?}", indices);
-        let indices = get_internal_indices(1, 0);
-        println!("indices: {:?}", indices);
-        let indices = get_internal_indices(1, 1);
-        println!("indices: {:?}", indices);
-        let indices = get_internal_indices(1, 2);
-        println!("indices: {:?}", indices);
-        let indices = get_internal_indices(2, 0);
-        println!("indices: {:?}", indices);
-        let indices = get_internal_indices(2, 1);
-        println!("indices: {:?}", indices);
-        let indices = get_internal_indices(2, 2);
-        println!("indices: {:?}", indices);
-        let indices = get_internal_indices(2, 3);
-        println!("indices: {:?}", indices);
-        let indices = get_internal_indices(2, 4);
-        println!("indices: {:?}", indices);
-        let indices = get_internal_indices(3, 0);
-        println!("indices: {:?}", indices);
-        let indices = get_internal_indices(3, 1);
-        println!("indices: {:?}", indices);
-        let indices = get_internal_indices(3, 2);
-        println!("indices: {:?}", indices);
-        let indices = get_internal_indices(3, 3);
-        println!("indices: {:?}", indices);
-        let indices = get_internal_indices(3, 4);
-        println!("indices: {:?}", indices);
-        let indices = get_internal_indices(3, 5);
-        println!("indices: {:?}", indices);
-        let indices = get_internal_indices(3, 6);
-        println!("indices: {:?}", indices);
-        let indices = get_internal_indices(3, 7);
-        println!("indices: {:?}", indices);
-        let indices = get_internal_indices(3, 8);
-        println!("indices: {:?}", indices);
-    }
-
-    #[test]
-    fn test_custom_merkle_indices() {
-        let indices = get_custom_merkle_indices(0, 0);
-        println!("indices: {:?}", indices);
-        let indices = get_custom_merkle_indices(0, 1);
-        println!("indices: {:?}", indices);
-        let indices = get_custom_merkle_indices(1, 0);
-        println!("indices: {:?}", indices);
-        let indices = get_custom_merkle_indices(1, 1);
-        println!("indices: {:?}", indices);
-        let indices = get_custom_merkle_indices(1, 2);
-        println!("indices: {:?}", indices);
-        let indices = get_custom_merkle_indices(2, 0);
-        println!("indices: {:?}", indices);
-        let indices = get_custom_merkle_indices(2, 1);
-        println!("indices: {:?}", indices);
-        let indices = get_custom_merkle_indices(2, 2);
-        println!("indices: {:?}", indices);
-        let indices = get_custom_merkle_indices(2, 3);
-        println!("indices: {:?}", indices);
-        let indices = get_custom_merkle_indices(2, 4);
-        println!("indices: {:?}", indices);
-        let indices = get_custom_merkle_indices(3, 0);
-        println!("indices: {:?}", indices);
-        let indices = get_custom_merkle_indices(3, 1);
-        println!("indices: {:?}", indices);
-        let indices = get_custom_merkle_indices(3, 2);
-        println!("indices: {:?}", indices);
-        let indices = get_custom_merkle_indices(3, 3);
-        println!("indices: {:?}", indices);
-        let indices = get_custom_merkle_indices(3, 4);
-        println!("indices: {:?}", indices);
-        let indices = get_custom_merkle_indices(3, 5);
-        println!("indices: {:?}", indices);
-        let indices = get_custom_merkle_indices(3, 6);
-        println!("indices: {:?}", indices);
-        let indices = get_custom_merkle_indices(3, 7);
-        println!("indices: {:?}", indices);
-        let indices = get_custom_merkle_indices(3, 8);
-        println!("indices: {:?}", indices);
-
-    }
 
 
     #[test]

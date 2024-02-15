@@ -2,10 +2,6 @@ use std::vec;
 
 use circuit_helpers::constant::HASH_FUNCTION_64;
 
-use crate::utils::get_custom_merkle_indices;
-use crate::utils::get_indices;
-use crate::utils::get_internal_indices;
-
 #[derive(Debug, Clone)]
 pub struct CustomMerkleProofPreimageElement {
     pub children_hash: [u8; 32],
@@ -125,9 +121,10 @@ impl CustomMerkleTree {
             };
         }
 
-        let preimage_indices = get_indices(self.depth, no_of_claims);
-        let node_hash_indices = get_internal_indices(self.depth, no_of_claims);
-        let preimage_hash_indices = get_custom_merkle_indices(self.depth, no_of_claims);
+        let preimage_indices = CustomMerkleTree::get_indices(self.depth, no_of_claims);
+        let node_hash_indices = CustomMerkleTree::get_internal_indices(self.depth, no_of_claims);
+        let preimage_hash_indices =
+            CustomMerkleTree::get_custom_merkle_indices(self.depth, no_of_claims);
 
         let mut proof_preimage_inputs = Vec::new();
         for (i, j) in preimage_indices {
@@ -234,39 +231,55 @@ impl CustomMerkleTree {
 
         temp = HASH_FUNCTION_64(
             proof.preimage_elements[pre_idx].children_hash,
-            HASH_FUNCTION_64([proof.preimage_elements[pre_idx].level as u8; 32], proof.preimage_elements[pre_idx].preimage),
+            HASH_FUNCTION_64(
+                [proof.preimage_elements[pre_idx].level as u8; 32],
+                proof.preimage_elements[pre_idx].preimage,
+            ),
         );
-        println!("temp: {:?}", temp);
+        // println!("temp: {:?}", temp);
         pre_idx += 1;
         temp = HASH_FUNCTION_64(proof.node_hash_elements[hash_idx].hash, temp);
-        println!("temp: {:?}", temp);
+        // println!("temp: {:?}", temp);
         hash_idx += 1;
         let mut level_idx = 0;
-        println!("level_idx: {}", level_idx);
+        // println!("level_idx: {}", level_idx);
 
-        while level_idx < self.depth - power_of_two - 1{
-            println!("level_idx: {}", level_idx);
-            println!("pre_idx: {}", pre_idx);
-            println!("hash_idx: {}", hash_idx);
-            if pre_idx < proof.preimage_elements.len() && level_idx + power_of_two + 1 == proof.preimage_elements[pre_idx].level {
-                println!("if");
-                temp = HASH_FUNCTION_64(temp, proof.preimage_hash_elements[level_idx as usize].hash);
-                temp = HASH_FUNCTION_64(temp, HASH_FUNCTION_64(proof.preimage_elements[pre_idx].children_hash, HASH_FUNCTION_64([proof.preimage_elements[pre_idx].level as u8; 32], proof.preimage_elements[pre_idx].preimage)));
+        while level_idx < self.depth - power_of_two - 1 {
+            // println!("level_idx: {}", level_idx);
+            // println!("pre_idx: {}", pre_idx);
+            // println!("hash_idx: {}", hash_idx);
+            if pre_idx < proof.preimage_elements.len()
+                && level_idx + power_of_two + 1 == proof.preimage_elements[pre_idx].level
+            {
+                // println!("if");
+                temp =
+                    HASH_FUNCTION_64(temp, proof.preimage_hash_elements[level_idx as usize].hash);
+                temp = HASH_FUNCTION_64(
+                    temp,
+                    HASH_FUNCTION_64(
+                        proof.preimage_elements[pre_idx].children_hash,
+                        HASH_FUNCTION_64(
+                            [proof.preimage_elements[pre_idx].level as u8; 32],
+                            proof.preimage_elements[pre_idx].preimage,
+                        ),
+                    ),
+                );
                 pre_idx += 1;
             } else {
-                println!("else");
-                temp = HASH_FUNCTION_64(temp, proof.preimage_hash_elements[level_idx as usize].hash);
+                // println!("else");
+                temp =
+                    HASH_FUNCTION_64(temp, proof.preimage_hash_elements[level_idx as usize].hash);
                 temp = HASH_FUNCTION_64(proof.node_hash_elements[hash_idx].hash, temp);
                 hash_idx += 1;
             }
-            println!("temp after level complete: {:?}", temp);
+            // println!("temp after level complete: {:?}", temp);
             level_idx += 1;
             // println!("level_idx: {}", level_idx);
         }
 
-        println!("level_idx after while: {}", level_idx);
-        println!("pre_idx after while: {}", pre_idx);
-        println!("hash_idx after while: {}", hash_idx);
+        // println!("level_idx after while: {}", level_idx);
+        // println!("pre_idx after while: {}", pre_idx);
+        // println!("hash_idx after while: {}", hash_idx);
 
         temp = HASH_FUNCTION_64(temp, proof.preimage_hash_elements[level_idx as usize].hash);
 
@@ -276,89 +289,247 @@ impl CustomMerkleTree {
         for hash_elem in proof.node_hash_elements {
             total_claim += 2u32.pow(hash_elem.level as u32) as u32;
         }
-        println!("total claimed: {}", total_claim);
+        // println!("total claimed: {}", total_claim);
 
         let mut total_not_claim = 0;
         for preimage_elem in proof.preimage_elements {
             total_not_claim += 2u32.pow(preimage_elem.level as u32) as u32;
         }
-        println!("total not claimed: {}", total_not_claim);
+        // println!("total not claimed: {}", total_not_claim);
 
         return flag;
+    }
+
+    pub fn get_indices(depth: usize, count: u32) -> Vec<(usize, usize)> {
+        assert!(count <= 2u32.pow(depth as u32));
+
+        if count == 0 {
+            return vec![(0, 0)];
+        }
+
+        let mut indices: Vec<(usize, usize)> = Vec::new();
+        if count == 2u32.pow(depth as u32) {
+            return indices;
+        }
+
+        if count % 2 == 1 {
+            indices.push((depth, count as usize));
+            indices.extend(CustomMerkleTree::get_indices(depth - 1, (count + 1) / 2));
+        } else {
+            indices.extend(CustomMerkleTree::get_indices(depth - 1, count / 2));
+        }
+
+        return indices;
+    }
+
+    pub fn get_internal_indices(depth: usize, count: u32) -> Vec<(usize, usize)> {
+        assert!(count <= 2u32.pow(depth as u32));
+
+        if count == 2u32.pow(depth as u32) {
+            return vec![(0, 0)];
+        }
+
+        let mut indices: Vec<(usize, usize)> = Vec::new();
+        if count == 0 {
+            return indices;
+        }
+
+        if count % 2 == 1 {
+            indices.push((depth, count as usize - 1));
+            indices.extend(CustomMerkleTree::get_internal_indices(
+                depth - 1,
+                (count - 1) / 2,
+            ));
+        } else {
+            indices.extend(CustomMerkleTree::get_internal_indices(depth - 1, count / 2));
+        }
+
+        return indices;
+    }
+
+    pub fn get_custom_merkle_indices(depth: usize, count: u32) -> Vec<(usize, usize)> {
+        assert!(count <= 2u32.pow(depth as u32));
+
+        if count == 0 {
+            return vec![];
+        }
+
+        if count == 2u32.pow(depth as u32) {
+            return vec![];
+        }
+
+        let mut indices: Vec<(usize, usize)> = Vec::new();
+        let mut level = 0;
+        let mut index = count;
+        while index % 2 == 0 {
+            index = index / 2;
+            level += 1;
+        }
+
+        while level < depth {
+            if index % 2 == 1 {
+                indices.push((level + 1, (index as usize - 1) / 2));
+            } else {
+                indices.push((level + 1, index as usize / 2))
+            }
+            level = level + 1;
+            index = index / 2;
+        }
+
+        return indices;
     }
 }
 
 #[cfg(test)]
 mod tests {
-
-    use secp256k1::rand::{rngs::OsRng, Rng};
-
     use super::*;
 
     #[test]
     fn test_custom_merkle_tree() {
-        let mut rng = OsRng;
         let mut preimages: Vec<Vec<[u8; 32]>> = Vec::new();
-        for i in 0..4 {
+        for i in 0u8..4 {
             let mut preimages_level: Vec<[u8; 32]> = Vec::new();
-            for _ in 0..2u32.pow(i) {
-                preimages_level.push(rng.gen());
+            let num_nodes = 2u8.pow(i.into());
+            for j in 0u8..num_nodes {
+                preimages_level.push([num_nodes - 1 + j; 32]);
             }
             preimages.push(preimages_level);
         }
-        println!("preimages: {:?}", preimages);
         let merkle_tree = CustomMerkleTree::new(3, preimages);
-        println!("merkle tree: {:?}", merkle_tree);
-        let proof_0 = merkle_tree.generate_proof(0);
-        println!("proof 0: {:?}", proof_0);
-        let proof_1 = merkle_tree.generate_proof(1);
-        println!("proof 1: {:?}", proof_1);
-        let proof_2 = merkle_tree.generate_proof(2);
-        println!("proof 2: {:?}", proof_2);
-        let proof_3 = merkle_tree.generate_proof(3);
-        println!("proof 3: {:?}", proof_3);
-        let proof_4 = merkle_tree.generate_proof(4);
-        println!("proof 4: {:?}", proof_4);
-        let proof_5 = merkle_tree.generate_proof(5);
-        println!("proof 5: {:?}", proof_5);
-        let proof_6 = merkle_tree.generate_proof(6);
-        println!("proof 6: {:?}", proof_6);
-        let proof_7 = merkle_tree.generate_proof(7);
-        println!("proof 7: {:?}", proof_7);
-        let proof_8 = merkle_tree.generate_proof(8);
-        println!("proof 8: {:?}", proof_8);
-        println!("verify proof_0: {:?}", merkle_tree.verify_proof(proof_0, 0));
-        println!("verify proof_1: {:?}", merkle_tree.verify_proof(proof_1, 1));
-        println!("verify proof_2: {:?}", merkle_tree.verify_proof(proof_2, 2));
-        println!("verify proof_3: {:?}", merkle_tree.verify_proof(proof_3, 3));
-        println!("verify proof_4: {:?}", merkle_tree.verify_proof(proof_4, 4));
-        println!("verify proof_5: {:?}", merkle_tree.verify_proof(proof_5, 5));
-        println!("verify proof_6: {:?}", merkle_tree.verify_proof(proof_6, 6));
-        println!("verify proof_7: {:?}", merkle_tree.verify_proof(proof_7, 7));
-        println!("verify proof_8: {:?}", merkle_tree.verify_proof(proof_8, 8));
-        // let res = merkle_tree.verify_proof(proof_3, 3);
+        for i in 0..9 {
+            let proof = merkle_tree.generate_proof(i);
+            assert_eq!(merkle_tree.verify_proof(proof, i), true);
+        }
     }
 
     #[test]
     fn more_test() {
-        let mut rng = OsRng;
         let mut preimages: Vec<Vec<[u8; 32]>> = Vec::new();
         for i in 0..10 {
             let mut preimages_level: Vec<[u8; 32]> = Vec::new();
-            for _ in 0..2u32.pow(i) {
-                preimages_level.push(rng.gen());
+            let num_nodes = 2u32.pow(i);
+            for j in 0..num_nodes {
+                preimages_level.push([(num_nodes - 1 + j) as u8; 32]);
             }
             preimages.push(preimages_level);
         }
         // println!("preimages: {:?}", preimages);
         let merkle_tree_4 = CustomMerkleTree::new(4, preimages[..5].to_vec());
         let proof_5 = merkle_tree_4.generate_proof(5);
-        println!("verify proof_5: {:?}", merkle_tree_4.verify_proof(proof_5, 5));
+        assert_eq!(
+            merkle_tree_4.verify_proof(proof_5, 5),
+            true,
+            "Failed to verify proof for 5 with depth 4"
+        );
 
         let merkle_tree_7 = CustomMerkleTree::new(7, preimages[..8].to_vec());
         let proof_31 = merkle_tree_7.generate_proof(31);
-        println!("verify proof_31: {:?}", merkle_tree_7.verify_proof(proof_31, 31));
-
+        assert_eq!(
+            merkle_tree_7.verify_proof(proof_31, 31),
+            true,
+            "Failed to verify proof for 31 with depth 7"
+        );
     }
 
+    #[test]
+    fn test_get_indices() {
+        let test_cases = vec![
+            ((0, 0), vec![(0, 0)]),
+            ((0, 1), vec![]),
+            ((1, 0), vec![(0, 0)]),
+            ((1, 1), vec![(1, 1)]),
+            ((1, 2), vec![]),
+            ((2, 0), vec![(0, 0)]),
+            ((2, 1), vec![(2, 1), (1, 1)]),
+            ((2, 2), vec![(1, 1)]),
+            ((2, 3), vec![(2, 3)]),
+            ((2, 4), vec![]),
+            ((3, 0), vec![(0, 0)]),
+            ((3, 1), vec![(3, 1), (2, 1), (1, 1)]),
+            ((3, 2), vec![(2, 1), (1, 1)]),
+            ((3, 3), vec![(3, 3), (1, 1)]),
+            ((3, 4), vec![(1, 1)]),
+            ((3, 5), vec![(3, 5), (2, 3)]),
+            ((3, 6), vec![(2, 3)]),
+            ((3, 7), vec![(3, 7)]),
+            ((3, 8), vec![]),
+        ];
+
+        for ((depth, index), expected) in test_cases {
+            let indices = CustomMerkleTree::get_indices(depth, index);
+            assert_eq!(
+                indices, expected,
+                "Failed at get_indices({}, {})",
+                depth, index
+            );
+        }
+    }
+
+    #[test]
+    fn test_get_internal_indices() {
+        let test_cases = vec![
+            ((0, 0), vec![]),
+            ((0, 1), vec![(0, 0)]),
+            ((1, 0), vec![]),
+            ((1, 1), vec![(1, 0)]),
+            ((1, 2), vec![(0, 0)]),
+            ((2, 0), vec![]),
+            ((2, 1), vec![(2, 0)]),
+            ((2, 2), vec![(1, 0)]),
+            ((2, 3), vec![(2, 2), (1, 0)]),
+            ((2, 4), vec![(0, 0)]),
+            ((3, 0), vec![]),
+            ((3, 1), vec![(3, 0)]),
+            ((3, 2), vec![(2, 0)]),
+            ((3, 3), vec![(3, 2), (2, 0)]),
+            ((3, 4), vec![(1, 0)]),
+            ((3, 5), vec![(3, 4), (1, 0)]),
+            ((3, 6), vec![(2, 2), (1, 0)]),
+            ((3, 7), vec![(3, 6), (2, 2), (1, 0)]),
+            ((3, 8), vec![(0, 0)]),
+        ];
+
+        for ((depth, index), expected) in test_cases {
+            let indices = CustomMerkleTree::get_internal_indices(depth, index);
+            assert_eq!(
+                indices, expected,
+                "Failed at get_internal_indices({}, {})",
+                depth, index
+            );
+        }
+    }
+
+    #[test]
+    fn test_custom_merkle_indices() {
+        let test_cases = vec![
+            ((0, 0), vec![]),
+            ((0, 1), vec![]),
+            ((1, 0), vec![]),
+            ((1, 1), vec![(1, 0)]),
+            ((1, 2), vec![]),
+            ((2, 0), vec![]),
+            ((2, 1), vec![(1, 0), (2, 0)]),
+            ((2, 2), vec![(2, 0)]),
+            ((2, 3), vec![(1, 1), (2, 0)]),
+            ((2, 4), vec![]),
+            ((3, 0), vec![]),
+            ((3, 1), vec![(1, 0), (2, 0), (3, 0)]),
+            ((3, 2), vec![(2, 0), (3, 0)]),
+            ((3, 3), vec![(1, 1), (2, 0), (3, 0)]),
+            ((3, 4), vec![(3, 0)]),
+            ((3, 5), vec![(1, 2), (2, 1), (3, 0)]),
+            ((3, 6), vec![(2, 1), (3, 0)]),
+            ((3, 7), vec![(1, 3), (2, 1), (3, 0)]),
+            ((3, 8), vec![]),
+        ];
+
+        for ((depth, index), expected) in test_cases {
+            let indices = CustomMerkleTree::get_custom_merkle_indices(depth, index);
+            assert_eq!(
+                indices, expected,
+                "Failed at get_custom_merkle_indices({}, {})",
+                depth, index
+            );
+        }
+    }
 }

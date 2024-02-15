@@ -3,9 +3,10 @@ use std::collections::{HashMap, HashSet};
 use std::vec;
 
 use crate::actor::{Actor, EVMSignature};
+use crate::custom_merkle::CustomMerkleTree;
 use crate::merkle::MerkleTree;
 use crate::utils::{
-    create_btc_tx, create_connector_tree_tx, create_inscription_transactions, create_move_tx, create_taproot_address, create_tx_ins, create_tx_ins_with_sequence, create_tx_outs, create_utxo, generate_deposit_address, generate_n_of_n_script, generate_n_of_n_script_without_hash, generate_timelock_script, get_indices, handle_anyone_can_spend_script, handle_connector_binary_tree_script, handle_taproot_witness
+    create_btc_tx, create_connector_tree_tx, create_inscription_transactions, create_move_tx, create_taproot_address, create_tx_ins, create_tx_ins_with_sequence, create_tx_outs, create_utxo, generate_deposit_address, generate_n_of_n_script, generate_n_of_n_script_without_hash, generate_timelock_script, handle_anyone_can_spend_script, handle_connector_binary_tree_script, handle_taproot_witness
 };
 use crate::verifier::Verifier;
 use bitcoin::address::NetworkChecked;
@@ -525,7 +526,7 @@ impl<'a> Operator<'a> {
     }
 
     pub fn reveal_connector_tree_preimages(&self, number_of_funds_claim: u32) -> HashSet<PreimageType> {
-        let indices = get_indices(self.connector_tree_hashes.len() - 1, number_of_funds_claim);
+        let indices = CustomMerkleTree::get_indices(self.connector_tree_hashes.len() - 1, number_of_funds_claim);
         println!("indices: {:?}", indices);
         let mut preimages: HashSet<PreimageType> = HashSet::new();
         for (depth, index) in indices {
@@ -536,7 +537,7 @@ impl<'a> Operator<'a> {
 
     pub fn inscribe_connector_tree_preimages(&self, number_of_funds_claim: u32) -> (Txid, Txid) {
 
-        let indices = get_indices(self.connector_tree_hashes.len() - 1, number_of_funds_claim);
+        let indices = CustomMerkleTree::get_indices(self.connector_tree_hashes.len() - 1, number_of_funds_claim);
         println!("indices: {:?}", indices);
         let mut preimages: Vec<PreimageType> = Vec::new();
 
