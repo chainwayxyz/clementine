@@ -9,14 +9,9 @@ use circuit_helpers::{
 };
 use crypto_bigint::{Encoding, U256};
 use operator::{
-    extended_rpc::ExtendedRpc,
-    operator::{Operator, PreimageType},
-    user::User,
-    utils::{
-        calculate_amount, create_connector_binary_tree, create_utxo,
-        handle_connector_binary_tree_script,
-    },
-    verifier::Verifier,
+    extended_rpc::ExtendedRpc, operator::{Operator, PreimageType}, transaction_builder::TransactionBuilder, user::User, utils::{
+        calculate_amount, create_connector_binary_tree
+    }, verifier::Verifier
 };
 
 fn main() {
@@ -43,7 +38,7 @@ fn main() {
     let mut start_utxo_vec = Vec::new();
     let mut return_addresses = Vec::new();
 
-    let (root_address, _) = handle_connector_binary_tree_script(
+    let (root_address, _) = TransactionBuilder::create_connector_tree_node_address(
         &operator.signer.secp,
         operator.signer.xonly_public_key,
         operator.connector_tree_hashes[0][0],
@@ -70,7 +65,7 @@ fn main() {
         .position(|x| x.value == total_amount)
         .unwrap();
 
-    let root_utxo = create_utxo(root_txid, vout as u32);
+    let root_utxo = TransactionBuilder::create_utxo(root_txid, vout as u32);
 
     let mut preimages_verifier_track: HashSet<PreimageType> = HashSet::new();
     let mut utxos_verifier_track: HashMap<OutPoint, (u32, u32)> = HashMap::new();

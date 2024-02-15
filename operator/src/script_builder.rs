@@ -1,4 +1,8 @@
-use bitcoin::{opcodes::{all::*, OP_TRUE}, script::Builder, ScriptBuf};
+use bitcoin::{
+    opcodes::{all::*, OP_FALSE, OP_TRUE},
+    script::Builder,
+    ScriptBuf,
+};
 use circuit_helpers::constant::EVMAddress;
 use secp256k1::XOnlyPublicKey;
 
@@ -36,6 +40,24 @@ impl ScriptBuilder {
             .push_slice(hash)
             .push_opcode(OP_EQUAL);
         builder.into_script()
+    }
+
+
+    pub fn create_inscription_script_32_bytes(
+        public_key: XOnlyPublicKey,
+        data: Vec<[u8; 32]>,
+    ) -> ScriptBuf {
+        let mut inscribe_preimage_script_builder = Builder::new()
+            .push_x_only_key(&public_key)
+            .push_opcode(OP_CHECKSIG)
+            .push_opcode(OP_FALSE)
+            .push_opcode(OP_IF);
+        for elem in data {
+            inscribe_preimage_script_builder = inscribe_preimage_script_builder.push_slice(&elem);
+        }
+        inscribe_preimage_script_builder = inscribe_preimage_script_builder.push_opcode(OP_ENDIF);
+        let inscribe_preimage_script = inscribe_preimage_script_builder.into_script();
+        inscribe_preimage_script
     }
 
     pub fn convert_scriptbuf_into_builder(script: ScriptBuf) -> Builder {

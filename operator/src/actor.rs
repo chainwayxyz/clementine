@@ -17,7 +17,8 @@ use bitcoincore_rpc::{Client, RpcApi};
 use circuit_helpers::constant::EVMAddress;
 use tiny_keccak::{Hasher, Keccak};
 
-use crate::utils::{create_btc_tx, create_tx_ins, create_tx_outs, create_utxo};
+use crate::transaction_builder::TransactionBuilder;
+
 
 #[derive(Clone, Debug, Copy)]
 pub struct EVMSignature {
@@ -145,11 +146,11 @@ impl Actor {
         let prev_tx = rpc.get_raw_transaction(&utxo.txid, None).unwrap();
         let prev_amount = prev_tx.output[utxo.vout as usize].value;
 
-        let tx_ins = create_tx_ins(vec![utxo]);
-        let tx_outs = create_tx_outs(vec![(amount, address.script_pubkey())]);
-        let mut spend_tx = create_btc_tx(tx_ins, tx_outs);
+        let tx_ins = TransactionBuilder::create_tx_ins(vec![utxo]);
+        let tx_outs = TransactionBuilder::create_tx_outs(vec![(amount, address.script_pubkey())]);
+        let mut spend_tx = TransactionBuilder::create_btc_tx(tx_ins, tx_outs);
 
-        let prevouts = create_tx_outs(vec![
+        let prevouts = TransactionBuilder::create_tx_outs(vec![
             (prev_amount, self.address.script_pubkey())
         ]);
 
@@ -164,7 +165,7 @@ impl Actor {
             .unwrap_or_else(|e| panic!("Failed to send raw transaction: {}", e));
         println!("user spent start utxo: {:?}", utxo);
         println!("user spent txid: {:?}", spend_txid);
-        (create_utxo(spend_txid, 0), amount)
+        (TransactionBuilder::create_utxo(spend_txid, 0), amount)
     }
 
     pub fn sign_deposit(

@@ -4,35 +4,23 @@ use std::io::{self, Write};
 use bitcoin::sighash::SighashCache;
 use bitcoin::{self, Target, Work};
 
-use bitcoin::absolute;
 use bitcoin::consensus::Decodable;
-use bitcoin::opcodes::all::OP_CHECKSIGVERIFY;
-use bitcoin::opcodes::all::OP_EQUAL;
-use bitcoin::opcodes::all::OP_SHA256;
-use bitcoin::opcodes::all::OP_VERIFY;
 use bitcoin::opcodes::{OP_FALSE, OP_TRUE};
 use bitcoin::script::Builder;
 use bitcoin::taproot::ControlBlock;
 use bitcoin::taproot::LeafVersion;
 use bitcoin::taproot::TaprootBuilder;
 use bitcoin::taproot::TaprootSpendInfo;
-use bitcoin::transaction::Version;
 use bitcoin::Address;
 use bitcoin::Amount;
 use bitcoin::OutPoint;
 use bitcoin::ScriptBuf;
-use bitcoin::TxIn;
-use bitcoin::TxOut;
-use bitcoin::Txid;
-use bitcoin::Witness;
 use bitcoincore_rpc::Client;
 use bitcoincore_rpc::RpcApi;
-use circuit_helpers::bitcoin::validate_threshold_and_add_work;
 use circuit_helpers::constant::{Data, DUST_VALUE, MIN_RELAY_FEE};
-use crypto_bigint::{Encoding, U256};
-use secp256k1::{schnorr, All};
 use secp256k1::Secp256k1;
 use secp256k1::XOnlyPublicKey;
+use secp256k1::{schnorr, All};
 use serde::de::DeserializeOwned;
 use serde::Serialize;
 
@@ -47,10 +35,11 @@ use bitcoin::opcodes::all::*;
 use lazy_static::lazy_static;
 use std::str::FromStr;
 
-use circuit_helpers::config::{USER_TAKES_AFTER, CONNECTOR_TREE_OPERATOR_TAKES_AFTER};
+use circuit_helpers::config::{CONNECTOR_TREE_OPERATOR_TAKES_AFTER, USER_TAKES_AFTER};
 
 use crate::actor::Actor;
 use crate::script_builder::ScriptBuilder;
+use crate::transaction_builder::TransactionBuilder;
 
 lazy_static! {
     pub static ref INTERNAL_KEY: XOnlyPublicKey = XOnlyPublicKey::from_str(
@@ -137,75 +126,12 @@ pub fn parse_hex_to_btc_tx(
     }
 }
 
-
-pub fn check_presigns(tx: &bitcoin::Transaction, presigns: Vec<schnorr::Signature>, xonly_public_keys: Vec<XOnlyPublicKey>) {
-    
+pub fn check_presigns(
+    tx: &bitcoin::Transaction,
+    presigns: Vec<schnorr::Signature>,
+    xonly_public_keys: Vec<XOnlyPublicKey>,
+) {
 }
-
-pub fn create_btc_tx(tx_ins: Vec<TxIn>, tx_outs: Vec<TxOut>) -> bitcoin::Transaction {
-    bitcoin::Transaction {
-        version: Version(2),
-        lock_time: absolute::LockTime::from_consensus(0),
-        input: tx_ins,
-        output: tx_outs,
-    }
-}
-
-pub fn create_tx_ins(utxos: Vec<OutPoint>) -> Vec<TxIn> {
-    let mut tx_ins = Vec::new();
-    for utxo in utxos {
-        tx_ins.push(TxIn {
-            previous_output: utxo,
-            sequence: bitcoin::transaction::Sequence::ENABLE_RBF_NO_LOCKTIME,
-            script_sig: ScriptBuf::default(),
-            witness: Witness::new(),
-        });
-    }
-    tx_ins
-}
-
-pub fn create_tx_ins_with_sequence(utxos: Vec<OutPoint>) ->Vec<TxIn> {
-    let mut tx_ins = Vec::new();
-    for utxo in utxos {
-        tx_ins.push(TxIn {
-            previous_output: utxo,
-            sequence: bitcoin::transaction::Sequence::from_height(CONNECTOR_TREE_OPERATOR_TAKES_AFTER),
-            script_sig: ScriptBuf::default(),
-            witness: Witness::new(),
-        });
-    }
-    tx_ins
-}
-
-pub fn create_tx_outs(pairs: Vec<(Amount, ScriptBuf)>) -> Vec<TxOut> {
-    let mut tx_outs = Vec::new();
-    for pair in pairs {
-        tx_outs.push(TxOut {
-            value: pair.0,
-            script_pubkey: pair.1,
-        });
-    }
-    tx_outs
-}
-
-pub fn create_taproot_address(
-    secp: &Secp256k1<All>,
-    scripts: Vec<ScriptBuf>,
-) -> (Address, TaprootSpendInfo) {
-    let mut taproot_builder = TaprootBuilder::new();
-    //depth = log(scripts.len)
-    let depth = (scripts.len() as f64).log2() as u8;
-    for script in scripts {
-        taproot_builder = taproot_builder.add_leaf(depth, script).unwrap();
-    }
-    // println!("taproot_builder: {:?}", taproot_builder);
-    let internal_key = *INTERNAL_KEY;
-    let tree_info = taproot_builder.finalize(&secp, internal_key).unwrap();
-    (
-        Address::p2tr(&secp, internal_key, tree_info.merkle_root(), bitcoin::Network::Regtest),
-        tree_info,
-    )
-}  
 
 pub fn create_control_block(tree_info: TaprootSpendInfo, script: &ScriptBuf) -> ControlBlock {
     tree_info
@@ -220,45 +146,20 @@ pub fn generate_dust_address(
     let script = ScriptBuilder::generate_dust_script(evm_address);
     let taproot = TaprootBuilder::new().add_leaf(0, script.clone()).unwrap();
     let tree_info = taproot.finalize(secp, *INTERNAL_KEY).unwrap();
-    let address = Address::p2tr(secp, *INTERNAL_KEY, tree_info.merkle_root(), bitcoin::Network::Regtest);
+    let address = Address::p2tr(
+        secp,
+        *INTERNAL_KEY,
+        tree_info.merkle_root(),
+        bitcoin::Network::Regtest,
+    );
     (address, tree_info)
 }
-
 
 pub fn handle_anyone_can_spend_script() -> (ScriptBuf, Amount) {
     let script = Builder::new().push_opcode(OP_TRUE).into_script();
     let script_pubkey = script.to_p2wsh();
     let amount = script.dust_value();
     (script_pubkey, amount)
-}
-
-pub fn create_utxo(txid: Txid, vout: u32) -> OutPoint {
-    OutPoint { txid, vout }
-}
-
-pub fn create_move_tx(
-    ins: Vec<OutPoint>,
-    outs: Vec<(Amount, ScriptBuf)>,
-) -> bitcoin::Transaction {
-    let tx_ins = create_tx_ins(ins);
-    let tx_outs = create_tx_outs(outs);
-    create_btc_tx(tx_ins, tx_outs)
-}
-
-pub fn handle_connector_binary_tree_script(
-    secp: &Secp256k1<All>,
-    actor_pk: XOnlyPublicKey,
-    hash: Data,
-) -> (Address, TaprootSpendInfo) {
-    let timelock_script = ScriptBuilder::generate_timelock_script(actor_pk, CONNECTOR_TREE_OPERATOR_TAKES_AFTER as u32);
-    let preimage_script = Builder::new()
-        .push_opcode(OP_SHA256)
-        .push_slice(hash)
-        .push_opcode(OP_EQUAL)
-        .into_script();
-    let (address, tree_info) =
-        create_taproot_address(secp, vec![timelock_script.clone(), preimage_script]);
-    (address, tree_info)
 }
 
 pub fn calculate_amount(depth: usize, value: Amount, fee: Amount) -> Amount {
@@ -272,21 +173,43 @@ pub fn create_connector_tree_tx(
     second_address: Address,
 ) -> bitcoin::Transaction {
     // UTXO value should be at least 2^depth * dust_value + (2^depth-1) * fee
-    let tx_ins = create_tx_ins_with_sequence(vec![*utxo]);
-    let tx_outs = create_tx_outs(vec![
-        (calculate_amount(depth, Amount::from_sat(DUST_VALUE), Amount::from_sat(MIN_RELAY_FEE)), first_address.script_pubkey()),
-        (calculate_amount(depth, Amount::from_sat(DUST_VALUE), Amount::from_sat(MIN_RELAY_FEE)), second_address.script_pubkey()),
+    let tx_ins = TransactionBuilder::create_tx_ins_with_sequence(vec![*utxo]);
+    let tx_outs = TransactionBuilder::create_tx_outs(vec![
+        (
+            calculate_amount(
+                depth,
+                Amount::from_sat(DUST_VALUE),
+                Amount::from_sat(MIN_RELAY_FEE),
+            ),
+            first_address.script_pubkey(),
+        ),
+        (
+            calculate_amount(
+                depth,
+                Amount::from_sat(DUST_VALUE),
+                Amount::from_sat(MIN_RELAY_FEE),
+            ),
+            second_address.script_pubkey(),
+        ),
     ]);
-    create_btc_tx(tx_ins, tx_outs)
+    TransactionBuilder::create_btc_tx(tx_ins, tx_outs)
 }
 
-pub fn handle_taproot_witness<T: AsRef<[u8]>>(tx: &mut bitcoin::Transaction, index: usize, witness_elements: Vec<T>, script: ScriptBuf, tree_info: TaprootSpendInfo) {
+pub fn handle_taproot_witness<T: AsRef<[u8]>>(
+    tx: &mut bitcoin::Transaction,
+    index: usize,
+    witness_elements: Vec<T>,
+    script: ScriptBuf,
+    tree_info: TaprootSpendInfo,
+) {
     let mut sighash_cache = SighashCache::new(tx.borrow_mut());
     let witness = sighash_cache.witness_mut(index).unwrap();
     for elem in witness_elements {
         witness.push(elem);
     }
-    let spend_control_block = tree_info.control_block(&(script.clone(), LeafVersion::TapScript)).unwrap();
+    let spend_control_block = tree_info
+        .control_block(&(script.clone(), LeafVersion::TapScript))
+        .unwrap();
     witness.push(script);
     witness.push(&spend_control_block.serialize());
 }
@@ -302,10 +225,14 @@ pub fn create_connector_binary_tree(
     connector_tree_hashes: Vec<Vec<[u8; 32]>>,
 ) -> Vec<Vec<OutPoint>> {
     // UTXO value should be at least 2^depth * dust_value + (2^depth-1) * fee
-    let total_amount = calculate_amount(depth, Amount::from_sat(DUST_VALUE), Amount::from_sat(MIN_RELAY_FEE));
+    let total_amount = calculate_amount(
+        depth,
+        Amount::from_sat(DUST_VALUE),
+        Amount::from_sat(MIN_RELAY_FEE),
+    );
     println!("total_amount: {:?}", total_amount);
 
-    let (root_address, _) = handle_connector_binary_tree_script(
+    let (root_address, _) = TransactionBuilder::create_connector_tree_node_address(
         &secp,
         xonly_public_key,
         connector_tree_hashes[0][0],
@@ -338,12 +265,12 @@ pub fn create_connector_binary_tree(
         let mut tx_tree_current_level: Vec<bitcoin::Transaction> = Vec::new();
 
         for (j, utxo) in utxo_tree_previous_level.iter().enumerate() {
-            let (first_address, _) = handle_connector_binary_tree_script(
+            let (first_address, _) = TransactionBuilder::create_connector_tree_node_address(
                 &secp,
                 xonly_public_key,
                 connector_tree_hashes[(i + 1) as usize][2 * j],
             );
-            let (second_address, _) = handle_connector_binary_tree_script(
+            let (second_address, _) = TransactionBuilder::create_connector_tree_node_address(
                 &secp,
                 xonly_public_key,
                 connector_tree_hashes[(i + 1) as usize][2 * j + 1],
@@ -356,8 +283,8 @@ pub fn create_connector_binary_tree(
                 second_address.clone(),
             );
             let txid = tx.txid();
-            let first_utxo = create_utxo(txid, 0);
-            let second_utxo = create_utxo(txid, 1);
+            let first_utxo = TransactionBuilder::create_utxo(txid, 0);
+            let second_utxo = TransactionBuilder::create_utxo(txid, 1);
             utxo_tree_current_level.push(first_utxo);
             utxo_tree_current_level.push(second_utxo);
             tx_tree_current_level.push(tx);
@@ -370,58 +297,6 @@ pub fn create_connector_binary_tree(
     // println!("tx_binary_tree: {:?}", tx_binary_tree);
 
     utxo_binary_tree
-}
-
-pub fn create_inscription_script_32_bytes(xonly_public_key: XOnlyPublicKey, data: Vec<[u8; 32]>) -> ScriptBuf {
-    let mut inscribe_preimage_script_builder = Builder::new()
-    .push_x_only_key(&xonly_public_key)
-    .push_opcode(OP_CHECKSIG)
-    .push_opcode(OP_FALSE)
-    .push_opcode(OP_IF);
-    for elem in data {
-        inscribe_preimage_script_builder = inscribe_preimage_script_builder.push_slice(&elem);
-    }
-    inscribe_preimage_script_builder = inscribe_preimage_script_builder.push_opcode(OP_ENDIF);
-    let inscribe_preimage_script = inscribe_preimage_script_builder.into_script();
-    inscribe_preimage_script
-}
-
-pub fn create_inscription_transactions(actor: &Actor, utxo: OutPoint, preimages: Vec<[u8; 32]>) -> (bitcoin::Transaction, bitcoin::Transaction) {
-    let inscribe_preimage_script = create_inscription_script_32_bytes(actor.xonly_public_key, preimages);
-
-    let (incription_address, inscription_tree_info) = create_taproot_address(&actor.secp, vec![inscribe_preimage_script.clone()]);
-    // println!("inscription tree merkle root: {:?}", inscription_tree_info.merkle_root());
-    let commit_tx_ins = create_tx_ins(vec![utxo]);
-    let commit_tx_outs = create_tx_outs(vec![(Amount::from_sat(DUST_VALUE) * 2, incription_address.script_pubkey())]);
-    let mut commit_tx = create_btc_tx(commit_tx_ins, commit_tx_outs);
-    let commit_tx_prevouts = vec![TxOut {
-        value: Amount::from_sat(DUST_VALUE) * 3,
-        script_pubkey: actor.address.script_pubkey(),
-    }];
-
-    println!("inscription merkle root: {:?}", inscription_tree_info.merkle_root());
-    println!("inscription output key: {:?}", inscription_tree_info.output_key());
-    
-    let commit_tx_sig = actor.sign_taproot_pubkey_spend_tx(&mut commit_tx, commit_tx_prevouts, 0);
-    let mut commit_tx_sighash_cache = SighashCache::new(commit_tx.borrow_mut());
-    let witness = commit_tx_sighash_cache.witness_mut(0).unwrap();
-    witness.push(commit_tx_sig.as_ref());
-
-    let reveal_tx_ins = create_tx_ins(vec![create_utxo(commit_tx.txid(), 0)]);
-    let reveal_tx_outs = create_tx_outs(vec![(Amount::from_sat(DUST_VALUE), actor.address.script_pubkey())]);
-    let mut reveal_tx = create_btc_tx(reveal_tx_ins, reveal_tx_outs);
-
-    let reveal_tx_prevouts = vec![TxOut {
-        value: Amount::from_sat(DUST_VALUE) * 2,
-        script_pubkey: incription_address.script_pubkey(),
-    }];
-    let reveal_tx_sig = actor.sign_taproot_script_spend_tx(&mut reveal_tx, reveal_tx_prevouts, &inscribe_preimage_script, 0);
-    let mut reveal_tx_witness_elements: Vec<&[u8]> = Vec::new();
-    reveal_tx_witness_elements.push(reveal_tx_sig.as_ref());
-    handle_taproot_witness(&mut reveal_tx, 0, reveal_tx_witness_elements, inscribe_preimage_script, inscription_tree_info);
-
-    (commit_tx, reveal_tx)
-
 }
 
 #[cfg(test)]
@@ -442,17 +317,11 @@ mod tests {
 
     use crate::extended_rpc::ExtendedRpc;
     use crate::script_builder::ScriptBuilder;
+    use crate::transaction_builder::TransactionBuilder;
     use crate::{
         operator::Operator,
         utils::{from_hex_to_tx, parse_hex_to_btc_tx},
     };
-
-    use super::{
-        create_btc_tx, create_tx_outs,
-        handle_connector_binary_tree_script,
-    };
-
-
 
     #[test]
     fn test_from_hex_to_tx() {
@@ -515,15 +384,17 @@ mod tests {
 
         println!("utxo_tx_ins: {:?}", utxo_tx_ins);
 
-        let (address, tree_info) =
-            handle_connector_binary_tree_script(
-                &operator.signer.secp,
-                operator.signer.xonly_public_key,
-                [0u8; 32],
-            );
+        let (address, tree_info) = TransactionBuilder::create_connector_tree_node_address(
+            &operator.signer.secp,
+            operator.signer.xonly_public_key,
+            [0u8; 32],
+        );
 
-        let utxo_tx_outs = create_tx_outs(vec![(Amount::from_sat(99_999_000), address.script_pubkey())]);
-        let mut utxo_tx = create_btc_tx(utxo_tx_ins, utxo_tx_outs);
+        let utxo_tx_outs = TransactionBuilder::create_tx_outs(vec![(
+            Amount::from_sat(99_999_000),
+            address.script_pubkey(),
+        )]);
+        let mut utxo_tx = TransactionBuilder::create_btc_tx(utxo_tx_ins, utxo_tx_outs);
         let sig = operator.signer.sign_taproot_pubkey_spend_tx(
             &mut utxo_tx,
             vec![resource_tx.output[vout].clone()],
@@ -566,7 +437,8 @@ mod tests {
         println!("connector_tree_tx: {:?}", connector_tree_tx);
         println!("connector_tree_txid: {:?}", connector_tree_tx.txid());
 
-        let timelock_script = ScriptBuilder::generate_timelock_script(operator.signer.xonly_public_key, 2);
+        let timelock_script =
+            ScriptBuilder::generate_timelock_script(operator.signer.xonly_public_key, 2);
         let sig = operator.signer.sign_taproot_script_spend_tx(
             &mut connector_tree_tx,
             vec![utxo_tx.output[0].clone()],
