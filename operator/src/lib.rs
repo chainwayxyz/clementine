@@ -8,3 +8,6 @@ pub mod proof;
 pub mod operator;
 pub mod verifier;
 pub mod custom_merkle;
+pub mod extended_rpc;
+pub mod script_builder;
+pub mod transaction_builder;
