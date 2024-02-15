@@ -106,12 +106,7 @@ mod tests {
     #[test]
     fn test_handle_withdrawals() {
         let num_withdrawals = 5;
-        let rpc = Client::new(
-            "http://localhost:18443/wallet/admin",
-            Auth::UserPass("admin".to_string(), "admin".to_string()),
-        )
-        .unwrap_or_else(|e| panic!("Failed to connect to Bitcoin RPC: {}", e));
-        let rpc = ExtendedRpc::new(rpc);
+        let rpc = ExtendedRpc::new();
 
         // TODO: Make 2 dummy transactions and add them to the blockchain
 

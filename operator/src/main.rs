@@ -1,5 +1,3 @@
-
-
 use std::collections::{HashMap, HashSet};
 
 use bitcoin::{secp256k1::rand::rngs::OsRng, Amount, OutPoint};
@@ -9,29 +7,31 @@ use circuit_helpers::{
     config::{BRIDGE_AMOUNT_SATS, CONNECTOR_TREE_DEPTH, NUM_ROUNDS, NUM_USERS, NUM_VERIFIERS},
     constant::{DUST_VALUE, HASH_FUNCTION_32, MIN_RELAY_FEE},
 };
+use crypto_bigint::{Encoding, U256};
 use operator::{
+    extended_rpc::ExtendedRpc,
     operator::{Operator, PreimageType},
     user::User,
     utils::{
-        calculate_amount, calculate_total_work_between_blocks, create_connector_binary_tree, create_utxo, handle_connector_binary_tree_script, mine_blocks
+        calculate_amount, calculate_total_work_between_blocks, create_connector_binary_tree,
+        create_utxo, handle_connector_binary_tree_script,
     },
     verifier::Verifier,
 };
-use crypto_bigint::{Encoding, U256};
 
 fn main() {
     let mut bridge_funds: Vec<bitcoin::Txid> = Vec::new();
-    let rpc = Client::new(
-        "http://localhost:18443/wallet/admin",
-        Auth::UserPass("admin".to_string(), "admin".to_string()),
-    )
-    .unwrap_or_else(|e| panic!("Failed to connect to Bitcoin RPC: {}", e));
+    let rpc = ExtendedRpc::new();
 
-    let total_amount = calculate_amount(CONNECTOR_TREE_DEPTH, Amount::from_sat(DUST_VALUE), Amount::from_sat(MIN_RELAY_FEE));
-    let mut operator = Operator::new(&mut OsRng, &rpc, NUM_VERIFIERS as u32);
+    let total_amount = calculate_amount(
+        CONNECTOR_TREE_DEPTH,
+        Amount::from_sat(DUST_VALUE),
+        Amount::from_sat(MIN_RELAY_FEE),
+    );
+    let mut operator = Operator::new(&mut OsRng, &rpc.inner, NUM_VERIFIERS as u32);
     let mut users = Vec::new();
     for _ in 0..NUM_USERS {
-        users.push(User::new(&mut OsRng, &rpc));
+        users.push(User::new(&mut OsRng, &rpc.inner));
     }
     let verifiers_pks = operator.get_all_verifiers();
     for verifier in &mut operator.mock_verifier_access {
@@ -90,7 +90,7 @@ fn main() {
     // println!("resource_utxo: {:?}", root_utxo);
 
     let utxo_tree = create_connector_binary_tree(
-        &rpc,
+        &rpc.inner,
         &operator.signer.secp,
         operator.signer.xonly_public_key,
         root_utxo,
@@ -116,8 +116,10 @@ fn main() {
 
     for i in 0..NUM_USERS {
         let user = &users[i];
-        let (start_utxo, _) =
-            user.create_start_utxo(&rpc, Amount::from_sat(BRIDGE_AMOUNT_SATS) + Amount::from_sat(MIN_RELAY_FEE));
+        let (start_utxo, _) = user.create_start_utxo(
+            &rpc.inner,
+            Amount::from_sat(BRIDGE_AMOUNT_SATS) + Amount::from_sat(MIN_RELAY_FEE),
+        );
         let hash = HASH_FUNCTION_32(operator.current_preimage_for_deposit_requests);
 
         let signatures = operator.new_deposit(
@@ -128,7 +130,7 @@ fn main() {
             user.signer.evm_address,
         );
 
-        mine_blocks(&rpc, 1);
+        rpc.mine_blocks(1);
 
         let (user_deposit_utxo, return_address) = user.deposit_tx(
             &user.rpc,
@@ -141,7 +143,7 @@ fn main() {
         bridge_funds.push(user_deposit_utxo.txid);
         return_addresses.push(return_address);
         start_utxo_vec.push(start_utxo);
-        mine_blocks(&rpc, 1);
+        rpc.mine_blocks(1);
         let fund =
             operator.deposit_happened(start_utxo, hash, user_deposit_utxo, return_addresses[i]);
         fund_utxos.push(fund);
@@ -161,7 +163,7 @@ fn main() {
     println!("utxos verifier track: {:?}", utxos_verifier_track);
     println!("preimages verifier track: {:?}", preimages_verifier_track);
 
-    mine_blocks(&rpc, 3);
+    rpc.mine_blocks(3);
 
     let preimages = operator.reveal_connector_tree_preimages(3);
     let (commit_txid, reveal_txid) = operator.inscribe_connector_tree_preimages(3);
@@ -235,7 +237,7 @@ fn main() {
             println!("utxos verifier track: {:?}", utxos_verifier_track);
             println!("preimages verifier track: {:?}", preimages_verifier_track);
         }
-        mine_blocks(&rpc, 1);
+        rpc.mine_blocks(1);
     }
 
     operator.mock_verifier_access[0].watch_connector_tree(
@@ -248,11 +250,11 @@ fn main() {
 
     for i in 0..3 {
         operator.new_withdrawal(users[i].signer.address.clone());
-        mine_blocks(&rpc, 1)
+        rpc.mine_blocks(1);
     }
 
     //k-deep assumption
-    mine_blocks(&rpc, 10);
+    rpc.mine_blocks(10);
 
     let chain_info = rpc.get_blockchain_info().unwrap();
     let total_work_bytes = chain_info.chain_work;
@@ -270,19 +272,31 @@ fn main() {
         println!("for withdrawal txid: {:?}", wd_txid);
         let wd_tx = rpc.get_raw_transaction(&wd_txid, None).unwrap();
         println!("wd_tx: {:?}", wd_tx);
-        wd_blockheight = rpc.get_transaction(&wd_txid, None).unwrap().info.blockheight.unwrap() as u64;
+        wd_blockheight = rpc
+            .get_transaction(&wd_txid, None)
+            .unwrap()
+            .info
+            .blockheight
+            .unwrap() as u64;
         println!("wd blockheight: {:?}", wd_blockheight);
     }
 
     done_wd_pi_inscription_blockheight = wd_blockheight;
-    println!("prover done with withdrawals and preimages inscription, blockheight: {:?}", done_wd_pi_inscription_blockheight);
+    println!(
+        "prover done with withdrawals and preimages inscription, blockheight: {:?}",
+        done_wd_pi_inscription_blockheight
+    );
     // let done_wd_pi_inscription_blockhash = rpc.get_block_hash(done_wd_pi_inscription_blockheight as u64).unwrap();
 
-    let test_work = calculate_total_work_between_blocks(&rpc, curr_blockheight - 100, curr_blockheight);
+    let test_work =
+        calculate_total_work_between_blocks(&rpc.inner, curr_blockheight - 100, curr_blockheight);
     println!("test_work: {:?}", test_work);
 
-
-    let wanted_work = calculate_total_work_between_blocks(&rpc, done_wd_pi_inscription_blockheight, curr_blockheight);
+    let wanted_work = calculate_total_work_between_blocks(
+        &rpc.inner,
+        done_wd_pi_inscription_blockheight,
+        curr_blockheight,
+    );
     let wanted_blockhash = curr_block_hash;
     let wanted_blockheight = curr_blockheight;
 

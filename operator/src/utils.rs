@@ -225,7 +225,6 @@ pub fn generate_dust_address(
 }
 
 pub fn send_to_address(rpc: &Client, address: &Address, amount: u64) -> (Txid, u32) {
-    check_balance(&rpc);
     let txid = rpc
         .send_to_address(
             &address,
@@ -253,20 +252,9 @@ pub fn send_to_address(rpc: &Client, address: &Address, amount: u64) -> (Txid, u
     println!("txid: {}", hex::encode(tx_result.hex));
     println!("vout: {}", vout);
 
-    check_balance(&rpc);
-
     (txid, vout)
 }
 
-pub fn mine_blocks(rpc: &Client, block_num: u64) {
-    let new_address = rpc.get_new_address(None, None).unwrap().assume_checked();
-    rpc.generate_to_address(block_num, &new_address).unwrap();
-}
-
-pub fn check_balance(rpc: &Client) {
-    let balance = rpc.get_balance(None, None).unwrap();
-    println!("balance: {}", balance);
-}
 
 pub fn handle_anyone_can_spend_script() -> (ScriptBuf, Amount) {
     let script = Builder::new().push_opcode(OP_TRUE).into_script();
@@ -544,6 +532,7 @@ mod tests {
     use circuit_helpers::config::NUM_VERIFIERS;
     use secp256k1::rand::rngs::OsRng;
 
+    use crate::extended_rpc::ExtendedRpc;
     use crate::script_builder::ScriptBuilder;
     use crate::{
         operator::Operator,
@@ -552,7 +541,7 @@ mod tests {
 
     use super::{
         create_btc_tx, create_tx_outs,
-        handle_connector_binary_tree_script, mine_blocks,
+        handle_connector_binary_tree_script,
     };
 
 
@@ -578,6 +567,7 @@ mod tests {
             Auth::UserPass("admin".to_string(), "admin".to_string()),
         )
         .unwrap_or_else(|e| panic!("Failed to connect to Bitcoin RPC: {}", e));
+        let extended_rpc = ExtendedRpc::new();
         let operator = Operator::new(&mut OsRng, &rpc, NUM_VERIFIERS as u32);
         // let user = User::new(&mut OsRng, &rpc);
         let resource_tx_id = operator
@@ -640,7 +630,7 @@ mod tests {
         println!("utxo_txid: {:?}", utxo_txid);
         let rpc_utxo_tx = operator.rpc.get_raw_transaction(&utxo_txid, None).unwrap();
         println!("rpc_utxo_tx: {:?}", rpc_utxo_tx);
-        mine_blocks(&rpc, 5);
+        extended_rpc.mine_blocks(5);
         let mut connector_tree_tx = Transaction {
             version: Version(2),
             lock_time: absolute::LockTime::from_consensus(0),
@@ -689,8 +679,8 @@ mod tests {
             bytes_connector_tree_tx.len()
         );
         // let hex_utxo_tx = hex::encode(bytes_utxo_tx.clone());
-        mine_blocks(&rpc, 2);
-        mine_blocks(&rpc, 6);
+        extended_rpc.mine_blocks(2);
+        extended_rpc.mine_blocks(6);
         let connector_tree_txid = operator
             .rpc
             .send_raw_transaction(&bytes_connector_tree_tx)
