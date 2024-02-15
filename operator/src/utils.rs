@@ -224,37 +224,6 @@ pub fn generate_dust_address(
     (address, tree_info)
 }
 
-pub fn send_to_address(rpc: &Client, address: &Address, amount: u64) -> (Txid, u32) {
-    let txid = rpc
-        .send_to_address(
-            &address,
-            Amount::from_sat(amount),
-            None,
-            None,
-            None,
-            None,
-            None,
-            None,
-        )
-        .unwrap_or_else(|e| panic!("Failed to send to address: {}", e));
-    let tx_result = rpc
-        .get_transaction(&txid, None)
-        .unwrap_or_else(|e| panic!("Failed to get transaction: {}", e));
-
-    let vout = tx_result.details[0].vout;
-
-    println!("sent {} to address: {:?}", amount, address);
-    println!(
-        "sent {} to address: {:?}",
-        tx_result.details[0].amount, tx_result.details[0].address
-    );
-    println!("txid: {}", txid);
-    println!("txid: {}", hex::encode(tx_result.hex));
-    println!("vout: {}", vout);
-
-    (txid, vout)
-}
-
 
 pub fn handle_anyone_can_spend_script() -> (ScriptBuf, Amount) {
     let script = Builder::new().push_opcode(OP_TRUE).into_script();
@@ -453,67 +422,6 @@ pub fn create_inscription_transactions(actor: &Actor, utxo: OutPoint, preimages:
 
     (commit_tx, reveal_tx)
 
-}
-
-pub fn get_work_at_block(rpc: &Client, blockheight: u64) -> Work {
-    let block_hash = rpc.get_block_hash(blockheight).unwrap();
-    let block = rpc.get_block(&block_hash).unwrap();
-    let work = block.header.work();
-    // println!("work: {:?}", work);
-    work
-}
-
-pub fn calculate_total_work_between_blocks(rpc: &Client, start: u64, end: u64) -> U256 {
-    if start == end {
-        return U256::from_be_bytes([0u8; 32]);
-    }
-    let mut total_work = Work::from_be_bytes([0u8; 32]);
-    for i in start + 1..end + 1 {
-        let block_hash = rpc.get_block_hash(i as u64).unwrap();
-        let block = rpc.get_block(&block_hash).unwrap();
-        let work = block.header.work();
-        // println!("work work work: {:?}", work);
-        total_work = total_work + work;
-    }
-    let work_bytes = total_work.to_be_bytes();
-    let res = U256::from_be_bytes(work_bytes);
-    return res;
-}
-
-pub fn get_total_work_at_block(blockheight: u64, rpc: &Client) -> Work {
-    let mut curr_work = get_total_work(rpc);
-    let mut curr_block_height = get_block_height(rpc);
-
-    while curr_block_height > blockheight {
-        let block_hash = rpc.get_block_hash(curr_block_height).unwrap();
-        let block = rpc.get_block(&block_hash).unwrap();
-        let work = block.header.work();
-        // println!("work work work: {:?}", block.header.work());
-        curr_work = curr_work - work;
-        curr_block_height = curr_block_height - 1;
-    }
-    return curr_work;
-}
-
-pub fn get_total_work_as_u256(rpc: &Client) -> U256 {
-    let chain_info = rpc.get_blockchain_info().unwrap();
-    let total_work_bytes = chain_info.chain_work;
-    let total_work: U256 = U256::from_be_bytes(total_work_bytes.try_into().unwrap());
-    return total_work;
-}
-
-pub fn get_total_work(rpc: &Client) -> Work {
-    let chain_info = rpc.get_blockchain_info().unwrap();
-    let total_work_bytes = chain_info.chain_work;
-    let total_work: Work = Work::from_be_bytes(total_work_bytes.try_into().unwrap());
-    return total_work;
-
-}
-
-pub fn get_block_height(rpc: &Client) -> u64 {
-    let chain_info = rpc.get_blockchain_info().unwrap();
-    let block_height = chain_info.blocks;
-    return block_height;
 }
 
 #[cfg(test)]

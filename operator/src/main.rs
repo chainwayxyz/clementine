@@ -13,8 +13,8 @@ use operator::{
     operator::{Operator, PreimageType},
     user::User,
     utils::{
-        calculate_amount, calculate_total_work_between_blocks, create_connector_binary_tree,
-        create_utxo, handle_connector_binary_tree_script,
+        calculate_amount, create_connector_binary_tree, create_utxo,
+        handle_connector_binary_tree_script,
     },
     verifier::Verifier,
 };
@@ -289,14 +289,11 @@ fn main() {
     // let done_wd_pi_inscription_blockhash = rpc.get_block_hash(done_wd_pi_inscription_blockheight as u64).unwrap();
 
     let test_work =
-        calculate_total_work_between_blocks(&rpc.inner, curr_blockheight - 100, curr_blockheight);
+        rpc.calculate_total_work_between_blocks(curr_blockheight - 100, curr_blockheight);
     println!("test_work: {:?}", test_work);
 
-    let wanted_work = calculate_total_work_between_blocks(
-        &rpc.inner,
-        done_wd_pi_inscription_blockheight,
-        curr_blockheight,
-    );
+    let wanted_work = rpc
+        .calculate_total_work_between_blocks(done_wd_pi_inscription_blockheight, curr_blockheight);
     let wanted_blockhash = curr_block_hash;
     let wanted_blockheight = curr_blockheight;
 
