@@ -120,7 +120,7 @@ impl<'a> Operator<'a> {
         let mut verifiers = Vec::new();
         let mut verifiers_pks = Vec::new();
         for _ in 0..num_verifier {
-            let verifier = Verifier::new(rng, &rpc.inner, signer.xonly_public_key.clone());
+            let verifier = Verifier::new(rng, &rpc, signer.xonly_public_key.clone());
             verifiers_pks.push(verifier.signer.xonly_public_key.clone());
             verifiers.push(verifier);
         }

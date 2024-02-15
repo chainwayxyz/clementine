@@ -158,4 +158,11 @@ impl ExtendedRpc {
     ) -> Result<bitcoin::Txid, bitcoincore_rpc::Error> {
         self.inner.send_raw_transaction(tx)
     }
+
+    pub fn get_block(
+        &self,
+        block_hash: &bitcoin::BlockHash,
+    ) -> Result<bitcoin::Block, bitcoincore_rpc::Error> {
+        self.inner.get_block(block_hash)
+    }
 }

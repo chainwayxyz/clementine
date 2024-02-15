@@ -10,6 +10,7 @@ use circuit_helpers::constant::{EVMAddress, DUST_VALUE, HASH_FUNCTION_32, MIN_RE
 use secp256k1::All;
 use secp256k1::{rand::rngs::OsRng, XOnlyPublicKey};
 
+use crate::extended_rpc::ExtendedRpc;
 use crate::operator::PreimageType;
 use crate::script_builder::ScriptBuilder;
 use crate::transaction_builder::TransactionBuilder;
@@ -20,7 +21,7 @@ use circuit_helpers::config::{BRIDGE_AMOUNT_SATS, CONNECTOR_TREE_DEPTH};
 
 #[derive(Debug, Clone)]
 pub struct Verifier<'a> {
-    pub rpc: &'a Client,
+    pub rpc: &'a ExtendedRpc,
     pub secp: Secp256k1<secp256k1::All>,
     pub signer: Actor,
     pub script_builder: ScriptBuilder,
@@ -32,7 +33,7 @@ pub struct Verifier<'a> {
 }
 
 impl<'a> Verifier<'a> {
-    pub fn new(rng: &mut OsRng, rpc: &'a Client, operator_pk: XOnlyPublicKey) -> Self {
+    pub fn new(rng: &mut OsRng, rpc: &'a ExtendedRpc, operator_pk: XOnlyPublicKey) -> Self {
         let signer = Actor::new(rng);
         let secp: Secp256k1<secp256k1::All> = Secp256k1::new();
         let verifiers = Vec::new();
@@ -74,7 +75,7 @@ impl<'a> Verifier<'a> {
     ) {
         self.connector_tree_hashes = connector_tree_hashes;
         let utxo_tree = create_connector_binary_tree(
-            &self.rpc,
+            &self.rpc.inner,
             &self.signer.secp,
             self.signer.xonly_public_key,
             connector_root_utxo,

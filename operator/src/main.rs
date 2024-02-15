@@ -31,8 +31,7 @@ fn main() {
         verifier.set_verifiers(verifiers_pks.clone());
     }
     println!("verifiers_pks.len: {:?}", verifiers_pks.len());
-    let mut verifiers_evm_addresses = operator.verifier_evm_addresses.clone();
-    verifiers_evm_addresses.push(operator.signer.evm_address);
+
     let mut start_utxo_vec = Vec::new();
     let mut return_addresses = Vec::new();
 
@@ -55,21 +54,6 @@ fn main() {
             &mut utxos_verifier_track,
         );
     }
-
-    // println!("resource_utxo: {:?}", root_utxo);
-
-    // println!(
-    //     "operator.connector_tree_utxos: {:?}",
-    //     operator.connector_tree_utxos
-    // );
-    // for verifier in &mut operator.mock_verifier_access {
-    //     verifier.set_connector_tree_utxos(utxo_tree.clone());
-    //     verifier.set_connector_tree_hashes(operator.connector_tree_hashes.clone());
-    //     // println!(
-    //     //     "verifier.connector_tree_utxos: {:?}",
-    //     //     verifier.connector_tree_utxos
-    //     // );
-    // }
 
     let mut fund_utxos = Vec::new();
 
