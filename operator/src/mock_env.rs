@@ -1,9 +1,12 @@
 use std::sync::RwLock;
 
 use circuit_helpers::env::Environment;
+use risc0_zkvm::ExecutorEnv;
 
 // Define a global static variable with RwLock for thread-safe interior mutability.
 static GLOBAL_DATA: RwLock<Vec<u8>> = RwLock::new(Vec::new());
+static GLOBAL_DATA_TYPES: RwLock<Vec<u8>> = RwLock::new(Vec::new());
+static READ_POSITION: RwLock<usize> = RwLock::new(0);
 
 pub struct MockEnvironment;
 
@@ -15,35 +18,82 @@ impl MockEnvironment {
     }
 
     // Helper function to read data from the global storage
-    fn read_global(count: usize) -> Vec<u8> {
-        let mut global_data = GLOBAL_DATA.write().unwrap();
-        if count > global_data.len() {
+    fn read_global(count: usize, data_type: u8) -> Vec<u8> {
+        let global_data = GLOBAL_DATA.read().unwrap(); // Use read lock for data
+        let mut pos = READ_POSITION.write().unwrap(); // Use write lock for position since we're updating it
+        let mut global_data_types = GLOBAL_DATA_TYPES.write().unwrap(); // Use write lock for data types since we're updating it
+        global_data_types.push(data_type);
+
+        if *pos + count > global_data.len() {
             panic!("Not enough data in global storage to read");
         }
-        global_data.drain(0..count).collect()
+        let result = global_data[*pos..*pos + count].to_vec();
+        *pos += count; // Update the read position
+
+        result
+    }
+
+    pub fn output_env<'a>() -> risc0_zkvm::ExecutorEnv<'a> {
+        let global_data = GLOBAL_DATA.read().unwrap(); // Use read lock for data
+        let global_data_types = GLOBAL_DATA_TYPES.read().unwrap(); // Use read lock for data types
+        let mut env = ExecutorEnv::builder();
+        let mut i = 0;
+        for data_type in global_data_types.iter() {
+            println!("Data type: {}", data_type);
+            match data_type {
+                0 => {
+                    let data: [u8; 32] = global_data[i..i + 32].try_into().unwrap();
+                    env.write(&data).unwrap();
+                    i += 32;
+                }
+                1 => {
+                    env.write(&u32::from_le_bytes(
+                        global_data[i..i + 4].try_into().unwrap(),
+                    ))
+                    .unwrap();
+                    i += 4
+                }
+                2 => {
+                    env.write(&u64::from_le_bytes(
+                        global_data[i..i + 8].try_into().unwrap(),
+                    ))
+                    .unwrap();
+                    i += 8
+                }
+                3 => {
+                    env.write(&i32::from_le_bytes(
+                        global_data[i..i + 4].try_into().unwrap(),
+                    ))
+                    .unwrap();
+                    i += 4;
+                }
+                _ => panic!("Invalid data type"),
+            }
+        }
+        env.build().unwrap()
     }
 }
 
 impl Environment for MockEnvironment {
     fn read_32bytes() -> [u8; 32] {
-        let bytes = Self::read_global(32);
+        let bytes = Self::read_global(32, 0);
         let mut array = [0u8; 32];
         array.copy_from_slice(&bytes[..]);
         array
     }
 
     fn read_u32() -> u32 {
-        let bytes = Self::read_global(4);
+        let bytes = Self::read_global(4, 1);
         u32::from_le_bytes(bytes.try_into().unwrap())
     }
 
     fn read_u64() -> u64 {
-        let bytes = Self::read_global(8);
+        let bytes = Self::read_global(8, 2);
         u64::from_le_bytes(bytes.try_into().unwrap())
     }
 
     fn read_i32() -> i32 {
-        let bytes = Self::read_global(4);
+        let bytes = Self::read_global(4, 3);
         i32::from_le_bytes(bytes.try_into().unwrap())
     }
 
@@ -61,5 +111,39 @@ impl Environment for MockEnvironment {
 
     fn write_i32(data: i32) {
         Self::write_global(&data.to_le_bytes());
+    }
+}
+
+pub struct RealEnvironment;
+
+impl Environment for RealEnvironment {
+    fn read_32bytes() -> [u8; 32] {
+        unimplemented!()
+    }
+
+    fn read_u32() -> u32 {
+        unimplemented!()
+    }
+
+    fn read_u64() -> u64 {
+        unimplemented!()
+    }
+
+    fn read_i32() -> i32 {
+        unimplemented!()
+    }
+
+    fn write_32bytes(_data: [u8; 32]) {}
+
+    fn write_u32(_data: u32) {
+        unimplemented!()
+    }
+
+    fn write_u64(_data: u64) {
+        unimplemented!()
+    }
+
+    fn write_i32(_data: i32) {
+        unimplemented!()
     }
 }
