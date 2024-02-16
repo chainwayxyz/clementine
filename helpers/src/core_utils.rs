@@ -17,5 +17,4 @@ pub fn from_hex64_to_bytes32(input: &str) -> [u8; 32] {
         index += 1;
     }
     return result;
-    
 }

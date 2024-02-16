@@ -1,9 +1,7 @@
+use std::collections::HashMap;
+
 use bitcoin::{hashes::Hash, Address, BlockHash, Txid};
-use serde_json::{json, Value};
-use std::{collections::HashMap, env, fs::File, io::Write, vec};
-
-use bitcoincore_rpc::{Auth, Client, RpcApi};
-
+use bitcoincore_rpc::{Client, RpcApi};
 use crate::bitcoin_merkle::BitcoinMerkleTree;
 
 pub fn handle_withdrawals(
@@ -44,7 +42,7 @@ pub fn handle_withdrawals(
     let tx_id_bytes_vec = tx_id_array
         .iter()
         .map(|tx_id| {
-            let mut bytes = tx_id.to_byte_array();
+            let bytes = tx_id.to_byte_array();
             // bytes.reverse();
             bytes.try_into().unwrap()
         })
@@ -94,28 +92,20 @@ pub fn pay_withdrawals(rpc: &Client, withdrawal_addresses: Vec<Address>) -> Bloc
 
 #[cfg(test)]
 mod tests {
-
     use bitcoin::secp256k1::rand::{rngs::OsRng, seq::SliceRandom};
-
-    use crate::{
-        utils::{from_hex64_to_bytes32, generate_dummy_block},
-    };
+    use crate::extended_rpc::ExtendedRpc;
 
     use super::*;
 
     #[test]
     fn test_handle_withdrawals() {
         let num_withdrawals = 5;
-        let rpc = Client::new(
-            "http://localhost:18443/wallet/admin",
-            Auth::UserPass("admin".to_string(), "admin".to_string()),
-        )
-        .unwrap_or_else(|e| panic!("Failed to connect to Bitcoin RPC: {}", e));
+        let rpc = ExtendedRpc::new();
 
         // TODO: Make 2 dummy transactions and add them to the blockchain
 
-        let block_hash = generate_dummy_block(&rpc)[0];
-        let transactions = rpc.get_block(&block_hash).unwrap().txdata;
+        let block_hash = rpc.generate_dummy_block()[0];
+        let transactions = rpc.inner.get_block(&block_hash).unwrap().txdata;
         //  randomly sample 5 transactions
         let mut rng = OsRng;
         let all_withdrawals = transactions
@@ -124,25 +114,21 @@ mod tests {
             .map(|tx| tx.txid())
             .collect::<Vec<Txid>>();
 
-        let merkle_paths = handle_withdrawals(&rpc, all_withdrawals, block_hash.to_byte_array());
+        let merkle_paths =
+            handle_withdrawals(&rpc.inner, all_withdrawals, block_hash.to_byte_array());
         assert_eq!(merkle_paths.len(), num_withdrawals);
     }
 
     #[test]
     fn test_pay_withdrawals() {
-        let rpc = Client::new(
-            "http://localhost:18443/wallet/admin",
-            Auth::UserPass("admin".to_string(), "admin".to_string()),
-        )
-        .unwrap_or_else(|e| panic!("Failed to connect to Bitcoin RPC: {}", e));
-
+        let rpc = ExtendedRpc::new();
         let mut withdrawal_addresses = Vec::new();
         for _ in 0..5 {
-            withdrawal_addresses.push(rpc.get_new_address(None, None).unwrap().assume_checked());
+            withdrawal_addresses.push(rpc.inner.get_new_address(None, None).unwrap().assume_checked());
         }
 
-        let block_hash = pay_withdrawals(&rpc, withdrawal_addresses);
-        let block = rpc.get_block(&block_hash).unwrap();
+        let block_hash = pay_withdrawals(&rpc.inner, withdrawal_addresses);
+        let _block = rpc.inner.get_block(&block_hash).unwrap();
         // TODO: check that the block contains the withdrawal transactions
     }
 }

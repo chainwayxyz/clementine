@@ -1,6 +1,6 @@
-use crate::hashes::sha256_96bytes;
-use crate::hashes::sha256_64bytes;
 use crate::hashes::sha256_32bytes;
+use crate::hashes::sha256_64bytes;
+use crate::hashes::sha256_96bytes;
 
 pub type Data = [u8; 32];
 pub const HASH_FUNCTION_96: fn(Data, Data, Data) -> Data = sha256_96bytes;
