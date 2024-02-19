@@ -40,6 +40,7 @@ impl<E: Environment> ENVWriter<E> {
 
         // find the index of the txid in tx_id_array vector or give error "txid not found in block txids"
         let index = tx_id_array.iter().position(|&r| r == txid).unwrap();
+        E::write_u32(index as u32);
         let tx_id_bytes_vec = tx_id_array
             .iter()
             .map(|tx_id| {
@@ -70,11 +71,16 @@ impl<E: Environment> ENVWriter<E> {
 mod tests {
     use bitcoin::Txid;
     use bitcoincore_rpc::RpcApi;
-    use circuit_helpers::bitcoin::{read_and_verify_bitcoin_merkle_path, read_tx_and_calculate_txid};
+    use circuit_helpers::bitcoin::{
+        read_and_verify_bitcoin_merkle_path, read_tx_and_calculate_txid,
+    };
     use secp256k1::hashes::Hash;
 
     use crate::{
-        env_writer::ENVWriter, extended_rpc::ExtendedRpc, mock_env::MockEnvironment, utils::{from_hex_to_tx, parse_hex_to_btc_tx}
+        env_writer::ENVWriter,
+        extended_rpc::ExtendedRpc,
+        mock_env::MockEnvironment,
+        utils::{from_hex_to_tx, parse_hex_to_btc_tx},
     };
 
     use operator_circuit::{GUEST_ELF, GUEST_ID};
@@ -99,7 +105,7 @@ mod tests {
 
         let block_hash = rpc.generate_dummy_block()[0];
         let block = rpc.inner.get_block(&block_hash).unwrap();
-        let tx = block.txdata[0].clone();
+        let tx = block.txdata[1].clone();
         let tx_id = tx.txid();
         ENVWriter::<MockEnvironment>::write_bitcoin_merkle_path(tx_id, &block);
         let merkle_root = block.compute_merkle_root();
@@ -108,7 +114,33 @@ mod tests {
         }
         let merkle_root = merkle_root.unwrap();
 
-        read_and_verify_bitcoin_merkle_path::<MockEnvironment>(tx_id.to_byte_array(), merkle_root.to_byte_array());
+        let found_merkle_root =
+            read_and_verify_bitcoin_merkle_path::<MockEnvironment>(tx_id.to_byte_array());
+        assert_eq!(merkle_root.to_byte_array(), found_merkle_root);
+    }
+
+    #[test]
+    fn test_bitcoin_merkle_path_fail() {
+        // TODO: Change this test to not use the rpc
+        let rpc = ExtendedRpc::new();
+
+        // TODO: Make 2 dummy transactions and add them to the blockchain
+
+        let block_hash = rpc.generate_dummy_block()[0];
+        let block = rpc.inner.get_block(&block_hash).unwrap();
+        let tx = block.txdata[0].clone();
+        let tx_id = tx.txid();
+        let wrong_tx_id = block.txdata[1].txid();
+        ENVWriter::<MockEnvironment>::write_bitcoin_merkle_path(tx_id, &block);
+        let merkle_root = block.compute_merkle_root();
+        if (merkle_root.is_none()) {
+            panic!("Merkle root is none");
+        }
+        let merkle_root = merkle_root.unwrap();
+
+        let found_merkle_root =
+            read_and_verify_bitcoin_merkle_path::<MockEnvironment>(wrong_tx_id.to_byte_array());
+        assert_ne!(merkle_root.to_byte_array(), found_merkle_root);
     }
 
     #[test]

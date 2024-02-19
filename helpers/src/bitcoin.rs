@@ -235,15 +235,22 @@ pub fn read_tx_and_calculate_txid<E: Environment>() -> [u8; 32] {
     hasher.finalize().try_into().unwrap()
 }
 
-pub fn read_and_verify_bitcoin_merkle_path<E: Environment>(txid: [u8; 32], merkle_root: [u8; 32]) {
+pub fn read_and_verify_bitcoin_merkle_path<E: Environment>(txid: [u8; 32]) -> [u8; 32] {
     let mut hash = txid;
+    let mut index = E::read_u32();
     let levels = E::read_u32();
     for _ in 0..levels {
         let node: [u8; 32] = E::read_32bytes();
         let mut preimage: [u8; 64] = [0; 64];
-        preimage[..32].copy_from_slice(&hash);
-        preimage[32..].copy_from_slice(&node);
+        if index % 2 == 0 {
+            preimage[..32].copy_from_slice(&hash);
+            preimage[32..].copy_from_slice(&node);
+        } else {
+            preimage[..32].copy_from_slice(&node);
+            preimage[32..].copy_from_slice(&hash);
+        }
+        index = index / 2;
         hash = calculate_double_sha256(&preimage);
     }
-    assert_eq!(hash, merkle_root);
+    return hash;
 }
