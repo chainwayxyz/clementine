@@ -233,6 +233,18 @@ pub fn read_tx_and_calculate_txid<E: Environment>() -> [u8; 32] {
     hasher.finalize().try_into().unwrap()
 }
 
+fn update_hasher(hasher: &mut Sha256, integer: u32) {
+    if integer < 0xfd {
+        hasher.update((integer as u8).to_le_bytes());
+    } else if integer <= 0xffff {
+        hasher.update(0xfdu8.to_le_bytes());
+        hasher.update((integer as u16).to_le_bytes());
+    } else {
+        hasher.update(0xfeu8.to_le_bytes());
+        hasher.update(integer.to_le_bytes());
+    }
+}
+
 pub fn read_arbitrary_tx_and_calculate_txid<E: Environment>(
     require_input: Option<([u8; 32], u32)>,
     require_output: Option<(u64, [u8; 32])>,
@@ -247,15 +259,7 @@ pub fn read_arbitrary_tx_and_calculate_txid<E: Environment>(
     let mut hasher = Sha256::new();
     hasher.update(&version.to_le_bytes());
 
-    if input_count < 0xfd {
-        hasher.update((input_count as u8).to_le_bytes());
-    } else if input_count <= 0xffff {
-        hasher.update(0xfdu8.to_le_bytes());
-        hasher.update((input_count as u16).to_le_bytes());
-    } else {
-        hasher.update(0xfeu8.to_le_bytes());
-        hasher.update(input_count.to_le_bytes());
-    }
+    update_hasher(&mut hasher, input_count);
 
     for _ in 0..input_count {
         let prev_tx_hash = E::read_32bytes();
@@ -266,15 +270,7 @@ pub fn read_arbitrary_tx_and_calculate_txid<E: Environment>(
 
         let script_sig_size = E::read_u32();
 
-        if script_sig_size < 0xfd {
-            hasher.update((script_sig_size as u8).to_le_bytes());
-        } else if script_sig_size <= 0xffff {
-            hasher.update(0xfdu8.to_le_bytes());
-            hasher.update((script_sig_size as u16).to_le_bytes());
-        } else {
-            hasher.update(0xfeu8.to_le_bytes());
-            hasher.update(script_sig_size.to_le_bytes());
-        }
+        update_hasher(&mut hasher, script_sig_size);
 
         let chunks = script_sig_size / 32;
         for _ in 0..chunks {
@@ -296,15 +292,7 @@ pub fn read_arbitrary_tx_and_calculate_txid<E: Environment>(
         }
     }
 
-    if output_count < 0xfd {
-        hasher.update((output_count as u8).to_le_bytes());
-    } else if output_count <= 0xffff {
-        hasher.update(0xfdu8.to_le_bytes());
-        hasher.update((output_count as u16).to_le_bytes());
-    } else {
-        hasher.update(0xfeu8.to_le_bytes());
-        hasher.update(output_count.to_le_bytes());
-    }
+    update_hasher(&mut hasher, output_count);
 
     for _ in 0..output_count {
         let value = E::read_u64();
@@ -327,15 +315,7 @@ pub fn read_arbitrary_tx_and_calculate_txid<E: Environment>(
         } else {
             hasher.update(&value.to_le_bytes());
 
-            if output_len < 0xfd {
-                hasher.update((output_len as u8).to_le_bytes());
-            } else if output_len <= 0xffff {
-                hasher.update(0xfdu8.to_le_bytes());
-                hasher.update((output_len as u16).to_le_bytes());
-            } else {
-                hasher.update(0xfeu8.to_le_bytes());
-                hasher.update(output_len.to_le_bytes());
-            }
+            update_hasher(&mut hasher, output_len);
 
             let num_chunks = output_len / 32;
             for _ in 0..num_chunks {
