@@ -8,6 +8,8 @@ use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 
 use crate::core_utils::from_hex64_to_bytes32;
+use crate::env::Environment;
+use crate::hashes::calculate_double_sha256;
 use crate::hashes::calculate_single_sha256;
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
@@ -195,4 +197,189 @@ pub fn verify_script_hash_taproot_address(
         address_bytes,
         preimages,
     );
+}
+
+pub fn read_tx_and_calculate_txid<E: Environment>() -> [u8; 32] {
+    let version = E::read_i32();
+    let input_count: u8 = E::read_u32().try_into().unwrap();
+    let output_count: u8 = E::read_u32().try_into().unwrap();
+    let lock_time = E::read_u32();
+
+    let mut hasher = Sha256::new();
+    hasher.update(&version.to_le_bytes());
+    hasher.update(&input_count.to_le_bytes());
+    for _ in 0..input_count {
+        let prev_tx_hash = E::read_32bytes();
+        let output_index = E::read_u32();
+        let sequence = E::read_u32();
+        hasher.update(&prev_tx_hash);
+        hasher.update(&output_index.to_le_bytes());
+        hasher.update(&0u8.to_le_bytes());
+        hasher.update(&sequence.to_le_bytes());
+    }
+    hasher.update(&output_count.to_le_bytes());
+    for _ in 0..output_count {
+        let value = E::read_u64();
+        let taproot_address = E::read_32bytes();
+        hasher.update(&value.to_le_bytes());
+        hasher.update(&34u8.to_le_bytes());
+        hasher.update(&81u8.to_le_bytes());
+        hasher.update(&32u8.to_le_bytes());
+        hasher.update(&taproot_address);
+    }
+    hasher.update(&lock_time.to_le_bytes());
+    let result = hasher.finalize_reset();
+    hasher.update(result);
+    hasher.finalize().try_into().unwrap()
+}
+
+pub fn read_arbitrary_tx_and_calculate_txid<E: Environment>(
+    require_input: Option<([u8; 32], u32)>,
+    require_output: Option<(u64, [u8; 32])>,
+) -> [u8; 32] {
+    let mut input_satisfied = require_input.is_none();
+    let mut output_satisfied = require_output.is_none();
+    let version = E::read_i32();
+    let input_count = E::read_u32();
+    let output_count = E::read_u32();
+    let lock_time = E::read_u32();
+
+    let mut hasher = Sha256::new();
+    hasher.update(&version.to_le_bytes());
+
+    if input_count < 0xfd {
+        hasher.update((input_count as u8).to_le_bytes());
+    } else if input_count <= 0xffff {
+        hasher.update(0xfdu8.to_le_bytes());
+        hasher.update((input_count as u16).to_le_bytes());
+    } else {
+        hasher.update(0xfeu8.to_le_bytes());
+        hasher.update(input_count.to_le_bytes());
+    }
+
+    for _ in 0..input_count {
+        let prev_tx_hash = E::read_32bytes();
+        let output_index = E::read_u32();
+        let sequence = E::read_u32();
+        hasher.update(&prev_tx_hash);
+        hasher.update(&output_index.to_le_bytes());
+
+        let script_sig_size = E::read_u32();
+
+        if script_sig_size < 0xfd {
+            hasher.update((script_sig_size as u8).to_le_bytes());
+        } else if script_sig_size <= 0xffff {
+            hasher.update(0xfdu8.to_le_bytes());
+            hasher.update((script_sig_size as u16).to_le_bytes());
+        } else {
+            hasher.update(0xfeu8.to_le_bytes());
+            hasher.update(script_sig_size.to_le_bytes());
+        }
+
+        let chunks = script_sig_size / 32;
+        for _ in 0..chunks {
+            let chunk = E::read_32bytes();
+            hasher.update(&chunk);
+        }
+        let remaining_bytes = script_sig_size % 32;
+        if remaining_bytes > 0 {
+            let chunk = E::read_32bytes();
+            hasher.update(&chunk[..remaining_bytes as usize]);
+        }
+
+        // hasher.update(0u8.to_le_bytes());
+        hasher.update(&sequence.to_le_bytes());
+        if require_input.is_some() && !input_satisfied {
+            if prev_tx_hash == require_input.unwrap().0 && output_index == require_input.unwrap().1 {
+                input_satisfied = true;
+            }
+        }
+    }
+
+    if output_count < 0xfd {
+        hasher.update((output_count as u8).to_le_bytes());
+    } else if output_count <= 0xffff {
+        hasher.update(0xfdu8.to_le_bytes());
+        hasher.update((output_count as u16).to_le_bytes());
+    } else {
+        hasher.update(0xfeu8.to_le_bytes());
+        hasher.update(output_count.to_le_bytes());
+    }
+
+    for _ in 0..output_count {
+        let value = E::read_u64();
+        let output_len = E::read_u32();
+        // if output_type == 0, this means it is a taproot output
+        // else output_len is number of 32 byte chunks, for the last chunk,
+        // it can be less than 32 bytes so we read the remaining bytes
+        if output_len == 0 {
+            let taproot_address = E::read_32bytes();
+            hasher.update(&value.to_le_bytes());
+            hasher.update(&34u8.to_le_bytes());
+            hasher.update(&81u8.to_le_bytes());
+            hasher.update(&32u8.to_le_bytes());
+            hasher.update(&taproot_address);
+            if require_output.is_some() && !output_satisfied {
+                if value == require_output.unwrap().0 && taproot_address == require_output.unwrap().1 {
+                    output_satisfied = true;
+                }
+            }
+        } else {
+            hasher.update(&value.to_le_bytes());
+
+            if output_len < 0xfd {
+                hasher.update((output_len as u8).to_le_bytes());
+            } else if output_len <= 0xffff {
+                hasher.update(0xfdu8.to_le_bytes());
+                hasher.update((output_len as u16).to_le_bytes());
+            } else {
+                hasher.update(0xfeu8.to_le_bytes());
+                hasher.update(output_len.to_le_bytes());
+            }
+
+            let num_chunks = output_len / 32;
+            for _ in 0..num_chunks {
+                let chunk = E::read_32bytes();
+                hasher.update(&chunk);
+            }
+            let remaining_bytes = output_len % 32;
+            if remaining_bytes > 0 {
+                let chunk = E::read_32bytes();
+                hasher.update(&chunk[..remaining_bytes as usize]);
+            }
+        }
+    }
+    if !input_satisfied {
+        panic!("Input not found");
+    }
+    if !output_satisfied {
+        panic!("Output not found");
+    }
+    // if !output_address_found {
+    //     panic!("Output address not found");
+    // }
+    hasher.update(&lock_time.to_le_bytes());
+    let result = hasher.finalize_reset();
+    hasher.update(result);
+    hasher.finalize().try_into().unwrap()
+}
+
+pub fn read_and_verify_bitcoin_merkle_path<E: Environment>(txid: [u8; 32]) -> [u8; 32] {
+    let mut hash = txid;
+    let mut index = E::read_u32();
+    let levels = E::read_u32();
+    for _ in 0..levels {
+        let node: [u8; 32] = E::read_32bytes();
+        let mut preimage: [u8; 64] = [0; 64];
+        if index % 2 == 0 {
+            preimage[..32].copy_from_slice(&hash);
+            preimage[32..].copy_from_slice(&node);
+        } else {
+            preimage[..32].copy_from_slice(&node);
+            preimage[32..].copy_from_slice(&hash);
+        }
+        index = index / 2;
+        hash = calculate_double_sha256(&preimage);
+    }
+    return hash;
 }
