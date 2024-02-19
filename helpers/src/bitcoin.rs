@@ -8,6 +8,7 @@ use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 
 use crate::core_utils::from_hex64_to_bytes32;
+use crate::env::Environment;
 use crate::hashes::calculate_single_sha256;
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
@@ -195,4 +196,40 @@ pub fn verify_script_hash_taproot_address(
         address_bytes,
         preimages,
     );
+}
+
+
+
+pub fn read_tx_and_calculate_txid<E: Environment>() -> [u8; 32] {
+    let version = E::read_i32();
+    let input_count: u8 = E::read_u32().try_into().unwrap();
+    let output_count: u8 = E::read_u32().try_into().unwrap();
+    let lock_time = E::read_u32();
+
+    let mut hasher = Sha256::new();
+    hasher.update(&version.to_le_bytes());
+    hasher.update(&input_count.to_le_bytes());
+    for _ in 0..input_count {
+        let prev_tx_hash = E::read_32bytes();
+        let output_index = E::read_u32();
+        let sequence = E::read_u32();
+        hasher.update(&prev_tx_hash);
+        hasher.update(&output_index.to_le_bytes());
+        hasher.update(&0u8.to_le_bytes());
+        hasher.update(&sequence.to_le_bytes());
+    }
+    hasher.update(&output_count.to_le_bytes());
+    for _ in 0..output_count {
+        let value = E::read_u64();
+        let taproot_address = E::read_32bytes();
+        hasher.update(&value.to_le_bytes());
+        hasher.update(&34u8.to_le_bytes());
+        hasher.update(&81u8.to_le_bytes());
+        hasher.update(&32u8.to_le_bytes());
+        hasher.update(&taproot_address);
+    }
+    hasher.update(&lock_time.to_le_bytes());
+    let result = hasher.finalize_reset();
+    hasher.update(result);
+    hasher.finalize().try_into().unwrap()
 }

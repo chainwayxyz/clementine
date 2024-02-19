@@ -11,3 +11,5 @@ pub mod transaction_builder;
 pub mod user;
 pub mod utils;
 pub mod verifier;
+pub mod circuit_tests;
+pub mod mock_env;
