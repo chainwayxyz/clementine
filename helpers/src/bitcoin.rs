@@ -245,6 +245,19 @@ fn update_hasher(hasher: &mut Sha256, integer: u32) {
     }
 }
 
+fn update_hasher_chunks<E: Environment>(hasher: &mut Sha256, byte_count: u32) {
+    let chunks = byte_count / 32;
+    for _ in 0..chunks {
+        let chunk = E::read_32bytes();
+        hasher.update(&chunk);
+    }
+    let remaining_bytes = byte_count % 32;
+    if remaining_bytes > 0 {
+        let chunk = E::read_32bytes();
+        hasher.update(&chunk[..remaining_bytes as usize]);
+    }
+}
+
 pub fn read_arbitrary_tx_and_calculate_txid<E: Environment>(
     require_input: Option<([u8; 32], u32)>,
     require_output: Option<(u64, [u8; 32])>,
@@ -272,16 +285,7 @@ pub fn read_arbitrary_tx_and_calculate_txid<E: Environment>(
 
         update_hasher(&mut hasher, script_sig_size);
 
-        let chunks = script_sig_size / 32;
-        for _ in 0..chunks {
-            let chunk = E::read_32bytes();
-            hasher.update(&chunk);
-        }
-        let remaining_bytes = script_sig_size % 32;
-        if remaining_bytes > 0 {
-            let chunk = E::read_32bytes();
-            hasher.update(&chunk[..remaining_bytes as usize]);
-        }
+        update_hasher_chunks::<E>(&mut hasher, script_sig_size);
 
         // hasher.update(0u8.to_le_bytes());
         hasher.update(&sequence.to_le_bytes());
@@ -317,16 +321,7 @@ pub fn read_arbitrary_tx_and_calculate_txid<E: Environment>(
 
             update_hasher(&mut hasher, output_len);
 
-            let num_chunks = output_len / 32;
-            for _ in 0..num_chunks {
-                let chunk = E::read_32bytes();
-                hasher.update(&chunk);
-            }
-            let remaining_bytes = output_len % 32;
-            if remaining_bytes > 0 {
-                let chunk = E::read_32bytes();
-                hasher.update(&chunk[..remaining_bytes as usize]);
-            }
+            update_hasher_chunks::<E>(&mut hasher, output_len);
         }
     }
     if !input_satisfied {
