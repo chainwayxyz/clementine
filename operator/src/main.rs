@@ -31,9 +31,10 @@ fn main() {
     let mut start_utxo_vec = Vec::new();
     let mut return_addresses = Vec::new();
 
-    let connector_root_utxo = operator.create_connector_root();
+    let connector_root_utxo = operator.create_connector_root(0);
     for verifier in &mut operator.mock_verifier_access {
         verifier.connector_root_utxo_created(
+            0,
             operator.connector_tree_hashes.clone(),
             connector_root_utxo,
         );
@@ -108,8 +109,8 @@ fn main() {
 
     rpc.mine_blocks(3);
 
-    let preimages = operator.reveal_connector_tree_preimages(3);
-    let (commit_txid, reveal_txid) = operator.inscribe_connector_tree_preimages(3);
+    let preimages = operator.reveal_connector_tree_preimages(0, 3);
+    let (commit_txid, reveal_txid) = operator.inscribe_connector_tree_preimages(0, 3);
     println!("preimages revealed: {:?}", preimages);
     preimages_verifier_track = preimages.clone();
     let inscription_tx = operator.mock_verifier_access[0]
@@ -172,9 +173,9 @@ fn main() {
         .enumerate()
     {
         for (j, utxo) in utxo_level.iter().enumerate() {
-            let preimage = operator.connector_tree_preimages[i][j];
+            let preimage = operator.connector_tree_preimages[0][i][j];
             println!("preimage: {:?}", preimage);
-            operator.spend_connector_tree_utxo(*utxo, preimage, CONNECTOR_TREE_DEPTH);
+            operator.spend_connector_tree_utxo(0, *utxo, preimage, CONNECTOR_TREE_DEPTH);
             operator.mock_verifier_access[0].watch_connector_tree(
                 operator.signer.xonly_public_key,
                 &mut preimages_verifier_track,

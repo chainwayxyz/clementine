@@ -86,8 +86,7 @@ pub fn create_giga_merkle_tree(
     depth: usize,
     num_rounds: usize,
     rng: &mut OsRng,
-) -> GigaMerkleTree {
-    // let mut leaves_info = Vec::new();
+) -> (GigaMerkleTree, Vec<Vec<Vec<PreimageType>>>, Vec<Vec<Vec<[u8; 32]>>>) {
     let mut preimages = Vec::new();
     let mut hashes = Vec::new();
     for _ in 0..num_rounds {
@@ -107,7 +106,7 @@ pub fn create_giga_merkle_tree(
         }
     }
     let giga_merkle_tree = GigaMerkleTree::new(num_rounds, depth, leaves);
-    giga_merkle_tree
+    (giga_merkle_tree, preimages, hashes)
 }
 
 #[derive(Debug, Clone)]
@@ -132,8 +131,9 @@ pub struct Operator<'a> {
     pub mock_verifier_access: Vec<Verifier<'a>>, // on production this will be removed rather we will call the verifier's API
     pub preimages: Vec<PreimageType>,
     pub connector_tree_utxos: Vec<Vec<OutPoint>>,
-    pub connector_tree_preimages: Vec<Vec<PreimageType>>,
-    pub connector_tree_hashes: Vec<Vec<[u8; 32]>>,
+    pub giga_merkle_tree: GigaMerkleTree,
+    pub connector_tree_preimages: Vec<Vec<Vec<PreimageType>>>,
+    pub connector_tree_hashes: Vec<Vec<Vec<[u8; 32]>>>,
     pub deposit_utxos: Vec<OutPoint>,
     pub move_utxos: Vec<OutPoint>,
     pub current_preimage_for_deposit_requests: PreimageType,
@@ -142,8 +142,8 @@ pub struct Operator<'a> {
 impl<'a> Operator<'a> {
     pub fn new(rng: &mut OsRng, rpc: &'a ExtendedRpc, num_verifier: u32) -> Self {
         let signer = Actor::new(rng);
-        let (connector_tree_preimages, connector_tree_hashes) =
-            create_connector_tree_preimages_and_hashes(CONNECTOR_TREE_DEPTH, rng);
+        let (giga_merkle_tree, connector_tree_preimages, connector_tree_hashes) =
+            create_giga_merkle_tree(3, 4, rng);
         let mut verifiers = Vec::new();
         let mut verifiers_pks = Vec::new();
         for _ in 0..num_verifier {
@@ -170,6 +170,7 @@ impl<'a> Operator<'a> {
             mock_verifier_access: verifiers,
             preimages: Vec::new(),
             connector_tree_utxos: Vec::new(),
+            giga_merkle_tree: giga_merkle_tree,
             connector_tree_preimages: connector_tree_preimages,
             connector_tree_hashes: connector_tree_hashes,
             deposit_utxos: Vec::new(),
@@ -227,6 +228,7 @@ impl<'a> Operator<'a> {
                 // println!("verifier in the closure: {:?}", verifier);
                 // Note: In this part we will need to call the verifier's API to get the presigns
                 let deposit_presigns = verifier.new_deposit(
+                    0,
                     start_utxo,
                     Amount::from_sat(BRIDGE_AMOUNT_SATS),
                     index,
@@ -476,6 +478,7 @@ impl<'a> Operator<'a> {
 
     pub fn spend_connector_tree_utxo(
         &self,
+        period: usize,
         utxo: OutPoint,
         preimage: PreimageType,
         tree_depth: usize,
@@ -506,13 +509,13 @@ impl<'a> Operator<'a> {
         println!("depth: {:?}", depth);
         let level = tree_depth - depth as usize;
         //find the index of preimage in the connector_tree_preimages[level as usize]
-        let index = self.connector_tree_preimages[level as usize]
+        let index = self.connector_tree_preimages[period][level as usize]
             .iter()
             .position(|x| *x == preimage)
             .unwrap();
         let hashes = (
-            self.connector_tree_hashes[(level + 1) as usize][2 * index],
-            self.connector_tree_hashes[(level + 1) as usize][2 * index + 1],
+            self.connector_tree_hashes[period][(level + 1) as usize][2 * index],
+            self.connector_tree_hashes[period][(level + 1) as usize][2 * index + 1],
         );
 
         let utxo_tx = self.rpc.get_raw_transaction(&utxo.txid, None).unwrap();
@@ -576,6 +579,7 @@ impl<'a> Operator<'a> {
 
     pub fn reveal_connector_tree_preimages(
         &self,
+        period: usize,
         number_of_funds_claim: u32,
     ) -> HashSet<PreimageType> {
         let indices = CustomMerkleTree::get_indices(
@@ -585,12 +589,12 @@ impl<'a> Operator<'a> {
         println!("indices: {:?}", indices);
         let mut preimages: HashSet<PreimageType> = HashSet::new();
         for (depth, index) in indices {
-            preimages.insert(self.connector_tree_preimages[depth as usize][index as usize]);
+            preimages.insert(self.connector_tree_preimages[period][depth as usize][index as usize]);
         }
         preimages
     }
 
-    pub fn inscribe_connector_tree_preimages(&self, number_of_funds_claim: u32) -> (Txid, Txid) {
+    pub fn inscribe_connector_tree_preimages(&self, period: usize, number_of_funds_claim: u32) -> (Txid, Txid) {
         let indices = CustomMerkleTree::get_indices(
             self.connector_tree_hashes.len() - 1,
             number_of_funds_claim,
@@ -599,7 +603,7 @@ impl<'a> Operator<'a> {
         let mut preimages: Vec<PreimageType> = Vec::new();
 
         for (depth, index) in indices {
-            preimages.push(self.connector_tree_preimages[depth as usize][index as usize]);
+            preimages.push(self.connector_tree_preimages[period][depth as usize][index as usize]);
         }
 
         let inscription_source_utxo = self
@@ -623,8 +627,8 @@ impl<'a> Operator<'a> {
         return (commit_txid, reveal_txid);
     }
 
-    pub fn claim_deposit(&self, index: usize) {
-        let preimage = self.connector_tree_preimages.last().unwrap()[index];
+    pub fn claim_deposit(&self, period: usize, index: usize) {
+        let preimage = self.connector_tree_preimages[period][self.connector_tree_preimages[period].len() - 1][index];
         let hash = HASH_FUNCTION_32(preimage);
         let (address, tree_info_1) = TransactionBuilder::create_connector_tree_node_address(
             &self.signer.secp,
@@ -763,7 +767,7 @@ impl<'a> Operator<'a> {
         }
     }
 
-    pub fn create_connector_root(&mut self) -> OutPoint {
+    pub fn create_connector_root(&mut self, period: usize) -> OutPoint {
         let total_amount = calculate_amount(
             CONNECTOR_TREE_DEPTH,
             Amount::from_sat(DUST_VALUE),
@@ -772,13 +776,14 @@ impl<'a> Operator<'a> {
         let (root_address, _) = TransactionBuilder::create_connector_tree_node_address(
             &self.signer.secp,
             self.signer.xonly_public_key,
-            self.connector_tree_hashes[0][0],
+            self.connector_tree_hashes[period][0][0],
         );
         let root_utxo = self
             .rpc
             .send_to_address(&root_address, total_amount.to_sat());
 
         let utxo_tree = self.transaction_builder.create_connector_binary_tree(
+            period,
             self.signer.xonly_public_key,
             root_utxo,
             CONNECTOR_TREE_DEPTH,

@@ -27,7 +27,7 @@ pub struct Verifier<'a> {
     pub transaction_builder: TransactionBuilder,
     pub verifiers: Vec<XOnlyPublicKey>,
     pub connector_tree_utxos: Vec<Vec<OutPoint>>,
-    pub connector_tree_hashes: Vec<Vec<[u8; 32]>>,
+    pub connector_tree_hashes: Vec<Vec<Vec<[u8; 32]>>>,
     pub operator_pk: XOnlyPublicKey,
 }
 
@@ -63,17 +63,19 @@ impl<'a> Verifier<'a> {
         self.connector_tree_utxos = connector_tree_utxos;
     }
 
-    pub fn set_connector_tree_hashes(&mut self, connector_tree_hashes: Vec<Vec<[u8; 32]>>) {
+    pub fn set_connector_tree_hashes(&mut self, connector_tree_hashes: Vec<Vec<Vec<[u8; 32]>>>) {
         self.connector_tree_hashes = connector_tree_hashes;
     }
 
     pub fn connector_root_utxo_created(
         &mut self,
-        connector_tree_hashes: Vec<Vec<[u8; 32]>>,
+        period: usize,
+        connector_tree_hashes: Vec<Vec<Vec<[u8; 32]>>>,
         connector_root_utxo: OutPoint,
     ) {
         self.connector_tree_hashes = connector_tree_hashes;
         let utxo_tree = self.transaction_builder.create_connector_binary_tree(
+            period,
             self.signer.xonly_public_key,
             connector_root_utxo,
             CONNECTOR_TREE_DEPTH,
@@ -85,6 +87,7 @@ impl<'a> Verifier<'a> {
 
     pub fn new_deposit(
         &self,
+        period: usize,
         start_utxo: OutPoint,
         deposit_amount: Amount,
         index: u32,
@@ -160,7 +163,7 @@ impl<'a> Verifier<'a> {
         let (address, _) = TransactionBuilder::create_connector_tree_node_address(
             &self.secp,
             self.operator_pk,
-            self.connector_tree_hashes[self.connector_tree_hashes.len() - 1][index as usize],
+            self.connector_tree_hashes[period][self.connector_tree_hashes.len() - 1][index as usize],
         );
 
         let prevouts = TransactionBuilder::create_tx_outs(vec![

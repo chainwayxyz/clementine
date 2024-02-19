@@ -283,10 +283,11 @@ impl TransactionBuilder {
     // Depth will be determined later.
     pub fn create_connector_binary_tree(
         &self,
+        period: usize,
         xonly_public_key: XOnlyPublicKey,
         root_utxo: OutPoint,
         depth: usize,
-        connector_tree_hashes: Vec<Vec<[u8; 32]>>,
+        connector_tree_hashes: Vec<Vec<Vec<[u8; 32]>>>,
     ) -> Vec<Vec<OutPoint>> {
         // UTXO value should be at least 2^depth * dust_value + (2^depth-1) * fee
         let total_amount = calculate_amount(
@@ -299,7 +300,7 @@ impl TransactionBuilder {
         let (_root_address, _) = TransactionBuilder::create_connector_tree_node_address(
             &self.secp,
             xonly_public_key,
-            connector_tree_hashes[0][0],
+            connector_tree_hashes[period][0][0],
         );
 
         let mut utxo_binary_tree: Vec<Vec<OutPoint>> = Vec::new();
@@ -313,12 +314,12 @@ impl TransactionBuilder {
                 let (first_address, _) = TransactionBuilder::create_connector_tree_node_address(
                     &self.secp,
                     xonly_public_key,
-                    connector_tree_hashes[(i + 1) as usize][2 * j],
+                    connector_tree_hashes[period][(i + 1) as usize][2 * j],
                 );
                 let (second_address, _) = TransactionBuilder::create_connector_tree_node_address(
                     &self.secp,
                     xonly_public_key,
-                    connector_tree_hashes[(i + 1) as usize][2 * j + 1],
+                    connector_tree_hashes[period][(i + 1) as usize][2 * j + 1],
                 );
 
                 let tx = TransactionBuilder::create_connector_tree_tx(
