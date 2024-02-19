@@ -233,7 +233,9 @@ pub fn read_tx_and_calculate_txid<E: Environment>() -> [u8; 32] {
     hasher.finalize().try_into().unwrap()
 }
 
-fn update_hasher(hasher: &mut Sha256, integer: u32) {
+// updates the hasher with variable length integer
+// see https://wiki.bitcoinsv.io/index.php/VarInt
+fn update_hasher_with_varint(hasher: &mut Sha256, integer: u32) {
     if integer < 0xfd {
         hasher.update((integer as u8).to_le_bytes());
     } else if integer <= 0xffff {
@@ -245,13 +247,13 @@ fn update_hasher(hasher: &mut Sha256, integer: u32) {
     }
 }
 
-fn update_hasher_chunks<E: Environment>(hasher: &mut Sha256, byte_count: u32) {
-    let chunks = byte_count / 32;
+fn read_chunks_and_update_hasher<E: Environment>(hasher: &mut Sha256, byte_len: u32) {
+    let chunks = byte_len / 32;
     for _ in 0..chunks {
         let chunk = E::read_32bytes();
         hasher.update(&chunk);
     }
-    let remaining_bytes = byte_count % 32;
+    let remaining_bytes = byte_len % 32;
     if remaining_bytes > 0 {
         let chunk = E::read_32bytes();
         hasher.update(&chunk[..remaining_bytes as usize]);
@@ -272,7 +274,7 @@ pub fn read_arbitrary_tx_and_calculate_txid<E: Environment>(
     let mut hasher = Sha256::new();
     hasher.update(&version.to_le_bytes());
 
-    update_hasher(&mut hasher, input_count);
+    update_hasher_with_varint(&mut hasher, input_count);
 
     for _ in 0..input_count {
         let prev_tx_hash = E::read_32bytes();
@@ -283,9 +285,9 @@ pub fn read_arbitrary_tx_and_calculate_txid<E: Environment>(
 
         let script_sig_size = E::read_u32();
 
-        update_hasher(&mut hasher, script_sig_size);
+        update_hasher_with_varint(&mut hasher, script_sig_size);
 
-        update_hasher_chunks::<E>(&mut hasher, script_sig_size);
+        read_chunks_and_update_hasher::<E>(&mut hasher, script_sig_size);
 
         // hasher.update(0u8.to_le_bytes());
         hasher.update(&sequence.to_le_bytes());
@@ -296,7 +298,7 @@ pub fn read_arbitrary_tx_and_calculate_txid<E: Environment>(
         }
     }
 
-    update_hasher(&mut hasher, output_count);
+    update_hasher_with_varint(&mut hasher, output_count);
 
     for _ in 0..output_count {
         let value = E::read_u64();
@@ -319,9 +321,9 @@ pub fn read_arbitrary_tx_and_calculate_txid<E: Environment>(
         } else {
             hasher.update(&value.to_le_bytes());
 
-            update_hasher(&mut hasher, output_len);
+            update_hasher_with_varint(&mut hasher, output_len);
 
-            update_hasher_chunks::<E>(&mut hasher, output_len);
+            read_chunks_and_update_hasher::<E>(&mut hasher, output_len);
         }
     }
     if !input_satisfied {
