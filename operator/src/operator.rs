@@ -18,7 +18,7 @@ use bitcoin::{hashes::Hash, secp256k1, secp256k1::schnorr, Address, Txid};
 use bitcoin::{Amount, OutPoint, Transaction};
 use bitcoincore_rpc::{Client, RpcApi};
 use circuit_helpers::config::{
-    BRIDGE_AMOUNT_SATS, CONNECTOR_TREE_DEPTH, CONNECTOR_TREE_OPERATOR_TAKES_AFTER,
+    BRIDGE_AMOUNT_SATS, CONNECTOR_TREE_DEPTH, CONNECTOR_TREE_OPERATOR_TAKES_AFTER, NUM_ROUNDS, NUM_USERS
 };
 use circuit_helpers::constant::{EVMAddress, DUST_VALUE, HASH_FUNCTION_32, MIN_RELAY_FEE};
 use secp256k1::rand::rngs::OsRng;
@@ -143,7 +143,7 @@ impl<'a> Operator<'a> {
     pub fn new(rng: &mut OsRng, rpc: &'a ExtendedRpc, num_verifier: u32) -> Self {
         let signer = Actor::new(rng);
         let (giga_merkle_tree, connector_tree_preimages, connector_tree_hashes) =
-            create_giga_merkle_tree(3, 4, rng);
+            create_giga_merkle_tree(CONNECTOR_TREE_DEPTH, NUM_ROUNDS, rng);
         let mut verifiers = Vec::new();
         let mut verifiers_pks = Vec::new();
         for _ in 0..num_verifier {
