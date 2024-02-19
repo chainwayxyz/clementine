@@ -142,6 +142,7 @@ pub struct Operator<'a> {
     pub deposit_utxos: Vec<OutPoint>,
     pub move_utxos: Vec<OutPoint>,
     pub current_preimage_for_deposit_requests: PreimageType,
+    pub deposit_index: u32,
 }
 
 impl<'a> Operator<'a> {
@@ -181,6 +182,7 @@ impl<'a> Operator<'a> {
             deposit_utxos: Vec::new(),
             move_utxos: Vec::new(),
             current_preimage_for_deposit_requests: rng.gen(),
+            deposit_index: 0,
         }
     }
 
@@ -236,7 +238,7 @@ impl<'a> Operator<'a> {
                     0,
                     start_utxo,
                     Amount::from_sat(BRIDGE_AMOUNT_SATS),
-                    index,
+                    self.deposit_index,
                     hash,
                     return_address.clone(),
                     evm_address,
@@ -398,6 +400,7 @@ impl<'a> Operator<'a> {
         println!("rpc_move_txid: {:?}", rpc_move_txid);
         let move_utxo = TransactionBuilder::create_utxo(rpc_move_txid, 0);
         self.move_utxos.push(move_utxo.clone());
+        self.deposit_index += 1;
         move_utxo
     }
 
@@ -646,7 +649,7 @@ impl<'a> Operator<'a> {
         let deposit_utxo = self.deposit_utxos[index as usize];
         let fund_utxo = self.move_utxos[index as usize];
         let connector_utxo =
-            self.connector_tree_utxos[period][self.connector_tree_utxos.len() - 1][index as usize];
+            self.connector_tree_utxos[period][self.connector_tree_utxos[period].len() - 1][index as usize];
 
         let mut tx_ins = TransactionBuilder::create_tx_ins(vec![fund_utxo]);
         tx_ins.extend(TransactionBuilder::create_tx_ins_with_sequence(vec![
@@ -823,7 +826,7 @@ impl<'a> Operator<'a> {
 
             let txid = curr_root_and_next_source_tx.txid();
 
-            let curr_utxo = OutPoint {
+            curr_utxo = OutPoint {
                 txid: txid,
                 vout: 0,
             };

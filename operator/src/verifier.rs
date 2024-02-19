@@ -166,7 +166,7 @@ impl<'a> Verifier<'a> {
         let (address, _) = TransactionBuilder::create_connector_tree_node_address(
             &self.secp,
             self.operator_pk,
-            self.connector_tree_hashes[period][self.connector_tree_hashes.len() - 1][index as usize],
+            self.connector_tree_hashes[period][self.connector_tree_hashes[period].len() - 1][index as usize],
         );
 
         let prevouts = TransactionBuilder::create_tx_outs(vec![

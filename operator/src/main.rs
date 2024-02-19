@@ -67,7 +67,7 @@ fn main() {
 
             let _signatures = operator.new_deposit(
                 start_utxo,
-                i as u32,
+                operator.deposit_index + i as u32,
                 hash,
                 user.signer.xonly_public_key.clone(),
                 user.signer.evm_address,
