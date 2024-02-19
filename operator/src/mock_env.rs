@@ -33,6 +33,15 @@ impl MockEnvironment {
         result
     }
 
+    pub fn reset_mock_env() {
+        let mut global_data = GLOBAL_DATA.write().unwrap();
+        global_data.clear();
+        let mut global_data_types = GLOBAL_DATA_TYPES.write().unwrap();
+        global_data_types.clear();
+        let mut read_position = READ_POSITION.write().unwrap();
+        *read_position = 0;
+    }
+
     pub fn output_env<'a>() -> risc0_zkvm::ExecutorEnv<'a> {
         let global_data = GLOBAL_DATA.read().unwrap(); // Use read lock for data
         let global_data_types = GLOBAL_DATA_TYPES.read().unwrap(); // Use read lock for data types
