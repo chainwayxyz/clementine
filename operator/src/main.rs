@@ -235,10 +235,6 @@ fn main() {
     );
     // let done_wd_pi_inscription_blockhash = rpc.get_block_hash(done_wd_pi_inscription_blockheight as u64).unwrap();
 
-    let test_work =
-        rpc.calculate_total_work_between_blocks(curr_blockheight - 100, curr_blockheight);
-    println!("test_work: {:?}", test_work);
-
     let wanted_work = rpc
         .calculate_total_work_between_blocks(done_wd_pi_inscription_blockheight, curr_blockheight);
     let wanted_blockhash = curr_block_hash;
@@ -249,7 +245,7 @@ fn main() {
     println!("wanted_blockheight: {:?}", wanted_blockheight);
     // println!("test: {:?}", test);
 
-    // for i in 0..NUM_USERS {
-    //     operator.claim_deposit(i);
-    // }
+    for i in 0..NUM_USERS {
+        operator.claim_deposit(0, i);
+    }
 }
