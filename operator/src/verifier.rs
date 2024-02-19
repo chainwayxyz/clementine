@@ -16,7 +16,7 @@ use crate::transaction_builder::TransactionBuilder;
 use crate::utils::{create_control_block, handle_taproot_witness};
 use crate::{actor::Actor, operator::DepositPresigns};
 
-use circuit_helpers::config::CONNECTOR_TREE_DEPTH;
+use circuit_helpers::config::{CONNECTOR_TREE_DEPTH, NUM_ROUNDS};
 
 #[derive(Debug, Clone)]
 pub struct Verifier<'a> {
@@ -26,7 +26,7 @@ pub struct Verifier<'a> {
     pub script_builder: ScriptBuilder,
     pub transaction_builder: TransactionBuilder,
     pub verifiers: Vec<XOnlyPublicKey>,
-    pub connector_tree_utxos: Vec<Vec<OutPoint>>,
+    pub connector_tree_utxos: Vec<Vec<Vec<OutPoint>>>,
     pub connector_tree_hashes: Vec<Vec<Vec<[u8; 32]>>>,
     pub operator_pk: XOnlyPublicKey,
 }
@@ -59,7 +59,7 @@ impl<'a> Verifier<'a> {
         self.transaction_builder = TransactionBuilder::new(self.verifiers.clone());
     }
 
-    pub fn set_connector_tree_utxos(&mut self, connector_tree_utxos: Vec<Vec<OutPoint>>) {
+    pub fn set_connector_tree_utxos(&mut self, connector_tree_utxos: Vec<Vec<Vec<OutPoint>>>) {
         self.connector_tree_utxos = connector_tree_utxos;
     }
 
@@ -67,22 +67,25 @@ impl<'a> Verifier<'a> {
         self.connector_tree_hashes = connector_tree_hashes;
     }
 
-    pub fn connector_root_utxo_created(
+    pub fn connector_roots_created(
         &mut self,
-        period: usize,
         connector_tree_hashes: Vec<Vec<Vec<[u8; 32]>>>,
-        connector_root_utxo: OutPoint,
+        connector_tree_root_utxos: Vec<OutPoint>,
     ) {
         self.connector_tree_hashes = connector_tree_hashes;
-        let utxo_tree = self.transaction_builder.create_connector_binary_tree(
-            period,
-            self.signer.xonly_public_key,
-            connector_root_utxo,
-            CONNECTOR_TREE_DEPTH,
-            self.connector_tree_hashes.clone(),
-        );
+        let mut utxo_trees = Vec::new();
+        for i in 0..NUM_ROUNDS {
+            let utxo_tree = self.transaction_builder.create_connector_binary_tree(
+                i,
+                self.signer.xonly_public_key,
+                connector_tree_root_utxos[i].clone(),
+                CONNECTOR_TREE_DEPTH,
+                self.connector_tree_hashes[i].clone(),
+            );
+            utxo_trees.push(utxo_tree);
+        }
 
-        self.set_connector_tree_utxos(utxo_tree.clone());
+        self.set_connector_tree_utxos(utxo_trees.clone());
     }
 
     pub fn new_deposit(
@@ -149,7 +152,7 @@ impl<'a> Verifier<'a> {
         let mut operator_claim_tx_ins = TransactionBuilder::create_tx_ins(vec![prev_outpoint]);
 
         operator_claim_tx_ins.extend(TransactionBuilder::create_tx_ins_with_sequence(vec![
-            self.connector_tree_utxos[self.connector_tree_utxos.len() - 1][index as usize],
+            self.connector_tree_utxos[period][self.connector_tree_utxos[period].len() - 1][index as usize],
         ]));
 
         let operator_claim_tx_outs = TransactionBuilder::create_tx_outs(vec![(

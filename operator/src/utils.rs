@@ -161,7 +161,7 @@ pub fn handle_anyone_can_spend_script() -> (ScriptBuf, Amount) {
 }
 
 pub fn calculate_amount(depth: usize, value: Amount, fee: Amount) -> Amount {
-    (value * 2u64.pow(depth as u32)) + (fee * (2u64.pow(depth as u32) - 1))
+    (value + fee) * (2u64.pow(depth as u32))
 }
 
 pub fn handle_taproot_witness<T: AsRef<[u8]>>(

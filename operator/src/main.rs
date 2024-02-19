@@ -31,22 +31,21 @@ fn main() {
     let mut start_utxo_vec = Vec::new();
     let mut return_addresses = Vec::new();
 
-    for r in 0..NUM_ROUNDS {
-        let connector_root_utxo = operator.create_connector_root(r);
-        for verifier in &mut operator.mock_verifier_access {
-            verifier.connector_root_utxo_created(
-                r,
-                operator.connector_tree_hashes.clone(),
-                connector_root_utxo,
-            );
-        }
+    let connector_tree_root_utxos = operator.create_connector_roots();
+    for verifier in &mut operator.mock_verifier_access {
+        verifier.connector_roots_created(
+            operator.connector_tree_hashes.clone(),
+            connector_tree_root_utxos.clone(),
+        );
+    }
 
+    for r in 0..NUM_ROUNDS {
         let mut preimages_verifier_track: HashSet<PreimageType> = HashSet::new();
         let mut utxos_verifier_track: HashMap<OutPoint, (u32, u32)> = HashMap::new();
-        utxos_verifier_track.insert(connector_root_utxo, (0, 0));
+        utxos_verifier_track.insert(connector_tree_root_utxos[r], (0, 0));
 
         let mut flag = operator.mock_verifier_access[r]
-            .did_connector_tree_process_start(connector_root_utxo.clone());
+            .did_connector_tree_process_start(connector_tree_root_utxos[r].clone());
         println!("flag: {:?}", flag);
         if flag {
             operator.mock_verifier_access[r].watch_connector_tree(
@@ -95,7 +94,7 @@ fn main() {
         }
 
         flag = operator.mock_verifier_access[r]
-            .did_connector_tree_process_start(connector_root_utxo.clone());
+            .did_connector_tree_process_start(connector_tree_root_utxos[r].clone());
         println!("flag: {:?}", flag);
         if flag {
             operator.mock_verifier_access[r].watch_connector_tree(
@@ -169,7 +168,7 @@ fn main() {
         );
         println!("test_res: {:?}", test_res);
 
-        for (i, utxo_level) in operator.connector_tree_utxos
+        for (i, utxo_level) in operator.connector_tree_utxos[r]
             [0..operator.connector_tree_utxos.len() - 1]
             .iter()
             .enumerate()
@@ -218,9 +217,9 @@ fn main() {
         let mut wd_blockheight = 0;
 
         for wd_txid in operator.withdrawals_payment_txids.clone() {
-            println!("for withdrawal txid: {:?}", wd_txid);
+            // println!("for withdrawal txid: {:?}", wd_txid);
             let wd_tx = rpc.get_raw_transaction(&wd_txid, None).unwrap();
-            println!("wd_tx: {:?}", wd_tx);
+            // println!("wd_tx: {:?}", wd_tx);
             wd_blockheight = rpc
                 .get_transaction(&wd_txid, None)
                 .unwrap()
@@ -249,7 +248,7 @@ fn main() {
         println!("wanted_blockheight: {:?}", wanted_blockheight);
         // println!("test: {:?}", test);
 
-        for i in 0..NUM_USERS {
+        for i in 0..NUM_USERS * r {
             operator.claim_deposit(r, i);
         }
     }

@@ -18,7 +18,8 @@ use bitcoin::{hashes::Hash, secp256k1, secp256k1::schnorr, Address, Txid};
 use bitcoin::{Amount, OutPoint, Transaction};
 use bitcoincore_rpc::{Client, RpcApi};
 use circuit_helpers::config::{
-    BRIDGE_AMOUNT_SATS, CONNECTOR_TREE_DEPTH, CONNECTOR_TREE_OPERATOR_TAKES_AFTER, NUM_ROUNDS, NUM_USERS
+    BRIDGE_AMOUNT_SATS, CONNECTOR_TREE_DEPTH, CONNECTOR_TREE_OPERATOR_TAKES_AFTER, NUM_ROUNDS,
+    NUM_USERS,
 };
 use circuit_helpers::constant::{EVMAddress, DUST_VALUE, HASH_FUNCTION_32, MIN_RELAY_FEE};
 use secp256k1::rand::rngs::OsRng;
@@ -82,11 +83,15 @@ pub fn create_connector_tree_preimages_and_hashes(
     (connector_tree_preimages, connector_tree_hashes)
 }
 
-pub fn create_giga_merkle_tree(    
+pub fn create_giga_merkle_tree(
     depth: usize,
     num_rounds: usize,
     rng: &mut OsRng,
-) -> (GigaMerkleTree, Vec<Vec<Vec<PreimageType>>>, Vec<Vec<Vec<[u8; 32]>>>) {
+) -> (
+    GigaMerkleTree,
+    Vec<Vec<Vec<PreimageType>>>,
+    Vec<Vec<Vec<[u8; 32]>>>,
+) {
     let mut preimages = Vec::new();
     let mut hashes = Vec::new();
     for _ in 0..num_rounds {
@@ -130,7 +135,7 @@ pub struct Operator<'a> {
     pub withdrawals_payment_txids: Vec<Txid>,
     pub mock_verifier_access: Vec<Verifier<'a>>, // on production this will be removed rather we will call the verifier's API
     pub preimages: Vec<PreimageType>,
-    pub connector_tree_utxos: Vec<Vec<OutPoint>>,
+    pub connector_tree_utxos: Vec<Vec<Vec<OutPoint>>>,
     pub giga_merkle_tree: GigaMerkleTree,
     pub connector_tree_preimages: Vec<Vec<Vec<PreimageType>>>,
     pub connector_tree_hashes: Vec<Vec<Vec<[u8; 32]>>>,
@@ -193,7 +198,7 @@ impl<'a> Operator<'a> {
         all_verifiers
     }
 
-    pub fn set_connector_tree_utxos(&mut self, connector_tree_utxos: Vec<Vec<OutPoint>>) {
+    pub fn set_connector_tree_utxos(&mut self, connector_tree_utxos: Vec<Vec<Vec<OutPoint>>>) {
         self.connector_tree_utxos = connector_tree_utxos;
     }
 
@@ -582,10 +587,7 @@ impl<'a> Operator<'a> {
         period: usize,
         number_of_funds_claim: u32,
     ) -> HashSet<PreimageType> {
-        let indices = CustomMerkleTree::get_indices(
-            self.connector_tree_hashes.len() - 1,
-            number_of_funds_claim,
-        );
+        let indices = GigaMerkleTree::get_indices(CONNECTOR_TREE_DEPTH, number_of_funds_claim);
         println!("indices: {:?}", indices);
         let mut preimages: HashSet<PreimageType> = HashSet::new();
         for (depth, index) in indices {
@@ -594,7 +596,11 @@ impl<'a> Operator<'a> {
         preimages
     }
 
-    pub fn inscribe_connector_tree_preimages(&self, period: usize, number_of_funds_claim: u32) -> (Txid, Txid) {
+    pub fn inscribe_connector_tree_preimages(
+        &self,
+        period: usize,
+        number_of_funds_claim: u32,
+    ) -> (Txid, Txid) {
         let indices = CustomMerkleTree::get_indices(
             self.connector_tree_hashes.len() - 1,
             number_of_funds_claim,
@@ -628,7 +634,8 @@ impl<'a> Operator<'a> {
     }
 
     pub fn claim_deposit(&self, period: usize, index: usize) {
-        let preimage = self.connector_tree_preimages[period][self.connector_tree_preimages[period].len() - 1][index];
+        let preimage = self.connector_tree_preimages[period]
+            [self.connector_tree_preimages[period].len() - 1][index];
         let hash = HASH_FUNCTION_32(preimage);
         let (address, tree_info_1) = TransactionBuilder::create_connector_tree_node_address(
             &self.signer.secp,
@@ -638,7 +645,8 @@ impl<'a> Operator<'a> {
         // println!("deposit_utxos: {:?}", self.deposit_utxos);
         let deposit_utxo = self.deposit_utxos[index as usize];
         let fund_utxo = self.move_utxos[index as usize];
-        let connector_utxo = self.connector_tree_utxos.last().unwrap()[index as usize];
+        let connector_utxo =
+            self.connector_tree_utxos[period][self.connector_tree_utxos.len() - 1][index as usize];
 
         let mut tx_ins = TransactionBuilder::create_tx_ins(vec![fund_utxo]);
         tx_ins.extend(TransactionBuilder::create_tx_ins_with_sequence(vec![
@@ -767,31 +775,76 @@ impl<'a> Operator<'a> {
         }
     }
 
-    pub fn create_connector_root(&mut self, period: usize) -> OutPoint {
-        let total_amount = calculate_amount(
+    pub fn create_connector_roots(&mut self) -> Vec<OutPoint> {
+        let single_tree_amount = calculate_amount(
             CONNECTOR_TREE_DEPTH,
             Amount::from_sat(DUST_VALUE),
             Amount::from_sat(MIN_RELAY_FEE),
         );
-        let (root_address, _) = TransactionBuilder::create_connector_tree_node_address(
-            &self.signer.secp,
-            self.signer.xonly_public_key,
-            self.connector_tree_hashes[period][0][0],
-        );
-        let root_utxo = self
+        let mut total_amount = single_tree_amount * NUM_ROUNDS as u64;
+        let mut root_utxos = Vec::new();
+        let mut utxo_trees = Vec::new();
+        let mut curr_utxo = self
             .rpc
-            .send_to_address(&root_address, total_amount.to_sat());
+            .send_to_address(&self.signer.address, total_amount.to_sat());
 
-        let utxo_tree = self.transaction_builder.create_connector_binary_tree(
-            period,
-            self.signer.xonly_public_key,
-            root_utxo,
-            CONNECTOR_TREE_DEPTH,
-            self.connector_tree_hashes.clone(),
-        );
+        for i in 0..NUM_ROUNDS {
+            let (root_address, _) = TransactionBuilder::create_connector_tree_node_address(
+                &self.signer.secp,
+                self.signer.xonly_public_key,
+                self.connector_tree_hashes[i][0][0],
+            );
+            let curr_root_and_next_source_tx_ins =
+                TransactionBuilder::create_tx_ins(vec![curr_utxo.clone()]);
+            let curr_root_and_next_source_tx_outs = TransactionBuilder::create_tx_outs(vec![
+                (
+                    total_amount - single_tree_amount - Amount::from_sat(MIN_RELAY_FEE),
+                    self.signer.address.script_pubkey(),
+                ),
+                (single_tree_amount, root_address.script_pubkey()),
+            ]);
 
-        self.set_connector_tree_utxos(utxo_tree.clone());
-        root_utxo
+            let mut curr_root_and_next_source_tx = TransactionBuilder::create_btc_tx(
+                curr_root_and_next_source_tx_ins,
+                curr_root_and_next_source_tx_outs,
+            );
+
+            // let sig = self.signer.sign_taproot_pubkey_spend_tx(
+            //     &mut curr_root_and_next_source_tx,
+            //     TransactionBuilder::create_tx_outs(vec![(
+            //         total_amount - single_tree_amount - Amount::from_sat(MIN_RELAY_FEE),
+            //         self.signer.address.script_pubkey(),
+            //     )]),
+            //     0,
+            // );
+            // let mut curr_root_and_next_source_tx_cache = SighashCache::new(curr_root_and_next_source_tx.borrow_mut());
+            // let witness = curr_root_and_next_source_tx_cache.witness_mut(0).unwrap();
+            // witness.push(sig.as_ref());
+
+            let txid = curr_root_and_next_source_tx.txid();
+
+            let curr_utxo = OutPoint {
+                txid: txid,
+                vout: 0,
+            };
+            
+            let root_utxo = OutPoint {
+                txid: txid,
+                vout: 1,
+            };
+
+            let utxo_tree = self.transaction_builder.create_connector_binary_tree(
+                i,
+                self.signer.xonly_public_key,
+                root_utxo.clone(),
+                CONNECTOR_TREE_DEPTH,
+                self.connector_tree_hashes[i].clone(),
+            );
+            root_utxos.push(root_utxo);
+            utxo_trees.push(utxo_tree);
+        }
+        self.set_connector_tree_utxos(utxo_trees.clone());
+        root_utxos
     }
 }
 
@@ -801,10 +854,9 @@ mod tests {
     use secp256k1::rand::rngs::OsRng;
 
     #[test]
-    fn test_giga_merkle_tree_works() {  
+    fn test_giga_merkle_tree_works() {
         let mut rng = OsRng;
         let giga_merkle_tree = create_giga_merkle_tree(2, 4, &mut rng);
         println!("giga_merkle_tree: {:?}", giga_merkle_tree);
-    }   
-
+    }
 }
