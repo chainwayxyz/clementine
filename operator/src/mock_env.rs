@@ -12,17 +12,17 @@ pub struct MockEnvironment;
 
 impl MockEnvironment {
     // Helper function to write data to the global storage
-    fn write_global(data: &[u8]) {
+    fn write_global(data: &[u8], data_type: u8) {
         let mut global_data = GLOBAL_DATA.write().unwrap();
         global_data.extend_from_slice(data);
+        let mut global_data_types = GLOBAL_DATA_TYPES.write().unwrap(); // Use write lock for data types since we're updating it
+        global_data_types.push(data_type);
     }
 
     // Helper function to read data from the global storage
-    fn read_global(count: usize, data_type: u8) -> Vec<u8> {
+    fn read_global(count: usize) -> Vec<u8> {
         let global_data = GLOBAL_DATA.read().unwrap(); // Use read lock for data
         let mut pos = READ_POSITION.write().unwrap(); // Use write lock for position since we're updating it
-        let mut global_data_types = GLOBAL_DATA_TYPES.write().unwrap(); // Use write lock for data types since we're updating it
-        global_data_types.push(data_type);
 
         if *pos + count > global_data.len() {
             panic!("Not enough data in global storage to read");
@@ -31,6 +31,15 @@ impl MockEnvironment {
         *pos += count; // Update the read position
 
         result
+    }
+
+    pub fn reset_mock_env() {
+        let mut global_data = GLOBAL_DATA.write().unwrap();
+        global_data.clear();
+        let mut global_data_types = GLOBAL_DATA_TYPES.write().unwrap();
+        global_data_types.clear();
+        let mut read_position = READ_POSITION.write().unwrap();
+        *read_position = 0;
     }
 
     pub fn output_env<'a>() -> risc0_zkvm::ExecutorEnv<'a> {
@@ -76,41 +85,41 @@ impl MockEnvironment {
 
 impl Environment for MockEnvironment {
     fn read_32bytes() -> [u8; 32] {
-        let bytes = Self::read_global(32, 0);
+        let bytes = Self::read_global(32);
         let mut array = [0u8; 32];
         array.copy_from_slice(&bytes[..]);
         array
     }
 
     fn read_u32() -> u32 {
-        let bytes = Self::read_global(4, 1);
+        let bytes = Self::read_global(4);
         u32::from_le_bytes(bytes.try_into().unwrap())
     }
 
     fn read_u64() -> u64 {
-        let bytes = Self::read_global(8, 2);
+        let bytes = Self::read_global(8);
         u64::from_le_bytes(bytes.try_into().unwrap())
     }
 
     fn read_i32() -> i32 {
-        let bytes = Self::read_global(4, 3);
+        let bytes = Self::read_global(4);
         i32::from_le_bytes(bytes.try_into().unwrap())
     }
 
     fn write_32bytes(data: [u8; 32]) {
-        Self::write_global(&data);
+        Self::write_global(&data, 0);
     }
 
     fn write_u32(data: u32) {
-        Self::write_global(&data.to_le_bytes());
+        Self::write_global(&data.to_le_bytes(), 1);
     }
 
     fn write_u64(data: u64) {
-        Self::write_global(&data.to_le_bytes());
+        Self::write_global(&data.to_le_bytes(), 2);
     }
 
     fn write_i32(data: i32) {
-        Self::write_global(&data.to_le_bytes());
+        Self::write_global(&data.to_le_bytes(), 3);
     }
 }
 
