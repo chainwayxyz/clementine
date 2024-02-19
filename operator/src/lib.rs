@@ -13,3 +13,4 @@ pub mod utils;
 pub mod verifier;
 pub mod circuit_tests;
 pub mod mock_env;
+pub mod giga_merkle;
