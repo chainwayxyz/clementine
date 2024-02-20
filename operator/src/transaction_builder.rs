@@ -207,10 +207,10 @@ impl TransactionBuilder {
     pub fn create_inscription_commit_address(
         &self,
         actor_pk: &XOnlyPublicKey,
-        preimages: &Vec<PreimageType>,
+        preimages_to_be_revealed: &Vec<PreimageType>,
     ) -> (Address, TaprootSpendInfo, ScriptBuf) {
         let inscribe_preimage_script =
-            ScriptBuilder::create_inscription_script_32_bytes(actor_pk, preimages);
+            ScriptBuilder::create_inscription_script_32_bytes(actor_pk, preimages_to_be_revealed);
         let (address, taproot_info) = TransactionBuilder::create_taproot_address(
             &self.secp,
             vec![inscribe_preimage_script.clone()],

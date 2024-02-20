@@ -57,6 +57,8 @@ fn main() {
     let inscription_output = operator.inscribe_connector_tree_preimages();
     println!("inscription_output: {:?}", inscription_output);
 
+    // operator.prove();
+
 
     // for r in 0..NUM_ROUNDS {
     //     let mut preimages_verifier_track: HashSet<PreimageType> = HashSet::new();
