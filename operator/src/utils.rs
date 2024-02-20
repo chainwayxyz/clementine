@@ -300,7 +300,7 @@ mod tests {
             ScriptBuilder::generate_timelock_script(operator.signer.xonly_public_key, 2);
         let sig = operator.signer.sign_taproot_script_spend_tx(
             &mut connector_tree_tx,
-            vec![utxo_tx.output[0].clone()],
+            &vec![utxo_tx.output[0].clone()],
             &timelock_script,
             0,
         );

@@ -19,15 +19,16 @@ fn main() {
 
     let mut operator = Operator::new(&mut OsRng, &rpc, NUM_VERIFIERS as u32);
     let mut users = Vec::new();
-    for _ in 0..NUM_USERS {
-        users.push(User::new(&mut OsRng, &rpc.inner));
-    }
+
     let verifiers_pks = operator.get_all_verifiers();
     for verifier in &mut operator.mock_verifier_access {
         verifier.set_verifiers(verifiers_pks.clone());
     }
     println!("verifiers_pks.len: {:?}", verifiers_pks.len());
 
+    for _ in 0..NUM_USERS {
+        users.push(User::new(&rpc, verifiers_pks.clone()));
+    }
     let mut start_utxo_vec = Vec::new();
     let mut return_addresses = Vec::new();
 
@@ -59,38 +60,24 @@ fn main() {
 
         for i in 0..NUM_USERS {
             let user = &users[i];
-            let (start_utxo, _) = user.create_start_utxo(
-                &rpc.inner,
-                Amount::from_sat(BRIDGE_AMOUNT_SATS) + Amount::from_sat(MIN_RELAY_FEE),
-            );
-            let hash = HASH_FUNCTION_32(operator.current_preimage_for_deposit_requests);
+            let (start_utxo, return_address) = user.deposit_tx();
+            println!("User made deposit: start_utxo: {:?}", start_utxo);
 
-            let _signatures = operator.new_deposit(
-                start_utxo,
-                operator.deposit_index + i as u32,
-                hash,
-                user.signer.xonly_public_key.clone(),
-                user.signer.evm_address,
-            );
+            rpc.mine_blocks(6);
+
+            let bridge_utxo = operator.new_deposit(start_utxo, return_address);
+
+            println!("Bridge utxo: {:?}", bridge_utxo);
 
             rpc.mine_blocks(1);
 
-            let (user_deposit_utxo, return_address) = user.deposit_tx(
-                &user.rpc,
-                start_utxo,
-                Amount::from_sat(BRIDGE_AMOUNT_SATS),
-                &user.secp,
-                verifiers_pks.clone(),
-                hash,
-            );
-            bridge_funds.push(user_deposit_utxo.txid);
+            // let (user_deposit_utxo, return_address) = user.deposit_tx();
+            // operator.new_deposit(user_deposit_utxo, return_address);
+            bridge_funds.push(bridge_utxo.txid);
             return_addresses.push(return_address);
             start_utxo_vec.push(start_utxo);
             rpc.mine_blocks(1);
-            let fund =
-                operator.deposit_happened(start_utxo, hash, user_deposit_utxo, return_addresses[i]);
-            fund_utxos.push(fund);
-            operator.change_preimage_for_deposit_requests(&mut OsRng);
+            fund_utxos.push(bridge_utxo);
         }
 
         flag = operator.mock_verifier_access[r]
@@ -248,8 +235,8 @@ fn main() {
         println!("wanted_blockheight: {:?}", wanted_blockheight);
         // println!("test: {:?}", test);
 
-        for i in 0..NUM_USERS * r {
-            operator.claim_deposit(r, i);
-        }
+        // for i in 0..NUM_USERS * r {
+        //     operator.claim_deposit(r, i);
+        // }
     }
 }

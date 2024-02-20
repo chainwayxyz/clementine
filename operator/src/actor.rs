@@ -105,7 +105,7 @@ impl Actor {
     pub fn sign_taproot_script_spend_tx(
         &self,
         tx: &mut bitcoin::Transaction,
-        prevouts: Vec<TxOut>,
+        prevouts: &Vec<TxOut>,
         spend_script: &bitcoin::Script,
         input_index: usize,
     ) -> schnorr::Signature {
@@ -113,7 +113,7 @@ impl Actor {
         let sig_hash = sighash_cache
             .taproot_script_spend_signature_hash(
                 input_index,
-                &bitcoin::sighash::Prevouts::All(&prevouts),
+                &bitcoin::sighash::Prevouts::All(prevouts),
                 TapLeafHash::from_script(&spend_script, LeafVersion::TapScript),
                 bitcoin::sighash::TapSighashType::Default,
             )

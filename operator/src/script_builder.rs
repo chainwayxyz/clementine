@@ -1,7 +1,7 @@
 use bitcoin::{
     opcodes::{all::*, OP_FALSE, OP_TRUE},
     script::Builder,
-    ScriptBuf,
+    Amount, ScriptBuf, TxOut,
 };
 use circuit_helpers::constant::EVMAddress;
 use secp256k1::XOnlyPublicKey;
@@ -14,6 +14,16 @@ pub struct ScriptBuilder {
 impl ScriptBuilder {
     pub fn new(verifiers_pks: Vec<XOnlyPublicKey>) -> Self {
         Self { verifiers_pks }
+    }
+
+    pub fn anyone_can_spend_txout() -> TxOut {
+        let script = Builder::new().push_opcode(OP_TRUE).into_script();
+        let script_pubkey = script.to_p2wsh();
+        let value = script.dust_value();
+        TxOut {
+            script_pubkey,
+            value,
+        }
     }
 
     pub fn generate_n_of_n_script(&self, hash: [u8; 32]) -> ScriptBuf {

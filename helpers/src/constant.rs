@@ -12,3 +12,4 @@ pub const DUST_VALUE: u64 = 1000;
 pub const MIN_RELAY_FEE: u64 = 500;
 pub type EVMAddress = [u8; 20];
 pub const TAPROOT_LEAF_TAPSCRIPT: u8 = 192;
+pub const CONFIRMATION_BLOCK_COUNT: u32 = 6;

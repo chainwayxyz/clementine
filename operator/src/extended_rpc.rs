@@ -2,6 +2,9 @@ use bitcoin::Address;
 use bitcoin::Amount;
 use bitcoin::OutPoint;
 
+use bitcoin::ScriptBuf;
+use bitcoin::Transaction;
+use bitcoin::TxOut;
 use bitcoin::Work;
 use bitcoincore_rpc::Auth;
 use bitcoincore_rpc::Client;
@@ -22,6 +25,36 @@ impl ExtendedRpc {
         )
         .unwrap_or_else(|e| panic!("Failed to connect to Bitcoin RPC: {}", e));
         Self { inner: rpc }
+    }
+
+    pub fn confirmation_blocks(&self, txid: &bitcoin::Txid) -> u32 {
+        self.inner.get_raw_transaction_info(txid, None).unwrap().confirmations.unwrap()
+    }
+
+    pub fn check_utxo_address_and_amount(
+        &self,
+        outpoint: &OutPoint,
+        address: &ScriptBuf,
+        amount_sats: u64,
+    ) -> bool {
+        let tx = self
+            .inner
+            .get_raw_transaction(&outpoint.txid, None)
+            .unwrap_or_else(|e| panic!("Failed to get transaction: {}", e));
+        let current_output = tx.output[outpoint.vout as usize].clone();
+        let expected_output = TxOut {
+            script_pubkey: address.clone(),
+            value: Amount::from_sat(amount_sats),
+        };
+        return expected_output == current_output;
+        // println!("current_output: {:?}", current_output);
+        // println!("expected_output: {:?}", expected_output);
+        // current_output.value.to_sat() == expected_output.value.to_sat()
+        //     && current_output.script_pubkey.as_bytes() == expected_output.script_pubkey.as_bytes()
+    }
+
+    pub fn is_utxo_spent(&self, outpoint: &OutPoint) -> bool {
+        false // TODO: Implement this
     }
 
     pub fn generate_dummy_block(&self) -> Vec<bitcoin::BlockHash> {
@@ -75,7 +108,7 @@ impl ExtendedRpc {
             .inner
             .get_transaction(&txid, None)
             .unwrap_or_else(|e| panic!("Failed to get transaction: {}", e));
-
+        println!("tx_result: {:?}", tx_result);
         let vout = tx_result.details[0].vout;
         OutPoint { txid, vout }
     }
