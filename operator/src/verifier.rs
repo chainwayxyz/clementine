@@ -73,23 +73,23 @@ impl<'a> Verifier<'a> {
 
     pub fn connector_roots_created(
         &mut self,
-        connector_tree_hashes: Vec<Vec<Vec<[u8; 32]>>>,
-        connector_tree_root_utxos: Vec<OutPoint>,
+        connector_tree_hashes: &Vec<Vec<Vec<[u8; 32]>>>,
+        first_source_utxo: &OutPoint
     ) {
-        self.connector_tree_hashes = connector_tree_hashes;
-        let mut utxo_trees = Vec::new();
-        for i in 0..NUM_ROUNDS {
-            let utxo_tree = self.transaction_builder.create_connector_binary_tree(
-                i,
-                self.signer.xonly_public_key,
-                connector_tree_root_utxos[i].clone(),
-                CONNECTOR_TREE_DEPTH,
-                self.connector_tree_hashes[i].clone(),
-            );
-            utxo_trees.push(utxo_tree);
-        }
+        // self.connector_tree_hashes = connector_tree_hashes;
+        // let mut utxo_trees = Vec::new();
+        // for i in 0..NUM_ROUNDS {
+        //     let utxo_tree = self.transaction_builder.create_connector_binary_tree(
+        //         i,
+        //         self.signer.xonly_public_key,
+        //         connector_tree_root_utxos[i].clone(),
+        //         CONNECTOR_TREE_DEPTH,
+        //         self.connector_tree_hashes[i].clone(),
+        //     );
+        //     utxo_trees.push(utxo_tree);
+        // }
 
-        self.set_connector_tree_utxos(utxo_trees.clone());
+        // self.set_connector_tree_utxos(utxo_trees.clone());
     }
 
     /// this is a endpoint that only the operator can call

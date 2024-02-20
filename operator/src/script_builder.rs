@@ -1,4 +1,5 @@
 use bitcoin::{
+    absolute::Height,
     opcodes::{all::*, OP_FALSE, OP_TRUE},
     script::Builder,
     Amount, ScriptBuf, TxOut,
@@ -26,6 +27,15 @@ impl ScriptBuilder {
         }
     }
 
+    pub fn generate_2_of_2_script(a: XOnlyPublicKey, b: XOnlyPublicKey) -> ScriptBuf {
+        let script = Builder::new()
+            .push_x_only_key(&a)
+            .push_x_only_key(&b)
+            .push_opcode(OP_PUSHNUM_2)
+            .push_opcode(OP_CHECKMULTISIG)
+            .into_script();
+        script
+    }
     pub fn generate_n_of_n_script(&self, hash: [u8; 32]) -> ScriptBuf {
         let raw_script = self.generate_n_of_n_script_without_hash();
         let script_buf = ScriptBuilder::convert_scriptbuf_into_builder(raw_script).into_script();
@@ -79,6 +89,18 @@ impl ScriptBuilder {
             .push_int(block_count as i64)
             .push_opcode(OP_CSV)
             .push_opcode(OP_DROP)
+            .push_x_only_key(&actor_pk)
+            .push_opcode(OP_CHECKSIG)
+            .into_script()
+    }
+
+    pub fn generate_absolute_timelock_script(
+        actor_pk: XOnlyPublicKey,
+        block_count: u32,
+    ) -> ScriptBuf {
+        Builder::new()
+            .push_int(block_count as i64)
+            .push_opcode(OP_CLTV)
             .push_x_only_key(&actor_pk)
             .push_opcode(OP_CHECKSIG)
             .into_script()

@@ -16,6 +16,7 @@ use secp256k1::{Secp256k1, XOnlyPublicKey};
 
 use crate::{
     actor::Actor,
+    errors::BridgeError,
     operator::PreimageType,
     script_builder::ScriptBuilder,
     utils::{calculate_amount, handle_taproot_witness},
@@ -158,17 +159,27 @@ impl TransactionBuilder {
     pub fn create_taproot_address(
         secp: &Secp256k1<secp256k1::All>,
         scripts: Vec<ScriptBuf>,
-    ) -> (Address, TaprootSpendInfo) {
-        let mut taproot_builder = TaprootBuilder::new();
-        //depth = log(scripts.len)
-        let depth = (scripts.len() as f64).log2() as u8;
-        for script in scripts {
-            taproot_builder = taproot_builder.add_leaf(depth, script).unwrap();
+    ) -> Result<(Address, TaprootSpendInfo), BridgeError> {
+        let n = scripts.len();
+        if n == 0 {
+            return Err(BridgeError::InvalidPeriod);
         }
+        let taproot_builder = if n > 1 {
+            let m: u8 = ((n - 1).ilog2() + 1) as u8; // m = ceil(log(n))
+            let k = 2_usize.pow(m.into()) - n;
+            (0..n).fold(TaprootBuilder::new(), |acc, i| {
+                acc.add_leaf(m - ((i >= n - k) as u8), scripts[i].clone())
+                    .unwrap()
+            })
+        } else {
+            TaprootBuilder::new()
+                .add_leaf(0, scripts[0].clone())
+                .unwrap()
+        };
         // println!("taproot_builder: {:?}", taproot_builder);
         let internal_key = *INTERNAL_KEY;
         let tree_info = taproot_builder.finalize(&secp, internal_key).unwrap();
-        (
+        Ok((
             Address::p2tr(
                 &secp,
                 internal_key,
@@ -176,11 +187,33 @@ impl TransactionBuilder {
                 bitcoin::Network::Regtest,
             ),
             tree_info,
-        )
+        ))
     }
 
     pub fn create_utxo(txid: Txid, vout: u32) -> OutPoint {
         OutPoint { txid, vout }
+    }
+
+    pub fn create_connector_tree_root_address(
+        &self,
+        operator_pk: XOnlyPublicKey,
+        absolute_block_height_to_take_after: u64,
+    ) -> (Address, TaprootSpendInfo) {
+        let timelock_script = ScriptBuilder::generate_absolute_timelock_script(
+            operator_pk,
+            absolute_block_height_to_take_after as u32,
+        );
+        let mut all_2_of_2_scripts: Vec<ScriptBuf> = self
+            .verifiers_pks
+            .iter()
+            .map(|pk| ScriptBuilder::generate_2_of_2_script(operator_pk, pk.clone()))
+            .collect();
+        // push the timelock script to the beginning of the vector
+        all_2_of_2_scripts.insert(0, timelock_script.clone());
+
+        let (address, tree_info) =
+            TransactionBuilder::create_taproot_address(&self.secp, all_2_of_2_scripts).unwrap();
+        (address, tree_info)
     }
 
     pub fn create_connector_tree_node_address(
@@ -200,7 +233,8 @@ impl TransactionBuilder {
         let (address, tree_info) = TransactionBuilder::create_taproot_address(
             secp,
             vec![timelock_script.clone(), preimage_script],
-        );
+        )
+        .unwrap();
         (address, tree_info)
     }
 
@@ -214,7 +248,8 @@ impl TransactionBuilder {
         let (address, taproot_info) = TransactionBuilder::create_taproot_address(
             &self.secp,
             vec![inscribe_preimage_script.clone()],
-        );
+        )
+        .unwrap();
         (address, taproot_info, inscribe_preimage_script)
     }
 
@@ -242,7 +277,8 @@ impl TransactionBuilder {
             TransactionBuilder::create_taproot_address(
                 &actor.secp,
                 vec![inscribe_preimage_script.clone()],
-            );
+            )
+            .unwrap();
         // println!("inscription tree merkle root: {:?}", inscription_tree_info.merkle_root());
         let commit_tx_ins = TransactionBuilder::create_tx_ins(vec![utxo]);
         let commit_tx_outs = TransactionBuilder::create_tx_outs(vec![(

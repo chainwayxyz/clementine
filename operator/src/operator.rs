@@ -24,6 +24,7 @@ use circuit_helpers::config::{
 };
 use circuit_helpers::constant::{
     EVMAddress, CONFIRMATION_BLOCK_COUNT, DUST_VALUE, HASH_FUNCTION_32, MIN_RELAY_FEE,
+    PERIOD_BLOCK_COUNT,
 };
 use secp256k1::rand::rngs::OsRng;
 use secp256k1::rand::Rng;
@@ -137,6 +138,7 @@ pub struct Operator<'a> {
     pub connector_tree_preimages: Vec<Vec<Vec<PreimageType>>>,
     pub connector_tree_hashes: Vec<Vec<Vec<[u8; 32]>>>,
     pub inscription_txs: Vec<InscriptionTxs>,
+    pub start_blockheight: u64,
 
     pub verifiers_pks: Vec<XOnlyPublicKey>,
     pub deposit_presigns: HashMap<Txid, Vec<DepositPresigns>>,
@@ -180,6 +182,7 @@ impl<'a> Operator<'a> {
             connector_tree_preimages: connector_tree_preimages,
             connector_tree_hashes: connector_tree_hashes,
             inscription_txs: Vec::new(),
+            start_blockheight: 0,
 
             verifiers_pks: verifiers_pks,
             deposit_presigns: HashMap::new(),
@@ -472,7 +475,8 @@ impl<'a> Operator<'a> {
         let (address, _) = TransactionBuilder::create_taproot_address(
             &self.signer.secp,
             vec![script_n_of_n_without_hash.clone()],
-        );
+        )
+        .unwrap();
 
         let (anyone_can_spend_script_pub_key, _) = handle_anyone_can_spend_script();
 
@@ -682,27 +686,30 @@ impl<'a> Operator<'a> {
             })
             .collect::<Vec<_>>();
 
-        let (commit_address, commit_tree_info, inscribe_preimage_script) = self
-            .transaction_builder
-            .create_inscription_commit_address(&self.signer.xonly_public_key, &preimages_to_be_revealed);
+        let (commit_address, commit_tree_info, inscribe_preimage_script) =
+            self.transaction_builder.create_inscription_commit_address(
+                &self.signer.xonly_public_key,
+                &preimages_to_be_revealed,
+            );
 
-        let commit_utxo = self.rpc.send_to_address(&commit_address, DUST_VALUE*2);
+        let commit_utxo = self.rpc.send_to_address(&commit_address, DUST_VALUE * 2);
         let mut reveal_tx = self.transaction_builder.create_inscription_reveal_tx(
             commit_utxo,
             &commit_tree_info,
             &preimages_to_be_revealed,
         );
 
-
-
         let prevouts = vec![TxOut {
             script_pubkey: commit_address.script_pubkey(),
-            value: Amount::from_sat(DUST_VALUE*2),
+            value: Amount::from_sat(DUST_VALUE * 2),
         }];
 
-        let sig =
-            self.signer
-                .sign_taproot_script_spend_tx(&mut reveal_tx, &prevouts, &inscribe_preimage_script, 0);
+        let sig = self.signer.sign_taproot_script_spend_tx(
+            &mut reveal_tx,
+            &prevouts,
+            &inscribe_preimage_script,
+            0,
+        );
 
         handle_taproot_witness(
             &mut reveal_tx,
@@ -712,15 +719,9 @@ impl<'a> Operator<'a> {
             commit_tree_info,
         );
 
-
         let reveal_txid = self.rpc.send_raw_transaction(&reveal_tx).unwrap();
 
         self.inscription_txs.push((commit_utxo, reveal_txid));
-
-
-
-
-
 
         // let inscription_source_utxo = self
         //     .rpc
@@ -885,60 +886,77 @@ impl<'a> Operator<'a> {
     //     }
     // }
 
-    pub fn create_connector_roots(&mut self) -> Vec<OutPoint> {
+    /// This starts the whole setup
+    /// 1. get the current blockheight
+    pub fn initial_setup(&mut self) -> Result<OutPoint, BridgeError> {
+        let cur_blockheight = self.rpc.get_block_height();
+        if self.start_blockheight == 0 {
+            self.start_blockheight = cur_blockheight;
+        }
+
         let single_tree_amount = calculate_amount(
             CONNECTOR_TREE_DEPTH,
             Amount::from_sat(DUST_VALUE),
             Amount::from_sat(MIN_RELAY_FEE),
         );
-        let mut total_amount = single_tree_amount * NUM_ROUNDS as u64;
-        let mut root_utxos = Vec::new();
-        let mut utxo_trees = Vec::new();
-        let mut curr_utxo = self
+        let total_amount =
+            Amount::from_sat((MIN_RELAY_FEE + single_tree_amount.to_sat()) * NUM_ROUNDS as u64);
+        let (connector_tree_source_address, _) =
+            self.transaction_builder.create_connector_tree_root_address(
+                self.signer.xonly_public_key,
+                self.start_blockheight + PERIOD_BLOCK_COUNT as u64,
+            );
+
+        let first_source_utxo = self
             .rpc
-            .send_to_address(&self.signer.address, total_amount.to_sat());
+            .send_to_address(&connector_tree_source_address, total_amount.to_sat());
+
+        let mut cur_connector_source_utxo = first_source_utxo.clone();
+        let mut cur_amount = total_amount;
+
+        let mut claim_proof_merkle_roots: Vec<[u8; 32]> = Vec::new();
+        let mut root_utxos: Vec<OutPoint> = Vec::new();
+        let mut utxo_trees: Vec<Vec<Vec<OutPoint>>> = Vec::new();
 
         for i in 0..NUM_ROUNDS {
-            let (root_address, _) = TransactionBuilder::create_connector_tree_node_address(
-                &self.signer.secp,
-                self.signer.xonly_public_key,
-                self.connector_tree_hashes[i][0][0],
-            );
+            claim_proof_merkle_roots.push(CustomMerkleTree::calculate_claim_proof_root(CONNECTOR_TREE_DEPTH, &self.connector_tree_hashes[i]));
+            let (next_connector_source_address, _) =
+                self.transaction_builder.create_connector_tree_root_address(
+                    self.signer.xonly_public_key,
+                    self.start_blockheight + ((i + 2) * PERIOD_BLOCK_COUNT as usize) as u64,
+                );
+            let (connector_bt_root_address, _) =
+                TransactionBuilder::create_connector_tree_node_address(
+                    &self.signer.secp,
+                    self.signer.xonly_public_key,
+                    self.connector_tree_hashes[i][0][0],
+                );
             let curr_root_and_next_source_tx_ins =
-                TransactionBuilder::create_tx_ins(vec![curr_utxo.clone()]);
+                TransactionBuilder::create_tx_ins(vec![cur_connector_source_utxo.clone()]);
+
             let curr_root_and_next_source_tx_outs = TransactionBuilder::create_tx_outs(vec![
                 (
-                    total_amount - single_tree_amount - Amount::from_sat(MIN_RELAY_FEE),
-                    self.signer.address.script_pubkey(),
+                    cur_amount - single_tree_amount - Amount::from_sat(MIN_RELAY_FEE),
+                    next_connector_source_address.script_pubkey(),
                 ),
-                (single_tree_amount, root_address.script_pubkey()),
+                (
+                    single_tree_amount,
+                    connector_bt_root_address.script_pubkey(),
+                ),
             ]);
-
-            let mut curr_root_and_next_source_tx = TransactionBuilder::create_btc_tx(
+            let curr_root_and_next_source_tx = TransactionBuilder::create_btc_tx(
                 curr_root_and_next_source_tx_ins,
                 curr_root_and_next_source_tx_outs,
             );
 
-            // let sig = self.signer.sign_taproot_pubkey_spend_tx(
-            //     &mut curr_root_and_next_source_tx,
-            //     TransactionBuilder::create_tx_outs(vec![(
-            //         total_amount - single_tree_amount - Amount::from_sat(MIN_RELAY_FEE),
-            //         self.signer.address.script_pubkey(),
-            //     )]),
-            //     0,
-            // );
-            // let mut curr_root_and_next_source_tx_cache = SighashCache::new(curr_root_and_next_source_tx.borrow_mut());
-            // let witness = curr_root_and_next_source_tx_cache.witness_mut(0).unwrap();
-            // witness.push(sig.as_ref());
-
             let txid = curr_root_and_next_source_tx.txid();
 
-            curr_utxo = OutPoint {
+            cur_connector_source_utxo = OutPoint {
                 txid: txid,
                 vout: 0,
             };
 
-            let root_utxo = OutPoint {
+            let cur_connector_bt_root_utxo = OutPoint {
                 txid: txid,
                 vout: 1,
             };
@@ -946,15 +964,17 @@ impl<'a> Operator<'a> {
             let utxo_tree = self.transaction_builder.create_connector_binary_tree(
                 i,
                 self.signer.xonly_public_key,
-                root_utxo.clone(),
+                cur_connector_bt_root_utxo.clone(),
                 CONNECTOR_TREE_DEPTH,
                 self.connector_tree_hashes[i].clone(),
             );
-            root_utxos.push(root_utxo);
+            root_utxos.push(cur_connector_bt_root_utxo);
             utxo_trees.push(utxo_tree);
+            cur_amount = cur_amount - single_tree_amount - Amount::from_sat(MIN_RELAY_FEE);
         }
         self.set_connector_tree_utxos(utxo_trees.clone());
-        root_utxos
+        println!("asd : {:?}", claim_proof_merkle_roots);
+        Ok(first_source_utxo)
     }
 }
 

@@ -30,11 +30,11 @@ fn main() {
     }
 
     // Initial setup for connector roots
-    let connector_tree_root_utxos = operator.create_connector_roots();
+    let first_source_utxo = operator.initial_setup().unwrap();
     for verifier in &mut operator.mock_verifier_access {
         verifier.connector_roots_created(
-            operator.connector_tree_hashes.clone(),
-            connector_tree_root_utxos.clone(),
+            &operator.connector_tree_hashes,
+            &first_source_utxo,
         );
     }
     // In the end, create BitVM
