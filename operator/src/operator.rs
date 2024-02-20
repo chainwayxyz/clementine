@@ -4,6 +4,7 @@ use std::vec;
 
 use crate::actor::{Actor, EVMSignature};
 use crate::custom_merkle::CustomMerkleTree;
+use crate::errors::OperatorError;
 use crate::extended_rpc::ExtendedRpc;
 use crate::giga_merkle::GigaMerkleTree;
 use crate::merkle::MerkleTree;
@@ -225,7 +226,7 @@ impl<'a> Operator<'a> {
         &mut self,
         start_utxo: OutPoint,
         return_address: XOnlyPublicKey,
-    ) -> OutPoint {
+    ) -> Result<OutPoint, OperatorError> {
         // 1. Check if there is any previous pending deposit
         println!("Checking pending deposit: {:?}", self.pending_deposit);
         if self.pending_deposit.is_some()
@@ -234,7 +235,7 @@ impl<'a> Operator<'a> {
                 .confirmation_blocks(&self.pending_deposit.unwrap().txid)
                 < CONFIRMATION_BLOCK_COUNT
         {
-            panic!("Previous deposit is not finalized yet");
+            return Err(OperatorError::PendingDeposit);
         }
         println!("Checking current deposit");
 
@@ -332,7 +333,7 @@ impl<'a> Operator<'a> {
         };
         self.deposit_take_sigs.push(operator_claim_sigs);
 
-        move_utxo
+        Ok(move_utxo)
     }
 
     // this is called when a Withdrawal event emitted on rollup
@@ -905,7 +906,10 @@ impl<'a> Operator<'a> {
 
 #[cfg(test)]
 mod tests {
+    use crate::user::User;
+
     use super::*;
+    use circuit_helpers::config::NUM_VERIFIERS;
     use secp256k1::rand::rngs::OsRng;
 
     #[test]
@@ -913,5 +917,36 @@ mod tests {
         let mut rng = OsRng;
         let giga_merkle_tree = create_giga_merkle_tree(2, 4, &mut rng);
         println!("giga_merkle_tree: {:?}", giga_merkle_tree);
+    }
+
+
+    #[test]
+    fn test_concurrent_deposit() {
+        let rpc = ExtendedRpc::new();
+    
+        let mut operator = Operator::new(&mut OsRng, &rpc, NUM_VERIFIERS as u32);
+        let mut users = Vec::new();
+    
+        let verifiers_pks = operator.get_all_verifiers();
+        for verifier in &mut operator.mock_verifier_access {
+            verifier.set_verifiers(verifiers_pks.clone());
+        }
+        println!("verifiers_pks.len: {:?}", verifiers_pks.len());
+    
+        for _ in 0..NUM_USERS {
+            users.push(User::new(&rpc, verifiers_pks.clone()));
+        }
+
+        let user1 = User::new(&rpc, verifiers_pks.clone());
+        let user2 = User::new(&rpc, verifiers_pks.clone());
+
+        let (deposit1_utxo, deposit1_pk) = user1.deposit_tx();
+        rpc.mine_blocks(1);
+        let (deposit2_utxo, deposit2_pk) = user2.deposit_tx();
+        rpc.mine_blocks(5);
+        
+        operator.new_deposit(deposit1_utxo, deposit1_pk).unwrap();
+        rpc.mine_blocks(1);
+        assert!(matches!(operator.new_deposit(deposit2_utxo, deposit2_pk), Err(OperatorError::PendingDeposit)));
     }
 }

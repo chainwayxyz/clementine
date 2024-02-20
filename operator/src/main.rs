@@ -65,7 +65,7 @@ fn main() {
 
             rpc.mine_blocks(6);
 
-            let bridge_utxo = operator.new_deposit(start_utxo, return_address);
+            let bridge_utxo = operator.new_deposit(start_utxo, return_address).unwrap();
 
             println!("Bridge utxo: {:?}", bridge_utxo);
 
