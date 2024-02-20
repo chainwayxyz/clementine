@@ -1,12 +1,12 @@
 use std::borrow::BorrowMut;
 use std::collections::{HashMap, HashSet};
 
-use bitcoin::consensus::serialize;
+
 use bitcoin::sighash::SighashCache;
 use bitcoin::{secp256k1, secp256k1::Secp256k1, OutPoint};
-use bitcoin::{Address, Amount, TxOut};
+use bitcoin::{Amount, TxOut};
 use circuit_helpers::constant::{
-    EVMAddress, CONFIRMATION_BLOCK_COUNT, DUST_VALUE, HASH_FUNCTION_32, MIN_RELAY_FEE,
+    CONFIRMATION_BLOCK_COUNT, HASH_FUNCTION_32, MIN_RELAY_FEE,
 };
 use secp256k1::All;
 use secp256k1::{rand::rngs::OsRng, XOnlyPublicKey};
@@ -18,7 +18,7 @@ use crate::transaction_builder::TransactionBuilder;
 use crate::utils::{create_control_block, handle_taproot_witness};
 use crate::{actor::Actor, operator::DepositPresigns};
 
-use circuit_helpers::config::{BRIDGE_AMOUNT_SATS, CONNECTOR_TREE_DEPTH, NUM_ROUNDS};
+use circuit_helpers::config::{BRIDGE_AMOUNT_SATS};
 
 #[derive(Debug, Clone)]
 pub struct Verifier<'a> {
@@ -73,8 +73,8 @@ impl<'a> Verifier<'a> {
 
     pub fn connector_roots_created(
         &mut self,
-        connector_tree_hashes: &Vec<Vec<Vec<[u8; 32]>>>,
-        first_source_utxo: &OutPoint
+        _connector_tree_hashes: &Vec<Vec<Vec<[u8; 32]>>>,
+        _first_source_utxo: &OutPoint
     ) {
         // self.connector_tree_hashes = connector_tree_hashes;
         // let mut utxo_trees = Vec::new();
@@ -116,7 +116,7 @@ impl<'a> Verifier<'a> {
         if self.rpc.confirmation_blocks(&start_utxo.txid) < CONFIRMATION_BLOCK_COUNT {
             panic!("Deposit utxo is not finalized yet");
         }
-        let (deposit_address, deposit_taproot_spend_info) = self
+        let (deposit_address, _deposit_taproot_spend_info) = self
             .transaction_builder
             .generate_deposit_address(return_address);
 

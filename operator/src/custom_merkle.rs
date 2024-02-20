@@ -1,9 +1,9 @@
 use std::vec;
 
-use circuit_helpers::{constant::HASH_FUNCTION_64, incremental_merkle::IncrementalMerkleTree};
+
 use sha2::{Digest, Sha256};
 
-use crate::merkle::MerkleTree;
+
 
 #[derive(Debug, Clone)]
 pub struct CustomMerkleProofPreimageElement {
@@ -174,7 +174,7 @@ impl CustomMerkleTree {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
+    
 
     // #[test]
     // fn test_custom_merkle_tree() {

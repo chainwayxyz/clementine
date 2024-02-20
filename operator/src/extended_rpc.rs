@@ -53,7 +53,7 @@ impl ExtendedRpc {
         //     && current_output.script_pubkey.as_bytes() == expected_output.script_pubkey.as_bytes()
     }
 
-    pub fn is_utxo_spent(&self, outpoint: &OutPoint) -> bool {
+    pub fn is_utxo_spent(&self, _outpoint: &OutPoint) -> bool {
         false // TODO: Implement this
     }
 

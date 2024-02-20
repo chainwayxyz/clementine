@@ -6,7 +6,7 @@ use bitcoin::{
     script::Builder,
     sighash::SighashCache,
     taproot::{TaprootBuilder, TaprootSpendInfo},
-    Address, Amount, OutPoint, ScriptBuf, Transaction, TxIn, TxOut, Txid, Witness,
+    Address, Amount, OutPoint, ScriptBuf, TxIn, TxOut, Txid, Witness,
 };
 use circuit_helpers::{
     config::{BRIDGE_AMOUNT_SATS, CONNECTOR_TREE_OPERATOR_TAKES_AFTER, USER_TAKES_AFTER},
@@ -256,8 +256,8 @@ impl TransactionBuilder {
     pub fn create_inscription_reveal_tx(
         &self,
         commit_utxo: OutPoint,
-        commit_tree_info: &TaprootSpendInfo,
-        preimages_to_be_revealed: &Vec<PreimageType>,
+        _commit_tree_info: &TaprootSpendInfo,
+        _preimages_to_be_revealed: &Vec<PreimageType>,
     ) -> bitcoin::Transaction {
         TransactionBuilder::create_btc_tx(
             TransactionBuilder::create_tx_ins(vec![commit_utxo]),
@@ -373,7 +373,7 @@ impl TransactionBuilder {
     // Depth will be determined later.
     pub fn create_connector_binary_tree(
         &self,
-        period: usize,
+        _period: usize,
         xonly_public_key: XOnlyPublicKey,
         root_utxo: OutPoint,
         depth: usize,
