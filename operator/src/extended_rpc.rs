@@ -108,7 +108,6 @@ impl ExtendedRpc {
             .inner
             .get_transaction(&txid, None)
             .unwrap_or_else(|e| panic!("Failed to get transaction: {}", e));
-        println!("tx_result: {:?}", tx_result);
         let vout = tx_result.details[0].vout;
         OutPoint { txid, vout }
     }
@@ -187,7 +186,7 @@ impl ExtendedRpc {
 
     pub fn send_raw_transaction(
         &self,
-        tx: &Vec<u8>,
+        tx: &Transaction,
     ) -> Result<bitcoin::Txid, bitcoincore_rpc::Error> {
         self.inner.send_raw_transaction(tx)
     }

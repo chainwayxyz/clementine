@@ -351,8 +351,7 @@ impl<'a> Verifier<'a> {
         witness_elements.push(&preimage);
         handle_taproot_witness(&mut tx, 0, witness_elements, hash_script, tree_info);
 
-        let bytes_tx = serialize(&tx);
-        let spending_txid = self.rpc.send_raw_transaction(&bytes_tx).unwrap();
+        let spending_txid = self.rpc.send_raw_transaction(&tx).unwrap();
         println!("verifier_spending_txid: {:?}", spending_txid);
     }
 
@@ -384,8 +383,7 @@ impl<'a> Verifier<'a> {
         witness.push(preimage);
         witness.push(hash_script);
         witness.push(&spend_control_block.serialize());
-        let bytes_tx = serialize(&tx);
-        let spending_txid = self.rpc.send_raw_transaction(&bytes_tx).unwrap();
+        let spending_txid = self.rpc.send_raw_transaction(&tx).unwrap();
         println!("verifier_spending_txid: {:?}", spending_txid);
     }
 }

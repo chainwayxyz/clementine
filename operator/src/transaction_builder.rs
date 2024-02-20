@@ -6,7 +6,7 @@ use bitcoin::{
     script::Builder,
     sighash::SighashCache,
     taproot::{TaprootBuilder, TaprootSpendInfo},
-    Address, Amount, OutPoint, ScriptBuf, TxIn, TxOut, Txid, Witness,
+    Address, Amount, OutPoint, ScriptBuf, Transaction, TxIn, TxOut, Txid, Witness,
 };
 use circuit_helpers::{
     config::{BRIDGE_AMOUNT_SATS, CONNECTOR_TREE_OPERATOR_TAKES_AFTER, USER_TAKES_AFTER},
@@ -16,6 +16,7 @@ use secp256k1::{Secp256k1, XOnlyPublicKey};
 
 use crate::{
     actor::Actor,
+    operator::PreimageType,
     script_builder::ScriptBuilder,
     utils::{calculate_amount, handle_taproot_witness},
 };
@@ -83,7 +84,6 @@ impl TransactionBuilder {
         (address, tree_info)
     }
 
-
     pub fn create_move_tx(&self, deposit_utxo: OutPoint) -> bitcoin::Transaction {
         let anyone_can_spend_txout = ScriptBuilder::anyone_can_spend_txout();
         let (bridge_address, _) = self.generate_bridge_address();
@@ -97,7 +97,6 @@ impl TransactionBuilder {
         };
         TransactionBuilder::create_btc_tx(tx_ins, vec![bridge_txout, anyone_can_spend_txout])
     }
-
 
     pub fn create_btc_tx(tx_ins: Vec<TxIn>, tx_outs: Vec<TxOut>) -> bitcoin::Transaction {
         bitcoin::Transaction {
@@ -205,13 +204,39 @@ impl TransactionBuilder {
         (address, tree_info)
     }
 
+    pub fn create_inscription_commit_address(
+        &self,
+        actor_pk: &XOnlyPublicKey,
+        preimages: &Vec<PreimageType>,
+    ) -> (Address, TaprootSpendInfo, ScriptBuf) {
+        let inscribe_preimage_script =
+            ScriptBuilder::create_inscription_script_32_bytes(actor_pk, preimages);
+        let (address, taproot_info) = TransactionBuilder::create_taproot_address(
+            &self.secp,
+            vec![inscribe_preimage_script.clone()],
+        );
+        (address, taproot_info, inscribe_preimage_script)
+    }
+
+    pub fn create_inscription_reveal_tx(
+        &self,
+        commit_utxo: OutPoint,
+        commit_tree_info: &TaprootSpendInfo,
+        preimages_to_be_revealed: &Vec<PreimageType>,
+    ) -> bitcoin::Transaction {
+        TransactionBuilder::create_btc_tx(
+            TransactionBuilder::create_tx_ins(vec![commit_utxo]),
+            vec![ScriptBuilder::anyone_can_spend_txout()],
+        )
+    }
+
     pub fn create_inscription_transactions(
         actor: &Actor,
         utxo: OutPoint,
         preimages: Vec<[u8; 32]>,
     ) -> (bitcoin::Transaction, bitcoin::Transaction) {
         let inscribe_preimage_script =
-            ScriptBuilder::create_inscription_script_32_bytes(actor.xonly_public_key, preimages);
+            ScriptBuilder::create_inscription_script_32_bytes(&actor.xonly_public_key, &preimages);
 
         let (incription_address, inscription_tree_info) =
             TransactionBuilder::create_taproot_address(

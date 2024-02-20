@@ -53,11 +53,11 @@ impl ScriptBuilder {
     }
 
     pub fn create_inscription_script_32_bytes(
-        public_key: XOnlyPublicKey,
-        data: Vec<[u8; 32]>,
+        public_key: &XOnlyPublicKey,
+        data: &Vec<[u8; 32]>,
     ) -> ScriptBuf {
         let mut inscribe_preimage_script_builder = Builder::new()
-            .push_x_only_key(&public_key)
+            .push_x_only_key(public_key)
             .push_opcode(OP_CHECKSIG)
             .push_opcode(OP_FALSE)
             .push_opcode(OP_IF);
