@@ -1,15 +1,8 @@
-use std::collections::{HashMap, HashSet};
-
-use bitcoin::{secp256k1::rand::rngs::OsRng, Amount, OutPoint};
-use circuit_helpers::{
-    bitcoin::{get_script_hash, verify_script_hash_taproot_address},
-    config::{BRIDGE_AMOUNT_SATS, CONNECTOR_TREE_DEPTH, NUM_ROUNDS, NUM_USERS, NUM_VERIFIERS},
-    constant::{HASH_FUNCTION_32, MIN_RELAY_FEE},
-};
-use crypto_bigint::{Encoding, U256};
+use bitcoin::secp256k1::rand::rngs::OsRng;
+use circuit_helpers::config::{NUM_USERS, NUM_VERIFIERS};
 use operator::{
     extended_rpc::ExtendedRpc,
-    operator::{Operator, PreimageType},
+    operator::Operator,
     user::User,
 };
 

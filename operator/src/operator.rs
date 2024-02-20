@@ -2,7 +2,7 @@ use std::borrow::BorrowMut;
 use std::collections::{HashMap, HashSet};
 use std::vec;
 
-use crate::actor::{Actor, EVMSignature};
+use crate::actor::Actor;
 use crate::custom_merkle::CustomMerkleTree;
 use crate::errors::BridgeError;
 use crate::extended_rpc::ExtendedRpc;
@@ -13,21 +13,18 @@ use crate::transaction_builder::TransactionBuilder;
 use crate::utils::{calculate_amount, handle_anyone_can_spend_script, handle_taproot_witness};
 use crate::verifier::Verifier;
 use bitcoin::address::NetworkChecked;
-use bitcoin::consensus::serialize;
 use bitcoin::sighash::SighashCache;
-use bitcoin::{hashes::Hash, secp256k1, secp256k1::schnorr, Address, Txid};
+use bitcoin::{secp256k1, secp256k1::schnorr, Address, Txid};
 use bitcoin::{Amount, OutPoint, Transaction, TxOut};
 use bitcoincore_rpc::{Client, RpcApi};
 use circuit_helpers::config::{
-    BRIDGE_AMOUNT_SATS, CONNECTOR_TREE_DEPTH, CONNECTOR_TREE_OPERATOR_TAKES_AFTER, NUM_ROUNDS,
-    NUM_USERS,
+    BRIDGE_AMOUNT_SATS, CONNECTOR_TREE_DEPTH, NUM_ROUNDS,
 };
 use circuit_helpers::constant::{
-    EVMAddress, CONFIRMATION_BLOCK_COUNT, DUST_VALUE, HASH_FUNCTION_32, MIN_RELAY_FEE,
+    CONFIRMATION_BLOCK_COUNT, DUST_VALUE, HASH_FUNCTION_32, MIN_RELAY_FEE,
 };
 use secp256k1::rand::rngs::OsRng;
 use secp256k1::rand::Rng;
-use secp256k1::schnorr::Signature;
 use secp256k1::{All, Secp256k1, XOnlyPublicKey};
 pub type PreimageType = [u8; 32];
 pub type InscriptionTxs = (OutPoint, Txid);
@@ -891,7 +888,7 @@ impl<'a> Operator<'a> {
             Amount::from_sat(DUST_VALUE),
             Amount::from_sat(MIN_RELAY_FEE),
         );
-        let mut total_amount = single_tree_amount * NUM_ROUNDS as u64;
+        let total_amount = single_tree_amount * NUM_ROUNDS as u64;
         let mut root_utxos = Vec::new();
         let mut utxo_trees = Vec::new();
         let mut curr_utxo = self
@@ -914,7 +911,7 @@ impl<'a> Operator<'a> {
                 (single_tree_amount, root_address.script_pubkey()),
             ]);
 
-            let mut curr_root_and_next_source_tx = TransactionBuilder::create_btc_tx(
+            let curr_root_and_next_source_tx = TransactionBuilder::create_btc_tx(
                 curr_root_and_next_source_tx_ins,
                 curr_root_and_next_source_tx_outs,
             );
@@ -963,7 +960,7 @@ mod tests {
     use crate::user::User;
 
     use super::*;
-    use circuit_helpers::config::NUM_VERIFIERS;
+    use circuit_helpers::config::{NUM_USERS, NUM_VERIFIERS};
     use secp256k1::rand::rngs::OsRng;
 
     // #[test]

@@ -1,8 +1,6 @@
-use bitcoin::{consensus::serialize, Block, Transaction, Txid};
+use bitcoin::{Block, Transaction, Txid};
 use circuit_helpers::env::Environment;
-use risc0_zkvm::sha::rust_crypto::Sha256;
 use secp256k1::hashes::Hash;
-use sha2::Digest;
 use std::marker::PhantomData;
 
 use crate::bitcoin_merkle::BitcoinMerkleTree;
@@ -189,7 +187,7 @@ mod tests {
         let segwit_block = include_bytes!("../tests/data/mainnet_block_000000000000000000000c835b2adcaedc20fdf6ee440009c249452c726dafae.raw").to_vec();
         let block: Block = deserialize(&segwit_block).unwrap();
 
-        for (i, tx) in block.txdata.iter().enumerate() {
+        for (_i, tx) in block.txdata.iter().enumerate() {
             MockEnvironment::reset_mock_env();
             ENVWriter::<MockEnvironment>::write_arbitrary_tx_to_env(tx);
             let tx_id = read_arbitrary_tx_and_calculate_txid::<MockEnvironment>(None, None);
@@ -205,7 +203,7 @@ mod tests {
         let segwit_block = include_bytes!("../tests/data/mainnet_block_00000000000000000000edfe523d5e2993781d2305f51218ebfc236a250792d6.raw").to_vec();
         let block: Block = deserialize(&segwit_block).unwrap();
 
-        for (i, tx) in block.txdata.iter().enumerate() {
+        for (_i, tx) in block.txdata.iter().enumerate() {
             for output in tx.output.iter() {
                 MockEnvironment::reset_mock_env();
                 let script_pubkey = output.script_pubkey.as_bytes();
@@ -224,7 +222,7 @@ mod tests {
             }
         }
 
-        for (i, tx) in block.txdata.iter().enumerate() {
+        for (_i, tx) in block.txdata.iter().enumerate() {
             for input in tx.input.iter() {
                 MockEnvironment::reset_mock_env();
                 let txid = input.previous_output.txid.to_byte_array();

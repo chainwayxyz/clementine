@@ -23,7 +23,7 @@ pub fn verify_txid_output_address(tx_id: [u8; 32], output_address: [u8; 32]) {
     assert_eq!(tx.calculate_txid(), tx_id);
 }
 
-pub fn verify_txid_input(tx_id: [u8; 32], input_utxo: [u8; 32]) -> [u8; 32] {
+pub fn verify_txid_input(_tx_id: [u8; 32], input_utxo: [u8; 32]) -> [u8; 32] {
     let tx: CoreTransaction<2, 3, 221> = env::read();
     assert_eq!(tx.inputs[0].prev_tx_hash, input_utxo);
     return tx.calculate_txid();

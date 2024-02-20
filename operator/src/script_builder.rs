@@ -1,7 +1,7 @@
 use bitcoin::{
     opcodes::{all::*, OP_FALSE, OP_TRUE},
     script::Builder,
-    Amount, ScriptBuf, TxOut,
+    ScriptBuf, TxOut,
 };
 use circuit_helpers::constant::EVMAddress;
 use secp256k1::XOnlyPublicKey;

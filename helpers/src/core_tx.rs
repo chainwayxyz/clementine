@@ -39,7 +39,7 @@ impl TxInput {
         bytes[index..index + 1].copy_from_slice(&0u8.to_le_bytes());
         index += 1;
         bytes[index..index + 4].copy_from_slice(&self.sequence.to_le_bytes());
-        index += 4;
+        //index += 4;
         bytes
     }
 }
@@ -88,7 +88,7 @@ impl TxOutput {
         bytes[index..index + 1].copy_from_slice(&32u8.to_le_bytes()); // OP_PUSHBYTES_32
         index += 1;
         bytes[index..index + 32 as usize].copy_from_slice(&self.taproot_address);
-        index += 32 as usize;
+        //index += 32 as usize;
         bytes
     }
 }
@@ -169,7 +169,7 @@ where
             index += TX_OUTPUT_SIZE;
         }
         bytes[index..index + 4].copy_from_slice(&self.lock_time.to_le_bytes());
-        index += 4;
+        //index += 4;
         bytes
     }
 

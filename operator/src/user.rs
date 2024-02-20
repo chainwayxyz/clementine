@@ -1,16 +1,11 @@
 use crate::actor::Actor;
 use crate::extended_rpc::ExtendedRpc;
-use crate::transaction_builder;
 use crate::transaction_builder::TransactionBuilder;
-use bitcoin::secp256k1::All;
 use bitcoin::secp256k1::Secp256k1;
-use bitcoin::Amount;
 use bitcoin::OutPoint;
 use bitcoin::XOnlyPublicKey;
-use bitcoincore_rpc::Client;
 use circuit_helpers::config::BRIDGE_AMOUNT_SATS;
 use secp256k1::rand::rngs::OsRng;
-use secp256k1::rand::Rng;
 
 #[derive(Debug, Clone)]
 pub struct User<'a> {

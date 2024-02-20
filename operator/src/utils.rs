@@ -187,8 +187,6 @@ pub fn handle_taproot_witness<T: AsRef<[u8]>>(
 mod tests {
 
     use std::borrow::BorrowMut;
-
-    use bitcoin::consensus::encode::serialize;
     use bitcoin::transaction::Version;
     use bitcoin::{absolute, Amount, Sequence, TxOut};
     use bitcoin::{

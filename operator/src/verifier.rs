@@ -1,12 +1,11 @@
 use std::borrow::BorrowMut;
 use std::collections::{HashMap, HashSet};
 
-use bitcoin::consensus::serialize;
 use bitcoin::sighash::SighashCache;
 use bitcoin::{secp256k1, secp256k1::Secp256k1, OutPoint};
-use bitcoin::{Address, Amount, TxOut};
+use bitcoin::{Amount, TxOut};
 use circuit_helpers::constant::{
-    EVMAddress, CONFIRMATION_BLOCK_COUNT, DUST_VALUE, HASH_FUNCTION_32, MIN_RELAY_FEE,
+    CONFIRMATION_BLOCK_COUNT, HASH_FUNCTION_32, MIN_RELAY_FEE,
 };
 use secp256k1::All;
 use secp256k1::{rand::rngs::OsRng, XOnlyPublicKey};
@@ -116,7 +115,7 @@ impl<'a> Verifier<'a> {
         if self.rpc.confirmation_blocks(&start_utxo.txid) < CONFIRMATION_BLOCK_COUNT {
             panic!("Deposit utxo is not finalized yet");
         }
-        let (deposit_address, deposit_taproot_spend_info) = self
+        let (deposit_address, _deposit_taproot_spend_info) = self
             .transaction_builder
             .generate_deposit_address(return_address);
 
