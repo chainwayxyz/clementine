@@ -1,8 +1,6 @@
 use bitcoin::{Block, Transaction, Txid};
 use circuit_helpers::env::Environment;
-
 use secp256k1::hashes::Hash;
-use sha2::Digest;
 use std::marker::PhantomData;
 
 use crate::bitcoin_merkle::BitcoinMerkleTree;

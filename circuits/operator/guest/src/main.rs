@@ -63,7 +63,7 @@ pub fn verify_light_client(
 }
 
 pub fn handle_deposits(
-    start_deposit_index: u32,
+    _start_deposit_index: u32,
     num_deposits: u32,
     num_withdrawals: u32,
     deposit_merkle_tree: &mut IncrementalMerkleTree,
@@ -91,7 +91,7 @@ pub fn handle_moved_bridge_funds(
     bitcoin_merkle_root: Data,
 ) -> u32 {
     let num_moved_bridge_funds: u32 = env::read();
-    for i in 0..num_moved_bridge_funds {
+    for _i in 0..num_moved_bridge_funds {
         
 
         let move_txid: [u8; 32] = env::read();
@@ -142,7 +142,7 @@ pub fn main() {
     );
 
     let mut cur_withdrawals: u32 = 0;
-    let mut cur_moved_funds: u32 = 0;
+    let mut _cur_moved_funds: u32 = 0;
 
     let bridge_funds_merkle_root = bridge_funds_merkle_tree.root;
     // We don't need bridge_funds_merkle_tree anymore
@@ -150,7 +150,7 @@ pub fn main() {
     let mut bridge_funds_old_merkle_tree = IncrementalMerkleTree::initial();
     let mut bridge_funds_new_merkle_tree = IncrementalMerkleTree::initial();
 
-    let mut last_unspent_bridge_fund_index: u32 = 0;
+    let mut _last_unspent_bridge_fund_index: u32 = 0;
 
     let mut light_client_block_hash: [u8; 32] = [0; 32];
     let mut light_client_pow: U256 = work.clone();
@@ -168,7 +168,7 @@ pub fn main() {
         }
 
         cur_withdrawals += handle_withdrawals(&mut withdrawal_merkle_tree, block_header.merkle_root);
-        cur_moved_funds += handle_moved_bridge_funds(
+        _cur_moved_funds += handle_moved_bridge_funds(
             &mut bridge_funds_old_merkle_tree,
             &mut bridge_funds_new_merkle_tree,
             block_header.merkle_root,

@@ -1,7 +1,6 @@
 use std::borrow::BorrowMut;
 use std::collections::{HashMap, HashSet};
 
-
 use bitcoin::sighash::SighashCache;
 use bitcoin::{secp256k1, secp256k1::Secp256k1, OutPoint};
 use bitcoin::{Amount, TxOut};

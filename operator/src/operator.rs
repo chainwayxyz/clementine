@@ -2,7 +2,7 @@ use std::borrow::BorrowMut;
 use std::collections::{HashMap, HashSet};
 use std::vec;
 
-use crate::actor::{Actor};
+use crate::actor::Actor;
 use crate::custom_merkle::CustomMerkleTree;
 use crate::errors::BridgeError;
 use crate::extended_rpc::ExtendedRpc;
@@ -13,7 +13,6 @@ use crate::transaction_builder::TransactionBuilder;
 use crate::utils::{calculate_amount, handle_anyone_can_spend_script, handle_taproot_witness};
 use crate::verifier::Verifier;
 use bitcoin::address::NetworkChecked;
-
 use bitcoin::sighash::SighashCache;
 use bitcoin::{secp256k1, secp256k1::schnorr, Address, Txid};
 use bitcoin::{Amount, OutPoint, Transaction, TxOut};
@@ -22,12 +21,10 @@ use circuit_helpers::config::{
     BRIDGE_AMOUNT_SATS, CONNECTOR_TREE_DEPTH, NUM_ROUNDS,
 };
 use circuit_helpers::constant::{
-    CONFIRMATION_BLOCK_COUNT, DUST_VALUE, HASH_FUNCTION_32, MIN_RELAY_FEE,
-    PERIOD_BLOCK_COUNT,
+    CONFIRMATION_BLOCK_COUNT, DUST_VALUE, HASH_FUNCTION_32, MIN_RELAY_FEE, PERIOD_BLOCK_COUNT,
 };
 use secp256k1::rand::rngs::OsRng;
 use secp256k1::rand::Rng;
-
 use secp256k1::{All, Secp256k1, XOnlyPublicKey};
 pub type PreimageType = [u8; 32];
 pub type InscriptionTxs = (OutPoint, Txid);
@@ -943,6 +940,7 @@ impl<'a> Operator<'a> {
                     connector_bt_root_address.script_pubkey(),
                 ),
             ]);
+
             let curr_root_and_next_source_tx = TransactionBuilder::create_btc_tx(
                 curr_root_and_next_source_tx_ins,
                 curr_root_and_next_source_tx_outs,
@@ -982,7 +980,7 @@ mod tests {
     use crate::user::User;
 
     use super::*;
-    use circuit_helpers::config::NUM_VERIFIERS;
+    use circuit_helpers::config::{NUM_USERS, NUM_VERIFIERS};
     use secp256k1::rand::rngs::OsRng;
 
     // #[test]
