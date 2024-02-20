@@ -161,7 +161,7 @@ pub fn handle_anyone_can_spend_script() -> (ScriptBuf, Amount) {
 }
 
 pub fn calculate_amount(depth: usize, value: Amount, fee: Amount) -> Amount {
-    (value * 2u64.pow(depth as u32)) + (fee * (2u64.pow(depth as u32) - 1))
+    (value + fee) * (2u64.pow(depth as u32))
 }
 
 pub fn handle_taproot_witness<T: AsRef<[u8]>>(
@@ -262,9 +262,7 @@ mod tests {
         let mut sighash_cache = SighashCache::new(utxo_tx.borrow_mut());
         let witness = sighash_cache.witness_mut(0).unwrap();
         witness.push(sig.as_ref());
-        let bytes_utxo_tx = serialize(&utxo_tx);
-        // let hex_utxo_tx = hex::encode(bytes_utxo_tx.clone());
-        let utxo_txid = operator.rpc.send_raw_transaction(&bytes_utxo_tx).unwrap();
+        let utxo_txid = operator.rpc.send_raw_transaction(&utxo_tx).unwrap();
         println!("utxo_txid: {:?}", utxo_txid);
         let rpc_utxo_tx = operator.rpc.get_raw_transaction(&utxo_txid, None).unwrap();
         println!("rpc_utxo_tx: {:?}", rpc_utxo_tx);
@@ -300,7 +298,7 @@ mod tests {
             ScriptBuilder::generate_timelock_script(operator.signer.xonly_public_key, 2);
         let sig = operator.signer.sign_taproot_script_spend_tx(
             &mut connector_tree_tx,
-            vec![utxo_tx.output[0].clone()],
+            &vec![utxo_tx.output[0].clone()],
             &timelock_script,
             0,
         );
@@ -312,17 +310,13 @@ mod tests {
         witness.push(sig.as_ref());
         witness.push(timelock_script);
         witness.push(&spend_control_block.serialize());
-        let bytes_connector_tree_tx = serialize(&connector_tree_tx);
-        println!(
-            "bytes_connector_tree_tx length: {:?}",
-            bytes_connector_tree_tx.len()
-        );
+
         // let hex_utxo_tx = hex::encode(bytes_utxo_tx.clone());
         rpc.mine_blocks(2);
         rpc.mine_blocks(6);
         let connector_tree_txid = operator
             .rpc
-            .send_raw_transaction(&bytes_connector_tree_tx)
+            .send_raw_transaction(&connector_tree_tx)
             .unwrap();
         // let hex_connector_tree_tx = hex::encode(bytes_connector_tree_tx.clone());
         println!("utxo_txid: {:?}", utxo_txid);

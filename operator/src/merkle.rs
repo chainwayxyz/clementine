@@ -6,7 +6,7 @@ use serde::{Deserialize, Serialize};
 #[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct MerkleTree {
     data: Vec<Vec<Data>>,
-    index: u32,
+    pub index: u32,
 }
 
 impl MerkleTree {
