@@ -1,16 +1,11 @@
 use bitcoin::secp256k1::rand::rngs::OsRng;
-use circuit_helpers::config::{NUM_USERS, NUM_VERIFIERS};
-use operator::{
-    extended_rpc::ExtendedRpc,
-    operator::Operator,
-    user::User,
-};
+use operator::config::{NUM_USERS, NUM_VERIFIERS};
+use operator::{extended_rpc::ExtendedRpc, operator::Operator, user::User};
 
 fn main() {
     let rpc = ExtendedRpc::new();
 
     let mut operator = Operator::new(&mut OsRng, &rpc, NUM_VERIFIERS as u32);
-    
 
     let verifiers_pks = operator.get_all_verifiers();
     for verifier in &mut operator.mock_verifier_access {
@@ -23,13 +18,15 @@ fn main() {
     }
 
     // Initial setup for connector roots
-    let first_source_utxo = operator.initial_setup().unwrap();
+    let (first_source_utxo, start_blockheight) = operator.initial_setup().unwrap();
     for verifier in &mut operator.mock_verifier_access {
         verifier.connector_roots_created(
             &operator.connector_tree_hashes,
+            start_blockheight,
             &first_source_utxo,
         );
     }
+    println!("connector roots created, verifiers agree");
     // In the end, create BitVM
 
     // every user makes a deposit.
@@ -37,7 +34,9 @@ fn main() {
         let user = &users[i];
         let (deposit_utxo, deposit_return_address) = user.deposit_tx();
         rpc.mine_blocks(6);
-        operator.new_deposit(deposit_utxo, deposit_return_address).unwrap();
+        operator
+            .new_deposit(deposit_utxo, &deposit_return_address)
+            .unwrap();
         rpc.mine_blocks(1);
     }
 
@@ -51,7 +50,6 @@ fn main() {
     println!("inscription_output: {:?}", inscription_output);
 
     // operator.prove();
-
 
     // for r in 0..NUM_ROUNDS {
     //     let mut preimages_verifier_track: HashSet<PreimageType> = HashSet::new();

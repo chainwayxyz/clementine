@@ -28,7 +28,11 @@ impl ExtendedRpc {
     }
 
     pub fn confirmation_blocks(&self, txid: &bitcoin::Txid) -> u32 {
-        self.inner.get_raw_transaction_info(txid, None).unwrap().confirmations.unwrap()
+        self.inner
+            .get_raw_transaction_info(txid, None)
+            .unwrap()
+            .confirmations
+            .unwrap()
     }
 
     pub fn check_utxo_address_and_amount(

@@ -1,8 +1,9 @@
+use crate::constant::EVMAddress;
 use bitcoin::{
     opcodes::{all::*, OP_FALSE, OP_TRUE},
-    script::Builder, ScriptBuf, TxOut,
+    script::Builder,
+    ScriptBuf, TxOut,
 };
-use circuit_helpers::constant::EVMAddress;
 use secp256k1::XOnlyPublicKey;
 
 #[derive(Debug, Clone)]
@@ -25,10 +26,10 @@ impl ScriptBuilder {
         }
     }
 
-    pub fn generate_2_of_2_script(a: XOnlyPublicKey, b: XOnlyPublicKey) -> ScriptBuf {
+    pub fn generate_2_of_2_script(a: &XOnlyPublicKey, b: &XOnlyPublicKey) -> ScriptBuf {
         let script = Builder::new()
-            .push_x_only_key(&a)
-            .push_x_only_key(&b)
+            .push_x_only_key(a)
+            .push_x_only_key(b)
             .push_opcode(OP_PUSHNUM_2)
             .push_opcode(OP_CHECKMULTISIG)
             .into_script();
@@ -82,24 +83,28 @@ impl ScriptBuilder {
         Builder::from(script_bytes)
     }
 
-    pub fn generate_timelock_script(actor_pk: XOnlyPublicKey, block_count: u32) -> ScriptBuf {
+    // ATTENTION: If you want to spend a UTXO using timelock script, the condition is that
+    // # in the script < # in the sequence of the tx < # of blocks mined after UTXO appears on the chain
+
+    pub fn generate_timelock_script(actor_pk: &XOnlyPublicKey, block_count: u32) -> ScriptBuf {
         Builder::new()
             .push_int(block_count as i64)
             .push_opcode(OP_CSV)
             .push_opcode(OP_DROP)
-            .push_x_only_key(&actor_pk)
+            .push_x_only_key(actor_pk)
             .push_opcode(OP_CHECKSIG)
             .into_script()
     }
 
     pub fn generate_absolute_timelock_script(
-        actor_pk: XOnlyPublicKey,
+        actor_pk: &XOnlyPublicKey,
         block_count: u32,
     ) -> ScriptBuf {
         Builder::new()
             .push_int(block_count as i64)
             .push_opcode(OP_CLTV)
-            .push_x_only_key(&actor_pk)
+            .push_opcode(OP_DROP)
+            .push_x_only_key(actor_pk)
             .push_opcode(OP_CHECKSIG)
             .into_script()
     }
@@ -112,10 +117,10 @@ impl ScriptBuilder {
             .into_script()
     }
 
-    pub fn generate_dust_script(evm_address: EVMAddress) -> ScriptBuf {
+    pub fn generate_dust_script(evm_address: &EVMAddress) -> ScriptBuf {
         Builder::new()
             .push_opcode(OP_RETURN)
-            .push_slice(&evm_address)
+            .push_slice(evm_address)
             .into_script()
     }
 }

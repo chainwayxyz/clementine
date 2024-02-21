@@ -15,3 +15,37 @@ impl fmt::Display for BridgeError {
         }
     }
 }
+
+#[derive(Debug)]
+pub enum DepositError {
+    NotFinalized,
+    InvalidAddressOrAmount,
+    AlreadySpent,
+}
+
+impl fmt::Display for DepositError {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match *self {
+            DepositError::NotFinalized => write!(f, "Deposit utxo not finalized yet"),
+            DepositError::InvalidAddressOrAmount => {
+                write!(f, "Deposit utxo address or amount not valid")
+            }
+            DepositError::AlreadySpent => write!(f, "Deposit utxo already spent"),
+        }
+    }
+}
+
+#[derive(Debug)]
+pub enum VerificationError {
+    RootMatchError,
+    UTXOMatchError,
+}
+
+impl fmt::Display for VerificationError {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match *self {
+            VerificationError::RootMatchError => write!(f, "Roots do not match"),
+            VerificationError::UTXOMatchError => write!(f, "UTXOs do not match"),
+        }
+    }
+}
