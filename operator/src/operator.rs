@@ -9,6 +9,7 @@ use crate::extended_rpc::ExtendedRpc;
 use crate::giga_merkle::GigaMerkleTree;
 use crate::merkle::MerkleTree;
 use crate::script_builder::ScriptBuilder;
+use crate::shared::check_utxo_validity;
 use crate::transaction_builder::TransactionBuilder;
 use crate::utils::{calculate_amount, handle_anyone_can_spend_script, handle_taproot_witness};
 use crate::verifier::Verifier;
@@ -128,7 +129,6 @@ pub struct Operator<'a> {
     pub signer: Actor,
     pub script_builder: ScriptBuilder,
     pub transaction_builder: TransactionBuilder,
-    pub pending_deposit: Option<OutPoint>,
     pub deposit_take_sigs: Vec<OperatorClaimSigs>,
 
     pub connector_tree_preimages: Vec<Vec<Vec<PreimageType>>>,
@@ -147,7 +147,6 @@ pub struct Operator<'a> {
     // pub giga_merkle_tree: GigaMerkleTree,
     pub deposit_utxos: Vec<OutPoint>,
     pub move_utxos: Vec<OutPoint>,
-    pub current_preimage_for_deposit_requests: PreimageType,
     pub deposit_index: u32,
 }
 
@@ -173,7 +172,6 @@ impl<'a> Operator<'a> {
             signer,
             script_builder,
             transaction_builder,
-            pending_deposit: None,
             deposit_take_sigs: Vec::new(),
             connector_tree_preimages: connector_tree_preimages,
             connector_tree_hashes: connector_tree_hashes,
@@ -190,13 +188,8 @@ impl<'a> Operator<'a> {
             connector_tree_utxos: Vec::new(),
             deposit_utxos: Vec::new(),
             move_utxos: Vec::new(),
-            current_preimage_for_deposit_requests: rng.gen(),
             deposit_index: 0,
         }
-    }
-
-    pub fn change_preimage_for_deposit_requests(&mut self, rng: &mut OsRng) {
-        self.current_preimage_for_deposit_requests = rng.gen();
     }
 
     pub fn add_deposit_utxo(&mut self, utxo: OutPoint) {
@@ -214,7 +207,7 @@ impl<'a> Operator<'a> {
     }
 
     /// this is a public endpoint that every depositor can call
-    /// it will get signatures from every verifiers.
+    /// it will get signatures from all verifiers.
     /// 1. Check if there is any previous pending deposit
     /// 2. Check if the utxo is valid and finalized (6 blocks confirmation)
     /// 3. Check if the utxo is not already spent
@@ -223,42 +216,23 @@ impl<'a> Operator<'a> {
     pub fn new_deposit(
         &mut self,
         start_utxo: OutPoint,
-        return_address: XOnlyPublicKey,
+        return_address: &XOnlyPublicKey,
     ) -> Result<OutPoint, BridgeError> {
+
         // 1. Check if there is any previous pending deposit
-        println!("Checking pending deposit: {:?}", self.pending_deposit);
-        if self.pending_deposit.is_some()
-            && self
-                .rpc
-                .confirmation_blocks(&self.pending_deposit.unwrap().txid)
-                < CONFIRMATION_BLOCK_COUNT
-        {
-            return Err(BridgeError::OperatorPendingDeposit);
-        }
+
         println!("Checking current deposit");
-
+            
         // 2. Check if the utxo is valid and finalized (6 blocks confirmation)
-        if self.rpc.confirmation_blocks(&start_utxo.txid) < CONFIRMATION_BLOCK_COUNT {
-            panic!("Deposit utxo is not finalized yet");
-        }
-        let (deposit_address, deposit_taproot_spend_info) = self
-            .transaction_builder
-            .generate_deposit_address(return_address);
-
-        if !self.rpc.check_utxo_address_and_amount(
-            &start_utxo,
-            &deposit_address.script_pubkey(),
-            BRIDGE_AMOUNT_SATS,
-        ) {
-            panic!("Deposit utxo address or amount is not valid");
-        }
-
         // 3. Check if the utxo is not already spent
-        if self.rpc.is_utxo_spent(&start_utxo) {
-            panic!("Deposit utxo is already spent");
-        }
-
         // 4. Get signatures from all verifiers 1 move signature, ~150 operator takes signatures
+
+        // let (deposit_address, deposit_taproot_spend_info) = self
+        //     .transaction_builder
+        //     .generate_deposit_address(&return_address);
+
+        let (deposit_address, deposit_taproot_spend_info) = check_utxo_validity(&self.rpc, &self.transaction_builder, &start_utxo, &return_address, BRIDGE_AMOUNT_SATS).unwrap();
+
         let presigns_from_all_verifiers = self
             .mock_verifier_access
             .iter()
@@ -324,7 +298,6 @@ impl<'a> Operator<'a> {
             txid: rpc_move_txid,
             vout: 0,
         };
-        self.pending_deposit = Some(move_utxo);
         let operator_claim_sigs = OperatorClaimSigs {
             operator_claim_sigs: presigns_from_all_verifiers
                 .iter()
@@ -584,7 +557,7 @@ impl<'a> Operator<'a> {
         // println!("utxo_tx: {:?}", utxo_tx);
         // println!("utxo_txid: {:?}", utxo_tx.txid());
         let timelock_script =
-            ScriptBuilder::generate_timelock_script(self.signer.xonly_public_key, 1);
+            ScriptBuilder::generate_timelock_script(&self.signer.xonly_public_key, 1);
 
         let (first_address, _) = TransactionBuilder::create_connector_tree_node_address(
             &self.signer.secp,
@@ -884,7 +857,7 @@ impl<'a> Operator<'a> {
 
     /// This starts the whole setup
     /// 1. get the current blockheight
-    pub fn initial_setup(&mut self) -> Result<OutPoint, BridgeError> {
+    pub fn initial_setup(&mut self) -> Result<(OutPoint, u64), BridgeError> {
         let cur_blockheight = self.rpc.get_block_height();
         if self.start_blockheight == 0 {
             self.start_blockheight = cur_blockheight;
@@ -970,8 +943,8 @@ impl<'a> Operator<'a> {
             cur_amount = cur_amount - single_tree_amount - Amount::from_sat(MIN_RELAY_FEE);
         }
         self.set_connector_tree_utxos(utxo_trees.clone());
-        println!("asd : {:?}", claim_proof_merkle_roots);
-        Ok(first_source_utxo)
+        println!("Operator: {:?}", claim_proof_merkle_roots);
+        Ok((first_source_utxo, self.start_blockheight))
     }
 }
 
@@ -1015,10 +988,10 @@ mod tests {
         let (deposit2_utxo, deposit2_pk) = user2.deposit_tx();
         rpc.mine_blocks(5);
 
-        operator.new_deposit(deposit1_utxo, deposit1_pk).unwrap();
+        operator.new_deposit(deposit1_utxo, &deposit1_pk).unwrap();
         rpc.mine_blocks(1);
         assert!(matches!(
-            operator.new_deposit(deposit2_utxo, deposit2_pk),
+            operator.new_deposit(deposit2_utxo, &deposit2_pk),
             Err(BridgeError::OperatorPendingDeposit)
         ));
     }

@@ -36,7 +36,7 @@ impl<'a> User<'a> {
         &self,
     ) -> (OutPoint, XOnlyPublicKey) {
         let (deposit_address, _) =
-            self.transaction_builder.generate_deposit_address(self.signer.xonly_public_key);
+            self.transaction_builder.generate_deposit_address(&self.signer.xonly_public_key);
         let deposit_utxo = self.rpc.send_to_address(&deposit_address, BRIDGE_AMOUNT_SATS);
         (deposit_utxo, self.signer.xonly_public_key)
     }

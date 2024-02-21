@@ -141,7 +141,7 @@ pub fn generate_dust_address(
     secp: &Secp256k1<All>,
     evm_address: [u8; 20],
 ) -> (Address, TaprootSpendInfo) {
-    let script = ScriptBuilder::generate_dust_script(evm_address);
+    let script = ScriptBuilder::generate_dust_script(&evm_address);
     let taproot = TaprootBuilder::new().add_leaf(0, script.clone()).unwrap();
     let tree_info = taproot.finalize(secp, *INTERNAL_KEY).unwrap();
     let address = Address::p2tr(
@@ -294,7 +294,7 @@ mod tests {
         println!("connector_tree_txid: {:?}", connector_tree_tx.txid());
 
         let timelock_script =
-            ScriptBuilder::generate_timelock_script(operator.signer.xonly_public_key, 2);
+            ScriptBuilder::generate_timelock_script(&operator.signer.xonly_public_key, 2);
         let sig = operator.signer.sign_taproot_script_spend_tx(
             &mut connector_tree_tx,
             &vec![utxo_tx.output[0].clone()],

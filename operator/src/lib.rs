@@ -13,3 +13,4 @@ pub mod giga_merkle;
 pub mod env_writer;
 pub mod custom_merkle;
 pub mod errors;
+pub mod shared;

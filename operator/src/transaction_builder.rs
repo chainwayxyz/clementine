@@ -51,7 +51,7 @@ impl TransactionBuilder {
     }
 
     /// This function generates a deposit address for the user. N-of-N or User takes after timelock script can be used to spend the funds.
-    pub fn generate_deposit_address(&self, user_pk: XOnlyPublicKey) -> (Address, TaprootSpendInfo) {
+    pub fn generate_deposit_address(&self, user_pk: &XOnlyPublicKey) -> (Address, TaprootSpendInfo) {
         let script_n_of_n = self.script_builder.generate_n_of_n_script_without_hash();
         let script_timelock = ScriptBuilder::generate_timelock_script(user_pk, USER_TAKES_AFTER);
         let taproot = TaprootBuilder::new()
@@ -200,13 +200,13 @@ impl TransactionBuilder {
         absolute_block_height_to_take_after: u64,
     ) -> (Address, TaprootSpendInfo) {
         let timelock_script = ScriptBuilder::generate_absolute_timelock_script(
-            operator_pk,
+            &operator_pk,
             absolute_block_height_to_take_after as u32,
         );
         let mut all_2_of_2_scripts: Vec<ScriptBuf> = self
             .verifiers_pks
             .iter()
-            .map(|pk| ScriptBuilder::generate_2_of_2_script(operator_pk, pk.clone()))
+            .map(|pk| ScriptBuilder::generate_2_of_2_script(&operator_pk, &pk))
             .collect();
         // push the timelock script to the beginning of the vector
         all_2_of_2_scripts.insert(0, timelock_script.clone());
@@ -222,7 +222,7 @@ impl TransactionBuilder {
         hash: Data,
     ) -> (Address, TaprootSpendInfo) {
         let timelock_script = ScriptBuilder::generate_timelock_script(
-            actor_pk,
+            &actor_pk,
             CONNECTOR_TREE_OPERATOR_TAKES_AFTER as u32,
         );
         let preimage_script = Builder::new()

@@ -23,12 +23,14 @@ fn main() {
     }
 
     // Initial setup for connector roots
-    let first_source_utxo = operator.initial_setup().unwrap();
+    let (first_source_utxo, start_blockheight)  = operator.initial_setup().unwrap();
     for verifier in &mut operator.mock_verifier_access {
         verifier.connector_roots_created(
             &operator.connector_tree_hashes,
+            start_blockheight,
             &first_source_utxo,
         );
+        println!("connector_roots_created, verifiers agree");
     }
     // In the end, create BitVM
 
@@ -37,7 +39,7 @@ fn main() {
         let user = &users[i];
         let (deposit_utxo, deposit_return_address) = user.deposit_tx();
         rpc.mine_blocks(6);
-        operator.new_deposit(deposit_utxo, deposit_return_address).unwrap();
+        operator.new_deposit(deposit_utxo, &deposit_return_address).unwrap();
         rpc.mine_blocks(1);
     }
 
