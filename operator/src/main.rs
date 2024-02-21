@@ -1,5 +1,5 @@
 use bitcoin::secp256k1::rand::rngs::OsRng;
-use circuit_helpers::config::{NUM_USERS, NUM_VERIFIERS};
+use operator::config::{NUM_USERS, NUM_VERIFIERS};
 use operator::{
     extended_rpc::ExtendedRpc,
     operator::Operator,

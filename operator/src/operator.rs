@@ -18,15 +18,13 @@ use bitcoin::sighash::SighashCache;
 use bitcoin::{secp256k1, secp256k1::schnorr, Address, Txid};
 use bitcoin::{Amount, OutPoint, Transaction, TxOut};
 use bitcoincore_rpc::{Client, RpcApi};
-use circuit_helpers::config::{BRIDGE_AMOUNT_SATS, CONNECTOR_TREE_DEPTH, NUM_ROUNDS};
-use circuit_helpers::constant::{
-    CONFIRMATION_BLOCK_COUNT, DUST_VALUE, HASH_FUNCTION_32, MIN_RELAY_FEE, PERIOD_BLOCK_COUNT,
+use crate::config::{BRIDGE_AMOUNT_SATS, CONNECTOR_TREE_DEPTH, NUM_ROUNDS};
+use crate::constant::{
+    ConnectorTree, CONFIRMATION_BLOCK_COUNT, DUST_VALUE, HASH_FUNCTION_32, MIN_RELAY_FEE, PERIOD_BLOCK_COUNT, PreimageType, HashType, InscriptionTxs,
 };
 use secp256k1::rand::rngs::OsRng;
 use secp256k1::rand::Rng;
 use secp256k1::{All, Secp256k1, XOnlyPublicKey};
-pub type PreimageType = [u8; 32];
-pub type InscriptionTxs = (OutPoint, Txid);
 
 pub fn check_deposit(
     _secp: &Secp256k1<All>,
@@ -63,9 +61,9 @@ pub fn check_deposit(
 pub fn create_connector_tree_preimages_and_hashes(
     depth: usize,
     rng: &mut OsRng,
-) -> (Vec<Vec<PreimageType>>, Vec<Vec<[u8; 32]>>) {
+) -> (Vec<Vec<PreimageType>>, Vec<Vec<HashType>>) {
     let mut connector_tree_preimages: Vec<Vec<PreimageType>> = Vec::new();
-    let mut connector_tree_hashes: Vec<Vec<[u8; 32]>> = Vec::new();
+    let mut connector_tree_hashes: Vec<Vec<HashType>> = Vec::new();
     let root_preimage: PreimageType = rng.gen();
     connector_tree_preimages.push(vec![root_preimage]);
     connector_tree_hashes.push(vec![HASH_FUNCTION_32(root_preimage)]);
@@ -141,7 +139,7 @@ pub struct Operator<'a> {
     pub withdrawals_payment_txids: Vec<Txid>,
     pub mock_verifier_access: Vec<Verifier<'a>>, // on production this will be removed rather we will call the verifier's API
     pub preimages: Vec<PreimageType>,
-    pub connector_tree_utxos: Vec<Vec<Vec<OutPoint>>>,
+    pub connector_tree_utxos: Vec<ConnectorTree>,
     // pub giga_merkle_tree: GigaMerkleTree,
     pub deposit_utxos: Vec<OutPoint>,
     pub move_utxos: Vec<OutPoint>,
@@ -200,9 +198,9 @@ impl<'a> Operator<'a> {
         all_verifiers
     }
 
-    pub fn set_connector_tree_utxos(&mut self, connector_tree_utxos: Vec<Vec<Vec<OutPoint>>>) {
-        self.connector_tree_utxos = connector_tree_utxos;
-    }
+    // pub fn set_connector_tree_utxos(&mut self, connector_tree_utxos: Vec<ConnectorTree>) {
+    //     self.connector_tree_utxos = connector_tree_utxos;
+    // }
 
     /// this is a public endpoint that every depositor can call
     /// it will get signatures from all verifiers.
@@ -898,7 +896,7 @@ impl<'a> Operator<'a> {
 
         // let mut claim_proof_merkle_roots: Vec<[u8; 32]> = Vec::new();
         // let mut root_utxos: Vec<OutPoint> = Vec::new();
-        // let mut utxo_trees: Vec<Vec<Vec<OutPoint>>> = Vec::new();
+        // let mut utxo_trees: Vec<ConnectorTree> = Vec::new();
 
         // for i in 0..NUM_ROUNDS {
         //     claim_proof_merkle_roots.push(CustomMerkleTree::calculate_claim_proof_root(CONNECTOR_TREE_DEPTH, &self.connector_tree_hashes[i]));
@@ -956,7 +954,8 @@ impl<'a> Operator<'a> {
         //     cur_amount = cur_amount - single_tree_amount - Amount::from_sat(MIN_RELAY_FEE);
         // }
 
-        self.set_connector_tree_utxos(utxo_trees.clone());
+        // self.set_connector_tree_utxos(utxo_trees.clone());
+        self.connector_tree_utxos = utxo_trees.clone();
         println!(
             "Operator claim_proof_merkle_roots: {:?}",
             claim_proof_merkle_roots
@@ -971,7 +970,7 @@ mod tests {
     use crate::user::User;
 
     use super::*;
-    use circuit_helpers::config::{NUM_USERS, NUM_VERIFIERS};
+    use crate::config::{NUM_USERS, NUM_VERIFIERS};
     use secp256k1::rand::rngs::OsRng;
 
     // #[test]

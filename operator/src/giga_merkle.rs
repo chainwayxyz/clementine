@@ -3,7 +3,7 @@
 // The Giga Merkle Tree will be used to prove the inclusion of the preimages in the connector UTXO tree,
 // depending on the number of periods that have passed.
 
-use circuit_helpers::constant::HASH_FUNCTION_64;
+use crate::constant::HASH_FUNCTION_64;
 use sha2::{Digest, Sha256};
 
 #[derive(Debug, Clone)]

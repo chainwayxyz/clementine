@@ -14,7 +14,7 @@ use bitcoin::{
 };
 use bitcoin::{Amount, OutPoint, TapLeafHash, TapNodeHash, TxOut, Txid};
 use bitcoincore_rpc::{Client, RpcApi};
-use circuit_helpers::constant::EVMAddress;
+use crate::constant::EVMAddress;
 use tiny_keccak::{Hasher, Keccak};
 
 use crate::transaction_builder::TransactionBuilder;

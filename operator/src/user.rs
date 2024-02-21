@@ -7,7 +7,7 @@ use bitcoin::secp256k1::Secp256k1;
 use bitcoin::OutPoint;
 use bitcoin::XOnlyPublicKey;
 
-use circuit_helpers::config::BRIDGE_AMOUNT_SATS;
+use crate::config::BRIDGE_AMOUNT_SATS;
 use secp256k1::rand::rngs::OsRng;
 
 #[derive(Debug, Clone)]

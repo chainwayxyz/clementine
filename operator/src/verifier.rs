@@ -4,21 +4,20 @@ use std::collections::{HashMap, HashSet};
 use bitcoin::sighash::SighashCache;
 use bitcoin::{secp256k1, secp256k1::Secp256k1, OutPoint};
 use bitcoin::{Amount, TxOut};
-use circuit_helpers::constant::{
-    CONFIRMATION_BLOCK_COUNT, DUST_VALUE, HASH_FUNCTION_32, MIN_RELAY_FEE, PERIOD_BLOCK_COUNT
+use crate::constant::{
+    ConnectorTree, CONFIRMATION_BLOCK_COUNT, DUST_VALUE, HASH_FUNCTION_32, MIN_RELAY_FEE, PERIOD_BLOCK_COUNT, PreimageType,
 };
 use secp256k1::All;
 use secp256k1::{rand::rngs::OsRng, XOnlyPublicKey};
 
 use crate::extended_rpc::ExtendedRpc;
-use crate::operator::PreimageType;
 use crate::script_builder::ScriptBuilder;
 use crate::shared::{check_deposit_utxo, create_all_connector_trees};
 use crate::transaction_builder::TransactionBuilder;
 use crate::utils::{create_control_block, handle_taproot_witness};
 use crate::{actor::Actor, operator::DepositPresigns};
 
-use circuit_helpers::config::{BRIDGE_AMOUNT_SATS, CONNECTOR_TREE_DEPTH, NUM_ROUNDS};
+use crate::config::{BRIDGE_AMOUNT_SATS, CONNECTOR_TREE_DEPTH, NUM_ROUNDS};
 
 #[derive(Debug, Clone)]
 pub struct Verifier<'a> {
@@ -28,7 +27,7 @@ pub struct Verifier<'a> {
     pub script_builder: ScriptBuilder,
     pub transaction_builder: TransactionBuilder,
     pub verifiers: Vec<XOnlyPublicKey>,
-    pub connector_tree_utxos: Vec<Vec<Vec<OutPoint>>>,
+    pub connector_tree_utxos: Vec<ConnectorTree>,
     pub connector_tree_hashes: Vec<Vec<Vec<[u8; 32]>>>,
     pub operator_pk: XOnlyPublicKey,
 }
@@ -61,13 +60,13 @@ impl<'a> Verifier<'a> {
         self.transaction_builder = TransactionBuilder::new(self.verifiers.clone());
     }
 
-    pub fn set_connector_tree_utxos(&mut self, connector_tree_utxos: Vec<Vec<Vec<OutPoint>>>) {
-        self.connector_tree_utxos = connector_tree_utxos;
-    }
+    // pub fn set_connector_tree_utxos(&mut self, connector_tree_utxos: Vec<ConnectorTree>) {
+    //     self.connector_tree_utxos = connector_tree_utxos;
+    // }
 
-    pub fn set_connector_tree_hashes(&mut self, connector_tree_hashes: &Vec<Vec<Vec<[u8; 32]>>>) {
-        self.connector_tree_hashes = connector_tree_hashes.clone();
-    }
+    // pub fn set_connector_tree_hashes(&mut self, connector_tree_hashes: &Vec<Vec<Vec<[u8; 32]>>>) {
+    //     self.connector_tree_hashes = connector_tree_hashes.clone();
+    // }
 
     /// TODO: Add verification for the connector tree hashes
     pub fn connector_roots_created(
@@ -93,7 +92,7 @@ impl<'a> Verifier<'a> {
 
         // let mut claim_proof_merkle_roots: Vec<[u8; 32]> = Vec::new();
         // let mut root_utxos: Vec<OutPoint> = Vec::new();
-        // let mut utxo_trees: Vec<Vec<Vec<OutPoint>>> = Vec::new();
+        // let mut utxo_trees: Vec<ConnectorTree> = Vec::new();
 
         // for i in 0..NUM_ROUNDS {
         //     claim_proof_merkle_roots.push(CustomMerkleTree::calculate_claim_proof_root(CONNECTOR_TREE_DEPTH, &self.connector_tree_hashes[i]));
@@ -153,8 +152,10 @@ impl<'a> Verifier<'a> {
 
         let (claim_proof_merkle_roots, root_utxos, utxo_trees) = create_all_connector_trees(&self.secp, &self.transaction_builder, &_connector_tree_hashes, _start_blockheight, &_first_source_utxo, &self.operator_pk);
 
-        self.set_connector_tree_utxos(utxo_trees);
-        self.set_connector_tree_hashes(_connector_tree_hashes);
+        // self.set_connector_tree_utxos(utxo_trees);
+        self.connector_tree_utxos = utxo_trees;
+        // self.set_connector_tree_hashes(_connector_tree_hashes);
+        self.connector_tree_hashes = _connector_tree_hashes.clone();
         println!("Verifier claim_proof_merkle_roots: {:?}", claim_proof_merkle_roots);
         println!("Verifier root_utxos: {:?}", root_utxos);
     }

@@ -8,16 +8,15 @@ use bitcoin::{
     taproot::{TaprootBuilder, TaprootSpendInfo},
     Address, Amount, OutPoint, ScriptBuf, TxIn, TxOut, Txid, Witness,
 };
-use circuit_helpers::{
+use crate::{
     config::{BRIDGE_AMOUNT_SATS, CONNECTOR_TREE_OPERATOR_TAKES_AFTER, USER_TAKES_AFTER},
-    constant::{Data, DUST_VALUE, MIN_RELAY_FEE},
+    constant::{ConnectorTree, Data, DUST_VALUE, MIN_RELAY_FEE, PreimageType},
 };
 use secp256k1::{Secp256k1, XOnlyPublicKey};
 
 use crate::{
     actor::Actor,
     errors::BridgeError,
-    operator::PreimageType,
     script_builder::ScriptBuilder,
     utils::{calculate_amount, handle_taproot_witness},
 };
@@ -378,7 +377,7 @@ impl TransactionBuilder {
         root_utxo: &OutPoint,
         depth: usize,
         connector_tree_hashes: Vec<Vec<[u8; 32]>>,
-    ) -> Vec<Vec<OutPoint>> {
+    ) -> ConnectorTree {
         // UTXO value should be at least 2^depth * dust_value + (2^depth-1) * fee
         let total_amount = calculate_amount(
             depth,
@@ -393,7 +392,7 @@ impl TransactionBuilder {
             connector_tree_hashes[0][0],
         );
 
-        let mut utxo_binary_tree: Vec<Vec<OutPoint>> = Vec::new();
+        let mut utxo_binary_tree: ConnectorTree = Vec::new();
         utxo_binary_tree.push(vec![root_utxo.clone()]);
 
         for i in 0..depth {

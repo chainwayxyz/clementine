@@ -194,7 +194,7 @@ mod tests {
         sighash::SighashCache, taproot::LeafVersion, OutPoint, ScriptBuf, Transaction, TxIn,
         Witness,
     };
-    use circuit_helpers::config::NUM_VERIFIERS;
+    use crate::config::NUM_VERIFIERS;
     use secp256k1::rand::rngs::OsRng;
 
     use crate::extended_rpc::ExtendedRpc;

@@ -1,5 +1,5 @@
-use circuit_helpers::config::{DEPTH, ZEROES};
-use circuit_helpers::constant::{Data, EMPTYDATA, HASH_FUNCTION_64};
+use crate::config::{DEPTH, ZEROES};
+use crate::constant::{Data, EMPTYDATA, HASH_FUNCTION_64};
 use circuit_helpers::incremental_merkle::IncrementalMerkleTree;
 use serde::{Deserialize, Serialize};
 
