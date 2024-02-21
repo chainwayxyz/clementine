@@ -1,5 +1,5 @@
 use bitcoin::{taproot::TaprootSpendInfo, Address, Amount, OutPoint, ScriptBuf};
-use crate::{config::{BRIDGE_AMOUNT_SATS, CONNECTOR_TREE_DEPTH, NUM_ROUNDS}, constant::{ConnectorTree, CONFIRMATION_BLOCK_COUNT, DUST_VALUE, MIN_RELAY_FEE, PERIOD_BLOCK_COUNT}};
+use crate::{config::{BRIDGE_AMOUNT_SATS, CONNECTOR_TREE_DEPTH, NUM_ROUNDS}, constant::{ConnectorTreeUTXOs, CONFIRMATION_BLOCK_COUNT, DUST_VALUE, MIN_RELAY_FEE, PERIOD_BLOCK_COUNT}};
 use secp256k1::XOnlyPublicKey;
 
 use crate::{
@@ -38,7 +38,7 @@ pub fn create_all_connector_trees(
     start_blockheight: u64,
     first_source_utxo: &OutPoint,
     operator_pk: &XOnlyPublicKey,
-) -> (Vec<[u8; 32]>, Vec<OutPoint>, Vec<ConnectorTree>) {
+) -> (Vec<[u8; 32]>, Vec<OutPoint>, Vec<ConnectorTreeUTXOs>) {
     let single_tree_amount = calculate_amount(
         CONNECTOR_TREE_DEPTH,
         Amount::from_sat(DUST_VALUE),
@@ -52,7 +52,7 @@ pub fn create_all_connector_trees(
 
     let mut claim_proof_merkle_roots: Vec<[u8; 32]> = Vec::new();
     let mut root_utxos: Vec<OutPoint> = Vec::new();
-    let mut utxo_trees: Vec<ConnectorTree> = Vec::new();
+    let mut utxo_trees: Vec<ConnectorTreeUTXOs> = Vec::new();
 
     for i in 0..NUM_ROUNDS {
         claim_proof_merkle_roots.push(CustomMerkleTree::calculate_claim_proof_root(

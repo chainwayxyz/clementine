@@ -7,7 +7,7 @@ use circuit_helpers::hashes::sha256_32bytes;
 use circuit_helpers::hashes::sha256_64bytes;
 use circuit_helpers::hashes::sha256_96bytes;
 
-pub type ConnectorTree = Vec<Vec<OutPoint>>;
+pub type ConnectorTreeUTXOs = Vec<Vec<OutPoint>>;
 pub type Data = [u8; 32];
 pub type PreimageType = [u8; 32];
 pub type HashType = [u8; 32];

@@ -5,7 +5,7 @@ use bitcoin::sighash::SighashCache;
 use bitcoin::{secp256k1, secp256k1::Secp256k1, OutPoint};
 use bitcoin::{Amount, TxOut};
 use crate::constant::{
-    ConnectorTree, CONFIRMATION_BLOCK_COUNT, DUST_VALUE, HASH_FUNCTION_32, MIN_RELAY_FEE, PERIOD_BLOCK_COUNT, PreimageType,
+    ConnectorTreeUTXOs, CONFIRMATION_BLOCK_COUNT, DUST_VALUE, HASH_FUNCTION_32, MIN_RELAY_FEE, PERIOD_BLOCK_COUNT, PreimageType,
 };
 use secp256k1::All;
 use secp256k1::{rand::rngs::OsRng, XOnlyPublicKey};
@@ -27,7 +27,7 @@ pub struct Verifier<'a> {
     pub script_builder: ScriptBuilder,
     pub transaction_builder: TransactionBuilder,
     pub verifiers: Vec<XOnlyPublicKey>,
-    pub connector_tree_utxos: Vec<ConnectorTree>,
+    pub connector_tree_utxos: Vec<ConnectorTreeUTXOs>,
     pub connector_tree_hashes: Vec<Vec<Vec<[u8; 32]>>>,
     pub operator_pk: XOnlyPublicKey,
 }
@@ -60,7 +60,7 @@ impl<'a> Verifier<'a> {
         self.transaction_builder = TransactionBuilder::new(self.verifiers.clone());
     }
 
-    // pub fn set_connector_tree_utxos(&mut self, connector_tree_utxos: Vec<ConnectorTree>) {
+    // pub fn set_connector_tree_utxos(&mut self, connector_tree_utxos: Vec<ConnectorTreeUTXOs>) {
     //     self.connector_tree_utxos = connector_tree_utxos;
     // }
 
@@ -92,7 +92,7 @@ impl<'a> Verifier<'a> {
 
         // let mut claim_proof_merkle_roots: Vec<[u8; 32]> = Vec::new();
         // let mut root_utxos: Vec<OutPoint> = Vec::new();
-        // let mut utxo_trees: Vec<ConnectorTree> = Vec::new();
+        // let mut utxo_trees: Vec<ConnectorTreeUTXOs> = Vec::new();
 
         // for i in 0..NUM_ROUNDS {
         //     claim_proof_merkle_roots.push(CustomMerkleTree::calculate_claim_proof_root(CONNECTOR_TREE_DEPTH, &self.connector_tree_hashes[i]));
