@@ -1,6 +1,5 @@
 use std::borrow::BorrowMut;
 
-
 use bitcoin::opcodes::OP_TRUE;
 use bitcoin::sighash::SighashCache;
 use bitcoin::{self};
@@ -29,15 +28,10 @@ use circuit_helpers::core_tx::TxOutput;
 use byteorder::{ByteOrder, LittleEndian};
 use hex;
 
-
 use lazy_static::lazy_static;
 use std::str::FromStr;
 
-
-
-
 use crate::script_builder::ScriptBuilder;
-
 
 lazy_static! {
     pub static ref INTERNAL_KEY: XOnlyPublicKey = XOnlyPublicKey::from_str(
@@ -186,24 +180,7 @@ pub fn handle_taproot_witness<T: AsRef<[u8]>>(
 #[cfg(test)]
 mod tests {
 
-    use std::borrow::BorrowMut;
-  
-    use bitcoin::transaction::Version;
-    use bitcoin::{absolute, Amount, Sequence, TxOut};
-    use bitcoin::{
-        sighash::SighashCache, taproot::LeafVersion, OutPoint, ScriptBuf, Transaction, TxIn,
-        Witness,
-    };
-    use crate::config::NUM_VERIFIERS;
-    use secp256k1::rand::rngs::OsRng;
-
-    use crate::extended_rpc::ExtendedRpc;
-    use crate::script_builder::ScriptBuilder;
-    use crate::transaction_builder::TransactionBuilder;
-    use crate::{
-        operator::Operator,
-        utils::{from_hex_to_tx, parse_hex_to_btc_tx},
-    };
+    use crate::utils::{from_hex_to_tx, parse_hex_to_btc_tx};
 
     #[test]
     fn test_from_hex_to_tx() {

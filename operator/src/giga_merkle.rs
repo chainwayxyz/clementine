@@ -17,7 +17,10 @@ pub struct GigaMerkleTree {
 
 impl GigaMerkleTree {
     pub fn new(num_rounds: usize, internal_depth: usize, leaves_info: Vec<Vec<[u8; 32]>>) -> Self {
-        assert_eq!(leaves_info.len() as u32, u32::pow(2, internal_depth as u32) * (num_rounds as u32));
+        assert_eq!(
+            leaves_info.len() as u32,
+            u32::pow(2, internal_depth as u32) * (num_rounds as u32)
+        );
         let mut internal_roots: Vec<[u8; 32]> = Vec::new();
         let mut leaves: Vec<[u8; 32]> = Vec::new();
         let mut data: Vec<Vec<[u8; 32]>> = Vec::new();
@@ -38,14 +41,24 @@ impl GigaMerkleTree {
 
         while level < internal_depth + (num_rounds.ilog(2) as usize) {
             let mut level_data: Vec<[u8; 32]> = Vec::new();
-            for i in 0..(u32::pow(2, internal_depth as u32 + ((num_rounds as u32).ilog(2)) - level as u32) / 2) as usize {
+            for i in 0..(u32::pow(
+                2,
+                internal_depth as u32 + ((num_rounds as u32).ilog(2)) - level as u32,
+            ) / 2) as usize
+            {
                 let mut hasher = Sha256::new();
                 hasher.update(data[level][i * 2]);
                 hasher.update(data[level][i * 2 + 1]);
                 let hash = hasher.finalize().try_into().unwrap();
                 level_data.push(hash);
             }
-            assert_eq!(level_data.len() as u32, u32::pow(2, (internal_depth as u32) + ((num_rounds as u32).ilog(2)) - (level as u32) - 1));
+            assert_eq!(
+                level_data.len() as u32,
+                u32::pow(
+                    2,
+                    (internal_depth as u32) + ((num_rounds as u32).ilog(2)) - (level as u32) - 1
+                )
+            );
 
             data.push(level_data.clone());
             level = level + 1;
@@ -54,7 +67,7 @@ impl GigaMerkleTree {
                 internal_roots = level_data.clone();
             }
         }
-        
+
         let root = data[data.len() - 1][0];
 
         Self {
@@ -86,7 +99,12 @@ impl GigaMerkleTree {
         proof
     }
 
-    pub fn verify_merkle_proof(&self, period: usize, internal_index: usize, proof: Vec<[u8; 32]>) -> bool {
+    pub fn verify_merkle_proof(
+        &self,
+        period: usize,
+        internal_index: usize,
+        proof: Vec<[u8; 32]>,
+    ) -> bool {
         let mut index = period * u32::pow(2, self.internal_depth as u32) as usize + internal_index;
         let mut hash = self.data[0][index];
         for elem in proof {
@@ -121,7 +139,6 @@ impl GigaMerkleTree {
 
         return indices;
     }
-
 }
 
 #[cfg(test)]
@@ -196,6 +213,4 @@ mod tests {
             );
         }
     }
-
 }
-

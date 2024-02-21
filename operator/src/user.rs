@@ -27,20 +27,19 @@ impl<'a> User<'a> {
             rpc,
             secp,
             signer,
-            transaction_builder
+            transaction_builder,
         }
     }
 
-
-    pub fn deposit_tx(
-        &self,
-    ) -> (OutPoint, XOnlyPublicKey) {
-        let (deposit_address, _) =
-            self.transaction_builder.generate_deposit_address(&self.signer.xonly_public_key);
-        let deposit_utxo = self.rpc.send_to_address(&deposit_address, BRIDGE_AMOUNT_SATS);
+    pub fn deposit_tx(&self) -> (OutPoint, XOnlyPublicKey) {
+        let (deposit_address, _) = self
+            .transaction_builder
+            .generate_deposit_address(&self.signer.xonly_public_key);
+        let deposit_utxo = self
+            .rpc
+            .send_to_address(&deposit_address, BRIDGE_AMOUNT_SATS);
         (deposit_utxo, self.signer.xonly_public_key)
     }
-
 }
 
 #[cfg(test)]

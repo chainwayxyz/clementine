@@ -3,6 +3,11 @@ use std::collections::{HashMap, HashSet};
 use std::vec;
 
 use crate::actor::Actor;
+use crate::config::{BRIDGE_AMOUNT_SATS, CONNECTOR_TREE_DEPTH, NUM_ROUNDS};
+use crate::constant::{
+    ConnectorTreeUTXOs, HashType, InscriptionTxs, PreimageType, DUST_VALUE, HASH_FUNCTION_32,
+    MIN_RELAY_FEE, PERIOD_BLOCK_COUNT,
+};
 use crate::custom_merkle::CustomMerkleTree;
 use crate::errors::BridgeError;
 use crate::extended_rpc::ExtendedRpc;
@@ -18,10 +23,6 @@ use bitcoin::sighash::SighashCache;
 use bitcoin::{secp256k1, secp256k1::schnorr, Address, Txid};
 use bitcoin::{Amount, OutPoint, Transaction, TxOut};
 use bitcoincore_rpc::{Client, RpcApi};
-use crate::config::{BRIDGE_AMOUNT_SATS, CONNECTOR_TREE_DEPTH, NUM_ROUNDS};
-use crate::constant::{
-    ConnectorTreeUTXOs, CONFIRMATION_BLOCK_COUNT, DUST_VALUE, HASH_FUNCTION_32, MIN_RELAY_FEE, PERIOD_BLOCK_COUNT, PreimageType, HashType, InscriptionTxs,
-};
 use secp256k1::rand::rngs::OsRng;
 use secp256k1::rand::Rng;
 use secp256k1::{All, Secp256k1, XOnlyPublicKey};
@@ -967,11 +968,8 @@ impl<'a> Operator<'a> {
 
 #[cfg(test)]
 mod tests {
-    use crate::user::User;
 
-    use super::*;
-    use crate::config::{NUM_USERS, NUM_VERIFIERS};
-    use secp256k1::rand::rngs::OsRng;
+    // use super::*;
 
     // #[test]
     // fn test_giga_merkle_tree_works() {

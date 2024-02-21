@@ -1,5 +1,9 @@
 use std::{borrow::BorrowMut, str::FromStr};
 
+use crate::{
+    config::{BRIDGE_AMOUNT_SATS, CONNECTOR_TREE_OPERATOR_TAKES_AFTER, USER_TAKES_AFTER},
+    constant::{ConnectorTreeUTXOs, Data, PreimageType, DUST_VALUE, MIN_RELAY_FEE},
+};
 use bitcoin::{
     absolute,
     opcodes::all::{OP_EQUAL, OP_SHA256},
@@ -7,10 +11,6 @@ use bitcoin::{
     sighash::SighashCache,
     taproot::{TaprootBuilder, TaprootSpendInfo},
     Address, Amount, OutPoint, ScriptBuf, TxIn, TxOut, Txid, Witness,
-};
-use crate::{
-    config::{BRIDGE_AMOUNT_SATS, CONNECTOR_TREE_OPERATOR_TAKES_AFTER, USER_TAKES_AFTER},
-    constant::{ConnectorTreeUTXOs, Data, DUST_VALUE, MIN_RELAY_FEE, PreimageType},
 };
 use secp256k1::{Secp256k1, XOnlyPublicKey};
 
@@ -50,7 +50,10 @@ impl TransactionBuilder {
     }
 
     /// This function generates a deposit address for the user. N-of-N or User takes after timelock script can be used to spend the funds.
-    pub fn generate_deposit_address(&self, user_pk: &XOnlyPublicKey) -> (Address, TaprootSpendInfo) {
+    pub fn generate_deposit_address(
+        &self,
+        user_pk: &XOnlyPublicKey,
+    ) -> (Address, TaprootSpendInfo) {
         let script_n_of_n = self.script_builder.generate_n_of_n_script_without_hash();
         let script_timelock = ScriptBuilder::generate_timelock_script(user_pk, USER_TAKES_AFTER);
         let taproot = TaprootBuilder::new()

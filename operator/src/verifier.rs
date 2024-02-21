@@ -1,12 +1,10 @@
 use std::borrow::BorrowMut;
 use std::collections::{HashMap, HashSet};
 
+use crate::constant::{ConnectorTreeUTXOs, PreimageType, HASH_FUNCTION_32, MIN_RELAY_FEE};
 use bitcoin::sighash::SighashCache;
 use bitcoin::{secp256k1, secp256k1::Secp256k1, OutPoint};
 use bitcoin::{Amount, TxOut};
-use crate::constant::{
-    ConnectorTreeUTXOs, CONFIRMATION_BLOCK_COUNT, DUST_VALUE, HASH_FUNCTION_32, MIN_RELAY_FEE, PERIOD_BLOCK_COUNT, PreimageType,
-};
 use secp256k1::All;
 use secp256k1::{rand::rngs::OsRng, XOnlyPublicKey};
 
@@ -17,7 +15,7 @@ use crate::transaction_builder::TransactionBuilder;
 use crate::utils::{create_control_block, handle_taproot_witness};
 use crate::{actor::Actor, operator::DepositPresigns};
 
-use crate::config::{BRIDGE_AMOUNT_SATS, CONNECTOR_TREE_DEPTH, NUM_ROUNDS};
+use crate::config::BRIDGE_AMOUNT_SATS;
 
 #[derive(Debug, Clone)]
 pub struct Verifier<'a> {
@@ -73,7 +71,7 @@ impl<'a> Verifier<'a> {
         &mut self,
         _connector_tree_hashes: &Vec<Vec<Vec<[u8; 32]>>>,
         _start_blockheight: u64,
-        _first_source_utxo: &OutPoint
+        _first_source_utxo: &OutPoint,
     ) {
         // let tx_res = self.rpc.get_transaction(&_first_source_utxo.txid, None).unwrap();
         // println!("tx_res: {:?}", tx_res);
@@ -150,13 +148,23 @@ impl<'a> Verifier<'a> {
         //     cur_amount = cur_amount - single_tree_amount - Amount::from_sat(MIN_RELAY_FEE);
         // }
 
-        let (claim_proof_merkle_roots, root_utxos, utxo_trees) = create_all_connector_trees(&self.secp, &self.transaction_builder, &_connector_tree_hashes, _start_blockheight, &_first_source_utxo, &self.operator_pk);
+        let (claim_proof_merkle_roots, root_utxos, utxo_trees) = create_all_connector_trees(
+            &self.secp,
+            &self.transaction_builder,
+            &_connector_tree_hashes,
+            _start_blockheight,
+            &_first_source_utxo,
+            &self.operator_pk,
+        );
 
         // self.set_connector_tree_utxos(utxo_trees);
         self.connector_tree_utxos = utxo_trees;
         // self.set_connector_tree_hashes(_connector_tree_hashes);
         self.connector_tree_hashes = _connector_tree_hashes.clone();
-        println!("Verifier claim_proof_merkle_roots: {:?}", claim_proof_merkle_roots);
+        println!(
+            "Verifier claim_proof_merkle_roots: {:?}",
+            claim_proof_merkle_roots
+        );
         println!("Verifier root_utxos: {:?}", root_utxos);
     }
 
@@ -172,7 +180,14 @@ impl<'a> Verifier<'a> {
     ) -> DepositPresigns {
         // 1. Check if there is any previous pending deposit
 
-        let (deposit_address, _) = check_deposit_utxo(&self.rpc, &self.transaction_builder, &start_utxo, &return_address, BRIDGE_AMOUNT_SATS).unwrap();
+        let (deposit_address, _) = check_deposit_utxo(
+            &self.rpc,
+            &self.transaction_builder,
+            &start_utxo,
+            &return_address,
+            BRIDGE_AMOUNT_SATS,
+        )
+        .unwrap();
 
         let mut move_tx = self.transaction_builder.create_move_tx(start_utxo);
 

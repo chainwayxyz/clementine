@@ -1,5 +1,6 @@
 use std::borrow::BorrowMut;
 
+use crate::constant::EVMAddress;
 use bitcoin::hashes::sha256;
 use bitcoin::secp256k1::rand::rngs::OsRng;
 use bitcoin::secp256k1::rand::RngCore;
@@ -14,7 +15,6 @@ use bitcoin::{
 };
 use bitcoin::{Amount, OutPoint, TapLeafHash, TapNodeHash, TxOut, Txid};
 use bitcoincore_rpc::{Client, RpcApi};
-use crate::constant::EVMAddress;
 use tiny_keccak::{Hasher, Keccak};
 
 use crate::transaction_builder::TransactionBuilder;

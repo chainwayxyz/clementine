@@ -1,9 +1,15 @@
-use bitcoin::{taproot::TaprootSpendInfo, Address, Amount, OutPoint, ScriptBuf};
-use crate::{config::{BRIDGE_AMOUNT_SATS, CONNECTOR_TREE_DEPTH, NUM_ROUNDS}, constant::{ConnectorTreeUTXOs, CONFIRMATION_BLOCK_COUNT, DUST_VALUE, MIN_RELAY_FEE, PERIOD_BLOCK_COUNT}};
+use crate::{
+    config::{CONNECTOR_TREE_DEPTH, NUM_ROUNDS},
+    constant::{
+        ConnectorTreeUTXOs, CONFIRMATION_BLOCK_COUNT, DUST_VALUE, MIN_RELAY_FEE, PERIOD_BLOCK_COUNT,
+    },
+};
+use bitcoin::{taproot::TaprootSpendInfo, Address, Amount, OutPoint};
 use secp256k1::XOnlyPublicKey;
 
 use crate::{
-    custom_merkle::CustomMerkleTree, errors::DepositError, extended_rpc::ExtendedRpc, transaction_builder::TransactionBuilder, utils::calculate_amount
+    custom_merkle::CustomMerkleTree, errors::DepositError, extended_rpc::ExtendedRpc,
+    transaction_builder::TransactionBuilder, utils::calculate_amount,
 };
 
 pub fn check_deposit_utxo(
@@ -59,11 +65,10 @@ pub fn create_all_connector_trees(
             CONNECTOR_TREE_DEPTH,
             &connector_tree_hashes[i],
         ));
-        let (next_connector_source_address, _) =
-            tx_builder.create_connector_tree_root_address(
-                operator_pk,
-                start_blockheight + ((i + 2) * PERIOD_BLOCK_COUNT as usize) as u64,
-            );
+        let (next_connector_source_address, _) = tx_builder.create_connector_tree_root_address(
+            operator_pk,
+            start_blockheight + ((i + 2) * PERIOD_BLOCK_COUNT as usize) as u64,
+        );
         let (connector_bt_root_address, _) = TransactionBuilder::create_connector_tree_node_address(
             secp,
             operator_pk,
