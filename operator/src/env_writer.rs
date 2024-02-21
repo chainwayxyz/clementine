@@ -1,6 +1,9 @@
+use bitcoin::consensus::Encodable;
 use bitcoin::{Block, Transaction, Txid};
+use bitcoin::hashes::sha256d::Hash as HashType;
 use circuit_helpers::{env::Environment, hashes::calculate_double_sha256};
 use secp256k1::hashes::Hash;
+use std::cmp::min;
 use std::marker::PhantomData;
 
 pub struct ENVWriter<E: Environment> {
@@ -8,83 +11,33 @@ pub struct ENVWriter<E: Environment> {
 }
 
 pub fn merkle_path_from_tx_ids(tx_ids: Vec<Txid>, index: u32) -> Vec<[u8; 32]> {
-    let tx_id_bytes_vec = tx_ids
+    let mut tx_id_as_hashes = tx_ids
         .iter()
-        .map(|tx_id| {
-            let bytes = tx_id.to_byte_array();
-            // bytes.reverse();
-            bytes.try_into().unwrap()
-        })
-        .collect::<Vec<[u8; 32]>>();
+        .map(|tx_id| tx_id.to_raw_hash())
+        .collect::<Vec<HashType>>();
 
-    let _depth = (tx_ids.len() - 1).ilog(2) + 1;
-    let mut nodes = Vec::new();
+    let mut length = tx_ids.len();
+    let depth = (length - 1).ilog(2) + 1;
 
-    // Populate leaf nodes
-    nodes.push(Vec::new());
-    for tx in tx_id_bytes_vec.iter() {
-        nodes[0].push(*tx);
+    let mut merkle_path = Vec::new();
+    let mut i = index as usize;
+
+    for _ in 0..depth {
+        let path_element = if i % 2 == 1 {tx_id_as_hashes[i - 1]} else {tx_id_as_hashes[min(i + 1, length - 1)]};
+        merkle_path.push(path_element.to_byte_array());
+        i /= 2;
+        for idx in 0..((length + 1) / 2) {
+            let idx1 = 2 * idx;
+            let idx2 = min(idx1 + 1, length - 1);
+            let mut encoder = HashType::engine();
+            tx_id_as_hashes[idx1].consensus_encode(&mut encoder).expect("in-memory writers don't error");
+            tx_id_as_hashes[idx2].consensus_encode(&mut encoder).expect("in-memory writers don't error");
+            tx_id_as_hashes[idx] = HashType::from_engine(encoder);
+        }
+        length = length / 2 + length % 2;
     }
 
-    // Construct the tree
-    let mut curr_level_offset: usize = 1;
-    let mut prev_level_size = tx_ids.len();
-    let mut prev_level_index_offset = 0;
-    let mut preimage: [u8; 64] = [0; 64];
-    while prev_level_size > 1 {
-        // println!("curr_level_offset: {}", curr_level_offset);
-        // println!("prev_level_size: {}", prev_level_size);
-        // println!("prev_level_index_offset: {}", prev_level_index_offset);
-        nodes.push(Vec::new());
-        for i in 0..(prev_level_size / 2) {
-            preimage[..32].copy_from_slice(
-                &nodes[curr_level_offset - 1 as usize][prev_level_index_offset + i * 2],
-            );
-            preimage[32..].copy_from_slice(
-                &nodes[curr_level_offset - 1][prev_level_index_offset + i * 2 + 1],
-            );
-            let combined_hash = calculate_double_sha256(&preimage);
-            nodes[curr_level_offset].push(combined_hash);
-        }
-        if prev_level_size % 2 == 1 {
-            let mut preimage: [u8; 64] = [0; 64];
-            preimage[..32].copy_from_slice(
-                &nodes[curr_level_offset - 1]
-                    [prev_level_index_offset + prev_level_size - 1],
-            );
-            preimage[32..].copy_from_slice(
-                &nodes[curr_level_offset - 1]
-                    [prev_level_index_offset + prev_level_size - 1],
-            );
-            let combined_hash = calculate_double_sha256(&preimage);
-            nodes[curr_level_offset].push(combined_hash);
-        }
-        curr_level_offset += 1;
-        prev_level_size = (prev_level_size + 1) / 2;
-        prev_level_index_offset = 0;
-    }
-
-    assert!(
-        index <= nodes[0].len() as u32 - 1,
-        "Index out of bounds"
-    );
-    let mut path = Vec::new();
-    let mut level = 0;
-    let mut i = index;
-    while level < nodes.len() as u32 - 1 {
-        if i % 2 == 1 {
-            path.push(nodes[level as usize][i as usize - 1]);
-        } else {
-            if (nodes[level as usize].len() - 1) as u32 == i {
-                path.push(nodes[level as usize][i as usize]);
-            } else {
-                path.push(nodes[level as usize][(i + 1) as usize]);
-            }
-        }
-        level += 1;
-        i = i / 2;
-    }
-    path
+    merkle_path
 }
 
 impl<E: Environment> ENVWriter<E> {
