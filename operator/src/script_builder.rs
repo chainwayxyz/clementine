@@ -82,6 +82,9 @@ impl ScriptBuilder {
         Builder::from(script_bytes)
     }
 
+    // ATTENTION: If you want to spend a UTXO using timelock script, the condition is that
+    // # in the script < # in the sequence of the tx < # of blocks mined after UTXO appears on the chain
+
     pub fn generate_timelock_script(actor_pk: &XOnlyPublicKey, block_count: u32) -> ScriptBuf {
         Builder::new()
             .push_int(block_count as i64)

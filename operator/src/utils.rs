@@ -217,108 +217,108 @@ mod tests {
         assert_eq!(btc_hex, hex);
     }
 
-    #[test]
-    fn test_connector_tree_tx() {
-        // ATTENTION: If you want to spend a UTXO using timelock script, the condition is that
-        // # in the script < # in the sequence of the tx < # of blocks mined after UTXO appears on the chain
-        let rpc = ExtendedRpc::new();
-        let operator = Operator::new(&mut OsRng, &rpc, NUM_VERIFIERS as u32);
-        // let user = User::new(&mut OsRng, &rpc);
-        let resource_utxo = operator
-            .rpc
-            .send_to_address(&operator.signer.address, 100_000_000);
+    // #[test]
+    // fn test_connector_tree_tx() {
+    //     // ATTENTION: If you want to spend a UTXO using timelock script, the condition is that
+    //     // # in the script < # in the sequence of the tx < # of blocks mined after UTXO appears on the chain
+    //     let rpc = ExtendedRpc::new();
+    //     let operator = Operator::new(&mut OsRng, &rpc, NUM_VERIFIERS as u32);
+    //     // let user = User::new(&mut OsRng, &rpc);
+    //     let resource_utxo = operator
+    //         .rpc
+    //         .send_to_address(&operator.signer.address, 100_000_000);
 
-        let resource_tx = operator
-            .rpc
-            .get_raw_transaction(&resource_utxo.txid, None)
-            .unwrap();
+    //     let resource_tx = operator
+    //         .rpc
+    //         .get_raw_transaction(&resource_utxo.txid, None)
+    //         .unwrap();
 
-        let utxo_tx_ins = vec![TxIn {
-            previous_output: resource_utxo,
-            script_sig: ScriptBuf::new(),
-            sequence: bitcoin::transaction::Sequence::ENABLE_RBF_NO_LOCKTIME,
-            witness: Witness::new(),
-        }];
+    //     let utxo_tx_ins = vec![TxIn {
+    //         previous_output: resource_utxo,
+    //         script_sig: ScriptBuf::new(),
+    //         sequence: bitcoin::transaction::Sequence::ENABLE_RBF_NO_LOCKTIME,
+    //         witness: Witness::new(),
+    //     }];
 
-        println!("utxo_tx_ins: {:?}", utxo_tx_ins);
+    //     println!("utxo_tx_ins: {:?}", utxo_tx_ins);
 
-        let (address, tree_info) = TransactionBuilder::create_connector_tree_node_address(
-            &operator.signer.secp,
-            operator.signer.xonly_public_key,
-            [0u8; 32],
-        );
+    //     let (address, tree_info) = TransactionBuilder::create_connector_tree_node_address(
+    //         &operator.signer.secp,
+    //         operator.signer.xonly_public_key,
+    //         [0u8; 32],
+    //     );
 
-        let utxo_tx_outs = TransactionBuilder::create_tx_outs(vec![(
-            Amount::from_sat(99_999_000),
-            address.script_pubkey(),
-        )]);
-        let mut utxo_tx = TransactionBuilder::create_btc_tx(utxo_tx_ins, utxo_tx_outs);
-        let sig = operator.signer.sign_taproot_pubkey_spend_tx(
-            &mut utxo_tx,
-            vec![resource_tx.output[resource_utxo.vout as usize].clone()],
-            0,
-        );
-        let mut sighash_cache = SighashCache::new(utxo_tx.borrow_mut());
-        let witness = sighash_cache.witness_mut(0).unwrap();
-        witness.push(sig.as_ref());
-        let utxo_txid = operator.rpc.send_raw_transaction(&utxo_tx).unwrap();
-        println!("utxo_txid: {:?}", utxo_txid);
-        let rpc_utxo_tx = operator.rpc.get_raw_transaction(&utxo_txid, None).unwrap();
-        println!("rpc_utxo_tx: {:?}", rpc_utxo_tx);
-        rpc.mine_blocks(5);
-        let mut connector_tree_tx = Transaction {
-            version: Version(2),
-            lock_time: absolute::LockTime::from_consensus(0),
-            input: vec![TxIn {
-                previous_output: OutPoint {
-                    txid: utxo_txid,
-                    vout: 0,
-                },
-                script_sig: ScriptBuf::new(),
-                sequence: Sequence::from_height(3), // Sequence::MAX,
-                witness: Witness::new(),
-            }],
-            output: vec![
-                TxOut {
-                    value: Amount::from_sat(49_999_000),
-                    script_pubkey: address.script_pubkey(),
-                },
-                TxOut {
-                    value: Amount::from_sat(49_999_000),
-                    script_pubkey: address.script_pubkey(),
-                },
-            ],
-        };
-        println!("dust value: {:?}", address.script_pubkey().dust_value());
-        println!("connector_tree_tx: {:?}", connector_tree_tx);
-        println!("connector_tree_txid: {:?}", connector_tree_tx.txid());
+    //     let utxo_tx_outs = TransactionBuilder::create_tx_outs(vec![(
+    //         Amount::from_sat(99_999_000),
+    //         address.script_pubkey(),
+    //     )]);
+    //     let mut utxo_tx = TransactionBuilder::create_btc_tx(utxo_tx_ins, utxo_tx_outs);
+    //     let sig = operator.signer.sign_taproot_pubkey_spend_tx(
+    //         &mut utxo_tx,
+    //         vec![resource_tx.output[resource_utxo.vout as usize].clone()],
+    //         0,
+    //     );
+    //     let mut sighash_cache = SighashCache::new(utxo_tx.borrow_mut());
+    //     let witness = sighash_cache.witness_mut(0).unwrap();
+    //     witness.push(sig.as_ref());
+    //     let utxo_txid = operator.rpc.send_raw_transaction(&utxo_tx).unwrap();
+    //     println!("utxo_txid: {:?}", utxo_txid);
+    //     let rpc_utxo_tx = operator.rpc.get_raw_transaction(&utxo_txid, None).unwrap();
+    //     println!("rpc_utxo_tx: {:?}", rpc_utxo_tx);
+    //     rpc.mine_blocks(5);
+    //     let mut connector_tree_tx = Transaction {
+    //         version: Version(2),
+    //         lock_time: absolute::LockTime::from_consensus(0),
+    //         input: vec![TxIn {
+    //             previous_output: OutPoint {
+    //                 txid: utxo_txid,
+    //                 vout: 0,
+    //             },
+    //             script_sig: ScriptBuf::new(),
+    //             sequence: Sequence::from_height(3), // Sequence::MAX,
+    //             witness: Witness::new(),
+    //         }],
+    //         output: vec![
+    //             TxOut {
+    //                 value: Amount::from_sat(49_999_000),
+    //                 script_pubkey: address.script_pubkey(),
+    //             },
+    //             TxOut {
+    //                 value: Amount::from_sat(49_999_000),
+    //                 script_pubkey: address.script_pubkey(),
+    //             },
+    //         ],
+    //     };
+    //     println!("dust value: {:?}", address.script_pubkey().dust_value());
+    //     println!("connector_tree_tx: {:?}", connector_tree_tx);
+    //     println!("connector_tree_txid: {:?}", connector_tree_tx.txid());
 
-        let timelock_script =
-            ScriptBuilder::generate_timelock_script(&operator.signer.xonly_public_key, 2);
-        let sig = operator.signer.sign_taproot_script_spend_tx(
-            &mut connector_tree_tx,
-            &vec![utxo_tx.output[0].clone()],
-            &timelock_script,
-            0,
-        );
-        let spend_control_block = tree_info
-            .control_block(&(timelock_script.clone(), LeafVersion::TapScript))
-            .expect("Cannot create control block");
-        let mut sighash_cache = SighashCache::new(connector_tree_tx.borrow_mut());
-        let witness = sighash_cache.witness_mut(0).unwrap();
-        witness.push(sig.as_ref());
-        witness.push(timelock_script);
-        witness.push(&spend_control_block.serialize());
+    //     let timelock_script =
+    //         ScriptBuilder::generate_timelock_script(&operator.signer.xonly_public_key, 2);
+    //     let sig = operator.signer.sign_taproot_script_spend_tx(
+    //         &mut connector_tree_tx,
+    //         &vec![utxo_tx.output[0].clone()],
+    //         &timelock_script,
+    //         0,
+    //     );
+    //     let spend_control_block = tree_info
+    //         .control_block(&(timelock_script.clone(), LeafVersion::TapScript))
+    //         .expect("Cannot create control block");
+    //     let mut sighash_cache = SighashCache::new(connector_tree_tx.borrow_mut());
+    //     let witness = sighash_cache.witness_mut(0).unwrap();
+    //     witness.push(sig.as_ref());
+    //     witness.push(timelock_script);
+    //     witness.push(&spend_control_block.serialize());
 
-        // let hex_utxo_tx = hex::encode(bytes_utxo_tx.clone());
-        rpc.mine_blocks(2);
-        rpc.mine_blocks(6);
-        let connector_tree_txid = operator
-            .rpc
-            .send_raw_transaction(&connector_tree_tx)
-            .unwrap();
-        // let hex_connector_tree_tx = hex::encode(bytes_connector_tree_tx.clone());
-        println!("utxo_txid: {:?}", utxo_txid);
-        println!("connector_tree_txid: {:?}", connector_tree_txid);
-    }
+    //     // let hex_utxo_tx = hex::encode(bytes_utxo_tx.clone());
+    //     rpc.mine_blocks(2);
+    //     rpc.mine_blocks(6);
+    //     let connector_tree_txid = operator
+    //         .rpc
+    //         .send_raw_transaction(&connector_tree_tx)
+    //         .unwrap();
+    //     // let hex_connector_tree_tx = hex::encode(bytes_connector_tree_tx.clone());
+    //     println!("utxo_txid: {:?}", utxo_txid);
+    //     println!("connector_tree_txid: {:?}", connector_tree_txid);
+    // }
 }

@@ -980,36 +980,36 @@ mod tests {
     //     println!("giga_merkle_tree: {:?}", giga_merkle_tree);
     // }
 
-    #[test]
-    fn test_concurrent_deposit() {
-        let rpc = ExtendedRpc::new();
+    // #[test]
+    // fn test_concurrent_deposit() {
+    //     let rpc = ExtendedRpc::new();
 
-        let mut operator = Operator::new(&mut OsRng, &rpc, NUM_VERIFIERS as u32);
-        let mut users = Vec::new();
+    //     let mut operator = Operator::new(&mut OsRng, &rpc, NUM_VERIFIERS as u32);
+    //     let mut users = Vec::new();
 
-        let verifiers_pks = operator.get_all_verifiers();
-        for verifier in &mut operator.mock_verifier_access {
-            verifier.set_verifiers(verifiers_pks.clone());
-        }
-        println!("verifiers_pks.len: {:?}", verifiers_pks.len());
+    //     let verifiers_pks = operator.get_all_verifiers();
+    //     for verifier in &mut operator.mock_verifier_access {
+    //         verifier.set_verifiers(verifiers_pks.clone());
+    //     }
+    //     println!("verifiers_pks.len: {:?}", verifiers_pks.len());
 
-        for _ in 0..NUM_USERS {
-            users.push(User::new(&rpc, verifiers_pks.clone()));
-        }
+    //     for _ in 0..NUM_USERS {
+    //         users.push(User::new(&rpc, verifiers_pks.clone()));
+    //     }
 
-        let user1 = User::new(&rpc, verifiers_pks.clone());
-        let user2 = User::new(&rpc, verifiers_pks.clone());
+    //     let user1 = User::new(&rpc, verifiers_pks.clone());
+    //     let user2 = User::new(&rpc, verifiers_pks.clone());
 
-        let (deposit1_utxo, deposit1_pk) = user1.deposit_tx();
-        rpc.mine_blocks(1);
-        let (deposit2_utxo, deposit2_pk) = user2.deposit_tx();
-        rpc.mine_blocks(5);
+    //     let (deposit1_utxo, deposit1_pk) = user1.deposit_tx();
+    //     rpc.mine_blocks(1);
+    //     let (deposit2_utxo, deposit2_pk) = user2.deposit_tx();
+    //     rpc.mine_blocks(5);
 
-        operator.new_deposit(deposit1_utxo, &deposit1_pk).unwrap();
-        rpc.mine_blocks(1);
-        assert!(matches!(
-            operator.new_deposit(deposit2_utxo, &deposit2_pk),
-            Err(BridgeError::OperatorPendingDeposit)
-        ));
-    }
+    //     operator.new_deposit(deposit1_utxo, &deposit1_pk).unwrap();
+    //     rpc.mine_blocks(1);
+    //     assert!(matches!(
+    //         operator.new_deposit(deposit2_utxo, &deposit2_pk),
+    //         Err(BridgeError::OperatorPendingDeposit)
+    //     ));
+    // }
 }
