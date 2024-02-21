@@ -196,7 +196,7 @@ impl TransactionBuilder {
 
     pub fn create_connector_tree_root_address(
         &self,
-        operator_pk: XOnlyPublicKey,
+        operator_pk: &XOnlyPublicKey,
         absolute_block_height_to_take_after: u64,
     ) -> (Address, TaprootSpendInfo) {
         let timelock_script = ScriptBuilder::generate_absolute_timelock_script(
@@ -218,7 +218,7 @@ impl TransactionBuilder {
 
     pub fn create_connector_tree_node_address(
         secp: &Secp256k1<secp256k1::All>,
-        actor_pk: XOnlyPublicKey,
+        actor_pk: &XOnlyPublicKey,
         hash: Data,
     ) -> (Address, TaprootSpendInfo) {
         let timelock_script = ScriptBuilder::generate_timelock_script(
@@ -374,8 +374,8 @@ impl TransactionBuilder {
     pub fn create_connector_binary_tree(
         &self,
         _period: usize,
-        xonly_public_key: XOnlyPublicKey,
-        root_utxo: OutPoint,
+        xonly_public_key: &XOnlyPublicKey,
+        root_utxo: &OutPoint,
         depth: usize,
         connector_tree_hashes: Vec<Vec<[u8; 32]>>,
     ) -> Vec<Vec<OutPoint>> {
@@ -389,7 +389,7 @@ impl TransactionBuilder {
 
         let (_root_address, _) = TransactionBuilder::create_connector_tree_node_address(
             &self.secp,
-            xonly_public_key,
+            &xonly_public_key,
             connector_tree_hashes[0][0],
         );
 
@@ -403,12 +403,12 @@ impl TransactionBuilder {
             for (j, utxo) in utxo_tree_previous_level.iter().enumerate() {
                 let (first_address, _) = TransactionBuilder::create_connector_tree_node_address(
                     &self.secp,
-                    xonly_public_key,
+                    &xonly_public_key,
                     connector_tree_hashes[(i + 1) as usize][2 * j],
                 );
                 let (second_address, _) = TransactionBuilder::create_connector_tree_node_address(
                     &self.secp,
-                    xonly_public_key,
+                    &xonly_public_key,
                     connector_tree_hashes[(i + 1) as usize][2 * j + 1],
                 );
 

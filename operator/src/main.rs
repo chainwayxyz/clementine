@@ -30,8 +30,8 @@ fn main() {
             start_blockheight,
             &first_source_utxo,
         );
-        println!("connector_roots_created, verifiers agree");
     }
+    println!("connector roots created, verifiers agree");
     // In the end, create BitVM
 
     // every user makes a deposit.

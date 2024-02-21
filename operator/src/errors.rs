@@ -32,3 +32,18 @@ impl fmt::Display for DepositError {
         }
     }
 }
+
+#[derive(Debug)]
+pub enum VerificationError {
+    RootMatchError,
+    UTXOMatchError,
+}
+
+impl fmt::Display for VerificationError {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match *self {
+            VerificationError::RootMatchError => write!(f, "Roots do not match"),
+            VerificationError::UTXOMatchError => write!(f, "UTXOs do not match"),
+        }
+    }
+}
