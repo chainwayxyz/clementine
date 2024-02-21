@@ -1,12 +1,90 @@
 use bitcoin::{Block, Transaction, Txid};
-use circuit_helpers::env::Environment;
+use circuit_helpers::{env::Environment, hashes::calculate_double_sha256};
 use secp256k1::hashes::Hash;
 use std::marker::PhantomData;
 
-use crate::bitcoin_merkle::BitcoinMerkleTree;
-
 pub struct ENVWriter<E: Environment> {
     _marker: PhantomData<E>,
+}
+
+pub fn merkle_path_from_tx_ids(tx_ids: Vec<Txid>, index: u32) -> Vec<[u8; 32]> {
+    let tx_id_bytes_vec = tx_ids
+        .iter()
+        .map(|tx_id| {
+            let bytes = tx_id.to_byte_array();
+            // bytes.reverse();
+            bytes.try_into().unwrap()
+        })
+        .collect::<Vec<[u8; 32]>>();
+
+    let _depth = (tx_ids.len() - 1).ilog(2) + 1;
+    let mut nodes = Vec::new();
+
+    // Populate leaf nodes
+    nodes.push(Vec::new());
+    for tx in tx_id_bytes_vec.iter() {
+        nodes[0].push(*tx);
+    }
+
+    // Construct the tree
+    let mut curr_level_offset: usize = 1;
+    let mut prev_level_size = tx_ids.len();
+    let mut prev_level_index_offset = 0;
+    let mut preimage: [u8; 64] = [0; 64];
+    while prev_level_size > 1 {
+        // println!("curr_level_offset: {}", curr_level_offset);
+        // println!("prev_level_size: {}", prev_level_size);
+        // println!("prev_level_index_offset: {}", prev_level_index_offset);
+        nodes.push(Vec::new());
+        for i in 0..(prev_level_size / 2) {
+            preimage[..32].copy_from_slice(
+                &nodes[curr_level_offset - 1 as usize][prev_level_index_offset + i * 2],
+            );
+            preimage[32..].copy_from_slice(
+                &nodes[curr_level_offset - 1][prev_level_index_offset + i * 2 + 1],
+            );
+            let combined_hash = calculate_double_sha256(&preimage);
+            nodes[curr_level_offset].push(combined_hash);
+        }
+        if prev_level_size % 2 == 1 {
+            let mut preimage: [u8; 64] = [0; 64];
+            preimage[..32].copy_from_slice(
+                &nodes[curr_level_offset - 1]
+                    [prev_level_index_offset + prev_level_size - 1],
+            );
+            preimage[32..].copy_from_slice(
+                &nodes[curr_level_offset - 1]
+                    [prev_level_index_offset + prev_level_size - 1],
+            );
+            let combined_hash = calculate_double_sha256(&preimage);
+            nodes[curr_level_offset].push(combined_hash);
+        }
+        curr_level_offset += 1;
+        prev_level_size = (prev_level_size + 1) / 2;
+        prev_level_index_offset = 0;
+    }
+
+    assert!(
+        index <= nodes[0].len() as u32 - 1,
+        "Index out of bounds"
+    );
+    let mut path = Vec::new();
+    let mut level = 0;
+    let mut i = index;
+    while level < nodes.len() as u32 - 1 {
+        if i % 2 == 1 {
+            path.push(nodes[level as usize][i as usize - 1]);
+        } else {
+            if (nodes[level as usize].len() - 1) as u32 == i {
+                path.push(nodes[level as usize][i as usize]);
+            } else {
+                path.push(nodes[level as usize][(i + 1) as usize]);
+            }
+        }
+        level += 1;
+        i = i / 2;
+    }
+    path
 }
 
 impl<E: Environment> ENVWriter<E> {
@@ -105,16 +183,7 @@ impl<E: Environment> ENVWriter<E> {
         // find the index of the txid in tx_id_array vector or give error "txid not found in block txids"
         let index = tx_id_array.iter().position(|&r| r == txid).unwrap();
         E::write_u32(index as u32);
-        let tx_id_bytes_vec = tx_id_array
-            .iter()
-            .map(|tx_id| {
-                let bytes = tx_id.to_byte_array();
-                // bytes.reverse();
-                bytes.try_into().unwrap()
-            })
-            .collect::<Vec<[u8; 32]>>();
-        let merkle_tree = BitcoinMerkleTree::new(tx_id_bytes_vec);
-        let merkle_path = merkle_tree.get_idx_path(index as u32);
+        let merkle_path = merkle_path_from_tx_ids(tx_id_array, index as u32);
         E::write_u32(merkle_path.len() as u32);
         for node in merkle_path {
             E::write_32bytes(node);

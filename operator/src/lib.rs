@@ -1,5 +1,4 @@
 pub mod actor;
-pub mod bitcoin_merkle;
 pub mod extended_rpc;
 pub mod merkle;
 pub mod operator;
