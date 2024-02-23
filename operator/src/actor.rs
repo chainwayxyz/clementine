@@ -13,6 +13,7 @@ use bitcoin::{
     },
     Address, TapSighash, TapTweakHash,
 };
+
 use bitcoin::{Amount, OutPoint, TapLeafHash, TapNodeHash, TxOut, Txid};
 use bitcoincore_rpc::{Client, RpcApi};
 use tiny_keccak::{Hasher, Keccak};
@@ -124,19 +125,40 @@ impl Actor {
     pub fn sign_taproot_pubkey_spend_tx(
         &self,
         tx: &mut bitcoin::Transaction,
-        prevouts: Vec<TxOut>,
+        prevouts: &Vec<TxOut>,
         input_index: usize,
     ) -> schnorr::Signature {
         let mut sighash_cache = SighashCache::new(tx);
         let sig_hash = sighash_cache
             .taproot_key_spend_signature_hash(
                 input_index,
-                &bitcoin::sighash::Prevouts::All(&prevouts),
+                &bitcoin::sighash::Prevouts::All(prevouts),
                 bitcoin::sighash::TapSighashType::Default,
             )
             .unwrap();
         self.sign_with_tweak(sig_hash, None)
     }
+
+    // pub fn verify_script_spend_signature(
+    //     _tx: &bitcoin::Transaction,
+    //     _presign: &schnorr::Signature,
+    //     _xonly_public_key: &XOnlyPublicKey,
+    //     spend_script: &bitcoin::Script,
+    //     input_index: usize,
+    //     prevouts: &Vec<TxOut>,
+    // ) -> Option<bool> {
+    //     let sighash_cache = SighashCache::new(_tx);
+    //     let sig_hash = sighash_cache
+    //         .taproot_script_spend_signature_hash(
+    //             input_index,
+    //             &bitcoin::sighash::Prevouts::All(&prevouts),
+    //             TapLeafHash::from_script(&spend_script, LeafVersion::TapScript),
+    //             bitcoin::sighash::TapSighashType::Default,
+    //         )
+    //         .unwrap();
+        
+    //     Some(true)
+    // }
 
     pub fn create_self_utxo(&self, rpc: &Client, amount: Amount) -> (OutPoint, Amount) {
         let txid = rpc
@@ -171,7 +193,7 @@ impl Actor {
         let prevouts =
             TransactionBuilder::create_tx_outs(vec![(prev_amount, self.address.script_pubkey())]);
 
-        let sig = self.sign_taproot_pubkey_spend_tx(&mut spend_tx, prevouts, 0);
+        let sig = self.sign_taproot_pubkey_spend_tx(&mut spend_tx, &prevouts, 0);
         let mut deposit_tx_sighash_cache = SighashCache::new(spend_tx.borrow_mut());
         let witness = deposit_tx_sighash_cache.witness_mut(0).unwrap();
         witness.push(sig.as_ref());

@@ -35,13 +35,14 @@ impl ScriptBuilder {
             .into_script();
         script
     }
-    pub fn generate_n_of_n_script(&self, hash: [u8; 32]) -> ScriptBuf {
-        let raw_script = self.generate_n_of_n_script_without_hash();
-        let script_buf = ScriptBuilder::convert_scriptbuf_into_builder(raw_script).into_script();
-        ScriptBuilder::add_hash_to_script(script_buf, hash)
-    }
+    
+    // pub fn generate_n_of_n_script(&self, hash: [u8; 32]) -> ScriptBuf {
+    //     let raw_script = self.generate_script_n_of_n();
+    //     let script_buf = ScriptBuilder::convert_scriptbuf_into_builder(raw_script).into_script();
+    //     ScriptBuilder::add_hash_to_script(script_buf, hash)
+    // }
 
-    pub fn generate_n_of_n_script_without_hash(&self) -> ScriptBuf {
+    pub fn generate_script_n_of_n(&self) -> ScriptBuf {
         let mut builder = Builder::new();
         for vpk in self.verifiers_pks.clone() {
             builder = builder.push_x_only_key(&vpk).push_opcode(OP_CHECKSIGVERIFY);

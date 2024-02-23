@@ -20,6 +20,7 @@ use crate::utils::{calculate_amount, handle_anyone_can_spend_script, handle_tapr
 use crate::verifier::Verifier;
 use bitcoin::address::NetworkChecked;
 use bitcoin::sighash::SighashCache;
+use bitcoin::consensus::validation::verify_transaction;
 use bitcoin::{secp256k1, secp256k1::schnorr, Address, Txid};
 use bitcoin::{Amount, OutPoint, Transaction, TxOut};
 use bitcoincore_rpc::{Client, RpcApi};
@@ -86,7 +87,7 @@ pub fn create_all_rounds_connector_preimages(
     depth: usize,
     num_rounds: usize,
     rng: &mut OsRng,
-) -> (Vec<Vec<Vec<PreimageType>>>, Vec<Vec<Vec<[u8; 32]>>>) {
+) -> (Vec<Vec<Vec<PreimageType>>>, Vec<Vec<Vec<HashType>>>) {
     let mut preimages = Vec::new();
     let mut hashes = Vec::new();
     for _ in 0..num_rounds {
@@ -144,7 +145,6 @@ pub struct Operator<'a> {
     // pub giga_merkle_tree: GigaMerkleTree,
     pub deposit_utxos: Vec<OutPoint>,
     pub move_utxos: Vec<OutPoint>,
-    pub deposit_index: u32,
 }
 
 impl<'a> Operator<'a> {
@@ -185,7 +185,6 @@ impl<'a> Operator<'a> {
             connector_tree_utxos: Vec::new(),
             deposit_utxos: Vec::new(),
             move_utxos: Vec::new(),
-            deposit_index: 0,
         }
     }
 
@@ -236,13 +235,17 @@ impl<'a> Operator<'a> {
         )
         .unwrap();
 
+        let deposit_index = self.deposit_take_sigs.len() as u32;
+
         let presigns_from_all_verifiers = self
             .mock_verifier_access
             .iter()
             .map(|verifier| {
                 // Note: In this part we will need to call the verifier's API to get the presigns
-                let deposit_presigns = verifier.new_deposit(start_utxo, return_address);
-                println!("checked new deposit");
+                let deposit_presigns =
+                    verifier.new_deposit(start_utxo, return_address, deposit_index);
+                println!("deposit presigns: {:?}", deposit_presigns);
+                println!("Verifier checked new deposit");
                 // check_presigns(deposit_utxo, &deposit_presigns);
                 println!("checked presigns");
                 deposit_presigns
@@ -258,7 +261,7 @@ impl<'a> Operator<'a> {
             value: Amount::from_sat(BRIDGE_AMOUNT_SATS),
         }];
 
-        let script_n_of_n = self.script_builder.generate_n_of_n_script_without_hash();
+        let script_n_of_n = self.script_builder.generate_script_n_of_n();
 
         // let mut move_signatures: Vec<Signature> = presigns_from_all_verifiers
         //     .iter()
@@ -292,9 +295,9 @@ impl<'a> Operator<'a> {
         handle_taproot_witness(
             &mut move_tx,
             0,
-            witness_elements,
-            script_n_of_n,
-            deposit_taproot_spend_info,
+            &witness_elements,
+            &script_n_of_n,
+            &deposit_taproot_spend_info,
         );
         let rpc_move_txid = self.rpc.inner.send_raw_transaction(&move_tx).unwrap();
         let move_utxo = OutPoint {
@@ -443,7 +446,7 @@ impl<'a> Operator<'a> {
 
         let _all_verifiers = self.get_all_verifiers();
 
-        let script_n_of_n_without_hash = self.script_builder.generate_n_of_n_script_without_hash();
+        let script_n_of_n_without_hash = self.script_builder.generate_script_n_of_n();
         let (address, _) = TransactionBuilder::create_taproot_address(
             &self.signer.secp,
             vec![script_n_of_n_without_hash.clone()],
@@ -483,7 +486,7 @@ impl<'a> Operator<'a> {
         ]);
         let sig = self
             .signer
-            .sign_taproot_pubkey_spend_tx(&mut child_tx, prevouts, 1);
+            .sign_taproot_pubkey_spend_tx(&mut child_tx, &prevouts, 1);
         let mut sighash_cache = SighashCache::new(child_tx.borrow_mut());
         let witness = sighash_cache.witness_mut(1).unwrap();
         witness.push(sig.as_ref());
@@ -512,6 +515,26 @@ impl<'a> Operator<'a> {
 
     // This function is internal, it gives the appropriate response for a bitvm challenge
     pub fn challenge_received() {}
+
+    pub fn verify_presigns(
+        _tx: &bitcoin::Transaction,
+        prevouts: &Vec<TxOut>,
+        // _presigns: &Vec<schnorr::Signature>,
+        // _xonly_public_keys: &Vec<XOnlyPublicKey>,
+    ) {
+        let mut outpoints = Vec::new();
+        for input in _tx.input.iter() {
+            outpoints.push(input.previous_output);
+        }
+        let mut hm = HashMap::new();
+        for (idx, outpoint) in outpoints.iter().enumerate() {
+            hm.insert(outpoint, prevouts[idx].clone());
+        }
+        let f = |outpoint: &OutPoint| {
+            hm.get(outpoint).cloned()
+        };
+        verify_transaction(_tx, f);
+    }
 
     pub fn spend_connector_tree_utxo(
         // TODO: To big, move some parts to Transaction Builder
@@ -600,7 +623,7 @@ impl<'a> Operator<'a> {
         let mut witness_elements: Vec<&[u8]> = Vec::new();
         witness_elements.push(sig.as_ref());
 
-        handle_taproot_witness(&mut tx, 0, witness_elements, timelock_script, tree_info);
+        handle_taproot_witness(&mut tx, 0, &witness_elements, &timelock_script, &tree_info);
 
         // println!("bytes_connector_tree_tx length: {:?}", bytes_connector_tree_tx.len());
         // let hex_utxo_tx = hex::encode(bytes_utxo_tx.clone());
@@ -686,9 +709,9 @@ impl<'a> Operator<'a> {
         handle_taproot_witness(
             &mut reveal_tx,
             0,
-            vec![sig.as_ref()],
-            inscribe_preimage_script,
-            commit_tree_info,
+            &vec![sig.as_ref()],
+            &inscribe_preimage_script,
+            &commit_tree_info,
         );
 
         let reveal_txid = self.rpc.send_raw_transaction(&reveal_tx).unwrap();
@@ -1010,4 +1033,11 @@ mod tests {
     //         Err(BridgeError::OperatorPendingDeposit)
     //     ));
     // }
+
+    #[test]
+    fn test_verify_signatures() {
+
+    }
+    
+
 }

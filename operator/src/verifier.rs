@@ -1,10 +1,11 @@
 use std::borrow::BorrowMut;
 use std::collections::{HashMap, HashSet};
 
-use crate::constant::{ConnectorTreeUTXOs, PreimageType, HASH_FUNCTION_32, MIN_RELAY_FEE};
+use crate::constant::{ConnectorTreeUTXOs, PreimageType, DUST_VALUE, HASH_FUNCTION_32, MIN_RELAY_FEE};
 use bitcoin::sighash::SighashCache;
 use bitcoin::{secp256k1, secp256k1::Secp256k1, OutPoint};
 use bitcoin::{Amount, TxOut};
+use circuit_helpers::config::{CONNECTOR_TREE_DEPTH, NUM_ROUNDS};
 use secp256k1::All;
 use secp256k1::{rand::rngs::OsRng, XOnlyPublicKey};
 
@@ -177,6 +178,7 @@ impl<'a> Verifier<'a> {
         &self,
         start_utxo: OutPoint,
         return_address: &XOnlyPublicKey,
+        deposit_index: u32,
     ) -> DepositPresigns {
         // 1. Check if there is any previous pending deposit
 
@@ -190,20 +192,61 @@ impl<'a> Verifier<'a> {
         .unwrap();
 
         let mut move_tx = self.transaction_builder.create_move_tx(start_utxo);
+        let move_txid = move_tx.txid();
 
         let prevouts = TransactionBuilder::create_tx_outs(vec![(
             Amount::from_sat(BRIDGE_AMOUNT_SATS),
             deposit_address.script_pubkey(),
         )]);
 
-        let script_n_of_n = self.script_builder.generate_n_of_n_script_without_hash();
+        let script_n_of_n = self.script_builder.generate_script_n_of_n();
 
-        let sig =
+        let move_sig =
             self.signer
                 .sign_taproot_script_spend_tx(&mut move_tx, &prevouts, &script_n_of_n, 0);
+        
+        let anyone_can_spend_txout: TxOut = ScriptBuilder::anyone_can_spend_txout();
+        let (bridge_address, bridge_address_spend_info) = self.transaction_builder.generate_bridge_address();
+
+        let mut op_claim_sigs = Vec::new();
+
+        for i in 0..NUM_ROUNDS {
+            let connector_utxo = self.connector_tree_utxos[i][CONNECTOR_TREE_DEPTH - 1][deposit_index as usize];
+            let mut operator_claim_tx = self.transaction_builder.create_operator_claim_tx(
+                OutPoint {
+                    txid: move_txid,
+                    vout: 0,
+                },
+                connector_utxo,
+                &self.signer.address,
+            );
+
+            let (connector_tree_leaf_address, connector_tree_leaf_spend_info) = TransactionBuilder::create_connector_tree_node_address(
+                &self.secp,
+                &self.operator_pk,
+                self.connector_tree_hashes[i][CONNECTOR_TREE_DEPTH][deposit_index as usize],
+            );
+
+
+
+            let prevouts = vec![TxOut {
+                value: Amount::from_sat(BRIDGE_AMOUNT_SATS) - Amount::from_sat(MIN_RELAY_FEE) - anyone_can_spend_txout.value,
+                script_pubkey: bridge_address.script_pubkey(),
+            },
+            TxOut {
+                value: Amount::from_sat(DUST_VALUE),
+                script_pubkey: connector_tree_leaf_address.script_pubkey(),
+            }
+            ];
+
+            let op_claim_sig = self.signer.sign_taproot_script_spend_tx(&mut operator_claim_tx, &prevouts, &script_n_of_n, 0);
+            op_claim_sigs.push(op_claim_sig);
+
+        }
+    
         DepositPresigns {
-            move_sign: sig,
-            operator_claim_sign: vec![],
+            move_sign: move_sig,
+            operator_claim_sign: op_claim_sigs,
         }
 
         // // println!("all_verifiers in new_deposit, in verifier now: {:?}", all_verifiers);
@@ -403,11 +446,11 @@ impl<'a> Verifier<'a> {
         // let witness = sighash_cache.witness_mut(0).unwrap();
         // witness.push(preimage);
         // witness.push(hash_script);
-        // witness.push(&spend_control_block.serialize());
+        // witness.push(&spend_control_block.serialize());s
 
         let mut witness_elements: Vec<&[u8]> = Vec::new();
         witness_elements.push(&preimage);
-        handle_taproot_witness(&mut tx, 0, witness_elements, hash_script, tree_info);
+        handle_taproot_witness(&mut tx, 0, &witness_elements, &hash_script, &tree_info);
 
         let spending_txid = self.rpc.send_raw_transaction(&tx).unwrap();
         println!("verifier_spending_txid: {:?}", spending_txid);
