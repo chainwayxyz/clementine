@@ -1036,7 +1036,9 @@ mod tests {
 
     #[test]
     fn test_verify_signatures() {
-
+        let tx_hex = "";
+        let tx: bitcoin::Transaction = bitcoin::consensus::deserialize(&hex::decode(tx_hex).unwrap()).unwrap();
+        let prevouts: Vec<bitcoin::TxOut> = vec![];
     }
     
 
