@@ -191,9 +191,17 @@ mod tests {
         let block1: Block = deserialize(&hex::decode(some_block).unwrap()).unwrap();
         test_block_merkle_path(block1);
 
-        let segwit_block = include_bytes!("../tests/data/mainnet_block_000000000000000000000c835b2adcaedc20fdf6ee440009c249452c726dafae.raw").to_vec();
-        let block2: Block = deserialize(&segwit_block).unwrap();
+        let segwit_block2 = include_bytes!("../tests/data/mainnet_block_000000000000000000000c835b2adcaedc20fdf6ee440009c249452c726dafae.raw").to_vec();
+        let block2: Block = deserialize(&segwit_block2).unwrap();
         test_block_merkle_path(block2);
+
+        let segwit_block3 = include_bytes!("../tests/data/mainnet_block_00000000000000000000edfe523d5e2993781d2305f51218ebfc236a250792d6.raw").to_vec();
+        let block3: Block = deserialize(&segwit_block3).unwrap();
+        test_block_merkle_path(block3);
+
+        let segwit_block4 = include_bytes!("../tests/data/testnet_block_000000000000045e0b1660b6445b5e5c5ab63c9a4f956be7e1e69be04fa4497b.raw").to_vec();
+        let block4: Block = deserialize(&segwit_block4).unwrap();
+        test_block_merkle_path(block4);
     }
 
     #[test]
