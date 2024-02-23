@@ -3,7 +3,7 @@ use std::collections::{HashMap, HashSet};
 use std::vec;
 
 use crate::actor::Actor;
-use crate::config::{BRIDGE_AMOUNT_SATS, CONNECTOR_TREE_DEPTH, NUM_ROUNDS};
+use crate::config::{BRIDGE_AMOUNT_SATS, CONNECTOR_TREE_DEPTH, CONNECTOR_TREE_OPERATOR_TAKES_AFTER, NUM_ROUNDS};
 use crate::constant::{
     ConnectorTreeUTXOs, HashType, InscriptionTxs, PreimageType, DUST_VALUE, HASH_FUNCTION_32,
     MIN_RELAY_FEE, PERIOD_BLOCK_COUNT,
@@ -19,14 +19,19 @@ use crate::transaction_builder::TransactionBuilder;
 use crate::utils::{calculate_amount, handle_anyone_can_spend_script, handle_taproot_witness};
 use crate::verifier::Verifier;
 use bitcoin::address::NetworkChecked;
+use bitcoin::consensus::verify_transaction_with_flags;
+use bitcoin::bitcoinconsensus::{VERIFY_NULLDUMMY, VERIFY_P2SH, VERIFY_WITNESS};
+use bitcoin::hashes::Hash;
 use bitcoin::sighash::SighashCache;
-use bitcoin::consensus::validation::verify_transaction;
+
+use bitcoin::taproot::LeafVersion;
 use bitcoin::{secp256k1, secp256k1::schnorr, Address, Txid};
-use bitcoin::{Amount, OutPoint, Transaction, TxOut};
+use bitcoin::{Amount, OutPoint, TapLeafHash, Transaction, TxOut};
 use bitcoincore_rpc::{Client, RpcApi};
 use secp256k1::rand::rngs::OsRng;
 use secp256k1::rand::Rng;
-use secp256k1::{All, Secp256k1, XOnlyPublicKey};
+use secp256k1::schnorr::Signature;
+use secp256k1::{All, Message, Secp256k1, XOnlyPublicKey};
 
 pub fn verify_presigns(
     _tx: &bitcoin::Transaction,
@@ -42,10 +47,12 @@ pub fn verify_presigns(
     for (idx, outpoint) in outpoints.iter().enumerate() {
         hm.insert(outpoint, prevouts[idx].clone());
     }
-    let f = |outpoint: &OutPoint| {
+    let s = |outpoint: &OutPoint| {
         hm.get(outpoint).cloned()
     };
-    let res = verify_transaction(_tx, f).unwrap();
+
+    let f = VERIFY_NULLDUMMY | VERIFY_WITNESS;
+    println!("{:?}", verify_transaction_with_flags(_tx, s, f).unwrap());
 }
 
 pub fn check_deposit(
@@ -283,22 +290,9 @@ impl<'a> Operator<'a> {
 
         let script_n_of_n = self.script_builder.generate_script_n_of_n();
 
-        // let mut move_signatures: Vec<Signature> = presigns_from_all_verifiers
-        //     .iter()
-        //     .map(|presign| presign.move_sign)
-        //     .collect();
-
-        let mut move_signatures = self
-            .mock_verifier_access
+        let mut move_signatures = presigns_from_all_verifiers
             .iter()
-            .map(|verifier| {
-                verifier.signer.sign_taproot_script_spend_tx(
-                    &mut move_tx,
-                    &prevouts,
-                    &script_n_of_n,
-                    0,
-                )
-            })
+            .map(|presign| presign.move_sign)
             .collect::<Vec<_>>();
 
         let sig =
@@ -331,6 +325,100 @@ impl<'a> Operator<'a> {
                 .collect::<Vec<_>>(),
         };
         self.deposit_take_sigs.push(operator_claim_sigs);
+
+        let anyone_can_spend_txout: TxOut = ScriptBuilder::anyone_can_spend_txout();
+        let (bridge_address, bridge_spend_info) = self.transaction_builder.generate_bridge_address();
+        let timelock_script = ScriptBuilder::generate_timelock_script(
+            &self.signer.xonly_public_key,
+            CONNECTOR_TREE_OPERATOR_TAKES_AFTER as u32,
+        );
+
+        for i in 0..NUM_ROUNDS {
+            let connector_utxo = self.connector_tree_utxos[i][CONNECTOR_TREE_DEPTH - 1][deposit_index as usize];
+            let mut operator_claim_tx = self.transaction_builder.create_operator_claim_tx(
+                OutPoint {
+                    txid: rpc_move_txid,
+                    vout: 0,
+                },
+                connector_utxo,
+                &self.signer.address,
+            );
+
+            let (connector_tree_leaf_address, connector_tree_leaf_spend_info) = TransactionBuilder::create_connector_tree_node_address(
+                &self.signer.secp,
+                &self.signer.xonly_public_key,
+                self.connector_tree_hashes[i][CONNECTOR_TREE_DEPTH][deposit_index as usize],
+            );
+
+            let prevouts = vec![TxOut {
+                value: Amount::from_sat(BRIDGE_AMOUNT_SATS) - Amount::from_sat(MIN_RELAY_FEE) - anyone_can_spend_txout.value,
+                script_pubkey: bridge_address.script_pubkey(),
+            },
+            TxOut {
+                value: Amount::from_sat(DUST_VALUE),
+                script_pubkey: connector_tree_leaf_address.script_pubkey(),
+            }
+            ];
+
+            let claim_sig_for_bridge = self.signer.sign_taproot_script_spend_tx(&mut operator_claim_tx, &prevouts, &script_n_of_n, 0);
+            let claim_sig_for_connector = self.signer.sign_taproot_script_spend_tx(&mut operator_claim_tx, &prevouts, &timelock_script, 1);
+
+            let mut witness_elements_0: Vec<&[u8]> = Vec::new();
+
+            let op_claim_sigs_for_period_i = presigns_from_all_verifiers
+                .iter()
+                .map(|presign| presign.operator_claim_sign[i].clone())
+                .collect::<Vec<_>>();
+
+            for sig in op_claim_sigs_for_period_i.iter() {
+                witness_elements_0.push(sig.as_ref());
+            }
+
+            witness_elements_0.push(claim_sig_for_bridge.as_ref());
+
+            let mut witness_elements_1: Vec<&[u8]> = Vec::new();
+            witness_elements_1.push(claim_sig_for_connector.as_ref());
+
+            handle_taproot_witness(
+                &mut operator_claim_tx,
+                0,
+                &witness_elements_0,
+                &script_n_of_n,
+                &bridge_spend_info,
+            );
+
+            handle_taproot_witness(
+                &mut operator_claim_tx,
+                1,
+                &witness_elements_1,
+                &timelock_script,
+                &connector_tree_leaf_spend_info,
+            );
+
+            let mut sighash_cache = SighashCache::new(operator_claim_tx.borrow_mut());
+
+            let sig_hash = sighash_cache
+                .taproot_script_spend_signature_hash(
+                    0,
+                    &bitcoin::sighash::Prevouts::All(&prevouts),
+                    TapLeafHash::from_script(
+                        &script_n_of_n,
+                        LeafVersion::TapScript,
+                    ),
+                    bitcoin::sighash::TapSighashType::Default,
+                )
+                .unwrap();
+            for (idx, sig) in op_claim_sigs_for_period_i.iter().enumerate() {
+                self.signer.secp.verify_schnorr(
+                    &sig,
+                    &Message::from_digest_slice(sig_hash.as_byte_array()).expect("should be hash"),
+                    &self.verifiers_pks[idx],
+                ).unwrap();
+            }
+            
+
+            print!("{:?}", verify_presigns(&operator_claim_tx, &prevouts));
+        }
 
         Ok(move_utxo)
     }
@@ -1042,7 +1130,7 @@ mod tests {
     fn test_verify_signatures() {
         let tx_hex = "020000000001022b86e82b3335af40d206e416155c66542f96d8bc98b6c07c6f3e0175e9708ba10000000000fdffffff1c6e567c2f0c370652af95d03385e26c9f4cb9ea88ed52dd7c5c052ae53a17910000000000010000000100e1f50500000000225120d3c0878411a63e670cbcaa03604cadc2f61d3a0297819e26dab4986aa83738bd07403835ac4cc7a7fcf68dfa56ba70018dbd977673cb05cbe8287e65c6c4fc08f2515b3e0f224718f840ae69b3679196d02193eea1f603012847b5aa1909a125a216408636dce230218013f350685815bb0d2fd9e64a0162ed09186cf057841ca9dfa80c6a72fa36350fa3f5bb12a90484e8b612054edd07a3a5d5d447eb2fba5f064040ff621f4aec25217d23410bfc6ec7bc2f56a37f0a6b0947a0932cc0747e450e4df283e52b38ebc4edfe1b2bb00753e75be9565c1f2575e736e2c79154b366b63e4073fb9833dac0af5738e4485a1300956810573c6de7eda0340c91426e4db8e5d43c9b8e9880fe33bd7c7f9a94f8dbe29ae542d09e7cde4c4a10883e973d17312640d4c4f33c09517d1a0a2fadb9369f0eedf52016e520159b688685e9cb475320b3be1fa44ef2944b3dfdc0b07a95179696f30733c3e63e80cc35451957fcab6000ab2063f147b96c98681468d9ab166e7b6818ce0b58df3c05d4935047b106a6fb06bfad20f0c323602416c30856c27f59b7ea4513222836a92250e9d55e3b70d9cf9bee2dad2081cf3e3e9200fac45faddbb2a19a171331878176b028bc366a15868f78b1f97fad20c4a870a421bfac0a6462631efd84f4cd27344dfe6392b36704f34c3b37f03790ad20b0974516bb328e5f610ce84e9b918116c5c13aa40fc0d3b96ef8a60900cd7569ad5121c093c7378d96518a75448821c4f7c8f4bae7ce60f804d03d1f0628dd5dd0f5de510340d1c2e2eb093850719104032b082c7f2b87078722089730254921fd321782742355c8405effc1aeae65d59d3328c84eaf2bebb4fd40fe4520554297e6ee5913542551b27520b0974516bb328e5f610ce84e9b918116c5c13aa40fc0d3b96ef8a60900cd7569ac41c193c7378d96518a75448821c4f7c8f4bae7ce60f804d03d1f0628dd5dd0f5de51d8c17994a69136b8eb137f1fb2f09a7ca866e720d30bdb605f92718d83e4f9cd00000000";
         let tx: bitcoin::Transaction = bitcoin::consensus::deserialize(&hex::decode(tx_hex).unwrap()).unwrap();
-        println!("tx: {:?}", tx);
+        // println!("tx: {:?}", tx);
         let prevouts: Vec<bitcoin::TxOut> = vec![TxOut {
             value: Amount::from_sat(99_999_500), 
             script_pubkey: ScriptBuf::from_hex("512054d9859140cde3d23e44d94592466aa6cd4c837c284aa835f0a92a1b7203f496").unwrap(),

@@ -206,7 +206,7 @@ impl<'a> Verifier<'a> {
                 .sign_taproot_script_spend_tx(&mut move_tx, &prevouts, &script_n_of_n, 0);
         
         let anyone_can_spend_txout: TxOut = ScriptBuilder::anyone_can_spend_txout();
-        let (bridge_address, bridge_address_spend_info) = self.transaction_builder.generate_bridge_address();
+        let (bridge_address, _) = self.transaction_builder.generate_bridge_address();
 
         let mut op_claim_sigs = Vec::new();
 
@@ -221,7 +221,7 @@ impl<'a> Verifier<'a> {
                 &self.signer.address,
             );
 
-            let (connector_tree_leaf_address, connector_tree_leaf_spend_info) = TransactionBuilder::create_connector_tree_node_address(
+            let (connector_tree_leaf_address, _) = TransactionBuilder::create_connector_tree_node_address(
                 &self.secp,
                 &self.operator_pk,
                 self.connector_tree_hashes[i][CONNECTOR_TREE_DEPTH][deposit_index as usize],
