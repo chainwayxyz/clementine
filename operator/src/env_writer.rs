@@ -1,41 +1,10 @@
-use bitcoin::{consensus::Encodable, Block, MerkleBlock, Transaction, TxMerkleNode, Txid};
+use bitcoin::{Block, MerkleBlock, Transaction, TxMerkleNode, Txid};
 use circuit_helpers::env::Environment;
 use secp256k1::hashes::Hash;
-use std::{cmp::min, marker::PhantomData};
-use bitcoin::hashes::sha256d::Hash as HashType;
+use std::marker::PhantomData;
 
 pub struct ENVWriter<E: Environment> {
     _marker: PhantomData<E>,
-}
-
-pub fn merkle_path_from_tx_ids(tx_ids: Vec<Txid>, index: u32) -> Vec<[u8; 32]> {
-    let mut tx_id_as_hashes = tx_ids
-        .iter()
-        .map(|tx_id| tx_id.to_raw_hash())
-        .collect::<Vec<HashType>>();
-
-    let mut length = tx_ids.len();
-    let depth = (length - 1).ilog(2) + 1;
-
-    let mut merkle_path = Vec::new();
-    let mut i = index as usize;
-
-    for _ in 0..depth {
-        let path_element = if i % 2 == 1 {tx_id_as_hashes[i - 1]} else {tx_id_as_hashes[min(i + 1, length - 1)]};
-        merkle_path.push(path_element.to_byte_array());
-        i /= 2;
-        for idx in 0..((length + 1) / 2) {
-            let idx1 = 2 * idx;
-            let idx2 = min(idx1 + 1, length - 1);
-            let mut encoder = HashType::engine();
-            tx_id_as_hashes[idx1].consensus_encode(&mut encoder).expect("in-memory writers don't error");
-            tx_id_as_hashes[idx2].consensus_encode(&mut encoder).expect("in-memory writers don't error");
-            tx_id_as_hashes[idx] = HashType::from_engine(encoder);
-        }
-        length = length / 2 + length % 2;
-    }
-
-    merkle_path
 }
 
 impl<E: Environment> ENVWriter<E> {
@@ -146,7 +115,10 @@ impl<E: Environment> ENVWriter<E> {
             merkle_hashes.push(TxMerkleNode::from_byte_array([0_u8; 32]));
         }
         let mut merkle_path = Vec::new();
-        for bit in (0..merkle_hashes.len() - 1).rev().map (|n: usize| (index >> n) & 1) {
+        for bit in (0..merkle_hashes.len() - 1)
+            .rev()
+            .map(|n: usize| (index >> n) & 1)
+        {
             let i = if bit == 1 { 0 } else { merkle_hashes.len() - 1 };
             merkle_path.push(merkle_hashes[i]);
             merkle_hashes.remove(i);

@@ -292,7 +292,8 @@ pub fn read_arbitrary_tx_and_calculate_txid<E: Environment>(
         // hasher.update(0u8.to_le_bytes());
         hasher.update(&sequence.to_le_bytes());
         if require_input.is_some() && !input_satisfied {
-            if prev_tx_hash == require_input.unwrap().0 && output_index == require_input.unwrap().1 {
+            if prev_tx_hash == require_input.unwrap().0 && output_index == require_input.unwrap().1
+            {
                 input_satisfied = true;
             }
         }
@@ -314,7 +315,9 @@ pub fn read_arbitrary_tx_and_calculate_txid<E: Environment>(
             hasher.update(&32u8.to_le_bytes());
             hasher.update(&taproot_address);
             if require_output.is_some() && !output_satisfied {
-                if value == require_output.unwrap().0 && taproot_address == require_output.unwrap().1 {
+                if value == require_output.unwrap().0
+                    && taproot_address == require_output.unwrap().1
+                {
                     output_satisfied = true;
                 }
             }
@@ -347,7 +350,11 @@ pub fn read_and_verify_bitcoin_merkle_path<E: Environment>(txid: [u8; 32]) -> [u
     let levels = E::read_u32();
     for _ in 0..levels {
         let data: [u8; 32] = E::read_32bytes();
-        let node = if data == [0_u8; 32] { hash.clone() } else { data };
+        let node = if data == [0_u8; 32] {
+            hash.clone()
+        } else {
+            data
+        };
         let mut preimage: [u8; 64] = [0; 64];
         if index % 2 == 0 {
             preimage[..32].copy_from_slice(&hash);
