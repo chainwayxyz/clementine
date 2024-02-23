@@ -346,7 +346,8 @@ pub fn read_and_verify_bitcoin_merkle_path<E: Environment>(txid: [u8; 32]) -> [u
     let mut index = E::read_u32();
     let levels = E::read_u32();
     for _ in 0..levels {
-        let node: [u8; 32] = E::read_32bytes();
+        let data: [u8; 32] = E::read_32bytes();
+        let node = if data == [0_u8; 32] { hash.clone() } else { data };
         let mut preimage: [u8; 64] = [0; 64];
         if index % 2 == 0 {
             preimage[..32].copy_from_slice(&hash);
