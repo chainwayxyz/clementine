@@ -1,43 +1,10 @@
-use bitcoin::consensus::Encodable;
-use bitcoin::{Block, Transaction, Txid};
-use bitcoin::hashes::sha256d::Hash as HashType;
-use circuit_helpers::{env::Environment, hashes::calculate_double_sha256};
+use bitcoin::{Block, MerkleBlock, Transaction, Txid};
+use circuit_helpers::env::Environment;
 use secp256k1::hashes::Hash;
-use std::cmp::min;
 use std::marker::PhantomData;
 
 pub struct ENVWriter<E: Environment> {
     _marker: PhantomData<E>,
-}
-
-pub fn merkle_path_from_tx_ids(tx_ids: Vec<Txid>, index: u32) -> Vec<[u8; 32]> {
-    let mut tx_id_as_hashes = tx_ids
-        .iter()
-        .map(|tx_id| tx_id.to_raw_hash())
-        .collect::<Vec<HashType>>();
-
-    let mut length = tx_ids.len();
-    let depth = (length - 1).ilog(2) + 1;
-
-    let mut merkle_path = Vec::new();
-    let mut i = index as usize;
-
-    for _ in 0..depth {
-        let path_element = if i % 2 == 1 {tx_id_as_hashes[i - 1]} else {tx_id_as_hashes[min(i + 1, length - 1)]};
-        merkle_path.push(path_element.to_byte_array());
-        i /= 2;
-        for idx in 0..((length + 1) / 2) {
-            let idx1 = 2 * idx;
-            let idx2 = min(idx1 + 1, length - 1);
-            let mut encoder = HashType::engine();
-            tx_id_as_hashes[idx1].consensus_encode(&mut encoder).expect("in-memory writers don't error");
-            tx_id_as_hashes[idx2].consensus_encode(&mut encoder).expect("in-memory writers don't error");
-            tx_id_as_hashes[idx] = HashType::from_engine(encoder);
-        }
-        length = length / 2 + length % 2;
-    }
-
-    merkle_path
 }
 
 impl<E: Environment> ENVWriter<E> {
@@ -127,19 +94,29 @@ impl<E: Environment> ENVWriter<E> {
     }
 
     pub fn write_bitcoin_merkle_path(txid: Txid, block: &Block) {
-        let tx_id_array = block
+        let tx_ids = block
             .txdata
             .iter()
             .map(|tx| tx.txid())
             .collect::<Vec<Txid>>();
 
         // find the index of the txid in tx_id_array vector or give error "txid not found in block txids"
-        let index = tx_id_array.iter().position(|&r| r == txid).unwrap();
+        let index = tx_ids.iter().position(|&r| r == txid).unwrap();
         E::write_u32(index as u32);
-        let merkle_path = merkle_path_from_tx_ids(tx_id_array, index as u32);
+        let merkle_block = MerkleBlock::from_block_with_predicate(&block, |t| *t == txid);
+
+        // merkle hashes list is a bit different from what we want, a merkle path, so need to do sth based on bits
+        let mut merkle_hashes = merkle_block.txn.hashes().clone();
+        let mut merkle_path = Vec::new();
+        for bit in (0..merkle_hashes.len() - 1).rev().map (|n: usize| (index >> n) & 1) {
+            let i = if bit == 1 { 0 } else { merkle_hashes.len() - 1 };
+            merkle_path.push(merkle_hashes[i]);
+            merkle_hashes.remove(i);
+        }
+
         E::write_u32(merkle_path.len() as u32);
         for node in merkle_path {
-            E::write_32bytes(node);
+            E::write_32bytes(*node.as_byte_array());
         }
     }
 }
