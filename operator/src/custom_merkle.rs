@@ -1,9 +1,6 @@
 use std::vec;
 
-
 use sha2::{Digest, Sha256};
-
-
 
 #[derive(Debug, Clone)]
 pub struct CustomMerkleProofPreimageElement {
@@ -49,11 +46,11 @@ impl CustomMerkleProof {
 
 #[derive(Debug, Clone)]
 pub struct CustomMerkleTree {
-    depth: usize,
+    // depth: usize,
     pub preimage_hashes: Vec<Vec<[u8; 32]>>,
     pub children_hashes: Vec<Vec<[u8; 32]>>,
     pub node_hashes: Vec<Vec<[u8; 32]>>,
-    preimages: Vec<Vec<[u8; 32]>>,
+    // preimages: Vec<Vec<[u8; 32]>>,
     pub root: [u8; 32],
 }
 
@@ -70,10 +67,17 @@ impl CustomMerkleTree {
         });
         hasher.finalize().try_into().unwrap()
     }
-    pub fn calculate_claim_proof_root(depth: usize, connector_tree_hashes: &Vec<Vec<[u8; 32]>>) -> [u8; 32] {
+    pub fn calculate_claim_proof_root(
+        depth: usize,
+        connector_tree_hashes: &Vec<Vec<[u8; 32]>>,
+    ) -> [u8; 32] {
         let mut hashes: Vec<[u8; 32]> = Vec::new();
         for i in 0..2u32.pow(depth as u32) {
-            let hash = CustomMerkleTree::get_claim_proof_tree_leaf(depth, i as usize, connector_tree_hashes);
+            let hash = CustomMerkleTree::get_claim_proof_tree_leaf(
+                depth,
+                i as usize,
+                connector_tree_hashes,
+            );
             hashes.push(hash);
         }
         let mut level = 0;
@@ -174,7 +178,6 @@ impl CustomMerkleTree {
 
 #[cfg(test)]
 mod tests {
-    
 
     // #[test]
     // fn test_custom_merkle_tree() {
