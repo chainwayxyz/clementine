@@ -21,8 +21,6 @@ use crate::transaction_builder::TransactionBuilder;
 use crate::utils::{calculate_amount, handle_anyone_can_spend_script, handle_taproot_witness};
 use crate::verifier::Verifier;
 use bitcoin::address::NetworkChecked;
-use bitcoin::bitcoinconsensus::{VERIFY_NULLDUMMY, VERIFY_WITNESS};
-use bitcoin::consensus::verify_transaction_with_flags;
 use bitcoin::hashes::Hash;
 use bitcoin::sighash::SighashCache;
 
@@ -34,25 +32,25 @@ use secp256k1::rand::rngs::OsRng;
 use secp256k1::rand::Rng;
 use secp256k1::{All, Message, Secp256k1, XOnlyPublicKey};
 
-pub fn verify_presigns(
-    _tx: &bitcoin::Transaction,
-    prevouts: &Vec<TxOut>,
-    // _presigns: &Vec<schnorr::Signature>,
-    // _xonly_public_keys: &Vec<XOnlyPublicKey>,
-) {
-    let mut outpoints = Vec::new();
-    for input in _tx.input.iter() {
-        outpoints.push(input.previous_output);
-    }
-    let mut hm = HashMap::new();
-    for (idx, outpoint) in outpoints.iter().enumerate() {
-        hm.insert(outpoint, prevouts[idx].clone());
-    }
-    let s = |outpoint: &OutPoint| hm.get(outpoint).cloned();
+// pub fn verify_presigns(
+//     _tx: &bitcoin::Transaction,
+//     prevouts: &Vec<TxOut>,
+//     // _presigns: &Vec<schnorr::Signature>,
+//     // _xonly_public_keys: &Vec<XOnlyPublicKey>,
+// ) {
+//     let mut outpoints = Vec::new();
+//     for input in _tx.input.iter() {
+//         outpoints.push(input.previous_output);
+//     }
+//     let mut hm = HashMap::new();
+//     for (idx, outpoint) in outpoints.iter().enumerate() {
+//         hm.insert(outpoint, prevouts[idx].clone());
+//     }
+//     let s = |outpoint: &OutPoint| hm.get(outpoint).cloned();
 
-    let f = VERIFY_NULLDUMMY | VERIFY_WITNESS;
-    println!("{:?}", verify_transaction_with_flags(_tx, s, f).unwrap());
-}
+//     let f = VERIFY_NULLDUMMY | VERIFY_WITNESS;
+//     println!("{:?}", verify_transaction_with_flags(_tx, s, f).unwrap());
+// }
 
 pub fn check_deposit(
     _secp: &Secp256k1<All>,
