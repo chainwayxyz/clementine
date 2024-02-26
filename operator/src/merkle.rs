@@ -1,16 +1,20 @@
-use crate::config::{DEPTH, ZEROES};
+use crate::config::ZEROES;
 use crate::constant::{Data, EMPTYDATA, HASH_FUNCTION_64};
 use circuit_helpers::incremental_merkle::IncrementalMerkleTree;
+use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
-pub struct MerkleTree {
+pub struct MerkleTree<const DEPTH: usize> {
     data: Vec<Vec<Data>>,
     pub index: u32,
 }
 
-impl MerkleTree {
-    pub fn initial() -> Self {
+impl<const DEPTH: usize> MerkleTree<DEPTH>
+where
+    [Data; DEPTH]: Serialize + DeserializeOwned + Copy,
+{
+    pub fn new() -> Self {
         Self {
             data: {
                 let mut v = Vec::new();
@@ -64,7 +68,7 @@ impl MerkleTree {
         self.data[DEPTH][0]
     }
 
-    pub fn to_incremental_tree(&self, index: u32) -> IncrementalMerkleTree {
+    pub fn to_incremental_tree(&self, index: u32) -> IncrementalMerkleTree<DEPTH> {
         let mut fst = [EMPTYDATA; DEPTH];
         let mut i = index as usize;
         let mut current_level_hash = self.data[0][i];
@@ -87,5 +91,19 @@ impl MerkleTree {
             root: current_level_hash,
             index,
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use circuit_helpers::incremental_merkle::IncrementalMerkleTree;
+
+    // cargo test --package operator --lib -- merkle::tests::test_incremental_merkle --nocapture
+    #[test]
+    fn test_incremental_merkle() {
+        let mut imt = IncrementalMerkleTree::<3>::new();
+        assert_eq!(imt.root, [199, 128, 9, 253, 240, 127, 197, 106, 17, 241, 34, 55, 6, 88, 163, 83, 170, 165, 66, 237, 99, 228, 76, 75, 193, 95, 244, 205, 16, 90, 179, 60]);
+        imt.add([1_u8; 32]);
+        assert_eq!(imt.root, [24, 22, 194, 71, 205, 34, 88, 34, 252, 151, 148, 69, 77, 235, 185, 240, 213, 87, 192, 202, 18, 7, 177, 49, 159, 223, 112, 253, 35, 18, 193, 52]);
     }
 }

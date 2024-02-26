@@ -3,9 +3,7 @@ use std::collections::{HashMap, HashSet};
 use std::vec;
 
 use crate::actor::Actor;
-use crate::config::{
-    BRIDGE_AMOUNT_SATS, CONNECTOR_TREE_DEPTH, NUM_ROUNDS,
-};
+use crate::config::{BRIDGE_AMOUNT_SATS, CONNECTOR_TREE_DEPTH, DEPTH, NUM_ROUNDS};
 use crate::constant::{
     ConnectorTreeUTXOs, HashType, InscriptionTxs, PreimageType, DUST_VALUE, HASH_FUNCTION_32,
     MIN_RELAY_FEE, PERIOD_BLOCK_COUNT,
@@ -160,8 +158,8 @@ pub struct Operator<'a> {
 
     pub verifiers_pks: Vec<XOnlyPublicKey>,
     pub deposit_presigns: HashMap<Txid, Vec<DepositPresigns>>,
-    pub deposit_merkle_tree: MerkleTree,
-    pub withdrawals_merkle_tree: MerkleTree,
+    pub deposit_merkle_tree: MerkleTree<DEPTH>,
+    pub withdrawals_merkle_tree: MerkleTree<DEPTH>,
     pub withdrawals_payment_txids: Vec<Txid>,
     pub mock_verifier_access: Vec<Verifier<'a>>, // on production this will be removed rather we will call the verifier's API
     pub preimages: Vec<PreimageType>,
@@ -201,8 +199,8 @@ impl<'a> Operator<'a> {
 
             verifiers_pks: verifiers_pks,
             deposit_presigns: HashMap::new(),
-            deposit_merkle_tree: MerkleTree::initial(),
-            withdrawals_merkle_tree: MerkleTree::initial(),
+            deposit_merkle_tree: MerkleTree::new(),
+            withdrawals_merkle_tree: MerkleTree::new(),
             withdrawals_payment_txids: Vec::new(),
             mock_verifier_access: verifiers,
             preimages: Vec::new(),
