@@ -101,17 +101,38 @@ impl TransactionBuilder {
         TransactionBuilder::create_btc_tx(tx_ins, vec![bridge_txout, anyone_can_spend_txout])
     }
 
-    pub fn create_operator_claim_tx(&self, bridge_utxo: OutPoint, connector_utxo: OutPoint, operator_address: &Address) -> bitcoin::Transaction {
+    pub fn create_move_tx_prevouts(deposit_address: &Address) -> Vec<TxOut> {
+        vec![TxOut {
+            script_pubkey: deposit_address.script_pubkey(),
+            value: Amount::from_sat(BRIDGE_AMOUNT_SATS),
+        }]
+    }
+
+    pub fn create_operator_claim_tx(bridge_utxo: OutPoint, connector_utxo: OutPoint, operator_address: &Address) -> bitcoin::Transaction {
         let anyone_can_spend_txout: TxOut = ScriptBuilder::anyone_can_spend_txout();
         let tx_ins = TransactionBuilder::create_tx_ins(vec![bridge_utxo, connector_utxo]);
-        let tx_outs = TransactionBuilder::create_tx_outs(vec![(
-            Amount::from_sat(BRIDGE_AMOUNT_SATS)
+        let claim_txout = TxOut {
+            value: Amount::from_sat(BRIDGE_AMOUNT_SATS)
             - Amount::from_sat(MIN_RELAY_FEE * 2)
-            - anyone_can_spend_txout.value
+            - anyone_can_spend_txout.value * 2
             + Amount::from_sat(DUST_VALUE),
-            operator_address.script_pubkey(),
-        )]);
-        TransactionBuilder::create_btc_tx(tx_ins, tx_outs)
+            script_pubkey: operator_address.script_pubkey(),
+        };
+        TransactionBuilder::create_btc_tx(tx_ins, vec![claim_txout, anyone_can_spend_txout])
+    }
+
+    pub fn create_operator_claim_tx_prevouts(&self, connector_tree_leaf_address: &Address) -> Vec<TxOut> {
+        let (bridge_address, _) = self.generate_bridge_address();
+        let anyone_can_spend_txout: TxOut = ScriptBuilder::anyone_can_spend_txout();
+        vec![TxOut {
+            value: Amount::from_sat(BRIDGE_AMOUNT_SATS) - Amount::from_sat(MIN_RELAY_FEE) - anyone_can_spend_txout.value,
+            script_pubkey: bridge_address.script_pubkey(),
+        },
+        TxOut {
+            value: Amount::from_sat(DUST_VALUE),
+            script_pubkey: connector_tree_leaf_address.script_pubkey(),
+        }
+        ]
     }
 
     pub fn create_btc_tx(tx_ins: Vec<TxIn>, tx_outs: Vec<TxOut>) -> bitcoin::Transaction {
