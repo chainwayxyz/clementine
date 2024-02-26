@@ -4,7 +4,7 @@ use std::collections::{HashMap, HashSet};
 use crate::constant::{ConnectorTreeUTXOs, PreimageType, DUST_VALUE, HASH_FUNCTION_32, MIN_RELAY_FEE};
 use bitcoin::sighash::SighashCache;
 use bitcoin::{secp256k1, secp256k1::Secp256k1, OutPoint};
-use bitcoin::{Amount, TxOut};
+use bitcoin::{Address, Amount, TxOut};
 use circuit_helpers::config::{CONNECTOR_TREE_DEPTH, NUM_ROUNDS};
 use secp256k1::All;
 use secp256k1::{rand::rngs::OsRng, XOnlyPublicKey};
@@ -167,6 +167,7 @@ impl<'a> Verifier<'a> {
             claim_proof_merkle_roots
         );
         println!("Verifier root_utxos: {:?}", root_utxos);
+        println!("Verifier utxo_trees: {:?}", self.connector_tree_utxos);
     }
 
     /// this is a endpoint that only the operator can call
@@ -210,15 +211,17 @@ impl<'a> Verifier<'a> {
 
         let mut op_claim_sigs = Vec::new();
 
+        let operator_address = Address::p2tr(&self.signer.secp, self.operator_pk, None, bitcoin::Network::Regtest);
+
         for i in 0..NUM_ROUNDS {
-            let connector_utxo = self.connector_tree_utxos[i][CONNECTOR_TREE_DEPTH - 1][deposit_index as usize];
+            let connector_utxo = self.connector_tree_utxos[i][CONNECTOR_TREE_DEPTH][deposit_index as usize];
             let mut operator_claim_tx = self.transaction_builder.create_operator_claim_tx(
                 OutPoint {
                     txid: move_txid,
                     vout: 0,
                 },
                 connector_utxo,
-                &self.signer.address,
+                &operator_address,
             );
 
             let (connector_tree_leaf_address, _) = TransactionBuilder::create_connector_tree_node_address(
@@ -241,6 +244,11 @@ impl<'a> Verifier<'a> {
 
             let op_claim_sig = self.signer.sign_taproot_script_spend_tx(&mut operator_claim_tx, &prevouts, &script_n_of_n, 0);
             op_claim_sigs.push(op_claim_sig);
+            println!("Verifier signing operator_claim_tx...");
+            println!("index: {:?}", deposit_index);
+            println!("period: {:?}", i);
+            println!("operator_claim_tx: {:?}", operator_claim_tx);
+            println!("op_claim_sig: {:?}", op_claim_sig);
 
         }
     

@@ -58,7 +58,8 @@ impl ExtendedRpc {
     }
 
     pub fn is_utxo_spent(&self, _outpoint: &OutPoint) -> bool {
-        false // TODO: Implement this
+        let res = self.inner.get_tx_out(&_outpoint.txid, _outpoint.vout, Some(true)).unwrap();
+        return res.is_none();
     }
 
     pub fn generate_dummy_block(&self) -> Vec<bitcoin::BlockHash> {
