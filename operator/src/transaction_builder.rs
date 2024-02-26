@@ -54,7 +54,7 @@ impl TransactionBuilder {
         &self,
         user_pk: &XOnlyPublicKey,
     ) -> (Address, TaprootSpendInfo) {
-        let script_n_of_n = self.script_builder.generate_n_of_n_script_without_hash();
+        let script_n_of_n = self.script_builder.generate_script_n_of_n();
         let script_timelock = ScriptBuilder::generate_timelock_script(user_pk, USER_TAKES_AFTER);
         let taproot = TaprootBuilder::new()
             .add_leaf(1, script_n_of_n.clone())
@@ -73,7 +73,7 @@ impl TransactionBuilder {
 
     // This function generates bridge address. N-of-N script can be used to spend the funds.
     pub fn generate_bridge_address(&self) -> (Address, TaprootSpendInfo) {
-        let script_n_of_n = self.script_builder.generate_n_of_n_script_without_hash();
+        let script_n_of_n = self.script_builder.generate_script_n_of_n();
         let taproot = TaprootBuilder::new()
             .add_leaf(0, script_n_of_n.clone())
             .unwrap();
@@ -99,6 +99,40 @@ impl TransactionBuilder {
             script_pubkey: bridge_address.script_pubkey(),
         };
         TransactionBuilder::create_btc_tx(tx_ins, vec![bridge_txout, anyone_can_spend_txout])
+    }
+
+    pub fn create_move_tx_prevouts(deposit_address: &Address) -> Vec<TxOut> {
+        vec![TxOut {
+            script_pubkey: deposit_address.script_pubkey(),
+            value: Amount::from_sat(BRIDGE_AMOUNT_SATS),
+        }]
+    }
+
+    pub fn create_operator_claim_tx(bridge_utxo: OutPoint, connector_utxo: OutPoint, operator_address: &Address) -> bitcoin::Transaction {
+        let anyone_can_spend_txout: TxOut = ScriptBuilder::anyone_can_spend_txout();
+        let tx_ins = TransactionBuilder::create_tx_ins(vec![bridge_utxo, connector_utxo]);
+        let claim_txout = TxOut {
+            value: Amount::from_sat(BRIDGE_AMOUNT_SATS)
+            - Amount::from_sat(MIN_RELAY_FEE * 2)
+            - anyone_can_spend_txout.value * 2
+            + Amount::from_sat(DUST_VALUE),
+            script_pubkey: operator_address.script_pubkey(),
+        };
+        TransactionBuilder::create_btc_tx(tx_ins, vec![claim_txout, anyone_can_spend_txout])
+    }
+
+    pub fn create_operator_claim_tx_prevouts(&self, connector_tree_leaf_address: &Address) -> Vec<TxOut> {
+        let (bridge_address, _) = self.generate_bridge_address();
+        let anyone_can_spend_txout: TxOut = ScriptBuilder::anyone_can_spend_txout();
+        vec![TxOut {
+            value: Amount::from_sat(BRIDGE_AMOUNT_SATS) - Amount::from_sat(MIN_RELAY_FEE) - anyone_can_spend_txout.value,
+            script_pubkey: bridge_address.script_pubkey(),
+        },
+        TxOut {
+            value: Amount::from_sat(DUST_VALUE),
+            script_pubkey: connector_tree_leaf_address.script_pubkey(),
+        }
+        ]
     }
 
     pub fn create_btc_tx(tx_ins: Vec<TxIn>, tx_outs: Vec<TxOut>) -> bitcoin::Transaction {
@@ -303,7 +337,7 @@ impl TransactionBuilder {
         );
 
         let commit_tx_sig =
-            actor.sign_taproot_pubkey_spend_tx(&mut commit_tx, commit_tx_prevouts, 0);
+            actor.sign_taproot_pubkey_spend_tx(&mut commit_tx, &commit_tx_prevouts, 0);
         let mut commit_tx_sighash_cache = SighashCache::new(commit_tx.borrow_mut());
         let witness = commit_tx_sighash_cache.witness_mut(0).unwrap();
         witness.push(commit_tx_sig.as_ref());
@@ -334,9 +368,9 @@ impl TransactionBuilder {
         handle_taproot_witness(
             &mut reveal_tx,
             0,
-            reveal_tx_witness_elements,
-            inscribe_preimage_script,
-            inscription_tree_info,
+            &reveal_tx_witness_elements,
+            &inscribe_preimage_script,
+            &inscription_tree_info,
         );
 
         (commit_tx, reveal_tx)

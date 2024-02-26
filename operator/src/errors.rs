@@ -39,6 +39,7 @@ impl fmt::Display for DepositError {
 pub enum VerificationError {
     RootMatchError,
     UTXOMatchError,
+    SignatureError,
 }
 
 impl fmt::Display for VerificationError {
@@ -46,6 +47,9 @@ impl fmt::Display for VerificationError {
         match *self {
             VerificationError::RootMatchError => write!(f, "Roots do not match"),
             VerificationError::UTXOMatchError => write!(f, "UTXOs do not match"),
+            VerificationError::SignatureError => write!(f, "Signature error"),
         }
     }
 }
+
+

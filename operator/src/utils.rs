@@ -17,7 +17,7 @@ use bitcoin::ScriptBuf;
 
 use secp256k1::Secp256k1;
 use secp256k1::XOnlyPublicKey;
-use secp256k1::{schnorr, All};
+use secp256k1::All;
 use serde::de::DeserializeOwned;
 use serde::Serialize;
 
@@ -118,13 +118,6 @@ pub fn parse_hex_to_btc_tx(
     }
 }
 
-pub fn check_presigns(
-    _tx: &bitcoin::Transaction,
-    _presigns: Vec<schnorr::Signature>,
-    _xonly_public_keys: Vec<XOnlyPublicKey>,
-) {
-}
-
 pub fn create_control_block(tree_info: TaprootSpendInfo, script: &ScriptBuf) -> ControlBlock {
     tree_info
         .control_block(&(script.clone(), LeafVersion::TapScript))
@@ -161,9 +154,9 @@ pub fn calculate_amount(depth: usize, value: Amount, fee: Amount) -> Amount {
 pub fn handle_taproot_witness<T: AsRef<[u8]>>(
     tx: &mut bitcoin::Transaction,
     index: usize,
-    witness_elements: Vec<T>,
-    script: ScriptBuf,
-    tree_info: TaprootSpendInfo,
+    witness_elements: &Vec<T>,
+    script: &ScriptBuf,
+    tree_info: &TaprootSpendInfo,
 ) {
     let mut sighash_cache = SighashCache::new(tx.borrow_mut());
     let witness = sighash_cache.witness_mut(index).unwrap();
