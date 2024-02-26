@@ -26,6 +26,7 @@ use bitcoin::taproot::LeafVersion;
 use bitcoin::{secp256k1, secp256k1::schnorr, Address, Txid};
 use bitcoin::{Amount, OutPoint, TapLeafHash, Transaction, TxOut};
 use bitcoincore_rpc::{Client, RpcApi};
+use circuit_helpers::constant::EVMAddress;
 use secp256k1::rand::rngs::OsRng;
 use secp256k1::rand::Rng;
 use secp256k1::{All, Message, Secp256k1, XOnlyPublicKey};
@@ -235,6 +236,8 @@ impl<'a> Operator<'a> {
         &mut self,
         start_utxo: OutPoint,
         return_address: &XOnlyPublicKey,
+        evm_address: &EVMAddress,
+        user_sig: schnorr::Signature,
     ) -> Result<OutPoint, BridgeError> {
         // 1. Check if there is any previous pending deposit
 
@@ -264,7 +267,7 @@ impl<'a> Operator<'a> {
                 // Note: In this part we will need to call the verifier's API to get the presigns
                 println!("Verifier number {:?} is checking new deposit:", i);
                 let deposit_presigns =
-                    verifier.new_deposit(start_utxo, return_address, deposit_index);
+                    verifier.new_deposit(start_utxo, return_address, deposit_index, &evm_address);
                 println!("deposit presigns: {:?}", deposit_presigns);
                 println!("Verifier checked new deposit");
                 deposit_presigns
@@ -273,9 +276,15 @@ impl<'a> Operator<'a> {
         println!("presigns_from_all_verifiers: done");
 
         // 5. Create a move transaction and return the output utxo, save the utxo as a pending deposit
-        let mut move_tx = self.transaction_builder.create_move_tx(start_utxo);
+        let mut move_tx = self
+            .transaction_builder
+            .create_move_tx(start_utxo, &evm_address);
 
         let move_tx_prevouts = TransactionBuilder::create_move_tx_prevouts(&deposit_address);
+
+        let script_n_of_n_with_user_pk = self
+            .script_builder
+            .generate_script_n_of_n_with_user_pk(&return_address);
 
         let script_n_of_n = self.script_builder.generate_script_n_of_n();
 
@@ -287,10 +296,11 @@ impl<'a> Operator<'a> {
         let sig = self.signer.sign_taproot_script_spend_tx(
             &mut move_tx,
             &move_tx_prevouts,
-            &script_n_of_n,
+            &script_n_of_n_with_user_pk,
             0,
         );
         move_signatures.push(sig);
+        move_signatures.push(user_sig);
         move_signatures.reverse();
 
         let mut witness_elements: Vec<&[u8]> = Vec::new();
@@ -302,9 +312,10 @@ impl<'a> Operator<'a> {
             &mut move_tx,
             0,
             &witness_elements,
-            &script_n_of_n,
+            &script_n_of_n_with_user_pk,
             &deposit_taproot_spend_info,
         );
+        // println!("move_tx: {:?}", move_tx);
         let rpc_move_txid = self.rpc.inner.send_raw_transaction(&move_tx).unwrap();
         let move_utxo = OutPoint {
             txid: rpc_move_txid,

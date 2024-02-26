@@ -26,6 +26,19 @@ impl ScriptBuilder {
         }
     }
 
+    pub fn op_return_txout(evm_address: &EVMAddress) -> TxOut {
+        let script = Builder::new()
+            .push_opcode(OP_RETURN)
+            .push_slice(evm_address)
+            .into_script();
+        let script_pubkey = script.to_p2wsh();
+        let value = script.dust_value();
+        TxOut {
+            script_pubkey,
+            value: bitcoin::Amount::from_sat(1000),
+        }
+    }
+
     pub fn generate_2_of_2_script(a: &XOnlyPublicKey, b: &XOnlyPublicKey) -> ScriptBuf {
         let script = Builder::new()
             .push_x_only_key(a)
@@ -47,6 +60,18 @@ impl ScriptBuilder {
         for vpk in self.verifiers_pks.clone() {
             builder = builder.push_x_only_key(&vpk).push_opcode(OP_CHECKSIGVERIFY);
         }
+        builder = builder.push_opcode(OP_TRUE);
+        builder.into_script()
+    }
+
+    pub fn generate_script_n_of_n_with_user_pk(&self, user_pk: &XOnlyPublicKey) -> ScriptBuf {
+        let mut builder = Builder::new();
+        for vpk in self.verifiers_pks.clone() {
+            builder = builder.push_x_only_key(&vpk).push_opcode(OP_CHECKSIGVERIFY);
+        }
+        builder = builder
+            .push_x_only_key(&user_pk)
+            .push_opcode(OP_CHECKSIGVERIFY);
         builder = builder.push_opcode(OP_TRUE);
         builder.into_script()
     }
