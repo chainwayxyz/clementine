@@ -51,5 +51,3 @@ impl fmt::Display for VerificationError {
         }
     }
 }
-
-

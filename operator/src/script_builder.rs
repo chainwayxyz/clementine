@@ -35,7 +35,7 @@ impl ScriptBuilder {
             .into_script();
         script
     }
-    
+
     // pub fn generate_n_of_n_script(&self, hash: [u8; 32]) -> ScriptBuf {
     //     let raw_script = self.generate_script_n_of_n();
     //     let script_buf = ScriptBuilder::convert_scriptbuf_into_builder(raw_script).into_script();

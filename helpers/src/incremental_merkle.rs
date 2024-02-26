@@ -44,6 +44,3 @@ where
         self.index += 1;
     }
 }
-
-
-

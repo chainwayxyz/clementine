@@ -156,7 +156,7 @@ impl Actor {
     //             bitcoin::sighash::TapSighashType::Default,
     //         )
     //         .unwrap();
-        
+
     //     Some(true)
     // }
 

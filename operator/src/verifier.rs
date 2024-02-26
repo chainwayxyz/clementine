@@ -135,39 +135,52 @@ impl<'a> Verifier<'a> {
         let move_sig =
             self.signer
                 .sign_taproot_script_spend_tx(&mut move_tx, &prevouts, &script_n_of_n, 0);
-        
+
         // let anyone_can_spend_txout: TxOut = ScriptBuilder::anyone_can_spend_txout();
 
         let mut op_claim_sigs = Vec::new();
 
-        let operator_address = Address::p2tr(&self.signer.secp, self.operator_pk, None, bitcoin::Network::Regtest);
+        let operator_address = Address::p2tr(
+            &self.signer.secp,
+            self.operator_pk,
+            None,
+            bitcoin::Network::Regtest,
+        );
 
         for i in 0..NUM_ROUNDS {
-            let connector_utxo = self.connector_tree_utxos[i][CONNECTOR_TREE_DEPTH][deposit_index as usize];
+            let connector_utxo =
+                self.connector_tree_utxos[i][CONNECTOR_TREE_DEPTH][deposit_index as usize];
             let mut operator_claim_tx = TransactionBuilder::create_operator_claim_tx(
                 move_utxo,
                 connector_utxo,
                 &operator_address,
             );
 
-            let (connector_tree_leaf_address, _) = TransactionBuilder::create_connector_tree_node_address(
-                &self.secp,
-                &self.operator_pk,
-                self.connector_tree_hashes[i][CONNECTOR_TREE_DEPTH][deposit_index as usize],
+            let (connector_tree_leaf_address, _) =
+                TransactionBuilder::create_connector_tree_node_address(
+                    &self.secp,
+                    &self.operator_pk,
+                    self.connector_tree_hashes[i][CONNECTOR_TREE_DEPTH][deposit_index as usize],
+                );
+
+            let op_claim_tx_prevouts = self
+                .transaction_builder
+                .create_operator_claim_tx_prevouts(&connector_tree_leaf_address);
+
+            let op_claim_sig = self.signer.sign_taproot_script_spend_tx(
+                &mut operator_claim_tx,
+                &op_claim_tx_prevouts,
+                &script_n_of_n,
+                0,
             );
-
-            let op_claim_tx_prevouts = self.transaction_builder.create_operator_claim_tx_prevouts(&connector_tree_leaf_address);
-
-            let op_claim_sig = self.signer.sign_taproot_script_spend_tx(&mut operator_claim_tx, &op_claim_tx_prevouts, &script_n_of_n, 0);
             op_claim_sigs.push(op_claim_sig);
             println!("Verifier signing operator_claim_tx...");
             println!("index: {:?}", deposit_index);
             println!("period: {:?}", i);
             println!("operator_claim_tx: {:?}", operator_claim_tx);
             println!("op_claim_sig: {:?}", op_claim_sig);
-
         }
-    
+
         DepositPresigns {
             move_sign: move_sig,
             operator_claim_sign: op_claim_sigs,

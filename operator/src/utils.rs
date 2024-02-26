@@ -15,9 +15,9 @@ use bitcoin::Amount;
 
 use bitcoin::ScriptBuf;
 
+use secp256k1::All;
 use secp256k1::Secp256k1;
 use secp256k1::XOnlyPublicKey;
-use secp256k1::All;
 use serde::de::DeserializeOwned;
 use serde::Serialize;
 

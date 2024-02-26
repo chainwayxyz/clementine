@@ -108,30 +108,40 @@ impl TransactionBuilder {
         }]
     }
 
-    pub fn create_operator_claim_tx(bridge_utxo: OutPoint, connector_utxo: OutPoint, operator_address: &Address) -> bitcoin::Transaction {
+    pub fn create_operator_claim_tx(
+        bridge_utxo: OutPoint,
+        connector_utxo: OutPoint,
+        operator_address: &Address,
+    ) -> bitcoin::Transaction {
         let anyone_can_spend_txout: TxOut = ScriptBuilder::anyone_can_spend_txout();
         let tx_ins = TransactionBuilder::create_tx_ins(vec![bridge_utxo, connector_utxo]);
         let claim_txout = TxOut {
             value: Amount::from_sat(BRIDGE_AMOUNT_SATS)
-            - Amount::from_sat(MIN_RELAY_FEE * 2)
-            - anyone_can_spend_txout.value * 2
-            + Amount::from_sat(DUST_VALUE),
+                - Amount::from_sat(MIN_RELAY_FEE * 2)
+                - anyone_can_spend_txout.value * 2
+                + Amount::from_sat(DUST_VALUE),
             script_pubkey: operator_address.script_pubkey(),
         };
         TransactionBuilder::create_btc_tx(tx_ins, vec![claim_txout, anyone_can_spend_txout])
     }
 
-    pub fn create_operator_claim_tx_prevouts(&self, connector_tree_leaf_address: &Address) -> Vec<TxOut> {
+    pub fn create_operator_claim_tx_prevouts(
+        &self,
+        connector_tree_leaf_address: &Address,
+    ) -> Vec<TxOut> {
         let (bridge_address, _) = self.generate_bridge_address();
         let anyone_can_spend_txout: TxOut = ScriptBuilder::anyone_can_spend_txout();
-        vec![TxOut {
-            value: Amount::from_sat(BRIDGE_AMOUNT_SATS) - Amount::from_sat(MIN_RELAY_FEE) - anyone_can_spend_txout.value,
-            script_pubkey: bridge_address.script_pubkey(),
-        },
-        TxOut {
-            value: Amount::from_sat(DUST_VALUE),
-            script_pubkey: connector_tree_leaf_address.script_pubkey(),
-        }
+        vec![
+            TxOut {
+                value: Amount::from_sat(BRIDGE_AMOUNT_SATS)
+                    - Amount::from_sat(MIN_RELAY_FEE)
+                    - anyone_can_spend_txout.value,
+                script_pubkey: bridge_address.script_pubkey(),
+            },
+            TxOut {
+                value: Amount::from_sat(DUST_VALUE),
+                script_pubkey: connector_tree_leaf_address.script_pubkey(),
+            },
         ]
     }
 

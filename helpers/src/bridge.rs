@@ -103,14 +103,15 @@ pub fn bridge_proof<E: Environment>() {
             let k_deep_work = read_blocks_and_calculate_work::<E>(cur_block_hash);
             total_pow = total_pow.wrapping_add(&k_deep_work);
 
-            let (verifiers_pow, verifiers_last_finalized_bh, verifiers_last_blockheight) = read_and_verify_verifiers_challenge_proof::<E>();
-            
+            let (verifiers_pow, verifiers_last_finalized_bh, verifiers_last_blockheight) =
+                read_and_verify_verifiers_challenge_proof::<E>();
+
             // if our pow is bigger and we have different last finalized block hash, we win
             // that means verifier can't make a challenge for previous periods
             if total_pow > verifiers_pow && cur_block_hash != verifiers_last_finalized_bh {
                 return;
             }
-            // 
+            //
         }
         last_block_hash = cur_block_hash;
     }

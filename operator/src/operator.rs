@@ -259,7 +259,8 @@ impl<'a> Operator<'a> {
         let presigns_from_all_verifiers = self
             .mock_verifier_access
             .iter()
-            .enumerate().map(|(i, verifier)| {
+            .enumerate()
+            .map(|(i, verifier)| {
                 // Note: In this part we will need to call the verifier's API to get the presigns
                 println!("Verifier number {:?} is checking new deposit:", i);
                 let deposit_presigns =
@@ -283,9 +284,12 @@ impl<'a> Operator<'a> {
             .map(|presign| presign.move_sign)
             .collect::<Vec<_>>();
 
-        let sig =
-            self.signer
-                .sign_taproot_script_spend_tx(&mut move_tx, &move_tx_prevouts, &script_n_of_n, 0);
+        let sig = self.signer.sign_taproot_script_spend_tx(
+            &mut move_tx,
+            &move_tx_prevouts,
+            &script_n_of_n,
+            0,
+        );
         move_signatures.push(sig);
         move_signatures.reverse();
 
@@ -336,16 +340,20 @@ impl<'a> Operator<'a> {
                     self.connector_tree_hashes[i][CONNECTOR_TREE_DEPTH][deposit_index as usize],
                 );
 
-            let op_claim_tx_prevouts = self.transaction_builder.create_operator_claim_tx_prevouts(&connector_tree_leaf_address);
+            let op_claim_tx_prevouts = self
+                .transaction_builder
+                .create_operator_claim_tx_prevouts(&connector_tree_leaf_address);
 
             let op_claim_sigs_for_period_i = presigns_from_all_verifiers
-            .iter()
-            .map(|presign| {
-                println!("presign.operator_claim_sign[{:?}]: {:?}", i, presign.operator_claim_sign[i]);
-                presign.operator_claim_sign[i].clone()
-            }
-            )
-            .collect::<Vec<_>>();
+                .iter()
+                .map(|presign| {
+                    println!(
+                        "presign.operator_claim_sign[{:?}]: {:?}",
+                        i, presign.operator_claim_sign[i]
+                    );
+                    presign.operator_claim_sign[i].clone()
+                })
+                .collect::<Vec<_>>();
 
             println!("Operator checking presigns for period {:?}: ", i);
             println!("operator_claim_tx: {:?}", operator_claim_tx);
@@ -677,7 +685,10 @@ impl<'a> Operator<'a> {
             );
 
         let commit_utxo = self.rpc.send_to_address(&commit_address, DUST_VALUE * 2);
-        println!("is_commit_utxo_spent? {:?}", self.rpc.is_utxo_spent(&commit_utxo));
+        println!(
+            "is_commit_utxo_spent? {:?}",
+            self.rpc.is_utxo_spent(&commit_utxo)
+        );
 
         let mut reveal_tx = self.transaction_builder.create_inscription_reveal_tx(
             commit_utxo,
@@ -707,7 +718,10 @@ impl<'a> Operator<'a> {
 
         let reveal_txid = self.rpc.send_raw_transaction(&reveal_tx).unwrap();
 
-        println!("is_commit_utxo_spent? {:?}", self.rpc.is_utxo_spent(&commit_utxo));
+        println!(
+            "is_commit_utxo_spent? {:?}",
+            self.rpc.is_utxo_spent(&commit_utxo)
+        );
 
         self.inscription_txs.push((commit_utxo, reveal_txid));
 

@@ -58,7 +58,10 @@ impl ExtendedRpc {
     }
 
     pub fn is_utxo_spent(&self, _outpoint: &OutPoint) -> bool {
-        let res = self.inner.get_tx_out(&_outpoint.txid, _outpoint.vout, Some(true)).unwrap();
+        let res = self
+            .inner
+            .get_tx_out(&_outpoint.txid, _outpoint.vout, Some(true))
+            .unwrap();
         return res.is_none();
     }
 
