@@ -19,7 +19,9 @@ impl ScriptBuilder {
     pub fn anyone_can_spend_txout() -> TxOut {
         let script = Builder::new().push_opcode(OP_TRUE).into_script();
         let script_pubkey = script.to_p2wsh();
-        let value = script.dust_value();
+        let value = script_pubkey.dust_value();
+        println!("script_pubkey: {:?}", script_pubkey);
+        println!("value: {:?}", value);
         TxOut {
             script_pubkey,
             value,
@@ -32,10 +34,9 @@ impl ScriptBuilder {
             .push_slice(evm_address)
             .into_script();
         let script_pubkey = script.to_p2wsh();
-        let value = script.dust_value();
+        let value = script_pubkey.dust_value();
         TxOut {
             script_pubkey,
-            // value: bitcoin::Amount::from_sat(1000),
             value,
         }
     }
