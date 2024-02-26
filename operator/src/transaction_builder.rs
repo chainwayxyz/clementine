@@ -12,6 +12,7 @@ use bitcoin::{
     taproot::{TaprootBuilder, TaprootSpendInfo},
     Address, Amount, OutPoint, ScriptBuf, TxIn, TxOut, Txid, Witness,
 };
+use circuit_helpers::constant::EVMAddress;
 use secp256k1::{Secp256k1, XOnlyPublicKey};
 
 use crate::{
@@ -54,10 +55,12 @@ impl TransactionBuilder {
         &self,
         user_pk: &XOnlyPublicKey,
     ) -> (Address, TaprootSpendInfo) {
-        let script_n_of_n = self.script_builder.generate_script_n_of_n();
+        let script_n_of_n_with_user_pk = self
+            .script_builder
+            .generate_script_n_of_n_with_user_pk(&user_pk);
         let script_timelock = ScriptBuilder::generate_timelock_script(user_pk, USER_TAKES_AFTER);
         let taproot = TaprootBuilder::new()
-            .add_leaf(1, script_n_of_n.clone())
+            .add_leaf(1, script_n_of_n_with_user_pk.clone())
             .unwrap()
             .add_leaf(1, script_timelock.clone())
             .unwrap();
@@ -87,18 +90,36 @@ impl TransactionBuilder {
         (address, tree_info)
     }
 
-    pub fn create_move_tx(&self, deposit_utxo: OutPoint) -> bitcoin::Transaction {
+    pub fn create_move_tx(
+        &self,
+        deposit_utxo: OutPoint,
+        evm_address: &EVMAddress,
+    ) -> bitcoin::Transaction {
         let anyone_can_spend_txout = ScriptBuilder::anyone_can_spend_txout();
+        let evm_address_inscription_txout = ScriptBuilder::op_return_txout(evm_address);
+        println!(
+            "evm_address_inscription_txout: {:?}",
+            evm_address_inscription_txout
+        );
+
         let (bridge_address, _) = self.generate_bridge_address();
 
         let tx_ins = TransactionBuilder::create_tx_ins(vec![deposit_utxo]);
         let bridge_txout = TxOut {
             value: Amount::from_sat(BRIDGE_AMOUNT_SATS)
                 - Amount::from_sat(MIN_RELAY_FEE)
-                - anyone_can_spend_txout.value,
+                - anyone_can_spend_txout.value
+                - evm_address_inscription_txout.value,
             script_pubkey: bridge_address.script_pubkey(),
         };
-        TransactionBuilder::create_btc_tx(tx_ins, vec![bridge_txout, anyone_can_spend_txout])
+        TransactionBuilder::create_btc_tx(
+            tx_ins,
+            vec![
+                bridge_txout,
+                evm_address_inscription_txout,
+                anyone_can_spend_txout,
+            ],
+        )
     }
 
     pub fn create_move_tx_prevouts(deposit_address: &Address) -> Vec<TxOut> {
@@ -114,11 +135,14 @@ impl TransactionBuilder {
         operator_address: &Address,
     ) -> bitcoin::Transaction {
         let anyone_can_spend_txout: TxOut = ScriptBuilder::anyone_can_spend_txout();
+        let evm_address_inscription_txout: TxOut =
+            ScriptBuilder::op_return_txout(&EVMAddress::default());
         let tx_ins = TransactionBuilder::create_tx_ins(vec![bridge_utxo, connector_utxo]);
         let claim_txout = TxOut {
             value: Amount::from_sat(BRIDGE_AMOUNT_SATS)
                 - Amount::from_sat(MIN_RELAY_FEE * 2)
                 - anyone_can_spend_txout.value * 2
+                - evm_address_inscription_txout.value
                 + Amount::from_sat(DUST_VALUE),
             script_pubkey: operator_address.script_pubkey(),
         };

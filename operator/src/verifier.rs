@@ -6,6 +6,7 @@ use bitcoin::sighash::SighashCache;
 use bitcoin::{secp256k1, secp256k1::Secp256k1, OutPoint};
 use bitcoin::{Address, Amount, TxOut};
 use circuit_helpers::config::{CONNECTOR_TREE_DEPTH, NUM_ROUNDS};
+use circuit_helpers::constant::EVMAddress;
 use secp256k1::All;
 use secp256k1::{rand::rngs::OsRng, XOnlyPublicKey};
 
@@ -74,7 +75,7 @@ impl<'a> Verifier<'a> {
         _start_blockheight: u64,
         _first_source_utxo: &OutPoint,
     ) {
-        let (claim_proof_merkle_roots, root_utxos, utxo_trees) = create_all_connector_trees(
+        let (_, _, utxo_trees) = create_all_connector_trees(
             &self.secp,
             &self.transaction_builder,
             &_connector_tree_hashes,
@@ -87,12 +88,12 @@ impl<'a> Verifier<'a> {
         self.connector_tree_utxos = utxo_trees;
         // self.set_connector_tree_hashes(_connector_tree_hashes);
         self.connector_tree_hashes = _connector_tree_hashes.clone();
-        println!(
-            "Verifier claim_proof_merkle_roots: {:?}",
-            claim_proof_merkle_roots
-        );
-        println!("Verifier root_utxos: {:?}", root_utxos);
-        println!("Verifier utxo_trees: {:?}", self.connector_tree_utxos);
+        // println!(
+        //     "Verifier claim_proof_merkle_roots: {:?}",
+        //     claim_proof_merkle_roots
+        // );
+        // println!("Verifier root_utxos: {:?}", root_utxos);
+        // println!("Verifier utxo_trees: {:?}", self.connector_tree_utxos);
     }
 
     /// this is a endpoint that only the operator can call
@@ -105,6 +106,7 @@ impl<'a> Verifier<'a> {
         start_utxo: OutPoint,
         return_address: &XOnlyPublicKey,
         deposit_index: u32,
+        evm_address: &EVMAddress,
     ) -> DepositPresigns {
         // 1. Check if there is any previous pending deposit
 
@@ -117,7 +119,9 @@ impl<'a> Verifier<'a> {
         )
         .unwrap();
 
-        let mut move_tx = self.transaction_builder.create_move_tx(start_utxo);
+        let mut move_tx = self
+            .transaction_builder
+            .create_move_tx(start_utxo, evm_address);
         let move_txid = move_tx.txid();
 
         let move_utxo = OutPoint {
@@ -130,11 +134,17 @@ impl<'a> Verifier<'a> {
             deposit_address.script_pubkey(),
         )]);
 
+        let script_n_of_n_with_user_pk = self
+            .script_builder
+            .generate_script_n_of_n_with_user_pk(return_address);
         let script_n_of_n = self.script_builder.generate_script_n_of_n();
 
-        let move_sig =
-            self.signer
-                .sign_taproot_script_spend_tx(&mut move_tx, &prevouts, &script_n_of_n, 0);
+        let move_sig = self.signer.sign_taproot_script_spend_tx(
+            &mut move_tx,
+            &prevouts,
+            &script_n_of_n_with_user_pk,
+            0,
+        );
 
         // let anyone_can_spend_txout: TxOut = ScriptBuilder::anyone_can_spend_txout();
 
