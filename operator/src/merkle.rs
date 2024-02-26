@@ -1,16 +1,20 @@
-use crate::config::{DEPTH, ZEROES};
+use crate::config::ZEROES;
 use crate::constant::{Data, EMPTYDATA, HASH_FUNCTION_64};
 use circuit_helpers::incremental_merkle::IncrementalMerkleTree;
+use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
-pub struct MerkleTree {
+pub struct MerkleTree<const DEPTH: usize> {
     data: Vec<Vec<Data>>,
     pub index: u32,
 }
 
-impl MerkleTree {
-    pub fn initial() -> Self {
+impl<const DEPTH: usize> MerkleTree<DEPTH>
+where
+    [Data; DEPTH]: Serialize + DeserializeOwned + Copy,
+{
+    pub fn new() -> Self {
         Self {
             data: {
                 let mut v = Vec::new();
@@ -64,7 +68,7 @@ impl MerkleTree {
         self.data[DEPTH][0]
     }
 
-    pub fn to_incremental_tree(&self, index: u32) -> IncrementalMerkleTree {
+    pub fn to_incremental_tree(&self, index: u32) -> IncrementalMerkleTree<DEPTH> {
         let mut fst = [EMPTYDATA; DEPTH];
         let mut i = index as usize;
         let mut current_level_hash = self.data[0][i];

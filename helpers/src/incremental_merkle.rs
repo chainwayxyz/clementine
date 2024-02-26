@@ -1,18 +1,24 @@
 use crate::{
-    config::{DEPTH, ZEROES},
+    config::ZEROES,
     constant::{Data, EMPTYDATA, HASH_FUNCTION_64},
 };
-use serde::{Deserialize, Serialize};
+use serde::{de::DeserializeOwned, Deserialize, Serialize};
 
 #[derive(Clone, Copy, Debug, Deserialize, Serialize)]
-pub struct IncrementalMerkleTree {
+pub struct IncrementalMerkleTree<const DEPTH: usize>
+where
+    [Data; DEPTH]: Serialize + DeserializeOwned + Copy,
+{
     pub filled_subtrees: [Data; DEPTH],
     pub root: Data,
     pub index: u32,
 }
 
-impl IncrementalMerkleTree {
-    pub fn initial() -> Self {
+impl<const DEPTH: usize> IncrementalMerkleTree<DEPTH>
+where
+    [Data; DEPTH]: Serialize + DeserializeOwned + Copy,
+{
+    pub fn new() -> Self {
         Self {
             filled_subtrees: [EMPTYDATA; DEPTH],
             root: ZEROES[DEPTH],
@@ -38,3 +44,6 @@ impl IncrementalMerkleTree {
         self.index += 1;
     }
 }
+
+
+
