@@ -292,7 +292,8 @@ pub fn read_arbitrary_tx_and_calculate_txid<E: Environment>(
         // hasher.update(0u8.to_le_bytes());
         hasher.update(&sequence.to_le_bytes());
         if require_input.is_some() && !input_satisfied {
-            if prev_tx_hash == require_input.unwrap().0 && output_index == require_input.unwrap().1 {
+            if prev_tx_hash == require_input.unwrap().0 && output_index == require_input.unwrap().1
+            {
                 input_satisfied = true;
             }
         }
@@ -314,7 +315,9 @@ pub fn read_arbitrary_tx_and_calculate_txid<E: Environment>(
             hasher.update(&32u8.to_le_bytes());
             hasher.update(&taproot_address);
             if require_output.is_some() && !output_satisfied {
-                if value == require_output.unwrap().0 && taproot_address == require_output.unwrap().1 {
+                if value == require_output.unwrap().0
+                    && taproot_address == require_output.unwrap().1
+                {
                     output_satisfied = true;
                 }
             }
@@ -345,9 +348,16 @@ pub fn read_and_verify_bitcoin_merkle_path<E: Environment>(txid: [u8; 32]) -> [u
     let mut hash = txid;
     let mut index = E::read_u32();
     let levels = E::read_u32();
+    // bits of path indicator determines if the next tree node should be read from env or be the copy of last node
+    let mut path_indicator = E::read_u32();
+    let mut preimage = [0_u8; 64];
     for _ in 0..levels {
-        let node: [u8; 32] = E::read_32bytes();
-        let mut preimage: [u8; 64] = [0; 64];
+        let node = if path_indicator & 1 == 1 {
+            hash.clone()
+        } else {
+            E::read_32bytes()
+        };
+        path_indicator >>= 1;
         if index % 2 == 0 {
             preimage[..32].copy_from_slice(&hash);
             preimage[32..].copy_from_slice(&node);
@@ -358,5 +368,5 @@ pub fn read_and_verify_bitcoin_merkle_path<E: Environment>(txid: [u8; 32]) -> [u
         index = index / 2;
         hash = calculate_double_sha256(&preimage);
     }
-    return hash;
+    hash
 }

@@ -1,5 +1,4 @@
 pub mod actor;
-pub mod bitcoin_merkle;
 pub mod config;
 pub mod constant;
 pub mod custom_merkle;
