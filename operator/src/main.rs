@@ -19,13 +19,18 @@ fn main() {
 
     // Initial setup for connector roots
     let (first_source_utxo, start_blockheight) = operator.initial_setup().unwrap();
+
+    let mut connector_tree_source_sigs = Vec::new();
+
     for verifier in &mut operator.mock_verifier_access {
-        verifier.connector_roots_created(
+        let sigs = verifier.connector_roots_created(
             &operator.connector_tree_hashes,
             start_blockheight,
             &first_source_utxo,
         );
+        connector_tree_source_sigs.push(sigs);
     }
+
     println!("connector roots created, verifiers agree");
     // In the end, create BitVM
 

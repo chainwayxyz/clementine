@@ -266,23 +266,27 @@ impl TransactionBuilder {
 
     pub fn create_connector_tree_root_address(
         &self,
-        operator_pk: &XOnlyPublicKey,
         absolute_block_height_to_take_after: u64,
     ) -> (Address, TaprootSpendInfo) {
         let timelock_script = ScriptBuilder::generate_absolute_timelock_script(
-            &operator_pk,
+            &self.verifiers_pks[self.verifiers_pks.len() - 1],
             absolute_block_height_to_take_after as u32,
         );
-        let mut all_2_of_2_scripts: Vec<ScriptBuf> = self
-            .verifiers_pks
-            .iter()
-            .map(|pk| ScriptBuilder::generate_2_of_2_script(&operator_pk, &pk))
-            .collect();
+
+        // let mut all_2_of_2_scripts: Vec<ScriptBuf> = self
+        //     .verifiers_pks
+        //     .iter()
+        //     .map(|pk| ScriptBuilder::generate_2_of_2_script(&all_verifiers[all_verifiers.len() - 1], &pk))
+        //     .collect();
+
         // push the timelock script to the beginning of the vector
-        all_2_of_2_scripts.insert(0, timelock_script.clone());
+        // all_2_of_2_scripts.insert(0, timelock_script.clone());
+
+        let script_n_of_n = self.script_builder.generate_script_n_of_n();
+        let scripts = vec![timelock_script, script_n_of_n];
 
         let (address, tree_info) =
-            TransactionBuilder::create_taproot_address(&self.secp, all_2_of_2_scripts).unwrap();
+            TransactionBuilder::create_taproot_address(&self.secp, scripts).unwrap();
         (address, tree_info)
     }
 
