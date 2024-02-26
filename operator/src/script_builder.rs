@@ -35,7 +35,8 @@ impl ScriptBuilder {
         let value = script.dust_value();
         TxOut {
             script_pubkey,
-            value: bitcoin::Amount::from_sat(1000),
+            // value: bitcoin::Amount::from_sat(1000),
+            value,
         }
     }
 

@@ -75,7 +75,7 @@ impl<'a> Verifier<'a> {
         _start_blockheight: u64,
         _first_source_utxo: &OutPoint,
     ) {
-        let (claim_proof_merkle_roots, root_utxos, utxo_trees) = create_all_connector_trees(
+        let (_, _, utxo_trees) = create_all_connector_trees(
             &self.secp,
             &self.transaction_builder,
             &_connector_tree_hashes,
@@ -134,11 +134,17 @@ impl<'a> Verifier<'a> {
             deposit_address.script_pubkey(),
         )]);
 
+        let script_n_of_n_with_user_pk = self
+            .script_builder
+            .generate_script_n_of_n_with_user_pk(return_address);
         let script_n_of_n = self.script_builder.generate_script_n_of_n();
 
-        let move_sig =
-            self.signer
-                .sign_taproot_script_spend_tx(&mut move_tx, &prevouts, &script_n_of_n, 0);
+        let move_sig = self.signer.sign_taproot_script_spend_tx(
+            &mut move_tx,
+            &prevouts,
+            &script_n_of_n_with_user_pk,
+            0,
+        );
 
         // let anyone_can_spend_txout: TxOut = ScriptBuilder::anyone_can_spend_txout();
 
