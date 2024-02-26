@@ -6,7 +6,7 @@ edition = "2021"
 [dependencies]
 circuit-helpers = {path = "../helpers"}
 operator-circuit = {path = "../circuits/operator"}
-bitcoin = { version = "0.31.0", features = ["rand"] }
+bitcoin = { version = "0.31.0", features = ["rand", "bitcoinconsensus"] }
 bitcoincore-rpc = "0.18.0"
 hex = "0.4.3"
 tiny-keccak = { version = "2.0.2", features = ["keccak"] }
