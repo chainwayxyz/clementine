@@ -109,10 +109,19 @@ impl<E: Environment> ENVWriter<E> {
         E::write_u32(depth);
 
         // merkle hashes list is a bit different from what we want, a merkle path, so need to do sth based on bits
+        // length of merkle hashes for one txid is typically depth + 1, at least for the left half of the tree
+        // we extract the merkle path which is of length "depth" from it
         let merkle_block = MerkleBlock::from_block_with_predicate(&block, |t| *t == txid);
-        let mut merkle_hashes = merkle_block.txn.hashes().clone();
+        let mut merkle_hashes = merkle_block
+            .txn
+            .hashes()
+            .into_iter()
+            .map(Some)
+            .collect::<Vec<Option<&TxMerkleNode>>>();
+
+        // fill the remaining path elements with None s, this indicates that last node should be duplicated
         while merkle_hashes.len() < depth as usize + 1 {
-            merkle_hashes.push(TxMerkleNode::from_byte_array([0_u8; 32]));
+            merkle_hashes.push(None);
         }
         let mut merkle_path = Vec::new();
         for bit in (0..merkle_hashes.len() - 1)
@@ -123,9 +132,26 @@ impl<E: Environment> ENVWriter<E> {
             merkle_path.push(merkle_hashes[i]);
             merkle_hashes.remove(i);
         }
-        merkle_path.reverse();
+
+        // bits of path indicator determines if the next tree node should be read from env or be the copy of last node
+        let mut path_indicator = 0_u32;
+
+        // this list may contain less than depth elements, which is normally the size of a merkle path
+        let mut merkle_path_to_be_sent = Vec::new();
 
         for node in merkle_path {
+            path_indicator <<= 1;
+            match node {
+                Some(txmn) => merkle_path_to_be_sent.push(txmn),
+                None => path_indicator += 1,
+            }
+        }
+
+        merkle_path_to_be_sent.reverse();
+
+        E::write_u32(path_indicator);
+
+        for node in merkle_path_to_be_sent {
             E::write_32bytes(*node.as_byte_array());
         }
     }
