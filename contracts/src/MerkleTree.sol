@@ -13,12 +13,10 @@ contract MerkleTree {
         uint32 nextIndex;
     }
 
-    MerkleTreeData public depositTree;
     MerkleTreeData public withdrawalTree;
 
     constructor(uint32 _levels) {
         levels = _levels;
-        initializeTree(depositTree);
         initializeTree(withdrawalTree);
     }
 
@@ -59,20 +57,12 @@ contract MerkleTree {
         return _nextIndex;
     }
 
-    // Insert functions for each tree
-    function insertDepositTree(bytes32 _leaf) public returns (uint32 index) {
-        return _insert(depositTree, _leaf);
-    }
-
+    // Insert function
     function insertWithdrawalTree(bytes32 _leaf) public returns (uint32 index) {
         return _insert(withdrawalTree, _leaf);
     }
 
-    // Get root functions for each tree
-    function getRootDepositTree() public view returns (bytes32) {
-        return depositTree.root;
-    }
-
+    // Get root function
     function getRootWithdrawalTree() public view returns (bytes32) {
         return withdrawalTree.root;
     }
