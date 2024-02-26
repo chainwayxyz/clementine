@@ -1,9 +1,7 @@
-use bitcoin::{Block, Transaction, Txid};
+use bitcoin::{Block, MerkleBlock, Transaction, TxMerkleNode, Txid};
 use circuit_helpers::env::Environment;
 use secp256k1::hashes::Hash;
 use std::marker::PhantomData;
-
-use crate::bitcoin_merkle::BitcoinMerkleTree;
 
 pub struct ENVWriter<E: Environment> {
     _marker: PhantomData<E>,
@@ -96,28 +94,65 @@ impl<E: Environment> ENVWriter<E> {
     }
 
     pub fn write_bitcoin_merkle_path(txid: Txid, block: &Block) {
-        let tx_id_array = block
+        let tx_ids = block
             .txdata
             .iter()
             .map(|tx| tx.txid())
             .collect::<Vec<Txid>>();
 
         // find the index of the txid in tx_id_array vector or give error "txid not found in block txids"
-        let index = tx_id_array.iter().position(|&r| r == txid).unwrap();
+        let index = tx_ids.iter().position(|&r| r == txid).unwrap();
         E::write_u32(index as u32);
-        let tx_id_bytes_vec = tx_id_array
-            .iter()
-            .map(|tx_id| {
-                let bytes = tx_id.to_byte_array();
-                // bytes.reverse();
-                bytes.try_into().unwrap()
-            })
-            .collect::<Vec<[u8; 32]>>();
-        let merkle_tree = BitcoinMerkleTree::new(tx_id_bytes_vec);
-        let merkle_path = merkle_tree.get_idx_path(index as u32);
-        E::write_u32(merkle_path.len() as u32);
+
+        let length = tx_ids.len();
+        let depth = (length - 1).ilog(2) + 1;
+        E::write_u32(depth);
+
+        // merkle hashes list is a bit different from what we want, a merkle path, so need to do sth based on bits
+        // length of merkle hashes for one txid is typically depth + 1, at least for the left half of the tree
+        // we extract the merkle path which is of length "depth" from it
+        let merkle_block = MerkleBlock::from_block_with_predicate(&block, |t| *t == txid);
+        let mut merkle_hashes = merkle_block
+            .txn
+            .hashes()
+            .into_iter()
+            .map(Some)
+            .collect::<Vec<Option<&TxMerkleNode>>>();
+
+        // fill the remaining path elements with None s, this indicates that last node should be duplicated
+        while merkle_hashes.len() < depth as usize + 1 {
+            merkle_hashes.push(None);
+        }
+        let mut merkle_path = Vec::new();
+        for bit in (0..merkle_hashes.len() - 1)
+            .rev()
+            .map(|n: usize| (index >> n) & 1)
+        {
+            let i = if bit == 1 { 0 } else { merkle_hashes.len() - 1 };
+            merkle_path.push(merkle_hashes[i]);
+            merkle_hashes.remove(i);
+        }
+
+        // bits of path indicator determines if the next tree node should be read from env or be the copy of last node
+        let mut path_indicator = 0_u32;
+
+        // this list may contain less than depth elements, which is normally the size of a merkle path
+        let mut merkle_path_to_be_sent = Vec::new();
+
         for node in merkle_path {
-            E::write_32bytes(node);
+            path_indicator <<= 1;
+            match node {
+                Some(txmn) => merkle_path_to_be_sent.push(txmn),
+                None => path_indicator += 1,
+            }
+        }
+
+        merkle_path_to_be_sent.reverse();
+
+        E::write_u32(path_indicator);
+
+        for node in merkle_path_to_be_sent {
+            E::write_32bytes(*node.as_byte_array());
         }
     }
 }
@@ -149,6 +184,16 @@ mod tests {
 
     use crate::{env_writer::ENVWriter, mock_env::MockEnvironment, utils::parse_hex_to_btc_tx};
 
+    fn test_block_merkle_path(block: Block) {
+        let expected_merkle_root = block.compute_merkle_root().unwrap().to_byte_array();
+        for tx in block.txdata.iter() {
+            ENVWriter::<MockEnvironment>::write_bitcoin_merkle_path(tx.txid(), &block);
+            let found_merkle_root =
+                read_and_verify_bitcoin_merkle_path::<MockEnvironment>(tx.txid().to_byte_array());
+            assert_eq!(expected_merkle_root, found_merkle_root);
+        }
+    }
+
     #[test]
     fn test_tx() {
         let mut _num = SHARED_STATE.lock().unwrap();
@@ -169,14 +214,20 @@ mod tests {
         MockEnvironment::reset_mock_env();
         // Mainnet block 00000000b0c5a240b2a61d2e75692224efd4cbecdf6eaf4cc2cf477ca7c270e7
         let some_block = "010000004ddccd549d28f385ab457e98d1b11ce80bfea2c5ab93015ade4973e400000000bf4473e53794beae34e64fccc471dace6ae544180816f89591894e0f417a914cd74d6e49ffff001d323b3a7b0201000000010000000000000000000000000000000000000000000000000000000000000000ffffffff0804ffff001d026e04ffffffff0100f2052a0100000043410446ef0102d1ec5240f0d061a4246c1bdef63fc3dbab7733052fbbf0ecd8f41fc26bf049ebb4f9527f374280259e7cfa99c48b0e3f39c51347a19a5819651503a5ac00000000010000000321f75f3139a013f50f315b23b0c9a2b6eac31e2bec98e5891c924664889942260000000049483045022100cb2c6b346a978ab8c61b18b5e9397755cbd17d6eb2fe0083ef32e067fa6c785a02206ce44e613f31d9a6b0517e46f3db1576e9812cc98d159bfdaf759a5014081b5c01ffffffff79cda0945903627c3da1f85fc95d0b8ee3e76ae0cfdc9a65d09744b1f8fc85430000000049483045022047957cdd957cfd0becd642f6b84d82f49b6cb4c51a91f49246908af7c3cfdf4a022100e96b46621f1bffcf5ea5982f88cef651e9354f5791602369bf5a82a6cd61a62501fffffffffe09f5fe3ffbf5ee97a54eb5e5069e9da6b4856ee86fc52938c2f979b0f38e82000000004847304402204165be9a4cbab8049e1af9723b96199bfd3e85f44c6b4c0177e3962686b26073022028f638da23fc003760861ad481ead4099312c60030d4cb57820ce4d33812a5ce01ffffffff01009d966b01000000434104ea1feff861b51fe3f5f8a3b12d0f4712db80e919548a80839fc47c6a21e66d957e9c5d8cd108c7a2d2324bad71f9904ac0ae7336507d785b17a2c115e427a32fac00000000";
-        let block: Block = deserialize(&hex::decode(some_block).unwrap()).unwrap();
-        let expected_merkle_root = block.compute_merkle_root().unwrap().to_byte_array();
-        for tx in block.txdata.iter() {
-            ENVWriter::<MockEnvironment>::write_bitcoin_merkle_path(tx.txid(), &block);
-            let found_merkle_root =
-                read_and_verify_bitcoin_merkle_path::<MockEnvironment>(tx.txid().to_byte_array());
-            assert_eq!(expected_merkle_root, found_merkle_root);
-        }
+        let block1: Block = deserialize(&hex::decode(some_block).unwrap()).unwrap();
+        test_block_merkle_path(block1);
+
+        let segwit_block2 = include_bytes!("../tests/data/mainnet_block_000000000000000000000c835b2adcaedc20fdf6ee440009c249452c726dafae.raw").to_vec();
+        let block2: Block = deserialize(&segwit_block2).unwrap();
+        test_block_merkle_path(block2);
+
+        let segwit_block3 = include_bytes!("../tests/data/mainnet_block_00000000000000000000edfe523d5e2993781d2305f51218ebfc236a250792d6.raw").to_vec();
+        let block3: Block = deserialize(&segwit_block3).unwrap();
+        test_block_merkle_path(block3);
+
+        let segwit_block4 = include_bytes!("../tests/data/testnet_block_000000000000045e0b1660b6445b5e5c5ab63c9a4f956be7e1e69be04fa4497b.raw").to_vec();
+        let block4: Block = deserialize(&segwit_block4).unwrap();
+        test_block_merkle_path(block4);
     }
 
     #[test]

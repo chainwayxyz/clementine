@@ -9,4 +9,3 @@ pub trait Environment {
     fn write_u64(data: u64);
     fn write_i32(data: i32);
 }
-
