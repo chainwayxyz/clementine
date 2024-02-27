@@ -20,8 +20,6 @@ impl ScriptBuilder {
         let script = Builder::new().push_opcode(OP_TRUE).into_script();
         let script_pubkey = script.to_p2wsh();
         let value = script_pubkey.dust_value();
-        println!("script_pubkey: {:?}", script_pubkey);
-        println!("value: {:?}", value);
         TxOut {
             script_pubkey,
             value,
@@ -40,22 +38,6 @@ impl ScriptBuilder {
             value,
         }
     }
-
-    pub fn generate_2_of_2_script(a: &XOnlyPublicKey, b: &XOnlyPublicKey) -> ScriptBuf {
-        let script = Builder::new()
-            .push_x_only_key(a)
-            .push_x_only_key(b)
-            .push_opcode(OP_PUSHNUM_2)
-            .push_opcode(OP_CHECKMULTISIG)
-            .into_script();
-        script
-    }
-
-    // pub fn generate_n_of_n_script(&self, hash: [u8; 32]) -> ScriptBuf {
-    //     let raw_script = self.generate_script_n_of_n();
-    //     let script_buf = ScriptBuilder::convert_scriptbuf_into_builder(raw_script).into_script();
-    //     ScriptBuilder::add_hash_to_script(script_buf, hash)
-    // }
 
     pub fn generate_script_n_of_n(&self) -> ScriptBuf {
         let mut builder = Builder::new();
@@ -78,17 +60,6 @@ impl ScriptBuilder {
         builder.into_script()
     }
 
-    pub fn add_hash_to_script(script: ScriptBuf, hash: [u8; 32]) -> ScriptBuf {
-        let script_bytes = script.as_bytes().to_vec();
-        let mut builder = Builder::from(script_bytes);
-        builder = builder.push_opcode(OP_VERIFY);
-        builder = builder
-            .push_opcode(OP_SHA256)
-            .push_slice(hash)
-            .push_opcode(OP_EQUAL);
-        builder.into_script()
-    }
-
     pub fn create_inscription_script_32_bytes(
         public_key: &XOnlyPublicKey,
         data: &Vec<[u8; 32]>,
@@ -104,11 +75,6 @@ impl ScriptBuilder {
         inscribe_preimage_script_builder = inscribe_preimage_script_builder.push_opcode(OP_ENDIF);
         let inscribe_preimage_script = inscribe_preimage_script_builder.into_script();
         inscribe_preimage_script
-    }
-
-    pub fn convert_scriptbuf_into_builder(script: ScriptBuf) -> Builder {
-        let script_bytes = script.as_bytes().to_vec();
-        Builder::from(script_bytes)
     }
 
     // ATTENTION: If you want to spend a UTXO using timelock script, the condition is that
