@@ -10,7 +10,6 @@ use crate::constant::{
 };
 use crate::errors::BridgeError;
 use crate::extended_rpc::ExtendedRpc;
-use crate::giga_merkle::GigaMerkleTree;
 use crate::merkle::MerkleTree;
 use crate::script_builder::ScriptBuilder;
 use crate::shared::{check_deposit_utxo, create_all_connector_trees};
@@ -653,7 +652,7 @@ impl<'a> Operator<'a> {
         period: usize,
         number_of_funds_claim: u32,
     ) -> HashSet<PreimageType> {
-        let indices = GigaMerkleTree::get_indices(CONNECTOR_TREE_DEPTH, number_of_funds_claim);
+        let indices = get_claim_reveal_indices(CONNECTOR_TREE_DEPTH, number_of_funds_claim);
         println!("indices: {:?}", indices);
         let mut preimages: HashSet<PreimageType> = HashSet::new();
         for (depth, index) in indices {
