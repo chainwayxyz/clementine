@@ -1,4 +1,5 @@
 //! This module defines errors returned by the library.
+use bitcoin::taproot::{TaprootBuilder, TaprootBuilderError};
 use core::fmt::Debug;
 use std::array::TryFromSliceError;
 use thiserror::Error;
@@ -49,12 +50,16 @@ pub enum BridgeError {
     /// Returned when bitcoin::Transaction error happens, also returns the error
     #[error("BitcoinTransactionError")]
     BitcoinTransactionError,
-    // TxInputNotFound is returned when the input is not found in the transaction
+    /// TxInputNotFound is returned when the input is not found in the transaction
     #[error("TxInputNotFound")]
     TxInputNotFound,
-    // PreimageNotFound is returned when the preimage is not found in the the connector tree or claim proof
+    /// PreimageNotFound is returned when the preimage is not found in the the connector tree or claim proof
     #[error("PreimageNotFound")]
     PreimageNotFound,
+    /// TaprootBuilderError is returned when the taproot builder returns an error
+    /// Errors if the leaves are not provided in DFS walk order
+    #[error("TaprootBuilderError")]
+    TaprootBuilderError,
 }
 
 impl From<secp256k1::Error> for BridgeError {
@@ -106,5 +111,17 @@ impl From<bitcoin::Transaction> for BridgeError {
             // You can match on different errors if needed and convert accordingly
             _ => BridgeError::BitcoinTransactionError,
         }
+    }
+}
+
+impl From<TaprootBuilderError> for BridgeError {
+    fn from(_error: TaprootBuilderError) -> Self {
+        BridgeError::TaprootBuilderError
+    }
+}
+
+impl From<TaprootBuilder> for BridgeError {
+    fn from(_error: TaprootBuilder) -> Self {
+        BridgeError::TaprootBuilderError
     }
 }

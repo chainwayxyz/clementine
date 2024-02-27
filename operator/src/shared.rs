@@ -25,7 +25,7 @@ pub fn check_deposit_utxo(
     }
 
     let (deposit_address, deposit_taproot_spend_info) =
-        tx_builder.generate_deposit_address(return_address);
+        tx_builder.generate_deposit_address(return_address)?;
 
     if !rpc.check_utxo_address_and_amount(
         &outpoint,
@@ -48,7 +48,7 @@ pub fn create_all_connector_trees(
     start_blockheight: u64,
     first_source_utxo: &OutPoint,
     operator_pk: &XOnlyPublicKey,
-) -> (Vec<[u8; 32]>, Vec<OutPoint>, Vec<ConnectorTreeUTXOs>) {
+) -> Result<(Vec<[u8; 32]>, Vec<OutPoint>, Vec<ConnectorTreeUTXOs>), BridgeError> {
     let single_tree_amount = calculate_amount(
         CONNECTOR_TREE_DEPTH,
         Amount::from_sat(DUST_VALUE),
@@ -72,12 +72,13 @@ pub fn create_all_connector_trees(
         let (next_connector_source_address, _) = tx_builder.create_connector_tree_root_address(
             operator_pk,
             start_blockheight + ((i + 2) * PERIOD_BLOCK_COUNT as usize) as u64,
-        );
-        let (connector_bt_root_address, _) = TransactionBuilder::create_connector_tree_node_address(
-            secp,
-            operator_pk,
-            connector_tree_hashes[i][0][0],
-        );
+        )?;
+        let (connector_bt_root_address, _) =
+            TransactionBuilder::create_connector_tree_node_address(
+                secp,
+                operator_pk,
+                connector_tree_hashes[i][0][0],
+            )?;
         let curr_root_and_next_source_tx_ins =
             TransactionBuilder::create_tx_ins(vec![cur_connector_source_utxo.clone()]);
 
@@ -115,11 +116,11 @@ pub fn create_all_connector_trees(
             &cur_connector_bt_root_utxo,
             CONNECTOR_TREE_DEPTH,
             connector_tree_hashes[i].clone(),
-        );
+        )?;
         root_utxos.push(cur_connector_bt_root_utxo);
         utxo_trees.push(utxo_tree);
         cur_amount = cur_amount - single_tree_amount - Amount::from_sat(MIN_RELAY_FEE);
     }
 
-    return (claim_proof_merkle_roots, root_utxos, utxo_trees);
+    Ok((claim_proof_merkle_roots, root_utxos, utxo_trees))
 }

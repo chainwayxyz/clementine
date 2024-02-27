@@ -54,47 +54,43 @@ impl TransactionBuilder {
     pub fn generate_deposit_address(
         &self,
         user_pk: &XOnlyPublicKey,
-    ) -> (Address, TaprootSpendInfo) {
+    ) -> Result<(Address, TaprootSpendInfo), BridgeError> {
         let script_n_of_n_with_user_pk = self
             .script_builder
             .generate_script_n_of_n_with_user_pk(&user_pk);
         let script_timelock = ScriptBuilder::generate_timelock_script(user_pk, USER_TAKES_AFTER);
         let taproot = TaprootBuilder::new()
-            .add_leaf(1, script_n_of_n_with_user_pk.clone())
-            .unwrap()
-            .add_leaf(1, script_timelock.clone())
-            .unwrap();
-        let tree_info = taproot.finalize(&self.secp, *INTERNAL_KEY).unwrap();
+            .add_leaf(1, script_n_of_n_with_user_pk.clone())?
+            .add_leaf(1, script_timelock.clone())?;
+        let tree_info = taproot.finalize(&self.secp, *INTERNAL_KEY)?;
         let address = Address::p2tr(
             &self.secp,
             *INTERNAL_KEY,
             tree_info.merkle_root(),
             bitcoin::Network::Regtest,
         );
-        (address, tree_info)
+        Ok((address, tree_info))
     }
 
     // This function generates bridge address. N-of-N script can be used to spend the funds.
-    pub fn generate_bridge_address(&self) -> (Address, TaprootSpendInfo) {
+    pub fn generate_bridge_address(&self) -> Result<(Address, TaprootSpendInfo), BridgeError> {
         let script_n_of_n = self.script_builder.generate_script_n_of_n();
-        let taproot = TaprootBuilder::new()
-            .add_leaf(0, script_n_of_n.clone())
-            .unwrap();
-        let tree_info = taproot.finalize(&self.secp, *INTERNAL_KEY).unwrap();
+        let taproot = TaprootBuilder::new().add_leaf(0, script_n_of_n.clone())?;
+        let tree_info = taproot.finalize(&self.secp, *INTERNAL_KEY)?;
         let address = Address::p2tr(
             &self.secp,
             *INTERNAL_KEY,
             tree_info.merkle_root(),
             bitcoin::Network::Regtest,
         );
-        (address, tree_info)
+        Ok((address, tree_info))
     }
 
     pub fn create_move_tx(
         &self,
         deposit_utxo: OutPoint,
         evm_address: &EVMAddress,
-    ) -> bitcoin::Transaction {
+    ) -> Result<bitcoin::Transaction, BridgeError> {
         let anyone_can_spend_txout = ScriptBuilder::anyone_can_spend_txout();
         let evm_address_inscription_txout = ScriptBuilder::op_return_txout(evm_address);
         println!(
@@ -102,7 +98,7 @@ impl TransactionBuilder {
             evm_address_inscription_txout
         );
 
-        let (bridge_address, _) = self.generate_bridge_address();
+        let (bridge_address, _) = self.generate_bridge_address()?;
 
         let tx_ins = TransactionBuilder::create_tx_ins(vec![deposit_utxo]);
         let bridge_txout = TxOut {
@@ -112,14 +108,14 @@ impl TransactionBuilder {
                 - evm_address_inscription_txout.value,
             script_pubkey: bridge_address.script_pubkey(),
         };
-        TransactionBuilder::create_btc_tx(
+        Ok(TransactionBuilder::create_btc_tx(
             tx_ins,
             vec![
                 bridge_txout,
                 evm_address_inscription_txout,
                 anyone_can_spend_txout,
             ],
-        )
+        ))
     }
 
     pub fn create_move_tx_prevouts(deposit_address: &Address) -> Vec<TxOut> {
@@ -152,10 +148,10 @@ impl TransactionBuilder {
     pub fn create_operator_claim_tx_prevouts(
         &self,
         connector_tree_leaf_address: &Address,
-    ) -> Vec<TxOut> {
-        let (bridge_address, _) = self.generate_bridge_address();
+    ) -> Result<Vec<TxOut>, BridgeError> {
+        let (bridge_address, _) = self.generate_bridge_address()?;
         let anyone_can_spend_txout: TxOut = ScriptBuilder::anyone_can_spend_txout();
-        vec![
+        Ok(vec![
             TxOut {
                 value: Amount::from_sat(BRIDGE_AMOUNT_SATS)
                     - Amount::from_sat(MIN_RELAY_FEE)
@@ -166,7 +162,7 @@ impl TransactionBuilder {
                 value: Amount::from_sat(DUST_VALUE),
                 script_pubkey: connector_tree_leaf_address.script_pubkey(),
             },
-        ]
+        ])
     }
 
     pub fn create_btc_tx(tx_ins: Vec<TxIn>, tx_outs: Vec<TxOut>) -> bitcoin::Transaction {
@@ -242,13 +238,11 @@ impl TransactionBuilder {
                     .unwrap()
             })
         } else {
-            TaprootBuilder::new()
-                .add_leaf(0, scripts[0].clone())
-                .unwrap()
+            TaprootBuilder::new().add_leaf(0, scripts[0].clone())?
         };
         // println!("taproot_builder: {:?}", taproot_builder);
         let internal_key = *INTERNAL_KEY;
-        let tree_info = taproot_builder.finalize(&secp, internal_key).unwrap();
+        let tree_info = taproot_builder.finalize(&secp, internal_key)?;
         Ok((
             Address::p2tr(
                 &secp,
@@ -268,7 +262,7 @@ impl TransactionBuilder {
         &self,
         operator_pk: &XOnlyPublicKey,
         absolute_block_height_to_take_after: u64,
-    ) -> (Address, TaprootSpendInfo) {
+    ) -> Result<(Address, TaprootSpendInfo), BridgeError> {
         let timelock_script = ScriptBuilder::generate_absolute_timelock_script(
             &operator_pk,
             absolute_block_height_to_take_after as u32,
@@ -278,16 +272,15 @@ impl TransactionBuilder {
         let (address, tree_info) = TransactionBuilder::create_taproot_address(
             &self.secp,
             vec![timelock_script, n_of_n_script],
-        )
-        .unwrap();
-        (address, tree_info)
+        )?;
+        Ok((address, tree_info))
     }
 
     pub fn create_connector_tree_node_address(
         secp: &Secp256k1<secp256k1::All>,
         actor_pk: &XOnlyPublicKey,
         hash: Data,
-    ) -> (Address, TaprootSpendInfo) {
+    ) -> Result<(Address, TaprootSpendInfo), BridgeError> {
         let timelock_script = ScriptBuilder::generate_timelock_script(
             &actor_pk,
             CONNECTOR_TREE_OPERATOR_TAKES_AFTER as u32,
@@ -300,24 +293,22 @@ impl TransactionBuilder {
         let (address, tree_info) = TransactionBuilder::create_taproot_address(
             secp,
             vec![timelock_script.clone(), preimage_script],
-        )
-        .unwrap();
-        (address, tree_info)
+        )?;
+        Ok((address, tree_info))
     }
 
     pub fn create_inscription_commit_address(
         &self,
         actor_pk: &XOnlyPublicKey,
         preimages_to_be_revealed: &Vec<PreimageType>,
-    ) -> (Address, TaprootSpendInfo, ScriptBuf) {
+    ) -> Result<(Address, TaprootSpendInfo, ScriptBuf), BridgeError> {
         let inscribe_preimage_script =
             ScriptBuilder::create_inscription_script_32_bytes(actor_pk, preimages_to_be_revealed);
         let (address, taproot_info) = TransactionBuilder::create_taproot_address(
             &self.secp,
             vec![inscribe_preimage_script.clone()],
-        )
-        .unwrap();
-        (address, taproot_info, inscribe_preimage_script)
+        )?;
+        Ok((address, taproot_info, inscribe_preimage_script))
     }
 
     pub fn create_inscription_reveal_tx(
@@ -344,8 +335,7 @@ impl TransactionBuilder {
             TransactionBuilder::create_taproot_address(
                 &actor.secp,
                 vec![inscribe_preimage_script.clone()],
-            )
-            .unwrap();
+            )?;
         // println!("inscription tree merkle root: {:?}", inscription_tree_info.merkle_root());
         let commit_tx_ins = TransactionBuilder::create_tx_ins(vec![utxo]);
         let commit_tx_outs = TransactionBuilder::create_tx_outs(vec![(
@@ -367,11 +357,12 @@ impl TransactionBuilder {
             inscription_tree_info.output_key()
         );
 
-        let commit_tx_sig = actor
-            .sign_taproot_pubkey_spend_tx(&mut commit_tx, &commit_tx_prevouts, 0)
-            .unwrap();
+        let commit_tx_sig =
+            actor.sign_taproot_pubkey_spend_tx(&mut commit_tx, &commit_tx_prevouts, 0)?;
         let mut commit_tx_sighash_cache = SighashCache::new(commit_tx.borrow_mut());
-        let witness = commit_tx_sighash_cache.witness_mut(0).unwrap();
+        let witness = commit_tx_sighash_cache
+            .witness_mut(0)
+            .ok_or(BridgeError::TxInputNotFound)?;
         witness.push(commit_tx_sig.as_ref());
 
         let reveal_tx_ins =
@@ -446,7 +437,7 @@ impl TransactionBuilder {
         root_utxo: &OutPoint,
         depth: usize,
         connector_tree_hashes: Vec<Vec<[u8; 32]>>,
-    ) -> ConnectorTreeUTXOs {
+    ) -> Result<ConnectorTreeUTXOs, BridgeError> {
         // UTXO value should be at least 2^depth * dust_value + (2^depth-1) * fee
         let total_amount = calculate_amount(
             depth,
@@ -459,7 +450,7 @@ impl TransactionBuilder {
             &self.secp,
             &xonly_public_key,
             connector_tree_hashes[0][0],
-        );
+        )?;
 
         let mut utxo_binary_tree: ConnectorTreeUTXOs = Vec::new();
         utxo_binary_tree.push(vec![root_utxo.clone()]);
@@ -473,12 +464,12 @@ impl TransactionBuilder {
                     &self.secp,
                     &xonly_public_key,
                     connector_tree_hashes[(i + 1) as usize][2 * j],
-                );
+                )?;
                 let (second_address, _) = TransactionBuilder::create_connector_tree_node_address(
                     &self.secp,
                     &xonly_public_key,
                     connector_tree_hashes[(i + 1) as usize][2 * j + 1],
-                );
+                )?;
 
                 let tx = TransactionBuilder::create_connector_tree_tx(
                     utxo,
@@ -492,6 +483,6 @@ impl TransactionBuilder {
             }
             utxo_binary_tree.push(utxo_tree_current_level);
         }
-        utxo_binary_tree
+        Ok(utxo_binary_tree)
     }
 }

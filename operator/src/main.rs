@@ -25,7 +25,7 @@ fn main() -> Result<(), BridgeError> {
             &operator.connector_tree_hashes,
             start_blockheight,
             &first_source_utxo,
-        );
+        )?;
     }
     println!("connector roots created, verifiers agree");
     // In the end, create BitVM

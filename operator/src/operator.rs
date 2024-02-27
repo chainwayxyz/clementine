@@ -244,7 +244,7 @@ impl<'a> Operator<'a> {
         // 5. Create a move transaction and return the output utxo, save the utxo as a pending deposit
         let mut move_tx = self
             .transaction_builder
-            .create_move_tx(start_utxo, &evm_address);
+            .create_move_tx(start_utxo, &evm_address)?;
 
         let move_tx_prevouts = TransactionBuilder::create_move_tx_prevouts(&deposit_address);
 
@@ -315,11 +315,11 @@ impl<'a> Operator<'a> {
                     &self.signer.secp,
                     &self.signer.xonly_public_key,
                     self.connector_tree_hashes[i][CONNECTOR_TREE_DEPTH][deposit_index as usize],
-                );
+                )?;
 
             let op_claim_tx_prevouts = self
                 .transaction_builder
-                .create_operator_claim_tx_prevouts(&connector_tree_leaf_address);
+                .create_operator_claim_tx_prevouts(&connector_tree_leaf_address)?;
 
             let op_claim_sigs_for_period_i = presigns_from_all_verifiers
                 .iter()
@@ -522,7 +522,7 @@ impl<'a> Operator<'a> {
             &self.signer.secp,
             &self.signer.xonly_public_key,
             hash,
-        );
+        )?;
 
         let base_tx = match self.rpc.get_raw_transaction(&utxo.txid, None) {
             Ok(txid) => Some(txid),
@@ -562,13 +562,13 @@ impl<'a> Operator<'a> {
             &self.signer.secp,
             &self.signer.xonly_public_key,
             hashes.0,
-        );
+        )?;
 
         let (second_address, _) = TransactionBuilder::create_connector_tree_node_address(
             &self.signer.secp,
             &self.signer.xonly_public_key,
             hashes.1,
-        );
+        )?;
 
         let mut tx = TransactionBuilder::create_connector_tree_tx(
             &utxo,
@@ -659,7 +659,7 @@ impl<'a> Operator<'a> {
             self.transaction_builder.create_inscription_commit_address(
                 &self.signer.xonly_public_key,
                 &preimages_to_be_revealed,
-            );
+            )?;
 
         let commit_utxo = self.rpc.send_to_address(&commit_address, DUST_VALUE * 2)?;
         println!(
@@ -881,11 +881,12 @@ impl<'a> Operator<'a> {
         let total_amount =
             Amount::from_sat((MIN_RELAY_FEE + single_tree_amount.to_sat()) * NUM_ROUNDS as u64);
         println!("total_amount: {:?}", total_amount);
-        let (connector_tree_source_address, _) =
-            self.transaction_builder.create_connector_tree_root_address(
+        let (connector_tree_source_address, _) = self
+            .transaction_builder
+            .create_connector_tree_root_address(
                 &self.signer.xonly_public_key,
                 self.start_blockheight + PERIOD_BLOCK_COUNT as u64,
-            );
+            )?;
 
         let first_source_utxo = self
             .rpc
@@ -906,7 +907,7 @@ impl<'a> Operator<'a> {
             self.start_blockheight,
             &first_source_utxo,
             &self.signer.xonly_public_key,
-        );
+        )?;
 
         // self.set_connector_tree_utxos(utxo_trees.clone());
         self.connector_tree_utxos = utxo_trees;

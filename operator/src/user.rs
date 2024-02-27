@@ -43,13 +43,13 @@ impl<'a> User<'a> {
     ) -> Result<(OutPoint, XOnlyPublicKey, EVMAddress, Signature), BridgeError> {
         let (deposit_address, _) = self
             .transaction_builder
-            .generate_deposit_address(&self.signer.xonly_public_key);
+            .generate_deposit_address(&self.signer.xonly_public_key)?;
         let deposit_utxo = self
             .rpc
             .send_to_address(&deposit_address, BRIDGE_AMOUNT_SATS)?;
         let mut move_tx = self
             .transaction_builder
-            .create_move_tx(deposit_utxo, &self.signer.evm_address);
+            .create_move_tx(deposit_utxo, &self.signer.evm_address)?;
         let move_tx_prevouts = TransactionBuilder::create_move_tx_prevouts(&deposit_address);
         let script_n_of_n_with_user_pk = self
             .script_builder
