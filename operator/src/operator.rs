@@ -14,10 +14,7 @@ use crate::merkle::MerkleTree;
 use crate::script_builder::ScriptBuilder;
 use crate::shared::{check_deposit_utxo, create_all_connector_trees};
 use crate::transaction_builder::TransactionBuilder;
-use crate::utils::{
-    calculate_amount, get_claim_reveal_indices, handle_anyone_can_spend_script,
-    handle_taproot_witness,
-};
+use crate::utils::{calculate_amount, get_claim_reveal_indices, handle_taproot_witness};
 use crate::verifier::Verifier;
 use bitcoin::address::NetworkChecked;
 use bitcoin::hashes::Hash;
@@ -280,7 +277,7 @@ impl<'a> Operator<'a> {
             &witness_elements,
             &script_n_of_n_with_user_pk,
             &deposit_taproot_spend_info,
-        );
+        )?;
         // println!("move_tx: {:?}", move_tx);
         let rpc_move_txid = self.rpc.send_raw_transaction(&move_tx)?;
         let move_utxo = OutPoint {
@@ -444,7 +441,7 @@ impl<'a> Operator<'a> {
             vec![script_n_of_n_without_hash.clone()],
         )?;
 
-        let (anyone_can_spend_script_pub_key, _) = handle_anyone_can_spend_script();
+        let anyone_can_spend_txout = ScriptBuilder::anyone_can_spend_txout();
 
         let child_tx_ins = TransactionBuilder::create_tx_ins(vec![parent_outpoint, resource_utxo]);
 
@@ -456,8 +453,8 @@ impl<'a> Operator<'a> {
                 address.script_pubkey(),
             ),
             (
-                Amount::from_sat(DUST_VALUE),
-                anyone_can_spend_script_pub_key.clone(),
+                anyone_can_spend_txout.value,
+                anyone_can_spend_txout.script_pubkey,
             ),
         ]);
 
@@ -465,10 +462,11 @@ impl<'a> Operator<'a> {
 
         child_tx.input[0].witness.push([0x51]);
 
+        let anyone_can_spend_txout = ScriptBuilder::anyone_can_spend_txout();
         let prevouts = TransactionBuilder::create_tx_outs(vec![
             (
-                Amount::from_sat(DUST_VALUE),
-                anyone_can_spend_script_pub_key,
+                anyone_can_spend_txout.value,
+                anyone_can_spend_txout.script_pubkey,
             ),
             (
                 Amount::from_sat(BRIDGE_AMOUNT_SATS),
@@ -596,7 +594,7 @@ impl<'a> Operator<'a> {
         let mut witness_elements: Vec<&[u8]> = Vec::new();
         witness_elements.push(sig.as_ref());
 
-        handle_taproot_witness(&mut tx, 0, &witness_elements, &timelock_script, &tree_info);
+        handle_taproot_witness(&mut tx, 0, &witness_elements, &timelock_script, &tree_info)?;
 
         // println!("bytes_connector_tree_tx length: {:?}", bytes_connector_tree_tx.len());
         // let hex_utxo_tx = hex::encode(bytes_utxo_tx.clone());
@@ -691,7 +689,7 @@ impl<'a> Operator<'a> {
             &vec![sig.as_ref()],
             &inscribe_preimage_script,
             &commit_tree_info,
-        );
+        )?;
 
         let reveal_txid = self.rpc.send_raw_transaction(&reveal_tx)?;
 

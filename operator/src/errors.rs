@@ -60,6 +60,9 @@ pub enum BridgeError {
     /// Errors if the leaves are not provided in DFS walk order
     #[error("TaprootBuilderError")]
     TaprootBuilderError,
+    /// ControlBlockError is returned when the control block is not found
+    #[error("ControlBlockError")]
+    ControlBlockError,
 }
 
 impl From<secp256k1::Error> for BridgeError {

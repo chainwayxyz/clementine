@@ -309,7 +309,7 @@ impl<'a> Verifier<'a> {
 
         let mut witness_elements: Vec<&[u8]> = Vec::new();
         witness_elements.push(&preimage);
-        handle_taproot_witness(&mut tx, 0, &witness_elements, &hash_script, &tree_info);
+        handle_taproot_witness(&mut tx, 0, &witness_elements, &hash_script, &tree_info)?;
 
         let spending_txid = self.rpc.send_raw_transaction(&tx).unwrap();
         println!("verifier_spending_txid: {:?}", spending_txid);

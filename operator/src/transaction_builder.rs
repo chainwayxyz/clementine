@@ -394,7 +394,7 @@ impl TransactionBuilder {
             &reveal_tx_witness_elements,
             &inscribe_preimage_script,
             &inscription_tree_info,
-        );
+        )?;
 
         Ok((commit_tx, reveal_tx))
     }
