@@ -3,13 +3,14 @@ use crate::{
     constant::{
         ConnectorTreeUTXOs, CONFIRMATION_BLOCK_COUNT, DUST_VALUE, MIN_RELAY_FEE, PERIOD_BLOCK_COUNT,
     },
+    utils::calculate_claim_proof_root,
 };
 use bitcoin::{taproot::TaprootSpendInfo, Address, Amount, OutPoint};
 use secp256k1::XOnlyPublicKey;
 
 use crate::{
-    custom_merkle::CustomMerkleTree, errors::DepositError, extended_rpc::ExtendedRpc,
-    transaction_builder::TransactionBuilder, utils::calculate_amount,
+    errors::DepositError, extended_rpc::ExtendedRpc, transaction_builder::TransactionBuilder,
+    utils::calculate_amount,
 };
 
 pub fn check_deposit_utxo(
@@ -61,7 +62,7 @@ pub fn create_all_connector_trees(
     let mut utxo_trees: Vec<ConnectorTreeUTXOs> = Vec::new();
 
     for i in 0..NUM_ROUNDS {
-        claim_proof_merkle_roots.push(CustomMerkleTree::calculate_claim_proof_root(
+        claim_proof_merkle_roots.push(calculate_claim_proof_root(
             CONNECTOR_TREE_DEPTH,
             &connector_tree_hashes[i],
         ));

@@ -8,7 +8,6 @@ use crate::constant::{
     ConnectorTreeUTXOs, HashType, InscriptionTxs, PreimageType, DUST_VALUE, MIN_RELAY_FEE,
     PERIOD_BLOCK_COUNT,
 };
-use crate::custom_merkle::CustomMerkleTree;
 use crate::errors::BridgeError;
 use crate::extended_rpc::ExtendedRpc;
 use crate::giga_merkle::GigaMerkleTree;
@@ -16,7 +15,10 @@ use crate::merkle::MerkleTree;
 use crate::script_builder::ScriptBuilder;
 use crate::shared::{check_deposit_utxo, create_all_connector_trees};
 use crate::transaction_builder::TransactionBuilder;
-use crate::utils::{calculate_amount, handle_anyone_can_spend_script, handle_taproot_witness};
+use crate::utils::{
+    calculate_amount, get_claim_reveal_indices, handle_anyone_can_spend_script,
+    handle_taproot_witness,
+};
 use crate::verifier::Verifier;
 use bitcoin::address::NetworkChecked;
 use bitcoin::hashes::Hash;
@@ -680,7 +682,7 @@ impl<'a> Operator<'a> {
 
         let number_of_funds_claim = self.get_num_withdrawals_for_period(period);
 
-        let indices = CustomMerkleTree::get_indices(CONNECTOR_TREE_DEPTH, number_of_funds_claim);
+        let indices = get_claim_reveal_indices(CONNECTOR_TREE_DEPTH, number_of_funds_claim);
         println!("indices: {:?}", indices);
 
         let preimages_to_be_revealed = indices

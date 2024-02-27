@@ -1,7 +1,6 @@
 pub mod actor;
 pub mod config;
 pub mod constant;
-pub mod custom_merkle;
 pub mod env_writer;
 pub mod errors;
 pub mod extended_rpc;
