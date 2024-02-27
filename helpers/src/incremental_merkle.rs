@@ -15,6 +15,15 @@ where
     pub index: u32,
 }
 
+impl<const DEPTH: usize> Default for IncrementalMerkleTree<DEPTH>
+where
+    [Data; DEPTH]: Serialize + DeserializeOwned + Copy,
+{
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl<const DEPTH: usize> IncrementalMerkleTree<DEPTH>
 where
     [Data; DEPTH]: Serialize + DeserializeOwned + Copy,
