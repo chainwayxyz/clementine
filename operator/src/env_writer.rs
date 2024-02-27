@@ -91,11 +91,11 @@ impl<E: Environment> ENVWriter<E> {
         // merkle hashes list is a bit different from what we want, a merkle path, so need to do sth based on bits
         // length of merkle hashes for one txid is typically depth + 1, at least for the left half of the tree
         // we extract the merkle path which is of length "depth" from it
-        let merkle_block = MerkleBlock::from_block_with_predicate(&block, |t| *t == txid);
+        let merkle_block = MerkleBlock::from_block_with_predicate(block, |t| *t == txid);
         let mut merkle_hashes = merkle_block
             .txn
             .hashes()
-            .into_iter()
+            .iter()
             .map(Some)
             .collect::<Vec<Option<&TxMerkleNode>>>();
 
@@ -138,6 +138,12 @@ impl<E: Environment> ENVWriter<E> {
     }
 }
 
+impl<E: Environment> Default for ENVWriter<E> {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl<E: Environment> ENVWriter<E> {
     pub fn new() -> Self {
         ENVWriter {
@@ -160,7 +166,7 @@ mod tests {
         read_and_verify_bitcoin_merkle_path, read_tx_and_calculate_txid,
     };
     // use operator_circuit::GUEST_ELF;
-    use risc0_zkvm::default_prover;
+
     use secp256k1::hashes::Hash;
 
     use crate::{

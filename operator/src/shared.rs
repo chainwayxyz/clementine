@@ -28,17 +28,17 @@ pub fn check_deposit_utxo(
         tx_builder.generate_deposit_address(return_address)?;
 
     if !rpc.check_utxo_address_and_amount(
-        &outpoint,
+        outpoint,
         &deposit_address.script_pubkey(),
         amount_sats,
     )? {
         return Err(BridgeError::InvalidDepositUTXO);
     }
 
-    if rpc.is_utxo_spent(&outpoint)? {
+    if rpc.is_utxo_spent(outpoint)? {
         return Err(BridgeError::UTXOSpent);
     }
-    return Ok((deposit_address, deposit_taproot_spend_info));
+    Ok((deposit_address, deposit_taproot_spend_info))
 }
 
 pub fn create_all_connector_trees(
@@ -57,7 +57,7 @@ pub fn create_all_connector_trees(
     let total_amount =
         Amount::from_sat((MIN_RELAY_FEE + single_tree_amount.to_sat()) * NUM_ROUNDS as u64);
 
-    let mut cur_connector_source_utxo = first_source_utxo.clone();
+    let mut cur_connector_source_utxo = *first_source_utxo;
     let mut cur_amount = total_amount;
 
     let mut claim_proof_merkle_roots: Vec<[u8; 32]> = Vec::new();
@@ -80,7 +80,7 @@ pub fn create_all_connector_trees(
                 connector_tree_hashes[i][0][0],
             )?;
         let curr_root_and_next_source_tx_ins =
-            TransactionBuilder::create_tx_ins(vec![cur_connector_source_utxo.clone()]);
+            TransactionBuilder::create_tx_ins(vec![cur_connector_source_utxo]);
 
         let curr_root_and_next_source_tx_outs = TransactionBuilder::create_tx_outs(vec![
             (
@@ -100,15 +100,9 @@ pub fn create_all_connector_trees(
 
         let txid = curr_root_and_next_source_tx.txid();
 
-        cur_connector_source_utxo = OutPoint {
-            txid: txid,
-            vout: 0,
-        };
+        cur_connector_source_utxo = OutPoint { txid, vout: 0 };
 
-        let cur_connector_bt_root_utxo = OutPoint {
-            txid: txid,
-            vout: 1,
-        };
+        let cur_connector_bt_root_utxo = OutPoint { txid, vout: 1 };
 
         let utxo_tree = tx_builder.create_connector_binary_tree(
             i,

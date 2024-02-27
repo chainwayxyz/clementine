@@ -19,6 +19,12 @@ pub struct ExtendedRpc {
     pub inner: Client,
 }
 
+impl Default for ExtendedRpc {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl ExtendedRpc {
     pub fn new() -> Self {
         let rpc = Client::new(
@@ -34,7 +40,7 @@ impl ExtendedRpc {
 
         raw_transaction_results
             .confirmations
-            .ok_or_else(|| BridgeError::NoConfirmationData)
+            .ok_or(BridgeError::NoConfirmationData)
     }
 
     pub fn check_utxo_address_and_amount(
@@ -84,7 +90,7 @@ impl ExtendedRpc {
         amount_sats: u64,
     ) -> Result<OutPoint, BridgeError> {
         let txid = self.inner.send_to_address(
-            &address,
+            address,
             Amount::from_sat(amount_sats),
             None,
             None,
@@ -115,7 +121,7 @@ impl ExtendedRpc {
         }
         let mut total_work = Work::from_be_bytes([0u8; 32]);
         for i in start + 1..end + 1 {
-            let work = self.get_work_at_block(i as u64)?;
+            let work = self.get_work_at_block(i)?;
             total_work = total_work + work;
         }
         let work_bytes = total_work.to_be_bytes();

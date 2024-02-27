@@ -1,34 +1,24 @@
 use std::borrow::BorrowMut;
 
-use bitcoin::opcodes::OP_TRUE;
 use bitcoin::sighash::SighashCache;
 use bitcoin::{self};
 
 use bitcoin::consensus::Decodable;
-use bitcoin::script::Builder;
+
 use bitcoin::taproot::ControlBlock;
 use bitcoin::taproot::LeafVersion;
-use bitcoin::taproot::TaprootBuilder;
+
 use bitcoin::taproot::TaprootSpendInfo;
-use bitcoin::Address;
+
 use bitcoin::Amount;
 
 use bitcoin::ScriptBuf;
 
-use secp256k1::All;
-use secp256k1::Secp256k1;
-use secp256k1::XOnlyPublicKey;
-
-use byteorder::{ByteOrder, LittleEndian};
 use hex;
 
-use lazy_static::lazy_static;
 use sha2::{Digest, Sha256};
-use std::str::FromStr;
 
 use crate::errors::BridgeError;
-use crate::script_builder::ScriptBuilder;
-use crate::transaction_builder::INTERNAL_KEY;
 
 pub fn parse_hex_to_btc_tx(
     tx_hex: &str,
@@ -116,7 +106,7 @@ pub fn get_claim_reveal_indices(depth: usize, count: u32) -> Vec<(usize, usize)>
         indices.extend(get_claim_reveal_indices(depth - 1, count / 2));
     }
 
-    return indices;
+    indices
 }
 
 pub fn get_claim_proof_tree_leaf(
@@ -127,9 +117,9 @@ pub fn get_claim_proof_tree_leaf(
     let indices = get_claim_reveal_indices(depth, num_claims as u32);
     let mut hasher = Sha256::new();
     indices.iter().for_each(|(level, index)| {
-        hasher.update(&connector_tree_hashes[*level][*index]);
+        hasher.update(connector_tree_hashes[*level][*index]);
     });
-    hasher.finalize().try_into().unwrap()
+    hasher.finalize().into()
 }
 pub fn calculate_claim_proof_root(
     depth: usize,
@@ -145,13 +135,13 @@ pub fn calculate_claim_proof_root(
         let mut level_hashes: Vec<[u8; 32]> = Vec::new();
         for i in 0..2u32.pow(depth as u32 - level as u32 - 1) {
             let mut hasher = Sha256::new();
-            hasher.update(&hashes[i as usize * 2]);
-            hasher.update(&hashes[i as usize * 2 + 1]);
-            let hash = hasher.finalize().try_into().unwrap();
+            hasher.update(hashes[i as usize * 2]);
+            hasher.update(hashes[i as usize * 2 + 1]);
+            let hash = hasher.finalize().into();
             level_hashes.push(hash);
         }
         hashes = level_hashes.clone();
-        level = level + 1;
+        level += 1;
     }
     hashes[0]
 }

@@ -67,29 +67,20 @@ pub enum BridgeError {
 
 impl From<secp256k1::Error> for BridgeError {
     fn from(error: secp256k1::Error) -> Self {
-        match error {
-            // You can match on different errors if needed and convert accordingly
-            _ => BridgeError::Secpk256Error,
-        }
+        BridgeError::Secpk256Error
     }
 }
 
 impl From<bitcoin::sighash::Error> for BridgeError {
     fn from(error: bitcoin::sighash::Error) -> Self {
-        match error {
-            // You can match on different errors if needed and convert accordingly
-            _ => BridgeError::BitcoinSighashError,
-        }
+        BridgeError::BitcoinSighashError
     }
 }
 
 // bitcoincore_rpc::Error
 impl From<bitcoincore_rpc::Error> for BridgeError {
     fn from(error: bitcoincore_rpc::Error) -> Self {
-        match error {
-            // You can match on different errors if needed and convert accordingly
-            _ => BridgeError::RpcError,
-        }
+        BridgeError::RpcError
     }
 }
 
@@ -110,10 +101,7 @@ impl From<TryFromSliceError> for BridgeError {
 
 impl From<bitcoin::Transaction> for BridgeError {
     fn from(error: bitcoin::Transaction) -> Self {
-        match error {
-            // You can match on different errors if needed and convert accordingly
-            _ => BridgeError::BitcoinTransactionError,
-        }
+        BridgeError::BitcoinTransactionError
     }
 }
 

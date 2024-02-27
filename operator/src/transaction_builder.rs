@@ -57,7 +57,7 @@ impl TransactionBuilder {
     ) -> Result<(Address, TaprootSpendInfo), BridgeError> {
         let script_n_of_n_with_user_pk = self
             .script_builder
-            .generate_script_n_of_n_with_user_pk(&user_pk);
+            .generate_script_n_of_n_with_user_pk(user_pk);
         let script_timelock = ScriptBuilder::generate_timelock_script(user_pk, USER_TAKES_AFTER);
         let taproot = TaprootBuilder::new()
             .add_leaf(1, script_n_of_n_with_user_pk.clone())?
@@ -242,10 +242,10 @@ impl TransactionBuilder {
         };
         // println!("taproot_builder: {:?}", taproot_builder);
         let internal_key = *INTERNAL_KEY;
-        let tree_info = taproot_builder.finalize(&secp, internal_key)?;
+        let tree_info = taproot_builder.finalize(secp, internal_key)?;
         Ok((
             Address::p2tr(
-                &secp,
+                secp,
                 internal_key,
                 tree_info.merkle_root(),
                 bitcoin::Network::Regtest,
@@ -264,7 +264,7 @@ impl TransactionBuilder {
         absolute_block_height_to_take_after: u64,
     ) -> Result<(Address, TaprootSpendInfo), BridgeError> {
         let timelock_script = ScriptBuilder::generate_absolute_timelock_script(
-            &operator_pk,
+            operator_pk,
             absolute_block_height_to_take_after as u32,
         );
         let n_of_n_script = self.script_builder.generate_script_n_of_n();
@@ -282,7 +282,7 @@ impl TransactionBuilder {
         hash: Data,
     ) -> Result<(Address, TaprootSpendInfo), BridgeError> {
         let timelock_script = ScriptBuilder::generate_timelock_script(
-            &actor_pk,
+            actor_pk,
             CONNECTOR_TREE_OPERATOR_TAKES_AFTER as u32,
         );
         let preimage_script = Builder::new()
@@ -448,12 +448,12 @@ impl TransactionBuilder {
 
         let (_root_address, _) = TransactionBuilder::create_connector_tree_node_address(
             &self.secp,
-            &xonly_public_key,
+            xonly_public_key,
             connector_tree_hashes[0][0],
         )?;
 
         let mut utxo_binary_tree: ConnectorTreeUTXOs = Vec::new();
-        utxo_binary_tree.push(vec![root_utxo.clone()]);
+        utxo_binary_tree.push(vec![*root_utxo]);
 
         for i in 0..depth {
             let mut utxo_tree_current_level: Vec<OutPoint> = Vec::new();
@@ -462,13 +462,13 @@ impl TransactionBuilder {
             for (j, utxo) in utxo_tree_previous_level.iter().enumerate() {
                 let (first_address, _) = TransactionBuilder::create_connector_tree_node_address(
                     &self.secp,
-                    &xonly_public_key,
-                    connector_tree_hashes[(i + 1) as usize][2 * j],
+                    xonly_public_key,
+                    connector_tree_hashes[i + 1][2 * j],
                 )?;
                 let (second_address, _) = TransactionBuilder::create_connector_tree_node_address(
                     &self.secp,
-                    &xonly_public_key,
-                    connector_tree_hashes[(i + 1) as usize][2 * j + 1],
+                    xonly_public_key,
+                    connector_tree_hashes[i + 1][2 * j + 1],
                 )?;
 
                 let tx = TransactionBuilder::create_connector_tree_tx(

@@ -80,9 +80,9 @@ impl<'a> Verifier<'a> {
         let (_, _, utxo_trees) = create_all_connector_trees(
             &self.secp,
             &self.transaction_builder,
-            &_connector_tree_hashes,
+            _connector_tree_hashes,
             _start_blockheight,
-            &_first_source_utxo,
+            _first_source_utxo,
             &self.operator_pk,
         )?;
 
@@ -114,10 +114,10 @@ impl<'a> Verifier<'a> {
         // 1. Check if there is any previous pending deposit
 
         let (deposit_address, _) = check_deposit_utxo(
-            &self.rpc,
+            self.rpc,
             &self.transaction_builder,
             &start_utxo,
-            &return_address,
+            return_address,
             BRIDGE_AMOUNT_SATS,
         )
         .unwrap();
@@ -214,7 +214,7 @@ impl<'a> Verifier<'a> {
                 }
             }
         }
-        return false;
+        false
     }
 
     pub fn watch_connector_tree(

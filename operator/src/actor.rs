@@ -98,7 +98,7 @@ impl Actor {
         let sig_hash = sighash_cache.taproot_script_spend_signature_hash(
             input_index,
             &bitcoin::sighash::Prevouts::All(prevouts),
-            TapLeafHash::from_script(&spend_script, LeafVersion::TapScript),
+            TapLeafHash::from_script(spend_script, LeafVersion::TapScript),
             bitcoin::sighash::TapSighashType::Default,
         )?;
         Ok(self.sign(sig_hash))

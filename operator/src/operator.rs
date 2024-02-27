@@ -132,12 +132,12 @@ impl<'a> Operator<'a> {
         let mut verifiers = Vec::new();
         let mut verifiers_pks = Vec::new();
         for _ in 0..num_verifier {
-            let verifier = Verifier::new(rng, &rpc, signer.xonly_public_key.clone());
-            verifiers_pks.push(verifier.signer.xonly_public_key.clone());
+            let verifier = Verifier::new(rng, rpc, signer.xonly_public_key);
+            verifiers_pks.push(verifier.signer.xonly_public_key);
             verifiers.push(verifier);
         }
         let mut all_verifiers = verifiers_pks.to_vec();
-        all_verifiers.push(signer.xonly_public_key.clone());
+        all_verifiers.push(signer.xonly_public_key);
         let script_builder = ScriptBuilder::new(all_verifiers.clone());
         let transaction_builder = TransactionBuilder::new(all_verifiers.clone());
 
@@ -147,12 +147,12 @@ impl<'a> Operator<'a> {
             script_builder,
             transaction_builder,
             deposit_take_sigs: Vec::new(),
-            connector_tree_preimages: connector_tree_preimages,
-            connector_tree_hashes: connector_tree_hashes,
+            connector_tree_preimages,
+            connector_tree_hashes,
             inscription_txs: Vec::new(),
             start_blockheight: 0,
 
-            verifiers_pks: verifiers_pks,
+            verifiers_pks,
             deposit_presigns: HashMap::new(),
             deposit_merkle_tree: MerkleTree::new(),
             withdrawals_merkle_tree: MerkleTree::new(),
@@ -171,7 +171,7 @@ impl<'a> Operator<'a> {
 
     pub fn get_all_verifiers(&self) -> Vec<XOnlyPublicKey> {
         let mut all_verifiers = self.verifiers_pks.to_vec();
-        all_verifiers.push(self.signer.xonly_public_key.clone());
+        all_verifiers.push(self.signer.xonly_public_key);
         all_verifiers
     }
 
@@ -202,10 +202,10 @@ impl<'a> Operator<'a> {
         // 4. Get signatures from all verifiers 1 move signature, ~150 operator takes signatures
 
         let (deposit_address, deposit_taproot_spend_info) = check_deposit_utxo(
-            &self.rpc,
+            self.rpc,
             &self.transaction_builder,
             &start_utxo,
-            &return_address,
+            return_address,
             BRIDGE_AMOUNT_SATS,
         )?;
 
@@ -222,7 +222,7 @@ impl<'a> Operator<'a> {
                 // of the map, causing the collect call to return a Result::Err, effectively stopping
                 // the iteration and returning the error from your_function_name.
                 let deposit_presigns = verifier
-                    .new_deposit(start_utxo, return_address, deposit_index, &evm_address)
+                    .new_deposit(start_utxo, return_address, deposit_index, evm_address)
                     .map_err(|e| {
                         // Log the error or convert it to BridgeError if necessary
                         eprintln!("Error getting deposit presigns: {:?}", e);
@@ -241,13 +241,13 @@ impl<'a> Operator<'a> {
         // 5. Create a move transaction and return the output utxo, save the utxo as a pending deposit
         let mut move_tx = self
             .transaction_builder
-            .create_move_tx(start_utxo, &evm_address)?;
+            .create_move_tx(start_utxo, evm_address)?;
 
         let move_tx_prevouts = TransactionBuilder::create_move_tx_prevouts(&deposit_address);
 
         let script_n_of_n_with_user_pk = self
             .script_builder
-            .generate_script_n_of_n_with_user_pk(&return_address);
+            .generate_script_n_of_n_with_user_pk(return_address);
 
         let script_n_of_n = self.script_builder.generate_script_n_of_n();
 
@@ -325,7 +325,7 @@ impl<'a> Operator<'a> {
                         "presign.operator_claim_sign[{:?}]: {:?}",
                         i, presign.operator_claim_sign[i]
                     );
-                    presign.operator_claim_sign[i].clone()
+                    presign.operator_claim_sign[i]
                 })
                 .collect::<Vec<_>>();
 
@@ -343,7 +343,7 @@ impl<'a> Operator<'a> {
                 println!("verifying presigns for index {:?}: ", idx);
                 println!("sig: {:?}", sig);
                 self.signer.secp.verify_schnorr(
-                    &sig,
+                    sig,
                     &Message::from_digest_slice(sig_hash.as_byte_array()).expect("should be hash"),
                     &self.verifiers_pks[idx],
                 )?;
@@ -618,13 +618,13 @@ impl<'a> Operator<'a> {
         println!("indices: {:?}", indices);
         let mut preimages: HashSet<PreimageType> = HashSet::new();
         for (depth, index) in indices {
-            preimages.insert(self.connector_tree_preimages[period][depth as usize][index as usize]);
+            preimages.insert(self.connector_tree_preimages[period][depth][index]);
         }
         preimages
     }
 
     fn get_current_period(&self) -> usize {
-        return 0;
+        0
     }
 
     fn get_num_withdrawals_for_period(&self, _period: usize) -> u32 {
@@ -648,9 +648,7 @@ impl<'a> Operator<'a> {
 
         let preimages_to_be_revealed = indices
             .iter()
-            .map(|(depth, index)| {
-                self.connector_tree_preimages[period][*depth as usize][*index as usize]
-            })
+            .map(|(depth, index)| self.connector_tree_preimages[period][*depth][*index])
             .collect::<Vec<_>>();
 
         let (commit_address, commit_tree_info, inscribe_preimage_script) =
@@ -718,7 +716,7 @@ impl<'a> Operator<'a> {
         //     .send_raw_transaction(&serialize(&reveal_tx))
         //     .unwrap();
         // println!("reveal_txid: {:?}", reveal_txid);
-        return Ok(());
+        Ok(())
     }
 
     // pub fn claim_deposit(&self, period: usize, index: usize) {
