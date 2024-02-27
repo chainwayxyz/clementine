@@ -261,20 +261,30 @@ impl<'a> Operator<'a> {
         let deposit_index = self.deposit_take_sigs.len() as u32;
         println!("deposit_index: {:?}", deposit_index);
 
-        let presigns_from_all_verifiers = self
+        let presigns_from_all_verifiers: Result<Vec<_>, BridgeError> = self
             .mock_verifier_access
             .iter()
             .enumerate()
             .map(|(i, verifier)| {
-                // Note: In this part we will need to call the verifier's API to get the presigns
                 println!("Verifier number {:?} is checking new deposit:", i);
-                let deposit_presigns =
-                    verifier.new_deposit(start_utxo, return_address, deposit_index, &evm_address);
+                // Attempt to get the deposit presigns. If an error occurs, it will be propagated out
+                // of the map, causing the collect call to return a Result::Err, effectively stopping
+                // the iteration and returning the error from your_function_name.
+                let deposit_presigns = verifier
+                    .new_deposit(start_utxo, return_address, deposit_index, &evm_address)
+                    .map_err(|e| {
+                        // Log the error or convert it to BridgeError if necessary
+                        eprintln!("Error getting deposit presigns: {:?}", e);
+                        e
+                    })?;
                 println!("deposit presigns: {:?}", deposit_presigns);
                 println!("Verifier checked new deposit");
-                deposit_presigns
+                Ok(deposit_presigns)
             })
-            .collect::<Vec<_>>();
+            .collect(); // This tries to collect into a Result<Vec<DepositPresigns>, BridgeError>
+
+        // Handle the result of the collect operation
+        let presigns_from_all_verifiers = presigns_from_all_verifiers?;
         println!("presigns_from_all_verifiers: done");
 
         // 5. Create a move transaction and return the output utxo, save the utxo as a pending deposit
@@ -300,7 +310,7 @@ impl<'a> Operator<'a> {
             &move_tx_prevouts,
             &script_n_of_n_with_user_pk,
             0,
-        );
+        )?;
         move_signatures.push(sig);
         move_signatures.push(user_sig);
         move_signatures.reverse();
@@ -554,7 +564,7 @@ impl<'a> Operator<'a> {
         utxo: OutPoint,
         preimage: PreimageType,
         tree_depth: usize,
-    ) {
+    ) -> Result<(), BridgeError> {
         let hash = sha256_hash!(preimage);
         let (_, tree_info) = TransactionBuilder::create_connector_tree_node_address(
             &self.signer.secp,
@@ -572,7 +582,7 @@ impl<'a> Operator<'a> {
         println!("base_tx: {:?}", base_tx);
 
         if base_tx.is_none() {
-            return;
+            return Ok(());
         }
         let depth = u32::ilog2(
             ((base_tx.unwrap().output[utxo.vout as usize].value.to_sat() + MIN_RELAY_FEE)
@@ -621,7 +631,7 @@ impl<'a> Operator<'a> {
             &vec![utxo_tx.output[utxo.vout as usize].clone()],
             &timelock_script,
             0,
-        );
+        )?;
         // let spend_control_block = tree_info
         //     .control_block(&(timelock_script.clone(), LeafVersion::TapScript))
         //     .expect("Cannot create control block");
@@ -646,6 +656,7 @@ impl<'a> Operator<'a> {
             }
         };
         println!("operator_spending_txid: {:?}", spending_txid);
+        Ok(())
     }
 
     pub fn reveal_connector_tree_preimages(
@@ -720,7 +731,7 @@ impl<'a> Operator<'a> {
             &prevouts,
             &inscribe_preimage_script,
             0,
-        );
+        )?;
 
         handle_taproot_witness(
             &mut reveal_tx,

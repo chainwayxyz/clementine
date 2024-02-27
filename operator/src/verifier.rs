@@ -2,6 +2,7 @@ use std::borrow::BorrowMut;
 use std::collections::{HashMap, HashSet};
 
 use crate::constant::{ConnectorTreeUTXOs, PreimageType, MIN_RELAY_FEE};
+use crate::errors::BridgeError;
 use bitcoin::sighash::SighashCache;
 use bitcoin::{secp256k1, secp256k1::Secp256k1, OutPoint};
 use bitcoin::{Address, Amount, TxOut};
@@ -108,7 +109,7 @@ impl<'a> Verifier<'a> {
         return_address: &XOnlyPublicKey,
         deposit_index: u32,
         evm_address: &EVMAddress,
-    ) -> DepositPresigns {
+    ) -> Result<DepositPresigns, BridgeError> {
         // 1. Check if there is any previous pending deposit
 
         let (deposit_address, _) = check_deposit_utxo(
@@ -145,7 +146,7 @@ impl<'a> Verifier<'a> {
             &prevouts,
             &script_n_of_n_with_user_pk,
             0,
-        );
+        )?;
 
         // let anyone_can_spend_txout: TxOut = ScriptBuilder::anyone_can_spend_txout();
 
@@ -183,7 +184,7 @@ impl<'a> Verifier<'a> {
                 &op_claim_tx_prevouts,
                 &script_n_of_n,
                 0,
-            );
+            )?;
             op_claim_sigs.push(op_claim_sig);
             println!("Verifier signing operator_claim_tx...");
             println!("index: {:?}", deposit_index);
@@ -192,10 +193,10 @@ impl<'a> Verifier<'a> {
             println!("op_claim_sig: {:?}", op_claim_sig);
         }
 
-        DepositPresigns {
+        Ok(DepositPresigns {
             move_sign: move_sig,
             operator_claim_sign: op_claim_sigs,
-        }
+        })
     }
 
     // This is a function to reduce gas costs when moving bridge funds

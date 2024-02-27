@@ -1,4 +1,5 @@
 use crate::actor::Actor;
+use crate::errors::BridgeError;
 use crate::extended_rpc::ExtendedRpc;
 
 use crate::script_builder::ScriptBuilder;
@@ -37,7 +38,9 @@ impl<'a> User<'a> {
         }
     }
 
-    pub fn deposit_tx(&self) -> (OutPoint, XOnlyPublicKey, EVMAddress, Signature) {
+    pub fn deposit_tx(
+        &self,
+    ) -> Result<(OutPoint, XOnlyPublicKey, EVMAddress, Signature), BridgeError> {
         let (deposit_address, _) = self
             .transaction_builder
             .generate_deposit_address(&self.signer.xonly_public_key);
@@ -56,14 +59,14 @@ impl<'a> User<'a> {
             &move_tx_prevouts,
             &script_n_of_n_with_user_pk,
             0,
-        );
+        )?;
 
-        (
+        Ok((
             deposit_utxo,
             self.signer.xonly_public_key,
             self.signer.evm_address,
             sig,
-        )
+        ))
     }
 }
 

@@ -93,17 +93,15 @@ impl Actor {
         prevouts: &Vec<TxOut>,
         spend_script: &bitcoin::Script,
         input_index: usize,
-    ) -> schnorr::Signature {
+    ) -> Result<schnorr::Signature, BridgeError> {
         let mut sighash_cache = SighashCache::new(tx);
-        let sig_hash = sighash_cache
-            .taproot_script_spend_signature_hash(
-                input_index,
-                &bitcoin::sighash::Prevouts::All(prevouts),
-                TapLeafHash::from_script(&spend_script, LeafVersion::TapScript),
-                bitcoin::sighash::TapSighashType::Default,
-            )
-            .unwrap();
-        self.sign(sig_hash)
+        let sig_hash = sighash_cache.taproot_script_spend_signature_hash(
+            input_index,
+            &bitcoin::sighash::Prevouts::All(prevouts),
+            TapLeafHash::from_script(&spend_script, LeafVersion::TapScript),
+            bitcoin::sighash::TapSighashType::Default,
+        )?;
+        Ok(self.sign(sig_hash))
     }
 
     pub fn sign_taproot_pubkey_spend_tx(

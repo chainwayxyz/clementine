@@ -336,7 +336,7 @@ impl TransactionBuilder {
         actor: &Actor,
         utxo: OutPoint,
         preimages: Vec<[u8; 32]>,
-    ) -> (bitcoin::Transaction, bitcoin::Transaction) {
+    ) -> Result<(bitcoin::Transaction, bitcoin::Transaction), BridgeError> {
         let inscribe_preimage_script =
             ScriptBuilder::create_inscription_script_32_bytes(&actor.xonly_public_key, &preimages);
 
@@ -394,7 +394,7 @@ impl TransactionBuilder {
             &reveal_tx_prevouts,
             &inscribe_preimage_script,
             0,
-        );
+        )?;
         let mut reveal_tx_witness_elements: Vec<&[u8]> = Vec::new();
         reveal_tx_witness_elements.push(reveal_tx_sig.as_ref());
         handle_taproot_witness(
@@ -405,7 +405,7 @@ impl TransactionBuilder {
             &inscription_tree_info,
         );
 
-        (commit_tx, reveal_tx)
+        Ok((commit_tx, reveal_tx))
     }
 
     pub fn create_connector_tree_tx(

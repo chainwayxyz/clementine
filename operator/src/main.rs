@@ -37,7 +37,8 @@ fn main() {
         // println!("move_utxo: {:?}", move_utxo);
         // let move_tx = rpc.get_raw_transaction(&move_utxo.txid, None).unwrap();
         // println!("move_tx: {:?}", move_tx);
-        let (deposit_utxo, deposit_return_address, user_evm_address, user_sig) = user.deposit_tx();
+        let (deposit_utxo, deposit_return_address, user_evm_address, user_sig) =
+            user.deposit_tx().unwrap();
         rpc.mine_blocks(6);
         operator
             .new_deposit(

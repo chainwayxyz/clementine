@@ -27,6 +27,9 @@ pub enum BridgeError {
     /// Returned when a UTXO is already spent
     #[error("UTXOSpent")]
     UTXOSpent,
+    /// Returned when it fails to get FailedToGetPresigns
+    #[error("FailedToGetPresigns")]
+    FailedToGetPresigns,
 }
 
 impl From<secp256k1::Error> for BridgeError {
