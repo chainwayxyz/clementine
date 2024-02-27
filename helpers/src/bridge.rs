@@ -1,7 +1,7 @@
 use crypto_bigint::U256;
 
 use crate::{
-    bitcoin::{read_and_verify_bitcoin_merkle_path, read_arbitrary_tx_and_calculate_txid},
+    bitcoin::{read_and_verify_bitcoin_merkle_path, read_tx_and_calculate_txid},
     config::{BRIDGE_AMOUNT_SATS, DEPTH, NUM_ROUNDS},
     constant::DUST_VALUE,
     env::Environment,
@@ -37,8 +37,7 @@ pub fn read_withdrawal_proof<E: Environment>(
     imt: &mut IncrementalMerkleTree<DEPTH>,
 ) {
     let output_address = E::read_32bytes();
-    let txid =
-        read_arbitrary_tx_and_calculate_txid::<E>(None, Some((BRIDGE_AMOUNT_SATS, output_address)));
+    let txid = read_tx_and_calculate_txid::<E>(None, Some((BRIDGE_AMOUNT_SATS, output_address)));
     let blockhash = read_and_verify_bitcoin_merkle_path::<E>(txid);
     assert_eq!(
         block_mt_root,
@@ -84,12 +83,9 @@ pub fn bridge_proof<E: Environment>() {
             read_and_verify_lc_proof::<E>(lc_blockhash, withdrawal_mt.root);
             let (commit_taproot_addr, claim_proof_tree_leaf) =
                 read_preimages_and_calculate_commit_taproot::<E>();
-            let commit_taproot_txid = read_arbitrary_tx_and_calculate_txid::<E>(
-                None,
-                Some((DUST_VALUE, commit_taproot_addr)),
-            );
-            let reveal_txid =
-                read_arbitrary_tx_and_calculate_txid::<E>(Some((commit_taproot_txid, 0)), None);
+            let commit_taproot_txid =
+                read_tx_and_calculate_txid::<E>(None, Some((DUST_VALUE, commit_taproot_addr)));
+            let reveal_txid = read_tx_and_calculate_txid::<E>(Some((commit_taproot_txid, 0)), None);
             let blockhash = read_and_verify_bitcoin_merkle_path::<E>(reveal_txid);
             assert_eq!(
                 blockhashes_mt.root,

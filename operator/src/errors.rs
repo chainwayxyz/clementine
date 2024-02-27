@@ -30,6 +30,9 @@ pub enum BridgeError {
     /// Returned when it fails to get FailedToGetPresigns
     #[error("FailedToGetPresigns")]
     FailedToGetPresigns,
+    /// Returned when it fails to find the txid in the block
+    #[error("TxidNotFound")]
+    TxidNotFound,
 }
 
 impl From<secp256k1::Error> for BridgeError {

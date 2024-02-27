@@ -8,6 +8,6 @@ use risc0_zkvm::guest::env;
 risc0_zkvm::guest::entry!(main); 
 
 pub fn main() {
-    let txid = read_tx_and_calculate_txid::<RealEnvironment>();
+    let txid = read_tx_and_calculate_txid::<RealEnvironment>(None, None);
     env::commit(&txid);
 }
