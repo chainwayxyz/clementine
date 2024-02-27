@@ -66,20 +66,20 @@ pub enum BridgeError {
 }
 
 impl From<secp256k1::Error> for BridgeError {
-    fn from(error: secp256k1::Error) -> Self {
+    fn from(_error: secp256k1::Error) -> Self {
         BridgeError::Secpk256Error
     }
 }
 
 impl From<bitcoin::sighash::Error> for BridgeError {
-    fn from(error: bitcoin::sighash::Error) -> Self {
+    fn from(_error: bitcoin::sighash::Error) -> Self {
         BridgeError::BitcoinSighashError
     }
 }
 
 // bitcoincore_rpc::Error
 impl From<bitcoincore_rpc::Error> for BridgeError {
-    fn from(error: bitcoincore_rpc::Error) -> Self {
+    fn from(_error: bitcoincore_rpc::Error) -> Self {
         BridgeError::RpcError
     }
 }
@@ -92,7 +92,7 @@ impl From<Vec<u8>> for BridgeError {
 }
 
 impl From<TryFromSliceError> for BridgeError {
-    fn from(_err: TryFromSliceError) -> Self {
+    fn from(_error: TryFromSliceError) -> Self {
         // Here, you can choose the appropriate variant of BridgeError that corresponds
         // to a TryFromSliceError, or add a new variant to BridgeError if necessary.
         BridgeError::TryFromSliceError
@@ -100,7 +100,7 @@ impl From<TryFromSliceError> for BridgeError {
 }
 
 impl From<bitcoin::Transaction> for BridgeError {
-    fn from(error: bitcoin::Transaction) -> Self {
+    fn from(_error: bitcoin::Transaction) -> Self {
         BridgeError::BitcoinTransactionError
     }
 }
