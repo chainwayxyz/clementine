@@ -451,7 +451,10 @@ impl<'a> Operator<'a> {
     }
 
     // this is called when a Withdrawal event emitted on rollup
-    pub fn new_withdrawal(&mut self, withdrawal_address: Address<NetworkChecked>) {
+    pub fn new_withdrawal(
+        &mut self,
+        withdrawal_address: Address<NetworkChecked>,
+    ) -> Result<(), BridgeError> {
         let taproot_script = withdrawal_address.script_pubkey();
         // we are assuming that the withdrawal_address is a taproot address so we get the last 32 bytes
         let hash: [u8; 34] = taproot_script.as_bytes().try_into().unwrap();
@@ -465,24 +468,25 @@ impl<'a> Operator<'a> {
         // 2. Pay to the address and save the txid
         let txid = self
             .rpc
-            .send_to_address(&withdrawal_address, 100_000_000)
+            .send_to_address(&withdrawal_address, 100_000_000)?
             .txid;
         println!(
             "operator paid to withdrawal address: {:?}, txid: {:?}",
             withdrawal_address, txid
         );
         self.withdrawals_payment_txids.push(txid);
+        Ok(())
     }
 
-    pub fn create_child_pays_for_parent(&self, parent_outpoint: OutPoint) -> Transaction {
+    pub fn create_child_pays_for_parent(
+        &self,
+        parent_outpoint: OutPoint,
+    ) -> Result<Transaction, BridgeError> {
         // TODO: Move to Transaction Builder
         let resource_utxo = self
             .rpc
-            .send_to_address(&self.signer.address, BRIDGE_AMOUNT_SATS);
-        let _resource_tx = self
-            .rpc
-            .get_raw_transaction(&resource_utxo.txid, None)
-            .unwrap();
+            .send_to_address(&self.signer.address, BRIDGE_AMOUNT_SATS)?;
+        let _resource_tx = self.rpc.get_raw_transaction(&resource_utxo.txid, None)?;
 
         let _all_verifiers = self.get_all_verifiers();
 
@@ -533,7 +537,7 @@ impl<'a> Operator<'a> {
         witness.push(sig.as_ref());
         // println!("child_tx: {:?}", child_tx);
         // println!("child_txid: {:?}", child_tx.txid());
-        child_tx
+        Ok(child_tx)
     }
 
     // this function is internal, where it checks if the current bitcoin height reaced to th end of the period,
@@ -709,7 +713,7 @@ impl<'a> Operator<'a> {
                 &preimages_to_be_revealed,
             );
 
-        let commit_utxo = self.rpc.send_to_address(&commit_address, DUST_VALUE * 2);
+        let commit_utxo = self.rpc.send_to_address(&commit_address, DUST_VALUE * 2)?;
         println!(
             "is_commit_utxo_spent? {:?}",
             self.rpc.is_utxo_spent(&commit_utxo)
@@ -916,7 +920,7 @@ impl<'a> Operator<'a> {
     /// This starts the whole setup
     /// 1. get the current blockheight
     pub fn initial_setup(&mut self) -> Result<(OutPoint, u64), BridgeError> {
-        let cur_blockheight = self.rpc.get_block_height();
+        let cur_blockheight = self.rpc.get_block_height()?;
         if self.start_blockheight == 0 {
             self.start_blockheight = cur_blockheight;
         }
@@ -937,12 +941,11 @@ impl<'a> Operator<'a> {
 
         let first_source_utxo = self
             .rpc
-            .send_to_address(&connector_tree_source_address, total_amount.to_sat());
+            .send_to_address(&connector_tree_source_address, total_amount.to_sat())?;
         println!("first_source_utxo: {:?}", first_source_utxo);
         let first_source_utxo_create_tx = self
             .rpc
-            .get_raw_transaction(&first_source_utxo.txid, None)
-            .unwrap();
+            .get_raw_transaction(&first_source_utxo.txid, None)?;
         println!(
             "first_source_utxo_create_tx: {:?}",
             first_source_utxo_create_tx

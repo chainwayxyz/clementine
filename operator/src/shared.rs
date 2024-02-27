@@ -20,19 +20,22 @@ pub fn check_deposit_utxo(
     return_address: &XOnlyPublicKey,
     amount_sats: u64,
 ) -> Result<(Address, TaprootSpendInfo), BridgeError> {
-    if rpc.confirmation_blocks(&outpoint.txid) < CONFIRMATION_BLOCK_COUNT {
+    if rpc.confirmation_blocks(&outpoint.txid)? < CONFIRMATION_BLOCK_COUNT {
         return Err(BridgeError::DepositNotFinalized);
     }
 
     let (deposit_address, deposit_taproot_spend_info) =
         tx_builder.generate_deposit_address(return_address);
 
-    if !rpc.check_utxo_address_and_amount(&outpoint, &deposit_address.script_pubkey(), amount_sats)
-    {
+    if !rpc.check_utxo_address_and_amount(
+        &outpoint,
+        &deposit_address.script_pubkey(),
+        amount_sats,
+    )? {
         return Err(BridgeError::InvalidDepositUTXO);
     }
 
-    if rpc.is_utxo_spent(&outpoint) {
+    if rpc.is_utxo_spent(&outpoint)? {
         return Err(BridgeError::UTXOSpent);
     }
     return Ok((deposit_address, deposit_taproot_spend_info));

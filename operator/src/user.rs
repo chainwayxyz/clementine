@@ -46,7 +46,7 @@ impl<'a> User<'a> {
             .generate_deposit_address(&self.signer.xonly_public_key);
         let deposit_utxo = self
             .rpc
-            .send_to_address(&deposit_address, BRIDGE_AMOUNT_SATS);
+            .send_to_address(&deposit_address, BRIDGE_AMOUNT_SATS)?;
         let mut move_tx = self
             .transaction_builder
             .create_move_tx(deposit_utxo, &self.signer.evm_address);
