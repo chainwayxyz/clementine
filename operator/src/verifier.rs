@@ -20,7 +20,7 @@ use crate::{actor::Actor, operator::DepositPresigns};
 
 use crate::config::BRIDGE_AMOUNT_SATS;
 
-#[derive(Debug, Clone)]
+#[derive(Debug)]
 pub struct Verifier<'a> {
     pub rpc: &'a ExtendedRpc,
     pub secp: Secp256k1<secp256k1::All>,

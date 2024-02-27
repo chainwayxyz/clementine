@@ -18,8 +18,6 @@ use bitcoin::ScriptBuf;
 use secp256k1::All;
 use secp256k1::Secp256k1;
 use secp256k1::XOnlyPublicKey;
-use serde::de::DeserializeOwned;
-use serde::Serialize;
 
 use byteorder::{ByteOrder, LittleEndian};
 use hex;

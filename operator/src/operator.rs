@@ -145,7 +145,7 @@ pub struct OperatorClaimSigs {
     pub operator_claim_sigs: Vec<Vec<schnorr::Signature>>,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug)]
 pub struct Operator<'a> {
     pub rpc: &'a ExtendedRpc,
     pub signer: Actor,
