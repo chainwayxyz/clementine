@@ -4,55 +4,20 @@ use k256::elliptic_curve::group::GroupEncoding;
 use k256::elliptic_curve::ScalarPrimitive;
 use k256::{AffinePoint, PublicKey, Scalar};
 
-use serde::{Deserialize, Serialize};
-use sha2::{Digest, Sha256};
-
 use crate::core_utils::from_hex64_to_bytes32;
 use crate::env::Environment;
 use crate::hashes::calculate_double_sha256;
 use crate::hashes::calculate_single_sha256;
-
-#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
-pub struct BlockHeader {
-    pub version: [u8; 4],
-    pub previous_block_hash: [u8; 32],
-    pub merkle_root: [u8; 32],
-    pub timestamp: [u8; 4],
-    pub bits: [u8; 4],
-    pub nonce: [u8; 4],
-}
-
-impl BlockHeader {
-    pub fn from_slice(input: &[u8; 80]) -> Self {
-        BlockHeader {
-            version: input[0..4].try_into().unwrap(),
-            previous_block_hash: input[4..36].try_into().unwrap(),
-            merkle_root: input[36..68].try_into().unwrap(),
-            timestamp: input[68..72].try_into().unwrap(),
-            bits: input[72..76].try_into().unwrap(),
-            nonce: input[76..80].try_into().unwrap(),
-        }
-    }
-
-    pub fn as_bytes(&self) -> [u8; 80] {
-        let mut output: [u8; 80] = [0; 80];
-        output[0..4].copy_from_slice(&self.version);
-        output[4..36].copy_from_slice(&self.previous_block_hash);
-        output[36..68].copy_from_slice(&self.merkle_root);
-        output[68..72].copy_from_slice(&self.timestamp);
-        output[72..76].copy_from_slice(&self.bits);
-        output[76..80].copy_from_slice(&self.nonce);
-        output
-    }
-}
+use serde::{Deserialize, Serialize};
+use sha2::{Digest, Sha256};
 
 pub fn validate_threshold_and_add_work(
-    block_header: BlockHeader,
+    bits: [u8; 4],
     block_hash: [u8; 32],
     old_work: U256,
 ) -> U256 {
     // Step 1: Decode the target from the 'bits' field
-    let target = decode_compact_target(block_header.bits);
+    let target = decode_compact_target(bits);
 
     // Step 2: Compare the block hash with the target
     check_hash_valid(block_hash, target);
@@ -64,12 +29,12 @@ pub fn validate_threshold_and_add_work(
 }
 
 pub fn validate_threshold_and_subtract_work(
-    block_header: BlockHeader,
+    bits: [u8; 4],
     block_hash: [u8; 32],
     old_work: U256,
 ) -> U256 {
     // Step 1: Decode the target from the 'bits' field
-    let target = decode_compact_target(block_header.bits);
+    let target = decode_compact_target(bits);
 
     // Step 2: Compare the block hash with the target
     check_hash_valid(block_hash, target);
@@ -164,10 +129,14 @@ pub fn verify_script_hash_taproot_address(
         "Script hash does not match tap leaf hash"
     );
     // internal key as bytes
-    let internal_key_x_only_bytes: [u8; 32] =
-        from_hex64_to_bytes32("93c7378d96518a75448821c4f7c8f4bae7ce60f804d03d1f0628dd5dd0f5de51");
-    let internal_key_y_only_bytes: [u8; 32] =
-        from_hex64_to_bytes32("b7e6488df5418b4c37f61271aca50390670138b7dc4f4d1c2b927fc43b900f28");
+    let internal_key_x_only_bytes: [u8; 32] = [
+        147, 199, 55, 141, 150, 81, 138, 117, 68, 136, 33, 196, 247, 200, 244, 186, 231, 206, 96,
+        248, 4, 208, 61, 31, 6, 40, 221, 93, 208, 245, 222, 81,
+    ];
+    let internal_key_y_only_bytes: [u8; 32] = [
+        183, 230, 72, 141, 245, 65, 139, 76, 55, 246, 18, 113, 172, 165, 3, 144, 103, 1, 56, 183,
+        220, 79, 77, 28, 43, 146, 127, 196, 59, 144, 15, 40,
+    ];
     let mut internal_key_bytes = [0u8; 65];
     internal_key_bytes[0] = 4;
     internal_key_bytes[1..33].copy_from_slice(&internal_key_x_only_bytes);

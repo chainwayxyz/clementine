@@ -1,4 +1,5 @@
 use bitcoin::secp256k1::rand::rngs::OsRng;
+use circuit_helpers::core_utils::from_hex64_to_bytes32;
 use operator::config::{NUM_USERS, NUM_VERIFIERS};
 use operator::{extended_rpc::ExtendedRpc, operator::Operator, user::User};
 
