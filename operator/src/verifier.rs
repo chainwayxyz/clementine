@@ -1,12 +1,13 @@
 use std::borrow::BorrowMut;
 use std::collections::{HashMap, HashSet};
 
-use crate::constant::{ConnectorTreeUTXOs, PreimageType, HASH_FUNCTION_32, MIN_RELAY_FEE};
+use crate::constant::{ConnectorTreeUTXOs, PreimageType, MIN_RELAY_FEE};
 use bitcoin::sighash::SighashCache;
 use bitcoin::{secp256k1, secp256k1::Secp256k1, OutPoint};
 use bitcoin::{Address, Amount, TxOut};
 use circuit_helpers::config::{CONNECTOR_TREE_DEPTH, NUM_ROUNDS};
 use circuit_helpers::constant::EVMAddress;
+use circuit_helpers::sha256_hash;
 use secp256k1::All;
 use secp256k1::{rand::rngs::OsRng, XOnlyPublicKey};
 
@@ -282,7 +283,7 @@ impl<'a> Verifier<'a> {
         preimage: PreimageType,
         amount: Amount,
     ) {
-        let hash = HASH_FUNCTION_32(preimage);
+        let hash = sha256_hash!(preimage);
         let (address, tree_info) =
             TransactionBuilder::create_connector_tree_node_address(&self.secp, &operator_pk, hash);
         let tx_ins = TransactionBuilder::create_tx_ins_with_sequence(vec![utxo]);
@@ -320,7 +321,7 @@ impl<'a> Verifier<'a> {
         preimage: PreimageType,
         amount: Amount,
     ) {
-        let hash = HASH_FUNCTION_32(preimage);
+        let hash = sha256_hash!(preimage);
         let (address, tree_info) =
             TransactionBuilder::create_connector_tree_node_address(&self.secp, &operator_pk, hash);
         let tx_ins = TransactionBuilder::create_tx_ins_with_sequence(vec![utxo]);
@@ -351,7 +352,7 @@ pub fn is_spendable_with_preimage(
     tx_out: TxOut,
     preimage: PreimageType,
 ) -> bool {
-    let hash = HASH_FUNCTION_32(preimage);
+    let hash = sha256_hash!(preimage);
     let (address, _) =
         TransactionBuilder::create_connector_tree_node_address(secp, &operator_pk, hash);
 

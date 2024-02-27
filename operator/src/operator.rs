@@ -5,8 +5,8 @@ use std::vec;
 use crate::actor::Actor;
 use crate::config::{BRIDGE_AMOUNT_SATS, CONNECTOR_TREE_DEPTH, DEPTH, NUM_ROUNDS};
 use crate::constant::{
-    ConnectorTreeUTXOs, HashType, InscriptionTxs, PreimageType, DUST_VALUE, HASH_FUNCTION_32,
-    MIN_RELAY_FEE, PERIOD_BLOCK_COUNT,
+    ConnectorTreeUTXOs, HashType, InscriptionTxs, PreimageType, DUST_VALUE, MIN_RELAY_FEE,
+    PERIOD_BLOCK_COUNT,
 };
 use crate::custom_merkle::CustomMerkleTree;
 use crate::errors::BridgeError;
@@ -27,6 +27,7 @@ use bitcoin::{secp256k1, secp256k1::schnorr, Address, Txid};
 use bitcoin::{Amount, OutPoint, TapLeafHash, Transaction, TxOut};
 use bitcoincore_rpc::{Client, RpcApi};
 use circuit_helpers::constant::EVMAddress;
+use circuit_helpers::sha256_hash;
 use secp256k1::rand::rngs::OsRng;
 use secp256k1::rand::Rng;
 use secp256k1::{All, Message, Secp256k1, XOnlyPublicKey};
@@ -91,14 +92,14 @@ pub fn create_connector_tree_preimages_and_hashes(
     let mut connector_tree_hashes: Vec<Vec<HashType>> = Vec::new();
     let root_preimage: PreimageType = rng.gen();
     connector_tree_preimages.push(vec![root_preimage]);
-    connector_tree_hashes.push(vec![HASH_FUNCTION_32(root_preimage)]);
+    connector_tree_hashes.push(vec![sha256_hash!(root_preimage)]);
     for i in 1..(depth + 1) {
         let mut preimages_current_level: Vec<PreimageType> = Vec::new();
         let mut hashes_current_level: Vec<PreimageType> = Vec::new();
         for _ in 0..2u32.pow(i as u32) {
             let temp: PreimageType = rng.gen();
             preimages_current_level.push(temp);
-            hashes_current_level.push(HASH_FUNCTION_32(temp));
+            hashes_current_level.push(sha256_hash!(temp));
         }
         connector_tree_preimages.push(preimages_current_level);
         connector_tree_hashes.push(hashes_current_level);
@@ -552,7 +553,7 @@ impl<'a> Operator<'a> {
         preimage: PreimageType,
         tree_depth: usize,
     ) {
-        let hash = HASH_FUNCTION_32(preimage);
+        let hash = sha256_hash!(preimage);
         let (_, tree_info) = TransactionBuilder::create_connector_tree_node_address(
             &self.signer.secp,
             &self.signer.xonly_public_key,

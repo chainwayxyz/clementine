@@ -1,6 +1,7 @@
 use crate::config::ZEROES;
-use crate::constant::{Data, EMPTYDATA, HASH_FUNCTION_64};
+use crate::constant::{Data, EMPTYDATA};
 use circuit_helpers::incremental_merkle::IncrementalMerkleTree;
+use circuit_helpers::sha256_hash;
 use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
 
@@ -43,7 +44,7 @@ where
             } else {
                 self.data[i].push(current_level_hash);
             }
-            current_level_hash = HASH_FUNCTION_64(left, right);
+            current_level_hash = sha256_hash!(left, right);
             current_index /= 2;
         }
         self.index += 1;
@@ -83,7 +84,7 @@ where
             } else {
                 (self.data[level][i - 1], current_level_hash)
             };
-            current_level_hash = HASH_FUNCTION_64(left, right);
+            current_level_hash = sha256_hash!(left, right);
             i /= 2;
         }
         IncrementalMerkleTree {

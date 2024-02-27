@@ -4,9 +4,9 @@ use k256::elliptic_curve::group::GroupEncoding;
 use k256::elliptic_curve::ScalarPrimitive;
 use k256::{AffinePoint, PublicKey, Scalar};
 
+use crate::double_sha256_hash;
 use crate::env::Environment;
-use crate::hashes::calculate_double_sha256;
-use crate::hashes::calculate_single_sha256;
+use crate::sha256_hash;
 use sha2::{Digest, Sha256};
 
 pub fn validate_threshold_and_add_work(
@@ -95,7 +95,7 @@ pub fn get_script_hash(
 ) -> [u8; 32] {
     let mut hasher = Sha256::new();
     let tap_leaf_str = "TapLeaf";
-    let tap_leaf_tag_hash: [u8; 32] = calculate_single_sha256(&tap_leaf_str.as_bytes());
+    let tap_leaf_tag_hash: [u8; 32] = sha256_hash!(&tap_leaf_str.as_bytes());
     let mut hash_tag = [0u8; 64];
     hash_tag[..32].copy_from_slice(&tap_leaf_tag_hash);
     hash_tag[32..64].copy_from_slice(&tap_leaf_tag_hash);
@@ -143,14 +143,14 @@ pub fn verify_script_hash_taproot_address(
     let internal_key = PublicKey::from_sec1_bytes(&internal_key_bytes).unwrap();
     // tap_leaf_hash is the merkle tree root
     let tap_tweak_str = "TapTweak";
-    let tap_tweak_tag_hash = calculate_single_sha256(&tap_tweak_str.as_bytes());
+    let tap_tweak_tag_hash = sha256_hash!(&tap_tweak_str.as_bytes());
     let mut tweak_hash_input: [u8; 128] = [0u8; 128];
     tweak_hash_input[..32].copy_from_slice(&tap_tweak_tag_hash);
     tweak_hash_input[32..64].copy_from_slice(&tap_tweak_tag_hash);
     tweak_hash_input[64..96].copy_from_slice(&internal_key_x_only_bytes);
     tweak_hash_input[96..128].copy_from_slice(&tap_leaf_hash);
     // tweak_hash is the tweak scalar
-    let tweak_hash = calculate_single_sha256(&tweak_hash_input);
+    let tweak_hash = sha256_hash!(&tweak_hash_input);
     let scalar_primitive = ScalarPrimitive::from_slice(&tweak_hash).unwrap();
     let scalar = Scalar::from(scalar_primitive);
     let scalar_point = AffinePoint::GENERATOR * scalar;
@@ -333,7 +333,7 @@ pub fn read_and_verify_bitcoin_merkle_path<E: Environment>(txid: [u8; 32]) -> [u
             preimage[32..].copy_from_slice(&hash);
         }
         index = index / 2;
-        hash = calculate_double_sha256(&preimage);
+        hash = double_sha256_hash!(&preimage);
     }
     hash
 }

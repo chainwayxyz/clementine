@@ -3,7 +3,7 @@
 // The Giga Merkle Tree will be used to prove the inclusion of the preimages in the connector UTXO tree,
 // depending on the number of periods that have passed.
 
-use crate::constant::HASH_FUNCTION_64;
+use circuit_helpers::sha256_hash;
 use sha2::{Digest, Sha256};
 
 #[derive(Debug, Clone)]
@@ -109,9 +109,9 @@ impl GigaMerkleTree {
         let mut hash = self.data[0][index];
         for elem in proof {
             if index % 2 == 0 {
-                hash = HASH_FUNCTION_64(hash, elem);
+                hash = sha256_hash!(hash, elem);
             } else {
-                hash = HASH_FUNCTION_64(elem, hash);
+                hash = sha256_hash!(elem, hash);
             }
             index = index / 2;
         }
