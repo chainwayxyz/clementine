@@ -26,12 +26,11 @@ use bitcoin::sighash::SighashCache;
 use bitcoin::taproot::LeafVersion;
 use bitcoin::{secp256k1, secp256k1::schnorr, Address, Txid};
 use bitcoin::{Amount, OutPoint, TapLeafHash, Transaction, TxOut};
-use bitcoincore_rpc::{Client, RpcApi};
 use circuit_helpers::constant::EVMAddress;
 use circuit_helpers::sha256_hash;
 use secp256k1::rand::rngs::OsRng;
 use secp256k1::rand::Rng;
-use secp256k1::{All, Message, Secp256k1, XOnlyPublicKey};
+use secp256k1::{Message, XOnlyPublicKey};
 
 // pub fn verify_presigns(
 //     _tx: &bitcoin::Transaction,
@@ -52,38 +51,6 @@ use secp256k1::{All, Message, Secp256k1, XOnlyPublicKey};
 //     let f = VERIFY_NULLDUMMY | VERIFY_WITNESS;
 //     println!("{:?}", verify_transaction_with_flags(_tx, s, f).unwrap());
 // }
-
-pub fn check_deposit(
-    _secp: &Secp256k1<All>,
-    rpc: &Client,
-    start_utxo: OutPoint,
-    deposit_utxo: OutPoint,
-    _hash: [u8; 32],
-    _return_address: XOnlyPublicKey,
-    _verifiers_pks: &Vec<XOnlyPublicKey>,
-) {
-    // 1. Check if tx is mined in bitcoin
-    // 2. Check if the start_utxo matches input[0].previous_output
-    // 2. Check if 0th output of the txid has 1 BTC
-    // 3. Check if 0th output of the txid's scriptpubkey is N-of-N multisig and Hash of preimage or return_address after 200 blocks
-    // 4. If all checks pass, return true
-    // 5. Return the blockheight of the block in which the txid was mined
-    let tx = rpc
-        .get_raw_transaction(&deposit_utxo.txid, None)
-        .unwrap_or_else(|e| {
-            panic!(
-                "Failed to get raw transaction: {}, txid: {}",
-                e, deposit_utxo.txid
-            )
-        });
-    println!("user deposit utxo: {:?}", deposit_utxo);
-    assert!(tx.input[0].previous_output == start_utxo);
-    println!("from user start utxo: {:?}", start_utxo);
-    assert!(tx.output[deposit_utxo.vout as usize].value == Amount::from_sat(BRIDGE_AMOUNT_SATS));
-    println!("amount: {:?}", tx.output[deposit_utxo.vout as usize].value);
-    // let (address, _) = generate_deposit_address(secp, verifiers_pks, return_address, hash); // TODO: Update this function
-    // assert!(tx.output[deposit_utxo.vout as usize].script_pubkey == address.script_pubkey());
-}
 
 pub fn create_connector_tree_preimages_and_hashes(
     depth: usize,
@@ -120,18 +87,6 @@ pub fn create_all_rounds_connector_preimages(
         preimages.push(tree_preimages);
         hashes.push(tree_hashes);
     }
-    // let mut leaves = Vec::new();
-    // for i in 0..num_rounds {
-    //     for j in 1..u32::pow(2, depth as u32) + 1 {
-    //         let indices = GigaMerkleTree::get_indices(depth, j);
-    //         let mut hash_info = Vec::new();
-    //         for (depth, index) in indices {
-    //             hash_info.push(hashes[i][depth][index]);
-    //         }
-    //         leaves.push(hash_info);
-    //     }
-    // }
-    // let giga_merkle_tree = GigaMerkleTree::new(num_rounds, depth, leaves);
     (preimages, hashes)
 }
 
@@ -255,8 +210,7 @@ impl<'a> Operator<'a> {
             &start_utxo,
             &return_address,
             BRIDGE_AMOUNT_SATS,
-        )
-        .unwrap();
+        )?;
 
         let deposit_index = self.deposit_take_sigs.len() as u32;
         println!("deposit_index: {:?}", deposit_index);
@@ -328,7 +282,7 @@ impl<'a> Operator<'a> {
             &deposit_taproot_spend_info,
         );
         // println!("move_tx: {:?}", move_tx);
-        let rpc_move_txid = self.rpc.inner.send_raw_transaction(&move_tx).unwrap();
+        let rpc_move_txid = self.rpc.send_raw_transaction(&move_tx)?;
         let move_utxo = OutPoint {
             txid: rpc_move_txid,
             vout: 0,
@@ -382,26 +336,20 @@ impl<'a> Operator<'a> {
             println!("operator_claim_tx: {:?}", operator_claim_tx);
             let mut sighash_cache = SighashCache::new(operator_claim_tx.clone());
 
-            let sig_hash = sighash_cache
-                .taproot_script_spend_signature_hash(
-                    0,
-                    &bitcoin::sighash::Prevouts::All(&op_claim_tx_prevouts),
-                    TapLeafHash::from_script(&script_n_of_n, LeafVersion::TapScript),
-                    bitcoin::sighash::TapSighashType::Default,
-                )
-                .unwrap();
+            let sig_hash = sighash_cache.taproot_script_spend_signature_hash(
+                0,
+                &bitcoin::sighash::Prevouts::All(&op_claim_tx_prevouts),
+                TapLeafHash::from_script(&script_n_of_n, LeafVersion::TapScript),
+                bitcoin::sighash::TapSighashType::Default,
+            )?;
             for (idx, sig) in op_claim_sigs_for_period_i.iter().enumerate() {
                 println!("verifying presigns for index {:?}: ", idx);
                 println!("sig: {:?}", sig);
-                self.signer
-                    .secp
-                    .verify_schnorr(
-                        &sig,
-                        &Message::from_digest_slice(sig_hash.as_byte_array())
-                            .expect("should be hash"),
-                        &self.verifiers_pks[idx],
-                    )
-                    .unwrap();
+                self.signer.secp.verify_schnorr(
+                    &sig,
+                    &Message::from_digest_slice(sig_hash.as_byte_array()).expect("should be hash"),
+                    &self.verifiers_pks[idx],
+                )?;
             }
 
             // let claim_sig_for_bridge = self.signer.sign_taproot_script_spend_tx(
@@ -457,8 +405,8 @@ impl<'a> Operator<'a> {
     ) -> Result<(), BridgeError> {
         let taproot_script = withdrawal_address.script_pubkey();
         // we are assuming that the withdrawal_address is a taproot address so we get the last 32 bytes
-        let hash: [u8; 34] = taproot_script.as_bytes().try_into().unwrap();
-        let hash: [u8; 32] = hash[2..].try_into().unwrap();
+        let hash: [u8; 34] = taproot_script.as_bytes().try_into()?;
+        let hash: [u8; 32] = hash[2..].try_into()?;
 
         // 1. Add the address to WithdrawalsMerkleTree
         self.withdrawals_merkle_tree.add(hash);
@@ -494,8 +442,7 @@ impl<'a> Operator<'a> {
         let (address, _) = TransactionBuilder::create_taproot_address(
             &self.signer.secp,
             vec![script_n_of_n_without_hash.clone()],
-        )
-        .unwrap();
+        )?;
 
         let (anyone_can_spend_script_pub_key, _) = handle_anyone_can_spend_script();
 
@@ -530,10 +477,11 @@ impl<'a> Operator<'a> {
         ]);
         let sig = self
             .signer
-            .sign_taproot_pubkey_spend_tx(&mut child_tx, &prevouts, 1)
-            .unwrap();
+            .sign_taproot_pubkey_spend_tx(&mut child_tx, &prevouts, 1)?;
         let mut sighash_cache = SighashCache::new(child_tx.borrow_mut());
-        let witness = sighash_cache.witness_mut(1).unwrap();
+        let witness = sighash_cache
+            .witness_mut(1)
+            .ok_or(BridgeError::TxInputNotFound)?;
         witness.push(sig.as_ref());
         // println!("child_tx: {:?}", child_tx);
         // println!("child_txid: {:?}", child_tx.txid());
@@ -598,13 +546,13 @@ impl<'a> Operator<'a> {
         let index = self.connector_tree_preimages[period][level as usize]
             .iter()
             .position(|x| *x == preimage)
-            .unwrap();
+            .ok_or(BridgeError::PreimageNotFound)?;
         let hashes = (
             self.connector_tree_hashes[period][(level + 1) as usize][2 * index],
             self.connector_tree_hashes[period][(level + 1) as usize][2 * index + 1],
         );
 
-        let utxo_tx = self.rpc.get_raw_transaction(&utxo.txid, None).unwrap();
+        let utxo_tx = self.rpc.get_raw_transaction(&utxo.txid, None)?;
         // println!("utxo_tx: {:?}", utxo_tx);
         // println!("utxo_txid: {:?}", utxo_tx.txid());
         let timelock_script =
@@ -745,7 +693,7 @@ impl<'a> Operator<'a> {
             &commit_tree_info,
         );
 
-        let reveal_txid = self.rpc.send_raw_transaction(&reveal_tx).unwrap();
+        let reveal_txid = self.rpc.send_raw_transaction(&reveal_tx)?;
 
         println!(
             "is_commit_utxo_spent? {:?}",

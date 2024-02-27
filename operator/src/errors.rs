@@ -1,5 +1,6 @@
 //! This module defines errors returned by the library.
 use core::fmt::Debug;
+use std::array::TryFromSliceError;
 use thiserror::Error;
 
 /// Errors returned by the bridge
@@ -42,6 +43,18 @@ pub enum BridgeError {
     /// For Vec<u8> conversion
     #[error("VecConversionError")]
     VecConversionError,
+    /// For TryFromSliceError
+    #[error("TryFromSliceError")]
+    TryFromSliceError,
+    /// Returned when bitcoin::Transaction error happens, also returns the error
+    #[error("BitcoinTransactionError")]
+    BitcoinTransactionError,
+    // TxInputNotFound is returned when the input is not found in the transaction
+    #[error("TxInputNotFound")]
+    TxInputNotFound,
+    // PreimageNotFound is returned when the preimage is not found in the the connector tree or claim proof
+    #[error("PreimageNotFound")]
+    PreimageNotFound,
 }
 
 impl From<secp256k1::Error> for BridgeError {
@@ -76,5 +89,22 @@ impl From<bitcoincore_rpc::Error> for BridgeError {
 impl From<Vec<u8>> for BridgeError {
     fn from(_error: Vec<u8>) -> Self {
         BridgeError::VecConversionError
+    }
+}
+
+impl From<TryFromSliceError> for BridgeError {
+    fn from(_err: TryFromSliceError) -> Self {
+        // Here, you can choose the appropriate variant of BridgeError that corresponds
+        // to a TryFromSliceError, or add a new variant to BridgeError if necessary.
+        BridgeError::TryFromSliceError
+    }
+}
+
+impl From<bitcoin::Transaction> for BridgeError {
+    fn from(error: bitcoin::Transaction) -> Self {
+        match error {
+            // You can match on different errors if needed and convert accordingly
+            _ => BridgeError::BitcoinTransactionError,
+        }
     }
 }
