@@ -4,11 +4,9 @@ use k256::elliptic_curve::group::GroupEncoding;
 use k256::elliptic_curve::ScalarPrimitive;
 use k256::{AffinePoint, PublicKey, Scalar};
 
-use crate::core_utils::from_hex64_to_bytes32;
 use crate::env::Environment;
 use crate::hashes::calculate_double_sha256;
 use crate::hashes::calculate_single_sha256;
-use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 
 pub fn validate_threshold_and_add_work(
