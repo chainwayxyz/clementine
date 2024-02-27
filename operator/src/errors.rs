@@ -1,53 +1,48 @@
-#[derive(Debug)]
+//! This module defines errors returned by the library.
+use core::fmt::Debug;
+use thiserror::Error;
+
+/// Errors returned by the bridge
+#[derive(Clone, Debug, Eq, PartialEq, Error)]
+#[non_exhaustive]
 pub enum BridgeError {
+    #[error("OperatorPendingDeposit")]
     OperatorPendingDeposit,
+    #[error("InvalidPeriod")]
     InvalidPeriod,
+    #[error("Error")]
     Error,
+    /// Returned when the secp256k1 crate returns an error
+    #[error("Secpk256Error")]
+    Secpk256Error,
+    /// Returned when the bitcoin crate returns an error in the sighash module
+    #[error("BitcoinSighashError")]
+    BitcoinSighashError,
+    /// Returned when a non finalized deposit request is found
+    #[error("DepositNotFinalized")]
+    DepositNotFinalized,
+    /// Returned when an invalid deposit UTXO is found
+    #[error("InvalidDepositUTXO")]
+    InvalidDepositUTXO,
+    /// Returned when a UTXO is already spent
+    #[error("UTXOSpent")]
+    UTXOSpent,
 }
-use std::fmt;
 
-impl fmt::Display for BridgeError {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        match *self {
-            BridgeError::OperatorPendingDeposit => write!(f, "Pending deposit"),
-            BridgeError::InvalidPeriod => write!(f, "Invalid period"),
-            BridgeError::Error => write!(f, "Internal error"),
+impl From<secp256k1::Error> for BridgeError {
+    fn from(error: secp256k1::Error) -> Self {
+        match error {
+            // You can match on different errors if needed and convert accordingly
+            _ => BridgeError::Secpk256Error,
         }
     }
 }
 
-#[derive(Debug)]
-pub enum DepositError {
-    NotFinalized,
-    InvalidAddressOrAmount,
-    AlreadySpent,
-}
-
-impl fmt::Display for DepositError {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        match *self {
-            DepositError::NotFinalized => write!(f, "Deposit utxo not finalized yet"),
-            DepositError::InvalidAddressOrAmount => {
-                write!(f, "Deposit utxo address or amount not valid")
-            }
-            DepositError::AlreadySpent => write!(f, "Deposit utxo already spent"),
-        }
-    }
-}
-
-#[derive(Debug)]
-pub enum VerificationError {
-    RootMatchError,
-    UTXOMatchError,
-    SignatureError,
-}
-
-impl fmt::Display for VerificationError {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        match *self {
-            VerificationError::RootMatchError => write!(f, "Roots do not match"),
-            VerificationError::UTXOMatchError => write!(f, "UTXOs do not match"),
-            VerificationError::SignatureError => write!(f, "Signature error"),
+impl From<bitcoin::sighash::Error> for BridgeError {
+    fn from(error: bitcoin::sighash::Error) -> Self {
+        match error {
+            // You can match on different errors if needed and convert accordingly
+            _ => BridgeError::BitcoinSighashError,
         }
     }
 }

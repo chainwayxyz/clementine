@@ -516,7 +516,8 @@ impl<'a> Operator<'a> {
         ]);
         let sig = self
             .signer
-            .sign_taproot_pubkey_spend_tx(&mut child_tx, &prevouts, 1);
+            .sign_taproot_pubkey_spend_tx(&mut child_tx, &prevouts, 1)
+            .unwrap();
         let mut sighash_cache = SighashCache::new(child_tx.borrow_mut());
         let witness = sighash_cache.witness_mut(1).unwrap();
         witness.push(sig.as_ref());

@@ -367,8 +367,9 @@ impl TransactionBuilder {
             inscription_tree_info.output_key()
         );
 
-        let commit_tx_sig =
-            actor.sign_taproot_pubkey_spend_tx(&mut commit_tx, &commit_tx_prevouts, 0);
+        let commit_tx_sig = actor
+            .sign_taproot_pubkey_spend_tx(&mut commit_tx, &commit_tx_prevouts, 0)
+            .unwrap();
         let mut commit_tx_sighash_cache = SighashCache::new(commit_tx.borrow_mut());
         let witness = commit_tx_sighash_cache.witness_mut(0).unwrap();
         witness.push(commit_tx_sig.as_ref());

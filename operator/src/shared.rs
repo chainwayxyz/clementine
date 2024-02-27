@@ -3,14 +3,14 @@ use crate::{
     constant::{
         ConnectorTreeUTXOs, CONFIRMATION_BLOCK_COUNT, DUST_VALUE, MIN_RELAY_FEE, PERIOD_BLOCK_COUNT,
     },
+    errors::BridgeError,
     utils::calculate_claim_proof_root,
 };
 use bitcoin::{taproot::TaprootSpendInfo, Address, Amount, OutPoint};
 use secp256k1::XOnlyPublicKey;
 
 use crate::{
-    errors::DepositError, extended_rpc::ExtendedRpc, transaction_builder::TransactionBuilder,
-    utils::calculate_amount,
+    extended_rpc::ExtendedRpc, transaction_builder::TransactionBuilder, utils::calculate_amount,
 };
 
 pub fn check_deposit_utxo(
@@ -19,9 +19,9 @@ pub fn check_deposit_utxo(
     outpoint: &OutPoint,
     return_address: &XOnlyPublicKey,
     amount_sats: u64,
-) -> Result<(Address, TaprootSpendInfo), DepositError> {
+) -> Result<(Address, TaprootSpendInfo), BridgeError> {
     if rpc.confirmation_blocks(&outpoint.txid) < CONFIRMATION_BLOCK_COUNT {
-        return Err(DepositError::NotFinalized);
+        return Err(BridgeError::DepositNotFinalized);
     }
 
     let (deposit_address, deposit_taproot_spend_info) =
@@ -29,11 +29,11 @@ pub fn check_deposit_utxo(
 
     if !rpc.check_utxo_address_and_amount(&outpoint, &deposit_address.script_pubkey(), amount_sats)
     {
-        return Err(DepositError::InvalidAddressOrAmount);
+        return Err(BridgeError::InvalidDepositUTXO);
     }
 
     if rpc.is_utxo_spent(&outpoint) {
-        return Err(DepositError::AlreadySpent);
+        return Err(BridgeError::UTXOSpent);
     }
     return Ok((deposit_address, deposit_taproot_spend_info));
 }

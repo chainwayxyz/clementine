@@ -1,4 +1,5 @@
 use crate::constant::EVMAddress;
+use crate::errors::BridgeError;
 use bitcoin::secp256k1::rand::rngs::OsRng;
 use bitcoin::secp256k1::rand::RngCore;
 use bitcoin::sighash::SighashCache;
@@ -62,18 +63,14 @@ impl Actor {
         &self,
         sighash: TapSighash,
         merkle_root: Option<TapNodeHash>,
-    ) -> schnorr::Signature {
-        self.secp.sign_schnorr(
+    ) -> Result<schnorr::Signature, BridgeError> {
+        Ok(self.secp.sign_schnorr(
             &Message::from_digest_slice(sighash.as_byte_array()).expect("should be hash"),
-            &self
-                .keypair
-                .add_xonly_tweak(
-                    &self.secp,
-                    &TapTweakHash::from_key_and_tweak(self.xonly_public_key, merkle_root)
-                        .to_scalar(),
-                )
-                .unwrap(),
-        )
+            &self.keypair.add_xonly_tweak(
+                &self.secp,
+                &TapTweakHash::from_key_and_tweak(self.xonly_public_key, merkle_root).to_scalar(),
+            )?,
+        ))
     }
 
     pub fn sign(&self, sighash: TapSighash) -> schnorr::Signature {
@@ -114,15 +111,13 @@ impl Actor {
         tx: &mut bitcoin::Transaction,
         prevouts: &Vec<TxOut>,
         input_index: usize,
-    ) -> schnorr::Signature {
+    ) -> Result<schnorr::Signature, BridgeError> {
         let mut sighash_cache = SighashCache::new(tx);
-        let sig_hash = sighash_cache
-            .taproot_key_spend_signature_hash(
-                input_index,
-                &bitcoin::sighash::Prevouts::All(prevouts),
-                bitcoin::sighash::TapSighashType::Default,
-            )
-            .unwrap();
+        let sig_hash = sighash_cache.taproot_key_spend_signature_hash(
+            input_index,
+            &bitcoin::sighash::Prevouts::All(prevouts),
+            bitcoin::sighash::TapSighashType::Default,
+        )?;
         self.sign_with_tweak(sig_hash, None)
     }
 
