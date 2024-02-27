@@ -1,18 +1,11 @@
 /// This file is the duplicate of the constant.rs file in the helpers crate
 use bitcoin::OutPoint;
 use bitcoin::Txid;
-use circuit_helpers::hashes::sha256_32bytes;
-use circuit_helpers::hashes::sha256_64bytes;
-use circuit_helpers::hashes::sha256_96bytes;
-
 pub type ConnectorTreeUTXOs = Vec<Vec<OutPoint>>;
 pub type Data = [u8; 32];
 pub type PreimageType = [u8; 32];
 pub type HashType = [u8; 32];
 pub type InscriptionTxs = (OutPoint, Txid);
-pub const HASH_FUNCTION_96: fn(Data, Data, Data) -> Data = sha256_96bytes;
-pub const HASH_FUNCTION_64: fn(Data, Data) -> Data = sha256_64bytes;
-pub const HASH_FUNCTION_32: fn(Data) -> Data = sha256_32bytes;
 pub const EMPTYDATA: Data = [0; 32];
 pub const DUST_VALUE: u64 = 1000;
 // pub const MINIMUM_FEE: Amount = Amount::from_sat(300);

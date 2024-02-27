@@ -273,16 +273,13 @@ impl TransactionBuilder {
             &operator_pk,
             absolute_block_height_to_take_after as u32,
         );
-        let mut all_2_of_2_scripts: Vec<ScriptBuf> = self
-            .verifiers_pks
-            .iter()
-            .map(|pk| ScriptBuilder::generate_2_of_2_script(&operator_pk, &pk))
-            .collect();
-        // push the timelock script to the beginning of the vector
-        all_2_of_2_scripts.insert(0, timelock_script.clone());
+        let n_of_n_script = self.script_builder.generate_script_n_of_n();
 
-        let (address, tree_info) =
-            TransactionBuilder::create_taproot_address(&self.secp, all_2_of_2_scripts).unwrap();
+        let (address, tree_info) = TransactionBuilder::create_taproot_address(
+            &self.secp,
+            vec![timelock_script, n_of_n_script],
+        )
+        .unwrap();
         (address, tree_info)
     }
 

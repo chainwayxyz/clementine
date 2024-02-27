@@ -13,7 +13,7 @@ use secp256k1::schnorr::Signature;
 use crate::config::BRIDGE_AMOUNT_SATS;
 use secp256k1::rand::rngs::OsRng;
 
-#[derive(Debug, Clone)]
+#[derive(Debug)]
 pub struct User<'a> {
     pub rpc: &'a ExtendedRpc,
     pub secp: Secp256k1<secp256k1::All>,

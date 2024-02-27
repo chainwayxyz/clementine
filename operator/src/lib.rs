@@ -1,11 +1,9 @@
 pub mod actor;
 pub mod config;
 pub mod constant;
-pub mod custom_merkle;
 pub mod env_writer;
 pub mod errors;
 pub mod extended_rpc;
-pub mod giga_merkle;
 pub mod merkle;
 pub mod mock_env;
 pub mod operator;
