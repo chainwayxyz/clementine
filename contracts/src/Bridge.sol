@@ -46,7 +46,6 @@ contract Bridge is MerkleTree, ERC20, Ownable {
 
         bytes32 extracted_merkle_root = BTCUtils.extractMerkleRootLE(block_header);
         bytes32 txId = ValidateSPV.calculateTxId(version, vin, vout, locktime);
-
         require(!spentTxIds[txId], "txId already spent");
         spentTxIds[txId] = true;
 
@@ -57,12 +56,14 @@ contract Bridge is MerkleTree, ERC20, Ownable {
         bytes memory output1 = BTCUtils.extractOutputAtIndex(vout, 0);
         require(isBytesEqual(output1, EXPECTED_VOUT_O), "Output 1 is not the expected value");
 
+        // Second output is the receiver of tokens
         bytes memory output2 = BTCUtils.extractOutputAtIndex(vout, 1);
-        address mintAddress = address(bytes20(output2));
-        require(mintAddress != address(0), "Invalid mint address");
+        bytes memory output2_ext = BTCUtils.extractOpReturnData(output2);
+        address receiver = address(bytes20(output2_ext));
+        require(receiver != address(0), "Invalid receiver address");
 
         emit Deposit(txId, block.timestamp);
-        _mint(mintAddress, DEPOSIT_AMOUNT);
+        _mint(receiver, DEPOSIT_AMOUNT);
     }
 
     function withdraw(bytes32 bitcoin_address) public {
@@ -84,8 +85,7 @@ contract Bridge is MerkleTree, ERC20, Ownable {
         return 8;
     }
 
-    // TODO: Can we invert the logic?
-    function isBytesEqual(bytes memory a, bytes memory b) internal returns (bool result) {
+    function isBytesEqual(bytes memory a, bytes memory b) internal pure returns (bool result) {
         require(a.length == b.length, "Lengths do not match");
 
         // Cannot use keccak as its costly in ZK environment
