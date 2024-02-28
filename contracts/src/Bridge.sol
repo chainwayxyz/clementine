@@ -20,7 +20,7 @@ contract Bridge is MerkleTree, ERC20, Ownable {
     event DepositTxOutUpdate(bytes oldExpectedVout0, bytes newExpectedVout0);
     event BlockHashAdded(bytes32 block_hash);
 
-    constructor(uint32 _levels) ERC20("wBTC", "wBTC") MerkleTree(_levels) Ownable(msg.sender) {}
+    constructor(uint32 _levels) ERC20("Citrea BTC", "cBTC") MerkleTree(_levels) Ownable(msg.sender) {}
 
     function setDepositTxOut0(bytes calldata _depositTxOut0) public onlyOwner {
         bytes memory oldDepositTxOut0 = DEPOSIT_TXOUT_0;
