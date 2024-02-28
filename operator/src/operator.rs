@@ -15,7 +15,7 @@ use crate::extended_rpc::ExtendedRpc;
 use crate::merkle::MerkleTree;
 use crate::script_builder::ScriptBuilder;
 use crate::shared::{check_deposit_utxo, create_all_connector_trees};
-use crate::traits::db::OperatorDatabase;
+use crate::traits::db::Database;
 use crate::transaction_builder::TransactionBuilder;
 use crate::utils::{calculate_amount, get_claim_reveal_indices, handle_taproot_witness};
 use crate::verifier::Verifier;
@@ -102,7 +102,7 @@ pub struct OperatorClaimSigs {
 }
 
 #[derive(Debug)]
-pub struct Operator<'a> {
+pub struct Operator<'a, T: Database> {
     pub rpc: &'a ExtendedRpc,
     pub signer: Actor,
     pub script_builder: ScriptBuilder,
@@ -122,11 +122,16 @@ pub struct Operator<'a> {
     pub withdrawals_payment_txids: Vec<Txid>,
     pub mock_verifier_access: Vec<Verifier<'a>>, // on production this will be removed rather we will call the verifier's API
     pub connector_tree_utxos: Vec<ConnectorTreeUTXOs>,
-    pub operator_db: OperatorDB,
+    pub operator_db: OperatorDB<T>,
 }
 
-impl<'a> Operator<'a> {
-    pub fn new(rng: &mut OsRng, rpc: &'a ExtendedRpc, num_verifier: u32) -> Self {
+impl<'a, T: Database> Operator<'a, T> {
+    pub fn new(
+        rng: &mut OsRng,
+        rpc: &'a ExtendedRpc,
+        num_verifier: u32,
+        operator_db: OperatorDB<T>,
+    ) -> Self {
         let signer = Actor::new(rng);
         let (connector_tree_preimages, connector_tree_hashes) =
             create_all_rounds_connector_preimages(CONNECTOR_TREE_DEPTH, NUM_ROUNDS, rng);
@@ -159,17 +164,17 @@ impl<'a> Operator<'a> {
             withdrawals_payment_txids: Vec::new(),
             mock_verifier_access: verifiers,
             connector_tree_utxos: Vec::new(),
-            operator_db: OperatorDB::new(),
+            operator_db: operator_db,
         }
     }
 
-    pub fn add_deposit_utxo(&mut self, utxo: OutPoint) {
-        self.operator_db.add_deposit_utxo(utxo);
-    }
+    // pub fn add_deposit_utxo(&mut self, utxo: OutPoint) {
+    //     self.operator_db.add_deposit_utxo(utxo);
+    // }
 
-    pub fn add_move_utxo(&mut self, utxo: OutPoint) {
-        self.operator_db.add_move_utxo(utxo);
-    }
+    // pub fn add_move_utxo(&mut self, utxo: OutPoint) {
+    //     self.operator_db.add_move_utxo(utxo);
+    // }
 
     pub fn get_all_verifiers(&self) -> Vec<XOnlyPublicKey> {
         let mut all_verifiers = self.verifiers_pks.to_vec();
@@ -211,7 +216,7 @@ impl<'a> Operator<'a> {
             BRIDGE_AMOUNT_SATS,
         )?;
 
-        self.add_deposit_utxo(start_utxo);
+        // self.add_deposit_utxo(start_utxo);
 
         let deposit_index = self.deposit_take_sigs.len() as u32;
         println!("deposit_index: {:?}", deposit_index);
@@ -289,7 +294,7 @@ impl<'a> Operator<'a> {
             vout: 0,
         };
 
-        self.add_move_utxo(move_utxo);
+        // self.add_move_utxo(move_utxo);
 
         let operator_claim_sigs = OperatorClaimSigs {
             operator_claim_sigs: presigns_from_all_verifiers

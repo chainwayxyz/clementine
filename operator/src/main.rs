@@ -1,10 +1,14 @@
 use bitcoin::secp256k1::rand::rngs::OsRng;
 use operator::config::{NUM_USERS, NUM_VERIFIERS};
+use operator::db::operator_db::OperatorDB;
 use operator::errors::BridgeError;
+use operator::traits::db::Database;
 use operator::{extended_rpc::ExtendedRpc, operator::Operator, user::User};
 
 fn main() -> Result<(), BridgeError> {
     let rpc = ExtendedRpc::new();
+    let op_db = GeneralDatabase::new();
+    let operator_db = OperatorDB::new(my_db);
 
     let mut operator = Operator::new(&mut OsRng, &rpc, NUM_VERIFIERS as u32);
 
@@ -58,8 +62,8 @@ fn main() -> Result<(), BridgeError> {
         rpc.mine_blocks(1)?;
     }
 
-    // TEST: operator_db works
-    println!("operator_db: {:?}", operator.operator_db);
+    // // TEST: operator_db works
+    // println!("operator_db: {:?}", operator.operator_db);
 
     // make 3 withdrawals
     for i in 0..3 {

@@ -1,35 +1,25 @@
-use bitcoin::OutPoint;
-
-use crate::traits::db::OperatorDatabase;
+use crate::{errors::BridgeError, traits::db::Database};
 
 #[derive(Debug, Clone)]
-pub struct OperatorDB {
-    pub deposit_utxos: Vec<OutPoint>,
-    pub move_utxos: Vec<OutPoint>,
+pub struct OperatorDB<T>
+where
+    T: Database,
+{
+    pub inner: T,
 }
 
-impl OperatorDB {
-    pub fn new() -> Self {
-        Self {
-            deposit_utxos: Vec::new(),
-            move_utxos: Vec::new(),
-        }
+impl<T: Database> OperatorDB<T> {
+    pub fn new(inner: T) -> Self {
+        OperatorDB { inner }
     }
 }
 
-impl OperatorDatabase for OperatorDB {
-    fn get_deposit_utxo(&self, index: usize) -> OutPoint {
-        self.deposit_utxos[index]
-    }
-    fn add_deposit_utxo(&mut self, utxo: OutPoint) {
-        self.deposit_utxos.push(utxo);
+impl<T: Database> Database for OperatorDB<T> {
+    fn get<K, V>(&self, key: K) -> Option<V> {
+        self.inner.get(key)
     }
 
-    fn get_move_utxo(&self, index: usize) -> OutPoint {
-        self.move_utxos[index]
-    }
-
-    fn add_move_utxo(&mut self, utxo: OutPoint) {
-        self.move_utxos.push(utxo);
+    fn set<K, V>(&self, key: K, value: V) -> Result<(), BridgeError> {
+        self.inner.set(key, value)
     }
 }

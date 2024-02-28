@@ -1,39 +1,41 @@
-use bitcoin::OutPoint;
+use std::collections::HashMap;
 
-pub trait CommonDatabase {
-    // fn get_connector_tree_hash(&self, period: usize, depth: usize, index: usize) -> HashType;
+use crate::errors::BridgeError;
 
-    // fn get_connector_tree_utxo(&self, period: usize, depth: usize, index: usize) -> OutPoint;
+pub trait Database {
+    fn get<K, V>(&self, key: K) -> Option<V>
+    where
+        K: Into<String>,
+        V: Clone + std::convert::From<std::string::String>;
+
+    fn set<K, V>(&self, key: K, value: V) -> Result<(), BridgeError>
+    where
+        K: Into<String>,
+        V: Clone + std::convert::From<std::string::String>;
 }
 
-pub trait OperatorDatabase {
-    // fn get_connector_tree_preimage(
-    //     &self,
-    //     period: usize,
-    //     depth: usize,
-    //     index: usize,
-    // ) -> PreimageType;
-
-    // fn get_inscription_txs(&self, period: usize) -> InscriptionTxs;
-
-    fn get_deposit_utxo(&self, index: usize) -> OutPoint;
-
-    fn add_deposit_utxo(&mut self, utxo: OutPoint);
-
-    fn get_move_utxo(&self, index: usize) -> OutPoint;
-
-    fn add_move_utxo(&mut self, utxo: OutPoint);
-
-    // fn get_move_utxo(&self, index: usize) -> OutPoint;
-
-    // fn get_deposit_take_sigs(&self, index: usize) -> OperatorClaimSigs;
+#[derive(Debug, Clone)]
+pub struct GeneralDatabase {
+    data: HashMap<String, String>,
 }
 
-pub trait VerifierDatabase {}
+impl Database for GeneralDatabase {
+    fn get<K, V>(&self, key: K) -> Option<V>
+    where
+        K: Into<String>,
+        V: Clone + std::convert::From<std::string::String>,
+    {
+        self.data.get(&key.into()).map(|v| v.clone().into())
+    }
 
-// #[macro_export]
-// macro_rules! get_connector_tree {
-//     ($db:expr, $period:expr, $depth:expr, $index:expr, $method:ident) => {
-//         $db.$method($period, $depth, $index)
-//     };
-// }
+    fn set<K, V>(&self, key: K, value: V) -> Result<(), BridgeError>
+    where
+        K: Into<String>,
+        V: Clone + std::convert::From<std::string::String>,
+    {
+        let key_str = key.into();
+        // Assuming value also implements Into<String>
+        self.data.insert(key_str, value.into());
+        Ok(())
+    }
+}
