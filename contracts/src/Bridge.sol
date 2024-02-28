@@ -9,7 +9,7 @@ import "bitcoin-spv/solidity/contracts/BTCUtils.sol";
 import "./MerkleTree.sol";
 
 contract Bridge is MerkleTree, ERC20, Ownable {
-    bytes DEPOSIT_TXOUT_0 = hex"c2ddf50500000000225120fc6eb6fa4fd4ed1e8519a7edfa171eddcedfbd0e0be49b5e531ef36e7e66eb05"; 
+    bytes public DEPOSIT_TXOUT_0 = hex"c2ddf50500000000225120fc6eb6fa4fd4ed1e8519a7edfa171eddcedfbd0e0be49b5e531ef36e7e66eb05"; 
     uint256 public constant DEPOSIT_AMOUNT = 100_000_000;
     mapping(uint256 => address) public verifiers;
     mapping(bytes32 => bool) public blockHashes;
@@ -22,7 +22,7 @@ contract Bridge is MerkleTree, ERC20, Ownable {
 
     constructor(uint32 _levels) ERC20("wBTC", "wBTC") MerkleTree(_levels) Ownable(msg.sender) {}
 
-    function setDepositTxOutO(bytes calldata _depositTxOut0) public onlyOwner {
+    function setDepositTxOut0(bytes calldata _depositTxOut0) public onlyOwner {
         bytes memory oldDepositTxOut0 = DEPOSIT_TXOUT_0;
         DEPOSIT_TXOUT_0 = _depositTxOut0;
         emit DepositTxOutUpdate(oldDepositTxOut0, DEPOSIT_TXOUT_0);

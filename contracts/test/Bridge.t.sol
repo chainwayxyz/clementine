@@ -13,6 +13,7 @@ import "bitcoin-spv/solidity/contracts/BTCUtils.sol";
 
 contract BridgeHarness is Bridge {
     constructor(uint32 _levels) Bridge(_levels) {}
+    // Overriding in harness is needed as internal functions are not accessible in the test
     function isBytesEqual_(bytes memory a, bytes memory b) public pure returns (bool result) {
         result = super.isBytesEqual(a, b);
     }
@@ -148,7 +149,25 @@ contract BridgeTest is Test {
         assertEq(isKeccakEqual(a, a), bridge.isBytesEqual_(a, a));
     }
 
+    function testAddBlockHash() public {
+        bytes32 block_hash = hex"1234";
+        bridge.addBlockHash(block_hash);
+        assert(bridge.isCorrectBlockHash(block_hash));
+    }
+
+    function testSetDepositTxOut0() public {
+        bytes memory depositTxOut0 = hex"1234";
+        bridge.setDepositTxOut0(depositTxOut0);
+        assert(bridge.isBytesEqual_(depositTxOut0, bridge.DEPOSIT_TXOUT_0()));
+    }
+
+    function testDecimals() public {
+        // 8 decimals to match Bitcoin
+        assertEq(bridge.decimals(), 8);
+    }
+
     function isKeccakEqual(bytes memory a, bytes memory b) public pure returns (bool result) {
         result = keccak256(abi.encodePacked(a)) == keccak256(abi.encodePacked(b));
     }
+
 }
