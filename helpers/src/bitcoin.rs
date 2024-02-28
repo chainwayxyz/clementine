@@ -84,8 +84,8 @@ fn check_hash_valid(hash: [u8; 32], target: [u8; 32]) {
 
 pub fn calculate_work(target: [u8; 32]) -> U256 {
     let target_plus_one = U256::from_le_bytes(target).saturating_add(&U256::ONE);
-    let work = U256::MAX.wrapping_div(&target_plus_one);
-    work
+
+    U256::MAX.wrapping_div(&target_plus_one)
 }
 
 pub fn get_script_hash(
@@ -99,20 +99,20 @@ pub fn get_script_hash(
     let mut hash_tag = [0u8; 64];
     hash_tag[..32].copy_from_slice(&tap_leaf_tag_hash);
     hash_tag[32..64].copy_from_slice(&tap_leaf_tag_hash);
-    hasher.update(&hash_tag);
-    hasher.update(&[192u8]);
+    hasher.update(hash_tag);
+    hasher.update([192u8]);
     let script_length: u8 = 37 + 33 * number_of_preimages;
-    hasher.update(&[script_length]);
-    hasher.update(&[32u8]);
-    hasher.update(&actor_pk_bytes);
-    hasher.update(&[172u8, 0u8, 99u8]);
+    hasher.update([script_length]);
+    hasher.update([32u8]);
+    hasher.update(actor_pk_bytes);
+    hasher.update([172u8, 0u8, 99u8]);
     for i in 0..number_of_preimages as usize {
         let preimage = &preimages[i * 32..(i + 1) * 32];
-        hasher.update(&[32u8]);
+        hasher.update([32u8]);
         hasher.update(preimage);
     }
-    hasher.update(&[104u8]);
-    hasher.finalize().try_into().unwrap()
+    hasher.update([104u8]);
+    hasher.finalize().into()
 }
 
 pub fn verify_script_hash_taproot_address(
@@ -159,46 +159,46 @@ pub fn verify_script_hash_taproot_address(
     let mut address_bytes = [0u8; 33];
     address_bytes[0..33].copy_from_slice(&address.to_bytes()[0..33]);
     // internal_key.tap_tweak(secp, merkle_root);
-    return (
+    (
         address_bytes[1..33] == taproot_address,
         address_bytes,
         preimages,
-    );
+    )
 }
 
-pub fn read_tx_and_calculate_txid<E: Environment>() -> [u8; 32] {
-    let version = E::read_i32();
-    let input_count: u8 = E::read_u32().try_into().unwrap();
-    let output_count: u8 = E::read_u32().try_into().unwrap();
-    let lock_time = E::read_u32();
+// pub fn read_tx_and_calculate_txid<E: Environment>() -> [u8; 32] {
+//     let version = E::read_i32();
+//     let input_count: u8 = E::read_u32().try_into().unwrap();
+//     let output_count: u8 = E::read_u32().try_into().unwrap();
+//     let lock_time = E::read_u32();
 
-    let mut hasher = Sha256::new();
-    hasher.update(&version.to_le_bytes());
-    hasher.update(&input_count.to_le_bytes());
-    for _ in 0..input_count {
-        let prev_tx_hash = E::read_32bytes();
-        let output_index = E::read_u32();
-        let sequence = E::read_u32();
-        hasher.update(&prev_tx_hash);
-        hasher.update(&output_index.to_le_bytes());
-        hasher.update(&0u8.to_le_bytes());
-        hasher.update(&sequence.to_le_bytes());
-    }
-    hasher.update(&output_count.to_le_bytes());
-    for _ in 0..output_count {
-        let value = E::read_u64();
-        let taproot_address = E::read_32bytes();
-        hasher.update(&value.to_le_bytes());
-        hasher.update(&34u8.to_le_bytes());
-        hasher.update(&81u8.to_le_bytes());
-        hasher.update(&32u8.to_le_bytes());
-        hasher.update(&taproot_address);
-    }
-    hasher.update(&lock_time.to_le_bytes());
-    let result = hasher.finalize_reset();
-    hasher.update(result);
-    hasher.finalize().try_into().unwrap()
-}
+//     let mut hasher = Sha256::new();
+//     hasher.update(&version.to_le_bytes());
+//     hasher.update(&input_count.to_le_bytes());
+//     for _ in 0..input_count {
+//         let prev_tx_hash = E::read_32bytes();
+//         let output_index = E::read_u32();
+//         let sequence = E::read_u32();
+//         hasher.update(&prev_tx_hash);
+//         hasher.update(&output_index.to_le_bytes());
+//         hasher.update(&0u8.to_le_bytes());
+//         hasher.update(&sequence.to_le_bytes());
+//     }
+//     hasher.update(&output_count.to_le_bytes());
+//     for _ in 0..output_count {
+//         let value = E::read_u64();
+//         let taproot_address = E::read_32bytes();
+//         hasher.update(&value.to_le_bytes());
+//         hasher.update(&34u8.to_le_bytes());
+//         hasher.update(&81u8.to_le_bytes());
+//         hasher.update(&32u8.to_le_bytes());
+//         hasher.update(&taproot_address);
+//     }
+//     hasher.update(&lock_time.to_le_bytes());
+//     let result = hasher.finalize_reset();
+//     hasher.update(result);
+//     hasher.finalize().try_into().unwrap()
+// }
 
 // updates the hasher with variable length integer
 // see https://wiki.bitcoinsv.io/index.php/VarInt
@@ -218,7 +218,7 @@ fn read_chunks_and_update_hasher<E: Environment>(hasher: &mut Sha256, byte_len: 
     let chunks = byte_len / 32;
     for _ in 0..chunks {
         let chunk = E::read_32bytes();
-        hasher.update(&chunk);
+        hasher.update(chunk);
     }
     let remaining_bytes = byte_len % 32;
     if remaining_bytes > 0 {
@@ -227,7 +227,7 @@ fn read_chunks_and_update_hasher<E: Environment>(hasher: &mut Sha256, byte_len: 
     }
 }
 
-pub fn read_arbitrary_tx_and_calculate_txid<E: Environment>(
+pub fn read_tx_and_calculate_txid<E: Environment>(
     require_input: Option<([u8; 32], u32)>,
     require_output: Option<(u64, [u8; 32])>,
 ) -> [u8; 32] {
@@ -239,7 +239,7 @@ pub fn read_arbitrary_tx_and_calculate_txid<E: Environment>(
     let lock_time = E::read_u32();
 
     let mut hasher = Sha256::new();
-    hasher.update(&version.to_le_bytes());
+    hasher.update(version.to_le_bytes());
 
     update_hasher_with_varint(&mut hasher, input_count);
 
@@ -247,8 +247,8 @@ pub fn read_arbitrary_tx_and_calculate_txid<E: Environment>(
         let prev_tx_hash = E::read_32bytes();
         let output_index = E::read_u32();
         let sequence = E::read_u32();
-        hasher.update(&prev_tx_hash);
-        hasher.update(&output_index.to_le_bytes());
+        hasher.update(prev_tx_hash);
+        hasher.update(output_index.to_le_bytes());
 
         let script_sig_size = E::read_u32();
 
@@ -257,12 +257,13 @@ pub fn read_arbitrary_tx_and_calculate_txid<E: Environment>(
         read_chunks_and_update_hasher::<E>(&mut hasher, script_sig_size);
 
         // hasher.update(0u8.to_le_bytes());
-        hasher.update(&sequence.to_le_bytes());
-        if require_input.is_some() && !input_satisfied {
-            if prev_tx_hash == require_input.unwrap().0 && output_index == require_input.unwrap().1
-            {
-                input_satisfied = true;
-            }
+        hasher.update(sequence.to_le_bytes());
+        if require_input.is_some()
+            && !input_satisfied
+            && prev_tx_hash == require_input.unwrap().0
+            && output_index == require_input.unwrap().1
+        {
+            input_satisfied = true;
         }
     }
 
@@ -276,20 +277,20 @@ pub fn read_arbitrary_tx_and_calculate_txid<E: Environment>(
         // it can be less than 32 bytes so we read the remaining bytes
         if output_len == 0 {
             let taproot_address = E::read_32bytes();
-            hasher.update(&value.to_le_bytes());
-            hasher.update(&34u8.to_le_bytes());
-            hasher.update(&81u8.to_le_bytes());
-            hasher.update(&32u8.to_le_bytes());
-            hasher.update(&taproot_address);
-            if require_output.is_some() && !output_satisfied {
-                if value == require_output.unwrap().0
-                    && taproot_address == require_output.unwrap().1
-                {
-                    output_satisfied = true;
-                }
+            hasher.update(value.to_le_bytes());
+            hasher.update(34u8.to_le_bytes());
+            hasher.update(81u8.to_le_bytes());
+            hasher.update(32u8.to_le_bytes());
+            hasher.update(taproot_address);
+            if require_output.is_some()
+                && !output_satisfied
+                && value == require_output.unwrap().0
+                && taproot_address == require_output.unwrap().1
+            {
+                output_satisfied = true;
             }
         } else {
-            hasher.update(&value.to_le_bytes());
+            hasher.update(value.to_le_bytes());
 
             update_hasher_with_varint(&mut hasher, output_len);
 
@@ -305,10 +306,10 @@ pub fn read_arbitrary_tx_and_calculate_txid<E: Environment>(
     // if !output_address_found {
     //     panic!("Output address not found");
     // }
-    hasher.update(&lock_time.to_le_bytes());
+    hasher.update(lock_time.to_le_bytes());
     let result = hasher.finalize_reset();
     hasher.update(result);
-    hasher.finalize().try_into().unwrap()
+    hasher.finalize().into()
 }
 
 pub fn read_and_verify_bitcoin_merkle_path<E: Environment>(txid: [u8; 32]) -> [u8; 32] {
@@ -320,7 +321,7 @@ pub fn read_and_verify_bitcoin_merkle_path<E: Environment>(txid: [u8; 32]) -> [u
     let mut preimage = [0_u8; 64];
     for _ in 0..levels {
         let node = if path_indicator & 1 == 1 {
-            hash.clone()
+            hash
         } else {
             E::read_32bytes()
         };
@@ -332,7 +333,7 @@ pub fn read_and_verify_bitcoin_merkle_path<E: Environment>(txid: [u8; 32]) -> [u
             preimage[..32].copy_from_slice(&node);
             preimage[32..].copy_from_slice(&hash);
         }
-        index = index / 2;
+        index /= 2;
         hash = double_sha256_hash!(&preimage);
     }
     hash

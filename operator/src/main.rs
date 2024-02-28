@@ -1,8 +1,9 @@
 use bitcoin::secp256k1::rand::rngs::OsRng;
 use operator::config::{NUM_USERS, NUM_VERIFIERS};
+use operator::errors::BridgeError;
 use operator::{extended_rpc::ExtendedRpc, operator::Operator, user::User};
 
-fn main() {
+fn main() -> Result<(), BridgeError> {
     let rpc = ExtendedRpc::new();
 
     let mut operator = Operator::new(&mut OsRng, &rpc, NUM_VERIFIERS as u32);
@@ -24,7 +25,7 @@ fn main() {
             &operator.connector_tree_hashes,
             start_blockheight,
             &first_source_utxo,
-        );
+        )?;
     }
     println!("connector roots created, verifiers agree");
     // In the end, create BitVM
@@ -37,8 +38,9 @@ fn main() {
         // println!("move_utxo: {:?}", move_utxo);
         // let move_tx = rpc.get_raw_transaction(&move_utxo.txid, None).unwrap();
         // println!("move_tx: {:?}", move_tx);
-        let (deposit_utxo, deposit_return_address, user_evm_address, user_sig) = user.deposit_tx();
-        rpc.mine_blocks(6);
+        let (deposit_utxo, deposit_return_address, user_evm_address, user_sig) =
+            user.deposit_tx().unwrap();
+        rpc.mine_blocks(6)?;
         operator
             .new_deposit(
                 deposit_utxo,
@@ -47,13 +49,13 @@ fn main() {
                 user_sig,
             )
             .unwrap();
-        rpc.mine_blocks(1);
+        rpc.mine_blocks(1)?;
     }
 
     // make 3 withdrawals
     for i in 0..3 {
-        operator.new_withdrawal(users[i].signer.address.clone());
-        rpc.mine_blocks(1);
+        operator.new_withdrawal(users[i].signer.address.clone())?;
+        rpc.mine_blocks(1)?;
     }
 
     let inscription_output = operator.inscribe_connector_tree_preimages();
@@ -238,4 +240,5 @@ fn main() {
     //     //     operator.claim_deposit(r, i);
     //     // }
     // }
+    Ok(())
 }

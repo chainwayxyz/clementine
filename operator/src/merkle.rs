@@ -11,6 +11,15 @@ pub struct MerkleTree<const DEPTH: usize> {
     pub index: u32,
 }
 
+impl<const DEPTH: usize> Default for MerkleTree<DEPTH>
+where
+    [Data; DEPTH]: Serialize + DeserializeOwned + Copy,
+{
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl<const DEPTH: usize> MerkleTree<DEPTH>
 where
     [Data; DEPTH]: Serialize + DeserializeOwned + Copy,

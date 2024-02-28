@@ -1,75 +1,24 @@
 use std::borrow::BorrowMut;
 
-use bitcoin::opcodes::OP_TRUE;
 use bitcoin::sighash::SighashCache;
 use bitcoin::{self};
 
 use bitcoin::consensus::Decodable;
-use bitcoin::script::Builder;
+
 use bitcoin::taproot::ControlBlock;
 use bitcoin::taproot::LeafVersion;
-use bitcoin::taproot::TaprootBuilder;
+
 use bitcoin::taproot::TaprootSpendInfo;
-use bitcoin::Address;
+
 use bitcoin::Amount;
 
 use bitcoin::ScriptBuf;
 
-use secp256k1::All;
-use secp256k1::Secp256k1;
-use secp256k1::XOnlyPublicKey;
-
-use byteorder::{ByteOrder, LittleEndian};
 use hex;
 
-use lazy_static::lazy_static;
 use sha2::{Digest, Sha256};
-use std::str::FromStr;
 
-use crate::script_builder::ScriptBuilder;
-
-lazy_static! {
-    pub static ref INTERNAL_KEY: XOnlyPublicKey = XOnlyPublicKey::from_str(
-        "50929b74c1a04954b78b4b6035e97a5e078a5a0f28ec96d547bfee9ace803ac0"
-    )
-    .unwrap();
-}
-
-pub fn char_to_digit(c: char) -> Result<u8, std::num::ParseIntError> {
-    u8::from_str_radix(&c.to_string(), 16)
-}
-
-pub fn from_hex_to_bytes(input: &str) -> Vec<u8> {
-    hex::decode(input).unwrap()
-}
-
-pub fn from_hex64_to_bytes32(input: &str) -> [u8; 32] {
-    hex::decode(input)
-        .unwrap()
-        .try_into()
-        .expect("Slice with incorrect length")
-}
-
-pub fn from_hex_to_u8(input: &str) -> u8 {
-    let bytes = hex::decode(input).unwrap();
-    bytes[0]
-}
-
-pub fn from_le_bytes_to_u32(input: &[u8]) -> u32 {
-    LittleEndian::read_u32(input)
-}
-
-pub fn from_le_bytes_to_u64(input: &[u8]) -> u64 {
-    LittleEndian::read_u64(input)
-}
-
-pub fn byte_to_hex(byte: u8) -> String {
-    hex::encode([byte])
-}
-
-pub fn from_bytes_to_hex(input: &[u8]) -> String {
-    hex::encode(input)
-}
+use crate::errors::BridgeError;
 
 pub fn parse_hex_to_btc_tx(
     tx_hex: &str,
@@ -89,28 +38,28 @@ pub fn create_control_block(tree_info: TaprootSpendInfo, script: &ScriptBuf) -> 
         .expect("Cannot create control block")
 }
 
-pub fn generate_dust_address(
-    secp: &Secp256k1<All>,
-    evm_address: [u8; 20],
-) -> (Address, TaprootSpendInfo) {
-    let script = ScriptBuilder::generate_dust_script(&evm_address);
-    let taproot = TaprootBuilder::new().add_leaf(0, script.clone()).unwrap();
-    let tree_info = taproot.finalize(secp, *INTERNAL_KEY).unwrap();
-    let address = Address::p2tr(
-        secp,
-        *INTERNAL_KEY,
-        tree_info.merkle_root(),
-        bitcoin::Network::Regtest,
-    );
-    (address, tree_info)
-}
+// pub fn generate_dust_address(
+//     secp: &Secp256k1<All>,
+//     evm_address: [u8; 20],
+// ) -> (Address, TaprootSpendInfo) {
+//     let script = ScriptBuilder::generate_dust_script(&evm_address);
+//     let taproot = TaprootBuilder::new().add_leaf(0, script.clone()).unwrap();
+//     let tree_info = taproot.finalize(secp, *INTERNAL_KEY).unwrap();
+//     let address = Address::p2tr(
+//         secp,
+//         *INTERNAL_KEY,
+//         tree_info.merkle_root(),
+//         bitcoin::Network::Regtest,
+//     );
+//     (address, tree_info)
+// }
 
-pub fn handle_anyone_can_spend_script() -> (ScriptBuf, Amount) {
-    let script = Builder::new().push_opcode(OP_TRUE).into_script();
-    let script_pubkey = script.to_p2wsh();
-    let amount = script.dust_value();
-    (script_pubkey, amount)
-}
+// pub fn handle_anyone_can_spend_script() -> (ScriptBuf, Amount) {
+//     let script = Builder::new().push_opcode(OP_TRUE).into_script();
+//     let script_pubkey = script.to_p2wsh();
+//     let amount = script.dust_value();
+//     (script_pubkey, amount)
+// }
 
 pub fn calculate_amount(depth: usize, value: Amount, fee: Amount) -> Amount {
     (value + fee) * (2u64.pow(depth as u32))
@@ -122,17 +71,20 @@ pub fn handle_taproot_witness<T: AsRef<[u8]>>(
     witness_elements: &Vec<T>,
     script: &ScriptBuf,
     tree_info: &TaprootSpendInfo,
-) {
+) -> Result<(), BridgeError> {
     let mut sighash_cache = SighashCache::new(tx.borrow_mut());
-    let witness = sighash_cache.witness_mut(index).unwrap();
+    let witness = sighash_cache
+        .witness_mut(index)
+        .ok_or(BridgeError::TxInputNotFound)?;
     for elem in witness_elements {
         witness.push(elem);
     }
     let spend_control_block = tree_info
         .control_block(&(script.clone(), LeafVersion::TapScript))
-        .unwrap();
+        .ok_or(BridgeError::ControlBlockError)?;
     witness.push(script);
     witness.push(&spend_control_block.serialize());
+    Ok(())
 }
 
 pub fn get_claim_reveal_indices(depth: usize, count: u32) -> Vec<(usize, usize)> {
@@ -154,7 +106,7 @@ pub fn get_claim_reveal_indices(depth: usize, count: u32) -> Vec<(usize, usize)>
         indices.extend(get_claim_reveal_indices(depth - 1, count / 2));
     }
 
-    return indices;
+    indices
 }
 
 pub fn get_claim_proof_tree_leaf(
@@ -165,9 +117,9 @@ pub fn get_claim_proof_tree_leaf(
     let indices = get_claim_reveal_indices(depth, num_claims as u32);
     let mut hasher = Sha256::new();
     indices.iter().for_each(|(level, index)| {
-        hasher.update(&connector_tree_hashes[*level][*index]);
+        hasher.update(connector_tree_hashes[*level][*index]);
     });
-    hasher.finalize().try_into().unwrap()
+    hasher.finalize().into()
 }
 pub fn calculate_claim_proof_root(
     depth: usize,
@@ -183,13 +135,13 @@ pub fn calculate_claim_proof_root(
         let mut level_hashes: Vec<[u8; 32]> = Vec::new();
         for i in 0..2u32.pow(depth as u32 - level as u32 - 1) {
             let mut hasher = Sha256::new();
-            hasher.update(&hashes[i as usize * 2]);
-            hasher.update(&hashes[i as usize * 2 + 1]);
-            let hash = hasher.finalize().try_into().unwrap();
+            hasher.update(hashes[i as usize * 2]);
+            hasher.update(hashes[i as usize * 2 + 1]);
+            let hash = hasher.finalize().into();
             level_hashes.push(hash);
         }
         hashes = level_hashes.clone();
-        level = level + 1;
+        level += 1;
     }
     hashes[0]
 }
