@@ -2,6 +2,7 @@ use std::borrow::BorrowMut;
 use std::collections::{HashMap, HashSet};
 
 use crate::constant::{ConnectorTreeUTXOs, PreimageType, MIN_RELAY_FEE};
+use crate::errors::BridgeError;
 use bitcoin::sighash::SighashCache;
 use bitcoin::{secp256k1, secp256k1::Secp256k1, OutPoint};
 use bitcoin::{Address, Amount, TxOut};
@@ -75,7 +76,7 @@ impl<'a> Verifier<'a> {
         _connector_tree_hashes: &Vec<Vec<Vec<[u8; 32]>>>,
         _start_blockheight: u64,
         _first_source_utxo: &OutPoint,
-    ) -> Vec<schnorr::Signature> {
+    ) -> Result<Vec<schnorr::Signature>, BridgeError> {
         println!("Verifier first_source_utxo: {:?}", _first_source_utxo);
         println!("Verifier verifiers_pks len: {:?}", self.verifiers.len());
         let (_, _, utxo_trees, sigs) = create_all_connector_trees(
@@ -85,7 +86,7 @@ impl<'a> Verifier<'a> {
             _start_blockheight,
             &_first_source_utxo,
             &self.verifiers,
-        );
+        )?;
 
         // self.set_connector_tree_utxos(utxo_trees);
         self.connector_tree_utxos = utxo_trees;
@@ -97,7 +98,8 @@ impl<'a> Verifier<'a> {
         // );
         // println!("Verifier root_utxos: {:?}", root_utxos);
         println!("Verifier utxo_trees: {:?}", self.connector_tree_utxos);
-        sigs
+        // println!("Verifier utxo_trees: {:?}", self.connector_tree_utxos);
+        Ok(sigs)
     }
 
     /// this is a endpoint that only the operator can call
@@ -111,21 +113,21 @@ impl<'a> Verifier<'a> {
         return_address: &XOnlyPublicKey,
         deposit_index: u32,
         evm_address: &EVMAddress,
-    ) -> DepositPresigns {
+    ) -> Result<DepositPresigns, BridgeError> {
         // 1. Check if there is any previous pending deposit
 
         let (deposit_address, _) = check_deposit_utxo(
-            &self.rpc,
+            self.rpc,
             &self.transaction_builder,
             &start_utxo,
-            &return_address,
+            return_address,
             BRIDGE_AMOUNT_SATS,
         )
         .unwrap();
 
         let mut move_tx = self
             .transaction_builder
-            .create_move_tx(start_utxo, evm_address);
+            .create_move_tx(start_utxo, evm_address)?;
         let move_txid = move_tx.txid();
 
         let move_utxo = OutPoint {
@@ -148,7 +150,7 @@ impl<'a> Verifier<'a> {
             &prevouts,
             &script_n_of_n_with_user_pk,
             0,
-        );
+        )?;
 
         // let anyone_can_spend_txout: TxOut = ScriptBuilder::anyone_can_spend_txout();
 
@@ -175,18 +177,18 @@ impl<'a> Verifier<'a> {
                     &self.secp,
                     &self.operator_pk,
                     self.connector_tree_hashes[i][CONNECTOR_TREE_DEPTH][deposit_index as usize],
-                );
+                )?;
 
             let op_claim_tx_prevouts = self
                 .transaction_builder
-                .create_operator_claim_tx_prevouts(&connector_tree_leaf_address);
+                .create_operator_claim_tx_prevouts(&connector_tree_leaf_address)?;
 
             let op_claim_sig = self.signer.sign_taproot_script_spend_tx(
                 &mut operator_claim_tx,
                 &op_claim_tx_prevouts,
                 &script_n_of_n,
                 0,
-            );
+            )?;
             op_claim_sigs.push(op_claim_sig);
             println!("Verifier signing operator_claim_tx...");
             println!("index: {:?}", deposit_index);
@@ -195,10 +197,10 @@ impl<'a> Verifier<'a> {
             println!("op_claim_sig: {:?}", op_claim_sig);
         }
 
-        DepositPresigns {
+        Ok(DepositPresigns {
             move_sign: move_sig,
             operator_claim_sign: op_claim_sigs,
-        }
+        })
     }
 
     // This is a function to reduce gas costs when moving bridge funds
@@ -215,7 +217,7 @@ impl<'a> Verifier<'a> {
                 }
             }
         }
-        return false;
+        false
     }
 
     pub fn watch_connector_tree(
@@ -223,7 +225,7 @@ impl<'a> Verifier<'a> {
         operator_pk: XOnlyPublicKey,
         preimage_script_pubkey_pairs: &mut HashSet<PreimageType>,
         utxos: &mut HashMap<OutPoint, (u32, u32)>,
-    ) -> (HashSet<PreimageType>, HashMap<OutPoint, (u32, u32)>) {
+    ) -> Result<(HashSet<PreimageType>, HashMap<OutPoint, (u32, u32)>), BridgeError> {
         println!("verifier watching connector tree...");
         let last_block_hash = self.rpc.get_best_block_hash().unwrap();
         let last_block = self.rpc.get_block(&last_block_hash).unwrap();
@@ -251,7 +253,7 @@ impl<'a> Verifier<'a> {
                             operator_pk,
                             tx_out.clone(),
                             *preimage,
-                        ) {
+                        )? {
                             let utxo_to_spend = OutPoint {
                                 txid: tx.txid(),
                                 vout: i as u32,
@@ -261,7 +263,7 @@ impl<'a> Verifier<'a> {
                                 operator_pk,
                                 *preimage,
                                 new_amount,
-                            );
+                            )?;
                             utxos.remove(&OutPoint {
                                 txid: tx.txid(),
                                 vout: i as u32,
@@ -276,7 +278,7 @@ impl<'a> Verifier<'a> {
             }
         }
         println!("verifier finished watching connector tree...");
-        return (preimage_script_pubkey_pairs.clone(), utxos.clone());
+        Ok((preimage_script_pubkey_pairs.clone(), utxos.clone()))
     }
 
     pub fn spend_connector_tree_utxo(
@@ -285,10 +287,10 @@ impl<'a> Verifier<'a> {
         operator_pk: XOnlyPublicKey,
         preimage: PreimageType,
         amount: Amount,
-    ) {
+    ) -> Result<(), BridgeError> {
         let hash = sha256_hash!(preimage);
         let (address, tree_info) =
-            TransactionBuilder::create_connector_tree_node_address(&self.secp, &operator_pk, hash);
+            TransactionBuilder::create_connector_tree_node_address(&self.secp, &operator_pk, hash)?;
         let tx_ins = TransactionBuilder::create_tx_ins_with_sequence(vec![utxo]);
         let tx_outs = TransactionBuilder::create_tx_outs(vec![(
             amount - Amount::from_sat(MIN_RELAY_FEE),
@@ -310,10 +312,11 @@ impl<'a> Verifier<'a> {
 
         let mut witness_elements: Vec<&[u8]> = Vec::new();
         witness_elements.push(&preimage);
-        handle_taproot_witness(&mut tx, 0, &witness_elements, &hash_script, &tree_info);
+        handle_taproot_witness(&mut tx, 0, &witness_elements, &hash_script, &tree_info)?;
 
         let spending_txid = self.rpc.send_raw_transaction(&tx).unwrap();
         println!("verifier_spending_txid: {:?}", spending_txid);
+        Ok(())
     }
 
     // This function is not in use now, will be used if we decide to return the leaf dust back to the operator
@@ -323,10 +326,10 @@ impl<'a> Verifier<'a> {
         operator_pk: XOnlyPublicKey,
         preimage: PreimageType,
         amount: Amount,
-    ) {
+    ) -> Result<(), BridgeError> {
         let hash = sha256_hash!(preimage);
         let (address, tree_info) =
-            TransactionBuilder::create_connector_tree_node_address(&self.secp, &operator_pk, hash);
+            TransactionBuilder::create_connector_tree_node_address(&self.secp, &operator_pk, hash)?;
         let tx_ins = TransactionBuilder::create_tx_ins_with_sequence(vec![utxo]);
         let tx_outs = TransactionBuilder::create_tx_outs(vec![(
             amount - Amount::from_sat(MIN_RELAY_FEE),
@@ -346,6 +349,7 @@ impl<'a> Verifier<'a> {
         witness.push(&spend_control_block.serialize());
         let spending_txid = self.rpc.send_raw_transaction(&tx).unwrap();
         println!("verifier_spending_txid: {:?}", spending_txid);
+        Ok(())
     }
 }
 
@@ -354,10 +358,10 @@ pub fn is_spendable_with_preimage(
     operator_pk: XOnlyPublicKey,
     tx_out: TxOut,
     preimage: PreimageType,
-) -> bool {
+) -> Result<bool, BridgeError> {
     let hash = sha256_hash!(preimage);
     let (address, _) =
-        TransactionBuilder::create_connector_tree_node_address(secp, &operator_pk, hash);
+        TransactionBuilder::create_connector_tree_node_address(secp, &operator_pk, hash)?;
 
-    address.script_pubkey() == tx_out.script_pubkey
+    Ok(address.script_pubkey() == tx_out.script_pubkey)
 }

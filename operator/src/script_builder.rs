@@ -54,7 +54,7 @@ impl ScriptBuilder {
             builder = builder.push_x_only_key(&vpk).push_opcode(OP_CHECKSIGVERIFY);
         }
         builder = builder
-            .push_x_only_key(&user_pk)
+            .push_x_only_key(user_pk)
             .push_opcode(OP_CHECKSIGVERIFY);
         builder = builder.push_opcode(OP_TRUE);
         builder.into_script()
@@ -70,11 +70,11 @@ impl ScriptBuilder {
             .push_opcode(OP_FALSE)
             .push_opcode(OP_IF);
         for elem in data {
-            inscribe_preimage_script_builder = inscribe_preimage_script_builder.push_slice(&elem);
+            inscribe_preimage_script_builder = inscribe_preimage_script_builder.push_slice(elem);
         }
         inscribe_preimage_script_builder = inscribe_preimage_script_builder.push_opcode(OP_ENDIF);
-        let inscribe_preimage_script = inscribe_preimage_script_builder.into_script();
-        inscribe_preimage_script
+
+        inscribe_preimage_script_builder.into_script()
     }
 
     // ATTENTION: If you want to spend a UTXO using timelock script, the condition is that
