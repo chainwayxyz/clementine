@@ -1,5 +1,5 @@
 use std::borrow::BorrowMut;
-use std::collections::{HashMap, HashSet};
+use std::collections::HashSet;
 use std::vec;
 
 use crate::actor::Actor;
@@ -8,6 +8,7 @@ use crate::constant::{
     ConnectorTreeUTXOs, HashType, InscriptionTxs, PreimageType, DUST_VALUE, MIN_RELAY_FEE,
     PERIOD_BLOCK_COUNT,
 };
+use crate::db::{CommonDatabase, OperatorDatabase};
 use crate::errors::BridgeError;
 use crate::extended_rpc::ExtendedRpc;
 use crate::merkle::MerkleTree;
@@ -106,22 +107,58 @@ pub struct Operator<'a> {
     pub transaction_builder: TransactionBuilder,
     pub deposit_take_sigs: Vec<OperatorClaimSigs>,
 
+    // Stored values:
+    // connector_tree_preimages will be private
     pub connector_tree_preimages: Vec<Vec<Vec<PreimageType>>>,
     pub connector_tree_hashes: Vec<Vec<Vec<[u8; 32]>>>,
     pub inscription_txs: Vec<InscriptionTxs>,
     pub start_blockheight: u64,
 
     pub verifiers_pks: Vec<XOnlyPublicKey>,
-    pub deposit_presigns: HashMap<Txid, Vec<DepositPresigns>>,
     pub deposit_merkle_tree: MerkleTree<DEPTH>,
     pub withdrawals_merkle_tree: MerkleTree<DEPTH>,
     pub withdrawals_payment_txids: Vec<Txid>,
     pub mock_verifier_access: Vec<Verifier<'a>>, // on production this will be removed rather we will call the verifier's API
-    pub preimages: Vec<PreimageType>,
     pub connector_tree_utxos: Vec<ConnectorTreeUTXOs>,
-    // pub giga_merkle_tree: GigaMerkleTree,
     pub deposit_utxos: Vec<OutPoint>,
     pub move_utxos: Vec<OutPoint>,
+}
+
+impl<'a> OperatorDatabase for Operator<'a> {
+    fn get_connector_tree_preimage(
+        &self,
+        period: usize,
+        depth: usize,
+        index: usize,
+    ) -> PreimageType {
+        self.connector_tree_preimages[period][depth][index]
+    }
+
+    fn get_inscription_txs(&self, period: usize) -> InscriptionTxs {
+        self.inscription_txs[period]
+    }
+
+    fn get_deposit_utxo(&self, index: usize) -> OutPoint {
+        self.deposit_utxos[index]
+    }
+
+    fn get_move_utxo(&self, index: usize) -> OutPoint {
+        self.move_utxos[index]
+    }
+
+    fn get_deposit_take_sigs(&self, index: usize) -> OperatorClaimSigs {
+        self.deposit_take_sigs[index].clone()
+    }
+}
+
+impl<'a> CommonDatabase for Operator<'a> {
+    fn get_connector_tree_hash(&self, period: usize, depth: usize, index: usize) -> HashType {
+        self.connector_tree_hashes[period][depth][index]
+    }
+
+    fn get_connector_tree_utxo(&self, period: usize, depth: usize, index: usize) -> OutPoint {
+        self.connector_tree_utxos[period][depth][index]
+    }
 }
 
 impl<'a> Operator<'a> {
@@ -153,12 +190,10 @@ impl<'a> Operator<'a> {
             start_blockheight: 0,
 
             verifiers_pks,
-            deposit_presigns: HashMap::new(),
             deposit_merkle_tree: MerkleTree::new(),
             withdrawals_merkle_tree: MerkleTree::new(),
             withdrawals_payment_txids: Vec::new(),
             mock_verifier_access: verifiers,
-            preimages: Vec::new(),
             connector_tree_utxos: Vec::new(),
             deposit_utxos: Vec::new(),
             move_utxos: Vec::new(),
