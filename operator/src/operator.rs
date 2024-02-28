@@ -913,7 +913,7 @@ impl<'a> Operator<'a> {
             Amount::from_sat(MIN_RELAY_FEE),
         );
         let total_amount = Amount::from_sat((single_tree_amount.to_sat()) * NUM_ROUNDS as u64);
-        println!("total_amount: {:?}", total_amount);
+        println!("Operator total_amount: {:?}", total_amount);
         let (connector_tree_source_address, _) = self
             .transaction_builder
             .create_connector_tree_root_address(self.start_blockheight + PERIOD_BLOCK_COUNT as u64);
@@ -921,7 +921,7 @@ impl<'a> Operator<'a> {
         let first_source_utxo = self
             .rpc
             .send_to_address(&connector_tree_source_address, total_amount.to_sat());
-        println!("first_source_utxo: {:?}", first_source_utxo);
+        println!("Operator first_source_utxo: {:?}", first_source_utxo);
         let first_source_utxo_create_tx = self
             .rpc
             .get_raw_transaction(&first_source_utxo.txid, None)
@@ -931,14 +931,19 @@ impl<'a> Operator<'a> {
             first_source_utxo_create_tx
         );
 
-        let (claim_proof_merkle_roots, root_utxos, utxo_trees, sigs) = create_all_connector_trees(
-            &self.signer,
-            &self.rpc,
-            &self.connector_tree_hashes,
-            self.start_blockheight,
-            &first_source_utxo,
-            &self.verifiers_pks,
-        );
+        println!("Operator verifiers_pks len: {:?}", self.verifiers_pks.len());
+        //Here we are adding the operator's public key to the list of verifiers, since it was not handled when creating the entities.
+        let mut all_verifiers = self.verifiers_pks.clone();
+        all_verifiers.push(self.signer.xonly_public_key.clone());
+        let (claim_proof_merkle_roots, root_utxos, utxo_trees, _op_self_claim_sigs) =
+            create_all_connector_trees(
+                &self.signer,
+                &self.rpc,
+                &self.connector_tree_hashes,
+                self.start_blockheight,
+                &first_source_utxo,
+                &all_verifiers,
+            );
 
         // self.set_connector_tree_utxos(utxo_trees.clone());
         self.connector_tree_utxos = utxo_trees;

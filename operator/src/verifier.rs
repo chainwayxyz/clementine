@@ -75,6 +75,8 @@ impl<'a> Verifier<'a> {
         _start_blockheight: u64,
         _first_source_utxo: &OutPoint,
     ) -> Vec<schnorr::Signature> {
+        println!("Verifier first_source_utxo: {:?}", _first_source_utxo);
+        println!("Verifier verifiers_pks len: {:?}", self.verifiers.len());
         let (_, _, utxo_trees, sigs) = create_all_connector_trees(
             &self.signer,
             &self.rpc,
@@ -93,7 +95,7 @@ impl<'a> Verifier<'a> {
         //     claim_proof_merkle_roots
         // );
         // println!("Verifier root_utxos: {:?}", root_utxos);
-        // println!("Verifier utxo_trees: {:?}", self.connector_tree_utxos);
+        println!("Verifier utxo_trees: {:?}", self.connector_tree_utxos);
         sigs
     }
 
