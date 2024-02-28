@@ -2,39 +2,31 @@
 pragma solidity ^0.8.13;
 
 contract MerkleTree {
-    bytes32 public constant ZERO_VALUE = 0xf9194e73f9e9459e3450ea10a179cdf77aafa695beecd3b9344a98d111622243;
+    bytes32 public constant ZERO_VALUE = 0xcb0c9f4264546b15be9801ecb11df7e43bfc6841609fc1e4e9de5b3a5973af38; // keccak256("CITREA")
 
     uint32 public immutable levels;
-
-    // Separate state variables for each tree
-    struct MerkleTreeData {
-        mapping(uint256 => bytes32) filledSubtrees;
-        bytes32 root;
-        uint32 nextIndex;
-    }
-
-    MerkleTreeData public depositTree;
-    MerkleTreeData public withdrawalTree;
+    mapping(uint256 => bytes32) filledSubtrees;
+    bytes32 root;
+    uint32 nextIndex;
 
     constructor(uint32 _levels) {
         levels = _levels;
-        initializeTree(depositTree);
-        initializeTree(withdrawalTree);
+        initializeTree();
     }
 
-    function initializeTree(MerkleTreeData storage tree) internal {
+    function initializeTree() internal {
         for (uint32 i = 0; i < levels; i++) {
-            tree.filledSubtrees[i] = zeros(i);
+            filledSubtrees[i] = zeros(i);
         }
-        tree.root = zeros(levels);
+        root = zeros(levels);
     }
 
     function hashLeftRight(bytes32 _left, bytes32 _right) public pure returns (bytes32 value) {
         return sha256(abi.encodePacked(_left, _right));
     }
 
-    function _insert(MerkleTreeData storage tree, bytes32 _leaf) internal returns (uint32 index) {
-        uint32 _nextIndex = tree.nextIndex;
+    function _insert(bytes32 _leaf) internal returns (uint32 index) {
+        uint32 _nextIndex = nextIndex;
         require(_nextIndex != uint32(2) ** levels, "Merkle tree is full. No more leaves can be added");
         uint32 currentIndex = _nextIndex;
         bytes32 currentLevelHash = _leaf;
@@ -45,106 +37,98 @@ contract MerkleTree {
             if (currentIndex % 2 == 0) {
                 left = currentLevelHash;
                 right = zeros(i);
-                tree.filledSubtrees[i] = currentLevelHash;
+                filledSubtrees[i] = currentLevelHash;
             } else {
-                left = tree.filledSubtrees[i];
+                left = filledSubtrees[i];
                 right = currentLevelHash;
             }
             currentLevelHash = hashLeftRight(left, right);
             currentIndex /= 2;
         }
 
-        tree.root = currentLevelHash;
-        tree.nextIndex = _nextIndex + 1;
+        root = currentLevelHash;
+        nextIndex = _nextIndex + 1;
         return _nextIndex;
     }
 
-    // Insert functions for each tree
-    function insertDepositTree(bytes32 _leaf) public returns (uint32 index) {
-        return _insert(depositTree, _leaf);
-    }
-
+    // Insert function
     function insertWithdrawalTree(bytes32 _leaf) public returns (uint32 index) {
-        return _insert(withdrawalTree, _leaf);
+        return _insert(_leaf);
     }
 
-    // Get root functions for each tree
-    function getRootDepositTree() public view returns (bytes32) {
-        return depositTree.root;
-    }
-
+    // Get root function
     function getRootWithdrawalTree() public view returns (bytes32) {
-        return withdrawalTree.root;
+        return root;
     }
 
     /// @dev provides Zero (Empty) elements for a MiMC MerkleTree. Up to 32 levels
     function zeros(uint256 i) public pure returns (bytes32) {
         if (i == 0) {
-            return bytes32(0xf9194e73f9e9459e3450ea10a179cdf77aafa695beecd3b9344a98d111622243);
+            return bytes32(0xcb0c9f4264546b15be9801ecb11df7e43bfc6841609fc1e4e9de5b3a5973af38);
         } else if (i == 1) {
-            return bytes32(0xee9a75010528c31bae7230d36ded16fe2d78f7d87e1b334c9b6b9e4cd0db427c);
+            return bytes32(0x455b22fd2c80e024797f8d83d31a0b6b11aa024ecffb905b1d691d657434b90a);
         } else if (i == 2) {
-            return bytes32(0x829b2ea0d8c96cf1d569c30efd69bd411064a169fde094d7e29410dc5f259f9b);
+            return bytes32(0x480c45bfe41828a16e4bf0bd7a1db34d2ec4d239101daf0b774821ed2dfca761);
         } else if (i == 3) {
-            return bytes32(0x58c9577fb3953a2f48fe9c01138947add374d2da3fd043a901987a3896ba2c38);
+            return bytes32(0x29f2f8c3c9d792bd9ebdc71486151113b73af357a205dd41760f941555e26146);
         } else if (i == 4) {
-            return bytes32(0x543436d9bf8dcaa93f87f862cc25f01a5b9b990d0528bbb34db5b20fe23177ca);
+            return bytes32(0xd0fb88bcc6243bb6021b49d377e1655d1e61fb08a659b9511680f83824d64197);
         } else if (i == 5) {
-            return bytes32(0x7a7f7c5edd1b66773e43ff63384d7144c7ddf9134342fdf597bcee9722c4f01e);
+            return bytes32(0x5c7fac0890e73fb2e0d8fb3063c6786a2c63da95187efe29da4bce99d621d0ba);
         } else if (i == 6) {
-            return bytes32(0x70caca61cb222dd2c194f1458c2f906bce68180a923ae0f93e704208b435dac1);
+            return bytes32(0xcb08837032cc923c34faece314b3e13158b7fda962321262618d4bcc46217eb2);
         } else if (i == 7) {
-            return bytes32(0x94938614907f9f1a099778bff6a7d67e5abfce8af250feb5c645f607a2736290);
+            return bytes32(0x229c0a76b756fc3db3266dc0f8e571d113ca44e0cb7326bee03d35331748091f);
         } else if (i == 8) {
-            return bytes32(0x44e77f01d80a0c78b9f45d2493d688af484c4dd6576716a58414b5c8509ed12f);
+            return bytes32(0x8270abf4c13bfeb13ee8967544be4d343424fa3910ec7ad995873ca0d86daf69);
         } else if (i == 9) {
-            return bytes32(0x50f36f4bea8cfee78bac96c076473e4156226e14b59a533db5ef1d5dd1b00529);
+            return bytes32(0x2d338a30d2a6bb5169df7cc8d61b6578d35568f6e1f09eda43f5bd36ad68be67);
         } else if (i == 10) {
-            return bytes32(0x9a1eaa80972177ef309226792278ee55dd414bb685a70d47c62a337f0ecf093d);
+            return bytes32(0x6609db0b330090c86c349ad31f986c5f2a346461eb6f160a0e0a865d39260df6);
         } else if (i == 11) {
-            return bytes32(0x67f2f4d72d47732f8b8ec11bbb8f15611017231b94e1a85ab20fa00bbc5ed537);
+            return bytes32(0x81861227312c9b868eb34b8cf216893c0db60b6b5c5e05f549f3ab6811b9f3d6);
         } else if (i == 12) {
-            return bytes32(0x4801f9b6396fabfa26c36bf42dd5d02e92c15b24b2508dfac78b644b35068fa5);
+            return bytes32(0x1f7af2d9c7e25a85c9035abd0d8c2c7b993754a4af7250924bc55071770f75ef);
         } else if (i == 13) {
-            return bytes32(0x9b64d588d305c76ad1644f0c874964e73e702f4b18499071c11a8c86bfbf7c66);
+            return bytes32(0x45d98c88c1c60a5d35eabe7a4cf3b2ba3bee0d8a4617f7bf485a5bd93749d3f0);
         } else if (i == 14) {
-            return bytes32(0x9daea9513fa9e6d4aee0c81e5b9e601f86825c9e5c7c3f7d309d53400fa95902);
+            return bytes32(0x11b8807d04fe98c0bd60dec1890026baa1d83f51b37e365a45b5c87028aaf6c9);
         } else if (i == 15) {
-            return bytes32(0x3db567e25654363de4f4c7f78631d15f1346bfce49524f7281b9af144d2eca55);
+            return bytes32(0x6a43477876ca14f6d714ab184a94b3a8d324e29085646fd2bc3663427c512332);
         } else if (i == 16) {
-            return bytes32(0x4641dcf992fe6c30347937173cdd37dc4a8e6e2571f09fa41bcd23a4cc1ea5d0);
+            return bytes32(0x2e2ca637ce5b8e8b33629f637c7fd77c7ac300ae409e64898d38b4c177280e43);
         } else if (i == 17) {
-            return bytes32(0x3f5bed4f894ea41a794cea78860787335ad888bb57e050341fbfcdcbddf015ff);
+            return bytes32(0x212db654d1d3a4e31fd8b86d3545babbf23ce592753c50936b30b1eb34d6db2a);
         } else if (i == 18) {
-            return bytes32(0x948c2327e459df1592c4a22c2afaedf97cc3045f50a9153dcbd849afe69055d0);
+            return bytes32(0x7818b4041e25a0bcd1bf0528728f20c6976f0923d5038facff21524ccd971d75);
         } else if (i == 19) {
-            return bytes32(0x0f4f18a68e990becf1a267bd8cdc1ea20b096ae80121a727af7ebafc12d7188c);
+            return bytes32(0x538977a76a1b4557dd0e98d557d9a24d88349d83220ed84feb13c79f8ae83c7c);
         } else if (i == 20) {
-            return bytes32(0x00ec3459e2b585f2ccc70d2dbd2b296a7c9b01fdbbbd3ee7a8545fd4e06c6be5);
+            return bytes32(0x9f3efb03c31cf43571e1e5395e2f71fcaabc491ca72631b44ec9cf99110821be);
         } else if (i == 21) {
-            return bytes32(0x956ed32b8b4f05ff134c62cb7dfb940270052816cf98f8267876846dbeee5615);
+            return bytes32(0xfb29f69c3f45b34a9e0b7a4007a953190aa2618deef63b15ea4dd10998785734);
         } else if (i == 22) {
-            return bytes32(0x2da5de41f9246c5418125de9b56bc7c268635e3ee087a8c11e75f8773746e88d);
+            return bytes32(0x3d12f73b1f682ed24aa0b1a39df347240a74a64b5e15312466368dd943e769bc);
         } else if (i == 23) {
-            return bytes32(0x1ba1be98ea5e8139a579f96b85645736d453ec7b8b960d7852bae09ab56e939c);
+            return bytes32(0x5bce4a357cef84ee3edf0669ec908843281b2d19072f58eff8d6503468b0c8d6);
         } else if (i == 24) {
-            return bytes32(0xb3c3960fb2cedd8796341dba0c65c8b57a279876b21050a9196489b62a9e34f7);
+            return bytes32(0x069835ff0850f45ad28f01399d6af695a96d056589cc0ac9259e66beae87cd3c);
         } else if (i == 25) {
-            return bytes32(0xce19fabc753e314ed8379f89eff72f179a10a12b2dc4d29f5acffac0c90abd7a);
+            return bytes32(0xdbdece04a4bafc538705847f0c28d441f57c7b6dbf8a803ca0e5b097857e0513);
         } else if (i == 26) {
-            return bytes32(0x09f3979f9eb43a58b84b15fe5cf9fd80c75fe2163823a10086b686e64e1501a6);
+            return bytes32(0x020d43e87ea83e8ad54ca1eb11d826a2cd75823b5f6a91a6568839b42551f727);
         } else if (i == 27) {
-            return bytes32(0xc718633766f6f743a068de0bcc99b7a9ba8ff9980e118a31a38d71859aac3484);
+            return bytes32(0x19a652f1c22915bd595b81d87a7dd5cc01ba7d82ba78882949373b6220d3a504);
         } else if (i == 28) {
-            return bytes32(0x43cb14ce884b3fa9c8e67270bb47e8dc8f98d539e5107b4ea082c38449caaec1);
+            return bytes32(0x4138c0097adba86ca3c19d2181a21b8e331c42c1fdb3ce8cfd953a4553279ef1);
         } else if (i == 29) {
-            return bytes32(0xa937533683394824f0819a726ff2af9297710e9d0ca8c98429c66a08c25b22a1);
+            return bytes32(0xfdc8ebd533132c3178ab8434060ae1007fc3b672fcf270d30b57f8e12ca7fa27);
         } else if (i == 30) {
-            return bytes32(0xf70815f407682f19ed6efdb3787cfb888d98c7c8e248160cfe3e23b1b63ea07d);
+            return bytes32(0xf0b266c6a0adb776bf7b9fafe1f02c99f35ba89067bcedb8f8f267002d51bceb);
         } else if (i == 31) {
-            return bytes32(0x0a4b513a536a9cac3cd32bc8ad1a360f2d71eec72292c4ff56247d516130559e);
+            return bytes32(0x2afd595f486a771bf9653b9333d78bf101fad1f5ddb0db960c5a1450200061db);
         } else if (i == 32) {
-            return bytes32(0x1ac67188d859a9cac45fd25c12c3e13ea396a1d789bafa8bae733f84278f0f05);
+            return bytes32(0x35c59abafcc58285f02e048ba62334323f15a2d2ea0a033f8df2fbee3344902d);
         } else {
             revert("Index out of bounds");
         }
