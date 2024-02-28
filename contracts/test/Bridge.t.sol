@@ -103,20 +103,11 @@ contract BridgeTest is Test {
         testDeposit();
     }
 
-    function testCannotDepositIfCallExpired() public {
-        // An arbitrary user makes a deposit for the `receiver` address specified in the second output of above Bitcoin txn
-        vm.startPrank(depositor);
-        bytes4 timestamp = bytes4(uint32(block.timestamp));
-        vm.warp(block.timestamp + 1 days);
-        vm.expectRevert("timestamp too old");
-        bridge.deposit(version, vin, vout, locktime, intermediate_nodes, block_header, index, timestamp);
-    }
-
     function testCannotDepositWithFalseProof() public {
         vin = hex"1234";
         vm.startPrank(depositor);
         bytes4 timestamp = bytes4(uint32(block.timestamp));
-        vm.expectRevert("Proof failed.");
+        vm.expectRevert("SPV Verification failed.");
         bridge.deposit(version, vin, vout, locktime, intermediate_nodes, block_header, index, timestamp);
     }
 

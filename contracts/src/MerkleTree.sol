@@ -5,34 +5,28 @@ contract MerkleTree {
     bytes32 public constant ZERO_VALUE = 0xcb0c9f4264546b15be9801ecb11df7e43bfc6841609fc1e4e9de5b3a5973af38; // keccak256("CITREA")
 
     uint32 public immutable levels;
-
-    // Separate state variables
-    struct MerkleTreeData {
-        mapping(uint256 => bytes32) filledSubtrees;
-        bytes32 root;
-        uint32 nextIndex;
-    }
-
-    MerkleTreeData public withdrawalTree;
+    mapping(uint256 => bytes32) filledSubtrees;
+    bytes32 root;
+    uint32 nextIndex;
 
     constructor(uint32 _levels) {
         levels = _levels;
-        initializeTree(withdrawalTree);
+        initializeTree();
     }
 
-    function initializeTree(MerkleTreeData storage tree) internal {
+    function initializeTree() internal {
         for (uint32 i = 0; i < levels; i++) {
-            tree.filledSubtrees[i] = zeros(i);
+            filledSubtrees[i] = zeros(i);
         }
-        tree.root = zeros(levels);
+        root = zeros(levels);
     }
 
     function hashLeftRight(bytes32 _left, bytes32 _right) public pure returns (bytes32 value) {
         return sha256(abi.encodePacked(_left, _right));
     }
 
-    function _insert(MerkleTreeData storage tree, bytes32 _leaf) internal returns (uint32 index) {
-        uint32 _nextIndex = tree.nextIndex;
+    function _insert(bytes32 _leaf) internal returns (uint32 index) {
+        uint32 _nextIndex = nextIndex;
         require(_nextIndex != uint32(2) ** levels, "Merkle tree is full. No more leaves can be added");
         uint32 currentIndex = _nextIndex;
         bytes32 currentLevelHash = _leaf;
@@ -43,28 +37,28 @@ contract MerkleTree {
             if (currentIndex % 2 == 0) {
                 left = currentLevelHash;
                 right = zeros(i);
-                tree.filledSubtrees[i] = currentLevelHash;
+                filledSubtrees[i] = currentLevelHash;
             } else {
-                left = tree.filledSubtrees[i];
+                left = filledSubtrees[i];
                 right = currentLevelHash;
             }
             currentLevelHash = hashLeftRight(left, right);
             currentIndex /= 2;
         }
 
-        tree.root = currentLevelHash;
-        tree.nextIndex = _nextIndex + 1;
+        root = currentLevelHash;
+        nextIndex = _nextIndex + 1;
         return _nextIndex;
     }
 
     // Insert function
     function insertWithdrawalTree(bytes32 _leaf) public returns (uint32 index) {
-        return _insert(withdrawalTree, _leaf);
+        return _insert(_leaf);
     }
 
     // Get root function
     function getRootWithdrawalTree() public view returns (bytes32) {
-        return withdrawalTree.root;
+        return root;
     }
 
     /// @dev provides Zero (Empty) elements for a MiMC MerkleTree. Up to 32 levels

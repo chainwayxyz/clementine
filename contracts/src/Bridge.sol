@@ -9,8 +9,7 @@ import "bitcoin-spv/solidity/contracts/BTCUtils.sol";
 import "./MerkleTree.sol";
 
 contract Bridge is MerkleTree, ERC20, Ownable {
-    bytes EXPECTED_VOUT_O = hex"c2ddf50500000000225120fc6eb6fa4fd4ed1e8519a7edfa171eddcedfbd0e0be49b5e531ef36e7e66eb05"; 
-    uint256 numVerifiers;
+    bytes DEPOSIT_TXOUT_0 = hex"c2ddf50500000000225120fc6eb6fa4fd4ed1e8519a7edfa171eddcedfbd0e0be49b5e531ef36e7e66eb05"; 
     uint256 public constant DEPOSIT_AMOUNT = 100_000_000;
     mapping(uint256 => address) public verifiers;
     mapping(bytes32 => bool) public blockHashes;
@@ -18,15 +17,15 @@ contract Bridge is MerkleTree, ERC20, Ownable {
 
     event Deposit(bytes32  txId, uint256 timestamp);
     event Withdrawal(bytes32  bitcoin_address, uint32 indexed leafIndex, uint256 timestamp);
-    event ExpectedVout0Update(bytes oldExpectedVout0, bytes newExpectedVout0);
+    event DepositTxOutUpdate(bytes oldExpectedVout0, bytes newExpectedVout0);
     event BlockHashAdded(bytes32 block_hash);
 
     constructor(uint32 _levels) ERC20("wBTC", "wBTC") MerkleTree(_levels) Ownable(msg.sender) {}
 
-    function setExpectedVoutO(bytes calldata _expectedVoutO) public onlyOwner {
-        bytes memory oldExpectedVoutO = EXPECTED_VOUT_O;
-        EXPECTED_VOUT_O = _expectedVoutO;
-        emit ExpectedVout0Update(oldExpectedVoutO, EXPECTED_VOUT_O);
+    function setDepositTxOutO(bytes calldata _depositTxOut0) public onlyOwner {
+        bytes memory oldDepositTxOut0 = DEPOSIT_TXOUT_0;
+        DEPOSIT_TXOUT_0 = _depositTxOut0;
+        emit DepositTxOutUpdate(oldDepositTxOut0, DEPOSIT_TXOUT_0);
     }
 
     function deposit(
@@ -39,8 +38,6 @@ contract Bridge is MerkleTree, ERC20, Ownable {
         uint index,
         bytes4 timestamp
     ) public {
-        require(block.timestamp - uint256(uint32(timestamp)) < 1 days, "timestamp too old");
-
         bytes32 block_hash = BTCUtils.hash256(block_header);
         require(isCorrectBlockHash(block_hash), "incorrect block hash");
 
@@ -50,11 +47,11 @@ contract Bridge is MerkleTree, ERC20, Ownable {
         spentTxIds[txId] = true;
 
         bool result = ValidateSPV.prove(txId, extracted_merkle_root, intermediate_nodes, index);
-        require(result, "Proof failed.");
+        require(result, "SPV Verification failed.");
 
         // First output is always the bridge utxo, so it should be constant
         bytes memory output1 = BTCUtils.extractOutputAtIndex(vout, 0);
-        require(isBytesEqual(output1, EXPECTED_VOUT_O), "Output 1 is not the expected value");
+        require(isBytesEqual(output1, DEPOSIT_TXOUT_0), "Incorrect Deposit TxOut");
 
         // Second output is the receiver of tokens
         bytes memory output2 = BTCUtils.extractOutputAtIndex(vout, 1);
@@ -69,7 +66,7 @@ contract Bridge is MerkleTree, ERC20, Ownable {
     function withdraw(bytes32 bitcoin_address) public {
         _burn(msg.sender, DEPOSIT_AMOUNT);
         insertWithdrawalTree(bitcoin_address);
-        emit Withdrawal(bitcoin_address, withdrawalTree.nextIndex, block.timestamp);
+        emit Withdrawal(bitcoin_address, nextIndex, block.timestamp);
     }
 
     function isCorrectBlockHash(bytes32 block_hash) public view returns (bool) {
