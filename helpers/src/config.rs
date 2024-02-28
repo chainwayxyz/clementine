@@ -1,6 +1,9 @@
 use lazy_static::lazy_static;
 
-use crate::constant::{Data, EMPTYDATA, HASH_FUNCTION_64};
+use crate::{
+    constant::{Data, EMPTYDATA},
+    sha256_hash,
+};
 
 // Types
 pub type Path = [Data; DEPTH];
@@ -29,7 +32,7 @@ lazy_static! {
     pub static ref ZEROES: [Data; DEPTH + 1] = {
         let mut a = [EMPTYDATA; DEPTH + 1];
         for i in 0..DEPTH {
-            a[i + 1] = HASH_FUNCTION_64(a[i], a[i]);
+            a[i + 1] = sha256_hash!(a[i], a[i]);
         }
         a
     };

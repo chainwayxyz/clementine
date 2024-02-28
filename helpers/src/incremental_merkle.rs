@@ -1,6 +1,7 @@
 use crate::{
     config::ZEROES,
-    constant::{Data, EMPTYDATA, HASH_FUNCTION_64},
+    constant::{Data, EMPTYDATA},
+    sha256_hash,
 };
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
 
@@ -37,7 +38,7 @@ where
             } else {
                 (self.filled_subtrees[i], current_level_hash)
             };
-            current_level_hash = HASH_FUNCTION_64(left, right);
+            current_level_hash = sha256_hash!(left, right);
             current_index /= 2;
         }
         self.root = current_level_hash;
