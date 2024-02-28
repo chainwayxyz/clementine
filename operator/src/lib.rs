@@ -10,6 +10,7 @@ pub mod mock_env;
 pub mod operator;
 pub mod script_builder;
 pub mod shared;
+pub mod traits;
 pub mod transaction_builder;
 pub mod user;
 pub mod utils;

@@ -8,12 +8,14 @@ use crate::constant::{
     ConnectorTreeUTXOs, HashType, InscriptionTxs, PreimageType, DUST_VALUE, MIN_RELAY_FEE,
     PERIOD_BLOCK_COUNT,
 };
-use crate::db::{CommonDatabase, OperatorDatabase};
+
+use crate::db::operator_db::OperatorDB;
 use crate::errors::BridgeError;
 use crate::extended_rpc::ExtendedRpc;
 use crate::merkle::MerkleTree;
 use crate::script_builder::ScriptBuilder;
 use crate::shared::{check_deposit_utxo, create_all_connector_trees};
+use crate::traits::db::OperatorDatabase;
 use crate::transaction_builder::TransactionBuilder;
 use crate::utils::{calculate_amount, get_claim_reveal_indices, handle_taproot_witness};
 use crate::verifier::Verifier;
@@ -120,45 +122,7 @@ pub struct Operator<'a> {
     pub withdrawals_payment_txids: Vec<Txid>,
     pub mock_verifier_access: Vec<Verifier<'a>>, // on production this will be removed rather we will call the verifier's API
     pub connector_tree_utxos: Vec<ConnectorTreeUTXOs>,
-    pub deposit_utxos: Vec<OutPoint>,
-    pub move_utxos: Vec<OutPoint>,
-}
-
-impl<'a> OperatorDatabase for Operator<'a> {
-    fn get_connector_tree_preimage(
-        &self,
-        period: usize,
-        depth: usize,
-        index: usize,
-    ) -> PreimageType {
-        self.connector_tree_preimages[period][depth][index]
-    }
-
-    fn get_inscription_txs(&self, period: usize) -> InscriptionTxs {
-        self.inscription_txs[period]
-    }
-
-    fn get_deposit_utxo(&self, index: usize) -> OutPoint {
-        self.deposit_utxos[index]
-    }
-
-    fn get_move_utxo(&self, index: usize) -> OutPoint {
-        self.move_utxos[index]
-    }
-
-    fn get_deposit_take_sigs(&self, index: usize) -> OperatorClaimSigs {
-        self.deposit_take_sigs[index].clone()
-    }
-}
-
-impl<'a> CommonDatabase for Operator<'a> {
-    fn get_connector_tree_hash(&self, period: usize, depth: usize, index: usize) -> HashType {
-        self.connector_tree_hashes[period][depth][index]
-    }
-
-    fn get_connector_tree_utxo(&self, period: usize, depth: usize, index: usize) -> OutPoint {
-        self.connector_tree_utxos[period][depth][index]
-    }
+    pub operator_db: OperatorDB,
 }
 
 impl<'a> Operator<'a> {
@@ -195,13 +159,16 @@ impl<'a> Operator<'a> {
             withdrawals_payment_txids: Vec::new(),
             mock_verifier_access: verifiers,
             connector_tree_utxos: Vec::new(),
-            deposit_utxos: Vec::new(),
-            move_utxos: Vec::new(),
+            operator_db: OperatorDB::new(),
         }
     }
 
     pub fn add_deposit_utxo(&mut self, utxo: OutPoint) {
-        self.deposit_utxos.push(utxo);
+        self.operator_db.add_deposit_utxo(utxo);
+    }
+
+    pub fn add_move_utxo(&mut self, utxo: OutPoint) {
+        self.operator_db.add_move_utxo(utxo);
     }
 
     pub fn get_all_verifiers(&self) -> Vec<XOnlyPublicKey> {
@@ -243,6 +210,8 @@ impl<'a> Operator<'a> {
             return_address,
             BRIDGE_AMOUNT_SATS,
         )?;
+
+        self.add_deposit_utxo(start_utxo);
 
         let deposit_index = self.deposit_take_sigs.len() as u32;
         println!("deposit_index: {:?}", deposit_index);
@@ -319,6 +288,9 @@ impl<'a> Operator<'a> {
             txid: rpc_move_txid,
             vout: 0,
         };
+
+        self.add_move_utxo(move_utxo);
+
         let operator_claim_sigs = OperatorClaimSigs {
             operator_claim_sigs: presigns_from_all_verifiers
                 .iter()
@@ -914,13 +886,13 @@ impl<'a> Operator<'a> {
         println!("total_amount: {:?}", total_amount);
         let (connector_tree_source_address, _) = self
             .transaction_builder
-            .create_connector_tree_root_address(self.start_blockheight + PERIOD_BLOCK_COUNT as u64)
-            .unwrap();
+            .create_connector_tree_root_address(
+                self.start_blockheight + PERIOD_BLOCK_COUNT as u64,
+            )?;
 
         let first_source_utxo = self
             .rpc
-            .send_to_address(&connector_tree_source_address, total_amount.to_sat())
-            .unwrap();
+            .send_to_address(&connector_tree_source_address, total_amount.to_sat())?;
         println!("first_source_utxo: {:?}", first_source_utxo);
         let first_source_utxo_create_tx = self
             .rpc
@@ -942,8 +914,7 @@ impl<'a> Operator<'a> {
                 self.start_blockheight,
                 &first_source_utxo,
                 &all_verifiers,
-            )
-            .unwrap();
+            )?;
 
         // self.set_connector_tree_utxos(utxo_trees.clone());
         self.connector_tree_utxos = utxo_trees;

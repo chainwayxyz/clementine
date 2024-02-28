@@ -1,8 +1,7 @@
 use std::borrow::BorrowMut;
 use std::collections::{HashMap, HashSet};
 
-use crate::constant::{ConnectorTreeUTXOs, HashType, PreimageType, MIN_RELAY_FEE};
-use crate::db::CommonDatabase;
+use crate::constant::{ConnectorTreeUTXOs, PreimageType, MIN_RELAY_FEE};
 use crate::errors::BridgeError;
 use bitcoin::sighash::SighashCache;
 use bitcoin::{secp256k1, secp256k1::Secp256k1, OutPoint};
@@ -33,16 +32,6 @@ pub struct Verifier<'a> {
     pub connector_tree_utxos: Vec<ConnectorTreeUTXOs>,
     pub connector_tree_hashes: Vec<Vec<Vec<[u8; 32]>>>,
     pub operator_pk: XOnlyPublicKey,
-}
-
-impl<'a> CommonDatabase for Verifier<'a> {
-    fn get_connector_tree_hash(&self, period: usize, depth: usize, index: usize) -> HashType {
-        self.connector_tree_hashes[period][depth][index]
-    }
-
-    fn get_connector_tree_utxo(&self, period: usize, depth: usize, index: usize) -> OutPoint {
-        self.connector_tree_utxos[period][depth][index]
-    }
 }
 
 impl<'a> Verifier<'a> {

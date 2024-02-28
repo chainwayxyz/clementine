@@ -45,6 +45,7 @@ fn main() -> Result<(), BridgeError> {
         // println!("move_tx: {:?}", move_tx);
         let (deposit_utxo, deposit_return_address, user_evm_address, user_sig) =
             user.deposit_tx().unwrap();
+        println!("User deposit_utxo: {:?}", deposit_utxo);
         rpc.mine_blocks(6)?;
         operator
             .new_deposit(
@@ -56,6 +57,9 @@ fn main() -> Result<(), BridgeError> {
             .unwrap();
         rpc.mine_blocks(1)?;
     }
+
+    // TEST: operator_db works
+    println!("operator_db: {:?}", operator.operator_db);
 
     // make 3 withdrawals
     for i in 0..3 {
