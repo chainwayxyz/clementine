@@ -8,6 +8,8 @@ use thiserror::Error;
 #[derive(Clone, Debug, Eq, PartialEq, Error)]
 #[non_exhaustive]
 pub enum BridgeError {
+    #[error("DBError")]
+    DBError,
     #[error("OperatorPendingDeposit")]
     OperatorPendingDeposit,
     #[error("InvalidPeriod")]

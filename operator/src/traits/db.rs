@@ -1,41 +1,12 @@
-use std::collections::HashMap;
-
 use crate::errors::BridgeError;
+use std::hash::Hash;
 
-pub trait Database {
-    fn get<K, V>(&self, key: K) -> Option<V>
-    where
-        K: Into<String>,
-        V: Clone + std::convert::From<std::string::String>;
+pub trait BridgeDatabase<K, V>
+where
+    K: Eq + Hash,
+    V: Clone,
+{
+    fn get(&self, key: K) -> Option<V>;
 
-    fn set<K, V>(&self, key: K, value: V) -> Result<(), BridgeError>
-    where
-        K: Into<String>,
-        V: Clone + std::convert::From<std::string::String>;
-}
-
-#[derive(Debug, Clone)]
-pub struct GeneralDatabase {
-    data: HashMap<String, String>,
-}
-
-impl Database for GeneralDatabase {
-    fn get<K, V>(&self, key: K) -> Option<V>
-    where
-        K: Into<String>,
-        V: Clone + std::convert::From<std::string::String>,
-    {
-        self.data.get(&key.into()).map(|v| v.clone().into())
-    }
-
-    fn set<K, V>(&self, key: K, value: V) -> Result<(), BridgeError>
-    where
-        K: Into<String>,
-        V: Clone + std::convert::From<std::string::String>,
-    {
-        let key_str = key.into();
-        // Assuming value also implements Into<String>
-        self.data.insert(key_str, value.into());
-        Ok(())
-    }
+    fn set(&mut self, key: K, value: V) -> Result<(), BridgeError>;
 }

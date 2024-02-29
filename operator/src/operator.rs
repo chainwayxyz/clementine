@@ -1,5 +1,5 @@
 use std::borrow::BorrowMut;
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::vec;
 
 use crate::actor::Actor;
@@ -9,13 +9,12 @@ use crate::constant::{
     PERIOD_BLOCK_COUNT,
 };
 
-use crate::db::operator_db::OperatorDB;
+use crate::db::operator_db::{OperatorDB, SignatureDB, UtxoDB};
 use crate::errors::BridgeError;
 use crate::extended_rpc::ExtendedRpc;
 use crate::merkle::MerkleTree;
 use crate::script_builder::ScriptBuilder;
 use crate::shared::{check_deposit_utxo, create_all_connector_trees};
-use crate::traits::db::Database;
 use crate::transaction_builder::TransactionBuilder;
 use crate::utils::{calculate_amount, get_claim_reveal_indices, handle_taproot_witness};
 use crate::verifier::Verifier;
@@ -102,7 +101,7 @@ pub struct OperatorClaimSigs {
 }
 
 #[derive(Debug)]
-pub struct Operator<'a, T: Database> {
+pub struct Operator<'a> {
     pub rpc: &'a ExtendedRpc,
     pub signer: Actor,
     pub script_builder: ScriptBuilder,
@@ -122,15 +121,15 @@ pub struct Operator<'a, T: Database> {
     pub withdrawals_payment_txids: Vec<Txid>,
     pub mock_verifier_access: Vec<Verifier<'a>>, // on production this will be removed rather we will call the verifier's API
     pub connector_tree_utxos: Vec<ConnectorTreeUTXOs>,
-    pub operator_db: OperatorDB<T>,
+    pub operator_db: OperatorDB<OutPoint, u32, Vec<schnorr::Signature>, OutPoint>,
 }
 
-impl<'a, T: Database> Operator<'a, T> {
+impl<'a> Operator<'a> {
     pub fn new(
         rng: &mut OsRng,
         rpc: &'a ExtendedRpc,
         num_verifier: u32,
-        operator_db: OperatorDB<T>,
+        // operator_db: OperatorDB<T>,
     ) -> Self {
         let signer = Actor::new(rng);
         let (connector_tree_preimages, connector_tree_hashes) =
@@ -146,6 +145,13 @@ impl<'a, T: Database> Operator<'a, T> {
         all_verifiers.push(signer.xonly_public_key);
         let script_builder = ScriptBuilder::new(all_verifiers.clone());
         let transaction_builder = TransactionBuilder::new(all_verifiers.clone());
+
+        let index_utxo_map: HashMap<u32, OutPoint> = HashMap::new();
+        let utxo_sig_vec_map: HashMap<OutPoint, Vec<schnorr::Signature>> = HashMap::new();
+        let operator_db = OperatorDB::new(
+            SignatureDB::new(utxo_sig_vec_map),
+            UtxoDB::new(index_utxo_map),
+        );
 
         Self {
             rpc,
