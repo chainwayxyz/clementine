@@ -840,14 +840,13 @@ impl<'a> Operator<'a> {
         println!("total_amount: {:?}", total_amount);
         let (connector_tree_source_address, _) = self
             .transaction_builder
-            .create_connector_tree_root_address(
-                &self.signer.xonly_public_key,
-                self.start_blockheight + PERIOD_BLOCK_COUNT as u64,
-            )?;
+            .create_connector_tree_root_address(self.start_blockheight + PERIOD_BLOCK_COUNT as u64)
+            .unwrap();
 
         let first_source_utxo = self
             .rpc
-            .send_to_address(&connector_tree_source_address, total_amount.to_sat())?;
+            .send_to_address(&connector_tree_source_address, total_amount.to_sat())
+            .unwrap();
         println!("first_source_utxo: {:?}", first_source_utxo);
         let first_source_utxo_create_tx = self
             .rpc
@@ -857,14 +856,20 @@ impl<'a> Operator<'a> {
             first_source_utxo_create_tx
         );
 
-        let (claim_proof_merkle_roots, root_utxos, utxo_trees) = create_all_connector_trees(
-            &self.signer.secp,
-            &self.transaction_builder,
-            &self.operator_mock_db.connector_tree_hashes,
-            self.start_blockheight,
-            &first_source_utxo,
-            &self.signer.xonly_public_key,
-        )?;
+        //Here we are adding the operator's public key to the list of verifiers, since it was not handled when creating the entities.
+        let mut all_verifiers = self.verifiers_pks.clone();
+        all_verifiers.push(self.signer.xonly_public_key.clone());
+        let (claim_proof_merkle_roots, root_utxos, utxo_trees, _op_self_claim_sigs) =
+            create_all_connector_trees(
+                &self.signer,
+                &self.rpc,
+                // &self.transaction_builder,
+                &self.operator_mock_db.connector_tree_hashes,
+                self.start_blockheight,
+                &first_source_utxo,
+                &all_verifiers,
+            )
+            .unwrap();
 
         // self.set_connector_tree_utxos(utxo_trees.clone());
         self.operator_mock_db.connector_tree_utxos = utxo_trees;
