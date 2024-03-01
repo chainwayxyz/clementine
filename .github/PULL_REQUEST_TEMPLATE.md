@@ -1,6 +1,5 @@
 # Description
 
-
 ## Linked Issues
 - Fixes # (issue, if applicable)
 - Related to # (issue) 
