@@ -67,6 +67,12 @@ pub enum BridgeError {
     ControlBlockError,
 }
 
+impl From<serde_json::Error> for BridgeError {
+    fn from(_error: serde_json::Error) -> Self {
+        BridgeError::DBError
+    }
+}
+
 impl From<secp256k1::Error> for BridgeError {
     fn from(_error: secp256k1::Error) -> Self {
         BridgeError::Secpk256Error

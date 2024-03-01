@@ -7,6 +7,7 @@ fn main() -> Result<(), BridgeError> {
     let rpc = ExtendedRpc::new();
 
     let mut operator = Operator::new(&mut OsRng, &rpc, NUM_VERIFIERS as u32);
+    // println!("operator_db: {:?}", operator.operator_db);
 
     let verifiers_pks = operator.get_all_verifiers();
     for verifier in &mut operator.mock_verifier_access {
