@@ -1,5 +1,6 @@
-#![no_main]
-#![no_std]
+// #![no_main]
+// #![no_std]
+#![cfg_attr(not(test), no_std, no_main)]
 
 pub mod bitcoin;
 pub mod bridge;
