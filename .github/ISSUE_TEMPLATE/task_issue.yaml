@@ -1,0 +1,40 @@
+
+name: Task Template
+description: This issue template is used for giving tasks to group members.
+assignees: []
+labels: []
+body:
+  - type: markdown
+    attributes:
+      value: |
+          Please do not forget to add **assignees** and **labels** to this issue.
+          State your tasks explicitly       
+  - type: textarea
+    id: issue-description
+    attributes:
+      placeholder: "Issue description."
+      label: Issue Description
+      description: "Describe the task and why wee need it. It can be multi-tasked issue also."
+    validations:
+      required: true
+  - type: textarea
+    id: step-details
+    attributes:
+      value: | 
+              Parts of the task:
+              - [ ] ...(1)
+              - [ ] ...(2)
+              - [ ] ...(3)
+      label: Tasks
+      description: "Parts of the task"
+  - type: input
+    id: deadline
+    attributes:
+      label: Deadline of the Issue
+      description: "Please provide a deadline for the issue."
+      placeholder: "01.01.1970 - Monday - 23:59"
+    validations:
+      required: true
+
+
+        
