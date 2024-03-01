@@ -1,7 +1,7 @@
 //! This module defines errors returned by the library.
 use bitcoin::taproot::{TaprootBuilder, TaprootBuilderError};
 use core::fmt::Debug;
-use std::array::TryFromSliceError;
+use std::{array::TryFromSliceError, string::FromUtf8Error};
 use thiserror::Error;
 
 /// Errors returned by the bridge
@@ -65,11 +65,20 @@ pub enum BridgeError {
     /// ControlBlockError is returned when the control block is not found
     #[error("ControlBlockError")]
     ControlBlockError,
+    /// FromUtf8Error is returned when the from_utf8 fails
+    #[error("FromUtf8Error")]
+    FromUtf8Error,
 }
 
 impl From<serde_json::Error> for BridgeError {
     fn from(_error: serde_json::Error) -> Self {
         BridgeError::DBError
+    }
+}
+
+impl From<FromUtf8Error> for BridgeError {
+    fn from(_error: FromUtf8Error) -> Self {
+        BridgeError::FromUtf8Error
     }
 }
 
