@@ -1,16 +1,14 @@
 use std::borrow::BorrowMut;
-use std::collections::{HashMap, HashSet};
+use std::collections::HashSet;
 use std::vec;
 
 use crate::actor::Actor;
-use crate::config::{BRIDGE_AMOUNT_SATS, CONNECTOR_TREE_DEPTH, DEPTH, NUM_ROUNDS};
-use crate::constant::{
-    ConnectorTreeUTXOs, HashType, InscriptionTxs, PreimageType, DUST_VALUE, MIN_RELAY_FEE,
-    PERIOD_BLOCK_COUNT,
-};
+use crate::config::{BRIDGE_AMOUNT_SATS, CONNECTOR_TREE_DEPTH, NUM_ROUNDS};
+use crate::constant::{HashType, PreimageType, DUST_VALUE, MIN_RELAY_FEE, PERIOD_BLOCK_COUNT};
 use crate::errors::BridgeError;
 use crate::extended_rpc::ExtendedRpc;
-use crate::merkle::MerkleTree;
+
+use crate::mock_db::OperatorMockDB;
 use crate::script_builder::ScriptBuilder;
 use crate::shared::{check_deposit_utxo, create_all_connector_trees};
 use crate::transaction_builder::TransactionBuilder;
@@ -21,33 +19,13 @@ use bitcoin::hashes::Hash;
 use bitcoin::sighash::SighashCache;
 
 use bitcoin::taproot::LeafVersion;
-use bitcoin::{secp256k1, secp256k1::schnorr, Address, Txid};
+use bitcoin::{secp256k1, secp256k1::schnorr, Address};
 use bitcoin::{Amount, OutPoint, TapLeafHash, Transaction, TxOut};
 use circuit_helpers::constant::EVMAddress;
 use circuit_helpers::sha256_hash;
 use secp256k1::rand::rngs::OsRng;
 use secp256k1::rand::Rng;
 use secp256k1::{Message, XOnlyPublicKey};
-
-// pub fn verify_presigns(
-//     _tx: &bitcoin::Transaction,
-//     prevouts: &Vec<TxOut>,
-//     // _presigns: &Vec<schnorr::Signature>,
-//     // _xonly_public_keys: &Vec<XOnlyPublicKey>,
-// ) {
-//     let mut outpoints = Vec::new();
-//     for input in _tx.input.iter() {
-//         outpoints.push(input.previous_output);
-//     }
-//     let mut hm = HashMap::new();
-//     for (idx, outpoint) in outpoints.iter().enumerate() {
-//         hm.insert(outpoint, prevouts[idx].clone());
-//     }
-//     let s = |outpoint: &OutPoint| hm.get(outpoint).cloned();
-
-//     let f = VERIFY_NULLDUMMY | VERIFY_WITNESS;
-//     println!("{:?}", verify_transaction_with_flags(_tx, s, f).unwrap());
-// }
 
 pub fn create_connector_tree_preimages_and_hashes(
     depth: usize,
@@ -104,24 +82,11 @@ pub struct Operator<'a> {
     pub signer: Actor,
     pub script_builder: ScriptBuilder,
     pub transaction_builder: TransactionBuilder,
-    pub deposit_take_sigs: Vec<OperatorClaimSigs>,
-
-    pub connector_tree_preimages: Vec<Vec<Vec<PreimageType>>>,
-    pub connector_tree_hashes: Vec<Vec<Vec<[u8; 32]>>>,
-    pub inscription_txs: Vec<InscriptionTxs>,
     pub start_blockheight: u64,
-
     pub verifiers_pks: Vec<XOnlyPublicKey>,
-    pub deposit_presigns: HashMap<Txid, Vec<DepositPresigns>>,
-    pub deposit_merkle_tree: MerkleTree<DEPTH>,
-    pub withdrawals_merkle_tree: MerkleTree<DEPTH>,
-    pub withdrawals_payment_txids: Vec<Txid>,
     pub mock_verifier_access: Vec<Verifier<'a>>, // on production this will be removed rather we will call the verifier's API
-    pub preimages: Vec<PreimageType>,
-    pub connector_tree_utxos: Vec<ConnectorTreeUTXOs>,
-    // pub giga_merkle_tree: GigaMerkleTree,
-    pub deposit_utxos: Vec<OutPoint>,
-    pub move_utxos: Vec<OutPoint>,
+
+    pub operator_mock_db: OperatorMockDB,
 }
 
 impl<'a> Operator<'a> {
@@ -140,33 +105,21 @@ impl<'a> Operator<'a> {
         all_verifiers.push(signer.xonly_public_key);
         let script_builder = ScriptBuilder::new(all_verifiers.clone());
         let transaction_builder = TransactionBuilder::new(all_verifiers.clone());
+        let mut operator_mock_db = OperatorMockDB::new();
+        operator_mock_db.connector_tree_preimages = connector_tree_preimages.clone();
+        operator_mock_db.connector_tree_hashes = connector_tree_hashes.clone();
 
         Self {
             rpc,
             signer,
             script_builder,
             transaction_builder,
-            deposit_take_sigs: Vec::new(),
-            connector_tree_preimages,
-            connector_tree_hashes,
-            inscription_txs: Vec::new(),
             start_blockheight: 0,
-
-            verifiers_pks,
-            deposit_presigns: HashMap::new(),
-            deposit_merkle_tree: MerkleTree::new(),
-            withdrawals_merkle_tree: MerkleTree::new(),
-            withdrawals_payment_txids: Vec::new(),
             mock_verifier_access: verifiers,
-            preimages: Vec::new(),
-            connector_tree_utxos: Vec::new(),
-            deposit_utxos: Vec::new(),
-            move_utxos: Vec::new(),
-        }
-    }
+            verifiers_pks,
 
-    pub fn add_deposit_utxo(&mut self, utxo: OutPoint) {
-        self.deposit_utxos.push(utxo);
+            operator_mock_db,
+        }
     }
 
     pub fn get_all_verifiers(&self) -> Vec<XOnlyPublicKey> {
@@ -209,7 +162,7 @@ impl<'a> Operator<'a> {
             BRIDGE_AMOUNT_SATS,
         )?;
 
-        let deposit_index = self.deposit_take_sigs.len() as u32;
+        let deposit_index = self.operator_mock_db.deposit_take_sigs.len() as u32;
         println!("deposit_index: {:?}", deposit_index);
 
         let presigns_from_all_verifiers: Result<Vec<_>, BridgeError> = self
@@ -290,7 +243,9 @@ impl<'a> Operator<'a> {
                 .map(|presign| presign.operator_claim_sign.clone())
                 .collect::<Vec<_>>(),
         };
-        self.deposit_take_sigs.push(operator_claim_sigs);
+        self.operator_mock_db
+            .deposit_take_sigs
+            .push(operator_claim_sigs);
 
         // let anyone_can_spend_txout: TxOut = ScriptBuilder::anyone_can_spend_txout();
         // let timelock_script = ScriptBuilder::generate_timelock_script(
@@ -299,8 +254,8 @@ impl<'a> Operator<'a> {
         // );
 
         for i in 0..NUM_ROUNDS {
-            let connector_utxo =
-                self.connector_tree_utxos[i][CONNECTOR_TREE_DEPTH][deposit_index as usize];
+            let connector_utxo = self.operator_mock_db.connector_tree_utxos[i]
+                [CONNECTOR_TREE_DEPTH][deposit_index as usize];
             let operator_claim_tx = TransactionBuilder::create_operator_claim_tx(
                 move_utxo,
                 connector_utxo,
@@ -311,7 +266,8 @@ impl<'a> Operator<'a> {
                 TransactionBuilder::create_connector_tree_node_address(
                     &self.signer.secp,
                     &self.signer.xonly_public_key,
-                    self.connector_tree_hashes[i][CONNECTOR_TREE_DEPTH][deposit_index as usize],
+                    self.operator_mock_db.connector_tree_hashes[i][CONNECTOR_TREE_DEPTH]
+                        [deposit_index as usize],
                 )?;
 
             let op_claim_tx_prevouts = self
@@ -406,7 +362,7 @@ impl<'a> Operator<'a> {
         let hash: [u8; 32] = hash[2..].try_into()?;
 
         // 1. Add the address to WithdrawalsMerkleTree
-        self.withdrawals_merkle_tree.add(hash);
+        self.operator_mock_db.withdrawals_merkle_tree.add(hash);
 
         // self.withdrawals_merkle_tree.add(withdrawal_address.to);
 
@@ -419,7 +375,7 @@ impl<'a> Operator<'a> {
             "operator paid to withdrawal address: {:?}, txid: {:?}",
             withdrawal_address, txid
         );
-        self.withdrawals_payment_txids.push(txid);
+        self.operator_mock_db.withdrawals_payment_txids.push(txid);
         Ok(())
     }
 
@@ -541,13 +497,14 @@ impl<'a> Operator<'a> {
         println!("depth: {:?}", depth);
         let level = tree_depth - depth as usize;
         //find the index of preimage in the connector_tree_preimages[level as usize]
-        let index = self.connector_tree_preimages[period][level as usize]
+        let index = self.operator_mock_db.connector_tree_preimages[period][level as usize]
             .iter()
             .position(|x| *x == preimage)
             .ok_or(BridgeError::PreimageNotFound)?;
         let hashes = (
-            self.connector_tree_hashes[period][(level + 1) as usize][2 * index],
-            self.connector_tree_hashes[period][(level + 1) as usize][2 * index + 1],
+            self.operator_mock_db.connector_tree_hashes[period][(level + 1) as usize][2 * index],
+            self.operator_mock_db.connector_tree_hashes[period][(level + 1) as usize]
+                [2 * index + 1],
         );
 
         let utxo_tx = self.rpc.get_raw_transaction(&utxo.txid, None)?;
@@ -618,7 +575,7 @@ impl<'a> Operator<'a> {
         println!("indices: {:?}", indices);
         let mut preimages: HashSet<PreimageType> = HashSet::new();
         for (depth, index) in indices {
-            preimages.insert(self.connector_tree_preimages[period][depth][index]);
+            preimages.insert(self.operator_mock_db.connector_tree_preimages[period][depth][index]);
         }
         preimages
     }
@@ -628,7 +585,7 @@ impl<'a> Operator<'a> {
     }
 
     fn get_num_withdrawals_for_period(&self, _period: usize) -> u32 {
-        self.withdrawals_merkle_tree.index // TODO: This is not corret, we should have a cutoff
+        self.operator_mock_db.withdrawals_merkle_tree.index // TODO: This is not corret, we should have a cutoff
     }
 
     /// This is called internally when every withdrawal for the current period is satisfied
@@ -637,7 +594,7 @@ impl<'a> Operator<'a> {
     /// inscribe the connector tree preimages to the blockchain
     pub fn inscribe_connector_tree_preimages(&mut self) -> Result<(), BridgeError> {
         let period = self.get_current_period();
-        if self.inscription_txs.len() != period {
+        if self.operator_mock_db.inscription_txs.len() != period {
             return Err(BridgeError::InvalidPeriod);
         }
 
@@ -648,7 +605,9 @@ impl<'a> Operator<'a> {
 
         let preimages_to_be_revealed = indices
             .iter()
-            .map(|(depth, index)| self.connector_tree_preimages[period][*depth][*index])
+            .map(|(depth, index)| {
+                self.operator_mock_db.connector_tree_preimages[period][*depth][*index]
+            })
             .collect::<Vec<_>>();
 
         let (commit_address, commit_tree_info, inscribe_preimage_script) =
@@ -696,7 +655,9 @@ impl<'a> Operator<'a> {
             self.rpc.is_utxo_spent(&commit_utxo)
         );
 
-        self.inscription_txs.push((commit_utxo, reveal_txid));
+        self.operator_mock_db
+            .inscription_txs
+            .push((commit_utxo, reveal_txid));
 
         // let inscription_source_utxo = self
         //     .rpc
@@ -899,20 +860,23 @@ impl<'a> Operator<'a> {
         let (claim_proof_merkle_roots, root_utxos, utxo_trees) = create_all_connector_trees(
             &self.signer.secp,
             &self.transaction_builder,
-            &self.connector_tree_hashes,
+            &self.operator_mock_db.connector_tree_hashes,
             self.start_blockheight,
             &first_source_utxo,
             &self.signer.xonly_public_key,
         )?;
 
         // self.set_connector_tree_utxos(utxo_trees.clone());
-        self.connector_tree_utxos = utxo_trees;
+        self.operator_mock_db.connector_tree_utxos = utxo_trees;
         println!(
             "Operator claim_proof_merkle_roots: {:?}",
             claim_proof_merkle_roots
         );
         println!("Operator root_utxos: {:?}", root_utxos);
-        println!("Operator utxo_trees: {:?}", self.connector_tree_utxos);
+        println!(
+            "Operator utxo_trees: {:?}",
+            self.operator_mock_db.connector_tree_utxos
+        );
         Ok((first_source_utxo, self.start_blockheight))
     }
 }

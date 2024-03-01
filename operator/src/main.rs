@@ -22,7 +22,7 @@ fn main() -> Result<(), BridgeError> {
     let (first_source_utxo, start_blockheight) = operator.initial_setup().unwrap();
     for verifier in &mut operator.mock_verifier_access {
         verifier.connector_roots_created(
-            &operator.connector_tree_hashes,
+            &operator.operator_mock_db.connector_tree_hashes,
             start_blockheight,
             &first_source_utxo,
         )?;

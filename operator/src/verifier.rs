@@ -62,14 +62,6 @@ impl<'a> Verifier<'a> {
         self.transaction_builder = TransactionBuilder::new(self.verifiers.clone());
     }
 
-    // pub fn set_connector_tree_utxos(&mut self, connector_tree_utxos: Vec<ConnectorTreeUTXOs>) {
-    //     self.connector_tree_utxos = connector_tree_utxos;
-    // }
-
-    // pub fn set_connector_tree_hashes(&mut self, connector_tree_hashes: &Vec<Vec<Vec<[u8; 32]>>>) {
-    //     self.connector_tree_hashes = connector_tree_hashes.clone();
-    // }
-
     /// TODO: Add verification for the connector tree hashes
     pub fn connector_roots_created(
         &mut self,
