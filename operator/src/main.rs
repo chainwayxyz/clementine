@@ -25,7 +25,7 @@ fn main() -> Result<(), BridgeError> {
 
     for verifier in &mut operator.mock_verifier_access {
         let sigs = verifier.connector_roots_created(
-            &operator.operator_mock_db.connector_tree_hashes,
+            &operator.operator_mock_db.get_connector_tree_hashes(),
             start_blockheight,
             &first_source_utxo,
         );

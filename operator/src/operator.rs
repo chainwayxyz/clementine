@@ -106,8 +106,8 @@ impl<'a> Operator<'a> {
         let script_builder = ScriptBuilder::new(all_verifiers.clone());
         let transaction_builder = TransactionBuilder::new(all_verifiers.clone());
         let mut operator_mock_db = OperatorMockDB::new();
-        operator_mock_db.connector_tree_preimages = connector_tree_preimages.clone();
-        operator_mock_db.connector_tree_hashes = connector_tree_hashes.clone();
+        operator_mock_db.set_connector_tree_preimages(connector_tree_preimages);
+        operator_mock_db.set_connector_tree_hashes(connector_tree_hashes);
 
         Self {
             rpc,
@@ -162,7 +162,7 @@ impl<'a> Operator<'a> {
             BRIDGE_AMOUNT_SATS,
         )?;
 
-        let deposit_index = self.operator_mock_db.deposit_take_sigs.len() as u32;
+        let deposit_index = self.operator_mock_db.get_deposit_index();
         println!("deposit_index: {:?}", deposit_index);
 
         let presigns_from_all_verifiers: Result<Vec<_>, BridgeError> = self
@@ -175,7 +175,12 @@ impl<'a> Operator<'a> {
                 // of the map, causing the collect call to return a Result::Err, effectively stopping
                 // the iteration and returning the error from your_function_name.
                 let deposit_presigns = verifier
-                    .new_deposit(start_utxo, return_address, deposit_index, evm_address)
+                    .new_deposit(
+                        start_utxo,
+                        return_address,
+                        deposit_index as u32,
+                        evm_address,
+                    )
                     .map_err(|e| {
                         // Log the error or convert it to BridgeError if necessary
                         eprintln!("Error getting deposit presigns: {:?}", e);
@@ -244,8 +249,7 @@ impl<'a> Operator<'a> {
                 .collect::<Vec<_>>(),
         };
         self.operator_mock_db
-            .deposit_take_sigs
-            .push(operator_claim_sigs);
+            .add_deposit_take_sigs(operator_claim_sigs);
 
         // let anyone_can_spend_txout: TxOut = ScriptBuilder::anyone_can_spend_txout();
         // let timelock_script = ScriptBuilder::generate_timelock_script(
@@ -254,7 +258,7 @@ impl<'a> Operator<'a> {
         // );
 
         for i in 0..NUM_ROUNDS {
-            let connector_utxo = self.operator_mock_db.connector_tree_utxos[i]
+            let connector_utxo = self.operator_mock_db.get_connector_tree_utxo(i)
                 [CONNECTOR_TREE_DEPTH][deposit_index as usize];
             let operator_claim_tx = TransactionBuilder::create_operator_claim_tx(
                 move_utxo,
@@ -266,8 +270,11 @@ impl<'a> Operator<'a> {
                 TransactionBuilder::create_connector_tree_node_address(
                     &self.signer.secp,
                     &self.signer.xonly_public_key,
-                    self.operator_mock_db.connector_tree_hashes[i][CONNECTOR_TREE_DEPTH]
-                        [deposit_index as usize],
+                    self.operator_mock_db.get_connector_tree_hash(
+                        i,
+                        CONNECTOR_TREE_DEPTH,
+                        deposit_index,
+                    ),
                 )?;
 
             let op_claim_tx_prevouts = self
@@ -362,7 +369,7 @@ impl<'a> Operator<'a> {
         let hash: [u8; 32] = hash[2..].try_into()?;
 
         // 1. Add the address to WithdrawalsMerkleTree
-        self.operator_mock_db.withdrawals_merkle_tree.add(hash);
+        self.operator_mock_db.add_to_withdrawals_merkle_tree(hash);
 
         // self.withdrawals_merkle_tree.add(withdrawal_address.to);
 
@@ -375,7 +382,7 @@ impl<'a> Operator<'a> {
             "operator paid to withdrawal address: {:?}, txid: {:?}",
             withdrawal_address, txid
         );
-        self.operator_mock_db.withdrawals_payment_txids.push(txid);
+        self.operator_mock_db.add_to_withdrawals_payment_txids(txid);
         Ok(())
     }
 
@@ -497,14 +504,17 @@ impl<'a> Operator<'a> {
         println!("depth: {:?}", depth);
         let level = tree_depth - depth as usize;
         //find the index of preimage in the connector_tree_preimages[level as usize]
-        let index = self.operator_mock_db.connector_tree_preimages[period][level as usize]
+        let index = self
+            .operator_mock_db
+            .get_connector_tree_preimages_level(period, level)
             .iter()
             .position(|x| *x == preimage)
             .ok_or(BridgeError::PreimageNotFound)?;
         let hashes = (
-            self.operator_mock_db.connector_tree_hashes[period][(level + 1) as usize][2 * index],
-            self.operator_mock_db.connector_tree_hashes[period][(level + 1) as usize]
-                [2 * index + 1],
+            self.operator_mock_db
+                .get_connector_tree_hash(period, level + 1, 2 * index),
+            self.operator_mock_db
+                .get_connector_tree_hash(period, level + 1, 2 * index + 1),
         );
 
         let utxo_tx = self.rpc.get_raw_transaction(&utxo.txid, None)?;
@@ -575,7 +585,10 @@ impl<'a> Operator<'a> {
         println!("indices: {:?}", indices);
         let mut preimages: HashSet<PreimageType> = HashSet::new();
         for (depth, index) in indices {
-            preimages.insert(self.operator_mock_db.connector_tree_preimages[period][depth][index]);
+            preimages.insert(
+                self.operator_mock_db
+                    .get_connector_tree_preimages(period, depth, index),
+            );
         }
         preimages
     }
@@ -585,7 +598,7 @@ impl<'a> Operator<'a> {
     }
 
     fn get_num_withdrawals_for_period(&self, _period: usize) -> u32 {
-        self.operator_mock_db.withdrawals_merkle_tree.index // TODO: This is not corret, we should have a cutoff
+        self.operator_mock_db.get_withdrawals_merkle_tree_index() // TODO: This is not corret, we should have a cutoff
     }
 
     /// This is called internally when every withdrawal for the current period is satisfied
@@ -594,7 +607,7 @@ impl<'a> Operator<'a> {
     /// inscribe the connector tree preimages to the blockchain
     pub fn inscribe_connector_tree_preimages(&mut self) -> Result<(), BridgeError> {
         let period = self.get_current_period();
-        if self.operator_mock_db.inscription_txs.len() != period {
+        if self.operator_mock_db.get_inscription_txs_len() != period {
             return Err(BridgeError::InvalidPeriod);
         }
 
@@ -606,7 +619,8 @@ impl<'a> Operator<'a> {
         let preimages_to_be_revealed = indices
             .iter()
             .map(|(depth, index)| {
-                self.operator_mock_db.connector_tree_preimages[period][*depth][*index]
+                self.operator_mock_db
+                    .get_connector_tree_preimages(period, *depth, *index)
             })
             .collect::<Vec<_>>();
 
@@ -656,8 +670,7 @@ impl<'a> Operator<'a> {
         );
 
         self.operator_mock_db
-            .inscription_txs
-            .push((commit_utxo, reveal_txid));
+            .add_to_inscription_txs((commit_utxo, reveal_txid));
 
         // let inscription_source_utxo = self
         //     .rpc
@@ -864,7 +877,7 @@ impl<'a> Operator<'a> {
                 &self.signer,
                 &self.rpc,
                 // &self.transaction_builder,
-                &self.operator_mock_db.connector_tree_hashes,
+                &self.operator_mock_db.get_connector_tree_hashes(),
                 self.start_blockheight,
                 &first_source_utxo,
                 &all_verifiers,
@@ -872,7 +885,7 @@ impl<'a> Operator<'a> {
             .unwrap();
 
         // self.set_connector_tree_utxos(utxo_trees.clone());
-        self.operator_mock_db.connector_tree_utxos = utxo_trees;
+        self.operator_mock_db.set_connector_tree_utxos(utxo_trees);
         println!(
             "Operator claim_proof_merkle_roots: {:?}",
             claim_proof_merkle_roots
@@ -880,7 +893,7 @@ impl<'a> Operator<'a> {
         println!("Operator root_utxos: {:?}", root_utxos);
         println!(
             "Operator utxo_trees: {:?}",
-            self.operator_mock_db.connector_tree_utxos
+            self.operator_mock_db.get_connector_tree_utxos()
         );
         Ok((first_source_utxo, self.start_blockheight))
     }
