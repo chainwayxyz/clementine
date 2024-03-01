@@ -96,10 +96,8 @@ pub fn get_script_hash(
     let mut hasher = Sha256::new();
     let tap_leaf_str = "TapLeaf";
     let tap_leaf_tag_hash: [u8; 32] = sha256_hash!(&tap_leaf_str.as_bytes());
-    let mut hash_tag = [0u8; 64];
-    hash_tag[..32].copy_from_slice(&tap_leaf_tag_hash);
-    hash_tag[32..64].copy_from_slice(&tap_leaf_tag_hash);
-    hasher.update(hash_tag);
+    hasher.update(tap_leaf_tag_hash);
+    hasher.update(tap_leaf_tag_hash);
     hasher.update([192u8]);
     let script_length: u8 = 37 + 33 * number_of_preimages;
     hasher.update([script_length]);
@@ -144,13 +142,12 @@ pub fn verify_script_hash_taproot_address(
     // tap_leaf_hash is the merkle tree root
     let tap_tweak_str = "TapTweak";
     let tap_tweak_tag_hash = sha256_hash!(&tap_tweak_str.as_bytes());
-    let mut tweak_hash_input: [u8; 128] = [0u8; 128];
-    tweak_hash_input[..32].copy_from_slice(&tap_tweak_tag_hash);
-    tweak_hash_input[32..64].copy_from_slice(&tap_tweak_tag_hash);
-    tweak_hash_input[64..96].copy_from_slice(&internal_key_x_only_bytes);
-    tweak_hash_input[96..128].copy_from_slice(&tap_leaf_hash);
-    // tweak_hash is the tweak scalar
-    let tweak_hash = sha256_hash!(&tweak_hash_input);
+    let tweak_hash = sha256_hash!(
+        &tap_tweak_tag_hash,
+        &tap_tweak_tag_hash,
+        &internal_key_x_only_bytes,
+        &tap_leaf_hash
+    );
     let scalar_primitive = ScalarPrimitive::from_slice(&tweak_hash).unwrap();
     let scalar = Scalar::from(scalar_primitive);
     let scalar_point = AffinePoint::GENERATOR * scalar;
@@ -318,7 +315,6 @@ pub fn read_and_verify_bitcoin_merkle_path<E: Environment>(txid: [u8; 32]) -> [u
     let levels = E::read_u32();
     // bits of path indicator determines if the next tree node should be read from env or be the copy of last node
     let mut path_indicator = E::read_u32();
-    let mut preimage = [0_u8; 64];
     for _ in 0..levels {
         let node = if path_indicator & 1 == 1 {
             hash
@@ -326,15 +322,12 @@ pub fn read_and_verify_bitcoin_merkle_path<E: Environment>(txid: [u8; 32]) -> [u
             E::read_32bytes()
         };
         path_indicator >>= 1;
-        if index % 2 == 0 {
-            preimage[..32].copy_from_slice(&hash);
-            preimage[32..].copy_from_slice(&node);
+        hash = if index & 1 == 0 {
+            double_sha256_hash!(&hash, &node)
         } else {
-            preimage[..32].copy_from_slice(&node);
-            preimage[32..].copy_from_slice(&hash);
-        }
+            double_sha256_hash!(&node, &hash)
+        };
         index /= 2;
-        hash = double_sha256_hash!(&preimage);
     }
     hash
 }
