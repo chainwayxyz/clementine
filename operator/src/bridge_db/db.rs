@@ -38,10 +38,10 @@ where
         let serialized_value = V::serialized_value(value).unwrap();
         println!("serialized_value: {:?}", serialized_value);
         let res = self.inner.insert(serialized_key, serialized_value);
-        
+
         match res {
             None => Ok(()),
-            Some(_) =>  Err(BridgeError::DBError),
+            Some(_) => Err(BridgeError::DBError),
         }
     }
 }
@@ -61,7 +61,6 @@ impl ValueTrait for String {
         Ok(self.as_bytes().to_vec())
     }
 }
-
 
 #[cfg(test)]
 mod tests {
