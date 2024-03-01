@@ -1,0 +1,53 @@
+
+name: Bug Template
+description: This issue template is used for bug reports.
+assignees: []
+labels: []
+body:
+  - type: markdown
+    attributes:
+      value: |
+          Provide a general summary of the issue in the Title above
+  - type: textarea
+    id: expected-behavior
+    attributes:
+      placeholder: "Explain what should happen"
+      label: Expected Behavior
+      description: "Explain what should happen"
+    validations:
+      required: true
+  - type: textarea
+    id: current-behavior
+    attributes:
+      placeholder: "Explain what happens instead of the expected behavior"
+      label: Current Behavior
+      description: "Explain what happens instead of the expected behavior"
+    validations:
+      required: true
+  - type: textarea
+    id: steps-to-reproduce
+    attributes:
+      value: |
+        1.
+        2.
+        3.
+        4.
+      placeholder: "Provide an unambiguous set of steps to reproduce the bug"
+      label: Stps to Reproduce
+      description: "Provide an unambiguous set of steps to reproduce the bug"
+    validations:
+      required: true
+  - type: textarea
+    id: possible-solution
+    attributes:
+      placeholder: "This can be fixed by ..."
+      label: Current Behavior
+      description: "Not obligatory, but suggest a fix/reason for the bug"
+  - type: textarea
+    id: detailed-description
+    attributes:
+      placeholder: "Bug description."
+      label: Detailed Description
+      description: "Provide a detailed description"
+    validations:
+      required: true
