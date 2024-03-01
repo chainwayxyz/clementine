@@ -9,7 +9,7 @@ use crate::constant::{
     PERIOD_BLOCK_COUNT,
 };
 
-// use crate::bridge_db::db::OperatorDB;
+use crate::bridge_db::db::OperatorDB;
 use crate::errors::BridgeError;
 use crate::extended_rpc::ExtendedRpc;
 use crate::merkle::MerkleTree;
@@ -121,7 +121,7 @@ pub struct Operator<'a> {
     pub withdrawals_payment_txids: Vec<Txid>,
     pub mock_verifier_access: Vec<Verifier<'a>>, // on production this will be removed rather we will call the verifier's API
     pub connector_tree_utxos: Vec<ConnectorTreeUTXOs>,
-    // pub operator_db: OperatorDB<OutPoint, Vec<schnorr::Signature>>,
+    pub operator_db: OperatorDB,
 }
 
 impl<'a> Operator<'a> {
@@ -146,12 +146,7 @@ impl<'a> Operator<'a> {
         let script_builder = ScriptBuilder::new(all_verifiers.clone());
         let transaction_builder = TransactionBuilder::new(all_verifiers.clone());
 
-        // let index_utxo_map: HashMap<u32, OutPoint> = HashMap::new();
-        // let utxo_sig_vec_map: HashMap<OutPoint, Vec<schnorr::Signature>> = HashMap::new();
-        // let operator_db = OperatorDB::new(
-        //     SignatureDB::new(utxo_sig_vec_map),
-        //     UtxoDB::new(index_utxo_map),
-        // );
+        let operator_db = OperatorDB::new();
 
         Self {
             rpc,
@@ -170,7 +165,7 @@ impl<'a> Operator<'a> {
             withdrawals_payment_txids: Vec::new(),
             mock_verifier_access: verifiers,
             connector_tree_utxos: Vec::new(),
-            // operator_db: operator_db,
+            operator_db: operator_db,
         }
     }
 

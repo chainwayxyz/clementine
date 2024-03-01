@@ -10,7 +10,8 @@ pub struct OperatorDB {
 }
 
 impl OperatorDB {
-    pub fn new(inner: HashMap<Vec<u8>, Vec<u8>>) -> Self {
+    pub fn new() -> Self {
+        let inner = HashMap::new();
         OperatorDB { inner }
     }
 }
