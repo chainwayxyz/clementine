@@ -10,7 +10,6 @@ import "./MerkleTree.sol";
 contract Bridge is MerkleTree, Ownable {
     bytes public DEPOSIT_TXOUT_0 = hex"c2ddf50500000000225120fc6eb6fa4fd4ed1e8519a7edfa171eddcedfbd0e0be49b5e531ef36e7e66eb05"; 
     uint256 public constant DEPOSIT_AMOUNT = 1 ether;
-    mapping(uint256 => address) public verifiers;
     mapping(bytes32 => bool) public blockHashes;
     mapping(bytes32 => bool) public spentTxIds;
 
