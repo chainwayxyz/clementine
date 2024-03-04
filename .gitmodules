@@ -7,3 +7,6 @@
 [submodule "contracts/lib/bitcoin-spv"]
 	path = contracts/lib/bitcoin-spv
 	url = https://github.com/keep-network/bitcoin-spv
+[submodule "contracts/lib/solmate"]
+	path = contracts/lib/solmate
+	url = https://github.com/transmissions11/solmate
