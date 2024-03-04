@@ -20,7 +20,7 @@ contract BridgeHarness is Bridge {
 }
 
 contract BridgeTest is Test {
-    uint constant DEPOSIT_AMOUNT = 100_000_000;
+    uint256 constant DEPOSIT_AMOUNT = 1 ether;
     BridgeHarness public bridge;
     bytes4 version = hex"02000000";
     bytes vin = hex"01335d4a3454d976220232738ca03a7f3456f2e31625b31ae484696d2669083b720000000000fdffffff";
@@ -34,6 +34,7 @@ contract BridgeTest is Test {
 
     function setUp() public {
         bridge = new BridgeHarness(31);
+        vm.deal(address(bridge), 21_000_000 ether);
 
         bytes32 expected_blockhash = hex"b25d57f9acbf22e533b0963b47d91b11bdef9da9591002b1ef4e3ef856aec80e";
         // Owner adds the expected block hash of the block as an accepted block hash containing the transaction above
@@ -53,15 +54,14 @@ contract BridgeTest is Test {
     function testDeposit() public {
         // An arbitrary user makes a deposit for the `receiver` address specified in the second output of above Bitcoin txn
         vm.startPrank(depositor);
-        bytes4 timestamp = bytes4(uint32(block.timestamp));
-        bridge.deposit(version, vin, vout, locktime, intermediate_nodes, block_header, index, timestamp);
+        bridge.deposit(version, vin, vout, locktime, intermediate_nodes, block_header, index);
 
         bytes memory output2 = BTCUtils.extractOutputAtIndex(vout, 1);
         bytes memory output2_ext = BTCUtils.extractOpReturnData(output2);
         address receiver = address(bytes20(output2_ext));
 
-        // Assert if minted
-        assertEq(bridge.balanceOf(receiver), DEPOSIT_AMOUNT);
+        // Assert if asset transferred
+        assertEq(receiver.balance, DEPOSIT_AMOUNT);
         vm.stopPrank();
     }
 
@@ -69,26 +69,25 @@ contract BridgeTest is Test {
     function testDepositThenWithdraw() public {
         // An arbitrary user makes a deposit for the `receiver` address specified in the second output of above Bitcoin txn
         vm.startPrank(depositor);
-        bytes4 timestamp = bytes4(uint32(block.timestamp));
-        bridge.deposit(version, vin, vout, locktime, intermediate_nodes, block_header, index, timestamp);
+        bridge.deposit(version, vin, vout, locktime, intermediate_nodes, block_header, index);
 
         bytes memory output2 = BTCUtils.extractOutputAtIndex(vout, 1);
         bytes memory output2_ext = BTCUtils.extractOpReturnData(output2);
         address receiver = address(bytes20(output2_ext));
 
-        // Assert if minted
-        assertEq(bridge.balanceOf(receiver), DEPOSIT_AMOUNT);
+        // Assert if transferred
+        assertEq(receiver.balance, DEPOSIT_AMOUNT);
         vm.stopPrank();
 
         // Assert if receiver can withdraw
         vm.startPrank(receiver);
         bytes32 bitcoin_address = hex"1234"; // Dummy Bitcoin address
         bytes32 withdrawal_root = bridge.getRootWithdrawalTree();
-        bridge.withdraw(bitcoin_address);
+        bridge.withdraw{value: DEPOSIT_AMOUNT}(bitcoin_address);
         bytes32 updated_withdrawal_root = bridge.getRootWithdrawalTree();
         
         // Assert if tokens are burned from receiver
-        assertEq(bridge.balanceOf(receiver), 0);
+        assertEq(receiver.balance, 0);
 
         // Assert if withdrawal root is updated
         assert(withdrawal_root != updated_withdrawal_root);
@@ -107,17 +106,35 @@ contract BridgeTest is Test {
     function testCannotDepositWithFalseProof() public {
         vin = hex"1234";
         vm.startPrank(depositor);
-        bytes4 timestamp = bytes4(uint32(block.timestamp));
         vm.expectRevert("SPV Verification failed.");
-        bridge.deposit(version, vin, vout, locktime, intermediate_nodes, block_header, index, timestamp);
+        bridge.deposit(version, vin, vout, locktime, intermediate_nodes, block_header, index);
     }
 
     function testCannotDepositWithFalseBlockHash() public {
         block_header = hex"1234";
         vm.startPrank(depositor);
-        bytes4 timestamp = bytes4(uint32(block.timestamp));
         vm.expectRevert("incorrect block hash");
-        bridge.deposit(version, vin, vout, locktime, intermediate_nodes, block_header, index, timestamp);
+        bridge.deposit(version, vin, vout, locktime, intermediate_nodes, block_header, index);
+    }
+
+    function testCannotWithdrawWithInvalidAmount() public {
+        // An arbitrary user makes a deposit for the `receiver` address specified in the second output of above Bitcoin txn
+        vm.startPrank(depositor);
+        bridge.deposit(version, vin, vout, locktime, intermediate_nodes, block_header, index);
+
+        bytes memory output2 = BTCUtils.extractOutputAtIndex(vout, 1);
+        bytes memory output2_ext = BTCUtils.extractOpReturnData(output2);
+        address receiver = address(bytes20(output2_ext));
+
+        // Assert if transferred
+        assertEq(receiver.balance, DEPOSIT_AMOUNT);
+        vm.stopPrank();
+
+        // Assert if receiver cannot withdraw with invalid amount
+        vm.startPrank(receiver);
+        vm.expectRevert("Invalid withdraw amount");
+        bridge.withdraw{value: DEPOSIT_AMOUNT - 1}(hex"1234");
+        vm.stopPrank();
     }
 
     function testBytesEqual() public {
@@ -159,11 +176,6 @@ contract BridgeTest is Test {
         bytes memory depositTxOut0 = hex"1234";
         bridge.setDepositTxOut0(depositTxOut0);
         assert(bridge.isBytesEqual_(depositTxOut0, bridge.DEPOSIT_TXOUT_0()));
-    }
-
-    function testDecimals() public {
-        // 8 decimals to match Bitcoin
-        assertEq(bridge.decimals(), 8);
     }
 
     function isKeccakEqual(bytes memory a, bytes memory b) public pure returns (bool result) {

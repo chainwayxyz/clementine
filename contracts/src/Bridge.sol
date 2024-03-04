@@ -1,17 +1,15 @@
 // SPDX-License-Identifier: UNLICENSED
 pragma solidity ^0.8.13;
 
-import "openzeppelin-contracts/contracts/token/ERC20/ERC20.sol";
 import "openzeppelin-contracts/contracts/access/Ownable.sol";
 import "bitcoin-spv/solidity/contracts/ValidateSPV.sol";
 import "bitcoin-spv/solidity/contracts/BTCUtils.sol";
 
 import "./MerkleTree.sol";
 
-contract Bridge is MerkleTree, ERC20, Ownable {
+contract Bridge is MerkleTree, Ownable {
     bytes public DEPOSIT_TXOUT_0 = hex"c2ddf50500000000225120fc6eb6fa4fd4ed1e8519a7edfa171eddcedfbd0e0be49b5e531ef36e7e66eb05"; 
-    uint256 public constant DEPOSIT_AMOUNT = 100_000_000;
-    mapping(uint256 => address) public verifiers;
+    uint256 public constant DEPOSIT_AMOUNT = 1 ether;
     mapping(bytes32 => bool) public blockHashes;
     mapping(bytes32 => bool) public spentTxIds;
 
@@ -20,7 +18,7 @@ contract Bridge is MerkleTree, ERC20, Ownable {
     event DepositTxOutUpdate(bytes oldExpectedVout0, bytes newExpectedVout0);
     event BlockHashAdded(bytes32 block_hash);
 
-    constructor(uint32 _levels) ERC20("Citrea BTC", "cBTC") MerkleTree(_levels) Ownable(msg.sender) {}
+    constructor(uint32 _levels) MerkleTree(_levels) Ownable(msg.sender) {}
 
     function setDepositTxOut0(bytes calldata _depositTxOut0) public onlyOwner {
         bytes memory oldDepositTxOut0 = DEPOSIT_TXOUT_0;
@@ -35,8 +33,7 @@ contract Bridge is MerkleTree, ERC20, Ownable {
         bytes4 locktime,
         bytes calldata intermediate_nodes,
         bytes calldata block_header,
-        uint index,
-        bytes4 timestamp
+        uint index
     ) public {
         bytes32 block_hash = BTCUtils.hash256(block_header);
         require(isCorrectBlockHash(block_hash), "incorrect block hash");
@@ -60,11 +57,12 @@ contract Bridge is MerkleTree, ERC20, Ownable {
         require(receiver != address(0), "Invalid receiver address");
 
         emit Deposit(txId, block.timestamp);
-        _mint(receiver, DEPOSIT_AMOUNT);
+        (bool success, ) = receiver.call{value: DEPOSIT_AMOUNT}("");
+        require(success, "Transfer failed");
     }
 
-    function withdraw(bytes32 bitcoin_address) public {
-        _burn(msg.sender, DEPOSIT_AMOUNT);
+    function withdraw(bytes32 bitcoin_address) public payable {
+        require(msg.value == DEPOSIT_AMOUNT, "Invalid withdraw amount");
         insertWithdrawalTree(bitcoin_address);
         emit Withdrawal(bitcoin_address, nextIndex, block.timestamp);
     }
@@ -76,10 +74,6 @@ contract Bridge is MerkleTree, ERC20, Ownable {
     function addBlockHash(bytes32 block_hash) public onlyOwner {
         blockHashes[block_hash] = true;
         emit BlockHashAdded(block_hash);
-    }
-
-    function decimals() public view override returns (uint8) {
-        return 8;
     }
 
     function isBytesEqual(bytes memory a, bytes memory b) internal pure returns (bool result) {
