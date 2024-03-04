@@ -4,7 +4,6 @@ pragma solidity ^0.8.13;
 import "openzeppelin-contracts/contracts/access/Ownable.sol";
 import "bitcoin-spv/solidity/contracts/ValidateSPV.sol";
 import "bitcoin-spv/solidity/contracts/BTCUtils.sol";
-import "solmate/utils/SafeTransferLib.sol";
 
 import "./MerkleTree.sol";
 
@@ -59,7 +58,8 @@ contract Bridge is MerkleTree, Ownable {
         require(receiver != address(0), "Invalid receiver address");
 
         emit Deposit(txId, block.timestamp);
-        SafeTransferLib.safeTransferETH(receiver, DEPOSIT_AMOUNT);
+        (bool success, ) = receiver.call{value: DEPOSIT_AMOUNT}("");
+        require(success, "Transfer failed");
     }
 
     function withdraw(bytes32 bitcoin_address) public payable {
