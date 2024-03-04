@@ -1,26 +1,96 @@
 use crypto_bigint::U256;
 
 use crate::{
-    bitcoin::{read_and_verify_bitcoin_merkle_path, read_tx_and_calculate_txid},
+    bitcoin::{
+        read_and_verify_bitcoin_merkle_path, read_tx_and_calculate_txid,
+        validate_threshold_and_add_work,
+    },
     config::{BRIDGE_AMOUNT_SATS, DEPTH, NUM_ROUNDS},
-    constant::DUST_VALUE,
+    constant::{DUST_VALUE, MAX_BLOCK_HANDLE_OPS},
+    double_sha256_hash,
     env::Environment,
     incremental_merkle::IncrementalMerkleTree,
 };
 
 /// Read N
 /// Read N block headers
-/// adds blockhashes to an incremental merkle tree.
-/// returns: total work accumulated, blockhash at N - MAX_BLOCK_HANDLE_OPS, blockhash at N
+/// Adds blockhashes to an incremental merkle tree.
+/// Returns total work accumulated up to blockheight N, blockhash at N - MAX_BLOCK_HANDLE_OPS, blockhash at N
 pub fn read_blocks_and_add_to_merkle_tree<E: Environment>(
     _start_prev_block_hash: [u8; 32],
     _imt: &mut IncrementalMerkleTree<DEPTH>,
 ) -> (U256, [u8; 32], [u8; 32]) {
-    unimplemented!()
+    let n = E::read_u32();
+    let mut total_work = U256::ZERO;
+    let mut curr_prev_block_hash = _start_prev_block_hash;
+    let mut curr_version: i32;
+    let mut curr_merkle_root: [u8; 32];
+    let mut curr_time: u32;
+    let mut curr_bits: u32;
+    let mut curr_nonce: u32;
+    let mut lc_block_hash: [u8; 32] = [0; 32];
+    for i in 0..n {
+        _imt.add(curr_prev_block_hash);
+        curr_version = E::read_i32();
+        curr_merkle_root = E::read_32bytes();
+        curr_time = E::read_u32();
+        curr_bits = E::read_u32();
+        curr_nonce = E::read_u32();
+        total_work = validate_threshold_and_add_work(
+            curr_bits.to_le_bytes(),
+            curr_prev_block_hash,
+            total_work,
+        );
+        curr_prev_block_hash = double_sha256_hash!(
+            &curr_version.to_le_bytes(),
+            &curr_prev_block_hash,
+            &curr_merkle_root,
+            &curr_time.to_le_bytes(),
+            &curr_bits.to_le_bytes(),
+            &curr_nonce.to_le_bytes()
+        );
+        if i == n - MAX_BLOCK_HANDLE_OPS {
+            lc_block_hash = curr_prev_block_hash;
+        }
+    }
+
+    (total_work, lc_block_hash, curr_prev_block_hash)
 }
 
+/// Read K for K-deep work calculation
+/// Read K block headers
+/// Returns total work from blockheight N, accumulated up to blockheight N + K
+/// Returns blockhash at N + K
 pub fn read_blocks_and_calculate_work<E: Environment>(_start_prev_block_hash: [u8; 32]) -> U256 {
-    unimplemented!()
+    let k = E::read_u32();
+    let mut total_work = U256::ZERO;
+    let mut curr_prev_block_hash = _start_prev_block_hash;
+    let mut curr_version: i32;
+    let mut curr_merkle_root: [u8; 32];
+    let mut curr_time: u32;
+    let mut curr_bits: u32;
+    let mut curr_nonce: u32;
+    for _ in 0..k {
+        curr_version = E::read_i32();
+        curr_merkle_root = E::read_32bytes();
+        curr_time = E::read_u32();
+        curr_bits = E::read_u32();
+        curr_nonce = E::read_u32();
+        total_work = validate_threshold_and_add_work(
+            curr_bits.to_le_bytes(),
+            curr_prev_block_hash,
+            total_work,
+        );
+        curr_prev_block_hash = double_sha256_hash!(
+            &curr_version.to_le_bytes(),
+            &curr_prev_block_hash,
+            &curr_merkle_root,
+            &curr_time.to_le_bytes(),
+            &curr_bits.to_le_bytes(),
+            &curr_nonce.to_le_bytes()
+        );
+    }
+    total_work
 }
 
 // Reads a merkle tree proof, adds output address to incremental merkle tree, merkle tree depth is D
