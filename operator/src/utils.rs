@@ -1,4 +1,8 @@
 use std::borrow::BorrowMut;
+use std::fs::File;
+use std::io::{BufWriter, Write};
+use std::path::Path;
+use std::{fs, io};
 
 use bitcoin::sighash::SighashCache;
 use bitcoin::{self};
@@ -144,6 +148,30 @@ pub fn calculate_claim_proof_root(
         level += 1;
     }
     hashes[0]
+}
+
+pub fn json_to_raw<P: AsRef<Path>, Q: AsRef<Path>>(
+    input_path: P,
+    output_path: Q,
+) -> io::Result<()> {
+    // Step 1: Read the JSON file
+    println!("Reading the JSON file");
+    println!("input_path: {:?}", input_path.as_ref());
+    let json_contents = fs::read_to_string(input_path)?;
+
+    // Step 2: Open the .raw file for writing
+    println!("Writing to the .raw file");
+    let file = File::create(output_path)?;
+    let mut writer = BufWriter::new(file);
+
+    // Write the JSON contents to the .raw file
+    println!("json_contents: {:?}", json_contents);
+    writer.write_all(json_contents.as_bytes())?;
+
+    // Ensure all data is written to the file
+    writer.flush()?;
+
+    Ok(())
 }
 
 // tests

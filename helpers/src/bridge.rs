@@ -6,16 +6,17 @@ use crate::{
         validate_threshold_and_add_work,
     },
     config::{BRIDGE_AMOUNT_SATS, DEPTH, NUM_ROUNDS},
-    constant::{DUST_VALUE, MAX_BLOCK_HANDLE_OPS},
+    constant::DUST_VALUE,
     double_sha256_hash,
     env::Environment,
     incremental_merkle::IncrementalMerkleTree,
 };
 
 /// Read N
-/// Read N block headers
+/// Read N block headers (blockheight 1 to N, inclusive)
 /// Adds blockhashes to an incremental merkle tree.
-/// Returns total work accumulated up to blockheight N, blockhash at N - MAX_BLOCK_HANDLE_OPS, blockhash at N
+/// Assuming starting from blockheight 1,
+/// Returns total work accumulated up to (and including) blockheight N, blockhash at N + 1 - MAX_BLOCK_HANDLE_OPS, blockhash at N + 1
 pub fn read_blocks_and_add_to_merkle_tree<E: Environment>(
     _start_prev_block_hash: [u8; 32],
     _imt: &mut IncrementalMerkleTree<DEPTH>,
@@ -36,11 +37,11 @@ pub fn read_blocks_and_add_to_merkle_tree<E: Environment>(
         curr_time = E::read_u32();
         curr_bits = E::read_u32();
         curr_nonce = E::read_u32();
-        total_work = validate_threshold_and_add_work(
-            curr_bits.to_le_bytes(),
-            curr_prev_block_hash,
-            total_work,
-        );
+        if i == n - 4 {
+            // TODO: CHANGE THIS WITH N - MAX_BLOCK_HANDLE_OPS
+            lc_block_hash = curr_prev_block_hash;
+        }
+        // curr_prev_block_hash.reverse();
         curr_prev_block_hash = double_sha256_hash!(
             &curr_version.to_le_bytes(),
             &curr_prev_block_hash,
@@ -49,11 +50,12 @@ pub fn read_blocks_and_add_to_merkle_tree<E: Environment>(
             &curr_bits.to_le_bytes(),
             &curr_nonce.to_le_bytes()
         );
-        if i == n - MAX_BLOCK_HANDLE_OPS {
-            lc_block_hash = curr_prev_block_hash;
-        }
+        total_work = validate_threshold_and_add_work(
+            curr_bits.to_le_bytes(),
+            curr_prev_block_hash,
+            total_work,
+        );
     }
-
     (total_work, lc_block_hash, curr_prev_block_hash)
 }
 
