@@ -15,26 +15,23 @@ use secp256k1::SecretKey;
 use crate::config::BRIDGE_AMOUNT_SATS;
 
 #[derive(Debug)]
-pub struct User<'a> {
-    pub rpc: &'a ExtendedRpc,
+pub struct User {
+    pub rpc: ExtendedRpc,
     pub secp: Secp256k1<secp256k1::All>,
     pub signer: Actor,
     pub transaction_builder: TransactionBuilder,
-    pub script_builder: ScriptBuilder,
 }
 
-impl<'a> User<'a> {
-    pub fn new(rpc: &'a ExtendedRpc, all_xonly_pks: Vec<XOnlyPublicKey>, sk: SecretKey) -> Self {
+impl User {
+    pub fn new(rpc: ExtendedRpc, all_xonly_pks: Vec<XOnlyPublicKey>, sk: SecretKey) -> Self {
         let secp = Secp256k1::new();
         let signer = Actor::new(sk);
         let transaction_builder = TransactionBuilder::new(all_xonly_pks.clone());
-        let script_builder = ScriptBuilder::new(all_xonly_pks);
         User {
             rpc,
             secp,
             signer,
             transaction_builder,
-            script_builder,
         }
     }
 

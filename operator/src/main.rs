@@ -38,7 +38,7 @@ fn test_flow() -> Result<(), BridgeError> {
     let users: Vec<_> = (0..NUM_USERS)
         .map(|_| {
             let (sk, _) = secp.generate_keypair(rng);
-            User::new(&rpc, all_xonly_pks.clone(), sk)
+            User::new(rpc.clone(), all_xonly_pks.clone(), sk)
         })
         .collect();
 

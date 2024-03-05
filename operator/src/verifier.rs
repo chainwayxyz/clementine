@@ -78,12 +78,6 @@ impl VerifierConnector for Verifier {
             let connector_hash =
                 self.connector_tree_hashes[i][CONNECTOR_TREE_DEPTH][deposit_index as usize];
 
-            if deposit_index == 0 && i == 0 {
-                println!("______________ VERIFIER _____________");
-                println!("connector_utxo: {:?}", connector_utxo);
-                println!("connector_hash: {:?}", connector_hash);
-            }
-
             let mut operator_claim_tx = self.transaction_builder.create_operator_claim_tx(
                 move_utxo,
                 connector_utxo,
