@@ -27,17 +27,18 @@ fn test_flow() -> Result<(), BridgeError> {
         .collect();
 
     // Initial setup for connector roots
-    let (first_source_utxo, start_blockheight) = operator.initial_setup().unwrap();
+    let (first_source_utxo, start_blockheight, connector_tree_hashes) =
+        operator.initial_setup().unwrap();
 
-    let mut connector_tree_source_sigs = Vec::new();
+    // let mut connector_tree_source_sigs = Vec::new();
 
     for verifier in &mut operator.mock_verifier_access {
-        let sigs = verifier.connector_roots_created(
-            &operator.operator_mock_db.get_connector_tree_hashes(),
+        let _sigs = verifier.connector_roots_created(
+            &connector_tree_hashes,
             start_blockheight,
             &first_source_utxo,
         );
-        connector_tree_source_sigs.push(sigs);
+        // connector_tree_source_sigs.push(sigs);
     }
 
     println!("connector roots created, verifiers agree");

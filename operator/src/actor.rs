@@ -1,8 +1,5 @@
-use crate::constant::EVMAddress;
 use crate::errors::BridgeError;
 use crate::transaction_builder::CreateTxOutputs;
-use bitcoin::secp256k1::rand::rngs::OsRng;
-use bitcoin::secp256k1::rand::RngCore;
 use bitcoin::sighash::SighashCache;
 use bitcoin::taproot::LeafVersion;
 use bitcoin::{
@@ -14,7 +11,6 @@ use bitcoin::{
 };
 
 use bitcoin::{TapLeafHash, TapNodeHash, TxOut};
-use tiny_keccak::{Hasher, Keccak};
 
 #[derive(Debug)]
 pub struct Actor {
@@ -93,6 +89,22 @@ impl Actor {
             bitcoin::sighash::TapSighashType::Default,
         )?;
         Ok(self.sign(sig_hash))
+    }
+
+    pub fn sighash_taproot_script_spend(
+        &self,
+        tx: &mut CreateTxOutputs,
+        input_index: usize,
+    ) -> Result<TapSighash, BridgeError> {
+        let mut sighash_cache: SighashCache<&mut bitcoin::Transaction> =
+            SighashCache::new(&mut tx.tx);
+        let sig_hash = sighash_cache.taproot_script_spend_signature_hash(
+            input_index,
+            &bitcoin::sighash::Prevouts::All(&tx.prevouts),
+            TapLeafHash::from_script(&tx.scripts[input_index], LeafVersion::TapScript),
+            bitcoin::sighash::TapSighashType::Default,
+        )?;
+        Ok(sig_hash)
     }
 
     pub fn sign_taproot_script_spend_tx_new(

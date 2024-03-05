@@ -373,10 +373,7 @@ impl TransactionBuilder {
             TransactionBuilder::create_tx_ins(vec![commit_utxo]),
             vec![ScriptBuilder::anyone_can_spend_txout()],
         );
-        let prevouts = vec![TxOut {
-            value: Amount::from_sat(DUST_VALUE) * 2,
-            script_pubkey: commit_address.script_pubkey(),
-        }];
+
         let prevouts = vec![TxOut {
             script_pubkey: commit_address.script_pubkey(),
             value: Amount::from_sat(DUST_VALUE * 2),
@@ -388,82 +385,6 @@ impl TransactionBuilder {
             scripts: vec![inscribe_preimage_script],
             taproot_spend_infos: vec![commit_tree_info],
         })
-    }
-
-    pub fn create_inscription_transactions(
-        actor: &Actor,
-        utxo: OutPoint,
-        preimages: Vec<[u8; 32]>,
-    ) -> Result<(bitcoin::Transaction, bitcoin::Transaction), BridgeError> {
-        let inscribe_preimage_script =
-            ScriptBuilder::create_inscription_script_32_bytes(&actor.xonly_public_key, &preimages);
-
-        let (incription_address, inscription_tree_info) =
-            TransactionBuilder::create_taproot_address(
-                &actor.secp,
-                vec![inscribe_preimage_script.clone()],
-            )?;
-        // println!("inscription tree merkle root: {:?}", inscription_tree_info.merkle_root());
-        let commit_tx_ins = TransactionBuilder::create_tx_ins(vec![utxo]);
-        let commit_tx_outs = TransactionBuilder::create_tx_outs(vec![(
-            Amount::from_sat(DUST_VALUE) * 2,
-            incription_address.script_pubkey(),
-        )]);
-        let mut commit_tx = TransactionBuilder::create_btc_tx(commit_tx_ins, commit_tx_outs);
-        let commit_tx_prevouts = vec![TxOut {
-            value: Amount::from_sat(DUST_VALUE) * 3,
-            script_pubkey: actor.address.script_pubkey(),
-        }];
-
-        println!(
-            "inscription merkle root: {:?}",
-            inscription_tree_info.merkle_root()
-        );
-        println!(
-            "inscription output key: {:?}",
-            inscription_tree_info.output_key()
-        );
-
-        let commit_tx_sig =
-            actor.sign_taproot_pubkey_spend_tx(&mut commit_tx, &commit_tx_prevouts, 0)?;
-        let mut commit_tx_sighash_cache = SighashCache::new(commit_tx.borrow_mut());
-        let witness = commit_tx_sighash_cache
-            .witness_mut(0)
-            .ok_or(BridgeError::TxInputNotFound)?;
-        witness.push(commit_tx_sig.as_ref());
-
-        let reveal_tx_ins =
-            TransactionBuilder::create_tx_ins(vec![TransactionBuilder::create_utxo(
-                commit_tx.txid(),
-                0,
-            )]);
-        let reveal_tx_outs = TransactionBuilder::create_tx_outs(vec![(
-            Amount::from_sat(DUST_VALUE),
-            actor.address.script_pubkey(),
-        )]);
-        let mut reveal_tx = TransactionBuilder::create_btc_tx(reveal_tx_ins, reveal_tx_outs);
-
-        let reveal_tx_prevouts = vec![TxOut {
-            value: Amount::from_sat(DUST_VALUE) * 2,
-            script_pubkey: incription_address.script_pubkey(),
-        }];
-        let reveal_tx_sig = actor.sign_taproot_script_spend_tx(
-            &mut reveal_tx,
-            &reveal_tx_prevouts,
-            &inscribe_preimage_script,
-            0,
-        )?;
-        let mut reveal_tx_witness_elements: Vec<&[u8]> = Vec::new();
-        reveal_tx_witness_elements.push(reveal_tx_sig.as_ref());
-        handle_taproot_witness(
-            &mut reveal_tx,
-            0,
-            &reveal_tx_witness_elements,
-            &inscribe_preimage_script,
-            &inscription_tree_info,
-        )?;
-
-        Ok((commit_tx, reveal_tx))
     }
 
     pub fn create_connector_tree_tx(

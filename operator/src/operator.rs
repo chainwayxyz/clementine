@@ -22,7 +22,7 @@ use bitcoin::sighash::SighashCache;
 
 use bitcoin::taproot::LeafVersion;
 use bitcoin::{secp256k1, secp256k1::schnorr, Address};
-use bitcoin::{Amount, OutPoint, TapLeafHash, Transaction, TxOut};
+use bitcoin::{witness, Amount, OutPoint, TapLeafHash, Transaction, TxOut};
 use circuit_helpers::constant::EVMAddress;
 use circuit_helpers::sha256_hash;
 use secp256k1::rand::rngs::OsRng;
@@ -198,12 +198,12 @@ impl<'a> Operator<'a> {
                 .create_move_tx(start_utxo, evm_address, &return_address)?;
 
         // TODO: Simplify this move_signatures thing, maybe with a macro
-        let mut move_signatures: Vec<schnorr::Signature> = presigns_from_all_verifiers
+        let mut move_signatures = presigns_from_all_verifiers
             .iter()
             .map(|presign| presign.move_sign)
             .collect::<Vec<_>>();
 
-        let sig: schnorr::Signature = self
+        let sig = self
             .signer
             .sign_taproot_script_spend_tx_new(&mut move_tx, 0)?;
         move_signatures.push(sig);
@@ -237,103 +237,95 @@ impl<'a> Operator<'a> {
         //     CONNECTOR_TREE_OPERATOR_TAKES_AFTER as u32,
         // );
 
-        // for i in 0..NUM_ROUNDS {
-        //     let connector_utxo = self.operator_mock_db.get_connector_tree_utxo(i)
-        //         [CONNECTOR_TREE_DEPTH][deposit_index as usize];
-        //     let operator_claim_tx = TransactionBuilder::create_operator_claim_tx(
-        //         move_utxo,
-        //         connector_utxo,
-        //         &self.signer.address,
-        //     );
+        for i in 0..NUM_ROUNDS {
+            let connector_utxo = self.operator_mock_db.get_connector_tree_utxo(i)
+                [CONNECTOR_TREE_DEPTH][deposit_index as usize];
+            let connector_hash = self.operator_mock_db.get_connector_tree_hash(
+                i,
+                CONNECTOR_TREE_DEPTH,
+                deposit_index as usize,
+            );
+            // println!("______________ OPERATOR _____________");
+            // println!("connector_utxo: {:?}", connector_utxo);
+            // println!("connector_hash: {:?}", connector_hash);
+            let mut operator_claim_tx = self.transaction_builder.create_operator_claim_tx(
+                move_utxo,
+                connector_utxo,
+                &self.signer.address,
+                &self.signer.xonly_public_key,
+                &connector_hash,
+            )?;
 
-        //     let (connector_tree_leaf_address, _) =
-        //         TransactionBuilder::create_connector_tree_node_address(
-        //             &self.signer.secp,
-        //             &self.signer.xonly_public_key,
-        //             self.operator_mock_db.get_connector_tree_hash(
-        //                 i,
-        //                 CONNECTOR_TREE_DEPTH,
-        //                 deposit_index,
-        //             ),
-        //         )?;
+            let sig_hash = self
+                .signer
+                .sighash_taproot_script_spend(&mut operator_claim_tx, 0)?;
 
-        //     let op_claim_tx_prevouts = self
-        //         .transaction_builder
-        //         .create_operator_claim_tx_prevouts(&connector_tree_leaf_address)?;
+            let op_claim_sigs_for_period_i = presigns_from_all_verifiers
+                .iter()
+                .map(|presign| {
+                    println!(
+                        "presign.operator_claim_sign[{:?}]: {:?}",
+                        i, presign.operator_claim_sign[i]
+                    );
+                    presign.operator_claim_sign[i]
+                })
+                .collect::<Vec<_>>();
+            println!(
+                "len of op_claim_sigs_for_period_i: {:?}",
+                op_claim_sigs_for_period_i.len()
+            );
+            for (idx, sig) in op_claim_sigs_for_period_i.iter().enumerate() {
+                println!("verifying presigns for index {:?}: ", idx);
+                println!("sig: {:?}", sig);
+                self.signer.secp.verify_schnorr(
+                    sig,
+                    &Message::from_digest_slice(sig_hash.as_byte_array()).expect("should be hash"),
+                    &self.verifiers_pks[idx],
+                )?;
+            }
 
-        //     let op_claim_sigs_for_period_i = presigns_from_all_verifiers
-        //         .iter()
-        //         .map(|presign| {
-        //             println!(
-        //                 "presign.operator_claim_sign[{:?}]: {:?}",
-        //                 i, presign.operator_claim_sign[i]
-        //             );
-        //             presign.operator_claim_sign[i]
-        //         })
-        //         .collect::<Vec<_>>();
+            // let claim_sig_for_bridge = self.signer.sign_taproot_script_spend_tx(
+            //     &mut operator_claim_tx,
+            //     &prevouts,
+            //     &script_n_of_n,
+            //     0,
+            // );
+            // let claim_sig_for_connector = self.signer.sign_taproot_script_spend_tx(
+            //     &mut operator_claim_tx,
+            //     &prevouts,
+            //     &timelock_script,
+            //     1,
+            // );
 
-        //     println!("Operator checking presigns for period {:?}: ", i);
-        //     println!("operator_claim_tx: {:?}", operator_claim_tx);
-        //     let mut sighash_cache = SighashCache::new(operator_claim_tx.clone());
+            // let mut witness_elements_0: Vec<&[u8]> = Vec::new();
 
-        //     let sig_hash = sighash_cache.taproot_script_spend_signature_hash(
-        //         0,
-        //         &bitcoin::sighash::Prevouts::All(&op_claim_tx_prevouts),
-        //         TapLeafHash::from_script(&script_n_of_n, LeafVersion::TapScript),
-        //         bitcoin::sighash::TapSighashType::Default,
-        //     )?;
-        //     for (idx, sig) in op_claim_sigs_for_period_i.iter().enumerate() {
-        //         println!("verifying presigns for index {:?}: ", idx);
-        //         println!("sig: {:?}", sig);
-        //         self.signer.secp.verify_schnorr(
-        //             sig,
-        //             &Message::from_digest_slice(sig_hash.as_byte_array()).expect("should be hash"),
-        //             &self.verifiers_pks[idx],
-        //         )?;
-        //     }
+            // for sig in op_claim_sigs_for_period_i.iter() {
+            //     witness_elements_0.push(sig.as_ref());
+            // }
 
-        //     // let claim_sig_for_bridge = self.signer.sign_taproot_script_spend_tx(
-        //     //     &mut operator_claim_tx,
-        //     //     &prevouts,
-        //     //     &script_n_of_n,
-        //     //     0,
-        //     // );
-        //     // let claim_sig_for_connector = self.signer.sign_taproot_script_spend_tx(
-        //     //     &mut operator_claim_tx,
-        //     //     &prevouts,
-        //     //     &timelock_script,
-        //     //     1,
-        //     // );
+            // witness_elements_0.push(claim_sig_for_bridge.as_ref());
 
-        //     // let mut witness_elements_0: Vec<&[u8]> = Vec::new();
+            // let mut witness_elements_1: Vec<&[u8]> = Vec::new();
+            // witness_elements_1.push(claim_sig_for_connector.as_ref());
 
-        //     // for sig in op_claim_sigs_for_period_i.iter() {
-        //     //     witness_elements_0.push(sig.as_ref());
-        //     // }
+            // handle_taproot_witness(
+            //     &mut operator_claim_tx,
+            //     0,
+            //     &witness_elements_0,
+            //     &script_n_of_n,
+            //     &bridge_spend_info,
+            // );
 
-        //     // witness_elements_0.push(claim_sig_for_bridge.as_ref());
+            // handle_taproot_witness(
+            //     &mut operator_claim_tx,
+            //     1,
+            //     &witness_elements_1,
+            //     &timelock_script,
+            //     &connector_tree_leaf_spend_info,
+            // );
 
-        //     // let mut witness_elements_1: Vec<&[u8]> = Vec::new();
-        //     // witness_elements_1.push(claim_sig_for_connector.as_ref());
-
-        //     // handle_taproot_witness(
-        //     //     &mut operator_claim_tx,
-        //     //     0,
-        //     //     &witness_elements_0,
-        //     //     &script_n_of_n,
-        //     //     &bridge_spend_info,
-        //     // );
-
-        //     // handle_taproot_witness(
-        //     //     &mut operator_claim_tx,
-        //     //     1,
-        //     //     &witness_elements_1,
-        //     //     &timelock_script,
-        //     //     &connector_tree_leaf_spend_info,
-        //     // );
-
-        //     // print!("{:?}", verify_presigns(&operator_claim_tx, &prevouts));
-        // }
+            // print!("{:?}", verify_presigns(&operator_claim_tx, &prevouts));
+        }
 
         Ok(move_utxo)
     }
@@ -675,7 +667,9 @@ impl<'a> Operator<'a> {
 
     /// This starts the whole setup
     /// 1. get the current blockheight
-    pub fn initial_setup(&mut self) -> Result<(OutPoint, u64), BridgeError> {
+    pub fn initial_setup(
+        &mut self,
+    ) -> Result<(OutPoint, u64, Vec<Vec<Vec<HashType>>>), BridgeError> {
         let cur_blockheight = self.rpc.get_block_height()?;
         if self.start_blockheight == 0 {
             self.start_blockheight = cur_blockheight;
@@ -708,14 +702,15 @@ impl<'a> Operator<'a> {
         );
 
         //Here we are adding the operator's public key to the list of verifiers, since it was not handled when creating the entities.
-        let mut all_verifiers = self.verifiers_pks.clone();
-        all_verifiers.push(self.signer.xonly_public_key.clone());
+        let all_verifiers = self.verifiers_pks.clone();
+        let connector_tree_hashes: Vec<Vec<Vec<HashType>>> =
+            self.operator_mock_db.get_connector_tree_hashes();
         let (claim_proof_merkle_roots, root_utxos, utxo_trees, _op_self_claim_sigs) =
             create_all_connector_trees(
                 &self.signer,
                 &self.rpc,
                 // &self.transaction_builder,
-                &self.operator_mock_db.get_connector_tree_hashes(),
+                &connector_tree_hashes,
                 self.start_blockheight,
                 &first_source_utxo,
                 &all_verifiers,
@@ -733,7 +728,11 @@ impl<'a> Operator<'a> {
             "Operator utxo_trees: {:?}",
             self.operator_mock_db.get_connector_tree_utxos()
         );
-        Ok((first_source_utxo, self.start_blockheight))
+        Ok((
+            first_source_utxo,
+            self.start_blockheight,
+            connector_tree_hashes.clone(),
+        ))
     }
 }
 

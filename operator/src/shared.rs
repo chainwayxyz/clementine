@@ -25,8 +25,7 @@ pub fn check_deposit_utxo(
         return Err(BridgeError::DepositNotFinalized);
     }
 
-    let (deposit_address, deposit_taproot_spend_info) =
-        tx_builder.generate_deposit_address(return_address)?;
+    let (deposit_address, _) = tx_builder.generate_deposit_address(return_address)?;
 
     if !rpc.check_utxo_address_and_amount(
         outpoint,

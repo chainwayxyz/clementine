@@ -75,25 +75,25 @@ impl<'a> Verifier<'a> {
     /// TODO: Add verification for the connector tree hashes
     pub fn connector_roots_created(
         &mut self,
-        _connector_tree_hashes: &Vec<Vec<Vec<[u8; 32]>>>,
-        _start_blockheight: u64,
-        _first_source_utxo: &OutPoint,
+        connector_tree_hashes: &Vec<Vec<Vec<[u8; 32]>>>,
+        start_blockheight: u64,
+        first_source_utxo: &OutPoint,
     ) -> Result<Vec<schnorr::Signature>, BridgeError> {
-        println!("Verifier first_source_utxo: {:?}", _first_source_utxo);
+        println!("Verifier first_source_utxo: {:?}", first_source_utxo);
         println!("Verifier verifiers_pks len: {:?}", self.verifiers.len());
         let (_, _, utxo_trees, sigs) = create_all_connector_trees(
             &self.signer,
             &self.rpc,
-            &_connector_tree_hashes,
-            _start_blockheight,
-            &_first_source_utxo,
+            &connector_tree_hashes,
+            start_blockheight,
+            &first_source_utxo,
             &self.verifiers,
         )?;
 
         // self.set_connector_tree_utxos(utxo_trees);
         self.connector_tree_utxos = utxo_trees;
         // self.set_connector_tree_hashes(_connector_tree_hashes);
-        self.connector_tree_hashes = _connector_tree_hashes.clone();
+        self.connector_tree_hashes = connector_tree_hashes.clone();
         // println!(
         //     "Verifier claim_proof_merkle_roots: {:?}",
         //     claim_proof_merkle_roots
@@ -141,8 +141,6 @@ impl<'a> Verifier<'a> {
             .signer
             .sign_taproot_script_spend_tx_new(&mut move_tx, 0)?;
 
-        // let anyone_can_spend_txout: TxOut = ScriptBuilder::anyone_can_spend_txout();
-
         let mut op_claim_sigs = Vec::new();
 
         for i in 0..NUM_ROUNDS {
@@ -150,6 +148,12 @@ impl<'a> Verifier<'a> {
                 self.connector_tree_utxos[i][CONNECTOR_TREE_DEPTH][deposit_index as usize];
             let connector_hash =
                 self.connector_tree_hashes[i][CONNECTOR_TREE_DEPTH][deposit_index as usize];
+
+            if deposit_index == 0 && i == 0 {
+                println!("______________ VERIFIER _____________");
+                println!("connector_utxo: {:?}", connector_utxo);
+                println!("connector_hash: {:?}", connector_hash);
+            }
 
             let mut operator_claim_tx = self.transaction_builder.create_operator_claim_tx(
                 move_utxo,
