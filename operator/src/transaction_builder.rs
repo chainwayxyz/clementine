@@ -17,7 +17,7 @@ use bitcoin::{
     opcodes::all::{OP_EQUAL, OP_SHA256},
     script::Builder,
     taproot::{TaprootBuilder, TaprootSpendInfo},
-    Address, Amount, OutPoint, ScriptBuf, TxIn, TxOut, Txid, Witness,
+    Address, Amount, OutPoint, ScriptBuf, TxIn, TxOut, Witness,
 };
 use circuit_helpers::constant::EVMAddress;
 use secp256k1::{schnorr, Secp256k1, XOnlyPublicKey};
@@ -325,7 +325,7 @@ impl TransactionBuilder {
         }
     }
 
-    pub fn create_tx_ins(utxos: Vec<OutPoint>) -> Vec<TxIn> {
+    fn create_tx_ins(utxos: Vec<OutPoint>) -> Vec<TxIn> {
         let mut tx_ins = Vec::new();
         for utxo in utxos {
             tx_ins.push(TxIn {
@@ -338,7 +338,7 @@ impl TransactionBuilder {
         tx_ins
     }
 
-    pub fn create_tx_ins_with_sequence(utxos: Vec<OutPoint>) -> Vec<TxIn> {
+    fn create_tx_ins_with_sequence(utxos: Vec<OutPoint>) -> Vec<TxIn> {
         let mut tx_ins = Vec::new();
         for utxo in utxos {
             tx_ins.push(TxIn {
@@ -353,7 +353,7 @@ impl TransactionBuilder {
         tx_ins
     }
 
-    pub fn create_tx_outs(pairs: Vec<(Amount, ScriptBuf)>) -> Vec<TxOut> {
+    fn create_tx_outs(pairs: Vec<(Amount, ScriptBuf)>) -> Vec<TxOut> {
         let mut tx_outs = Vec::new();
         for pair in pairs {
             tx_outs.push(TxOut {
@@ -364,16 +364,7 @@ impl TransactionBuilder {
         tx_outs
     }
 
-    pub fn create_move_tx_old(
-        ins: Vec<OutPoint>,
-        outs: Vec<(Amount, ScriptBuf)>,
-    ) -> bitcoin::Transaction {
-        let tx_ins = TransactionBuilder::create_tx_ins(ins);
-        let tx_outs = TransactionBuilder::create_tx_outs(outs);
-        TransactionBuilder::create_btc_tx(tx_ins, tx_outs)
-    }
-
-    pub fn create_taproot_address(
+    fn create_taproot_address(
         secp: &Secp256k1<secp256k1::All>,
         scripts: Vec<ScriptBuf>,
     ) -> Result<(Address, TaprootSpendInfo), BridgeError> {
@@ -405,10 +396,6 @@ impl TransactionBuilder {
         ))
     }
 
-    pub fn create_utxo(txid: Txid, vout: u32) -> OutPoint {
-        OutPoint { txid, vout }
-    }
-
     pub fn create_connector_tree_root_address(
         &self,
         absolute_block_height_to_take_after: u64,
@@ -417,15 +404,6 @@ impl TransactionBuilder {
             &self.verifiers_pks[self.verifiers_pks.len() - 1],
             absolute_block_height_to_take_after as u32,
         );
-
-        // let mut all_2_of_2_scripts: Vec<ScriptBuf> = self
-        //     .verifiers_pks
-        //     .iter()
-        //     .map(|pk| ScriptBuilder::generate_2_of_2_script(&all_verifiers[all_verifiers.len() - 1], &pk))
-        //     .collect();
-
-        // push the timelock script to the beginning of the vector
-        // all_2_of_2_scripts.insert(0, timelock_script.clone());
 
         let script_n_of_n = self.script_builder.generate_script_n_of_n();
         let scripts = vec![timelock_script, script_n_of_n];
