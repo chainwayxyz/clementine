@@ -9,22 +9,22 @@ fn test_flow() -> Result<(), BridgeError> {
     let rpc = ExtendedRpc::new();
 
     let secp = bitcoin::secp256k1::Secp256k1::new();
-    let mut all_xonly_pks = Vec::new();
-    let mut all_sks = Vec::new();
     let rng = &mut OsRng;
-    for _ in 0..NUM_VERIFIERS + 1 {
-        let (sk, pk) = secp.generate_keypair(rng);
-        all_xonly_pks.push(XOnlyPublicKey::from(pk));
-        all_sks.push(sk);
-    }
+    let (all_sks, all_xonly_pks): (Vec<_>, Vec<_>) = (0..NUM_VERIFIERS + 1)
+        .map(|_| {
+            let (sk, pk) = secp.generate_keypair(rng);
+            (sk, XOnlyPublicKey::from(pk))
+        })
+        .unzip();
 
     let mut operator = Operator::new(&mut OsRng, &rpc, all_xonly_pks.clone(), all_sks)?;
 
-    let mut users = Vec::new();
-    for _ in 0..NUM_USERS {
-        let (sk, _) = secp.generate_keypair(rng);
-        users.push(User::new(&rpc, all_xonly_pks.clone(), sk));
-    }
+    let users: Vec<_> = (0..NUM_USERS)
+        .map(|_| {
+            let (sk, _) = secp.generate_keypair(rng);
+            User::new(&rpc, all_xonly_pks.clone(), sk)
+        })
+        .collect();
 
     // Initial setup for connector roots
     let (first_source_utxo, start_blockheight) = operator.initial_setup().unwrap();

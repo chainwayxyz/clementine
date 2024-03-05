@@ -32,6 +32,15 @@ lazy_static! {
     .unwrap();
 }
 
+// pub type CreateTxOutputs = (bitcoin::Transaction, Vec<TxOut>, Vec<ScriptBuf>);
+pub struct CreateTxOutputs {
+    pub tx: bitcoin::Transaction,
+    pub prevouts: Vec<TxOut>,
+    pub scripts: Vec<ScriptBuf>,
+}
+
+pub type CreateAddressOutputs = (Address, TaprootSpendInfo);
+
 #[derive(Debug, Clone)]
 pub struct TransactionBuilder {
     pub secp: Secp256k1<secp256k1::All>,
@@ -54,7 +63,7 @@ impl TransactionBuilder {
     pub fn generate_deposit_address(
         &self,
         user_pk: &XOnlyPublicKey,
-    ) -> Result<(Address, TaprootSpendInfo), BridgeError> {
+    ) -> Result<CreateAddressOutputs, BridgeError> {
         let script_n_of_n_with_user_pk = self
             .script_builder
             .generate_script_n_of_n_with_user_pk(user_pk);
@@ -73,7 +82,7 @@ impl TransactionBuilder {
     }
 
     // This function generates bridge address. N-of-N script can be used to spend the funds.
-    pub fn generate_bridge_address(&self) -> Result<(Address, TaprootSpendInfo), BridgeError> {
+    pub fn generate_bridge_address(&self) -> Result<CreateAddressOutputs, BridgeError> {
         let script_n_of_n = self.script_builder.generate_script_n_of_n();
         let taproot = TaprootBuilder::new().add_leaf(0, script_n_of_n.clone())?;
         let tree_info = taproot.finalize(&self.secp, *INTERNAL_KEY)?;
@@ -86,11 +95,14 @@ impl TransactionBuilder {
         Ok((address, tree_info))
     }
 
+    /// This function creates the move tx, it's prevouts for signing and the script to be used for the signature.
     pub fn create_move_tx(
         &self,
         deposit_utxo: OutPoint,
         evm_address: &EVMAddress,
-    ) -> Result<bitcoin::Transaction, BridgeError> {
+        deposit_address: &Address,
+        return_address: &XOnlyPublicKey,
+    ) -> Result<CreateTxOutputs, BridgeError> {
         let anyone_can_spend_txout = ScriptBuilder::anyone_can_spend_txout();
         let evm_address_inscription_txout = ScriptBuilder::op_return_txout(evm_address);
         println!(
@@ -108,21 +120,26 @@ impl TransactionBuilder {
                 - evm_address_inscription_txout.value,
             script_pubkey: bridge_address.script_pubkey(),
         };
-        Ok(TransactionBuilder::create_btc_tx(
+        let move_tx = TransactionBuilder::create_btc_tx(
             tx_ins,
             vec![
                 bridge_txout,
                 evm_address_inscription_txout,
                 anyone_can_spend_txout,
             ],
-        ))
-    }
-
-    pub fn create_move_tx_prevouts(deposit_address: &Address) -> Vec<TxOut> {
-        vec![TxOut {
+        );
+        let prevouts = vec![TxOut {
             script_pubkey: deposit_address.script_pubkey(),
             value: Amount::from_sat(BRIDGE_AMOUNT_SATS),
-        }]
+        }];
+        let script_n_of_n_with_user_pk = vec![self
+            .script_builder
+            .generate_script_n_of_n_with_user_pk(return_address)];
+        Ok(CreateTxOutputs {
+            tx: move_tx,
+            prevouts,
+            scripts: script_n_of_n_with_user_pk,
+        })
     }
 
     pub fn create_operator_claim_tx(

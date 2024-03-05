@@ -48,19 +48,15 @@ impl<'a> User<'a> {
         let deposit_utxo = self
             .rpc
             .send_to_address(&deposit_address, BRIDGE_AMOUNT_SATS)?;
-        let mut move_tx = self
-            .transaction_builder
-            .create_move_tx(deposit_utxo, &evm_address)?;
-        let move_tx_prevouts = TransactionBuilder::create_move_tx_prevouts(&deposit_address);
-        let script_n_of_n_with_user_pk = self
-            .script_builder
-            .generate_script_n_of_n_with_user_pk(&self.signer.xonly_public_key);
-        let sig = self.signer.sign_taproot_script_spend_tx(
-            &mut move_tx,
-            &move_tx_prevouts,
-            &script_n_of_n_with_user_pk,
-            0,
+        let mut move_tx = self.transaction_builder.create_move_tx(
+            deposit_utxo,
+            &evm_address,
+            &deposit_address,
+            &self.signer.xonly_public_key,
         )?;
+        let sig = self
+            .signer
+            .sign_taproot_script_spend_tx_new(&mut move_tx, 0)?;
 
         Ok((deposit_utxo, self.signer.xonly_public_key, evm_address, sig))
     }

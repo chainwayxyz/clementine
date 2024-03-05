@@ -1,5 +1,6 @@
 use crate::constant::EVMAddress;
 use crate::errors::BridgeError;
+use crate::transaction_builder::CreateTxOutputs;
 use bitcoin::secp256k1::rand::rngs::OsRng;
 use bitcoin::secp256k1::rand::RngCore;
 use bitcoin::sighash::SighashCache;
@@ -89,6 +90,25 @@ impl Actor {
             input_index,
             &bitcoin::sighash::Prevouts::All(prevouts),
             TapLeafHash::from_script(spend_script, LeafVersion::TapScript),
+            bitcoin::sighash::TapSighashType::Default,
+        )?;
+        Ok(self.sign(sig_hash))
+    }
+
+    pub fn sign_taproot_script_spend_tx_new(
+        &self,
+        tx: &mut CreateTxOutputs,
+        input_index: usize,
+    ) -> Result<schnorr::Signature, BridgeError> {
+        // TODO: if sighash_cache exists in the CreateTxOutputs, use it
+        // else create a new one and save it to the CreateTxOutputs
+
+        let mut sighash_cache: SighashCache<&mut bitcoin::Transaction> =
+            SighashCache::new(&mut tx.tx);
+        let sig_hash = sighash_cache.taproot_script_spend_signature_hash(
+            input_index,
+            &bitcoin::sighash::Prevouts::All(&tx.prevouts),
+            TapLeafHash::from_script(&tx.scripts[input_index], LeafVersion::TapScript),
             bitcoin::sighash::TapSighashType::Default,
         )?;
         Ok(self.sign(sig_hash))

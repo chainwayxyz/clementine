@@ -130,32 +130,24 @@ impl<'a> Verifier<'a> {
         )
         .unwrap();
 
-        let mut move_tx = self
-            .transaction_builder
-            .create_move_tx(start_utxo, evm_address)?;
-        let move_txid = move_tx.txid();
+        let mut move_tx = self.transaction_builder.create_move_tx(
+            start_utxo,
+            evm_address,
+            &deposit_address,
+            &return_address,
+        )?;
+        let move_txid = move_tx.tx.txid();
 
         let move_utxo = OutPoint {
             txid: move_txid,
             vout: 0,
         };
 
-        let prevouts = TransactionBuilder::create_tx_outs(vec![(
-            Amount::from_sat(BRIDGE_AMOUNT_SATS),
-            deposit_address.script_pubkey(),
-        )]);
-
-        let script_n_of_n_with_user_pk = self
-            .script_builder
-            .generate_script_n_of_n_with_user_pk(return_address);
         let script_n_of_n = self.script_builder.generate_script_n_of_n();
 
-        let move_sig = self.signer.sign_taproot_script_spend_tx(
-            &mut move_tx,
-            &prevouts,
-            &script_n_of_n_with_user_pk,
-            0,
-        )?;
+        let move_sig = self
+            .signer
+            .sign_taproot_script_spend_tx_new(&mut move_tx, 0)?;
 
         // let anyone_can_spend_txout: TxOut = ScriptBuilder::anyone_can_spend_txout();
 
