@@ -28,7 +28,6 @@ fn test_flow() -> Result<(), BridgeError> {
     }
 
     let mut operator = Operator::new(
-        &mut OsRng,
         rpc.clone(),
         all_xonly_pks.clone(),
         all_sks[NUM_VERIFIERS],
@@ -44,7 +43,7 @@ fn test_flow() -> Result<(), BridgeError> {
 
     // Initial setup for connector roots
     let (first_source_utxo, start_blockheight, connector_tree_hashes) =
-        operator.initial_setup().unwrap();
+        operator.initial_setup(&mut OsRng).unwrap();
 
     // let mut connector_tree_source_sigs = Vec::new();
 
