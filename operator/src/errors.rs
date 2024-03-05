@@ -63,6 +63,12 @@ pub enum BridgeError {
     /// ControlBlockError is returned when the control block is not found
     #[error("ControlBlockError")]
     ControlBlockError,
+    /// PkSkLengthMismatch is returned when the public key and secret key length do not match
+    #[error("PkSkLengthMismatch")]
+    PkSkLengthMismatch,
+    /// PublicKeyNotFound is returned when the public key is not found in all public keys
+    #[error("PublicKeyNotFound")]
+    PublicKeyNotFound,
 }
 
 impl From<secp256k1::Error> for BridgeError {
