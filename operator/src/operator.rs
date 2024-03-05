@@ -82,7 +82,7 @@ pub struct Operator {
     pub transaction_builder: TransactionBuilder,
     pub start_blockheight: u64,
     pub verifiers_pks: Vec<XOnlyPublicKey>,
-    pub mock_verifier_access: Vec<Box<dyn VerifierConnector>>,
+    pub verifier_connector: Vec<Box<dyn VerifierConnector>>,
     pub operator_mock_db: OperatorMockDB,
 }
 
@@ -121,7 +121,7 @@ impl Operator {
             signer,
             transaction_builder,
             start_blockheight: 0,
-            mock_verifier_access: verifiers,
+            verifier_connector: verifiers,
             verifiers_pks: all_xonly_pks.clone(),
             operator_mock_db,
         })
@@ -161,7 +161,7 @@ impl Operator {
         println!("deposit_index: {:?}", deposit_index);
 
         let presigns_from_all_verifiers: Result<Vec<_>, BridgeError> = self
-            .mock_verifier_access
+            .verifier_connector
             .iter()
             .enumerate()
             .map(|(i, verifier)| {
@@ -593,7 +593,7 @@ impl Operator {
     //         &script_n_of_n_without_hash,
     //         0,
     //     );
-    //     // let mut claim_sigs = self.mock_verifier_access.iter().map(|verifier|
+    //     // let mut claim_sigs = self.verifier_connector.iter().map(|verifier|
     //     //     verifier.signer.sign_taproot_script_spend_tx(&mut claim_tx, prevouts.clone(), &script_n_of_n_without_hash, 0)
     //     // ).collect::<Vec<_>>();
 
@@ -756,7 +756,7 @@ mod tests {
     //     let mut users = Vec::new();
 
     //     let verifiers_pks = operator.get_all_verifiers();
-    //     for verifier in &mut operator.mock_verifier_access {
+    //     for verifier in &mut operator.verifier_connector {
     //         verifier.set_verifiers(verifiers_pks.clone());
     //     }
     //     println!("verifiers_pks.len: {:?}", verifiers_pks.len());

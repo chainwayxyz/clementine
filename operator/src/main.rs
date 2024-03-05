@@ -48,7 +48,7 @@ fn test_flow() -> Result<(), BridgeError> {
 
     // let mut connector_tree_source_sigs = Vec::new();
 
-    for verifier in &mut operator.mock_verifier_access {
+    for verifier in &mut operator.verifier_connector {
         let _sigs = verifier.connector_roots_created(
             &connector_tree_hashes,
             start_blockheight,
