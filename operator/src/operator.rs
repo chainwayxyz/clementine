@@ -80,7 +80,6 @@ pub struct OperatorClaimSigs {
 pub struct Operator<'a> {
     pub rpc: &'a ExtendedRpc,
     pub signer: Actor,
-    pub script_builder: ScriptBuilder,
     pub transaction_builder: TransactionBuilder,
     pub start_blockheight: u64,
     pub verifiers_pks: Vec<XOnlyPublicKey>,
@@ -107,7 +106,6 @@ impl<'a> Operator<'a> {
             verifiers.push(verifier);
         }
 
-        let script_builder = ScriptBuilder::new(all_xonly_pks.clone());
         let transaction_builder = TransactionBuilder::new(all_xonly_pks.clone());
 
         let (connector_tree_preimages, connector_tree_hashes) =
@@ -119,7 +117,6 @@ impl<'a> Operator<'a> {
         Ok(Self {
             rpc,
             signer,
-            script_builder,
             transaction_builder,
             start_blockheight: 0,
             mock_verifier_access: verifiers,

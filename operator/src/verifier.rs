@@ -3,6 +3,7 @@ use std::collections::{HashMap, HashSet};
 
 use crate::constant::{ConnectorTreeUTXOs, PreimageType, MIN_RELAY_FEE};
 use crate::errors::BridgeError;
+use crate::script_builder::ScriptBuilder;
 use bitcoin::sighash::SighashCache;
 use bitcoin::{secp256k1, secp256k1::Secp256k1, OutPoint};
 use bitcoin::{Address, Amount, TxOut};
@@ -13,7 +14,6 @@ use secp256k1::XOnlyPublicKey;
 use secp256k1::{schnorr, All, SecretKey};
 
 use crate::extended_rpc::ExtendedRpc;
-use crate::script_builder::ScriptBuilder;
 use crate::shared::{check_deposit_utxo, create_all_connector_trees};
 use crate::transaction_builder::TransactionBuilder;
 use crate::utils::{create_control_block, handle_taproot_witness};
@@ -26,7 +26,6 @@ pub struct Verifier<'a> {
     pub rpc: &'a ExtendedRpc,
     pub secp: Secp256k1<secp256k1::All>,
     pub signer: Actor,
-    pub script_builder: ScriptBuilder,
     pub transaction_builder: TransactionBuilder,
     pub verifiers: Vec<XOnlyPublicKey>,
     pub connector_tree_utxos: Vec<ConnectorTreeUTXOs>,
@@ -53,14 +52,12 @@ impl<'a> Verifier<'a> {
         let connector_tree_utxos = Vec::new();
         let connector_tree_hashes = Vec::new();
 
-        let script_builder = ScriptBuilder::new(all_xonly_pks.clone());
         let transaction_builder = TransactionBuilder::new(all_xonly_pks.clone());
         let operator_pk = all_xonly_pks[all_xonly_pks.len() - 1];
         Ok(Verifier {
             rpc,
             secp,
             signer,
-            script_builder,
             transaction_builder,
             verifiers: all_xonly_pks,
             connector_tree_utxos,
@@ -142,8 +139,6 @@ impl<'a> Verifier<'a> {
             txid: move_txid,
             vout: 0,
         };
-
-        let script_n_of_n = self.script_builder.generate_script_n_of_n();
 
         let move_sig = self
             .signer
