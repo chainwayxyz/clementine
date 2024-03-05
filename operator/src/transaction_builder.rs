@@ -37,6 +37,7 @@ pub struct CreateTxOutputs {
     pub tx: bitcoin::Transaction,
     pub prevouts: Vec<TxOut>,
     pub scripts: Vec<ScriptBuf>,
+    pub taproot_spend_infos: Vec<TaprootSpendInfo>,
 }
 
 pub type CreateAddressOutputs = (Address, TaprootSpendInfo);
@@ -100,7 +101,6 @@ impl TransactionBuilder {
         &self,
         deposit_utxo: OutPoint,
         evm_address: &EVMAddress,
-        deposit_address: &Address,
         return_address: &XOnlyPublicKey,
     ) -> Result<CreateTxOutputs, BridgeError> {
         let anyone_can_spend_txout = ScriptBuilder::anyone_can_spend_txout();
@@ -111,6 +111,8 @@ impl TransactionBuilder {
         );
 
         let (bridge_address, _) = self.generate_bridge_address()?;
+        let (deposit_address, deposit_taproot_spend_info) =
+            self.generate_deposit_address(return_address)?;
 
         let tx_ins = TransactionBuilder::create_tx_ins(vec![deposit_utxo]);
         let bridge_txout = TxOut {
@@ -139,6 +141,7 @@ impl TransactionBuilder {
             tx: move_tx,
             prevouts,
             scripts: script_n_of_n_with_user_pk,
+            taproot_spend_infos: vec![deposit_taproot_spend_info],
         })
     }
 
@@ -147,8 +150,17 @@ impl TransactionBuilder {
         bridge_utxo: OutPoint,
         connector_utxo: OutPoint,
         operator_address: &Address,
-        connector_tree_leaf_address: &Address,
+        operator_xonly: &XOnlyPublicKey,
+        hash: &Data,
     ) -> Result<CreateTxOutputs, BridgeError> {
+        let (connector_tree_leaf_address, connector_leaf_taproot_spend_info) =
+            TransactionBuilder::create_connector_tree_node_address(
+                &self.secp,
+                operator_xonly,
+                hash,
+            )?;
+        let (bridge_address, bridge_taproot_spend_info) = self.generate_bridge_address()?;
+
         let anyone_can_spend_txout: TxOut = ScriptBuilder::anyone_can_spend_txout();
         let evm_address_inscription_txout: TxOut =
             ScriptBuilder::op_return_txout(&EVMAddress::default());
@@ -163,21 +175,23 @@ impl TransactionBuilder {
         };
         let claim_tx =
             TransactionBuilder::create_btc_tx(tx_ins, vec![claim_txout, anyone_can_spend_txout]);
-        let prevouts = self.create_operator_claim_tx_prevouts(connector_tree_leaf_address)?;
+        let prevouts =
+            self.create_operator_claim_tx_prevouts(&bridge_address, &connector_tree_leaf_address)?;
         let scripts = vec![self.script_builder.generate_script_n_of_n()];
 
         Ok(CreateTxOutputs {
             tx: claim_tx,
             prevouts,
             scripts: scripts,
+            taproot_spend_infos: vec![bridge_taproot_spend_info, connector_leaf_taproot_spend_info],
         })
     }
 
     fn create_operator_claim_tx_prevouts(
         &self,
+        bridge_address: &Address,
         connector_tree_leaf_address: &Address,
     ) -> Result<Vec<TxOut>, BridgeError> {
-        let (bridge_address, _) = self.generate_bridge_address()?;
         let anyone_can_spend_txout: TxOut = ScriptBuilder::anyone_can_spend_txout();
         Ok(vec![
             TxOut {
@@ -315,8 +329,8 @@ impl TransactionBuilder {
     pub fn create_connector_tree_node_address(
         secp: &Secp256k1<secp256k1::All>,
         actor_pk: &XOnlyPublicKey,
-        hash: Data,
-    ) -> Result<(Address, TaprootSpendInfo), BridgeError> {
+        hash: &Data,
+    ) -> Result<CreateAddressOutputs, BridgeError> {
         let timelock_script = ScriptBuilder::generate_timelock_script(
             actor_pk,
             CONNECTOR_TREE_OPERATOR_TAKES_AFTER as u32,
@@ -350,13 +364,30 @@ impl TransactionBuilder {
     pub fn create_inscription_reveal_tx(
         &self,
         commit_utxo: OutPoint,
-        _commit_tree_info: &TaprootSpendInfo,
-        _preimages_to_be_revealed: &Vec<PreimageType>,
-    ) -> bitcoin::Transaction {
-        TransactionBuilder::create_btc_tx(
+        sender_xonly: &XOnlyPublicKey,
+        preimages_to_be_revealed: &Vec<PreimageType>,
+    ) -> Result<CreateTxOutputs, BridgeError> {
+        let (commit_address, commit_tree_info, inscribe_preimage_script) =
+            self.create_inscription_commit_address(sender_xonly, preimages_to_be_revealed)?;
+        let tx = TransactionBuilder::create_btc_tx(
             TransactionBuilder::create_tx_ins(vec![commit_utxo]),
             vec![ScriptBuilder::anyone_can_spend_txout()],
-        )
+        );
+        let prevouts = vec![TxOut {
+            value: Amount::from_sat(DUST_VALUE) * 2,
+            script_pubkey: commit_address.script_pubkey(),
+        }];
+        let prevouts = vec![TxOut {
+            script_pubkey: commit_address.script_pubkey(),
+            value: Amount::from_sat(DUST_VALUE * 2),
+        }];
+
+        Ok(CreateTxOutputs {
+            tx,
+            prevouts,
+            scripts: vec![inscribe_preimage_script],
+            taproot_spend_infos: vec![commit_tree_info],
+        })
     }
 
     pub fn create_inscription_transactions(
@@ -485,7 +516,7 @@ impl TransactionBuilder {
         let (_root_address, _) = TransactionBuilder::create_connector_tree_node_address(
             &self.secp,
             xonly_public_key,
-            connector_tree_hashes[0][0],
+            &connector_tree_hashes[0][0],
         )?;
 
         let mut utxo_binary_tree: ConnectorTreeUTXOs = Vec::new();
@@ -499,12 +530,12 @@ impl TransactionBuilder {
                 let (first_address, _) = TransactionBuilder::create_connector_tree_node_address(
                     &self.secp,
                     xonly_public_key,
-                    connector_tree_hashes[i + 1][2 * j],
+                    &connector_tree_hashes[i + 1][2 * j],
                 )?;
                 let (second_address, _) = TransactionBuilder::create_connector_tree_node_address(
                     &self.secp,
                     xonly_public_key,
-                    connector_tree_hashes[i + 1][2 * j + 1],
+                    &connector_tree_hashes[i + 1][2 * j + 1],
                 )?;
 
                 let tx = TransactionBuilder::create_connector_tree_tx(

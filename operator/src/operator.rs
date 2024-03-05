@@ -12,7 +12,9 @@ use crate::mock_db::OperatorMockDB;
 use crate::script_builder::ScriptBuilder;
 use crate::shared::{check_deposit_utxo, create_all_connector_trees};
 use crate::transaction_builder::TransactionBuilder;
-use crate::utils::{calculate_amount, get_claim_reveal_indices, handle_taproot_witness};
+use crate::utils::{
+    calculate_amount, get_claim_reveal_indices, handle_taproot_witness, handle_taproot_witness_new,
+};
 use crate::verifier::Verifier;
 use bitcoin::address::NetworkChecked;
 use bitcoin::hashes::Hash;
@@ -147,7 +149,7 @@ impl<'a> Operator<'a> {
         // 3. Check if the utxo is not already spent
         // 4. Get signatures from all verifiers 1 move signature, ~150 operator takes signatures
 
-        let (deposit_address, deposit_taproot_spend_info) = check_deposit_utxo(
+        check_deposit_utxo(
             self.rpc,
             &self.transaction_builder,
             &start_utxo,
@@ -173,6 +175,7 @@ impl<'a> Operator<'a> {
                         return_address,
                         deposit_index as u32,
                         evm_address,
+                        &self.signer.address,
                     )
                     .map_err(|e| {
                         // Log the error or convert it to BridgeError if necessary
@@ -190,19 +193,17 @@ impl<'a> Operator<'a> {
         println!("presigns_from_all_verifiers: done");
 
         // 5. Create a move transaction and return the output utxo, save the utxo as a pending deposit
-        let mut move_tx = self.transaction_builder.create_move_tx(
-            start_utxo,
-            evm_address,
-            &deposit_address,
-            &return_address,
-        )?;
+        let mut move_tx =
+            self.transaction_builder
+                .create_move_tx(start_utxo, evm_address, &return_address)?;
 
-        let mut move_signatures = presigns_from_all_verifiers
+        // TODO: Simplify this move_signatures thing, maybe with a macro
+        let mut move_signatures: Vec<schnorr::Signature> = presigns_from_all_verifiers
             .iter()
             .map(|presign| presign.move_sign)
             .collect::<Vec<_>>();
 
-        let sig = self
+        let sig: schnorr::Signature = self
             .signer
             .sign_taproot_script_spend_tx_new(&mut move_tx, 0)?;
         move_signatures.push(sig);
@@ -214,13 +215,7 @@ impl<'a> Operator<'a> {
             witness_elements.push(sig.as_ref());
         }
 
-        handle_taproot_witness(
-            &mut move_tx.tx,
-            0,
-            &witness_elements,
-            &move_tx.scripts[0],
-            &deposit_taproot_spend_info,
-        )?;
+        handle_taproot_witness_new(&mut move_tx, &witness_elements, 0)?;
         // println!("move_tx: {:?}", move_tx);
         let rpc_move_txid = self.rpc.send_raw_transaction(&move_tx.tx)?;
         let move_utxo = OutPoint {
@@ -383,7 +378,7 @@ impl<'a> Operator<'a> {
         let (_, tree_info) = TransactionBuilder::create_connector_tree_node_address(
             &self.signer.secp,
             &self.signer.xonly_public_key,
-            hash,
+            &hash,
         )?;
 
         let base_tx = match self.rpc.get_raw_transaction(&utxo.txid, None) {
@@ -427,13 +422,13 @@ impl<'a> Operator<'a> {
         let (first_address, _) = TransactionBuilder::create_connector_tree_node_address(
             &self.signer.secp,
             &self.signer.xonly_public_key,
-            hashes.0,
+            &hashes.0,
         )?;
 
         let (second_address, _) = TransactionBuilder::create_connector_tree_node_address(
             &self.signer.secp,
             &self.signer.xonly_public_key,
-            hashes.1,
+            &hashes.1,
         )?;
 
         let mut tx = TransactionBuilder::create_connector_tree_tx(
@@ -515,43 +510,20 @@ impl<'a> Operator<'a> {
             )?;
 
         let commit_utxo = self.rpc.send_to_address(&commit_address, DUST_VALUE * 2)?;
-        println!(
-            "is_commit_utxo_spent? {:?}",
-            self.rpc.is_utxo_spent(&commit_utxo)
-        );
 
         let mut reveal_tx = self.transaction_builder.create_inscription_reveal_tx(
             commit_utxo,
-            &commit_tree_info,
+            &self.signer.xonly_public_key,
             &preimages_to_be_revealed,
-        );
-
-        let prevouts = vec![TxOut {
-            script_pubkey: commit_address.script_pubkey(),
-            value: Amount::from_sat(DUST_VALUE * 2),
-        }];
-
-        let sig = self.signer.sign_taproot_script_spend_tx(
-            &mut reveal_tx,
-            &prevouts,
-            &inscribe_preimage_script,
-            0,
         )?;
 
-        handle_taproot_witness(
-            &mut reveal_tx,
-            0,
-            &vec![sig.as_ref()],
-            &inscribe_preimage_script,
-            &commit_tree_info,
-        )?;
+        let sig = self
+            .signer
+            .sign_taproot_script_spend_tx_new(&mut reveal_tx, 0)?;
 
-        let reveal_txid = self.rpc.send_raw_transaction(&reveal_tx)?;
+        handle_taproot_witness_new(&mut reveal_tx, &vec![sig.as_ref()], 0)?;
 
-        println!(
-            "is_commit_utxo_spent? {:?}",
-            self.rpc.is_utxo_spent(&commit_utxo)
-        );
+        let reveal_txid = self.rpc.send_raw_transaction(&reveal_tx.tx)?;
 
         self.operator_mock_db
             .add_to_inscription_txs((commit_utxo, reveal_txid));

@@ -19,6 +19,7 @@ use hex;
 use sha2::{Digest, Sha256};
 
 use crate::errors::BridgeError;
+use crate::transaction_builder::CreateTxOutputs;
 
 pub fn parse_hex_to_btc_tx(
     tx_hex: &str,
@@ -83,6 +84,26 @@ pub fn handle_taproot_witness<T: AsRef<[u8]>>(
         .control_block(&(script.clone(), LeafVersion::TapScript))
         .ok_or(BridgeError::ControlBlockError)?;
     witness.push(script);
+    witness.push(&spend_control_block.serialize());
+    Ok(())
+}
+
+pub fn handle_taproot_witness_new<T: AsRef<[u8]>>(
+    tx: &mut CreateTxOutputs,
+    witness_elements: &Vec<T>,
+    index: usize,
+) -> Result<(), BridgeError> {
+    let mut sighash_cache = SighashCache::new(tx.tx.borrow_mut());
+    let witness = sighash_cache
+        .witness_mut(index)
+        .ok_or(BridgeError::TxInputNotFound)?;
+    for elem in witness_elements {
+        witness.push(elem);
+    }
+    let spend_control_block = tx.taproot_spend_infos[index]
+        .control_block(&(tx.scripts[index].clone(), LeafVersion::TapScript))
+        .ok_or(BridgeError::ControlBlockError)?;
+    witness.push(tx.scripts[index].clone());
     witness.push(&spend_control_block.serialize());
     Ok(())
 }

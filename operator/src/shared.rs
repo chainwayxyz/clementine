@@ -20,7 +20,7 @@ pub fn check_deposit_utxo(
     outpoint: &OutPoint,
     return_address: &XOnlyPublicKey,
     amount_sats: u64,
-) -> Result<(Address, TaprootSpendInfo), BridgeError> {
+) -> Result<(), BridgeError> {
     if rpc.confirmation_blocks(&outpoint.txid)? < CONFIRMATION_BLOCK_COUNT {
         return Err(BridgeError::DepositNotFinalized);
     }
@@ -39,7 +39,7 @@ pub fn check_deposit_utxo(
     if rpc.is_utxo_spent(outpoint)? {
         return Err(BridgeError::UTXOSpent);
     }
-    Ok((deposit_address, deposit_taproot_spend_info))
+    Ok(())
 }
 
 pub fn create_all_connector_trees(
@@ -96,7 +96,7 @@ pub fn create_all_connector_trees(
             TransactionBuilder::create_connector_tree_node_address(
                 &signer.secp,
                 &pks[pks.len() - 1],
-                connector_tree_hashes[i][0][0],
+                &connector_tree_hashes[i][0][0],
             )?;
         let curr_root_and_next_source_tx_ins =
             TransactionBuilder::create_tx_ins(vec![cur_connector_source_utxo]);
