@@ -1,5 +1,3 @@
-use std::borrow::BorrowMut;
-use std::collections::HashSet;
 use std::vec;
 
 use crate::actor::Actor;
@@ -16,14 +14,12 @@ use crate::transaction_builder::TransactionBuilder;
 use crate::utils::{
     calculate_amount, get_claim_reveal_indices, handle_taproot_witness, handle_taproot_witness_new,
 };
-use crate::verifier::Verifier;
+
 use bitcoin::address::NetworkChecked;
 use bitcoin::hashes::Hash;
-use bitcoin::sighash::SighashCache;
 
-use bitcoin::taproot::LeafVersion;
 use bitcoin::{secp256k1, secp256k1::schnorr, Address};
-use bitcoin::{witness, Amount, OutPoint, TapLeafHash, Transaction, TxOut};
+use bitcoin::{Amount, OutPoint};
 use circuit_helpers::constant::EVMAddress;
 use circuit_helpers::sha256_hash;
 use secp256k1::rand::rngs::OsRng;

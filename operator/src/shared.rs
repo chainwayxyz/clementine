@@ -7,7 +7,7 @@ use crate::{
     errors::BridgeError,
     utils::calculate_claim_proof_root,
 };
-use bitcoin::{taproot::TaprootSpendInfo, Address, Amount, OutPoint};
+use bitcoin::{Amount, OutPoint};
 use secp256k1::{schnorr, XOnlyPublicKey};
 
 use crate::{

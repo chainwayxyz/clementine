@@ -1,4 +1,4 @@
-use std::{borrow::BorrowMut, str::FromStr};
+use std::str::FromStr;
 
 use crate::{
     config::{BRIDGE_AMOUNT_SATS, CONNECTOR_TREE_OPERATOR_TAKES_AFTER, USER_TAKES_AFTER},
@@ -8,19 +8,13 @@ use bitcoin::{
     absolute,
     opcodes::all::{OP_EQUAL, OP_SHA256},
     script::Builder,
-    sighash::SighashCache,
     taproot::{TaprootBuilder, TaprootSpendInfo},
     Address, Amount, OutPoint, ScriptBuf, TxIn, TxOut, Txid, Witness,
 };
 use circuit_helpers::constant::EVMAddress;
 use secp256k1::{Secp256k1, XOnlyPublicKey};
 
-use crate::{
-    actor::Actor,
-    errors::BridgeError,
-    script_builder::ScriptBuilder,
-    utils::{calculate_amount, handle_taproot_witness},
-};
+use crate::{errors::BridgeError, script_builder::ScriptBuilder, utils::calculate_amount};
 use lazy_static::lazy_static;
 
 // This is an unspendable pubkey

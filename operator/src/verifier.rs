@@ -1,23 +1,20 @@
-use std::borrow::BorrowMut;
-use std::collections::{HashMap, HashSet};
-
-use crate::constant::{ConnectorTreeUTXOs, PreimageType, MIN_RELAY_FEE};
+use crate::constant::ConnectorTreeUTXOs;
 use crate::errors::BridgeError;
-use crate::script_builder::ScriptBuilder;
+
 use crate::traits::verifier::VerifierConnector;
-use bitcoin::sighash::SighashCache;
+
+use bitcoin::Address;
 use bitcoin::{secp256k1, secp256k1::Secp256k1, OutPoint};
-use bitcoin::{Address, Amount, TxOut};
 use circuit_helpers::config::{CONNECTOR_TREE_DEPTH, NUM_ROUNDS};
 use circuit_helpers::constant::EVMAddress;
-use circuit_helpers::sha256_hash;
+
 use secp256k1::XOnlyPublicKey;
-use secp256k1::{schnorr, All, SecretKey};
+use secp256k1::{schnorr, SecretKey};
 
 use crate::extended_rpc::ExtendedRpc;
 use crate::shared::{check_deposit_utxo, create_all_connector_trees};
 use crate::transaction_builder::TransactionBuilder;
-use crate::utils::{create_control_block, handle_taproot_witness};
+
 use crate::{actor::Actor, operator::DepositPresigns};
 
 use crate::config::BRIDGE_AMOUNT_SATS;
