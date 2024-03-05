@@ -19,6 +19,22 @@ pub struct ExtendedRpc {
     pub inner: Client,
 }
 
+impl Clone for ExtendedRpc {
+    fn clone(&self) -> Self {
+        // Assuming the connection parameters are static/fixed as shown in the `new` method.
+        // If these parameters can change or need to be dynamic, you'll need to adjust this approach
+        // to ensure the new Client is created with the correct parameters.
+        let rpc_url = "http://localhost:18443/wallet/admin";
+        let rpc_user = "admin".to_string();
+        let rpc_pass = "admin".to_string();
+
+        let new_client = Client::new(rpc_url, Auth::UserPass(rpc_user, rpc_pass))
+            .unwrap_or_else(|e| panic!("Failed to clone Bitcoin RPC client: {}", e));
+
+        Self { inner: new_client }
+    }
+}
+
 impl Default for ExtendedRpc {
     fn default() -> Self {
         Self::new()

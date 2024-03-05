@@ -4,6 +4,7 @@ use std::collections::{HashMap, HashSet};
 use crate::constant::{ConnectorTreeUTXOs, PreimageType, MIN_RELAY_FEE};
 use crate::errors::BridgeError;
 use crate::script_builder::ScriptBuilder;
+use crate::traits::verifier::VerifierConnector;
 use bitcoin::sighash::SighashCache;
 use bitcoin::{secp256k1, secp256k1::Secp256k1, OutPoint};
 use bitcoin::{Address, Amount, TxOut};
@@ -22,8 +23,8 @@ use crate::{actor::Actor, operator::DepositPresigns};
 use crate::config::BRIDGE_AMOUNT_SATS;
 
 #[derive(Debug)]
-pub struct Verifier<'a> {
-    pub rpc: &'a ExtendedRpc,
+pub struct Verifier {
+    pub rpc: ExtendedRpc,
     pub secp: Secp256k1<secp256k1::All>,
     pub signer: Actor,
     pub transaction_builder: TransactionBuilder,
@@ -33,83 +34,14 @@ pub struct Verifier<'a> {
     pub operator_pk: XOnlyPublicKey,
 }
 
-impl<'a> Verifier<'a> {
-    pub fn new(
-        rpc: &'a ExtendedRpc,
-        all_xonly_pks: Vec<XOnlyPublicKey>,
-        sk: SecretKey,
-    ) -> Result<Self, BridgeError> {
-        let signer = Actor::new(sk);
-        let secp: Secp256k1<secp256k1::All> = Secp256k1::new();
-
-        let pk: secp256k1::PublicKey = sk.public_key(&secp);
-        let xonly_pk = XOnlyPublicKey::from(pk);
-        // if pk is not in all_pks, we should raise an error
-        if !all_xonly_pks.contains(&xonly_pk) {
-            return Err(BridgeError::PublicKeyNotFound);
-        }
-
-        let connector_tree_utxos = Vec::new();
-        let connector_tree_hashes = Vec::new();
-
-        let transaction_builder = TransactionBuilder::new(all_xonly_pks.clone());
-        let operator_pk = all_xonly_pks[all_xonly_pks.len() - 1];
-        Ok(Verifier {
-            rpc,
-            secp,
-            signer,
-            transaction_builder,
-            verifiers: all_xonly_pks,
-            connector_tree_utxos,
-            connector_tree_hashes,
-            operator_pk,
-        })
-    }
-
-    // pub fn set_verifiers(&mut self, verifiers: Vec<XOnlyPublicKey>) {
-    //     self.verifiers = verifiers;
-    //     self.script_builder = ScriptBuilder::new(self.verifiers.clone());
-    //     self.transaction_builder = TransactionBuilder::new(self.verifiers.clone());
-    // }
-
-    /// TODO: Add verification for the connector tree hashes
-    pub fn connector_roots_created(
-        &mut self,
-        connector_tree_hashes: &Vec<Vec<Vec<[u8; 32]>>>,
-        start_blockheight: u64,
-        first_source_utxo: &OutPoint,
-    ) -> Result<Vec<schnorr::Signature>, BridgeError> {
-        println!("Verifier first_source_utxo: {:?}", first_source_utxo);
-        println!("Verifier verifiers_pks len: {:?}", self.verifiers.len());
-        let (_, _, utxo_trees, sigs) = create_all_connector_trees(
-            &self.signer,
-            &self.rpc,
-            &connector_tree_hashes,
-            start_blockheight,
-            &first_source_utxo,
-            &self.verifiers,
-        )?;
-
-        // self.set_connector_tree_utxos(utxo_trees);
-        self.connector_tree_utxos = utxo_trees;
-        // self.set_connector_tree_hashes(_connector_tree_hashes);
-        self.connector_tree_hashes = connector_tree_hashes.clone();
-        // println!(
-        //     "Verifier claim_proof_merkle_roots: {:?}",
-        //     claim_proof_merkle_roots
-        // );
-        // println!("Verifier root_utxos: {:?}", root_utxos);
-        println!("Verifier utxo_trees: {:?}", self.connector_tree_utxos);
-        // println!("Verifier utxo_trees: {:?}", self.connector_tree_utxos);
-        Ok(sigs)
-    }
-
+// impl VerifierConnector
+impl VerifierConnector for Verifier {
     /// this is a endpoint that only the operator can call
     /// 1. Check if there is any previous pending deposit
     /// 2. Check if the utxo is valid and finalized (6 blocks confirmation)
     /// 3. Check if the utxo is not already spent
     /// 4. Give move signature and operator claim signature
-    pub fn new_deposit(
+    fn new_deposit(
         &self,
         start_utxo: OutPoint,
         return_address: &XOnlyPublicKey,
@@ -120,7 +52,7 @@ impl<'a> Verifier<'a> {
         // 1. Check if there is any previous pending deposit
 
         check_deposit_utxo(
-            self.rpc,
+            &self.rpc,
             &self.transaction_builder,
             &start_utxo,
             return_address,
@@ -174,6 +106,78 @@ impl<'a> Verifier<'a> {
             operator_claim_sign: op_claim_sigs,
         })
     }
+
+    /// TODO: Add verification for the connector tree hashes
+    fn connector_roots_created(
+        &mut self,
+        connector_tree_hashes: &Vec<Vec<Vec<[u8; 32]>>>,
+        start_blockheight: u64,
+        first_source_utxo: &OutPoint,
+    ) -> Result<Vec<schnorr::Signature>, BridgeError> {
+        println!("Verifier first_source_utxo: {:?}", first_source_utxo);
+        println!("Verifier verifiers_pks len: {:?}", self.verifiers.len());
+        let (_, _, utxo_trees, sigs) = create_all_connector_trees(
+            &self.signer,
+            &self.rpc,
+            &connector_tree_hashes,
+            start_blockheight,
+            &first_source_utxo,
+            &self.verifiers,
+        )?;
+
+        // self.set_connector_tree_utxos(utxo_trees);
+        self.connector_tree_utxos = utxo_trees;
+        // self.set_connector_tree_hashes(_connector_tree_hashes);
+        self.connector_tree_hashes = connector_tree_hashes.clone();
+        // println!(
+        //     "Verifier claim_proof_merkle_roots: {:?}",
+        //     claim_proof_merkle_roots
+        // );
+        // println!("Verifier root_utxos: {:?}", root_utxos);
+        println!("Verifier utxo_trees: {:?}", self.connector_tree_utxos);
+        // println!("Verifier utxo_trees: {:?}", self.connector_tree_utxos);
+        Ok(sigs)
+    }
+}
+
+impl Verifier {
+    pub fn new(
+        rpc: ExtendedRpc,
+        all_xonly_pks: Vec<XOnlyPublicKey>,
+        sk: SecretKey,
+    ) -> Result<Self, BridgeError> {
+        let signer = Actor::new(sk);
+        let secp: Secp256k1<secp256k1::All> = Secp256k1::new();
+
+        let pk: secp256k1::PublicKey = sk.public_key(&secp);
+        let xonly_pk = XOnlyPublicKey::from(pk);
+        // if pk is not in all_pks, we should raise an error
+        if !all_xonly_pks.contains(&xonly_pk) {
+            return Err(BridgeError::PublicKeyNotFound);
+        }
+
+        let connector_tree_utxos = Vec::new();
+        let connector_tree_hashes = Vec::new();
+
+        let transaction_builder = TransactionBuilder::new(all_xonly_pks.clone());
+        let operator_pk = all_xonly_pks[all_xonly_pks.len() - 1];
+        Ok(Verifier {
+            rpc,
+            secp,
+            signer,
+            transaction_builder,
+            verifiers: all_xonly_pks,
+            connector_tree_utxos,
+            connector_tree_hashes,
+            operator_pk,
+        })
+    }
+
+    // pub fn set_verifiers(&mut self, verifiers: Vec<XOnlyPublicKey>) {
+    //     self.verifiers = verifiers;
+    //     self.script_builder = ScriptBuilder::new(self.verifiers.clone());
+    //     self.transaction_builder = TransactionBuilder::new(self.verifiers.clone());
+    // }
 
     // pub fn did_connector_tree_process_start(&self, utxo: OutPoint) -> bool {
     //     let last_block_hash = self.rpc.get_best_block_hash().unwrap();

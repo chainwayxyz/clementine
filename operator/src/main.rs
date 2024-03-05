@@ -2,6 +2,8 @@ use bitcoin::secp256k1::rand::rngs::OsRng;
 use operator::config::{NUM_USERS, NUM_VERIFIERS};
 use operator::constant::EVMAddress;
 use operator::errors::BridgeError;
+use operator::traits::verifier::VerifierConnector;
+use operator::verifier::Verifier;
 use operator::{extended_rpc::ExtendedRpc, operator::Operator, user::User};
 use secp256k1::XOnlyPublicKey;
 
@@ -17,7 +19,21 @@ fn test_flow() -> Result<(), BridgeError> {
         })
         .unzip();
 
-    let mut operator = Operator::new(&mut OsRng, &rpc, all_xonly_pks.clone(), all_sks)?;
+    let mut verifiers: Vec<Box<dyn VerifierConnector>> = Vec::new();
+    for i in 0..NUM_VERIFIERS {
+        // let rpc = ExtendedRpc::new();
+        let verifier = Verifier::new(rpc.clone(), all_xonly_pks.clone(), all_sks[i])?;
+        // Convert the Verifier instance into a boxed trait object
+        verifiers.push(Box::new(verifier) as Box<dyn VerifierConnector>);
+    }
+
+    let mut operator = Operator::new(
+        &mut OsRng,
+        rpc.clone(),
+        all_xonly_pks.clone(),
+        all_sks[NUM_VERIFIERS],
+        verifiers,
+    )?;
 
     let users: Vec<_> = (0..NUM_USERS)
         .map(|_| {

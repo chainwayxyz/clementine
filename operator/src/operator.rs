@@ -11,6 +11,7 @@ use crate::extended_rpc::ExtendedRpc;
 use crate::mock_db::OperatorMockDB;
 use crate::script_builder::ScriptBuilder;
 use crate::shared::{check_deposit_utxo, create_all_connector_trees};
+use crate::traits::verifier::VerifierConnector;
 use crate::transaction_builder::TransactionBuilder;
 use crate::utils::{
     calculate_amount, get_claim_reveal_indices, handle_taproot_witness, handle_taproot_witness_new,
@@ -79,34 +80,37 @@ pub struct OperatorClaimSigs {
 }
 
 #[derive(Debug)]
-pub struct Operator<'a> {
-    pub rpc: &'a ExtendedRpc,
+pub struct Operator {
+    pub rpc: ExtendedRpc,
     pub signer: Actor,
     pub transaction_builder: TransactionBuilder,
     pub start_blockheight: u64,
     pub verifiers_pks: Vec<XOnlyPublicKey>,
-    pub mock_verifier_access: Vec<Verifier<'a>>, // on production this will be removed rather we will call the verifier's API
-
+    pub mock_verifier_access: Vec<Box<dyn VerifierConnector>>,
     pub operator_mock_db: OperatorMockDB,
 }
 
-impl<'a> Operator<'a> {
+impl Operator {
     pub fn new(
         rng: &mut OsRng,
-        rpc: &'a ExtendedRpc,
+        rpc: ExtendedRpc,
         all_xonly_pks: Vec<XOnlyPublicKey>,
-        all_sks: Vec<SecretKey>, // TODO: we only need the operators private key
+        operator_sk: SecretKey,
+        verifiers: Vec<Box<dyn VerifierConnector>>,
     ) -> Result<Self, BridgeError> {
-        if all_xonly_pks.len() != all_sks.len() {
-            return Err(BridgeError::PkSkLengthMismatch);
-        }
         let num_verifiers = all_xonly_pks.len() - 1;
-        let signer = Actor::new(all_sks[all_sks.len() - 1]); // Operator is the last one
-        let mut verifiers = Vec::new();
-        for i in 0..num_verifiers {
-            let verifier = Verifier::new(rpc, all_xonly_pks.clone(), all_sks[i])?;
-            verifiers.push(verifier);
+        let signer = Actor::new(operator_sk); // Operator is the last one
+
+        if signer.xonly_public_key != all_xonly_pks[num_verifiers] {
+            return Err(BridgeError::InvalidOperatorKey);
         }
+
+        // let mut verifiers: Vec<Box<dyn VerifierConnector>> = Vec::new();
+        // for i in 0..num_verifiers {
+        //     let verifier = Verifier::new(rpc, all_xonly_pks.clone(), all_sks[i])?;
+        //     // Convert the Verifier instance into a boxed trait object
+        //     verifiers.push(Box::new(verifier) as Box<dyn VerifierConnector>);
+        // }
 
         let transaction_builder = TransactionBuilder::new(all_xonly_pks.clone());
 
@@ -150,7 +154,7 @@ impl<'a> Operator<'a> {
         // 4. Get signatures from all verifiers 1 move signature, ~150 operator takes signatures
 
         check_deposit_utxo(
-            self.rpc,
+            &self.rpc,
             &self.transaction_builder,
             &start_utxo,
             return_address,

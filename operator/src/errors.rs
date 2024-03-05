@@ -69,6 +69,9 @@ pub enum BridgeError {
     /// PublicKeyNotFound is returned when the public key is not found in all public keys
     #[error("PublicKeyNotFound")]
     PublicKeyNotFound,
+    /// InvalidOperatorKey
+    #[error("InvalidOperatorKey")]
+    InvalidOperatorKey,
 }
 
 impl From<secp256k1::Error> for BridgeError {
