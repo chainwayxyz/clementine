@@ -1,7 +1,16 @@
 use std::str::FromStr;
 
 use crate::{
-    actor::Actor, config::{BRIDGE_AMOUNT_SATS, CONNECTOR_TREE_DEPTH, CONNECTOR_TREE_OPERATOR_TAKES_AFTER, NUM_ROUNDS, USER_TAKES_AFTER}, constant::{ConnectorTreeUTXOs, Data, PreimageType, DUST_VALUE, MIN_RELAY_FEE, PERIOD_BLOCK_COUNT}, extended_rpc::ExtendedRpc, utils::calculate_claim_proof_root
+    actor::Actor,
+    config::{
+        BRIDGE_AMOUNT_SATS, CONNECTOR_TREE_DEPTH, CONNECTOR_TREE_OPERATOR_TAKES_AFTER, NUM_ROUNDS,
+        USER_TAKES_AFTER,
+    },
+    constant::{
+        ConnectorTreeUTXOs, Data, PreimageType, DUST_VALUE, MIN_RELAY_FEE, PERIOD_BLOCK_COUNT,
+    },
+    extended_rpc::ExtendedRpc,
+    utils::calculate_claim_proof_root,
 };
 use bitcoin::{
     absolute,
@@ -247,10 +256,9 @@ impl TransactionBuilder {
                 CONNECTOR_TREE_DEPTH,
                 &connector_tree_hashes[i],
             ));
-            let (next_connector_source_address, _) = self
-                .create_connector_tree_root_address(
-                    start_blockheight + ((i + 2) * PERIOD_BLOCK_COUNT as usize) as u64,
-                )?;
+            let (next_connector_source_address, _) = self.create_connector_tree_root_address(
+                start_blockheight + ((i + 2) * PERIOD_BLOCK_COUNT as usize) as u64,
+            )?;
             let (connector_bt_root_address, _) =
                 TransactionBuilder::create_connector_tree_node_address(
                     &signer.secp,

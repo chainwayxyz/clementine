@@ -11,7 +11,8 @@ use crate::script_builder::ScriptBuilder;
 use crate::traits::verifier::VerifierConnector;
 use crate::transaction_builder::TransactionBuilder;
 use crate::utils::{
-    calculate_amount, check_deposit_utxo, get_claim_reveal_indices, handle_taproot_witness, handle_taproot_witness_new
+    calculate_amount, check_deposit_utxo, get_claim_reveal_indices, handle_taproot_witness,
+    handle_taproot_witness_new,
 };
 
 use bitcoin::address::NetworkChecked;
