@@ -495,7 +495,7 @@ impl Operator {
             })
             .collect::<Vec<_>>();
 
-        let (commit_address, commit_tree_info, inscribe_preimage_script) =
+        let (commit_address, _commit_tree_info, _inscribe_preimage_script) =
             self.transaction_builder.create_inscription_commit_address(
                 &self.signer.xonly_public_key,
                 &preimages_to_be_revealed,
