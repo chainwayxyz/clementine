@@ -163,11 +163,6 @@ impl<'a> Verifier<'a> {
         for i in 0..NUM_ROUNDS {
             let connector_utxo =
                 self.connector_tree_utxos[i][CONNECTOR_TREE_DEPTH][deposit_index as usize];
-            let mut operator_claim_tx = TransactionBuilder::create_operator_claim_tx(
-                move_utxo,
-                connector_utxo,
-                &operator_address,
-            );
 
             let (connector_tree_leaf_address, _) =
                 TransactionBuilder::create_connector_tree_node_address(
@@ -176,21 +171,21 @@ impl<'a> Verifier<'a> {
                     self.connector_tree_hashes[i][CONNECTOR_TREE_DEPTH][deposit_index as usize],
                 )?;
 
-            let op_claim_tx_prevouts = self
-                .transaction_builder
-                .create_operator_claim_tx_prevouts(&connector_tree_leaf_address)?;
-
-            let op_claim_sig = self.signer.sign_taproot_script_spend_tx(
-                &mut operator_claim_tx,
-                &op_claim_tx_prevouts,
-                &script_n_of_n,
-                0,
+            let mut operator_claim_tx = self.transaction_builder.create_operator_claim_tx(
+                move_utxo,
+                connector_utxo,
+                &operator_address,
+                &connector_tree_leaf_address,
             )?;
+
+            let op_claim_sig = self
+                .signer
+                .sign_taproot_script_spend_tx_new(&mut operator_claim_tx, 0)?;
             op_claim_sigs.push(op_claim_sig);
             println!("Verifier signing operator_claim_tx...");
             println!("index: {:?}", deposit_index);
             println!("period: {:?}", i);
-            println!("operator_claim_tx: {:?}", operator_claim_tx);
+            println!("operator_claim_tx: {:?}", operator_claim_tx.tx);
             println!("op_claim_sig: {:?}", op_claim_sig);
         }
 

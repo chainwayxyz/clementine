@@ -143,10 +143,12 @@ impl TransactionBuilder {
     }
 
     pub fn create_operator_claim_tx(
+        &self,
         bridge_utxo: OutPoint,
         connector_utxo: OutPoint,
         operator_address: &Address,
-    ) -> bitcoin::Transaction {
+        connector_tree_leaf_address: &Address,
+    ) -> Result<CreateTxOutputs, BridgeError> {
         let anyone_can_spend_txout: TxOut = ScriptBuilder::anyone_can_spend_txout();
         let evm_address_inscription_txout: TxOut =
             ScriptBuilder::op_return_txout(&EVMAddress::default());
@@ -159,10 +161,19 @@ impl TransactionBuilder {
                 + Amount::from_sat(DUST_VALUE),
             script_pubkey: operator_address.script_pubkey(),
         };
-        TransactionBuilder::create_btc_tx(tx_ins, vec![claim_txout, anyone_can_spend_txout])
+        let claim_tx =
+            TransactionBuilder::create_btc_tx(tx_ins, vec![claim_txout, anyone_can_spend_txout]);
+        let prevouts = self.create_operator_claim_tx_prevouts(connector_tree_leaf_address)?;
+        let scripts = vec![self.script_builder.generate_script_n_of_n()];
+
+        Ok(CreateTxOutputs {
+            tx: claim_tx,
+            prevouts,
+            scripts: scripts,
+        })
     }
 
-    pub fn create_operator_claim_tx_prevouts(
+    fn create_operator_claim_tx_prevouts(
         &self,
         connector_tree_leaf_address: &Address,
     ) -> Result<Vec<TxOut>, BridgeError> {
