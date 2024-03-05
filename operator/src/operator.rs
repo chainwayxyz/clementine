@@ -25,7 +25,7 @@ use circuit_helpers::constant::EVMAddress;
 use circuit_helpers::sha256_hash;
 use secp256k1::rand::rngs::OsRng;
 use secp256k1::rand::Rng;
-use secp256k1::{Message, XOnlyPublicKey};
+use secp256k1::{Message, SecretKey, XOnlyPublicKey};
 
 pub fn create_connector_tree_preimages_and_hashes(
     depth: usize,
@@ -90,41 +90,46 @@ pub struct Operator<'a> {
 }
 
 impl<'a> Operator<'a> {
-    pub fn new(rng: &mut OsRng, rpc: &'a ExtendedRpc, num_verifier: u32) -> Self {
-        let signer = Actor::new(rng);
+    pub fn new(
+        rng: &mut OsRng,
+        rpc: &'a ExtendedRpc,
+        all_xonly_pks: Vec<XOnlyPublicKey>,
+        all_sks: Vec<SecretKey>,
+    ) -> Result<Self, BridgeError> {
+        if all_xonly_pks.len() != all_sks.len() {
+            return Err(BridgeError::PkSkLengthMismatch);
+        }
+        let num_verifiers = all_xonly_pks.len() - 1;
+        let signer = Actor::new(all_sks[all_sks.len() - 1]); // Operator is the last one
         let (connector_tree_preimages, connector_tree_hashes) =
             create_all_rounds_connector_preimages(CONNECTOR_TREE_DEPTH, NUM_ROUNDS, rng);
         let mut verifiers = Vec::new();
-        let mut verifiers_pks = Vec::new();
-        for _ in 0..num_verifier {
-            let verifier = Verifier::new(rng, rpc, signer.xonly_public_key);
-            verifiers_pks.push(verifier.signer.xonly_public_key);
+        for i in 0..num_verifiers {
+            let verifier = Verifier::new(rpc, all_xonly_pks.clone(), all_sks[i])?;
             verifiers.push(verifier);
         }
-        let mut all_verifiers = verifiers_pks.to_vec();
-        all_verifiers.push(signer.xonly_public_key);
-        let script_builder = ScriptBuilder::new(all_verifiers.clone());
-        let transaction_builder = TransactionBuilder::new(all_verifiers.clone());
+
+        let script_builder = ScriptBuilder::new(all_xonly_pks.clone());
+        let transaction_builder = TransactionBuilder::new(all_xonly_pks.clone());
         let mut operator_mock_db = OperatorMockDB::new();
         operator_mock_db.set_connector_tree_preimages(connector_tree_preimages);
         operator_mock_db.set_connector_tree_hashes(connector_tree_hashes);
 
-        Self {
+        Ok(Self {
             rpc,
             signer,
             script_builder,
             transaction_builder,
             start_blockheight: 0,
             mock_verifier_access: verifiers,
-            verifiers_pks,
-
+            verifiers_pks: all_xonly_pks.clone(),
             operator_mock_db,
-        }
+        })
     }
 
     pub fn get_all_verifiers(&self) -> Vec<XOnlyPublicKey> {
-        let mut all_verifiers = self.verifiers_pks.to_vec();
-        all_verifiers.push(self.signer.xonly_public_key);
+        let all_verifiers = self.verifiers_pks.to_vec();
+        // all_verifiers.push(self.signer.xonly_public_key);
         all_verifiers
     }
 
@@ -257,103 +262,103 @@ impl<'a> Operator<'a> {
         //     CONNECTOR_TREE_OPERATOR_TAKES_AFTER as u32,
         // );
 
-        for i in 0..NUM_ROUNDS {
-            let connector_utxo = self.operator_mock_db.get_connector_tree_utxo(i)
-                [CONNECTOR_TREE_DEPTH][deposit_index as usize];
-            let operator_claim_tx = TransactionBuilder::create_operator_claim_tx(
-                move_utxo,
-                connector_utxo,
-                &self.signer.address,
-            );
+        // for i in 0..NUM_ROUNDS {
+        //     let connector_utxo = self.operator_mock_db.get_connector_tree_utxo(i)
+        //         [CONNECTOR_TREE_DEPTH][deposit_index as usize];
+        //     let operator_claim_tx = TransactionBuilder::create_operator_claim_tx(
+        //         move_utxo,
+        //         connector_utxo,
+        //         &self.signer.address,
+        //     );
 
-            let (connector_tree_leaf_address, _) =
-                TransactionBuilder::create_connector_tree_node_address(
-                    &self.signer.secp,
-                    &self.signer.xonly_public_key,
-                    self.operator_mock_db.get_connector_tree_hash(
-                        i,
-                        CONNECTOR_TREE_DEPTH,
-                        deposit_index,
-                    ),
-                )?;
+        //     let (connector_tree_leaf_address, _) =
+        //         TransactionBuilder::create_connector_tree_node_address(
+        //             &self.signer.secp,
+        //             &self.signer.xonly_public_key,
+        //             self.operator_mock_db.get_connector_tree_hash(
+        //                 i,
+        //                 CONNECTOR_TREE_DEPTH,
+        //                 deposit_index,
+        //             ),
+        //         )?;
 
-            let op_claim_tx_prevouts = self
-                .transaction_builder
-                .create_operator_claim_tx_prevouts(&connector_tree_leaf_address)?;
+        //     let op_claim_tx_prevouts = self
+        //         .transaction_builder
+        //         .create_operator_claim_tx_prevouts(&connector_tree_leaf_address)?;
 
-            let op_claim_sigs_for_period_i = presigns_from_all_verifiers
-                .iter()
-                .map(|presign| {
-                    println!(
-                        "presign.operator_claim_sign[{:?}]: {:?}",
-                        i, presign.operator_claim_sign[i]
-                    );
-                    presign.operator_claim_sign[i]
-                })
-                .collect::<Vec<_>>();
+        //     let op_claim_sigs_for_period_i = presigns_from_all_verifiers
+        //         .iter()
+        //         .map(|presign| {
+        //             println!(
+        //                 "presign.operator_claim_sign[{:?}]: {:?}",
+        //                 i, presign.operator_claim_sign[i]
+        //             );
+        //             presign.operator_claim_sign[i]
+        //         })
+        //         .collect::<Vec<_>>();
 
-            println!("Operator checking presigns for period {:?}: ", i);
-            println!("operator_claim_tx: {:?}", operator_claim_tx);
-            let mut sighash_cache = SighashCache::new(operator_claim_tx.clone());
+        //     println!("Operator checking presigns for period {:?}: ", i);
+        //     println!("operator_claim_tx: {:?}", operator_claim_tx);
+        //     let mut sighash_cache = SighashCache::new(operator_claim_tx.clone());
 
-            let sig_hash = sighash_cache.taproot_script_spend_signature_hash(
-                0,
-                &bitcoin::sighash::Prevouts::All(&op_claim_tx_prevouts),
-                TapLeafHash::from_script(&script_n_of_n, LeafVersion::TapScript),
-                bitcoin::sighash::TapSighashType::Default,
-            )?;
-            for (idx, sig) in op_claim_sigs_for_period_i.iter().enumerate() {
-                println!("verifying presigns for index {:?}: ", idx);
-                println!("sig: {:?}", sig);
-                self.signer.secp.verify_schnorr(
-                    sig,
-                    &Message::from_digest_slice(sig_hash.as_byte_array()).expect("should be hash"),
-                    &self.verifiers_pks[idx],
-                )?;
-            }
+        //     let sig_hash = sighash_cache.taproot_script_spend_signature_hash(
+        //         0,
+        //         &bitcoin::sighash::Prevouts::All(&op_claim_tx_prevouts),
+        //         TapLeafHash::from_script(&script_n_of_n, LeafVersion::TapScript),
+        //         bitcoin::sighash::TapSighashType::Default,
+        //     )?;
+        //     for (idx, sig) in op_claim_sigs_for_period_i.iter().enumerate() {
+        //         println!("verifying presigns for index {:?}: ", idx);
+        //         println!("sig: {:?}", sig);
+        //         self.signer.secp.verify_schnorr(
+        //             sig,
+        //             &Message::from_digest_slice(sig_hash.as_byte_array()).expect("should be hash"),
+        //             &self.verifiers_pks[idx],
+        //         )?;
+        //     }
 
-            // let claim_sig_for_bridge = self.signer.sign_taproot_script_spend_tx(
-            //     &mut operator_claim_tx,
-            //     &prevouts,
-            //     &script_n_of_n,
-            //     0,
-            // );
-            // let claim_sig_for_connector = self.signer.sign_taproot_script_spend_tx(
-            //     &mut operator_claim_tx,
-            //     &prevouts,
-            //     &timelock_script,
-            //     1,
-            // );
+        //     // let claim_sig_for_bridge = self.signer.sign_taproot_script_spend_tx(
+        //     //     &mut operator_claim_tx,
+        //     //     &prevouts,
+        //     //     &script_n_of_n,
+        //     //     0,
+        //     // );
+        //     // let claim_sig_for_connector = self.signer.sign_taproot_script_spend_tx(
+        //     //     &mut operator_claim_tx,
+        //     //     &prevouts,
+        //     //     &timelock_script,
+        //     //     1,
+        //     // );
 
-            // let mut witness_elements_0: Vec<&[u8]> = Vec::new();
+        //     // let mut witness_elements_0: Vec<&[u8]> = Vec::new();
 
-            // for sig in op_claim_sigs_for_period_i.iter() {
-            //     witness_elements_0.push(sig.as_ref());
-            // }
+        //     // for sig in op_claim_sigs_for_period_i.iter() {
+        //     //     witness_elements_0.push(sig.as_ref());
+        //     // }
 
-            // witness_elements_0.push(claim_sig_for_bridge.as_ref());
+        //     // witness_elements_0.push(claim_sig_for_bridge.as_ref());
 
-            // let mut witness_elements_1: Vec<&[u8]> = Vec::new();
-            // witness_elements_1.push(claim_sig_for_connector.as_ref());
+        //     // let mut witness_elements_1: Vec<&[u8]> = Vec::new();
+        //     // witness_elements_1.push(claim_sig_for_connector.as_ref());
 
-            // handle_taproot_witness(
-            //     &mut operator_claim_tx,
-            //     0,
-            //     &witness_elements_0,
-            //     &script_n_of_n,
-            //     &bridge_spend_info,
-            // );
+        //     // handle_taproot_witness(
+        //     //     &mut operator_claim_tx,
+        //     //     0,
+        //     //     &witness_elements_0,
+        //     //     &script_n_of_n,
+        //     //     &bridge_spend_info,
+        //     // );
 
-            // handle_taproot_witness(
-            //     &mut operator_claim_tx,
-            //     1,
-            //     &witness_elements_1,
-            //     &timelock_script,
-            //     &connector_tree_leaf_spend_info,
-            // );
+        //     // handle_taproot_witness(
+        //     //     &mut operator_claim_tx,
+        //     //     1,
+        //     //     &witness_elements_1,
+        //     //     &timelock_script,
+        //     //     &connector_tree_leaf_spend_info,
+        //     // );
 
-            // print!("{:?}", verify_presigns(&operator_claim_tx, &prevouts));
-        }
+        //     // print!("{:?}", verify_presigns(&operator_claim_tx, &prevouts));
+        // }
 
         Ok(move_utxo)
     }

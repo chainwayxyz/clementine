@@ -10,9 +10,9 @@ use bitcoin::OutPoint;
 use bitcoin::XOnlyPublicKey;
 use circuit_helpers::constant::EVMAddress;
 use secp256k1::schnorr::Signature;
+use secp256k1::SecretKey;
 
 use crate::config::BRIDGE_AMOUNT_SATS;
-use secp256k1::rand::rngs::OsRng;
 
 #[derive(Debug)]
 pub struct User<'a> {
@@ -24,11 +24,11 @@ pub struct User<'a> {
 }
 
 impl<'a> User<'a> {
-    pub fn new(rpc: &'a ExtendedRpc, verifiers_pks: Vec<XOnlyPublicKey>) -> Self {
+    pub fn new(rpc: &'a ExtendedRpc, all_xonly_pks: Vec<XOnlyPublicKey>, sk: SecretKey) -> Self {
         let secp = Secp256k1::new();
-        let signer = Actor::new(&mut OsRng);
-        let transaction_builder = TransactionBuilder::new(verifiers_pks.clone());
-        let script_builder = ScriptBuilder::new(verifiers_pks);
+        let signer = Actor::new(sk);
+        let transaction_builder = TransactionBuilder::new(all_xonly_pks.clone());
+        let script_builder = ScriptBuilder::new(all_xonly_pks);
         User {
             rpc,
             secp,
@@ -40,6 +40,7 @@ impl<'a> User<'a> {
 
     pub fn deposit_tx(
         &self,
+        evm_address: EVMAddress,
     ) -> Result<(OutPoint, XOnlyPublicKey, EVMAddress, Signature), BridgeError> {
         let (deposit_address, _) = self
             .transaction_builder
@@ -49,7 +50,7 @@ impl<'a> User<'a> {
             .send_to_address(&deposit_address, BRIDGE_AMOUNT_SATS)?;
         let mut move_tx = self
             .transaction_builder
-            .create_move_tx(deposit_utxo, &self.signer.evm_address)?;
+            .create_move_tx(deposit_utxo, &evm_address)?;
         let move_tx_prevouts = TransactionBuilder::create_move_tx_prevouts(&deposit_address);
         let script_n_of_n_with_user_pk = self
             .script_builder
@@ -61,12 +62,7 @@ impl<'a> User<'a> {
             0,
         )?;
 
-        Ok((
-            deposit_utxo,
-            self.signer.xonly_public_key,
-            self.signer.evm_address,
-            sig,
-        ))
+        Ok((deposit_utxo, self.signer.xonly_public_key, evm_address, sig))
     }
 }
 
