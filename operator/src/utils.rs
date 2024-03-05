@@ -1,7 +1,7 @@
 use std::borrow::BorrowMut;
 
 use bitcoin::sighash::SighashCache;
-use bitcoin::{self};
+use bitcoin::{self, OutPoint, XOnlyPublicKey};
 
 use bitcoin::consensus::Decodable;
 
@@ -18,8 +18,10 @@ use hex;
 
 use sha2::{Digest, Sha256};
 
+use crate::constant::CONFIRMATION_BLOCK_COUNT;
 use crate::errors::BridgeError;
-use crate::transaction_builder::CreateTxOutputs;
+use crate::extended_rpc::ExtendedRpc;
+use crate::transaction_builder::{CreateTxOutputs, TransactionBuilder};
 
 pub fn parse_hex_to_btc_tx(
     tx_hex: &str,
@@ -61,6 +63,32 @@ pub fn create_control_block(tree_info: TaprootSpendInfo, script: &ScriptBuf) -> 
 //     let amount = script.dust_value();
 //     (script_pubkey, amount)
 // }
+pub fn check_deposit_utxo(
+    rpc: &ExtendedRpc,
+    tx_builder: &TransactionBuilder,
+    outpoint: &OutPoint,
+    return_address: &XOnlyPublicKey,
+    amount_sats: u64,
+) -> Result<(), BridgeError> {
+    if rpc.confirmation_blocks(&outpoint.txid)? < CONFIRMATION_BLOCK_COUNT {
+        return Err(BridgeError::DepositNotFinalized);
+    }
+
+    let (deposit_address, _) = tx_builder.generate_deposit_address(return_address)?;
+
+    if !rpc.check_utxo_address_and_amount(
+        outpoint,
+        &deposit_address.script_pubkey(),
+        amount_sats,
+    )? {
+        return Err(BridgeError::InvalidDepositUTXO);
+    }
+
+    if rpc.is_utxo_spent(outpoint)? {
+        return Err(BridgeError::UTXOSpent);
+    }
+    Ok(())
+}
 
 pub fn calculate_amount(depth: usize, value: Amount, fee: Amount) -> Amount {
     (value + fee) * (2u64.pow(depth as u32))

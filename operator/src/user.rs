@@ -1,10 +1,7 @@
 use crate::actor::Actor;
 use crate::errors::BridgeError;
 use crate::extended_rpc::ExtendedRpc;
-
-use crate::script_builder::ScriptBuilder;
 use crate::transaction_builder::TransactionBuilder;
-
 use bitcoin::secp256k1::Secp256k1;
 use bitcoin::OutPoint;
 use bitcoin::XOnlyPublicKey;
@@ -60,6 +57,3 @@ impl User {
         Ok((deposit_utxo, self.signer.xonly_public_key, evm_address, sig))
     }
 }
-
-#[cfg(test)]
-mod tests {}

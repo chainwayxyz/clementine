@@ -2,6 +2,7 @@ use crate::constant::ConnectorTreeUTXOs;
 use crate::errors::BridgeError;
 
 use crate::traits::verifier::VerifierConnector;
+use crate::utils::check_deposit_utxo;
 
 use bitcoin::Address;
 use bitcoin::{secp256k1, secp256k1::Secp256k1, OutPoint};
@@ -12,7 +13,6 @@ use secp256k1::XOnlyPublicKey;
 use secp256k1::{schnorr, SecretKey};
 
 use crate::extended_rpc::ExtendedRpc;
-use crate::shared::{check_deposit_utxo, create_all_connector_trees};
 use crate::transaction_builder::TransactionBuilder;
 
 use crate::{actor::Actor, operator::DepositPresigns};
@@ -107,7 +107,7 @@ impl VerifierConnector for Verifier {
     ) -> Result<Vec<schnorr::Signature>, BridgeError> {
         println!("Verifier first_source_utxo: {:?}", first_source_utxo);
         println!("Verifier verifiers_pks len: {:?}", self.verifiers.len());
-        let (_, _, utxo_trees, sigs) = create_all_connector_trees(
+        let (_, _, utxo_trees, sigs) = self.transaction_builder.create_all_connector_trees(
             &self.signer,
             &self.rpc,
             &connector_tree_hashes,

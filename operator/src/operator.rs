@@ -8,11 +8,10 @@ use crate::extended_rpc::ExtendedRpc;
 
 use crate::mock_db::OperatorMockDB;
 use crate::script_builder::ScriptBuilder;
-use crate::shared::{check_deposit_utxo, create_all_connector_trees};
 use crate::traits::verifier::VerifierConnector;
 use crate::transaction_builder::TransactionBuilder;
 use crate::utils::{
-    calculate_amount, get_claim_reveal_indices, handle_taproot_witness, handle_taproot_witness_new,
+    calculate_amount, check_deposit_utxo, get_claim_reveal_indices, handle_taproot_witness, handle_taproot_witness_new
 };
 
 use bitcoin::address::NetworkChecked;
@@ -705,8 +704,9 @@ impl Operator {
         let all_verifiers = self.verifiers_pks.clone();
         let connector_tree_hashes: Vec<Vec<Vec<HashType>>> =
             self.operator_mock_db.get_connector_tree_hashes();
-        let (claim_proof_merkle_roots, root_utxos, utxo_trees, _op_self_claim_sigs) =
-            create_all_connector_trees(
+        let (claim_proof_merkle_roots, root_utxos, utxo_trees, _op_self_claim_sigs) = self
+            .transaction_builder
+            .create_all_connector_trees(
                 &self.signer,
                 &self.rpc,
                 // &self.transaction_builder,
