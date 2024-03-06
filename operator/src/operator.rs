@@ -81,7 +81,6 @@ pub struct Operator {
     pub rpc: ExtendedRpc,
     pub signer: Actor,
     pub transaction_builder: TransactionBuilder,
-    pub start_blockheight: u64,
     pub verifiers_pks: Vec<XOnlyPublicKey>,
     pub verifier_connector: Vec<Box<dyn VerifierConnector>>,
     operator_db_connector: Box<dyn OperatorDBConnector>,
@@ -115,7 +114,6 @@ impl Operator {
             rpc,
             signer,
             transaction_builder,
-            start_blockheight: 0,
             verifier_connector: verifiers,
             verifiers_pks: all_xonly_pks.clone(),
             operator_db_connector,
@@ -669,17 +667,20 @@ impl Operator {
         &mut self,
         rng: &mut OsRng,
     ) -> Result<(OutPoint, u64, Vec<Vec<Vec<HashType>>>), BridgeError> {
+        let blockheight = self.operator_db_connector.get_start_block_height();
+        if blockheight != 0 {
+            return Err(BridgeError::AlreadyInitialized);
+        }
+        let cur_blockheight = self.rpc.get_block_height()?;
+        self.operator_db_connector
+            .set_start_block_height(cur_blockheight);
+
         let (connector_tree_preimages, connector_tree_hashes) =
             create_all_rounds_connector_preimages(CONNECTOR_TREE_DEPTH, NUM_ROUNDS, rng);
         self.operator_db_connector
             .set_connector_tree_preimages(connector_tree_preimages);
         self.operator_db_connector
             .set_connector_tree_hashes(connector_tree_hashes.clone());
-
-        let cur_blockheight = self.rpc.get_block_height()?;
-        if self.start_blockheight == 0 {
-            self.start_blockheight = cur_blockheight;
-        }
 
         let single_tree_amount = calculate_amount(
             CONNECTOR_TREE_DEPTH,
@@ -692,7 +693,7 @@ impl Operator {
         let (connector_tree_source_address, _) = self
             .transaction_builder
             .create_connector_tree_source_address(
-                self.start_blockheight + PERIOD_BLOCK_COUNT as u64,
+                cur_blockheight + PERIOD_BLOCK_COUNT as u64,
             )
             .unwrap();
 
@@ -713,7 +714,7 @@ impl Operator {
             .transaction_builder
             .create_all_connector_trees(
                 &connector_tree_hashes,
-                self.start_blockheight,
+                cur_blockheight,
                 &first_source_utxo,
             )
             .unwrap();
@@ -732,7 +733,7 @@ impl Operator {
         );
         Ok((
             first_source_utxo,
-            self.start_blockheight,
+            cur_blockheight,
             connector_tree_hashes.clone(),
         ))
     }
