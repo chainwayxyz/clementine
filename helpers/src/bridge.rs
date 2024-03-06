@@ -29,22 +29,15 @@ pub fn read_blocks_and_add_to_merkle_tree<E: Environment>(
     let mut lc_block_hash: [u8; 32] = [0; 32];
 
     for i in 0..n {
-        let (curr_version, curr_merkle_root, curr_time, curr_bits, curr_nonce) =
-            read_header_except_prev_blockhash::<E>();
+        let header_without_prev_blockhash = read_header_except_prev_blockhash::<E>();
         if i == n - max_block_handle_ops {
             lc_block_hash = curr_prev_block_hash;
         }
-        curr_prev_block_hash = calculate_next_block_hash(
-            curr_version,
-            curr_prev_block_hash,
-            curr_merkle_root,
-            curr_time,
-            curr_bits,
-            curr_nonce,
-        );
+        curr_prev_block_hash =
+            calculate_next_block_hash(curr_prev_block_hash, header_without_prev_blockhash);
         imt.add(curr_prev_block_hash);
         total_work = validate_threshold_and_add_work(
-            curr_bits.to_le_bytes(),
+            header_without_prev_blockhash.3.to_le_bytes(),
             curr_prev_block_hash,
             total_work,
         );
@@ -64,18 +57,11 @@ pub fn read_blocks_and_calculate_work<E: Environment>(
     let mut curr_prev_block_hash = start_prev_block_hash;
 
     for _ in 0..num_blocks {
-        let (curr_version, curr_merkle_root, curr_time, curr_bits, curr_nonce) =
-            read_header_except_prev_blockhash::<E>();
-        curr_prev_block_hash = calculate_next_block_hash(
-            curr_version,
-            curr_prev_block_hash,
-            curr_merkle_root,
-            curr_time,
-            curr_bits,
-            curr_nonce,
-        );
+        let header_without_prev_blockhash = read_header_except_prev_blockhash::<E>();
+        curr_prev_block_hash =
+            calculate_next_block_hash(curr_prev_block_hash, header_without_prev_blockhash);
         total_work = validate_threshold_and_add_work(
-            curr_bits.to_le_bytes(),
+            header_without_prev_blockhash.3.to_le_bytes(),
             curr_prev_block_hash,
             total_work,
         );
@@ -99,20 +85,16 @@ fn read_header_except_prev_blockhash<E: Environment>() -> HeaderWithoutPrevBlock
 }
 
 fn calculate_next_block_hash(
-    version: i32,
     prev_block_hash: [u8; 32],
-    merkle_root: [u8; 32],
-    time: u32,
-    bits: u32,
-    nonce: u32,
+    header_without_prev_blockhash: HeaderWithoutPrevBlockHash,
 ) -> [u8; 32] {
     double_sha256_hash!(
-        &version.to_le_bytes(),
+        &header_without_prev_blockhash.0.to_le_bytes(),
         &prev_block_hash,
-        &merkle_root,
-        &time.to_le_bytes(),
-        &bits.to_le_bytes(),
-        &nonce.to_le_bytes()
+        &header_without_prev_blockhash.1,
+        &header_without_prev_blockhash.2.to_le_bytes(),
+        &header_without_prev_blockhash.3.to_le_bytes(),
+        &header_without_prev_blockhash.4.to_le_bytes()
     )
 }
 
