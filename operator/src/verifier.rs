@@ -1,4 +1,4 @@
-use crate::constant::ConnectorTreeUTXOs;
+use crate::constant::ConnectorUTXOTree;
 use crate::errors::BridgeError;
 
 use crate::traits::verifier::VerifierConnector;
@@ -26,7 +26,7 @@ pub struct Verifier {
     pub signer: Actor,
     pub transaction_builder: TransactionBuilder,
     pub verifiers: Vec<XOnlyPublicKey>,
-    pub connector_tree_utxos: Vec<ConnectorTreeUTXOs>,
+    pub connector_tree_utxos: Vec<ConnectorUTXOTree>,
     pub connector_tree_hashes: Vec<Vec<Vec<[u8; 32]>>>,
     pub operator_pk: XOnlyPublicKey,
 }

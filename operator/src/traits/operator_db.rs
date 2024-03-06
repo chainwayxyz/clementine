@@ -1,5 +1,5 @@
 use crate::{
-    constant::{ConnectorTreeUTXOs, HashType, InscriptionTxs, PreimageType},
+    constant::{ConnectorUTXOTree, HashType, InscriptionTxs, PreimageType},
     operator::OperatorClaimSigs,
 };
 use bitcoin::Txid;
@@ -20,7 +20,7 @@ pub trait OperatorDBConnector: std::fmt::Debug {
     fn get_withdrawals_merkle_tree_index(&self) -> u32;
     fn add_to_withdrawals_merkle_tree(&mut self, hash: HashType);
     fn add_to_withdrawals_payment_txids(&mut self, txid: Txid);
-    fn get_connector_tree_utxo(&self, idx: usize) -> ConnectorTreeUTXOs;
-    fn get_connector_tree_utxos(&self) -> Vec<ConnectorTreeUTXOs>;
-    fn set_connector_tree_utxos(&mut self, connector_tree_utxos: Vec<ConnectorTreeUTXOs>);
+    fn get_connector_tree_utxo(&self, idx: usize) -> ConnectorUTXOTree;
+    fn get_connector_tree_utxos(&self) -> Vec<ConnectorUTXOTree>;
+    fn set_connector_tree_utxos(&mut self, connector_tree_utxos: Vec<ConnectorUTXOTree>);
 }

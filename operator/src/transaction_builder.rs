@@ -6,7 +6,7 @@ use crate::{
         USER_TAKES_AFTER,
     },
     constant::{
-        ConnectorTreeUTXOs, Data, PreimageType, DUST_VALUE, MIN_RELAY_FEE, PERIOD_BLOCK_COUNT,
+        ConnectorUTXOTree, Data, PreimageType, DUST_VALUE, MIN_RELAY_FEE, PERIOD_BLOCK_COUNT,
     },
     utils::calculate_claim_proof_root,
 };
@@ -212,7 +212,7 @@ impl TransactionBuilder {
         connector_tree_hashes: &Vec<Vec<Vec<[u8; 32]>>>,
         start_blockheight: u64,
         first_source_utxo: &OutPoint,
-    ) -> Result<(Vec<[u8; 32]>, Vec<OutPoint>, Vec<ConnectorTreeUTXOs>), BridgeError> {
+    ) -> Result<(Vec<[u8; 32]>, Vec<OutPoint>, Vec<ConnectorUTXOTree>), BridgeError> {
         let single_tree_amount = calculate_amount(
             CONNECTOR_TREE_DEPTH,
             Amount::from_sat(DUST_VALUE),
@@ -226,7 +226,7 @@ impl TransactionBuilder {
 
         let mut claim_proof_merkle_roots: Vec<[u8; 32]> = Vec::new();
         let mut root_utxos: Vec<OutPoint> = Vec::new();
-        let mut utxo_trees: Vec<ConnectorTreeUTXOs> = Vec::new();
+        let mut utxo_trees: Vec<ConnectorUTXOTree> = Vec::new();
 
         for i in 0..NUM_ROUNDS {
             claim_proof_merkle_roots.push(calculate_claim_proof_root(
@@ -478,7 +478,7 @@ impl TransactionBuilder {
         root_utxo: &OutPoint,
         depth: usize,
         connector_tree_hashes: Vec<Vec<[u8; 32]>>,
-    ) -> Result<ConnectorTreeUTXOs, BridgeError> {
+    ) -> Result<ConnectorUTXOTree, BridgeError> {
         // UTXO value should be at least 2^depth * dust_value + (2^depth-1) * fee
         let total_amount = calculate_amount(
             depth,
@@ -493,7 +493,7 @@ impl TransactionBuilder {
             &connector_tree_hashes[0][0],
         )?;
 
-        let mut utxo_binary_tree: ConnectorTreeUTXOs = Vec::new();
+        let mut utxo_binary_tree: ConnectorUTXOTree = Vec::new();
         utxo_binary_tree.push(vec![*root_utxo]);
 
         for i in 0..depth {
