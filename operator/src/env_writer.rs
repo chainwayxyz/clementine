@@ -1,9 +1,11 @@
-use bitcoin::{block::Header, Block, MerkleBlock, Transaction, TxMerkleNode, Txid};
+use bitcoin::{
+    block::Header, consensus::serialize, Block, MerkleBlock, Transaction, TxMerkleNode, Txid,
+};
 use circuit_helpers::env::Environment;
 use secp256k1::hashes::Hash;
 use std::marker::PhantomData;
 
-use crate::errors::BridgeError;
+use crate::{config::DEPTH, errors::BridgeError, merkle::MerkleTree};
 
 pub struct ENVWriter<E: Environment> {
     _marker: PhantomData<E>,
@@ -148,6 +150,36 @@ impl<E: Environment> ENVWriter<E> {
             E::write_32bytes(*node.as_byte_array());
         }
         Ok(())
+    }
+
+    pub fn write_merkle_tree_proof(leaf: [u8; 32], index: Option<u32>, mt: MerkleTree<DEPTH>) {
+        if index.is_none() {
+            // Find the index of the leaf in the merkle tree
+            let index = mt.index_of(leaf).unwrap();
+            E::write_u32(index);
+        } else {
+            let path = mt.path(index.unwrap());
+            for elem in path {
+                E::write_32bytes(elem);
+            }
+        }
+    }
+
+    pub fn write_blocks(_block_headers: Vec<Header>) {
+        for header in _block_headers.iter() {
+            ENVWriter::<E>::write_block_header_without_prev(header);
+        }
+    }
+
+    pub fn write_blocks_and_add_to_merkle_tree(
+        block_headers: Vec<Header>,
+        blockhashes_mt: &mut MerkleTree<DEPTH>,
+    ) {
+        E::write_u32(block_headers.len() as u32);
+        for header in block_headers.iter() {
+            ENVWriter::<E>::write_block_header_without_prev(header);
+            blockhashes_mt.add(serialize(&header.block_hash()).try_into().unwrap());
+        }
     }
 }
 
@@ -346,23 +378,39 @@ mod tests {
     }
 
     #[test]
-    fn test_read_blocks_and_calculate_work() {
+    fn test_write_and_read_blocks_and_calculate_work() {
         let mut _num = SHARED_STATE.lock().unwrap();
         MockEnvironment::reset_mock_env();
         let mainnet_blocks_from_832000_to_833096 =
             include_bytes!("../tests/data/mainnet_blocks_from_832000_to_833096.raw").to_vec();
 
         let headers: Vec<Header> = deserialize(&mainnet_blocks_from_832000_to_833096).unwrap();
-        for header in headers.iter() {
-            ENVWriter::<MockEnvironment>::write_block_header_without_prev(header);
-        }
+        let num_blocks = headers.len() as u32;
         let start_block_hash = headers[0].prev_blockhash.to_byte_array();
-        let res = read_blocks_and_calculate_work::<MockEnvironment>(
-            start_block_hash,
-            headers.len() as u32,
-        );
+        ENVWriter::<MockEnvironment>::write_blocks(headers);
+
+        let res = read_blocks_and_calculate_work::<MockEnvironment>(start_block_hash, num_blocks);
         assert_eq!(U256::from(380064701315057048298976312u128), res)
     }
+
+    // #[test]
+    // fn test_read_blocks_and_calculate_work() {
+    //     let mut _num = SHARED_STATE.lock().unwrap();
+    //     MockEnvironment::reset_mock_env();
+    //     let mainnet_blocks_from_832000_to_833096 =
+    //         include_bytes!("../tests/data/mainnet_blocks_from_832000_to_833096.raw").to_vec();
+
+    //     let headers: Vec<Header> = deserialize(&mainnet_blocks_from_832000_to_833096).unwrap();
+    //     for header in headers.iter() {
+    //         ENVWriter::<MockEnvironment>::write_block_header_without_prev(header);
+    //     }
+    //     let start_block_hash = headers[0].prev_blockhash.to_byte_array();
+    //     let res = read_blocks_and_calculate_work::<MockEnvironment>(
+    //         start_block_hash,
+    //         headers.len() as u32,
+    //     );
+    //     assert_eq!(U256::from(380064701315057048298976312u128), res)
+    // }
 
     #[test]
     fn test_read_merkle_tree_proof() {

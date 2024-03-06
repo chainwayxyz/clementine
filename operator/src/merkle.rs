@@ -78,6 +78,16 @@ where
         self.data[DEPTH][0]
     }
 
+    /// TODO: Make this more efficient
+    pub fn index_of(&self, a: Data) -> Option<u32> {
+        for i in 0..self.index {
+            if self.data[0][i as usize] == a {
+                return Some(i);
+            }
+        }
+        None
+    }
+
     pub fn to_incremental_tree(&self, index: u32) -> IncrementalMerkleTree<DEPTH> {
         let mut fst = [EMPTYDATA; DEPTH];
         let mut i = index as usize;
