@@ -106,21 +106,16 @@ pub fn read_merkle_tree_proof<E: Environment, const D: usize>(
     leaf: [u8; 32],
     index: Option<u32>,
 ) -> [u8; 32] {
-    let mut level_idx;
-    if index.is_none() {
-        level_idx = E::read_u32();
-    } else {
-        level_idx = index.unwrap();
-    }
+    let mut level_idx = index.unwrap_or_else(|| E::read_u32());
 
     let mut hash = leaf;
     for _ in 0..D {
         let sibling = E::read_32bytes();
-        if level_idx % 2 == 0 {
-            hash = sha256_hash!(&hash, &sibling);
+        hash = if level_idx % 2 == 0 {
+            sha256_hash!(&hash, &sibling)
         } else {
-            hash = sha256_hash!(&sibling, &hash);
-        }
+            sha256_hash!(&sibling, &hash)
+        };
         level_idx /= 2;
     }
 
