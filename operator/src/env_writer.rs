@@ -294,6 +294,27 @@ mod tests {
 
     #[test]
     fn test_read_blocks_and_add_to_merkle_tree() {
+        // let segwit_block = include_bytes!("../tests/data/mainnet_block_00000000000000000000edfe523d5e2993781d2305f51218ebfc236a250792d6.raw").to_vec();
+        // let block: Block = deserialize(&segwit_block).unwrap();
+        // let headers = vec![block.header];
+        // let serialized_headers = serialize(&headers);
+
+        // let mut header_vec = Vec::new();
+
+        // for hx in hx_vec {
+        //     let bytes = decode(hx).expect("Decoding failed");
+        //     let header: Header = deserialize(&bytes).expect("Deserialization failed");
+        //     header_vec.push(header);
+        // }
+        // let serialized_headers = serialize(&header_vec);
+
+        // println!("{:?}", header_vec);
+
+        // Write serialized data to a file
+
+        // let mut file = File::create("mainnet_blocks_from_832000_to_833096").expect("Unable to create file");
+        // file.write_all(&serialized_headers).expect("Unable to write data");
+
         let mut _num = SHARED_STATE.lock().unwrap();
         MockEnvironment::reset_mock_env();
         let mainnet_first_11_blocks =
@@ -332,17 +353,17 @@ mod tests {
     fn test_read_blocks_and_calculate_work() {
         let mut _num = SHARED_STATE.lock().unwrap();
         MockEnvironment::reset_mock_env();
-        let mainnet_first_11_blocks =
-            include_bytes!("../tests/data/mainnet_first_11_blocks.raw").to_vec();
+        let mainnet_blocks_from_832000_to_833096 =
+            include_bytes!("../tests/data/mainnet_blocks_from_832000_to_833096.raw").to_vec();
 
-        let headers: Vec<Header> = deserialize(&mainnet_first_11_blocks).unwrap();
+        let headers: Vec<Header> = deserialize(&mainnet_blocks_from_832000_to_833096).unwrap();
         MockEnvironment::write_u32(headers.len() as u32);
         for header in headers.iter() {
             ENVWriter::<MockEnvironment>::write_block_header_without_prev(header);
         }
         let start_block_hash = headers[0].prev_blockhash.to_byte_array();
         let res = read_blocks_and_calculate_work::<MockEnvironment>(start_block_hash);
-        assert_eq!(U256::from(47245361163u64), res)
+        assert_eq!(U256::from(380064701315057048298976312u128), res)
     }
 
     // #[test]
