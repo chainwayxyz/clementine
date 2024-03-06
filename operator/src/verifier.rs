@@ -9,8 +9,8 @@ use bitcoin::{Address, Amount, TxOut};
 use circuit_helpers::config::{CONNECTOR_TREE_DEPTH, NUM_ROUNDS};
 use circuit_helpers::constant::EVMAddress;
 use circuit_helpers::sha256_hash;
-use secp256k1::{rand::rngs::OsRng, XOnlyPublicKey};
-use secp256k1::{schnorr, All};
+use secp256k1::XOnlyPublicKey;
+use secp256k1::{schnorr, All, SecretKey};
 
 use crate::extended_rpc::ExtendedRpc;
 use crate::script_builder::ScriptBuilder;
@@ -35,32 +35,45 @@ pub struct Verifier<'a> {
 }
 
 impl<'a> Verifier<'a> {
-    pub fn new(rng: &mut OsRng, rpc: &'a ExtendedRpc, operator_pk: XOnlyPublicKey) -> Self {
-        let signer = Actor::new(rng);
+    pub fn new(
+        rpc: &'a ExtendedRpc,
+        all_xonly_pks: Vec<XOnlyPublicKey>,
+        sk: SecretKey,
+    ) -> Result<Self, BridgeError> {
+        let signer = Actor::new(sk);
         let secp: Secp256k1<secp256k1::All> = Secp256k1::new();
-        let verifiers = Vec::new();
+
+        let pk: secp256k1::PublicKey = sk.public_key(&secp);
+        let xonly_pk = XOnlyPublicKey::from(pk);
+        // if pk is not in all_pks, we should raise an error
+        if !all_xonly_pks.contains(&xonly_pk) {
+            return Err(BridgeError::PublicKeyNotFound);
+        }
+
         let connector_tree_utxos = Vec::new();
         let connector_tree_hashes = Vec::new();
-        let script_builder = ScriptBuilder::new(vec![]);
-        let transaction_builder = TransactionBuilder::new(vec![]);
-        Verifier {
+
+        let script_builder = ScriptBuilder::new(all_xonly_pks.clone());
+        let transaction_builder = TransactionBuilder::new(all_xonly_pks.clone());
+        let operator_pk = all_xonly_pks[all_xonly_pks.len() - 1];
+        Ok(Verifier {
             rpc,
             secp,
             signer,
             script_builder,
             transaction_builder,
-            verifiers,
+            verifiers: all_xonly_pks,
             connector_tree_utxos,
             connector_tree_hashes,
             operator_pk,
-        }
+        })
     }
 
-    pub fn set_verifiers(&mut self, verifiers: Vec<XOnlyPublicKey>) {
-        self.verifiers = verifiers;
-        self.script_builder = ScriptBuilder::new(self.verifiers.clone());
-        self.transaction_builder = TransactionBuilder::new(self.verifiers.clone());
-    }
+    // pub fn set_verifiers(&mut self, verifiers: Vec<XOnlyPublicKey>) {
+    //     self.verifiers = verifiers;
+    //     self.script_builder = ScriptBuilder::new(self.verifiers.clone());
+    //     self.transaction_builder = TransactionBuilder::new(self.verifiers.clone());
+    // }
 
     /// TODO: Add verification for the connector tree hashes
     pub fn connector_roots_created(

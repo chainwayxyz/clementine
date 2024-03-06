@@ -23,30 +23,21 @@ pub struct Actor {
     pub public_key: PublicKey,
     pub xonly_public_key: XOnlyPublicKey,
     pub address: Address,
-    pub evm_address: EVMAddress,
 }
 
 impl Default for Actor {
     fn default() -> Self {
-        Self::new(&mut OsRng)
+        unimplemented!("Actor::default is not implemented");
     }
 }
 
 impl Actor {
-    pub fn new<R: RngCore>(rng: &mut R) -> Self {
+    pub fn new(sk: SecretKey) -> Self {
         let secp: Secp256k1<All> = Secp256k1::new();
-        let (sk, pk) = secp.generate_keypair(rng);
+        let pk = sk.public_key(&secp);
         let keypair = Keypair::from_secret_key(&secp, &sk);
         let (xonly, _parity) = XOnlyPublicKey::from_keypair(&keypair);
         let address = Address::p2tr(&secp, xonly, None, bitcoin::Network::Regtest);
-
-        let pk_serialized = pk.serialize_uncompressed();
-        let pk_serialized: [u8; 64] = pk_serialized[1..].try_into().unwrap();
-        let mut evm_address = [0u8; 32];
-        let mut keccak_hasher = Keccak::v256();
-        keccak_hasher.update(&pk_serialized);
-        keccak_hasher.finalize(&mut evm_address);
-        let evm_address: EVMAddress = evm_address[12..].try_into().unwrap();
 
         Actor {
             secp,
@@ -55,7 +46,6 @@ impl Actor {
             public_key: pk,
             xonly_public_key: xonly,
             address,
-            evm_address,
         }
     }
 
