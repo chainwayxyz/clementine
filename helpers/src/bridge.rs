@@ -10,6 +10,7 @@ use crate::{
     double_sha256_hash,
     env::Environment,
     incremental_merkle::IncrementalMerkleTree,
+    sha256_hash,
 };
 
 /// Read N
@@ -102,10 +103,23 @@ fn calculate_next_block_hash(
 
 // Reads a merkle tree proof, adds output address to incremental merkle tree, merkle tree depth is D
 pub fn read_merkle_tree_proof<E: Environment, const D: usize>(
-    _leaf: [u8; 32],
-    _index: Option<u32>,
+    leaf: [u8; 32],
+    index: Option<u32>,
 ) -> [u8; 32] {
-    unimplemented!()
+    let mut level_idx = index.unwrap_or_else(|| E::read_u32());
+
+    let mut hash = leaf;
+    for _ in 0..D {
+        let sibling = E::read_32bytes();
+        hash = if level_idx % 2 == 0 {
+            sha256_hash!(&hash, &sibling)
+        } else {
+            sha256_hash!(&sibling, &hash)
+        };
+        level_idx /= 2;
+    }
+
+    return hash;
 }
 
 /// Reads a withdrawal proof, adds output address to incremental merkle tree

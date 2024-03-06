@@ -180,7 +180,10 @@ mod tests {
     };
     use circuit_helpers::{
         bitcoin::{read_and_verify_bitcoin_merkle_path, read_tx_and_calculate_txid},
-        bridge::{read_blocks_and_add_to_merkle_tree, read_blocks_and_calculate_work},
+        bridge::{
+            read_blocks_and_add_to_merkle_tree, read_blocks_and_calculate_work,
+            read_merkle_tree_proof,
+        },
         env::Environment,
         incremental_merkle::IncrementalMerkleTree,
     };
@@ -359,6 +362,49 @@ mod tests {
             headers.len() as u32,
         );
         assert_eq!(U256::from(380064701315057048298976312u128), res)
+    }
+
+    #[test]
+    fn test_read_merkle_tree_proof() {
+        let mut _num = SHARED_STATE.lock().unwrap();
+        MockEnvironment::reset_mock_env();
+        let mut mt = MerkleTree::<32>::new();
+        let mut imt = IncrementalMerkleTree::<32>::new();
+        let mainnet_blocks_from_832000_to_833096 =
+            include_bytes!("../tests/data/mainnet_blocks_from_832000_to_833096.raw").to_vec();
+
+        let headers: Vec<Header> = deserialize(&mainnet_blocks_from_832000_to_833096).unwrap();
+        for header in headers.iter() {
+            mt.add(serialize(&header.block_hash()).try_into().unwrap());
+            imt.add(serialize(&header.block_hash()).try_into().unwrap());
+        }
+
+        assert_eq!(mt.root(), imt.root);
+
+        for i in 0..headers.len() {
+            let path = mt.path(i as u32);
+            for elem in path {
+                MockEnvironment::write_32bytes(elem);
+            }
+            let calculated_root = read_merkle_tree_proof::<MockEnvironment, 32>(
+                headers[i].block_hash().to_byte_array(),
+                Some(i as u32),
+            );
+            assert_eq!(mt.root(), calculated_root);
+        }
+
+        for i in 0..headers.len() {
+            let path = mt.path(i as u32);
+            MockEnvironment::write_u32(i as u32);
+            for elem in path {
+                MockEnvironment::write_32bytes(elem);
+            }
+            let calculated_root = read_merkle_tree_proof::<MockEnvironment, 32>(
+                headers[i].block_hash().to_byte_array(),
+                None,
+            );
+            assert_eq!(mt.root(), calculated_root);
+        }
     }
 
     // #[test]
