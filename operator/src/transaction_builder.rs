@@ -212,7 +212,6 @@ impl TransactionBuilder {
         connector_tree_hashes: &Vec<Vec<Vec<[u8; 32]>>>,
         start_blockheight: u64,
         first_source_utxo: &OutPoint,
-        pks: &Vec<XOnlyPublicKey>,
     ) -> Result<(Vec<[u8; 32]>, Vec<OutPoint>, Vec<ConnectorTreeUTXOs>), BridgeError> {
         let single_tree_amount = calculate_amount(
             CONNECTOR_TREE_DEPTH,
@@ -240,7 +239,7 @@ impl TransactionBuilder {
             let (connector_bt_root_address, _) =
                 TransactionBuilder::create_connector_tree_node_address(
                     &self.secp,
-                    &pks[pks.len() - 1],
+                    &self.verifiers_pks[self.verifiers_pks.len() - 1],
                     &connector_tree_hashes[i][0][0],
                 )?;
             let curr_root_and_next_source_tx_ins =
@@ -270,7 +269,7 @@ impl TransactionBuilder {
 
             let utxo_tree = self.create_connector_binary_tree(
                 i,
-                &pks[pks.len() - 1],
+                &self.verifiers_pks[self.verifiers_pks.len() - 1],
                 &cur_connector_bt_root_utxo,
                 CONNECTOR_TREE_DEPTH,
                 connector_tree_hashes[i].clone(),

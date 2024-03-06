@@ -111,7 +111,6 @@ impl VerifierConnector for Verifier {
             &connector_tree_hashes,
             start_blockheight,
             &first_source_utxo,
-            &self.verifiers,
         )?;
 
         // self.set_connector_tree_utxos(utxo_trees);

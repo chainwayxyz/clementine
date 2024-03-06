@@ -709,15 +709,12 @@ impl Operator {
             first_source_utxo_create_tx
         );
 
-        //Here we are adding the operator's public key to the list of verifiers, since it was not handled when creating the entities.
-        let all_verifiers = self.verifiers_pks.clone();
         let (claim_proof_merkle_roots, root_utxos, utxo_trees) = self
             .transaction_builder
             .create_all_connector_trees(
                 &connector_tree_hashes,
                 self.start_blockheight,
                 &first_source_utxo,
-                &all_verifiers,
             )
             .unwrap();
 
