@@ -1,7 +1,7 @@
 use std::borrow::BorrowMut;
 
 use bitcoin::sighash::SighashCache;
-use bitcoin::{self};
+use bitcoin::{self, OutPoint, XOnlyPublicKey};
 
 use bitcoin::consensus::Decodable;
 
@@ -18,7 +18,10 @@ use hex;
 
 use sha2::{Digest, Sha256};
 
+use crate::constant::CONFIRMATION_BLOCK_COUNT;
 use crate::errors::BridgeError;
+use crate::extended_rpc::ExtendedRpc;
+use crate::transaction_builder::{CreateTxOutputs, TransactionBuilder};
 
 pub fn parse_hex_to_btc_tx(
     tx_hex: &str,
@@ -60,6 +63,32 @@ pub fn create_control_block(tree_info: TaprootSpendInfo, script: &ScriptBuf) -> 
 //     let amount = script.dust_value();
 //     (script_pubkey, amount)
 // }
+pub fn check_deposit_utxo(
+    rpc: &ExtendedRpc,
+    tx_builder: &TransactionBuilder,
+    outpoint: &OutPoint,
+    return_address: &XOnlyPublicKey,
+    amount_sats: u64,
+) -> Result<(), BridgeError> {
+    if rpc.confirmation_blocks(&outpoint.txid)? < CONFIRMATION_BLOCK_COUNT {
+        return Err(BridgeError::DepositNotFinalized);
+    }
+
+    let (deposit_address, _) = tx_builder.generate_deposit_address(return_address)?;
+
+    if !rpc.check_utxo_address_and_amount(
+        outpoint,
+        &deposit_address.script_pubkey(),
+        amount_sats,
+    )? {
+        return Err(BridgeError::InvalidDepositUTXO);
+    }
+
+    if rpc.is_utxo_spent(outpoint)? {
+        return Err(BridgeError::UTXOSpent);
+    }
+    Ok(())
+}
 
 pub fn calculate_amount(depth: usize, value: Amount, fee: Amount) -> Amount {
     (value + fee) * (2u64.pow(depth as u32))
@@ -83,6 +112,26 @@ pub fn handle_taproot_witness<T: AsRef<[u8]>>(
         .control_block(&(script.clone(), LeafVersion::TapScript))
         .ok_or(BridgeError::ControlBlockError)?;
     witness.push(script);
+    witness.push(&spend_control_block.serialize());
+    Ok(())
+}
+
+pub fn handle_taproot_witness_new<T: AsRef<[u8]>>(
+    tx: &mut CreateTxOutputs,
+    witness_elements: &Vec<T>,
+    index: usize,
+) -> Result<(), BridgeError> {
+    let mut sighash_cache = SighashCache::new(tx.tx.borrow_mut());
+    let witness = sighash_cache
+        .witness_mut(index)
+        .ok_or(BridgeError::TxInputNotFound)?;
+    for elem in witness_elements {
+        witness.push(elem);
+    }
+    let spend_control_block = tx.taproot_spend_infos[index]
+        .control_block(&(tx.scripts[index].clone(), LeafVersion::TapScript))
+        .ok_or(BridgeError::ControlBlockError)?;
+    witness.push(tx.scripts[index].clone());
     witness.push(&spend_control_block.serialize());
     Ok(())
 }
