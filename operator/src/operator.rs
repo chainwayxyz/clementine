@@ -711,12 +711,9 @@ impl Operator {
 
         //Here we are adding the operator's public key to the list of verifiers, since it was not handled when creating the entities.
         let all_verifiers = self.verifiers_pks.clone();
-        let (claim_proof_merkle_roots, root_utxos, utxo_trees, _op_self_claim_sigs) = self
+        let (claim_proof_merkle_roots, root_utxos, utxo_trees) = self
             .transaction_builder
             .create_all_connector_trees(
-                &self.signer,
-                &self.rpc,
-                // &self.transaction_builder,
                 &connector_tree_hashes,
                 self.start_blockheight,
                 &first_source_utxo,

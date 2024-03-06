@@ -1,5 +1,5 @@
 use bitcoin::{Address, OutPoint};
-use secp256k1::{schnorr, XOnlyPublicKey};
+use secp256k1::XOnlyPublicKey;
 
 use crate::{constant::EVMAddress, errors::BridgeError, operator::DepositPresigns};
 
@@ -18,5 +18,5 @@ pub trait VerifierConnector: std::fmt::Debug {
         connector_tree_hashes: &Vec<Vec<Vec<[u8; 32]>>>,
         start_blockheight: u64,
         first_source_utxo: &OutPoint,
-    ) -> Result<Vec<schnorr::Signature>, BridgeError>;
+    ) -> Result<(), BridgeError>;
 }
