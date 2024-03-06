@@ -1,4 +1,4 @@
-use bitcoin::{Block, MerkleBlock, Transaction, TxMerkleNode, Txid};
+use bitcoin::{block::Header, Block, MerkleBlock, Transaction, TxMerkleNode, Txid};
 use circuit_helpers::env::Environment;
 use secp256k1::hashes::Hash;
 use std::marker::PhantomData;
@@ -10,6 +10,19 @@ pub struct ENVWriter<E: Environment> {
 }
 
 impl<E: Environment> ENVWriter<E> {
+    pub fn write_block_header_without_prev(header: &Header) {
+        let version = header.version.to_consensus();
+        let merkle_root = header.merkle_root.as_byte_array();
+        let time = header.time;
+        let bits = header.bits.to_consensus();
+        let nonce = header.nonce;
+        E::write_i32(version);
+        E::write_32bytes(*merkle_root);
+        E::write_u32(time);
+        E::write_u32(bits);
+        E::write_u32(nonce);
+    }
+
     pub fn write_tx_to_env(tx: &Transaction) {
         E::write_i32(tx.version.0);
         E::write_u32(tx.input.len() as u32);
@@ -155,12 +168,16 @@ impl<E: Environment> ENVWriter<E> {
 // write tests for circuits
 #[cfg(test)]
 mod tests {
-    use std::sync::Mutex;
+    use std::{fs::File, io::Write, sync::Mutex};
     lazy_static::lazy_static! {
         static ref SHARED_STATE: Mutex<i32> = Mutex::new(0);
     }
 
-    use bitcoin::{block::Header, consensus::deserialize, Block, Txid};
+    use bitcoin::{
+        block::Header,
+        consensus::{deserialize, serialize},
+        Block, Txid,
+    };
     use circuit_helpers::{
         bitcoin::{read_and_verify_bitcoin_merkle_path, read_tx_and_calculate_txid},
         bridge::{read_blocks_and_add_to_merkle_tree, read_blocks_and_calculate_work},
@@ -299,23 +316,13 @@ mod tests {
     fn test_read_blocks_and_add_to_merkle_tree() {
         let mut _num = SHARED_STATE.lock().unwrap();
         MockEnvironment::reset_mock_env();
-        let headers: Vec<Header> = TEST_HEADERS_HEX
-            .iter()
-            .map(|h| deserialize(&hex::decode(h).unwrap()).unwrap())
-            .collect();
-        println!("headers: {:?}", headers);
+        let mainnet_first_11_blocks =
+            include_bytes!("../tests/data/mainnet_first_11_blocks.raw").to_vec();
+
+        let headers: Vec<Header> = deserialize(&mainnet_first_11_blocks).unwrap();
         MockEnvironment::write_u32(headers.len() as u32);
         for header in headers.iter() {
-            let version = header.version.to_consensus();
-            let merkle_root = header.merkle_root.as_byte_array();
-            let time = header.time;
-            let bits = header.bits.to_consensus();
-            let nonce = header.nonce;
-            MockEnvironment::write_i32(version);
-            MockEnvironment::write_32bytes(*merkle_root);
-            MockEnvironment::write_u32(time);
-            MockEnvironment::write_u32(bits);
-            MockEnvironment::write_u32(nonce);
+            ENVWriter::<MockEnvironment>::write_block_header_without_prev(header);
         }
         let mut incremental_merkle_tree = IncrementalMerkleTree::<32>::new();
         let start_block_hash = headers[0].prev_blockhash.to_byte_array();
