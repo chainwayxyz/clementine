@@ -173,7 +173,11 @@ mod tests {
         static ref SHARED_STATE: Mutex<i32> = Mutex::new(0);
     }
 
-    use bitcoin::{block::Header, consensus::deserialize, Block, Txid};
+    use bitcoin::{
+        block::Header,
+        consensus::{deserialize, serialize},
+        Block, Txid,
+    };
     use circuit_helpers::{
         bitcoin::{read_and_verify_bitcoin_merkle_path, read_tx_and_calculate_txid},
         bridge::{read_blocks_and_add_to_merkle_tree, read_blocks_and_calculate_work},
@@ -186,7 +190,7 @@ mod tests {
     use secp256k1::hashes::Hash;
 
     use crate::{
-        env_writer::ENVWriter, errors::BridgeError, mock_env::MockEnvironment,
+        env_writer::ENVWriter, errors::BridgeError, merkle::MerkleTree, mock_env::MockEnvironment,
         utils::parse_hex_to_btc_tx,
     };
 
@@ -312,6 +316,14 @@ mod tests {
             4,
         );
         assert_eq!(incremental_merkle_tree.index, headers.len() as u32);
+
+        let mut mt = MerkleTree::<32>::new();
+
+        for header in headers {
+            mt.add(serialize(&header.block_hash()).try_into().unwrap());
+        }
+
+        assert_eq!(incremental_merkle_tree.root, mt.root());
         assert_eq!(
             (
                 U256::from(47245361163u64),

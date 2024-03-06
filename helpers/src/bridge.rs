@@ -17,6 +17,7 @@ use crate::{
 /// Adds blockhashes to an incremental merkle tree.
 /// Assuming starting from blockheight 1,
 /// Returns total work accumulated up to (and including) blockheight N, blockhash at N + 1 - MAX_BLOCK_HANDLE_OPS, blockhash at N + 1
+/// Writing block hashes from blockheight 2 to N + 1 to an incremental merkle tree (regenerated ones)
 pub fn read_blocks_and_add_to_merkle_tree<E: Environment>(
     start_prev_block_hash: [u8; 32],
     imt: &mut IncrementalMerkleTree<DEPTH>,
@@ -28,7 +29,6 @@ pub fn read_blocks_and_add_to_merkle_tree<E: Environment>(
     let mut lc_block_hash: [u8; 32] = [0; 32];
 
     for i in 0..n {
-        imt.add(curr_prev_block_hash);
         let (curr_version, curr_merkle_root, curr_time, curr_bits, curr_nonce) =
             read_header_except_prev_blockhash::<E>();
         if i == n - max_block_handle_ops {
@@ -42,6 +42,7 @@ pub fn read_blocks_and_add_to_merkle_tree<E: Environment>(
             curr_bits,
             curr_nonce,
         );
+        imt.add(curr_prev_block_hash);
         total_work = validate_threshold_and_add_work(
             curr_bits.to_le_bytes(),
             curr_prev_block_hash,

@@ -691,7 +691,9 @@ impl Operator {
         println!("total_amount: {:?}", total_amount);
         let (connector_tree_source_address, _) = self
             .transaction_builder
-            .create_connector_tree_root_address(self.start_blockheight + PERIOD_BLOCK_COUNT as u64)
+            .create_connector_tree_source_address(
+                self.start_blockheight + PERIOD_BLOCK_COUNT as u64,
+            )
             .unwrap();
 
         let first_source_utxo = self
