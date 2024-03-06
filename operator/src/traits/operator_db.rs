@@ -23,4 +23,6 @@ pub trait OperatorDBConnector: std::fmt::Debug {
     fn get_connector_tree_utxo(&self, idx: usize) -> ConnectorUTXOTree;
     fn get_connector_tree_utxos(&self) -> Vec<ConnectorUTXOTree>;
     fn set_connector_tree_utxos(&mut self, connector_tree_utxos: Vec<ConnectorUTXOTree>);
+    fn get_start_block_height(&self) -> u64;
+    fn set_start_block_height(&mut self, start_block_height: u64);
 }

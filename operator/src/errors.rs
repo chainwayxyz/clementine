@@ -72,6 +72,9 @@ pub enum BridgeError {
     /// InvalidOperatorKey
     #[error("InvalidOperatorKey")]
     InvalidOperatorKey,
+    // AlreadyInitialized is returned when the operator is already initialized
+    #[error("AlreadyInitialized")]
+    AlreadyInitialized,
 }
 
 impl From<secp256k1::Error> for BridgeError {

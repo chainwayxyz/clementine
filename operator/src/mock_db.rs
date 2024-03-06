@@ -17,6 +17,7 @@ pub struct OperatorMockDB {
     withdrawals_merkle_tree: MerkleTree<DEPTH>,
     withdrawals_payment_txids: Vec<Txid>,
     connector_tree_utxos: Vec<ConnectorUTXOTree>,
+    start_block_height: u64,
 }
 
 impl OperatorMockDB {
@@ -32,6 +33,7 @@ impl OperatorMockDB {
             // deposit_utxos: Vec::new(),
             // move_utxos: Vec::new(),
             connector_tree_utxos: Vec::new(),
+            start_block_height: 0,
         }
     }
 }
@@ -106,5 +108,13 @@ impl OperatorDBConnector for OperatorMockDB {
 
     fn set_connector_tree_utxos(&mut self, connector_tree_utxos: Vec<ConnectorUTXOTree>) {
         self.connector_tree_utxos = connector_tree_utxos;
+    }
+
+    fn get_start_block_height(&self) -> u64 {
+        self.start_block_height
+    }
+
+    fn set_start_block_height(&mut self, start_block_height: u64) {
+        self.start_block_height = start_block_height;
     }
 }
