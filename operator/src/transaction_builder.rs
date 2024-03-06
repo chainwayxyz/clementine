@@ -1,15 +1,14 @@
 use std::str::FromStr;
 
 use crate::{
-    actor::Actor,
     config::{
         BRIDGE_AMOUNT_SATS, CONNECTOR_TREE_DEPTH, CONNECTOR_TREE_OPERATOR_TAKES_AFTER, NUM_ROUNDS,
         USER_TAKES_AFTER,
     },
     constant::{
-        ConnectorTreeUTXOs, Data, PreimageType, DUST_VALUE, MIN_RELAY_FEE, PERIOD_BLOCK_COUNT,
+        ConnectorUTXOTree, Data, HashTree, MerkleRoot, PreimageType, DUST_VALUE, MIN_RELAY_FEE,
+        PERIOD_BLOCK_COUNT,
     },
-    extended_rpc::ExtendedRpc,
     utils::calculate_claim_proof_root,
 };
 use bitcoin::{
@@ -20,7 +19,7 @@ use bitcoin::{
     Address, Amount, OutPoint, ScriptBuf, TxIn, TxOut, Witness,
 };
 use circuit_helpers::constant::EVMAddress;
-use secp256k1::{schnorr, Secp256k1, XOnlyPublicKey};
+use secp256k1::{Secp256k1, XOnlyPublicKey};
 
 use crate::{errors::BridgeError, script_builder::ScriptBuilder, utils::calculate_amount};
 use lazy_static::lazy_static;
@@ -209,24 +208,16 @@ impl TransactionBuilder {
         ])
     }
 
+    /// TODO: Implement the igning part for the connecting to BitVM transactions
+    /// This function creates the connector trees using the connector tree hashes.
+    /// Starting from the first source UTXO, it creates the connector UTXO trees and
+    /// returns the claim proof merkle roots, root utxos and the connector trees.
     pub fn create_all_connector_trees(
         &self,
-        signer: &Actor,
-        rpc: &ExtendedRpc,
-        // tx_builder: &TransactionBuilder,
-        connector_tree_hashes: &Vec<Vec<Vec<[u8; 32]>>>,
+        connector_tree_hashes: &Vec<HashTree>,
         start_blockheight: u64,
         first_source_utxo: &OutPoint,
-        pks: &Vec<XOnlyPublicKey>,
-    ) -> Result<
-        (
-            Vec<[u8; 32]>,
-            Vec<OutPoint>,
-            Vec<ConnectorTreeUTXOs>,
-            Vec<schnorr::Signature>,
-        ),
-        BridgeError,
-    > {
+    ) -> Result<(Vec<MerkleRoot>, Vec<OutPoint>, Vec<ConnectorUTXOTree>), BridgeError> {
         let single_tree_amount = calculate_amount(
             CONNECTOR_TREE_DEPTH,
             Amount::from_sat(DUST_VALUE),
@@ -236,20 +227,11 @@ impl TransactionBuilder {
 
         let mut cur_connector_source_utxo = *first_source_utxo;
         let mut cur_amount = total_amount;
-        let mut curr_prevouts = vec![rpc
-            .get_raw_transaction(&first_source_utxo.txid, None)
-            .unwrap()
-            .output[0]
-            .clone()];
         println!("first_source_utxo: {:?}", first_source_utxo);
-        println!("cur_prevouts: {:?}", curr_prevouts);
-
-        let script_n_of_n = self.script_builder.generate_script_n_of_n();
 
         let mut claim_proof_merkle_roots: Vec<[u8; 32]> = Vec::new();
         let mut root_utxos: Vec<OutPoint> = Vec::new();
-        let mut utxo_trees: Vec<ConnectorTreeUTXOs> = Vec::new();
-        let mut sigs: Vec<schnorr::Signature> = Vec::new();
+        let mut utxo_trees: Vec<ConnectorUTXOTree> = Vec::new();
 
         for i in 0..NUM_ROUNDS {
             claim_proof_merkle_roots.push(calculate_claim_proof_root(
@@ -261,8 +243,8 @@ impl TransactionBuilder {
             )?;
             let (connector_bt_root_address, _) =
                 TransactionBuilder::create_connector_tree_node_address(
-                    &signer.secp,
-                    &pks[pks.len() - 1],
+                    &self.secp,
+                    &self.verifiers_pks[self.verifiers_pks.len() - 1],
                     &connector_tree_hashes[i][0][0],
                 )?;
             let curr_root_and_next_source_tx_ins =
@@ -279,21 +261,10 @@ impl TransactionBuilder {
                 ),
             ]);
 
-            let mut curr_root_and_next_source_tx = TransactionBuilder::create_btc_tx(
+            let curr_root_and_next_source_tx = TransactionBuilder::create_btc_tx(
                 curr_root_and_next_source_tx_ins,
                 curr_root_and_next_source_tx_outs,
             );
-
-            let sig = signer
-                .sign_taproot_script_spend_tx(
-                    &mut curr_root_and_next_source_tx,
-                    &curr_prevouts,
-                    &script_n_of_n,
-                    0,
-                )
-                .unwrap();
-            sigs.push(sig);
-            curr_prevouts = vec![curr_root_and_next_source_tx.output[0].clone()];
 
             let txid = curr_root_and_next_source_tx.txid();
 
@@ -303,7 +274,7 @@ impl TransactionBuilder {
 
             let utxo_tree = self.create_connector_binary_tree(
                 i,
-                &pks[pks.len() - 1],
+                &self.verifiers_pks[self.verifiers_pks.len() - 1],
                 &cur_connector_bt_root_utxo,
                 CONNECTOR_TREE_DEPTH,
                 connector_tree_hashes[i].clone(),
@@ -313,7 +284,7 @@ impl TransactionBuilder {
             cur_amount = cur_amount - single_tree_amount;
         }
 
-        Ok((claim_proof_merkle_roots, root_utxos, utxo_trees, sigs))
+        Ok((claim_proof_merkle_roots, root_utxos, utxo_trees))
     }
 
     fn create_btc_tx(tx_ins: Vec<TxIn>, tx_outs: Vec<TxOut>) -> bitcoin::Transaction {
@@ -512,7 +483,7 @@ impl TransactionBuilder {
         root_utxo: &OutPoint,
         depth: usize,
         connector_tree_hashes: Vec<Vec<[u8; 32]>>,
-    ) -> Result<ConnectorTreeUTXOs, BridgeError> {
+    ) -> Result<ConnectorUTXOTree, BridgeError> {
         // UTXO value should be at least 2^depth * dust_value + (2^depth-1) * fee
         let total_amount = calculate_amount(
             depth,
@@ -527,7 +498,7 @@ impl TransactionBuilder {
             &connector_tree_hashes[0][0],
         )?;
 
-        let mut utxo_binary_tree: ConnectorTreeUTXOs = Vec::new();
+        let mut utxo_binary_tree: ConnectorUTXOTree = Vec::new();
         utxo_binary_tree.push(vec![*root_utxo]);
 
         for i in 0..depth {

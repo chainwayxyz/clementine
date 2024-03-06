@@ -1,4 +1,4 @@
-use crate::constant::ConnectorTreeUTXOs;
+use crate::constant::ConnectorUTXOTree;
 use crate::errors::BridgeError;
 
 use crate::traits::verifier::VerifierConnector;
@@ -9,8 +9,8 @@ use bitcoin::{secp256k1, secp256k1::Secp256k1, OutPoint};
 use circuit_helpers::config::{CONNECTOR_TREE_DEPTH, NUM_ROUNDS};
 use circuit_helpers::constant::EVMAddress;
 
+use secp256k1::SecretKey;
 use secp256k1::XOnlyPublicKey;
-use secp256k1::{schnorr, SecretKey};
 
 use crate::extended_rpc::ExtendedRpc;
 use crate::transaction_builder::TransactionBuilder;
@@ -26,7 +26,7 @@ pub struct Verifier {
     pub signer: Actor,
     pub transaction_builder: TransactionBuilder,
     pub verifiers: Vec<XOnlyPublicKey>,
-    pub connector_tree_utxos: Vec<ConnectorTreeUTXOs>,
+    pub connector_tree_utxos: Vec<ConnectorUTXOTree>,
     pub connector_tree_hashes: Vec<Vec<Vec<[u8; 32]>>>,
     pub operator_pk: XOnlyPublicKey,
 }
@@ -104,16 +104,13 @@ impl VerifierConnector for Verifier {
         connector_tree_hashes: &Vec<Vec<Vec<[u8; 32]>>>,
         start_blockheight: u64,
         first_source_utxo: &OutPoint,
-    ) -> Result<Vec<schnorr::Signature>, BridgeError> {
+    ) -> Result<(), BridgeError> {
         println!("Verifier first_source_utxo: {:?}", first_source_utxo);
         println!("Verifier verifiers_pks len: {:?}", self.verifiers.len());
-        let (_, _, utxo_trees, sigs) = self.transaction_builder.create_all_connector_trees(
-            &self.signer,
-            &self.rpc,
+        let (_, _, utxo_trees) = self.transaction_builder.create_all_connector_trees(
             &connector_tree_hashes,
             start_blockheight,
             &first_source_utxo,
-            &self.verifiers,
         )?;
 
         // self.set_connector_tree_utxos(utxo_trees);
@@ -127,7 +124,7 @@ impl VerifierConnector for Verifier {
         // println!("Verifier root_utxos: {:?}", root_utxos);
         println!("Verifier utxo_trees: {:?}", self.connector_tree_utxos);
         // println!("Verifier utxo_trees: {:?}", self.connector_tree_utxos);
-        Ok(sigs)
+        Ok(())
     }
 }
 

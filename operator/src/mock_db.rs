@@ -2,7 +2,7 @@ use bitcoin::Txid;
 
 use crate::{
     config::DEPTH,
-    constant::{ConnectorTreeUTXOs, HashType, InscriptionTxs, PreimageType},
+    constant::{ConnectorUTXOTree, HashTree, HashType, InscriptionTxs, PreimageTree, PreimageType},
     merkle::MerkleTree,
     operator::OperatorClaimSigs,
     traits::operator_db::OperatorDBConnector,
@@ -11,12 +11,12 @@ use crate::{
 #[derive(Debug, Clone)]
 pub struct OperatorMockDB {
     deposit_take_sigs: Vec<OperatorClaimSigs>,
-    connector_tree_preimages: Vec<Vec<Vec<PreimageType>>>,
-    connector_tree_hashes: Vec<Vec<Vec<HashType>>>,
+    connector_tree_preimages: Vec<PreimageTree>,
+    connector_tree_hashes: Vec<HashTree>,
     inscription_txs: Vec<InscriptionTxs>,
     withdrawals_merkle_tree: MerkleTree<DEPTH>,
     withdrawals_payment_txids: Vec<Txid>,
-    connector_tree_utxos: Vec<ConnectorTreeUTXOs>,
+    connector_tree_utxos: Vec<ConnectorUTXOTree>,
 }
 
 impl OperatorMockDB {
@@ -96,15 +96,15 @@ impl OperatorDBConnector for OperatorMockDB {
         self.withdrawals_payment_txids.push(txid);
     }
 
-    fn get_connector_tree_utxo(&self, idx: usize) -> ConnectorTreeUTXOs {
+    fn get_connector_tree_utxo(&self, idx: usize) -> ConnectorUTXOTree {
         self.connector_tree_utxos[idx].clone()
     }
 
-    fn get_connector_tree_utxos(&self) -> Vec<ConnectorTreeUTXOs> {
+    fn get_connector_tree_utxos(&self) -> Vec<ConnectorUTXOTree> {
         self.connector_tree_utxos.clone()
     }
 
-    fn set_connector_tree_utxos(&mut self, connector_tree_utxos: Vec<ConnectorTreeUTXOs>) {
+    fn set_connector_tree_utxos(&mut self, connector_tree_utxos: Vec<ConnectorUTXOTree>) {
         self.connector_tree_utxos = connector_tree_utxos;
     }
 }
