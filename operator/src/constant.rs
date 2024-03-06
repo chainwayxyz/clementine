@@ -4,6 +4,7 @@ use bitcoin::Txid;
 pub type ConnectorUTXOTree = Vec<Vec<OutPoint>>;
 pub type HashTree = Vec<Vec<HashType>>;
 pub type PreimageTree = Vec<Vec<PreimageType>>;
+pub type MerkleRoot = [u8; 32];
 pub type Data = [u8; 32];
 pub type PreimageType = [u8; 32];
 pub type HashType = [u8; 32];

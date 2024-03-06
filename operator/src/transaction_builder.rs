@@ -6,7 +6,8 @@ use crate::{
         USER_TAKES_AFTER,
     },
     constant::{
-        ConnectorUTXOTree, Data, PreimageType, DUST_VALUE, MIN_RELAY_FEE, PERIOD_BLOCK_COUNT,
+        ConnectorUTXOTree, Data, HashTree, MerkleRoot, PreimageType, DUST_VALUE, MIN_RELAY_FEE,
+        PERIOD_BLOCK_COUNT,
     },
     utils::calculate_claim_proof_root,
 };
@@ -207,12 +208,16 @@ impl TransactionBuilder {
         ])
     }
 
+    /// TODO: Implement the igning part for the connecting to BitVM transactions
+    /// This function creates the connector trees using the connector tree hashes.
+    /// Starting from the first source UTXO, it creates the connector UTXO trees and
+    /// returns the claim proof merkle roots, root utxos and the connector trees.
     pub fn create_all_connector_trees(
         &self,
-        connector_tree_hashes: &Vec<Vec<Vec<[u8; 32]>>>,
+        connector_tree_hashes: &Vec<HashTree>,
         start_blockheight: u64,
         first_source_utxo: &OutPoint,
-    ) -> Result<(Vec<[u8; 32]>, Vec<OutPoint>, Vec<ConnectorUTXOTree>), BridgeError> {
+    ) -> Result<(Vec<MerkleRoot>, Vec<OutPoint>, Vec<ConnectorUTXOTree>), BridgeError> {
         let single_tree_amount = calculate_amount(
             CONNECTOR_TREE_DEPTH,
             Amount::from_sat(DUST_VALUE),
