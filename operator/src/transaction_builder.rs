@@ -256,7 +256,7 @@ impl TransactionBuilder {
                 CONNECTOR_TREE_DEPTH,
                 &connector_tree_hashes[i],
             ));
-            let (next_connector_source_address, _) = self.create_connector_tree_root_address(
+            let (next_connector_source_address, _) = self.create_connector_tree_source_address(
                 start_blockheight + ((i + 2) * PERIOD_BLOCK_COUNT as usize) as u64,
             )?;
             let (connector_bt_root_address, _) =
@@ -396,7 +396,7 @@ impl TransactionBuilder {
         ))
     }
 
-    pub fn create_connector_tree_root_address(
+    pub fn create_connector_tree_source_address(
         &self,
         absolute_block_height_to_take_after: u64,
     ) -> Result<(Address, TaprootSpendInfo), BridgeError> {

@@ -1,4 +1,4 @@
-use bitcoin::{Block, MerkleBlock, Transaction, TxMerkleNode, Txid};
+use bitcoin::{block::Header, Block, MerkleBlock, Transaction, TxMerkleNode, Txid};
 use circuit_helpers::env::Environment;
 use secp256k1::hashes::Hash;
 use std::marker::PhantomData;
@@ -10,6 +10,19 @@ pub struct ENVWriter<E: Environment> {
 }
 
 impl<E: Environment> ENVWriter<E> {
+    pub fn write_block_header_without_prev(header: &Header) {
+        let version = header.version.to_consensus();
+        let merkle_root = header.merkle_root.as_byte_array();
+        let time = header.time;
+        let bits = header.bits.to_consensus();
+        let nonce = header.nonce;
+        E::write_i32(version);
+        E::write_32bytes(*merkle_root);
+        E::write_u32(time);
+        E::write_u32(bits);
+        E::write_u32(nonce);
+    }
+
     pub fn write_tx_to_env(tx: &Transaction) {
         E::write_i32(tx.version.0);
         E::write_u32(tx.input.len() as u32);
@@ -156,21 +169,28 @@ impl<E: Environment> ENVWriter<E> {
 #[cfg(test)]
 mod tests {
     use std::sync::Mutex;
-
     lazy_static::lazy_static! {
         static ref SHARED_STATE: Mutex<i32> = Mutex::new(0);
     }
 
-    use bitcoin::{consensus::deserialize, Block, Txid};
-    use circuit_helpers::bitcoin::{
-        read_and_verify_bitcoin_merkle_path, read_tx_and_calculate_txid,
+    use bitcoin::{
+        block::Header,
+        consensus::{deserialize, serialize},
+        Block, Txid,
+    };
+    use circuit_helpers::{
+        bitcoin::{read_and_verify_bitcoin_merkle_path, read_tx_and_calculate_txid},
+        bridge::{read_blocks_and_add_to_merkle_tree, read_blocks_and_calculate_work},
+        env::Environment,
+        incremental_merkle::IncrementalMerkleTree,
     };
     // use operator_circuit::GUEST_ELF;
 
+    use crypto_bigint::U256;
     use secp256k1::hashes::Hash;
 
     use crate::{
-        env_writer::ENVWriter, errors::BridgeError, mock_env::MockEnvironment,
+        env_writer::ENVWriter, errors::BridgeError, merkle::MerkleTree, mock_env::MockEnvironment,
         utils::parse_hex_to_btc_tx,
     };
 
@@ -274,6 +294,71 @@ mod tests {
                 assert_eq!(tx.txid(), Txid::from_byte_array(tx_id));
             }
         }
+    }
+
+    #[test]
+    fn test_read_blocks_and_add_to_merkle_tree() {
+        let mut _num = SHARED_STATE.lock().unwrap();
+        MockEnvironment::reset_mock_env();
+        let mainnet_first_11_blocks =
+            include_bytes!("../tests/data/mainnet_first_11_blocks.raw").to_vec();
+
+        let headers: Vec<Header> = deserialize(&mainnet_first_11_blocks).unwrap();
+        MockEnvironment::write_u32(headers.len() as u32);
+        for header in headers.iter() {
+            ENVWriter::<MockEnvironment>::write_block_header_without_prev(header);
+        }
+        let mut incremental_merkle_tree = IncrementalMerkleTree::<32>::new();
+        let start_block_hash = headers[0].prev_blockhash.to_byte_array();
+        let res = read_blocks_and_add_to_merkle_tree::<MockEnvironment>(
+            start_block_hash,
+            &mut incremental_merkle_tree,
+            4,
+        );
+        assert_eq!(incremental_merkle_tree.index, headers.len() as u32);
+
+        let mut mt = MerkleTree::<32>::new();
+
+        for header in headers {
+            mt.add(serialize(&header.block_hash()).try_into().unwrap());
+        }
+
+        assert_eq!(incremental_merkle_tree.root, mt.root());
+        assert_eq!(
+            (
+                U256::from(47245361163u64),
+                [
+                    68u8, 148u8, 200u8, 207u8, 65u8, 84u8, 189u8, 204u8, 7u8, 32u8, 205u8, 74u8,
+                    89u8, 217u8, 201u8, 178u8, 133u8, 228u8, 177u8, 70u8, 212u8, 95u8, 6u8, 29u8,
+                    43u8, 108u8, 150u8, 113u8, 0u8, 0u8, 0u8, 0u8
+                ],
+                [
+                    115u8, 48u8, 215u8, 173u8, 242u8, 97u8, 198u8, 152u8, 145u8, 230u8, 171u8, 8u8,
+                    54u8, 125u8, 149u8, 126u8, 116u8, 212u8, 4u8, 75u8, 197u8, 217u8, 205u8, 6u8,
+                    214u8, 86u8, 190u8, 151u8, 0u8, 0u8, 0u8, 0u8
+                ]
+            ),
+            res
+        )
+    }
+
+    #[test]
+    fn test_read_blocks_and_calculate_work() {
+        let mut _num = SHARED_STATE.lock().unwrap();
+        MockEnvironment::reset_mock_env();
+        let mainnet_blocks_from_832000_to_833096 =
+            include_bytes!("../tests/data/mainnet_blocks_from_832000_to_833096.raw").to_vec();
+
+        let headers: Vec<Header> = deserialize(&mainnet_blocks_from_832000_to_833096).unwrap();
+        for header in headers.iter() {
+            ENVWriter::<MockEnvironment>::write_block_header_without_prev(header);
+        }
+        let start_block_hash = headers[0].prev_blockhash.to_byte_array();
+        let res = read_blocks_and_calculate_work::<MockEnvironment>(
+            start_block_hash,
+            headers.len() as u32,
+        );
+        assert_eq!(U256::from(380064701315057048298976312u128), res)
     }
 
     // #[test]

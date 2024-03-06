@@ -15,6 +15,7 @@ impl Environment for RealEnvironment {
     fn read_i32() -> i32 {
         env::read()
     }
+    
     fn write_32bytes(_data: [u8; 32]) {
         panic!("Not implemented");
     }

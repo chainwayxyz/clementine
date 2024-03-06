@@ -198,7 +198,6 @@ pub fn verify_script_hash_taproot_address(
 // }
 
 // updates the hasher with variable length integer
-// see https://wiki.bitcoinsv.io/index.php/VarInt
 fn update_hasher_with_varint(hasher: &mut Sha256, integer: u32) {
     if integer < 0xfd {
         hasher.update((integer as u8).to_le_bytes());

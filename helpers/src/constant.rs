@@ -1,4 +1,5 @@
 pub type Data = [u8; 32];
+pub type HeaderWithoutPrevBlockHash = (i32, Data, u32, u32, u32);
 pub const EMPTYDATA: Data = [0; 32];
 pub const DUST_VALUE: u64 = 1000;
 // pub const MINIMUM_FEE: Amount = Amount::from_sat(300);
