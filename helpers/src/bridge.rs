@@ -6,7 +6,7 @@ use crate::{
         validate_threshold_and_add_work,
     },
     config::{BRIDGE_AMOUNT_SATS, DEPTH, NUM_ROUNDS},
-    constant::DUST_VALUE,
+    constant::{HeaderWithoutPrevBlockHash, DUST_VALUE, K_DEEP, MAX_BLOCK_HANDLE_OPS},
     double_sha256_hash,
     env::Environment,
     incremental_merkle::IncrementalMerkleTree,
@@ -20,6 +20,7 @@ use crate::{
 pub fn read_blocks_and_add_to_merkle_tree<E: Environment>(
     start_prev_block_hash: [u8; 32],
     imt: &mut IncrementalMerkleTree<DEPTH>,
+    max_block_handle_ops: u32,
 ) -> (U256, [u8; 32], [u8; 32]) {
     let n = E::read_u32();
     let mut total_work = U256::ZERO;
@@ -30,8 +31,7 @@ pub fn read_blocks_and_add_to_merkle_tree<E: Environment>(
         imt.add(curr_prev_block_hash);
         let (curr_version, curr_merkle_root, curr_time, curr_bits, curr_nonce) =
             read_header_except_prev_blockhash::<E>();
-        if i == n - 4 {
-            // TODO: CHANGE THIS WITH N - MAX_BLOCK_HANDLE_OPS
+        if i == n - max_block_handle_ops {
             lc_block_hash = curr_prev_block_hash;
         }
         curr_prev_block_hash = calculate_next_block_hash(
@@ -55,12 +55,14 @@ pub fn read_blocks_and_add_to_merkle_tree<E: Environment>(
 /// Read K block headers
 /// Returns total work from blockheight N, accumulated up to blockheight N + K
 /// Returns blockhash at N + K
-pub fn read_blocks_and_calculate_work<E: Environment>(start_prev_block_hash: [u8; 32]) -> U256 {
-    let k = E::read_u32();
+pub fn read_blocks_and_calculate_work<E: Environment>(
+    start_prev_block_hash: [u8; 32],
+    num_blocks: u32,
+) -> U256 {
     let mut total_work = U256::ZERO;
     let mut curr_prev_block_hash = start_prev_block_hash;
 
-    for _ in 0..k {
+    for _ in 0..num_blocks {
         let (curr_version, curr_merkle_root, curr_time, curr_bits, curr_nonce) =
             read_header_except_prev_blockhash::<E>();
         curr_prev_block_hash = calculate_next_block_hash(
@@ -80,7 +82,7 @@ pub fn read_blocks_and_calculate_work<E: Environment>(start_prev_block_hash: [u8
     total_work
 }
 
-fn read_header_except_prev_blockhash<E: Environment>() -> (i32, [u8; 32], u32, u32, u32) {
+fn read_header_except_prev_blockhash<E: Environment>() -> HeaderWithoutPrevBlockHash {
     let curr_version = E::read_i32();
     let curr_merkle_root = E::read_32bytes();
     let curr_time = E::read_u32();
@@ -161,8 +163,11 @@ pub fn bridge_proof<E: Environment>() {
     let mut total_pow = U256::ZERO;
     let mut last_block_hash = START_BLOCKHASH;
     for i in 0..NUM_ROUNDS {
-        let (work, lc_blockhash, cur_block_hash) =
-            read_blocks_and_add_to_merkle_tree::<E>(last_block_hash, &mut blockhashes_mt);
+        let (work, lc_blockhash, cur_block_hash) = read_blocks_and_add_to_merkle_tree::<E>(
+            last_block_hash,
+            &mut blockhashes_mt,
+            MAX_BLOCK_HANDLE_OPS,
+        );
 
         total_pow = total_pow.wrapping_add(&work);
 
@@ -188,7 +193,7 @@ pub fn bridge_proof<E: Environment>() {
                 read_merkle_tree_proof::<E, 32>(claim_proof_tree_leaf, Some(withdrawal_mt.index))
             );
 
-            let k_deep_work = read_blocks_and_calculate_work::<E>(cur_block_hash);
+            let k_deep_work = read_blocks_and_calculate_work::<E>(cur_block_hash, K_DEEP);
             total_pow = total_pow.wrapping_add(&k_deep_work);
 
             let (verifiers_pow, verifiers_last_finalized_bh, _verifiers_last_blockheight) =

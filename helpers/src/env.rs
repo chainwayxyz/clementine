@@ -3,7 +3,6 @@ pub trait Environment {
     fn read_u32() -> u32;
     fn read_u64() -> u64;
     fn read_i32() -> i32;
-    // fn read_arbitrary_num_bytes<const D: usize>() -> [u8; D];
 
     fn write_32bytes(data: [u8; 32]);
     fn write_u32(data: u32);
