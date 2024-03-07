@@ -8,8 +8,6 @@ pub const BLOCKHASH_MERKLE_TREE_DEPTH: usize = 32;
 pub const WITHDRAWAL_MERKLE_TREE_DEPTH: usize = 32;
 /// Claim merkle tree depth
 pub const CLAIM_MERKLE_TREE_DEPTH: usize = 4;
-/// Empty leaf of a merkle tree
-pub const EMPTYDATA: [u8; 32] = [0u8; 32];
 /// This is a period to handle remaining withdrawals, and inscribe connector tree preimages, 1 week = 7*24*6 = 1008
 pub const MAX_BLOCK_HANDLE_OPS: u32 = 1008;
 /// Number of rounds in the bridge
@@ -25,6 +23,8 @@ pub const PERIOD_END_BLOCK_HEIGHTS: [u32; NUM_ROUNDS] = [0; NUM_ROUNDS];
 pub const BRIDGE_AMOUNT_SATS: u64 = 100_000_000;
 /// Dust value in sats TODO: Remove the need for this
 pub const DUST_VALUE: u64 = 1000;
+/// Empty leaf of a merkle tree
+pub const EMPTYDATA: [u8; 32] = [0u8; 32];
 
 lazy_static! {
     /// Zero subtree hashes
