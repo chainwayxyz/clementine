@@ -1,19 +1,18 @@
-use crate::config::ZEROES;
-use crate::constant::{Data, EMPTYDATA};
+use circuit_helpers::constants::{EMPTYDATA, ZEROES};
 use circuit_helpers::incremental_merkle::IncrementalMerkleTree;
-use circuit_helpers::sha256_hash;
+use circuit_helpers::{sha256_hash, HashType};
 use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct MerkleTree<const DEPTH: usize> {
-    data: Vec<Vec<Data>>,
+    data: Vec<Vec<HashType>>,
     pub index: u32,
 }
 
 impl<const DEPTH: usize> Default for MerkleTree<DEPTH>
 where
-    [Data; DEPTH]: Serialize + DeserializeOwned + Copy,
+    [HashType; DEPTH]: Serialize + DeserializeOwned + Copy,
 {
     fn default() -> Self {
         Self::new()
@@ -22,7 +21,7 @@ where
 
 impl<const DEPTH: usize> MerkleTree<DEPTH>
 where
-    [Data; DEPTH]: Serialize + DeserializeOwned + Copy,
+    [HashType; DEPTH]: Serialize + DeserializeOwned + Copy,
 {
     pub fn new() -> Self {
         Self {
@@ -37,7 +36,7 @@ where
         }
     }
 
-    pub fn add(&mut self, a: Data) {
+    pub fn add(&mut self, a: HashType) {
         let mut current_index = self.index;
         let mut current_level_hash = a;
         let trz = self.index.trailing_zeros();
@@ -59,7 +58,7 @@ where
         self.index += 1;
     }
 
-    pub fn path(&self, index: u32) -> [Data; DEPTH] {
+    pub fn path(&self, index: u32) -> [HashType; DEPTH] {
         let mut p = [EMPTYDATA; DEPTH];
         let mut i = index as usize;
         for level in 0..DEPTH {
@@ -74,7 +73,7 @@ where
         p
     }
 
-    pub fn root(&self) -> Data {
+    pub fn root(&self) -> HashType {
         self.data[DEPTH][0]
     }
 

@@ -1,15 +1,10 @@
 /// This file is the duplicate of the constant.rs file in the helpers crate
 use bitcoin::OutPoint;
 use bitcoin::Txid;
-pub type ConnectorUTXOTree = Vec<Vec<OutPoint>>;
-pub type HashTree = Vec<Vec<HashType>>;
-pub type PreimageTree = Vec<Vec<PreimageType>>;
-pub type MerkleRoot = [u8; 32];
-pub type Data = [u8; 32];
-pub type PreimageType = [u8; 32];
-pub type HashType = [u8; 32];
-pub type InscriptionTxs = (OutPoint, Txid);
-pub const EMPTYDATA: Data = [0; 32];
+
+
+
+// pub const EMPTYDATA: Data = [0; 32];
 pub const DUST_VALUE: u64 = 1000;
 // pub const MINIMUM_FEE: Amount = Amount::from_sat(300);
 pub const MIN_RELAY_FEE: u64 = 500;

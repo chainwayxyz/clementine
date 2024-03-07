@@ -1,11 +1,9 @@
 use bitcoin::Txid;
+use circuit_helpers::{constants::WITHDRAWAL_MERKLE_TREE_DEPTH, HashType, PreimageType};
 
 use crate::{
-    config::DEPTH,
-    constant::{ConnectorUTXOTree, HashTree, HashType, InscriptionTxs, PreimageTree, PreimageType},
-    merkle::MerkleTree,
-    operator::OperatorClaimSigs,
-    traits::operator_db::OperatorDBConnector,
+    merkle::MerkleTree, operator::OperatorClaimSigs, traits::operator_db::OperatorDBConnector,
+    ConnectorUTXOTree, HashTree, InscriptionTxs, PreimageTree,
 };
 
 #[derive(Debug, Clone)]
@@ -14,7 +12,7 @@ pub struct OperatorMockDB {
     connector_tree_preimages: Vec<PreimageTree>,
     connector_tree_hashes: Vec<HashTree>,
     inscription_txs: Vec<InscriptionTxs>,
-    withdrawals_merkle_tree: MerkleTree<DEPTH>,
+    withdrawals_merkle_tree: MerkleTree<WITHDRAWAL_MERKLE_TREE_DEPTH>,
     withdrawals_payment_txids: Vec<Txid>,
     connector_tree_utxos: Vec<ConnectorUTXOTree>,
     start_block_height: u64,

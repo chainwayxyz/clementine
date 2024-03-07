@@ -1,7 +1,7 @@
 use bitcoin::{Address, OutPoint};
 use secp256k1::XOnlyPublicKey;
 
-use crate::{constant::EVMAddress, errors::BridgeError, operator::DepositPresigns};
+use crate::{errors::BridgeError, operator::DepositPresigns, EVMAddress};
 
 pub trait VerifierConnector: std::fmt::Debug {
     fn new_deposit(

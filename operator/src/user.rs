@@ -2,14 +2,13 @@ use crate::actor::Actor;
 use crate::errors::BridgeError;
 use crate::extended_rpc::ExtendedRpc;
 use crate::transaction_builder::TransactionBuilder;
+use crate::EVMAddress;
 use bitcoin::secp256k1::Secp256k1;
 use bitcoin::OutPoint;
 use bitcoin::XOnlyPublicKey;
-use circuit_helpers::constant::EVMAddress;
+use circuit_helpers::constants::BRIDGE_AMOUNT_SATS;
 use secp256k1::schnorr::Signature;
 use secp256k1::SecretKey;
-
-use crate::config::BRIDGE_AMOUNT_SATS;
 
 #[derive(Debug)]
 pub struct User {

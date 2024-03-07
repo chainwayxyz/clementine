@@ -3,10 +3,13 @@ use crypto_bigint::U256;
 use crate::{
     bitcoin::{
         read_and_verify_bitcoin_merkle_path, read_tx_and_calculate_txid,
-        validate_threshold_and_add_work,
+        validate_threshold_and_add_work, HeaderWithoutPrevBlockHash,
     },
-    config::{BRIDGE_AMOUNT_SATS, DEPTH, NUM_ROUNDS},
-    constant::{HeaderWithoutPrevBlockHash, DUST_VALUE, K_DEEP, MAX_BLOCK_HANDLE_OPS},
+    constants::{
+        BLOCKHASH_MERKLE_TREE_DEPTH, BRIDGE_AMOUNT_SATS, CLAIM_MERKLE_TREE_DEPTH, DUST_VALUE,
+        MAX_BLOCK_HANDLE_OPS, NUM_ROUNDS, PERIOD_CLAIM_MT_ROOTS, START_BLOCKHASH,
+        WITHDRAWAL_MERKLE_TREE_DEPTH,
+    },
     double_sha256_hash,
     env::Environment,
     incremental_merkle::IncrementalMerkleTree,
@@ -20,7 +23,7 @@ use crate::{
 /// Writing block hashes from blockheight 2 to N + 1 to an incremental merkle tree (regenerated ones)
 pub fn read_blocks_and_add_to_merkle_tree<E: Environment>(
     start_prev_block_hash: [u8; 32],
-    imt: &mut IncrementalMerkleTree<DEPTH>,
+    imt: &mut IncrementalMerkleTree<BLOCKHASH_MERKLE_TREE_DEPTH>,
     max_block_handle_ops: u32,
 ) -> (U256, [u8; 32], [u8; 32]) {
     let n = E::read_u32();
@@ -111,7 +114,7 @@ pub fn read_merkle_tree_proof<E: Environment, const D: usize>(
 /// Reads a withdrawal proof, adds output address to incremental merkle tree
 pub fn read_withdrawal_proof<E: Environment>(
     block_mt_root: [u8; 32],
-    imt: &mut IncrementalMerkleTree<DEPTH>,
+    imt: &mut IncrementalMerkleTree<WITHDRAWAL_MERKLE_TREE_DEPTH>,
 ) {
     let output_address = E::read_32bytes();
     let txid = read_tx_and_calculate_txid::<E>(None, Some((BRIDGE_AMOUNT_SATS, output_address)));
@@ -136,9 +139,6 @@ pub fn read_and_verify_lc_proof<E: Environment>(
 pub fn read_and_verify_verifiers_challenge_proof<E: Environment>() -> (U256, [u8; 32], u32) {
     unimplemented!()
 }
-
-pub const START_BLOCKHASH: [u8; 32] = [0; 32];
-pub const PERIODS_CLAIM_MT_ROOTS: [[u8; 32]; NUM_ROUNDS] = [[0; 32]; NUM_ROUNDS];
 
 pub fn bridge_proof<E: Environment>() {
     let mut blockhashes_mt = IncrementalMerkleTree::new();
@@ -169,14 +169,17 @@ pub fn bridge_proof<E: Environment>() {
             let blockhash = read_and_verify_bitcoin_merkle_path::<E>(reveal_txid);
             assert_eq!(
                 blockhashes_mt.root,
-                read_merkle_tree_proof::<E, 32>(blockhash, None)
+                read_merkle_tree_proof::<E, BLOCKHASH_MERKLE_TREE_DEPTH>(blockhash, None)
             );
             assert_eq!(
-                PERIODS_CLAIM_MT_ROOTS[i],
-                read_merkle_tree_proof::<E, 32>(claim_proof_tree_leaf, Some(withdrawal_mt.index))
+                PERIOD_CLAIM_MT_ROOTS[i],
+                read_merkle_tree_proof::<E, CLAIM_MERKLE_TREE_DEPTH>(
+                    claim_proof_tree_leaf,
+                    Some(withdrawal_mt.index)
+                )
             );
 
-            let k_deep_work = read_blocks_and_calculate_work::<E>(cur_block_hash, K_DEEP);
+            let k_deep_work = read_blocks_and_calculate_work::<E>(cur_block_hash, 500);
             total_pow = total_pow.wrapping_add(&k_deep_work);
 
             let (verifiers_pow, verifiers_last_finalized_bh, _verifiers_last_blockheight) =
@@ -184,6 +187,8 @@ pub fn bridge_proof<E: Environment>() {
 
             // if our pow is bigger and we have different last finalized block hash, we win
             // that means verifier can't make a challenge for previous periods
+            // verifier should wait K_DEEP blocks to make a challenge to make sure operator
+            // can't come up with different blockhashes
             if total_pow > verifiers_pow && cur_block_hash != verifiers_last_finalized_bh {
                 return;
             }

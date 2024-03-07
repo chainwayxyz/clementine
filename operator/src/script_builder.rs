@@ -1,10 +1,11 @@
-use crate::constant::EVMAddress;
 use bitcoin::{
     opcodes::{all::*, OP_FALSE, OP_TRUE},
     script::Builder,
     ScriptBuf, TxOut,
 };
 use secp256k1::XOnlyPublicKey;
+
+use crate::EVMAddress;
 
 #[derive(Debug, Clone)]
 pub struct ScriptBuilder {
