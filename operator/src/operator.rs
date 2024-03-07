@@ -568,10 +568,9 @@ impl Operator {
         Ok(())
     }
 
-
     /// Currently boilerplate code for generating a bridge proof
     /// Light Client proofs are not yet implemented
-    /// Verifier's Challenge proof is not yet implemented, instead we assume 
+    /// Verifier's Challenge proof is not yet implemented, instead we assume
     /// that the verifier gave correct blockhash
     /// In the future this will be probably a seperate Prover struct to be able to save old proofs
     /// and continue from old proof state when necessary
