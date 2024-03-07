@@ -1,15 +1,12 @@
 use std::str::FromStr;
 
 use crate::{
-    config::{
-        BRIDGE_AMOUNT_SATS, CONNECTOR_TREE_DEPTH, CONNECTOR_TREE_OPERATOR_TAKES_AFTER, NUM_ROUNDS,
-        USER_TAKES_AFTER,
-    },
-    constant::{
-        ConnectorUTXOTree, Data, HashTree, MerkleRoot, PreimageType, DUST_VALUE, MIN_RELAY_FEE,
-        PERIOD_BLOCK_COUNT,
+    constants::{
+        CONNECTOR_TREE_DEPTH, CONNECTOR_TREE_OPERATOR_TAKES_AFTER, DUST_VALUE, MIN_RELAY_FEE,
+        PERIOD_BLOCK_COUNT, USER_TAKES_AFTER,
     },
     utils::calculate_claim_proof_root,
+    ConnectorUTXOTree, EVMAddress, HashTree,
 };
 use bitcoin::{
     absolute,
@@ -18,7 +15,10 @@ use bitcoin::{
     taproot::{TaprootBuilder, TaprootSpendInfo},
     Address, Amount, OutPoint, ScriptBuf, TxIn, TxOut, Witness,
 };
-use circuit_helpers::constant::EVMAddress;
+use circuit_helpers::{
+    constants::{BRIDGE_AMOUNT_SATS, NUM_ROUNDS},
+    HashType, MerkleRoot, PreimageType,
+};
 use secp256k1::{Secp256k1, XOnlyPublicKey};
 
 use crate::{errors::BridgeError, script_builder::ScriptBuilder, utils::calculate_amount};
@@ -152,7 +152,7 @@ impl TransactionBuilder {
         connector_utxo: OutPoint,
         operator_address: &Address,
         operator_xonly: &XOnlyPublicKey,
-        hash: &Data,
+        hash: &HashType,
     ) -> Result<CreateTxOutputs, BridgeError> {
         let (connector_tree_leaf_address, connector_leaf_taproot_spend_info) =
             TransactionBuilder::create_connector_tree_node_address(
@@ -387,7 +387,7 @@ impl TransactionBuilder {
     pub fn create_connector_tree_node_address(
         secp: &Secp256k1<secp256k1::All>,
         actor_pk: &XOnlyPublicKey,
-        hash: &Data,
+        hash: &HashType,
     ) -> Result<CreateAddressOutputs, BridgeError> {
         let timelock_script = ScriptBuilder::generate_timelock_script(
             actor_pk,

@@ -1,14 +1,14 @@
-use crate::constant::ConnectorUTXOTree;
+use crate::constants::CONNECTOR_TREE_DEPTH;
 use crate::errors::BridgeError;
 
 use crate::traits::verifier::VerifierConnector;
 use crate::utils::check_deposit_utxo;
+use crate::{ConnectorUTXOTree, EVMAddress};
 
 use bitcoin::Address;
 use bitcoin::{secp256k1, secp256k1::Secp256k1, OutPoint};
-use circuit_helpers::config::{CONNECTOR_TREE_DEPTH, NUM_ROUNDS};
-use circuit_helpers::constant::EVMAddress;
 
+use circuit_helpers::constants::{BRIDGE_AMOUNT_SATS, NUM_ROUNDS};
 use secp256k1::SecretKey;
 use secp256k1::XOnlyPublicKey;
 
@@ -16,8 +16,6 @@ use crate::extended_rpc::ExtendedRpc;
 use crate::transaction_builder::TransactionBuilder;
 
 use crate::{actor::Actor, operator::DepositPresigns};
-
-use crate::config::BRIDGE_AMOUNT_SATS;
 
 #[derive(Debug)]
 pub struct Verifier {

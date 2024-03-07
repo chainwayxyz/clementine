@@ -1,6 +1,10 @@
+use bitcoin::{OutPoint, Txid};
+use circuit_helpers::{HashType, PreimageType};
+
 pub mod actor;
-pub mod config;
-pub mod constant;
+// pub mod config;
+// pub mod constant;
+pub mod constants;
 pub mod env_writer;
 pub mod errors;
 pub mod extended_rpc;
@@ -14,3 +18,11 @@ pub mod transaction_builder;
 pub mod user;
 pub mod utils;
 pub mod verifier;
+
+pub type ConnectorUTXOTree = Vec<Vec<OutPoint>>;
+pub type HashTree = Vec<Vec<HashType>>;
+pub type PreimageTree = Vec<Vec<PreimageType>>;
+pub type InscriptionTxs = (OutPoint, Txid);
+
+/// Type alias for EVM address
+pub type EVMAddress = [u8; 20];

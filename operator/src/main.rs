@@ -1,9 +1,9 @@
 use bitcoin::secp256k1::rand::rngs::OsRng;
-use operator::config::{NUM_USERS, NUM_VERIFIERS};
-use operator::constant::EVMAddress;
+use operator::constants::{NUM_USERS, NUM_VERIFIERS};
 use operator::errors::BridgeError;
 use operator::traits::verifier::VerifierConnector;
 use operator::verifier::Verifier;
+use operator::EVMAddress;
 use operator::{extended_rpc::ExtendedRpc, operator::Operator, user::User};
 use secp256k1::XOnlyPublicKey;
 

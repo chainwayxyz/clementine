@@ -18,7 +18,7 @@ use hex;
 
 use sha2::{Digest, Sha256};
 
-use crate::constant::CONFIRMATION_BLOCK_COUNT;
+use crate::constants::CONFIRMATION_BLOCK_COUNT;
 use crate::errors::BridgeError;
 use crate::extended_rpc::ExtendedRpc;
 use crate::transaction_builder::{CreateTxOutputs, TransactionBuilder};

@@ -1,8 +1,6 @@
-use crate::{
-    constant::{ConnectorUTXOTree, HashType, InscriptionTxs, PreimageType},
-    operator::OperatorClaimSigs,
-};
+use crate::{operator::OperatorClaimSigs, ConnectorUTXOTree, InscriptionTxs};
 use bitcoin::Txid;
+use circuit_helpers::{HashType, PreimageType};
 pub trait OperatorDBConnector: std::fmt::Debug {
     fn get_deposit_index(&self) -> usize;
     fn add_deposit_take_sigs(&mut self, deposit_take_sigs: OperatorClaimSigs);

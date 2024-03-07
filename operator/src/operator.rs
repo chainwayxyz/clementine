@@ -1,8 +1,7 @@
 use std::vec;
 
 use crate::actor::Actor;
-use crate::config::{BRIDGE_AMOUNT_SATS, CONNECTOR_TREE_DEPTH, NUM_ROUNDS};
-use crate::constant::{HashType, PreimageType, DUST_VALUE, MIN_RELAY_FEE, PERIOD_BLOCK_COUNT};
+use crate::constants::{CONNECTOR_TREE_DEPTH, DUST_VALUE, MIN_RELAY_FEE, PERIOD_BLOCK_COUNT};
 use crate::errors::BridgeError;
 use crate::extended_rpc::ExtendedRpc;
 
@@ -15,14 +14,15 @@ use crate::utils::{
     calculate_amount, check_deposit_utxo, get_claim_reveal_indices, handle_taproot_witness,
     handle_taproot_witness_new,
 };
+use crate::EVMAddress;
 
 use bitcoin::address::NetworkChecked;
 use bitcoin::hashes::Hash;
 
 use bitcoin::{secp256k1, secp256k1::schnorr, Address};
 use bitcoin::{Amount, OutPoint};
-use circuit_helpers::constant::EVMAddress;
-use circuit_helpers::sha256_hash;
+use circuit_helpers::constants::{BRIDGE_AMOUNT_SATS, NUM_ROUNDS};
+use circuit_helpers::{sha256_hash, HashType, PreimageType};
 use secp256k1::rand::rngs::OsRng;
 use secp256k1::rand::Rng;
 use secp256k1::{Message, SecretKey, XOnlyPublicKey};
@@ -692,9 +692,7 @@ impl Operator {
         println!("total_amount: {:?}", total_amount);
         let (connector_tree_source_address, _) = self
             .transaction_builder
-            .create_connector_tree_source_address(
-                cur_blockheight + PERIOD_BLOCK_COUNT as u64,
-            )
+            .create_connector_tree_source_address(cur_blockheight + PERIOD_BLOCK_COUNT as u64)
             .unwrap();
 
         let first_source_utxo = self
@@ -712,11 +710,7 @@ impl Operator {
 
         let (claim_proof_merkle_roots, root_utxos, utxo_trees) = self
             .transaction_builder
-            .create_all_connector_trees(
-                &connector_tree_hashes,
-                cur_blockheight,
-                &first_source_utxo,
-            )
+            .create_all_connector_trees(&connector_tree_hashes, cur_blockheight, &first_source_utxo)
             .unwrap();
 
         // self.set_connector_tree_utxos(utxo_trees.clone());
