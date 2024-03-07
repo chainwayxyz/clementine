@@ -9,11 +9,11 @@ pub const WITHDRAWAL_MERKLE_TREE_DEPTH: usize = 32;
 /// Claim merkle tree depth
 pub const CLAIM_MERKLE_TREE_DEPTH: usize = 4;
 /// This is a period to handle remaining withdrawals, and inscribe connector tree preimages, 1 week = 7*24*6 = 1008
-pub const MAX_BLOCK_HANDLE_OPS: u32 = 1008;
+pub const MAX_BLOCK_HANDLE_OPS: u32 = 3;
 /// Number of rounds in the bridge
 pub const NUM_ROUNDS: usize = 4;
 /// The prev_blockhash of the first block of the bridge (calculation of proof of works starts from here)
-pub const START_BLOCKHASH: [u8; 32] = [0; 32];
+pub const START_PREV_BLOCKHASH: [u8; 32] = [0; 32];
 /// Merkle tree roots for every period for operator to prove they inscribed correct connector tree preimages
 pub const PERIOD_CLAIM_MT_ROOTS: [[u8; 32]; NUM_ROUNDS] = [[0; 32]; NUM_ROUNDS];
 /// Block heights at which each period ends

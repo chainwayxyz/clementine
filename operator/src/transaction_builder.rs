@@ -2,8 +2,8 @@ use std::str::FromStr;
 
 use crate::{
     constants::{
-        CONNECTOR_TREE_DEPTH, CONNECTOR_TREE_OPERATOR_TAKES_AFTER, DUST_VALUE, MIN_RELAY_FEE,
-        PERIOD_BLOCK_COUNT, USER_TAKES_AFTER,
+        CONNECTOR_TREE_DEPTH, CONNECTOR_TREE_OPERATOR_TAKES_AFTER, DUST_VALUE, K_DEEP,
+        MAX_BITVM_CHALLENGE_RESPONSE_BLOCKS, MIN_RELAY_FEE, PERIOD_BLOCK_COUNT, USER_TAKES_AFTER,
     },
     utils::calculate_claim_proof_root,
     ConnectorUTXOTree, EVMAddress, HashTree,
@@ -215,8 +215,9 @@ impl TransactionBuilder {
     pub fn create_all_connector_trees(
         &self,
         connector_tree_hashes: &Vec<HashTree>,
-        start_blockheight: u64,
         first_source_utxo: &OutPoint,
+        start_block_height: u64,
+        peiod_relative_block_heights: &Vec<u32>,
     ) -> Result<(Vec<MerkleRoot>, Vec<OutPoint>, Vec<ConnectorUTXOTree>), BridgeError> {
         let single_tree_amount = calculate_amount(
             CONNECTOR_TREE_DEPTH,
@@ -239,7 +240,10 @@ impl TransactionBuilder {
                 &connector_tree_hashes[i],
             ));
             let (next_connector_source_address, _) = self.create_connector_tree_source_address(
-                start_blockheight + ((i + 2) * PERIOD_BLOCK_COUNT as usize) as u64,
+                start_block_height
+                    + (peiod_relative_block_heights[i + 1]
+                        + MAX_BITVM_CHALLENGE_RESPONSE_BLOCKS
+                        + K_DEEP) as u64,
             )?;
             let (connector_bt_root_address, _) =
                 TransactionBuilder::create_connector_tree_node_address(

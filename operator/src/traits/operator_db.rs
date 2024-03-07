@@ -17,10 +17,13 @@ pub trait OperatorDBConnector: std::fmt::Debug {
     fn add_to_inscription_txs(&mut self, inscription_txs: InscriptionTxs);
     fn get_withdrawals_merkle_tree_index(&self) -> u32;
     fn add_to_withdrawals_merkle_tree(&mut self, hash: HashType);
-    fn add_to_withdrawals_payment_txids(&mut self, txid: Txid);
+    fn add_to_withdrawals_payment_txids(&mut self, period: usize, txid: Txid);
     fn get_connector_tree_utxo(&self, idx: usize) -> ConnectorUTXOTree;
     fn get_connector_tree_utxos(&self) -> Vec<ConnectorUTXOTree>;
     fn set_connector_tree_utxos(&mut self, connector_tree_utxos: Vec<ConnectorUTXOTree>);
     fn get_start_block_height(&self) -> u64;
     fn set_start_block_height(&mut self, start_block_height: u64);
+
+    fn set_period_relative_block_heights(&mut self, period_relative_block_heights: Vec<u32>);
+    fn get_period_relative_block_heights(&self) -> Vec<u32>;
 }
