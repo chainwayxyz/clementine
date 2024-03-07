@@ -14,6 +14,7 @@ pub trait OperatorDBConnector: std::fmt::Debug {
     fn get_connector_tree_hash(&self, period: usize, level: usize, idx: usize) -> HashType;
     fn set_connector_tree_hashes(&mut self, connector_tree_hashes: Vec<Vec<Vec<HashType>>>);
     fn get_inscription_txs_len(&self) -> usize;
+    fn get_inscription_txs(&self) -> Vec<InscriptionTxs>;
     fn add_to_inscription_txs(&mut self, inscription_txs: InscriptionTxs);
     fn get_withdrawals_merkle_tree_index(&self) -> u32;
     fn add_to_withdrawals_merkle_tree(&mut self, hash: HashType);

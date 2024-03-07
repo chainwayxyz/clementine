@@ -86,6 +86,10 @@ impl OperatorDBConnector for OperatorMockDB {
         self.inscription_txs.push(inscription_txs);
     }
 
+    fn get_inscription_txs(&self) -> Vec<InscriptionTxs> {
+        self.inscription_txs.clone()
+    }
+
     fn get_withdrawals_merkle_tree_index(&self) -> u32 {
         self.withdrawals_merkle_tree.index
     }

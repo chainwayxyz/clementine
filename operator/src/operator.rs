@@ -8,7 +8,9 @@ use crate::constants::{
 use crate::errors::BridgeError;
 use crate::extended_rpc::ExtendedRpc;
 
+use crate::merkle::MerkleTree;
 use crate::mock_db::OperatorMockDB;
+use crate::mock_env::MockEnvironment;
 use crate::script_builder::ScriptBuilder;
 use crate::traits::operator_db::OperatorDBConnector;
 use crate::traits::verifier::VerifierConnector;
@@ -23,8 +25,12 @@ use bitcoin::address::NetworkChecked;
 use bitcoin::hashes::Hash;
 
 use bitcoin::{secp256k1, secp256k1::schnorr, Address};
-use bitcoin::{Amount, OutPoint};
-use circuit_helpers::constants::{BRIDGE_AMOUNT_SATS, MAX_BLOCK_HANDLE_OPS, NUM_ROUNDS};
+use bitcoin::{Amount, OutPoint, Txid};
+use circuit_helpers::constants::{
+    BLOCKHASH_MERKLE_TREE_DEPTH, BRIDGE_AMOUNT_SATS, MAX_BLOCK_HANDLE_OPS, NUM_ROUNDS,
+    WITHDRAWAL_MERKLE_TREE_DEPTH,
+};
+use circuit_helpers::env::Environment;
 use circuit_helpers::{sha256_hash, HashType, PreimageType};
 use secp256k1::rand::rngs::OsRng;
 use secp256k1::rand::Rng;
@@ -562,7 +568,67 @@ impl Operator {
         Ok(())
     }
 
-    pub fn prove(&self) {}
+
+    /// Currently boilerplate code for generating a bridge proof
+    /// Light Client proofs are not yet implemented
+    /// Verifier's Challenge proof is not yet implemented, instead we assume 
+    /// that the verifier gave correct blockhash
+    /// In the future this will be probably a seperate Prover struct to be able to save old proofs
+    /// and continue from old proof state when necessary
+    pub fn prove(&self) {
+        let blockhashes_mt = MerkleTree::<BLOCKHASH_MERKLE_TREE_DEPTH>::new();
+
+        let withdrawal_mt = MerkleTree::<WITHDRAWAL_MERKLE_TREE_DEPTH>::new();
+        let start_block_height = self.operator_db_connector.get_start_block_height();
+        let period_relative_block_heights = self
+            .operator_db_connector
+            .get_period_relative_block_heights();
+        let inscription_txs = self.operator_db_connector.get_inscription_txs();
+        let mut lc_blockhash: HashType = [0; 32];
+        for i in 0..inscription_txs.len() {
+            // First write specific blockhashes to the circuit
+            // lc_blockhash = write_blocks_and_add_to_merkle_tree(
+            //     start_block_height + period_relative_block_heights[i - 1].into(),
+            //     start_block_height + period_relative_block_heights[i].into() - 1,
+            //     blockhashes_mt,
+            // )
+
+            // let withdrawal_payments: Vec<WithdtawalPayment> =
+            //     self.operator_db_connector.get_withdrawals_payment_txids(i);
+
+            // Then write withdrawal proofs:
+            // write_withdrawals_and_add_to_merkle_tree(
+            //     withdrawals_payments,
+            //     withdrawal_mt,
+            // );
+        }
+        let last_period = inscription_txs.len() - 1;
+
+        // Now we finish the proving, since we provided blockhashes and withdrawal proofs
+        MockEnvironment::write_u32(1);
+
+        // wite_lc_proof(lc_blockhash, withdrawal_mt.root());
+
+        // let preimages: Vec<PreimageType> = self.operator_db_connector.get_inscribed_preimages(last_period);
+        // write_preimages(preimages);
+        // write_inscription_commit_tx(inscription_txs[last_period].0);
+        // write_inscription_reveal_tx(inscription_txs[last_period].1);
+        // let block = self.rpc.get_block(inscription_txs[last_period].1)?;
+        // write_bitcoin_merkle_path(inscription_txs[last_period].1, block);
+        // write_merkle_tree_proof(blockhashes_mt, block);
+        // write_claim_proof_merkle_path(i, &preimages);
+        // // write all the remaining blocks so that we will have more pow than the given challenge
+        // // adding more block hashes to the tree is not a problem.
+        let cur_block_height = self.rpc.get_block_count().unwrap();
+        // write_blocks_and_add_to_merkle_tree(
+        //     start_block_height + period_relative_block_heights[last_period].into(),
+        //     cur_block_height,
+        //     blockhashes_mt,
+        // );
+        // write_verifiers_challenge_proof();
+
+        // MockEnvironment::prove();
+    }
     // pub fn claim_deposit(&self, period: usize, index: usize) {
     //     let preimage = self.connector_tree_preimages[period]
     //         [self.connector_tree_preimages[period].len() - 1][index];
