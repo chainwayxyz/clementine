@@ -145,9 +145,14 @@ pub fn read_preimages_and_calculate_commit_taproot<E: Environment>() -> ([u8; 32
 }
 
 pub fn read_and_verify_lc_proof<E: Environment>(
-    _lc_blockhash: [u8; 32],
-    _withdrawal_mt_root: [u8; 32],
+    lc_blockhash: [u8; 32],
+    withdrawal_mt_root: [u8; 32],
 ) {
+    let read_lc_blockhash = E::read_32bytes();
+    assert_eq!(read_lc_blockhash, lc_blockhash);
+    let read_withdrawal_mt_root = E::read_32bytes();
+    assert_eq!(read_withdrawal_mt_root, withdrawal_mt_root);
+    // TODO: Verify the proof
 }
 
 pub fn read_and_verify_verifiers_challenge_proof<E: Environment>() -> (U256, [u8; 32], u32) {

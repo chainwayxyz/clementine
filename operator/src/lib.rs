@@ -26,3 +26,6 @@ pub type InscriptionTxs = (OutPoint, Txid);
 
 /// Type alias for EVM address
 pub type EVMAddress = [u8; 20];
+
+/// Type alias for withdrawal payment, HashType is taproot script hash
+pub type WithdrawalPayment = (Txid, HashType);

@@ -3,7 +3,7 @@ use circuit_helpers::{constants::WITHDRAWAL_MERKLE_TREE_DEPTH, HashType, Preimag
 
 use crate::{
     merkle::MerkleTree, operator::OperatorClaimSigs, traits::operator_db::OperatorDBConnector,
-    ConnectorUTXOTree, HashTree, InscriptionTxs, PreimageTree,
+    ConnectorUTXOTree, HashTree, InscriptionTxs, PreimageTree, WithdrawalPayment,
 };
 
 #[derive(Debug, Clone)]
@@ -13,7 +13,7 @@ pub struct OperatorMockDB {
     connector_tree_hashes: Vec<HashTree>,
     inscription_txs: Vec<InscriptionTxs>,
     withdrawals_merkle_tree: MerkleTree<WITHDRAWAL_MERKLE_TREE_DEPTH>,
-    withdrawals_payment_txids: Vec<Vec<Txid>>,
+    withdrawals_payment_txids: Vec<Vec<WithdrawalPayment>>,
     connector_tree_utxos: Vec<ConnectorUTXOTree>,
     start_block_height: u64,
     period_relative_block_heights: Vec<u32>,
@@ -98,11 +98,19 @@ impl OperatorDBConnector for OperatorMockDB {
         self.withdrawals_merkle_tree.add(hash);
     }
 
-    fn add_to_withdrawals_payment_txids(&mut self, period: usize, txid: Txid) {
+    fn add_to_withdrawals_payment_txids(
+        &mut self,
+        period: usize,
+        withdrawal_payment: WithdrawalPayment,
+    ) {
         while period >= self.withdrawals_payment_txids.len() {
             self.withdrawals_payment_txids.push(Vec::new());
         }
-        self.withdrawals_payment_txids[period].push(txid);
+        self.withdrawals_payment_txids[period].push(withdrawal_payment);
+    }
+
+    fn get_withdrawals_payment_for_period(&self, period: usize) -> Vec<WithdrawalPayment> {
+        self.withdrawals_payment_txids[period].clone()
     }
 
     fn get_connector_tree_utxo(&self, idx: usize) -> ConnectorUTXOTree {

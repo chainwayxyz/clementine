@@ -20,7 +20,7 @@ use crate::utils::{
     calculate_amount, check_deposit_utxo, get_claim_reveal_indices, handle_taproot_witness,
     handle_taproot_witness_new,
 };
-use crate::EVMAddress;
+use crate::{EVMAddress, WithdrawalPayment};
 
 use bitcoin::address::NetworkChecked;
 use bitcoin::hashes::Hash;
@@ -402,8 +402,10 @@ impl Operator {
             withdrawal_address, txid
         );
         let current_withdrawal_period = self.get_current_withdrawal_period()?;
-        self.operator_db_connector
-            .add_to_withdrawals_payment_txids(current_withdrawal_period, txid);
+        self.operator_db_connector.add_to_withdrawals_payment_txids(
+            current_withdrawal_period,
+            (txid, hash) as WithdrawalPayment,
+        );
         Ok(())
     }
 
@@ -599,6 +601,49 @@ impl Operator {
         Ok(lc_cutoff_blockhash)
     }
 
+    fn write_withdrawals_and_add_to_merkle_tree<E: Environment>(
+        &self,
+        withdrawal_payments: Vec<WithdrawalPayment>,
+        withdrawal_mt: &mut MerkleTree<WITHDRAWAL_MERKLE_TREE_DEPTH>,
+        blockhash_mt: &MerkleTree<BLOCKHASH_MERKLE_TREE_DEPTH>,
+    ) -> Result<(), BridgeError> {
+        E::write_u32(withdrawal_payments.len() as u32);
+
+        for (txid, hash) in withdrawal_payments {
+            E::write_32bytes(hash);
+            // get transaction from txid
+            let tx = self.rpc.get_raw_transaction(&txid, None)?;
+            ENVWriter::<E>::write_tx_to_env(&tx);
+            let get_transaction_result = self.rpc.get_transaction(&txid, None)?;
+            let blockhash = get_transaction_result.info.blockhash.ok_or_else(|| {
+                eprintln!("Failed to get blockhash for transaction: {:?}", txid);
+                BridgeError::RpcError
+            })?;
+
+            let block = self.rpc.get_block(&blockhash).map_err(|e| {
+                eprintln!("Failed to get block: {}", e);
+                BridgeError::RpcError
+            })?;
+
+            ENVWriter::<E>::write_bitcoin_merkle_path(txid, &block)?;
+
+            ENVWriter::<E>::write_merkle_tree_proof(blockhash.to_byte_array(), None, blockhash_mt);
+
+            withdrawal_mt.add(hash);
+        }
+
+        Ok(())
+    }
+
+    fn write_lc_proof<E: Environment>(
+        &self,
+        lc_blockhash: BlockHash,
+        withdrawal_mt_root: [u8; 32],
+    ) {
+        E::write_32bytes(lc_blockhash.to_byte_array());
+        E::write_32bytes(withdrawal_mt_root);
+    }
+
     /// Currently boilerplate code for generating a bridge proof
     /// Light Client proofs are not yet implemented
     /// Verifier's Challenge proof is not yet implemented, instead we assume
@@ -608,13 +653,13 @@ impl Operator {
     pub fn prove<E: Environment>(&self) -> Result<(), BridgeError> {
         let mut blockhashes_mt = MerkleTree::<BLOCKHASH_MERKLE_TREE_DEPTH>::new();
 
-        let withdrawal_mt = MerkleTree::<WITHDRAWAL_MERKLE_TREE_DEPTH>::new();
+        let mut withdrawal_mt = MerkleTree::<WITHDRAWAL_MERKLE_TREE_DEPTH>::new();
         let start_block_height = self.operator_db_connector.get_start_block_height();
         let period_relative_block_heights = self
             .operator_db_connector
             .get_period_relative_block_heights();
         let inscription_txs = self.operator_db_connector.get_inscription_txs();
-        let mut lc_blockhash: BlockHash;
+        let mut lc_blockhash: BlockHash = BlockHash::all_zeros();
         for i in 0..inscription_txs.len() {
             // First write specific blockhashes to the circuit
             lc_blockhash = self.write_blocks_and_add_to_merkle_tree::<E>(
@@ -623,21 +668,23 @@ impl Operator {
                 &mut blockhashes_mt,
             )?;
 
-            // let withdrawal_payments: Vec<WithdtawalPayment> =
-            //     self.operator_db_connector.get_withdrawals_payment_txids(i);
+            let withdrawal_payments = self
+                .operator_db_connector
+                .get_withdrawals_payment_for_period(i);
 
             // Then write withdrawal proofs:
-            // write_withdrawals_and_add_to_merkle_tree(
-            //     withdrawals_payments,
-            //     withdrawal_mt,
-            // );
+            self.write_withdrawals_and_add_to_merkle_tree::<E>(
+                withdrawal_payments,
+                &mut withdrawal_mt,
+                &blockhashes_mt,
+            )?;
         }
         let last_period = inscription_txs.len() - 1;
 
         // Now we finish the proving, since we provided blockhashes and withdrawal proofs
         MockEnvironment::write_u32(1);
 
-        // wite_lc_proof(lc_blockhash, withdrawal_mt.root());
+        self.write_lc_proof::<E>(lc_blockhash, withdrawal_mt.root());
 
         // let preimages: Vec<PreimageType> = self.operator_db_connector.get_inscribed_preimages(last_period);
         // write_preimages(preimages);
