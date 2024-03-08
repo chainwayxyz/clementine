@@ -118,13 +118,41 @@ pub fn get_script_hash(
     hasher.finalize().into()
 }
 
+/// TODO: change the script length from u8 to general value so that it works for any length
+pub fn read_preimages_and_calculate_commit_taproot<E: Environment>() -> ([u8; 32], [u8; 32]) {
+    let num_preimages = E::read_u32();
+    let actor_pk_bytes = E::read_32bytes();
+    let mut hasher_commit_taproot = Sha256::new();
+    let mut hasher_claim_proof_leaf = Sha256::new();
+    let tap_leaf_str = "TapLeaf";
+    let tap_leaf_tag_hash: [u8; 32] = sha256_hash!(&tap_leaf_str.as_bytes());
+    hasher_commit_taproot.update(tap_leaf_tag_hash);
+    hasher_commit_taproot.update(tap_leaf_tag_hash);
+    hasher_commit_taproot.update([192u8]);
+    let script_length: u8 = 37 + 33 * num_preimages as u8;
+    hasher_commit_taproot.update([script_length]);
+    hasher_commit_taproot.update([32u8]);
+    hasher_commit_taproot.update(actor_pk_bytes);
+    hasher_commit_taproot.update([172u8, 0u8, 99u8]);
+    for _ in 0..num_preimages {
+        hasher_commit_taproot.update([32u8]);
+        let preimage = E::read_32bytes();
+        hasher_commit_taproot.update(&preimage);
+        hasher_claim_proof_leaf.update(&preimage);
+    }
+    hasher_commit_taproot.update([104u8]);
+    let script_hash: [u8; 32] = hasher_commit_taproot.finalize().into();
+    let claim_proof_leaf: [u8; 32] = hasher_claim_proof_leaf.finalize().into();
+    return (script_hash, claim_proof_leaf);
+}
+
 pub fn verify_script_hash_taproot_address(
     actor_pk_bytes: [u8; 32],
     preimages: &[u8],
     number_of_preimages: u8,
     tap_leaf_hash: [u8; 32],
     taproot_address: [u8; 32],
-) -> (bool, [u8; 33], &[u8]) {
+) -> (bool, [u8; 32], &[u8]) {
     assert!(
         get_script_hash(actor_pk_bytes, preimages, number_of_preimages) == tap_leaf_hash,
         "Script hash does not match tap leaf hash"
@@ -163,7 +191,7 @@ pub fn verify_script_hash_taproot_address(
     // internal_key.tap_tweak(secp, merkle_root);
     (
         address_bytes[1..33] == taproot_address,
-        address_bytes,
+        address_bytes[1..33].try_into().unwrap(),
         preimages,
     )
 }

@@ -1,9 +1,10 @@
 use crypto_bigint::U256;
+use sha2::{Digest, Sha256};
 
 use crate::{
     bitcoin::{
-        read_and_verify_bitcoin_merkle_path, read_tx_and_calculate_txid,
-        validate_threshold_and_add_work, HeaderWithoutPrevBlockHash,
+        read_and_verify_bitcoin_merkle_path, read_preimages_and_calculate_commit_taproot,
+        read_tx_and_calculate_txid, validate_threshold_and_add_work, HeaderWithoutPrevBlockHash,
     },
     constants::{
         BLOCKHASH_MERKLE_TREE_DEPTH, BRIDGE_AMOUNT_SATS, CLAIM_MERKLE_TREE_DEPTH, DUST_VALUE,
@@ -138,10 +139,6 @@ pub fn read_withdrawal_proof<E: Environment>(
         read_merkle_tree_proof::<E, 32>(blockhash, None)
     );
     imt.add(output_address);
-}
-
-pub fn read_preimages_and_calculate_commit_taproot<E: Environment>() -> ([u8; 32], [u8; 32]) {
-    unimplemented!()
 }
 
 pub fn read_and_verify_lc_proof<E: Environment>(
