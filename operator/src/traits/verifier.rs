@@ -16,7 +16,8 @@ pub trait VerifierConnector: std::fmt::Debug {
     fn connector_roots_created(
         &mut self,
         connector_tree_hashes: &Vec<Vec<Vec<[u8; 32]>>>,
-        start_blockheight: u64,
         first_source_utxo: &OutPoint,
+        start_blockheight: u64,
+        peiod_relative_block_heights: Vec<u32>,
     ) -> Result<(), BridgeError>;
 }

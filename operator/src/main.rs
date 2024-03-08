@@ -1,4 +1,5 @@
 use bitcoin::secp256k1::rand::rngs::OsRng;
+use circuit_helpers::constants::MAX_BLOCK_HANDLE_OPS;
 use operator::constants::{NUM_USERS, NUM_VERIFIERS};
 use operator::errors::BridgeError;
 use operator::traits::verifier::VerifierConnector;
@@ -42,7 +43,7 @@ fn test_flow() -> Result<(), BridgeError> {
         .collect();
 
     // Initial setup for connector roots
-    let (first_source_utxo, start_blockheight, connector_tree_hashes) =
+    let (first_source_utxo, start_blockheight, connector_tree_hashes, peiod_relative_block_heights) =
         operator.initial_setup(&mut OsRng).unwrap();
 
     // let mut connector_tree_source_sigs = Vec::new();
@@ -50,8 +51,9 @@ fn test_flow() -> Result<(), BridgeError> {
     for verifier in &mut operator.verifier_connector {
         let _sigs = verifier.connector_roots_created(
             &connector_tree_hashes,
-            start_blockheight,
             &first_source_utxo,
+            start_blockheight,
+            peiod_relative_block_heights.clone(),
         );
         // connector_tree_source_sigs.push(sigs);
     }
@@ -85,6 +87,7 @@ fn test_flow() -> Result<(), BridgeError> {
         operator.new_withdrawal(users[i].signer.address.clone())?;
         rpc.mine_blocks(1)?;
     }
+    rpc.mine_blocks((peiod_relative_block_heights[0] - MAX_BLOCK_HANDLE_OPS - 30).into())?;
 
     operator.inscribe_connector_tree_preimages()?;
 

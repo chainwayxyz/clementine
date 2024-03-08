@@ -7,7 +7,7 @@ use crate::{
     },
     constants::{
         BLOCKHASH_MERKLE_TREE_DEPTH, BRIDGE_AMOUNT_SATS, CLAIM_MERKLE_TREE_DEPTH, DUST_VALUE,
-        MAX_BLOCK_HANDLE_OPS, NUM_ROUNDS, PERIOD_CLAIM_MT_ROOTS, START_BLOCKHASH,
+        MAX_BLOCK_HANDLE_OPS, NUM_ROUNDS, PERIOD_CLAIM_MT_ROOTS, START_PREV_BLOCKHASH,
         WITHDRAWAL_MERKLE_TREE_DEPTH,
     },
     double_sha256_hash,
@@ -158,7 +158,7 @@ pub fn bridge_proof<E: Environment>() {
     let mut blockhashes_mt = IncrementalMerkleTree::new();
     let mut withdrawal_mt = IncrementalMerkleTree::new();
     let mut total_pow = U256::ZERO;
-    let mut last_block_hash = START_BLOCKHASH;
+    let mut last_block_hash = START_PREV_BLOCKHASH;
     for i in 0..NUM_ROUNDS {
         let (work, lc_blockhash, cur_block_hash) = read_blocks_and_add_to_merkle_tree::<E>(
             last_block_hash,

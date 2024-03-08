@@ -15,7 +15,7 @@ pub const DUST_VALUE: u64 = 1000;
 pub const MIN_RELAY_FEE: u64 = 500;
 
 /// This is temporary. to be able to set PERIOD_END_BLOCK_HEIGHTS
-pub const PERIOD_BLOCK_COUNT: u32 = 25920; // 10 mins for 1 block, 6 months = 6*30*24*6 = 25920
+pub const PERIOD_BLOCK_COUNT: u32 = 50; // 10 mins for 1 block, 6 months = 6*30*24*6 = 25920
 
 /// For deposits, every user makes a timelock to take the money back if deposit deos not happen,
 /// one reason is to not spam the bridge operator
@@ -23,3 +23,9 @@ pub const USER_TAKES_AFTER: u32 = 200;
 
 /// For deposits, bridge operator does not accept the tx if it is not confirmed
 pub const CONFIRMATION_BLOCK_COUNT: u32 = 6;
+
+/// K_DEEP is the give time to verifier to make a proper challenge
+pub const K_DEEP: u32 = 3;
+
+/// MAX_BITVM_CHALLENGE_RESPONSE_BLOCKS is maximum number of blocks a single bitvm challenge response can take
+pub const MAX_BITVM_CHALLENGE_RESPONSE_BLOCKS: u32 = 5;

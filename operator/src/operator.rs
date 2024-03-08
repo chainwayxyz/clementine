@@ -1,11 +1,16 @@
 use std::vec;
 
 use crate::actor::Actor;
-use crate::constants::{CONNECTOR_TREE_DEPTH, DUST_VALUE, MIN_RELAY_FEE, PERIOD_BLOCK_COUNT};
+use crate::constants::{
+    CONNECTOR_TREE_DEPTH, DUST_VALUE, K_DEEP, MAX_BITVM_CHALLENGE_RESPONSE_BLOCKS, MIN_RELAY_FEE,
+    PERIOD_BLOCK_COUNT,
+};
 use crate::errors::BridgeError;
 use crate::extended_rpc::ExtendedRpc;
 
+use crate::merkle::MerkleTree;
 use crate::mock_db::OperatorMockDB;
+use crate::mock_env::MockEnvironment;
 use crate::script_builder::ScriptBuilder;
 use crate::traits::operator_db::OperatorDBConnector;
 use crate::traits::verifier::VerifierConnector;
@@ -20,8 +25,12 @@ use bitcoin::address::NetworkChecked;
 use bitcoin::hashes::Hash;
 
 use bitcoin::{secp256k1, secp256k1::schnorr, Address};
-use bitcoin::{Amount, OutPoint};
-use circuit_helpers::constants::{BRIDGE_AMOUNT_SATS, NUM_ROUNDS};
+use bitcoin::{Amount, OutPoint, Txid};
+use circuit_helpers::constants::{
+    BLOCKHASH_MERKLE_TREE_DEPTH, BRIDGE_AMOUNT_SATS, MAX_BLOCK_HANDLE_OPS, NUM_ROUNDS,
+    WITHDRAWAL_MERKLE_TREE_DEPTH,
+};
+use circuit_helpers::env::Environment;
 use circuit_helpers::{sha256_hash, HashType, PreimageType};
 use secp256k1::rand::rngs::OsRng;
 use secp256k1::rand::Rng;
@@ -323,7 +332,50 @@ impl Operator {
         Ok(move_utxo)
     }
 
-    // this is called when a Withdrawal event emitted on rollup
+    /// Returns the current withdrawal
+    fn get_current_withdrawal_period(&self) -> Result<usize, BridgeError> {
+        let cur_block_height = self.rpc.get_block_count().unwrap();
+        let start_block_height = self.operator_db_connector.get_start_block_height();
+        let period_relative_block_heights = self
+            .operator_db_connector
+            .get_period_relative_block_heights();
+        for (i, block_height) in period_relative_block_heights.iter().enumerate() {
+            if cur_block_height
+                < start_block_height + *block_height as u64 - MAX_BLOCK_HANDLE_OPS as u64
+            {
+                return Ok(i);
+            }
+        }
+        Err(BridgeError::InvalidPeriod)
+    }
+
+    fn get_current_preimage_reveal_period(&self) -> Result<usize, BridgeError> {
+        let cur_block_height = self.rpc.get_block_count().unwrap();
+        println!("Cur block height: {:?}", cur_block_height);
+        let start_block_height = self.operator_db_connector.get_start_block_height();
+        println!("Start block height: {:?}", start_block_height);
+        let period_relative_block_heights = self
+            .operator_db_connector
+            .get_period_relative_block_heights();
+
+        for (i, block_height) in period_relative_block_heights.iter().enumerate() {
+            println!(
+                "{:?} < {:?} < {:?}",
+                start_block_height + *block_height as u64 - MAX_BLOCK_HANDLE_OPS as u64,
+                cur_block_height,
+                start_block_height + *block_height as u64
+            );
+            if cur_block_height
+                > start_block_height + *block_height as u64 - MAX_BLOCK_HANDLE_OPS as u64
+                && cur_block_height < start_block_height + *block_height as u64
+            {
+                return Ok(i);
+            }
+        }
+        Err(BridgeError::InvalidPeriod)
+    }
+
+    // this is called when a Withdrawal event emitted on rollup and its corresponding batch proof is finalized
     pub fn new_withdrawal(
         &mut self,
         withdrawal_address: Address<NetworkChecked>,
@@ -348,8 +400,9 @@ impl Operator {
             "operator paid to withdrawal address: {:?}, txid: {:?}",
             withdrawal_address, txid
         );
+        let current_withdrawal_period = self.get_current_withdrawal_period()?;
         self.operator_db_connector
-            .add_to_withdrawals_payment_txids(txid);
+            .add_to_withdrawals_payment_txids(current_withdrawal_period, txid);
         Ok(())
     }
 
@@ -459,10 +512,6 @@ impl Operator {
         Ok(())
     }
 
-    fn get_current_period(&self) -> usize {
-        0
-    }
-
     fn get_num_withdrawals_for_period(&self, _period: usize) -> u32 {
         self.operator_db_connector
             .get_withdrawals_merkle_tree_index() // TODO: This is not corret, we should have a cutoff
@@ -473,7 +522,7 @@ impl Operator {
     /// Checks that we are in the correct period, and withdrawal period has end for the given period
     /// inscribe the connector tree preimages to the blockchain
     pub fn inscribe_connector_tree_preimages(&mut self) -> Result<(), BridgeError> {
-        let period = self.get_current_period();
+        let period = self.get_current_preimage_reveal_period()?;
         if self.operator_db_connector.get_inscription_txs_len() != period {
             return Err(BridgeError::InvalidPeriod);
         }
@@ -519,6 +568,66 @@ impl Operator {
         Ok(())
     }
 
+    /// Currently boilerplate code for generating a bridge proof
+    /// Light Client proofs are not yet implemented
+    /// Verifier's Challenge proof is not yet implemented, instead we assume
+    /// that the verifier gave correct blockhash
+    /// In the future this will be probably a seperate Prover struct to be able to save old proofs
+    /// and continue from old proof state when necessary
+    pub fn prove(&self) {
+        let blockhashes_mt = MerkleTree::<BLOCKHASH_MERKLE_TREE_DEPTH>::new();
+
+        let withdrawal_mt = MerkleTree::<WITHDRAWAL_MERKLE_TREE_DEPTH>::new();
+        let start_block_height = self.operator_db_connector.get_start_block_height();
+        let period_relative_block_heights = self
+            .operator_db_connector
+            .get_period_relative_block_heights();
+        let inscription_txs = self.operator_db_connector.get_inscription_txs();
+        let mut lc_blockhash: HashType = [0; 32];
+        for i in 0..inscription_txs.len() {
+            // First write specific blockhashes to the circuit
+            // lc_blockhash = write_blocks_and_add_to_merkle_tree(
+            //     start_block_height + period_relative_block_heights[i - 1].into(),
+            //     start_block_height + period_relative_block_heights[i].into() - 1,
+            //     blockhashes_mt,
+            // )
+
+            // let withdrawal_payments: Vec<WithdtawalPayment> =
+            //     self.operator_db_connector.get_withdrawals_payment_txids(i);
+
+            // Then write withdrawal proofs:
+            // write_withdrawals_and_add_to_merkle_tree(
+            //     withdrawals_payments,
+            //     withdrawal_mt,
+            // );
+        }
+        let last_period = inscription_txs.len() - 1;
+
+        // Now we finish the proving, since we provided blockhashes and withdrawal proofs
+        MockEnvironment::write_u32(1);
+
+        // wite_lc_proof(lc_blockhash, withdrawal_mt.root());
+
+        // let preimages: Vec<PreimageType> = self.operator_db_connector.get_inscribed_preimages(last_period);
+        // write_preimages(preimages);
+        // write_inscription_commit_tx(inscription_txs[last_period].0);
+        // write_inscription_reveal_tx(inscription_txs[last_period].1);
+        // let block = self.rpc.get_block(inscription_txs[last_period].1)?;
+        // write_bitcoin_merkle_path(inscription_txs[last_period].1, block);
+        // write_merkle_tree_proof(blockhashes_mt, block);
+        // write_claim_proof_merkle_path(i, &preimages);
+        // // write all the remaining blocks so that we will have more pow than the given challenge
+        // // adding more block hashes to the tree is not a problem.
+        let cur_block_height = self.rpc.get_block_count().unwrap();
+        // write_blocks_and_add_to_merkle_tree(
+        //     start_block_height + period_relative_block_heights[last_period].into(),
+        //     cur_block_height,
+        //     blockhashes_mt,
+        // );
+        // write_verifiers_challenge_proof();
+
+        // MockEnvironment::prove();
+    }
     // pub fn claim_deposit(&self, period: usize, index: usize) {
     //     let preimage = self.connector_tree_preimages[period]
     //         [self.connector_tree_preimages[period].len() - 1][index];
@@ -666,14 +775,25 @@ impl Operator {
     pub fn initial_setup(
         &mut self,
         rng: &mut OsRng,
-    ) -> Result<(OutPoint, u64, Vec<Vec<Vec<HashType>>>), BridgeError> {
+    ) -> Result<(OutPoint, u64, Vec<Vec<Vec<HashType>>>, Vec<u32>), BridgeError> {
         let blockheight = self.operator_db_connector.get_start_block_height();
         if blockheight != 0 {
             return Err(BridgeError::AlreadyInitialized);
         }
-        let cur_blockheight = self.rpc.get_block_height()?;
+
+        // initial setup starts with getting the current blockheight to set the start blockheight
+        let start_block_height = self.rpc.get_block_height()?;
         self.operator_db_connector
-            .set_start_block_height(cur_blockheight);
+            .set_start_block_height(start_block_height);
+
+        // this is a vector [PERIOD_BLOCK_COUNT, 2*PERIOD_BLOCK_COUNT, ...] with NUM_ROUNDS elements.
+        // this can be changed to specific blockheights that we want in the initial setup.
+        // Note that PERIOD_BLOCK_COUNT should be bigger than K_DEEP + MAX_BITVM_CHALLENGE_RESPONSE_BLOCKS
+        let peiod_relative_block_heights = (0..NUM_ROUNDS as u32 + 1)
+            .map(|i| PERIOD_BLOCK_COUNT * (i + 1))
+            .collect::<Vec<u32>>();
+        self.operator_db_connector
+            .set_period_relative_block_heights(peiod_relative_block_heights.clone());
 
         let (connector_tree_preimages, connector_tree_hashes) =
             create_all_rounds_connector_preimages(CONNECTOR_TREE_DEPTH, NUM_ROUNDS, rng);
@@ -692,7 +812,12 @@ impl Operator {
         println!("total_amount: {:?}", total_amount);
         let (connector_tree_source_address, _) = self
             .transaction_builder
-            .create_connector_tree_source_address(cur_blockheight + PERIOD_BLOCK_COUNT as u64)
+            .create_connector_tree_source_address(
+                start_block_height
+                    + (peiod_relative_block_heights[0]
+                        + MAX_BITVM_CHALLENGE_RESPONSE_BLOCKS
+                        + K_DEEP) as u64,
+            )
             .unwrap();
 
         let first_source_utxo = self
@@ -710,25 +835,22 @@ impl Operator {
 
         let (claim_proof_merkle_roots, root_utxos, utxo_trees) = self
             .transaction_builder
-            .create_all_connector_trees(&connector_tree_hashes, cur_blockheight, &first_source_utxo)
+            .create_all_connector_trees(
+                &connector_tree_hashes,
+                &first_source_utxo,
+                start_block_height,
+                &peiod_relative_block_heights,
+            )
             .unwrap();
 
         // self.set_connector_tree_utxos(utxo_trees.clone());
         self.operator_db_connector
             .set_connector_tree_utxos(utxo_trees);
-        println!(
-            "Operator claim_proof_merkle_roots: {:?}",
-            claim_proof_merkle_roots
-        );
-        println!("Operator root_utxos: {:?}", root_utxos);
-        println!(
-            "Operator utxo_trees: {:?}",
-            self.operator_db_connector.get_connector_tree_utxos()
-        );
         Ok((
             first_source_utxo,
-            cur_blockheight,
+            start_block_height,
             connector_tree_hashes.clone(),
+            peiod_relative_block_heights,
         ))
     }
 }

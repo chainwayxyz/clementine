@@ -100,15 +100,17 @@ impl VerifierConnector for Verifier {
     fn connector_roots_created(
         &mut self,
         connector_tree_hashes: &Vec<Vec<Vec<[u8; 32]>>>,
-        start_blockheight: u64,
         first_source_utxo: &OutPoint,
+        start_blockheight: u64,
+        peiod_relative_block_heights: Vec<u32>,
     ) -> Result<(), BridgeError> {
         println!("Verifier first_source_utxo: {:?}", first_source_utxo);
         println!("Verifier verifiers_pks len: {:?}", self.verifiers.len());
         let (_, _, utxo_trees) = self.transaction_builder.create_all_connector_trees(
             &connector_tree_hashes,
-            start_blockheight,
             &first_source_utxo,
+            start_blockheight,
+            &peiod_relative_block_heights,
         )?;
 
         // self.set_connector_tree_utxos(utxo_trees);

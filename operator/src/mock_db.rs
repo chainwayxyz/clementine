@@ -13,9 +13,10 @@ pub struct OperatorMockDB {
     connector_tree_hashes: Vec<HashTree>,
     inscription_txs: Vec<InscriptionTxs>,
     withdrawals_merkle_tree: MerkleTree<WITHDRAWAL_MERKLE_TREE_DEPTH>,
-    withdrawals_payment_txids: Vec<Txid>,
+    withdrawals_payment_txids: Vec<Vec<Txid>>,
     connector_tree_utxos: Vec<ConnectorUTXOTree>,
     start_block_height: u64,
+    period_relative_block_heights: Vec<u32>,
 }
 
 impl OperatorMockDB {
@@ -32,6 +33,7 @@ impl OperatorMockDB {
             // move_utxos: Vec::new(),
             connector_tree_utxos: Vec::new(),
             start_block_height: 0,
+            period_relative_block_heights: Vec::new(),
         }
     }
 }
@@ -84,6 +86,10 @@ impl OperatorDBConnector for OperatorMockDB {
         self.inscription_txs.push(inscription_txs);
     }
 
+    fn get_inscription_txs(&self) -> Vec<InscriptionTxs> {
+        self.inscription_txs.clone()
+    }
+
     fn get_withdrawals_merkle_tree_index(&self) -> u32 {
         self.withdrawals_merkle_tree.index
     }
@@ -92,8 +98,11 @@ impl OperatorDBConnector for OperatorMockDB {
         self.withdrawals_merkle_tree.add(hash);
     }
 
-    fn add_to_withdrawals_payment_txids(&mut self, txid: Txid) {
-        self.withdrawals_payment_txids.push(txid);
+    fn add_to_withdrawals_payment_txids(&mut self, period: usize, txid: Txid) {
+        while period >= self.withdrawals_payment_txids.len() {
+            self.withdrawals_payment_txids.push(Vec::new());
+        }
+        self.withdrawals_payment_txids[period].push(txid);
     }
 
     fn get_connector_tree_utxo(&self, idx: usize) -> ConnectorUTXOTree {
@@ -114,5 +123,12 @@ impl OperatorDBConnector for OperatorMockDB {
 
     fn set_start_block_height(&mut self, start_block_height: u64) {
         self.start_block_height = start_block_height;
+    }
+
+    fn set_period_relative_block_heights(&mut self, period_relative_block_heights: Vec<u32>) {
+        self.period_relative_block_heights = period_relative_block_heights;
+    }
+    fn get_period_relative_block_heights(&self) -> Vec<u32> {
+        self.period_relative_block_heights.clone()
     }
 }
