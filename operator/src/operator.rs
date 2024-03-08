@@ -574,6 +574,9 @@ impl Operator {
         self.operator_db_connector
             .add_to_inscription_txs((commit_utxo, reveal_txid));
 
+        self.operator_db_connector
+            .add_inscribed_preimages(period, preimages_to_be_revealed.clone());
+
         Ok((preimages_to_be_revealed, commit_address))
     }
 
@@ -650,6 +653,10 @@ impl Operator {
         E::write_32bytes(withdrawal_mt_root);
     }
 
+    fn write_verifiers_challenge_proof<E: Environment>() -> (u32, [u8; 32], u32) {
+        unimplemented!()
+    }
+
     /// Currently boilerplate code for generating a bridge proof
     /// Light Client proofs are not yet implemented
     /// Verifier's Challenge proof is not yet implemented, instead we assume
@@ -666,17 +673,40 @@ impl Operator {
             .get_period_relative_block_heights();
         let inscription_txs = self.operator_db_connector.get_inscription_txs();
         let mut lc_blockhash: BlockHash = BlockHash::all_zeros();
+
+        let start_blockhash = self
+            .rpc
+            .get_block_hash(start_block_height - 1)
+            .map_err(|e| {
+                eprintln!("Failed to get block hash: {}", e);
+                BridgeError::RpcError
+            })?;
+
+        E::write_32bytes(start_blockhash.to_byte_array());
+
         for i in 0..inscription_txs.len() {
             // First write specific blockhashes to the circuit
+            let start_height = if i == 0 {
+                start_block_height
+            } else {
+                start_block_height + period_relative_block_heights[i - 1] as u64
+            };
+            let end_height = start_block_height + period_relative_block_heights[i] as u64;
+            println!("Writing BLOCKS AND ADDED TO MERKLE TREE");
             lc_blockhash = self.write_blocks_and_add_to_merkle_tree::<E>(
-                start_block_height + period_relative_block_heights[i - 1] as u64,
-                start_block_height + period_relative_block_heights[i] as u64 - 1,
+                start_height,
+                end_height,
                 &mut blockhashes_mt,
             )?;
 
+            println!("From {:?} to {:?} ", start_height, end_height);
+
+            println!("WROTE BLOCKS AND ADDED TO MERKLE TREE");
             let withdrawal_payments = self
                 .operator_db_connector
                 .get_withdrawals_payment_for_period(i);
+
+            println!("WITHDRAWAL PAYMENTS: {:?}", withdrawal_payments);
 
             // Then write withdrawal proofs:
             self.write_withdrawals_and_add_to_merkle_tree::<E>(
@@ -684,6 +714,7 @@ impl Operator {
                 &mut withdrawal_mt,
                 &blockhashes_mt,
             )?;
+            println!("WROTE WITHDRAWALS AND ADDED TO MERKLE TREE");
         }
         let last_period = inscription_txs.len() - 1;
 
@@ -691,8 +722,60 @@ impl Operator {
         MockEnvironment::write_u32(1);
 
         self.write_lc_proof::<E>(lc_blockhash, withdrawal_mt.root());
+        println!("WROTE LC PROOF");
 
-        // let preimages: Vec<PreimageType> = self.operator_db_connector.get_inscribed_preimages(last_period);
+        let preimages: Vec<PreimageType> = self
+            .operator_db_connector
+            .get_inscribed_preimages(last_period);
+
+        println!("PREIMAGES: {:?}", preimages);
+
+        ENVWriter::<E>::write_preimages(self.signer.xonly_public_key, preimages);
+
+        println!("WROTE PREIMAGES");
+
+        let (commit_utxo, reveal_txid) =
+            self.operator_db_connector.get_inscription_txs()[last_period];
+
+        println!("commit_utxo: {:?}", commit_utxo);
+        let commit_tx = self.rpc.get_raw_transaction(&commit_utxo.txid, None)?;
+        // println!("commit_tx: {:?}", commit_tx);
+
+        let reveal_tx = self.rpc.get_raw_transaction(&reveal_txid, None)?;
+
+        // println!("reveal_tx: {:?}", reveal_tx);
+
+        ENVWriter::<E>::write_tx_to_env(&commit_tx);
+        ENVWriter::<E>::write_tx_to_env(&reveal_tx);
+
+        let reveal_tx_result = self
+            .rpc
+            .get_raw_transaction_info(&reveal_txid, None)
+            .unwrap_or_else(|e| {
+                eprintln!("Failed to get transaction: {}, {}", reveal_txid, e);
+                panic!("");
+            });
+
+        println!("REVEAL TX IS: {:?}", reveal_tx_result);
+
+        let blockhash = reveal_tx_result.blockhash.ok_or_else(|| {
+            eprintln!("Failed to get blockhash for transaction: {:?}", reveal_txid);
+            BridgeError::RpcError
+        })?;
+
+        let block = self.rpc.get_block(&blockhash).map_err(|e| {
+            eprintln!("Failed to get block: {}", e);
+            BridgeError::RpcError
+        })?;
+
+        ENVWriter::<E>::write_bitcoin_merkle_path(reveal_txid, &block)?;
+
+        println!("Reading height: {:?}", block.bip34_block_height());
+
+        ENVWriter::<E>::write_merkle_tree_proof(blockhash.to_byte_array(), None, &blockhashes_mt);
+
+        // TODO: do the claim merkle proof here.
+
         // write_preimages(preimages);
         // write_inscription_commit_tx(inscription_txs[last_period].0);
         // write_inscription_reveal_tx(inscription_txs[last_period].1);

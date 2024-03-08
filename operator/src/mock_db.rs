@@ -10,6 +10,7 @@ use crate::{
 pub struct OperatorMockDB {
     deposit_take_sigs: Vec<OperatorClaimSigs>,
     connector_tree_preimages: Vec<PreimageTree>,
+    inscribed_connector_tree_preimages: Vec<Vec<PreimageType>>,
     connector_tree_hashes: Vec<HashTree>,
     inscription_txs: Vec<InscriptionTxs>,
     withdrawals_merkle_tree: MerkleTree<WITHDRAWAL_MERKLE_TREE_DEPTH>,
@@ -24,6 +25,7 @@ impl OperatorMockDB {
         Self {
             deposit_take_sigs: Vec::new(),
             // deposit_merkle_tree: MerkleTree::new(),
+            inscribed_connector_tree_preimages: Vec::new(),
             withdrawals_merkle_tree: MerkleTree::new(),
             withdrawals_payment_txids: Vec::new(),
             inscription_txs: Vec::new(),
@@ -138,5 +140,15 @@ impl OperatorDBConnector for OperatorMockDB {
     }
     fn get_period_relative_block_heights(&self) -> Vec<u32> {
         self.period_relative_block_heights.clone()
+    }
+
+    fn add_inscribed_preimages(&mut self, period: usize, preimages: Vec<PreimageType>) {
+        while period >= self.inscribed_connector_tree_preimages.len() {
+            self.inscribed_connector_tree_preimages.push(Vec::new());
+        }
+        self.inscribed_connector_tree_preimages[period] = preimages;
+    }
+    fn get_inscribed_preimages(&self, period: usize) -> Vec<PreimageType> {
+        self.inscribed_connector_tree_preimages[period].clone()
     }
 }

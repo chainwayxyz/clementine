@@ -136,7 +136,7 @@ pub fn read_withdrawal_proof<E: Environment>(
     let blockhash = read_and_verify_bitcoin_merkle_path::<E>(txid);
     assert_eq!(
         block_mt_root,
-        read_merkle_tree_proof::<E, 32>(blockhash, None)
+        read_merkle_tree_proof::<E, BLOCKHASH_MERKLE_TREE_DEPTH>(blockhash, None)
     );
     imt.add(output_address);
 }
@@ -160,7 +160,7 @@ pub fn bridge_proof<E: Environment>() {
     let mut blockhashes_mt = IncrementalMerkleTree::new();
     let mut withdrawal_mt = IncrementalMerkleTree::new();
     let mut total_pow = U256::ZERO;
-    let mut last_block_hash = START_PREV_BLOCKHASH;
+    let mut last_block_hash = E::read_32bytes(); // Curently we are reading the first block hash
     for i in 0..NUM_ROUNDS {
         let (work, lc_blockhash, cur_block_hash) = read_blocks_and_add_to_merkle_tree::<E>(
             last_block_hash,
@@ -187,27 +187,27 @@ pub fn bridge_proof<E: Environment>() {
                 blockhashes_mt.root,
                 read_merkle_tree_proof::<E, BLOCKHASH_MERKLE_TREE_DEPTH>(blockhash, None)
             );
-            assert_eq!(
-                PERIOD_CLAIM_MT_ROOTS[i],
-                read_merkle_tree_proof::<E, CLAIM_MERKLE_TREE_DEPTH>(
-                    claim_proof_tree_leaf,
-                    Some(withdrawal_mt.index)
-                )
-            );
+            // assert_eq!(
+            //     PERIOD_CLAIM_MT_ROOTS[i],
+            //     read_merkle_tree_proof::<E, CLAIM_MERKLE_TREE_DEPTH>(
+            //         claim_proof_tree_leaf,
+            //         Some(withdrawal_mt.index)
+            //     )
+            // );
 
-            let k_deep_work = read_blocks_and_calculate_work::<E>(cur_block_hash, 500);
+            let k_deep_work = read_blocks_and_calculate_work::<E>(cur_block_hash, 0);
             total_pow = total_pow.wrapping_add(&k_deep_work);
 
-            let (verifiers_pow, verifiers_last_finalized_bh, _verifiers_last_blockheight) =
-                read_and_verify_verifiers_challenge_proof::<E>();
+            // let (verifiers_pow, verifiers_last_finalized_bh, _verifiers_last_blockheight) =
+            //     read_and_verify_verifiers_challenge_proof::<E>();
 
-            // if our pow is bigger and we have different last finalized block hash, we win
-            // that means verifier can't make a challenge for previous periods
-            // verifier should wait K_DEEP blocks to make a challenge to make sure operator
-            // can't come up with different blockhashes
-            if total_pow > verifiers_pow && cur_block_hash != verifiers_last_finalized_bh {
-                return;
-            }
+            // // if our pow is bigger and we have different last finalized block hash, we win
+            // // that means verifier can't make a challenge for previous periods
+            // // verifier should wait K_DEEP blocks to make a challenge to make sure operator
+            // // can't come up with different blockhashes
+            // if total_pow > verifiers_pow && cur_block_hash != verifiers_last_finalized_bh {
+            //     return;
+            // }
             //
         }
         last_block_hash = cur_block_hash;

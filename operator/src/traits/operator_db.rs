@@ -32,4 +32,7 @@ pub trait OperatorDBConnector: std::fmt::Debug {
 
     fn set_period_relative_block_heights(&mut self, period_relative_block_heights: Vec<u32>);
     fn get_period_relative_block_heights(&self) -> Vec<u32>;
+
+    fn add_inscribed_preimages(&mut self, period: usize, preimages: Vec<PreimageType>);
+    fn get_inscribed_preimages(&self, period: usize) -> Vec<PreimageType>;
 }

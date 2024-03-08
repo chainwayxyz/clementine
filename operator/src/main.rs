@@ -1,7 +1,9 @@
 use bitcoin::secp256k1::rand::rngs::OsRng;
+use circuit_helpers::bridge::bridge_proof;
 use circuit_helpers::constants::MAX_BLOCK_HANDLE_OPS;
 use operator::constants::{NUM_USERS, NUM_VERIFIERS};
 use operator::errors::BridgeError;
+use operator::mock_env::MockEnvironment;
 use operator::traits::verifier::VerifierConnector;
 use operator::verifier::Verifier;
 use operator::EVMAddress;
@@ -90,6 +92,11 @@ fn test_flow() -> Result<(), BridgeError> {
     rpc.mine_blocks((peiod_relative_block_heights[0] - MAX_BLOCK_HANDLE_OPS - 30).into())?;
 
     operator.inscribe_connector_tree_preimages()?;
+
+    rpc.mine_blocks(15)?;
+
+    operator.prove::<MockEnvironment>()?;
+    bridge_proof::<MockEnvironment>();
 
     Ok(())
 }
