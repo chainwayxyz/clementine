@@ -545,7 +545,7 @@ impl Operator {
             })
             .collect::<Vec<_>>();
 
-        println!("preimages_to_be_revealed: {:?}", preimages_to_be_revealed);
+        // println!("preimages_to_be_revealed: {:?}", preimages_to_be_revealed);
 
         let (commit_address, _commit_tree_info, _inscribe_preimage_script) =
             self.transaction_builder.create_inscription_commit_address(
@@ -553,7 +553,7 @@ impl Operator {
                 &preimages_to_be_revealed,
             )?;
 
-        println!("script_pubkey: {:?}", commit_address.script_pubkey());
+        // println!("script_pubkey: {:?}", commit_address.script_pubkey());
 
         let commit_utxo = self.rpc.send_to_address(&commit_address, DUST_VALUE * 2)?;
 

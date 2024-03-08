@@ -20,6 +20,7 @@ use circuit_helpers::{
     HashType, MerkleRoot, PreimageType,
 };
 use secp256k1::{Secp256k1, XOnlyPublicKey};
+use serde::Serialize;
 
 use crate::{errors::BridgeError, script_builder::ScriptBuilder, utils::calculate_amount};
 use lazy_static::lazy_static;
@@ -416,6 +417,12 @@ impl TransactionBuilder {
     ) -> Result<(Address, TaprootSpendInfo, ScriptBuf), BridgeError> {
         let inscribe_preimage_script =
             ScriptBuilder::create_inscription_script_32_bytes(actor_pk, preimages_to_be_revealed);
+        if preimages_to_be_revealed.len() == 7 || preimages_to_be_revealed.len() == 6 {
+            println!(
+                "inscribe_preimage_script.bytes: {:?}",
+                inscribe_preimage_script.clone().as_bytes()
+            );
+        }
         let (address, taproot_info) = TransactionBuilder::create_taproot_address(
             &self.secp,
             vec![inscribe_preimage_script.clone()],
