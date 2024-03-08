@@ -407,7 +407,7 @@ impl Operator {
     }
 
     pub fn spend_connector_tree_utxo(
-        // TODO: To big, move some parts to Transaction Builder
+        // TODO: Too big, move some parts to Transaction Builder
         &self,
         period: usize,
         utxo: OutPoint,

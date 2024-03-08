@@ -1,9 +1,11 @@
-use bitcoin::{block::Header, Block, MerkleBlock, Transaction, TxMerkleNode, Txid};
+use bitcoin::{
+    block::Header, consensus::serialize, Block, MerkleBlock, Transaction, TxMerkleNode, Txid,
+};
 use circuit_helpers::env::Environment;
 use secp256k1::hashes::Hash;
 use std::marker::PhantomData;
 
-use crate::errors::BridgeError;
+use crate::{config::DEPTH, errors::BridgeError, merkle::MerkleTree};
 
 pub struct ENVWriter<E: Environment> {
     _marker: PhantomData<E>,
@@ -149,6 +151,40 @@ impl<E: Environment> ENVWriter<E> {
         }
         Ok(())
     }
+
+    pub fn write_merkle_tree_proof(leaf: [u8; 32], index: Option<u32>, mt: &MerkleTree<DEPTH>) {
+        let found_index = match index {
+            Some(i) => i,
+            None => {
+                let idx = mt
+                    .index_of(leaf)
+                    .expect("Leaf not found in the Merkle tree");
+                E::write_u32(idx);
+                idx
+            }
+        };
+        let path = mt.path(found_index);
+        for elem in path {
+            E::write_32bytes(elem);
+        }
+    }
+
+    pub fn write_blocks(_block_headers: Vec<Header>) {
+        for header in _block_headers.iter() {
+            ENVWriter::<E>::write_block_header_without_prev(header);
+        }
+    }
+
+    pub fn write_blocks_and_add_to_merkle_tree(
+        block_headers: Vec<Header>,
+        blockhashes_mt: &mut MerkleTree<DEPTH>,
+    ) {
+        E::write_u32(block_headers.len() as u32);
+        for header in block_headers.iter() {
+            ENVWriter::<E>::write_block_header_without_prev(header);
+            blockhashes_mt.add(serialize(&header.block_hash()).try_into().unwrap());
+        }
+    }
 }
 
 impl<E: Environment> Default for ENVWriter<E> {
@@ -184,7 +220,6 @@ mod tests {
             read_blocks_and_add_to_merkle_tree, read_blocks_and_calculate_work,
             read_merkle_tree_proof,
         },
-        env::Environment,
         incremental_merkle::IncrementalMerkleTree,
     };
     // use operator_circuit::GUEST_ELF;
@@ -300,33 +335,39 @@ mod tests {
     }
 
     #[test]
-    fn test_read_blocks_and_add_to_merkle_tree() {
+    fn test_write_and_read_blocks_and_add_to_merkle_tree() {
         let mut _num = SHARED_STATE.lock().unwrap();
         MockEnvironment::reset_mock_env();
         let mainnet_first_11_blocks =
             include_bytes!("../tests/data/mainnet_first_11_blocks.raw").to_vec();
 
         let headers: Vec<Header> = deserialize(&mainnet_first_11_blocks).unwrap();
-        MockEnvironment::write_u32(headers.len() as u32);
-        for header in headers.iter() {
-            ENVWriter::<MockEnvironment>::write_block_header_without_prev(header);
-        }
-        let mut incremental_merkle_tree = IncrementalMerkleTree::<32>::new();
         let start_block_hash = headers[0].prev_blockhash.to_byte_array();
+
+        let mut write_mt = MerkleTree::<32>::new();
+        ENVWriter::<MockEnvironment>::write_blocks_and_add_to_merkle_tree(
+            headers.clone(),
+            &mut write_mt,
+        );
+
+        let mut read_imt = IncrementalMerkleTree::<32>::new();
         let res = read_blocks_and_add_to_merkle_tree::<MockEnvironment>(
             start_block_hash,
-            &mut incremental_merkle_tree,
-            4,
+            &mut read_imt,
+            4, // MAX_BLOCK_HANDLE_OPS
         );
-        assert_eq!(incremental_merkle_tree.index, headers.len() as u32);
 
-        let mut mt = MerkleTree::<32>::new();
+        let mut test_mt = MerkleTree::<32>::new();
 
         for header in headers {
-            mt.add(serialize(&header.block_hash()).try_into().unwrap());
+            test_mt.add(serialize(&header.block_hash()).try_into().unwrap());
         }
 
-        assert_eq!(incremental_merkle_tree.root, mt.root());
+        // Make sure merkle trees are set up correctly
+        assert_eq!(read_imt.root, test_mt.root());
+        assert_eq!(write_mt.root(), test_mt.root());
+
+        // Make sure the result is correct
         assert_eq!(
             (
                 U256::from(47245361163u64),
@@ -346,64 +387,72 @@ mod tests {
     }
 
     #[test]
-    fn test_read_blocks_and_calculate_work() {
+    fn test_write_and_read_blocks_and_calculate_work() {
         let mut _num = SHARED_STATE.lock().unwrap();
         MockEnvironment::reset_mock_env();
         let mainnet_blocks_from_832000_to_833096 =
             include_bytes!("../tests/data/mainnet_blocks_from_832000_to_833096.raw").to_vec();
 
         let headers: Vec<Header> = deserialize(&mainnet_blocks_from_832000_to_833096).unwrap();
-        for header in headers.iter() {
-            ENVWriter::<MockEnvironment>::write_block_header_without_prev(header);
-        }
+        let num_blocks = headers.len() as u32;
         let start_block_hash = headers[0].prev_blockhash.to_byte_array();
-        let res = read_blocks_and_calculate_work::<MockEnvironment>(
-            start_block_hash,
-            headers.len() as u32,
-        );
+        ENVWriter::<MockEnvironment>::write_blocks(headers);
+
+        let res = read_blocks_and_calculate_work::<MockEnvironment>(start_block_hash, num_blocks);
         assert_eq!(U256::from(380064701315057048298976312u128), res)
     }
 
     #[test]
-    fn test_read_merkle_tree_proof() {
+    fn test_write_and_read_merkle_tree_proof() {
         let mut _num = SHARED_STATE.lock().unwrap();
         MockEnvironment::reset_mock_env();
-        let mut mt = MerkleTree::<32>::new();
-        let mut imt = IncrementalMerkleTree::<32>::new();
+        let mut test_mt = MerkleTree::<32>::new();
+        let mut read_imt = IncrementalMerkleTree::<32>::new();
         let mainnet_blocks_from_832000_to_833096 =
             include_bytes!("../tests/data/mainnet_blocks_from_832000_to_833096.raw").to_vec();
 
         let headers: Vec<Header> = deserialize(&mainnet_blocks_from_832000_to_833096).unwrap();
+        let mut serialized_headers = Vec::new();
         for header in headers.iter() {
-            mt.add(serialize(&header.block_hash()).try_into().unwrap());
-            imt.add(serialize(&header.block_hash()).try_into().unwrap());
+            serialized_headers.push(serialize(&header.block_hash()).try_into().unwrap());
+            test_mt.add(serialize(&header.block_hash()).try_into().unwrap());
+            read_imt.add(serialize(&header.block_hash()).try_into().unwrap());
         }
 
-        assert_eq!(mt.root(), imt.root);
+        // Making sure merkle trees are set correctly
+        assert_eq!(test_mt.root(), read_imt.root);
 
+        // Testing write and read merkle tree proof
+        // First write with indices
         for i in 0..headers.len() {
-            let path = mt.path(i as u32);
-            for elem in path {
-                MockEnvironment::write_32bytes(elem);
-            }
+            ENVWriter::<MockEnvironment>::write_merkle_tree_proof(
+                serialized_headers[i],
+                Some(i as u32),
+                &test_mt,
+            );
+        }
+        // Then read with indices
+        for i in 0..headers.len() {
             let calculated_root = read_merkle_tree_proof::<MockEnvironment, 32>(
-                headers[i].block_hash().to_byte_array(),
+                serialized_headers[i],
                 Some(i as u32),
             );
-            assert_eq!(mt.root(), calculated_root);
+            assert_eq!(test_mt.root(), calculated_root);
         }
 
+        // Second write without indices
         for i in 0..headers.len() {
-            let path = mt.path(i as u32);
-            MockEnvironment::write_u32(i as u32);
-            for elem in path {
-                MockEnvironment::write_32bytes(elem);
-            }
-            let calculated_root = read_merkle_tree_proof::<MockEnvironment, 32>(
-                headers[i].block_hash().to_byte_array(),
+            ENVWriter::<MockEnvironment>::write_merkle_tree_proof(
+                serialized_headers[i],
                 None,
+                &test_mt,
             );
-            assert_eq!(mt.root(), calculated_root);
+        }
+        // Then read without indices
+        for i in 0..headers.len() {
+            let calculated_root =
+                read_merkle_tree_proof::<MockEnvironment, 32>(serialized_headers[i], None);
+            assert_eq!(test_mt.root(), calculated_root);
         }
     }
 
