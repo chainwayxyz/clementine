@@ -2,6 +2,7 @@ use bitcoin::{
     block::Header, consensus::serialize, Block, MerkleBlock, Transaction, TxMerkleNode, Txid,
 };
 use circuit_helpers::env::Environment;
+use core::num;
 use secp256k1::hashes::Hash;
 use std::marker::PhantomData;
 
@@ -187,6 +188,15 @@ impl<E: Environment> ENVWriter<E> {
         for header in block_headers.iter() {
             ENVWriter::<E>::write_block_header_without_prev(header);
             blockhashes_mt.add(serialize(&header.block_hash()).try_into().unwrap());
+        }
+    }
+
+    pub fn write_preimages(operator_pk: [u8; 32], preimages: Vec<[u8; 32]>) {
+        let num_preimages = preimages.len() as u32;
+        E::write_u32(num_preimages);
+        E::write_32bytes(operator_pk);
+        for preimage in preimages {
+            E::write_32bytes(preimage);
         }
     }
 }
