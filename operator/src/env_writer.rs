@@ -1,7 +1,8 @@
 use bitcoin::{
     block::Header, consensus::serialize, Block, MerkleBlock, Transaction, TxMerkleNode, Txid,
 };
-use circuit_helpers::env::Environment;
+use circuit_helpers::sha256_hash;
+use circuit_helpers::{bitcoin::get_script_hash, env::Environment};
 use core::num;
 use secp256k1::hashes::Hash;
 use std::marker::PhantomData;
@@ -229,12 +230,17 @@ mod tests {
         Block, Txid,
     };
     use circuit_helpers::{
-        bitcoin::{read_and_verify_bitcoin_merkle_path, read_tx_and_calculate_txid},
+        bitcoin::{
+            get_script_hash, read_and_verify_bitcoin_merkle_path,
+            read_preimages_and_calculate_commit_taproot, read_tx_and_calculate_txid,
+            verify_script_hash_taproot_address,
+        },
         bridge::{
             read_blocks_and_add_to_merkle_tree, read_blocks_and_calculate_work,
             read_merkle_tree_proof,
         },
         incremental_merkle::IncrementalMerkleTree,
+        sha256_hash,
     };
     // use operator_circuit::GUEST_ELF;
 
@@ -468,6 +474,48 @@ mod tests {
                 read_merkle_tree_proof::<MockEnvironment, 32>(serialized_headers[i], None);
             assert_eq!(test_mt.root(), calculated_root);
         }
+    }
+
+    #[test]
+    fn test_write_and_read_preimages() {
+        let mut _num = SHARED_STATE.lock().unwrap();
+        MockEnvironment::reset_mock_env();
+        let script_pubkey: [u8; 32] = [
+            170, 40, 98, 49, 54, 69, 88, 112, 65, 134, 179, 235, 58, 193, 254, 190, 130, 177, 97,
+            99, 238, 242, 224, 22, 249, 145, 24, 195, 207, 97, 224, 147,
+        ];
+        let operator_xonly: [u8; 32] = [
+            56, 158, 177, 64, 247, 47, 235, 117, 75, 126, 47, 209, 156, 237, 4, 72, 128, 34, 30,
+            137, 11, 176, 99, 23, 3, 217, 110, 96, 113, 235, 187, 15,
+        ];
+        let preimages: Vec<[u8; 32]> = vec![
+            [
+                40, 63, 170, 164, 205, 49, 170, 8, 68, 105, 216, 187, 36, 234, 117, 241, 210, 104,
+                64, 85, 140, 207, 111, 193, 167, 191, 20, 246, 204, 193, 191, 135,
+            ],
+            [
+                165, 51, 216, 222, 246, 174, 194, 252, 53, 244, 177, 62, 232, 217, 255, 160, 243,
+                167, 112, 242, 213, 106, 182, 214, 8, 193, 79, 108, 39, 230, 6, 138,
+            ],
+            [
+                16, 0, 159, 63, 176, 16, 151, 32, 100, 247, 226, 170, 38, 226, 246, 203, 124, 64,
+                57, 19, 20, 92, 172, 99, 98, 248, 229, 109, 41, 247, 227, 115,
+            ],
+        ];
+        let preimages_clone = preimages.clone();
+        let preimages_len = preimages.len() as u8;
+        let preimages_flattened = preimages_clone.concat();
+        ENVWriter::<MockEnvironment>::write_preimages(operator_xonly, preimages);
+        let res_1 = read_preimages_and_calculate_commit_taproot::<MockEnvironment>();
+        let res_2 = verify_script_hash_taproot_address(
+            operator_xonly,
+            &preimages_flattened,
+            preimages_len as u8,
+            res_1.0,
+            script_pubkey,
+        );
+        assert_eq!(res_2.0, true);
+        assert_eq!(res_2.1, script_pubkey);
     }
 
     // #[test]

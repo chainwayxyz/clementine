@@ -185,7 +185,7 @@ impl Operator {
                         eprintln!("Error getting deposit presigns: {:?}", e);
                         e
                     })?;
-                println!("deposit presigns: {:?}", deposit_presigns);
+                // println!("deposit presigns: {:?}", deposit_presigns);
                 println!("Verifier checked new deposit");
                 Ok(deposit_presigns)
             })
@@ -524,7 +524,9 @@ impl Operator {
     /// Double checks if all withdrawals are satisfied
     /// Checks that we are in the correct period, and withdrawal period has end for the given period
     /// inscribe the connector tree preimages to the blockchain
-    pub fn inscribe_connector_tree_preimages(&mut self) -> Result<(), BridgeError> {
+    pub fn inscribe_connector_tree_preimages(
+        &mut self,
+    ) -> Result<(Vec<[u8; 32]>, Address), BridgeError> {
         let period = self.get_current_preimage_reveal_period()?;
         if self.operator_db_connector.get_inscription_txs_len() != period {
             return Err(BridgeError::InvalidPeriod);
@@ -543,11 +545,15 @@ impl Operator {
             })
             .collect::<Vec<_>>();
 
+        println!("preimages_to_be_revealed: {:?}", preimages_to_be_revealed);
+
         let (commit_address, _commit_tree_info, _inscribe_preimage_script) =
             self.transaction_builder.create_inscription_commit_address(
                 &self.signer.xonly_public_key,
                 &preimages_to_be_revealed,
             )?;
+
+        println!("script_pubkey: {:?}", commit_address.script_pubkey());
 
         let commit_utxo = self.rpc.send_to_address(&commit_address, DUST_VALUE * 2)?;
 
@@ -568,7 +574,7 @@ impl Operator {
         self.operator_db_connector
             .add_to_inscription_txs((commit_utxo, reveal_txid));
 
-        Ok(())
+        Ok((preimages_to_be_revealed, commit_address))
     }
 
     /// Helper function for operator to write blocks to env

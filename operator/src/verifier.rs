@@ -122,7 +122,6 @@ impl VerifierConnector for Verifier {
         //     claim_proof_merkle_roots
         // );
         // println!("Verifier root_utxos: {:?}", root_utxos);
-        println!("Verifier utxo_trees: {:?}", self.connector_tree_utxos);
         // println!("Verifier utxo_trees: {:?}", self.connector_tree_utxos);
         Ok(())
     }
