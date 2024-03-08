@@ -1,3 +1,4 @@
+use bitcoin::XOnlyPublicKey;
 use bitcoin::{
     block::Header, consensus::serialize, Block, MerkleBlock, Transaction, TxMerkleNode, Txid,
 };
@@ -192,10 +193,11 @@ impl<E: Environment> ENVWriter<E> {
         }
     }
 
-    pub fn write_preimages(operator_pk: [u8; 32], preimages: Vec<[u8; 32]>) {
+    pub fn write_preimages(operator_pk: XOnlyPublicKey, preimages: Vec<[u8; 32]>) {
         let num_preimages = preimages.len() as u32;
         E::write_u32(num_preimages);
-        E::write_32bytes(operator_pk);
+        let operator_pk_bytes: [u8; 32] = operator_pk.serialize();
+        E::write_32bytes(operator_pk_bytes);
         for preimage in preimages {
             E::write_32bytes(preimage);
         }
@@ -223,11 +225,12 @@ mod tests {
     lazy_static::lazy_static! {
         static ref SHARED_STATE: Mutex<i32> = Mutex::new(0);
     }
+    use std::str::FromStr;
 
     use bitcoin::{
         block::Header,
         consensus::{deserialize, serialize},
-        Block, Txid,
+        Block, Txid, XOnlyPublicKey,
     };
     use circuit_helpers::{
         bitcoin::{
@@ -247,7 +250,12 @@ mod tests {
     use secp256k1::hashes::Hash;
 
     use crate::{
-        env_writer::ENVWriter, errors::BridgeError, merkle::MerkleTree, mock_env::MockEnvironment,
+        env_writer::ENVWriter,
+        errors::BridgeError,
+        merkle::MerkleTree,
+        mock_env::MockEnvironment,
+        script_builder::{self, ScriptBuilder},
+        transaction_builder::TransactionBuilder,
         utils::parse_hex_to_btc_tx,
     };
 
@@ -479,32 +487,29 @@ mod tests {
     fn test_write_and_read_preimages() {
         let mut _num = SHARED_STATE.lock().unwrap();
         MockEnvironment::reset_mock_env();
-        let expected_script_pubkey: [u8; 32] = [
-            170, 40, 98, 49, 54, 69, 88, 112, 65, 134, 179, 235, 58, 193, 254, 190, 130, 177, 97,
-            99, 238, 242, 224, 22, 249, 145, 24, 195, 207, 97, 224, 147,
-        ];
-        let operator_xonly: [u8; 32] = [
-            56, 158, 177, 64, 247, 47, 235, 117, 75, 126, 47, 209, 156, 237, 4, 72, 128, 34, 30,
-            137, 11, 176, 99, 23, 3, 217, 110, 96, 113, 235, 187, 15,
-        ];
-        let preimages: Vec<[u8; 32]> = vec![
-            [
-                40, 63, 170, 164, 205, 49, 170, 8, 68, 105, 216, 187, 36, 234, 117, 241, 210, 104,
-                64, 85, 140, 207, 111, 193, 167, 191, 20, 246, 204, 193, 191, 135,
-            ],
-            [
-                165, 51, 216, 222, 246, 174, 194, 252, 53, 244, 177, 62, 232, 217, 255, 160, 243,
-                167, 112, 242, 213, 106, 182, 214, 8, 193, 79, 108, 39, 230, 6, 138,
-            ],
-            [
-                16, 0, 159, 63, 176, 16, 151, 32, 100, 247, 226, 170, 38, 226, 246, 203, 124, 64,
-                57, 19, 20, 92, 172, 99, 98, 248, 229, 109, 41, 247, 227, 115,
-            ],
-        ];
-        ENVWriter::<MockEnvironment>::write_preimages(operator_xonly, preimages);
-        let (taproot_address, _claim_proof_leaf) =
-            read_preimages_and_calculate_commit_taproot::<MockEnvironment>();
-        assert_eq!(taproot_address, expected_script_pubkey);
+
+        let operator_xonly: XOnlyPublicKey = XOnlyPublicKey::from_str(
+            "389eb140f72feb754b7e2fd19ced044880221e890bb0631703d96e6071ebbb0f",
+        )
+        .unwrap();
+
+        // Mock tx builder
+        let tx_builder = TransactionBuilder::new(vec![operator_xonly]);
+
+        for i in 0..6 {
+            let preimages: Vec<[u8; 32]> = (0..i + 1).map(|_| [i as u8; 32]).collect();
+            let (expected_address, _, _) = tx_builder
+                .create_inscription_commit_address(&operator_xonly, &preimages)
+                .unwrap();
+            let expected_script_pubkey: [u8; 32] = expected_address.script_pubkey().as_bytes()
+                [2..34]
+                .try_into()
+                .unwrap();
+            ENVWriter::<MockEnvironment>::write_preimages(operator_xonly, preimages);
+            let (taproot_address, _claim_proof_leaf) =
+                read_preimages_and_calculate_commit_taproot::<MockEnvironment>();
+            assert_eq!(expected_script_pubkey, taproot_address);
+        }
     }
 
     // #[test]

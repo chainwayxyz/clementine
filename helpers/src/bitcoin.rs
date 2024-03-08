@@ -149,10 +149,6 @@ pub fn read_preimages_and_calculate_commit_taproot<E: Environment>() -> ([u8; 32
 }
 
 pub fn calculate_taproot_from_single_script(tap_leaf_hash: [u8; 32]) -> [u8; 32] {
-    // assert!(
-    //     get_script_hash(actor_pk_bytes, preimages, number_of_preimages) == tap_leaf_hash,
-    //     "Script hash does not match tap leaf hash"
-    // );
     // internal key as bytes
     let internal_key_x_only_bytes: [u8; 32] = [
         147, 199, 55, 141, 150, 81, 138, 117, 68, 136, 33, 196, 247, 200, 244, 186, 231, 206, 96,
@@ -177,6 +173,7 @@ pub fn calculate_taproot_from_single_script(tap_leaf_hash: [u8; 32]) -> [u8; 32]
         &internal_key_x_only_bytes,
         &tap_leaf_hash
     );
+    // internal_key.tap_tweak(secp, merkle_root);
     let scalar_primitive = ScalarPrimitive::from_slice(&tweak_hash).unwrap();
     let scalar = Scalar::from(scalar_primitive);
     let scalar_point = AffinePoint::GENERATOR * scalar;
@@ -184,7 +181,6 @@ pub fn calculate_taproot_from_single_script(tap_leaf_hash: [u8; 32]) -> [u8; 32]
     let address = tweaked_output.to_affine();
     let mut address_bytes = [0u8; 33];
     address_bytes[0..33].copy_from_slice(&address.to_bytes()[0..33]);
-    // internal_key.tap_tweak(secp, merkle_root);
     address_bytes[1..33].try_into().unwrap()
 }
 
