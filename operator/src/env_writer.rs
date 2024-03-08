@@ -233,7 +233,6 @@ mod tests {
         bitcoin::{
             get_script_hash, read_and_verify_bitcoin_merkle_path,
             read_preimages_and_calculate_commit_taproot, read_tx_and_calculate_txid,
-            verify_script_hash_taproot_address,
         },
         bridge::{
             read_blocks_and_add_to_merkle_tree, read_blocks_and_calculate_work,
@@ -480,7 +479,7 @@ mod tests {
     fn test_write_and_read_preimages() {
         let mut _num = SHARED_STATE.lock().unwrap();
         MockEnvironment::reset_mock_env();
-        let script_pubkey: [u8; 32] = [
+        let expected_script_pubkey: [u8; 32] = [
             170, 40, 98, 49, 54, 69, 88, 112, 65, 134, 179, 235, 58, 193, 254, 190, 130, 177, 97,
             99, 238, 242, 224, 22, 249, 145, 24, 195, 207, 97, 224, 147,
         ];
@@ -502,20 +501,10 @@ mod tests {
                 57, 19, 20, 92, 172, 99, 98, 248, 229, 109, 41, 247, 227, 115,
             ],
         ];
-        let preimages_clone = preimages.clone();
-        let preimages_len = preimages.len() as u8;
-        let preimages_flattened = preimages_clone.concat();
         ENVWriter::<MockEnvironment>::write_preimages(operator_xonly, preimages);
-        let res_1 = read_preimages_and_calculate_commit_taproot::<MockEnvironment>();
-        let res_2 = verify_script_hash_taproot_address(
-            operator_xonly,
-            &preimages_flattened,
-            preimages_len as u8,
-            res_1.0,
-            script_pubkey,
-        );
-        assert_eq!(res_2.0, true);
-        assert_eq!(res_2.1, script_pubkey);
+        let (taproot_address, _claim_proof_leaf) =
+            read_preimages_and_calculate_commit_taproot::<MockEnvironment>();
+        assert_eq!(taproot_address, expected_script_pubkey);
     }
 
     // #[test]

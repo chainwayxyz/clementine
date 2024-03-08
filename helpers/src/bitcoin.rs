@@ -143,20 +143,16 @@ pub fn read_preimages_and_calculate_commit_taproot<E: Environment>() -> ([u8; 32
     hasher_commit_taproot.update([104u8]);
     let script_hash: [u8; 32] = hasher_commit_taproot.finalize().into();
     let claim_proof_leaf: [u8; 32] = hasher_claim_proof_leaf.finalize().into();
-    return (script_hash, claim_proof_leaf);
+    let taproot_address = calculate_taproot_from_single_script(script_hash);
+
+    return (taproot_address, claim_proof_leaf);
 }
 
-pub fn verify_script_hash_taproot_address(
-    actor_pk_bytes: [u8; 32],
-    preimages: &[u8],
-    number_of_preimages: u8,
-    tap_leaf_hash: [u8; 32],
-    taproot_address: [u8; 32],
-) -> (bool, [u8; 32], &[u8]) {
-    assert!(
-        get_script_hash(actor_pk_bytes, preimages, number_of_preimages) == tap_leaf_hash,
-        "Script hash does not match tap leaf hash"
-    );
+pub fn calculate_taproot_from_single_script(tap_leaf_hash: [u8; 32]) -> [u8; 32] {
+    // assert!(
+    //     get_script_hash(actor_pk_bytes, preimages, number_of_preimages) == tap_leaf_hash,
+    //     "Script hash does not match tap leaf hash"
+    // );
     // internal key as bytes
     let internal_key_x_only_bytes: [u8; 32] = [
         147, 199, 55, 141, 150, 81, 138, 117, 68, 136, 33, 196, 247, 200, 244, 186, 231, 206, 96,
@@ -189,11 +185,7 @@ pub fn verify_script_hash_taproot_address(
     let mut address_bytes = [0u8; 33];
     address_bytes[0..33].copy_from_slice(&address.to_bytes()[0..33]);
     // internal_key.tap_tweak(secp, merkle_root);
-    (
-        address_bytes[1..33] == taproot_address,
-        address_bytes[1..33].try_into().unwrap(),
-        preimages,
-    )
+    address_bytes[1..33].try_into().unwrap()
 }
 
 // pub fn read_tx_and_calculate_txid<E: Environment>() -> [u8; 32] {
