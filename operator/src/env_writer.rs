@@ -153,14 +153,16 @@ impl<E: Environment> ENVWriter<E> {
     }
 
     pub fn write_merkle_tree_proof(leaf: [u8; 32], index: Option<u32>, mt: &MerkleTree<DEPTH>) {
-        let found_index;
-        if index.is_none() {
-            // Find the index of the leaf in the merkle tree
-            found_index = mt.index_of(leaf).unwrap();
-            E::write_u32(found_index);
-        } else {
-            found_index = index.unwrap();
-        }
+        let found_index = match index {
+            Some(i) => i,
+            None => {
+                let idx = mt
+                    .index_of(leaf)
+                    .expect("Leaf not found in the Merkle tree");
+                E::write_u32(idx);
+                idx
+            }
+        };
         let path = mt.path(found_index);
         for elem in path {
             E::write_32bytes(elem);
@@ -352,7 +354,7 @@ mod tests {
         let res = read_blocks_and_add_to_merkle_tree::<MockEnvironment>(
             start_block_hash,
             &mut read_imt,
-            4,
+            4, // MAX_BLOCK_HANDLE_OPS
         );
 
         let mut test_mt = MerkleTree::<32>::new();
@@ -361,8 +363,11 @@ mod tests {
             test_mt.add(serialize(&header.block_hash()).try_into().unwrap());
         }
 
+        // Make sure merkle trees are set up correctly
         assert_eq!(read_imt.root, test_mt.root());
         assert_eq!(write_mt.root(), test_mt.root());
+
+        // Make sure the result is correct
         assert_eq!(
             (
                 U256::from(47245361163u64),
