@@ -496,8 +496,8 @@ mod tests {
         // Mock tx builder
         let tx_builder = TransactionBuilder::new(vec![operator_xonly]);
 
-        for i in 0..6 {
-            let preimages: Vec<[u8; 32]> = (0..i + 1).map(|_| [i as u8; 32]).collect();
+        for i in 0..24u8 {
+            let preimages: Vec<[u8; 32]> = (0..i + 1).map(|j| [j as u8; 32]).collect();
             let (expected_address, _, _) = tx_builder
                 .create_inscription_commit_address(&operator_xonly, &preimages)
                 .unwrap();

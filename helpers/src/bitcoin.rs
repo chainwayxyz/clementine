@@ -118,7 +118,6 @@ pub fn get_script_hash(
     hasher.finalize().into()
 }
 
-/// TODO: change the script length from u8 to general value so that it works for any length
 pub fn read_preimages_and_calculate_commit_taproot<E: Environment>() -> ([u8; 32], [u8; 32]) {
     let num_preimages = E::read_u32();
     let actor_pk_bytes = E::read_32bytes();
@@ -129,8 +128,8 @@ pub fn read_preimages_and_calculate_commit_taproot<E: Environment>() -> ([u8; 32
     hasher_commit_taproot.update(tap_leaf_tag_hash);
     hasher_commit_taproot.update(tap_leaf_tag_hash);
     hasher_commit_taproot.update([192u8]);
-    let script_length: u8 = 37 + 33 * num_preimages as u8;
-    hasher_commit_taproot.update([script_length]);
+    let script_length = 37 + 33 * num_preimages;
+    update_hasher_with_varint(&mut hasher_commit_taproot, script_length);
     hasher_commit_taproot.update([32u8]);
     hasher_commit_taproot.update(actor_pk_bytes);
     hasher_commit_taproot.update([172u8, 0u8, 99u8]);
