@@ -2,9 +2,7 @@ use bitcoin::XOnlyPublicKey;
 use bitcoin::{
     block::Header, consensus::serialize, Block, MerkleBlock, Transaction, TxMerkleNode, Txid,
 };
-use circuit_helpers::sha256_hash;
-use circuit_helpers::{bitcoin::get_script_hash, env::Environment};
-use core::num;
+use circuit_helpers::env::Environment;
 use secp256k1::hashes::Hash;
 use std::marker::PhantomData;
 
@@ -234,8 +232,8 @@ mod tests {
     };
     use circuit_helpers::{
         bitcoin::{
-            get_script_hash, read_and_verify_bitcoin_merkle_path,
-            read_preimages_and_calculate_commit_taproot, read_tx_and_calculate_txid,
+            read_and_verify_bitcoin_merkle_path, read_preimages_and_calculate_commit_taproot,
+            read_tx_and_calculate_txid,
         },
         bridge::{
             read_blocks_and_add_to_merkle_tree, read_blocks_and_calculate_work,

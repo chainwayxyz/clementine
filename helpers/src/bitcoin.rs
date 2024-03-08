@@ -93,30 +93,30 @@ pub fn calculate_work(target: [u8; 32]) -> U256 {
     U256::MAX.wrapping_div(&target_plus_one)
 }
 
-pub fn get_script_hash(
-    actor_pk_bytes: [u8; 32],
-    preimages: &[u8],
-    number_of_preimages: u8,
-) -> [u8; 32] {
-    let mut hasher = Sha256::new();
-    let tap_leaf_str = "TapLeaf";
-    let tap_leaf_tag_hash: [u8; 32] = sha256_hash!(&tap_leaf_str.as_bytes());
-    hasher.update(tap_leaf_tag_hash);
-    hasher.update(tap_leaf_tag_hash);
-    hasher.update([192u8]);
-    let script_length: u8 = 37 + 33 * number_of_preimages;
-    hasher.update([script_length]);
-    hasher.update([32u8]);
-    hasher.update(actor_pk_bytes);
-    hasher.update([172u8, 0u8, 99u8]);
-    for i in 0..number_of_preimages as usize {
-        let preimage = &preimages[i * 32..(i + 1) * 32];
-        hasher.update([32u8]);
-        hasher.update(preimage);
-    }
-    hasher.update([104u8]);
-    hasher.finalize().into()
-}
+// pub fn get_script_hash(
+//     actor_pk_bytes: [u8; 32],
+//     preimages: &[u8],
+//     number_of_preimages: u8,
+// ) -> [u8; 32] {
+//     let mut hasher = Sha256::new();
+//     let tap_leaf_str = "TapLeaf";
+//     let tap_leaf_tag_hash: [u8; 32] = sha256_hash!(&tap_leaf_str.as_bytes());
+//     hasher.update(tap_leaf_tag_hash);
+//     hasher.update(tap_leaf_tag_hash);
+//     hasher.update([192u8]);
+//     let script_length: u8 = 37 + 33 * number_of_preimages;
+//     hasher.update([script_length]);
+//     hasher.update([32u8]);
+//     hasher.update(actor_pk_bytes);
+//     hasher.update([172u8, 0u8, 99u8]);
+//     for i in 0..number_of_preimages as usize {
+//         let preimage = &preimages[i * 32..(i + 1) * 32];
+//         hasher.update([32u8]);
+//         hasher.update(preimage);
+//     }
+//     hasher.update([104u8]);
+//     hasher.finalize().into()
+// }
 
 pub fn read_preimages_and_calculate_commit_taproot<E: Environment>() -> ([u8; 32], [u8; 32]) {
     let num_preimages = E::read_u32();
