@@ -1,18 +1,19 @@
 use circuit_helpers::constants::{EMPTYDATA, ZEROES};
 use circuit_helpers::incremental_merkle::IncrementalMerkleTree;
 use circuit_helpers::{sha256_hash, HashType};
-use serde::de::DeserializeOwned;
-use serde::{Deserialize, Serialize};
+// use serde::de::DeserializeOwned;
+// use serde::{Deserialize, Serialize};
 
-#[derive(Clone, Debug, Deserialize, Serialize)]
+// #[derive(Clone, Debug, Deserialize, Serialize)]
+#[derive(Clone, Debug)]
 pub struct MerkleTree<const DEPTH: usize> {
     data: Vec<Vec<HashType>>,
     pub index: u32,
 }
 
 impl<const DEPTH: usize> Default for MerkleTree<DEPTH>
-where
-    [HashType; DEPTH]: Serialize + DeserializeOwned + Copy,
+// where
+// [HashType; DEPTH]: Serialize + DeserializeOwned + Copy,
 {
     fn default() -> Self {
         Self::new()
@@ -20,8 +21,8 @@ where
 }
 
 impl<const DEPTH: usize> MerkleTree<DEPTH>
-where
-    [HashType; DEPTH]: Serialize + DeserializeOwned + Copy,
+// where
+//     [HashType; DEPTH]: Serialize + DeserializeOwned + Copy,
 {
     pub fn new() -> Self {
         Self {
@@ -78,7 +79,7 @@ where
     }
 
     /// TODO: Make this more efficient
-    pub fn index_of(&self, a: Data) -> Option<u32> {
+    pub fn index_of(&self, a: HashType) -> Option<u32> {
         for i in 0..self.index {
             if self.data[0][i as usize] == a {
                 return Some(i);

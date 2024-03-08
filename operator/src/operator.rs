@@ -5,6 +5,7 @@ use crate::constants::{
     CONNECTOR_TREE_DEPTH, DUST_VALUE, K_DEEP, MAX_BITVM_CHALLENGE_RESPONSE_BLOCKS, MIN_RELAY_FEE,
     PERIOD_BLOCK_COUNT,
 };
+use crate::env_writer::ENVWriter;
 use crate::errors::BridgeError;
 use crate::extended_rpc::ExtendedRpc;
 
@@ -25,7 +26,7 @@ use bitcoin::address::NetworkChecked;
 use bitcoin::hashes::Hash;
 
 use bitcoin::{secp256k1, secp256k1::schnorr, Address};
-use bitcoin::{Amount, OutPoint, Txid};
+use bitcoin::{Amount, BlockHash, OutPoint, Txid};
 use circuit_helpers::constants::{
     BLOCKHASH_MERKLE_TREE_DEPTH, BRIDGE_AMOUNT_SATS, MAX_BLOCK_HANDLE_OPS, NUM_ROUNDS,
     WITHDRAWAL_MERKLE_TREE_DEPTH,
@@ -568,14 +569,44 @@ impl Operator {
         Ok(())
     }
 
+    /// Helper function for operator to write blocks to env
+    fn write_blocks_and_add_to_merkle_tree<E: Environment>(
+        &self,
+        start_block_height: u64,
+        end_block_height: u64,
+        blockhashes_mt: &mut MerkleTree<BLOCKHASH_MERKLE_TREE_DEPTH>,
+    ) -> Result<BlockHash, BridgeError> {
+        let block_headers_vec_result = (start_block_height..end_block_height)
+            .map(|i| {
+                let blockhash = self.rpc.get_block_hash(i).map_err(|e| {
+                    eprintln!("Failed to get block hash: {}", e);
+                    BridgeError::RpcError
+                })?;
+                let block_header = self.rpc.get_block_header(&blockhash).map_err(|e| {
+                    eprintln!("Failed to get block header: {}", e);
+                    BridgeError::RpcError
+                })?;
+                Ok(block_header)
+            })
+            .collect::<Result<Vec<_>, BridgeError>>();
+
+        let block_headers_vec = block_headers_vec_result?;
+
+        let lc_cutoff_blockhash = block_headers_vec
+            [block_headers_vec.len() - 1 - MAX_BLOCK_HANDLE_OPS as usize]
+            .block_hash();
+        ENVWriter::<E>::write_blocks_and_add_to_merkle_tree(block_headers_vec, blockhashes_mt);
+        Ok(lc_cutoff_blockhash)
+    }
+
     /// Currently boilerplate code for generating a bridge proof
     /// Light Client proofs are not yet implemented
     /// Verifier's Challenge proof is not yet implemented, instead we assume
     /// that the verifier gave correct blockhash
     /// In the future this will be probably a seperate Prover struct to be able to save old proofs
     /// and continue from old proof state when necessary
-    pub fn prove(&self) {
-        let blockhashes_mt = MerkleTree::<BLOCKHASH_MERKLE_TREE_DEPTH>::new();
+    pub fn prove<E: Environment>(&self) -> Result<(), BridgeError> {
+        let mut blockhashes_mt = MerkleTree::<BLOCKHASH_MERKLE_TREE_DEPTH>::new();
 
         let withdrawal_mt = MerkleTree::<WITHDRAWAL_MERKLE_TREE_DEPTH>::new();
         let start_block_height = self.operator_db_connector.get_start_block_height();
@@ -583,14 +614,14 @@ impl Operator {
             .operator_db_connector
             .get_period_relative_block_heights();
         let inscription_txs = self.operator_db_connector.get_inscription_txs();
-        let mut lc_blockhash: HashType = [0; 32];
+        let mut lc_blockhash: BlockHash;
         for i in 0..inscription_txs.len() {
             // First write specific blockhashes to the circuit
-            // lc_blockhash = write_blocks_and_add_to_merkle_tree(
-            //     start_block_height + period_relative_block_heights[i - 1].into(),
-            //     start_block_height + period_relative_block_heights[i].into() - 1,
-            //     blockhashes_mt,
-            // )
+            lc_blockhash = self.write_blocks_and_add_to_merkle_tree::<E>(
+                start_block_height + period_relative_block_heights[i - 1] as u64,
+                start_block_height + period_relative_block_heights[i] as u64 - 1,
+                &mut blockhashes_mt,
+            )?;
 
             // let withdrawal_payments: Vec<WithdtawalPayment> =
             //     self.operator_db_connector.get_withdrawals_payment_txids(i);
@@ -627,6 +658,7 @@ impl Operator {
         // write_verifiers_challenge_proof();
 
         // MockEnvironment::prove();
+        Ok(())
     }
     // pub fn claim_deposit(&self, period: usize, index: usize) {
     //     let preimage = self.connector_tree_preimages[period]

@@ -2,12 +2,13 @@ use crate::{
     constants::{EMPTYDATA, ZEROES},
     sha256_hash, HashType,
 };
-use serde::{de::DeserializeOwned, Deserialize, Serialize};
+// use serde::{de::DeserializeOwned, Deserialize, Serialize};
 
-#[derive(Clone, Copy, Debug, Deserialize, Serialize)]
+// #[derive(Clone, Copy, Debug, Deserialize, Serialize)]
+#[derive(Clone, Debug)]
 pub struct IncrementalMerkleTree<const DEPTH: usize>
-where
-    [HashType; DEPTH]: Serialize + DeserializeOwned + Copy,
+// where
+//     [HashType; DEPTH]: Serialize + DeserializeOwned + Copy,
 {
     pub filled_subtrees: [HashType; DEPTH],
     pub root: HashType,
@@ -15,8 +16,8 @@ where
 }
 
 impl<const DEPTH: usize> Default for IncrementalMerkleTree<DEPTH>
-where
-    [HashType; DEPTH]: Serialize + DeserializeOwned + Copy,
+// where
+//     [HashType; DEPTH]: Serialize + DeserializeOwned + Copy,
 {
     fn default() -> Self {
         Self::new()
@@ -24,8 +25,8 @@ where
 }
 
 impl<const DEPTH: usize> IncrementalMerkleTree<DEPTH>
-where
-    [HashType; DEPTH]: Serialize + DeserializeOwned + Copy,
+// where
+//     [HashType; DEPTH]: Serialize + DeserializeOwned + Copy,
 {
     pub fn new() -> Self {
         Self {

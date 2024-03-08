@@ -5,7 +5,7 @@ use circuit_helpers::env::Environment;
 use secp256k1::hashes::Hash;
 use std::marker::PhantomData;
 
-use crate::{config::DEPTH, errors::BridgeError, merkle::MerkleTree};
+use crate::{errors::BridgeError, merkle::MerkleTree};
 
 pub struct ENVWriter<E: Environment> {
     _marker: PhantomData<E>,
@@ -152,7 +152,11 @@ impl<E: Environment> ENVWriter<E> {
         Ok(())
     }
 
-    pub fn write_merkle_tree_proof(leaf: [u8; 32], index: Option<u32>, mt: &MerkleTree<DEPTH>) {
+    pub fn write_merkle_tree_proof<const DEPTH: usize>(
+        leaf: [u8; 32],
+        index: Option<u32>,
+        mt: &MerkleTree<DEPTH>,
+    ) {
         let found_index = match index {
             Some(i) => i,
             None => {
@@ -175,7 +179,7 @@ impl<E: Environment> ENVWriter<E> {
         }
     }
 
-    pub fn write_blocks_and_add_to_merkle_tree(
+    pub fn write_blocks_and_add_to_merkle_tree<const DEPTH: usize>(
         block_headers: Vec<Header>,
         blockhashes_mt: &mut MerkleTree<DEPTH>,
     ) {

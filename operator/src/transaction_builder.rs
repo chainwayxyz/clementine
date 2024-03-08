@@ -3,7 +3,7 @@ use std::str::FromStr;
 use crate::{
     constants::{
         CONNECTOR_TREE_DEPTH, CONNECTOR_TREE_OPERATOR_TAKES_AFTER, DUST_VALUE, K_DEEP,
-        MAX_BITVM_CHALLENGE_RESPONSE_BLOCKS, MIN_RELAY_FEE, PERIOD_BLOCK_COUNT, USER_TAKES_AFTER,
+        MAX_BITVM_CHALLENGE_RESPONSE_BLOCKS, MIN_RELAY_FEE, USER_TAKES_AFTER,
     },
     utils::calculate_claim_proof_root,
     ConnectorUTXOTree, EVMAddress, HashTree,

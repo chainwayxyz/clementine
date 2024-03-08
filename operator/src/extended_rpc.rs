@@ -121,10 +121,23 @@ impl ExtendedRpc {
     }
 
     pub fn get_work_at_block(&self, blockheight: u64) -> Result<Work, BridgeError> {
-        let block_hash = self.inner.get_block_hash(blockheight)?;
+        let block_hash = self.get_block_hash(blockheight)?;
         let block = self.inner.get_block(&block_hash)?;
         let work = block.header.work();
         Ok(work)
+    }
+
+    pub fn get_block_hash(&self, blockheight: u64) -> Result<bitcoin::BlockHash, BridgeError> {
+        let block_hash = self.inner.get_block_hash(blockheight)?;
+        Ok(block_hash)
+    }
+
+    pub fn get_block_header(
+        &self,
+        block_hash: &bitcoin::BlockHash,
+    ) -> Result<bitcoin::block::Header, BridgeError> {
+        let block_header = self.inner.get_block_header(block_hash)?;
+        Ok(block_header)
     }
 
     pub fn calculate_total_work_between_blocks(
