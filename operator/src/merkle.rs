@@ -75,7 +75,11 @@ impl<const DEPTH: usize> MerkleTree<DEPTH>
     }
 
     pub fn root(&self) -> HashType {
-        self.data[DEPTH][0]
+        if self.data[DEPTH].is_empty() {
+            ZEROES[DEPTH]
+        } else {
+            self.data[DEPTH][0]
+        }
     }
 
     /// TODO: Make this more efficient
@@ -111,5 +115,37 @@ impl<const DEPTH: usize> MerkleTree<DEPTH>
             root: current_level_hash,
             index,
         }
+    }
+}
+
+// cargo test --package operator --lib  -- merkle::tests::test_merkle_cross_check --nocapture
+#[cfg(test)]
+mod tests {
+    use circuit_helpers::incremental_merkle::IncrementalMerkleTree;
+    use crate::merkle::MerkleTree;
+
+    #[test]
+    fn test_merkle_cross_check() {
+        let mut mt = MerkleTree::<31>::new();
+        let mut imt = IncrementalMerkleTree::<31>::new();
+        let contract_empty_root : [u8; 32] = [
+            0x2a, 0xfd, 0x59, 0x5f, 0x48, 0x6a, 0x77, 0x1b, 
+            0xf9, 0x65, 0x3b, 0x93, 0x33, 0xd7, 0x8b, 0xf1,
+            0x01, 0xfa, 0xd1, 0xf5, 0xdd, 0xb0, 0xdb, 0x96,
+            0x0c, 0x5a, 0x14, 0x50, 0x20, 0x00, 0x61, 0xdb
+        ];
+        assert_eq!(mt.root(), contract_empty_root);
+        assert_eq!(mt.root(), imt.root);
+        let a = [1 as u8; 32];
+        mt.add(a);
+        imt.add(a);
+        let contract_insert_1_root : [u8; 32] = [
+            0x15, 0xf4, 0x6f, 0x6e, 0x63, 0xb6, 0xbf, 0x80,
+            0xf7, 0x1e, 0x67, 0xa6, 0x70, 0x46, 0xe5, 0xda,
+            0xce, 0x83, 0x4e, 0x54, 0x2c, 0xa9, 0x0d, 0x2e,
+            0xd2, 0x35, 0x91, 0x10, 0x55, 0xa1, 0x0b, 0x33
+        ];
+        assert_eq!(mt.root(), contract_insert_1_root);
+        assert_eq!(mt.root(), imt.root);
     }
 }
