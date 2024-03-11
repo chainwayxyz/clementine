@@ -243,13 +243,12 @@ pub fn bridge_proof<E: Environment>() {
                 PERIOD_CLAIM_MT_ROOTS[i],
                 read_merkle_tree_proof::<E, CLAIM_MERKLE_TREE_DEPTH>(
                     claim_proof_tree_leaf,
-                    Some(num_withdrawals)
+                    Some(num_withdrawals),
                 )
             );
 
-            // WORKS UNTIL HERE
+            let k_deep_work = read_blocks_and_calculate_work::<E>(cur_block_hash, 3); // TODO: Change to K
 
-            let k_deep_work = read_blocks_and_calculate_work::<E>(cur_block_hash, 0);
             // println!("READ k_deep_work: {:?}", k_deep_work);
             total_pow = total_pow.wrapping_add(&k_deep_work);
             // println!("total_pow: {:?}", total_pow);

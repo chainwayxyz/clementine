@@ -23,10 +23,11 @@ use crate::utils::{
 use crate::{EVMAddress, WithdrawalPayment};
 
 use bitcoin::address::NetworkChecked;
+use bitcoin::block::Header;
 use bitcoin::hashes::Hash;
 
+use bitcoin::{block, Amount, BlockHash, OutPoint};
 use bitcoin::{secp256k1, secp256k1::schnorr, Address};
-use bitcoin::{Amount, BlockHash, OutPoint};
 use circuit_helpers::constants::{
     BLOCKHASH_MERKLE_TREE_DEPTH, BRIDGE_AMOUNT_SATS, CLAIM_MERKLE_TREE_DEPTH, MAX_BLOCK_HANDLE_OPS,
     NUM_ROUNDS, WITHDRAWAL_MERKLE_TREE_DEPTH,
@@ -722,6 +723,8 @@ impl Operator {
             start_blockhash.to_byte_array()
         );
 
+        let mut end_height: u64 = 0;
+
         for i in 0..inscription_txs.len() {
             // First write specific blockhashes to the circuit
             let start_height = if i == 0 {
@@ -729,7 +732,7 @@ impl Operator {
             } else {
                 start_block_height + period_relative_block_heights[i - 1] as u64
             };
-            let end_height = start_block_height + period_relative_block_heights[i] as u64;
+            end_height = start_block_height + period_relative_block_heights[i] as u64;
             // println!("Writing BLOCKS AND ADDED TO MERKLE TREE");
             lc_blockhash = self.write_blocks_and_add_to_merkle_tree::<E>(
                 start_height,
@@ -857,6 +860,16 @@ impl Operator {
         // // write all the remaining blocks so that we will have more pow than the given challenge
         // // adding more block hashes to the tree is not a problem.
         let _cur_block_height = self.rpc.get_block_count().unwrap();
+
+        let mut k_deep_blocks: Vec<Header> = Vec::new();
+
+        for i in end_height.._cur_block_height {
+            let blockhash = self.rpc.get_block_hash(i).unwrap();
+            let block_header = self.rpc.get_block_header(&blockhash).unwrap();
+            k_deep_blocks.push(block_header);
+        }
+
+        ENVWriter::<E>::write_blocks(k_deep_blocks);
         // write_blocks_and_add_to_merkle_tree(
         //     start_block_height + period_relative_block_heights[last_period].into(),
         //     cur_block_height,
