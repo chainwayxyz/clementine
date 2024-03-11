@@ -108,6 +108,17 @@ contract BridgeTest is Test {
         assertEq(depositor.balance, 0);
     }
 
+    function testCannotBatchWithdrawWithWrongValue() public {
+        vm.startPrank(depositor);
+        vm.deal(address(depositor), 10 ether);
+        bytes32[] memory btc_addresses = new bytes32[](10);
+        for (uint i = 0; i < 10; i++) {
+            btc_addresses[i] = bytes32(abi.encodePacked(i));
+        }
+        vm.expectRevert("Invalid withdraw amount");
+        bridge.batchWithdraw{value: 9 ether}(btc_addresses);
+    }
+
     function testCannotDoubleDepositWithSameTx() public {
         testDeposit();
         vm.expectRevert("txId already spent");
