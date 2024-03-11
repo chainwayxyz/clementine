@@ -2,7 +2,6 @@ use crate::{
     merkle::MerkleTree, operator::OperatorClaimSigs, ConnectorUTXOTree, InscriptionTxs,
     WithdrawalPayment,
 };
-use bitcoin::Txid;
 use circuit_helpers::{constants::CLAIM_MERKLE_TREE_DEPTH, HashType, PreimageType};
 pub trait OperatorDBConnector: std::fmt::Debug {
     fn get_deposit_index(&self) -> usize;

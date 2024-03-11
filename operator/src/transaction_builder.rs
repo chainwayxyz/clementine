@@ -6,7 +6,7 @@ use crate::{
         MAX_BITVM_CHALLENGE_RESPONSE_BLOCKS, MIN_RELAY_FEE, USER_TAKES_AFTER,
     },
     merkle::MerkleTree,
-    utils::{calculate_claim_proof_root, get_claim_proof_tree_leaf},
+    utils::get_claim_proof_tree_leaf,
     ConnectorUTXOTree, EVMAddress, HashTree,
 };
 use bitcoin::{
@@ -21,7 +21,6 @@ use circuit_helpers::{
     sha256_hash, HashType, MerkleRoot, PreimageType,
 };
 use secp256k1::{Secp256k1, XOnlyPublicKey};
-use serde::Serialize;
 use sha2::{Digest, Sha256};
 
 use crate::{errors::BridgeError, script_builder::ScriptBuilder, utils::calculate_amount};
@@ -459,7 +458,6 @@ impl TransactionBuilder {
         for elem in preimages_to_be_revealed {
             hasher.update(sha256_hash!(elem));
         }
-        let hash = hasher.finalize();
         Ok((address, taproot_info, inscribe_preimage_script))
     }
 

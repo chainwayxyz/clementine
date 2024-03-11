@@ -17,8 +17,8 @@ use crate::traits::operator_db::OperatorDBConnector;
 use crate::traits::verifier::VerifierConnector;
 use crate::transaction_builder::TransactionBuilder;
 use crate::utils::{
-    calculate_amount, check_deposit_utxo, get_claim_proof_tree_leaf, get_claim_reveal_indices,
-    handle_taproot_witness, handle_taproot_witness_new,
+    calculate_amount, check_deposit_utxo, get_claim_reveal_indices, handle_taproot_witness,
+    handle_taproot_witness_new,
 };
 use crate::{EVMAddress, WithdrawalPayment};
 

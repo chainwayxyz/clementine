@@ -1,5 +1,4 @@
 use crypto_bigint::U256;
-use sha2::{Digest, Sha256};
 
 use crate::{
     bitcoin::{

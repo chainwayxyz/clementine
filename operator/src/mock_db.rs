@@ -1,4 +1,3 @@
-use bitcoin::Txid;
 use circuit_helpers::{
     constants::{CLAIM_MERKLE_TREE_DEPTH, WITHDRAWAL_MERKLE_TREE_DEPTH},
     HashType, PreimageType,
