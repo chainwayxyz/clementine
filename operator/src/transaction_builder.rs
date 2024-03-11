@@ -18,10 +18,11 @@ use bitcoin::{
 };
 use circuit_helpers::{
     constants::{BRIDGE_AMOUNT_SATS, CLAIM_MERKLE_TREE_DEPTH, NUM_ROUNDS},
-    HashType, MerkleRoot, PreimageType,
+    sha256_hash, HashType, MerkleRoot, PreimageType,
 };
 use secp256k1::{Secp256k1, XOnlyPublicKey};
 use serde::Serialize;
+use sha2::{Digest, Sha256};
 
 use crate::{errors::BridgeError, script_builder::ScriptBuilder, utils::calculate_amount};
 use lazy_static::lazy_static;
@@ -250,6 +251,10 @@ impl TransactionBuilder {
             //     CONNECTOR_TREE_DEPTH,
             //     &connector_tree_hashes[i],
             // ));
+            // println!("calculate_claim_proof_root: {:?}", calculate_claim_proof_root(
+            //         CONNECTOR_TREE_DEPTH,
+            //         &connector_tree_hashes[i],
+            //     ));
             let mut claim_proof_merkle_tree_i: MerkleTree<CLAIM_MERKLE_TREE_DEPTH> =
                 MerkleTree::new();
             for j in 0..(2_usize.pow(CONNECTOR_TREE_DEPTH as u32)) {
@@ -258,6 +263,7 @@ impl TransactionBuilder {
                     j,
                     &connector_tree_hashes[i],
                 );
+                // println!("hash: {:?}", hash);
                 claim_proof_merkle_tree_i.add(hash);
             }
             claim_proof_merkle_roots.push(claim_proof_merkle_tree_i.root());
@@ -449,6 +455,11 @@ impl TransactionBuilder {
             &self.secp,
             vec![inscribe_preimage_script.clone()],
         )?;
+        let mut hasher = Sha256::new();
+        for elem in preimages_to_be_revealed {
+            hasher.update(sha256_hash!(elem));
+        }
+        let hash = hasher.finalize();
         Ok((address, taproot_info, inscribe_preimage_script))
     }
 

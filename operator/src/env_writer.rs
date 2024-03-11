@@ -204,7 +204,7 @@ impl<E: Environment> ENVWriter<E> {
         );
         for header in block_headers.iter() {
             ENVWriter::<E>::write_block_header_without_prev(header);
-            println!("WROTE block header without prev: {:?}", header);
+            // println!("WROTE block header without prev: {:?}", header);
             blockhashes_mt.add(serialize(&header.block_hash()).try_into().unwrap());
         }
     }

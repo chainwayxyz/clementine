@@ -535,7 +535,7 @@ impl Operator {
         let number_of_funds_claim = self.get_num_withdrawals_for_period(period);
 
         let indices = get_claim_reveal_indices(CONNECTOR_TREE_DEPTH, number_of_funds_claim);
-        // println!("indices: {:?}", indices);
+        // println!("indices for preimages: {:?}", indices);
 
         let preimages_to_be_revealed = indices
             .iter()
@@ -627,7 +627,7 @@ impl Operator {
             println!("WROTE output_address: {:?}", hash);
             // get transaction from txid
             let tx = self.rpc.get_raw_transaction(&txid, None)?;
-            println!("GOT tx: {:?}", tx);
+            // println!("GOT tx: {:?}", tx);
             ENVWriter::<E>::write_tx_to_env(&tx);
             println!("WROTE tx and calculated txid: {:?}", txid);
             let get_transaction_result = self.rpc.get_transaction(&txid, None)?;
@@ -692,18 +692,18 @@ impl Operator {
         let mut withdrawal_mt = MerkleTree::<WITHDRAWAL_MERKLE_TREE_DEPTH>::new();
 
         let start_block_height = self.operator_db_connector.get_start_block_height();
-        println!("start_block_height: {:?}", start_block_height);
+        // println!("start_block_height: {:?}", start_block_height);
 
         let period_relative_block_heights = self
             .operator_db_connector
             .get_period_relative_block_heights();
-        println!(
-            "period_relative_block_heights: {:?}",
-            period_relative_block_heights
-        );
+        // println!(
+        //     "period_relative_block_heights: {:?}",
+        //     period_relative_block_heights
+        // );
 
         let inscription_txs = self.operator_db_connector.get_inscription_txs();
-        println!("inscription_txs: {:?}", inscription_txs);
+        // println!("inscription_txs: {:?}", inscription_txs);
 
         let mut lc_blockhash: BlockHash = BlockHash::all_zeros();
 
@@ -755,8 +755,8 @@ impl Operator {
                 &mut withdrawal_mt,
                 &blockhashes_mt,
             )?;
-            println!("withdrawal_mt; {:?}", withdrawal_mt);
-            println!("blockhashes_mt: {:?}", blockhashes_mt);
+            // println!("withdrawal_mt: {:?}", withdrawal_mt);
+            // println!("blockhashes_mt: {:?}", blockhashes_mt);
             // println!("WROTE WITHDRAWALS AND ADDED TO MERKLE TREE");
         }
         let last_period = inscription_txs.len() - 1;
@@ -778,9 +778,10 @@ impl Operator {
         println!("WROTE preimages: {:?}", preimages);
         let mut preimage_hasher = Sha256::new();
         for preimage in preimages.iter() {
-            preimage_hasher.update(preimage);
+            preimage_hasher.update(sha256_hash!(preimage));
         }
         let preimage_hash: [u8; 32] = preimage_hasher.finalize().into();
+        println!("preimage_hash: {:?}", preimage_hash);
 
         // println!("WROTE PREIMAGES");
 
@@ -796,9 +797,9 @@ impl Operator {
         // println!("reveal_tx: {:?}", reveal_tx);
 
         ENVWriter::<E>::write_tx_to_env(&commit_tx);
-        println!("WROTE commit_tx: {:?}", commit_tx);
+        // println!("WROTE commit_tx: {:?}", commit_tx);
         ENVWriter::<E>::write_tx_to_env(&reveal_tx);
-        println!("WROTE reveal_tx: {:?}", reveal_tx);
+        // println!("WROTE reveal_tx: {:?}", reveal_tx);
 
         let reveal_tx_result = self
             .rpc
@@ -826,6 +827,8 @@ impl Operator {
             reveal_txid
         );
 
+        ENVWriter::<E>::write_block_header_without_mt_root(&block.header);
+
         // println!("Reading height: {:?}", block.bip34_block_height());
 
         ENVWriter::<E>::write_merkle_tree_proof(blockhash.to_byte_array(), None, &blockhashes_mt);
@@ -837,6 +840,7 @@ impl Operator {
         // TODO: do the claim merkle proof here.
         // For period i, we need to prove that the hash of the preimages is in the PERIOD_CLAIM_MT_ROOTS[i] merkle tree.
         // TODO: Add period for the claim proof
+        // println!("claim_proof_merkle_tree: {:?}", self.operator_db_connector.get_claim_proof_merkle_tree(0));
         ENVWriter::<E>::write_merkle_tree_proof(
             preimage_hash,
             Some(3),
@@ -1086,6 +1090,10 @@ impl Operator {
                 &peiod_relative_block_heights,
             )
             .unwrap();
+        println!(
+            "Operator claim_proof_merkle_roots[0]: {:?}",
+            claim_proof_merkle_roots[0]
+        );
         // println!("Operator claim_proof_merkle_roots: {:?}", claim_proof_merkle_roots);
         self.operator_db_connector
             .set_claim_proof_merkle_trees(claim_proof_merkle_trees.clone());

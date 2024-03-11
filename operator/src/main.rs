@@ -50,7 +50,7 @@ fn test_flow() -> Result<(), BridgeError> {
         start_blockheight,
         connector_tree_hashes,
         period_relative_block_heights,
-        claim_proof_merkle_trees,
+        _claim_proof_merkle_trees,
     ) = operator.initial_setup(&mut OsRng).unwrap();
 
     // let mut connector_tree_source_sigs = Vec::new();
