@@ -490,7 +490,7 @@ impl TransactionBuilder {
         connector_tree_hashes: Vec<Vec<[u8; 32]>>,
     ) -> Result<ConnectorUTXOTree, BridgeError> {
         // UTXO value should be at least 2^depth * dust_value + (2^depth-1) * fee
-        let total_amount = calculate_amount(
+        let _total_amount = calculate_amount(
             depth,
             Amount::from_sat(DUST_VALUE),
             Amount::from_sat(MIN_RELAY_FEE),

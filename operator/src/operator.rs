@@ -26,7 +26,7 @@ use bitcoin::address::NetworkChecked;
 use bitcoin::hashes::Hash;
 
 use bitcoin::{secp256k1, secp256k1::schnorr, Address};
-use bitcoin::{Amount, BlockHash, OutPoint, Txid};
+use bitcoin::{Amount, BlockHash, OutPoint};
 use circuit_helpers::constants::{
     BLOCKHASH_MERKLE_TREE_DEPTH, BRIDGE_AMOUNT_SATS, MAX_BLOCK_HANDLE_OPS, NUM_ROUNDS,
     WITHDRAWAL_MERKLE_TREE_DEPTH,
@@ -166,8 +166,7 @@ impl Operator {
         let presigns_from_all_verifiers: Result<Vec<_>, BridgeError> = self
             .verifier_connector
             .iter()
-            .enumerate()
-            .map(|(i, verifier)| {
+            .map(|verifier| {
                 // println!("Verifier number {:?} is checking new deposit:", i);
                 // Attempt to get the deposit presigns. If an error occurs, it will be propagated out
                 // of the map, causing the collect call to return a Result::Err, effectively stopping
@@ -504,7 +503,7 @@ impl Operator {
 
         // println!("bytes_connector_tree_tx length: {:?}", bytes_connector_tree_tx.len());
         // let hex_utxo_tx = hex::encode(bytes_utxo_tx.clone());
-        let spending_txid = match self.rpc.send_raw_transaction(&tx) {
+        let _spending_txid = match self.rpc.send_raw_transaction(&tx) {
             Ok(txid) => Some(txid),
             Err(e) => {
                 eprintln!("Failed to send raw transaction: {}", e);
@@ -648,12 +647,7 @@ impl Operator {
 
             // We get the merkle root of the block, so we need to write the remaining part
             // of the block header so we can calculate the blockhash
-            // TODO: Make this into a function
-            E::write_i32(block.header.version.to_consensus());
-            E::write_32bytes(block.header.prev_blockhash.to_byte_array());
-            E::write_u32(block.header.time);
-            E::write_u32(block.header.bits.to_consensus());
-            E::write_u32(block.header.nonce);
+            ENVWriter::<E>::write_block_header_without_mt_root(&block.header);
 
             ENVWriter::<E>::write_merkle_tree_proof(blockhash.to_byte_array(), None, blockhash_mt);
             println!(
@@ -665,6 +659,8 @@ impl Operator {
         }
         // println!("WROTE WITHDRAWALS AND ADDED TO MERKLE TREE");
         // println!("withdrawal_mt.root(): {:?}", withdrawal_mt.root());
+
+        // TODO: Add proof of work calculation for K-deep assumption
 
         Ok(())
     }
@@ -843,7 +839,7 @@ impl Operator {
         // write_claim_proof_merkle_path(i, &preimages);
         // // write all the remaining blocks so that we will have more pow than the given challenge
         // // adding more block hashes to the tree is not a problem.
-        let cur_block_height = self.rpc.get_block_count().unwrap();
+        let _cur_block_height = self.rpc.get_block_count().unwrap();
         // write_blocks_and_add_to_merkle_tree(
         //     start_block_height + period_relative_block_heights[last_period].into(),
         //     cur_block_height,
@@ -1051,7 +1047,7 @@ impl Operator {
             .send_to_address(&connector_tree_source_address, total_amount.to_sat())
             .unwrap();
         // println!("first_source_utxo: {:?}", first_source_utxo);
-        let first_source_utxo_create_tx = self
+        let _first_source_utxo_create_tx = self
             .rpc
             .get_raw_transaction(&first_source_utxo.txid, None)?;
         // println!(
@@ -1059,7 +1055,7 @@ impl Operator {
         //     first_source_utxo_create_tx
         // );
 
-        let (claim_proof_merkle_roots, root_utxos, utxo_trees) = self
+        let (_claim_proof_merkle_roots, _root_utxos, utxo_trees) = self
             .transaction_builder
             .create_all_connector_trees(
                 &connector_tree_hashes,

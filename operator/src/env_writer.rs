@@ -26,6 +26,19 @@ impl<E: Environment> ENVWriter<E> {
         E::write_u32(nonce);
     }
 
+    pub fn write_block_header_without_mt_root(header: &Header) {
+        let version = header.version.to_consensus();
+        let prev_blockhash = header.prev_blockhash.as_byte_array();
+        let time = header.time;
+        let bits = header.bits.to_consensus();
+        let nonce = header.nonce;
+        E::write_i32(version);
+        E::write_32bytes(*prev_blockhash);
+        E::write_u32(time);
+        E::write_u32(bits);
+        E::write_u32(nonce);
+    }
+
     pub fn write_tx_to_env(tx: &Transaction) {
         E::write_i32(tx.version.0);
         E::write_u32(tx.input.len() as u32);
@@ -508,7 +521,7 @@ mod tests {
                 [2..34]
                 .try_into()
                 .unwrap();
-            ENVWriter::<MockEnvironment>::write_preimages(operator_xonly, preimages);
+            ENVWriter::<MockEnvironment>::write_preimages(operator_xonly, &preimages);
             let (taproot_address, _claim_proof_leaf) =
                 read_preimages_and_calculate_commit_taproot::<MockEnvironment>();
             assert_eq!(expected_script_pubkey, taproot_address);
