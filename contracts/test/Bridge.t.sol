@@ -104,7 +104,10 @@ contract BridgeTest is Test {
         for (uint i = 0; i < 10; i++) {
             btc_addresses[i] = bytes32(abi.encodePacked(i));
         }
+        bytes32 withdrawal_root = bridge.getRootWithdrawalTree();
         bridge.batchWithdraw{value: 10 ether}(btc_addresses);
+        bytes32 updated_withdrawal_root = bridge.getRootWithdrawalTree();
+        assert(withdrawal_root != updated_withdrawal_root);
         assertEq(depositor.balance, 0);
     }
 
