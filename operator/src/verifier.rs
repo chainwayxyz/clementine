@@ -104,8 +104,8 @@ impl VerifierConnector for Verifier {
         start_blockheight: u64,
         peiod_relative_block_heights: Vec<u32>,
     ) -> Result<(), BridgeError> {
-        println!("Verifier first_source_utxo: {:?}", first_source_utxo);
-        println!("Verifier verifiers_pks len: {:?}", self.verifiers.len());
+        // println!("Verifier first_source_utxo: {:?}", first_source_utxo);
+        // println!("Verifier verifiers_pks len: {:?}", self.verifiers.len());
         let (_, _, utxo_trees) = self.transaction_builder.create_all_connector_trees(
             &connector_tree_hashes,
             &first_source_utxo,

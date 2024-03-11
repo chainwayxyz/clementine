@@ -107,10 +107,10 @@ impl TransactionBuilder {
     ) -> Result<CreateTxOutputs, BridgeError> {
         let anyone_can_spend_txout = ScriptBuilder::anyone_can_spend_txout();
         let evm_address_inscription_txout = ScriptBuilder::op_return_txout(evm_address);
-        println!(
-            "evm_address_inscription_txout: {:?}",
-            evm_address_inscription_txout
-        );
+        // println!(
+        //     "evm_address_inscription_txout: {:?}",
+        //     evm_address_inscription_txout
+        // );
 
         let (bridge_address, _) = self.generate_bridge_address()?;
         let (deposit_address, deposit_taproot_spend_info) =
@@ -229,7 +229,7 @@ impl TransactionBuilder {
 
         let mut cur_connector_source_utxo = *first_source_utxo;
         let mut cur_amount = total_amount;
-        println!("first_source_utxo: {:?}", first_source_utxo);
+        // println!("first_source_utxo: {:?}", first_source_utxo);
 
         let mut claim_proof_merkle_roots: Vec<[u8; 32]> = Vec::new();
         let mut root_utxos: Vec<OutPoint> = Vec::new();
@@ -417,12 +417,6 @@ impl TransactionBuilder {
     ) -> Result<(Address, TaprootSpendInfo, ScriptBuf), BridgeError> {
         let inscribe_preimage_script =
             ScriptBuilder::create_inscription_script_32_bytes(actor_pk, preimages_to_be_revealed);
-        if preimages_to_be_revealed.len() == 7 || preimages_to_be_revealed.len() == 6 {
-            println!(
-                "inscribe_preimage_script.bytes: {:?}",
-                inscribe_preimage_script.clone().as_bytes()
-            );
-        }
         let (address, taproot_info) = TransactionBuilder::create_taproot_address(
             &self.secp,
             vec![inscribe_preimage_script.clone()],
@@ -501,7 +495,7 @@ impl TransactionBuilder {
             Amount::from_sat(DUST_VALUE),
             Amount::from_sat(MIN_RELAY_FEE),
         );
-        println!("total_amount: {:?}", total_amount);
+        // println!("total_amount: {:?}", total_amount);
 
         let (_root_address, _) = TransactionBuilder::create_connector_tree_node_address(
             &self.secp,

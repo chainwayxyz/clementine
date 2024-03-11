@@ -87,7 +87,7 @@ impl<E: Environment> ENVWriter<E> {
     }
 
     pub fn write_bitcoin_merkle_path(txid: Txid, block: &Block) -> Result<(), BridgeError> {
-        let tx_ids = block
+        let tx_ids: Vec<Txid> = block
             .txdata
             .iter()
             .map(|tx| tx.txid())
@@ -185,19 +185,24 @@ impl<E: Environment> ENVWriter<E> {
         blockhashes_mt: &mut MerkleTree<DEPTH>,
     ) {
         E::write_u32(block_headers.len() as u32);
+        println!(
+            "WROTE block_headers.len(): {:?}",
+            block_headers.len() as u32
+        );
         for header in block_headers.iter() {
             ENVWriter::<E>::write_block_header_without_prev(header);
+            println!("WROTE block header without prev: {:?}", header);
             blockhashes_mt.add(serialize(&header.block_hash()).try_into().unwrap());
         }
     }
 
-    pub fn write_preimages(operator_pk: XOnlyPublicKey, preimages: Vec<[u8; 32]>) {
+    pub fn write_preimages(operator_pk: XOnlyPublicKey, preimages: &Vec<[u8; 32]>) {
         let num_preimages = preimages.len() as u32;
         E::write_u32(num_preimages);
         let operator_pk_bytes: [u8; 32] = operator_pk.serialize();
         E::write_32bytes(operator_pk_bytes);
         for preimage in preimages {
-            E::write_32bytes(preimage);
+            E::write_32bytes(*preimage);
         }
     }
 }

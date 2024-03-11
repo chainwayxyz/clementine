@@ -60,7 +60,7 @@ fn test_flow() -> Result<(), BridgeError> {
         // connector_tree_source_sigs.push(sigs);
     }
 
-    println!("connector roots created, verifiers agree");
+    // println!("connector roots created, verifiers agree");
     // In the end, create BitVM
 
     // every user makes a deposit.
