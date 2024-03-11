@@ -67,6 +67,14 @@ contract Bridge is MerkleTree, Ownable {
         emit Withdrawal(bitcoin_address, nextIndex, block.timestamp);
     }
 
+    function batchWithdraw(bytes32[] calldata bitcoin_addresses) public payable {
+        require(msg.value == DEPOSIT_AMOUNT * bitcoin_addresses.length, "Invalid withdraw amount");
+        for (uint i = 0; i < bitcoin_addresses.length; i++) {
+            insertWithdrawalTree(bitcoin_addresses[i]);
+            emit Withdrawal(bitcoin_addresses[i], nextIndex, block.timestamp);
+        }
+    }
+
     function isCorrectBlockHash(bytes32 block_hash) public view returns (bool) {
         return blockHashes[block_hash];
     }

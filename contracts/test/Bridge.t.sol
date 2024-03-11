@@ -8,7 +8,7 @@ import "../src/Bridge.sol";
 import "bitcoin-spv/solidity/contracts/BTCUtils.sol";
 
 // !!! WARNINGS:
-// !!! - Update `testDepositThenWithdraw` with proper testing of withdrawal tree root if this goes to production
+// !!! - Update `testDepositThenWithdraw` and `testBatchWithdraw` with proper testing of withdrawal tree root if this goes to production
 // !!! - Write fuzz tests for deposit and withdraw actions with random Bitcoin txns if this goes to production
 
 contract BridgeHarness is Bridge {
@@ -95,6 +95,31 @@ contract BridgeTest is Test {
         assertEq(updated_withdrawal_root, expected_root);
 
         vm.stopPrank();
+    }
+
+    function testBatchWithdraw() public {
+        vm.startPrank(depositor);
+        vm.deal(address(depositor), 10 ether);
+        bytes32[] memory btc_addresses = new bytes32[](10);
+        for (uint i = 0; i < 10; i++) {
+            btc_addresses[i] = bytes32(abi.encodePacked(i));
+        }
+        bytes32 withdrawal_root = bridge.getRootWithdrawalTree();
+        bridge.batchWithdraw{value: 10 ether}(btc_addresses);
+        bytes32 updated_withdrawal_root = bridge.getRootWithdrawalTree();
+        assert(withdrawal_root != updated_withdrawal_root);
+        assertEq(depositor.balance, 0);
+    }
+
+    function testCannotBatchWithdrawWithWrongValue() public {
+        vm.startPrank(depositor);
+        vm.deal(address(depositor), 10 ether);
+        bytes32[] memory btc_addresses = new bytes32[](10);
+        for (uint i = 0; i < 10; i++) {
+            btc_addresses[i] = bytes32(abi.encodePacked(i));
+        }
+        vm.expectRevert("Invalid withdraw amount");
+        bridge.batchWithdraw{value: 9 ether}(btc_addresses);
     }
 
     function testCannotDoubleDepositWithSameTx() public {
