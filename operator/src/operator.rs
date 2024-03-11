@@ -17,8 +17,8 @@ use crate::traits::operator_db::OperatorDBConnector;
 use crate::traits::verifier::VerifierConnector;
 use crate::transaction_builder::TransactionBuilder;
 use crate::utils::{
-    calculate_amount, check_deposit_utxo, get_claim_reveal_indices, handle_taproot_witness,
-    handle_taproot_witness_new,
+    calculate_amount, check_deposit_utxo, get_claim_proof_tree_leaf, get_claim_reveal_indices,
+    handle_taproot_witness, handle_taproot_witness_new,
 };
 use crate::{EVMAddress, WithdrawalPayment};
 
@@ -28,14 +28,15 @@ use bitcoin::hashes::Hash;
 use bitcoin::{secp256k1, secp256k1::schnorr, Address};
 use bitcoin::{Amount, BlockHash, OutPoint};
 use circuit_helpers::constants::{
-    BLOCKHASH_MERKLE_TREE_DEPTH, BRIDGE_AMOUNT_SATS, MAX_BLOCK_HANDLE_OPS, NUM_ROUNDS,
-    WITHDRAWAL_MERKLE_TREE_DEPTH,
+    BLOCKHASH_MERKLE_TREE_DEPTH, BRIDGE_AMOUNT_SATS, CLAIM_MERKLE_TREE_DEPTH, MAX_BLOCK_HANDLE_OPS,
+    NUM_ROUNDS, WITHDRAWAL_MERKLE_TREE_DEPTH,
 };
 use circuit_helpers::env::Environment;
 use circuit_helpers::{sha256_hash, HashType, PreimageType};
 use secp256k1::rand::rngs::OsRng;
 use secp256k1::rand::Rng;
 use secp256k1::{Message, SecretKey, XOnlyPublicKey};
+use sha2::{Digest, Sha256};
 
 pub fn create_connector_tree_preimages_and_hashes(
     depth: usize,
@@ -775,6 +776,11 @@ impl Operator {
 
         ENVWriter::<E>::write_preimages(self.signer.xonly_public_key, &preimages);
         println!("WROTE preimages: {:?}", preimages);
+        let mut preimage_hasher = Sha256::new();
+        for preimage in preimages.iter() {
+            preimage_hasher.update(preimage);
+        }
+        let preimage_hash: [u8; 32] = preimage_hasher.finalize().into();
 
         // println!("WROTE PREIMAGES");
 
@@ -829,6 +835,13 @@ impl Operator {
         );
 
         // TODO: do the claim merkle proof here.
+        // For period i, we need to prove that the hash of the preimages is in the PERIOD_CLAIM_MT_ROOTS[i] merkle tree.
+        // TODO: Add period for the claim proof
+        ENVWriter::<E>::write_merkle_tree_proof(
+            preimage_hash,
+            Some(3),
+            &self.operator_db_connector.get_claim_proof_merkle_tree(0),
+        );
 
         // write_preimages(preimages);
         // write_inscription_commit_tx(inscription_txs[last_period].0);
@@ -997,7 +1010,16 @@ impl Operator {
     pub fn initial_setup(
         &mut self,
         rng: &mut OsRng,
-    ) -> Result<(OutPoint, u64, Vec<Vec<Vec<HashType>>>, Vec<u32>), BridgeError> {
+    ) -> Result<
+        (
+            OutPoint,
+            u64,
+            Vec<Vec<Vec<HashType>>>,
+            Vec<u32>,
+            Vec<MerkleTree<CLAIM_MERKLE_TREE_DEPTH>>,
+        ),
+        BridgeError,
+    > {
         let blockheight = self.operator_db_connector.get_start_block_height();
         if blockheight != 0 {
             return Err(BridgeError::AlreadyInitialized);
@@ -1055,7 +1077,7 @@ impl Operator {
         //     first_source_utxo_create_tx
         // );
 
-        let (_claim_proof_merkle_roots, _root_utxos, utxo_trees) = self
+        let (claim_proof_merkle_roots, _root_utxos, utxo_trees, claim_proof_merkle_trees) = self
             .transaction_builder
             .create_all_connector_trees(
                 &connector_tree_hashes,
@@ -1064,6 +1086,9 @@ impl Operator {
                 &peiod_relative_block_heights,
             )
             .unwrap();
+        // println!("Operator claim_proof_merkle_roots: {:?}", claim_proof_merkle_roots);
+        self.operator_db_connector
+            .set_claim_proof_merkle_trees(claim_proof_merkle_trees.clone());
 
         // self.set_connector_tree_utxos(utxo_trees.clone());
         self.operator_db_connector
@@ -1073,6 +1098,7 @@ impl Operator {
             start_block_height,
             connector_tree_hashes.clone(),
             peiod_relative_block_heights,
+            claim_proof_merkle_trees,
         ))
     }
 }

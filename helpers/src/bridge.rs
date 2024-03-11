@@ -29,17 +29,17 @@ pub fn read_blocks_and_add_to_merkle_tree<E: Environment>(
     max_block_handle_ops: u32,
 ) -> (U256, [u8; 32], [u8; 32]) {
     let n = E::read_u32();
-    // println!("READ n: {:?}", n);
+    println!("READ n: {:?}", n);
     let mut total_work = U256::ZERO;
     let mut curr_prev_block_hash = start_prev_block_hash;
     let mut lc_block_hash: [u8; 32] = [0; 32];
 
     for i in 0..n {
         let header_without_prev_blockhash = read_header_except_prev_blockhash::<E>();
-        // println!(
-        //     "READ header_without_prev_blockhash: {:?}",
-        //     header_without_prev_blockhash
-        // );
+        println!(
+            "READ header_without_prev_blockhash: {:?}",
+            header_without_prev_blockhash
+        );
         if i == n - max_block_handle_ops {
             lc_block_hash = curr_prev_block_hash;
         }
@@ -52,7 +52,7 @@ pub fn read_blocks_and_add_to_merkle_tree<E: Environment>(
             total_work,
         );
     }
-    // println!("Resulting imt: {:?}", imt);
+    println!("Resulting imt: {:?}", imt);
     (total_work, lc_block_hash, curr_prev_block_hash)
 }
 
@@ -138,7 +138,7 @@ pub fn read_merkle_tree_proof<E: Environment, const D: usize>(
         };
         level_idx /= 2;
     }
-    // println!("READ merkle_tree_proof: {:?}", hash);
+    println!("READ merkle_tree_proof: {:?}", hash);
     return hash;
 }
 
@@ -148,11 +148,11 @@ pub fn read_withdrawal_proof<E: Environment>(
     imt: &mut IncrementalMerkleTree<WITHDRAWAL_MERKLE_TREE_DEPTH>,
 ) {
     let output_address = E::read_32bytes();
-    // println!("READ output_address: {:?}", output_address);
+    println!("READ output_address: {:?}", output_address);
     let txid = read_tx_and_calculate_txid::<E>(None, Some((BRIDGE_AMOUNT_SATS, output_address)));
-    // println!("READ tx and calculated txid: {:?}", txid);
+    println!("READ tx and calculated txid: {:?}", txid);
     let block_tx_mt_root = read_and_verify_bitcoin_merkle_path::<E>(txid);
-    // println!("block_merkle_root: {:?}", block_tx_mt_root);
+    println!("block_merkle_root: {:?}", block_tx_mt_root);
     // println!("blockhash: {:?}", blockhash);
     let calculated_blockhash =
         read_header_except_root_and_calculate_blockhash::<E>(block_tx_mt_root);
@@ -179,15 +179,15 @@ pub fn read_and_verify_verifiers_challenge_proof<E: Environment>() -> (U256, [u8
 }
 
 pub fn bridge_proof<E: Environment>() {
-    // println!("Bridge proof");
+    println!("Bridge proof");
     let mut blockhashes_mt = IncrementalMerkleTree::new();
     let mut withdrawal_mt = IncrementalMerkleTree::new();
     let mut total_pow = U256::ZERO;
     let mut last_block_hash = E::read_32bytes(); // Currently we are reading the first block hash
 
-    // println!("READ last_block_hash: {:?}", last_block_hash);
+    println!("READ last_block_hash: {:?}", last_block_hash);
 
-    for _i in 0..NUM_ROUNDS {
+    for i in 0..NUM_ROUNDS {
         let (work, lc_blockhash, cur_block_hash) = read_blocks_and_add_to_merkle_tree::<E>(
             last_block_hash,
             &mut blockhashes_mt,
@@ -197,35 +197,36 @@ pub fn bridge_proof<E: Environment>() {
         total_pow = total_pow.wrapping_add(&work);
 
         let num_withdrawals = E::read_u32();
-        // println!("READ num_withdrawals: {:?}", num_withdrawals);
+        println!("READ num_withdrawals: {:?}", num_withdrawals);
         for _ in 0..num_withdrawals {
             read_withdrawal_proof::<E>(blockhashes_mt.root, &mut withdrawal_mt);
         }
         let finish_proof = E::read_u32();
-        // println!("READ finish_proof: {:?}", finish_proof);
+        println!("READ finish_proof: {:?}", finish_proof);
         if finish_proof == 1 {
             read_and_verify_lc_proof::<E>(lc_blockhash, withdrawal_mt.root);
-            // println!("READ and verify lc proof");
-            let (commit_taproot_addr, _claim_proof_tree_leaf) =
+            println!("READ and verify lc proof");
+            let (commit_taproot_addr, claim_proof_tree_leaf) =
                 read_preimages_and_calculate_commit_taproot::<E>();
-            // println!(
-            //     "READ preimages and calculate commit taproot: {:?}",
-            //     commit_taproot_addr
-            // );
+            println!(
+                "READ preimages and calculate commit taproot: {:?}",
+                commit_taproot_addr
+            );
             let commit_taproot_txid =
-                read_tx_and_calculate_txid::<E>(None, Some((DUST_VALUE * 2, commit_taproot_addr)));
-            // println!("READ tx and calculate txid: {:?}", commit_taproot_txid);
+                read_tx_and_calculate_txid::<E>(None, Some((2 * DUST_VALUE, commit_taproot_addr)));
+            println!("READ tx and calculate txid: {:?}", commit_taproot_txid);
             let reveal_txid = read_tx_and_calculate_txid::<E>(Some((commit_taproot_txid, 0)), None);
-            // println!("READ tx and calculate txid: {:?}", reveal_txid);
+            println!("READ tx and calculate txid: {:?}", reveal_txid);
             // INCORRECT LOGIC: read_and_verify_bitcoin_merkle_path returns the merkle root of a block
-            let calculated_merkle_root = read_and_verify_bitcoin_merkle_path::<E>(reveal_txid);
-            // println!(
-            //     "READ and verify bitcoin merkle path: {:?}",
-            //     calculated_merkle_root
-            // );
-            // TODO: Make this into a function
+            let mut calculated_merkle_root = read_and_verify_bitcoin_merkle_path::<E>(reveal_txid);
+            println!(
+                "READ and verify bitcoin merkle path: {:?}",
+                calculated_merkle_root
+            );
             let version = E::read_i32();
-            let prev_blockhash = E::read_32bytes();
+            let mut prev_blockhash = E::read_32bytes();
+            prev_blockhash.reverse();
+            calculated_merkle_root.reverse();
             let time = E::read_u32();
             let bits = E::read_u32();
             let nonce = E::read_u32();
@@ -237,7 +238,9 @@ pub fn bridge_proof<E: Environment>() {
                 &bits.to_le_bytes(),
                 &nonce.to_le_bytes()
             );
-            // println!("calculated_blockhash: {:?}", calculated_blockhash);
+            // let calculated_blockhash =
+            //     read_header_except_root_and_calculate_blockhash::<E>(calculated_merkle_root);
+            println!("calculated_blockhash: {:?}", calculated_blockhash);
 
             assert_eq!(
                 blockhashes_mt.root,
@@ -249,13 +252,13 @@ pub fn bridge_proof<E: Environment>() {
 
             // WORKS UNTIL HERE
 
-            // assert_eq!(
-            //     PERIOD_CLAIM_MT_ROOTS[i],
-            //     read_merkle_tree_proof::<E, CLAIM_MERKLE_TREE_DEPTH>(
-            //         claim_proof_tree_leaf,
-            //         Some(withdrawal_mt.index)
-            //     )
-            // );
+            assert_eq!(
+                PERIOD_CLAIM_MT_ROOTS[i],
+                read_merkle_tree_proof::<E, CLAIM_MERKLE_TREE_DEPTH>(
+                    claim_proof_tree_leaf,
+                    Some(num_withdrawals)
+                )
+            );
 
             let k_deep_work = read_blocks_and_calculate_work::<E>(cur_block_hash, 0);
             // println!("READ k_deep_work: {:?}", k_deep_work);

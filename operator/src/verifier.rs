@@ -1,14 +1,15 @@
 use crate::constants::CONNECTOR_TREE_DEPTH;
 use crate::errors::BridgeError;
 
+use crate::merkle::MerkleTree;
 use crate::traits::verifier::VerifierConnector;
 use crate::utils::check_deposit_utxo;
-use crate::{ConnectorUTXOTree, EVMAddress};
+use crate::{ConnectorUTXOTree, EVMAddress, HashTree};
 
 use bitcoin::Address;
 use bitcoin::{secp256k1, secp256k1::Secp256k1, OutPoint};
 
-use circuit_helpers::constants::{BRIDGE_AMOUNT_SATS, NUM_ROUNDS};
+use circuit_helpers::constants::{BRIDGE_AMOUNT_SATS, CLAIM_MERKLE_TREE_DEPTH, NUM_ROUNDS};
 use secp256k1::SecretKey;
 use secp256k1::XOnlyPublicKey;
 
@@ -26,6 +27,7 @@ pub struct Verifier {
     pub verifiers: Vec<XOnlyPublicKey>,
     pub connector_tree_utxos: Vec<ConnectorUTXOTree>,
     pub connector_tree_hashes: Vec<Vec<Vec<[u8; 32]>>>,
+    pub claim_proof_merkle_trees: Vec<MerkleTree<CLAIM_MERKLE_TREE_DEPTH>>,
     pub operator_pk: XOnlyPublicKey,
 }
 
@@ -99,24 +101,28 @@ impl VerifierConnector for Verifier {
     /// TODO: Add verification for the connector tree hashes
     fn connector_roots_created(
         &mut self,
-        connector_tree_hashes: &Vec<Vec<Vec<[u8; 32]>>>,
+        connector_tree_hashes: &Vec<HashTree>,
         first_source_utxo: &OutPoint,
         start_blockheight: u64,
         peiod_relative_block_heights: Vec<u32>,
     ) -> Result<(), BridgeError> {
         // println!("Verifier first_source_utxo: {:?}", first_source_utxo);
         // println!("Verifier verifiers_pks len: {:?}", self.verifiers.len());
-        let (_, _, utxo_trees) = self.transaction_builder.create_all_connector_trees(
-            &connector_tree_hashes,
-            &first_source_utxo,
-            start_blockheight,
-            &peiod_relative_block_heights,
-        )?;
+        let (_claim_proof_merkle_roots, _, utxo_trees, claim_proof_merkle_trees) =
+            self.transaction_builder.create_all_connector_trees(
+                &connector_tree_hashes,
+                &first_source_utxo,
+                start_blockheight,
+                &peiod_relative_block_heights,
+            )?;
+        // println!("Verifier claim_proof_merkle_roots: {:?}", _claim_proof_merkle_roots);
 
         // self.set_connector_tree_utxos(utxo_trees);
         self.connector_tree_utxos = utxo_trees;
         // self.set_connector_tree_hashes(_connector_tree_hashes);
         self.connector_tree_hashes = connector_tree_hashes.clone();
+
+        self.claim_proof_merkle_trees = claim_proof_merkle_trees;
         // println!(
         //     "Verifier claim_proof_merkle_roots: {:?}",
         //     claim_proof_merkle_roots
@@ -145,6 +151,7 @@ impl Verifier {
 
         let connector_tree_utxos = Vec::new();
         let connector_tree_hashes = Vec::new();
+        let claim_proof_merkle_trees = Vec::new();
 
         let transaction_builder = TransactionBuilder::new(all_xonly_pks.clone());
         let operator_pk = all_xonly_pks[all_xonly_pks.len() - 1];
@@ -157,6 +164,7 @@ impl Verifier {
             connector_tree_utxos,
             connector_tree_hashes,
             operator_pk,
+            claim_proof_merkle_trees,
         })
     }
 

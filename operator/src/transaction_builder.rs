@@ -5,7 +5,8 @@ use crate::{
         CONNECTOR_TREE_DEPTH, CONNECTOR_TREE_OPERATOR_TAKES_AFTER, DUST_VALUE, K_DEEP,
         MAX_BITVM_CHALLENGE_RESPONSE_BLOCKS, MIN_RELAY_FEE, USER_TAKES_AFTER,
     },
-    utils::calculate_claim_proof_root,
+    merkle::MerkleTree,
+    utils::{calculate_claim_proof_root, get_claim_proof_tree_leaf},
     ConnectorUTXOTree, EVMAddress, HashTree,
 };
 use bitcoin::{
@@ -16,7 +17,7 @@ use bitcoin::{
     Address, Amount, OutPoint, ScriptBuf, TxIn, TxOut, Witness,
 };
 use circuit_helpers::{
-    constants::{BRIDGE_AMOUNT_SATS, NUM_ROUNDS},
+    constants::{BRIDGE_AMOUNT_SATS, CLAIM_MERKLE_TREE_DEPTH, NUM_ROUNDS},
     HashType, MerkleRoot, PreimageType,
 };
 use secp256k1::{Secp256k1, XOnlyPublicKey};
@@ -219,7 +220,15 @@ impl TransactionBuilder {
         first_source_utxo: &OutPoint,
         start_block_height: u64,
         peiod_relative_block_heights: &Vec<u32>,
-    ) -> Result<(Vec<MerkleRoot>, Vec<OutPoint>, Vec<ConnectorUTXOTree>), BridgeError> {
+    ) -> Result<
+        (
+            Vec<MerkleRoot>,
+            Vec<OutPoint>,
+            Vec<ConnectorUTXOTree>,
+            Vec<MerkleTree<CLAIM_MERKLE_TREE_DEPTH>>,
+        ),
+        BridgeError,
+    > {
         let single_tree_amount = calculate_amount(
             CONNECTOR_TREE_DEPTH,
             Amount::from_sat(DUST_VALUE),
@@ -232,14 +241,28 @@ impl TransactionBuilder {
         // println!("first_source_utxo: {:?}", first_source_utxo);
 
         let mut claim_proof_merkle_roots: Vec<[u8; 32]> = Vec::new();
+        let mut claim_proof_merkle_trees: Vec<MerkleTree<CLAIM_MERKLE_TREE_DEPTH>> = Vec::new();
         let mut root_utxos: Vec<OutPoint> = Vec::new();
         let mut utxo_trees: Vec<ConnectorUTXOTree> = Vec::new();
 
         for i in 0..NUM_ROUNDS {
-            claim_proof_merkle_roots.push(calculate_claim_proof_root(
-                CONNECTOR_TREE_DEPTH,
-                &connector_tree_hashes[i],
-            ));
+            // claim_proof_merkle_roots.push(calculate_claim_proof_root(
+            //     CONNECTOR_TREE_DEPTH,
+            //     &connector_tree_hashes[i],
+            // ));
+            let mut claim_proof_merkle_tree_i: MerkleTree<CLAIM_MERKLE_TREE_DEPTH> =
+                MerkleTree::new();
+            for j in 0..(2_usize.pow(CONNECTOR_TREE_DEPTH as u32)) {
+                let hash = get_claim_proof_tree_leaf(
+                    CLAIM_MERKLE_TREE_DEPTH,
+                    j,
+                    &connector_tree_hashes[i],
+                );
+                claim_proof_merkle_tree_i.add(hash);
+            }
+            claim_proof_merkle_roots.push(claim_proof_merkle_tree_i.root());
+            claim_proof_merkle_trees.push(claim_proof_merkle_tree_i);
+
             let (next_connector_source_address, _) = self.create_connector_tree_source_address(
                 start_block_height
                     + (peiod_relative_block_heights[i + 1]
@@ -289,7 +312,12 @@ impl TransactionBuilder {
             cur_amount = cur_amount - single_tree_amount;
         }
 
-        Ok((claim_proof_merkle_roots, root_utxos, utxo_trees))
+        Ok((
+            claim_proof_merkle_roots,
+            root_utxos,
+            utxo_trees,
+            claim_proof_merkle_trees,
+        ))
     }
 
     fn create_btc_tx(tx_ins: Vec<TxIn>, tx_outs: Vec<TxOut>) -> bitcoin::Transaction {
