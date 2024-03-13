@@ -187,8 +187,7 @@ pub fn bridge_proof<E: Environment>() {
 
     // println!("READ last_block_hash: {:?}", last_block_hash);
 
-    for i in 0..1 {
-        //TODO: change to NUM_ROUNDS
+    for i in 0..NUM_ROUNDS {
         let (work, lc_blockhash, cur_block_hash) = read_blocks_and_add_to_merkle_tree::<E>(
             last_block_hash,
             &mut blockhashes_mt,
@@ -258,17 +257,15 @@ pub fn bridge_proof<E: Environment>() {
             // let (verifiers_pow, verifiers_last_finalized_bh, _verifiers_last_blockheight) =
             //     read_and_verify_verifiers_challenge_proof::<E>();
 
-            // // if our pow is bigger and we have different last finalized block hash, we win
-            // // that means verifier can't make a challenge for previous periods
-            // // verifier should wait K_DEEP blocks to make a challenge to make sure operator
-            // // can't come up with different blockhashes
+            // if our pow is bigger and we have different last finalized block hash, we win
+            // that means verifier can't make a challenge for previous periods
+            // verifier should wait K_DEEP blocks to make a challenge to make sure operator
+            // can't come up with different blockhashes
             // if total_pow > verifiers_pow && cur_block_hash != verifiers_last_finalized_bh {
             //     return;
             // }
-            //
+            return;
         }
         last_block_hash = cur_block_hash;
-
-        // println!("Bridge proof done for a period");
     }
 }
