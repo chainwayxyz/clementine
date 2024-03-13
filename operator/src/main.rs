@@ -1,4 +1,3 @@
-use bitcoin::secp256k1::rand::SeedableRng;
 use circuit_helpers::bridge::bridge_proof;
 use circuit_helpers::constants::MAX_BLOCK_HANDLE_OPS;
 use crypto_bigint::rand_core::OsRng;
@@ -10,6 +9,7 @@ use operator::verifier::Verifier;
 use operator::EVMAddress;
 use operator::{extended_rpc::ExtendedRpc, operator::Operator, user::User};
 use secp256k1::rand::rngs::StdRng;
+use secp256k1::rand::SeedableRng;
 use secp256k1::XOnlyPublicKey;
 
 fn test_flow() -> Result<(), BridgeError> {
