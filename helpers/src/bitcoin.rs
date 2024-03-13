@@ -307,16 +307,6 @@ pub fn read_tx_and_calculate_txid<E: Environment>(
             //     taproot_address == require_output.unwrap().1
             // );
 
-            // TODO: fix here
-            // if require_output.is_some()
-            //     && !output_satisfied
-            //     && (require_output.unwrap().0.is_some()
-            //     && value == require_output.unwrap().0.unwrap())
-            //     || require_output.unwrap().0.is_none()
-            //     && taproot_address == require_output.unwrap().1
-            // {
-            //     output_satisfied = true;
-            // }
             if let Some((value_option, taproot_address_condition)) = require_output {
                 if taproot_address == taproot_address_condition
                     && value_option.map_or(true, |v| v == value)
