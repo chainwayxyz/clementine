@@ -26,8 +26,8 @@ use bitcoin::address::NetworkChecked;
 use bitcoin::block::Header;
 use bitcoin::hashes::Hash;
 
-use bitcoin::{block, Amount, BlockHash, OutPoint};
 use bitcoin::{secp256k1, secp256k1::schnorr, Address};
+use bitcoin::{Amount, BlockHash, OutPoint};
 use circuit_helpers::constants::{
     BLOCKHASH_MERKLE_TREE_DEPTH, BRIDGE_AMOUNT_SATS, CLAIM_MERKLE_TREE_DEPTH, MAX_BLOCK_HANDLE_OPS,
     NUM_ROUNDS, WITHDRAWAL_MERKLE_TREE_DEPTH,
