@@ -356,7 +356,7 @@ mod tests {
                     let tx_id = read_tx_and_calculate_txid::<MockEnvironment>(
                         None,
                         Some((
-                            output.value.to_sat(),
+                            Some(output.value.to_sat()),
                             script_pubkey[2..34].try_into().unwrap(),
                         )),
                     );

@@ -148,7 +148,8 @@ pub fn read_withdrawal_proof<E: Environment>(
 ) {
     let output_address = E::read_32bytes();
     // println!("READ output_address: {:?}", output_address);
-    let txid = read_tx_and_calculate_txid::<E>(None, Some((BRIDGE_AMOUNT_SATS, output_address)));
+    let txid =
+        read_tx_and_calculate_txid::<E>(None, Some((Some(BRIDGE_AMOUNT_SATS), output_address)));
     // println!("READ tx and calculated txid: {:?}", txid);
     let block_tx_mt_root = read_and_verify_bitcoin_merkle_path::<E>(txid);
     // println!("block_merkle_root: {:?}", block_tx_mt_root);
@@ -212,7 +213,7 @@ pub fn bridge_proof<E: Environment>() {
             //     commit_taproot_addr
             // );
             let commit_taproot_txid =
-                read_tx_and_calculate_txid::<E>(None, Some((2 * DUST_VALUE, commit_taproot_addr)));
+                read_tx_and_calculate_txid::<E>(None, Some((None, commit_taproot_addr)));
             // println!("READ tx and calculate txid: {:?}", commit_taproot_txid);
             let reveal_txid = read_tx_and_calculate_txid::<E>(Some((commit_taproot_txid, 0)), None);
             // println!("READ tx and calculate txid: {:?}", reveal_txid);

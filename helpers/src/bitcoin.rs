@@ -245,7 +245,7 @@ fn read_chunks_and_update_hasher<E: Environment>(hasher: &mut Sha256, byte_len: 
 
 pub fn read_tx_and_calculate_txid<E: Environment>(
     require_input: Option<([u8; 32], u32)>,
-    require_output: Option<(u64, [u8; 32])>,
+    require_output: Option<(Option<u64>, [u8; 32])>,
 ) -> [u8; 32] {
     let mut input_satisfied = require_input.is_none();
     let mut output_satisfied = require_output.is_none();
@@ -302,15 +302,28 @@ pub fn read_tx_and_calculate_txid<E: Environment>(
             //     "{}, {}, {}, {}",
             //     require_output.is_some(),
             //     !output_satisfied,
-            //     value == require_output.unwrap().0,
+            //     require_output.unwrap().0.is_some(),
+            //     // value == require_output.unwrap().0.unwrap(),
             //     taproot_address == require_output.unwrap().1
             // );
-            if require_output.is_some()
-                && !output_satisfied
-                && value == require_output.unwrap().0
-                && taproot_address == require_output.unwrap().1
-            {
-                output_satisfied = true;
+
+            // TODO: fix here
+            // if require_output.is_some()
+            //     && !output_satisfied
+            //     && (require_output.unwrap().0.is_some()
+            //     && value == require_output.unwrap().0.unwrap())
+            //     || require_output.unwrap().0.is_none()
+            //     && taproot_address == require_output.unwrap().1
+            // {
+            //     output_satisfied = true;
+            // }
+            if let Some((value_option, taproot_address_condition)) = require_output {
+                if value_option.map_or_else(
+                    || taproot_address == taproot_address_condition,
+                    |v| v == value,
+                ) {
+                    output_satisfied = true;
+                }
             }
         } else {
             hasher.update(value.to_le_bytes());
