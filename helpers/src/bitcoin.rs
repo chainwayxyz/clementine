@@ -137,7 +137,7 @@ pub fn read_preimages_and_calculate_commit_taproot<E: Environment>() -> ([u8; 32
         hasher_commit_taproot.update([32u8]);
         let preimage = E::read_32bytes();
         hasher_commit_taproot.update(&preimage);
-        hasher_claim_proof_leaf.update(&preimage);
+        hasher_claim_proof_leaf.update(sha256_hash!(preimage));
     }
     hasher_commit_taproot.update([104u8]);
     let script_hash: [u8; 32] = hasher_commit_taproot.finalize().into();
@@ -245,7 +245,7 @@ fn read_chunks_and_update_hasher<E: Environment>(hasher: &mut Sha256, byte_len: 
 
 pub fn read_tx_and_calculate_txid<E: Environment>(
     require_input: Option<([u8; 32], u32)>,
-    require_output: Option<(u64, [u8; 32])>,
+    require_output: Option<(Option<u64>, [u8; 32])>,
 ) -> [u8; 32] {
     let mut input_satisfied = require_input.is_none();
     let mut output_satisfied = require_output.is_none();
@@ -298,12 +298,21 @@ pub fn read_tx_and_calculate_txid<E: Environment>(
             hasher.update(81u8.to_le_bytes());
             hasher.update(32u8.to_le_bytes());
             hasher.update(taproot_address);
-            if require_output.is_some()
-                && !output_satisfied
-                && value == require_output.unwrap().0
-                && taproot_address == require_output.unwrap().1
-            {
-                output_satisfied = true;
+            // println!(
+            //     "{}, {}, {}, {}",
+            //     require_output.is_some(),
+            //     !output_satisfied,
+            //     require_output.unwrap().0.is_some(),
+            //     // value == require_output.unwrap().0.unwrap(),
+            //     taproot_address == require_output.unwrap().1
+            // );
+
+            if let Some((value_option, taproot_address_condition)) = require_output {
+                if taproot_address == taproot_address_condition
+                    && value_option.map_or(true, |v| v == value)
+                {
+                    output_satisfied = true;
+                }
             }
         } else {
             hasher.update(value.to_le_bytes());
@@ -331,6 +340,7 @@ pub fn read_tx_and_calculate_txid<E: Environment>(
 pub fn read_and_verify_bitcoin_merkle_path<E: Environment>(txid: [u8; 32]) -> [u8; 32] {
     let mut hash = txid;
     let mut index = E::read_u32();
+    // println!("READ index: {:?}", index);
     let levels = E::read_u32();
     // bits of path indicator determines if the next tree node should be read from env or be the copy of last node
     let mut path_indicator = E::read_u32();

@@ -5,7 +5,8 @@ use crate::{
         CONNECTOR_TREE_DEPTH, CONNECTOR_TREE_OPERATOR_TAKES_AFTER, DUST_VALUE, K_DEEP,
         MAX_BITVM_CHALLENGE_RESPONSE_BLOCKS, MIN_RELAY_FEE, USER_TAKES_AFTER,
     },
-    utils::calculate_claim_proof_root,
+    merkle::MerkleTree,
+    utils::get_claim_proof_tree_leaf,
     ConnectorUTXOTree, EVMAddress, HashTree,
 };
 use bitcoin::{
@@ -16,11 +17,11 @@ use bitcoin::{
     Address, Amount, OutPoint, ScriptBuf, TxIn, TxOut, Witness,
 };
 use circuit_helpers::{
-    constants::{BRIDGE_AMOUNT_SATS, NUM_ROUNDS},
-    HashType, MerkleRoot, PreimageType,
+    constants::{BRIDGE_AMOUNT_SATS, CLAIM_MERKLE_TREE_DEPTH, NUM_ROUNDS},
+    sha256_hash, HashType, MerkleRoot, PreimageType,
 };
 use secp256k1::{Secp256k1, XOnlyPublicKey};
-use serde::Serialize;
+use sha2::{Digest, Sha256};
 
 use crate::{errors::BridgeError, script_builder::ScriptBuilder, utils::calculate_amount};
 use lazy_static::lazy_static;
@@ -107,10 +108,10 @@ impl TransactionBuilder {
     ) -> Result<CreateTxOutputs, BridgeError> {
         let anyone_can_spend_txout = ScriptBuilder::anyone_can_spend_txout();
         let evm_address_inscription_txout = ScriptBuilder::op_return_txout(evm_address);
-        println!(
-            "evm_address_inscription_txout: {:?}",
-            evm_address_inscription_txout
-        );
+        // println!(
+        //     "evm_address_inscription_txout: {:?}",
+        //     evm_address_inscription_txout
+        // );
 
         let (bridge_address, _) = self.generate_bridge_address()?;
         let (deposit_address, deposit_taproot_spend_info) =
@@ -219,7 +220,15 @@ impl TransactionBuilder {
         first_source_utxo: &OutPoint,
         start_block_height: u64,
         peiod_relative_block_heights: &Vec<u32>,
-    ) -> Result<(Vec<MerkleRoot>, Vec<OutPoint>, Vec<ConnectorUTXOTree>), BridgeError> {
+    ) -> Result<
+        (
+            Vec<MerkleRoot>,
+            Vec<OutPoint>,
+            Vec<ConnectorUTXOTree>,
+            Vec<MerkleTree<CLAIM_MERKLE_TREE_DEPTH>>,
+        ),
+        BridgeError,
+    > {
         let single_tree_amount = calculate_amount(
             CONNECTOR_TREE_DEPTH,
             Amount::from_sat(DUST_VALUE),
@@ -229,17 +238,36 @@ impl TransactionBuilder {
 
         let mut cur_connector_source_utxo = *first_source_utxo;
         let mut cur_amount = total_amount;
-        println!("first_source_utxo: {:?}", first_source_utxo);
+        // println!("first_source_utxo: {:?}", first_source_utxo);
 
         let mut claim_proof_merkle_roots: Vec<[u8; 32]> = Vec::new();
+        let mut claim_proof_merkle_trees: Vec<MerkleTree<CLAIM_MERKLE_TREE_DEPTH>> = Vec::new();
         let mut root_utxos: Vec<OutPoint> = Vec::new();
         let mut utxo_trees: Vec<ConnectorUTXOTree> = Vec::new();
 
         for i in 0..NUM_ROUNDS {
-            claim_proof_merkle_roots.push(calculate_claim_proof_root(
-                CONNECTOR_TREE_DEPTH,
-                &connector_tree_hashes[i],
-            ));
+            // claim_proof_merkle_roots.push(calculate_claim_proof_root(
+            //     CONNECTOR_TREE_DEPTH,
+            //     &connector_tree_hashes[i],
+            // ));
+            // println!("calculate_claim_proof_root: {:?}", calculate_claim_proof_root(
+            //         CONNECTOR_TREE_DEPTH,
+            //         &connector_tree_hashes[i],
+            //     ));
+            let mut claim_proof_merkle_tree_i: MerkleTree<CLAIM_MERKLE_TREE_DEPTH> =
+                MerkleTree::new();
+            for j in 0..(2_usize.pow(CONNECTOR_TREE_DEPTH as u32)) {
+                let hash = get_claim_proof_tree_leaf(
+                    CLAIM_MERKLE_TREE_DEPTH,
+                    j,
+                    &connector_tree_hashes[i],
+                );
+                // println!("hash: {:?}", hash);
+                claim_proof_merkle_tree_i.add(hash);
+            }
+            claim_proof_merkle_roots.push(claim_proof_merkle_tree_i.root());
+            claim_proof_merkle_trees.push(claim_proof_merkle_tree_i);
+
             let (next_connector_source_address, _) = self.create_connector_tree_source_address(
                 start_block_height
                     + (peiod_relative_block_heights[i + 1]
@@ -289,7 +317,12 @@ impl TransactionBuilder {
             cur_amount = cur_amount - single_tree_amount;
         }
 
-        Ok((claim_proof_merkle_roots, root_utxos, utxo_trees))
+        Ok((
+            claim_proof_merkle_roots,
+            root_utxos,
+            utxo_trees,
+            claim_proof_merkle_trees,
+        ))
     }
 
     fn create_btc_tx(tx_ins: Vec<TxIn>, tx_outs: Vec<TxOut>) -> bitcoin::Transaction {
@@ -417,16 +450,14 @@ impl TransactionBuilder {
     ) -> Result<(Address, TaprootSpendInfo, ScriptBuf), BridgeError> {
         let inscribe_preimage_script =
             ScriptBuilder::create_inscription_script_32_bytes(actor_pk, preimages_to_be_revealed);
-        if preimages_to_be_revealed.len() == 7 || preimages_to_be_revealed.len() == 6 {
-            println!(
-                "inscribe_preimage_script.bytes: {:?}",
-                inscribe_preimage_script.clone().as_bytes()
-            );
-        }
         let (address, taproot_info) = TransactionBuilder::create_taproot_address(
             &self.secp,
             vec![inscribe_preimage_script.clone()],
         )?;
+        let mut hasher = Sha256::new();
+        for elem in preimages_to_be_revealed {
+            hasher.update(sha256_hash!(elem));
+        }
         Ok((address, taproot_info, inscribe_preimage_script))
     }
 
@@ -496,12 +527,12 @@ impl TransactionBuilder {
         connector_tree_hashes: Vec<Vec<[u8; 32]>>,
     ) -> Result<ConnectorUTXOTree, BridgeError> {
         // UTXO value should be at least 2^depth * dust_value + (2^depth-1) * fee
-        let total_amount = calculate_amount(
+        let _total_amount = calculate_amount(
             depth,
             Amount::from_sat(DUST_VALUE),
             Amount::from_sat(MIN_RELAY_FEE),
         );
-        println!("total_amount: {:?}", total_amount);
+        // println!("total_amount: {:?}", total_amount);
 
         let (_root_address, _) = TransactionBuilder::create_connector_tree_node_address(
             &self.secp,

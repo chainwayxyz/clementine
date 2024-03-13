@@ -26,6 +26,19 @@ impl<E: Environment> ENVWriter<E> {
         E::write_u32(nonce);
     }
 
+    pub fn write_block_header_without_mt_root(header: &Header) {
+        let version = header.version.to_consensus();
+        let prev_blockhash = header.prev_blockhash.as_byte_array();
+        let time = header.time;
+        let bits = header.bits.to_consensus();
+        let nonce = header.nonce;
+        E::write_i32(version);
+        E::write_32bytes(*prev_blockhash);
+        E::write_u32(time);
+        E::write_u32(bits);
+        E::write_u32(nonce);
+    }
+
     pub fn write_tx_to_env(tx: &Transaction) {
         E::write_i32(tx.version.0);
         E::write_u32(tx.input.len() as u32);
@@ -87,7 +100,7 @@ impl<E: Environment> ENVWriter<E> {
     }
 
     pub fn write_bitcoin_merkle_path(txid: Txid, block: &Block) -> Result<(), BridgeError> {
-        let tx_ids = block
+        let tx_ids: Vec<Txid> = block
             .txdata
             .iter()
             .map(|tx| tx.txid())
@@ -185,19 +198,24 @@ impl<E: Environment> ENVWriter<E> {
         blockhashes_mt: &mut MerkleTree<DEPTH>,
     ) {
         E::write_u32(block_headers.len() as u32);
+        println!(
+            "WROTE block_headers.len(): {:?}",
+            block_headers.len() as u32
+        );
         for header in block_headers.iter() {
             ENVWriter::<E>::write_block_header_without_prev(header);
+            // println!("WROTE block header without prev: {:?}", header);
             blockhashes_mt.add(serialize(&header.block_hash()).try_into().unwrap());
         }
     }
 
-    pub fn write_preimages(operator_pk: XOnlyPublicKey, preimages: Vec<[u8; 32]>) {
+    pub fn write_preimages(operator_pk: XOnlyPublicKey, preimages: &Vec<[u8; 32]>) {
         let num_preimages = preimages.len() as u32;
         E::write_u32(num_preimages);
         let operator_pk_bytes: [u8; 32] = operator_pk.serialize();
         E::write_32bytes(operator_pk_bytes);
         for preimage in preimages {
-            E::write_32bytes(preimage);
+            E::write_32bytes(*preimage);
         }
     }
 }
@@ -338,7 +356,7 @@ mod tests {
                     let tx_id = read_tx_and_calculate_txid::<MockEnvironment>(
                         None,
                         Some((
-                            output.value.to_sat(),
+                            Some(output.value.to_sat()),
                             script_pubkey[2..34].try_into().unwrap(),
                         )),
                     );
@@ -503,7 +521,7 @@ mod tests {
                 [2..34]
                 .try_into()
                 .unwrap();
-            ENVWriter::<MockEnvironment>::write_preimages(operator_xonly, preimages);
+            ENVWriter::<MockEnvironment>::write_preimages(operator_xonly, &preimages);
             let (taproot_address, _claim_proof_leaf) =
                 read_preimages_and_calculate_commit_taproot::<MockEnvironment>();
             assert_eq!(expected_script_pubkey, taproot_address);

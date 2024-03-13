@@ -1,5 +1,7 @@
-use bitcoin::Txid;
-use circuit_helpers::{constants::WITHDRAWAL_MERKLE_TREE_DEPTH, HashType, PreimageType};
+use circuit_helpers::{
+    constants::{CLAIM_MERKLE_TREE_DEPTH, WITHDRAWAL_MERKLE_TREE_DEPTH},
+    HashType, PreimageType,
+};
 
 use crate::{
     merkle::MerkleTree, operator::OperatorClaimSigs, traits::operator_db::OperatorDBConnector,
@@ -10,7 +12,9 @@ use crate::{
 pub struct OperatorMockDB {
     deposit_take_sigs: Vec<OperatorClaimSigs>,
     connector_tree_preimages: Vec<PreimageTree>,
+    inscribed_connector_tree_preimages: Vec<Vec<PreimageType>>,
     connector_tree_hashes: Vec<HashTree>,
+    claim_proof_merkle_trees: Vec<MerkleTree<CLAIM_MERKLE_TREE_DEPTH>>,
     inscription_txs: Vec<InscriptionTxs>,
     withdrawals_merkle_tree: MerkleTree<WITHDRAWAL_MERKLE_TREE_DEPTH>,
     withdrawals_payment_txids: Vec<Vec<WithdrawalPayment>>,
@@ -24,11 +28,13 @@ impl OperatorMockDB {
         Self {
             deposit_take_sigs: Vec::new(),
             // deposit_merkle_tree: MerkleTree::new(),
+            inscribed_connector_tree_preimages: Vec::new(),
             withdrawals_merkle_tree: MerkleTree::new(),
             withdrawals_payment_txids: Vec::new(),
             inscription_txs: Vec::new(),
             connector_tree_preimages: Vec::new(),
             connector_tree_hashes: Vec::new(),
+            claim_proof_merkle_trees: Vec::new(),
             // deposit_utxos: Vec::new(),
             // move_utxos: Vec::new(),
             connector_tree_utxos: Vec::new(),
@@ -76,6 +82,17 @@ impl OperatorDBConnector for OperatorMockDB {
 
     fn set_connector_tree_hashes(&mut self, connector_tree_hashes: Vec<Vec<Vec<HashType>>>) {
         self.connector_tree_hashes = connector_tree_hashes;
+    }
+
+    fn set_claim_proof_merkle_trees(
+        &mut self,
+        claim_proof_merkle_trees: Vec<MerkleTree<CLAIM_MERKLE_TREE_DEPTH>>,
+    ) {
+        self.claim_proof_merkle_trees = claim_proof_merkle_trees;
+    }
+
+    fn get_claim_proof_merkle_tree(&self, period: usize) -> MerkleTree<CLAIM_MERKLE_TREE_DEPTH> {
+        self.claim_proof_merkle_trees[period].clone()
     }
 
     fn get_inscription_txs_len(&self) -> usize {
@@ -138,5 +155,15 @@ impl OperatorDBConnector for OperatorMockDB {
     }
     fn get_period_relative_block_heights(&self) -> Vec<u32> {
         self.period_relative_block_heights.clone()
+    }
+
+    fn add_inscribed_preimages(&mut self, period: usize, preimages: Vec<PreimageType>) {
+        while period >= self.inscribed_connector_tree_preimages.len() {
+            self.inscribed_connector_tree_preimages.push(Vec::new());
+        }
+        self.inscribed_connector_tree_preimages[period] = preimages;
+    }
+    fn get_inscribed_preimages(&self, period: usize) -> Vec<PreimageType> {
+        self.inscribed_connector_tree_preimages[period].clone()
     }
 }

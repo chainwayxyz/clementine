@@ -1,6 +1,8 @@
-use crate::{operator::OperatorClaimSigs, ConnectorUTXOTree, InscriptionTxs, WithdrawalPayment};
-use bitcoin::Txid;
-use circuit_helpers::{HashType, PreimageType};
+use crate::{
+    merkle::MerkleTree, operator::OperatorClaimSigs, ConnectorUTXOTree, InscriptionTxs,
+    WithdrawalPayment,
+};
+use circuit_helpers::{constants::CLAIM_MERKLE_TREE_DEPTH, HashType, PreimageType};
 pub trait OperatorDBConnector: std::fmt::Debug {
     fn get_deposit_index(&self) -> usize;
     fn add_deposit_take_sigs(&mut self, deposit_take_sigs: OperatorClaimSigs);
@@ -13,6 +15,11 @@ pub trait OperatorDBConnector: std::fmt::Debug {
     );
     fn get_connector_tree_hash(&self, period: usize, level: usize, idx: usize) -> HashType;
     fn set_connector_tree_hashes(&mut self, connector_tree_hashes: Vec<Vec<Vec<HashType>>>);
+    fn set_claim_proof_merkle_trees(
+        &mut self,
+        claim_proof_merkle_trees: Vec<MerkleTree<CLAIM_MERKLE_TREE_DEPTH>>,
+    );
+    fn get_claim_proof_merkle_tree(&self, period: usize) -> MerkleTree<CLAIM_MERKLE_TREE_DEPTH>;
     fn get_inscription_txs_len(&self) -> usize;
     fn get_inscription_txs(&self) -> Vec<InscriptionTxs>;
     fn add_to_inscription_txs(&mut self, inscription_txs: InscriptionTxs);
@@ -32,4 +39,7 @@ pub trait OperatorDBConnector: std::fmt::Debug {
 
     fn set_period_relative_block_heights(&mut self, period_relative_block_heights: Vec<u32>);
     fn get_period_relative_block_heights(&self) -> Vec<u32>;
+
+    fn add_inscribed_preimages(&mut self, period: usize, preimages: Vec<PreimageType>);
+    fn get_inscribed_preimages(&self, period: usize) -> Vec<PreimageType>;
 }

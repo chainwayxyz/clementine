@@ -22,6 +22,7 @@ use crate::constants::CONFIRMATION_BLOCK_COUNT;
 use crate::errors::BridgeError;
 use crate::extended_rpc::ExtendedRpc;
 use crate::transaction_builder::{CreateTxOutputs, TransactionBuilder};
+use crate::HashTree;
 
 pub fn parse_hex_to_btc_tx(
     tx_hex: &str,
@@ -161,7 +162,7 @@ pub fn get_claim_reveal_indices(depth: usize, count: u32) -> Vec<(usize, usize)>
 pub fn get_claim_proof_tree_leaf(
     depth: usize,
     num_claims: usize,
-    connector_tree_hashes: &Vec<Vec<[u8; 32]>>,
+    connector_tree_hashes: &HashTree,
 ) -> [u8; 32] {
     let indices = get_claim_reveal_indices(depth, num_claims as u32);
     let mut hasher = Sha256::new();
