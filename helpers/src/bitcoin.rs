@@ -318,10 +318,9 @@ pub fn read_tx_and_calculate_txid<E: Environment>(
             //     output_satisfied = true;
             // }
             if let Some((value_option, taproot_address_condition)) = require_output {
-                if value_option.map_or_else(
-                    || taproot_address == taproot_address_condition,
-                    |v| v == value,
-                ) {
+                if taproot_address == taproot_address_condition
+                    && value_option.map_or(true, |v| v == value)
+                {
                     output_satisfied = true;
                 }
             }
