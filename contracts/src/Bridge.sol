@@ -10,6 +10,7 @@ import "./MerkleTree.sol";
 contract Bridge is MerkleTree, Ownable {
     bytes public DEPOSIT_TXOUT_0 = hex"c2ddf50500000000225120fc6eb6fa4fd4ed1e8519a7edfa171eddcedfbd0e0be49b5e531ef36e7e66eb05"; 
     uint256 public constant DEPOSIT_AMOUNT = 1 ether;
+    address public operator;
     mapping(bytes32 => bool) public blockHashes;
     mapping(bytes32 => bool) public spentTxIds;
 
@@ -17,10 +18,16 @@ contract Bridge is MerkleTree, Ownable {
     event Withdrawal(bytes32  bitcoin_address, uint32 indexed leafIndex, uint256 timestamp);
     event DepositTxOutUpdate(bytes oldExpectedVout0, bytes newExpectedVout0);
     event BlockHashAdded(bytes32 block_hash);
+    event OperatorUpdated(address oldOperator, address newOperator);
+
+    modifier onlyOperator() {
+        require(msg.sender == operator, "caller is not the operator");
+        _;
+    }
 
     constructor(uint32 _levels) MerkleTree(_levels) Ownable(msg.sender) {}
 
-    function setDepositTxOut0(bytes calldata _depositTxOut0) public onlyOwner {
+    function setDepositTxOut0(bytes calldata _depositTxOut0) external onlyOwner {
         bytes memory oldDepositTxOut0 = DEPOSIT_TXOUT_0;
         DEPOSIT_TXOUT_0 = _depositTxOut0;
         emit DepositTxOutUpdate(oldDepositTxOut0, DEPOSIT_TXOUT_0);
@@ -34,7 +41,7 @@ contract Bridge is MerkleTree, Ownable {
         bytes calldata intermediate_nodes,
         bytes calldata block_header,
         uint index
-    ) public {
+    ) external onlyOperator {
         bytes32 block_hash = BTCUtils.hash256(block_header);
         require(isCorrectBlockHash(block_hash), "incorrect block hash");
 
@@ -61,13 +68,13 @@ contract Bridge is MerkleTree, Ownable {
         require(success, "Transfer failed");
     }
 
-    function withdraw(bytes32 bitcoin_address) public payable {
+    function withdraw(bytes32 bitcoin_address) external payable {
         require(msg.value == DEPOSIT_AMOUNT, "Invalid withdraw amount");
         insertWithdrawalTree(bitcoin_address);
         emit Withdrawal(bitcoin_address, nextIndex, block.timestamp);
     }
 
-    function batchWithdraw(bytes32[] calldata bitcoin_addresses) public payable {
+    function batchWithdraw(bytes32[] calldata bitcoin_addresses) external payable {
         require(msg.value == DEPOSIT_AMOUNT * bitcoin_addresses.length, "Invalid withdraw amount");
         for (uint i = 0; i < bitcoin_addresses.length; i++) {
             insertWithdrawalTree(bitcoin_addresses[i]);
@@ -75,13 +82,18 @@ contract Bridge is MerkleTree, Ownable {
         }
     }
 
-    function isCorrectBlockHash(bytes32 block_hash) public view returns (bool) {
-        return blockHashes[block_hash];
-    }
-
-    function addBlockHash(bytes32 block_hash) public onlyOwner {
+    function addBlockHash(bytes32 block_hash) external onlyOwner {
         blockHashes[block_hash] = true;
         emit BlockHashAdded(block_hash);
+    }
+
+    function setOperator(address _operator) external onlyOwner {
+        operator = _operator;
+        emit OperatorUpdated(operator, _operator);
+    }
+
+    function isCorrectBlockHash(bytes32 block_hash) public view returns (bool) {
+        return blockHashes[block_hash];
     }
 
     function isBytesEqual(bytes memory a, bytes memory b) internal pure returns (bool result) {
