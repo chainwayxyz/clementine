@@ -34,14 +34,14 @@ use circuit_helpers::constants::{
 };
 use circuit_helpers::env::Environment;
 use circuit_helpers::{sha256_hash, HashType, PreimageType};
-use secp256k1::rand::rngs::OsRng;
+use secp256k1::rand::rngs::StdRng;
 use secp256k1::rand::Rng;
 use secp256k1::{Message, SecretKey, XOnlyPublicKey};
 use sha2::{Digest, Sha256};
 
 pub fn create_connector_tree_preimages_and_hashes(
     depth: usize,
-    rng: &mut OsRng,
+    rng: &mut StdRng,
 ) -> (Vec<Vec<PreimageType>>, Vec<Vec<HashType>>) {
     let mut connector_tree_preimages: Vec<Vec<PreimageType>> = Vec::new();
     let mut connector_tree_hashes: Vec<Vec<HashType>> = Vec::new();
@@ -65,7 +65,7 @@ pub fn create_connector_tree_preimages_and_hashes(
 pub fn create_all_rounds_connector_preimages(
     depth: usize,
     num_rounds: usize,
-    rng: &mut OsRng,
+    rng: &mut StdRng,
 ) -> (Vec<Vec<Vec<PreimageType>>>, Vec<Vec<Vec<HashType>>>) {
     let mut preimages = Vec::new();
     let mut hashes = Vec::new();
@@ -1026,7 +1026,7 @@ impl Operator {
     /// 1. get the current blockheight
     pub fn initial_setup(
         &mut self,
-        rng: &mut OsRng,
+        rng: &mut StdRng,
     ) -> Result<
         (
             OutPoint,
@@ -1107,7 +1107,10 @@ impl Operator {
             "Operator claim_proof_merkle_roots[0]: {:?}",
             claim_proof_merkle_roots[0]
         );
-        // println!("Operator claim_proof_merkle_roots: {:?}", claim_proof_merkle_roots);
+        println!(
+            "Operator claim_proof_merkle_roots: {:?}",
+            claim_proof_merkle_roots
+        );
         self.operator_db_connector
             .set_claim_proof_merkle_trees(claim_proof_merkle_trees.clone());
 

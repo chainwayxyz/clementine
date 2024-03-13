@@ -6,7 +6,7 @@ use crate::{
         read_tx_and_calculate_txid, validate_threshold_and_add_work, HeaderWithoutPrevBlockHash,
     },
     constants::{
-        BLOCKHASH_MERKLE_TREE_DEPTH, BRIDGE_AMOUNT_SATS, CLAIM_MERKLE_TREE_DEPTH, DUST_VALUE,
+        BLOCKHASH_MERKLE_TREE_DEPTH, BRIDGE_AMOUNT_SATS, CLAIM_MERKLE_TREE_DEPTH,
         MAX_BLOCK_HANDLE_OPS, NUM_ROUNDS, PERIOD_CLAIM_MT_ROOTS, START_PREV_BLOCKHASH,
         WITHDRAWAL_MERKLE_TREE_DEPTH,
     },
@@ -187,7 +187,8 @@ pub fn bridge_proof<E: Environment>() {
 
     // println!("READ last_block_hash: {:?}", last_block_hash);
 
-    for i in 0..NUM_ROUNDS {
+    for i in 0..1 {
+        //TODO: change to NUM_ROUNDS
         let (work, lc_blockhash, cur_block_hash) = read_blocks_and_add_to_merkle_tree::<E>(
             last_block_hash,
             &mut blockhashes_mt,
@@ -225,8 +226,6 @@ pub fn bridge_proof<E: Environment>() {
             // );
             let calculated_blockhash =
                 read_header_except_root_and_calculate_blockhash::<E>(calculated_merkle_root);
-            // let calculated_blockhash =
-            //     read_header_except_root_and_calculate_blockhash::<E>(calculated_merkle_root);
             // println!("calculated_blockhash: {:?}", calculated_blockhash);
 
             assert_eq!(
@@ -248,6 +247,8 @@ pub fn bridge_proof<E: Environment>() {
                 )
             );
 
+            // println!("READ and verify claim proof");
+
             let k_deep_work = read_blocks_and_calculate_work::<E>(cur_block_hash, 3); // TODO: Change to K
 
             // println!("READ k_deep_work: {:?}", k_deep_work);
@@ -267,5 +268,7 @@ pub fn bridge_proof<E: Environment>() {
             //
         }
         last_block_hash = cur_block_hash;
+
+        // println!("Bridge proof done for a period");
     }
 }

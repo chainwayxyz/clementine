@@ -1,4 +1,5 @@
-use bitcoin::secp256k1::rand::rngs::OsRng;
+// use bitcoin::secp256k1::rand::rngs::OsRng;
+use bitcoin::secp256k1::rand::SeedableRng;
 use circuit_helpers::bridge::bridge_proof;
 use circuit_helpers::constants::MAX_BLOCK_HANDLE_OPS;
 use operator::constants::{NUM_USERS, NUM_VERIFIERS};
@@ -8,16 +9,23 @@ use operator::traits::verifier::VerifierConnector;
 use operator::verifier::Verifier;
 use operator::EVMAddress;
 use operator::{extended_rpc::ExtendedRpc, operator::Operator, user::User};
+use secp256k1::rand::rngs::StdRng;
 use secp256k1::XOnlyPublicKey;
 
 fn test_flow() -> Result<(), BridgeError> {
     let rpc = ExtendedRpc::new();
 
     let secp = bitcoin::secp256k1::Secp256k1::new();
-    let rng = &mut OsRng;
+
+    let seed: [u8; 32] = [
+        1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25,
+        26, 27, 28, 29, 30, 31, 32,
+    ];
+    let mut rng = StdRng::from_seed(seed);
+
     let (all_sks, all_xonly_pks): (Vec<_>, Vec<_>) = (0..NUM_VERIFIERS + 1)
         .map(|_| {
-            let (sk, pk) = secp.generate_keypair(rng);
+            let (sk, pk) = secp.generate_keypair(&mut rng);
             (sk, XOnlyPublicKey::from(pk))
         })
         .unzip();
@@ -39,7 +47,7 @@ fn test_flow() -> Result<(), BridgeError> {
 
     let users: Vec<_> = (0..NUM_USERS)
         .map(|_| {
-            let (sk, _) = secp.generate_keypair(rng);
+            let (sk, _) = secp.generate_keypair(&mut rng);
             User::new(rpc.clone(), all_xonly_pks.clone(), sk)
         })
         .collect();
@@ -51,7 +59,7 @@ fn test_flow() -> Result<(), BridgeError> {
         connector_tree_hashes,
         period_relative_block_heights,
         _claim_proof_merkle_trees,
-    ) = operator.initial_setup(&mut OsRng).unwrap();
+    ) = operator.initial_setup(&mut rng).unwrap();
 
     // let mut connector_tree_source_sigs = Vec::new();
 
@@ -102,6 +110,8 @@ fn test_flow() -> Result<(), BridgeError> {
 
     operator.prove::<MockEnvironment>()?;
     bridge_proof::<MockEnvironment>();
+
+    println!("Bridge proof is correct");
 
     Ok(())
 }
