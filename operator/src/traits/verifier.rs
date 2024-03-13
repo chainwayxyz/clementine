@@ -1,4 +1,5 @@
 use bitcoin::{Address, OutPoint};
+use circuit_helpers::env::Environment;
 use secp256k1::XOnlyPublicKey;
 
 use crate::{errors::BridgeError, operator::DepositPresigns, EVMAddress};
@@ -19,5 +20,11 @@ pub trait VerifierConnector: std::fmt::Debug {
         first_source_utxo: &OutPoint,
         start_blockheight: u64,
         peiod_relative_block_heights: Vec<u32>,
+    ) -> Result<(), BridgeError>;
+
+    fn challenge_operator<E: Environment>(
+        &self,
+        period: u8,
+        last_blockhash: [u8; 32],
     ) -> Result<(), BridgeError>;
 }

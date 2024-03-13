@@ -10,6 +10,7 @@ use bitcoin::Address;
 use bitcoin::{secp256k1, secp256k1::Secp256k1, OutPoint};
 
 use circuit_helpers::constants::{BRIDGE_AMOUNT_SATS, CLAIM_MERKLE_TREE_DEPTH, NUM_ROUNDS};
+use circuit_helpers::env::Environment;
 use secp256k1::SecretKey;
 use secp256k1::XOnlyPublicKey;
 
@@ -129,6 +130,20 @@ impl VerifierConnector for Verifier {
         // );
         // println!("Verifier root_utxos: {:?}", root_utxos);
         // println!("Verifier utxo_trees: {:?}", self.connector_tree_utxos);
+        Ok(())
+    }
+
+    /// Challenges the operator for current period for now
+    /// TODO: change this later to challenge for any period
+    /// Will return the blockhash, total work, and period
+    fn challenge_operator<E: Environment>(
+        &self,
+        period: u8,
+        last_blockhash: [u8; 32],
+    ) -> Result<(), BridgeError> {
+        println!("Verifier starts challenging");
+        let last_block = self.rpc.get_blockinfo(&last_blockhash);
+
         Ok(())
     }
 }

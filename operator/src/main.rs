@@ -101,8 +101,10 @@ fn test_flow() -> Result<(), BridgeError> {
 
     rpc.mine_blocks(15)?;
 
-    operator.prove::<MockEnvironment>()?;
-    bridge_proof::<MockEnvironment>();
+    let challenge = verifiers[0].challenge_operator(0, [0u8; 32])?;
+
+    operator.prove::<MockEnvironment>(Some(challenge))?;
+    bridge_proof::<MockEnvironment>(None);
 
     Ok(())
 }

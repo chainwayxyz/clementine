@@ -178,7 +178,7 @@ pub fn read_and_verify_verifiers_challenge_proof<E: Environment>() -> (U256, [u8
     unimplemented!()
 }
 
-pub fn bridge_proof<E: Environment>() {
+pub fn bridge_proof<E: Environment>(challenge: Option<()>) {
     // println!("Bridge proof");
     let mut blockhashes_mt = IncrementalMerkleTree::new();
     let mut withdrawal_mt = IncrementalMerkleTree::new();
@@ -201,8 +201,10 @@ pub fn bridge_proof<E: Environment>() {
         for _ in 0..num_withdrawals {
             read_withdrawal_proof::<E>(blockhashes_mt.root, &mut withdrawal_mt);
         }
+
         let finish_proof = E::read_u32();
         // println!("READ finish_proof: {:?}", finish_proof);
+
         if finish_proof == 1 {
             read_and_verify_lc_proof::<E>(lc_blockhash, withdrawal_mt.root);
             // println!("READ and verify lc proof");
@@ -254,17 +256,16 @@ pub fn bridge_proof<E: Environment>() {
             total_pow = total_pow.wrapping_add(&k_deep_work);
             // println!("total_pow: {:?}", total_pow);
 
-            // let (verifiers_pow, verifiers_last_finalized_bh, _verifiers_last_blockheight) =
-            //     read_and_verify_verifiers_challenge_proof::<E>();
+            let (verifiers_pow, verifiers_last_finalized_blockhash, _verifiers_last_blockheight) =
+                read_and_verify_verifiers_challenge_proof::<E>();
 
             // if our pow is bigger and we have different last finalized block hash, we win
             // that means verifier can't make a challenge for previous periods
             // verifier should wait K_DEEP blocks to make a challenge to make sure operator
             // can't come up with different blockhashes
-            // if total_pow > verifiers_pow && cur_block_hash != verifiers_last_finalized_bh {
-            //     return;
-            // }
-            return;
+            if total_pow > verifiers_pow && cur_block_hash != verifiers_last_finalized_blockhash {
+            } else {
+            }
         }
         last_block_hash = cur_block_hash;
     }

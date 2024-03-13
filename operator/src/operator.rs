@@ -685,7 +685,7 @@ impl Operator {
     /// that the verifier gave correct blockhash
     /// In the future this will be probably a seperate Prover struct to be able to save old proofs
     /// and continue from old proof state when necessary
-    pub fn prove<E: Environment>(&self) -> Result<(), BridgeError> {
+    pub fn prove<E: Environment>(&self, challenge: Option<()>) -> Result<(), BridgeError> {
         println!("Operator starts proving");
 
         let mut blockhashes_mt = MerkleTree::<BLOCKHASH_MERKLE_TREE_DEPTH>::new();
@@ -765,7 +765,7 @@ impl Operator {
 
         // Now we finish the proving, since we provided blockhashes and withdrawal proofs
         MockEnvironment::write_u32(1);
-        println!("Finished proving, WROTE 1");
+        println!("WROTE 1, finishing proving");
 
         self.write_lc_proof::<E>(lc_blockhash, withdrawal_mt.root());
         println!("WROTE LC PROOF");
@@ -874,7 +874,7 @@ impl Operator {
         //     cur_block_height,
         //     blockhashes_mt,
         // );
-        // write_verifiers_challenge_proof();
+        write_verifiers_challenge_proof();
 
         // MockEnvironment::prove();
         Ok(())
