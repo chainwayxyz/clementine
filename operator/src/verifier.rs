@@ -6,11 +6,13 @@ use crate::traits::verifier::VerifierConnector;
 use crate::utils::check_deposit_utxo;
 use crate::{ConnectorUTXOTree, EVMAddress, HashTree};
 
-use bitcoin::Address;
+use bitcoin::consensus::Decodable;
 use bitcoin::{secp256k1, secp256k1::Secp256k1, OutPoint};
+use bitcoin::{Address, BlockHash};
 
 use circuit_helpers::constants::{BRIDGE_AMOUNT_SATS, CLAIM_MERKLE_TREE_DEPTH, NUM_ROUNDS};
 use circuit_helpers::env::Environment;
+use crypto_bigint::U256;
 use secp256k1::SecretKey;
 use secp256k1::XOnlyPublicKey;
 
@@ -30,6 +32,8 @@ pub struct Verifier {
     pub connector_tree_hashes: Vec<Vec<Vec<[u8; 32]>>>,
     pub claim_proof_merkle_trees: Vec<MerkleTree<CLAIM_MERKLE_TREE_DEPTH>>,
     pub operator_pk: XOnlyPublicKey,
+    pub start_block_height: u64,
+    pub period_relative_block_heights: Vec<u32>,
 }
 
 // impl VerifierConnector
@@ -105,7 +109,7 @@ impl VerifierConnector for Verifier {
         connector_tree_hashes: &Vec<HashTree>,
         first_source_utxo: &OutPoint,
         start_blockheight: u64,
-        peiod_relative_block_heights: Vec<u32>,
+        period_relative_block_heights: Vec<u32>,
     ) -> Result<(), BridgeError> {
         // println!("Verifier first_source_utxo: {:?}", first_source_utxo);
         // println!("Verifier verifiers_pks len: {:?}", self.verifiers.len());
@@ -114,7 +118,7 @@ impl VerifierConnector for Verifier {
                 &connector_tree_hashes,
                 &first_source_utxo,
                 start_blockheight,
-                &peiod_relative_block_heights,
+                &period_relative_block_heights,
             )?;
         // println!("Verifier claim_proof_merkle_roots: {:?}", _claim_proof_merkle_roots);
 
@@ -124,6 +128,10 @@ impl VerifierConnector for Verifier {
         self.connector_tree_hashes = connector_tree_hashes.clone();
 
         self.claim_proof_merkle_trees = claim_proof_merkle_trees;
+
+        self.start_block_height = start_blockheight;
+        self.period_relative_block_heights = period_relative_block_heights;
+
         // println!(
         //     "Verifier claim_proof_merkle_roots: {:?}",
         //     claim_proof_merkle_roots
@@ -136,15 +144,16 @@ impl VerifierConnector for Verifier {
     /// Challenges the operator for current period for now
     /// TODO: change this later to challenge for any period
     /// Will return the blockhash, total work, and period
-    fn challenge_operator<E: Environment>(
-        &self,
-        period: u8,
-        last_blockhash: [u8; 32],
-    ) -> Result<(), BridgeError> {
+    fn challenge_operator(&self, period: u8) -> Result<Option<(BlockHash, U256, u8)>, BridgeError> {
         println!("Verifier starts challenging");
-        let last_block = self.rpc.get_blockinfo(&last_blockhash);
-
-        Ok(())
+        let last_blockhash = self.rpc.get_best_block_hash()?;
+        let challenged_period_end =
+            self.start_block_height + self.period_relative_block_heights[period as usize] as u64;
+        let period_end_blockhash = self.rpc.get_block_hash(challenged_period_end)?;
+        let total_work = self
+            .rpc
+            .calculate_total_work_between_blocks(self.start_block_height, challenged_period_end)?;
+        Ok(Some((last_blockhash, total_work, period)))
     }
 }
 
@@ -180,6 +189,8 @@ impl Verifier {
             connector_tree_hashes,
             operator_pk,
             claim_proof_merkle_trees,
+            start_block_height: 0,
+            period_relative_block_heights: Vec::new(),
         })
     }
 
