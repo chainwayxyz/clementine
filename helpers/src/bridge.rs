@@ -196,7 +196,7 @@ pub fn read_and_verify_verifiers_challenge_proof<E: Environment>() -> (U256, [u8
     (max_pow_u256, lc_cutoff_blockhash, period_num)
 }
 
-pub fn bridge_proof<E: Environment>(_challenge: Option<()>) {
+pub fn bridge_proof<E: Environment>() {
     // println!("Bridge proof");
     let mut blockhashes_mt = IncrementalMerkleTree::new();
     let mut withdrawal_mt = IncrementalMerkleTree::new();
