@@ -11,7 +11,6 @@ use crate::extended_rpc::ExtendedRpc;
 
 use crate::merkle::MerkleTree;
 use crate::mock_db::OperatorMockDB;
-use crate::mock_env::MockEnvironment;
 use crate::script_builder::ScriptBuilder;
 use crate::traits::operator_db::OperatorDBConnector;
 use crate::traits::verifier::VerifierConnector;
@@ -749,10 +748,12 @@ impl Operator {
         Self::write_verifiers_challenge_proof::<E>([[0u8; 32]; 4], challenge)?;
 
         let mut end_height: u64 = 0;
+        let mut start_height: u64;
 
         for i in 0..inscription_txs.len() {
+            // Writing blocks until current period
             // First write specific blockhashes to the circuit
-            let start_height = if i == 0 {
+            start_height = if i == 0 {
                 start_block_height
             } else {
                 start_block_height + period_relative_block_heights[i - 1] as u64
@@ -768,12 +769,16 @@ impl Operator {
             println!("WROTE BLOCKS AND ADDED TO MERKLE TREE:");
 
             // println!("From {:?} to {:?} ", start_height, end_height);
-
             // println!("WROTE BLOCKS AND ADDED TO MERKLE TREE");
+        }
+
+        let mut total_num_withdrawals = 0;
+        for i in 0..(challenge.2 + 1) as usize {
             let withdrawal_payments = self
                 .operator_db_connector
                 .get_withdrawals_payment_for_period(i);
             println!("withdrawal_payments: {:?}", withdrawal_payments);
+            total_num_withdrawals += withdrawal_payments.len();
 
             // println!("WITHDRAWAL PAYMENTS: {:?}", withdrawal_payments);
 
@@ -786,15 +791,6 @@ impl Operator {
             // println!("withdrawal_mt: {:?}", withdrawal_mt);
             // println!("blockhashes_mt: {:?}", blockhashes_mt);
             // println!("WROTE WITHDRAWALS AND ADDED TO MERKLE TREE");
-
-            // Now we finish the proving, since we provided blockhashes and withdrawal proofs
-            if i == challenge.2 as usize {
-                MockEnvironment::write_u32(1);
-                println!("WROTE 1, finishing proving");
-            } else {
-                MockEnvironment::write_u32(0);
-                println!("WROTE 0, continue proving");
-            }
         }
         let last_period = inscription_txs.len() - 1;
 
@@ -876,21 +872,14 @@ impl Operator {
         // println!("claim_proof_merkle_tree: {:?}", self.operator_db_connector.get_claim_proof_merkle_tree(0));
         ENVWriter::<E>::write_merkle_tree_proof(
             preimage_hash,
-            Some(12), //TODO: CHANGE THIS WITH THE NUMBER OF WITHDRAWALS UNTIL THE END OF THE CHALLENGE PERIOD
+            Some(total_num_withdrawals as u32), //TODO: CHANGE THIS WITH THE NUMBER OF WITHDRAWALS UNTIL THE END OF THE CHALLENGE PERIOD
             &self
                 .operator_db_connector
                 .get_claim_proof_merkle_tree(challenge.2 as usize),
         );
 
-        // write_preimages(preimages);
-        // write_inscription_commit_tx(inscription_txs[last_period].0);
-        // write_inscription_reveal_tx(inscription_txs[last_period].1);
-        // let block = self.rpc.get_block(inscription_txs[last_period].1)?;
-        // write_bitcoin_merkle_path(inscription_txs[last_period].1, block);
-        // write_merkle_tree_proof(blockhashes_mt, block);
-        // write_claim_proof_merkle_path(i, &preimages);
-        // // write all the remaining blocks so that we will have more pow than the given challenge
-        // // adding more block hashes to the tree is not a problem.
+        // write all the remaining blocks so that we will have more pow than the given challenge
+        // adding more block hashes to the tree is not a problem.
         let _cur_block_height = self.rpc.get_block_count().unwrap();
 
         let mut k_deep_blocks: Vec<Header> = Vec::new();
