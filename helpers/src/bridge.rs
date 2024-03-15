@@ -209,11 +209,10 @@ pub fn bridge_proof<E: Environment>() {
     println!("READ last_block_hash: {:?}", cur_block_hash);
 
     let mut lc_blockhash = [0; 32];
-    let mut work: U256 = U256::ZERO;
-    let mut last_block_hash: [u8; 32] = [0; 32];
     for period_count in 0..NUM_ROUNDS {
+        let work;
         println!("ROUND: {:?}", period_count);
-        (work, lc_blockhash, last_block_hash) = read_blocks_and_add_to_merkle_tree::<E>(
+        (work, lc_blockhash, cur_block_hash) = read_blocks_and_add_to_merkle_tree::<E>(
             cur_block_hash,
             &mut blockhashes_mt,
             MAX_BLOCK_HANDLE_OPS,
@@ -221,7 +220,6 @@ pub fn bridge_proof<E: Environment>() {
 
         total_pow = total_pow.wrapping_add(&work);
         println!("DONE");
-        cur_block_hash = last_block_hash;
     }
 
     let mut total_num_withdrawals = 0;
