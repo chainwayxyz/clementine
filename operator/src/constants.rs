@@ -1,4 +1,6 @@
+use bitcoin::BlockHash;
 use circuit_helpers::constants::CLAIM_MERKLE_TREE_DEPTH;
+use crypto_bigint::U256;
 
 pub const NUM_VERIFIERS: usize = 4;
 pub const NUM_USERS: usize = 4;
@@ -29,3 +31,5 @@ pub const K_DEEP: u32 = 3;
 
 /// MAX_BITVM_CHALLENGE_RESPONSE_BLOCKS is maximum number of blocks a single bitvm challenge response can take
 pub const MAX_BITVM_CHALLENGE_RESPONSE_BLOCKS: u32 = 5;
+
+pub type VerifierChallenge = (BlockHash, U256, u8);

@@ -2,8 +2,8 @@ use std::vec;
 
 use crate::actor::Actor;
 use crate::constants::{
-    CONNECTOR_TREE_DEPTH, DUST_VALUE, K_DEEP, MAX_BITVM_CHALLENGE_RESPONSE_BLOCKS, MIN_RELAY_FEE,
-    PERIOD_BLOCK_COUNT,
+    VerifierChallenge, CONNECTOR_TREE_DEPTH, DUST_VALUE, K_DEEP,
+    MAX_BITVM_CHALLENGE_RESPONSE_BLOCKS, MIN_RELAY_FEE, PERIOD_BLOCK_COUNT,
 };
 use crate::env_writer::ENVWriter;
 use crate::errors::BridgeError;
@@ -34,6 +34,7 @@ use circuit_helpers::constants::{
 };
 use circuit_helpers::env::Environment;
 use circuit_helpers::{sha256_hash, HashType, PreimageType};
+use crypto_bigint::{Encoding, U256};
 use secp256k1::rand::{Rng, RngCore};
 use secp256k1::{Message, SecretKey, XOnlyPublicKey};
 use sha2::{Digest, Sha256};
@@ -675,8 +676,21 @@ impl Operator {
         E::write_32bytes(withdrawal_mt_root);
     }
 
-    fn write_verifiers_challenge_proof<E: Environment>() -> (u32, [u8; 32], u32) {
-        unimplemented!()
+    fn write_verifiers_challenge_proof<E: Environment>(
+        proof: [[u8; 32]; 4],
+        challenge: VerifierChallenge,
+    ) -> Result<(), BridgeError> {
+        for i in 0..4 {
+            E::write_32bytes(proof[i]);
+        }
+        E::write_32bytes(challenge.0.to_byte_array());
+        println!(
+            "WROTE challenge blockhash: {:?}",
+            challenge.0.to_byte_array()
+        );
+        E::write_32bytes(challenge.1.to_le_bytes());
+        E::write_u32(challenge.2 as u32);
+        Ok(())
     }
 
     /// Currently boilerplate code for generating a bridge proof
@@ -685,7 +699,10 @@ impl Operator {
     /// that the verifier gave correct blockhash
     /// In the future this will be probably a seperate Prover struct to be able to save old proofs
     /// and continue from old proof state when necessary
-    pub fn prove<E: Environment>(&self) -> Result<(), BridgeError> {
+    pub fn prove<E: Environment>(
+        &self,
+        challenge: (BlockHash, U256, u8),
+    ) -> Result<(), BridgeError> {
         println!("Operator starts proving");
 
         let mut blockhashes_mt = MerkleTree::<BLOCKHASH_MERKLE_TREE_DEPTH>::new();
@@ -765,7 +782,7 @@ impl Operator {
 
         // Now we finish the proving, since we provided blockhashes and withdrawal proofs
         MockEnvironment::write_u32(1);
-        println!("Finished proving, WROTE 1");
+        println!("WROTE 1, finishing proving");
 
         self.write_lc_proof::<E>(lc_blockhash, withdrawal_mt.root());
         println!("WROTE LC PROOF");
@@ -868,13 +885,14 @@ impl Operator {
             k_deep_blocks.push(block_header);
         }
 
-        ENVWriter::<E>::write_blocks(k_deep_blocks);
+        ENVWriter::<E>::write_blocks(k_deep_blocks.clone());
+        println!("WROTE k_deep_blocks: {:?}", k_deep_blocks);
         // write_blocks_and_add_to_merkle_tree(
         //     start_block_height + period_relative_block_heights[last_period].into(),
         //     cur_block_height,
         //     blockhashes_mt,
         // );
-        // write_verifiers_challenge_proof();
+        Self::write_verifiers_challenge_proof::<E>([[0u8; 32]; 4], challenge)?;
 
         // MockEnvironment::prove();
         Ok(())

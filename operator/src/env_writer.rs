@@ -187,8 +187,9 @@ impl<E: Environment> ENVWriter<E> {
         }
     }
 
-    pub fn write_blocks(_block_headers: Vec<Header>) {
-        for header in _block_headers.iter() {
+    pub fn write_blocks(block_headers: Vec<Header>) {
+        E::write_u32(block_headers.len() as u32);
+        for header in block_headers.iter() {
             ENVWriter::<E>::write_block_header_without_prev(header);
         }
     }
@@ -258,7 +259,6 @@ mod tests {
             read_merkle_tree_proof,
         },
         incremental_merkle::IncrementalMerkleTree,
-        sha256_hash,
     };
     // use operator_circuit::GUEST_ELF;
 
@@ -266,13 +266,8 @@ mod tests {
     use secp256k1::hashes::Hash;
 
     use crate::{
-        env_writer::ENVWriter,
-        errors::BridgeError,
-        merkle::MerkleTree,
-        mock_env::MockEnvironment,
-        script_builder::{self, ScriptBuilder},
-        transaction_builder::TransactionBuilder,
-        utils::parse_hex_to_btc_tx,
+        env_writer::ENVWriter, errors::BridgeError, merkle::MerkleTree, mock_env::MockEnvironment,
+        transaction_builder::TransactionBuilder, utils::parse_hex_to_btc_tx,
     };
 
     fn test_block_merkle_path(block: Block) -> Result<(), BridgeError> {
@@ -437,11 +432,10 @@ mod tests {
             include_bytes!("../tests/data/mainnet_blocks_from_832000_to_833096.raw").to_vec();
 
         let headers: Vec<Header> = deserialize(&mainnet_blocks_from_832000_to_833096).unwrap();
-        let num_blocks = headers.len() as u32;
         let start_block_hash = headers[0].prev_blockhash.to_byte_array();
         ENVWriter::<MockEnvironment>::write_blocks(headers);
 
-        let res = read_blocks_and_calculate_work::<MockEnvironment>(start_block_hash, num_blocks);
+        let res = read_blocks_and_calculate_work::<MockEnvironment>(start_block_hash);
         assert_eq!(U256::from(380064701315057048298976312u128), res)
     }
 
