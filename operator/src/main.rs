@@ -1,7 +1,7 @@
 use circuit_helpers::bridge::bridge_proof;
 use circuit_helpers::constants::{MAX_BLOCK_HANDLE_OPS, NUM_ROUNDS};
 use crypto_bigint::rand_core::OsRng;
-use operator::constants::{NUM_USERS, NUM_VERIFIERS};
+use operator::constants::{NUM_USERS, NUM_VERIFIERS, PERIOD_BLOCK_COUNT};
 use operator::errors::BridgeError;
 use operator::mock_env::MockEnvironment;
 use operator::traits::verifier::VerifierConnector;
@@ -96,24 +96,28 @@ fn test_flow() -> Result<(), BridgeError> {
             operator.new_withdrawal(users[i].signer.address.clone())?;
             // rpc.mine_blocks(1)?;
         }
-        // rpc.mine_blocks((period_relative_block_heights[j] - MAX_BLOCK_HANDLE_OPS - 30).into())?;
+
         // PERIOD = 50 BLOCKS, FLOW PRODUCES 24 BLOCKS PERIOD, 3 BLOCKS TO HANDLE OPERATIONS, MINE 23 BLOCKS
         // TODO: CHANGE THIS
-        rpc.mine_blocks(23)?;
+        rpc.mine_blocks((PERIOD_BLOCK_COUNT - 24 - MAX_BLOCK_HANDLE_OPS) as u64)?;
 
         operator.inscribe_connector_tree_preimages()?;
 
         // MINE 3 BLOCKS TO MOVE ON TO THE NEW PERIOD
         // TODO: CHANGE THIS
-        rpc.mine_blocks(3)?;
+        rpc.mine_blocks(MAX_BLOCK_HANDLE_OPS as u64)?;
 
         // rpc.mine_blocks(15)?;
     }
 
     let challenge = operator.verifier_connector[0].challenge_operator(3)?;
 
+    rpc.mine_blocks(5)?;
+
     operator.prove::<MockEnvironment>(challenge)?;
     bridge_proof::<MockEnvironment>();
+
+    println!("Bridge proof written successfully");
 
     Ok(())
 }
