@@ -746,6 +746,8 @@ impl Operator {
             start_blockhash.to_byte_array()
         );
 
+        Self::write_verifiers_challenge_proof::<E>([[0u8; 32]; 4], challenge)?;
+
         let mut end_height: u64 = 0;
 
         for i in 0..inscription_txs.len() {
@@ -906,7 +908,6 @@ impl Operator {
         //     cur_block_height,
         //     blockhashes_mt,
         // );
-        Self::write_verifiers_challenge_proof::<E>([[0u8; 32]; 4], challenge)?;
 
         // MockEnvironment::prove();
         Ok(())

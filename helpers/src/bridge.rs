@@ -201,14 +201,18 @@ pub fn bridge_proof<E: Environment>() {
     let mut blockhashes_mt = IncrementalMerkleTree::new();
     let mut withdrawal_mt = IncrementalMerkleTree::new();
     let mut total_pow = U256::ZERO;
-    let mut last_block_hash = E::read_32bytes(); // Currently we are reading the first block hash
+    let mut start_block_hash = E::read_32bytes(); // Currently we are reading the first block hash TODO: Change this
+
+    let (verifiers_pow, verifiers_last_finalized_blockhash, verifiers_challenge_period) =
+        read_and_verify_verifiers_challenge_proof::<E>();
 
     // println!("READ last_block_hash: {:?}", last_block_hash);
+    let mut total_num_withdrawals = 0;
 
     for period_count in 0..NUM_ROUNDS {
         // println!("ROUND: {:?}", period_count);
         let (work, lc_blockhash, cur_block_hash) = read_blocks_and_add_to_merkle_tree::<E>(
-            last_block_hash,
+            start_block_hash,
             &mut blockhashes_mt,
             MAX_BLOCK_HANDLE_OPS,
         );
@@ -220,6 +224,7 @@ pub fn bridge_proof<E: Environment>() {
         for _ in 0..num_withdrawals {
             read_withdrawal_proof::<E>(blockhashes_mt.root, &mut withdrawal_mt);
         }
+        total_num_withdrawals += num_withdrawals;
 
         let finish_proof = E::read_u32();
         // println!("READ finish_proof: {:?}", finish_proof);
@@ -263,7 +268,7 @@ pub fn bridge_proof<E: Environment>() {
                 PERIOD_CLAIM_MT_ROOTS[period_count],
                 read_merkle_tree_proof::<E, CLAIM_MERKLE_TREE_DEPTH>(
                     claim_proof_tree_leaf,
-                    Some(num_withdrawals * NUM_ROUNDS as u32),
+                    Some(num_withdrawals * (verifiers_challenge_period + 1) as u32),
                 )
             );
 
@@ -275,8 +280,6 @@ pub fn bridge_proof<E: Environment>() {
             total_pow = total_pow.wrapping_add(&k_deep_work);
             // println!("total_pow: {:?}", total_pow);
 
-            let (verifiers_pow, verifiers_last_finalized_blockhash, verifiers_challenge_period) =
-                read_and_verify_verifiers_challenge_proof::<E>();
             // println!(
             //     "verifiers_pow: {:?}, verifiers_last_finalized_blockhash: {:?}, verifiers_challenge_period: {:?}",
             //     verifiers_pow, verifiers_last_finalized_blockhash, verifiers_challenge_period
@@ -294,6 +297,6 @@ pub fn bridge_proof<E: Environment>() {
             }
         }
         // println!("DONE");
-        last_block_hash = cur_block_hash;
+        start_block_hash = cur_block_hash;
     }
 }
