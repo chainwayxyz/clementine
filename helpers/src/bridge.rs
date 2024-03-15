@@ -290,6 +290,7 @@ pub fn bridge_proof<E: Environment>() {
             if total_pow == verifiers_pow && cur_block_hash == verifiers_last_finalized_blockhash {
                 println!("TOTAL_POW AND LAST FINALIZED BLOCKHASH MATCH");
             } else {
+                // TODO: Implement the logic here
             }
         }
         println!("DONE");
