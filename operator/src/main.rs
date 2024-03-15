@@ -110,7 +110,8 @@ fn test_flow() -> Result<(), BridgeError> {
         // rpc.mine_blocks(15)?;
     }
 
-    let challenge = operator.verifier_connector[0].challenge_operator(3)?;
+    let challenge = operator.verifier_connector[0].challenge_operator(2)?;
+    println!("Challenge: {:?}", challenge);
 
     rpc.mine_blocks(5)?;
 

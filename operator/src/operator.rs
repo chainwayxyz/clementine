@@ -668,8 +668,6 @@ impl Operator {
         // println!("WROTE WITHDRAWALS AND ADDED TO MERKLE TREE");
         // println!("withdrawal_mt.root(): {:?}", withdrawal_mt.root());
 
-        // TODO: Add proof of work calculation for K-deep assumption
-
         Ok(())
     }
 
@@ -792,14 +790,13 @@ impl Operator {
             // println!("blockhashes_mt: {:?}", blockhashes_mt);
             // println!("WROTE WITHDRAWALS AND ADDED TO MERKLE TREE");
         }
-        let last_period = inscription_txs.len() - 1;
 
         self.write_lc_proof::<E>(lc_blockhash, withdrawal_mt.root());
         println!("WROTE LC PROOF");
 
         let preimages: Vec<PreimageType> = self
             .operator_db_connector
-            .get_inscribed_preimages(last_period);
+            .get_inscribed_preimages(challenge.2 as usize);
 
         // println!("PREIMAGES: {:?}", preimages);
 
@@ -815,7 +812,7 @@ impl Operator {
         // println!("WROTE PREIMAGES");
 
         let (commit_utxo, reveal_txid) =
-            self.operator_db_connector.get_inscription_txs()[last_period];
+            self.operator_db_connector.get_inscription_txs()[challenge.2 as usize];
 
         // println!("commit_utxo: {:?}", commit_utxo);
         let commit_tx = self.rpc.get_raw_transaction(&commit_utxo.txid, None)?;
@@ -866,18 +863,23 @@ impl Operator {
             blockhash.to_byte_array()
         );
 
-        // TODO: do the claim merkle proof here.
         // For period i, we need to prove that the hash of the preimages is in the PERIOD_CLAIM_MT_ROOTS[i] merkle tree.
-        // TODO: Add period for the claim proof
-        // println!("claim_proof_merkle_tree: {:?}", self.operator_db_connector.get_claim_proof_merkle_tree(0));
         ENVWriter::<E>::write_merkle_tree_proof(
             preimage_hash,
-            Some(total_num_withdrawals as u32), //TODO: CHANGE THIS WITH THE NUMBER OF WITHDRAWALS UNTIL THE END OF THE CHALLENGE PERIOD
+            Some(total_num_withdrawals as u32),
             &self
                 .operator_db_connector
                 .get_claim_proof_merkle_tree(challenge.2 as usize),
         );
-
+        println!(
+            "WROTE merkle_tree_proof for preimage_hash: {:?}",
+            preimage_hash
+        );
+        println!(
+            "mtttttttt: {:?}",
+            self.operator_db_connector
+                .get_claim_proof_merkle_tree(challenge.2 as usize)
+        );
         // write all the remaining blocks so that we will have more pow than the given challenge
         // adding more block hashes to the tree is not a problem.
         let _cur_block_height = self.rpc.get_block_count().unwrap();
@@ -1124,6 +1126,10 @@ impl Operator {
                 &period_relative_block_heights,
             )
             .unwrap();
+        println!(
+            "Operator claim_proof_merkle_trees: {:?}",
+            claim_proof_merkle_trees
+        );
         println!(
             "Operator claim_proof_merkle_roots: {:?}",
             claim_proof_merkle_roots

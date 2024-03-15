@@ -138,7 +138,6 @@ impl VerifierConnector for Verifier {
     }
 
     /// Challenges the operator for current period for now
-    /// TODO: change this later to challenge for any period
     /// Will return the blockhash, total work, and period
     fn challenge_operator(&self, period: u8) -> Result<VerifierChallenge, BridgeError> {
         println!("Verifier starts challenging");
