@@ -23,5 +23,5 @@ pub trait VerifierConnector: std::fmt::Debug {
         period_relative_block_heights: Vec<u32>,
     ) -> Result<(), BridgeError>;
 
-    fn challenge_operator(&self, period: u8) -> Result<Option<VerifierChallenge>, BridgeError>;
+    fn challenge_operator(&self, period: u8) -> Result<VerifierChallenge, BridgeError>;
 }

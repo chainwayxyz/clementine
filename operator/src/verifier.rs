@@ -1,15 +1,14 @@
-use crate::constants::CONNECTOR_TREE_DEPTH;
+use crate::constants::{VerifierChallenge, CONNECTOR_TREE_DEPTH};
 use crate::errors::BridgeError;
 
 use crate::merkle::MerkleTree;
 use crate::traits::verifier::VerifierConnector;
 use crate::utils::check_deposit_utxo;
 use crate::{ConnectorUTXOTree, EVMAddress, HashTree};
+use bitcoin::Address;
 use bitcoin::{secp256k1, secp256k1::Secp256k1, OutPoint};
-use bitcoin::{Address, BlockHash};
 
 use circuit_helpers::constants::{BRIDGE_AMOUNT_SATS, CLAIM_MERKLE_TREE_DEPTH, NUM_ROUNDS};
-use crypto_bigint::U256;
 use secp256k1::SecretKey;
 use secp256k1::XOnlyPublicKey;
 
@@ -141,7 +140,7 @@ impl VerifierConnector for Verifier {
     /// Challenges the operator for current period for now
     /// TODO: change this later to challenge for any period
     /// Will return the blockhash, total work, and period
-    fn challenge_operator(&self, period: u8) -> Result<Option<(BlockHash, U256, u8)>, BridgeError> {
+    fn challenge_operator(&self, period: u8) -> Result<VerifierChallenge, BridgeError> {
         println!("Verifier starts challenging");
         let last_blockheight = self.rpc.get_block_count()?;
         let last_blockhash = self.rpc.get_block_hash(last_blockheight)?;
@@ -156,7 +155,7 @@ impl VerifierConnector for Verifier {
         let total_work = self
             .rpc
             .calculate_total_work_between_blocks(self.start_block_height, last_blockheight)?;
-        Ok(Some((last_blockhash, total_work, period)))
+        Ok((last_blockhash, total_work, period))
     }
 }
 

@@ -103,7 +103,7 @@ fn test_flow() -> Result<(), BridgeError> {
 
     let challenge = operator.verifier_connector[0].challenge_operator(0)?;
 
-    operator.prove::<MockEnvironment>(challenge.unwrap())?;
+    operator.prove::<MockEnvironment>(challenge)?;
     bridge_proof::<MockEnvironment>();
 
     Ok(())
