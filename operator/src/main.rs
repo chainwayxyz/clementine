@@ -1,5 +1,5 @@
 use circuit_helpers::bridge::bridge_proof;
-use circuit_helpers::constants::MAX_BLOCK_HANDLE_OPS;
+use circuit_helpers::constants::{MAX_BLOCK_HANDLE_OPS, NUM_ROUNDS};
 use crypto_bigint::rand_core::OsRng;
 use operator::constants::{NUM_USERS, NUM_VERIFIERS};
 use operator::errors::BridgeError;
@@ -74,34 +74,43 @@ fn test_flow() -> Result<(), BridgeError> {
     // println!("connector roots created, verifiers agree");
     // In the end, create BitVM
 
-    // every user makes a deposit.
-    for i in 0..NUM_USERS {
-        let user = &users[i];
-        let evm_address: EVMAddress = [0; 20];
-        let (deposit_utxo, deposit_return_address, user_evm_address, user_sig) =
-            user.deposit_tx(evm_address).unwrap();
-        rpc.mine_blocks(6)?;
-        operator.new_deposit(
-            deposit_utxo,
-            &deposit_return_address,
-            &user_evm_address,
-            user_sig,
-        )?;
-        rpc.mine_blocks(1)?;
+    for _ in 0..NUM_ROUNDS {
+        // every user makes a deposit.
+        for i in 0..NUM_USERS {
+            let user = &users[i];
+            let evm_address: EVMAddress = [0; 20];
+            let (deposit_utxo, deposit_return_address, user_evm_address, user_sig) =
+                user.deposit_tx(evm_address).unwrap();
+            rpc.mine_blocks(6)?;
+            operator.new_deposit(
+                deposit_utxo,
+                &deposit_return_address,
+                &user_evm_address,
+                user_sig,
+            )?;
+            // rpc.mine_blocks(1)?;
+        }
+
+        // make 3 withdrawals
+        for i in 0..3 {
+            operator.new_withdrawal(users[i].signer.address.clone())?;
+            // rpc.mine_blocks(1)?;
+        }
+        // rpc.mine_blocks((period_relative_block_heights[j] - MAX_BLOCK_HANDLE_OPS - 30).into())?;
+        // PERIOD = 50 BLOCKS, FLOW PRODUCES 24 BLOCKS PERIOD, 3 BLOCKS TO HANDLE OPERATIONS, MINE 23 BLOCKS
+        // TODO: CHANGE THIS
+        rpc.mine_blocks(23)?;
+
+        operator.inscribe_connector_tree_preimages()?;
+
+        // MINE 3 BLOCKS TO MOVE ON TO THE NEW PERIOD
+        // TODO: CHANGE THIS
+        rpc.mine_blocks(3)?;
+
+        // rpc.mine_blocks(15)?;
     }
 
-    // make 3 withdrawals
-    for i in 0..3 {
-        operator.new_withdrawal(users[i].signer.address.clone())?;
-        rpc.mine_blocks(1)?;
-    }
-    rpc.mine_blocks((period_relative_block_heights[0] - MAX_BLOCK_HANDLE_OPS - 30).into())?;
-
-    operator.inscribe_connector_tree_preimages()?;
-
-    rpc.mine_blocks(15)?;
-
-    let challenge = operator.verifier_connector[0].challenge_operator(0)?;
+    let challenge = operator.verifier_connector[0].challenge_operator(3)?;
 
     operator.prove::<MockEnvironment>(challenge)?;
     bridge_proof::<MockEnvironment>();
