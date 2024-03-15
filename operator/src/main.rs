@@ -101,10 +101,10 @@ fn test_flow() -> Result<(), BridgeError> {
 
     rpc.mine_blocks(15)?;
 
-    // let challenge = verifiers[0].challenge_operator(0)?;
+    let challenge = operator.verifier_connector[0].challenge_operator(0)?;
 
-    // operator.prove::<MockEnvironment>(challenge.unwrap())?;
-    // bridge_proof::<MockEnvironment>(None);
+    operator.prove::<MockEnvironment>(challenge.unwrap())?;
+    bridge_proof::<MockEnvironment>(None);
 
     Ok(())
 }

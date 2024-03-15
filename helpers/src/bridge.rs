@@ -59,10 +59,8 @@ pub fn read_blocks_and_add_to_merkle_tree<E: Environment>(
 /// Read K block headers
 /// Returns total work from blockheight N, accumulated up to blockheight N + K
 /// Returns blockhash at N + K
-pub fn read_blocks_and_calculate_work<E: Environment>(
-    start_prev_block_hash: [u8; 32],
-    num_blocks: u32,
-) -> U256 {
+pub fn read_blocks_and_calculate_work<E: Environment>(start_prev_block_hash: [u8; 32]) -> U256 {
+    let num_blocks = E::read_u32();
     let mut total_work = U256::ZERO;
     let mut curr_prev_block_hash = start_prev_block_hash;
 
@@ -174,11 +172,31 @@ pub fn read_and_verify_lc_proof<E: Environment>(
     // TODO: Verify the proof
 }
 
-pub fn read_and_verify_verifiers_challenge_proof<E: Environment>() -> (U256, [u8; 32], u32) {
-    unimplemented!()
+pub fn verify_challenge_proof(_proof: [[u8; 32]; 4]) -> bool {
+    return true;
 }
 
-pub fn bridge_proof<E: Environment>(challenge: Option<()>) {
+pub fn read_and_verify_verifiers_challenge_proof<E: Environment>() -> (U256, [u8; 32], u32) {
+    let mock_proof: [[u8; 32]; 4] = [
+        E::read_32bytes(),
+        E::read_32bytes(),
+        E::read_32bytes(),
+        E::read_32bytes(),
+    ];
+    // println!("READ mock_proof: {:?}", mock_proof);
+    let lc_cutoff_blockhash = E::read_32bytes();
+    // println!("READ lc_cutoff_blockhash: {:?}", lc_cutoff_blockhash);
+    let max_pow_bytes = E::read_32bytes();
+    // println!("READ max_pow_bytes: {:?}", max_pow_bytes);
+    let period_num = E::read_u32();
+    // println!("READ period_num: {:?}", period_num);
+    let max_pow_u256 = U256::from_le_slice(&max_pow_bytes);
+    // println!("READ max_pow_u256: {:?}", max_pow_u256);
+    assert!(verify_challenge_proof(mock_proof));
+    (max_pow_u256, lc_cutoff_blockhash, period_num)
+}
+
+pub fn bridge_proof<E: Environment>(_challenge: Option<()>) {
     // println!("Bridge proof");
     let mut blockhashes_mt = IncrementalMerkleTree::new();
     let mut withdrawal_mt = IncrementalMerkleTree::new();
@@ -188,6 +206,7 @@ pub fn bridge_proof<E: Environment>(challenge: Option<()>) {
     // println!("READ last_block_hash: {:?}", last_block_hash);
 
     for i in 0..NUM_ROUNDS {
+        // println!("ROUND: {:?}", i);
         let (work, lc_blockhash, cur_block_hash) = read_blocks_and_add_to_merkle_tree::<E>(
             last_block_hash,
             &mut blockhashes_mt,
@@ -250,7 +269,8 @@ pub fn bridge_proof<E: Environment>(challenge: Option<()>) {
 
             // println!("READ and verify claim proof");
 
-            let k_deep_work = read_blocks_and_calculate_work::<E>(cur_block_hash, 3); // TODO: Change to K
+            let k_deep_work = read_blocks_and_calculate_work::<E>(cur_block_hash);
+            // println!("READ k_deep_work: {:?}", k_deep_work);
 
             // println!("READ k_deep_work: {:?}", k_deep_work);
             total_pow = total_pow.wrapping_add(&k_deep_work);
@@ -258,6 +278,10 @@ pub fn bridge_proof<E: Environment>(challenge: Option<()>) {
 
             let (verifiers_pow, verifiers_last_finalized_blockhash, _verifiers_last_blockheight) =
                 read_and_verify_verifiers_challenge_proof::<E>();
+            // println!(
+            //     "verifiers_pow: {:?}, verifiers_last_finalized_blockhash: {:?}",
+            //     verifiers_pow, verifiers_last_finalized_blockhash
+            // );
 
             // if our pow is bigger and we have different last finalized block hash, we win
             // that means verifier can't make a challenge for previous periods
@@ -267,6 +291,7 @@ pub fn bridge_proof<E: Environment>(challenge: Option<()>) {
             } else {
             }
         }
+        // println!("DONE");
         last_block_hash = cur_block_hash;
     }
 }

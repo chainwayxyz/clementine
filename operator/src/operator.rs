@@ -677,10 +677,18 @@ impl Operator {
     }
 
     fn write_verifiers_challenge_proof<E: Environment>(
+        proof: [[u8; 32]; 4],
         challenge: VerifierChallenge,
     ) -> Result<(), BridgeError> {
+        for i in 0..4 {
+            E::write_32bytes(proof[i]);
+        }
         E::write_32bytes(challenge.0.to_byte_array());
-        E::write_32bytes(challenge.1.to_be_bytes());
+        println!(
+            "WROTE challenge blockhash: {:?}",
+            challenge.0.to_byte_array()
+        );
+        E::write_32bytes(challenge.1.to_le_bytes());
         E::write_u32(challenge.2 as u32);
         Ok(())
     }
@@ -877,13 +885,14 @@ impl Operator {
             k_deep_blocks.push(block_header);
         }
 
-        ENVWriter::<E>::write_blocks(k_deep_blocks);
+        ENVWriter::<E>::write_blocks(k_deep_blocks.clone());
+        println!("WROTE k_deep_blocks: {:?}", k_deep_blocks);
         // write_blocks_and_add_to_merkle_tree(
         //     start_block_height + period_relative_block_heights[last_period].into(),
         //     cur_block_height,
         //     blockhashes_mt,
         // );
-        Self::write_verifiers_challenge_proof::<E>(challenge)?;
+        Self::write_verifiers_challenge_proof::<E>([[0u8; 32]; 4], challenge)?;
 
         // MockEnvironment::prove();
         Ok(())

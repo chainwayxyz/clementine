@@ -5,13 +5,10 @@ use crate::merkle::MerkleTree;
 use crate::traits::verifier::VerifierConnector;
 use crate::utils::check_deposit_utxo;
 use crate::{ConnectorUTXOTree, EVMAddress, HashTree};
-
-use bitcoin::consensus::Decodable;
 use bitcoin::{secp256k1, secp256k1::Secp256k1, OutPoint};
 use bitcoin::{Address, BlockHash};
 
 use circuit_helpers::constants::{BRIDGE_AMOUNT_SATS, CLAIM_MERKLE_TREE_DEPTH, NUM_ROUNDS};
-use circuit_helpers::env::Environment;
 use crypto_bigint::U256;
 use secp256k1::SecretKey;
 use secp256k1::XOnlyPublicKey;
@@ -146,13 +143,19 @@ impl VerifierConnector for Verifier {
     /// Will return the blockhash, total work, and period
     fn challenge_operator(&self, period: u8) -> Result<Option<(BlockHash, U256, u8)>, BridgeError> {
         println!("Verifier starts challenging");
-        let last_blockhash = self.rpc.get_best_block_hash()?;
-        let challenged_period_end =
-            self.start_block_height + self.period_relative_block_heights[period as usize] as u64;
-        let period_end_blockhash = self.rpc.get_block_hash(challenged_period_end)?;
+        let last_blockheight = self.rpc.get_block_count()?;
+        let last_blockhash = self.rpc.get_block_hash(last_blockheight)?;
+        //    let challenged_period_start = if period == 0 {
+        //         self.start_block_height
+        //     } else {
+        //         self.start_block_height + self.period_relative_block_heights[period as usize - 1] as u64
+        //     };
+        //     let challenged_period_end =
+        //         self.start_block_height + self.period_relative_block_heights[period as usize] as u64;
+        // let period_end_blockhash = self.rpc.get_block_hash(challenged_period_end)?;
         let total_work = self
             .rpc
-            .calculate_total_work_between_blocks(self.start_block_height, challenged_period_end)?;
+            .calculate_total_work_between_blocks(self.start_block_height, last_blockheight)?;
         Ok(Some((last_blockhash, total_work, period)))
     }
 }
