@@ -51,7 +51,7 @@ pub fn read_blocks_and_add_to_merkle_tree<E: Environment>(
             total_work,
         );
     }
-    // // println!("Resulting imt: {:?}", imt);
+    // println!("Resulting imt: {:?}", imt);
     (total_work, lc_block_hash, curr_prev_block_hash)
 }
 
@@ -151,7 +151,7 @@ pub fn read_withdrawal_proof<E: Environment>(
     // println!("READ tx and calculated txid: {:?}", txid);
     let block_tx_mt_root = read_and_verify_bitcoin_merkle_path::<E>(txid);
     // println!("block_merkle_root: {:?}", block_tx_mt_root);
-    // // println!("blockhash: {:?}", blockhash);
+    // println!("blockhash: {:?}", blockhash);
     let calculated_blockhash =
         read_header_except_root_and_calculate_blockhash::<E>(block_tx_mt_root);
     assert_eq!(
