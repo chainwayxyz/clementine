@@ -142,7 +142,11 @@ impl VerifierConnector for Verifier {
     fn challenge_operator(&self, period: u8) -> Result<VerifierChallenge, BridgeError> {
         println!("Verifier starts challenging");
         let last_blockheight = self.rpc.get_block_count()?;
-        let last_blockhash = self.rpc.get_block_hash(last_blockheight)?;
+        let last_blockhash = self.rpc.get_block_hash(
+            self.start_block_height + self.period_relative_block_heights[period as usize] as u64
+                - 1,
+        )?;
+        println!("Verifier last_blockhash: {:?}", last_blockhash);
         //    let challenged_period_start = if period == 0 {
         //         self.start_block_height
         //     } else {

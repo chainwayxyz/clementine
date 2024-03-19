@@ -743,12 +743,14 @@ impl Operator {
             start_blockhash.to_byte_array()
         );
 
-        Self::write_verifiers_challenge_proof::<E>([[0u8; 32]; 4], challenge)?;
-
         let mut end_height: u64 = 0;
         let mut start_height: u64;
+        let mut total_num_withdrawals = 0;
 
-        for i in 0..inscription_txs.len() {
+        let last_period = inscription_txs.len() - 1;
+
+        for i in 0..last_period + 1 {
+            println!("[OPERATOR] Period: {:?}", i);
             // Writing blocks until current period
             // First write specific blockhashes to the circuit
             start_height = if i == 0 {
@@ -766,19 +768,11 @@ impl Operator {
             println!("lc_blockhash: {:?}", lc_blockhash);
             println!("WROTE BLOCKS AND ADDED TO MERKLE TREE:");
 
-            // println!("From {:?} to {:?} ", start_height, end_height);
-            // println!("WROTE BLOCKS AND ADDED TO MERKLE TREE");
-        }
-
-        let mut total_num_withdrawals = 0;
-        for i in 0..(challenge.2 + 1) as usize {
             let withdrawal_payments = self
                 .operator_db_connector
                 .get_withdrawals_payment_for_period(i);
             println!("withdrawal_payments: {:?}", withdrawal_payments);
             total_num_withdrawals += withdrawal_payments.len();
-
-            // println!("WITHDRAWAL PAYMENTS: {:?}", withdrawal_payments);
 
             // Then write withdrawal proofs:
             self.write_withdrawals_and_add_to_merkle_tree::<E>(
@@ -786,17 +780,35 @@ impl Operator {
                 &mut withdrawal_mt,
                 &blockhashes_mt,
             )?;
-            // println!("withdrawal_mt: {:?}", withdrawal_mt);
-            // println!("blockhashes_mt: {:?}", blockhashes_mt);
-            // println!("WROTE WITHDRAWALS AND ADDED TO MERKLE TREE");
+            if i != last_period {
+                E::write_u32(0); // do_you_want_to_end_proving
+            }
         }
+        E::write_u32(1); // do_you_want_to_end_proving
+
+        Self::write_verifiers_challenge_proof::<E>([[0u8; 32]; 4], challenge)?;
+
+        // write all the remaining blocks so that we will have more pow than the given challenge
+        // adding more block hashes to the tree is not a problem.
+        let cur_block_height = self.rpc.get_block_count().unwrap();
+
+        let mut k_deep_blocks: Vec<Header> = Vec::new();
+
+        for i in end_height..cur_block_height {
+            let blockhash = self.rpc.get_block_hash(i).unwrap();
+            let block_header = self.rpc.get_block_header(&blockhash).unwrap();
+            k_deep_blocks.push(block_header);
+        }
+
+        ENVWriter::<E>::write_blocks(k_deep_blocks.clone());
+        println!("WROTE k_deep_blocks: {:?}", k_deep_blocks);
 
         self.write_lc_proof::<E>(lc_blockhash, withdrawal_mt.root());
         println!("WROTE LC PROOF");
 
         let preimages: Vec<PreimageType> = self
             .operator_db_connector
-            .get_inscribed_preimages(challenge.2 as usize);
+            .get_inscribed_preimages(last_period as usize);
 
         // println!("PREIMAGES: {:?}", preimages);
 
@@ -812,7 +824,7 @@ impl Operator {
         // println!("WROTE PREIMAGES");
 
         let (commit_utxo, reveal_txid) =
-            self.operator_db_connector.get_inscription_txs()[challenge.2 as usize];
+            self.operator_db_connector.get_inscription_txs()[last_period as usize];
 
         // println!("commit_utxo: {:?}", commit_utxo);
         let commit_tx = self.rpc.get_raw_transaction(&commit_utxo.txid, None)?;
@@ -869,7 +881,7 @@ impl Operator {
             Some(total_num_withdrawals as u32),
             &self
                 .operator_db_connector
-                .get_claim_proof_merkle_tree(challenge.2 as usize),
+                .get_claim_proof_merkle_tree(last_period as usize),
         );
         println!(
             "WROTE merkle_tree_proof for preimage_hash: {:?}",
@@ -878,22 +890,8 @@ impl Operator {
         println!(
             "mtttttttt: {:?}",
             self.operator_db_connector
-                .get_claim_proof_merkle_tree(challenge.2 as usize)
+                .get_claim_proof_merkle_tree(last_period as usize)
         );
-        // write all the remaining blocks so that we will have more pow than the given challenge
-        // adding more block hashes to the tree is not a problem.
-        let _cur_block_height = self.rpc.get_block_count().unwrap();
-
-        let mut k_deep_blocks: Vec<Header> = Vec::new();
-
-        for i in end_height.._cur_block_height {
-            let blockhash = self.rpc.get_block_hash(i).unwrap();
-            let block_header = self.rpc.get_block_header(&blockhash).unwrap();
-            k_deep_blocks.push(block_header);
-        }
-
-        ENVWriter::<E>::write_blocks(k_deep_blocks.clone());
-        println!("WROTE k_deep_blocks: {:?}", k_deep_blocks);
         // write_blocks_and_add_to_merkle_tree(
         //     start_block_height + period_relative_block_heights[last_period].into(),
         //     cur_block_height,

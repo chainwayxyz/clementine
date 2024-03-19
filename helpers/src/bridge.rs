@@ -28,7 +28,7 @@ pub fn read_blocks_and_add_to_merkle_tree<E: Environment>(
     max_block_handle_ops: u32,
 ) -> (U256, [u8; 32], [u8; 32]) {
     let n = E::read_u32();
-    // println!("READ n: {:?}", n);
+    println!("READ n: {:?}", n);
     let mut total_work = U256::ZERO;
     let mut curr_prev_block_hash = start_prev_block_hash;
     let mut lc_block_hash: [u8; 32] = [0; 32];
@@ -209,6 +209,8 @@ pub fn bridge_proof<E: Environment>() {
     let mut total_num_withdrawals = 0;
     let mut last_period = 0;
     for period_count in 0..NUM_ROUNDS {
+        println!("Proving for Period: {}", period_count);
+
         let work;
         // println!("ROUND: {:?}", period_count);
         (work, lc_blockhash, cur_block_hash) = read_blocks_and_add_to_merkle_tree::<E>(
@@ -231,8 +233,7 @@ pub fn bridge_proof<E: Environment>() {
             last_period = period_count;
             break;
         }
-
-        // println!("DONE");
+        println!("Proving for Period: {}", period_count);
     }
 
     let (verifiers_pow, verifiers_last_finalized_blockhash, verifiers_challenge_period) =
@@ -255,7 +256,8 @@ pub fn bridge_proof<E: Environment>() {
         if total_pow > verifiers_pow {
             win(); // win instantly since the challenge is for wrong period
         } else {
-            panic!("Operator can't prove with different last period"); // We lose by failing to generate a proof
+            panic!("Operator can't prove with different last period when periods don't match");
+            // We lose by failing to generate a proof
         }
     }
     if verifiers_last_finalized_blockhash != cur_block_hash {
@@ -318,20 +320,4 @@ pub fn bridge_proof<E: Environment>() {
     );
 
     println!("READ and verify claim proof");
-
-    // println!(
-    //     "verifiers_pow: {:?}, verifiers_last_finalized_blockhash: {:?}, verifiers_challenge_period: {:?}",
-    //     verifiers_pow, verifiers_last_finalized_blockhash, verifiers_challenge_period
-    // );
-
-    // if our pow is bigger and we have different last finalized block hash, we win
-    // that means verifier can't make a challenge for previous periods
-    // verifier should wait K_DEEP blocks to make a challenge to make sure operator
-    // can't come up with different blockhashes
-    if total_pow == verifiers_pow && cur_block_hash == verifiers_last_finalized_blockhash {
-        // println!("TOTAL_POW AND LAST FINALIZED BLOCKHASH MATCH");
-    } else {
-        // TODO: Implement the logic here
-        // println!("TOTAL_POW AND LAST FINALIZED BLOCKHASH DO NOT MATCH");
-    }
 }
