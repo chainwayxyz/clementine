@@ -38,6 +38,7 @@ use crypto_bigint::{Encoding, U256};
 use secp256k1::rand::{Rng, RngCore};
 use secp256k1::{Message, SecretKey, XOnlyPublicKey};
 use sha2::{Digest, Sha256};
+use tracing::{error, info};
 
 pub fn create_connector_tree_preimages_and_hashes(
     depth: usize,
@@ -148,7 +149,7 @@ impl Operator {
     ) -> Result<OutPoint, BridgeError> {
         // 1. Check if there is any previous pending deposit
 
-        // println!("Checking current deposit");
+        // info!("Checking current deposit");
 
         // 2. Check if the utxo is valid and finalized (6 blocks confirmation)
         // 3. Check if the utxo is not already spent
@@ -163,13 +164,13 @@ impl Operator {
         )?;
 
         let deposit_index = self.operator_db_connector.get_deposit_index();
-        // println!("deposit_index: {:?}", deposit_index);
+        // info!("deposit_index: {:?}", deposit_index);
 
         let presigns_from_all_verifiers: Result<Vec<_>, BridgeError> = self
             .verifier_connector
             .iter()
             .map(|verifier| {
-                // println!("Verifier number {:?} is checking new deposit:", i);
+                // info!("Verifier number {:?} is checking new deposit:", i);
                 // Attempt to get the deposit presigns. If an error occurs, it will be propagated out
                 // of the map, causing the collect call to return a Result::Err, effectively stopping
                 // the iteration and returning the error from your_function_name.
@@ -183,18 +184,18 @@ impl Operator {
                     )
                     .map_err(|e| {
                         // Log the error or convert it to BridgeError if necessary
-                        eprintln!("Error getting deposit presigns: {:?}", e);
+                        error!("Error getting deposit presigns: {:?}", e);
                         e
                     })?;
-                // println!("deposit presigns: {:?}", deposit_presigns);
-                // println!("Verifier checked new deposit");
+                // info!("deposit presigns: {:?}", deposit_presigns);
+                // info!("Verifier checked new deposit");
                 Ok(deposit_presigns)
             })
             .collect(); // This tries to collect into a Result<Vec<DepositPresigns>, BridgeError>
 
         // Handle the result of the collect operation
         let presigns_from_all_verifiers = presigns_from_all_verifiers?;
-        // println!("presigns_from_all_verifiers: done");
+        // info!("presigns_from_all_verifiers: done");
 
         // 5. Create a move transaction and return the output utxo, save the utxo as a pending deposit
         let mut move_tx =
@@ -220,7 +221,7 @@ impl Operator {
         }
 
         handle_taproot_witness_new(&mut move_tx, &witness_elements, 0)?;
-        // println!("move_tx: {:?}", move_tx);
+        // info!("move_tx: {:?}", move_tx);
         let rpc_move_txid = self.rpc.send_raw_transaction(&move_tx.tx)?;
         let move_utxo = OutPoint {
             txid: rpc_move_txid,
@@ -249,9 +250,9 @@ impl Operator {
                 CONNECTOR_TREE_DEPTH,
                 deposit_index as usize,
             );
-            // println!("______________ OPERATOR _____________");
-            // println!("connector_utxo: {:?}", connector_utxo);
-            // println!("connector_hash: {:?}", connector_hash);
+            // info!("______________ OPERATOR _____________");
+            // info!("connector_utxo: {:?}", connector_utxo);
+            // info!("connector_hash: {:?}", connector_hash);
             let mut operator_claim_tx = self.transaction_builder.create_operator_claim_tx(
                 move_utxo,
                 connector_utxo,
@@ -267,20 +268,20 @@ impl Operator {
             let op_claim_sigs_for_period_i = presigns_from_all_verifiers
                 .iter()
                 .map(|presign| {
-                    // println!(
+                    // info!(
                     //     "presign.operator_claim_sign[{:?}]: {:?}",
                     //     i, presign.operator_claim_sign[i]
                     // );
                     presign.operator_claim_sign[i]
                 })
                 .collect::<Vec<_>>();
-            // println!(
+            // info!(
             //     "len of op_claim_sigs_for_period_i: {:?}",
             //     op_claim_sigs_for_period_i.len()
             // );
             for (idx, sig) in op_claim_sigs_for_period_i.iter().enumerate() {
-                // println!("verifying presigns for index {:?}: ", idx);
-                // println!("sig: {:?}", sig);
+                // info!("verifying presigns for index {:?}: ", idx);
+                // info!("sig: {:?}", sig);
                 self.signer.secp.verify_schnorr(
                     sig,
                     &Message::from_digest_slice(sig_hash.as_byte_array()).expect("should be hash"),
@@ -353,15 +354,15 @@ impl Operator {
 
     fn get_current_preimage_reveal_period(&self) -> Result<usize, BridgeError> {
         let cur_block_height = self.rpc.get_block_count().unwrap();
-        // println!("Cur block height: {:?}", cur_block_height);
+        // info!("Cur block height: {:?}", cur_block_height);
         let start_block_height = self.operator_db_connector.get_start_block_height();
-        // println!("Start block height: {:?}", start_block_height);
+        // info!("Start block height: {:?}", start_block_height);
         let period_relative_block_heights = self
             .operator_db_connector
             .get_period_relative_block_heights();
 
         for (i, block_height) in period_relative_block_heights.iter().enumerate() {
-            // println!(
+            // info!(
             //     "{:?} < {:?} < {:?}",
             //     start_block_height + *block_height as u64 - MAX_BLOCK_HANDLE_OPS as u64,
             //     cur_block_height,
@@ -398,7 +399,7 @@ impl Operator {
             .rpc
             .send_to_address(&withdrawal_address, 100_000_000)?
             .txid;
-        // println!(
+        // info!(
         //     "operator paid to withdrawal address: {:?}, txid: {:?}",
         //     withdrawal_address, txid
         // );
@@ -428,11 +429,11 @@ impl Operator {
         let base_tx = match self.rpc.get_raw_transaction(&utxo.txid, None) {
             Ok(txid) => Some(txid),
             Err(e) => {
-                eprintln!("Failed to get raw transaction: {}", e);
+                error!("Failed to get raw transaction: {}", e);
                 None
             }
         };
-        // println!("base_tx: {:?}", base_tx);
+        // info!("base_tx: {:?}", base_tx);
 
         if base_tx.is_none() {
             return Ok(());
@@ -441,7 +442,7 @@ impl Operator {
             ((base_tx.unwrap().output[utxo.vout as usize].value.to_sat() + MIN_RELAY_FEE)
                 / (DUST_VALUE + MIN_RELAY_FEE)) as u32,
         );
-        // println!("depth: {:?}", depth);
+        // info!("depth: {:?}", depth);
         let level = tree_depth - depth as usize;
         //find the index of preimage in the connector_tree_preimages[level as usize]
         let index = self
@@ -458,8 +459,8 @@ impl Operator {
         );
 
         let utxo_tx = self.rpc.get_raw_transaction(&utxo.txid, None)?;
-        // println!("utxo_tx: {:?}", utxo_tx);
-        // println!("utxo_txid: {:?}", utxo_tx.txid());
+        // info!("utxo_tx: {:?}", utxo_tx);
+        // info!("utxo_txid: {:?}", utxo_tx.txid());
         let timelock_script =
             ScriptBuilder::generate_timelock_script(&self.signer.xonly_public_key, 1);
 
@@ -481,7 +482,7 @@ impl Operator {
             first_address,
             second_address,
         );
-        // println!("created spend tx: {:?}", tx);
+        // info!("created spend tx: {:?}", tx);
 
         let sig = self.signer.sign_taproot_script_spend_tx(
             &mut tx,
@@ -503,16 +504,16 @@ impl Operator {
 
         handle_taproot_witness(&mut tx, 0, &witness_elements, &timelock_script, &tree_info)?;
 
-        // println!("bytes_connector_tree_tx length: {:?}", bytes_connector_tree_tx.len());
+        // info!("bytes_connector_tree_tx length: {:?}", bytes_connector_tree_tx.len());
         // let hex_utxo_tx = hex::encode(bytes_utxo_tx.clone());
         let _spending_txid = match self.rpc.send_raw_transaction(&tx) {
             Ok(txid) => Some(txid),
             Err(e) => {
-                eprintln!("Failed to send raw transaction: {}", e);
+                error!("Failed to send raw transaction: {}", e);
                 None
             }
         };
-        // println!("operator_spending_txid: {:?}", spending_txid);
+        // info!("operator_spending_txid: {:?}", spending_txid);
         Ok(())
     }
 
@@ -536,7 +537,7 @@ impl Operator {
         let number_of_funds_claim = self.get_num_withdrawals_for_period(period);
 
         let indices = get_claim_reveal_indices(CONNECTOR_TREE_DEPTH, number_of_funds_claim);
-        // println!("indices for preimages: {:?}", indices);
+        // info!("indices for preimages: {:?}", indices);
 
         let preimages_to_be_revealed = indices
             .iter()
@@ -546,7 +547,7 @@ impl Operator {
             })
             .collect::<Vec<_>>();
 
-        // println!("preimages_to_be_revealed: {:?}", preimages_to_be_revealed);
+        // info!("preimages_to_be_revealed: {:?}", preimages_to_be_revealed);
 
         let (commit_address, _commit_tree_info, _inscribe_preimage_script) =
             self.transaction_builder.create_inscription_commit_address(
@@ -554,7 +555,7 @@ impl Operator {
                 &preimages_to_be_revealed,
             )?;
 
-        // println!("script_pubkey: {:?}", commit_address.script_pubkey());
+        // info!("script_pubkey: {:?}", commit_address.script_pubkey());
 
         let commit_utxo = self.rpc.send_to_address(&commit_address, DUST_VALUE * 2)?;
 
@@ -591,11 +592,11 @@ impl Operator {
         let block_headers_vec_result = (start_block_height..end_block_height)
             .map(|i| {
                 let blockhash = self.rpc.get_block_hash(i).map_err(|e| {
-                    eprintln!("Failed to get block hash: {}", e);
+                    error!("Failed to get block hash: {}", e);
                     BridgeError::RpcError
                 })?;
                 let block_header = self.rpc.get_block_header(&blockhash).map_err(|e| {
-                    eprintln!("Failed to get block header: {}", e);
+                    error!("Failed to get block header: {}", e);
                     BridgeError::RpcError
                 })?;
                 Ok(block_header)
@@ -618,49 +619,49 @@ impl Operator {
         blockhash_mt: &MerkleTree<BLOCKHASH_MERKLE_TREE_DEPTH>,
     ) -> Result<(), BridgeError> {
         E::write_u32(withdrawal_payments.len() as u32);
-        println!(
+        info!(
             "WROTE withdrawal_payments.len(): {:?}",
             withdrawal_payments.len() as u32
         );
 
         for (txid, hash) in withdrawal_payments {
             E::write_32bytes(hash);
-            println!("WROTE output_address: {:?}", hash);
+            info!("WROTE output_address: {:?}", hash);
             // get transaction from txid
             let tx = self.rpc.get_raw_transaction(&txid, None)?;
-            // println!("GOT tx: {:?}", tx);
+            // info!("GOT tx: {:?}", tx);
             ENVWriter::<E>::write_tx_to_env(&tx);
-            println!("WROTE tx and calculated txid: {:?}", txid);
+            info!("WROTE tx and calculated txid: {:?}", txid);
             let get_transaction_result = self.rpc.get_transaction(&txid, None)?;
             let blockhash = get_transaction_result.info.blockhash.ok_or_else(|| {
-                eprintln!("Failed to get blockhash for transaction: {:?}", txid);
+                error!("Failed to get blockhash for transaction: {:?}", txid);
                 BridgeError::RpcError
             })?;
 
             let block = self.rpc.get_block(&blockhash).map_err(|e| {
-                eprintln!("Failed to get block: {}", e);
+                error!("Failed to get block: {}", e);
                 BridgeError::RpcError
             })?;
 
-            // println!("blockhashhhhhh: {:?}", blockhash);
+            // info!("blockhashhhhhh: {:?}", blockhash);
 
             ENVWriter::<E>::write_bitcoin_merkle_path(txid, &block)?;
-            println!("WROTE bitcoin merkle path for txid: {:?}", txid);
+            info!("WROTE bitcoin merkle path for txid: {:?}", txid);
 
             // We get the merkle root of the block, so we need to write the remaining part
             // of the block header so we can calculate the blockhash
             ENVWriter::<E>::write_block_header_without_mt_root(&block.header);
 
             ENVWriter::<E>::write_merkle_tree_proof(blockhash.to_byte_array(), None, blockhash_mt);
-            println!(
+            info!(
                 "WROTE merkle_tree_proof for blockhash: {:?}",
                 blockhash.to_byte_array()
             );
 
             withdrawal_mt.add(hash);
         }
-        // println!("WROTE WITHDRAWALS AND ADDED TO MERKLE TREE");
-        // println!("withdrawal_mt.root(): {:?}", withdrawal_mt.root());
+        // info!("WROTE WITHDRAWALS AND ADDED TO MERKLE TREE");
+        // info!("withdrawal_mt.root(): {:?}", withdrawal_mt.root());
 
         // TODO: Add proof of work calculation for K-deep assumption
 
@@ -684,7 +685,7 @@ impl Operator {
             E::write_32bytes(proof[i]);
         }
         E::write_32bytes(challenge.0.to_byte_array());
-        println!(
+        info!(
             "WROTE challenge blockhash: {:?}",
             challenge.0.to_byte_array()
         );
@@ -703,24 +704,24 @@ impl Operator {
         &self,
         challenge: (BlockHash, U256, u8),
     ) -> Result<(), BridgeError> {
-        println!("Operator starts proving");
+        info!("Operator starts proving");
 
         let mut blockhashes_mt = MerkleTree::<BLOCKHASH_MERKLE_TREE_DEPTH>::new();
         let mut withdrawal_mt = MerkleTree::<WITHDRAWAL_MERKLE_TREE_DEPTH>::new();
 
         let start_block_height = self.operator_db_connector.get_start_block_height();
-        // println!("start_block_height: {:?}", start_block_height);
+        // info!("start_block_height: {:?}", start_block_height);
 
         let period_relative_block_heights = self
             .operator_db_connector
             .get_period_relative_block_heights();
-        // println!(
+        // info!(
         //     "period_relative_block_heights: {:?}",
         //     period_relative_block_heights
         // );
 
         let inscription_txs = self.operator_db_connector.get_inscription_txs();
-        // println!("inscription_txs: {:?}", inscription_txs);
+        // info!("inscription_txs: {:?}", inscription_txs);
 
         let mut lc_blockhash: BlockHash = BlockHash::all_zeros();
 
@@ -728,13 +729,13 @@ impl Operator {
             .rpc
             .get_block_hash(start_block_height - 1)
             .map_err(|e| {
-                eprintln!("Failed to get block hash: {}", e);
+                error!("Failed to get block hash: {}", e);
                 BridgeError::RpcError
             })?;
-        println!("start_blockhash: {:?}", start_blockhash);
+        info!("start_blockhash: {:?}", start_blockhash);
 
         E::write_32bytes(start_blockhash.to_byte_array());
-        println!(
+        info!(
             "WROTE START BLOCKHASH: {:?}",
             start_blockhash.to_byte_array()
         );
@@ -749,24 +750,24 @@ impl Operator {
                 start_block_height + period_relative_block_heights[i - 1] as u64
             };
             end_height = start_block_height + period_relative_block_heights[i] as u64;
-            // println!("Writing BLOCKS AND ADDED TO MERKLE TREE");
+            // info!("Writing BLOCKS AND ADDED TO MERKLE TREE");
             lc_blockhash = self.write_blocks_and_add_to_merkle_tree::<E>(
                 start_height,
                 end_height,
                 &mut blockhashes_mt,
             )?;
-            println!("lc_blockhash: {:?}", lc_blockhash);
-            println!("WROTE BLOCKS AND ADDED TO MERKLE TREE:");
+            info!("lc_blockhash: {:?}", lc_blockhash);
+            info!("WROTE BLOCKS AND ADDED TO MERKLE TREE:");
 
-            // println!("From {:?} to {:?} ", start_height, end_height);
+            // info!("From {:?} to {:?} ", start_height, end_height);
 
-            // println!("WROTE BLOCKS AND ADDED TO MERKLE TREE");
+            // info!("WROTE BLOCKS AND ADDED TO MERKLE TREE");
             let withdrawal_payments = self
                 .operator_db_connector
                 .get_withdrawals_payment_for_period(i);
-            println!("withdrawal_payments: {:?}", withdrawal_payments);
+            info!("withdrawal_payments: {:?}", withdrawal_payments);
 
-            // println!("WITHDRAWAL PAYMENTS: {:?}", withdrawal_payments);
+            // info!("WITHDRAWAL PAYMENTS: {:?}", withdrawal_payments);
 
             // Then write withdrawal proofs:
             self.write_withdrawals_and_add_to_merkle_tree::<E>(
@@ -774,84 +775,84 @@ impl Operator {
                 &mut withdrawal_mt,
                 &blockhashes_mt,
             )?;
-            // println!("withdrawal_mt: {:?}", withdrawal_mt);
-            // println!("blockhashes_mt: {:?}", blockhashes_mt);
-            // println!("WROTE WITHDRAWALS AND ADDED TO MERKLE TREE");
+            // info!("withdrawal_mt: {:?}", withdrawal_mt);
+            // info!("blockhashes_mt: {:?}", blockhashes_mt);
+            // info!("WROTE WITHDRAWALS AND ADDED TO MERKLE TREE");
         }
         let last_period = inscription_txs.len() - 1;
 
         // Now we finish the proving, since we provided blockhashes and withdrawal proofs
         MockEnvironment::write_u32(1);
-        println!("WROTE 1, finishing proving");
+        info!("WROTE 1, finishing proving");
 
         self.write_lc_proof::<E>(lc_blockhash, withdrawal_mt.root());
-        println!("WROTE LC PROOF");
+        info!("WROTE LC PROOF");
 
         let preimages: Vec<PreimageType> = self
             .operator_db_connector
             .get_inscribed_preimages(last_period);
 
-        // println!("PREIMAGES: {:?}", preimages);
+        // info!("PREIMAGES: {:?}", preimages);
 
         ENVWriter::<E>::write_preimages(self.signer.xonly_public_key, &preimages);
-        println!("WROTE preimages: {:?}", preimages);
+        info!("WROTE preimages: {:?}", preimages);
         let mut preimage_hasher = Sha256::new();
         for preimage in preimages.iter() {
             preimage_hasher.update(sha256_hash!(preimage));
         }
         let preimage_hash: [u8; 32] = preimage_hasher.finalize().into();
-        println!("preimage_hash: {:?}", preimage_hash);
+        info!("preimage_hash: {:?}", preimage_hash);
 
-        // println!("WROTE PREIMAGES");
+        // info!("WROTE PREIMAGES");
 
         let (commit_utxo, reveal_txid) =
             self.operator_db_connector.get_inscription_txs()[last_period];
 
-        // println!("commit_utxo: {:?}", commit_utxo);
+        // info!("commit_utxo: {:?}", commit_utxo);
         let commit_tx = self.rpc.get_raw_transaction(&commit_utxo.txid, None)?;
-        // println!("commit_tx: {:?}", commit_tx);
+        // info!("commit_tx: {:?}", commit_tx);
 
         let reveal_tx = self.rpc.get_raw_transaction(&reveal_txid, None)?;
 
-        // println!("reveal_tx: {:?}", reveal_tx);
+        // info!("reveal_tx: {:?}", reveal_tx);
 
         ENVWriter::<E>::write_tx_to_env(&commit_tx);
-        // println!("WROTE commit_tx: {:?}", commit_tx);
+        // info!("WROTE commit_tx: {:?}", commit_tx);
         ENVWriter::<E>::write_tx_to_env(&reveal_tx);
-        // println!("WROTE reveal_tx: {:?}", reveal_tx);
+        // info!("WROTE reveal_tx: {:?}", reveal_tx);
 
         let reveal_tx_result = self
             .rpc
             .get_raw_transaction_info(&reveal_txid, None)
             .unwrap_or_else(|e| {
-                eprintln!("Failed to get transaction: {}, {}", reveal_txid, e);
+                error!("Failed to get transaction: {}, {}", reveal_txid, e);
                 panic!("");
             });
 
-        // println!("REVEAL TX IS: {:?}", reveal_tx_result);
+        // info!("REVEAL TX IS: {:?}", reveal_tx_result);
 
         let blockhash = reveal_tx_result.blockhash.ok_or_else(|| {
-            eprintln!("Failed to get blockhash for transaction: {:?}", reveal_txid);
+            error!("Failed to get blockhash for transaction: {:?}", reveal_txid);
             BridgeError::RpcError
         })?;
 
         let block = self.rpc.get_block(&blockhash).map_err(|e| {
-            eprintln!("Failed to get block: {}", e);
+            error!("Failed to get block: {}", e);
             BridgeError::RpcError
         })?;
 
         ENVWriter::<E>::write_bitcoin_merkle_path(reveal_txid, &block)?;
-        println!(
+        info!(
             "WROTE bitcoin merkle path for reveal_txid: {:?}",
             reveal_txid
         );
 
         ENVWriter::<E>::write_block_header_without_mt_root(&block.header);
 
-        // println!("Reading height: {:?}", block.bip34_block_height());
+        // info!("Reading height: {:?}", block.bip34_block_height());
 
         ENVWriter::<E>::write_merkle_tree_proof(blockhash.to_byte_array(), None, &blockhashes_mt);
-        println!(
+        info!(
             "WROTE merkle_tree_proof for blockhash: {:?}",
             blockhash.to_byte_array()
         );
@@ -859,7 +860,7 @@ impl Operator {
         // TODO: do the claim merkle proof here.
         // For period i, we need to prove that the hash of the preimages is in the PERIOD_CLAIM_MT_ROOTS[i] merkle tree.
         // TODO: Add period for the claim proof
-        // println!("claim_proof_merkle_tree: {:?}", self.operator_db_connector.get_claim_proof_merkle_tree(0));
+        // info!("claim_proof_merkle_tree: {:?}", self.operator_db_connector.get_claim_proof_merkle_tree(0));
         ENVWriter::<E>::write_merkle_tree_proof(
             preimage_hash,
             Some(3),
@@ -886,7 +887,7 @@ impl Operator {
         }
 
         ENVWriter::<E>::write_blocks(k_deep_blocks.clone());
-        println!("WROTE k_deep_blocks: {:?}", k_deep_blocks);
+        info!("WROTE k_deep_blocks: {:?}", k_deep_blocks);
         // write_blocks_and_add_to_merkle_tree(
         //     start_block_height + period_relative_block_heights[last_period].into(),
         //     cur_block_height,
@@ -906,7 +907,7 @@ impl Operator {
     //         self.signer.xonly_public_key,
     //         hash,
     //     );
-    //     // println!("deposit_utxos: {:?}", self.deposit_utxos);
+    //     // info!("deposit_utxos: {:?}", self.deposit_utxos);
     //     let deposit_utxo = self.deposit_utxos[index as usize];
     //     let fund_utxo = self.move_utxos[index as usize];
     //     let connector_utxo = self.connector_tree_utxos[period]
@@ -925,7 +926,7 @@ impl Operator {
 
     //     let mut claim_tx = TransactionBuilder::create_btc_tx(tx_ins, tx_outs);
 
-    //     println!("operator ready to send claim_tx: {:?}", claim_tx);
+    //     info!("operator ready to send claim_tx: {:?}", claim_tx);
 
     //     let _all_verifiers = self.get_all_verifiers();
 
@@ -947,8 +948,8 @@ impl Operator {
     //         ),
     //         (Amount::from_sat(DUST_VALUE), address.script_pubkey()),
     //     ]);
-    //     // println!("multisig address: {:?}", multisig_address);
-    //     // println!(
+    //     // info!("multisig address: {:?}", multisig_address);
+    //     // info!(
     //     //     "multisig script pubkey: {:?}",
     //     //     multisig_address.script_pubkey()
     //     // );
@@ -971,7 +972,7 @@ impl Operator {
     //     //     verifier.signer.sign_taproot_script_spend_tx(&mut claim_tx, prevouts.clone(), &script_n_of_n_without_hash, 0)
     //     // ).collect::<Vec<_>>();
 
-    //     // println!("claim_sigs: {:?}", claim_sigs);
+    //     // info!("claim_sigs: {:?}", claim_sigs);
 
     //     let sig_1 =
     //         self.signer
@@ -985,7 +986,7 @@ impl Operator {
     //         .iter()
     //         .map(|presig| presig.operator_claim_sign)
     //         .collect::<Vec<_>>();
-    //     // println!("claim_sigs: {:?}", claim_sigs);
+    //     // info!("claim_sigs: {:?}", claim_sigs);
     //     claim_sigs.push(sig0);
     //     claim_sigs.reverse();
     //     // for sig in claim_sigs.iter() {
@@ -1016,26 +1017,26 @@ impl Operator {
     //         tree_info_1,
     //     );
 
-    //     // println!("deposit_utxo.txid: {:?}", deposit_utxo.txid);
+    //     // info!("deposit_utxo.txid: {:?}", deposit_utxo.txid);
     //     // let witness1 = sighash_cache.witness_mut(1).unwrap();
     //     // witness1.push(sig_1.as_ref());
     //     // witness1.push(timelock_script);
     //     // witness1.push(&spend_control_block1.serialize());
 
-    //     // println!("claim_tx: {:?}", claim_tx);
+    //     // info!("claim_tx: {:?}", claim_tx);
     //     let tx_bytes = serialize(&claim_tx);
     //     let txid = match self.rpc.send_raw_transaction(&tx_bytes) {
     //         Ok(txid) => Some(txid),
     //         Err(e) => {
-    //             eprintln!("Failed to send raw transaction: {}", e);
+    //             error!("Failed to send raw transaction: {}", e);
     //             None
     //         }
     //     };
     //     if txid.is_none() {
-    //         println!("claim failed");
+    //         info!("claim failed");
     //         return;
     //     } else {
-    //         println!("claim successful, txid: {:?}", txid);
+    //         info!("claim successful, txid: {:?}", txid);
     //     }
     // }
 
@@ -1087,7 +1088,7 @@ impl Operator {
         );
         let total_amount =
             Amount::from_sat((MIN_RELAY_FEE + single_tree_amount.to_sat()) * NUM_ROUNDS as u64);
-        // println!("total_amount: {:?}", total_amount);
+        // info!("total_amount: {:?}", total_amount);
         let (connector_tree_source_address, _) = self
             .transaction_builder
             .create_connector_tree_source_address(
@@ -1102,11 +1103,11 @@ impl Operator {
             .rpc
             .send_to_address(&connector_tree_source_address, total_amount.to_sat())
             .unwrap();
-        // println!("first_source_utxo: {:?}", first_source_utxo);
+        // info!("first_source_utxo: {:?}", first_source_utxo);
         let _first_source_utxo_create_tx = self
             .rpc
             .get_raw_transaction(&first_source_utxo.txid, None)?;
-        // println!(
+        // info!(
         //     "first_source_utxo_create_tx: {:?}",
         //     first_source_utxo_create_tx
         // );
@@ -1120,7 +1121,7 @@ impl Operator {
                 &peiod_relative_block_heights,
             )
             .unwrap();
-        println!(
+        info!(
             "Operator claim_proof_merkle_roots: {:?}",
             claim_proof_merkle_roots
         );
@@ -1149,7 +1150,7 @@ mod tests {
     // fn test_giga_merkle_tree_works() {
     //     let mut rng = OsRng;
     //     let giga_merkle_tree = create_giga_merkle_tree(2, 4, &mut rng);
-    //     println!("giga_merkle_tree: {:?}", giga_merkle_tree);
+    //     info!("giga_merkle_tree: {:?}", giga_merkle_tree);
     // }
 
     // #[test]
@@ -1163,7 +1164,7 @@ mod tests {
     //     for verifier in &mut operator.verifier_connector {
     //         verifier.set_verifiers(verifiers_pks.clone());
     //     }
-    //     println!("verifiers_pks.len: {:?}", verifiers_pks.len());
+    //     info!("verifiers_pks.len: {:?}", verifiers_pks.len());
 
     //     for _ in 0..NUM_USERS {
     //         users.push(User::new(&rpc, verifiers_pks.clone()));
@@ -1194,7 +1195,7 @@ mod tests {
     //     let tx_hex = "020000000001022b86e82b3335af40d206e416155c66542f96d8bc98b6c07c6f3e0175e9708ba10000000000fdffffff1c6e567c2f0c370652af95d03385e26c9f4cb9ea88ed52dd7c5c052ae53a17910000000000010000000100e1f50500000000225120d3c0878411a63e670cbcaa03604cadc2f61d3a0297819e26dab4986aa83738bd07403835ac4cc7a7fcf68dfa56ba70018dbd977673cb05cbe8287e65c6c4fc08f2515b3e0f224718f840ae69b3679196d02193eea1f603012847b5aa1909a125a216408636dce230218013f350685815bb0d2fd9e64a0162ed09186cf057841ca9dfa80c6a72fa36350fa3f5bb12a90484e8b612054edd07a3a5d5d447eb2fba5f064040ff621f4aec25217d23410bfc6ec7bc2f56a37f0a6b0947a0932cc0747e450e4df283e52b38ebc4edfe1b2bb00753e75be9565c1f2575e736e2c79154b366b63e4073fb9833dac0af5738e4485a1300956810573c6de7eda0340c91426e4db8e5d43c9b8e9880fe33bd7c7f9a94f8dbe29ae542d09e7cde4c4a10883e973d17312640d4c4f33c09517d1a0a2fadb9369f0eedf52016e520159b688685e9cb475320b3be1fa44ef2944b3dfdc0b07a95179696f30733c3e63e80cc35451957fcab6000ab2063f147b96c98681468d9ab166e7b6818ce0b58df3c05d4935047b106a6fb06bfad20f0c323602416c30856c27f59b7ea4513222836a92250e9d55e3b70d9cf9bee2dad2081cf3e3e9200fac45faddbb2a19a171331878176b028bc366a15868f78b1f97fad20c4a870a421bfac0a6462631efd84f4cd27344dfe6392b36704f34c3b37f03790ad20b0974516bb328e5f610ce84e9b918116c5c13aa40fc0d3b96ef8a60900cd7569ad5121c093c7378d96518a75448821c4f7c8f4bae7ce60f804d03d1f0628dd5dd0f5de510340d1c2e2eb093850719104032b082c7f2b87078722089730254921fd321782742355c8405effc1aeae65d59d3328c84eaf2bebb4fd40fe4520554297e6ee5913542551b27520b0974516bb328e5f610ce84e9b918116c5c13aa40fc0d3b96ef8a60900cd7569ac41c193c7378d96518a75448821c4f7c8f4bae7ce60f804d03d1f0628dd5dd0f5de51d8c17994a69136b8eb137f1fb2f09a7ca866e720d30bdb605f92718d83e4f9cd00000000";
     //     let tx: bitcoin::Transaction =
     //         bitcoin::consensus::deserialize(&hex::decode(tx_hex).unwrap()).unwrap();
-    //     // println!("tx: {:?}", tx);
+    //     // info!("tx: {:?}", tx);
     //     let prevouts: Vec<bitcoin::TxOut> = vec![
     //         TxOut {
     //             value: Amount::from_sat(99_999_500),

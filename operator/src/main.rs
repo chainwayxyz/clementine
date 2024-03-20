@@ -11,6 +11,8 @@ use operator::{extended_rpc::ExtendedRpc, operator::Operator, user::User};
 use secp256k1::rand::rngs::StdRng;
 use secp256k1::rand::SeedableRng;
 use secp256k1::XOnlyPublicKey;
+use tracing::{info, Level};
+use tracing_subscriber;
 
 fn test_flow() -> Result<(), BridgeError> {
     let rpc = ExtendedRpc::new();
@@ -71,7 +73,7 @@ fn test_flow() -> Result<(), BridgeError> {
         // connector_tree_source_sigs.push(sigs);
     }
 
-    // println!("connector roots created, verifiers agree");
+    info!("connector roots created, verifiers agree");
     // In the end, create BitVM
 
     // every user makes a deposit.
@@ -110,5 +112,6 @@ fn test_flow() -> Result<(), BridgeError> {
 }
 
 fn main() {
+    tracing_subscriber::fmt::init();
     test_flow().unwrap();
 }

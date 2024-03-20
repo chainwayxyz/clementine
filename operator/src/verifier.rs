@@ -11,6 +11,7 @@ use bitcoin::{secp256k1, secp256k1::Secp256k1, OutPoint};
 use circuit_helpers::constants::{BRIDGE_AMOUNT_SATS, CLAIM_MERKLE_TREE_DEPTH, NUM_ROUNDS};
 use secp256k1::SecretKey;
 use secp256k1::XOnlyPublicKey;
+use tracing::info;
 
 use crate::extended_rpc::ExtendedRpc;
 use crate::transaction_builder::TransactionBuilder;
@@ -107,8 +108,8 @@ impl VerifierConnector for Verifier {
         start_blockheight: u64,
         period_relative_block_heights: Vec<u32>,
     ) -> Result<(), BridgeError> {
-        // println!("Verifier first_source_utxo: {:?}", first_source_utxo);
-        // println!("Verifier verifiers_pks len: {:?}", self.verifiers.len());
+        // info!("Verifier first_source_utxo: {:?}", first_source_utxo);
+        // info!("Verifier verifiers_pks len: {:?}", self.verifiers.len());
         let (_claim_proof_merkle_roots, _, utxo_trees, claim_proof_merkle_trees) =
             self.transaction_builder.create_all_connector_trees(
                 &connector_tree_hashes,
@@ -116,7 +117,7 @@ impl VerifierConnector for Verifier {
                 start_blockheight,
                 &period_relative_block_heights,
             )?;
-        // println!("Verifier claim_proof_merkle_roots: {:?}", _claim_proof_merkle_roots);
+        // info!("Verifier claim_proof_merkle_roots: {:?}", _claim_proof_merkle_roots);
 
         // self.set_connector_tree_utxos(utxo_trees);
         self.connector_tree_utxos = utxo_trees;
@@ -128,12 +129,12 @@ impl VerifierConnector for Verifier {
         self.start_block_height = start_blockheight;
         self.period_relative_block_heights = period_relative_block_heights;
 
-        // println!(
+        // info!(
         //     "Verifier claim_proof_merkle_roots: {:?}",
         //     claim_proof_merkle_roots
         // );
-        // println!("Verifier root_utxos: {:?}", root_utxos);
-        // println!("Verifier utxo_trees: {:?}", self.connector_tree_utxos);
+        // info!("Verifier root_utxos: {:?}", root_utxos);
+        // info!("Verifier utxo_trees: {:?}", self.connector_tree_utxos);
         Ok(())
     }
 
@@ -141,7 +142,7 @@ impl VerifierConnector for Verifier {
     /// TODO: change this later to challenge for any period
     /// Will return the blockhash, total work, and period
     fn challenge_operator(&self, period: u8) -> Result<VerifierChallenge, BridgeError> {
-        println!("Verifier starts challenging");
+        info!("Verifier starts challenging");
         let last_blockheight = self.rpc.get_block_count()?;
         let last_blockhash = self.rpc.get_block_hash(last_blockheight)?;
         //    let challenged_period_start = if period == 0 {
@@ -222,7 +223,7 @@ impl Verifier {
     //     preimage_script_pubkey_pairs: &mut HashSet<PreimageType>,
     //     utxos: &mut HashMap<OutPoint, (u32, u32)>,
     // ) -> Result<(HashSet<PreimageType>, HashMap<OutPoint, (u32, u32)>), BridgeError> {
-    //     println!("verifier watching connector tree...");
+    //     info!("verifier watching connector tree...");
     //     let last_block_hash = self.rpc.get_best_block_hash().unwrap();
     //     let last_block = self.rpc.get_block(&last_block_hash).unwrap();
     //     for tx in last_block.txdata {
@@ -273,7 +274,7 @@ impl Verifier {
     //             }
     //         }
     //     }
-    //     println!("verifier finished watching connector tree...");
+    //     info!("verifier finished watching connector tree...");
     //     Ok((preimage_script_pubkey_pairs.clone(), utxos.clone()))
     // }
 
@@ -311,7 +312,7 @@ impl Verifier {
     //     handle_taproot_witness(&mut tx, 0, &witness_elements, &hash_script, &tree_info)?;
 
     //     let spending_txid = self.rpc.send_raw_transaction(&tx).unwrap();
-    //     println!("verifier_spending_txid: {:?}", spending_txid);
+    //     info!("verifier_spending_txid: {:?}", spending_txid);
     //     Ok(())
     // }
 
@@ -344,7 +345,7 @@ impl Verifier {
     //     witness.push(hash_script);
     //     witness.push(&spend_control_block.serialize());
     //     let spending_txid = self.rpc.send_raw_transaction(&tx).unwrap();
-    //     println!("verifier_spending_txid: {:?}", spending_txid);
+    //     info!("verifier_spending_txid: {:?}", spending_txid);
     //     Ok(())
     // }
 }

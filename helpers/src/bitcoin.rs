@@ -298,7 +298,7 @@ pub fn read_tx_and_calculate_txid<E: Environment>(
             hasher.update(81u8.to_le_bytes());
             hasher.update(32u8.to_le_bytes());
             hasher.update(taproot_address);
-            // println!(
+            // info!(
             //     "{}, {}, {}, {}",
             //     require_output.is_some(),
             //     !output_satisfied,
@@ -340,7 +340,7 @@ pub fn read_tx_and_calculate_txid<E: Environment>(
 pub fn read_and_verify_bitcoin_merkle_path<E: Environment>(txid: [u8; 32]) -> [u8; 32] {
     let mut hash = txid;
     let mut index = E::read_u32();
-    // println!("READ index: {:?}", index);
+    // info!("READ index: {:?}", index);
     let levels = E::read_u32();
     // bits of path indicator determines if the next tree node should be read from env or be the copy of last node
     let mut path_indicator = E::read_u32();

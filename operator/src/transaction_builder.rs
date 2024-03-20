@@ -108,7 +108,7 @@ impl TransactionBuilder {
     ) -> Result<CreateTxOutputs, BridgeError> {
         let anyone_can_spend_txout = ScriptBuilder::anyone_can_spend_txout();
         let evm_address_inscription_txout = ScriptBuilder::op_return_txout(evm_address);
-        // println!(
+        // info!(
         //     "evm_address_inscription_txout: {:?}",
         //     evm_address_inscription_txout
         // );
@@ -238,7 +238,7 @@ impl TransactionBuilder {
 
         let mut cur_connector_source_utxo = *first_source_utxo;
         let mut cur_amount = total_amount;
-        // println!("first_source_utxo: {:?}", first_source_utxo);
+        // info!("first_source_utxo: {:?}", first_source_utxo);
 
         let mut claim_proof_merkle_roots: Vec<[u8; 32]> = Vec::new();
         let mut claim_proof_merkle_trees: Vec<MerkleTree<CLAIM_MERKLE_TREE_DEPTH>> = Vec::new();
@@ -250,7 +250,7 @@ impl TransactionBuilder {
             //     CONNECTOR_TREE_DEPTH,
             //     &connector_tree_hashes[i],
             // ));
-            // println!("calculate_claim_proof_root: {:?}", calculate_claim_proof_root(
+            // info!("calculate_claim_proof_root: {:?}", calculate_claim_proof_root(
             //         CONNECTOR_TREE_DEPTH,
             //         &connector_tree_hashes[i],
             //     ));
@@ -262,7 +262,7 @@ impl TransactionBuilder {
                     j,
                     &connector_tree_hashes[i],
                 );
-                // println!("hash: {:?}", hash);
+                // info!("hash: {:?}", hash);
                 claim_proof_merkle_tree_i.add(hash);
             }
             claim_proof_merkle_roots.push(claim_proof_merkle_tree_i.root());
@@ -391,7 +391,7 @@ impl TransactionBuilder {
         } else {
             TaprootBuilder::new().add_leaf(0, scripts[0].clone())?
         };
-        // println!("taproot_builder: {:?}", taproot_builder);
+        // info!("taproot_builder: {:?}", taproot_builder);
         let internal_key = *INTERNAL_KEY;
         let tree_info = taproot_builder.finalize(secp, internal_key)?;
         Ok((
@@ -532,7 +532,7 @@ impl TransactionBuilder {
             Amount::from_sat(DUST_VALUE),
             Amount::from_sat(MIN_RELAY_FEE),
         );
-        // println!("total_amount: {:?}", total_amount);
+        // info!("total_amount: {:?}", total_amount);
 
         let (_root_address, _) = TransactionBuilder::create_connector_tree_node_address(
             &self.secp,

@@ -5,6 +5,7 @@ use bitcoin::{
 use circuit_helpers::env::Environment;
 use secp256k1::hashes::Hash;
 use std::marker::PhantomData;
+use tracing::info;
 
 use crate::{errors::BridgeError, merkle::MerkleTree};
 
@@ -70,7 +71,7 @@ impl<E: Environment> ENVWriter<E> {
         for output in tx.output.iter() {
             E::write_u64(output.value.to_sat());
             let output_script_pk = output.script_pubkey.as_bytes();
-            // println!("Output ScriptPubKey len: {:?}", output_script_pk.len());
+            // info!("Output ScriptPubKey len: {:?}", output_script_pk.len());
             if output_script_pk.len() == 34
                 && output_script_pk[0] == 81u8
                 && output_script_pk[1] == 32u8
@@ -199,13 +200,13 @@ impl<E: Environment> ENVWriter<E> {
         blockhashes_mt: &mut MerkleTree<DEPTH>,
     ) {
         E::write_u32(block_headers.len() as u32);
-        println!(
+        info!(
             "WROTE block_headers.len(): {:?}",
             block_headers.len() as u32
         );
         for header in block_headers.iter() {
             ENVWriter::<E>::write_block_header_without_prev(header);
-            // println!("WROTE block header without prev: {:?}", header);
+            // info!("WROTE block header without prev: {:?}", header);
             blockhashes_mt.add(serialize(&header.block_hash()).try_into().unwrap());
         }
     }
