@@ -74,7 +74,7 @@ fn test_flow() -> Result<(), BridgeError> {
     // println!("connector roots created, verifiers agree");
     // In the end, create BitVM
 
-    for _ in 0..NUM_ROUNDS {
+    for current_period in 0..NUM_ROUNDS {
         // every user makes a deposit.
         for i in 0..NUM_USERS {
             let user = &users[i];
@@ -107,18 +107,24 @@ fn test_flow() -> Result<(), BridgeError> {
         // TODO: CHANGE THIS
         rpc.mine_blocks(MAX_BLOCK_HANDLE_OPS as u64)?;
 
+        println!("Proving for Period: {}", current_period);
+
+        let challenge = operator.verifier_connector[0].challenge_operator(current_period as u8)?;
+        operator.prove::<MockEnvironment>(challenge)?;
+        bridge_proof::<MockEnvironment>();
+
         // rpc.mine_blocks(15)?;
     }
 
-    let challenge = operator.verifier_connector[0].challenge_operator(2)?;
-    println!("Challenge: {:?}", challenge);
+    // let challenge = operator.verifier_connector[0].challenge_operator(2)?;
+    // println!("Challenge: {:?}", challenge);
 
-    rpc.mine_blocks(5)?;
+    // rpc.mine_blocks(5)?;
 
-    operator.prove::<MockEnvironment>(challenge)?;
-    bridge_proof::<MockEnvironment>();
+    // operator.prove::<MockEnvironment>(challenge)?;
+    // bridge_proof::<MockEnvironment>();
 
-    println!("Bridge proof written successfully");
+    // println!("Bridge proof written successfully");
 
     Ok(())
 }

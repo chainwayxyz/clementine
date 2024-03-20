@@ -203,13 +203,14 @@ pub fn bridge_proof<E: Environment>() {
     let mut total_pow = U256::ZERO;
     let mut cur_block_hash = E::read_32bytes(); // Currently we are reading the first block hash
 
-    let (verifiers_pow, verifiers_last_finalized_blockhash, verifiers_challenge_period) =
-        read_and_verify_verifiers_challenge_proof::<E>();
-
     // println!("READ last_block_hash: {:?}", cur_block_hash);
 
     let mut lc_blockhash = [0; 32];
-    for _period_count in 0..NUM_ROUNDS {
+    let mut total_num_withdrawals = 0;
+    let mut last_period = 0;
+    for period_count in 0..NUM_ROUNDS {
+        // println!("Proving for Period: {}", period_count);
+
         let work;
         // println!("ROUND: {:?}", period_count);
         (work, lc_blockhash, cur_block_hash) = read_blocks_and_add_to_merkle_tree::<E>(
@@ -219,18 +220,56 @@ pub fn bridge_proof<E: Environment>() {
         );
 
         total_pow = total_pow.wrapping_add(&work);
-        // println!("DONE");
-    }
 
-    let mut total_num_withdrawals = 0;
-    for _ in 0..verifiers_challenge_period + 1 {
         let num_withdrawals = E::read_u32();
         // // println!("READ num_withdrawals: {:?}", num_withdrawals);
         for _ in 0..num_withdrawals {
             read_withdrawal_proof::<E>(blockhashes_mt.root, &mut withdrawal_mt);
         }
         total_num_withdrawals += num_withdrawals;
+
+        let do_you_want_to_end_proving = E::read_u32();
+        if do_you_want_to_end_proving == 1 {
+            last_period = period_count;
+            break;
+        }
+        // println!("Proving for Period: {}", period_count);
     }
+
+    let (verifiers_pow, verifiers_last_finalized_blockhash, verifiers_challenge_period) =
+        read_and_verify_verifiers_challenge_proof::<E>();
+
+    fn win() {
+        // println!("WIN");
+        // We will commit the verifier's challenge and return;
+        // env.commit( );
+        // exit(0);
+    }
+
+    let k_deep_work = read_blocks_and_calculate_work::<E>(cur_block_hash);
+    // println!("READ k_deep_work: {:?}", k_deep_work);
+
+    total_pow = total_pow.wrapping_add(&k_deep_work);
+
+    if verifiers_challenge_period != last_period as u8 {
+        // For this to work, we need to make sure opeator can't use more than K_DEEP blocks
+        if total_pow > verifiers_pow {
+            win(); // win instantly since the challenge is for wrong period
+        } else {
+            panic!("Operator can't prove with different last period when periods don't match");
+            // We lose by failing to generate a proof
+        }
+    }
+    if verifiers_last_finalized_blockhash != cur_block_hash {
+        if total_pow > verifiers_pow {
+            win(); // win instantly since the challenge is with wrong private fork, we don't even need to prove our withdrawals etc
+        } else {
+            panic!("Operator can't come up with different blockhashes"); // We lose by failing to generate a proof
+        }
+    }
+    // Otherwise everyting is correct, challenge is valid, the verifier and operator agreed on last_period and last_finalized_blockhash
+    // We need to generate a proof for the last_period proving withdrawals, blockhashes, and the last blockhash
+
     // println!(
     //     "bridge_proof total_num_withdrawals: {:?}",
     //     total_num_withdrawals
@@ -281,26 +320,4 @@ pub fn bridge_proof<E: Environment>() {
     );
 
     // println!("READ and verify claim proof");
-
-    let k_deep_work = read_blocks_and_calculate_work::<E>(cur_block_hash);
-    // println!("READ k_deep_work: {:?}", k_deep_work);
-
-    total_pow = total_pow.wrapping_add(&k_deep_work);
-    // println!("total_pow: {:?}", total_pow);
-
-    // println!(
-    //     "verifiers_pow: {:?}, verifiers_last_finalized_blockhash: {:?}, verifiers_challenge_period: {:?}",
-    //     verifiers_pow, verifiers_last_finalized_blockhash, verifiers_challenge_period
-    // );
-
-    // if our pow is bigger and we have different last finalized block hash, we win
-    // that means verifier can't make a challenge for previous periods
-    // verifier should wait K_DEEP blocks to make a challenge to make sure operator
-    // can't come up with different blockhashes
-    if total_pow == verifiers_pow && cur_block_hash == verifiers_last_finalized_blockhash {
-        // println!("TOTAL_POW AND LAST FINALIZED BLOCKHASH MATCH");
-    } else {
-        // TODO: Implement the logic here
-        // println!("TOTAL_POW AND LAST FINALIZED BLOCKHASH DO NOT MATCH");
-    }
 }
