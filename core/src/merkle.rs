@@ -1,29 +1,20 @@
 use clementine_circuits::constants::{EMPTYDATA, ZEROES};
 use clementine_circuits::incremental_merkle::IncrementalMerkleTree;
 use clementine_circuits::{sha256_hash, HashType};
-// use serde::de::DeserializeOwned;
-// use serde::{Deserialize, Serialize};
 
-// #[derive(Clone, Debug, Deserialize, Serialize)]
 #[derive(Clone, Debug)]
 pub struct MerkleTree<const DEPTH: usize> {
     data: Vec<Vec<HashType>>,
     pub index: u32,
 }
 
-impl<const DEPTH: usize> Default for MerkleTree<DEPTH>
-// where
-// [HashType; DEPTH]: Serialize + DeserializeOwned + Copy,
-{
+impl<const DEPTH: usize> Default for MerkleTree<DEPTH> {
     fn default() -> Self {
         Self::new()
     }
 }
 
-impl<const DEPTH: usize> MerkleTree<DEPTH>
-// where
-//     [HashType; DEPTH]: Serialize + DeserializeOwned + Copy,
-{
+impl<const DEPTH: usize> MerkleTree<DEPTH> {
     pub fn new() -> Self {
         Self {
             data: {

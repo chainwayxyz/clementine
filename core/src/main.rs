@@ -116,17 +116,7 @@ fn test_flow() -> Result<(), BridgeError> {
         // rpc.mine_blocks(15)?;
     }
 
-    // let challenge = operator.verifier_connector[0].challenge_operator(2)?;
-    // tracing::debug!("Challenge: {:?}", challenge);
-
-    // rpc.mine_blocks(5)?;
-
-    // operator.prove::<MockEnvironment>(challenge)?;
-    // bridge_proof::<MockEnvironment>();
-
     tracing::debug!("Bridge proof done");
-
-    println!("Bridge proof done");
 
     Ok(())
 }

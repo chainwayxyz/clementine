@@ -42,28 +42,6 @@ pub fn create_control_block(tree_info: TaprootSpendInfo, script: &ScriptBuf) -> 
         .expect("Cannot create control block")
 }
 
-// pub fn generate_dust_address(
-//     secp: &Secp256k1<All>,
-//     evm_address: [u8; 20],
-// ) -> (Address, TaprootSpendInfo) {
-//     let script = ScriptBuilder::generate_dust_script(&evm_address);
-//     let taproot = TaprootBuilder::new().add_leaf(0, script.clone()).unwrap();
-//     let tree_info = taproot.finalize(secp, *INTERNAL_KEY).unwrap();
-//     let address = Address::p2tr(
-//         secp,
-//         *INTERNAL_KEY,
-//         tree_info.merkle_root(),
-//         bitcoin::Network::Regtest,
-//     );
-//     (address, tree_info)
-// }
-
-// pub fn handle_anyone_can_spend_script() -> (ScriptBuf, Amount) {
-//     let script = Builder::new().push_opcode(OP_TRUE).into_script();
-//     let script_pubkey = script.to_p2wsh();
-//     let amount = script.dust_value();
-//     (script_pubkey, amount)
-// }
 pub fn check_deposit_utxo(
     rpc: &ExtendedRpc,
     tx_builder: &TransactionBuilder,

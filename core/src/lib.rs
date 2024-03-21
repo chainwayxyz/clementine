@@ -2,8 +2,6 @@ use bitcoin::{OutPoint, Txid};
 use clementine_circuits::{HashType, PreimageType};
 
 pub mod actor;
-// pub mod config;
-// pub mod constant;
 pub mod constants;
 pub mod env_writer;
 pub mod errors;
