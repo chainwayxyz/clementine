@@ -11,6 +11,11 @@ use crypto_bigint::rand_core::OsRng;
 use secp256k1::rand::rngs::StdRng;
 use secp256k1::rand::SeedableRng;
 use secp256k1::XOnlyPublicKey;
+use std::env;
+use std::str::FromStr;
+use tracing_subscriber::layer::SubscriberExt;
+use tracing_subscriber::util::SubscriberInitExt;
+use tracing_subscriber::{fmt, EnvFilter};
 
 fn test_flow() -> Result<(), BridgeError> {
     let rpc = ExtendedRpc::new();
@@ -75,6 +80,7 @@ fn test_flow() -> Result<(), BridgeError> {
     // In the end, create BitVM
 
     for current_period in 0..NUM_ROUNDS {
+        tracing::debug!("Current period: {}", current_period);
         // every user makes a deposit.
         for i in 0..NUM_USERS {
             let user = &users[i];
@@ -110,6 +116,7 @@ fn test_flow() -> Result<(), BridgeError> {
         tracing::debug!("Proving for Period: {}", current_period);
 
         let challenge = operator.verifier_connector[0].challenge_operator(current_period as u8)?;
+        MockEnvironment::reset_mock_env();
         operator.prove::<MockEnvironment>(challenge)?;
         bridge_proof::<MockEnvironment>();
 
@@ -121,7 +128,20 @@ fn test_flow() -> Result<(), BridgeError> {
     Ok(())
 }
 
+/// Default initialization of logging
+pub fn initialize_logging() {
+    tracing_subscriber::registry()
+        .with(fmt::layer())
+        .with(
+            EnvFilter::from_str(
+                &env::var("RUST_LOG").unwrap_or_else(|_| "debug,bitcoincore_rpc=info".to_string()),
+            )
+            .unwrap(),
+        )
+        .init();
+}
+
 fn main() {
-    tracing_subscriber::fmt::init();
+    initialize_logging();
     test_flow().unwrap();
 }

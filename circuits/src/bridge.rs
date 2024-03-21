@@ -285,7 +285,9 @@ pub fn bridge_proof<E: Environment>() {
     let commit_taproot_txid =
         read_tx_and_calculate_txid::<E>(None, Some((None, commit_taproot_addr)));
     // println!("READ tx and calculate txid: {:?}", commit_taproot_txid);
-    let reveal_txid = read_tx_and_calculate_txid::<E>(Some((commit_taproot_txid, 0)), None);
+    // tracing::debug!("commit_taproot_txid: {:?}", commit_taproot_txid);
+    let vout = E::read_u32(); // TODO: get the vout from reading the prev tx
+    let reveal_txid = read_tx_and_calculate_txid::<E>(Some((commit_taproot_txid, vout)), None);
     // println!("READ tx and calculate txid: {:?}", reveal_txid);
     // INCORRECT LOGIC: read_and_verify_bitcoin_merkle_path returns the merkle root of a block
     // tracing::debug!("reveal_txid: {:?}", reveal_txid);

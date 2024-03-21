@@ -768,7 +768,8 @@ impl Operator {
         // tracing::debug!("reveal_tx: {:?}", reveal_tx);
 
         ENVWriter::<E>::write_tx_to_env(&commit_tx);
-        // tracing::debug!("WROTE commit_tx: {:?}", commit_tx);
+
+        E::write_u32(reveal_tx.input[0].previous_output.vout);
         ENVWriter::<E>::write_tx_to_env(&reveal_tx);
         // tracing::debug!("WROTE reveal_tx: {:?}", reveal_tx);
 
@@ -820,11 +821,11 @@ impl Operator {
             "WROTE merkle_tree_proof for preimage_hash: {:?}",
             preimage_hash
         );
-        tracing::debug!(
-            "mtttttttt: {:?}",
-            self.operator_db_connector
-                .get_claim_proof_merkle_tree(last_period as usize)
-        );
+        // tracing::debug!(
+        //     "mtttttttt: {:?}",
+        //     self.operator_db_connector
+        //         .get_claim_proof_merkle_tree(last_period as usize)
+        // );
         // write_blocks_and_add_to_merkle_tree(
         //     start_block_height + period_relative_block_heights[last_period].into(),
         //     cur_block_height,
