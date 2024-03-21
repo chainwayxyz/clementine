@@ -176,7 +176,7 @@ pub fn verify_challenge_proof(_proof: [[u8; 32]; 4]) -> bool {
     return true;
 }
 
-pub fn read_and_verify_verifiers_challenge_proof<E: Environment>() -> (U256, [u8; 32], u32) {
+pub fn read_and_verify_verifiers_challenge_proof<E: Environment>() -> (U256, [u8; 32], u8) {
     let mock_proof: [[u8; 32]; 4] = [
         E::read_32bytes(),
         E::read_32bytes(),
@@ -193,7 +193,7 @@ pub fn read_and_verify_verifiers_challenge_proof<E: Environment>() -> (U256, [u8
     let max_pow_u256 = U256::from_le_slice(&max_pow_bytes);
     // println!("READ max_pow_u256: {:?}", max_pow_u256);
     assert!(verify_challenge_proof(mock_proof));
-    (max_pow_u256, lc_cutoff_blockhash, period_num)
+    (max_pow_u256, lc_cutoff_blockhash, period_num as u8)
 }
 
 pub fn bridge_proof<E: Environment>() {
@@ -201,14 +201,20 @@ pub fn bridge_proof<E: Environment>() {
     let mut blockhashes_mt = IncrementalMerkleTree::new();
     let mut withdrawal_mt = IncrementalMerkleTree::new();
     let mut total_pow = U256::ZERO;
-    let mut last_block_hash = E::read_32bytes(); // Currently we are reading the first block hash
+    let mut cur_block_hash = E::read_32bytes(); // Currently we are reading the first block hash
 
-    // println!("READ last_block_hash: {:?}", last_block_hash);
+    // println!("READ last_block_hash: {:?}", cur_block_hash);
 
-    for i in 0..NUM_ROUNDS {
-        // println!("ROUND: {:?}", i);
-        let (work, lc_blockhash, cur_block_hash) = read_blocks_and_add_to_merkle_tree::<E>(
-            last_block_hash,
+    let mut lc_blockhash = [0; 32];
+    let mut total_num_withdrawals = 0;
+    let mut last_period = 0;
+    for period_count in 0..NUM_ROUNDS {
+        // println!("Proving for Period: {}", period_count);
+
+        let work;
+        // println!("ROUND: {:?}", period_count);
+        (work, lc_blockhash, cur_block_hash) = read_blocks_and_add_to_merkle_tree::<E>(
+            cur_block_hash,
             &mut blockhashes_mt,
             MAX_BLOCK_HANDLE_OPS,
         );
@@ -216,82 +222,102 @@ pub fn bridge_proof<E: Environment>() {
         total_pow = total_pow.wrapping_add(&work);
 
         let num_withdrawals = E::read_u32();
-        // println!("READ num_withdrawals: {:?}", num_withdrawals);
+        // // println!("READ num_withdrawals: {:?}", num_withdrawals);
         for _ in 0..num_withdrawals {
             read_withdrawal_proof::<E>(blockhashes_mt.root, &mut withdrawal_mt);
         }
+        total_num_withdrawals += num_withdrawals;
 
-        let finish_proof = E::read_u32();
-        // println!("READ finish_proof: {:?}", finish_proof);
-
-        if finish_proof == 1 {
-            read_and_verify_lc_proof::<E>(lc_blockhash, withdrawal_mt.root);
-            // println!("READ and verify lc proof");
-            let (commit_taproot_addr, claim_proof_tree_leaf) =
-                read_preimages_and_calculate_commit_taproot::<E>();
-            // println!(
-            //     "READ preimages and calculate commit taproot: {:?}",
-            //     commit_taproot_addr
-            // );
-            let commit_taproot_txid =
-                read_tx_and_calculate_txid::<E>(None, Some((None, commit_taproot_addr)));
-            // println!("READ tx and calculate txid: {:?}", commit_taproot_txid);
-            let reveal_txid = read_tx_and_calculate_txid::<E>(Some((commit_taproot_txid, 0)), None);
-            // println!("READ tx and calculate txid: {:?}", reveal_txid);
-            // INCORRECT LOGIC: read_and_verify_bitcoin_merkle_path returns the merkle root of a block
-            let calculated_merkle_root = read_and_verify_bitcoin_merkle_path::<E>(reveal_txid);
-            // println!(
-            //     "READ and verify bitcoin merkle path: {:?}",
-            //     calculated_merkle_root
-            // );
-            let calculated_blockhash =
-                read_header_except_root_and_calculate_blockhash::<E>(calculated_merkle_root);
-            // println!("calculated_blockhash: {:?}", calculated_blockhash);
-
-            assert_eq!(
-                blockhashes_mt.root,
-                read_merkle_tree_proof::<E, BLOCKHASH_MERKLE_TREE_DEPTH>(
-                    calculated_blockhash,
-                    None
-                )
-            );
-
-            // println!("claim_proof_tree_leaf: {:?}", claim_proof_tree_leaf);
-            // println!("num_withdrawals: {:?}", num_withdrawals);
-
-            assert_eq!(
-                PERIOD_CLAIM_MT_ROOTS[i],
-                read_merkle_tree_proof::<E, CLAIM_MERKLE_TREE_DEPTH>(
-                    claim_proof_tree_leaf,
-                    Some(num_withdrawals),
-                )
-            );
-
-            // println!("READ and verify claim proof");
-
-            let k_deep_work = read_blocks_and_calculate_work::<E>(cur_block_hash);
-            // println!("READ k_deep_work: {:?}", k_deep_work);
-
-            // println!("READ k_deep_work: {:?}", k_deep_work);
-            total_pow = total_pow.wrapping_add(&k_deep_work);
-            // println!("total_pow: {:?}", total_pow);
-
-            let (verifiers_pow, verifiers_last_finalized_blockhash, _verifiers_last_blockheight) =
-                read_and_verify_verifiers_challenge_proof::<E>();
-            // println!(
-            //     "verifiers_pow: {:?}, verifiers_last_finalized_blockhash: {:?}",
-            //     verifiers_pow, verifiers_last_finalized_blockhash
-            // );
-
-            // if our pow is bigger and we have different last finalized block hash, we win
-            // that means verifier can't make a challenge for previous periods
-            // verifier should wait K_DEEP blocks to make a challenge to make sure operator
-            // can't come up with different blockhashes
-            if total_pow > verifiers_pow && cur_block_hash != verifiers_last_finalized_blockhash {
-            } else {
-            }
+        let do_you_want_to_end_proving = E::read_u32();
+        if do_you_want_to_end_proving == 1 {
+            last_period = period_count;
+            break;
         }
-        // println!("DONE");
-        last_block_hash = cur_block_hash;
+        // println!("Proving for Period: {}", period_count);
     }
+
+    let (verifiers_pow, verifiers_last_finalized_blockhash, verifiers_challenge_period) =
+        read_and_verify_verifiers_challenge_proof::<E>();
+
+    fn win() {
+        // println!("WIN");
+        // We will commit the verifier's challenge and return;
+        // env.commit( );
+        // exit(0);
+    }
+
+    let k_deep_work = read_blocks_and_calculate_work::<E>(cur_block_hash);
+    // println!("READ k_deep_work: {:?}", k_deep_work);
+
+    total_pow = total_pow.wrapping_add(&k_deep_work);
+
+    if verifiers_challenge_period != last_period as u8 {
+        // For this to work, we need to make sure opeator can't use more than K_DEEP blocks
+        if total_pow > verifiers_pow {
+            win(); // win instantly since the challenge is for wrong period
+        } else {
+            panic!("Operator can't prove with different last period when periods don't match");
+            // We lose by failing to generate a proof
+        }
+    }
+    if verifiers_last_finalized_blockhash != cur_block_hash {
+        if total_pow > verifiers_pow {
+            win(); // win instantly since the challenge is with wrong private fork, we don't even need to prove our withdrawals etc
+        } else {
+            panic!("Operator can't come up with different blockhashes"); // We lose by failing to generate a proof
+        }
+    }
+    // Otherwise everyting is correct, challenge is valid, the verifier and operator agreed on last_period and last_finalized_blockhash
+    // We need to generate a proof for the last_period proving withdrawals, blockhashes, and the last blockhash
+
+    // println!(
+    //     "bridge_proof total_num_withdrawals: {:?}",
+    //     total_num_withdrawals
+    // );
+
+    read_and_verify_lc_proof::<E>(lc_blockhash, withdrawal_mt.root);
+    // println!("READ and verify lc proof");
+    let (commit_taproot_addr, claim_proof_tree_leaf) =
+        read_preimages_and_calculate_commit_taproot::<E>();
+    // println!(
+    //     "READ preimages and calculate commit taproot: {:?}",
+    //     commit_taproot_addr
+    // );
+    let commit_taproot_txid =
+        read_tx_and_calculate_txid::<E>(None, Some((None, commit_taproot_addr)));
+    // println!("READ tx and calculate txid: {:?}", commit_taproot_txid);
+    let reveal_txid = read_tx_and_calculate_txid::<E>(Some((commit_taproot_txid, 0)), None);
+    // println!("READ tx and calculate txid: {:?}", reveal_txid);
+    // INCORRECT LOGIC: read_and_verify_bitcoin_merkle_path returns the merkle root of a block
+    let calculated_merkle_root = read_and_verify_bitcoin_merkle_path::<E>(reveal_txid);
+    // println!(
+    //     "READ and verify bitcoin merkle path: {:?}",
+    //     calculated_merkle_root
+    // );
+    let calculated_blockhash =
+        read_header_except_root_and_calculate_blockhash::<E>(calculated_merkle_root);
+    // println!("calculated_blockhash: {:?}", calculated_blockhash);
+
+    assert_eq!(
+        blockhashes_mt.root,
+        read_merkle_tree_proof::<E, BLOCKHASH_MERKLE_TREE_DEPTH>(calculated_blockhash, None)
+    );
+
+    // println!("claim_proof_tree_leaf: {:?}", claim_proof_tree_leaf);
+    // println!("total_num_withdrawals: {:?}", total_num_withdrawals);
+
+    // println!(
+    //     "mtttttttt: {:?}",
+    //     PERIOD_CLAIM_MT_ROOTS[verifiers_challenge_period as usize]
+    // );
+
+    assert_eq!(
+        PERIOD_CLAIM_MT_ROOTS[verifiers_challenge_period as usize],
+        read_merkle_tree_proof::<E, CLAIM_MERKLE_TREE_DEPTH>(
+            claim_proof_tree_leaf,
+            Some(total_num_withdrawals as u32),
+        )
+    );
+
+    // println!("READ and verify claim proof");
 }
