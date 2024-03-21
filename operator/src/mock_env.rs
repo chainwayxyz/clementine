@@ -48,7 +48,7 @@ impl MockEnvironment {
         let mut env = ExecutorEnv::builder();
         let mut i = 0;
         for data_type in global_data_types.iter() {
-            println!("Data type: {}", data_type);
+            tracing::debug!("Data type: {}", data_type);
             match data_type {
                 0 => {
                     let data: [u8; 32] = global_data[i..i + 32].try_into().unwrap();

@@ -71,7 +71,7 @@ fn test_flow() -> Result<(), BridgeError> {
         // connector_tree_source_sigs.push(sigs);
     }
 
-    // println!("connector roots created, verifiers agree");
+    // tracing::debug!("connector roots created, verifiers agree");
     // In the end, create BitVM
 
     for current_period in 0..NUM_ROUNDS {
@@ -107,7 +107,7 @@ fn test_flow() -> Result<(), BridgeError> {
         // TODO: CHANGE THIS
         rpc.mine_blocks(MAX_BLOCK_HANDLE_OPS as u64)?;
 
-        println!("Proving for Period: {}", current_period);
+        tracing::debug!("Proving for Period: {}", current_period);
 
         let challenge = operator.verifier_connector[0].challenge_operator(current_period as u8)?;
         operator.prove::<MockEnvironment>(challenge)?;
@@ -117,18 +117,21 @@ fn test_flow() -> Result<(), BridgeError> {
     }
 
     // let challenge = operator.verifier_connector[0].challenge_operator(2)?;
-    // println!("Challenge: {:?}", challenge);
+    // tracing::debug!("Challenge: {:?}", challenge);
 
     // rpc.mine_blocks(5)?;
 
     // operator.prove::<MockEnvironment>(challenge)?;
     // bridge_proof::<MockEnvironment>();
 
-    // println!("Bridge proof written successfully");
+    tracing::debug!("Bridge proof done");
+
+    println!("Bridge proof done");
 
     Ok(())
 }
 
 fn main() {
+    tracing_subscriber::fmt::init();
     test_flow().unwrap();
 }
