@@ -22,8 +22,6 @@ The flow is as follows:
 
 ## Instructions
 
-To the the whole process of simulating deposits, withdrawals, proof generation on the Bitcoin Regtest network, you need Bitcoin Core to be installed.
-
 To clone this repo with submodules:
 
 ```
@@ -32,6 +30,8 @@ cd clementine
 ```
 
 ### Run Bitcoin Regtest
+
+To run the whole process of simulating deposits, withdrawals, proof generation on the Bitcoin Regtest network, you need Bitcoin Core to be installed.
 
 You can use the following commands to run the server.
 
@@ -50,12 +50,12 @@ Mine some blocks to the wallet:
 bitcoin-cli -regtest -rpcuser=admin -rpcpassword=admin -rpcport=18443 generatetoaddress 101 $(bitcoin-cli -regtest -rpcuser=admin -rpcpassword=admin -rpcport=18443 getnewaddress)
 ```
 
-Run the flow: 
+### Run the Clementine simulation
 ```sh
 cargo run
 ```
 
-To run tests:
+### Test
 ```sh
 cargo test
 ```
