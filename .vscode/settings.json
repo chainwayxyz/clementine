@@ -1,8 +1,8 @@
 {
     "rust-analyzer.linkedProjects": [
-        "circuits/operator/guest/Cargo.toml",
-        "circuits/verifier/guest/Cargo.toml",
-        "operator/Cargo.toml",
-        "helpers/Cargo.toml",
+        "risc0-guests/operator/guest/Cargo.toml",
+        "risc0-guests/verifier/guest/Cargo.toml",
+        "core/Cargo.toml",
+        "circuits/Cargo.toml",
     ]
 }

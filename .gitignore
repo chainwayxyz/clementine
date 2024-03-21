@@ -1,5 +1,6 @@
 .DS_Store
 Cargo.lock
-circuits/operator/guest/Cargo.lock
+risc0-guests/operator/guest/Cargo.lock
+risc0-guests/verifier/guest/Cargo.lock
 target/
 .env
