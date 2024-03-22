@@ -27,17 +27,12 @@ pub fn read_blocks_and_add_to_merkle_tree<E: Environment>(
     max_block_handle_ops: u32,
 ) -> (U256, [u8; 32], [u8; 32]) {
     let n = E::read_u32();
-    // println!("READ n: {:?}", n);
     let mut total_work = U256::ZERO;
     let mut curr_prev_block_hash = start_prev_block_hash;
     let mut lc_block_hash: [u8; 32] = [0; 32];
 
     for i in 0..n {
         let header_without_prev_blockhash = read_header_except_prev_blockhash::<E>();
-        // println!(
-        //     "READ header_without_prev_blockhash: {:?}",
-        //     header_without_prev_blockhash
-        // );
         if i == n - max_block_handle_ops {
             lc_block_hash = curr_prev_block_hash;
         }
@@ -50,7 +45,12 @@ pub fn read_blocks_and_add_to_merkle_tree<E: Environment>(
             total_work,
         );
     }
-    // println!("Resulting imt: {:?}", imt);
+    tracing::debug!(
+        "READ {:?} blocks from blockhash {:?}, added to imt, total_work: {:?}",
+        n,
+        start_prev_block_hash,
+        total_work
+    );
     (total_work, lc_block_hash, curr_prev_block_hash)
 }
 
@@ -73,6 +73,12 @@ pub fn read_blocks_and_calculate_work<E: Environment>(start_prev_block_hash: [u8
             total_work,
         );
     }
+    tracing::debug!(
+        "READ {:?} blocks from blockhash {:?}, total_work: {:?}",
+        num_blocks,
+        start_prev_block_hash,
+        total_work
+    );
     total_work
 }
 
@@ -134,7 +140,7 @@ pub fn read_merkle_tree_proof<E: Environment, const D: usize>(
         };
         level_idx /= 2;
     }
-    // println!("READ merkle_tree_proof: {:?}", hash);
+    tracing::debug!("READ merkle_tree_proof of: {:?}", leaf);
     return hash;
 }
 
@@ -144,15 +150,18 @@ pub fn read_withdrawal_proof<E: Environment>(
     imt: &mut IncrementalMerkleTree<WITHDRAWAL_MERKLE_TREE_DEPTH>,
 ) {
     let output_address = E::read_32bytes();
-    // println!("READ output_address: {:?}", output_address);
+    tracing::debug!("READ output_address: {:?}", output_address);
     let txid =
         read_tx_and_calculate_txid::<E>(None, Some((Some(BRIDGE_AMOUNT_SATS), output_address)));
-    // println!("READ tx and calculated txid: {:?}", txid);
+    tracing::debug!("READ tx and calculated txid: {:?}", txid);
     let block_tx_mt_root = read_and_verify_bitcoin_merkle_path::<E>(txid);
-    // println!("block_merkle_root: {:?}", block_tx_mt_root);
-    // println!("blockhash: {:?}", blockhash);
+    tracing::debug!(
+        "READ spv proof and calculated block_tx_mt_root: {:?}",
+        block_tx_mt_root
+    );
     let calculated_blockhash =
         read_header_except_root_and_calculate_blockhash::<E>(block_tx_mt_root);
+    tracing::debug!("calculated_blockhash: {:?}", calculated_blockhash);
     assert_eq!(
         block_mt_root,
         read_merkle_tree_proof::<E, BLOCKHASH_MERKLE_TREE_DEPTH>(calculated_blockhash, None)
@@ -171,6 +180,7 @@ pub fn read_and_verify_lc_proof<E: Environment>(
     // TODO: Verify the proof
 }
 
+/// TODO: implement this function
 pub fn verify_challenge_proof(_proof: [[u8; 32]; 4]) -> bool {
     return true;
 }
@@ -182,36 +192,34 @@ pub fn read_and_verify_verifiers_challenge_proof<E: Environment>() -> (U256, [u8
         E::read_32bytes(),
         E::read_32bytes(),
     ];
-    // println!("READ mock_proof: {:?}", mock_proof);
+    // tracing::debug!("READ mock_proof: {:?}", mock_proof);
     let lc_cutoff_blockhash = E::read_32bytes();
-    // println!("READ lc_cutoff_blockhash: {:?}", lc_cutoff_blockhash);
+    // tracing::debug!("READ lc_cutoff_blockhash: {:?}", lc_cutoff_blockhash);
     let max_pow_bytes = E::read_32bytes();
-    // println!("READ max_pow_bytes: {:?}", max_pow_bytes);
+    // tracing::debug!("READ max_pow_bytes: {:?}", max_pow_bytes);
     let period_num = E::read_u32();
-    // println!("READ period_num: {:?}", period_num);
+    // tracing::debug!("READ period_num: {:?}", period_num);
     let max_pow_u256 = U256::from_le_slice(&max_pow_bytes);
-    // println!("READ max_pow_u256: {:?}", max_pow_u256);
+    // tracing::debug!("READ max_pow_u256: {:?}", max_pow_u256);
     assert!(verify_challenge_proof(mock_proof));
     (max_pow_u256, lc_cutoff_blockhash, period_num as u8)
 }
 
 pub fn bridge_proof<E: Environment>() {
-    // println!("Bridge proof");
     let mut blockhashes_mt = IncrementalMerkleTree::new();
     let mut withdrawal_mt = IncrementalMerkleTree::new();
     let mut total_pow = U256::ZERO;
     let mut cur_block_hash = E::read_32bytes(); // Currently we are reading the first block hash
 
-    // println!("READ last_block_hash: {:?}", cur_block_hash);
+    // tracing::debug!("READ first_block_hash: {:?}", cur_block_hash);
 
     let mut lc_blockhash = [0; 32];
     let mut total_num_withdrawals = 0;
     let mut last_period = 0;
     for period_count in 0..NUM_ROUNDS {
-        // println!("Proving for Period: {}", period_count);
+        // tracing::debug!("Proving for Period: {}", period_count);
 
         let work;
-        // println!("ROUND: {:?}", period_count);
         (work, lc_blockhash, cur_block_hash) = read_blocks_and_add_to_merkle_tree::<E>(
             cur_block_hash,
             &mut blockhashes_mt,
@@ -221,7 +229,7 @@ pub fn bridge_proof<E: Environment>() {
         total_pow = total_pow.wrapping_add(&work);
 
         let num_withdrawals = E::read_u32();
-        // // println!("READ num_withdrawals: {:?}", num_withdrawals);
+        // // tracing::debug!("READ num_withdrawals: {:?}", num_withdrawals);
         for _ in 0..num_withdrawals {
             read_withdrawal_proof::<E>(blockhashes_mt.root, &mut withdrawal_mt);
         }
@@ -232,21 +240,21 @@ pub fn bridge_proof<E: Environment>() {
             last_period = period_count;
             break;
         }
-        // println!("Proving for Period: {}", period_count);
+        // tracing::debug!("Proving for Period: {}", period_count);
     }
 
     let (verifiers_pow, verifiers_last_finalized_blockhash, verifiers_challenge_period) =
         read_and_verify_verifiers_challenge_proof::<E>();
 
+    /// TODO: find a way to implement this
     fn win() {
-        // println!("WIN");
+        // tracing::info!("WIN");
         // We will commit the verifier's challenge and return;
         // env.commit( );
         // exit(0);
     }
 
     let k_deep_work = read_blocks_and_calculate_work::<E>(cur_block_hash);
-    // println!("READ k_deep_work: {:?}", k_deep_work);
 
     total_pow = total_pow.wrapping_add(&k_deep_work);
 
@@ -269,49 +277,48 @@ pub fn bridge_proof<E: Environment>() {
     // Otherwise everyting is correct, challenge is valid, the verifier and operator agreed on last_period and last_finalized_blockhash
     // We need to generate a proof for the last_period proving withdrawals, blockhashes, and the last blockhash
 
-    // println!(
+    // tracing::debug!(
     //     "bridge_proof total_num_withdrawals: {:?}",
     //     total_num_withdrawals
     // );
 
     read_and_verify_lc_proof::<E>(lc_blockhash, withdrawal_mt.root);
-    // println!("READ and verify lc proof");
+    // tracing::info!("READ and verify lc proof");
     let (commit_taproot_addr, claim_proof_tree_leaf) =
         read_preimages_and_calculate_commit_taproot::<E>();
-    // println!(
+    // tracing::debug!(
     //     "READ preimages and calculate commit taproot: {:?}",
     //     commit_taproot_addr
     // );
     let commit_taproot_txid =
         read_tx_and_calculate_txid::<E>(None, Some((None, commit_taproot_addr)));
-    // println!("READ tx and calculate txid: {:?}", commit_taproot_txid);
+    // tracing::debug!("READ tx and calculate txid: {:?}", commit_taproot_txid);
     // tracing::debug!("commit_taproot_txid: {:?}", commit_taproot_txid);
     let vout = E::read_u32(); // TODO: get the vout from reading the prev tx
     let reveal_txid = read_tx_and_calculate_txid::<E>(Some((commit_taproot_txid, vout)), None);
-    // println!("READ tx and calculate txid: {:?}", reveal_txid);
-    // INCORRECT LOGIC: read_and_verify_bitcoin_merkle_path returns the merkle root of a block
-    // tracing::debug!("reveal_txid: {:?}", reveal_txid);
+    // tracing::debug!("READ tx and calculate txid: {:?}", reveal_txid);
+    tracing::debug!("reveal_txid: {:?}", reveal_txid);
     let calculated_merkle_root = read_and_verify_bitcoin_merkle_path::<E>(reveal_txid);
-    // println!(
+    // tracing::debug!(
     //     "READ and verify bitcoin merkle path: {:?}",
     //     calculated_merkle_root
     // );
     let calculated_blockhash =
         read_header_except_root_and_calculate_blockhash::<E>(calculated_merkle_root);
-    // println!("calculated_blockhash: {:?}", calculated_blockhash);
+    // tracing::debug!("calculated_blockhash: {:?}", calculated_blockhash);
 
     assert_eq!(
         blockhashes_mt.root,
         read_merkle_tree_proof::<E, BLOCKHASH_MERKLE_TREE_DEPTH>(calculated_blockhash, None)
     );
 
-    // println!("claim_proof_tree_leaf: {:?}", claim_proof_tree_leaf);
-    // println!("total_num_withdrawals: {:?}", total_num_withdrawals);
+    // tracing::debug!("claim_proof_tree_leaf: {:?}", claim_proof_tree_leaf);
+    // tracing::debug!("total_num_withdrawals: {:?}", total_num_withdrawals);
 
-    // println!(
-    //     "mtttttttt: {:?}",
-    //     PERIOD_CLAIM_MT_ROOTS[verifiers_challenge_period as usize]
-    // );
+    tracing::debug!(
+        "mt root for challenge period: {:?}",
+        PERIOD_CLAIM_MT_ROOTS[verifiers_challenge_period as usize]
+    );
 
     assert_eq!(
         PERIOD_CLAIM_MT_ROOTS[verifiers_challenge_period as usize],
@@ -321,5 +328,5 @@ pub fn bridge_proof<E: Environment>() {
         )
     );
 
-    // println!("READ and verify claim proof");
+    // tracing::info!("READ and verify claim proof");
 }

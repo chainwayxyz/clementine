@@ -76,7 +76,7 @@ fn test_flow() -> Result<(), BridgeError> {
         // connector_tree_source_sigs.push(sigs);
     }
 
-    // tracing::debug!("connector roots created, verifiers agree");
+    // presigns_from_all_verifiers:!("connector roots created, verifiers agree");
     // In the end, create BitVM
 
     for current_period in 0..NUM_ROUNDS {
@@ -119,11 +119,9 @@ fn test_flow() -> Result<(), BridgeError> {
         MockEnvironment::reset_mock_env();
         operator.prove::<MockEnvironment>(challenge)?;
         bridge_proof::<MockEnvironment>();
-
-        // rpc.mine_blocks(15)?;
     }
 
-    tracing::debug!("Bridge proof done");
+    tracing::info!("Bridge proof done");
 
     Ok(())
 }

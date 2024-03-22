@@ -170,14 +170,14 @@ impl Operator {
                         e
                     })?;
                 // tracing::debug!("deposit presigns: {:?}", deposit_presigns);
-                // tracing::debug!("Verifier checked new deposit");
+                // tracing::info!("Verifier checked new deposit");
                 Ok(deposit_presigns)
             })
             .collect(); // This tries to collect into a Result<Vec<DepositPresigns>, BridgeError>
 
         // Handle the result of the collect operation
         let presigns_from_all_verifiers = presigns_from_all_verifiers?;
-        // tracing::debug!("presigns_from_all_verifiers: done");
+        tracing::info!("presigns_from_all_verifiers: done");
 
         // 5. Create a move transaction and return the output utxo, save the utxo as a pending deposit
         let mut move_tx =
@@ -461,7 +461,7 @@ impl Operator {
     pub fn inscribe_connector_tree_preimages(
         &mut self,
     ) -> Result<(Vec<[u8; 32]>, Address), BridgeError> {
-        tracing::debug!("inscribe_connector_tree_preimages");
+        tracing::info!("inscribe_connector_tree_preimages");
         let period = self.get_current_preimage_reveal_period()?;
         tracing::debug!("period: {:?}", period);
         if self.operator_db_connector.get_inscription_txs_len() != period {
@@ -581,8 +581,6 @@ impl Operator {
                 BridgeError::RpcError
             })?;
 
-            // tracing::debug!("blockhashhhhhh: {:?}", blockhash);
-
             ENVWriter::<E>::write_bitcoin_merkle_path(txid, &block)?;
             tracing::debug!("WROTE bitcoin merkle path for txid: {:?}", txid);
 
@@ -604,6 +602,7 @@ impl Operator {
         Ok(())
     }
 
+    /// TODO: change this
     fn write_lc_proof<E: Environment>(
         &self,
         lc_blockhash: BlockHash,
@@ -640,7 +639,7 @@ impl Operator {
         &self,
         challenge: (BlockHash, U256, u8),
     ) -> Result<(), BridgeError> {
-        tracing::debug!("Operator starts proving");
+        tracing::info!("Operator starts proving");
 
         let mut blockhashes_mt = MerkleTree::<BLOCKHASH_MERKLE_TREE_DEPTH>::new();
         let mut withdrawal_mt = MerkleTree::<WITHDRAWAL_MERKLE_TREE_DEPTH>::new();
@@ -692,14 +691,12 @@ impl Operator {
                 start_block_height + period_relative_block_heights[i - 1] as u64
             };
             end_height = start_block_height + period_relative_block_heights[i] as u64;
-            // tracing::debug!("Writing BLOCKS AND ADDED TO MERKLE TREE");
             lc_blockhash = self.write_blocks_and_add_to_merkle_tree::<E>(
                 start_height,
                 end_height,
                 &mut blockhashes_mt,
             )?;
             tracing::debug!("lc_blockhash: {:?}", lc_blockhash);
-            tracing::debug!("WROTE BLOCKS AND ADDED TO MERKLE TREE:");
 
             let withdrawal_payments = self
                 .operator_db_connector
@@ -737,7 +734,7 @@ impl Operator {
         tracing::debug!("WROTE k_deep_blocks: {:?}", k_deep_blocks);
 
         self.write_lc_proof::<E>(lc_blockhash, withdrawal_mt.root());
-        tracing::debug!("WROTE LC PROOF");
+        tracing::info!("WROTE LC PROOF");
 
         let preimages: Vec<PreimageType> = self
             .operator_db_connector
@@ -754,7 +751,7 @@ impl Operator {
         let preimage_hash: [u8; 32] = preimage_hasher.finalize().into();
         tracing::debug!("preimage_hash: {:?}", preimage_hash);
 
-        // tracing::debug!("WROTE PREIMAGES");
+        // tracing::info!("WROTE PREIMAGES");
 
         let (commit_utxo, reveal_txid) =
             self.operator_db_connector.get_inscription_txs()[last_period as usize];
@@ -801,8 +798,6 @@ impl Operator {
 
         ENVWriter::<E>::write_block_header_without_mt_root(&block.header);
 
-        // tracing::debug!("Reading height: {:?}", block.bip34_block_height());
-
         ENVWriter::<E>::write_merkle_tree_proof(blockhash.to_byte_array(), None, &blockhashes_mt);
         tracing::debug!(
             "WROTE merkle_tree_proof for blockhash: {:?}",
@@ -821,11 +816,7 @@ impl Operator {
             "WROTE merkle_tree_proof for preimage_hash: {:?}",
             preimage_hash
         );
-        // tracing::debug!(
-        //     "mtttttttt: {:?}",
-        //     self.operator_db_connector
-        //         .get_claim_proof_merkle_tree(last_period as usize)
-        // );
+
         // write_blocks_and_add_to_merkle_tree(
         //     start_block_height + period_relative_block_heights[last_period].into(),
         //     cur_block_height,
@@ -917,16 +908,12 @@ impl Operator {
             )
             .unwrap();
         tracing::debug!(
-            "Operator claim_proof_merkle_trees: {:?}",
-            claim_proof_merkle_trees
-        );
-        tracing::debug!(
             "Operator claim_proof_merkle_roots: {:?}",
             claim_proof_merkle_roots
         );
         tracing::debug!("Operator start_block_height: {:?}", start_block_height);
         tracing::debug!(
-            "Operator period_relative_block_heights: {:?}",
+            "Operator period_relative_block_heights for start_block_heigth: {:?}",
             period_relative_block_heights
         );
         self.operator_db_connector

@@ -272,7 +272,6 @@ pub fn read_tx_and_calculate_txid<E: Environment>(
 
         read_chunks_and_update_hasher::<E>(&mut hasher, script_sig_size);
 
-        // hasher.update(0u8.to_le_bytes());
         hasher.update(sequence.to_le_bytes());
         if require_input.is_some()
             && !input_satisfied
@@ -287,25 +286,18 @@ pub fn read_tx_and_calculate_txid<E: Environment>(
 
     for _ in 0..output_count {
         let value = E::read_u64();
-        let output_len = E::read_u32();
-        // if output_type == 0, this means it is a taproot output
-        // else output_len is number of 32 byte chunks, for the last chunk,
+        let output_flag = E::read_u32();
+        // if output_flag == 0, this means it is a taproot output
+        // else output_flag is a u32 indicating the length for the script_pubkey
+        // so we read in chunks of 32bytes; for the last chunk,
         // it can be less than 32 bytes so we read the remaining bytes
-        if output_len == 0 {
+        if output_flag == 0 {
             let taproot_address = E::read_32bytes();
             hasher.update(value.to_le_bytes());
             hasher.update(34u8.to_le_bytes());
             hasher.update(81u8.to_le_bytes());
             hasher.update(32u8.to_le_bytes());
             hasher.update(taproot_address);
-            // println!(
-            //     "{}, {}, {}, {}",
-            //     require_output.is_some(),
-            //     !output_satisfied,
-            //     require_output.unwrap().0.is_some(),
-            //     // value == require_output.unwrap().0.unwrap(),
-            //     taproot_address == require_output.unwrap().1
-            // );
 
             if let Some((value_option, taproot_address_condition)) = require_output {
                 if taproot_address == taproot_address_condition
@@ -317,9 +309,9 @@ pub fn read_tx_and_calculate_txid<E: Environment>(
         } else {
             hasher.update(value.to_le_bytes());
 
-            update_hasher_with_varint(&mut hasher, output_len);
+            update_hasher_with_varint(&mut hasher, output_flag);
 
-            read_chunks_and_update_hasher::<E>(&mut hasher, output_len);
+            read_chunks_and_update_hasher::<E>(&mut hasher, output_flag);
         }
     }
     if !input_satisfied {
@@ -328,9 +320,6 @@ pub fn read_tx_and_calculate_txid<E: Environment>(
     if !output_satisfied {
         panic!("Output not found");
     }
-    // if !output_address_found {
-    //     panic!("Output address not found");
-    // }
     hasher.update(lock_time.to_le_bytes());
     let result = hasher.finalize_reset();
     hasher.update(result);
@@ -340,7 +329,6 @@ pub fn read_tx_and_calculate_txid<E: Environment>(
 pub fn read_and_verify_bitcoin_merkle_path<E: Environment>(txid: [u8; 32]) -> [u8; 32] {
     let mut hash = txid;
     let mut index = E::read_u32();
-    // println!("READ index: {:?}", index);
     let levels = E::read_u32();
     // bits of path indicator determines if the next tree node should be read from env or be the copy of last node
     let mut path_indicator = E::read_u32();

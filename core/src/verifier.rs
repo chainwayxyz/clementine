@@ -46,8 +46,6 @@ impl VerifierConnector for Verifier {
         evm_address: &EVMAddress,
         operator_address: &Address,
     ) -> Result<DepositPresigns, BridgeError> {
-        // 1. Check if there is any previous pending deposit
-
         check_deposit_utxo(
             &self.rpc,
             &self.transaction_builder,
@@ -126,7 +124,7 @@ impl VerifierConnector for Verifier {
     /// Challenges the operator for current period for now
     /// Will return the blockhash, total work, and period
     fn challenge_operator(&self, period: u8) -> Result<VerifierChallenge, BridgeError> {
-        tracing::debug!("Verifier starts challenges");
+        tracing::info!("Verifier starts challenges");
         let last_blockheight = self.rpc.get_block_count()?;
         let last_blockhash = self.rpc.get_block_hash(
             self.start_block_height + self.period_relative_block_heights[period as usize] as u64

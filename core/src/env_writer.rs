@@ -70,7 +70,6 @@ impl<E: Environment> ENVWriter<E> {
         for output in tx.output.iter() {
             E::write_u64(output.value.to_sat());
             let output_script_pk = output.script_pubkey.as_bytes();
-            // tracing::debug!("Output ScriptPubKey len: {:?}", output_script_pk.len());
             if output_script_pk.len() == 34
                 && output_script_pk[0] == 81u8
                 && output_script_pk[1] == 32u8
