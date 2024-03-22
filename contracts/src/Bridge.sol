@@ -7,6 +7,9 @@ import "bitcoin-spv/solidity/contracts/BTCUtils.sol";
 
 import "./MerkleTree.sol";
 
+/// @title Bridge contract of Clementine
+/// @author Citrea
+
 contract Bridge is MerkleTree, Ownable {
     bytes public DEPOSIT_TXOUT_0 = hex"c2ddf50500000000225120fc6eb6fa4fd4ed1e8519a7edfa171eddcedfbd0e0be49b5e531ef36e7e66eb05"; 
     uint256 public constant DEPOSIT_AMOUNT = 1 ether;
@@ -20,12 +23,23 @@ contract Bridge is MerkleTree, Ownable {
 
     constructor(uint32 _levels) MerkleTree(_levels) Ownable(msg.sender) {}
 
+    /// @notice Sets the expected first transaction output of a deposit transaction on Bitcoin, which signifies the multisig address on Bitcoin
+    /// @dev TxOut0 is derived from the multisig on Bitcoin so it stays constant as long as the multisig doesn't change
+    /// @param _depositTxOut0 The new expected first transaction output of a deposit transaction on Bitcoin
     function setDepositTxOut0(bytes calldata _depositTxOut0) public onlyOwner {
         bytes memory oldDepositTxOut0 = DEPOSIT_TXOUT_0;
         DEPOSIT_TXOUT_0 = _depositTxOut0;
         emit DepositTxOutUpdate(oldDepositTxOut0, DEPOSIT_TXOUT_0);
     }
 
+    /// @notice Checks if funds 1 BTC is sent to the bridge multisig on Bitcoin, and if so, sends 1 cBTC to the receiver
+    /// @param version The version of the Bitcoin transaction
+    /// @param vin The transaction inputs
+    /// @param vout The transaction outputs
+    /// @param locktime Locktime of the Bitcoin transaction
+    /// @param intermediate_nodes -
+    /// @param block_header Block header of the Bitcoin block that the deposit transaction is in
+    /// @param index Index of the transaction in the block
     function deposit(
         bytes4 version,
         bytes calldata vin,
@@ -61,12 +75,17 @@ contract Bridge is MerkleTree, Ownable {
         require(success, "Transfer failed");
     }
 
+    /// @notice Accepts 1 cBTC from the sender and inserts this withdrawal request of 1 BTC on Bitcoin into the Merkle tree so that later on can be processed by the operator 
+    /// @param bitcoin_address The Bitcoin address of the receiver
     function withdraw(bytes32 bitcoin_address) public payable {
         require(msg.value == DEPOSIT_AMOUNT, "Invalid withdraw amount");
         insertWithdrawalTree(bitcoin_address);
         emit Withdrawal(bitcoin_address, nextIndex, block.timestamp);
     }
-
+    
+    /// @notice Batch version of `withdraw` that can accept multiple cBTC
+    /// @dev Takes in multiple Bitcoin addresses as recipient addresses should be unique
+    /// @param bitcoin_addresses The Bitcoin addresses of the receivers
     function batchWithdraw(bytes32[] calldata bitcoin_addresses) public payable {
         require(msg.value == DEPOSIT_AMOUNT * bitcoin_addresses.length, "Invalid withdraw amount");
         for (uint i = 0; i < bitcoin_addresses.length; i++) {
@@ -75,15 +94,21 @@ contract Bridge is MerkleTree, Ownable {
         }
     }
 
+    /// @notice Checks if passed in Bitcoin block hash exists in the list of block hashes
+    /// @param block_hash The queried block hash 
     function isCorrectBlockHash(bytes32 block_hash) public view returns (bool) {
         return blockHashes[block_hash];
     }
 
+    /// @notice Adds a block hash to the list of block hashes
+    /// @param block_hash The block hash to be added
     function addBlockHash(bytes32 block_hash) public onlyOwner {
         blockHashes[block_hash] = true;
         emit BlockHashAdded(block_hash);
     }
 
+    /// @notice Checks if two byte sequences are equal
+    /// @dev This is not efficient, and a better approach would be doing a hash based comparison but as this is ran in a zkEVM, hashing is inefficient 
     function isBytesEqual(bytes memory a, bytes memory b) internal pure returns (bool result) {
         require(a.length == b.length, "Lengths do not match");
 
