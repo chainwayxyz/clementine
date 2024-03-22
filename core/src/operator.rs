@@ -9,8 +9,11 @@ use crate::env_writer::ENVWriter;
 use crate::errors::BridgeError;
 use crate::extended_rpc::ExtendedRpc;
 
+use operator_circuit::GUEST_ELF;
+
 use crate::merkle::MerkleTree;
 use crate::mock_db::OperatorMockDB;
+use crate::mock_env::MockEnvironment;
 use crate::script_builder::ScriptBuilder;
 use crate::traits::operator_db::OperatorDBConnector;
 use crate::traits::verifier::VerifierConnector;
@@ -34,6 +37,7 @@ use clementine_circuits::constants::{
 use clementine_circuits::env::Environment;
 use clementine_circuits::{sha256_hash, HashType, PreimageType};
 use crypto_bigint::{Encoding, U256};
+use risc0_zkvm::default_prover;
 use secp256k1::rand::{Rng, RngCore};
 use secp256k1::{Message, SecretKey, XOnlyPublicKey};
 use sha2::{Digest, Sha256};
@@ -823,6 +827,9 @@ impl Operator {
         //     blockhashes_mt,
         // );
 
+        let env = MockEnvironment::output_env();
+        let prover = default_prover();
+        let receipt = prover.prove(env, GUEST_ELF).unwrap();
         // MockEnvironment::prove();
         Ok(())
     }
