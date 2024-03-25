@@ -330,3 +330,14 @@ pub fn bridge_proof<E: Environment>() {
 
     // tracing::info!("READ and verify claim proof");
 }
+
+pub fn bridge_proof_test<E: Environment>() -> ([u8; 32], [u8; 32]) {
+    let (commit_taproot_addr, claim_proof_tree_leaf) =
+        read_preimages_and_calculate_commit_taproot::<E>();
+    tracing::debug!(
+        "READ preimages and calculate commit taproot: {:?}",
+        commit_taproot_addr
+    );
+    tracing::debug!("claim_proof_tree_leaf: {:?}", claim_proof_tree_leaf);
+    return (commit_taproot_addr, claim_proof_tree_leaf);
+}

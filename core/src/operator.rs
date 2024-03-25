@@ -827,10 +827,22 @@ impl Operator {
         //     blockhashes_mt,
         // );
 
-        let env = MockEnvironment::output_env();
-        let prover = default_prover();
-        let receipt = prover.prove(env, GUEST_ELF).unwrap();
+        // let env = MockEnvironment::output_env();
+        // let prover = default_prover();
+        // let receipt = prover.prove(env, GUEST_ELF).unwrap();
         // MockEnvironment::prove();
+        Ok(())
+    }
+
+    pub fn prove_test<E: Environment>(&self) -> Result<(), BridgeError> {
+        let inscription_txs = self.operator_db_connector.get_inscription_txs();
+        let last_period = inscription_txs.len() - 1;
+        let preimages: Vec<PreimageType> = self
+            .operator_db_connector
+            .get_inscribed_preimages(last_period as usize);
+        tracing::debug!("PREIMAGES: {:?}", preimages);
+        tracing::debug!("operator pk: {:?}", self.signer.xonly_public_key);
+        ENVWriter::<E>::write_preimages(self.signer.xonly_public_key, &preimages);
         Ok(())
     }
 
