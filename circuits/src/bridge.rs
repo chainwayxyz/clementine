@@ -205,7 +205,7 @@ pub fn read_and_verify_verifiers_challenge_proof<E: Environment>() -> (U256, [u8
     (max_pow_u256, lc_cutoff_blockhash, period_num as u8)
 }
 
-pub fn bridge_proof<E: Environment>() {
+pub fn bridge_proof<E: Environment>() -> [u8; 32] {
     let mut blockhashes_mt = IncrementalMerkleTree::new();
     let mut withdrawal_mt = IncrementalMerkleTree::new();
     let mut total_pow = U256::ZERO;
@@ -328,16 +328,5 @@ pub fn bridge_proof<E: Environment>() {
         )
     );
 
-    // tracing::info!("READ and verify claim proof");
-}
-
-pub fn bridge_proof_test<E: Environment>() -> ([u8; 32], [u8; 32]) {
-    let (commit_taproot_addr, claim_proof_tree_leaf) =
-        read_preimages_and_calculate_commit_taproot::<E>();
-    tracing::debug!(
-        "READ preimages and calculate commit taproot: {:?}",
-        commit_taproot_addr
-    );
-    tracing::debug!("claim_proof_tree_leaf: {:?}", claim_proof_tree_leaf);
-    return (commit_taproot_addr, claim_proof_tree_leaf);
+    return cur_block_hash;
 }
