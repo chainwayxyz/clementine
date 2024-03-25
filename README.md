@@ -1,38 +1,67 @@
-# bridge-core
+# Clementine 🍊
+Clementine is Citrea's BitVM based trust-minimized two-way peg program.
+The repository includes:
+- Smart contracts for deposit and withdrawal
+- A library for bridge operator and verifiers
+- Circuits that will be optimistically verified with BitVM
 
-## bitcoin commands
+The flow is as follows:
+- Creating the operator and verifiers
+- Initial setup that includes calculating period block heights, connector tree hashes, and funding connector source UTXOs.
+- User deposit flow that includes creating a deposit transaction, signing it, and submitting it to the operator.
+- Operator processing the deposit, getting signatures from verifiers, and submitting the deposit to the Bitcoin network.
+- Verifiers verifying the deposit and signing the deposit transaction and claim signatures.
+- Operator withdrawal flow for front covering withdrawal requests.
+- Verifier to start a challenge with Bitcoin Proof of Work
+- Operator to respond to the challenge with a bridge proof.
 
+
+> [!WARNING] 
+> Clementine is still work-in-progress. It has not been audited and should not be used in production under any circumstances. It also requires a full BitVM implementation to be run fully on-chain.
+
+
+## Instructions
+
+To clone this repo with submodules:
+
+```
+git clone --recurse-submodules https://github.com/chainwayxyz/clementine.git
+cd clementine
+```
+
+### Run Bitcoin Regtest
+
+To run the whole process of simulating deposits, withdrawals, proof generation on the Bitcoin Regtest network, you need Bitcoin Core to be installed.
+
+You can use the following commands to run the server.
+
+Start the regtest server with the following command:
 ```sh
 bitcoind -regtest -rpcuser=admin -rpcpassword=admin -rpcport=18443 -fallbackfee=0.00001 -wallet=admin -txindex=1
 ```
 
+Create a wallet for the operator:
 ```sh
-bitcoin-cli -regtest -rpcuser=admin -rpcpassword=admin createwallet "admin"
+bitcoin-cli -regtest -rpcuser=admin -rpcpassword=admin -rpcport=18443 createwallet "admin"
 ```
 
+Mine some blocks to the wallet:
 ```sh
-bitcoin-cli -regtest -rpcuser=admin -rpcpassword=admin generatetoaddress 101 $(bitcoin-cli -regtest -rpcuser=admin -rpcpassword=admin getnewaddress)
+bitcoin-cli -regtest -rpcuser=admin -rpcpassword=admin -rpcport=18443 generatetoaddress 101 $(bitcoin-cli -regtest -rpcuser=admin -rpcpassword=admin -rpcport=18443 getnewaddress)
 ```
 
-There exists one operator and N-1 verifiers. A user wants to make a deposit.
-They deposit to the taproot address of (N+1 of N+1 multisig) or (the user takes in 200). 
-After this, the operator collects the signatures from the verifiers, and moves the deposit to (N of N multisig).
-Signatures include:
-- Move signatures
-- Operator claim signatures
-Move signatures will move the deposit UTXO to the multisig. Operator claim signatures help the operator claim the deposit at the end of a period in case the operator pays the withdrawals up to the index of the deposit.
+### Run the Clementine simulation
+```sh
+cargo run
+```
 
-## User Side:
-The user will mint their cBTC using the txid of the move transaction. On the rollup, they will provide:
-- Txid
-- Succinct inclusion proof of txid in a blockheader
-- The blockheader
+### Test
+```sh
+cargo test
+```
 
-## Operator Side:
-The operator creates a total of M connector UTXO trees, each root descending from the previous one. These trees will represent BitVM periods. 
-If the operator acts maliciously, an honest verifier will burn a single root, which will lead to the loss of the future roots, making operator useless.
-At the beginning, the operator creates these connector trees.
-It has M internal roots, all of each are created from the leaves that hides the preimage information regarding the claims that will be made by the operator
-(internal index = the number of claims - 1). Combining all the roots of the connector trees, there will be M hard-coded root for verification purposes.
-At the end of each period i, the operator will inscribe the preimages such that revealed preimages will enable him to claim the number of withdrawals made from genesis, since previous periods' bridge funds are already claimed, operator will not be able to claim them again.
-Revealed preimages will help verifiers burn the remaining part of the connector tree to stop the operator from stealing the funds.
+# License
+
+## Copyright
+
+**(c) 2024 Chainway Limited** `clementine` was developed by Chainway Limited. While we plan to adopt an open source license, we have not yet selected one. As such, all rights are reserved for the time being. Please reach out to us if you have thoughts on licensing.
