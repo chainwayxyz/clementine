@@ -24,7 +24,7 @@ impl Clone for ExtendedRpc {
         // Assuming the connection parameters are static/fixed as shown in the `new` method.
         // If these parameters can change or need to be dynamic, you'll need to adjust this approach
         // to ensure the new Client is created with the correct parameters.
-        let rpc_url = "http://172.16.20.111:18443/wallet/admin";
+        let rpc_url = "http://localhost:18443/wallet/admin";
         let rpc_user = "admin".to_string();
         let rpc_pass = "admin".to_string();
 
@@ -44,7 +44,7 @@ impl Default for ExtendedRpc {
 impl ExtendedRpc {
     pub fn new() -> Self {
         let rpc = Client::new(
-            "http://172.16.20.111:18443/wallet/admin",
+            "http://localhost:18443/wallet/admin",
             Auth::UserPass("admin".to_string(), "admin".to_string()),
         )
         .unwrap_or_else(|e| panic!("Failed to connect to Bitcoin RPC: {}", e));
