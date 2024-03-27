@@ -69,8 +69,11 @@ impl VerifierConnector for Verifier {
         for i in 0..NUM_ROUNDS {
             let connector_utxo = self.verifier_db_connector.get_connector_tree_utxo(i)
                 [CONNECTOR_TREE_DEPTH][deposit_index as usize];
-            let connector_hash =
-                self.verifier_db_connector.get_connector_tree_hash(i, CONNECTOR_TREE_DEPTH, deposit_index as usize);
+            let connector_hash = self.verifier_db_connector.get_connector_tree_hash(
+                i,
+                CONNECTOR_TREE_DEPTH,
+                deposit_index as usize,
+            );
 
             let mut operator_claim_tx = self.transaction_builder.create_operator_claim_tx(
                 move_utxo,
@@ -108,11 +111,16 @@ impl VerifierConnector for Verifier {
                 &period_relative_block_heights,
             )?;
 
-        self.verifier_db_connector.set_connector_tree_utxos(utxo_trees);
-        self.verifier_db_connector.set_connector_tree_hashes(connector_tree_hashes.clone());
-        self.verifier_db_connector.set_claim_proof_merkle_trees(claim_proof_merkle_trees);
-        self.verifier_db_connector.set_start_block_height(start_blockheight);
-        self.verifier_db_connector.set_period_relative_block_heights(period_relative_block_heights);
+        self.verifier_db_connector
+            .set_connector_tree_utxos(utxo_trees);
+        self.verifier_db_connector
+            .set_connector_tree_hashes(connector_tree_hashes.clone());
+        self.verifier_db_connector
+            .set_claim_proof_merkle_trees(claim_proof_merkle_trees);
+        self.verifier_db_connector
+            .set_start_block_height(start_blockheight);
+        self.verifier_db_connector
+            .set_period_relative_block_heights(period_relative_block_heights);
 
         Ok(())
     }
@@ -123,13 +131,17 @@ impl VerifierConnector for Verifier {
         tracing::info!("Verifier starts challenges");
         let last_blockheight = self.rpc.get_block_count()?;
         let last_blockhash = self.rpc.get_block_hash(
-            self.verifier_db_connector.get_start_block_height() + self.verifier_db_connector.get_period_relative_block_heights()[period as usize] as u64
+            self.verifier_db_connector.get_start_block_height()
+                + self
+                    .verifier_db_connector
+                    .get_period_relative_block_heights()[period as usize] as u64
                 - 1,
         )?;
         tracing::debug!("Verifier last_blockhash: {:?}", last_blockhash);
-        let total_work = self
-            .rpc
-            .calculate_total_work_between_blocks(self.verifier_db_connector.get_start_block_height(), last_blockheight)?;
+        let total_work = self.rpc.calculate_total_work_between_blocks(
+            self.verifier_db_connector.get_start_block_height(),
+            last_blockheight,
+        )?;
         Ok((last_blockhash, total_work, period))
     }
 }

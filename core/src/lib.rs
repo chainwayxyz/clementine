@@ -3,6 +3,7 @@ use clementine_circuits::{HashType, PreimageType};
 
 pub mod actor;
 pub mod constants;
+pub mod db;
 pub mod env_writer;
 pub mod errors;
 pub mod extended_rpc;
@@ -15,7 +16,6 @@ pub mod transaction_builder;
 pub mod user;
 pub mod utils;
 pub mod verifier;
-pub mod db;
 
 pub type ConnectorUTXOTree = Vec<Vec<OutPoint>>;
 pub type HashTree = Vec<Vec<HashType>>;

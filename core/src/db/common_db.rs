@@ -3,10 +3,7 @@ use clementine_circuits::{
     HashType, PreimageType,
 };
 
-use crate::{
-    merkle::MerkleTree,
-    ConnectorUTXOTree, HashTree, InscriptionTxs, WithdrawalPayment,
-};
+use crate::{merkle::MerkleTree, ConnectorUTXOTree, HashTree, InscriptionTxs, WithdrawalPayment};
 
 #[derive(Debug, Clone)]
 pub struct CommonMockDB {
@@ -44,7 +41,6 @@ impl CommonMockDB {
     }
 }
 impl CommonMockDB {
-
     pub fn get_connector_tree_hash(&self, period: usize, level: usize, idx: usize) -> HashType {
         self.connector_tree_hashes[period][level][idx]
     }
@@ -60,7 +56,10 @@ impl CommonMockDB {
         self.claim_proof_merkle_trees = claim_proof_merkle_trees;
     }
 
-    pub fn get_claim_proof_merkle_tree(&self, period: usize) -> MerkleTree<CLAIM_MERKLE_TREE_DEPTH> {
+    pub fn get_claim_proof_merkle_tree(
+        &self,
+        period: usize,
+    ) -> MerkleTree<CLAIM_MERKLE_TREE_DEPTH> {
         self.claim_proof_merkle_trees[period].clone()
     }
 

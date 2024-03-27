@@ -126,7 +126,6 @@ fn test_flow() -> Result<(), BridgeError> {
         tracing::debug!("Proving for Period: {}", current_period);
 
         challenge = operator.verifier_connector[0].challenge_operator(current_period as u8)?;
-
     }
 
     operator.prove::<MockEnvironment>(challenge)?;

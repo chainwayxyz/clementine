@@ -2,10 +2,7 @@ use std::ops::{Deref, DerefMut};
 
 use clementine_circuits::PreimageType;
 
-use crate::{
-    operator::OperatorClaimSigs,
-    PreimageTree,
-};
+use crate::{operator::OperatorClaimSigs, PreimageTree};
 
 use super::common_db::CommonMockDB;
 
@@ -25,7 +22,6 @@ impl OperatorMockDB {
         }
     }
 }
-
 
 impl Deref for OperatorMockDB {
     type Target = CommonMockDB;
@@ -54,7 +50,11 @@ impl OperatorMockDB {
         self.deposit_take_sigs.push(deposit_take_sigs);
     }
 
-    pub fn get_connector_tree_preimages_level(&self, period: usize, level: usize) -> Vec<PreimageType> {
+    pub fn get_connector_tree_preimages_level(
+        &self,
+        period: usize,
+        level: usize,
+    ) -> Vec<PreimageType> {
         self.connector_tree_preimages[period][level].clone()
     }
 
@@ -73,5 +73,4 @@ impl OperatorMockDB {
     ) {
         self.connector_tree_preimages = connector_tree_preimages;
     }
-
 }
