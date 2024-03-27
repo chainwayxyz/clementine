@@ -4,8 +4,16 @@ use core::fmt::Debug;
 use std::array::TryFromSliceError;
 use thiserror::Error;
 
+/// Errors returned by external libraries
+/// This is a wrapper around the external library errors
+#[derive(Debug, Error)]
+pub enum ExternalError {
+    #[error("RPC error: {0}")]
+    RpcError(bitcoincore_rpc::Error),
+}
+
 /// Errors returned by the bridge
-#[derive(Clone, Debug, Eq, PartialEq, Error)]
+#[derive(Debug, Error)]
 #[non_exhaustive]
 pub enum BridgeError {
     #[error("OperatorPendingDeposit")]
@@ -36,8 +44,8 @@ pub enum BridgeError {
     #[error("TxidNotFound")]
     TxidNotFound,
     /// Returned in RPC error
-    #[error("RpcError")]
-    RpcError,
+    #[error("Bitcoin core RPC error: {0}")]
+    BitcoinRpcError(bitcoincore_rpc::Error),
     /// Returned if there is no confirmation data
     #[error("NoConfirmationData")]
     NoConfirmationData,
@@ -75,6 +83,12 @@ pub enum BridgeError {
     /// AlreadyInitialized is returned when the operator is already initialized
     #[error("AlreadyInitialized")]
     AlreadyInitialized,
+    /// Blockhash not found
+    #[error("Blockhash not found")]
+    BlockhashNotFound,
+    /// Block not found
+    #[error("Block not found")]
+    BlockNotFound,
 }
 
 impl From<secp256k1::Error> for BridgeError {
@@ -86,13 +100,6 @@ impl From<secp256k1::Error> for BridgeError {
 impl From<bitcoin::sighash::Error> for BridgeError {
     fn from(_error: bitcoin::sighash::Error) -> Self {
         BridgeError::BitcoinSighashError
-    }
-}
-
-// bitcoincore_rpc::Error
-impl From<bitcoincore_rpc::Error> for BridgeError {
-    fn from(_error: bitcoincore_rpc::Error) -> Self {
-        BridgeError::RpcError
     }
 }
 
@@ -126,5 +133,11 @@ impl From<TaprootBuilderError> for BridgeError {
 impl From<TaprootBuilder> for BridgeError {
     fn from(_error: TaprootBuilder) -> Self {
         BridgeError::TaprootBuilderError
+    }
+}
+
+impl From<bitcoincore_rpc::Error> for BridgeError {
+    fn from(err: bitcoincore_rpc::Error) -> Self {
+        BridgeError::BitcoinRpcError(err)
     }
 }

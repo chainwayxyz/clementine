@@ -530,11 +530,11 @@ impl Operator {
             .map(|i| {
                 let blockhash = self.rpc.get_block_hash(i).map_err(|e| {
                     tracing::error!("Failed to get block hash: {}", e);
-                    BridgeError::RpcError
+                    BridgeError::BitcoinRpcError(e)
                 })?;
                 let block_header = self.rpc.get_block_header(&blockhash).map_err(|e| {
                     tracing::error!("Failed to get block header: {}", e);
-                    BridgeError::RpcError
+                    BridgeError::BitcoinRpcError(e)
                 })?;
                 Ok(block_header)
             })
@@ -572,12 +572,12 @@ impl Operator {
             let get_transaction_result = self.rpc.get_transaction(&txid, None)?;
             let blockhash = get_transaction_result.info.blockhash.ok_or_else(|| {
                 tracing::error!("Failed to get blockhash for transaction: {:?}", txid);
-                BridgeError::RpcError
+                BridgeError::BlockhashNotFound
             })?;
 
             let block = self.rpc.get_block(&blockhash).map_err(|e| {
                 tracing::error!("Failed to get block: {}", e);
-                BridgeError::RpcError
+                BridgeError::BlockNotFound
             })?;
 
             ENVWriter::<E>::write_bitcoin_merkle_path(txid, &block)?;
@@ -664,7 +664,7 @@ impl Operator {
             .get_block_hash(start_block_height - 1)
             .map_err(|e| {
                 tracing::error!("Failed to get block hash: {}", e);
-                BridgeError::RpcError
+                BridgeError::BitcoinRpcError(e)
             })?;
         tracing::debug!("start_blockhash: {:?}", start_blockhash);
 
@@ -781,12 +781,12 @@ impl Operator {
 
         let blockhash = reveal_tx_result.blockhash.ok_or_else(|| {
             tracing::error!("Failed to get blockhash for transaction: {:?}", reveal_txid);
-            BridgeError::RpcError
+            BridgeError::BlockhashNotFound
         })?;
 
         let block = self.rpc.get_block(&blockhash).map_err(|e| {
             tracing::error!("Failed to get block: {}", e);
-            BridgeError::RpcError
+            BridgeError::BlockNotFound
         })?;
 
         ENVWriter::<E>::write_bitcoin_merkle_path(reveal_txid, &block)?;

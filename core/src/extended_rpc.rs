@@ -127,7 +127,10 @@ impl ExtendedRpc {
         Ok(work)
     }
 
-    pub fn get_block_hash(&self, blockheight: u64) -> Result<bitcoin::BlockHash, BridgeError> {
+    pub fn get_block_hash(
+        &self,
+        blockheight: u64,
+    ) -> Result<bitcoin::BlockHash, bitcoincore_rpc::Error> {
         let block_hash = self.inner.get_block_hash(blockheight)?;
         Ok(block_hash)
     }
@@ -135,7 +138,7 @@ impl ExtendedRpc {
     pub fn get_block_header(
         &self,
         block_hash: &bitcoin::BlockHash,
-    ) -> Result<bitcoin::block::Header, BridgeError> {
+    ) -> Result<bitcoin::block::Header, bitcoincore_rpc::Error> {
         let block_header = self.inner.get_block_header(block_hash)?;
         Ok(block_header)
     }
