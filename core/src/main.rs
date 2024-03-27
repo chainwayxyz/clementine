@@ -133,9 +133,21 @@ fn test_flow() -> Result<(), BridgeError> {
     let env = MockEnvironment::output_env();
     let prover = default_prover();
     let receipt = prover.prove(env, GUEST_ELF).unwrap();
-    let journal_last_block_hash: [u8; 32] = receipt.journal.decode().unwrap();
-    let last_block_hash = BlockHash::from_slice(&journal_last_block_hash).unwrap();
-    tracing::debug!("last_block_hash: {:?}", last_block_hash);
+    let journal: ([u8; 32], [u8; 32], u8) = receipt.journal.decode().unwrap();
+    let (verifiers_pow_bytes, verifiers_last_finalized_blockhash, verifiers_challenge_period) =
+        journal;
+    let verifiers_pow_u256 = U256::from_le_slice(&verifiers_pow_bytes);
+    let verifiers_last_finalized_blockhash =
+        BlockHash::from_slice(&verifiers_last_finalized_blockhash).unwrap();
+    tracing::debug!("Verifiers pow: {:?}", verifiers_pow_u256);
+    tracing::debug!(
+        "Verifiers last finalized blockhash: {:?}",
+        verifiers_last_finalized_blockhash
+    );
+    tracing::debug!(
+        "Verifiers challenge period: {:?}",
+        verifiers_challenge_period
+    );
 
     tracing::info!("Bridge proof done");
 
