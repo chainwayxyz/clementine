@@ -1,13 +1,13 @@
 #![no_main]
 #![no_std]
 
-use clementine_circuits::bitcoin::read_tx_and_calculate_txid;
+use clementine_circuits::bridge::bridge_proof;
 use guest::env::RealEnvironment;
 use risc0_zkvm::guest::env;
-
 risc0_zkvm::guest::entry!(main); 
 
 pub fn main() {
-    let txid = read_tx_and_calculate_txid::<RealEnvironment>(None, None);
-    env::commit(&txid);
+    let last_block_hash = bridge_proof::<RealEnvironment>();
+    env::commit(&last_block_hash);
+    tracing::debug!("last_block_hash: {:?}", last_block_hash);
 }

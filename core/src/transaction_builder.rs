@@ -246,14 +246,6 @@ impl TransactionBuilder {
         let mut utxo_trees: Vec<ConnectorUTXOTree> = Vec::new();
 
         for i in 0..NUM_ROUNDS {
-            // claim_proof_merkle_roots.push(calculate_claim_proof_root(
-            //     CONNECTOR_TREE_DEPTH,
-            //     &connector_tree_hashes[i],
-            // ));
-            // tracing::debug!("calculate_claim_proof_root: {:?}", calculate_claim_proof_root(
-            //         CONNECTOR_TREE_DEPTH,
-            //         &connector_tree_hashes[i],
-            //     ));
             let mut claim_proof_merkle_tree_i: MerkleTree<CLAIM_MERKLE_TREE_DEPTH> =
                 MerkleTree::new();
             for j in 0..(2_usize.pow(CONNECTOR_TREE_DEPTH as u32)) {
@@ -493,7 +485,6 @@ impl TransactionBuilder {
         first_address: Address,
         second_address: Address,
     ) -> bitcoin::Transaction {
-        // UTXO value should be at least 2^depth * dust_value + (2^depth-1) * fee
         let tx_ins = TransactionBuilder::create_tx_ins_with_sequence(vec![*utxo]);
         let tx_outs = TransactionBuilder::create_tx_outs(vec![
             (
@@ -526,13 +517,12 @@ impl TransactionBuilder {
         depth: usize,
         connector_tree_hashes: Vec<Vec<[u8; 32]>>,
     ) -> Result<ConnectorUTXOTree, BridgeError> {
-        // UTXO value should be at least 2^depth * dust_value + (2^depth-1) * fee
+        // Root UTXO value should be at least 2^depth * (dust_value + fee) - fee
         let _total_amount = calculate_amount(
             depth,
             Amount::from_sat(DUST_VALUE),
             Amount::from_sat(MIN_RELAY_FEE),
         );
-        // tracing::debug!("total_amount: {:?}", total_amount);
 
         let (_root_address, _) = TransactionBuilder::create_connector_tree_node_address(
             &self.secp,

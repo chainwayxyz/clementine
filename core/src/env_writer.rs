@@ -70,7 +70,6 @@ impl<E: Environment> ENVWriter<E> {
         for output in tx.output.iter() {
             E::write_u64(output.value.to_sat());
             let output_script_pk = output.script_pubkey.as_bytes();
-            // tracing::debug!("Output ScriptPubKey len: {:?}", output_script_pk.len());
             if output_script_pk.len() == 34
                 && output_script_pk[0] == 81u8
                 && output_script_pk[1] == 32u8
@@ -263,6 +262,8 @@ mod tests {
     // use operator_circuit::GUEST_ELF;
 
     use crypto_bigint::U256;
+    use operator_circuit::GUEST_ELF;
+    use risc0_zkvm::default_prover;
     use secp256k1::hashes::Hash;
 
     use crate::{
@@ -534,8 +535,9 @@ mod tests {
     //     ENVWriter::<MockEnvironment>::write_tx_to_env(&btc_tx);
     //     let env = MockEnvironment::output_env();
     //     let prover = default_prover();
-    //     let receipt = prover.prove_elf(env, GUEST_ELF).unwrap();
+    //     let receipt = prover.prove(env, GUEST_ELF).unwrap();
     //     let tx_id: [u8; 32] = receipt.journal.decode().unwrap();
+    //     println!("tx_id: {:?}", tx_id);
     //     assert_eq!(btc_tx_id, Txid::from_byte_array(tx_id));
     //     // This code is working
     // }

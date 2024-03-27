@@ -1,21 +1,32 @@
+use bitcoin::hashes::Hash;
+use bitcoin::{BlockHash, Txid};
 use clementine_circuits::bridge::bridge_proof;
 use clementine_circuits::constants::{MAX_BLOCK_HANDLE_OPS, NUM_ROUNDS};
 use clementine_core::constants::{NUM_USERS, NUM_VERIFIERS, PERIOD_BLOCK_COUNT};
+use clementine_core::env_writer::ENVWriter;
 use clementine_core::errors::BridgeError;
 use clementine_core::mock_env::MockEnvironment;
 use clementine_core::traits::verifier::VerifierConnector;
+use clementine_core::utils::parse_hex_to_btc_tx;
 use clementine_core::verifier::Verifier;
 use clementine_core::EVMAddress;
 use clementine_core::{extended_rpc::ExtendedRpc, operator::Operator, user::User};
 use crypto_bigint::rand_core::OsRng;
+use crypto_bigint::U256;
+use operator_circuit::GUEST_ELF;
+use risc0_zkvm::{default_prover, Journal};
 use secp256k1::rand::rngs::StdRng;
 use secp256k1::rand::SeedableRng;
 use secp256k1::XOnlyPublicKey;
 use std::env;
 use std::str::FromStr;
+use std::sync::Mutex;
 use tracing_subscriber::layer::SubscriberExt;
 use tracing_subscriber::util::SubscriberInitExt;
 use tracing_subscriber::{fmt, EnvFilter};
+lazy_static::lazy_static! {
+    static ref SHARED_STATE: Mutex<i32> = Mutex::new(0);
+}
 
 fn test_flow() -> Result<(), BridgeError> {
     let rpc = ExtendedRpc::new();
@@ -76,8 +87,10 @@ fn test_flow() -> Result<(), BridgeError> {
         // connector_tree_source_sigs.push(sigs);
     }
 
-    // tracing::debug!("connector roots created, verifiers agree");
+    // presigns_from_all_verifiers:!("connector roots created, verifiers agree");
     // In the end, create BitVM
+
+    let mut challenge = (BlockHash::all_zeros(), U256::ZERO, 0);
 
     for current_period in 0..NUM_ROUNDS {
         tracing::debug!("Current period: {}", current_period);
@@ -115,15 +128,20 @@ fn test_flow() -> Result<(), BridgeError> {
 
         tracing::debug!("Proving for Period: {}", current_period);
 
-        let challenge = operator.verifier_connector[0].challenge_operator(current_period as u8)?;
-        MockEnvironment::reset_mock_env();
-        operator.prove::<MockEnvironment>(challenge)?;
-        bridge_proof::<MockEnvironment>();
+        challenge = operator.verifier_connector[0].challenge_operator(current_period as u8)?;
 
-        // rpc.mine_blocks(15)?;
     }
 
-    tracing::debug!("Bridge proof done");
+    operator.prove::<MockEnvironment>(challenge)?;
+
+    let env = MockEnvironment::output_env();
+    let prover = default_prover();
+    let receipt = prover.prove(env, GUEST_ELF).unwrap();
+    let journal_last_block_hash: [u8; 32] = receipt.journal.decode().unwrap();
+    let last_block_hash = BlockHash::from_slice(&journal_last_block_hash).unwrap();
+    tracing::debug!("last_block_hash: {:?}", last_block_hash);;
+
+    tracing::info!("Bridge proof done");
 
     Ok(())
 }
