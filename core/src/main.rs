@@ -1,20 +1,17 @@
 use bitcoin::hashes::Hash;
-use bitcoin::{BlockHash, Txid};
-use clementine_circuits::bridge::bridge_proof;
+use bitcoin::BlockHash;
 use clementine_circuits::constants::{MAX_BLOCK_HANDLE_OPS, NUM_ROUNDS};
 use clementine_core::constants::{NUM_USERS, NUM_VERIFIERS, PERIOD_BLOCK_COUNT};
-use clementine_core::env_writer::ENVWriter;
 use clementine_core::errors::BridgeError;
 use clementine_core::mock_env::MockEnvironment;
 use clementine_core::traits::verifier::VerifierConnector;
-use clementine_core::utils::parse_hex_to_btc_tx;
 use clementine_core::verifier::Verifier;
 use clementine_core::EVMAddress;
 use clementine_core::{extended_rpc::ExtendedRpc, operator::Operator, user::User};
 use crypto_bigint::rand_core::OsRng;
 use crypto_bigint::U256;
 use operator_circuit::GUEST_ELF;
-use risc0_zkvm::{default_prover, Journal};
+use risc0_zkvm::default_prover;
 use secp256k1::rand::rngs::StdRng;
 use secp256k1::rand::SeedableRng;
 use secp256k1::XOnlyPublicKey;
@@ -139,7 +136,7 @@ fn test_flow() -> Result<(), BridgeError> {
     let receipt = prover.prove(env, GUEST_ELF).unwrap();
     let journal_last_block_hash: [u8; 32] = receipt.journal.decode().unwrap();
     let last_block_hash = BlockHash::from_slice(&journal_last_block_hash).unwrap();
-    tracing::debug!("last_block_hash: {:?}", last_block_hash);;
+    tracing::debug!("last_block_hash: {:?}", last_block_hash);
 
     tracing::info!("Bridge proof done");
 

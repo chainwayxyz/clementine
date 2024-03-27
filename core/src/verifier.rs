@@ -1,10 +1,10 @@
 use crate::constants::{VerifierChallenge, CONNECTOR_TREE_DEPTH};
+use crate::db::verifier_db::VerifierMockDB;
 use crate::errors::BridgeError;
 
-use crate::merkle::MerkleTree;
 use crate::traits::verifier::VerifierConnector;
 use crate::utils::check_deposit_utxo;
-use crate::{ConnectorUTXOTree, EVMAddress, HashTree};
+use crate::{EVMAddress, HashTree};
 use bitcoin::Address;
 use bitcoin::{secp256k1, secp256k1::Secp256k1, OutPoint};
 
@@ -24,12 +24,8 @@ pub struct Verifier {
     pub signer: Actor,
     pub transaction_builder: TransactionBuilder,
     pub verifiers: Vec<XOnlyPublicKey>,
-    pub connector_tree_utxos: Vec<ConnectorUTXOTree>,
-    pub connector_tree_hashes: Vec<Vec<Vec<[u8; 32]>>>,
-    pub claim_proof_merkle_trees: Vec<MerkleTree<CLAIM_MERKLE_TREE_DEPTH>>,
     pub operator_pk: XOnlyPublicKey,
-    pub start_block_height: u64,
-    pub period_relative_block_heights: Vec<u32>,
+    verifier_db_connector: VerifierMockDB,
 }
 
 // impl VerifierConnector
@@ -71,10 +67,10 @@ impl VerifierConnector for Verifier {
         let mut op_claim_sigs = Vec::new();
 
         for i in 0..NUM_ROUNDS {
-            let connector_utxo =
-                self.connector_tree_utxos[i][CONNECTOR_TREE_DEPTH][deposit_index as usize];
+            let connector_utxo = self.verifier_db_connector.get_connector_tree_utxo(i)
+                [CONNECTOR_TREE_DEPTH][deposit_index as usize];
             let connector_hash =
-                self.connector_tree_hashes[i][CONNECTOR_TREE_DEPTH][deposit_index as usize];
+                self.verifier_db_connector.get_connector_tree_hash(i, CONNECTOR_TREE_DEPTH, deposit_index as usize);
 
             let mut operator_claim_tx = self.transaction_builder.create_operator_claim_tx(
                 move_utxo,
@@ -112,11 +108,11 @@ impl VerifierConnector for Verifier {
                 &period_relative_block_heights,
             )?;
 
-        self.connector_tree_utxos = utxo_trees;
-        self.connector_tree_hashes = connector_tree_hashes.clone();
-        self.claim_proof_merkle_trees = claim_proof_merkle_trees;
-        self.start_block_height = start_blockheight;
-        self.period_relative_block_heights = period_relative_block_heights;
+        self.verifier_db_connector.set_connector_tree_utxos(utxo_trees);
+        self.verifier_db_connector.set_connector_tree_hashes(connector_tree_hashes.clone());
+        self.verifier_db_connector.set_claim_proof_merkle_trees(claim_proof_merkle_trees);
+        self.verifier_db_connector.set_start_block_height(start_blockheight);
+        self.verifier_db_connector.set_period_relative_block_heights(period_relative_block_heights);
 
         Ok(())
     }
@@ -127,13 +123,13 @@ impl VerifierConnector for Verifier {
         tracing::info!("Verifier starts challenges");
         let last_blockheight = self.rpc.get_block_count()?;
         let last_blockhash = self.rpc.get_block_hash(
-            self.start_block_height + self.period_relative_block_heights[period as usize] as u64
+            self.verifier_db_connector.get_start_block_height() + self.verifier_db_connector.get_period_relative_block_heights()[period as usize] as u64
                 - 1,
         )?;
         tracing::debug!("Verifier last_blockhash: {:?}", last_blockhash);
         let total_work = self
             .rpc
-            .calculate_total_work_between_blocks(self.start_block_height, last_blockheight)?;
+            .calculate_total_work_between_blocks(self.verifier_db_connector.get_start_block_height(), last_blockheight)?;
         Ok((last_blockhash, total_work, period))
     }
 }
@@ -154,9 +150,7 @@ impl Verifier {
             return Err(BridgeError::PublicKeyNotFound);
         }
 
-        let connector_tree_utxos = Vec::new();
-        let connector_tree_hashes = Vec::new();
-        let claim_proof_merkle_trees = Vec::new();
+        let verifier_db_connector = VerifierMockDB::new();
 
         let transaction_builder = TransactionBuilder::new(all_xonly_pks.clone());
         let operator_pk = all_xonly_pks[all_xonly_pks.len() - 1];
@@ -166,12 +160,8 @@ impl Verifier {
             signer,
             transaction_builder,
             verifiers: all_xonly_pks,
-            connector_tree_utxos,
-            connector_tree_hashes,
             operator_pk,
-            claim_proof_merkle_trees,
-            start_block_height: 0,
-            period_relative_block_heights: Vec::new(),
+            verifier_db_connector,
         })
     }
 }

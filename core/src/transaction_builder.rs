@@ -210,7 +210,7 @@ impl TransactionBuilder {
         ])
     }
 
-    /// TODO: Implement the igning part for the connecting to BitVM transactions
+    /// TODO: Implement the signing part for the connecting to BitVM transactions
     /// This function creates the connector trees using the connector tree hashes.
     /// Starting from the first source UTXO, it creates the connector UTXO trees and
     /// returns the claim proof merkle roots, root utxos and the connector trees.
