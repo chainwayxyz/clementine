@@ -3,11 +3,11 @@ use clementine_circuits::{HashType, PreimageType};
 
 pub mod actor;
 pub mod constants;
+pub mod db;
 pub mod env_writer;
 pub mod errors;
 pub mod extended_rpc;
 pub mod merkle;
-pub mod mock_db;
 pub mod mock_env;
 pub mod operator;
 pub mod script_builder;

@@ -5,17 +5,13 @@ use crate::constants::{
     VerifierChallenge, CONNECTOR_TREE_DEPTH, DUST_VALUE, K_DEEP,
     MAX_BITVM_CHALLENGE_RESPONSE_BLOCKS, MIN_RELAY_FEE, PERIOD_BLOCK_COUNT,
 };
+use crate::db::operator_db::OperatorMockDB;
 use crate::env_writer::ENVWriter;
-use crate::errors::BridgeError;
+use crate::errors::{BridgeError, InvalidPeriodError};
 use crate::extended_rpc::ExtendedRpc;
 
-use operator_circuit::GUEST_ELF;
-
 use crate::merkle::MerkleTree;
-use crate::mock_db::OperatorMockDB;
-use crate::mock_env::MockEnvironment;
 use crate::script_builder::ScriptBuilder;
-use crate::traits::operator_db::OperatorDBConnector;
 use crate::traits::verifier::VerifierConnector;
 use crate::transaction_builder::TransactionBuilder;
 use crate::utils::{
@@ -37,7 +33,6 @@ use clementine_circuits::constants::{
 use clementine_circuits::env::Environment;
 use clementine_circuits::{sha256_hash, HashType, PreimageType};
 use crypto_bigint::{Encoding, U256};
-use risc0_zkvm::default_prover;
 use secp256k1::rand::{Rng, RngCore};
 use secp256k1::{Message, SecretKey, XOnlyPublicKey};
 use sha2::{Digest, Sha256};
@@ -98,7 +93,7 @@ pub struct Operator {
     pub transaction_builder: TransactionBuilder,
     pub verifiers_pks: Vec<XOnlyPublicKey>,
     pub verifier_connector: Vec<Box<dyn VerifierConnector>>,
-    operator_db_connector: Box<dyn OperatorDBConnector>,
+    operator_db_connector: OperatorMockDB,
 }
 
 impl Operator {
@@ -116,7 +111,7 @@ impl Operator {
         }
 
         let transaction_builder = TransactionBuilder::new(all_xonly_pks.clone());
-        let operator_db_connector = Box::new(OperatorMockDB::new());
+        let operator_db_connector = OperatorMockDB::new();
 
         Ok(Self {
             rpc,
@@ -171,7 +166,7 @@ impl Operator {
                     .map_err(|e| {
                         // Log the error or convert it to BridgeError if necessary
                         tracing::error!("Error getting deposit presigns: {:?}", e);
-                        e
+                        BridgeError::FailedToGetPresigns
                     })?;
                 // tracing::debug!("deposit presigns: {:?}", deposit_presigns);
                 // tracing::info!("Verifier checked new deposit");
@@ -285,7 +280,9 @@ impl Operator {
                 return Ok(i);
             }
         }
-        Err(BridgeError::InvalidPeriod)
+        Err(BridgeError::InvalidPeriod(
+            InvalidPeriodError::WithdrawalPeriodMismatch,
+        ))
     }
 
     fn get_current_preimage_reveal_period(&self) -> Result<usize, BridgeError> {
@@ -311,7 +308,9 @@ impl Operator {
                 return Ok(i);
             }
         }
-        Err(BridgeError::InvalidPeriod)
+        Err(BridgeError::InvalidPeriod(
+            InvalidPeriodError::PreimageRevealPeriodMismatch,
+        ))
     }
 
     // this is called when a Withdrawal event emitted on rollup and its corresponding batch proof is finalized
@@ -473,7 +472,9 @@ impl Operator {
                 "self.operator_db_connector.get_inscription_txs_len(): {:?}",
                 self.operator_db_connector.get_inscription_txs_len()
             );
-            return Err(BridgeError::InvalidPeriod);
+            return Err(BridgeError::InvalidPeriod(
+                InvalidPeriodError::InscriptionPeriodMismatch,
+            ));
         }
         let number_of_funds_claim = self.get_num_withdrawals_for_period(period);
         tracing::debug!("number_of_funds_claim: {:?}", number_of_funds_claim);
@@ -535,11 +536,11 @@ impl Operator {
             .map(|i| {
                 let blockhash = self.rpc.get_block_hash(i).map_err(|e| {
                     tracing::error!("Failed to get block hash: {}", e);
-                    BridgeError::RpcError
+                    BridgeError::BitcoinRpcError(e)
                 })?;
                 let block_header = self.rpc.get_block_header(&blockhash).map_err(|e| {
                     tracing::error!("Failed to get block header: {}", e);
-                    BridgeError::RpcError
+                    BridgeError::BitcoinRpcError(e)
                 })?;
                 Ok(block_header)
             })
@@ -577,12 +578,12 @@ impl Operator {
             let get_transaction_result = self.rpc.get_transaction(&txid, None)?;
             let blockhash = get_transaction_result.info.blockhash.ok_or_else(|| {
                 tracing::error!("Failed to get blockhash for transaction: {:?}", txid);
-                BridgeError::RpcError
+                BridgeError::BlockhashNotFound
             })?;
 
             let block = self.rpc.get_block(&blockhash).map_err(|e| {
                 tracing::error!("Failed to get block: {}", e);
-                BridgeError::RpcError
+                BridgeError::BlockNotFound
             })?;
 
             ENVWriter::<E>::write_bitcoin_merkle_path(txid, &block)?;
@@ -669,7 +670,7 @@ impl Operator {
             .get_block_hash(start_block_height - 1)
             .map_err(|e| {
                 tracing::error!("Failed to get block hash: {}", e);
-                BridgeError::RpcError
+                BridgeError::BitcoinRpcError(e)
             })?;
         tracing::debug!("start_blockhash: {:?}", start_blockhash);
 
@@ -786,12 +787,12 @@ impl Operator {
 
         let blockhash = reveal_tx_result.blockhash.ok_or_else(|| {
             tracing::error!("Failed to get blockhash for transaction: {:?}", reveal_txid);
-            BridgeError::RpcError
+            BridgeError::BlockhashNotFound
         })?;
 
         let block = self.rpc.get_block(&blockhash).map_err(|e| {
             tracing::error!("Failed to get block: {}", e);
-            BridgeError::RpcError
+            BridgeError::BlockNotFound
         })?;
 
         ENVWriter::<E>::write_bitcoin_merkle_path(reveal_txid, &block)?;
@@ -864,16 +865,15 @@ impl Operator {
         ),
         BridgeError,
     > {
+        // tracing::info!("Operator starts initial setup");
         let blockheight = self.operator_db_connector.get_start_block_height();
         if blockheight != 0 {
             return Err(BridgeError::AlreadyInitialized);
         }
-
         // initial setup starts with getting the current blockheight to set the start blockheight
         let start_block_height = self.rpc.get_block_height()?;
         self.operator_db_connector
             .set_start_block_height(start_block_height);
-
         // this is a vector [PERIOD_BLOCK_COUNT, 2*PERIOD_BLOCK_COUNT, ...] with NUM_ROUNDS elements.
         // this can be changed to specific blockheights that we want in the initial setup.
         // Note that PERIOD_BLOCK_COUNT should be bigger than K_DEEP + MAX_BITVM_CHALLENGE_RESPONSE_BLOCKS
@@ -889,7 +889,6 @@ impl Operator {
             .set_connector_tree_preimages(connector_tree_preimages);
         self.operator_db_connector
             .set_connector_tree_hashes(connector_tree_hashes.clone());
-
         let single_tree_amount = calculate_amount(
             CONNECTOR_TREE_DEPTH,
             Amount::from_sat(DUST_VALUE),
@@ -907,7 +906,6 @@ impl Operator {
                         + K_DEEP) as u64,
             )
             .unwrap();
-
         let first_source_utxo = self
             .rpc
             .send_to_address(&connector_tree_source_address, total_amount.to_sat())

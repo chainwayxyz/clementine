@@ -1,20 +1,17 @@
 use bitcoin::hashes::Hash;
-use bitcoin::{BlockHash, Txid};
-use clementine_circuits::bridge::bridge_proof;
+use bitcoin::BlockHash;
 use clementine_circuits::constants::{MAX_BLOCK_HANDLE_OPS, NUM_ROUNDS};
 use clementine_core::constants::{NUM_USERS, NUM_VERIFIERS, PERIOD_BLOCK_COUNT};
-use clementine_core::env_writer::ENVWriter;
 use clementine_core::errors::BridgeError;
 use clementine_core::mock_env::MockEnvironment;
 use clementine_core::traits::verifier::VerifierConnector;
-use clementine_core::utils::parse_hex_to_btc_tx;
 use clementine_core::verifier::Verifier;
 use clementine_core::EVMAddress;
 use clementine_core::{extended_rpc::ExtendedRpc, operator::Operator, user::User};
 use crypto_bigint::rand_core::OsRng;
 use crypto_bigint::U256;
 use operator_circuit::GUEST_ELF;
-use risc0_zkvm::{default_prover, Journal};
+use risc0_zkvm::default_prover;
 use secp256k1::rand::rngs::StdRng;
 use secp256k1::rand::SeedableRng;
 use secp256k1::XOnlyPublicKey;
@@ -87,7 +84,6 @@ fn test_flow() -> Result<(), BridgeError> {
         // connector_tree_source_sigs.push(sigs);
     }
 
-    // presigns_from_all_verifiers:!("connector roots created, verifiers agree");
     // In the end, create BitVM
 
     let mut challenge = (BlockHash::all_zeros(), U256::ZERO, 0);
@@ -129,7 +125,6 @@ fn test_flow() -> Result<(), BridgeError> {
         tracing::debug!("Proving for Period: {}", current_period);
 
         challenge = operator.verifier_connector[0].challenge_operator(current_period as u8)?;
-
     }
 
     operator.prove::<MockEnvironment>(challenge)?;
@@ -137,9 +132,21 @@ fn test_flow() -> Result<(), BridgeError> {
     let env = MockEnvironment::output_env();
     let prover = default_prover();
     let receipt = prover.prove(env, GUEST_ELF).unwrap();
-    let journal_last_block_hash: [u8; 32] = receipt.journal.decode().unwrap();
-    let last_block_hash = BlockHash::from_slice(&journal_last_block_hash).unwrap();
-    tracing::debug!("last_block_hash: {:?}", last_block_hash);;
+    let journal: ([u8; 32], [u8; 32], u8) = receipt.journal.decode().unwrap();
+    let (verifiers_pow_bytes, verifiers_last_finalized_blockhash, verifiers_challenge_period) =
+        journal;
+    let verifiers_pow_u256 = U256::from_le_slice(&verifiers_pow_bytes);
+    let verifiers_last_finalized_blockhash =
+        BlockHash::from_slice(&verifiers_last_finalized_blockhash).unwrap();
+    tracing::debug!("Verifiers pow: {:?}", verifiers_pow_u256);
+    tracing::debug!(
+        "Verifiers last finalized blockhash: {:?}",
+        verifiers_last_finalized_blockhash
+    );
+    tracing::debug!(
+        "Verifiers challenge period: {:?}",
+        verifiers_challenge_period
+    );
 
     tracing::info!("Bridge proof done");
 

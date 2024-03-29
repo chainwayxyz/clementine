@@ -11,6 +11,7 @@ use bitcoincore_rpc::Client;
 use bitcoincore_rpc::RpcApi;
 use crypto_bigint::Encoding;
 use crypto_bigint::U256;
+use std::env;
 
 use crate::errors::BridgeError;
 
@@ -24,11 +25,11 @@ impl Clone for ExtendedRpc {
         // Assuming the connection parameters are static/fixed as shown in the `new` method.
         // If these parameters can change or need to be dynamic, you'll need to adjust this approach
         // to ensure the new Client is created with the correct parameters.
-        let rpc_url = "http://localhost:18443/wallet/admin";
+        let rpc_url = env::var("RPC_URL").unwrap_or_else(|_| "http://localhost:18443".to_string());
         let rpc_user = "admin".to_string();
         let rpc_pass = "admin".to_string();
 
-        let new_client = Client::new(rpc_url, Auth::UserPass(rpc_user, rpc_pass))
+        let new_client = Client::new(&rpc_url, Auth::UserPass(rpc_user, rpc_pass))
             .unwrap_or_else(|e| panic!("Failed to clone Bitcoin RPC client: {}", e));
 
         Self { inner: new_client }
@@ -43,8 +44,9 @@ impl Default for ExtendedRpc {
 
 impl ExtendedRpc {
     pub fn new() -> Self {
+        let rpc_url = env::var("RPC_URL").unwrap_or_else(|_| "http://localhost:18443".to_string());
         let rpc = Client::new(
-            "http://localhost:18443/wallet/admin",
+            &rpc_url,
             Auth::UserPass("admin".to_string(), "admin".to_string()),
         )
         .unwrap_or_else(|e| panic!("Failed to connect to Bitcoin RPC: {}", e));
@@ -127,7 +129,10 @@ impl ExtendedRpc {
         Ok(work)
     }
 
-    pub fn get_block_hash(&self, blockheight: u64) -> Result<bitcoin::BlockHash, BridgeError> {
+    pub fn get_block_hash(
+        &self,
+        blockheight: u64,
+    ) -> Result<bitcoin::BlockHash, bitcoincore_rpc::Error> {
         let block_hash = self.inner.get_block_hash(blockheight)?;
         Ok(block_hash)
     }
@@ -135,7 +140,7 @@ impl ExtendedRpc {
     pub fn get_block_header(
         &self,
         block_hash: &bitcoin::BlockHash,
-    ) -> Result<bitcoin::block::Header, BridgeError> {
+    ) -> Result<bitcoin::block::Header, bitcoincore_rpc::Error> {
         let block_header = self.inner.get_block_header(block_hash)?;
         Ok(block_header)
     }

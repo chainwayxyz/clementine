@@ -4,22 +4,29 @@ use core::fmt::Debug;
 use std::array::TryFromSliceError;
 use thiserror::Error;
 
+/// Errors related to periods
+#[derive(Debug, Error)]
+pub enum InvalidPeriodError {
+    #[error("DepositPeriodMismatch")]
+    WithdrawalPeriodMismatch,
+    #[error("DepositPeriodMismatch")]
+    PreimageRevealPeriodMismatch,
+    #[error("DepositPeriodMismatch")]
+    InscriptionPeriodMismatch,
+}
 /// Errors returned by the bridge
-#[derive(Clone, Debug, Eq, PartialEq, Error)]
+#[derive(Debug, Error)]
 #[non_exhaustive]
 pub enum BridgeError {
-    #[error("OperatorPendingDeposit")]
-    OperatorPendingDeposit,
+    /// Returned when the period is invalid
     #[error("InvalidPeriod")]
-    InvalidPeriod,
-    #[error("Error")]
-    Error,
+    InvalidPeriod(InvalidPeriodError),
     /// Returned when the secp256k1 crate returns an error
-    #[error("Secpk256Error")]
-    Secpk256Error,
+    #[error("Secpk256Error: {0}")]
+    Secpk256Error(secp256k1::Error),
     /// Returned when the bitcoin crate returns an error in the sighash module
-    #[error("BitcoinSighashError")]
-    BitcoinSighashError,
+    #[error("BitcoinSighashError: {0}")]
+    BitcoinSighashError(bitcoin::sighash::Error),
     /// Returned when a non finalized deposit request is found
     #[error("DepositNotFinalized")]
     DepositNotFinalized,
@@ -36,8 +43,8 @@ pub enum BridgeError {
     #[error("TxidNotFound")]
     TxidNotFound,
     /// Returned in RPC error
-    #[error("RpcError")]
-    RpcError,
+    #[error("BitcoinCoreRPCError: {0}")]
+    BitcoinRpcError(bitcoincore_rpc::Error),
     /// Returned if there is no confirmation data
     #[error("NoConfirmationData")]
     NoConfirmationData,
@@ -60,6 +67,8 @@ pub enum BridgeError {
     /// Errors if the leaves are not provided in DFS walk order
     #[error("TaprootBuilderError")]
     TaprootBuilderError,
+    #[error("TaprootScriptError")]
+    TaprootScriptError,
     /// ControlBlockError is returned when the control block is not found
     #[error("ControlBlockError")]
     ControlBlockError,
@@ -75,27 +84,25 @@ pub enum BridgeError {
     /// AlreadyInitialized is returned when the operator is already initialized
     #[error("AlreadyInitialized")]
     AlreadyInitialized,
+    /// Blockhash not found
+    #[error("Blockhash not found")]
+    BlockhashNotFound,
+    /// Block not found
+    #[error("Block not found")]
+    BlockNotFound,
 }
 
 impl From<secp256k1::Error> for BridgeError {
-    fn from(_error: secp256k1::Error) -> Self {
-        BridgeError::Secpk256Error
+    fn from(err: secp256k1::Error) -> Self {
+        BridgeError::Secpk256Error(err)
     }
 }
 
 impl From<bitcoin::sighash::Error> for BridgeError {
-    fn from(_error: bitcoin::sighash::Error) -> Self {
-        BridgeError::BitcoinSighashError
+    fn from(err: bitcoin::sighash::Error) -> Self {
+        BridgeError::BitcoinSighashError(err)
     }
 }
-
-// bitcoincore_rpc::Error
-impl From<bitcoincore_rpc::Error> for BridgeError {
-    fn from(_error: bitcoincore_rpc::Error) -> Self {
-        BridgeError::RpcError
-    }
-}
-
 // Vec<u8>
 impl From<Vec<u8>> for BridgeError {
     fn from(_error: Vec<u8>) -> Self {
@@ -126,5 +133,11 @@ impl From<TaprootBuilderError> for BridgeError {
 impl From<TaprootBuilder> for BridgeError {
     fn from(_error: TaprootBuilder) -> Self {
         BridgeError::TaprootBuilderError
+    }
+}
+
+impl From<bitcoincore_rpc::Error> for BridgeError {
+    fn from(err: bitcoincore_rpc::Error) -> Self {
+        BridgeError::BitcoinRpcError(err)
     }
 }

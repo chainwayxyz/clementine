@@ -210,7 +210,7 @@ impl TransactionBuilder {
         ])
     }
 
-    /// TODO: Implement the igning part for the connecting to BitVM transactions
+    /// TODO: Implement the signing part for the connecting to BitVM transactions
     /// This function creates the connector trees using the connector tree hashes.
     /// Starting from the first source UTXO, it creates the connector UTXO trees and
     /// returns the claim proof merkle roots, root utxos and the connector trees.
@@ -371,7 +371,7 @@ impl TransactionBuilder {
     ) -> Result<(Address, TaprootSpendInfo), BridgeError> {
         let n = scripts.len();
         if n == 0 {
-            return Err(BridgeError::InvalidPeriod);
+            return Err(BridgeError::TaprootScriptError);
         }
         let taproot_builder = if n > 1 {
             let m: u8 = ((n - 1).ilog2() + 1) as u8; // m = ceil(log(n))
