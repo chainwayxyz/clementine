@@ -7,7 +7,7 @@ use crate::constants::{
 };
 use crate::db::operator_db::OperatorMockDB;
 use crate::env_writer::ENVWriter;
-use crate::errors::BridgeError;
+use crate::errors::{BridgeError, InvalidPeriodError};
 use crate::extended_rpc::ExtendedRpc;
 
 use crate::merkle::MerkleTree;
@@ -166,7 +166,7 @@ impl Operator {
                     .map_err(|e| {
                         // Log the error or convert it to BridgeError if necessary
                         tracing::error!("Error getting deposit presigns: {:?}", e);
-                        e
+                        BridgeError::FailedToGetPresigns
                     })?;
                 // tracing::debug!("deposit presigns: {:?}", deposit_presigns);
                 // tracing::info!("Verifier checked new deposit");
@@ -280,7 +280,9 @@ impl Operator {
                 return Ok(i);
             }
         }
-        Err(BridgeError::InvalidPeriod)
+        Err(BridgeError::InvalidPeriod(
+            InvalidPeriodError::WithdrawalPeriodMismatch,
+        ))
     }
 
     fn get_current_preimage_reveal_period(&self) -> Result<usize, BridgeError> {
@@ -306,7 +308,9 @@ impl Operator {
                 return Ok(i);
             }
         }
-        Err(BridgeError::InvalidPeriod)
+        Err(BridgeError::InvalidPeriod(
+            InvalidPeriodError::PreimageRevealPeriodMismatch,
+        ))
     }
 
     // this is called when a Withdrawal event emitted on rollup and its corresponding batch proof is finalized
@@ -468,7 +472,9 @@ impl Operator {
                 "self.operator_db_connector.get_inscription_txs_len(): {:?}",
                 self.operator_db_connector.get_inscription_txs_len()
             );
-            return Err(BridgeError::InvalidPeriod);
+            return Err(BridgeError::InvalidPeriod(
+                InvalidPeriodError::InscriptionPeriodMismatch,
+            ));
         }
         let number_of_funds_claim = self.get_num_withdrawals_for_period(period);
         tracing::debug!("number_of_funds_claim: {:?}", number_of_funds_claim);

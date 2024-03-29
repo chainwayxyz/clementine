@@ -84,7 +84,6 @@ fn test_flow() -> Result<(), BridgeError> {
         // connector_tree_source_sigs.push(sigs);
     }
 
-    // presigns_from_all_verifiers:!("connector roots created, verifiers agree");
     // In the end, create BitVM
 
     let mut challenge = (BlockHash::all_zeros(), U256::ZERO, 0);

@@ -371,7 +371,7 @@ impl TransactionBuilder {
     ) -> Result<(Address, TaprootSpendInfo), BridgeError> {
         let n = scripts.len();
         if n == 0 {
-            return Err(BridgeError::InvalidPeriod);
+            return Err(BridgeError::TaprootScriptError);
         }
         let taproot_builder = if n > 1 {
             let m: u8 = ((n - 1).ilog2() + 1) as u8; // m = ceil(log(n))
