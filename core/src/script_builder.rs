@@ -61,6 +61,22 @@ impl ScriptBuilder {
         builder.into_script()
     }
 
+    pub fn create_deposit_script(&self, evm_address: &EVMAddress) -> ScriptBuf {
+        let mut builder = Builder::new();
+        for vpk in self.verifiers_pks.clone() {
+            builder = builder.push_x_only_key(&vpk).push_opcode(OP_CHECKSIGVERIFY);
+        }
+
+        builder = builder
+            .push_opcode(OP_TRUE)
+            .push_opcode(OP_FALSE)
+            .push_opcode(OP_IF)
+            .push_slice(evm_address)
+            .push_opcode(OP_ENDIF);
+
+        builder.into_script()
+    }
+
     pub fn create_inscription_script_32_bytes(
         public_key: &XOnlyPublicKey,
         data: &Vec<[u8; 32]>,

@@ -47,6 +47,7 @@ impl VerifierConnector for Verifier {
             &self.transaction_builder,
             &start_utxo,
             return_address,
+            evm_address,
             BRIDGE_AMOUNT_SATS,
         )?;
 

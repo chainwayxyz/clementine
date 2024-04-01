@@ -34,25 +34,15 @@ impl User {
     pub fn deposit_tx(
         &self,
         evm_address: EVMAddress,
-    ) -> Result<(OutPoint, XOnlyPublicKey, EVMAddress, Signature), BridgeError> {
+    ) -> Result<(OutPoint, XOnlyPublicKey, EVMAddress), BridgeError> {
         let (deposit_address, _) = self
             .transaction_builder
-            .generate_deposit_address(&self.signer.xonly_public_key)?;
+            .generate_deposit_address(&self.signer.xonly_public_key, &evm_address)?;
 
         let deposit_utxo = self
             .rpc
             .send_to_address(&deposit_address, BRIDGE_AMOUNT_SATS)?;
 
-        let mut move_tx = self.transaction_builder.create_move_tx(
-            deposit_utxo,
-            &evm_address,
-            &self.signer.xonly_public_key,
-        )?;
-
-        let sig = self
-            .signer
-            .sign_taproot_script_spend_tx_new(&mut move_tx, 0)?;
-
-        Ok((deposit_utxo, self.signer.xonly_public_key, evm_address, sig))
+        Ok((deposit_utxo, self.signer.xonly_public_key, evm_address))
     }
 }
