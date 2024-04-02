@@ -1,5 +1,8 @@
 //! This module defines errors returned by the library.
-use bitcoin::taproot::{TaprootBuilder, TaprootBuilderError};
+use bitcoin::{
+    merkle_tree::MerkleBlockError,
+    taproot::{TaprootBuilder, TaprootBuilderError},
+};
 use core::fmt::Debug;
 use std::array::TryFromSliceError;
 use thiserror::Error;
@@ -90,6 +93,12 @@ pub enum BridgeError {
     /// Block not found
     #[error("Block not found")]
     BlockNotFound,
+    /// Merkle Block Error
+    #[error("MerkleBlockError: {0}")]
+    MerkleBlockError(MerkleBlockError),
+    /// Merkle Proof Error
+    #[error("MerkleProofError")]
+    MerkleProofError,
 }
 
 impl From<secp256k1::Error> for BridgeError {
@@ -139,5 +148,11 @@ impl From<TaprootBuilder> for BridgeError {
 impl From<bitcoincore_rpc::Error> for BridgeError {
     fn from(err: bitcoincore_rpc::Error) -> Self {
         BridgeError::BitcoinRpcError(err)
+    }
+}
+
+impl From<MerkleBlockError> for BridgeError {
+    fn from(err: MerkleBlockError) -> Self {
+        BridgeError::MerkleBlockError(err)
     }
 }
