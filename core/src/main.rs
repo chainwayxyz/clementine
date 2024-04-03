@@ -1,3 +1,4 @@
+use bitcoin::constants::PUBKEY_ADDRESS_PREFIX_MAIN;
 use bitcoin::hashes::Hash;
 use bitcoin::BlockHash;
 use clementine_circuits::constants::{MAX_BLOCK_HANDLE_OPS, NUM_ROUNDS};
@@ -10,11 +11,12 @@ use clementine_core::EVMAddress;
 use clementine_core::{extended_rpc::ExtendedRpc, operator::Operator, user::User};
 use crypto_bigint::rand_core::OsRng;
 use crypto_bigint::U256;
+use musig2::KeyAggContext;
 use operator_circuit::GUEST_ELF;
 use risc0_zkvm::default_prover;
 use secp256k1::rand::rngs::StdRng;
 use secp256k1::rand::SeedableRng;
-use secp256k1::XOnlyPublicKey;
+use secp256k1::{PublicKey, XOnlyPublicKey};
 use std::env;
 use std::str::FromStr;
 use std::sync::Mutex;
@@ -34,17 +36,33 @@ fn test_flow() -> Result<(), BridgeError> {
     let mut seeded_rng = StdRng::from_seed(seed);
     let rng = &mut OsRng;
 
-    let (all_sks, all_xonly_pks): (Vec<_>, Vec<_>) = (0..NUM_VERIFIERS + 1)
-        .map(|_| {
-            let (sk, pk) = secp.generate_keypair(rng);
-            (sk, XOnlyPublicKey::from(pk))
-        })
-        .unzip();
+    let mut all_sks = Vec::new();
+    let mut all_xonly_pks = Vec::new();
+    let mut all_pks = Vec::new();
+
+    for _ in 0..NUM_VERIFIERS + 1 {
+        let (sk, pk) = secp.generate_keypair(rng);
+        let xonly_pk = XOnlyPublicKey::from(pk);
+
+        all_sks.push(sk);
+        all_xonly_pks.push(xonly_pk);
+        all_pks.push(pk);
+    }
+
+    // Create a key aggregation context
+    let key_agg_ctx = KeyAggContext::new(all_pks).unwrap();
+    let aggregated_pubkey: PublicKey = key_agg_ctx.aggregated_pubkey();
+    tracing::debug!("Aggregated pubkey is {:?}", aggregated_pubkey);
 
     let mut verifiers: Vec<Box<dyn VerifierConnector>> = Vec::new();
     for i in 0..NUM_VERIFIERS {
         // let rpc = ExtendedRpc::new();
-        let verifier = Verifier::new(rpc.clone(), all_xonly_pks.clone(), all_sks[i])?;
+        let verifier = Verifier::new(
+            rpc.clone(),
+            all_xonly_pks.clone(),
+            all_sks[i],
+            aggregated_pubkey,
+        )?;
         // Convert the Verifier instance into a boxed trait object
         verifiers.push(Box::new(verifier) as Box<dyn VerifierConnector>);
     }
@@ -54,12 +72,13 @@ fn test_flow() -> Result<(), BridgeError> {
         all_xonly_pks.clone(),
         all_sks[NUM_VERIFIERS],
         verifiers,
+        aggregated_pubkey,
     )?;
 
     let users: Vec<_> = (0..NUM_USERS)
         .map(|_| {
             let (sk, _) = secp.generate_keypair(rng);
-            User::new(rpc.clone(), all_xonly_pks.clone(), sk)
+            User::new(rpc.clone(), all_xonly_pks.clone(), sk, aggregated_pubkey)
         })
         .collect();
 

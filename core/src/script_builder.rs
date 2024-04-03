@@ -3,18 +3,22 @@ use bitcoin::{
     script::Builder,
     ScriptBuf, TxOut,
 };
-use secp256k1::XOnlyPublicKey;
+use secp256k1::{PublicKey, XOnlyPublicKey};
 
 use crate::EVMAddress;
 
 #[derive(Debug, Clone)]
 pub struct ScriptBuilder {
     pub verifiers_pks: Vec<XOnlyPublicKey>,
+    pub aggregated_pubkey: PublicKey,
 }
 
 impl ScriptBuilder {
-    pub fn new(verifiers_pks: Vec<XOnlyPublicKey>) -> Self {
-        Self { verifiers_pks }
+    pub fn new(verifiers_pks: Vec<XOnlyPublicKey>, aggregated_pubkey: PublicKey) -> Self {
+        Self {
+            verifiers_pks,
+            aggregated_pubkey,
+        }
     }
 
     pub fn anyone_can_spend_txout() -> TxOut {
@@ -46,6 +50,14 @@ impl ScriptBuilder {
             builder = builder.push_x_only_key(&vpk).push_opcode(OP_CHECKSIGVERIFY);
         }
         builder = builder.push_opcode(OP_TRUE);
+        builder.into_script()
+    }
+
+    pub fn generate_script_agg_pk(&self) -> ScriptBuf {
+        let mut builder = Builder::new();
+        builder = builder
+            .push_x_only_key(&self.aggregated_pubkey.x_only_public_key().0)
+            .push_opcode(OP_CHECKSIG);
         builder.into_script()
     }
 

@@ -16,6 +16,7 @@ serde = "1.0"
 serde_json = "1.0.108"
 byteorder = "1.5.0"
 secp256k1 = "0.28.1"
+musig2 = { version = "0.0.11" } # default-features = false, features = ["k256"] can be used to enable k256 support
 crypto-bigint = {version="=0.5.5"}
 thiserror = "1.0.57"
 tracing = "0.1.40"

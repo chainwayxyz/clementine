@@ -94,6 +94,7 @@ pub struct Operator {
     pub verifiers_pks: Vec<XOnlyPublicKey>,
     pub verifier_connector: Vec<Box<dyn VerifierConnector>>,
     operator_db_connector: OperatorMockDB,
+    pub aggregated_pk: secp256k1::PublicKey,
 }
 
 impl Operator {
@@ -102,6 +103,7 @@ impl Operator {
         all_xonly_pks: Vec<XOnlyPublicKey>,
         operator_sk: SecretKey,
         verifiers: Vec<Box<dyn VerifierConnector>>,
+        aggregated_pubkey: secp256k1::PublicKey,
     ) -> Result<Self, BridgeError> {
         let num_verifiers = all_xonly_pks.len() - 1;
         let signer = Actor::new(operator_sk); // Operator is the last one
@@ -110,7 +112,7 @@ impl Operator {
             return Err(BridgeError::InvalidOperatorKey);
         }
 
-        let transaction_builder = TransactionBuilder::new(all_xonly_pks.clone());
+        let transaction_builder = TransactionBuilder::new(all_xonly_pks.clone(), aggregated_pubkey);
         let operator_db_connector = OperatorMockDB::new();
 
         Ok(Self {
@@ -119,6 +121,7 @@ impl Operator {
             transaction_builder,
             verifier_connector: verifiers,
             verifiers_pks: all_xonly_pks.clone(),
+            aggregated_pk: aggregated_pubkey,
             operator_db_connector,
         })
     }

@@ -8,6 +8,7 @@ use bitcoin::OutPoint;
 use bitcoin::XOnlyPublicKey;
 use clementine_circuits::constants::BRIDGE_AMOUNT_SATS;
 use secp256k1::schnorr::Signature;
+use secp256k1::PublicKey;
 use secp256k1::SecretKey;
 
 #[derive(Debug)]
@@ -16,18 +17,25 @@ pub struct User {
     pub secp: Secp256k1<secp256k1::All>,
     pub signer: Actor,
     pub transaction_builder: TransactionBuilder,
+    pub aggregated_pk: PublicKey,
 }
 
 impl User {
-    pub fn new(rpc: ExtendedRpc, all_xonly_pks: Vec<XOnlyPublicKey>, sk: SecretKey) -> Self {
+    pub fn new(
+        rpc: ExtendedRpc,
+        all_xonly_pks: Vec<XOnlyPublicKey>,
+        sk: SecretKey,
+        aggregated_pubkey: secp256k1::PublicKey,
+    ) -> Self {
         let secp = Secp256k1::new();
         let signer = Actor::new(sk);
-        let transaction_builder = TransactionBuilder::new(all_xonly_pks.clone());
+        let transaction_builder = TransactionBuilder::new(all_xonly_pks.clone(), aggregated_pubkey);
         User {
             rpc,
             secp,
             signer,
             transaction_builder,
+            aggregated_pk: aggregated_pubkey,
         }
     }
 

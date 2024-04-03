@@ -14,7 +14,7 @@ use bitcoin::{
     opcodes::all::{OP_EQUAL, OP_SHA256},
     script::Builder,
     taproot::{TaprootBuilder, TaprootSpendInfo},
-    Address, Amount, OutPoint, ScriptBuf, TxIn, TxOut, Witness,
+    Address, Amount, OutPoint, PublicKey, ScriptBuf, TxIn, TxOut, Witness,
 };
 use clementine_circuits::{
     constants::{BRIDGE_AMOUNT_SATS, CLAIM_MERKLE_TREE_DEPTH, NUM_ROUNDS},
@@ -50,16 +50,21 @@ pub struct TransactionBuilder {
     pub secp: Secp256k1<secp256k1::All>,
     pub verifiers_pks: Vec<XOnlyPublicKey>,
     pub script_builder: ScriptBuilder,
+    pub aggregated_pubkey: secp256k1::PublicKey,
 }
 
 impl TransactionBuilder {
-    pub fn new(verifiers_pks: Vec<XOnlyPublicKey>) -> Self {
+    pub fn new(
+        verifiers_pks: Vec<XOnlyPublicKey>,
+        aggregated_pubkey: secp256k1::PublicKey,
+    ) -> Self {
         let secp = Secp256k1::new();
-        let script_builder = ScriptBuilder::new(verifiers_pks.clone());
+        let script_builder = ScriptBuilder::new(verifiers_pks.clone(), aggregated_pubkey);
         Self {
             secp,
             verifiers_pks,
             script_builder,
+            aggregated_pubkey,
         }
     }
 

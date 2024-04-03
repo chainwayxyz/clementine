@@ -9,8 +9,8 @@ use bitcoin::Address;
 use bitcoin::{secp256k1, secp256k1::Secp256k1, OutPoint};
 
 use clementine_circuits::constants::{BRIDGE_AMOUNT_SATS, CLAIM_MERKLE_TREE_DEPTH, NUM_ROUNDS};
-use secp256k1::SecretKey;
 use secp256k1::XOnlyPublicKey;
+use secp256k1::{PublicKey, SecretKey};
 
 use crate::extended_rpc::ExtendedRpc;
 use crate::transaction_builder::TransactionBuilder;
@@ -25,6 +25,7 @@ pub struct Verifier {
     pub transaction_builder: TransactionBuilder,
     pub verifiers: Vec<XOnlyPublicKey>,
     pub operator_pk: XOnlyPublicKey,
+    pub aggregated_pk: PublicKey,
     verifier_db_connector: VerifierMockDB,
 }
 
@@ -151,6 +152,7 @@ impl Verifier {
         rpc: ExtendedRpc,
         all_xonly_pks: Vec<XOnlyPublicKey>,
         sk: SecretKey,
+        aggregated_pubkey: PublicKey,
     ) -> Result<Self, BridgeError> {
         let signer = Actor::new(sk);
         let secp: Secp256k1<secp256k1::All> = Secp256k1::new();
@@ -164,7 +166,7 @@ impl Verifier {
 
         let verifier_db_connector = VerifierMockDB::new();
 
-        let transaction_builder = TransactionBuilder::new(all_xonly_pks.clone());
+        let transaction_builder = TransactionBuilder::new(all_xonly_pks.clone(), aggregated_pubkey);
         let operator_pk = all_xonly_pks[all_xonly_pks.len() - 1];
         Ok(Verifier {
             rpc,
@@ -173,6 +175,7 @@ impl Verifier {
             transaction_builder,
             verifiers: all_xonly_pks,
             operator_pk,
+            aggregated_pk: aggregated_pubkey,
             verifier_db_connector,
         })
     }
