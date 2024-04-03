@@ -3,8 +3,11 @@ use crate::errors::BridgeError;
 use crate::extended_rpc::ExtendedRpc;
 use crate::transaction_builder::TransactionBuilder;
 use crate::EVMAddress;
+use bitcoin::merkle_tree;
 use bitcoin::secp256k1::Secp256k1;
 use bitcoin::OutPoint;
+use bitcoin::Transaction;
+use bitcoin::Txid;
 use bitcoin::XOnlyPublicKey;
 use clementine_circuits::constants::BRIDGE_AMOUNT_SATS;
 use secp256k1::schnorr::Signature;
@@ -42,25 +45,22 @@ impl User {
     pub fn deposit_tx(
         &self,
         evm_address: EVMAddress,
-    ) -> Result<(OutPoint, XOnlyPublicKey, EVMAddress, Signature), BridgeError> {
+    ) -> Result<(OutPoint, XOnlyPublicKey, EVMAddress), BridgeError> {
         let (deposit_address, _) = self
             .transaction_builder
-            .generate_deposit_address(&self.signer.xonly_public_key)?;
+            .generate_deposit_address(&self.signer.xonly_public_key, &evm_address)?;
 
         let deposit_utxo = self
             .rpc
             .send_to_address(&deposit_address, BRIDGE_AMOUNT_SATS)?;
 
-        let mut move_tx = self.transaction_builder.create_move_tx(
-            deposit_utxo,
-            &evm_address,
-            &self.signer.xonly_public_key,
-        )?;
+        Ok((deposit_utxo, self.signer.xonly_public_key, evm_address))
+    }
 
-        let sig = self
-            .signer
-            .sign_taproot_script_spend_tx_new(&mut move_tx, 0)?;
-
-        Ok((deposit_utxo, self.signer.xonly_public_key, evm_address, sig))
+    pub fn generate_deposit_proof(&self, move_txid: Transaction) -> Result<(), BridgeError> {
+        // let out = self.rpc.get_spent_tx_out(&deposit_utxo)?;
+        // self.rpc.get_spent_tx_out(outpoint)
+        // merkle_tree::PartialMerkleTree::from_txids(&[move_txid.wtxid()], &[move_txid.txid()]);
+        Ok(())
     }
 }

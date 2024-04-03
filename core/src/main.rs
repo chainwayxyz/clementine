@@ -113,15 +113,10 @@ fn test_flow() -> Result<(), BridgeError> {
         for i in 0..NUM_USERS {
             let user = &users[i];
             let evm_address: EVMAddress = [0; 20];
-            let (deposit_utxo, deposit_return_address, user_evm_address, user_sig) =
+            let (deposit_utxo, deposit_return_address, user_evm_address) =
                 user.deposit_tx(evm_address).unwrap();
             rpc.mine_blocks(6)?;
-            operator.new_deposit(
-                deposit_utxo,
-                &deposit_return_address,
-                &user_evm_address,
-                user_sig,
-            )?;
+            operator.new_deposit(deposit_utxo, &deposit_return_address, &user_evm_address)?;
             // rpc.mine_blocks(1)?;
         }
 
