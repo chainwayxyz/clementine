@@ -67,13 +67,12 @@ impl TransactionBuilder {
     pub fn generate_deposit_address(
         &self,
         user_pk: &XOnlyPublicKey,
+        user_evm_address: &EVMAddress,
     ) -> Result<CreateAddressOutputs, BridgeError> {
-        let script_n_of_n_with_user_pk = self
-            .script_builder
-            .generate_script_n_of_n_with_user_pk(user_pk);
+        let deposit_script = self.script_builder.create_deposit_script(user_evm_address);
         let script_timelock = ScriptBuilder::generate_timelock_script(user_pk, USER_TAKES_AFTER);
         let taproot = TaprootBuilder::new()
-            .add_leaf(1, script_n_of_n_with_user_pk.clone())?
+            .add_leaf(1, deposit_script.clone())?
             .add_leaf(1, script_timelock.clone())?;
         let tree_info = taproot.finalize(&self.secp, *INTERNAL_KEY)?;
         let address = Address::p2tr(
@@ -115,7 +114,7 @@ impl TransactionBuilder {
 
         let (bridge_address, _) = self.generate_bridge_address()?;
         let (deposit_address, deposit_taproot_spend_info) =
-            self.generate_deposit_address(return_address)?;
+            self.generate_deposit_address(return_address, evm_address)?;
 
         let tx_ins = TransactionBuilder::create_tx_ins(vec![deposit_utxo]);
         let bridge_txout = TxOut {
@@ -137,13 +136,11 @@ impl TransactionBuilder {
             script_pubkey: deposit_address.script_pubkey(),
             value: Amount::from_sat(BRIDGE_AMOUNT_SATS),
         }];
-        let script_n_of_n_with_user_pk = vec![self
-            .script_builder
-            .generate_script_n_of_n_with_user_pk(return_address)];
+        let deposit_script = vec![self.script_builder.create_deposit_script(evm_address)];
         Ok(CreateTxOutputs {
             tx: move_tx,
             prevouts,
-            scripts: script_n_of_n_with_user_pk,
+            scripts: deposit_script,
             taproot_spend_infos: vec![deposit_taproot_spend_info],
         })
     }

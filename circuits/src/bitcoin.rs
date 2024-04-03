@@ -330,15 +330,8 @@ pub fn read_and_verify_bitcoin_merkle_path<E: Environment>(txid: [u8; 32]) -> [u
     let mut hash = txid;
     let mut index = E::read_u32();
     let levels = E::read_u32();
-    // bits of path indicator determines if the next tree node should be read from env or be the copy of last node
-    let mut path_indicator = E::read_u32();
     for _ in 0..levels {
-        let node = if path_indicator & 1 == 1 {
-            hash
-        } else {
-            E::read_32bytes()
-        };
-        path_indicator >>= 1;
+        let node = E::read_32bytes();
         hash = if index & 1 == 0 {
             double_sha256_hash!(&hash, &node)
         } else {

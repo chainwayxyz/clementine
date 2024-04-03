@@ -22,7 +22,7 @@ use crate::constants::CONFIRMATION_BLOCK_COUNT;
 use crate::errors::BridgeError;
 use crate::extended_rpc::ExtendedRpc;
 use crate::transaction_builder::{CreateTxOutputs, TransactionBuilder};
-use crate::HashTree;
+use crate::{EVMAddress, HashTree};
 
 pub fn parse_hex_to_btc_tx(
     tx_hex: &str,
@@ -47,13 +47,14 @@ pub fn check_deposit_utxo(
     tx_builder: &TransactionBuilder,
     outpoint: &OutPoint,
     return_address: &XOnlyPublicKey,
+    evm_address: &EVMAddress,
     amount_sats: u64,
 ) -> Result<(), BridgeError> {
     if rpc.confirmation_blocks(&outpoint.txid)? < CONFIRMATION_BLOCK_COUNT {
         return Err(BridgeError::DepositNotFinalized);
     }
 
-    let (deposit_address, _) = tx_builder.generate_deposit_address(return_address)?;
+    let (deposit_address, _) = tx_builder.generate_deposit_address(return_address, evm_address)?;
 
     if !rpc.check_utxo_address_and_amount(
         outpoint,

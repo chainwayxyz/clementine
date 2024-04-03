@@ -26,6 +26,7 @@ use bitcoin::hashes::Hash;
 
 use bitcoin::{secp256k1, secp256k1::schnorr, Address};
 use bitcoin::{Amount, BlockHash, OutPoint};
+use bitcoincore_rpc::RawTx;
 use clementine_circuits::constants::{
     BLOCKHASH_MERKLE_TREE_DEPTH, BRIDGE_AMOUNT_SATS, CLAIM_MERKLE_TREE_DEPTH, MAX_BLOCK_HANDLE_OPS,
     NUM_ROUNDS, WITHDRAWAL_MERKLE_TREE_DEPTH,
@@ -134,13 +135,13 @@ impl Operator {
         start_utxo: OutPoint,
         return_address: &XOnlyPublicKey,
         evm_address: &EVMAddress,
-        user_sig: schnorr::Signature,
     ) -> Result<OutPoint, BridgeError> {
         check_deposit_utxo(
             &self.rpc,
             &self.transaction_builder,
             &start_utxo,
             return_address,
+            evm_address,
             BRIDGE_AMOUNT_SATS,
         )?;
 
@@ -193,7 +194,6 @@ impl Operator {
             .signer
             .sign_taproot_script_spend_tx_new(&mut move_tx, 0)?;
         move_signatures.push(sig);
-        move_signatures.push(user_sig);
         move_signatures.reverse();
 
         let mut witness_elements: Vec<&[u8]> = Vec::new();
