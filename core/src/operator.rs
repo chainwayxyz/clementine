@@ -3,7 +3,7 @@ use std::vec;
 use crate::actor::Actor;
 use crate::constants::{
     VerifierChallenge, CONNECTOR_TREE_DEPTH, DUST_VALUE, K_DEEP,
-    MAX_BITVM_CHALLENGE_RESPONSE_BLOCKS, MIN_RELAY_FEE, PERIOD_BLOCK_COUNT,
+    MAX_BITVM_CHALLENGE_RESPONSE_BLOCKS, MIN_RELAY_FEE, NUM_VERIFIERS, PERIOD_BLOCK_COUNT,
 };
 use crate::db::operator_db::OperatorMockDB;
 use crate::env_writer::ENVWriter;
@@ -24,8 +24,8 @@ use bitcoin::address::NetworkChecked;
 use bitcoin::block::Header;
 use bitcoin::hashes::Hash;
 
+use bitcoin::{key, Amount, BlockHash, OutPoint};
 use bitcoin::{secp256k1, secp256k1::schnorr, Address};
-use bitcoin::{Amount, BlockHash, OutPoint};
 use bitcoincore_rpc::RawTx;
 use clementine_circuits::constants::{
     BLOCKHASH_MERKLE_TREE_DEPTH, BRIDGE_AMOUNT_SATS, CLAIM_MERKLE_TREE_DEPTH, MAX_BLOCK_HANDLE_OPS,
@@ -33,7 +33,9 @@ use clementine_circuits::constants::{
 };
 use clementine_circuits::env::Environment;
 use clementine_circuits::{sha256_hash, HashType, PreimageType};
+use crypto_bigint::rand_core::OsRng;
 use crypto_bigint::{Encoding, U256};
+use musig2::{AggNonce, FirstRound, KeyAggContext, SecNonceSpices};
 use secp256k1::rand::{Rng, RngCore};
 use secp256k1::{Message, SecretKey, XOnlyPublicKey};
 use sha2::{Digest, Sha256};
@@ -96,6 +98,7 @@ pub struct Operator {
     pub verifier_connector: Vec<Box<dyn VerifierConnector>>,
     operator_db_connector: OperatorMockDB,
     pub aggregated_pk: secp256k1::PublicKey,
+    pub key_agg_ctx: KeyAggContext,
 }
 
 impl Operator {
@@ -105,6 +108,7 @@ impl Operator {
         operator_sk: SecretKey,
         verifiers: Vec<Box<dyn VerifierConnector>>,
         aggregated_pubkey: secp256k1::PublicKey,
+        key_agg_ctx: KeyAggContext,
     ) -> Result<Self, BridgeError> {
         let num_verifiers = all_xonly_pks.len() - 1;
         let signer = Actor::new(operator_sk); // Operator is the last one
@@ -124,6 +128,7 @@ impl Operator {
             verifiers_pks: all_xonly_pks.clone(),
             aggregated_pk: aggregated_pubkey,
             operator_db_connector,
+            key_agg_ctx,
         })
     }
 
@@ -151,15 +156,34 @@ impl Operator {
         let deposit_index = self.operator_db_connector.get_deposit_index();
         // tracing::debug!("deposit_index: {:?}", deposit_index);
 
-        let presigns_from_all_verifiers: Result<Vec<_>, BridgeError> = self
+        // 5. Create a move transaction and return the output utxo, save the utxo as a pending deposit
+        let mut move_tx =
+            self.transaction_builder
+                .create_move_tx(start_utxo, evm_address, &return_address)?;
+
+        let rng = &mut OsRng;
+        let sec_nonce_for_move_tx: [u8; 32] = rng.gen();
+        let move_tx_sighash = Actor::convert_tx_to_sighash(&mut move_tx, 0)?;
+        let move_tx_first_round = FirstRound::new(
+            self.key_agg_ctx.clone(),
+            sec_nonce_for_move_tx,
+            NUM_VERIFIERS,
+            SecNonceSpices::new()
+                .with_seckey(self.signer.secret_key.clone())
+                .with_message(&move_tx_sighash),
+        )
+        .unwrap();
+        let our_pub_nonce = move_tx_first_round.our_public_nonce();
+
+        let pub_nonces_from_verifiers: Result<Vec<_>, BridgeError> = self
             .verifier_connector
             .iter()
             .map(|verifier| {
                 // tracing::debug!("Verifier number {:?} is checking new deposit:", i);
-                // Attempt to get the deposit presigns. If an error occurs, it will be propagated out
+                // Attempt to get the public nonces for the first round of MuSig2. If an error occurs, it will be propagated out
                 // of the map, causing the collect call to return a Result::Err, effectively stopping
                 // the iteration and returning the error from your_function_name.
-                let deposit_presigns = verifier
+                let pub_nonces = verifier
                     .new_deposit(
                         start_utxo,
                         return_address,
@@ -172,26 +196,38 @@ impl Operator {
                         tracing::error!("Error getting deposit presigns: {:?}", e);
                         BridgeError::FailedToGetPresigns
                     })?;
+
                 // tracing::debug!("deposit presigns: {:?}", deposit_presigns);
                 // tracing::info!("Verifier checked new deposit");
-                Ok(deposit_presigns)
+                Ok(pub_nonces)
             })
             .collect(); // This tries to collect into a Result<Vec<DepositPresigns>, BridgeError>
 
         // Handle the result of the collect operation
-        let presigns_from_all_verifiers = presigns_from_all_verifiers?;
-        tracing::info!("presigns_from_all_verifiers: done");
+        let pub_nonces_from_verifiers = pub_nonces_from_verifiers?;
+        tracing::info!("pub_nonces_from_verifiers: done");
 
-        // 5. Create a move transaction and return the output utxo, save the utxo as a pending deposit
-        let mut move_tx =
-            self.transaction_builder
-                .create_move_tx(start_utxo, evm_address, &return_address)?;
+        let mut sec_nonces_for_op_claims = Vec::new();
+        for i in 0..NUM_ROUNDS {
+            sec_nonces_for_op_claims.push(rng.gen());
+        }
 
-        // TODO: Simplify this move_signatures thing, maybe with a macro
-        let mut move_signatures = presigns_from_all_verifiers
-            .iter()
-            .map(|presign| presign.move_sign)
-            .collect::<Vec<_>>();
+        let move_tx_agg_nonce = AggNonce::sum(
+            pub_nonces_from_verifiers
+                .iter()
+                .map(|x| x.deposit_nonce)
+                .collect(),
+        );
+        let op_claim_agg_nonces: Vec<AggNonce> = (0..NUM_ROUNDS)
+            .map(|i| {
+                AggNonce::sum(
+                    pub_nonces_from_verifiers
+                        .iter()
+                        .map(|x| x.op_claim_nonces[i])
+                        .collect(),
+                )
+            })
+            .collect();
 
         let sig = self
             .signer

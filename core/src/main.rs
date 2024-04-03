@@ -58,6 +58,7 @@ fn test_flow() -> Result<(), BridgeError> {
     for i in 0..NUM_VERIFIERS {
         // let rpc = ExtendedRpc::new();
         let verifier = Verifier::new(
+            i,
             rpc.clone(),
             all_xonly_pks.clone(),
             all_sks[i],

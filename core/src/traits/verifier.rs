@@ -2,7 +2,11 @@ use bitcoin::{Address, OutPoint};
 use secp256k1::XOnlyPublicKey;
 
 use crate::{
-    constants::VerifierChallenge, errors::BridgeError, operator::DepositPresigns, EVMAddress,
+    constants::VerifierChallenge,
+    db::common_db::{AggNonces, PublicNonces},
+    errors::BridgeError,
+    operator::DepositPresigns,
+    EVMAddress,
 };
 
 pub trait VerifierConnector: std::fmt::Debug {
@@ -13,6 +17,16 @@ pub trait VerifierConnector: std::fmt::Debug {
         deposit_index: u32,
         evm_address: &EVMAddress,
         operator_address: &Address,
+    ) -> Result<PublicNonces, BridgeError>;
+
+    fn sign_deposit(
+        &self,
+        start_utxo: OutPoint,
+        return_address: &XOnlyPublicKey,
+        deposit_index: u32,
+        evm_address: &EVMAddress,
+        operator_address: &Address,
+        aggregated_nonces: AggNonces,
     ) -> Result<DepositPresigns, BridgeError>;
 
     fn connector_roots_created(

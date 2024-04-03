@@ -2,8 +2,54 @@ use clementine_circuits::{
     constants::{CLAIM_MERKLE_TREE_DEPTH, WITHDRAWAL_MERKLE_TREE_DEPTH},
     HashType, PreimageType,
 };
+use musig2::{AggNonce, PubNonce};
 
 use crate::{merkle::MerkleTree, ConnectorUTXOTree, HashTree, InscriptionTxs, WithdrawalPayment};
+
+#[derive(Debug, Clone)]
+pub struct SecretNonces {
+    deposit_nonce: [u8; 32],
+    op_claim_nonces: Vec<[u8; 32]>,
+}
+
+impl SecretNonces {
+    pub fn new(deposit_nonce: [u8; 32], op_claim_nonces: Vec<[u8; 32]>) -> Self {
+        Self {
+            deposit_nonce,
+            op_claim_nonces,
+        }
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct PublicNonces {
+    pub deposit_nonce: PubNonce,
+    pub op_claim_nonces: Vec<PubNonce>,
+}
+
+impl PublicNonces {
+    pub fn new(deposit_nonce: PubNonce, op_claim_nonces: Vec<PubNonce>) -> Self {
+        Self {
+            deposit_nonce,
+            op_claim_nonces,
+        }
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct AggNonces {
+    pub deposit_nonce: AggNonce,
+    pub op_claim_nonces: Vec<AggNonce>,
+}
+
+impl AggNonces {
+    pub fn new(deposit_nonce: AggNonce, op_claim_nonces: Vec<AggNonce>) -> Self {
+        Self {
+            deposit_nonce,
+            op_claim_nonces,
+        }
+    }
+}
 
 #[derive(Debug, Clone)]
 pub struct CommonMockDB {
@@ -18,6 +64,7 @@ pub struct CommonMockDB {
     connector_tree_utxos: Vec<ConnectorUTXOTree>,
     start_block_height: u64,
     period_relative_block_heights: Vec<u32>,
+    sec_nonces: Vec<SecretNonces>,
 }
 
 impl CommonMockDB {
@@ -37,6 +84,7 @@ impl CommonMockDB {
             connector_tree_utxos: Vec::new(),
             start_block_height: 0,
             period_relative_block_heights: Vec::new(),
+            sec_nonces: Vec::new(),
         }
     }
 }
@@ -129,5 +177,17 @@ impl CommonMockDB {
     }
     pub fn get_inscribed_preimages(&self, period: usize) -> Vec<PreimageType> {
         self.inscribed_connector_tree_preimages[period].clone()
+    }
+
+    pub fn get_sec_nonce(&self, deposit_idx: usize, period: usize) -> [u8; 32] {
+        self.sec_nonces[deposit_idx].op_claim_nonces[period].clone()
+    }
+
+    pub fn get_sec_nonce_deposit(&self, deposit_idx: usize) -> [u8; 32] {
+        self.sec_nonces[deposit_idx].deposit_nonce.clone()
+    }
+
+    pub fn add_sec_nonce(&mut self, sec_nonce: SecretNonces) {
+        self.sec_nonces.push(sec_nonce);
     }
 }
