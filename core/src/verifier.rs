@@ -5,6 +5,7 @@ use crate::errors::BridgeError;
 use crate::traits::verifier::VerifierConnector;
 use crate::utils::check_deposit_utxo;
 use crate::{EVMAddress, HashTree};
+use async_trait::async_trait;
 use bitcoin::Address;
 use bitcoin::{secp256k1, secp256k1::Secp256k1, OutPoint};
 
@@ -28,13 +29,13 @@ pub struct Verifier {
     verifier_db_connector: VerifierMockDB,
 }
 
-// impl VerifierConnector
+#[async_trait]
 impl VerifierConnector for Verifier {
     /// this is a endpoint that only the operator can call
     /// 1. Check if the deposit utxo is valid and finalized (6 blocks confirmation)
     /// 2. Check if the utxo is not already spent
     /// 3. Give move signature and operator claim signatures
-    fn new_deposit(
+    async fn new_deposit(
         &self,
         start_utxo: OutPoint,
         return_address: &XOnlyPublicKey,

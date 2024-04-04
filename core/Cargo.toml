@@ -21,6 +21,10 @@ thiserror = "1.0.57"
 tracing = "0.1.40"
 tracing-subscriber = {version = "0.3.18", features = ["env-filter"] }
 operator-circuit = {path = "../risc0-guests/operator"}
+tokio = { version = "1.37.0", features = ["full"] }
+jsonrpsee = "0.22.3"
+async-trait = "0.1.79"
+futures = "0.3.30"
 
 [patch.crates-io]
 sha2 = { git = "https://github.com/risc0/RustCrypto-hashes", tag = "sha2/v0.10.8-risczero.0" }

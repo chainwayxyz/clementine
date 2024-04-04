@@ -25,7 +25,7 @@ lazy_static::lazy_static! {
     static ref SHARED_STATE: Mutex<i32> = Mutex::new(0);
 }
 
-fn test_flow() -> Result<(), BridgeError> {
+async fn test_flow() -> Result<(), BridgeError> {
     let rpc = ExtendedRpc::new();
 
     let secp = bitcoin::secp256k1::Secp256k1::new();
@@ -97,7 +97,9 @@ fn test_flow() -> Result<(), BridgeError> {
             let (deposit_utxo, deposit_return_address, user_evm_address) =
                 user.deposit_tx(evm_address).unwrap();
             rpc.mine_blocks(6)?;
-            operator.new_deposit(deposit_utxo, &deposit_return_address, &user_evm_address)?;
+            operator
+                .new_deposit(deposit_utxo, &deposit_return_address, &user_evm_address)
+                .await?;
             // rpc.mine_blocks(1)?;
         }
 
@@ -161,7 +163,8 @@ pub fn initialize_logging() {
         .init();
 }
 
-fn main() {
+#[tokio::main]
+async fn main() {
     initialize_logging();
-    test_flow().unwrap();
+    test_flow().await.unwrap();
 }
