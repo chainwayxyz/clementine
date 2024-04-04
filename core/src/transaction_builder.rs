@@ -96,11 +96,6 @@ impl TransactionBuilder {
         return_address: &XOnlyPublicKey,
     ) -> Result<CreateTxOutputs, BridgeError> {
         let anyone_can_spend_txout = ScriptBuilder::anyone_can_spend_txout();
-        let evm_address_inscription_txout = ScriptBuilder::op_return_txout(evm_address);
-        // tracing::debug!(
-        //     "evm_address_inscription_txout: {:?}",
-        //     evm_address_inscription_txout
-        // );
 
         let (bridge_address, _) = self.generate_bridge_address()?;
         let (deposit_address, deposit_taproot_spend_info) =
@@ -110,18 +105,11 @@ impl TransactionBuilder {
         let bridge_txout = TxOut {
             value: Amount::from_sat(BRIDGE_AMOUNT_SATS)
                 - Amount::from_sat(MIN_RELAY_FEE)
-                - anyone_can_spend_txout.value
-                - evm_address_inscription_txout.value,
+                - anyone_can_spend_txout.value,
             script_pubkey: bridge_address.script_pubkey(),
         };
-        let move_tx = TransactionBuilder::create_btc_tx(
-            tx_ins,
-            vec![
-                bridge_txout,
-                evm_address_inscription_txout,
-                anyone_can_spend_txout,
-            ],
-        );
+        let move_tx =
+            TransactionBuilder::create_btc_tx(tx_ins, vec![bridge_txout, anyone_can_spend_txout]);
         let prevouts = vec![TxOut {
             script_pubkey: deposit_address.script_pubkey(),
             value: Amount::from_sat(BRIDGE_AMOUNT_SATS),
