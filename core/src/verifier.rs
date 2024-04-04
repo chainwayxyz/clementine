@@ -18,7 +18,7 @@ use crate::transaction_builder::TransactionBuilder;
 
 use crate::{actor::Actor, operator::DepositPresigns};
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct Verifier {
     pub rpc: ExtendedRpc,
     pub secp: Secp256k1<secp256k1::All>,

@@ -23,9 +23,14 @@ tracing = "0.1.40"
 tracing-subscriber = {version = "0.3.18", features = ["env-filter"] }
 operator-circuit = {path = "../risc0-guests/operator"}
 tokio = { version = "1.37.0", features = ["full"] }
-jsonrpsee = "0.22.3"
+jsonrpsee = {version = "0.20.1", features = ["server"]}
 async-trait = "0.1.79"
 futures = "0.3.30"
+dotenv = "0.15.0"
 
 [[bin]]
 name = "key_generator"
+
+[[bin]]
+name = "verifier_server"
+path = "src/bin/verifier_server.rs"

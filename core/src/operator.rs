@@ -37,6 +37,7 @@ use futures::stream::FuturesOrdered;
 use futures::TryStreamExt;
 use secp256k1::rand::{Rng, RngCore};
 use secp256k1::{Message, SecretKey, XOnlyPublicKey};
+use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 
 pub fn create_connector_tree_preimages_and_hashes(
@@ -77,7 +78,7 @@ pub fn create_all_rounds_connector_preimages(
     (preimages, hashes)
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct DepositPresigns {
     pub move_sign: schnorr::Signature,
     pub operator_claim_sign: Vec<schnorr::Signature>,
