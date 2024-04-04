@@ -12,7 +12,7 @@ use bitcoin::{
 
 use bitcoin::{TapLeafHash, TapNodeHash, TxOut};
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct Actor {
     pub secp: Secp256k1<All>,
     keypair: Keypair,
