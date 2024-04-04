@@ -33,6 +33,8 @@ use clementine_circuits::constants::{
 use clementine_circuits::env::Environment;
 use clementine_circuits::{sha256_hash, HashType, PreimageType};
 use crypto_bigint::{Encoding, U256};
+use futures::stream::FuturesOrdered;
+use futures::TryStreamExt;
 use secp256k1::rand::{Rng, RngCore};
 use secp256k1::{Message, SecretKey, XOnlyPublicKey};
 use sha2::{Digest, Sha256};
@@ -129,7 +131,7 @@ impl Operator {
     /// 2. Check if the utxo is not already spent
     /// 3. Get signatures from all verifiers 1 move signature, ~150 operator takes signatures
     /// 4. Create a move transaction and return the output utxo
-    pub fn new_deposit(
+    pub async fn new_deposit(
         &mut self,
         start_utxo: OutPoint,
         return_address: &XOnlyPublicKey,
@@ -150,7 +152,7 @@ impl Operator {
         let presigns_from_all_verifiers: Result<Vec<_>, BridgeError> = self
             .verifier_connector
             .iter()
-            .map(|verifier| {
+            .map(|verifier| async {
                 // tracing::debug!("Verifier number {:?} is checking new deposit:", i);
                 // Attempt to get the deposit presigns. If an error occurs, it will be propagated out
                 // of the map, causing the collect call to return a Result::Err, effectively stopping
@@ -163,6 +165,7 @@ impl Operator {
                         evm_address,
                         &self.signer.address,
                     )
+                    .await
                     .map_err(|e| {
                         // Log the error or convert it to BridgeError if necessary
                         tracing::error!("Error getting deposit presigns: {:?}", e);
@@ -172,8 +175,10 @@ impl Operator {
                 // tracing::info!("Verifier checked new deposit");
                 Ok(deposit_presigns)
             })
-            .collect(); // This tries to collect into a Result<Vec<DepositPresigns>, BridgeError>
-
+            // Because we're using async blocks, we need to use `then` and `try_collect` to properly await and collect results
+            .collect::<FuturesOrdered<_>>()
+            .try_collect()
+            .await;
         // Handle the result of the collect operation
         let presigns_from_all_verifiers = presigns_from_all_verifiers?;
         tracing::info!("presigns_from_all_verifiers: done");
