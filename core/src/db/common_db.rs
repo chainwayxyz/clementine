@@ -19,6 +19,12 @@ impl SecretNonces {
             op_claim_nonces,
         }
     }
+    pub fn get_deposit_nonce(&self) -> [u8; 32] {
+        self.deposit_nonce
+    }
+    pub fn get_op_claim_nonce(&self, idx: usize) -> [u8; 32] {
+        self.op_claim_nonces[idx]
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -179,15 +185,11 @@ impl CommonMockDB {
         self.inscribed_connector_tree_preimages[period].clone()
     }
 
-    pub fn get_sec_nonce(&self, deposit_idx: usize, period: usize) -> [u8; 32] {
-        self.sec_nonces[deposit_idx].op_claim_nonces[period].clone()
+    pub fn get_sec_nonces(&self, deposit_idx: usize) -> SecretNonces {
+        self.sec_nonces[deposit_idx].clone()
     }
 
-    pub fn get_sec_nonce_deposit(&self, deposit_idx: usize) -> [u8; 32] {
-        self.sec_nonces[deposit_idx].deposit_nonce.clone()
-    }
-
-    pub fn add_sec_nonce(&mut self, sec_nonce: SecretNonces) {
+    pub fn add_sec_nonces(&mut self, sec_nonce: SecretNonces) {
         self.sec_nonces.push(sec_nonce);
     }
 }

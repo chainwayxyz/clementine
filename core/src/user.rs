@@ -3,14 +3,11 @@ use crate::errors::BridgeError;
 use crate::extended_rpc::ExtendedRpc;
 use crate::transaction_builder::TransactionBuilder;
 use crate::EVMAddress;
-use bitcoin::merkle_tree;
 use bitcoin::secp256k1::Secp256k1;
 use bitcoin::OutPoint;
 use bitcoin::Transaction;
-use bitcoin::Txid;
 use bitcoin::XOnlyPublicKey;
 use clementine_circuits::constants::BRIDGE_AMOUNT_SATS;
-use secp256k1::schnorr::Signature;
 use secp256k1::PublicKey;
 use secp256k1::SecretKey;
 
@@ -57,7 +54,7 @@ impl User {
         Ok((deposit_utxo, self.signer.xonly_public_key, evm_address))
     }
 
-    pub fn generate_deposit_proof(&self, move_txid: Transaction) -> Result<(), BridgeError> {
+    pub fn generate_deposit_proof(&self, _move_txid: Transaction) -> Result<(), BridgeError> {
         // let out = self.rpc.get_spent_tx_out(&deposit_utxo)?;
         // self.rpc.get_spent_tx_out(outpoint)
         // merkle_tree::PartialMerkleTree::from_txids(&[move_txid.wtxid()], &[move_txid.txid()]);

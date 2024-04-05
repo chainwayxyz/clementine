@@ -50,8 +50,9 @@ fn test_flow() -> Result<(), BridgeError> {
     }
 
     // Create a key aggregation context
-    let key_agg_ctx = KeyAggContext::new(all_pks).unwrap();
+    let key_agg_ctx = KeyAggContext::new(all_pks.clone()).unwrap();
     let aggregated_pubkey: PublicKey = key_agg_ctx.aggregated_pubkey();
+    tracing::debug!("Pks used to generate aggregated pubkey: {:?}", all_pks);
     tracing::debug!("Aggregated pubkey is {:?}", aggregated_pubkey);
 
     let mut verifiers: Vec<Box<dyn VerifierConnector>> = Vec::new();
@@ -63,6 +64,7 @@ fn test_flow() -> Result<(), BridgeError> {
             all_xonly_pks.clone(),
             all_sks[i],
             aggregated_pubkey,
+            key_agg_ctx.clone(),
         )?;
         // Convert the Verifier instance into a boxed trait object
         verifiers.push(Box::new(verifier) as Box<dyn VerifierConnector>);
@@ -74,6 +76,7 @@ fn test_flow() -> Result<(), BridgeError> {
         all_sks[NUM_VERIFIERS],
         verifiers,
         aggregated_pubkey,
+        key_agg_ctx,
     )?;
 
     let users: Vec<_> = (0..NUM_USERS)

@@ -288,6 +288,6 @@ mod tests {
 
         musig2::verify_single(aggregated_pubkey, &final_signature, message)
             .expect("Verification failed!");
-        tracing::debug!("Verification passed!");
+        tracing::info!("Verification passed!");
     }
 }

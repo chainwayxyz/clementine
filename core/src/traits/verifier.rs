@@ -5,13 +5,13 @@ use crate::{
     constants::VerifierChallenge,
     db::common_db::{AggNonces, PublicNonces},
     errors::BridgeError,
-    operator::DepositPresigns,
+    operator::DepositPartialPresigns,
     EVMAddress,
 };
 
 pub trait VerifierConnector: std::fmt::Debug {
     fn new_deposit(
-        &self,
+        &mut self,
         start_utxo: OutPoint,
         return_address: &XOnlyPublicKey,
         deposit_index: u32,
@@ -26,8 +26,8 @@ pub trait VerifierConnector: std::fmt::Debug {
         deposit_index: u32,
         evm_address: &EVMAddress,
         operator_address: &Address,
-        aggregated_nonces: AggNonces,
-    ) -> Result<DepositPresigns, BridgeError>;
+        aggregated_nonces: &AggNonces,
+    ) -> Result<DepositPartialPresigns, BridgeError>;
 
     fn connector_roots_created(
         &mut self,

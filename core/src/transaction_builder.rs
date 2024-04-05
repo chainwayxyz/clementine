@@ -36,6 +36,7 @@ lazy_static! {
 }
 
 // pub type CreateTxOutputs = (bitcoin::Transaction, Vec<TxOut>, Vec<ScriptBuf>);
+#[derive(Debug, Clone)]
 pub struct CreateTxOutputs {
     pub tx: bitcoin::Transaction,
     pub prevouts: Vec<TxOut>,
@@ -156,7 +157,9 @@ impl TransactionBuilder {
             script_pubkey: deposit_address.script_pubkey(),
             value: Amount::from_sat(BRIDGE_AMOUNT_SATS),
         }];
-        let deposit_script = vec![self.script_builder.create_deposit_script(evm_address)];
+        let deposit_script = vec![self
+            .script_builder
+            .create_musig2_deposit_script(evm_address)];
         Ok(CreateTxOutputs {
             tx: move_tx,
             prevouts,

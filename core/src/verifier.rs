@@ -3,6 +3,7 @@ use crate::db::common_db::{AggNonces, PublicNonces, SecretNonces};
 use crate::db::verifier_db::VerifierMockDB;
 use crate::errors::BridgeError;
 
+use crate::operator::DepositPartialPresigns;
 use crate::traits::verifier::VerifierConnector;
 use crate::utils::check_deposit_utxo;
 use crate::{EVMAddress, HashTree};
@@ -11,7 +12,7 @@ use bitcoin::{secp256k1, secp256k1::Secp256k1, OutPoint};
 
 use clementine_circuits::constants::{BRIDGE_AMOUNT_SATS, CLAIM_MERKLE_TREE_DEPTH, NUM_ROUNDS};
 use crypto_bigint::rand_core::OsRng;
-use musig2::{FirstRound, KeyAggContext, SecNonceSpices};
+use musig2::{FirstRound, KeyAggContext, PartialSignature, SecNonceSpices};
 use secp256k1::rand::Rng;
 use secp256k1::XOnlyPublicKey;
 use secp256k1::{PublicKey, SecretKey};
@@ -19,7 +20,7 @@ use secp256k1::{PublicKey, SecretKey};
 use crate::extended_rpc::ExtendedRpc;
 use crate::transaction_builder::TransactionBuilder;
 
-use crate::{actor::Actor, operator::DepositPresigns};
+use crate::actor::Actor;
 
 #[derive(Debug)]
 pub struct Verifier {
@@ -42,7 +43,7 @@ impl VerifierConnector for Verifier {
     /// 2. Check if the utxo is not already spent
     /// 3. Give pub_nonce for the first round of MuSig2
     fn new_deposit(
-        &self,
+        &mut self,
         start_utxo: OutPoint,
         return_address: &XOnlyPublicKey,
         deposit_index: u32,
@@ -60,10 +61,14 @@ impl VerifierConnector for Verifier {
 
         let rng = &mut OsRng;
 
+        tracing::debug!("Verifier key_agg_ctx: {:?}", self.key_agg_ctx);
+
         let mut move_tx =
             self.transaction_builder
                 .create_move_tx(start_utxo, evm_address, &return_address)?;
         let move_txid = move_tx.tx.txid();
+
+        tracing::debug!("Verifier move_tx: {:?}", move_tx);
 
         let move_tx_sighash = Actor::convert_tx_to_sighash(&mut move_tx, 0)?;
 
@@ -105,20 +110,21 @@ impl VerifierConnector for Verifier {
                 &connector_hash,
             )?;
             sec_nonces_for_op_claims.push(rng.gen());
+            let op_claim_sighash = Actor::convert_tx_to_sighash(&mut operator_claim_tx, 0)?;
             let first_round_for_op_claim = FirstRound::new(
                 self.key_agg_ctx.clone(),
                 sec_nonces_for_op_claims[i],
                 self.index,
                 SecNonceSpices::new()
                     .with_seckey(self.signer.secret_key.clone())
-                    .with_message(&move_tx_sighash),
+                    .with_message(&op_claim_sighash),
             )
             .unwrap();
             pub_nonces_for_op_claims.push(first_round_for_op_claim.our_public_nonce());
         }
 
         let sec_nonces = SecretNonces::new(sec_nonce_for_move_tx, sec_nonces_for_op_claims);
-        self.verifier_db_connector.add_sec_nonce(sec_nonces);
+        self.verifier_db_connector.add_sec_nonces(sec_nonces);
 
         let pub_nonces = PublicNonces::new(our_pub_nonce, pub_nonces_for_op_claims);
 
@@ -127,6 +133,7 @@ impl VerifierConnector for Verifier {
 
     /// this is a endpoint that only the operator can call
     /// Give the partial signature for MuSig2
+    /// Here, recreate the FirstRound of MuSig2 to generate a partial signature
     fn sign_deposit(
         &self,
         start_utxo: OutPoint,
@@ -134,8 +141,8 @@ impl VerifierConnector for Verifier {
         deposit_index: u32,
         evm_address: &EVMAddress,
         operator_address: &Address,
-        aggregated_nonces: AggNonces,
-    ) -> Result<DepositPresigns, BridgeError> {
+        aggregated_nonces: &AggNonces,
+    ) -> Result<DepositPartialPresigns, BridgeError> {
         let mut move_tx =
             self.transaction_builder
                 .create_move_tx(start_utxo, evm_address, &return_address)?;
@@ -146,12 +153,32 @@ impl VerifierConnector for Verifier {
             vout: 0,
         };
 
-        let move_sig = self
-            .signer
-            .sign_taproot_script_spend_tx_new(&mut move_tx, 0)?;
+        // Recreate the FirstRound of MuSig2 for move_tx to generate a partial signature
+        let move_tx_sighash = Actor::convert_tx_to_sighash(&mut move_tx, 0)?;
+        let sec_nonces = self
+            .verifier_db_connector
+            .get_sec_nonces(deposit_index as usize);
+        let move_tx_first_round = FirstRound::new(
+            self.key_agg_ctx.clone(),
+            sec_nonces.get_deposit_nonce(),
+            self.index,
+            SecNonceSpices::new()
+                .with_seckey(self.signer.secret_key.clone())
+                .with_message(&move_tx_sighash),
+        )
+        .unwrap();
 
-        let mut op_claim_sigs = Vec::new();
+        let move_sig: PartialSignature = move_tx_first_round
+            .sign_for_aggregator(
+                self.signer.secret_key,
+                move_tx_sighash,
+                &aggregated_nonces.deposit_nonce,
+            )
+            .unwrap();
 
+        let mut op_claim_sigs: Vec<PartialSignature> = Vec::new();
+
+        // Recreate the FirstRound of MuSig2 for operator_claim_txs to generate all partial signatures
         for i in 0..NUM_ROUNDS {
             let connector_utxo = self.verifier_db_connector.get_connector_tree_utxo(i)
                 [CONNECTOR_TREE_DEPTH][deposit_index as usize];
@@ -169,13 +196,29 @@ impl VerifierConnector for Verifier {
                 &connector_hash,
             )?;
 
-            let op_claim_sig = self
-                .signer
-                .sign_taproot_script_spend_tx_new(&mut operator_claim_tx, 0)?;
+            let op_claim_sighash = Actor::convert_tx_to_sighash(&mut operator_claim_tx, 0)?;
+
+            let op_claim_first_round = FirstRound::new(
+                self.key_agg_ctx.clone(),
+                sec_nonces.get_op_claim_nonce(i),
+                self.index,
+                SecNonceSpices::new()
+                    .with_seckey(self.signer.secret_key.clone())
+                    .with_message(&op_claim_sighash),
+            )
+            .unwrap();
+
+            let op_claim_sig: PartialSignature = op_claim_first_round
+                .sign_for_aggregator(
+                    self.signer.secret_key,
+                    op_claim_sighash,
+                    &aggregated_nonces.op_claim_nonces[i],
+                )
+                .unwrap();
             op_claim_sigs.push(op_claim_sig);
         }
 
-        Ok(DepositPresigns {
+        Ok(DepositPartialPresigns {
             move_sign: move_sig,
             operator_claim_sign: op_claim_sigs,
         })

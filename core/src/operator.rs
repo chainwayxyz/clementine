@@ -5,6 +5,7 @@ use crate::constants::{
     VerifierChallenge, CONNECTOR_TREE_DEPTH, DUST_VALUE, K_DEEP,
     MAX_BITVM_CHALLENGE_RESPONSE_BLOCKS, MIN_RELAY_FEE, NUM_VERIFIERS, PERIOD_BLOCK_COUNT,
 };
+use crate::db::common_db::{AggNonces, PublicNonces};
 use crate::db::operator_db::OperatorMockDB;
 use crate::env_writer::ENVWriter;
 use crate::errors::{BridgeError, InvalidPeriodError};
@@ -24,9 +25,8 @@ use bitcoin::address::NetworkChecked;
 use bitcoin::block::Header;
 use bitcoin::hashes::Hash;
 
-use bitcoin::{key, Amount, BlockHash, OutPoint};
 use bitcoin::{secp256k1, secp256k1::schnorr, Address};
-use bitcoincore_rpc::RawTx;
+use bitcoin::{Amount, BlockHash, OutPoint};
 use clementine_circuits::constants::{
     BLOCKHASH_MERKLE_TREE_DEPTH, BRIDGE_AMOUNT_SATS, CLAIM_MERKLE_TREE_DEPTH, MAX_BLOCK_HANDLE_OPS,
     NUM_ROUNDS, WITHDRAWAL_MERKLE_TREE_DEPTH,
@@ -35,9 +35,9 @@ use clementine_circuits::env::Environment;
 use clementine_circuits::{sha256_hash, HashType, PreimageType};
 use crypto_bigint::rand_core::OsRng;
 use crypto_bigint::{Encoding, U256};
-use musig2::{AggNonce, FirstRound, KeyAggContext, SecNonceSpices};
+use musig2::{AggNonce, FirstRound, KeyAggContext, PartialSignature, PubNonce, SecNonceSpices};
 use secp256k1::rand::{Rng, RngCore};
-use secp256k1::{Message, SecretKey, XOnlyPublicKey};
+use secp256k1::{SecretKey, XOnlyPublicKey};
 use sha2::{Digest, Sha256};
 
 pub fn create_connector_tree_preimages_and_hashes(
@@ -79,9 +79,9 @@ pub fn create_all_rounds_connector_preimages(
 }
 
 #[derive(Debug, Clone)]
-pub struct DepositPresigns {
-    pub move_sign: schnorr::Signature,
-    pub operator_claim_sign: Vec<schnorr::Signature>,
+pub struct DepositPartialPresigns {
+    pub move_sign: PartialSignature,
+    pub operator_claim_sign: Vec<PartialSignature>,
 }
 
 #[derive(Debug, Clone)]
@@ -161,8 +161,18 @@ impl Operator {
             self.transaction_builder
                 .create_move_tx(start_utxo, evm_address, &return_address)?;
 
+        tracing::debug!("Operator move_tx: {:?}", move_tx);
+        tracing::debug!("Operator key_agg_ctx: {:?}", self.key_agg_ctx);
+
+        // Operator creates secret nonces for move_tx and all op_claim_txs
         let rng = &mut OsRng;
         let sec_nonce_for_move_tx: [u8; 32] = rng.gen();
+        let mut sec_nonces_for_op_claims: Vec<[u8; 32]> = Vec::new();
+        for _ in 0..NUM_ROUNDS {
+            sec_nonces_for_op_claims.push(rng.gen());
+        }
+
+        // Operator creates the first round of MuSig2 for move_tx, and creates its own public nonce
         let move_tx_sighash = Actor::convert_tx_to_sighash(&mut move_tx, 0)?;
         let move_tx_first_round = FirstRound::new(
             self.key_agg_ctx.clone(),
@@ -173,11 +183,13 @@ impl Operator {
                 .with_message(&move_tx_sighash),
         )
         .unwrap();
-        let our_pub_nonce = move_tx_first_round.our_public_nonce();
+        let op_move_tx_pub_nonce = move_tx_first_round.our_public_nonce();
+        tracing::debug!("op_move_tx_pub_nonce: {:?}", op_move_tx_pub_nonce);
 
+        // Operator collects all public nonces for the first round of MuSig2 from all verifiers
         let pub_nonces_from_verifiers: Result<Vec<_>, BridgeError> = self
             .verifier_connector
-            .iter()
+            .iter_mut()
             .map(|verifier| {
                 // tracing::debug!("Verifier number {:?} is checking new deposit:", i);
                 // Attempt to get the public nonces for the first round of MuSig2. If an error occurs, it will be propagated out
@@ -201,61 +213,21 @@ impl Operator {
                 // tracing::info!("Verifier checked new deposit");
                 Ok(pub_nonces)
             })
-            .collect(); // This tries to collect into a Result<Vec<DepositPresigns>, BridgeError>
+            .collect(); // This tries to collect into a Result<Vec<PublicNonces>, BridgeError>
 
         // Handle the result of the collect operation
-        let pub_nonces_from_verifiers = pub_nonces_from_verifiers?;
-        tracing::info!("pub_nonces_from_verifiers: done");
+        let mut pub_nonces_from_verifiers = pub_nonces_from_verifiers?;
+        tracing::info!("pub_nonces_from_verifiers: {:?}", pub_nonces_from_verifiers);
 
-        let mut sec_nonces_for_op_claims = Vec::new();
-        for i in 0..NUM_ROUNDS {
-            sec_nonces_for_op_claims.push(rng.gen());
-        }
-
-        let move_tx_agg_nonce = AggNonce::sum(
-            pub_nonces_from_verifiers
-                .iter()
-                .map(|x| x.deposit_nonce)
-                .collect(),
-        );
-        let op_claim_agg_nonces: Vec<AggNonce> = (0..NUM_ROUNDS)
-            .map(|i| {
-                AggNonce::sum(
-                    pub_nonces_from_verifiers
-                        .iter()
-                        .map(|x| x.op_claim_nonces[i])
-                        .collect(),
-                )
-            })
-            .collect();
-
-        let sig = self
-            .signer
-            .sign_taproot_script_spend_tx_new(&mut move_tx, 0)?;
-        move_signatures.push(sig);
-        move_signatures.reverse();
-
-        let mut witness_elements: Vec<&[u8]> = Vec::new();
-        for sig in move_signatures.iter() {
-            witness_elements.push(sig.as_ref());
-        }
-
-        handle_taproot_witness_new(&mut move_tx, &witness_elements, 0)?;
-        // tracing::debug!("move_tx: {:?}", move_tx);
-        let rpc_move_txid = self.rpc.send_raw_transaction(&move_tx.tx)?;
+        // Operator creates the move_utxo to create public nonces for all op_claim_txs
+        let move_txid = move_tx.tx.txid();
         let move_utxo = OutPoint {
-            txid: rpc_move_txid,
+            txid: move_txid,
             vout: 0,
         };
-        let operator_claim_sigs = OperatorClaimSigs {
-            operator_claim_sigs: presigns_from_all_verifiers
-                .iter()
-                .map(|presign| presign.operator_claim_sign.clone())
-                .collect::<Vec<_>>(),
-        };
-        self.operator_db_connector
-            .add_deposit_take_sigs(operator_claim_sigs);
 
+        // Operator creates the public nonces for all op_claim_txs
+        let mut op_claims_pub_nonces = Vec::new();
         for i in 0..NUM_ROUNDS {
             let connector_utxo = self.operator_db_connector.get_connector_tree_utxo(i)
                 [CONNECTOR_TREE_DEPTH][deposit_index as usize];
@@ -264,6 +236,7 @@ impl Operator {
                 CONNECTOR_TREE_DEPTH,
                 deposit_index as usize,
             );
+
             let mut operator_claim_tx = self.transaction_builder.create_operator_claim_tx(
                 move_utxo,
                 connector_utxo,
@@ -272,36 +245,224 @@ impl Operator {
                 &connector_hash,
             )?;
 
-            let sig_hash = self
-                .signer
-                .sighash_taproot_script_spend(&mut operator_claim_tx, 0)?;
+            let operator_claim_sighash = Actor::convert_tx_to_sighash(&mut operator_claim_tx, 0)?;
 
-            let op_claim_sigs_for_period_i = presigns_from_all_verifiers
-                .iter()
-                .map(|presign| {
-                    // tracing::debug!(
-                    //     "presign.operator_claim_sign[{:?}]: {:?}",
-                    //     i, presign.operator_claim_sign[i]
-                    // );
-                    presign.operator_claim_sign[i]
-                })
-                .collect::<Vec<_>>();
-            // tracing::debug!(
-            //     "len of op_claim_sigs_for_period_i: {:?}",
-            //     op_claim_sigs_for_period_i.len()
-            // );
-            for (idx, sig) in op_claim_sigs_for_period_i.iter().enumerate() {
-                // tracing::debug!("verifying presigns for index {:?}: ", idx);
-                // tracing::debug!("sig: {:?}", sig);
-                self.signer.secp.verify_schnorr(
-                    sig,
-                    &Message::from_digest_slice(sig_hash.as_byte_array()).expect("should be hash"),
-                    &self.verifiers_pks[idx],
-                )?;
-            }
+            let operator_claim_first_round = FirstRound::new(
+                self.key_agg_ctx.clone(),
+                sec_nonces_for_op_claims[i],
+                NUM_VERIFIERS,
+                SecNonceSpices::new()
+                    .with_seckey(self.signer.secret_key.clone())
+                    .with_message(&operator_claim_sighash),
+            )
+            .unwrap();
+            op_claims_pub_nonces.push(operator_claim_first_round.our_public_nonce());
         }
 
-        Ok(move_utxo)
+        // Operator creates its own PublicNonces for the deposit
+        let op_public_nonces = PublicNonces::new(op_move_tx_pub_nonce, op_claims_pub_nonces);
+        pub_nonces_from_verifiers.push(op_public_nonces);
+
+        // Operator creates the aggregated nonce for the move_tx
+        let mut move_tx_pub_nonces: Vec<PubNonce> = Vec::new();
+        for elem in pub_nonces_from_verifiers.clone() {
+            move_tx_pub_nonces.push(elem.deposit_nonce);
+        }
+        let move_tx_agg_nonce = AggNonce::sum(move_tx_pub_nonces);
+
+        // Operator creates the aggregated nonces for all op_claim_txs
+        let mut op_claim_agg_nonces: Vec<AggNonce> = Vec::new();
+
+        for i in 0..NUM_ROUNDS {
+            let mut op_claim_pub_nonces: Vec<PubNonce> = Vec::new();
+            for elem in pub_nonces_from_verifiers.clone() {
+                op_claim_pub_nonces.push(elem.op_claim_nonces[i].clone());
+            }
+            let op_claim_agg_nonce = AggNonce::sum(op_claim_pub_nonces);
+            op_claim_agg_nonces.push(op_claim_agg_nonce);
+        }
+
+        let agg_nonces = AggNonces::new(move_tx_agg_nonce, op_claim_agg_nonces);
+
+        // Now operator collects all the partial signatures for the move_tx and all op_claim_txs
+        let partial_signatures_from_verifiers: Result<Vec<_>, BridgeError> = self
+            .verifier_connector
+            .iter()
+            .map(|verifier| {
+                // tracing::debug!("Verifier number {:?} is checking new deposit:", i);
+                // Attempt to get the public nonces for the first round of MuSig2. If an error occurs, it will be propagated out
+                // of the map, causing the collect call to return a Result::Err, effectively stopping
+                // the iteration and returning the error from your_function_name.
+                let partial_sigs = verifier
+                    .sign_deposit(
+                        start_utxo,
+                        return_address,
+                        deposit_index as u32,
+                        evm_address,
+                        &self.signer.address,
+                        &agg_nonces,
+                    )
+                    .map_err(|e| {
+                        // Log the error or convert it to BridgeError if necessary
+                        tracing::error!("Error getting deposit presigns: {:?}", e);
+                        BridgeError::FailedToGetPresigns
+                    })?;
+
+                // tracing::debug!("deposit presigns: {:?}", deposit_presigns);
+                // tracing::info!("Verifier checked new deposit");
+                Ok(partial_sigs)
+            })
+            .collect(); // This tries to collect into a Result<Vec<PublicNonces>, BridgeError>
+
+        // Handle the result of the collect operation
+        let mut partial_signatures_from_verifiers = partial_signatures_from_verifiers?;
+
+        // Operator partial signs the move_tx
+        let op_move_tx_partial_sig: PartialSignature = move_tx_first_round
+            .sign_for_aggregator(
+                self.signer.secret_key,
+                move_tx_sighash,
+                &agg_nonces.deposit_nonce,
+            )
+            .unwrap();
+
+        // Operator partial signs the op_claim_txs
+        let mut op_claims_partial_sigs = Vec::new();
+        for i in 0..NUM_ROUNDS {
+            let connector_utxo = self.operator_db_connector.get_connector_tree_utxo(i)
+                [CONNECTOR_TREE_DEPTH][deposit_index as usize];
+            let connector_hash = self.operator_db_connector.get_connector_tree_hash(
+                i,
+                CONNECTOR_TREE_DEPTH,
+                deposit_index as usize,
+            );
+
+            let mut operator_claim_tx = self.transaction_builder.create_operator_claim_tx(
+                move_utxo,
+                connector_utxo,
+                &self.signer.address,
+                &self.signer.xonly_public_key,
+                &connector_hash,
+            )?;
+
+            let operator_claim_sighash = Actor::convert_tx_to_sighash(&mut operator_claim_tx, 0)?;
+
+            let operator_claim_first_round = FirstRound::new(
+                self.key_agg_ctx.clone(),
+                sec_nonces_for_op_claims[i],
+                NUM_VERIFIERS,
+                SecNonceSpices::new()
+                    .with_seckey(self.signer.secret_key.clone())
+                    .with_message(&operator_claim_sighash),
+            )
+            .unwrap();
+            let partial_sig: PartialSignature = operator_claim_first_round
+                .sign_for_aggregator(
+                    self.signer.secret_key,
+                    operator_claim_sighash,
+                    &agg_nonces.op_claim_nonces[i],
+                )
+                .unwrap();
+            op_claims_partial_sigs.push(partial_sig);
+        }
+
+        // Operator creates its own DepositPartialPresigns
+        let deposit_partial_presigns = DepositPartialPresigns {
+            move_sign: op_move_tx_partial_sig,
+            operator_claim_sign: op_claims_partial_sigs,
+        };
+
+        // Operator adds its own DepositPartialPresigns to the list
+        partial_signatures_from_verifiers.push(deposit_partial_presigns);
+
+        // Operator creates the final signatures for the op_claim_txs
+        let mut final_op_claim_sigs = Vec::new();
+        for i in 0..NUM_ROUNDS {
+            let connector_utxo = self.operator_db_connector.get_connector_tree_utxo(i)
+                [CONNECTOR_TREE_DEPTH][deposit_index as usize];
+            let connector_hash = self.operator_db_connector.get_connector_tree_hash(
+                i,
+                CONNECTOR_TREE_DEPTH,
+                deposit_index as usize,
+            );
+
+            let mut operator_claim_tx = self.transaction_builder.create_operator_claim_tx(
+                move_utxo,
+                connector_utxo,
+                &self.signer.address,
+                &self.signer.xonly_public_key,
+                &connector_hash,
+            )?;
+
+            let operator_claim_sighash = Actor::convert_tx_to_sighash(&mut operator_claim_tx, 0)?;
+
+            let partial_sigs_for_op_claim_tx: Vec<PartialSignature> =
+                partial_signatures_from_verifiers
+                    .iter()
+                    .map(|x| x.operator_claim_sign[i].clone())
+                    .collect::<Vec<_>>();
+            tracing::debug!(
+                "partial_sigs_for_op_claim_tx: {:?}",
+                partial_sigs_for_op_claim_tx
+            );
+
+            let final_op_claim_sig: [u8; 64] = musig2::aggregate_partial_signatures(
+                &self.key_agg_ctx,
+                &agg_nonces.op_claim_nonces[i],
+                partial_sigs_for_op_claim_tx,
+                operator_claim_sighash,
+            )
+            .unwrap();
+            tracing::debug!("final_op_claim_sig: {:?}", final_op_claim_sig);
+
+            // Operator verifies the final signature for the op_claim_tx
+            musig2::verify_single(
+                self.aggregated_pk,
+                &final_op_claim_sig,
+                operator_claim_sighash,
+            )
+            .expect("Verification failed");
+            tracing::info!("Verification passed!");
+
+            final_op_claim_sigs.push(final_op_claim_sig);
+        }
+
+        // Operator creates the final signature for the move_tx
+        let partial_sigs_for_move_tx: Vec<PartialSignature> = partial_signatures_from_verifiers
+            .iter()
+            .map(|x| x.move_sign.clone())
+            .collect::<Vec<_>>();
+        tracing::debug!("partial_sigs_for_move_tx: {:?}", partial_sigs_for_move_tx);
+
+        // Operator creates the final signature for the move_tx
+        let final_signature: [u8; 64] = musig2::aggregate_partial_signatures(
+            &self.key_agg_ctx,
+            &agg_nonces.deposit_nonce,
+            partial_sigs_for_move_tx,
+            move_tx_sighash,
+        )
+        .unwrap();
+        tracing::debug!("final_signature: {:?}", final_signature);
+
+        // Operator verifies the final signature for the move_tx
+        musig2::verify_single(self.aggregated_pk, &final_signature, move_tx_sighash)
+            .expect("Verification failed");
+        tracing::info!("Verification passed!");
+
+        let mut witness_elements: Vec<&[u8]> = Vec::new();
+        witness_elements.push(final_signature.as_ref());
+
+        handle_taproot_witness_new(&mut move_tx, &witness_elements, 0)?;
+
+        // tracing::debug!("move_tx: {:?}", move_tx);
+        let rpc_move_txid = self.rpc.send_raw_transaction(&move_tx.tx)?;
+        let rpc_move_utxo = OutPoint {
+            txid: rpc_move_txid,
+            vout: 0,
+        };
+        tracing::debug!("rpc_move_utxo: {:?}", rpc_move_utxo);
+
+        Ok(rpc_move_utxo)
     }
 
     /// Returns the current withdrawal
