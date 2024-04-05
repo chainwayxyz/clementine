@@ -119,7 +119,7 @@ impl TransactionBuilder {
         Ok((address, tree_info))
     }
 
-    /// This function creates the move tx, it's prevouts for signing and the script to be used for the signature.
+    /// This function creates the move tx, its prevouts for signing and the script to be used for the signature.
     pub fn create_move_tx(
         &self,
         deposit_utxo: OutPoint,

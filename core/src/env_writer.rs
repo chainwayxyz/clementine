@@ -5,7 +5,6 @@ use bitcoin::{
 use clementine_circuits::double_sha256_hash;
 use clementine_circuits::env::Environment;
 use secp256k1::hashes::Hash;
-use secp256k1::rand::seq::index;
 use std::marker::PhantomData;
 
 use crate::{errors::BridgeError, merkle::MerkleTree};

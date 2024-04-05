@@ -71,6 +71,7 @@ impl VerifierConnector for Verifier {
         tracing::debug!("Verifier move_tx: {:?}", move_tx);
 
         let move_tx_sighash = Actor::convert_tx_to_sighash(&mut move_tx, 0)?;
+        tracing::debug!("Verifier move_tx_sighash: {:?}", move_tx_sighash);
 
         let sec_nonce_for_move_tx: [u8; 32] = rng.gen();
 
@@ -143,6 +144,7 @@ impl VerifierConnector for Verifier {
         operator_address: &Address,
         aggregated_nonces: &AggNonces,
     ) -> Result<DepositPartialPresigns, BridgeError> {
+        tracing::debug!("Verifier aggregated_nonces: {:?}", aggregated_nonces);
         let mut move_tx =
             self.transaction_builder
                 .create_move_tx(start_utxo, evm_address, &return_address)?;

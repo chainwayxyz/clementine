@@ -1,4 +1,3 @@
-use bitcoin::constants::PUBKEY_ADDRESS_PREFIX_MAIN;
 use bitcoin::hashes::Hash;
 use bitcoin::BlockHash;
 use clementine_circuits::constants::{MAX_BLOCK_HANDLE_OPS, NUM_ROUNDS};

@@ -147,27 +147,6 @@ impl Actor {
         )?;
         self.sign_with_tweak(sig_hash, None)
     }
-
-    // pub fn verify_script_spend_signature(
-    //     _tx: &bitcoin::Transaction,
-    //     _presign: &schnorr::Signature,
-    //     _xonly_public_key: &XOnlyPublicKey,
-    //     spend_script: &bitcoin::Script,
-    //     input_index: usize,
-    //     prevouts: &Vec<TxOut>,
-    // ) -> Option<bool> {
-    //     let sighash_cache = SighashCache::new(_tx);
-    //     let sig_hash = sighash_cache
-    //         .taproot_script_spend_signature_hash(
-    //             input_index,
-    //             &bitcoin::sighash::Prevouts::All(&prevouts),
-    //             TapLeafHash::from_script(&spend_script, LeafVersion::TapScript),
-    //             bitcoin::sighash::TapSighashType::Default,
-    //         )
-    //         .unwrap();
-
-    //     Some(true)
-    // }
 }
 
 #[cfg(test)]

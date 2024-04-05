@@ -25,7 +25,7 @@ use bitcoin::address::NetworkChecked;
 use bitcoin::block::Header;
 use bitcoin::hashes::Hash;
 
-use bitcoin::{secp256k1, secp256k1::schnorr, Address};
+use bitcoin::{secp256k1, Address};
 use bitcoin::{Amount, BlockHash, OutPoint};
 use clementine_circuits::constants::{
     BLOCKHASH_MERKLE_TREE_DEPTH, BRIDGE_AMOUNT_SATS, CLAIM_MERKLE_TREE_DEPTH, MAX_BLOCK_HANDLE_OPS,
@@ -86,7 +86,7 @@ pub struct DepositPartialPresigns {
 
 #[derive(Debug, Clone)]
 pub struct OperatorClaimSigs {
-    pub operator_claim_sigs: Vec<Vec<schnorr::Signature>>,
+    pub operator_claim_sigs: Vec<[u8; 64]>,
 }
 
 #[derive(Debug)]
@@ -154,7 +154,7 @@ impl Operator {
         )?;
 
         let deposit_index = self.operator_db_connector.get_deposit_index();
-        // tracing::debug!("deposit_index: {:?}", deposit_index);
+        tracing::debug!("deposit_index: {:?}", deposit_index);
 
         // 5. Create a move transaction and return the output utxo, save the utxo as a pending deposit
         let mut move_tx =
@@ -174,6 +174,7 @@ impl Operator {
 
         // Operator creates the first round of MuSig2 for move_tx, and creates its own public nonce
         let move_tx_sighash = Actor::convert_tx_to_sighash(&mut move_tx, 0)?;
+        tracing::debug!("Operator move_tx_sighash: {:?}", move_tx_sighash);
         let move_tx_first_round = FirstRound::new(
             self.key_agg_ctx.clone(),
             sec_nonce_for_move_tx,
@@ -317,6 +318,7 @@ impl Operator {
         // Handle the result of the collect operation
         let mut partial_signatures_from_verifiers = partial_signatures_from_verifiers?;
 
+        tracing::debug!("Operator aggregated_nonces: {:?}", agg_nonces);
         // Operator partial signs the move_tx
         let op_move_tx_partial_sig: PartialSignature = move_tx_first_round
             .sign_for_aggregator(
@@ -375,6 +377,28 @@ impl Operator {
         // Operator adds its own DepositPartialPresigns to the list
         partial_signatures_from_verifiers.push(deposit_partial_presigns);
 
+        // Operator creates the final signature for the move_tx
+        let partial_sigs_for_move_tx: Vec<PartialSignature> = partial_signatures_from_verifiers
+            .iter()
+            .map(|x| x.move_sign.clone())
+            .collect::<Vec<_>>();
+        tracing::debug!("partial_sigs_for_move_tx: {:?}", partial_sigs_for_move_tx);
+
+        // Operator creates the final signature for the move_tx
+        let final_signature: [u8; 64] = musig2::aggregate_partial_signatures(
+            &self.key_agg_ctx,
+            &agg_nonces.deposit_nonce,
+            partial_sigs_for_move_tx,
+            move_tx_sighash,
+        )
+        .unwrap();
+        tracing::debug!("final_signature: {:?}", final_signature);
+
+        // Operator verifies the final signature for the move_tx
+        musig2::verify_single(self.aggregated_pk, &final_signature, move_tx_sighash)
+            .expect("Verification failed");
+        tracing::info!("Verification passed!");
+
         // Operator creates the final signatures for the op_claim_txs
         let mut final_op_claim_sigs = Vec::new();
         for i in 0..NUM_ROUNDS {
@@ -427,28 +451,6 @@ impl Operator {
             final_op_claim_sigs.push(final_op_claim_sig);
         }
 
-        // Operator creates the final signature for the move_tx
-        let partial_sigs_for_move_tx: Vec<PartialSignature> = partial_signatures_from_verifiers
-            .iter()
-            .map(|x| x.move_sign.clone())
-            .collect::<Vec<_>>();
-        tracing::debug!("partial_sigs_for_move_tx: {:?}", partial_sigs_for_move_tx);
-
-        // Operator creates the final signature for the move_tx
-        let final_signature: [u8; 64] = musig2::aggregate_partial_signatures(
-            &self.key_agg_ctx,
-            &agg_nonces.deposit_nonce,
-            partial_sigs_for_move_tx,
-            move_tx_sighash,
-        )
-        .unwrap();
-        tracing::debug!("final_signature: {:?}", final_signature);
-
-        // Operator verifies the final signature for the move_tx
-        musig2::verify_single(self.aggregated_pk, &final_signature, move_tx_sighash)
-            .expect("Verification failed");
-        tracing::info!("Verification passed!");
-
         let mut witness_elements: Vec<&[u8]> = Vec::new();
         witness_elements.push(final_signature.as_ref());
 
@@ -461,6 +463,13 @@ impl Operator {
             vout: 0,
         };
         tracing::debug!("rpc_move_utxo: {:?}", rpc_move_utxo);
+
+        let op_claim_sigs_to_save = OperatorClaimSigs {
+            operator_claim_sigs: final_op_claim_sigs,
+        };
+
+        self.operator_db_connector
+            .add_deposit_take_sigs(op_claim_sigs_to_save);
 
         Ok(rpc_move_utxo)
     }
