@@ -14,7 +14,6 @@ use operator_circuit::GUEST_ELF;
 use risc0_zkvm::default_prover;
 use secp256k1::rand::rngs::StdRng;
 use secp256k1::rand::SeedableRng;
-use secp256k1::XOnlyPublicKey;
 use std::env;
 use std::str::FromStr;
 use std::sync::Mutex;
@@ -24,6 +23,7 @@ use tracing_subscriber::{fmt, EnvFilter};
 lazy_static::lazy_static! {
     static ref SHARED_STATE: Mutex<i32> = Mutex::new(0);
 }
+use clementine_core::keys;
 
 fn test_flow() -> Result<(), BridgeError> {
     let rpc = ExtendedRpc::new();
@@ -34,12 +34,7 @@ fn test_flow() -> Result<(), BridgeError> {
     let mut seeded_rng = StdRng::from_seed(seed);
     let rng = &mut OsRng;
 
-    let (all_sks, all_xonly_pks): (Vec<_>, Vec<_>) = (0..NUM_VERIFIERS + 1)
-        .map(|_| {
-            let (sk, pk) = secp.generate_keypair(rng);
-            (sk, XOnlyPublicKey::from(pk))
-        })
-        .unzip();
+    let (all_sks, all_xonly_pks) = keys::get_keys(secp.clone(), rng);
 
     let mut verifiers: Vec<Box<dyn VerifierConnector>> = Vec::new();
     for i in 0..NUM_VERIFIERS {
