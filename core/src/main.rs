@@ -16,7 +16,7 @@ use secp256k1::rand::rngs::StdRng;
 use secp256k1::rand::SeedableRng;
 use std::env;
 use std::str::FromStr;
-use std::sync::Mutex;
+use std::sync::{Arc, Mutex};
 use tracing_subscriber::layer::SubscriberExt;
 use tracing_subscriber::util::SubscriberInitExt;
 use tracing_subscriber::{fmt, EnvFilter};
@@ -36,12 +36,12 @@ async fn test_flow() -> Result<(), BridgeError> {
 
     let (all_sks, all_xonly_pks): (Vec<_>, Vec<_>) = keys::create_key_pairs(secp.clone(), rng);
 
-    let mut verifiers: Vec<Box<dyn VerifierConnector>> = Vec::new();
+    let mut verifiers: Vec<Arc<dyn VerifierConnector>> = Vec::new();
     for i in 0..NUM_VERIFIERS {
         // let rpc = ExtendedRpc::new();
         let verifier = Verifier::new(rpc.clone(), all_xonly_pks.clone(), all_sks[i])?;
         // Convert the Verifier instance into a boxed trait object
-        verifiers.push(Box::new(verifier) as Box<dyn VerifierConnector>);
+        verifiers.push(Arc::new(verifier) as Arc<dyn VerifierConnector>);
     }
 
     let mut operator = Operator::new(
