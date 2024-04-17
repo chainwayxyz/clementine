@@ -1,5 +1,7 @@
 use bitcoin::{Address, OutPoint};
+use clementine_core::operator::Operator;
 use clementine_core::traits::verifier::VerifierConnector;
+use clementine_core::verifier::VerifierClient;
 use clementine_core::EVMAddress;
 use clementine_core::{constants::NUM_VERIFIERS, extended_rpc::ExtendedRpc, verifier::Verifier};
 use crypto_bigint::rand_core::OsRng;
@@ -10,6 +12,7 @@ use secp256k1::XOnlyPublicKey;
 use serde::Deserialize;
 use serde_json::Value;
 use std::str::FromStr;
+use std::sync::Arc;
 use std::{env, net::SocketAddr};
 
 #[derive(Deserialize)]
@@ -18,7 +21,6 @@ struct NewDepositParams {
     deposit_vout: u32,
     user_return_xonly_pk: String,
     user_evm_address: String,
-    operator_address: String,
 }
 
 /// main function to start verifier server
@@ -44,7 +46,6 @@ async fn main() {
 
     let seed: [u8; 32] = [0u8; 32];
     let mut seeded_rng = StdRng::from_seed(seed);
-
     let (all_sks, all_xonly_pks): (Vec<_>, Vec<_>) = (0..NUM_VERIFIERS + 1)
         .map(|_| {
             let (sk, pk) = secp.generate_keypair(&mut seeded_rng);
@@ -52,16 +53,28 @@ async fn main() {
         })
         .unzip();
 
-    // Initialization of Verifier, RPC, etc. goes here
+    let mut verifiers: Vec<Arc<dyn VerifierConnector>> = Vec::new();
+    for i in 0..NUM_VERIFIERS {
+        // let rpc = ExtendedRpc::new();
+        let verifier = VerifierClient::new("http://127.0.0.1:3131".to_string());
+        // Convert the Verifier instance into a boxed trait object
+        verifiers.push(Arc::new(verifier) as Arc<dyn VerifierConnector>);
+    }
+
+    let mut operator = Operator::new(
+        rpc.clone(),
+        all_xonly_pks.clone(),
+        all_sks[NUM_VERIFIERS],
+        verifiers,
+    ).unwrap();
 
     let server = Server::builder()
-        .build("127.0.0.1:3131".parse::<SocketAddr>().unwrap())
+        .build("127.0.0.1:3232".parse::<SocketAddr>().unwrap())
         .await
         .unwrap();
     let mut module = RpcModule::new(()); // Use appropriate context
 
-    let verifier = Verifier::new(rpc, all_xonly_pks, all_sks[0]).unwrap();
-
+    println!("operator server is being created");
     // Define your RPC methods
     module
         .register_async_method("new_deposit", move |params, _ctx| {
@@ -89,21 +102,11 @@ async fn main() {
                 .try_into()
                 .expect("Invalid EVMAddress");
 
-            let operator_address = Address::from_str(&parsed_params.operator_address)
-                .expect("Invalid operator_address")
-                .assume_checked();
-
-            let verifier_clone = verifier.clone(); // Assuming Verifier is Clone
+            let mut operator_clone = operator.clone(); // Assuming Verifier is Clone
             async move {
                 // Call the appropriate method on the Verifier instance
-                verifier_clone
-                    .new_deposit(
-                        start_utxo,
-                        &return_address,
-                        0,
-                        &evm_address,
-                        &operator_address,
-                    )
+                operator_clone
+                    .new_deposit(start_utxo, &return_address, &evm_address)
                     .await
                     .unwrap();
             }

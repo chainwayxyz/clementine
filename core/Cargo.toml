@@ -22,7 +22,7 @@ tracing = "0.1.40"
 tracing-subscriber = {version = "0.3.18", features = ["env-filter"] }
 operator-circuit = {path = "../risc0-guests/operator"}
 tokio = { version = "1.37.0", features = ["full"] }
-jsonrpsee = {version = "0.20.1", features = ["server"]}
+jsonrpsee = {version = "0.20.1", features = ["server", "http-client", "macros"]}
 async-trait = "0.1.79"
 futures = "0.3.30"
 dotenv = "0.15.0"
@@ -35,3 +35,13 @@ k256 = { git = "https://github.com/risc0/RustCrypto-elliptic-curves", tag = "k25
 [[bin]]
 name = "verifier_server"
 path = "src/bin/verifier_server.rs"
+
+[[bin]]
+name = "operator_server"
+path = "src/bin/operator_server.rs"
+
+
+[[bin]]
+name = "user_deposit"
+path = "src/bin/user_deposit.rs"
+

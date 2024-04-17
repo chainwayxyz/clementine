@@ -1,3 +1,4 @@
+use std::sync::Arc;
 use std::vec;
 
 use crate::actor::Actor;
@@ -90,13 +91,13 @@ pub struct OperatorClaimSigs {
     pub operator_claim_sigs: Vec<Vec<schnorr::Signature>>,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct Operator {
     pub rpc: ExtendedRpc,
     pub signer: Actor,
     pub transaction_builder: TransactionBuilder,
     pub verifiers_pks: Vec<XOnlyPublicKey>,
-    pub verifier_connector: Vec<Box<dyn VerifierConnector>>,
+    pub verifier_connector: Vec<Arc<dyn VerifierConnector>>,
     operator_db_connector: OperatorMockDB,
 }
 
@@ -105,7 +106,7 @@ impl Operator {
         rpc: ExtendedRpc,
         all_xonly_pks: Vec<XOnlyPublicKey>,
         operator_sk: SecretKey,
-        verifiers: Vec<Box<dyn VerifierConnector>>,
+        verifiers: Vec<Arc<dyn VerifierConnector>>,
     ) -> Result<Self, BridgeError> {
         let num_verifiers = all_xonly_pks.len() - 1;
         let signer = Actor::new(operator_sk); // Operator is the last one

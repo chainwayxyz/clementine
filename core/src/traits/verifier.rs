@@ -18,7 +18,7 @@ pub trait VerifierConnector: std::fmt::Debug + Send + Sync {
     ) -> Result<DepositPresigns, BridgeError>;
 
     fn connector_roots_created(
-        &mut self,
+        &self,
         connector_tree_hashes: &Vec<Vec<Vec<[u8; 32]>>>,
         first_source_utxo: &OutPoint,
         start_blockheight: u64,
