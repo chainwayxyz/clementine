@@ -99,6 +99,9 @@ pub enum BridgeError {
     /// Merkle Proof Error
     #[error("MerkleProofError")]
     MerkleProofError,
+    /// Given key pair is invalid and new pairs can't be generated randomly
+    #[error("InvalidKeyPair")]
+    InvalidKeyPair,
 }
 
 impl From<secp256k1::Error> for BridgeError {
