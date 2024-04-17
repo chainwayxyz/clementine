@@ -8,6 +8,7 @@ use secp256k1::hashes::Hash;
 use secp256k1::rand::seq::index;
 use std::marker::PhantomData;
 
+use crate::utils::{calculate_witness_merkle_path, get_merkle_path_from_merkle_block};
 use crate::{errors::BridgeError, merkle::MerkleTree};
 
 pub struct ENVWriter<E: Environment> {
@@ -100,97 +101,10 @@ impl<E: Environment> ENVWriter<E> {
         }
     }
 
-    /// Pretty long and complicated merkle path extraction function to convert rust bitcoins merkleBlock to a flatten single merkle path
-    /// Need to simplify this
-    pub fn get_merkle_path_from_merkle_block(
-        mb: MerkleBlock,
-    ) -> Result<(Vec<TxMerkleNode>, u32), BridgeError> {
-        let mut matches: Vec<Txid> = vec![];
-        let mut index: Vec<u32> = vec![];
-        mb.extract_matches(&mut matches, &mut index)?;
-
-        if matches.len() != 1 {
-            return Err(BridgeError::MerkleProofError);
-        }
-
-        if index.len() != 1 {
-            return Err(BridgeError::MerkleProofError);
-        }
-
-        let txid = matches[0];
-        let index = index[0];
-        let length = mb.txn.num_transactions();
-        let depth = (length - 1).ilog(2) + 1;
-
-        let mut merkle_hashes = mb
-            .txn
-            .hashes()
-            .iter()
-            .map(Some)
-            .collect::<Vec<Option<&TxMerkleNode>>>();
-
-        // fill the remaining path elements with None s, this indicates that last node should be duplicated
-        while merkle_hashes.len() < depth as usize + 1 {
-            merkle_hashes.push(None);
-        }
-        let mut merkle_path = Vec::new();
-        for bit in (0..merkle_hashes.len() - 1)
-            .rev()
-            .map(|n: usize| (index >> n) & 1)
-        {
-            let i = if bit == 1 { 0 } else { merkle_hashes.len() - 1 };
-            merkle_path.push(merkle_hashes[i]);
-            merkle_hashes.remove(i);
-        }
-
-        // bits of path indicator determines if the next tree node should be read from env or be the copy of last node
-        let mut path_indicator = 0_u32;
-
-        // this list may contain less than depth elements, which is normally the size of a merkle path
-        let mut merkle_path_to_be_sent = Vec::new();
-
-        for node in merkle_path {
-            path_indicator <<= 1;
-            match node {
-                Some(txmn) => merkle_path_to_be_sent.push(txmn.clone()),
-                None => path_indicator += 1,
-            }
-        }
-
-        merkle_path_to_be_sent.reverse();
-
-        let mut hash = txid.to_byte_array();
-        let mut current_index = index;
-        let mut reader_pointer = 0;
-
-        for _ in 0..depth {
-            let node = if path_indicator & 1 == 1 {
-                merkle_path_to_be_sent
-                    .insert(reader_pointer, TxMerkleNode::from_byte_array(hash.clone()));
-                reader_pointer += 1;
-                hash
-            } else {
-                let node = merkle_path_to_be_sent[reader_pointer];
-                reader_pointer += 1;
-                *node.as_byte_array()
-            };
-            path_indicator >>= 1;
-            hash = if current_index & 1 == 0 {
-                double_sha256_hash!(&hash, &node)
-            } else {
-                double_sha256_hash!(&node, &hash)
-            };
-            current_index /= 2;
-        }
-
-        Ok((merkle_path_to_be_sent, index))
-    }
-
     pub fn write_bitcoin_merkle_path(txid: Txid, block: &Block) -> Result<(), BridgeError> {
         let merkle_block = MerkleBlock::from_block_with_predicate(block, |t| *t == txid);
 
-        let (merkle_path_to_be_sent, index) =
-            ENVWriter::<E>::get_merkle_path_from_merkle_block(merkle_block)?;
+        let (merkle_path_to_be_sent, index) = get_merkle_path_from_merkle_block(merkle_block)?;
 
         E::write_u32(index as u32);
 
@@ -203,37 +117,7 @@ impl<E: Environment> ENVWriter<E> {
     }
 
     pub fn write_witness_merkle_path(txid: Txid, block: &Block) -> Result<(), BridgeError> {
-        let mut wtxid = Txid::all_zeros();
-        let hashes = block
-            .txdata
-            .iter()
-            .enumerate()
-            .map(|(i, t)| {
-                if t.txid() == txid {
-                    wtxid = Txid::from_raw_hash(t.wtxid().to_raw_hash());
-                }
-                if i == 0 {
-                    // Replace the first hash with zeroes.
-                    Txid::from_raw_hash(Wtxid::all_zeros().to_raw_hash())
-                } else {
-                    Txid::from_raw_hash(t.wtxid().to_raw_hash())
-                }
-            })
-            .collect::<Vec<Txid>>();
-        let witness_root = block.witness_root().unwrap();
-        let dummy_header = Header {
-            version: block.header.version,
-            prev_blockhash: block.header.prev_blockhash,
-            merkle_root: TxMerkleNode::from_raw_hash(witness_root.to_raw_hash()),
-            time: block.header.time,
-            bits: block.header.bits,
-            nonce: block.header.nonce,
-        };
-        let merkle_block =
-            MerkleBlock::from_header_txids_with_predicate(&dummy_header, &hashes, |t| *t == wtxid);
-
-        let (merkle_path_to_be_sent, index) =
-            ENVWriter::<E>::get_merkle_path_from_merkle_block(merkle_block)?;
+        let (index, merkle_path_to_be_sent) = calculate_witness_merkle_path(txid, block)?;
 
         E::write_u32(index as u32);
 

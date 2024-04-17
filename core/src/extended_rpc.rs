@@ -96,6 +96,16 @@ impl ExtendedRpc {
         Ok(self.inner.generate_to_address(1, &address)?)
     }
 
+    pub fn generate_dummy_txs(&self, num_txs: u64) -> Result<(), BridgeError> {
+        for _ in 0..num_txs {
+            let new_address = self.inner.get_new_address(None, None)?.assume_checked();
+            let amount = bitcoin::Amount::from_sat(1000); // Specify the amount to send
+            self.inner
+                .send_to_address(&new_address, amount, None, None, None, None, None, None)?;
+        }
+        Ok(())
+    }
+
     pub fn mine_blocks(&self, block_num: u64) -> Result<(), BridgeError> {
         let new_address = self.inner.get_new_address(None, None)?.assume_checked();
         self.inner.generate_to_address(block_num, &new_address)?;
