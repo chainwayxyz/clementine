@@ -5,17 +5,34 @@
 //!
 //! ## Specifying Files
 //!
-//! Input file names can be specified using environment variables:
-//!
-//! * PRIVATE_KEYS: for private keys
-//! * PUBLIC_KEYS: for public keys
-//!
-//! Because public keys can be generated using private keys, user can only
-//! specify private keys and public keys can be generated afterwards.
+//! This module accepts a single file as input. It can be specified as
+//! environment variable `KEYS`.
 //!
 //! ## File Format
 //!
-//! Input files are comma seperated and new lines are unimportant.
+//! Input file is in JSON file format. It has 3 sections:
+//!
+//! 1. private: Single private key, as a string
+//! 2. public: Multiple public keys, as a string array
+//! 3. id: Single number (starts from 0) to select which public key is going to
+//! be used, as a number
+//!
+//! Example:
+//!
+//! ```json
+//! {
+//!     "private_key": "987654321",
+//!     "public_keys": ["123", "345", "565"],
+//!     id: 1
+//! }
+//! ```
+//!
+//! In this example, we have a private key of "987654321" and public key of
+//! "345".
+//!
+//! ## Random Key Generation
+//!
+//! If input file is not specified, key pairs will be generated randomly.
 
 use crate::constants::NUM_VERIFIERS;
 use bitcoin::XOnlyPublicKey;
@@ -51,7 +68,7 @@ pub fn get_keys(
             tracing::info!(
                 "Neither private nor public keys are specified: They will be generated randomly..."
             );
-            return Ok(create(secp, rng));
+            return Ok(create_key_pairs(secp, rng));
         }
         Err(InvalidKeySource::Private(e)) => {
             return Err(std::io::Error::other(format!("Private key: {}", e)))
@@ -137,7 +154,10 @@ fn read_public_file(_name: String) -> Result<Vec<XOnlyPublicKey>, std::io::Error
 }
 
 /// Creates public and private keys randomly.
-fn create(secp: Secp256k1<All>, rng: &mut OsRng) -> (Vec<SecretKey>, Vec<XOnlyPublicKey>) {
+pub fn create_key_pairs(
+    secp: Secp256k1<All>,
+    rng: &mut OsRng,
+) -> (Vec<SecretKey>, Vec<XOnlyPublicKey>) {
     (0..NUM_VERIFIERS + 1)
         .map(|_| {
             let (sk, pk) = secp.generate_keypair(rng);
