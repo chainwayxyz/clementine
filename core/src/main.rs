@@ -1,12 +1,13 @@
 use bitcoin::hashes::Hash;
 use bitcoin::BlockHash;
 use clementine_circuits::constants::{MAX_BLOCK_HANDLE_OPS, NUM_ROUNDS};
+use clementine_core::cli::Args;
 use clementine_core::constants::{NUM_USERS, NUM_VERIFIERS, PERIOD_BLOCK_COUNT};
 use clementine_core::errors::BridgeError;
 use clementine_core::mock_env::MockEnvironment;
 use clementine_core::traits::verifier::VerifierConnector;
 use clementine_core::verifier::Verifier;
-use clementine_core::EVMAddress;
+use clementine_core::{cli, EVMAddress};
 use clementine_core::{extended_rpc::ExtendedRpc, operator::Operator, user::User};
 use crypto_bigint::rand_core::OsRng;
 use crypto_bigint::U256;
@@ -25,8 +26,8 @@ lazy_static::lazy_static! {
     static ref SHARED_STATE: Mutex<i32> = Mutex::new(0);
 }
 
-fn test_flow() -> Result<(), BridgeError> {
-    let rpc = ExtendedRpc::new();
+fn test_flow(cli_options: Args) -> Result<(), BridgeError> {
+    let rpc = ExtendedRpc::new(cli_options.rpc_url);
 
     let secp = bitcoin::secp256k1::Secp256k1::new();
 
@@ -162,6 +163,7 @@ pub fn initialize_logging() {
 }
 
 fn main() {
+    let cli_options = cli::parse_cli();
     initialize_logging();
-    test_flow().unwrap();
+    test_flow(cli_options).unwrap();
 }
