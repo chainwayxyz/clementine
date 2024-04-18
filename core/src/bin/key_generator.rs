@@ -3,12 +3,14 @@
 //! in `core/src/keys.rs`.
 
 use bitcoin::XOnlyPublicKey;
-use clementine_core::keys;
+use clementine_core::keys::{self, FileContents};
 use core::panic;
-use std::{fs::{self, File}, io::Write};
 use crypto_bigint::rand_core::OsRng;
 use secp256k1::SecretKey;
-use serde::{Deserialize, Serialize};
+use std::{
+    fs::{self, File},
+    io::Write,
+};
 
 /// Directory to put generated key files.
 const DIRECTORY: &str = "configs";
@@ -16,26 +18,18 @@ const DIRECTORY: &str = "configs";
 /// Key file prefix.
 const PREFIX: &str = "keys";
 
-/// Key file's structure.
-#[derive(Serialize, Deserialize)]
-struct FileContents {
-	private_key: SecretKey,
-	public_keys: Vec<XOnlyPublicKey>,
-	id: usize
-}
-
 fn main() {
     let (all_sks, all_xonly_pks) = generate_keypair();
     println!("Generated private keys: {:#?}", all_sks.clone());
     println!("Generated public keys: {:#?}", all_xonly_pks.clone());
 
-	// Create directory. If it exist, it will return an `Err`. Handle that with
-	// a variable.
-	let _ = fs::create_dir(DIRECTORY);
+    // Create directory. If it exist, it will return an `Err`. Handle that with
+    // a variable.
+    let _ = fs::create_dir(DIRECTORY);
 
-	for i in 0..all_sks.len() {
-		create_file(i, all_sks.clone(), all_xonly_pks.clone());
-	}
+    for i in 0..all_sks.len() {
+        create_file(i, all_sks.clone(), all_xonly_pks.clone());
+    }
 }
 
 /// This function's contents are copied from clementine_core's `main.rs`.
@@ -60,15 +54,15 @@ fn generate_keypair() -> (Vec<SecretKey>, Vec<XOnlyPublicKey>) {
 
 /// Creates nth file in `DIRECTORY`.
 fn create_file(index: usize, all_sks: Vec<SecretKey>, all_xonly_sks: Vec<XOnlyPublicKey>) {
-	let content = FileContents {
-		private_key: all_sks[index],
-		public_keys: all_xonly_sks,
-		id: index,
-	};
+    let content = FileContents {
+        private_key: all_sks[index],
+        public_keys: all_xonly_sks,
+        id: index,
+    };
 
-	let serialized = serde_json::to_string_pretty(&content).unwrap();
-	let file = DIRECTORY.to_string() + "/" + PREFIX + index.to_string().as_str() + ".json";
+    let serialized = serde_json::to_string_pretty(&content).unwrap();
+    let file = DIRECTORY.to_string() + "/" + PREFIX + index.to_string().as_str() + ".json";
 
-	let mut file = File::create(file).unwrap();
+    let mut file = File::create(file).unwrap();
     file.write_all(serialized.as_bytes()).unwrap();
 }
