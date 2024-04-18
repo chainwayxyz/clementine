@@ -55,6 +55,16 @@ bitcoin-cli -regtest -rpcuser=admin -rpcpassword=admin -rpcport=18443 generateto
 cargo run
 ```
 
+### Create Random Key Pairs
+
+To create random key pairs for testing, run:
+
+```sh
+cargo run --bin key_generator
+```
+
+This will generate JSON files in `configs` directory.
+
 ### Test
 ```sh
 cargo test
