@@ -2,6 +2,7 @@
 name = "clementine-core"
 version = "0.1.0"
 edition = "2021"
+default-run = "clementine-core"
 
 [dependencies]
 clementine-circuits = {path = "../circuits"}
@@ -21,3 +22,6 @@ thiserror = "1.0.57"
 tracing = "0.1.40"
 tracing-subscriber = {version = "0.3.18", features = ["env-filter"] }
 operator-circuit = {path = "../risc0-guests/operator"}
+
+[[bin]]
+name = "key_generator"
