@@ -18,7 +18,7 @@ pub struct Args {
     /// Remote procedure call user password in Bitcoin network. Warning: Not yet implemented.
     #[arg(long, default_value_t = DEFAULT_RPC_PASSWORD.to_string())]
     pub rpc_password: String,
-    /// Bitcoin network to work on.
+    /// Bitcoin network to work on. Warning: Not yet implemented.
     #[arg(
         short,
         long,
