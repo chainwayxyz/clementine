@@ -1,7 +1,7 @@
 use bitcoin::{Address, OutPoint};
 use clementine_core::traits::verifier::VerifierConnector;
-use clementine_core::{keys, EVMAddress};
 use clementine_core::{constants::NUM_VERIFIERS, extended_rpc::ExtendedRpc, verifier::Verifier};
+use clementine_core::{keys, EVMAddress};
 use crypto_bigint::rand_core::OsRng;
 use dotenv::dotenv;
 use jsonrpsee::{server::Server, RpcModule};
@@ -42,8 +42,10 @@ async fn main() {
     let (secret_key, all_xonly_pks) = keys::get_from_file().unwrap();
     let verifier = Verifier::new(rpc, all_xonly_pks, secret_key).unwrap();
 
+    let port = env::var("PORT").unwrap_or_else(|_| "3131".to_string());
+
     let server = Server::builder()
-        .build("127.0.0.1:3131".parse::<SocketAddr>().unwrap())
+        .build(format!("127.0.0.1:{}", port).parse::<SocketAddr>().unwrap())
         .await
         .unwrap();
     let mut module = RpcModule::new(()); // Use appropriate context
@@ -51,7 +53,7 @@ async fn main() {
     // Define your RPC methods
     module
         .register_async_method("new_deposit", move |params, _ctx| {
-            println!("new_deposit called");
+            println!("new_deposit called with params: {:?}", params);
 
             let parsed_params: NewDepositParams =
                 match serde_json::from_value(params.parse().unwrap()).unwrap() {
