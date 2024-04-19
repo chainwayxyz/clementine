@@ -4,3 +4,4 @@ risc0-guests/operator/guest/Cargo.lock
 risc0-guests/verifier/guest/Cargo.lock
 target/
 .env
+configs
