@@ -8,7 +8,9 @@ use core::panic;
 use crypto_bigint::rand_core::OsRng;
 use secp256k1::SecretKey;
 use std::{
-    env, fs::{self, File}, io::Write
+    env,
+    fs::{self, File},
+    io::Write,
 };
 
 /// Environment variable that defines key file's directory.
@@ -56,7 +58,12 @@ fn generate_keypair() -> (Vec<SecretKey>, Vec<XOnlyPublicKey>) {
 }
 
 /// Creates nth file in key directory.
-fn create_file(directory: &String, index: usize, all_sks: Vec<SecretKey>, all_xonly_sks: Vec<XOnlyPublicKey>) {
+fn create_file(
+    directory: &String,
+    index: usize,
+    all_sks: Vec<SecretKey>,
+    all_xonly_sks: Vec<XOnlyPublicKey>,
+) {
     let content = FileContents {
         private_key: all_sks[index],
         public_keys: all_xonly_sks,
