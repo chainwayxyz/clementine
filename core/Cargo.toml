@@ -26,4 +26,3 @@ clap = { version = "4.5.4", features = ["derive", "cargo"] }
 
 [[bin]]
 name = "key_generator"
-
