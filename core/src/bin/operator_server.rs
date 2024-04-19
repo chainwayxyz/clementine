@@ -11,6 +11,9 @@ use secp256k1::rand::{rngs::StdRng, SeedableRng};
 use secp256k1::XOnlyPublicKey;
 use serde::Deserialize;
 use serde_json::Value;
+use tracing_subscriber::util::SubscriberInitExt;
+use tracing_subscriber::{fmt, EnvFilter};
+use tracing_subscriber::layer::SubscriberExt;
 use std::str::FromStr;
 use std::sync::Arc;
 use std::{env, net::SocketAddr};
@@ -23,15 +26,29 @@ struct NewDepositParams {
     user_evm_address: String,
 }
 
+
+/// Default initialization of logging
+pub fn initialize_logging() {
+    tracing_subscriber::registry()
+        .with(fmt::layer())
+        .with(
+            EnvFilter::from_str(
+                &env::var("RUST_LOG").unwrap_or_else(|_| "debug,bitcoincore_rpc=info".to_string()),
+            )
+            .unwrap(),
+        )
+        .init();
+}
+
 /// main function to start operator server
 /// ```bash
 /// curl -X POST http://localhost:3232 -H "Content-Type: application/json" -d '{
 /// "jsonrpc": "2.0",
 /// "method": "new_deposit",
 /// "params": {
-///     "deposit_txid": "30608915bfe45af7d922f05d3726b87208737d3d9088770a5627327ac79e6049",
-///     "deposit_vout": 9,
-///     "user_return_xonly_pk": "9a857208e280d56d008894e7088a4e059cccc28efed3cab1c06b0cfbe3df3526",
+///     "deposit_txid": "31070357c698efbe03de0e3c2d96234e8322c6ccb16ef5dfc6704a0e7c7058be",
+///     "deposit_vout": 6,
+///     "user_return_xonly_pk": "52a208d3a465d9670713237766bcff00bd14156db5d631f659b3815099503549",
 ///     "user_evm_address": "0101010101010101010101010101010101010101"
 /// },
 /// "id": 1
@@ -39,13 +56,20 @@ struct NewDepositParams {
 /// ```
 #[tokio::main]
 async fn main() {
+    initialize_logging();
     let rpc = ExtendedRpc::new();
     let (secret_key, all_xonly_pks) = keys::get_from_file().unwrap();
     
+    let verifier_endpoints = vec![
+        "http://127.0.0.1:3030".to_string(),
+        "http://127.0.0.1:3131".to_string(),
+        "http://127.0.0.1:3232".to_string(),
+        "http://127.0.0.1:3333".to_string(),
+    ];
 
     let mut verifiers: Vec<Arc<dyn VerifierConnector>> = Vec::new();
-    for _ in 0..NUM_VERIFIERS {
-        let verifier = VerifierClient::new("http://127.0.0.1:3131".to_string());
+    for i in 0..NUM_VERIFIERS {
+        let verifier = VerifierClient::new(verifier_endpoints[i].clone());
         verifiers.push(Arc::new(verifier) as Arc<dyn VerifierConnector>);
     }
 
@@ -57,7 +81,7 @@ async fn main() {
     ).unwrap();
 
     let server = Server::builder()
-        .build("127.0.0.1:3232".parse::<SocketAddr>().unwrap())
+        .build("127.0.0.1:3434".parse::<SocketAddr>().unwrap())
         .await
         .unwrap();
     let mut module = RpcModule::new(()); // Use appropriate context

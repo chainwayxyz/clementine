@@ -11,6 +11,7 @@ use bitcoin::{secp256k1, secp256k1::Secp256k1, OutPoint};
 
 use clementine_circuits::constants::{BRIDGE_AMOUNT_SATS, NUM_ROUNDS};
 use jsonrpsee::core::client::ClientT;
+use jsonrpsee::core::params::ObjectParams;
 use jsonrpsee::http_client::{HeaderMap, HttpClient, HttpClientBuilder};
 use jsonrpsee::rpc_params;
 use secp256k1::XOnlyPublicKey;
@@ -213,9 +214,25 @@ impl VerifierConnector for VerifierClient {
         evm_address: &EVMAddress,
         operator_address: &Address,
     ) -> Result<DepositPresigns, BridgeError> {
-        self.verifier_client
-            .request("new_deposit", rpc_params![])
-            .await?;
+        /// "params": {
+        ///     "deposit_txid": "30608915bfe45af7d922f05d3726b87208737d3d9088770a5627327ac79e6049",
+        ///     "deposit_vout": 9,
+        ///     "user_return_xonly_pk": "9a857208e280d56d008894e7088a4e059cccc28efed3cab1c06b0cfbe3df3526",
+        ///     "user_evm_address": "0101010101010101010101010101010101010101",
+        ///     "operator_address": "tb1qmfcjlvnwv5rzwu8dyj9akrcgu07a50geewsh5g"
+        /// },
+        // Create a JSON object with the expected parameters
+        let mut params = ObjectParams::new();
+        params.insert("deposit_txid", start_utxo.txid.to_string());
+        params.insert("deposit_vout", start_utxo.vout);
+        params.insert("user_return_xonly_pk", return_address.to_string());
+        params.insert("deposit_index", deposit_index);
+        params.insert("user_evm_address", hex::encode(evm_address));
+        params.insert("operator_address", operator_address.to_string());
+
+        // Make the request with the JSON object
+        let result = self.verifier_client.request("new_deposit", params).await?;
+        println!("result: {:?}", result);
         Ok(DepositPresigns {
             move_sign: schnorr::Signature::from_slice(&[0; 64]).unwrap(),
             operator_claim_sign: vec![],
