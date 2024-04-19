@@ -127,10 +127,5 @@ async fn main() {
     let handle = server.start(module);
     println!("Listening on {:?}", handle);
 
-    // In this example we don't care about doing shutdown so let's it run forever.
-    // You may use the `ServerHandle` to shut it down or manage it yourself.
-    tokio::spawn(handle.stopped());
-    loop {
-        tokio::time::sleep(tokio::time::Duration::from_secs(1)).await;
-    }
+    handle.stopped().await;
 }

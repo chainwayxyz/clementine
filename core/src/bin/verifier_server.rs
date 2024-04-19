@@ -95,13 +95,7 @@ async fn main() {
                     )
                     .await
                     .unwrap();
-
-                let json_result = serde_json::to_string(&deposit_signatures);
-                match json_result {
-                    Ok(json) => Ok(json), // Return the JSON string
-                    Err(e) => Err(format!("Error serializing response: {}", e)),
-                }
-                .unwrap()
+                serde_json::to_string(&deposit_signatures).unwrap()
             }
         })
         .unwrap();
@@ -110,8 +104,5 @@ async fn main() {
 
     // In this example we don't care about doing shutdown so let's it run forever.
     // You may use the `ServerHandle` to shut it down or manage it yourself.
-    tokio::spawn(handle.stopped());
-    loop {
-        tokio::time::sleep(tokio::time::Duration::from_secs(1)).await;
-    }
+    handle.stopped().await;
 }
