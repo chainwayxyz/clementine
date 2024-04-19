@@ -47,4 +47,8 @@ name = "user_deposit"
 path = "src/bin/user_deposit.rs"
 
 [[bin]]
+name = "cpfp_test"
+path = "src/bin/cpfp_test.rs"
+
+[[bin]]
 name = "key_generator"
