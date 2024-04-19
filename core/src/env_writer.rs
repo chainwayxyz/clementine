@@ -1,11 +1,10 @@
-use bitcoin::{block, Wtxid, XOnlyPublicKey};
 use bitcoin::{
     block::Header, consensus::serialize, Block, MerkleBlock, Transaction, TxMerkleNode, Txid,
 };
+use bitcoin::{Wtxid, XOnlyPublicKey};
 use clementine_circuits::double_sha256_hash;
 use clementine_circuits::env::Environment;
 use secp256k1::hashes::Hash;
-use secp256k1::rand::seq::index;
 use std::marker::PhantomData;
 
 use crate::{errors::BridgeError, merkle::MerkleTree};
@@ -342,8 +341,7 @@ mod tests {
     // use operator_circuit::GUEST_ELF;
 
     use crypto_bigint::U256;
-    use operator_circuit::GUEST_ELF;
-    use risc0_zkvm::default_prover;
+
     use secp256k1::hashes::Hash;
 
     use crate::{

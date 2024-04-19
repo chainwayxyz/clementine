@@ -8,6 +8,7 @@ pub mod db;
 pub mod env_writer;
 pub mod errors;
 pub mod extended_rpc;
+pub mod keys;
 pub mod merkle;
 pub mod mock_env;
 pub mod operator;
