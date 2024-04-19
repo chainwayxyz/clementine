@@ -1,10 +1,9 @@
 //! This binary generates random private/public key pairs for testing. They will
-//! be put in `DIRECTORY`/`PREFIX`(0..`crate::constants::NUM_VERIFIERS`).json. File format is described
-//! in `core/src/keys.rs`.
+//! be put in `ENV_DIR`/`PREFIX`(0..`crate::constants::NUM_VERIFIERS`).json.
+//! File format is described in `core/src/keys.rs`.
 
 use bitcoin::XOnlyPublicKey;
 use clementine_core::keys::{self, FileContents};
-use core::panic;
 use crypto_bigint::rand_core::OsRng;
 use secp256k1::SecretKey;
 use std::{
@@ -46,13 +45,7 @@ fn generate_keypair() -> (Vec<SecretKey>, Vec<XOnlyPublicKey>) {
     let secp: secp256k1::Secp256k1<secp256k1::All> = bitcoin::secp256k1::Secp256k1::new();
     let rng = &mut OsRng;
 
-    let (all_sks, all_xonly_pks): (Vec<_>, Vec<_>) = match keys::get_keys(secp.clone(), rng) {
-        Ok(result) => result,
-        Err(e) => {
-            eprintln!("Error while reading private/public key pair: {}", e);
-            panic!();
-        }
-    };
+    let (all_sks, all_xonly_pks): (Vec<_>, Vec<_>) = keys::create_key_pairs(secp.clone(), rng);
 
     (all_sks, all_xonly_pks)
 }

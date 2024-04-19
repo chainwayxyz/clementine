@@ -34,13 +34,12 @@
 //!
 //! If input file is not specified, key pairs will be generated randomly.
 
-use crate::constants::NUM_VERIFIERS;
+use crate::{constants::NUM_VERIFIERS, errors::InvalidKeySource};
 use bitcoin::XOnlyPublicKey;
 use crypto_bigint::rand_core::OsRng;
 use secp256k1::{All, Secp256k1, SecretKey};
 use serde::{Deserialize, Serialize};
 use std::{env, fs};
-use thiserror::Error;
 
 /// Key file's structure.
 #[derive(Serialize, Deserialize)]
@@ -54,41 +53,9 @@ pub struct FileContents {
 /// keys.
 const ENV_FILE: &str = "KEYS";
 
-/// Tells which sources specified by user and why they can't be used.
-#[derive(Debug, Error)]
-enum InvalidKeySource {
-    /// No source is given as input. This is not exactly an error.
-    #[error("None")]
-    None,
-    /// Only private keys file is given and but file is not readable.
-    #[error("Error")]
-    Error(std::io::Error),
-}
-
-/// Returns private and public keys, either from a user supplied source or
-/// randomly generated pairs. First choice is the user supplied file.
-pub fn get_keys(
-    secp: Secp256k1<All>,
-    rng: &mut OsRng,
-) -> Result<(Vec<SecretKey>, Vec<XOnlyPublicKey>), std::io::Error> {
-    match get_from_file() {
-        Ok(ret) => return Ok(ret),
-        Err(InvalidKeySource::None) => {
-            tracing::info!(
-                "Neither private nor public keys are specified: They will be generated randomly..."
-            );
-            return Ok(create_key_pairs(secp, rng));
-        }
-        Err(InvalidKeySource::Error(e)) => Err(std::io::Error::other(format!(
-            "Error reading key file: {}",
-            e
-        ))),
-    }
-}
-
 /// Reads private key, public keys and id from a file if `ENV_FILE` is
 /// specified.
-fn get_from_file() -> Result<(Vec<SecretKey>, Vec<XOnlyPublicKey>), InvalidKeySource> {
+pub fn get_from_file() -> Result<(SecretKey, Vec<XOnlyPublicKey>), InvalidKeySource> {
     let env_file = env::var(ENV_FILE);
 
     match env_file {
@@ -102,13 +69,10 @@ fn get_from_file() -> Result<(Vec<SecretKey>, Vec<XOnlyPublicKey>), InvalidKeySo
 
 /// Internal function for reading contents of the key file. If file is readable
 /// and in right format, returns target key pair.
-fn read_file(name: String) -> Result<(Vec<SecretKey>, Vec<XOnlyPublicKey>), std::io::Error> {
+fn read_file(name: String) -> Result<(SecretKey, Vec<XOnlyPublicKey>), std::io::Error> {
     match fs::read_to_string(name) {
         Ok(content) => match serde_json::from_str::<FileContents>(&content) {
-            Ok(deserialized) => Ok((
-                vec![deserialized.private_key; NUM_VERIFIERS + 1],
-                vec![deserialized.public_keys[deserialized.id]; NUM_VERIFIERS + 1],
-            )),
+            Ok(deserialized) => Ok((deserialized.private_key, deserialized.public_keys)),
             Err(e) => return Err(e.into()),
         },
         Err(e) => Err(e.into()),

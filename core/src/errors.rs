@@ -159,3 +159,14 @@ impl From<MerkleBlockError> for BridgeError {
         BridgeError::MerkleBlockError(err)
     }
 }
+
+/// Tells which key file sources specified by user and why they can't be used.
+#[derive(Debug, Error)]
+pub enum InvalidKeySource {
+    /// No source is given as input. This is not exactly an error.
+    #[error("None")]
+    None,
+    /// Only private keys file is given and but file is not readable.
+    #[error("Error")]
+    Error(std::io::Error),
+}
