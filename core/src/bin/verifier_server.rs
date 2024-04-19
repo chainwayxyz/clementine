@@ -1,6 +1,6 @@
 use bitcoin::{Address, OutPoint};
 use clementine_core::traits::verifier::VerifierConnector;
-use clementine_core::EVMAddress;
+use clementine_core::{keys, EVMAddress};
 use clementine_core::{constants::NUM_VERIFIERS, extended_rpc::ExtendedRpc, verifier::Verifier};
 use crypto_bigint::rand_core::OsRng;
 use dotenv::dotenv;
@@ -39,28 +39,14 @@ struct NewDepositParams {
 #[tokio::main]
 async fn main() {
     let rpc = ExtendedRpc::new();
-
-    let secp = bitcoin::secp256k1::Secp256k1::new();
-
-    let seed: [u8; 32] = [0u8; 32];
-    let mut seeded_rng = StdRng::from_seed(seed);
-
-    let (all_sks, all_xonly_pks): (Vec<_>, Vec<_>) = (0..NUM_VERIFIERS + 1)
-        .map(|_| {
-            let (sk, pk) = secp.generate_keypair(&mut seeded_rng);
-            (sk, XOnlyPublicKey::from(pk))
-        })
-        .unzip();
-
-    // Initialization of Verifier, RPC, etc. goes here
+    let (secret_key, all_xonly_pks) = keys::get_from_file().unwrap();
+    let verifier = Verifier::new(rpc, all_xonly_pks, secret_key).unwrap();
 
     let server = Server::builder()
         .build("127.0.0.1:3131".parse::<SocketAddr>().unwrap())
         .await
         .unwrap();
     let mut module = RpcModule::new(()); // Use appropriate context
-
-    let verifier = Verifier::new(rpc, all_xonly_pks, all_sks[0]).unwrap();
 
     // Define your RPC methods
     module
@@ -94,7 +80,7 @@ async fn main() {
                 .assume_checked();
 
             let verifier_clone = verifier.clone(); // Assuming Verifier is Clone
-            
+
             async move {
                 // Call the appropriate method on the Verifier instance
                 let deposit_signatures = verifier_clone
@@ -108,11 +94,12 @@ async fn main() {
                     .await
                     .unwrap();
 
-                    let json_result = serde_json::to_string(&deposit_signatures);
-                    match json_result {
-                        Ok(json) => Ok(json), // Return the JSON string
-                        Err(e) => Err(format!("Error serializing response: {}", e)),
-                    }.unwrap()
+                let json_result = serde_json::to_string(&deposit_signatures);
+                match json_result {
+                    Ok(json) => Ok(json), // Return the JSON string
+                    Err(e) => Err(format!("Error serializing response: {}", e)),
+                }
+                .unwrap()
             }
         })
         .unwrap();

@@ -34,14 +34,7 @@ async fn test_flow() -> Result<(), BridgeError> {
     let mut seeded_rng = StdRng::from_seed(seed);
     let rng = &mut OsRng;
 
-    let (all_sks, all_xonly_pks): (Vec<_>, Vec<_>) = match keys::get_keys(secp.clone(), rng) {
-        Ok(result) => result,
-        Err(e) => {
-            tracing::error!("Error while reading private/public key pair: {}", e);
-            return Err(BridgeError::InvalidKeyPair);
-        }
-    };
-
+    let (all_sks, all_xonly_pks): (Vec<_>, Vec<_>) = keys::create_key_pairs(secp.clone(), rng);
     let mut verifiers: Vec<Arc<dyn VerifierConnector>> = Vec::new();
     for i in 0..NUM_VERIFIERS {
         // let rpc = ExtendedRpc::new();
