@@ -1,4 +1,4 @@
-use crate::constants::{VerifierChallenge, CONNECTOR_TREE_DEPTH};
+use crate::constants::{VerifierChallenge, CONNECTOR_TREE_DEPTH, TEST_MODE};
 use crate::db::verifier::VerifierMockDB;
 use crate::errors::BridgeError;
 
@@ -71,29 +71,30 @@ impl VerifierConnector for Verifier {
 
         let mut op_claim_sigs = Vec::new();
 
-        for i in 0..NUM_ROUNDS {
-            let connector_utxo = self.verifier_db_connector.get_connector_tree_utxo(i)
-                [CONNECTOR_TREE_DEPTH][deposit_index as usize];
-            let connector_hash = self.verifier_db_connector.get_connector_tree_hash(
-                i,
-                CONNECTOR_TREE_DEPTH,
-                deposit_index as usize,
-            );
+        if !TEST_MODE {
+            for i in 0..NUM_ROUNDS {
+                let connector_utxo = self.verifier_db_connector.get_connector_tree_utxo(i)
+                    [CONNECTOR_TREE_DEPTH][deposit_index as usize];
+                let connector_hash = self.verifier_db_connector.get_connector_tree_hash(
+                    i,
+                    CONNECTOR_TREE_DEPTH,
+                    deposit_index as usize,
+                );
 
-            let mut operator_claim_tx = self.transaction_builder.create_operator_claim_tx(
-                move_utxo,
-                connector_utxo,
-                &operator_address,
-                &self.operator_pk,
-                &connector_hash,
-            )?;
+                let mut operator_claim_tx = self.transaction_builder.create_operator_claim_tx(
+                    move_utxo,
+                    connector_utxo,
+                    &operator_address,
+                    &self.operator_pk,
+                    &connector_hash,
+                )?;
 
-            let op_claim_sig = self
-                .signer
-                .sign_taproot_script_spend_tx_new(&mut operator_claim_tx, 0)?;
-            op_claim_sigs.push(op_claim_sig);
+                let op_claim_sig = self
+                    .signer
+                    .sign_taproot_script_spend_tx_new(&mut operator_claim_tx, 0)?;
+                op_claim_sigs.push(op_claim_sig);
+            }
         }
-
         Ok(DepositPresigns {
             move_sign: move_sig,
             operator_claim_sign: op_claim_sigs,
@@ -212,7 +213,9 @@ impl VerifierConnector for VerifierClient {
         evm_address: &EVMAddress,
         operator_address: &Address,
     ) -> Result<DepositPresigns, BridgeError> {
-        self.verifier_client.request("new_deposit", rpc_params![]).await?;
+        self.verifier_client
+            .request("new_deposit", rpc_params![])
+            .await?;
         Ok(DepositPresigns {
             move_sign: schnorr::Signature::from_slice(&[0; 64]).unwrap(),
             operator_claim_sign: vec![],

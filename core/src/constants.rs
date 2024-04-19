@@ -24,7 +24,7 @@ pub const PERIOD_BLOCK_COUNT: u32 = 50; // 10 mins for 1 block, 6 months = 6*30*
 pub const USER_TAKES_AFTER: u32 = 200;
 
 /// For deposits, bridge operator does not accept the tx if it is not confirmed
-pub const CONFIRMATION_BLOCK_COUNT: u32 = 6;
+pub const CONFIRMATION_BLOCK_COUNT: u32 = 1;
 
 /// K_DEEP is the give time to verifier to make a proper challenge
 pub const K_DEEP: u32 = 3;
@@ -35,6 +35,8 @@ pub const MAX_BITVM_CHALLENGE_RESPONSE_BLOCKS: u32 = 5;
 pub type VerifierChallenge = (BlockHash, U256, u8);
 
 /// Which of the Bitcoin's networks to act on
-pub const NETWORK: bitcoin::Network = bitcoin::Network::Regtest;
+pub const NETWORK: bitcoin::Network = bitcoin::Network::Testnet;
+
+pub const TEST_MODE: bool = true;
 
 pub const TEXT_DATABASE: &str = "database";

@@ -37,7 +37,7 @@ pub const PERIOD_CLAIM_MT_ROOTS: [[u8; 32]; NUM_ROUNDS] = [
 /// After each period_end_block_height, the corresponding connector source utxo opens after K_DEEP + MAX_BITVM_CHALLENGE_RESPONSE blocks.
 pub const PERIOD_END_BLOCK_HEIGHTS: [u32; NUM_ROUNDS] = [0; NUM_ROUNDS];
 /// Constant bridge amount in sats
-pub const BRIDGE_AMOUNT_SATS: u64 = 100_000_000;
+pub const BRIDGE_AMOUNT_SATS: u64 = 1_000;
 /// Empty leaf of a merkle tree
 pub const EMPTYDATA: [u8; 32] = [
     0xcb, 0x0c, 0x9f, 0x42, 0x64, 0x54, 0x6b, 0x15, 0xbe, 0x98, 0x01, 0xec, 0xb1, 0x1d, 0xf7, 0xe4,

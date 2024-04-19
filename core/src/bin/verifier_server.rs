@@ -7,7 +7,7 @@ use dotenv::dotenv;
 use jsonrpsee::{server::Server, RpcModule};
 use secp256k1::rand::{rngs::StdRng, SeedableRng};
 use secp256k1::XOnlyPublicKey;
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::str::FromStr;
 use std::{env, net::SocketAddr};
@@ -27,10 +27,10 @@ struct NewDepositParams {
 /// "jsonrpc": "2.0",
 /// "method": "new_deposit",
 /// "params": {
-///     "deposit_txid": "4a993d208d3faae29591a92d6e09fcab58d0a74422d45c784ec8f9b6f8e90f98",
-///     "deposit_vout": 6,
+///     "deposit_txid": "30608915bfe45af7d922f05d3726b87208737d3d9088770a5627327ac79e6049",
+///     "deposit_vout": 9,
 ///     "user_return_xonly_pk": "9a857208e280d56d008894e7088a4e059cccc28efed3cab1c06b0cfbe3df3526",
-///     "user_evm_address": "0000000000000000000000000000000000000000",
+///     "user_evm_address": "0101010101010101010101010101010101010101",
 ///     "operator_address": "tb1qmfcjlvnwv5rzwu8dyj9akrcgu07a50geewsh5g"
 /// },
 /// "id": 1
@@ -94,9 +94,10 @@ async fn main() {
                 .assume_checked();
 
             let verifier_clone = verifier.clone(); // Assuming Verifier is Clone
+            
             async move {
                 // Call the appropriate method on the Verifier instance
-                verifier_clone
+                let deposit_signatures = verifier_clone
                     .new_deposit(
                         start_utxo,
                         &return_address,
@@ -106,6 +107,12 @@ async fn main() {
                     )
                     .await
                     .unwrap();
+
+                    let json_result = serde_json::to_string(&deposit_signatures);
+                    match json_result {
+                        Ok(json) => Ok(json), // Return the JSON string
+                        Err(e) => Err(format!("Error serializing response: {}", e)),
+                    }.unwrap()
             }
         })
         .unwrap();

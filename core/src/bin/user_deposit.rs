@@ -42,6 +42,8 @@ async fn test_flow() -> Result<(), BridgeError> {
     let user_sk = secp.generate_keypair(&mut seeded_rng).0;
     let user = User::new(rpc.clone(), all_xonly_pks.clone(), user_sk);
     let evm_address: EVMAddress = [1u8; 20];
+    println!("EVM Address: {:?}", hex::encode(evm_address));
+    println!("User: {:?}", user.signer.xonly_public_key.to_string());
     let address = user.get_deposit_address(evm_address).unwrap();
     println!("Deposit address: {:?}", address);
     Ok(())
