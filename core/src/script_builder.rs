@@ -3,18 +3,22 @@ use bitcoin::{
     script::Builder,
     ScriptBuf, TxOut,
 };
-use secp256k1::XOnlyPublicKey;
+use secp256k1::{PublicKey, XOnlyPublicKey};
 
 use crate::EVMAddress;
 
 #[derive(Debug, Clone)]
 pub struct ScriptBuilder {
     pub verifiers_pks: Vec<XOnlyPublicKey>,
+    pub aggregated_pubkey: PublicKey,
 }
 
 impl ScriptBuilder {
-    pub fn new(verifiers_pks: Vec<XOnlyPublicKey>) -> Self {
-        Self { verifiers_pks }
+    pub fn new(verifiers_pks: Vec<XOnlyPublicKey>, aggregated_pubkey: PublicKey) -> Self {
+        Self {
+            verifiers_pks,
+            aggregated_pubkey,
+        }
     }
 
     pub fn anyone_can_spend_txout() -> TxOut {
@@ -49,6 +53,14 @@ impl ScriptBuilder {
         builder.into_script()
     }
 
+    pub fn generate_script_agg_pk(&self) -> ScriptBuf {
+        let mut builder = Builder::new();
+        builder = builder
+            .push_x_only_key(&self.aggregated_pubkey.x_only_public_key().0)
+            .push_opcode(OP_CHECKSIG);
+        builder.into_script()
+    }
+
     pub fn generate_script_n_of_n_with_user_pk(&self, user_pk: &XOnlyPublicKey) -> ScriptBuf {
         let mut builder = Builder::new();
         for vpk in self.verifiers_pks.clone() {
@@ -66,6 +78,23 @@ impl ScriptBuilder {
         for vpk in self.verifiers_pks.clone() {
             builder = builder.push_x_only_key(&vpk).push_opcode(OP_CHECKSIGVERIFY);
         }
+
+        builder = builder
+            .push_opcode(OP_TRUE)
+            .push_opcode(OP_FALSE)
+            .push_opcode(OP_IF)
+            .push_slice(evm_address)
+            .push_opcode(OP_ENDIF);
+
+        builder.into_script()
+    }
+
+    pub fn create_musig2_deposit_script(&self, evm_address: &EVMAddress) -> ScriptBuf {
+        let mut builder = Builder::new();
+
+        builder = builder
+            .push_x_only_key(&self.aggregated_pubkey.x_only_public_key().0)
+            .push_opcode(OP_CHECKSIGVERIFY);
 
         builder = builder
             .push_opcode(OP_TRUE)

@@ -36,6 +36,7 @@ lazy_static! {
 }
 
 // pub type CreateTxOutputs = (bitcoin::Transaction, Vec<TxOut>, Vec<ScriptBuf>);
+#[derive(Debug, Clone)]
 pub struct CreateTxOutputs {
     pub tx: bitcoin::Transaction,
     pub prevouts: Vec<TxOut>,
@@ -50,16 +51,21 @@ pub struct TransactionBuilder {
     pub secp: Secp256k1<secp256k1::All>,
     pub verifiers_pks: Vec<XOnlyPublicKey>,
     pub script_builder: ScriptBuilder,
+    pub aggregated_pubkey: secp256k1::PublicKey,
 }
 
 impl TransactionBuilder {
-    pub fn new(verifiers_pks: Vec<XOnlyPublicKey>) -> Self {
+    pub fn new(
+        verifiers_pks: Vec<XOnlyPublicKey>,
+        aggregated_pubkey: secp256k1::PublicKey,
+    ) -> Self {
         let secp = Secp256k1::new();
-        let script_builder = ScriptBuilder::new(verifiers_pks.clone());
+        let script_builder = ScriptBuilder::new(verifiers_pks.clone(), aggregated_pubkey);
         Self {
             secp,
             verifiers_pks,
             script_builder,
+            aggregated_pubkey,
         }
     }
 
@@ -69,7 +75,9 @@ impl TransactionBuilder {
         user_pk: &XOnlyPublicKey,
         user_evm_address: &EVMAddress,
     ) -> Result<CreateAddressOutputs, BridgeError> {
-        let deposit_script = self.script_builder.create_deposit_script(user_evm_address);
+        let deposit_script = self
+            .script_builder
+            .create_musig2_deposit_script(user_evm_address);
         let script_timelock = ScriptBuilder::generate_timelock_script(user_pk, USER_TAKES_AFTER);
         let taproot = TaprootBuilder::new()
             .add_leaf(1, deposit_script.clone())?
@@ -88,7 +96,20 @@ impl TransactionBuilder {
         Ok((address, tree_info))
     }
 
-    /// This function creates the move tx, it's prevouts for signing and the script to be used for the signature.
+    pub fn generate_musig2_bridge_address(&self) -> Result<CreateAddressOutputs, BridgeError> {
+        let aggregated_pk_script = self.script_builder.generate_script_agg_pk();
+        let taproot = TaprootBuilder::new().add_leaf(0, aggregated_pk_script.clone())?;
+        let tree_info = taproot.finalize(&self.secp, *INTERNAL_KEY)?;
+        let address = Address::p2tr(
+            &self.secp,
+            *INTERNAL_KEY,
+            tree_info.merkle_root(),
+            bitcoin::Network::Regtest,
+        );
+        Ok((address, tree_info))
+    }
+
+    /// This function creates the move tx, its prevouts for signing and the script to be used for the signature.
     pub fn create_move_tx(
         &self,
         deposit_utxo: OutPoint,
@@ -102,7 +123,7 @@ impl TransactionBuilder {
         //     evm_address_inscription_txout
         // );
 
-        let (bridge_address, _) = self.generate_bridge_address()?;
+        let (bridge_address, _) = self.generate_musig2_bridge_address()?;
         let (deposit_address, deposit_taproot_spend_info) =
             self.generate_deposit_address(return_address, evm_address)?;
 
@@ -126,7 +147,9 @@ impl TransactionBuilder {
             script_pubkey: deposit_address.script_pubkey(),
             value: Amount::from_sat(BRIDGE_AMOUNT_SATS),
         }];
-        let deposit_script = vec![self.script_builder.create_deposit_script(evm_address)];
+        let deposit_script = vec![self
+            .script_builder
+            .create_musig2_deposit_script(evm_address)];
         Ok(CreateTxOutputs {
             tx: move_tx,
             prevouts,
@@ -149,7 +172,7 @@ impl TransactionBuilder {
                 operator_xonly,
                 hash,
             )?;
-        let (bridge_address, bridge_taproot_spend_info) = self.generate_bridge_address()?;
+        let (bridge_address, bridge_taproot_spend_info) = self.generate_musig2_bridge_address()?;
 
         let anyone_can_spend_txout: TxOut = ScriptBuilder::anyone_can_spend_txout();
         let evm_address_inscription_txout: TxOut =

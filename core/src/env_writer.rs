@@ -5,7 +5,6 @@ use bitcoin::{
 use clementine_circuits::double_sha256_hash;
 use clementine_circuits::env::Environment;
 use secp256k1::hashes::Hash;
-use secp256k1::rand::seq::index;
 use std::marker::PhantomData;
 
 use crate::{errors::BridgeError, merkle::MerkleTree};
@@ -344,7 +343,7 @@ mod tests {
     use crypto_bigint::U256;
     use operator_circuit::GUEST_ELF;
     use risc0_zkvm::default_prover;
-    use secp256k1::hashes::Hash;
+    use secp256k1::{hashes::Hash, Parity};
 
     use crate::{
         env_writer::ENVWriter, errors::BridgeError, merkle::MerkleTree, mock_env::MockEnvironment,
@@ -622,7 +621,10 @@ mod tests {
         .unwrap();
 
         // Mock tx builder
-        let tx_builder = TransactionBuilder::new(vec![operator_xonly]);
+        let tx_builder = TransactionBuilder::new(
+            vec![operator_xonly],
+            secp256k1::PublicKey::from_x_only_public_key(operator_xonly, Parity::Even),
+        );
 
         for i in 0..24u8 {
             let preimages: Vec<[u8; 32]> = (0..i + 1).map(|j| [j as u8; 32]).collect();
