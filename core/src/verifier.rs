@@ -5,19 +5,24 @@ use crate::errors::BridgeError;
 use crate::traits::verifier::VerifierConnector;
 use crate::utils::check_deposit_utxo;
 use crate::{EVMAddress, HashTree};
+use async_trait::async_trait;
 use bitcoin::Address;
 use bitcoin::{secp256k1, secp256k1::Secp256k1, OutPoint};
 
 use clementine_circuits::constants::{BRIDGE_AMOUNT_SATS, NUM_ROUNDS};
+use jsonrpsee::core::client::ClientT;
+use jsonrpsee::http_client::{HeaderMap, HttpClient, HttpClientBuilder};
+use jsonrpsee::rpc_params;
 use secp256k1::SecretKey;
 use secp256k1::XOnlyPublicKey;
+use secp256k1::{schnorr, SecretKey};
 
 use crate::extended_rpc::ExtendedRpc;
 use crate::transaction_builder::TransactionBuilder;
 
 use crate::{actor::Actor, operator::DepositPresigns};
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct Verifier {
     pub rpc: ExtendedRpc,
     pub secp: Secp256k1<secp256k1::All>,
@@ -28,13 +33,13 @@ pub struct Verifier {
     verifier_db_connector: VerifierMockDB,
 }
 
-// impl VerifierConnector
+#[async_trait]
 impl VerifierConnector for Verifier {
     /// this is a endpoint that only the operator can call
     /// 1. Check if the deposit utxo is valid and finalized (6 blocks confirmation)
     /// 2. Check if the utxo is not already spent
     /// 3. Give move signature and operator claim signatures
-    fn new_deposit(
+    async fn new_deposit(
         &self,
         start_utxo: OutPoint,
         return_address: &XOnlyPublicKey,
@@ -98,7 +103,7 @@ impl VerifierConnector for Verifier {
 
     /// TODO: Add verification for the connector tree hashes
     fn connector_roots_created(
-        &mut self,
+        &self,
         connector_tree_hashes: &Vec<HashTree>,
         first_source_utxo: &OutPoint,
         start_blockheight: u64,
@@ -112,16 +117,16 @@ impl VerifierConnector for Verifier {
                 &period_relative_block_heights,
             )?;
 
-        self.verifier_db_connector
-            .set_connector_tree_utxos(utxo_trees);
-        self.verifier_db_connector
-            .set_connector_tree_hashes(connector_tree_hashes.clone());
-        self.verifier_db_connector
-            .set_claim_proof_merkle_trees(claim_proof_merkle_trees);
-        self.verifier_db_connector
-            .set_start_block_height(start_blockheight);
-        self.verifier_db_connector
-            .set_period_relative_block_heights(period_relative_block_heights);
+        // self.verifier_db_connector
+        //     .set_connector_tree_utxos(utxo_trees);
+        // self.verifier_db_connector
+        //     .set_connector_tree_hashes(connector_tree_hashes.clone());
+        // self.verifier_db_connector
+        //     .set_claim_proof_merkle_trees(claim_proof_merkle_trees);
+        // self.verifier_db_connector
+        //     .set_start_block_height(start_blockheight);
+        // self.verifier_db_connector
+        //     .set_period_relative_block_heights(period_relative_block_heights);
 
         Ok(())
     }
@@ -176,5 +181,56 @@ impl Verifier {
             operator_pk,
             verifier_db_connector,
         })
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct VerifierClient {
+    pub verifier_client: HttpClient,
+}
+
+impl VerifierClient {
+    pub fn new(verifier_rpc_address: String) -> Self {
+        let headers = HeaderMap::new();
+        // Build client
+        let client = HttpClientBuilder::default()
+            .set_headers(headers)
+            .build(verifier_rpc_address)
+            .unwrap();
+
+        VerifierClient {
+            verifier_client: client,
+        }
+    }
+}
+#[async_trait]
+impl VerifierConnector for VerifierClient {
+    async fn new_deposit(
+        &self,
+        start_utxo: OutPoint,
+        return_address: &XOnlyPublicKey,
+        deposit_index: u32,
+        evm_address: &EVMAddress,
+        operator_address: &Address,
+    ) -> Result<DepositPresigns, BridgeError> {
+        self.verifier_client.request("new_deposit", rpc_params![]).await?;
+        Ok(DepositPresigns {
+            move_sign: schnorr::Signature::from_slice(&[0; 64]).unwrap(),
+            operator_claim_sign: vec![],
+        })
+    }
+
+    fn connector_roots_created(
+        &self,
+        connector_tree_hashes: &Vec<HashTree>,
+        first_source_utxo: &OutPoint,
+        start_blockheight: u64,
+        period_relative_block_heights: Vec<u32>,
+    ) -> Result<(), BridgeError> {
+        unimplemented!()
+    }
+
+    fn challenge_operator(&self, period: u8) -> Result<VerifierChallenge, BridgeError> {
+        unimplemented!()
     }
 }

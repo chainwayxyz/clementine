@@ -4,6 +4,7 @@ use crate::extended_rpc::ExtendedRpc;
 use crate::transaction_builder::TransactionBuilder;
 use crate::EVMAddress;
 use bitcoin::secp256k1::Secp256k1;
+use bitcoin::Address;
 use bitcoin::OutPoint;
 use bitcoin::Transaction;
 use bitcoin::XOnlyPublicKey;
@@ -44,6 +45,16 @@ impl User {
             .send_to_address(&deposit_address, BRIDGE_AMOUNT_SATS)?;
 
         Ok((deposit_utxo, self.signer.xonly_public_key, evm_address))
+    }
+
+    pub fn get_deposit_address(
+        &self,
+        evm_address: EVMAddress,
+    ) -> Result<Address,  BridgeError> {
+        let (deposit_address, _) = self
+            .transaction_builder
+            .generate_deposit_address(&self.signer.xonly_public_key, &evm_address)?;
+        Ok(deposit_address)
     }
 
     pub fn generate_deposit_proof(&self, _move_txid: Transaction) -> Result<(), BridgeError> {

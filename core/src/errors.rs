@@ -99,6 +99,10 @@ pub enum BridgeError {
     /// Merkle Proof Error
     #[error("MerkleProofError")]
     MerkleProofError,
+    /// JSON RPC Error
+    /// Returned when the JSON RPC call fails
+    #[error("JsonRpcError: {0}")]
+    JsonRpcError(jsonrpsee::core::Error),
     /// Given key pair is invalid and new pairs can't be generated randomly
     #[error("InvalidKeyPair")]
     InvalidKeyPair,
@@ -157,5 +161,11 @@ impl From<bitcoincore_rpc::Error> for BridgeError {
 impl From<MerkleBlockError> for BridgeError {
     fn from(err: MerkleBlockError) -> Self {
         BridgeError::MerkleBlockError(err)
+    }
+}
+
+impl From<jsonrpsee::core::Error> for BridgeError {
+    fn from(err: jsonrpsee::core::Error) -> Self {
+        BridgeError::JsonRpcError(err)
     }
 }
