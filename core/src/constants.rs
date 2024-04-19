@@ -14,7 +14,7 @@ pub const CONNECTOR_TREE_DEPTH: usize = CLAIM_MERKLE_TREE_DEPTH;
 /// Dust value for mempool acceptance
 pub const DUST_VALUE: u64 = 1000;
 /// Minimum relay fee for mempool acceptance
-pub const MIN_RELAY_FEE: u64 = 500;
+pub const MIN_RELAY_FEE: u64 = 285;
 
 /// This is temporary. to be able to set PERIOD_END_BLOCK_HEIGHTS
 pub const PERIOD_BLOCK_COUNT: u32 = 50; // 10 mins for 1 block, 6 months = 6*30*24*6 = 25920
