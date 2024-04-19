@@ -117,10 +117,12 @@ async fn main() {
             let mut operator_clone = operator.clone(); // Assuming Verifier is Clone
             async move {
                 // Call the appropriate method on the Verifier instance
-                operator_clone
+                let move_utxo = operator_clone
                     .new_deposit(start_utxo, &return_address, &evm_address)
                     .await
                     .unwrap();
+                println!("move_utxo: {:?}", move_utxo);
+                serde_json::to_string(&move_utxo).unwrap()
             }
         })
         .unwrap();

@@ -183,6 +183,15 @@ impl ExtendedRpc {
         Ok(block_height)
     }
 
+    pub fn fundrawtransaction(
+        &self,
+        tx: &Transaction,
+        options: Option<&bitcoincore_rpc::json::FundRawTransactionOptions>,
+        is_witness: Option<bool>,
+    ) -> Result<bitcoincore_rpc::json::FundRawTransactionResult, bitcoincore_rpc::Error> {
+        self.inner.fund_raw_transaction(tx, options, is_witness)
+    }
+
     // Following methods are just wrappers around the bitcoincore_rpc::Client methods
     pub fn get_blockchain_info(
         &self,

@@ -4,7 +4,7 @@ use std::vec;
 use crate::actor::Actor;
 use crate::constants::{
     VerifierChallenge, CONNECTOR_TREE_DEPTH, DUST_VALUE, K_DEEP,
-    MAX_BITVM_CHALLENGE_RESPONSE_BLOCKS, MIN_RELAY_FEE, PERIOD_BLOCK_COUNT,
+    MAX_BITVM_CHALLENGE_RESPONSE_BLOCKS, MIN_RELAY_FEE, PERIOD_BLOCK_COUNT, TEST_MODE,
 };
 use crate::db::operator::OperatorMockDB;
 use crate::env_writer::ENVWriter;
@@ -218,60 +218,62 @@ impl Operator {
             txid: rpc_move_txid,
             vout: 0,
         };
-        let operator_claim_sigs = OperatorClaimSigs {
-            operator_claim_sigs: presigns_from_all_verifiers
-                .iter()
-                .map(|presign| presign.operator_claim_sign.clone())
-                .collect::<Vec<_>>(),
-        };
-        self.operator_db_connector
-            .add_deposit_take_sigs(operator_claim_sigs);
+        if !TEST_MODE {
+            let operator_claim_sigs = OperatorClaimSigs {
+                operator_claim_sigs: presigns_from_all_verifiers
+                    .iter()
+                    .map(|presign| presign.operator_claim_sign.clone())
+                    .collect::<Vec<_>>(),
+            };
+            self.operator_db_connector
+                .add_deposit_take_sigs(operator_claim_sigs);
 
-        for i in 0..NUM_ROUNDS {
-            let connector_utxo = self.operator_db_connector.get_connector_tree_utxo(i)
-                [CONNECTOR_TREE_DEPTH][deposit_index as usize];
-            let connector_hash = self.operator_db_connector.get_connector_tree_hash(
-                i,
-                CONNECTOR_TREE_DEPTH,
-                deposit_index as usize,
-            );
-            let mut operator_claim_tx = self.transaction_builder.create_operator_claim_tx(
-                move_utxo,
-                connector_utxo,
-                &self.signer.address,
-                &self.signer.xonly_public_key,
-                &connector_hash,
-            )?;
-
-            let sig_hash = self
-                .signer
-                .sighash_taproot_script_spend(&mut operator_claim_tx, 0)?;
-
-            let op_claim_sigs_for_period_i = presigns_from_all_verifiers
-                .iter()
-                .map(|presign| {
-                    // tracing::debug!(
-                    //     "presign.operator_claim_sign[{:?}]: {:?}",
-                    //     i, presign.operator_claim_sign[i]
-                    // );
-                    presign.operator_claim_sign[i]
-                })
-                .collect::<Vec<_>>();
-            // tracing::debug!(
-            //     "len of op_claim_sigs_for_period_i: {:?}",
-            //     op_claim_sigs_for_period_i.len()
-            // );
-            for (idx, sig) in op_claim_sigs_for_period_i.iter().enumerate() {
-                // tracing::debug!("verifying presigns for index {:?}: ", idx);
-                // tracing::debug!("sig: {:?}", sig);
-                self.signer.secp.verify_schnorr(
-                    sig,
-                    &Message::from_digest_slice(sig_hash.as_byte_array()).expect("should be hash"),
-                    &self.verifiers_pks[idx],
+            for i in 0..NUM_ROUNDS {
+                let connector_utxo = self.operator_db_connector.get_connector_tree_utxo(i)
+                    [CONNECTOR_TREE_DEPTH][deposit_index as usize];
+                let connector_hash = self.operator_db_connector.get_connector_tree_hash(
+                    i,
+                    CONNECTOR_TREE_DEPTH,
+                    deposit_index as usize,
+                );
+                let mut operator_claim_tx = self.transaction_builder.create_operator_claim_tx(
+                    move_utxo,
+                    connector_utxo,
+                    &self.signer.address,
+                    &self.signer.xonly_public_key,
+                    &connector_hash,
                 )?;
+
+                let sig_hash = self
+                    .signer
+                    .sighash_taproot_script_spend(&mut operator_claim_tx, 0)?;
+
+                let op_claim_sigs_for_period_i = presigns_from_all_verifiers
+                    .iter()
+                    .map(|presign| {
+                        // tracing::debug!(
+                        //     "presign.operator_claim_sign[{:?}]: {:?}",
+                        //     i, presign.operator_claim_sign[i]
+                        // );
+                        presign.operator_claim_sign[i]
+                    })
+                    .collect::<Vec<_>>();
+                // tracing::debug!(
+                //     "len of op_claim_sigs_for_period_i: {:?}",
+                //     op_claim_sigs_for_period_i.len()
+                // );
+                for (idx, sig) in op_claim_sigs_for_period_i.iter().enumerate() {
+                    // tracing::debug!("verifying presigns for index {:?}: ", idx);
+                    // tracing::debug!("sig: {:?}", sig);
+                    self.signer.secp.verify_schnorr(
+                        sig,
+                        &Message::from_digest_slice(sig_hash.as_byte_array())
+                            .expect("should be hash"),
+                        &self.verifiers_pks[idx],
+                    )?;
+                }
             }
         }
-
         Ok(move_utxo)
     }
 
