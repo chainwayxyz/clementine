@@ -33,3 +33,6 @@ pub const K_DEEP: u32 = 3;
 pub const MAX_BITVM_CHALLENGE_RESPONSE_BLOCKS: u32 = 5;
 
 pub type VerifierChallenge = (BlockHash, U256, u8);
+
+/// Which of the Bitcoin's networks to act on
+pub const NETWORK: bitcoin::Network = bitcoin::Network::Regtest;

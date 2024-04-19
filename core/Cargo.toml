@@ -2,6 +2,7 @@
 name = "clementine-core"
 version = "0.1.0"
 edition = "2021"
+default-run = "clementine-core"
 
 [dependencies]
 clementine-circuits = {path = "../circuits"}
@@ -15,7 +16,7 @@ risc0-zkvm = { version = "0.21.0" }
 serde = "1.0"
 serde_json = "1.0.108"
 byteorder = "1.5.0"
-secp256k1 = "0.28.1"
+secp256k1 = {version="0.28.1", features = ["serde"]}
 crypto-bigint = {version="=0.5.5"}
 thiserror = "1.0.57"
 tracing = "0.1.40"
@@ -45,3 +46,5 @@ path = "src/bin/operator_server.rs"
 name = "user_deposit"
 path = "src/bin/user_deposit.rs"
 
+[[bin]]
+name = "key_generator"

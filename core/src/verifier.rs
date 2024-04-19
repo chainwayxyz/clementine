@@ -9,10 +9,11 @@ use async_trait::async_trait;
 use bitcoin::Address;
 use bitcoin::{secp256k1, secp256k1::Secp256k1, OutPoint};
 
-use clementine_circuits::constants::{BRIDGE_AMOUNT_SATS, CLAIM_MERKLE_TREE_DEPTH, NUM_ROUNDS};
+use clementine_circuits::constants::{BRIDGE_AMOUNT_SATS, NUM_ROUNDS};
 use jsonrpsee::core::client::ClientT;
 use jsonrpsee::http_client::{HeaderMap, HttpClient, HttpClientBuilder};
 use jsonrpsee::rpc_params;
+use secp256k1::SecretKey;
 use secp256k1::XOnlyPublicKey;
 use secp256k1::{schnorr, SecretKey};
 

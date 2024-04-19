@@ -3,7 +3,7 @@ use std::str::FromStr;
 use crate::{
     constants::{
         CONNECTOR_TREE_DEPTH, CONNECTOR_TREE_OPERATOR_TAKES_AFTER, DUST_VALUE, K_DEEP,
-        MAX_BITVM_CHALLENGE_RESPONSE_BLOCKS, MIN_RELAY_FEE, USER_TAKES_AFTER,
+        MAX_BITVM_CHALLENGE_RESPONSE_BLOCKS, MIN_RELAY_FEE, NETWORK, USER_TAKES_AFTER,
     },
     merkle::MerkleTree,
     utils::get_claim_proof_tree_leaf,
@@ -75,12 +75,7 @@ impl TransactionBuilder {
             .add_leaf(1, deposit_script.clone())?
             .add_leaf(1, script_timelock.clone())?;
         let tree_info = taproot.finalize(&self.secp, *INTERNAL_KEY)?;
-        let address = Address::p2tr(
-            &self.secp,
-            *INTERNAL_KEY,
-            tree_info.merkle_root(),
-            bitcoin::Network::Regtest,
-        );
+        let address = Address::p2tr(&self.secp, *INTERNAL_KEY, tree_info.merkle_root(), NETWORK);
         Ok((address, tree_info))
     }
 
@@ -89,12 +84,7 @@ impl TransactionBuilder {
         let script_n_of_n = self.script_builder.generate_script_n_of_n();
         let taproot = TaprootBuilder::new().add_leaf(0, script_n_of_n.clone())?;
         let tree_info = taproot.finalize(&self.secp, *INTERNAL_KEY)?;
-        let address = Address::p2tr(
-            &self.secp,
-            *INTERNAL_KEY,
-            tree_info.merkle_root(),
-            bitcoin::Network::Regtest,
-        );
+        let address = Address::p2tr(&self.secp, *INTERNAL_KEY, tree_info.merkle_root(), NETWORK);
         Ok((address, tree_info))
     }
 
@@ -372,12 +362,7 @@ impl TransactionBuilder {
         let internal_key = *INTERNAL_KEY;
         let tree_info = taproot_builder.finalize(secp, internal_key)?;
         Ok((
-            Address::p2tr(
-                secp,
-                internal_key,
-                tree_info.merkle_root(),
-                bitcoin::Network::Regtest,
-            ),
+            Address::p2tr(secp, internal_key, tree_info.merkle_root(), NETWORK),
             tree_info,
         ))
     }

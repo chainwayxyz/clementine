@@ -103,6 +103,9 @@ pub enum BridgeError {
     /// Returned when the JSON RPC call fails
     #[error("JsonRpcError: {0}")]
     JsonRpcError(jsonrpsee::core::Error),
+    /// Given key pair is invalid and new pairs can't be generated randomly
+    #[error("InvalidKeyPair")]
+    InvalidKeyPair,
 }
 
 impl From<secp256k1::Error> for BridgeError {
