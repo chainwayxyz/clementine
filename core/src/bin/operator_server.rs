@@ -2,7 +2,7 @@ use bitcoin::{Address, OutPoint};
 use clementine_core::operator::Operator;
 use clementine_core::traits::verifier::VerifierConnector;
 use clementine_core::verifier::VerifierClient;
-use clementine_core::EVMAddress;
+use clementine_core::{keys, EVMAddress};
 use clementine_core::{constants::NUM_VERIFIERS, extended_rpc::ExtendedRpc, verifier::Verifier};
 use crypto_bigint::rand_core::OsRng;
 use dotenv::dotenv;
@@ -23,17 +23,16 @@ struct NewDepositParams {
     user_evm_address: String,
 }
 
-/// main function to start verifier server
+/// main function to start operator server
 /// ```bash
-/// curl -X POST http://localhost:3131 -H "Content-Type: application/json" -d '{
+/// curl -X POST http://localhost:3232 -H "Content-Type: application/json" -d '{
 /// "jsonrpc": "2.0",
 /// "method": "new_deposit",
 /// "params": {
-///     "deposit_txid": "4a993d208d3faae29591a92d6e09fcab58d0a74422d45c784ec8f9b6f8e90f98",
-///     "deposit_vout": 6,
+///     "deposit_txid": "30608915bfe45af7d922f05d3726b87208737d3d9088770a5627327ac79e6049",
+///     "deposit_vout": 9,
 ///     "user_return_xonly_pk": "9a857208e280d56d008894e7088a4e059cccc28efed3cab1c06b0cfbe3df3526",
-///     "user_evm_address": "0000000000000000000000000000000000000000",
-///     "operator_address": "tb1qmfcjlvnwv5rzwu8dyj9akrcgu07a50geewsh5g"
+///     "user_evm_address": "0101010101010101010101010101010101010101"
 /// },
 /// "id": 1
 /// }'
@@ -41,30 +40,19 @@ struct NewDepositParams {
 #[tokio::main]
 async fn main() {
     let rpc = ExtendedRpc::new();
-
-    let secp = bitcoin::secp256k1::Secp256k1::new();
-
-    let seed: [u8; 32] = [0u8; 32];
-    let mut seeded_rng = StdRng::from_seed(seed);
-    let (all_sks, all_xonly_pks): (Vec<_>, Vec<_>) = (0..NUM_VERIFIERS + 1)
-        .map(|_| {
-            let (sk, pk) = secp.generate_keypair(&mut seeded_rng);
-            (sk, XOnlyPublicKey::from(pk))
-        })
-        .unzip();
+    let (secret_key, all_xonly_pks) = keys::get_from_file().unwrap();
+    
 
     let mut verifiers: Vec<Arc<dyn VerifierConnector>> = Vec::new();
-    for i in 0..NUM_VERIFIERS {
-        // let rpc = ExtendedRpc::new();
+    for _ in 0..NUM_VERIFIERS {
         let verifier = VerifierClient::new("http://127.0.0.1:3131".to_string());
-        // Convert the Verifier instance into a boxed trait object
         verifiers.push(Arc::new(verifier) as Arc<dyn VerifierConnector>);
     }
 
-    let mut operator = Operator::new(
+    let operator = Operator::new(
         rpc.clone(),
         all_xonly_pks.clone(),
-        all_sks[NUM_VERIFIERS],
+        secret_key,
         verifiers,
     ).unwrap();
 
