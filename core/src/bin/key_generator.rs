@@ -8,27 +8,30 @@ use core::panic;
 use crypto_bigint::rand_core::OsRng;
 use secp256k1::SecretKey;
 use std::{
-    fs::{self, File},
-    io::Write,
+    env, fs::{self, File}, io::Write
 };
 
-/// Directory to put generated key files.
+/// Environment variable that defines key file's directory.
+const ENV_DIR: &str = "KEY_DIR";
+
+/// Defualt directory to put generated key files if `ENV_DIR` is not specified.
 const DIRECTORY: &str = "configs";
 
 /// Key file prefix.
 const PREFIX: &str = "keys";
 
 fn main() {
+    let directory = env::var(ENV_DIR).unwrap_or_else(|_| DIRECTORY.to_string());
     let (all_sks, all_xonly_pks) = generate_keypair();
     println!("Generated private keys: {:#?}", all_sks.clone());
     println!("Generated public keys: {:#?}", all_xonly_pks.clone());
 
     // Create directory. If it exist, it will return an `Err`. Handle that with
     // a variable.
-    let _ = fs::create_dir(DIRECTORY);
+    let _ = fs::create_dir(directory.clone());
 
     for i in 0..all_sks.len() {
-        create_file(i, all_sks.clone(), all_xonly_pks.clone());
+        create_file(&directory, i, all_sks.clone(), all_xonly_pks.clone());
     }
 }
 
@@ -52,8 +55,8 @@ fn generate_keypair() -> (Vec<SecretKey>, Vec<XOnlyPublicKey>) {
     (all_sks, all_xonly_pks)
 }
 
-/// Creates nth file in `DIRECTORY`.
-fn create_file(index: usize, all_sks: Vec<SecretKey>, all_xonly_sks: Vec<XOnlyPublicKey>) {
+/// Creates nth file in key directory.
+fn create_file(directory: &String, index: usize, all_sks: Vec<SecretKey>, all_xonly_sks: Vec<XOnlyPublicKey>) {
     let content = FileContents {
         private_key: all_sks[index],
         public_keys: all_xonly_sks,
@@ -61,7 +64,7 @@ fn create_file(index: usize, all_sks: Vec<SecretKey>, all_xonly_sks: Vec<XOnlyPu
     };
 
     let serialized = serde_json::to_string_pretty(&content).unwrap();
-    let file = DIRECTORY.to_string() + "/" + PREFIX + index.to_string().as_str() + ".json";
+    let file = directory.to_string() + "/" + PREFIX + index.to_string().as_str() + ".json";
 
     let mut file = File::create(file).unwrap();
     file.write_all(serialized.as_bytes()).unwrap();
