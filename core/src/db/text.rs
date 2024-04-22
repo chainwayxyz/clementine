@@ -65,10 +65,7 @@ mod tests {
 
     use crate::{
         constants::TEXT_DATABASE,
-        db::{
-            common::DatabaseContent,
-            text::TextDatabase,
-        },
+        db::{common::DatabaseContent, text::TextDatabase},
     };
 
     #[test]
