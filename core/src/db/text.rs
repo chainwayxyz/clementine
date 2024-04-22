@@ -32,7 +32,8 @@ impl TextDatabase {
     pub fn read(&self) -> Result<DatabaseContent, std::io::Error> {
         let contents = match fs::read_to_string(&self.file) {
             Ok(c) => c,
-            Err(e) => return Err(e),
+            // In case of error, create an empty database.
+            Err(_) => String::new(),
         };
 
         let deserialized: DatabaseContent = match serde_json::from_str(&contents) {
@@ -75,7 +76,7 @@ mod tests {
             TextDatabase {
                 file: TEXT_DATABASE.into()
             }
-        )
+        );
     }
 
     /// Writes mock database to file, then reads it. Compares if input equals
