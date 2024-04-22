@@ -14,6 +14,7 @@ use bitcoin::Amount;
 
 use bitcoin::ScriptBuf;
 
+use clementine_circuits::constants::BRIDGE_AMOUNT_SATS;
 use hex;
 
 use sha2::{Digest, Sha256};
@@ -54,7 +55,8 @@ pub fn check_deposit_utxo(
         return Err(BridgeError::DepositNotFinalized);
     }
 
-    let (deposit_address, _) = tx_builder.generate_deposit_address(return_address, evm_address)?;
+    let (deposit_address, _) =
+        tx_builder.generate_deposit_address(return_address, evm_address, BRIDGE_AMOUNT_SATS)?;
 
     if !rpc.check_utxo_address_and_amount(
         outpoint,

@@ -105,10 +105,7 @@ pub fn get_from_file() -> Result<(SecretKey, Vec<XOnlyPublicKey>), InvalidKeySou
 fn read_file(name: String) -> Result<(SecretKey, Vec<XOnlyPublicKey>), std::io::Error> {
     match fs::read_to_string(name) {
         Ok(content) => match serde_json::from_str::<FileContents>(&content) {
-            Ok(deserialized) => Ok((
-                deserialized.private_key,
-                deserialized.public_keys,
-            )),
+            Ok(deserialized) => Ok((deserialized.private_key, deserialized.public_keys)),
             Err(e) => return Err(e.into()),
         },
         Err(e) => Err(e.into()),

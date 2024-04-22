@@ -1,5 +1,6 @@
+use bitcoin::blockdata::opcodes::all::OP_PUSHNUM_1;
 use bitcoin::{
-    opcodes::{all::*, OP_FALSE, OP_TRUE},
+    opcodes::{all::*, OP_FALSE},
     script::Builder,
     ScriptBuf, TxOut,
 };
@@ -18,7 +19,7 @@ impl ScriptBuilder {
     }
 
     pub fn anyone_can_spend_txout() -> TxOut {
-        let script = Builder::new().push_opcode(OP_TRUE).into_script();
+        let script = Builder::new().push_opcode(OP_PUSHNUM_1).into_script();
         let script_pubkey = script.to_p2wsh();
         let value = script_pubkey.dust_value();
         TxOut {
@@ -45,35 +46,39 @@ impl ScriptBuilder {
         for vpk in self.verifiers_pks.clone() {
             builder = builder.push_x_only_key(&vpk).push_opcode(OP_CHECKSIGVERIFY);
         }
-        builder = builder.push_opcode(OP_TRUE);
+        builder = builder.push_opcode(OP_PUSHNUM_1);
         builder.into_script()
     }
 
-    pub fn generate_script_n_of_n_with_user_pk(&self, user_pk: &XOnlyPublicKey) -> ScriptBuf {
+    // pub fn generate_script_n_of_n_with_user_pk(&self, user_pk: &XOnlyPublicKey) -> ScriptBuf {
+    //     let mut builder = Builder::new();
+    //     for vpk in self.verifiers_pks.clone() {
+    //         builder = builder.push_x_only_key(&vpk).push_opcode(OP_CHECKSIGVERIFY);
+    //     }
+    //     builder = builder
+    //         .push_x_only_key(user_pk)
+    //         .push_opcode(OP_CHECKSIGVERIFY);
+    //     builder = builder.push_opcode(OP_PUSHNUM_1);
+    //     builder.into_script()
+    // }
+
+    pub fn create_deposit_script(&self, evm_address: &EVMAddress, amount: u64) -> ScriptBuf {
         let mut builder = Builder::new();
         for vpk in self.verifiers_pks.clone() {
             builder = builder.push_x_only_key(&vpk).push_opcode(OP_CHECKSIGVERIFY);
         }
+        let citrea: [u8; 6] = "citrea".as_bytes().try_into().unwrap();
+        println!("citrea: {:?}", citrea);
         builder = builder
-            .push_x_only_key(user_pk)
-            .push_opcode(OP_CHECKSIGVERIFY);
-        builder = builder.push_opcode(OP_TRUE);
-        builder.into_script()
-    }
-
-    pub fn create_deposit_script(&self, evm_address: &EVMAddress) -> ScriptBuf {
-        let mut builder = Builder::new();
-        for vpk in self.verifiers_pks.clone() {
-            builder = builder.push_x_only_key(&vpk).push_opcode(OP_CHECKSIGVERIFY);
-        }
-
-        builder = builder
-            .push_opcode(OP_TRUE)
+            .push_opcode(OP_PUSHNUM_1)
             .push_opcode(OP_FALSE)
             .push_opcode(OP_IF)
+            .push_slice(citrea)
             .push_slice(evm_address)
+            .push_slice(amount.to_be_bytes())
             .push_opcode(OP_ENDIF);
 
+        // println!("deposit script: {:?}", builder.clone().into_script());
         builder.into_script()
     }
 

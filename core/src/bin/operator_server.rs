@@ -2,8 +2,8 @@ use bitcoin::{Address, OutPoint};
 use clementine_core::operator::Operator;
 use clementine_core::traits::verifier::VerifierConnector;
 use clementine_core::verifier::VerifierClient;
-use clementine_core::{keys, EVMAddress};
 use clementine_core::{constants::NUM_VERIFIERS, extended_rpc::ExtendedRpc, verifier::Verifier};
+use clementine_core::{keys, EVMAddress};
 use crypto_bigint::rand_core::OsRng;
 use dotenv::dotenv;
 use jsonrpsee::{server::Server, RpcModule};
@@ -11,12 +11,12 @@ use secp256k1::rand::{rngs::StdRng, SeedableRng};
 use secp256k1::XOnlyPublicKey;
 use serde::Deserialize;
 use serde_json::Value;
-use tracing_subscriber::util::SubscriberInitExt;
-use tracing_subscriber::{fmt, EnvFilter};
-use tracing_subscriber::layer::SubscriberExt;
 use std::str::FromStr;
 use std::sync::Arc;
 use std::{env, net::SocketAddr};
+use tracing_subscriber::layer::SubscriberExt;
+use tracing_subscriber::util::SubscriberInitExt;
+use tracing_subscriber::{fmt, EnvFilter};
 
 #[derive(Deserialize)]
 struct NewDepositParams {
@@ -25,7 +25,6 @@ struct NewDepositParams {
     user_return_xonly_pk: String,
     user_evm_address: String,
 }
-
 
 /// Default initialization of logging
 pub fn initialize_logging() {
@@ -59,7 +58,7 @@ async fn main() {
     initialize_logging();
     let rpc = ExtendedRpc::new();
     let (secret_key, all_xonly_pks) = keys::get_from_file().unwrap();
-    
+
     let verifier_endpoints = vec![
         "http://127.0.0.1:3030".to_string(),
         "http://127.0.0.1:3131".to_string(),
@@ -73,12 +72,8 @@ async fn main() {
         verifiers.push(Arc::new(verifier) as Arc<dyn VerifierConnector>);
     }
 
-    let operator = Operator::new(
-        rpc.clone(),
-        all_xonly_pks.clone(),
-        secret_key,
-        verifiers,
-    ).unwrap();
+    let operator =
+        Operator::new(rpc.clone(), all_xonly_pks.clone(), secret_key, verifiers).unwrap();
 
     let server = Server::builder()
         .build("127.0.0.1:3434".parse::<SocketAddr>().unwrap())

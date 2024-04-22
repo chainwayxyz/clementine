@@ -1,8 +1,8 @@
 use std::{borrow::BorrowMut, str::FromStr};
 
 use bitcoin::{
-    opcodes::OP_TRUE, script::Builder, sighash::SighashCache, Address, Amount, OutPoint, ScriptBuf,
-    Transaction, TxIn, TxOut, Txid,
+    script::Builder, sighash::SighashCache, Address, Amount, OutPoint, ScriptBuf, Transaction,
+    TxIn, TxOut, Txid,
 };
 use bitcoincore_rpc::json::FundRawTransactionOptions;
 use clementine_core::{
