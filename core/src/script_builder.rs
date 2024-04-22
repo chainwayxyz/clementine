@@ -41,32 +41,7 @@ impl ScriptBuilder {
         }
     }
 
-    pub fn generate_script_n_of_n(&self) -> ScriptBuf {
-        let mut builder = Builder::new();
-        let last_index = self.verifiers_pks.len() - 1;
-
-        for &vpk in &self.verifiers_pks[..last_index] {
-            builder = builder.push_x_only_key(&vpk).push_opcode(OP_CHECKSIGVERIFY);
-        }
-        builder
-            .push_x_only_key(&self.verifiers_pks[last_index])
-            .push_opcode(OP_CHECKSIG)
-            .into_script()
-    }
-
-    // pub fn generate_script_n_of_n_with_user_pk(&self, user_pk: &XOnlyPublicKey) -> ScriptBuf {
-    //     let mut builder = Builder::new();
-    //     for vpk in self.verifiers_pks.clone() {
-    //         builder = builder.push_x_only_key(&vpk).push_opcode(OP_CHECKSIGVERIFY);
-    //     }
-    //     builder = builder
-    //         .push_x_only_key(user_pk)
-    //         .push_opcode(OP_CHECKSIGVERIFY);
-    //     builder = builder.push_opcode(OP_PUSHNUM_1);
-    //     builder.into_script()
-    // }
-
-    pub fn create_deposit_script(&self, evm_address: &EVMAddress, amount: u64) -> ScriptBuf {
+    pub fn create_n_of_n_builder(&self) -> Builder {
         let mut builder = Builder::new();
         let last_index = self.verifiers_pks.len() - 1;
 
@@ -76,9 +51,16 @@ impl ScriptBuilder {
         builder = builder
             .push_x_only_key(&self.verifiers_pks[last_index])
             .push_opcode(OP_CHECKSIG);
-
-        let citrea: [u8; 6] = "citrea".as_bytes().try_into().unwrap();
         builder
+    }
+
+    pub fn generate_script_n_of_n(&self) -> ScriptBuf {
+        self.create_n_of_n_builder().into_script()
+    }
+
+    pub fn create_deposit_script(&self, evm_address: &EVMAddress, amount: u64) -> ScriptBuf {
+        let citrea: [u8; 6] = "citrea".as_bytes().try_into().unwrap();
+        self.create_n_of_n_builder()
             .push_opcode(OP_FALSE)
             .push_opcode(OP_IF)
             .push_slice(citrea)
