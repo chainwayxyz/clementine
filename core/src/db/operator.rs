@@ -4,13 +4,13 @@ use clementine_circuits::PreimageType;
 use std::ops::{Deref, DerefMut};
 
 #[derive(Debug, Clone)]
-pub struct OperatorDB {
+pub struct OperatorMockDB {
     common_db: Database,
     deposit_take_sigs: Vec<OperatorClaimSigs>,
     connector_tree_preimages: Vec<PreimageTree>,
 }
 
-impl OperatorDB {
+impl OperatorMockDB {
     pub fn new() -> Self {
         Self {
             common_db: Database::new(),
@@ -20,7 +20,7 @@ impl OperatorDB {
     }
 }
 
-impl Deref for OperatorDB {
+impl Deref for OperatorMockDB {
     type Target = Database;
 
     fn deref(&self) -> &Self::Target {
@@ -28,13 +28,13 @@ impl Deref for OperatorDB {
     }
 }
 
-impl DerefMut for OperatorDB {
+impl DerefMut for OperatorMockDB {
     fn deref_mut(&mut self) -> &mut Self::Target {
         &mut self.common_db
     }
 }
 
-impl OperatorDB {
+impl OperatorMockDB {
     pub fn get_deposit_index(&self) -> usize {
         self.deposit_take_sigs.len()
     }
