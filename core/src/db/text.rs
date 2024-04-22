@@ -9,7 +9,7 @@
 //! Data is serialized using serde, before writing to the file. So, it's a JSON
 //! file.
 
-use super::common::{Database, DatabaseContent};
+use super::common::DatabaseContent;
 use serde::{Deserialize, Serialize};
 use std::io::prelude::*;
 use std::{
@@ -44,8 +44,8 @@ impl TextDatabase {
     }
 
     /// Serializes data and writes to a text file.
-    pub fn write(&self, data: Database) -> Result<(), std::io::Error> {
-        let serialized = match serde_json::to_string(&data.content) {
+    pub fn write(&self, content: DatabaseContent) -> Result<(), std::io::Error> {
+        let serialized = match serde_json::to_string(&content) {
             Ok(c) => c,
             Err(e) => return Err(e.into()),
         };
@@ -65,7 +65,10 @@ mod tests {
 
     use crate::{
         constants::TEXT_DATABASE,
-        db::{common::Database, text::TextDatabase},
+        db::{
+            common::DatabaseContent,
+            text::TextDatabase,
+        },
     };
 
     #[test]
@@ -82,7 +85,7 @@ mod tests {
     /// output.
     #[test]
     fn write_read() {
-        let expected = Database::new();
+        let expected = DatabaseContent::new();
         let dbms = TextDatabase::new(TEXT_DATABASE.into());
 
         // Check if file is writable.
@@ -93,7 +96,7 @@ mod tests {
 
         // Check if read operation is successful.
         match dbms.read() {
-            Ok(c) => assert_eq!(expected.content, c),
+            Ok(c) => assert_eq!(expected, c),
             Err(_) => assert!(false),
         }
 
