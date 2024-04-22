@@ -216,12 +216,20 @@ impl VerifierConnector for VerifierClient {
     ) -> Result<DepositPresigns, BridgeError> {
         // Create a JSON object with the expected parameters
         let mut params = ObjectParams::new();
-        params.insert("deposit_txid", start_utxo.txid.to_string()).unwrap();
+        params
+            .insert("deposit_txid", start_utxo.txid.to_string())
+            .unwrap();
         params.insert("deposit_vout", start_utxo.vout).unwrap();
-        params.insert("user_return_xonly_pk", return_address.to_string()).unwrap();
+        params
+            .insert("user_return_xonly_pk", return_address.to_string())
+            .unwrap();
         params.insert("deposit_index", deposit_index).unwrap();
-        params.insert("user_evm_address", hex::encode(evm_address)).unwrap();
-        params.insert("operator_address", operator_address.to_string()).unwrap();
+        params
+            .insert("user_evm_address", hex::encode(evm_address))
+            .unwrap();
+        params
+            .insert("operator_address", operator_address.to_string())
+            .unwrap();
 
         // Make the request with the JSON object
         let result: String = self.verifier_client.request("new_deposit", params).await?;

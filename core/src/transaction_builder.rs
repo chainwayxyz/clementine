@@ -10,7 +10,7 @@ use crate::{
     ConnectorUTXOTree, EVMAddress, HashTree,
 };
 use bitcoin::{
-    absolute,
+    absolute, amount,
     opcodes::all::{OP_EQUAL, OP_SHA256},
     script::Builder,
     taproot::{TaprootBuilder, TaprootSpendInfo},
@@ -68,8 +68,11 @@ impl TransactionBuilder {
         &self,
         user_pk: &XOnlyPublicKey,
         user_evm_address: &EVMAddress,
+        amount: u64,
     ) -> Result<CreateAddressOutputs, BridgeError> {
-        let deposit_script = self.script_builder.create_deposit_script(user_evm_address);
+        let deposit_script = self
+            .script_builder
+            .create_deposit_script(user_evm_address, amount);
         let script_timelock = ScriptBuilder::generate_timelock_script(user_pk, USER_TAKES_AFTER);
         let taproot = TaprootBuilder::new()
             .add_leaf(1, deposit_script.clone())?
@@ -99,7 +102,7 @@ impl TransactionBuilder {
 
         let (bridge_address, _) = self.generate_bridge_address()?;
         let (deposit_address, deposit_taproot_spend_info) =
-            self.generate_deposit_address(return_address, evm_address)?;
+            self.generate_deposit_address(return_address, evm_address, BRIDGE_AMOUNT_SATS)?;
 
         let tx_ins = TransactionBuilder::create_tx_ins(vec![deposit_utxo]);
         let bridge_txout = TxOut {
@@ -114,7 +117,9 @@ impl TransactionBuilder {
             script_pubkey: deposit_address.script_pubkey(),
             value: Amount::from_sat(BRIDGE_AMOUNT_SATS),
         }];
-        let deposit_script = vec![self.script_builder.create_deposit_script(evm_address)];
+        let deposit_script = vec![self
+            .script_builder
+            .create_deposit_script(evm_address, BRIDGE_AMOUNT_SATS)];
         Ok(CreateTxOutputs {
             tx: move_tx,
             prevouts,
@@ -532,5 +537,46 @@ impl TransactionBuilder {
             utxo_binary_tree.push(utxo_tree_current_level);
         }
         Ok(utxo_binary_tree)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::str::FromStr;
+
+    use bitcoin::XOnlyPublicKey;
+
+    use crate::transaction_builder::TransactionBuilder;
+
+    #[test]
+    fn test_deposit_address() {
+        let verifier_pks_hex: Vec<&str> = vec![
+            "9bef8d556d80e43ae7e0becb3a7e6838b95defe45896ed6075bb9035d06c9964",
+            "e37d58a1aae4ba059fd2503712d998470d3a2522f7e2335f544ef384d2199e02",
+            "688466442a134ee312299bafb37058e385c98dd6005eaaf0f538f533efe5f91f",
+            "337cca2171fdbfcfd657fa59881f46269f1e590b5ffab6023686c7ad2ecc2c1c",
+            "a1f9821c983cfe80558fb0b56385c67c8df6824c17aed048c7cbd031549a2fa8",
+        ];
+        let verifier_pks: Vec<XOnlyPublicKey> = verifier_pks_hex
+            .iter()
+            .map(|pk| XOnlyPublicKey::from_str(pk).unwrap())
+            .collect();
+        let tx_builder = TransactionBuilder::new(verifier_pks);
+        let evm_address: [u8; 20] = hex::decode("1234567890123456789012345678901234567890")
+            .unwrap()
+            .try_into()
+            .unwrap();
+        let user_xonly_pk: XOnlyPublicKey = XOnlyPublicKey::from_str(
+            "93c7378d96518a75448821c4f7c8f4bae7ce60f804d03d1f0628dd5dd0f5de51",
+        )
+        .unwrap();
+        let deposit_address = tx_builder
+            .generate_deposit_address(&user_xonly_pk, &evm_address, 10_000)
+            .unwrap();
+        println!("deposit_address: {:?}", deposit_address.0);
+        assert_eq!(
+            deposit_address.0.to_string(),
+            "bcrt1p3jazqdyfsadtj2fspf9sdlyggw3krvkfmyvg08u7u6yy32wlh57q33pfsq"
+        ) // Comparing it to the taproot address generated in bridge backend repo (using js)
     }
 }

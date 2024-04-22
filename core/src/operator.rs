@@ -211,8 +211,8 @@ impl Operator {
         }
 
         handle_taproot_witness_new(&mut move_tx, &witness_elements, 0)?;
-        tracing::debug!("move_tx: {:?}", move_tx.tx);
-        tracing::debug!("move_tx.tx size: {:?}", move_tx.tx.weight());
+        // tracing::debug!("move_tx: {:?}", move_tx.tx);
+        // tracing::debug!("move_tx.tx size: {:?}", move_tx.tx.weight());
         let rpc_move_txid = self.rpc.send_raw_transaction(&move_tx.tx)?;
         let move_utxo = OutPoint {
             txid: rpc_move_txid,
