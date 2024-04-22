@@ -30,19 +30,27 @@ impl Database {
         }
     }
 
-    /// Reads database and updates in-memory content.
-    fn fetch(&mut self) {
-        todo!()
+    /// Calls actual database read function and writes it's contents to memory.
+    fn read(&mut self) {
+        match self.dbms.read() {
+            Ok(c) => self.content = c,
+            Err(e) => panic!("{}", e),
+        }
     }
 
-    /// Commit changes to actual database. This operation involves disk
-    /// read/write.
-    fn commit(&self) {
-        todo!()
+    /// Calls actual database write function and writes input data to database.
+    fn write(&self) {
+        match self.dbms.write(self.clone()) {
+            Ok(_) => return,
+            Err(e) => panic!("{}", e),
+        }
     }
 }
+
+/// Tests for first pack of `Database`.
 #[cfg(test)]
 mod tests {
+    use std::fs;
     use super::{Database, DatabaseContent};
     use crate::{constants::TEXT_DATABASE, db::text::TextDatabase};
 
@@ -59,18 +67,30 @@ mod tests {
         )
     }
 
-    /// Test if fetching database works.
+    /// Writes mock data to database, then reads it. Compares if input equals
+    /// output. This test is a bit redundant if it is done in actual database
+    /// module.
     #[test]
-    fn fetch() {
-        let mut database = Database::new();
-        database.fetch()
-    }
+    fn write_read() {
+        // Create mock database and add mock data.
+        let mut initial = Database::new();
+        initial.add_to_withdrawals_merkle_tree([0x0F; 32]);
 
-    /// Test if committing to the database works.
-    #[test]
-    fn commit() {
-        let database = Database::new();
-        database.commit()
+        // Commit changes to database.
+        initial.write();
+
+        // Check if comparison is not 
+        let mut expected = Database::new();
+        assert_ne!(initial, expected);
+
+        expected.read();
+        assert_eq!(initial, expected);
+
+        // Clean things up.
+        match fs::remove_file(TEXT_DATABASE) {
+            Ok(_) => assert!(true),
+            Err(_) => assert!(false),
+        }
     }
 }
 
@@ -78,14 +98,14 @@ mod tests {
 /// manupulation functions. They use first pack to access database.
 impl Database {
     pub fn get_connector_tree_hash(&mut self, period: usize, level: usize, idx: usize) -> HashType {
-        self.fetch();
+        self.read();
         self.content.connector_tree_hashes[period][level][idx]
     }
 
     pub fn set_connector_tree_hashes(&mut self, connector_tree_hashes: Vec<Vec<Vec<HashType>>>) {
-        self.fetch();
+        self.read();
         self.content.connector_tree_hashes = connector_tree_hashes;
-        self.commit();
+        self.write();
     }
 
     pub fn set_claim_proof_merkle_trees(
