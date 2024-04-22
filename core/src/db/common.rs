@@ -32,7 +32,7 @@ impl Database {
     fn read(&self) -> DatabaseContent {
         match self.dbms.read() {
             Ok(c) => c,
-            Err(e) => panic!("{}", e),
+            Err(_) => DatabaseContent::new(),
         }
     }
 
@@ -40,7 +40,7 @@ impl Database {
     fn write(&self, content: DatabaseContent) {
         match self.dbms.write(content) {
             Ok(_) => return,
-            Err(e) => panic!("{}", e),
+            Err(e) => panic!("Writing to database: {}", e),
         }
     }
 }
@@ -71,10 +71,16 @@ mod tests {
     fn write_read() {
         // Create mock database and add mock data to database.
         let db = Database::new();
-        db.add_to_withdrawals_merkle_tree([0x0F; 32]);
 
-        // TODO: add a real comparison
-        // assert_eq!([0x0Fu8; 32], db.read().withdrawals_merkle_tree);
+        // Add random datas to db.
+
+        db.add_to_withdrawals_merkle_tree([0x0F; 32]);
+        let ret = db.get_withdrawals_merkle_tree_index();
+        assert_eq!(ret, 1);
+
+        db.add_to_withdrawals_merkle_tree([0x1F; 32]);
+        let ret = db.get_withdrawals_merkle_tree_index();
+        assert_eq!(ret, 2);
 
         // Clean things up.
         match fs::remove_file(TEXT_DATABASE) {
@@ -113,13 +119,13 @@ impl Database {
         self.write(content);
     }
 
-    pub fn get_inscription_txs_len(&self) -> usize {
-        let content = self.read();
-        content.inscription_txs.len()
-    }
     pub fn get_inscription_txs(&self) -> Vec<InscriptionTxs> {
         let content = self.read();
         content.inscription_txs.clone()
+    }
+    pub fn get_inscription_txs_len(&self) -> usize {
+        let content = self.read();
+        content.inscription_txs.len()
     }
     pub fn add_to_inscription_txs(&self, inscription_txs: InscriptionTxs) {
         let mut content = self.read();
