@@ -36,3 +36,5 @@ pub type VerifierChallenge = (BlockHash, U256, u8);
 
 /// Which of the Bitcoin's networks to act on
 pub const NETWORK: bitcoin::Network = bitcoin::Network::Regtest;
+
+pub const TEXT_DATABASE: &str = "database";

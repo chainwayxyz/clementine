@@ -1,8 +1,9 @@
 use clementine_circuits::constants::{EMPTYDATA, ZEROES};
 use clementine_circuits::incremental_merkle::IncrementalMerkleTree;
 use clementine_circuits::{sha256_hash, HashType};
+use serde::{Deserialize, Serialize};
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct MerkleTree<const DEPTH: usize> {
     data: Vec<Vec<HashType>>,
     pub index: u32,
