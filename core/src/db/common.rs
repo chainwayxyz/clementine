@@ -78,7 +78,11 @@ impl Database {
         period: usize,
     ) -> MerkleTree<CLAIM_MERKLE_TREE_DEPTH> {
         let content = self.read();
-        content.claim_proof_merkle_trees[period].clone()
+
+        match content.claim_proof_merkle_trees.get(period) {
+            Some(p) => p.clone(),
+            _ => MerkleTree::new(),
+        }
     }
     pub fn set_claim_proof_merkle_trees(
         &self,
@@ -215,10 +219,9 @@ impl DatabaseContent {
 
 #[cfg(test)]
 mod tests {
-    use clementine_circuits::HashType;
-
     use super::Database;
-    use crate::{constants::TEXT_DATABASE, db::text::TextDatabase};
+    use crate::{constants::TEXT_DATABASE, db::text::TextDatabase, merkle::MerkleTree};
+    use clementine_circuits::{constants::*, HashType};
     use std::{fs, vec};
 
     /// Tests if running `new()` function returns an empty struct.
@@ -267,6 +270,28 @@ mod tests {
 
         database.set_connector_tree_hashes(mock_array);
         assert_eq!(database.get_connector_tree_hash(0, 0, 0), mock_data);
+
+        // Clean things up.
+        match fs::remove_file(TEXT_DATABASE) {
+            Ok(_) => assert!(true),
+            Err(_) => assert!(false),
+        }
+    }
+
+    #[test]
+    fn claim_proof_merkle_tree() {
+        let database = Database::new();
+
+        let mut mock_data: Vec<MerkleTree<CLAIM_MERKLE_TREE_DEPTH>> = vec![MerkleTree::new()];
+        mock_data[0].add([0x45u8; 32]);
+
+        assert_ne!(
+            database.get_claim_proof_merkle_tree(0),
+            mock_data[0].clone()
+        );
+
+        database.set_claim_proof_merkle_trees(mock_data.clone());
+        assert_eq!(database.get_claim_proof_merkle_tree(0), mock_data[0]);
 
         // Clean things up.
         match fs::remove_file(TEXT_DATABASE) {
