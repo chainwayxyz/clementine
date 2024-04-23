@@ -67,7 +67,7 @@ impl Database {
         }
     }
     pub fn set_connector_tree_hashes(&self, connector_tree_hashes: Vec<Vec<Vec<HashType>>>) {
-        // let _guard = self.lock.lock().unwrap();
+        let _guard = self.lock.lock().unwrap();
         let mut content = self.read();
         content.connector_tree_hashes = connector_tree_hashes;
         self.write(content);
@@ -88,7 +88,7 @@ impl Database {
         &self,
         claim_proof_merkle_trees: Vec<MerkleTree<CLAIM_MERKLE_TREE_DEPTH>>,
     ) {
-        // let _guard = self.lock.lock().unwrap();
+        let _guard = self.lock.lock().unwrap();
         let mut content = self.read();
         content.claim_proof_merkle_trees = claim_proof_merkle_trees;
         self.write(content);
@@ -103,7 +103,7 @@ impl Database {
         content.inscription_txs.len()
     }
     pub fn add_to_inscription_txs(&self, inscription_txs: InscriptionTxs) {
-        // let _guard = self.lock.lock().unwrap();
+        let _guard = self.lock.lock().unwrap();
         let mut content = self.read();
         content.inscription_txs.push(inscription_txs);
         self.write(content);
@@ -114,7 +114,7 @@ impl Database {
         content.withdrawals_merkle_tree.index
     }
     pub fn add_to_withdrawals_merkle_tree(&self, hash: HashType) {
-        // let _guard = self.lock.lock().unwrap();
+        let _guard = self.lock.lock().unwrap();
         let mut content = self.read();
         content.withdrawals_merkle_tree.add(hash);
         self.write(content);
@@ -129,7 +129,7 @@ impl Database {
         period: usize,
         withdrawal_payment: WithdrawalPayment,
     ) {
-        // let _guard = self.lock.lock().unwrap();
+        let _guard = self.lock.lock().unwrap();
         let mut content = self.read();
         while period >= content.withdrawals_payment_txids.len() {
             content.withdrawals_payment_txids.push(Vec::new());
@@ -143,7 +143,7 @@ impl Database {
         content.connector_tree_utxos[idx].clone()
     }
     pub fn set_connector_tree_utxos(&self, connector_tree_utxos: Vec<ConnectorUTXOTree>) {
-        // let _guard = self.lock.lock().unwrap();
+        let _guard = self.lock.lock().unwrap();
         let mut content = self.read();
         content.connector_tree_utxos = connector_tree_utxos;
         self.write(content);
@@ -154,7 +154,7 @@ impl Database {
         content.start_block_height
     }
     pub fn set_start_block_height(&self, start_block_height: u64) {
-        // let _guard = self.lock.lock().unwrap();
+        let _guard = self.lock.lock().unwrap();
         let mut content = self.read();
         content.start_block_height = start_block_height;
         self.write(content);
@@ -165,7 +165,7 @@ impl Database {
         content.period_relative_block_heights.clone()
     }
     pub fn set_period_relative_block_heights(&self, period_relative_block_heights: Vec<u32>) {
-        // let _guard = self.lock.lock().unwrap();
+        let _guard = self.lock.lock().unwrap();
         let mut content = self.read();
         content.period_relative_block_heights = period_relative_block_heights;
         self.write(content);
@@ -180,7 +180,7 @@ impl Database {
         }
     }
     pub fn add_inscribed_preimages(&self, period: usize, preimages: Vec<PreimageType>) {
-        // let _guard = self.lock.lock().unwrap();
+        let _guard = self.lock.lock().unwrap();
         let mut content = self.read();
         while period >= content.inscribed_connector_tree_preimages.len() {
             content.inscribed_connector_tree_preimages.push(Vec::new());
@@ -232,12 +232,26 @@ mod tests {
     use super::Database;
     use crate::{constants::TEXT_DATABASE, db::text::TextDatabase, merkle::MerkleTree};
     use clementine_circuits::{constants::*, HashType, PreimageType};
-    use std::{fs, vec};
+    use std::{fs, sync::Once, vec};
+
+    // `Database` manages syncronization. So, we need to operate on a common
+    // struct in order to do asynchronous operations on database.
+    static START: Once = Once::new();
+    static mut DATABASE: Option<Database> = None;
+    pub unsafe fn initialize() {
+        START.call_once(|| {
+            println!("---oi");
+            DATABASE = Some(Database::new());
+        });
+    }
 
     /// Tests if running `new()` function returns an empty struct.
     #[test]
     fn new() {
-        let database = Database::new();
+        let database = unsafe {
+            initialize();
+            DATABASE.clone().unwrap()
+        };
 
         // Some of the members of the `Database` struct are not comparable. So,
         // we need to do this one by one.
@@ -249,17 +263,19 @@ mod tests {
     /// module.
     #[test]
     fn write_read() {
-        // Create mock database and add mock data to database.
-        let db = Database::new();
+        let database = unsafe {
+            initialize();
+            DATABASE.clone().unwrap()
+        };
 
-        // Add random datas to db.
+        // Add random datas to database.
 
-        db.add_to_withdrawals_merkle_tree([0x45u8; 32]);
-        let ret = db.get_withdrawals_merkle_tree_index();
+        database.add_to_withdrawals_merkle_tree([0x45u8; 32]);
+        let ret = database.get_withdrawals_merkle_tree_index();
         assert_eq!(ret, 1);
 
-        db.add_to_withdrawals_merkle_tree([0x1Fu8; 32]);
-        let ret = db.get_withdrawals_merkle_tree_index();
+        database.add_to_withdrawals_merkle_tree([0x1Fu8; 32]);
+        let ret = database.get_withdrawals_merkle_tree_index();
         assert_eq!(ret, 2);
 
         // Clean things up.
@@ -271,7 +287,10 @@ mod tests {
 
     #[test]
     fn connector_tree_hash() {
-        let database = Database::new();
+        let database = unsafe {
+            initialize();
+            DATABASE.clone().unwrap()
+        };
 
         let mock_data = [0x45u8; 32];
         let mock_array: Vec<Vec<Vec<HashType>>> = vec![vec![vec![mock_data]]];
@@ -290,7 +309,11 @@ mod tests {
 
     #[test]
     fn claim_proof_merkle_tree() {
-        let database = Database::new();
+        let database = unsafe {
+            initialize();
+            DATABASE.clone().unwrap()
+        };
+
 
         let mut mock_data: Vec<MerkleTree<CLAIM_MERKLE_TREE_DEPTH>> = vec![MerkleTree::new()];
         mock_data[0].add([0x45u8; 32]);
@@ -312,7 +335,11 @@ mod tests {
 
     #[test]
     fn withdrawals_merkle_tree() {
-        let database = Database::new();
+        let database = unsafe {
+            initialize();
+            DATABASE.clone().unwrap()
+        };
+
 
         let mock_data: HashType = [0x45u8; 32];
 
@@ -330,7 +357,11 @@ mod tests {
 
     #[test]
     fn start_block_height() {
-        let database = Database::new();
+        let database = unsafe {
+            initialize();
+            DATABASE.clone().unwrap()
+        };
+
 
         let mock_data: u64 = 0x45;
 
@@ -348,7 +379,11 @@ mod tests {
 
     #[test]
     fn period_relative_block_heights() {
-        let database = Database::new();
+        let database = unsafe {
+            initialize();
+            DATABASE.clone().unwrap()
+        };
+
 
         let mock_data: u64 = 0x45;
 
@@ -366,7 +401,11 @@ mod tests {
 
     #[test]
     fn inscribed_preimages() {
-        let database = Database::new();
+        let database = unsafe {
+            initialize();
+            DATABASE.clone().unwrap()
+        };
+
 
         let mock_data: Vec<PreimageType> = vec![[0x45u8; 32]];
 
