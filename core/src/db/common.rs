@@ -48,55 +48,23 @@ impl Database {
     }
 }
 
-/// Tests for first pack of `Database`.
-#[cfg(test)]
-mod tests {
-    use super::Database;
-    use crate::{constants::TEXT_DATABASE, db::text::TextDatabase};
-    use std::fs;
-
-    /// Tests if running `new()` function returns an empty struct.
-    #[test]
-    fn new() {
-        let database = Database::new();
-
-        // Some of the members of the `Database` struct are not comparable. So,
-        // we need to do this one by one.
-        assert_eq!(database.dbms, TextDatabase::new(TEXT_DATABASE.into()));
-    }
-
-    /// Writes mock data to database, then reads it. Compares if input equals
-    /// output. This test is a bit redundant if it is done in actual database
-    /// module.
-    #[test]
-    fn write_read() {
-        // Create mock database and add mock data to database.
-        let db = Database::new();
-
-        // Add random datas to db.
-
-        db.add_to_withdrawals_merkle_tree([0x0F; 32]);
-        let ret = db.get_withdrawals_merkle_tree_index();
-        assert_eq!(ret, 1);
-
-        db.add_to_withdrawals_merkle_tree([0x1F; 32]);
-        let ret = db.get_withdrawals_merkle_tree_index();
-        assert_eq!(ret, 2);
-
-        // Clean things up.
-        match fs::remove_file(TEXT_DATABASE) {
-            Ok(_) => assert!(true),
-            Err(_) => assert!(false),
-        }
-    }
-}
-
 /// Second implementation pack of `Database`. This pack includes data
 /// manupulation functions. They use first pack of functions to access database.
 impl Database {
     pub fn get_connector_tree_hash(&self, period: usize, level: usize, idx: usize) -> HashType {
         let content = self.read();
-        content.connector_tree_hashes[period][level][idx]
+
+        // If database is empty, returns an empty array.
+        match content.connector_tree_hashes.get(period) {
+            Some(v) => match v.get(level) {
+                Some(v) => match v.get(idx) {
+                    Some(v) => *v,
+                    _ => [0u8; 32],
+                },
+                _ => [0u8; 32],
+            },
+            _ => [0u8; 32],
+        }
     }
     pub fn set_connector_tree_hashes(&self, connector_tree_hashes: Vec<Vec<Vec<HashType>>>) {
         // let _guard = self.lock.lock().unwrap();
@@ -241,6 +209,69 @@ impl DatabaseContent {
             connector_tree_utxos: Vec::new(),
             start_block_height: 0,
             period_relative_block_heights: Vec::new(),
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use clementine_circuits::HashType;
+
+    use super::Database;
+    use crate::{constants::TEXT_DATABASE, db::text::TextDatabase};
+    use std::{fs, vec};
+
+    /// Tests if running `new()` function returns an empty struct.
+    #[test]
+    fn new() {
+        let database = Database::new();
+
+        // Some of the members of the `Database` struct are not comparable. So,
+        // we need to do this one by one.
+        assert_eq!(database.dbms, TextDatabase::new(TEXT_DATABASE.into()));
+    }
+
+    /// Writes mock data to database, then reads it. Compares if input equals
+    /// output. This test is a bit redundant if it is done in actual database
+    /// module.
+    #[test]
+    fn write_read() {
+        // Create mock database and add mock data to database.
+        let db = Database::new();
+
+        // Add random datas to db.
+
+        db.add_to_withdrawals_merkle_tree([0x0F; 32]);
+        let ret = db.get_withdrawals_merkle_tree_index();
+        assert_eq!(ret, 1);
+
+        db.add_to_withdrawals_merkle_tree([0x1F; 32]);
+        let ret = db.get_withdrawals_merkle_tree_index();
+        assert_eq!(ret, 2);
+
+        // Clean things up.
+        match fs::remove_file(TEXT_DATABASE) {
+            Ok(_) => assert!(true),
+            Err(_) => assert!(false),
+        }
+    }
+
+    #[test]
+    fn connector_tree_hash() {
+        let database = Database::new();
+
+        let mock_data = [0x45; 32];
+        let mock_array: Vec<Vec<Vec<HashType>>> = vec![vec![vec![mock_data]]];
+
+        assert_ne!(database.get_connector_tree_hash(0, 0, 0), mock_data);
+
+        database.set_connector_tree_hashes(mock_array);
+        assert_eq!(database.get_connector_tree_hash(0, 0, 0), mock_data);
+
+        // Clean things up.
+        match fs::remove_file(TEXT_DATABASE) {
+            Ok(_) => assert!(true),
+            Err(_) => assert!(false),
         }
     }
 }
