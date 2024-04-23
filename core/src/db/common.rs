@@ -50,6 +50,11 @@ impl Database {
 
 /// Second implementation pack of `Database`. This pack includes data
 /// manupulation functions. They use first pack of functions to access database.
+///
+/// `Set` functions use a mutex to avoid data races while updating database. But
+/// it is not guaranteed that calling `get` and `set` functions one by one won't
+/// result on a data race. Users must do their own synchronization to avoid data
+/// races.
 impl Database {
     pub fn get_connector_tree_hash(&self, period: usize, level: usize, idx: usize) -> HashType {
         let content = self.read();
@@ -221,9 +226,12 @@ impl DatabaseContent {
     }
 }
 
-/// These tests not just aims to show correctness of the implemantation: They
+/// These tests not just aims to show correctness of the implementation: They
 /// are here to show doing asynchronous operations over db is possible and data
-/// won't get corrupted while doing so.
+/// won't get corrupted while doing so. Although db functions guarantee there
+/// won't be a data race once a function is called, they won't guarantee data
+/// will stay same between two db function calls. Therefore we need to da a
+/// manual synchronization between tests too.
 ///
 /// Currently, some tests for some functions are absent because of the complex
 /// parameters: They are hard to mock.
@@ -232,16 +240,21 @@ mod tests {
     use super::Database;
     use crate::{constants::TEXT_DATABASE, db::text::TextDatabase, merkle::MerkleTree};
     use clementine_circuits::{constants::*, HashType, PreimageType};
-    use std::{fs, sync::Once, vec};
+    use std::{
+        fs,
+        sync::{Arc, Mutex, Once},
+        vec,
+    };
 
     // `Database` manages syncronization. So, we need to operate on a common
     // struct in order to do asynchronous operations on database.
     static START: Once = Once::new();
     static mut DATABASE: Option<Database> = None;
+    static mut LOCK: Option<Arc<Mutex<usize>>> = None;
     pub unsafe fn initialize() {
         START.call_once(|| {
-            println!("---oi");
             DATABASE = Some(Database::new());
+            LOCK = Some(Arc::new(Mutex::new(0)));
         });
     }
 
@@ -252,6 +265,8 @@ mod tests {
             initialize();
             DATABASE.clone().unwrap()
         };
+        let lock = unsafe { LOCK.clone().unwrap() };
+        let _guard = lock.lock().unwrap();
 
         // Some of the members of the `Database` struct are not comparable. So,
         // we need to do this one by one.
@@ -267,6 +282,8 @@ mod tests {
             initialize();
             DATABASE.clone().unwrap()
         };
+        let lock = unsafe { LOCK.clone().unwrap() };
+        let _guard = lock.lock().unwrap();
 
         // Add random datas to database.
 
@@ -291,6 +308,8 @@ mod tests {
             initialize();
             DATABASE.clone().unwrap()
         };
+        let lock = unsafe { LOCK.clone().unwrap() };
+        let _guard = lock.lock().unwrap();
 
         let mock_data = [0x45u8; 32];
         let mock_array: Vec<Vec<Vec<HashType>>> = vec![vec![vec![mock_data]]];
@@ -313,7 +332,8 @@ mod tests {
             initialize();
             DATABASE.clone().unwrap()
         };
-
+        let lock = unsafe { LOCK.clone().unwrap() };
+        let _guard = lock.lock().unwrap();
 
         let mut mock_data: Vec<MerkleTree<CLAIM_MERKLE_TREE_DEPTH>> = vec![MerkleTree::new()];
         mock_data[0].add([0x45u8; 32]);
@@ -339,7 +359,8 @@ mod tests {
             initialize();
             DATABASE.clone().unwrap()
         };
-
+        let lock = unsafe { LOCK.clone().unwrap() };
+        let _guard = lock.lock().unwrap();
 
         let mock_data: HashType = [0x45u8; 32];
 
@@ -361,7 +382,8 @@ mod tests {
             initialize();
             DATABASE.clone().unwrap()
         };
-
+        let lock = unsafe { LOCK.clone().unwrap() };
+        let _guard = lock.lock().unwrap();
 
         let mock_data: u64 = 0x45;
 
@@ -383,7 +405,8 @@ mod tests {
             initialize();
             DATABASE.clone().unwrap()
         };
-
+        let lock = unsafe { LOCK.clone().unwrap() };
+        let _guard = lock.lock().unwrap();
 
         let mock_data: u64 = 0x45;
 
@@ -405,7 +428,8 @@ mod tests {
             initialize();
             DATABASE.clone().unwrap()
         };
-
+        let lock = unsafe { LOCK.clone().unwrap() };
+        let _guard = lock.lock().unwrap();
 
         let mock_data: Vec<PreimageType> = vec![[0x45u8; 32]];
 
