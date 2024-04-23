@@ -5,7 +5,7 @@ use crate::constants::{
     VerifierChallenge, CONNECTOR_TREE_DEPTH, DUST_VALUE, K_DEEP,
     MAX_BITVM_CHALLENGE_RESPONSE_BLOCKS, MIN_RELAY_FEE, PERIOD_BLOCK_COUNT,
 };
-use crate::db::operator_db::OperatorMockDB;
+use crate::db::operator::OperatorMockDB;
 use crate::env_writer::ENVWriter;
 use crate::errors::{BridgeError, InvalidPeriodError};
 use crate::extended_rpc::ExtendedRpc;
