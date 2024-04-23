@@ -12,19 +12,22 @@ use clementine_circuits::{
     HashType, PreimageType,
 };
 use serde::{Deserialize, Serialize};
+use std::sync::{Arc, Mutex};
 
 /// Main database struct that holds all the information of the database.
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug)]
 pub struct Database {
     pub dbms: TextDatabase,
+    pub lock: Arc<Mutex<usize>>,
 }
 
-/// First pack of implementation of `Database`. This pack includes general
+/// First pack of implementation for the `Database`. This pack includes general
 /// functions for accessing the database.
 impl Database {
     pub fn new() -> Self {
         Self {
             dbms: TextDatabase::new(TEXT_DATABASE.into()),
+            lock: Arc::new(Mutex::new(0)),
         }
     }
 
@@ -56,12 +59,10 @@ mod tests {
     #[test]
     fn new() {
         let database = Database::new();
-        assert_eq!(
-            database,
-            Database {
-                dbms: TextDatabase::new(TEXT_DATABASE.into()),
-            }
-        )
+
+        // Some of the members of the `Database` struct are not comparable. So,
+        // we need to do this one by one.
+        assert_eq!(database.dbms, TextDatabase::new(TEXT_DATABASE.into()));
     }
 
     /// Writes mock data to database, then reads it. Compares if input equals
@@ -98,6 +99,7 @@ impl Database {
         content.connector_tree_hashes[period][level][idx]
     }
     pub fn set_connector_tree_hashes(&self, connector_tree_hashes: Vec<Vec<Vec<HashType>>>) {
+        // let _guard = self.lock.lock().unwrap();
         let mut content = self.read();
         content.connector_tree_hashes = connector_tree_hashes;
         self.write(content);
@@ -114,6 +116,7 @@ impl Database {
         &self,
         claim_proof_merkle_trees: Vec<MerkleTree<CLAIM_MERKLE_TREE_DEPTH>>,
     ) {
+        // let _guard = self.lock.lock().unwrap();
         let mut content = self.read();
         content.claim_proof_merkle_trees = claim_proof_merkle_trees;
         self.write(content);
@@ -128,6 +131,7 @@ impl Database {
         content.inscription_txs.len()
     }
     pub fn add_to_inscription_txs(&self, inscription_txs: InscriptionTxs) {
+        // let _guard = self.lock.lock().unwrap();
         let mut content = self.read();
         content.inscription_txs.push(inscription_txs);
         self.write(content);
@@ -138,6 +142,7 @@ impl Database {
         content.withdrawals_merkle_tree.index
     }
     pub fn add_to_withdrawals_merkle_tree(&self, hash: HashType) {
+        // let _guard = self.lock.lock().unwrap();
         let mut content = self.read();
         content.withdrawals_merkle_tree.add(hash);
         self.write(content);
@@ -152,6 +157,7 @@ impl Database {
         period: usize,
         withdrawal_payment: WithdrawalPayment,
     ) {
+        // let _guard = self.lock.lock().unwrap();
         let mut content = self.read();
         while period >= content.withdrawals_payment_txids.len() {
             content.withdrawals_payment_txids.push(Vec::new());
@@ -165,6 +171,7 @@ impl Database {
         content.connector_tree_utxos[idx].clone()
     }
     pub fn set_connector_tree_utxos(&self, connector_tree_utxos: Vec<ConnectorUTXOTree>) {
+        // let _guard = self.lock.lock().unwrap();
         let mut content = self.read();
         content.connector_tree_utxos = connector_tree_utxos;
         self.write(content);
@@ -175,6 +182,7 @@ impl Database {
         content.start_block_height
     }
     pub fn set_start_block_height(&self, start_block_height: u64) {
+        // let _guard = self.lock.lock().unwrap();
         let mut content = self.read();
         content.start_block_height = start_block_height;
         self.write(content);
@@ -185,6 +193,7 @@ impl Database {
         content.period_relative_block_heights.clone()
     }
     pub fn set_period_relative_block_heights(&self, period_relative_block_heights: Vec<u32>) {
+        // let _guard = self.lock.lock().unwrap();
         let mut content = self.read();
         content.period_relative_block_heights = period_relative_block_heights;
         self.write(content);
@@ -195,6 +204,7 @@ impl Database {
         content.inscribed_connector_tree_preimages[period].clone()
     }
     pub fn add_inscribed_preimages(&self, period: usize, preimages: Vec<PreimageType>) {
+        // let _guard = self.lock.lock().unwrap();
         let mut content = self.read();
         while period >= content.inscribed_connector_tree_preimages.len() {
             content.inscribed_connector_tree_preimages.push(Vec::new());

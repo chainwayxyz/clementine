@@ -64,17 +64,16 @@ impl TextDatabase {
 mod tests {
     use std::fs;
 
-    use crate::{
-        constants::TEXT_DATABASE,
-        db::{common::DatabaseContent, text::TextDatabase},
-    };
+    use crate::db::{common::DatabaseContent, text::TextDatabase};
+
+    const DATABASE: &str = "text_database";
 
     #[test]
     fn new() {
         assert_eq!(
-            TextDatabase::new(TEXT_DATABASE.into()),
+            TextDatabase::new(DATABASE.into()),
             TextDatabase {
-                file: TEXT_DATABASE.into()
+                file: DATABASE.into()
             }
         );
     }
@@ -84,7 +83,7 @@ mod tests {
     #[test]
     fn write_read() {
         let expected = DatabaseContent::new();
-        let dbms = TextDatabase::new(TEXT_DATABASE.into());
+        let dbms = TextDatabase::new(DATABASE.into());
 
         // Check if file is writable.
         match dbms.write(expected.clone()) {
@@ -99,7 +98,7 @@ mod tests {
         }
 
         // Clean things up.
-        match fs::remove_file(TEXT_DATABASE) {
+        match fs::remove_file(DATABASE) {
             Ok(_) => assert!(true),
             Err(_) => assert!(false),
         }
