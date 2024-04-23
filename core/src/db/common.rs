@@ -173,7 +173,11 @@ impl Database {
 
     pub fn get_inscribed_preimages(&self, period: usize) -> Vec<PreimageType> {
         let content = self.read();
-        content.inscribed_connector_tree_preimages[period].clone()
+
+        match content.inscribed_connector_tree_preimages.get(period) {
+            Some(p) => p.clone(),
+            _ => vec![[0u8; 32]],
+        }
     }
     pub fn add_inscribed_preimages(&self, period: usize, preimages: Vec<PreimageType>) {
         // let _guard = self.lock.lock().unwrap();
@@ -217,11 +221,17 @@ impl DatabaseContent {
     }
 }
 
+/// These tests not just aims to show correctness of the implemantation: They
+/// are here to show doing asynchronous operations over db is possible and data
+/// won't get corrupted while doing so.
+///
+/// Currently, some tests for some functions are absent because of the complex
+/// parameters: They are hard to mock.
 #[cfg(test)]
 mod tests {
     use super::Database;
     use crate::{constants::TEXT_DATABASE, db::text::TextDatabase, merkle::MerkleTree};
-    use clementine_circuits::{constants::*, HashType};
+    use clementine_circuits::{constants::*, HashType, PreimageType};
     use std::{fs, vec};
 
     /// Tests if running `new()` function returns an empty struct.
@@ -244,11 +254,11 @@ mod tests {
 
         // Add random datas to db.
 
-        db.add_to_withdrawals_merkle_tree([0x0F; 32]);
+        db.add_to_withdrawals_merkle_tree([0x45u8; 32]);
         let ret = db.get_withdrawals_merkle_tree_index();
         assert_eq!(ret, 1);
 
-        db.add_to_withdrawals_merkle_tree([0x1F; 32]);
+        db.add_to_withdrawals_merkle_tree([0x1Fu8; 32]);
         let ret = db.get_withdrawals_merkle_tree_index();
         assert_eq!(ret, 2);
 
@@ -263,7 +273,7 @@ mod tests {
     fn connector_tree_hash() {
         let database = Database::new();
 
-        let mock_data = [0x45; 32];
+        let mock_data = [0x45u8; 32];
         let mock_array: Vec<Vec<Vec<HashType>>> = vec![vec![vec![mock_data]]];
 
         assert_ne!(database.get_connector_tree_hash(0, 0, 0), mock_data);
@@ -292,6 +302,78 @@ mod tests {
 
         database.set_claim_proof_merkle_trees(mock_data.clone());
         assert_eq!(database.get_claim_proof_merkle_tree(0), mock_data[0]);
+
+        // Clean things up.
+        match fs::remove_file(TEXT_DATABASE) {
+            Ok(_) => assert!(true),
+            Err(_) => assert!(false),
+        }
+    }
+
+    #[test]
+    fn withdrawals_merkle_tree() {
+        let database = Database::new();
+
+        let mock_data: HashType = [0x45u8; 32];
+
+        assert_eq!(database.get_withdrawals_merkle_tree_index(), 0);
+
+        database.add_to_withdrawals_merkle_tree(mock_data.clone());
+        assert_eq!(database.get_withdrawals_merkle_tree_index(), 1);
+
+        // Clean things up.
+        match fs::remove_file(TEXT_DATABASE) {
+            Ok(_) => assert!(true),
+            Err(_) => assert!(false),
+        }
+    }
+
+    #[test]
+    fn start_block_height() {
+        let database = Database::new();
+
+        let mock_data: u64 = 0x45;
+
+        assert_eq!(database.get_start_block_height(), 0);
+
+        database.set_start_block_height(mock_data);
+        assert_eq!(database.get_start_block_height(), mock_data);
+
+        // Clean things up.
+        match fs::remove_file(TEXT_DATABASE) {
+            Ok(_) => assert!(true),
+            Err(_) => assert!(false),
+        }
+    }
+
+    #[test]
+    fn period_relative_block_heights() {
+        let database = Database::new();
+
+        let mock_data: u64 = 0x45;
+
+        assert_eq!(database.get_start_block_height(), 0);
+
+        database.set_start_block_height(mock_data);
+        assert_eq!(database.get_start_block_height(), mock_data);
+
+        // Clean things up.
+        match fs::remove_file(TEXT_DATABASE) {
+            Ok(_) => assert!(true),
+            Err(_) => assert!(false),
+        }
+    }
+
+    #[test]
+    fn inscribed_preimages() {
+        let database = Database::new();
+
+        let mock_data: Vec<PreimageType> = vec![[0x45u8; 32]];
+
+        assert_ne!(database.get_inscribed_preimages(0), mock_data);
+
+        database.add_inscribed_preimages(0, mock_data.clone());
+        assert_eq!(database.get_inscribed_preimages(0), mock_data);
 
         // Clean things up.
         match fs::remove_file(TEXT_DATABASE) {
