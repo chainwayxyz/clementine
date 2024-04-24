@@ -102,7 +102,7 @@ pub fn get_from_file() -> Result<(SecretKey, Vec<XOnlyPublicKey>), InvalidKeySou
 
 /// Internal function for reading contents of the key file. If file is readable
 /// and in right format, returns target key pair.
-fn read_file(name: String) -> Result<(SecretKey, Vec<XOnlyPublicKey>), std::io::Error> {
+pub fn read_file(name: String) -> Result<(SecretKey, Vec<XOnlyPublicKey>), std::io::Error> {
     match fs::read_to_string(name) {
         Ok(content) => match serde_json::from_str::<FileContents>(&content) {
             Ok(deserialized) => Ok((deserialized.private_key, deserialized.public_keys)),
