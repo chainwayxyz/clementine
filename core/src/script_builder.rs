@@ -60,7 +60,9 @@ impl ScriptBuilder {
 
     pub fn create_deposit_script(&self, evm_address: &EVMAddress, amount: u64) -> ScriptBuf {
         let citrea: [u8; 6] = "citrea".as_bytes().try_into().unwrap();
+        // println!("citrea: {:?}", citrea);
         self.create_n_of_n_builder()
+            .push_opcode(OP_PUSHNUM_1)
             .push_opcode(OP_FALSE)
             .push_opcode(OP_IF)
             .push_slice(citrea)

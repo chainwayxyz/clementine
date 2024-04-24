@@ -35,7 +35,7 @@ impl Actor {
         let pk = sk.public_key(&secp);
         let keypair = Keypair::from_secret_key(&secp, &sk);
         let (xonly, _parity) = XOnlyPublicKey::from_keypair(&keypair);
-        let address = Address::p2tr(&secp, xonly, None, NETWORK);
+        let address = Address::p2tr(&secp, xonly, None, *NETWORK);
 
         Actor {
             secp,

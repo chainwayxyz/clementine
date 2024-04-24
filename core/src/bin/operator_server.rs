@@ -1,13 +1,10 @@
-use bitcoin::{Address, OutPoint};
+use bitcoin::OutPoint;
 use clementine_core::operator::Operator;
 use clementine_core::traits::verifier::VerifierConnector;
 use clementine_core::verifier::VerifierClient;
-use clementine_core::{constants::NUM_VERIFIERS, extended_rpc::ExtendedRpc, verifier::Verifier};
+use clementine_core::{constants::NUM_VERIFIERS, extended_rpc::ExtendedRpc};
 use clementine_core::{keys, EVMAddress};
-use crypto_bigint::rand_core::OsRng;
-use dotenv::dotenv;
 use jsonrpsee::{server::Server, RpcModule};
-use secp256k1::rand::{rngs::StdRng, SeedableRng};
 use secp256k1::XOnlyPublicKey;
 use serde::Deserialize;
 use serde_json::Value;

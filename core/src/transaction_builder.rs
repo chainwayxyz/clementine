@@ -78,7 +78,7 @@ impl TransactionBuilder {
             .add_leaf(1, deposit_script.clone())?
             .add_leaf(1, script_timelock.clone())?;
         let tree_info = taproot.finalize(&self.secp, *INTERNAL_KEY)?;
-        let address = Address::p2tr(&self.secp, *INTERNAL_KEY, tree_info.merkle_root(), NETWORK);
+        let address = Address::p2tr(&self.secp, *INTERNAL_KEY, tree_info.merkle_root(), *NETWORK);
         Ok((address, tree_info))
     }
 
@@ -87,7 +87,7 @@ impl TransactionBuilder {
         let script_n_of_n = self.script_builder.generate_script_n_of_n();
         let taproot = TaprootBuilder::new().add_leaf(0, script_n_of_n.clone())?;
         let tree_info = taproot.finalize(&self.secp, *INTERNAL_KEY)?;
-        let address = Address::p2tr(&self.secp, *INTERNAL_KEY, tree_info.merkle_root(), NETWORK);
+        let address = Address::p2tr(&self.secp, *INTERNAL_KEY, tree_info.merkle_root(), *NETWORK);
         Ok((address, tree_info))
     }
 
@@ -367,7 +367,7 @@ impl TransactionBuilder {
         let internal_key = *INTERNAL_KEY;
         let tree_info = taproot_builder.finalize(secp, internal_key)?;
         Ok((
-            Address::p2tr(secp, internal_key, tree_info.merkle_root(), NETWORK),
+            Address::p2tr(secp, internal_key, tree_info.merkle_root(), *NETWORK),
             tree_info,
         ))
     }
