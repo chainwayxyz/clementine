@@ -41,7 +41,7 @@ lazy_static! {
     /// This will act as a constant during runtime once it is initialized
     pub static ref NETWORK: Network = {
         // Retrieve the network type from an environment variable
-        let network_str = env::var("NETWORK").expect("NETWORK environment variable not set");
+        let network_str = env::var("NETWORK").unwrap_or("Regtest".to_string());
 
         // Convert the environment variable to a `bitcoin::Network`
         match network_str.to_lowercase().as_str() {

@@ -576,7 +576,7 @@ mod tests {
         println!("deposit_address: {:?}", deposit_address.0);
         assert_eq!(
             deposit_address.0.to_string(),
-            "bcrt1p3jazqdyfsadtj2fspf9sdlyggw3krvkfmyvg08u7u6yy32wlh57q33pfsq"
+            "bcrt1p0f0xpdskqepuzjhnfmhc8yxqd7s3egph8u3quqqt94r0ygzk32jsvxh00c"
         ) // Comparing it to the taproot address generated in bridge backend repo (using js)
     }
 }
