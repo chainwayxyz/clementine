@@ -34,12 +34,15 @@
 //!
 //! If input file is not specified, key pairs will be generated randomly.
 
-use crate::{constants::NUM_VERIFIERS, errors::InvalidKeySource};
+use crate::{
+    constants::NUM_VERIFIERS,
+    errors::BridgeError::{self, InvalidKeyPair},
+};
 use bitcoin::XOnlyPublicKey;
 use crypto_bigint::rand_core::OsRng;
 use secp256k1::{All, Secp256k1, SecretKey};
 use serde::{Deserialize, Serialize};
-use std::{env, fs};
+use std::{env, fs, io::Error};
 
 /// Key file's structure.
 #[derive(Serialize, Deserialize)]
@@ -55,27 +58,27 @@ const ENV_FILE: &str = "KEYS";
 
 /// Reads private key, public keys and id from a file if `ENV_FILE` is
 /// specified.
-pub fn get_from_file() -> Result<(SecretKey, Vec<XOnlyPublicKey>), InvalidKeySource> {
+pub fn get_from_file() -> Result<(SecretKey, Vec<XOnlyPublicKey>), BridgeError> {
     let env_file = env::var(ENV_FILE);
 
     match env_file {
         Ok(file) => match read_file(file) {
             Ok(content) => Ok(content),
-            Err(e) => Err(InvalidKeySource::Error(e)),
+            Err(e) => Err(e),
         },
-        Err(_) => Err(InvalidKeySource::None),
+        Err(_) => Err(InvalidKeyPair(Error::last_os_error())),
     }
 }
 
 /// Internal function for reading contents of the key file. If file is readable
 /// and in right format, returns target key pair.
-fn read_file(name: String) -> Result<(SecretKey, Vec<XOnlyPublicKey>), std::io::Error> {
+fn read_file(name: String) -> Result<(SecretKey, Vec<XOnlyPublicKey>), BridgeError> {
     match fs::read_to_string(name) {
         Ok(content) => match serde_json::from_str::<FileContents>(&content) {
             Ok(deserialized) => Ok((deserialized.private_key, deserialized.public_keys)),
-            Err(e) => return Err(e.into()),
+            Err(e) => Err(InvalidKeyPair(e.into())),
         },
-        Err(e) => Err(e.into()),
+        Err(e) => Err(InvalidKeyPair(e)),
     }
 }
 

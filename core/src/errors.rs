@@ -101,7 +101,7 @@ pub enum BridgeError {
     MerkleProofError,
     /// Given key pair is invalid and new pairs can't be generated randomly
     #[error("InvalidKeyPair")]
-    InvalidKeyPair,
+    InvalidKeyPair(std::io::Error),
 }
 
 impl From<secp256k1::Error> for BridgeError {
@@ -158,15 +158,4 @@ impl From<MerkleBlockError> for BridgeError {
     fn from(err: MerkleBlockError) -> Self {
         BridgeError::MerkleBlockError(err)
     }
-}
-
-/// Tells which key file sources specified by user and why they can't be used.
-#[derive(Debug, Error)]
-pub enum InvalidKeySource {
-    /// No source is given as input. This is not exactly an error.
-    #[error("None")]
-    None,
-    /// Only private keys file is given and but file is not readable.
-    #[error("Error")]
-    Error(std::io::Error),
 }
