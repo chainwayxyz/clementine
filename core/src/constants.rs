@@ -1,6 +1,9 @@
-use bitcoin::BlockHash;
+use std::env;
+
+use bitcoin::{BlockHash, Network};
 use clementine_circuits::constants::CLAIM_MERKLE_TREE_DEPTH;
 use crypto_bigint::U256;
+use lazy_static::lazy_static;
 
 pub const NUM_VERIFIERS: usize = 4;
 pub const NUM_USERS: usize = 4;
@@ -34,8 +37,21 @@ pub const MAX_BITVM_CHALLENGE_RESPONSE_BLOCKS: u32 = 5;
 
 pub type VerifierChallenge = (BlockHash, U256, u8);
 
-/// Which of the Bitcoin's networks to act on
-pub const NETWORK: bitcoin::Network = bitcoin::Network::Regtest;
+lazy_static! {
+    /// This will act as a constant during runtime once it is initialized
+    pub static ref NETWORK: Network = {
+        // Retrieve the network type from an environment variable
+        let network_str = env::var("NETWORK").expect("NETWORK environment variable not set");
+
+        // Convert the environment variable to a `bitcoin::Network`
+        match network_str.to_lowercase().as_str() {
+            "bitcoin" => Network::Bitcoin,
+            "testnet" => Network::Testnet,
+            "regtest" => Network::Regtest,
+            _ => panic!("Unsupported network: {}", network_str),
+        }
+    };
+}
 
 pub const TEST_MODE: bool = true;
 
