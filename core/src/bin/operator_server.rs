@@ -41,14 +41,14 @@ pub fn initialize_logging() {
 
 /// main function to start operator server
 /// ```bash
-/// curl -X POST http://localhost:3232 -H "Content-Type: application/json" -d '{
+/// curl -X POST http://localhost:3434 -H "Content-Type: application/json" -d '{
 /// "jsonrpc": "2.0",
 /// "method": "new_deposit",
 /// "params": {
-///     "deposit_txid": "31070357c698efbe03de0e3c2d96234e8322c6ccb16ef5dfc6704a0e7c7058be",
-///     "deposit_vout": 6,
+///     "deposit_txid": "4f4406c2e273f88b095e3155cf766e45c3468c56fecabfa9fe7c0de7f75cc247",
+///     "deposit_vout": 0,
 ///     "user_return_xonly_pk": "52a208d3a465d9670713237766bcff00bd14156db5d631f659b3815099503549",
-///     "user_evm_address": "0101010101010101010101010101010101010101"
+///     "user_evm_address": "6D4BF3D9cbA4d3eb37db2feBaaDB5E12f8e49d3E"
 /// },
 /// "id": 1
 /// }'
