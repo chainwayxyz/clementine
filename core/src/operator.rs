@@ -190,9 +190,6 @@ impl Operator {
             self.transaction_builder
                 .create_move_tx(start_utxo, evm_address, &return_address)?;
 
-        // tracing::debug!("move_tx: {:?}", move_tx.tx);
-        // tracing::debug!("move_tx.tx size: {:?}", move_tx.tx.weight());
-
         // TODO: Simplify this move_signatures thing, maybe with a macro
         let mut move_signatures = presigns_from_all_verifiers
             .iter()

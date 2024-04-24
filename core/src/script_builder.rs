@@ -41,45 +41,33 @@ impl ScriptBuilder {
         }
     }
 
-    pub fn generate_script_n_of_n(&self) -> ScriptBuf {
+    pub fn create_n_of_n_builder(&self) -> Builder {
         let mut builder = Builder::new();
-        for vpk in self.verifiers_pks.clone() {
+        let last_index = self.verifiers_pks.len() - 1;
+
+        for &vpk in &self.verifiers_pks[..last_index] {
             builder = builder.push_x_only_key(&vpk).push_opcode(OP_CHECKSIGVERIFY);
         }
-        builder = builder.push_opcode(OP_PUSHNUM_1);
-        builder.into_script()
+        builder = builder
+            .push_x_only_key(&self.verifiers_pks[last_index])
+            .push_opcode(OP_CHECKSIG);
+        builder
     }
 
-    // pub fn generate_script_n_of_n_with_user_pk(&self, user_pk: &XOnlyPublicKey) -> ScriptBuf {
-    //     let mut builder = Builder::new();
-    //     for vpk in self.verifiers_pks.clone() {
-    //         builder = builder.push_x_only_key(&vpk).push_opcode(OP_CHECKSIGVERIFY);
-    //     }
-    //     builder = builder
-    //         .push_x_only_key(user_pk)
-    //         .push_opcode(OP_CHECKSIGVERIFY);
-    //     builder = builder.push_opcode(OP_PUSHNUM_1);
-    //     builder.into_script()
-    // }
+    pub fn generate_script_n_of_n(&self) -> ScriptBuf {
+        self.create_n_of_n_builder().into_script()
+    }
 
     pub fn create_deposit_script(&self, evm_address: &EVMAddress, amount: u64) -> ScriptBuf {
-        let mut builder = Builder::new();
-        for vpk in self.verifiers_pks.clone() {
-            builder = builder.push_x_only_key(&vpk).push_opcode(OP_CHECKSIGVERIFY);
-        }
         let citrea: [u8; 6] = "citrea".as_bytes().try_into().unwrap();
-        println!("citrea: {:?}", citrea);
-        builder = builder
-            .push_opcode(OP_PUSHNUM_1)
+        self.create_n_of_n_builder()
             .push_opcode(OP_FALSE)
             .push_opcode(OP_IF)
             .push_slice(citrea)
             .push_slice(evm_address)
             .push_slice(amount.to_be_bytes())
-            .push_opcode(OP_ENDIF);
-
-        // println!("deposit script: {:?}", builder.clone().into_script());
-        builder.into_script()
+            .push_opcode(OP_ENDIF)
+            .into_script()
     }
 
     pub fn create_inscription_script_32_bytes(
