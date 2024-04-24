@@ -4,8 +4,10 @@
 
 use super::text::TextDatabase;
 use crate::{
-    constants::TEXT_DATABASE, merkle::MerkleTree, ConnectorUTXOTree, HashTree, InscriptionTxs,
-    WithdrawalPayment,
+    constants::TEXT_DATABASE,
+    errors::BridgeError::{self, DatabaseError},
+    merkle::MerkleTree,
+    ConnectorUTXOTree, HashTree, InscriptionTxs, WithdrawalPayment,
 };
 use clementine_circuits::{
     constants::{CLAIM_MERKLE_TREE_DEPTH, WITHDRAWAL_MERKLE_TREE_DEPTH},
@@ -35,20 +37,23 @@ impl Database {
     }
 
     /// Calls actual database read function and writes it's contents to memory.
-    fn read(&self) -> Result<DatabaseContent, Error> {
+    fn read(&self) -> Result<DatabaseContent, BridgeError> {
         match self.dbms.read() {
             Ok(c) => Ok(c),
             Err(e) => match e.kind() {
                 // If database is not yet created, we should create now.
                 ErrorKind::NotFound => Ok(DatabaseContent::new()),
-                _ => return Err(e),
+                _ => return Err(DatabaseError(e)),
             },
         }
     }
 
     /// Calls actual database write function and writes input data to database.
-    fn write(&self, content: DatabaseContent) -> Result<(), Error> {
-        self.dbms.write(content)
+    fn write(&self, content: DatabaseContent) -> Result<(), BridgeError> {
+        match self.dbms.write(content) {
+            Ok(_) => Ok(()),
+            Err(e) => Err(DatabaseError(e)),
+        }
     }
 }
 
@@ -65,7 +70,7 @@ impl Database {
         period: usize,
         level: usize,
         idx: usize,
-    ) -> Result<HashType, Error> {
+    ) -> Result<HashType, BridgeError> {
         let content = self.read()?;
 
         // If database is empty, returns an empty array.
@@ -73,17 +78,17 @@ impl Database {
             Some(v) => match v.get(level) {
                 Some(v) => match v.get(idx) {
                     Some(v) => Ok(*v),
-                    None => Err(Error::other("Index could not be found")),
+                    None => Err(DatabaseError(Error::other("Index could not be found"))),
                 },
-                None => Err(Error::other("Level could not be found")),
+                None => Err(DatabaseError(Error::other("Level could not be found"))),
             },
-            None => Err(Error::other("Period could not be found")),
+            None => Err(DatabaseError(Error::other("Period could not be found"))),
         }
     }
     pub fn set_connector_tree_hashes(
         &self,
         connector_tree_hashes: Vec<Vec<Vec<HashType>>>,
-    ) -> Result<(), Error> {
+    ) -> Result<(), BridgeError> {
         let _guard = self.lock.lock().unwrap();
 
         let mut content = self.read()?;
@@ -96,18 +101,18 @@ impl Database {
     pub fn get_claim_proof_merkle_tree(
         &self,
         period: usize,
-    ) -> Result<MerkleTree<CLAIM_MERKLE_TREE_DEPTH>, Error> {
+    ) -> Result<MerkleTree<CLAIM_MERKLE_TREE_DEPTH>, BridgeError> {
         let content = self.read()?;
 
         match content.claim_proof_merkle_trees.get(period) {
             Some(p) => Ok(p.clone()),
-            None => Err(Error::other("Period could not be found")),
+            None => Err(DatabaseError(Error::other("Period could not be found"))),
         }
     }
     pub fn set_claim_proof_merkle_trees(
         &self,
         claim_proof_merkle_trees: Vec<MerkleTree<CLAIM_MERKLE_TREE_DEPTH>>,
-    ) -> Result<(), Error> {
+    ) -> Result<(), BridgeError> {
         let _guard = self.lock.lock().unwrap();
 
         let mut content = self.read()?;
@@ -117,15 +122,18 @@ impl Database {
         Ok(())
     }
 
-    pub fn get_inscription_txs(&self) -> Result<Vec<InscriptionTxs>, Error> {
+    pub fn get_inscription_txs(&self) -> Result<Vec<InscriptionTxs>, BridgeError> {
         let content = self.read()?;
         Ok(content.inscription_txs.clone())
     }
-    pub fn get_inscription_txs_len(&self) -> Result<usize, Error> {
+    pub fn get_inscription_txs_len(&self) -> Result<usize, BridgeError> {
         let content = self.read()?;
         Ok(content.inscription_txs.len())
     }
-    pub fn add_to_inscription_txs(&self, inscription_txs: InscriptionTxs) -> Result<(), Error> {
+    pub fn add_to_inscription_txs(
+        &self,
+        inscription_txs: InscriptionTxs,
+    ) -> Result<(), BridgeError> {
         let _guard = self.lock.lock().unwrap();
 
         let mut content = self.read()?;
@@ -135,11 +143,11 @@ impl Database {
         Ok(())
     }
 
-    pub fn get_withdrawals_merkle_tree_index(&self) -> Result<u32, Error> {
+    pub fn get_withdrawals_merkle_tree_index(&self) -> Result<u32, BridgeError> {
         let content = self.read()?;
         Ok(content.withdrawals_merkle_tree.index)
     }
-    pub fn add_to_withdrawals_merkle_tree(&self, hash: HashType) -> Result<(), Error> {
+    pub fn add_to_withdrawals_merkle_tree(&self, hash: HashType) -> Result<(), BridgeError> {
         let _guard = self.lock.lock().unwrap();
 
         let mut content = self.read()?;
@@ -152,7 +160,7 @@ impl Database {
     pub fn get_withdrawals_payment_for_period(
         &self,
         period: usize,
-    ) -> Result<Vec<WithdrawalPayment>, Error> {
+    ) -> Result<Vec<WithdrawalPayment>, BridgeError> {
         let content = self.read()?;
         Ok(content.withdrawals_payment_txids[period].clone())
     }
@@ -160,7 +168,7 @@ impl Database {
         &self,
         period: usize,
         withdrawal_payment: WithdrawalPayment,
-    ) -> Result<(), Error> {
+    ) -> Result<(), BridgeError> {
         let _guard = self.lock.lock().unwrap();
 
         let mut content = self.read()?;
@@ -173,14 +181,14 @@ impl Database {
         Ok(())
     }
 
-    pub fn get_connector_tree_utxo(&self, idx: usize) -> Result<ConnectorUTXOTree, Error> {
+    pub fn get_connector_tree_utxo(&self, idx: usize) -> Result<ConnectorUTXOTree, BridgeError> {
         let content = self.read()?;
         Ok(content.connector_tree_utxos[idx].clone())
     }
     pub fn set_connector_tree_utxos(
         &self,
         connector_tree_utxos: Vec<ConnectorUTXOTree>,
-    ) -> Result<(), Error> {
+    ) -> Result<(), BridgeError> {
         let _guard = self.lock.lock().unwrap();
 
         let mut content = self.read()?;
@@ -190,11 +198,11 @@ impl Database {
         Ok(())
     }
 
-    pub fn get_start_block_height(&self) -> Result<u64, Error> {
+    pub fn get_start_block_height(&self) -> Result<u64, BridgeError> {
         let content = self.read()?;
         Ok(content.start_block_height)
     }
-    pub fn set_start_block_height(&self, start_block_height: u64) -> Result<(), Error> {
+    pub fn set_start_block_height(&self, start_block_height: u64) -> Result<(), BridgeError> {
         let _guard = self.lock.lock().unwrap();
 
         let mut content = self.read()?;
@@ -204,14 +212,14 @@ impl Database {
         Ok(())
     }
 
-    pub fn get_period_relative_block_heights(&self) -> Result<Vec<u32>, Error> {
+    pub fn get_period_relative_block_heights(&self) -> Result<Vec<u32>, BridgeError> {
         let content = self.read()?;
         Ok(content.period_relative_block_heights.clone())
     }
     pub fn set_period_relative_block_heights(
         &self,
         period_relative_block_heights: Vec<u32>,
-    ) -> Result<(), Error> {
+    ) -> Result<(), BridgeError> {
         let _guard = self.lock.lock().unwrap();
 
         let mut content = self.read()?;
@@ -221,19 +229,19 @@ impl Database {
         Ok(())
     }
 
-    pub fn get_inscribed_preimages(&self, period: usize) -> Result<Vec<PreimageType>, Error> {
+    pub fn get_inscribed_preimages(&self, period: usize) -> Result<Vec<PreimageType>, BridgeError> {
         let content = self.read()?;
 
         match content.inscribed_connector_tree_preimages.get(period) {
             Some(p) => Ok(p.clone()),
-            None => Err(Error::other("Period could not be found")),
+            None => Err(DatabaseError(Error::other("Period could not be found"))),
         }
     }
     pub fn add_inscribed_preimages(
         &self,
         period: usize,
         preimages: Vec<PreimageType>,
-    ) -> Result<(), Error> {
+    ) -> Result<(), BridgeError> {
         let _guard = self.lock.lock().unwrap();
 
         let mut content = self.read()?;

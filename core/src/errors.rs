@@ -162,9 +162,3 @@ impl From<MerkleBlockError> for BridgeError {
         BridgeError::MerkleBlockError(err)
     }
 }
-
-impl From<std::io::Error> for BridgeError {
-    fn from(err: std::io::Error) -> Self {
-        BridgeError::DatabaseError(err)
-    }
-}
