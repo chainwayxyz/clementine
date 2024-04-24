@@ -102,6 +102,9 @@ pub enum BridgeError {
     /// Given key pair is invalid and new pairs can't be generated randomly
     #[error("InvalidKeyPair")]
     InvalidKeyPair,
+    /// Database could not handle request and returned an error
+    #[error("DatabaseError")]
+    DatabaseError(std::io::Error),
 }
 
 impl From<secp256k1::Error> for BridgeError {
@@ -157,5 +160,11 @@ impl From<bitcoincore_rpc::Error> for BridgeError {
 impl From<MerkleBlockError> for BridgeError {
     fn from(err: MerkleBlockError) -> Self {
         BridgeError::MerkleBlockError(err)
+    }
+}
+
+impl From<std::io::Error> for BridgeError {
+    fn from(err: std::io::Error) -> Self {
+        BridgeError::DatabaseError(err)
     }
 }

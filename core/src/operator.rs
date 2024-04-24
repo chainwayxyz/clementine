@@ -217,13 +217,13 @@ impl Operator {
             .add_deposit_take_sigs(operator_claim_sigs);
 
         for i in 0..NUM_ROUNDS {
-            let connector_utxo = self.operator_db_connector.get_connector_tree_utxo(i)
+            let connector_utxo = self.operator_db_connector.get_connector_tree_utxo(i)?
                 [CONNECTOR_TREE_DEPTH][deposit_index as usize];
             let connector_hash = self.operator_db_connector.get_connector_tree_hash(
                 i,
                 CONNECTOR_TREE_DEPTH,
                 deposit_index as usize,
-            );
+            )?;
             let mut operator_claim_tx = self.transaction_builder.create_operator_claim_tx(
                 move_utxo,
                 connector_utxo,
@@ -267,10 +267,10 @@ impl Operator {
     /// Returns the current withdrawal
     fn get_current_withdrawal_period(&self) -> Result<usize, BridgeError> {
         let cur_block_height = self.rpc.get_block_count().unwrap();
-        let start_block_height = self.operator_db_connector.get_start_block_height();
+        let start_block_height = self.operator_db_connector.get_start_block_height()?;
         let period_relative_block_heights = self
             .operator_db_connector
-            .get_period_relative_block_heights();
+            .get_period_relative_block_heights()?;
         for (i, block_height) in period_relative_block_heights.iter().enumerate() {
             if cur_block_height
                 < start_block_height + *block_height as u64 - MAX_BLOCK_HANDLE_OPS as u64
@@ -287,11 +287,11 @@ impl Operator {
     fn get_current_preimage_reveal_period(&self) -> Result<usize, BridgeError> {
         let cur_block_height = self.rpc.get_block_count().unwrap();
         tracing::debug!("Cur block height: {:?}", cur_block_height);
-        let start_block_height = self.operator_db_connector.get_start_block_height();
+        let start_block_height = self.operator_db_connector.get_start_block_height()?;
         tracing::debug!("Start block height: {:?}", start_block_height);
         let period_relative_block_heights = self
             .operator_db_connector
-            .get_period_relative_block_heights();
+            .get_period_relative_block_heights()?;
 
         for (i, block_height) in period_relative_block_heights.iter().enumerate() {
             tracing::debug!(
@@ -324,7 +324,7 @@ impl Operator {
 
         // 1. Add the address to WithdrawalsMerkleTree
         self.operator_db_connector
-            .add_to_withdrawals_merkle_tree(hash);
+            .add_to_withdrawals_merkle_tree(hash)?;
 
         // self.withdrawals_merkle_tree.add(withdrawal_address.to);
 
@@ -338,10 +338,11 @@ impl Operator {
         //     withdrawal_address, txid
         // );
         let current_withdrawal_period = self.get_current_withdrawal_period()?;
-        self.operator_db_connector.add_to_withdrawals_payment_txids(
-            current_withdrawal_period,
-            (txid, hash) as WithdrawalPayment,
-        );
+        self.operator_db_connector
+            .add_to_withdrawals_payment_txids(
+                current_withdrawal_period,
+                (txid, hash) as WithdrawalPayment,
+            )?;
         Ok(())
     }
 
@@ -387,9 +388,9 @@ impl Operator {
             .ok_or(BridgeError::PreimageNotFound)?;
         let hashes = (
             self.operator_db_connector
-                .get_connector_tree_hash(period, level + 1, 2 * index),
+                .get_connector_tree_hash(period, level + 1, 2 * index)?,
             self.operator_db_connector
-                .get_connector_tree_hash(period, level + 1, 2 * index + 1),
+                .get_connector_tree_hash(period, level + 1, 2 * index + 1)?,
         );
 
         let utxo_tx = self.rpc.get_raw_transaction(&utxo.txid, None)?;
@@ -453,7 +454,9 @@ impl Operator {
 
     fn get_num_withdrawals_for_period(&self, _period: usize) -> u32 {
         self.operator_db_connector
-            .get_withdrawals_merkle_tree_index() // TODO: This is not correct, we should have a cutoff
+            .get_withdrawals_merkle_tree_index()
+            .unwrap() // TODO: This is not correct, we should have a cutoff
+                      // TODO2: This should not unwrap
     }
 
     /// This is called internally when every withdrawal for the current period is satisfied
@@ -466,10 +469,10 @@ impl Operator {
         tracing::info!("inscribe_connector_tree_preimages");
         let period = self.get_current_preimage_reveal_period()?;
         tracing::debug!("period: {:?}", period);
-        if self.operator_db_connector.get_inscription_txs_len() != period {
+        if self.operator_db_connector.get_inscription_txs_len()? != period {
             tracing::debug!(
                 "self.operator_db_connector.get_inscription_txs_len(): {:?}",
-                self.operator_db_connector.get_inscription_txs_len()
+                self.operator_db_connector.get_inscription_txs_len()?
             );
             return Err(BridgeError::InvalidPeriod(
                 InvalidPeriodError::InscriptionPeriodMismatch,
@@ -516,10 +519,10 @@ impl Operator {
         let reveal_txid = self.rpc.send_raw_transaction(&reveal_tx.tx)?;
 
         self.operator_db_connector
-            .add_to_inscription_txs((commit_utxo, reveal_txid));
+            .add_to_inscription_txs((commit_utxo, reveal_txid))?;
 
         self.operator_db_connector
-            .add_inscribed_preimages(period, preimages_to_be_revealed.clone());
+            .add_inscribed_preimages(period, preimages_to_be_revealed.clone())?;
 
         Ok((preimages_to_be_revealed, commit_address))
     }
@@ -648,18 +651,18 @@ impl Operator {
         let mut blockhashes_mt = MerkleTree::<BLOCKHASH_MERKLE_TREE_DEPTH>::new();
         let mut withdrawal_mt = MerkleTree::<WITHDRAWAL_MERKLE_TREE_DEPTH>::new();
 
-        let start_block_height = self.operator_db_connector.get_start_block_height();
+        let start_block_height = self.operator_db_connector.get_start_block_height()?;
         // tracing::debug!("start_block_height: {:?}", start_block_height);
 
         let period_relative_block_heights = self
             .operator_db_connector
-            .get_period_relative_block_heights();
+            .get_period_relative_block_heights()?;
         // tracing::debug!(
         //     "period_relative_block_heights: {:?}",
         //     period_relative_block_heights
         // );
 
-        let inscription_txs = self.operator_db_connector.get_inscription_txs();
+        let inscription_txs = self.operator_db_connector.get_inscription_txs()?;
         // tracing::debug!("inscription_txs: {:?}", inscription_txs);
 
         let mut lc_blockhash: BlockHash = BlockHash::all_zeros();
@@ -704,7 +707,7 @@ impl Operator {
 
             let withdrawal_payments = self
                 .operator_db_connector
-                .get_withdrawals_payment_for_period(i);
+                .get_withdrawals_payment_for_period(i)?;
             tracing::debug!("withdrawal_payments: {:?}", withdrawal_payments);
             total_num_withdrawals += withdrawal_payments.len();
 
@@ -742,7 +745,7 @@ impl Operator {
 
         let preimages: Vec<PreimageType> = self
             .operator_db_connector
-            .get_inscribed_preimages(last_period as usize);
+            .get_inscribed_preimages(last_period as usize)?;
 
         // tracing::debug!("PREIMAGES: {:?}", preimages);
 
@@ -758,7 +761,7 @@ impl Operator {
         // tracing::info!("WROTE PREIMAGES");
 
         let (commit_utxo, reveal_txid) =
-            self.operator_db_connector.get_inscription_txs()[last_period as usize];
+            self.operator_db_connector.get_inscription_txs()?[last_period as usize];
 
         // tracing::debug!("commit_utxo: {:?}", commit_utxo);
         let commit_tx = self.rpc.get_raw_transaction(&commit_utxo.txid, None)?;
@@ -814,7 +817,7 @@ impl Operator {
             Some(total_num_withdrawals as u32),
             &self
                 .operator_db_connector
-                .get_claim_proof_merkle_tree(last_period as usize),
+                .get_claim_proof_merkle_tree(last_period as usize)?,
         );
         tracing::debug!(
             "WROTE merkle_tree_proof for preimage_hash: {:?}",
@@ -835,11 +838,11 @@ impl Operator {
     }
 
     pub fn prove_test<E: Environment>(&self) -> Result<(), BridgeError> {
-        let inscription_txs = self.operator_db_connector.get_inscription_txs();
+        let inscription_txs = self.operator_db_connector.get_inscription_txs()?;
         let last_period = inscription_txs.len() - 1;
         let preimages: Vec<PreimageType> = self
             .operator_db_connector
-            .get_inscribed_preimages(last_period as usize);
+            .get_inscribed_preimages(last_period as usize)?;
         tracing::debug!("PREIMAGES: {:?}", preimages);
         tracing::debug!("operator pk: {:?}", self.signer.xonly_public_key);
         ENVWriter::<E>::write_preimages(self.signer.xonly_public_key, &preimages);
@@ -865,14 +868,14 @@ impl Operator {
         BridgeError,
     > {
         // tracing::info!("Operator starts initial setup");
-        let blockheight = self.operator_db_connector.get_start_block_height();
+        let blockheight = self.operator_db_connector.get_start_block_height()?;
         if blockheight != 0 {
             return Err(BridgeError::AlreadyInitialized);
         }
         // initial setup starts with getting the current blockheight to set the start blockheight
         let start_block_height = self.rpc.get_block_height()?;
         self.operator_db_connector
-            .set_start_block_height(start_block_height);
+            .set_start_block_height(start_block_height)?;
         // this is a vector [PERIOD_BLOCK_COUNT, 2*PERIOD_BLOCK_COUNT, ...] with NUM_ROUNDS elements.
         // this can be changed to specific blockheights that we want in the initial setup.
         // Note that PERIOD_BLOCK_COUNT should be bigger than K_DEEP + MAX_BITVM_CHALLENGE_RESPONSE_BLOCKS
@@ -880,14 +883,14 @@ impl Operator {
             .map(|i| PERIOD_BLOCK_COUNT * (i + 1))
             .collect::<Vec<u32>>();
         self.operator_db_connector
-            .set_period_relative_block_heights(period_relative_block_heights.clone());
+            .set_period_relative_block_heights(period_relative_block_heights.clone())?;
 
         let (connector_tree_preimages, connector_tree_hashes) =
             create_all_rounds_connector_preimages(CONNECTOR_TREE_DEPTH, NUM_ROUNDS, rng);
         self.operator_db_connector
             .set_connector_tree_preimages(connector_tree_preimages);
         self.operator_db_connector
-            .set_connector_tree_hashes(connector_tree_hashes.clone());
+            .set_connector_tree_hashes(connector_tree_hashes.clone())?;
         let single_tree_amount = calculate_amount(
             CONNECTOR_TREE_DEPTH,
             Amount::from_sat(DUST_VALUE),
@@ -933,10 +936,10 @@ impl Operator {
             period_relative_block_heights
         );
         self.operator_db_connector
-            .set_claim_proof_merkle_trees(claim_proof_merkle_trees.clone());
+            .set_claim_proof_merkle_trees(claim_proof_merkle_trees.clone())?;
 
         self.operator_db_connector
-            .set_connector_tree_utxos(utxo_trees);
+            .set_connector_tree_utxos(utxo_trees)?;
         Ok((
             first_source_utxo,
             start_block_height,
