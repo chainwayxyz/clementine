@@ -102,6 +102,9 @@ pub enum BridgeError {
     /// Given key pair is invalid and new pairs can't be generated randomly
     #[error("InvalidKeyPair")]
     InvalidKeyPair,
+    /// Database could not handle request and returned an error
+    #[error("DatabaseError")]
+    DatabaseError(std::io::Error),
 }
 
 impl From<secp256k1::Error> for BridgeError {

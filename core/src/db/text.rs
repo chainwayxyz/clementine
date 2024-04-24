@@ -30,33 +30,20 @@ impl TextDatabase {
 
     /// Reads data from a text file and returns deserialized `DatabaseContent`.
     pub fn read(&self) -> Result<DatabaseContent, std::io::Error> {
-        let contents = match fs::read_to_string(&self.file) {
-            Ok(c) => c,
-            // In case of error, create an empty database.
-            Err(_) => String::new(),
-        };
+        let contents = fs::read_to_string(&self.file)?;
 
-        let deserialized: DatabaseContent = match serde_json::from_str(&contents) {
-            Ok(c) => c,
-            Err(e) => return Err(e.into()),
-        };
+        let deserialized: DatabaseContent = serde_json::from_str(&contents)?;
 
         Ok(deserialized)
     }
 
     /// Serializes data and writes to a text file.
     pub fn write(&self, content: DatabaseContent) -> Result<(), std::io::Error> {
-        let serialized = match serde_json::to_string(&content) {
-            Ok(c) => c,
-            Err(e) => return Err(e.into()),
-        };
+        let serialized = serde_json::to_string(&content)?;
 
-        let mut file = match File::create(&self.file) {
-            Ok(c) => c,
-            Err(e) => return Err(e.into()),
-        };
+        let mut file = File::create(&self.file)?;
 
-        return file.write_all(serialized.as_bytes());
+        file.write_all(serialized.as_bytes())
     }
 }
 
