@@ -1,5 +1,5 @@
 use crate::constants::{VerifierChallenge, CONNECTOR_TREE_DEPTH, TEST_MODE};
-use crate::db::verifier_db::VerifierMockDB;
+use crate::db::verifier::VerifierMockDB;
 use crate::errors::BridgeError;
 
 use crate::traits::verifier::VerifierConnector;
