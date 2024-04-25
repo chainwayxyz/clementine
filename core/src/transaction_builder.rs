@@ -1,11 +1,14 @@
 use std::str::FromStr;
 
+#[cfg(feature = "mainnet")]
+use crate::constants::{
+    CONNECTOR_TREE_DEPTH, CONNECTOR_TREE_OPERATOR_TAKES_AFTER, DUST_VALUE, K_DEEP,
+    MAX_BITVM_CHALLENGE_RESPONSE_BLOCKS,
+};
+
 use crate::{
     config::BridgeConfig,
-    constants::{
-        CONNECTOR_TREE_DEPTH, CONNECTOR_TREE_OPERATOR_TAKES_AFTER, DUST_VALUE, K_DEEP,
-        MAX_BITVM_CHALLENGE_RESPONSE_BLOCKS, MIN_RELAY_FEE, USER_TAKES_AFTER,
-    },
+    constants::{MIN_RELAY_FEE, USER_TAKES_AFTER},
     merkle::MerkleTree,
     utils::get_claim_proof_tree_leaf,
     ConnectorUTXOTree, EVMAddress, HashTree,
@@ -141,6 +144,7 @@ impl TransactionBuilder {
         })
     }
 
+    #[cfg(feature = "mainnet")]
     pub fn create_operator_claim_tx(
         &self,
         bridge_utxo: OutPoint,
@@ -184,6 +188,7 @@ impl TransactionBuilder {
         })
     }
 
+    #[cfg(feature = "mainnet")]
     fn create_operator_claim_tx_prevouts(
         &self,
         bridge_address: &Address,
@@ -204,6 +209,7 @@ impl TransactionBuilder {
         ])
     }
 
+    #[cfg(feature = "mainnet")]
     /// TODO: Implement the signing part for the connecting to BitVM transactions
     /// This function creates the connector trees using the connector tree hashes.
     /// Starting from the first source UTXO, it creates the connector UTXO trees and
@@ -334,6 +340,7 @@ impl TransactionBuilder {
         tx_ins
     }
 
+    #[cfg(feature = "mainnet")]
     fn create_tx_ins_with_sequence(utxos: Vec<OutPoint>) -> Vec<TxIn> {
         let mut tx_ins = Vec::new();
         for utxo in utxos {
@@ -405,6 +412,7 @@ impl TransactionBuilder {
         Ok((address, tree_info))
     }
 
+    #[cfg(feature = "mainnet")]
     pub fn create_connector_tree_node_address(
         secp: &Secp256k1<secp256k1::All>,
         actor_pk: &XOnlyPublicKey,
@@ -428,6 +436,7 @@ impl TransactionBuilder {
         Ok((address, tree_info))
     }
 
+    #[cfg(feature = "mainnet")]
     pub fn create_inscription_commit_address(
         &self,
         actor_pk: &XOnlyPublicKey,
@@ -447,6 +456,7 @@ impl TransactionBuilder {
         Ok((address, taproot_info, inscribe_preimage_script))
     }
 
+    #[cfg(feature = "mainnet")]
     pub fn create_inscription_reveal_tx(
         &self,
         commit_utxo: OutPoint,
@@ -473,6 +483,7 @@ impl TransactionBuilder {
         })
     }
 
+    #[cfg(feature = "mainnet")]
     pub fn create_connector_tree_tx(
         utxo: &OutPoint,
         depth: usize,
@@ -501,6 +512,7 @@ impl TransactionBuilder {
         TransactionBuilder::create_btc_tx(tx_ins, tx_outs)
     }
 
+    #[cfg(feature = "mainnet")]
     // This function creates the connector binary tree for operator to be able to claim the funds that they paid out of their pocket.
     // Depth will be determined later.
     pub fn create_connector_binary_tree(

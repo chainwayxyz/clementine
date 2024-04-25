@@ -2,9 +2,7 @@ use async_trait::async_trait;
 use bitcoin::{Address, OutPoint};
 use secp256k1::XOnlyPublicKey;
 
-use crate::{
-    constants::VerifierChallenge, errors::BridgeError, operator::DepositPresigns, EVMAddress,
-};
+use crate::{errors::BridgeError, operator::DepositPresigns, EVMAddress};
 
 #[async_trait]
 pub trait VerifierConnector: std::fmt::Debug + Send + Sync {
@@ -17,6 +15,7 @@ pub trait VerifierConnector: std::fmt::Debug + Send + Sync {
         operator_address: &Address,
     ) -> Result<DepositPresigns, BridgeError>;
 
+    #[cfg(feature = "mainnet")]
     fn connector_roots_created(
         &self,
         connector_tree_hashes: &Vec<Vec<Vec<[u8; 32]>>>,
@@ -25,5 +24,6 @@ pub trait VerifierConnector: std::fmt::Debug + Send + Sync {
         period_relative_block_heights: Vec<u32>,
     ) -> Result<(), BridgeError>;
 
+    #[cfg(feature = "mainnet")]
     fn challenge_operator(&self, period: u8) -> Result<VerifierChallenge, BridgeError>;
 }

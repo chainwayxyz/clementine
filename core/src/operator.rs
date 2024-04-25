@@ -3,10 +3,12 @@ use std::vec;
 
 use crate::actor::Actor;
 use crate::config::BridgeConfig;
+#[cfg(feature = "mainnet")]
 use crate::constants::{
     VerifierChallenge, CONNECTOR_TREE_DEPTH, DUST_VALUE, K_DEEP,
-    MAX_BITVM_CHALLENGE_RESPONSE_BLOCKS, MIN_RELAY_FEE, PERIOD_BLOCK_COUNT, TEST_MODE,
+    MAX_BITVM_CHALLENGE_RESPONSE_BLOCKS, PERIOD_BLOCK_COUNT
 };
+use crate::constants::{MIN_RELAY_FEE, TEST_MODE};
 use crate::db::operator::OperatorMockDB;
 use crate::env_writer::ENVWriter;
 use crate::errors::{BridgeError, InvalidPeriodError};
@@ -42,6 +44,7 @@ use secp256k1::{Message, SecretKey, XOnlyPublicKey};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 
+#[cfg(feature = "mainnet")]
 pub fn create_connector_tree_preimages_and_hashes(
     depth: usize,
     rng: &mut impl RngCore,
@@ -65,6 +68,7 @@ pub fn create_connector_tree_preimages_and_hashes(
     (connector_tree_preimages, connector_tree_hashes)
 }
 
+#[cfg(feature = "mainnet")]
 pub fn create_all_rounds_connector_preimages(
     depth: usize,
     num_rounds: usize,
@@ -219,7 +223,8 @@ impl Operator {
             txid: rpc_move_txid,
             vout: 0,
         };
-        if !TEST_MODE {
+        #[cfg(feature = "mainnet")]
+        {
             let operator_claim_sigs = OperatorClaimSigs {
                 operator_claim_sigs: presigns_from_all_verifiers
                     .iter()
@@ -278,6 +283,7 @@ impl Operator {
         Ok(move_utxo)
     }
 
+    #[cfg(feature = "mainnet")]
     /// Returns the current withdrawal
     fn get_current_withdrawal_period(&self) -> Result<usize, BridgeError> {
         let cur_block_height = self.rpc.get_block_count().unwrap();
@@ -298,6 +304,7 @@ impl Operator {
         ))
     }
 
+    #[cfg(feature = "mainnet")]
     fn get_current_preimage_reveal_period(&self) -> Result<usize, BridgeError> {
         let cur_block_height = self.rpc.get_block_count().unwrap();
         tracing::debug!("Cur block height: {:?}", cur_block_height);
@@ -326,6 +333,7 @@ impl Operator {
         ))
     }
 
+    #[cfg(feature = "mainnet")]
     // this is called when a Withdrawal event emitted on rollup and its corresponding batch proof is finalized
     pub fn new_withdrawal(
         &mut self,
@@ -359,6 +367,7 @@ impl Operator {
         Ok(())
     }
 
+    #[cfg(feature = "mainnet")]
     pub fn spend_connector_tree_utxo(
         // TODO: Too big, move some parts to Transaction Builder
         &self,
@@ -468,11 +477,13 @@ impl Operator {
         Ok(())
     }
 
+    #[cfg(feature = "mainnet")]
     fn get_num_withdrawals_for_period(&self, _period: usize) -> u32 {
         self.operator_db_connector
             .get_withdrawals_merkle_tree_index() // TODO: This is not correct, we should have a cutoff
     }
 
+    #[cfg(feature = "mainnet")]
     /// This is called internally when every withdrawal for the current period is satisfied
     /// Double checks if all withdrawals are satisfied
     /// Checks that we are in the correct period, and withdrawal period has end for the given period
@@ -541,6 +552,7 @@ impl Operator {
         Ok((preimages_to_be_revealed, commit_address))
     }
 
+    #[cfg(feature = "mainnet")]
     /// Helper function for operator to write blocks to env
     fn write_blocks_and_add_to_merkle_tree<E: Environment>(
         &self,
@@ -571,6 +583,7 @@ impl Operator {
         Ok(lc_cutoff_blockhash)
     }
 
+    #[cfg(feature = "mainnet")]
     fn write_withdrawals_and_add_to_merkle_tree<E: Environment>(
         &self,
         withdrawal_payments: Vec<WithdrawalPayment>,
@@ -623,6 +636,7 @@ impl Operator {
         Ok(())
     }
 
+    #[cfg(feature = "mainnet")]
     /// TODO: change this
     fn write_lc_proof<E: Environment>(
         &self,
@@ -633,6 +647,7 @@ impl Operator {
         E::write_32bytes(withdrawal_mt_root);
     }
 
+    #[cfg(feature = "mainnet")]
     fn write_verifiers_challenge_proof<E: Environment>(
         proof: [[u8; 32]; 4],
         challenge: VerifierChallenge,
@@ -650,6 +665,7 @@ impl Operator {
         Ok(())
     }
 
+    #[cfg(feature = "mainnet")]
     /// Currently PoC for a bridge proof
     /// Light Client proofs are not yet implemented
     /// Verifier's Challenge proof is not yet implemented, instead we assume
@@ -851,6 +867,7 @@ impl Operator {
         Ok(())
     }
 
+    #[cfg(feature = "mainnet")]
     pub fn prove_test<E: Environment>(&self) -> Result<(), BridgeError> {
         let inscription_txs = self.operator_db_connector.get_inscription_txs();
         let last_period = inscription_txs.len() - 1;
@@ -863,6 +880,7 @@ impl Operator {
         Ok(())
     }
 
+    #[cfg(feature = "mainnet")]
     /// This starts the whole setup
     /// 1. get the current blockheight
     /// 2. Create perod blockheights

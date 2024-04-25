@@ -611,6 +611,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(feature = "mainnet")]
     fn test_write_and_read_preimages() {
         let mut _num = SHARED_STATE.lock().unwrap();
         MockEnvironment::reset_mock_env();
