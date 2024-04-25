@@ -99,6 +99,7 @@ pub struct Operator {
     pub verifiers_pks: Vec<XOnlyPublicKey>,
     pub verifier_connector: Vec<Arc<dyn VerifierConnector>>,
     operator_db_connector: OperatorMockDB,
+    config: BridgeConfig,
 }
 
 impl Operator {
@@ -107,16 +108,16 @@ impl Operator {
         all_xonly_pks: Vec<XOnlyPublicKey>,
         operator_sk: SecretKey,
         verifiers: Vec<Arc<dyn VerifierConnector>>,
-        config: &BridgeConfig,
+        config: BridgeConfig,
     ) -> Result<Self, BridgeError> {
         let num_verifiers = all_xonly_pks.len() - 1;
-        let signer = Actor::new(operator_sk); // Operator is the last one
+        let signer = Actor::new(operator_sk, config.network); // Operator is the last one
 
         if signer.xonly_public_key != all_xonly_pks[num_verifiers] {
             return Err(BridgeError::InvalidOperatorKey);
         }
 
-        let transaction_builder = TransactionBuilder::new(all_xonly_pks.clone());
+        let transaction_builder = TransactionBuilder::new(all_xonly_pks.clone(), config.clone());
         let operator_db_connector = OperatorMockDB::new(config.db_file_path.clone());
 
         Ok(Self {
@@ -126,6 +127,7 @@ impl Operator {
             verifier_connector: verifiers,
             verifiers_pks: all_xonly_pks.clone(),
             operator_db_connector,
+            config,
         })
     }
 
@@ -370,6 +372,7 @@ impl Operator {
             &self.signer.secp,
             &self.signer.xonly_public_key,
             &hash,
+            self.config.network,
         )?;
 
         let base_tx = match self.rpc.get_raw_transaction(&utxo.txid, None) {
@@ -414,12 +417,14 @@ impl Operator {
             &self.signer.secp,
             &self.signer.xonly_public_key,
             &hashes.0,
+            self.config.network,
         )?;
 
         let (second_address, _) = TransactionBuilder::create_connector_tree_node_address(
             &self.signer.secp,
             &self.signer.xonly_public_key,
             &hashes.1,
+            self.config.network,
         )?;
 
         let mut tx = TransactionBuilder::create_connector_tree_tx(

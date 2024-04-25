@@ -40,7 +40,12 @@ async fn test_flow() -> Result<(), BridgeError> {
     let mut verifiers: Vec<Arc<dyn VerifierConnector>> = Vec::new();
     for i in 0..NUM_VERIFIERS {
         // let rpc = ExtendedRpc::new();
-        let verifier = Verifier::new(rpc.clone(), all_xonly_pks.clone(), all_sks[i], &config)?;
+        let verifier = Verifier::new(
+            rpc.clone(),
+            all_xonly_pks.clone(),
+            all_sks[i],
+            config.clone(),
+        )?;
         // Convert the Verifier instance into a boxed trait object
         verifiers.push(Arc::new(verifier) as Arc<dyn VerifierConnector>);
     }
@@ -50,13 +55,13 @@ async fn test_flow() -> Result<(), BridgeError> {
         all_xonly_pks.clone(),
         all_sks[NUM_VERIFIERS],
         verifiers,
-        &config,
+        config.clone(),
     )?;
 
     let users: Vec<_> = (0..NUM_USERS)
         .map(|_| {
             let (sk, _) = secp.generate_keypair(rng);
-            User::new(rpc.clone(), all_xonly_pks.clone(), sk)
+            User::new(rpc.clone(), all_xonly_pks.clone(), sk, config.clone())
         })
         .collect();
 

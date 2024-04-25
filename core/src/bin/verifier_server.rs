@@ -21,7 +21,6 @@ struct NewDepositParams {
 
 #[tokio::main]
 async fn main() {
-    
     let configs = vec![
         ("3030", "configs/keys0.json"),
         ("3131", "configs/keys1.json"),
@@ -36,7 +35,7 @@ async fn main() {
             let config = BridgeConfig::new().unwrap();
             let rpc = ExtendedRpc::new();
             let (secret_key, all_xonly_pks) = keys::read_file(keys_file.to_string()).unwrap();
-            let verifier = Verifier::new(rpc, all_xonly_pks, secret_key, &config).unwrap();
+            let verifier = Verifier::new(rpc, all_xonly_pks, secret_key, config.clone()).unwrap();
 
             let server = Server::builder()
                 .build(format!("127.0.0.1:{}", port).parse::<SocketAddr>().unwrap())

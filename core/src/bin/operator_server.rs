@@ -76,7 +76,7 @@ async fn main() {
         all_xonly_pks.clone(),
         secret_key,
         verifiers,
-        &config,
+        config.clone(),
     )
     .unwrap();
 

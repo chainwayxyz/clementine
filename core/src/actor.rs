@@ -1,4 +1,3 @@
-use crate::constants::NETWORK;
 use crate::errors::BridgeError;
 use crate::transaction_builder::CreateTxOutputs;
 use bitcoin::sighash::SighashCache;
@@ -30,12 +29,12 @@ impl Default for Actor {
 }
 
 impl Actor {
-    pub fn new(sk: SecretKey) -> Self {
+    pub fn new(sk: SecretKey, network: bitcoin::Network) -> Self {
         let secp: Secp256k1<All> = Secp256k1::new();
         let pk = sk.public_key(&secp);
         let keypair = Keypair::from_secret_key(&secp, &sk);
         let (xonly, _parity) = XOnlyPublicKey::from_keypair(&keypair);
-        let address = Address::p2tr(&secp, xonly, None, *NETWORK);
+        let address = Address::p2tr(&secp, xonly, None, network);
 
         Actor {
             secp,

@@ -7,7 +7,7 @@ use clementine_core::{actor::Actor, extended_rpc::ExtendedRpc, keys};
 fn main() {
     let _rpc = ExtendedRpc::new();
     let (secret_key, _all_xonly_pks) = keys::get_from_file().unwrap();
-    let actor = Actor::new(secret_key);
+    let actor = Actor::new(secret_key, bitcoin::Network::Testnet);
 
     println!("{:?}", actor.address);
 

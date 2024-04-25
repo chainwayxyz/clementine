@@ -345,8 +345,9 @@ mod tests {
     use secp256k1::hashes::Hash;
 
     use crate::{
-        env_writer::ENVWriter, errors::BridgeError, merkle::MerkleTree, mock_env::MockEnvironment,
-        transaction_builder::TransactionBuilder, utils::parse_hex_to_btc_tx,
+        config::BridgeConfig, env_writer::ENVWriter, errors::BridgeError, merkle::MerkleTree,
+        mock_env::MockEnvironment, transaction_builder::TransactionBuilder,
+        utils::parse_hex_to_btc_tx,
     };
 
     fn test_block_merkle_path(block: Block) -> Result<(), BridgeError> {
@@ -620,7 +621,7 @@ mod tests {
         .unwrap();
 
         // Mock tx builder
-        let tx_builder = TransactionBuilder::new(vec![operator_xonly]);
+        let tx_builder = TransactionBuilder::new(vec![operator_xonly], BridgeConfig::test_config());
 
         for i in 0..24u8 {
             let preimages: Vec<[u8; 32]> = (0..i + 1).map(|j| [j as u8; 32]).collect();

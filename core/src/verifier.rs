@@ -159,9 +159,9 @@ impl Verifier {
         rpc: ExtendedRpc,
         all_xonly_pks: Vec<XOnlyPublicKey>,
         sk: SecretKey,
-        config: &BridgeConfig,
+        config: BridgeConfig,
     ) -> Result<Self, BridgeError> {
-        let signer = Actor::new(sk);
+        let signer = Actor::new(sk, config.network);
         let secp: Secp256k1<secp256k1::All> = Secp256k1::new();
 
         let pk: secp256k1::PublicKey = sk.public_key(&secp);
@@ -173,7 +173,7 @@ impl Verifier {
 
         let verifier_db_connector = VerifierMockDB::new(config.db_file_path.clone());
 
-        let transaction_builder = TransactionBuilder::new(all_xonly_pks.clone());
+        let transaction_builder = TransactionBuilder::new(all_xonly_pks.clone(), config);
         let operator_pk = all_xonly_pks[all_xonly_pks.len() - 1];
         Ok(Verifier {
             rpc,

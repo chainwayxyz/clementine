@@ -37,20 +37,4 @@ pub const MAX_BITVM_CHALLENGE_RESPONSE_BLOCKS: u32 = 5;
 
 pub type VerifierChallenge = (BlockHash, U256, u8);
 
-lazy_static! {
-    /// This will act as a constant during runtime once it is initialized
-    pub static ref NETWORK: Network = {
-        // Retrieve the network type from an environment variable
-        let network_str = env::var("NETWORK").unwrap_or("Regtest".to_string());
-
-        // Convert the environment variable to a `bitcoin::Network`
-        match network_str.to_lowercase().as_str() {
-            "bitcoin" => Network::Bitcoin,
-            "testnet" => Network::Testnet,
-            "regtest" => Network::Regtest,
-            _ => panic!("Unsupported network: {}", network_str),
-        }
-    };
-}
-
 pub const TEST_MODE: bool = true;

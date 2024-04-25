@@ -1,9 +1,10 @@
 use std::str::FromStr;
 
 use crate::{
+    config::{self, BridgeConfig},
     constants::{
         CONNECTOR_TREE_DEPTH, CONNECTOR_TREE_OPERATOR_TAKES_AFTER, DUST_VALUE, K_DEEP,
-        MAX_BITVM_CHALLENGE_RESPONSE_BLOCKS, MIN_RELAY_FEE, NETWORK, USER_TAKES_AFTER,
+        MAX_BITVM_CHALLENGE_RESPONSE_BLOCKS, MIN_RELAY_FEE, USER_TAKES_AFTER,
     },
     merkle::MerkleTree,
     utils::get_claim_proof_tree_leaf,
@@ -50,16 +51,18 @@ pub struct TransactionBuilder {
     pub secp: Secp256k1<secp256k1::All>,
     pub verifiers_pks: Vec<XOnlyPublicKey>,
     pub script_builder: ScriptBuilder,
+    pub config: BridgeConfig,
 }
 
 impl TransactionBuilder {
-    pub fn new(verifiers_pks: Vec<XOnlyPublicKey>) -> Self {
+    pub fn new(verifiers_pks: Vec<XOnlyPublicKey>, config: BridgeConfig) -> Self {
         let secp = Secp256k1::new();
         let script_builder = ScriptBuilder::new(verifiers_pks.clone());
         Self {
             secp,
             verifiers_pks,
             script_builder,
+            config,
         }
     }
 
@@ -78,7 +81,12 @@ impl TransactionBuilder {
             .add_leaf(1, deposit_script.clone())?
             .add_leaf(1, script_timelock.clone())?;
         let tree_info = taproot.finalize(&self.secp, *INTERNAL_KEY)?;
-        let address = Address::p2tr(&self.secp, *INTERNAL_KEY, tree_info.merkle_root(), *NETWORK);
+        let address = Address::p2tr(
+            &self.secp,
+            *INTERNAL_KEY,
+            tree_info.merkle_root(),
+            self.config.network,
+        );
         Ok((address, tree_info))
     }
 
@@ -87,7 +95,12 @@ impl TransactionBuilder {
         let script_n_of_n = self.script_builder.generate_script_n_of_n();
         let taproot = TaprootBuilder::new().add_leaf(0, script_n_of_n.clone())?;
         let tree_info = taproot.finalize(&self.secp, *INTERNAL_KEY)?;
-        let address = Address::p2tr(&self.secp, *INTERNAL_KEY, tree_info.merkle_root(), *NETWORK);
+        let address = Address::p2tr(
+            &self.secp,
+            *INTERNAL_KEY,
+            tree_info.merkle_root(),
+            self.config.network,
+        );
         Ok((address, tree_info))
     }
 
@@ -141,6 +154,7 @@ impl TransactionBuilder {
                 &self.secp,
                 operator_xonly,
                 hash,
+                self.config.network,
             )?;
         let (bridge_address, bridge_taproot_spend_info) = self.generate_bridge_address()?;
 
@@ -251,6 +265,7 @@ impl TransactionBuilder {
                     &self.secp,
                     &self.verifiers_pks[self.verifiers_pks.len() - 1],
                     &connector_tree_hashes[i][0][0],
+                    self.config.network,
                 )?;
             let curr_root_and_next_source_tx_ins =
                 TransactionBuilder::create_tx_ins(vec![cur_connector_source_utxo]);
@@ -348,6 +363,7 @@ impl TransactionBuilder {
     fn create_taproot_address(
         secp: &Secp256k1<secp256k1::All>,
         scripts: Vec<ScriptBuf>,
+        network: bitcoin::Network,
     ) -> Result<(Address, TaprootSpendInfo), BridgeError> {
         let n = scripts.len();
         if n == 0 {
@@ -363,11 +379,10 @@ impl TransactionBuilder {
         } else {
             TaprootBuilder::new().add_leaf(0, scripts[0].clone())?
         };
-        // tracing::debug!("taproot_builder: {:?}", taproot_builder);
         let internal_key = *INTERNAL_KEY;
         let tree_info = taproot_builder.finalize(secp, internal_key)?;
         Ok((
-            Address::p2tr(secp, internal_key, tree_info.merkle_root(), *NETWORK),
+            Address::p2tr(secp, internal_key, tree_info.merkle_root(), network),
             tree_info,
         ))
     }
@@ -385,7 +400,8 @@ impl TransactionBuilder {
         let scripts = vec![timelock_script, script_n_of_n];
 
         let (address, tree_info) =
-            TransactionBuilder::create_taproot_address(&self.secp, scripts).unwrap();
+            TransactionBuilder::create_taproot_address(&self.secp, scripts, self.config.network)
+                .unwrap();
         Ok((address, tree_info))
     }
 
@@ -393,6 +409,7 @@ impl TransactionBuilder {
         secp: &Secp256k1<secp256k1::All>,
         actor_pk: &XOnlyPublicKey,
         hash: &HashType,
+        network: bitcoin::Network,
     ) -> Result<CreateAddressOutputs, BridgeError> {
         let timelock_script = ScriptBuilder::generate_timelock_script(
             actor_pk,
@@ -406,6 +423,7 @@ impl TransactionBuilder {
         let (address, tree_info) = TransactionBuilder::create_taproot_address(
             secp,
             vec![timelock_script.clone(), preimage_script],
+            network,
         )?;
         Ok((address, tree_info))
     }
@@ -420,6 +438,7 @@ impl TransactionBuilder {
         let (address, taproot_info) = TransactionBuilder::create_taproot_address(
             &self.secp,
             vec![inscribe_preimage_script.clone()],
+            self.config.network,
         )?;
         let mut hasher = Sha256::new();
         for elem in preimages_to_be_revealed {
@@ -503,6 +522,7 @@ impl TransactionBuilder {
             &self.secp,
             xonly_public_key,
             &connector_tree_hashes[0][0],
+            self.config.network,
         )?;
 
         let mut utxo_binary_tree: ConnectorUTXOTree = Vec::new();
@@ -517,11 +537,13 @@ impl TransactionBuilder {
                     &self.secp,
                     xonly_public_key,
                     &connector_tree_hashes[i + 1][2 * j],
+                    self.config.network,
                 )?;
                 let (second_address, _) = TransactionBuilder::create_connector_tree_node_address(
                     &self.secp,
                     xonly_public_key,
                     &connector_tree_hashes[i + 1][2 * j + 1],
+                    self.config.network,
                 )?;
 
                 let tx = TransactionBuilder::create_connector_tree_tx(
@@ -546,7 +568,7 @@ mod tests {
 
     use bitcoin::XOnlyPublicKey;
 
-    use crate::transaction_builder::TransactionBuilder;
+    use crate::{config::BridgeConfig, transaction_builder::TransactionBuilder};
 
     #[test]
     fn test_deposit_address() {
@@ -561,7 +583,7 @@ mod tests {
             .iter()
             .map(|pk| XOnlyPublicKey::from_str(pk).unwrap())
             .collect();
-        let tx_builder = TransactionBuilder::new(verifier_pks);
+        let tx_builder = TransactionBuilder::new(verifier_pks, BridgeConfig::test_config());
         let evm_address: [u8; 20] = hex::decode("1234567890123456789012345678901234567890")
             .unwrap()
             .try_into()
