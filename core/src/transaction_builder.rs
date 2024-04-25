@@ -1,7 +1,7 @@
 use std::str::FromStr;
 
 use crate::{
-    config::{self, BridgeConfig},
+    config::BridgeConfig,
     constants::{
         CONNECTOR_TREE_DEPTH, CONNECTOR_TREE_OPERATOR_TAKES_AFTER, DUST_VALUE, K_DEEP,
         MAX_BITVM_CHALLENGE_RESPONSE_BLOCKS, MIN_RELAY_FEE, USER_TAKES_AFTER,

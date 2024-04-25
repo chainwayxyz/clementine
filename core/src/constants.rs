@@ -1,9 +1,6 @@
-use std::env;
-
-use bitcoin::{BlockHash, Network};
+use bitcoin::BlockHash;
 use clementine_circuits::constants::CLAIM_MERKLE_TREE_DEPTH;
 use crypto_bigint::U256;
-use lazy_static::lazy_static;
 
 pub const NUM_VERIFIERS: usize = 4;
 pub const NUM_USERS: usize = 4;
