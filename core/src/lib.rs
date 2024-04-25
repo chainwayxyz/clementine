@@ -2,6 +2,7 @@ use bitcoin::{OutPoint, Txid};
 use clementine_circuits::{HashType, PreimageType};
 
 pub mod actor;
+pub mod config;
 pub mod constants;
 pub mod db;
 pub mod env_writer;
@@ -17,7 +18,6 @@ pub mod transaction_builder;
 pub mod user;
 pub mod utils;
 pub mod verifier;
-pub mod config;
 
 pub type ConnectorUTXOTree = Vec<Vec<OutPoint>>;
 pub type HashTree = Vec<Vec<HashType>>;

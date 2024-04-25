@@ -6,7 +6,7 @@ use crate::config::BridgeConfig;
 #[cfg(feature = "mainnet")]
 use crate::constants::{
     VerifierChallenge, CONNECTOR_TREE_DEPTH, DUST_VALUE, K_DEEP,
-    MAX_BITVM_CHALLENGE_RESPONSE_BLOCKS, PERIOD_BLOCK_COUNT
+    MAX_BITVM_CHALLENGE_RESPONSE_BLOCKS, PERIOD_BLOCK_COUNT,
 };
 use crate::constants::{MIN_RELAY_FEE, TEST_MODE};
 use crate::db::operator::OperatorMockDB;
