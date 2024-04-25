@@ -43,4 +43,4 @@ pub const MAX_BITVM_CHALLENGE_RESPONSE_BLOCKS: u32 = 5;
 #[cfg(feature = "mainnet")]
 pub type VerifierChallenge = (BlockHash, U256, u8);
 
-pub const TEST_MODE: bool = true;
+// pub const TEST_MODE: bool = true;
