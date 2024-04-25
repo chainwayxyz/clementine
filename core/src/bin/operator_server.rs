@@ -54,7 +54,11 @@ pub fn initialize_logging() {
 #[tokio::main]
 async fn main() {
     initialize_logging();
-    let rpc = ExtendedRpc::new();
+    let config = BridgeConfig::new().unwrap();
+    let rpc = ExtendedRpc::new(
+        config.bitcoin_rpc_url.clone(),
+        config.bitcoin_rpc_auth.clone(),
+    );
     let (secret_key, all_xonly_pks) = keys::get_from_file().unwrap();
 
     let verifier_endpoints = vec![
@@ -69,7 +73,7 @@ async fn main() {
         let verifier = VerifierClient::new(verifier_endpoints[i].clone());
         verifiers.push(Arc::new(verifier) as Arc<dyn VerifierConnector>);
     }
-    let config = BridgeConfig::new().unwrap();
+    
 
     let operator = Operator::new(
         rpc.clone(),

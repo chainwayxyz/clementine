@@ -17,40 +17,42 @@ use crate::errors::BridgeError;
 
 #[derive(Debug)]
 pub struct ExtendedRpc {
+    url: String,
+    auth: Auth,
     pub inner: Client,
 }
 
 impl Clone for ExtendedRpc {
     fn clone(&self) -> Self {
-        // Assuming the connection parameters are static/fixed as shown in the `new` method.
-        // If these parameters can change or need to be dynamic, you'll need to adjust this approach
-        // to ensure the new Client is created with the correct parameters.
-        let rpc_url = env::var("RPC_URL").unwrap_or_else(|_| "http://localhost:18443".to_string());
-        let rpc_user = "admin".to_string();
-        let rpc_pass = "admin".to_string();
-
-        let new_client = Client::new(&rpc_url, Auth::UserPass(rpc_user, rpc_pass))
+        let new_client = Client::new(&self.url, self.auth.clone())
             .unwrap_or_else(|e| panic!("Failed to clone Bitcoin RPC client: {}", e));
 
-        Self { inner: new_client }
+        Self {
+            url: self.url.clone(),
+            auth: self.auth.clone(),
+            inner: new_client,
+        }
     }
 }
 
 impl Default for ExtendedRpc {
     fn default() -> Self {
-        Self::new()
+        Self::new(
+            "http://localhost:18443".to_string(),
+            Auth::UserPass("admin".to_string(), "admin".to_string()),
+        )
     }
 }
 
 impl ExtendedRpc {
-    pub fn new() -> Self {
-        let rpc_url = env::var("RPC_URL").unwrap_or_else(|_| "http://localhost:18443".to_string());
-        let rpc = Client::new(
-            &rpc_url,
-            Auth::UserPass("admin".to_string(), "admin".to_string()),
-        )
-        .unwrap_or_else(|e| panic!("Failed to connect to Bitcoin RPC: {}", e));
-        Self { inner: rpc }
+    pub fn new(url: String, auth: Auth) -> Self {
+        let rpc = Client::new(&url, auth.clone())
+            .unwrap_or_else(|e| panic!("Failed to connect to Bitcoin RPC: {}", e));
+        Self {
+            url,
+            auth,
+            inner: rpc,
+        }
     }
 
     pub fn confirmation_blocks(&self, txid: &bitcoin::Txid) -> Result<u32, BridgeError> {

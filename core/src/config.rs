@@ -1,6 +1,7 @@
 use std::env;
 
 use bitcoin::Network;
+use bitcoincore_rpc::Auth;
 
 use crate::errors::BridgeError;
 
@@ -12,6 +13,8 @@ pub struct BridgeConfig {
     pub user_takes_after: u32,
     pub confirmation_treshold: u32,
     pub network: Network,
+    pub bitcoin_rpc_url: String,
+    pub bitcoin_rpc_auth: Auth,
 }
 
 impl BridgeConfig {
@@ -59,6 +62,20 @@ impl BridgeConfig {
             _ => panic!("Unsupported network: {}", network_str),
         };
 
+        let bitcoin_rpc_url = env::var("BITCOIN_RPC_URL").map_err(|_| {
+            BridgeError::ConfigError("BITCOIN_RPC_URL environment variable not set".to_string())
+        })?;
+        let bitcoin_rpc_user = env::var("BITCOIN_RPC_USER").map_err(|_| {
+            BridgeError::ConfigError("BITCOIN_RPC_USER environment variable not set".to_string())
+        })?;
+
+        let bitcoin_rpc_password = env::var("BITCOIN_RPC_PASSWORD").map_err(|_| {
+            BridgeError::ConfigError(
+                "BITCOIN_RPC_PASSWORD environment variable not set".to_string(),
+            )
+        })?;
+        let bitcoin_rpc_auth = Auth::UserPass(bitcoin_rpc_user, bitcoin_rpc_password);
+
         Ok(Self {
             db_file_path,
             num_verifiers,
@@ -66,6 +83,8 @@ impl BridgeConfig {
             user_takes_after,
             confirmation_treshold,
             network,
+            bitcoin_rpc_url,
+            bitcoin_rpc_auth,
         })
     }
 
@@ -77,6 +96,8 @@ impl BridgeConfig {
             user_takes_after: 200,
             confirmation_treshold: 1,
             network: Network::Regtest,
+            bitcoin_rpc_url: "http://localhost:18443".to_string(),
+            bitcoin_rpc_auth: Auth::UserPass("admin".to_string(), "admin".to_string()),
         }
     }
 }
