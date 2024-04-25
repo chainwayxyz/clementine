@@ -1,5 +1,5 @@
 //! This binary generates random private/public key pairs for testing. They will
-//! be put in `ENV_DIR`/`PREFIX`(0..`crate::constants::NUM_VERIFIERS`).json.
+//! be put in `ENV_DIR`/`PREFIX`(0..`num_verifiers`).json.
 //! File format is described in `core/src/keys.rs`.
 
 use bitcoin::XOnlyPublicKey;
@@ -23,7 +23,12 @@ const PREFIX: &str = "keys";
 
 fn main() {
     let directory = env::var(ENV_DIR).unwrap_or_else(|_| DIRECTORY.to_string());
-    let (all_sks, all_xonly_pks) = generate_keypair();
+    let num_verifiers: usize = env::var("NUM_VERIFIERS")
+        .unwrap_or_else(|_| "1".to_string())
+        .parse()
+        .unwrap();
+
+    let (all_sks, all_xonly_pks) = generate_keypair(num_verifiers);
     println!("Generated private keys: {:#?}", all_sks.clone());
     println!("Generated public keys: {:#?}", all_xonly_pks.clone());
 
@@ -41,11 +46,12 @@ fn main() {
 /// dedicated function, it should also be used here and this should be deleted.
 /// It is not ideal to have a possibly different key generator algorithms, in
 /// case of a change.
-fn generate_keypair() -> (Vec<SecretKey>, Vec<XOnlyPublicKey>) {
+fn generate_keypair(num_verifiers: usize) -> (Vec<SecretKey>, Vec<XOnlyPublicKey>) {
     let secp: secp256k1::Secp256k1<secp256k1::All> = bitcoin::secp256k1::Secp256k1::new();
     let rng = &mut OsRng;
 
-    let (all_sks, all_xonly_pks): (Vec<_>, Vec<_>) = keys::create_key_pairs(secp.clone(), rng);
+    let (all_sks, all_xonly_pks): (Vec<_>, Vec<_>) =
+        keys::create_key_pairs(secp.clone(), rng, num_verifiers);
 
     (all_sks, all_xonly_pks)
 }

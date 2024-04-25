@@ -320,18 +320,14 @@ mod tests {
     lazy_static::lazy_static! {
         static ref SHARED_STATE: Mutex<i32> = Mutex::new(0);
     }
-    use std::str::FromStr;
 
     use bitcoin::{
         block::Header,
         consensus::{deserialize, serialize},
-        Block, Txid, XOnlyPublicKey,
+        Block, Txid,
     };
     use clementine_circuits::{
-        bitcoin::{
-            read_and_verify_bitcoin_merkle_path, read_preimages_and_calculate_commit_taproot,
-            read_tx_and_calculate_txid,
-        },
+        bitcoin::{read_and_verify_bitcoin_merkle_path, read_tx_and_calculate_txid},
         bridge::{
             read_blocks_and_add_to_merkle_tree, read_blocks_and_calculate_work,
             read_merkle_tree_proof,
@@ -345,8 +341,7 @@ mod tests {
     use secp256k1::hashes::Hash;
 
     use crate::{
-        config::BridgeConfig, env_writer::ENVWriter, errors::BridgeError, merkle::MerkleTree,
-        mock_env::MockEnvironment, transaction_builder::TransactionBuilder,
+        env_writer::ENVWriter, errors::BridgeError, merkle::MerkleTree, mock_env::MockEnvironment,
         utils::parse_hex_to_btc_tx,
     };
 

@@ -1,9 +1,9 @@
 use bitcoin::OutPoint;
 use clementine_core::config::BridgeConfig;
+use clementine_core::extended_rpc::ExtendedRpc;
 use clementine_core::operator::Operator;
 use clementine_core::traits::verifier::VerifierConnector;
 use clementine_core::verifier::VerifierClient;
-use clementine_core::{constants::NUM_VERIFIERS, extended_rpc::ExtendedRpc};
 use clementine_core::{keys, EVMAddress};
 use jsonrpsee::{server::Server, RpcModule};
 use secp256k1::XOnlyPublicKey;
@@ -65,7 +65,7 @@ async fn main() {
     ];
 
     let mut verifiers: Vec<Arc<dyn VerifierConnector>> = Vec::new();
-    for i in 0..NUM_VERIFIERS {
+    for i in 0..verifier_endpoints.len() {
         let verifier = VerifierClient::new(verifier_endpoints[i].clone());
         verifiers.push(Arc::new(verifier) as Arc<dyn VerifierConnector>);
     }

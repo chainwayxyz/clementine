@@ -34,10 +34,7 @@
 //!
 //! If input file is not specified, key pairs will be generated randomly.
 
-use crate::{
-    constants::NUM_VERIFIERS,
-    errors::BridgeError::{self, InvalidKeyPair},
-};
+use crate::errors::BridgeError::{self, InvalidKeyPair};
 use bitcoin::XOnlyPublicKey;
 use crypto_bigint::rand_core::OsRng;
 use secp256k1::{All, Secp256k1, SecretKey};
@@ -86,8 +83,9 @@ pub fn read_file(name: String) -> Result<(SecretKey, Vec<XOnlyPublicKey>), Bridg
 pub fn create_key_pairs(
     secp: Secp256k1<All>,
     rng: &mut OsRng,
+    num_verifiers: usize,
 ) -> (Vec<SecretKey>, Vec<XOnlyPublicKey>) {
-    (0..NUM_VERIFIERS + 1)
+    (0..num_verifiers + 1)
         .map(|_| {
             let (sk, pk) = secp.generate_keypair(rng);
             (sk, XOnlyPublicKey::from(pk))

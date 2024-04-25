@@ -3,26 +3,21 @@ use crate::config::BridgeConfig;
 use crate::constants::CONNECTOR_TREE_DEPTH;
 use crate::db::verifier::VerifierMockDB;
 use crate::errors::BridgeError;
-
+use crate::extended_rpc::ExtendedRpc;
 use crate::traits::verifier::VerifierConnector;
+use crate::transaction_builder::TransactionBuilder;
 use crate::utils::check_deposit_utxo;
-use crate::{EVMAddress, HashTree};
+use crate::EVMAddress;
+use crate::{actor::Actor, operator::DepositPresigns};
 use async_trait::async_trait;
 use bitcoin::Address;
 use bitcoin::{secp256k1, secp256k1::Secp256k1, OutPoint};
-
-use clementine_circuits::constants::{BRIDGE_AMOUNT_SATS, NUM_ROUNDS};
+use clementine_circuits::constants::BRIDGE_AMOUNT_SATS;
 use jsonrpsee::core::client::ClientT;
 use jsonrpsee::core::params::ObjectParams;
 use jsonrpsee::http_client::{HeaderMap, HttpClient, HttpClientBuilder};
-
 use secp256k1::SecretKey;
 use secp256k1::XOnlyPublicKey;
-
-use crate::extended_rpc::ExtendedRpc;
-use crate::transaction_builder::TransactionBuilder;
-
-use crate::{actor::Actor, operator::DepositPresigns};
 
 #[derive(Debug, Clone)]
 pub struct Verifier {
@@ -33,6 +28,7 @@ pub struct Verifier {
     pub verifiers: Vec<XOnlyPublicKey>,
     pub operator_pk: XOnlyPublicKey,
     verifier_db_connector: VerifierMockDB,
+    config: BridgeConfig,
 }
 
 #[async_trait]
@@ -45,9 +41,9 @@ impl VerifierConnector for Verifier {
         &self,
         start_utxo: OutPoint,
         return_address: &XOnlyPublicKey,
-        deposit_index: u32,
+        _deposit_index: u32,
         evm_address: &EVMAddress,
-        operator_address: &Address,
+        _operator_address: &Address,
     ) -> Result<DepositPresigns, BridgeError> {
         check_deposit_utxo(
             &self.rpc,
@@ -56,6 +52,7 @@ impl VerifierConnector for Verifier {
             return_address,
             evm_address,
             BRIDGE_AMOUNT_SATS,
+            self.config.confirmation_treshold,
         )?;
 
         let mut move_tx =
@@ -63,7 +60,7 @@ impl VerifierConnector for Verifier {
                 .create_move_tx(start_utxo, evm_address, &return_address)?;
         let move_txid = move_tx.tx.txid();
 
-        let move_utxo = OutPoint {
+        let _move_utxo = OutPoint {
             txid: move_txid,
             vout: 0,
         };
@@ -72,7 +69,7 @@ impl VerifierConnector for Verifier {
             .signer
             .sign_taproot_script_spend_tx_new(&mut move_tx, 0)?;
 
-        let mut op_claim_sigs = Vec::new();
+        let op_claim_sigs = Vec::new();
 
         #[cfg(feature = "mainnet")]
         {
@@ -177,7 +174,7 @@ impl Verifier {
 
         let verifier_db_connector = VerifierMockDB::new(config.db_file_path.clone());
 
-        let transaction_builder = TransactionBuilder::new(all_xonly_pks.clone(), config);
+        let transaction_builder = TransactionBuilder::new(all_xonly_pks.clone(), config.clone());
         let operator_pk = all_xonly_pks[all_xonly_pks.len() - 1];
         Ok(Verifier {
             rpc,
@@ -187,6 +184,7 @@ impl Verifier {
             verifiers: all_xonly_pks,
             operator_pk,
             verifier_db_connector,
+            config,
         })
     }
 }

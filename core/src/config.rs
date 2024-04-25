@@ -6,19 +6,11 @@ use crate::errors::BridgeError;
 
 #[derive(Debug, Clone)]
 pub struct BridgeConfig {
-    pub num_verifiers: usize,
-    pub num_users: usize,
-    pub connector_tree_operator_takes_after: u16,
-    pub connector_tree_depth: usize,
-    pub dust_value: u64,
-    pub min_relay_fee: u64,
-    pub period_block_count: u32,
-    pub user_takes_after: u32,
-    pub confirmation_block_count: u32,
-    pub k_deep: u32,
-    pub max_bitvm_challenge_response_blocks: u32,
-    pub test_mode: bool,
     pub db_file_path: String,
+    pub num_verifiers: usize,
+    pub min_relay_fee: u64,
+    pub user_takes_after: u32,
+    pub confirmation_treshold: u32,
     pub network: Network,
 }
 
@@ -28,6 +20,34 @@ impl BridgeConfig {
         let db_file_path = env::var("DB_FILE_PATH").map_err(|_| {
             BridgeError::ConfigError("DB_FILE_PATH environment variable not set".to_string())
         })?;
+        let num_verifiers = env::var("NUM_VERIFIERS")
+            .map_err(|_| {
+                BridgeError::ConfigError("NUM_VERIFIERS environment variable not set".to_string())
+            })?
+            .parse::<usize>()
+            .unwrap();
+        let min_relay_fee = env::var("MIN_RELAY_FEE")
+            .map_err(|_| {
+                BridgeError::ConfigError("MIN_RELAY_FEE environment variable not set".to_string())
+            })?
+            .parse::<u64>()
+            .unwrap();
+        let user_takes_after = env::var("USER_TAKES_AFTER")
+            .map_err(|_| {
+                BridgeError::ConfigError(
+                    "USER_TAKES_AFTER environment variable not set".to_string(),
+                )
+            })?
+            .parse::<u32>()
+            .unwrap();
+        let confirmation_treshold = env::var("CONFIRMATION_THRESHOLD")
+            .map_err(|_| {
+                BridgeError::ConfigError(
+                    "CONFIRMATION_THRESHOLD environment variable not set".to_string(),
+                )
+            })?
+            .parse::<u32>()
+            .unwrap();
 
         let network_str = env::var("NETWORK").unwrap_or("Regtest".to_string());
 
@@ -39,40 +59,23 @@ impl BridgeConfig {
             _ => panic!("Unsupported network: {}", network_str),
         };
 
-
         Ok(Self {
-            num_verifiers: 4,
-            num_users: 4,
-            connector_tree_operator_takes_after: 1,
-            connector_tree_depth: 32,
-            dust_value: 1000,
-            min_relay_fee: 289,
-            period_block_count: 50,
-            user_takes_after: 200,
-            confirmation_block_count: 1,
-            k_deep: 3,
-            max_bitvm_challenge_response_blocks: 5,
-            test_mode: true,
             db_file_path,
-            network
+            num_verifiers,
+            min_relay_fee,
+            user_takes_after,
+            confirmation_treshold,
+            network,
         })
     }
 
     pub fn test_config() -> Self {
         Self {
-            num_verifiers: 4,
-            num_users: 4,
-            connector_tree_operator_takes_after: 1,
-            connector_tree_depth: 32,
-            dust_value: 1000,
-            min_relay_fee: 289,
-            period_block_count: 50,
-            user_takes_after: 200,
-            confirmation_block_count: 1,
-            k_deep: 3,
-            max_bitvm_challenge_response_blocks: 5,
-            test_mode: true,
             db_file_path: "test_db".to_string(),
+            num_verifiers: 4,
+            min_relay_fee: 289,
+            user_takes_after: 200,
+            confirmation_treshold: 1,
             network: Network::Regtest,
         }
     }
