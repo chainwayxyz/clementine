@@ -1,6 +1,3 @@
-use std::sync::Arc;
-use std::vec;
-
 use crate::actor::Actor;
 use crate::config::BridgeConfig;
 #[cfg(feature = "mainnet")]
@@ -9,39 +6,21 @@ use crate::constants::{
     MAX_BITVM_CHALLENGE_RESPONSE_BLOCKS, PERIOD_BLOCK_COUNT,
 };
 use crate::db::operator::OperatorMockDB;
-use crate::env_writer::ENVWriter;
-use crate::errors::{BridgeError, InvalidPeriodError};
+use crate::errors::BridgeError;
 use crate::extended_rpc::ExtendedRpc;
-
-use crate::merkle::MerkleTree;
-use crate::script_builder::ScriptBuilder;
 use crate::traits::verifier::VerifierConnector;
 use crate::transaction_builder::TransactionBuilder;
-use crate::utils::{
-    calculate_amount, check_deposit_utxo, get_claim_reveal_indices, handle_taproot_witness,
-    handle_taproot_witness_new,
-};
-use crate::{EVMAddress, WithdrawalPayment};
-
-use bitcoin::address::NetworkChecked;
-use bitcoin::block::Header;
-use bitcoin::hashes::Hash;
-
-use bitcoin::{secp256k1, secp256k1::schnorr, Address};
-use bitcoin::{Amount, BlockHash, OutPoint};
-use clementine_circuits::constants::{
-    BLOCKHASH_MERKLE_TREE_DEPTH, BRIDGE_AMOUNT_SATS, CLAIM_MERKLE_TREE_DEPTH, MAX_BLOCK_HANDLE_OPS,
-    NUM_ROUNDS, WITHDRAWAL_MERKLE_TREE_DEPTH,
-};
-use clementine_circuits::env::Environment;
-use clementine_circuits::{sha256_hash, HashType, PreimageType};
-use crypto_bigint::{Encoding, U256};
+use crate::utils::{check_deposit_utxo, handle_taproot_witness_new};
+use crate::EVMAddress;
+use bitcoin::OutPoint;
+use bitcoin::{secp256k1, secp256k1::schnorr};
+use clementine_circuits::constants::BRIDGE_AMOUNT_SATS;
 use futures::stream::FuturesOrdered;
 use futures::TryStreamExt;
-use secp256k1::rand::{Rng, RngCore};
-use secp256k1::{Message, SecretKey, XOnlyPublicKey};
+use secp256k1::{SecretKey, XOnlyPublicKey};
 use serde::{Deserialize, Serialize};
-use sha2::{Digest, Sha256};
+use sha2::Digest;
+use std::sync::Arc;
 
 #[cfg(feature = "mainnet")]
 pub fn create_connector_tree_preimages_and_hashes(

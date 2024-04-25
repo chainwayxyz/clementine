@@ -5,27 +5,17 @@ use crate::constants::{
     CONNECTOR_TREE_DEPTH, CONNECTOR_TREE_OPERATOR_TAKES_AFTER, DUST_VALUE, K_DEEP,
     MAX_BITVM_CHALLENGE_RESPONSE_BLOCKS,
 };
-
-use crate::{
-    config::BridgeConfig, merkle::MerkleTree, utils::get_claim_proof_tree_leaf, ConnectorUTXOTree,
-    EVMAddress, HashTree,
-};
+use crate::{config::BridgeConfig, EVMAddress};
+use crate::{errors::BridgeError, script_builder::ScriptBuilder};
 use bitcoin::{
     absolute,
-    opcodes::all::{OP_EQUAL, OP_SHA256},
-    script::Builder,
     taproot::{TaprootBuilder, TaprootSpendInfo},
     Address, Amount, OutPoint, ScriptBuf, TxIn, TxOut, Witness,
 };
-use clementine_circuits::{
-    constants::{BRIDGE_AMOUNT_SATS, CLAIM_MERKLE_TREE_DEPTH, NUM_ROUNDS},
-    sha256_hash, HashType, MerkleRoot, PreimageType,
-};
-use secp256k1::{Secp256k1, XOnlyPublicKey};
-use sha2::{Digest, Sha256};
-
-use crate::{errors::BridgeError, script_builder::ScriptBuilder, utils::calculate_amount};
+use clementine_circuits::constants::BRIDGE_AMOUNT_SATS;
 use lazy_static::lazy_static;
+use secp256k1::{Secp256k1, XOnlyPublicKey};
+use sha2::Digest;
 
 // This is an unspendable pubkey
 // See https://github.com/bitcoin/bips/blob/master/bip-0341.mediawiki#constructing-and-spending-taproot-outputs
