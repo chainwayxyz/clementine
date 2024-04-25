@@ -1,4 +1,5 @@
 use bitcoin::OutPoint;
+use clementine_core::config::BridgeConfig;
 use clementine_core::operator::Operator;
 use clementine_core::traits::verifier::VerifierConnector;
 use clementine_core::verifier::VerifierClient;
@@ -68,9 +69,16 @@ async fn main() {
         let verifier = VerifierClient::new(verifier_endpoints[i].clone());
         verifiers.push(Arc::new(verifier) as Arc<dyn VerifierConnector>);
     }
+    let config = BridgeConfig::new().unwrap();
 
-    let operator =
-        Operator::new(rpc.clone(), all_xonly_pks.clone(), secret_key, verifiers).unwrap();
+    let operator = Operator::new(
+        rpc.clone(),
+        all_xonly_pks.clone(),
+        secret_key,
+        verifiers,
+        &config,
+    )
+    .unwrap();
 
     let server = Server::builder()
         .build("127.0.0.1:3434".parse::<SocketAddr>().unwrap())

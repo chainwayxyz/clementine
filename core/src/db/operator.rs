@@ -11,9 +11,9 @@ pub struct OperatorMockDB {
 }
 
 impl OperatorMockDB {
-    pub fn new() -> Self {
+    pub fn new(db_file_path: String) -> Self {
         Self {
-            common_db: Database::new(),
+            common_db: Database::new(db_file_path),
             deposit_take_sigs: Vec::new(),
             connector_tree_preimages: Vec::new(),
         }

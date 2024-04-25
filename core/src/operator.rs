@@ -2,6 +2,7 @@ use std::sync::Arc;
 use std::vec;
 
 use crate::actor::Actor;
+use crate::config::BridgeConfig;
 use crate::constants::{
     VerifierChallenge, CONNECTOR_TREE_DEPTH, DUST_VALUE, K_DEEP,
     MAX_BITVM_CHALLENGE_RESPONSE_BLOCKS, MIN_RELAY_FEE, PERIOD_BLOCK_COUNT, TEST_MODE,
@@ -106,6 +107,7 @@ impl Operator {
         all_xonly_pks: Vec<XOnlyPublicKey>,
         operator_sk: SecretKey,
         verifiers: Vec<Arc<dyn VerifierConnector>>,
+        config: &BridgeConfig,
     ) -> Result<Self, BridgeError> {
         let num_verifiers = all_xonly_pks.len() - 1;
         let signer = Actor::new(operator_sk); // Operator is the last one
@@ -115,7 +117,7 @@ impl Operator {
         }
 
         let transaction_builder = TransactionBuilder::new(all_xonly_pks.clone());
-        let operator_db_connector = OperatorMockDB::new();
+        let operator_db_connector = OperatorMockDB::new(config.db_file_path.clone());
 
         Ok(Self {
             rpc,

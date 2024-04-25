@@ -8,9 +8,9 @@ pub struct VerifierMockDB {
 }
 
 impl VerifierMockDB {
-    pub fn new() -> Self {
+    pub fn new(db_file_path: String) -> Self {
         Self {
-            common_db: Database::new(),
+            common_db: Database::new(db_file_path),
         }
     }
 }

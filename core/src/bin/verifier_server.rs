@@ -1,4 +1,5 @@
 use bitcoin::{Address, OutPoint};
+use clementine_core::config::BridgeConfig;
 use clementine_core::traits::verifier::VerifierConnector;
 use clementine_core::{extended_rpc::ExtendedRpc, verifier::Verifier};
 use clementine_core::{keys, EVMAddress};
@@ -20,6 +21,7 @@ struct NewDepositParams {
 
 #[tokio::main]
 async fn main() {
+    
     let configs = vec![
         ("3030", "configs/keys0.json"),
         ("3131", "configs/keys1.json"),
@@ -31,9 +33,10 @@ async fn main() {
 
     for (port, keys_file) in configs {
         let handle = tokio::spawn(async move {
+            let config = BridgeConfig::new().unwrap();
             let rpc = ExtendedRpc::new();
             let (secret_key, all_xonly_pks) = keys::read_file(keys_file.to_string()).unwrap();
-            let verifier = Verifier::new(rpc, all_xonly_pks, secret_key).unwrap();
+            let verifier = Verifier::new(rpc, all_xonly_pks, secret_key, &config).unwrap();
 
             let server = Server::builder()
                 .build(format!("127.0.0.1:{}", port).parse::<SocketAddr>().unwrap())

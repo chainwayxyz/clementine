@@ -1,6 +1,7 @@
 use bitcoin::hashes::Hash;
 use bitcoin::BlockHash;
 use clementine_circuits::constants::{MAX_BLOCK_HANDLE_OPS, NUM_ROUNDS};
+use clementine_core::config::BridgeConfig;
 use clementine_core::constants::{NUM_USERS, NUM_VERIFIERS, PERIOD_BLOCK_COUNT};
 use clementine_core::errors::BridgeError;
 use clementine_core::mock_env::MockEnvironment;
@@ -26,6 +27,7 @@ lazy_static::lazy_static! {
 use clementine_core::keys;
 
 async fn test_flow() -> Result<(), BridgeError> {
+    let config = BridgeConfig::new()?;
     let rpc = ExtendedRpc::new();
 
     let secp = bitcoin::secp256k1::Secp256k1::new();
@@ -38,7 +40,7 @@ async fn test_flow() -> Result<(), BridgeError> {
     let mut verifiers: Vec<Arc<dyn VerifierConnector>> = Vec::new();
     for i in 0..NUM_VERIFIERS {
         // let rpc = ExtendedRpc::new();
-        let verifier = Verifier::new(rpc.clone(), all_xonly_pks.clone(), all_sks[i])?;
+        let verifier = Verifier::new(rpc.clone(), all_xonly_pks.clone(), all_sks[i], &config)?;
         // Convert the Verifier instance into a boxed trait object
         verifiers.push(Arc::new(verifier) as Arc<dyn VerifierConnector>);
     }
@@ -48,6 +50,7 @@ async fn test_flow() -> Result<(), BridgeError> {
         all_xonly_pks.clone(),
         all_sks[NUM_VERIFIERS],
         verifiers,
+        &config,
     )?;
 
     let users: Vec<_> = (0..NUM_USERS)

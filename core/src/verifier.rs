@@ -1,3 +1,4 @@
+use crate::config::BridgeConfig;
 use crate::constants::{VerifierChallenge, CONNECTOR_TREE_DEPTH, TEST_MODE};
 use crate::db::verifier::VerifierMockDB;
 use crate::errors::BridgeError;
@@ -158,6 +159,7 @@ impl Verifier {
         rpc: ExtendedRpc,
         all_xonly_pks: Vec<XOnlyPublicKey>,
         sk: SecretKey,
+        config: &BridgeConfig,
     ) -> Result<Self, BridgeError> {
         let signer = Actor::new(sk);
         let secp: Secp256k1<secp256k1::All> = Secp256k1::new();
@@ -169,7 +171,7 @@ impl Verifier {
             return Err(BridgeError::PublicKeyNotFound);
         }
 
-        let verifier_db_connector = VerifierMockDB::new();
+        let verifier_db_connector = VerifierMockDB::new(config.db_file_path.clone());
 
         let transaction_builder = TransactionBuilder::new(all_xonly_pks.clone());
         let operator_pk = all_xonly_pks[all_xonly_pks.len() - 1];

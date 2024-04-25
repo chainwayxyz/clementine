@@ -3,10 +3,7 @@
 //! Common database operations for both operator and verifier.
 
 use super::text::TextDatabase;
-use crate::{
-    constants::TEXT_DATABASE, merkle::MerkleTree, ConnectorUTXOTree, HashTree, InscriptionTxs,
-    WithdrawalPayment,
-};
+use crate::{merkle::MerkleTree, ConnectorUTXOTree, HashTree, InscriptionTxs, WithdrawalPayment};
 use clementine_circuits::{
     constants::{CLAIM_MERKLE_TREE_DEPTH, WITHDRAWAL_MERKLE_TREE_DEPTH},
     HashType, PreimageType,
@@ -24,9 +21,9 @@ pub struct Database {
 /// First pack of implementation for the `Database`. This pack includes general
 /// functions for accessing the database.
 impl Database {
-    pub fn new() -> Self {
+    pub fn new(db_file_path: String) -> Self {
         Self {
-            dbms: TextDatabase::new(TEXT_DATABASE.into()),
+            dbms: TextDatabase::new(db_file_path.into()),
             lock: Arc::new(Mutex::new(0)),
         }
     }
@@ -238,7 +235,7 @@ impl DatabaseContent {
 #[cfg(test)]
 mod tests {
     use super::Database;
-    use crate::{constants::TEXT_DATABASE, db::text::TextDatabase, merkle::MerkleTree};
+    use crate::{db::text::TextDatabase, merkle::MerkleTree};
     use clementine_circuits::{constants::*, HashType, PreimageType};
     use std::{
         fs,
@@ -248,12 +245,13 @@ mod tests {
 
     // `Database` manages syncronization. So, we need to operate on a common
     // struct in order to do asynchronous operations on database.
+    static DB_FILE_PATH: &str = "test_database.json";
     static START: Once = Once::new();
     static mut DATABASE: Option<Database> = None;
     static mut LOCK: Option<Arc<Mutex<usize>>> = None;
     pub unsafe fn initialize() {
         START.call_once(|| {
-            DATABASE = Some(Database::new());
+            DATABASE = Some(Database::new(DB_FILE_PATH.into()));
             LOCK = Some(Arc::new(Mutex::new(0)));
         });
     }
@@ -270,7 +268,7 @@ mod tests {
 
         // Some of the members of the `Database` struct are not comparable. So,
         // we need to do this one by one.
-        assert_eq!(database.dbms, TextDatabase::new(TEXT_DATABASE.into()));
+        assert_eq!(database.dbms, TextDatabase::new(DB_FILE_PATH.into()));
     }
 
     /// Writes mock data to database, then reads it. Compares if input equals
@@ -296,7 +294,7 @@ mod tests {
         assert_eq!(ret, 2);
 
         // Clean things up.
-        match fs::remove_file(TEXT_DATABASE) {
+        match fs::remove_file(DB_FILE_PATH) {
             Ok(_) => assert!(true),
             Err(_) => assert!(false),
         }
@@ -320,7 +318,7 @@ mod tests {
         assert_eq!(database.get_connector_tree_hash(0, 0, 0), mock_data);
 
         // Clean things up.
-        match fs::remove_file(TEXT_DATABASE) {
+        match fs::remove_file(DB_FILE_PATH) {
             Ok(_) => assert!(true),
             Err(_) => assert!(false),
         }
@@ -347,7 +345,7 @@ mod tests {
         assert_eq!(database.get_claim_proof_merkle_tree(0), mock_data[0]);
 
         // Clean things up.
-        match fs::remove_file(TEXT_DATABASE) {
+        match fs::remove_file(DB_FILE_PATH) {
             Ok(_) => assert!(true),
             Err(_) => assert!(false),
         }
@@ -370,7 +368,7 @@ mod tests {
         assert_eq!(database.get_withdrawals_merkle_tree_index(), 1);
 
         // Clean things up.
-        match fs::remove_file(TEXT_DATABASE) {
+        match fs::remove_file(DB_FILE_PATH) {
             Ok(_) => assert!(true),
             Err(_) => assert!(false),
         }
@@ -393,7 +391,7 @@ mod tests {
         assert_eq!(database.get_start_block_height(), mock_data);
 
         // Clean things up.
-        match fs::remove_file(TEXT_DATABASE) {
+        match fs::remove_file(DB_FILE_PATH) {
             Ok(_) => assert!(true),
             Err(_) => assert!(false),
         }
@@ -416,7 +414,7 @@ mod tests {
         assert_eq!(database.get_start_block_height(), mock_data);
 
         // Clean things up.
-        match fs::remove_file(TEXT_DATABASE) {
+        match fs::remove_file(DB_FILE_PATH) {
             Ok(_) => assert!(true),
             Err(_) => assert!(false),
         }
@@ -439,7 +437,7 @@ mod tests {
         assert_eq!(database.get_inscribed_preimages(0), mock_data);
 
         // Clean things up.
-        match fs::remove_file(TEXT_DATABASE) {
+        match fs::remove_file(DB_FILE_PATH) {
             Ok(_) => assert!(true),
             Err(_) => assert!(false),
         }

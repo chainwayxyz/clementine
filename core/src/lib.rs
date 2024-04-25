@@ -17,6 +17,7 @@ pub mod transaction_builder;
 pub mod user;
 pub mod utils;
 pub mod verifier;
+pub mod config;
 
 pub type ConnectorUTXOTree = Vec<Vec<OutPoint>>;
 pub type HashTree = Vec<Vec<HashType>>;

@@ -54,4 +54,3 @@ lazy_static! {
 }
 
 pub const TEST_MODE: bool = true;
-pub const TEXT_DATABASE: &str = "database";
