@@ -7,11 +7,8 @@ use crate::constants::{
 };
 
 use crate::{
-    config::BridgeConfig,
-    constants::{MIN_RELAY_FEE, USER_TAKES_AFTER},
-    merkle::MerkleTree,
-    utils::get_claim_proof_tree_leaf,
-    ConnectorUTXOTree, EVMAddress, HashTree,
+    config::BridgeConfig, merkle::MerkleTree, utils::get_claim_proof_tree_leaf, ConnectorUTXOTree,
+    EVMAddress, HashTree,
 };
 use bitcoin::{
     absolute,
@@ -79,7 +76,8 @@ impl TransactionBuilder {
         let deposit_script = self
             .script_builder
             .create_deposit_script(user_evm_address, amount);
-        let script_timelock = ScriptBuilder::generate_timelock_script(user_pk, USER_TAKES_AFTER);
+        let script_timelock =
+            ScriptBuilder::generate_timelock_script(user_pk, self.config.user_takes_after);
         let taproot = TaprootBuilder::new()
             .add_leaf(1, deposit_script.clone())?
             .add_leaf(1, script_timelock.clone())?;
@@ -123,7 +121,7 @@ impl TransactionBuilder {
         let tx_ins = TransactionBuilder::create_tx_ins(vec![deposit_utxo]);
         let bridge_txout = TxOut {
             value: Amount::from_sat(BRIDGE_AMOUNT_SATS)
-                - Amount::from_sat(MIN_RELAY_FEE)
+                - Amount::from_sat(self.config.min_relay_fee)
                 - anyone_can_spend_txout.value,
             script_pubkey: bridge_address.script_pubkey(),
         };
@@ -168,7 +166,7 @@ impl TransactionBuilder {
         let tx_ins = TransactionBuilder::create_tx_ins(vec![bridge_utxo, connector_utxo]);
         let claim_txout = TxOut {
             value: Amount::from_sat(BRIDGE_AMOUNT_SATS)
-                - Amount::from_sat(MIN_RELAY_FEE * 2)
+                - Amount::from_sat(self.config.min_relay_fee * 2)
                 - anyone_can_spend_txout.value * 2
                 - evm_address_inscription_txout.value
                 + Amount::from_sat(DUST_VALUE),
@@ -198,7 +196,7 @@ impl TransactionBuilder {
         Ok(vec![
             TxOut {
                 value: Amount::from_sat(BRIDGE_AMOUNT_SATS)
-                    - Amount::from_sat(MIN_RELAY_FEE)
+                    - Amount::from_sat(self.config.min_relay_fee)
                     - anyone_can_spend_txout.value,
                 script_pubkey: bridge_address.script_pubkey(),
             },
@@ -232,7 +230,7 @@ impl TransactionBuilder {
         let single_tree_amount = calculate_amount(
             CONNECTOR_TREE_DEPTH,
             Amount::from_sat(DUST_VALUE),
-            Amount::from_sat(MIN_RELAY_FEE),
+            Amount::from_sat(self.config.min_relay_fee),
         );
         let total_amount = Amount::from_sat((single_tree_amount.to_sat()) * NUM_ROUNDS as u64);
 
@@ -282,7 +280,7 @@ impl TransactionBuilder {
                     next_connector_source_address.script_pubkey(),
                 ),
                 (
-                    single_tree_amount - Amount::from_sat(MIN_RELAY_FEE),
+                    single_tree_amount - Amount::from_sat(self.config.min_relay_fee),
                     connector_bt_root_address.script_pubkey(),
                 ),
             ]);
@@ -496,7 +494,7 @@ impl TransactionBuilder {
                 calculate_amount(
                     depth,
                     Amount::from_sat(DUST_VALUE),
-                    Amount::from_sat(MIN_RELAY_FEE),
+                    Amount::from_sat(self.config.min_relay_fee),
                 ),
                 first_address.script_pubkey(),
             ),
@@ -504,7 +502,7 @@ impl TransactionBuilder {
                 calculate_amount(
                     depth,
                     Amount::from_sat(DUST_VALUE),
-                    Amount::from_sat(MIN_RELAY_FEE),
+                    Amount::from_sat(self.config.min_relay_fee),
                 ),
                 second_address.script_pubkey(),
             ),
@@ -527,7 +525,7 @@ impl TransactionBuilder {
         let _total_amount = calculate_amount(
             depth,
             Amount::from_sat(DUST_VALUE),
-            Amount::from_sat(MIN_RELAY_FEE),
+            Amount::from_sat(self.config.min_relay_fee),
         );
 
         let (_root_address, _) = TransactionBuilder::create_connector_tree_node_address(

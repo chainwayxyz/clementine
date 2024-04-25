@@ -1,4 +1,5 @@
 use crate::config::BridgeConfig;
+use crate::constants::CONFIRMATION_BLOCK_COUNT;
 #[cfg(feature = "mainnet")]
 use crate::constants::CONNECTOR_TREE_DEPTH;
 use crate::db::verifier::VerifierMockDB;
@@ -56,6 +57,7 @@ impl VerifierConnector for Verifier {
             return_address,
             evm_address,
             BRIDGE_AMOUNT_SATS,
+            CONFIRMATION_BLOCK_COUNT,
         )?;
 
         let mut move_tx =

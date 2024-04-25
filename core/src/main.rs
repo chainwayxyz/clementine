@@ -2,7 +2,7 @@
 // use bitcoin::BlockHash;
 // use clementine_circuits::constants::{MAX_BLOCK_HANDLE_OPS, NUM_ROUNDS};
 // use clementine_core::config::BridgeConfig;
-// use clementine_core::constants::{NUM_USERS, NUM_VERIFIERS, PERIOD_BLOCK_COUNT};
+// use clementine_core::constants::{NUM_USERS, PERIOD_BLOCK_COUNT};
 // use clementine_core::errors::BridgeError;
 // use clementine_core::mock_env::MockEnvironment;
 // use clementine_core::traits::verifier::VerifierConnector;
@@ -38,7 +38,7 @@
 
 //     let (all_sks, all_xonly_pks): (Vec<_>, Vec<_>) = keys::create_key_pairs(secp.clone(), rng);
 //     let mut verifiers: Vec<Arc<dyn VerifierConnector>> = Vec::new();
-//     for i in 0..NUM_VERIFIERS {
+//     for i in 0..config.num_verifiers {
 //         // let rpc = ExtendedRpc::new();
 //         let verifier = Verifier::new(
 //             rpc.clone(),
@@ -53,7 +53,7 @@
 //     let mut operator = Operator::new(
 //         rpc.clone(),
 //         all_xonly_pks.clone(),
-//         all_sks[NUM_VERIFIERS],
+//         all_sks[config.num_verifiers],
 //         verifiers,
 //         config.clone(),
 //     )?;

@@ -8,7 +8,6 @@ use crate::constants::{
     VerifierChallenge, CONNECTOR_TREE_DEPTH, DUST_VALUE, K_DEEP,
     MAX_BITVM_CHALLENGE_RESPONSE_BLOCKS, PERIOD_BLOCK_COUNT,
 };
-use crate::constants::{MIN_RELAY_FEE, TEST_MODE};
 use crate::db::operator::OperatorMockDB;
 use crate::env_writer::ENVWriter;
 use crate::errors::{BridgeError, InvalidPeriodError};
@@ -154,6 +153,7 @@ impl Operator {
             return_address,
             evm_address,
             BRIDGE_AMOUNT_SATS,
+            self.config.confirmation_block_count,
         )?;
 
         let deposit_index = self.operator_db_connector.get_deposit_index();
@@ -397,8 +397,9 @@ impl Operator {
             return Ok(());
         }
         let depth = u32::ilog2(
-            ((base_tx.unwrap().output[utxo.vout as usize].value.to_sat() + MIN_RELAY_FEE)
-                / (DUST_VALUE + MIN_RELAY_FEE)) as u32,
+            ((base_tx.unwrap().output[utxo.vout as usize].value.to_sat()
+                + self.config.min_relay_fee)
+                / (DUST_VALUE + self.config.min_relay_fee)) as u32,
         );
         // tracing::debug!("depth: {:?}", depth);
         let level = tree_depth - depth as usize;
@@ -926,10 +927,11 @@ impl Operator {
         let single_tree_amount = calculate_amount(
             CONNECTOR_TREE_DEPTH,
             Amount::from_sat(DUST_VALUE),
-            Amount::from_sat(MIN_RELAY_FEE),
+            Amount::from_sat(self.config.min_relay_fee),
         );
-        let total_amount =
-            Amount::from_sat((MIN_RELAY_FEE + single_tree_amount.to_sat()) * NUM_ROUNDS as u64);
+        let total_amount = Amount::from_sat(
+            (self.config.min_relay_fee + single_tree_amount.to_sat()) * NUM_ROUNDS as u64,
+        );
         // tracing::debug!("total_amount: {:?}", total_amount);
         let (connector_tree_source_address, _) = self
             .transaction_builder
