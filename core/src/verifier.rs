@@ -13,9 +13,9 @@ use clementine_circuits::constants::{BRIDGE_AMOUNT_SATS, NUM_ROUNDS};
 use jsonrpsee::core::client::ClientT;
 use jsonrpsee::core::params::ObjectParams;
 use jsonrpsee::http_client::{HeaderMap, HttpClient, HttpClientBuilder};
-use jsonrpsee::rpc_params;
+
+use secp256k1::SecretKey;
 use secp256k1::XOnlyPublicKey;
-use secp256k1::{schnorr, SecretKey};
 
 use crate::extended_rpc::ExtendedRpc;
 use crate::transaction_builder::TransactionBuilder;
@@ -110,7 +110,7 @@ impl VerifierConnector for Verifier {
         start_blockheight: u64,
         period_relative_block_heights: Vec<u32>,
     ) -> Result<(), BridgeError> {
-        let (_claim_proof_merkle_roots, _, utxo_trees, claim_proof_merkle_trees) =
+        let (_claim_proof_merkle_roots, _, _utxo_trees, _claim_proof_merkle_trees) =
             self.transaction_builder.create_all_connector_trees(
                 &connector_tree_hashes,
                 &first_source_utxo,
@@ -241,15 +241,15 @@ impl VerifierConnector for VerifierClient {
 
     fn connector_roots_created(
         &self,
-        connector_tree_hashes: &Vec<HashTree>,
-        first_source_utxo: &OutPoint,
-        start_blockheight: u64,
-        period_relative_block_heights: Vec<u32>,
+        _connector_tree_hashes: &Vec<HashTree>,
+        _first_source_utxo: &OutPoint,
+        _start_blockheight: u64,
+        _period_relative_block_heights: Vec<u32>,
     ) -> Result<(), BridgeError> {
         unimplemented!()
     }
 
-    fn challenge_operator(&self, period: u8) -> Result<VerifierChallenge, BridgeError> {
+    fn challenge_operator(&self, _period: u8) -> Result<VerifierChallenge, BridgeError> {
         unimplemented!()
     }
 }

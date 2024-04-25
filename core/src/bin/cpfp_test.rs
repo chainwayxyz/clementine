@@ -1,25 +1,19 @@
-use std::{borrow::BorrowMut, str::FromStr};
+use std::str::FromStr;
 
-use bitcoin::{
-    script::Builder, sighash::SighashCache, Address, Amount, OutPoint, ScriptBuf, Transaction,
-    TxIn, TxOut, Txid,
-};
-use bitcoincore_rpc::json::FundRawTransactionOptions;
-use clementine_core::{
-    actor::Actor, extended_rpc::ExtendedRpc, keys, script_builder::ScriptBuilder,
-    transaction_builder::TransactionBuilder,
-};
+use bitcoin::{OutPoint, Txid};
+
+use clementine_core::{actor::Actor, extended_rpc::ExtendedRpc, keys};
 
 fn main() {
-    let rpc = ExtendedRpc::new();
-    let (secret_key, all_xonly_pks) = keys::get_from_file().unwrap();
+    let _rpc = ExtendedRpc::new();
+    let (secret_key, _all_xonly_pks) = keys::get_from_file().unwrap();
     let actor = Actor::new(secret_key);
 
     println!("{:?}", actor.address);
 
     let txid = "8f03d09b8bf9d00479199651be1d31462cf382af2236a6517dfbec60f49c22cd";
     let txid = Txid::from_str(txid).expect("Invalid Txid");
-    let cpfp_utxo = OutPoint {
+    let _cpfp_utxo = OutPoint {
         txid: txid,
         vout: 1,
     };

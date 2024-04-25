@@ -10,7 +10,7 @@ use crate::{
     ConnectorUTXOTree, EVMAddress, HashTree,
 };
 use bitcoin::{
-    absolute, amount,
+    absolute,
     opcodes::all::{OP_EQUAL, OP_SHA256},
     script::Builder,
     taproot::{TaprootBuilder, TaprootSpendInfo},

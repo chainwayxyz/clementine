@@ -1,13 +1,13 @@
 use bitcoin::{Address, OutPoint};
 use clementine_core::traits::verifier::VerifierConnector;
-use clementine_core::{constants::NUM_VERIFIERS, extended_rpc::ExtendedRpc, verifier::Verifier};
+use clementine_core::{extended_rpc::ExtendedRpc, verifier::Verifier};
 use clementine_core::{keys, EVMAddress};
 use jsonrpsee::{server::Server, RpcModule};
 use secp256k1::XOnlyPublicKey;
 use serde::Deserialize;
 use serde_json::Value;
+use std::net::SocketAddr;
 use std::str::FromStr;
-use std::{env, net::SocketAddr, sync::Arc, thread};
 
 #[derive(Deserialize, Clone)]
 struct NewDepositParams {
