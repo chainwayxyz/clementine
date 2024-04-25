@@ -1,5 +1,4 @@
 use crate::config::BridgeConfig;
-use crate::constants::CONFIRMATION_BLOCK_COUNT;
 #[cfg(feature = "mainnet")]
 use crate::constants::CONNECTOR_TREE_DEPTH;
 use crate::db::verifier::VerifierMockDB;
@@ -29,6 +28,7 @@ pub struct Verifier {
     pub verifiers: Vec<XOnlyPublicKey>,
     pub operator_pk: XOnlyPublicKey,
     verifier_db_connector: VerifierMockDB,
+    config: BridgeConfig,
 }
 
 #[async_trait]
@@ -52,7 +52,7 @@ impl VerifierConnector for Verifier {
             return_address,
             evm_address,
             BRIDGE_AMOUNT_SATS,
-            CONFIRMATION_BLOCK_COUNT,
+            self.config.confirmation_treshold,
         )?;
 
         let mut move_tx =
@@ -174,7 +174,7 @@ impl Verifier {
 
         let verifier_db_connector = VerifierMockDB::new(config.db_file_path.clone());
 
-        let transaction_builder = TransactionBuilder::new(all_xonly_pks.clone(), config);
+        let transaction_builder = TransactionBuilder::new(all_xonly_pks.clone(), config.clone());
         let operator_pk = all_xonly_pks[all_xonly_pks.len() - 1];
         Ok(Verifier {
             rpc,
@@ -184,6 +184,7 @@ impl Verifier {
             verifiers: all_xonly_pks,
             operator_pk,
             verifier_db_connector,
+            config,
         })
     }
 }

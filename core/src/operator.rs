@@ -132,7 +132,7 @@ impl Operator {
             return_address,
             evm_address,
             BRIDGE_AMOUNT_SATS,
-            self.config.confirmation_block_count,
+            self.config.confirmation_treshold,
         )?;
 
         let deposit_index = self.operator_db_connector.get_deposit_index();

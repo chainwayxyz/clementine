@@ -10,7 +10,7 @@ pub struct BridgeConfig {
     pub num_verifiers: usize,
     pub min_relay_fee: u64,
     pub user_takes_after: u32,
-    pub confirmation_block_count: u32,
+    pub confirmation_treshold: u32,
     pub network: Network,
 }
 
@@ -40,10 +40,10 @@ impl BridgeConfig {
             })?
             .parse::<u32>()
             .unwrap();
-        let confirmation_block_count = env::var("CONFIRMATION_BLOCK_COUNT")
+        let confirmation_treshold = env::var("CONFIRMATION_THRESHOLD")
             .map_err(|_| {
                 BridgeError::ConfigError(
-                    "CONFIRMATION_BLOCK_COUNT environment variable not set".to_string(),
+                    "CONFIRMATION_THRESHOLD environment variable not set".to_string(),
                 )
             })?
             .parse::<u32>()
@@ -64,7 +64,7 @@ impl BridgeConfig {
             num_verifiers,
             min_relay_fee,
             user_takes_after,
-            confirmation_block_count,
+            confirmation_treshold,
             network,
         })
     }
@@ -75,7 +75,7 @@ impl BridgeConfig {
             num_verifiers: 4,
             min_relay_fee: 289,
             user_takes_after: 200,
-            confirmation_block_count: 1,
+            confirmation_treshold: 1,
             network: Network::Regtest,
         }
     }
