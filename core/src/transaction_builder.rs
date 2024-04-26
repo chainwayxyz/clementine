@@ -15,7 +15,6 @@ use bitcoin::{
 use clementine_circuits::constants::BRIDGE_AMOUNT_SATS;
 use lazy_static::lazy_static;
 use secp256k1::{Secp256k1, XOnlyPublicKey};
-use sha2::Digest;
 
 // This is an unspendable pubkey
 // See https://github.com/bitcoin/bips/blob/master/bip-0341.mediawiki#constructing-and-spending-taproot-outputs
@@ -344,7 +343,7 @@ impl TransactionBuilder {
         tx_ins
     }
 
-    fn create_tx_outs(pairs: Vec<(Amount, ScriptBuf)>) -> Vec<TxOut> {
+    pub fn create_tx_outs(pairs: Vec<(Amount, ScriptBuf)>) -> Vec<TxOut> {
         let mut tx_outs = Vec::new();
         for pair in pairs {
             tx_outs.push(TxOut {

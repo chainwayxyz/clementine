@@ -11,7 +11,6 @@ use bitcoincore_rpc::Client;
 use bitcoincore_rpc::RpcApi;
 use crypto_bigint::Encoding;
 use crypto_bigint::U256;
-use std::env;
 
 use crate::errors::BridgeError;
 

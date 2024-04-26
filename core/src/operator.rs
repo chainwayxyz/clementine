@@ -19,7 +19,6 @@ use futures::stream::FuturesOrdered;
 use futures::TryStreamExt;
 use secp256k1::{SecretKey, XOnlyPublicKey};
 use serde::{Deserialize, Serialize};
-use sha2::Digest;
 use std::sync::Arc;
 
 #[cfg(feature = "mainnet")]

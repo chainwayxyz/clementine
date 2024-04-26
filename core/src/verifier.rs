@@ -27,7 +27,7 @@ pub struct Verifier {
     pub transaction_builder: TransactionBuilder,
     pub verifiers: Vec<XOnlyPublicKey>,
     pub operator_pk: XOnlyPublicKey,
-    verifier_db_connector: VerifierMockDB,
+    pub verifier_db_connector: VerifierMockDB,
     config: BridgeConfig,
 }
 
