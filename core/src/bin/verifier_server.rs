@@ -66,10 +66,10 @@ async fn main() {
     // let x: jsonrpsee::http_client::HttpClient = HttpClientBuilder::default().build(&url).unwrap();
 
     let configs = vec![
-        ("3030", "configs/keys0.json"),
-        ("3131", "configs/keys1.json"),
-        ("3232", "configs/keys2.json"),
-        ("3333", "configs/keys3.json"),
+        ("43801", "../configs/keys0.json"),
+        ("34521", "../configs/keys1.json"),
+        ("43379", "../configs/keys2.json"),
+        ("35727", "../configs/keys3.json"),
     ];
 
     let mut handles = vec![];

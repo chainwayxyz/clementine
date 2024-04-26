@@ -39,7 +39,7 @@ impl Serialize for EVMAddress {
     }
 }
 
-impl <'de> Deserialize<'de> for EVMAddress {
+impl<'de> Deserialize<'de> for EVMAddress {
     fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
     where
         D: serde::Deserializer<'de>,

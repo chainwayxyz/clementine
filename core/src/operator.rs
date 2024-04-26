@@ -18,11 +18,10 @@ use bitcoin::{secp256k1, secp256k1::schnorr};
 use clementine_circuits::constants::BRIDGE_AMOUNT_SATS;
 use futures::stream::FuturesOrdered;
 use futures::TryStreamExt;
+use jsonrpsee::core::async_trait;
 use secp256k1::{SecretKey, XOnlyPublicKey};
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
-use jsonrpsee::core::async_trait;
-
 
 #[cfg(feature = "mainnet")]
 pub fn create_connector_tree_preimages_and_hashes(
@@ -94,7 +93,8 @@ impl OperatorRpcServer for Operator {
         return_address: XOnlyPublicKey,
         evm_address: EVMAddress,
     ) -> Result<OutPoint, BridgeError> {
-        self.new_deposit(start_utxo, &return_address, &evm_address).await
+        self.new_deposit(start_utxo, &return_address, &evm_address)
+            .await
     }
 }
 

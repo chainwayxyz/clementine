@@ -19,7 +19,6 @@ pub trait VerifierRpc {
     ) -> Result<DepositPresigns, BridgeError>;
 }
 
-
 #[rpc(server, namespace = "operator")]
 pub trait OperatorRpc {
     #[method(name = "new_deposit")]

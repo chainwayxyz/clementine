@@ -1,3 +1,4 @@
+use clementine_circuits::constants::BRIDGE_AMOUNT_SATS;
 use clementine_core::config::BridgeConfig;
 use clementine_core::transaction_builder::TransactionBuilder;
 use clementine_core::{keys, EVMAddress};
@@ -11,7 +12,7 @@ fn main() {
     let evm_address: EVMAddress = EVMAddress([1u8; 20]);
 
     let deposit_address = tx_builder
-        .generate_deposit_address(&xonly_pk, &evm_address, 10000)
+        .generate_deposit_address(&xonly_pk, &evm_address, BRIDGE_AMOUNT_SATS)
         .unwrap();
 
     println!("EVM Address: {:?}", hex::encode(evm_address.0));

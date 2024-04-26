@@ -14,10 +14,9 @@ use bitcoin::address::NetworkUnchecked;
 use bitcoin::Address;
 use bitcoin::{secp256k1, secp256k1::Secp256k1, OutPoint};
 use clementine_circuits::constants::BRIDGE_AMOUNT_SATS;
+use jsonrpsee::core::async_trait;
 use secp256k1::SecretKey;
 use secp256k1::XOnlyPublicKey;
-use jsonrpsee::core::async_trait;
-
 
 #[derive(Debug, Clone)]
 pub struct Verifier {
@@ -42,10 +41,16 @@ impl VerifierRpcServer for Verifier {
         operator_address: Address<NetworkUnchecked>,
     ) -> Result<DepositPresigns, BridgeError> {
         let operator_address = operator_address.require_network(self.config.network)?;
-        self.new_deposit(start_utxo, &return_address, deposit_index, &evm_address, &operator_address).await
+        self.new_deposit(
+            start_utxo,
+            &return_address,
+            deposit_index,
+            &evm_address,
+            &operator_address,
+        )
+        .await
     }
 }
-
 
 impl Verifier {
     /// this is a endpoint that only the operator can call

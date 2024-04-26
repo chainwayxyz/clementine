@@ -2,7 +2,8 @@ use bitcoin::OutPoint;
 use clementine_core::config::BridgeConfig;
 use clementine_core::extended_rpc::ExtendedRpc;
 use clementine_core::operator::Operator;
-use clementine_core::traits::verifier::OperatorRpcServer;
+use clementine_core::traits::verifier::{OperatorRpcServer, VerifierRpcServer};
+use clementine_core::verifier::Verifier;
 use clementine_core::{keys, EVMAddress};
 use jsonrpsee::http_client::{HttpClient, HttpClientBuilder};
 use jsonrpsee::{server::Server, RpcModule};
@@ -54,6 +55,36 @@ pub fn initialize_logging() {
 #[tokio::main]
 async fn main() {
     initialize_logging();
+
+    let configs = vec![
+        ("43801", "../configs/keys0.json"),
+        ("34521", "../configs/keys1.json"),
+        ("43379", "../configs/keys2.json"),
+        ("35727", "../configs/keys3.json"),
+    ];
+
+    let mut handles = vec![];
+
+    for (port, keys_file) in configs {
+        let config = BridgeConfig::new().unwrap();
+        let rpc = ExtendedRpc::new(
+            config.bitcoin_rpc_url.clone(),
+            config.bitcoin_rpc_auth.clone(),
+        );
+        let (secret_key, all_xonly_pks) = keys::read_file(keys_file.to_string()).unwrap();
+        let verifier = Verifier::new(rpc, all_xonly_pks, secret_key, config.clone()).unwrap();
+
+        let server = Server::builder()
+            .build(format!("127.0.0.1:{}", port))
+            .await
+            .unwrap();
+        let addr = server.local_addr().unwrap();
+        println!("Listening on {:?}", addr);
+        let handle = server.start(verifier.into_rpc());
+
+        handles.push(tokio::spawn(handle.stopped()));
+    }
+
     let config = BridgeConfig::new().unwrap();
     let rpc = ExtendedRpc::new(
         config.bitcoin_rpc_url.clone(),
@@ -62,10 +93,10 @@ async fn main() {
     let (secret_key, all_xonly_pks) = keys::get_from_file().unwrap();
 
     let verifier_endpoints = vec![
-        "http://127.0.0.1:54479".to_string(),
-        "http://127.0.0.1:54480".to_string(),
-        "http://127.0.0.1:54481".to_string(),
-        "http://127.0.0.1:54482".to_string(),
+        "http://127.0.0.1:3030".to_string(),
+        "http://127.0.0.1:3131".to_string(),
+        "http://127.0.0.1:3232".to_string(),
+        "http://127.0.0.1:3333".to_string(),
     ];
 
     let mut verifiers: Vec<Arc<HttpClient>> = Vec::new();
@@ -84,10 +115,15 @@ async fn main() {
         config.clone(),
     )
     .unwrap();
-    let server = Server::builder().build("127.0.0.1:0").await.unwrap();
+    let server = Server::builder()
+        .build(format!("127.0.0.1:3434"))
+        .await
+        .unwrap();
     let addr = server.local_addr().unwrap();
     println!("Listening on {:?}", addr);
     let handle = server.start(operator.into_rpc());
-
-    handle.stopped().await;
+    handles.push(tokio::spawn(handle.stopped()));
+    for handle in handles {
+        handle.await.unwrap();
+    }
 }
