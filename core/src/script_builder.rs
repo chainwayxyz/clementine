@@ -31,7 +31,7 @@ impl ScriptBuilder {
     pub fn op_return_txout(evm_address: &EVMAddress) -> TxOut {
         let script = Builder::new()
             .push_opcode(OP_RETURN)
-            .push_slice(evm_address)
+            .push_slice(evm_address.0)
             .into_script();
         let script_pubkey = script.to_p2wsh();
         let value = script_pubkey.dust_value();
@@ -65,7 +65,7 @@ impl ScriptBuilder {
             .push_opcode(OP_FALSE)
             .push_opcode(OP_IF)
             .push_slice(citrea)
-            .push_slice(evm_address)
+            .push_slice(evm_address.0)
             .push_slice(amount.to_be_bytes())
             .push_opcode(OP_ENDIF)
             .into_script()
@@ -125,7 +125,7 @@ impl ScriptBuilder {
     pub fn generate_dust_script(evm_address: &EVMAddress) -> ScriptBuf {
         Builder::new()
             .push_opcode(OP_RETURN)
-            .push_slice(evm_address)
+            .push_slice(evm_address.0)
             .into_script()
     }
 }

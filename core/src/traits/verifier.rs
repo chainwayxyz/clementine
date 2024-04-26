@@ -1,29 +1,32 @@
-use async_trait::async_trait;
+use bitcoin::address::NetworkUnchecked;
 use bitcoin::{Address, OutPoint};
 use secp256k1::XOnlyPublicKey;
 
 use crate::{errors::BridgeError, operator::DepositPresigns, EVMAddress};
 
-#[async_trait]
-pub trait VerifierConnector: std::fmt::Debug + Send + Sync {
-    async fn new_deposit(
+use jsonrpsee::proc_macros::rpc;
+
+#[rpc(client, server, namespace = "verifier")]
+pub trait VerifierRpc {
+    #[method(name = "new_deposit")]
+    async fn new_deposit_rpc(
         &self,
         start_utxo: OutPoint,
-        return_address: &XOnlyPublicKey,
+        return_address: XOnlyPublicKey,
         deposit_index: u32,
-        evm_address: &EVMAddress,
-        operator_address: &Address,
+        evm_address: EVMAddress,
+        operator_address: Address<NetworkUnchecked>,
     ) -> Result<DepositPresigns, BridgeError>;
+}
 
-    #[cfg(feature = "mainnet")]
-    fn connector_roots_created(
+
+#[rpc(server, namespace = "operator")]
+pub trait OperatorRpc {
+    #[method(name = "new_deposit")]
+    async fn new_deposit_rpc(
         &self,
-        connector_tree_hashes: &Vec<Vec<Vec<[u8; 32]>>>,
-        first_source_utxo: &OutPoint,
-        start_blockheight: u64,
-        period_relative_block_heights: Vec<u32>,
-    ) -> Result<(), BridgeError>;
-
-    #[cfg(feature = "mainnet")]
-    fn challenge_operator(&self, period: u8) -> Result<VerifierChallenge, BridgeError>;
+        start_utxo: OutPoint,
+        return_address: XOnlyPublicKey,
+        evm_address: EVMAddress,
+    ) -> Result<OutPoint, BridgeError>;
 }

@@ -2,9 +2,9 @@ use bitcoin::OutPoint;
 use clementine_core::config::BridgeConfig;
 use clementine_core::extended_rpc::ExtendedRpc;
 use clementine_core::operator::Operator;
-use clementine_core::traits::verifier::VerifierConnector;
-use clementine_core::verifier::VerifierClient;
+use clementine_core::traits::verifier::OperatorRpcServer;
 use clementine_core::{keys, EVMAddress};
+use jsonrpsee::http_client::{HttpClient, HttpClientBuilder};
 use jsonrpsee::{server::Server, RpcModule};
 use secp256k1::XOnlyPublicKey;
 use serde::Deserialize;
@@ -39,7 +39,7 @@ pub fn initialize_logging() {
 
 /// main function to start operator server
 /// ```bash
-/// curl -X POST http://localhost:3434 -H "Content-Type: application/json" -d '{
+/// curl -X POST http://127.0.0.1:54486 -H "Content-Type: application/json" -d '{
 /// "jsonrpc": "2.0",
 /// "method": "new_deposit",
 /// "params": {
@@ -62,18 +62,19 @@ async fn main() {
     let (secret_key, all_xonly_pks) = keys::get_from_file().unwrap();
 
     let verifier_endpoints = vec![
-        "http://127.0.0.1:3030".to_string(),
-        "http://127.0.0.1:3131".to_string(),
-        "http://127.0.0.1:3232".to_string(),
-        "http://127.0.0.1:3333".to_string(),
+        "http://127.0.0.1:54479".to_string(),
+        "http://127.0.0.1:54480".to_string(),
+        "http://127.0.0.1:54481".to_string(),
+        "http://127.0.0.1:54482".to_string(),
     ];
 
-    let mut verifiers: Vec<Arc<dyn VerifierConnector>> = Vec::new();
+    let mut verifiers: Vec<Arc<HttpClient>> = Vec::new();
     for i in 0..verifier_endpoints.len() {
-        let verifier = VerifierClient::new(verifier_endpoints[i].clone());
-        verifiers.push(Arc::new(verifier) as Arc<dyn VerifierConnector>);
+        let verifier = HttpClientBuilder::default()
+            .build(&verifier_endpoints[i])
+            .unwrap();
+        verifiers.push(verifier.into());
     }
-    
 
     let operator = Operator::new(
         rpc.clone(),
@@ -83,55 +84,10 @@ async fn main() {
         config.clone(),
     )
     .unwrap();
-
-    let server = Server::builder()
-        .build("127.0.0.1:3434".parse::<SocketAddr>().unwrap())
-        .await
-        .unwrap();
-    let mut module = RpcModule::new(()); // Use appropriate context
-
-    println!("operator server is being created");
-    // Define your RPC methods
-    module
-        .register_async_method("new_deposit", move |params, _ctx| {
-            println!("new_deposit called");
-
-            let parsed_params: NewDepositParams =
-                match serde_json::from_value(params.parse().unwrap()).unwrap() {
-                    Value::Object(map) => serde_json::from_value(Value::Object(map)).unwrap(),
-                    _ => panic!("Invalid params"),
-                };
-
-            let start_utxo = OutPoint::new(
-                bitcoin::Txid::from_str(&parsed_params.deposit_txid).expect("Invalid Txid"),
-                parsed_params.deposit_vout,
-            );
-
-            let return_address = XOnlyPublicKey::from_slice(
-                &hex::decode(&parsed_params.user_return_xonly_pk)
-                    .expect("Invalid hex for XOnlyPublicKey"),
-            )
-            .expect("Invalid XOnlyPublicKey");
-
-            let evm_address: EVMAddress = hex::decode(&parsed_params.user_evm_address)
-                .expect("Invalid EVMAddress")
-                .try_into()
-                .expect("Invalid EVMAddress");
-
-            let mut operator_clone = operator.clone(); // Assuming Verifier is Clone
-            async move {
-                // Call the appropriate method on the Verifier instance
-                let move_utxo = operator_clone
-                    .new_deposit(start_utxo, &return_address, &evm_address)
-                    .await
-                    .unwrap();
-                println!("move_utxo: {:?}", move_utxo);
-                serde_json::to_string(&move_utxo).unwrap()
-            }
-        })
-        .unwrap();
-    let handle = server.start(module);
-    println!("Listening on {:?}", handle);
+    let server = Server::builder().build("127.0.0.1:0").await.unwrap();
+    let addr = server.local_addr().unwrap();
+    println!("Listening on {:?}", addr);
+    let handle = server.start(operator.into_rpc());
 
     handle.stopped().await;
 }

@@ -1,8 +1,14 @@
+use bitcoin::address::NetworkUnchecked;
 use bitcoin::{Address, OutPoint};
 use clementine_core::config::BridgeConfig;
-use clementine_core::traits::verifier::VerifierConnector;
+use clementine_core::errors::BridgeError;
+use clementine_core::operator::DepositPresigns;
+use clementine_core::traits::verifier::{VerifierRpcClient, VerifierRpcServer};
 use clementine_core::{extended_rpc::ExtendedRpc, verifier::Verifier};
 use clementine_core::{keys, EVMAddress};
+use jsonrpsee::core::async_trait;
+use jsonrpsee::http_client::HttpClientBuilder;
+use jsonrpsee::proc_macros::rpc;
 use jsonrpsee::{server::Server, RpcModule};
 use secp256k1::XOnlyPublicKey;
 use serde::Deserialize;
@@ -10,17 +16,55 @@ use serde_json::Value;
 use std::net::SocketAddr;
 use std::str::FromStr;
 
-#[derive(Deserialize, Clone)]
-struct NewDepositParams {
-    deposit_txid: String,
-    deposit_vout: u32,
-    user_return_xonly_pk: String,
-    user_evm_address: String,
-    operator_address: String,
-}
+// #[rpc(client, server, namespace = "verifier")]
+// pub trait VerifierRpc {
+//     #[method(name = "new_deposit")]
+//     async fn new_deposit_rpc(
+//         &self,
+//         start_utxo: OutPoint,
+//         return_address: XOnlyPublicKey,
+//         deposit_index: u32,
+//         evm_address: EVMAddress,
+//         operator_address: Address<NetworkUnchecked>,
+//     ) -> Result<DepositPresigns, BridgeError>;
+// }
+
+// #[async_trait]
+// impl VerifierRpcServer for Verifier {
+//     async fn new_deposit_rpc(
+//         &self,
+//         start_utxo: OutPoint,
+//         return_address: XOnlyPublicKey,
+//         deposit_index: u32,
+//         evm_address: EVMAddress,
+//         operator_address: Address<NetworkUnchecked>,
+//     ) -> Result<DepositPresigns, BridgeError> {
+//         let operator_address = operator_address.assume_checked();
+//         self.new_deposit(start_utxo, &return_address, deposit_index, &evm_address, &operator_address).await
+//     }
+// }
 
 #[tokio::main]
 async fn main() {
+    // let config = BridgeConfig::new().unwrap();
+    // let rpc = ExtendedRpc::new(
+    //     config.bitcoin_rpc_url.clone(),
+    //     config.bitcoin_rpc_auth.clone(),
+    // );
+    // let keys_file = "configs/keys0.json";
+    // let (secret_key, all_xonly_pks) = keys::read_file(keys_file.to_string()).unwrap();
+    // let verifier = Verifier::new(rpc, all_xonly_pks, secret_key, config.clone()).unwrap();
+
+    // let server = Server::builder().build("127.0.0.1:0").await.unwrap();
+    // let addr = server.local_addr().unwrap();
+    // println!("Listening on {:?}", addr);
+    // let handle = server.start(verifier.into_rpc());
+    // println!("Listening on {:?}", addr);
+    // handle.stopped().await;
+
+    // let url = format!("http://127.0.0.1:{}", addr.port());
+    // let x: jsonrpsee::http_client::HttpClient = HttpClientBuilder::default().build(&url).unwrap();
+
     let configs = vec![
         ("3030", "configs/keys0.json"),
         ("3131", "configs/keys1.json"),
@@ -31,81 +75,20 @@ async fn main() {
     let mut handles = vec![];
 
     for (port, keys_file) in configs {
-        let handle = tokio::spawn(async move {
-            let config = BridgeConfig::new().unwrap();
-            let rpc = ExtendedRpc::new(
-                config.bitcoin_rpc_url.clone(),
-                config.bitcoin_rpc_auth.clone(),
-            );
-            let (secret_key, all_xonly_pks) = keys::read_file(keys_file.to_string()).unwrap();
-            let verifier = Verifier::new(rpc, all_xonly_pks, secret_key, config.clone()).unwrap();
+        let config = BridgeConfig::new().unwrap();
+        let rpc = ExtendedRpc::new(
+            config.bitcoin_rpc_url.clone(),
+            config.bitcoin_rpc_auth.clone(),
+        );
+        let (secret_key, all_xonly_pks) = keys::read_file(keys_file.to_string()).unwrap();
+        let verifier = Verifier::new(rpc, all_xonly_pks, secret_key, config.clone()).unwrap();
 
-            let server = Server::builder()
-                .build(format!("127.0.0.1:{}", port).parse::<SocketAddr>().unwrap())
-                .await
-                .unwrap();
-            let mut module = RpcModule::new(()); // Use appropriate context
-            println!("Starting server: {:?}", server);
+        let server = Server::builder().build("127.0.0.1:0").await.unwrap();
+        let addr = server.local_addr().unwrap();
+        println!("Listening on {:?}", addr);
+        let handle = server.start(verifier.into_rpc());
 
-            // Define your RPC methods
-            module
-                .register_async_method("new_deposit", move |params, _ctx| {
-                    println!("new_deposit called with params: {:?}", params);
-
-                    let parsed_params: NewDepositParams =
-                        match serde_json::from_value(params.parse().unwrap()).unwrap() {
-                            Value::Object(map) => {
-                                serde_json::from_value(Value::Object(map)).unwrap()
-                            }
-                            _ => panic!("Invalid params"),
-                        };
-
-                    let start_utxo = OutPoint::new(
-                        bitcoin::Txid::from_str(&parsed_params.deposit_txid).expect("Invalid Txid"),
-                        parsed_params.deposit_vout,
-                    );
-
-                    let return_address = XOnlyPublicKey::from_slice(
-                        &hex::decode(&parsed_params.user_return_xonly_pk)
-                            .expect("Invalid hex for XOnlyPublicKey"),
-                    )
-                    .expect("Invalid XOnlyPublicKey");
-
-                    let evm_address: EVMAddress = hex::decode(&parsed_params.user_evm_address)
-                        .expect("Invalid EVMAddress")
-                        .try_into()
-                        .expect("Invalid EVMAddress");
-
-                    let operator_address = Address::from_str(&parsed_params.operator_address)
-                        .expect("Invalid operator_address")
-                        .assume_checked();
-
-                    let verifier_clone = verifier.clone(); // Assuming Verifier is Clone
-
-                    async move {
-                        // Call the appropriate method on the Verifier instance
-                        let deposit_signatures = verifier_clone
-                            .new_deposit(
-                                start_utxo,
-                                &return_address,
-                                0,
-                                &evm_address,
-                                &operator_address,
-                            )
-                            .await
-                            .unwrap();
-                        serde_json::to_string(&deposit_signatures).unwrap()
-                    }
-                })
-                .unwrap();
-            let handle = server.start(module);
-            println!("Listening on {:?}", handle);
-
-            // In this example we don't care about doing shutdown so let's it run forever.
-            // You may use the `ServerHandle` to shut it down or manage it yourself.
-            handle.stopped().await;
-        });
-        handles.push(handle);
+        handles.push(tokio::spawn(handle.stopped()));
     }
 
     for handle in handles {

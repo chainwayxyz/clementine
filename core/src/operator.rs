@@ -8,7 +8,8 @@ use crate::constants::{
 use crate::db::operator::OperatorMockDB;
 use crate::errors::BridgeError;
 use crate::extended_rpc::ExtendedRpc;
-use crate::traits::verifier::VerifierConnector;
+use crate::traits::verifier::{OperatorRpcServer, VerifierRpcClient};
+// use crate::traits::verifier::VerifierConnector;
 use crate::transaction_builder::TransactionBuilder;
 use crate::utils::{check_deposit_utxo, handle_taproot_witness_new};
 use crate::EVMAddress;
@@ -20,6 +21,8 @@ use futures::TryStreamExt;
 use secp256k1::{SecretKey, XOnlyPublicKey};
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
+use jsonrpsee::core::async_trait;
+
 
 #[cfg(feature = "mainnet")]
 pub fn create_connector_tree_preimages_and_hashes(
@@ -78,9 +81,21 @@ pub struct Operator {
     pub signer: Actor,
     pub transaction_builder: TransactionBuilder,
     pub verifiers_pks: Vec<XOnlyPublicKey>,
-    pub verifier_connector: Vec<Arc<dyn VerifierConnector>>,
+    pub verifier_connector: Vec<Arc<jsonrpsee::http_client::HttpClient>>,
     operator_db_connector: OperatorMockDB,
     config: BridgeConfig,
+}
+
+#[async_trait]
+impl OperatorRpcServer for Operator {
+    async fn new_deposit_rpc(
+        &self,
+        start_utxo: OutPoint,
+        return_address: XOnlyPublicKey,
+        evm_address: EVMAddress,
+    ) -> Result<OutPoint, BridgeError> {
+        self.new_deposit(start_utxo, &return_address, &evm_address).await
+    }
 }
 
 impl Operator {
@@ -88,7 +103,7 @@ impl Operator {
         rpc: ExtendedRpc,
         all_xonly_pks: Vec<XOnlyPublicKey>,
         operator_sk: SecretKey,
-        verifiers: Vec<Arc<dyn VerifierConnector>>,
+        verifiers: Vec<Arc<jsonrpsee::http_client::HttpClient>>,
         config: BridgeConfig,
     ) -> Result<Self, BridgeError> {
         let num_verifiers = all_xonly_pks.len() - 1;
@@ -119,7 +134,7 @@ impl Operator {
     /// 3. Get signatures from all verifiers 1 move signature, ~150 operator takes signatures
     /// 4. Create a move transaction and return the output utxo
     pub async fn new_deposit(
-        &mut self,
+        &self,
         start_utxo: OutPoint,
         return_address: &XOnlyPublicKey,
         evm_address: &EVMAddress,
@@ -146,12 +161,12 @@ impl Operator {
                 // of the map, causing the collect call to return a Result::Err, effectively stopping
                 // the iteration and returning the error from your_function_name.
                 let deposit_presigns = verifier
-                    .new_deposit(
+                    .new_deposit_rpc(
                         start_utxo,
-                        return_address,
+                        *return_address,
                         deposit_index as u32,
-                        evm_address,
-                        &self.signer.address,
+                        *evm_address,
+                        self.signer.address.as_unchecked().clone(),
                     )
                     .await
                     .map_err(|e| {

@@ -592,7 +592,7 @@ mod tests {
         )
         .unwrap();
         let deposit_address = tx_builder
-            .generate_deposit_address(&user_xonly_pk, &evm_address, 10_000)
+            .generate_deposit_address(&user_xonly_pk, &crate::EVMAddress(evm_address), 10_000)
             .unwrap();
         println!("deposit_address: {:?}", deposit_address.0);
         assert_eq!(
