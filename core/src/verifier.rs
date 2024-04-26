@@ -4,7 +4,7 @@ use crate::constants::CONNECTOR_TREE_DEPTH;
 use crate::db::verifier::VerifierMockDB;
 use crate::errors::BridgeError;
 use crate::extended_rpc::ExtendedRpc;
-use crate::traits::verifier::VerifierRpcServer;
+use crate::traits::rpc::VerifierRpcServer;
 // use crate::traits::verifier::VerifierConnector;
 use crate::transaction_builder::TransactionBuilder;
 use crate::utils::check_deposit_utxo;

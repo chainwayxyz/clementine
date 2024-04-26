@@ -8,7 +8,7 @@ use crate::constants::{
 use crate::db::operator::OperatorMockDB;
 use crate::errors::BridgeError;
 use crate::extended_rpc::ExtendedRpc;
-use crate::traits::verifier::{OperatorRpcServer, VerifierRpcClient};
+use crate::traits::rpc::{OperatorRpcServer, VerifierRpcClient};
 // use crate::traits::verifier::VerifierConnector;
 use crate::transaction_builder::TransactionBuilder;
 use crate::utils::{check_deposit_utxo, handle_taproot_witness_new};

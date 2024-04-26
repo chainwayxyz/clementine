@@ -2,7 +2,7 @@ use bitcoin::OutPoint;
 use clementine_core::config::BridgeConfig;
 use clementine_core::extended_rpc::ExtendedRpc;
 use clementine_core::operator::Operator;
-use clementine_core::traits::verifier::{OperatorRpcServer, VerifierRpcServer};
+use clementine_core::traits::rpc::{OperatorRpcServer, VerifierRpcServer};
 use clementine_core::verifier::Verifier;
 use clementine_core::{keys, EVMAddress};
 use jsonrpsee::http_client::{HttpClient, HttpClientBuilder};

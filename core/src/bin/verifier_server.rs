@@ -3,7 +3,7 @@ use bitcoin::{Address, OutPoint};
 use clementine_core::config::BridgeConfig;
 use clementine_core::errors::BridgeError;
 use clementine_core::operator::DepositPresigns;
-use clementine_core::traits::verifier::{VerifierRpcClient, VerifierRpcServer};
+use clementine_core::traits::rpc::{VerifierRpcClient, VerifierRpcServer};
 use clementine_core::{extended_rpc::ExtendedRpc, verifier::Verifier};
 use clementine_core::{keys, EVMAddress};
 use jsonrpsee::core::async_trait;
