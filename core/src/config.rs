@@ -6,14 +6,10 @@
 //! ## Flow
 //!
 //! 1. Run clap to collect cli arguments/options
-//! 2. If there are valid arguments/options, jump step 4
-//! 3. Run environment variable collector
+//! 2. Parse arguments/options using Clap
+//! 3. If arguments/options are not complete, return with an error
 //! 4. Construct a `BridgeConfig`
 //! 5. Return `BridgeConfig`
-//!
-//! As can be seen above, first option is using `Clap` to collect cli
-//! arguments/options. Then as a fallback, environment is checked to collect
-//! configuration.
 
 use crate::errors::BridgeError;
 use bitcoin::Network;
