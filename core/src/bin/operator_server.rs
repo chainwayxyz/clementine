@@ -73,7 +73,6 @@ async fn main() {
         let verifier = VerifierClient::new(verifier_endpoints[i].clone());
         verifiers.push(Arc::new(verifier) as Arc<dyn VerifierConnector>);
     }
-    
 
     let operator = Operator::new(
         rpc.clone(),

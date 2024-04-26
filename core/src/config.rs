@@ -16,14 +16,13 @@ use bitcoin::Network;
 use bitcoincore_rpc::Auth;
 use clap::builder::TypedValueParser;
 use clap::Parser;
-
-#[cfg(test)]
 use std::ffi::OsString;
+use std::{env, fs};
 
 /// Clementine (C) 2024 Chainway Limited
 ///
 /// ^
-/// ___ This is for the help message (`--help`), please leave it as is.
+/// |_ This is for the help message (`--help`), please leave it as is.
 ///
 /// This struct can both be used to parse cli arguments/options using `Clap`
 /// and pass information to other parts of the program. Some of the arguments
@@ -84,15 +83,18 @@ pub struct BridgeConfig {
 
 impl BridgeConfig {
     pub fn new() -> Result<Self, BridgeError> {
-        match BridgeConfig::try_parse() {
+        let args = env::args();
+
+        match BridgeConfig::new_from_iter(env::args()) {
             Ok(c) => Ok(c),
-            Err(e) => Err(BridgeError::ConfigError(e.to_string())),
+            Err(e) => match BridgeConfig::parse_from_file(args) {
+                Ok(c) => Ok(c),
+                Err(_) => Err(e),
+            },
         }
     }
 
-    /// Acts like the real `new()` but accepts an iterator as input. Therefore
-    /// we can manipulate input for the clap. This is useful for testing.
-    #[cfg(test)]
+    /// Parses cli arguments from given iterator.
     fn new_from_iter<I, T>(itr: I) -> Result<Self, BridgeError>
     where
         I: IntoIterator<Item = T>,
@@ -102,6 +104,38 @@ impl BridgeConfig {
             Ok(c) => Ok(c),
             Err(e) => Err(BridgeError::ConfigError(e.to_string())),
         }
+    }
+
+    /// Beware ugly code ahead!
+    ///
+    /// This thing checks if a file is given as input for the cli
+    /// arguments. If there are any error with the input file, we
+    /// fallback to standard cli parsing. Program must be run in this
+    /// format:
+    ///
+    /// $ clementine-core $ARGFILE
+    ///
+    /// Why do we do this? We wanted to read program options from a file
+    /// but did not wanted to write duplicate code for every new option.
+    /// So I did came up with this monstrosity as the solution. Sorry, world.
+    fn parse_from_file<I, T>(itr: I) -> Result<Self, BridgeError>
+    where
+        I: IntoIterator<Item = T>,
+        T: Into<OsString> + Clone,
+    {
+        let mut it = itr.into_iter();
+
+        if let Some(_program_name) = it.next() {
+            if let Some(input_file) = it.next() {
+                if let Ok(contents) = fs::read_to_string(input_file.into()) {
+                    if let Ok(c) = BridgeConfig::new_from_iter(contents.split(" ")) {
+                        return Ok(c);
+                    };
+                }
+            }
+        };
+
+        Err(BridgeError::ConfigError("Input file is not OK".to_string()))
     }
 
     /// TODO: This should only be compiled when program is configured as `test`.
@@ -133,6 +167,8 @@ impl Default for BridgeConfig {
 mod tests {
     use super::BridgeConfig;
     use crate::errors::BridgeError;
+    use std::fs::File;
+    use std::io::Write;
 
     /// Without any arguments given, a `BridgeError` should be received.
     #[test]
@@ -182,6 +218,37 @@ mod tests {
                 assert!(true);
             }
             _ => {
+                assert!(false);
+            }
+        }
+    }
+
+    /// Args file can be used to specify arguments.
+    #[test]
+    fn args_file() {
+        const FILE_NAME: &str = "conffile";
+        const FILE_CONTENTS: &str = "--db-file-path database
+        --num-verifiers 4
+        --min-relay-fee 289
+        --user-takes-after 200
+        --confirmation-treshold 1
+        --bitcoin-rpc-url http://localhost:18443
+        --bitcoin-rpc-user admin
+        --bitcoin-rpc-password admin
+        ";
+
+        let mut file = File::create(FILE_NAME).unwrap();
+        file.write_all(FILE_CONTENTS.as_bytes()).unwrap();
+
+        match BridgeConfig::parse_from_file(vec!["clementine-core", FILE_NAME].into_iter()) {
+            Ok(c) => {
+                println!("{:#?}", c);
+                assert!(true);
+            }
+            Err(BridgeError::ConfigError(_)) => {
+                assert!(false);
+            }
+            Err(_) => {
                 assert!(false);
             }
         }
