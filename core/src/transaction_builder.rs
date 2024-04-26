@@ -1,30 +1,21 @@
 use std::str::FromStr;
 
-use crate::{
-    constants::{
-        CONNECTOR_TREE_DEPTH, CONNECTOR_TREE_OPERATOR_TAKES_AFTER, DUST_VALUE, K_DEEP,
-        MAX_BITVM_CHALLENGE_RESPONSE_BLOCKS, MIN_RELAY_FEE, NETWORK, USER_TAKES_AFTER,
-    },
-    merkle::MerkleTree,
-    utils::get_claim_proof_tree_leaf,
-    ConnectorUTXOTree, EVMAddress, HashTree,
+#[cfg(feature = "mainnet")]
+use crate::constants::{
+    CONNECTOR_TREE_DEPTH, CONNECTOR_TREE_OPERATOR_TAKES_AFTER, DUST_VALUE, K_DEEP,
+    MAX_BITVM_CHALLENGE_RESPONSE_BLOCKS,
 };
+use crate::{config::BridgeConfig, EVMAddress};
+use crate::{errors::BridgeError, script_builder::ScriptBuilder};
 use bitcoin::{
-    absolute, amount,
-    opcodes::all::{OP_EQUAL, OP_SHA256},
-    script::Builder,
+    absolute,
     taproot::{TaprootBuilder, TaprootSpendInfo},
     Address, Amount, OutPoint, ScriptBuf, TxIn, TxOut, Witness,
 };
-use clementine_circuits::{
-    constants::{BRIDGE_AMOUNT_SATS, CLAIM_MERKLE_TREE_DEPTH, NUM_ROUNDS},
-    sha256_hash, HashType, MerkleRoot, PreimageType,
-};
-use secp256k1::{Secp256k1, XOnlyPublicKey};
-use sha2::{Digest, Sha256};
-
-use crate::{errors::BridgeError, script_builder::ScriptBuilder, utils::calculate_amount};
+use clementine_circuits::constants::BRIDGE_AMOUNT_SATS;
 use lazy_static::lazy_static;
+use secp256k1::{Secp256k1, XOnlyPublicKey};
+use sha2::Digest;
 
 // This is an unspendable pubkey
 // See https://github.com/bitcoin/bips/blob/master/bip-0341.mediawiki#constructing-and-spending-taproot-outputs
@@ -50,16 +41,18 @@ pub struct TransactionBuilder {
     pub secp: Secp256k1<secp256k1::All>,
     pub verifiers_pks: Vec<XOnlyPublicKey>,
     pub script_builder: ScriptBuilder,
+    pub config: BridgeConfig,
 }
 
 impl TransactionBuilder {
-    pub fn new(verifiers_pks: Vec<XOnlyPublicKey>) -> Self {
+    pub fn new(verifiers_pks: Vec<XOnlyPublicKey>, config: BridgeConfig) -> Self {
         let secp = Secp256k1::new();
         let script_builder = ScriptBuilder::new(verifiers_pks.clone());
         Self {
             secp,
             verifiers_pks,
             script_builder,
+            config,
         }
     }
 
@@ -73,12 +66,18 @@ impl TransactionBuilder {
         let deposit_script = self
             .script_builder
             .create_deposit_script(user_evm_address, amount);
-        let script_timelock = ScriptBuilder::generate_timelock_script(user_pk, USER_TAKES_AFTER);
+        let script_timelock =
+            ScriptBuilder::generate_timelock_script(user_pk, self.config.user_takes_after);
         let taproot = TaprootBuilder::new()
             .add_leaf(1, deposit_script.clone())?
             .add_leaf(1, script_timelock.clone())?;
         let tree_info = taproot.finalize(&self.secp, *INTERNAL_KEY)?;
-        let address = Address::p2tr(&self.secp, *INTERNAL_KEY, tree_info.merkle_root(), *NETWORK);
+        let address = Address::p2tr(
+            &self.secp,
+            *INTERNAL_KEY,
+            tree_info.merkle_root(),
+            self.config.network,
+        );
         Ok((address, tree_info))
     }
 
@@ -87,7 +86,12 @@ impl TransactionBuilder {
         let script_n_of_n = self.script_builder.generate_script_n_of_n();
         let taproot = TaprootBuilder::new().add_leaf(0, script_n_of_n.clone())?;
         let tree_info = taproot.finalize(&self.secp, *INTERNAL_KEY)?;
-        let address = Address::p2tr(&self.secp, *INTERNAL_KEY, tree_info.merkle_root(), *NETWORK);
+        let address = Address::p2tr(
+            &self.secp,
+            *INTERNAL_KEY,
+            tree_info.merkle_root(),
+            self.config.network,
+        );
         Ok((address, tree_info))
     }
 
@@ -107,7 +111,7 @@ impl TransactionBuilder {
         let tx_ins = TransactionBuilder::create_tx_ins(vec![deposit_utxo]);
         let bridge_txout = TxOut {
             value: Amount::from_sat(BRIDGE_AMOUNT_SATS)
-                - Amount::from_sat(MIN_RELAY_FEE)
+                - Amount::from_sat(self.config.min_relay_fee)
                 - anyone_can_spend_txout.value,
             script_pubkey: bridge_address.script_pubkey(),
         };
@@ -128,6 +132,7 @@ impl TransactionBuilder {
         })
     }
 
+    #[cfg(feature = "mainnet")]
     pub fn create_operator_claim_tx(
         &self,
         bridge_utxo: OutPoint,
@@ -141,6 +146,7 @@ impl TransactionBuilder {
                 &self.secp,
                 operator_xonly,
                 hash,
+                self.config.network,
             )?;
         let (bridge_address, bridge_taproot_spend_info) = self.generate_bridge_address()?;
 
@@ -150,7 +156,7 @@ impl TransactionBuilder {
         let tx_ins = TransactionBuilder::create_tx_ins(vec![bridge_utxo, connector_utxo]);
         let claim_txout = TxOut {
             value: Amount::from_sat(BRIDGE_AMOUNT_SATS)
-                - Amount::from_sat(MIN_RELAY_FEE * 2)
+                - Amount::from_sat(self.config.min_relay_fee * 2)
                 - anyone_can_spend_txout.value * 2
                 - evm_address_inscription_txout.value
                 + Amount::from_sat(DUST_VALUE),
@@ -170,6 +176,7 @@ impl TransactionBuilder {
         })
     }
 
+    #[cfg(feature = "mainnet")]
     fn create_operator_claim_tx_prevouts(
         &self,
         bridge_address: &Address,
@@ -179,7 +186,7 @@ impl TransactionBuilder {
         Ok(vec![
             TxOut {
                 value: Amount::from_sat(BRIDGE_AMOUNT_SATS)
-                    - Amount::from_sat(MIN_RELAY_FEE)
+                    - Amount::from_sat(self.config.min_relay_fee)
                     - anyone_can_spend_txout.value,
                 script_pubkey: bridge_address.script_pubkey(),
             },
@@ -190,6 +197,7 @@ impl TransactionBuilder {
         ])
     }
 
+    #[cfg(feature = "mainnet")]
     /// TODO: Implement the signing part for the connecting to BitVM transactions
     /// This function creates the connector trees using the connector tree hashes.
     /// Starting from the first source UTXO, it creates the connector UTXO trees and
@@ -212,7 +220,7 @@ impl TransactionBuilder {
         let single_tree_amount = calculate_amount(
             CONNECTOR_TREE_DEPTH,
             Amount::from_sat(DUST_VALUE),
-            Amount::from_sat(MIN_RELAY_FEE),
+            Amount::from_sat(self.config.min_relay_fee),
         );
         let total_amount = Amount::from_sat((single_tree_amount.to_sat()) * NUM_ROUNDS as u64);
 
@@ -251,6 +259,7 @@ impl TransactionBuilder {
                     &self.secp,
                     &self.verifiers_pks[self.verifiers_pks.len() - 1],
                     &connector_tree_hashes[i][0][0],
+                    self.config.network,
                 )?;
             let curr_root_and_next_source_tx_ins =
                 TransactionBuilder::create_tx_ins(vec![cur_connector_source_utxo]);
@@ -261,7 +270,7 @@ impl TransactionBuilder {
                     next_connector_source_address.script_pubkey(),
                 ),
                 (
-                    single_tree_amount - Amount::from_sat(MIN_RELAY_FEE),
+                    single_tree_amount - Amount::from_sat(self.config.min_relay_fee),
                     connector_bt_root_address.script_pubkey(),
                 ),
             ]);
@@ -319,6 +328,7 @@ impl TransactionBuilder {
         tx_ins
     }
 
+    #[cfg(feature = "mainnet")]
     fn create_tx_ins_with_sequence(utxos: Vec<OutPoint>) -> Vec<TxIn> {
         let mut tx_ins = Vec::new();
         for utxo in utxos {
@@ -348,6 +358,7 @@ impl TransactionBuilder {
     fn create_taproot_address(
         secp: &Secp256k1<secp256k1::All>,
         scripts: Vec<ScriptBuf>,
+        network: bitcoin::Network,
     ) -> Result<(Address, TaprootSpendInfo), BridgeError> {
         let n = scripts.len();
         if n == 0 {
@@ -363,11 +374,10 @@ impl TransactionBuilder {
         } else {
             TaprootBuilder::new().add_leaf(0, scripts[0].clone())?
         };
-        // tracing::debug!("taproot_builder: {:?}", taproot_builder);
         let internal_key = *INTERNAL_KEY;
         let tree_info = taproot_builder.finalize(secp, internal_key)?;
         Ok((
-            Address::p2tr(secp, internal_key, tree_info.merkle_root(), *NETWORK),
+            Address::p2tr(secp, internal_key, tree_info.merkle_root(), network),
             tree_info,
         ))
     }
@@ -385,14 +395,17 @@ impl TransactionBuilder {
         let scripts = vec![timelock_script, script_n_of_n];
 
         let (address, tree_info) =
-            TransactionBuilder::create_taproot_address(&self.secp, scripts).unwrap();
+            TransactionBuilder::create_taproot_address(&self.secp, scripts, self.config.network)
+                .unwrap();
         Ok((address, tree_info))
     }
 
+    #[cfg(feature = "mainnet")]
     pub fn create_connector_tree_node_address(
         secp: &Secp256k1<secp256k1::All>,
         actor_pk: &XOnlyPublicKey,
         hash: &HashType,
+        network: bitcoin::Network,
     ) -> Result<CreateAddressOutputs, BridgeError> {
         let timelock_script = ScriptBuilder::generate_timelock_script(
             actor_pk,
@@ -406,10 +419,12 @@ impl TransactionBuilder {
         let (address, tree_info) = TransactionBuilder::create_taproot_address(
             secp,
             vec![timelock_script.clone(), preimage_script],
+            network,
         )?;
         Ok((address, tree_info))
     }
 
+    #[cfg(feature = "mainnet")]
     pub fn create_inscription_commit_address(
         &self,
         actor_pk: &XOnlyPublicKey,
@@ -420,6 +435,7 @@ impl TransactionBuilder {
         let (address, taproot_info) = TransactionBuilder::create_taproot_address(
             &self.secp,
             vec![inscribe_preimage_script.clone()],
+            self.config.network,
         )?;
         let mut hasher = Sha256::new();
         for elem in preimages_to_be_revealed {
@@ -428,6 +444,7 @@ impl TransactionBuilder {
         Ok((address, taproot_info, inscribe_preimage_script))
     }
 
+    #[cfg(feature = "mainnet")]
     pub fn create_inscription_reveal_tx(
         &self,
         commit_utxo: OutPoint,
@@ -454,6 +471,7 @@ impl TransactionBuilder {
         })
     }
 
+    #[cfg(feature = "mainnet")]
     pub fn create_connector_tree_tx(
         utxo: &OutPoint,
         depth: usize,
@@ -466,7 +484,7 @@ impl TransactionBuilder {
                 calculate_amount(
                     depth,
                     Amount::from_sat(DUST_VALUE),
-                    Amount::from_sat(MIN_RELAY_FEE),
+                    Amount::from_sat(self.config.min_relay_fee),
                 ),
                 first_address.script_pubkey(),
             ),
@@ -474,7 +492,7 @@ impl TransactionBuilder {
                 calculate_amount(
                     depth,
                     Amount::from_sat(DUST_VALUE),
-                    Amount::from_sat(MIN_RELAY_FEE),
+                    Amount::from_sat(self.config.min_relay_fee),
                 ),
                 second_address.script_pubkey(),
             ),
@@ -482,6 +500,7 @@ impl TransactionBuilder {
         TransactionBuilder::create_btc_tx(tx_ins, tx_outs)
     }
 
+    #[cfg(feature = "mainnet")]
     // This function creates the connector binary tree for operator to be able to claim the funds that they paid out of their pocket.
     // Depth will be determined later.
     pub fn create_connector_binary_tree(
@@ -496,13 +515,14 @@ impl TransactionBuilder {
         let _total_amount = calculate_amount(
             depth,
             Amount::from_sat(DUST_VALUE),
-            Amount::from_sat(MIN_RELAY_FEE),
+            Amount::from_sat(self.config.min_relay_fee),
         );
 
         let (_root_address, _) = TransactionBuilder::create_connector_tree_node_address(
             &self.secp,
             xonly_public_key,
             &connector_tree_hashes[0][0],
+            self.config.network,
         )?;
 
         let mut utxo_binary_tree: ConnectorUTXOTree = Vec::new();
@@ -517,11 +537,13 @@ impl TransactionBuilder {
                     &self.secp,
                     xonly_public_key,
                     &connector_tree_hashes[i + 1][2 * j],
+                    self.config.network,
                 )?;
                 let (second_address, _) = TransactionBuilder::create_connector_tree_node_address(
                     &self.secp,
                     xonly_public_key,
                     &connector_tree_hashes[i + 1][2 * j + 1],
+                    self.config.network,
                 )?;
 
                 let tx = TransactionBuilder::create_connector_tree_tx(
@@ -546,7 +568,7 @@ mod tests {
 
     use bitcoin::XOnlyPublicKey;
 
-    use crate::transaction_builder::TransactionBuilder;
+    use crate::{config::BridgeConfig, transaction_builder::TransactionBuilder};
 
     #[test]
     fn test_deposit_address() {
@@ -561,7 +583,7 @@ mod tests {
             .iter()
             .map(|pk| XOnlyPublicKey::from_str(pk).unwrap())
             .collect();
-        let tx_builder = TransactionBuilder::new(verifier_pks);
+        let tx_builder = TransactionBuilder::new(verifier_pks, BridgeConfig::test_config());
         let evm_address: [u8; 20] = hex::decode("1234567890123456789012345678901234567890")
             .unwrap()
             .try_into()
@@ -576,7 +598,7 @@ mod tests {
         println!("deposit_address: {:?}", deposit_address.0);
         assert_eq!(
             deposit_address.0.to_string(),
-            "bcrt1p3jazqdyfsadtj2fspf9sdlyggw3krvkfmyvg08u7u6yy32wlh57q33pfsq"
+            "bcrt1p0f0xpdskqepuzjhnfmhc8yxqd7s3egph8u3quqqt94r0ygzk32jsvxh00c"
         ) // Comparing it to the taproot address generated in bridge backend repo (using js)
     }
 }

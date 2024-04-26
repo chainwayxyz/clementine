@@ -1,8 +1,9 @@
 use bitcoin::OutPoint;
+use clementine_core::config::BridgeConfig;
+use clementine_core::extended_rpc::ExtendedRpc;
 use clementine_core::operator::Operator;
 use clementine_core::traits::verifier::VerifierConnector;
 use clementine_core::verifier::VerifierClient;
-use clementine_core::{constants::NUM_VERIFIERS, extended_rpc::ExtendedRpc};
 use clementine_core::{keys, EVMAddress};
 use jsonrpsee::{server::Server, RpcModule};
 use secp256k1::XOnlyPublicKey;
@@ -53,7 +54,11 @@ pub fn initialize_logging() {
 #[tokio::main]
 async fn main() {
     initialize_logging();
-    let rpc = ExtendedRpc::new();
+    let config = BridgeConfig::new().unwrap();
+    let rpc = ExtendedRpc::new(
+        config.bitcoin_rpc_url.clone(),
+        config.bitcoin_rpc_auth.clone(),
+    );
     let (secret_key, all_xonly_pks) = keys::get_from_file().unwrap();
 
     let verifier_endpoints = vec![
@@ -64,13 +69,20 @@ async fn main() {
     ];
 
     let mut verifiers: Vec<Arc<dyn VerifierConnector>> = Vec::new();
-    for i in 0..NUM_VERIFIERS {
+    for i in 0..verifier_endpoints.len() {
         let verifier = VerifierClient::new(verifier_endpoints[i].clone());
         verifiers.push(Arc::new(verifier) as Arc<dyn VerifierConnector>);
     }
+    
 
-    let operator =
-        Operator::new(rpc.clone(), all_xonly_pks.clone(), secret_key, verifiers).unwrap();
+    let operator = Operator::new(
+        rpc.clone(),
+        all_xonly_pks.clone(),
+        secret_key,
+        verifiers,
+        config.clone(),
+    )
+    .unwrap();
 
     let server = Server::builder()
         .build("127.0.0.1:3434".parse::<SocketAddr>().unwrap())

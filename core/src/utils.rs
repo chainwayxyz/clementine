@@ -19,7 +19,6 @@ use hex;
 
 use sha2::{Digest, Sha256};
 
-use crate::constants::CONFIRMATION_BLOCK_COUNT;
 use crate::errors::BridgeError;
 use crate::extended_rpc::ExtendedRpc;
 use crate::transaction_builder::{CreateTxOutputs, TransactionBuilder};
@@ -50,8 +49,9 @@ pub fn check_deposit_utxo(
     return_address: &XOnlyPublicKey,
     evm_address: &EVMAddress,
     amount_sats: u64,
+    confirmation_block_count: u32,
 ) -> Result<(), BridgeError> {
-    if rpc.confirmation_blocks(&outpoint.txid)? < CONFIRMATION_BLOCK_COUNT {
+    if rpc.confirmation_blocks(&outpoint.txid)? < confirmation_block_count {
         return Err(BridgeError::DepositNotFinalized);
     }
 

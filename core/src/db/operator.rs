@@ -1,22 +1,19 @@
-use std::ops::{Deref, DerefMut};
-
-use clementine_circuits::PreimageType;
-
+use super::common::Database;
 use crate::{operator::OperatorClaimSigs, PreimageTree};
-
-use super::common_db::CommonMockDB;
+use clementine_circuits::PreimageType;
+use std::ops::{Deref, DerefMut};
 
 #[derive(Debug, Clone)]
 pub struct OperatorMockDB {
-    common_db: CommonMockDB,
+    common_db: Database,
     deposit_take_sigs: Vec<OperatorClaimSigs>,
     connector_tree_preimages: Vec<PreimageTree>,
 }
 
 impl OperatorMockDB {
-    pub fn new() -> Self {
+    pub fn new(db_file_path: String) -> Self {
         Self {
-            common_db: CommonMockDB::new(),
+            common_db: Database::new(db_file_path),
             deposit_take_sigs: Vec::new(),
             connector_tree_preimages: Vec::new(),
         }
@@ -24,7 +21,7 @@ impl OperatorMockDB {
 }
 
 impl Deref for OperatorMockDB {
-    type Target = CommonMockDB;
+    type Target = Database;
 
     fn deref(&self) -> &Self::Target {
         &self.common_db
@@ -41,10 +38,6 @@ impl OperatorMockDB {
     pub fn get_deposit_index(&self) -> usize {
         self.deposit_take_sigs.len()
     }
-
-    // fn get_deposit_take_sigs(&self) -> Vec<OperatorClaimSigs> {
-    //     self.deposit_take_sigs.clone()
-    // }
 
     pub fn add_deposit_take_sigs(&mut self, deposit_take_sigs: OperatorClaimSigs) {
         self.deposit_take_sigs.push(deposit_take_sigs);

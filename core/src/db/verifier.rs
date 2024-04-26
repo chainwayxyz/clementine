@@ -1,22 +1,22 @@
 use std::ops::{Deref, DerefMut};
 
-use super::common_db::CommonMockDB;
+use super::common::Database;
 
 #[derive(Debug, Clone)]
 pub struct VerifierMockDB {
-    common_db: CommonMockDB,
+    common_db: Database,
 }
 
 impl VerifierMockDB {
-    pub fn new() -> Self {
+    pub fn new(db_file_path: String) -> Self {
         Self {
-            common_db: CommonMockDB::new(),
+            common_db: Database::new(db_file_path),
         }
     }
 }
 
 impl Deref for VerifierMockDB {
-    type Target = CommonMockDB;
+    type Target = Database;
 
     fn deref(&self) -> &Self::Target {
         &self.common_db

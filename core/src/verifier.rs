@@ -1,26 +1,23 @@
-use crate::constants::{VerifierChallenge, CONNECTOR_TREE_DEPTH, TEST_MODE};
-use crate::db::verifier_db::VerifierMockDB;
+use crate::config::BridgeConfig;
+#[cfg(feature = "mainnet")]
+use crate::constants::CONNECTOR_TREE_DEPTH;
+use crate::db::verifier::VerifierMockDB;
 use crate::errors::BridgeError;
-
+use crate::extended_rpc::ExtendedRpc;
 use crate::traits::verifier::VerifierConnector;
+use crate::transaction_builder::TransactionBuilder;
 use crate::utils::check_deposit_utxo;
-use crate::{EVMAddress, HashTree};
+use crate::EVMAddress;
+use crate::{actor::Actor, operator::DepositPresigns};
 use async_trait::async_trait;
 use bitcoin::Address;
 use bitcoin::{secp256k1, secp256k1::Secp256k1, OutPoint};
-
-use clementine_circuits::constants::{BRIDGE_AMOUNT_SATS, NUM_ROUNDS};
+use clementine_circuits::constants::BRIDGE_AMOUNT_SATS;
 use jsonrpsee::core::client::ClientT;
 use jsonrpsee::core::params::ObjectParams;
 use jsonrpsee::http_client::{HeaderMap, HttpClient, HttpClientBuilder};
-use jsonrpsee::rpc_params;
+use secp256k1::SecretKey;
 use secp256k1::XOnlyPublicKey;
-use secp256k1::{schnorr, SecretKey};
-
-use crate::extended_rpc::ExtendedRpc;
-use crate::transaction_builder::TransactionBuilder;
-
-use crate::{actor::Actor, operator::DepositPresigns};
 
 #[derive(Debug, Clone)]
 pub struct Verifier {
@@ -31,6 +28,7 @@ pub struct Verifier {
     pub verifiers: Vec<XOnlyPublicKey>,
     pub operator_pk: XOnlyPublicKey,
     verifier_db_connector: VerifierMockDB,
+    config: BridgeConfig,
 }
 
 #[async_trait]
@@ -43,9 +41,9 @@ impl VerifierConnector for Verifier {
         &self,
         start_utxo: OutPoint,
         return_address: &XOnlyPublicKey,
-        deposit_index: u32,
+        _deposit_index: u32,
         evm_address: &EVMAddress,
-        operator_address: &Address,
+        _operator_address: &Address,
     ) -> Result<DepositPresigns, BridgeError> {
         check_deposit_utxo(
             &self.rpc,
@@ -54,6 +52,7 @@ impl VerifierConnector for Verifier {
             return_address,
             evm_address,
             BRIDGE_AMOUNT_SATS,
+            self.config.confirmation_treshold,
         )?;
 
         let mut move_tx =
@@ -61,7 +60,7 @@ impl VerifierConnector for Verifier {
                 .create_move_tx(start_utxo, evm_address, &return_address)?;
         let move_txid = move_tx.tx.txid();
 
-        let move_utxo = OutPoint {
+        let _move_utxo = OutPoint {
             txid: move_txid,
             vout: 0,
         };
@@ -70,9 +69,10 @@ impl VerifierConnector for Verifier {
             .signer
             .sign_taproot_script_spend_tx_new(&mut move_tx, 0)?;
 
-        let mut op_claim_sigs = Vec::new();
+        let op_claim_sigs = Vec::new();
 
-        if !TEST_MODE {
+        #[cfg(feature = "mainnet")]
+        {
             for i in 0..NUM_ROUNDS {
                 let connector_utxo = self.verifier_db_connector.get_connector_tree_utxo(i)
                     [CONNECTOR_TREE_DEPTH][deposit_index as usize];
@@ -102,6 +102,7 @@ impl VerifierConnector for Verifier {
         })
     }
 
+    #[cfg(feature = "mainnet")]
     /// TODO: Add verification for the connector tree hashes
     fn connector_roots_created(
         &self,
@@ -110,7 +111,7 @@ impl VerifierConnector for Verifier {
         start_blockheight: u64,
         period_relative_block_heights: Vec<u32>,
     ) -> Result<(), BridgeError> {
-        let (_claim_proof_merkle_roots, _, utxo_trees, claim_proof_merkle_trees) =
+        let (_claim_proof_merkle_roots, _, _utxo_trees, _claim_proof_merkle_trees) =
             self.transaction_builder.create_all_connector_trees(
                 &connector_tree_hashes,
                 &first_source_utxo,
@@ -132,6 +133,7 @@ impl VerifierConnector for Verifier {
         Ok(())
     }
 
+    #[cfg(feature = "mainnet")]
     /// Challenges the operator for current period for now
     /// Will return the blockhash, total work, and period
     fn challenge_operator(&self, period: u8) -> Result<VerifierChallenge, BridgeError> {
@@ -158,8 +160,9 @@ impl Verifier {
         rpc: ExtendedRpc,
         all_xonly_pks: Vec<XOnlyPublicKey>,
         sk: SecretKey,
+        config: BridgeConfig,
     ) -> Result<Self, BridgeError> {
-        let signer = Actor::new(sk);
+        let signer = Actor::new(sk, config.network);
         let secp: Secp256k1<secp256k1::All> = Secp256k1::new();
 
         let pk: secp256k1::PublicKey = sk.public_key(&secp);
@@ -169,9 +172,9 @@ impl Verifier {
             return Err(BridgeError::PublicKeyNotFound);
         }
 
-        let verifier_db_connector = VerifierMockDB::new();
+        let verifier_db_connector = VerifierMockDB::new(config.db_file_path.clone());
 
-        let transaction_builder = TransactionBuilder::new(all_xonly_pks.clone());
+        let transaction_builder = TransactionBuilder::new(all_xonly_pks.clone(), config.clone());
         let operator_pk = all_xonly_pks[all_xonly_pks.len() - 1];
         Ok(Verifier {
             rpc,
@@ -181,6 +184,7 @@ impl Verifier {
             verifiers: all_xonly_pks,
             operator_pk,
             verifier_db_connector,
+            config,
         })
     }
 }
@@ -239,17 +243,19 @@ impl VerifierConnector for VerifierClient {
         Ok(deposit_presigns)
     }
 
+    #[cfg(feature = "mainnet")]
     fn connector_roots_created(
         &self,
-        connector_tree_hashes: &Vec<HashTree>,
-        first_source_utxo: &OutPoint,
-        start_blockheight: u64,
-        period_relative_block_heights: Vec<u32>,
+        _connector_tree_hashes: &Vec<HashTree>,
+        _first_source_utxo: &OutPoint,
+        _start_blockheight: u64,
+        _period_relative_block_heights: Vec<u32>,
     ) -> Result<(), BridgeError> {
         unimplemented!()
     }
 
-    fn challenge_operator(&self, period: u8) -> Result<VerifierChallenge, BridgeError> {
+    #[cfg(feature = "mainnet")]
+    fn challenge_operator(&self, _period: u8) -> Result<VerifierChallenge, BridgeError> {
         unimplemented!()
     }
 }

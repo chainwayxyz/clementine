@@ -1,46 +1,28 @@
-use std::sync::Arc;
-use std::vec;
-
 use crate::actor::Actor;
+use crate::config::BridgeConfig;
+#[cfg(feature = "mainnet")]
 use crate::constants::{
     VerifierChallenge, CONNECTOR_TREE_DEPTH, DUST_VALUE, K_DEEP,
-    MAX_BITVM_CHALLENGE_RESPONSE_BLOCKS, MIN_RELAY_FEE, PERIOD_BLOCK_COUNT, TEST_MODE,
+    MAX_BITVM_CHALLENGE_RESPONSE_BLOCKS, PERIOD_BLOCK_COUNT,
 };
-use crate::db::operator_db::OperatorMockDB;
-use crate::env_writer::ENVWriter;
-use crate::errors::{BridgeError, InvalidPeriodError};
+use crate::db::operator::OperatorMockDB;
+use crate::errors::BridgeError;
 use crate::extended_rpc::ExtendedRpc;
-
-use crate::merkle::MerkleTree;
-use crate::script_builder::ScriptBuilder;
 use crate::traits::verifier::VerifierConnector;
 use crate::transaction_builder::TransactionBuilder;
-use crate::utils::{
-    calculate_amount, check_deposit_utxo, get_claim_reveal_indices, handle_taproot_witness,
-    handle_taproot_witness_new,
-};
-use crate::{EVMAddress, WithdrawalPayment};
-
-use bitcoin::address::NetworkChecked;
-use bitcoin::block::Header;
-use bitcoin::hashes::Hash;
-
-use bitcoin::{secp256k1, secp256k1::schnorr, Address};
-use bitcoin::{Amount, BlockHash, OutPoint};
-use clementine_circuits::constants::{
-    BLOCKHASH_MERKLE_TREE_DEPTH, BRIDGE_AMOUNT_SATS, CLAIM_MERKLE_TREE_DEPTH, MAX_BLOCK_HANDLE_OPS,
-    NUM_ROUNDS, WITHDRAWAL_MERKLE_TREE_DEPTH,
-};
-use clementine_circuits::env::Environment;
-use clementine_circuits::{sha256_hash, HashType, PreimageType};
-use crypto_bigint::{Encoding, U256};
+use crate::utils::{check_deposit_utxo, handle_taproot_witness_new};
+use crate::EVMAddress;
+use bitcoin::OutPoint;
+use bitcoin::{secp256k1, secp256k1::schnorr};
+use clementine_circuits::constants::BRIDGE_AMOUNT_SATS;
 use futures::stream::FuturesOrdered;
 use futures::TryStreamExt;
-use secp256k1::rand::{Rng, RngCore};
-use secp256k1::{Message, SecretKey, XOnlyPublicKey};
+use secp256k1::{SecretKey, XOnlyPublicKey};
 use serde::{Deserialize, Serialize};
-use sha2::{Digest, Sha256};
+use sha2::Digest;
+use std::sync::Arc;
 
+#[cfg(feature = "mainnet")]
 pub fn create_connector_tree_preimages_and_hashes(
     depth: usize,
     rng: &mut impl RngCore,
@@ -64,6 +46,7 @@ pub fn create_connector_tree_preimages_and_hashes(
     (connector_tree_preimages, connector_tree_hashes)
 }
 
+#[cfg(feature = "mainnet")]
 pub fn create_all_rounds_connector_preimages(
     depth: usize,
     num_rounds: usize,
@@ -98,6 +81,7 @@ pub struct Operator {
     pub verifiers_pks: Vec<XOnlyPublicKey>,
     pub verifier_connector: Vec<Arc<dyn VerifierConnector>>,
     operator_db_connector: OperatorMockDB,
+    config: BridgeConfig,
 }
 
 impl Operator {
@@ -106,16 +90,17 @@ impl Operator {
         all_xonly_pks: Vec<XOnlyPublicKey>,
         operator_sk: SecretKey,
         verifiers: Vec<Arc<dyn VerifierConnector>>,
+        config: BridgeConfig,
     ) -> Result<Self, BridgeError> {
         let num_verifiers = all_xonly_pks.len() - 1;
-        let signer = Actor::new(operator_sk); // Operator is the last one
+        let signer = Actor::new(operator_sk, config.network); // Operator is the last one
 
         if signer.xonly_public_key != all_xonly_pks[num_verifiers] {
             return Err(BridgeError::InvalidOperatorKey);
         }
 
-        let transaction_builder = TransactionBuilder::new(all_xonly_pks.clone());
-        let operator_db_connector = OperatorMockDB::new();
+        let transaction_builder = TransactionBuilder::new(all_xonly_pks.clone(), config.clone());
+        let operator_db_connector = OperatorMockDB::new(config.db_file_path.clone());
 
         Ok(Self {
             rpc,
@@ -124,6 +109,7 @@ impl Operator {
             verifier_connector: verifiers,
             verifiers_pks: all_xonly_pks.clone(),
             operator_db_connector,
+            config,
         })
     }
 
@@ -146,6 +132,7 @@ impl Operator {
             return_address,
             evm_address,
             BRIDGE_AMOUNT_SATS,
+            self.config.confirmation_treshold,
         )?;
 
         let deposit_index = self.operator_db_connector.get_deposit_index();
@@ -215,7 +202,8 @@ impl Operator {
             txid: rpc_move_txid,
             vout: 0,
         };
-        if !TEST_MODE {
+        #[cfg(feature = "mainnet")]
+        {
             let operator_claim_sigs = OperatorClaimSigs {
                 operator_claim_sigs: presigns_from_all_verifiers
                     .iter()
@@ -274,6 +262,7 @@ impl Operator {
         Ok(move_utxo)
     }
 
+    #[cfg(feature = "mainnet")]
     /// Returns the current withdrawal
     fn get_current_withdrawal_period(&self) -> Result<usize, BridgeError> {
         let cur_block_height = self.rpc.get_block_count().unwrap();
@@ -294,6 +283,7 @@ impl Operator {
         ))
     }
 
+    #[cfg(feature = "mainnet")]
     fn get_current_preimage_reveal_period(&self) -> Result<usize, BridgeError> {
         let cur_block_height = self.rpc.get_block_count().unwrap();
         tracing::debug!("Cur block height: {:?}", cur_block_height);
@@ -322,6 +312,7 @@ impl Operator {
         ))
     }
 
+    #[cfg(feature = "mainnet")]
     // this is called when a Withdrawal event emitted on rollup and its corresponding batch proof is finalized
     pub fn new_withdrawal(
         &mut self,
@@ -355,6 +346,7 @@ impl Operator {
         Ok(())
     }
 
+    #[cfg(feature = "mainnet")]
     pub fn spend_connector_tree_utxo(
         // TODO: Too big, move some parts to Transaction Builder
         &self,
@@ -368,6 +360,7 @@ impl Operator {
             &self.signer.secp,
             &self.signer.xonly_public_key,
             &hash,
+            self.config.network,
         )?;
 
         let base_tx = match self.rpc.get_raw_transaction(&utxo.txid, None) {
@@ -383,8 +376,9 @@ impl Operator {
             return Ok(());
         }
         let depth = u32::ilog2(
-            ((base_tx.unwrap().output[utxo.vout as usize].value.to_sat() + MIN_RELAY_FEE)
-                / (DUST_VALUE + MIN_RELAY_FEE)) as u32,
+            ((base_tx.unwrap().output[utxo.vout as usize].value.to_sat()
+                + self.config.min_relay_fee)
+                / (DUST_VALUE + self.config.min_relay_fee)) as u32,
         );
         // tracing::debug!("depth: {:?}", depth);
         let level = tree_depth - depth as usize;
@@ -412,12 +406,14 @@ impl Operator {
             &self.signer.secp,
             &self.signer.xonly_public_key,
             &hashes.0,
+            self.config.network,
         )?;
 
         let (second_address, _) = TransactionBuilder::create_connector_tree_node_address(
             &self.signer.secp,
             &self.signer.xonly_public_key,
             &hashes.1,
+            self.config.network,
         )?;
 
         let mut tx = TransactionBuilder::create_connector_tree_tx(
@@ -461,11 +457,13 @@ impl Operator {
         Ok(())
     }
 
+    #[cfg(feature = "mainnet")]
     fn get_num_withdrawals_for_period(&self, _period: usize) -> u32 {
         self.operator_db_connector
             .get_withdrawals_merkle_tree_index() // TODO: This is not correct, we should have a cutoff
     }
 
+    #[cfg(feature = "mainnet")]
     /// This is called internally when every withdrawal for the current period is satisfied
     /// Double checks if all withdrawals are satisfied
     /// Checks that we are in the correct period, and withdrawal period has end for the given period
@@ -534,6 +532,7 @@ impl Operator {
         Ok((preimages_to_be_revealed, commit_address))
     }
 
+    #[cfg(feature = "mainnet")]
     /// Helper function for operator to write blocks to env
     fn write_blocks_and_add_to_merkle_tree<E: Environment>(
         &self,
@@ -564,6 +563,7 @@ impl Operator {
         Ok(lc_cutoff_blockhash)
     }
 
+    #[cfg(feature = "mainnet")]
     fn write_withdrawals_and_add_to_merkle_tree<E: Environment>(
         &self,
         withdrawal_payments: Vec<WithdrawalPayment>,
@@ -616,6 +616,7 @@ impl Operator {
         Ok(())
     }
 
+    #[cfg(feature = "mainnet")]
     /// TODO: change this
     fn write_lc_proof<E: Environment>(
         &self,
@@ -626,6 +627,7 @@ impl Operator {
         E::write_32bytes(withdrawal_mt_root);
     }
 
+    #[cfg(feature = "mainnet")]
     fn write_verifiers_challenge_proof<E: Environment>(
         proof: [[u8; 32]; 4],
         challenge: VerifierChallenge,
@@ -643,6 +645,7 @@ impl Operator {
         Ok(())
     }
 
+    #[cfg(feature = "mainnet")]
     /// Currently PoC for a bridge proof
     /// Light Client proofs are not yet implemented
     /// Verifier's Challenge proof is not yet implemented, instead we assume
@@ -844,6 +847,7 @@ impl Operator {
         Ok(())
     }
 
+    #[cfg(feature = "mainnet")]
     pub fn prove_test<E: Environment>(&self) -> Result<(), BridgeError> {
         let inscription_txs = self.operator_db_connector.get_inscription_txs();
         let last_period = inscription_txs.len() - 1;
@@ -856,6 +860,7 @@ impl Operator {
         Ok(())
     }
 
+    #[cfg(feature = "mainnet")]
     /// This starts the whole setup
     /// 1. get the current blockheight
     /// 2. Create perod blockheights
@@ -901,10 +906,11 @@ impl Operator {
         let single_tree_amount = calculate_amount(
             CONNECTOR_TREE_DEPTH,
             Amount::from_sat(DUST_VALUE),
-            Amount::from_sat(MIN_RELAY_FEE),
+            Amount::from_sat(self.config.min_relay_fee),
         );
-        let total_amount =
-            Amount::from_sat((MIN_RELAY_FEE + single_tree_amount.to_sat()) * NUM_ROUNDS as u64);
+        let total_amount = Amount::from_sat(
+            (self.config.min_relay_fee + single_tree_amount.to_sat()) * NUM_ROUNDS as u64,
+        );
         // tracing::debug!("total_amount: {:?}", total_amount);
         let (connector_tree_source_address, _) = self
             .transaction_builder

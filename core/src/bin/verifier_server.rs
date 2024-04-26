@@ -1,13 +1,14 @@
 use bitcoin::{Address, OutPoint};
+use clementine_core::config::BridgeConfig;
 use clementine_core::traits::verifier::VerifierConnector;
-use clementine_core::{constants::NUM_VERIFIERS, extended_rpc::ExtendedRpc, verifier::Verifier};
+use clementine_core::{extended_rpc::ExtendedRpc, verifier::Verifier};
 use clementine_core::{keys, EVMAddress};
 use jsonrpsee::{server::Server, RpcModule};
 use secp256k1::XOnlyPublicKey;
 use serde::Deserialize;
 use serde_json::Value;
+use std::net::SocketAddr;
 use std::str::FromStr;
-use std::{env, net::SocketAddr, sync::Arc, thread};
 
 #[derive(Deserialize, Clone)]
 struct NewDepositParams {
@@ -31,9 +32,13 @@ async fn main() {
 
     for (port, keys_file) in configs {
         let handle = tokio::spawn(async move {
-            let rpc = ExtendedRpc::new();
+            let config = BridgeConfig::new().unwrap();
+            let rpc = ExtendedRpc::new(
+                config.bitcoin_rpc_url.clone(),
+                config.bitcoin_rpc_auth.clone(),
+            );
             let (secret_key, all_xonly_pks) = keys::read_file(keys_file.to_string()).unwrap();
-            let verifier = Verifier::new(rpc, all_xonly_pks, secret_key).unwrap();
+            let verifier = Verifier::new(rpc, all_xonly_pks, secret_key, config.clone()).unwrap();
 
             let server = Server::builder()
                 .build(format!("127.0.0.1:{}", port).parse::<SocketAddr>().unwrap())

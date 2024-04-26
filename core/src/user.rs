@@ -1,4 +1,5 @@
 use crate::actor::Actor;
+use crate::config::BridgeConfig;
 use crate::errors::BridgeError;
 use crate::extended_rpc::ExtendedRpc;
 use crate::transaction_builder::TransactionBuilder;
@@ -20,10 +21,15 @@ pub struct User {
 }
 
 impl User {
-    pub fn new(rpc: ExtendedRpc, all_xonly_pks: Vec<XOnlyPublicKey>, sk: SecretKey) -> Self {
+    pub fn new(
+        rpc: ExtendedRpc,
+        all_xonly_pks: Vec<XOnlyPublicKey>,
+        sk: SecretKey,
+        config: BridgeConfig,
+    ) -> Self {
         let secp = Secp256k1::new();
-        let signer = Actor::new(sk);
-        let transaction_builder = TransactionBuilder::new(all_xonly_pks.clone());
+        let signer = Actor::new(sk, config.network);
+        let transaction_builder = TransactionBuilder::new(all_xonly_pks.clone(), config);
         User {
             rpc,
             secp,
