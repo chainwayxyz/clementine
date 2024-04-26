@@ -108,26 +108,14 @@ impl BridgeConfig {
     /// When this is possible, uncomment below.
     // #[cfg(test)]
     pub fn test_config() -> Self {
-        Self {
-            db_file_path: "test_db".to_string(),
-            num_verifiers: 4,
-            min_relay_fee: 289,
-            user_takes_after: 200,
-            confirmation_treshold: 1,
-            network: Network::Regtest,
-            bitcoin_rpc_url: "http://localhost:18443".to_string(),
-            bitcoin_rpc_user: "admin".to_string(),
-            bitcoin_rpc_password: "admin".to_string(),
-            bitcoin_rpc_auth: Auth::UserPass("admin".to_string(), "admin".to_string()),
-        }
+        BridgeConfig::default()
     }
 }
 
-// Is this necessary? If not, we can delete this.
 impl Default for BridgeConfig {
     fn default() -> Self {
         Self {
-            db_file_path: "test_db".to_string(),
+            db_file_path: "database".to_string(),
             num_verifiers: 4,
             min_relay_fee: 289,
             user_takes_after: 200,
