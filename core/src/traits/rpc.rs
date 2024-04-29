@@ -1,5 +1,5 @@
 use bitcoin::address::NetworkUnchecked;
-use bitcoin::{Address, OutPoint};
+use bitcoin::{Address, OutPoint, Txid};
 use secp256k1::XOnlyPublicKey;
 
 use crate::{errors::BridgeError, operator::DepositPresigns, EVMAddress};
@@ -27,5 +27,5 @@ pub trait OperatorRpc {
         start_utxo: OutPoint,
         return_address: XOnlyPublicKey,
         evm_address: EVMAddress,
-    ) -> Result<OutPoint, BridgeError>;
+    ) -> Result<Txid, BridgeError>;
 }

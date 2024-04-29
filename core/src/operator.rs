@@ -13,8 +13,8 @@ use crate::traits::rpc::{OperatorRpcServer, VerifierRpcClient};
 use crate::transaction_builder::TransactionBuilder;
 use crate::utils::{check_deposit_utxo, handle_taproot_witness_new};
 use crate::EVMAddress;
-use bitcoin::OutPoint;
 use bitcoin::{secp256k1, secp256k1::schnorr};
+use bitcoin::{OutPoint, Txid};
 use clementine_circuits::constants::BRIDGE_AMOUNT_SATS;
 use futures::stream::FuturesOrdered;
 use futures::TryStreamExt;
@@ -92,9 +92,11 @@ impl OperatorRpcServer for Operator {
         start_utxo: OutPoint,
         return_address: XOnlyPublicKey,
         evm_address: EVMAddress,
-    ) -> Result<OutPoint, BridgeError> {
-        self.new_deposit(start_utxo, &return_address, &evm_address)
-            .await
+    ) -> Result<Txid, BridgeError> {
+        let move_utxo = self
+            .new_deposit(start_utxo, &return_address, &evm_address)
+            .await?;
+        Ok(move_utxo.txid)
     }
 }
 

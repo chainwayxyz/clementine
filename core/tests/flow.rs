@@ -1,53 +1,9 @@
 use clementine_circuits::constants::BRIDGE_AMOUNT_SATS;
 use clementine_core::config::BridgeConfig;
 use clementine_core::extended_rpc::ExtendedRpc;
+use clementine_core::traits::rpc::OperatorRpcClient;
 use clementine_core::transaction_builder::TransactionBuilder;
-use clementine_core::{
-    create_operator_server, create_verifier_server, traits::rpc::OperatorRpcClient,
-};
-use clementine_core::{keys, EVMAddress};
-use jsonrpsee::http_client::{HttpClient, HttpClientBuilder};
-use jsonrpsee::server::ServerHandle;
-
-pub async fn start_operator_and_verifiers() -> (
-    HttpClient,
-    ServerHandle,
-    Vec<(std::net::SocketAddr, ServerHandle)>,
-) {
-    let verifier_configs = vec![
-        "./configs/keys0.json",
-        "./configs/keys1.json",
-        "./configs/keys2.json",
-        "./configs/keys3.json",
-    ];
-    let futures = verifier_configs
-        .iter()
-        .map(|config| create_verifier_server(None, Some(config.to_string())))
-        .collect::<Vec<_>>();
-
-    // Use `futures::future::try_join_all` to run all futures concurrently and wait for all to complete
-    let results = futures::future::try_join_all(futures).await.unwrap();
-    let verifier_endpoints = results
-        .iter()
-        .map(|(socket_addr, _)| format!("http://{}:{}/", socket_addr.ip(), socket_addr.port()))
-        .collect::<Vec<_>>();
-
-    let operator_config = "./configs/keys4.json";
-    let (operator_socket_addr, operator_handle) =
-        create_operator_server(verifier_endpoints, None, Some(operator_config.to_string()))
-            .await
-            .unwrap();
-
-    let operator_client = HttpClientBuilder::default()
-        .build(&format!(
-            "http://{}:{}/",
-            operator_socket_addr.ip(),
-            operator_socket_addr.port()
-        ))
-        .unwrap();
-
-    (operator_client, operator_handle, results)
-}
+use clementine_core::{keys, start_operator_and_verifiers, EVMAddress};
 
 #[tokio::test]
 async fn test_flow() {

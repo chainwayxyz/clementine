@@ -54,10 +54,13 @@ async fn main() {
         .collect::<Vec<_>>();
 
     let operator_config = "./configs/keys4.json";
-    let (operator_socket_addr, operator_handle) =
-        create_operator_server(verifier_endpoints, None, Some(operator_config.to_string()))
-            .await
-            .unwrap();
+    let (operator_socket_addr, operator_handle) = create_operator_server(
+        verifier_endpoints,
+        Some(3000),
+        Some(operator_config.to_string()),
+    )
+    .await
+    .unwrap();
 
     println!(
         "Operator running on {}",
