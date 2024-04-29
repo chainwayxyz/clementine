@@ -5,7 +5,20 @@
 //!
 //! ## Configuration File
 //!
-//! Configuration options can be read from a TOML file.
+//! Configuration options can be read from a TOML file. This file don't accept
+//! any headers and it should only includes raw data. Example:
+//!
+//! ```toml
+//! db_file_path = "database"
+//! num_verifiers = 4
+//! min_relay_fee = 289
+//! user_takes_after = 200
+//! confirmation_treshold = 1
+//! network = "regtest"
+//! bitcoin_rpc_url = "http://localhost:18443"
+//! bitcoin_rpc_user = "admin"
+//! bitcoin_rpc_password = "admin"
+//! ```
 
 use crate::errors::BridgeError;
 use bitcoin::Network;
@@ -148,7 +161,7 @@ mod tests {
         network = \"regtest\"
         bitcoin_rpc_url = \"http://localhost:18443\"
         bitcoin_rpc_user = \"admin\"
-        bitcoin_rpc_password = \"admin\"\n";
+        bitcoin_rpc_password = \"admin\"";
         let mut file = File::create(filename.clone()).unwrap();
         file.write_all(content.as_bytes()).unwrap();
 
