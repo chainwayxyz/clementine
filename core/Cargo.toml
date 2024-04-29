@@ -27,6 +27,9 @@ async-trait = "0.1.79"
 futures = "0.3.30"
 dotenv = "0.15.0"
 
+[features]
+mainnet = []
+
 [[bin]]
 name = "verifier_server"
 path = "src/bin/verifier_server.rs"
