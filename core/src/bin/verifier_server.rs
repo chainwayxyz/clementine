@@ -1,4 +1,5 @@
 use bitcoin::{Address, OutPoint};
+use bitcoincore_rpc::Auth;
 use clementine_core::config::BridgeConfig;
 use clementine_core::traits::verifier::VerifierConnector;
 use clementine_core::{extended_rpc::ExtendedRpc, verifier::Verifier};
@@ -32,10 +33,13 @@ async fn main() {
 
     for (port, keys_file) in configs {
         let handle = tokio::spawn(async move {
-            let config = BridgeConfig::new().unwrap();
+            let config = BridgeConfig::new();
             let rpc = ExtendedRpc::new(
                 config.bitcoin_rpc_url.clone(),
-                config.bitcoin_rpc_auth.clone(),
+                Auth::UserPass(
+                    config.bitcoin_rpc_user.clone(),
+                    config.bitcoin_rpc_password.clone(),
+                ),
             );
             let (secret_key, all_xonly_pks) = keys::read_file(keys_file.to_string()).unwrap();
             let verifier = Verifier::new(rpc, all_xonly_pks, secret_key, config.clone()).unwrap();

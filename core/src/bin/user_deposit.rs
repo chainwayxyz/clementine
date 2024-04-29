@@ -3,7 +3,7 @@ use clementine_core::transaction_builder::TransactionBuilder;
 use clementine_core::{keys, EVMAddress};
 fn main() {
     let secp = bitcoin::secp256k1::Secp256k1::new();
-    let config = BridgeConfig::new().unwrap();
+    let config = BridgeConfig::new();
     let (secret_key, all_xonly_pks) = keys::get_from_file().unwrap();
     let tx_builder = TransactionBuilder::new(all_xonly_pks.clone(), config);
 

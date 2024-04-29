@@ -617,7 +617,7 @@ mod tests {
         .unwrap();
 
         // Mock tx builder
-        let tx_builder = TransactionBuilder::new(vec![operator_xonly], BridgeConfig::test_config());
+        let tx_builder = TransactionBuilder::new(vec![operator_xonly], BridgeConfig::new());
 
         for i in 0..24u8 {
             let preimages: Vec<[u8; 32]> = (0..i + 1).map(|j| [j as u8; 32]).collect();

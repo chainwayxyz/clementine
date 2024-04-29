@@ -27,6 +27,7 @@ async-trait = "0.1.79"
 futures = "0.3.30"
 dotenv = "0.15.0"
 clap = { version = "4.5.4", features = ["derive"] }
+toml = "0.8.12"
 
 [[bin]]
 name = "verifier_server"

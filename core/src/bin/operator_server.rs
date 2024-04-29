@@ -1,4 +1,5 @@
 use bitcoin::OutPoint;
+use bitcoincore_rpc::Auth;
 use clementine_core::config::BridgeConfig;
 use clementine_core::extended_rpc::ExtendedRpc;
 use clementine_core::operator::Operator;
@@ -54,10 +55,13 @@ pub fn initialize_logging() {
 #[tokio::main]
 async fn main() {
     initialize_logging();
-    let config = BridgeConfig::new().unwrap();
+    let config = BridgeConfig::new();
     let rpc = ExtendedRpc::new(
         config.bitcoin_rpc_url.clone(),
-        config.bitcoin_rpc_auth.clone(),
+        Auth::UserPass(
+            config.bitcoin_rpc_user.clone(),
+            config.bitcoin_rpc_password.clone(),
+        ),
     );
     let (secret_key, all_xonly_pks) = keys::get_from_file().unwrap();
 
