@@ -1,0 +1,9 @@
+db_file_path = "database"
+num_verifiers = 4
+min_relay_fee = 289
+user_takes_after = 200
+confirmation_treshold = 1
+network = "regtest"
+bitcoin_rpc_url = "http://localhost:18443"
+bitcoin_rpc_user = "admin"
+bitcoin_rpc_password = "admin"
