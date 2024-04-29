@@ -80,8 +80,26 @@ async fn test_flow() {
     println!("Deposit UTXO: {:?}", deposit_utxo);
     rpc.mine_blocks(18).unwrap();
 
-    let output= operator_client
+    let output = operator_client
         .new_deposit_rpc(deposit_utxo, xonly_pk, evm_address)
         .await
         .unwrap();
+
+    println!("Output: {:?}", output);
+
+    let op_res = operator_handler.is_stopped();
+    let ver_res = results
+        .iter()
+        .all(|(_, verifier_handler)| verifier_handler.is_stopped());
+    assert!(!(op_res || ver_res));
+    let op_res = operator_handler.stop().unwrap();
+    let mut ver_res = Vec::new();
+    for (_, verifier_handler) in results {
+        ver_res.push(verifier_handler.stop().unwrap());
+    }
+    println!("Operator stopped: {:?}", op_res);
+    for (i, res) in ver_res.iter().enumerate() {
+        println!("Verifier {} stopped: {:?}", i, res);
+    }
+    println!("All servers stopped");
 }

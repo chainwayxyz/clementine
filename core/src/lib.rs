@@ -3,7 +3,10 @@ use std::sync::Arc;
 use bitcoin::{OutPoint, Txid};
 use clementine_circuits::{HashType, PreimageType};
 use errors::BridgeError;
-use jsonrpsee::{http_client::{HttpClient, HttpClientBuilder}, server::{Server, ServerHandle}};
+use jsonrpsee::{
+    http_client::{HttpClient, HttpClientBuilder},
+    server::{Server, ServerHandle},
+};
 use operator::Operator;
 use serde::{Deserialize, Serialize};
 use traits::rpc::OperatorRpcServer;
@@ -84,7 +87,6 @@ pub async fn create_operator_server(
     };
     let (secret_key, all_xonly_pks) = keys::read_file(keys_file.to_string())?;
 
-
     let mut verifiers: Vec<Arc<HttpClient>> = Vec::new();
     for i in 0..verifier_endpoints.len() {
         let verifier = HttpClientBuilder::default()
@@ -92,7 +94,6 @@ pub async fn create_operator_server(
             .unwrap();
         verifiers.push(verifier.into());
     }
-
 
     let operator = Operator::new(
         rpc.clone(),
