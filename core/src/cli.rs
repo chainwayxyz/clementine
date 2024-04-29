@@ -15,6 +15,7 @@ use clap::Parser;
 use std::env;
 use std::ffi::OsString;
 use std::path::PathBuf;
+use std::process::exit;
 
 /// Clementine (C) 2024 Chainway Limited
 #[derive(Parser, Debug, Clone)]
@@ -43,14 +44,24 @@ where
 }
 
 /// Parses cli arguments, reads configuration file, parses it and generates a
-/// `BridgeConfig`.
-pub fn get_configuration() -> Result<BridgeConfig, BridgeError> {
+/// `BridgeConfig`. Warning: Prints help + error messages and kills process on
+/// error.
+pub fn get_configuration() -> BridgeConfig {
     let args = match parse() {
         Ok(c) => c,
-        Err(e) => return Err(BridgeError::ConfigError(e.to_string())),
+        Err(e) => {
+            eprintln!("{}", e.to_string());
+            exit(1);
+        }
     };
 
-    get_configuration_from(args)
+    match get_configuration_from(args) {
+        Ok(c) => c,
+        Err(e) => {
+            eprintln!("{}", e.to_string());
+            exit(1);
+        }
+    }
 }
 
 /// Reads configuration file, parses it and generates a `BridgeConfig` from
