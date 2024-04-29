@@ -56,7 +56,7 @@ async fn main() {
     let operator_config = "./configs/keys4.json";
     let (operator_socket_addr, operator_handle) = create_operator_server(
         verifier_endpoints,
-        Some(3000),
+        None,
         Some(operator_config.to_string()),
     )
     .await
