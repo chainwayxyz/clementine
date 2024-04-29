@@ -1,9 +1,8 @@
 use bitcoin::{Address, OutPoint};
 use bitcoincore_rpc::Auth;
-use clementine_core::config::BridgeConfig;
 use clementine_core::traits::verifier::VerifierConnector;
+use clementine_core::{cli, keys, EVMAddress};
 use clementine_core::{extended_rpc::ExtendedRpc, verifier::Verifier};
-use clementine_core::{keys, EVMAddress};
 use jsonrpsee::{server::Server, RpcModule};
 use secp256k1::XOnlyPublicKey;
 use serde::Deserialize;
@@ -33,7 +32,7 @@ async fn main() {
 
     for (port, keys_file) in configs {
         let handle = tokio::spawn(async move {
-            let config = BridgeConfig::new();
+            let config = cli::get_configuration();
             let rpc = ExtendedRpc::new(
                 config.bitcoin_rpc_url.clone(),
                 Auth::UserPass(
