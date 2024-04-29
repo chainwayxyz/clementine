@@ -3,6 +3,8 @@
 //! This module defines configuration options. This information can be passed to
 //! other parts of the program.
 //!
+//! This module doesn't depend on `cli` module. Therefore, it can be used as is.
+//!
 //! ## Configuration File
 //!
 //! Configuration options can be read from a TOML file. This file don't accept
@@ -19,6 +21,17 @@
 //! bitcoin_rpc_user = "admin"
 //! bitcoin_rpc_password = "admin"
 //! ```
+//!
+//! WARNING! This is not acceptable:
+//!
+//! ```toml
+//! [database]
+//! db_file_path = "database"
+//!
+//! num_verifiers = 4
+//! min_relay_fee = 289
+//! user_takes_after = 200
+//! ```
 
 use crate::errors::BridgeError;
 use bitcoin::Network;
@@ -26,6 +39,7 @@ use serde::{Deserialize, Serialize};
 use std::{fs::File, io::Read, path::PathBuf};
 
 /// This struct can be used to pass information to other parts of the program.
+/// There are multiple constructers for this struct. Use the one appropriate.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct BridgeConfig {
     /// File path for the mock database.
@@ -49,6 +63,7 @@ pub struct BridgeConfig {
 }
 
 impl BridgeConfig {
+    /// Create a `BridgeConfig` with default values.
     pub fn new() -> Self {
         BridgeConfig {
             ..Default::default()
@@ -109,8 +124,8 @@ mod tests {
 
     /// This needs a prefix for every test function, because of the async nature
     /// of the tests. I am not going to implement a mutex solution. Just do:
-    /// let filename = "someprefix".to_string() + TESTFILE;
-    pub const TESTFILE: &str = "test.toml";
+    /// let file_name = "someprefix".to_string() + TEST_FILE;
+    pub const TEST_FILE: &str = "test.toml";
 
     #[test]
     fn parse_from_string() {
@@ -138,12 +153,12 @@ mod tests {
 
     #[test]
     fn parse_from_file() {
-        let filename = "1".to_string() + TESTFILE;
+        let file_name = "1".to_string() + TEST_FILE;
         let content = "brokenfilecontent";
-        let mut file = File::create(filename.clone()).unwrap();
+        let mut file = File::create(file_name.clone()).unwrap();
         file.write_all(content.as_bytes()).unwrap();
 
-        match BridgeConfig::try_parse_file(filename.clone().into()) {
+        match BridgeConfig::try_parse_file(file_name.clone().into()) {
             Ok(_) => {
                 assert!(false);
             }
@@ -162,10 +177,10 @@ mod tests {
         bitcoin_rpc_url = \"http://localhost:18443\"
         bitcoin_rpc_user = \"admin\"
         bitcoin_rpc_password = \"admin\"";
-        let mut file = File::create(filename.clone()).unwrap();
+        let mut file = File::create(file_name.clone()).unwrap();
         file.write_all(content.as_bytes()).unwrap();
 
-        match BridgeConfig::try_parse_file(filename.clone().into()) {
+        match BridgeConfig::try_parse_file(file_name.clone().into()) {
             Ok(c) => {
                 println!("{:#?}", c);
                 assert!(true);
@@ -175,13 +190,13 @@ mod tests {
             }
         };
 
-        fs::remove_file(filename.clone()).unwrap();
+        fs::remove_file(file_name.clone()).unwrap();
     }
 
     #[test]
     /// Currently, no support for headers.
     fn parse_from_file_with_headers() {
-        let filename = "2".to_string() + TESTFILE;
+        let file_name = "2".to_string() + TEST_FILE;
         let content = "[header1]
         db_file_path = \"database\"
         num_verifiers = 4
@@ -194,10 +209,10 @@ mod tests {
         bitcoin_rpc_url = \"http://localhost:18443\"
         bitcoin_rpc_user = \"admin\"
         bitcoin_rpc_password = \"admin\"\n";
-        let mut file = File::create(filename.clone()).unwrap();
+        let mut file = File::create(file_name.clone()).unwrap();
         file.write_all(content.as_bytes()).unwrap();
 
-        match BridgeConfig::try_parse_file(filename.clone().into()) {
+        match BridgeConfig::try_parse_file(file_name.clone().into()) {
             Ok(c) => {
                 println!("{:#?}", c);
                 assert!(false);
@@ -208,6 +223,6 @@ mod tests {
             }
         };
 
-        fs::remove_file(filename).unwrap();
+        fs::remove_file(file_name).unwrap();
     }
 }
