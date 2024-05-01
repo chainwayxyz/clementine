@@ -105,7 +105,10 @@ pub async fn create_operator_server(
     .unwrap();
 
     let server = Server::builder()
-        .build(format!("127.0.0.1:{}", port.or_else(|| Some(0)).unwrap()))
+        .build(format!(
+            "127.0.0.1:{}",
+            port.or_else(|| Some(config.operator_port)).unwrap()
+        ))
         .await?;
 
     let addr = server.local_addr()?;
