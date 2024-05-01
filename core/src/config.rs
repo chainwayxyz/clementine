@@ -15,7 +15,9 @@ pub struct BridgeConfig {
     pub network: Network,
     pub bitcoin_rpc_url: String,
     pub bitcoin_rpc_auth: Auth,
+    pub operator_ip: String,
     pub operator_port: u16,
+    pub verifier_ip: String,
 }
 
 impl BridgeConfig {
@@ -77,12 +79,20 @@ impl BridgeConfig {
         })?;
         let bitcoin_rpc_auth = Auth::UserPass(bitcoin_rpc_user, bitcoin_rpc_password);
 
+        let operator_ip = env::var("OPERATOR_IP").map_err(|_| {
+            BridgeError::ConfigError("OPERATOR_IP environment variable not set".to_string())
+        })?;
+
         let operator_port = env::var("OPERATOR_PORT")
             .map_err(|_| {
                 BridgeError::ConfigError("OPERATOR_PORT environment variable not set".to_string())
             })?
             .parse::<u16>()
             .unwrap();
+
+        let verifier_ip = env::var("VERIFIER_IP").map_err(|_| {
+            BridgeError::ConfigError("VERIFIER_IP environment variable not set".to_string())
+        })?;
 
         Ok(Self {
             db_file_path,
@@ -93,7 +103,9 @@ impl BridgeConfig {
             network,
             bitcoin_rpc_url,
             bitcoin_rpc_auth,
+            operator_ip,
             operator_port,
+            verifier_ip,
         })
     }
 
@@ -107,7 +119,9 @@ impl BridgeConfig {
             network: Network::Regtest,
             bitcoin_rpc_url: "http://localhost:18443".to_string(),
             bitcoin_rpc_auth: Auth::UserPass("admin".to_string(), "admin".to_string()),
+            operator_ip: "127.0.0.1".to_string(),
             operator_port: 3030,
+            verifier_ip: "127.0.0.1".to_string(),
         }
     }
 }

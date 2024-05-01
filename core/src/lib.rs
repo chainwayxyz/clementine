@@ -47,6 +47,7 @@ pub struct EVMAddress(#[serde(with = "hex::serde")] pub [u8; 20]);
 pub type WithdrawalPayment = (Txid, HashType);
 
 pub async fn create_verifier_server(
+    ip: Option<String>,
     port: Option<u16>,
     keys_file: Option<String>,
 ) -> Result<(std::net::SocketAddr, ServerHandle), BridgeError> {
@@ -63,7 +64,11 @@ pub async fn create_verifier_server(
     let verifier = Verifier::new(rpc, all_xonly_pks, secret_key, config.clone())?;
 
     let server = Server::builder()
-        .build(format!("127.0.0.1:{}", port.or_else(|| Some(0)).unwrap()))
+        .build(format!(
+            "{}:{}",
+            ip.or_else(|| Some("127.0.0.1".to_string())).unwrap(),
+            port.or_else(|| Some(0)).unwrap()
+        ))
         .await?;
 
     let addr = server.local_addr()?;
@@ -73,6 +78,7 @@ pub async fn create_verifier_server(
 
 pub async fn create_operator_server(
     verifier_endpoints: Vec<String>,
+    ip: Option<String>,
     port: Option<u16>,
     keys_file: Option<String>,
 ) -> Result<(std::net::SocketAddr, ServerHandle), BridgeError> {
@@ -106,7 +112,8 @@ pub async fn create_operator_server(
 
     let server = Server::builder()
         .build(format!(
-            "127.0.0.1:{}",
+            "{}:{}",
+            ip.or_else(|| Some(config.operator_ip)).unwrap(),
             port.or_else(|| Some(config.operator_port)).unwrap()
         ))
         .await?;
@@ -129,7 +136,7 @@ pub async fn start_operator_and_verifiers() -> (
     ];
     let futures = verifier_configs
         .iter()
-        .map(|config| create_verifier_server(None, Some(config.to_string())))
+        .map(|config| create_verifier_server(None, None, Some(config.to_string())))
         .collect::<Vec<_>>();
 
     // Use `futures::future::try_join_all` to run all futures concurrently and wait for all to complete
@@ -140,10 +147,14 @@ pub async fn start_operator_and_verifiers() -> (
         .collect::<Vec<_>>();
 
     let operator_config = "./configs/keys4.json";
-    let (operator_socket_addr, operator_handle) =
-        create_operator_server(verifier_endpoints, None, Some(operator_config.to_string()))
-            .await
-            .unwrap();
+    let (operator_socket_addr, operator_handle) = create_operator_server(
+        verifier_endpoints,
+        None,
+        None,
+        Some(operator_config.to_string()),
+    )
+    .await
+    .unwrap();
 
     let operator_client = HttpClientBuilder::default()
         .build(&format!(

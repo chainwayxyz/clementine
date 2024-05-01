@@ -22,7 +22,7 @@ pub async fn start_operator_and_verifiers() -> (
     ];
     let futures = verifier_configs
         .iter()
-        .map(|config| create_verifier_server(None, Some(config.to_string())))
+        .map(|config| create_verifier_server(None, None, Some(config.to_string())))
         .collect::<Vec<_>>();
 
     // Use `futures::future::try_join_all` to run all futures concurrently and wait for all to complete
@@ -33,10 +33,14 @@ pub async fn start_operator_and_verifiers() -> (
         .collect::<Vec<_>>();
 
     let operator_config = "./configs/keys4.json";
-    let (operator_socket_addr, operator_handle) =
-        create_operator_server(verifier_endpoints, None, Some(operator_config.to_string()))
-            .await
-            .unwrap();
+    let (operator_socket_addr, operator_handle) = create_operator_server(
+        verifier_endpoints,
+        None,
+        None,
+        Some(operator_config.to_string()),
+    )
+    .await
+    .unwrap();
 
     let operator_client = HttpClientBuilder::default()
         .build(&format!(
