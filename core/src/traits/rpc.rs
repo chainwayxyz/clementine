@@ -28,4 +28,10 @@ pub trait OperatorRpc {
         return_address: XOnlyPublicKey,
         evm_address: EVMAddress,
     ) -> Result<Txid, BridgeError>;
+
+    #[method(name = "new_withdrawal")]
+    async fn new_withdrawal_rpc(
+        &self,
+        withdrawal_address: Address<NetworkUnchecked>,
+    ) -> Result<Txid, BridgeError>;
 }

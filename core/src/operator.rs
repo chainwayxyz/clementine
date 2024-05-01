@@ -6,16 +6,17 @@ use crate::constants::{
     MAX_BITVM_CHALLENGE_RESPONSE_BLOCKS, PERIOD_BLOCK_COUNT,
 };
 use crate::db::operator::OperatorMockDB;
-use crate::errors::BridgeError;
+use crate::errors::{BridgeError, InvalidPeriodError};
 use crate::extended_rpc::ExtendedRpc;
 use crate::traits::rpc::{OperatorRpcServer, VerifierRpcClient};
 // use crate::traits::verifier::VerifierConnector;
 use crate::transaction_builder::TransactionBuilder;
 use crate::utils::{check_deposit_utxo, handle_taproot_witness_new};
-use crate::EVMAddress;
+use crate::{EVMAddress, WithdrawalPayment};
+use bitcoin::address::{NetworkChecked, NetworkUnchecked};
 use bitcoin::{secp256k1, secp256k1::schnorr};
-use bitcoin::{OutPoint, Txid};
-use clementine_circuits::constants::BRIDGE_AMOUNT_SATS;
+use bitcoin::{Address, OutPoint, Txid};
+use clementine_circuits::constants::{BRIDGE_AMOUNT_SATS, MAX_BLOCK_HANDLE_OPS};
 use futures::stream::FuturesOrdered;
 use futures::TryStreamExt;
 use jsonrpsee::core::async_trait;
@@ -97,6 +98,15 @@ impl OperatorRpcServer for Operator {
             .new_deposit(start_utxo, &return_address, &evm_address)
             .await?;
         Ok(move_utxo.txid)
+    }
+    async fn new_withdrawal_rpc(
+        &self,
+        withdrawal_address: Address<NetworkUnchecked>,
+    ) -> Result<Txid, BridgeError> {
+        let withdraw_txid = self
+            .new_withdrawal(withdrawal_address.assume_checked())
+            .await?;
+        Ok(withdraw_txid)
     }
 }
 
@@ -278,7 +288,6 @@ impl Operator {
         Ok(move_utxo)
     }
 
-    #[cfg(feature = "mainnet")]
     /// Returns the current withdrawal
     fn get_current_withdrawal_period(&self) -> Result<usize, BridgeError> {
         let cur_block_height = self.rpc.get_block_count().unwrap();
@@ -328,12 +337,11 @@ impl Operator {
         ))
     }
 
-    #[cfg(feature = "mainnet")]
     // this is called when a Withdrawal event emitted on rollup and its corresponding batch proof is finalized
-    pub fn new_withdrawal(
-        &mut self,
+    pub async fn new_withdrawal(
+        &self,
         withdrawal_address: Address<NetworkChecked>,
-    ) -> Result<(), BridgeError> {
+    ) -> Result<Txid, BridgeError> {
         let taproot_script = withdrawal_address.script_pubkey();
         // we are assuming that the withdrawal_address is a taproot address so we get the last 32 bytes
         let hash: [u8; 34] = taproot_script.as_bytes().try_into()?;
@@ -354,12 +362,13 @@ impl Operator {
         //     "operator paid to withdrawal address: {:?}, txid: {:?}",
         //     withdrawal_address, txid
         // );
-        let current_withdrawal_period = self.get_current_withdrawal_period()?;
+        // let current_withdrawal_period = self.get_current_withdrawal_period()?;
+        let current_withdrawal_period = 0; // TODO: CHANGE THIS LATER TO THE ABOVE LINE
         self.operator_db_connector.add_to_withdrawals_payment_txids(
             current_withdrawal_period,
             (txid, hash) as WithdrawalPayment,
         );
-        Ok(())
+        Ok(txid)
     }
 
     #[cfg(feature = "mainnet")]

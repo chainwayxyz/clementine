@@ -1,3 +1,4 @@
+use bitcoin::Address;
 use clementine_circuits::constants::BRIDGE_AMOUNT_SATS;
 use clementine_core::config::BridgeConfig;
 use clementine_core::extended_rpc::ExtendedRpc;
@@ -50,6 +51,14 @@ async fn test_flow() {
             .unwrap();
         println!("Output: {:?}", output);
     }
+
+    let withdrawal_address = Address::p2tr(&secp, xonly_pk, None, config.network);
+
+    let withdraw_txid = operator_client
+        .new_withdrawal_rpc(withdrawal_address.as_unchecked().clone())
+        .await
+        .unwrap();
+    println!("Withdrawal TXID: {:?}", withdraw_txid);
 
     let op_res = operator_handler.is_stopped();
     let ver_res = results
