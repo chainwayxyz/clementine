@@ -26,6 +26,7 @@ lazy_static! {
 }
 
 // pub type CreateTxOutputs = (bitcoin::Transaction, Vec<TxOut>, Vec<ScriptBuf>);
+#[derive(Debug, Clone)]
 pub struct CreateTxOutputs {
     pub tx: bitcoin::Transaction,
     pub prevouts: Vec<TxOut>,
@@ -128,6 +129,35 @@ impl TransactionBuilder {
             prevouts,
             scripts: deposit_script,
             taproot_spend_infos: vec![deposit_taproot_spend_info],
+        })
+    }
+
+    pub fn create_withdraw_tx(
+        &self,
+        deposit_utxo: OutPoint,
+        deposit_txout: TxOut,
+        withdraw_address: &Address,
+    ) -> Result<CreateTxOutputs, BridgeError> {
+        let anyone_can_spend_txout = ScriptBuilder::anyone_can_spend_txout();
+
+        let (bridge_address, bridge_spend_info) = self.generate_bridge_address()?;
+
+        let tx_ins = TransactionBuilder::create_tx_ins(vec![deposit_utxo]);
+        let bridge_txout = TxOut {
+            value: deposit_txout.value
+                - Amount::from_sat(self.config.min_relay_fee)
+                - anyone_can_spend_txout.value,
+            script_pubkey: bridge_address.script_pubkey(),
+        };
+        let move_tx =
+            TransactionBuilder::create_btc_tx(tx_ins, vec![bridge_txout, anyone_can_spend_txout]);
+        let prevouts = vec![deposit_txout];
+        let bridge_spend_script = vec![self.script_builder.generate_script_n_of_n()];
+        Ok(CreateTxOutputs {
+            tx: move_tx,
+            prevouts,
+            scripts: bridge_spend_script,
+            taproot_spend_infos: vec![bridge_spend_info],
         })
     }
 

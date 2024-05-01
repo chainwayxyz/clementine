@@ -10,13 +10,14 @@ use crate::transaction_builder::TransactionBuilder;
 use crate::utils::check_deposit_utxo;
 use crate::EVMAddress;
 use crate::{actor::Actor, operator::DepositPresigns};
-use bitcoin::address::NetworkUnchecked;
-use bitcoin::Address;
+use bitcoin::address::{NetworkChecked, NetworkUnchecked};
 use bitcoin::{secp256k1, secp256k1::Secp256k1, OutPoint};
+use bitcoin::{Address, TxOut};
+use clementine_circuits::bridge;
 use clementine_circuits::constants::BRIDGE_AMOUNT_SATS;
 use jsonrpsee::core::async_trait;
-use secp256k1::SecretKey;
 use secp256k1::XOnlyPublicKey;
+use secp256k1::{schnorr, SecretKey};
 
 #[derive(Debug, Clone)]
 pub struct Verifier {
@@ -49,6 +50,16 @@ impl VerifierRpcServer for Verifier {
             &operator_address,
         )
         .await
+    }
+    async fn new_withdrawal_direct_rpc(
+        &self,
+        bridge_utxo: OutPoint,
+        bridge_txout: TxOut,
+        withdrawal_address: Address<NetworkUnchecked>,
+    ) -> Result<schnorr::Signature, BridgeError> {
+        let withdrawal_address = withdrawal_address.require_network(self.config.network)?;
+        self.new_withdrawal_direct(bridge_utxo, bridge_txout, &withdrawal_address)
+            .await
     }
 }
 
@@ -120,6 +131,23 @@ impl Verifier {
             move_sign: move_sig,
             operator_claim_sign: op_claim_sigs,
         })
+    }
+
+    async fn new_withdrawal_direct(
+        &self,
+        bridge_utxo: OutPoint,
+        bridge_txout: TxOut,
+        withdrawal_address: &Address<NetworkChecked>,
+    ) -> Result<schnorr::Signature, BridgeError> {
+        let mut withdrawal_tx = self.transaction_builder.create_withdraw_tx(
+            bridge_utxo,
+            bridge_txout,
+            withdrawal_address,
+        )?;
+        let sig = self
+            .signer
+            .sign_taproot_script_spend_tx_new(&mut withdrawal_tx, 0)?;
+        Ok(sig)
     }
 
     #[cfg(feature = "mainnet")]

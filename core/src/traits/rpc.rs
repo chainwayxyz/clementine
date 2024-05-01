@@ -1,6 +1,6 @@
 use bitcoin::address::NetworkUnchecked;
-use bitcoin::{Address, OutPoint, Txid};
-use secp256k1::XOnlyPublicKey;
+use bitcoin::{Address, OutPoint, TxOut, Txid};
+use secp256k1::{schnorr, XOnlyPublicKey};
 
 use crate::{errors::BridgeError, operator::DepositPresigns, EVMAddress};
 
@@ -17,6 +17,13 @@ pub trait VerifierRpc {
         evm_address: EVMAddress,
         operator_address: Address<NetworkUnchecked>,
     ) -> Result<DepositPresigns, BridgeError>;
+    #[method(name = "new_withdrawal")]
+    async fn new_withdrawal_direct_rpc(
+        &self,
+        deposit_utxo: OutPoint,
+        bridge_txout: TxOut,
+        withdrawal_address: Address<NetworkUnchecked>,
+    ) -> Result<schnorr::Signature, BridgeError>;
 }
 
 #[rpc(client, server, namespace = "operator")]
@@ -30,8 +37,9 @@ pub trait OperatorRpc {
     ) -> Result<Txid, BridgeError>;
 
     #[method(name = "new_withdrawal")]
-    async fn new_withdrawal_rpc(
+    async fn new_withdrawal_direct_rpc(
         &self,
+        idx: usize,
         withdrawal_address: Address<NetworkUnchecked>,
     ) -> Result<Txid, BridgeError>;
 }

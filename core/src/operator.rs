@@ -8,7 +8,7 @@ use crate::constants::{
 use crate::db::operator::OperatorMockDB;
 use crate::errors::{BridgeError, InvalidPeriodError};
 use crate::extended_rpc::ExtendedRpc;
-use crate::traits::rpc::{OperatorRpcServer, VerifierRpcClient};
+use crate::traits::rpc::{self, OperatorRpcServer, VerifierRpcClient};
 // use crate::traits::verifier::VerifierConnector;
 use crate::transaction_builder::TransactionBuilder;
 use crate::utils::{check_deposit_utxo, handle_taproot_witness_new};
@@ -99,12 +99,13 @@ impl OperatorRpcServer for Operator {
             .await?;
         Ok(move_utxo.txid)
     }
-    async fn new_withdrawal_rpc(
+    async fn new_withdrawal_direct_rpc(
         &self,
+        idx: usize,
         withdrawal_address: Address<NetworkUnchecked>,
     ) -> Result<Txid, BridgeError> {
         let withdraw_txid = self
-            .new_withdrawal(withdrawal_address.assume_checked())
+            .new_withdrawal_direct(idx, withdrawal_address.assume_checked())
             .await?;
         Ok(withdraw_txid)
     }
@@ -228,6 +229,9 @@ impl Operator {
             txid: rpc_move_txid,
             vout: 0,
         };
+
+        self.operator_db_connector
+            .add_to_deposit_txs((rpc_move_txid, move_tx.tx.output[0].clone()));
         #[cfg(feature = "mainnet")]
         {
             let operator_claim_sigs = OperatorClaimSigs {
@@ -356,7 +360,7 @@ impl Operator {
         // 2. Pay to the address and save the txid
         let txid = self
             .rpc
-            .send_to_address(&withdrawal_address, 100_000_000)?
+            .send_to_address(&withdrawal_address, BRIDGE_AMOUNT_SATS)?
             .txid;
         // tracing::debug!(
         //     "operator paid to withdrawal address: {:?}, txid: {:?}",
@@ -369,6 +373,52 @@ impl Operator {
             (txid, hash) as WithdrawalPayment,
         );
         Ok(txid)
+    }
+
+    pub async fn new_withdrawal_direct(
+        &self,
+        idx: usize,
+        withdrawal_address: Address<NetworkChecked>,
+    ) -> Result<Txid, BridgeError> {
+        let deposit_tx_info = self.operator_db_connector.get_deposit_tx(idx);
+        let deposit_utxo = OutPoint {
+            txid: deposit_tx_info.0,
+            vout: 0,
+        };
+        let mut withdrawal_tx = self.transaction_builder.create_withdraw_tx(
+            deposit_utxo,
+            deposit_tx_info.1.clone(),
+            &withdrawal_address,
+        )?;
+        let signatures_from_verifiers: Result<Vec<_>, BridgeError> = self
+            .verifier_connector
+            .iter()
+            .map(|verifier| async {
+                let sig = verifier
+                    .new_withdrawal_direct_rpc(
+                        deposit_utxo.clone(),
+                        deposit_tx_info.1.clone(),
+                        withdrawal_address.as_unchecked().clone(),
+                    )
+                    .await?;
+                Ok(sig)
+            })
+            .collect::<FuturesOrdered<_>>()
+            .try_collect()
+            .await;
+        let mut verifier_sigs = signatures_from_verifiers?;
+        let sig = self
+            .signer
+            .sign_taproot_script_spend_tx_new(&mut withdrawal_tx, 0)?;
+        verifier_sigs.push(sig);
+        verifier_sigs.reverse();
+        let mut witness_elements: Vec<&[u8]> = Vec::new();
+        for sig in verifier_sigs.iter() {
+            witness_elements.push(sig.as_ref());
+        }
+        handle_taproot_witness_new(&mut withdrawal_tx, &witness_elements, 0)?;
+        let withdrawal_txid = self.rpc.send_raw_transaction(&withdrawal_tx.tx)?;
+        Ok(withdrawal_txid)
     }
 
     #[cfg(feature = "mainnet")]

@@ -55,7 +55,7 @@ async fn test_flow() {
     let withdrawal_address = Address::p2tr(&secp, xonly_pk, None, config.network);
 
     let withdraw_txid = operator_client
-        .new_withdrawal_rpc(withdrawal_address.as_unchecked().clone())
+        .new_withdrawal_direct_rpc(0, withdrawal_address.as_unchecked().clone())
         .await
         .unwrap();
     println!("Withdrawal TXID: {:?}", withdraw_txid);
