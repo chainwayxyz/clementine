@@ -14,34 +14,42 @@ async fn test_flow() {
     let tx_builder = TransactionBuilder::new(all_xonly_pks.clone(), config.clone());
 
     let (xonly_pk, _) = secret_key.public_key(&secp).x_only_public_key();
-    let evm_address: EVMAddress = EVMAddress([1u8; 20]);
+    let evm_addresses = vec![
+        EVMAddress([1u8; 20]),
+        EVMAddress([2u8; 20]),
+        EVMAddress([3u8; 20]),
+        EVMAddress([4u8; 20]),
+    ];
 
-    let (deposit_address, _) = tx_builder
-        .generate_deposit_address(&xonly_pk, &evm_address, BRIDGE_AMOUNT_SATS)
-        .unwrap();
+    let deposit_addresses = evm_addresses
+        .iter()
+        .map(|evm_address| {
+            tx_builder
+                .generate_deposit_address(&xonly_pk, evm_address, BRIDGE_AMOUNT_SATS)
+                .unwrap()
+                .0
+        })
+        .collect::<Vec<_>>();
 
-    println!("EVM Address: {:?}", hex::encode(evm_address.0));
     println!("User: {:?}", xonly_pk.to_string());
-    println!("Deposit address: {:?}", deposit_address);
 
     let rpc = ExtendedRpc::new(
         config.bitcoin_rpc_url.clone(),
         config.bitcoin_rpc_auth.clone(),
     );
 
-    let deposit_utxo = rpc
-        .send_to_address(&deposit_address, BRIDGE_AMOUNT_SATS)
-        .unwrap();
-
-    println!("Deposit UTXO: {:?}", deposit_utxo);
-    rpc.mine_blocks(18).unwrap();
-
-    let output = operator_client
-        .new_deposit_rpc(deposit_utxo, xonly_pk, evm_address)
-        .await
-        .unwrap();
-
-    println!("Output: {:?}", output);
+    for (idx, deposit_address) in deposit_addresses.iter().enumerate() {
+        let deposit_utxo = rpc
+            .send_to_address(&deposit_address, BRIDGE_AMOUNT_SATS)
+            .unwrap();
+        println!("Deposit UTXO: {:?}", deposit_utxo);
+        rpc.mine_blocks(18).unwrap();
+        let output = operator_client
+            .new_deposit_rpc(deposit_utxo, xonly_pk, evm_addresses[idx])
+            .await
+            .unwrap();
+        println!("Output: {:?}", output);
+    }
 
     let op_res = operator_handler.is_stopped();
     let ver_res = results
