@@ -15,7 +15,7 @@ pub trait VerifierConnector: std::fmt::Debug + Send + Sync {
         operator_address: &Address,
     ) -> Result<DepositPresigns, BridgeError>;
 
-    #[cfg(feature = "mainnet")]
+    #[cfg(feature = "poc")]
     fn connector_roots_created(
         &self,
         connector_tree_hashes: &Vec<Vec<Vec<[u8; 32]>>>,
@@ -24,6 +24,6 @@ pub trait VerifierConnector: std::fmt::Debug + Send + Sync {
         period_relative_block_heights: Vec<u32>,
     ) -> Result<(), BridgeError>;
 
-    #[cfg(feature = "mainnet")]
+    #[cfg(feature = "poc")]
     fn challenge_operator(&self, period: u8) -> Result<VerifierChallenge, BridgeError>;
 }
