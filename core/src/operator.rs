@@ -6,9 +6,9 @@ use crate::constants::{
     MAX_BITVM_CHALLENGE_RESPONSE_BLOCKS, PERIOD_BLOCK_COUNT,
 };
 use crate::db::operator::OperatorMockDB;
-use crate::errors::{BridgeError, InvalidPeriodError};
+use crate::errors::BridgeError;
 use crate::extended_rpc::ExtendedRpc;
-use crate::traits::rpc::{self, OperatorRpcServer, VerifierRpcClient};
+use crate::traits::rpc::{OperatorRpcServer, VerifierRpcClient};
 // use crate::traits::verifier::VerifierConnector;
 use crate::transaction_builder::TransactionBuilder;
 use crate::utils::{check_deposit_utxo, handle_taproot_witness_new};
@@ -16,7 +16,7 @@ use crate::{EVMAddress, WithdrawalPayment};
 use bitcoin::address::{NetworkChecked, NetworkUnchecked};
 use bitcoin::{secp256k1, secp256k1::schnorr};
 use bitcoin::{Address, OutPoint, Txid};
-use clementine_circuits::constants::{BRIDGE_AMOUNT_SATS, MAX_BLOCK_HANDLE_OPS};
+use clementine_circuits::constants::BRIDGE_AMOUNT_SATS;
 use futures::stream::FuturesOrdered;
 use futures::TryStreamExt;
 use jsonrpsee::core::async_trait;
@@ -222,8 +222,8 @@ impl Operator {
         }
 
         handle_taproot_witness_new(&mut move_tx, &witness_elements, 0)?;
-        // tracing::debug!("move_tx: {:?}", move_tx.tx);
-        // tracing::debug!("move_tx.tx size: {:?}", move_tx.tx.weight());
+        tracing::debug!("move_tx: {:?}", move_tx.tx);
+        tracing::debug!("move_tx.tx size: {:?}", move_tx.tx.weight());
         let rpc_move_txid = self.rpc.send_raw_transaction(&move_tx.tx)?;
         let move_utxo = OutPoint {
             txid: rpc_move_txid,
@@ -292,6 +292,7 @@ impl Operator {
         Ok(move_utxo)
     }
 
+    #[cfg(feature = "mainnet")]
     /// Returns the current withdrawal
     fn get_current_withdrawal_period(&self) -> Result<usize, BridgeError> {
         let cur_block_height = self.rpc.get_block_count().unwrap();

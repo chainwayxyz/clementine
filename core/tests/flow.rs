@@ -1,20 +1,28 @@
 use bitcoin::Address;
+use bitcoincore_rpc::Auth;
 use clementine_circuits::constants::BRIDGE_AMOUNT_SATS;
 use clementine_core::config::BridgeConfig;
 use clementine_core::extended_rpc::ExtendedRpc;
 use clementine_core::traits::rpc::OperatorRpcClient;
 use clementine_core::transaction_builder::TransactionBuilder;
-use clementine_core::{keys, start_operator_and_verifiers, EVMAddress};
+use clementine_core::{start_operator_and_verifiers, EVMAddress};
 
 #[tokio::test]
 async fn test_flow() {
-    let (operator_client, operator_handler, results) = start_operator_and_verifiers().await;
-    let secp = bitcoin::secp256k1::Secp256k1::new();
-    let config = BridgeConfig::new().unwrap();
-    let (secret_key, all_xonly_pks) = keys::get_from_file().unwrap();
-    let tx_builder = TransactionBuilder::new(all_xonly_pks.clone(), config.clone());
+    let base_path = env!("CARGO_MANIFEST_DIR");
+    let config_path = format!("{}/tests/data/test_config_1.toml", base_path);
+    let config = BridgeConfig::try_parse_file(config_path.into()).unwrap();
 
-    let (xonly_pk, _) = secret_key.public_key(&secp).x_only_public_key();
+    tracing::debug!("Config: {:?}", config);
+    tracing::debug!("Verifiers public keys: {:?}", config.verifiers_public_keys);
+
+    let (operator_client, operator_handler, results) =
+        start_operator_and_verifiers(config.clone()).await;
+    let secp = bitcoin::secp256k1::Secp256k1::new();
+    let (xonly_pk, _) = config.secret_key.public_key(&secp).x_only_public_key();
+    tracing::debug!("Verifiers public keys: {:?}", config.verifiers_public_keys);
+    let tx_builder = TransactionBuilder::new(config.verifiers_public_keys.clone(), config.clone());
+
     let evm_addresses = vec![
         EVMAddress([1u8; 20]),
         EVMAddress([2u8; 20]),
@@ -34,9 +42,19 @@ async fn test_flow() {
 
     println!("User: {:?}", xonly_pk.to_string());
 
+    tracing::debug!(
+        "Config: {:?} {:?} {:?}",
+        config.bitcoin_rpc_url,
+        config.bitcoin_rpc_user,
+        config.bitcoin_rpc_password
+    );
+
     let rpc = ExtendedRpc::new(
         config.bitcoin_rpc_url.clone(),
-        config.bitcoin_rpc_auth.clone(),
+        Auth::UserPass(
+            config.bitcoin_rpc_user.clone(),
+            config.bitcoin_rpc_password.clone(),
+        ),
     );
 
     for (idx, deposit_address) in deposit_addresses.iter().enumerate() {

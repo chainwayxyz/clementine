@@ -136,7 +136,7 @@ impl TransactionBuilder {
         &self,
         deposit_utxo: OutPoint,
         deposit_txout: TxOut,
-        withdraw_address: &Address,
+        _withdraw_address: &Address,
     ) -> Result<CreateTxOutputs, BridgeError> {
         let anyone_can_spend_txout = ScriptBuilder::anyone_can_spend_txout();
 

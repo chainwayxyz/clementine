@@ -1,6 +1,7 @@
 use std::sync::Arc;
 
 use bitcoin::{OutPoint, Txid};
+use bitcoincore_rpc::Auth;
 use clementine_circuits::{HashType, PreimageType};
 use errors::BridgeError;
 use jsonrpsee::{
@@ -47,28 +48,25 @@ pub struct EVMAddress(#[serde(with = "hex::serde")] pub [u8; 20]);
 pub type WithdrawalPayment = (Txid, HashType);
 
 pub async fn create_verifier_server(
-    ip: Option<String>,
-    port: Option<u16>,
-    keys_file: Option<String>,
+    config: BridgeConfig,
 ) -> Result<(std::net::SocketAddr, ServerHandle), BridgeError> {
-    let config = BridgeConfig::new()?;
+    tracing::debug!("Creating verifier server with config: {:?}", config);
     let rpc = ExtendedRpc::new(
         config.bitcoin_rpc_url.clone(),
-        config.bitcoin_rpc_auth.clone(),
+        Auth::UserPass(
+            config.bitcoin_rpc_user.clone(),
+            config.bitcoin_rpc_password.clone(),
+        ),
     );
-    let keys_file = match keys_file {
-        Some(file) => file,
-        None => panic!("keys file is required"), // TODO: Take this from config
-    };
-    let (secret_key, all_xonly_pks) = keys::read_file(keys_file.to_string())?;
-    let verifier = Verifier::new(rpc, all_xonly_pks, secret_key, config.clone())?;
+    let verifier = Verifier::new(
+        rpc,
+        config.verifiers_public_keys.clone(),
+        config.secret_key.clone(),
+        config.clone(),
+    )?;
 
     let server = Server::builder()
-        .build(format!(
-            "{}:{}",
-            ip.or_else(|| Some("127.0.0.1".to_string())).unwrap(),
-            port.or_else(|| Some(0)).unwrap()
-        ))
+        .build(format!("{}:{}", config.host, config.port))
         .await?;
 
     let addr = server.local_addr()?;
@@ -77,23 +75,19 @@ pub async fn create_verifier_server(
 }
 
 pub async fn create_operator_server(
+    config: BridgeConfig,
     verifier_endpoints: Vec<String>,
-    ip: Option<String>,
-    port: Option<u16>,
-    keys_file: Option<String>,
 ) -> Result<(std::net::SocketAddr, ServerHandle), BridgeError> {
-    let config = BridgeConfig::new()?;
     let rpc = ExtendedRpc::new(
         config.bitcoin_rpc_url.clone(),
-        config.bitcoin_rpc_auth.clone(),
+        Auth::UserPass(
+            config.bitcoin_rpc_user.clone(),
+            config.bitcoin_rpc_password.clone(),
+        ),
     );
-    let keys_file = match keys_file {
-        Some(file) => file,
-        None => panic!("keys file is required"), // TODO: Take this from config
-    };
-    let (secret_key, all_xonly_pks) = keys::read_file(keys_file.to_string())?;
-
     let mut verifiers: Vec<Arc<HttpClient>> = Vec::new();
+    tracing::debug!("Verifiers: {:?}", verifier_endpoints);
+
     for i in 0..verifier_endpoints.len() {
         let verifier = HttpClientBuilder::default()
             .build(&verifier_endpoints[i])
@@ -103,19 +97,15 @@ pub async fn create_operator_server(
 
     let operator = Operator::new(
         rpc.clone(),
-        all_xonly_pks.clone(),
-        secret_key,
+        config.verifiers_public_keys.clone(),
+        config.secret_key.clone(),
         verifiers,
         config.clone(),
     )
     .unwrap();
 
     let server = Server::builder()
-        .build(format!(
-            "{}:{}",
-            ip.or_else(|| Some(config.operator_ip)).unwrap(),
-            port.or_else(|| Some(config.operator_port)).unwrap()
-        ))
+        .build(format!("{}:{}", config.host, config.port))
         .await?;
 
     let addr = server.local_addr()?;
@@ -123,20 +113,37 @@ pub async fn create_operator_server(
     Ok((addr, handle))
 }
 
-pub async fn start_operator_and_verifiers() -> (
+pub async fn start_operator_and_verifiers(
+    config: BridgeConfig,
+) -> (
     HttpClient,
     ServerHandle,
     Vec<(std::net::SocketAddr, ServerHandle)>,
 ) {
-    let verifier_configs = vec![
-        "./configs/keys0.json",
-        "./configs/keys1.json",
-        "./configs/keys2.json",
-        "./configs/keys3.json",
-    ];
-    let futures = verifier_configs
+    let all_secret_keys = config.all_secret_keys.clone().unwrap_or_else(|| {
+        panic!("All secret keys are required for testing");
+    });
+
+    let verifiers_public_keys = all_secret_keys
         .iter()
-        .map(|config| create_verifier_server(None, None, Some(config.to_string())))
+        .map(|secret_key| {
+            let secp = bitcoin::secp256k1::Secp256k1::new();
+            let (xonly_pk, _) = secret_key.public_key(&secp).x_only_public_key();
+            xonly_pk
+        })
+        .collect::<Vec<_>>();
+
+    let futures = all_secret_keys
+        .iter()
+        .enumerate() // This adds the index to the iterator
+        .map(|(i, sk)| {
+            create_verifier_server(BridgeConfig {
+                verifiers_public_keys: verifiers_public_keys.clone(),
+                secret_key: *sk,
+                port: config.port + i as u16 + 1, // Use the index to calculate the port
+                ..config.clone()
+            })
+        })
         .collect::<Vec<_>>();
 
     // Use `futures::future::try_join_all` to run all futures concurrently and wait for all to complete
@@ -146,15 +153,10 @@ pub async fn start_operator_and_verifiers() -> (
         .map(|(socket_addr, _)| format!("http://{}:{}/", socket_addr.ip(), socket_addr.port()))
         .collect::<Vec<_>>();
 
-    let operator_config = "./configs/keys4.json";
-    let (operator_socket_addr, operator_handle) = create_operator_server(
-        verifier_endpoints,
-        None,
-        None,
-        Some(operator_config.to_string()),
-    )
-    .await
-    .unwrap();
+    let (operator_socket_addr, operator_handle) =
+        create_operator_server(config, verifier_endpoints)
+            .await
+            .unwrap();
 
     let operator_client = HttpClientBuilder::default()
         .build(&format!(

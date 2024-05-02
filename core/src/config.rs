@@ -75,6 +75,8 @@ pub struct BridgeConfig {
     pub bitcoin_rpc_user: String,
     /// Bitcoin RPC user password.
     pub bitcoin_rpc_password: String,
+    /// All Secret keys just for testing purposes
+    pub all_secret_keys: Option<Vec<SecretKey>>,
 }
 
 impl BridgeConfig {
@@ -140,6 +142,7 @@ impl Default for BridgeConfig {
             bitcoin_rpc_url: "http://localhost:18443".to_string(),
             bitcoin_rpc_user: "admin".to_string(),
             bitcoin_rpc_password: "admin".to_string(),
+            all_secret_keys: None,
         }
     }
 }

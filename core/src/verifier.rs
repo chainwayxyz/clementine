@@ -13,7 +13,6 @@ use crate::{actor::Actor, operator::DepositPresigns};
 use bitcoin::address::{NetworkChecked, NetworkUnchecked};
 use bitcoin::{secp256k1, secp256k1::Secp256k1, OutPoint};
 use bitcoin::{Address, TxOut};
-use clementine_circuits::bridge;
 use clementine_circuits::constants::BRIDGE_AMOUNT_SATS;
 use jsonrpsee::core::async_trait;
 use secp256k1::XOnlyPublicKey;
