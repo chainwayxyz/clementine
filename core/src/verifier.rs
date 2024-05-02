@@ -1,5 +1,5 @@
 use crate::config::BridgeConfig;
-#[cfg(feature = "mainnet")]
+#[cfg(feature = "poc")]
 use crate::constants::CONNECTOR_TREE_DEPTH;
 use crate::db::verifier::VerifierMockDB;
 use crate::errors::BridgeError;
@@ -102,7 +102,7 @@ impl Verifier {
 
         let op_claim_sigs = Vec::new();
 
-        #[cfg(feature = "mainnet")]
+        #[cfg(feature = "poc")]
         {
             for i in 0..NUM_ROUNDS {
                 let connector_utxo = self.verifier_db_connector.get_connector_tree_utxo(i)
@@ -150,7 +150,7 @@ impl Verifier {
         Ok(sig)
     }
 
-    #[cfg(feature = "mainnet")]
+    #[cfg(feature = "poc")]
     /// TODO: Add verification for the connector tree hashes
     fn connector_roots_created(
         &self,
@@ -181,7 +181,7 @@ impl Verifier {
         Ok(())
     }
 
-    #[cfg(feature = "mainnet")]
+    #[cfg(feature = "poc")]
     /// Challenges the operator for current period for now
     /// Will return the blockhash, total work, and period
     fn challenge_operator(&self, period: u8) -> Result<VerifierChallenge, BridgeError> {
@@ -291,7 +291,7 @@ impl Verifier {
 //         Ok(deposit_presigns)
 //     }
 
-//     #[cfg(feature = "mainnet")]
+//     #[cfg(feature = "poc")]
 //     fn connector_roots_created(
 //         &self,
 //         _connector_tree_hashes: &Vec<HashTree>,
@@ -302,7 +302,7 @@ impl Verifier {
 //         unimplemented!()
 //     }
 
-//     #[cfg(feature = "mainnet")]
+//     #[cfg(feature = "poc")]
 //     fn challenge_operator(&self, _period: u8) -> Result<VerifierChallenge, BridgeError> {
 //         unimplemented!()
 //     }
