@@ -21,6 +21,22 @@ async fn deposit_and_withdraw_flow() {
     )
     .unwrap();
 
+    let rpc = ExtendedRpc::new(
+        config.bitcoin_rpc_url.clone(),
+        Auth::UserPass(
+            config.bitcoin_rpc_user.clone(),
+            config.bitcoin_rpc_password.clone(),
+        ),
+    );
+
+    flow(config, rpc).await;
+
+    // get the tx details from rpc with txid
+    // check wheter it has an output with the withdrawal address
+}
+
+/// Main flow of the test.
+async fn flow(config: BridgeConfig, rpc: ExtendedRpc) {
     let (operator_client, _operator_handler, _results) =
         start_operator_and_verifiers(config.clone()).await;
     let secp = bitcoin::secp256k1::Secp256k1::new();
@@ -44,14 +60,6 @@ async fn deposit_and_withdraw_flow() {
         })
         .collect::<Vec<_>>();
 
-    let rpc = ExtendedRpc::new(
-        config.bitcoin_rpc_url.clone(),
-        Auth::UserPass(
-            config.bitcoin_rpc_user.clone(),
-            config.bitcoin_rpc_password.clone(),
-        ),
-    );
-
     for (idx, deposit_address) in deposit_addresses.iter().enumerate() {
         let deposit_utxo = rpc
             .send_to_address(&deposit_address, BRIDGE_AMOUNT_SATS)
@@ -74,7 +82,4 @@ async fn deposit_and_withdraw_flow() {
         .await
         .unwrap();
     tracing::debug!("Withdrawal TXID: {:?}", withdraw_txid);
-
-    // get the tx details from rpc with txid
-    // check wheter it has an output with the withdrawal address
 }
