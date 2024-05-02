@@ -120,27 +120,20 @@ pub async fn start_operator_and_verifiers(
     ServerHandle,
     Vec<(std::net::SocketAddr, ServerHandle)>,
 ) {
-    let all_secret_keys = config.all_secret_keys.clone().unwrap_or_else(|| {
+    let mut all_secret_keys = config.all_secret_keys.clone().unwrap_or_else(|| {
         panic!("All secret keys are required for testing");
     });
-
-    let verifiers_public_keys = all_secret_keys
-        .iter()
-        .map(|secret_key| {
-            let secp = bitcoin::secp256k1::Secp256k1::new();
-            let (xonly_pk, _) = secret_key.public_key(&secp).x_only_public_key();
-            xonly_pk
-        })
-        .collect::<Vec<_>>();
+    all_secret_keys.pop().unwrap(); // Remove the operator secret key
 
     let futures = all_secret_keys
         .iter()
         .enumerate() // This adds the index to the iterator
         .map(|(i, sk)| {
             create_verifier_server(BridgeConfig {
-                verifiers_public_keys: verifiers_public_keys.clone(),
+                verifiers_public_keys: config.verifiers_public_keys.clone(),
                 secret_key: *sk,
                 port: config.port + i as u16 + 1, // Use the index to calculate the port
+                db_file_path: format!("{}{}", config.db_file_path.clone(), i.to_string()),
                 ..config.clone()
             })
         })
