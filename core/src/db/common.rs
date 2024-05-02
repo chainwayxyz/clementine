@@ -4,6 +4,7 @@
 
 use super::text::TextDatabase;
 use crate::{merkle::MerkleTree, ConnectorUTXOTree, HashTree, InscriptionTxs, WithdrawalPayment};
+use bitcoin::{TxOut, Txid};
 use clementine_circuits::{
     constants::{CLAIM_MERKLE_TREE_DEPTH, WITHDRAWAL_MERKLE_TREE_DEPTH},
     HashType, PreimageType,
@@ -111,6 +112,23 @@ impl Database {
         self.write(content);
     }
 
+    pub fn get_deposit_tx(&self, idx: usize) -> (Txid, TxOut) {
+        let content = self.read();
+        content.deposit_txs[idx].clone()
+    }
+
+    pub fn get_deposit_txs(&self) -> Vec<(Txid, TxOut)> {
+        let content = self.read();
+        content.deposit_txs.clone()
+    }
+
+    pub fn add_to_deposit_txs(&self, deposit_tx: (Txid, TxOut)) {
+        let _guard = self.lock.lock().unwrap();
+        let mut content = self.read();
+        content.deposit_txs.push(deposit_tx);
+        self.write(content);
+    }
+
     pub fn get_withdrawals_merkle_tree_index(&self) -> u32 {
         let content = self.read();
         content.withdrawals_merkle_tree.index
@@ -201,6 +219,7 @@ pub struct DatabaseContent {
     connector_tree_hashes: Vec<HashTree>,
     claim_proof_merkle_trees: Vec<MerkleTree<CLAIM_MERKLE_TREE_DEPTH>>,
     inscription_txs: Vec<InscriptionTxs>,
+    deposit_txs: Vec<(Txid, TxOut)>,
     withdrawals_merkle_tree: MerkleTree<WITHDRAWAL_MERKLE_TREE_DEPTH>,
     withdrawals_payment_txids: Vec<Vec<WithdrawalPayment>>,
     connector_tree_utxos: Vec<ConnectorUTXOTree>,
@@ -214,6 +233,7 @@ impl DatabaseContent {
             withdrawals_merkle_tree: MerkleTree::new(),
             withdrawals_payment_txids: Vec::new(),
             inscription_txs: Vec::new(),
+            deposit_txs: Vec::new(),
             connector_tree_hashes: Vec::new(),
             claim_proof_merkle_trees: Vec::new(),
             connector_tree_utxos: Vec::new(),

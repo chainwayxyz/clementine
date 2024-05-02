@@ -4,20 +4,19 @@ use crate::constants::CONNECTOR_TREE_DEPTH;
 use crate::db::verifier::VerifierMockDB;
 use crate::errors::BridgeError;
 use crate::extended_rpc::ExtendedRpc;
-use crate::traits::verifier::VerifierConnector;
+use crate::traits::rpc::VerifierRpcServer;
+// use crate::traits::verifier::VerifierConnector;
 use crate::transaction_builder::TransactionBuilder;
 use crate::utils::check_deposit_utxo;
 use crate::EVMAddress;
 use crate::{actor::Actor, operator::DepositPresigns};
-use async_trait::async_trait;
-use bitcoin::Address;
+use bitcoin::address::{NetworkChecked, NetworkUnchecked};
 use bitcoin::{secp256k1, secp256k1::Secp256k1, OutPoint};
+use bitcoin::{Address, TxOut};
 use clementine_circuits::constants::BRIDGE_AMOUNT_SATS;
-use jsonrpsee::core::client::ClientT;
-use jsonrpsee::core::params::ObjectParams;
-use jsonrpsee::http_client::{HeaderMap, HttpClient, HttpClientBuilder};
-use secp256k1::SecretKey;
+use jsonrpsee::core::async_trait;
 use secp256k1::XOnlyPublicKey;
+use secp256k1::{schnorr, SecretKey};
 
 #[derive(Debug, Clone)]
 pub struct Verifier {
@@ -32,7 +31,38 @@ pub struct Verifier {
 }
 
 #[async_trait]
-impl VerifierConnector for Verifier {
+impl VerifierRpcServer for Verifier {
+    async fn new_deposit_rpc(
+        &self,
+        start_utxo: OutPoint,
+        return_address: XOnlyPublicKey,
+        deposit_index: u32,
+        evm_address: EVMAddress,
+        operator_address: Address<NetworkUnchecked>,
+    ) -> Result<DepositPresigns, BridgeError> {
+        let operator_address = operator_address.require_network(self.config.network)?;
+        self.new_deposit(
+            start_utxo,
+            &return_address,
+            deposit_index,
+            &evm_address,
+            &operator_address,
+        )
+        .await
+    }
+    async fn new_withdrawal_direct_rpc(
+        &self,
+        bridge_utxo: OutPoint,
+        bridge_txout: TxOut,
+        withdrawal_address: Address<NetworkUnchecked>,
+    ) -> Result<schnorr::Signature, BridgeError> {
+        let withdrawal_address = withdrawal_address.require_network(self.config.network)?;
+        self.new_withdrawal_direct(bridge_utxo, bridge_txout, &withdrawal_address)
+            .await
+    }
+}
+
+impl Verifier {
     /// this is a endpoint that only the operator can call
     /// 1. Check if the deposit utxo is valid and finalized (6 blocks confirmation)
     /// 2. Check if the utxo is not already spent
@@ -65,6 +95,7 @@ impl VerifierConnector for Verifier {
             vout: 0,
         };
 
+        tracing::debug!("Verifier with public key {:?} is signing {:?}.", self.signer.xonly_public_key.to_string(), move_txid);
         let move_sig = self
             .signer
             .sign_taproot_script_spend_tx_new(&mut move_tx, 0)?;
@@ -100,6 +131,23 @@ impl VerifierConnector for Verifier {
             move_sign: move_sig,
             operator_claim_sign: op_claim_sigs,
         })
+    }
+
+    async fn new_withdrawal_direct(
+        &self,
+        bridge_utxo: OutPoint,
+        bridge_txout: TxOut,
+        withdrawal_address: &Address<NetworkChecked>,
+    ) -> Result<schnorr::Signature, BridgeError> {
+        let mut withdrawal_tx = self.transaction_builder.create_withdraw_tx(
+            bridge_utxo,
+            bridge_txout,
+            withdrawal_address,
+        )?;
+        let sig = self
+            .signer
+            .sign_taproot_script_spend_tx_new(&mut withdrawal_tx, 0)?;
+        Ok(sig)
     }
 
     #[cfg(feature = "mainnet")]
@@ -189,73 +237,73 @@ impl Verifier {
     }
 }
 
-#[derive(Debug, Clone)]
-pub struct VerifierClient {
-    pub verifier_client: HttpClient,
-}
+// #[derive(Debug, Clone)]
+// pub struct VerifierClient {
+//     pub verifier_client: HttpClient,
+// }
 
-impl VerifierClient {
-    pub fn new(verifier_rpc_address: String) -> Self {
-        let headers = HeaderMap::new();
-        // Build client
-        let client = HttpClientBuilder::default()
-            .set_headers(headers)
-            .build(verifier_rpc_address)
-            .unwrap();
+// impl VerifierClient {
+//     pub fn new(verifier_rpc_address: String) -> Self {
+//         let headers = HeaderMap::new();
+//         // Build client
+//         let client = HttpClientBuilder::default()
+//             .set_headers(headers)
+//             .build(verifier_rpc_address)
+//             .unwrap();
 
-        VerifierClient {
-            verifier_client: client,
-        }
-    }
-}
-#[async_trait]
-impl VerifierConnector for VerifierClient {
-    async fn new_deposit(
-        &self,
-        start_utxo: OutPoint,
-        return_address: &XOnlyPublicKey,
-        deposit_index: u32,
-        evm_address: &EVMAddress,
-        operator_address: &Address,
-    ) -> Result<DepositPresigns, BridgeError> {
-        // Create a JSON object with the expected parameters
-        let mut params = ObjectParams::new();
-        params
-            .insert("deposit_txid", start_utxo.txid.to_string())
-            .unwrap();
-        params.insert("deposit_vout", start_utxo.vout).unwrap();
-        params
-            .insert("user_return_xonly_pk", return_address.to_string())
-            .unwrap();
-        params.insert("deposit_index", deposit_index).unwrap();
-        params
-            .insert("user_evm_address", hex::encode(evm_address))
-            .unwrap();
-        params
-            .insert("operator_address", operator_address.to_string())
-            .unwrap();
+//         VerifierClient {
+//             verifier_client: client,
+//         }
+//     }
+// }
+// #[async_trait]
+// impl VerifierConnector for VerifierClient {
+//     async fn new_deposit(
+//         &self,
+//         start_utxo: OutPoint,
+//         return_address: &XOnlyPublicKey,
+//         deposit_index: u32,
+//         evm_address: &EVMAddress,
+//         operator_address: &Address,
+//     ) -> Result<DepositPresigns, BridgeError> {
+//         // Create a JSON object with the expected parameters
+//         let mut params = ObjectParams::new();
+//         params
+//             .insert("deposit_txid", start_utxo.txid.to_string())
+//             .unwrap();
+//         params.insert("deposit_vout", start_utxo.vout).unwrap();
+//         params
+//             .insert("user_return_xonly_pk", return_address.to_string())
+//             .unwrap();
+//         params.insert("deposit_index", deposit_index).unwrap();
+//         params
+//             .insert("user_evm_address", hex::encode(evm_address))
+//             .unwrap();
+//         params
+//             .insert("operator_address", operator_address.to_string())
+//             .unwrap();
 
-        // Make the request with the JSON object
-        let result: String = self.verifier_client.request("new_deposit", params).await?;
+//         // Make the request with the JSON object
+//         let result: String = self.verifier_client.request("new_deposit", params).await?;
 
-        println!("result: {:?}", result);
-        let deposit_presigns: DepositPresigns = serde_json::from_str(&result).unwrap();
-        Ok(deposit_presigns)
-    }
+//         println!("result: {:?}", result);
+//         let deposit_presigns: DepositPresigns = serde_json::from_str(&result).unwrap();
+//         Ok(deposit_presigns)
+//     }
 
-    #[cfg(feature = "mainnet")]
-    fn connector_roots_created(
-        &self,
-        _connector_tree_hashes: &Vec<HashTree>,
-        _first_source_utxo: &OutPoint,
-        _start_blockheight: u64,
-        _period_relative_block_heights: Vec<u32>,
-    ) -> Result<(), BridgeError> {
-        unimplemented!()
-    }
+//     #[cfg(feature = "mainnet")]
+//     fn connector_roots_created(
+//         &self,
+//         _connector_tree_hashes: &Vec<HashTree>,
+//         _first_source_utxo: &OutPoint,
+//         _start_blockheight: u64,
+//         _period_relative_block_heights: Vec<u32>,
+//     ) -> Result<(), BridgeError> {
+//         unimplemented!()
+//     }
 
-    #[cfg(feature = "mainnet")]
-    fn challenge_operator(&self, _period: u8) -> Result<VerifierChallenge, BridgeError> {
-        unimplemented!()
-    }
-}
+//     #[cfg(feature = "mainnet")]
+//     fn challenge_operator(&self, _period: u8) -> Result<VerifierChallenge, BridgeError> {
+//         unimplemented!()
+//     }
+// }

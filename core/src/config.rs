@@ -75,6 +75,8 @@ pub struct BridgeConfig {
     pub bitcoin_rpc_user: String,
     /// Bitcoin RPC user password.
     pub bitcoin_rpc_password: String,
+    /// All Secret keys just for testing purposes
+    pub all_secret_keys: Option<Vec<SecretKey>>,
 }
 
 impl BridgeConfig {
@@ -111,13 +113,23 @@ impl BridgeConfig {
             Err(e) => Err(BridgeError::ConfigError(e.to_string())),
         }?;
 
-        tracing_subscriber::registry()
+        if let Err(e) = tracing_subscriber::registry()
             .with(fmt::layer())
             .with(
                 EnvFilter::from_str(&config.tracing_debug)
                     .unwrap_or_else(|_| EnvFilter::from_default_env()),
             )
-            .init();
+            .try_init()
+        {
+            // If it failed because of a re-initialization, do not care about
+            // the error.
+            //
+            // This error checking is kind of ugly. But nothing to do about it:
+            // Library impelemented it like this.
+            if e.to_string() != "a global default trace dispatcher has already been set" {
+                return Err(BridgeError::ConfigError(e.to_string()));
+            }
+        };
 
         Ok(config)
     }
@@ -140,6 +152,7 @@ impl Default for BridgeConfig {
             bitcoin_rpc_url: "http://localhost:18443".to_string(),
             bitcoin_rpc_user: "admin".to_string(),
             bitcoin_rpc_password: "admin".to_string(),
+            all_secret_keys: None,
         }
     }
 }
@@ -181,7 +194,6 @@ mod tests {
         };
     }
 
-    #[ignore]
     #[test]
     fn parse_from_file() {
         let file_name = "1".to_string() + TEST_FILE;
@@ -199,18 +211,10 @@ mod tests {
             }
         };
 
-        let content = "
-        secret_key = \"1111111111111111111111111111111111111111111111111111111111111111\"
-        verifiers_public_keys = []
-        db_file_path = \"database\"
-        num_verifiers = 4
-        min_relay_fee = 289
-        user_takes_after = 200
-        confirmation_treshold = 1
-        network = \"regtest\"
-        bitcoin_rpc_url = \"http://localhost:18443\"
-        bitcoin_rpc_user = \"admin\"
-        bitcoin_rpc_password = \"admin\"";
+        // Read first example test file use for this test.
+        let base_path = env!("CARGO_MANIFEST_DIR");
+        let config_path = format!("{}/tests/data/test_config_1.toml", base_path);
+        let content = fs::read_to_string(config_path).unwrap();
         let mut file = File::create(file_name.clone()).unwrap();
         file.write_all(content.as_bytes()).unwrap();
 
@@ -219,7 +223,8 @@ mod tests {
                 println!("{:#?}", c);
                 assert!(true);
             }
-            Err(_) => {
+            Err(e) => {
+                println!("{:#?}", e);
                 assert!(false);
             }
         };
