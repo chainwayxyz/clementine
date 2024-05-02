@@ -1,8 +1,8 @@
 use bitcoin::{Address, OutPoint};
-use clementine_core::config::BridgeConfig;
+use bitcoincore_rpc::Auth;
 use clementine_core::traits::verifier::VerifierConnector;
+use clementine_core::{cli, EVMAddress};
 use clementine_core::{extended_rpc::ExtendedRpc, verifier::Verifier};
-use clementine_core::{keys, EVMAddress};
 use jsonrpsee::{server::Server, RpcModule};
 use secp256k1::XOnlyPublicKey;
 use serde::Deserialize;
@@ -30,15 +30,23 @@ async fn main() {
 
     let mut handles = vec![];
 
-    for (port, keys_file) in configs {
+    for (port, _keys_file) in configs {
         let handle = tokio::spawn(async move {
-            let config = BridgeConfig::new().unwrap();
+            let config = cli::get_configuration();
             let rpc = ExtendedRpc::new(
                 config.bitcoin_rpc_url.clone(),
-                config.bitcoin_rpc_auth.clone(),
+                Auth::UserPass(
+                    config.bitcoin_rpc_user.clone(),
+                    config.bitcoin_rpc_password.clone(),
+                ),
             );
-            let (secret_key, all_xonly_pks) = keys::read_file(keys_file.to_string()).unwrap();
-            let verifier = Verifier::new(rpc, all_xonly_pks, secret_key, config.clone()).unwrap();
+            let verifier = Verifier::new(
+                rpc,
+                config.verifiers_public_keys.clone(),
+                config.secret_key.clone(),
+                config.clone(),
+            )
+            .unwrap();
 
             let server = Server::builder()
                 .build(format!("127.0.0.1:{}", port).parse::<SocketAddr>().unwrap())

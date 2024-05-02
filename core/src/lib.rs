@@ -2,13 +2,13 @@ use bitcoin::{OutPoint, Txid};
 use clementine_circuits::{HashType, PreimageType};
 
 pub mod actor;
+pub mod cli;
 pub mod config;
 pub mod constants;
 pub mod db;
 pub mod env_writer;
 pub mod errors;
 pub mod extended_rpc;
-pub mod keys;
 pub mod merkle;
 pub mod mock_env;
 pub mod operator;

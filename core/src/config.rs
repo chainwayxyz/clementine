@@ -1,103 +1,262 @@
-use std::env;
-
-use bitcoin::Network;
-use bitcoincore_rpc::Auth;
+//! # Configuration Options
+//!
+//! This module defines configuration options. This information can be passed to
+//! other parts of the program.
+//!
+//! This module doesn't depend on `cli` module. Therefore, it can be used as is.
+//!
+//! ## Configuration File
+//!
+//! Configuration options can be read from a TOML file. This file don't accept
+//! any headers and it should only includes raw data. Example:
+//!
+//! ```toml
+//! db_file_path = "database"
+//! num_verifiers = 4
+//! min_relay_fee = 289
+//! user_takes_after = 200
+//! confirmation_treshold = 1
+//! network = "regtest"
+//! bitcoin_rpc_url = "http://localhost:18443"
+//! bitcoin_rpc_user = "admin"
+//! bitcoin_rpc_password = "admin"
+//! ```
+//!
+//! WARNING! This is not acceptable:
+//!
+//! ```toml
+//! [database]
+//! db_file_path = "database"
+//!
+//! num_verifiers = 4
+//! min_relay_fee = 289
+//! user_takes_after = 200
+//! ```
 
 use crate::errors::BridgeError;
+use bitcoin::{Network, XOnlyPublicKey};
+use secp256k1::SecretKey;
+use serde::{Deserialize, Serialize};
+use std::str::FromStr;
+use std::{fs::File, io::Read, path::PathBuf};
+use tracing_subscriber::layer::SubscriberExt;
+use tracing_subscriber::util::SubscriberInitExt;
+use tracing_subscriber::{fmt, EnvFilter};
 
-#[derive(Debug, Clone)]
+/// This struct can be used to pass information to other parts of the program.
+/// There are multiple constructers for this struct. Use the one appropriate.
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct BridgeConfig {
-    pub db_file_path: String,
-    pub num_verifiers: usize,
-    pub min_relay_fee: u64,
-    pub user_takes_after: u32,
-    pub confirmation_treshold: u32,
+    /// tracing debug level.
+    pub tracing_debug: String,
+    /// Host of the operator or verifier
+    pub host: String,
+    /// Port of the operator or verifier
+    pub port: u16,
+    /// Bitcoin network to work on.
     pub network: Network,
+    /// Secret key for the operator or verifier.
+    pub secret_key: SecretKey,
+    /// Verfiers public keys inlcuding operator's.
+    pub verifiers_public_keys: Vec<XOnlyPublicKey>,
+    /// File path for the mock database.
+    pub db_file_path: String,
+    /// Number of verifiers.
+    pub num_verifiers: usize,
+    /// Minimum relay fee.
+    pub min_relay_fee: u64,
+    /// User takes after.
+    pub user_takes_after: u32,
+    /// Threshold for confirmation.
+    pub confirmation_treshold: u32,
+    /// Bitcoin remote procedure call URL.
     pub bitcoin_rpc_url: String,
-    pub bitcoin_rpc_auth: Auth,
+    /// Bitcoin RPC user.
+    pub bitcoin_rpc_user: String,
+    /// Bitcoin RPC user password.
+    pub bitcoin_rpc_password: String,
 }
 
 impl BridgeConfig {
-    pub fn new() -> Result<Self, BridgeError> {
-        // read from env, if it does not exist, raise an error
-        let db_file_path = env::var("DB_FILE_PATH").map_err(|_| {
-            BridgeError::ConfigError("DB_FILE_PATH environment variable not set".to_string())
-        })?;
-        let num_verifiers = env::var("NUM_VERIFIERS")
-            .map_err(|_| {
-                BridgeError::ConfigError("NUM_VERIFIERS environment variable not set".to_string())
-            })?
-            .parse::<usize>()
-            .unwrap();
-        let min_relay_fee = env::var("MIN_RELAY_FEE")
-            .map_err(|_| {
-                BridgeError::ConfigError("MIN_RELAY_FEE environment variable not set".to_string())
-            })?
-            .parse::<u64>()
-            .unwrap();
-        let user_takes_after = env::var("USER_TAKES_AFTER")
-            .map_err(|_| {
-                BridgeError::ConfigError(
-                    "USER_TAKES_AFTER environment variable not set".to_string(),
-                )
-            })?
-            .parse::<u32>()
-            .unwrap();
-        let confirmation_treshold = env::var("CONFIRMATION_THRESHOLD")
-            .map_err(|_| {
-                BridgeError::ConfigError(
-                    "CONFIRMATION_THRESHOLD environment variable not set".to_string(),
-                )
-            })?
-            .parse::<u32>()
-            .unwrap();
-
-        let network_str = env::var("NETWORK").unwrap_or("Regtest".to_string());
-
-        // Convert the environment variable to a `bitcoin::Network`
-        let network = match network_str.to_lowercase().as_str() {
-            "bitcoin" => Network::Bitcoin,
-            "testnet" => Network::Testnet,
-            "regtest" => Network::Regtest,
-            _ => panic!("Unsupported network: {}", network_str),
-        };
-
-        let bitcoin_rpc_url = env::var("BITCOIN_RPC_URL").map_err(|_| {
-            BridgeError::ConfigError("BITCOIN_RPC_URL environment variable not set".to_string())
-        })?;
-        let bitcoin_rpc_user = env::var("BITCOIN_RPC_USER").map_err(|_| {
-            BridgeError::ConfigError("BITCOIN_RPC_USER environment variable not set".to_string())
-        })?;
-
-        let bitcoin_rpc_password = env::var("BITCOIN_RPC_PASSWORD").map_err(|_| {
-            BridgeError::ConfigError(
-                "BITCOIN_RPC_PASSWORD environment variable not set".to_string(),
-            )
-        })?;
-        let bitcoin_rpc_auth = Auth::UserPass(bitcoin_rpc_user, bitcoin_rpc_password);
-
-        Ok(Self {
-            db_file_path,
-            num_verifiers,
-            min_relay_fee,
-            user_takes_after,
-            confirmation_treshold,
-            network,
-            bitcoin_rpc_url,
-            bitcoin_rpc_auth,
-        })
+    /// Create a `BridgeConfig` with default values.
+    pub fn new() -> Self {
+        BridgeConfig {
+            ..Default::default()
+        }
     }
 
-    pub fn test_config() -> Self {
+    /// Read contents of a TOML file and generate a `BridgeConfig`.
+    pub fn try_parse_file(path: PathBuf) -> Result<Self, BridgeError> {
+        let mut contents = String::new();
+
+        let mut file = match File::open(path) {
+            Ok(f) => f,
+            Err(e) => return Err(BridgeError::ConfigError(e.to_string())),
+        };
+        if let Err(e) = file.read_to_string(&mut contents) {
+            return Err(BridgeError::ConfigError(e.to_string()));
+        }
+
+        tracing::debug!("Configuration file size: {} bytes", contents.len());
+        tracing::debug!("Configuration file contents: {}", &contents);
+
+        BridgeConfig::try_parse_from(contents)
+    }
+
+    /// Try to parse a `BridgeConfig` from given TOML formatted string and
+    /// generate a `BridgeConfig`.
+    pub fn try_parse_from(input: String) -> Result<Self, BridgeError> {
+        let config = match toml::from_str::<BridgeConfig>(&input) {
+            Ok(c) => Ok(c),
+            Err(e) => Err(BridgeError::ConfigError(e.to_string())),
+        }?;
+
+        tracing_subscriber::registry()
+            .with(fmt::layer())
+            .with(
+                EnvFilter::from_str(&config.tracing_debug)
+                    .unwrap_or_else(|_| EnvFilter::from_default_env()),
+            )
+            .init();
+
+        Ok(config)
+    }
+}
+
+impl Default for BridgeConfig {
+    fn default() -> Self {
         Self {
-            db_file_path: "test_db".to_string(),
+            tracing_debug: "debug".to_string(),
+            host: "localhost".to_string(),
+            port: 3030,
+            secret_key: SecretKey::new(&mut secp256k1::rand::thread_rng()),
+            verifiers_public_keys: vec![],
+            db_file_path: "database".to_string(),
             num_verifiers: 4,
             min_relay_fee: 289,
             user_takes_after: 200,
             confirmation_treshold: 1,
             network: Network::Regtest,
             bitcoin_rpc_url: "http://localhost:18443".to_string(),
-            bitcoin_rpc_auth: Auth::UserPass("admin".to_string(), "admin".to_string()),
+            bitcoin_rpc_user: "admin".to_string(),
+            bitcoin_rpc_password: "admin".to_string(),
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::BridgeConfig;
+    use std::{
+        fs::{self, File},
+        io::Write,
+    };
+
+    /// This needs a prefix for every test function, because of the async nature
+    /// of the tests. I am not going to implement a mutex solution. Just do:
+    /// let file_name = "someprefix".to_string() + TEST_FILE;
+    pub const TEST_FILE: &str = "test.toml";
+
+    #[test]
+    fn parse_from_string() {
+        // In case of a incorrect file content, we should receive an error.
+        let content = "brokenfilecontent";
+        match BridgeConfig::try_parse_from(content.to_string()) {
+            Ok(_) => assert!(false),
+            Err(e) => {
+                println!("{:#?}", e);
+                assert!(true);
+            }
+        };
+
+        let init = BridgeConfig::new();
+        match BridgeConfig::try_parse_from(toml::to_string(&init).unwrap()) {
+            Ok(c) => {
+                println!("{:#?}", c);
+                assert!(true);
+            }
+            Err(_) => {
+                assert!(false);
+            }
+        };
+    }
+
+    #[ignore]
+    #[test]
+    fn parse_from_file() {
+        let file_name = "1".to_string() + TEST_FILE;
+        let content = "brokenfilecontent";
+        let mut file = File::create(file_name.clone()).unwrap();
+        file.write_all(content.as_bytes()).unwrap();
+
+        match BridgeConfig::try_parse_file(file_name.clone().into()) {
+            Ok(_) => {
+                assert!(false);
+            }
+            Err(e) => {
+                println!("{:#?}", e);
+                assert!(true);
+            }
+        };
+
+        let content = "
+        secret_key = \"1111111111111111111111111111111111111111111111111111111111111111\"
+        verifiers_public_keys = []
+        db_file_path = \"database\"
+        num_verifiers = 4
+        min_relay_fee = 289
+        user_takes_after = 200
+        confirmation_treshold = 1
+        network = \"regtest\"
+        bitcoin_rpc_url = \"http://localhost:18443\"
+        bitcoin_rpc_user = \"admin\"
+        bitcoin_rpc_password = \"admin\"";
+        let mut file = File::create(file_name.clone()).unwrap();
+        file.write_all(content.as_bytes()).unwrap();
+
+        match BridgeConfig::try_parse_file(file_name.clone().into()) {
+            Ok(c) => {
+                println!("{:#?}", c);
+                assert!(true);
+            }
+            Err(_) => {
+                assert!(false);
+            }
+        };
+
+        fs::remove_file(file_name.clone()).unwrap();
+    }
+
+    #[test]
+    /// Currently, no support for headers.
+    fn parse_from_file_with_headers() {
+        let file_name = "2".to_string() + TEST_FILE;
+        let content = "[header1]
+        db_file_path = \"database\"
+        num_verifiers = 4
+        min_relay_fee = 289
+        user_takes_after = 200
+
+        [header2]
+        confirmation_treshold = 1
+        network = \"regtest\"
+        bitcoin_rpc_url = \"http://localhost:18443\"
+        bitcoin_rpc_user = \"admin\"
+        bitcoin_rpc_password = \"admin\"\n";
+        let mut file = File::create(file_name.clone()).unwrap();
+        file.write_all(content.as_bytes()).unwrap();
+
+        match BridgeConfig::try_parse_file(file_name.clone().into()) {
+            Ok(c) => {
+                println!("{:#?}", c);
+                assert!(false);
+            }
+            Err(e) => {
+                println!("{:#?}", e);
+                assert!(true);
+            }
+        };
+
+        fs::remove_file(file_name).unwrap();
     }
 }
