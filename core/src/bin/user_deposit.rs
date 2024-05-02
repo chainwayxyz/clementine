@@ -18,14 +18,4 @@ fn main() {
     println!("EVM Address: {:?}", hex::encode(evm_address.0));
     println!("User: {:?}", xonly_pk.to_string());
     println!("Deposit address: {:?}", deposit_address);
-    // let anyone_can_spend_script = Builder::new()
-    //     .push_opcode(opcodes::all::OP_PUSHNUM_1)
-    //     .into_script();
-    // let locking_script = anyone_can_spend_script.to_p2wsh();
-    // let locking_address = Address::p2wsh(&locking_script, Network::Bitcoin);
-    // let address = Address::p2wsh(&anyone_can_spend_script, Network::Bitcoin);
-    // println!("Locking address: {:?}", locking_address);
-    // println!("Locking script: {:?}", locking_script);
-    // println!("Address: {:?}", address);
-    // println!("Script: {:?}", anyone_can_spend_script);
 }

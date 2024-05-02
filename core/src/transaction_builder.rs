@@ -612,7 +612,7 @@ mod tests {
             .iter()
             .map(|pk| XOnlyPublicKey::from_str(pk).unwrap())
             .collect();
-        let tx_builder = TransactionBuilder::new(verifier_pks, BridgeConfig::test_config());
+        let tx_builder = TransactionBuilder::new(verifier_pks, BridgeConfig::new());
         let evm_address: [u8; 20] = hex::decode("1234567890123456789012345678901234567890")
             .unwrap()
             .try_into()
