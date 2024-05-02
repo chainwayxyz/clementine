@@ -4,17 +4,14 @@ use clementine_core::extended_rpc::ExtendedRpc;
 use clementine_core::operator::Operator;
 use clementine_core::traits::verifier::VerifierConnector;
 use clementine_core::verifier::VerifierClient;
-use clementine_core::{cli, keys, EVMAddress};
+use clementine_core::{cli, EVMAddress};
 use jsonrpsee::{server::Server, RpcModule};
 use secp256k1::XOnlyPublicKey;
 use serde::Deserialize;
 use serde_json::Value;
+use std::net::SocketAddr;
 use std::str::FromStr;
 use std::sync::Arc;
-use std::{env, net::SocketAddr};
-use tracing_subscriber::layer::SubscriberExt;
-use tracing_subscriber::util::SubscriberInitExt;
-use tracing_subscriber::{fmt, EnvFilter};
 
 #[derive(Deserialize)]
 struct NewDepositParams {
@@ -22,19 +19,6 @@ struct NewDepositParams {
     deposit_vout: u32,
     user_return_xonly_pk: String,
     user_evm_address: String,
-}
-
-/// Default initialization of logging
-pub fn initialize_logging() {
-    tracing_subscriber::registry()
-        .with(fmt::layer())
-        .with(
-            EnvFilter::from_str(
-                &env::var("RUST_LOG").unwrap_or_else(|_| "debug,bitcoincore_rpc=info".to_string()),
-            )
-            .unwrap(),
-        )
-        .init();
 }
 
 /// main function to start operator server
@@ -53,7 +37,6 @@ pub fn initialize_logging() {
 /// ```
 #[tokio::main]
 async fn main() {
-    initialize_logging();
     let config = cli::get_configuration();
     let rpc = ExtendedRpc::new(
         config.bitcoin_rpc_url.clone(),
@@ -62,7 +45,6 @@ async fn main() {
             config.bitcoin_rpc_password.clone(),
         ),
     );
-    let (secret_key, all_xonly_pks) = keys::get_from_file().unwrap();
 
     let verifier_endpoints = vec![
         "http://127.0.0.1:3030".to_string(),
@@ -79,8 +61,8 @@ async fn main() {
 
     let operator = Operator::new(
         rpc.clone(),
-        all_xonly_pks.clone(),
-        secret_key,
+        config.verifiers_public_keys.clone(),
+        config.secret_key.clone(),
         verifiers,
         config.clone(),
     )

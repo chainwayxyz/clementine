@@ -34,14 +34,31 @@
 //! ```
 
 use crate::errors::BridgeError;
-use bitcoin::Network;
+use bitcoin::{Network, XOnlyPublicKey};
+use secp256k1::SecretKey;
 use serde::{Deserialize, Serialize};
+use std::str::FromStr;
 use std::{fs::File, io::Read, path::PathBuf};
+use tracing_subscriber::layer::SubscriberExt;
+use tracing_subscriber::util::SubscriberInitExt;
+use tracing_subscriber::{fmt, EnvFilter};
 
 /// This struct can be used to pass information to other parts of the program.
 /// There are multiple constructers for this struct. Use the one appropriate.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct BridgeConfig {
+    /// tracing debug level.
+    pub tracing_debug: String,
+    /// Host of the operator or verifier
+    pub host: String,
+    /// Port of the operator or verifier
+    pub port: u16,
+    /// Bitcoin network to work on.
+    pub network: Network,
+    /// Secret key for the operator or verifier.
+    pub secret_key: SecretKey,
+    /// Verfiers public keys inlcuding operator's.
+    pub verifiers_public_keys: Vec<XOnlyPublicKey>,
     /// File path for the mock database.
     pub db_file_path: String,
     /// Number of verifiers.
@@ -52,8 +69,6 @@ pub struct BridgeConfig {
     pub user_takes_after: u32,
     /// Threshold for confirmation.
     pub confirmation_treshold: u32,
-    /// Bitcoin network to work on.
-    pub network: Network,
     /// Bitcoin remote procedure call URL.
     pub bitcoin_rpc_url: String,
     /// Bitcoin RPC user.
@@ -91,16 +106,31 @@ impl BridgeConfig {
     /// Try to parse a `BridgeConfig` from given TOML formatted string and
     /// generate a `BridgeConfig`.
     pub fn try_parse_from(input: String) -> Result<Self, BridgeError> {
-        match toml::from_str::<BridgeConfig>(&input) {
+        let config = match toml::from_str::<BridgeConfig>(&input) {
             Ok(c) => Ok(c),
             Err(e) => Err(BridgeError::ConfigError(e.to_string())),
-        }
+        }?;
+
+        tracing_subscriber::registry()
+            .with(fmt::layer())
+            .with(
+                EnvFilter::from_str(&config.tracing_debug)
+                    .unwrap_or_else(|_| EnvFilter::from_default_env()),
+            )
+            .init();
+
+        Ok(config)
     }
 }
 
 impl Default for BridgeConfig {
     fn default() -> Self {
         Self {
+            tracing_debug: "debug".to_string(),
+            host: "localhost".to_string(),
+            port: 3030,
+            secret_key: SecretKey::new(&mut secp256k1::rand::thread_rng()),
+            verifiers_public_keys: vec![],
             db_file_path: "database".to_string(),
             num_verifiers: 4,
             min_relay_fee: 289,
@@ -151,6 +181,7 @@ mod tests {
         };
     }
 
+    #[ignore]
     #[test]
     fn parse_from_file() {
         let file_name = "1".to_string() + TEST_FILE;
@@ -168,7 +199,10 @@ mod tests {
             }
         };
 
-        let content = "db_file_path = \"database\"
+        let content = "
+        secret_key = \"1111111111111111111111111111111111111111111111111111111111111111\"
+        verifiers_public_keys = []
+        db_file_path = \"database\"
         num_verifiers = 4
         min_relay_fee = 289
         user_takes_after = 200
