@@ -8,7 +8,7 @@ use clementine_core::transaction_builder::TransactionBuilder;
 use clementine_core::{start_operator_and_verifiers, EVMAddress};
 
 #[tokio::test]
-async fn test_flow() {
+async fn test_should_deposit_and_withdraw() {
     let base_path = env!("CARGO_MANIFEST_DIR");
     let config_path = format!("{}/tests/data/test_config_1.toml", base_path);
     let config = BridgeConfig::try_parse_file(config_path.into()).unwrap();
@@ -76,7 +76,10 @@ async fn test_flow() {
         .new_withdrawal_direct_rpc(0, withdrawal_address.as_unchecked().clone())
         .await
         .unwrap();
-    println!("Withdrawal TXID: {:?}", withdraw_txid);
+    tracing::debug!("Withdrawal TXID: {:?}", withdraw_txid);
+
+    // get the tx details from rpc with txid
+    // check wheter it has an output with the withdrawal address
 
     let op_res = operator_handler.is_stopped();
     let ver_res = results
