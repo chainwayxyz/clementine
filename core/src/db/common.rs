@@ -54,7 +54,12 @@ impl Database {
 /// result on a data race. Users must do their own synchronization to avoid data
 /// races.
 impl Database {
-    pub async fn get_connector_tree_hash(&self, period: usize, level: usize, idx: usize) -> HashType {
+    pub async fn get_connector_tree_hash(
+        &self,
+        period: usize,
+        level: usize,
+        idx: usize,
+    ) -> HashType {
         let content = self.read();
 
         // If database is empty, returns an empty array.
@@ -140,7 +145,10 @@ impl Database {
         self.write(content);
     }
 
-    pub async fn get_withdrawals_payment_for_period(&self, period: usize) -> Vec<WithdrawalPayment> {
+    pub async fn get_withdrawals_payment_for_period(
+        &self,
+        period: usize,
+    ) -> Vec<WithdrawalPayment> {
         let content = self.read();
         content.withdrawals_payment_txids[period].clone()
     }
@@ -361,7 +369,9 @@ mod tests {
             mock_data[0].clone()
         );
 
-        database.set_claim_proof_merkle_trees(mock_data.clone()).await;
+        database
+            .set_claim_proof_merkle_trees(mock_data.clone())
+            .await;
         assert_eq!(database.get_claim_proof_merkle_tree(0).await, mock_data[0]);
 
         // Clean things up.
@@ -384,7 +394,9 @@ mod tests {
 
         assert_eq!(database.get_withdrawals_merkle_tree_index().await, 0);
 
-        database.add_to_withdrawals_merkle_tree(mock_data.clone()).await;
+        database
+            .add_to_withdrawals_merkle_tree(mock_data.clone())
+            .await;
         assert_eq!(database.get_withdrawals_merkle_tree_index().await, 1);
 
         // Clean things up.

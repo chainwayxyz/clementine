@@ -32,9 +32,6 @@ toml = "0.8.12"
 default = []
 poc = []
 
-[features]
-mainnet = []
-
 [[bin]]
 name = "verifier_server"
 path = "src/bin/verifier_server.rs"
@@ -46,5 +43,3 @@ path = "src/bin/operator_server.rs"
 [[bin]]
 name = "user_deposit"
 path = "src/bin/user_deposit.rs"
-    
-    
