@@ -231,7 +231,8 @@ impl Operator {
         };
 
         self.operator_db_connector
-            .add_to_deposit_txs((rpc_move_txid, move_tx.tx.output[0].clone()));
+            .add_to_deposit_txs((rpc_move_txid, move_tx.tx.output[0].clone()))
+            .await;
         #[cfg(feature = "poc")]
         {
             let operator_claim_sigs = OperatorClaimSigs {
@@ -354,7 +355,8 @@ impl Operator {
 
         // 1. Add the address to WithdrawalsMerkleTree
         self.operator_db_connector
-            .add_to_withdrawals_merkle_tree(hash);
+            .add_to_withdrawals_merkle_tree(hash)
+            .await;
 
         // self.withdrawals_merkle_tree.add(withdrawal_address.to);
 
@@ -369,10 +371,12 @@ impl Operator {
         // );
         // let current_withdrawal_period = self.get_current_withdrawal_period()?;
         let current_withdrawal_period = 0; // TODO: CHANGE THIS LATER TO THE ABOVE LINE
-        self.operator_db_connector.add_to_withdrawals_payment_txids(
-            current_withdrawal_period,
-            (txid, hash) as WithdrawalPayment,
-        );
+        self.operator_db_connector
+            .add_to_withdrawals_payment_txids(
+                current_withdrawal_period,
+                (txid, hash) as WithdrawalPayment,
+            )
+            .await;
         Ok(txid)
     }
 
@@ -381,7 +385,7 @@ impl Operator {
         idx: usize,
         withdrawal_address: Address<NetworkChecked>,
     ) -> Result<Txid, BridgeError> {
-        let deposit_tx_info = self.operator_db_connector.get_deposit_tx(idx);
+        let deposit_tx_info = self.operator_db_connector.get_deposit_tx(idx).await;
         let deposit_utxo = OutPoint {
             txid: deposit_tx_info.0,
             vout: 0,

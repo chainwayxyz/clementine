@@ -54,7 +54,12 @@ impl Database {
 /// result on a data race. Users must do their own synchronization to avoid data
 /// races.
 impl Database {
-    pub fn get_connector_tree_hash(&self, period: usize, level: usize, idx: usize) -> HashType {
+    pub async fn get_connector_tree_hash(
+        &self,
+        period: usize,
+        level: usize,
+        idx: usize,
+    ) -> HashType {
         let content = self.read();
 
         // If database is empty, returns an empty array.
@@ -69,14 +74,14 @@ impl Database {
             _ => [0u8; 32],
         }
     }
-    pub fn set_connector_tree_hashes(&self, connector_tree_hashes: Vec<Vec<Vec<HashType>>>) {
+    pub async fn set_connector_tree_hashes(&self, connector_tree_hashes: Vec<Vec<Vec<HashType>>>) {
         let _guard = self.lock.lock().unwrap();
         let mut content = self.read();
         content.connector_tree_hashes = connector_tree_hashes;
         self.write(content);
     }
 
-    pub fn get_claim_proof_merkle_tree(
+    pub async fn get_claim_proof_merkle_tree(
         &self,
         period: usize,
     ) -> MerkleTree<CLAIM_MERKLE_TREE_DEPTH> {
@@ -87,7 +92,7 @@ impl Database {
             _ => MerkleTree::new(),
         }
     }
-    pub fn set_claim_proof_merkle_trees(
+    pub async fn set_claim_proof_merkle_trees(
         &self,
         claim_proof_merkle_trees: Vec<MerkleTree<CLAIM_MERKLE_TREE_DEPTH>>,
     ) {
@@ -97,54 +102,57 @@ impl Database {
         self.write(content);
     }
 
-    pub fn get_inscription_txs(&self) -> Vec<InscriptionTxs> {
+    pub async fn get_inscription_txs(&self) -> Vec<InscriptionTxs> {
         let content = self.read();
         content.inscription_txs.clone()
     }
-    pub fn get_inscription_txs_len(&self) -> usize {
+    pub async fn get_inscription_txs_len(&self) -> usize {
         let content = self.read();
         content.inscription_txs.len()
     }
-    pub fn add_to_inscription_txs(&self, inscription_txs: InscriptionTxs) {
+    pub async fn add_to_inscription_txs(&self, inscription_txs: InscriptionTxs) {
         let _guard = self.lock.lock().unwrap();
         let mut content = self.read();
         content.inscription_txs.push(inscription_txs);
         self.write(content);
     }
 
-    pub fn get_deposit_tx(&self, idx: usize) -> (Txid, TxOut) {
+    pub async fn get_deposit_tx(&self, idx: usize) -> (Txid, TxOut) {
         let content = self.read();
         content.deposit_txs[idx].clone()
     }
 
-    pub fn get_deposit_txs(&self) -> Vec<(Txid, TxOut)> {
+    pub async fn get_deposit_txs(&self) -> Vec<(Txid, TxOut)> {
         let content = self.read();
         content.deposit_txs.clone()
     }
 
-    pub fn add_to_deposit_txs(&self, deposit_tx: (Txid, TxOut)) {
+    pub async fn add_to_deposit_txs(&self, deposit_tx: (Txid, TxOut)) {
         let _guard = self.lock.lock().unwrap();
         let mut content = self.read();
         content.deposit_txs.push(deposit_tx);
         self.write(content);
     }
 
-    pub fn get_withdrawals_merkle_tree_index(&self) -> u32 {
+    pub async fn get_withdrawals_merkle_tree_index(&self) -> u32 {
         let content = self.read();
         content.withdrawals_merkle_tree.index
     }
-    pub fn add_to_withdrawals_merkle_tree(&self, hash: HashType) {
+    pub async fn add_to_withdrawals_merkle_tree(&self, hash: HashType) {
         let _guard = self.lock.lock().unwrap();
         let mut content = self.read();
         content.withdrawals_merkle_tree.add(hash);
         self.write(content);
     }
 
-    pub fn get_withdrawals_payment_for_period(&self, period: usize) -> Vec<WithdrawalPayment> {
+    pub async fn get_withdrawals_payment_for_period(
+        &self,
+        period: usize,
+    ) -> Vec<WithdrawalPayment> {
         let content = self.read();
         content.withdrawals_payment_txids[period].clone()
     }
-    pub fn add_to_withdrawals_payment_txids(
+    pub async fn add_to_withdrawals_payment_txids(
         &self,
         period: usize,
         withdrawal_payment: WithdrawalPayment,
@@ -158,40 +166,40 @@ impl Database {
         self.write(content);
     }
 
-    pub fn get_connector_tree_utxo(&self, idx: usize) -> ConnectorUTXOTree {
+    pub async fn get_connector_tree_utxo(&self, idx: usize) -> ConnectorUTXOTree {
         let content = self.read();
         content.connector_tree_utxos[idx].clone()
     }
-    pub fn set_connector_tree_utxos(&self, connector_tree_utxos: Vec<ConnectorUTXOTree>) {
+    pub async fn set_connector_tree_utxos(&self, connector_tree_utxos: Vec<ConnectorUTXOTree>) {
         let _guard = self.lock.lock().unwrap();
         let mut content = self.read();
         content.connector_tree_utxos = connector_tree_utxos;
         self.write(content);
     }
 
-    pub fn get_start_block_height(&self) -> u64 {
+    pub async fn get_start_block_height(&self) -> u64 {
         let content = self.read();
         content.start_block_height
     }
-    pub fn set_start_block_height(&self, start_block_height: u64) {
+    pub async fn set_start_block_height(&self, start_block_height: u64) {
         let _guard = self.lock.lock().unwrap();
         let mut content = self.read();
         content.start_block_height = start_block_height;
         self.write(content);
     }
 
-    pub fn get_period_relative_block_heights(&self) -> Vec<u32> {
+    pub async fn get_period_relative_block_heights(&self) -> Vec<u32> {
         let content = self.read();
         content.period_relative_block_heights.clone()
     }
-    pub fn set_period_relative_block_heights(&self, period_relative_block_heights: Vec<u32>) {
+    pub async fn set_period_relative_block_heights(&self, period_relative_block_heights: Vec<u32>) {
         let _guard = self.lock.lock().unwrap();
         let mut content = self.read();
         content.period_relative_block_heights = period_relative_block_heights;
         self.write(content);
     }
 
-    pub fn get_inscribed_preimages(&self, period: usize) -> Vec<PreimageType> {
+    pub async fn get_inscribed_preimages(&self, period: usize) -> Vec<PreimageType> {
         let content = self.read();
 
         match content.inscribed_connector_tree_preimages.get(period) {
@@ -199,7 +207,7 @@ impl Database {
             _ => vec![[0u8; 32]],
         }
     }
-    pub fn add_inscribed_preimages(&self, period: usize, preimages: Vec<PreimageType>) {
+    pub async fn add_inscribed_preimages(&self, period: usize, preimages: Vec<PreimageType>) {
         let _guard = self.lock.lock().unwrap();
         let mut content = self.read();
         while period >= content.inscribed_connector_tree_preimages.len() {
@@ -277,8 +285,8 @@ mod tests {
     }
 
     /// Tests if running `new()` function returns an empty struct.
-    #[test]
-    fn new() {
+    #[tokio::test]
+    async fn new() {
         let database = unsafe {
             initialize();
             DATABASE.clone().unwrap()
@@ -294,8 +302,8 @@ mod tests {
     /// Writes mock data to database, then reads it. Compares if input equals
     /// output. This test is a bit redundant if it is done in actual database
     /// module.
-    #[test]
-    fn write_read() {
+    #[tokio::test]
+    async fn write_read() {
         let database = unsafe {
             initialize();
             DATABASE.clone().unwrap()
@@ -305,12 +313,12 @@ mod tests {
 
         // Add random datas to database.
 
-        database.add_to_withdrawals_merkle_tree([0x45u8; 32]);
-        let ret = database.get_withdrawals_merkle_tree_index();
+        database.add_to_withdrawals_merkle_tree([0x45u8; 32]).await;
+        let ret = database.get_withdrawals_merkle_tree_index().await;
         assert_eq!(ret, 1);
 
-        database.add_to_withdrawals_merkle_tree([0x1Fu8; 32]);
-        let ret = database.get_withdrawals_merkle_tree_index();
+        database.add_to_withdrawals_merkle_tree([0x1Fu8; 32]).await;
+        let ret = database.get_withdrawals_merkle_tree_index().await;
         assert_eq!(ret, 2);
 
         // Clean things up.
@@ -320,8 +328,8 @@ mod tests {
         }
     }
 
-    #[test]
-    fn connector_tree_hash() {
+    #[tokio::test]
+    async fn connector_tree_hash() {
         let database = unsafe {
             initialize();
             DATABASE.clone().unwrap()
@@ -332,10 +340,10 @@ mod tests {
         let mock_data = [0x45u8; 32];
         let mock_array: Vec<Vec<Vec<HashType>>> = vec![vec![vec![mock_data]]];
 
-        assert_ne!(database.get_connector_tree_hash(0, 0, 0), mock_data);
+        assert_ne!(database.get_connector_tree_hash(0, 0, 0).await, mock_data);
 
-        database.set_connector_tree_hashes(mock_array);
-        assert_eq!(database.get_connector_tree_hash(0, 0, 0), mock_data);
+        database.set_connector_tree_hashes(mock_array).await;
+        assert_eq!(database.get_connector_tree_hash(0, 0, 0).await, mock_data);
 
         // Clean things up.
         match fs::remove_file(DB_FILE_PATH) {
@@ -344,8 +352,8 @@ mod tests {
         }
     }
 
-    #[test]
-    fn claim_proof_merkle_tree() {
+    #[tokio::test]
+    async fn claim_proof_merkle_tree() {
         let database = unsafe {
             initialize();
             DATABASE.clone().unwrap()
@@ -357,12 +365,14 @@ mod tests {
         mock_data[0].add([0x45u8; 32]);
 
         assert_ne!(
-            database.get_claim_proof_merkle_tree(0),
+            database.get_claim_proof_merkle_tree(0).await,
             mock_data[0].clone()
         );
 
-        database.set_claim_proof_merkle_trees(mock_data.clone());
-        assert_eq!(database.get_claim_proof_merkle_tree(0), mock_data[0]);
+        database
+            .set_claim_proof_merkle_trees(mock_data.clone())
+            .await;
+        assert_eq!(database.get_claim_proof_merkle_tree(0).await, mock_data[0]);
 
         // Clean things up.
         match fs::remove_file(DB_FILE_PATH) {
@@ -371,8 +381,8 @@ mod tests {
         }
     }
 
-    #[test]
-    fn withdrawals_merkle_tree() {
+    #[tokio::test]
+    async fn withdrawals_merkle_tree() {
         let database = unsafe {
             initialize();
             DATABASE.clone().unwrap()
@@ -382,10 +392,12 @@ mod tests {
 
         let mock_data: HashType = [0x45u8; 32];
 
-        assert_eq!(database.get_withdrawals_merkle_tree_index(), 0);
+        assert_eq!(database.get_withdrawals_merkle_tree_index().await, 0);
 
-        database.add_to_withdrawals_merkle_tree(mock_data.clone());
-        assert_eq!(database.get_withdrawals_merkle_tree_index(), 1);
+        database
+            .add_to_withdrawals_merkle_tree(mock_data.clone())
+            .await;
+        assert_eq!(database.get_withdrawals_merkle_tree_index().await, 1);
 
         // Clean things up.
         match fs::remove_file(DB_FILE_PATH) {
@@ -394,8 +406,8 @@ mod tests {
         }
     }
 
-    #[test]
-    fn start_block_height() {
+    #[tokio::test]
+    async fn start_block_height() {
         let database = unsafe {
             initialize();
             DATABASE.clone().unwrap()
@@ -405,10 +417,10 @@ mod tests {
 
         let mock_data: u64 = 0x45;
 
-        assert_eq!(database.get_start_block_height(), 0);
+        assert_eq!(database.get_start_block_height().await, 0);
 
-        database.set_start_block_height(mock_data);
-        assert_eq!(database.get_start_block_height(), mock_data);
+        database.set_start_block_height(mock_data).await;
+        assert_eq!(database.get_start_block_height().await, mock_data);
 
         // Clean things up.
         match fs::remove_file(DB_FILE_PATH) {
@@ -417,8 +429,8 @@ mod tests {
         }
     }
 
-    #[test]
-    fn period_relative_block_heights() {
+    #[tokio::test]
+    async fn period_relative_block_heights() {
         let database = unsafe {
             initialize();
             DATABASE.clone().unwrap()
@@ -428,10 +440,10 @@ mod tests {
 
         let mock_data: u64 = 0x45;
 
-        assert_eq!(database.get_start_block_height(), 0);
+        assert_eq!(database.get_start_block_height().await, 0);
 
-        database.set_start_block_height(mock_data);
-        assert_eq!(database.get_start_block_height(), mock_data);
+        database.set_start_block_height(mock_data).await;
+        assert_eq!(database.get_start_block_height().await, mock_data);
 
         // Clean things up.
         match fs::remove_file(DB_FILE_PATH) {
@@ -440,8 +452,8 @@ mod tests {
         }
     }
 
-    #[test]
-    fn inscribed_preimages() {
+    #[tokio::test]
+    async fn inscribed_preimages() {
         let database = unsafe {
             initialize();
             DATABASE.clone().unwrap()
@@ -451,10 +463,10 @@ mod tests {
 
         let mock_data: Vec<PreimageType> = vec![[0x45u8; 32]];
 
-        assert_ne!(database.get_inscribed_preimages(0), mock_data);
+        assert_ne!(database.get_inscribed_preimages(0).await, mock_data);
 
-        database.add_inscribed_preimages(0, mock_data.clone());
-        assert_eq!(database.get_inscribed_preimages(0), mock_data);
+        database.add_inscribed_preimages(0, mock_data.clone()).await;
+        assert_eq!(database.get_inscribed_preimages(0).await, mock_data);
 
         // Clean things up.
         match fs::remove_file(DB_FILE_PATH) {

@@ -43,5 +43,3 @@ path = "src/bin/operator_server.rs"
 [[bin]]
 name = "user_deposit"
 path = "src/bin/user_deposit.rs"
-    
-    
