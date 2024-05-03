@@ -4,12 +4,6 @@
 
 use std::net::TcpListener;
 
-use clementine_core::{config::BridgeConfig, create_operator_server, create_verifier_server};
-use jsonrpsee::{
-    http_client::{HttpClient, HttpClientBuilder},
-    server::ServerHandle,
-};
-
 /// Returns test path for the specified test configuration.
 pub fn get_test_config(configuration_file: &str) -> String {
     format!(
