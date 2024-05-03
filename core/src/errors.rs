@@ -4,6 +4,7 @@ use bitcoin::{
     taproot::{TaprootBuilder, TaprootBuilderError},
 };
 use core::fmt::Debug;
+use jsonrpsee::types::{ErrorObject, ErrorObjectOwned};
 use std::array::TryFromSliceError;
 use thiserror::Error;
 
@@ -109,6 +110,18 @@ pub enum BridgeError {
     /// ConfigError is returned when the configuration is invalid
     #[error("ConfigError: {0}")]
     ConfigError(String),
+    /// Bitcoin Address Error, probably given address network is invalid
+    #[error("BitcoinAddressError: {0}")]
+    BitcoinAddressError(bitcoin::address::Error),
+    /// Port error for tests
+    #[error("PortError: {0}")]
+    PortError(String),
+}
+
+impl Into<ErrorObject<'static>> for BridgeError {
+    fn into(self) -> ErrorObjectOwned {
+        ErrorObject::owned(-30000, &format!("{:?}", self), Some(1))
+    }
 }
 
 impl From<secp256k1::Error> for BridgeError {
@@ -170,5 +183,11 @@ impl From<MerkleBlockError> for BridgeError {
 impl From<jsonrpsee::core::Error> for BridgeError {
     fn from(err: jsonrpsee::core::Error) -> Self {
         BridgeError::JsonRpcError(err)
+    }
+}
+
+impl From<bitcoin::address::Error> for BridgeError {
+    fn from(err: bitcoin::address::Error) -> Self {
+        BridgeError::BitcoinAddressError(err)
     }
 }

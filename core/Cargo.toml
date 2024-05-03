@@ -8,7 +8,7 @@ clementine-circuits = {path = "../circuits"}
 # operator-circuit = {path = "../circuits/operator"}
 bitcoin = { version = "0.31.1", features = ["rand", "bitcoinconsensus"] }
 bitcoincore-rpc = "0.18.0"
-hex = "0.4.3"
+hex = {version = "0.4.3", features = ["serde"]}
 lazy_static = {version="1.4.0", default-features = false, features = ["spin_no_std"]}
 sha2 = "=0.10.8"
 risc0-zkvm = { version = "0.21.0" }
@@ -20,12 +20,17 @@ crypto-bigint = {version="=0.5.5"}
 thiserror = "1.0.57"
 tracing = "0.1.40"
 tracing-subscriber = {version = "0.3.18", features = ["env-filter"] }
-operator-circuit = {path = "../risc0-guests/operator"}
 tokio = { version = "1.37.0", features = ["full"] }
 jsonrpsee = {version = "0.20.1", features = ["server", "http-client", "macros"]}
 async-trait = "0.1.79"
 futures = "0.3.30"
 dotenv = "0.15.0"
+clap = { version = "4.5.4", features = ["derive"] }
+toml = "0.8.12"
+
+[features]
+default = []
+poc = []
 
 [features]
 mainnet = []
@@ -41,7 +46,5 @@ path = "src/bin/operator_server.rs"
 [[bin]]
 name = "user_deposit"
 path = "src/bin/user_deposit.rs"
-
-[[bin]]
-name = "key_generator"
-path = "src/bin/key_generator.rs"
+    
+    

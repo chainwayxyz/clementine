@@ -1,6 +1,6 @@
 use std::str::FromStr;
 
-#[cfg(feature = "mainnet")]
+#[cfg(feature = "poc")]
 use crate::constants::{
     CONNECTOR_TREE_DEPTH, CONNECTOR_TREE_OPERATOR_TAKES_AFTER, DUST_VALUE, K_DEEP,
     MAX_BITVM_CHALLENGE_RESPONSE_BLOCKS,
@@ -26,6 +26,7 @@ lazy_static! {
 }
 
 // pub type CreateTxOutputs = (bitcoin::Transaction, Vec<TxOut>, Vec<ScriptBuf>);
+#[derive(Debug, Clone)]
 pub struct CreateTxOutputs {
     pub tx: bitcoin::Transaction,
     pub prevouts: Vec<TxOut>,
@@ -38,7 +39,7 @@ pub type CreateAddressOutputs = (Address, TaprootSpendInfo);
 #[derive(Debug, Clone)]
 pub struct TransactionBuilder {
     pub secp: Secp256k1<secp256k1::All>,
-    pub verifiers_pks: Vec<XOnlyPublicKey>,
+    pub verifiers_pks: Vec<XOnlyPublicKey>, // TODO: we don't need this, `config` has already has this information.
     pub script_builder: ScriptBuilder,
     pub config: BridgeConfig,
 }
@@ -131,7 +132,36 @@ impl TransactionBuilder {
         })
     }
 
-    #[cfg(feature = "mainnet")]
+    pub fn create_withdraw_tx(
+        &self,
+        deposit_utxo: OutPoint,
+        deposit_txout: TxOut,
+        withdraw_address: &Address,
+    ) -> Result<CreateTxOutputs, BridgeError> {
+        let anyone_can_spend_txout = ScriptBuilder::anyone_can_spend_txout();
+
+        let (_, bridge_spend_info) = self.generate_bridge_address()?;
+
+        let tx_ins = TransactionBuilder::create_tx_ins(vec![deposit_utxo]);
+        let bridge_txout = TxOut {
+            value: deposit_txout.value
+                - Amount::from_sat(self.config.min_relay_fee)
+                - anyone_can_spend_txout.value,
+            script_pubkey: withdraw_address.script_pubkey(),
+        };
+        let withdraw_tx =
+            TransactionBuilder::create_btc_tx(tx_ins, vec![bridge_txout, anyone_can_spend_txout]);
+        let prevouts = vec![deposit_txout];
+        let bridge_spend_script = vec![self.script_builder.generate_script_n_of_n()];
+        Ok(CreateTxOutputs {
+            tx: withdraw_tx,
+            prevouts,
+            scripts: bridge_spend_script,
+            taproot_spend_infos: vec![bridge_spend_info],
+        })
+    }
+
+    #[cfg(feature = "poc")]
     pub fn create_operator_claim_tx(
         &self,
         bridge_utxo: OutPoint,
@@ -175,7 +205,7 @@ impl TransactionBuilder {
         })
     }
 
-    #[cfg(feature = "mainnet")]
+    #[cfg(feature = "poc")]
     fn create_operator_claim_tx_prevouts(
         &self,
         bridge_address: &Address,
@@ -196,7 +226,7 @@ impl TransactionBuilder {
         ])
     }
 
-    #[cfg(feature = "mainnet")]
+    #[cfg(feature = "poc")]
     /// TODO: Implement the signing part for the connecting to BitVM transactions
     /// This function creates the connector trees using the connector tree hashes.
     /// Starting from the first source UTXO, it creates the connector UTXO trees and
@@ -327,7 +357,7 @@ impl TransactionBuilder {
         tx_ins
     }
 
-    #[cfg(feature = "mainnet")]
+    #[cfg(feature = "poc")]
     fn create_tx_ins_with_sequence(utxos: Vec<OutPoint>) -> Vec<TxIn> {
         let mut tx_ins = Vec::new();
         for utxo in utxos {
@@ -399,7 +429,7 @@ impl TransactionBuilder {
         Ok((address, tree_info))
     }
 
-    #[cfg(feature = "mainnet")]
+    #[cfg(feature = "poc")]
     pub fn create_connector_tree_node_address(
         secp: &Secp256k1<secp256k1::All>,
         actor_pk: &XOnlyPublicKey,
@@ -423,7 +453,7 @@ impl TransactionBuilder {
         Ok((address, tree_info))
     }
 
-    #[cfg(feature = "mainnet")]
+    #[cfg(feature = "poc")]
     pub fn create_inscription_commit_address(
         &self,
         actor_pk: &XOnlyPublicKey,
@@ -443,7 +473,7 @@ impl TransactionBuilder {
         Ok((address, taproot_info, inscribe_preimage_script))
     }
 
-    #[cfg(feature = "mainnet")]
+    #[cfg(feature = "poc")]
     pub fn create_inscription_reveal_tx(
         &self,
         commit_utxo: OutPoint,
@@ -470,7 +500,7 @@ impl TransactionBuilder {
         })
     }
 
-    #[cfg(feature = "mainnet")]
+    #[cfg(feature = "poc")]
     pub fn create_connector_tree_tx(
         utxo: &OutPoint,
         depth: usize,
@@ -499,7 +529,7 @@ impl TransactionBuilder {
         TransactionBuilder::create_btc_tx(tx_ins, tx_outs)
     }
 
-    #[cfg(feature = "mainnet")]
+    #[cfg(feature = "poc")]
     // This function creates the connector binary tree for operator to be able to claim the funds that they paid out of their pocket.
     // Depth will be determined later.
     pub fn create_connector_binary_tree(
@@ -582,7 +612,7 @@ mod tests {
             .iter()
             .map(|pk| XOnlyPublicKey::from_str(pk).unwrap())
             .collect();
-        let tx_builder = TransactionBuilder::new(verifier_pks, BridgeConfig::test_config());
+        let tx_builder = TransactionBuilder::new(verifier_pks, BridgeConfig::new());
         let evm_address: [u8; 20] = hex::decode("1234567890123456789012345678901234567890")
             .unwrap()
             .try_into()
@@ -592,7 +622,7 @@ mod tests {
         )
         .unwrap();
         let deposit_address = tx_builder
-            .generate_deposit_address(&user_xonly_pk, &evm_address, 10_000)
+            .generate_deposit_address(&user_xonly_pk, &crate::EVMAddress(evm_address), 10_000)
             .unwrap();
         println!("deposit_address: {:?}", deposit_address.0);
         assert_eq!(
