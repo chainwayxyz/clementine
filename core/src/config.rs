@@ -47,17 +47,17 @@ use tracing_subscriber::{fmt, EnvFilter};
 /// There are multiple constructers for this struct. Use the one appropriate.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct BridgeConfig {
-    /// tracing debug level.
+    /// Tracing debug level.
     pub tracing_debug: String,
-    /// Host of the operator or verifier
+    /// Host of the operator or the verifier
     pub host: String,
-    /// Port of the operator or verifier
+    /// Port of the operator or the verifier
     pub port: u16,
     /// Bitcoin network to work on.
     pub network: Network,
-    /// Secret key for the operator or verifier.
+    /// Secret key for the operator or the verifier.
     pub secret_key: SecretKey,
-    /// Verfiers public keys inlcuding operator's.
+    /// Verifiers public keys, including operator's.
     pub verifiers_public_keys: Vec<XOnlyPublicKey>,
     /// File path for the mock database.
     pub db_file_path: String,
@@ -75,7 +75,7 @@ pub struct BridgeConfig {
     pub bitcoin_rpc_user: String,
     /// Bitcoin RPC user password.
     pub bitcoin_rpc_password: String,
-    /// All Secret keys just for testing purposes
+    /// All Secret keys. Just for testing purposes.
     pub all_secret_keys: Option<Vec<SecretKey>>,
 }
 

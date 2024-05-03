@@ -39,7 +39,7 @@ pub type CreateAddressOutputs = (Address, TaprootSpendInfo);
 #[derive(Debug, Clone)]
 pub struct TransactionBuilder {
     pub secp: Secp256k1<secp256k1::All>,
-    pub verifiers_pks: Vec<XOnlyPublicKey>,
+    pub verifiers_pks: Vec<XOnlyPublicKey>, // TODO: we don't need this, `config` has already has this information.
     pub script_builder: ScriptBuilder,
     pub config: BridgeConfig,
 }
@@ -136,18 +136,18 @@ impl TransactionBuilder {
         &self,
         deposit_utxo: OutPoint,
         deposit_txout: TxOut,
-        _withdraw_address: &Address,
+        withdraw_address: &Address,
     ) -> Result<CreateTxOutputs, BridgeError> {
         let anyone_can_spend_txout = ScriptBuilder::anyone_can_spend_txout();
 
-        let (bridge_address, bridge_spend_info) = self.generate_bridge_address()?;
+        let (_, bridge_spend_info) = self.generate_bridge_address()?;
 
         let tx_ins = TransactionBuilder::create_tx_ins(vec![deposit_utxo]);
         let bridge_txout = TxOut {
             value: deposit_txout.value
                 - Amount::from_sat(self.config.min_relay_fee)
                 - anyone_can_spend_txout.value,
-            script_pubkey: bridge_address.script_pubkey(),
+            script_pubkey: withdraw_address.script_pubkey(),
         };
         let move_tx =
             TransactionBuilder::create_btc_tx(tx_ins, vec![bridge_txout, anyone_can_spend_txout]);

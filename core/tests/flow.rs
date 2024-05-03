@@ -4,7 +4,7 @@
 
 mod common;
 
-use bitcoin::Address;
+use bitcoin::{Address, Txid};
 use bitcoincore_rpc::Auth;
 use clementine_circuits::constants::BRIDGE_AMOUNT_SATS;
 use clementine_core::config::BridgeConfig;
@@ -29,14 +29,26 @@ async fn deposit_and_withdraw_flow() {
         ),
     );
 
-    flow(config, rpc).await;
+    let (withdraw_txid, withdrawal_address) = flow(config, rpc.clone()).await;
 
     // get the tx details from rpc with txid
-    // check wheter it has an output with the withdrawal address
+    let tx = match rpc.get_raw_transaction(&withdraw_txid, None) {
+        Ok(c) => c,
+        Err(e) => {
+            assert!(false);
+            panic!("Transaction error: {:#?}", e);
+        }
+    };
+    tracing::debug!("Withdraw TXID raw transaction: {:#?}", tx);
+
+    // check whether it has an output with the withdrawal address
+    let rpc_withdraw_script = tx.output[0].script_pubkey.clone();
+    let expected_withdraw_script = withdrawal_address.script_pubkey();
+    assert_eq!(rpc_withdraw_script, expected_withdraw_script);
 }
 
 /// Main flow of the test.
-async fn flow(config: BridgeConfig, rpc: ExtendedRpc) {
+async fn flow(config: BridgeConfig, rpc: ExtendedRpc) -> (Txid, Address) {
     let (operator_client, _operator_handler, _results) =
         start_operator_and_verifiers(config.clone()).await;
     let secp = bitcoin::secp256k1::Secp256k1::new();
@@ -59,12 +71,13 @@ async fn flow(config: BridgeConfig, rpc: ExtendedRpc) {
                 .0
         })
         .collect::<Vec<_>>();
+    tracing::debug!("Deposit addresses: {:#?}", deposit_addresses);
 
     for (idx, deposit_address) in deposit_addresses.iter().enumerate() {
         let deposit_utxo = rpc
             .send_to_address(&deposit_address, BRIDGE_AMOUNT_SATS)
             .unwrap();
-        tracing::debug!("Deposit UTXO: {:?}", deposit_utxo);
+        tracing::debug!("Deposit UTXO #{}: {:#?}", idx, deposit_utxo);
 
         rpc.mine_blocks(18).unwrap();
 
@@ -72,14 +85,17 @@ async fn flow(config: BridgeConfig, rpc: ExtendedRpc) {
             .new_deposit_rpc(deposit_utxo, xonly_pk, evm_addresses[idx])
             .await
             .unwrap();
-        tracing::debug!("Output: {:?}", output);
+        tracing::debug!("Output #{}: {:#?}", idx, output);
     }
 
     let withdrawal_address = Address::p2tr(&secp, xonly_pk, None, config.network);
+    tracing::debug!("Withdrawal sent to address: {:?}", withdrawal_address);
 
     let withdraw_txid = operator_client
         .new_withdrawal_direct_rpc(0, withdrawal_address.as_unchecked().clone())
         .await
         .unwrap();
-    tracing::debug!("Withdrawal TXID: {:?}", withdraw_txid);
+    tracing::debug!("Withdrawal TXID: {:#?}", withdraw_txid);
+
+    (withdraw_txid, withdrawal_address)
 }
