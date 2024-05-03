@@ -4,11 +4,12 @@
 
 mod common;
 
-use bitcoin::{Address, Txid};
+use bitcoin::{Address, Amount, Txid};
 use bitcoincore_rpc::Auth;
 use clementine_circuits::constants::BRIDGE_AMOUNT_SATS;
 use clementine_core::config::BridgeConfig;
 use clementine_core::extended_rpc::ExtendedRpc;
+use clementine_core::script_builder::ScriptBuilder;
 use clementine_core::traits::rpc::OperatorRpcClient;
 use clementine_core::transaction_builder::TransactionBuilder;
 use clementine_core::{start_operator_and_verifiers, EVMAddress};
@@ -29,7 +30,7 @@ async fn deposit_and_withdraw_flow() {
         ),
     );
 
-    let (withdraw_txid, withdrawal_address) = flow(config, rpc.clone()).await;
+    let (withdraw_txid, withdrawal_address) = flow(config.clone(), rpc.clone()).await;
 
     // get the tx details from rpc with txid
     let tx = match rpc.get_raw_transaction(&withdraw_txid, None) {
@@ -43,8 +44,16 @@ async fn deposit_and_withdraw_flow() {
 
     // check whether it has an output with the withdrawal address
     let rpc_withdraw_script = tx.output[0].script_pubkey.clone();
+    let rpc_withdraw_amount = tx.output[0].value;
     let expected_withdraw_script = withdrawal_address.script_pubkey();
     assert_eq!(rpc_withdraw_script, expected_withdraw_script);
+    let anyone_can_spend_amount = ScriptBuilder::anyone_can_spend_txout().value;
+
+    // check ıf the amounts match
+    let expected_withdraw_amount =
+        Amount::from_sat(BRIDGE_AMOUNT_SATS - 2 * config.min_relay_fee.clone())
+            - anyone_can_spend_amount * 2;
+    assert_eq!(expected_withdraw_amount, rpc_withdraw_amount);
 }
 
 /// Main flow of the test.

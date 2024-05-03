@@ -149,12 +149,12 @@ impl TransactionBuilder {
                 - anyone_can_spend_txout.value,
             script_pubkey: withdraw_address.script_pubkey(),
         };
-        let move_tx =
+        let withdraw_tx =
             TransactionBuilder::create_btc_tx(tx_ins, vec![bridge_txout, anyone_can_spend_txout]);
         let prevouts = vec![deposit_txout];
         let bridge_spend_script = vec![self.script_builder.generate_script_n_of_n()];
         Ok(CreateTxOutputs {
-            tx: move_tx,
+            tx: withdraw_tx,
             prevouts,
             scripts: bridge_spend_script,
             taproot_spend_infos: vec![bridge_spend_info],
