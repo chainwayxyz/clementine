@@ -46,11 +46,16 @@ pub fn find_consecutive_idle_ports(port: u16, num: usize) -> Result<u16, BridgeE
                 if idle_ports.len() == num + 1 {
                     break;
                 }
+                tracing::debug!("Ports {:?}-{:?} are available."
+                        ,current_port, current_port + num as u16);
             }
             Err(_e) => {
                 idle_ports.clear();
+                if current_port < port + num as u16 {
+                    tracing::debug!("Ports {:?}-{:?} are not available. Searching for new ports..."
+                        ,current_port, current_port + num as u16);
+                }
                 current_port += 1;
-                // tracing::debug!("Port {:?} is in use: {:?}", current_port, e);
             }
         }
     }
