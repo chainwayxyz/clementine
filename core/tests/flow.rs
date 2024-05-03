@@ -17,10 +17,7 @@ use common::{find_consecutive_idle_ports, get_test_config};
 
 #[tokio::test]
 async fn deposit_and_withdraw_flow() {
-    let config = BridgeConfig::try_parse_file(
-        get_test_config("test_config_deposit_and_withdraw.toml").into(),
-    )
-    .unwrap();
+    let config = get_test_config("test_config_deposit_and_withdraw.toml").unwrap();
 
     let rpc = ExtendedRpc::new(
         config.bitcoin_rpc_url.clone(),
@@ -57,10 +54,7 @@ async fn deposit_and_withdraw_flow() {
 }
 
 /// Main flow of the test.
-async fn flow(mut config: BridgeConfig, rpc: ExtendedRpc) -> (Txid, Address) {
-    let consec_ports = find_consecutive_idle_ports(config.port, config.num_verifiers).unwrap();
-    config.port = consec_ports[0];
-
+async fn flow(config: BridgeConfig, rpc: ExtendedRpc) -> (Txid, Address) {
     let (operator_client, _operator_handler, _results) =
         start_operator_and_verifiers(config.clone()).await;
     let secp = bitcoin::secp256k1::Secp256k1::new();
