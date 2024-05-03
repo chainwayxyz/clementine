@@ -1,26 +1,67 @@
-use bitcoin::Address;
+//! # Deposit and Withdraw Flow Test
+//!
+//! This test checks if basic deposit and withdraw operations are OK or not.
+
+mod common;
+
+use bitcoin::{Address, Amount, Txid};
 use bitcoincore_rpc::Auth;
 use clementine_circuits::constants::BRIDGE_AMOUNT_SATS;
 use clementine_core::config::BridgeConfig;
 use clementine_core::extended_rpc::ExtendedRpc;
+use clementine_core::script_builder::ScriptBuilder;
 use clementine_core::traits::rpc::OperatorRpcClient;
 use clementine_core::transaction_builder::TransactionBuilder;
 use clementine_core::{start_operator_and_verifiers, EVMAddress};
+use common::get_test_config;
 
 #[tokio::test]
-async fn test_should_deposit_and_withdraw() {
-    let base_path = env!("CARGO_MANIFEST_DIR");
-    let config_path = format!("{}/tests/data/test_config_1.toml", base_path);
-    let config = BridgeConfig::try_parse_file(config_path.into()).unwrap();
+async fn deposit_and_withdraw_flow() {
+    let config = BridgeConfig::try_parse_file(
+        get_test_config("test_config_deposit_and_withdraw.toml").into(),
+    )
+    .unwrap();
 
-    tracing::debug!("Config: {:?}", config);
-    tracing::debug!("Verifiers public keys: {:?}", config.verifiers_public_keys);
+    let rpc = ExtendedRpc::new(
+        config.bitcoin_rpc_url.clone(),
+        Auth::UserPass(
+            config.bitcoin_rpc_user.clone(),
+            config.bitcoin_rpc_password.clone(),
+        ),
+    );
 
-    let (operator_client, operator_handler, results) =
+    let (withdraw_txid, withdrawal_address) = flow(config.clone(), rpc.clone()).await;
+
+    // get the tx details from rpc with txid
+    let tx = match rpc.get_raw_transaction(&withdraw_txid, None) {
+        Ok(c) => c,
+        Err(e) => {
+            assert!(false);
+            panic!("Transaction error: {:#?}", e);
+        }
+    };
+    tracing::debug!("Withdraw TXID raw transaction: {:#?}", tx);
+
+    // check whether it has an output with the withdrawal address
+    let rpc_withdraw_script = tx.output[0].script_pubkey.clone();
+    let rpc_withdraw_amount = tx.output[0].value;
+    let expected_withdraw_script = withdrawal_address.script_pubkey();
+    assert_eq!(rpc_withdraw_script, expected_withdraw_script);
+    let anyone_can_spend_amount = ScriptBuilder::anyone_can_spend_txout().value;
+
+    // check ıf the amounts match
+    let expected_withdraw_amount =
+        Amount::from_sat(BRIDGE_AMOUNT_SATS - 2 * config.min_relay_fee.clone())
+            - anyone_can_spend_amount * 2;
+    assert_eq!(expected_withdraw_amount, rpc_withdraw_amount);
+}
+
+/// Main flow of the test.
+async fn flow(config: BridgeConfig, rpc: ExtendedRpc) -> (Txid, Address) {
+    let (operator_client, _operator_handler, _results) =
         start_operator_and_verifiers(config.clone()).await;
     let secp = bitcoin::secp256k1::Secp256k1::new();
     let (xonly_pk, _) = config.secret_key.public_key(&secp).x_only_public_key();
-    tracing::debug!("Verifiers public keys: {:?}", config.verifiers_public_keys);
     let tx_builder = TransactionBuilder::new(config.verifiers_public_keys.clone(), config.clone());
 
     let evm_addresses = vec![
@@ -39,61 +80,31 @@ async fn test_should_deposit_and_withdraw() {
                 .0
         })
         .collect::<Vec<_>>();
-
-    println!("User: {:?}", xonly_pk.to_string());
-
-    tracing::debug!(
-        "Config: {:?} {:?} {:?}",
-        config.bitcoin_rpc_url,
-        config.bitcoin_rpc_user,
-        config.bitcoin_rpc_password
-    );
-
-    let rpc = ExtendedRpc::new(
-        config.bitcoin_rpc_url.clone(),
-        Auth::UserPass(
-            config.bitcoin_rpc_user.clone(),
-            config.bitcoin_rpc_password.clone(),
-        ),
-    );
+    tracing::debug!("Deposit addresses: {:#?}", deposit_addresses);
 
     for (idx, deposit_address) in deposit_addresses.iter().enumerate() {
         let deposit_utxo = rpc
             .send_to_address(&deposit_address, BRIDGE_AMOUNT_SATS)
             .unwrap();
-        println!("Deposit UTXO: {:?}", deposit_utxo);
+        tracing::debug!("Deposit UTXO #{}: {:#?}", idx, deposit_utxo);
+
         rpc.mine_blocks(18).unwrap();
+
         let output = operator_client
             .new_deposit_rpc(deposit_utxo, xonly_pk, evm_addresses[idx])
             .await
             .unwrap();
-        println!("Output: {:?}", output);
+        tracing::debug!("Output #{}: {:#?}", idx, output);
     }
 
     let withdrawal_address = Address::p2tr(&secp, xonly_pk, None, config.network);
+    tracing::debug!("Withdrawal sent to address: {:?}", withdrawal_address);
 
     let withdraw_txid = operator_client
         .new_withdrawal_direct_rpc(0, withdrawal_address.as_unchecked().clone())
         .await
         .unwrap();
-    tracing::debug!("Withdrawal TXID: {:?}", withdraw_txid);
+    tracing::debug!("Withdrawal TXID: {:#?}", withdraw_txid);
 
-    // get the tx details from rpc with txid
-    // check wheter it has an output with the withdrawal address
-
-    let op_res = operator_handler.is_stopped();
-    let ver_res = results
-        .iter()
-        .all(|(_, verifier_handler)| verifier_handler.is_stopped());
-    assert!(!(op_res || ver_res));
-    let op_res = operator_handler.stop().unwrap();
-    let mut ver_res = Vec::new();
-    for (_, verifier_handler) in results {
-        ver_res.push(verifier_handler.stop().unwrap());
-    }
-    println!("Operator stopped: {:?}", op_res);
-    for (i, res) in ver_res.iter().enumerate() {
-        println!("Verifier {} stopped: {:?}", i, res);
-    }
-    println!("All servers stopped");
+    (withdraw_txid, withdrawal_address)
 }

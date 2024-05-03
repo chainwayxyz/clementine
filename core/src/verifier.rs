@@ -95,7 +95,11 @@ impl Verifier {
             vout: 0,
         };
 
-        tracing::debug!("Verifier with public key {:?} is signing {:?}.", self.signer.xonly_public_key.to_string(), move_txid);
+        tracing::debug!(
+            "Verifier with public key {:?} is signing {:?}.",
+            self.signer.xonly_public_key.to_string(),
+            move_txid
+        );
         let move_sig = self
             .signer
             .sign_taproot_script_spend_tx_new(&mut move_tx, 0)?;
