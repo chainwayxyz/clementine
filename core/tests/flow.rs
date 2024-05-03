@@ -7,20 +7,17 @@ mod common;
 use bitcoin::{Address, Amount, Txid};
 use bitcoincore_rpc::Auth;
 use clementine_circuits::constants::BRIDGE_AMOUNT_SATS;
-use clementine_core::config::BridgeConfig;
 use clementine_core::extended_rpc::ExtendedRpc;
 use clementine_core::script_builder::ScriptBuilder;
 use clementine_core::traits::rpc::OperatorRpcClient;
 use clementine_core::transaction_builder::TransactionBuilder;
-use clementine_core::{start_operator_and_verifiers, EVMAddress};
-use common::get_test_config;
+use clementine_core::EVMAddress;
+use clementine_core::{config::BridgeConfig, start_operator_and_verifiers};
+use common::{find_consecutive_idle_ports, get_test_config};
 
 #[tokio::test]
 async fn deposit_and_withdraw_flow() {
-    let config = BridgeConfig::try_parse_file(
-        get_test_config("test_config_deposit_and_withdraw.toml").into(),
-    )
-    .unwrap();
+    let config = get_test_config("test_config_deposit_and_withdraw.toml").unwrap();
 
     let rpc = ExtendedRpc::new(
         config.bitcoin_rpc_url.clone(),
@@ -107,4 +104,10 @@ async fn flow(config: BridgeConfig, rpc: ExtendedRpc) -> (Txid, Address) {
     tracing::debug!("Withdrawal TXID: {:#?}", withdraw_txid);
 
     (withdraw_txid, withdrawal_address)
+}
+
+#[tokio::test]
+async fn test_ports() {
+    let res = find_consecutive_idle_ports(0, 5).unwrap();
+    println!("{:?}", res);
 }

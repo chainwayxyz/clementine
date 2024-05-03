@@ -113,6 +113,9 @@ pub enum BridgeError {
     /// Bitcoin Address Error, probably given address network is invalid
     #[error("BitcoinAddressError: {0}")]
     BitcoinAddressError(bitcoin::address::Error),
+    /// Port error for tests
+    #[error("PortError: {0}")]
+    PortError(String),
 }
 
 impl Into<ErrorObject<'static>> for BridgeError {
