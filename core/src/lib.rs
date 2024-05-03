@@ -77,7 +77,6 @@ pub async fn create_verifier_server(
 pub async fn create_operator_server(
     config: BridgeConfig,
     verifier_endpoints: Vec<String>,
-    operator_port: u16,
 ) -> Result<(std::net::SocketAddr, ServerHandle), BridgeError> {
     let rpc = ExtendedRpc::new(
         config.bitcoin_rpc_url.clone(),
@@ -106,7 +105,7 @@ pub async fn create_operator_server(
     .unwrap();
 
     let server = Server::builder()
-        .build(format!("{}:{}", config.host, operator_port))
+        .build(format!("{}:{}", config.host, config.port))
         .await?;
 
     let addr = server.local_addr()?;
@@ -126,8 +125,6 @@ pub async fn start_operator_and_verifiers(
     });
     all_secret_keys.pop().unwrap(); // Remove the operator secret key
 
-    let consec_ports = find_consecutive_idle_ports().await.unwrap();
-
     let futures = all_secret_keys
         .iter()
         .enumerate() // This adds the index to the iterator
@@ -135,7 +132,7 @@ pub async fn start_operator_and_verifiers(
             create_verifier_server(BridgeConfig {
                 verifiers_public_keys: config.verifiers_public_keys.clone(),
                 secret_key: *sk,
-                port: consec_ports[i], // Use the index to calculate the port
+                port: config.port + i as u16 + 1, // Use the index to calculate the port
                 db_file_path: format!("{}{}", config.db_file_path.clone(), i.to_string()),
                 ..config.clone()
             })
@@ -150,7 +147,7 @@ pub async fn start_operator_and_verifiers(
         .collect::<Vec<_>>();
 
     let (operator_socket_addr, operator_handle) =
-        create_operator_server(config, verifier_endpoints, consec_ports[4])
+        create_operator_server(config, verifier_endpoints)
             .await
             .unwrap();
 
@@ -164,31 +161,4 @@ pub async fn start_operator_and_verifiers(
     results.push((operator_socket_addr, operator_handle.clone()));
 
     (operator_client, operator_handle, results)
-}
-
-use std::net::TcpListener;
-
-pub async fn find_consecutive_idle_ports() -> Result<Vec<u16>, String> {
-    let mut idle_ports = Vec::new();
-    let mut current_port = 0;
-    while current_port < 65535 {
-        match TcpListener::bind(("0.0.0.0", current_port)) {
-            Ok(_) => {
-                idle_ports.push(current_port);
-                current_port += 1;
-                if idle_ports.len() == 5 {
-                    break;
-                }
-            }
-            Err(_) => {
-                idle_ports.clear();
-                current_port += 1;
-            }
-        }
-    }
-    if idle_ports.len() == 5 {
-        Ok(idle_ports)
-    } else {
-        Err("No consecutive idle ports found".to_string())
-    }
 }
