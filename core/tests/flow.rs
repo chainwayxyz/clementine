@@ -12,7 +12,7 @@ use clementine_core::extended_rpc::ExtendedRpc;
 use clementine_core::script_builder::ScriptBuilder;
 use clementine_core::traits::rpc::OperatorRpcClient;
 use clementine_core::transaction_builder::TransactionBuilder;
-use clementine_core::{start_operator_and_verifiers, EVMAddress};
+use clementine_core::{find_consecutive_idle_ports, start_operator_and_verifiers, EVMAddress};
 use common::get_test_config;
 
 #[tokio::test]
@@ -107,4 +107,10 @@ async fn flow(config: BridgeConfig, rpc: ExtendedRpc) -> (Txid, Address) {
     tracing::debug!("Withdrawal TXID: {:#?}", withdraw_txid);
 
     (withdraw_txid, withdrawal_address)
+}
+
+#[tokio::test]
+async fn test_ports() {
+    let res = find_consecutive_idle_ports().await.unwrap();
+    println!("{:?}", res);
 }
