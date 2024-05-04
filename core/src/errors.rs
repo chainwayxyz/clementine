@@ -116,6 +116,9 @@ pub enum BridgeError {
     /// Port error for tests
     #[error("PortError: {0}")]
     PortError(String),
+    /// Database error
+    #[error("DatabaseError: {0}")]
+    DatabaseError(sqlx::Error),
 }
 
 impl Into<ErrorObject<'static>> for BridgeError {
