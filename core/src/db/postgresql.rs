@@ -19,9 +19,11 @@ use sqlx::{Pool, Postgres};
 
 pub struct PostgreSQLDB {
     host: String,
+    database: String,
     user: String,
     password: String,
     port: usize,
+    connection: Option<Pool<Postgres>>,
 }
 
 impl PostgreSQLDB {
@@ -35,11 +37,23 @@ impl PostgreSQLDB {
         }
     }
 
-    pub async fn connect(&self) -> Result<Pool<Postgres>, BridgeError> {
-        match sqlx::PgPool::connect(self.host.as_str()).await {
-            Ok(c) => Ok(c),
-            Err(e) => Err(BridgeError::DatabaseError(e)),
-        }
+    pub async fn connect(&mut self) -> Result<(), BridgeError> {
+        let url = "postgresql://".to_owned()
+            + self.host.as_str()
+            + "?dbname="
+            + self.database.as_str()
+            + "&user="
+            + self.user.as_str()
+            + "&password="
+            + self.password.as_str();
+        println!("Connecting database: {}", url);
+
+        self.connection = match sqlx::PgPool::connect(url.as_str()).await {
+            Ok(c) => Some(c),
+            Err(e) => return Err(BridgeError::DatabaseError(e)),
+        };
+
+        Ok(())
     }
 }
 
@@ -47,9 +61,11 @@ impl Default for PostgreSQLDB {
     fn default() -> Self {
         Self {
             host: "postgres".to_string(),
+            database: "postgres".to_string(),
             user: "postgres".to_string(),
             password: "postgres".to_string(),
             port: 5432,
+            connection: None,
         }
     }
 }
@@ -59,7 +75,23 @@ mod tests {
     use super::PostgreSQLDB;
     use crate::config::BridgeConfig;
 
-    /// An error should be returned if database connection is invalid.
+    #[test]
+    fn new_from_config() {
+        let mut config = BridgeConfig::new();
+        config.db_host = "new_from_config".to_string();
+        config.db_user = "new_from_config".to_string();
+        config.db_password = "new_from_config".to_string();
+        config.db_port = 123;
+
+        let db: PostgreSQLDB = PostgreSQLDB::new(config.clone());
+
+        assert_eq!(db.host, config.db_host);
+        assert_eq!(db.user, config.db_user);
+        assert_eq!(db.password, config.db_password);
+        assert_eq!(db.port, config.db_port);
+    }
+
+    /// An error should be returned if database configuration is invalid.
     #[tokio::test]
     async fn invalid_connection() {
         let mut config = BridgeConfig::new();
@@ -68,15 +100,37 @@ mod tests {
         config.db_password = "nonexistingpassword".to_string();
         config.db_port = 123;
 
-        let db: PostgreSQLDB = PostgreSQLDB::new(config);
+        let mut db: PostgreSQLDB = PostgreSQLDB::new(config);
 
         match db.connect().await {
-            Ok(_connection) => {
+            Ok(()) => {
                 assert!(false);
             }
             Err(e) => {
                 println!("{}", e);
                 assert!(true);
+            }
+        };
+    }
+
+    /// A connection object should be returned if database configuration is
+    /// valid. This test is ignored because of the host environment must be set
+    /// as the same as the parameters here. Ignored test can be run if host is
+    /// configured as needed.
+    #[tokio::test]
+    #[ignore]
+    async fn valid_connection() {
+        let config = BridgeConfig::new();
+
+        let mut db: PostgreSQLDB = PostgreSQLDB::new(config);
+
+        match db.connect().await {
+            Ok(()) => {
+                assert!(true);
+            }
+            Err(e) => {
+                eprintln!("{}", e);
+                assert!(false);
             }
         };
     }
