@@ -29,6 +29,7 @@ pub mod merkle;
 pub mod mock_env;
 pub mod operator;
 pub mod script_builder;
+pub mod test_common;
 pub mod traits;
 pub mod transaction_builder;
 pub mod user;
