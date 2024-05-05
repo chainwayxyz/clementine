@@ -73,7 +73,7 @@ impl Default for PostgreSQLDB {
 #[cfg(test)]
 mod tests {
     use super::PostgreSQLDB;
-    use crate::config::BridgeConfig;
+    use crate::{config::BridgeConfig, test_common};
 
     #[test]
     fn new_from_config() {
@@ -114,13 +114,18 @@ mod tests {
     }
 
     /// A connection object should be returned if database configuration is
-    /// valid. This test is ignored because of the host environment must be set
-    /// as the same as the parameters here. Ignored test can be run if host is
-    /// configured as needed.
+    /// valid.
+    ///
+    /// This test is ignored because of host environment might not have a
+    /// PostgreSQL installed. If it is intalled and configured correctly,
+    /// `test_common::ENV_CONF_FILE` can be set as environment variable and
+    /// test can be run with `--include-ignored` flag.
     #[tokio::test]
     #[ignore]
     async fn valid_connection() {
-        let config = BridgeConfig::new();
+        let config =
+            test_common::get_test_config_from_environment("test_config_1.toml".to_string())
+                .unwrap();
 
         let mut db: PostgreSQLDB = PostgreSQLDB::new(config);
 
