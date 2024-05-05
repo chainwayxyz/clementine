@@ -30,6 +30,7 @@ impl PostgreSQLDB {
     pub fn new(config: BridgeConfig) -> Self {
         Self {
             host: config.db_host,
+            database: config.db_name,
             user: config.db_user,
             password: config.db_password,
             port: config.db_port,
@@ -79,6 +80,7 @@ mod tests {
     fn new_from_config() {
         let mut config = BridgeConfig::new();
         config.db_host = "new_from_config".to_string();
+        config.db_name = "new_from_config".to_string();
         config.db_user = "new_from_config".to_string();
         config.db_password = "new_from_config".to_string();
         config.db_port = 123;
@@ -96,6 +98,7 @@ mod tests {
     async fn invalid_connection() {
         let mut config = BridgeConfig::new();
         config.db_host = "nonexistinghost".to_string();
+        config.db_name = "nonexistingpassword".to_string();
         config.db_user = "nonexistinguser".to_string();
         config.db_password = "nonexistingpassword".to_string();
         config.db_port = 123;
@@ -124,8 +127,7 @@ mod tests {
     #[ignore]
     async fn valid_connection() {
         let config =
-            test_common::get_test_config_from_environment("test_config.toml".to_string())
-                .unwrap();
+            test_common::get_test_config_from_environment("test_config.toml".to_string()).unwrap();
 
         let mut db: PostgreSQLDB = PostgreSQLDB::new(config);
 
