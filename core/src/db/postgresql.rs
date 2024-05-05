@@ -124,7 +124,7 @@ mod tests {
     #[ignore]
     async fn valid_connection() {
         let config =
-            test_common::get_test_config_from_environment("test_config_1.toml".to_string())
+            test_common::get_test_config_from_environment("test_config.toml".to_string())
                 .unwrap();
 
         let mut db: PostgreSQLDB = PostgreSQLDB::new(config);
