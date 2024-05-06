@@ -41,6 +41,8 @@ impl PostgreSQLDB {
     pub async fn connect(&mut self) -> Result<(), BridgeError> {
         let url = "postgresql://".to_owned()
             + self.host.as_str()
+            + ":"
+            + self.port.to_string().as_str()
             + "?dbname="
             + self.database.as_str()
             + "&user="
