@@ -15,8 +15,10 @@
 //! ## Module Capabilities
 
 use crate::{config::BridgeConfig, errors::BridgeError};
-use sqlx::{Pool, Postgres};
+use sqlx::{postgres::PgRow, Pool, Postgres};
+use std::io::Error;
 
+#[derive(Debug, Clone)]
 pub struct PostgreSQLDB {
     host: String,
     database: String,
@@ -38,6 +40,19 @@ impl PostgreSQLDB {
         }
     }
 
+    async fn run_query(&self, query: &str) -> Result<Vec<PgRow>, sqlx::Error> {
+        tracing::debug!("Running query: {}", query);
+
+        let conn = match self.connection.clone() {
+            Some(c) => c,
+            None => return Err(sqlx::Error::Io(Error::last_os_error())),
+        };
+
+        let res = sqlx::query(query).fetch_all(&conn).await;
+
+        res
+    }
+
     pub async fn connect(&mut self) -> Result<(), BridgeError> {
         let url = "postgresql://".to_owned()
             + self.host.as_str()
@@ -49,12 +64,28 @@ impl PostgreSQLDB {
             + self.user.as_str()
             + "&password="
             + self.password.as_str();
-        println!("Connecting database: {}", url);
+        tracing::debug!("Connecting database: {}", url);
 
         self.connection = match sqlx::PgPool::connect(url.as_str()).await {
             Ok(c) => Some(c),
             Err(e) => return Err(BridgeError::DatabaseError(e)),
         };
+
+        Ok(())
+    }
+
+    /// Reads given table's contents.
+    pub async fn read(&self, table: &str) -> Result<Vec<PgRow>, sqlx::Error> {
+        let query = format!("SELECT * FROM {};", table);
+        let res = self.run_query(query.as_str()).await?;
+
+        Ok(res)
+    }
+
+    /// Insert given data to given table.
+    pub async fn write(&self, table: &str, value: &str) -> Result<(), sqlx::Error> {
+        let query = format!("INSERT INTO {} VALUES ({});", table, value);
+        self.run_query(query.as_str()).await?;
 
         Ok(())
     }
@@ -77,6 +108,7 @@ impl Default for PostgreSQLDB {
 mod tests {
     use super::PostgreSQLDB;
     use crate::{config::BridgeConfig, test_common};
+    use sqlx::Row;
 
     #[test]
     fn new_from_config() {
@@ -142,5 +174,58 @@ mod tests {
                 assert!(false);
             }
         };
+    }
+
+    #[tokio::test]
+    async fn write_read_string() {
+        let config =
+            test_common::get_test_config_from_environment("test_config.toml".to_string()).unwrap();
+
+        let mut db: PostgreSQLDB = PostgreSQLDB::new(config);
+
+        db.connect().await.unwrap();
+
+        db.write("test_table", "'test_data'").await.unwrap();
+
+        let ret = db.read("test_table").await.unwrap();
+        let mut is_found: bool = false;
+
+        for i in ret {
+            if i.get::<String, _>(0) == "test_data" {
+                is_found = true;
+                break;
+            }
+        }
+
+        assert!(is_found);
+    }
+
+    #[tokio::test]
+    async fn write_read_int() {
+        let config =
+            test_common::get_test_config_from_environment("test_config.toml".to_string()).unwrap();
+
+        let mut db: PostgreSQLDB = PostgreSQLDB::new(config);
+
+        db.connect().await.unwrap();
+
+        db.write(
+            "test_table",
+            ("'temp',".to_string() + 0x45.to_string().as_str()).as_str(),
+        )
+        .await
+        .unwrap();
+
+        let ret = db.read("test_table").await.unwrap();
+        let mut is_found: bool = false;
+
+        for i in ret {
+            if let Ok(0x45) = i.try_get::<i32, _>(1) {
+                is_found = true;
+                break;
+            }
+        }
+
+        assert!(is_found);
     }
 }
