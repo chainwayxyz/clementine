@@ -42,7 +42,7 @@ pub struct DatabaseContent {
     period_relative_block_heights: Vec<u32>,
 }
 impl DatabaseContent {
-    pub fn new() -> Self {
+    pub fn _new() -> Self {
         Self {
             inscribed_connector_tree_preimages: Vec::new(),
             withdrawals_merkle_tree: MerkleTree::new(),
@@ -62,7 +62,7 @@ impl DatabaseContent {
 #[derive(Clone, Debug)]
 pub struct Database {
     connection: Pool<Postgres>,
-    lock: Arc<Mutex<usize>>,
+    _lock: Arc<Mutex<usize>>,
 }
 
 /// First pack of implementation for the `Database`. This pack includes general
@@ -85,7 +85,7 @@ impl Database {
         match sqlx::PgPool::connect(url.as_str()).await {
             Ok(c) => Ok(Self {
                 connection: c,
-                lock: Arc::new(Mutex::new(0)),
+                _lock: Arc::new(Mutex::new(0)),
             }),
             Err(e) => Err(BridgeError::DatabaseError(e)),
         }

@@ -290,6 +290,12 @@ impl Operator {
                 }
             }
         }
+
+        // Transaction is OK, write it to the database.
+        self.operator_db_connector
+            .add_deposit_transaction(start_utxo, *return_address, *evm_address)
+            .await?;
+
         Ok(move_utxo)
     }
 
