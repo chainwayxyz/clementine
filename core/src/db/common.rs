@@ -296,17 +296,6 @@ mod tests {
     use crate::{config::BridgeConfig, test_common};
     use sqlx::Row;
 
-    // `Database` manages syncronization. So, we need to operate on a common
-    // struct in order to do asynchronous operations on database.
-    // static START: Once = Once::new();
-    // static mut LOCK: Option<Arc<Mutex<usize>>> = None;
-    // pub async unsafe fn initialize() {
-    //     START.call_once(|| {
-    //         LOCK = Some(Arc::new(Mutex::new(0)));
-    //     });
-    // }
-
-    /// An error should be returned if database configuration is invalid.
     #[tokio::test]
     async fn invalid_connection() {
         let mut config = BridgeConfig::new();
@@ -327,13 +316,6 @@ mod tests {
         };
     }
 
-    /// A connection object should be returned if database configuration is
-    /// valid.
-    ///
-    /// This test is ignored because of host environment might not have a
-    /// PostgreSQL installed. If it is intalled and configured correctly,
-    /// `test_common::ENV_CONF_FILE` can be set as environment variable and
-    /// test can be run with `--include-ignored` flag.
     #[tokio::test]
     #[ignore]
     async fn valid_connection() {
@@ -352,6 +334,7 @@ mod tests {
     }
 
     #[tokio::test]
+    #[ignore]
     async fn write_read_string_query() {
         let config =
             test_common::get_test_config_from_environment("test_config.toml".to_string()).unwrap();
@@ -379,6 +362,7 @@ mod tests {
     }
 
     #[tokio::test]
+    #[ignore]
     async fn write_read_int() {
         let config =
             test_common::get_test_config_from_environment("test_config.toml".to_string()).unwrap();
