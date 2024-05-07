@@ -7,7 +7,7 @@ use bitcoincore_rpc::Auth;
 use clementine_circuits::constants::BRIDGE_AMOUNT_SATS;
 use clementine_core::extended_rpc::ExtendedRpc;
 use clementine_core::script_builder::ScriptBuilder;
-use clementine_core::test_common::{find_consecutive_idle_ports, get_test_config};
+use clementine_core::test_common::{find_consecutive_idle_ports, get_test_config_from_environment};
 use clementine_core::traits::rpc::OperatorRpcClient;
 use clementine_core::transaction_builder::TransactionBuilder;
 use clementine_core::EVMAddress;
@@ -15,7 +15,7 @@ use clementine_core::{config::BridgeConfig, start_operator_and_verifiers};
 
 #[tokio::test]
 async fn deposit_and_withdraw_flow() {
-    let config = get_test_config("test_config_deposit_and_withdraw.toml").unwrap();
+    let config = get_test_config_from_environment("test_config_deposit_and_withdraw.toml".to_string()).unwrap();
 
     let rpc = ExtendedRpc::new(
         config.bitcoin_rpc_url.clone(),
