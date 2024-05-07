@@ -230,11 +230,11 @@ impl Operator {
             vout: 0,
         };
 
-        self.operator_db_connector
-            .add_to_deposit_txs((rpc_move_txid, move_tx.tx.output[0].clone()))
-            .await;
         #[cfg(feature = "poc")]
         {
+            self.operator_db_connector
+                .add_to_deposit_txs((rpc_move_txid, move_tx.tx.output[0].clone()))
+                .await;
             let operator_claim_sigs = OperatorClaimSigs {
                 operator_claim_sigs: presigns_from_all_verifiers
                     .iter()
@@ -343,6 +343,8 @@ impl Operator {
         ))
     }
 
+
+    #[cfg(feature = "poc")]
     // this is called when a Withdrawal event emitted on rollup and its corresponding batch proof is finalized
     pub async fn new_withdrawal(
         &self,
