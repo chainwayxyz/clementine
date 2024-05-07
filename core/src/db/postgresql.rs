@@ -16,67 +16,54 @@
 
 use crate::{config::BridgeConfig, errors::BridgeError};
 use sqlx::{postgres::PgRow, Pool, Postgres};
-use std::io::Error;
 
 #[derive(Debug, Clone)]
 pub struct PostgreSQLDB {
-    host: String,
-    database: String,
-    user: String,
-    password: String,
-    port: usize,
-    connection: Option<Pool<Postgres>>,
+    // host: String,
+    // database: String,
+    // user: String,
+    // password: String,
+    // port: usize,
+    connection: Pool<Postgres>,
 }
 
 impl PostgreSQLDB {
     /// Creates a new `PostgreSQLDB` and copies configuration from given
-    /// `BridgeConfig`.
-    pub fn new(config: BridgeConfig) -> Self {
-        Self {
-            host: config.db_host,
-            database: config.db_name,
-            user: config.db_user,
-            password: config.db_password,
-            port: config.db_port,
-            ..Default::default()
+    /// `BridgeConfig`. Then tries to connect to it.
+    pub async fn new(config: BridgeConfig) -> Result<Self, BridgeError> {
+        let url = "postgresql://".to_owned()
+            + config.db_host.as_str()
+            + ":"
+            + config.db_port.to_string().as_str()
+            + "?dbname="
+            + config.db_name.as_str()
+            + "&user="
+            + config.db_user.as_str()
+            + "&password="
+            + config.db_password.as_str();
+        tracing::debug!("Connecting database: {}", url);
+
+        match sqlx::PgPool::connect(url.as_str()).await {
+            Ok(c) => Ok(Self {
+                // host: config.db_host,
+                // database: config.db_name,
+                // user: config.db_user,
+                // password: config.db_password,
+                // port: config.db_port,
+                connection: c,
+            }),
+            Err(e) => Err(BridgeError::DatabaseError(e)),
         }
     }
 
     /// Private function that runs given query through database and returns
     /// result.
-    async fn run_query(&self, query: &str) -> Result<Vec<PgRow>, sqlx::Error> {
+    pub async fn run_query(&self, query: &str) -> Result<Vec<PgRow>, sqlx::Error> {
         tracing::debug!("Running query: {}", query);
 
-        let conn = match self.connection.clone() {
-            Some(c) => c,
-            None => return Err(sqlx::Error::Io(Error::last_os_error())),
-        };
-
-        let res = sqlx::query(query).fetch_all(&conn).await;
+        let res = sqlx::query(query).fetch_all(&self.connection).await;
 
         res
-    }
-
-    /// Start a pool connection to PostgreSQL database.
-    pub async fn connect(&mut self) -> Result<(), BridgeError> {
-        let url = "postgresql://".to_owned()
-            + self.host.as_str()
-            + ":"
-            + self.port.to_string().as_str()
-            + "?dbname="
-            + self.database.as_str()
-            + "&user="
-            + self.user.as_str()
-            + "&password="
-            + self.password.as_str();
-        tracing::debug!("Connecting database: {}", url);
-
-        self.connection = match sqlx::PgPool::connect(url.as_str()).await {
-            Ok(c) => Some(c),
-            Err(e) => return Err(BridgeError::DatabaseError(e)),
-        };
-
-        Ok(())
     }
 
     /// Reads specified table's contents.
@@ -96,40 +83,23 @@ impl PostgreSQLDB {
     }
 }
 
-impl Default for PostgreSQLDB {
-    fn default() -> Self {
-        Self {
-            host: "postgres".to_string(),
-            database: "postgres".to_string(),
-            user: "postgres".to_string(),
-            password: "postgres".to_string(),
-            port: 5432,
-            connection: None,
-        }
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::PostgreSQLDB;
     use crate::{config::BridgeConfig, test_common};
     use sqlx::Row;
 
-    #[test]
-    fn new_from_config() {
-        let mut config = BridgeConfig::new();
-        config.db_host = "new_from_config".to_string();
-        config.db_name = "new_from_config".to_string();
-        config.db_user = "new_from_config".to_string();
-        config.db_password = "new_from_config".to_string();
-        config.db_port = 123;
+    #[tokio::test]
+    async fn new_from_config() {
+        let config: BridgeConfig =
+            test_common::get_test_config_from_environment("test_config.toml".to_string()).unwrap();
 
-        let db: PostgreSQLDB = PostgreSQLDB::new(config.clone());
+        let _ = PostgreSQLDB::new(config.clone()).await.unwrap();
 
-        assert_eq!(db.host, config.db_host);
-        assert_eq!(db.user, config.db_user);
-        assert_eq!(db.password, config.db_password);
-        assert_eq!(db.port, config.db_port);
+        // assert_eq!(db.host, config.db_host);
+        // assert_eq!(db.user, config.db_user);
+        // assert_eq!(db.password, config.db_password);
+        // assert_eq!(db.port, config.db_port);
     }
 
     /// An error should be returned if database configuration is invalid.
@@ -142,10 +112,8 @@ mod tests {
         config.db_password = "nonexistingpassword".to_string();
         config.db_port = 123;
 
-        let mut db: PostgreSQLDB = PostgreSQLDB::new(config);
-
-        match db.connect().await {
-            Ok(()) => {
+        match PostgreSQLDB::new(config.clone()).await {
+            Ok(_) => {
                 assert!(false);
             }
             Err(e) => {
@@ -165,13 +133,11 @@ mod tests {
     #[tokio::test]
     #[ignore]
     async fn valid_connection() {
-        let config =
+        let config: BridgeConfig =
             test_common::get_test_config_from_environment("test_config.toml".to_string()).unwrap();
 
-        let mut db: PostgreSQLDB = PostgreSQLDB::new(config);
-
-        match db.connect().await {
-            Ok(()) => {
+        match PostgreSQLDB::new(config).await {
+            Ok(_) => {
                 assert!(true);
             }
             Err(e) => {
@@ -186,9 +152,7 @@ mod tests {
         let config =
             test_common::get_test_config_from_environment("test_config.toml".to_string()).unwrap();
 
-        let mut db: PostgreSQLDB = PostgreSQLDB::new(config);
-
-        db.connect().await.unwrap();
+        let db: PostgreSQLDB = PostgreSQLDB::new(config).await.unwrap();
 
         db.write("test_table", "'test_data'").await.unwrap();
 
@@ -210,9 +174,7 @@ mod tests {
         let config =
             test_common::get_test_config_from_environment("test_config.toml".to_string()).unwrap();
 
-        let mut db: PostgreSQLDB = PostgreSQLDB::new(config);
-
-        db.connect().await.unwrap();
+        let db: PostgreSQLDB = PostgreSQLDB::new(config).await.unwrap();
 
         db.write(
             "test_table",
