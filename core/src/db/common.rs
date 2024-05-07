@@ -142,7 +142,7 @@ impl Database {
         let ea = ea.trim_matches('"');
 
         let query = format!(
-            "INSERT INTO deposit_transactions VALUES ('{}', '{}', '{}')",
+            "INSERT INTO deposit_transactions VALUES ('{}', '{}', '{}');",
             sutxo, ra, ea
         );
 
@@ -222,11 +222,9 @@ impl Database {
         self.write(content);
     }
 
-    // #[cfg(poc)]
     pub async fn get_deposit_tx(&self, _idx: usize) -> (Txid, TxOut) {
-        // let content = self.read();
-        // content.deposit_txs[idx].clone()
-        todo!()
+        let tmp: Vec<(Txid, TxOut)> = Vec::new();
+        tmp[0].clone()
     }
 
     #[cfg(poc)]
@@ -405,7 +403,7 @@ mod tests {
             .unwrap();
 
         let ret = database
-            .run_query("SELECT * FROM test_table")
+            .run_query("SELECT * FROM test_table;")
             .await
             .unwrap();
 
@@ -428,12 +426,12 @@ mod tests {
         let database = Database::new(config).await.unwrap();
 
         database
-            .run_query("INSERT INTO test_table VALUES ('temp',69)")
+            .run_query("INSERT INTO test_table VALUES ('temp',69);")
             .await
             .unwrap();
 
         let ret = database
-            .run_query("SELECT * FROM test_table")
+            .run_query("SELECT * FROM test_table;")
             .await
             .unwrap();
         let mut is_found: bool = false;
