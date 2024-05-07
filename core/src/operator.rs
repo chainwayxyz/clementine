@@ -12,7 +12,7 @@ use crate::traits::rpc::{OperatorRpcServer, VerifierRpcClient};
 // use crate::traits::verifier::VerifierConnector;
 use crate::transaction_builder::TransactionBuilder;
 use crate::utils::{check_deposit_utxo, handle_taproot_witness_new};
-use crate::{EVMAddress, WithdrawalPayment};
+use crate::EVMAddress;
 use bitcoin::address::{NetworkChecked, NetworkUnchecked};
 use bitcoin::{secp256k1, secp256k1::schnorr};
 use bitcoin::{Address, OutPoint, Txid};
@@ -342,7 +342,6 @@ impl Operator {
             InvalidPeriodError::PreimageRevealPeriodMismatch,
         ))
     }
-
 
     #[cfg(feature = "poc")]
     // this is called when a Withdrawal event emitted on rollup and its corresponding batch proof is finalized

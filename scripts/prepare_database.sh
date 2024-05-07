@@ -18,4 +18,4 @@ createuser $USER
 createdb -O $USER $USER
 
 # Apply schema for the user named $USER who owns database named $USER.
-cat $SCRIPT_DIR/test_schema.sql | psql -U $USER $USER
+cat $SCRIPT_DIR/test_schema.sql $SCRIPT_DIR/schema.sql | psql -U $USER $USER

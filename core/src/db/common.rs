@@ -13,12 +13,13 @@
 //! `ignore`. They can be run if configuration is OK with `--include-ignored`
 //! `cargo test` flag.
 
+use crate::EVMAddress;
 use crate::{config::BridgeConfig, errors::BridgeError};
 use crate::{merkle::MerkleTree, ConnectorUTXOTree, HashTree, InscriptionTxs, WithdrawalPayment};
-use bitcoin::{TxOut, Txid};
+use bitcoin::{OutPoint, TxOut, Txid, XOnlyPublicKey};
 use clementine_circuits::{
     constants::{CLAIM_MERKLE_TREE_DEPTH, WITHDRAWAL_MERKLE_TREE_DEPTH},
-    HashType, PreimageType,
+    PreimageType,
 };
 use serde::{Deserialize, Serialize};
 use sqlx::{postgres::PgRow, Pool, Postgres};
@@ -119,6 +120,38 @@ impl Database {
 /// result on a data race. Users must do their own synchronization to avoid data
 /// races.
 impl Database {
+    /// Adds a deposit transaction to database. This transaction includes the
+    /// following:
+    ///
+    /// * Start UTXO
+    /// * Return address
+    /// * EVM address
+    pub async fn add_deposit_transaction(
+        &self,
+        start_utxo: OutPoint,
+        return_address: XOnlyPublicKey,
+        evm_address: EVMAddress,
+    ) -> Result<(), BridgeError> {
+        // TODO: These probably won't panic. But we should handle these
+        // properly regardless in the future.
+        let sutxo = serde_json::to_string_pretty(&start_utxo).unwrap();
+        let sutxo = sutxo.trim_matches('"');
+        let ra = serde_json::to_string(&return_address).unwrap();
+        let ra = ra.trim_matches('"');
+        let ea = serde_json::to_string(&evm_address).unwrap();
+        let ea = ea.trim_matches('"');
+
+        let query = format!(
+            "INSERT INTO deposit_transactions VALUES ('{}', '{}', '{}')",
+            sutxo, ra, ea
+        );
+
+        match self.run_query(query.as_str()).await {
+            Ok(_) => Ok(()),
+            Err(e) => Err(BridgeError::DatabaseError(e)),
+        }
+    }
+
     #[cfg(poc)]
     pub async fn get_connector_tree_hash(
         &self,
@@ -189,10 +222,11 @@ impl Database {
         self.write(content);
     }
 
-    #[cfg(poc)]
-    pub async fn get_deposit_tx(&self, idx: usize) -> (Txid, TxOut) {
-        let content = self.read();
-        content.deposit_txs[idx].clone()
+    // #[cfg(poc)]
+    pub async fn get_deposit_tx(&self, _idx: usize) -> (Txid, TxOut) {
+        // let content = self.read();
+        // content.deposit_txs[idx].clone()
+        todo!()
     }
 
     #[cfg(poc)]
@@ -317,7 +351,8 @@ impl Database {
 #[cfg(test)]
 mod tests {
     use super::Database;
-    use crate::{config::BridgeConfig, test_common};
+    use crate::{config::BridgeConfig, test_common, EVMAddress};
+    use bitcoin::{OutPoint, XOnlyPublicKey};
     use sqlx::Row;
 
     #[tokio::test]
@@ -411,6 +446,28 @@ mod tests {
         }
 
         assert!(is_found);
+    }
+
+    #[tokio::test]
+    async fn add_deposit_transaction() {
+        let config =
+            test_common::get_test_config_from_environment("test_config.toml".to_string()).unwrap();
+        let database = Database::new(config).await.unwrap();
+
+        database
+            .add_deposit_transaction(
+                OutPoint::null(),
+                XOnlyPublicKey::from_slice(&[
+                    0x78u8, 0x19u8, 0x90u8, 0xd7u8, 0xe2u8, 0x11u8, 0x8cu8, 0xc3u8, 0x61u8, 0xa9u8,
+                    0x3au8, 0x6fu8, 0xccu8, 0x54u8, 0xceu8, 0x61u8, 0x1du8, 0x6du8, 0xf3u8, 0x81u8,
+                    0x68u8, 0xd6u8, 0xb1u8, 0xedu8, 0xfbu8, 0x55u8, 0x65u8, 0x35u8, 0xf2u8, 0x20u8,
+                    0x0cu8, 0x4b,
+                ])
+                .unwrap(),
+                EVMAddress([0u8; 20]),
+            )
+            .await
+            .unwrap();
     }
 
     #[cfg(poc)]
