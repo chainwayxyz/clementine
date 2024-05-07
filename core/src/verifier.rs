@@ -208,7 +208,7 @@ impl Verifier {
 }
 
 impl Verifier {
-    pub fn new(
+    pub async fn new(
         rpc: ExtendedRpc,
         all_xonly_pks: Vec<XOnlyPublicKey>,
         sk: SecretKey,
@@ -224,7 +224,7 @@ impl Verifier {
             return Err(BridgeError::PublicKeyNotFound);
         }
 
-        let verifier_db_connector = VerifierMockDB::new(config.db_file_path.clone());
+        let verifier_db_connector = VerifierMockDB::new(config.clone()).await;
 
         let transaction_builder = TransactionBuilder::new(all_xonly_pks.clone(), config.clone());
         let operator_pk = all_xonly_pks[all_xonly_pks.len() - 1];

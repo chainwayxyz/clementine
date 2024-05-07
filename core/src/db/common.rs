@@ -1,8 +1,19 @@
 //! # Common Database Operations
 //!
-//! Common database operations for both operator and verifier.
+//! Common database operations for both operator and verifier. This module
+//! directly talks with PostgreSQL. It is expected that PostgreSQL is properly
+//! installed and configured.
+//!
+//! ## Testing
+//!
+//! For testing, user can supply out-of-source-tree configuration file with
+//! `TEST_CONFIG` environment variable (`core/src/test_common.rs`).
+//!
+//! Tests that requires a proper PostgreSQL host configuration flagged with
+//! `ignore`. They can be run if configuration is OK with `--include-ignored`
+//! `cargo test` flag.
 
-use super::text::TextDatabase;
+use crate::{config::BridgeConfig, errors::BridgeError};
 use crate::{merkle::MerkleTree, ConnectorUTXOTree, HashTree, InscriptionTxs, WithdrawalPayment};
 use bitcoin::{TxOut, Txid};
 use clementine_circuits::{
@@ -10,6 +21,7 @@ use clementine_circuits::{
     HashType, PreimageType,
 };
 use serde::{Deserialize, Serialize};
+use sqlx::{postgres::PgRow, Pool, Postgres};
 use std::sync::{Arc, Mutex};
 
 /// Actual information that database will hold. This information is not directly
@@ -48,34 +60,52 @@ impl DatabaseContent {
 /// Main database struct that holds all the information of the database.
 #[derive(Clone, Debug)]
 pub struct Database {
-    pub dbms: TextDatabase,
-    pub lock: Arc<Mutex<usize>>,
+    connection: Pool<Postgres>,
+    lock: Arc<Mutex<usize>>,
 }
 
 /// First pack of implementation for the `Database`. This pack includes general
 /// functions for accessing the database.
 impl Database {
-    pub fn new(db_file_path: String) -> Self {
-        Self {
-            dbms: TextDatabase::new(db_file_path.into()),
-            lock: Arc::new(Mutex::new(0)),
+    /// Creates a new `Database`. Then tries to connect actual database.
+    pub async fn new(config: BridgeConfig) -> Result<Self, BridgeError> {
+        let url = "postgresql://".to_owned()
+            + config.db_host.as_str()
+            + ":"
+            + config.db_port.to_string().as_str()
+            + "?dbname="
+            + config.db_name.as_str()
+            + "&user="
+            + config.db_user.as_str()
+            + "&password="
+            + config.db_password.as_str();
+        tracing::debug!("Connecting database: {}", url);
+
+        match sqlx::PgPool::connect(url.as_str()).await {
+            Ok(c) => Ok(Self {
+                connection: c,
+                lock: Arc::new(Mutex::new(0)),
+            }),
+            Err(e) => Err(BridgeError::DatabaseError(e)),
         }
+    }
+
+    /// Runs given query through database and returns result received from
+    /// database.
+    async fn run_query(&self, query: &str) -> Result<Vec<PgRow>, sqlx::Error> {
+        tracing::debug!("Running query: {}", query);
+
+        sqlx::query(query).fetch_all(&self.connection).await
     }
 
     /// Calls actual database read function and writes it's contents to memory.
     fn read(&self) -> DatabaseContent {
-        match self.dbms.read() {
-            Ok(c) => c,
-            Err(_) => DatabaseContent::new(),
-        }
+        todo!()
     }
 
     /// Calls actual database write function and writes input data to database.
-    fn write(&self, content: DatabaseContent) {
-        match self.dbms.write(content) {
-            Ok(_) => return,
-            Err(e) => panic!("Writing to database: {}", e),
-        }
+    fn write(&self, _content: DatabaseContent) {
+        todo!()
     }
 }
 
@@ -263,215 +293,227 @@ impl Database {
 #[cfg(test)]
 mod tests {
     use super::Database;
-    use crate::{db::text::TextDatabase, merkle::MerkleTree};
-    use clementine_circuits::{constants::*, HashType, PreimageType};
-    use std::{
-        fs,
-        sync::{Arc, Mutex, Once},
-        vec,
-    };
+    use crate::{config::BridgeConfig, test_common};
+    use sqlx::Row;
 
     // `Database` manages syncronization. So, we need to operate on a common
     // struct in order to do asynchronous operations on database.
-    static DB_FILE_PATH: &str = "test_database.json";
-    static START: Once = Once::new();
-    static mut DATABASE: Option<Database> = None;
-    static mut LOCK: Option<Arc<Mutex<usize>>> = None;
-    pub unsafe fn initialize() {
-        START.call_once(|| {
-            DATABASE = Some(Database::new(DB_FILE_PATH.into()));
-            LOCK = Some(Arc::new(Mutex::new(0)));
-        });
+    // static START: Once = Once::new();
+    // static mut LOCK: Option<Arc<Mutex<usize>>> = None;
+    // pub async unsafe fn initialize() {
+    //     START.call_once(|| {
+    //         LOCK = Some(Arc::new(Mutex::new(0)));
+    //     });
+    // }
+
+    /// An error should be returned if database configuration is invalid.
+    #[tokio::test]
+    async fn invalid_connection() {
+        let mut config = BridgeConfig::new();
+        config.db_host = "nonexistinghost".to_string();
+        config.db_name = "nonexistingpassword".to_string();
+        config.db_user = "nonexistinguser".to_string();
+        config.db_password = "nonexistingpassword".to_string();
+        config.db_port = 123;
+
+        match Database::new(config).await {
+            Ok(_) => {
+                assert!(false);
+            }
+            Err(e) => {
+                println!("{}", e);
+                assert!(true);
+            }
+        };
     }
 
-    /// Tests if running `new()` function returns an empty struct.
+    /// A connection object should be returned if database configuration is
+    /// valid.
+    ///
+    /// This test is ignored because of host environment might not have a
+    /// PostgreSQL installed. If it is intalled and configured correctly,
+    /// `test_common::ENV_CONF_FILE` can be set as environment variable and
+    /// test can be run with `--include-ignored` flag.
     #[tokio::test]
-    async fn new() {
-        let database = unsafe {
-            initialize();
-            DATABASE.clone().unwrap()
+    #[ignore]
+    async fn valid_connection() {
+        let config =
+            test_common::get_test_config_from_environment("test_config.toml".to_string()).unwrap();
+
+        match Database::new(config).await {
+            Ok(_) => {
+                assert!(true);
+            }
+            Err(e) => {
+                eprintln!("{}", e);
+                assert!(false);
+            }
         };
-        let lock = unsafe { LOCK.clone().unwrap() };
-        let _guard = lock.lock().unwrap();
-
-        // Some of the members of the `Database` struct are not comparable. So,
-        // we need to do this one by one.
-        assert_eq!(database.dbms, TextDatabase::new(DB_FILE_PATH.into()));
-    }
-
-    /// Writes mock data to database, then reads it. Compares if input equals
-    /// output. This test is a bit redundant if it is done in actual database
-    /// module.
-    #[tokio::test]
-    async fn write_read() {
-        let database = unsafe {
-            initialize();
-            DATABASE.clone().unwrap()
-        };
-        let lock = unsafe { LOCK.clone().unwrap() };
-        let _guard = lock.lock().unwrap();
-
-        // Add random datas to database.
-
-        database.add_to_withdrawals_merkle_tree([0x45u8; 32]).await;
-        let ret = database.get_withdrawals_merkle_tree_index().await;
-        assert_eq!(ret, 1);
-
-        database.add_to_withdrawals_merkle_tree([0x1Fu8; 32]).await;
-        let ret = database.get_withdrawals_merkle_tree_index().await;
-        assert_eq!(ret, 2);
-
-        // Clean things up.
-        match fs::remove_file(DB_FILE_PATH) {
-            Ok(_) => assert!(true),
-            Err(_) => assert!(false),
-        }
-    }
-
-    #[tokio::test]
-    async fn connector_tree_hash() {
-        let database = unsafe {
-            initialize();
-            DATABASE.clone().unwrap()
-        };
-        let lock = unsafe { LOCK.clone().unwrap() };
-        let _guard = lock.lock().unwrap();
-
-        let mock_data = [0x45u8; 32];
-        let mock_array: Vec<Vec<Vec<HashType>>> = vec![vec![vec![mock_data]]];
-
-        assert_ne!(database.get_connector_tree_hash(0, 0, 0).await, mock_data);
-
-        database.set_connector_tree_hashes(mock_array).await;
-        assert_eq!(database.get_connector_tree_hash(0, 0, 0).await, mock_data);
-
-        // Clean things up.
-        match fs::remove_file(DB_FILE_PATH) {
-            Ok(_) => assert!(true),
-            Err(_) => assert!(false),
-        }
     }
 
     #[tokio::test]
-    async fn claim_proof_merkle_tree() {
-        let database = unsafe {
-            initialize();
-            DATABASE.clone().unwrap()
-        };
-        let lock = unsafe { LOCK.clone().unwrap() };
-        let _guard = lock.lock().unwrap();
-
-        let mut mock_data: Vec<MerkleTree<CLAIM_MERKLE_TREE_DEPTH>> = vec![MerkleTree::new()];
-        mock_data[0].add([0x45u8; 32]);
-
-        assert_ne!(
-            database.get_claim_proof_merkle_tree(0).await,
-            mock_data[0].clone()
-        );
+    async fn write_read_string_query() {
+        let config =
+            test_common::get_test_config_from_environment("test_config.toml".to_string()).unwrap();
+        let database = Database::new(config).await.unwrap();
 
         database
-            .set_claim_proof_merkle_trees(mock_data.clone())
-            .await;
-        assert_eq!(database.get_claim_proof_merkle_tree(0).await, mock_data[0]);
+            .run_query("INSERT INTO test_table VALUES ('test_data');")
+            .await
+            .unwrap();
 
-        // Clean things up.
-        match fs::remove_file(DB_FILE_PATH) {
-            Ok(_) => assert!(true),
-            Err(_) => assert!(false),
+        let ret = database
+            .run_query("SELECT * FROM test_table")
+            .await
+            .unwrap();
+
+        let mut is_found: bool = false;
+        for i in ret {
+            if i.get::<String, _>(0) == "test_data" {
+                is_found = true;
+                break;
+            }
         }
+
+        assert!(is_found);
     }
 
     #[tokio::test]
-    async fn withdrawals_merkle_tree() {
-        let database = unsafe {
-            initialize();
-            DATABASE.clone().unwrap()
-        };
-        let lock = unsafe { LOCK.clone().unwrap() };
-        let _guard = lock.lock().unwrap();
-
-        let mock_data: HashType = [0x45u8; 32];
-
-        assert_eq!(database.get_withdrawals_merkle_tree_index().await, 0);
+    async fn write_read_int() {
+        let config =
+            test_common::get_test_config_from_environment("test_config.toml".to_string()).unwrap();
+        let database = Database::new(config).await.unwrap();
 
         database
-            .add_to_withdrawals_merkle_tree(mock_data.clone())
-            .await;
-        assert_eq!(database.get_withdrawals_merkle_tree_index().await, 1);
+            .run_query("INSERT INTO test_table VALUES ('temp',69)")
+            .await
+            .unwrap();
 
-        // Clean things up.
-        match fs::remove_file(DB_FILE_PATH) {
-            Ok(_) => assert!(true),
-            Err(_) => assert!(false),
+        let ret = database
+            .run_query("SELECT * FROM test_table")
+            .await
+            .unwrap();
+        let mut is_found: bool = false;
+
+        for i in ret {
+            if let Ok(0x45) = i.try_get::<i32, _>(1) {
+                is_found = true;
+                break;
+            }
         }
+
+        assert!(is_found);
     }
 
-    #[tokio::test]
-    async fn start_block_height() {
-        let database = unsafe {
-            initialize();
-            DATABASE.clone().unwrap()
-        };
-        let lock = unsafe { LOCK.clone().unwrap() };
-        let _guard = lock.lock().unwrap();
+    // #[tokio::test]
+    // async fn connector_tree_hash() {
+    //     let config =
+    //         test_common::get_test_config_from_environment("test_config.toml".to_string()).unwrap();
+    //     let database = Database::new(config).await.unwrap();
 
-        let mock_data: u64 = 0x45;
+    //     let lock = unsafe { LOCK.clone().unwrap() };
+    //     let _guard = lock.lock().unwrap();
 
-        assert_eq!(database.get_start_block_height().await, 0);
+    //     let mock_data = [0x45u8; 32];
+    //     let mock_array: Vec<Vec<Vec<HashType>>> = vec![vec![vec![mock_data]]];
 
-        database.set_start_block_height(mock_data).await;
-        assert_eq!(database.get_start_block_height().await, mock_data);
+    //     assert_ne!(database.get_connector_tree_hash(0, 0, 0).await, mock_data);
 
-        // Clean things up.
-        match fs::remove_file(DB_FILE_PATH) {
-            Ok(_) => assert!(true),
-            Err(_) => assert!(false),
-        }
-    }
+    //     database.set_connector_tree_hashes(mock_array).await;
+    //     assert_eq!(database.get_connector_tree_hash(0, 0, 0).await, mock_data);
+    // }
 
-    #[tokio::test]
-    async fn period_relative_block_heights() {
-        let database = unsafe {
-            initialize();
-            DATABASE.clone().unwrap()
-        };
-        let lock = unsafe { LOCK.clone().unwrap() };
-        let _guard = lock.lock().unwrap();
+    // #[tokio::test]
+    // async fn claim_proof_merkle_tree() {
+    //     let config =
+    //         test_common::get_test_config_from_environment("test_config.toml".to_string()).unwrap();
+    //     let database = Database::new(config).await.unwrap();
+    //     let lock = unsafe { LOCK.clone().unwrap() };
+    //     let _guard = lock.lock().unwrap();
 
-        let mock_data: u64 = 0x45;
+    //     let mut mock_data: Vec<MerkleTree<CLAIM_MERKLE_TREE_DEPTH>> = vec![MerkleTree::new()];
+    //     mock_data[0].add([0x45u8; 32]);
 
-        assert_eq!(database.get_start_block_height().await, 0);
+    //     assert_ne!(
+    //         database.get_claim_proof_merkle_tree(0).await,
+    //         mock_data[0].clone()
+    //     );
 
-        database.set_start_block_height(mock_data).await;
-        assert_eq!(database.get_start_block_height().await, mock_data);
+    //     database
+    //         .set_claim_proof_merkle_trees(mock_data.clone())
+    //         .await;
+    //     assert_eq!(database.get_claim_proof_merkle_tree(0).await, mock_data[0]);
+    // }
 
-        // Clean things up.
-        match fs::remove_file(DB_FILE_PATH) {
-            Ok(_) => assert!(true),
-            Err(_) => assert!(false),
-        }
-    }
+    // #[tokio::test]
+    // async fn withdrawals_merkle_tree() {
+    //     let database = unsafe {
+    //         initialize();
+    //         DATABASE.clone().unwrap()
+    //     };
+    //     let lock = unsafe { LOCK.clone().unwrap() };
+    //     let _guard = lock.lock().unwrap();
 
-    #[tokio::test]
-    async fn inscribed_preimages() {
-        let database = unsafe {
-            initialize();
-            DATABASE.clone().unwrap()
-        };
-        let lock = unsafe { LOCK.clone().unwrap() };
-        let _guard = lock.lock().unwrap();
+    //     let mock_data: HashType = [0x45u8; 32];
 
-        let mock_data: Vec<PreimageType> = vec![[0x45u8; 32]];
+    //     assert_eq!(database.get_withdrawals_merkle_tree_index().await, 0);
 
-        assert_ne!(database.get_inscribed_preimages(0).await, mock_data);
+    //     database
+    //         .add_to_withdrawals_merkle_tree(mock_data.clone())
+    //         .await;
+    //     assert_eq!(database.get_withdrawals_merkle_tree_index().await, 1);
+    // }
 
-        database.add_inscribed_preimages(0, mock_data.clone()).await;
-        assert_eq!(database.get_inscribed_preimages(0).await, mock_data);
+    // #[tokio::test]
+    // async fn start_block_height() {
+    //     let database = unsafe {
+    //         initialize();
+    //         DATABASE.clone().unwrap()
+    //     };
+    //     let lock = unsafe { LOCK.clone().unwrap() };
+    //     let _guard = lock.lock().unwrap();
 
-        // Clean things up.
-        match fs::remove_file(DB_FILE_PATH) {
-            Ok(_) => assert!(true),
-            Err(_) => assert!(false),
-        }
-    }
+    //     let mock_data: u64 = 0x45;
+
+    //     assert_eq!(database.get_start_block_height().await, 0);
+
+    //     database.set_start_block_height(mock_data).await;
+    //     assert_eq!(database.get_start_block_height().await, mock_data);
+    // }
+
+    // #[tokio::test]
+    // async fn period_relative_block_heights() {
+    //     let database = unsafe {
+    //         initialize();
+    //         DATABASE.clone().unwrap()
+    //     };
+    //     let lock = unsafe { LOCK.clone().unwrap() };
+    //     let _guard = lock.lock().unwrap();
+
+    //     let mock_data: u64 = 0x45;
+
+    //     assert_eq!(database.get_start_block_height().await, 0);
+
+    //     database.set_start_block_height(mock_data).await;
+    //     assert_eq!(database.get_start_block_height().await, mock_data);
+    // }
+
+    // #[tokio::test]
+    // async fn inscribed_preimages() {
+    //     let lock = unsafe { LOCK.clone().unwrap() };
+    //     let _guard = lock.lock().unwrap();
+
+    //     let mock_data: Vec<PreimageType> = vec![[0x45u8; 32]];
+
+    //     assert_ne!(database.get_inscribed_preimages(0).await, mock_data);
+
+    //     database.add_inscribed_preimages(0, mock_data.clone()).await;
+    //     assert_eq!(database.get_inscribed_preimages(0).await, mock_data);
+
+    //     // Clean things up.
+    //     match fs::remove_file(DB_FILE_PATH) {
+    //         Ok(_) => assert!(true),
+    //         Err(_) => assert!(false),
+    //     }
+    // }
 }

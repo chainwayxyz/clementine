@@ -1,5 +1,5 @@
 use super::common::Database;
-use crate::{operator::OperatorClaimSigs, PreimageTree};
+use crate::{config::BridgeConfig, operator::OperatorClaimSigs, PreimageTree};
 use clementine_circuits::PreimageType;
 use std::ops::{Deref, DerefMut};
 
@@ -11,9 +11,9 @@ pub struct OperatorMockDB {
 }
 
 impl OperatorMockDB {
-    pub fn new(db_file_path: String) -> Self {
+    pub async fn new(config: BridgeConfig) -> Self {
         Self {
-            common_db: Database::new(db_file_path),
+            common_db: Database::new(config).await.unwrap(),
             deposit_take_sigs: Vec::new(),
             connector_tree_preimages: Vec::new(),
         }

@@ -112,7 +112,7 @@ impl OperatorRpcServer for Operator {
 }
 
 impl Operator {
-    pub fn new(
+    pub async fn new(
         rpc: ExtendedRpc,
         all_xonly_pks: Vec<XOnlyPublicKey>,
         operator_sk: SecretKey,
@@ -127,7 +127,7 @@ impl Operator {
         }
 
         let transaction_builder = TransactionBuilder::new(all_xonly_pks.clone(), config.clone());
-        let operator_db_connector = OperatorMockDB::new(config.db_file_path.clone());
+        let operator_db_connector = OperatorMockDB::new(config.clone()).await;
 
         Ok(Self {
             rpc,

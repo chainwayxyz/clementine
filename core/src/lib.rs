@@ -64,7 +64,8 @@ pub async fn create_verifier_server(
         config.verifiers_public_keys.clone(),
         config.secret_key.clone(),
         config.clone(),
-    )?;
+    )
+    .await?;
 
     let server = Server::builder()
         .build(format!("{}:{}", config.host, config.port))
@@ -103,6 +104,7 @@ pub async fn create_operator_server(
         verifiers,
         config.clone(),
     )
+    .await
     .unwrap();
 
     let server = Server::builder()
