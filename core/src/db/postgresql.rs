@@ -29,6 +29,8 @@ pub struct PostgreSQLDB {
 }
 
 impl PostgreSQLDB {
+    /// Creates a new `PostgreSQLDB` and copies configuration from given
+    /// `BridgeConfig`.
     pub fn new(config: BridgeConfig) -> Self {
         Self {
             host: config.db_host,
@@ -40,6 +42,8 @@ impl PostgreSQLDB {
         }
     }
 
+    /// Private function that runs given query through database and returns
+    /// result.
     async fn run_query(&self, query: &str) -> Result<Vec<PgRow>, sqlx::Error> {
         tracing::debug!("Running query: {}", query);
 
@@ -53,6 +57,7 @@ impl PostgreSQLDB {
         res
     }
 
+    /// Start a pool connection to PostgreSQL database.
     pub async fn connect(&mut self) -> Result<(), BridgeError> {
         let url = "postgresql://".to_owned()
             + self.host.as_str()
@@ -74,7 +79,7 @@ impl PostgreSQLDB {
         Ok(())
     }
 
-    /// Reads given table's contents.
+    /// Reads specified table's contents.
     pub async fn read(&self, table: &str) -> Result<Vec<PgRow>, sqlx::Error> {
         let query = format!("SELECT * FROM {};", table);
         let res = self.run_query(query.as_str()).await?;
@@ -82,7 +87,7 @@ impl PostgreSQLDB {
         Ok(res)
     }
 
-    /// Insert given data to given table.
+    /// Inserts given data to the specified table.
     pub async fn write(&self, table: &str, value: &str) -> Result<(), sqlx::Error> {
         let query = format!("INSERT INTO {} VALUES ({});", table, value);
         self.run_query(query.as_str()).await?;
