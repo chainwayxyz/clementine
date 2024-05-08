@@ -1,10 +1,15 @@
 //! # Common Test Utilities
 //!
 //! This file includes common functions/variables for tests.
+//!
+//! Why is this file is here? If it is in `tests` subdirectory, unit tests can't
+//! reach them.
 
-use std::net::TcpListener;
+use crate::config::BridgeConfig;
+use crate::errors::BridgeError;
+use std::{env, net::TcpListener};
 
-use clementine_core::{config::BridgeConfig, errors::BridgeError};
+pub const ENV_CONF_FILE: &str = "TEST_CONFIG";
 
 /// Returns test path for the specified test configuration.
 pub fn get_test_config(configuration_file: &str) -> Result<BridgeConfig, BridgeError> {
@@ -20,10 +25,23 @@ pub fn get_test_config(configuration_file: &str) -> Result<BridgeConfig, BridgeE
         Err(e) => return Err(e),
     };
 
-    // let port = find_consecutive_idle_ports(config.port, config.num_verifiers).unwrap();
-    // config.port = port;
+    // let port = find_consecutive_idle_ports(config.port, config.num_verifiers).unwrap()
+    config.port = 0;
 
     Ok(config)
+}
+
+/// Reads configuration file specified with `ENV_CONF_FILE` environment variable
+/// and parses in to a `BridgeConfig`. If environment variable is not satisfied,
+/// `fallback_config` will be used.
+pub fn get_test_config_from_environment(
+    fallback_config: String,
+) -> Result<BridgeConfig, BridgeError> {
+    if let Ok(config_file_path) = env::var(ENV_CONF_FILE) {
+        BridgeConfig::try_parse_file(config_file_path.into())
+    } else {
+        get_test_config(&fallback_config.as_str())
+    }
 }
 
 /// Retrieves the list of configuration files in `tests/data` directory.

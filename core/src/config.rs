@@ -11,7 +11,6 @@
 //! any headers and it should only includes raw data. Example:
 //!
 //! ```toml
-//! db_file_path = "database"
 //! num_verifiers = 4
 //! min_relay_fee = 289
 //! user_takes_after = 200
@@ -26,7 +25,6 @@
 //!
 //! ```toml
 //! [database]
-//! db_file_path = "database"
 //!
 //! num_verifiers = 4
 //! min_relay_fee = 289
@@ -59,8 +57,6 @@ pub struct BridgeConfig {
     pub secret_key: SecretKey,
     /// Verifiers public keys, including operator's.
     pub verifiers_public_keys: Vec<XOnlyPublicKey>,
-    /// File path for the mock database.
-    pub db_file_path: String,
     /// Number of verifiers.
     pub num_verifiers: usize,
     /// Minimum relay fee.
@@ -77,6 +73,16 @@ pub struct BridgeConfig {
     pub bitcoin_rpc_password: String,
     /// All Secret keys. Just for testing purposes.
     pub all_secret_keys: Option<Vec<SecretKey>>,
+    /// PostgreSQL database host address.
+    pub db_host: String,
+    /// PostgreSQL database port.
+    pub db_port: usize,
+    /// PostgreSQL database user name.
+    pub db_user: String,
+    /// PostgreSQL database user password.
+    pub db_password: String,
+    /// PostgreSQL database name.
+    pub db_name: String,
 }
 
 impl BridgeConfig {
@@ -143,7 +149,6 @@ impl Default for BridgeConfig {
             port: 3030,
             secret_key: SecretKey::new(&mut secp256k1::rand::thread_rng()),
             verifiers_public_keys: vec![],
-            db_file_path: "database".to_string(),
             num_verifiers: 4,
             min_relay_fee: 289,
             user_takes_after: 200,
@@ -153,6 +158,11 @@ impl Default for BridgeConfig {
             bitcoin_rpc_user: "admin".to_string(),
             bitcoin_rpc_password: "admin".to_string(),
             all_secret_keys: None,
+            db_host: "localhost".to_string(),
+            db_port: 5432,
+            db_user: "postgres".to_string(),
+            db_password: "postgres".to_string(),
+            db_name: "postgres".to_string(),
         }
     }
 }
@@ -213,7 +223,7 @@ mod tests {
 
         // Read first example test file use for this test.
         let base_path = env!("CARGO_MANIFEST_DIR");
-        let config_path = format!("{}/tests/data/test_config_1.toml", base_path);
+        let config_path = format!("{}/tests/data/test_config.toml", base_path);
         let content = fs::read_to_string(config_path).unwrap();
         let mut file = File::create(file_name.clone()).unwrap();
         file.write_all(content.as_bytes()).unwrap();
@@ -237,7 +247,6 @@ mod tests {
     fn parse_from_file_with_headers() {
         let file_name = "2".to_string() + TEST_FILE;
         let content = "[header1]
-        db_file_path = \"database\"
         num_verifiers = 4
         min_relay_fee = 289
         user_takes_after = 200

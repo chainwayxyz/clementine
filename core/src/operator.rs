@@ -8,14 +8,15 @@ use crate::constants::{
 use crate::db::operator::OperatorMockDB;
 use crate::errors::BridgeError;
 use crate::extended_rpc::ExtendedRpc;
+use crate::script_builder::ScriptBuilder;
 use crate::traits::rpc::{OperatorRpcServer, VerifierRpcClient};
 // use crate::traits::verifier::VerifierConnector;
 use crate::transaction_builder::TransactionBuilder;
 use crate::utils::{check_deposit_utxo, handle_taproot_witness_new};
-use crate::{EVMAddress, WithdrawalPayment};
+use crate::EVMAddress;
 use bitcoin::address::{NetworkChecked, NetworkUnchecked};
 use bitcoin::{secp256k1, secp256k1::schnorr};
-use bitcoin::{Address, OutPoint, Txid};
+use bitcoin::{Address, Amount, OutPoint, TxOut, Txid};
 use clementine_circuits::constants::BRIDGE_AMOUNT_SATS;
 use futures::stream::FuturesOrdered;
 use futures::TryStreamExt;
@@ -94,10 +95,8 @@ impl OperatorRpcServer for Operator {
         return_address: Address<NetworkUnchecked>,
         evm_address: EVMAddress,
     ) -> Result<Txid, BridgeError> {
-        let move_utxo = self
-            .new_deposit(start_utxo, &return_address, &evm_address)
-            .await?;
-        Ok(move_utxo.txid)
+        self.new_deposit(start_utxo, &return_address, &evm_address)
+            .await
     }
     async fn new_withdrawal_direct_rpc(
         &self,
@@ -112,7 +111,7 @@ impl OperatorRpcServer for Operator {
 }
 
 impl Operator {
-    pub fn new(
+    pub async fn new(
         rpc: ExtendedRpc,
         all_xonly_pks: Vec<XOnlyPublicKey>,
         operator_sk: SecretKey,
@@ -127,7 +126,7 @@ impl Operator {
         }
 
         let transaction_builder = TransactionBuilder::new(all_xonly_pks.clone(), config.clone());
-        let operator_db_connector = OperatorMockDB::new(config.db_file_path.clone());
+        let operator_db_connector = OperatorMockDB::new(config.clone()).await;
 
         Ok(Self {
             rpc,
@@ -151,7 +150,12 @@ impl Operator {
         start_utxo: OutPoint,
         return_address: &Address<NetworkUnchecked>,
         evm_address: &EVMAddress,
-    ) -> Result<OutPoint, BridgeError> {
+    ) -> Result<Txid, BridgeError> {
+        // Transaction is OK, write it to the database.
+        self.operator_db_connector
+            .add_deposit_transaction(start_utxo, return_address.clone(), *evm_address)
+            .await?;
+
         check_deposit_utxo(
             &self.rpc,
             &self.transaction_builder,
@@ -162,8 +166,8 @@ impl Operator {
             self.config.confirmation_treshold,
         )?;
 
-        let deposit_index = self.operator_db_connector.get_deposit_index();
-        // tracing::debug!("deposit_index: {:?}", deposit_index);
+        let deposit_index = self.operator_db_connector.get_next_deposit_index().await?;
+        tracing::debug!("deposit_index: {:?}", deposit_index);
 
         let presigns_from_all_verifiers: Result<Vec<_>, BridgeError> = self
             .verifier_connector
@@ -222,19 +226,12 @@ impl Operator {
         }
 
         handle_taproot_witness_new(&mut move_tx, &witness_elements, 0, 0)?;
-        tracing::debug!("move_tx: {:?}", move_tx.tx);
-        tracing::debug!("move_tx.tx size: {:?}", move_tx.tx.weight());
-        let rpc_move_txid = self.rpc.send_raw_transaction(&move_tx.tx)?;
-        let move_utxo = OutPoint {
-            txid: rpc_move_txid,
-            vout: 0,
-        };
 
-        self.operator_db_connector
-            .add_to_deposit_txs((rpc_move_txid, move_tx.tx.output[0].clone()))
-            .await;
         #[cfg(feature = "poc")]
         {
+            self.operator_db_connector
+                .add_to_deposit_txs((rpc_move_txid, move_tx.tx.output[0].clone()))
+                .await;
             let operator_claim_sigs = OperatorClaimSigs {
                 operator_claim_sigs: presigns_from_all_verifiers
                     .iter()
@@ -290,7 +287,17 @@ impl Operator {
                 }
             }
         }
-        Ok(move_utxo)
+        tracing::debug!("move_tx: {:?}", move_tx.tx);
+        tracing::debug!("move_tx.tx size: {:?}", move_tx.tx.weight());
+
+        // save to dp in a db transaction
+        // TODO: make this transactional
+        self.operator_db_connector
+            .add_to_deposit_txs(move_tx.tx.txid())
+            .await?;
+        self.rpc.send_raw_transaction(&move_tx.tx)?;
+
+        Ok(move_tx.tx.txid())
     }
 
     #[cfg(feature = "poc")]
@@ -343,6 +350,7 @@ impl Operator {
         ))
     }
 
+    #[cfg(feature = "poc")]
     // this is called when a Withdrawal event emitted on rollup and its corresponding batch proof is finalized
     pub async fn new_withdrawal(
         &self,
@@ -385,14 +393,20 @@ impl Operator {
         idx: usize,
         withdrawal_address: Address<NetworkChecked>,
     ) -> Result<Txid, BridgeError> {
-        let deposit_tx_info = self.operator_db_connector.get_deposit_tx(idx).await;
+        let deposit_tx_info = self.operator_db_connector.get_deposit_tx(idx).await?;
+        let (bridge_address, _) = self.transaction_builder.generate_bridge_address()?;
+        let dust_value = ScriptBuilder::anyone_can_spend_txout().value;
+        let deposit_txout = TxOut {
+            value: Amount::from_sat(BRIDGE_AMOUNT_SATS - self.config.min_relay_fee) - dust_value,
+            script_pubkey: bridge_address.script_pubkey(),
+        };
         let deposit_utxo = OutPoint {
-            txid: deposit_tx_info.0,
+            txid: deposit_tx_info,
             vout: 0,
         };
         let mut withdrawal_tx = self.transaction_builder.create_withdraw_tx(
             deposit_utxo,
-            deposit_tx_info.1.clone(),
+            deposit_txout.clone(),
             &withdrawal_address,
         )?;
         let signatures_from_verifiers: Result<Vec<_>, BridgeError> = self
@@ -402,7 +416,7 @@ impl Operator {
                 let sig = verifier
                     .new_withdrawal_direct_rpc(
                         deposit_utxo.clone(),
-                        deposit_tx_info.1.clone(),
+                        deposit_txout.clone(),
                         withdrawal_address.as_unchecked().clone(),
                     )
                     .await?;

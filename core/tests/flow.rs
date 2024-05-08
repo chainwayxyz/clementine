@@ -2,21 +2,18 @@
 //!
 //! This test checks if basic deposit and withdraw operations are OK or not.
 
-mod common;
-
-use bitcoin::script::Builder;
-use bitcoin::{Address, Amount, Txid};
+use bitcoin::{Address, Amount};
 use bitcoincore_rpc::Auth;
 use clementine_circuits::constants::BRIDGE_AMOUNT_SATS;
 use clementine_core::actor::Actor;
 use clementine_core::extended_rpc::ExtendedRpc;
 use clementine_core::script_builder::ScriptBuilder;
+use clementine_core::start_operator_and_verifiers;
+use clementine_core::test_common::{find_consecutive_idle_ports, get_test_config};
 use clementine_core::traits::rpc::OperatorRpcClient;
 use clementine_core::transaction_builder::{CreateTxOutputs, TransactionBuilder};
 use clementine_core::utils::handle_taproot_witness_new;
 use clementine_core::EVMAddress;
-use clementine_core::{config::BridgeConfig, start_operator_and_verifiers};
-use common::{find_consecutive_idle_ports, get_test_config};
 
 #[tokio::test]
 async fn test_flow_1() {
@@ -80,8 +77,9 @@ async fn test_flow_1() {
 
     let withdrawal_address = Address::p2tr(&secp, xonly_pk, None, config.network);
 
+    // This index is 2 since when testing the unit tests complete first and the index=0 is not sane
     let withdraw_txid = operator_client
-        .new_withdrawal_direct_rpc(0, withdrawal_address.as_unchecked().clone())
+        .new_withdrawal_direct_rpc(2, withdrawal_address.as_unchecked().clone())
         .await
         .unwrap();
     tracing::debug!("Withdrawal sent to address: {:?}", withdrawal_address);
@@ -113,7 +111,7 @@ async fn test_flow_1() {
 
 #[tokio::test]
 async fn test_flow_2() {
-    let config = get_test_config("test_config_2.toml").unwrap();
+    let config = get_test_config("test_config_1.toml").unwrap();
 
     let rpc = ExtendedRpc::new(
         config.bitcoin_rpc_url.clone(),
