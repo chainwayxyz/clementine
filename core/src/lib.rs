@@ -66,7 +66,7 @@ pub async fn create_verifier_server(
     )?;
 
     let server = Server::builder()
-        .build(format!("{}:{}", config.host, config.port))
+        .build(format!("{}:{}", config.host, 0))
         .await?;
 
     let addr = server.local_addr()?;
@@ -105,7 +105,7 @@ pub async fn create_operator_server(
     .unwrap();
 
     let server = Server::builder()
-        .build(format!("{}:{}", config.host, config.port))
+        .build(format!("{}:{}", config.host, 0))
         .await?;
 
     let addr = server.local_addr()?;
@@ -133,7 +133,7 @@ pub async fn start_operator_and_verifiers(
                 verifiers_public_keys: config.verifiers_public_keys.clone(),
                 secret_key: *sk,
                 port: 0, // Use the index to calculate the port
-                db_file_path: format!("{}{}", config.db_file_path.clone(), i.to_string()),
+                db_file_path: format!("{}{}.json", config.db_file_path.clone(), i.to_string()),
                 ..config.clone()
             })
         })

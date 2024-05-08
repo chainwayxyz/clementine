@@ -31,7 +31,7 @@ lazy_static! {
 pub struct CreateTxOutputs {
     pub tx: bitcoin::Transaction,
     pub prevouts: Vec<TxOut>,
-    pub scripts: Vec<ScriptBuf>,
+    pub scripts: Vec<Vec<ScriptBuf>>,
     pub taproot_spend_infos: Vec<TaprootSpendInfo>,
 }
 
@@ -130,7 +130,7 @@ impl TransactionBuilder {
         Ok(CreateTxOutputs {
             tx: move_tx,
             prevouts,
-            scripts: deposit_script,
+            scripts: vec![deposit_script],
             taproot_spend_infos: vec![deposit_taproot_spend_info],
         })
     }
@@ -159,9 +159,18 @@ impl TransactionBuilder {
         Ok(CreateTxOutputs {
             tx: withdraw_tx,
             prevouts,
-            scripts: bridge_spend_script,
+            scripts: vec![bridge_spend_script],
             taproot_spend_infos: vec![bridge_spend_info],
         })
+    }
+
+    pub fn create_takes_after_tx(
+        &self,
+        taproot_spend_info: TaprootSpendInfo,
+        deposit_utxo: OutPoint,
+        return_address: Address,
+        height: u16,
+    ) {
     }
 
     #[cfg(feature = "poc")]
@@ -360,15 +369,12 @@ impl TransactionBuilder {
         tx_ins
     }
 
-    #[cfg(feature = "poc")]
-    fn create_tx_ins_with_sequence(utxos: Vec<OutPoint>) -> Vec<TxIn> {
+    pub fn create_tx_ins_with_sequence(utxos: Vec<OutPoint>, height: u16) -> Vec<TxIn> {
         let mut tx_ins = Vec::new();
         for utxo in utxos {
             tx_ins.push(TxIn {
                 previous_output: utxo,
-                sequence: bitcoin::transaction::Sequence::from_height(
-                    CONNECTOR_TREE_OPERATOR_TAKES_AFTER,
-                ),
+                sequence: bitcoin::transaction::Sequence::from_height(height),
                 script_sig: ScriptBuf::default(),
                 witness: Witness::new(),
             });
@@ -387,7 +393,7 @@ impl TransactionBuilder {
         tx_outs
     }
 
-    fn create_taproot_address(
+    pub fn create_taproot_address(
         secp: &Secp256k1<secp256k1::All>,
         scripts: Vec<ScriptBuf>,
         network: bitcoin::Network,

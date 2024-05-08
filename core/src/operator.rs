@@ -212,7 +212,7 @@ impl Operator {
 
         let sig = self
             .signer
-            .sign_taproot_script_spend_tx_new(&mut move_tx, 0)?;
+            .sign_taproot_script_spend_tx_new(&mut move_tx, 0, 0)?;
         move_signatures.push(sig);
         move_signatures.reverse();
 
@@ -221,7 +221,7 @@ impl Operator {
             witness_elements.push(sig.as_ref());
         }
 
-        handle_taproot_witness_new(&mut move_tx, &witness_elements, 0)?;
+        handle_taproot_witness_new(&mut move_tx, &witness_elements, 0, 0)?;
         tracing::debug!("move_tx: {:?}", move_tx.tx);
         tracing::debug!("move_tx.tx size: {:?}", move_tx.tx.weight());
         let rpc_move_txid = self.rpc.send_raw_transaction(&move_tx.tx)?;
@@ -414,14 +414,14 @@ impl Operator {
         let mut verifier_sigs = signatures_from_verifiers?;
         let sig = self
             .signer
-            .sign_taproot_script_spend_tx_new(&mut withdrawal_tx, 0)?;
+            .sign_taproot_script_spend_tx_new(&mut withdrawal_tx, 0, 0)?;
         verifier_sigs.push(sig);
         verifier_sigs.reverse();
         let mut witness_elements: Vec<&[u8]> = Vec::new();
         for sig in verifier_sigs.iter() {
             witness_elements.push(sig.as_ref());
         }
-        handle_taproot_witness_new(&mut withdrawal_tx, &witness_elements, 0)?;
+        handle_taproot_witness_new(&mut withdrawal_tx, &witness_elements, 0, 0)?;
         let withdrawal_txid = self.rpc.send_raw_transaction(&withdrawal_tx.tx)?;
         Ok(withdrawal_txid)
     }

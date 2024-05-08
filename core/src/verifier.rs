@@ -102,7 +102,7 @@ impl Verifier {
         );
         let move_sig = self
             .signer
-            .sign_taproot_script_spend_tx_new(&mut move_tx, 0)?;
+            .sign_taproot_script_spend_tx_new(&mut move_tx, 0, 0)?;
 
         let op_claim_sigs = Vec::new();
 
@@ -150,7 +150,7 @@ impl Verifier {
         )?;
         let sig = self
             .signer
-            .sign_taproot_script_spend_tx_new(&mut withdrawal_tx, 0)?;
+            .sign_taproot_script_spend_tx_new(&mut withdrawal_tx, 0, 0)?;
         Ok(sig)
     }
 

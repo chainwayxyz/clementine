@@ -20,8 +20,8 @@ pub fn get_test_config(configuration_file: &str) -> Result<BridgeConfig, BridgeE
         Err(e) => return Err(e),
     };
 
-    let port = find_consecutive_idle_ports(config.port, config.num_verifiers).unwrap();
-    config.port = port;
+    // let port = find_consecutive_idle_ports(config.port, config.num_verifiers).unwrap();
+    // config.port = port;
 
     Ok(config)
 }
