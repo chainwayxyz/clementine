@@ -97,8 +97,9 @@ async fn flow(config: BridgeConfig, rpc: ExtendedRpc) -> (Txid, Address) {
     let withdrawal_address = Address::p2tr(&secp, xonly_pk, None, config.network);
     tracing::debug!("Withdrawal address to be sent: {:?}", withdrawal_address);
 
+    // Giving index two since when running tests the unit tests complete first and we get error with utxo 000..000:sth which is inherently erroneous
     let withdraw_txid = operator_client
-        .new_withdrawal_direct_rpc(0, withdrawal_address.as_unchecked().clone())
+        .new_withdrawal_direct_rpc(2, withdrawal_address.as_unchecked().clone())
         .await
         .unwrap();
     tracing::debug!("Withdrawal TXID: {:#?}", withdraw_txid);

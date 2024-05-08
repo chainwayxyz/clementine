@@ -45,12 +45,12 @@ pub fn read_blocks_and_add_to_merkle_tree<E: Environment>(
             total_work,
         );
     }
-    tracing::debug!(
-        "READ {:?} blocks from blockhash {:?}, added to imt, total_work: {:?}",
-        n,
-        start_prev_block_hash,
-        total_work
-    );
+    // tracing::debug!(
+    //     "READ {:?} blocks from blockhash {:?}, added to imt, total_work: {:?}",
+    //     n,
+    //     start_prev_block_hash,
+    //     total_work
+    // );
     (total_work, lc_block_hash, curr_prev_block_hash)
 }
 
@@ -73,12 +73,12 @@ pub fn read_blocks_and_calculate_work<E: Environment>(start_prev_block_hash: [u8
             total_work,
         );
     }
-    tracing::debug!(
-        "READ {:?} blocks from blockhash {:?}, total_work: {:?}",
-        num_blocks,
-        start_prev_block_hash,
-        total_work
-    );
+    // tracing::debug!(
+    //     "READ {:?} blocks from blockhash {:?}, total_work: {:?}",
+    //     num_blocks,
+    //     start_prev_block_hash,
+    //     total_work
+    // );
     total_work
 }
 
@@ -140,7 +140,7 @@ pub fn read_merkle_tree_proof<E: Environment, const D: usize>(
         };
         level_idx /= 2;
     }
-    tracing::debug!("READ merkle_tree_proof of: {:?}", leaf);
+    // tracing::debug!("READ merkle_tree_proof of: {:?}", leaf);
     return hash;
 }
 
@@ -150,15 +150,15 @@ pub fn read_withdrawal_proof<E: Environment>(
     imt: &mut IncrementalMerkleTree<WITHDRAWAL_MERKLE_TREE_DEPTH>,
 ) {
     let output_address = E::read_32bytes();
-    tracing::debug!("READ output_address: {:?}", output_address);
+    // tracing::debug!("READ output_address: {:?}", output_address);
     let txid =
         read_tx_and_calculate_txid::<E>(None, Some((Some(BRIDGE_AMOUNT_SATS), output_address)));
-    tracing::debug!("READ tx and calculated txid: {:?}", txid);
+    // tracing::debug!("READ tx and calculated txid: {:?}", txid);
     let block_tx_mt_root = read_and_verify_bitcoin_merkle_path::<E>(txid);
-    tracing::debug!(
-        "READ spv proof and calculated block_tx_mt_root: {:?}",
-        block_tx_mt_root
-    );
+    // tracing::debug!(
+    //     "READ spv proof and calculated block_tx_mt_root: {:?}",
+    //     block_tx_mt_root
+    // );
     let calculated_blockhash =
         read_header_except_root_and_calculate_blockhash::<E>(block_tx_mt_root);
     tracing::debug!("calculated_blockhash: {:?}", calculated_blockhash);

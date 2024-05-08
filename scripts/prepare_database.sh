@@ -14,4 +14,4 @@ createuser $PGDATABASE
 createdb -O $PGDATABASE $PGDATABASE
 
 # Apply schema for the user named $USER who owns database named $USER.
-cat $SCRIPT_DIR/test_schema.sql $SCRIPT_DIR/schema.sql | psql -U $PGDATABASE $PGDATABASE
+cat $SCRIPT_DIR/schema.sql | psql -U $PGDATABASE $PGDATABASE

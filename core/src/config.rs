@@ -11,7 +11,6 @@
 //! any headers and it should only includes raw data. Example:
 //!
 //! ```toml
-//! db_file_path = "database"
 //! num_verifiers = 4
 //! min_relay_fee = 289
 //! user_takes_after = 200
@@ -26,7 +25,6 @@
 //!
 //! ```toml
 //! [database]
-//! db_file_path = "database"
 //!
 //! num_verifiers = 4
 //! min_relay_fee = 289
@@ -59,8 +57,6 @@ pub struct BridgeConfig {
     pub secret_key: SecretKey,
     /// Verifiers public keys, including operator's.
     pub verifiers_public_keys: Vec<XOnlyPublicKey>,
-    /// File path for the mock database.
-    pub db_file_path: String,
     /// Number of verifiers.
     pub num_verifiers: usize,
     /// Minimum relay fee.
@@ -153,7 +149,6 @@ impl Default for BridgeConfig {
             port: 3030,
             secret_key: SecretKey::new(&mut secp256k1::rand::thread_rng()),
             verifiers_public_keys: vec![],
-            db_file_path: "database".to_string(),
             num_verifiers: 4,
             min_relay_fee: 289,
             user_takes_after: 200,
@@ -252,7 +247,6 @@ mod tests {
     fn parse_from_file_with_headers() {
         let file_name = "2".to_string() + TEST_FILE;
         let content = "[header1]
-        db_file_path = \"database\"
         num_verifiers = 4
         min_relay_fee = 289
         user_takes_after = 200

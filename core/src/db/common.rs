@@ -122,7 +122,7 @@ impl Database {
 
     pub async fn get_deposit_tx(&self, idx: usize) -> Result<Txid, BridgeError> {
         let qr = sqlx::query("SELECT move_txid FROM deposit_move_txs WHERE id = $1;")
-            .bind(idx as i64 + 1)
+            .bind(idx as i64)
             .fetch_one(&self.connection)
             .await;
         tracing::debug!("QR: GETTING QR for :{:?}", idx);
@@ -139,6 +139,7 @@ impl Database {
                 Err(BridgeError::DatabaseError(sqlx::Error::RowNotFound))}, // TODO: Is this correct?
         }
     }
+
     pub async fn get_next_deposit_index(&self) -> Result<usize, BridgeError> {
         match sqlx::query("SELECT COUNT(*) FROM deposit_move_txs;")
             .fetch_one(&self.connection)
