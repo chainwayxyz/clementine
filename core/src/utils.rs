@@ -47,7 +47,7 @@ pub fn check_deposit_utxo(
     rpc: &ExtendedRpc,
     tx_builder: &TransactionBuilder,
     outpoint: &OutPoint,
-    recovery_address: &Address<NetworkUnchecked>,
+    recovery_taproot_address: &Address<NetworkUnchecked>,
     evm_address: &EVMAddress,
     amount_sats: u64,
     confirmation_block_count: u32,
@@ -56,8 +56,11 @@ pub fn check_deposit_utxo(
         return Err(BridgeError::DepositNotFinalized);
     }
 
-    let (deposit_address, _) =
-        tx_builder.generate_deposit_address(recovery_address, evm_address, BRIDGE_AMOUNT_SATS)?;
+    let (deposit_address, _) = tx_builder.generate_deposit_address(
+        recovery_taproot_address,
+        evm_address,
+        BRIDGE_AMOUNT_SATS,
+    )?;
 
     if !rpc.check_utxo_address_and_amount(
         outpoint,

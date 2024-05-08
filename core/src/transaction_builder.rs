@@ -60,7 +60,7 @@ impl TransactionBuilder {
     /// This function generates a deposit address for the user. N-of-N or User takes after timelock script can be used to spend the funds.
     pub fn generate_deposit_address(
         &self,
-        user_taproot_address: &Address<NetworkUnchecked>,
+        recovery_taproot_address: &Address<NetworkUnchecked>,
         user_evm_address: &EVMAddress,
         amount: u64,
     ) -> Result<CreateAddressOutputs, BridgeError> {
@@ -68,7 +68,7 @@ impl TransactionBuilder {
             .script_builder
             .create_deposit_script(user_evm_address, amount);
         let script_timelock = ScriptBuilder::generate_timelock_script(
-            user_taproot_address,
+            recovery_taproot_address,
             self.config.user_takes_after,
         );
         let taproot = TaprootBuilder::new()
@@ -103,13 +103,16 @@ impl TransactionBuilder {
         &self,
         deposit_utxo: OutPoint,
         evm_address: &EVMAddress,
-        recovery_address: &Address<NetworkUnchecked>,
+        recovery_taproot_address: &Address<NetworkUnchecked>,
     ) -> Result<CreateTxOutputs, BridgeError> {
         let anyone_can_spend_txout = ScriptBuilder::anyone_can_spend_txout();
 
         let (bridge_address, _) = self.generate_bridge_address()?;
-        let (deposit_address, deposit_taproot_spend_info) =
-            self.generate_deposit_address(recovery_address, evm_address, BRIDGE_AMOUNT_SATS)?;
+        let (deposit_address, deposit_taproot_spend_info) = self.generate_deposit_address(
+            recovery_taproot_address,
+            evm_address,
+            BRIDGE_AMOUNT_SATS,
+        )?;
 
         let tx_ins = TransactionBuilder::create_tx_ins(vec![deposit_utxo]);
         let bridge_txout = TxOut {
@@ -622,11 +625,11 @@ mod tests {
         )
         .unwrap();
         let secp = secp256k1::Secp256k1::new();
-        let user_taproot_address =
+        let recovery_taproot_address =
             Address::p2tr(&secp, user_xonly_pk, None, bitcoin::Network::Regtest);
         let deposit_address = tx_builder
             .generate_deposit_address(
-                &user_taproot_address.as_unchecked(),
+                &recovery_taproot_address.as_unchecked(),
                 &crate::EVMAddress(evm_address),
                 10_000,
             )

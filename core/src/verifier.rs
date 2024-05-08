@@ -35,7 +35,7 @@ impl VerifierRpcServer for Verifier {
     async fn new_deposit_rpc(
         &self,
         start_utxo: OutPoint,
-        recovery_address: Address<NetworkUnchecked>,
+        recovery_taproot_address: Address<NetworkUnchecked>,
         deposit_index: u32,
         evm_address: EVMAddress,
         operator_address: Address<NetworkUnchecked>,
@@ -43,7 +43,7 @@ impl VerifierRpcServer for Verifier {
         let operator_address = operator_address.require_network(self.config.network)?;
         self.new_deposit(
             start_utxo,
-            &recovery_address,
+            &recovery_taproot_address,
             deposit_index,
             &evm_address,
             &operator_address,
@@ -70,7 +70,7 @@ impl Verifier {
     async fn new_deposit(
         &self,
         start_utxo: OutPoint,
-        recovery_address: &Address<NetworkUnchecked>,
+        recovery_taproot_address: &Address<NetworkUnchecked>,
         _deposit_index: u32,
         evm_address: &EVMAddress,
         _operator_address: &Address,
@@ -79,15 +79,17 @@ impl Verifier {
             &self.rpc,
             &self.transaction_builder,
             &start_utxo,
-            recovery_address,
+            recovery_taproot_address,
             evm_address,
             BRIDGE_AMOUNT_SATS,
             self.config.confirmation_treshold,
         )?;
 
-        let mut move_tx =
-            self.transaction_builder
-                .create_move_tx(start_utxo, evm_address, &recovery_address)?;
+        let mut move_tx = self.transaction_builder.create_move_tx(
+            start_utxo,
+            evm_address,
+            &recovery_taproot_address,
+        )?;
         let move_txid = move_tx.tx.txid();
 
         let _move_utxo = OutPoint {

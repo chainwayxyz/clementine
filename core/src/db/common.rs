@@ -103,14 +103,14 @@ impl Database {
     pub async fn add_deposit_transaction(
         &self,
         start_utxo: OutPoint,
-        recovery_address: Address<NetworkUnchecked>,
+        recovery_taproot_address: Address<NetworkUnchecked>,
         evm_address: EVMAddress,
     ) -> Result<(), BridgeError> {
         // TODO: These probably won't panic. But we should handle these
         // properly regardless, in the future.
         if let Err(e) = sqlx::query("INSERT INTO new_deposit_requests VALUES ($1, $2, $3);")
             .bind(start_utxo.to_string())
-            .bind(serde_json::to_string(&recovery_address).unwrap())
+            .bind(serde_json::to_string(&recovery_taproot_address).unwrap())
             .bind(serde_json::to_string(&evm_address).unwrap())
             .fetch_all(&self.connection)
             .await
