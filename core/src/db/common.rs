@@ -310,8 +310,6 @@ impl Database {
 /// parameters: They are hard to mock.
 #[cfg(test)]
 mod tests {
-    use std::clone;
-
     use super::Database;
     use crate::{config::BridgeConfig, test_common, EVMAddress};
     use bitcoin::{hashes::Hash, Address, OutPoint, Txid, XOnlyPublicKey};
