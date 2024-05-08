@@ -27,6 +27,6 @@ all_secret_keys = [
 ]
 db_host = "127.0.0.1"
 db_port = 5432
-db_user = "clementine"
+db_user = "citrea"
 db_password = ""
 db_name = "clementine"

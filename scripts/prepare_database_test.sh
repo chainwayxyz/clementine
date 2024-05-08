@@ -10,7 +10,7 @@ echo "Preparing 5 database for $PGDATABASE, where we add db and user name is $PG
 
 dropdb -U $PGUSER $PGDATABASE
 createdb -U $PGUSER -O $PGUSER $PGDATABASE
-cat $SCRIPT_DIR/test_schema.sql $SCRIPT_DIR/schema.sql | psql -U $PGUSER $PGDATABASE
+cat $SCRIPT_DIR/schema.sql | psql -U $PGUSER $PGDATABASE
 
 for i in {0..4}
 do
