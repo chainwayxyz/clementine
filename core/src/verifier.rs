@@ -1,9 +1,10 @@
 use crate::config::BridgeConfig;
 #[cfg(feature = "poc")]
 use crate::constants::CONNECTOR_TREE_DEPTH;
-use crate::db::verifier::VerifierMockDB;
+use crate::db::verifier::VerifierDB;
 use crate::errors::BridgeError;
 use crate::extended_rpc::ExtendedRpc;
+use crate::script_builder::ScriptBuilder;
 use crate::traits::rpc::VerifierRpcServer;
 // use crate::traits::verifier::VerifierConnector;
 use crate::transaction_builder::TransactionBuilder;
@@ -12,7 +13,7 @@ use crate::EVMAddress;
 use crate::{actor::Actor, operator::DepositPresigns};
 use bitcoin::address::{NetworkChecked, NetworkUnchecked};
 use bitcoin::{secp256k1, secp256k1::Secp256k1, OutPoint};
-use bitcoin::{Address, TxOut};
+use bitcoin::{Address, Amount, TxOut};
 use clementine_circuits::constants::BRIDGE_AMOUNT_SATS;
 use jsonrpsee::core::async_trait;
 use secp256k1::XOnlyPublicKey;
@@ -26,7 +27,7 @@ pub struct Verifier {
     pub transaction_builder: TransactionBuilder,
     pub verifiers: Vec<XOnlyPublicKey>,
     pub operator_pk: XOnlyPublicKey,
-    pub verifier_db_connector: VerifierMockDB,
+    pub db: VerifierDB,
     config: BridgeConfig,
 }
 
@@ -52,13 +53,11 @@ impl VerifierRpcServer for Verifier {
     }
     async fn new_withdrawal_direct_rpc(
         &self,
-        bridge_utxo: OutPoint,
-        bridge_txout: TxOut,
+        withdrawal_idx: usize,
         withdrawal_address: Address<NetworkUnchecked>,
     ) -> Result<schnorr::Signature, BridgeError> {
         let withdrawal_address = withdrawal_address.require_network(self.config.network)?;
-        self.new_withdrawal_direct(bridge_utxo, bridge_txout, &withdrawal_address)
-            .await
+        self.new_withdrawal_direct(withdrawal_idx, &withdrawal_address).await
     }
 }
 
@@ -71,7 +70,7 @@ impl Verifier {
         &self,
         start_utxo: OutPoint,
         recovery_taproot_address: &Address<NetworkUnchecked>,
-        _deposit_index: u32,
+        deposit_index: u32,
         evm_address: &EVMAddress,
         _operator_address: &Address,
     ) -> Result<DepositPresigns, BridgeError> {
@@ -111,9 +110,9 @@ impl Verifier {
         #[cfg(feature = "poc")]
         {
             for i in 0..NUM_ROUNDS {
-                let connector_utxo = self.verifier_db_connector.get_connector_tree_utxo(i)
-                    [CONNECTOR_TREE_DEPTH][deposit_index as usize];
-                let connector_hash = self.verifier_db_connector.get_connector_tree_hash(
+                let connector_utxo = self.db.get_connector_tree_utxo(i)[CONNECTOR_TREE_DEPTH]
+                    [deposit_index as usize];
+                let connector_hash = self.db.get_connector_tree_hash(
                     i,
                     CONNECTOR_TREE_DEPTH,
                     deposit_index as usize,
@@ -133,6 +132,9 @@ impl Verifier {
                 op_claim_sigs.push(op_claim_sig);
             }
         }
+        self.db
+            .insert_move_txid_with_id(deposit_index as usize, move_txid)
+            .await?;
         Ok(DepositPresigns {
             move_sign: move_sig,
             operator_claim_sign: op_claim_sigs,
@@ -141,10 +143,26 @@ impl Verifier {
 
     async fn new_withdrawal_direct(
         &self,
-        bridge_utxo: OutPoint,
-        bridge_txout: TxOut,
+        withdrawal_idx: usize,
         withdrawal_address: &Address<NetworkChecked>,
     ) -> Result<schnorr::Signature, BridgeError> {
+        // TODO: Check from citrea rpc if the withdrawal is valid
+
+        let bridge_txid = self.db.get_deposit_tx(withdrawal_idx).await?;
+        tracing::debug!("Verifier is signing withdrawal tx with txid: {:?}", bridge_txid);
+        let bridge_utxo = OutPoint {
+            txid: bridge_txid,
+            vout: 0,
+        };
+
+        let (bridge_address, _) = self.transaction_builder.generate_bridge_address()?;
+        let dust_value = ScriptBuilder::anyone_can_spend_txout().value;
+        let bridge_txout = TxOut {
+            value: Amount::from_sat(BRIDGE_AMOUNT_SATS - self.config.min_relay_fee) - dust_value,
+            script_pubkey: bridge_address.script_pubkey(),
+        };
+
+
         let mut withdrawal_tx = self.transaction_builder.create_withdraw_tx(
             bridge_utxo,
             bridge_txout,
@@ -173,15 +191,15 @@ impl Verifier {
                 &period_relative_block_heights,
             )?;
 
-        // self.verifier_db_connector
+        // self.db
         //     .set_connector_tree_utxos(utxo_trees);
-        // self.verifier_db_connector
+        // self.db
         //     .set_connector_tree_hashes(connector_tree_hashes.clone());
-        // self.verifier_db_connector
+        // self.db
         //     .set_claim_proof_merkle_trees(claim_proof_merkle_trees);
-        // self.verifier_db_connector
+        // self.db
         //     .set_start_block_height(start_blockheight);
-        // self.verifier_db_connector
+        // self.db
         //     .set_period_relative_block_heights(period_relative_block_heights);
 
         Ok(())
@@ -194,15 +212,13 @@ impl Verifier {
         tracing::info!("Verifier starts challenges");
         let last_blockheight = self.rpc.get_block_count()?;
         let last_blockhash = self.rpc.get_block_hash(
-            self.verifier_db_connector.get_start_block_height()
-                + self
-                    .verifier_db_connector
-                    .get_period_relative_block_heights()[period as usize] as u64
+            self.db.get_start_block_height()
+                + self.db.get_period_relative_block_heights()[period as usize] as u64
                 - 1,
         )?;
         tracing::debug!("Verifier last_blockhash: {:?}", last_blockhash);
         let total_work = self.rpc.calculate_total_work_between_blocks(
-            self.verifier_db_connector.get_start_block_height(),
+            self.db.get_start_block_height(),
             last_blockheight,
         )?;
         Ok((last_blockhash, total_work, period))
@@ -226,7 +242,7 @@ impl Verifier {
             return Err(BridgeError::PublicKeyNotFound);
         }
 
-        let verifier_db_connector = VerifierMockDB::new(config.clone()).await;
+        let db = VerifierDB::new(config.clone()).await;
 
         let transaction_builder = TransactionBuilder::new(all_xonly_pks.clone(), config.clone());
         let operator_pk = all_xonly_pks[all_xonly_pks.len() - 1];
@@ -237,7 +253,7 @@ impl Verifier {
             transaction_builder,
             verifiers: all_xonly_pks,
             operator_pk,
-            verifier_db_connector,
+            db,
             config,
         })
     }

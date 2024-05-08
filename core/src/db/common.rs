@@ -115,9 +115,26 @@ impl Database {
             Err(e) => Err(BridgeError::DatabaseError(e)),
         }
     }
-    pub async fn add_to_deposit_txs(&self, deposit_tx: Txid) -> Result<(), BridgeError> {
+    pub async fn insert_move_txid(&self, move_txid: Txid) -> Result<(), BridgeError> {
         if let Err(e) = sqlx::query("INSERT INTO deposit_move_txs (move_txid) VALUES ($1);")
-            .bind(deposit_tx.to_string())
+            .bind(move_txid.to_string())
+            .fetch_all(&self.connection)
+            .await
+        {
+            return Err(BridgeError::DatabaseError(e));
+        };
+
+        Ok(())
+    }
+
+    pub async fn insert_move_txid_with_id(
+        &self,
+        id: usize,
+        move_txid: Txid,
+    ) -> Result<(), BridgeError> {
+        if let Err(e) = sqlx::query("INSERT INTO deposit_move_txs VALUES ($1, $2);")
+            .bind(id as i64)
+            .bind(move_txid.to_string())
             .fetch_all(&self.connection)
             .await
         {
@@ -310,8 +327,6 @@ impl Database {
 /// parameters: They are hard to mock.
 #[cfg(test)]
 mod tests {
-    use std::clone;
-
     use super::Database;
     use crate::{config::BridgeConfig, test_common, EVMAddress};
     use bitcoin::{hashes::Hash, Address, OutPoint, Txid, XOnlyPublicKey};
@@ -396,7 +411,7 @@ mod tests {
         }
         let txid = Txid::from_byte_array(arr);
 
-        database.add_to_deposit_txs(txid).await.unwrap();
+        database.insert_move_txid(txid).await.unwrap();
 
         let next_idx = database.get_next_deposit_index().await.unwrap();
 

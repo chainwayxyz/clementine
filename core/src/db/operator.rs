@@ -3,11 +3,11 @@ use crate::config::BridgeConfig;
 use std::ops::{Deref, DerefMut};
 
 #[derive(Debug, Clone)]
-pub struct OperatorMockDB {
+pub struct OperatorDB {
     common_db: Database,
 }
 
-impl OperatorMockDB {
+impl OperatorDB {
     pub async fn new(config: BridgeConfig) -> Self {
         Self {
             common_db: Database::new(config).await.unwrap(),
@@ -15,7 +15,7 @@ impl OperatorMockDB {
     }
 }
 
-impl Deref for OperatorMockDB {
+impl Deref for OperatorDB {
     type Target = Database;
 
     fn deref(&self) -> &Self::Target {
@@ -23,7 +23,7 @@ impl Deref for OperatorMockDB {
     }
 }
 
-impl DerefMut for OperatorMockDB {
+impl DerefMut for OperatorDB {
     fn deref_mut(&mut self) -> &mut Self::Target {
         &mut self.common_db
     }

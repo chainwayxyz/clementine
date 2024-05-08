@@ -1,5 +1,5 @@
 use bitcoin::address::NetworkUnchecked;
-use bitcoin::{Address, OutPoint, TxOut, Txid};
+use bitcoin::{Address, OutPoint, Txid};
 use secp256k1::schnorr;
 
 use crate::{errors::BridgeError, operator::DepositPresigns, EVMAddress};
@@ -20,8 +20,7 @@ pub trait VerifierRpc {
     #[method(name = "new_withdrawal")]
     async fn new_withdrawal_direct_rpc(
         &self,
-        deposit_utxo: OutPoint,
-        bridge_txout: TxOut,
+        withdrawal_idx: usize,
         withdrawal_address: Address<NetworkUnchecked>,
     ) -> Result<schnorr::Signature, BridgeError>;
 }

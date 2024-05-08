@@ -5,7 +5,7 @@ use crate::constants::{
     VerifierChallenge, CONNECTOR_TREE_DEPTH, DUST_VALUE, K_DEEP,
     MAX_BITVM_CHALLENGE_RESPONSE_BLOCKS, PERIOD_BLOCK_COUNT,
 };
-use crate::db::operator::OperatorMockDB;
+use crate::db::operator::OperatorDB;
 use crate::errors::BridgeError;
 use crate::extended_rpc::ExtendedRpc;
 use crate::script_builder::ScriptBuilder;
@@ -83,7 +83,7 @@ pub struct Operator {
     pub transaction_builder: TransactionBuilder,
     pub verifiers_pks: Vec<XOnlyPublicKey>,
     pub verifier_connector: Vec<Arc<jsonrpsee::http_client::HttpClient>>,
-    operator_db_connector: OperatorMockDB,
+    db: OperatorDB,
     config: BridgeConfig,
 }
 
@@ -126,7 +126,7 @@ impl Operator {
         }
 
         let transaction_builder = TransactionBuilder::new(all_xonly_pks.clone(), config.clone());
-        let operator_db_connector = OperatorMockDB::new(config.clone()).await;
+        let db = OperatorDB::new(config.clone()).await;
 
         Ok(Self {
             rpc,
@@ -134,7 +134,7 @@ impl Operator {
             transaction_builder,
             verifier_connector: verifiers,
             verifiers_pks: all_xonly_pks.clone(),
-            operator_db_connector,
+            db,
             config,
         })
     }
@@ -152,7 +152,7 @@ impl Operator {
         evm_address: &EVMAddress,
     ) -> Result<Txid, BridgeError> {
         // Transaction is OK, write it to the database.
-        self.operator_db_connector
+        self.db
             .add_deposit_transaction(start_utxo, recovery_taproot_address.clone(), *evm_address)
             .await?;
 
@@ -166,7 +166,9 @@ impl Operator {
             self.config.confirmation_treshold,
         )?;
 
-        let deposit_index = self.operator_db_connector.get_next_deposit_index().await?;
+        let transaction = self.db.begin_transaction().await?;
+
+        let deposit_index = self.db.get_next_deposit_index().await?;
         tracing::debug!("deposit_index: {:?}", deposit_index);
 
         let presigns_from_all_verifiers: Result<Vec<_>, BridgeError> = self
@@ -231,8 +233,8 @@ impl Operator {
 
         #[cfg(feature = "poc")]
         {
-            self.operator_db_connector
-                .add_to_deposit_txs((rpc_move_txid, move_tx.tx.output[0].clone()))
+            self.db
+                .insert_move_txid((rpc_move_txid, move_tx.tx.output[0].clone()))
                 .await;
             let operator_claim_sigs = OperatorClaimSigs {
                 operator_claim_sigs: presigns_from_all_verifiers
@@ -240,13 +242,13 @@ impl Operator {
                     .map(|presign| presign.operator_claim_sign.clone())
                     .collect::<Vec<_>>(),
             };
-            self.operator_db_connector
+            self.db
                 .add_deposit_take_sigs(operator_claim_sigs);
 
             for i in 0..NUM_ROUNDS {
-                let connector_utxo = self.operator_db_connector.get_connector_tree_utxo(i)
+                let connector_utxo = self.db.get_connector_tree_utxo(i)
                     [CONNECTOR_TREE_DEPTH][deposit_index as usize];
-                let connector_hash = self.operator_db_connector.get_connector_tree_hash(
+                let connector_hash = self.db.get_connector_tree_hash(
                     i,
                     CONNECTOR_TREE_DEPTH,
                     deposit_index as usize,
@@ -292,30 +294,77 @@ impl Operator {
         tracing::debug!("move_tx: {:?}", move_tx.tx);
         tracing::debug!("move_tx.tx size: {:?}", move_tx.tx.weight());
 
-        // save to dp in a db transaction
-        {
-            let transaction = self.operator_db_connector.begin_transaction().await?;
+        self.db
+            .insert_move_txid(move_tx.tx.txid())
+            .await?;
+        self.rpc.send_raw_transaction(&move_tx.tx)?;
 
-            self.operator_db_connector
-                .add_to_deposit_txs(move_tx.tx.txid())
-                .await?;
-            self.rpc.send_raw_transaction(&move_tx.tx)?;
-
-            if let Err(e) = transaction.commit().await {
-                return Err(BridgeError::DatabaseError(e));
-            };
-        }
+        if let Err(e) = transaction.commit().await {
+            return Err(BridgeError::DatabaseError(e));
+        };
 
         Ok(move_tx.tx.txid())
+    }
+
+    pub async fn new_withdrawal_direct(
+        &self,
+        idx: usize,
+        withdrawal_address: Address<NetworkChecked>,
+    ) -> Result<Txid, BridgeError> {
+        let deposit_tx_info = self.db.get_deposit_tx(idx).await?;
+        tracing::debug!("Operator is signing withdrawal tx with txid: {:?}", deposit_tx_info);
+        let (bridge_address, _) = self.transaction_builder.generate_bridge_address()?;
+        let dust_value = ScriptBuilder::anyone_can_spend_txout().value;
+        let deposit_txout = TxOut {
+            value: Amount::from_sat(BRIDGE_AMOUNT_SATS - self.config.min_relay_fee) - dust_value,
+            script_pubkey: bridge_address.script_pubkey(),
+        };
+        let deposit_utxo = OutPoint {
+            txid: deposit_tx_info,
+            vout: 0,
+        };
+        let mut withdrawal_tx = self.transaction_builder.create_withdraw_tx(
+            deposit_utxo,
+            deposit_txout.clone(),
+            &withdrawal_address,
+        )?;
+        let signatures_from_verifiers: Result<Vec<_>, BridgeError> = self
+            .verifier_connector
+            .iter()
+            .map(|verifier| async {
+                let sig = verifier
+                    .new_withdrawal_direct_rpc(
+                        idx,
+                        withdrawal_address.as_unchecked().clone(),
+                    )
+                    .await?;
+                Ok(sig)
+            })
+            .collect::<FuturesOrdered<_>>()
+            .try_collect()
+            .await;
+        let mut verifier_sigs = signatures_from_verifiers?;
+        let sig = self
+            .signer
+            .sign_taproot_script_spend_tx_new(&mut withdrawal_tx, 0, 0)?;
+        verifier_sigs.push(sig);
+        verifier_sigs.reverse();
+        let mut witness_elements: Vec<&[u8]> = Vec::new();
+        for sig in verifier_sigs.iter() {
+            witness_elements.push(sig.as_ref());
+        }
+        handle_taproot_witness_new(&mut withdrawal_tx, &witness_elements, 0, 0)?;
+        let withdrawal_txid = self.rpc.send_raw_transaction(&withdrawal_tx.tx)?;
+        Ok(withdrawal_txid)
     }
 
     #[cfg(feature = "poc")]
     /// Returns the current withdrawal
     fn get_current_withdrawal_period(&self) -> Result<usize, BridgeError> {
         let cur_block_height = self.rpc.get_block_count().unwrap();
-        let start_block_height = self.operator_db_connector.get_start_block_height();
+        let start_block_height = self.db.get_start_block_height();
         let period_relative_block_heights = self
-            .operator_db_connector
+            .db
             .get_period_relative_block_heights();
         for (i, block_height) in period_relative_block_heights.iter().enumerate() {
             if cur_block_height
@@ -334,10 +383,10 @@ impl Operator {
     fn get_current_preimage_reveal_period(&self) -> Result<usize, BridgeError> {
         let cur_block_height = self.rpc.get_block_count().unwrap();
         tracing::debug!("Cur block height: {:?}", cur_block_height);
-        let start_block_height = self.operator_db_connector.get_start_block_height();
+        let start_block_height = self.db.get_start_block_height();
         tracing::debug!("Start block height: {:?}", start_block_height);
         let period_relative_block_heights = self
-            .operator_db_connector
+            .db
             .get_period_relative_block_heights();
 
         for (i, block_height) in period_relative_block_heights.iter().enumerate() {
@@ -371,7 +420,7 @@ impl Operator {
         let hash: [u8; 32] = hash[2..].try_into()?;
 
         // 1. Add the address to WithdrawalsMerkleTree
-        self.operator_db_connector
+        self.db
             .add_to_withdrawals_merkle_tree(hash)
             .await;
 
@@ -388,65 +437,13 @@ impl Operator {
         // );
         // let current_withdrawal_period = self.get_current_withdrawal_period()?;
         let current_withdrawal_period = 0; // TODO: CHANGE THIS LATER TO THE ABOVE LINE
-        self.operator_db_connector
+        self.db
             .add_to_withdrawals_payment_txids(
                 current_withdrawal_period,
                 (txid, hash) as WithdrawalPayment,
             )
             .await;
         Ok(txid)
-    }
-
-    pub async fn new_withdrawal_direct(
-        &self,
-        idx: usize,
-        withdrawal_address: Address<NetworkChecked>,
-    ) -> Result<Txid, BridgeError> {
-        let deposit_tx_info = self.operator_db_connector.get_deposit_tx(idx).await?;
-        let (bridge_address, _) = self.transaction_builder.generate_bridge_address()?;
-        let dust_value = ScriptBuilder::anyone_can_spend_txout().value;
-        let deposit_txout = TxOut {
-            value: Amount::from_sat(BRIDGE_AMOUNT_SATS - self.config.min_relay_fee) - dust_value,
-            script_pubkey: bridge_address.script_pubkey(),
-        };
-        let deposit_utxo = OutPoint {
-            txid: deposit_tx_info,
-            vout: 0,
-        };
-        let mut withdrawal_tx = self.transaction_builder.create_withdraw_tx(
-            deposit_utxo,
-            deposit_txout.clone(),
-            &withdrawal_address,
-        )?;
-        let signatures_from_verifiers: Result<Vec<_>, BridgeError> = self
-            .verifier_connector
-            .iter()
-            .map(|verifier| async {
-                let sig = verifier
-                    .new_withdrawal_direct_rpc(
-                        deposit_utxo.clone(),
-                        deposit_txout.clone(),
-                        withdrawal_address.as_unchecked().clone(),
-                    )
-                    .await?;
-                Ok(sig)
-            })
-            .collect::<FuturesOrdered<_>>()
-            .try_collect()
-            .await;
-        let mut verifier_sigs = signatures_from_verifiers?;
-        let sig = self
-            .signer
-            .sign_taproot_script_spend_tx_new(&mut withdrawal_tx, 0, 0)?;
-        verifier_sigs.push(sig);
-        verifier_sigs.reverse();
-        let mut witness_elements: Vec<&[u8]> = Vec::new();
-        for sig in verifier_sigs.iter() {
-            witness_elements.push(sig.as_ref());
-        }
-        handle_taproot_witness_new(&mut withdrawal_tx, &witness_elements, 0, 0)?;
-        let withdrawal_txid = self.rpc.send_raw_transaction(&withdrawal_tx.tx)?;
-        Ok(withdrawal_txid)
     }
 
     #[cfg(feature = "poc")]
@@ -487,15 +484,15 @@ impl Operator {
         let level = tree_depth - depth as usize;
         //find the index of preimage in the connector_tree_preimages[level as usize]
         let index = self
-            .operator_db_connector
+            .db
             .get_connector_tree_preimages_level(period, level)
             .iter()
             .position(|x| *x == preimage)
             .ok_or(BridgeError::PreimageNotFound)?;
         let hashes = (
-            self.operator_db_connector
+            self.db
                 .get_connector_tree_hash(period, level + 1, 2 * index),
-            self.operator_db_connector
+            self.db
                 .get_connector_tree_hash(period, level + 1, 2 * index + 1),
         );
 
@@ -562,7 +559,7 @@ impl Operator {
 
     #[cfg(feature = "poc")]
     fn get_num_withdrawals_for_period(&self, _period: usize) -> u32 {
-        self.operator_db_connector
+        self.db
             .get_withdrawals_merkle_tree_index() // TODO: This is not correct, we should have a cutoff
     }
 
@@ -577,10 +574,10 @@ impl Operator {
         tracing::info!("inscribe_connector_tree_preimages");
         let period = self.get_current_preimage_reveal_period()?;
         tracing::debug!("period: {:?}", period);
-        if self.operator_db_connector.get_inscription_txs_len() != period {
+        if self.db.get_inscription_txs_len() != period {
             tracing::debug!(
-                "self.operator_db_connector.get_inscription_txs_len(): {:?}",
-                self.operator_db_connector.get_inscription_txs_len()
+                "self.db.get_inscription_txs_len(): {:?}",
+                self.db.get_inscription_txs_len()
             );
             return Err(BridgeError::InvalidPeriod(
                 InvalidPeriodError::InscriptionPeriodMismatch,
@@ -595,7 +592,7 @@ impl Operator {
         let preimages_to_be_revealed = indices
             .iter()
             .map(|(depth, index)| {
-                self.operator_db_connector
+                self.db
                     .get_connector_tree_preimages(period, *depth, *index)
             })
             .collect::<Vec<_>>();
@@ -626,10 +623,10 @@ impl Operator {
 
         let reveal_txid = self.rpc.send_raw_transaction(&reveal_tx.tx)?;
 
-        self.operator_db_connector
+        self.db
             .add_to_inscription_txs((commit_utxo, reveal_txid));
 
-        self.operator_db_connector
+        self.db
             .add_inscribed_preimages(period, preimages_to_be_revealed.clone());
 
         Ok((preimages_to_be_revealed, commit_address))
@@ -764,18 +761,18 @@ impl Operator {
         let mut blockhashes_mt = MerkleTree::<BLOCKHASH_MERKLE_TREE_DEPTH>::new();
         let mut withdrawal_mt = MerkleTree::<WITHDRAWAL_MERKLE_TREE_DEPTH>::new();
 
-        let start_block_height = self.operator_db_connector.get_start_block_height();
+        let start_block_height = self.db.get_start_block_height();
         // tracing::debug!("start_block_height: {:?}", start_block_height);
 
         let period_relative_block_heights = self
-            .operator_db_connector
+            .db
             .get_period_relative_block_heights();
         // tracing::debug!(
         //     "period_relative_block_heights: {:?}",
         //     period_relative_block_heights
         // );
 
-        let inscription_txs = self.operator_db_connector.get_inscription_txs();
+        let inscription_txs = self.db.get_inscription_txs();
         // tracing::debug!("inscription_txs: {:?}", inscription_txs);
 
         let mut lc_blockhash: BlockHash = BlockHash::all_zeros();
@@ -819,7 +816,7 @@ impl Operator {
             tracing::debug!("lc_blockhash: {:?}", lc_blockhash);
 
             let withdrawal_payments = self
-                .operator_db_connector
+                .db
                 .get_withdrawals_payment_for_period(i);
             tracing::debug!("withdrawal_payments: {:?}", withdrawal_payments);
             total_num_withdrawals += withdrawal_payments.len();
@@ -857,7 +854,7 @@ impl Operator {
         tracing::info!("WROTE LC PROOF");
 
         let preimages: Vec<PreimageType> = self
-            .operator_db_connector
+            .db
             .get_inscribed_preimages(last_period as usize);
 
         // tracing::debug!("PREIMAGES: {:?}", preimages);
@@ -874,7 +871,7 @@ impl Operator {
         // tracing::info!("WROTE PREIMAGES");
 
         let (commit_utxo, reveal_txid) =
-            self.operator_db_connector.get_inscription_txs()[last_period as usize];
+            self.db.get_inscription_txs()[last_period as usize];
 
         // tracing::debug!("commit_utxo: {:?}", commit_utxo);
         let commit_tx = self.rpc.get_raw_transaction(&commit_utxo.txid, None)?;
@@ -929,7 +926,7 @@ impl Operator {
             preimage_hash,
             Some(total_num_withdrawals as u32),
             &self
-                .operator_db_connector
+                .db
                 .get_claim_proof_merkle_tree(last_period as usize),
         );
         tracing::debug!(
@@ -952,10 +949,10 @@ impl Operator {
 
     #[cfg(feature = "poc")]
     pub fn prove_test<E: Environment>(&self) -> Result<(), BridgeError> {
-        let inscription_txs = self.operator_db_connector.get_inscription_txs();
+        let inscription_txs = self.db.get_inscription_txs();
         let last_period = inscription_txs.len() - 1;
         let preimages: Vec<PreimageType> = self
-            .operator_db_connector
+            .db
             .get_inscribed_preimages(last_period as usize);
         tracing::debug!("PREIMAGES: {:?}", preimages);
         tracing::debug!("operator pk: {:?}", self.signer.xonly_public_key);
@@ -983,13 +980,13 @@ impl Operator {
         BridgeError,
     > {
         // tracing::info!("Operator starts initial setup");
-        let blockheight = self.operator_db_connector.get_start_block_height();
+        let blockheight = self.db.get_start_block_height();
         if blockheight != 0 {
             return Err(BridgeError::AlreadyInitialized);
         }
         // initial setup starts with getting the current blockheight to set the start blockheight
         let start_block_height = self.rpc.get_block_height()?;
-        self.operator_db_connector
+        self.db
             .set_start_block_height(start_block_height);
         // this is a vector [PERIOD_BLOCK_COUNT, 2*PERIOD_BLOCK_COUNT, ...] with NUM_ROUNDS elements.
         // this can be changed to specific blockheights that we want in the initial setup.
@@ -997,14 +994,14 @@ impl Operator {
         let period_relative_block_heights = (0..NUM_ROUNDS as u32 + 1)
             .map(|i| PERIOD_BLOCK_COUNT * (i + 1))
             .collect::<Vec<u32>>();
-        self.operator_db_connector
+        self.db
             .set_period_relative_block_heights(period_relative_block_heights.clone());
 
         let (connector_tree_preimages, connector_tree_hashes) =
             create_all_rounds_connector_preimages(CONNECTOR_TREE_DEPTH, NUM_ROUNDS, rng);
-        self.operator_db_connector
+        self.db
             .set_connector_tree_preimages(connector_tree_preimages);
-        self.operator_db_connector
+        self.db
             .set_connector_tree_hashes(connector_tree_hashes.clone());
         let single_tree_amount = calculate_amount(
             CONNECTOR_TREE_DEPTH,
@@ -1051,10 +1048,10 @@ impl Operator {
             "Operator period_relative_block_heights for start_block_heigth: {:?}",
             period_relative_block_heights
         );
-        self.operator_db_connector
+        self.db
             .set_claim_proof_merkle_trees(claim_proof_merkle_trees.clone());
 
-        self.operator_db_connector
+        self.db
             .set_connector_tree_utxos(utxo_trees);
         Ok((
             first_source_utxo,

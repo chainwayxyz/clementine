@@ -17,7 +17,9 @@ use clementine_core::{cli, start_operator_and_verifiers};
 async fn main() {
     let config = cli::get_configuration();
 
-    let (_, operator_handle, _verifiers) = start_operator_and_verifiers(config).await;
+    let (operator_client, operator_handle, _verifiers) = start_operator_and_verifiers(config).await;
+
+    println!("Operator server started. {:?}", operator_client);
 
     operator_handle.stopped().await;
 }

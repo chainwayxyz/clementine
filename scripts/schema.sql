@@ -6,8 +6,10 @@ create table new_deposit_requests (
     evm_address text
 );
 
+CREATE SEQUENCE start_from_zero MINVALUE 0 START 0;
+
 create table deposit_move_txs (
-    id serial primary key,
+    id INTEGER primary key default nextval('start_from_zero'),
     move_txid text not null unique check (move_txid ~ '^[a-fA-F0-9]{64}')
 );
 
