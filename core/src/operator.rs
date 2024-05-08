@@ -312,6 +312,7 @@ impl Operator {
         withdrawal_address: Address<NetworkChecked>,
     ) -> Result<Txid, BridgeError> {
         let deposit_tx_info = self.db.get_deposit_tx(idx).await?;
+        tracing::debug!("Operator is signing withdrawal tx with txid: {:?}", deposit_tx_info);
         let (bridge_address, _) = self.transaction_builder.generate_bridge_address()?;
         let dust_value = ScriptBuilder::anyone_can_spend_txout().value;
         let deposit_txout = TxOut {
@@ -333,8 +334,7 @@ impl Operator {
             .map(|verifier| async {
                 let sig = verifier
                     .new_withdrawal_direct_rpc(
-                        deposit_utxo.clone(),
-                        deposit_txout.clone(),
+                        idx,
                         withdrawal_address.as_unchecked().clone(),
                     )
                     .await?;
