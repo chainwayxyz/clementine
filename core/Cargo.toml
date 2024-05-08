@@ -27,6 +27,7 @@ futures = "0.3.30"
 dotenv = "0.15.0"
 clap = { version = "4.5.4", features = ["derive"] }
 toml = "0.8.12"
+sqlx = { version = "0.7.4", features = ["runtime-tokio", "postgres"] }
 
 [features]
 default = []

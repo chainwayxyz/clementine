@@ -2,22 +2,22 @@
 //!
 //! This test checks if basic deposit and withdraw operations are OK or not.
 
-mod common;
-
 use bitcoin::{Address, Amount, Txid};
 use bitcoincore_rpc::Auth;
 use clementine_circuits::constants::BRIDGE_AMOUNT_SATS;
 use clementine_core::extended_rpc::ExtendedRpc;
 use clementine_core::script_builder::ScriptBuilder;
+use clementine_core::test_common::{find_consecutive_idle_ports, get_test_config_from_environment};
 use clementine_core::traits::rpc::OperatorRpcClient;
 use clementine_core::transaction_builder::TransactionBuilder;
 use clementine_core::EVMAddress;
 use clementine_core::{config::BridgeConfig, start_operator_and_verifiers};
-use common::{find_consecutive_idle_ports, get_test_config};
 
 #[tokio::test]
 async fn deposit_and_withdraw_flow() {
-    let config = get_test_config("test_config_deposit_and_withdraw.toml").unwrap();
+    let config =
+        get_test_config_from_environment("test_config_deposit_and_withdraw.toml".to_string())
+            .unwrap();
 
     let rpc = ExtendedRpc::new(
         config.bitcoin_rpc_url.clone(),
@@ -46,7 +46,7 @@ async fn deposit_and_withdraw_flow() {
     assert_eq!(rpc_withdraw_script, expected_withdraw_script);
     let anyone_can_spend_amount = ScriptBuilder::anyone_can_spend_txout().value;
 
-    // check ıf the amounts match
+    // check if the amounts match
     let expected_withdraw_amount =
         Amount::from_sat(BRIDGE_AMOUNT_SATS - 2 * config.min_relay_fee.clone())
             - anyone_can_spend_amount * 2;
@@ -95,7 +95,7 @@ async fn flow(config: BridgeConfig, rpc: ExtendedRpc) -> (Txid, Address) {
     }
 
     let withdrawal_address = Address::p2tr(&secp, xonly_pk, None, config.network);
-    tracing::debug!("Withdrawal sent to address: {:?}", withdrawal_address);
+    tracing::debug!("Withdrawal address to be sent: {:?}", withdrawal_address);
 
     let withdraw_txid = operator_client
         .new_withdrawal_direct_rpc(0, withdrawal_address.as_unchecked().clone())

@@ -77,6 +77,16 @@ pub struct BridgeConfig {
     pub bitcoin_rpc_password: String,
     /// All Secret keys. Just for testing purposes.
     pub all_secret_keys: Option<Vec<SecretKey>>,
+    /// PostgreSQL database host address.
+    pub db_host: String,
+    /// PostgreSQL database port.
+    pub db_port: usize,
+    /// PostgreSQL database user name.
+    pub db_user: String,
+    /// PostgreSQL database user password.
+    pub db_password: String,
+    /// PostgreSQL database name.
+    pub db_name: String,
 }
 
 impl BridgeConfig {
@@ -153,6 +163,11 @@ impl Default for BridgeConfig {
             bitcoin_rpc_user: "admin".to_string(),
             bitcoin_rpc_password: "admin".to_string(),
             all_secret_keys: None,
+            db_host: "localhost".to_string(),
+            db_port: 5432,
+            db_user: "postgres".to_string(),
+            db_password: "postgres".to_string(),
+            db_name: "postgres".to_string(),
         }
     }
 }
@@ -213,7 +228,7 @@ mod tests {
 
         // Read first example test file use for this test.
         let base_path = env!("CARGO_MANIFEST_DIR");
-        let config_path = format!("{}/tests/data/test_config_1.toml", base_path);
+        let config_path = format!("{}/tests/data/test_config.toml", base_path);
         let content = fs::read_to_string(config_path).unwrap();
         let mut file = File::create(file_name.clone()).unwrap();
         file.write_all(content.as_bytes()).unwrap();

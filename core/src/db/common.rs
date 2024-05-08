@@ -1,47 +1,86 @@
 //! # Common Database Operations
 //!
-//! Common database operations for both operator and verifier.
+//! Common database operations for both operator and verifier. This module
+//! directly talks with PostgreSQL. It is expected that PostgreSQL is properly
+//! installed and configured.
+//!
+//! ## Testing
+//!
+//! For testing, user can supply out-of-source-tree configuration file with
+//! `TEST_CONFIG` environment variable (`core/src/test_common.rs`).
+//!
+//! Tests that requires a proper PostgreSQL host configuration flagged with
+//! `ignore`. They can be run if configuration is OK with `--include-ignored`
+//! `cargo test` flag.
 
-use super::text::TextDatabase;
-use crate::{merkle::MerkleTree, ConnectorUTXOTree, HashTree, InscriptionTxs, WithdrawalPayment};
-use bitcoin::{TxOut, Txid};
-use clementine_circuits::{
-    constants::{CLAIM_MERKLE_TREE_DEPTH, WITHDRAWAL_MERKLE_TREE_DEPTH},
-    HashType, PreimageType,
-};
-use serde::{Deserialize, Serialize};
-use std::sync::{Arc, Mutex};
+use crate::EVMAddress;
+use crate::{config::BridgeConfig, errors::BridgeError};
+use bitcoin::{OutPoint, Txid, XOnlyPublicKey};
+use sqlx::Row;
+use sqlx::{Pool, Postgres};
+use std::str::FromStr;
+
+/// Actual information that database will hold. This information is not directly
+/// accessible for an outsider; It should be updated and used by a database
+/// organizer. Therefore, it is internal use only.
+#[cfg(poc)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct DatabaseContent {
+    inscribed_connector_tree_preimages: Vec<Vec<PreimageType>>,
+    connector_tree_hashes: Vec<HashTree>,
+    claim_proof_merkle_trees: Vec<MerkleTree<CLAIM_MERKLE_TREE_DEPTH>>,
+    inscription_txs: Vec<InscriptionTxs>,
+    deposit_txs: Vec<(Txid, TxOut)>,
+    withdrawals_merkle_tree: MerkleTree<WITHDRAWAL_MERKLE_TREE_DEPTH>,
+    withdrawals_payment_txids: Vec<Vec<WithdrawalPayment>>,
+    connector_tree_utxos: Vec<ConnectorUTXOTree>,
+    start_block_height: u64,
+    period_relative_block_heights: Vec<u32>,
+}
+#[cfg(poc)]
+impl DatabaseContent {
+    pub fn _new() -> Self {
+        Self {
+            inscribed_connector_tree_preimages: Vec::new(),
+            withdrawals_merkle_tree: MerkleTree::new(),
+            withdrawals_payment_txids: Vec::new(),
+            inscription_txs: Vec::new(),
+            deposit_txs: Vec::new(),
+            connector_tree_hashes: Vec::new(),
+            claim_proof_merkle_trees: Vec::new(),
+            connector_tree_utxos: Vec::new(),
+            start_block_height: 0,
+            period_relative_block_heights: Vec::new(),
+        }
+    }
+}
 
 /// Main database struct that holds all the information of the database.
 #[derive(Clone, Debug)]
 pub struct Database {
-    pub dbms: TextDatabase,
-    pub lock: Arc<Mutex<usize>>,
+    connection: Pool<Postgres>,
 }
 
 /// First pack of implementation for the `Database`. This pack includes general
 /// functions for accessing the database.
 impl Database {
-    pub fn new(db_file_path: String) -> Self {
-        Self {
-            dbms: TextDatabase::new(db_file_path.into()),
-            lock: Arc::new(Mutex::new(0)),
-        }
-    }
+    /// Creates a new `Database`. Then tries to connect actual database.
+    pub async fn new(config: BridgeConfig) -> Result<Self, BridgeError> {
+        let url = "postgresql://".to_owned()
+            + config.db_host.as_str()
+            + ":"
+            + config.db_port.to_string().as_str()
+            + "?dbname="
+            + config.db_name.as_str()
+            + "&user="
+            + config.db_user.as_str()
+            + "&password="
+            + config.db_password.as_str();
+        tracing::debug!("Connecting database: {}", url);
 
-    /// Calls actual database read function and writes it's contents to memory.
-    fn read(&self) -> DatabaseContent {
-        match self.dbms.read() {
-            Ok(c) => c,
-            Err(_) => DatabaseContent::new(),
-        }
-    }
-
-    /// Calls actual database write function and writes input data to database.
-    fn write(&self, content: DatabaseContent) {
-        match self.dbms.write(content) {
-            Ok(_) => return,
-            Err(e) => panic!("Writing to database: {}", e),
+        match sqlx::PgPool::connect(url.as_str()).await {
+            Ok(c) => Ok(Self { connection: c }),
+            Err(e) => Err(BridgeError::DatabaseError(e)),
         }
     }
 }
@@ -54,6 +93,74 @@ impl Database {
 /// result on a data race. Users must do their own synchronization to avoid data
 /// races.
 impl Database {
+    /// Adds a deposit transaction to database. This transaction includes the
+    /// following:
+    ///
+    /// * Start UTXO
+    /// * Return address
+    /// * EVM address
+    pub async fn add_deposit_transaction(
+        &self,
+        start_utxo: OutPoint,
+        return_address: XOnlyPublicKey,
+        evm_address: EVMAddress,
+    ) -> Result<(), BridgeError> {
+        // TODO: These probably won't panic. But we should handle these
+        // properly regardless, in the future.
+        if let Err(e) = sqlx::query("INSERT INTO new_deposit_requests VALUES ($1, $2, $3);")
+            .bind(start_utxo.to_string())
+            .bind(return_address.to_string())
+            .bind(serde_json::to_string(&evm_address).unwrap())
+            .fetch_all(&self.connection)
+            .await
+        {
+            return Err(BridgeError::DatabaseError(e));
+        };
+
+        Ok(())
+    }
+
+    pub async fn get_deposit_tx(&self, idx: usize) -> Result<Txid, BridgeError> {
+        let qr = sqlx::query("SELECT move_txid FROM deposit_move_txs WHERE id = $1;")
+            .bind(idx as i64 + 1)
+            .fetch_one(&self.connection)
+            .await;
+        tracing::debug!("QR: GETTING QR for :{:?}", idx);
+        let qr = match qr {
+            Ok(c) => c,
+            Err(e) => return Err(BridgeError::DatabaseError(e)),
+        };
+
+        // tracing::debug!("QR: {:?}", qr.get::<String, _>(0));
+        match Txid::from_str(&qr.get::<String, _>(0)) {
+            Ok(c) => Ok(c),
+            Err(e) => {
+                tracing::error!("Error: {:?}", e);
+                Err(BridgeError::DatabaseError(sqlx::Error::RowNotFound))}, // TODO: Is this correct?
+        }
+    }
+    pub async fn get_next_deposit_index(&self) -> Result<usize, BridgeError> {
+        match sqlx::query("SELECT COUNT(*) FROM deposit_move_txs;")
+            .fetch_one(&self.connection)
+            .await
+        {
+            Ok(qr) => Ok(qr.get::<i64, _>(0) as usize),
+            Err(e) => Err(BridgeError::DatabaseError(e)),
+        }
+    }
+    pub async fn add_to_deposit_txs(&self, deposit_tx: Txid) -> Result<(), BridgeError> {
+        if let Err(e) = sqlx::query("INSERT INTO deposit_move_txs (move_txid) VALUES ($1);")
+            .bind(deposit_tx.to_string())
+            .fetch_all(&self.connection)
+            .await
+        {
+            return Err(BridgeError::DatabaseError(e));
+        };
+
+        Ok(())
+    }
+
+    #[cfg(poc)]
     pub async fn get_connector_tree_hash(
         &self,
         period: usize,
@@ -74,6 +181,7 @@ impl Database {
             _ => [0u8; 32],
         }
     }
+    #[cfg(poc)]
     pub async fn set_connector_tree_hashes(&self, connector_tree_hashes: Vec<Vec<Vec<HashType>>>) {
         let _guard = self.lock.lock().unwrap();
         let mut content = self.read();
@@ -81,6 +189,7 @@ impl Database {
         self.write(content);
     }
 
+    #[cfg(poc)]
     pub async fn get_claim_proof_merkle_tree(
         &self,
         period: usize,
@@ -92,6 +201,7 @@ impl Database {
             _ => MerkleTree::new(),
         }
     }
+    #[cfg(poc)]
     pub async fn set_claim_proof_merkle_trees(
         &self,
         claim_proof_merkle_trees: Vec<MerkleTree<CLAIM_MERKLE_TREE_DEPTH>>,
@@ -102,14 +212,17 @@ impl Database {
         self.write(content);
     }
 
+    #[cfg(poc)]
     pub async fn get_inscription_txs(&self) -> Vec<InscriptionTxs> {
         let content = self.read();
         content.inscription_txs.clone()
     }
+    #[cfg(poc)]
     pub async fn get_inscription_txs_len(&self) -> usize {
         let content = self.read();
         content.inscription_txs.len()
     }
+    #[cfg(poc)]
     pub async fn add_to_inscription_txs(&self, inscription_txs: InscriptionTxs) {
         let _guard = self.lock.lock().unwrap();
         let mut content = self.read();
@@ -117,27 +230,18 @@ impl Database {
         self.write(content);
     }
 
-    pub async fn get_deposit_tx(&self, idx: usize) -> (Txid, TxOut) {
-        let content = self.read();
-        content.deposit_txs[idx].clone()
-    }
-
+    #[cfg(poc)]
     pub async fn get_deposit_txs(&self) -> Vec<(Txid, TxOut)> {
         let content = self.read();
         content.deposit_txs.clone()
     }
 
-    pub async fn add_to_deposit_txs(&self, deposit_tx: (Txid, TxOut)) {
-        let _guard = self.lock.lock().unwrap();
-        let mut content = self.read();
-        content.deposit_txs.push(deposit_tx);
-        self.write(content);
-    }
-
+    #[cfg(poc)]
     pub async fn get_withdrawals_merkle_tree_index(&self) -> u32 {
         let content = self.read();
         content.withdrawals_merkle_tree.index
     }
+    #[cfg(poc)]
     pub async fn add_to_withdrawals_merkle_tree(&self, hash: HashType) {
         let _guard = self.lock.lock().unwrap();
         let mut content = self.read();
@@ -145,6 +249,7 @@ impl Database {
         self.write(content);
     }
 
+    #[cfg(poc)]
     pub async fn get_withdrawals_payment_for_period(
         &self,
         period: usize,
@@ -152,6 +257,7 @@ impl Database {
         let content = self.read();
         content.withdrawals_payment_txids[period].clone()
     }
+    #[cfg(poc)]
     pub async fn add_to_withdrawals_payment_txids(
         &self,
         period: usize,
@@ -166,10 +272,12 @@ impl Database {
         self.write(content);
     }
 
+    #[cfg(poc)]
     pub async fn get_connector_tree_utxo(&self, idx: usize) -> ConnectorUTXOTree {
         let content = self.read();
         content.connector_tree_utxos[idx].clone()
     }
+    #[cfg(poc)]
     pub async fn set_connector_tree_utxos(&self, connector_tree_utxos: Vec<ConnectorUTXOTree>) {
         let _guard = self.lock.lock().unwrap();
         let mut content = self.read();
@@ -177,10 +285,12 @@ impl Database {
         self.write(content);
     }
 
+    #[cfg(poc)]
     pub async fn get_start_block_height(&self) -> u64 {
         let content = self.read();
         content.start_block_height
     }
+    #[cfg(poc)]
     pub async fn set_start_block_height(&self, start_block_height: u64) {
         let _guard = self.lock.lock().unwrap();
         let mut content = self.read();
@@ -188,10 +298,12 @@ impl Database {
         self.write(content);
     }
 
+    #[cfg(poc)]
     pub async fn get_period_relative_block_heights(&self) -> Vec<u32> {
         let content = self.read();
         content.period_relative_block_heights.clone()
     }
+    #[cfg(poc)]
     pub async fn set_period_relative_block_heights(&self, period_relative_block_heights: Vec<u32>) {
         let _guard = self.lock.lock().unwrap();
         let mut content = self.read();
@@ -199,6 +311,7 @@ impl Database {
         self.write(content);
     }
 
+    #[cfg(poc)]
     pub async fn get_inscribed_preimages(&self, period: usize) -> Vec<PreimageType> {
         let content = self.read();
 
@@ -207,6 +320,7 @@ impl Database {
             _ => vec![[0u8; 32]],
         }
     }
+    #[cfg(poc)]
     pub async fn add_inscribed_preimages(&self, period: usize, preimages: Vec<PreimageType>) {
         let _guard = self.lock.lock().unwrap();
         let mut content = self.read();
@@ -215,39 +329,6 @@ impl Database {
         }
         content.inscribed_connector_tree_preimages[period] = preimages;
         self.write(content);
-    }
-}
-
-/// Actual information that database will hold. This information is not directly
-/// accessible for an outsider; It should be updated and used by a database
-/// organizer. Therefore, it is internal use only.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct DatabaseContent {
-    inscribed_connector_tree_preimages: Vec<Vec<PreimageType>>,
-    connector_tree_hashes: Vec<HashTree>,
-    claim_proof_merkle_trees: Vec<MerkleTree<CLAIM_MERKLE_TREE_DEPTH>>,
-    inscription_txs: Vec<InscriptionTxs>,
-    deposit_txs: Vec<(Txid, TxOut)>,
-    withdrawals_merkle_tree: MerkleTree<WITHDRAWAL_MERKLE_TREE_DEPTH>,
-    withdrawals_payment_txids: Vec<Vec<WithdrawalPayment>>,
-    connector_tree_utxos: Vec<ConnectorUTXOTree>,
-    start_block_height: u64,
-    period_relative_block_heights: Vec<u32>,
-}
-impl DatabaseContent {
-    pub fn new() -> Self {
-        Self {
-            inscribed_connector_tree_preimages: Vec::new(),
-            withdrawals_merkle_tree: MerkleTree::new(),
-            withdrawals_payment_txids: Vec::new(),
-            inscription_txs: Vec::new(),
-            deposit_txs: Vec::new(),
-            connector_tree_hashes: Vec::new(),
-            claim_proof_merkle_trees: Vec::new(),
-            connector_tree_utxos: Vec::new(),
-            start_block_height: 0,
-            period_relative_block_heights: Vec::new(),
-        }
     }
 }
 
@@ -263,77 +344,102 @@ impl DatabaseContent {
 #[cfg(test)]
 mod tests {
     use super::Database;
-    use crate::{db::text::TextDatabase, merkle::MerkleTree};
-    use clementine_circuits::{constants::*, HashType, PreimageType};
-    use std::{
-        fs,
-        sync::{Arc, Mutex, Once},
-        vec,
-    };
+    use crate::{config::BridgeConfig, test_common, EVMAddress};
+    use bitcoin::{hashes::Hash, OutPoint, Txid, XOnlyPublicKey};
+    use secp256k1::rand::{self, Rng};
 
-    // `Database` manages syncronization. So, we need to operate on a common
-    // struct in order to do asynchronous operations on database.
-    static DB_FILE_PATH: &str = "test_database.json";
-    static START: Once = Once::new();
-    static mut DATABASE: Option<Database> = None;
-    static mut LOCK: Option<Arc<Mutex<usize>>> = None;
-    pub unsafe fn initialize() {
-        START.call_once(|| {
-            DATABASE = Some(Database::new(DB_FILE_PATH.into()));
-            LOCK = Some(Arc::new(Mutex::new(0)));
-        });
+    #[tokio::test]
+    async fn invalid_connection() {
+        let mut config = BridgeConfig::new();
+        config.db_host = "nonexistinghost".to_string();
+        config.db_name = "nonexistingpassword".to_string();
+        config.db_user = "nonexistinguser".to_string();
+        config.db_password = "nonexistingpassword".to_string();
+        config.db_port = 123;
+
+        match Database::new(config).await {
+            Ok(_) => {
+                assert!(false);
+            }
+            Err(e) => {
+                println!("{}", e);
+                assert!(true);
+            }
+        };
     }
 
-    /// Tests if running `new()` function returns an empty struct.
     #[tokio::test]
-    async fn new() {
-        let database = unsafe {
-            initialize();
-            DATABASE.clone().unwrap()
-        };
-        let lock = unsafe { LOCK.clone().unwrap() };
-        let _guard = lock.lock().unwrap();
+    #[ignore]
+    async fn valid_connection() {
+        let config =
+            test_common::get_test_config_from_environment("test_config.toml".to_string()).unwrap();
 
-        // Some of the members of the `Database` struct are not comparable. So,
-        // we need to do this one by one.
-        assert_eq!(database.dbms, TextDatabase::new(DB_FILE_PATH.into()));
+        match Database::new(config).await {
+            Ok(_) => {
+                assert!(true);
+            }
+            Err(e) => {
+                eprintln!("{}", e);
+                assert!(false);
+            }
+        };
     }
 
-    /// Writes mock data to database, then reads it. Compares if input equals
-    /// output. This test is a bit redundant if it is done in actual database
-    /// module.
     #[tokio::test]
-    async fn write_read() {
-        let database = unsafe {
-            initialize();
-            DATABASE.clone().unwrap()
-        };
-        let lock = unsafe { LOCK.clone().unwrap() };
-        let _guard = lock.lock().unwrap();
+    async fn add_deposit_transaction() {
+        let config =
+            test_common::get_test_config_from_environment("test_config.toml".to_string()).unwrap();
+        let database = Database::new(config).await.unwrap();
 
-        // Add random datas to database.
+        database
+            .add_deposit_transaction(
+                OutPoint::null(),
+                XOnlyPublicKey::from_slice(&[
+                    0x78u8, 0x19u8, 0x90u8, 0xd7u8, 0xe2u8, 0x11u8, 0x8cu8, 0xc3u8, 0x61u8, 0xa9u8,
+                    0x3au8, 0x6fu8, 0xccu8, 0x54u8, 0xceu8, 0x61u8, 0x1du8, 0x6du8, 0xf3u8, 0x81u8,
+                    0x68u8, 0xd6u8, 0xb1u8, 0xedu8, 0xfbu8, 0x55u8, 0x65u8, 0x35u8, 0xf2u8, 0x20u8,
+                    0x0cu8, 0x4b,
+                ])
+                .unwrap(),
+                EVMAddress([0u8; 20]),
+            )
+            .await
+            .unwrap();
+    }
 
-        database.add_to_withdrawals_merkle_tree([0x45u8; 32]).await;
-        let ret = database.get_withdrawals_merkle_tree_index().await;
-        assert_eq!(ret, 1);
+    #[tokio::test]
+    async fn deposit_tx() {
+        let config =
+            test_common::get_test_config_from_environment("test_config.toml".to_string()).unwrap();
+        let database = Database::new(config).await.unwrap();
 
-        database.add_to_withdrawals_merkle_tree([0x1Fu8; 32]).await;
-        let ret = database.get_withdrawals_merkle_tree_index().await;
-        assert_eq!(ret, 2);
+        let prev_idx = database.get_next_deposit_index().await.unwrap();
 
-        // Clean things up.
-        match fs::remove_file(DB_FILE_PATH) {
-            Ok(_) => assert!(true),
-            Err(_) => assert!(false),
+        let mut rng = rand::thread_rng();
+        let mut arr = [0; 32];
+        for i in 0..32 {
+            arr[i] = rng.gen();
         }
+        let txid = Txid::from_byte_array(arr);
+
+        database.add_to_deposit_txs(txid).await.unwrap();
+
+        let next_idx = database.get_next_deposit_index().await.unwrap();
+
+        assert_eq!(prev_idx + 1, next_idx);
+
+        let read_txid = database.get_deposit_tx(next_idx).await.unwrap();
+
+        assert_eq!(read_txid, txid);
     }
 
+    #[cfg(poc)]
     #[tokio::test]
     async fn connector_tree_hash() {
-        let database = unsafe {
-            initialize();
-            DATABASE.clone().unwrap()
-        };
+        let config =
+            test_common::get_test_config_from_environment("test_config.toml".to_string()).unwrap();
+        let database = Database::new(config).await.unwrap();
+
         let lock = unsafe { LOCK.clone().unwrap() };
         let _guard = lock.lock().unwrap();
 
@@ -344,20 +450,14 @@ mod tests {
 
         database.set_connector_tree_hashes(mock_array).await;
         assert_eq!(database.get_connector_tree_hash(0, 0, 0).await, mock_data);
-
-        // Clean things up.
-        match fs::remove_file(DB_FILE_PATH) {
-            Ok(_) => assert!(true),
-            Err(_) => assert!(false),
-        }
     }
 
+    #[cfg(poc)]
     #[tokio::test]
     async fn claim_proof_merkle_tree() {
-        let database = unsafe {
-            initialize();
-            DATABASE.clone().unwrap()
-        };
+        let config =
+            test_common::get_test_config_from_environment("test_config.toml".to_string()).unwrap();
+        let database = Database::new(config).await.unwrap();
         let lock = unsafe { LOCK.clone().unwrap() };
         let _guard = lock.lock().unwrap();
 
@@ -373,14 +473,9 @@ mod tests {
             .set_claim_proof_merkle_trees(mock_data.clone())
             .await;
         assert_eq!(database.get_claim_proof_merkle_tree(0).await, mock_data[0]);
-
-        // Clean things up.
-        match fs::remove_file(DB_FILE_PATH) {
-            Ok(_) => assert!(true),
-            Err(_) => assert!(false),
-        }
     }
 
+    #[cfg(poc)]
     #[tokio::test]
     async fn withdrawals_merkle_tree() {
         let database = unsafe {
@@ -398,14 +493,9 @@ mod tests {
             .add_to_withdrawals_merkle_tree(mock_data.clone())
             .await;
         assert_eq!(database.get_withdrawals_merkle_tree_index().await, 1);
-
-        // Clean things up.
-        match fs::remove_file(DB_FILE_PATH) {
-            Ok(_) => assert!(true),
-            Err(_) => assert!(false),
-        }
     }
 
+    #[cfg(poc)]
     #[tokio::test]
     async fn start_block_height() {
         let database = unsafe {
@@ -421,14 +511,9 @@ mod tests {
 
         database.set_start_block_height(mock_data).await;
         assert_eq!(database.get_start_block_height().await, mock_data);
-
-        // Clean things up.
-        match fs::remove_file(DB_FILE_PATH) {
-            Ok(_) => assert!(true),
-            Err(_) => assert!(false),
-        }
     }
 
+    #[cfg(poc)]
     #[tokio::test]
     async fn period_relative_block_heights() {
         let database = unsafe {
@@ -444,20 +529,11 @@ mod tests {
 
         database.set_start_block_height(mock_data).await;
         assert_eq!(database.get_start_block_height().await, mock_data);
-
-        // Clean things up.
-        match fs::remove_file(DB_FILE_PATH) {
-            Ok(_) => assert!(true),
-            Err(_) => assert!(false),
-        }
     }
 
+    #[cfg(poc)]
     #[tokio::test]
     async fn inscribed_preimages() {
-        let database = unsafe {
-            initialize();
-            DATABASE.clone().unwrap()
-        };
         let lock = unsafe { LOCK.clone().unwrap() };
         let _guard = lock.lock().unwrap();
 

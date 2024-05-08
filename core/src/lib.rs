@@ -29,6 +29,7 @@ pub mod merkle;
 pub mod mock_env;
 pub mod operator;
 pub mod script_builder;
+pub mod test_common;
 pub mod traits;
 pub mod transaction_builder;
 pub mod user;
@@ -63,7 +64,8 @@ pub async fn create_verifier_server(
         config.verifiers_public_keys.clone(),
         config.secret_key.clone(),
         config.clone(),
-    )?;
+    )
+    .await?;
 
     let server = Server::builder()
         .build(format!("{}:{}", config.host, config.port))
@@ -102,6 +104,7 @@ pub async fn create_operator_server(
         verifiers,
         config.clone(),
     )
+    .await
     .unwrap();
 
     let server = Server::builder()
@@ -110,6 +113,7 @@ pub async fn create_operator_server(
 
     let addr = server.local_addr()?;
     let handle = server.start(operator.into_rpc());
+    tracing::debug!("Operator server started at: {}", addr);
     Ok((addr, handle))
 }
 
@@ -132,8 +136,9 @@ pub async fn start_operator_and_verifiers(
             create_verifier_server(BridgeConfig {
                 verifiers_public_keys: config.verifiers_public_keys.clone(),
                 secret_key: *sk,
-                port: config.port + i as u16 + 1, // Use the index to calculate the port
-                db_file_path: format!("{}{}", config.db_file_path.clone(), i.to_string()),
+                port: 0, // Use the index to calculate the port
+                db_user: config.db_user.clone() + &i.to_string(),
+                db_name: config.db_name.clone() + &i.to_string(),
                 ..config.clone()
             })
         })
