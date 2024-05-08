@@ -132,7 +132,7 @@ pub async fn start_operator_and_verifiers(
             create_verifier_server(BridgeConfig {
                 verifiers_public_keys: config.verifiers_public_keys.clone(),
                 secret_key: *sk,
-                port: config.port + i as u16 + 1, // Use the index to calculate the port
+                port: 0, // Use the index to calculate the port
                 db_file_path: format!("{}{}", config.db_file_path.clone(), i.to_string()),
                 ..config.clone()
             })

@@ -35,7 +35,7 @@ impl VerifierRpcServer for Verifier {
     async fn new_deposit_rpc(
         &self,
         start_utxo: OutPoint,
-        return_address: XOnlyPublicKey,
+        return_address: Address<NetworkUnchecked>,
         deposit_index: u32,
         evm_address: EVMAddress,
         operator_address: Address<NetworkUnchecked>,
@@ -70,7 +70,7 @@ impl Verifier {
     async fn new_deposit(
         &self,
         start_utxo: OutPoint,
-        return_address: &XOnlyPublicKey,
+        return_address: &Address<NetworkUnchecked>,
         _deposit_index: u32,
         evm_address: &EVMAddress,
         _operator_address: &Address,

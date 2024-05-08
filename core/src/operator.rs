@@ -91,7 +91,7 @@ impl OperatorRpcServer for Operator {
     async fn new_deposit_rpc(
         &self,
         start_utxo: OutPoint,
-        return_address: XOnlyPublicKey,
+        return_address: Address<NetworkUnchecked>,
         evm_address: EVMAddress,
     ) -> Result<Txid, BridgeError> {
         let move_utxo = self
@@ -149,7 +149,7 @@ impl Operator {
     pub async fn new_deposit(
         &self,
         start_utxo: OutPoint,
-        return_address: &XOnlyPublicKey,
+        return_address: &Address<NetworkUnchecked>,
         evm_address: &EVMAddress,
     ) -> Result<OutPoint, BridgeError> {
         check_deposit_utxo(
@@ -176,7 +176,7 @@ impl Operator {
                 let deposit_presigns = verifier
                     .new_deposit_rpc(
                         start_utxo,
-                        *return_address,
+                        return_address.clone(),
                         deposit_index as u32,
                         *evm_address,
                         self.signer.address.as_unchecked().clone(),

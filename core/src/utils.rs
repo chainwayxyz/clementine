@@ -1,7 +1,8 @@
 use std::borrow::BorrowMut;
 
+use bitcoin::address::NetworkUnchecked;
 use bitcoin::sighash::SighashCache;
-use bitcoin::{self, OutPoint, XOnlyPublicKey};
+use bitcoin::{self, Address, OutPoint};
 
 use bitcoin::consensus::Decodable;
 
@@ -46,7 +47,7 @@ pub fn check_deposit_utxo(
     rpc: &ExtendedRpc,
     tx_builder: &TransactionBuilder,
     outpoint: &OutPoint,
-    return_address: &XOnlyPublicKey,
+    return_address: &Address<NetworkUnchecked>,
     evm_address: &EVMAddress,
     amount_sats: u64,
     confirmation_block_count: u32,

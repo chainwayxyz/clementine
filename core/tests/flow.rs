@@ -59,6 +59,7 @@ async fn flow(config: BridgeConfig, rpc: ExtendedRpc) -> (Txid, Address) {
         start_operator_and_verifiers(config.clone()).await;
     let secp = bitcoin::secp256k1::Secp256k1::new();
     let (xonly_pk, _) = config.secret_key.public_key(&secp).x_only_public_key();
+    let taproot_address = Address::p2tr(&secp, xonly_pk, None, config.network);
     let tx_builder = TransactionBuilder::new(config.verifiers_public_keys.clone(), config.clone());
 
     let evm_addresses = vec![
@@ -72,7 +73,11 @@ async fn flow(config: BridgeConfig, rpc: ExtendedRpc) -> (Txid, Address) {
         .iter()
         .map(|evm_address| {
             tx_builder
-                .generate_deposit_address(&xonly_pk, evm_address, BRIDGE_AMOUNT_SATS)
+                .generate_deposit_address(
+                    &taproot_address.as_unchecked(),
+                    evm_address,
+                    BRIDGE_AMOUNT_SATS,
+                )
                 .unwrap()
                 .0
         })
@@ -88,19 +93,23 @@ async fn flow(config: BridgeConfig, rpc: ExtendedRpc) -> (Txid, Address) {
         rpc.mine_blocks(18).unwrap();
 
         let output = operator_client
-            .new_deposit_rpc(deposit_utxo, xonly_pk, evm_addresses[idx])
+            .new_deposit_rpc(
+                deposit_utxo,
+                taproot_address.as_unchecked().clone(),
+                evm_addresses[idx],
+            )
             .await
             .unwrap();
         tracing::debug!("Output #{}: {:#?}", idx, output);
     }
 
     let withdrawal_address = Address::p2tr(&secp, xonly_pk, None, config.network);
-    tracing::debug!("Withdrawal sent to address: {:?}", withdrawal_address);
 
     let withdraw_txid = operator_client
         .new_withdrawal_direct_rpc(0, withdrawal_address.as_unchecked().clone())
         .await
         .unwrap();
+    tracing::debug!("Withdrawal sent to address: {:?}", withdrawal_address);
     tracing::debug!("Withdrawal TXID: {:#?}", withdraw_txid);
 
     (withdraw_txid, withdrawal_address)

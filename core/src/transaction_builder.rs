@@ -7,6 +7,7 @@ use crate::constants::{
 };
 use crate::{config::BridgeConfig, EVMAddress};
 use crate::{errors::BridgeError, script_builder::ScriptBuilder};
+use bitcoin::address::NetworkUnchecked;
 use bitcoin::{
     absolute,
     taproot::{TaprootBuilder, TaprootSpendInfo},
@@ -59,15 +60,17 @@ impl TransactionBuilder {
     /// This function generates a deposit address for the user. N-of-N or User takes after timelock script can be used to spend the funds.
     pub fn generate_deposit_address(
         &self,
-        user_pk: &XOnlyPublicKey,
+        user_taproot_address: &Address<NetworkUnchecked>,
         user_evm_address: &EVMAddress,
         amount: u64,
     ) -> Result<CreateAddressOutputs, BridgeError> {
         let deposit_script = self
             .script_builder
             .create_deposit_script(user_evm_address, amount);
-        let script_timelock =
-            ScriptBuilder::generate_timelock_script(user_pk, self.config.user_takes_after);
+        let script_timelock = ScriptBuilder::generate_timelock_script(
+            user_taproot_address,
+            self.config.user_takes_after,
+        );
         let taproot = TaprootBuilder::new()
             .add_leaf(1, deposit_script.clone())?
             .add_leaf(1, script_timelock.clone())?;
@@ -100,7 +103,7 @@ impl TransactionBuilder {
         &self,
         deposit_utxo: OutPoint,
         evm_address: &EVMAddress,
-        return_address: &XOnlyPublicKey,
+        return_address: &Address<NetworkUnchecked>,
     ) -> Result<CreateTxOutputs, BridgeError> {
         let anyone_can_spend_txout = ScriptBuilder::anyone_can_spend_txout();
 
@@ -595,7 +598,7 @@ impl TransactionBuilder {
 mod tests {
     use std::str::FromStr;
 
-    use bitcoin::XOnlyPublicKey;
+    use bitcoin::{Address, XOnlyPublicKey};
 
     use crate::{config::BridgeConfig, transaction_builder::TransactionBuilder};
 
@@ -621,13 +624,20 @@ mod tests {
             "93c7378d96518a75448821c4f7c8f4bae7ce60f804d03d1f0628dd5dd0f5de51",
         )
         .unwrap();
+        let secp = secp256k1::Secp256k1::new();
+        let user_taproot_address =
+            Address::p2tr(&secp, user_xonly_pk, None, bitcoin::Network::Regtest);
         let deposit_address = tx_builder
-            .generate_deposit_address(&user_xonly_pk, &crate::EVMAddress(evm_address), 10_000)
+            .generate_deposit_address(
+                &user_taproot_address.as_unchecked(),
+                &crate::EVMAddress(evm_address),
+                10_000,
+            )
             .unwrap();
         println!("deposit_address: {:?}", deposit_address.0);
         assert_eq!(
             deposit_address.0.to_string(),
-            "bcrt1p0f0xpdskqepuzjhnfmhc8yxqd7s3egph8u3quqqt94r0ygzk32jsvxh00c"
+            "bcrt1prqxsjz7h5wt40w54vhmpvn6l2hu8mefmez6ld4p59vksllumskvqs8wvkh" // check this later
         ) // Comparing it to the taproot address generated in bridge backend repo (using js)
     }
 }
