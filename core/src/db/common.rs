@@ -20,49 +20,12 @@ use sqlx::Row;
 use sqlx::{Pool, Postgres};
 use std::str::FromStr;
 
-/// Actual information that database will hold. This information is not directly
-/// accessible for an outsider; It should be updated and used by a database
-/// organizer. Therefore, it is internal use only.
-#[cfg(poc)]
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct DatabaseContent {
-    inscribed_connector_tree_preimages: Vec<Vec<PreimageType>>,
-    connector_tree_hashes: Vec<HashTree>,
-    claim_proof_merkle_trees: Vec<MerkleTree<CLAIM_MERKLE_TREE_DEPTH>>,
-    inscription_txs: Vec<InscriptionTxs>,
-    deposit_txs: Vec<(Txid, TxOut)>,
-    withdrawals_merkle_tree: MerkleTree<WITHDRAWAL_MERKLE_TREE_DEPTH>,
-    withdrawals_payment_txids: Vec<Vec<WithdrawalPayment>>,
-    connector_tree_utxos: Vec<ConnectorUTXOTree>,
-    start_block_height: u64,
-    period_relative_block_heights: Vec<u32>,
-}
-#[cfg(poc)]
-impl DatabaseContent {
-    pub fn _new() -> Self {
-        Self {
-            inscribed_connector_tree_preimages: Vec::new(),
-            withdrawals_merkle_tree: MerkleTree::new(),
-            withdrawals_payment_txids: Vec::new(),
-            inscription_txs: Vec::new(),
-            deposit_txs: Vec::new(),
-            connector_tree_hashes: Vec::new(),
-            claim_proof_merkle_trees: Vec::new(),
-            connector_tree_utxos: Vec::new(),
-            start_block_height: 0,
-            period_relative_block_heights: Vec::new(),
-        }
-    }
-}
-
 /// Main database struct that holds all the information of the database.
 #[derive(Clone, Debug)]
 pub struct Database {
     connection: Pool<Postgres>,
 }
 
-/// First pack of implementation for the `Database`. This pack includes general
-/// functions for accessing the database.
 impl Database {
     /// Creates a new `Database`. Then tries to connect actual database.
     pub async fn new(config: BridgeConfig) -> Result<Self, BridgeError> {
@@ -83,16 +46,17 @@ impl Database {
             Err(e) => Err(BridgeError::DatabaseError(e)),
         }
     }
-}
 
-/// Second implementation pack of `Database`. This pack includes data
-/// manupulation functions. They use first pack of functions to access database.
-///
-/// `Set` functions use a mutex to avoid data races while updating database. But
-/// it is not guaranteed that calling `get` and `set` functions one by one won't
-/// result on a data race. Users must do their own synchronization to avoid data
-/// races.
-impl Database {
+    /// Creates an
+    pub async fn begin_transaction(
+        &self,
+    ) -> Result<sqlx::Transaction<'_, sqlx::Postgres>, BridgeError> {
+        match self.connection.begin().await {
+            Ok(t) => Ok(t),
+            Err(e) => Err(BridgeError::DatabaseError(e)),
+        }
+    }
+
     /// Adds a deposit transaction to database. This transaction includes the
     /// following:
     ///
@@ -550,6 +514,41 @@ mod tests {
         match fs::remove_file(DB_FILE_PATH) {
             Ok(_) => assert!(true),
             Err(_) => assert!(false),
+        }
+    }
+}
+
+/// Actual information that database will hold. This information is not directly
+/// accessible for an outsider; It should be updated and used by a database
+/// organizer. Therefore, it is internal use only.
+#[cfg(poc)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct DatabaseContent {
+    inscribed_connector_tree_preimages: Vec<Vec<PreimageType>>,
+    connector_tree_hashes: Vec<HashTree>,
+    claim_proof_merkle_trees: Vec<MerkleTree<CLAIM_MERKLE_TREE_DEPTH>>,
+    inscription_txs: Vec<InscriptionTxs>,
+    deposit_txs: Vec<(Txid, TxOut)>,
+    withdrawals_merkle_tree: MerkleTree<WITHDRAWAL_MERKLE_TREE_DEPTH>,
+    withdrawals_payment_txids: Vec<Vec<WithdrawalPayment>>,
+    connector_tree_utxos: Vec<ConnectorUTXOTree>,
+    start_block_height: u64,
+    period_relative_block_heights: Vec<u32>,
+}
+#[cfg(poc)]
+impl DatabaseContent {
+    pub fn _new() -> Self {
+        Self {
+            inscribed_connector_tree_preimages: Vec::new(),
+            withdrawals_merkle_tree: MerkleTree::new(),
+            withdrawals_payment_txids: Vec::new(),
+            inscription_txs: Vec::new(),
+            deposit_txs: Vec::new(),
+            connector_tree_hashes: Vec::new(),
+            claim_proof_merkle_trees: Vec::new(),
+            connector_tree_utxos: Vec::new(),
+            start_block_height: 0,
+            period_relative_block_heights: Vec::new(),
         }
     }
 }
