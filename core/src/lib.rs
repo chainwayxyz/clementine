@@ -137,7 +137,6 @@ pub async fn start_operator_and_verifiers(
                 verifiers_public_keys: config.verifiers_public_keys.clone(),
                 secret_key: *sk,
                 port: 0, // Use the index to calculate the port
-                db_user: config.db_user.clone() + &i.to_string(),
                 db_name: config.db_name.clone() + &i.to_string(),
                 ..config.clone()
             })
