@@ -46,7 +46,7 @@ async fn deposit_and_withdraw_flow() {
     assert_eq!(rpc_withdraw_script, expected_withdraw_script);
     let anyone_can_spend_amount = ScriptBuilder::anyone_can_spend_txout().value;
 
-    // check ıf the amounts match
+    // check if the amounts match
     let expected_withdraw_amount =
         Amount::from_sat(BRIDGE_AMOUNT_SATS - 2 * config.min_relay_fee.clone())
             - anyone_can_spend_amount * 2;
@@ -95,7 +95,7 @@ async fn flow(config: BridgeConfig, rpc: ExtendedRpc) -> (Txid, Address) {
     }
 
     let withdrawal_address = Address::p2tr(&secp, xonly_pk, None, config.network);
-    tracing::debug!("Withdrawal sent to address: {:?}", withdrawal_address);
+    tracing::debug!("Withdrawal address to be sent: {:?}", withdrawal_address);
 
     let withdraw_txid = operator_client
         .new_withdrawal_direct_rpc(0, withdrawal_address.as_unchecked().clone())

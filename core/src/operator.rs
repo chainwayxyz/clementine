@@ -167,7 +167,7 @@ impl Operator {
         )?;
 
         let deposit_index = self.operator_db_connector.get_next_deposit_index().await?;
-        // tracing::debug!("deposit_index: {:?}", deposit_index);
+        tracing::debug!("deposit_index: {:?}", deposit_index);
 
         let presigns_from_all_verifiers: Result<Vec<_>, BridgeError> = self
             .verifier_connector
@@ -291,6 +291,8 @@ impl Operator {
         tracing::debug!("move_tx.tx size: {:?}", move_tx.tx.weight());
 
         // save to dp in a db transaction
+        // TODO: make this transactional
+        self.operator_db_connector.add_to_deposit_txs(move_tx.tx.txid()).await?;
         self.rpc.send_raw_transaction(&move_tx.tx)?;
 
         Ok(move_tx.tx.txid())
