@@ -92,10 +92,10 @@ impl OperatorRpcServer for Operator {
     async fn new_deposit_rpc(
         &self,
         start_utxo: OutPoint,
-        return_address: Address<NetworkUnchecked>,
+        recovery_address: Address<NetworkUnchecked>,
         evm_address: EVMAddress,
     ) -> Result<Txid, BridgeError> {
-        self.new_deposit(start_utxo, &return_address, &evm_address)
+        self.new_deposit(start_utxo, &recovery_address, &evm_address)
             .await
     }
     async fn new_withdrawal_direct_rpc(
@@ -148,19 +148,19 @@ impl Operator {
     pub async fn new_deposit(
         &self,
         start_utxo: OutPoint,
-        return_address: &Address<NetworkUnchecked>,
+        recovery_address: &Address<NetworkUnchecked>,
         evm_address: &EVMAddress,
     ) -> Result<Txid, BridgeError> {
         // Transaction is OK, write it to the database.
         self.operator_db_connector
-            .add_deposit_transaction(start_utxo, return_address.clone(), *evm_address)
+            .add_deposit_transaction(start_utxo, recovery_address.clone(), *evm_address)
             .await?;
 
         check_deposit_utxo(
             &self.rpc,
             &self.transaction_builder,
             &start_utxo,
-            return_address,
+            recovery_address,
             evm_address,
             BRIDGE_AMOUNT_SATS,
             self.config.confirmation_treshold,
@@ -180,7 +180,7 @@ impl Operator {
                 let deposit_presigns = verifier
                     .new_deposit_rpc(
                         start_utxo,
-                        return_address.clone(),
+                        recovery_address.clone(),
                         deposit_index as u32,
                         *evm_address,
                         self.signer.address.as_unchecked().clone(),
@@ -206,7 +206,7 @@ impl Operator {
         // 5. Create a move transaction and return the output utxo, save the utxo as a pending deposit
         let mut move_tx =
             self.transaction_builder
-                .create_move_tx(start_utxo, evm_address, &return_address)?;
+                .create_move_tx(start_utxo, evm_address, &recovery_address)?;
 
         // TODO: Simplify this move_signatures thing, maybe with a macro
         let mut move_signatures = presigns_from_all_verifiers

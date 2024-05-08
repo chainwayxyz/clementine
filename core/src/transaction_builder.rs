@@ -103,13 +103,13 @@ impl TransactionBuilder {
         &self,
         deposit_utxo: OutPoint,
         evm_address: &EVMAddress,
-        return_address: &Address<NetworkUnchecked>,
+        recovery_address: &Address<NetworkUnchecked>,
     ) -> Result<CreateTxOutputs, BridgeError> {
         let anyone_can_spend_txout = ScriptBuilder::anyone_can_spend_txout();
 
         let (bridge_address, _) = self.generate_bridge_address()?;
         let (deposit_address, deposit_taproot_spend_info) =
-            self.generate_deposit_address(return_address, evm_address, BRIDGE_AMOUNT_SATS)?;
+            self.generate_deposit_address(recovery_address, evm_address, BRIDGE_AMOUNT_SATS)?;
 
         let tx_ins = TransactionBuilder::create_tx_ins(vec![deposit_utxo]);
         let bridge_txout = TxOut {
@@ -162,15 +162,6 @@ impl TransactionBuilder {
             scripts: vec![bridge_spend_script],
             taproot_spend_infos: vec![bridge_spend_info],
         })
-    }
-
-    pub fn create_takes_after_tx(
-        &self,
-        taproot_spend_info: TaprootSpendInfo,
-        deposit_utxo: OutPoint,
-        return_address: Address,
-        height: u16,
-    ) {
     }
 
     #[cfg(feature = "poc")]
