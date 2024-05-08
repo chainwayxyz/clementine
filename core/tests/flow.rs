@@ -77,9 +77,9 @@ async fn test_flow_1() {
 
     let withdrawal_address = Address::p2tr(&secp, xonly_pk, None, config.network);
 
-    // This index is 2 since when testing the unit tests complete first and the index=0 is not sane
+    // This index is 3 since when testing the unit tests complete first and the index=1,2 is not sane
     let withdraw_txid = operator_client
-        .new_withdrawal_direct_rpc(2, withdrawal_address.as_unchecked().clone())
+        .new_withdrawal_direct_rpc(3, withdrawal_address.as_unchecked().clone())
         .await
         .unwrap();
     tracing::debug!("Withdrawal sent to address: {:?}", withdrawal_address);
