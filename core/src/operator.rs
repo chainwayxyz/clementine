@@ -5,7 +5,7 @@ use crate::constants::{
     VerifierChallenge, CONNECTOR_TREE_DEPTH, DUST_VALUE, K_DEEP,
     MAX_BITVM_CHALLENGE_RESPONSE_BLOCKS, PERIOD_BLOCK_COUNT,
 };
-use crate::db::operator::OperatorMockDB;
+use crate::db::operator::OperatorDB;
 use crate::errors::BridgeError;
 use crate::extended_rpc::ExtendedRpc;
 use crate::script_builder::ScriptBuilder;
@@ -83,7 +83,7 @@ pub struct Operator {
     pub transaction_builder: TransactionBuilder,
     pub verifiers_pks: Vec<XOnlyPublicKey>,
     pub verifier_connector: Vec<Arc<jsonrpsee::http_client::HttpClient>>,
-    operator_db_connector: OperatorMockDB,
+    operator_db_connector: OperatorDB,
     config: BridgeConfig,
 }
 
@@ -126,7 +126,7 @@ impl Operator {
         }
 
         let transaction_builder = TransactionBuilder::new(all_xonly_pks.clone(), config.clone());
-        let operator_db_connector = OperatorMockDB::new(config.clone()).await;
+        let operator_db_connector = OperatorDB::new(config.clone()).await;
 
         Ok(Self {
             rpc,

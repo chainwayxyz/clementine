@@ -5,11 +5,11 @@ use crate::config::BridgeConfig;
 use super::common::Database;
 
 #[derive(Debug, Clone)]
-pub struct VerifierMockDB {
+pub struct VerifierDB {
     common_db: Database,
 }
 
-impl VerifierMockDB {
+impl VerifierDB {
     pub async fn new(config: BridgeConfig) -> Self {
         Self {
             common_db: Database::new(config).await.unwrap(),
@@ -17,7 +17,7 @@ impl VerifierMockDB {
     }
 }
 
-impl Deref for VerifierMockDB {
+impl Deref for VerifierDB {
     type Target = Database;
 
     fn deref(&self) -> &Self::Target {
@@ -25,7 +25,7 @@ impl Deref for VerifierMockDB {
     }
 }
 
-impl DerefMut for VerifierMockDB {
+impl DerefMut for VerifierDB {
     fn deref_mut(&mut self) -> &mut Self::Target {
         &mut self.common_db
     }

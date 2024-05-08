@@ -1,7 +1,7 @@
 use crate::config::BridgeConfig;
 #[cfg(feature = "poc")]
 use crate::constants::CONNECTOR_TREE_DEPTH;
-use crate::db::verifier::VerifierMockDB;
+use crate::db::verifier::VerifierDB;
 use crate::errors::BridgeError;
 use crate::extended_rpc::ExtendedRpc;
 use crate::traits::rpc::VerifierRpcServer;
@@ -26,7 +26,7 @@ pub struct Verifier {
     pub transaction_builder: TransactionBuilder,
     pub verifiers: Vec<XOnlyPublicKey>,
     pub operator_pk: XOnlyPublicKey,
-    pub verifier_db_connector: VerifierMockDB,
+    pub verifier_db_connector: VerifierDB,
     config: BridgeConfig,
 }
 
@@ -226,7 +226,7 @@ impl Verifier {
             return Err(BridgeError::PublicKeyNotFound);
         }
 
-        let verifier_db_connector = VerifierMockDB::new(config.clone()).await;
+        let verifier_db_connector = VerifierDB::new(config.clone()).await;
 
         let transaction_builder = TransactionBuilder::new(all_xonly_pks.clone(), config.clone());
         let operator_pk = all_xonly_pks[all_xonly_pks.len() - 1];
