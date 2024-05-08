@@ -15,7 +15,9 @@ use clementine_core::{config::BridgeConfig, start_operator_and_verifiers};
 
 #[tokio::test]
 async fn deposit_and_withdraw_flow() {
-    let config = get_test_config_from_environment("test_config_deposit_and_withdraw.toml".to_string()).unwrap();
+    let config =
+        get_test_config_from_environment("test_config_deposit_and_withdraw.toml".to_string())
+            .unwrap();
 
     let rpc = ExtendedRpc::new(
         config.bitcoin_rpc_url.clone(),

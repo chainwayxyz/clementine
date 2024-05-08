@@ -94,10 +94,8 @@ impl OperatorRpcServer for Operator {
         return_address: XOnlyPublicKey,
         evm_address: EVMAddress,
     ) -> Result<Txid, BridgeError> {
-        let move_utxo = self
-            .new_deposit(start_utxo, &return_address, &evm_address)
-            .await?;
-        Ok(move_utxo.txid)
+        self.new_deposit(start_utxo, &return_address, &evm_address)
+            .await
     }
     async fn new_withdrawal_direct_rpc(
         &self,
@@ -151,7 +149,12 @@ impl Operator {
         start_utxo: OutPoint,
         return_address: &XOnlyPublicKey,
         evm_address: &EVMAddress,
-    ) -> Result<OutPoint, BridgeError> {
+    ) -> Result<Txid, BridgeError> {
+        // Transaction is OK, write it to the database.
+        self.operator_db_connector
+            .add_deposit_transaction(start_utxo, *return_address, *evm_address)
+            .await?;
+
         check_deposit_utxo(
             &self.rpc,
             &self.transaction_builder,
@@ -162,7 +165,7 @@ impl Operator {
             self.config.confirmation_treshold,
         )?;
 
-        let deposit_index = self.operator_db_connector.get_deposit_index();
+        let deposit_index = self.operator_db_connector.get_next_deposit_index()?;
         // tracing::debug!("deposit_index: {:?}", deposit_index);
 
         let presigns_from_all_verifiers: Result<Vec<_>, BridgeError> = self
@@ -222,13 +225,6 @@ impl Operator {
         }
 
         handle_taproot_witness_new(&mut move_tx, &witness_elements, 0)?;
-        tracing::debug!("move_tx: {:?}", move_tx.tx);
-        tracing::debug!("move_tx.tx size: {:?}", move_tx.tx.weight());
-        let rpc_move_txid = self.rpc.send_raw_transaction(&move_tx.tx)?;
-        let move_utxo = OutPoint {
-            txid: rpc_move_txid,
-            vout: 0,
-        };
 
         #[cfg(feature = "poc")]
         {
@@ -290,13 +286,13 @@ impl Operator {
                 }
             }
         }
+        tracing::debug!("move_tx: {:?}", move_tx.tx);
+        tracing::debug!("move_tx.tx size: {:?}", move_tx.tx.weight());
 
-        // Transaction is OK, write it to the database.
-        self.operator_db_connector
-            .add_deposit_transaction(start_utxo, *return_address, *evm_address)
-            .await?;
+        // save to dp in a db transaction
+        self.rpc.send_raw_transaction(&move_tx.tx)?;
 
-        Ok(move_utxo)
+        Ok(move_tx.tx.txid())
     }
 
     #[cfg(feature = "poc")]

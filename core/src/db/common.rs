@@ -133,23 +133,18 @@ impl Database {
         evm_address: EVMAddress,
     ) -> Result<(), BridgeError> {
         // TODO: These probably won't panic. But we should handle these
-        // properly regardless in the future.
-        let sutxo = serde_json::to_string_pretty(&start_utxo).unwrap();
-        let sutxo = sutxo.trim_matches('"');
-        let ra = serde_json::to_string(&return_address).unwrap();
-        let ra = ra.trim_matches('"');
-        let ea = serde_json::to_string(&evm_address).unwrap();
-        let ea = ea.trim_matches('"');
+        // properly regardless, in the future.
+        if let Err(e) = sqlx::query("INSERT INTO new_deposit_requests VALUES ($1, $2, $3);")
+            .bind(start_utxo.to_string())
+            .bind(return_address.to_string())
+            .bind(serde_json::to_string(&evm_address).unwrap())
+            .fetch_all(&self.connection)
+            .await
+        {
+            return Err(BridgeError::DatabaseError(e));
+        };
 
-        let query = format!(
-            "INSERT INTO deposit_transactions VALUES ('{}', '{}', '{}');",
-            sutxo, ra, ea
-        );
-
-        match self.run_query(query.as_str()).await {
-            Ok(_) => Ok(()),
-            Err(e) => Err(BridgeError::DatabaseError(e)),
-        }
+        Ok(())
     }
 
     #[cfg(poc)]
@@ -222,6 +217,21 @@ impl Database {
         self.write(content);
     }
 
+    pub fn get_next_deposit_index(&self) -> Result<usize, BridgeError> {
+        if let Err(e) = sqlx::query("INSERT INTO deposit_move_txs VALUES ($1, $2, $3);")
+            .bind(start_utxo.to_string())
+            .bind(return_address.to_string())
+            .bind(serde_json::to_string(&evm_address).unwrap())
+            .fetch_all(&self.connection)
+            .await
+        {
+            return Err(BridgeError::DatabaseError(e));
+        };
+
+        Ok(())
+        Ok(1)
+    }
+
     pub async fn get_deposit_tx(&self, _idx: usize) -> (Txid, TxOut) {
         let tmp: Vec<(Txid, TxOut)> = Vec::new();
         tmp[0].clone()
@@ -233,9 +243,8 @@ impl Database {
         content.deposit_txs.clone()
     }
 
-    #[cfg(poc)]
+    // #[cfg(poc)]
     pub async fn add_to_deposit_txs(&self, deposit_tx: (Txid, TxOut)) {
-        let _guard = self.lock.lock().unwrap();
         let mut content = self.read();
         content.deposit_txs.push(deposit_tx);
         self.write(content);
