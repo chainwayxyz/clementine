@@ -293,11 +293,18 @@ impl Operator {
         tracing::debug!("move_tx.tx size: {:?}", move_tx.tx.weight());
 
         // save to dp in a db transaction
-        // TODO: make this transactional
-        self.operator_db_connector
-            .add_to_deposit_txs(move_tx.tx.txid())
-            .await?;
-        self.rpc.send_raw_transaction(&move_tx.tx)?;
+        {
+            let transaction = self.operator_db_connector.begin_transaction().await?;
+
+            self.operator_db_connector
+                .add_to_deposit_txs(move_tx.tx.txid())
+                .await?;
+            self.rpc.send_raw_transaction(&move_tx.tx)?;
+
+            if let Err(e) = transaction.commit().await {
+                return Err(BridgeError::DatabaseError(e));
+            };
+        }
 
         Ok(move_tx.tx.txid())
     }

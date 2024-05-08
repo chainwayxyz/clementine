@@ -20,5 +20,5 @@ do
     dropuser $PGDATABASE$i
     createuser $PGDATABASE$i
     createdb -O $PGDATABASE$i $PGDATABASE$i
-    cat $SCRIPT_DIR/test_schema.sql $SCRIPT_DIR/schema.sql | psql -U $PGDATABASE$i $PGDATABASE$i
+    cat $SCRIPT_DIR/schema.sql | psql -U $PGDATABASE$i $PGDATABASE$i
 done
