@@ -15,21 +15,15 @@
 
 use crate::EVMAddress;
 use crate::{config::BridgeConfig, errors::BridgeError};
-use crate::{merkle::MerkleTree, ConnectorUTXOTree, HashTree, InscriptionTxs, WithdrawalPayment};
-use bitcoin::{OutPoint, TxOut, Txid, XOnlyPublicKey};
-use clementine_circuits::{
-    constants::{CLAIM_MERKLE_TREE_DEPTH, WITHDRAWAL_MERKLE_TREE_DEPTH},
-    PreimageType,
-};
-use serde::{Deserialize, Serialize};
+use bitcoin::{OutPoint, Txid, XOnlyPublicKey};
 use sqlx::Row;
-use sqlx::{postgres::PgRow, Pool, Postgres};
+use sqlx::{Pool, Postgres};
 use std::str::FromStr;
-use std::sync::{Arc, Mutex};
 
 /// Actual information that database will hold. This information is not directly
 /// accessible for an outsider; It should be updated and used by a database
 /// organizer. Therefore, it is internal use only.
+#[cfg(poc)]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct DatabaseContent {
     inscribed_connector_tree_preimages: Vec<Vec<PreimageType>>,
@@ -43,6 +37,7 @@ pub struct DatabaseContent {
     start_block_height: u64,
     period_relative_block_heights: Vec<u32>,
 }
+#[cfg(poc)]
 impl DatabaseContent {
     pub fn _new() -> Self {
         Self {
@@ -64,7 +59,6 @@ impl DatabaseContent {
 #[derive(Clone, Debug)]
 pub struct Database {
     connection: Pool<Postgres>,
-    _lock: Arc<Mutex<usize>>,
 }
 
 /// First pack of implementation for the `Database`. This pack includes general
@@ -85,32 +79,9 @@ impl Database {
         tracing::debug!("Connecting database: {}", url);
 
         match sqlx::PgPool::connect(url.as_str()).await {
-            Ok(c) => Ok(Self {
-                connection: c,
-                _lock: Arc::new(Mutex::new(0)),
-            }),
+            Ok(c) => Ok(Self { connection: c }),
             Err(e) => Err(BridgeError::DatabaseError(e)),
         }
-    }
-
-    /// Runs given query through database and returns result received from
-    /// database.
-    async fn run_query(&self, query: &str) -> Result<Vec<PgRow>, sqlx::Error> {
-        tracing::debug!("Running query: {}", query);
-
-        sqlx::query(query).fetch_all(&self.connection).await
-    }
-
-    /// Calls actual database read function and writes it's contents to memory.
-    #[cfg(poc)]
-    fn read(&self) -> DatabaseContent {
-        todo!()
-    }
-
-    /// Calls actual database write function and writes input data to database.
-    #[cfg(poc)]
-    fn write(&self, _content: DatabaseContent) {
-        todo!()
     }
 }
 
@@ -140,6 +111,42 @@ impl Database {
             .bind(start_utxo.to_string())
             .bind(return_address.to_string())
             .bind(serde_json::to_string(&evm_address).unwrap())
+            .fetch_all(&self.connection)
+            .await
+        {
+            return Err(BridgeError::DatabaseError(e));
+        };
+
+        Ok(())
+    }
+
+    pub async fn get_deposit_tx(&self, idx: usize) -> Result<Txid, BridgeError> {
+        let qr = sqlx::query("SELECT move_txid FROM deposit_move_txs WHERE id = $1;")
+            .bind(idx as i64)
+            .fetch_one(&self.connection)
+            .await;
+        let qr = match qr {
+            Ok(c) => c,
+            Err(e) => return Err(BridgeError::DatabaseError(e)),
+        };
+
+        match Txid::from_str(&qr.get::<String, _>(0)) {
+            Ok(c) => Ok(c),
+            Err(_) => Err(BridgeError::DatabaseError(sqlx::Error::RowNotFound)), // TODO: Is this correct?
+        }
+    }
+    pub async fn get_next_deposit_index(&self) -> Result<usize, BridgeError> {
+        match sqlx::query("SELECT COUNT(*) FROM deposit_move_txs;")
+            .fetch_one(&self.connection)
+            .await
+        {
+            Ok(qr) => Ok(qr.get::<i64, _>(0) as usize),
+            Err(e) => Err(BridgeError::DatabaseError(e)),
+        }
+    }
+    pub async fn add_to_deposit_txs(&self, deposit_tx: Txid) -> Result<(), BridgeError> {
+        if let Err(e) = sqlx::query("INSERT INTO deposit_move_txs (move_txid) VALUES ($1);")
+            .bind(deposit_tx.to_string())
             .fetch_all(&self.connection)
             .await
         {
@@ -217,44 +224,6 @@ impl Database {
         let mut content = self.read();
         content.inscription_txs.push(inscription_txs);
         self.write(content);
-    }
-
-    pub async fn get_deposit_tx(&self, idx: usize) -> Result<Txid, BridgeError> {
-        let qr = sqlx::query("SELECT move_txid FROM deposit_move_txs WHERE id = $1;")
-            .bind(idx as i64)
-            .fetch_one(&self.connection)
-            .await;
-        let qr = match qr {
-            Ok(c) => c,
-            Err(e) => return Err(BridgeError::DatabaseError(e)),
-        };
-
-        match Txid::from_str(&qr.get::<String, _>(0)) {
-            Ok(c) => Ok(c),
-            Err(_) => Err(BridgeError::DatabaseError(sqlx::Error::RowNotFound)), // TODO: Is this correct?
-        }
-    }
-    pub async fn get_next_deposit_index(&self) -> Result<usize, BridgeError> {
-        match sqlx::query("SELECT COUNT(*) FROM deposit_move_txs;")
-            .fetch_one(&self.connection)
-            .await
-        {
-            Ok(qr) => {
-                Ok(qr.get::<i64, _>(0) as usize)
-            },
-            Err(e) => Err(BridgeError::DatabaseError(e)),
-        }
-    }
-    pub async fn add_to_deposit_txs(&self, deposit_tx: Txid) -> Result<(), BridgeError> {
-        if let Err(e) = sqlx::query("INSERT INTO deposit_move_txs (move_txid) VALUES ($1);")
-            .bind(deposit_tx.to_string())
-            .fetch_all(&self.connection)
-            .await
-        {
-            return Err(BridgeError::DatabaseError(e));
-        };
-
-        Ok(())
     }
 
     #[cfg(poc)]
@@ -374,7 +343,6 @@ mod tests {
     use crate::{config::BridgeConfig, test_common, EVMAddress};
     use bitcoin::{hashes::Hash, OutPoint, Txid, XOnlyPublicKey};
     use secp256k1::rand::{self, Rng};
-    use sqlx::Row;
 
     #[tokio::test]
     async fn invalid_connection() {
@@ -411,62 +379,6 @@ mod tests {
                 assert!(false);
             }
         };
-    }
-
-    #[tokio::test]
-    #[ignore]
-    async fn write_read_string_query() {
-        let config =
-            test_common::get_test_config_from_environment("test_config.toml".to_string()).unwrap();
-        let database = Database::new(config).await.unwrap();
-
-        database
-            .run_query("INSERT INTO test_table VALUES ('test_data');")
-            .await
-            .unwrap();
-
-        let ret = database
-            .run_query("SELECT * FROM test_table;")
-            .await
-            .unwrap();
-
-        let mut is_found: bool = false;
-        for i in ret {
-            if i.get::<String, _>(0) == "test_data" {
-                is_found = true;
-                break;
-            }
-        }
-
-        assert!(is_found);
-    }
-
-    #[tokio::test]
-    #[ignore]
-    async fn write_read_int() {
-        let config =
-            test_common::get_test_config_from_environment("test_config.toml".to_string()).unwrap();
-        let database = Database::new(config).await.unwrap();
-
-        database
-            .run_query("INSERT INTO test_table VALUES ('temp',69);")
-            .await
-            .unwrap();
-
-        let ret = database
-            .run_query("SELECT * FROM test_table;")
-            .await
-            .unwrap();
-        let mut is_found: bool = false;
-
-        for i in ret {
-            if let Ok(0x45) = i.try_get::<i32, _>(1) {
-                is_found = true;
-                break;
-            }
-        }
-
-        assert!(is_found);
     }
 
     #[tokio::test]
