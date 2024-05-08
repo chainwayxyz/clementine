@@ -1,6 +1,6 @@
 use bitcoin::address::NetworkUnchecked;
 use bitcoin::{Address, OutPoint, TxOut, Txid};
-use secp256k1::{schnorr, XOnlyPublicKey};
+use secp256k1::schnorr;
 
 use crate::{errors::BridgeError, operator::DepositPresigns, EVMAddress};
 
@@ -12,7 +12,7 @@ pub trait VerifierRpc {
     async fn new_deposit_rpc(
         &self,
         start_utxo: OutPoint,
-        return_address: XOnlyPublicKey,
+        recovery_taproot_address: Address<NetworkUnchecked>,
         deposit_index: u32,
         evm_address: EVMAddress,
         operator_address: Address<NetworkUnchecked>,
@@ -32,7 +32,7 @@ pub trait OperatorRpc {
     async fn new_deposit_rpc(
         &self,
         start_utxo: OutPoint,
-        return_address: XOnlyPublicKey,
+        recovery_taproot_address: Address<NetworkUnchecked>,
         evm_address: EVMAddress,
     ) -> Result<Txid, BridgeError>;
 

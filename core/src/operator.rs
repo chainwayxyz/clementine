@@ -92,10 +92,10 @@ impl OperatorRpcServer for Operator {
     async fn new_deposit_rpc(
         &self,
         start_utxo: OutPoint,
-        return_address: XOnlyPublicKey,
+        recovery_taproot_address: Address<NetworkUnchecked>,
         evm_address: EVMAddress,
     ) -> Result<Txid, BridgeError> {
-        self.new_deposit(start_utxo, &return_address, &evm_address)
+        self.new_deposit(start_utxo, &recovery_taproot_address, &evm_address)
             .await
     }
     async fn new_withdrawal_direct_rpc(
@@ -148,19 +148,19 @@ impl Operator {
     pub async fn new_deposit(
         &self,
         start_utxo: OutPoint,
-        return_address: &XOnlyPublicKey,
+        recovery_taproot_address: &Address<NetworkUnchecked>,
         evm_address: &EVMAddress,
     ) -> Result<Txid, BridgeError> {
         // Transaction is OK, write it to the database.
         self.operator_db_connector
-            .add_deposit_transaction(start_utxo, *return_address, *evm_address)
+            .add_deposit_transaction(start_utxo, recovery_taproot_address.clone(), *evm_address)
             .await?;
 
         check_deposit_utxo(
             &self.rpc,
             &self.transaction_builder,
             &start_utxo,
-            return_address,
+            recovery_taproot_address,
             evm_address,
             BRIDGE_AMOUNT_SATS,
             self.config.confirmation_treshold,
@@ -180,7 +180,7 @@ impl Operator {
                 let deposit_presigns = verifier
                     .new_deposit_rpc(
                         start_utxo,
-                        *return_address,
+                        recovery_taproot_address.clone(),
                         deposit_index as u32,
                         *evm_address,
                         self.signer.address.as_unchecked().clone(),
@@ -204,9 +204,11 @@ impl Operator {
         tracing::info!("presigns_from_all_verifiers: done");
 
         // 5. Create a move transaction and return the output utxo, save the utxo as a pending deposit
-        let mut move_tx =
-            self.transaction_builder
-                .create_move_tx(start_utxo, evm_address, &return_address)?;
+        let mut move_tx = self.transaction_builder.create_move_tx(
+            start_utxo,
+            evm_address,
+            &recovery_taproot_address,
+        )?;
 
         // TODO: Simplify this move_signatures thing, maybe with a macro
         let mut move_signatures = presigns_from_all_verifiers
@@ -216,7 +218,7 @@ impl Operator {
 
         let sig = self
             .signer
-            .sign_taproot_script_spend_tx_new(&mut move_tx, 0)?;
+            .sign_taproot_script_spend_tx_new(&mut move_tx, 0, 0)?;
         move_signatures.push(sig);
         move_signatures.reverse();
 
@@ -225,7 +227,7 @@ impl Operator {
             witness_elements.push(sig.as_ref());
         }
 
-        handle_taproot_witness_new(&mut move_tx, &witness_elements, 0)?;
+        handle_taproot_witness_new(&mut move_tx, &witness_elements, 0, 0)?;
 
         #[cfg(feature = "poc")]
         {
@@ -428,14 +430,14 @@ impl Operator {
         let mut verifier_sigs = signatures_from_verifiers?;
         let sig = self
             .signer
-            .sign_taproot_script_spend_tx_new(&mut withdrawal_tx, 0)?;
+            .sign_taproot_script_spend_tx_new(&mut withdrawal_tx, 0, 0)?;
         verifier_sigs.push(sig);
         verifier_sigs.reverse();
         let mut witness_elements: Vec<&[u8]> = Vec::new();
         for sig in verifier_sigs.iter() {
             witness_elements.push(sig.as_ref());
         }
-        handle_taproot_witness_new(&mut withdrawal_tx, &witness_elements, 0)?;
+        handle_taproot_witness_new(&mut withdrawal_tx, &witness_elements, 0, 0)?;
         let withdrawal_txid = self.rpc.send_raw_transaction(&withdrawal_tx.tx)?;
         Ok(withdrawal_txid)
     }

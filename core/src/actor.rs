@@ -94,14 +94,18 @@ impl Actor {
     pub fn sighash_taproot_script_spend(
         &self,
         tx: &mut CreateTxOutputs,
-        input_index: usize,
+        txin_index: usize,
+        script_index: usize,
     ) -> Result<TapSighash, BridgeError> {
         let mut sighash_cache: SighashCache<&mut bitcoin::Transaction> =
             SighashCache::new(&mut tx.tx);
         let sig_hash = sighash_cache.taproot_script_spend_signature_hash(
-            input_index,
+            txin_index,
             &bitcoin::sighash::Prevouts::All(&tx.prevouts),
-            TapLeafHash::from_script(&tx.scripts[input_index], LeafVersion::TapScript),
+            TapLeafHash::from_script(
+                &tx.scripts[txin_index][script_index],
+                LeafVersion::TapScript,
+            ),
             bitcoin::sighash::TapSighashType::Default,
         )?;
         Ok(sig_hash)
@@ -110,7 +114,8 @@ impl Actor {
     pub fn sign_taproot_script_spend_tx_new(
         &self,
         tx: &mut CreateTxOutputs,
-        input_index: usize,
+        txin_index: usize,
+        script_index: usize,
     ) -> Result<schnorr::Signature, BridgeError> {
         // TODO: if sighash_cache exists in the CreateTxOutputs, use it
         // else create a new one and save it to the CreateTxOutputs
@@ -118,9 +123,12 @@ impl Actor {
         let mut sighash_cache: SighashCache<&mut bitcoin::Transaction> =
             SighashCache::new(&mut tx.tx);
         let sig_hash = sighash_cache.taproot_script_spend_signature_hash(
-            input_index,
+            txin_index,
             &bitcoin::sighash::Prevouts::All(&tx.prevouts),
-            TapLeafHash::from_script(&tx.scripts[input_index], LeafVersion::TapScript),
+            TapLeafHash::from_script(
+                &tx.scripts[txin_index][script_index],
+                LeafVersion::TapScript,
+            ),
             bitcoin::sighash::TapSighashType::Default,
         )?;
         Ok(self.sign(sig_hash))
@@ -141,24 +149,26 @@ impl Actor {
         self.sign_with_tweak(sig_hash, None)
     }
 
-    // pub fn verify_script_spend_signature(
-    //     _tx: &bitcoin::Transaction,
-    //     _presign: &schnorr::Signature,
-    //     _xonly_public_key: &XOnlyPublicKey,
-    //     spend_script: &bitcoin::Script,
-    //     input_index: usize,
-    //     prevouts: &Vec<TxOut>,
-    // ) -> Option<bool> {
-    //     let sighash_cache = SighashCache::new(_tx);
-    //     let sig_hash = sighash_cache
-    //         .taproot_script_spend_signature_hash(
-    //             input_index,
-    //             &bitcoin::sighash::Prevouts::All(&prevouts),
-    //             TapLeafHash::from_script(&spend_script, LeafVersion::TapScript),
-    //             bitcoin::sighash::TapSighashType::Default,
-    //         )
-    //         .unwrap();
+    pub fn sign_taproot_script_spend_tx_new_tweaked(
+        &self,
+        tx: &mut CreateTxOutputs,
+        txin_index: usize,
+        script_index: usize,
+    ) -> Result<schnorr::Signature, BridgeError> {
+        // TODO: if sighash_cache exists in the CreateTxOutputs, use it
+        // else create a new one and save it to the CreateTxOutputs
 
-    //     Some(true)
-    // }
+        let mut sighash_cache: SighashCache<&mut bitcoin::Transaction> =
+            SighashCache::new(&mut tx.tx);
+        let sig_hash = sighash_cache.taproot_script_spend_signature_hash(
+            txin_index,
+            &bitcoin::sighash::Prevouts::All(&tx.prevouts),
+            TapLeafHash::from_script(
+                &tx.scripts[txin_index][script_index],
+                LeafVersion::TapScript,
+            ),
+            bitcoin::sighash::TapSighashType::Default,
+        )?;
+        Ok(self.sign_with_tweak(sig_hash, None).unwrap())
+    }
 }

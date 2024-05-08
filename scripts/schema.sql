@@ -2,7 +2,7 @@ begin;
 
 create table new_deposit_requests (
     start_utxo text,
-    return_address text,
+    recovery_taproot_address text,
     evm_address text
 );
 

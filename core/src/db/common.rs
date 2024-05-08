@@ -15,7 +15,8 @@
 
 use crate::EVMAddress;
 use crate::{config::BridgeConfig, errors::BridgeError};
-use bitcoin::{OutPoint, Txid, XOnlyPublicKey};
+use bitcoin::address::NetworkUnchecked;
+use bitcoin::{Address, OutPoint, Txid};
 use sqlx::Row;
 use sqlx::{Pool, Postgres};
 use std::str::FromStr;
@@ -102,14 +103,14 @@ impl Database {
     pub async fn add_deposit_transaction(
         &self,
         start_utxo: OutPoint,
-        return_address: XOnlyPublicKey,
+        recovery_taproot_address: Address<NetworkUnchecked>,
         evm_address: EVMAddress,
     ) -> Result<(), BridgeError> {
         // TODO: These probably won't panic. But we should handle these
         // properly regardless, in the future.
         if let Err(e) = sqlx::query("INSERT INTO new_deposit_requests VALUES ($1, $2, $3);")
             .bind(start_utxo.to_string())
-            .bind(return_address.to_string())
+            .bind(serde_json::to_string(&recovery_taproot_address).unwrap())
             .bind(serde_json::to_string(&evm_address).unwrap())
             .fetch_all(&self.connection)
             .await
@@ -345,10 +346,15 @@ impl Database {
 /// parameters: They are hard to mock.
 #[cfg(test)]
 mod tests {
+    use std::clone;
+
     use super::Database;
     use crate::{config::BridgeConfig, test_common, EVMAddress};
-    use bitcoin::{hashes::Hash, OutPoint, Txid, XOnlyPublicKey};
-    use secp256k1::rand::{self, Rng};
+    use bitcoin::{hashes::Hash, Address, OutPoint, Txid, XOnlyPublicKey};
+    use secp256k1::{
+        rand::{self, Rng},
+        Secp256k1,
+    };
 
     #[tokio::test]
     async fn invalid_connection() {
@@ -391,18 +397,20 @@ mod tests {
     async fn add_deposit_transaction() {
         let config =
             test_common::get_test_config_from_environment("test_config.toml".to_string()).unwrap();
-        let database = Database::new(config).await.unwrap();
+        let database = Database::new(config.clone()).await.unwrap();
+        let secp = Secp256k1::new();
+        let xonly_public_key = XOnlyPublicKey::from_slice(&[
+            0x78u8, 0x19u8, 0x90u8, 0xd7u8, 0xe2u8, 0x11u8, 0x8cu8, 0xc3u8, 0x61u8, 0xa9u8, 0x3au8,
+            0x6fu8, 0xccu8, 0x54u8, 0xceu8, 0x61u8, 0x1du8, 0x6du8, 0xf3u8, 0x81u8, 0x68u8, 0xd6u8,
+            0xb1u8, 0xedu8, 0xfbu8, 0x55u8, 0x65u8, 0x35u8, 0xf2u8, 0x20u8, 0x0cu8, 0x4b,
+        ])
+        .unwrap();
+        let address = Address::p2tr(&secp, xonly_public_key, None, config.network);
 
         database
             .add_deposit_transaction(
                 OutPoint::null(),
-                XOnlyPublicKey::from_slice(&[
-                    0x78u8, 0x19u8, 0x90u8, 0xd7u8, 0xe2u8, 0x11u8, 0x8cu8, 0xc3u8, 0x61u8, 0xa9u8,
-                    0x3au8, 0x6fu8, 0xccu8, 0x54u8, 0xceu8, 0x61u8, 0x1du8, 0x6du8, 0xf3u8, 0x81u8,
-                    0x68u8, 0xd6u8, 0xb1u8, 0xedu8, 0xfbu8, 0x55u8, 0x65u8, 0x35u8, 0xf2u8, 0x20u8,
-                    0x0cu8, 0x4b,
-                ])
-                .unwrap(),
+                address.as_unchecked().clone(),
                 EVMAddress([0u8; 20]),
             )
             .await

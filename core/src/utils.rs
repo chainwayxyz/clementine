@@ -1,7 +1,8 @@
 use std::borrow::BorrowMut;
 
+use bitcoin::address::NetworkUnchecked;
 use bitcoin::sighash::SighashCache;
-use bitcoin::{self, OutPoint, XOnlyPublicKey};
+use bitcoin::{self, Address, OutPoint};
 
 use bitcoin::consensus::Decodable;
 
@@ -46,7 +47,7 @@ pub fn check_deposit_utxo(
     rpc: &ExtendedRpc,
     tx_builder: &TransactionBuilder,
     outpoint: &OutPoint,
-    return_address: &XOnlyPublicKey,
+    recovery_taproot_address: &Address<NetworkUnchecked>,
     evm_address: &EVMAddress,
     amount_sats: u64,
     confirmation_block_count: u32,
@@ -55,8 +56,11 @@ pub fn check_deposit_utxo(
         return Err(BridgeError::DepositNotFinalized);
     }
 
-    let (deposit_address, _) =
-        tx_builder.generate_deposit_address(return_address, evm_address, BRIDGE_AMOUNT_SATS)?;
+    let (deposit_address, _) = tx_builder.generate_deposit_address(
+        recovery_taproot_address,
+        evm_address,
+        BRIDGE_AMOUNT_SATS,
+    )?;
 
     if !rpc.check_utxo_address_and_amount(
         outpoint,
@@ -101,19 +105,23 @@ pub fn handle_taproot_witness<T: AsRef<[u8]>>(
 pub fn handle_taproot_witness_new<T: AsRef<[u8]>>(
     tx: &mut CreateTxOutputs,
     witness_elements: &Vec<T>,
-    index: usize,
+    txin_index: usize,
+    script_index: usize,
 ) -> Result<(), BridgeError> {
     let mut sighash_cache = SighashCache::new(tx.tx.borrow_mut());
     let witness = sighash_cache
-        .witness_mut(index)
+        .witness_mut(txin_index)
         .ok_or(BridgeError::TxInputNotFound)?;
     for elem in witness_elements {
         witness.push(elem);
     }
-    let spend_control_block = tx.taproot_spend_infos[index]
-        .control_block(&(tx.scripts[index].clone(), LeafVersion::TapScript))
+    let spend_control_block = tx.taproot_spend_infos[txin_index]
+        .control_block(&(
+            tx.scripts[txin_index][script_index].clone(),
+            LeafVersion::TapScript,
+        ))
         .ok_or(BridgeError::ControlBlockError)?;
-    witness.push(tx.scripts[index].clone());
+    witness.push(tx.scripts[txin_index][script_index].clone());
     witness.push(&spend_control_block.serialize());
     Ok(())
 }
