@@ -12,7 +12,7 @@ verifiers_public_keys = [
 
 num_verifiers = 4
 min_relay_fee = 305
-user_takes_after = 200
+user_takes_after = 5
 confirmation_treshold = 1
 network = "regtest"
 bitcoin_rpc_url = "http://127.0.0.1:18443"
