@@ -26,7 +26,7 @@ pub struct Verifier {
     pub transaction_builder: TransactionBuilder,
     pub verifiers: Vec<XOnlyPublicKey>,
     pub operator_pk: XOnlyPublicKey,
-    pub verifier_db_connector: VerifierDB,
+    pub db: VerifierDB,
     config: BridgeConfig,
 }
 
@@ -71,7 +71,7 @@ impl Verifier {
         &self,
         start_utxo: OutPoint,
         recovery_taproot_address: &Address<NetworkUnchecked>,
-        _deposit_index: u32,
+        deposit_index: u32,
         evm_address: &EVMAddress,
         _operator_address: &Address,
     ) -> Result<DepositPresigns, BridgeError> {
@@ -111,9 +111,9 @@ impl Verifier {
         #[cfg(feature = "poc")]
         {
             for i in 0..NUM_ROUNDS {
-                let connector_utxo = self.verifier_db_connector.get_connector_tree_utxo(i)
-                    [CONNECTOR_TREE_DEPTH][deposit_index as usize];
-                let connector_hash = self.verifier_db_connector.get_connector_tree_hash(
+                let connector_utxo = self.db.get_connector_tree_utxo(i)[CONNECTOR_TREE_DEPTH]
+                    [deposit_index as usize];
+                let connector_hash = self.db.get_connector_tree_hash(
                     i,
                     CONNECTOR_TREE_DEPTH,
                     deposit_index as usize,
@@ -133,6 +133,9 @@ impl Verifier {
                 op_claim_sigs.push(op_claim_sig);
             }
         }
+        self.db
+            .insert_move_txid_with_id(deposit_index as usize, move_txid)
+            .await?;
         Ok(DepositPresigns {
             move_sign: move_sig,
             operator_claim_sign: op_claim_sigs,
@@ -173,15 +176,15 @@ impl Verifier {
                 &period_relative_block_heights,
             )?;
 
-        // self.verifier_db_connector
+        // self.db
         //     .set_connector_tree_utxos(utxo_trees);
-        // self.verifier_db_connector
+        // self.db
         //     .set_connector_tree_hashes(connector_tree_hashes.clone());
-        // self.verifier_db_connector
+        // self.db
         //     .set_claim_proof_merkle_trees(claim_proof_merkle_trees);
-        // self.verifier_db_connector
+        // self.db
         //     .set_start_block_height(start_blockheight);
-        // self.verifier_db_connector
+        // self.db
         //     .set_period_relative_block_heights(period_relative_block_heights);
 
         Ok(())
@@ -194,15 +197,13 @@ impl Verifier {
         tracing::info!("Verifier starts challenges");
         let last_blockheight = self.rpc.get_block_count()?;
         let last_blockhash = self.rpc.get_block_hash(
-            self.verifier_db_connector.get_start_block_height()
-                + self
-                    .verifier_db_connector
-                    .get_period_relative_block_heights()[period as usize] as u64
+            self.db.get_start_block_height()
+                + self.db.get_period_relative_block_heights()[period as usize] as u64
                 - 1,
         )?;
         tracing::debug!("Verifier last_blockhash: {:?}", last_blockhash);
         let total_work = self.rpc.calculate_total_work_between_blocks(
-            self.verifier_db_connector.get_start_block_height(),
+            self.db.get_start_block_height(),
             last_blockheight,
         )?;
         Ok((last_blockhash, total_work, period))
@@ -226,7 +227,7 @@ impl Verifier {
             return Err(BridgeError::PublicKeyNotFound);
         }
 
-        let verifier_db_connector = VerifierDB::new(config.clone()).await;
+        let db = VerifierDB::new(config.clone()).await;
 
         let transaction_builder = TransactionBuilder::new(all_xonly_pks.clone(), config.clone());
         let operator_pk = all_xonly_pks[all_xonly_pks.len() - 1];
@@ -237,7 +238,7 @@ impl Verifier {
             transaction_builder,
             verifiers: all_xonly_pks,
             operator_pk,
-            verifier_db_connector,
+            db,
             config,
         })
     }
