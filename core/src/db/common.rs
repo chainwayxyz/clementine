@@ -136,7 +136,8 @@ impl Database {
             Ok(c) => Ok(c),
             Err(e) => {
                 tracing::error!("Error: {:?}", e);
-                Err(BridgeError::DatabaseError(sqlx::Error::RowNotFound))}, // TODO: Is this correct?
+                Err(BridgeError::DatabaseError(sqlx::Error::RowNotFound))
+            } // TODO: Is this correct?
         }
     }
 

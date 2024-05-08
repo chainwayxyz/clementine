@@ -292,7 +292,9 @@ impl Operator {
 
         // save to dp in a db transaction
         // TODO: make this transactional
-        self.operator_db_connector.add_to_deposit_txs(move_tx.tx.txid()).await?;
+        self.operator_db_connector
+            .add_to_deposit_txs(move_tx.tx.txid())
+            .await?;
         self.rpc.send_raw_transaction(&move_tx.tx)?;
 
         Ok(move_tx.tx.txid())
