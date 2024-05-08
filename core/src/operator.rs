@@ -8,6 +8,7 @@ use crate::constants::{
 use crate::db::operator::OperatorMockDB;
 use crate::errors::BridgeError;
 use crate::extended_rpc::ExtendedRpc;
+use crate::script_builder::ScriptBuilder;
 use crate::traits::rpc::{OperatorRpcServer, VerifierRpcClient};
 // use crate::traits::verifier::VerifierConnector;
 use crate::transaction_builder::TransactionBuilder;
@@ -15,7 +16,7 @@ use crate::utils::{check_deposit_utxo, handle_taproot_witness_new};
 use crate::EVMAddress;
 use bitcoin::address::{NetworkChecked, NetworkUnchecked};
 use bitcoin::{secp256k1, secp256k1::schnorr};
-use bitcoin::{Address, OutPoint, Txid};
+use bitcoin::{Address, Amount, OutPoint, TxOut, Txid};
 use clementine_circuits::constants::BRIDGE_AMOUNT_SATS;
 use futures::stream::FuturesOrdered;
 use futures::TryStreamExt;
@@ -165,7 +166,7 @@ impl Operator {
             self.config.confirmation_treshold,
         )?;
 
-        let deposit_index = self.operator_db_connector.get_next_deposit_index()?;
+        let deposit_index = self.operator_db_connector.get_next_deposit_index().await?;
         // tracing::debug!("deposit_index: {:?}", deposit_index);
 
         let presigns_from_all_verifiers: Result<Vec<_>, BridgeError> = self
@@ -388,14 +389,20 @@ impl Operator {
         idx: usize,
         withdrawal_address: Address<NetworkChecked>,
     ) -> Result<Txid, BridgeError> {
-        let deposit_tx_info = self.operator_db_connector.get_deposit_tx(idx).await;
+        let deposit_tx_info = self.operator_db_connector.get_deposit_tx(idx).await?;
+        let (bridge_address, _) = self.transaction_builder.generate_bridge_address()?;
+        let dust_value = ScriptBuilder::anyone_can_spend_txout().value;
+        let deposit_txout = TxOut {
+            value: Amount::from_sat(BRIDGE_AMOUNT_SATS - self.config.min_relay_fee) - dust_value,
+            script_pubkey: bridge_address.script_pubkey(),
+        };
         let deposit_utxo = OutPoint {
-            txid: deposit_tx_info.0,
+            txid: deposit_tx_info,
             vout: 0,
         };
         let mut withdrawal_tx = self.transaction_builder.create_withdraw_tx(
             deposit_utxo,
-            deposit_tx_info.1.clone(),
+            deposit_txout.clone(),
             &withdrawal_address,
         )?;
         let signatures_from_verifiers: Result<Vec<_>, BridgeError> = self
@@ -405,7 +412,7 @@ impl Operator {
                 let sig = verifier
                     .new_withdrawal_direct_rpc(
                         deposit_utxo.clone(),
-                        deposit_tx_info.1.clone(),
+                        deposit_txout.clone(),
                         withdrawal_address.as_unchecked().clone(),
                     )
                     .await?;

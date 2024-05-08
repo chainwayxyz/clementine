@@ -1,21 +1,20 @@
 use super::common::Database;
-use crate::{config::BridgeConfig, operator::OperatorClaimSigs, PreimageTree};
-use clementine_circuits::PreimageType;
+use crate::config::BridgeConfig;
 use std::ops::{Deref, DerefMut};
 
 #[derive(Debug, Clone)]
 pub struct OperatorMockDB {
     common_db: Database,
-    deposit_take_sigs: Vec<OperatorClaimSigs>,
-    connector_tree_preimages: Vec<PreimageTree>,
+    // deposit_take_sigs: Vec<OperatorClaimSigs>,
+    // connector_tree_preimages: Vec<PreimageTree>,
 }
 
 impl OperatorMockDB {
     pub async fn new(config: BridgeConfig) -> Self {
         Self {
             common_db: Database::new(config).await.unwrap(),
-            deposit_take_sigs: Vec::new(),
-            connector_tree_preimages: Vec::new(),
+            // deposit_take_sigs: Vec::new(),
+            // connector_tree_preimages: Vec::new(),
         }
     }
 }

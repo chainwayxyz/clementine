@@ -9,6 +9,6 @@ create table new_deposit_requests (
 create table deposit_move_txs (
     id serial primary key,
     move_txid text not null unique check (move_txid ~ '^[a-fA-F0-9]{64}')
-)
+);
 
 commit;

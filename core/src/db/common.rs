@@ -22,7 +22,9 @@ use clementine_circuits::{
     PreimageType,
 };
 use serde::{Deserialize, Serialize};
+use sqlx::Row;
 use sqlx::{postgres::PgRow, Pool, Postgres};
+use std::str::FromStr;
 use std::sync::{Arc, Mutex};
 
 /// Actual information that database will hold. This information is not directly
@@ -217,11 +219,35 @@ impl Database {
         self.write(content);
     }
 
-    pub fn get_next_deposit_index(&self) -> Result<usize, BridgeError> {
-        if let Err(e) = sqlx::query("INSERT INTO deposit_move_txs VALUES ($1, $2, $3);")
-            .bind(start_utxo.to_string())
-            .bind(return_address.to_string())
-            .bind(serde_json::to_string(&evm_address).unwrap())
+    pub async fn get_deposit_tx(&self, idx: usize) -> Result<Txid, BridgeError> {
+        let qr = sqlx::query("SELECT move_txid FROM deposit_move_txs WHERE id = $1;")
+            .bind(idx as i64)
+            .fetch_one(&self.connection)
+            .await;
+        let qr = match qr {
+            Ok(c) => c,
+            Err(e) => return Err(BridgeError::DatabaseError(e)),
+        };
+
+        match Txid::from_str(&qr.get::<String, _>(0)) {
+            Ok(c) => Ok(c),
+            Err(_) => Err(BridgeError::DatabaseError(sqlx::Error::RowNotFound)), // TODO: Is this correct?
+        }
+    }
+    pub async fn get_next_deposit_index(&self) -> Result<usize, BridgeError> {
+        match sqlx::query("SELECT COUNT(*) FROM deposit_move_txs;")
+            .fetch_one(&self.connection)
+            .await
+        {
+            Ok(qr) => {
+                Ok(qr.get::<i64, _>(0) as usize)
+            },
+            Err(e) => Err(BridgeError::DatabaseError(e)),
+        }
+    }
+    pub async fn add_to_deposit_txs(&self, deposit_tx: Txid) -> Result<(), BridgeError> {
+        if let Err(e) = sqlx::query("INSERT INTO deposit_move_txs (move_txid) VALUES ($1);")
+            .bind(deposit_tx.to_string())
             .fetch_all(&self.connection)
             .await
         {
@@ -229,25 +255,12 @@ impl Database {
         };
 
         Ok(())
-        Ok(1)
-    }
-
-    pub async fn get_deposit_tx(&self, _idx: usize) -> (Txid, TxOut) {
-        let tmp: Vec<(Txid, TxOut)> = Vec::new();
-        tmp[0].clone()
     }
 
     #[cfg(poc)]
     pub async fn get_deposit_txs(&self) -> Vec<(Txid, TxOut)> {
         let content = self.read();
         content.deposit_txs.clone()
-    }
-
-    // #[cfg(poc)]
-    pub async fn add_to_deposit_txs(&self, deposit_tx: (Txid, TxOut)) {
-        let mut content = self.read();
-        content.deposit_txs.push(deposit_tx);
-        self.write(content);
     }
 
     #[cfg(poc)]
@@ -359,7 +372,8 @@ impl Database {
 mod tests {
     use super::Database;
     use crate::{config::BridgeConfig, test_common, EVMAddress};
-    use bitcoin::{OutPoint, XOnlyPublicKey};
+    use bitcoin::{hashes::Hash, OutPoint, Txid, XOnlyPublicKey};
+    use secp256k1::rand::{self, Rng};
     use sqlx::Row;
 
     #[tokio::test]
@@ -475,6 +489,32 @@ mod tests {
             )
             .await
             .unwrap();
+    }
+
+    #[tokio::test]
+    async fn deposit_tx() {
+        let config =
+            test_common::get_test_config_from_environment("test_config.toml".to_string()).unwrap();
+        let database = Database::new(config).await.unwrap();
+
+        let prev_idx = database.get_next_deposit_index().await.unwrap();
+
+        let mut rng = rand::thread_rng();
+        let mut arr = [0; 32];
+        for i in 0..32 {
+            arr[i] = rng.gen();
+        }
+        let txid = Txid::from_byte_array(arr);
+
+        database.add_to_deposit_txs(txid).await.unwrap();
+
+        let next_idx = database.get_next_deposit_index().await.unwrap();
+
+        assert_eq!(prev_idx + 1, next_idx);
+
+        let read_txid = database.get_deposit_tx(next_idx).await.unwrap();
+
+        assert_eq!(read_txid, txid);
     }
 
     #[cfg(poc)]
