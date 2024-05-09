@@ -139,23 +139,14 @@ impl Operator {
         })
     }
 
-    /// this is a public endpoint that every depositor can call
-    /// it will get signatures from all verifiers.
-    /// 1. Check if the deposit utxo is valid and finalized (6 blocks confirmation)
-    /// 2. Check if the utxo is not already spent
-    /// 3. Get signatures from all verifiers 1 move signature, ~150 operator takes signatures
-    /// 4. Create a move transaction and return the output utxo
+    /// Checks input deposit utxo and writes a deposit request to the database.
+    /// Finally, returns move_tx txid.
     pub async fn new_deposit(
         &self,
         start_utxo: OutPoint,
         recovery_taproot_address: &Address<NetworkUnchecked>,
         evm_address: &EVMAddress,
     ) -> Result<Txid, BridgeError> {
-        // Transaction is OK, write it to the database.
-        self.db
-            .add_new_deposit_request(start_utxo, recovery_taproot_address.clone(), *evm_address)
-            .await?;
-
         check_deposit_utxo(
             &self.rpc,
             &self.transaction_builder,
@@ -166,7 +157,38 @@ impl Operator {
             self.config.confirmation_treshold,
         )?;
 
+        // Transaction is OK, write a request to the database. This will be
+        // handled later.
+        self.db
+            .add_new_deposit_request(start_utxo, recovery_taproot_address.clone(), *evm_address)
+            .await?;
+
+        let move_tx = self.transaction_builder.create_move_tx(
+            start_utxo,
+            evm_address,
+            &recovery_taproot_address,
+        )?;
+
+        self.get_signatures().await.unwrap();
+
+        Ok(move_tx.tx.txid())
+    }
+
+    /// This is a public endpoint that every depositor can call.
+    ///
+    /// It will get signatures from all verifiers.
+    ///
+    /// 1. Get signatures from all verifiers 1 move signature, ~150 operator
+    /// takes signatures
+    /// 2. Create a move transaction and return the output utxo
+    pub async fn get_signatures(&self) -> Result<Txid, BridgeError> {
+        // Do everything in a transaction: We either successfully do all this
+        // or revert everything.
         let transaction = self.db.begin_transaction().await?;
+
+        // Fetch previously saved deposit request from database.
+        let (start_utxo, recovery_taproot_address, evm_address) =
+            self.db.get_new_deposit_request().await?;
 
         let deposit_index = self.db.get_next_deposit_index().await?;
         tracing::debug!("deposit_index: {:?}", deposit_index);
@@ -184,7 +206,7 @@ impl Operator {
                         start_utxo,
                         recovery_taproot_address.clone(),
                         deposit_index as u32,
-                        *evm_address,
+                        evm_address,
                         self.signer.address.as_unchecked().clone(),
                     )
                     .await
@@ -208,7 +230,7 @@ impl Operator {
         // 5. Create a move transaction and return the output utxo, save the utxo as a pending deposit
         let mut move_tx = self.transaction_builder.create_move_tx(
             start_utxo,
-            evm_address,
+            &evm_address,
             &recovery_taproot_address,
         )?;
 
