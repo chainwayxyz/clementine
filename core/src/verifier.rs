@@ -58,7 +58,8 @@ impl VerifierRpcServer for Verifier {
         withdrawal_address: Address<NetworkUnchecked>,
     ) -> Result<schnorr::Signature, BridgeError> {
         let withdrawal_address = withdrawal_address.require_network(self.config.network)?;
-        self.new_withdrawal_direct(withdrawal_idx, bridge_fund_txid, &withdrawal_address).await
+        self.new_withdrawal_direct(withdrawal_idx, bridge_fund_txid, &withdrawal_address)
+            .await
     }
 }
 
@@ -71,7 +72,7 @@ impl Verifier {
         &self,
         start_utxo: OutPoint,
         recovery_taproot_address: &Address<NetworkUnchecked>,
-        deposit_index: u32,
+        _deposit_index: u32,
         evm_address: &EVMAddress,
         _operator_address: &Address,
     ) -> Result<DepositPresigns, BridgeError> {
@@ -133,9 +134,9 @@ impl Verifier {
                 op_claim_sigs.push(op_claim_sig);
             }
         }
-        self.db
-            .insert_move_txid_with_id(deposit_index as usize, move_txid)
-            .await?;
+        // self.db
+        //     .insert_move_txid_with_id(deposit_index as usize, move_txid)
+        //     .await?;
         Ok(DepositPresigns {
             move_sign: move_sig,
             operator_claim_sign: op_claim_sigs,
@@ -144,14 +145,27 @@ impl Verifier {
 
     async fn new_withdrawal_direct(
         &self,
-        _withdrawal_idx: usize,
+        withdrawal_idx: usize,
         bridge_fund_txid: Txid,
         withdrawal_address: &Address<NetworkChecked>,
     ) -> Result<schnorr::Signature, BridgeError> {
         // TODO: Check from citrea rpc if the withdrawal is valid
 
+        if let Ok((db_bridge_fund_txid, sig)) =
+            self.db.get_withdrawal_sig_by_idx(withdrawal_idx).await
+        {
+            if db_bridge_fund_txid == bridge_fund_txid {
+                return Ok(sig);
+            } else {
+                return Err(BridgeError::AlreadySpentWithdrawal);
+            }
+        };
+
         // let bridge_txid = self.db.get_deposit_tx(withdrawal_idx).await?;
-        tracing::debug!("Verifier is signing withdrawal tx with txid: {:?}", bridge_fund_txid);
+        tracing::info!(
+            "Verifier is signing withdrawal tx with txid: {:?}",
+            bridge_fund_txid
+        );
         let bridge_utxo = OutPoint {
             txid: bridge_fund_txid,
             vout: 0,
@@ -164,7 +178,6 @@ impl Verifier {
             script_pubkey: bridge_address.script_pubkey(),
         };
 
-
         let mut withdrawal_tx = self.transaction_builder.create_withdraw_tx(
             bridge_utxo,
             bridge_txout,
@@ -173,6 +186,11 @@ impl Verifier {
         let sig = self
             .signer
             .sign_taproot_script_spend_tx_new(&mut withdrawal_tx, 0, 0)?;
+
+        // savedb -> withdrawal_idx, bridge_fund_txid, signature
+        self.db
+            .save_withdrawal_sig(withdrawal_idx, bridge_fund_txid, sig)
+            .await?;
         Ok(sig)
     }
 
