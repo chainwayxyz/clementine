@@ -80,7 +80,8 @@ impl Database {
                     }
                 };
 
-                let recovery_taproot_address: Result<Address<NetworkUnchecked>, _> = serde_json::from_str(qr.get::<&str, _>(1));
+                let recovery_taproot_address: Result<Address<NetworkUnchecked>, _> =
+                    serde_json::from_str(qr.get::<&str, _>(1));
                 let recovery_taproot_address = match recovery_taproot_address {
                     Ok(c) => c,
                     Err(e) => {
@@ -440,9 +441,21 @@ mod tests {
             .await
             .unwrap();
 
-        let (read_start_utxo, read_recovery_taproot_address, read_evm_address) = database.get_new_deposit_request().await.unwrap();
+        let (read_start_utxo, read_recovery_taproot_address, read_evm_address) =
+            database.get_new_deposit_request().await.unwrap();
 
-        assert_eq!((prev_start_utxo, prev_recovery_taproot_address, prev_read_evm_address), (read_start_utxo, read_recovery_taproot_address, read_evm_address));
+        assert_eq!(
+            (
+                prev_start_utxo,
+                prev_recovery_taproot_address,
+                prev_read_evm_address
+            ),
+            (
+                read_start_utxo,
+                read_recovery_taproot_address,
+                read_evm_address
+            )
+        );
     }
 
     #[tokio::test]
@@ -466,7 +479,7 @@ mod tests {
 
         assert_eq!(prev_idx + 1, next_idx);
 
-        let read_txid = database.get_deposit_tx(next_idx).await.unwrap();
+        let read_txid = database.get_deposit_tx(prev_idx).await.unwrap();
 
         assert_eq!(read_txid, txid);
     }
