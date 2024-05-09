@@ -166,8 +166,6 @@ impl Operator {
             self.config.confirmation_treshold,
         )?;
 
-        let transaction = self.db.begin_transaction().await?;
-
         let deposit_index = self.db.get_next_deposit_index().await?;
         tracing::debug!("deposit_index: {:?}", deposit_index);
 
@@ -293,7 +291,7 @@ impl Operator {
         }
         tracing::debug!("move_tx: {:?}", move_tx.tx);
         tracing::debug!("move_tx.tx size: {:?}", move_tx.tx.weight());
-
+        let transaction = self.db.begin_transaction().await?;
         self.db
             .insert_move_txid(move_tx.tx.txid())
             .await?;
@@ -335,6 +333,7 @@ impl Operator {
                 let sig = verifier
                     .new_withdrawal_direct_rpc(
                         idx,
+                        deposit_tx_info,
                         withdrawal_address.as_unchecked().clone(),
                     )
                     .await?;

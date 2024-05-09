@@ -13,7 +13,7 @@ use crate::EVMAddress;
 use crate::{actor::Actor, operator::DepositPresigns};
 use bitcoin::address::{NetworkChecked, NetworkUnchecked};
 use bitcoin::{secp256k1, secp256k1::Secp256k1, OutPoint};
-use bitcoin::{Address, Amount, TxOut};
+use bitcoin::{Address, Amount, TxOut, Txid};
 use clementine_circuits::constants::BRIDGE_AMOUNT_SATS;
 use jsonrpsee::core::async_trait;
 use secp256k1::XOnlyPublicKey;
@@ -54,10 +54,11 @@ impl VerifierRpcServer for Verifier {
     async fn new_withdrawal_direct_rpc(
         &self,
         withdrawal_idx: usize,
+        bridge_fund_txid: Txid,
         withdrawal_address: Address<NetworkUnchecked>,
     ) -> Result<schnorr::Signature, BridgeError> {
         let withdrawal_address = withdrawal_address.require_network(self.config.network)?;
-        self.new_withdrawal_direct(withdrawal_idx, &withdrawal_address).await
+        self.new_withdrawal_direct(withdrawal_idx, bridge_fund_txid, &withdrawal_address).await
     }
 }
 
@@ -143,15 +144,16 @@ impl Verifier {
 
     async fn new_withdrawal_direct(
         &self,
-        withdrawal_idx: usize,
+        _withdrawal_idx: usize,
+        bridge_fund_txid: Txid,
         withdrawal_address: &Address<NetworkChecked>,
     ) -> Result<schnorr::Signature, BridgeError> {
         // TODO: Check from citrea rpc if the withdrawal is valid
 
-        let bridge_txid = self.db.get_deposit_tx(withdrawal_idx).await?;
-        tracing::debug!("Verifier is signing withdrawal tx with txid: {:?}", bridge_txid);
+        // let bridge_txid = self.db.get_deposit_tx(withdrawal_idx).await?;
+        tracing::debug!("Verifier is signing withdrawal tx with txid: {:?}", bridge_fund_txid);
         let bridge_utxo = OutPoint {
-            txid: bridge_txid,
+            txid: bridge_fund_txid,
             vout: 0,
         };
 
