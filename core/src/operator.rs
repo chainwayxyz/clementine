@@ -153,7 +153,7 @@ impl Operator {
     ) -> Result<Txid, BridgeError> {
         // Transaction is OK, write it to the database.
         self.db
-            .add_new_deposit_transaction(start_utxo, recovery_taproot_address.clone(), *evm_address)
+            .add_new_deposit_request(start_utxo, recovery_taproot_address.clone(), *evm_address)
             .await?;
 
         check_deposit_utxo(

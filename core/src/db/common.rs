@@ -61,7 +61,7 @@ impl Database {
         }
     }
 
-    pub async fn get_new_deposit_transaction(
+    pub async fn get_new_deposit_request(
         &self,
     ) -> Result<(OutPoint, Address<NetworkUnchecked>, EVMAddress), BridgeError> {
         // TODO: This table needs a specifier like timestamp or an id to order stuff.
@@ -106,7 +106,7 @@ impl Database {
             Err(e) => Err(BridgeError::DatabaseError(e)),
         }
     }
-    pub async fn add_new_deposit_transaction(
+    pub async fn add_new_deposit_request(
         &self,
         start_utxo: OutPoint,
         recovery_taproot_address: Address<NetworkUnchecked>,
@@ -415,7 +415,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn new_deposit_transaction() {
+    async fn new_deposit_request() {
         let config =
             test_common::get_test_config_from_environment("test_config.toml".to_string()).unwrap();
         let database = Database::new(config.clone()).await.unwrap();
@@ -432,7 +432,7 @@ mod tests {
         let prev_recovery_taproot_address = address.as_unchecked().clone();
         let prev_read_evm_address = EVMAddress([0u8; 20]);
         database
-            .add_new_deposit_transaction(
+            .add_new_deposit_request(
                 prev_start_utxo,
                 prev_recovery_taproot_address.clone(),
                 prev_read_evm_address,
@@ -440,7 +440,7 @@ mod tests {
             .await
             .unwrap();
 
-        let (read_start_utxo, read_recovery_taproot_address, read_evm_address) = database.get_new_deposit_transaction().await.unwrap();
+        let (read_start_utxo, read_recovery_taproot_address, read_evm_address) = database.get_new_deposit_request().await.unwrap();
 
         assert_eq!((prev_start_utxo, prev_recovery_taproot_address, prev_read_evm_address), (read_start_utxo, read_recovery_taproot_address, read_evm_address));
     }
