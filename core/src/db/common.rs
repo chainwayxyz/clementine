@@ -80,8 +80,7 @@ impl Database {
                     }
                 };
 
-                let recovery_taproot_address =
-                    Address::<NetworkUnchecked>::from_str(&qr.get::<String, _>(1));
+                let recovery_taproot_address: Result<Address<NetworkUnchecked>, _> = serde_json::from_str(qr.get::<&str, _>(1));
                 let recovery_taproot_address = match recovery_taproot_address {
                     Ok(c) => c,
                     Err(e) => {
