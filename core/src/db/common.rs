@@ -402,7 +402,7 @@ mod tests {
     #[ignore]
     async fn valid_connection() {
         let config =
-            test_common::get_test_config_from_environment("test_config.toml".to_string()).unwrap();
+            test_common::get_test_config_from_environment("test_config.toml").unwrap();
 
         match Database::new(config).await {
             Ok(_) => {
@@ -418,7 +418,7 @@ mod tests {
     #[tokio::test]
     async fn new_deposit_request() {
         let config =
-            test_common::get_test_config_from_environment("test_config.toml".to_string()).unwrap();
+            test_common::get_test_config_from_environment("test_config.toml").unwrap();
         let database = Database::new(config.clone()).await.unwrap();
         let secp = Secp256k1::new();
         let xonly_public_key = XOnlyPublicKey::from_slice(&[
@@ -461,7 +461,7 @@ mod tests {
     #[tokio::test]
     async fn deposit_tx() {
         let config =
-            test_common::get_test_config_from_environment("test_config.toml".to_string()).unwrap();
+            test_common::get_test_config_from_environment("test_config.toml").unwrap();
         let database = Database::new(config).await.unwrap();
 
         let prev_idx = database.get_next_deposit_index().await.unwrap();

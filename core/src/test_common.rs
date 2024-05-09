@@ -35,12 +35,12 @@ pub fn get_test_config(configuration_file: &str) -> Result<BridgeConfig, BridgeE
 /// and parses in to a `BridgeConfig`. If environment variable is not satisfied,
 /// `fallback_config` will be used.
 pub fn get_test_config_from_environment(
-    fallback_config: String,
+    fallback_config: &str,
 ) -> Result<BridgeConfig, BridgeError> {
     if let Ok(config_file_path) = env::var(ENV_CONF_FILE) {
         BridgeConfig::try_parse_file(config_file_path.into())
     } else {
-        get_test_config(&fallback_config.as_str())
+        get_test_config(&fallback_config)
     }
 }
 
