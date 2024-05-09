@@ -28,7 +28,8 @@ pub struct Database {
 }
 
 impl Database {
-    /// Creates a new `Database`. Then tries to connect actual database.
+    /// Creates a new `Database`. Then tries to establish a connection to
+    /// PostgreSQL.
     pub async fn new(config: BridgeConfig) -> Result<Self, BridgeError> {
         let url = "postgresql://".to_owned()
             + config.db_host.as_str()
@@ -48,7 +49,9 @@ impl Database {
         }
     }
 
-    /// Creates an
+    /// Returns an object for database transaction. This must be handled where
+    /// it is called. If not, database operations that executed after this will
+    /// get dropped.
     pub async fn begin_transaction(
         &self,
     ) -> Result<sqlx::Transaction<'_, sqlx::Postgres>, BridgeError> {
@@ -58,13 +61,53 @@ impl Database {
         }
     }
 
-    /// Adds a deposit transaction to database. This transaction includes the
-    /// following:
-    ///
-    /// * Start UTXO
-    /// * Return address
-    /// * EVM address
-    pub async fn add_deposit_transaction(
+    pub async fn get_new_deposit_transaction(
+        &self,
+    ) -> Result<(OutPoint, Address<NetworkUnchecked>, EVMAddress), BridgeError> {
+        // TODO: This table needs a specifier like timestamp or an id to order stuff.
+        match sqlx::query("SELECT * FROM new_deposit_requests;")
+            .fetch_one(&self.connection)
+            .await
+        {
+            Ok(qr) => {
+                let start_utxo = OutPoint::from_str(&qr.get::<String, _>(0));
+                let start_utxo = match start_utxo {
+                    Ok(c) => c,
+                    Err(e) => {
+                        return Err(BridgeError::DatabaseError(sqlx::Error::AnyDriverError(
+                            Box::new(e),
+                        )))
+                    }
+                };
+
+                let recovery_taproot_address =
+                    Address::<NetworkUnchecked>::from_str(&qr.get::<String, _>(1));
+                let recovery_taproot_address = match recovery_taproot_address {
+                    Ok(c) => c,
+                    Err(e) => {
+                        return Err(BridgeError::DatabaseError(sqlx::Error::AnyDriverError(
+                            Box::new(e),
+                        )))
+                    }
+                };
+
+                let evm_address: Result<EVMAddress, serde_json::Error> =
+                    serde_json::from_str(qr.get::<&str, _>(2));
+                let evm_address = match evm_address {
+                    Ok(c) => c,
+                    Err(e) => {
+                        return Err(BridgeError::DatabaseError(sqlx::Error::AnyDriverError(
+                            Box::new(e),
+                        )))
+                    }
+                };
+
+                Ok((start_utxo, recovery_taproot_address, evm_address))
+            }
+            Err(e) => Err(BridgeError::DatabaseError(e)),
+        }
+    }
+    pub async fn add_new_deposit_transaction(
         &self,
         start_utxo: OutPoint,
         recovery_taproot_address: Address<NetworkUnchecked>,
@@ -373,7 +416,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn add_deposit_transaction() {
+    async fn new_deposit_transaction() {
         let config =
             test_common::get_test_config_from_environment("test_config.toml".to_string()).unwrap();
         let database = Database::new(config.clone()).await.unwrap();
@@ -386,14 +429,21 @@ mod tests {
         .unwrap();
         let address = Address::p2tr(&secp, xonly_public_key, None, config.network);
 
+        let prev_start_utxo = OutPoint::null();
+        let prev_recovery_taproot_address = address.as_unchecked().clone();
+        let prev_read_evm_address = EVMAddress([0u8; 20]);
         database
-            .add_deposit_transaction(
-                OutPoint::null(),
-                address.as_unchecked().clone(),
-                EVMAddress([0u8; 20]),
+            .add_new_deposit_transaction(
+                prev_start_utxo,
+                prev_recovery_taproot_address.clone(),
+                prev_read_evm_address,
             )
             .await
             .unwrap();
+
+        let (read_start_utxo, read_recovery_taproot_address, read_evm_address) = database.get_new_deposit_transaction().await.unwrap();
+
+        assert_eq!((prev_start_utxo, prev_recovery_taproot_address, prev_read_evm_address), (read_start_utxo, read_recovery_taproot_address, read_evm_address));
     }
 
     #[tokio::test]
