@@ -151,11 +151,6 @@ impl Operator {
         recovery_taproot_address: &Address<NetworkUnchecked>,
         evm_address: &EVMAddress,
     ) -> Result<Txid, BridgeError> {
-        // Transaction is OK, write it to the database.
-        self.db
-            .add_deposit_transaction(start_utxo, recovery_taproot_address.clone(), *evm_address)
-            .await?;
-
         check_deposit_utxo(
             &self.rpc,
             &self.transaction_builder,
@@ -166,8 +161,17 @@ impl Operator {
             self.config.confirmation_treshold,
         )?;
 
-        let deposit_index = self.db.get_next_deposit_index().await?;
-        tracing::debug!("deposit_index: {:?}", deposit_index);
+        // Transaction is OK, write it to the database.
+        self.db
+        .add_deposit_transaction(start_utxo, recovery_taproot_address.clone(), *evm_address)
+        .await?;
+
+        // 5. Create a move transaction and return the output utxo, save the utxo as a pending deposit
+        let mut move_tx = self.transaction_builder.create_move_tx(
+            start_utxo,
+            evm_address,
+            &recovery_taproot_address,
+        )?;
 
         let presigns_from_all_verifiers: Result<Vec<_>, BridgeError> = self
             .verifier_connector
@@ -181,7 +185,7 @@ impl Operator {
                     .new_deposit_rpc(
                         start_utxo,
                         recovery_taproot_address.clone(),
-                        deposit_index as u32,
+                        0, // Since we don't have bitvm yet, deposit index is useless.
                         *evm_address,
                         self.signer.address.as_unchecked().clone(),
                     )
@@ -201,16 +205,11 @@ impl Operator {
             .await;
         // Handle the result of the collect operation
         let presigns_from_all_verifiers = presigns_from_all_verifiers?;
-        tracing::info!("presigns_from_all_verifiers: done");
 
-        // 5. Create a move transaction and return the output utxo, save the utxo as a pending deposit
-        let mut move_tx = self.transaction_builder.create_move_tx(
-            start_utxo,
-            evm_address,
-            &recovery_taproot_address,
-        )?;
+        tracing::info!("presigns_from_all_verifiers done for txid: {:?}", move_tx.tx.txid());
+        tracing::debug!("move_tx details: {:?}", move_tx);
 
-        // TODO: Simplify this move_signatures thing, maybe with a macro
+        // Add collected signatures to the move_tx
         let mut move_signatures = presigns_from_all_verifiers
             .iter()
             .map(|presign| presign.move_sign)
@@ -289,11 +288,10 @@ impl Operator {
                 }
             }
         }
-        tracing::debug!("move_tx: {:?}", move_tx.tx);
-        tracing::debug!("move_tx.tx size: {:?}", move_tx.tx.weight());
+
         let transaction = self.db.begin_transaction().await?;
         self.db
-            .insert_move_txid(move_tx.tx.txid())
+            .insert_move_txid(start_utxo, recovery_taproot_address.clone(), *evm_address, move_tx.tx.txid())
             .await?;
         self.rpc.send_raw_transaction(&move_tx.tx)?;
 
