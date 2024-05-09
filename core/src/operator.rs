@@ -169,7 +169,7 @@ impl Operator {
             &recovery_taproot_address,
         )?;
 
-        self.get_signatures().await.unwrap();
+        self.handle_deposit().await?;
 
         Ok(move_tx.tx.txid())
     }
@@ -181,7 +181,7 @@ impl Operator {
     /// 1. Get signatures from all verifiers 1 move signature, ~150 operator
     /// takes signatures
     /// 2. Create a move transaction and return the output utxo
-    pub async fn get_signatures(&self) -> Result<Txid, BridgeError> {
+    pub async fn handle_deposit(&self) -> Result<Txid, BridgeError> {
         // Do everything in a transaction: We either successfully do all this
         // or revert everything.
         let transaction = self.db.begin_transaction().await?;
