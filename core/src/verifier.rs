@@ -154,10 +154,11 @@ impl Verifier {
         withdrawal_address: &Address<NetworkChecked>,
     ) -> Result<schnorr::Signature, BridgeError> {
         // TODO: Check from citrea rpc if the withdrawal is valid
-        let _: () = self.citrea_client
+        let citrea_response: String = self.citrea_client
             .request("eth_call", rpc_params![])
             .await
             .unwrap();
+        tracing::debug!("Citrea response: {}", citrea_response);
 
         if let Ok((db_bridge_fund_txid, sig)) =
             self.db.get_withdrawal_sig_by_idx(withdrawal_idx).await
