@@ -16,6 +16,9 @@ use bitcoin::{secp256k1, secp256k1::Secp256k1, OutPoint};
 use bitcoin::{Address, Amount, TxOut, Txid};
 use clementine_circuits::constants::BRIDGE_AMOUNT_SATS;
 use jsonrpsee::core::async_trait;
+use jsonrpsee::http_client::{HttpClient, HttpClientBuilder};
+use jsonrpsee::rpc_params;
+use jsonrpsee::core::client::ClientT;
 use secp256k1::XOnlyPublicKey;
 use secp256k1::{schnorr, SecretKey};
 
@@ -28,6 +31,7 @@ pub struct Verifier {
     pub verifiers: Vec<XOnlyPublicKey>,
     pub operator_pk: XOnlyPublicKey,
     pub db: VerifierDB,
+    citrea_client: HttpClient,
     config: BridgeConfig,
 }
 
@@ -150,6 +154,10 @@ impl Verifier {
         withdrawal_address: &Address<NetworkChecked>,
     ) -> Result<schnorr::Signature, BridgeError> {
         // TODO: Check from citrea rpc if the withdrawal is valid
+        let _: () = self.citrea_client
+            .request("eth_call", rpc_params![])
+            .await
+            .unwrap();
 
         if let Ok((db_bridge_fund_txid, sig)) =
             self.db.get_withdrawal_sig_by_idx(withdrawal_idx).await
@@ -254,6 +262,9 @@ impl Verifier {
     ) -> Result<Self, BridgeError> {
         let signer = Actor::new(sk, config.network);
         let secp: Secp256k1<secp256k1::All> = Secp256k1::new();
+        let citrea_client = HttpClientBuilder::default()
+            .build(config.citrea_rpc_url.clone())
+            .unwrap();
 
         let pk: secp256k1::PublicKey = sk.public_key(&secp);
         let xonly_pk = XOnlyPublicKey::from(pk);
@@ -274,6 +285,7 @@ impl Verifier {
             verifiers: all_xonly_pks,
             operator_pk,
             db,
+            citrea_client,
             config,
         })
     }

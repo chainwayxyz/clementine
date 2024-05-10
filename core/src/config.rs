@@ -83,6 +83,8 @@ pub struct BridgeConfig {
     pub db_password: String,
     /// PostgreSQL database name.
     pub db_name: String,
+    /// Citrea RPC URL for getting i'th withdrawal
+    pub citrea_rpc_url: String,
 }
 
 impl BridgeConfig {
@@ -163,6 +165,7 @@ impl Default for BridgeConfig {
             db_user: "postgres".to_string(),
             db_password: "postgres".to_string(),
             db_name: "postgres".to_string(),
+            citrea_rpc_url: "http://localhost:54321".to_string(),
         }
     }
 }
