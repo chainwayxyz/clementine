@@ -10,7 +10,9 @@ use bitcoin::{
     Address, TapSighash, TapTweakHash,
 };
 
-use bitcoin::{TapLeafHash, TapNodeHash, TxOut};
+use bitcoin::{Network, TapLeafHash, TapNodeHash, TxOut};
+use crypto_bigint::rand_core::OsRng;
+use musig2::{AggNonce, FirstRound, KeyAggContext, PartialSignature, SecNonceSpices};
 
 #[derive(Debug, Clone)]
 pub struct Actor {
@@ -171,4 +173,136 @@ impl Actor {
         )?;
         Ok(self.sign_with_tweak(sig_hash, None).unwrap())
     }
+
+    pub fn convert_tx_to_sighash(
+        tx: &mut CreateTxOutputs,
+        txin_index: usize,
+        script_index: usize,
+    ) -> Result<TapSighash, BridgeError> {
+        let mut sighash_cache: SighashCache<&mut bitcoin::Transaction> =
+            SighashCache::new(&mut tx.tx);
+        let sig_hash = sighash_cache.taproot_script_spend_signature_hash(
+            txin_index,
+            &bitcoin::sighash::Prevouts::All(&tx.prevouts),
+            TapLeafHash::from_script(
+                &tx.scripts[txin_index][script_index],
+                LeafVersion::TapScript,
+            ),
+            bitcoin::sighash::TapSighashType::Default,
+        )?;
+        Ok(sig_hash)
+    }
+}
+
+#[test]
+fn test_musig2() {
+    let mut actors = Vec::new();
+    let mut pks = Vec::new();
+    let secp = bitcoin::secp256k1::Secp256k1::new();
+    let rng = &mut OsRng;
+    tracing::debug!("Generated setup...");
+
+    for _ in 0..3 {
+        let (sk, pk) = secp.generate_keypair(rng);
+        pks.push(pk);
+        actors.push(Actor::new(sk, Network::Regtest));
+    }
+    tracing::debug!("Generated actors...");
+
+    let message = "Hello, World!";
+    let nonce_seed = [0u8; 32];
+    tracing::debug!("Generated nonce_seed...");
+
+    let key_agg_ctx = KeyAggContext::new(pks).unwrap();
+    tracing::debug!("Generated key_agg_ctx...");
+
+    let aggregated_pubkey: PublicKey = key_agg_ctx.aggregated_pubkey();
+    tracing::debug!("Aggregated pubkey is {:?}", aggregated_pubkey);
+
+    let mut pub_nonces_first_round = Vec::new();
+
+    let first_round_0 = FirstRound::new(
+        key_agg_ctx.clone(),
+        nonce_seed,
+        0,
+        SecNonceSpices::new()
+            .with_seckey(actors[0].secret_key)
+            .with_message(&message),
+    )
+    .unwrap();
+    pub_nonces_first_round.push(first_round_0.our_public_nonce());
+    tracing::debug!(
+        "Public nonce for actor 0: {:?}",
+        first_round_0.our_public_nonce()
+    );
+
+    let first_round_1 = FirstRound::new(
+        key_agg_ctx.clone(),
+        nonce_seed,
+        1,
+        SecNonceSpices::new()
+            .with_seckey(actors[1].secret_key)
+            .with_message(&message),
+    )
+    .unwrap();
+    pub_nonces_first_round.push(first_round_1.our_public_nonce());
+    tracing::debug!(
+        "Public nonce for actor 1: {:?}",
+        first_round_1.our_public_nonce()
+    );
+
+    let first_round_2 = FirstRound::new(
+        key_agg_ctx.clone(),
+        nonce_seed,
+        2,
+        SecNonceSpices::new()
+            .with_seckey(actors[2].secret_key)
+            .with_message(&message),
+    )
+    .unwrap();
+    pub_nonces_first_round.push(first_round_2.our_public_nonce());
+    tracing::debug!(
+        "Public nonce for actor 2: {:?}",
+        first_round_2.our_public_nonce()
+    );
+
+    tracing::debug!("Generated first_rounds...");
+
+    let aggregated_nonce = AggNonce::sum(&pub_nonces_first_round);
+    tracing::debug!("Aggregated nonce is {:?}", aggregated_nonce);
+
+    let mut partial_signatures = Vec::new();
+
+    let partial_signature_0: PartialSignature = first_round_0
+        .sign_for_aggregator(actors[0].secret_key, message, &aggregated_nonce)
+        .unwrap();
+    tracing::debug!("Partial signature for actor 0: {:?}", partial_signature_0);
+    partial_signatures.push(partial_signature_0);
+
+    let partial_signature_1: PartialSignature = first_round_1
+        .sign_for_aggregator(actors[1].secret_key, message, &aggregated_nonce)
+        .unwrap();
+    tracing::debug!("Partial signature for actor 1: {:?}", partial_signature_1);
+    partial_signatures.push(partial_signature_1);
+
+    let partial_signature_2: PartialSignature = first_round_2
+        .sign_for_aggregator(actors[2].secret_key, message, &aggregated_nonce)
+        .unwrap();
+    tracing::debug!("Partial signature for actor 2: {:?}", partial_signature_2);
+    partial_signatures.push(partial_signature_2);
+
+    tracing::debug!("Generated partial_signatures...");
+
+    let final_signature: [u8; 64] = musig2::aggregate_partial_signatures(
+        &key_agg_ctx,
+        &aggregated_nonce,
+        partial_signatures,
+        message,
+    )
+    .unwrap();
+    tracing::debug!("Final signature is {:?}", final_signature);
+
+    musig2::verify_single(aggregated_pubkey, &final_signature, message)
+        .expect("Verification failed!");
+    tracing::info!("Verification passed!");
 }

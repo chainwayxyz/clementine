@@ -417,7 +417,7 @@ mod tests {
 
         assert_eq!(prev_idx + 1, next_idx);
 
-        let read_txid = database.get_deposit_tx(next_idx).await.unwrap();
+        let read_txid = database.get_deposit_tx(prev_idx).await.unwrap();
 
         assert_eq!(read_txid, txid);
     }

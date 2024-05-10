@@ -10,6 +10,8 @@ use bitcoin::OutPoint;
 use bitcoin::Transaction;
 use bitcoin::XOnlyPublicKey;
 use clementine_circuits::constants::BRIDGE_AMOUNT_SATS;
+use musig2::KeyAggContext;
+use secp256k1::PublicKey;
 use secp256k1::SecretKey;
 
 #[derive(Debug)]
@@ -24,12 +26,15 @@ impl User {
     pub fn new(
         rpc: ExtendedRpc,
         all_xonly_pks: Vec<XOnlyPublicKey>,
+        all_pks: Vec<PublicKey>,
         sk: SecretKey,
         config: BridgeConfig,
     ) -> Self {
         let secp = Secp256k1::new();
         let signer = Actor::new(sk, config.network);
-        let transaction_builder = TransactionBuilder::new(all_xonly_pks.clone(), config);
+        let key_agg_ctx = KeyAggContext::new(all_pks).unwrap();
+        let agg_pk: PublicKey = key_agg_ctx.aggregated_pubkey();
+        let transaction_builder = TransactionBuilder::new(all_xonly_pks.clone(), agg_pk, config);
         User {
             rpc,
             secp,
