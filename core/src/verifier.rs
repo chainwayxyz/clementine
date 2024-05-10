@@ -27,7 +27,8 @@ pub struct Verifier {
     pub secp: Secp256k1<secp256k1::All>,
     pub signer: Actor,
     pub transaction_builder: TransactionBuilder,
-    pub verifiers: Vec<XOnlyPublicKey>,
+    pub verifiers_xonly_pks: Vec<XOnlyPublicKey>,
+    pub verifiers_pks: Vec<PublicKey>,
     pub operator_pk: XOnlyPublicKey,
     pub agg_pk: PublicKey,
     pub db: VerifierDB,
@@ -122,13 +123,7 @@ impl Verifier {
         let move_tx_sighash = Actor::convert_tx_to_sighash(&mut move_tx, 0, 0)?;
         tracing::debug!("Verifier move_tx_sighash: {:?}", move_tx_sighash);
 
-        let pks: Vec<PublicKey> = self
-            .verifiers
-            .clone()
-            .iter()
-            .map(|xonly_pk| xonly_pk.to_string().parse::<PublicKey>().unwrap())
-            .collect();
-        let key_agg_ctx = KeyAggContext::new(pks).unwrap();
+        let key_agg_ctx = KeyAggContext::new(self.verifiers_pks.clone()).unwrap();
         let agg_pk: PublicKey = key_agg_ctx.aggregated_pubkey();
 
         let move_tx_first_round = FirstRound::new(
@@ -179,13 +174,7 @@ impl Verifier {
         // Recreate the FirstRound of MuSig2 for move_tx to generate a partial signature
         let move_tx_sighash = Actor::convert_tx_to_sighash(&mut move_tx, 0, 0)?;
         let sec_nonce = self.sec_nonce;
-        let pks: Vec<PublicKey> = self
-            .verifiers
-            .clone()
-            .iter()
-            .map(|xonly_pk| xonly_pk.to_string().parse::<PublicKey>().unwrap())
-            .collect();
-        let key_agg_ctx = KeyAggContext::new(pks).unwrap();
+        let key_agg_ctx = KeyAggContext::new(self.verifiers_pks.clone()).unwrap();
         let move_tx_first_round = FirstRound::new(
             key_agg_ctx,
             sec_nonce,
@@ -302,6 +291,7 @@ impl Verifier {
     pub async fn new(
         rpc: ExtendedRpc,
         all_xonly_pks: Vec<XOnlyPublicKey>,
+        all_pks: Vec<PublicKey>,
         sk: SecretKey,
         config: BridgeConfig,
     ) -> Result<Self, BridgeError> {
@@ -318,12 +308,7 @@ impl Verifier {
         let db = VerifierDB::new(config.clone()).await;
         let sec_nonce: [u8; 32] = [0u8; 32];
 
-        let pks: Vec<PublicKey> = all_xonly_pks
-            .clone()
-            .iter()
-            .map(|xonly_pk| xonly_pk.to_string().parse::<PublicKey>().unwrap())
-            .collect();
-        let key_agg_ctx = KeyAggContext::new(pks).unwrap();
+        let key_agg_ctx = KeyAggContext::new(all_pks.clone()).unwrap();
         let agg_pk: PublicKey = key_agg_ctx.aggregated_pubkey();
 
         let transaction_builder =
@@ -345,7 +330,8 @@ impl Verifier {
             secp,
             signer,
             transaction_builder,
-            verifiers: all_xonly_pks,
+            verifiers_xonly_pks: all_xonly_pks,
+            verifiers_pks: all_pks,
             operator_pk,
             agg_pk,
             idx,

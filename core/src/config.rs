@@ -33,7 +33,7 @@
 
 use crate::errors::BridgeError;
 use bitcoin::{Network, XOnlyPublicKey};
-use secp256k1::SecretKey;
+use secp256k1::{PublicKey, SecretKey};
 use serde::{Deserialize, Serialize};
 use std::str::FromStr;
 use std::{fs::File, io::Read, path::PathBuf};
@@ -55,8 +55,10 @@ pub struct BridgeConfig {
     pub network: Network,
     /// Secret key for the operator or the verifier.
     pub secret_key: SecretKey,
-    /// Verifiers public keys, including operator's.
-    pub verifiers_public_keys: Vec<XOnlyPublicKey>,
+    /// Verifiers xonly public keys, including operator's.
+    pub verifiers_xonly_public_keys: Vec<XOnlyPublicKey>,
+    /// Cerifiers public keys, including operator's.
+    pub verifiers_public_keys: Vec<PublicKey>,
     /// Number of verifiers.
     pub num_verifiers: usize,
     /// Minimum relay fee.
@@ -148,6 +150,7 @@ impl Default for BridgeConfig {
             host: "localhost".to_string(),
             port: 3030,
             secret_key: SecretKey::new(&mut secp256k1::rand::thread_rng()),
+            verifiers_xonly_public_keys: vec![],
             verifiers_public_keys: vec![],
             num_verifiers: 4,
             min_relay_fee: 289,

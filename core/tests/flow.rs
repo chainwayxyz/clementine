@@ -14,6 +14,8 @@ use clementine_core::traits::rpc::OperatorRpcClient;
 use clementine_core::transaction_builder::{CreateTxOutputs, TransactionBuilder};
 use clementine_core::utils::handle_taproot_witness_new;
 use clementine_core::EVMAddress;
+use musig2::KeyAggContext;
+use secp256k1::PublicKey;
 
 #[tokio::test]
 async fn test_flow_1() {
@@ -32,16 +34,13 @@ async fn test_flow_1() {
     let secp = bitcoin::secp256k1::Secp256k1::new();
     let (xonly_pk, _) = config.secret_key.public_key(&secp).x_only_public_key();
     let taproot_address = Address::p2tr(&secp, xonly_pk, None, config.network);
-    let pks: Vec<PublicKey> = config
-        .verifiers_public_keys
-        .clone()
-        .iter()
-        .map(|xonly_pk| xonly_pk.to_string().parse::<PublicKey>().unwrap())
-        .collect();
-    let key_agg_ctx = KeyAggContext::new(pks).unwrap();
+    let key_agg_ctx = KeyAggContext::new(config.verifiers_public_keys.clone()).unwrap();
     let agg_pk: PublicKey = key_agg_ctx.aggregated_pubkey();
-    let tx_builder =
-        TransactionBuilder::new(config.verifiers_public_keys.clone(), agg_pk, config.clone());
+    let tx_builder = TransactionBuilder::new(
+        config.verifiers_xonly_public_keys.clone(),
+        agg_pk,
+        config.clone(),
+    );
 
     let evm_addresses = vec![
         EVMAddress([1u8; 20]),
@@ -74,7 +73,7 @@ async fn test_flow_1() {
         rpc.mine_blocks(18).unwrap();
 
         let output = operator_client
-            .new_deposit_first_round_rpc(
+            .new_deposit_rpc(
                 deposit_utxo,
                 taproot_address.as_unchecked().clone(),
                 evm_addresses[idx],
@@ -88,7 +87,7 @@ async fn test_flow_1() {
 
     // This index is 3 since when testing the unit tests complete first and the index=1,2 is not sane
     let withdraw_txid = operator_client
-        .new_withdrawal_direct_rpc(0, withdrawal_address.as_unchecked().clone())
+        .new_withdrawal_direct_rpc(2, withdrawal_address.as_unchecked().clone())
         .await
         .unwrap();
     tracing::debug!("Withdrawal sent to address: {:?}", withdrawal_address);
@@ -139,7 +138,13 @@ async fn test_flow_2() {
         "Taproot address script pubkey: {:#?}",
         taproot_address.script_pubkey()
     );
-    let tx_builder = TransactionBuilder::new(config.verifiers_public_keys.clone(), config.clone());
+    let key_agg_ctx = KeyAggContext::new(config.verifiers_public_keys.clone()).unwrap();
+    let agg_pk: PublicKey = key_agg_ctx.aggregated_pubkey();
+    let tx_builder = TransactionBuilder::new(
+        config.verifiers_xonly_public_keys.clone(),
+        agg_pk,
+        config.clone(),
+    );
 
     let evm_address = EVMAddress([1u8; 20]);
 

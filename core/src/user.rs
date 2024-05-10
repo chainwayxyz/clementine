@@ -26,17 +26,13 @@ impl User {
     pub fn new(
         rpc: ExtendedRpc,
         all_xonly_pks: Vec<XOnlyPublicKey>,
+        all_pks: Vec<PublicKey>,
         sk: SecretKey,
         config: BridgeConfig,
     ) -> Self {
         let secp = Secp256k1::new();
         let signer = Actor::new(sk, config.network);
-        let pks: Vec<PublicKey> = all_xonly_pks
-            .clone()
-            .iter()
-            .map(|xonly_pk| xonly_pk.to_string().parse::<PublicKey>().unwrap())
-            .collect();
-        let key_agg_ctx = KeyAggContext::new(pks).unwrap();
+        let key_agg_ctx = KeyAggContext::new(all_pks).unwrap();
         let agg_pk: PublicKey = key_agg_ctx.aggregated_pubkey();
         let transaction_builder = TransactionBuilder::new(all_xonly_pks.clone(), agg_pk, config);
         User {

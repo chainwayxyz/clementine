@@ -40,7 +40,7 @@ pub type CreateAddressOutputs = (Address, TaprootSpendInfo);
 #[derive(Debug, Clone)]
 pub struct TransactionBuilder {
     pub secp: Secp256k1<secp256k1::All>,
-    pub verifiers_pks: Vec<XOnlyPublicKey>, // TODO: we don't need this, `config` has already has this information.
+    pub verifiers_xonly_pks: Vec<XOnlyPublicKey>, // TODO: we don't need this, `config` has already has this information.
     pub agg_pk: PublicKey,
     pub script_builder: ScriptBuilder,
     pub config: BridgeConfig,
@@ -48,15 +48,15 @@ pub struct TransactionBuilder {
 
 impl TransactionBuilder {
     pub fn new(
-        verifiers_pks: Vec<XOnlyPublicKey>,
+        verifiers_xonly_pks: Vec<XOnlyPublicKey>,
         agg_pk: PublicKey,
         config: BridgeConfig,
     ) -> Self {
         let secp = Secp256k1::new();
-        let script_builder = ScriptBuilder::new(verifiers_pks.clone(), agg_pk.clone());
+        let script_builder = ScriptBuilder::new(verifiers_xonly_pks.clone(), agg_pk.clone());
         Self {
             secp,
-            verifiers_pks,
+            verifiers_xonly_pks,
             agg_pk,
             script_builder,
             config,
@@ -104,6 +104,19 @@ impl TransactionBuilder {
         Ok((address, tree_info))
     }
 
+    pub fn generate_musig2_bridge_address(&self) -> Result<CreateAddressOutputs, BridgeError> {
+        let aggregated_pk_script = self.script_builder.generate_script_agg_pk();
+        let taproot = TaprootBuilder::new().add_leaf(0, aggregated_pk_script.clone())?;
+        let tree_info = taproot.finalize(&self.secp, *INTERNAL_KEY)?;
+        let address = Address::p2tr(
+            &self.secp,
+            *INTERNAL_KEY,
+            tree_info.merkle_root(),
+            bitcoin::Network::Regtest,
+        );
+        Ok((address, tree_info))
+    }
+
     /// This function creates the move tx, it's prevouts for signing and the script to be used for the signature.
     pub fn create_move_tx(
         &self,
@@ -113,7 +126,7 @@ impl TransactionBuilder {
     ) -> Result<CreateTxOutputs, BridgeError> {
         let anyone_can_spend_txout = ScriptBuilder::anyone_can_spend_txout();
 
-        let (bridge_address, _) = self.generate_bridge_address()?;
+        let (bridge_address, _) = self.generate_musig2_bridge_address()?;
         let (deposit_address, deposit_taproot_spend_info) = self.generate_deposit_address(
             recovery_taproot_address,
             evm_address,
@@ -135,7 +148,7 @@ impl TransactionBuilder {
         }];
         let deposit_script = vec![self
             .script_builder
-            .create_deposit_script(evm_address, BRIDGE_AMOUNT_SATS)];
+            .create_musig2_deposit_script(evm_address, BRIDGE_AMOUNT_SATS)];
         Ok(CreateTxOutputs {
             tx: move_tx,
             prevouts,
@@ -425,7 +438,7 @@ impl TransactionBuilder {
         absolute_block_height_to_take_after: u64,
     ) -> Result<(Address, TaprootSpendInfo), BridgeError> {
         let timelock_script = ScriptBuilder::generate_absolute_timelock_script(
-            &self.verifiers_pks[self.verifiers_pks.len() - 1],
+            &self.verifiers_xonly_pks[self.verifiers_xonly_pks.len() - 1],
             absolute_block_height_to_take_after as u32,
         );
 
@@ -612,26 +625,31 @@ mod tests {
 
     #[test]
     fn test_deposit_address() {
-        let verifier_pks_hex: Vec<&str> = vec![
+        let verifier_xonly_pks_hex: Vec<&str> = vec![
             "9bef8d556d80e43ae7e0becb3a7e6838b95defe45896ed6075bb9035d06c9964",
             "e37d58a1aae4ba059fd2503712d998470d3a2522f7e2335f544ef384d2199e02",
             "688466442a134ee312299bafb37058e385c98dd6005eaaf0f538f533efe5f91f",
             "337cca2171fdbfcfd657fa59881f46269f1e590b5ffab6023686c7ad2ecc2c1c",
             "a1f9821c983cfe80558fb0b56385c67c8df6824c17aed048c7cbd031549a2fa8",
         ];
-        let verifier_pks: Vec<XOnlyPublicKey> = verifier_pks_hex
+        let verifiers_xonly_pks: Vec<XOnlyPublicKey> = verifier_xonly_pks_hex
             .iter()
             .map(|pk| XOnlyPublicKey::from_str(pk).unwrap())
             .collect();
-        let pks: Vec<PublicKey> = verifier_pks
-            .clone()
+        let verifiers_pks_hex: Vec<&str> = vec![
+            "044f355bdcb7cc0af728ef3cceb9615d90684bb5b2ca5f859ab0f0b704075871aa385b6b1b8ead809ca67454d9683fcf2ba03456d6fe2c4abe2b07f0fbdbb2f1c1",
+            "04466d7fcae563e5cb09a0d1870bb580344804617879a14949cf22285f1bae3f276728176c3c6431f8eeda4538dc37c865e2784f3a9e77d044f33e407797e1278a",
+            "043c72addb4fdf09af94f0c94d7fe92a386a7e70cf8a1d85916386bb2535c7b1b13b306b0fe085665d8fc1b28ae1676cd3ad6e08eaeda225fe38d0da4de55703e0",
+            "042c0b7cf95324a07d05398b240174dc0c2be444d96b159aa6c7f7b1e668680991ae31a9c671a36543f46cea8fce6984608aa316aa0472a7eed08847440218cb2f",
+            "049ac20335eb38768d2052be1dbbc3c8f6178407458e51e6b4ad22f1d91758895baf102a603fa09b366705fd727757a5abd614410a6e3f802ab8da8dfe84289d64",
+        ];
+        let verifier_pks: Vec<PublicKey> = verifiers_pks_hex
             .iter()
-            .map(|xonly_pk| xonly_pk.to_string().parse::<PublicKey>().unwrap())
+            .map(|pk| PublicKey::from_str(pk).unwrap())
             .collect();
-        let key_agg_ctx = KeyAggContext::new(pks).unwrap();
+        let key_agg_ctx = KeyAggContext::new(verifier_pks).unwrap();
         let agg_pk: PublicKey = key_agg_ctx.aggregated_pubkey();
-
-        let tx_builder = TransactionBuilder::new(verifier_pks, agg_pk, BridgeConfig::new());
+        let tx_builder = TransactionBuilder::new(verifiers_xonly_pks, agg_pk, BridgeConfig::new());
         let evm_address: [u8; 20] = hex::decode("1234567890123456789012345678901234567890")
             .unwrap()
             .try_into()
@@ -653,7 +671,7 @@ mod tests {
         println!("deposit_address: {:?}", deposit_address.0);
         assert_eq!(
             deposit_address.0.to_string(),
-            "bcrt1prqxsjz7h5wt40w54vhmpvn6l2hu8mefmez6ld4p59vksllumskvqs8wvkh" // check this later
+            "bcrt1prksvqyp6r5we6n0e7emln4unsm5fk67qagl5q950l8v4pvlzv2zsu9lyke" // check this later
         ) // Comparing it to the taproot address generated in bridge backend repo (using js)
     }
 }

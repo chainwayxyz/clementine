@@ -61,6 +61,7 @@ pub async fn create_verifier_server(
     );
     let verifier = Verifier::new(
         rpc,
+        config.verifiers_xonly_public_keys.clone(),
         config.verifiers_public_keys.clone(),
         config.secret_key.clone(),
         config.clone(),
@@ -99,6 +100,7 @@ pub async fn create_operator_server(
 
     let operator = Operator::new(
         rpc.clone(),
+        config.verifiers_xonly_public_keys.clone(),
         config.verifiers_public_keys.clone(),
         config.secret_key.clone(),
         verifiers,

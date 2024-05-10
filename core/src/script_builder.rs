@@ -47,6 +47,14 @@ impl ScriptBuilder {
         }
     }
 
+    pub fn generate_script_agg_pk(&self) -> ScriptBuf {
+        let mut builder = Builder::new();
+        builder = builder
+            .push_x_only_key(&self.agg_pk.x_only_public_key().0)
+            .push_opcode(OP_CHECKSIG);
+        builder.into_script()
+    }
+
     pub fn create_n_of_n_builder(&self) -> Builder {
         let mut builder = Builder::new();
         let last_index = self.verifiers_pks.len() - 1;

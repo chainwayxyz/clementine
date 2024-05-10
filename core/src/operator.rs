@@ -94,7 +94,8 @@ pub struct Operator {
     pub rpc: ExtendedRpc,
     pub signer: Actor,
     pub transaction_builder: TransactionBuilder,
-    pub verifiers_pks: Vec<XOnlyPublicKey>,
+    pub verifiers_xonly_pks: Vec<XOnlyPublicKey>,
+    pub verifiers_pks: Vec<PublicKey>,
     pub verifier_connector: Vec<Arc<jsonrpsee::http_client::HttpClient>>,
     pub agg_pk: PublicKey,
     db: OperatorDB,
@@ -104,13 +105,13 @@ pub struct Operator {
 
 #[async_trait]
 impl OperatorRpcServer for Operator {
-    async fn new_deposit_first_round_rpc(
+    async fn new_deposit_rpc(
         &self,
         start_utxo: OutPoint,
         recovery_taproot_address: Address<NetworkUnchecked>,
         evm_address: EVMAddress,
     ) -> Result<Txid, BridgeError> {
-        self.new_deposit_first_round(start_utxo, &recovery_taproot_address, &evm_address)
+        self.new_deposit(start_utxo, &recovery_taproot_address, &evm_address)
             .await
     }
 
@@ -130,6 +131,7 @@ impl Operator {
     pub async fn new(
         rpc: ExtendedRpc,
         all_xonly_pks: Vec<XOnlyPublicKey>,
+        all_pks: Vec<PublicKey>,
         operator_sk: SecretKey,
         verifiers: Vec<Arc<jsonrpsee::http_client::HttpClient>>,
         config: BridgeConfig,
@@ -141,12 +143,7 @@ impl Operator {
             return Err(BridgeError::InvalidOperatorKey);
         }
 
-        let pks: Vec<PublicKey> = all_xonly_pks
-            .clone()
-            .iter()
-            .map(|xonly_pk| xonly_pk.to_string().parse::<PublicKey>().unwrap())
-            .collect();
-        let key_agg_ctx = KeyAggContext::new(pks).unwrap();
+        let key_agg_ctx = KeyAggContext::new(all_pks.clone()).unwrap();
         let agg_pk: PublicKey = key_agg_ctx.aggregated_pubkey();
 
         let transaction_builder =
@@ -160,7 +157,8 @@ impl Operator {
             transaction_builder,
             verifier_connector: verifiers,
             agg_pk,
-            verifiers_pks: all_xonly_pks.clone(),
+            verifiers_xonly_pks: all_xonly_pks.clone(),
+            verifiers_pks: all_pks.clone(),
             db,
             config,
             sec_nonce,
@@ -173,7 +171,7 @@ impl Operator {
     /// 2. Check if the utxo is not already spent
     /// 3. Get signatures from all verifiers 1 move signature, ~150 operator takes signatures
     /// 4. Create a move transaction and return the output utxo
-    pub async fn new_deposit_first_round(
+    pub async fn new_deposit(
         &self,
         start_utxo: OutPoint,
         recovery_taproot_address: &Address<NetworkUnchecked>,
@@ -184,13 +182,7 @@ impl Operator {
             .add_deposit_transaction(start_utxo, recovery_taproot_address.clone(), *evm_address)
             .await?;
 
-        let pks: Vec<PublicKey> = self
-            .verifiers_pks
-            .clone()
-            .iter()
-            .map(|xonly_pk| xonly_pk.to_string().parse::<PublicKey>().unwrap())
-            .collect();
-        let key_agg_ctx = KeyAggContext::new(pks).unwrap();
+        let key_agg_ctx = KeyAggContext::new(self.verifiers_pks.clone()).unwrap();
         let agg_pk: PublicKey = key_agg_ctx.aggregated_pubkey();
 
         check_deposit_utxo(

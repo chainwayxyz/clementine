@@ -38,8 +38,8 @@ pub trait VerifierRpc {
 
 #[rpc(client, server, namespace = "operator")]
 pub trait OperatorRpc {
-    #[method(name = "new_deposit_first_round")]
-    async fn new_deposit_first_round_rpc(
+    #[method(name = "new_deposit")]
+    async fn new_deposit_rpc(
         &self,
         start_utxo: OutPoint,
         recovery_taproot_address: Address<NetworkUnchecked>,
