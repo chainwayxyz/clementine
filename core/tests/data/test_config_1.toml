@@ -30,3 +30,4 @@ db_port = 5432
 db_user = "citrea"
 db_password = ""
 db_name = "clementine"
+citrea_rpc_url = "http://localhost:54321"
