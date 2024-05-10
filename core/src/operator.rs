@@ -13,7 +13,7 @@ use crate::traits::rpc::{OperatorRpcServer, VerifierRpcClient};
 // use crate::traits::verifier::VerifierConnector;
 use crate::transaction_builder::TransactionBuilder;
 use crate::utils::{check_deposit_utxo, handle_taproot_witness_new};
-use crate::EVMAddress;
+use crate::{ByteArray66, EVMAddress};
 use bitcoin::address::{NetworkChecked, NetworkUnchecked};
 use bitcoin::{secp256k1, secp256k1::schnorr};
 use bitcoin::{Address, Amount, OutPoint, TxOut, Txid};
@@ -21,7 +21,8 @@ use clementine_circuits::constants::BRIDGE_AMOUNT_SATS;
 use futures::stream::FuturesOrdered;
 use futures::TryStreamExt;
 use jsonrpsee::core::async_trait;
-use secp256k1::{SecretKey, XOnlyPublicKey};
+use musig2::{AggNonce, FirstRound, KeyAggContext, PartialSignature, PubNonce, SecNonceSpices};
+use secp256k1::{PublicKey, SecretKey, XOnlyPublicKey};
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 
@@ -67,8 +68,20 @@ pub fn create_all_rounds_connector_preimages(
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct DepositPresigns {
-    pub move_sign: schnorr::Signature,
-    pub operator_claim_sign: Vec<schnorr::Signature>,
+    pub move_sign: [u8; 32],
+    pub operator_claim_sign: Vec<[u8; 32]>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct DepositPubNonces {
+    pub move_pub_nonce: ByteArray66,
+    pub op_claim_pub_nonce_vec: Vec<ByteArray66>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AggNonces {
+    pub move_agg_nonce: ByteArray66,
+    pub op_claim_agg_nonces: Vec<ByteArray66>,
 }
 
 #[derive(Debug, Clone)]
@@ -83,21 +96,24 @@ pub struct Operator {
     pub transaction_builder: TransactionBuilder,
     pub verifiers_pks: Vec<XOnlyPublicKey>,
     pub verifier_connector: Vec<Arc<jsonrpsee::http_client::HttpClient>>,
+    pub agg_pk: PublicKey,
     db: OperatorDB,
     config: BridgeConfig,
+    sec_nonce: [u8; 32],
 }
 
 #[async_trait]
 impl OperatorRpcServer for Operator {
-    async fn new_deposit_rpc(
+    async fn new_deposit_first_round_rpc(
         &self,
         start_utxo: OutPoint,
         recovery_taproot_address: Address<NetworkUnchecked>,
         evm_address: EVMAddress,
     ) -> Result<Txid, BridgeError> {
-        self.new_deposit(start_utxo, &recovery_taproot_address, &evm_address)
+        self.new_deposit_first_round(start_utxo, &recovery_taproot_address, &evm_address)
             .await
     }
+
     async fn new_withdrawal_direct_rpc(
         &self,
         idx: usize,
@@ -125,17 +141,29 @@ impl Operator {
             return Err(BridgeError::InvalidOperatorKey);
         }
 
-        let transaction_builder = TransactionBuilder::new(all_xonly_pks.clone(), config.clone());
+        let pks: Vec<PublicKey> = all_xonly_pks
+            .clone()
+            .iter()
+            .map(|xonly_pk| xonly_pk.to_string().parse::<PublicKey>().unwrap())
+            .collect();
+        let key_agg_ctx = KeyAggContext::new(pks).unwrap();
+        let agg_pk: PublicKey = key_agg_ctx.aggregated_pubkey();
+
+        let transaction_builder =
+            TransactionBuilder::new(all_xonly_pks.clone(), agg_pk, config.clone());
         let db = OperatorDB::new(config.clone()).await;
+        let sec_nonce: [u8; 32] = [0u8; 32];
 
         Ok(Self {
             rpc,
             signer,
             transaction_builder,
             verifier_connector: verifiers,
+            agg_pk,
             verifiers_pks: all_xonly_pks.clone(),
             db,
             config,
+            sec_nonce,
         })
     }
 
@@ -145,7 +173,7 @@ impl Operator {
     /// 2. Check if the utxo is not already spent
     /// 3. Get signatures from all verifiers 1 move signature, ~150 operator takes signatures
     /// 4. Create a move transaction and return the output utxo
-    pub async fn new_deposit(
+    pub async fn new_deposit_first_round(
         &self,
         start_utxo: OutPoint,
         recovery_taproot_address: &Address<NetworkUnchecked>,
@@ -155,6 +183,15 @@ impl Operator {
         self.db
             .add_deposit_transaction(start_utxo, recovery_taproot_address.clone(), *evm_address)
             .await?;
+
+        let pks: Vec<PublicKey> = self
+            .verifiers_pks
+            .clone()
+            .iter()
+            .map(|xonly_pk| xonly_pk.to_string().parse::<PublicKey>().unwrap())
+            .collect();
+        let key_agg_ctx = KeyAggContext::new(pks).unwrap();
+        let agg_pk: PublicKey = key_agg_ctx.aggregated_pubkey();
 
         check_deposit_utxo(
             &self.rpc,
@@ -171,7 +208,87 @@ impl Operator {
         let deposit_index = self.db.get_next_deposit_index().await?;
         tracing::debug!("deposit_index: {:?}", deposit_index);
 
-        let presigns_from_all_verifiers: Result<Vec<_>, BridgeError> = self
+        let pub_nonces_from_verifiers: Result<Vec<_>, BridgeError> = self
+            .verifier_connector
+            .iter()
+            .map(|verifier| async {
+                // tracing::debug!("Verifier number {:?} is checking new deposit:", i);
+                // Attempt to get the public nonces for the first round of MuSig2. If an error occurs, it will be propagated out
+                // of the map, causing the collect call to return a Result::Err, effectively stopping
+                // the iteration and returning the error from your_function_name.
+                let pub_nonces: DepositPubNonces = verifier
+                    .new_deposit_first_round_rpc(
+                        start_utxo,
+                        recovery_taproot_address.clone(),
+                        deposit_index as u32,
+                        *evm_address,
+                        self.signer.address.as_unchecked().clone(),
+                    )
+                    .await
+                    .map_err(|e| {
+                        // Log the error or convert it to BridgeError if necessary
+                        tracing::error!("Error getting pub nonces: {:?}", e);
+                        BridgeError::FailedToGetPubNonces
+                    })?;
+                // tracing::debug!("deposit presigns: {:?}", deposit_presigns);
+                // tracing::info!("Verifier checked new deposit");
+                Ok(pub_nonces)
+            })
+            // Because we're using async blocks, we need to use `then` and `try_collect` to properly await and collect results
+            .collect::<FuturesOrdered<_>>()
+            .try_collect()
+            .await;
+        // Handle the result of the collect operation
+        let mut pub_nonces_from_verifiers = pub_nonces_from_verifiers?;
+        tracing::info!("pub_nonces_from_verifiers: done");
+
+        // 5. Create a move transaction and return the output utxo, save the utxo as a pending deposit
+        let mut move_tx = self.transaction_builder.create_move_tx(
+            start_utxo,
+            evm_address,
+            &recovery_taproot_address,
+        )?;
+        let move_tx_sighash = Actor::convert_tx_to_sighash(&mut move_tx, 0, 0)?;
+
+        let first_round = FirstRound::new(
+            key_agg_ctx.clone(),
+            self.sec_nonce,
+            self.config.num_verifiers,
+            SecNonceSpices::new()
+                .with_seckey(self.signer.secret_key)
+                .with_message(&move_tx_sighash),
+        )
+        .unwrap();
+
+        let op_move_tx_pub_nonce = first_round.our_public_nonce();
+        let op_move_tx_pub_nonce = ByteArray66(op_move_tx_pub_nonce.serialize());
+        let op_claim_pub_nonces = Vec::new();
+
+        let op_public_nonces = DepositPubNonces {
+            move_pub_nonce: op_move_tx_pub_nonce,
+            op_claim_pub_nonce_vec: op_claim_pub_nonces,
+        };
+        pub_nonces_from_verifiers.push(op_public_nonces);
+
+        let pub_nonces = pub_nonces_from_verifiers
+            .iter()
+            .map(|deposit_pub_nonces| {
+                hex::encode(deposit_pub_nonces.move_pub_nonce.0)
+                    .parse::<PubNonce>()
+                    .unwrap()
+            })
+            .collect::<Vec<_>>();
+
+        let move_agg_nonce = AggNonce::sum(&pub_nonces);
+
+        let op_claim_agg_nonces = Vec::new();
+
+        let agg_nonces = AggNonces {
+            move_agg_nonce: ByteArray66(move_agg_nonce.serialize()),
+            op_claim_agg_nonces: op_claim_agg_nonces,
+        };
+
+        let deposit_presigns_from_verifiers: Result<Vec<_>, BridgeError> = self
             .verifier_connector
             .iter()
             .map(|verifier| async {
@@ -179,13 +296,14 @@ impl Operator {
                 // Attempt to get the deposit presigns. If an error occurs, it will be propagated out
                 // of the map, causing the collect call to return a Result::Err, effectively stopping
                 // the iteration and returning the error from your_function_name.
-                let deposit_presigns = verifier
-                    .new_deposit_rpc(
+                let deposit_presigns: DepositPresigns = verifier
+                    .new_deposit_second_round_rpc(
                         start_utxo,
                         recovery_taproot_address.clone(),
                         deposit_index as u32,
                         *evm_address,
                         self.signer.address.as_unchecked().clone(),
+                        agg_nonces.clone(),
                     )
                     .await
                     .map_err(|e| {
@@ -197,37 +315,45 @@ impl Operator {
                 // tracing::info!("Verifier checked new deposit");
                 Ok(deposit_presigns)
             })
-            // Because we're using async blocks, we need to use `then` and `try_collect` to properly await and collect results
             .collect::<FuturesOrdered<_>>()
             .try_collect()
             .await;
-        // Handle the result of the collect operation
-        let presigns_from_all_verifiers = presigns_from_all_verifiers?;
-        tracing::info!("presigns_from_all_verifiers: done");
 
-        // 5. Create a move transaction and return the output utxo, save the utxo as a pending deposit
-        let mut move_tx = self.transaction_builder.create_move_tx(
-            start_utxo,
-            evm_address,
-            &recovery_taproot_address,
-        )?;
+        let mut deposit_presigns_from_verifiers = deposit_presigns_from_verifiers?;
+        tracing::info!("deposit_presigns_from_verifiers: done");
 
-        // TODO: Simplify this move_signatures thing, maybe with a macro
-        let mut move_signatures = presigns_from_all_verifiers
+        let move_agg_nonce = hex::encode(agg_nonces.move_agg_nonce.0)
+            .parse::<AggNonce>()
+            .unwrap();
+
+        let op_move_sig: PartialSignature = first_round
+            .sign_for_aggregator(self.signer.secret_key, move_tx_sighash, &move_agg_nonce)
+            .unwrap();
+
+        let op_claim_sigs = Vec::new();
+        let op_sigs = DepositPresigns {
+            move_sign: op_move_sig.serialize(),
+            operator_claim_sign: op_claim_sigs,
+        };
+
+        deposit_presigns_from_verifiers.push(op_sigs);
+
+        let sigs_for_move_tx = deposit_presigns_from_verifiers
             .iter()
-            .map(|presign| presign.move_sign)
+            .map(|x| PartialSignature::from_slice(x.move_sign.as_slice()).unwrap())
             .collect::<Vec<_>>();
 
-        let sig = self
-            .signer
-            .sign_taproot_script_spend_tx_new(&mut move_tx, 0, 0)?;
-        move_signatures.push(sig);
-        move_signatures.reverse();
+        let final_signature: [u8; 64] = musig2::aggregate_partial_signatures(
+            &key_agg_ctx,
+            &move_agg_nonce,
+            sigs_for_move_tx,
+            move_tx_sighash,
+        )
+        .unwrap();
+        tracing::debug!("final_signature: {:?}", final_signature);
 
         let mut witness_elements: Vec<&[u8]> = Vec::new();
-        for sig in move_signatures.iter() {
-            witness_elements.push(sig.as_ref());
-        }
+        witness_elements.push(final_signature.as_ref());
 
         handle_taproot_witness_new(&mut move_tx, &witness_elements, 0, 0)?;
 
@@ -242,12 +368,11 @@ impl Operator {
                     .map(|presign| presign.operator_claim_sign.clone())
                     .collect::<Vec<_>>(),
             };
-            self.db
-                .add_deposit_take_sigs(operator_claim_sigs);
+            self.db.add_deposit_take_sigs(operator_claim_sigs);
 
             for i in 0..NUM_ROUNDS {
-                let connector_utxo = self.db.get_connector_tree_utxo(i)
-                    [CONNECTOR_TREE_DEPTH][deposit_index as usize];
+                let connector_utxo = self.db.get_connector_tree_utxo(i)[CONNECTOR_TREE_DEPTH]
+                    [deposit_index as usize];
                 let connector_hash = self.db.get_connector_tree_hash(
                     i,
                     CONNECTOR_TREE_DEPTH,
@@ -294,9 +419,7 @@ impl Operator {
         tracing::debug!("move_tx: {:?}", move_tx.tx);
         tracing::debug!("move_tx.tx size: {:?}", move_tx.tx.weight());
 
-        self.db
-            .insert_move_txid(move_tx.tx.txid())
-            .await?;
+        self.db.insert_move_txid(move_tx.tx.txid()).await?;
         self.rpc.send_raw_transaction(&move_tx.tx)?;
 
         if let Err(e) = transaction.commit().await {
@@ -312,7 +435,10 @@ impl Operator {
         withdrawal_address: Address<NetworkChecked>,
     ) -> Result<Txid, BridgeError> {
         let deposit_tx_info = self.db.get_deposit_tx(idx).await?;
-        tracing::debug!("Operator is signing withdrawal tx with txid: {:?}", deposit_tx_info);
+        tracing::debug!(
+            "Operator is signing withdrawal tx with txid: {:?}",
+            deposit_tx_info
+        );
         let (bridge_address, _) = self.transaction_builder.generate_bridge_address()?;
         let dust_value = ScriptBuilder::anyone_can_spend_txout().value;
         let deposit_txout = TxOut {
@@ -333,10 +459,7 @@ impl Operator {
             .iter()
             .map(|verifier| async {
                 let sig = verifier
-                    .new_withdrawal_direct_rpc(
-                        idx,
-                        withdrawal_address.as_unchecked().clone(),
-                    )
+                    .new_withdrawal_direct_rpc(idx, withdrawal_address.as_unchecked().clone())
                     .await?;
                 Ok(sig)
             })
@@ -363,9 +486,7 @@ impl Operator {
     fn get_current_withdrawal_period(&self) -> Result<usize, BridgeError> {
         let cur_block_height = self.rpc.get_block_count().unwrap();
         let start_block_height = self.db.get_start_block_height();
-        let period_relative_block_heights = self
-            .db
-            .get_period_relative_block_heights();
+        let period_relative_block_heights = self.db.get_period_relative_block_heights();
         for (i, block_height) in period_relative_block_heights.iter().enumerate() {
             if cur_block_height
                 < start_block_height + *block_height as u64 - MAX_BLOCK_HANDLE_OPS as u64
@@ -385,9 +506,7 @@ impl Operator {
         tracing::debug!("Cur block height: {:?}", cur_block_height);
         let start_block_height = self.db.get_start_block_height();
         tracing::debug!("Start block height: {:?}", start_block_height);
-        let period_relative_block_heights = self
-            .db
-            .get_period_relative_block_heights();
+        let period_relative_block_heights = self.db.get_period_relative_block_heights();
 
         for (i, block_height) in period_relative_block_heights.iter().enumerate() {
             tracing::debug!(
@@ -420,9 +539,7 @@ impl Operator {
         let hash: [u8; 32] = hash[2..].try_into()?;
 
         // 1. Add the address to WithdrawalsMerkleTree
-        self.db
-            .add_to_withdrawals_merkle_tree(hash)
-            .await;
+        self.db.add_to_withdrawals_merkle_tree(hash).await;
 
         // self.withdrawals_merkle_tree.add(withdrawal_address.to);
 
@@ -559,8 +676,7 @@ impl Operator {
 
     #[cfg(feature = "poc")]
     fn get_num_withdrawals_for_period(&self, _period: usize) -> u32 {
-        self.db
-            .get_withdrawals_merkle_tree_index() // TODO: This is not correct, we should have a cutoff
+        self.db.get_withdrawals_merkle_tree_index() // TODO: This is not correct, we should have a cutoff
     }
 
     #[cfg(feature = "poc")]
@@ -591,10 +707,7 @@ impl Operator {
 
         let preimages_to_be_revealed = indices
             .iter()
-            .map(|(depth, index)| {
-                self.db
-                    .get_connector_tree_preimages(period, *depth, *index)
-            })
+            .map(|(depth, index)| self.db.get_connector_tree_preimages(period, *depth, *index))
             .collect::<Vec<_>>();
 
         // tracing::debug!("preimages_to_be_revealed: {:?}", preimages_to_be_revealed);
@@ -623,8 +736,7 @@ impl Operator {
 
         let reveal_txid = self.rpc.send_raw_transaction(&reveal_tx.tx)?;
 
-        self.db
-            .add_to_inscription_txs((commit_utxo, reveal_txid));
+        self.db.add_to_inscription_txs((commit_utxo, reveal_txid));
 
         self.db
             .add_inscribed_preimages(period, preimages_to_be_revealed.clone());
@@ -764,9 +876,7 @@ impl Operator {
         let start_block_height = self.db.get_start_block_height();
         // tracing::debug!("start_block_height: {:?}", start_block_height);
 
-        let period_relative_block_heights = self
-            .db
-            .get_period_relative_block_heights();
+        let period_relative_block_heights = self.db.get_period_relative_block_heights();
         // tracing::debug!(
         //     "period_relative_block_heights: {:?}",
         //     period_relative_block_heights
@@ -815,9 +925,7 @@ impl Operator {
             )?;
             tracing::debug!("lc_blockhash: {:?}", lc_blockhash);
 
-            let withdrawal_payments = self
-                .db
-                .get_withdrawals_payment_for_period(i);
+            let withdrawal_payments = self.db.get_withdrawals_payment_for_period(i);
             tracing::debug!("withdrawal_payments: {:?}", withdrawal_payments);
             total_num_withdrawals += withdrawal_payments.len();
 
@@ -853,9 +961,7 @@ impl Operator {
         self.write_lc_proof::<E>(lc_blockhash, withdrawal_mt.root());
         tracing::info!("WROTE LC PROOF");
 
-        let preimages: Vec<PreimageType> = self
-            .db
-            .get_inscribed_preimages(last_period as usize);
+        let preimages: Vec<PreimageType> = self.db.get_inscribed_preimages(last_period as usize);
 
         // tracing::debug!("PREIMAGES: {:?}", preimages);
 
@@ -870,8 +976,7 @@ impl Operator {
 
         // tracing::info!("WROTE PREIMAGES");
 
-        let (commit_utxo, reveal_txid) =
-            self.db.get_inscription_txs()[last_period as usize];
+        let (commit_utxo, reveal_txid) = self.db.get_inscription_txs()[last_period as usize];
 
         // tracing::debug!("commit_utxo: {:?}", commit_utxo);
         let commit_tx = self.rpc.get_raw_transaction(&commit_utxo.txid, None)?;
@@ -925,9 +1030,7 @@ impl Operator {
         ENVWriter::<E>::write_merkle_tree_proof(
             preimage_hash,
             Some(total_num_withdrawals as u32),
-            &self
-                .db
-                .get_claim_proof_merkle_tree(last_period as usize),
+            &self.db.get_claim_proof_merkle_tree(last_period as usize),
         );
         tracing::debug!(
             "WROTE merkle_tree_proof for preimage_hash: {:?}",
@@ -951,9 +1054,7 @@ impl Operator {
     pub fn prove_test<E: Environment>(&self) -> Result<(), BridgeError> {
         let inscription_txs = self.db.get_inscription_txs();
         let last_period = inscription_txs.len() - 1;
-        let preimages: Vec<PreimageType> = self
-            .db
-            .get_inscribed_preimages(last_period as usize);
+        let preimages: Vec<PreimageType> = self.db.get_inscribed_preimages(last_period as usize);
         tracing::debug!("PREIMAGES: {:?}", preimages);
         tracing::debug!("operator pk: {:?}", self.signer.xonly_public_key);
         ENVWriter::<E>::write_preimages(self.signer.xonly_public_key, &preimages);
@@ -986,8 +1087,7 @@ impl Operator {
         }
         // initial setup starts with getting the current blockheight to set the start blockheight
         let start_block_height = self.rpc.get_block_height()?;
-        self.db
-            .set_start_block_height(start_block_height);
+        self.db.set_start_block_height(start_block_height);
         // this is a vector [PERIOD_BLOCK_COUNT, 2*PERIOD_BLOCK_COUNT, ...] with NUM_ROUNDS elements.
         // this can be changed to specific blockheights that we want in the initial setup.
         // Note that PERIOD_BLOCK_COUNT should be bigger than K_DEEP + MAX_BITVM_CHALLENGE_RESPONSE_BLOCKS
@@ -1051,8 +1151,7 @@ impl Operator {
         self.db
             .set_claim_proof_merkle_trees(claim_proof_merkle_trees.clone());
 
-        self.db
-            .set_connector_tree_utxos(utxo_trees);
+        self.db.set_connector_tree_utxos(utxo_trees);
         Ok((
             first_source_utxo,
             start_block_height,

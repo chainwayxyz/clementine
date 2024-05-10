@@ -15,7 +15,7 @@ use bitcoin::{
 };
 use clementine_circuits::constants::BRIDGE_AMOUNT_SATS;
 use lazy_static::lazy_static;
-use secp256k1::{Secp256k1, XOnlyPublicKey};
+use secp256k1::{PublicKey, Secp256k1, XOnlyPublicKey};
 
 // This is an unspendable pubkey
 // See https://github.com/bitcoin/bips/blob/master/bip-0341.mediawiki#constructing-and-spending-taproot-outputs
@@ -41,17 +41,23 @@ pub type CreateAddressOutputs = (Address, TaprootSpendInfo);
 pub struct TransactionBuilder {
     pub secp: Secp256k1<secp256k1::All>,
     pub verifiers_pks: Vec<XOnlyPublicKey>, // TODO: we don't need this, `config` has already has this information.
+    pub agg_pk: PublicKey,
     pub script_builder: ScriptBuilder,
     pub config: BridgeConfig,
 }
 
 impl TransactionBuilder {
-    pub fn new(verifiers_pks: Vec<XOnlyPublicKey>, config: BridgeConfig) -> Self {
+    pub fn new(
+        verifiers_pks: Vec<XOnlyPublicKey>,
+        agg_pk: PublicKey,
+        config: BridgeConfig,
+    ) -> Self {
         let secp = Secp256k1::new();
-        let script_builder = ScriptBuilder::new(verifiers_pks.clone());
+        let script_builder = ScriptBuilder::new(verifiers_pks.clone(), agg_pk.clone());
         Self {
             secp,
             verifiers_pks,
+            agg_pk,
             script_builder,
             config,
         }
@@ -66,7 +72,7 @@ impl TransactionBuilder {
     ) -> Result<CreateAddressOutputs, BridgeError> {
         let deposit_script = self
             .script_builder
-            .create_deposit_script(user_evm_address, amount);
+            .create_musig2_deposit_script(user_evm_address, amount);
         let script_timelock = ScriptBuilder::generate_timelock_script(
             recovery_taproot_address,
             self.config.user_takes_after,
@@ -599,6 +605,8 @@ mod tests {
     use std::str::FromStr;
 
     use bitcoin::{Address, XOnlyPublicKey};
+    use musig2::KeyAggContext;
+    use secp256k1::PublicKey;
 
     use crate::{config::BridgeConfig, transaction_builder::TransactionBuilder};
 
@@ -615,7 +623,15 @@ mod tests {
             .iter()
             .map(|pk| XOnlyPublicKey::from_str(pk).unwrap())
             .collect();
-        let tx_builder = TransactionBuilder::new(verifier_pks, BridgeConfig::new());
+        let pks: Vec<PublicKey> = verifier_pks
+            .clone()
+            .iter()
+            .map(|xonly_pk| xonly_pk.to_string().parse::<PublicKey>().unwrap())
+            .collect();
+        let key_agg_ctx = KeyAggContext::new(pks).unwrap();
+        let agg_pk: PublicKey = key_agg_ctx.aggregated_pubkey();
+
+        let tx_builder = TransactionBuilder::new(verifier_pks, agg_pk, BridgeConfig::new());
         let evm_address: [u8; 20] = hex::decode("1234567890123456789012345678901234567890")
             .unwrap()
             .try_into()

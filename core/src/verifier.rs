@@ -4,20 +4,22 @@ use crate::constants::CONNECTOR_TREE_DEPTH;
 use crate::db::verifier::VerifierDB;
 use crate::errors::BridgeError;
 use crate::extended_rpc::ExtendedRpc;
+use crate::operator::{AggNonces, DepositPubNonces};
 use crate::script_builder::ScriptBuilder;
 use crate::traits::rpc::VerifierRpcServer;
 // use crate::traits::verifier::VerifierConnector;
 use crate::transaction_builder::TransactionBuilder;
 use crate::utils::check_deposit_utxo;
-use crate::EVMAddress;
 use crate::{actor::Actor, operator::DepositPresigns};
+use crate::{ByteArray66, EVMAddress};
 use bitcoin::address::{NetworkChecked, NetworkUnchecked};
 use bitcoin::{secp256k1, secp256k1::Secp256k1, OutPoint};
 use bitcoin::{Address, Amount, TxOut};
 use clementine_circuits::constants::BRIDGE_AMOUNT_SATS;
 use jsonrpsee::core::async_trait;
-use secp256k1::XOnlyPublicKey;
+use musig2::{AggNonce, FirstRound, KeyAggContext, PartialSignature, SecNonceSpices};
 use secp256k1::{schnorr, SecretKey};
+use secp256k1::{Keypair, PublicKey, XOnlyPublicKey};
 
 #[derive(Debug, Clone)]
 pub struct Verifier {
@@ -27,27 +29,50 @@ pub struct Verifier {
     pub transaction_builder: TransactionBuilder,
     pub verifiers: Vec<XOnlyPublicKey>,
     pub operator_pk: XOnlyPublicKey,
+    pub agg_pk: PublicKey,
     pub db: VerifierDB,
+    pub idx: usize,
     config: BridgeConfig,
+    sec_nonce: [u8; 32],
 }
 
 #[async_trait]
 impl VerifierRpcServer for Verifier {
-    async fn new_deposit_rpc(
+    async fn new_deposit_first_round_rpc(
         &self,
         start_utxo: OutPoint,
         recovery_taproot_address: Address<NetworkUnchecked>,
         deposit_index: u32,
         evm_address: EVMAddress,
         operator_address: Address<NetworkUnchecked>,
-    ) -> Result<DepositPresigns, BridgeError> {
+    ) -> Result<DepositPubNonces, BridgeError> {
         let operator_address = operator_address.require_network(self.config.network)?;
-        self.new_deposit(
+        self.new_deposit_first_round(
             start_utxo,
             &recovery_taproot_address,
             deposit_index,
             &evm_address,
             &operator_address,
+        )
+        .await
+    }
+    async fn new_deposit_second_round_rpc(
+        &self,
+        start_utxo: OutPoint,
+        recovery_taproot_address: Address<NetworkUnchecked>,
+        deposit_index: u32,
+        evm_address: EVMAddress,
+        operator_address: Address<NetworkUnchecked>,
+        aggregated_nonces: AggNonces,
+    ) -> Result<DepositPresigns, BridgeError> {
+        let operator_address = operator_address.require_network(self.config.network)?;
+        self.new_deposit_second_round(
+            start_utxo,
+            &recovery_taproot_address,
+            deposit_index,
+            &evm_address,
+            &operator_address,
+            &aggregated_nonces,
         )
         .await
     }
@@ -57,7 +82,8 @@ impl VerifierRpcServer for Verifier {
         withdrawal_address: Address<NetworkUnchecked>,
     ) -> Result<schnorr::Signature, BridgeError> {
         let withdrawal_address = withdrawal_address.require_network(self.config.network)?;
-        self.new_withdrawal_direct(withdrawal_idx, &withdrawal_address).await
+        self.new_withdrawal_direct(withdrawal_idx, &withdrawal_address)
+            .await
     }
 }
 
@@ -66,14 +92,14 @@ impl Verifier {
     /// 1. Check if the deposit utxo is valid and finalized (6 blocks confirmation)
     /// 2. Check if the utxo is not already spent
     /// 3. Give move signature and operator claim signatures
-    async fn new_deposit(
+    async fn new_deposit_first_round(
         &self,
         start_utxo: OutPoint,
         recovery_taproot_address: &Address<NetworkUnchecked>,
         deposit_index: u32,
         evm_address: &EVMAddress,
         _operator_address: &Address,
-    ) -> Result<DepositPresigns, BridgeError> {
+    ) -> Result<DepositPubNonces, BridgeError> {
         check_deposit_utxo(
             &self.rpc,
             &self.transaction_builder,
@@ -91,52 +117,97 @@ impl Verifier {
         )?;
         let move_txid = move_tx.tx.txid();
 
-        let _move_utxo = OutPoint {
-            txid: move_txid,
-            vout: 0,
-        };
+        tracing::debug!("Verifier move_tx: {:?}", move_tx);
 
-        tracing::debug!(
-            "Verifier with public key {:?} is signing {:?}.",
-            self.signer.xonly_public_key.to_string(),
-            move_txid
-        );
+        let move_tx_sighash = Actor::convert_tx_to_sighash(&mut move_tx, 0, 0)?;
+        tracing::debug!("Verifier move_tx_sighash: {:?}", move_tx_sighash);
+
+        let pks: Vec<PublicKey> = self
+            .verifiers
+            .clone()
+            .iter()
+            .map(|xonly_pk| xonly_pk.to_string().parse::<PublicKey>().unwrap())
+            .collect();
+        let key_agg_ctx = KeyAggContext::new(pks).unwrap();
+        let agg_pk: PublicKey = key_agg_ctx.aggregated_pubkey();
+
+        let move_tx_first_round = FirstRound::new(
+            key_agg_ctx.clone(),
+            self.sec_nonce,
+            self.idx,
+            SecNonceSpices::new()
+                .with_seckey(self.signer.secret_key.clone())
+                .with_message(&move_tx_sighash),
+        )
+        .unwrap();
+        let our_pub_nonce = move_tx_first_round.our_public_nonce();
+        let move_pub_nonce = ByteArray66(our_pub_nonce.serialize());
+
         let move_sig = self
             .signer
             .sign_taproot_script_spend_tx_new(&mut move_tx, 0, 0)?;
 
+        let op_claim_pub_nonces: Vec<ByteArray66> = Vec::new();
+
+        Ok(DepositPubNonces {
+            move_pub_nonce: move_pub_nonce,
+            op_claim_pub_nonce_vec: op_claim_pub_nonces,
+        })
+    }
+
+    async fn new_deposit_second_round(
+        &self,
+        start_utxo: OutPoint,
+        recovery_taproot_address: &Address<NetworkUnchecked>,
+        deposit_index: u32,
+        evm_address: &EVMAddress,
+        operator_address: &Address,
+        aggregated_nonces: &AggNonces,
+    ) -> Result<DepositPresigns, BridgeError> {
+        let mut move_tx = self.transaction_builder.create_move_tx(
+            start_utxo,
+            evm_address,
+            &recovery_taproot_address,
+        )?;
+        let move_txid = move_tx.tx.txid();
+
+        let move_utxo = OutPoint {
+            txid: move_txid,
+            vout: 0,
+        };
+
+        // Recreate the FirstRound of MuSig2 for move_tx to generate a partial signature
+        let move_tx_sighash = Actor::convert_tx_to_sighash(&mut move_tx, 0, 0)?;
+        let sec_nonce = self.sec_nonce;
+        let pks: Vec<PublicKey> = self
+            .verifiers
+            .clone()
+            .iter()
+            .map(|xonly_pk| xonly_pk.to_string().parse::<PublicKey>().unwrap())
+            .collect();
+        let key_agg_ctx = KeyAggContext::new(pks).unwrap();
+        let move_tx_first_round = FirstRound::new(
+            key_agg_ctx,
+            sec_nonce,
+            self.idx,
+            SecNonceSpices::new()
+                .with_seckey(self.signer.secret_key.clone())
+                .with_message(&move_tx_sighash),
+        )
+        .unwrap();
+
+        let move_agg_nonce = hex::encode(aggregated_nonces.move_agg_nonce.0)
+            .parse::<AggNonce>()
+            .unwrap();
+
+        let move_sig: PartialSignature = move_tx_first_round
+            .sign_for_aggregator(self.signer.secret_key, move_tx_sighash, &move_agg_nonce)
+            .unwrap();
+
         let op_claim_sigs = Vec::new();
 
-        #[cfg(feature = "poc")]
-        {
-            for i in 0..NUM_ROUNDS {
-                let connector_utxo = self.db.get_connector_tree_utxo(i)[CONNECTOR_TREE_DEPTH]
-                    [deposit_index as usize];
-                let connector_hash = self.db.get_connector_tree_hash(
-                    i,
-                    CONNECTOR_TREE_DEPTH,
-                    deposit_index as usize,
-                );
-
-                let mut operator_claim_tx = self.transaction_builder.create_operator_claim_tx(
-                    move_utxo,
-                    connector_utxo,
-                    &operator_address,
-                    &self.operator_pk,
-                    &connector_hash,
-                )?;
-
-                let op_claim_sig = self
-                    .signer
-                    .sign_taproot_script_spend_tx_new(&mut operator_claim_tx, 0)?;
-                op_claim_sigs.push(op_claim_sig);
-            }
-        }
-        self.db
-            .insert_move_txid_with_id(deposit_index as usize, move_txid)
-            .await?;
         Ok(DepositPresigns {
-            move_sign: move_sig,
+            move_sign: move_sig.serialize(),
             operator_claim_sign: op_claim_sigs,
         })
     }
@@ -149,7 +220,10 @@ impl Verifier {
         // TODO: Check from citrea rpc if the withdrawal is valid
 
         let bridge_txid = self.db.get_deposit_tx(withdrawal_idx).await?;
-        tracing::debug!("Verifier is signing withdrawal tx with txid: {:?}", bridge_txid);
+        tracing::debug!(
+            "Verifier is signing withdrawal tx with txid: {:?}",
+            bridge_txid
+        );
         let bridge_utxo = OutPoint {
             txid: bridge_txid,
             vout: 0,
@@ -161,7 +235,6 @@ impl Verifier {
             value: Amount::from_sat(BRIDGE_AMOUNT_SATS - self.config.min_relay_fee) - dust_value,
             script_pubkey: bridge_address.script_pubkey(),
         };
-
 
         let mut withdrawal_tx = self.transaction_builder.create_withdraw_tx(
             bridge_utxo,
@@ -243,9 +316,30 @@ impl Verifier {
         }
 
         let db = VerifierDB::new(config.clone()).await;
+        let sec_nonce: [u8; 32] = [0u8; 32];
 
-        let transaction_builder = TransactionBuilder::new(all_xonly_pks.clone(), config.clone());
+        let pks: Vec<PublicKey> = all_xonly_pks
+            .clone()
+            .iter()
+            .map(|xonly_pk| xonly_pk.to_string().parse::<PublicKey>().unwrap())
+            .collect();
+        let key_agg_ctx = KeyAggContext::new(pks).unwrap();
+        let agg_pk: PublicKey = key_agg_ctx.aggregated_pubkey();
+
+        let transaction_builder =
+            TransactionBuilder::new(all_xonly_pks.clone(), agg_pk, config.clone());
         let operator_pk = all_xonly_pks[all_xonly_pks.len() - 1];
+        let idx = all_xonly_pks
+            .iter()
+            .position(|xonly_pk| {
+                *xonly_pk
+                    == XOnlyPublicKey::from_keypair(&Keypair::from_secret_key(
+                        &secp,
+                        &config.secret_key,
+                    ))
+                    .0
+            })
+            .unwrap();
         Ok(Verifier {
             rpc,
             secp,
@@ -253,8 +347,11 @@ impl Verifier {
             transaction_builder,
             verifiers: all_xonly_pks,
             operator_pk,
+            agg_pk,
+            idx,
             db,
             config,
+            sec_nonce,
         })
     }
 }

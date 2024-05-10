@@ -6,18 +6,22 @@ use bitcoin::{
     script::Builder,
     ScriptBuf, TxOut,
 };
-use secp256k1::XOnlyPublicKey;
+use secp256k1::{PublicKey, XOnlyPublicKey};
 
 use crate::EVMAddress;
 
 #[derive(Debug, Clone)]
 pub struct ScriptBuilder {
     pub verifiers_pks: Vec<XOnlyPublicKey>,
+    pub agg_pk: PublicKey,
 }
 
 impl ScriptBuilder {
-    pub fn new(verifiers_pks: Vec<XOnlyPublicKey>) -> Self {
-        Self { verifiers_pks }
+    pub fn new(verifiers_pks: Vec<XOnlyPublicKey>, agg_pk: PublicKey) -> Self {
+        Self {
+            verifiers_pks,
+            agg_pk,
+        }
     }
 
     pub fn anyone_can_spend_txout() -> TxOut {
@@ -71,6 +75,24 @@ impl ScriptBuilder {
             .push_slice(amount.to_be_bytes())
             .push_opcode(OP_ENDIF)
             .into_script()
+    }
+
+    pub fn create_musig2_deposit_script(&self, evm_address: &EVMAddress, amount: u64) -> ScriptBuf {
+        let citrea: [u8; 6] = "citrea".as_bytes().try_into().unwrap();
+        let mut builder = Builder::new();
+        builder = builder
+            .push_x_only_key(&self.agg_pk.x_only_public_key().0)
+            .push_opcode(OP_CHECKSIGVERIFY);
+        builder = builder
+            .push_opcode(OP_PUSHNUM_1)
+            .push_opcode(OP_FALSE)
+            .push_opcode(OP_IF)
+            .push_slice(citrea)
+            .push_slice(evm_address.0)
+            .push_slice(amount.to_be_bytes())
+            .push_opcode(OP_ENDIF);
+
+        builder.into_script()
     }
 
     pub fn create_inscription_script_32_bytes(

@@ -32,7 +32,16 @@ async fn test_flow_1() {
     let secp = bitcoin::secp256k1::Secp256k1::new();
     let (xonly_pk, _) = config.secret_key.public_key(&secp).x_only_public_key();
     let taproot_address = Address::p2tr(&secp, xonly_pk, None, config.network);
-    let tx_builder = TransactionBuilder::new(config.verifiers_public_keys.clone(), config.clone());
+    let pks: Vec<PublicKey> = config
+        .verifiers_public_keys
+        .clone()
+        .iter()
+        .map(|xonly_pk| xonly_pk.to_string().parse::<PublicKey>().unwrap())
+        .collect();
+    let key_agg_ctx = KeyAggContext::new(pks).unwrap();
+    let agg_pk: PublicKey = key_agg_ctx.aggregated_pubkey();
+    let tx_builder =
+        TransactionBuilder::new(config.verifiers_public_keys.clone(), agg_pk, config.clone());
 
     let evm_addresses = vec![
         EVMAddress([1u8; 20]),
@@ -65,7 +74,7 @@ async fn test_flow_1() {
         rpc.mine_blocks(18).unwrap();
 
         let output = operator_client
-            .new_deposit_rpc(
+            .new_deposit_first_round_rpc(
                 deposit_utxo,
                 taproot_address.as_unchecked().clone(),
                 evm_addresses[idx],
