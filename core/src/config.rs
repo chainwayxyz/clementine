@@ -73,6 +73,8 @@ pub struct BridgeConfig {
     pub bitcoin_rpc_password: String,
     /// All Secret keys. Just for testing purposes.
     pub all_secret_keys: Option<Vec<SecretKey>>,
+    /// Verifier endpoints.
+    pub verifier_endpoints: Option<Vec<String>>,
     /// PostgreSQL database host address.
     pub db_host: String,
     /// PostgreSQL database port.
@@ -158,6 +160,7 @@ impl Default for BridgeConfig {
             bitcoin_rpc_user: "admin".to_string(),
             bitcoin_rpc_password: "admin".to_string(),
             all_secret_keys: None,
+            verifier_endpoints: None,
             db_host: "localhost".to_string(),
             db_port: 5432,
             db_user: "postgres".to_string(),

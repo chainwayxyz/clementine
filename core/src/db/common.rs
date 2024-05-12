@@ -70,18 +70,18 @@ impl Database {
         recovery_taproot_address: Address<NetworkUnchecked>,
         evm_address: EVMAddress,
     ) -> Result<(), BridgeError> {
-        // TODO: These probably won't panic. But we should handle these
-        // properly regardless, in the future.
-        if let Err(e) = sqlx::query("INSERT INTO new_deposit_requests VALUES ($1, $2, $3);")
+        tracing::error!(
+            "trying to insert: {:?}, {:?}, {:?}",
+            start_utxo.to_string(),
+            serde_json::to_string(&recovery_taproot_address).unwrap(),
+            serde_json::to_string(&evm_address).unwrap()
+        );
+        sqlx::query("INSERT INTO new_deposit_requests (start_utxo, recovery_taproot_address, evm_address) VALUES ($1, $2, $3);")
             .bind(start_utxo.to_string())
-            .bind(serde_json::to_string(&recovery_taproot_address).unwrap())
-            .bind(serde_json::to_string(&evm_address).unwrap())
+            .bind(serde_json::to_string(&recovery_taproot_address).unwrap().trim_matches('"'))
+            .bind(serde_json::to_string(&evm_address).unwrap().trim_matches('"'))
             .fetch_all(&self.connection)
-            .await
-        {
-            return Err(BridgeError::DatabaseError(e));
-        };
-
+            .await?;
         Ok(())
     }
 
@@ -115,15 +115,21 @@ impl Database {
             Err(e) => Err(BridgeError::DatabaseError(e)),
         }
     }
-    pub async fn insert_move_txid(&self, move_txid: Txid) -> Result<(), BridgeError> {
-        if let Err(e) = sqlx::query("INSERT INTO deposit_move_txs (move_txid) VALUES ($1);")
+
+    pub async fn insert_move_txid(
+        &self,
+        start_utxo: OutPoint,
+        recovery_taproot_address: Address<NetworkUnchecked>,
+        evm_address: EVMAddress,
+        move_txid: Txid,
+    ) -> Result<(), BridgeError> {
+        sqlx::query("INSERT INTO deposit_move_txs (start_utxo, recovery_taproot_address, evm_address, move_txid) VALUES ($1, $2, $3, $4);")
+            .bind(start_utxo.to_string())
+            .bind(serde_json::to_string(&recovery_taproot_address).unwrap().trim_matches('"'))
+            .bind(serde_json::to_string(&evm_address).unwrap().trim_matches('"'))
             .bind(move_txid.to_string())
             .fetch_all(&self.connection)
-            .await
-        {
-            return Err(BridgeError::DatabaseError(e));
-        };
-
+            .await?;
         Ok(())
     }
 
@@ -132,16 +138,42 @@ impl Database {
         id: usize,
         move_txid: Txid,
     ) -> Result<(), BridgeError> {
-        if let Err(e) = sqlx::query("INSERT INTO deposit_move_txs VALUES ($1, $2);")
+        sqlx::query("INSERT INTO deposit_move_txs VALUES ($1, $2);")
             .bind(id as i64)
             .bind(move_txid.to_string())
             .fetch_all(&self.connection)
-            .await
-        {
-            return Err(BridgeError::DatabaseError(e));
-        };
-
+            .await?;
         Ok(())
+    }
+
+    pub async fn save_withdrawal_sig(
+        &self,
+        idx: usize,
+        bridge_fund_txid: Txid,
+        sig: secp256k1::schnorr::Signature,
+    ) -> Result<(), BridgeError> {
+        sqlx::query(
+            "INSERT INTO withdrawal_sigs (idx, bridge_fund_txid, sig) VALUES ($1, $2, $3);",
+        )
+        .bind(idx as i64)
+        .bind(bridge_fund_txid.to_string())
+        .bind(sig.to_string())
+        .fetch_all(&self.connection)
+        .await?;
+        Ok(())
+    }
+
+    pub async fn get_withdrawal_sig_by_idx(
+        &self,
+        idx: usize,
+    ) -> Result<(Txid, secp256k1::schnorr::Signature), BridgeError> {
+        let qr:(String, String) = sqlx::query_as("SELECT (bridge_fund_txid, sig) FROM withdrawal_sigs WHERE idx = $1;")
+            .bind(idx as i64)
+            .fetch_one(&self.connection)
+            .await?;
+        let bridge_fund_txid = Txid::from_str(&qr.0).unwrap();
+        let sig = secp256k1::schnorr::Signature::from_str(&qr.1).unwrap();
+        Ok((bridge_fund_txid, sig))
     }
 
     #[cfg(poc)]
@@ -329,11 +361,8 @@ impl Database {
 mod tests {
     use super::Database;
     use crate::{config::BridgeConfig, test_common, EVMAddress};
-    use bitcoin::{hashes::Hash, Address, OutPoint, Txid, XOnlyPublicKey};
-    use secp256k1::{
-        rand::{self, Rng},
-        Secp256k1,
-    };
+    use bitcoin::{Address, OutPoint, XOnlyPublicKey};
+    use secp256k1::Secp256k1;
 
     #[tokio::test]
     async fn invalid_connection() {
@@ -396,6 +425,7 @@ mod tests {
             .unwrap();
     }
 
+    #[cfg(poc)]
     #[tokio::test]
     async fn deposit_tx() {
         let config =

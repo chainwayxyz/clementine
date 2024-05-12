@@ -119,6 +119,9 @@ pub enum BridgeError {
     /// Database error
     #[error("DatabaseError: {0}")]
     DatabaseError(sqlx::Error),
+    /// Operator tries to claim with different bridge funds with the same withdrawal idx
+    #[error("AlreadySpentWithdrawal")]
+    AlreadySpentWithdrawal,
 }
 
 impl Into<ErrorObject<'static>> for BridgeError {
@@ -192,5 +195,11 @@ impl From<jsonrpsee::core::Error> for BridgeError {
 impl From<bitcoin::address::Error> for BridgeError {
     fn from(err: bitcoin::address::Error) -> Self {
         BridgeError::BitcoinAddressError(err)
+    }
+}
+
+impl From<sqlx::Error> for BridgeError {
+    fn from(err: sqlx::Error) -> Self {
+        BridgeError::DatabaseError(err)
     }
 }

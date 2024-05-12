@@ -21,6 +21,7 @@ pub trait VerifierRpc {
     async fn new_withdrawal_direct_rpc(
         &self,
         withdrawal_idx: usize,
+        bridge_fund_txid: Txid,
         withdrawal_address: Address<NetworkUnchecked>,
     ) -> Result<schnorr::Signature, BridgeError>;
 }
