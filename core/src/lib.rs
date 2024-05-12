@@ -68,7 +68,7 @@ pub async fn create_verifier_server(
     .await?;
 
     let server = Server::builder()
-        .build(format!("{}:{}", config.host, 0))
+        .build(format!("{}:{}", config.host, config.port))
         .await?;
 
     let addr = server.local_addr()?;
@@ -108,7 +108,7 @@ pub async fn create_operator_server(
     .unwrap();
 
     let server = Server::builder()
-        .build(format!("{}:{}", config.host, 0))
+        .build(format!("{}:{}", config.host, config.port))
         .await?;
 
     let addr = server.local_addr()?;
