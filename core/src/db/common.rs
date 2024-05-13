@@ -64,6 +64,13 @@ impl Database {
             .trim_matches('"')
             .to_owned();
 
+        tracing::debug!(
+            "trying to insert: {:?}, {:?}, {:?}",
+            start_utxo,
+            recovery_taproot_address,
+            evm_address
+        );
+
         sqlx::query("INSERT INTO new_deposit_requests (start_utxo, recovery_taproot_address, evm_address) VALUES ($1, $2, $3);")
             .bind(start_utxo)
             .bind(recovery_taproot_address)
@@ -119,17 +126,20 @@ impl Database {
         Ok(())
     }
 
-    pub async fn insert_move_txid_with_id(
+    pub async fn get_move_txid(
         &self,
-        id: usize,
-        move_txid: Txid,
-    ) -> Result<(), BridgeError> {
-        sqlx::query("INSERT INTO deposit_move_txs VALUES ($1, $2);")
-            .bind(id as i64)
-            .bind(move_txid.to_string())
-            .fetch_all(&self.connection)
+        start_utxo: OutPoint,
+        recovery_taproot_address: Address<NetworkUnchecked>,
+        evm_address: EVMAddress,
+    ) -> Result<Txid, BridgeError> {
+        let qr:(String, ) = sqlx::query_as("SELECT (move_txid) FROM deposit_move_txs WHERE start_utxo = $1 AND recovery_taproot_address = $2 AND evm_address = $3;")
+            .bind(start_utxo.to_string())
+            .bind(serde_json::to_string(&recovery_taproot_address).unwrap().trim_matches('"'))
+            .bind(serde_json::to_string(&evm_address).unwrap().trim_matches('"'))
+            .fetch_one(&self.connection)
             .await?;
-        Ok(())
+        let move_txid = Txid::from_str(&qr.0).unwrap();
+        Ok(move_txid)
     }
 
     pub async fn save_withdrawal_sig(
@@ -154,11 +164,12 @@ impl Database {
         &self,
         idx: usize,
     ) -> Result<(Txid, secp256k1::schnorr::Signature), BridgeError> {
-        let qr: (String, String) =
+        let qr:  (String, String) =
+           
             sqlx::query_as("SELECT (bridge_fund_txid, sig) FROM withdrawal_sigs WHERE idx = $1;")
-                .bind(idx as i64)
-                .fetch_one(&self.connection)
-                .await?;
+                    .bind(idx as i64)
+                    .fetch_one(&self.connection)
+                    .await?;
 
         let bridge_fund_txid = Txid::from_str(&qr.0).unwrap();
         let sig = secp256k1::schnorr::Signature::from_str(&qr.1).unwrap();

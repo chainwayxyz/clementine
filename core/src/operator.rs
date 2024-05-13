@@ -151,6 +151,21 @@ impl Operator {
         recovery_taproot_address: &Address<NetworkUnchecked>,
         evm_address: &EVMAddress,
     ) -> Result<Txid, BridgeError> {
+        tracing::info!(
+            "New deposit request for utxo: {:?}, evm_address: {:?}, recovery_taproot_Address: {:?}",
+            start_utxo,
+            evm_address,
+            recovery_taproot_address
+        );
+
+        if let Ok(move_txid) = self
+            .db
+            .get_move_txid(start_utxo, recovery_taproot_address.clone(), *evm_address)
+            .await
+        {
+            return Ok(move_txid);
+        }
+
         check_deposit_utxo(
             &self.rpc,
             &self.transaction_builder,
@@ -160,11 +175,6 @@ impl Operator {
             BRIDGE_AMOUNT_SATS,
             self.config.confirmation_treshold,
         )?;
-
-        // Transaction is OK, write it to the database.
-        self.db
-            .add_new_deposit_request(start_utxo, recovery_taproot_address.clone(), *evm_address)
-            .await?;
 
         // 5. Create a move transaction and return the output utxo, save the utxo as a pending deposit
         let mut move_tx = self.transaction_builder.create_move_tx(
@@ -207,8 +217,11 @@ impl Operator {
         let presigns_from_all_verifiers = presigns_from_all_verifiers?;
 
         tracing::info!(
+            
             "presigns_from_all_verifiers done for txid: {:?}",
+           
             move_tx.tx.txid()
+        
         );
         tracing::debug!("move_tx details: {:?}", move_tx);
 
@@ -231,73 +244,18 @@ impl Operator {
 
         handle_taproot_witness_new(&mut move_tx, &witness_elements, 0, 0)?;
 
-        #[cfg(feature = "poc")]
-        {
-            self.db
-                .insert_move_txid((rpc_move_txid, move_tx.tx.output[0].clone()))
-                .await;
-            let operator_claim_sigs = OperatorClaimSigs {
-                operator_claim_sigs: presigns_from_all_verifiers
-                    .iter()
-                    .map(|presign| presign.operator_claim_sign.clone())
-                    .collect::<Vec<_>>(),
-            };
-            self.db.add_deposit_take_sigs(operator_claim_sigs);
-
-            for i in 0..NUM_ROUNDS {
-                let connector_utxo = self.db.get_connector_tree_utxo(i)[CONNECTOR_TREE_DEPTH]
-                    [deposit_index as usize];
-                let connector_hash = self.db.get_connector_tree_hash(
-                    i,
-                    CONNECTOR_TREE_DEPTH,
-                    deposit_index as usize,
-                );
-                let mut operator_claim_tx = self.transaction_builder.create_operator_claim_tx(
-                    move_utxo,
-                    connector_utxo,
-                    &self.signer.address,
-                    &self.signer.xonly_public_key,
-                    &connector_hash,
-                )?;
-
-                let sig_hash = self
-                    .signer
-                    .sighash_taproot_script_spend(&mut operator_claim_tx, 0)?;
-
-                let op_claim_sigs_for_period_i = presigns_from_all_verifiers
-                    .iter()
-                    .map(|presign| {
-                        // tracing::debug!(
-                        //     "presign.operator_claim_sign[{:?}]: {:?}",
-                        //     i, presign.operator_claim_sign[i]
-                        // );
-                        presign.operator_claim_sign[i]
-                    })
-                    .collect::<Vec<_>>();
-                // tracing::debug!(
-                //     "len of op_claim_sigs_for_period_i: {:?}",
-                //     op_claim_sigs_for_period_i.len()
-                // );
-                for (idx, sig) in op_claim_sigs_for_period_i.iter().enumerate() {
-                    // tracing::debug!("verifying presigns for index {:?}: ", idx);
-                    // tracing::debug!("sig: {:?}", sig);
-                    self.signer.secp.verify_schnorr(
-                        sig,
-                        &Message::from_digest_slice(sig_hash.as_byte_array())
-                            .expect("should be hash"),
-                        &self.verifiers_pks[idx],
-                    )?;
-                }
-            }
-        }
-
         let transaction = self.db.begin_transaction().await?;
         self.db
             .insert_move_txid(
+                
                 start_utxo,
+               
                 recovery_taproot_address.clone(),
+               
                 *evm_address,
+               
                 move_tx.tx.txid(),
+            ,
             )
             .await?;
         self.rpc.send_raw_transaction(&move_tx.tx)?;
@@ -316,8 +274,11 @@ impl Operator {
     ) -> Result<Txid, BridgeError> {
         let deposit_tx_info = self.db.get_deposit_tx(idx).await?;
         tracing::debug!(
+            
             "Operator is signing withdrawal tx with txid: {:?}",
+           
             deposit_tx_info
+        
         );
         let (bridge_address, _) = self.transaction_builder.generate_bridge_address()?;
         let dust_value = ScriptBuilder::anyone_can_spend_txout().value;

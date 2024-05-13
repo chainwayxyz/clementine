@@ -73,6 +73,7 @@ pub async fn create_verifier_server(
 
     let addr = server.local_addr()?;
     let handle = server.start(verifier.into_rpc());
+    tracing::info!("Verifier server started at: {}", addr);
     Ok((addr, handle))
 }
 
@@ -88,7 +89,7 @@ pub async fn create_operator_server(
         ),
     );
     let mut verifiers: Vec<Arc<HttpClient>> = Vec::new();
-    tracing::debug!("Verifiers: {:?}", verifier_endpoints);
+    tracing::info!("Verifiers: {:?}", verifier_endpoints);
 
     for i in 0..verifier_endpoints.len() {
         let verifier = HttpClientBuilder::default()
@@ -113,7 +114,7 @@ pub async fn create_operator_server(
 
     let addr = server.local_addr()?;
     let handle = server.start(operator.into_rpc());
-    tracing::debug!("Operator server started at: {}", addr);
+    tracing::info!("Operator server started at: {}", addr);
     Ok((addr, handle))
 }
 
