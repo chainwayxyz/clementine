@@ -171,8 +171,8 @@ impl TransactionBuilder {
         let tx_ins = TransactionBuilder::create_tx_ins(vec![deposit_utxo]);
         let bridge_txout = TxOut {
             value: deposit_txout.value
-                - Amount::from_sat(2 * self.config.min_relay_fee)
-                - anyone_can_spend_txout.value * 2,
+                - Amount::from_sat(self.config.min_relay_fee)
+                - anyone_can_spend_txout.value,
             script_pubkey: withdraw_address.script_pubkey(),
         };
         let withdraw_tx =

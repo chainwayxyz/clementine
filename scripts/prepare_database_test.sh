@@ -12,10 +12,10 @@ dropdb $PGDATABASE
 dropuser $PGDATABASE
 createuser $PGDATABASE
 createdb -O $PGDATABASE $PGDATABASE
-cat $SCRIPT_DIR/test_schema.sql $SCRIPT_DIR/schema.sql | psql -U $PGDATABASE $PGDATABASE
+cat $SCRIPT_DIR/schema.sql | psql -U $PGDATABASE $PGDATABASE
 
 
-for i in {0..4}
+for i in {0..3}
 do
     dropdb $PGDATABASE$i
     dropuser $PGDATABASE$i

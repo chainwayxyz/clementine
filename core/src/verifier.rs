@@ -116,16 +116,13 @@ impl Verifier {
         )?;
 
         let deposit_index = self.db.get_next_deposit_index().await?;
-        tracing::debug!("deposit_index: {:?}", deposit_index);
+        tracing::debug!("VERIFIER deposit_index: {:?}", deposit_index);
 
         let mut move_tx = self.transaction_builder.create_move_tx(
             start_utxo,
             evm_address,
             &recovery_taproot_address,
         )?;
-        let move_txid = move_tx.tx.txid();
-
-        tracing::debug!("Verifier move_txid: {:?}", move_txid);
 
         let move_tx_sighash = Actor::convert_tx_to_sighash(&mut move_tx, 0, 0)?;
         tracing::debug!("Verifier move_tx_sighash: {:?}", move_tx_sighash);
@@ -145,10 +142,6 @@ impl Verifier {
         let our_pub_nonce = move_tx_first_round.our_public_nonce();
         let move_pub_nonce = ByteArray66(our_pub_nonce.serialize());
 
-        let move_sig = self
-            .signer
-            .sign_taproot_script_spend_tx_new(&mut move_tx, 0, 0)?;
-
         let op_claim_pub_nonces: Vec<ByteArray66> = Vec::new();
 
         Ok(DepositPubNonces {
@@ -164,6 +157,8 @@ impl Verifier {
         evm_address: &EVMAddress,
         aggregated_nonces: &AggNonces,
     ) -> Result<DepositPresigns, BridgeError> {
+        tracing::debug!("Verifier is signing move_tx...");
+        tracing::debug!("Aggregated nonces: {:?}", aggregated_nonces);
         self.db
             .add_deposit_transaction(start_utxo, recovery_taproot_address.clone(), *evm_address)
             .await?;
@@ -173,7 +168,6 @@ impl Verifier {
             evm_address,
             &recovery_taproot_address,
         )?;
-        let move_txid = move_tx.tx.txid();
 
         // Recreate the FirstRound of MuSig2 for move_tx to generate a partial signature
         let move_tx_sighash = Actor::convert_tx_to_sighash(&mut move_tx, 0, 0)?;
@@ -196,11 +190,11 @@ impl Verifier {
         let move_sig: PartialSignature = move_tx_first_round
             .sign_for_aggregator(self.signer.secret_key, move_tx_sighash, &move_agg_nonce)
             .unwrap();
+        tracing::debug!("Verifier move_sig: {:?}", move_sig);
 
         let op_claim_sigs = Vec::new();
 
         self.db.insert_move_txid(move_tx.tx.txid()).await?;
-        self.rpc.send_raw_transaction(&move_tx.tx)?;
 
         if let Err(e) = transaction.commit().await {
             return Err(BridgeError::DatabaseError(e));
@@ -220,7 +214,7 @@ impl Verifier {
         // TODO: Check from citrea rpc if the withdrawal is valid
         let bridge_txid = self.db.get_deposit_tx(withdrawal_idx).await?;
         tracing::debug!(
-            "Verifier is signing withdrawal_tx with txid: {:?}",
+            "VERIFIER FIRST round is signing withdrawal_tx with bridge_txid: {:?}",
             bridge_txid
         );
         let bridge_utxo = OutPoint {
@@ -228,11 +222,10 @@ impl Verifier {
             vout: 0,
         };
 
-        let (bridge_address, _) = self.transaction_builder.generate_bridge_address()?;
+        let (bridge_address, _) = self.transaction_builder.generate_musig2_bridge_address()?;
         let dust_value = ScriptBuilder::anyone_can_spend_txout().value;
         let bridge_txout = TxOut {
-            value: Amount::from_sat(BRIDGE_AMOUNT_SATS - self.config.min_relay_fee * 2)
-                - dust_value * 2,
+            value: Amount::from_sat(BRIDGE_AMOUNT_SATS - self.config.min_relay_fee) - dust_value,
             script_pubkey: bridge_address.script_pubkey(),
         };
 
@@ -241,6 +234,10 @@ impl Verifier {
             bridge_txout,
             withdrawal_address,
         )?;
+        tracing::debug!(
+            "VERIFIER FIRST round withdrawal_txid: {:?}",
+            withdrawal_tx.tx.txid()
+        );
         let withdrawal_tx_sighash = Actor::convert_tx_to_sighash(&mut withdrawal_tx, 0, 0)?;
         let key_agg_ctx = KeyAggContext::new(self.verifiers_pks.clone()).unwrap();
         // let agg_pk: PublicKey = key_agg_ctx.aggregated_pubkey();
@@ -266,7 +263,7 @@ impl Verifier {
     ) -> Result<[u8; 32], BridgeError> {
         let bridge_txid = self.db.get_deposit_tx(withdrawal_idx).await?;
         tracing::debug!(
-            "Verifier is signing withdrawal_tx with txid: {:?}",
+            "VERIFIER SECOND round is signing withdrawal_tx with bridge_txid: {:?}",
             bridge_txid
         );
         let bridge_utxo = OutPoint {
@@ -274,11 +271,10 @@ impl Verifier {
             vout: 0,
         };
 
-        let (bridge_address, _) = self.transaction_builder.generate_bridge_address()?;
+        let (bridge_address, _) = self.transaction_builder.generate_musig2_bridge_address()?;
         let dust_value = ScriptBuilder::anyone_can_spend_txout().value;
         let bridge_txout = TxOut {
-            value: Amount::from_sat(BRIDGE_AMOUNT_SATS - self.config.min_relay_fee * 2)
-                - dust_value * 2,
+            value: Amount::from_sat(BRIDGE_AMOUNT_SATS - self.config.min_relay_fee) - dust_value,
             script_pubkey: bridge_address.script_pubkey(),
         };
 
@@ -287,7 +283,11 @@ impl Verifier {
             bridge_txout,
             withdrawal_address,
         )?;
-
+        tracing::debug!("VERIFIER withdrawal_tx: {:?}", withdrawal_tx);
+        tracing::debug!(
+            "VERIFIER SECOND round withdrawal_txid: {:?}",
+            withdrawal_tx.tx.txid()
+        );
         let withdrawal_tx_sighash = Actor::convert_tx_to_sighash(&mut withdrawal_tx, 0, 0)?;
         let key_agg_ctx = KeyAggContext::new(self.verifiers_pks.clone()).unwrap();
         // let agg_pk: PublicKey = key_agg_ctx.aggregated_pubkey();
@@ -301,6 +301,7 @@ impl Verifier {
         )
         .unwrap();
         let move_agg_nonce = hex::encode(aggregated_nonce.0).parse::<AggNonce>().unwrap();
+        tracing::debug!("VERIFIER aggregated nonce: {:?}", move_agg_nonce);
         let withdrawal_sig: PartialSignature = withdrawal_tx_first_round
             .sign_for_aggregator(
                 self.signer.secret_key,
@@ -380,7 +381,6 @@ impl Verifier {
             return Err(BridgeError::PublicKeyNotFound);
         }
 
-        let db = VerifierDB::new(config.clone()).await;
         let sec_nonce: [u8; 32] = [0u8; 32];
 
         let key_agg_ctx = KeyAggContext::new(all_pks.clone()).unwrap();
@@ -400,6 +400,7 @@ impl Verifier {
                     .0
             })
             .unwrap();
+        let db = VerifierDB::new(config.clone()).await;
         Ok(Verifier {
             rpc,
             secp,

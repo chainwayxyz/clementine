@@ -21,6 +21,7 @@ use clementine_circuits::constants::BRIDGE_AMOUNT_SATS;
 use futures::stream::FuturesOrdered;
 use futures::TryStreamExt;
 use jsonrpsee::core::async_trait;
+use musig2::secp::Point;
 use musig2::{AggNonce, FirstRound, KeyAggContext, PartialSignature, PubNonce, SecNonceSpices};
 use secp256k1::{PublicKey, SecretKey, XOnlyPublicKey};
 use serde::{Deserialize, Serialize};
@@ -198,7 +199,7 @@ impl Operator {
         let transaction = self.db.begin_transaction().await?;
 
         let deposit_index = self.db.get_next_deposit_index().await?;
-        tracing::debug!("deposit_index: {:?}", deposit_index);
+        tracing::debug!("OPERATOR deposit_index: {:?}", deposit_index);
 
         let pub_nonces_from_verifiers: Result<Vec<_>, BridgeError> = self
             .verifier_connector
@@ -411,7 +412,7 @@ impl Operator {
 
         self.db.insert_move_txid(move_tx.tx.txid()).await?;
         self.rpc.send_raw_transaction(&move_tx.tx)?;
-
+        tracing::debug!("move_txid: {:?}", move_tx.tx.txid());
         if let Err(e) = transaction.commit().await {
             return Err(BridgeError::DatabaseError(e));
         };
@@ -426,12 +427,12 @@ impl Operator {
     ) -> Result<Txid, BridgeError> {
         let deposit_txid = self.db.get_deposit_tx(idx).await?;
         tracing::debug!(
-            "Operator is signing withdrawal tx with deposit_txid: {:?}",
+            "OPERATOR is signing withdrawal tx with bridge_txid: {:?}",
             deposit_txid
         );
 
         let key_agg_ctx = KeyAggContext::new(self.verifiers_pks.clone()).unwrap();
-        // let agg_pk: PublicKey = key_agg_ctx.aggregated_pubkey();
+        let _agg_pk: PublicKey = key_agg_ctx.aggregated_pubkey();
 
         let (bridge_address, _) = self.transaction_builder.generate_musig2_bridge_address()?;
         let dust_value = ScriptBuilder::anyone_can_spend_txout().value;
@@ -462,6 +463,8 @@ impl Operator {
             deposit_txout.clone(),
             &withdrawal_address,
         )?;
+        tracing::debug!("OPERATOR withdrawal_tx: {:?}", withdrawal_tx);
+        tracing::debug!("OPERATOR withdrawal_txid: {:?}", withdrawal_tx.tx.txid());
         let withdrawal_tx_sighash = Actor::convert_tx_to_sighash(&mut withdrawal_tx, 0, 0)?;
 
         let mut pub_nonces_from_verifiers = pub_nonces_from_verifiers?;
@@ -490,7 +493,7 @@ impl Operator {
             .collect::<Vec<_>>();
 
         let withdrawal_agg_nonce = AggNonce::sum(&pub_nonces);
-
+        tracing::debug!("OPERATOR withdrawal_agg_nonce: {:?}", withdrawal_agg_nonce);
         let withdrawal_agg_nonce_bytes = ByteArray66(withdrawal_agg_nonce.serialize());
 
         let withdrawal_sigs_from_verifiers: Result<Vec<_>, BridgeError> = self
@@ -513,10 +516,6 @@ impl Operator {
         let mut withdrawal_sigs_from_verifiers = withdrawal_sigs_from_verifiers?;
         tracing::info!("withdrawal_signatures_from_verifiers: done");
 
-        let withdrawal_agg_nonce = hex::encode(withdrawal_agg_nonce_bytes.0)
-            .parse::<AggNonce>()
-            .unwrap();
-
         let op_withdrawal_sig: PartialSignature = first_round
             .sign_for_aggregator(
                 self.signer.secret_key,
@@ -528,11 +527,27 @@ impl Operator {
         let op_withdrawal_sig_bytes = op_withdrawal_sig.serialize();
 
         withdrawal_sigs_from_verifiers.push(op_withdrawal_sig_bytes);
+        tracing::info!(
+            "withdrawal_signatures_bytes_from_all: {:?}",
+            withdrawal_sigs_from_verifiers
+        );
 
-        let sigs_for_withdrawal_tx = withdrawal_sigs_from_verifiers
+        let sigs_for_withdrawal_tx: Vec<PartialSignature> = withdrawal_sigs_from_verifiers
             .iter()
             .map(|x| PartialSignature::from_slice(x.as_slice()).unwrap())
             .collect::<Vec<_>>();
+        tracing::info!("sigs_for_withdrawal_tx: {:?}", sigs_for_withdrawal_tx);
+        // let point_0 = Point::from_slice(&self.verifiers_pks[0].serialize()).unwrap();
+        // let ps_0 = PartialSignature::from_slice(&withdrawal_sigs_from_verifiers[0]).unwrap();
+        // let bool_0 = musig2::verify_partial(
+        //     &key_agg_ctx.clone(),
+        //     ps_0,
+        //     &withdrawal_agg_nonce,
+        //     point_0,
+        //     &pub_nonces[0],
+        //     withdrawal_tx_sighash,
+        // );
+        // tracing::info!("bool_0: {:?}", bool_0);
 
         let final_signature: [u8; 64] = musig2::aggregate_partial_signatures(
             &key_agg_ctx,
@@ -547,6 +562,7 @@ impl Operator {
         witness_elements.push(final_signature.as_ref());
         handle_taproot_witness_new(&mut withdrawal_tx, &witness_elements, 0, 0)?;
         let withdrawal_txid = self.rpc.send_raw_transaction(&withdrawal_tx.tx)?;
+        tracing::debug!("withdrawal_txid: {:?}", withdrawal_tx.tx.txid());
         Ok(withdrawal_txid)
     }
 
