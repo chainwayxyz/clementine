@@ -19,7 +19,8 @@ pub struct Database {
 }
 
 impl Database {
-    /// Creates a new `Database`. Then tries to connect actual database.
+    /// Returns a `Database` after establishing connection to database. Returns
+    /// error in case database is not reachable.
     pub async fn new(config: BridgeConfig) -> Result<Self, BridgeError> {
         let url = "postgresql://".to_owned()
             + config.db_host.as_str()
@@ -138,6 +139,7 @@ impl Database {
             .bind(serde_json::to_string(&evm_address).unwrap().trim_matches('"'))
             .fetch_one(&self.connection)
             .await?;
+
         let move_txid = Txid::from_str(&qr.0).unwrap();
         Ok(move_txid)
     }
@@ -172,7 +174,6 @@ impl Database {
 
         let bridge_fund_txid = Txid::from_str(&qr.0).unwrap();
         let sig = secp256k1::schnorr::Signature::from_str(&qr.1).unwrap();
-
         Ok((bridge_fund_txid, sig))
     }
 
