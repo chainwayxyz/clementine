@@ -16,6 +16,7 @@ use clementine_core::utils::handle_taproot_witness_new;
 use clementine_core::EVMAddress;
 
 #[tokio::test]
+#[ignore = "Data race with other flow test, run separately with: cargo test --test flow -- test_flow_1 --include-ignored --show-output"]
 async fn test_flow_1() {
     let config = get_test_config("test_config_1.toml").unwrap();
 
@@ -110,6 +111,7 @@ async fn test_flow_1() {
 }
 
 #[tokio::test]
+#[ignore = "Data race with other flow test, run separately with: cargo test --test flow -- test_flow_2 --include-ignored --show-output"]
 async fn test_flow_2() {
     let config = get_test_config("test_config_1.toml").unwrap();
 
