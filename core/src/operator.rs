@@ -217,11 +217,8 @@ impl Operator {
         let presigns_from_all_verifiers = presigns_from_all_verifiers?;
 
         tracing::info!(
-            
             "presigns_from_all_verifiers done for txid: {:?}",
-           
             move_tx.tx.txid()
-        
         );
         tracing::debug!("move_tx details: {:?}", move_tx);
 
@@ -247,15 +244,10 @@ impl Operator {
         let transaction = self.db.begin_transaction().await?;
         self.db
             .insert_move_txid(
-                
                 start_utxo,
-               
                 recovery_taproot_address.clone(),
-               
                 *evm_address,
-               
                 move_tx.tx.txid(),
-            ,
             )
             .await?;
         self.rpc.send_raw_transaction(&move_tx.tx)?;
@@ -274,11 +266,8 @@ impl Operator {
     ) -> Result<Txid, BridgeError> {
         let deposit_tx_info = self.db.get_deposit_tx(idx).await?;
         tracing::debug!(
-            
             "Operator is signing withdrawal tx with txid: {:?}",
-           
             deposit_tx_info
-        
         );
         let (bridge_address, _) = self.transaction_builder.generate_bridge_address()?;
         let dust_value = ScriptBuilder::anyone_can_spend_txout().value;
