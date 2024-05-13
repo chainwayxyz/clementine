@@ -93,12 +93,7 @@ impl Verifier {
         )?;
         let move_txid = move_tx.tx.txid();
 
-        let _move_utxo = OutPoint {
-            txid: move_txid,
-            vout: 0,
-        };
-
-        tracing::debug!(
+        tracing::info!(
             "Verifier with public key {:?} is signing {:?}.",
             self.signer.xonly_public_key.to_string(),
             move_txid
@@ -107,39 +102,9 @@ impl Verifier {
             .signer
             .sign_taproot_script_spend_tx_new(&mut move_tx, 0, 0)?;
 
-        let op_claim_sigs = Vec::new();
-
-        #[cfg(feature = "poc")]
-        {
-            for i in 0..NUM_ROUNDS {
-                let connector_utxo = self.db.get_connector_tree_utxo(i)[CONNECTOR_TREE_DEPTH]
-                    [deposit_index as usize];
-                let connector_hash = self.db.get_connector_tree_hash(
-                    i,
-                    CONNECTOR_TREE_DEPTH,
-                    deposit_index as usize,
-                );
-
-                let mut operator_claim_tx = self.transaction_builder.create_operator_claim_tx(
-                    move_utxo,
-                    connector_utxo,
-                    &operator_address,
-                    &self.operator_pk,
-                    &connector_hash,
-                )?;
-
-                let op_claim_sig = self
-                    .signer
-                    .sign_taproot_script_spend_tx_new(&mut operator_claim_tx, 0)?;
-                op_claim_sigs.push(op_claim_sig);
-            }
-        }
-        // self.db
-        //     .insert_move_txid_with_id(deposit_index as usize, move_txid)
-        //     .await?;
         Ok(DepositPresigns {
             move_sign: move_sig,
-            operator_claim_sign: op_claim_sigs,
+            operator_claim_sign: vec![],
         })
     }
 
@@ -161,7 +126,6 @@ impl Verifier {
             }
         };
 
-        // let bridge_txid = self.db.get_deposit_tx(withdrawal_idx).await?;
         tracing::info!(
             "Verifier is signing withdrawal tx with txid: {:?}",
             bridge_fund_txid
