@@ -157,6 +157,7 @@ impl TransactionBuilder {
         })
     }
 
+    /// This function creates the withdraw tx, it's prevouts for signing and the script to be used for the signature.
     pub fn create_withdraw_tx(
         &self,
         deposit_utxo: OutPoint,
@@ -165,19 +166,19 @@ impl TransactionBuilder {
     ) -> Result<CreateTxOutputs, BridgeError> {
         let anyone_can_spend_txout = ScriptBuilder::anyone_can_spend_txout();
 
-        let (_, bridge_spend_info) = self.generate_bridge_address()?;
+        let (_, bridge_spend_info) = self.generate_musig2_bridge_address()?;
 
         let tx_ins = TransactionBuilder::create_tx_ins(vec![deposit_utxo]);
         let bridge_txout = TxOut {
             value: deposit_txout.value
-                - Amount::from_sat(self.config.min_relay_fee)
-                - anyone_can_spend_txout.value,
+                - Amount::from_sat(2 * self.config.min_relay_fee)
+                - anyone_can_spend_txout.value * 2,
             script_pubkey: withdraw_address.script_pubkey(),
         };
         let withdraw_tx =
             TransactionBuilder::create_btc_tx(tx_ins, vec![bridge_txout, anyone_can_spend_txout]);
         let prevouts = vec![deposit_txout];
-        let bridge_spend_script = vec![self.script_builder.generate_script_n_of_n()];
+        let bridge_spend_script = vec![self.script_builder.generate_script_agg_pk()];
         Ok(CreateTxOutputs {
             tx: withdraw_tx,
             prevouts,

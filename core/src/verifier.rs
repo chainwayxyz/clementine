@@ -43,7 +43,6 @@ impl VerifierRpcServer for Verifier {
         &self,
         start_utxo: OutPoint,
         recovery_taproot_address: Address<NetworkUnchecked>,
-        deposit_index: u32,
         evm_address: EVMAddress,
         operator_address: Address<NetworkUnchecked>,
     ) -> Result<DepositPubNonces, BridgeError> {
@@ -51,7 +50,6 @@ impl VerifierRpcServer for Verifier {
         self.new_deposit_first_round(
             start_utxo,
             &recovery_taproot_address,
-            deposit_index,
             &evm_address,
             &operator_address,
         )
@@ -61,29 +59,36 @@ impl VerifierRpcServer for Verifier {
         &self,
         start_utxo: OutPoint,
         recovery_taproot_address: Address<NetworkUnchecked>,
-        deposit_index: u32,
         evm_address: EVMAddress,
         operator_address: Address<NetworkUnchecked>,
         aggregated_nonces: AggNonces,
     ) -> Result<DepositPresigns, BridgeError> {
-        let operator_address = operator_address.require_network(self.config.network)?;
+        let _operator_address = operator_address.require_network(self.config.network)?;
         self.new_deposit_second_round(
             start_utxo,
             &recovery_taproot_address,
-            deposit_index,
             &evm_address,
-            &operator_address,
             &aggregated_nonces,
         )
         .await
     }
-    async fn new_withdrawal_direct_rpc(
+    async fn new_withdrawal_first_round_rpc(
         &self,
         withdrawal_idx: usize,
         withdrawal_address: Address<NetworkUnchecked>,
-    ) -> Result<schnorr::Signature, BridgeError> {
+    ) -> Result<ByteArray66, BridgeError> {
         let withdrawal_address = withdrawal_address.require_network(self.config.network)?;
-        self.new_withdrawal_direct(withdrawal_idx, &withdrawal_address)
+        self.new_withdrawal_first_round(withdrawal_idx, &withdrawal_address)
+            .await
+    }
+    async fn new_withdrawal_second_round_rpc(
+        &self,
+        withdrawal_idx: usize,
+        withdrawal_address: Address<NetworkUnchecked>,
+        aggregated_nonce: ByteArray66,
+    ) -> Result<[u8; 32], BridgeError> {
+        let withdrawal_address = withdrawal_address.require_network(self.config.network)?;
+        self.new_withdrawal_second_round(withdrawal_idx, &withdrawal_address, &aggregated_nonce)
             .await
     }
 }
@@ -97,7 +102,6 @@ impl Verifier {
         &self,
         start_utxo: OutPoint,
         recovery_taproot_address: &Address<NetworkUnchecked>,
-        deposit_index: u32,
         evm_address: &EVMAddress,
         _operator_address: &Address,
     ) -> Result<DepositPubNonces, BridgeError> {
@@ -111,6 +115,9 @@ impl Verifier {
             self.config.confirmation_treshold,
         )?;
 
+        let deposit_index = self.db.get_next_deposit_index().await?;
+        tracing::debug!("deposit_index: {:?}", deposit_index);
+
         let mut move_tx = self.transaction_builder.create_move_tx(
             start_utxo,
             evm_address,
@@ -118,13 +125,13 @@ impl Verifier {
         )?;
         let move_txid = move_tx.tx.txid();
 
-        tracing::debug!("Verifier move_tx: {:?}", move_tx);
+        tracing::debug!("Verifier move_txid: {:?}", move_txid);
 
         let move_tx_sighash = Actor::convert_tx_to_sighash(&mut move_tx, 0, 0)?;
         tracing::debug!("Verifier move_tx_sighash: {:?}", move_tx_sighash);
 
         let key_agg_ctx = KeyAggContext::new(self.verifiers_pks.clone()).unwrap();
-        let agg_pk: PublicKey = key_agg_ctx.aggregated_pubkey();
+        // let agg_pk: PublicKey = key_agg_ctx.aggregated_pubkey();
 
         let move_tx_first_round = FirstRound::new(
             key_agg_ctx.clone(),
@@ -154,22 +161,19 @@ impl Verifier {
         &self,
         start_utxo: OutPoint,
         recovery_taproot_address: &Address<NetworkUnchecked>,
-        deposit_index: u32,
         evm_address: &EVMAddress,
-        operator_address: &Address,
         aggregated_nonces: &AggNonces,
     ) -> Result<DepositPresigns, BridgeError> {
+        self.db
+            .add_deposit_transaction(start_utxo, recovery_taproot_address.clone(), *evm_address)
+            .await?;
+        let transaction = self.db.begin_transaction().await?;
         let mut move_tx = self.transaction_builder.create_move_tx(
             start_utxo,
             evm_address,
             &recovery_taproot_address,
         )?;
         let move_txid = move_tx.tx.txid();
-
-        let move_utxo = OutPoint {
-            txid: move_txid,
-            vout: 0,
-        };
 
         // Recreate the FirstRound of MuSig2 for move_tx to generate a partial signature
         let move_tx_sighash = Actor::convert_tx_to_sighash(&mut move_tx, 0, 0)?;
@@ -195,22 +199,28 @@ impl Verifier {
 
         let op_claim_sigs = Vec::new();
 
+        self.db.insert_move_txid(move_tx.tx.txid()).await?;
+        self.rpc.send_raw_transaction(&move_tx.tx)?;
+
+        if let Err(e) = transaction.commit().await {
+            return Err(BridgeError::DatabaseError(e));
+        };
+
         Ok(DepositPresigns {
             move_sign: move_sig.serialize(),
             operator_claim_sign: op_claim_sigs,
         })
     }
 
-    async fn new_withdrawal_direct(
+    async fn new_withdrawal_first_round(
         &self,
         withdrawal_idx: usize,
         withdrawal_address: &Address<NetworkChecked>,
-    ) -> Result<schnorr::Signature, BridgeError> {
+    ) -> Result<ByteArray66, BridgeError> {
         // TODO: Check from citrea rpc if the withdrawal is valid
-
         let bridge_txid = self.db.get_deposit_tx(withdrawal_idx).await?;
         tracing::debug!(
-            "Verifier is signing withdrawal tx with txid: {:?}",
+            "Verifier is signing withdrawal_tx with txid: {:?}",
             bridge_txid
         );
         let bridge_utxo = OutPoint {
@@ -221,7 +231,8 @@ impl Verifier {
         let (bridge_address, _) = self.transaction_builder.generate_bridge_address()?;
         let dust_value = ScriptBuilder::anyone_can_spend_txout().value;
         let bridge_txout = TxOut {
-            value: Amount::from_sat(BRIDGE_AMOUNT_SATS - self.config.min_relay_fee) - dust_value,
+            value: Amount::from_sat(BRIDGE_AMOUNT_SATS - self.config.min_relay_fee * 2)
+                - dust_value * 2,
             script_pubkey: bridge_address.script_pubkey(),
         };
 
@@ -230,10 +241,74 @@ impl Verifier {
             bridge_txout,
             withdrawal_address,
         )?;
-        let sig = self
-            .signer
-            .sign_taproot_script_spend_tx_new(&mut withdrawal_tx, 0, 0)?;
-        Ok(sig)
+        let withdrawal_tx_sighash = Actor::convert_tx_to_sighash(&mut withdrawal_tx, 0, 0)?;
+        let key_agg_ctx = KeyAggContext::new(self.verifiers_pks.clone()).unwrap();
+        // let agg_pk: PublicKey = key_agg_ctx.aggregated_pubkey();
+        let withdrawal_tx_first_round = FirstRound::new(
+            key_agg_ctx,
+            self.sec_nonce,
+            self.idx,
+            SecNonceSpices::new()
+                .with_seckey(self.signer.secret_key.clone())
+                .with_message(&withdrawal_tx_sighash),
+        )
+        .unwrap();
+        let our_pub_nonce = withdrawal_tx_first_round.our_public_nonce();
+        let withdrawal_pub_nonce = ByteArray66(our_pub_nonce.serialize());
+        Ok(withdrawal_pub_nonce)
+    }
+
+    async fn new_withdrawal_second_round(
+        &self,
+        withdrawal_idx: usize,
+        withdrawal_address: &Address<NetworkChecked>,
+        aggregated_nonce: &ByteArray66,
+    ) -> Result<[u8; 32], BridgeError> {
+        let bridge_txid = self.db.get_deposit_tx(withdrawal_idx).await?;
+        tracing::debug!(
+            "Verifier is signing withdrawal_tx with txid: {:?}",
+            bridge_txid
+        );
+        let bridge_utxo = OutPoint {
+            txid: bridge_txid,
+            vout: 0,
+        };
+
+        let (bridge_address, _) = self.transaction_builder.generate_bridge_address()?;
+        let dust_value = ScriptBuilder::anyone_can_spend_txout().value;
+        let bridge_txout = TxOut {
+            value: Amount::from_sat(BRIDGE_AMOUNT_SATS - self.config.min_relay_fee * 2)
+                - dust_value * 2,
+            script_pubkey: bridge_address.script_pubkey(),
+        };
+
+        let mut withdrawal_tx = self.transaction_builder.create_withdraw_tx(
+            bridge_utxo,
+            bridge_txout,
+            withdrawal_address,
+        )?;
+
+        let withdrawal_tx_sighash = Actor::convert_tx_to_sighash(&mut withdrawal_tx, 0, 0)?;
+        let key_agg_ctx = KeyAggContext::new(self.verifiers_pks.clone()).unwrap();
+        // let agg_pk: PublicKey = key_agg_ctx.aggregated_pubkey();
+        let withdrawal_tx_first_round = FirstRound::new(
+            key_agg_ctx,
+            self.sec_nonce,
+            self.idx,
+            SecNonceSpices::new()
+                .with_seckey(self.signer.secret_key.clone())
+                .with_message(&withdrawal_tx_sighash),
+        )
+        .unwrap();
+        let move_agg_nonce = hex::encode(aggregated_nonce.0).parse::<AggNonce>().unwrap();
+        let withdrawal_sig: PartialSignature = withdrawal_tx_first_round
+            .sign_for_aggregator(
+                self.signer.secret_key,
+                withdrawal_tx_sighash,
+                &move_agg_nonce,
+            )
+            .unwrap();
+        Ok(withdrawal_sig.serialize())
     }
 
     #[cfg(feature = "poc")]

@@ -183,7 +183,7 @@ impl Operator {
             .await?;
 
         let key_agg_ctx = KeyAggContext::new(self.verifiers_pks.clone()).unwrap();
-        let agg_pk: PublicKey = key_agg_ctx.aggregated_pubkey();
+        // let agg_pk: PublicKey = key_agg_ctx.aggregated_pubkey();
 
         check_deposit_utxo(
             &self.rpc,
@@ -204,7 +204,6 @@ impl Operator {
             .verifier_connector
             .iter()
             .map(|verifier| async {
-                // tracing::debug!("Verifier number {:?} is checking new deposit:", i);
                 // Attempt to get the public nonces for the first round of MuSig2. If an error occurs, it will be propagated out
                 // of the map, causing the collect call to return a Result::Err, effectively stopping
                 // the iteration and returning the error from your_function_name.
@@ -212,7 +211,6 @@ impl Operator {
                     .new_deposit_first_round_rpc(
                         start_utxo,
                         recovery_taproot_address.clone(),
-                        deposit_index as u32,
                         *evm_address,
                         self.signer.address.as_unchecked().clone(),
                     )
@@ -240,6 +238,7 @@ impl Operator {
             evm_address,
             &recovery_taproot_address,
         )?;
+        tracing::debug!("move_tx size: {:?}", move_tx.tx.weight());
         let move_tx_sighash = Actor::convert_tx_to_sighash(&mut move_tx, 0, 0)?;
 
         let first_round = FirstRound::new(
@@ -292,7 +291,6 @@ impl Operator {
                     .new_deposit_second_round_rpc(
                         start_utxo,
                         recovery_taproot_address.clone(),
-                        deposit_index as u32,
                         *evm_address,
                         self.signer.address.as_unchecked().clone(),
                         agg_nonces.clone(),
@@ -342,7 +340,7 @@ impl Operator {
             move_tx_sighash,
         )
         .unwrap();
-        tracing::debug!("final_signature: {:?}", final_signature);
+        tracing::debug!("final_signature for move_tx: {:?}", final_signature);
 
         let mut witness_elements: Vec<&[u8]> = Vec::new();
         witness_elements.push(final_signature.as_ref());
@@ -426,48 +424,127 @@ impl Operator {
         idx: usize,
         withdrawal_address: Address<NetworkChecked>,
     ) -> Result<Txid, BridgeError> {
-        let deposit_tx_info = self.db.get_deposit_tx(idx).await?;
+        let deposit_txid = self.db.get_deposit_tx(idx).await?;
         tracing::debug!(
-            "Operator is signing withdrawal tx with txid: {:?}",
-            deposit_tx_info
+            "Operator is signing withdrawal tx with deposit_txid: {:?}",
+            deposit_txid
         );
-        let (bridge_address, _) = self.transaction_builder.generate_bridge_address()?;
+
+        let key_agg_ctx = KeyAggContext::new(self.verifiers_pks.clone()).unwrap();
+        // let agg_pk: PublicKey = key_agg_ctx.aggregated_pubkey();
+
+        let (bridge_address, _) = self.transaction_builder.generate_musig2_bridge_address()?;
         let dust_value = ScriptBuilder::anyone_can_spend_txout().value;
         let deposit_txout = TxOut {
             value: Amount::from_sat(BRIDGE_AMOUNT_SATS - self.config.min_relay_fee) - dust_value,
             script_pubkey: bridge_address.script_pubkey(),
         };
         let deposit_utxo = OutPoint {
-            txid: deposit_tx_info,
+            txid: deposit_txid,
             vout: 0,
         };
+
+        let pub_nonces_from_verifiers: Result<Vec<_>, BridgeError> = self
+            .verifier_connector
+            .iter()
+            .map(|verifier| async {
+                let pub_nonce = verifier
+                    .new_withdrawal_first_round_rpc(idx, withdrawal_address.as_unchecked().clone())
+                    .await?;
+                Ok(pub_nonce)
+            })
+            .collect::<FuturesOrdered<_>>()
+            .try_collect()
+            .await;
+
         let mut withdrawal_tx = self.transaction_builder.create_withdraw_tx(
             deposit_utxo,
             deposit_txout.clone(),
             &withdrawal_address,
         )?;
-        let signatures_from_verifiers: Result<Vec<_>, BridgeError> = self
+        let withdrawal_tx_sighash = Actor::convert_tx_to_sighash(&mut withdrawal_tx, 0, 0)?;
+
+        let mut pub_nonces_from_verifiers = pub_nonces_from_verifiers?;
+
+        let first_round = FirstRound::new(
+            key_agg_ctx.clone(),
+            self.sec_nonce,
+            self.config.num_verifiers,
+            SecNonceSpices::new()
+                .with_seckey(self.signer.secret_key)
+                .with_message(&withdrawal_tx_sighash),
+        )
+        .unwrap();
+
+        let op_withdraw_tx_pub_nonce = first_round.our_public_nonce();
+        let op_withdraw_tx_pub_nonce = ByteArray66(op_withdraw_tx_pub_nonce.serialize());
+        pub_nonces_from_verifiers.push(op_withdraw_tx_pub_nonce);
+
+        let pub_nonces = pub_nonces_from_verifiers
+            .iter()
+            .map(|deposit_pub_nonces| {
+                hex::encode(deposit_pub_nonces.0)
+                    .parse::<PubNonce>()
+                    .unwrap()
+            })
+            .collect::<Vec<_>>();
+
+        let withdrawal_agg_nonce = AggNonce::sum(&pub_nonces);
+
+        let withdrawal_agg_nonce_bytes = ByteArray66(withdrawal_agg_nonce.serialize());
+
+        let withdrawal_sigs_from_verifiers: Result<Vec<_>, BridgeError> = self
             .verifier_connector
             .iter()
             .map(|verifier| async {
                 let sig = verifier
-                    .new_withdrawal_direct_rpc(idx, withdrawal_address.as_unchecked().clone())
+                    .new_withdrawal_second_round_rpc(
+                        idx,
+                        withdrawal_address.as_unchecked().clone(),
+                        withdrawal_agg_nonce_bytes.clone(),
+                    )
                     .await?;
                 Ok(sig)
             })
             .collect::<FuturesOrdered<_>>()
             .try_collect()
             .await;
-        let mut verifier_sigs = signatures_from_verifiers?;
-        let sig = self
-            .signer
-            .sign_taproot_script_spend_tx_new(&mut withdrawal_tx, 0, 0)?;
-        verifier_sigs.push(sig);
-        verifier_sigs.reverse();
+
+        let mut withdrawal_sigs_from_verifiers = withdrawal_sigs_from_verifiers?;
+        tracing::info!("withdrawal_signatures_from_verifiers: done");
+
+        let withdrawal_agg_nonce = hex::encode(withdrawal_agg_nonce_bytes.0)
+            .parse::<AggNonce>()
+            .unwrap();
+
+        let op_withdrawal_sig: PartialSignature = first_round
+            .sign_for_aggregator(
+                self.signer.secret_key,
+                withdrawal_tx_sighash,
+                &withdrawal_agg_nonce,
+            )
+            .unwrap();
+
+        let op_withdrawal_sig_bytes = op_withdrawal_sig.serialize();
+
+        withdrawal_sigs_from_verifiers.push(op_withdrawal_sig_bytes);
+
+        let sigs_for_withdrawal_tx = withdrawal_sigs_from_verifiers
+            .iter()
+            .map(|x| PartialSignature::from_slice(x.as_slice()).unwrap())
+            .collect::<Vec<_>>();
+
+        let final_signature: [u8; 64] = musig2::aggregate_partial_signatures(
+            &key_agg_ctx,
+            &withdrawal_agg_nonce,
+            sigs_for_withdrawal_tx,
+            withdrawal_tx_sighash,
+        )
+        .unwrap();
+        tracing::debug!("final_signature for withdrawal_tx: {:?}", final_signature);
+
         let mut witness_elements: Vec<&[u8]> = Vec::new();
-        for sig in verifier_sigs.iter() {
-            witness_elements.push(sig.as_ref());
-        }
+        witness_elements.push(final_signature.as_ref());
         handle_taproot_witness_new(&mut withdrawal_tx, &witness_elements, 0, 0)?;
         let withdrawal_txid = self.rpc.send_raw_transaction(&withdrawal_tx.tx)?;
         Ok(withdrawal_txid)

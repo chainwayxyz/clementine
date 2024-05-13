@@ -48,7 +48,7 @@ impl Database {
         }
     }
 
-    /// Creates an
+    /// Creates an TODO complete this
     pub async fn begin_transaction(
         &self,
     ) -> Result<sqlx::Transaction<'_, sqlx::Postgres>, BridgeError> {

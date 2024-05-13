@@ -206,10 +206,6 @@ async fn test_flow_2() {
         .unwrap();
 
     handle_taproot_witness_new(&mut takes_after_tx_details, &vec![sig.as_ref()], 0, 1).unwrap();
-    tracing::debug!(
-        "now sending takes_after_tx: {:#?}",
-        takes_after_tx_details.tx
-    );
     let user_takes_back_txid = rpc
         .send_raw_transaction(&takes_after_tx_details.tx)
         .unwrap();

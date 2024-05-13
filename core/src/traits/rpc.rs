@@ -3,6 +3,7 @@ use bitcoin::{Address, OutPoint, Txid};
 use secp256k1::schnorr;
 
 use crate::operator::{AggNonces, DepositPubNonces};
+use crate::ByteArray66;
 use crate::{errors::BridgeError, operator::DepositPresigns, EVMAddress};
 
 use jsonrpsee::proc_macros::rpc;
@@ -14,7 +15,6 @@ pub trait VerifierRpc {
         &self,
         start_utxo: OutPoint,
         recovery_taproot_address: Address<NetworkUnchecked>,
-        deposit_index: u32,
         evm_address: EVMAddress,
         operator_address: Address<NetworkUnchecked>,
     ) -> Result<DepositPubNonces, BridgeError>;
@@ -23,17 +23,23 @@ pub trait VerifierRpc {
         &self,
         start_utxo: OutPoint,
         recovery_taproot_address: Address<NetworkUnchecked>,
-        deposit_index: u32,
         evm_address: EVMAddress,
         operator_address: Address<NetworkUnchecked>,
         aggregated_nonces: AggNonces,
     ) -> Result<DepositPresigns, BridgeError>;
-    #[method(name = "new_withdrawal")]
-    async fn new_withdrawal_direct_rpc(
+    #[method(name = "new_withdrawal_first_round")]
+    async fn new_withdrawal_first_round_rpc(
         &self,
         withdrawal_idx: usize,
         withdrawal_address: Address<NetworkUnchecked>,
-    ) -> Result<schnorr::Signature, BridgeError>;
+    ) -> Result<ByteArray66, BridgeError>;
+    #[method(name = "new_withdrawal_second_round")]
+    async fn new_withdrawal_second_round_rpc(
+        &self,
+        withdrawal_idx: usize,
+        withdrawal_address: Address<NetworkUnchecked>,
+        aggregated_nonce: ByteArray66,
+    ) -> Result<[u8; 32], BridgeError>;
 }
 
 #[rpc(client, server, namespace = "operator")]
