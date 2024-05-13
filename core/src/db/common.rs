@@ -87,6 +87,7 @@ impl Database {
             .bind(idx as i64)
             .fetch_one(&self.connection)
             .await;
+        tracing::debug!("QR: GETTING QR for :{:?}", idx);
 
         let qr = match qr {
             Ok(c) => c,
