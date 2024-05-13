@@ -11,8 +11,14 @@ use std::{env, net::TcpListener};
 
 pub const ENV_CONF_FILE: &str = "TEST_CONFIG";
 
-/// Returns test path for the specified test configuration.
+/// Returns configuration, read from configuration file which is specified from
+/// either an environment variable or the function argument. Environment
+/// variable is priotirized over the function argument `configuration_file`.
 pub fn get_test_config(configuration_file: &str) -> Result<BridgeConfig, BridgeError> {
+    if let Ok(config_file_path) = env::var(ENV_CONF_FILE) {
+        return BridgeConfig::try_parse_file(config_file_path.into());
+    }
+
     let mut config = match BridgeConfig::try_parse_file(
         format!(
             "{}/tests/data/{}",
@@ -29,26 +35,6 @@ pub fn get_test_config(configuration_file: &str) -> Result<BridgeConfig, BridgeE
     config.port = 0;
 
     Ok(config)
-}
-
-/// Reads configuration file specified with `ENV_CONF_FILE` environment variable
-/// and parses in to a `BridgeConfig`. If environment variable is not satisfied,
-/// `fallback_config` will be used.
-pub fn get_test_config_from_environment(
-    fallback_config: String,
-) -> Result<BridgeConfig, BridgeError> {
-    if let Ok(config_file_path) = env::var(ENV_CONF_FILE) {
-        BridgeConfig::try_parse_file(config_file_path.into())
-    } else {
-        get_test_config(&fallback_config.as_str())
-    }
-}
-
-/// Retrieves the list of configuration files in `tests/data` directory.
-///
-/// WIP
-pub fn _get_all_test_configs() -> Result<Vec<BridgeConfig>, BridgeError> {
-    todo!()
 }
 
 /// Finds consecutive idle ports starting from the given port, up to count num.

@@ -9,7 +9,6 @@ verifiers_public_keys = [
     "2c0b7cf95324a07d05398b240174dc0c2be444d96b159aa6c7f7b1e668680991",
     "9ac20335eb38768d2052be1dbbc3c8f6178407458e51e6b4ad22f1d91758895b",
 ]
-
 num_verifiers = 4
 min_relay_fee = 305
 user_takes_after = 5

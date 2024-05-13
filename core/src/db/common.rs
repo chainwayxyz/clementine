@@ -3,15 +3,6 @@
 //! Common database operations for both operator and verifier. This module
 //! directly talks with PostgreSQL. It is expected that PostgreSQL is properly
 //! installed and configured.
-//!
-//! ## Testing
-//!
-//! For testing, user can supply out-of-source-tree configuration file with
-//! `TEST_CONFIG` environment variable (`core/src/test_common.rs`).
-//!
-//! Tests that requires a proper PostgreSQL host configuration flagged with
-//! `ignore`. They can be run if configuration is OK with `--include-ignored`
-//! `cargo test` flag.
 
 use crate::EVMAddress;
 use crate::{config::BridgeConfig, errors::BridgeError};
@@ -28,7 +19,8 @@ pub struct Database {
 }
 
 impl Database {
-    /// Creates a new `Database`. Then tries to connect actual database.
+    /// Returns a `Database` after establishing connection to database. Returns
+    /// error in case database is not reachable.
     pub async fn new(config: BridgeConfig) -> Result<Self, BridgeError> {
         let url = "postgresql://".to_owned()
             + config.db_host.as_str()
@@ -48,7 +40,6 @@ impl Database {
         }
     }
 
-    /// Creates an
     pub async fn begin_transaction(
         &self,
     ) -> Result<sqlx::Transaction<'_, sqlx::Postgres>, BridgeError> {
@@ -58,30 +49,36 @@ impl Database {
         }
     }
 
-    /// Adds a deposit transaction to database. This transaction includes the
-    /// following:
-    ///
-    /// * Start UTXO
-    /// * Return address
-    /// * EVM address
-    pub async fn add_deposit_transaction(
+    pub async fn add_new_deposit_request(
         &self,
         start_utxo: OutPoint,
         recovery_taproot_address: Address<NetworkUnchecked>,
         evm_address: EVMAddress,
     ) -> Result<(), BridgeError> {
+        let start_utxo = start_utxo.to_string();
+        let recovery_taproot_address = serde_json::to_string(&recovery_taproot_address)
+            .unwrap()
+            .trim_matches('"')
+            .to_owned();
+        let evm_address = serde_json::to_string(&evm_address)
+            .unwrap()
+            .trim_matches('"')
+            .to_owned();
+
         tracing::debug!(
             "trying to insert: {:?}, {:?}, {:?}",
-            start_utxo.to_string(),
-            serde_json::to_string(&recovery_taproot_address).unwrap(),
-            serde_json::to_string(&evm_address).unwrap()
+            start_utxo,
+            recovery_taproot_address,
+            evm_address
         );
+
         sqlx::query("INSERT INTO new_deposit_requests (start_utxo, recovery_taproot_address, evm_address) VALUES ($1, $2, $3);")
-            .bind(start_utxo.to_string())
-            .bind(serde_json::to_string(&recovery_taproot_address).unwrap().trim_matches('"'))
-            .bind(serde_json::to_string(&evm_address).unwrap().trim_matches('"'))
+            .bind(start_utxo)
+            .bind(recovery_taproot_address)
+            .bind(evm_address)
             .fetch_all(&self.connection)
             .await?;
+
         Ok(())
     }
 
@@ -91,18 +88,15 @@ impl Database {
             .fetch_one(&self.connection)
             .await;
         tracing::debug!("QR: GETTING QR for :{:?}", idx);
+
         let qr = match qr {
             Ok(c) => c,
             Err(e) => return Err(BridgeError::DatabaseError(e)),
         };
 
-        // tracing::debug!("QR: {:?}", qr.get::<String, _>(0));
         match Txid::from_str(&qr.get::<String, _>(0)) {
             Ok(c) => Ok(c),
-            Err(e) => {
-                tracing::error!("Error: {:?}", e);
-                Err(BridgeError::DatabaseError(sqlx::Error::RowNotFound))
-            } // TODO: Is this correct?
+            Err(e) => Err(BridgeError::DatabaseError(sqlx::Error::Decode(Box::new(e)))),
         }
     }
 
@@ -130,6 +124,7 @@ impl Database {
             .bind(move_txid.to_string())
             .fetch_all(&self.connection)
             .await?;
+
         Ok(())
     }
 
@@ -145,6 +140,7 @@ impl Database {
             .bind(serde_json::to_string(&evm_address).unwrap().trim_matches('"'))
             .fetch_one(&self.connection)
             .await?;
+
         let move_txid = Txid::from_str(&qr.0).unwrap();
         Ok(move_txid)
     }
@@ -163,6 +159,7 @@ impl Database {
         .bind(sig.to_string())
         .fetch_all(&self.connection)
         .await?;
+
         Ok(())
     }
 
@@ -175,6 +172,7 @@ impl Database {
                 .bind(idx as i64)
                 .fetch_one(&self.connection)
                 .await?;
+
         let bridge_fund_txid = Txid::from_str(&qr.0).unwrap();
         let sig = secp256k1::schnorr::Signature::from_str(&qr.1).unwrap();
         Ok((bridge_fund_txid, sig))
@@ -352,15 +350,6 @@ impl Database {
     }
 }
 
-/// These tests not just aims to show correctness of the implementation: They
-/// are here to show doing asynchronous operations over db is possible and data
-/// won't get corrupted while doing so. Although db functions guarantee there
-/// won't be a data race once a function is called, they won't guarantee data
-/// will stay same between two db function calls. Therefore we need to da a
-/// manual synchronization between tests too.
-///
-/// Currently, some tests for some functions are absent because of the complex
-/// parameters: They are hard to mock.
 #[cfg(test)]
 mod tests {
     use super::Database;
@@ -389,10 +378,8 @@ mod tests {
     }
 
     #[tokio::test]
-    #[ignore]
     async fn valid_connection() {
-        let config =
-            test_common::get_test_config_from_environment("test_config.toml".to_string()).unwrap();
+        let config = test_common::get_test_config("test_config.toml").unwrap();
 
         match Database::new(config).await {
             Ok(_) => {
@@ -407,8 +394,7 @@ mod tests {
 
     #[tokio::test]
     async fn add_deposit_transaction() {
-        let config =
-            test_common::get_test_config_from_environment("test_config.toml".to_string()).unwrap();
+        let config = test_common::get_test_config("test_config.toml").unwrap();
         let database = Database::new(config.clone()).await.unwrap();
         let secp = Secp256k1::new();
         let xonly_public_key = XOnlyPublicKey::from_slice(&[
@@ -420,7 +406,7 @@ mod tests {
         let address = Address::p2tr(&secp, xonly_public_key, None, config.network);
 
         database
-            .add_deposit_transaction(
+            .add_new_deposit_request(
                 OutPoint::null(),
                 address.as_unchecked().clone(),
                 EVMAddress([0u8; 20]),
@@ -432,8 +418,7 @@ mod tests {
     #[cfg(poc)]
     #[tokio::test]
     async fn deposit_tx() {
-        let config =
-            test_common::get_test_config_from_environment("test_config.toml".to_string()).unwrap();
+        let config = test_common::get_test_config("test_config.toml".to_string()).unwrap();
         let database = Database::new(config).await.unwrap();
 
         let prev_idx = database.get_next_deposit_index().await.unwrap();
@@ -459,8 +444,7 @@ mod tests {
     #[cfg(poc)]
     #[tokio::test]
     async fn connector_tree_hash() {
-        let config =
-            test_common::get_test_config_from_environment("test_config.toml".to_string()).unwrap();
+        let config = test_common::get_test_config("test_config.toml".to_string()).unwrap();
         let database = Database::new(config).await.unwrap();
 
         let lock = unsafe { LOCK.clone().unwrap() };
@@ -478,8 +462,7 @@ mod tests {
     #[cfg(poc)]
     #[tokio::test]
     async fn claim_proof_merkle_tree() {
-        let config =
-            test_common::get_test_config_from_environment("test_config.toml".to_string()).unwrap();
+        let config = test_common::get_test_config("test_config.toml".to_string()).unwrap();
         let database = Database::new(config).await.unwrap();
         let lock = unsafe { LOCK.clone().unwrap() };
         let _guard = lock.lock().unwrap();
