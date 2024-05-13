@@ -388,7 +388,7 @@ mod tests {
     #[ignore]
     async fn valid_connection() {
         let config =
-            test_common::get_test_config_from_environment("test_config.toml".to_string()).unwrap();
+            test_common::get_test_config("test_config.toml").unwrap();
 
         match Database::new(config).await {
             Ok(_) => {
@@ -404,7 +404,7 @@ mod tests {
     #[tokio::test]
     async fn add_deposit_transaction() {
         let config =
-            test_common::get_test_config_from_environment("test_config.toml".to_string()).unwrap();
+            test_common::get_test_config("test_config.toml").unwrap();
         let database = Database::new(config.clone()).await.unwrap();
         let secp = Secp256k1::new();
         let xonly_public_key = XOnlyPublicKey::from_slice(&[
@@ -429,7 +429,7 @@ mod tests {
     #[tokio::test]
     async fn deposit_tx() {
         let config =
-            test_common::get_test_config_from_environment("test_config.toml".to_string()).unwrap();
+            test_common::get_test_config("test_config.toml".to_string()).unwrap();
         let database = Database::new(config).await.unwrap();
 
         let prev_idx = database.get_next_deposit_index().await.unwrap();
@@ -456,7 +456,7 @@ mod tests {
     #[tokio::test]
     async fn connector_tree_hash() {
         let config =
-            test_common::get_test_config_from_environment("test_config.toml".to_string()).unwrap();
+            test_common::get_test_config("test_config.toml".to_string()).unwrap();
         let database = Database::new(config).await.unwrap();
 
         let lock = unsafe { LOCK.clone().unwrap() };
@@ -475,7 +475,7 @@ mod tests {
     #[tokio::test]
     async fn claim_proof_merkle_tree() {
         let config =
-            test_common::get_test_config_from_environment("test_config.toml".to_string()).unwrap();
+            test_common::get_test_config("test_config.toml".to_string()).unwrap();
         let database = Database::new(config).await.unwrap();
         let lock = unsafe { LOCK.clone().unwrap() };
         let _guard = lock.lock().unwrap();
