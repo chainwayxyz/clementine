@@ -15,10 +15,13 @@ use bitcoin::address::{NetworkChecked, NetworkUnchecked};
 use bitcoin::{secp256k1, secp256k1::Secp256k1, OutPoint};
 use bitcoin::{Address, Amount, TxOut, Txid};
 use clementine_circuits::constants::BRIDGE_AMOUNT_SATS;
+use ethers::types::transaction::eip2718::TypedTransaction;
+use ethers::types::Eip1559TransactionRequest;
 use jsonrpsee::core::async_trait;
+use jsonrpsee::core::client::ClientT;
 use jsonrpsee::http_client::{HttpClient, HttpClientBuilder};
 use jsonrpsee::rpc_params;
-use jsonrpsee::core::client::ClientT;
+use reth_primitives::BlockNumberOrTag;
 use secp256k1::XOnlyPublicKey;
 use secp256k1::{schnorr, SecretKey};
 
@@ -118,12 +121,12 @@ impl Verifier {
         bridge_fund_txid: Txid,
         withdrawal_address: &Address<NetworkChecked>,
     ) -> Result<schnorr::Signature, BridgeError> {
-        // TODO: Check from citrea rpc if the withdrawal is valid
-        let citrea_response: String = self.citrea_client
-            .request("eth_call", rpc_params![])
-            .await
-            .unwrap();
-        tracing::debug!("Citrea response: {}", citrea_response);
+        self.check_citrea_for_withdrawal_validity(
+            withdrawal_idx,
+            bridge_fund_txid,
+            withdrawal_address,
+        )
+        .await?;
 
         if let Ok((db_bridge_fund_txid, sig)) =
             self.db.get_withdrawal_sig_by_idx(withdrawal_idx).await
@@ -165,6 +168,26 @@ impl Verifier {
             .save_withdrawal_sig(withdrawal_idx, bridge_fund_txid, sig)
             .await?;
         Ok(sig)
+    }
+
+    /// Triggers an `eth_call` to Citrea for checking if the withdrawal request
+    /// is valid or not. This will fail if withdrawal is already made in Citrea.
+    async fn check_citrea_for_withdrawal_validity(
+        &self,
+        withdrawal_idx: usize,
+        bridge_fund_txid: Txid,
+        withdrawal_address: &Address<NetworkChecked>,
+    ) -> Result<(), BridgeError> {
+        let tx: TypedTransaction = TypedTransaction::Eip1559(Eip1559TransactionRequest::new());
+        let block_number: BlockNumberOrTag = BlockNumberOrTag::Latest;
+
+        let response: String = self
+            .citrea_client
+            .request("eth_call", rpc_params![tx, block_number])
+            .await?;
+        tracing::debug!("Citrea's response for withdrawal request: {}", response);
+
+        Ok(())
     }
 
     #[cfg(feature = "poc")]
