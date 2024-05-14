@@ -250,9 +250,7 @@ impl Verifier {
     ) -> Result<Self, BridgeError> {
         let signer = Actor::new(sk, config.network);
         let secp: Secp256k1<secp256k1::All> = Secp256k1::new();
-        let citrea_client = HttpClientBuilder::default()
-            .build(config.citrea_rpc_url.clone())
-            .unwrap();
+        let citrea_client = HttpClientBuilder::default().build(config.citrea_rpc_url.clone())?;
 
         let pk: secp256k1::PublicKey = sk.public_key(&secp);
         let xonly_pk = XOnlyPublicKey::from(pk);
