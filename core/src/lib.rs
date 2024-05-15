@@ -118,6 +118,12 @@ pub async fn create_operator_server(
     Ok((addr, handle))
 }
 
+/// Starts operator and verifiers servers.
+///
+/// # Panics
+///
+/// This function will panic if input configuration is not met the requirements
+/// or servers can't be started.
 pub async fn start_operator_and_verifiers(
     config: BridgeConfig,
 ) -> (
@@ -128,11 +134,13 @@ pub async fn start_operator_and_verifiers(
     let mut all_secret_keys = config.all_secret_keys.clone().unwrap_or_else(|| {
         panic!("All secret keys are required for testing");
     });
-    all_secret_keys.pop().unwrap(); // Remove the operator secret key
+    // Remove the operator secret key
+    all_secret_keys.pop().unwrap();
 
+    // Start verifiers servers, asynchronously.
     let futures = all_secret_keys
         .iter()
-        .enumerate() // This adds the index to the iterator
+        .enumerate()
         .map(|(i, sk)| {
             create_verifier_server(BridgeConfig {
                 verifiers_public_keys: config.verifiers_public_keys.clone(),
@@ -143,14 +151,13 @@ pub async fn start_operator_and_verifiers(
             })
         })
         .collect::<Vec<_>>();
-
-    // Use `futures::future::try_join_all` to run all futures concurrently and wait for all to complete
     let mut results = futures::future::try_join_all(futures).await.unwrap();
     let verifier_endpoints = results
         .iter()
         .map(|(socket_addr, _)| format!("http://{}:{}/", socket_addr.ip(), socket_addr.port()))
         .collect::<Vec<_>>();
 
+    // Start operator server.
     let (operator_socket_addr, operator_handle) =
         create_operator_server(config, verifier_endpoints)
             .await

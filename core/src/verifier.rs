@@ -65,8 +65,13 @@ impl VerifierRpcServer for Verifier {
         evm_address: EVMAddress,
     ) -> Result<schnorr::Signature, BridgeError> {
         let withdrawal_address = withdrawal_address.require_network(self.config.network)?;
-        self.new_withdrawal_direct(withdrawal_idx, bridge_fund_txid, &withdrawal_address, evm_address)
-            .await
+        self.new_withdrawal_direct(
+            withdrawal_idx,
+            bridge_fund_txid,
+            &withdrawal_address,
+            evm_address,
+        )
+        .await
     }
 }
 
@@ -120,7 +125,7 @@ impl Verifier {
         withdrawal_idx: usize,
         bridge_fund_txid: Txid,
         withdrawal_address: &Address<NetworkChecked>,
-        evm_address: EVMAddress
+        evm_address: EVMAddress,
     ) -> Result<schnorr::Signature, BridgeError> {
         self.check_citrea_for_withdrawal_validity(withdrawal_idx, evm_address)
             .await?;
@@ -172,7 +177,7 @@ impl Verifier {
     async fn check_citrea_for_withdrawal_validity(
         &self,
         withdrawal_idx: usize,
-        evm_address: EVMAddress
+        evm_address: EVMAddress,
     ) -> Result<(), BridgeError> {
         let to = ethers::types::H160(evm_address.0);
         let data = format!("{:0>64x}", withdrawal_idx).into_bytes();
