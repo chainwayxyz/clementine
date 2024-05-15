@@ -15,8 +15,7 @@ use bitcoin::address::{NetworkChecked, NetworkUnchecked};
 use bitcoin::{secp256k1, secp256k1::Secp256k1, OutPoint};
 use bitcoin::{Address, Amount, TxOut, Txid};
 use clementine_circuits::constants::BRIDGE_AMOUNT_SATS;
-use ethers::types::transaction::eip2718::TypedTransaction;
-use ethers::types::Eip1559TransactionRequest;
+use ethers::types::{Eip1559TransactionRequest, NameOrAddress};
 use jsonrpsee::core::async_trait;
 use jsonrpsee::core::client::ClientT;
 use jsonrpsee::http_client::{HttpClient, HttpClientBuilder};
@@ -63,9 +62,10 @@ impl VerifierRpcServer for Verifier {
         withdrawal_idx: usize,
         bridge_fund_txid: Txid,
         withdrawal_address: Address<NetworkUnchecked>,
+        evm_address: EVMAddress,
     ) -> Result<schnorr::Signature, BridgeError> {
         let withdrawal_address = withdrawal_address.require_network(self.config.network)?;
-        self.new_withdrawal_direct(withdrawal_idx, bridge_fund_txid, &withdrawal_address)
+        self.new_withdrawal_direct(withdrawal_idx, bridge_fund_txid, &withdrawal_address, evm_address)
             .await
     }
 }
@@ -120,13 +120,10 @@ impl Verifier {
         withdrawal_idx: usize,
         bridge_fund_txid: Txid,
         withdrawal_address: &Address<NetworkChecked>,
+        evm_address: EVMAddress
     ) -> Result<schnorr::Signature, BridgeError> {
-        self.check_citrea_for_withdrawal_validity(
-            withdrawal_idx,
-            bridge_fund_txid,
-            withdrawal_address,
-        )
-        .await?;
+        self.check_citrea_for_withdrawal_validity(withdrawal_idx, evm_address)
+            .await?;
 
         if let Ok((db_bridge_fund_txid, sig)) =
             self.db.get_withdrawal_sig_by_idx(withdrawal_idx).await
@@ -175,17 +172,21 @@ impl Verifier {
     async fn check_citrea_for_withdrawal_validity(
         &self,
         withdrawal_idx: usize,
-        bridge_fund_txid: Txid,
-        withdrawal_address: &Address<NetworkChecked>,
+        evm_address: EVMAddress
     ) -> Result<(), BridgeError> {
-        let tx: TypedTransaction = TypedTransaction::Eip1559(Eip1559TransactionRequest::new());
+        let to = ethers::types::H160(evm_address.0);
+        let data = format!("{:0>64x}", withdrawal_idx).into_bytes();
+        let tx = Eip1559TransactionRequest::new();
+        let tx = tx.to(NameOrAddress::Address(to));
+        let tx = tx.data(data.clone());
+
         let block_number: BlockNumberOrTag = BlockNumberOrTag::Latest;
 
         let response: String = self
             .citrea_client
             .request("eth_call", rpc_params![tx, block_number])
             .await?;
-        tracing::debug!("Citrea's response for withdrawal request: {}", response);
+        tracing::debug!("Citrea's response for withdrawal request: {:?}", response);
 
         Ok(())
     }
@@ -250,7 +251,6 @@ impl Verifier {
     ) -> Result<Self, BridgeError> {
         let signer = Actor::new(sk, config.network);
         let secp: Secp256k1<secp256k1::All> = Secp256k1::new();
-        let citrea_client = HttpClientBuilder::default().build(config.citrea_rpc_url.clone())?;
 
         let pk: secp256k1::PublicKey = sk.public_key(&secp);
         let xonly_pk = XOnlyPublicKey::from(pk);
@@ -263,6 +263,9 @@ impl Verifier {
 
         let transaction_builder = TransactionBuilder::new(all_xonly_pks.clone(), config.clone());
         let operator_pk = all_xonly_pks[all_xonly_pks.len() - 1];
+
+        let citrea_client = HttpClientBuilder::default().build(config.citrea_rpc_url.clone())?;
+
         Ok(Verifier {
             rpc,
             secp,

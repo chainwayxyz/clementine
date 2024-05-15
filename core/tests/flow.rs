@@ -80,7 +80,7 @@ async fn test_flow_1() {
 
     // This index is 3 since when testing the unit tests complete first and the index=1,2 is not sane
     let withdraw_txid = operator_client
-        .new_withdrawal_direct_rpc(0, withdrawal_address.as_unchecked().clone())
+        .new_withdrawal_direct_rpc(0, withdrawal_address.as_unchecked().clone(), evm_addresses[0])
         .await
         .unwrap();
     tracing::debug!("Withdrawal sent to address: {:?}", withdrawal_address);
