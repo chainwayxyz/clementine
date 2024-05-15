@@ -30,6 +30,7 @@ async fn test_flow_1() {
 
     let (operator_client, _operator_handler, _results) =
         start_operator_and_verifiers(config.clone()).await;
+
     let secp = bitcoin::secp256k1::Secp256k1::new();
     let (xonly_pk, _) = config.secret_key.public_key(&secp).x_only_public_key();
     let taproot_address = Address::p2tr(&secp, xonly_pk, None, config.network);

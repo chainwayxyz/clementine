@@ -62,7 +62,7 @@ impl ScriptBuilder {
 
     pub fn create_deposit_script(&self, evm_address: &EVMAddress, amount: u64) -> ScriptBuf {
         let citrea: [u8; 6] = "citrea".as_bytes().try_into().unwrap();
-        // println!("citrea: {:?}", citrea);
+
         self.create_n_of_n_builder()
             .push_opcode(OP_FALSE)
             .push_opcode(OP_IF)
@@ -90,9 +90,9 @@ impl ScriptBuilder {
         inscribe_preimage_script_builder.into_script()
     }
 
-    // ATTENTION: If you want to spend a UTXO using timelock script, the condition is that
-    // # in the script < # in the sequence of the tx < # of blocks mined after UTXO appears on the chain
-
+    /// ATTENTION: If you want to spend an UTXO using timelock script, the
+    /// condition is that (`# in the script`) < (`# in the sequence of the tx`)
+    /// < (`# of blocks mined after UTXO`) appears on the chain.
     pub fn generate_timelock_script(
         actor_taproot_address: &Address<NetworkUnchecked>,
         block_count: u32,

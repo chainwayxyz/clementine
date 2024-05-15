@@ -57,7 +57,8 @@ impl TransactionBuilder {
         }
     }
 
-    /// This function generates a deposit address for the user. N-of-N or User takes after timelock script can be used to spend the funds.
+    /// This function generates a deposit address for the user. N-of-N or user
+    /// takes after timelock script can be used to spend the funds.
     pub fn generate_deposit_address(
         &self,
         recovery_taproot_address: &Address<NetworkUnchecked>,
@@ -67,20 +68,25 @@ impl TransactionBuilder {
         let deposit_script = self
             .script_builder
             .create_deposit_script(user_evm_address, amount);
+
         let script_timelock = ScriptBuilder::generate_timelock_script(
             recovery_taproot_address,
             self.config.user_takes_after,
         );
+
         let taproot = TaprootBuilder::new()
             .add_leaf(1, deposit_script.clone())?
             .add_leaf(1, script_timelock.clone())?;
+
         let tree_info = taproot.finalize(&self.secp, *INTERNAL_KEY)?;
+
         let address = Address::p2tr(
             &self.secp,
             *INTERNAL_KEY,
             tree_info.merkle_root(),
             self.config.network,
         );
+
         Ok((address, tree_info))
     }
 
