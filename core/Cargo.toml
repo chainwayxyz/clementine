@@ -30,9 +30,6 @@ toml = "0.8.12"
 sqlx = { version = "0.7.4", features = ["runtime-tokio", "postgres"] }
 ethers = "2.0.14"
 reth-primitives = { git = "https://github.com/paradigmxyz/reth", tag = "v0.2.0-beta.7", default-features = false }
-reth-rpc-types = { git = "https://github.com/paradigmxyz/reth", tag = "v0.2.0-beta.7" }
-reth-rpc-types-compat = { git = "https://github.com/paradigmxyz/reth", tag = "v0.2.0-beta.7" }
-reth-rpc = { git = "https://github.com/paradigmxyz/reth", tag = "v0.2.0-beta.7" }
 
 [features]
 default = []
