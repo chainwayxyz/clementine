@@ -13,7 +13,7 @@ use bitcoin::hex::{Case, DisplayHex};
 use bitcoin::{secp256k1, secp256k1::Secp256k1, OutPoint};
 use bitcoin::{Address, Amount, TxOut, Txid};
 use clementine_circuits::constants::BRIDGE_AMOUNT_SATS;
-use ethers::types::Eip1559TransactionRequest;
+use ethers::types::{Eip1559TransactionRequest, NameOrAddress};
 use ethers::utils::keccak256;
 use jsonrpsee::core::async_trait;
 use jsonrpsee::core::client::ClientT;
@@ -175,17 +175,42 @@ impl Verifier {
         withdrawal_idx: usize,
         withdrawal_address: Address<NetworkChecked>,
     ) -> Result<(), BridgeError> {
-        let to = self.config.bridge_contract_address.clone();
+        // First, construct `to` and `data` as in human readable formats to log
+        // them.
+        let to = format!(
+            "{:0>40}",
+            self.config.bridge_contract_address.to_ascii_lowercase()
+        );
 
         let data = format!("{:0>64x?}", withdrawal_address).into_bytes();
         let data = keccak256(data).to_hex_string(Case::Lower);
         let data = format!("{data} {withdrawal_idx}");
 
-        tracing::debug!("Citrea withdrawal request check payload: to: {to}, data: {data:?}");
+        tracing::debug!("Citrea withdrawal request check payload: to: {to:?}, data: {data:?}");
+
+        // After logging, convert them to machine parsable format.
+
+        // `to` field accepts a 20 byte u8 array. We need to convert our 40
+        // character hex value to 20 byte decimal u8 array.
+        let to = {
+            let to = to.as_bytes();
+            let mut tmp = [0u8; 20];
+            for i in (0..40).step_by(2) {
+                tmp[i / 2] = ((to[i] - ('0' as u8)) * 16) + (to[i + 1] - ('0' as u8));
+            }
+
+            tmp
+        };
+        let to = NameOrAddress::Address(ethers::types::H160(to));
+        let data = data.as_bytes().to_vec().clone();
+
+        tracing::debug!(
+            "Citrea withdrawal request machine readable payload: to: {to:?}, data: {data:?}"
+        );
 
         let tx = Eip1559TransactionRequest::new();
         let tx = tx.to(to);
-        let tx = tx.data(data.as_bytes().to_vec().clone());
+        let tx = tx.data(data);
 
         let block_number: BlockNumberOrTag = BlockNumberOrTag::Latest;
 

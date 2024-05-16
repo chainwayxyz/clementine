@@ -171,7 +171,7 @@ impl Default for BridgeConfig {
             db_password: "postgres".to_string(),
             db_name: "postgres".to_string(),
             citrea_rpc_url: "http://localhost:54321".to_string(),
-            bridge_contract_address: "01020304050607080910".to_string(),
+            bridge_contract_address: "01020304050607080910111213141516".to_string(),
         }
     }
 }
