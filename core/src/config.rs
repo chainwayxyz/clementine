@@ -85,7 +85,7 @@ pub struct BridgeConfig {
     pub db_password: String,
     /// PostgreSQL database name.
     pub db_name: String,
-    /// Citrea RPC URL for getting i'th withdrawal
+    /// Citrea remote procedure call URL for retrieving data from Citrea.
     pub citrea_rpc_url: String,
 }
 
