@@ -12,10 +12,12 @@ use crate::utils::check_deposit_utxo;
 use crate::EVMAddress;
 use crate::{actor::Actor, operator::DepositPresigns};
 use bitcoin::address::{NetworkChecked, NetworkUnchecked};
+use bitcoin::hex::{Case, DisplayHex};
 use bitcoin::{secp256k1, secp256k1::Secp256k1, OutPoint};
 use bitcoin::{Address, Amount, TxOut, Txid};
 use clementine_circuits::constants::BRIDGE_AMOUNT_SATS;
 use ethers::types::Eip1559TransactionRequest;
+use ethers::utils::keccak256;
 use jsonrpsee::core::async_trait;
 use jsonrpsee::core::client::ClientT;
 use jsonrpsee::http_client::{HttpClient, HttpClientBuilder};
@@ -120,7 +122,7 @@ impl Verifier {
         bridge_fund_txid: Txid,
         withdrawal_address: &Address<NetworkChecked>,
     ) -> Result<schnorr::Signature, BridgeError> {
-        self.check_citrea_for_withdrawal_validity(withdrawal_idx, withdrawal_address)
+        self.check_citrea_for_withdrawal_validity(withdrawal_idx, withdrawal_address.clone())
             .await?;
 
         if let Ok((db_bridge_fund_txid, sig)) =
@@ -170,13 +172,19 @@ impl Verifier {
     async fn check_citrea_for_withdrawal_validity(
         &self,
         withdrawal_idx: usize,
-        _withdrawal_address: &Address<NetworkChecked>,
+        withdrawal_address: Address<NetworkChecked>,
     ) -> Result<(), BridgeError> {
-        // let to = ethers::types::H160(evm_address.0);
-        let data = format!("{:0>64x}", withdrawal_idx).into_bytes();
+        let to = self.config.bridge_contract_address.clone();
+
+        let data = format!("{:0>64x?}", withdrawal_address).into_bytes();
+        let data = keccak256(data).to_hex_string(Case::Lower);
+        let data = format!("{data} {withdrawal_idx}");
+
+        tracing::debug!("Citrea withdrawal request check payload: to: {to}, data: {data:?}");
+
         let tx = Eip1559TransactionRequest::new();
-        // let tx = tx.to(NameOrAddress::Address(to));
-        let tx = tx.data(data.clone());
+        let tx = tx.to(to);
+        let tx = tx.data(data.as_bytes().to_vec().clone());
 
         let block_number: BlockNumberOrTag = BlockNumberOrTag::Latest;
 

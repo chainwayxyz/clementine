@@ -87,6 +87,8 @@ pub struct BridgeConfig {
     pub db_name: String,
     /// Citrea remote procedure call URL for retrieving data from Citrea.
     pub citrea_rpc_url: String,
+    /// Bridge contract address.
+    pub bridge_contract_address: String,
 }
 
 impl BridgeConfig {
@@ -169,6 +171,7 @@ impl Default for BridgeConfig {
             db_password: "postgres".to_string(),
             db_name: "postgres".to_string(),
             citrea_rpc_url: "http://localhost:54321".to_string(),
+            bridge_contract_address: "01020304050607080910".to_string(),
         }
     }
 }
