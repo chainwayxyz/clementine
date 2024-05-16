@@ -15,7 +15,7 @@ use bitcoin::address::{NetworkChecked, NetworkUnchecked};
 use bitcoin::{secp256k1, secp256k1::Secp256k1, OutPoint};
 use bitcoin::{Address, Amount, TxOut, Txid};
 use clementine_circuits::constants::BRIDGE_AMOUNT_SATS;
-use ethers::types::{Eip1559TransactionRequest, NameOrAddress};
+use ethers::types::Eip1559TransactionRequest;
 use jsonrpsee::core::async_trait;
 use jsonrpsee::core::client::ClientT;
 use jsonrpsee::http_client::{HttpClient, HttpClientBuilder};
@@ -62,16 +62,10 @@ impl VerifierRpcServer for Verifier {
         withdrawal_idx: usize,
         bridge_fund_txid: Txid,
         withdrawal_address: Address<NetworkUnchecked>,
-        evm_address: EVMAddress,
     ) -> Result<schnorr::Signature, BridgeError> {
         let withdrawal_address = withdrawal_address.require_network(self.config.network)?;
-        self.new_withdrawal_direct(
-            withdrawal_idx,
-            bridge_fund_txid,
-            &withdrawal_address,
-            evm_address,
-        )
-        .await
+        self.new_withdrawal_direct(withdrawal_idx, bridge_fund_txid, &withdrawal_address)
+            .await
     }
 }
 
@@ -125,9 +119,8 @@ impl Verifier {
         withdrawal_idx: usize,
         bridge_fund_txid: Txid,
         withdrawal_address: &Address<NetworkChecked>,
-        evm_address: EVMAddress,
     ) -> Result<schnorr::Signature, BridgeError> {
-        self.check_citrea_for_withdrawal_validity(withdrawal_idx, evm_address)
+        self.check_citrea_for_withdrawal_validity(withdrawal_idx, withdrawal_address)
             .await?;
 
         if let Ok((db_bridge_fund_txid, sig)) =
@@ -177,12 +170,12 @@ impl Verifier {
     async fn check_citrea_for_withdrawal_validity(
         &self,
         withdrawal_idx: usize,
-        evm_address: EVMAddress,
+        _withdrawal_address: &Address<NetworkChecked>,
     ) -> Result<(), BridgeError> {
-        let to = ethers::types::H160(evm_address.0);
+        // let to = ethers::types::H160(evm_address.0);
         let data = format!("{:0>64x}", withdrawal_idx).into_bytes();
         let tx = Eip1559TransactionRequest::new();
-        let tx = tx.to(NameOrAddress::Address(to));
+        // let tx = tx.to(NameOrAddress::Address(to));
         let tx = tx.data(data.clone());
 
         let block_number: BlockNumberOrTag = BlockNumberOrTag::Latest;

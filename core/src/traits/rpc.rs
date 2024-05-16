@@ -23,7 +23,6 @@ pub trait VerifierRpc {
         withdrawal_idx: usize,
         bridge_fund_txid: Txid,
         withdrawal_address: Address<NetworkUnchecked>,
-        evm_address: EVMAddress,
     ) -> Result<schnorr::Signature, BridgeError>;
 }
 
@@ -42,6 +41,5 @@ pub trait OperatorRpc {
         &self,
         idx: usize,
         withdrawal_address: Address<NetworkUnchecked>,
-        evm_address: EVMAddress,
     ) -> Result<Txid, BridgeError>;
 }

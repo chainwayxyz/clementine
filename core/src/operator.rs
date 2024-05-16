@@ -102,10 +102,9 @@ impl OperatorRpcServer for Operator {
         &self,
         idx: usize,
         withdrawal_address: Address<NetworkUnchecked>,
-        evm_address: EVMAddress,
     ) -> Result<Txid, BridgeError> {
         let withdraw_txid = self
-            .new_withdrawal_direct(idx, withdrawal_address.assume_checked(), evm_address)
+            .new_withdrawal_direct(idx, withdrawal_address.assume_checked())
             .await?;
         Ok(withdraw_txid)
     }
@@ -264,7 +263,6 @@ impl Operator {
         &self,
         idx: usize,
         withdrawal_address: Address<NetworkChecked>,
-        evm_address: EVMAddress,
     ) -> Result<Txid, BridgeError> {
         let deposit_tx_info = self.db.get_deposit_tx(idx).await?;
         tracing::debug!(
@@ -295,7 +293,6 @@ impl Operator {
                         idx,
                         deposit_tx_info,
                         withdrawal_address.as_unchecked().clone(),
-                        evm_address,
                     )
                     .await?;
                 Ok(sig)
