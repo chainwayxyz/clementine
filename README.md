@@ -1,11 +1,14 @@
 # Clementine 🍊
+
 Clementine is Citrea's BitVM based trust-minimized two-way peg program.
 The repository includes:
+
 - Smart contracts for deposit and withdrawal
 - A library for bridge operator and verifiers
 - Circuits that will be optimistically verified with BitVM
 
 The flow is as follows:
+
 - Creating the operator and verifiers
 - Initial setup that includes calculating period block heights, connector tree hashes, and funding connector source UTXOs.
 - User deposit flow that includes creating a deposit transaction, signing it, and submitting it to the operator.
@@ -15,16 +18,15 @@ The flow is as follows:
 - Verifier to start a challenge with Bitcoin Proof of Work
 - Operator to respond to the challenge with a bridge proof.
 
-
-> [!WARNING] 
+> [!WARNING]
+>
 > Clementine is still work-in-progress. It has not been audited and should not be used in production under any circumstances. It also requires a full BitVM implementation to be run fully on-chain.
-
 
 ## Instructions
 
 To clone this repo with submodules:
 
-```
+```sh
 git clone --recurse-submodules https://github.com/chainwayxyz/clementine.git
 cd clementine
 ```
@@ -36,42 +38,31 @@ To run the whole process of simulating deposits, withdrawals, proof generation o
 You can use the following commands to run the server.
 
 Start the regtest server with the following command:
+
 ```sh
 bitcoind -regtest -rpcuser=admin -rpcpassword=admin -rpcport=18443 -fallbackfee=0.00001 -wallet=admin -txindex=1
 ```
 
 Create a wallet for the operator:
+
 ```sh
 bitcoin-cli -regtest -rpcuser=admin -rpcpassword=admin -rpcport=18443 createwallet "admin"
 ```
 
 Mine some blocks to the wallet:
+
 ```sh
 bitcoin-cli -regtest -rpcuser=admin -rpcpassword=admin -rpcport=18443 generatetoaddress 101 $(bitcoin-cli -regtest -rpcuser=admin -rpcpassword=admin -rpcport=18443 getnewaddress)
 ```
 
-### Run the Clementine simulation
-```sh
-cargo run
-```
-
-### Create Random Key Pairs
-
-To create random key pairs for testing, run:
-
-```sh
-cargo run --bin key_generator
-```
-
-This will generate JSON files in `configs` directory.
-
 ### Test
+
 ```sh
 cargo test
 ```
 
-# License
+## License
 
-## Copyright
+### Copyright
 
 **(c) 2024 Chainway Limited** `clementine` was developed by Chainway Limited. While we plan to adopt an open source license, we have not yet selected one. As such, all rights are reserved for the time being. Please reach out to us if you have thoughts on licensing.
