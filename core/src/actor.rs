@@ -51,6 +51,26 @@ impl Actor {
         sighash: TapSighash,
         merkle_root: Option<TapNodeHash>,
     ) -> Result<schnorr::Signature, BridgeError> {
+        println!(
+            "tweak when signing: {:?}",
+            TapTweakHash::from_key_and_tweak(self.xonly_public_key, merkle_root).to_scalar()
+        );
+        println!(
+            "message when signing: {:?}",
+            Message::from_digest_slice(sighash.as_byte_array()).expect("should be hash")
+        );
+        let kp = self
+            .keypair
+            .add_xonly_tweak(
+                &self.secp,
+                &TapTweakHash::from_key_and_tweak(self.xonly_public_key, merkle_root).to_scalar(),
+            )
+            .unwrap();
+        println!(
+            "keypair when signing: {:?}, {:?}",
+            kp.secret_key(),
+            kp.public_key()
+        );
         Ok(self.secp.sign_schnorr(
             &Message::from_digest_slice(sighash.as_byte_array()).expect("should be hash"),
             &self.keypair.add_xonly_tweak(
@@ -157,7 +177,13 @@ impl Actor {
     ) -> Result<schnorr::Signature, BridgeError> {
         // TODO: if sighash_cache exists in the CreateTxOutputs, use it
         // else create a new one and save it to the CreateTxOutputs
-
+        println!(
+            "leaf_hash: {:?}",
+            TapLeafHash::from_script(
+                &tx.scripts[txin_index][script_index],
+                LeafVersion::TapScript,
+            )
+        );
         let mut sighash_cache: SighashCache<&mut bitcoin::Transaction> =
             SighashCache::new(&mut tx.tx);
         let sig_hash = sighash_cache.taproot_script_spend_signature_hash(
@@ -169,6 +195,7 @@ impl Actor {
             ),
             bitcoin::sighash::TapSighashType::Default,
         )?;
+        println!("sig_hash: {:?}", hex::encode(sig_hash.as_byte_array()));
         Ok(self.sign_with_tweak(sig_hash, None).unwrap())
     }
 }

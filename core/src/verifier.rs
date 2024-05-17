@@ -57,7 +57,8 @@ impl VerifierRpcServer for Verifier {
         withdrawal_address: Address<NetworkUnchecked>,
     ) -> Result<schnorr::Signature, BridgeError> {
         let withdrawal_address = withdrawal_address.require_network(self.config.network)?;
-        self.new_withdrawal_direct(withdrawal_idx, &withdrawal_address).await
+        self.new_withdrawal_direct(withdrawal_idx, &withdrawal_address)
+            .await
     }
 }
 
@@ -149,7 +150,10 @@ impl Verifier {
         // TODO: Check from citrea rpc if the withdrawal is valid
 
         let bridge_txid = self.db.get_deposit_tx(withdrawal_idx).await?;
-        tracing::debug!("Verifier is signing withdrawal tx with txid: {:?}", bridge_txid);
+        tracing::debug!(
+            "Verifier is signing withdrawal tx with txid: {:?}",
+            bridge_txid
+        );
         let bridge_utxo = OutPoint {
             txid: bridge_txid,
             vout: 0,
@@ -161,7 +165,6 @@ impl Verifier {
             value: Amount::from_sat(BRIDGE_AMOUNT_SATS - self.config.min_relay_fee) - dust_value,
             script_pubkey: bridge_address.script_pubkey(),
         };
-
 
         let mut withdrawal_tx = self.transaction_builder.create_withdraw_tx(
             bridge_utxo,

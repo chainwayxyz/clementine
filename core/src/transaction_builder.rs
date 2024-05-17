@@ -75,6 +75,7 @@ impl TransactionBuilder {
             .add_leaf(1, deposit_script.clone())?
             .add_leaf(1, script_timelock.clone())?;
         let tree_info = taproot.finalize(&self.secp, *INTERNAL_KEY)?;
+        println!("merkle_root: {:?}", tree_info.merkle_root());
         let address = Address::p2tr(
             &self.secp,
             *INTERNAL_KEY,

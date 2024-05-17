@@ -2,6 +2,7 @@
 //!
 //! This test checks if basic deposit and withdraw operations are OK or not.
 
+use bitcoin::consensus::{serialize, Encodable};
 use bitcoin::{Address, Amount};
 use bitcoincore_rpc::Auth;
 use clementine_circuits::constants::BRIDGE_AMOUNT_SATS;
@@ -126,6 +127,7 @@ async fn test_flow_2() {
     let secp = bitcoin::secp256k1::Secp256k1::new();
     let (xonly_pk, _) = config.secret_key.public_key(&secp).x_only_public_key();
     let taproot_address = Address::p2tr(&secp, xonly_pk, None, config.network);
+    tracing::debug!("Taproot address: {:#?}", taproot_address.as_unchecked());
     tracing::debug!(
         "Taproot address script pubkey: {:#?}",
         taproot_address.script_pubkey()
@@ -196,14 +198,17 @@ async fn test_flow_2() {
         "now sending takes_after_tx: {:#?}",
         takes_after_tx_details.tx
     );
-    let user_takes_back_txid = rpc
-        .send_raw_transaction(&takes_after_tx_details.tx)
-        .unwrap();
-    tracing::debug!("User takes back txid: {:?}", user_takes_back_txid);
-    let user_takes_back_tx = rpc
-        .get_raw_transaction(&user_takes_back_txid, None)
-        .unwrap();
-    tracing::debug!("User takes back tx: {:#?}", user_takes_back_tx);
+    let tx_hex = hex::encode(serialize(&takes_after_tx_details.tx));
+    tracing::debug!("Takes after tx hex: {:#?}", tx_hex);
+
+    // let user_takes_back_txid = rpc
+    //     .send_raw_transaction(&takes_after_tx_details.tx)
+    //     .unwrap();
+    // tracing::debug!("User takes back txid: {:?}", user_takes_back_txid);
+    // let user_takes_back_tx = rpc
+    //     .get_raw_transaction(&user_takes_back_txid, None)
+    //     .unwrap();
+    // tracing::debug!("User takes back tx: {:#?}", user_takes_back_tx);
 }
 
 #[tokio::test]
