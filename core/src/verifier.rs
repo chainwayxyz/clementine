@@ -170,6 +170,32 @@ impl Verifier {
 
     /// Triggers an `eth_call` to Citrea for checking if the withdrawal request
     /// is valid or not. This will fail if withdrawal is already made in Citrea.
+    ///
+    /// # Example
+    ///
+    /// This function won't return any data on success. Caller should only check
+    /// for errors:
+    ///
+    /// ```no_run
+    /// if let Err(e) = check_citrea_for_withdrawal_validity(withdrawal_idx, withdrawal_address).await {
+    ///     panic!("Withdrawal request already made: {}", e);
+    /// }
+    ///
+    /// // Or...
+    /// check_citrea_for_withdrawal_validity(withdrawal_idx, withdrawal_address).await?;
+    ///
+    /// // Withdrawal request is valid, go on...
+    /// ```
+    ///
+    /// # Panics
+    ///
+    /// Panics if `config.bridge_contract_address` is not a 40 bytes long
+    /// hex-formatted string, which is a 20 byte unsigned integer.
+    ///
+    /// There aren't any check if this string is hex-formatted. User must
+    /// provide a correct address.
+    ///
+    /// TODO: This issue should be fixed and this function should not panic.
     async fn check_citrea_for_withdrawal_validity(
         &self,
         withdrawal_idx: usize,
@@ -181,12 +207,10 @@ impl Verifier {
             "{:0>40}",
             self.config.bridge_contract_address.to_ascii_lowercase()
         );
-
-        let data = format!("{:0>64x?}", withdrawal_address).into_bytes();
-        let data = keccak256(data).to_hex_string(Case::Lower);
-        let data = format!("{data} {withdrawal_idx}");
-
-        tracing::debug!("Citrea withdrawal request check payload: to: {to:?}, data: {data:?}");
+        let data = keccak256(withdrawal_address.to_string().as_bytes()).to_hex_string(Case::Lower);
+        let data = data[0..8].to_string();
+        let data = format!("{data} {:0>64x}", withdrawal_idx);
+        tracing::debug!("Citrea withdrawal request check payload: to: {to}, data: {data}");
 
         // After logging, convert them to machine parsable format.
 
@@ -202,16 +226,15 @@ impl Verifier {
             tmp
         };
         let to = NameOrAddress::Address(ethers::types::H160(to));
-        let data = data.as_bytes().to_vec().clone();
-
+        let data = data.as_bytes().to_vec();
         tracing::debug!(
             "Citrea withdrawal request machine readable payload: to: {to:?}, data: {data:?}"
         );
 
+        // Create transaction.
         let tx = Eip1559TransactionRequest::new();
         let tx = tx.to(to);
         let tx = tx.data(data);
-
         let block_number: BlockNumberOrTag = BlockNumberOrTag::Latest;
 
         let response: String = self
