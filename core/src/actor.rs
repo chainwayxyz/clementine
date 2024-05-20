@@ -71,13 +71,21 @@ impl Actor {
             kp.secret_key(),
             kp.public_key()
         );
-        Ok(self.secp.sign_schnorr(
-            &Message::from_digest_slice(sighash.as_byte_array()).expect("should be hash"),
-            &self.keypair.add_xonly_tweak(
+        let msg = Message::from_digest_slice(sighash.as_byte_array()).unwrap();
+        let kp = self
+            .keypair
+            .add_xonly_tweak(
                 &self.secp,
                 &TapTweakHash::from_key_and_tweak(self.xonly_public_key, merkle_root).to_scalar(),
-            )?,
-        ))
+            )
+            .unwrap();
+        let sig = self.secp.sign_schnorr(&msg, &kp);
+        let verify_res = self
+            .secp
+            .verify_schnorr(&sig, &msg, &kp.x_only_public_key().0)
+            .unwrap();
+        println!("verify_res: {:?}", verify_res);
+        Ok(sig)
     }
 
     pub fn sign(&self, sighash: TapSighash) -> schnorr::Signature {
@@ -196,6 +204,9 @@ impl Actor {
             bitcoin::sighash::TapSighashType::Default,
         )?;
         println!("sig_hash: {:?}", hex::encode(sig_hash.as_byte_array()));
-        Ok(self.sign_with_tweak(sig_hash, None).unwrap())
+        let sig = self.sign_with_tweak(sig_hash, None).unwrap();
+        let msg = Message::from_digest_slice(sig_hash.as_byte_array()).unwrap();
+        self.secp.verify_schnorr(&sig, &msg, &self.xonly_public_key);
+        Ok(sig)
     }
 }

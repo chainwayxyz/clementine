@@ -4,6 +4,7 @@
 
 use bitcoin::consensus::{serialize, Encodable};
 use bitcoin::{Address, Amount};
+use bitcoincore_rpc::json::SigHashType;
 use bitcoincore_rpc::Auth;
 use clementine_circuits::constants::BRIDGE_AMOUNT_SATS;
 use clementine_core::actor::Actor;
@@ -154,7 +155,7 @@ async fn test_flow_2() {
         .send_to_address(&deposit_address_info.0, BRIDGE_AMOUNT_SATS)
         .unwrap();
     tracing::debug!("Deposit UTXO: {:#?}", deposit_utxo);
-    rpc.mine_blocks(config.user_takes_after as u64 + 2).unwrap();
+    rpc.mine_blocks(1).unwrap();
     let signer = Actor::new(config.secret_key, config.network);
     let anyone_can_spend_txout = ScriptBuilder::anyone_can_spend_txout();
     let tx_ins = TransactionBuilder::create_tx_ins_with_sequence(
