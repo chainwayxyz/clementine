@@ -24,18 +24,10 @@ The flow is as follows:
 
 ## Instructions
 
-To clone this repo with submodules:
+### Preparing Test Environment
 
-```sh
-git clone --recurse-submodules https://github.com/chainwayxyz/clementine.git
-cd clementine
-```
-
-### Run Bitcoin Regtest
-
-To run the whole process of simulating deposits, withdrawals, proof generation on the Bitcoin Regtest network, you need Bitcoin Core to be installed.
-
-You can use the following commands to run the server.
+To run the whole process of simulating deposits, withdrawals, proof generation
+on the Bitcoin Regtest network, you need Bitcoin Core to be installed.
 
 Start the regtest server with the following command:
 
@@ -55,14 +47,39 @@ Mine some blocks to the wallet:
 bitcoin-cli -regtest -rpcuser=admin -rpcpassword=admin -rpcport=18443 generatetoaddress 101 $(bitcoin-cli -regtest -rpcuser=admin -rpcpassword=admin -rpcport=18443 getnewaddress)
 ```
 
-### Test
+Enable dev-mode for risc0-zkvm. This can help lower compilation times.
+
+```sh
+export RISC0_DEV_MODE=1
+```
+
+A custom configuration file can be specified for testing. This can be helpful
+if developer's environment is not matching with a test's configuration file
+(e.g. database user name).
+
+```sh
+export TEST_CONFIG=/path/to/configuration.toml
+```
+
+### Testing
+
+To run every test, in parallel:
 
 ```sh
 cargo test
 ```
 
+Some tests are ignored because they have reason(s) to not run with other tests
+in parallel. These tests should be run seperately:
+
+```sh
+# Flow test as example:
+cargo test --test flow -- test_flow_1 --include-ignored  --show-output --exact
+```
+
 ## License
 
-### Copyright
-
-**(c) 2024 Chainway Limited** `clementine` was developed by Chainway Limited. While we plan to adopt an open source license, we have not yet selected one. As such, all rights are reserved for the time being. Please reach out to us if you have thoughts on licensing.
+**(C) 2024 Chainway Limited** `clementine` was developed by Chainway Limited.
+While we plan to adopt an open source license, we have not yet selected one. As
+such, all rights are reserved for the time being. Please reach out to us if you
+have thoughts on licensing.
