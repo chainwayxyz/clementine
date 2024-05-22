@@ -341,8 +341,8 @@ mod tests {
     use secp256k1::hashes::Hash;
 
     use crate::{
-        env_writer::ENVWriter, errors::BridgeError, merkle::MerkleTree, mock_env::MockEnvironment,
-        utils::parse_hex_to_btc_tx,
+        env_writer::ENVWriter, errors::BridgeError, merkle::MerkleTree,
+        tests::mock_env::MockEnvironment, utils::parse_hex_to_btc_tx,
     };
 
     fn test_block_merkle_path(block: Block) -> Result<(), BridgeError> {

@@ -353,10 +353,10 @@ impl Database {
 #[cfg(test)]
 mod tests {
     use super::Database;
+    use crate::tests;
     use crate::{config::BridgeConfig, EVMAddress};
     use bitcoin::{Address, OutPoint, XOnlyPublicKey};
     use secp256k1::Secp256k1;
-    use crate::tests;
 
     #[tokio::test]
     async fn invalid_connection() {
