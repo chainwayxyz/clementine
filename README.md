@@ -1,11 +1,14 @@
 # Clementine 🍊
+
 Clementine is Citrea's BitVM based trust-minimized two-way peg program.
 The repository includes:
+
 - Smart contracts for deposit and withdrawal
 - A library for bridge operator and verifiers
 - Circuits that will be optimistically verified with BitVM
 
 The flow is as follows:
+
 - Creating the operator and verifiers
 - Initial setup that includes calculating period block heights, connector tree hashes, and funding connector source UTXOs.
 - User deposit flow that includes creating a deposit transaction, signing it, and submitting it to the operator.
@@ -15,63 +18,68 @@ The flow is as follows:
 - Verifier to start a challenge with Bitcoin Proof of Work
 - Operator to respond to the challenge with a bridge proof.
 
-
-> [!WARNING] 
+> [!WARNING]
+>
 > Clementine is still work-in-progress. It has not been audited and should not be used in production under any circumstances. It also requires a full BitVM implementation to be run fully on-chain.
-
 
 ## Instructions
 
-To clone this repo with submodules:
+### Preparing Test Environment
 
-```
-git clone --recurse-submodules https://github.com/chainwayxyz/clementine.git
-cd clementine
-```
-
-### Run Bitcoin Regtest
-
-To run the whole process of simulating deposits, withdrawals, proof generation on the Bitcoin Regtest network, you need Bitcoin Core to be installed.
-
-You can use the following commands to run the server.
+To run the whole process of simulating deposits, withdrawals, proof generation
+on the Bitcoin Regtest network, you need Bitcoin Core to be installed.
 
 Start the regtest server with the following command:
+
 ```sh
 bitcoind -regtest -rpcuser=admin -rpcpassword=admin -rpcport=18443 -fallbackfee=0.00001 -wallet=admin -txindex=1
 ```
 
 Create a wallet for the operator:
+
 ```sh
 bitcoin-cli -regtest -rpcuser=admin -rpcpassword=admin -rpcport=18443 createwallet "admin"
 ```
 
 Mine some blocks to the wallet:
+
 ```sh
 bitcoin-cli -regtest -rpcuser=admin -rpcpassword=admin -rpcport=18443 generatetoaddress 101 $(bitcoin-cli -regtest -rpcuser=admin -rpcpassword=admin -rpcport=18443 getnewaddress)
 ```
 
-### Run the Clementine simulation
-```sh
-cargo run
-```
-
-### Create Random Key Pairs
-
-To create random key pairs for testing, run:
+Enable dev-mode for risc0-zkvm. This can help lower compilation times.
 
 ```sh
-cargo run --bin key_generator
+export RISC0_DEV_MODE=1
 ```
 
-This will generate JSON files in `configs` directory.
+A custom configuration file can be specified for testing. This can be helpful
+if developer's environment is not matching with a test's configuration file
+(e.g. database user name).
 
-### Test
+```sh
+export TEST_CONFIG=/path/to/configuration.toml
+```
+
+### Testing
+
+To run every test, in parallel:
+
 ```sh
 cargo test
 ```
 
-# License
+Some tests are ignored because they have reason(s) to not run with other tests
+in parallel. These tests should be run seperately:
 
-## Copyright
+```sh
+# Flow test as example:
+cargo test --test flow -- test_flow_1 --include-ignored  --show-output --exact
+```
 
-**(c) 2024 Chainway Limited** `clementine` was developed by Chainway Limited. While we plan to adopt an open source license, we have not yet selected one. As such, all rights are reserved for the time being. Please reach out to us if you have thoughts on licensing.
+## License
+
+**(C) 2024 Chainway Limited** `clementine` was developed by Chainway Limited.
+While we plan to adopt an open source license, we have not yet selected one. As
+such, all rights are reserved for the time being. Please reach out to us if you
+have thoughts on licensing.
