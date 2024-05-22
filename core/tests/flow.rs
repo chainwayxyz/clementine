@@ -9,7 +9,7 @@ use clementine_core::actor::Actor;
 use clementine_core::extended_rpc::ExtendedRpc;
 use clementine_core::script_builder::ScriptBuilder;
 use clementine_core::start_operator_and_verifiers;
-use clementine_core::test_common::{find_consecutive_idle_ports, get_test_config};
+use clementine_core::tests::common::{find_consecutive_idle_ports, get_test_config};
 use clementine_core::traits::rpc::OperatorRpcClient;
 use clementine_core::transaction_builder::{CreateTxOutputs, TransactionBuilder};
 use clementine_core::utils::handle_taproot_witness_new;

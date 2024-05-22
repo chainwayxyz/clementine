@@ -353,7 +353,7 @@ impl Database {
 #[cfg(test)]
 mod tests {
     use super::Database;
-    use crate::{config::BridgeConfig, test_common, EVMAddress};
+    use crate::{config::BridgeConfig, tests::{self}, EVMAddress};
     use bitcoin::{Address, OutPoint, XOnlyPublicKey};
     use secp256k1::Secp256k1;
 
@@ -379,7 +379,7 @@ mod tests {
 
     #[tokio::test]
     async fn valid_connection() {
-        let config = test_common::get_test_config("test_config.toml").unwrap();
+        let config = tests::common::get_test_config("test_config.toml").unwrap();
 
         match Database::new(config).await {
             Ok(_) => {
@@ -394,7 +394,7 @@ mod tests {
 
     #[tokio::test]
     async fn add_deposit_transaction() {
-        let config = test_common::get_test_config("test_config.toml").unwrap();
+        let config = tests::common::get_test_config("test_config.toml").unwrap();
         let database = Database::new(config.clone()).await.unwrap();
         let secp = Secp256k1::new();
         let xonly_public_key = XOnlyPublicKey::from_slice(&[
