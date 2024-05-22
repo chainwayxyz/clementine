@@ -6,3 +6,4 @@ target/
 .env
 configs
 database
+.vscode
