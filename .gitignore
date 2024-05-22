@@ -5,3 +5,4 @@ risc0-guests/verifier/guest/Cargo.lock
 target/
 .env
 configs
+.vscode
