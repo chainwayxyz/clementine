@@ -9,7 +9,6 @@ use bitcoin::{
     },
     Address, TapSighash, TapTweakHash,
 };
-
 use bitcoin::{TapLeafHash, TapNodeHash, TxOut};
 
 #[derive(Debug, Clone)]

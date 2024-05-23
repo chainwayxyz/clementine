@@ -1,3 +1,4 @@
+use crate::{errors::BridgeError, merkle::MerkleTree};
 use bitcoin::{
     block::Header, consensus::serialize, Block, MerkleBlock, Transaction, TxMerkleNode, Txid,
 };
@@ -6,8 +7,6 @@ use clementine_circuits::double_sha256_hash;
 use clementine_circuits::env::Environment;
 use secp256k1::hashes::Hash;
 use std::marker::PhantomData;
-
-use crate::{errors::BridgeError, merkle::MerkleTree};
 
 pub struct ENVWriter<E: Environment> {
     _marker: PhantomData<E>,
@@ -341,7 +340,7 @@ mod tests {
     use secp256k1::hashes::Hash;
 
     use crate::{
-        env_writer::ENVWriter, errors::BridgeError, merkle::MerkleTree, mock_env::MockEnvironment,
+        env_writer::ENVWriter, errors::BridgeError, merkle::MerkleTree, mock::env::MockEnvironment,
         utils::parse_hex_to_btc_tx,
     };
 

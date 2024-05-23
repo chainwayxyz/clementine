@@ -1,10 +1,8 @@
+use crate::{errors::BridgeError, operator::DepositPresigns, EVMAddress};
 use bitcoin::address::NetworkUnchecked;
 use bitcoin::{Address, OutPoint, Txid};
-use secp256k1::schnorr;
-
-use crate::{errors::BridgeError, operator::DepositPresigns, EVMAddress};
-
 use jsonrpsee::proc_macros::rpc;
+use secp256k1::schnorr;
 
 #[rpc(client, server, namespace = "verifier")]
 pub trait VerifierRpc {

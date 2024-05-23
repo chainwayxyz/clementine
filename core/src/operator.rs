@@ -1,16 +1,10 @@
 use crate::actor::Actor;
 use crate::config::BridgeConfig;
-#[cfg(feature = "poc")]
-use crate::constants::{
-    VerifierChallenge, CONNECTOR_TREE_DEPTH, DUST_VALUE, K_DEEP,
-    MAX_BITVM_CHALLENGE_RESPONSE_BLOCKS, PERIOD_BLOCK_COUNT,
-};
 use crate::db::operator::OperatorDB;
 use crate::errors::BridgeError;
 use crate::extended_rpc::ExtendedRpc;
 use crate::script_builder::ScriptBuilder;
 use crate::traits::rpc::{OperatorRpcServer, VerifierRpcClient};
-// use crate::traits::verifier::VerifierConnector;
 use crate::transaction_builder::TransactionBuilder;
 use crate::utils::{check_deposit_utxo, handle_taproot_witness_new};
 use crate::EVMAddress;
@@ -24,46 +18,6 @@ use jsonrpsee::core::async_trait;
 use secp256k1::{SecretKey, XOnlyPublicKey};
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
-
-#[cfg(feature = "poc")]
-pub fn create_connector_tree_preimages_and_hashes(
-    depth: usize,
-    rng: &mut impl RngCore,
-) -> (Vec<Vec<PreimageType>>, Vec<Vec<HashType>>) {
-    let mut connector_tree_preimages: Vec<Vec<PreimageType>> = Vec::new();
-    let mut connector_tree_hashes: Vec<Vec<HashType>> = Vec::new();
-    let root_preimage: PreimageType = rng.gen();
-    connector_tree_preimages.push(vec![root_preimage]);
-    connector_tree_hashes.push(vec![sha256_hash!(root_preimage)]);
-    for i in 1..(depth + 1) {
-        let mut preimages_current_level: Vec<PreimageType> = Vec::new();
-        let mut hashes_current_level: Vec<PreimageType> = Vec::new();
-        for _ in 0..2u32.pow(i as u32) {
-            let temp: PreimageType = rng.gen();
-            preimages_current_level.push(temp);
-            hashes_current_level.push(sha256_hash!(temp));
-        }
-        connector_tree_preimages.push(preimages_current_level);
-        connector_tree_hashes.push(hashes_current_level);
-    }
-    (connector_tree_preimages, connector_tree_hashes)
-}
-
-#[cfg(feature = "poc")]
-pub fn create_all_rounds_connector_preimages(
-    depth: usize,
-    num_rounds: usize,
-    rng: &mut impl RngCore,
-) -> (Vec<Vec<Vec<PreimageType>>>, Vec<Vec<Vec<HashType>>>) {
-    let mut preimages = Vec::new();
-    let mut hashes = Vec::new();
-    for _ in 0..num_rounds {
-        let (tree_preimages, tree_hashes) = create_connector_tree_preimages_and_hashes(depth, rng);
-        preimages.push(tree_preimages);
-        hashes.push(tree_hashes);
-    }
-    (preimages, hashes)
-}
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct DepositPresigns {
@@ -314,8 +268,10 @@ impl Operator {
         let withdrawal_txid = self.rpc.send_raw_transaction(&withdrawal_tx.tx)?;
         Ok(withdrawal_txid)
     }
+}
 
-    #[cfg(feature = "poc")]
+#[cfg(feature = "poc")]
+impl Operator {
     /// Returns the current withdrawal
     fn get_current_withdrawal_period(&self) -> Result<usize, BridgeError> {
         let cur_block_height = self.rpc.get_block_count().unwrap();
@@ -334,7 +290,6 @@ impl Operator {
         ))
     }
 
-    #[cfg(feature = "poc")]
     fn get_current_preimage_reveal_period(&self) -> Result<usize, BridgeError> {
         let cur_block_height = self.rpc.get_block_count().unwrap();
         tracing::debug!("Cur block height: {:?}", cur_block_height);
@@ -361,7 +316,6 @@ impl Operator {
         ))
     }
 
-    #[cfg(feature = "poc")]
     // this is called when a Withdrawal event emitted on rollup and its corresponding batch proof is finalized
     pub async fn new_withdrawal(
         &self,
@@ -397,7 +351,6 @@ impl Operator {
         Ok(txid)
     }
 
-    #[cfg(feature = "poc")]
     pub fn spend_connector_tree_utxo(
         // TODO: Too big, move some parts to Transaction Builder
         &self,
@@ -508,12 +461,10 @@ impl Operator {
         Ok(())
     }
 
-    #[cfg(feature = "poc")]
     fn get_num_withdrawals_for_period(&self, _period: usize) -> u32 {
         self.db.get_withdrawals_merkle_tree_index() // TODO: This is not correct, we should have a cutoff
     }
 
-    #[cfg(feature = "poc")]
     /// This is called internally when every withdrawal for the current period is satisfied
     /// Double checks if all withdrawals are satisfied
     /// Checks that we are in the correct period, and withdrawal period has end for the given period
@@ -578,7 +529,6 @@ impl Operator {
         Ok((preimages_to_be_revealed, commit_address))
     }
 
-    #[cfg(feature = "poc")]
     /// Helper function for operator to write blocks to env
     fn write_blocks_and_add_to_merkle_tree<E: Environment>(
         &self,
@@ -609,7 +559,6 @@ impl Operator {
         Ok(lc_cutoff_blockhash)
     }
 
-    #[cfg(feature = "poc")]
     fn write_withdrawals_and_add_to_merkle_tree<E: Environment>(
         &self,
         withdrawal_payments: Vec<WithdrawalPayment>,
@@ -662,7 +611,6 @@ impl Operator {
         Ok(())
     }
 
-    #[cfg(feature = "poc")]
     /// TODO: change this
     fn write_lc_proof<E: Environment>(
         &self,
@@ -673,7 +621,6 @@ impl Operator {
         E::write_32bytes(withdrawal_mt_root);
     }
 
-    #[cfg(feature = "poc")]
     fn write_verifiers_challenge_proof<E: Environment>(
         proof: [[u8; 32]; 4],
         challenge: VerifierChallenge,
@@ -691,7 +638,6 @@ impl Operator {
         Ok(())
     }
 
-    #[cfg(feature = "poc")]
     /// Currently PoC for a bridge proof
     /// Light Client proofs are not yet implemented
     /// Verifier's Challenge proof is not yet implemented, instead we assume
@@ -884,7 +830,6 @@ impl Operator {
         Ok(())
     }
 
-    #[cfg(feature = "poc")]
     pub fn prove_test<E: Environment>(&self) -> Result<(), BridgeError> {
         let inscription_txs = self.db.get_inscription_txs();
         let last_period = inscription_txs.len() - 1;
@@ -895,7 +840,6 @@ impl Operator {
         Ok(())
     }
 
-    #[cfg(feature = "poc")]
     /// This starts the whole setup
     /// 1. get the current blockheight
     /// 2. Create perod blockheights
@@ -994,4 +938,44 @@ impl Operator {
             claim_proof_merkle_trees,
         ))
     }
+}
+
+#[cfg(feature = "poc")]
+pub fn create_connector_tree_preimages_and_hashes(
+    depth: usize,
+    rng: &mut impl RngCore,
+) -> (Vec<Vec<PreimageType>>, Vec<Vec<HashType>>) {
+    let mut connector_tree_preimages: Vec<Vec<PreimageType>> = Vec::new();
+    let mut connector_tree_hashes: Vec<Vec<HashType>> = Vec::new();
+    let root_preimage: PreimageType = rng.gen();
+    connector_tree_preimages.push(vec![root_preimage]);
+    connector_tree_hashes.push(vec![sha256_hash!(root_preimage)]);
+    for i in 1..(depth + 1) {
+        let mut preimages_current_level: Vec<PreimageType> = Vec::new();
+        let mut hashes_current_level: Vec<PreimageType> = Vec::new();
+        for _ in 0..2u32.pow(i as u32) {
+            let temp: PreimageType = rng.gen();
+            preimages_current_level.push(temp);
+            hashes_current_level.push(sha256_hash!(temp));
+        }
+        connector_tree_preimages.push(preimages_current_level);
+        connector_tree_hashes.push(hashes_current_level);
+    }
+    (connector_tree_preimages, connector_tree_hashes)
+}
+
+#[cfg(feature = "poc")]
+pub fn create_all_rounds_connector_preimages(
+    depth: usize,
+    num_rounds: usize,
+    rng: &mut impl RngCore,
+) -> (Vec<Vec<Vec<PreimageType>>>, Vec<Vec<Vec<HashType>>>) {
+    let mut preimages = Vec::new();
+    let mut hashes = Vec::new();
+    for _ in 0..num_rounds {
+        let (tree_preimages, tree_hashes) = create_connector_tree_preimages_and_hashes(depth, rng);
+        preimages.push(tree_preimages);
+        hashes.push(tree_hashes);
+    }
+    (preimages, hashes)
 }

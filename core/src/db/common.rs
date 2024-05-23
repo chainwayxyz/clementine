@@ -8,19 +8,17 @@ use crate::EVMAddress;
 use crate::{config::BridgeConfig, errors::BridgeError};
 use bitcoin::address::NetworkUnchecked;
 use bitcoin::{Address, OutPoint, Txid};
-use sqlx::Row;
 use sqlx::{Pool, Postgres};
 use std::str::FromStr;
 
-/// Main database struct that holds all the information of the database.
 #[derive(Clone, Debug)]
 pub struct Database {
     connection: Pool<Postgres>,
 }
 
 impl Database {
-    /// Returns a `Database` after establishing connection to database. Returns
-    /// error in case database is not reachable.
+    /// Returns a `Database` after establishing a connection to database.
+    /// Returns error if database is not available.
     pub async fn new(config: BridgeConfig) -> Result<Self, BridgeError> {
         let url = "postgresql://".to_owned()
             + config.db_host.as_str()
@@ -40,6 +38,10 @@ impl Database {
         }
     }
 
+    /// Starts a database transaction.
+    ///
+    /// Return value can be used for committing changes. If not committed,
+    /// database will rollback every operation done after that call.
     pub async fn begin_transaction(
         &self,
     ) -> Result<sqlx::Transaction<'_, sqlx::Postgres>, BridgeError> {
@@ -65,13 +67,6 @@ impl Database {
             .trim_matches('"')
             .to_owned();
 
-        tracing::debug!(
-            "trying to insert: {:?}, {:?}, {:?}",
-            start_utxo,
-            recovery_taproot_address,
-            evm_address
-        );
-
         sqlx::query("INSERT INTO new_deposit_requests (start_utxo, recovery_taproot_address, evm_address) VALUES ($1, $2, $3);")
             .bind(start_utxo)
             .bind(recovery_taproot_address)
@@ -83,31 +78,23 @@ impl Database {
     }
 
     pub async fn get_deposit_tx(&self, idx: usize) -> Result<Txid, BridgeError> {
-        let qr = sqlx::query("SELECT move_txid FROM deposit_move_txs WHERE id = $1;")
+        let qr: (String,) = sqlx::query_as("SELECT move_txid FROM deposit_move_txs WHERE id = $1;")
             .bind(idx as i64)
             .fetch_one(&self.connection)
-            .await;
-        tracing::debug!("QR: GETTING QR for :{:?}", idx);
+            .await?;
 
-        let qr = match qr {
-            Ok(c) => c,
-            Err(e) => return Err(BridgeError::DatabaseError(e)),
-        };
-
-        match Txid::from_str(&qr.get::<String, _>(0)) {
+        match Txid::from_str(qr.0.as_str()) {
             Ok(c) => Ok(c),
             Err(e) => Err(BridgeError::DatabaseError(sqlx::Error::Decode(Box::new(e)))),
         }
     }
 
     pub async fn get_next_deposit_index(&self) -> Result<usize, BridgeError> {
-        match sqlx::query("SELECT COUNT(*) FROM deposit_move_txs;")
+        let qr: (i64,) = sqlx::query_as("SELECT COUNT(*) FROM deposit_move_txs;")
             .fetch_one(&self.connection)
-            .await
-        {
-            Ok(qr) => Ok(qr.get::<i64, _>(0) as usize),
-            Err(e) => Err(BridgeError::DatabaseError(e)),
-        }
+            .await?;
+
+        Ok(qr.0 as usize)
     }
 
     pub async fn insert_move_txid(
@@ -134,7 +121,7 @@ impl Database {
         recovery_taproot_address: Address<NetworkUnchecked>,
         evm_address: EVMAddress,
     ) -> Result<Txid, BridgeError> {
-        let qr:(String, ) = sqlx::query_as("SELECT (move_txid) FROM deposit_move_txs WHERE start_utxo = $1 AND recovery_taproot_address = $2 AND evm_address = $3;")
+        let qr: (String,) = sqlx::query_as("SELECT (move_txid) FROM deposit_move_txs WHERE start_utxo = $1 AND recovery_taproot_address = $2 AND evm_address = $3;")
             .bind(start_utxo.to_string())
             .bind(serde_json::to_string(&recovery_taproot_address).unwrap().trim_matches('"'))
             .bind(serde_json::to_string(&evm_address).unwrap().trim_matches('"'))
@@ -177,183 +164,12 @@ impl Database {
         let sig = secp256k1::schnorr::Signature::from_str(&qr.1).unwrap();
         Ok((bridge_fund_txid, sig))
     }
-
-    #[cfg(poc)]
-    pub async fn get_connector_tree_hash(
-        &self,
-        period: usize,
-        level: usize,
-        idx: usize,
-    ) -> HashType {
-        let content = self.read();
-
-        // If database is empty, returns an empty array.
-        match content.connector_tree_hashes.get(period) {
-            Some(v) => match v.get(level) {
-                Some(v) => match v.get(idx) {
-                    Some(v) => *v,
-                    _ => [0u8; 32],
-                },
-                _ => [0u8; 32],
-            },
-            _ => [0u8; 32],
-        }
-    }
-    #[cfg(poc)]
-    pub async fn set_connector_tree_hashes(&self, connector_tree_hashes: Vec<Vec<Vec<HashType>>>) {
-        let _guard = self.lock.lock().unwrap();
-        let mut content = self.read();
-        content.connector_tree_hashes = connector_tree_hashes;
-        self.write(content);
-    }
-
-    #[cfg(poc)]
-    pub async fn get_claim_proof_merkle_tree(
-        &self,
-        period: usize,
-    ) -> MerkleTree<CLAIM_MERKLE_TREE_DEPTH> {
-        let content = self.read();
-
-        match content.claim_proof_merkle_trees.get(period) {
-            Some(p) => p.clone(),
-            _ => MerkleTree::new(),
-        }
-    }
-    #[cfg(poc)]
-    pub async fn set_claim_proof_merkle_trees(
-        &self,
-        claim_proof_merkle_trees: Vec<MerkleTree<CLAIM_MERKLE_TREE_DEPTH>>,
-    ) {
-        let _guard = self.lock.lock().unwrap();
-        let mut content = self.read();
-        content.claim_proof_merkle_trees = claim_proof_merkle_trees;
-        self.write(content);
-    }
-
-    #[cfg(poc)]
-    pub async fn get_inscription_txs(&self) -> Vec<InscriptionTxs> {
-        let content = self.read();
-        content.inscription_txs.clone()
-    }
-    #[cfg(poc)]
-    pub async fn get_inscription_txs_len(&self) -> usize {
-        let content = self.read();
-        content.inscription_txs.len()
-    }
-    #[cfg(poc)]
-    pub async fn add_to_inscription_txs(&self, inscription_txs: InscriptionTxs) {
-        let _guard = self.lock.lock().unwrap();
-        let mut content = self.read();
-        content.inscription_txs.push(inscription_txs);
-        self.write(content);
-    }
-
-    #[cfg(poc)]
-    pub async fn get_deposit_txs(&self) -> Vec<(Txid, TxOut)> {
-        let content = self.read();
-        content.deposit_txs.clone()
-    }
-
-    #[cfg(poc)]
-    pub async fn get_withdrawals_merkle_tree_index(&self) -> u32 {
-        let content = self.read();
-        content.withdrawals_merkle_tree.index
-    }
-    #[cfg(poc)]
-    pub async fn add_to_withdrawals_merkle_tree(&self, hash: HashType) {
-        let _guard = self.lock.lock().unwrap();
-        let mut content = self.read();
-        content.withdrawals_merkle_tree.add(hash);
-        self.write(content);
-    }
-
-    #[cfg(poc)]
-    pub async fn get_withdrawals_payment_for_period(
-        &self,
-        period: usize,
-    ) -> Vec<WithdrawalPayment> {
-        let content = self.read();
-        content.withdrawals_payment_txids[period].clone()
-    }
-    #[cfg(poc)]
-    pub async fn add_to_withdrawals_payment_txids(
-        &self,
-        period: usize,
-        withdrawal_payment: WithdrawalPayment,
-    ) {
-        let _guard = self.lock.lock().unwrap();
-        let mut content = self.read();
-        while period >= content.withdrawals_payment_txids.len() {
-            content.withdrawals_payment_txids.push(Vec::new());
-        }
-        content.withdrawals_payment_txids[period].push(withdrawal_payment);
-        self.write(content);
-    }
-
-    #[cfg(poc)]
-    pub async fn get_connector_tree_utxo(&self, idx: usize) -> ConnectorUTXOTree {
-        let content = self.read();
-        content.connector_tree_utxos[idx].clone()
-    }
-    #[cfg(poc)]
-    pub async fn set_connector_tree_utxos(&self, connector_tree_utxos: Vec<ConnectorUTXOTree>) {
-        let _guard = self.lock.lock().unwrap();
-        let mut content = self.read();
-        content.connector_tree_utxos = connector_tree_utxos;
-        self.write(content);
-    }
-
-    #[cfg(poc)]
-    pub async fn get_start_block_height(&self) -> u64 {
-        let content = self.read();
-        content.start_block_height
-    }
-    #[cfg(poc)]
-    pub async fn set_start_block_height(&self, start_block_height: u64) {
-        let _guard = self.lock.lock().unwrap();
-        let mut content = self.read();
-        content.start_block_height = start_block_height;
-        self.write(content);
-    }
-
-    #[cfg(poc)]
-    pub async fn get_period_relative_block_heights(&self) -> Vec<u32> {
-        let content = self.read();
-        content.period_relative_block_heights.clone()
-    }
-    #[cfg(poc)]
-    pub async fn set_period_relative_block_heights(&self, period_relative_block_heights: Vec<u32>) {
-        let _guard = self.lock.lock().unwrap();
-        let mut content = self.read();
-        content.period_relative_block_heights = period_relative_block_heights;
-        self.write(content);
-    }
-
-    #[cfg(poc)]
-    pub async fn get_inscribed_preimages(&self, period: usize) -> Vec<PreimageType> {
-        let content = self.read();
-
-        match content.inscribed_connector_tree_preimages.get(period) {
-            Some(p) => p.clone(),
-            _ => vec![[0u8; 32]],
-        }
-    }
-    #[cfg(poc)]
-    pub async fn add_inscribed_preimages(&self, period: usize, preimages: Vec<PreimageType>) {
-        let _guard = self.lock.lock().unwrap();
-        let mut content = self.read();
-        while period >= content.inscribed_connector_tree_preimages.len() {
-            content.inscribed_connector_tree_preimages.push(Vec::new());
-        }
-        content.inscribed_connector_tree_preimages[period] = preimages;
-        self.write(content);
-    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::Database;
-    use crate::{config::BridgeConfig, test_common, EVMAddress};
+    use crate::{config::BridgeConfig, mock::common, EVMAddress};
     use bitcoin::{Address, OutPoint, XOnlyPublicKey};
     use secp256k1::Secp256k1;
 
@@ -379,7 +195,7 @@ mod tests {
 
     #[tokio::test]
     async fn valid_connection() {
-        let config = test_common::get_test_config("test_config.toml").unwrap();
+        let config = common::get_test_config("test_config.toml").unwrap();
 
         match Database::new(config).await {
             Ok(_) => {
@@ -394,7 +210,7 @@ mod tests {
 
     #[tokio::test]
     async fn add_deposit_transaction() {
-        let config = test_common::get_test_config("test_config.toml").unwrap();
+        let config = common::get_test_config("test_config.toml").unwrap();
         let database = Database::new(config.clone()).await.unwrap();
         let secp = Secp256k1::new();
         let xonly_public_key = XOnlyPublicKey::from_slice(&[
@@ -414,153 +230,8 @@ mod tests {
             .await
             .unwrap();
     }
-
-    #[cfg(poc)]
-    #[tokio::test]
-    async fn deposit_tx() {
-        let config = test_common::get_test_config("test_config.toml".to_string()).unwrap();
-        let database = Database::new(config).await.unwrap();
-
-        let prev_idx = database.get_next_deposit_index().await.unwrap();
-
-        let mut rng = rand::thread_rng();
-        let mut arr = [0; 32];
-        for i in 0..32 {
-            arr[i] = rng.gen();
-        }
-        let txid = Txid::from_byte_array(arr);
-
-        database.insert_move_txid(txid).await.unwrap();
-
-        let next_idx = database.get_next_deposit_index().await.unwrap();
-
-        assert_eq!(prev_idx + 1, next_idx);
-
-        let read_txid = database.get_deposit_tx(next_idx).await.unwrap();
-
-        assert_eq!(read_txid, txid);
-    }
-
-    #[cfg(poc)]
-    #[tokio::test]
-    async fn connector_tree_hash() {
-        let config = test_common::get_test_config("test_config.toml".to_string()).unwrap();
-        let database = Database::new(config).await.unwrap();
-
-        let lock = unsafe { LOCK.clone().unwrap() };
-        let _guard = lock.lock().unwrap();
-
-        let mock_data = [0x45u8; 32];
-        let mock_array: Vec<Vec<Vec<HashType>>> = vec![vec![vec![mock_data]]];
-
-        assert_ne!(database.get_connector_tree_hash(0, 0, 0).await, mock_data);
-
-        database.set_connector_tree_hashes(mock_array).await;
-        assert_eq!(database.get_connector_tree_hash(0, 0, 0).await, mock_data);
-    }
-
-    #[cfg(poc)]
-    #[tokio::test]
-    async fn claim_proof_merkle_tree() {
-        let config = test_common::get_test_config("test_config.toml".to_string()).unwrap();
-        let database = Database::new(config).await.unwrap();
-        let lock = unsafe { LOCK.clone().unwrap() };
-        let _guard = lock.lock().unwrap();
-
-        let mut mock_data: Vec<MerkleTree<CLAIM_MERKLE_TREE_DEPTH>> = vec![MerkleTree::new()];
-        mock_data[0].add([0x45u8; 32]);
-
-        assert_ne!(
-            database.get_claim_proof_merkle_tree(0).await,
-            mock_data[0].clone()
-        );
-
-        database
-            .set_claim_proof_merkle_trees(mock_data.clone())
-            .await;
-        assert_eq!(database.get_claim_proof_merkle_tree(0).await, mock_data[0]);
-    }
-
-    #[cfg(poc)]
-    #[tokio::test]
-    async fn withdrawals_merkle_tree() {
-        let database = unsafe {
-            initialize();
-            DATABASE.clone().unwrap()
-        };
-        let lock = unsafe { LOCK.clone().unwrap() };
-        let _guard = lock.lock().unwrap();
-
-        let mock_data: HashType = [0x45u8; 32];
-
-        assert_eq!(database.get_withdrawals_merkle_tree_index().await, 0);
-
-        database
-            .add_to_withdrawals_merkle_tree(mock_data.clone())
-            .await;
-        assert_eq!(database.get_withdrawals_merkle_tree_index().await, 1);
-    }
-
-    #[cfg(poc)]
-    #[tokio::test]
-    async fn start_block_height() {
-        let database = unsafe {
-            initialize();
-            DATABASE.clone().unwrap()
-        };
-        let lock = unsafe { LOCK.clone().unwrap() };
-        let _guard = lock.lock().unwrap();
-
-        let mock_data: u64 = 0x45;
-
-        assert_eq!(database.get_start_block_height().await, 0);
-
-        database.set_start_block_height(mock_data).await;
-        assert_eq!(database.get_start_block_height().await, mock_data);
-    }
-
-    #[cfg(poc)]
-    #[tokio::test]
-    async fn period_relative_block_heights() {
-        let database = unsafe {
-            initialize();
-            DATABASE.clone().unwrap()
-        };
-        let lock = unsafe { LOCK.clone().unwrap() };
-        let _guard = lock.lock().unwrap();
-
-        let mock_data: u64 = 0x45;
-
-        assert_eq!(database.get_start_block_height().await, 0);
-
-        database.set_start_block_height(mock_data).await;
-        assert_eq!(database.get_start_block_height().await, mock_data);
-    }
-
-    #[cfg(poc)]
-    #[tokio::test]
-    async fn inscribed_preimages() {
-        let lock = unsafe { LOCK.clone().unwrap() };
-        let _guard = lock.lock().unwrap();
-
-        let mock_data: Vec<PreimageType> = vec![[0x45u8; 32]];
-
-        assert_ne!(database.get_inscribed_preimages(0).await, mock_data);
-
-        database.add_inscribed_preimages(0, mock_data.clone()).await;
-        assert_eq!(database.get_inscribed_preimages(0).await, mock_data);
-
-        // Clean things up.
-        match fs::remove_file(DB_FILE_PATH) {
-            Ok(_) => assert!(true),
-            Err(_) => assert!(false),
-        }
-    }
 }
 
-/// Actual information that database will hold. This information is not directly
-/// accessible for an outsider; It should be updated and used by a database
-/// organizer. Therefore, it is internal use only.
 #[cfg(poc)]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct DatabaseContent {
@@ -589,6 +260,299 @@ impl DatabaseContent {
             connector_tree_utxos: Vec::new(),
             start_block_height: 0,
             period_relative_block_heights: Vec::new(),
+        }
+    }
+}
+
+#[cfg(poc)]
+impl Database {
+    pub async fn get_connector_tree_hash(
+        &self,
+        period: usize,
+        level: usize,
+        idx: usize,
+    ) -> HashType {
+        let content = self.read();
+
+        // If database is empty, returns an empty array.
+        match content.connector_tree_hashes.get(period) {
+            Some(v) => match v.get(level) {
+                Some(v) => match v.get(idx) {
+                    Some(v) => *v,
+                    _ => [0u8; 32],
+                },
+                _ => [0u8; 32],
+            },
+            _ => [0u8; 32],
+        }
+    }
+    pub async fn set_connector_tree_hashes(&self, connector_tree_hashes: Vec<Vec<Vec<HashType>>>) {
+        let _guard = self.lock.lock().unwrap();
+        let mut content = self.read();
+        content.connector_tree_hashes = connector_tree_hashes;
+        self.write(content);
+    }
+
+    pub async fn get_claim_proof_merkle_tree(
+        &self,
+        period: usize,
+    ) -> MerkleTree<CLAIM_MERKLE_TREE_DEPTH> {
+        let content = self.read();
+
+        match content.claim_proof_merkle_trees.get(period) {
+            Some(p) => p.clone(),
+            _ => MerkleTree::new(),
+        }
+    }
+    pub async fn set_claim_proof_merkle_trees(
+        &self,
+        claim_proof_merkle_trees: Vec<MerkleTree<CLAIM_MERKLE_TREE_DEPTH>>,
+    ) {
+        let _guard = self.lock.lock().unwrap();
+        let mut content = self.read();
+        content.claim_proof_merkle_trees = claim_proof_merkle_trees;
+        self.write(content);
+    }
+
+    pub async fn get_inscription_txs(&self) -> Vec<InscriptionTxs> {
+        let content = self.read();
+        content.inscription_txs.clone()
+    }
+    pub async fn get_inscription_txs_len(&self) -> usize {
+        let content = self.read();
+        content.inscription_txs.len()
+    }
+    pub async fn add_to_inscription_txs(&self, inscription_txs: InscriptionTxs) {
+        let _guard = self.lock.lock().unwrap();
+        let mut content = self.read();
+        content.inscription_txs.push(inscription_txs);
+        self.write(content);
+    }
+
+    pub async fn get_deposit_txs(&self) -> Vec<(Txid, TxOut)> {
+        let content = self.read();
+        content.deposit_txs.clone()
+    }
+
+    pub async fn get_withdrawals_merkle_tree_index(&self) -> u32 {
+        let content = self.read();
+        content.withdrawals_merkle_tree.index
+    }
+    pub async fn add_to_withdrawals_merkle_tree(&self, hash: HashType) {
+        let _guard = self.lock.lock().unwrap();
+        let mut content = self.read();
+        content.withdrawals_merkle_tree.add(hash);
+        self.write(content);
+    }
+
+    pub async fn get_withdrawals_payment_for_period(
+        &self,
+        period: usize,
+    ) -> Vec<WithdrawalPayment> {
+        let content = self.read();
+        content.withdrawals_payment_txids[period].clone()
+    }
+    pub async fn add_to_withdrawals_payment_txids(
+        &self,
+        period: usize,
+        withdrawal_payment: WithdrawalPayment,
+    ) {
+        let _guard = self.lock.lock().unwrap();
+        let mut content = self.read();
+        while period >= content.withdrawals_payment_txids.len() {
+            content.withdrawals_payment_txids.push(Vec::new());
+        }
+        content.withdrawals_payment_txids[period].push(withdrawal_payment);
+        self.write(content);
+    }
+
+    pub async fn get_connector_tree_utxo(&self, idx: usize) -> ConnectorUTXOTree {
+        let content = self.read();
+        content.connector_tree_utxos[idx].clone()
+    }
+    pub async fn set_connector_tree_utxos(&self, connector_tree_utxos: Vec<ConnectorUTXOTree>) {
+        let _guard = self.lock.lock().unwrap();
+        let mut content = self.read();
+        content.connector_tree_utxos = connector_tree_utxos;
+        self.write(content);
+    }
+
+    pub async fn get_start_block_height(&self) -> u64 {
+        let content = self.read();
+        content.start_block_height
+    }
+    pub async fn set_start_block_height(&self, start_block_height: u64) {
+        let _guard = self.lock.lock().unwrap();
+        let mut content = self.read();
+        content.start_block_height = start_block_height;
+        self.write(content);
+    }
+
+    pub async fn get_period_relative_block_heights(&self) -> Vec<u32> {
+        let content = self.read();
+        content.period_relative_block_heights.clone()
+    }
+    pub async fn set_period_relative_block_heights(&self, period_relative_block_heights: Vec<u32>) {
+        let _guard = self.lock.lock().unwrap();
+        let mut content = self.read();
+        content.period_relative_block_heights = period_relative_block_heights;
+        self.write(content);
+    }
+
+    pub async fn get_inscribed_preimages(&self, period: usize) -> Vec<PreimageType> {
+        let content = self.read();
+
+        match content.inscribed_connector_tree_preimages.get(period) {
+            Some(p) => p.clone(),
+            _ => vec![[0u8; 32]],
+        }
+    }
+    pub async fn add_inscribed_preimages(&self, period: usize, preimages: Vec<PreimageType>) {
+        let _guard = self.lock.lock().unwrap();
+        let mut content = self.read();
+        while period >= content.inscribed_connector_tree_preimages.len() {
+            content.inscribed_connector_tree_preimages.push(Vec::new());
+        }
+        content.inscribed_connector_tree_preimages[period] = preimages;
+        self.write(content);
+    }
+}
+
+#[cfg(poc)]
+#[cfg(test)]
+mod tests {
+    #[tokio::test]
+    async fn deposit_tx() {
+        let config = test_common::get_test_config("test_config.toml".to_string()).unwrap();
+        let database = Database::new(config).await.unwrap();
+
+        let prev_idx = database.get_next_deposit_index().await.unwrap();
+
+        let mut rng = rand::thread_rng();
+        let mut arr = [0; 32];
+        for i in 0..32 {
+            arr[i] = rng.gen();
+        }
+        let txid = Txid::from_byte_array(arr);
+
+        database.insert_move_txid(txid).await.unwrap();
+
+        let next_idx = database.get_next_deposit_index().await.unwrap();
+
+        assert_eq!(prev_idx + 1, next_idx);
+
+        let read_txid = database.get_deposit_tx(next_idx).await.unwrap();
+
+        assert_eq!(read_txid, txid);
+    }
+
+    #[tokio::test]
+    async fn connector_tree_hash() {
+        let config = test_common::get_test_config("test_config.toml".to_string()).unwrap();
+        let database = Database::new(config).await.unwrap();
+
+        let lock = unsafe { LOCK.clone().unwrap() };
+        let _guard = lock.lock().unwrap();
+
+        let mock_data = [0x45u8; 32];
+        let mock_array: Vec<Vec<Vec<HashType>>> = vec![vec![vec![mock_data]]];
+
+        assert_ne!(database.get_connector_tree_hash(0, 0, 0).await, mock_data);
+
+        database.set_connector_tree_hashes(mock_array).await;
+        assert_eq!(database.get_connector_tree_hash(0, 0, 0).await, mock_data);
+    }
+
+    #[tokio::test]
+    async fn claim_proof_merkle_tree() {
+        let config = test_common::get_test_config("test_config.toml".to_string()).unwrap();
+        let database = Database::new(config).await.unwrap();
+        let lock = unsafe { LOCK.clone().unwrap() };
+        let _guard = lock.lock().unwrap();
+
+        let mut mock_data: Vec<MerkleTree<CLAIM_MERKLE_TREE_DEPTH>> = vec![MerkleTree::new()];
+        mock_data[0].add([0x45u8; 32]);
+
+        assert_ne!(
+            database.get_claim_proof_merkle_tree(0).await,
+            mock_data[0].clone()
+        );
+
+        database
+            .set_claim_proof_merkle_trees(mock_data.clone())
+            .await;
+        assert_eq!(database.get_claim_proof_merkle_tree(0).await, mock_data[0]);
+    }
+
+    #[tokio::test]
+    async fn withdrawals_merkle_tree() {
+        let database = unsafe {
+            initialize();
+            DATABASE.clone().unwrap()
+        };
+        let lock = unsafe { LOCK.clone().unwrap() };
+        let _guard = lock.lock().unwrap();
+
+        let mock_data: HashType = [0x45u8; 32];
+
+        assert_eq!(database.get_withdrawals_merkle_tree_index().await, 0);
+
+        database
+            .add_to_withdrawals_merkle_tree(mock_data.clone())
+            .await;
+        assert_eq!(database.get_withdrawals_merkle_tree_index().await, 1);
+    }
+
+    #[tokio::test]
+    async fn start_block_height() {
+        let database = unsafe {
+            initialize();
+            DATABASE.clone().unwrap()
+        };
+        let lock = unsafe { LOCK.clone().unwrap() };
+        let _guard = lock.lock().unwrap();
+
+        let mock_data: u64 = 0x45;
+
+        assert_eq!(database.get_start_block_height().await, 0);
+
+        database.set_start_block_height(mock_data).await;
+        assert_eq!(database.get_start_block_height().await, mock_data);
+    }
+
+    #[tokio::test]
+    async fn period_relative_block_heights() {
+        let database = unsafe {
+            initialize();
+            DATABASE.clone().unwrap()
+        };
+        let lock = unsafe { LOCK.clone().unwrap() };
+        let _guard = lock.lock().unwrap();
+
+        let mock_data: u64 = 0x45;
+
+        assert_eq!(database.get_start_block_height().await, 0);
+
+        database.set_start_block_height(mock_data).await;
+        assert_eq!(database.get_start_block_height().await, mock_data);
+    }
+
+    #[tokio::test]
+    async fn inscribed_preimages() {
+        let lock = unsafe { LOCK.clone().unwrap() };
+        let _guard = lock.lock().unwrap();
+
+        let mock_data: Vec<PreimageType> = vec![[0x45u8; 32]];
+
+        assert_ne!(database.get_inscribed_preimages(0).await, mock_data);
+
+        database.add_inscribed_preimages(0, mock_data.clone()).await;
+        assert_eq!(database.get_inscribed_preimages(0).await, mock_data);
+
+        // Clean things up.
+        match fs::remove_file(DB_FILE_PATH) {
+            Ok(_) => assert!(true),
+            Err(_) => assert!(false),
         }
     }
 }

@@ -1,9 +1,6 @@
 //! # Common Test Utilities
 //!
 //! This file includes common functions/variables for tests.
-//!
-//! Why is this file is here? If it is in `tests` subdirectory, unit tests can't
-//! reach them.
 
 use crate::config::BridgeConfig;
 use crate::errors::BridgeError;

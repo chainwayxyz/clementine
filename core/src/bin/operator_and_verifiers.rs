@@ -1,6 +1,5 @@
 use clementine_core::{cli, start_operator_and_verifiers};
 
-/// main function to start operator server
 /// ```bash
 /// curl -X POST http://127.0.0.1:3434 -H "Content-Type: application/json" -d '{
 ///     "jsonrpc": "2.0",

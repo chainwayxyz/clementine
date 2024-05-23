@@ -1,4 +1,7 @@
-//! This module defines errors returned by the library.
+//! # Errors
+//!
+//! This module defines errors, returned by the library.
+
 use bitcoin::{
     merkle_tree::MerkleBlockError,
     taproot::{TaprootBuilder, TaprootBuilderError},
@@ -8,7 +11,7 @@ use jsonrpsee::types::{ErrorObject, ErrorObjectOwned};
 use std::array::TryFromSliceError;
 use thiserror::Error;
 
-/// Errors related to periods
+/// Errors related to periods.
 #[derive(Debug, Error)]
 pub enum InvalidPeriodError {
     #[error("DepositPeriodMismatch")]
@@ -18,7 +21,8 @@ pub enum InvalidPeriodError {
     #[error("DepositPeriodMismatch")]
     InscriptionPeriodMismatch,
 }
-/// Errors returned by the bridge
+
+/// Errors returned by the bridge.
 #[derive(Debug, Error)]
 #[non_exhaustive]
 pub enum BridgeError {
@@ -141,7 +145,7 @@ impl From<bitcoin::sighash::Error> for BridgeError {
         BridgeError::BitcoinSighashError(err)
     }
 }
-// Vec<u8>
+
 impl From<Vec<u8>> for BridgeError {
     fn from(_error: Vec<u8>) -> Self {
         BridgeError::VecConversionError
@@ -150,8 +154,6 @@ impl From<Vec<u8>> for BridgeError {
 
 impl From<TryFromSliceError> for BridgeError {
     fn from(_error: TryFromSliceError) -> Self {
-        // Here, you can choose the appropriate variant of BridgeError that corresponds
-        // to a TryFromSliceError, or add a new variant to BridgeError if necessary.
         BridgeError::TryFromSliceError
     }
 }
