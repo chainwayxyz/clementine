@@ -1,12 +1,9 @@
 use crate::config::BridgeConfig;
-#[cfg(feature = "poc")]
-use crate::constants::CONNECTOR_TREE_DEPTH;
 use crate::db::verifier::VerifierDB;
 use crate::errors::BridgeError;
 use crate::extended_rpc::ExtendedRpc;
 use crate::script_builder::ScriptBuilder;
 use crate::traits::rpc::VerifierRpcServer;
-// use crate::traits::verifier::VerifierConnector;
 use crate::transaction_builder::TransactionBuilder;
 use crate::utils::check_deposit_utxo;
 use crate::EVMAddress;
@@ -64,6 +61,38 @@ impl VerifierRpcServer for Verifier {
 }
 
 impl Verifier {
+    pub async fn new(
+        rpc: ExtendedRpc,
+        all_xonly_pks: Vec<XOnlyPublicKey>,
+        sk: SecretKey,
+        config: BridgeConfig,
+    ) -> Result<Self, BridgeError> {
+        let signer = Actor::new(sk, config.network);
+        let secp: Secp256k1<secp256k1::All> = Secp256k1::new();
+
+        let pk: secp256k1::PublicKey = sk.public_key(&secp);
+        let xonly_pk = XOnlyPublicKey::from(pk);
+        // if pk is not in all_pks, we should raise an error
+        if !all_xonly_pks.contains(&xonly_pk) {
+            return Err(BridgeError::PublicKeyNotFound);
+        }
+
+        let db = VerifierDB::new(config.clone()).await;
+
+        let transaction_builder = TransactionBuilder::new(all_xonly_pks.clone(), config.clone());
+        let operator_pk = all_xonly_pks[all_xonly_pks.len() - 1];
+        Ok(Verifier {
+            rpc,
+            secp,
+            signer,
+            transaction_builder,
+            verifiers: all_xonly_pks,
+            operator_pk,
+            db,
+            config,
+        })
+    }
+
     /// this is a endpoint that only the operator can call
     /// 1. Check if the deposit utxo is valid and finalized (6 blocks confirmation)
     /// 2. Check if the utxo is not already spent
@@ -157,8 +186,10 @@ impl Verifier {
             .await?;
         Ok(sig)
     }
+}
 
-    #[cfg(feature = "poc")]
+#[cfg(feature = "poc")]
+impl Verifier {
     /// TODO: Add verification for the connector tree hashes
     fn connector_roots_created(
         &self,
@@ -175,21 +206,20 @@ impl Verifier {
                 &period_relative_block_heights,
             )?;
 
-        // self.db
-        //     .set_connector_tree_utxos(utxo_trees);
-        // self.db
-        //     .set_connector_tree_hashes(connector_tree_hashes.clone());
-        // self.db
-        //     .set_claim_proof_merkle_trees(claim_proof_merkle_trees);
-        // self.db
-        //     .set_start_block_height(start_blockheight);
-        // self.db
-        //     .set_period_relative_block_heights(period_relative_block_heights);
+        self.db
+            .set_connector_tree_utxos(utxo_trees);
+        self.db
+            .set_connector_tree_hashes(connector_tree_hashes.clone());
+        self.db
+            .set_claim_proof_merkle_trees(claim_proof_merkle_trees);
+        self.db
+            .set_start_block_height(start_blockheight);
+        self.db
+            .set_period_relative_block_heights(period_relative_block_heights);
 
         Ok(())
     }
 
-    #[cfg(feature = "poc")]
     /// Challenges the operator for current period for now
     /// Will return the blockhash, total work, and period
     fn challenge_operator(&self, period: u8) -> Result<VerifierChallenge, BridgeError> {
@@ -206,39 +236,5 @@ impl Verifier {
             last_blockheight,
         )?;
         Ok((last_blockhash, total_work, period))
-    }
-}
-
-impl Verifier {
-    pub async fn new(
-        rpc: ExtendedRpc,
-        all_xonly_pks: Vec<XOnlyPublicKey>,
-        sk: SecretKey,
-        config: BridgeConfig,
-    ) -> Result<Self, BridgeError> {
-        let signer = Actor::new(sk, config.network);
-        let secp: Secp256k1<secp256k1::All> = Secp256k1::new();
-
-        let pk: secp256k1::PublicKey = sk.public_key(&secp);
-        let xonly_pk = XOnlyPublicKey::from(pk);
-        // if pk is not in all_pks, we should raise an error
-        if !all_xonly_pks.contains(&xonly_pk) {
-            return Err(BridgeError::PublicKeyNotFound);
-        }
-
-        let db = VerifierDB::new(config.clone()).await;
-
-        let transaction_builder = TransactionBuilder::new(all_xonly_pks.clone(), config.clone());
-        let operator_pk = all_xonly_pks[all_xonly_pks.len() - 1];
-        Ok(Verifier {
-            rpc,
-            secp,
-            signer,
-            transaction_builder,
-            verifiers: all_xonly_pks,
-            operator_pk,
-            db,
-            config,
-        })
     }
 }
