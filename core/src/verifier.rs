@@ -206,14 +206,12 @@ impl Verifier {
                 &period_relative_block_heights,
             )?;
 
-        self.db
-            .set_connector_tree_utxos(utxo_trees);
+        self.db.set_connector_tree_utxos(utxo_trees);
         self.db
             .set_connector_tree_hashes(connector_tree_hashes.clone());
         self.db
             .set_claim_proof_merkle_trees(claim_proof_merkle_trees);
-        self.db
-            .set_start_block_height(start_blockheight);
+        self.db.set_start_block_height(start_blockheight);
         self.db
             .set_period_relative_block_heights(period_relative_block_heights);
 
