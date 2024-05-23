@@ -6,17 +6,17 @@ members = ["core", "circuits"]
 bitcoin = "0.31.1"
 bitcoincore-rpc = "0.18.0"
 hex = "0.4.3"
-lazy_static = { version="1.4.0", default-features = false }
-sha2 = "=0.10.8"
+lazy_static = { version = "1.4.0", default-features = false }
+sha2 = { version = "=0.10.8", default-features = false }
 risc0-zkvm = "0.21.0"
-serde = "1.0"
+serde = { version = "1.0", default-features = false }
 serde_json = "1.0.108"
 byteorder = "1.5.0"
 secp256k1 = "0.28.1"
-crypto-bigint = "=0.5.5"
+crypto-bigint = { version = "=0.5.5", default-features = false }
 thiserror = "1.0.57"
-tracing = "0.1.40"
-tracing-subscriber = "0.3.18"
+tracing = { version = "0.1.40", default-features = false }
+tracing-subscriber = { version = "0.3.18" }
 tokio = "1.37.0"
 jsonrpsee = "0.20.1"
 async-trait = "0.1.79"
@@ -25,6 +25,7 @@ dotenv = "0.15.0"
 clap = "4.5.4"
 toml = "0.8.12"
 sqlx = "0.7.4"
+k256 = { version = "=0.13.3", default_features = false }
 
 # Always optimize; building and running the guest takes much longer without optimization.
 [profile.dev]
