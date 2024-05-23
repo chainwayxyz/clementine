@@ -2,7 +2,10 @@
 //!
 //! TODO: Add library definition here.
 
-use std::sync::Arc;
+use crate::{
+    config::BridgeConfig, extended_rpc::ExtendedRpc, traits::rpc::VerifierRpcServer,
+    verifier::Verifier,
+};
 use bitcoin::{OutPoint, Txid};
 use bitcoincore_rpc::Auth;
 use clementine_circuits::{HashType, PreimageType};
@@ -13,11 +16,8 @@ use jsonrpsee::{
 };
 use operator::Operator;
 use serde::{Deserialize, Serialize};
+use std::sync::Arc;
 use traits::rpc::OperatorRpcServer;
-use crate::{
-    config::BridgeConfig, extended_rpc::ExtendedRpc, traits::rpc::VerifierRpcServer,
-    verifier::Verifier,
-};
 
 pub mod actor;
 pub mod cli;
