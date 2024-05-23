@@ -20,6 +20,7 @@ use crate::{
 pub mod actor;
 pub mod cli;
 pub mod config;
+#[cfg(feature = "poc")]
 pub mod constants;
 pub mod db;
 pub mod env_writer;
