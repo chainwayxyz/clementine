@@ -1,5 +1,8 @@
-use std::sync::Arc;
+//! # Clementine Core
+//!
+//! TODO: Add library definition here.
 
+use std::sync::Arc;
 use bitcoin::{OutPoint, Txid};
 use bitcoincore_rpc::Auth;
 use clementine_circuits::{HashType, PreimageType};
@@ -11,7 +14,6 @@ use jsonrpsee::{
 use operator::Operator;
 use serde::{Deserialize, Serialize};
 use traits::rpc::OperatorRpcServer;
-
 use crate::{
     config::BridgeConfig, extended_rpc::ExtendedRpc, traits::rpc::VerifierRpcServer,
     verifier::Verifier,
