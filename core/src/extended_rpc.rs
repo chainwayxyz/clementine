@@ -1,7 +1,7 @@
+use crate::errors::BridgeError;
 use bitcoin::Address;
 use bitcoin::Amount;
 use bitcoin::OutPoint;
-
 use bitcoin::ScriptBuf;
 use bitcoin::Transaction;
 use bitcoin::TxOut;
@@ -11,8 +11,6 @@ use bitcoincore_rpc::Client;
 use bitcoincore_rpc::RpcApi;
 use crypto_bigint::Encoding;
 use crypto_bigint::U256;
-
-use crate::errors::BridgeError;
 
 #[derive(Debug)]
 pub struct ExtendedRpc {

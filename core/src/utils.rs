@@ -1,29 +1,20 @@
-use std::borrow::BorrowMut;
-
-use bitcoin::address::NetworkUnchecked;
-use bitcoin::sighash::SighashCache;
-use bitcoin::{self, Address, OutPoint};
-
-use bitcoin::consensus::Decodable;
-
-use bitcoin::taproot::ControlBlock;
-use bitcoin::taproot::LeafVersion;
-
-use bitcoin::taproot::TaprootSpendInfo;
-
-use bitcoin::Amount;
-
-use bitcoin::ScriptBuf;
-
-use clementine_circuits::constants::BRIDGE_AMOUNT_SATS;
-use hex;
-
-use sha2::{Digest, Sha256};
-
 use crate::errors::BridgeError;
 use crate::extended_rpc::ExtendedRpc;
 use crate::transaction_builder::{CreateTxOutputs, TransactionBuilder};
 use crate::{EVMAddress, HashTree};
+use bitcoin::address::NetworkUnchecked;
+use bitcoin::consensus::Decodable;
+use bitcoin::sighash::SighashCache;
+use bitcoin::taproot::ControlBlock;
+use bitcoin::taproot::LeafVersion;
+use bitcoin::taproot::TaprootSpendInfo;
+use bitcoin::Amount;
+use bitcoin::ScriptBuf;
+use bitcoin::{self, Address, OutPoint};
+use clementine_circuits::constants::BRIDGE_AMOUNT_SATS;
+use hex;
+use sha2::{Digest, Sha256};
+use std::borrow::BorrowMut;
 
 pub fn parse_hex_to_btc_tx(
     tx_hex: &str,
@@ -185,7 +176,6 @@ pub fn calculate_claim_proof_root(
     hashes[0]
 }
 
-// tests
 #[cfg(test)]
 mod tests {
     use super::*;

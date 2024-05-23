@@ -1,16 +1,10 @@
 use crate::actor::Actor;
 use crate::config::BridgeConfig;
-#[cfg(feature = "poc")]
-use crate::constants::{
-    VerifierChallenge, CONNECTOR_TREE_DEPTH, DUST_VALUE, K_DEEP,
-    MAX_BITVM_CHALLENGE_RESPONSE_BLOCKS, PERIOD_BLOCK_COUNT,
-};
 use crate::db::operator::OperatorDB;
 use crate::errors::BridgeError;
 use crate::extended_rpc::ExtendedRpc;
 use crate::script_builder::ScriptBuilder;
 use crate::traits::rpc::{OperatorRpcServer, VerifierRpcClient};
-// use crate::traits::verifier::VerifierConnector;
 use crate::transaction_builder::TransactionBuilder;
 use crate::utils::{check_deposit_utxo, handle_taproot_witness_new};
 use crate::EVMAddress;

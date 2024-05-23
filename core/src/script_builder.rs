@@ -1,3 +1,4 @@
+use crate::EVMAddress;
 use bitcoin::address::NetworkUnchecked;
 use bitcoin::blockdata::opcodes::all::OP_PUSHNUM_1;
 use bitcoin::Address;
@@ -7,8 +8,6 @@ use bitcoin::{
     ScriptBuf, TxOut,
 };
 use secp256k1::XOnlyPublicKey;
-
-use crate::EVMAddress;
 
 #[derive(Debug, Clone)]
 pub struct ScriptBuilder {

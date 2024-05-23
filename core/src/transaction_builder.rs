@@ -1,10 +1,3 @@
-use std::str::FromStr;
-
-#[cfg(feature = "poc")]
-use crate::constants::{
-    CONNECTOR_TREE_DEPTH, CONNECTOR_TREE_OPERATOR_TAKES_AFTER, DUST_VALUE, K_DEEP,
-    MAX_BITVM_CHALLENGE_RESPONSE_BLOCKS,
-};
 use crate::{config::BridgeConfig, EVMAddress};
 use crate::{errors::BridgeError, script_builder::ScriptBuilder};
 use bitcoin::address::NetworkUnchecked;
@@ -16,6 +9,7 @@ use bitcoin::{
 use clementine_circuits::constants::BRIDGE_AMOUNT_SATS;
 use lazy_static::lazy_static;
 use secp256k1::{Secp256k1, XOnlyPublicKey};
+use std::str::FromStr;
 
 // This is an unspendable pubkey
 // See https://github.com/bitcoin/bips/blob/master/bip-0341.mediawiki#constructing-and-spending-taproot-outputs
