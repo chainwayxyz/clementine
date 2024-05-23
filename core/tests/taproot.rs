@@ -1,24 +1,18 @@
-// use std::borrow::BorrowMut;
-// use std::ops::Add;
-
 use bitcoin::hashes::{Hash, HashEngine};
 use bitcoin::opcodes::all::OP_CHECKSIG;
 use bitcoin::script::Builder;
-// use bitcoin::sighash::SighashCache;
-use bitcoin::{Address, Amount, TapTweakHash, TxOut, XOnlyPublicKey}; // Script, ScriptBuf, Transaction, TxIn,
+use bitcoin::{Address, Amount, TapTweakHash, TxOut, XOnlyPublicKey};
 use bitcoincore_rpc::Auth;
-// use clementine_circuits::constants::BRIDGE_AMOUNT_SATS;
 use clementine_core::actor::Actor;
-// use clementine_core::config::BridgeConfig;
 use clementine_core::extended_rpc::ExtendedRpc;
-// use clementine_core::script_builder::ScriptBuilder;
-use clementine_core::cli;
+use clementine_core::mock::common::get_test_config;
 use clementine_core::transaction_builder::{CreateTxOutputs, TransactionBuilder};
 use clementine_core::utils::handle_taproot_witness_new;
 
-fn main() {
+#[tokio::test]
+async fn run() {
     let secp = bitcoin::secp256k1::Secp256k1::new();
-    let config = cli::get_configuration();
+    let config = get_test_config("test_config_flow.toml").unwrap();
 
     let (xonly_pk, _) = config.secret_key.public_key(&secp).x_only_public_key();
     println!("x only pub key: {:?}", xonly_pk);
