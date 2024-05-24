@@ -38,11 +38,8 @@ impl Database {
         }
     }
 
-    /// Creates a new database with given name. A new database connection should
-    /// be established after with `Database::new(config)` call after this.
-    ///
-    /// This will drop the target database if it exist.
-    pub async fn create_database(
+    /// Drops database if exists.
+    pub async fn drop_database(
         config: BridgeConfig,
         database_name: &str,
     ) -> Result<(), BridgeError> {
@@ -52,19 +49,47 @@ impl Database {
             + config.db_password.as_str()
             + "@"
             + config.db_host.as_str();
-        tracing::debug!("Connecting database: {}", url);
 
         let conn = sqlx::PgPool::connect(url.as_str()).await?;
 
         let query = format!("DROP DATABASE IF EXISTS {database_name}");
         sqlx::query(&query).execute(&conn).await?;
 
+        conn.close().await;
+
+        Ok(())
+    }
+
+    /// Creates a new database with given name. A new database connection should
+    /// be established after with `Database::new(config)` call after this.
+    ///
+    /// This will drop the target database if it exist.
+    pub async fn create_database(
+        config: BridgeConfig,
+        database_name: &str,
+    ) -> Result<BridgeConfig, BridgeError> {
+        let url = "postgresql://".to_owned()
+            + config.db_user.as_str()
+            + ":"
+            + config.db_password.as_str()
+            + "@"
+            + config.db_host.as_str();
+
+        let conn = sqlx::PgPool::connect(url.as_str()).await?;
+
+        Database::drop_database(config.clone(), database_name).await?;
+
         let query = format!("CREATE DATABASE {database_name}");
         sqlx::query(&query).execute(&conn).await?;
 
         conn.close().await;
 
-        Ok(())
+        let config = BridgeConfig {
+            db_name: database_name.to_string(),
+            ..config
+        };
+
+        Ok(config)
     }
 
     /// Starts a database transaction.
@@ -240,11 +265,21 @@ mod tests {
 
     #[tokio::test]
     async fn create_database() {
-        let handle = thread::current().name().unwrap().to_owned();
-        let handle = handle.split(":").last().unwrap();
+        let handle = thread::current()
+            .name()
+            .unwrap()
+            .split(":")
+            .last()
+            .unwrap()
+            .to_owned();
         let config = common::get_test_config("test_config.toml").unwrap();
 
-        Database::create_database(config, handle).await.unwrap();
+        let config = Database::create_database(config, &handle).await.unwrap();
+
+        // Do not save return result so that connection will drop immediately.
+        Database::new(config.clone()).await.unwrap();
+
+        Database::drop_database(config, &handle).await.unwrap();
     }
 
     #[tokio::test]
