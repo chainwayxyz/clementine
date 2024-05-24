@@ -9,6 +9,7 @@ use crate::{config::BridgeConfig, errors::BridgeError};
 use bitcoin::address::NetworkUnchecked;
 use bitcoin::{Address, OutPoint, Txid};
 use sqlx::{Pool, Postgres};
+use std::fs;
 use std::str::FromStr;
 
 #[derive(Clone, Debug)]
@@ -49,7 +50,6 @@ impl Database {
             + config.db_password.as_str()
             + "@"
             + config.db_host.as_str();
-
         let conn = sqlx::PgPool::connect(url.as_str()).await?;
 
         let query = format!("DROP DATABASE IF EXISTS {database_name}");
@@ -77,7 +77,6 @@ impl Database {
             + config.db_password.as_str()
             + "@"
             + config.db_host.as_str();
-
         let conn = sqlx::PgPool::connect(url.as_str()).await?;
 
         Database::drop_database(config.clone(), database_name).await?;
@@ -96,6 +95,18 @@ impl Database {
         };
 
         Ok(config)
+    }
+
+    /// Runs given SQL file to database. Database connection must be established
+    /// before calling this function.
+    pub async fn run_sql_file(&self, sql_file: &str) -> Result<(), BridgeError> {
+        let contents = fs::read_to_string(sql_file).unwrap();
+
+        sqlx::raw_sql(contents.as_str())
+            .execute(&self.connection)
+            .await?;
+
+        Ok(())
     }
 
     /// Starts a database transaction.
@@ -289,8 +300,22 @@ mod tests {
 
     #[tokio::test]
     async fn add_deposit_transaction() {
+        let handle = thread::current()
+            .name()
+            .unwrap()
+            .split(":")
+            .last()
+            .unwrap()
+            .to_owned();
         let config = common::get_test_config("test_config.toml").unwrap();
+        let config = Database::create_database(config, &handle).await.unwrap();
+
         let database = Database::new(config.clone()).await.unwrap();
+        database
+            .run_sql_file("../scripts/schema.sql")
+            .await
+            .unwrap();
+
         let secp = Secp256k1::new();
         let xonly_public_key = XOnlyPublicKey::from_slice(&[
             0x78u8, 0x19u8, 0x90u8, 0xd7u8, 0xe2u8, 0x11u8, 0x8cu8, 0xc3u8, 0x61u8, 0xa9u8, 0x3au8,
@@ -308,6 +333,9 @@ mod tests {
             )
             .await
             .unwrap();
+
+        database.connection.close().await;
+        Database::drop_database(config, &handle).await.unwrap();
     }
 }
 
