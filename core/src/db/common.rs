@@ -38,6 +38,38 @@ impl Database {
         }
     }
 
+    /// Creates a new database with given name. A new database connection should
+    /// be established after with `Database::new(config)` call after this.
+    ///
+    /// This will drop the target database if it exist.
+    pub async fn create_database(
+        config: BridgeConfig,
+        database_name: &str,
+    ) -> Result<(), BridgeError> {
+        let url = "postgresql://".to_owned()
+            + config.db_user.as_str()
+            + ":"
+            + config.db_password.as_str()
+            + "@"
+            + config.db_host.as_str();
+        tracing::debug!("Connecting database: {}", url);
+
+        let conn = sqlx::PgPool::connect(url.as_str()).await?;
+
+        sqlx::query("DROP DATABASE IF EXISTS $1;")
+            .bind(database_name)
+            .fetch_all(&conn)
+            .await?;
+        sqlx::query("CREATE DATABASE $1;")
+            .bind(database_name)
+            .fetch_all(&conn)
+            .await?;
+
+        conn.close().await;
+
+        Ok(())
+    }
+
     /// Starts a database transaction.
     ///
     /// Return value can be used for committing changes. If not committed,
@@ -172,6 +204,7 @@ mod tests {
     use crate::{config::BridgeConfig, mock::common, EVMAddress};
     use bitcoin::{Address, OutPoint, XOnlyPublicKey};
     use secp256k1::Secp256k1;
+    use std::thread;
 
     #[tokio::test]
     async fn invalid_connection() {
@@ -206,6 +239,15 @@ mod tests {
                 assert!(false);
             }
         };
+    }
+
+    #[tokio::test]
+    async fn create_database() {
+        let handle = thread::current().name().unwrap().to_owned();
+        let handle = handle.split(":").last().unwrap();
+        let config = common::get_test_config("test_config.toml").unwrap();
+
+        Database::create_database(config, handle).await.unwrap();
     }
 
     #[tokio::test]
