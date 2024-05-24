@@ -22,11 +22,6 @@ The flow is as follows:
 >
 > Clementine is still work-in-progress. It has not been audited and should not be used in production under any circumstances. It also requires a full BitVM implementation to be run fully on-chain.
 
-## Documentation
-
-Documentation can be found in [docs](docs) directory. [README](docs/README.md)
-file can be used for navigating through documentation.
-
 ## Instructions
 
 ### Preparing Test Environment
