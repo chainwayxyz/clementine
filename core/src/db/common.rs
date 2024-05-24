@@ -39,6 +39,11 @@ impl Database {
         }
     }
 
+    /// Closes database connection.
+    pub async fn close(&self) {
+        self.connection.close().await;
+    }
+
     /// Drops the given database if it exists.
     pub async fn drop_database(
         config: BridgeConfig,
