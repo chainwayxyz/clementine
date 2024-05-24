@@ -38,7 +38,7 @@ impl Database {
         }
     }
 
-    /// Drops database if exists.
+    /// Drops the given database if it exists.
     pub async fn drop_database(
         config: BridgeConfig,
         database_name: &str,
@@ -64,6 +64,9 @@ impl Database {
     /// be established after with `Database::new(config)` call after this.
     ///
     /// This will drop the target database if it exist.
+    ///
+    /// Returns a new `BridgeConfig` with updated database name. Use that
+    /// `BridgeConfig` to create a new connection, using `Database::new()`.
     pub async fn create_database(
         config: BridgeConfig,
         database_name: &str,
@@ -79,7 +82,10 @@ impl Database {
 
         Database::drop_database(config.clone(), database_name).await?;
 
-        let query = format!("CREATE DATABASE {database_name}");
+        let query = format!(
+            "CREATE DATABASE {} WITH OWNER {}",
+            database_name, config.db_user
+        );
         sqlx::query(&query).execute(&conn).await?;
 
         conn.close().await;
@@ -273,7 +279,6 @@ mod tests {
             .unwrap()
             .to_owned();
         let config = common::get_test_config("test_config.toml").unwrap();
-
         let config = Database::create_database(config, &handle).await.unwrap();
 
         // Do not save return result so that connection will drop immediately.
