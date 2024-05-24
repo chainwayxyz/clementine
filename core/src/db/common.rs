@@ -245,7 +245,10 @@ impl Database {
 #[cfg(test)]
 mod tests {
     use super::Database;
-    use crate::{config::BridgeConfig, mock::common, EVMAddress};
+    use crate::{
+        config::BridgeConfig, create_test_database, create_test_database_with_thread_name,
+        mock::common, EVMAddress,
+    };
     use bitcoin::{Address, OutPoint, XOnlyPublicKey};
     use secp256k1::Secp256k1;
     use std::thread;
@@ -305,21 +308,8 @@ mod tests {
 
     #[tokio::test]
     async fn add_deposit_transaction() {
-        let handle = thread::current()
-            .name()
-            .unwrap()
-            .split(":")
-            .last()
-            .unwrap()
-            .to_owned();
-        let config = common::get_test_config("test_config.toml").unwrap();
-        let config = Database::create_database(config, &handle).await.unwrap();
-
+        let config = create_test_database_with_thread_name!("test_config.toml");
         let database = Database::new(config.clone()).await.unwrap();
-        database
-            .run_sql_file("../scripts/schema.sql")
-            .await
-            .unwrap();
 
         let secp = Secp256k1::new();
         let xonly_public_key = XOnlyPublicKey::from_slice(&[
@@ -338,9 +328,6 @@ mod tests {
             )
             .await
             .unwrap();
-
-        database.connection.close().await;
-        Database::drop_database(config, &handle).await.unwrap();
     }
 }
 
