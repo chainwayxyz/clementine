@@ -264,7 +264,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn create_database() {
+    async fn create_drop_database() {
         let handle = thread::current()
             .name()
             .unwrap()
