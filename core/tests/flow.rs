@@ -1,8 +1,6 @@
 //! # Deposit and Withdraw Flow Test
 //!
-//! This test checks if basic deposit and withdraw operations are OK or not.
-
-use std::thread;
+//! This tests checks if basic deposit and withdraw operations are OK or not.
 
 use bitcoin::{Address, Amount};
 use bitcoincore_rpc::Auth;
@@ -10,13 +8,14 @@ use clementine_circuits::constants::BRIDGE_AMOUNT_SATS;
 use clementine_core::actor::Actor;
 use clementine_core::db::common::Database;
 use clementine_core::extended_rpc::ExtendedRpc;
-use clementine_core::mock::common::{self, find_consecutive_idle_ports, get_test_config};
+use clementine_core::mock::common::{self, find_consecutive_idle_ports};
 use clementine_core::script_builder::ScriptBuilder;
 use clementine_core::traits::rpc::OperatorRpcClient;
 use clementine_core::transaction_builder::{CreateTxOutputs, TransactionBuilder};
 use clementine_core::utils::handle_taproot_witness_new;
 use clementine_core::EVMAddress;
 use clementine_core::{create_test_database, start_operator_and_verifiers};
+use std::thread;
 
 #[tokio::test]
 #[ignore = "Data race with other flow test; Run separately with: cargo test --test flow -- test_flow_1 --include-ignored --show-output"]
@@ -130,7 +129,21 @@ async fn test_flow_1() {
 #[tokio::test]
 #[ignore = "Data race with other flow test; run separately with: cargo test --test flow -- test_flow_2 --include-ignored --show-output"]
 async fn test_flow_2() {
-    let config = get_test_config("test_config_flow.toml").unwrap();
+    // Create a temporary database for testing.
+    let handle = thread::current()
+        .name()
+        .unwrap()
+        .split(":")
+        .last()
+        .unwrap()
+        .to_owned();
+    let config = create_test_database!(handle, "test_config_flow.toml");
+    for i in 0..4 {
+        create_test_database!(
+            handle.clone() + i.to_string().as_str(),
+            "test_config_flow.toml"
+        );
+    }
 
     let rpc = ExtendedRpc::new(
         config.bitcoin_rpc_url.clone(),
