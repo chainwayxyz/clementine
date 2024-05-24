@@ -56,14 +56,11 @@ impl Database {
 
         let conn = sqlx::PgPool::connect(url.as_str()).await?;
 
-        sqlx::query("DROP DATABASE IF EXISTS $1;")
-            .bind(database_name)
-            .fetch_all(&conn)
-            .await?;
-        sqlx::query("CREATE DATABASE $1;")
-            .bind(database_name)
-            .fetch_all(&conn)
-            .await?;
+        let query = format!("DROP DATABASE IF EXISTS {database_name}");
+        sqlx::query(&query).execute(&conn).await?;
+
+        let query = format!("CREATE DATABASE {database_name}");
+        sqlx::query(&query).execute(&conn).await?;
 
         conn.close().await;
 
