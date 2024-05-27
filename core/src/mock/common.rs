@@ -78,6 +78,12 @@ pub fn find_consecutive_idle_ports(port: u16, num: usize) -> Result<u16, BridgeE
 
 /// Creates a temporary database for testing.
 ///
+/// Parameters:
+///
+/// - db_name: New database's name.
+/// - config_file: Test configuration file. Rest of the config will be read from
+/// here and only `db_name` will be overwritten.
+///
 /// Returns new `BridgeConfig`.
 #[macro_export]
 macro_rules! create_test_database {
@@ -99,6 +105,11 @@ macro_rules! create_test_database {
 
 /// Creates a temporary database for testing, using current thread's name as the
 /// database name.
+///
+/// Parameters:
+///
+/// - config_file: Test configuration file. Rest of the config will be read from
+/// here and only `db_name` will be overwritten.
 ///
 /// Returns new `BridgeConfig`.
 #[macro_export]
