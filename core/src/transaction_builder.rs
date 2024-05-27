@@ -44,6 +44,7 @@ pub struct TransactionBuilder {
 }
 
 impl TransactionBuilder {
+    /// Creates a new `TransactionBuilder`.
     pub fn new(
         verifiers_pks: Vec<XOnlyPublicKey>,
         network: Network,
@@ -63,7 +64,8 @@ impl TransactionBuilder {
         }
     }
 
-    /// This function generates a deposit address for the user. N-of-N or User takes after timelock script can be used to spend the funds.
+    /// Generates a deposit address for the user. N-of-N or user takes after
+    /// timelock script can be used to spend the funds.
     pub fn generate_deposit_address(
         &self,
         recovery_taproot_address: &Address<NetworkUnchecked>,
@@ -73,14 +75,17 @@ impl TransactionBuilder {
         let deposit_script = self
             .script_builder
             .create_deposit_script(user_evm_address, amount);
+
         let script_timelock = ScriptBuilder::generate_timelock_script(
             recovery_taproot_address,
             self.user_takes_after,
         );
+
         let taproot = TaprootBuilder::new()
             .add_leaf(1, deposit_script.clone())?
             .add_leaf(1, script_timelock.clone())?;
         let tree_info = taproot.finalize(&self.secp, *INTERNAL_KEY)?;
+
         let address = Address::p2tr(
             &self.secp,
             *INTERNAL_KEY,
@@ -91,21 +96,25 @@ impl TransactionBuilder {
         Ok((address, tree_info))
     }
 
-    // This function generates bridge address. N-of-N script can be used to spend the funds.
+    /// Generates bridge address. N-of-N script can be used to spend the funds.
     pub fn generate_bridge_address(&self) -> Result<CreateAddressOutputs, BridgeError> {
         let script_n_of_n = self.script_builder.generate_script_n_of_n();
+
         let taproot = TaprootBuilder::new().add_leaf(0, script_n_of_n.clone())?;
         let tree_info = taproot.finalize(&self.secp, *INTERNAL_KEY)?;
+
         let address = Address::p2tr(
             &self.secp,
             *INTERNAL_KEY,
             tree_info.merkle_root(),
             self.network,
         );
+
         Ok((address, tree_info))
     }
 
-    /// This function creates the move tx, it's prevouts for signing and the script to be used for the signature.
+    /// Creates the move tx, it's prevouts for signing and the script to be used
+    /// for the signature.
     pub fn create_move_tx(
         &self,
         deposit_utxo: OutPoint,
@@ -130,13 +139,16 @@ impl TransactionBuilder {
         };
         let move_tx =
             TransactionBuilder::create_btc_tx(tx_ins, vec![bridge_txout, anyone_can_spend_txout]);
+
         let prevouts = vec![TxOut {
             script_pubkey: deposit_address.script_pubkey(),
             value: Amount::from_sat(BRIDGE_AMOUNT_SATS),
         }];
+
         let deposit_script = vec![self
             .script_builder
             .create_deposit_script(evm_address, BRIDGE_AMOUNT_SATS)];
+
         Ok(CreateTxOutputs {
             tx: move_tx,
             prevouts,
@@ -162,10 +174,14 @@ impl TransactionBuilder {
                 - anyone_can_spend_txout.value,
             script_pubkey: withdraw_address.script_pubkey(),
         };
+
         let withdraw_tx =
             TransactionBuilder::create_btc_tx(tx_ins, vec![bridge_txout, anyone_can_spend_txout]);
+
         let prevouts = vec![deposit_txout];
+
         let bridge_spend_script = vec![self.script_builder.generate_script_n_of_n()];
+
         Ok(CreateTxOutputs {
             tx: withdraw_tx,
             prevouts,
@@ -185,6 +201,7 @@ impl TransactionBuilder {
 
     pub fn create_tx_ins(utxos: Vec<OutPoint>) -> Vec<TxIn> {
         let mut tx_ins = Vec::new();
+
         for utxo in utxos {
             tx_ins.push(TxIn {
                 previous_output: utxo,
@@ -193,11 +210,13 @@ impl TransactionBuilder {
                 witness: Witness::new(),
             });
         }
+
         tx_ins
     }
 
     pub fn create_tx_ins_with_sequence(utxos: Vec<OutPoint>, height: u16) -> Vec<TxIn> {
         let mut tx_ins = Vec::new();
+
         for utxo in utxos {
             tx_ins.push(TxIn {
                 previous_output: utxo,
@@ -206,17 +225,20 @@ impl TransactionBuilder {
                 witness: Witness::new(),
             });
         }
+
         tx_ins
     }
 
     pub fn create_tx_outs(pairs: Vec<(Amount, ScriptBuf)>) -> Vec<TxOut> {
         let mut tx_outs = Vec::new();
+
         for pair in pairs {
             tx_outs.push(TxOut {
                 value: pair.0,
                 script_pubkey: pair.1,
             });
         }
+
         tx_outs
     }
 
@@ -229,6 +251,7 @@ impl TransactionBuilder {
         if n == 0 {
             return Err(BridgeError::TaprootScriptError);
         }
+
         let taproot_builder = if n > 1 {
             let m: u8 = ((n - 1).ilog2() + 1) as u8; // m = ceil(log(n))
             let k = 2_usize.pow(m.into()) - n;
@@ -239,8 +262,10 @@ impl TransactionBuilder {
         } else {
             TaprootBuilder::new().add_leaf(0, scripts[0].clone())?
         };
+
         let internal_key = *INTERNAL_KEY;
         let tree_info = taproot_builder.finalize(secp, internal_key)?;
+
         Ok((
             Address::p2tr(secp, internal_key, tree_info.merkle_root(), network),
             tree_info,
@@ -261,6 +286,7 @@ impl TransactionBuilder {
 
         let (address, tree_info) =
             TransactionBuilder::create_taproot_address(&self.secp, scripts, self.network).unwrap();
+
         Ok((address, tree_info))
     }
 }
@@ -273,6 +299,10 @@ mod tests {
 
     #[test]
     fn deposit_address() {
+        let config = BridgeConfig::new();
+
+        let secp = secp256k1::Secp256k1::new();
+
         let verifier_pks_hex: Vec<&str> = vec![
             "9bef8d556d80e43ae7e0becb3a7e6838b95defe45896ed6075bb9035d06c9964",
             "e37d58a1aae4ba059fd2503712d998470d3a2522f7e2335f544ef384d2199e02",
@@ -284,24 +314,27 @@ mod tests {
             .iter()
             .map(|pk| XOnlyPublicKey::from_str(pk).unwrap())
             .collect();
-        let config = BridgeConfig::new();
+
         let tx_builder = TransactionBuilder::new(
             verifier_pks,
             config.network,
             config.user_takes_after,
             config.min_relay_fee,
         );
+
         let evm_address: [u8; 20] = hex::decode("1234567890123456789012345678901234567890")
             .unwrap()
             .try_into()
             .unwrap();
+
         let user_xonly_pk: XOnlyPublicKey = XOnlyPublicKey::from_str(
             "93c7378d96518a75448821c4f7c8f4bae7ce60f804d03d1f0628dd5dd0f5de51",
         )
         .unwrap();
-        let secp = secp256k1::Secp256k1::new();
+
         let recovery_taproot_address =
             Address::p2tr(&secp, user_xonly_pk, None, bitcoin::Network::Regtest);
+
         let deposit_address = tx_builder
             .generate_deposit_address(
                 &recovery_taproot_address.as_unchecked(),
@@ -310,6 +343,7 @@ mod tests {
             )
             .unwrap();
         println!("deposit_address: {:?}", deposit_address.0);
+
         assert_eq!(
             deposit_address.0.to_string(),
             "bcrt1prqxsjz7h5wt40w54vhmpvn6l2hu8mefmez6ld4p59vksllumskvqs8wvkh" // check this later
