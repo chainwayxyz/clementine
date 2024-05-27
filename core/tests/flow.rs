@@ -8,7 +8,7 @@ use clementine_circuits::constants::BRIDGE_AMOUNT_SATS;
 use clementine_core::actor::Actor;
 use clementine_core::db::common::Database;
 use clementine_core::extended_rpc::ExtendedRpc;
-use clementine_core::mock::common::{self, find_consecutive_idle_ports};
+use clementine_core::mock::common;
 use clementine_core::script_builder::ScriptBuilder;
 use clementine_core::traits::rpc::OperatorRpcClient;
 use clementine_core::transaction_builder::{CreateTxOutputs, TransactionBuilder};
@@ -234,10 +234,4 @@ async fn test_flow_2() {
         .get_raw_transaction(&user_takes_back_txid, None)
         .unwrap();
     tracing::debug!("User takes back tx: {:#?}", user_takes_back_tx);
-}
-
-#[tokio::test]
-async fn test_ports() {
-    let res = find_consecutive_idle_ports(0, 5).unwrap();
-    println!("{:?}", res);
 }

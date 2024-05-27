@@ -87,3 +87,11 @@ pub fn find_consecutive_idle_ports(port: u16, num: usize) -> Result<u16, BridgeE
         ))
     }
 }
+
+mod tests {
+    #[tokio::test]
+    async fn ports() {
+        let res = super::find_consecutive_idle_ports(0, 5).unwrap();
+        println!("{:?}", res);
+    }
+}
