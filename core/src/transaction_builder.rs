@@ -57,14 +57,13 @@ impl TransactionBuilder {
     /// This is an unspendable pubkey.
     ///
     /// See https://github.com/bitcoin/bips/blob/master/bip-0341.mediawiki#constructing-and-spending-taproot-outputs
-    ///
-    /// # Panics
-    ///
-    /// This function can panic if it cannot generate a `XOnlyPublicKey` from
-    /// hard coded string. Which is very unlikely, but still possible.
-    fn get_internal_key() -> XOnlyPublicKey {
-        XOnlyPublicKey::from_str("93c7378d96518a75448821c4f7c8f4bae7ce60f804d03d1f0628dd5dd0f5de51")
-            .unwrap()
+    fn get_internal_key() -> Result<XOnlyPublicKey, BridgeError> {
+        match XOnlyPublicKey::from_str(
+            "93c7378d96518a75448821c4f7c8f4bae7ce60f804d03d1f0628dd5dd0f5de51",
+        ) {
+            Ok(pk) => Ok(pk),
+            Err(_) => Err(BridgeError::TaprootScriptError),
+        }
     }
 
     /// Generates a deposit address for the user. N-of-N or user takes after
@@ -87,11 +86,11 @@ impl TransactionBuilder {
         let taproot = TaprootBuilder::new()
             .add_leaf(1, deposit_script.clone())?
             .add_leaf(1, script_timelock.clone())?;
-        let tree_info = taproot.finalize(&self.secp, TransactionBuilder::get_internal_key())?;
+        let tree_info = taproot.finalize(&self.secp, TransactionBuilder::get_internal_key()?)?;
 
         let address = Address::p2tr(
             &self.secp,
-            TransactionBuilder::get_internal_key(),
+            TransactionBuilder::get_internal_key()?,
             tree_info.merkle_root(),
             self.network,
         );
@@ -104,11 +103,11 @@ impl TransactionBuilder {
         let script_n_of_n = self.script_builder.generate_script_n_of_n();
 
         let taproot = TaprootBuilder::new().add_leaf(0, script_n_of_n.clone())?;
-        let tree_info = taproot.finalize(&self.secp, TransactionBuilder::get_internal_key())?;
+        let tree_info = taproot.finalize(&self.secp, TransactionBuilder::get_internal_key()?)?;
 
         let address = Address::p2tr(
             &self.secp,
-            TransactionBuilder::get_internal_key(),
+            TransactionBuilder::get_internal_key()?,
             tree_info.merkle_root(),
             self.network,
         );
@@ -266,7 +265,7 @@ impl TransactionBuilder {
             TaprootBuilder::new().add_leaf(0, scripts[0].clone())?
         };
 
-        let internal_key = TransactionBuilder::get_internal_key();
+        let internal_key = TransactionBuilder::get_internal_key()?;
         let tree_info = taproot_builder.finalize(secp, internal_key)?;
 
         Ok((
