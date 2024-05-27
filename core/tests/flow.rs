@@ -18,7 +18,6 @@ use clementine_core::{create_test_database, start_operator_and_verifiers};
 use std::thread;
 
 #[tokio::test]
-#[ignore = "Data race with other flow test; Run separately with: cargo test --test flow -- test_flow_1 --include-ignored --show-output"]
 async fn test_flow_1() {
     // Create a temporary database for testing.
     let handle = thread::current()
@@ -28,11 +27,11 @@ async fn test_flow_1() {
         .last()
         .unwrap()
         .to_owned();
-    let config = create_test_database!(handle, "test_config_flow.toml");
+    let config = create_test_database!(handle, "test_config_flow_1.toml");
     for i in 0..4 {
         create_test_database!(
             handle.clone() + i.to_string().as_str(),
-            "test_config_flow.toml"
+            "test_config_flow_1.toml"
         );
     }
 
@@ -127,7 +126,6 @@ async fn test_flow_1() {
 }
 
 #[tokio::test]
-#[ignore = "Data race with other flow test; run separately with: cargo test --test flow -- test_flow_2 --include-ignored --show-output"]
 async fn test_flow_2() {
     // Create a temporary database for testing.
     let handle = thread::current()
@@ -137,11 +135,11 @@ async fn test_flow_2() {
         .last()
         .unwrap()
         .to_owned();
-    let config = create_test_database!(handle, "test_config_flow.toml");
+    let config = create_test_database!(handle, "test_config_flow_2.toml");
     for i in 0..4 {
         create_test_database!(
             handle.clone() + i.to_string().as_str(),
-            "test_config_flow.toml"
+            "test_config_flow_2.toml"
         );
     }
 
