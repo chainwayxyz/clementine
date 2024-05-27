@@ -23,7 +23,6 @@ lazy_static! {
     .unwrap();
 }
 
-// pub type CreateTxOutputs = (bitcoin::Transaction, Vec<TxOut>, Vec<ScriptBuf>);
 #[derive(Debug, Clone)]
 pub struct CreateTxOutputs {
     pub tx: bitcoin::Transaction,
@@ -36,19 +35,19 @@ pub type CreateAddressOutputs = (Address, TaprootSpendInfo);
 
 #[derive(Debug, Clone)]
 pub struct TransactionBuilder {
-    pub secp: Secp256k1<secp256k1::All>,
-    pub verifiers_pks: Vec<XOnlyPublicKey>,
     pub script_builder: ScriptBuilder,
-    user_takes_after: u32,
+    secp: Secp256k1<secp256k1::All>,
+    verifiers_pks: Vec<XOnlyPublicKey>,
     network: Network,
+    user_takes_after: u32,
     min_relay_fee: u64,
 }
 
 impl TransactionBuilder {
     pub fn new(
         verifiers_pks: Vec<XOnlyPublicKey>,
-        user_takes_after: u32,
         network: Network,
+        user_takes_after: u32,
         min_relay_fee: u64,
     ) -> Self {
         let secp = Secp256k1::new();
@@ -288,8 +287,8 @@ mod tests {
         let config = BridgeConfig::new();
         let tx_builder = TransactionBuilder::new(
             verifier_pks,
-            config.user_takes_after,
             config.network,
+            config.user_takes_after,
             config.min_relay_fee,
         );
         let evm_address: [u8; 20] = hex::decode("1234567890123456789012345678901234567890")

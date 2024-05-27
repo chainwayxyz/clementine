@@ -50,8 +50,8 @@ async fn test_flow_1() {
     let taproot_address = Address::p2tr(&secp, xonly_pk, None, config.network);
     let tx_builder = TransactionBuilder::new(
         config.verifiers_public_keys.clone(),
-        config.user_takes_after,
         config.network,
+        config.user_takes_after,
         config.min_relay_fee,
     );
 
@@ -167,8 +167,8 @@ async fn test_flow_2() {
     );
     let tx_builder = TransactionBuilder::new(
         config.verifiers_public_keys.clone(),
-        config.user_takes_after,
         config.network,
+        config.user_takes_after,
         config.min_relay_fee,
     );
 

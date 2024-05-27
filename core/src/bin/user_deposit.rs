@@ -12,8 +12,8 @@ fn main() {
     let address = Address::p2tr(&secp, xonly_pk, None, config.network);
     let tx_builder = TransactionBuilder::new(
         config.verifiers_public_keys.clone(),
-        config.user_takes_after,
         config.network,
+        config.user_takes_after,
         config.min_relay_fee,
     );
     let evm_address: EVMAddress = EVMAddress([1u8; 20]);

@@ -81,8 +81,8 @@ impl Operator {
 
         let transaction_builder = TransactionBuilder::new(
             all_xonly_pks.clone(),
-            config.user_takes_after,
             config.network,
+            config.user_takes_after,
             config.min_relay_fee,
         );
         let db = OperatorDB::new(config.clone()).await;
