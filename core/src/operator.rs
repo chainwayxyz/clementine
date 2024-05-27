@@ -26,42 +26,13 @@ pub struct DepositPresigns {
 }
 
 #[derive(Debug, Clone)]
-pub struct OperatorClaimSigs {
-    pub operator_claim_sigs: Vec<Vec<schnorr::Signature>>,
-}
-
-#[derive(Debug, Clone)]
 pub struct Operator {
-    pub rpc: ExtendedRpc,
-    pub signer: Actor,
-    pub transaction_builder: TransactionBuilder,
-    pub verifiers_pks: Vec<XOnlyPublicKey>,
-    pub verifier_connector: Vec<Arc<jsonrpsee::http_client::HttpClient>>,
+    rpc: ExtendedRpc,
+    signer: Actor,
+    transaction_builder: TransactionBuilder,
+    verifier_connector: Vec<Arc<jsonrpsee::http_client::HttpClient>>,
     db: OperatorDB,
     config: BridgeConfig,
-}
-
-#[async_trait]
-impl OperatorRpcServer for Operator {
-    async fn new_deposit_rpc(
-        &self,
-        start_utxo: OutPoint,
-        recovery_taproot_address: Address<NetworkUnchecked>,
-        evm_address: EVMAddress,
-    ) -> Result<Txid, BridgeError> {
-        self.new_deposit(start_utxo, &recovery_taproot_address, &evm_address)
-            .await
-    }
-    async fn new_withdrawal_direct_rpc(
-        &self,
-        idx: usize,
-        withdrawal_address: Address<NetworkUnchecked>,
-    ) -> Result<Txid, BridgeError> {
-        let withdraw_txid = self
-            .new_withdrawal_direct(idx, withdrawal_address.assume_checked())
-            .await?;
-        Ok(withdraw_txid)
-    }
 }
 
 impl Operator {
@@ -92,7 +63,6 @@ impl Operator {
             signer,
             transaction_builder,
             verifier_connector: verifiers,
-            verifiers_pks: all_xonly_pks.clone(),
             db,
             config,
         })
@@ -272,6 +242,29 @@ impl Operator {
         handle_taproot_witness_new(&mut withdrawal_tx, &witness_elements, 0, 0)?;
         let withdrawal_txid = self.rpc.send_raw_transaction(&withdrawal_tx.tx)?;
         Ok(withdrawal_txid)
+    }
+}
+
+#[async_trait]
+impl OperatorRpcServer for Operator {
+    async fn new_deposit_rpc(
+        &self,
+        start_utxo: OutPoint,
+        recovery_taproot_address: Address<NetworkUnchecked>,
+        evm_address: EVMAddress,
+    ) -> Result<Txid, BridgeError> {
+        self.new_deposit(start_utxo, &recovery_taproot_address, &evm_address)
+            .await
+    }
+    async fn new_withdrawal_direct_rpc(
+        &self,
+        idx: usize,
+        withdrawal_address: Address<NetworkUnchecked>,
+    ) -> Result<Txid, BridgeError> {
+        let withdraw_txid = self
+            .new_withdrawal_direct(idx, withdrawal_address.assume_checked())
+            .await?;
+        Ok(withdraw_txid)
     }
 }
 
