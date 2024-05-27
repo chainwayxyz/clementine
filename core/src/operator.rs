@@ -79,7 +79,12 @@ impl Operator {
             return Err(BridgeError::InvalidOperatorKey);
         }
 
-        let transaction_builder = TransactionBuilder::new(all_xonly_pks.clone(), config.clone());
+        let transaction_builder = TransactionBuilder::new(
+            all_xonly_pks.clone(),
+            config.user_takes_after,
+            config.network,
+            config.min_relay_fee,
+        );
         let db = OperatorDB::new(config.clone()).await;
 
         Ok(Self {

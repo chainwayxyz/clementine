@@ -1,6 +1,9 @@
-use crate::{config::BridgeConfig, EVMAddress};
+//! # Transaction Builder
+
+use crate::EVMAddress;
 use crate::{errors::BridgeError, script_builder::ScriptBuilder};
 use bitcoin::address::NetworkUnchecked;
+use bitcoin::Network;
 use bitcoin::{
     absolute,
     taproot::{TaprootBuilder, TaprootSpendInfo},
@@ -34,20 +37,30 @@ pub type CreateAddressOutputs = (Address, TaprootSpendInfo);
 #[derive(Debug, Clone)]
 pub struct TransactionBuilder {
     pub secp: Secp256k1<secp256k1::All>,
-    pub verifiers_pks: Vec<XOnlyPublicKey>, // TODO: we don't need this, `config` has already has this information.
+    pub verifiers_pks: Vec<XOnlyPublicKey>,
     pub script_builder: ScriptBuilder,
-    pub config: BridgeConfig,
+    user_takes_after: u32,
+    network: Network,
+    min_relay_fee: u64,
 }
 
 impl TransactionBuilder {
-    pub fn new(verifiers_pks: Vec<XOnlyPublicKey>, config: BridgeConfig) -> Self {
+    pub fn new(
+        verifiers_pks: Vec<XOnlyPublicKey>,
+        user_takes_after: u32,
+        network: Network,
+        min_relay_fee: u64,
+    ) -> Self {
         let secp = Secp256k1::new();
         let script_builder = ScriptBuilder::new(verifiers_pks.clone());
+
         Self {
             secp,
             verifiers_pks,
             script_builder,
-            config,
+            user_takes_after,
+            network,
+            min_relay_fee,
         }
     }
 
@@ -63,7 +76,7 @@ impl TransactionBuilder {
             .create_deposit_script(user_evm_address, amount);
         let script_timelock = ScriptBuilder::generate_timelock_script(
             recovery_taproot_address,
-            self.config.user_takes_after,
+            self.user_takes_after,
         );
         let taproot = TaprootBuilder::new()
             .add_leaf(1, deposit_script.clone())?
@@ -73,8 +86,9 @@ impl TransactionBuilder {
             &self.secp,
             *INTERNAL_KEY,
             tree_info.merkle_root(),
-            self.config.network,
+            self.network,
         );
+
         Ok((address, tree_info))
     }
 
@@ -87,7 +101,7 @@ impl TransactionBuilder {
             &self.secp,
             *INTERNAL_KEY,
             tree_info.merkle_root(),
-            self.config.network,
+            self.network,
         );
         Ok((address, tree_info))
     }
@@ -111,7 +125,7 @@ impl TransactionBuilder {
         let tx_ins = TransactionBuilder::create_tx_ins(vec![deposit_utxo]);
         let bridge_txout = TxOut {
             value: Amount::from_sat(BRIDGE_AMOUNT_SATS)
-                - Amount::from_sat(self.config.min_relay_fee)
+                - Amount::from_sat(self.min_relay_fee)
                 - anyone_can_spend_txout.value,
             script_pubkey: bridge_address.script_pubkey(),
         };
@@ -145,7 +159,7 @@ impl TransactionBuilder {
         let tx_ins = TransactionBuilder::create_tx_ins(vec![deposit_utxo]);
         let bridge_txout = TxOut {
             value: deposit_txout.value
-                - Amount::from_sat(self.config.min_relay_fee)
+                - Amount::from_sat(self.min_relay_fee)
                 - anyone_can_spend_txout.value,
             script_pubkey: withdraw_address.script_pubkey(),
         };
@@ -247,22 +261,19 @@ impl TransactionBuilder {
         let scripts = vec![timelock_script, script_n_of_n];
 
         let (address, tree_info) =
-            TransactionBuilder::create_taproot_address(&self.secp, scripts, self.config.network)
-                .unwrap();
+            TransactionBuilder::create_taproot_address(&self.secp, scripts, self.network).unwrap();
         Ok((address, tree_info))
     }
 }
 
 #[cfg(test)]
 mod tests {
+    use crate::{config::BridgeConfig, transaction_builder::TransactionBuilder};
+    use bitcoin::{Address, XOnlyPublicKey};
     use std::str::FromStr;
 
-    use bitcoin::{Address, XOnlyPublicKey};
-
-    use crate::{config::BridgeConfig, transaction_builder::TransactionBuilder};
-
     #[test]
-    fn test_deposit_address() {
+    fn deposit_address() {
         let verifier_pks_hex: Vec<&str> = vec![
             "9bef8d556d80e43ae7e0becb3a7e6838b95defe45896ed6075bb9035d06c9964",
             "e37d58a1aae4ba059fd2503712d998470d3a2522f7e2335f544ef384d2199e02",
@@ -274,7 +285,13 @@ mod tests {
             .iter()
             .map(|pk| XOnlyPublicKey::from_str(pk).unwrap())
             .collect();
-        let tx_builder = TransactionBuilder::new(verifier_pks, BridgeConfig::new());
+        let config = BridgeConfig::new();
+        let tx_builder = TransactionBuilder::new(
+            verifier_pks,
+            config.user_takes_after,
+            config.network,
+            config.min_relay_fee,
+        );
         let evm_address: [u8; 20] = hex::decode("1234567890123456789012345678901234567890")
             .unwrap()
             .try_into()

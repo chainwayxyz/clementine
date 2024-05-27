@@ -29,7 +29,12 @@ impl User {
     ) -> Self {
         let secp = Secp256k1::new();
         let signer = Actor::new(sk, config.network);
-        let transaction_builder = TransactionBuilder::new(all_xonly_pks.clone(), config);
+        let transaction_builder = TransactionBuilder::new(
+            all_xonly_pks.clone(),
+            config.user_takes_after,
+            config.network,
+            config.min_relay_fee,
+        );
         User {
             rpc,
             secp,

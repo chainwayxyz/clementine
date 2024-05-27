@@ -79,7 +79,12 @@ impl Verifier {
 
         let db = VerifierDB::new(config.clone()).await;
 
-        let transaction_builder = TransactionBuilder::new(all_xonly_pks.clone(), config.clone());
+        let transaction_builder = TransactionBuilder::new(
+            all_xonly_pks.clone(),
+            config.user_takes_after,
+            config.network,
+            config.min_relay_fee,
+        );
         let operator_pk = all_xonly_pks[all_xonly_pks.len() - 1];
         Ok(Verifier {
             rpc,
