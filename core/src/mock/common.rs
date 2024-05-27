@@ -12,10 +12,13 @@ pub const ENV_CONF_FILE: &str = "TEST_CONFIG";
 /// either an environment variable or the function argument. Environment
 /// variable is priotirized over the function argument `configuration_file`.
 pub fn get_test_config(configuration_file: &str) -> Result<BridgeConfig, BridgeError> {
-    if let Ok(config_file_path) = env::var(ENV_CONF_FILE) {
-        return BridgeConfig::try_parse_file(config_file_path.into());
-    }
+    let env_config: Option<BridgeConfig> = if let Ok(config_file_path) = env::var(ENV_CONF_FILE) {
+        Some(BridgeConfig::try_parse_file(config_file_path.into())?)
+    } else {
+        None
+    };
 
+    // Read specified configuration file from `tests/data` directory.
     let mut config = match BridgeConfig::try_parse_file(
         format!(
             "{}/tests/data/{}",
@@ -28,7 +31,16 @@ pub fn get_test_config(configuration_file: &str) -> Result<BridgeConfig, BridgeE
         Err(e) => return Err(e),
     };
 
-    // let port = find_consecutive_idle_ports(config.port, config.num_verifiers).unwrap()
+    // Overwrite user's environment to test's hard coded data if environment
+    // file is specified.
+    if let Some(env_config) = env_config {
+        config.db_host = env_config.db_host;
+        config.db_port = env_config.db_port;
+        config.db_user = env_config.db_user;
+        config.db_password = env_config.db_password;
+        config.db_name = env_config.db_name;
+    };
+
     config.port = 0;
 
     Ok(config)
