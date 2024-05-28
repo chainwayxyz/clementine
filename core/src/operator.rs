@@ -255,15 +255,14 @@ impl OperatorRpcServer for Operator {
         self.new_deposit(start_utxo, &recovery_taproot_address, &evm_address)
             .await
     }
+
     async fn new_withdrawal_direct_rpc(
         &self,
         idx: usize,
         withdrawal_address: Address<NetworkUnchecked>,
     ) -> Result<Txid, BridgeError> {
-        let withdraw_txid = self
-            .new_withdrawal_direct(idx, withdrawal_address.assume_checked())
-            .await?;
-        Ok(withdraw_txid)
+        self.new_withdrawal_direct(idx, withdrawal_address.assume_checked())
+            .await
     }
 }
 
