@@ -1,6 +1,7 @@
 //! # Script Builder
 //!
-//! This crate includes useful functions to build Bitcoin scripts.
+//! Script builder module includes useful functions for building Bitcoin
+//! scripts.
 
 use crate::EVMAddress;
 use bitcoin::address::NetworkUnchecked;

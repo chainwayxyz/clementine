@@ -1,6 +1,6 @@
 //! # Database Mock Interface
 //!
-//! This crate includes mock interfaces, only for testing.
+//! This module provides mock database interfaces, for testing.
 
 /// Creates a temporary database for testing.
 ///
