@@ -57,11 +57,14 @@ impl ExtendedRpc {
         amount_sats: u64,
     ) -> Result<bool, BridgeError> {
         let tx = self.rpc.get_raw_transaction(&outpoint.txid, None)?;
+
         let current_output = tx.output[outpoint.vout as usize].clone();
+
         let expected_output = TxOut {
             script_pubkey: address.clone(),
             value: Amount::from_sat(amount_sats),
         };
+
         Ok(expected_output == current_output)
     }
 
@@ -69,25 +72,28 @@ impl ExtendedRpc {
         let res = self
             .rpc
             .get_tx_out(&_outpoint.txid, _outpoint.vout, Some(true))?;
+
         Ok(res.is_none())
     }
 
     pub fn generate_dummy_block(&self) -> Result<Vec<bitcoin::BlockHash>, BridgeError> {
-        // Use `generatetoaddress` or similar RPC method to mine a new block
-        // containing the specified transactions
         let address = self.rpc.get_new_address(None, None)?.assume_checked();
+
         for _ in 0..10 {
             let new_address = self.rpc.get_new_address(None, None)?.assume_checked();
-            let amount = bitcoin::Amount::from_sat(1000); // Specify the amount to send
+            let amount = bitcoin::Amount::from_sat(1000); // TODO: Specify the amount to send
             self.rpc
                 .send_to_address(&new_address, amount, None, None, None, None, None, None)?;
         }
+
         Ok(self.rpc.generate_to_address(1, &address)?)
     }
 
     pub fn mine_blocks(&self, block_num: u64) -> Result<(), BridgeError> {
         let new_address = self.rpc.get_new_address(None, None)?.assume_checked();
+
         self.rpc.generate_to_address(block_num, &new_address)?;
+
         Ok(())
     }
 
@@ -106,8 +112,10 @@ impl ExtendedRpc {
             None,
             None,
         )?;
+
         let tx_result = self.rpc.get_transaction(&txid, None)?;
         let vout = tx_result.details[0].vout;
+
         Ok(OutPoint { txid, vout })
     }
 
@@ -115,6 +123,7 @@ impl ExtendedRpc {
         let block_hash = self.get_block_hash(blockheight)?;
         let block = self.rpc.get_block(&block_hash)?;
         let work = block.header.work();
+
         Ok(work)
     }
 
@@ -123,6 +132,7 @@ impl ExtendedRpc {
         blockheight: u64,
     ) -> Result<bitcoin::BlockHash, bitcoincore_rpc::Error> {
         let block_hash = self.rpc.get_block_hash(blockheight)?;
+
         Ok(block_hash)
     }
 
@@ -131,6 +141,7 @@ impl ExtendedRpc {
         block_hash: &bitcoin::BlockHash,
     ) -> Result<bitcoin::block::Header, bitcoincore_rpc::Error> {
         let block_header = self.rpc.get_block_header(block_hash)?;
+
         Ok(block_header)
     }
 
@@ -142,20 +153,22 @@ impl ExtendedRpc {
         if start == end {
             return Ok(U256::from_be_bytes([0u8; 32]));
         }
+
         let mut total_work = Work::from_be_bytes([0u8; 32]);
         for i in start + 1..end + 1 {
-            let work = self.get_work_at_block(i)?;
-            total_work = total_work + work;
+            total_work = total_work + self.get_work_at_block(i)?;
         }
+
         let work_bytes = total_work.to_be_bytes();
-        let res = U256::from_be_bytes(work_bytes);
-        Ok(res)
+
+        Ok(U256::from_be_bytes(work_bytes))
     }
 
     pub fn get_total_work_as_u256(&self) -> Result<U256, BridgeError> {
         let chain_info = self.rpc.get_blockchain_info()?;
         let total_work_bytes = chain_info.chain_work;
         let total_work: U256 = U256::from_be_bytes(total_work_bytes.try_into()?);
+
         Ok(total_work)
     }
 
@@ -163,12 +176,14 @@ impl ExtendedRpc {
         let chain_info = self.rpc.get_blockchain_info()?;
         let total_work_bytes = chain_info.chain_work;
         let total_work: Work = Work::from_be_bytes(total_work_bytes.try_into()?);
+
         Ok(total_work)
     }
 
     pub fn get_block_height(&self) -> Result<u64, BridgeError> {
         let chain_info = self.rpc.get_blockchain_info()?;
         let block_height = chain_info.blocks;
+
         Ok(block_height)
     }
 
