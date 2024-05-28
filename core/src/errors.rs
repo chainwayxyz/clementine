@@ -104,8 +104,7 @@ pub enum BridgeError {
     /// Merkle Proof Error
     #[error("MerkleProofError")]
     MerkleProofError,
-    /// JSON RPC Error
-    /// Returned when the JSON RPC call fails
+    /// JSON RPC call failed
     #[error("JsonRpcError: {0}")]
     JsonRpcError(jsonrpsee::core::Error),
     /// Given key pair is invalid and new pairs can't be generated randomly
