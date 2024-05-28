@@ -43,17 +43,22 @@ pub fn handle_taproot_witness<T: AsRef<[u8]>>(
     tree_info: &TaprootSpendInfo,
 ) -> Result<(), BridgeError> {
     let mut sighash_cache = SighashCache::new(tx.borrow_mut());
+
     let witness = sighash_cache
         .witness_mut(index)
         .ok_or(BridgeError::TxInputNotFound)?;
-    for elem in witness_elements {
-        witness.push(elem);
-    }
+
+    witness_elements
+        .iter()
+        .for_each(|element| witness.push(element));
+
     let spend_control_block = tree_info
         .control_block(&(script.clone(), LeafVersion::TapScript))
         .ok_or(BridgeError::ControlBlockError)?;
+
     witness.push(script);
     witness.push(&spend_control_block.serialize());
+
     Ok(())
 }
 
@@ -64,20 +69,25 @@ pub fn handle_taproot_witness_new<T: AsRef<[u8]>>(
     script_index: usize,
 ) -> Result<(), BridgeError> {
     let mut sighash_cache = SighashCache::new(tx.tx.borrow_mut());
+
     let witness = sighash_cache
         .witness_mut(txin_index)
         .ok_or(BridgeError::TxInputNotFound)?;
-    for elem in witness_elements {
-        witness.push(elem);
-    }
+
+    witness_elements
+        .iter()
+        .for_each(|element| witness.push(element));
+
     let spend_control_block = tx.taproot_spend_infos[txin_index]
         .control_block(&(
             tx.scripts[txin_index][script_index].clone(),
             LeafVersion::TapScript,
         ))
         .ok_or(BridgeError::ControlBlockError)?;
+
     witness.push(tx.scripts[txin_index][script_index].clone());
     witness.push(&spend_control_block.serialize());
+
     Ok(())
 }
 
