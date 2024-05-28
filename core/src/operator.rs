@@ -69,12 +69,14 @@ impl Operator {
         })
     }
 
-    /// this is a public endpoint that every depositor can call
-    /// it will get signatures from all verifiers.
-    /// 1. Check if the deposit utxo is valid and finalized (6 blocks confirmation)
-    /// 2. Check if the utxo is not already spent
+    /// Public endpoint for every depositor to call.
+    ///
+    /// It will get signatures from all verifiers:
+    ///
+    /// 1. Check if the deposit UTXO is valid and finalized (6 blocks confirmation)
+    /// 2. Check if the UTXO is not already spent
     /// 3. Get signatures from all verifiers 1 move signature, ~150 operator takes signatures
-    /// 4. Create a move transaction and return the output utxo
+    /// 4. Create a move transaction and return the output UTXO
     pub async fn new_deposit(
         &self,
         start_utxo: OutPoint,
@@ -82,12 +84,13 @@ impl Operator {
         evm_address: &EVMAddress,
     ) -> Result<Txid, BridgeError> {
         tracing::info!(
-            "New deposit request for utxo: {:?}, evm_address: {:?}, recovery_taproot_Address: {:?}",
+            "New deposit request for UTXO: {:?}, EVM address: {:?} and recovery taproot address of: {:?}",
             start_utxo,
             evm_address,
             recovery_taproot_address
         );
 
+        // If deposit request already been made, return it's TXID.
         if let Ok(move_txid) = self
             .db
             .get_move_txid(start_utxo, recovery_taproot_address.clone(), *evm_address)
@@ -106,22 +109,20 @@ impl Operator {
             self.confirmation_treshold,
         )?;
 
-        // 5. Create a move transaction and return the output utxo, save the utxo as a pending deposit
+        // Create a move transaction, then return the output UTXO. Save the UTXO
+        // as a pending deposit.
         let mut move_tx = self.transaction_builder.create_move_tx(
             start_utxo,
             evm_address,
             &recovery_taproot_address,
         )?;
 
-        let presigns_from_all_verifiers: Result<Vec<_>, BridgeError> = self
+        let presigns_from_all_verifiers: Vec<_> = self
             .verifier_connector
             .iter()
             .map(|verifier| async {
-                // tracing::debug!("Verifier number {:?} is checking new deposit:", i);
-                // Attempt to get the deposit presigns. If an error occurs, it will be propagated out
-                // of the map, causing the collect call to return a Result::Err, effectively stopping
-                // the iteration and returning the error from your_function_name.
-                let deposit_presigns = verifier
+                // Attempt to get the deposit presigns.
+                verifier
                     .new_deposit_rpc(
                         start_utxo,
                         recovery_taproot_address.clone(),
@@ -130,29 +131,18 @@ impl Operator {
                         self.signer.address.as_unchecked().clone(),
                     )
                     .await
-                    .map_err(|e| {
-                        // Log the error or convert it to BridgeError if necessary
-                        tracing::error!("Error getting deposit presigns: {:?}", e);
-                        BridgeError::FailedToGetPresigns
-                    })?;
-                // tracing::debug!("deposit presigns: {:?}", deposit_presigns);
-                // tracing::info!("Verifier checked new deposit");
-                Ok(deposit_presigns)
             })
-            // Because we're using async blocks, we need to use `then` and `try_collect` to properly await and collect results
             .collect::<FuturesOrdered<_>>()
             .try_collect()
-            .await;
-        // Handle the result of the collect operation
-        let presigns_from_all_verifiers = presigns_from_all_verifiers?;
+            .await?;
 
         tracing::info!(
-            "presigns_from_all_verifiers done for txid: {:?}",
+            "presigns_from_all_verifiers done for TXID: {:?}",
             move_tx.tx.txid()
         );
         tracing::debug!("move_tx details: {:?}", move_tx);
 
-        // Add collected signatures to the move_tx
+        // Add collected signatures to the move_tx.
         let mut move_signatures = presigns_from_all_verifiers
             .iter()
             .map(|presign| presign.move_sign)
@@ -172,6 +162,9 @@ impl Operator {
         handle_taproot_witness_new(&mut move_tx, &witness_elements, 0, 0)?;
 
         let transaction = self.db.begin_transaction().await?;
+
+        self.rpc.send_raw_transaction(&move_tx.tx)?;
+
         self.db
             .insert_move_txid(
                 start_utxo,
@@ -180,11 +173,8 @@ impl Operator {
                 move_tx.tx.txid(),
             )
             .await?;
-        self.rpc.send_raw_transaction(&move_tx.tx)?;
 
-        if let Err(e) = transaction.commit().await {
-            return Err(BridgeError::DatabaseError(e));
-        };
+        transaction.commit().await?;
 
         Ok(move_tx.tx.txid())
     }
