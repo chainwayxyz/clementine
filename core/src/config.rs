@@ -1,35 +1,14 @@
 //! # Configuration Options
 //!
-//! This module defines configuration options. This information can be passed to
-//! other parts of the program.
+//! This module defines configuration options.
 //!
-//! This module doesn't depend on `cli` module. Therefore, it can be used as is.
+//! This module is base for `cli` module and not dependent on it. Therefore,
+//! this module can be used independently.
 //!
 //! ## Configuration File
 //!
-//! Configuration options can be read from a TOML file. This file don't accept
-//! any headers and it should only includes raw data. Example:
-//!
-//! ```toml
-//! num_verifiers = 4
-//! min_relay_fee = 289
-//! user_takes_after = 200
-//! confirmation_treshold = 1
-//! network = "regtest"
-//! bitcoin_rpc_url = "http://localhost:18443"
-//! bitcoin_rpc_user = "admin"
-//! bitcoin_rpc_password = "admin"
-//! ```
-//!
-//! WARNING! This is not acceptable:
-//!
-//! ```toml
-//! [database]
-//!
-//! num_verifiers = 4
-//! min_relay_fee = 289
-//! user_takes_after = 200
-//! ```
+//! Configuration options can be read from a TOML file. File contents are
+//! described in `BridgeConfig` struct.
 
 use crate::errors::BridgeError;
 use bitcoin::{Network, XOnlyPublicKey};
@@ -41,8 +20,7 @@ use tracing_subscriber::layer::SubscriberExt;
 use tracing_subscriber::util::SubscriberInitExt;
 use tracing_subscriber::{fmt, EnvFilter};
 
-/// This struct can be used to pass information to other parts of the program.
-/// There are multiple constructers for this struct. Use the one appropriate.
+/// Configuration options for any Clementine target (tests, binaries etc.).
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct BridgeConfig {
     /// Tracing debug level.
@@ -88,7 +66,7 @@ pub struct BridgeConfig {
 }
 
 impl BridgeConfig {
-    /// Create a `BridgeConfig` with default values.
+    /// Create a new `BridgeConfig` with default values.
     pub fn new() -> Self {
         BridgeConfig {
             ..Default::default()
@@ -99,7 +77,7 @@ impl BridgeConfig {
     pub fn try_parse_file(path: PathBuf) -> Result<Self, BridgeError> {
         let mut contents = String::new();
 
-        let mut file = match File::open(path) {
+        let mut file = match File::open(path.clone()) {
             Ok(f) => f,
             Err(e) => return Err(BridgeError::ConfigError(e.to_string())),
         };
@@ -107,8 +85,7 @@ impl BridgeConfig {
             return Err(BridgeError::ConfigError(e.to_string()));
         }
 
-        tracing::debug!("Configuration file size: {} bytes", contents.len());
-        tracing::debug!("Configuration file contents: {}", &contents);
+        tracing::debug!("Using configuration file: {:?}", path);
 
         BridgeConfig::try_parse_from(contents)
     }
@@ -121,6 +98,7 @@ impl BridgeConfig {
             Err(e) => Err(BridgeError::ConfigError(e.to_string())),
         }?;
 
+        // Initialize tracing.
         if let Err(e) = tracing_subscriber::registry()
             .with(fmt::layer())
             .with(
@@ -133,7 +111,7 @@ impl BridgeConfig {
             // the error.
             //
             // This error checking is kind of ugly. But nothing to do about it:
-            // Library impelemented it like this.
+            // Library's error type is this.
             if e.to_string() != "a global default trace dispatcher has already been set" {
                 return Err(BridgeError::ConfigError(e.to_string()));
             }
@@ -147,7 +125,7 @@ impl Default for BridgeConfig {
     fn default() -> Self {
         Self {
             tracing_debug: "debug".to_string(),
-            host: "localhost".to_string(),
+            host: "127.0.0.1".to_string(),
             port: 3030,
             secret_key: SecretKey::new(&mut secp256k1::rand::thread_rng()),
             verifiers_public_keys: vec![],
@@ -156,12 +134,12 @@ impl Default for BridgeConfig {
             user_takes_after: 200,
             confirmation_treshold: 1,
             network: Network::Regtest,
-            bitcoin_rpc_url: "http://localhost:18443".to_string(),
+            bitcoin_rpc_url: "http://127.0.0.1:18443".to_string(),
             bitcoin_rpc_user: "admin".to_string(),
             bitcoin_rpc_password: "admin".to_string(),
             all_secret_keys: None,
             verifier_endpoints: None,
-            db_host: "localhost".to_string(),
+            db_host: "127.0.0.1".to_string(),
             db_port: 5432,
             db_user: "postgres".to_string(),
             db_password: "postgres".to_string(),
