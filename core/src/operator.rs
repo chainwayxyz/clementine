@@ -16,7 +16,6 @@ use futures::stream::FuturesOrdered;
 use futures::TryStreamExt;
 use jsonrpsee::core::async_trait;
 use serde::{Deserialize, Serialize};
-use std::sync::Arc;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct DepositPresigns {
@@ -30,7 +29,7 @@ pub struct Operator {
     db: OperatorDB,
     signer: Actor,
     transaction_builder: TransactionBuilder,
-    verifier_connector: Vec<Arc<jsonrpsee::http_client::HttpClient>>,
+    verifier_connector: Vec<jsonrpsee::http_client::HttpClient>,
     confirmation_treshold: u32,
     min_relay_fee: u64,
 }
@@ -40,7 +39,7 @@ impl Operator {
     pub async fn new(
         config: BridgeConfig,
         rpc: ExtendedRpc,
-        verifiers: Vec<Arc<jsonrpsee::http_client::HttpClient>>,
+        verifiers: Vec<jsonrpsee::http_client::HttpClient>,
     ) -> Result<Self, BridgeError> {
         let num_verifiers = config.verifiers_public_keys.len();
 

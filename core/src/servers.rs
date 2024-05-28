@@ -1,6 +1,6 @@
 //! # Servers
 //!
-//! This crate handles operator and verifier servers.
+//! Utilities for operator and verifier servers.
 
 use crate::{
     config::BridgeConfig,
@@ -17,13 +17,12 @@ use jsonrpsee::{
     server::{Server, ServerHandle},
 };
 use operator::Operator;
-use std::sync::Arc;
 use traits::rpc::OperatorRpcServer;
 
+/// Starts a server for a verifier.
 pub async fn create_verifier_server(
     config: BridgeConfig,
 ) -> Result<(std::net::SocketAddr, ServerHandle), BridgeError> {
-    tracing::debug!("Creating verifier server with config: {:?}", config);
     let rpc = ExtendedRpc::new(
         config.bitcoin_rpc_url.clone(),
         Auth::UserPass(
@@ -40,10 +39,13 @@ pub async fn create_verifier_server(
 
     let addr = server.local_addr()?;
     let handle = server.start(verifier.into_rpc());
-    tracing::info!("Verifier server started at: {}", addr);
+
+    tracing::info!("Verifier server started with address: {}", addr);
+
     Ok((addr, handle))
 }
 
+/// Starts the server for the operator.
 pub async fn create_operator_server(
     config: BridgeConfig,
     verifier_endpoints: Vec<String>,
@@ -55,19 +57,14 @@ pub async fn create_operator_server(
             config.bitcoin_rpc_password.clone(),
         ),
     );
-    let mut verifiers: Vec<Arc<HttpClient>> = Vec::new();
-    tracing::info!("Verifiers: {:?}", verifier_endpoints);
 
-    for i in 0..verifier_endpoints.len() {
-        let verifier = HttpClientBuilder::default()
-            .build(&verifier_endpoints[i])
-            .unwrap();
-        verifiers.push(verifier.into());
-    }
+    let verifiers: Vec<HttpClient> = verifier_endpoints
+        .clone()
+        .iter()
+        .map(|verifier| HttpClientBuilder::default().build(verifier))
+        .collect::<Result<Vec<HttpClient>, jsonrpsee::core::Error>>()?;
 
-    let operator = Operator::new(config.clone(), rpc.clone(), verifiers)
-        .await
-        .unwrap();
+    let operator = Operator::new(config.clone(), rpc.clone(), verifiers).await?;
 
     let server = Server::builder()
         .build(format!("{}:{}", config.host, config.port))
@@ -75,7 +72,9 @@ pub async fn create_operator_server(
 
     let addr = server.local_addr()?;
     let handle = server.start(operator.into_rpc());
-    tracing::info!("Operator server started at: {}", addr);
+
+    tracing::info!("Operator server started with address: {}", addr);
+
     Ok((addr, handle))
 }
 
