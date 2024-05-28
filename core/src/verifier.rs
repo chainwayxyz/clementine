@@ -27,38 +27,6 @@ pub struct Verifier {
     config: BridgeConfig,
 }
 
-#[async_trait]
-impl VerifierRpcServer for Verifier {
-    async fn new_deposit_rpc(
-        &self,
-        start_utxo: OutPoint,
-        recovery_taproot_address: Address<NetworkUnchecked>,
-        deposit_index: u32,
-        evm_address: EVMAddress,
-        operator_address: Address<NetworkUnchecked>,
-    ) -> Result<DepositPresigns, BridgeError> {
-        let operator_address = operator_address.require_network(self.config.network)?;
-        self.new_deposit(
-            start_utxo,
-            &recovery_taproot_address,
-            deposit_index,
-            &evm_address,
-            &operator_address,
-        )
-        .await
-    }
-    async fn new_withdrawal_direct_rpc(
-        &self,
-        withdrawal_idx: usize,
-        bridge_fund_txid: Txid,
-        withdrawal_address: Address<NetworkUnchecked>,
-    ) -> Result<schnorr::Signature, BridgeError> {
-        let withdrawal_address = withdrawal_address.require_network(self.config.network)?;
-        self.new_withdrawal_direct(withdrawal_idx, bridge_fund_txid, &withdrawal_address)
-            .await
-    }
-}
-
 impl Verifier {
     pub async fn new(
         rpc: ExtendedRpc,
@@ -188,6 +156,41 @@ impl Verifier {
             .save_withdrawal_sig(withdrawal_idx, bridge_fund_txid, sig)
             .await?;
         Ok(sig)
+    }
+}
+
+#[async_trait]
+impl VerifierRpcServer for Verifier {
+    async fn new_deposit_rpc(
+        &self,
+        start_utxo: OutPoint,
+        recovery_taproot_address: Address<NetworkUnchecked>,
+        deposit_index: u32,
+        evm_address: EVMAddress,
+        operator_address: Address<NetworkUnchecked>,
+    ) -> Result<DepositPresigns, BridgeError> {
+        let operator_address = operator_address.require_network(self.config.network)?;
+
+        self.new_deposit(
+            start_utxo,
+            &recovery_taproot_address,
+            deposit_index,
+            &evm_address,
+            &operator_address,
+        )
+        .await
+    }
+
+    async fn new_withdrawal_direct_rpc(
+        &self,
+        withdrawal_idx: usize,
+        bridge_fund_txid: Txid,
+        withdrawal_address: Address<NetworkUnchecked>,
+    ) -> Result<schnorr::Signature, BridgeError> {
+        let withdrawal_address = withdrawal_address.require_network(self.config.network)?;
+
+        self.new_withdrawal_direct(withdrawal_idx, bridge_fund_txid, &withdrawal_address)
+            .await
     }
 }
 
