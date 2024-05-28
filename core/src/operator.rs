@@ -1,6 +1,6 @@
 use crate::actor::Actor;
 use crate::config::BridgeConfig;
-use crate::db::operator::OperatorDB;
+use crate::database::operator::OperatorDB;
 use crate::errors::BridgeError;
 use crate::extended_rpc::ExtendedRpc;
 use crate::script_builder::ScriptBuilder;

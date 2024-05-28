@@ -10,7 +10,7 @@ use serde::{Deserialize, Serialize};
 pub mod actor;
 pub mod cli;
 pub mod config;
-pub mod db;
+pub mod database;
 pub mod env_writer;
 pub mod errors;
 pub mod extended_rpc;

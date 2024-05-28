@@ -1,5 +1,5 @@
 use crate::config::BridgeConfig;
-use crate::db::verifier::VerifierDB;
+use crate::database::verifier::VerifierDB;
 use crate::errors::BridgeError;
 use crate::extended_rpc::ExtendedRpc;
 use crate::script_builder::ScriptBuilder;
