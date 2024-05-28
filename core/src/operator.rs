@@ -189,48 +189,56 @@ impl Operator {
             "Operator is signing withdrawal tx with txid: {:?}",
             deposit_tx_info
         );
+
         let (bridge_address, _) = self.transaction_builder.generate_bridge_address()?;
+
         let dust_value = ScriptBuilder::anyone_can_spend_txout().value;
+
         let deposit_txout = TxOut {
             value: Amount::from_sat(BRIDGE_AMOUNT_SATS - self.min_relay_fee) - dust_value,
             script_pubkey: bridge_address.script_pubkey(),
         };
+
         let deposit_utxo = OutPoint {
             txid: deposit_tx_info,
             vout: 0,
         };
+
         let mut withdrawal_tx = self.transaction_builder.create_withdraw_tx(
             deposit_utxo,
-            deposit_txout.clone(),
+            deposit_txout,
             &withdrawal_address,
         )?;
-        let signatures_from_verifiers: Result<Vec<_>, BridgeError> = self
+
+        let mut verifier_sigs: Vec<_> = self
             .verifier_connector
             .iter()
             .map(|verifier| async {
-                let sig = verifier
+                verifier
                     .new_withdrawal_direct_rpc(
                         idx,
                         deposit_tx_info,
                         withdrawal_address.as_unchecked().clone(),
                     )
-                    .await?;
-                Ok(sig)
+                    .await
             })
             .collect::<FuturesOrdered<_>>()
             .try_collect()
-            .await;
-        let mut verifier_sigs = signatures_from_verifiers?;
+            .await?;
+
         let sig = self
             .signer
             .sign_taproot_script_spend_tx_new(&mut withdrawal_tx, 0, 0)?;
         verifier_sigs.push(sig);
         verifier_sigs.reverse();
-        let mut witness_elements: Vec<&[u8]> = Vec::new();
-        for sig in verifier_sigs.iter() {
-            witness_elements.push(sig.as_ref());
-        }
+
+        let witness_elements: Vec<&[u8]> = verifier_sigs
+            .iter()
+            .map(|sig| sig.as_ref() as &[u8])
+            .collect();
+
         handle_taproot_witness_new(&mut withdrawal_tx, &witness_elements, 0, 0)?;
+
         let withdrawal_txid = self.rpc.send_raw_transaction(&withdrawal_tx.tx)?;
         Ok(withdrawal_txid)
     }
