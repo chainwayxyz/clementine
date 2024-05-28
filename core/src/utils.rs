@@ -1,8 +1,7 @@
 use crate::errors::BridgeError;
-use crate::extended_rpc::ExtendedRpc;
-use crate::transaction_builder::{CreateTxOutputs, TransactionBuilder};
-use crate::{EVMAddress, HashTree};
-use bitcoin::address::NetworkUnchecked;
+use crate::transaction_builder::CreateTxOutputs;
+use crate::HashTree;
+use bitcoin;
 use bitcoin::consensus::Decodable;
 use bitcoin::sighash::SighashCache;
 use bitcoin::taproot::ControlBlock;
@@ -10,8 +9,6 @@ use bitcoin::taproot::LeafVersion;
 use bitcoin::taproot::TaprootSpendInfo;
 use bitcoin::Amount;
 use bitcoin::ScriptBuf;
-use bitcoin::{self, Address, OutPoint};
-use clementine_circuits::constants::BRIDGE_AMOUNT_SATS;
 use hex;
 use sha2::{Digest, Sha256};
 use std::borrow::BorrowMut;
@@ -32,39 +29,6 @@ pub fn create_control_block(tree_info: TaprootSpendInfo, script: &ScriptBuf) -> 
     tree_info
         .control_block(&(script.clone(), LeafVersion::TapScript))
         .expect("Cannot create control block")
-}
-
-pub fn check_deposit_utxo(
-    rpc: &ExtendedRpc,
-    tx_builder: &TransactionBuilder,
-    outpoint: &OutPoint,
-    recovery_taproot_address: &Address<NetworkUnchecked>,
-    evm_address: &EVMAddress,
-    amount_sats: u64,
-    confirmation_block_count: u32,
-) -> Result<(), BridgeError> {
-    if rpc.confirmation_blocks(&outpoint.txid)? < confirmation_block_count {
-        return Err(BridgeError::DepositNotFinalized);
-    }
-
-    let (deposit_address, _) = tx_builder.generate_deposit_address(
-        recovery_taproot_address,
-        evm_address,
-        BRIDGE_AMOUNT_SATS,
-    )?;
-
-    if !rpc.check_utxo_address_and_amount(
-        outpoint,
-        &deposit_address.script_pubkey(),
-        amount_sats,
-    )? {
-        return Err(BridgeError::InvalidDepositUTXO);
-    }
-
-    if rpc.is_utxo_spent(outpoint)? {
-        return Err(BridgeError::UTXOSpent);
-    }
-    Ok(())
 }
 
 pub fn calculate_amount(depth: usize, value: Amount, fee: Amount) -> Amount {

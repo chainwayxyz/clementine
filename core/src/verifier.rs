@@ -5,7 +5,6 @@ use crate::extended_rpc::ExtendedRpc;
 use crate::script_builder::ScriptBuilder;
 use crate::traits::rpc::VerifierRpcServer;
 use crate::transaction_builder::TransactionBuilder;
-use crate::utils::check_deposit_utxo;
 use crate::EVMAddress;
 use crate::{actor::Actor, operator::DepositPresigns};
 use bitcoin::address::{NetworkChecked, NetworkUnchecked};
@@ -110,8 +109,7 @@ impl Verifier {
         evm_address: &EVMAddress,
         _operator_address: &Address,
     ) -> Result<DepositPresigns, BridgeError> {
-        check_deposit_utxo(
-            &self.rpc,
+        self.rpc.check_deposit_utxo(
             &self.transaction_builder,
             &start_utxo,
             recovery_taproot_address,

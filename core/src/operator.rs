@@ -6,7 +6,7 @@ use crate::extended_rpc::ExtendedRpc;
 use crate::script_builder::ScriptBuilder;
 use crate::traits::rpc::{OperatorRpcServer, VerifierRpcClient};
 use crate::transaction_builder::TransactionBuilder;
-use crate::utils::{check_deposit_utxo, handle_taproot_witness_new};
+use crate::utils::handle_taproot_witness_new;
 use crate::EVMAddress;
 use bitcoin::address::{NetworkChecked, NetworkUnchecked};
 use bitcoin::secp256k1::schnorr;
@@ -99,8 +99,7 @@ impl Operator {
             return Ok(move_txid);
         }
 
-        check_deposit_utxo(
-            &self.rpc,
+        self.rpc.check_deposit_utxo(
             &self.transaction_builder,
             &start_utxo,
             recovery_taproot_address,

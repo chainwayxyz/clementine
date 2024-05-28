@@ -1,4 +1,7 @@
 use crate::errors::BridgeError;
+use crate::transaction_builder::TransactionBuilder;
+use crate::EVMAddress;
+use bitcoin::address::NetworkUnchecked;
 use bitcoin::Address;
 use bitcoin::Amount;
 use bitcoin::OutPoint;
@@ -9,6 +12,7 @@ use bitcoin::Work;
 use bitcoincore_rpc::Auth;
 use bitcoincore_rpc::Client;
 use bitcoincore_rpc::RpcApi;
+use clementine_circuits::constants::BRIDGE_AMOUNT_SATS;
 use crypto_bigint::Encoding;
 use crypto_bigint::U256;
 
@@ -241,5 +245,39 @@ impl ExtendedRpc {
         block_hash: Option<&bitcoin::BlockHash>,
     ) -> Result<bitcoincore_rpc::json::GetRawTransactionResult, bitcoincore_rpc::Error> {
         self.inner.get_raw_transaction_info(txid, block_hash)
+    }
+
+    pub fn check_deposit_utxo(
+        &self,
+        tx_builder: &TransactionBuilder,
+        outpoint: &OutPoint,
+        recovery_taproot_address: &Address<NetworkUnchecked>,
+        evm_address: &EVMAddress,
+        amount_sats: u64,
+        confirmation_block_count: u32,
+    ) -> Result<(), BridgeError> {
+        if self.confirmation_blocks(&outpoint.txid)? < confirmation_block_count {
+            return Err(BridgeError::DepositNotFinalized);
+        }
+
+        let (deposit_address, _) = tx_builder.generate_deposit_address(
+            recovery_taproot_address,
+            evm_address,
+            BRIDGE_AMOUNT_SATS,
+        )?;
+
+        if !self.check_utxo_address_and_amount(
+            outpoint,
+            &deposit_address.script_pubkey(),
+            amount_sats,
+        )? {
+            return Err(BridgeError::InvalidDepositUTXO);
+        }
+
+        if self.is_utxo_spent(outpoint)? {
+            return Err(BridgeError::UTXOSpent);
+        }
+
+        Ok(())
     }
 }
