@@ -1,18 +1,16 @@
-use std::ops::{Deref, DerefMut};
-
-use crate::config::BridgeConfig;
-
 use super::common::Database;
+use crate::config::BridgeConfig;
+use std::ops::{Deref, DerefMut};
 
 #[derive(Debug, Clone)]
 pub struct VerifierDB {
-    common_db: Database,
+    database: Database,
 }
 
 impl VerifierDB {
     pub async fn new(config: BridgeConfig) -> Self {
         Self {
-            common_db: Database::new(config).await.unwrap(),
+            database: Database::new(config).await.unwrap(),
         }
     }
 }
@@ -21,12 +19,12 @@ impl Deref for VerifierDB {
     type Target = Database;
 
     fn deref(&self) -> &Self::Target {
-        &self.common_db
+        &self.database
     }
 }
 
 impl DerefMut for VerifierDB {
     fn deref_mut(&mut self) -> &mut Self::Target {
-        &mut self.common_db
+        &mut self.database
     }
 }
