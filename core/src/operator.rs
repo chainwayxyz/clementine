@@ -9,13 +9,12 @@ use crate::transaction_builder::TransactionBuilder;
 use crate::utils::{check_deposit_utxo, handle_taproot_witness_new};
 use crate::EVMAddress;
 use bitcoin::address::{NetworkChecked, NetworkUnchecked};
-use bitcoin::{secp256k1, secp256k1::schnorr};
+use bitcoin::secp256k1::schnorr;
 use bitcoin::{Address, Amount, OutPoint, TxOut, Txid};
 use clementine_circuits::constants::BRIDGE_AMOUNT_SATS;
 use futures::stream::FuturesOrdered;
 use futures::TryStreamExt;
 use jsonrpsee::core::async_trait;
-use secp256k1::{SecretKey, XOnlyPublicKey};
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 
@@ -28,43 +27,45 @@ pub struct DepositPresigns {
 #[derive(Debug, Clone)]
 pub struct Operator {
     rpc: ExtendedRpc,
+    db: OperatorDB,
     signer: Actor,
     transaction_builder: TransactionBuilder,
     verifier_connector: Vec<Arc<jsonrpsee::http_client::HttpClient>>,
-    db: OperatorDB,
-    config: BridgeConfig,
+    confirmation_treshold: u32,
+    min_relay_fee: u64,
 }
 
 impl Operator {
+    /// Creates a new `Operator`.
     pub async fn new(
-        rpc: ExtendedRpc,
-        all_xonly_pks: Vec<XOnlyPublicKey>,
-        operator_sk: SecretKey,
-        verifiers: Vec<Arc<jsonrpsee::http_client::HttpClient>>,
         config: BridgeConfig,
+        rpc: ExtendedRpc,
+        verifiers: Vec<Arc<jsonrpsee::http_client::HttpClient>>,
     ) -> Result<Self, BridgeError> {
-        let num_verifiers = all_xonly_pks.len() - 1;
-        let signer = Actor::new(operator_sk, config.network); // Operator is the last one
+        let num_verifiers = config.verifiers_public_keys.len();
 
-        if signer.xonly_public_key != all_xonly_pks[num_verifiers] {
+        let signer = Actor::new(config.secret_key, config.network);
+        if signer.xonly_public_key != config.verifiers_public_keys[num_verifiers - 1] {
             return Err(BridgeError::InvalidOperatorKey);
         }
 
         let transaction_builder = TransactionBuilder::new(
-            all_xonly_pks.clone(),
+            config.verifiers_public_keys.clone(),
             config.network,
             config.user_takes_after,
             config.min_relay_fee,
         );
+
         let db = OperatorDB::new(config.clone()).await;
 
         Ok(Self {
             rpc,
+            db,
             signer,
             transaction_builder,
             verifier_connector: verifiers,
-            db,
-            config,
+            confirmation_treshold: config.confirmation_treshold,
+            min_relay_fee: config.min_relay_fee,
         })
     }
 
@@ -102,7 +103,7 @@ impl Operator {
             recovery_taproot_address,
             evm_address,
             BRIDGE_AMOUNT_SATS,
-            self.config.confirmation_treshold,
+            self.confirmation_treshold,
         )?;
 
         // 5. Create a move transaction and return the output utxo, save the utxo as a pending deposit
@@ -201,7 +202,7 @@ impl Operator {
         let (bridge_address, _) = self.transaction_builder.generate_bridge_address()?;
         let dust_value = ScriptBuilder::anyone_can_spend_txout().value;
         let deposit_txout = TxOut {
-            value: Amount::from_sat(BRIDGE_AMOUNT_SATS - self.config.min_relay_fee) - dust_value,
+            value: Amount::from_sat(BRIDGE_AMOUNT_SATS - self.min_relay_fee) - dust_value,
             script_pubkey: bridge_address.script_pubkey(),
         };
         let deposit_utxo = OutPoint {

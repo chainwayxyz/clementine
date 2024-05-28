@@ -100,15 +100,9 @@ pub async fn create_operator_server(
         verifiers.push(verifier.into());
     }
 
-    let operator = Operator::new(
-        rpc.clone(),
-        config.verifiers_public_keys.clone(),
-        config.secret_key.clone(),
-        verifiers,
-        config.clone(),
-    )
-    .await
-    .unwrap();
+    let operator = Operator::new(config.clone(), rpc.clone(), verifiers)
+        .await
+        .unwrap();
 
     let server = Server::builder()
         .build(format!("{}:{}", config.host, config.port))
