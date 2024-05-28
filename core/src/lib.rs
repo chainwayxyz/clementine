@@ -61,17 +61,12 @@ pub async fn create_verifier_server(
             config.bitcoin_rpc_password.clone(),
         ),
     );
-    let verifier = Verifier::new(
-        rpc,
-        config.verifiers_public_keys.clone(),
-        config.secret_key.clone(),
-        config.clone(),
-    )
-    .await?;
 
     let server = Server::builder()
         .build(format!("{}:{}", config.host, config.port))
         .await?;
+
+    let verifier = Verifier::new(rpc, config).await?;
 
     let addr = server.local_addr()?;
     let handle = server.start(verifier.into_rpc());
