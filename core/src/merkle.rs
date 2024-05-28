@@ -9,21 +9,14 @@ pub struct MerkleTree<const DEPTH: usize> {
     pub index: u32,
 }
 
-impl<const DEPTH: usize> Default for MerkleTree<DEPTH> {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
 impl<const DEPTH: usize> MerkleTree<DEPTH> {
+    /// Creates a new `MerkleTree`.
     pub fn new() -> Self {
         Self {
             data: {
-                let mut v = Vec::new();
-                for _ in 0..DEPTH + 1 {
-                    v.push(Vec::new());
-                }
-                v
+                (0..DEPTH + 1)
+                    .map(|_| Vec::<HashType>::new())
+                    .collect::<Vec<Vec<HashType>>>()
             },
             index: 0,
         }
@@ -107,6 +100,12 @@ impl<const DEPTH: usize> MerkleTree<DEPTH> {
             root: current_level_hash,
             index,
         }
+    }
+}
+
+impl<const DEPTH: usize> Default for MerkleTree<DEPTH> {
+    fn default() -> Self {
+        Self::new()
     }
 }
 
