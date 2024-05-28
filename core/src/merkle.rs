@@ -22,6 +22,7 @@ impl<const DEPTH: usize> MerkleTree<DEPTH> {
         }
     }
 
+    /// TODO: WTH is a "a"? Sry
     pub fn add(&mut self, a: HashType) {
         let mut current_index = self.index;
         let mut current_level_hash = a;
@@ -33,29 +34,36 @@ impl<const DEPTH: usize> MerkleTree<DEPTH> {
             } else {
                 (self.data[i][current_index as usize - 1], current_level_hash)
             };
+
             if i > trz as usize {
                 self.data[i][current_index as usize] = current_level_hash;
             } else {
                 self.data[i].push(current_level_hash);
             }
+
             current_level_hash = sha256_hash!(left, right);
             current_index /= 2;
         }
+
         self.index += 1;
     }
 
     pub fn path(&self, index: u32) -> [HashType; DEPTH] {
         let mut p = [EMPTYDATA; DEPTH];
         let mut i = index as usize;
+
         for level in 0..DEPTH {
             let s = if i % 2 == 0 { i + 1 } else { i - 1 };
+
             p[level] = if s < self.data[level].len() {
                 self.data[level][s]
             } else {
                 ZEROES[level]
             };
+
             i /= 2;
         }
+
         p
     }
 
@@ -74,6 +82,7 @@ impl<const DEPTH: usize> MerkleTree<DEPTH> {
                 return Some(i);
             }
         }
+
         None
     }
 
@@ -81,20 +90,24 @@ impl<const DEPTH: usize> MerkleTree<DEPTH> {
         let mut fst = [EMPTYDATA; DEPTH];
         let mut i = index as usize;
         let mut current_level_hash = self.data[0][i];
+
         for level in 0..DEPTH {
             if i % 2 == 0 {
                 fst[level] = current_level_hash;
             } else {
                 fst[level] = self.data[level][i - 1];
             }
+
             let (left, right) = if i % 2 == 0 {
                 (current_level_hash, ZEROES[level])
             } else {
                 (self.data[level][i - 1], current_level_hash)
             };
+
             current_level_hash = sha256_hash!(left, right);
             i /= 2;
         }
+
         IncrementalMerkleTree {
             filled_subtrees: fst,
             root: current_level_hash,
