@@ -1,4 +1,4 @@
-use clementine_core::{cli, create_verifier_server};
+use clementine_core::{cli, servers::create_verifier_server};
 
 #[tokio::main]
 async fn main() {

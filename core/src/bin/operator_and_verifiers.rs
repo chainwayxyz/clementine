@@ -1,4 +1,4 @@
-use clementine_core::{cli, start_operator_and_verifiers};
+use clementine_core::{cli, servers::start_operator_and_verifiers};
 
 /// ```bash
 /// curl -X POST http://127.0.0.1:3434 -H "Content-Type: application/json" -d '{
