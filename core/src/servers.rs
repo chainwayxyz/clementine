@@ -78,7 +78,19 @@ pub async fn create_operator_server(
     Ok((addr, handle))
 }
 
-pub async fn start_operator_and_verifiers(
+/// Starts operator and verifiers servers. This function's intended use is for
+/// tests.
+///
+/// # Returns
+///
+/// Returns a tuple, containing `HttpClient` for operator, `ServerHandle` for
+/// operator and a vector containing `SocketAddr` and `ServerHandle` for
+/// verifiers + operator (operator last).
+///
+/// # Panics
+///
+/// Panics if there was an error while creating any of the servers.
+pub async fn create_operator_and_verifiers(
     config: BridgeConfig,
 ) -> (
     HttpClient,
@@ -88,11 +100,12 @@ pub async fn start_operator_and_verifiers(
     let mut all_secret_keys = config.all_secret_keys.clone().unwrap_or_else(|| {
         panic!("All secret keys are required for testing");
     });
-    all_secret_keys.pop().unwrap(); // Remove the operator secret key
+    // Remove the operator secret key.
+    all_secret_keys.pop().unwrap();
 
     let futures = all_secret_keys
         .iter()
-        .enumerate() // This adds the index to the iterator
+        .enumerate()
         .map(|(i, sk)| {
             create_verifier_server(BridgeConfig {
                 verifiers_public_keys: config.verifiers_public_keys.clone(),
@@ -103,19 +116,17 @@ pub async fn start_operator_and_verifiers(
             })
         })
         .collect::<Vec<_>>();
-
-    // Use `futures::future::try_join_all` to run all futures concurrently and wait for all to complete
     let mut results = futures::future::try_join_all(futures).await.unwrap();
-    let verifier_endpoints = results
+
+    let verifier_endpoints: Vec<String> = results
         .iter()
         .map(|(socket_addr, _)| format!("http://{}:{}/", socket_addr.ip(), socket_addr.port()))
-        .collect::<Vec<_>>();
+        .collect();
 
     let (operator_socket_addr, operator_handle) =
         create_operator_server(config, verifier_endpoints)
             .await
             .unwrap();
-
     let operator_client = HttpClientBuilder::default()
         .build(&format!(
             "http://{}:{}/",
