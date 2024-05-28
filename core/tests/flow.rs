@@ -3,7 +3,6 @@
 //! This tests checks if basic deposit and withdraw operations are OK or not.
 
 use bitcoin::{Address, Amount};
-use bitcoincore_rpc::Auth;
 use clementine_circuits::constants::BRIDGE_AMOUNT_SATS;
 use clementine_core::actor::Actor;
 use clementine_core::create_test_database;
@@ -38,10 +37,8 @@ async fn test_flow_1() {
 
     let rpc = ExtendedRpc::new(
         config.bitcoin_rpc_url.clone(),
-        Auth::UserPass(
-            config.bitcoin_rpc_user.clone(),
-            config.bitcoin_rpc_password.clone(),
-        ),
+        config.bitcoin_rpc_user.clone(),
+        config.bitcoin_rpc_password.clone(),
     );
 
     let (operator_client, _operator_handler, _results) =
@@ -151,10 +148,8 @@ async fn test_flow_2() {
 
     let rpc = ExtendedRpc::new(
         config.bitcoin_rpc_url.clone(),
-        Auth::UserPass(
-            config.bitcoin_rpc_user.clone(),
-            config.bitcoin_rpc_password.clone(),
-        ),
+        config.bitcoin_rpc_user.clone(),
+        config.bitcoin_rpc_password.clone(),
     );
 
     let (_operator_client, _operator_handler, _results) =

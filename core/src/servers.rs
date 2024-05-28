@@ -10,7 +10,6 @@ use crate::{
     traits::{self, rpc::VerifierRpcServer},
     verifier::Verifier,
 };
-use bitcoincore_rpc::Auth;
 use errors::BridgeError;
 use jsonrpsee::{
     http_client::{HttpClient, HttpClientBuilder},
@@ -25,10 +24,8 @@ pub async fn create_verifier_server(
 ) -> Result<(std::net::SocketAddr, ServerHandle), BridgeError> {
     let rpc = ExtendedRpc::new(
         config.bitcoin_rpc_url.clone(),
-        Auth::UserPass(
-            config.bitcoin_rpc_user.clone(),
-            config.bitcoin_rpc_password.clone(),
-        ),
+        config.bitcoin_rpc_user.clone(),
+        config.bitcoin_rpc_password.clone(),
     );
 
     let server = Server::builder()
@@ -52,10 +49,8 @@ pub async fn create_operator_server(
 ) -> Result<(std::net::SocketAddr, ServerHandle), BridgeError> {
     let rpc = ExtendedRpc::new(
         config.bitcoin_rpc_url.clone(),
-        Auth::UserPass(
-            config.bitcoin_rpc_user.clone(),
-            config.bitcoin_rpc_password.clone(),
-        ),
+        config.bitcoin_rpc_user.clone(),
+        config.bitcoin_rpc_password.clone(),
     );
 
     let verifiers: Vec<HttpClient> = verifier_endpoints
