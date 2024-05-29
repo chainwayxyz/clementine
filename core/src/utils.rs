@@ -38,7 +38,7 @@ pub fn calculate_amount(depth: usize, value: Amount, fee: Amount) -> Amount {
 pub fn handle_taproot_witness<T: AsRef<[u8]>>(
     tx: &mut bitcoin::Transaction,
     index: usize,
-    witness_elements: &Vec<T>,
+    witness_elements: &[T],
     script: &ScriptBuf,
     tree_info: &TaprootSpendInfo,
 ) -> Result<(), BridgeError> {
@@ -64,7 +64,7 @@ pub fn handle_taproot_witness<T: AsRef<[u8]>>(
 
 pub fn handle_taproot_witness_new<T: AsRef<[u8]>>(
     tx: &mut CreateTxOutputs,
-    witness_elements: &Vec<T>,
+    witness_elements: &[T],
     txin_index: usize,
     script_index: usize,
 ) -> Result<(), BridgeError> {
@@ -144,12 +144,11 @@ pub fn calculate_claim_proof_root(
                 hasher.update(hashes[i as usize * 2]);
                 hasher.update(hashes[i as usize * 2 + 1]);
 
-                let hash = hasher.finalize().into();
-                hash
+                hasher.finalize().into()
             })
             .collect();
 
-        hashes = level_hashes.clone();
+        hashes.clone_from(&level_hashes);
         level += 1;
     }
 

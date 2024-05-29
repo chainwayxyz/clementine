@@ -85,7 +85,7 @@ impl Verifier {
         let mut move_tx = self.transaction_builder.create_move_tx(
             start_utxo,
             evm_address,
-            &recovery_taproot_address,
+            recovery_taproot_address,
         )?;
         let move_txid = move_tx.tx.txid();
 

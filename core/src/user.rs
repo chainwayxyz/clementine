@@ -46,7 +46,7 @@ impl User {
         evm_address: EVMAddress,
     ) -> Result<(OutPoint, XOnlyPublicKey, EVMAddress), BridgeError> {
         let (deposit_address, _) = self.transaction_builder.generate_deposit_address(
-            &self.signer.address.as_unchecked(),
+            self.signer.address.as_unchecked(),
             &evm_address,
             BRIDGE_AMOUNT_SATS,
         )?;
@@ -60,7 +60,7 @@ impl User {
 
     pub fn get_deposit_address(&self, evm_address: EVMAddress) -> Result<Address, BridgeError> {
         let (deposit_address, _) = self.transaction_builder.generate_deposit_address(
-            &self.signer.address.as_unchecked(),
+            self.signer.address.as_unchecked(),
             &evm_address,
             BRIDGE_AMOUNT_SATS,
         )?;

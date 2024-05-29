@@ -125,7 +125,7 @@ impl Actor {
     pub fn sign_taproot_pubkey_spend_tx(
         &self,
         tx: &mut bitcoin::Transaction,
-        prevouts: &Vec<TxOut>,
+        prevouts: &[TxOut],
         input_index: usize,
     ) -> Result<schnorr::Signature, BridgeError> {
         let mut sighash_cache = SighashCache::new(tx);

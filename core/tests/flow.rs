@@ -105,13 +105,7 @@ async fn test_flow_1() {
     tracing::debug!("Withdrawal TXID: {:#?}", withdraw_txid);
 
     // get the tx details from rpc with txid
-    let tx = match rpc.get_raw_transaction(&withdraw_txid, None) {
-        Ok(c) => c,
-        Err(e) => {
-            assert!(false);
-            panic!("Transaction error: {:#?}", e);
-        }
-    };
+    let tx = rpc.get_raw_transaction(&withdraw_txid, None).unwrap();
     // tracing::debug!("Withdraw TXID raw transaction: {:#?}", tx);
 
     // check whether it has an output with the withdrawal address

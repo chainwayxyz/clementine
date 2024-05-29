@@ -123,7 +123,7 @@ pub async fn create_operator_and_verifiers(
             .await
             .unwrap();
     let operator_client = HttpClientBuilder::default()
-        .build(&format!(
+        .build(format!(
             "http://{}:{}/",
             operator_socket_addr.ip(),
             operator_socket_addr.port()

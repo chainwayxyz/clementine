@@ -339,7 +339,7 @@ mod tests {
 
         let deposit_address = tx_builder
             .generate_deposit_address(
-                &recovery_taproot_address.as_unchecked(),
+                recovery_taproot_address.as_unchecked(),
                 &crate::EVMAddress(evm_address),
                 10_000,
             )
