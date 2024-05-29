@@ -119,34 +119,40 @@ pub fn get_claim_proof_tree_leaf(
     connector_tree_hashes: &HashTree,
 ) -> [u8; 32] {
     let indices = get_claim_reveal_indices(depth, num_claims as u32);
+
     let mut hasher = Sha256::new();
+
     indices.iter().for_each(|(level, index)| {
         hasher.update(connector_tree_hashes[*level][*index]);
     });
+
     hasher.finalize().into()
 }
 pub fn calculate_claim_proof_root(
     depth: usize,
     connector_tree_hashes: &Vec<Vec<[u8; 32]>>,
 ) -> [u8; 32] {
-    let mut hashes: Vec<[u8; 32]> = Vec::new();
-    for i in 0..2u32.pow(depth as u32) {
-        let hash = get_claim_proof_tree_leaf(depth, i as usize, connector_tree_hashes);
-        hashes.push(hash);
-    }
+    let mut hashes: Vec<[u8; 32]> = (0..2u32.pow(depth as u32))
+        .map(|i| get_claim_proof_tree_leaf(depth, i as usize, connector_tree_hashes))
+        .collect();
+
     let mut level = 0;
     while level < depth {
-        let mut level_hashes: Vec<[u8; 32]> = Vec::new();
-        for i in 0..2u32.pow(depth as u32 - level as u32 - 1) {
-            let mut hasher = Sha256::new();
-            hasher.update(hashes[i as usize * 2]);
-            hasher.update(hashes[i as usize * 2 + 1]);
-            let hash = hasher.finalize().into();
-            level_hashes.push(hash);
-        }
+        let level_hashes: Vec<[u8; 32]> = (0..2u32.pow((depth - level - 1) as u32))
+            .map(|i| {
+                let mut hasher = Sha256::new();
+                hasher.update(hashes[i as usize * 2]);
+                hasher.update(hashes[i as usize * 2 + 1]);
+
+                let hash = hasher.finalize().into();
+                hash
+            })
+            .collect();
+
         hashes = level_hashes.clone();
         level += 1;
     }
+
     hashes[0]
 }
 
