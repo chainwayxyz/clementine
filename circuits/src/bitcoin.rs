@@ -136,7 +136,7 @@ pub fn read_preimages_and_calculate_commit_taproot<E: Environment>() -> ([u8; 32
     for _ in 0..num_preimages {
         hasher_commit_taproot.update([32u8]);
         let preimage = E::read_32bytes();
-        hasher_commit_taproot.update(&preimage);
+        hasher_commit_taproot.update(preimage);
         hasher_claim_proof_leaf.update(sha256_hash!(preimage));
     }
     hasher_commit_taproot.update([104u8]);
@@ -144,7 +144,7 @@ pub fn read_preimages_and_calculate_commit_taproot<E: Environment>() -> ([u8; 32
     let claim_proof_leaf: [u8; 32] = hasher_claim_proof_leaf.finalize().into();
     let taproot_address = calculate_taproot_from_single_script(script_hash);
 
-    return (taproot_address, claim_proof_leaf);
+    (taproot_address, claim_proof_leaf)
 }
 
 pub fn calculate_taproot_from_single_script(tap_leaf_hash: [u8; 32]) -> [u8; 32] {

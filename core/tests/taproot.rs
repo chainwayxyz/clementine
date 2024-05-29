@@ -57,7 +57,7 @@ async fn run() {
     .unwrap();
     let utxo = rpc.send_to_address(&taproot_address, 1000).unwrap();
 
-    let ins = TransactionBuilder::create_tx_ins(vec![utxo.clone()]);
+    let ins = TransactionBuilder::create_tx_ins(vec![utxo]);
 
     let tx_outs = vec![TxOut {
         value: Amount::from_sat(330),

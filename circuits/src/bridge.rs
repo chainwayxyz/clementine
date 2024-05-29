@@ -97,14 +97,14 @@ fn read_header_except_root_and_calculate_blockhash<E: Environment>(mt_root: Hash
     let time = E::read_u32();
     let bits = E::read_u32();
     let nonce = E::read_u32();
-    return double_sha256_hash!(
+    double_sha256_hash!(
         &version.to_le_bytes(),
         &prev_blockhash,
         &mt_root,
         &time.to_le_bytes(),
         &bits.to_le_bytes(),
         &nonce.to_le_bytes()
-    );
+    )
 }
 
 fn calculate_next_block_hash(
@@ -141,7 +141,7 @@ pub fn read_merkle_tree_proof<E: Environment, const D: usize>(
         level_idx /= 2;
     }
     // tracing::debug!("READ merkle_tree_proof of: {:?}", leaf);
-    return hash;
+    hash
 }
 
 /// Reads a withdrawal proof, adds output address to incremental merkle tree
@@ -182,7 +182,7 @@ pub fn read_and_verify_lc_proof<E: Environment>(
 
 /// TODO: implement this function
 pub fn verify_challenge_proof(_proof: [[u8; 32]; 4]) -> bool {
-    return true;
+    true
 }
 
 pub fn read_and_verify_verifiers_challenge_proof<E: Environment>() -> (U256, [u8; 32], u8) {
@@ -324,13 +324,13 @@ pub fn bridge_proof<E: Environment>() -> (U256, [u8; 32], u8) {
         PERIOD_CLAIM_MT_ROOTS[verifiers_challenge_period as usize],
         read_merkle_tree_proof::<E, CLAIM_MERKLE_TREE_DEPTH>(
             claim_proof_tree_leaf,
-            Some(total_num_withdrawals as u32),
+            Some(total_num_withdrawals),
         )
     );
 
-    return (
+    (
         verifiers_pow,
         verifiers_last_finalized_blockhash,
         verifiers_challenge_period,
-    );
+    )
 }
