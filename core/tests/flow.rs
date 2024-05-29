@@ -23,7 +23,7 @@ async fn test_flow_1() {
     let handle = thread::current()
         .name()
         .unwrap()
-        .split(":")
+        .split(':')
         .last()
         .unwrap()
         .to_owned();
@@ -53,7 +53,7 @@ async fn test_flow_1() {
         config.min_relay_fee,
     );
 
-    let evm_addresses = vec![
+    let evm_addresses = [
         EVMAddress([1u8; 20]),
         EVMAddress([2u8; 20]),
         EVMAddress([3u8; 20]),
@@ -65,7 +65,7 @@ async fn test_flow_1() {
         .map(|evm_address| {
             tx_builder
                 .generate_deposit_address(
-                    &taproot_address.as_unchecked(),
+                    taproot_address.as_unchecked(),
                     evm_address,
                     BRIDGE_AMOUNT_SATS,
                 )
@@ -77,7 +77,7 @@ async fn test_flow_1() {
 
     for (idx, deposit_address) in deposit_addresses.iter().enumerate() {
         let deposit_utxo = rpc
-            .send_to_address(&deposit_address, BRIDGE_AMOUNT_SATS)
+            .send_to_address(deposit_address, BRIDGE_AMOUNT_SATS)
             .unwrap();
         tracing::debug!("Deposit UTXO #{}: {:#?}", idx, deposit_utxo);
 
@@ -122,9 +122,8 @@ async fn test_flow_1() {
     let anyone_can_spend_amount = ScriptBuilder::anyone_can_spend_txout().value;
 
     // check if the amounts match
-    let expected_withdraw_amount =
-        Amount::from_sat(BRIDGE_AMOUNT_SATS - 2 * config.min_relay_fee.clone())
-            - anyone_can_spend_amount * 2;
+    let expected_withdraw_amount = Amount::from_sat(BRIDGE_AMOUNT_SATS - 2 * config.min_relay_fee)
+        - anyone_can_spend_amount * 2;
     assert_eq!(expected_withdraw_amount, rpc_withdraw_amount);
 }
 
@@ -134,7 +133,7 @@ async fn test_flow_2() {
     let handle = thread::current()
         .name()
         .unwrap()
-        .split(":")
+        .split(':')
         .last()
         .unwrap()
         .to_owned();
@@ -172,7 +171,7 @@ async fn test_flow_2() {
 
     let deposit_address_info = tx_builder
         .generate_deposit_address(
-            &taproot_address.as_unchecked(),
+            taproot_address.as_unchecked(),
             &evm_address,
             BRIDGE_AMOUNT_SATS,
         )
