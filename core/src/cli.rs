@@ -19,7 +19,7 @@ pub struct Args {
     pub config_file: PathBuf,
 }
 
-/// Parse all the cli arguments and generate a `BridgeConfig`.
+/// Parse all the command line arguments and generate a `BridgeConfig`.
 pub fn parse() -> Result<Args, BridgeError> {
     parse_from(env::args())
 }
@@ -39,7 +39,7 @@ where
 /// Parses cli arguments, reads configuration file, parses it and generates a
 /// `BridgeConfig`.
 ///
-/// # Kills Process
+/// # Exits
 ///
 /// Prints help + error messages and kills process on error. This will not panic
 /// intentionally, just to print a user friendly message and not a trace.
@@ -47,7 +47,7 @@ pub fn get_configuration() -> BridgeConfig {
     let args = match parse() {
         Ok(c) => c,
         Err(e) => {
-            eprintln!("{}", e.to_string());
+            eprintln!("{}", e);
             exit(1);
         }
     };
@@ -55,7 +55,7 @@ pub fn get_configuration() -> BridgeConfig {
     match get_configuration_from(args) {
         Ok(c) => c,
         Err(e) => {
-            eprintln!("{}", e.to_string());
+            eprintln!("{}", e);
             exit(1);
         }
     }
