@@ -3,8 +3,8 @@ resolver = "2"
 members = ["core", "circuits"]
 
 [workspace.dependencies]
-bitcoin = "0.31.1"
-bitcoincore-rpc = "0.18.0"
+bitcoin = { git = "https://github.com/rust-bitcoin/rust-bitcoin", branch = "bitvm" }
+bitcoincore-rpc = { git = "https://github.com/rust-bitcoin/rust-bitcoincore-rpc" }
 hex = "0.4.3"
 lazy_static = { version = "1.4.0", default-features = false }
 sha2 = { version = "=0.10.8", default-features = false }
@@ -41,3 +41,23 @@ lto = true
 
 [profile.release.build-override]
 opt-level = 3
+
+[patch.crates-io.base58check]
+git = "https://github.com/rust-bitcoin/rust-bitcoin"
+branch = "bitvm"
+
+[patch.crates-io.bitcoin]
+git = "https://github.com/rust-bitcoin/rust-bitcoin"
+branch = "bitvm"
+
+[patch.crates-io.bitcoin_hashes]
+git = "https://github.com/rust-bitcoin/rust-bitcoin"
+branch = "bitvm"
+
+[patch.crates-io.bitcoin-internals]
+git = "https://github.com/rust-bitcoin/rust-bitcoin"
+branch = "bitvm"
+
+[patch.crates-io.bitcoin-io]
+git = "https://github.com/rust-bitcoin/rust-bitcoin"
+branch = "bitvm"

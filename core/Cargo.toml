@@ -5,7 +5,7 @@ edition = "2021"
 
 [dependencies]
 clementine-circuits = { path = "../circuits" }
-bitcoin = { workspace = true, features = ["rand", "bitcoinconsensus"] }
+bitcoin = { workspace = true, features = ["rand", "bitcoinconsensus", "serde"] }
 bitcoincore-rpc = { workspace = true }
 hex = { workspace = true, features = ["serde"] }
 lazy_static = { workspace = true, features = ["spin_no_std"] }
