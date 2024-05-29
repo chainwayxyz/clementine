@@ -129,7 +129,7 @@ pub enum BridgeError {
 
 impl Into<ErrorObject<'static>> for BridgeError {
     fn into(self) -> ErrorObjectOwned {
-        ErrorObject::owned(-30000, &format!("{:?}", self), Some(1))
+        ErrorObject::owned(-30000, format!("{:?}", self), Some(1))
     }
 }
 

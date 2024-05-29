@@ -76,14 +76,9 @@ impl<const DEPTH: usize> MerkleTree<DEPTH> {
     }
 
     /// TODO: Make this more efficient
+    /// Note: Clippy suggested to use this iterator over loop
     pub fn index_of(&self, a: HashType) -> Option<u32> {
-        for i in 0..self.index {
-            if self.data[0][i as usize] == a {
-                return Some(i);
-            }
-        }
-
-        None
+        (0..self.index).find(|&i| self.data[0][i as usize] == a)
     }
 
     pub fn to_incremental_tree(&self, index: u32) -> IncrementalMerkleTree<DEPTH> {
@@ -139,7 +134,7 @@ mod tests {
         ];
         assert_eq!(mt.root(), contract_empty_root);
         assert_eq!(mt.root(), imt.root);
-        let a = [1 as u8; 32];
+        let a = [1_u8; 32];
         mt.add(a);
         imt.add(a);
         let contract_insert_1_root: [u8; 32] = [

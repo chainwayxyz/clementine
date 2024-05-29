@@ -254,6 +254,7 @@ mod tests {
     use std::thread;
 
     #[tokio::test]
+    #[should_panic]
     async fn invalid_connection() {
         let mut config = BridgeConfig::new();
         config.db_host = "nonexistinghost".to_string();
@@ -262,30 +263,14 @@ mod tests {
         config.db_password = "nonexistingpassword".to_string();
         config.db_port = 123;
 
-        match Database::new(config).await {
-            Ok(_) => {
-                assert!(false);
-            }
-            Err(e) => {
-                println!("{}", e);
-                assert!(true);
-            }
-        };
+        Database::new(config).await.unwrap();
     }
 
     #[tokio::test]
     async fn valid_connection() {
         let config = common::get_test_config("test_config.toml").unwrap();
 
-        match Database::new(config).await {
-            Ok(_) => {
-                assert!(true);
-            }
-            Err(e) => {
-                eprintln!("{}", e);
-                assert!(false);
-            }
-        };
+        Database::new(config).await.unwrap();
     }
 
     #[tokio::test]
@@ -293,7 +278,7 @@ mod tests {
         let handle = thread::current()
             .name()
             .unwrap()
-            .split(":")
+            .split(':')
             .last()
             .unwrap()
             .to_owned();

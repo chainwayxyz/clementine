@@ -83,7 +83,8 @@ fn main() {
             .join(",")
     );
     println!(
-        "OPERATOR_URL={}",
-        format!("http://{}:{}", cur_config.host, ports[num_verifiers - 1])
+        "OPERATOR_URL=http://{}:{}",
+        cur_config.host,
+        ports[num_verifiers - 1]
     );
 }
