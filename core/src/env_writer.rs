@@ -150,7 +150,7 @@ impl<E: Environment> ENVWriter<E> {
         for node in merkle_path {
             path_indicator <<= 1;
             match node {
-                Some(txmn) => merkle_path_to_be_sent.push(txmn.clone()),
+                Some(txmn) => merkle_path_to_be_sent.push(*txmn),
                 None => path_indicator += 1,
             }
         }
@@ -163,8 +163,7 @@ impl<E: Environment> ENVWriter<E> {
 
         for _ in 0..depth {
             let node = if path_indicator & 1 == 1 {
-                merkle_path_to_be_sent
-                    .insert(reader_pointer, TxMerkleNode::from_byte_array(hash.clone()));
+                merkle_path_to_be_sent.insert(reader_pointer, TxMerkleNode::from_byte_array(hash));
                 reader_pointer += 1;
                 hash
             } else {
@@ -190,7 +189,7 @@ impl<E: Environment> ENVWriter<E> {
         let (merkle_path_to_be_sent, index) =
             ENVWriter::<E>::get_merkle_path_from_merkle_block(merkle_block)?;
 
-        E::write_u32(index as u32);
+        E::write_u32(index);
 
         E::write_u32(merkle_path_to_be_sent.len() as u32);
 
@@ -233,7 +232,7 @@ impl<E: Environment> ENVWriter<E> {
         let (merkle_path_to_be_sent, index) =
             ENVWriter::<E>::get_merkle_path_from_merkle_block(merkle_block)?;
 
-        E::write_u32(index as u32);
+        E::write_u32(index);
 
         E::write_u32(merkle_path_to_be_sent.len() as u32);
 

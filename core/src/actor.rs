@@ -65,7 +65,7 @@ impl Actor {
     pub fn sign_taproot_script_spend_tx(
         &self,
         tx: &mut bitcoin::Transaction,
-        prevouts: &Vec<TxOut>,
+        prevouts: &[TxOut],
         spend_script: &bitcoin::Script,
         input_index: usize,
     ) -> Result<schnorr::Signature, BridgeError> {
