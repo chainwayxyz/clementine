@@ -28,6 +28,9 @@ clap = { workspace = true, features = ["derive"] }
 toml = { workspace = true }
 sqlx = { workspace = true, features = ["runtime-tokio", "postgres"] }
 
+[dev-dependencies]
+bitcoin-simulator = { git = "https://github.com/Bitcoin-Wildlife-Sanctuary/bitcoin-simulator.git" }
+
 [features]
 default = []
 poc = []
