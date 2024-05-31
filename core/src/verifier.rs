@@ -1,101 +1,69 @@
 use crate::config::BridgeConfig;
-use crate::db::verifier::VerifierDB;
+use crate::database::verifier::VerifierDB;
 use crate::errors::BridgeError;
 use crate::extended_rpc::ExtendedRpc;
 use crate::script_builder::ScriptBuilder;
 use crate::traits::rpc::VerifierRpcServer;
 use crate::transaction_builder::TransactionBuilder;
-use crate::utils::check_deposit_utxo;
 use crate::EVMAddress;
 use crate::{actor::Actor, operator::DepositPresigns};
 use bitcoin::address::{NetworkChecked, NetworkUnchecked};
 use bitcoin::{secp256k1, secp256k1::Secp256k1, OutPoint};
-use bitcoin::{Address, Amount, TxOut, Txid};
+use bitcoin::{Address, Amount, Network, TxOut, Txid};
 use clementine_circuits::constants::BRIDGE_AMOUNT_SATS;
 use jsonrpsee::core::async_trait;
+use secp256k1::schnorr;
 use secp256k1::XOnlyPublicKey;
-use secp256k1::{schnorr, SecretKey};
 
 #[derive(Debug, Clone)]
 pub struct Verifier {
-    pub rpc: ExtendedRpc,
-    pub secp: Secp256k1<secp256k1::All>,
-    pub signer: Actor,
-    pub transaction_builder: TransactionBuilder,
-    pub verifiers: Vec<XOnlyPublicKey>,
-    pub operator_pk: XOnlyPublicKey,
-    pub db: VerifierDB,
-    config: BridgeConfig,
-}
-
-#[async_trait]
-impl VerifierRpcServer for Verifier {
-    async fn new_deposit_rpc(
-        &self,
-        start_utxo: OutPoint,
-        recovery_taproot_address: Address<NetworkUnchecked>,
-        deposit_index: u32,
-        evm_address: EVMAddress,
-        operator_address: Address<NetworkUnchecked>,
-    ) -> Result<DepositPresigns, BridgeError> {
-        let operator_address = operator_address.require_network(self.config.network)?;
-        self.new_deposit(
-            start_utxo,
-            &recovery_taproot_address,
-            deposit_index,
-            &evm_address,
-            &operator_address,
-        )
-        .await
-    }
-    async fn new_withdrawal_direct_rpc(
-        &self,
-        withdrawal_idx: usize,
-        bridge_fund_txid: Txid,
-        withdrawal_address: Address<NetworkUnchecked>,
-    ) -> Result<schnorr::Signature, BridgeError> {
-        let withdrawal_address = withdrawal_address.require_network(self.config.network)?;
-        self.new_withdrawal_direct(withdrawal_idx, bridge_fund_txid, &withdrawal_address)
-            .await
-    }
+    rpc: ExtendedRpc,
+    signer: Actor,
+    transaction_builder: TransactionBuilder,
+    db: VerifierDB,
+    network: Network,
+    confirmation_treshold: u32,
+    min_relay_fee: u64,
 }
 
 impl Verifier {
-    pub async fn new(
-        rpc: ExtendedRpc,
-        all_xonly_pks: Vec<XOnlyPublicKey>,
-        sk: SecretKey,
-        config: BridgeConfig,
-    ) -> Result<Self, BridgeError> {
-        let signer = Actor::new(sk, config.network);
+    pub async fn new(rpc: ExtendedRpc, config: BridgeConfig) -> Result<Self, BridgeError> {
+        let signer = Actor::new(config.secret_key, config.network);
+
         let secp: Secp256k1<secp256k1::All> = Secp256k1::new();
 
-        let pk: secp256k1::PublicKey = sk.public_key(&secp);
+        let pk: secp256k1::PublicKey = config.secret_key.public_key(&secp);
         let xonly_pk = XOnlyPublicKey::from(pk);
-        // if pk is not in all_pks, we should raise an error
-        if !all_xonly_pks.contains(&xonly_pk) {
+
+        // Generated public key must be in given public key list.
+        if !config.verifiers_public_keys.contains(&xonly_pk) {
             return Err(BridgeError::PublicKeyNotFound);
         }
 
         let db = VerifierDB::new(config.clone()).await;
 
-        let transaction_builder = TransactionBuilder::new(all_xonly_pks.clone(), config.clone());
-        let operator_pk = all_xonly_pks[all_xonly_pks.len() - 1];
+        let transaction_builder = TransactionBuilder::new(
+            config.verifiers_public_keys.clone(),
+            config.network,
+            config.user_takes_after,
+            config.min_relay_fee,
+        );
+
         Ok(Verifier {
             rpc,
-            secp,
             signer,
             transaction_builder,
-            verifiers: all_xonly_pks,
-            operator_pk,
             db,
-            config,
+            network: config.network,
+            confirmation_treshold: config.confirmation_treshold,
+            min_relay_fee: config.min_relay_fee,
         })
     }
 
-    /// this is a endpoint that only the operator can call
-    /// 1. Check if the deposit utxo is valid and finalized (6 blocks confirmation)
-    /// 2. Check if the utxo is not already spent
+    /// Operator only endpoint for verifier.
+    ///
+    /// 1. Check if the deposit UTXO is valid and finalized (6 blocks confirmation)
+    /// 2. Check if the UTXO is not already spent
     /// 3. Give move signature and operator claim signatures
     async fn new_deposit(
         &self,
@@ -105,20 +73,19 @@ impl Verifier {
         evm_address: &EVMAddress,
         _operator_address: &Address,
     ) -> Result<DepositPresigns, BridgeError> {
-        check_deposit_utxo(
-            &self.rpc,
+        self.rpc.check_deposit_utxo(
             &self.transaction_builder,
             &start_utxo,
             recovery_taproot_address,
             evm_address,
             BRIDGE_AMOUNT_SATS,
-            self.config.confirmation_treshold,
+            self.confirmation_treshold,
         )?;
 
         let mut move_tx = self.transaction_builder.create_move_tx(
             start_utxo,
             evm_address,
-            &recovery_taproot_address,
+            recovery_taproot_address,
         )?;
         let move_txid = move_tx.tx.txid();
 
@@ -127,6 +94,7 @@ impl Verifier {
             self.signer.xonly_public_key.to_string(),
             move_txid
         );
+
         let move_sig = self
             .signer
             .sign_taproot_script_spend_tx_new(&mut move_tx, 0, 0)?;
@@ -143,7 +111,7 @@ impl Verifier {
         bridge_fund_txid: Txid,
         withdrawal_address: &Address<NetworkChecked>,
     ) -> Result<schnorr::Signature, BridgeError> {
-        // TODO: Check from citrea rpc if the withdrawal is valid
+        // TODO: Check Citrea RPC if the withdrawal is already been made or not.
 
         if let Ok((db_bridge_fund_txid, sig)) =
             self.db.get_withdrawal_sig_by_idx(withdrawal_idx).await
@@ -156,18 +124,20 @@ impl Verifier {
         };
 
         tracing::info!(
-            "Verifier is signing withdrawal tx with txid: {:?}",
+            "Verifier is signing withdrawal transaction with TXID: {:?}",
             bridge_fund_txid
         );
+
         let bridge_utxo = OutPoint {
             txid: bridge_fund_txid,
             vout: 0,
         };
 
         let (bridge_address, _) = self.transaction_builder.generate_bridge_address()?;
+
         let dust_value = ScriptBuilder::anyone_can_spend_txout().value;
         let bridge_txout = TxOut {
-            value: Amount::from_sat(BRIDGE_AMOUNT_SATS - self.config.min_relay_fee) - dust_value,
+            value: Amount::from_sat(BRIDGE_AMOUNT_SATS - self.min_relay_fee) - dust_value,
             script_pubkey: bridge_address.script_pubkey(),
         };
 
@@ -176,15 +146,51 @@ impl Verifier {
             bridge_txout,
             withdrawal_address,
         )?;
+
         let sig = self
             .signer
             .sign_taproot_script_spend_tx_new(&mut withdrawal_tx, 0, 0)?;
 
-        // savedb -> withdrawal_idx, bridge_fund_txid, signature
         self.db
             .save_withdrawal_sig(withdrawal_idx, bridge_fund_txid, sig)
             .await?;
+
         Ok(sig)
+    }
+}
+
+#[async_trait]
+impl VerifierRpcServer for Verifier {
+    async fn new_deposit_rpc(
+        &self,
+        start_utxo: OutPoint,
+        recovery_taproot_address: Address<NetworkUnchecked>,
+        deposit_index: u32,
+        evm_address: EVMAddress,
+        operator_address: Address<NetworkUnchecked>,
+    ) -> Result<DepositPresigns, BridgeError> {
+        let operator_address = operator_address.require_network(self.network)?;
+
+        self.new_deposit(
+            start_utxo,
+            &recovery_taproot_address,
+            deposit_index,
+            &evm_address,
+            &operator_address,
+        )
+        .await
+    }
+
+    async fn new_withdrawal_direct_rpc(
+        &self,
+        withdrawal_idx: usize,
+        bridge_fund_txid: Txid,
+        withdrawal_address: Address<NetworkUnchecked>,
+    ) -> Result<schnorr::Signature, BridgeError> {
+        let withdrawal_address = withdrawal_address.require_network(self.network)?;
+
+        self.new_withdrawal_direct(withdrawal_idx, bridge_fund_txid, &withdrawal_address)
+            .await
     }
 }
 

@@ -1,4 +1,4 @@
-use clementine_core::{cli, start_operator_and_verifiers};
+use clementine_core::{cli, servers::create_operator_and_verifiers};
 
 /// ```bash
 /// curl -X POST http://127.0.0.1:3434 -H "Content-Type: application/json" -d '{
@@ -16,7 +16,8 @@ use clementine_core::{cli, start_operator_and_verifiers};
 async fn main() {
     let config = cli::get_configuration();
 
-    let (operator_client, operator_handle, _verifiers) = start_operator_and_verifiers(config).await;
+    let (operator_client, operator_handle, _verifiers) =
+        create_operator_and_verifiers(config).await;
 
     println!("Operator server started. {:?}", operator_client);
 

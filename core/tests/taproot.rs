@@ -2,7 +2,6 @@ use bitcoin::hashes::{Hash, HashEngine};
 use bitcoin::opcodes::all::OP_CHECKSIG;
 use bitcoin::script::Builder;
 use bitcoin::{Address, Amount, TapTweakHash, TxOut, XOnlyPublicKey};
-use bitcoincore_rpc::Auth;
 use clementine_core::actor::Actor;
 use clementine_core::extended_rpc::ExtendedRpc;
 use clementine_core::mock::common::get_test_config;
@@ -40,10 +39,8 @@ async fn run() {
 
     let rpc = ExtendedRpc::new(
         config.bitcoin_rpc_url.clone(),
-        Auth::UserPass(
-            config.bitcoin_rpc_user.clone(),
-            config.bitcoin_rpc_password.clone(),
-        ),
+        config.bitcoin_rpc_user.clone(),
+        config.bitcoin_rpc_password.clone(),
     );
 
     let builder = Builder::new();
@@ -60,7 +57,7 @@ async fn run() {
     .unwrap();
     let utxo = rpc.send_to_address(&taproot_address, 1000).unwrap();
 
-    let ins = TransactionBuilder::create_tx_ins(vec![utxo.clone()]);
+    let ins = TransactionBuilder::create_tx_ins(vec![utxo]);
 
     let tx_outs = vec![TxOut {
         value: Amount::from_sat(330),
