@@ -364,8 +364,9 @@ mod tests {
                 continue;
             }
             ENVWriter::<MockEnvironment>::write_witness_merkle_path(tx.compute_txid(), &block)?;
-            let found_merkle_root =
-                read_and_verify_bitcoin_merkle_path::<MockEnvironment>(tx.compute_wtxid().to_byte_array());
+            let found_merkle_root = read_and_verify_bitcoin_merkle_path::<MockEnvironment>(
+                tx.compute_wtxid().to_byte_array(),
+            );
             assert_eq!(expected_merkle_root, found_merkle_root);
         }
         Ok(())
