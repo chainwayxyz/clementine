@@ -206,14 +206,16 @@ impl<E: Environment> ENVWriter<E> {
             .iter()
             .enumerate()
             .map(|(i, t)| {
-                if t.txid() == txid {
-                    wtxid = Txid::from_raw_hash(t.wtxid().to_raw_hash());
+                let ctxid = t.compute_txid();
+                let cwtxid = t.compute_wtxid();
+                if ctxid == txid {
+                    wtxid = Txid::from_raw_hash(cwtxid.to_raw_hash());
                 }
                 if i == 0 {
                     // Replace the first hash with zeroes.
                     Txid::from_raw_hash(Wtxid::all_zeros().to_raw_hash())
                 } else {
-                    Txid::from_raw_hash(t.wtxid().to_raw_hash())
+                    Txid::from_raw_hash(cwtxid.to_raw_hash())
                 }
             })
             .collect::<Vec<Txid>>();
@@ -346,9 +348,10 @@ mod tests {
     fn test_block_merkle_path(block: Block) -> Result<(), BridgeError> {
         let expected_merkle_root = block.compute_merkle_root().unwrap().to_byte_array();
         for tx in block.txdata.iter() {
-            ENVWriter::<MockEnvironment>::write_bitcoin_merkle_path(tx.txid(), &block)?;
+            let ctxid = tx.compute_txid();
+            ENVWriter::<MockEnvironment>::write_bitcoin_merkle_path(ctxid, &block)?;
             let found_merkle_root =
-                read_and_verify_bitcoin_merkle_path::<MockEnvironment>(tx.txid().to_byte_array());
+                read_and_verify_bitcoin_merkle_path::<MockEnvironment>(ctxid.to_byte_array());
             assert_eq!(expected_merkle_root, found_merkle_root);
         }
         Ok(())
@@ -360,9 +363,9 @@ mod tests {
             if tx.is_coinbase() {
                 continue;
             }
-            ENVWriter::<MockEnvironment>::write_witness_merkle_path(tx.txid(), &block)?;
+            ENVWriter::<MockEnvironment>::write_witness_merkle_path(tx.compute_txid(), &block)?;
             let found_merkle_root =
-                read_and_verify_bitcoin_merkle_path::<MockEnvironment>(tx.wtxid().to_byte_array());
+                read_and_verify_bitcoin_merkle_path::<MockEnvironment>(tx.compute_wtxid().to_byte_array());
             assert_eq!(expected_merkle_root, found_merkle_root);
         }
         Ok(())
@@ -375,7 +378,7 @@ mod tests {
         MockEnvironment::reset_mock_env();
         let input = "020000000001025c290bc400f9e1c3f739f8e57ab60355d5a9ac33e9d2c24145b3565aee6bbce00000000000fdffffffa49a9fe38ffe5f5bda8289098e60572caa758c7795983b0008b5e99f01f446de0000000000fdffffff0300e1f50500000000225120df6f4ee3a0a625db6fa6a88176656541f4a63591f8b7174f7054cc52afbeaec800e1f505000000002251208c61eec2e14c785da78dd8ab98797996f866a6aac8c8d2389d77f38c3f4feff122020000000000002251208c61eec2e14c785da78dd8ab98797996f866a6aac8c8d2389d77f38c3f4feff101405de61774dc0275f491eb46561bc1b36148ef30467bf43f2b33796991d61a29a3a4b7e2047712e73fe983806f0d636b64c8a6202490daff202bca521a0faa70ae0140f80f92541832d6d8908df9a57d994b90ee74129c8943a17109da88d49cd1531314d051c8082be3b79d3281edde719ab2fab34fa3dfbe3ad60e5a2ab8a306d43100000000";
         let btc_tx = parse_hex_to_btc_tx(input).unwrap();
-        let btc_tx_id = btc_tx.txid();
+        let btc_tx_id = btc_tx.compute_txid();
         ENVWriter::<MockEnvironment>::write_tx_to_env(&btc_tx);
         let tx_id = read_tx_and_calculate_txid::<MockEnvironment>(None, None);
         assert_eq!(btc_tx_id, Txid::from_byte_array(tx_id));
@@ -439,7 +442,7 @@ mod tests {
             MockEnvironment::reset_mock_env();
             ENVWriter::<MockEnvironment>::write_tx_to_env(tx);
             let tx_id = read_tx_and_calculate_txid::<MockEnvironment>(None, None);
-            assert_eq!(tx.txid(), Txid::from_byte_array(tx_id));
+            assert_eq!(tx.compute_txid(), Txid::from_byte_array(tx_id));
         }
     }
 
@@ -465,7 +468,7 @@ mod tests {
                             script_pubkey[2..34].try_into().unwrap(),
                         )),
                     );
-                    assert_eq!(tx.txid(), Txid::from_byte_array(tx_id));
+                    assert_eq!(tx.compute_txid(), Txid::from_byte_array(tx_id));
                 }
             }
         }
@@ -477,7 +480,7 @@ mod tests {
                 let vout = input.previous_output.vout;
                 ENVWriter::<MockEnvironment>::write_tx_to_env(tx);
                 let tx_id = read_tx_and_calculate_txid::<MockEnvironment>(Some((txid, vout)), None);
-                assert_eq!(tx.txid(), Txid::from_byte_array(tx_id));
+                assert_eq!(tx.compute_txid(), Txid::from_byte_array(tx_id));
             }
         }
     }

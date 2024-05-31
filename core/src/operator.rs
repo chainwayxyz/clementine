@@ -136,7 +136,7 @@ impl Operator {
 
         tracing::info!(
             "presigns_from_all_verifiers done for TXID: {:?}",
-            move_tx.tx.txid()
+            move_tx.tx.compute_txid()
         );
         tracing::debug!("move_tx details: {:?}", move_tx);
 
@@ -168,13 +168,13 @@ impl Operator {
                 start_utxo,
                 recovery_taproot_address.clone(),
                 *evm_address,
-                move_tx.tx.txid(),
+                move_tx.tx.compute_txid(),
             )
             .await?;
 
         transaction.commit().await?;
 
-        Ok(move_tx.tx.txid())
+        Ok(move_tx.tx.compute_txid())
     }
 
     pub async fn new_withdrawal_direct(
