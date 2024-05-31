@@ -5,8 +5,10 @@
 
 use crate::errors::BridgeError;
 use crate::traits::bitcoin_rpc::BitcoinRPC;
+use bitcoin::Amount;
 use bitcoin::OutPoint;
 use bitcoin::ScriptBuf;
+use bitcoin::TxOut;
 use bitcoin_simulator::database::Database;
 use std::io::Error;
 
@@ -46,7 +48,22 @@ impl BitcoinRPC for BitcoinMockRPC {
         address: &ScriptBuf,
         amount_sats: u64,
     ) -> Result<bool, BridgeError> {
-        todo!()
+        let current_output = match self
+            .database
+            .get_prev_output(outpoint.txid.to_string().as_str(), outpoint.vout)
+        {
+            Ok(txout) => Ok(txout),
+            Err(e) => Err(BridgeError::BitcoinRpcError(
+                bitcoincore_rpc::Error::ReturnedError(e.to_string()),
+            )),
+        };
+
+        let expected_output = TxOut {
+            script_pubkey: address.clone(),
+            value: Amount::from_sat(amount_sats),
+        };
+
+        Ok(expected_output == current_output)
     }
 
     fn send_raw_transaction(
