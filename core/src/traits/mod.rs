@@ -1,2 +1,2 @@
-pub mod bitcoin;
+pub mod bitcoin_rpc;
 pub mod rpc;
