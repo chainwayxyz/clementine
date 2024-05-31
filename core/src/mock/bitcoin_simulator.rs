@@ -53,8 +53,11 @@ impl BitcoinRPC for BitcoinMockRPC {
         &self,
         tx: &bitcoin::Transaction,
     ) -> Result<bitcoin::Txid, bitcoincore_rpc::Error> {
-        // self.database.insert_transaction_unconditionally(tx);
+        let txid = tx.compute_txid();
 
-        todo!()
+        match self.database.insert_transaction_unconditionally(tx) {
+            Ok(_) => Ok(txid),
+            Err(e) => Err(bitcoincore_rpc::Error::ReturnedError(e.to_string())),
+        }
     }
 }
