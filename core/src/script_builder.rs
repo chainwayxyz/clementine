@@ -28,7 +28,7 @@ impl ScriptBuilder {
     pub fn anyone_can_spend_txout() -> TxOut {
         let script = Builder::new().push_opcode(OP_PUSHNUM_1).into_script();
         let script_pubkey = script.to_p2wsh();
-        let value = script_pubkey.dust_value();
+        let value = script_pubkey.minimal_non_dust();
 
         TxOut {
             script_pubkey,
@@ -42,7 +42,7 @@ impl ScriptBuilder {
             .push_slice(evm_address.0)
             .into_script();
         let script_pubkey = script.to_p2wsh();
-        let value = script_pubkey.dust_value();
+        let value = script_pubkey.minimal_non_dust();
 
         TxOut {
             script_pubkey,
