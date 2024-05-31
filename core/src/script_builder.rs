@@ -105,7 +105,10 @@ impl ScriptBuilder {
         actor_taproot_address: &Address<NetworkUnchecked>,
         block_count: u32,
     ) -> ScriptBuf {
-        let actor_script_pubkey = actor_taproot_address.payload().script_pubkey();
+        let actor_script_pubkey = actor_taproot_address
+            .clone()
+            .assume_checked()
+            .script_pubkey();
         let actor_extracted_xonly_pk =
             XOnlyPublicKey::from_slice(&actor_script_pubkey.as_bytes()[2..34]).unwrap();
 
