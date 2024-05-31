@@ -75,7 +75,7 @@ impl BitcoinRPC for BitcoinMockRPC {
     }
 
     fn mine_blocks(&self, _block_num: u64) -> Result<(), BridgeError> {
-        todo!()
+        Ok(())
     }
 
     fn send_to_address(
