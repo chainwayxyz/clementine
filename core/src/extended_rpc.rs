@@ -68,10 +68,10 @@ impl ExtendedRpc {
         Ok(expected_output == current_output)
     }
 
-    pub fn is_utxo_spent(&self, _outpoint: &OutPoint) -> Result<bool, BridgeError> {
+    pub fn is_utxo_spent(&self, outpoint: &OutPoint) -> Result<bool, BridgeError> {
         let res = self
             .rpc
-            .get_tx_out(&_outpoint.txid, _outpoint.vout, Some(true))?;
+            .get_tx_out(&outpoint.txid, outpoint.vout, Some(true))?;
 
         Ok(res.is_none())
     }
