@@ -19,6 +19,10 @@ pub struct BitcoinMockRPC {
 impl BitcoinRPC for BitcoinMockRPC {
     /// Creates a new Bitcoin simulator database.
     ///
+    /// # Parameters
+    ///
+    /// Function parameters are not used and can be empty values.
+    ///
     /// # Panics
     ///
     /// Panics if database connection cannot be established.
@@ -149,10 +153,13 @@ impl BitcoinRPC for BitcoinMockRPC {
 
     fn get_raw_transaction(
         &self,
-        _txid: &bitcoin::Txid,
+        txid: &bitcoin::Txid,
         _block_hash: Option<&bitcoin::BlockHash>,
     ) -> Result<bitcoin::Transaction, bitcoincore_rpc::Error> {
-        todo!()
+        Ok(self
+            .database
+            .get_transaction(txid.to_string().as_str())
+            .unwrap())
     }
 
     fn get_transaction(
@@ -200,5 +207,65 @@ impl BitcoinRPC for BitcoinMockRPC {
         _confirmation_block_count: u32,
     ) -> Result<(), BridgeError> {
         todo!()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::{mock::common, transaction_builder::TransactionBuilder};
+    use bitcoin::{hashes::Hash, TxIn, Txid, Witness};
+
+    #[test]
+    fn new() {
+        let config = common::get_test_config("test_config.toml").unwrap();
+
+        let _should_not_panic = BitcoinMockRPC::new(
+            config.bitcoin_rpc_url,
+            config.bitcoin_rpc_user,
+            config.bitcoin_rpc_password,
+        );
+    }
+
+    /// Tests if sending and retrieving a raw transaction works or not.
+    #[test]
+    fn raw_transaction() {
+        let config = common::get_test_config("test_config.toml").unwrap();
+        let rpc = BitcoinMockRPC::new(
+            config.bitcoin_rpc_url,
+            config.bitcoin_rpc_user,
+            config.bitcoin_rpc_password,
+        );
+        let txb = TransactionBuilder::new(
+            config.verifiers_public_keys,
+            config.network,
+            config.user_takes_after,
+            config.min_relay_fee,
+        );
+
+        // Insert a new transaction to Bitcoin.
+        let txin = TxIn {
+            previous_output: OutPoint {
+                txid: Txid::all_zeros(),
+                vout: 0,
+            },
+            sequence: bitcoin::transaction::Sequence::ENABLE_RBF_NO_LOCKTIME,
+            script_sig: ScriptBuf::default(),
+            witness: Witness::new(),
+        };
+        let txout = TxOut {
+            value: Amount::from_sat(0),
+            script_pubkey: txb.generate_bridge_address().unwrap().0.script_pubkey(),
+        };
+        let inserted_tx = TransactionBuilder::create_btc_tx(vec![txin], vec![txout]);
+
+        rpc.send_raw_transaction(&inserted_tx).unwrap();
+
+        // Retrieve inserted transaction from Bitcoin.
+        let read_tx = rpc
+            .get_raw_transaction(&inserted_tx.compute_txid(), None)
+            .unwrap();
+
+        assert_eq!(inserted_tx, read_tx);
     }
 }
