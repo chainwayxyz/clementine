@@ -246,7 +246,7 @@ mod tests {
         // Insert a new transaction to Bitcoin.
         let txin = TxIn {
             previous_output: OutPoint {
-                txid: Txid::all_zeros(),
+                txid: Txid::from_byte_array([0x45; 32]),
                 vout: 0,
             },
             sequence: bitcoin::transaction::Sequence::ENABLE_RBF_NO_LOCKTIME,
