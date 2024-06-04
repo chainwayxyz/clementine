@@ -231,7 +231,7 @@ impl BitcoinRPC for BitcoinMockRPC {
         _amount_sats: u64,
         _confirmation_block_count: u32,
     ) -> Result<(), BridgeError> {
-        unimplemented!()
+        Ok(())
     }
 }
 
