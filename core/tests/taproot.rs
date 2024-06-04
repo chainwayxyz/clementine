@@ -3,8 +3,9 @@ use bitcoin::opcodes::all::OP_CHECKSIG;
 use bitcoin::script::Builder;
 use bitcoin::{Address, Amount, TapTweakHash, TxOut, XOnlyPublicKey};
 use clementine_core::actor::Actor;
-use clementine_core::extended_rpc::ExtendedRpc;
+use clementine_core::mock::bitcoin_simulator::BitcoinMockRPC;
 use clementine_core::mock::common::get_test_config;
+use clementine_core::traits::bitcoin_rpc::BitcoinRPC;
 use clementine_core::transaction_builder::{CreateTxOutputs, TransactionBuilder};
 use clementine_core::utils::handle_taproot_witness_new;
 
@@ -37,7 +38,7 @@ async fn run() {
         .unwrap();
     println!("q:          {:?}", hex::encode(q.serialize()));
 
-    let rpc = ExtendedRpc::new(
+    let rpc = BitcoinMockRPC::new(
         config.bitcoin_rpc_url.clone(),
         config.bitcoin_rpc_user.clone(),
         config.bitcoin_rpc_password.clone(),

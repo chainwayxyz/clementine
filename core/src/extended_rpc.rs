@@ -3,6 +3,7 @@
 //! This module provides helpful functions for Bitcoin RPC.
 
 use crate::errors::BridgeError;
+use crate::traits::bitcoin_rpc::BitcoinRPC;
 use crate::transaction_builder::TransactionBuilder;
 use crate::EVMAddress;
 use bitcoin::address::NetworkUnchecked;
@@ -27,13 +28,13 @@ pub struct ExtendedRpc {
     rpc: Client,
 }
 
-impl ExtendedRpc {
+impl BitcoinRPC for ExtendedRpc {
     /// Connects to Bitcoin RPC and returns a new `ExtendedRpc`.
     ///
     /// # Panics
     ///
     /// Panics if it cannot connect to Bitcoin RPC.
-    pub fn new(url: String, user: String, password: String) -> Self {
+    fn new(url: String, user: String, password: String) -> Self {
         let auth = Auth::UserPass(user, password);
 
         let rpc = Client::new(&url, auth.clone())
@@ -42,7 +43,7 @@ impl ExtendedRpc {
         Self { url, auth, rpc }
     }
 
-    pub fn confirmation_blocks(&self, txid: &bitcoin::Txid) -> Result<u32, BridgeError> {
+    fn confirmation_blocks(&self, txid: &bitcoin::Txid) -> Result<u32, BridgeError> {
         let raw_transaction_results = self.rpc.get_raw_transaction_info(txid, None)?;
 
         raw_transaction_results
@@ -50,7 +51,7 @@ impl ExtendedRpc {
             .ok_or(BridgeError::NoConfirmationData)
     }
 
-    pub fn check_utxo_address_and_amount(
+    fn check_utxo_address_and_amount(
         &self,
         outpoint: &OutPoint,
         address: &ScriptBuf,
@@ -68,7 +69,7 @@ impl ExtendedRpc {
         Ok(expected_output == current_output)
     }
 
-    pub fn is_utxo_spent(&self, outpoint: &OutPoint) -> Result<bool, BridgeError> {
+    fn is_utxo_spent(&self, outpoint: &OutPoint) -> Result<bool, BridgeError> {
         let res = self
             .rpc
             .get_tx_out(&outpoint.txid, outpoint.vout, Some(true))?;
@@ -76,7 +77,7 @@ impl ExtendedRpc {
         Ok(res.is_none())
     }
 
-    pub fn generate_dummy_block(&self) -> Result<Vec<bitcoin::BlockHash>, BridgeError> {
+    fn generate_dummy_block(&self) -> Result<Vec<bitcoin::BlockHash>, BridgeError> {
         let address = self.rpc.get_new_address(None, None)?.assume_checked();
 
         for _ in 0..10 {
@@ -89,7 +90,7 @@ impl ExtendedRpc {
         Ok(self.rpc.generate_to_address(1, &address)?)
     }
 
-    pub fn mine_blocks(&self, block_num: u64) -> Result<(), BridgeError> {
+    fn mine_blocks(&self, block_num: u64) -> Result<(), BridgeError> {
         let new_address = self.rpc.get_new_address(None, None)?.assume_checked();
 
         self.rpc.generate_to_address(block_num, &new_address)?;
@@ -97,7 +98,7 @@ impl ExtendedRpc {
         Ok(())
     }
 
-    pub fn send_to_address(
+    fn send_to_address(
         &self,
         address: &Address,
         amount_sats: u64,
@@ -119,7 +120,7 @@ impl ExtendedRpc {
         Ok(OutPoint { txid, vout })
     }
 
-    pub fn get_work_at_block(&self, blockheight: u64) -> Result<Work, BridgeError> {
+    fn get_work_at_block(&self, blockheight: u64) -> Result<Work, BridgeError> {
         let block_hash = self.get_block_hash(blockheight)?;
         let block = self.rpc.get_block(&block_hash)?;
         let work = block.header.work();
@@ -127,7 +128,7 @@ impl ExtendedRpc {
         Ok(work)
     }
 
-    pub fn get_block_hash(
+    fn get_block_hash(
         &self,
         blockheight: u64,
     ) -> Result<bitcoin::BlockHash, bitcoincore_rpc::Error> {
@@ -136,7 +137,7 @@ impl ExtendedRpc {
         Ok(block_hash)
     }
 
-    pub fn get_block_header(
+    fn get_block_header(
         &self,
         block_hash: &bitcoin::BlockHash,
     ) -> Result<bitcoin::block::Header, bitcoincore_rpc::Error> {
@@ -145,7 +146,7 @@ impl ExtendedRpc {
         Ok(block_header)
     }
 
-    pub fn calculate_total_work_between_blocks(
+    fn calculate_total_work_between_blocks(
         &self,
         start: u64,
         end: u64,
@@ -164,7 +165,7 @@ impl ExtendedRpc {
         Ok(U256::from_be_bytes(work_bytes))
     }
 
-    pub fn get_total_work_as_u256(&self) -> Result<U256, BridgeError> {
+    fn get_total_work_as_u256(&self) -> Result<U256, BridgeError> {
         let chain_info = self.rpc.get_blockchain_info()?;
         let total_work_bytes = chain_info.chain_work;
         let total_work: U256 = U256::from_be_bytes(total_work_bytes.try_into()?);
@@ -172,7 +173,7 @@ impl ExtendedRpc {
         Ok(total_work)
     }
 
-    pub fn get_total_work(&self) -> Result<Work, BridgeError> {
+    fn get_total_work(&self) -> Result<Work, BridgeError> {
         let chain_info = self.rpc.get_blockchain_info()?;
         let total_work_bytes = chain_info.chain_work;
         let total_work: Work = Work::from_be_bytes(total_work_bytes.try_into()?);
@@ -180,14 +181,14 @@ impl ExtendedRpc {
         Ok(total_work)
     }
 
-    pub fn get_block_height(&self) -> Result<u64, BridgeError> {
+    fn get_block_height(&self) -> Result<u64, BridgeError> {
         let chain_info = self.rpc.get_blockchain_info()?;
         let block_height = chain_info.blocks;
 
         Ok(block_height)
     }
 
-    pub fn fundrawtransaction(
+    fn fundrawtransaction(
         &self,
         tx: &Transaction,
         options: Option<&bitcoincore_rpc::json::FundRawTransactionOptions>,
@@ -197,21 +198,21 @@ impl ExtendedRpc {
     }
 
     // Following methods are just wrappers around the bitcoincore_rpc::Client methods
-    pub fn get_blockchain_info(
+    fn get_blockchain_info(
         &self,
     ) -> Result<bitcoincore_rpc::json::GetBlockchainInfoResult, bitcoincore_rpc::Error> {
         self.rpc.get_blockchain_info()
     }
 
-    pub fn get_block_count(&self) -> Result<u64, bitcoincore_rpc::Error> {
+    fn get_block_count(&self) -> Result<u64, bitcoincore_rpc::Error> {
         self.rpc.get_block_count()
     }
 
-    pub fn get_best_block_hash(&self) -> Result<bitcoin::BlockHash, bitcoincore_rpc::Error> {
+    fn get_best_block_hash(&self) -> Result<bitcoin::BlockHash, bitcoincore_rpc::Error> {
         self.rpc.get_best_block_hash()
     }
 
-    pub fn get_raw_transaction(
+    fn get_raw_transaction(
         &self,
         txid: &bitcoin::Txid,
         block_hash: Option<&bitcoin::BlockHash>,
@@ -219,7 +220,7 @@ impl ExtendedRpc {
         self.rpc.get_raw_transaction(txid, block_hash)
     }
 
-    pub fn get_transaction(
+    fn get_transaction(
         &self,
         txid: &bitcoin::Txid,
         include_watchonly: Option<bool>,
@@ -227,20 +228,20 @@ impl ExtendedRpc {
         self.rpc.get_transaction(txid, include_watchonly)
     }
 
-    pub fn send_raw_transaction(
+    fn send_raw_transaction(
         &self,
         tx: &Transaction,
     ) -> Result<bitcoin::Txid, bitcoincore_rpc::Error> {
         self.rpc.send_raw_transaction(tx)
     }
 
-    pub fn get_block(
+    fn get_block(
         &self,
         block_hash: &bitcoin::BlockHash,
     ) -> Result<bitcoin::Block, bitcoincore_rpc::Error> {
         self.rpc.get_block(block_hash)
     }
-    pub fn get_raw_transaction_info(
+    fn get_raw_transaction_info(
         &self,
         txid: &bitcoin::Txid,
         block_hash: Option<&bitcoin::BlockHash>,
@@ -248,7 +249,7 @@ impl ExtendedRpc {
         self.rpc.get_raw_transaction_info(txid, block_hash)
     }
 
-    pub fn check_deposit_utxo(
+    fn check_deposit_utxo(
         &self,
         tx_builder: &TransactionBuilder,
         outpoint: &OutPoint,

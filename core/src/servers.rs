@@ -7,7 +7,7 @@ use crate::{
     errors,
     extended_rpc::ExtendedRpc,
     operator,
-    traits::{self, rpc::VerifierRpcServer},
+    traits::{bitcoin_rpc::BitcoinRPC, rpc::OperatorRpcServer, rpc::VerifierRpcServer},
     verifier::Verifier,
 };
 use errors::BridgeError;
@@ -16,7 +16,6 @@ use jsonrpsee::{
     server::{Server, ServerHandle},
 };
 use operator::Operator;
-use traits::rpc::OperatorRpcServer;
 
 /// Starts a server for a verifier.
 pub async fn create_verifier_server(
@@ -50,23 +49,21 @@ pub async fn create_verifier_server(
 }
 
 /// Starts the server for the operator.
-pub async fn create_operator_server(
+pub async fn create_operator_server<T>(
     config: BridgeConfig,
+    rpc: T,
     verifier_endpoints: Vec<String>,
-) -> Result<(std::net::SocketAddr, ServerHandle), BridgeError> {
-    let rpc = ExtendedRpc::new(
-        config.bitcoin_rpc_url.clone(),
-        config.bitcoin_rpc_user.clone(),
-        config.bitcoin_rpc_password.clone(),
-    );
-
+) -> Result<(std::net::SocketAddr, ServerHandle), BridgeError>
+where
+    T: BitcoinRPC,
+{
     let verifiers: Vec<HttpClient> = verifier_endpoints
         .clone()
         .iter()
         .map(|verifier| HttpClientBuilder::default().build(verifier))
         .collect::<Result<Vec<HttpClient>, jsonrpsee::core::client::Error>>()?;
 
-    let operator = Operator::new(config.clone(), rpc.clone(), verifiers).await?;
+    let operator = Operator::new(config.clone(), rpc, verifiers).await?;
 
     let server = match Server::builder()
         .build(format!("{}:{}", config.host, config.port))
@@ -99,13 +96,17 @@ pub async fn create_operator_server(
 /// # Panics
 ///
 /// Panics if there was an error while creating any of the servers.
-pub async fn create_operator_and_verifiers(
+pub async fn create_operator_and_verifiers<T>(
     config: BridgeConfig,
+    rpc: T,
 ) -> (
     HttpClient,
     ServerHandle,
     Vec<(std::net::SocketAddr, ServerHandle)>,
-) {
+)
+where
+    T: BitcoinRPC,
+{
     let mut all_secret_keys = config.all_secret_keys.clone().unwrap_or_else(|| {
         panic!("All secret keys are required for testing");
     });
@@ -133,7 +134,7 @@ pub async fn create_operator_and_verifiers(
         .collect();
 
     let (operator_socket_addr, operator_handle) =
-        create_operator_server(config, verifier_endpoints)
+        create_operator_server(config, rpc, verifier_endpoints)
             .await
             .unwrap();
     let operator_client = HttpClientBuilder::default()

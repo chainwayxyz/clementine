@@ -7,10 +7,11 @@ use clementine_circuits::constants::BRIDGE_AMOUNT_SATS;
 use clementine_core::actor::Actor;
 use clementine_core::create_test_database;
 use clementine_core::database::common::Database;
-use clementine_core::extended_rpc::ExtendedRpc;
+use clementine_core::mock::bitcoin_simulator::BitcoinMockRPC;
 use clementine_core::mock::common;
 use clementine_core::script_builder::ScriptBuilder;
 use clementine_core::servers::*;
+use clementine_core::traits::bitcoin_rpc::BitcoinRPC;
 use clementine_core::traits::rpc::OperatorRpcClient;
 use clementine_core::transaction_builder::{CreateTxOutputs, TransactionBuilder};
 use clementine_core::utils::handle_taproot_witness_new;
@@ -35,14 +36,14 @@ async fn test_flow_1() {
         );
     }
 
-    let rpc = ExtendedRpc::new(
+    let rpc = BitcoinMockRPC::new(
         config.bitcoin_rpc_url.clone(),
         config.bitcoin_rpc_user.clone(),
         config.bitcoin_rpc_password.clone(),
     );
 
     let (operator_client, _operator_handler, _results) =
-        create_operator_and_verifiers(config.clone()).await;
+        create_operator_and_verifiers(config.clone(), rpc.clone()).await;
     let secp = bitcoin::secp256k1::Secp256k1::new();
     let (xonly_pk, _) = config.secret_key.public_key(&secp).x_only_public_key();
     let taproot_address = Address::p2tr(&secp, xonly_pk, None, config.network);
@@ -139,14 +140,14 @@ async fn test_flow_2() {
         );
     }
 
-    let rpc = ExtendedRpc::new(
+    let rpc = BitcoinMockRPC::new(
         config.bitcoin_rpc_url.clone(),
         config.bitcoin_rpc_user.clone(),
         config.bitcoin_rpc_password.clone(),
     );
 
     let (_operator_client, _operator_handler, _results) =
-        create_operator_and_verifiers(config.clone()).await;
+        create_operator_and_verifiers(config.clone(), rpc.clone()).await;
     let secp = bitcoin::secp256k1::Secp256k1::new();
     let (xonly_pk, _) = config.secret_key.public_key(&secp).x_only_public_key();
     let taproot_address = Address::p2tr(&secp, xonly_pk, None, config.network);

@@ -1,7 +1,7 @@
 use crate::actor::Actor;
 use crate::config::BridgeConfig;
 use crate::errors::BridgeError;
-use crate::extended_rpc::ExtendedRpc;
+use crate::traits::bitcoin_rpc::BitcoinRPC;
 use crate::transaction_builder::TransactionBuilder;
 use crate::EVMAddress;
 use bitcoin::Address;
@@ -11,16 +11,19 @@ use clementine_circuits::constants::BRIDGE_AMOUNT_SATS;
 use secp256k1::SecretKey;
 
 #[derive(Debug)]
-pub struct User {
-    rpc: ExtendedRpc,
+pub struct User<T> {
+    rpc: T,
     signer: Actor,
     transaction_builder: TransactionBuilder,
 }
 
-impl User {
+impl<T> User<T>
+where
+    T: BitcoinRPC,
+{
     /// Creates a new `User`.
     pub fn new(
-        rpc: ExtendedRpc,
+        rpc: T,
         all_xonly_pks: Vec<XOnlyPublicKey>,
         sk: SecretKey,
         config: BridgeConfig,

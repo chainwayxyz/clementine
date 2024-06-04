@@ -12,9 +12,12 @@ use bitcoin::ScriptBuf;
 use bitcoin::TxOut;
 use bitcoin_simulator::database::Database;
 use std::io::Error;
+use std::sync::Arc;
+use std::sync::Mutex;
 
+#[derive(Clone)]
 pub struct BitcoinMockRPC {
-    database: Database,
+    database: Arc<Mutex<Database>>,
 }
 
 impl BitcoinRPC for BitcoinMockRPC {
@@ -30,7 +33,9 @@ impl BitcoinRPC for BitcoinMockRPC {
     fn new(_url: String, _user: String, _password: String) -> Self {
         let database = Database::connect_temporary_database().unwrap();
 
-        Self { database }
+        Self {
+            database: Arc::new(Mutex::new(database)),
+        }
     }
 
     fn confirmation_blocks(&self, _txid: &bitcoin::Txid) -> Result<u32, BridgeError> {
@@ -45,6 +50,8 @@ impl BitcoinRPC for BitcoinMockRPC {
     ) -> Result<bool, BridgeError> {
         let current_output = match self
             .database
+            .lock()
+            .unwrap()
             .get_prev_output(outpoint.txid.to_string().as_str(), outpoint.vout)
         {
             Ok(txout) => txout,
@@ -66,6 +73,8 @@ impl BitcoinRPC for BitcoinMockRPC {
     fn is_utxo_spent(&self, outpoint: &OutPoint) -> Result<bool, BridgeError> {
         match self
             .database
+            .lock()
+            .unwrap()
             .check_if_output_is_spent(outpoint.txid.to_string().as_str(), outpoint.vout)
         {
             Ok(r) => Ok(r),
@@ -167,6 +176,8 @@ impl BitcoinRPC for BitcoinMockRPC {
     ) -> Result<bitcoin::Transaction, bitcoincore_rpc::Error> {
         Ok(self
             .database
+            .lock()
+            .unwrap()
             .get_transaction(txid.to_string().as_str())
             .unwrap())
     }
@@ -185,7 +196,12 @@ impl BitcoinRPC for BitcoinMockRPC {
     ) -> Result<bitcoin::Txid, bitcoincore_rpc::Error> {
         let txid = tx.compute_txid();
 
-        match self.database.insert_transaction_unconditionally(tx) {
+        match self
+            .database
+            .lock()
+            .unwrap()
+            .insert_transaction_unconditionally(tx)
+        {
             Ok(_) => Ok(txid),
             Err(e) => Err(bitcoincore_rpc::Error::ReturnedError(e.to_string())),
         }
