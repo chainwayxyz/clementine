@@ -7,7 +7,7 @@ use crate::{errors::BridgeError, transaction_builder::TransactionBuilder, EVMAdd
 use bitcoin::{address::NetworkUnchecked, Address, OutPoint, ScriptBuf, Transaction, Work};
 use crypto_bigint::U256;
 
-pub trait BitcoinRPC: std::marker::Send + std::marker::Sync + 'static {
+pub trait BitcoinRPC: std::marker::Send + std::marker::Sync + Clone + 'static {
     /// Should create a new implementation.
     fn new(url: String, user: String, password: String) -> Self;
 

@@ -4,9 +4,7 @@
 
 use crate::{
     config::BridgeConfig,
-    errors,
-    extended_rpc::ExtendedRpc,
-    operator,
+    errors, operator,
     traits::{bitcoin_rpc::BitcoinRPC, rpc::OperatorRpcServer, rpc::VerifierRpcServer},
     verifier::Verifier,
 };
@@ -18,15 +16,13 @@ use jsonrpsee::{
 use operator::Operator;
 
 /// Starts a server for a verifier.
-pub async fn create_verifier_server(
+pub async fn create_verifier_server<T>(
     config: BridgeConfig,
-) -> Result<(std::net::SocketAddr, ServerHandle), BridgeError> {
-    let rpc = ExtendedRpc::new(
-        config.bitcoin_rpc_url.clone(),
-        config.bitcoin_rpc_user.clone(),
-        config.bitcoin_rpc_password.clone(),
-    );
-
+    rpc: T,
+) -> Result<(std::net::SocketAddr, ServerHandle), BridgeError>
+where
+    T: BitcoinRPC,
+{
     let server = match Server::builder()
         .build(format!("{}:{}", config.host, config.port))
         .await
@@ -117,13 +113,16 @@ where
         .iter()
         .enumerate()
         .map(|(i, sk)| {
-            create_verifier_server(BridgeConfig {
-                verifiers_public_keys: config.verifiers_public_keys.clone(),
-                secret_key: *sk,
-                port: 0, // Use the index to calculate the port
-                db_name: config.db_name.clone() + &i.to_string(),
-                ..config.clone()
-            })
+            create_verifier_server(
+                BridgeConfig {
+                    verifiers_public_keys: config.verifiers_public_keys.clone(),
+                    secret_key: *sk,
+                    port: 0, // Use the index to calculate the port
+                    db_name: config.db_name.clone() + &i.to_string(),
+                    ..config.clone()
+                },
+                rpc.clone(),
+            )
         })
         .collect::<Vec<_>>();
     let mut results = futures::future::try_join_all(futures).await.unwrap();
