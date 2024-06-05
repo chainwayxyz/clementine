@@ -60,7 +60,7 @@ impl RpcApi for Client {
             .database
             .lock()
             .unwrap()
-            .get_transaction(txid.to_string().as_str())
+            .get_transaction(&txid.to_string())
             .unwrap())
     }
 
@@ -72,15 +72,13 @@ impl RpcApi for Client {
 
         let txid = tx.compute_txid();
 
-        match self
-            .database
+        self.database
             .lock()
             .unwrap()
             .insert_transaction_unconditionally(&tx)
-        {
-            Ok(_) => Ok(txid),
-            Err(e) => Err(bitcoincore_rpc::Error::ReturnedError(e.to_string())),
-        }
+            .unwrap();
+
+        Ok(txid)
     }
 
     fn send_to_address(
@@ -114,7 +112,7 @@ impl RpcApi for Client {
             .database
             .lock()
             .unwrap()
-            .get_transaction(txid.to_string().as_str())
+            .get_transaction(&txid.to_string())
             .unwrap();
 
         let res = GetTransactionResult {
@@ -226,7 +224,7 @@ mod tests {
             config.min_relay_fee,
         );
 
-        // Insert a new transaction to Bitcoin.
+        // Insert raw transactions to Bitcoin.
         let txin = TxIn {
             previous_output: OutPoint {
                 txid: Txid::from_byte_array([0x45; 32]),
@@ -237,19 +235,40 @@ mod tests {
             witness: Witness::new(),
         };
         let txout = TxOut {
-            value: Amount::from_sat(0),
+            value: Amount::from_sat(0x1F),
             script_pubkey: txb.generate_bridge_address().unwrap().0.script_pubkey(),
         };
-        let inserted_tx = TransactionBuilder::create_btc_tx(vec![txin], vec![txout]);
+        let inserted_tx1 = TransactionBuilder::create_btc_tx(vec![txin], vec![txout]);
+        rpc.send_raw_transaction(&inserted_tx1).unwrap();
 
-        rpc.send_raw_transaction(&inserted_tx).unwrap();
+        let txin = TxIn {
+            previous_output: OutPoint {
+                txid: inserted_tx1.compute_txid(),
+                vout: 0,
+            },
+            sequence: bitcoin::transaction::Sequence::ENABLE_RBF_NO_LOCKTIME,
+            script_sig: ScriptBuf::default(),
+            witness: Witness::new(),
+        };
+        let txout = TxOut {
+            value: Amount::from_sat(0x45),
+            script_pubkey: txb.generate_bridge_address().unwrap().0.script_pubkey(),
+        };
+        let inserted_tx2 = TransactionBuilder::create_btc_tx(vec![txin], vec![txout]);
+        rpc.send_raw_transaction(&inserted_tx2).unwrap();
 
-        // Retrieve inserted transaction from Bitcoin.
+        // Retrieve inserted transactions from Bitcoin.
         let read_tx = rpc
-            .get_raw_transaction(&inserted_tx.compute_txid(), None)
+            .get_raw_transaction(&inserted_tx1.compute_txid(), None)
             .unwrap();
+        assert_eq!(read_tx, inserted_tx1);
+        assert_ne!(read_tx, inserted_tx2);
 
-        assert_eq!(inserted_tx, read_tx);
+        let read_tx = rpc
+            .get_raw_transaction(&inserted_tx2.compute_txid(), None)
+            .unwrap();
+        assert_eq!(read_tx, inserted_tx2);
+        assert_ne!(read_tx, inserted_tx1);
     }
 
     #[test]
