@@ -3,26 +3,21 @@
 //! This crate mocks Bitcoin's RPC interface. Note that it is not a full mock,
 //! rather simplified mock for testing purposes.
 
+use crate::transaction_builder::TransactionBuilder;
 use bitcoin::{address::NetworkChecked, consensus::encode, Address, Amount, Transaction, TxOut};
 use bitcoin_simulator::database::Database;
 use bitcoincore_rpc::{json, RpcApi};
-use std::sync::{Arc, Mutex};
-
-use crate::transaction_builder::TransactionBuilder;
 
 /// Mock Bitcoin RPC client for testing.
-#[derive(Clone)]
 pub struct Client {
-    database: Arc<Mutex<Database>>,
+    database: Database,
 }
 
 impl Client {
     pub fn new() -> Self {
         let database = Database::connect_temporary_database().unwrap();
 
-        Self {
-            database: Arc::new(Mutex::new(database)),
-        }
+        Self { database }
     }
 }
 
@@ -42,8 +37,6 @@ impl RpcApi for Client {
     ) -> bitcoincore_rpc::Result<bitcoin::Transaction> {
         Ok(self
             .database
-            .lock()
-            .unwrap()
             .get_transaction(txid.to_string().as_str())
             .unwrap())
     }
@@ -56,12 +49,7 @@ impl RpcApi for Client {
 
         let txid = tx.compute_txid();
 
-        match self
-            .database
-            .lock()
-            .unwrap()
-            .insert_transaction_unconditionally(&tx)
-        {
+        match self.database.insert_transaction_unconditionally(&tx) {
             Ok(_) => Ok(txid),
             Err(e) => Err(bitcoincore_rpc::Error::ReturnedError(e.to_string())),
         }
