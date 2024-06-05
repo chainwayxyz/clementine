@@ -3,7 +3,7 @@
 //! This module provides helpful functions for Bitcoin RPC.
 
 use crate::errors::BridgeError;
-use crate::traits::bitcoin_rpc::BitcoinRPC;
+use crate::traits::rpc::RpcApiWrapper;
 use crate::transaction_builder::TransactionBuilder;
 use crate::EVMAddress;
 use bitcoin::address::NetworkUnchecked;
@@ -15,35 +15,36 @@ use bitcoin::Transaction;
 use bitcoin::TxOut;
 use bitcoin::Work;
 use bitcoincore_rpc::Auth;
-use bitcoincore_rpc::Client;
-use bitcoincore_rpc::RpcApi;
 use clementine_circuits::constants::BRIDGE_AMOUNT_SATS;
 use crypto_bigint::Encoding;
 use crypto_bigint::U256;
 
 #[derive(Debug)]
-pub struct ExtendedRpc {
+pub struct ExtendedRpc<R> {
     url: String,
     auth: Auth,
-    rpc: Client,
+    rpc: R,
 }
 
-impl BitcoinRPC for ExtendedRpc {
+impl<R> ExtendedRpc<R>
+where
+    R: RpcApiWrapper,
+{
     /// Connects to Bitcoin RPC and returns a new `ExtendedRpc`.
     ///
     /// # Panics
     ///
     /// Panics if it cannot connect to Bitcoin RPC.
-    fn new(url: String, user: String, password: String) -> Self {
+    pub fn new(url: String, user: String, password: String) -> Self {
         let auth = Auth::UserPass(user, password);
 
-        let rpc = Client::new(&url, auth.clone())
+        let rpc = R::new(&url, auth.clone())
             .unwrap_or_else(|e| panic!("Failed to connect to Bitcoin RPC: {}", e));
 
         Self { url, auth, rpc }
     }
 
-    fn confirmation_blocks(&self, txid: &bitcoin::Txid) -> Result<u32, BridgeError> {
+    pub fn confirmation_blocks(&self, txid: &bitcoin::Txid) -> Result<u32, BridgeError> {
         let raw_transaction_results = self.rpc.get_raw_transaction_info(txid, None)?;
 
         raw_transaction_results
@@ -51,7 +52,7 @@ impl BitcoinRPC for ExtendedRpc {
             .ok_or(BridgeError::NoConfirmationData)
     }
 
-    fn check_utxo_address_and_amount(
+    pub fn check_utxo_address_and_amount(
         &self,
         outpoint: &OutPoint,
         address: &ScriptBuf,
@@ -69,7 +70,7 @@ impl BitcoinRPC for ExtendedRpc {
         Ok(expected_output == current_output)
     }
 
-    fn is_utxo_spent(&self, outpoint: &OutPoint) -> Result<bool, BridgeError> {
+    pub fn is_utxo_spent(&self, outpoint: &OutPoint) -> Result<bool, BridgeError> {
         let res = self
             .rpc
             .get_tx_out(&outpoint.txid, outpoint.vout, Some(true))?;
@@ -77,7 +78,7 @@ impl BitcoinRPC for ExtendedRpc {
         Ok(res.is_none())
     }
 
-    fn generate_dummy_block(&self) -> Result<Vec<bitcoin::BlockHash>, BridgeError> {
+    pub fn generate_dummy_block(&self) -> Result<Vec<bitcoin::BlockHash>, BridgeError> {
         let address = self.rpc.get_new_address(None, None)?.assume_checked();
 
         for _ in 0..10 {
@@ -90,7 +91,7 @@ impl BitcoinRPC for ExtendedRpc {
         Ok(self.rpc.generate_to_address(1, &address)?)
     }
 
-    fn mine_blocks(&self, block_num: u64) -> Result<(), BridgeError> {
+    pub fn mine_blocks(&self, block_num: u64) -> Result<(), BridgeError> {
         let new_address = self.rpc.get_new_address(None, None)?.assume_checked();
 
         self.rpc.generate_to_address(block_num, &new_address)?;
@@ -98,7 +99,7 @@ impl BitcoinRPC for ExtendedRpc {
         Ok(())
     }
 
-    fn send_to_address(
+    pub fn send_to_address(
         &self,
         address: &Address,
         amount_sats: u64,
@@ -120,7 +121,7 @@ impl BitcoinRPC for ExtendedRpc {
         Ok(OutPoint { txid, vout })
     }
 
-    fn get_work_at_block(&self, blockheight: u64) -> Result<Work, BridgeError> {
+    pub fn get_work_at_block(&self, blockheight: u64) -> Result<Work, BridgeError> {
         let block_hash = self.get_block_hash(blockheight)?;
         let block = self.rpc.get_block(&block_hash)?;
         let work = block.header.work();
@@ -128,7 +129,7 @@ impl BitcoinRPC for ExtendedRpc {
         Ok(work)
     }
 
-    fn get_block_hash(
+    pub fn get_block_hash(
         &self,
         blockheight: u64,
     ) -> Result<bitcoin::BlockHash, bitcoincore_rpc::Error> {
@@ -137,7 +138,7 @@ impl BitcoinRPC for ExtendedRpc {
         Ok(block_hash)
     }
 
-    fn get_block_header(
+    pub fn get_block_header(
         &self,
         block_hash: &bitcoin::BlockHash,
     ) -> Result<bitcoin::block::Header, bitcoincore_rpc::Error> {
@@ -146,7 +147,7 @@ impl BitcoinRPC for ExtendedRpc {
         Ok(block_header)
     }
 
-    fn calculate_total_work_between_blocks(
+    pub fn calculate_total_work_between_blocks(
         &self,
         start: u64,
         end: u64,
@@ -165,7 +166,7 @@ impl BitcoinRPC for ExtendedRpc {
         Ok(U256::from_be_bytes(work_bytes))
     }
 
-    fn get_total_work_as_u256(&self) -> Result<U256, BridgeError> {
+    pub fn get_total_work_as_u256(&self) -> Result<U256, BridgeError> {
         let chain_info = self.rpc.get_blockchain_info()?;
         let total_work_bytes = chain_info.chain_work;
         let total_work: U256 = U256::from_be_bytes(total_work_bytes.try_into()?);
@@ -173,7 +174,7 @@ impl BitcoinRPC for ExtendedRpc {
         Ok(total_work)
     }
 
-    fn get_total_work(&self) -> Result<Work, BridgeError> {
+    pub fn get_total_work(&self) -> Result<Work, BridgeError> {
         let chain_info = self.rpc.get_blockchain_info()?;
         let total_work_bytes = chain_info.chain_work;
         let total_work: Work = Work::from_be_bytes(total_work_bytes.try_into()?);
@@ -181,14 +182,14 @@ impl BitcoinRPC for ExtendedRpc {
         Ok(total_work)
     }
 
-    fn get_block_height(&self) -> Result<u64, BridgeError> {
+    pub fn get_block_height(&self) -> Result<u64, BridgeError> {
         let chain_info = self.rpc.get_blockchain_info()?;
         let block_height = chain_info.blocks;
 
         Ok(block_height)
     }
 
-    fn fundrawtransaction(
+    pub fn fundrawtransaction(
         &self,
         tx: &Transaction,
         options: Option<&bitcoincore_rpc::json::FundRawTransactionOptions>,
@@ -198,21 +199,21 @@ impl BitcoinRPC for ExtendedRpc {
     }
 
     // Following methods are just wrappers around the bitcoincore_rpc::Client methods
-    fn get_blockchain_info(
+    pub fn get_blockchain_info(
         &self,
     ) -> Result<bitcoincore_rpc::json::GetBlockchainInfoResult, bitcoincore_rpc::Error> {
         self.rpc.get_blockchain_info()
     }
 
-    fn get_block_count(&self) -> Result<u64, bitcoincore_rpc::Error> {
+    pub fn get_block_count(&self) -> Result<u64, bitcoincore_rpc::Error> {
         self.rpc.get_block_count()
     }
 
-    fn get_best_block_hash(&self) -> Result<bitcoin::BlockHash, bitcoincore_rpc::Error> {
+    pub fn get_best_block_hash(&self) -> Result<bitcoin::BlockHash, bitcoincore_rpc::Error> {
         self.rpc.get_best_block_hash()
     }
 
-    fn get_raw_transaction(
+    pub fn get_raw_transaction(
         &self,
         txid: &bitcoin::Txid,
         block_hash: Option<&bitcoin::BlockHash>,
@@ -220,7 +221,7 @@ impl BitcoinRPC for ExtendedRpc {
         self.rpc.get_raw_transaction(txid, block_hash)
     }
 
-    fn get_transaction(
+    pub fn get_transaction(
         &self,
         txid: &bitcoin::Txid,
         include_watchonly: Option<bool>,
@@ -228,20 +229,20 @@ impl BitcoinRPC for ExtendedRpc {
         self.rpc.get_transaction(txid, include_watchonly)
     }
 
-    fn send_raw_transaction(
+    pub fn send_raw_transaction(
         &self,
         tx: &Transaction,
     ) -> Result<bitcoin::Txid, bitcoincore_rpc::Error> {
         self.rpc.send_raw_transaction(tx)
     }
 
-    fn get_block(
+    pub fn get_block(
         &self,
         block_hash: &bitcoin::BlockHash,
     ) -> Result<bitcoin::Block, bitcoincore_rpc::Error> {
         self.rpc.get_block(block_hash)
     }
-    fn get_raw_transaction_info(
+    pub fn get_raw_transaction_info(
         &self,
         txid: &bitcoin::Txid,
         block_hash: Option<&bitcoin::BlockHash>,
@@ -249,7 +250,7 @@ impl BitcoinRPC for ExtendedRpc {
         self.rpc.get_raw_transaction_info(txid, block_hash)
     }
 
-    fn check_deposit_utxo(
+    pub fn check_deposit_utxo(
         &self,
         tx_builder: &TransactionBuilder,
         outpoint: &OutPoint,
@@ -284,9 +285,12 @@ impl BitcoinRPC for ExtendedRpc {
     }
 }
 
-impl Clone for ExtendedRpc {
+impl<R> Clone for ExtendedRpc<R>
+where
+    R: RpcApiWrapper,
+{
     fn clone(&self) -> Self {
-        let new_client = Client::new(&self.url, self.auth.clone())
+        let new_client = R::new(&self.url, self.auth.clone())
             .unwrap_or_else(|e| panic!("Failed to clone Bitcoin RPC client: {}", e));
 
         Self {
@@ -297,7 +301,10 @@ impl Clone for ExtendedRpc {
     }
 }
 
-impl Default for ExtendedRpc {
+impl<R> Default for ExtendedRpc<R>
+where
+    R: RpcApiWrapper,
+{
     fn default() -> Self {
         Self::new(
             "http://localhost:18443".to_string(),
