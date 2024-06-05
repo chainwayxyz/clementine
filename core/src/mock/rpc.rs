@@ -1,27 +1,38 @@
 //! # Remote Procedure Call Mock Interface
 //!
 //! This crate mocks Bitcoin's RPC interface. Note that it is not a full mock,
-//! rather simplified mock for testing purposes.
+//! rather a simplified mock for testing purposes.
 
-use crate::transaction_builder::TransactionBuilder;
+use std::sync::{Arc, Mutex};
+use crate::{traits::rpc::RpcApiWrapper, transaction_builder::TransactionBuilder};
 use bitcoin::{address::NetworkChecked, consensus::encode, Address, Amount, Transaction, TxOut};
 use bitcoin_simulator::database::Database;
 use bitcoincore_rpc::{json, RpcApi};
 
 /// Mock Bitcoin RPC client for testing.
 pub struct Client {
-    database: Database,
+    database: Arc<Mutex<Database>>,
 }
 
-impl Client {
-    pub fn new() -> Self {
+impl RpcApiWrapper for Client {
+    fn new(_url: &str, _auth: bitcoincore_rpc::Auth) -> bitcoincore_rpc::Result<Self> {
         let database = Database::connect_temporary_database().unwrap();
 
-        Self { database }
+        Ok(Self {
+            database: Arc::new(Mutex::new(database)),
+        })
     }
 }
 
 impl RpcApi for Client {
+    /// This function normally talks with Bitcoin network. Therefore, other
+    /// functions calls this to send requests. In a mock environment though,
+    /// other functions won't be talking to a regulated interface. Rather will
+    /// talk with a temporary interfaces, like in-memory databases.
+    ///
+    /// This is the reason, this function will only throw errors in case of a
+    /// function is not -yet- implemented. Tester should implement corresponding
+    /// function in this impl block, if this function called for `cmd`.
     fn call<T: for<'a> serde::de::Deserialize<'a>>(
         &self,
         cmd: &str,
@@ -37,6 +48,8 @@ impl RpcApi for Client {
     ) -> bitcoincore_rpc::Result<bitcoin::Transaction> {
         Ok(self
             .database
+            .lock()
+            .unwrap()
             .get_transaction(txid.to_string().as_str())
             .unwrap())
     }
@@ -49,7 +62,12 @@ impl RpcApi for Client {
 
         let txid = tx.compute_txid();
 
-        match self.database.insert_transaction_unconditionally(&tx) {
+        match self
+            .database
+            .lock()
+            .unwrap()
+            .insert_transaction_unconditionally(&tx)
+        {
             Ok(_) => Ok(txid),
             Err(e) => Err(bitcoincore_rpc::Error::ReturnedError(e.to_string())),
         }
@@ -90,14 +108,14 @@ mod tests {
 
     #[test]
     fn new() {
-        let _should_not_panic = Client::new();
+        let _should_not_panic = Client::new("", bitcoincore_rpc::Auth::None).unwrap();
     }
 
     /// Tests if sending and retrieving a raw transaction works or not.
     #[test]
     fn raw_transaction() {
         let config = common::get_test_config("test_config.toml").unwrap();
-        let rpc = Client::new();
+        let rpc = Client::new("", bitcoincore_rpc::Auth::None).unwrap();
         let txb = TransactionBuilder::new(
             config.verifiers_public_keys,
             config.network,
@@ -134,7 +152,7 @@ mod tests {
     #[test]
     fn send_to_address() {
         let config = common::get_test_config("test_config.toml").unwrap();
-        let rpc = Client::new();
+        let rpc = Client::new("", bitcoincore_rpc::Auth::None).unwrap();
 
         let secp = Secp256k1::new();
         let xonly_public_key = XOnlyPublicKey::from_slice(&[

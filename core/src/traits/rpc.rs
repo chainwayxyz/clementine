@@ -1,8 +1,22 @@
 use crate::{errors::BridgeError, operator::DepositPresigns, EVMAddress};
 use bitcoin::address::NetworkUnchecked;
 use bitcoin::{Address, OutPoint, Txid};
+use bitcoincore_rpc::{Auth, Client, RpcApi};
 use jsonrpsee::proc_macros::rpc;
 use secp256k1::schnorr;
+
+/// This trait defines non-functional interfaces for RPC interfaces, like
+/// `new()`.
+pub trait RpcApiWrapper: RpcApi + std::marker::Sync + std::marker::Send + 'static {
+    fn new(url: &str, auth: Auth) -> bitcoincore_rpc::Result<Self>;
+}
+
+/// Compatibility implementation for `bitcoincore_rpc::Client`.
+impl RpcApiWrapper for Client {
+    fn new(url: &str, auth: Auth) -> bitcoincore_rpc::Result<Self> {
+        Client::new(url, auth)
+    }
+}
 
 #[rpc(client, server, namespace = "verifier")]
 pub trait VerifierRpc {
