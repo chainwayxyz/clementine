@@ -4,8 +4,10 @@
 
 use crate::{
     config::BridgeConfig,
-    errors, operator,
-    traits::{bitcoin_rpc::BitcoinRPC, rpc::OperatorRpcServer, rpc::VerifierRpcServer},
+    errors,
+    extended_rpc::ExtendedRpc,
+    operator,
+    traits::rpc::{OperatorRpcServer, RpcApiWrapper, VerifierRpcServer},
     verifier::Verifier,
 };
 use errors::BridgeError;
@@ -16,12 +18,12 @@ use jsonrpsee::{
 use operator::Operator;
 
 /// Starts a server for a verifier.
-pub async fn create_verifier_server<T>(
+pub async fn create_verifier_server<R>(
     config: BridgeConfig,
-    rpc: T,
+    rpc: ExtendedRpc<R>,
 ) -> Result<(std::net::SocketAddr, ServerHandle), BridgeError>
 where
-    T: BitcoinRPC,
+    R: RpcApiWrapper,
 {
     let server = match Server::builder()
         .build(format!("{}:{}", config.host, config.port))
@@ -45,13 +47,13 @@ where
 }
 
 /// Starts the server for the operator.
-pub async fn create_operator_server<T>(
+pub async fn create_operator_server<R>(
     config: BridgeConfig,
-    rpc: T,
+    rpc: ExtendedRpc<R>,
     verifier_endpoints: Vec<String>,
 ) -> Result<(std::net::SocketAddr, ServerHandle), BridgeError>
 where
-    T: BitcoinRPC,
+    R: RpcApiWrapper,
 {
     let verifiers: Vec<HttpClient> = verifier_endpoints
         .clone()
@@ -92,16 +94,16 @@ where
 /// # Panics
 ///
 /// Panics if there was an error while creating any of the servers.
-pub async fn create_operator_and_verifiers<T>(
+pub async fn create_operator_and_verifiers<R>(
     config: BridgeConfig,
-    rpc: T,
+    rpc: ExtendedRpc<R>,
 ) -> (
     HttpClient,
     ServerHandle,
     Vec<(std::net::SocketAddr, ServerHandle)>,
 )
 where
-    T: BitcoinRPC,
+    R: RpcApiWrapper,
 {
     let mut all_secret_keys = config.all_secret_keys.clone().unwrap_or_else(|| {
         panic!("All secret keys are required for testing");

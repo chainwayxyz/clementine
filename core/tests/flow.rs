@@ -5,17 +5,16 @@
 use bitcoin::{Address, Amount};
 use clementine_circuits::constants::BRIDGE_AMOUNT_SATS;
 use clementine_core::actor::Actor;
-use clementine_core::create_test_database;
 use clementine_core::database::common::Database;
-use clementine_core::mock::bitcoin_simulator::BitcoinMockRPC;
+use clementine_core::extended_rpc::ExtendedRpc;
 use clementine_core::mock::common;
 use clementine_core::script_builder::ScriptBuilder;
 use clementine_core::servers::*;
-use clementine_core::traits::bitcoin_rpc::BitcoinRPC;
 use clementine_core::traits::rpc::OperatorRpcClient;
 use clementine_core::transaction_builder::{CreateTxOutputs, TransactionBuilder};
 use clementine_core::utils::handle_taproot_witness_new;
 use clementine_core::EVMAddress;
+use clementine_core::{create_test_database, mock};
 use std::thread;
 
 #[tokio::test]
@@ -36,7 +35,7 @@ async fn test_flow_1() {
         );
     }
 
-    let rpc = BitcoinMockRPC::new(
+    let rpc = ExtendedRpc::<mock::rpc::Client>::new(
         config.bitcoin_rpc_url.clone(),
         config.bitcoin_rpc_user.clone(),
         config.bitcoin_rpc_password.clone(),
@@ -140,7 +139,7 @@ async fn test_flow_2() {
         );
     }
 
-    let rpc = BitcoinMockRPC::new(
+    let rpc = ExtendedRpc::<mock::rpc::Client>::new(
         config.bitcoin_rpc_url.clone(),
         config.bitcoin_rpc_user.clone(),
         config.bitcoin_rpc_password.clone(),

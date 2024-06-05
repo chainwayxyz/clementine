@@ -2,9 +2,9 @@ use crate::actor::Actor;
 use crate::config::BridgeConfig;
 use crate::database::operator::OperatorDB;
 use crate::errors::BridgeError;
+use crate::extended_rpc::ExtendedRpc;
 use crate::script_builder::ScriptBuilder;
-use crate::traits::bitcoin_rpc::BitcoinRPC;
-use crate::traits::rpc::{OperatorRpcServer, VerifierRpcClient};
+use crate::traits::rpc::{OperatorRpcServer, RpcApiWrapper, VerifierRpcClient};
 use crate::transaction_builder::TransactionBuilder;
 use crate::utils::handle_taproot_witness_new;
 use crate::EVMAddress;
@@ -24,11 +24,11 @@ pub struct DepositPresigns {
 }
 
 #[derive(Debug, Clone)]
-pub struct Operator<T>
+pub struct Operator<R>
 where
-    T: BitcoinRPC,
+    R: RpcApiWrapper,
 {
-    rpc: T,
+    rpc: ExtendedRpc<R>,
     db: OperatorDB,
     signer: Actor,
     transaction_builder: TransactionBuilder,
@@ -37,14 +37,14 @@ where
     min_relay_fee: u64,
 }
 
-impl<T> Operator<T>
+impl<R> Operator<R>
 where
-    T: BitcoinRPC,
+    R: RpcApiWrapper,
 {
     /// Creates a new `Operator`.
     pub async fn new(
         config: BridgeConfig,
-        rpc: T,
+        rpc: ExtendedRpc<R>,
         verifiers: Vec<jsonrpsee::http_client::HttpClient>,
     ) -> Result<Self, BridgeError> {
         let num_verifiers = config.verifiers_public_keys.len();
@@ -249,9 +249,9 @@ where
 }
 
 #[async_trait]
-impl<T> OperatorRpcServer for Operator<T>
+impl<R> OperatorRpcServer for Operator<R>
 where
-    T: BitcoinRPC,
+    R: RpcApiWrapper,
 {
     async fn new_deposit_rpc(
         &self,

@@ -1,7 +1,4 @@
-use clementine_core::{
-    cli, extended_rpc::ExtendedRpc, servers::create_operator_server,
-    traits::bitcoin_rpc::BitcoinRPC,
-};
+use clementine_core::{cli, extended_rpc::ExtendedRpc, servers::create_operator_server};
 
 #[tokio::main]
 async fn main() {
@@ -9,7 +6,7 @@ async fn main() {
 
     let verifier_endpoints = config.verifier_endpoints.clone().unwrap();
 
-    let rpc = ExtendedRpc::new(
+    let rpc = ExtendedRpc::<bitcoincore_rpc::Client>::new(
         config.bitcoin_rpc_url.clone(),
         config.bitcoin_rpc_user.clone(),
         config.bitcoin_rpc_password.clone(),

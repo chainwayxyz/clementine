@@ -1,9 +1,9 @@
 use crate::config::BridgeConfig;
 use crate::database::verifier::VerifierDB;
 use crate::errors::BridgeError;
+use crate::extended_rpc::ExtendedRpc;
 use crate::script_builder::ScriptBuilder;
-use crate::traits::bitcoin_rpc::BitcoinRPC;
-use crate::traits::rpc::VerifierRpcServer;
+use crate::traits::rpc::{RpcApiWrapper, VerifierRpcServer};
 use crate::transaction_builder::TransactionBuilder;
 use crate::EVMAddress;
 use crate::{actor::Actor, operator::DepositPresigns};
@@ -16,8 +16,11 @@ use secp256k1::schnorr;
 use secp256k1::XOnlyPublicKey;
 
 #[derive(Debug, Clone)]
-pub struct Verifier<T> {
-    rpc: T,
+pub struct Verifier<R>
+where
+    R: RpcApiWrapper,
+{
+    rpc: ExtendedRpc<R>,
     signer: Actor,
     transaction_builder: TransactionBuilder,
     db: VerifierDB,
@@ -26,11 +29,11 @@ pub struct Verifier<T> {
     min_relay_fee: u64,
 }
 
-impl<T> Verifier<T>
+impl<R> Verifier<R>
 where
-    T: BitcoinRPC,
+    R: RpcApiWrapper,
 {
-    pub async fn new(rpc: T, config: BridgeConfig) -> Result<Self, BridgeError> {
+    pub async fn new(rpc: ExtendedRpc<R>, config: BridgeConfig) -> Result<Self, BridgeError> {
         let signer = Actor::new(config.secret_key, config.network);
 
         let secp: Secp256k1<secp256k1::All> = Secp256k1::new();
@@ -163,9 +166,9 @@ where
 }
 
 #[async_trait]
-impl<T> VerifierRpcServer for Verifier<T>
+impl<R> VerifierRpcServer for Verifier<R>
 where
-    T: BitcoinRPC,
+    R: RpcApiWrapper,
 {
     async fn new_deposit_rpc(
         &self,
