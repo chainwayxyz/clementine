@@ -7,3 +7,4 @@ pub mod bitcoin_simulator;
 pub mod common;
 pub mod database;
 pub mod env;
+pub mod rpc;
