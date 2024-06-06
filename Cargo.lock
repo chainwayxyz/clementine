@@ -446,7 +446,7 @@ dependencies = [
 [[package]]
 name = "bitcoin-simulator"
 version = "0.1.0"
-source = "git+https://github.com/chainwayxyz/bitcoin-simulator#002df1d0658423b096eb348f0c9307aab5d21398"
+source = "git+https://github.com/chainwayxyz/bitcoin-simulator#839d39ebf1ac064c6b4d9e25ccb2f611fd0260df"
 dependencies = [
  "anyhow",
  "bitcoin",
