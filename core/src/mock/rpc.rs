@@ -108,19 +108,14 @@ impl RpcApi for Client {
         txid: &bitcoin::Txid,
         _include_watchonly: Option<bool>,
     ) -> bitcoincore_rpc::Result<json::GetTransactionResult> {
-        let raw_tx = self
-            .database
-            .lock()
-            .unwrap()
-            .get_transaction(&txid.to_string())
-            .unwrap();
+        let raw_tx = self.get_raw_transaction(txid, None).unwrap();
 
         let res = GetTransactionResult {
             info: WalletTxInfo {
-                confirmations: 10,
+                confirmations: i32::MAX,
                 blockhash: None,
                 blockindex: None,
-                blocktime: None,
+                blocktime: Some(0),
                 blockheight: None,
                 txid: *txid,
                 time: 0,
@@ -128,12 +123,12 @@ impl RpcApi for Client {
                 bip125_replaceable: json::Bip125Replaceable::Unknown,
                 wallet_conflicts: vec![],
             },
-            amount: SignedAmount::ZERO,
+            amount: SignedAmount::from_sat(raw_tx.output[0].value.to_sat() as i64),
             fee: None,
             details: vec![GetTransactionResultDetail {
                 address: None,
                 category: GetTransactionResultDetailCategory::Send,
-                amount: SignedAmount::ZERO,
+                amount: SignedAmount::from_sat(raw_tx.output[0].value.to_sat() as i64),
                 label: None,
                 vout: 0,
                 fee: None,
@@ -212,7 +207,7 @@ mod tests {
         let _should_not_panic = Client::new("", bitcoincore_rpc::Auth::None).unwrap();
     }
 
-    /// Tests if sending and retrieving a raw transaction works or not.
+    /// Tests `send_raw_transaction` and `get_raw_transaction`.
     #[test]
     fn raw_transaction() {
         let config = common::get_test_config("test_config.toml").unwrap();
@@ -271,11 +266,50 @@ mod tests {
         assert_ne!(read_tx, inserted_tx1);
     }
 
+    /// Tests `get_transaction`.
+    #[test]
+    fn transaction() {
+        let config = common::get_test_config("test_config.toml").unwrap();
+        let rpc = Client::new("", bitcoincore_rpc::Auth::None).unwrap();
+        let txb = TransactionBuilder::new(
+            config.verifiers_public_keys,
+            config.network,
+            config.user_takes_after,
+            config.min_relay_fee,
+        );
+
+        // Insert raw transactions to Bitcoin.
+        let txin = TxIn {
+            previous_output: OutPoint {
+                txid: Txid::from_byte_array([0x45; 32]),
+                vout: 0,
+            },
+            sequence: bitcoin::transaction::Sequence::ENABLE_RBF_NO_LOCKTIME,
+            script_sig: ScriptBuf::default(),
+            witness: Witness::new(),
+        };
+        let txout = TxOut {
+            value: Amount::from_sat(0x1F),
+            script_pubkey: txb.generate_bridge_address().unwrap().0.script_pubkey(),
+        };
+        let inserted_tx = TransactionBuilder::create_btc_tx(vec![txin], vec![txout]);
+        rpc.send_raw_transaction(&inserted_tx).unwrap();
+
+        let txid = inserted_tx.compute_txid();
+
+        let tx = rpc.get_transaction(&txid, None).unwrap();
+
+        assert_eq!(txid, tx.info.txid);
+        assert!(tx.info.confirmations as u32 > config.confirmation_treshold);
+        assert!(tx.info.confirmations > config.confirmation_treshold as i32);
+    }
+
     #[test]
     fn send_to_address() {
         let config = common::get_test_config("test_config.toml").unwrap();
         let rpc = Client::new("", bitcoincore_rpc::Auth::None).unwrap();
 
+        // Create a temporary address.
         let secp = Secp256k1::new();
         let xonly_public_key = XOnlyPublicKey::from_slice(&[
             0x78u8, 0x19u8, 0x90u8, 0xd7u8, 0xe2u8, 0x11u8, 0x8cu8, 0xc3u8, 0x61u8, 0xa9u8, 0x3au8,
