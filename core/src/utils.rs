@@ -123,6 +123,7 @@ pub fn handle_taproot_witness_new<T: AsRef<[u8]>>(
         .ok_or(BridgeError::ControlBlockError)?;
     witness.push(tx.scripts[txin_index][script_index].clone());
     witness.push(&spend_control_block.serialize());
+    // println!("witness: {:?}", witness);
     Ok(())
 }
 

@@ -1,5 +1,6 @@
 use bitcoin::address::NetworkUnchecked;
 use bitcoin::blockdata::opcodes::all::OP_PUSHNUM_1;
+use bitcoin::script::{PushBytes, PushBytesBuf};
 use bitcoin::Address;
 use bitcoin::{
     opcodes::{all::*, OP_FALSE},
@@ -88,6 +89,32 @@ impl ScriptBuilder {
         inscribe_preimage_script_builder = inscribe_preimage_script_builder.push_opcode(OP_ENDIF);
 
         inscribe_preimage_script_builder.into_script()
+    }
+
+    pub fn create_data_inscription_script(
+        public_key: &XOnlyPublicKey,
+        data: &Vec<u8>,
+    ) -> ScriptBuf {
+        let mut buffer = [0u8; 520];
+        let data_len = data.len();
+        let quotient = data_len / 520;
+        let remainder = data_len % 520;
+
+        let mut builder = Builder::new()
+            .push_x_only_key(public_key)
+            .push_opcode(OP_CHECKSIG)
+            .push_opcode(OP_FALSE)
+            .push_opcode(OP_IF);
+        for i in 0..quotient {
+            buffer.copy_from_slice(&data[i * 520..(i + 1) * 520]);
+            builder = builder.push_slice(PushBytesBuf::try_from(buffer.to_vec()).unwrap());
+        }
+        if remainder > 0 {
+            buffer[..remainder].copy_from_slice(&data[quotient * 520..]);
+            builder =
+                builder.push_slice(PushBytesBuf::try_from(buffer[..remainder].to_vec()).unwrap());
+        }
+        builder.push_opcode(OP_ENDIF).into_script()
     }
 
     // ATTENTION: If you want to spend a UTXO using timelock script, the condition is that

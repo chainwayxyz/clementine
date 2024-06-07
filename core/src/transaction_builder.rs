@@ -504,6 +504,51 @@ impl TransactionBuilder {
         })
     }
 
+    pub fn create_data_inscription_commit_address(
+        &self,
+        actor_pk: &XOnlyPublicKey,
+        data: &Vec<u8>,
+    ) -> Result<(Address, TaprootSpendInfo, ScriptBuf), BridgeError> {
+        let inscribe_data_script = ScriptBuilder::create_data_inscription_script(actor_pk, &data);
+        let (address, taproot_info) = TransactionBuilder::create_taproot_address(
+            &self.secp,
+            vec![inscribe_data_script.clone()],
+            self.config.network,
+        )?;
+        Ok((address, taproot_info, inscribe_data_script))
+    }
+
+    pub fn create_data_inscription_reveal_tx(
+        &self,
+        commit_utxo: OutPoint,
+        actor_pk: &XOnlyPublicKey,
+        spend_to: &Address,
+        data: Vec<u8>,
+    ) -> Result<CreateTxOutputs, BridgeError> {
+        let tx_out = TxOut {
+            value: Amount::from_sat(999_000 - 500_000),
+            script_pubkey: spend_to.script_pubkey(),
+        };
+        let (commit_address, commit_tree_info, inscribe_data_script) =
+            self.create_data_inscription_commit_address(actor_pk, &data)?;
+        let tx = TransactionBuilder::create_btc_tx(
+            TransactionBuilder::create_tx_ins(vec![commit_utxo]),
+            vec![tx_out],
+        );
+
+        let prevouts = vec![TxOut {
+            script_pubkey: commit_address.script_pubkey(),
+            value: Amount::from_sat(999_000),
+        }];
+
+        Ok(CreateTxOutputs {
+            tx,
+            prevouts,
+            scripts: vec![vec![inscribe_data_script]],
+            taproot_spend_infos: vec![commit_tree_info],
+        })
+    }
+
     #[cfg(feature = "poc")]
     pub fn create_connector_tree_tx(
         utxo: &OutPoint,
@@ -599,7 +644,7 @@ impl TransactionBuilder {
 mod tests {
     use std::str::FromStr;
 
-    use bitcoin::{Address, XOnlyPublicKey};
+    use bitcoin::{network, Address, ScriptBuf, XOnlyPublicKey};
 
     use crate::{config::BridgeConfig, transaction_builder::TransactionBuilder};
 
@@ -640,5 +685,60 @@ mod tests {
             deposit_address.0.to_string(),
             "bcrt1prqxsjz7h5wt40w54vhmpvn6l2hu8mefmez6ld4p59vksllumskvqs8wvkh" // check this later
         ) // Comparing it to the taproot address generated in bridge backend repo (using js)
+    }
+
+    #[test]
+    fn test_create_taproot_address() {
+        let secp = secp256k1::Secp256k1::new();
+        let script_1 = ScriptBuf::from_hex("205daf577048c5e5a9a75d0a924ed03e226c3304f4a2f01c65ca1dab73522e6b8bad206228eba653cf1819bcfc1bc858630e5ae373eec1a9924322a5fe8445c5e76027ad201521d65f64be3f71b71ca462220f13c77b251027f6ca443a483353a96fbce222ad200fabeed269694ee83d9b3343a571202e68af65d05feda61dbed0c4bdb256a6eaad2000326d6f721c03dc5f1d8817d8f8ee890a95a2eeda0d4d9a01b1cc9b7b1b724dac006306636974726561147360466fef4a7ce989509689462e1a4531ca85dd080000000005f5e10068").unwrap();
+        let script_2 = ScriptBuf::from_hex(
+            "02c800b275201fc359a7c567a37579004d91e1061c59c8e26546339efd31ffc561ba6a37cf72ac",
+        )
+        .unwrap();
+        let (address, taproot_spend_info) = TransactionBuilder::create_taproot_address(
+            &secp,
+            vec![script_1, script_2],
+            bitcoin::Network::Signet,
+        )
+        .unwrap();
+        println!("address: {:?}", address);
+        println!("taproot_spend_info: {:?}", taproot_spend_info);
+        let script_pubkey = address.script_pubkey();
+        println!("script_pubkey: {:?}", script_pubkey);
+    }
+
+    #[test]
+    fn test_user_takes_back_tx() {
+        let verifier_pks_hex: Vec<&str> = vec![
+            "5daf577048c5e5a9a75d0a924ed03e226c3304f4a2f01c65ca1dab73522e6b8b",
+            "6228eba653cf1819bcfc1bc858630e5ae373eec1a9924322a5fe8445c5e76027",
+            "1521d65f64be3f71b71ca462220f13c77b251027f6ca443a483353a96fbce222",
+            "0fabeed269694ee83d9b3343a571202e68af65d05feda61dbed0c4bdb256a6ea",
+            "00326d6f721c03dc5f1d8817d8f8ee890a95a2eeda0d4d9a01b1cc9b7b1b724d",
+        ];
+        let verifier_pks: Vec<XOnlyPublicKey> = verifier_pks_hex
+            .iter()
+            .map(|pk| XOnlyPublicKey::from_str(pk).unwrap())
+            .collect();
+        let tx_builder = TransactionBuilder::new(verifier_pks, BridgeConfig::new());
+        let evm_address: [u8; 20] = hex::decode("1234567890123456789012345678901234567890")
+            .unwrap()
+            .try_into()
+            .unwrap();
+        let user_xonly_pk: XOnlyPublicKey = XOnlyPublicKey::from_str(
+            "93c7378d96518a75448821c4f7c8f4bae7ce60f804d03d1f0628dd5dd0f5de51",
+        )
+        .unwrap();
+        let secp = secp256k1::Secp256k1::new();
+        let recovery_taproot_address =
+            Address::p2tr(&secp, user_xonly_pk, None, bitcoin::Network::Regtest);
+        let deposit_address = tx_builder
+            .generate_deposit_address(
+                &recovery_taproot_address.as_unchecked(),
+                &crate::EVMAddress(evm_address),
+                10_000,
+            )
+            .unwrap();
+        println!("deposit_address: {:?}", deposit_address.0);
     }
 }

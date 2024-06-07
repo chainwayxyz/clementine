@@ -12,12 +12,12 @@ verifiers_public_keys = [
 
 num_verifiers = 4
 min_relay_fee = 305
-user_takes_after = 5
+user_takes_after = 200
 confirmation_treshold = 1
-network = "regtest"
-bitcoin_rpc_url = "http://127.0.0.1:18443"
-bitcoin_rpc_user = "admin"
-bitcoin_rpc_password = "admin"
+network = "signet"
+bitcoin_rpc_url = "http://127.0.0.1:38332"
+bitcoin_rpc_user = "ozan"
+bitcoin_rpc_password = "ozan"
 all_secret_keys = [
     "1111111111111111111111111111111111111111111111111111111111111111",
     "2222222222222222222222222222222222222222222222222222222222222222",
