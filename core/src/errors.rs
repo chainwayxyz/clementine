@@ -32,9 +32,9 @@ pub enum BridgeError {
     /// Returned when the secp256k1 crate returns an error
     #[error("Secpk256Error: {0}")]
     Secpk256Error(secp256k1::Error),
-    /// Returned when the bitcoin crate returns an error in the sighash module
-    #[error("BitcoinSighashError: {0}")]
-    BitcoinSighashError(bitcoin::sighash::Error),
+    /// Returned when the bitcoin crate returns an error in the sighash taproot module
+    #[error("BitcoinSighashTaprootError: {0}")]
+    BitcoinSighashTaprootError(bitcoin::sighash::TaprootError),
     /// Returned when a non finalized deposit request is found
     #[error("DepositNotFinalized")]
     DepositNotFinalized,
@@ -104,19 +104,18 @@ pub enum BridgeError {
     /// Merkle Proof Error
     #[error("MerkleProofError")]
     MerkleProofError,
-    /// JSON RPC Error
-    /// Returned when the JSON RPC call fails
+    /// JSON RPC call failed
     #[error("JsonRpcError: {0}")]
-    JsonRpcError(jsonrpsee::core::Error),
+    JsonRpcError(jsonrpsee::core::client::Error),
     /// Given key pair is invalid and new pairs can't be generated randomly
     #[error("InvalidKeyPair")]
     InvalidKeyPair(std::io::Error),
     /// ConfigError is returned when the configuration is invalid
     #[error("ConfigError: {0}")]
     ConfigError(String),
-    /// Bitcoin Address Error, probably given address network is invalid
-    #[error("BitcoinAddressError: {0}")]
-    BitcoinAddressError(bitcoin::address::Error),
+    /// Bitcoin Address Parse Error, probably given address network is invalid
+    #[error("BitcoinAddressParseError: {0}")]
+    BitcoinAddressParseError(bitcoin::address::ParseError),
     /// Port error for tests
     #[error("PortError: {0}")]
     PortError(String),
@@ -126,11 +125,14 @@ pub enum BridgeError {
     /// Operator tries to claim with different bridge funds with the same withdrawal idx
     #[error("AlreadySpentWithdrawal")]
     AlreadySpentWithdrawal,
+    /// There was an error while creating a server.
+    #[error("ServerError")]
+    ServerError(std::io::Error),
 }
 
 impl Into<ErrorObject<'static>> for BridgeError {
     fn into(self) -> ErrorObjectOwned {
-        ErrorObject::owned(-30000, &format!("{:?}", self), Some(1))
+        ErrorObject::owned(-30000, format!("{:?}", self), Some(1))
     }
 }
 
@@ -140,9 +142,9 @@ impl From<secp256k1::Error> for BridgeError {
     }
 }
 
-impl From<bitcoin::sighash::Error> for BridgeError {
-    fn from(err: bitcoin::sighash::Error) -> Self {
-        BridgeError::BitcoinSighashError(err)
+impl From<bitcoin::sighash::TaprootError> for BridgeError {
+    fn from(err: bitcoin::sighash::TaprootError) -> Self {
+        BridgeError::BitcoinSighashTaprootError(err)
     }
 }
 
@@ -188,15 +190,15 @@ impl From<MerkleBlockError> for BridgeError {
     }
 }
 
-impl From<jsonrpsee::core::Error> for BridgeError {
-    fn from(err: jsonrpsee::core::Error) -> Self {
+impl From<jsonrpsee::core::client::Error> for BridgeError {
+    fn from(err: jsonrpsee::core::client::Error) -> Self {
         BridgeError::JsonRpcError(err)
     }
 }
 
-impl From<bitcoin::address::Error> for BridgeError {
-    fn from(err: bitcoin::address::Error) -> Self {
-        BridgeError::BitcoinAddressError(err)
+impl From<bitcoin::address::ParseError> for BridgeError {
+    fn from(err: bitcoin::address::ParseError) -> Self {
+        BridgeError::BitcoinAddressParseError(err)
     }
 }
 

@@ -1,3 +1,4 @@
+use core::cmp::Ordering;
 use crypto_bigint::Encoding;
 use crypto_bigint::U256;
 use k256::elliptic_curve::group::GroupEncoding;
@@ -75,14 +76,14 @@ pub fn decode_compact_target(bits: [u8; 4]) -> [u8; 32] {
 fn check_hash_valid(hash: [u8; 32], target: [u8; 32]) {
     // for loop from 31 to 0
     for i in (0..32).rev() {
-        if hash[i] < target[i] {
-            // The hash is valid because a byte in hash is less than the corresponding byte in target
-            return;
-        } else if hash[i] > target[i] {
+        match hash[i].cmp(&target[i]) {
             // The hash is invalid because a byte in hash is greater than the corresponding byte in target
-            panic!("Hash is not valid");
+            Ordering::Greater => panic!("Hash is not valid"),
+            // The hash is valid because a byte in hash is less than the corresponding byte in target
+            Ordering::Less => return,
+            // If the bytes are equal, continue to the next byte
+            Ordering::Equal => (),
         }
-        // If the bytes are equal, continue to the next byte
     }
     // If we reach this point, all bytes are equal, so the hash is valid
 }
@@ -136,7 +137,7 @@ pub fn read_preimages_and_calculate_commit_taproot<E: Environment>() -> ([u8; 32
     for _ in 0..num_preimages {
         hasher_commit_taproot.update([32u8]);
         let preimage = E::read_32bytes();
-        hasher_commit_taproot.update(&preimage);
+        hasher_commit_taproot.update(preimage);
         hasher_claim_proof_leaf.update(sha256_hash!(preimage));
     }
     hasher_commit_taproot.update([104u8]);
@@ -144,7 +145,7 @@ pub fn read_preimages_and_calculate_commit_taproot<E: Environment>() -> ([u8; 32
     let claim_proof_leaf: [u8; 32] = hasher_claim_proof_leaf.finalize().into();
     let taproot_address = calculate_taproot_from_single_script(script_hash);
 
-    return (taproot_address, claim_proof_leaf);
+    (taproot_address, claim_proof_leaf)
 }
 
 pub fn calculate_taproot_from_single_script(tap_leaf_hash: [u8; 32]) -> [u8; 32] {

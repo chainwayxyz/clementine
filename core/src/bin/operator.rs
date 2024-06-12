@@ -1,4 +1,4 @@
-use clementine_core::{cli, create_operator_server};
+use clementine_core::{cli, servers::create_operator_server};
 
 #[tokio::main]
 async fn main() {

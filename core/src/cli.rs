@@ -1,13 +1,7 @@
 //! # Command Line Interface
 //!
-//! This module defines command line interface. `Clap` is used here for easily
-//! generating help messages and handling arguments.
-//!
-//! This module is just handles cli arguments and nothing else. Meaning it needs
-//! other modules for actually generating meaningful information. This is done
-//! intentionally: Other modules can be used internally without actually using
-//! cli arguments. This means this module is only useful for programs that has a
-//! cli interface.
+//! This module defines command line interface for binaries. `Clap` is used
+//! for easy generation of help messages and handling arguments.
 
 use crate::config::BridgeConfig;
 use crate::errors::BridgeError;
@@ -21,17 +15,16 @@ use std::process::exit;
 #[derive(Parser, Debug, Clone)]
 #[command(version, about, long_about = None)]
 pub struct Args {
-    /// TOML formatted configuration file to be used.
+    /// TOML formatted configuration file.
     pub config_file: PathBuf,
 }
 
-/// Parse all the cli arguments and generate a `BridgeConfig`.
+/// Parse all the command line arguments and generate a `BridgeConfig`.
 pub fn parse() -> Result<Args, BridgeError> {
     parse_from(env::args())
 }
 
-/// Parse given iterator for cli arguments. This is good for isolated
-/// environments, like tests.
+/// Parse given iterator. This is good for isolated environments, like tests.
 pub fn parse_from<I, T>(itr: I) -> Result<Args, BridgeError>
 where
     I: IntoIterator<Item = T>,
@@ -44,13 +37,17 @@ where
 }
 
 /// Parses cli arguments, reads configuration file, parses it and generates a
-/// `BridgeConfig`. Warning: Prints help + error messages and kills process on
-/// error.
+/// `BridgeConfig`.
+///
+/// # Exits
+///
+/// Prints help + error messages and kills process on error. This will not panic
+/// intentionally, just to print a user friendly message and not a trace.
 pub fn get_configuration() -> BridgeConfig {
     let args = match parse() {
         Ok(c) => c,
         Err(e) => {
-            eprintln!("{}", e.to_string());
+            eprintln!("{}", e);
             exit(1);
         }
     };
@@ -58,7 +55,7 @@ pub fn get_configuration() -> BridgeConfig {
     match get_configuration_from(args) {
         Ok(c) => c,
         Err(e) => {
-            eprintln!("{}", e.to_string());
+            eprintln!("{}", e);
             exit(1);
         }
     }

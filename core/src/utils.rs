@@ -1,8 +1,7 @@
 use crate::errors::BridgeError;
-use crate::extended_rpc::ExtendedRpc;
-use crate::transaction_builder::{CreateTxOutputs, TransactionBuilder};
-use crate::{EVMAddress, HashTree};
-use bitcoin::address::NetworkUnchecked;
+use crate::transaction_builder::CreateTxOutputs;
+use crate::HashTree;
+use bitcoin;
 use bitcoin::consensus::Decodable;
 use bitcoin::sighash::SighashCache;
 use bitcoin::taproot::ControlBlock;
@@ -10,8 +9,6 @@ use bitcoin::taproot::LeafVersion;
 use bitcoin::taproot::TaprootSpendInfo;
 use bitcoin::Amount;
 use bitcoin::ScriptBuf;
-use bitcoin::{self, Address, OutPoint};
-use clementine_circuits::constants::BRIDGE_AMOUNT_SATS;
 use hex;
 use sha2::{Digest, Sha256};
 use std::borrow::BorrowMut;
@@ -34,39 +31,6 @@ pub fn create_control_block(tree_info: TaprootSpendInfo, script: &ScriptBuf) -> 
         .expect("Cannot create control block")
 }
 
-pub fn check_deposit_utxo(
-    rpc: &ExtendedRpc,
-    tx_builder: &TransactionBuilder,
-    outpoint: &OutPoint,
-    recovery_taproot_address: &Address<NetworkUnchecked>,
-    evm_address: &EVMAddress,
-    amount_sats: u64,
-    confirmation_block_count: u32,
-) -> Result<(), BridgeError> {
-    if rpc.confirmation_blocks(&outpoint.txid)? < confirmation_block_count {
-        return Err(BridgeError::DepositNotFinalized);
-    }
-
-    let (deposit_address, _) = tx_builder.generate_deposit_address(
-        recovery_taproot_address,
-        evm_address,
-        BRIDGE_AMOUNT_SATS,
-    )?;
-
-    if !rpc.check_utxo_address_and_amount(
-        outpoint,
-        &deposit_address.script_pubkey(),
-        amount_sats,
-    )? {
-        return Err(BridgeError::InvalidDepositUTXO);
-    }
-
-    if rpc.is_utxo_spent(outpoint)? {
-        return Err(BridgeError::UTXOSpent);
-    }
-    Ok(())
-}
-
 pub fn calculate_amount(depth: usize, value: Amount, fee: Amount) -> Amount {
     (value + fee) * (2u64.pow(depth as u32))
 }
@@ -74,46 +38,56 @@ pub fn calculate_amount(depth: usize, value: Amount, fee: Amount) -> Amount {
 pub fn handle_taproot_witness<T: AsRef<[u8]>>(
     tx: &mut bitcoin::Transaction,
     index: usize,
-    witness_elements: &Vec<T>,
+    witness_elements: &[T],
     script: &ScriptBuf,
     tree_info: &TaprootSpendInfo,
 ) -> Result<(), BridgeError> {
     let mut sighash_cache = SighashCache::new(tx.borrow_mut());
+
     let witness = sighash_cache
         .witness_mut(index)
         .ok_or(BridgeError::TxInputNotFound)?;
-    for elem in witness_elements {
-        witness.push(elem);
-    }
+
+    witness_elements
+        .iter()
+        .for_each(|element| witness.push(element));
+
     let spend_control_block = tree_info
         .control_block(&(script.clone(), LeafVersion::TapScript))
         .ok_or(BridgeError::ControlBlockError)?;
+
     witness.push(script);
     witness.push(&spend_control_block.serialize());
+
     Ok(())
 }
 
 pub fn handle_taproot_witness_new<T: AsRef<[u8]>>(
     tx: &mut CreateTxOutputs,
-    witness_elements: &Vec<T>,
+    witness_elements: &[T],
     txin_index: usize,
     script_index: usize,
 ) -> Result<(), BridgeError> {
     let mut sighash_cache = SighashCache::new(tx.tx.borrow_mut());
+
     let witness = sighash_cache
         .witness_mut(txin_index)
         .ok_or(BridgeError::TxInputNotFound)?;
-    for elem in witness_elements {
-        witness.push(elem);
-    }
+
+    witness_elements
+        .iter()
+        .for_each(|element| witness.push(element));
+
     let spend_control_block = tx.taproot_spend_infos[txin_index]
         .control_block(&(
             tx.scripts[txin_index][script_index].clone(),
             LeafVersion::TapScript,
         ))
         .ok_or(BridgeError::ControlBlockError)?;
+
     witness.push(tx.scripts[txin_index][script_index].clone());
     witness.push(&spend_control_block.serialize());
+
     Ok(())
 }
 
@@ -145,34 +119,39 @@ pub fn get_claim_proof_tree_leaf(
     connector_tree_hashes: &HashTree,
 ) -> [u8; 32] {
     let indices = get_claim_reveal_indices(depth, num_claims as u32);
+
     let mut hasher = Sha256::new();
+
     indices.iter().for_each(|(level, index)| {
         hasher.update(connector_tree_hashes[*level][*index]);
     });
+
     hasher.finalize().into()
 }
 pub fn calculate_claim_proof_root(
     depth: usize,
     connector_tree_hashes: &Vec<Vec<[u8; 32]>>,
 ) -> [u8; 32] {
-    let mut hashes: Vec<[u8; 32]> = Vec::new();
-    for i in 0..2u32.pow(depth as u32) {
-        let hash = get_claim_proof_tree_leaf(depth, i as usize, connector_tree_hashes);
-        hashes.push(hash);
-    }
+    let mut hashes: Vec<[u8; 32]> = (0..2u32.pow(depth as u32))
+        .map(|i| get_claim_proof_tree_leaf(depth, i as usize, connector_tree_hashes))
+        .collect();
+
     let mut level = 0;
     while level < depth {
-        let mut level_hashes: Vec<[u8; 32]> = Vec::new();
-        for i in 0..2u32.pow(depth as u32 - level as u32 - 1) {
-            let mut hasher = Sha256::new();
-            hasher.update(hashes[i as usize * 2]);
-            hasher.update(hashes[i as usize * 2 + 1]);
-            let hash = hasher.finalize().into();
-            level_hashes.push(hash);
-        }
-        hashes = level_hashes.clone();
+        let level_hashes: Vec<[u8; 32]> = (0..2u32.pow((depth - level - 1) as u32))
+            .map(|i| {
+                let mut hasher = Sha256::new();
+                hasher.update(hashes[i as usize * 2]);
+                hasher.update(hashes[i as usize * 2 + 1]);
+
+                hasher.finalize().into()
+            })
+            .collect();
+
+        hashes.clone_from(&level_hashes);
         level += 1;
     }
+
     hashes[0]
 }
 

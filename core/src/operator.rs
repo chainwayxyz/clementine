@@ -1,23 +1,21 @@
 use crate::actor::Actor;
 use crate::config::BridgeConfig;
-use crate::db::operator::OperatorDB;
+use crate::database::operator::OperatorDB;
 use crate::errors::BridgeError;
 use crate::extended_rpc::ExtendedRpc;
 use crate::script_builder::ScriptBuilder;
 use crate::traits::rpc::{OperatorRpcServer, VerifierRpcClient};
 use crate::transaction_builder::TransactionBuilder;
-use crate::utils::{check_deposit_utxo, handle_taproot_witness_new};
+use crate::utils::handle_taproot_witness_new;
 use crate::EVMAddress;
 use bitcoin::address::{NetworkChecked, NetworkUnchecked};
-use bitcoin::{secp256k1, secp256k1::schnorr};
+use bitcoin::secp256k1::schnorr;
 use bitcoin::{Address, Amount, OutPoint, TxOut, Txid};
 use clementine_circuits::constants::BRIDGE_AMOUNT_SATS;
 use futures::stream::FuturesOrdered;
 use futures::TryStreamExt;
 use jsonrpsee::core::async_trait;
-use secp256k1::{SecretKey, XOnlyPublicKey};
 use serde::{Deserialize, Serialize};
-use std::sync::Arc;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct DepositPresigns {
@@ -26,79 +24,58 @@ pub struct DepositPresigns {
 }
 
 #[derive(Debug, Clone)]
-pub struct OperatorClaimSigs {
-    pub operator_claim_sigs: Vec<Vec<schnorr::Signature>>,
-}
-
-#[derive(Debug, Clone)]
 pub struct Operator {
-    pub rpc: ExtendedRpc,
-    pub signer: Actor,
-    pub transaction_builder: TransactionBuilder,
-    pub verifiers_pks: Vec<XOnlyPublicKey>,
-    pub verifier_connector: Vec<Arc<jsonrpsee::http_client::HttpClient>>,
+    rpc: ExtendedRpc,
     db: OperatorDB,
-    config: BridgeConfig,
-}
-
-#[async_trait]
-impl OperatorRpcServer for Operator {
-    async fn new_deposit_rpc(
-        &self,
-        start_utxo: OutPoint,
-        recovery_taproot_address: Address<NetworkUnchecked>,
-        evm_address: EVMAddress,
-    ) -> Result<Txid, BridgeError> {
-        self.new_deposit(start_utxo, &recovery_taproot_address, &evm_address)
-            .await
-    }
-    async fn new_withdrawal_direct_rpc(
-        &self,
-        idx: usize,
-        withdrawal_address: Address<NetworkUnchecked>,
-    ) -> Result<Txid, BridgeError> {
-        let withdraw_txid = self
-            .new_withdrawal_direct(idx, withdrawal_address.assume_checked())
-            .await?;
-        Ok(withdraw_txid)
-    }
+    signer: Actor,
+    transaction_builder: TransactionBuilder,
+    verifier_connector: Vec<jsonrpsee::http_client::HttpClient>,
+    confirmation_treshold: u32,
+    min_relay_fee: u64,
 }
 
 impl Operator {
+    /// Creates a new `Operator`.
     pub async fn new(
-        rpc: ExtendedRpc,
-        all_xonly_pks: Vec<XOnlyPublicKey>,
-        operator_sk: SecretKey,
-        verifiers: Vec<Arc<jsonrpsee::http_client::HttpClient>>,
         config: BridgeConfig,
+        rpc: ExtendedRpc,
+        verifiers: Vec<jsonrpsee::http_client::HttpClient>,
     ) -> Result<Self, BridgeError> {
-        let num_verifiers = all_xonly_pks.len() - 1;
-        let signer = Actor::new(operator_sk, config.network); // Operator is the last one
+        let num_verifiers = config.verifiers_public_keys.len();
 
-        if signer.xonly_public_key != all_xonly_pks[num_verifiers] {
+        let signer = Actor::new(config.secret_key, config.network);
+        if signer.xonly_public_key != config.verifiers_public_keys[num_verifiers - 1] {
             return Err(BridgeError::InvalidOperatorKey);
         }
 
-        let transaction_builder = TransactionBuilder::new(all_xonly_pks.clone(), config.clone());
+        let transaction_builder = TransactionBuilder::new(
+            config.verifiers_public_keys.clone(),
+            config.network,
+            config.user_takes_after,
+            config.min_relay_fee,
+        );
+
         let db = OperatorDB::new(config.clone()).await;
 
         Ok(Self {
             rpc,
+            db,
             signer,
             transaction_builder,
             verifier_connector: verifiers,
-            verifiers_pks: all_xonly_pks.clone(),
-            db,
-            config,
+            confirmation_treshold: config.confirmation_treshold,
+            min_relay_fee: config.min_relay_fee,
         })
     }
 
-    /// this is a public endpoint that every depositor can call
-    /// it will get signatures from all verifiers.
-    /// 1. Check if the deposit utxo is valid and finalized (6 blocks confirmation)
-    /// 2. Check if the utxo is not already spent
+    /// Public endpoint for every depositor to call.
+    ///
+    /// It will get signatures from all verifiers:
+    ///
+    /// 1. Check if the deposit UTXO is valid and finalized (6 blocks confirmation)
+    /// 2. Check if the UTXO is not already spent
     /// 3. Get signatures from all verifiers 1 move signature, ~150 operator takes signatures
-    /// 4. Create a move transaction and return the output utxo
+    /// 4. Create a move transaction and return the output UTXO
     pub async fn new_deposit(
         &self,
         start_utxo: OutPoint,
@@ -106,12 +83,13 @@ impl Operator {
         evm_address: &EVMAddress,
     ) -> Result<Txid, BridgeError> {
         tracing::info!(
-            "New deposit request for utxo: {:?}, evm_address: {:?}, recovery_taproot_Address: {:?}",
+            "New deposit request for UTXO: {:?}, EVM address: {:?} and recovery taproot address of: {:?}",
             start_utxo,
             evm_address,
             recovery_taproot_address
         );
 
+        // If deposit request already been made, return it's TXID.
         if let Ok(move_txid) = self
             .db
             .get_move_txid(start_utxo, recovery_taproot_address.clone(), *evm_address)
@@ -120,32 +98,29 @@ impl Operator {
             return Ok(move_txid);
         }
 
-        check_deposit_utxo(
-            &self.rpc,
+        self.rpc.check_deposit_utxo(
             &self.transaction_builder,
             &start_utxo,
             recovery_taproot_address,
             evm_address,
             BRIDGE_AMOUNT_SATS,
-            self.config.confirmation_treshold,
+            self.confirmation_treshold,
         )?;
 
-        // 5. Create a move transaction and return the output utxo, save the utxo as a pending deposit
+        // Create a move transaction, then return the output UTXO. Save the UTXO
+        // as a pending deposit.
         let mut move_tx = self.transaction_builder.create_move_tx(
             start_utxo,
             evm_address,
-            &recovery_taproot_address,
+            recovery_taproot_address,
         )?;
 
-        let presigns_from_all_verifiers: Result<Vec<_>, BridgeError> = self
+        let presigns_from_all_verifiers: Vec<_> = self
             .verifier_connector
             .iter()
             .map(|verifier| async {
-                // tracing::debug!("Verifier number {:?} is checking new deposit:", i);
-                // Attempt to get the deposit presigns. If an error occurs, it will be propagated out
-                // of the map, causing the collect call to return a Result::Err, effectively stopping
-                // the iteration and returning the error from your_function_name.
-                let deposit_presigns = verifier
+                // Attempt to get the deposit presigns.
+                verifier
                     .new_deposit_rpc(
                         start_utxo,
                         recovery_taproot_address.clone(),
@@ -154,29 +129,18 @@ impl Operator {
                         self.signer.address.as_unchecked().clone(),
                     )
                     .await
-                    .map_err(|e| {
-                        // Log the error or convert it to BridgeError if necessary
-                        tracing::error!("Error getting deposit presigns: {:?}", e);
-                        BridgeError::FailedToGetPresigns
-                    })?;
-                // tracing::debug!("deposit presigns: {:?}", deposit_presigns);
-                // tracing::info!("Verifier checked new deposit");
-                Ok(deposit_presigns)
             })
-            // Because we're using async blocks, we need to use `then` and `try_collect` to properly await and collect results
             .collect::<FuturesOrdered<_>>()
             .try_collect()
-            .await;
-        // Handle the result of the collect operation
-        let presigns_from_all_verifiers = presigns_from_all_verifiers?;
+            .await?;
 
         tracing::info!(
-            "presigns_from_all_verifiers done for txid: {:?}",
-            move_tx.tx.txid()
+            "presigns_from_all_verifiers done for TXID: {:?}",
+            move_tx.tx.compute_txid()
         );
         tracing::debug!("move_tx details: {:?}", move_tx);
 
-        // Add collected signatures to the move_tx
+        // Add collected signatures to the move_tx.
         let mut move_signatures = presigns_from_all_verifiers
             .iter()
             .map(|presign| presign.move_sign)
@@ -196,21 +160,21 @@ impl Operator {
         handle_taproot_witness_new(&mut move_tx, &witness_elements, 0, 0)?;
 
         let transaction = self.db.begin_transaction().await?;
+
+        self.rpc.send_raw_transaction(&move_tx.tx)?;
+
         self.db
             .insert_move_txid(
                 start_utxo,
                 recovery_taproot_address.clone(),
                 *evm_address,
-                move_tx.tx.txid(),
+                move_tx.tx.compute_txid(),
             )
             .await?;
-        self.rpc.send_raw_transaction(&move_tx.tx)?;
 
-        if let Err(e) = transaction.commit().await {
-            return Err(BridgeError::DatabaseError(e));
-        };
+        transaction.commit().await?;
 
-        Ok(move_tx.tx.txid())
+        Ok(move_tx.tx.compute_txid())
     }
 
     pub async fn new_withdrawal_direct(
@@ -223,50 +187,80 @@ impl Operator {
             "Operator is signing withdrawal tx with txid: {:?}",
             deposit_tx_info
         );
+
         let (bridge_address, _) = self.transaction_builder.generate_bridge_address()?;
+
         let dust_value = ScriptBuilder::anyone_can_spend_txout().value;
+
         let deposit_txout = TxOut {
-            value: Amount::from_sat(BRIDGE_AMOUNT_SATS - self.config.min_relay_fee) - dust_value,
+            value: Amount::from_sat(BRIDGE_AMOUNT_SATS - self.min_relay_fee) - dust_value,
             script_pubkey: bridge_address.script_pubkey(),
         };
+
         let deposit_utxo = OutPoint {
             txid: deposit_tx_info,
             vout: 0,
         };
+
         let mut withdrawal_tx = self.transaction_builder.create_withdraw_tx(
             deposit_utxo,
-            deposit_txout.clone(),
+            deposit_txout,
             &withdrawal_address,
         )?;
-        let signatures_from_verifiers: Result<Vec<_>, BridgeError> = self
+
+        let mut verifier_sigs: Vec<_> = self
             .verifier_connector
             .iter()
             .map(|verifier| async {
-                let sig = verifier
+                verifier
                     .new_withdrawal_direct_rpc(
                         idx,
                         deposit_tx_info,
                         withdrawal_address.as_unchecked().clone(),
                     )
-                    .await?;
-                Ok(sig)
+                    .await
             })
             .collect::<FuturesOrdered<_>>()
             .try_collect()
-            .await;
-        let mut verifier_sigs = signatures_from_verifiers?;
+            .await?;
+
         let sig = self
             .signer
             .sign_taproot_script_spend_tx_new(&mut withdrawal_tx, 0, 0)?;
         verifier_sigs.push(sig);
         verifier_sigs.reverse();
-        let mut witness_elements: Vec<&[u8]> = Vec::new();
-        for sig in verifier_sigs.iter() {
-            witness_elements.push(sig.as_ref());
-        }
+
+        let witness_elements: Vec<&[u8]> = verifier_sigs
+            .iter()
+            .map(|sig| sig.as_ref() as &[u8])
+            .collect();
+
         handle_taproot_witness_new(&mut withdrawal_tx, &witness_elements, 0, 0)?;
+
         let withdrawal_txid = self.rpc.send_raw_transaction(&withdrawal_tx.tx)?;
         Ok(withdrawal_txid)
+    }
+}
+
+#[async_trait]
+impl OperatorRpcServer for Operator {
+    async fn new_deposit_rpc(
+        &self,
+        start_utxo: OutPoint,
+        recovery_taproot_address: Address<NetworkUnchecked>,
+        evm_address: EVMAddress,
+    ) -> Result<Txid, BridgeError> {
+        self.new_deposit(start_utxo, &recovery_taproot_address, &evm_address)
+            .await
+    }
+
+    async fn new_withdrawal_direct_rpc(
+        &self,
+        idx: usize,
+        withdrawal_address: Address<NetworkUnchecked>,
+    ) -> Result<Txid, BridgeError> {
+        self.new_withdrawal_direct(idx, withdrawal_address.assume_checked())
+            .await
     }
 }
 

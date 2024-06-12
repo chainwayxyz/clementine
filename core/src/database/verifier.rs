@@ -3,28 +3,28 @@ use crate::config::BridgeConfig;
 use std::ops::{Deref, DerefMut};
 
 #[derive(Debug, Clone)]
-pub struct OperatorDB {
-    common_db: Database,
+pub struct VerifierDB {
+    database: Database,
 }
 
-impl OperatorDB {
+impl VerifierDB {
     pub async fn new(config: BridgeConfig) -> Self {
         Self {
-            common_db: Database::new(config).await.unwrap(),
+            database: Database::new(config).await.unwrap(),
         }
     }
 }
 
-impl Deref for OperatorDB {
+impl Deref for VerifierDB {
     type Target = Database;
 
     fn deref(&self) -> &Self::Target {
-        &self.common_db
+        &self.database
     }
 }
 
-impl DerefMut for OperatorDB {
+impl DerefMut for VerifierDB {
     fn deref_mut(&mut self) -> &mut Self::Target {
-        &mut self.common_db
+        &mut self.database
     }
 }

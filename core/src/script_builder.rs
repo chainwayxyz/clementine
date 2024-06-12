@@ -1,3 +1,8 @@
+//! # Script Builder
+//!
+//! Script builder module includes useful functions for building Bitcoin
+//! scripts.
+
 use crate::EVMAddress;
 use bitcoin::address::NetworkUnchecked;
 use bitcoin::blockdata::opcodes::all::OP_PUSHNUM_1;
@@ -15,6 +20,7 @@ pub struct ScriptBuilder {
 }
 
 impl ScriptBuilder {
+    /// Creates a new `ScriptBuilder`.
     pub fn new(verifiers_pks: Vec<XOnlyPublicKey>) -> Self {
         Self { verifiers_pks }
     }
@@ -22,7 +28,8 @@ impl ScriptBuilder {
     pub fn anyone_can_spend_txout() -> TxOut {
         let script = Builder::new().push_opcode(OP_PUSHNUM_1).into_script();
         let script_pubkey = script.to_p2wsh();
-        let value = script_pubkey.dust_value();
+        let value = script_pubkey.minimal_non_dust();
+
         TxOut {
             script_pubkey,
             value,
@@ -35,7 +42,8 @@ impl ScriptBuilder {
             .push_slice(evm_address.0)
             .into_script();
         let script_pubkey = script.to_p2wsh();
-        let value = script_pubkey.dust_value();
+        let value = script_pubkey.minimal_non_dust();
+
         TxOut {
             script_pubkey,
             value,
@@ -52,6 +60,7 @@ impl ScriptBuilder {
         builder = builder
             .push_x_only_key(&self.verifiers_pks[last_index])
             .push_opcode(OP_CHECKSIG);
+
         builder
     }
 
@@ -61,7 +70,7 @@ impl ScriptBuilder {
 
     pub fn create_deposit_script(&self, evm_address: &EVMAddress, amount: u64) -> ScriptBuf {
         let citrea: [u8; 6] = "citrea".as_bytes().try_into().unwrap();
-        // println!("citrea: {:?}", citrea);
+
         self.create_n_of_n_builder()
             .push_opcode(OP_FALSE)
             .push_opcode(OP_IF)
@@ -89,16 +98,20 @@ impl ScriptBuilder {
         inscribe_preimage_script_builder.into_script()
     }
 
-    // ATTENTION: If you want to spend a UTXO using timelock script, the condition is that
-    // # in the script < # in the sequence of the tx < # of blocks mined after UTXO appears on the chain
-
+    /// ATTENTION: If you want to spend a UTXO using timelock script, the
+    /// condition is that (`# in the script`) < (`# in the sequence of the tx`)
+    /// < (`# of blocks mined after UTXO`) appears on the chain.
     pub fn generate_timelock_script(
         actor_taproot_address: &Address<NetworkUnchecked>,
         block_count: u32,
     ) -> ScriptBuf {
-        let actor_script_pubkey = actor_taproot_address.payload().script_pubkey();
+        let actor_script_pubkey = actor_taproot_address
+            .clone()
+            .assume_checked()
+            .script_pubkey();
         let actor_extracted_xonly_pk =
             XOnlyPublicKey::from_slice(&actor_script_pubkey.as_bytes()[2..34]).unwrap();
+
         Builder::new()
             .push_int(block_count as i64)
             .push_opcode(OP_CSV)

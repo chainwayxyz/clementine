@@ -1,20 +1,20 @@
 //! # Deposit and Withdraw Flow Test
 //!
-//! This tests checks if basic deposit and withdraw operations are OK or not.
+//! This testss checks if basic deposit and withdraw operations are OK or not.
 
 use bitcoin::{Address, Amount};
-use bitcoincore_rpc::Auth;
 use clementine_circuits::constants::BRIDGE_AMOUNT_SATS;
 use clementine_core::actor::Actor;
-use clementine_core::db::common::Database;
+use clementine_core::create_test_database;
+use clementine_core::database::common::Database;
 use clementine_core::extended_rpc::ExtendedRpc;
 use clementine_core::mock::common;
 use clementine_core::script_builder::ScriptBuilder;
+use clementine_core::servers::*;
 use clementine_core::traits::rpc::OperatorRpcClient;
 use clementine_core::transaction_builder::{CreateTxOutputs, TransactionBuilder};
 use clementine_core::utils::handle_taproot_witness_new;
 use clementine_core::EVMAddress;
-use clementine_core::{create_test_database, start_operator_and_verifiers};
 use std::thread;
 
 #[tokio::test]
@@ -23,7 +23,7 @@ async fn test_flow_1() {
     let handle = thread::current()
         .name()
         .unwrap()
-        .split(":")
+        .split(':')
         .last()
         .unwrap()
         .to_owned();
@@ -37,20 +37,23 @@ async fn test_flow_1() {
 
     let rpc = ExtendedRpc::new(
         config.bitcoin_rpc_url.clone(),
-        Auth::UserPass(
-            config.bitcoin_rpc_user.clone(),
-            config.bitcoin_rpc_password.clone(),
-        ),
+        config.bitcoin_rpc_user.clone(),
+        config.bitcoin_rpc_password.clone(),
     );
 
     let (operator_client, _operator_handler, _results) =
-        start_operator_and_verifiers(config.clone()).await;
+        create_operator_and_verifiers(config.clone()).await;
     let secp = bitcoin::secp256k1::Secp256k1::new();
     let (xonly_pk, _) = config.secret_key.public_key(&secp).x_only_public_key();
     let taproot_address = Address::p2tr(&secp, xonly_pk, None, config.network);
-    let tx_builder = TransactionBuilder::new(config.verifiers_public_keys.clone(), config.clone());
+    let tx_builder = TransactionBuilder::new(
+        config.verifiers_public_keys.clone(),
+        config.network,
+        config.user_takes_after,
+        config.min_relay_fee,
+    );
 
-    let evm_addresses = vec![
+    let evm_addresses = [
         EVMAddress([1u8; 20]),
         EVMAddress([2u8; 20]),
         EVMAddress([3u8; 20]),
@@ -62,7 +65,7 @@ async fn test_flow_1() {
         .map(|evm_address| {
             tx_builder
                 .generate_deposit_address(
-                    &taproot_address.as_unchecked(),
+                    taproot_address.as_unchecked(),
                     evm_address,
                     BRIDGE_AMOUNT_SATS,
                 )
@@ -74,7 +77,7 @@ async fn test_flow_1() {
 
     for (idx, deposit_address) in deposit_addresses.iter().enumerate() {
         let deposit_utxo = rpc
-            .send_to_address(&deposit_address, BRIDGE_AMOUNT_SATS)
+            .send_to_address(deposit_address, BRIDGE_AMOUNT_SATS)
             .unwrap();
         tracing::debug!("Deposit UTXO #{}: {:#?}", idx, deposit_utxo);
 
@@ -102,13 +105,7 @@ async fn test_flow_1() {
     tracing::debug!("Withdrawal TXID: {:#?}", withdraw_txid);
 
     // get the tx details from rpc with txid
-    let tx = match rpc.get_raw_transaction(&withdraw_txid, None) {
-        Ok(c) => c,
-        Err(e) => {
-            assert!(false);
-            panic!("Transaction error: {:#?}", e);
-        }
-    };
+    let tx = rpc.get_raw_transaction(&withdraw_txid, None).unwrap();
     // tracing::debug!("Withdraw TXID raw transaction: {:#?}", tx);
 
     // check whether it has an output with the withdrawal address
@@ -119,9 +116,8 @@ async fn test_flow_1() {
     let anyone_can_spend_amount = ScriptBuilder::anyone_can_spend_txout().value;
 
     // check if the amounts match
-    let expected_withdraw_amount =
-        Amount::from_sat(BRIDGE_AMOUNT_SATS - 2 * config.min_relay_fee.clone())
-            - anyone_can_spend_amount * 2;
+    let expected_withdraw_amount = Amount::from_sat(BRIDGE_AMOUNT_SATS - 2 * config.min_relay_fee)
+        - anyone_can_spend_amount * 2;
     assert_eq!(expected_withdraw_amount, rpc_withdraw_amount);
 }
 
@@ -131,7 +127,7 @@ async fn test_flow_2() {
     let handle = thread::current()
         .name()
         .unwrap()
-        .split(":")
+        .split(':')
         .last()
         .unwrap()
         .to_owned();
@@ -145,14 +141,12 @@ async fn test_flow_2() {
 
     let rpc = ExtendedRpc::new(
         config.bitcoin_rpc_url.clone(),
-        Auth::UserPass(
-            config.bitcoin_rpc_user.clone(),
-            config.bitcoin_rpc_password.clone(),
-        ),
+        config.bitcoin_rpc_user.clone(),
+        config.bitcoin_rpc_password.clone(),
     );
 
     let (_operator_client, _operator_handler, _results) =
-        start_operator_and_verifiers(config.clone()).await;
+        create_operator_and_verifiers(config.clone()).await;
     let secp = bitcoin::secp256k1::Secp256k1::new();
     let (xonly_pk, _) = config.secret_key.public_key(&secp).x_only_public_key();
     let taproot_address = Address::p2tr(&secp, xonly_pk, None, config.network);
@@ -160,13 +154,18 @@ async fn test_flow_2() {
         "Taproot address script pubkey: {:#?}",
         taproot_address.script_pubkey()
     );
-    let tx_builder = TransactionBuilder::new(config.verifiers_public_keys.clone(), config.clone());
+    let tx_builder = TransactionBuilder::new(
+        config.verifiers_public_keys.clone(),
+        config.network,
+        config.user_takes_after,
+        config.min_relay_fee,
+    );
 
     let evm_address = EVMAddress([1u8; 20]);
 
     let deposit_address_info = tx_builder
         .generate_deposit_address(
-            &taproot_address.as_unchecked(),
+            taproot_address.as_unchecked(),
             &evm_address,
             BRIDGE_AMOUNT_SATS,
         )

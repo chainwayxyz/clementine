@@ -9,26 +9,20 @@ pub struct MerkleTree<const DEPTH: usize> {
     pub index: u32,
 }
 
-impl<const DEPTH: usize> Default for MerkleTree<DEPTH> {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
 impl<const DEPTH: usize> MerkleTree<DEPTH> {
+    /// Creates a new `MerkleTree`.
     pub fn new() -> Self {
         Self {
             data: {
-                let mut v = Vec::new();
-                for _ in 0..DEPTH + 1 {
-                    v.push(Vec::new());
-                }
-                v
+                (0..DEPTH + 1)
+                    .map(|_| Vec::<HashType>::new())
+                    .collect::<Vec<Vec<HashType>>>()
             },
             index: 0,
         }
     }
 
+    /// TODO: WTH is a "a"? Sry
     pub fn add(&mut self, a: HashType) {
         let mut current_index = self.index;
         let mut current_level_hash = a;
@@ -40,29 +34,36 @@ impl<const DEPTH: usize> MerkleTree<DEPTH> {
             } else {
                 (self.data[i][current_index as usize - 1], current_level_hash)
             };
+
             if i > trz as usize {
                 self.data[i][current_index as usize] = current_level_hash;
             } else {
                 self.data[i].push(current_level_hash);
             }
+
             current_level_hash = sha256_hash!(left, right);
             current_index /= 2;
         }
+
         self.index += 1;
     }
 
     pub fn path(&self, index: u32) -> [HashType; DEPTH] {
         let mut p = [EMPTYDATA; DEPTH];
         let mut i = index as usize;
+
         for level in 0..DEPTH {
             let s = if i % 2 == 0 { i + 1 } else { i - 1 };
+
             p[level] = if s < self.data[level].len() {
                 self.data[level][s]
             } else {
                 ZEROES[level]
             };
+
             i /= 2;
         }
+
         p
     }
 
@@ -75,38 +76,44 @@ impl<const DEPTH: usize> MerkleTree<DEPTH> {
     }
 
     /// TODO: Make this more efficient
+    /// Note: Clippy suggested to use this iterator over loop
     pub fn index_of(&self, a: HashType) -> Option<u32> {
-        for i in 0..self.index {
-            if self.data[0][i as usize] == a {
-                return Some(i);
-            }
-        }
-        None
+        (0..self.index).find(|&i| self.data[0][i as usize] == a)
     }
 
     pub fn to_incremental_tree(&self, index: u32) -> IncrementalMerkleTree<DEPTH> {
         let mut fst = [EMPTYDATA; DEPTH];
         let mut i = index as usize;
         let mut current_level_hash = self.data[0][i];
+
         for level in 0..DEPTH {
             if i % 2 == 0 {
                 fst[level] = current_level_hash;
             } else {
                 fst[level] = self.data[level][i - 1];
             }
+
             let (left, right) = if i % 2 == 0 {
                 (current_level_hash, ZEROES[level])
             } else {
                 (self.data[level][i - 1], current_level_hash)
             };
+
             current_level_hash = sha256_hash!(left, right);
             i /= 2;
         }
+
         IncrementalMerkleTree {
             filled_subtrees: fst,
             root: current_level_hash,
             index,
         }
+    }
+}
+
+impl<const DEPTH: usize> Default for MerkleTree<DEPTH> {
+    fn default() -> Self {
+        Self::new()
     }
 }
 
@@ -127,7 +134,7 @@ mod tests {
         ];
         assert_eq!(mt.root(), contract_empty_root);
         assert_eq!(mt.root(), imt.root);
-        let a = [1 as u8; 32];
+        let a = [1_u8; 32];
         mt.add(a);
         imt.add(a);
         let contract_insert_1_root: [u8; 32] = [

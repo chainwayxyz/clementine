@@ -4,33 +4,23 @@ use bitcoin::sighash::SighashCache;
 use bitcoin::taproot::LeafVersion;
 use bitcoin::{
     hashes::Hash,
-    secp256k1::{
-        ecdsa, schnorr, All, Keypair, Message, PublicKey, Secp256k1, SecretKey, XOnlyPublicKey,
-    },
+    secp256k1::{ecdsa, schnorr, All, Keypair, Message, Secp256k1, SecretKey, XOnlyPublicKey},
     Address, TapSighash, TapTweakHash,
 };
 use bitcoin::{TapLeafHash, TapNodeHash, TxOut};
 
 #[derive(Debug, Clone)]
 pub struct Actor {
-    pub secp: Secp256k1<All>,
+    secp: Secp256k1<All>,
     keypair: Keypair,
-    pub secret_key: SecretKey,
-    pub public_key: PublicKey,
+    secret_key: SecretKey,
     pub xonly_public_key: XOnlyPublicKey,
     pub address: Address,
-}
-
-impl Default for Actor {
-    fn default() -> Self {
-        unimplemented!("Actor::default is not implemented");
-    }
 }
 
 impl Actor {
     pub fn new(sk: SecretKey, network: bitcoin::Network) -> Self {
         let secp: Secp256k1<All> = Secp256k1::new();
-        let pk = sk.public_key(&secp);
         let keypair = Keypair::from_secret_key(&secp, &sk);
         let (xonly, _parity) = XOnlyPublicKey::from_keypair(&keypair);
         let address = Address::p2tr(&secp, xonly, None, network);
@@ -39,7 +29,6 @@ impl Actor {
             secp,
             keypair,
             secret_key: keypair.secret_key(),
-            public_key: pk,
             xonly_public_key: xonly,
             address,
         }
@@ -76,7 +65,7 @@ impl Actor {
     pub fn sign_taproot_script_spend_tx(
         &self,
         tx: &mut bitcoin::Transaction,
-        prevouts: &Vec<TxOut>,
+        prevouts: &[TxOut],
         spend_script: &bitcoin::Script,
         input_index: usize,
     ) -> Result<schnorr::Signature, BridgeError> {
@@ -136,7 +125,7 @@ impl Actor {
     pub fn sign_taproot_pubkey_spend_tx(
         &self,
         tx: &mut bitcoin::Transaction,
-        prevouts: &Vec<TxOut>,
+        prevouts: &[TxOut],
         input_index: usize,
     ) -> Result<schnorr::Signature, BridgeError> {
         let mut sighash_cache = SighashCache::new(tx);
