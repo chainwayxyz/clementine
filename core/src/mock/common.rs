@@ -94,4 +94,3 @@ mod tests {
         let res = super::find_consecutive_idle_ports(0, 5).unwrap();
         println!("{:?}", res);
     }
-}
