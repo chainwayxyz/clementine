@@ -9,6 +9,7 @@ use crate::{config::BridgeConfig, errors::BridgeError};
 use bitcoin::address::NetworkUnchecked;
 use bitcoin::{Address, OutPoint, Txid};
 use sqlx::{Pool, Postgres};
+use std::fs;
 use std::str::FromStr;
 
 #[derive(Clone, Debug)]
@@ -36,6 +37,81 @@ impl Database {
             Ok(c) => Ok(Self { connection: c }),
             Err(e) => Err(BridgeError::DatabaseError(e)),
         }
+    }
+
+    /// Closes database connection.
+    pub async fn close(&self) {
+        self.connection.close().await;
+    }
+
+    /// Drops the given database if it exists.
+    pub async fn drop_database(
+        config: BridgeConfig,
+        database_name: &str,
+    ) -> Result<(), BridgeError> {
+        let url = "postgresql://".to_owned()
+            + config.db_user.as_str()
+            + ":"
+            + config.db_password.as_str()
+            + "@"
+            + config.db_host.as_str();
+        let conn = sqlx::PgPool::connect(url.as_str()).await?;
+
+        let query = format!("DROP DATABASE IF EXISTS {database_name}");
+        sqlx::query(&query).execute(&conn).await?;
+
+        conn.close().await;
+
+        Ok(())
+    }
+
+    /// Creates a new database with given name. A new database connection should
+    /// be established after with `Database::new(config)` call after this.
+    ///
+    /// This will drop the target database if it exist.
+    ///
+    /// Returns a new `BridgeConfig` with updated database name. Use that
+    /// `BridgeConfig` to create a new connection, using `Database::new()`.
+    pub async fn create_database(
+        config: BridgeConfig,
+        database_name: &str,
+    ) -> Result<BridgeConfig, BridgeError> {
+        let url = "postgresql://".to_owned()
+            + config.db_user.as_str()
+            + ":"
+            + config.db_password.as_str()
+            + "@"
+            + config.db_host.as_str();
+        let conn = sqlx::PgPool::connect(url.as_str()).await?;
+
+        Database::drop_database(config.clone(), database_name).await?;
+
+        let query = format!(
+            "CREATE DATABASE {} WITH OWNER {}",
+            database_name, config.db_user
+        );
+        sqlx::query(&query).execute(&conn).await?;
+
+        conn.close().await;
+
+        let config = BridgeConfig {
+            db_name: database_name.to_string(),
+            ..config
+        };
+
+        Ok(config)
+    }
+
+    /// Runs given SQL file to database. Database connection must be established
+    /// before calling this function.
+    pub async fn run_sql_file(&self, sql_file: &str) -> Result<(), BridgeError> {
+        let contents = fs::read_to_string(sql_file).unwrap();
+
+        sqlx::raw_sql(contents.as_str())
+            .execute(&self.connection)
+            .await?;
+
+        Ok(())
     }
 
     /// Starts a database transaction.
@@ -169,9 +245,13 @@ impl Database {
 #[cfg(test)]
 mod tests {
     use super::Database;
-    use crate::{config::BridgeConfig, mock::common, EVMAddress};
+    use crate::{
+        config::BridgeConfig, create_test_database, create_test_database_with_thread_name,
+        mock::common, EVMAddress,
+    };
     use bitcoin::{Address, OutPoint, XOnlyPublicKey};
     use secp256k1::Secp256k1;
+    use std::thread;
 
     #[tokio::test]
     async fn invalid_connection() {
@@ -209,9 +289,28 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn add_deposit_transaction() {
+    async fn create_drop_database() {
+        let handle = thread::current()
+            .name()
+            .unwrap()
+            .split(":")
+            .last()
+            .unwrap()
+            .to_owned();
         let config = common::get_test_config("test_config.toml").unwrap();
+        let config = Database::create_database(config, &handle).await.unwrap();
+
+        // Do not save return result so that connection will drop immediately.
+        Database::new(config.clone()).await.unwrap();
+
+        Database::drop_database(config, &handle).await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn add_deposit_transaction() {
+        let config = create_test_database_with_thread_name!("test_config.toml");
         let database = Database::new(config.clone()).await.unwrap();
+
         let secp = Secp256k1::new();
         let xonly_public_key = XOnlyPublicKey::from_slice(&[
             0x78u8, 0x19u8, 0x90u8, 0xd7u8, 0xe2u8, 0x11u8, 0x8cu8, 0xc3u8, 0x61u8, 0xa9u8, 0x3au8,
