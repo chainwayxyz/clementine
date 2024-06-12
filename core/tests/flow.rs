@@ -1,6 +1,6 @@
 //! # Deposit and Withdraw Flow Test
 //!
-//! This tests checks if basic deposit and withdraw operations are OK or not.
+//! This testss checks if basic deposit and withdraw operations are OK or not.
 
 use bitcoin::{Address, Amount};
 use clementine_circuits::constants::BRIDGE_AMOUNT_SATS;
@@ -15,6 +15,8 @@ use clementine_core::traits::rpc::OperatorRpcClient;
 use clementine_core::transaction_builder::{CreateTxOutputs, TransactionBuilder};
 use clementine_core::utils::handle_taproot_witness_new;
 use clementine_core::EVMAddress;
+use clementine_core::{create_test_database, start_operator_and_verifiers};
+use std::thread;
 use std::thread;
 
 #[tokio::test]
