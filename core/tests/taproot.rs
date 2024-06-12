@@ -12,7 +12,7 @@ use clementine_core::utils::handle_taproot_witness_new;
 #[tokio::test]
 async fn run() {
     let secp = bitcoin::secp256k1::Secp256k1::new();
-    let config = get_test_config("test_config_flow.toml").unwrap();
+    let config = get_test_config("test_config_taproot.toml").unwrap();
 
     let (xonly_pk, _) = config.secret_key.public_key(&secp).x_only_public_key();
     println!("x only pub key: {:?}", xonly_pk);

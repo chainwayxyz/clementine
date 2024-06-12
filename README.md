@@ -63,18 +63,20 @@ export TEST_CONFIG=/path/to/configuration.toml
 
 ### Testing
 
-To run every test, in parallel:
+To run every test:
 
 ```sh
 cargo test
 ```
 
-Some tests are ignored because they have reason(s) to not run with other tests
-in parallel. These tests should be run seperately:
+User's environment configuration can be different than hard coded test
+configuration file. In that case, user can specify an external configuration
+file that overwrites test configurations some fields, like database user and
+password. To do that, set `TEST_CONFIG` environment variable with the path of
+configuration file:
 
 ```sh
-# Flow test as example:
-cargo test --test flow -- test_flow_1 --include-ignored  --show-output --exact
+TEST_CONFIG=/path/to/user.toml cargo test
 ```
 
 ## License
