@@ -28,7 +28,7 @@ impl ScriptBuilder {
     pub fn anyone_can_spend_txout() -> TxOut {
         let script = Builder::new().push_opcode(OP_PUSHNUM_1).into_script();
         let script_pubkey = script.to_p2wsh();
-        let value = script_pubkey.dust_value();
+        let value = script_pubkey.minimal_non_dust();
 
         TxOut {
             script_pubkey,
@@ -42,7 +42,7 @@ impl ScriptBuilder {
             .push_slice(evm_address.0)
             .into_script();
         let script_pubkey = script.to_p2wsh();
-        let value = script_pubkey.dust_value();
+        let value = script_pubkey.minimal_non_dust();
 
         TxOut {
             script_pubkey,
@@ -105,7 +105,10 @@ impl ScriptBuilder {
         actor_taproot_address: &Address<NetworkUnchecked>,
         block_count: u32,
     ) -> ScriptBuf {
-        let actor_script_pubkey = actor_taproot_address.payload().script_pubkey();
+        let actor_script_pubkey = actor_taproot_address
+            .clone()
+            .assume_checked()
+            .script_pubkey();
         let actor_extracted_xonly_pk =
             XOnlyPublicKey::from_slice(&actor_script_pubkey.as_bytes()[2..34]).unwrap();
 

@@ -87,7 +87,7 @@ impl Verifier {
             evm_address,
             recovery_taproot_address,
         )?;
-        let move_txid = move_tx.tx.txid();
+        let move_txid = move_tx.tx.compute_txid();
 
         tracing::info!(
             "Verifier with public key {:?} is signing {:?}.",

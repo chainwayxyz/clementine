@@ -28,13 +28,20 @@ pub async fn create_verifier_server(
         config.bitcoin_rpc_password.clone(),
     );
 
-    let server = Server::builder()
+    let server = match Server::builder()
         .build(format!("{}:{}", config.host, config.port))
-        .await?;
+        .await
+    {
+        Ok(s) => s,
+        Err(e) => return Err(BridgeError::ServerError(e)),
+    };
 
     let verifier = Verifier::new(rpc, config).await?;
 
-    let addr = server.local_addr()?;
+    let addr = match server.local_addr() {
+        Ok(a) => a,
+        Err(e) => return Err(BridgeError::ServerError(e)),
+    };
     let handle = server.start(verifier.into_rpc());
 
     tracing::info!("Verifier server started with address: {}", addr);
@@ -57,15 +64,22 @@ pub async fn create_operator_server(
         .clone()
         .iter()
         .map(|verifier| HttpClientBuilder::default().build(verifier))
-        .collect::<Result<Vec<HttpClient>, jsonrpsee::core::Error>>()?;
+        .collect::<Result<Vec<HttpClient>, jsonrpsee::core::client::Error>>()?;
 
     let operator = Operator::new(config.clone(), rpc.clone(), verifiers).await?;
 
-    let server = Server::builder()
+    let server = match Server::builder()
         .build(format!("{}:{}", config.host, config.port))
-        .await?;
+        .await
+    {
+        Ok(s) => s,
+        Err(e) => return Err(BridgeError::ServerError(e)),
+    };
 
-    let addr = server.local_addr()?;
+    let addr = match server.local_addr() {
+        Ok(s) => s,
+        Err(e) => return Err(BridgeError::ServerError(e)),
+    };
     let handle = server.start(operator.into_rpc());
 
     tracing::info!("Operator server started with address: {}", addr);
