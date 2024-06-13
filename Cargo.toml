@@ -4,7 +4,7 @@ members = ["core", "circuits"]
 
 [workspace.dependencies]
 bitcoin = "0.32.0"
-bitcoincore-rpc = { git = "https://github.com/rust-bitcoin/rust-bitcoincore-rpc.git" }
+bitcoincore-rpc = "0.19.0"
 hex = "0.4.3"
 lazy_static = { version = "1.4.0", default-features = false }
 sha2 = { version = "=0.10.8", default-features = false }
