@@ -7,20 +7,24 @@ use crate::EVMAddress;
 use bitcoin::Address;
 use bitcoin::OutPoint;
 use bitcoin::XOnlyPublicKey;
+use bitcoin_mock_rpc::RpcApiWrapper;
 use clementine_circuits::constants::BRIDGE_AMOUNT_SATS;
 use secp256k1::SecretKey;
 
 #[derive(Debug)]
-pub struct User {
-    rpc: ExtendedRpc,
+pub struct User<R> {
+    rpc: ExtendedRpc<R>,
     signer: Actor,
     transaction_builder: TransactionBuilder,
 }
 
-impl User {
+impl<R> User<R>
+where
+    R: RpcApiWrapper,
+{
     /// Creates a new `User`.
     pub fn new(
-        rpc: ExtendedRpc,
+        rpc: ExtendedRpc<R>,
         all_xonly_pks: Vec<XOnlyPublicKey>,
         sk: SecretKey,
         config: BridgeConfig,

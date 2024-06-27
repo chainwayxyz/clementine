@@ -35,14 +35,14 @@ async fn test_flow_1() {
         );
     }
 
-    let rpc = ExtendedRpc::new(
+    let rpc = ExtendedRpc::<bitcoin_mock_rpc::Client>::new(
         config.bitcoin_rpc_url.clone(),
         config.bitcoin_rpc_user.clone(),
         config.bitcoin_rpc_password.clone(),
     );
 
     let (operator_client, _operator_handler, _results) =
-        create_operator_and_verifiers(config.clone()).await;
+        create_operator_and_verifiers(config.clone(), rpc.clone()).await;
     let secp = bitcoin::secp256k1::Secp256k1::new();
     let (xonly_pk, _) = config.secret_key.public_key(&secp).x_only_public_key();
     let taproot_address = Address::p2tr(&secp, xonly_pk, None, config.network);
@@ -52,6 +52,8 @@ async fn test_flow_1() {
         config.user_takes_after,
         config.min_relay_fee,
     );
+
+    rpc.generate_to_address(101, &taproot_address).unwrap();
 
     let evm_addresses = [
         EVMAddress([1u8; 20]),
@@ -139,14 +141,14 @@ async fn test_flow_2() {
         );
     }
 
-    let rpc = ExtendedRpc::new(
+    let rpc = ExtendedRpc::<bitcoin_mock_rpc::Client>::new(
         config.bitcoin_rpc_url.clone(),
         config.bitcoin_rpc_user.clone(),
         config.bitcoin_rpc_password.clone(),
     );
 
     let (_operator_client, _operator_handler, _results) =
-        create_operator_and_verifiers(config.clone()).await;
+        create_operator_and_verifiers(config.clone(), rpc.clone()).await;
     let secp = bitcoin::secp256k1::Secp256k1::new();
     let (xonly_pk, _) = config.secret_key.public_key(&secp).x_only_public_key();
     let taproot_address = Address::p2tr(&secp, xonly_pk, None, config.network);
@@ -160,6 +162,8 @@ async fn test_flow_2() {
         config.user_takes_after,
         config.min_relay_fee,
     );
+
+    rpc.generate_to_address(101, &taproot_address).unwrap();
 
     let evm_address = EVMAddress([1u8; 20]);
 

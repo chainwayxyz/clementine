@@ -13,21 +13,23 @@ use bitcoin::ScriptBuf;
 use bitcoin::Transaction;
 use bitcoin::TxOut;
 use bitcoin::Work;
+use bitcoin_mock_rpc::RpcApiWrapper;
 use bitcoincore_rpc::Auth;
-use bitcoincore_rpc::Client;
-use bitcoincore_rpc::RpcApi;
 use clementine_circuits::constants::BRIDGE_AMOUNT_SATS;
 use crypto_bigint::Encoding;
 use crypto_bigint::U256;
 
 #[derive(Debug)]
-pub struct ExtendedRpc {
+pub struct ExtendedRpc<R> {
     url: String,
     auth: Auth,
-    rpc: Client,
+    rpc: R,
 }
 
-impl ExtendedRpc {
+impl<R> ExtendedRpc<R>
+where
+    R: RpcApiWrapper,
+{
     /// Connects to Bitcoin RPC and returns a new `ExtendedRpc`.
     ///
     /// # Panics
@@ -36,7 +38,7 @@ impl ExtendedRpc {
     pub fn new(url: String, user: String, password: String) -> Self {
         let auth = Auth::UserPass(user, password);
 
-        let rpc = Client::new(&url, auth.clone())
+        let rpc = R::new(&url, auth.clone())
             .unwrap_or_else(|e| panic!("Failed to connect to Bitcoin RPC: {}", e));
 
         Self { url, auth, rpc }
@@ -68,10 +70,10 @@ impl ExtendedRpc {
         Ok(expected_output == current_output)
     }
 
-    pub fn is_utxo_spent(&self, _outpoint: &OutPoint) -> Result<bool, BridgeError> {
+    pub fn is_utxo_spent(&self, outpoint: &OutPoint) -> Result<bool, BridgeError> {
         let res = self
             .rpc
-            .get_tx_out(&_outpoint.txid, _outpoint.vout, Some(true))?;
+            .get_tx_out(&outpoint.txid, outpoint.vout, Some(true))?;
 
         Ok(res.is_none())
     }
@@ -281,11 +283,25 @@ impl ExtendedRpc {
 
         Ok(())
     }
+
+    /// Generates bitcoins to specified address.
+    pub fn generate_to_address(
+        &self,
+        block_num: u64,
+        address: &Address,
+    ) -> Result<(), BridgeError> {
+        self.rpc.generate_to_address(block_num, address)?;
+
+        Ok(())
+    }
 }
 
-impl Clone for ExtendedRpc {
+impl<R> Clone for ExtendedRpc<R>
+where
+    R: RpcApiWrapper,
+{
     fn clone(&self) -> Self {
-        let new_client = Client::new(&self.url, self.auth.clone())
+        let new_client = R::new(&self.url, self.auth.clone())
             .unwrap_or_else(|e| panic!("Failed to clone Bitcoin RPC client: {}", e));
 
         Self {
@@ -296,7 +312,10 @@ impl Clone for ExtendedRpc {
     }
 }
 
-impl Default for ExtendedRpc {
+impl<R> Default for ExtendedRpc<R>
+where
+    R: RpcApiWrapper,
+{
     fn default() -> Self {
         Self::new(
             "http://localhost:18443".to_string(),
