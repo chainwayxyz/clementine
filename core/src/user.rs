@@ -34,8 +34,6 @@ where
         let transaction_builder = TransactionBuilder::new(
             all_xonly_pks.clone(),
             config.network,
-            config.user_takes_after,
-            config.min_relay_fee,
         );
 
         User {

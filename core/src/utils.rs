@@ -13,6 +13,11 @@ use hex;
 use sha2::{Digest, Sha256};
 use std::borrow::BorrowMut;
 
+lazy_static::lazy_static! {
+	/// Global secp context.
+	pub static ref SECP: secp256k1::Secp256k1<secp256k1::All> = secp256k1::Secp256k1::new();
+}
+
 pub fn parse_hex_to_btc_tx(
     tx_hex: &str,
 ) -> Result<bitcoin::blockdata::transaction::Transaction, bitcoin::consensus::encode::Error> {

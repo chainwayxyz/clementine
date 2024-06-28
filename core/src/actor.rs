@@ -1,17 +1,17 @@
 use crate::errors::BridgeError;
 use crate::transaction_builder::CreateTxOutputs;
+use crate::utils;
 use bitcoin::sighash::SighashCache;
 use bitcoin::taproot::LeafVersion;
 use bitcoin::{
     hashes::Hash,
-    secp256k1::{ecdsa, schnorr, All, Keypair, Message, Secp256k1, SecretKey, XOnlyPublicKey},
+    secp256k1::{ecdsa, schnorr, Keypair, Message, SecretKey, XOnlyPublicKey},
     Address, TapSighash, TapTweakHash,
 };
 use bitcoin::{TapLeafHash, TapNodeHash, TapSighashType, TxOut};
 
 #[derive(Debug, Clone)]
 pub struct Actor {
-    secp: Secp256k1<All>,
     keypair: Keypair,
     secret_key: SecretKey,
     pub xonly_public_key: XOnlyPublicKey,
@@ -20,13 +20,11 @@ pub struct Actor {
 
 impl Actor {
     pub fn new(sk: SecretKey, network: bitcoin::Network) -> Self {
-        let secp: Secp256k1<All> = Secp256k1::new();
-        let keypair = Keypair::from_secret_key(&secp, &sk);
+        let keypair = Keypair::from_secret_key(&utils::SECP, &sk);
         let (xonly, _parity) = XOnlyPublicKey::from_keypair(&keypair);
-        let address = Address::p2tr(&secp, xonly, None, network);
+        let address = Address::p2tr(&utils::SECP, xonly, None, network);
 
         Actor {
-            secp,
             keypair,
             secret_key: keypair.secret_key(),
             xonly_public_key: xonly,
@@ -39,24 +37,24 @@ impl Actor {
         sighash: TapSighash,
         merkle_root: Option<TapNodeHash>,
     ) -> Result<schnorr::Signature, BridgeError> {
-        Ok(self.secp.sign_schnorr(
+        Ok(utils::SECP.sign_schnorr(
             &Message::from_digest_slice(sighash.as_byte_array()).expect("should be hash"),
             &self.keypair.add_xonly_tweak(
-                &self.secp,
+                &utils::SECP,
                 &TapTweakHash::from_key_and_tweak(self.xonly_public_key, merkle_root).to_scalar(),
             )?,
         ))
     }
 
     pub fn sign(&self, sighash: TapSighash) -> schnorr::Signature {
-        self.secp.sign_schnorr(
+        utils::SECP.sign_schnorr(
             &Message::from_digest_slice(sighash.as_byte_array()).expect("should be hash"),
             &self.keypair,
         )
     }
 
     pub fn sign_ecdsa(&self, data: [u8; 32]) -> ecdsa::Signature {
-        self.secp.sign_ecdsa(
+        utils::SECP.sign_ecdsa(
             &Message::from_digest_slice(&data).expect("should be hash"),
             &self.secret_key,
         )

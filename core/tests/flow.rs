@@ -46,8 +46,6 @@ async fn test_flow_1() {
     let tx_builder = TransactionBuilder::new(
         config.verifiers_public_keys.clone(),
         config.network,
-        config.user_takes_after,
-        config.min_relay_fee,
     );
 
     let evm_addresses = [
@@ -151,8 +149,6 @@ async fn test_flow_2() {
     let tx_builder = TransactionBuilder::new(
         config.verifiers_public_keys.clone(),
         config.network,
-        config.user_takes_after,
-        config.min_relay_fee,
     );
 
     let evm_address = EVMAddress([1u8; 20]);
