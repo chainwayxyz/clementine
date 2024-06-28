@@ -423,6 +423,42 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "340e09e8399c7bd8912f495af6aa58bea0c9214773417ffaa8f6460f93aaee56"
 
 [[package]]
+name = "bitcoin-mock-rpc"
+version = "0.1.0"
+source = "git+https://github.com/chainwayxyz/bitcoin-mock-rpc?branch=async-support#bc22f84b44a20d823f17a1650929398e1721ea5e"
+dependencies = [
+ "bitcoin",
+ "bitcoin-script",
+ "bitcoin-scriptexec",
+ "bitcoincore-rpc",
+ "secp256k1",
+ "serde",
+ "serde_json",
+ "thiserror",
+]
+
+[[package]]
+name = "bitcoin-script"
+version = "0.2.0"
+source = "git+https://github.com/Bitcoin-Wildlife-Sanctuary/rust-bitcoin-script#2a38ec58d19551588d53e37676b105ec73c51565"
+dependencies = [
+ "bitcoin",
+ "hex",
+ "proc-macro-error",
+ "proc-macro2",
+ "quote",
+]
+
+[[package]]
+name = "bitcoin-scriptexec"
+version = "0.0.0"
+source = "git+https://github.com/Bitcoin-Wildlife-Sanctuary/rust-bitcoin-scriptexec#7e6f4d6ecd239588e9f6c2d4bd81fc11522a0ebf"
+dependencies = [
+ "bitcoin",
+ "lazy_static",
+]
+
+[[package]]
 name = "bitcoin-units"
 version = "0.1.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -639,6 +675,7 @@ version = "0.1.0"
 dependencies = [
  "async-trait",
  "bitcoin",
+ "bitcoin-mock-rpc",
  "bitcoincore-rpc",
  "byteorder",
  "clap",
@@ -1797,6 +1834,30 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "6d37c51ca738a55da99dc0c4a34860fd675453b8b36209178c2249bb13651284"
 dependencies = [
  "toml_edit 0.21.1",
+]
+
+[[package]]
+name = "proc-macro-error"
+version = "1.0.4"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "da25490ff9892aab3fcf7c36f08cfb902dd3e71ca0f9f9517bea02a73a5ce38c"
+dependencies = [
+ "proc-macro-error-attr",
+ "proc-macro2",
+ "quote",
+ "syn 1.0.109",
+ "version_check",
+]
+
+[[package]]
+name = "proc-macro-error-attr"
+version = "1.0.4"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "a1be40180e52ecc98ad80b184934baf3d0d29f979574e439af5a55274b35f869"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "version_check",
 ]
 
 [[package]]

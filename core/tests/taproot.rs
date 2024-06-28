@@ -37,7 +37,7 @@ async fn run() {
         .unwrap();
     println!("q:          {:?}", hex::encode(q.serialize()));
 
-    let rpc = ExtendedRpc::new(
+    let rpc: ExtendedRpc<_> = ExtendedRpc::<bitcoin_mock_rpc::Client>::new(
         config.bitcoin_rpc_url.clone(),
         config.bitcoin_rpc_user.clone(),
         config.bitcoin_rpc_password.clone(),
