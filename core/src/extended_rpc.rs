@@ -294,6 +294,13 @@ where
 
         Ok(())
     }
+
+    /// Requests a new Bitcoin address via an RPC call.
+    pub fn get_new_address(&self) -> Result<Address, BridgeError> {
+        let address = self.rpc.get_new_address(None, None);
+
+        Ok(address?.assume_checked())
+    }
 }
 
 impl<R> Clone for ExtendedRpc<R>
