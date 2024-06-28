@@ -270,6 +270,7 @@ where
         recovery_taproot_address: &Address<NetworkUnchecked>,
         evm_address: &EVMAddress,
         amount_sats: u64,
+        user_takes_after: u32,
         confirmation_block_count: u32,
     ) -> Result<(), BridgeError> {
         if self.confirmation_blocks(&outpoint.txid)? < confirmation_block_count {
@@ -280,6 +281,7 @@ where
             recovery_taproot_address,
             evm_address,
             BRIDGE_AMOUNT_SATS,
+            user_takes_after,
         )?;
 
         if !self.check_utxo_address_and_amount(
