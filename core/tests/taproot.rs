@@ -50,7 +50,6 @@ async fn run() {
         .into_script();
 
     let (taproot_address, taproot_spend_info) = TransactionBuilder::create_taproot_address(
-        &secp,
         vec![to_pay_script.clone()],
         config.network,
     )

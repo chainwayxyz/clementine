@@ -45,8 +45,6 @@ impl Verifier {
         let transaction_builder = TransactionBuilder::new(
             config.verifiers_public_keys.clone(),
             config.network,
-            config.user_takes_after,
-            config.min_relay_fee,
         );
 
         Ok(Verifier {

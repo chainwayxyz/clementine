@@ -13,8 +13,6 @@ fn main() {
     let tx_builder = TransactionBuilder::new(
         config.verifiers_public_keys.clone(),
         config.network,
-        config.user_takes_after,
-        config.min_relay_fee,
     );
     let evm_address: EVMAddress = EVMAddress([1u8; 20]);
     let deposit_address = tx_builder
