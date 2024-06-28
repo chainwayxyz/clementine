@@ -15,6 +15,7 @@ pub struct User {
     rpc: ExtendedRpc,
     signer: Actor,
     transaction_builder: TransactionBuilder,
+    user_takes_after: u32,
 }
 
 impl User {
@@ -27,15 +28,13 @@ impl User {
     ) -> Self {
         let signer = Actor::new(sk, config.network);
 
-        let transaction_builder = TransactionBuilder::new(
-            all_xonly_pks.clone(),
-            config.network,
-        );
+        let transaction_builder = TransactionBuilder::new(all_xonly_pks.clone(), config.network);
 
         User {
             rpc,
             signer,
             transaction_builder,
+            user_takes_after: config.user_takes_after,
         }
     }
 
@@ -47,6 +46,7 @@ impl User {
             self.signer.address.as_unchecked(),
             &evm_address,
             BRIDGE_AMOUNT_SATS,
+            self.user_takes_after,
         )?;
 
         let deposit_utxo = self
@@ -61,6 +61,7 @@ impl User {
             self.signer.address.as_unchecked(),
             &evm_address,
             BRIDGE_AMOUNT_SATS,
+            self.user_takes_after,
         )?;
 
         Ok(deposit_address)

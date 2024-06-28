@@ -11,7 +11,6 @@ use bitcoin::{
 };
 use clementine_circuits::constants::BRIDGE_AMOUNT_SATS;
 use secp256k1::XOnlyPublicKey;
-use std::str::FromStr;
 
 #[derive(Debug, Clone)]
 pub struct CreateTxOutputs {
@@ -45,18 +44,6 @@ impl TransactionBuilder {
         }
     }
 
-    /// This is an unspendable pubkey.
-    ///
-    /// See https://github.com/bitcoin/bips/blob/master/bip-0341.mediawiki#constructing-and-spending-taproot-outputs
-    fn get_internal_key() -> Result<XOnlyPublicKey, BridgeError> {
-        match XOnlyPublicKey::from_str(
-            "93c7378d96518a75448821c4f7c8f4bae7ce60f804d03d1f0628dd5dd0f5de51",
-        ) {
-            Ok(pk) => Ok(pk),
-            Err(_) => Err(BridgeError::TaprootScriptError),
-        }
-    }
-
     /// Generates a deposit address for the user. N-of-N or user takes after
     /// timelock script can be used to spend the funds.
     pub fn generate_deposit_address(
@@ -64,24 +51,23 @@ impl TransactionBuilder {
         recovery_taproot_address: &Address<NetworkUnchecked>,
         user_evm_address: &EVMAddress,
         amount: u64,
+        user_takes_after: u32,
     ) -> Result<CreateAddressOutputs, BridgeError> {
         let deposit_script = self
             .script_builder
             .create_deposit_script(user_evm_address, amount);
 
-        let script_timelock = ScriptBuilder::generate_timelock_script(
-            recovery_taproot_address,
-            200, // TODO: Take from parameter
-        );
+        let script_timelock =
+            ScriptBuilder::generate_timelock_script(recovery_taproot_address, user_takes_after);
 
         let taproot = TaprootBuilder::new()
             .add_leaf(1, deposit_script.clone())?
             .add_leaf(1, script_timelock.clone())?;
-        let tree_info = taproot.finalize(&utils::SECP, TransactionBuilder::get_internal_key()?)?;
+        let tree_info = taproot.finalize(&utils::SECP, *utils::UNSPENDABLE_XONLY_PUBKEY)?;
 
         let address = Address::p2tr(
             &utils::SECP,
-            TransactionBuilder::get_internal_key()?,
+            *utils::UNSPENDABLE_XONLY_PUBKEY,
             tree_info.merkle_root(),
             self.network,
         );
@@ -94,11 +80,11 @@ impl TransactionBuilder {
         let script_n_of_n = self.script_builder.generate_script_n_of_n();
 
         let taproot = TaprootBuilder::new().add_leaf(0, script_n_of_n.clone())?;
-        let tree_info = taproot.finalize(&utils::SECP, TransactionBuilder::get_internal_key()?)?;
+        let tree_info = taproot.finalize(&utils::SECP, *utils::UNSPENDABLE_XONLY_PUBKEY)?;
 
         let address = Address::p2tr(
             &utils::SECP,
-            TransactionBuilder::get_internal_key()?,
+            *utils::UNSPENDABLE_XONLY_PUBKEY,
             tree_info.merkle_root(),
             self.network,
         );
@@ -113,6 +99,7 @@ impl TransactionBuilder {
         deposit_utxo: OutPoint,
         evm_address: &EVMAddress,
         recovery_taproot_address: &Address<NetworkUnchecked>,
+        deposit_user_takes_after: u32,
     ) -> Result<CreateTxOutputs, BridgeError> {
         let anyone_can_spend_txout = ScriptBuilder::anyone_can_spend_txout();
 
@@ -121,6 +108,7 @@ impl TransactionBuilder {
             recovery_taproot_address,
             evm_address,
             BRIDGE_AMOUNT_SATS,
+            deposit_user_takes_after,
         )?;
 
         let tx_ins = TransactionBuilder::create_tx_ins(vec![deposit_utxo]);
@@ -255,11 +243,15 @@ impl TransactionBuilder {
             TaprootBuilder::new().add_leaf(0, scripts[0].clone())?
         };
 
-        let internal_key = TransactionBuilder::get_internal_key()?;
-        let tree_info = taproot_builder.finalize(&utils::SECP, internal_key)?;
+        let tree_info = taproot_builder.finalize(&utils::SECP, *utils::UNSPENDABLE_XONLY_PUBKEY)?;
 
         Ok((
-            Address::p2tr(&utils::SECP, internal_key, tree_info.merkle_root(), network),
+            Address::p2tr(
+                &utils::SECP,
+                *utils::UNSPENDABLE_XONLY_PUBKEY,
+                tree_info.merkle_root(),
+                network,
+            ),
             tree_info,
         ))
     }
@@ -327,6 +319,7 @@ mod tests {
                 recovery_taproot_address.as_unchecked(),
                 &crate::EVMAddress(evm_address),
                 10_000,
+                200,
             )
             .unwrap();
         println!("deposit_address: {:?}", deposit_address.0);

@@ -32,6 +32,7 @@ pub struct Operator {
     verifier_connector: Vec<jsonrpsee::http_client::HttpClient>,
     confirmation_treshold: u32,
     min_relay_fee: u64,
+    user_takes_after: u32,
 }
 
 impl Operator {
@@ -48,10 +49,8 @@ impl Operator {
             return Err(BridgeError::InvalidOperatorKey);
         }
 
-        let transaction_builder = TransactionBuilder::new(
-            config.verifiers_public_keys.clone(),
-            config.network,
-        );
+        let transaction_builder =
+            TransactionBuilder::new(config.verifiers_public_keys.clone(), config.network);
 
         let db = OperatorDB::new(config.clone()).await;
 
@@ -63,6 +62,7 @@ impl Operator {
             verifier_connector: verifiers,
             confirmation_treshold: config.confirmation_treshold,
             min_relay_fee: config.min_relay_fee,
+            user_takes_after: config.user_takes_after,
         })
     }
 
@@ -102,6 +102,7 @@ impl Operator {
             recovery_taproot_address,
             evm_address,
             BRIDGE_AMOUNT_SATS,
+            self.user_takes_after,
             self.confirmation_treshold,
         )?;
 
@@ -111,6 +112,7 @@ impl Operator {
             start_utxo,
             evm_address,
             recovery_taproot_address,
+            self.user_takes_after,
         )?;
 
         let presigns_from_all_verifiers: Vec<_> = self
