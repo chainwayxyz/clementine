@@ -2,7 +2,7 @@
 //!
 //! This testss checks if basic deposit and withdraw operations are OK or not.
 
-use bitcoin::{Address, Amount};
+use bitcoin::Amount;
 use clementine_circuits::constants::BRIDGE_AMOUNT_SATS;
 use clementine_core::actor::Actor;
 use clementine_core::create_test_database;
@@ -41,19 +41,18 @@ async fn test_flow_1() {
         config.bitcoin_rpc_password.clone(),
     );
 
+    let taproot_address = rpc.get_new_address().unwrap();
+    rpc.generate_to_address(101, &taproot_address).unwrap();
+
     let (operator_client, _operator_handler, _results) =
         create_operator_and_verifiers(config.clone(), rpc.clone()).await;
-    let secp = bitcoin::secp256k1::Secp256k1::new();
-    let (xonly_pk, _) = config.secret_key.public_key(&secp).x_only_public_key();
-    let taproot_address = Address::p2tr(&secp, xonly_pk, None, config.network);
+
     let tx_builder = TransactionBuilder::new(
         config.verifiers_public_keys.clone(),
         config.network,
         config.user_takes_after,
         config.min_relay_fee,
     );
-
-    rpc.generate_to_address(101, &taproot_address).unwrap();
 
     let evm_addresses = [
         EVMAddress([1u8; 20]),
@@ -96,7 +95,7 @@ async fn test_flow_1() {
         tracing::debug!("Output #{}: {:#?}", idx, output);
     }
 
-    let withdrawal_address = Address::p2tr(&secp, xonly_pk, None, config.network);
+    let withdrawal_address = rpc.get_new_address().unwrap();
 
     // This index is 3 since when testing the unit tests complete first and the index=1,2 is not sane
     let withdraw_txid = operator_client
@@ -147,23 +146,18 @@ async fn test_flow_2() {
         config.bitcoin_rpc_password.clone(),
     );
 
+    let taproot_address = rpc.get_new_address().unwrap();
+    rpc.generate_to_address(101, &taproot_address).unwrap();
+
     let (_operator_client, _operator_handler, _results) =
         create_operator_and_verifiers(config.clone(), rpc.clone()).await;
-    let secp = bitcoin::secp256k1::Secp256k1::new();
-    let (xonly_pk, _) = config.secret_key.public_key(&secp).x_only_public_key();
-    let taproot_address = Address::p2tr(&secp, xonly_pk, None, config.network);
-    tracing::debug!(
-        "Taproot address script pubkey: {:#?}",
-        taproot_address.script_pubkey()
-    );
+
     let tx_builder = TransactionBuilder::new(
         config.verifiers_public_keys.clone(),
         config.network,
         config.user_takes_after,
         config.min_relay_fee,
     );
-
-    rpc.generate_to_address(101, &taproot_address).unwrap();
 
     let evm_address = EVMAddress([1u8; 20]);
 
