@@ -46,12 +46,7 @@ async fn test_flow_1() {
     let secp = bitcoin::secp256k1::Secp256k1::new();
     let (xonly_pk, _) = config.secret_key.public_key(&secp).x_only_public_key();
     let taproot_address = Address::p2tr(&secp, xonly_pk, None, config.network);
-    let tx_builder = TransactionBuilder::new(
-        config.verifiers_public_keys.clone(),
-        config.network,
-        config.user_takes_after,
-        config.min_relay_fee,
-    );
+    let tx_builder = TransactionBuilder::new(config.verifiers_public_keys.clone(), config.network);
 
     let evm_addresses = [
         EVMAddress([1u8; 20]),
@@ -68,6 +63,7 @@ async fn test_flow_1() {
                     taproot_address.as_unchecked(),
                     evm_address,
                     BRIDGE_AMOUNT_SATS,
+                    config.user_takes_after,
                 )
                 .unwrap()
                 .0
@@ -154,12 +150,7 @@ async fn test_flow_2() {
         "Taproot address script pubkey: {:#?}",
         taproot_address.script_pubkey()
     );
-    let tx_builder = TransactionBuilder::new(
-        config.verifiers_public_keys.clone(),
-        config.network,
-        config.user_takes_after,
-        config.min_relay_fee,
-    );
+    let tx_builder = TransactionBuilder::new(config.verifiers_public_keys.clone(), config.network);
 
     let evm_address = EVMAddress([1u8; 20]);
 
@@ -168,6 +159,7 @@ async fn test_flow_2() {
             taproot_address.as_unchecked(),
             &evm_address,
             BRIDGE_AMOUNT_SATS,
+            config.user_takes_after,
         )
         .unwrap();
 

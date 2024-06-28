@@ -9,9 +9,32 @@ use bitcoin::taproot::LeafVersion;
 use bitcoin::taproot::TaprootSpendInfo;
 use bitcoin::Amount;
 use bitcoin::ScriptBuf;
+use bitcoin::XOnlyPublicKey;
 use hex;
 use sha2::{Digest, Sha256};
 use std::borrow::BorrowMut;
+use std::str::FromStr;
+
+lazy_static::lazy_static! {
+    /// Global secp context.
+    pub static ref SECP: secp256k1::Secp256k1<secp256k1::All> = secp256k1::Secp256k1::new();
+}
+
+lazy_static::lazy_static! {
+    /// This is an unspendable pubkey.
+    ///
+    /// See https://github.com/bitcoin/bips/blob/master/bip-0341.mediawiki#constructing-and-spending-taproot-outputs
+    pub static ref UNSPENDABLE_PUBKEY: bitcoin::secp256k1::PublicKey =
+        "93c7378d96518a75448821c4f7c8f4bae7ce60f804d03d1f0628dd5dd0f5de51".parse().unwrap();
+}
+
+lazy_static::lazy_static! {
+    /// This is an unspendable pubkey.
+    ///
+    /// See https://github.com/bitcoin/bips/blob/master/bip-0341.mediawiki#constructing-and-spending-taproot-outputs
+    pub static ref UNSPENDABLE_XONLY_PUBKEY: bitcoin::secp256k1::XOnlyPublicKey =
+        XOnlyPublicKey::from_str("93c7378d96518a75448821c4f7c8f4bae7ce60f804d03d1f0628dd5dd0f5de51").unwrap();
+}
 
 pub fn parse_hex_to_btc_tx(
     tx_hex: &str,
