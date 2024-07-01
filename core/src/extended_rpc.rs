@@ -14,6 +14,7 @@ use bitcoin::Transaction;
 use bitcoin::TxOut;
 use bitcoin::Work;
 use bitcoin_mock_rpc::RpcApiWrapper;
+use bitcoincore_rpc::json::AddressType;
 use bitcoincore_rpc::Auth;
 use clementine_circuits::constants::BRIDGE_AMOUNT_SATS;
 use crypto_bigint::Encoding;
@@ -297,7 +298,7 @@ where
 
     /// Requests a new Bitcoin address via an RPC call.
     pub fn get_new_address(&self) -> Result<Address, BridgeError> {
-        let address = self.rpc.get_new_address(None, None);
+        let address = self.rpc.get_new_address(None, Some(AddressType::Bech32m));
 
         Ok(address?.assume_checked())
     }
