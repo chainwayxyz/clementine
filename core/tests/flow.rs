@@ -8,7 +8,7 @@ use clementine_core::actor::Actor;
 use clementine_core::database::common::Database;
 use clementine_core::extended_rpc::ExtendedRpc;
 use clementine_core::mock::common;
-use clementine_core::script_builder::ScriptBuilder;
+use clementine_core::servers::*;
 use clementine_core::traits::rpc::OperatorRpcClient;
 use clementine_core::transaction_builder::{CreateTxOutputs, TransactionBuilder};
 use clementine_core::utils::handle_taproot_witness_new;
@@ -105,7 +105,7 @@ async fn test_flow_1() {
     let rpc_withdraw_amount = tx.output[0].value;
     let expected_withdraw_script = withdrawal_address.script_pubkey();
     assert_eq!(rpc_withdraw_script, expected_withdraw_script);
-    let anyone_can_spend_amount = ScriptBuilder::anyone_can_spend_txout().value;
+    let anyone_can_spend_amount = script_builder::anyone_can_spend_txout().value;
 
     // check if the amounts match
     let expected_withdraw_amount = Amount::from_sat(BRIDGE_AMOUNT_SATS - 2 * config.min_relay_fee)
@@ -167,7 +167,7 @@ async fn test_flow_2() {
     tracing::debug!("Deposit UTXO: {:#?}", deposit_utxo);
     rpc.mine_blocks(config.user_takes_after as u64 + 2).unwrap();
     let signer = Actor::new(config.secret_key, config.network);
-    let anyone_can_spend_txout = ScriptBuilder::anyone_can_spend_txout();
+    let anyone_can_spend_txout = script_builder::anyone_can_spend_txout();
     let tx_ins = TransactionBuilder::create_tx_ins_with_sequence(
         vec![deposit_utxo],
         config.user_takes_after as u16 + 1,
@@ -187,11 +187,11 @@ async fn test_flow_2() {
     let deposit_tx = rpc.get_raw_transaction(&deposit_utxo.txid, None).unwrap();
     let prevouts = vec![deposit_tx.output[deposit_utxo.vout as usize].clone()];
 
-    let takes_after_script = ScriptBuilder::generate_timelock_script(
+    let takes_after_script = script_builder::generate_timelock_script(
         taproot_address.as_unchecked(),
         config.user_takes_after,
     );
-    let bridge_script = tx_builder.script_builder.generate_script_n_of_n();
+    let bridge_script = script_builder::generate_script_n_of_n(&config.verifiers_public_keys);
 
     let mut takes_after_tx_details = CreateTxOutputs {
         tx: takes_after_tx.clone(),

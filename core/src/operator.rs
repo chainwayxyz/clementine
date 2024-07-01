@@ -3,11 +3,10 @@ use crate::config::BridgeConfig;
 use crate::database::operator::OperatorDB;
 use crate::errors::BridgeError;
 use crate::extended_rpc::ExtendedRpc;
-use crate::script_builder::ScriptBuilder;
 use crate::traits::rpc::{OperatorRpcServer, VerifierRpcClient};
 use crate::transaction_builder::TransactionBuilder;
 use crate::utils::handle_taproot_witness_new;
-use crate::EVMAddress;
+use crate::{script_builder, EVMAddress};
 use bitcoin::address::{NetworkChecked, NetworkUnchecked};
 use bitcoin::secp256k1::schnorr;
 use bitcoin::{Address, Amount, OutPoint, TxOut, Txid};
@@ -197,7 +196,7 @@ where
 
         let (bridge_address, _) = self.transaction_builder.generate_bridge_address()?;
 
-        let dust_value = ScriptBuilder::anyone_can_spend_txout().value;
+        let dust_value = script_builder::anyone_can_spend_txout().value;
 
         let deposit_txout = TxOut {
             value: Amount::from_sat(BRIDGE_AMOUNT_SATS - self.min_relay_fee) - dust_value,
