@@ -1,7 +1,7 @@
 //! # Transaction Builder
 
-use crate::{errors::BridgeError, script_builder::ScriptBuilder};
-use crate::{utils, EVMAddress};
+use crate::errors::BridgeError;
+use crate::{script_builder, utils, EVMAddress};
 use bitcoin::address::NetworkUnchecked;
 use bitcoin::Network;
 use bitcoin::{
@@ -24,7 +24,6 @@ pub type CreateAddressOutputs = (Address, TaprootSpendInfo);
 
 #[derive(Debug, Clone)]
 pub struct TransactionBuilder {
-    pub script_builder: ScriptBuilder,
     verifiers_pks: Vec<XOnlyPublicKey>,
     network: Network,
 }
@@ -35,11 +34,8 @@ pub const WITHDRAWAL_TX_MIN_RELAY_FEE: u64 = 305;
 impl TransactionBuilder {
     /// Creates a new `TransactionBuilder`.
     pub fn new(verifiers_pks: Vec<XOnlyPublicKey>, network: Network) -> Self {
-        let script_builder = ScriptBuilder::new(verifiers_pks.clone());
-
         Self {
             verifiers_pks,
-            script_builder,
             network,
         }
     }
@@ -53,12 +49,11 @@ impl TransactionBuilder {
         amount: u64,
         user_takes_after: u32,
     ) -> Result<CreateAddressOutputs, BridgeError> {
-        let deposit_script = self
-            .script_builder
-            .create_deposit_script(user_evm_address, amount);
+        let deposit_script =
+            script_builder::create_deposit_script(&self.verifiers_pks, user_evm_address, amount);
 
         let script_timelock =
-            ScriptBuilder::generate_timelock_script(recovery_taproot_address, user_takes_after);
+            script_builder::generate_timelock_script(recovery_taproot_address, user_takes_after);
 
         let taproot = TaprootBuilder::new()
             .add_leaf(1, deposit_script.clone())?
@@ -77,7 +72,7 @@ impl TransactionBuilder {
 
     /// Generates bridge address. N-of-N script can be used to spend the funds.
     pub fn generate_bridge_address(&self) -> Result<CreateAddressOutputs, BridgeError> {
-        let script_n_of_n = self.script_builder.generate_script_n_of_n();
+        let script_n_of_n = script_builder::generate_script_n_of_n(&self.verifiers_pks);
 
         let taproot = TaprootBuilder::new().add_leaf(0, script_n_of_n.clone())?;
         let tree_info = taproot.finalize(&utils::SECP, *utils::UNSPENDABLE_XONLY_PUBKEY)?;
@@ -101,7 +96,7 @@ impl TransactionBuilder {
         recovery_taproot_address: &Address<NetworkUnchecked>,
         deposit_user_takes_after: u32,
     ) -> Result<CreateTxOutputs, BridgeError> {
-        let anyone_can_spend_txout = ScriptBuilder::anyone_can_spend_txout();
+        let anyone_can_spend_txout = script_builder::anyone_can_spend_txout();
 
         let (bridge_address, _) = self.generate_bridge_address()?;
         let (deposit_address, deposit_taproot_spend_info) = self.generate_deposit_address(
@@ -126,9 +121,11 @@ impl TransactionBuilder {
             value: Amount::from_sat(BRIDGE_AMOUNT_SATS),
         }];
 
-        let deposit_script = vec![self
-            .script_builder
-            .create_deposit_script(evm_address, BRIDGE_AMOUNT_SATS)];
+        let deposit_script = vec![script_builder::create_deposit_script(
+            &self.verifiers_pks,
+            evm_address,
+            BRIDGE_AMOUNT_SATS,
+        )];
 
         Ok(CreateTxOutputs {
             tx: move_tx,
@@ -144,7 +141,7 @@ impl TransactionBuilder {
         deposit_txout: TxOut,
         withdraw_address: &Address,
     ) -> Result<CreateTxOutputs, BridgeError> {
-        let anyone_can_spend_txout = ScriptBuilder::anyone_can_spend_txout();
+        let anyone_can_spend_txout = script_builder::anyone_can_spend_txout();
 
         let (_, bridge_spend_info) = self.generate_bridge_address()?;
 
@@ -161,7 +158,7 @@ impl TransactionBuilder {
 
         let prevouts = vec![deposit_txout];
 
-        let bridge_spend_script = vec![self.script_builder.generate_script_n_of_n()];
+        let bridge_spend_script = vec![script_builder::generate_script_n_of_n(&self.verifiers_pks)];
 
         Ok(CreateTxOutputs {
             tx: withdraw_tx,
@@ -260,12 +257,12 @@ impl TransactionBuilder {
         &self,
         absolute_block_height_to_take_after: u64,
     ) -> Result<(Address, TaprootSpendInfo), BridgeError> {
-        let timelock_script = ScriptBuilder::generate_absolute_timelock_script(
+        let timelock_script = script_builder::generate_absolute_timelock_script(
             &self.verifiers_pks[self.verifiers_pks.len() - 1],
             absolute_block_height_to_take_after as u32,
         );
 
-        let script_n_of_n = self.script_builder.generate_script_n_of_n();
+        let script_n_of_n = script_builder::generate_script_n_of_n(&self.verifiers_pks);
         let scripts = vec![timelock_script, script_n_of_n];
 
         let (address, tree_info) =
