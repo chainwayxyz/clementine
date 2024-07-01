@@ -27,8 +27,6 @@ dotenv = { workspace = true }
 clap = { workspace = true, features = ["derive"] }
 toml = { workspace = true }
 sqlx = { workspace = true, features = ["runtime-tokio", "postgres"] }
-
-# [dev-dependencies]
 bitcoin-mock-rpc = { workspace = true }
 
 [features]
