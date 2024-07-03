@@ -390,9 +390,9 @@ dependencies = [
 
 [[package]]
 name = "bitcoin"
-version = "0.32.1"
+version = "0.32.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "4bf33434c870e98ecc8608588ccc990c5daba9ba9ad39733dc85fba22c211504"
+checksum = "ea507acc1cd80fc084ace38544bbcf7ced7c2aa65b653b102de0ce718df668f6"
 dependencies = [
  "base58ck",
  "bech32",
@@ -425,7 +425,7 @@ checksum = "340e09e8399c7bd8912f495af6aa58bea0c9214773417ffaa8f6460f93aaee56"
 [[package]]
 name = "bitcoin-mock-rpc"
 version = "0.1.0"
-source = "git+https://github.com/chainwayxyz/bitcoin-mock-rpc?branch=async-support#bc22f84b44a20d823f17a1650929398e1721ea5e"
+source = "git+https://github.com/chainwayxyz/bitcoin-mock-rpc#374c0bbd71b9229b8d23fa696641793395d3855b"
 dependencies = [
  "bitcoin",
  "bitcoin-script",

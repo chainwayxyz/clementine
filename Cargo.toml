@@ -27,7 +27,7 @@ toml = "0.8.12"
 sqlx = { version = "0.7.4", default-features = false }
 k256 = { version = "=0.13.3", default_features = false }
 risc0-build = "0.21.0"
-bitcoin-mock-rpc = { git = "https://github.com/chainwayxyz/bitcoin-mock-rpc", branch = "async-support"}
+bitcoin-mock-rpc = { git = "https://github.com/chainwayxyz/bitcoin-mock-rpc" }
 
 # Always optimize; building and running the guest takes much longer without optimization.
 [profile.dev]
