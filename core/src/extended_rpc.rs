@@ -24,7 +24,7 @@ use crypto_bigint::U256;
 pub struct ExtendedRpc<R> {
     url: String,
     auth: Auth,
-    rpc: R,
+    pub client: R,
 }
 
 impl<R> ExtendedRpc<R>
@@ -42,11 +42,15 @@ where
         let rpc = R::new(&url, auth.clone())
             .unwrap_or_else(|e| panic!("Failed to connect to Bitcoin RPC: {}", e));
 
-        Self { url, auth, rpc }
+        Self {
+            url,
+            auth,
+            client: rpc,
+        }
     }
 
     pub fn confirmation_blocks(&self, txid: &bitcoin::Txid) -> Result<u32, BridgeError> {
-        let raw_transaction_results = self.rpc.get_raw_transaction_info(txid, None)?;
+        let raw_transaction_results = self.client.get_raw_transaction_info(txid, None)?;
 
         raw_transaction_results
             .confirmations
@@ -59,7 +63,7 @@ where
         address: &ScriptBuf,
         amount_sats: u64,
     ) -> Result<bool, BridgeError> {
-        let tx = self.rpc.get_raw_transaction(&outpoint.txid, None)?;
+        let tx = self.client.get_raw_transaction(&outpoint.txid, None)?;
 
         let current_output = tx.output[outpoint.vout as usize].clone();
 
@@ -73,29 +77,37 @@ where
 
     pub fn is_utxo_spent(&self, outpoint: &OutPoint) -> Result<bool, BridgeError> {
         let res = self
-            .rpc
+            .client
             .get_tx_out(&outpoint.txid, outpoint.vout, Some(true))?;
 
         Ok(res.is_none())
     }
 
     pub fn generate_dummy_block(&self) -> Result<Vec<bitcoin::BlockHash>, BridgeError> {
-        let address = self.rpc.get_new_address(None, None)?.assume_checked();
+        let address = self.client.get_new_address(None, None)?.assume_checked();
 
         for _ in 0..10 {
-            let new_address = self.rpc.get_new_address(None, None)?.assume_checked();
+            let new_address = self.client.get_new_address(None, None)?.assume_checked();
             let amount = bitcoin::Amount::from_sat(1000); // TODO: Specify the amount to send
-            self.rpc
-                .send_to_address(&new_address, amount, None, None, None, None, None, None)?;
+            self.client.send_to_address(
+                &new_address,
+                amount,
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+            )?;
         }
 
-        Ok(self.rpc.generate_to_address(1, &address)?)
+        Ok(self.client.generate_to_address(1, &address)?)
     }
 
     pub fn mine_blocks(&self, block_num: u64) -> Result<(), BridgeError> {
-        let new_address = self.rpc.get_new_address(None, None)?.assume_checked();
+        let new_address = self.client.get_new_address(None, None)?.assume_checked();
 
-        self.rpc.generate_to_address(block_num, &new_address)?;
+        self.client.generate_to_address(block_num, &new_address)?;
 
         Ok(())
     }
@@ -105,7 +117,7 @@ where
         address: &Address,
         amount_sats: u64,
     ) -> Result<OutPoint, BridgeError> {
-        let txid = self.rpc.send_to_address(
+        let txid = self.client.send_to_address(
             address,
             Amount::from_sat(amount_sats),
             None,
@@ -116,7 +128,7 @@ where
             None,
         )?;
 
-        let tx_result = self.rpc.get_transaction(&txid, None)?;
+        let tx_result = self.client.get_transaction(&txid, None)?;
         let vout = tx_result.details[0].vout;
 
         Ok(OutPoint { txid, vout })
@@ -124,7 +136,7 @@ where
 
     pub fn get_work_at_block(&self, blockheight: u64) -> Result<Work, BridgeError> {
         let block_hash = self.get_block_hash(blockheight)?;
-        let block = self.rpc.get_block(&block_hash)?;
+        let block = self.client.get_block(&block_hash)?;
         let work = block.header.work();
 
         Ok(work)
@@ -134,7 +146,7 @@ where
         &self,
         blockheight: u64,
     ) -> Result<bitcoin::BlockHash, bitcoincore_rpc::Error> {
-        let block_hash = self.rpc.get_block_hash(blockheight)?;
+        let block_hash = self.client.get_block_hash(blockheight)?;
 
         Ok(block_hash)
     }
@@ -143,7 +155,7 @@ where
         &self,
         block_hash: &bitcoin::BlockHash,
     ) -> Result<bitcoin::block::Header, bitcoincore_rpc::Error> {
-        let block_header = self.rpc.get_block_header(block_hash)?;
+        let block_header = self.client.get_block_header(block_hash)?;
 
         Ok(block_header)
     }
@@ -168,7 +180,7 @@ where
     }
 
     pub fn get_total_work_as_u256(&self) -> Result<U256, BridgeError> {
-        let chain_info = self.rpc.get_blockchain_info()?;
+        let chain_info = self.client.get_blockchain_info()?;
         let total_work_bytes = chain_info.chain_work;
         let total_work: U256 = U256::from_be_bytes(total_work_bytes.try_into()?);
 
@@ -176,7 +188,7 @@ where
     }
 
     pub fn get_total_work(&self) -> Result<Work, BridgeError> {
-        let chain_info = self.rpc.get_blockchain_info()?;
+        let chain_info = self.client.get_blockchain_info()?;
         let total_work_bytes = chain_info.chain_work;
         let total_work: Work = Work::from_be_bytes(total_work_bytes.try_into()?);
 
@@ -184,7 +196,7 @@ where
     }
 
     pub fn get_block_height(&self) -> Result<u64, BridgeError> {
-        let chain_info = self.rpc.get_blockchain_info()?;
+        let chain_info = self.client.get_blockchain_info()?;
         let block_height = chain_info.blocks;
 
         Ok(block_height)
@@ -196,22 +208,22 @@ where
         options: Option<&bitcoincore_rpc::json::FundRawTransactionOptions>,
         is_witness: Option<bool>,
     ) -> Result<bitcoincore_rpc::json::FundRawTransactionResult, bitcoincore_rpc::Error> {
-        self.rpc.fund_raw_transaction(tx, options, is_witness)
+        self.client.fund_raw_transaction(tx, options, is_witness)
     }
 
     // Following methods are just wrappers around the bitcoincore_rpc::Client methods
     pub fn get_blockchain_info(
         &self,
     ) -> Result<bitcoincore_rpc::json::GetBlockchainInfoResult, bitcoincore_rpc::Error> {
-        self.rpc.get_blockchain_info()
+        self.client.get_blockchain_info()
     }
 
     pub fn get_block_count(&self) -> Result<u64, bitcoincore_rpc::Error> {
-        self.rpc.get_block_count()
+        self.client.get_block_count()
     }
 
     pub fn get_best_block_hash(&self) -> Result<bitcoin::BlockHash, bitcoincore_rpc::Error> {
-        self.rpc.get_best_block_hash()
+        self.client.get_best_block_hash()
     }
 
     pub fn get_raw_transaction(
@@ -219,7 +231,7 @@ where
         txid: &bitcoin::Txid,
         block_hash: Option<&bitcoin::BlockHash>,
     ) -> Result<bitcoin::Transaction, bitcoincore_rpc::Error> {
-        self.rpc.get_raw_transaction(txid, block_hash)
+        self.client.get_raw_transaction(txid, block_hash)
     }
 
     pub fn get_transaction(
@@ -227,28 +239,28 @@ where
         txid: &bitcoin::Txid,
         include_watchonly: Option<bool>,
     ) -> Result<bitcoincore_rpc::json::GetTransactionResult, bitcoincore_rpc::Error> {
-        self.rpc.get_transaction(txid, include_watchonly)
+        self.client.get_transaction(txid, include_watchonly)
     }
 
     pub fn send_raw_transaction(
         &self,
         tx: &Transaction,
     ) -> Result<bitcoin::Txid, bitcoincore_rpc::Error> {
-        self.rpc.send_raw_transaction(tx)
+        self.client.send_raw_transaction(tx)
     }
 
     pub fn get_block(
         &self,
         block_hash: &bitcoin::BlockHash,
     ) -> Result<bitcoin::Block, bitcoincore_rpc::Error> {
-        self.rpc.get_block(block_hash)
+        self.client.get_block(block_hash)
     }
     pub fn get_raw_transaction_info(
         &self,
         txid: &bitcoin::Txid,
         block_hash: Option<&bitcoin::BlockHash>,
     ) -> Result<bitcoincore_rpc::json::GetRawTransactionResult, bitcoincore_rpc::Error> {
-        self.rpc.get_raw_transaction_info(txid, block_hash)
+        self.client.get_raw_transaction_info(txid, block_hash)
     }
 
     pub fn check_deposit_utxo(
@@ -291,14 +303,16 @@ where
         block_num: u64,
         address: &Address,
     ) -> Result<(), BridgeError> {
-        self.rpc.generate_to_address(block_num, address)?;
+        self.client.generate_to_address(block_num, address)?;
 
         Ok(())
     }
 
     /// Requests a new Bitcoin address via an RPC call.
     pub fn get_new_address(&self) -> Result<Address, BridgeError> {
-        let address = self.rpc.get_new_address(None, Some(AddressType::Bech32m));
+        let address = self
+            .client
+            .get_new_address(None, Some(AddressType::Bech32m));
 
         Ok(address?.assume_checked())
     }
@@ -315,7 +329,7 @@ where
         Self {
             url: self.url.clone(),
             auth: self.auth.clone(),
-            rpc: new_client,
+            client: new_client,
         }
     }
 }
