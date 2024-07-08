@@ -12,7 +12,7 @@
 ///
 /// Returns new `BridgeConfig`.
 #[macro_export]
-macro_rules! create_test_database {
+macro_rules! create_test_config {
     ($db_name:expr, $config_file:expr) => {{
         let mut config = common::get_test_config($config_file).unwrap();
         config.bitcoin_rpc_url = $db_name.clone();
@@ -40,7 +40,7 @@ macro_rules! create_test_database {
 ///
 /// Returns new `BridgeConfig`.
 #[macro_export]
-macro_rules! create_test_database_with_thread_name {
+macro_rules! create_test_config_with_thread_name {
     ($config_file:expr) => {{
         let handle = thread::current()
             .name()
@@ -50,6 +50,6 @@ macro_rules! create_test_database_with_thread_name {
             .unwrap()
             .to_owned();
 
-        create_test_database!(handle, $config_file)
+        create_test_config!(handle, $config_file)
     }};
 }

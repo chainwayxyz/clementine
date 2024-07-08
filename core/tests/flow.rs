@@ -5,7 +5,6 @@
 use bitcoin::{Address, Amount};
 use clementine_circuits::constants::BRIDGE_AMOUNT_SATS;
 use clementine_core::actor::Actor;
-use clementine_core::create_test_database;
 use clementine_core::database::common::Database;
 use clementine_core::extended_rpc::ExtendedRpc;
 use clementine_core::mock::common;
@@ -15,11 +14,14 @@ use clementine_core::traits::rpc::OperatorRpcClient;
 use clementine_core::transaction_builder::{CreateTxOutputs, TransactionBuilder};
 use clementine_core::utils::handle_taproot_witness_new;
 use clementine_core::EVMAddress;
+use clementine_core::{create_test_config, create_test_config_with_thread_name};
 use std::thread;
 
 #[tokio::test]
 async fn test_flow_1() {
-    // Create a temporary database for testing.
+    let config = create_test_config_with_thread_name!("test_config_flow_1.toml");
+
+    // Create temporary databases for testing.
     let handle = thread::current()
         .name()
         .unwrap()
@@ -27,9 +29,8 @@ async fn test_flow_1() {
         .last()
         .unwrap()
         .to_owned();
-    let config = create_test_database!(handle, "test_config_flow_1.toml");
     for i in 0..4 {
-        create_test_database!(
+        create_test_config!(
             handle.clone() + i.to_string().as_str(),
             "test_config_flow_1.toml"
         );
@@ -124,7 +125,9 @@ async fn test_flow_1() {
 
 #[tokio::test]
 async fn test_flow_2() {
-    // Create a temporary database for testing.
+    let config = create_test_config_with_thread_name!("test_config_flow_2.toml");
+
+    // Create temporary databases for testing.
     let handle = thread::current()
         .name()
         .unwrap()
@@ -132,9 +135,8 @@ async fn test_flow_2() {
         .last()
         .unwrap()
         .to_owned();
-    let config = create_test_database!(handle, "test_config_flow_2.toml");
     for i in 0..4 {
-        create_test_database!(
+        create_test_config!(
             handle.clone() + i.to_string().as_str(),
             "test_config_flow_2.toml"
         );
