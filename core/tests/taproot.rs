@@ -3,15 +3,26 @@ use bitcoin::opcodes::all::OP_CHECKSIG;
 use bitcoin::script::Builder;
 use bitcoin::{Address, Amount, TapTweakHash, TxOut, XOnlyPublicKey};
 use clementine_core::actor::Actor;
+use clementine_core::create_test_database;
+use clementine_core::database::common::Database;
 use clementine_core::extended_rpc::ExtendedRpc;
-use clementine_core::mock::common::get_test_config;
+use clementine_core::mock::common;
 use clementine_core::transaction_builder::{CreateTxOutputs, TransactionBuilder};
 use clementine_core::utils::handle_taproot_witness_new;
+use std::thread;
 
 #[tokio::test]
 async fn run() {
     let secp = bitcoin::secp256k1::Secp256k1::new();
-    let config = get_test_config("test_config_taproot.toml").unwrap();
+
+    let handle = thread::current()
+        .name()
+        .unwrap()
+        .split(':')
+        .last()
+        .unwrap()
+        .to_owned();
+    let config = create_test_database!(handle, "test_config_taproot.toml");
 
     let (xonly_pk, _) = config.secret_key.public_key(&secp).x_only_public_key();
     println!("x only pub key: {:?}", xonly_pk);
