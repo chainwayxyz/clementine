@@ -425,7 +425,7 @@ checksum = "340e09e8399c7bd8912f495af6aa58bea0c9214773417ffaa8f6460f93aaee56"
 [[package]]
 name = "bitcoin-mock-rpc"
 version = "0.1.0"
-source = "git+https://github.com/chainwayxyz/bitcoin-mock-rpc#696381a28d5164cc998ec680a108f44a00504efc"
+source = "git+https://github.com/chainwayxyz/bitcoin-mock-rpc?tag=v0.0.2#10beb9784aaea6646f0e2e9f179d18f386cf5d34"
 dependencies = [
  "anyhow",
  "bitcoin",
