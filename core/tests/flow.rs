@@ -22,7 +22,7 @@ use std::thread;
 #[tokio::test]
 async fn test_flow_1() {
     let mut config = create_test_config_with_thread_name!("test_config_flow_1.toml");
-    let rpc = create_extended_rpc!(config, "test_config_flow_1");
+    let rpc = create_extended_rpc!(config);
 
     // Create temporary databases for testing.
     let handle = thread::current()
@@ -118,7 +118,7 @@ async fn test_flow_1() {
 #[tokio::test]
 async fn test_flow_2() {
     let mut config = create_test_config_with_thread_name!("test_config_flow_2.toml");
-    let rpc = create_extended_rpc!(config, "test_config_flow_2.toml");
+    let rpc = create_extended_rpc!(config);
 
     // Create temporary databases for testing.
     let handle = thread::current()

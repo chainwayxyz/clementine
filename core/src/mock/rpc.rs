@@ -13,10 +13,17 @@
 #[cfg(feature = "mock_rpc")]
 #[macro_export]
 macro_rules! create_extended_rpc {
-    ($config:expr, $db_name:expr) => {{
+    ($config:expr) => {{
         println!("Using Mock RPC for testing...");
+        let handle = thread::current()
+            .name()
+            .unwrap()
+            .split(":")
+            .last()
+            .unwrap()
+            .to_owned();
 
-        $config.bitcoin_rpc_url = $db_name.to_string();
+        $config.bitcoin_rpc_url = handle.to_string();
 
         ExtendedRpc::<bitcoin_mock_rpc::Client>::new(
             $config.bitcoin_rpc_url.clone(),
@@ -36,7 +43,7 @@ macro_rules! create_extended_rpc {
 #[cfg(not(feature = "mock_rpc"))]
 #[macro_export]
 macro_rules! create_extended_rpc {
-    ($config:expr, $db_name:expr) => {{
+    ($config:expr) => {{
         println!("Using Bitcoin regtest for testing...");
 
         // Just to match other mutable macro:
