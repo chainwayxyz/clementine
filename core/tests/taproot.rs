@@ -7,7 +7,7 @@ use clementine_core::actor::Actor;
 use clementine_core::database::common::Database;
 use clementine_core::extended_rpc::ExtendedRpc;
 use clementine_core::mock::common;
-use clementine_core::script_builder::ScriptBuilder;
+use clementine_core::script_builder;
 use clementine_core::transaction_builder::{CreateTxOutputs, TransactionBuilder};
 use clementine_core::utils::handle_taproot_witness_new;
 use clementine_core::{
@@ -151,7 +151,7 @@ async fn taproot_key_path_spend() {
         });
     }
     let txins = TransactionBuilder::create_tx_ins(inputs);
-    let anchor = ScriptBuilder::anyone_can_spend_txout();
+    let anchor = script_builder::anyone_can_spend_txout();
 
     let mut txouts = TransactionBuilder::create_tx_outs(vec![(
         Amount::from_sat(

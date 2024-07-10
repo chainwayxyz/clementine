@@ -8,7 +8,7 @@ use clementine_core::actor::Actor;
 use clementine_core::database::common::Database;
 use clementine_core::extended_rpc::ExtendedRpc;
 use clementine_core::mock::common;
-use clementine_core::servers::*;
+use clementine_core::script_builder;
 use clementine_core::traits::rpc::OperatorRpcClient;
 use clementine_core::transaction_builder::{CreateTxOutputs, TransactionBuilder};
 use clementine_core::utils::handle_taproot_witness_new;
