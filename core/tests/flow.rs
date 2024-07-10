@@ -14,8 +14,9 @@ use clementine_core::traits::rpc::OperatorRpcClient;
 use clementine_core::transaction_builder::{CreateTxOutputs, TransactionBuilder};
 use clementine_core::utils::handle_taproot_witness_new;
 use clementine_core::EVMAddress;
-use clementine_core::{create_extended_rpc, servers::*};
-use clementine_core::{create_test_config, create_test_config_with_thread_name};
+use clementine_core::{
+    create_extended_rpc, create_test_config, create_test_config_with_thread_name,
+};
 use std::thread;
 
 #[tokio::test]
