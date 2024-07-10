@@ -10,14 +10,17 @@ use clementine_core::mock::common;
 use clementine_core::script_builder::ScriptBuilder;
 use clementine_core::transaction_builder::{CreateTxOutputs, TransactionBuilder};
 use clementine_core::utils::handle_taproot_witness_new;
-use clementine_core::{create_test_config, create_test_config_with_thread_name};
+use clementine_core::{
+    create_extended_rpc, create_test_config, create_test_config_with_thread_name,
+};
 use std::thread;
 
 #[tokio::test]
 async fn run() {
     let secp = bitcoin::secp256k1::Secp256k1::new();
 
-    let config = create_test_config_with_thread_name!("test_config_taproot.toml");
+    let mut config = create_test_config_with_thread_name!("test_config_taproot.toml");
+    let rpc = create_extended_rpc!(config, "test_config_taproot.toml");
 
     let (xonly_pk, _) = config.secret_key.public_key(&secp).x_only_public_key();
     println!("x only pub key: {:?}", xonly_pk);
@@ -42,12 +45,6 @@ async fn run() {
         )
         .unwrap();
     println!("q:          {:?}", hex::encode(q.serialize()));
-
-    let rpc: ExtendedRpc<_> = ExtendedRpc::<bitcoin_mock_rpc::Client>::new(
-        config.bitcoin_rpc_url.clone(),
-        config.bitcoin_rpc_user.clone(),
-        config.bitcoin_rpc_password.clone(),
-    );
 
     let builder = Builder::new();
     let to_pay_script = builder
@@ -136,13 +133,9 @@ fn calculate_min_relay_fee(n: u64) -> u64 {
 #[tokio::test]
 async fn taproot_key_path_spend() {
     let secp = bitcoin::secp256k1::Secp256k1::new();
-    let config = create_test_config_with_thread_name!("test_config_taproot.toml");
+    let mut config = create_test_config_with_thread_name!("test_config_taproot.toml");
+    let rpc = create_extended_rpc!(config, "test_config_taproot.toml");
 
-    let rpc: ExtendedRpc<_> = ExtendedRpc::<bitcoin_mock_rpc::Client>::new(
-        config.bitcoin_rpc_url.clone(),
-        config.bitcoin_rpc_user.clone(),
-        config.bitcoin_rpc_password.clone(),
-    );
     let (xonly_pk, _) = config.secret_key.public_key(&secp).x_only_public_key();
     let actor = Actor::new(config.secret_key, config.network);
 
@@ -195,13 +188,9 @@ async fn taproot_key_path_spend() {
 
 #[tokio::test]
 async fn taproot_key_path_spend_2() {
-    let config = create_test_config_with_thread_name!("test_config_taproot.toml");
+    let mut config = create_test_config_with_thread_name!("test_config_taproot.toml");
+    let rpc = create_extended_rpc!(config, "test_config_taproot.toml");
 
-    let rpc = ExtendedRpc::<bitcoin_mock_rpc::Client>::new(
-        config.bitcoin_rpc_url.clone(),
-        config.bitcoin_rpc_user.clone(),
-        config.bitcoin_rpc_password.clone(),
-    );
     let actor = Actor::new(config.secret_key, config.network);
 
     let address = actor.address.clone();

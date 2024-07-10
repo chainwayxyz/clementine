@@ -32,6 +32,7 @@ bitcoin-mock-rpc = { workspace = true }
 [features]
 default = []
 poc = []
+mock_rpc = []
 
 [[bin]]
 name = "verifier"

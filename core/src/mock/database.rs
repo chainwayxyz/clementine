@@ -14,8 +14,7 @@
 #[macro_export]
 macro_rules! create_test_config {
     ($db_name:expr, $config_file:expr) => {{
-        let mut config = common::get_test_config($config_file).unwrap();
-        config.bitcoin_rpc_url = $db_name.clone(); // TODO: This will cause problems if Bitcoin regtest is used.
+        let config = common::get_test_config($config_file).unwrap();
         let config = Database::create_database(config, &$db_name).await.unwrap();
 
         let database = Database::new(config.clone()).await.unwrap();

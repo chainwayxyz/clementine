@@ -9,17 +9,18 @@ use clementine_core::database::common::Database;
 use clementine_core::extended_rpc::ExtendedRpc;
 use clementine_core::mock::common;
 use clementine_core::script_builder::ScriptBuilder;
-use clementine_core::servers::*;
 use clementine_core::traits::rpc::OperatorRpcClient;
 use clementine_core::transaction_builder::{CreateTxOutputs, TransactionBuilder};
 use clementine_core::utils::handle_taproot_witness_new;
 use clementine_core::EVMAddress;
+use clementine_core::{create_extended_rpc, servers::*};
 use clementine_core::{create_test_config, create_test_config_with_thread_name};
 use std::thread;
 
 #[tokio::test]
 async fn test_flow_1() {
-    let config = create_test_config_with_thread_name!("test_config_flow_1.toml");
+    let mut config = create_test_config_with_thread_name!("test_config_flow_1.toml");
+    let rpc = create_extended_rpc!(config, "test_config_flow_1");
 
     // Create temporary databases for testing.
     let handle = thread::current()
@@ -35,12 +36,6 @@ async fn test_flow_1() {
             "test_config_flow_1.toml"
         );
     }
-
-    let rpc = ExtendedRpc::<bitcoin_mock_rpc::Client>::new(
-        config.bitcoin_rpc_url.clone(),
-        config.bitcoin_rpc_user.clone(),
-        config.bitcoin_rpc_password.clone(),
-    );
 
     let (operator_client, _operator_handler, _results) =
         create_operator_and_verifiers(config.clone(), rpc.clone()).await;
@@ -125,7 +120,8 @@ async fn test_flow_1() {
 
 #[tokio::test]
 async fn test_flow_2() {
-    let config = create_test_config_with_thread_name!("test_config_flow_2.toml");
+    let mut config = create_test_config_with_thread_name!("test_config_flow_2.toml");
+    let rpc = create_extended_rpc!(config, "test_config_flow_2.toml");
 
     // Create temporary databases for testing.
     let handle = thread::current()
@@ -141,12 +137,6 @@ async fn test_flow_2() {
             "test_config_flow_2.toml"
         );
     }
-
-    let rpc = ExtendedRpc::<bitcoin_mock_rpc::Client>::new(
-        config.bitcoin_rpc_url.clone(),
-        config.bitcoin_rpc_user.clone(),
-        config.bitcoin_rpc_password.clone(),
-    );
 
     let (_operator_client, _operator_handler, _results) =
         create_operator_and_verifiers(config.clone(), rpc.clone()).await;
