@@ -9,14 +9,18 @@ use crate::{script_builder, EVMAddress};
 use bitcoin::address::{NetworkChecked, NetworkUnchecked};
 use bitcoin::{secp256k1, secp256k1::Secp256k1, OutPoint};
 use bitcoin::{Address, Amount, Network, TxOut, Txid};
+use bitcoin_mock_rpc::RpcApiWrapper;
 use clementine_circuits::constants::BRIDGE_AMOUNT_SATS;
 use jsonrpsee::core::async_trait;
 use secp256k1::schnorr;
 use secp256k1::XOnlyPublicKey;
 
 #[derive(Debug, Clone)]
-pub struct Verifier {
-    rpc: ExtendedRpc,
+pub struct Verifier<R>
+where
+    R: RpcApiWrapper,
+{
+    rpc: ExtendedRpc<R>,
     signer: Actor,
     transaction_builder: TransactionBuilder,
     db: VerifierDB,
@@ -26,8 +30,11 @@ pub struct Verifier {
     user_takes_after: u32,
 }
 
-impl Verifier {
-    pub async fn new(rpc: ExtendedRpc, config: BridgeConfig) -> Result<Self, BridgeError> {
+impl<R> Verifier<R>
+where
+    R: RpcApiWrapper,
+{
+    pub async fn new(rpc: ExtendedRpc<R>, config: BridgeConfig) -> Result<Self, BridgeError> {
         let signer = Actor::new(config.secret_key, config.network);
 
         let secp: Secp256k1<secp256k1::All> = Secp256k1::new();
@@ -159,7 +166,10 @@ impl Verifier {
 }
 
 #[async_trait]
-impl VerifierRpcServer for Verifier {
+impl<R> VerifierRpcServer for Verifier<R>
+where
+    R: RpcApiWrapper,
+{
     async fn new_deposit_rpc(
         &self,
         start_utxo: OutPoint,

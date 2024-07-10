@@ -10,6 +10,7 @@ use crate::{script_builder, EVMAddress};
 use bitcoin::address::{NetworkChecked, NetworkUnchecked};
 use bitcoin::secp256k1::schnorr;
 use bitcoin::{Address, Amount, OutPoint, TxOut, Txid};
+use bitcoin_mock_rpc::RpcApiWrapper;
 use clementine_circuits::constants::BRIDGE_AMOUNT_SATS;
 use futures::stream::FuturesOrdered;
 use futures::TryStreamExt;
@@ -23,8 +24,11 @@ pub struct DepositPresigns {
 }
 
 #[derive(Debug, Clone)]
-pub struct Operator {
-    rpc: ExtendedRpc,
+pub struct Operator<R>
+where
+    R: RpcApiWrapper,
+{
+    rpc: ExtendedRpc<R>,
     db: OperatorDB,
     signer: Actor,
     transaction_builder: TransactionBuilder,
@@ -34,11 +38,14 @@ pub struct Operator {
     user_takes_after: u32,
 }
 
-impl Operator {
+impl<R> Operator<R>
+where
+    R: RpcApiWrapper,
+{
     /// Creates a new `Operator`.
     pub async fn new(
         config: BridgeConfig,
-        rpc: ExtendedRpc,
+        rpc: ExtendedRpc<R>,
         verifiers: Vec<jsonrpsee::http_client::HttpClient>,
     ) -> Result<Self, BridgeError> {
         let num_verifiers = config.verifiers_public_keys.len();
@@ -242,7 +249,10 @@ impl Operator {
 }
 
 #[async_trait]
-impl OperatorRpcServer for Operator {
+impl<R> OperatorRpcServer for Operator<R>
+where
+    R: RpcApiWrapper,
+{
     async fn new_deposit_rpc(
         &self,
         start_utxo: OutPoint,

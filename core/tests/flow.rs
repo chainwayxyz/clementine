@@ -8,17 +8,23 @@ use clementine_core::actor::Actor;
 use clementine_core::database::common::Database;
 use clementine_core::extended_rpc::ExtendedRpc;
 use clementine_core::mock::common;
+use clementine_core::script_builder;
 use clementine_core::servers::*;
 use clementine_core::traits::rpc::OperatorRpcClient;
 use clementine_core::transaction_builder::{CreateTxOutputs, TransactionBuilder};
 use clementine_core::utils::handle_taproot_witness_new;
 use clementine_core::EVMAddress;
-use clementine_core::{create_test_database, script_builder};
+use clementine_core::{
+    create_extended_rpc, create_test_config, create_test_config_with_thread_name,
+};
 use std::thread;
 
 #[tokio::test]
 async fn test_flow_1() {
-    // Create a temporary database for testing.
+    let mut config = create_test_config_with_thread_name!("test_config_flow_1.toml");
+    let rpc = create_extended_rpc!(config);
+
+    // Create temporary databases for testing.
     let handle = thread::current()
         .name()
         .unwrap()
@@ -26,22 +32,15 @@ async fn test_flow_1() {
         .last()
         .unwrap()
         .to_owned();
-    let config = create_test_database!(handle, "test_config_flow_1.toml");
     for i in 0..4 {
-        create_test_database!(
+        create_test_config!(
             handle.clone() + i.to_string().as_str(),
             "test_config_flow_1.toml"
         );
     }
 
-    let rpc = ExtendedRpc::new(
-        config.bitcoin_rpc_url.clone(),
-        config.bitcoin_rpc_user.clone(),
-        config.bitcoin_rpc_password.clone(),
-    );
-
     let (operator_client, _operator_handler, _results) =
-        create_operator_and_verifiers(config.clone()).await;
+        create_operator_and_verifiers(config.clone(), rpc.clone()).await;
     let secp = bitcoin::secp256k1::Secp256k1::new();
     let (xonly_pk, _) = config.secret_key.public_key(&secp).x_only_public_key();
     let taproot_address = Address::p2tr(&secp, xonly_pk, None, config.network);
@@ -118,7 +117,10 @@ async fn test_flow_1() {
 
 #[tokio::test]
 async fn test_flow_2() {
-    // Create a temporary database for testing.
+    let mut config = create_test_config_with_thread_name!("test_config_flow_2.toml");
+    let rpc = create_extended_rpc!(config);
+
+    // Create temporary databases for testing.
     let handle = thread::current()
         .name()
         .unwrap()
@@ -126,22 +128,15 @@ async fn test_flow_2() {
         .last()
         .unwrap()
         .to_owned();
-    let config = create_test_database!(handle, "test_config_flow_2.toml");
     for i in 0..4 {
-        create_test_database!(
+        create_test_config!(
             handle.clone() + i.to_string().as_str(),
             "test_config_flow_2.toml"
         );
     }
 
-    let rpc = ExtendedRpc::new(
-        config.bitcoin_rpc_url.clone(),
-        config.bitcoin_rpc_user.clone(),
-        config.bitcoin_rpc_password.clone(),
-    );
-
     let (_operator_client, _operator_handler, _results) =
-        create_operator_and_verifiers(config.clone()).await;
+        create_operator_and_verifiers(config.clone(), rpc.clone()).await;
     let secp = bitcoin::secp256k1::Secp256k1::new();
     let (xonly_pk, _) = config.secret_key.public_key(&secp).x_only_public_key();
     let taproot_address = Address::p2tr(&secp, xonly_pk, None, config.network);

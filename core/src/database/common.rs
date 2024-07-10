@@ -246,7 +246,7 @@ impl Database {
 mod tests {
     use super::Database;
     use crate::{
-        config::BridgeConfig, create_test_database, create_test_database_with_thread_name,
+        config::BridgeConfig, create_test_config, create_test_config_with_thread_name,
         mock::common, EVMAddress,
     };
     use bitcoin::{Address, OutPoint, XOnlyPublicKey};
@@ -293,7 +293,7 @@ mod tests {
 
     #[tokio::test]
     async fn add_deposit_transaction() {
-        let config = create_test_database_with_thread_name!("test_config.toml");
+        let config = create_test_config_with_thread_name!("test_config.toml");
         let database = Database::new(config.clone()).await.unwrap();
 
         let secp = Secp256k1::new();
