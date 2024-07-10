@@ -7,7 +7,7 @@ use bitcoin::{
     secp256k1::{ecdsa, schnorr, All, Keypair, Message, Secp256k1, SecretKey, XOnlyPublicKey},
     Address, TapSighash, TapTweakHash,
 };
-use bitcoin::{TapLeafHash, TapNodeHash, TxOut};
+use bitcoin::{TapLeafHash, TapNodeHash, TapSighashType, TxOut};
 
 #[derive(Debug, Clone)]
 pub struct Actor {
@@ -133,6 +133,22 @@ impl Actor {
             input_index,
             &bitcoin::sighash::Prevouts::All(prevouts),
             bitcoin::sighash::TapSighashType::Default,
+        )?;
+        self.sign_with_tweak(sig_hash, None)
+    }
+
+    pub fn sign_taproot_pubkey_spend_tx_with_sighash(
+        &self,
+        tx: &mut bitcoin::Transaction,
+        prevouts: &[TxOut],
+        input_index: usize,
+        sighash_type: Option<TapSighashType>,
+    ) -> Result<schnorr::Signature, BridgeError> {
+        let mut sighash_cache = SighashCache::new(tx);
+        let sig_hash = sighash_cache.taproot_key_spend_signature_hash(
+            input_index,
+            &bitcoin::sighash::Prevouts::All(prevouts),
+            sighash_type.unwrap_or(TapSighashType::Default),
         )?;
         self.sign_with_tweak(sig_hash, None)
     }
