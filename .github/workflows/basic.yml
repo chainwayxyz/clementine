@@ -96,4 +96,4 @@ jobs:
     - name: Run tests on Bitcoin regtest
       run: RISC0_DEV_MODE=1 TEST_CONFIG=/home/runner/overwrite.toml cargo test --verbose --jobs 1
     - name: Run tests on mock RPC
-      run: RISC0_DEV_MODE=1 TEST_CONFIG=/home/runner/overwrite.toml cargo test --features mock_rpc --verbose
+      run: RISC0_DEV_MODE=1 TEST_CONFIG=/home/runner/overwrite.toml cargo test --verbose --features mock_rpc
