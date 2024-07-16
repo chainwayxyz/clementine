@@ -11,6 +11,8 @@ env:
 
 jobs:
   build_and_test:
+    name: Compile and test
+
     runs-on: ubuntu-latest
 
     services:
@@ -48,7 +50,7 @@ jobs:
 
     - name: Start Bitcoind
       run: bitcoin-27.0/bin/bitcoind -regtest -rpcuser=admin -rpcpassword=admin -rpcport=18443 -fallbackfee=0.00001 -wallet=admin -txindex=1 &
-    - name: Create wallet for Bitcoin regtest
+    - name: Create a wallet in Bitcoin regtest
       run: bitcoin-27.0/bin/bitcoin-cli -regtest -rpcuser=admin -rpcpassword=admin -rpcport=18443 createwallet "admin"
     - name: Create funds in Bitcoin regtest
       run: bitcoin-27.0/bin/bitcoin-cli -regtest -rpcuser=admin -rpcpassword=admin -rpcport=18443 generatetoaddress 101 $(bitcoin-27.0/bin/bitcoin-cli -regtest -rpcuser=admin -rpcpassword=admin -rpcport=18443 getnewaddress)
