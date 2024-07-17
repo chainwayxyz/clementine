@@ -230,14 +230,14 @@ impl Database {
         &self,
         idx: usize,
     ) -> Result<(Txid, secp256k1::schnorr::Signature), BridgeError> {
-        let qr: (String, String) =
+        let qr: ((String, String),) =
             sqlx::query_as("SELECT (bridge_fund_txid, sig) FROM withdrawal_sigs WHERE idx = $1;")
                 .bind(idx as i64)
                 .fetch_one(&self.connection)
                 .await?;
 
-        let bridge_fund_txid = Txid::from_str(&qr.0).unwrap();
-        let sig = secp256k1::schnorr::Signature::from_str(&qr.1).unwrap();
+        let bridge_fund_txid = Txid::from_str(&qr.0 .0).unwrap();
+        let sig = secp256k1::schnorr::Signature::from_str(&qr.0 .1).unwrap();
         Ok((bridge_fund_txid, sig))
     }
 }
@@ -247,10 +247,10 @@ mod tests {
     use super::Database;
     use crate::{
         config::BridgeConfig, create_test_config, create_test_config_with_thread_name,
-        mock::common, EVMAddress,
+        mock::common, transaction_builder::TransactionBuilder, EVMAddress,
     };
-    use bitcoin::{Address, OutPoint, XOnlyPublicKey};
-    use secp256k1::Secp256k1;
+    use bitcoin::{Address, Amount, OutPoint, ScriptBuf, TxOut, XOnlyPublicKey};
+    use secp256k1::{schnorr::Signature, Secp256k1};
     use std::thread;
 
     #[tokio::test]
@@ -313,6 +313,35 @@ mod tests {
             )
             .await
             .unwrap();
+    }
+
+    #[tokio::test]
+    async fn get_save_withdrawal_sig() {
+        let config = create_test_config!("get_save_withdrawal_sig", "test_config.toml");
+        let db = Database::new(config).await.unwrap();
+
+        let txout = TxOut {
+            value: Amount::from_sat(0x45),
+            script_pubkey: ScriptBuf::new(),
+        };
+        let tx = TransactionBuilder::create_btc_tx(vec![], vec![txout]);
+        let txid = tx.compute_txid();
+
+        let sig_arr = [
+            0x14, 0x5f, 0x50, 0x9d, 0xab, 0x82, 0xb0, 0xa1, 0x51, 0x1a, 0x20, 0x00, 0x93, 0x03,
+            0x19, 0xb1, 0x11, 0x29, 0xa5, 0x77, 0x3e, 0xe5, 0xc8, 0x6a, 0x13, 0x42, 0x0c, 0x23,
+            0x8e, 0x97, 0x26, 0x0b, 0xbe, 0x8b, 0x8e, 0xdd, 0xcd, 0x71, 0x6e, 0x76, 0xd4, 0x06,
+            0xb6, 0x1d, 0x54, 0x7d, 0xac, 0xd9, 0xb9, 0x32, 0xdc, 0x93, 0xbf, 0x33, 0xf5, 0xb0,
+            0x3c, 0x2f, 0x99, 0x2c, 0x04, 0xf6, 0x70, 0x73,
+        ];
+        let signature = Signature::from_slice(&sig_arr).unwrap();
+
+        db.save_withdrawal_sig(0x45, txid, signature).await.unwrap();
+
+        let (read_txid, read_signature) = db.get_withdrawal_sig_by_idx(0x45).await.unwrap();
+
+        assert_eq!(txid, read_txid);
+        assert_eq!(signature, read_signature);
     }
 }
 
