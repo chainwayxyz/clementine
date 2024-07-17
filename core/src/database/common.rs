@@ -230,14 +230,14 @@ impl Database {
         &self,
         idx: usize,
     ) -> Result<(Txid, secp256k1::schnorr::Signature), BridgeError> {
-        let qr: ((String, String),) =
-            sqlx::query_as("SELECT (bridge_fund_txid, sig) FROM withdrawal_sigs WHERE idx = $1;")
+        let qr: (String, String) =
+            sqlx::query_as("SELECT bridge_fund_txid, sig FROM withdrawal_sigs WHERE idx = $1;")
                 .bind(idx as i64)
                 .fetch_one(&self.connection)
                 .await?;
 
-        let bridge_fund_txid = Txid::from_str(&qr.0 .0).unwrap();
-        let sig = secp256k1::schnorr::Signature::from_str(&qr.0 .1).unwrap();
+        let bridge_fund_txid = Txid::from_str(&qr.0).unwrap();
+        let sig = secp256k1::schnorr::Signature::from_str(&qr.1).unwrap();
         Ok((bridge_fund_txid, sig))
     }
 }
