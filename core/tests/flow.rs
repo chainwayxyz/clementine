@@ -244,94 +244,94 @@ async fn verifier_down_for_withdrawal_signature() {
 
     let (xonly_pk, _) = config.secret_key.public_key(&SECP).x_only_public_key();
     let taproot_address = Address::p2tr(&SECP, xonly_pk, None, config.network);
-    println!(
-        "Taproot address script pubkey: {:#?}",
-        taproot_address.script_pubkey()
-    );
 
     let tx_builder = TransactionBuilder::new(config.verifiers_public_keys.clone(), config.network);
 
-    let (_operator_client, _operator_handler, _results) =
+    let (operator_client, _operator_handler, results) =
         create_operator_and_verifiers(config.clone(), rpc.clone()).await;
 
-    let evm_address = EVMAddress([1u8; 20]);
+    let evm_addresses = [
+        EVMAddress([1u8; 20]),
+        EVMAddress([2u8; 20]),
+        EVMAddress([3u8; 20]),
+        EVMAddress([4u8; 20]),
+    ];
+    let deposit_addresses = evm_addresses
+        .iter()
+        .map(|evm_address| {
+            tx_builder
+                .generate_deposit_address(
+                    taproot_address.as_unchecked(),
+                    evm_address,
+                    BRIDGE_AMOUNT_SATS,
+                    config.user_takes_after,
+                )
+                .unwrap()
+                .0
+        })
+        .collect::<Vec<_>>();
+    println!("Deposit addresses: {:#?}", deposit_addresses);
 
-    let deposit_address_info = tx_builder
-        .generate_deposit_address(
-            taproot_address.as_unchecked(),
-            &evm_address,
-            BRIDGE_AMOUNT_SATS,
-            config.user_takes_after,
-        )
-        .unwrap();
-    println!(
-        "Deposit address taproot spend info: {:#?}",
-        deposit_address_info.1
-    );
-    println!("Deposit address: {:#?}", deposit_address_info.0);
+    for (idx, deposit_address) in deposit_addresses.iter().enumerate() {
+        let deposit_utxo = rpc
+            .send_to_address(deposit_address, BRIDGE_AMOUNT_SATS)
+            .unwrap();
+        println!("Deposit UTXO #{}: {:#?}", idx, deposit_utxo);
 
-    let deposit_utxo = rpc
-        .send_to_address(&deposit_address_info.0, BRIDGE_AMOUNT_SATS)
-        .unwrap();
-    println!("Deposit UTXO: {:#?}", deposit_utxo);
+        rpc.mine_blocks(18).unwrap();
 
-    rpc.mine_blocks(config.user_takes_after as u64 + 2).unwrap();
+        let output = operator_client
+            .new_deposit_rpc(
+                deposit_utxo,
+                taproot_address.as_unchecked().clone(),
+                evm_addresses[idx],
+            )
+            .await
+            .unwrap();
+        println!("Output #{}: {:#?}", idx, output);
+    }
 
-    let signer = Actor::new(config.secret_key, config.network);
+    // Assume one of the verifier is down.
+    const VERIFIER_IDX: usize = 3;
+    results.get(VERIFIER_IDX).unwrap().1.stop().unwrap();
 
-    let anyone_can_spend_txout = script_builder::anyone_can_spend_txout();
+    let withdrawal_address = Address::p2tr(&SECP, xonly_pk, None, config.network);
 
-    let tx_ins = TransactionBuilder::create_tx_ins_with_sequence(
-        vec![deposit_utxo],
-        config.user_takes_after as u16 + 1,
-    );
-    let tx_outs = TransactionBuilder::create_tx_outs(vec![
-        (
-            Amount::from_sat(BRIDGE_AMOUNT_SATS - 2 * config.min_relay_fee)
-                - anyone_can_spend_txout.value * 2,
-            taproot_address.script_pubkey(),
-        ),
-        (
-            anyone_can_spend_txout.value,
-            anyone_can_spend_txout.script_pubkey,
-        ),
-    ]);
-    let takes_after_tx = TransactionBuilder::create_btc_tx(tx_ins, tx_outs);
-
-    let deposit_tx = rpc.get_raw_transaction(&deposit_utxo.txid, None).unwrap();
-
-    let prevouts = vec![deposit_tx.output[deposit_utxo.vout as usize].clone()];
-
-    let takes_after_script = script_builder::generate_timelock_script(
-        taproot_address.as_unchecked(),
-        config.user_takes_after,
-    );
-    let bridge_script = script_builder::generate_script_n_of_n(&config.verifiers_public_keys);
-
-    let mut takes_after_tx_details = CreateTxOutputs {
-        tx: takes_after_tx.clone(),
-        prevouts,
-        scripts: vec![vec![bridge_script, takes_after_script]],
-        taproot_spend_infos: vec![deposit_address_info.1],
+    if let Ok(_withdraw_txid) = operator_client
+        .new_withdrawal_direct_rpc(0, withdrawal_address.as_unchecked().clone())
+        .await
+    {
+        println!(
+            "Verifier {} is down, this should not be possible.",
+            VERIFIER_IDX
+        );
+        assert!(false);
     };
 
-    let sig = signer
-        .sign_taproot_script_spend_tx_new_tweaked(&mut takes_after_tx_details, 0, 1)
-        .unwrap();
+    // Restart all servers.
+    results.iter().for_each(|server| {
+        let _ = server.1.stop();
+    });
+    let (operator_client, _operator_handler, _results) =
+        create_operator_and_verifiers(config.clone(), rpc.clone()).await;
 
-    handle_taproot_witness_new(&mut takes_after_tx_details, &vec![sig.as_ref()], 0, 1).unwrap();
-    println!(
-        "now sending takes_after_tx: {:#?}",
-        takes_after_tx_details.tx
-    );
-
-    let user_takes_back_txid = rpc
-        .send_raw_transaction(&takes_after_tx_details.tx)
+    let withdraw_txid = operator_client
+        .new_withdrawal_direct_rpc(0, withdrawal_address.as_unchecked().clone())
+        .await
         .unwrap();
-    println!("User takes back txid: {:?}", user_takes_back_txid);
+    println!("Withdrawal send to address: {:?}", withdrawal_address);
+    println!("Withdrawal TXID: {:#?}", withdraw_txid);
 
-    let user_takes_back_tx = rpc
-        .get_raw_transaction(&user_takes_back_txid, None)
-        .unwrap();
-    println!("User takes back tx: {:#?}", user_takes_back_tx);
+    // check whether it has an output with the withdrawal address
+    let tx = rpc.get_raw_transaction(&withdraw_txid, None).unwrap();
+    let rpc_withdraw_script = tx.output[0].script_pubkey.clone();
+    let rpc_withdraw_amount = tx.output[0].value;
+    let expected_withdraw_script = withdrawal_address.script_pubkey();
+    assert_eq!(rpc_withdraw_script, expected_withdraw_script);
+
+    // check if the amounts match
+    let anyone_can_spend_amount = script_builder::anyone_can_spend_txout().value;
+    let expected_withdraw_amount = Amount::from_sat(BRIDGE_AMOUNT_SATS - 2 * config.min_relay_fee)
+        - anyone_can_spend_amount * 2;
+    assert_eq!(expected_withdraw_amount, rpc_withdraw_amount);
 }

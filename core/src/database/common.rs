@@ -231,7 +231,7 @@ impl Database {
         idx: usize,
     ) -> Result<(Txid, secp256k1::schnorr::Signature), BridgeError> {
         let qr: (String, String) =
-            sqlx::query_as("SELECT (bridge_fund_txid, sig) FROM withdrawal_sigs WHERE idx = $1;")
+            sqlx::query_as("SELECT bridge_fund_txid, sig FROM withdrawal_sigs WHERE idx = $1;")
                 .bind(idx as i64)
                 .fetch_one(&self.connection)
                 .await?;
