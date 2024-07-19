@@ -13,6 +13,7 @@ use clementine_core::servers::*;
 use clementine_core::traits::rpc::OperatorRpcClient;
 use clementine_core::transaction_builder::{CreateTxOutputs, TransactionBuilder};
 use clementine_core::utils::handle_taproot_witness_new;
+use clementine_core::utils::SECP;
 use clementine_core::EVMAddress;
 use clementine_core::{
     create_extended_rpc, create_test_config, create_test_config_with_thread_name,
@@ -219,4 +220,118 @@ async fn test_flow_2() {
         .get_raw_transaction(&user_takes_back_txid, None)
         .unwrap();
     tracing::debug!("User takes back tx: {:#?}", user_takes_back_tx);
+}
+
+#[tokio::test]
+async fn verifier_down_for_withdrawal_signature() {
+    let mut config = create_test_config_with_thread_name!(
+        "test_config_verifier_down_for_withdrawal_signature.toml"
+    );
+    let rpc = create_extended_rpc!(config);
+    let handle = thread::current()
+        .name()
+        .unwrap()
+        .split(':')
+        .last()
+        .unwrap()
+        .to_owned();
+    for i in 0..4 {
+        create_test_config!(
+            handle.clone() + i.to_string().as_str(),
+            "test_config_verifier_down_for_withdrawal_signature.toml"
+        );
+    }
+
+    let (xonly_pk, _) = config.secret_key.public_key(&SECP).x_only_public_key();
+    let taproot_address = Address::p2tr(&SECP, xonly_pk, None, config.network);
+    println!(
+        "Taproot address script pubkey: {:#?}",
+        taproot_address.script_pubkey()
+    );
+
+    let tx_builder = TransactionBuilder::new(config.verifiers_public_keys.clone(), config.network);
+
+    let (_operator_client, _operator_handler, _results) =
+        create_operator_and_verifiers(config.clone(), rpc.clone()).await;
+
+    let evm_address = EVMAddress([1u8; 20]);
+
+    let deposit_address_info = tx_builder
+        .generate_deposit_address(
+            taproot_address.as_unchecked(),
+            &evm_address,
+            BRIDGE_AMOUNT_SATS,
+            config.user_takes_after,
+        )
+        .unwrap();
+    println!(
+        "Deposit address taproot spend info: {:#?}",
+        deposit_address_info.1
+    );
+    println!("Deposit address: {:#?}", deposit_address_info.0);
+
+    let deposit_utxo = rpc
+        .send_to_address(&deposit_address_info.0, BRIDGE_AMOUNT_SATS)
+        .unwrap();
+    println!("Deposit UTXO: {:#?}", deposit_utxo);
+
+    rpc.mine_blocks(config.user_takes_after as u64 + 2).unwrap();
+
+    let signer = Actor::new(config.secret_key, config.network);
+
+    let anyone_can_spend_txout = script_builder::anyone_can_spend_txout();
+
+    let tx_ins = TransactionBuilder::create_tx_ins_with_sequence(
+        vec![deposit_utxo],
+        config.user_takes_after as u16 + 1,
+    );
+    let tx_outs = TransactionBuilder::create_tx_outs(vec![
+        (
+            Amount::from_sat(BRIDGE_AMOUNT_SATS - 2 * config.min_relay_fee)
+                - anyone_can_spend_txout.value * 2,
+            taproot_address.script_pubkey(),
+        ),
+        (
+            anyone_can_spend_txout.value,
+            anyone_can_spend_txout.script_pubkey,
+        ),
+    ]);
+    let takes_after_tx = TransactionBuilder::create_btc_tx(tx_ins, tx_outs);
+
+    let deposit_tx = rpc.get_raw_transaction(&deposit_utxo.txid, None).unwrap();
+
+    let prevouts = vec![deposit_tx.output[deposit_utxo.vout as usize].clone()];
+
+    let takes_after_script = script_builder::generate_timelock_script(
+        taproot_address.as_unchecked(),
+        config.user_takes_after,
+    );
+    let bridge_script = script_builder::generate_script_n_of_n(&config.verifiers_public_keys);
+
+    let mut takes_after_tx_details = CreateTxOutputs {
+        tx: takes_after_tx.clone(),
+        prevouts,
+        scripts: vec![vec![bridge_script, takes_after_script]],
+        taproot_spend_infos: vec![deposit_address_info.1],
+    };
+
+    let sig = signer
+        .sign_taproot_script_spend_tx_new_tweaked(&mut takes_after_tx_details, 0, 1)
+        .unwrap();
+
+    handle_taproot_witness_new(&mut takes_after_tx_details, &vec![sig.as_ref()], 0, 1).unwrap();
+    println!(
+        "now sending takes_after_tx: {:#?}",
+        takes_after_tx_details.tx
+    );
+
+    let user_takes_back_txid = rpc
+        .send_raw_transaction(&takes_after_tx_details.tx)
+        .unwrap();
+    println!("User takes back txid: {:?}", user_takes_back_txid);
+
+    let user_takes_back_tx = rpc
+        .get_raw_transaction(&user_takes_back_txid, None)
+        .unwrap();
+    println!("User takes back tx: {:#?}", user_takes_back_tx);
 }
