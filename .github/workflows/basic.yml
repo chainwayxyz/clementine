@@ -13,7 +13,7 @@ jobs:
   build_and_test:
     name: Compile and test
 
-    runs-on: ubicloud-standard-4'
+    runs-on: ubicloud-standard-4
 
     services:
       postgres:
@@ -61,7 +61,6 @@ jobs:
     - name: Create config overwrite file
       run: |
         cat << EOF > /home/runner/overwrite.toml
-  
         tracing_debug = \"debug,bitcoincore_rpc=info,hyper=error\" > /home/runner/overwrite.toml
         host = \"127.0.0.1\" >> /home/runner/overwrite.toml
         port = 3000 >> /home/runner/overwrite.toml
