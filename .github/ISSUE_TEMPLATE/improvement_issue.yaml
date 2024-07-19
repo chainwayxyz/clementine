@@ -1,0 +1,14 @@
+
+name: Improvement Proposal Template
+description: This issue template is used for proposing any kind of improvements.
+assignees: []
+labels: []
+body:
+  - type: textarea
+    id: issue-description
+    attributes:
+      placeholder: "Proposal description."
+      label: Proposal Description
+      description: "Describe the improvement idea, why we need it, how can it be done and how hard will it be (how much time it needs) to implement."
+    validations:
+      required: true
