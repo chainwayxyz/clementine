@@ -14,7 +14,7 @@ min_relay_fee = 305
 user_takes_after = 5
 confirmation_treshold = 1
 network = "regtest"
-bitcoin_rpc_url = "http://172.16.20.116:18443"
+bitcoin_rpc_url = "http://127.0.0.1:18443"
 bitcoin_rpc_user = "admin"
 bitcoin_rpc_password = "admin"
 all_secret_keys = [
@@ -26,6 +26,6 @@ all_secret_keys = [
 ]
 db_host = "127.0.0.1"
 db_port = 5432
-db_user = "clementine"
+db_user = "citrea"
 db_password = ""
 db_name = "clementine"
