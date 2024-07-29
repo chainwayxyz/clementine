@@ -325,7 +325,10 @@ where
     R: RpcApiWrapper,
 {
     fn clone(&self) -> Self {
-        let new_client = R::new(&self.url, self.auth.clone())
+        // `new_without_cleanup` call is essentially same with `new` call. But
+        // it won't clean mock RPC database when called. It will only establish
+        // a new connection with database.
+        let new_client = R::new_without_cleanup(&self.url, self.auth.clone())
             .unwrap_or_else(|e| panic!("Failed to clone Bitcoin RPC client: {}", e));
 
         Self {
