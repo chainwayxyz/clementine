@@ -9,8 +9,10 @@ use bitcoin::taproot::LeafVersion;
 use bitcoin::taproot::TaprootSpendInfo;
 use bitcoin::Amount;
 use bitcoin::ScriptBuf;
+use bitcoin::Transaction;
 use bitcoin::XOnlyPublicKey;
 use hex;
+use secp256k1::schnorr::Signature;
 use sha2::{Digest, Sha256};
 use std::borrow::BorrowMut;
 use std::str::FromStr;
@@ -111,6 +113,20 @@ pub fn handle_taproot_witness_new<T: AsRef<[u8]>>(
     witness.push(tx.scripts[txin_index][script_index].clone());
     witness.push(&spend_control_block.serialize());
 
+    Ok(())
+}
+
+pub fn handle_taproot_pubkey_spend_witness(
+    tx: &mut Transaction,
+    signature: Signature,
+    txin_index: usize,
+) -> Result<(), BridgeError> {
+    let mut sighash_cache = SighashCache::new(tx.borrow_mut());
+
+    let witness = sighash_cache
+        .witness_mut(txin_index)
+        .ok_or(BridgeError::TxInputNotFound)?;
+    witness.push::<&[u8]>(signature.serialize().as_ref());
     Ok(())
 }
 
