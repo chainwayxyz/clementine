@@ -4,6 +4,7 @@
 //! directly talks with PostgreSQL. It is expected that PostgreSQL is properly
 //! installed and configured.
 
+use crate::musig::{MusigPubNonce, MusigSecNonce};
 use crate::{config::BridgeConfig, errors::BridgeError};
 use crate::{EVMAddress, PsbtOutPoint};
 use bitcoin::address::NetworkUnchecked;
@@ -271,6 +272,21 @@ impl Database {
     ) -> Result<(), BridgeError> {
         unimplemented!();
     }
+
+    pub async fn get_pub_nonces(
+        &self,
+        deposit_utxo: &OutPoint,
+    ) -> Result<Option<Vec<MusigPubNonce>>, BridgeError> {
+        unimplemented!();
+    }
+
+    pub async fn save_pub_nonces(
+        &self,
+        deposit_utxo: &OutPoint,
+        nonces: &Vec<(MusigPubNonce, MusigSecNonce)>,
+    ) -> Result<(), BridgeError> {
+        unimplemented!();
+    }    
 }
 
 #[cfg(test)]

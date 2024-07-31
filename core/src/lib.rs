@@ -24,6 +24,7 @@ pub mod transaction_builder;
 pub mod user;
 pub mod utils;
 pub mod verifier;
+pub mod musig;
 
 pub type ConnectorUTXOTree = Vec<Vec<OutPoint>>;
 pub type HashTree = Vec<Vec<HashType>>;
@@ -37,10 +38,6 @@ pub struct EVMAddress(#[serde(with = "hex::serde")] pub [u8; 20]);
 /// Type alias for withdrawal payment, HashType is taproot script hash
 pub type WithdrawalPayment = (Txid, HashType);
 
-pub type MusigPubNonce = [u8; 32];
-pub type MusigSecNonce = [u8; 32];
-pub type MusigAggNonce = [u8; 32];
-pub type MusigPartialSignature = [u8; 32];
 
 #[derive(Clone, Debug, Eq, Hash, PartialEq, PartialOrd, Ord, Serialize, Deserialize)]
 pub struct PsbtOutPoint {

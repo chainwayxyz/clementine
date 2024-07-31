@@ -1,10 +1,11 @@
+use crate::actor::Actor;
 use crate::config::BridgeConfig;
 use crate::database::verifier::VerifierDB;
 use crate::errors::BridgeError;
 use crate::extended_rpc::ExtendedRpc;
+use crate::musig::{self, MusigPubNonce};
 use crate::traits::rpc::VerifierRpcServer;
 use crate::transaction_builder::TransactionBuilder;
-use crate::{actor::Actor, operator::DepositPresigns};
 use crate::{script_builder, EVMAddress};
 use bitcoin::address::{NetworkChecked, NetworkUnchecked};
 use bitcoin::{secp256k1, secp256k1::Secp256k1, OutPoint};
@@ -66,20 +67,19 @@ where
 
     /// Operator only endpoint for verifier.
     ///
-    /// 1. Check if the deposit UTXO is valid and finalized (6 blocks confirmation)
-    /// 2. Check if the UTXO is not already spent
-    /// 3. Give move signature and operator claim signatures
+    /// 1. Check if the deposit UTXO is valid, finalized (6 blocks confirmation) and not spent
+    /// 2. Generate random pubNonces, secNonces
+    /// 3. Save pubNonces and secNonces to a db
+    /// 4. Return pubNonces
     async fn new_deposit(
         &self,
-        start_utxo: OutPoint,
+        deposit_utxo: &OutPoint,
         recovery_taproot_address: &Address<NetworkUnchecked>,
-        _deposit_index: u32,
         evm_address: &EVMAddress,
-        _operator_address: &Address,
-    ) -> Result<DepositPresigns, BridgeError> {
+    ) -> Result<Vec<MusigPubNonce>, BridgeError> {
         self.rpc.check_deposit_utxo(
             &self.transaction_builder,
-            &start_utxo,
+            &deposit_utxo,
             recovery_taproot_address,
             evm_address,
             BRIDGE_AMOUNT_SATS,
@@ -87,28 +87,24 @@ where
             self.confirmation_treshold,
         )?;
 
-        let mut move_tx = self.transaction_builder.create_move_tx(
-            start_utxo,
-            evm_address,
-            recovery_taproot_address,
-            self.user_takes_after,
-        )?;
-        let move_txid = move_tx.tx.compute_txid();
+        let num_required_sigs = 10; // TODO: Fix this
 
-        tracing::info!(
-            "Verifier with public key {:?} is signing {:?}.",
-            self.signer.xonly_public_key.to_string(),
-            move_txid
-        );
+        let pub_nonces_from_db = self.db.get_pub_nonces(deposit_utxo).await?;
+        if let Some(pub_nonces) = pub_nonces_from_db {
+            return Ok(pub_nonces);
+        }
 
-        let move_sig = self
-            .signer
-            .sign_taproot_script_spend_tx_new(&mut move_tx, 0, 0)?;
+        // let nonces = musig::nonce_pair(&self.signer.keypair);
 
-        Ok(DepositPresigns {
-            move_sign: move_sig,
-            operator_claim_sign: vec![],
-        })
+        let nonces = (0..num_required_sigs)
+            .map(|_| musig::nonce_pair(&self.signer.keypair))
+            .collect::<Vec<_>>();
+
+        self.db.save_pub_nonces(deposit_utxo, &nonces).await?;
+
+        let pub_nonces = nonces.iter().map(|(pub_nonce, _)| *pub_nonce).collect();
+
+        Ok(pub_nonces)
     }
 
     async fn new_withdrawal_direct(

@@ -12,7 +12,7 @@ use bitcoin::{TapLeafHash, TapNodeHash, TapSighashType, TxOut};
 
 #[derive(Debug, Clone)]
 pub struct Actor {
-    keypair: Keypair,
+    pub keypair: Keypair,
     secret_key: SecretKey,
     pub xonly_public_key: XOnlyPublicKey,
     pub address: Address,

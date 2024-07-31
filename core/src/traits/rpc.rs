@@ -1,7 +1,8 @@
+use crate::musig::{MusigAggNonce, MusigPartialSignature, MusigPubNonce};
+use crate::PsbtOutPoint;
 use crate::{errors::BridgeError, EVMAddress};
-use crate::{MusigAggNonce, MusigPartialSignature, MusigPubNonce, PsbtOutPoint};
 use bitcoin::address::NetworkUnchecked;
-use bitcoin::{Address, OutPoint, Psbt, Txid};
+use bitcoin::{Address, OutPoint};
 use jsonrpsee::proc_macros::rpc;
 use secp256k1::schnorr;
 
