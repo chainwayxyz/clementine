@@ -4,10 +4,10 @@
 //! directly talks with PostgreSQL. It is expected that PostgreSQL is properly
 //! installed and configured.
 
-use crate::EVMAddress;
 use crate::{config::BridgeConfig, errors::BridgeError};
+use crate::{EVMAddress, PsbtOutPoint};
 use bitcoin::address::NetworkUnchecked;
-use bitcoin::{Address, OutPoint, Txid};
+use bitcoin::{Address, Amount, OutPoint, Txid};
 use sqlx::{Pool, Postgres};
 use std::fs;
 use std::str::FromStr;
@@ -239,6 +239,37 @@ impl Database {
         let bridge_fund_txid = Txid::from_str(&qr.0).unwrap();
         let sig = secp256k1::schnorr::Signature::from_str(&qr.1).unwrap();
         Ok((bridge_fund_txid, sig))
+    }
+
+    pub async fn get_kickoff_utxo(
+        &self,
+        deposit_utxo: &OutPoint,
+    ) -> Result<Option<PsbtOutPoint>, BridgeError> {
+        unimplemented!();
+    }
+
+    pub async fn get_funding_utxo_and_amount(
+        &self,
+    ) -> Result<Option<(OutPoint, Amount)>, BridgeError> {
+        unimplemented!();
+    }
+
+    pub async fn set_funding_utxo_and_amount(
+        &self,
+        funding_utxo: &OutPoint,
+        amount: Amount,
+    ) -> Result<(), BridgeError> {
+        unimplemented!();
+    }
+
+    pub async fn save_kickoff_utxo(
+        &self,
+        deposit_utxo: &OutPoint,
+        kickoff_utxo: &PsbtOutPoint,
+        kickoff_txid: &Txid,
+        funding_txid: &Txid,
+    ) -> Result<(), BridgeError> {
+        unimplemented!();
     }
 }
 

@@ -128,6 +128,12 @@ pub enum BridgeError {
     /// There was an error while creating a server.
     #[error("ServerError")]
     ServerError(std::io::Error),
+    /// When the operators funding utxo is not found
+    #[error("OperatorFundingUtxoNotFound: Funding utxo not found, pls send some amount here: {0}, then call the set_operator_funding_utxo RPC")]
+    OperatorFundingUtxoNotFound(bitcoin::Address),
+    /// OperatorFundingUtxoAmountNotEnough is returned when the operator funding utxo amount is not enough
+    #[error("OperatorFundingUtxoAmountNotEnough: Operator funding utxo amount is not enough, pls send some amount here: {0}, then call the set_operator_funding_utxo RPC")]
+    OperatorFundingUtxoAmountNotEnough(bitcoin::Address),
 }
 
 impl Into<ErrorObject<'static>> for BridgeError {

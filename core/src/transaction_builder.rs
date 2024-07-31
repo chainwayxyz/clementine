@@ -168,6 +168,35 @@ impl TransactionBuilder {
         })
     }
 
+    /// Creates the kickoff_tx for the operator. It also returns the change output
+    pub fn create_kickoff_tx(
+        funding_utxo: OutPoint,
+        funding_amount: Amount,
+        address: &Address,
+    ) -> (bitcoin::Transaction, OutPoint, Amount) {
+        let tx_ins = TransactionBuilder::create_tx_ins(vec![funding_utxo]);
+
+        let change_amount = funding_amount
+            - Amount::from_sat(100_000)
+            - script_builder::anyone_can_spend_txout().value;
+
+        let tx_outs = TransactionBuilder::create_tx_outs(vec![
+            (
+                Amount::from_sat(100_000), // TODO: Change this to a constant
+                address.script_pubkey(),
+            ),
+            (
+                script_builder::anyone_can_spend_txout().value,
+                script_builder::anyone_can_spend_txout().script_pubkey,
+            ),
+            (change_amount, address.script_pubkey()),
+        ]);
+        let tx = TransactionBuilder::create_btc_tx(tx_ins, tx_outs);
+        let txid = tx.compute_txid();
+        let change_utxo = OutPoint { txid, vout: 2 };
+        (tx, change_utxo, change_amount)
+    }
+
     pub fn create_btc_tx(tx_ins: Vec<TxIn>, tx_outs: Vec<TxOut>) -> bitcoin::Transaction {
         bitcoin::Transaction {
             version: bitcoin::transaction::Version(2),

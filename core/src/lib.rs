@@ -36,3 +36,16 @@ pub struct EVMAddress(#[serde(with = "hex::serde")] pub [u8; 20]);
 
 /// Type alias for withdrawal payment, HashType is taproot script hash
 pub type WithdrawalPayment = (Txid, HashType);
+
+pub type MusigPubNonce = [u8; 32];
+pub type MusigSecNonce = [u8; 32];
+pub type MusigAggNonce = [u8; 32];
+pub type MusigPartialSignature = [u8; 32];
+
+#[derive(Clone, Debug, Eq, Hash, PartialEq, PartialOrd, Ord, Serialize, Deserialize)]
+pub struct PsbtOutPoint {
+    /// The referenced transaction's txid.
+    pub tx: bitcoin::Transaction,
+    /// The index of the referenced output in its transaction's vout.
+    pub vout: u32,
+}
