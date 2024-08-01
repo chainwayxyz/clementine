@@ -3,15 +3,17 @@ use crate::config::BridgeConfig;
 use crate::database::verifier::VerifierDB;
 use crate::errors::BridgeError;
 use crate::extended_rpc::ExtendedRpc;
-use crate::musig::{self, MusigPubNonce};
+use crate::musig::{self, MusigAggNonce, MusigPartialSignature, MusigPubNonce};
 use crate::traits::rpc::VerifierRpcServer;
 use crate::transaction_builder::TransactionBuilder;
-use crate::{script_builder, EVMAddress};
+use crate::{script_builder, utils, EVMAddress, PsbtOutPoint};
 use bitcoin::address::{NetworkChecked, NetworkUnchecked};
+use bitcoin::hashes::Hash;
 use bitcoin::{secp256k1, secp256k1::Secp256k1, OutPoint};
 use bitcoin::{Address, Amount, Network, TxOut, Txid};
 use bitcoin_mock_rpc::RpcApiWrapper;
 use clementine_circuits::constants::BRIDGE_AMOUNT_SATS;
+use clementine_circuits::sha256_hash;
 use jsonrpsee::core::async_trait;
 use secp256k1::schnorr;
 use secp256k1::XOnlyPublicKey;
@@ -105,6 +107,138 @@ where
         let pub_nonces = nonces.iter().map(|(pub_nonce, _)| *pub_nonce).collect();
 
         Ok(pub_nonces)
+    }
+
+    /// - Check the kickoff_utxos
+    /// - Save agg_nonces to a db for future use
+    /// - for every kickoff_utxo, calculate kickoff2_tx
+    /// - for every kickoff2_tx, partial sign burn_tx (ommitted for now)
+    /// - return MusigPartialSignature of sign(kickoff2_txids)
+    async fn operator_kickoffs_generated(
+        &self,
+        deposit_utxo: &OutPoint,
+        kickoff_utxos: Vec<PsbtOutPoint>,
+        agg_nonces: Vec<MusigAggNonce>,
+    ) -> Result<MusigPartialSignature, BridgeError> {
+        for kickoff_utxo in kickoff_utxos.iter() {
+            let value = kickoff_utxo.tx.output[kickoff_utxo.vout as usize].value;
+            if value.to_sat() < 100_000 {
+                // TODO: Fix constant check
+                return Err(BridgeError::InvalidKickoffUtxo);
+            }
+        }
+
+        let kickoff_outpoints_and_amounts = kickoff_utxos
+            .iter()
+            .map(|x| {
+                (
+                    OutPoint {
+                        txid: x.tx.compute_txid(),
+                        vout: x.vout,
+                    },
+                    x.tx.output[x.vout as usize].value,
+                )
+            })
+            .collect::<Vec<_>>();
+
+        // TODO: If also operator, check if our kick_off_utxo is in the list and in the correct place
+
+        self.db.save_agg_nonces(deposit_utxo, &agg_nonces).await?;
+
+        self.db
+            .save_kickoff_utxos(deposit_utxo, &kickoff_outpoints_and_amounts)
+            .await?;
+
+        // TODO: Sign burn txs
+
+        let kickoff_txids_root = utils::calculate_merkle_root(
+            kickoff_outpoints
+                .iter()
+                .map(|x| {
+                    sha256_hash!(
+                        x.txid.to_raw_hash().as_byte_array().clone(),
+                        x.vout.to_be_bytes()
+                    )
+                })
+                .collect::<Vec<_>>(),
+        );
+
+        let kickoffs_digest = sha256_hash!(
+            deposit_utxo.txid,
+            deposit_utxo.vout.to_be_bytes(),
+            kickoff_txids_root
+        );
+
+        let nonces = self.db.get_nonces(deposit_utxo, 0).await?;
+
+        let (pubNonce, secNonce, aggNonce) = nonces.ok_or(BridgeError::NoncesNotFound)?;
+
+        let (partial_kickoff_digest_sig, _) = musig::partial_sign(
+            vec![],
+            aggNonce,
+            &self.signer.keypair,
+            secNonce,
+            kickoffs_digest,
+            None,
+            None,
+        );
+
+        Ok(partial_kickoff_digest_sig)
+    }
+
+    /// verify burn txs are signed by verifiers
+    /// sign operator_takes_txs
+    async fn burn_txs_signed_rpc(
+        &self,
+        deposit_utxo: &OutPoint,
+        burn_sigs: Vec<schnorr::Signature>,
+    ) -> Result<Vec<MusigPartialSignature>, BridgeError> {
+        // TODO: Verify burn txs are signed by verifiers
+
+        let kickoff_outpoints_and_amounts = self
+            .db
+            .get_kickoff_outpoints_and_amounts(deposit_utxo)
+            .await?;
+
+        let kickoff_outpoints_and_amounts =
+            kickoff_outpoints_and_amounts.ok_or(BridgeError::KickoffOutpointsNotFound)?;
+
+        let partial_operator_takes_sigs = kickoff_outpoints_and_amounts
+            .iter()
+            .map(|(kickoff_outpoint, kickoff_amount)| {
+                let ins = TransactionBuilder::create_tx_ins(vec![kickoff_outpoint.clone()]);
+                let outs = vec![
+                    TxOut {
+                        value: Amount::from_sat(kickoff_amount.to_sat() - 330),
+                        script_pubkey: self.signer.address.script_pubkey(), // TODO: Fix this address to operator or 200 blocks N-of-N
+                    },
+                    script_builder::anyone_can_spend_txout(),
+                ];
+                let tx = TransactionBuilder::create_btc_tx(ins, outs);
+
+                let ins = TransactionBuilder::create_tx_ins(vec![
+                    deposit_utxo.clone(),
+                    OutPoint {
+                        txid: tx.compute_txid(),
+                        vout: 0,
+                    },
+                ]);
+                let outs = vec![
+                    TxOut {
+                        value: Amount::from_sat(
+                            kickoff_amount.to_sat() - 330 + BRIDGE_AMOUNT_SATS - 330,
+                        ),
+                        script_pubkey: self.signer.address.script_pubkey(), // TODO: Fix this address to operator
+                    },
+                    script_builder::anyone_can_spend_txout(),
+                ];
+
+                let tx = TransactionBuilder::create_btc_tx(ins, outs);
+
+            })
+            .collect::<Vec<_>>();
+
+        Ok(vec![[0u8; 32]; 10])
     }
 
     async fn new_withdrawal_direct(

@@ -68,6 +68,7 @@ where
     /// 1. Check if the deposit UTXO is valid, finalized (6 blocks confirmation) and not spent
     /// 2. Check if we alredy created a kickoff UTXO for this deposit UTXO
     /// 3. Create a kickoff transaction but do not broadcast it
+    /// TODO: Create multiple kickoffs in single transaction
     pub async fn new_deposit(
         &self,
         deposit_utxo: &OutPoint,

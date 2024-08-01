@@ -27,7 +27,7 @@ pub trait VerifierRpc {
     /// - return MusigPartialSignature of sign(kickoff2_txids)
     async fn operator_kickoffs_generated_rpc(
         &self,
-        kickoff_utxos: Vec<OutPoint>,
+        kickoff_utxos: Vec<PsbtOutPoint>,
         agg_nonces: Vec<MusigAggNonce>,
     ) -> Result<MusigPartialSignature, BridgeError>;
 

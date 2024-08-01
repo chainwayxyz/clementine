@@ -10,6 +10,8 @@ use bitcoin::taproot::TaprootSpendInfo;
 use bitcoin::Amount;
 use bitcoin::ScriptBuf;
 use bitcoin::XOnlyPublicKey;
+use clementine_circuits::sha256_hash;
+use clementine_circuits::HashType;
 use hex;
 use sha2::{Digest, Sha256};
 use std::borrow::BorrowMut;
@@ -35,6 +37,29 @@ lazy_static::lazy_static! {
     pub static ref UNSPENDABLE_XONLY_PUBKEY: bitcoin::secp256k1::XOnlyPublicKey =
         XOnlyPublicKey::from_str("93c7378d96518a75448821c4f7c8f4bae7ce60f804d03d1f0628dd5dd0f5de51").unwrap();
 }
+
+
+pub fn calculate_merkle_root(leaves: Vec<HashType>) -> HashType {
+    let mut hashes = leaves;
+
+    while hashes.len() > 1 {
+        let mut new_hashes: Vec<HashType> = Vec::new();
+        for i in (0..hashes.len()).step_by(2) {
+            let new_hash = if i + 1 < hashes.len() {
+                sha256_hash!(hashes[i], hashes[i + 1])
+            } else {
+                hashes[i]
+            };
+            new_hashes.push(new_hash);
+        }
+
+        hashes = new_hashes;
+    }
+
+    hashes[0]
+}
+
+
 
 pub fn parse_hex_to_btc_tx(
     tx_hex: &str,
