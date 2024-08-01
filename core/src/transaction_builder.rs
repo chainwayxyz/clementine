@@ -207,6 +207,31 @@ impl TransactionBuilder {
         tx_ins
     }
 
+    pub fn create_tx_ins_with_sequence_flag(utxos: Vec<OutPoint>, height: u16, flag: Vec<bool>) -> Vec<TxIn> {
+        assert!(utxos.len() == flag.len());
+        let mut tx_ins = Vec::new();
+
+        for (idx, utxo) in utxos.into_iter().enumerate() {
+            if flag[idx] {
+                tx_ins.push(TxIn {
+                    previous_output: utxo,
+                    sequence: bitcoin::transaction::Sequence::from_height(height),
+                    script_sig: ScriptBuf::default(),
+                    witness: Witness::new(),
+                });
+            } else {
+                tx_ins.push(TxIn {
+                    previous_output: utxo,
+                    sequence: bitcoin::transaction::Sequence::ENABLE_RBF_NO_LOCKTIME,
+                    script_sig: ScriptBuf::default(),
+                    witness: Witness::new(),
+                });
+            }
+        }
+
+        tx_ins
+    }
+
     pub fn create_tx_outs(pairs: Vec<(Amount, ScriptBuf)>) -> Vec<TxOut> {
         let mut tx_outs = Vec::new();
 

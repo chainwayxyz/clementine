@@ -76,14 +76,16 @@ impl Database {
         config: BridgeConfig,
         database_name: &str,
     ) -> Result<BridgeConfig, BridgeError> {
+        println!("Creating test database in function: {}", database_name);
         let url = "postgresql://".to_owned()
             + config.db_user.as_str()
             + ":"
             + config.db_password.as_str()
             + "@"
             + config.db_host.as_str();
+            println!("URL: {}", url);
         let conn = sqlx::PgPool::connect(url.as_str()).await?;
-
+        println!("Connected to database: {}", database_name);
         Database::drop_database(config.clone(), database_name).await?;
 
         let query = format!(

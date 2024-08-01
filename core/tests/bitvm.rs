@@ -2,8 +2,9 @@
 //!
 //! This testss checks if basic deposit and withdraw operations are OK or not.
 
-use bitcoin::taproot::TaprootBuilder;
+use bitcoin::taproot::{LeafVersion, TaprootBuilder};
 use bitcoin::{Address, Amount, OutPoint, Transaction, TxOut};
+use bitcoincore_rpc::RawTx;
 use clementine_circuits::constants::BRIDGE_AMOUNT_SATS;
 use clementine_core::actor::Actor;
 use clementine_core::config::BridgeConfig;
@@ -23,9 +24,16 @@ use clementine_core::{script_builder, utils};
 use secp256k1::schnorr::Signature;
 use std::{thread, vec};
 
+#[derive(Clone, Debug)]
+pub struct BitVMSequence {
+    pub start_tx: Transaction,
+    pub txs: Vec<(CreateTxOutputs, CreateTxOutputs)>,
+    pub sigs: Vec<(Signature, Signature)>,
+}
+
 #[tokio::test]
-async fn test_bitvm() {
-    let mut config = create_test_config_with_thread_name!("test_config_bitvm.toml");
+async fn test_bitvm_1() {
+    let mut config = create_test_config_with_thread_name!("test_config_bitvm_1.toml");
     let rpc = create_extended_rpc!(config);
 
     let secp = bitcoin::secp256k1::Secp256k1::new();
@@ -62,7 +70,7 @@ async fn test_bitvm() {
     // Calculate the challenger_takes_after_address and challenger_takes_after_tree_info
     let challenger_takes_after_script = script_builder::generate_challenger_takes_after_script(
         &config.verifiers_public_keys[0],
-        1008,
+        5,
     );
     let challenger_takes_after_taproot = TaprootBuilder::new()
         .add_leaf(0, challenger_takes_after_script.clone())
@@ -92,59 +100,120 @@ async fn test_bitvm() {
         &verifier,
         &config,
     );
-    println!("{:?}", bitvm_setup);
+    // println!("{:?}", bitvm_setup);
     let verifier_sig = verifier.sign_taproot_pubkey_spend_tx(&mut bitvm_setup.0, &vec![verifier_source_utxo_as_prevout], 0).unwrap();
     handle_taproot_pubkey_spend_witness(&mut bitvm_setup.0, verifier_sig, 0).unwrap();
     let start_challenge_txid = rpc.send_raw_transaction(&bitvm_setup.0).unwrap();
     println!("Start Challenge TXID: {:?}", start_challenge_txid);
+    // let control_block_operator_commits = bitvm_setup.1[0].0.taproot_spend_infos[0].control_block(&(dummy_commit_script.clone(), LeafVersion::TapScript)).unwrap();
+    // bitvm_setup.1[0].0.tx.input[0].witness.push(dummy_commit_script.clone());
+    // bitvm_setup.1[0].0.tx.input[0].witness.push(control_block_operator_commits.serialize());
 
-    // let operator_commits
+    rpc.mine_blocks(7).unwrap();
+    let verifier_sig = verifier.sign_taproot_script_spend_tx_new(&mut bitvm_setup.1[0].1, 1, 0).unwrap();
+    let control_block_verifier_burns = bitvm_setup.1[0].1.taproot_spend_infos[1].control_block(&(challenger_takes_after_script.clone(), LeafVersion::TapScript)).unwrap();
+    bitvm_setup.1[0].1.tx.input[1].witness.push(verifier_sig.serialize());
+    bitvm_setup.1[0].1.tx.input[1].witness.push(challenger_takes_after_script.clone());
+    bitvm_setup.1[0].1.tx.input[1].witness.push(control_block_verifier_burns.serialize());
 
-    // for (idx, deposit_address) in deposit_addresses.iter().enumerate() {
-    //     let deposit_utxo = rpc
-    //         .send_to_address(deposit_address, BRIDGE_AMOUNT_SATS)
-    //         .unwrap();
-    //     tracing::debug!("Deposit UTXO #{}: {:#?}", idx, deposit_utxo);
+    let control_block_musig = bitvm_setup.1[0].1.taproot_spend_infos[0].control_block(&(musig_script.clone(), LeafVersion::TapScript)).unwrap();
+    println!("Control Block Musig: {:?}", control_block_musig);
+    let verifier_musig = bitvm_setup.2[0].0;
+    let operator_musig = bitvm_setup.2[0].1;
+    bitvm_setup.1[0].1.tx.input[0].witness.push(operator_musig.serialize());
+    bitvm_setup.1[0].1.tx.input[0].witness.push(verifier_musig.serialize());
+    bitvm_setup.1[0].1.tx.input[0].witness.push(musig_script.clone());
+    bitvm_setup.1[0].1.tx.input[0].witness.push(control_block_musig.serialize());
+    println!("Verifier Sending Burning TX...: {:?}", bitvm_setup.1[0].1.tx.raw_hex());
+    let verifier_burns_txid = rpc.send_raw_transaction(&bitvm_setup.1[0].1.tx);
+    println!("Verifier Burns TXID: {:?}", verifier_burns_txid);
 
-    //     rpc.mine_blocks(18).unwrap();
 
-    //     let output = operator_client
-    //         .new_deposit_rpc(
-    //             deposit_utxo,
-    //             taproot_address.as_unchecked().clone(),
-    //             evm_addresses[idx],
-    //         )
-    //         .await
-    //         .unwrap();
-    //     tracing::debug!("Output #{}: {:#?}", idx, output);
-    // }
-
-    // let withdrawal_address = Address::p2tr(&secp, xonly_pk, None, config.network);
-
-    // // This index is 3 since when testing the unit tests complete first and the index=1,2 is not sane
-    // let withdraw_txid = operator_client
-    //     .new_withdrawal_direct_rpc(0, withdrawal_address.as_unchecked().clone())
-    //     .await
-    //     .unwrap();
-    // tracing::debug!("Withdrawal sent to address: {:?}", withdrawal_address);
-    // tracing::debug!("Withdrawal TXID: {:#?}", withdraw_txid);
-
-    // // get the tx details from rpc with txid
-    // let tx = rpc.get_raw_transaction(&withdraw_txid, None).unwrap();
-    // // tracing::debug!("Withdraw TXID raw transaction: {:#?}", tx);
-
-    // // check whether it has an output with the withdrawal address
-    // let rpc_withdraw_script = tx.output[0].script_pubkey.clone();
-    // let rpc_withdraw_amount = tx.output[0].value;
-    // let expected_withdraw_script = withdrawal_address.script_pubkey();
-    // assert_eq!(rpc_withdraw_script, expected_withdraw_script);
-    // let anyone_can_spend_amount = script_builder::anyone_can_spend_txout().value;
-
-    // // check if the amounts match
-    // let expected_withdraw_amount = Amount::from_sat(BRIDGE_AMOUNT_SATS - 2 * config.min_relay_fee)
-    //     - anyone_can_spend_amount * 2;
-    // assert_eq!(expected_withdraw_amount, rpc_withdraw_amount);
 }
+
+
+#[tokio::test]
+async fn test_bitvm_2() {
+    let mut config = create_test_config_with_thread_name!("test_config_bitvm_2.toml");
+    let rpc = create_extended_rpc!(config);
+
+    let secp = bitcoin::secp256k1::Secp256k1::new();
+    let (operator_xonly_pk, _) = config.secret_key.public_key(&secp).x_only_public_key();
+    let taproot_address = Address::p2tr(&secp, operator_xonly_pk, None, config.network);
+    let tx_builder = TransactionBuilder::new(config.verifiers_public_keys.clone(), config.network);
+
+    // Create operator and verifier (challenger) entities
+    let verifier = Actor::new(config.all_secret_keys.clone().unwrap()[0], config.network.clone());
+    let operator = Actor::new(config.secret_key.clone(), config.network.clone());
+
+    // Calculate the verifier_address
+    let verifier_taproot_address =
+        Address::p2tr(&secp, config.verifiers_public_keys[0], None, config.network);
+
+    // Calculate the dummy_commit_address and dummy_commit_tree_info
+    let dummy_commit_script = script_builder::generate_dummy_commit_script();
+    let musig_script = script_builder::generate_script_n_of_n(&config.verifiers_public_keys);
+    let dummy_commit_taproot = TaprootBuilder::new()
+        .add_leaf(1, dummy_commit_script.clone())
+        .unwrap()
+        .add_leaf(1, musig_script.clone())
+        .unwrap();
+    let dummy_commit_tree_info = dummy_commit_taproot
+        .finalize(&utils::SECP, *utils::UNSPENDABLE_XONLY_PUBKEY)
+        .unwrap();
+    let dummy_commit_address = Address::p2tr(
+        &utils::SECP,
+        *utils::UNSPENDABLE_XONLY_PUBKEY,
+        dummy_commit_tree_info.merkle_root(),
+        config.network,
+    );
+
+    // Calculate the challenger_takes_after_address and challenger_takes_after_tree_info
+    let challenger_takes_after_script = script_builder::generate_challenger_takes_after_script(
+        &config.verifiers_public_keys[0],
+        5,
+    );
+    let challenger_takes_after_taproot = TaprootBuilder::new()
+        .add_leaf(0, challenger_takes_after_script.clone())
+        .unwrap();
+    let challenger_takes_after_tree_info = challenger_takes_after_taproot
+        .finalize(&utils::SECP, *utils::UNSPENDABLE_XONLY_PUBKEY)
+        .unwrap();
+    let challenger_takes_after_address = Address::p2tr(
+        &utils::SECP,
+        *utils::UNSPENDABLE_XONLY_PUBKEY,
+        challenger_takes_after_tree_info.merkle_root(),
+        config.network.clone(),
+    );
+
+    let verifier_source_utxo = rpc
+        .send_to_address(&verifier_taproot_address, 20_000)
+        .unwrap();
+    let verifier_source_utxo_as_prevout = TxOut {
+        value: Amount::from_sat(20_000),
+        script_pubkey: verifier_taproot_address.script_pubkey(),
+    };
+
+    let mut bitvm_setup = create_bitvm_sequence(
+        1,
+        verifier_source_utxo,
+        &operator,
+        &verifier,
+        &config,
+    );
+    // println!("{:?}", bitvm_setup);
+    let verifier_sig = verifier.sign_taproot_pubkey_spend_tx(&mut bitvm_setup.0, &vec![verifier_source_utxo_as_prevout], 0).unwrap();
+    handle_taproot_pubkey_spend_witness(&mut bitvm_setup.0, verifier_sig, 0).unwrap();
+    let start_challenge_txid = rpc.send_raw_transaction(&bitvm_setup.0).unwrap();
+    println!("Start Challenge TXID: {:?}", start_challenge_txid);
+    let control_block_operator_commits = bitvm_setup.1[0].0.taproot_spend_infos[0].control_block(&(dummy_commit_script.clone(), LeafVersion::TapScript)).unwrap();
+    bitvm_setup.1[0].0.tx.input[0].witness.push(dummy_commit_script.clone());
+    bitvm_setup.1[0].0.tx.input[0].witness.push(control_block_operator_commits.serialize());
+    let operator_commits_txid = rpc.send_raw_transaction(&bitvm_setup.1[0].0.tx).unwrap();
+    println!("Operator Commits TXID: {:?}", operator_commits_txid);
+}
+
+
 
 fn create_bitvm_sequence(
     num_tx: usize,
@@ -215,7 +284,7 @@ fn create_verifier_burns_tx(
     // Calculate the challenger_takes_after_address and challenger_takes_after_tree_info
     let challenger_takes_after_script = script_builder::generate_challenger_takes_after_script(
         &config.verifiers_public_keys[0],
-        1008,
+        5,
     );
     let challenger_takes_after_taproot = TaprootBuilder::new()
         .add_leaf(0, challenger_takes_after_script.clone())
@@ -235,9 +304,9 @@ fn create_verifier_burns_tx(
         script_pubkey: challenger_takes_after_address.script_pubkey(),
     };
     let prevouts = vec![first_prevout, second_prevout];
-    let txins = TransactionBuilder::create_tx_ins(vec![commit_utxo, burn_utxo]);
+    let txins = TransactionBuilder::create_tx_ins_with_sequence_flag(vec![commit_utxo, burn_utxo], 6, vec![false, true]);
     let txouts = TransactionBuilder::create_tx_outs(vec![(
-        Amount::from_sat(19500),
+        Amount::from_sat(19000),
         verifier.address.script_pubkey(),
     )]);
     let tx = TransactionBuilder::create_btc_tx(txins, txouts);
@@ -257,7 +326,7 @@ fn create_operator_commits_tx(start_utxo: OutPoint, config: &BridgeConfig) -> Cr
     // Calculate the dummy_commit_address and dummy_commit_tree_info
     let dummy_commit_script = script_builder::generate_dummy_commit_script();
     let musig_script = script_builder::generate_script_n_of_n(&config.verifiers_public_keys);
-    let dummy_commit_taproot = TaprootBuilder::new()
+    let dummy_commit_taproot: TaprootBuilder = TaprootBuilder::new()
         .add_leaf(1, dummy_commit_script.clone())
         .unwrap()
         .add_leaf(1, musig_script.clone())
@@ -316,7 +385,7 @@ fn create_verifier_starts_tx(source_utxo: OutPoint, config: &BridgeConfig) -> Tr
     // Calculate the challenger_takes_after_address and challenger_takes_after_tree_info
     let challenger_takes_after_script = script_builder::generate_challenger_takes_after_script(
         &config.verifiers_public_keys[0],
-        1008,
+        5,
     );
     let challenger_takes_after_taproot = TaprootBuilder::new()
         .add_leaf(0, challenger_takes_after_script.clone())
@@ -339,14 +408,5 @@ fn create_verifier_starts_tx(source_utxo: OutPoint, config: &BridgeConfig) -> Tr
         (Amount::from_sat(500), challenger_takes_after_address.script_pubkey()),
     ]);
     let tx = TransactionBuilder::create_btc_tx(txins, txouts);
-    // let start_utxo = OutPoint {
-    //     txid: tx.compute_txid(),
-    //     vout: 0,
-    // };
-    // let verifier_takes_after_utxo = OutPoint {
-    //     txid: tx.compute_txid(),
-    //     vout: 1,
-    // };
-    // (start_utxo, verifier_takes_after_utxo)
     tx
 }
