@@ -15,12 +15,11 @@ use clementine_core::config::BridgeConfig;
 use clementine_core::extended_rpc::ExtendedRpc;
 use clementine_core::mock::common;
 use clementine_core::transaction_builder::{TransactionBuilder, TxHandlers};
-use clementine_core::utils::{handle_taproot_pubkey_spend_witness, handle_taproot_witness_new};
+use clementine_core::utils::handle_taproot_pubkey_spend_witness;
 use clementine_core::{
     create_extended_rpc, create_test_config, create_test_config_with_thread_name,
 };
 use clementine_core::{script_builder, utils};
-use core::num;
 use secp256k1::schnorr::Signature;
 use secp256k1::Message;
 use std::{thread, vec};
@@ -103,15 +102,13 @@ async fn test_bitvm_1() {
     let mut bitvm_script_vec: Vec<ScriptBuf> = Vec::new();
     for _ in 0..NUM_COMMIT_TX {
         bitvm_script_vec.push(script_builder::generate_dummy_commit_script(
-            &verifier.xonly_public_key,
-            &operator.xonly_public_key,
+            &config.verifiers_public_keys,
         ));
     }
     // This is the last script. It is the script that has the checking conditions and generates the final address.
     // TODO: Change this
     bitvm_script_vec.push(script_builder::generate_dummy_commit_script(
-        &verifier.xonly_public_key,
-        &operator.xonly_public_key,
+        &config.verifiers_public_keys,
     ));
 
     // Create the BitVM sequence with the given BitVM scripts.
@@ -288,15 +285,13 @@ async fn test_bitvm_2() {
     let mut bitvm_script_vec: Vec<ScriptBuf> = Vec::new();
     for _ in 0..NUM_COMMIT_TX {
         bitvm_script_vec.push(script_builder::generate_dummy_commit_script(
-            &verifier.xonly_public_key,
-            &operator.xonly_public_key,
+            &config.verifiers_public_keys,
         ));
     }
     // This is the last script. It is the script that has the checking conditions and generates the final address.
     // TODO: Change this
     bitvm_script_vec.push(script_builder::generate_dummy_commit_script(
-        &verifier.xonly_public_key,
-        &operator.xonly_public_key,
+        &config.verifiers_public_keys,
     ));
 
     // Create the BitVM sequence with the given BitVM scripts.
@@ -308,12 +303,10 @@ async fn test_bitvm_2() {
         &verifier,
         &config,
     );
-    println!("BitVM Setup Completed: {:?}", bitvm_setup);
+    // println!("BitVM Setup Completed: {:?}", bitvm_setup);
 
     // Some needed scripts.
     // TODO: Find a way to handle all the structs in a more elegant way (less cloning, smaller function signatures etc.).
-    let operator_commits_script =
-        bitvm_setup.tx_details_pair_vec[0].commit_tx_details.scripts[0][0].clone();
     let verifier_sig = verifier
         .sign_taproot_pubkey_spend_tx(
             &mut bitvm_setup.start_tx,
@@ -325,54 +318,67 @@ async fn test_bitvm_2() {
     let start_challenge_txid = rpc.send_raw_transaction(&bitvm_setup.start_tx).unwrap();
     println!("Start Challenge TX: {:?}", bitvm_setup.start_tx);
     println!("Start Challenge TXID: {:?}", start_challenge_txid);
-
-    let control_block_operator_commits = bitvm_setup.tx_details_pair_vec[0]
-        .commit_tx_details
-        .taproot_spend_infos[0]
-        .control_block(&(
-            bitvm_setup.tx_details_pair_vec[0].commit_tx_details.scripts[0][0].clone(),
-            LeafVersion::TapScript,
-        ))
-        .unwrap();
-    println!("Control Block Musig: {:?}", control_block_operator_commits);
-    let verifier_sig_operator_commits = bitvm_setup.sigs[0].0 .0;
-    let operator_sig_operator_commits = bitvm_setup.sigs[0].0 .1;
-    println!("Verifier Musig: {:?}", verifier_sig_operator_commits);
-    println!("Operator Musig: {:?}", operator_sig_operator_commits);
-    bitvm_setup.tx_details_pair_vec[0]
-        .commit_tx_details
-        .tx
-        .input[0]
-        .witness
-        .push(operator_sig_operator_commits.serialize());
-    bitvm_setup.tx_details_pair_vec[0]
-        .commit_tx_details
-        .tx
-        .input[0]
-        .witness
-        .push(verifier_sig_operator_commits.serialize());
-    bitvm_setup.tx_details_pair_vec[0]
-        .commit_tx_details
-        .tx
-        .input[0]
-        .witness
-        .push(operator_commits_script.clone());
-    bitvm_setup.tx_details_pair_vec[0]
-        .commit_tx_details
-        .tx
-        .input[0]
-        .witness
-        .push(control_block_operator_commits.serialize());
-    println!(
-        "Operator Sending Commit TX...: {:?}",
-        bitvm_setup.tx_details_pair_vec[0]
+    // let mut start_utxo = OutPoint {
+    //     txid: bitvm_setup.start_tx.compute_txid(),
+    //     vout: 0,
+    // };
+    for i in 0..NUM_COMMIT_TX {
+        let operator_commits_script =
+            bitvm_setup.tx_details_pair_vec[i].commit_tx_details.scripts[0][0].clone();
+        let control_block_operator_commits = bitvm_setup.tx_details_pair_vec[i]
+            .commit_tx_details
+            .taproot_spend_infos[0]
+            .control_block(&(
+                bitvm_setup.tx_details_pair_vec[i].commit_tx_details.scripts[0][0].clone(),
+                LeafVersion::TapScript,
+            ))
+            .unwrap();
+        println!("Control Block Musig: {:?}", control_block_operator_commits);
+        let verifier_sig_operator_commits = bitvm_setup.sigs[i].0 .0;
+        let operator_sig_operator_commits = bitvm_setup.sigs[i].0 .1;
+        println!("Verifier Musig: {:?}", verifier_sig_operator_commits);
+        println!("Operator Musig: {:?}", operator_sig_operator_commits);
+        bitvm_setup.tx_details_pair_vec[i]
             .commit_tx_details
             .tx
-            .raw_hex()
-    );
-    let operator_commits_txid =
-        rpc.send_raw_transaction(&bitvm_setup.tx_details_pair_vec[0].commit_tx_details.tx);
-    println!("Operator Commits TXID: {:?}", operator_commits_txid);
+            .input[0]
+            .witness
+            .push(operator_sig_operator_commits.serialize());
+        bitvm_setup.tx_details_pair_vec[i]
+            .commit_tx_details
+            .tx
+            .input[0]
+            .witness
+            .push(verifier_sig_operator_commits.serialize());
+        bitvm_setup.tx_details_pair_vec[i]
+            .commit_tx_details
+            .tx
+            .input[0]
+            .witness
+            .push(operator_commits_script.clone());
+        bitvm_setup.tx_details_pair_vec[i]
+            .commit_tx_details
+            .tx
+            .input[0]
+            .witness
+            .push(control_block_operator_commits.serialize());
+        println!(
+            "Operator Sending Commit TX...: {:?}",
+            bitvm_setup.tx_details_pair_vec[i]
+                .commit_tx_details
+                .tx
+                .raw_hex()
+        );
+        println!("TX Now Sending Raw: {:?}", bitvm_setup.tx_details_pair_vec[i].commit_tx_details.tx.raw_hex());
+        let operator_commits_txid = rpc
+            .send_raw_transaction(&bitvm_setup.tx_details_pair_vec[i].commit_tx_details.tx)
+            .unwrap();
+        println!("Operator Commits TXID: {:?}", operator_commits_txid);
+        // start_utxo = OutPoint {
+        //     txid: operator_commits_txid,
+        //     vout: 0,
+        // };
+    }
 }
 
 fn create_bitvm_sequence(
@@ -392,6 +398,7 @@ fn create_bitvm_sequence(
         txid: verifier_starts_tx.compute_txid(),
         vout: 0,
     };
+    println!("Starting Start UTXO: {:?}", start_utxo);
     let verifier_takes_after_utxo = OutPoint {
         txid: verifier_starts_tx.compute_txid(),
         vout: 1,
@@ -468,7 +475,8 @@ fn create_bitvm_sequence(
             txid: operator_commits_tx_details.tx.compute_txid(),
             vout: 0,
         };
-        prev_txout = operator_commits_tx_details.prevouts[0].clone();
+        println!("Start UTXO Changed: {:?}", start_utxo);
+        prev_txout = operator_commits_tx_details.tx.output[0].clone();
     }
 
     BitVMSequence {
