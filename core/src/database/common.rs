@@ -83,7 +83,7 @@ impl Database {
             + config.db_password.as_str()
             + "@"
             + config.db_host.as_str();
-            println!("URL: {}", url);
+        println!("URL: {}", url);
         let conn = sqlx::PgPool::connect(url.as_str()).await?;
         println!("Connected to database: {}", database_name);
         Database::drop_database(config.clone(), database_name).await?;

@@ -11,7 +11,7 @@ use clementine_core::mock::common;
 use clementine_core::script_builder;
 use clementine_core::servers::*;
 use clementine_core::traits::rpc::OperatorRpcClient;
-use clementine_core::transaction_builder::{CreateTxOutputs, TransactionBuilder};
+use clementine_core::transaction_builder::{TransactionBuilder, TxHandlers};
 use clementine_core::utils::handle_taproot_witness_new;
 use clementine_core::utils::SECP;
 use clementine_core::EVMAddress;
@@ -175,17 +175,20 @@ async fn test_flow_2() {
         vec![deposit_utxo],
         config.user_takes_after as u16 + 1,
     );
-    let tx_outs = TransactionBuilder::create_tx_outs(vec![
-        (
-            Amount::from_sat(BRIDGE_AMOUNT_SATS - 2 * config.min_relay_fee)
-                - anyone_can_spend_txout.value * 2,
-            taproot_address.script_pubkey(),
-        ),
-        (
-            anyone_can_spend_txout.value,
-            anyone_can_spend_txout.script_pubkey,
-        ),
-    ]);
+    let tx_outs = TransactionBuilder::create_tx_outs(
+        vec![
+            (
+                Amount::from_sat(BRIDGE_AMOUNT_SATS - 2 * config.min_relay_fee)
+                    - anyone_can_spend_txout.value * 2,
+                taproot_address.script_pubkey(),
+            ),
+            (
+                anyone_can_spend_txout.value,
+                anyone_can_spend_txout.script_pubkey,
+            ),
+        ],
+        None,
+    );
     let takes_after_tx = TransactionBuilder::create_btc_tx(tx_ins, tx_outs);
     let deposit_tx = rpc.get_raw_transaction(&deposit_utxo.txid, None).unwrap();
     let prevouts = vec![deposit_tx.output[deposit_utxo.vout as usize].clone()];
@@ -196,7 +199,7 @@ async fn test_flow_2() {
     );
     let bridge_script = script_builder::generate_script_n_of_n(&config.verifiers_public_keys);
 
-    let mut takes_after_tx_details = CreateTxOutputs {
+    let mut takes_after_tx_details = TxHandlers {
         tx: takes_after_tx.clone(),
         prevouts,
         scripts: vec![vec![bridge_script, takes_after_script]],
