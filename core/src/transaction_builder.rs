@@ -13,7 +13,7 @@ use clementine_circuits::constants::BRIDGE_AMOUNT_SATS;
 use secp256k1::XOnlyPublicKey;
 
 #[derive(Debug, Clone)]
-pub struct CreateTxOutputs {
+pub struct TxHandlers {
     pub tx: bitcoin::Transaction,
     pub prevouts: Vec<TxOut>,
     pub scripts: Vec<Vec<ScriptBuf>>,
@@ -95,7 +95,7 @@ impl TransactionBuilder {
         evm_address: &EVMAddress,
         recovery_taproot_address: &Address<NetworkUnchecked>,
         deposit_user_takes_after: u32,
-    ) -> Result<CreateTxOutputs, BridgeError> {
+    ) -> Result<TxHandlers, BridgeError> {
         let anyone_can_spend_txout = script_builder::anyone_can_spend_txout();
 
         let (bridge_address, _) = self.generate_bridge_address()?;
@@ -127,7 +127,7 @@ impl TransactionBuilder {
             BRIDGE_AMOUNT_SATS,
         )];
 
-        Ok(CreateTxOutputs {
+        Ok(TxHandlers {
             tx: move_tx,
             prevouts,
             scripts: vec![deposit_script],
@@ -140,7 +140,7 @@ impl TransactionBuilder {
         deposit_utxo: OutPoint,
         deposit_txout: TxOut,
         withdraw_address: &Address,
-    ) -> Result<CreateTxOutputs, BridgeError> {
+    ) -> Result<TxHandlers, BridgeError> {
         let anyone_can_spend_txout = script_builder::anyone_can_spend_txout();
 
         let (_, bridge_spend_info) = self.generate_bridge_address()?;
@@ -160,7 +160,7 @@ impl TransactionBuilder {
 
         let bridge_spend_script = vec![script_builder::generate_script_n_of_n(&self.verifiers_pks)];
 
-        Ok(CreateTxOutputs {
+        Ok(TxHandlers {
             tx: withdraw_tx,
             prevouts,
             scripts: vec![bridge_spend_script],
@@ -193,21 +193,40 @@ impl TransactionBuilder {
     }
 
     pub fn create_tx_ins_with_sequence(utxos: Vec<OutPoint>, height: u16) -> Vec<TxIn> {
+        let len = utxos.len();
+        Self::create_tx_ins_with_sequence_flag(utxos, height, vec![true; len])
+    }
+
+    pub fn create_tx_ins_with_sequence_flag(
+        utxos: Vec<OutPoint>,
+        height: u16,
+        flag: Vec<bool>,
+    ) -> Vec<TxIn> {
+        assert!(utxos.len() == flag.len());
         let mut tx_ins = Vec::new();
 
-        for utxo in utxos {
-            tx_ins.push(TxIn {
-                previous_output: utxo,
-                sequence: bitcoin::transaction::Sequence::from_height(height),
-                script_sig: ScriptBuf::default(),
-                witness: Witness::new(),
-            });
+        for (idx, utxo) in utxos.into_iter().enumerate() {
+            if flag[idx] {
+                tx_ins.push(TxIn {
+                    previous_output: utxo,
+                    sequence: bitcoin::transaction::Sequence::from_height(height),
+                    script_sig: ScriptBuf::default(),
+                    witness: Witness::new(),
+                });
+            } else {
+                tx_ins.push(TxIn {
+                    previous_output: utxo,
+                    sequence: bitcoin::transaction::Sequence::ENABLE_RBF_NO_LOCKTIME,
+                    script_sig: ScriptBuf::default(),
+                    witness: Witness::new(),
+                });
+            }
         }
 
         tx_ins
     }
 
-    pub fn create_tx_outs(pairs: Vec<(Amount, ScriptBuf)>) -> Vec<TxOut> {
+    pub fn create_tx_outs(pairs: Vec<(Amount, ScriptBuf)>, cpfp: Option<TxOut>) -> Vec<TxOut> {
         let mut tx_outs = Vec::new();
 
         for pair in pairs {
@@ -215,6 +234,9 @@ impl TransactionBuilder {
                 value: pair.0,
                 script_pubkey: pair.1,
             });
+        }
+        if let Some(cpfp) = cpfp {
+            tx_outs.push(cpfp);
         }
 
         tx_outs
@@ -337,7 +359,7 @@ impl TransactionBuilder {
         operator_address: &Address,
         operator_xonly: &XOnlyPublicKey,
         hash: &HashType,
-    ) -> Result<CreateTxOutputs, BridgeError> {
+    ) -> Result<TxHandlers, BridgeError> {
         let (connector_tree_leaf_address, connector_leaf_taproot_spend_info) =
             TransactionBuilder::create_connector_tree_node_address(
                 &self.secp,
@@ -365,7 +387,7 @@ impl TransactionBuilder {
             self.create_operator_claim_tx_prevouts(&bridge_address, &connector_tree_leaf_address)?;
         let scripts = vec![self.script_builder.generate_script_n_of_n()];
 
-        Ok(CreateTxOutputs {
+        Ok(TxHandlers {
             tx: claim_tx,
             prevouts,
             scripts: scripts,
@@ -548,7 +570,7 @@ impl TransactionBuilder {
         commit_utxo: OutPoint,
         sender_xonly: &XOnlyPublicKey,
         preimages_to_be_revealed: &Vec<PreimageType>,
-    ) -> Result<CreateTxOutputs, BridgeError> {
+    ) -> Result<TxHandlers, BridgeError> {
         let (commit_address, commit_tree_info, inscribe_preimage_script) =
             self.create_inscription_commit_address(sender_xonly, preimages_to_be_revealed)?;
         let tx = TransactionBuilder::create_btc_tx(
@@ -561,7 +583,7 @@ impl TransactionBuilder {
             value: Amount::from_sat(DUST_VALUE * 2),
         }];
 
-        Ok(CreateTxOutputs {
+        Ok(TxHandlers {
             tx,
             prevouts,
             scripts: vec![inscribe_preimage_script],

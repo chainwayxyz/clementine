@@ -8,7 +8,7 @@ use clementine_core::database::common::Database;
 use clementine_core::extended_rpc::ExtendedRpc;
 use clementine_core::mock::common;
 use clementine_core::script_builder;
-use clementine_core::transaction_builder::{CreateTxOutputs, TransactionBuilder};
+use clementine_core::transaction_builder::{TransactionBuilder, TxHandlers};
 use clementine_core::utils::handle_taproot_witness_new;
 use clementine_core::{
     create_extended_rpc, create_test_config, create_test_config_with_thread_name,
@@ -73,7 +73,7 @@ async fn run() {
 
     let signer = Actor::new(config.secret_key, config.network);
 
-    let mut tx_details = CreateTxOutputs {
+    let mut tx_details = TxHandlers {
         tx: tx.clone(),
         prevouts,
         scripts: vec![vec![to_pay_script.clone()]],
@@ -153,15 +153,18 @@ async fn taproot_key_path_spend() {
     let txins = TransactionBuilder::create_tx_ins(inputs);
     let anchor = script_builder::anyone_can_spend_txout();
 
-    let mut txouts = TransactionBuilder::create_tx_outs(vec![(
-        Amount::from_sat(
-            INPUT_AMOUNT * INPUT_COUNT as u64
-                - anchor.value.to_sat()
-                - calculate_min_relay_fee(INPUT_COUNT as u64)
-                - 1,
-        ),
-        address.script_pubkey(),
-    )]);
+    let mut txouts = TransactionBuilder::create_tx_outs(
+        vec![(
+            Amount::from_sat(
+                INPUT_AMOUNT * INPUT_COUNT as u64
+                    - anchor.value.to_sat()
+                    - calculate_min_relay_fee(INPUT_COUNT as u64)
+                    - 1,
+            ),
+            address.script_pubkey(),
+        )],
+        None,
+    );
     txouts.push(anchor);
     let mut tx = TransactionBuilder::create_btc_tx(txins, txouts);
     for i in 0..INPUT_COUNT {
@@ -195,10 +198,10 @@ async fn taproot_key_path_spend_2() {
     let operator_commitment = rpc.send_to_address(&address, 10_000_000).unwrap();
     let leaf = rpc.send_to_address(&address, 330).unwrap();
 
-    let txouts = TransactionBuilder::create_tx_outs(vec![(
-        Amount::from_sat(9_000_000),
-        address.script_pubkey(),
-    )]);
+    let txouts = TransactionBuilder::create_tx_outs(
+        vec![(Amount::from_sat(9_000_000), address.script_pubkey())],
+        None,
+    );
 
     let txins = TransactionBuilder::create_tx_ins(vec![operator_commitment, leaf]);
     let prevouts = vec![
