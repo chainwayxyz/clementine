@@ -193,18 +193,8 @@ impl TransactionBuilder {
     }
 
     pub fn create_tx_ins_with_sequence(utxos: Vec<OutPoint>, height: u16) -> Vec<TxIn> {
-        let mut tx_ins = Vec::new();
-
-        for utxo in utxos {
-            tx_ins.push(TxIn {
-                previous_output: utxo,
-                sequence: bitcoin::transaction::Sequence::from_height(height),
-                script_sig: ScriptBuf::default(),
-                witness: Witness::new(),
-            });
-        }
-
-        tx_ins
+        let len = utxos.len();
+        Self::create_tx_ins_with_sequence_flag(utxos, height, vec![true; len])
     }
 
     pub fn create_tx_ins_with_sequence_flag(

@@ -152,6 +152,7 @@ pub fn generate_challenger_takes_after_script(
         .into_script()
 }
 
+// TODO: Add the script to the signature of the function
 pub fn generate_dummy_commit_script(
     verifiers_pks: &[XOnlyPublicKey]
 ) -> ScriptBuf {

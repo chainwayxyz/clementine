@@ -67,19 +67,12 @@ async fn test_bitvm_1() {
     let mut config = create_test_config_with_thread_name!("test_config_bitvm_1.toml");
     let rpc = create_extended_rpc!(config);
 
-    let (operator_xonly_pk, _) = config
-        .secret_key
-        .public_key(&utils::SECP)
-        .x_only_public_key();
-    let taproot_address = Address::p2tr(&utils::SECP, operator_xonly_pk, None, config.network);
-    let tx_builder = TransactionBuilder::new(config.verifiers_public_keys.clone(), config.network);
-
     // Create operator and verifier (challenger) entities.
     let verifier = Actor::new(
         config.all_secret_keys.clone().unwrap()[0],
-        config.network.clone(),
+        config.network,
     );
-    let operator = Actor::new(config.secret_key.clone(), config.network.clone());
+    let operator = Actor::new(config.secret_key, config.network);
 
     // Calculate the verifier_address.
     let verifier_taproot_address = Address::p2tr(
@@ -93,11 +86,8 @@ async fn test_bitvm_1() {
     let verifier_source_utxo = rpc
         .send_to_address(&verifier_taproot_address, 20_000)
         .unwrap();
-    // TODO: use get_txout_from_utxo here
-    let verifier_source_utxo_as_prevout = TxOut {
-        value: Amount::from_sat(20_000),
-        script_pubkey: verifier_taproot_address.script_pubkey(),
-    };
+    let verifier_source_prevout_from_utxo = rpc.get_txout_from_utxo(&verifier_source_utxo).unwrap();
+    println!("Verifier Source TxOut RPC: {:?}", verifier_source_prevout_from_utxo);
 
     // Operator and the Verifier agree on the bitvm scripts that will be used in the sequence.
     let mut bitvm_script_vec: Vec<ScriptBuf> = Vec::new();
@@ -134,7 +124,7 @@ async fn test_bitvm_1() {
     let verifier_sig = verifier
         .sign_taproot_pubkey_spend_tx(
             &mut bitvm_setup.start_tx,
-            &vec![verifier_source_utxo_as_prevout],
+            &vec![verifier_source_prevout_from_utxo],
             0,
         )
         .unwrap();
@@ -142,11 +132,6 @@ async fn test_bitvm_1() {
     let start_challenge_txid = rpc.send_raw_transaction(&bitvm_setup.start_tx).unwrap();
     println!("Start Challenge TX: {:?}", bitvm_setup.start_tx);
     println!("Start Challenge TXID: {:?}", start_challenge_txid);
-
-    println!(
-        "Verifier Burns TX details: {:?}",
-        bitvm_setup.tx_details_pair_vec[0].burn_tx_details
-    );
 
     rpc.mine_blocks(7).unwrap();
     let verifier_sig = verifier
@@ -156,7 +141,7 @@ async fn test_bitvm_1() {
             0,
         )
         .unwrap();
-    println!("Verifier Sig: {:?}", verifier_sig);
+
     let control_block_verifier_burns = bitvm_setup.tx_details_pair_vec[0]
         .burn_tx_details
         .taproot_spend_infos[1]
@@ -170,7 +155,7 @@ async fn test_bitvm_1() {
         .push(verifier_sig.serialize());
     bitvm_setup.tx_details_pair_vec[0].burn_tx_details.tx.input[1]
         .witness
-        .push(challenger_takes_after_script.clone());
+        .push(challenger_takes_after_script);
     bitvm_setup.tx_details_pair_vec[0].burn_tx_details.tx.input[1]
         .witness
         .push(control_block_verifier_burns.serialize());
@@ -182,11 +167,9 @@ async fn test_bitvm_1() {
         .taproot_spend_infos[0]
         .control_block(&(musig_script.clone(), LeafVersion::TapScript))
         .unwrap();
-    println!("Control Block Musig: {:?}", control_block_musig);
     let verifier_musig = bitvm_setup.sigs[0].1 .0;
     let operator_musig = bitvm_setup.sigs[0].1 .1;
-    println!("Verifier Musig: {:?}", verifier_musig);
-    println!("Operator Musig: {:?}", operator_musig);
+
     bitvm_setup.tx_details_pair_vec[0].burn_tx_details.tx.input[0]
         .witness
         .push(operator_musig.serialize());
@@ -195,51 +178,11 @@ async fn test_bitvm_1() {
         .push(verifier_musig.serialize());
     bitvm_setup.tx_details_pair_vec[0].burn_tx_details.tx.input[0]
         .witness
-        .push(musig_script.clone());
+        .push(musig_script);
     bitvm_setup.tx_details_pair_vec[0].burn_tx_details.tx.input[0]
         .witness
         .push(control_block_musig.serialize());
-    println!(
-        "Verifier Burns TX...: {:?}",
-        bitvm_setup.tx_details_pair_vec[0]
-            .burn_tx_details
-            .tx
-            .raw_hex()
-    );
-    println!("Verifier XOnlyPublicKey: {:?}", verifier.xonly_public_key);
-    let musig_sighash = operator
-        .sighash_taproot_script_spend(
-            &mut bitvm_setup.tx_details_pair_vec[0].burn_tx_details,
-            0,
-            1,
-        )
-        .unwrap();
-    let burn_sighash = verifier
-        .sighash_taproot_script_spend(
-            &mut bitvm_setup.tx_details_pair_vec[0].burn_tx_details,
-            1,
-            0,
-        )
-        .unwrap();
-    let musig_message =
-        Message::from_digest_slice(musig_sighash.as_byte_array()).expect("should be hash");
-    let burn_message =
-        Message::from_digest_slice(burn_sighash.as_byte_array()).expect("should be hash");
-    println!("Musig Sighash: {:?}", musig_sighash);
-    println!("Burn Sighash: {:?}", burn_sighash);
-
-    let res_0 = utils::SECP
-        .verify_schnorr(&verifier_sig, &burn_message, &verifier.xonly_public_key)
-        .unwrap();
-    println!("Verifier Sig Verification: {:?}", res_0);
-    let res_1 = utils::SECP
-        .verify_schnorr(&operator_musig, &musig_message, &operator.xonly_public_key)
-        .unwrap();
-    println!("Operator Musig Verification: {:?}", res_1);
-    let res_2 = utils::SECP
-        .verify_schnorr(&verifier_musig, &musig_message, &verifier.xonly_public_key)
-        .unwrap();
-    println!("Verifier Musig Verification: {:?}", res_2);
+    
     let verifier_burns_txid =
         rpc.send_raw_transaction(&bitvm_setup.tx_details_pair_vec[0].burn_tx_details.tx);
     println!("Verifier Burns TXID: {:?}", verifier_burns_txid);
@@ -250,19 +193,12 @@ async fn test_bitvm_2() {
     let mut config = create_test_config_with_thread_name!("test_config_bitvm_2.toml");
     let rpc = create_extended_rpc!(config);
 
-    let (operator_xonly_pk, _) = config
-        .secret_key
-        .public_key(&utils::SECP)
-        .x_only_public_key();
-    let taproot_address = Address::p2tr(&utils::SECP, operator_xonly_pk, None, config.network);
-    let tx_builder = TransactionBuilder::new(config.verifiers_public_keys.clone(), config.network);
-
     // Create operator and verifier (challenger) entities.
     let verifier = Actor::new(
         config.all_secret_keys.clone().unwrap()[0],
-        config.network.clone(),
+        config.network,
     );
-    let operator = Actor::new(config.secret_key.clone(), config.network.clone());
+    let operator = Actor::new(config.secret_key, config.network);
 
     // Calculate the verifier_address.
     let verifier_taproot_address = Address::p2tr(
@@ -276,11 +212,8 @@ async fn test_bitvm_2() {
     let verifier_source_utxo = rpc
         .send_to_address(&verifier_taproot_address, 20_000)
         .unwrap();
-    // TODO: use get_txout_from_utxo here
-    let verifier_source_utxo_as_prevout = TxOut {
-        value: Amount::from_sat(20_000),
-        script_pubkey: verifier_taproot_address.script_pubkey(),
-    };
+    let verifier_source_prevout_from_utxo = rpc.get_txout_from_utxo(&verifier_source_utxo).unwrap();
+    println!("Verifier Source TxOut RPC: {:?}", verifier_source_prevout_from_utxo);
 
     // Operator and the Verifier agree on the bitvm scripts that will be used in the sequence.
     let mut bitvm_script_vec: Vec<ScriptBuf> = Vec::new();
@@ -311,7 +244,7 @@ async fn test_bitvm_2() {
     let verifier_sig = verifier
         .sign_taproot_pubkey_spend_tx(
             &mut bitvm_setup.start_tx,
-            &vec![verifier_source_utxo_as_prevout],
+            &vec![verifier_source_prevout_from_utxo],
             0,
         )
         .unwrap();
@@ -330,7 +263,7 @@ async fn test_bitvm_2() {
             .commit_tx_details
             .taproot_spend_infos[0]
             .control_block(&(
-                bitvm_setup.tx_details_pair_vec[i].commit_tx_details.scripts[0][0].clone(),
+                operator_commits_script.clone(),
                 LeafVersion::TapScript,
             ))
             .unwrap();
@@ -356,7 +289,7 @@ async fn test_bitvm_2() {
             .tx
             .input[0]
             .witness
-            .push(operator_commits_script.clone());
+            .push(operator_commits_script);
         bitvm_setup.tx_details_pair_vec[i]
             .commit_tx_details
             .tx
@@ -426,27 +359,6 @@ fn create_bitvm_sequence(
             verifier_burns_verifier_presign,
             verifier_burns_operator_presign,
         );
-        let musig_sighash = operator
-            .sighash_taproot_script_spend(&mut verifier_burns_tx_details, 0, 1)
-            .unwrap();
-        let musig_message =
-            Message::from_digest_slice(musig_sighash.as_byte_array()).expect("should be hash");
-        let res_0 = utils::SECP
-            .verify_schnorr(
-                &verifier_burns_verifier_presign,
-                &musig_message,
-                &verifier.xonly_public_key,
-            )
-            .unwrap();
-        println!("Verifier Burns Verify While Signing: {:?}", res_0);
-        let res_1 = utils::SECP
-            .verify_schnorr(
-                &verifier_burns_operator_presign,
-                &musig_message,
-                &operator.xonly_public_key,
-            )
-            .unwrap();
-        println!("Operator Burns Verify While Signing: {:?}", res_1);
 
         let mut operator_commits_tx_details: TxHandlers = create_operator_commits_tx(
             start_utxo,
@@ -487,11 +399,6 @@ fn create_bitvm_sequence(
     }
 }
 
-fn calculate_amount(num_tx: usize) -> Amount {
-    let mut amount: u64 = 0;
-    Amount::from_sat(amount)
-}
-
 fn create_verifier_burns_tx(
     commit_utxo: OutPoint,
     commit_prevout: TxOut,
@@ -502,20 +409,9 @@ fn create_verifier_burns_tx(
 ) -> TxHandlers {
     // Calculate the dummy_commit_address and dummy_commit_tree_info
     let musig_script = script_builder::generate_script_n_of_n(&config.verifiers_public_keys);
-    let dummy_commit_taproot = TaprootBuilder::new()
-        .add_leaf(1, bitvm_script.clone())
-        .unwrap()
-        .add_leaf(1, musig_script.clone())
-        .unwrap();
-    let dummy_commit_tree_info = dummy_commit_taproot
-        .finalize(&utils::SECP, *utils::UNSPENDABLE_XONLY_PUBKEY)
-        .unwrap();
-    let dummy_commit_address = Address::p2tr(
-        &utils::SECP,
-        *utils::UNSPENDABLE_XONLY_PUBKEY,
-        dummy_commit_tree_info.merkle_root(),
-        config.network,
-    );
+
+    let (dummy_commit_address, dummy_commit_tree_info) = TransactionBuilder::create_taproot_address(vec![bitvm_script.clone(), musig_script.clone()], config.network).unwrap();
+
     let address_to_verify = dummy_commit_address.script_pubkey();
     println!("Address to Verify: {:?}", address_to_verify);
     println!("Commit UTXO: {:?}", commit_utxo);
@@ -527,18 +423,8 @@ fn create_verifier_burns_tx(
         &config.verifiers_public_keys[0],
         CHALLENGER_TAKES_AFTER,
     );
-    let challenger_takes_after_taproot = TaprootBuilder::new()
-        .add_leaf(0, challenger_takes_after_script.clone())
-        .unwrap();
-    let challenger_takes_after_tree_info = challenger_takes_after_taproot
-        .finalize(&utils::SECP, *utils::UNSPENDABLE_XONLY_PUBKEY)
-        .unwrap();
-    let challenger_takes_after_address = Address::p2tr(
-        &utils::SECP,
-        *utils::UNSPENDABLE_XONLY_PUBKEY,
-        challenger_takes_after_tree_info.merkle_root(),
-        config.network,
-    );
+
+    let (challenger_takes_after_address, challenger_takes_after_tree_info) = TransactionBuilder::create_taproot_address(vec![challenger_takes_after_script.clone()], config.network).unwrap();
 
     let second_prevout = TxOut {
         value: challenger_takes_after_address
@@ -577,22 +463,9 @@ fn create_operator_commits_tx(
     prev_bitvm_script: ScriptBuf,
     next_bitvm_script: ScriptBuf,
 ) -> TxHandlers {
-    // Calculate the dummy_commit_address and dummy_commit_tree_info
+    // Calculate the dummy_commit_address
     let musig_script = script_builder::generate_script_n_of_n(&config.verifiers_public_keys);
-    let dummy_commit_taproot: TaprootBuilder = TaprootBuilder::new()
-        .add_leaf(1, next_bitvm_script.clone())
-        .unwrap()
-        .add_leaf(1, musig_script.clone())
-        .unwrap();
-    let dummy_commit_tree_info = dummy_commit_taproot
-        .finalize(&utils::SECP, *utils::UNSPENDABLE_XONLY_PUBKEY)
-        .unwrap();
-    let dummy_commit_address = Address::p2tr(
-        &utils::SECP,
-        *utils::UNSPENDABLE_XONLY_PUBKEY,
-        dummy_commit_tree_info.merkle_root(),
-        config.network,
-    );
+    let (dummy_commit_address, dummy_commit_tree_info) = TransactionBuilder::create_taproot_address(vec![next_bitvm_script, musig_script.clone()], config.network).unwrap();
     let txins = TransactionBuilder::create_tx_ins(vec![start_utxo]);
     let txouts = TransactionBuilder::create_tx_outs(
         vec![(
@@ -620,40 +493,22 @@ fn create_verifier_starts_tx(
 ) -> Transaction {
     let txins = TransactionBuilder::create_tx_ins(vec![source_utxo]);
 
-    // Calculate the dummy_commit_address and dummy_commit_tree_info
+    // Calculate the dummy_commit_address
     let musig_script = script_builder::generate_script_n_of_n(&config.verifiers_public_keys);
-    let dummy_commit_taproot = TaprootBuilder::new()
-        .add_leaf(1, first_script.clone())
-        .unwrap()
-        .add_leaf(1, musig_script.clone())
-        .unwrap();
-    let dummy_commit_tree_info = dummy_commit_taproot
-        .finalize(&utils::SECP, *utils::UNSPENDABLE_XONLY_PUBKEY)
-        .unwrap();
-    let dummy_commit_address = Address::p2tr(
-        &utils::SECP,
-        *utils::UNSPENDABLE_XONLY_PUBKEY,
-        dummy_commit_tree_info.merkle_root(),
+    let (dummy_commit_address, _) = TransactionBuilder::create_taproot_address(
+        vec![first_script, musig_script],
         config.network,
-    );
+    ).unwrap();
 
-    // Calculate the challenger_takes_after_address and challenger_takes_after_tree_info
+    // Calculate the challenger_takes_after_address
     let challenger_takes_after_script = script_builder::generate_challenger_takes_after_script(
         &config.verifiers_public_keys[0],
         CHALLENGER_TAKES_AFTER,
     );
-    let challenger_takes_after_taproot = TaprootBuilder::new()
-        .add_leaf(0, challenger_takes_after_script.clone())
-        .unwrap();
-    let challenger_takes_after_tree_info = challenger_takes_after_taproot
-        .finalize(&utils::SECP, *utils::UNSPENDABLE_XONLY_PUBKEY)
-        .unwrap();
-    let challenger_takes_after_address = Address::p2tr(
-        &utils::SECP,
-        *utils::UNSPENDABLE_XONLY_PUBKEY,
-        challenger_takes_after_tree_info.merkle_root(),
+    let (challenger_takes_after_address, _) = TransactionBuilder::create_taproot_address(
+        vec![challenger_takes_after_script],
         config.network,
-    );
+    ).unwrap();
 
     let anyone_can_spend_txout = script_builder::anyone_can_spend_txout();
 
