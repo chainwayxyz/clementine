@@ -19,6 +19,7 @@ use clementine_core::utils::handle_taproot_pubkey_spend_witness;
 use clementine_core::{
     create_extended_rpc, create_test_config, create_test_config_with_thread_name,
 };
+use clementine_core::database::common::Database;
 use clementine_core::{script_builder, utils};
 use secp256k1::schnorr::Signature;
 use secp256k1::Message;

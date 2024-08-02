@@ -17,15 +17,15 @@ macro_rules! create_test_config {
         let config = common::get_test_config($config_file).unwrap();
         println!("Creating test database: {}", $db_name);
         println!("Config: {:?}", config);
-        // let config = Database::create_database(config, &$db_name).await.unwrap();
-        // println!("Created test database: {}", $db_name);
-        // let database = Database::new(config.clone()).await.unwrap();
-        // database
-        //     .run_sql_file("../scripts/schema.sql")
-        //     .await
-        //     .unwrap();
+        let config = Database::create_database(config, &$db_name).await.unwrap();
+        println!("Created test database: {}", $db_name);
+        let database = Database::new(config.clone()).await.unwrap();
+        database
+            .run_sql_file("../scripts/schema.sql")
+            .await
+            .unwrap();
 
-        // database.close().await;
+        database.close().await;
 
         config
     }};
