@@ -295,11 +295,27 @@ impl Database {
         unimplemented!();
     }
 
-    pub async fn save_pub_nonces(
+    pub async fn save_nonces(
         &self,
         deposit_utxo: &OutPoint,
         nonces: &Vec<(MusigPubNonce, MusigSecNonce)>,
     ) -> Result<(), BridgeError> {
+        unimplemented!();
+    }
+
+    pub async fn save_deposit_info(
+        &self,
+        deposit_utxo: &OutPoint,
+        recovery_taproot_address: &Address<NetworkUnchecked>,
+        evm_address: &EVMAddress,
+    ) -> Result<(), BridgeError> {
+        unimplemented!();
+    }
+
+    pub async fn get_deposit_info(
+        &self,
+        deposit_utxo: &OutPoint,
+    ) -> Result<Option<(Address<NetworkUnchecked>, EVMAddress)>, BridgeError> {
         unimplemented!();
     }
 

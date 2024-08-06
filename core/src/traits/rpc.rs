@@ -45,6 +45,7 @@ pub trait VerifierRpc {
     /// sign move_tx
     async fn operator_take_txs_signed_rpc(
         &self,
+        kickoffs_digest_agg_sig: schnorr::Signature,
         operator_take_sigs: Vec<schnorr::Signature>,
     ) -> Result<MusigPartialSignature, BridgeError>;
 }
