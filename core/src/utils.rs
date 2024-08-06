@@ -38,7 +38,6 @@ lazy_static::lazy_static! {
         XOnlyPublicKey::from_str("93c7378d96518a75448821c4f7c8f4bae7ce60f804d03d1f0628dd5dd0f5de51").unwrap();
 }
 
-
 pub fn calculate_merkle_root(leaves: Vec<HashType>) -> HashType {
     let mut hashes = leaves;
 
@@ -58,8 +57,6 @@ pub fn calculate_merkle_root(leaves: Vec<HashType>) -> HashType {
 
     hashes[0]
 }
-
-
 
 pub fn parse_hex_to_btc_tx(
     tx_hex: &str,

@@ -159,7 +159,7 @@ where
     /// Saves the utxo to the db
     async fn set_operator_funding_utxo_rpc(
         &self,
-       _funding_utxo: &OutPoint,
+        _funding_utxo: &OutPoint,
     ) -> Result<(), BridgeError> {
         unimplemented!();
     }

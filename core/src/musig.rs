@@ -1,50 +1,81 @@
-use secp256k1::{schnorr, Keypair};
+use bitcoin::Network;
+use crypto_bigint::rand_core::OsRng;
+use musig2::{
+    secp::Point, secp256k1::Scalar, sign_partial, AggNonce, FirstRound, KeyAggContext,
+    PartialSignature, SecNonce, SecNonceSpices,
+};
+use secp256k1::{rand::Rng, schnorr, Keypair, PublicKey};
 
-pub type MusigPubNonce = [u8; 32];
-pub type MusigSecNonce = [u8; 32];
-pub type MusigAggNonce = [u8; 32];
+use crate::{actor::Actor, errors::BridgeError};
+
+// We can directly use the musig2 crate for this
+// No need for extra types etc.
+pub type MusigPubNonce = [u8; 66];
+pub type MusigSecNonce = [u8; 64];
+// pub type MusigAggNonce = [u8; 66];
 pub type MusigPartialSignature = [u8; 32];
 
-pub fn nonce_pair(_key: &secp256k1::Keypair) -> (MusigSecNonce, MusigPubNonce) {
-    // let kp = keypair_to(key);
-    // zkp::new_musig_nonce_pair(
-    // 	&SECP,
-    // 	MusigSessionId::assume_unique_per_nonce_gen(rand::random()),
-    // 	None,
-    // 	Some(kp.secret_key()),
-    // 	kp.public_key(),
-    // 	None,
-    // 	Some(rand::random()),
-    // ).expect("non-zero session id")
-    ([0u8; 32] as MusigSecNonce, [0u8; 32] as MusigPubNonce)
+pub fn create_key_agg_ctx(pks: Vec<PublicKey>) -> Result<KeyAggContext, BridgeError> {
+    let musig_pks: Vec<musig2::secp256k1::PublicKey> = pks
+        .iter()
+        .map(|pk| musig2::secp256k1::PublicKey::from_slice(&pk.serialize()).unwrap())
+        .collect::<Vec<musig2::secp256k1::PublicKey>>();
+    Ok(KeyAggContext::new(musig_pks)?)
+}
+
+pub fn get_agg_pubkey(key_agg_ctx: &KeyAggContext) -> PublicKey {
+    PublicKey::from_slice(
+        &key_agg_ctx
+            .aggregated_pubkey::<musig2::secp256k1::PublicKey>()
+            .serialize(),
+    )
+    .unwrap()
+}
+
+pub fn nonce_pair(
+    keypair: &secp256k1::Keypair,
+    rng: &mut impl Rng,
+    pks: Vec<PublicKey>,
+) -> (MusigSecNonce, MusigPubNonce) {
+    let key_agg_ctx = create_key_agg_ctx(pks).unwrap();
+    let musig_pubkey =
+        musig2::secp256k1::PublicKey::from_slice(&keypair.public_key().serialize()).unwrap();
+    let idx = key_agg_ctx.pubkey_index(musig_pubkey).unwrap();
+    let agg_pubkey: musig2::secp256k1::PublicKey = key_agg_ctx.aggregated_pubkey();
+    let rnd = rng.gen::<[u8; 32]>();
+    let spices = SecNonceSpices::new().with_seckey(
+        musig2::secp256k1::SecretKey::from_slice(&keypair.secret_key().secret_bytes()).unwrap(),
+    );
+    let first_round = FirstRound::new(key_agg_ctx, rnd, idx, spices.clone()).unwrap();
+    // This part is also done when generating the first round, so I guess we can make it more
+    // efficient if we only store the nonce_seed since we can recreate everything using it.
+    let sec_nonce = SecNonce::build(rnd)
+        .with_pubkey(musig_pubkey)
+        .with_aggregated_pubkey(agg_pubkey)
+        .with_extra_input(&(idx as u32).to_be_bytes())
+        .with_spices(spices)
+        .build();
+    (sec_nonce.into(), first_round.our_public_nonce().into())
 }
 
 pub fn partial_sign(
-	pubkeys: impl IntoIterator<Item = secp256k1::PublicKey>,
-	agg_nonce: MusigAggNonce,
-	key: &secp256k1::Keypair,
-	sec_nonce: MusigSecNonce,
-	sighash: [u8; 32],
-	tweak: Option<[u8; 32]>,
-	other_sigs: Option<&[MusigPartialSignature]>,
-) -> (MusigPartialSignature, Option<schnorr::Signature>) {
-	// let agg = if let Some(tweak) = tweak {
-	// 	tweaked_key_agg(pubkeys, tweak).0
-	// } else {
-	// 	key_agg(pubkeys)
-	// };
-
-	// let msg = zkp::Message::from_digest(sighash);
-	// let session = MusigSession::new(&SECP, &agg, agg_nonce, msg);
-	// let my_sig = session.partial_sign(&SECP, sec_nonce, &keypair_to(&key), &agg)
-	// 	.expect("nonce not reused");
-	// let final_sig = if let Some(others) = other_sigs {
-	// 	let mut sigs = Vec::with_capacity(others.len() + 1);
-	// 	sigs.extend_from_slice(others);
-	// 	sigs.push(my_sig);
-	// 	Some(session.partial_sig_agg(&sigs))
-	// } else {
-	// 	None
-	// };
-	([0u8;32] as MusigPartialSignature, None)
+    pks: Vec<PublicKey>,
+    sec_nonce: MusigSecNonce,
+    agg_nonce: AggNonce,
+    keypair: &secp256k1::Keypair,
+    sighash: [u8; 32],
+    // tweak: Option<[u8; 32]>,
+    // other_sigs: Option<&[MusigPartialSignature]>,
+) -> MusigPartialSignature {
+    let key_agg_ctx = create_key_agg_ctx(pks).unwrap();
+    let musig_sec_nonce = SecNonce::from_bytes(&sec_nonce).unwrap();
+    let partial_signature: [u8; 32] = sign_partial(
+        &key_agg_ctx,
+        musig2::secp256k1::SecretKey::from_slice(&keypair.secret_key().secret_bytes()).unwrap(),
+        musig_sec_nonce,
+        &agg_nonce,
+        &sighash,
+    )
+    .unwrap();
+    partial_signature
 }

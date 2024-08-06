@@ -16,6 +16,7 @@ pub mod errors;
 pub mod extended_rpc;
 pub mod merkle;
 pub mod mock;
+pub mod musig;
 pub mod operator;
 pub mod script_builder;
 pub mod servers;
@@ -24,7 +25,6 @@ pub mod transaction_builder;
 pub mod user;
 pub mod utils;
 pub mod verifier;
-pub mod musig;
 
 pub type ConnectorUTXOTree = Vec<Vec<OutPoint>>;
 pub type HashTree = Vec<Vec<HashType>>;
@@ -37,7 +37,6 @@ pub struct EVMAddress(#[serde(with = "hex::serde")] pub [u8; 20]);
 
 /// Type alias for withdrawal payment, HashType is taproot script hash
 pub type WithdrawalPayment = (Txid, HashType);
-
 
 #[derive(Clone, Debug, Eq, Hash, PartialEq, PartialOrd, Ord, Serialize, Deserialize)]
 pub struct PsbtOutPoint {

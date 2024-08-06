@@ -138,6 +138,9 @@ pub enum BridgeError {
     #[error("InvalidKickoffUtxo")]
     InvalidKickoffUtxo,
 
+    #[error("KeyAggContextError")]
+    KeyAggContextError,
+
     #[error("NoncesNotFound")]
     NoncesNotFound,
 
@@ -222,5 +225,11 @@ impl From<bitcoin::address::ParseError> for BridgeError {
 impl From<sqlx::Error> for BridgeError {
     fn from(err: sqlx::Error) -> Self {
         BridgeError::DatabaseError(err)
+    }
+}
+
+impl From<musig2::errors::KeyAggError> for BridgeError {
+    fn from(_err: musig2::errors::KeyAggError) -> Self {
+        BridgeError::KeyAggContextError
     }
 }
