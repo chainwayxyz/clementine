@@ -28,7 +28,7 @@ clap = { workspace = true, features = ["derive"] }
 toml = { workspace = true }
 sqlx = { workspace = true, features = ["runtime-tokio", "postgres"] }
 bitcoin-mock-rpc = { workspace = true }
-musig2 = { version = "0.0.11" }
+musig2 = { workspace = true }
 
 [features]
 default = []
