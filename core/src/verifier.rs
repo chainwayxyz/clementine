@@ -102,7 +102,7 @@ where
         // TODO: Either find a way to put the pks here, or remove the pks
         // from the nonce_pair, proceed with directly giving the index
         let nonces = (0..num_required_sigs)
-            .map(|_| musig2::nonce_pair(&self.signer.keypair, &mut rand::rngs::OsRng, vec![], None))
+            .map(|_| musig2::nonce_pair(&self.signer.keypair, &mut rand::rngs::OsRng))
             .collect::<Vec<_>>();
 
         let transaction = self.db.begin_transaction().await?;
@@ -270,7 +270,7 @@ where
                     vec![],
                     None,
                     nonces[index].1,
-                    nonces[index].2,
+                    nonces[index].2.clone(),
                     &self.signer.keypair,
                     sig_hash.to_byte_array(),
                 );

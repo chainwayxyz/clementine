@@ -330,7 +330,7 @@ impl Database {
     pub async fn save_agg_nonces(
         &self,
         deposit_utxo: &OutPoint,
-        agg_nonces: &Vec<[u8; 32]>,
+        agg_nonces: &Vec<MuSigAggNonce>,
     ) -> Result<(), BridgeError> {
         unimplemented!();
     }
