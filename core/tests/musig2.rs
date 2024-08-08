@@ -1,8 +1,8 @@
-use bitcoin::witness;
-use bitcoin::{hashes::Hash, script, Amount, ScriptBuf, TapNodeHash, TxOut};
+use bitcoin::{hashes::Hash, script, Amount, ScriptBuf, TapNodeHash};
 use bitcoincore_rpc::Client;
 use clementine_core::database::common::Database;
 use clementine_core::mock::common;
+use clementine_core::musig2::{aggregate_nonces, aggregate_partial_signatures, MuSigPubNonce};
 use clementine_core::utils::handle_taproot_witness_new;
 use clementine_core::{
     actor::Actor,
@@ -16,9 +16,8 @@ use clementine_core::{
 use clementine_core::{
     create_extended_rpc, create_test_config, create_test_config_with_thread_name,
 };
-use musig2::secp256k1::schnorr;
-use musig2::{AggNonce, PartialSignature, PubNonce};
-use secp256k1::{Keypair, Message, PublicKey};
+use musig2::{AggNonce, PubNonce};
+use secp256k1::{Keypair, Message};
 use std::thread;
 
 #[tokio::test]
@@ -99,17 +98,9 @@ async fn test_musig2_key_spend() {
             )
         })
         .collect();
-    let musig_partial_sigs: Vec<PartialSignature> = partial_sigs
-        .iter()
-        .map(|x| musig2::PartialSignature::from_slice(x).unwrap())
-        .collect::<Vec<PartialSignature>>();
-    let final_signature: [u8; 64] = musig2::aggregate_partial_signatures(
-        &key_agg_ctx,
-        &musig_agg_nonce,
-        musig_partial_sigs,
-        message,
-    )
-    .unwrap();
+    let final_signature: [u8; 64] =
+        aggregate_partial_signatures(pks.clone(), Some(tweak), &agg_nonce, partial_sigs, message)
+            .unwrap();
     let musig_agg_pubkey: musig2::secp256k1::PublicKey = key_agg_ctx.aggregated_pubkey();
     let musig_agg_xonly_pubkey = musig_agg_pubkey.x_only_public_key().0;
     let musig_agg_xonly_pubkey_wrapped =
@@ -151,12 +142,9 @@ async fn test_musig2_script_spend() {
         .iter()
         .map(|kp| kp.public_key())
         .collect::<Vec<secp256k1::PublicKey>>();
-    let musig_pub_nonces: Vec<PubNonce> = nonce_pair_vec
-        .iter()
-        .map(|x| musig2::PubNonce::from_bytes(&x.1 .0).unwrap())
-        .collect::<Vec<musig2::PubNonce>>();
-    let musig_agg_nonce: AggNonce = AggNonce::sum(musig_pub_nonces);
-    let agg_nonce = ByteArray66(musig_agg_nonce.clone().into());
+    let pub_nonces: Vec<MuSigPubNonce> =
+        nonce_pair_vec.iter().map(|x| ByteArray66(x.1 .0)).collect();
+    let agg_nonce = aggregate_nonces(pub_nonces);
     let key_agg_ctx = create_key_agg_ctx(pks.clone(), None).unwrap();
     let musig_agg_pubkey: musig2::secp256k1::PublicKey = key_agg_ctx.aggregated_pubkey();
     let (musig_agg_xonly_pubkey, _) = musig_agg_pubkey.x_only_public_key();
@@ -211,14 +199,11 @@ async fn test_musig2_script_spend() {
             )
         })
         .collect();
-    let musig_partial_sigs: Vec<PartialSignature> = partial_sigs
-        .iter()
-        .map(|x| musig2::PartialSignature::from_slice(x).unwrap())
-        .collect::<Vec<PartialSignature>>();
-    let final_signature: [u8; 64] = musig2::aggregate_partial_signatures(
-        &key_agg_ctx,
-        &musig_agg_nonce,
-        musig_partial_sigs,
+    let final_signature: [u8; 64] = clementine_core::musig2::aggregate_partial_signatures(
+        pks.clone(),
+        None,
+        &agg_nonce,
+        partial_sigs,
         message,
     )
     .unwrap();
