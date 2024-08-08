@@ -173,6 +173,7 @@ pub fn get_claim_proof_tree_leaf(
 
     hasher.finalize().into()
 }
+
 pub fn calculate_claim_proof_root(
     depth: usize,
     connector_tree_hashes: &Vec<Vec<[u8; 32]>>,

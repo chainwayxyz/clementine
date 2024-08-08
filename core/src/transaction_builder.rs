@@ -2,16 +2,19 @@
 
 use crate::errors::BridgeError;
 use crate::musig2::create_key_agg_ctx;
-use crate::{script_builder, utils, EVMAddress};
+use crate::{merkle, script_builder, utils, EVMAddress};
 use bitcoin::address::NetworkUnchecked;
+use bitcoin::hashes::Hash;
+use bitcoin::taproot::merkle_branch;
+use bitcoin::Network;
 use bitcoin::{
     absolute,
     taproot::{TaprootBuilder, TaprootSpendInfo},
     Address, Amount, OutPoint, ScriptBuf, TxIn, TxOut, Witness,
 };
-use bitcoin::{Network, PublicKey};
 use clementine_circuits::constants::BRIDGE_AMOUNT_SATS;
 use musig2::KeyAggContext;
+use secp256k1::PublicKey;
 use secp256k1::XOnlyPublicKey;
 
 #[derive(Debug, Clone)]
@@ -284,8 +287,9 @@ impl TransactionBuilder {
         ))
     }
 
+    // TODO: Make the pks and scripts parameter Optional so that it can be used in both scripts and for internal pubkey
     pub fn create_musig2_taproot_address(
-        xonly_pks: Vec<bitcoin::XOnlyPublicKey>,
+        pks: Vec<PublicKey>,
         scripts: Vec<ScriptBuf>,
         network: bitcoin::Network,
     ) -> Result<(Address, TaprootSpendInfo), BridgeError> {
@@ -304,28 +308,18 @@ impl TransactionBuilder {
         } else {
             TaprootBuilder::new().add_leaf(0, scripts[0].clone())?
         };
-        let pks_from_xonly_pks: Vec<secp256k1::PublicKey> = xonly_pks
-            .into_iter()
-            .map(|xonly_pk: XOnlyPublicKey| {
-                secp256k1::PublicKey::from_x_only_public_key(xonly_pk, secp256k1::Parity::Even)
-            })
-            .collect::<Vec<secp256k1::PublicKey>>();
-        let key_agg_ctx_raw = create_key_agg_ctx(pks_from_xonly_pks, None)?;
-        let agg_pubkey_raw: musig2::secp256k1::PublicKey = key_agg_ctx_raw.aggregated_pubkey();
+        let key_agg_ctx = create_key_agg_ctx(pks, None)?;
+        let agg_pubkey_raw: musig2::secp256k1::PublicKey =
+            key_agg_ctx.aggregated_pubkey_untweaked();
         let (musig_agg_xonly_pubkey_raw, _) = agg_pubkey_raw.x_only_public_key();
         let agg_xonly_pubkey_raw =
             XOnlyPublicKey::from_slice(&musig_agg_xonly_pubkey_raw.serialize()).unwrap();
         let tree_info = taproot_builder
             .finalize(&utils::SECP, agg_xonly_pubkey_raw)
             .unwrap();
-
+        let merkle_root = tree_info.merkle_root();
         Ok((
-            Address::p2tr(
-                &utils::SECP,
-                agg_xonly_pubkey_raw,
-                tree_info.merkle_root(),
-                network,
-            ),
+            Address::p2tr(&utils::SECP, agg_xonly_pubkey_raw, merkle_root, network),
             tree_info,
         ))
     }

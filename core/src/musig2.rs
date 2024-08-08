@@ -27,7 +27,7 @@ pub fn create_key_agg_ctx(
         .collect::<Vec<musig2::secp256k1::PublicKey>>();
     let key_agg_ctx_raw = KeyAggContext::new(musig_pks)?;
     let key_agg_ctx = match tweak {
-        Some(scalar) => key_agg_ctx_raw.with_plain_tweak(Scalar::from_slice(&scalar)?)?,
+        Some(scalar) => key_agg_ctx_raw.with_taproot_tweak(&scalar)?,
         None => key_agg_ctx_raw,
     };
     Ok(key_agg_ctx)
@@ -357,7 +357,7 @@ mod tests {
         );
         let (sending_address, sending_address_spend_info) =
             TransactionBuilder::create_musig2_taproot_address(
-                xonly_pks,
+                pks.clone(),
                 scripts.clone(),
                 bitcoin::Network::Regtest,
             )
@@ -431,7 +431,7 @@ mod tests {
             )
             .unwrap();
         println!("MuSig2 signature verified successfully!");
-        println!("secp Verification: {:?}", res);
+        println!("SECP Verification: {:?}", res);
     }
 
     #[test]
@@ -467,7 +467,7 @@ mod tests {
         );
         let (sending_address, sending_address_spend_info) =
             TransactionBuilder::create_musig2_taproot_address(
-                xonly_pks,
+                pks.clone(),
                 scripts.clone(),
                 bitcoin::Network::Regtest,
             )
@@ -531,6 +531,6 @@ mod tests {
             )
             .unwrap();
         println!("MuSig2 signature verified successfully!");
-        println!("secp Verification: {:?}", res);
+        println!("SECP Verification: {:?}", res);
     }
 }
