@@ -151,6 +151,9 @@ pub enum BridgeError {
     #[error("NoncesNotFound")]
     NoncesNotFound,
 
+    #[error("MuSig2VerifyError: {0}")]
+    MuSig2VerifyError(musig2::errors::VerifyError),
+
     #[error("KickoffOutpointsNotFound")]
     KickoffOutpointsNotFound,
     #[error("DepositInfoNotFound")]
@@ -250,5 +253,11 @@ impl From<musig2::errors::TweakError> for BridgeError {
 impl From<InvalidScalarBytes> for BridgeError {
     fn from(err: InvalidScalarBytes) -> Self {
         BridgeError::InvalidScalarBytes(err)
+    }
+}
+
+impl From<musig2::errors::VerifyError> for BridgeError {
+    fn from(err: musig2::errors::VerifyError) -> Self {
+        BridgeError::MuSig2VerifyError(err)
     }
 }
