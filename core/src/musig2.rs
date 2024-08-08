@@ -108,6 +108,7 @@ fn generate_test_setup(num_signers: usize) -> (Vec<Keypair>, Vec<MuSigNoncePair>
 mod tests {
     use crate::{
         actor::Actor,
+        script_builder,
         transaction_builder::{CreateTxOutputs, TransactionBuilder},
         utils, ByteArray66,
     };
@@ -434,5 +435,102 @@ mod tests {
     }
 
     #[test]
-    fn test_musig2_script_spend() {}
+    fn test_musig2_script_spend() {
+        let (kp_vec, nonce_pair_vec) = super::generate_test_setup(2);
+        let pks = kp_vec
+            .iter()
+            .map(|kp| kp.public_key())
+            .collect::<Vec<secp256k1::PublicKey>>();
+        let xonly_pks = pks
+            .iter()
+            .map(|pk| pk.x_only_public_key().0)
+            .collect::<Vec<secp256k1::XOnlyPublicKey>>();
+        let musig_pub_nonces: Vec<PubNonce> = nonce_pair_vec
+            .iter()
+            .map(|x| musig2::PubNonce::from_bytes(&x.1 .0).unwrap())
+            .collect::<Vec<musig2::PubNonce>>();
+        let musig_agg_nonce: AggNonce = AggNonce::sum(musig_pub_nonces);
+        let agg_nonce = ByteArray66(musig_agg_nonce.clone().into());
+        let key_agg_ctx = super::create_key_agg_ctx(pks.clone(), None).unwrap();
+        let musig_agg_pubkey: musig2::secp256k1::PublicKey = key_agg_ctx.aggregated_pubkey();
+        let musig_agg_xonly_pubkey = musig_agg_pubkey.x_only_public_key().0;
+        let musig_agg_xonly_pubkey_wrapped =
+            bitcoin::XOnlyPublicKey::from_slice(&musig_agg_xonly_pubkey.serialize()).unwrap();
+        let musig2_script =
+            script_builder::generate_script_n_of_n(&vec![musig_agg_xonly_pubkey_wrapped]);
+        let scripts: Vec<ScriptBuf> = vec![musig2_script];
+        let receiving_address = bitcoin::Address::p2tr(
+            &utils::SECP,
+            *utils::UNSPENDABLE_XONLY_PUBKEY,
+            None,
+            bitcoin::Network::Regtest,
+        );
+        let (sending_address, sending_address_spend_info) =
+            TransactionBuilder::create_musig2_taproot_address(
+                xonly_pks,
+                scripts.clone(),
+                bitcoin::Network::Regtest,
+            )
+            .unwrap();
+        let prevout = TxOut {
+            value: Amount::from_sat(100_000_000),
+            script_pubkey: sending_address.script_pubkey(),
+        };
+        let utxo = OutPoint {
+            txid: Txid::from_byte_array([0u8; 32]),
+            vout: 0,
+        };
+        let tx_outs = TransactionBuilder::create_tx_outs(vec![(
+            Amount::from_sat(99_000_000),
+            receiving_address.script_pubkey(),
+        )]);
+        let tx_ins = TransactionBuilder::create_tx_ins(vec![utxo]);
+        let dummy_tx = TransactionBuilder::create_btc_tx(tx_ins, tx_outs);
+        let mut tx_details = CreateTxOutputs {
+            tx: dummy_tx,
+            prevouts: vec![prevout],
+            scripts: vec![scripts],
+            taproot_spend_infos: vec![sending_address_spend_info.clone()],
+        };
+        let message = Actor::convert_tx_to_sighash_script_spend(&mut tx_details, 0, 0)
+            .unwrap()
+            .to_byte_array();
+
+        let partial_sigs: Vec<[u8; 32]> = kp_vec
+            .iter()
+            .zip(nonce_pair_vec.iter())
+            .map(|(kp, nonce_pair)| {
+                super::partial_sign(
+                    pks.clone(),
+                    None,
+                    nonce_pair.0,
+                    agg_nonce.clone(),
+                    kp,
+                    message,
+                )
+            })
+            .collect();
+        let musig_partial_sigs: Vec<PartialSignature> = partial_sigs
+            .iter()
+            .map(|x| musig2::PartialSignature::from_slice(x).unwrap())
+            .collect::<Vec<PartialSignature>>();
+        let final_signature: [u8; 64] = musig2::aggregate_partial_signatures(
+            &key_agg_ctx,
+            &musig_agg_nonce,
+            musig_partial_sigs,
+            message,
+        )
+        .unwrap();
+        musig2::verify_single(musig_agg_pubkey, &final_signature, message)
+            .expect("Verification failed!");
+        let res = utils::SECP
+            .verify_schnorr(
+                &secp256k1::schnorr::Signature::from_slice(&final_signature).unwrap(),
+                &Message::from_digest(message),
+                &musig_agg_xonly_pubkey_wrapped,
+            )
+            .unwrap();
+        println!("MuSig2 signature verified successfully!");
+        println!("secp Verification: {:?}", res);
+    }
 }
