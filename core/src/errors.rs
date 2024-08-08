@@ -8,6 +8,7 @@ use bitcoin::{
 };
 use core::fmt::Debug;
 use jsonrpsee::types::{ErrorObject, ErrorObjectOwned};
+use musig2::secp::errors::InvalidScalarBytes;
 use std::array::TryFromSliceError;
 use thiserror::Error;
 
@@ -144,6 +145,9 @@ pub enum BridgeError {
     #[error("KeyAggContextTweakError: {0}")]
     KeyAggContextTweakError(musig2::errors::TweakError),
 
+    #[error("InvalidScalarBytes: {0}")]
+    InvalidScalarBytes(InvalidScalarBytes),
+
     #[error("NoncesNotFound")]
     NoncesNotFound,
 
@@ -240,5 +244,11 @@ impl From<musig2::errors::KeyAggError> for BridgeError {
 impl From<musig2::errors::TweakError> for BridgeError {
     fn from(err: musig2::errors::TweakError) -> Self {
         BridgeError::KeyAggContextTweakError(err)
+    }
+}
+
+impl From<InvalidScalarBytes> for BridgeError {
+    fn from(err: InvalidScalarBytes) -> Self {
+        BridgeError::InvalidScalarBytes(err)
     }
 }
