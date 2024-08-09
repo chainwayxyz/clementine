@@ -40,32 +40,16 @@ pub fn op_return_txout(evm_address: &EVMAddress) -> TxOut {
     }
 }
 
-pub fn create_n_of_n_builder(verifiers_pks: &[XOnlyPublicKey]) -> Builder {
-    let mut builder = Builder::new();
-    let last_index = verifiers_pks.len() - 1;
-
-    for &vpk in &verifiers_pks[..last_index] {
-        builder = builder.push_x_only_key(&vpk).push_opcode(OP_CHECKSIGVERIFY);
-    }
-    builder = builder
-        .push_x_only_key(&verifiers_pks[last_index])
-        .push_opcode(OP_CHECKSIG);
-
-    builder
-}
-
-pub fn generate_script_n_of_n(verifiers_pks: &[XOnlyPublicKey]) -> ScriptBuf {
-    create_n_of_n_builder(verifiers_pks).into_script()
-}
-
 pub fn create_deposit_script(
-    verifiers_pks: &[XOnlyPublicKey],
+    nofn_xonly_pk: &XOnlyPublicKey,
     evm_address: &EVMAddress,
     amount: u64,
 ) -> ScriptBuf {
     let citrea: [u8; 6] = "citrea".as_bytes().try_into().unwrap();
 
-    create_n_of_n_builder(verifiers_pks)
+    Builder::new()
+        .push_x_only_key(nofn_xonly_pk)
+        .push_opcode(OP_CHECKSIG)
         .push_opcode(OP_FALSE)
         .push_opcode(OP_IF)
         .push_slice(citrea)
@@ -75,14 +59,16 @@ pub fn create_deposit_script(
         .into_script()
 }
 
-pub fn create_kickoff_commit_script(
-    verifiers_pks: &[XOnlyPublicKey],
+pub fn create_move_commit_script(
+    nofn_xonly_pk: &XOnlyPublicKey,
     evm_address: &EVMAddress,
     kickoff_utxos: &[OutPoint],
 ) -> ScriptBuf {
     let citrea: [u8; 6] = "citrea".as_bytes().try_into().unwrap();
 
-    let builder = create_n_of_n_builder(verifiers_pks)
+    let builder = Builder::new()
+        .push_x_only_key(nofn_xonly_pk)
+        .push_opcode(OP_CHECKSIG)
         .push_opcode(OP_FALSE)
         .push_opcode(OP_IF)
         .push_slice(citrea)
@@ -93,26 +79,25 @@ pub fn create_kickoff_commit_script(
             .push_int(utxo.vout as i64)
     });
 
-    builder.push_opcode(OP_ENDIF)
-    .into_script()
+    builder.push_opcode(OP_ENDIF).into_script()
 }
 
-pub fn create_inscription_script_32_bytes(
-    public_key: &XOnlyPublicKey,
-    data: &Vec<[u8; 32]>,
-) -> ScriptBuf {
-    let mut inscribe_preimage_script_builder = Builder::new()
-        .push_x_only_key(public_key)
-        .push_opcode(OP_CHECKSIG)
-        .push_opcode(OP_FALSE)
-        .push_opcode(OP_IF);
-    for elem in data {
-        inscribe_preimage_script_builder = inscribe_preimage_script_builder.push_slice(elem);
-    }
-    inscribe_preimage_script_builder = inscribe_preimage_script_builder.push_opcode(OP_ENDIF);
+// pub fn create_inscription_script_32_bytes(
+//     public_key: &XOnlyPublicKey,
+//     data: &Vec<[u8; 32]>,
+// ) -> ScriptBuf {
+//     let mut inscribe_preimage_script_builder = Builder::new()
+//         .push_x_only_key(public_key)
+//         .push_opcode(OP_CHECKSIG)
+//         .push_opcode(OP_FALSE)
+//         .push_opcode(OP_IF);
+//     for elem in data {
+//         inscribe_preimage_script_builder = inscribe_preimage_script_builder.push_slice(elem);
+//     }
+//     inscribe_preimage_script_builder = inscribe_preimage_script_builder.push_opcode(OP_ENDIF);
 
-    inscribe_preimage_script_builder.into_script()
-}
+//     inscribe_preimage_script_builder.into_script()
+// }
 
 /// ATTENTION: If you want to spend a UTXO using timelock script, the
 /// condition is that (`# in the script`) < (`# in the sequence of the tx`)

@@ -85,33 +85,32 @@ impl TransactionBuilder {
     /// Generates a deposit address for the user. N-of-N or user takes after
     /// timelock script can be used to spend the funds.
     pub fn generate_deposit_address(
-        verifiers_pks: &[XOnlyPublicKey],
+        nofn_xonly_pk: &XOnlyPublicKey,
         recovery_taproot_address: &Address<NetworkUnchecked>,
         user_evm_address: &EVMAddress,
         amount: u64,
         user_takes_after: u32,
+        network: bitcoin::Network,
     ) -> CreateAddressOutputs {
         let deposit_script =
-            script_builder::create_deposit_script(verifiers_pks, user_evm_address, amount);
+            script_builder::create_deposit_script(nofn_xonly_pk, user_evm_address, amount);
 
         let script_timelock =
             script_builder::generate_timelock_script(recovery_taproot_address, user_takes_after);
 
-        TransactionBuilder::create_taproot_address(
-            &[deposit_script, script_timelock],
-            bitcoin::Network::Regtest,
-        )
+        TransactionBuilder::create_taproot_address(&[deposit_script, script_timelock], network)
     }
 
     pub fn generate_move_commit_address(
-        verifiers_pks: &[XOnlyPublicKey],
+        nofn_xonly_pk: &XOnlyPublicKey,
         recovery_taproot_address: &Address<NetworkUnchecked>,
         user_evm_address: &EVMAddress,
         kickoff_utxos: &[OutPoint],
         relative_block_height_to_take_after: u32,
+        network: bitcoin::Network,
     ) -> CreateAddressOutputs {
-        let kickoffs_commit_script = script_builder::create_kickoff_commit_script(
-            verifiers_pks,
+        let kickoffs_commit_script = script_builder::create_move_commit_script(
+            nofn_xonly_pk,
             user_evm_address,
             kickoff_utxos,
         );
@@ -122,15 +121,15 @@ impl TransactionBuilder {
 
         TransactionBuilder::create_taproot_address(
             &[kickoffs_commit_script, timelock_script],
-            bitcoin::Network::Regtest,
+            network,
         )
     }
 
-    pub fn generate_musig_address(verifiers_pks: &[XOnlyPublicKey]) -> CreateAddressOutputs {
-        // TODO: Fix this to use key spend path with Musig2 agg pubkey
-        let script_n_of_n = script_builder::generate_script_n_of_n(verifiers_pks);
-
-        TransactionBuilder::create_taproot_address(&[script_n_of_n], bitcoin::Network::Regtest)
+    pub fn generate_musig_address(
+        nofn_xonly_pk: XOnlyPublicKey,
+        network: bitcoin::Network,
+    ) -> Address {
+        Address::p2tr(&utils::SECP, nofn_xonly_pk, None, network)
     }
 
     // TX BUILDERS
@@ -140,26 +139,29 @@ impl TransactionBuilder {
         evm_address: &EVMAddress,
         recovery_taproot_address: &Address<NetworkUnchecked>,
         deposit_user_takes_after: u32,
-        verifiers_pks: &[XOnlyPublicKey],
+        nofn_xonly_pk: &XOnlyPublicKey,
         kickoff_utxos: &[OutPoint],
         relative_block_height_to_take_after: u32,
+        network: bitcoin::Network,
     ) -> CreateTxOutputs {
         let anyone_can_spend_txout = script_builder::anyone_can_spend_txout();
         let (move_commit_address, _) = TransactionBuilder::generate_move_commit_address(
-            &verifiers_pks,
+            nofn_xonly_pk,
             recovery_taproot_address,
             evm_address,
             kickoff_utxos,
             relative_block_height_to_take_after,
+            network,
         );
 
         let (deposit_address, deposit_taproot_spend_info) =
             TransactionBuilder::generate_deposit_address(
-                verifiers_pks,
+                nofn_xonly_pk,
                 recovery_taproot_address,
                 evm_address,
                 BRIDGE_AMOUNT_SATS,
                 deposit_user_takes_after,
+                network,
             );
 
         let move_commit_txout = TxOut {
@@ -182,7 +184,7 @@ impl TransactionBuilder {
         }];
 
         let deposit_script = vec![script_builder::create_deposit_script(
-            verifiers_pks,
+            nofn_xonly_pk,
             evm_address,
             BRIDGE_AMOUNT_SATS,
         )];
@@ -199,25 +201,27 @@ impl TransactionBuilder {
         move_commit_utxo: OutPoint,
         evm_address: &EVMAddress,
         recovery_taproot_address: &Address<NetworkUnchecked>,
-        verifiers_pks: &[XOnlyPublicKey],
+        nofn_xonly_pk: &XOnlyPublicKey,
         kickoff_utxos: &[OutPoint],
         relative_block_height_to_take_after: u32,
+        network: Network,
     ) -> CreateTxOutputs {
-        let (musig_addres, _) = TransactionBuilder::generate_musig_address(verifiers_pks);
+        let musig_address = TransactionBuilder::generate_musig_address(*nofn_xonly_pk, network);
         let (move_commit_address, move_commit_taproot_spend_info) =
             TransactionBuilder::generate_move_commit_address(
-                verifiers_pks,
+                nofn_xonly_pk,
                 recovery_taproot_address,
                 evm_address,
                 kickoff_utxos,
                 relative_block_height_to_take_after,
+                network,
             );
         let move_reveal_txout = TxOut {
             // TODO: Fix this
             value: Amount::from_sat(BRIDGE_AMOUNT_SATS)
                 - Amount::from_sat(MOVE_TX_MIN_RELAY_FEE)
                 - script_builder::anyone_can_spend_txout().value,
-            script_pubkey: musig_addres.script_pubkey(),
+            script_pubkey: musig_address.script_pubkey(),
         };
 
         let tx_ins = TransactionBuilder::create_tx_ins(vec![move_commit_utxo]);
@@ -232,8 +236,8 @@ impl TransactionBuilder {
             value: Amount::from_sat(BRIDGE_AMOUNT_SATS),
         }];
 
-        let move_commit_script = vec![script_builder::create_kickoff_commit_script(
-            verifiers_pks,
+        let move_commit_script = vec![script_builder::create_move_commit_script(
+            nofn_xonly_pk,
             evm_address,
             kickoff_utxos,
         )];
@@ -360,7 +364,6 @@ impl TransactionBuilder {
         tx_outs
     }
 
-
     fn create_taproot_spend_info(
         internal_key: Option<XOnlyPublicKey>,
         scripts: Vec<ScriptBuf>,
@@ -431,24 +434,24 @@ impl TransactionBuilder {
         ))
     }
 
-    pub fn create_connector_tree_source_address(
-        &self,
-        absolute_block_height_to_take_after: u64,
-    ) -> Result<(Address, TaprootSpendInfo), BridgeError> {
-        let timelock_script = script_builder::generate_absolute_timelock_script(
-            &self.verifiers_xonly_pks[self.verifiers_xonly_pks.len() - 1],
-            absolute_block_height_to_take_after as u32,
-        );
+    // pub fn create_connector_tree_source_address(
+    //     &self,
+    //     absolute_block_height_to_take_after: u64,
+    // ) -> Result<(Address, TaprootSpendInfo), BridgeError> {
+    //     let timelock_script = script_builder::generate_absolute_timelock_script(
+    //         &self.verifiers_xonly_pks[self.verifiers_xonly_pks.len() - 1],
+    //         absolute_block_height_to_take_after as u32,
+    //     );
 
-        let script_n_of_n = script_builder::generate_script_n_of_n(&self.verifiers_xonly_pks);
-        let scripts = vec![timelock_script, script_n_of_n];
+    //     let script_n_of_n = script_builder::generate_script_n_of_n();
+    //     let scripts = vec![timelock_script, script_n_of_n];
 
-        let (address, tree_info) =
-            TransactionBuilder::create_taproot_address_script_spend_only(scripts, self.network)
-                .unwrap();
+    //     let (address, tree_info) =
+    //         TransactionBuilder::create_taproot_address_script_spend_only(scripts, self.network)
+    //             .unwrap();
 
-        Ok((address, tree_info))
-    }
+    //     Ok((address, tree_info))
+    // }
 }
 
 #[cfg(test)]
@@ -493,14 +496,14 @@ mod tests {
         let recovery_taproot_address =
             Address::p2tr(&secp, user_xonly_pk, None, bitcoin::Network::Regtest);
 
-        let deposit_address = tx_builder
-            .generate_deposit_address(
-                recovery_taproot_address.as_unchecked(),
-                &crate::EVMAddress(evm_address),
-                10_000,
-                200,
-            )
-            .unwrap();
+        let deposit_address = TransactionBuilder::generate_deposit_address(
+            &user_xonly_pk,
+            recovery_taproot_address.as_unchecked(),
+            &crate::EVMAddress(evm_address),
+            10_000,
+            200,
+            bitcoin::Network::Regtest,
+        );
         println!("deposit_address: {:?}", deposit_address.0);
 
         assert_eq!(

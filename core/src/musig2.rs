@@ -433,8 +433,7 @@ mod tests {
         let musig_agg_xonly_pubkey = musig_agg_pubkey.x_only_public_key().0;
         let musig_agg_xonly_pubkey_wrapped =
             bitcoin::XOnlyPublicKey::from_slice(&musig_agg_xonly_pubkey.serialize()).unwrap();
-        let musig2_script =
-            script_builder::generate_script_n_of_n(&vec![musig_agg_xonly_pubkey_wrapped]);
+        let musig2_script = script_builder::anyone_can_spend_txout().script_pubkey;
         let scripts: Vec<ScriptBuf> = vec![musig2_script];
         let receiving_address = bitcoin::Address::p2tr(
             &utils::SECP,

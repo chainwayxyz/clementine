@@ -273,24 +273,26 @@ where
 
     pub fn check_deposit_utxo(
         &self,
-        verifiers_pk: &[XOnlyPublicKey],
+        nofn_xonly_pk: &XOnlyPublicKey,
         outpoint: &OutPoint,
         recovery_taproot_address: &Address<NetworkUnchecked>,
         evm_address: &EVMAddress,
         amount_sats: u64,
         user_takes_after: u32,
         confirmation_block_count: u32,
+        network: bitcoin::Network,
     ) -> Result<(), BridgeError> {
         if self.confirmation_blocks(&outpoint.txid)? < confirmation_block_count {
             return Err(BridgeError::DepositNotFinalized);
         }
 
         let (deposit_address, _) = TransactionBuilder::generate_deposit_address(
-            verifiers_pk,
+            nofn_xonly_pk,
             recovery_taproot_address,
             evm_address,
             BRIDGE_AMOUNT_SATS,
             user_takes_after,
+            network,
         );
 
         if !self.check_utxo_address_and_amount(

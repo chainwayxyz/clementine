@@ -7,6 +7,7 @@ use crate::musig2::{self, MuSigAggNonce, MuSigPartialSignature, MuSigPubNonce};
 use crate::traits::rpc::VerifierRpcServer;
 use crate::transaction_builder::TransactionBuilder;
 use crate::{script_builder, utils, EVMAddress, PsbtOutPoint};
+use ::musig2::secp::Point;
 use bitcoin::address::NetworkUnchecked;
 use bitcoin::hashes::Hash;
 use bitcoin::sighash::{self};
@@ -16,9 +17,7 @@ use bitcoin_mock_rpc::RpcApiWrapper;
 use clementine_circuits::constants::BRIDGE_AMOUNT_SATS;
 use clementine_circuits::sha256_hash;
 use jsonrpsee::core::async_trait;
-use secp256k1::XOnlyPublicKey;
 use secp256k1::{rand, schnorr};
-use serde::de;
 
 #[derive(Debug, Clone)]
 pub struct Verifier<R>
@@ -29,6 +28,7 @@ where
     signer: Actor,
     db: VerifierDB,
     config: BridgeConfig,
+    nofn_xonly_pk: secp256k1::XOnlyPublicKey,
 }
 
 impl<R> Verifier<R>
@@ -38,10 +38,7 @@ where
     pub async fn new(rpc: ExtendedRpc<R>, config: BridgeConfig) -> Result<Self, BridgeError> {
         let signer = Actor::new(config.secret_key, config.network);
 
-        let secp: Secp256k1<secp256k1::All> = Secp256k1::new();
-
-        let pk: secp256k1::PublicKey = config.secret_key.public_key(&secp);
-        // let xonly_pk = XOnlyPublicKey::from(pk);
+        let pk: secp256k1::PublicKey = config.secret_key.public_key(&utils::SECP);
 
         // Generated public key must be in given public key list.
         if !config.verifiers_public_keys.contains(&pk) {
@@ -50,11 +47,17 @@ where
 
         let db = VerifierDB::new(config.clone()).await;
 
+        let key_agg_context =
+            musig2::create_key_agg_ctx(config.verifiers_public_keys.clone(), None)?;
+        let agg_point: Point = key_agg_context.aggregated_pubkey_untweaked();
+        let nofn_xonly_pk = secp256k1::XOnlyPublicKey::from_slice(&agg_point.serialize_xonly())?;
+
         Ok(Verifier {
             rpc,
             signer,
             db,
             config,
+            nofn_xonly_pk,
         })
     }
 
@@ -71,13 +74,14 @@ where
         evm_address: &EVMAddress,
     ) -> Result<Vec<MuSigPubNonce>, BridgeError> {
         self.rpc.check_deposit_utxo(
-            &self.config.verifiers_public_keys,
+            &self.nofn_xonly_pk,
             &deposit_utxo,
             recovery_taproot_address,
             evm_address,
             BRIDGE_AMOUNT_SATS,
             self.config.user_takes_after,
             self.config.confirmation_treshold,
+            self.config.network,
         )?;
 
         let num_required_sigs = 10; // TODO: Fix this

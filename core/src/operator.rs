@@ -3,9 +3,11 @@ use crate::config::BridgeConfig;
 use crate::database::operator::OperatorDB;
 use crate::errors::BridgeError;
 use crate::extended_rpc::ExtendedRpc;
+use crate::musig2::{self, MuSigAggNonce, MuSigPartialSignature, MuSigPubNonce};
 use crate::traits::rpc::OperatorRpcServer;
 use crate::transaction_builder::TransactionBuilder;
 use crate::{utils, EVMAddress, PsbtOutPoint};
+use ::musig2::secp::Point;
 use bitcoin::address::NetworkUnchecked;
 use bitcoin::{Address, OutPoint};
 use bitcoin_mock_rpc::RpcApiWrapper;
@@ -21,6 +23,7 @@ where
     db: OperatorDB,
     signer: Actor,
     config: BridgeConfig,
+    nofn_xonly_pk: secp256k1::XOnlyPublicKey,
 }
 
 impl<R> Operator<R>
@@ -38,11 +41,17 @@ where
 
         let db = OperatorDB::new(config.clone()).await;
 
+        let key_agg_context =
+            musig2::create_key_agg_ctx(config.verifiers_public_keys.clone(), None)?;
+        let agg_point: Point = key_agg_context.aggregated_pubkey_untweaked();
+        let nofn_xonly_pk = secp256k1::XOnlyPublicKey::from_slice(&agg_point.serialize_xonly())?;
+
         Ok(Self {
             rpc,
             db,
             signer,
             config,
+            nofn_xonly_pk,
         })
     }
 
@@ -69,13 +78,14 @@ where
 
         // 1. Check if the deposit UTXO is valid, finalized (6 blocks confirmation) and not spent
         self.rpc.check_deposit_utxo(
-            &vec![utils::UNSPENDABLE_XONLY_PUBKEY.clone()], // TODO: Fix this to use N-of-N
+            &self.nofn_xonly_pk,
             &deposit_utxo,
             recovery_taproot_address,
             evm_address,
             BRIDGE_AMOUNT_SATS,
-            self.user_takes_after,
-            self.confirmation_treshold,
+            self.config.user_takes_after,
+            self.config.confirmation_treshold,
+            self.config.network,
         )?;
 
         // 2. Check if we alredy created a kickoff UTXO for this deposit UTXO
