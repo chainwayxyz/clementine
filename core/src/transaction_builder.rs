@@ -262,10 +262,10 @@ impl TransactionBuilder {
         tx_outs
     }
 
-    pub fn create_taproot_address_script_spend_only(
+    fn create_taproot_spend_info(
+        internal_key: Option<XOnlyPublicKey>,
         scripts: Vec<ScriptBuf>,
-        network: bitcoin::Network,
-    ) -> Result<(Address, TaprootSpendInfo), BridgeError> {
+    ) -> Result<TaprootSpendInfo, BridgeError> {
         let n = scripts.len();
         if n == 0 {
             return Err(BridgeError::TaprootScriptError);
@@ -282,7 +282,18 @@ impl TransactionBuilder {
             TaprootBuilder::new().add_leaf(0, scripts[0].clone())?
         };
 
-        let tree_info = taproot_builder.finalize(&utils::SECP, *utils::UNSPENDABLE_XONLY_PUBKEY)?;
+        let tree_info = match internal_key {
+            Some(xonly_pk) => taproot_builder.finalize(&utils::SECP, xonly_pk)?,
+            None => taproot_builder.finalize(&utils::SECP, *utils::UNSPENDABLE_XONLY_PUBKEY)?,
+        };
+        Ok(tree_info)
+    }
+
+    pub fn create_taproot_address_script_spend_only(
+        scripts: Vec<ScriptBuf>,
+        network: bitcoin::Network,
+    ) -> Result<(Address, TaprootSpendInfo), BridgeError> {
+        let tree_info = TransactionBuilder::create_taproot_spend_info(None, scripts)?;
 
         Ok((
             Address::p2tr(
@@ -301,30 +312,18 @@ impl TransactionBuilder {
         scripts: Vec<ScriptBuf>,
         network: bitcoin::Network,
     ) -> Result<(Address, TaprootSpendInfo), BridgeError> {
-        let n = scripts.len();
-        if n == 0 {
-            return Err(BridgeError::TaprootScriptError);
-        }
-
-        let taproot_builder = if n > 1 {
-            let m: u8 = ((n - 1).ilog2() + 1) as u8; // m = ceil(log(n))
-            let k = 2_usize.pow(m.into()) - n;
-            (0..n).fold(TaprootBuilder::new(), |acc, i| {
-                acc.add_leaf(m - ((i >= n - k) as u8), scripts[i].clone())
-                    .unwrap()
-            })
-        } else {
-            TaprootBuilder::new().add_leaf(0, scripts[0].clone())?
-        };
         let key_agg_ctx = create_key_agg_ctx(self.verifiers_pks.clone(), None)?;
         let agg_pubkey_raw: musig2::secp256k1::PublicKey =
             key_agg_ctx.aggregated_pubkey_untweaked();
         let (musig_agg_xonly_pubkey_raw, _) = agg_pubkey_raw.x_only_public_key();
         let agg_xonly_pubkey_raw =
             XOnlyPublicKey::from_slice(&musig_agg_xonly_pubkey_raw.serialize()).unwrap();
-        let tree_info = taproot_builder
-            .finalize(&utils::SECP, agg_xonly_pubkey_raw)
-            .unwrap();
+        
+        let n = scripts.len();
+        if n == 0 {
+            return Err(BridgeError::TaprootScriptError);
+        }
+        let tree_info = TransactionBuilder::create_taproot_spend_info(Some(agg_xonly_pubkey_raw), scripts)?;
         let merkle_root = tree_info.merkle_root();
         Ok((
             Address::p2tr(&utils::SECP, agg_xonly_pubkey_raw, merkle_root, network),
