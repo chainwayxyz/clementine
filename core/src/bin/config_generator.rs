@@ -1,7 +1,7 @@
-use secp256k1::PublicKey;
 use clap::Parser;
 use clementine_core::config::BridgeConfig;
 use crypto_bigint::rand_core::OsRng;
+use secp256k1::PublicKey;
 use secp256k1::SecretKey;
 use std::str::FromStr;
 
