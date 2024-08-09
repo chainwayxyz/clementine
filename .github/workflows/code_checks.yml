@@ -1,0 +1,25 @@
+name: Code Checks
+
+on: [push]
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  formatting:
+    name: Check formatting
+    runs-on: ubicloud-standard-4
+
+    steps:
+    - uses: actions/checkout@v4
+    - name: Run Cargo fmt
+      run: cargo fmt --check
+
+  linting:
+    name: Check linting
+    runs-on: ubicloud-standard-4
+
+    steps:
+    - uses: actions/checkout@v4
+    - name: Run Cargo clippy
+      run: cargo clippy --no-deps -- -Dwarnings
