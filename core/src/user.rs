@@ -9,6 +9,7 @@ use bitcoin::OutPoint;
 use bitcoin::XOnlyPublicKey;
 use bitcoin_mock_rpc::RpcApiWrapper;
 use clementine_circuits::constants::BRIDGE_AMOUNT_SATS;
+use secp256k1::PublicKey;
 use secp256k1::SecretKey;
 
 #[derive(Debug)]
@@ -26,13 +27,13 @@ where
     /// Creates a new `User`.
     pub fn new(
         rpc: ExtendedRpc<R>,
-        all_xonly_pks: Vec<XOnlyPublicKey>,
+        all_pks: Vec<PublicKey>,
         sk: SecretKey,
         config: BridgeConfig,
     ) -> Self {
         let signer = Actor::new(sk, config.network);
 
-        let transaction_builder = TransactionBuilder::new(all_xonly_pks.clone(), config.network);
+        let transaction_builder = TransactionBuilder::new(all_pks.clone(), config.network);
 
         User {
             rpc,

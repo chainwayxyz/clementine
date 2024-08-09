@@ -1,4 +1,4 @@
-use bitcoin::XOnlyPublicKey;
+use secp256k1::PublicKey;
 use clap::Parser;
 use clementine_core::config::BridgeConfig;
 use crypto_bigint::rand_core::OsRng;
@@ -34,12 +34,10 @@ fn main() {
     let secp: secp256k1::Secp256k1<secp256k1::All> = bitcoin::secp256k1::Secp256k1::new();
     let rng = &mut OsRng;
 
-    let (secret_keys, public_keys): (Vec<SecretKey>, Vec<XOnlyPublicKey>) = (0..num_verifiers)
+    let (secret_keys, public_keys): (Vec<SecretKey>, Vec<PublicKey>) = (0..num_verifiers)
         .map(|_| {
             let secret_key = secp256k1::SecretKey::new(rng);
-            let public_key = secp256k1::PublicKey::from_secret_key(&secp, &secret_key)
-                .x_only_public_key()
-                .0;
+            let public_key = secp256k1::PublicKey::from_secret_key(&secp, &secret_key);
             (secret_key, public_key)
         })
         .unzip();

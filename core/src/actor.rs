@@ -15,6 +15,7 @@ pub struct Actor {
     pub keypair: Keypair,
     secret_key: SecretKey,
     pub xonly_public_key: XOnlyPublicKey,
+    pub public_key: secp256k1::PublicKey,
     pub address: Address,
 }
 
@@ -28,6 +29,7 @@ impl Actor {
             keypair,
             secret_key: keypair.secret_key(),
             xonly_public_key: xonly,
+            public_key: keypair.public_key(),
             address,
         }
     }

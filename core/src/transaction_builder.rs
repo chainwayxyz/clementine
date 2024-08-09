@@ -348,8 +348,10 @@ impl TransactionBuilder {
 
 #[cfg(test)]
 mod tests {
-    use crate::{config::BridgeConfig, transaction_builder::TransactionBuilder};
     use bitcoin::{Address, XOnlyPublicKey};
+    use secp256k1::PublicKey;
+
+    use crate::{config::BridgeConfig, transaction_builder::TransactionBuilder};
     use std::str::FromStr;
 
     #[test]
@@ -359,15 +361,15 @@ mod tests {
         let secp = secp256k1::Secp256k1::new();
 
         let verifier_pks_hex: Vec<&str> = vec![
-            "9bef8d556d80e43ae7e0becb3a7e6838b95defe45896ed6075bb9035d06c9964",
-            "e37d58a1aae4ba059fd2503712d998470d3a2522f7e2335f544ef384d2199e02",
-            "688466442a134ee312299bafb37058e385c98dd6005eaaf0f538f533efe5f91f",
-            "337cca2171fdbfcfd657fa59881f46269f1e590b5ffab6023686c7ad2ecc2c1c",
-            "a1f9821c983cfe80558fb0b56385c67c8df6824c17aed048c7cbd031549a2fa8",
+            "029bef8d556d80e43ae7e0becb3a7e6838b95defe45896ed6075bb9035d06c9964",
+            "02e37d58a1aae4ba059fd2503712d998470d3a2522f7e2335f544ef384d2199e02",
+            "02688466442a134ee312299bafb37058e385c98dd6005eaaf0f538f533efe5f91f",
+            "02337cca2171fdbfcfd657fa59881f46269f1e590b5ffab6023686c7ad2ecc2c1c",
+            "02a1f9821c983cfe80558fb0b56385c67c8df6824c17aed048c7cbd031549a2fa8",
         ];
-        let verifier_pks: Vec<XOnlyPublicKey> = verifier_pks_hex
+        let verifier_pks: Vec<PublicKey> = verifier_pks_hex
             .iter()
-            .map(|pk| XOnlyPublicKey::from_str(pk).unwrap())
+            .map(|pk| PublicKey::from_str(pk).unwrap())
             .collect();
 
         let tx_builder = TransactionBuilder::new(verifier_pks, config.network);
