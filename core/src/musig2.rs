@@ -1,5 +1,5 @@
 use musig2::{sign_partial, AggNonce, KeyAggContext, SecNonce, SecNonceSpices};
-use secp256k1::{rand::Rng, Keypair, PublicKey};
+use secp256k1::{rand::Rng, PublicKey};
 
 use crate::{errors::BridgeError, ByteArray66};
 
@@ -67,8 +67,8 @@ pub fn aggregate_partial_signatures(
 }
 
 // Generates a pair of nonces, one secret and one public. Wrapper for the musig2::SecNonce::build function. Be careful,
-// DO NOT REUSE the same pair of nonces for multiple transactions. It will cause you to leak your public key. For more information,
-// see https://medium.com/blockstream/musig-dn-schnorr-multisignatures-with-verifiably-deterministic-nonces-27424b5df9d6#e3b6
+// DO NOT REUSE the same pair of nonces for multiple transactions. It will cause you to leak your secret key. For more information,
+// see https://medium.com/blockstream/musig-dn-schnorr-multisignatures-with-verifiably-deterministic-nonces-27424b5df9d6#e3b6.
 pub fn nonce_pair(
     keypair: &secp256k1::Keypair,
     rng: &mut impl Rng,
@@ -112,40 +112,41 @@ pub fn partial_sign(
     partial_signature
 }
 
-fn generate_test_setup(num_signers: usize) -> (Vec<Keypair>, Vec<MuSigNoncePair>) {
-    let mut keypair_vec: Vec<Keypair> = Vec::new();
-    for _ in 0..num_signers {
-        keypair_vec.push(Keypair::new(
-            &crate::utils::SECP,
-            &mut secp256k1::rand::thread_rng(),
-        ));
-    }
-    let nonce_pair_vec: Vec<MuSigNoncePair> = keypair_vec
-        .iter()
-        .map(|keypair| nonce_pair(keypair, &mut secp256k1::rand::thread_rng()))
-        .collect();
-    (keypair_vec, nonce_pair_vec)
-}
-
 #[cfg(test)]
 mod tests {
+
     use crate::{
         actor::Actor,
-        config::BridgeConfig,
         errors::BridgeError,
-        musig2::{aggregate_partial_signatures, MuSigPartialSignature},
         script_builder,
         transaction_builder::{CreateTxOutputs, TransactionBuilder},
         utils, ByteArray66,
     };
     use bitcoin::{hashes::Hash, script, Amount, OutPoint, ScriptBuf, TapNodeHash, TxOut, Txid};
     use musig2::{errors::VerifyError, AggNonce, PartialSignature, PubNonce};
-    use secp256k1::{rand::Rng, Message};
+    use secp256k1::{rand::Rng, Keypair, Message};
+
+    use super::{nonce_pair, MuSigNoncePair};
+
+    fn generate_test_setup(num_signers: usize) -> (Vec<Keypair>, Vec<MuSigNoncePair>) {
+        let mut keypair_vec: Vec<Keypair> = Vec::new();
+        for _ in 0..num_signers {
+            keypair_vec.push(Keypair::new(
+                &crate::utils::SECP,
+                &mut secp256k1::rand::thread_rng(),
+            ));
+        }
+        let nonce_pair_vec: Vec<MuSigNoncePair> = keypair_vec
+            .iter()
+            .map(|keypair| nonce_pair(keypair, &mut secp256k1::rand::thread_rng()))
+            .collect();
+        (keypair_vec, nonce_pair_vec)
+    }
 
     #[test]
     fn test_musig2_raw() {
         // Generate a test setup with 3 signers
-        let (kp_vec, nonce_pair_vec) = super::generate_test_setup(3);
+        let (kp_vec, nonce_pair_vec) = generate_test_setup(3);
         // Generate a random message
         let message: [u8; 32] = secp256k1::rand::thread_rng().gen();
         // Extract the public keys
@@ -186,7 +187,6 @@ mod tests {
         let kp_2 = secp256k1::Keypair::new(&utils::SECP, &mut secp256k1::rand::thread_rng());
         let message: [u8; 32] = secp256k1::rand::thread_rng().gen();
         let pks = vec![kp_0.public_key(), kp_1.public_key(), kp_2.public_key()];
-        let key_agg_ctx = super::create_key_agg_ctx(pks.clone(), None).unwrap();
         let (sec_nonce_0, pub_nonce_0) =
             super::nonce_pair(&kp_0, &mut secp256k1::rand::thread_rng());
         let (sec_nonce_1, pub_nonce_1) =
@@ -233,7 +233,7 @@ mod tests {
 
     #[test]
     fn test_musig2_tweak() {
-        let (kp_vec, nonce_pair_vec) = super::generate_test_setup(3);
+        let (kp_vec, nonce_pair_vec) = generate_test_setup(3);
         let message: [u8; 32] = secp256k1::rand::thread_rng().gen();
         let tweak: [u8; 32] = secp256k1::rand::thread_rng().gen();
         let musig_pub_nonces: Vec<PubNonce> = nonce_pair_vec
@@ -341,11 +341,12 @@ mod tests {
 
     #[test]
     fn test_musig2_key_spend() {
-        let (kp_vec, nonce_pair_vec) = super::generate_test_setup(2);
+        let (kp_vec, nonce_pair_vec) = generate_test_setup(2);
         let pks = kp_vec
             .iter()
             .map(|kp| kp.public_key())
             .collect::<Vec<secp256k1::PublicKey>>();
+        let tx_builder = TransactionBuilder::new(pks.clone(), bitcoin::Network::Regtest);
         let musig_pub_nonces: Vec<PubNonce> = nonce_pair_vec
             .iter()
             .map(|x| musig2::PubNonce::from_bytes(&x.1 .0).unwrap())
@@ -360,12 +361,8 @@ mod tests {
             None,
             bitcoin::Network::Regtest,
         );
-        let (sending_address, sending_address_spend_info) =
-            TransactionBuilder::create_musig2_taproot_address(
-                pks.clone(),
-                scripts.clone(),
-                bitcoin::Network::Regtest,
-            )
+        let (sending_address, sending_address_spend_info) = tx_builder
+            .create_taproot_address_musig2(scripts.clone(), bitcoin::Network::Regtest)
             .unwrap();
         let prevout = TxOut {
             value: Amount::from_sat(100_000_000),
@@ -441,11 +438,12 @@ mod tests {
 
     #[test]
     fn test_musig2_script_spend() {
-        let (kp_vec, nonce_pair_vec) = super::generate_test_setup(2);
+        let (kp_vec, nonce_pair_vec) = generate_test_setup(2);
         let pks = kp_vec
             .iter()
             .map(|kp| kp.public_key())
             .collect::<Vec<secp256k1::PublicKey>>();
+        let tx_builder = TransactionBuilder::new(pks.clone(), bitcoin::Network::Regtest);
         let musig_pub_nonces: Vec<PubNonce> = nonce_pair_vec
             .iter()
             .map(|x| musig2::PubNonce::from_bytes(&x.1 .0).unwrap())
@@ -466,12 +464,8 @@ mod tests {
             None,
             bitcoin::Network::Regtest,
         );
-        let (sending_address, sending_address_spend_info) =
-            TransactionBuilder::create_musig2_taproot_address(
-                pks.clone(),
-                scripts.clone(),
-                bitcoin::Network::Regtest,
-            )
+        let (sending_address, sending_address_spend_info) = tx_builder
+            .create_taproot_address_musig2(scripts.clone(), bitcoin::Network::Regtest)
             .unwrap();
         let prevout = TxOut {
             value: Amount::from_sat(100_000_000),

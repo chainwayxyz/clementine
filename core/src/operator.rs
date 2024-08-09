@@ -40,7 +40,7 @@ where
         let num_verifiers = config.verifiers_public_keys.len();
 
         let signer = Actor::new(config.secret_key, config.network);
-        if signer.xonly_public_key != config.verifiers_public_keys[num_verifiers - 1] {
+        if signer.public_key != config.verifiers_public_keys[num_verifiers - 1] {
             return Err(BridgeError::InvalidOperatorKey);
         }
 

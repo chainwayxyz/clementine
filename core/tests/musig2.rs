@@ -39,6 +39,7 @@ async fn test_musig2_key_spend() {
         .iter()
         .map(|kp| kp.public_key())
         .collect::<Vec<secp256k1::PublicKey>>();
+    let tx_builder = TransactionBuilder::new(pks.clone(), bitcoin::Network::Regtest);
     let musig_pub_nonces: Vec<PubNonce> = nonce_pair_vec
         .iter()
         .map(|x| musig2::PubNonce::from_bytes(&x.1 .0).unwrap())
@@ -53,12 +54,8 @@ async fn test_musig2_key_spend() {
         None,
         bitcoin::Network::Regtest,
     );
-    let (from_address, from_address_spend_info) =
-        TransactionBuilder::create_musig2_taproot_address(
-            pks.clone(),
-            scripts.clone(),
-            bitcoin::Network::Regtest,
-        )
+    let (from_address, from_address_spend_info) = tx_builder
+        .create_taproot_address_musig2(scripts.clone(), bitcoin::Network::Regtest)
         .unwrap();
     let utxo = rpc.send_to_address(&from_address, 100_000_000).unwrap();
     let prevout = rpc.get_txout_from_utxo(&utxo).unwrap();
@@ -142,6 +139,7 @@ async fn test_musig2_script_spend() {
         .iter()
         .map(|kp| kp.public_key())
         .collect::<Vec<secp256k1::PublicKey>>();
+    let tx_builder = TransactionBuilder::new(pks.clone(), bitcoin::Network::Regtest);
     let pub_nonces: Vec<MuSigPubNonce> =
         nonce_pair_vec.iter().map(|x| ByteArray66(x.1 .0)).collect();
     let agg_nonce = aggregate_nonces(pub_nonces);
@@ -160,12 +158,8 @@ async fn test_musig2_script_spend() {
         None,
         bitcoin::Network::Regtest,
     );
-    let (from_address, from_address_spend_info) =
-        TransactionBuilder::create_musig2_taproot_address(
-            pks.clone(),
-            scripts.clone(),
-            bitcoin::Network::Regtest,
-        )
+    let (from_address, from_address_spend_info) = tx_builder
+        .create_taproot_address_musig2(scripts.clone(), bitcoin::Network::Regtest)
         .unwrap();
     let utxo = rpc.send_to_address(&from_address, 100_000_000).unwrap();
     let prevout = rpc.get_txout_from_utxo(&utxo).unwrap();

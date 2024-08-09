@@ -45,10 +45,10 @@ where
         let secp: Secp256k1<secp256k1::All> = Secp256k1::new();
 
         let pk: secp256k1::PublicKey = config.secret_key.public_key(&secp);
-        let xonly_pk = XOnlyPublicKey::from(pk);
+        // let xonly_pk = XOnlyPublicKey::from(pk);
 
         // Generated public key must be in given public key list.
-        if !config.verifiers_public_keys.contains(&xonly_pk) {
+        if !config.verifiers_public_keys.contains(&pk) {
             return Err(BridgeError::PublicKeyNotFound);
         }
 
