@@ -11,7 +11,7 @@ use bitcoin::address::NetworkUnchecked;
 use bitcoin::hashes::Hash;
 use bitcoin::sighash::{self};
 use bitcoin::{secp256k1, secp256k1::Secp256k1, OutPoint};
-use bitcoin::{taproot, Address, Amount, Network, TxOut};
+use bitcoin::{taproot, Address, Amount, TxOut};
 use bitcoin_mock_rpc::RpcApiWrapper;
 use clementine_circuits::constants::BRIDGE_AMOUNT_SATS;
 use clementine_circuits::sha256_hash;
@@ -26,12 +26,8 @@ where
 {
     rpc: ExtendedRpc<R>,
     signer: Actor,
-    transaction_builder: TransactionBuilder,
     db: VerifierDB,
-    network: Network,
-    confirmation_treshold: u32,
-    min_relay_fee: u64,
-    user_takes_after: u32,
+    config: BridgeConfig,
 }
 
 impl<R> Verifier<R>
@@ -53,18 +49,11 @@ where
 
         let db = VerifierDB::new(config.clone()).await;
 
-        let transaction_builder =
-            TransactionBuilder::new(config.verifiers_public_keys.clone(), config.network);
-
         Ok(Verifier {
             rpc,
             signer,
-            transaction_builder,
             db,
-            network: config.network,
-            confirmation_treshold: config.confirmation_treshold,
-            min_relay_fee: config.min_relay_fee,
-            user_takes_after: config.user_takes_after,
+            config,
         })
     }
 
@@ -81,13 +70,13 @@ where
         evm_address: &EVMAddress,
     ) -> Result<Vec<MusigPubNonce>, BridgeError> {
         self.rpc.check_deposit_utxo(
-            &self.transaction_builder,
+            &self.config.verifiers_public_keys,
             &deposit_utxo,
             recovery_taproot_address,
             evm_address,
             BRIDGE_AMOUNT_SATS,
-            self.user_takes_after,
-            self.confirmation_treshold,
+            self.config.user_takes_after,
+            self.config.confirmation_treshold,
         )?;
 
         let num_required_sigs = 10; // TODO: Fix this
@@ -235,7 +224,7 @@ where
                 let tx = TransactionBuilder::create_btc_tx(ins, outs);
 
                 let bridge_txout = TxOut {
-                    value: Amount::from_sat(BRIDGE_AMOUNT_SATS - self.min_relay_fee - 330),
+                    value: Amount::from_sat(BRIDGE_AMOUNT_SATS - 200 - 330), // TODO: Fix min relay fee, not 200
                     script_pubkey: self.signer.address.script_pubkey(), // TODO: Fix this to N-of-N
                 };
                 let kickoff_txout = TxOut {
@@ -324,7 +313,7 @@ where
                 let tx = TransactionBuilder::create_btc_tx(ins, outs);
 
                 let bridge_txout = TxOut {
-                    value: Amount::from_sat(BRIDGE_AMOUNT_SATS - self.min_relay_fee - 330),
+                    value: Amount::from_sat(BRIDGE_AMOUNT_SATS - 200 - 330), // TODO: Fix min relay fee, not 200
                     script_pubkey: self.signer.address.script_pubkey(), // TODO: Fix this to N-of-N
                 };
                 let kickoff_txout = TxOut {
@@ -367,13 +356,44 @@ where
             .await?
             .ok_or(BridgeError::DepositInfoNotFound)?;
 
-        // TODO: Sign move_commit_tx and move_reveal_tx, move_commit_tx will commit to kickoff txs
-        let move_commit_tx = 0;
-        let move_reveal_tx = 0;
+        let kickoff_utxos = kickoff_outpoints_and_amounts
+            .iter()
+            .map(|(outpoint, _)| outpoint.clone())
+            .collect::<Vec<_>>();
+
+        let mut move_commit_tx = TransactionBuilder::create_move_commit_tx(
+            *deposit_utxo,
+            &evm_address,
+            &recovery_taproot_address,
+            200, // TODO: Fix this
+            &self.config.verifiers_public_keys,
+            &kickoff_utxos,
+            201, // TODO: Fix this
+        );
+
+        let move_commit_sig =
+            self.signer
+                .sighash_taproot_script_spend(&mut move_commit_tx, 0, 0)?; // TODO: This should be musig
+
+        let mut move_reveal_tx = TransactionBuilder::create_move_reveal_tx(
+            OutPoint {
+                txid: move_commit_tx.tx.compute_txid(),
+                vout: 0,
+            },
+            &evm_address,
+            &recovery_taproot_address,
+            &self.config.verifiers_public_keys,
+            &kickoff_utxos,
+            201, // TODO: Fix this
+        );
+
+        let move_reveal_sig =
+            self.signer
+                .sighash_taproot_script_spend(&mut move_reveal_tx, 0, 0)?; // TODO: This should be musig
 
         Ok((
-            [0u8; 32] as MusigPartialSignature,
-            [0u8; 32] as MusigPartialSignature,
+            move_commit_sig.to_byte_array() as MusigPartialSignature,
+            move_reveal_sig.to_byte_array() as MusigPartialSignature,
         ))
     }
 }

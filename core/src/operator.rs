@@ -5,7 +5,7 @@ use crate::errors::BridgeError;
 use crate::extended_rpc::ExtendedRpc;
 use crate::traits::rpc::OperatorRpcServer;
 use crate::transaction_builder::TransactionBuilder;
-use crate::{EVMAddress, PsbtOutPoint};
+use crate::{utils, EVMAddress, PsbtOutPoint};
 use bitcoin::address::NetworkUnchecked;
 use bitcoin::{Address, OutPoint};
 use bitcoin_mock_rpc::RpcApiWrapper;
@@ -20,11 +20,7 @@ where
     rpc: ExtendedRpc<R>,
     db: OperatorDB,
     signer: Actor,
-    transaction_builder: TransactionBuilder,
-    verifier_connector: Vec<jsonrpsee::http_client::HttpClient>,
-    confirmation_treshold: u32,
-    min_relay_fee: u64,
-    user_takes_after: u32,
+    config: BridgeConfig,
 }
 
 impl<R> Operator<R>
@@ -32,11 +28,7 @@ where
     R: RpcApiWrapper,
 {
     /// Creates a new `Operator`.
-    pub async fn new(
-        config: BridgeConfig,
-        rpc: ExtendedRpc<R>,
-        verifiers: Vec<jsonrpsee::http_client::HttpClient>,
-    ) -> Result<Self, BridgeError> {
+    pub async fn new(config: BridgeConfig, rpc: ExtendedRpc<R>) -> Result<Self, BridgeError> {
         let num_verifiers = config.verifiers_public_keys.len();
 
         let signer = Actor::new(config.secret_key, config.network);
@@ -44,20 +36,13 @@ where
             return Err(BridgeError::InvalidOperatorKey);
         }
 
-        let transaction_builder =
-            TransactionBuilder::new(config.verifiers_public_keys.clone(), config.network);
-
         let db = OperatorDB::new(config.clone()).await;
 
         Ok(Self {
             rpc,
             db,
             signer,
-            transaction_builder,
-            verifier_connector: verifiers,
-            confirmation_treshold: config.confirmation_treshold,
-            min_relay_fee: config.min_relay_fee,
-            user_takes_after: config.user_takes_after,
+            config,
         })
     }
 
@@ -84,7 +69,7 @@ where
 
         // 1. Check if the deposit UTXO is valid, finalized (6 blocks confirmation) and not spent
         self.rpc.check_deposit_utxo(
-            &self.transaction_builder,
+            &vec![utils::UNSPENDABLE_XONLY_PUBKEY.clone()], // TODO: Fix this to use N-of-N
             &deposit_utxo,
             recovery_taproot_address,
             evm_address,
@@ -159,7 +144,7 @@ where
     /// Saves the utxo to the db
     async fn set_operator_funding_utxo_rpc(
         &self,
-       _funding_utxo: &OutPoint,
+        _funding_utxo: &OutPoint,
     ) -> Result<(), BridgeError> {
         unimplemented!();
     }

@@ -6,12 +6,13 @@
 use crate::EVMAddress;
 use bitcoin::address::NetworkUnchecked;
 use bitcoin::blockdata::opcodes::all::OP_PUSHNUM_1;
-use bitcoin::Address;
+use bitcoin::hashes::Hash;
 use bitcoin::{
     opcodes::{all::*, OP_FALSE},
     script::Builder,
     ScriptBuf, TxOut,
 };
+use bitcoin::{Address, OutPoint};
 use secp256k1::XOnlyPublicKey;
 
 pub fn anyone_can_spend_txout() -> TxOut {
@@ -72,6 +73,28 @@ pub fn create_deposit_script(
         .push_slice(amount.to_be_bytes())
         .push_opcode(OP_ENDIF)
         .into_script()
+}
+
+pub fn create_kickoff_commit_script(
+    verifiers_pks: &[XOnlyPublicKey],
+    evm_address: &EVMAddress,
+    kickoff_utxos: &[OutPoint],
+) -> ScriptBuf {
+    let citrea: [u8; 6] = "citrea".as_bytes().try_into().unwrap();
+
+    let builder = create_n_of_n_builder(verifiers_pks)
+        .push_opcode(OP_FALSE)
+        .push_opcode(OP_IF)
+        .push_slice(citrea)
+        .push_slice(evm_address.0);
+
+    let builder = kickoff_utxos.iter().fold(builder, |b, utxo| {
+        b.push_slice(&utxo.txid.to_raw_hash().to_byte_array()) // TODO: Optimize here
+            .push_int(utxo.vout as i64)
+    });
+
+    builder.push_opcode(OP_ENDIF)
+    .into_script()
 }
 
 pub fn create_inscription_script_32_bytes(

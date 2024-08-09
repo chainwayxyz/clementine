@@ -16,7 +16,7 @@ pub struct User<R> {
     rpc: ExtendedRpc<R>,
     signer: Actor,
     transaction_builder: TransactionBuilder,
-    user_takes_after: u32,
+    config: BridgeConfig,
 }
 
 impl<R> User<R>
@@ -38,7 +38,7 @@ where
             rpc,
             signer,
             transaction_builder,
-            user_takes_after: config.user_takes_after,
+            config,
         }
     }
 
@@ -46,12 +46,13 @@ where
         &self,
         evm_address: EVMAddress,
     ) -> Result<(OutPoint, XOnlyPublicKey, EVMAddress), BridgeError> {
-        let (deposit_address, _) = self.transaction_builder.generate_deposit_address(
+        let (deposit_address, _) = TransactionBuilder::generate_deposit_address(
+            &self.config.verifiers_public_keys,
             self.signer.address.as_unchecked(),
             &evm_address,
             BRIDGE_AMOUNT_SATS,
-            self.user_takes_after,
-        )?;
+            self.config.user_takes_after,
+        );
 
         let deposit_utxo = self
             .rpc
@@ -61,12 +62,13 @@ where
     }
 
     pub fn get_deposit_address(&self, evm_address: EVMAddress) -> Result<Address, BridgeError> {
-        let (deposit_address, _) = self.transaction_builder.generate_deposit_address(
+        let (deposit_address, _) = TransactionBuilder::generate_deposit_address(
+            &self.config.verifiers_public_keys,
             self.signer.address.as_unchecked(),
             &evm_address,
             BRIDGE_AMOUNT_SATS,
-            self.user_takes_after,
-        )?;
+            self.config.user_takes_after,
+        );
 
         Ok(deposit_address)
     }
