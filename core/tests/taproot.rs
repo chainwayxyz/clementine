@@ -53,7 +53,7 @@ async fn run() {
         .into_script();
 
     let (taproot_address, taproot_spend_info) =
-        TransactionBuilder::create_taproot_address(vec![to_pay_script.clone()], config.network)
+        TransactionBuilder::create_p2tr_with_unspendable_xonly_pk(vec![to_pay_script.clone()], config.network)
             .unwrap();
     let utxo = rpc.send_to_address(&taproot_address, 1000).unwrap();
 

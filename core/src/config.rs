@@ -34,7 +34,7 @@ pub struct BridgeConfig {
     /// Secret key for the operator or the verifier.
     pub secret_key: SecretKey,
     /// Verifiers public keys, including operator's.
-    pub verifiers_public_keys: Vec<XOnlyPublicKey>,
+    pub verifiers_xonly_public_keys: Vec<XOnlyPublicKey>,
     /// Number of verifiers.
     pub num_verifiers: usize,
     /// Minimum relay fee.
@@ -128,7 +128,7 @@ impl Default for BridgeConfig {
             host: "127.0.0.1".to_string(),
             port: 3030,
             secret_key: SecretKey::new(&mut secp256k1::rand::thread_rng()),
-            verifiers_public_keys: vec![],
+            verifiers_xonly_public_keys: vec![],
             num_verifiers: 4,
             min_relay_fee: 289,
             user_takes_after: 200,

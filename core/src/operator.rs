@@ -37,15 +37,15 @@ where
         rpc: ExtendedRpc<R>,
         verifiers: Vec<jsonrpsee::http_client::HttpClient>,
     ) -> Result<Self, BridgeError> {
-        let num_verifiers = config.verifiers_public_keys.len();
+        let num_verifiers = config.verifiers_xonly_public_keys.len();
 
         let signer = Actor::new(config.secret_key, config.network);
-        if signer.xonly_public_key != config.verifiers_public_keys[num_verifiers - 1] {
+        if signer.xonly_public_key != config.verifiers_xonly_public_keys[num_verifiers - 1] {
             return Err(BridgeError::InvalidOperatorKey);
         }
 
         let transaction_builder =
-            TransactionBuilder::new(config.verifiers_public_keys.clone(), config.network);
+            TransactionBuilder::new(config.verifiers_xonly_public_keys.clone(), config.network);
 
         let db = OperatorDB::new(config.clone()).await;
 

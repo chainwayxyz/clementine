@@ -29,7 +29,8 @@ pub type CreateAddressOutputs = (Address, TaprootSpendInfo);
 
 #[derive(Debug, Clone)]
 pub struct TransactionBuilder {
-    verifiers_pks: Vec<XOnlyPublicKey>,
+    verifiers_xonly_pks: Vec<XOnlyPublicKey>,
+    verifiers_pks: Vec<PublicKey>,
     network: Network,
 }
 
@@ -38,8 +39,10 @@ pub const WITHDRAWAL_TX_MIN_RELAY_FEE: u64 = 305;
 
 impl TransactionBuilder {
     /// Creates a new `TransactionBuilder`.
-    pub fn new(verifiers_pks: Vec<XOnlyPublicKey>, network: Network) -> Self {
+    pub fn new(verifiers_pks: Vec<PublicKey>, network: Network) -> Self {
+        let verifiers_xonly_pks: Vec<XOnlyPublicKey> = verifiers_pks.iter().map(|pk| PublicKey::x_only_public_key(&pk).0).collect();
         Self {
+            verifiers_xonly_pks,
             verifiers_pks,
             network,
         }
@@ -55,7 +58,7 @@ impl TransactionBuilder {
         user_takes_after: u32,
     ) -> Result<CreateAddressOutputs, BridgeError> {
         let deposit_script =
-            script_builder::create_deposit_script(&self.verifiers_pks, user_evm_address, amount);
+            script_builder::create_deposit_script(&self.verifiers_xonly_pks, user_evm_address, amount);
 
         let script_timelock =
             script_builder::generate_timelock_script(recovery_taproot_address, user_takes_after);
@@ -77,7 +80,7 @@ impl TransactionBuilder {
 
     /// Generates bridge address. N-of-N script can be used to spend the funds.
     pub fn generate_bridge_address(&self) -> Result<CreateAddressOutputs, BridgeError> {
-        let script_n_of_n = script_builder::generate_script_n_of_n(&self.verifiers_pks);
+        let script_n_of_n = script_builder::generate_script_n_of_n(&self.verifiers_xonly_pks);
 
         let taproot = TaprootBuilder::new().add_leaf(0, script_n_of_n.clone())?;
         let tree_info = taproot.finalize(&utils::SECP, *utils::UNSPENDABLE_XONLY_PUBKEY)?;
@@ -127,7 +130,7 @@ impl TransactionBuilder {
         }];
 
         let deposit_script = vec![script_builder::create_deposit_script(
-            &self.verifiers_pks,
+            &self.verifiers_xonly_pks,
             evm_address,
             BRIDGE_AMOUNT_SATS,
         )];
@@ -163,7 +166,7 @@ impl TransactionBuilder {
 
         let prevouts = vec![deposit_txout];
 
-        let bridge_spend_script = vec![script_builder::generate_script_n_of_n(&self.verifiers_pks)];
+        let bridge_spend_script = vec![script_builder::generate_script_n_of_n(&self.verifiers_xonly_pks)];
 
         Ok(CreateTxOutputs {
             tx: withdraw_tx,
@@ -254,7 +257,7 @@ impl TransactionBuilder {
         tx_outs
     }
 
-    pub fn create_taproot_address(
+    pub fn create_p2tr_with_unspendable_xonly_pk(
         scripts: Vec<ScriptBuf>,
         network: bitcoin::Network,
     ) -> Result<(Address, TaprootSpendInfo), BridgeError> {
@@ -329,15 +332,15 @@ impl TransactionBuilder {
         absolute_block_height_to_take_after: u64,
     ) -> Result<(Address, TaprootSpendInfo), BridgeError> {
         let timelock_script = script_builder::generate_absolute_timelock_script(
-            &self.verifiers_pks[self.verifiers_pks.len() - 1],
+            &self.verifiers_xonly_pks[self.verifiers_xonly_pks.len() - 1],
             absolute_block_height_to_take_after as u32,
         );
 
-        let script_n_of_n = script_builder::generate_script_n_of_n(&self.verifiers_pks);
+        let script_n_of_n = script_builder::generate_script_n_of_n(&self.verifiers_xonly_pks);
         let scripts = vec![timelock_script, script_n_of_n];
 
         let (address, tree_info) =
-            TransactionBuilder::create_taproot_address(scripts, self.network).unwrap();
+            TransactionBuilder::create_p2tr_with_unspendable_xonly_pk(scripts, self.network).unwrap();
 
         Ok((address, tree_info))
     }
@@ -587,7 +590,7 @@ impl TransactionBuilder {
             .push_slice(hash)
             .push_opcode(OP_EQUAL)
             .into_script();
-        let (address, tree_info) = TransactionBuilder::create_taproot_address(
+        let (address, tree_info) = TransactionBuilder::create_p2tr_with_unspendable_xonly_pk(
             secp,
             vec![timelock_script.clone(), preimage_script],
             network,
@@ -602,7 +605,7 @@ impl TransactionBuilder {
     ) -> Result<(Address, TaprootSpendInfo, ScriptBuf), BridgeError> {
         let inscribe_preimage_script =
             ScriptBuilder::create_inscription_script_32_bytes(actor_pk, preimages_to_be_revealed);
-        let (address, taproot_info) = TransactionBuilder::create_taproot_address(
+        let (address, taproot_info) = TransactionBuilder::create_p2tr_with_unspendable_xonly_pk(
             &self.secp,
             vec![inscribe_preimage_script.clone()],
             self.config.network,
