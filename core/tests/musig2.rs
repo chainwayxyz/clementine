@@ -16,7 +16,6 @@ use clementine_core::{
 use clementine_core::{
     create_extended_rpc, create_test_config, create_test_config_with_thread_name,
 };
-use musig2::{AggNonce, PubNonce};
 use secp256k1::{Keypair, Message};
 use std::thread;
 
@@ -40,12 +39,9 @@ async fn test_musig2_key_spend() {
         .map(|kp| kp.public_key())
         .collect::<Vec<secp256k1::PublicKey>>();
     let tx_builder = TransactionBuilder::new(pks.clone(), bitcoin::Network::Regtest);
-    let musig_pub_nonces: Vec<PubNonce> = nonce_pair_vec
-        .iter()
-        .map(|x| musig2::PubNonce::from_bytes(&x.1 .0).unwrap())
-        .collect::<Vec<musig2::PubNonce>>();
-    let musig_agg_nonce: AggNonce = AggNonce::sum(musig_pub_nonces);
-    let agg_nonce = ByteArray66(musig_agg_nonce.clone().into());
+    let pub_nonces: Vec<MuSigPubNonce> =
+        nonce_pair_vec.iter().map(|x| ByteArray66(x.1 .0)).collect();
+    let agg_nonce = aggregate_nonces(pub_nonces);
     let dummy_script = script::Builder::new().push_int(1).into_script();
     let scripts: Vec<ScriptBuf> = vec![dummy_script];
     let to_address = bitcoin::Address::p2tr(
@@ -193,14 +189,8 @@ async fn test_musig2_script_spend() {
             )
         })
         .collect();
-    let final_signature: [u8; 64] = clementine_core::musig2::aggregate_partial_signatures(
-        pks.clone(),
-        None,
-        &agg_nonce,
-        partial_sigs,
-        message,
-    )
-    .unwrap();
+    let final_signature: [u8; 64] =
+        aggregate_partial_signatures(pks.clone(), None, &agg_nonce, partial_sigs, message).unwrap();
     musig2::verify_single(musig_agg_pubkey, &final_signature, message)
         .expect("Verification failed!");
     let res = utils::SECP

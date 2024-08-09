@@ -318,12 +318,13 @@ impl TransactionBuilder {
         let (musig_agg_xonly_pubkey_raw, _) = agg_pubkey_raw.x_only_public_key();
         let agg_xonly_pubkey_raw =
             XOnlyPublicKey::from_slice(&musig_agg_xonly_pubkey_raw.serialize()).unwrap();
-        
+
         let n = scripts.len();
         if n == 0 {
             return Err(BridgeError::TaprootScriptError);
         }
-        let tree_info = TransactionBuilder::create_taproot_spend_info(Some(agg_xonly_pubkey_raw), scripts)?;
+        let tree_info =
+            TransactionBuilder::create_taproot_spend_info(Some(agg_xonly_pubkey_raw), scripts)?;
         let merkle_root = tree_info.merkle_root();
         Ok((
             Address::p2tr(&utils::SECP, agg_xonly_pubkey_raw, merkle_root, network),
