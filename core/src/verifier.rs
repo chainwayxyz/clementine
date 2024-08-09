@@ -3,7 +3,7 @@ use crate::config::BridgeConfig;
 use crate::database::verifier::VerifierDB;
 use crate::errors::BridgeError;
 use crate::extended_rpc::ExtendedRpc;
-use crate::musig::{self, MusigAggNonce, MusigPartialSignature, MusigPubNonce};
+use crate::musig2::{self, MuSigAggNonce, MuSigPartialSignature, MuSigPubNonce};
 use crate::traits::rpc::VerifierRpcServer;
 use crate::transaction_builder::TransactionBuilder;
 use crate::{script_builder, utils, EVMAddress, PsbtOutPoint};
@@ -16,8 +16,9 @@ use bitcoin_mock_rpc::RpcApiWrapper;
 use clementine_circuits::constants::BRIDGE_AMOUNT_SATS;
 use clementine_circuits::sha256_hash;
 use jsonrpsee::core::async_trait;
-use secp256k1::schnorr;
 use secp256k1::XOnlyPublicKey;
+use secp256k1::{rand, schnorr};
+use serde::de;
 
 #[derive(Debug, Clone)]
 pub struct Verifier<R>
@@ -44,10 +45,10 @@ where
         let secp: Secp256k1<secp256k1::All> = Secp256k1::new();
 
         let pk: secp256k1::PublicKey = config.secret_key.public_key(&secp);
-        let xonly_pk = XOnlyPublicKey::from(pk);
+        // let xonly_pk = XOnlyPublicKey::from(pk);
 
         // Generated public key must be in given public key list.
-        if !config.verifiers_public_keys.contains(&xonly_pk) {
+        if !config.verifiers_public_keys.contains(&pk) {
             return Err(BridgeError::PublicKeyNotFound);
         }
 
@@ -79,7 +80,7 @@ where
         deposit_utxo: &OutPoint,
         recovery_taproot_address: &Address<NetworkUnchecked>,
         evm_address: &EVMAddress,
-    ) -> Result<Vec<MusigPubNonce>, BridgeError> {
+    ) -> Result<Vec<MuSigPubNonce>, BridgeError> {
         self.rpc.check_deposit_utxo(
             &self.transaction_builder,
             &deposit_utxo,
@@ -98,9 +99,10 @@ where
         }
 
         // let nonces = musig::nonce_pair(&self.signer.keypair);
-
+        // TODO: Either find a way to put the pks here, or remove the pks
+        // from the nonce_pair, proceed with directly giving the index
         let nonces = (0..num_required_sigs)
-            .map(|_| musig::nonce_pair(&self.signer.keypair))
+            .map(|_| musig2::nonce_pair(&self.signer.keypair, &mut rand::rngs::OsRng))
             .collect::<Vec<_>>();
 
         let transaction = self.db.begin_transaction().await?;
@@ -110,7 +112,10 @@ where
         self.db.save_nonces(deposit_utxo, &nonces).await?;
         transaction.commit().await?;
 
-        let pub_nonces = nonces.iter().map(|(pub_nonce, _)| *pub_nonce).collect();
+        let pub_nonces = nonces
+            .iter()
+            .map(|(_, pub_nonce)| pub_nonce.clone())
+            .collect();
 
         Ok(pub_nonces)
     }
@@ -120,14 +125,14 @@ where
     /// - Save agg_nonces to a db for future use
     /// - for every kickoff_utxo, calculate kickoff2_tx
     /// - for every kickoff2_tx, partial sign burn_tx (ommitted for now)
-    /// - return MusigPartialSignature of sign(kickoff2_txids)
+    /// - return MuSigPartialSignature of sign(kickoff2_txids)
     async fn operator_kickoffs_generated(
         &self,
         deposit_utxo: &OutPoint,
         kickoff_utxos: Vec<PsbtOutPoint>,
         operators_kickoff_sigs: Vec<secp256k1::schnorr::Signature>,
-        agg_nonces: Vec<MusigAggNonce>,
-    ) -> Result<Vec<MusigPartialSignature>, BridgeError> {
+        agg_nonces: Vec<MuSigAggNonce>,
+    ) -> Result<Vec<MuSigPartialSignature>, BridgeError> {
         if operators_kickoff_sigs.len() != kickoff_utxos.len() {
             return Err(BridgeError::InvalidKickoffUtxo);
         }
@@ -181,7 +186,7 @@ where
         &self,
         deposit_utxo: &OutPoint,
         _burn_sigs: Vec<schnorr::Signature>,
-    ) -> Result<Vec<MusigPartialSignature>, BridgeError> {
+    ) -> Result<Vec<MuSigPartialSignature>, BridgeError> {
         // TODO: Verify burn txs are signed by verifiers
 
         let kickoff_outpoints_and_amounts = self
@@ -261,16 +266,15 @@ where
                     )
                     .unwrap(); // Is unwrap safe here?
 
-                let (operator_takes_partial_sig, _) = musig::partial_sign(
+                let operator_takes_partial_sig = musig2::partial_sign(
                     vec![],
-                    nonces[index].2,
-                    &self.signer.keypair,
+                    None,
                     nonces[index].1,
+                    nonces[index].2.clone(),
+                    &self.signer.keypair,
                     sig_hash.to_byte_array(),
-                    None,
-                    None,
                 );
-                operator_takes_partial_sig as MusigPartialSignature
+                operator_takes_partial_sig as MuSigPartialSignature
             })
             .collect::<Vec<_>>();
 
@@ -283,7 +287,7 @@ where
         &self,
         deposit_utxo: &OutPoint,
         operator_take_sigs: Vec<schnorr::Signature>,
-    ) -> Result<(MusigPartialSignature, MusigPartialSignature), BridgeError> {
+    ) -> Result<(MuSigPartialSignature, MuSigPartialSignature), BridgeError> {
         let kickoff_outpoints_and_amounts = self
             .db
             .get_kickoff_outpoints_and_amounts(deposit_utxo)
@@ -372,11 +376,57 @@ where
         let move_reveal_tx = 0;
 
         Ok((
-            [0u8; 32] as MusigPartialSignature,
-            [0u8; 32] as MusigPartialSignature,
+            [0u8; 32] as MuSigPartialSignature,
+            [0u8; 32] as MuSigPartialSignature,
         ))
     }
 }
 
 #[async_trait]
-impl<R> VerifierRpcServer for Verifier<R> where R: RpcApiWrapper {}
+impl<R> VerifierRpcServer for Verifier<R>
+where
+    R: RpcApiWrapper,
+{
+    async fn new_deposit_rpc(
+        &self,
+        deposit_utxo: OutPoint,
+        recovery_taproot_address: Address<NetworkUnchecked>,
+        evm_address: EVMAddress,
+    ) -> Result<Vec<MuSigPubNonce>, BridgeError> {
+        self.new_deposit(&deposit_utxo, &recovery_taproot_address, &evm_address)
+            .await
+    }
+
+    async fn operator_kickoffs_generated_rpc(
+        &self,
+        deposit_utxo: OutPoint,
+        kickoff_utxos: Vec<PsbtOutPoint>,
+        operators_kickoff_sigs: Vec<schnorr::Signature>,
+        agg_nonces: Vec<MuSigAggNonce>,
+    ) -> Result<Vec<MuSigPartialSignature>, BridgeError> {
+        self.operator_kickoffs_generated(
+            &deposit_utxo,
+            kickoff_utxos,
+            operators_kickoff_sigs,
+            agg_nonces,
+        )
+        .await
+    }
+
+    async fn burn_txs_signed_rpc(
+        &self,
+        deposit_utxo: OutPoint,
+        burn_sigs: Vec<schnorr::Signature>,
+    ) -> Result<Vec<MuSigPartialSignature>, BridgeError> {
+        self.burn_txs_signed_rpc(&deposit_utxo, burn_sigs).await
+    }
+
+    async fn operator_take_txs_signed_rpc(
+        &self,
+        deposit_utxo: OutPoint,
+        operator_take_sigs: Vec<schnorr::Signature>,
+    ) -> Result<(MuSigPartialSignature, MuSigPartialSignature), BridgeError> {
+        self.operator_take_txs_signed_rpc(&deposit_utxo, operator_take_sigs)
+            .await
+    }
+}

@@ -1,6 +1,6 @@
-use crate::musig::{MusigAggNonce, MusigPartialSignature, MusigPubNonce};
-use crate::PsbtOutPoint;
+use crate::musig2::{MuSigAggNonce, MuSigPartialSignature, MuSigPubNonce};
 use crate::{errors::BridgeError, EVMAddress};
+use crate::{ByteArray66, PsbtOutPoint};
 use bitcoin::address::NetworkUnchecked;
 use bitcoin::{Address, OutPoint};
 use jsonrpsee::proc_macros::rpc;
@@ -18,26 +18,29 @@ pub trait VerifierRpc {
         deposit_utxo: OutPoint,
         recovery_taproot_address: Address<NetworkUnchecked>,
         evm_address: EVMAddress,
-    ) -> Result<Vec<MusigPubNonce>, BridgeError>;
+    ) -> Result<Vec<MuSigPubNonce>, BridgeError>;
 
     #[method(name = "operator_kickoffs_generated")]
     /// - Check the kickoff_utxos
     /// - for every kickoff_utxo, calculate kickoff2_tx
     /// - for every kickoff2_tx, partial sign burn_tx (ommitted for now)
-    /// - return MusigPartialSignature of sign(kickoff2_txids)
+    /// - return MuSigPartialSignature of sign(kickoff2_txids)
     async fn operator_kickoffs_generated_rpc(
         &self,
+        deposit_utxo: OutPoint,
         kickoff_utxos: Vec<PsbtOutPoint>,
-        agg_nonces: Vec<MusigAggNonce>,
-    ) -> Result<MusigPartialSignature, BridgeError>;
+        operators_kickoff_sigs: Vec<schnorr::Signature>,
+        agg_nonces: Vec<MuSigAggNonce>,
+    ) -> Result<Vec<MuSigPartialSignature>, BridgeError>;
 
     #[method(name = "burn_txs_signed")]
     /// verify burn txs are signed by verifiers
     /// sign operator_takes_txs
     async fn burn_txs_signed_rpc(
         &self,
+        deposit_utxo: OutPoint,
         burn_sigs: Vec<schnorr::Signature>,
-    ) -> Result<Vec<MusigPartialSignature>, BridgeError>;
+    ) -> Result<Vec<MuSigPartialSignature>, BridgeError>;
 
     // operator_take_txs_signed
     #[method(name = "operator_take_txs_signed")]
@@ -45,9 +48,9 @@ pub trait VerifierRpc {
     /// sign move_tx
     async fn operator_take_txs_signed_rpc(
         &self,
-        kickoffs_digest_agg_sig: schnorr::Signature,
+        deposit_utxo: OutPoint,
         operator_take_sigs: Vec<schnorr::Signature>,
-    ) -> Result<MusigPartialSignature, BridgeError>;
+    ) -> Result<(MuSigPartialSignature, MuSigPartialSignature), BridgeError>;
 }
 
 #[rpc(client, server, namespace = "operator")]

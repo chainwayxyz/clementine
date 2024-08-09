@@ -15,6 +15,7 @@ pub struct Actor {
     pub keypair: Keypair,
     secret_key: SecretKey,
     pub xonly_public_key: XOnlyPublicKey,
+    pub public_key: secp256k1::PublicKey,
     pub address: Address,
 }
 
@@ -28,6 +29,7 @@ impl Actor {
             keypair,
             secret_key: keypair.secret_key(),
             xonly_public_key: xonly,
+            public_key: keypair.public_key(),
             address,
         }
     }
@@ -172,5 +174,37 @@ impl Actor {
             bitcoin::sighash::TapSighashType::Default,
         )?;
         Ok(self.sign_with_tweak(sig_hash, None).unwrap())
+    }
+
+    pub fn convert_tx_to_sighash_script_spend(
+        tx: &mut CreateTxOutputs,
+        txin_index: usize,
+        script_index: usize,
+    ) -> Result<TapSighash, BridgeError> {
+        let mut sighash_cache: SighashCache<&mut bitcoin::Transaction> =
+            SighashCache::new(&mut tx.tx);
+        let sig_hash = sighash_cache.taproot_script_spend_signature_hash(
+            txin_index,
+            &bitcoin::sighash::Prevouts::All(&tx.prevouts),
+            TapLeafHash::from_script(
+                &tx.scripts[txin_index][script_index],
+                LeafVersion::TapScript,
+            ),
+            bitcoin::sighash::TapSighashType::Default,
+        )?;
+        Ok(sig_hash)
+    }
+    pub fn convert_tx_to_sighash_pubkey_spend(
+        tx: &mut CreateTxOutputs,
+        txin_index: usize,
+    ) -> Result<TapSighash, BridgeError> {
+        let mut sighash_cache: SighashCache<&mut bitcoin::Transaction> =
+            SighashCache::new(&mut tx.tx);
+        let sig_hash = sighash_cache.taproot_key_spend_signature_hash(
+            txin_index,
+            &bitcoin::sighash::Prevouts::All(&tx.prevouts),
+            bitcoin::sighash::TapSighashType::Default,
+        )?;
+        Ok(sig_hash)
     }
 }

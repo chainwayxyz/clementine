@@ -40,7 +40,7 @@ where
         let num_verifiers = config.verifiers_public_keys.len();
 
         let signer = Actor::new(config.secret_key, config.network);
-        if signer.xonly_public_key != config.verifiers_public_keys[num_verifiers - 1] {
+        if signer.public_key != config.verifiers_public_keys[num_verifiers - 1] {
             return Err(BridgeError::InvalidOperatorKey);
         }
 
@@ -159,7 +159,7 @@ where
     /// Saves the utxo to the db
     async fn set_operator_funding_utxo_rpc(
         &self,
-       _funding_utxo: &OutPoint,
+        _funding_utxo: &OutPoint,
     ) -> Result<(), BridgeError> {
         unimplemented!();
     }
