@@ -115,6 +115,8 @@ pub fn partial_sign(
 #[cfg(test)]
 mod tests {
 
+    use std::vec;
+
     use crate::{
         actor::Actor,
         errors::BridgeError,
@@ -127,6 +129,7 @@ mod tests {
 
     use super::{nonce_pair, MuSigNoncePair};
 
+    // Generates a test setup with a given number of signers. Returns a vector of keypairs and a vector of nonce pairs.
     fn generate_test_setup(num_signers: usize) -> (Vec<Keypair>, Vec<MuSigNoncePair>) {
         let mut keypair_vec: Vec<Keypair> = Vec::new();
         for _ in 0..num_signers {
@@ -142,6 +145,7 @@ mod tests {
         (keypair_vec, nonce_pair_vec)
     }
 
+    // Test the MuSig2 signature scheme raw (without a tweak).
     #[test]
     fn test_musig2_raw() {
         // Generate a test setup with 3 signers
@@ -153,10 +157,14 @@ mod tests {
             .iter()
             .map(|kp| kp.public_key())
             .collect::<Vec<secp256k1::PublicKey>>();
+        // Create the key aggregation context
         let key_agg_ctx = super::create_key_agg_ctx(pks.clone(), None).unwrap();
+        // Aggregate the public nonces into the aggregated nonce
         let agg_nonce =
             super::aggregate_nonces(nonce_pair_vec.iter().map(|x| x.1.clone()).collect());
+        // Extract the aggregated public key
         let musig_agg_pubkey: musig2::secp256k1::PublicKey = key_agg_ctx.aggregated_pubkey();
+        // Calculate the partial signatures
         let partial_sigs: Vec<[u8; 32]> = kp_vec
             .iter()
             .zip(nonce_pair_vec.iter())
@@ -171,6 +179,7 @@ mod tests {
                 )
             })
             .collect();
+        // Aggregate the partial signatures into a final signature
         let final_signature: [u8; 64] =
             super::aggregate_partial_signatures(pks, None, &agg_nonce, partial_sigs, message)
                 .unwrap();
@@ -179,6 +188,7 @@ mod tests {
         println!("MuSig2 signature verified successfully!");
     }
 
+    // Test that the verification fails if one of the partial signatures is invalid.
     #[test]
     fn test_musig2_raw_fail() {
         let kp_0 = secp256k1::Keypair::new(&utils::SECP, &mut secp256k1::rand::thread_rng());
@@ -192,8 +202,7 @@ mod tests {
             super::nonce_pair(&kp_1, &mut secp256k1::rand::thread_rng());
         let (sec_nonce_2, pub_nonce_2) =
             super::nonce_pair(&kp_2, &mut secp256k1::rand::thread_rng());
-        let pub_nonces = vec![pub_nonce_0, pub_nonce_1, pub_nonce_2];
-        let agg_nonce = super::aggregate_nonces(pub_nonces);
+        let agg_nonce = super::aggregate_nonces(vec![pub_nonce_0, pub_nonce_1, pub_nonce_2]);
         let partial_sig_0 = super::partial_sign(
             pks.clone(),
             None,
@@ -225,6 +234,7 @@ mod tests {
         assert!(final_signature.is_err());
     }
 
+    // Test the MuSig2 signature scheme with a tweak.
     #[test]
     fn test_musig2_tweak() {
         let (kp_vec, nonce_pair_vec) = generate_test_setup(3);
@@ -235,8 +245,8 @@ mod tests {
             .map(|kp| kp.public_key())
             .collect::<Vec<secp256k1::PublicKey>>();
         let key_agg_ctx = super::create_key_agg_ctx(pks.clone(), Some(tweak)).unwrap();
-        let pub_nonces = nonce_pair_vec.iter().map(|x| x.1.clone()).collect();
-        let agg_nonce = super::aggregate_nonces(pub_nonces);
+        let agg_nonce =
+            super::aggregate_nonces(nonce_pair_vec.iter().map(|x| x.1.clone()).collect());
         let musig_agg_pubkey: musig2::secp256k1::PublicKey = key_agg_ctx.aggregated_pubkey();
         let partial_sigs: Vec<[u8; 32]> = kp_vec
             .iter()
@@ -279,8 +289,7 @@ mod tests {
             super::nonce_pair(&kp_1, &mut secp256k1::rand::thread_rng());
         let (sec_nonce_2, pub_nonce_2) =
             super::nonce_pair(&kp_2, &mut secp256k1::rand::thread_rng());
-        let pub_nonces = vec![pub_nonce_0, pub_nonce_1, pub_nonce_2];
-        let agg_nonce = super::aggregate_nonces(pub_nonces);
+        let agg_nonce = super::aggregate_nonces(vec![pub_nonce_0, pub_nonce_1, pub_nonce_2]);
         let partial_sig_0 = super::partial_sign(
             pks.clone(),
             Some(tweak),
@@ -317,6 +326,7 @@ mod tests {
         assert!(final_signature.is_err());
     }
 
+    // Test the MuSig2 signature scheme with a dummy key spend.
     #[test]
     fn test_musig2_dummy_key_spend() {
         let (kp_vec, nonce_pair_vec) = generate_test_setup(2);
@@ -325,8 +335,8 @@ mod tests {
             .map(|kp| kp.public_key())
             .collect::<Vec<secp256k1::PublicKey>>();
         let tx_builder = TransactionBuilder::new(pks.clone(), bitcoin::Network::Regtest);
-        let pub_nonces = nonce_pair_vec.iter().map(|x| x.1.clone()).collect();
-        let agg_nonce = super::aggregate_nonces(pub_nonces);
+        let agg_nonce =
+            super::aggregate_nonces(nonce_pair_vec.iter().map(|x| x.1.clone()).collect());
         let dummy_script = script::Builder::new().push_int(1).into_script();
         let scripts: Vec<ScriptBuf> = vec![dummy_script];
         let receiving_address = bitcoin::Address::p2tr(
@@ -407,6 +417,7 @@ mod tests {
         println!("SECP Verification: {:?}", res);
     }
 
+    // Test the MuSig2 signature scheme with a dummy script spend.
     #[test]
     fn test_musig2_dummy_script_spend() {
         let (kp_vec, nonce_pair_vec) = generate_test_setup(2);
@@ -415,8 +426,8 @@ mod tests {
             .map(|kp| kp.public_key())
             .collect::<Vec<secp256k1::PublicKey>>();
         let tx_builder = TransactionBuilder::new(pks.clone(), bitcoin::Network::Regtest);
-        let pub_nonces = nonce_pair_vec.iter().map(|x| x.1.clone()).collect();
-        let agg_nonce = super::aggregate_nonces(pub_nonces);
+        let agg_nonce =
+            super::aggregate_nonces(nonce_pair_vec.iter().map(|x| x.1.clone()).collect());
         let key_agg_ctx = super::create_key_agg_ctx(pks.clone(), None).unwrap();
         let musig_agg_pubkey: musig2::secp256k1::PublicKey = key_agg_ctx.aggregated_pubkey();
         let musig_agg_xonly_pubkey = musig_agg_pubkey.x_only_public_key().0;

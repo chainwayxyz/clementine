@@ -39,9 +39,12 @@ async fn test_musig2_key_spend() {
         .map(|kp| kp.public_key())
         .collect::<Vec<secp256k1::PublicKey>>();
     let tx_builder = TransactionBuilder::new(pks.clone(), bitcoin::Network::Regtest);
-    let pub_nonces: Vec<MuSigPubNonce> =
-        nonce_pair_vec.iter().map(|x| ByteArray66(x.1 .0)).collect();
-    let agg_nonce = aggregate_nonces(pub_nonces);
+    let agg_nonce = aggregate_nonces(
+        nonce_pair_vec
+            .iter()
+            .map(|x| ByteArray66(x.1 .0))
+            .collect::<Vec<MuSigPubNonce>>(),
+    );
     let dummy_script = script::Builder::new().push_int(1).into_script();
     let scripts: Vec<ScriptBuf> = vec![dummy_script];
     let to_address = bitcoin::Address::p2tr(
@@ -136,9 +139,12 @@ async fn test_musig2_script_spend() {
         .map(|kp| kp.public_key())
         .collect::<Vec<secp256k1::PublicKey>>();
     let tx_builder = TransactionBuilder::new(pks.clone(), bitcoin::Network::Regtest);
-    let pub_nonces: Vec<MuSigPubNonce> =
-        nonce_pair_vec.iter().map(|x| ByteArray66(x.1 .0)).collect();
-    let agg_nonce = aggregate_nonces(pub_nonces);
+    let agg_nonce = aggregate_nonces(
+        nonce_pair_vec
+            .iter()
+            .map(|x| ByteArray66(x.1 .0))
+            .collect::<Vec<MuSigPubNonce>>(),
+    );
     let key_agg_ctx = create_key_agg_ctx(pks.clone(), None).unwrap();
     let musig_agg_pubkey: musig2::secp256k1::PublicKey = key_agg_ctx.aggregated_pubkey();
     let (musig_agg_xonly_pubkey, _) = musig_agg_pubkey.x_only_public_key();
