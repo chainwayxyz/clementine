@@ -41,7 +41,6 @@ lazy_static::lazy_static! {
 lazy_static::lazy_static! {
     pub static ref NETWORK : bitcoin::Network = bitcoin::Network::Regtest;
 }
-
 pub fn calculate_merkle_root(leaves: Vec<HashType>) -> HashType {
     let mut hashes = leaves;
 
@@ -177,6 +176,7 @@ pub fn get_claim_proof_tree_leaf(
 
     hasher.finalize().into()
 }
+
 pub fn calculate_claim_proof_root(
     depth: usize,
     connector_tree_hashes: &Vec<Vec<[u8; 32]>>,

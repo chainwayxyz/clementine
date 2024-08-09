@@ -8,6 +8,7 @@ use bitcoin::{
 };
 use core::fmt::Debug;
 use jsonrpsee::types::{ErrorObject, ErrorObjectOwned};
+use musig2::secp::errors::InvalidScalarBytes;
 use std::array::TryFromSliceError;
 use thiserror::Error;
 
@@ -138,8 +139,20 @@ pub enum BridgeError {
     #[error("InvalidKickoffUtxo")]
     InvalidKickoffUtxo,
 
+    #[error("KeyAggContextError: {0}")]
+    KeyAggContextError(musig2::errors::KeyAggError),
+
+    #[error("KeyAggContextTweakError: {0}")]
+    KeyAggContextTweakError(musig2::errors::TweakError),
+
+    #[error("InvalidScalarBytes: {0}")]
+    InvalidScalarBytes(InvalidScalarBytes),
+
     #[error("NoncesNotFound")]
     NoncesNotFound,
+
+    #[error("MuSig2VerifyError: {0}")]
+    MuSig2VerifyError(musig2::errors::VerifyError),
 
     #[error("KickoffOutpointsNotFound")]
     KickoffOutpointsNotFound,
@@ -222,5 +235,29 @@ impl From<bitcoin::address::ParseError> for BridgeError {
 impl From<sqlx::Error> for BridgeError {
     fn from(err: sqlx::Error) -> Self {
         BridgeError::DatabaseError(err)
+    }
+}
+
+impl From<musig2::errors::KeyAggError> for BridgeError {
+    fn from(err: musig2::errors::KeyAggError) -> Self {
+        BridgeError::KeyAggContextError(err)
+    }
+}
+
+impl From<musig2::errors::TweakError> for BridgeError {
+    fn from(err: musig2::errors::TweakError) -> Self {
+        BridgeError::KeyAggContextTweakError(err)
+    }
+}
+
+impl From<InvalidScalarBytes> for BridgeError {
+    fn from(err: InvalidScalarBytes) -> Self {
+        BridgeError::InvalidScalarBytes(err)
+    }
+}
+
+impl From<musig2::errors::VerifyError> for BridgeError {
+    fn from(err: musig2::errors::VerifyError) -> Self {
+        BridgeError::MuSig2VerifyError(err)
     }
 }

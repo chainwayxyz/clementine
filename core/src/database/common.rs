@@ -4,7 +4,7 @@
 //! directly talks with PostgreSQL. It is expected that PostgreSQL is properly
 //! installed and configured.
 
-use crate::musig::{MusigAggNonce, MusigPubNonce, MusigSecNonce};
+use crate::musig2::{MuSigAggNonce, MuSigPubNonce, MuSigSecNonce};
 use crate::{config::BridgeConfig, errors::BridgeError};
 use crate::{EVMAddress, PsbtOutPoint};
 use bitcoin::address::NetworkUnchecked;
@@ -291,14 +291,14 @@ impl Database {
     pub async fn get_pub_nonces(
         &self,
         deposit_utxo: &OutPoint,
-    ) -> Result<Option<Vec<MusigPubNonce>>, BridgeError> {
+    ) -> Result<Option<Vec<MuSigPubNonce>>, BridgeError> {
         unimplemented!();
     }
 
     pub async fn save_nonces(
         &self,
         deposit_utxo: &OutPoint,
-        nonces: &Vec<(MusigPubNonce, MusigSecNonce)>,
+        nonces: &Vec<(MuSigSecNonce, MuSigPubNonce)>,
     ) -> Result<(), BridgeError> {
         unimplemented!();
     }
@@ -323,14 +323,14 @@ impl Database {
         &self,
         deposit_utxo: &OutPoint,
         idx: usize,
-    ) -> Result<Option<(MusigPubNonce, MusigSecNonce, MusigAggNonce)>, BridgeError> {
+    ) -> Result<Option<(MuSigPubNonce, MuSigSecNonce, MuSigAggNonce)>, BridgeError> {
         unimplemented!();
     }
 
     pub async fn save_agg_nonces(
         &self,
         deposit_utxo: &OutPoint,
-        agg_nonces: &Vec<MusigAggNonce>,
+        agg_nonces: &Vec<MuSigAggNonce>,
     ) -> Result<(), BridgeError> {
         unimplemented!();
     }
