@@ -334,7 +334,15 @@ mod tests {
             .iter()
             .map(|kp| kp.public_key())
             .collect::<Vec<secp256k1::PublicKey>>();
-        let tx_builder = TransactionBuilder::new(pks.clone(), bitcoin::Network::Regtest);
+        let key_agg_ctx = super::create_key_agg_ctx(pks.clone(), None).unwrap();
+
+        let untweaked_pubkey =
+            key_agg_ctx.aggregated_pubkey_untweaked::<musig2::secp256k1::PublicKey>();
+        let untweaked_xonly_pubkey: secp256k1::XOnlyPublicKey =
+            secp256k1::XOnlyPublicKey::from_slice(
+                &untweaked_pubkey.x_only_public_key().0.serialize(),
+            )
+            .unwrap();
         let agg_nonce =
             super::aggregate_nonces(nonce_pair_vec.iter().map(|x| x.1.clone()).collect());
         let dummy_script = script::Builder::new().push_int(1).into_script();
@@ -345,9 +353,12 @@ mod tests {
             None,
             bitcoin::Network::Regtest,
         );
-        let (sending_address, sending_address_spend_info) = tx_builder
-            .create_taproot_address_musig2(scripts.clone(), bitcoin::Network::Regtest)
-            .unwrap();
+        let (sending_address, sending_address_spend_info) =
+            TransactionBuilder::create_taproot_address(
+                &scripts.clone(),
+                Some(untweaked_xonly_pubkey),
+                bitcoin::Network::Regtest,
+            );
         let prevout = TxOut {
             value: Amount::from_sat(100_000_000),
             script_pubkey: sending_address.script_pubkey(),
@@ -425,7 +436,6 @@ mod tests {
             .iter()
             .map(|kp| kp.public_key())
             .collect::<Vec<secp256k1::PublicKey>>();
-        let tx_builder = TransactionBuilder::new(pks.clone(), bitcoin::Network::Regtest);
         let agg_nonce =
             super::aggregate_nonces(nonce_pair_vec.iter().map(|x| x.1.clone()).collect());
         let key_agg_ctx = super::create_key_agg_ctx(pks.clone(), None).unwrap();
@@ -441,9 +451,12 @@ mod tests {
             None,
             bitcoin::Network::Regtest,
         );
-        let (sending_address, sending_address_spend_info) = tx_builder
-            .create_taproot_address_musig2(scripts.clone(), bitcoin::Network::Regtest)
-            .unwrap();
+        let (sending_address, sending_address_spend_info) =
+            TransactionBuilder::create_taproot_address(
+                &scripts.clone(),
+                None,
+                bitcoin::Network::Regtest,
+            );
         let prevout = TxOut {
             value: Amount::from_sat(100_000_000),
             script_pubkey: sending_address.script_pubkey(),

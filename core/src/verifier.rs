@@ -5,13 +5,15 @@ use crate::errors::BridgeError;
 use crate::extended_rpc::ExtendedRpc;
 use crate::musig2::{self, MuSigAggNonce, MuSigPartialSignature, MuSigPubNonce};
 use crate::traits::rpc::VerifierRpcServer;
-use crate::transaction_builder::TransactionBuilder;
+use crate::transaction_builder::{
+    TransactionBuilder, MOVE_COMMIT_TX_MIN_RELAY_FEE, MOVE_REVEAL_TX_MIN_RELAY_FEE,
+};
 use crate::{script_builder, utils, EVMAddress, PsbtOutPoint};
 use ::musig2::secp::Point;
 use bitcoin::address::NetworkUnchecked;
 use bitcoin::hashes::Hash;
 use bitcoin::sighash::{self};
-use bitcoin::{secp256k1, secp256k1::Secp256k1, OutPoint};
+use bitcoin::{secp256k1, OutPoint};
 use bitcoin::{taproot, Address, Amount, TxOut};
 use bitcoin_mock_rpc::RpcApiWrapper;
 use clementine_circuits::constants::BRIDGE_AMOUNT_SATS;
@@ -29,6 +31,7 @@ where
     db: VerifierDB,
     config: BridgeConfig,
     nofn_xonly_pk: secp256k1::XOnlyPublicKey,
+    operator_xonly_pks: Vec<secp256k1::XOnlyPublicKey>,
 }
 
 impl<R> Verifier<R>
@@ -51,6 +54,7 @@ where
             musig2::create_key_agg_ctx(config.verifiers_public_keys.clone(), None)?;
         let agg_point: Point = key_agg_context.aggregated_pubkey_untweaked();
         let nofn_xonly_pk = secp256k1::XOnlyPublicKey::from_slice(&agg_point.serialize_xonly())?;
+        let operator_xonly_pks = config.operators_xonly_pks.clone();
 
         Ok(Verifier {
             rpc,
@@ -58,6 +62,7 @@ where
             db,
             config,
             nofn_xonly_pk,
+            operator_xonly_pks,
         })
     }
 
@@ -86,14 +91,12 @@ where
 
         let num_required_sigs = 10; // TODO: Fix this: move_commit and move_reveal tx signatures + operator_take_txs signatures for every operator
 
+        // Check if we already have pub_nonces for this deposit_utxo.
         let pub_nonces_from_db = self.db.get_pub_nonces(deposit_utxo).await?;
         if let Some(pub_nonces) = pub_nonces_from_db {
             return Ok(pub_nonces);
         }
 
-        // let nonces = musig::nonce_pair(&self.signer.keypair);
-        // TODO: Either find a way to put the pks here, or remove the pks
-        // from the nonce_pair, proceed with directly giving the index
         let nonces = (0..num_required_sigs)
             .map(|_| musig2::nonce_pair(&self.signer.keypair, &mut rand::rngs::OsRng))
             .collect::<Vec<_>>();
@@ -123,7 +126,7 @@ where
         &self,
         deposit_utxo: &OutPoint,
         kickoff_utxos: Vec<PsbtOutPoint>,
-        operators_kickoff_sigs: Vec<secp256k1::schnorr::Signature>,
+        operators_kickoff_sigs: Vec<secp256k1::schnorr::Signature>, // These are not transaction signatures, rather, they are to verify the operator's identity.
         agg_nonces: Vec<MuSigAggNonce>,
     ) -> Result<Vec<MuSigPartialSignature>, BridgeError> {
         if operators_kickoff_sigs.len() != kickoff_utxos.len() {
@@ -179,6 +182,7 @@ where
         &self,
         deposit_utxo: &OutPoint,
         _burn_sigs: Vec<schnorr::Signature>,
+        operator_xonly_pks: Vec<secp256k1::XOnlyPublicKey>,
     ) -> Result<Vec<MuSigPartialSignature>, BridgeError> {
         // TODO: Verify burn txs are signed by verifiers
 
@@ -198,6 +202,8 @@ where
             .into_iter()
             .map(|opt| opt.ok_or(BridgeError::NoncesNotFound))
             .collect::<Result<Vec<_>, _>>()?;
+        let (musig2_address, _) =
+            TransactionBuilder::create_musig2_address(self.nofn_xonly_pk, self.config.network);
 
         let operator_takes_partial_sigs = kickoff_outpoints_and_amounts
             .iter()
@@ -209,12 +215,12 @@ where
                         value: *kickoff_amount,
                         script_pubkey: self.signer.address.script_pubkey(), // TODO: Fix this address to operator
                     },
-                    &self.signer.xonly_public_key, // TODO: Change this to operator[index] xonly pubkey
+                    &self.operator_xonly_pks[index], // TODO: Change this to operator[index] xonly pubkey
                     &self.nofn_xonly_pk,
                     self.config.network,
                 );
 
-                let operator_take_tx = TransactionBuilder::create_operator_takes_tx(
+                let operator_takes_tx = TransactionBuilder::create_operator_takes_tx(
                     deposit_utxo.clone(),
                     OutPoint {
                         txid: slash_or_take_tx.tx.compute_txid(),
@@ -225,39 +231,16 @@ where
                     &self.nofn_xonly_pk,
                     self.config.network,
                 );
-                // WIP
-                let ins = TransactionBuilder::create_tx_ins(vec![
-                    deposit_utxo.clone(),
-                    OutPoint {
-                        txid: tx.compute_txid(),
-                        vout: 0,
-                    },
-                ]);
-                let outs = vec![
-                    TxOut {
-                        value: Amount::from_sat(
-                            kickoff_amount.to_sat() - 330 + BRIDGE_AMOUNT_SATS - 330,
-                        ),
-                        script_pubkey: self.signer.address.script_pubkey(), // TODO: Fix this address to operator
-                    },
-                    script_builder::anyone_can_spend_txout(),
-                ];
-
-                let tx = TransactionBuilder::create_btc_tx(ins, outs);
-
                 let bridge_txout = TxOut {
-                    value: Amount::from_sat(BRIDGE_AMOUNT_SATS - 200 - 330), // TODO: Fix min relay fee, not 200
-                    script_pubkey: self.signer.address.script_pubkey(), // TODO: Fix this to N-of-N
-                };
-                let kickoff_txout = TxOut {
-                    value: *kickoff_amount,
-                    script_pubkey: self.signer.address.script_pubkey(), // TODO: Fix this address to operator or 200 blocks N-of-N
+                    value: Amount::from_sat(BRIDGE_AMOUNT_SATS)
+                        - Amount::from_sat(MOVE_COMMIT_TX_MIN_RELAY_FEE)
+                        - Amount::from_sat(MOVE_REVEAL_TX_MIN_RELAY_FEE)
+                        - script_builder::anyone_can_spend_txout().value
+                        - script_builder::anyone_can_spend_txout().value,
+                    script_pubkey: musig2_address.script_pubkey(), // TODO: Fix this to N-of-N
                 };
 
-                let prevouts = vec![bridge_txout, kickoff_txout];
-
-                let musig_script =
-                    script_builder::generate_script_n_of_n(&vec![self.signer.xonly_public_key]); // TODO: Fix this to N-of-N musig
+                let prevouts = vec![bridge_txout, slash_or_take_tx.tx.output[0]];
 
                 let mut sighash_cache = sighash::SighashCache::new(tx);
                 let sig_hash = sighash_cache
@@ -265,7 +248,7 @@ where
                         0,
                         &bitcoin::sighash::Prevouts::All(&prevouts),
                         bitcoin::TapLeafHash::from_script(
-                            &musig_script,
+                            &musig2_script,
                             taproot::LeafVersion::TapScript,
                         ),
                         sighash::TapSighashType::Default,
@@ -326,7 +309,7 @@ where
                         value: Amount::from_sat(
                             kickoff_amount.to_sat() - 330 + BRIDGE_AMOUNT_SATS - 330,
                         ),
-                        script_pubkey: self.signer.address.script_pubkey(), // TODO: Fix this address to operator
+                        script_pubkey: operator_xonly, // TODO: Fix this address to operator
                     },
                     script_builder::anyone_can_spend_txout(),
                 ];
@@ -360,7 +343,7 @@ where
                     )
                     .unwrap(); // Is unwrap safe here?
 
-                // verify tjhe operator_take_sigs
+                // verify the operator_take_sigs
                 utils::SECP
                     .verify_schnorr(
                         &operator_take_sigs[index],
@@ -413,8 +396,8 @@ where
                 .sighash_taproot_script_spend(&mut move_reveal_tx, 0, 0)?; // TODO: This should be musig
 
         Ok((
-            move_commit_sig.to_byte_array() as MusigPartialSignature,
-            move_reveal_sig.to_byte_array() as MusigPartialSignature,
+            move_commit_sig.to_byte_array() as MuSigPartialSignature,
+            move_reveal_sig.to_byte_array() as MuSigPartialSignature,
         ))
     }
 }
@@ -455,7 +438,8 @@ where
         deposit_utxo: OutPoint,
         burn_sigs: Vec<schnorr::Signature>,
     ) -> Result<Vec<MuSigPartialSignature>, BridgeError> {
-        self.burn_txs_signed_rpc(&deposit_utxo, burn_sigs).await
+        self.burn_txs_signed_rpc(&deposit_utxo, burn_sigs, operator_xonly_pks)
+            .await
     }
 
     async fn operator_take_txs_signed_rpc(

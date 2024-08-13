@@ -31,7 +31,9 @@ pub struct TransactionBuilder {
     network: Network,
 }
 
-pub const MOVE_TX_MIN_RELAY_FEE: u64 = 305;
+// TODO: Move these constants to a config file
+pub const MOVE_COMMIT_TX_MIN_RELAY_FEE: u64 = 305;
+pub const MOVE_REVEAL_TX_MIN_RELAY_FEE: u64 = 305;
 pub const WITHDRAWAL_TX_MIN_RELAY_FEE: u64 = 305;
 
 impl TransactionBuilder {
@@ -50,7 +52,7 @@ impl TransactionBuilder {
 
     // ADDRESS BUILDERS
 
-    fn create_taproot_address(
+    pub fn create_taproot_address(
         scripts: &[ScriptBuf],
         internal_key: Option<XOnlyPublicKey>,
         network: bitcoin::Network,
@@ -159,7 +161,7 @@ impl TransactionBuilder {
         )
     }
 
-    pub fn generate_musig2_address(
+    pub fn create_musig2_address(
         nofn_xonly_pk: XOnlyPublicKey,
         network: bitcoin::Network,
     ) -> CreateAddressOutputs {
@@ -200,7 +202,7 @@ impl TransactionBuilder {
 
         let move_commit_txout = TxOut {
             value: Amount::from_sat(BRIDGE_AMOUNT_SATS)
-                - Amount::from_sat(MOVE_TX_MIN_RELAY_FEE)
+                - Amount::from_sat(MOVE_COMMIT_TX_MIN_RELAY_FEE)
                 - anyone_can_spend_txout.value,
             script_pubkey: move_commit_address.script_pubkey(),
         };
@@ -240,8 +242,8 @@ impl TransactionBuilder {
         relative_block_height_to_take_after: u32,
         network: Network,
     ) -> TxHandler {
-        let (musig_address, _) =
-            TransactionBuilder::generate_musig2_address(*nofn_xonly_pk, network);
+        let (musig2_address, _) =
+            TransactionBuilder::create_musig2_address(*nofn_xonly_pk, network);
         let (move_commit_address, move_commit_taproot_spend_info) =
             TransactionBuilder::generate_move_commit_address(
                 nofn_xonly_pk,
@@ -252,11 +254,12 @@ impl TransactionBuilder {
                 network,
             );
         let move_reveal_txout = TxOut {
-            // TODO: Fix this
             value: Amount::from_sat(BRIDGE_AMOUNT_SATS)
-                - Amount::from_sat(MOVE_TX_MIN_RELAY_FEE)
+                - Amount::from_sat(MOVE_COMMIT_TX_MIN_RELAY_FEE)
+                - Amount::from_sat(MOVE_REVEAL_TX_MIN_RELAY_FEE)
+                - script_builder::anyone_can_spend_txout().value
                 - script_builder::anyone_can_spend_txout().value,
-            script_pubkey: musig_address.script_pubkey(),
+            script_pubkey: musig2_address.script_pubkey(),
         };
 
         let tx_ins = TransactionBuilder::create_tx_ins(vec![move_commit_utxo]);
@@ -364,13 +367,17 @@ impl TransactionBuilder {
         ]);
 
         let (musig2_address, musig2_spend_info) =
-            TransactionBuilder::generate_musig2_address(*nofn_xonly_pk, network);
+            TransactionBuilder::create_musig2_address(*nofn_xonly_pk, network);
 
         let outs = vec![
             TxOut {
-                value: Amount::from_sat(
-                    BRIDGE_AMOUNT_SATS + slash_or_take_txout.value.to_sat() - 330,
-                ),
+                value: Amount::from_sat(slash_or_take_txout.value.to_sat())
+                    + Amount::from_sat(BRIDGE_AMOUNT_SATS)
+                    - Amount::from_sat(MOVE_COMMIT_TX_MIN_RELAY_FEE)
+                    - Amount::from_sat(MOVE_REVEAL_TX_MIN_RELAY_FEE)
+                    - script_builder::anyone_can_spend_txout().value
+                    - script_builder::anyone_can_spend_txout().value
+                    - script_builder::anyone_can_spend_txout().value,
                 script_pubkey: operator_address.script_pubkey(),
             },
             script_builder::anyone_can_spend_txout(),
@@ -379,11 +386,17 @@ impl TransactionBuilder {
         let prevouts = vec![
             TxOut {
                 script_pubkey: musig2_address.script_pubkey(),
-                value: Amount::from_sat(BRIDGE_AMOUNT_SATS),
+                value: Amount::from_sat(BRIDGE_AMOUNT_SATS)
+                    - Amount::from_sat(MOVE_COMMIT_TX_MIN_RELAY_FEE)
+                    - Amount::from_sat(MOVE_REVEAL_TX_MIN_RELAY_FEE)
+                    - script_builder::anyone_can_spend_txout().value
+                    - script_builder::anyone_can_spend_txout().value,
             },
             slash_or_take_txout,
         ];
+        // TODO: slash_or_take_txout to the scripts
         let scripts = vec![vec![], vec![]];
+        // TODO: Add slash_or_take_txout to the taproot_spend_infos
         let taproot_spend_infos = vec![musig2_spend_info];
         TxHandler {
             tx,
@@ -444,68 +457,6 @@ impl TransactionBuilder {
 
         tx_outs
     }
-
-    // pub fn create_taproot_address_script_spend_only(
-    //     scripts: Vec<ScriptBuf>,
-    //     network: bitcoin::Network,
-    // ) -> Result<(Address, TaprootSpendInfo), BridgeError> {
-    //     let tree_info = TransactionBuilder::create_taproot_spend_info(None, scripts)?;
-
-    //     Ok((
-    //         Address::p2tr(
-    //             &utils::SECP,
-    //             *utils::UNSPENDABLE_XONLY_PUBKEY,
-    //             tree_info.merkle_root(),
-    //             network,
-    //         ),
-    //         tree_info,
-    //     ))
-    // }
-
-    // // TODO: Make the pks and scripts parameter Optional so that it can be used in both scripts and for internal pubkey
-    // pub fn create_taproot_address_musig2(
-    //     &self,
-    //     scripts: Vec<ScriptBuf>,
-    //     network: bitcoin::Network,
-    // ) -> Result<(Address, TaprootSpendInfo), BridgeError> {
-    //     let key_agg_ctx = create_key_agg_ctx(self.verifiers_pks.clone(), None)?;
-    //     let agg_pubkey_raw: musig2::secp256k1::PublicKey =
-    //         key_agg_ctx.aggregated_pubkey_untweaked();
-    //     let (musig_agg_xonly_pubkey_raw, _) = agg_pubkey_raw.x_only_public_key();
-    //     let agg_xonly_pubkey_raw =
-    //         XOnlyPublicKey::from_slice(&musig_agg_xonly_pubkey_raw.serialize()).unwrap();
-
-    //     let n = scripts.len();
-    //     if n == 0 {
-    //         return Err(BridgeError::TaprootScriptError);
-    //     }
-    //     let tree_info =
-    //         TransactionBuilder::create_taproot_spend_info(Some(agg_xonly_pubkey_raw), scripts)?;
-    //     let merkle_root = tree_info.merkle_root();
-    //     Ok((
-    //         Address::p2tr(&utils::SECP, agg_xonly_pubkey_raw, merkle_root, network),
-    //         tree_info,
-    //     ))
-    // }
-
-    // pub fn create_connector_tree_source_address(
-    //     &self,
-    //     absolute_block_height_to_take_after: u64,
-    // ) -> Result<(Address, TaprootSpendInfo), BridgeError> {
-    //     let timelock_script = script_builder::generate_absolute_timelock_script(
-    //         &self.verifiers_xonly_pks[self.verifiers_xonly_pks.len() - 1],
-    //         absolute_block_height_to_take_after as u32,
-    //     );
-
-    //     let script_n_of_n = script_builder::generate_script_n_of_n();
-    //     let scripts = vec![timelock_script, script_n_of_n];
-
-    //     let (address, tree_info) =
-    //         TransactionBuilder::create_taproot_address_script_spend_only(scripts, self.network)
-    //             .unwrap();
-
-    //     Ok((address, tree_info))
-    // }
 }
 
 #[cfg(test)]

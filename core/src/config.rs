@@ -12,7 +12,6 @@
 
 use crate::errors::BridgeError;
 use bitcoin::Network;
-use secp256k1::{PublicKey, SecretKey};
 use serde::{Deserialize, Serialize};
 use std::str::FromStr;
 use std::{fs::File, io::Read, path::PathBuf};
@@ -32,11 +31,15 @@ pub struct BridgeConfig {
     /// Bitcoin network to work on.
     pub network: Network,
     /// Secret key for the operator or the verifier.
-    pub secret_key: SecretKey,
-    /// Verifiers public keys, including operator's.
-    pub verifiers_public_keys: Vec<PublicKey>,
+    pub secret_key: secp256k1::SecretKey,
+    /// Verifiers public keys.
+    pub verifiers_public_keys: Vec<secp256k1::PublicKey>,
     /// Number of verifiers.
     pub num_verifiers: usize,
+    /// Operators xonly public keys.
+    pub operators_xonly_pks: Vec<secp256k1::XOnlyPublicKey>,
+    /// Number of operators.
+    pub num_operators: usize,
     /// Minimum relay fee.
     pub min_relay_fee: u64,
     /// User takes after.
@@ -50,7 +53,7 @@ pub struct BridgeConfig {
     /// Bitcoin RPC user password.
     pub bitcoin_rpc_password: String,
     /// All Secret keys. Just for testing purposes.
-    pub all_secret_keys: Option<Vec<SecretKey>>,
+    pub all_secret_keys: Option<Vec<secp256k1::SecretKey>>,
     /// Verifier endpoints.
     pub verifier_endpoints: Option<Vec<String>>,
     /// PostgreSQL database host address.
@@ -127,9 +130,11 @@ impl Default for BridgeConfig {
             tracing_debug: "debug".to_string(),
             host: "127.0.0.1".to_string(),
             port: 3030,
-            secret_key: SecretKey::new(&mut secp256k1::rand::thread_rng()),
+            secret_key: secp256k1::SecretKey::new(&mut secp256k1::rand::thread_rng()),
             verifiers_public_keys: vec![],
             num_verifiers: 4,
+            operators_xonly_pks: vec![],
+            num_operators: 4,
             min_relay_fee: 289,
             user_takes_after: 200,
             confirmation_treshold: 1,
