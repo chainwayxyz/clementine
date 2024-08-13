@@ -10,7 +10,7 @@ use clementine_core::{
     extended_rpc::ExtendedRpc,
     musig2::{create_key_agg_ctx, nonce_pair, partial_sign, MuSigNoncePair},
     script_builder,
-    transaction_builder::{CreateTxOutputs, TransactionBuilder},
+    transaction_builder::{TransactionBuilder, TxHandler},
     utils, ByteArray66,
 };
 use clementine_core::{
@@ -64,7 +64,7 @@ async fn test_musig2_key_spend() {
     )]);
     let tx_ins = TransactionBuilder::create_tx_ins(vec![utxo]);
     let dummy_tx = TransactionBuilder::create_btc_tx(tx_ins, tx_outs);
-    let mut tx_details = CreateTxOutputs {
+    let mut tx_details = TxHandler {
         tx: dummy_tx,
         prevouts: vec![prevout],
         scripts: vec![scripts],
@@ -171,7 +171,7 @@ async fn test_musig2_script_spend() {
     )]);
     let tx_ins = TransactionBuilder::create_tx_ins(vec![utxo]);
     let dummy_tx = TransactionBuilder::create_btc_tx(tx_ins, tx_outs);
-    let mut tx_details = CreateTxOutputs {
+    let mut tx_details = TxHandler {
         tx: dummy_tx,
         prevouts: vec![prevout],
         scripts: vec![scripts],

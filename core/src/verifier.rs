@@ -61,7 +61,7 @@ where
         })
     }
 
-    /// Operator only endpoint for verifier.
+    /// Inform verifiers about the new deposit request
     ///
     /// 1. Check if the deposit UTXO is valid, finalized (6 blocks confirmation) and not spent
     /// 2. Generate random pubNonces, secNonces
@@ -84,7 +84,7 @@ where
             self.config.network,
         )?;
 
-        let num_required_sigs = 10; // TODO: Fix this
+        let num_required_sigs = 10; // TODO: Fix this: move_commit and move_reveal tx signatures + operator_take_txs signatures for every operator
 
         let pub_nonces_from_db = self.db.get_pub_nonces(deposit_utxo).await?;
         if let Some(pub_nonces) = pub_nonces_from_db {
@@ -146,7 +146,7 @@ where
             utils::SECP.verify_schnorr(
                 &operators_kickoff_sigs[i],
                 &secp256k1::Message::from_digest(kickoff_sig_hash),
-                &self.signer.xonly_public_key, // TOOD: Fix this to correct operator
+                &self.signer.xonly_public_key, // TODO: Fix this to correct operator
             )?;
         }
 
@@ -203,16 +203,29 @@ where
             .iter()
             .enumerate()
             .map(|(index, (kickoff_outpoint, kickoff_amount))| {
-                let ins = TransactionBuilder::create_tx_ins(vec![kickoff_outpoint.clone()]);
-                let outs = vec![
+                let slash_or_take_tx = TransactionBuilder::create_slash_or_take_tx(
+                    kickoff_outpoint.clone(),
                     TxOut {
-                        value: Amount::from_sat(kickoff_amount.to_sat() - 330),
-                        script_pubkey: self.signer.address.script_pubkey(), // TODO: Fix this address to operator or 200 blocks N-of-N
+                        value: *kickoff_amount,
+                        script_pubkey: self.signer.address.script_pubkey(), // TODO: Fix this address to operator
                     },
-                    script_builder::anyone_can_spend_txout(),
-                ];
-                let tx = TransactionBuilder::create_btc_tx(ins, outs);
+                    &self.signer.xonly_public_key, // TODO: Change this to operator[index] xonly pubkey
+                    &self.nofn_xonly_pk,
+                    self.config.network,
+                );
 
+                let operator_take_tx = TransactionBuilder::create_operator_takes_tx(
+                    deposit_utxo.clone(),
+                    OutPoint {
+                        txid: slash_or_take_tx.tx.compute_txid(),
+                        vout: 0,
+                    },
+                    slash_or_take_tx.tx.output[0],
+                    &self.signer.address, // TODO: Change this to operator[index] xonly pubkey
+                    &self.nofn_xonly_pk,
+                    self.config.network,
+                );
+                // WIP
                 let ins = TransactionBuilder::create_tx_ins(vec![
                     deposit_utxo.clone(),
                     OutPoint {

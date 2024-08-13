@@ -8,7 +8,7 @@ use clementine_core::database::common::Database;
 use clementine_core::extended_rpc::ExtendedRpc;
 use clementine_core::mock::common;
 use clementine_core::script_builder;
-use clementine_core::transaction_builder::{CreateTxOutputs, TransactionBuilder};
+use clementine_core::transaction_builder::{TransactionBuilder, TxHandler};
 use clementine_core::utils::handle_taproot_witness_new;
 use clementine_core::{
     create_extended_rpc, create_test_config, create_test_config_with_thread_name,
@@ -76,7 +76,7 @@ async fn run() {
 
     let signer = Actor::new(config.secret_key, config.network);
 
-    let mut tx_details = CreateTxOutputs {
+    let mut tx_details = TxHandler {
         tx: tx.clone(),
         prevouts,
         scripts: vec![vec![to_pay_script.clone()]],

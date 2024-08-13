@@ -102,22 +102,15 @@ pub fn create_move_commit_script(
 /// ATTENTION: If you want to spend a UTXO using timelock script, the
 /// condition is that (`# in the script`) < (`# in the sequence of the tx`)
 /// < (`# of blocks mined after UTXO`) appears on the chain.
-pub fn generate_timelock_script(
-    actor_taproot_address: &Address<NetworkUnchecked>,
+pub fn generate_relative_timelock_script(
+    actor_taproot_address: &XOnlyPublicKey,
     block_count: u32,
 ) -> ScriptBuf {
-    let actor_script_pubkey = actor_taproot_address
-        .clone()
-        .assume_checked()
-        .script_pubkey();
-    let actor_extracted_xonly_pk =
-        XOnlyPublicKey::from_slice(&actor_script_pubkey.as_bytes()[2..34]).unwrap();
-
     Builder::new()
         .push_int(block_count as i64)
         .push_opcode(OP_CSV)
         .push_opcode(OP_DROP)
-        .push_x_only_key(&actor_extracted_xonly_pk)
+        .push_x_only_key(&actor_taproot_address)
         .push_opcode(OP_CHECKSIG)
         .into_script()
 }

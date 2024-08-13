@@ -1,5 +1,5 @@
 use crate::errors::BridgeError;
-use crate::transaction_builder::CreateTxOutputs;
+use crate::transaction_builder::TxHandler;
 use crate::HashTree;
 use bitcoin;
 use bitcoin::consensus::Decodable;
@@ -111,7 +111,7 @@ pub fn handle_taproot_witness<T: AsRef<[u8]>>(
 }
 
 pub fn handle_taproot_witness_new<T: AsRef<[u8]>>(
-    tx: &mut CreateTxOutputs,
+    tx: &mut TxHandler,
     witness_elements: &[T],
     txin_index: usize,
     script_index: usize,

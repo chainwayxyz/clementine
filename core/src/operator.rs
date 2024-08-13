@@ -147,6 +147,8 @@ where
 
         transaction.commit().await?;
 
+        // TODO: Sign Hash(Hash(deposit_utxo) || Hash(kickoff_utxo)) with the operator key
+
         Ok(kickoff_utxo)
     }
 

@@ -121,7 +121,7 @@ mod tests {
         actor::Actor,
         errors::BridgeError,
         script_builder,
-        transaction_builder::{CreateTxOutputs, TransactionBuilder},
+        transaction_builder::{TransactionBuilder, TxHandler},
         utils,
     };
     use bitcoin::{hashes::Hash, script, Amount, OutPoint, ScriptBuf, TapNodeHash, TxOut, Txid};
@@ -362,7 +362,7 @@ mod tests {
         )]);
         let tx_ins = TransactionBuilder::create_tx_ins(vec![utxo]);
         let dummy_tx = TransactionBuilder::create_btc_tx(tx_ins, tx_outs);
-        let mut tx_details = CreateTxOutputs {
+        let mut tx_details = TxHandler {
             tx: dummy_tx,
             prevouts: vec![prevout],
             scripts: vec![scripts],
@@ -458,7 +458,7 @@ mod tests {
         )]);
         let tx_ins = TransactionBuilder::create_tx_ins(vec![utxo]);
         let dummy_tx = TransactionBuilder::create_btc_tx(tx_ins, tx_outs);
-        let mut tx_details = CreateTxOutputs {
+        let mut tx_details = TxHandler {
             tx: dummy_tx,
             prevouts: vec![prevout],
             scripts: vec![scripts],

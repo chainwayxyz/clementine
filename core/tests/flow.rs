@@ -11,7 +11,7 @@
 // use clementine_core::script_builder;
 // use clementine_core::servers::*;
 // use clementine_core::traits::rpc::OperatorRpcClient;
-// use clementine_core::transaction_builder::{CreateTxOutputs, TransactionBuilder};
+// use clementine_core::transaction_builder::{TxHandler, TransactionBuilder};
 // use clementine_core::utils::handle_taproot_witness_new;
 // use clementine_core::utils::SECP;
 // use clementine_core::EVMAddress;
@@ -196,7 +196,7 @@
 //     );
 //     let bridge_script = script_builder::generate_script_n_of_n(&config.verifiers_public_keys);
 
-//     let mut takes_after_tx_details = CreateTxOutputs {
+//     let mut takes_after_tx_details = TxHandler {
 //         tx: takes_after_tx.clone(),
 //         prevouts,
 //         scripts: vec![vec![bridge_script, takes_after_script]],
