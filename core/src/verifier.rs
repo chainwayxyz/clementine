@@ -171,16 +171,49 @@ where
         _burn_sigs: Vec<schnorr::Signature>,
     ) -> Result<Vec<MuSigPartialSignature>, BridgeError> {
         // TODO: Verify burn txs are signed by verifiers
-
         let kickoff_utxos = self
             .db
             .get_kickoff_utxos(deposit_outpoint)
             .await?
             .ok_or(BridgeError::KickoffOutpointsNotFound)?;
 
-        let bridge_fund_txid = self.db.get_bridge_fund_txid(*deposit_outpoint).await?;
+        let kickoff_outpoints = kickoff_utxos
+            .iter()
+            .map(|utxo| utxo.outpoint)
+            .collect::<Vec<_>>();
+
+        let (recovery_taproot_address, evm_address) = self
+            .db
+            .get_deposit_info(deposit_outpoint)
+            .await?
+            .ok_or(BridgeError::DepositInfoNotFound)?;
+
+        let move_commit_tx_handler = TransactionBuilder::create_move_commit_tx(
+            *deposit_outpoint,
+            &evm_address,
+            &recovery_taproot_address,
+            200, // TODO: Fix this
+            &self.nofn_xonly_pk,
+            &kickoff_outpoints,
+            201, // TODO: Fix this
+            self.config.network.clone(),
+        );
+
+        let move_reveal_tx_handler = TransactionBuilder::create_move_reveal_tx(
+            OutPoint {
+                txid: move_commit_tx_handler.tx.compute_txid(),
+                vout: 0,
+            },
+            &evm_address,
+            &recovery_taproot_address,
+            &self.nofn_xonly_pk,
+            &kickoff_outpoints,
+            201, // TODO: Fix this
+            self.config.network.clone(),
+        );
+
         let bridge_fund_outpoint = OutPoint {
-            txid: bridge_fund_txid,
+            txid: move_reveal_tx_handler.tx.compute_txid(),
             vout: 0,
         };
 
@@ -202,7 +235,7 @@ where
                 );
 
                 let mut operator_takes_tx = TransactionBuilder::create_operator_takes_tx(
-                    bridge_fund_outpoint.clone(),
+                    bridge_fund_outpoint,
                     OutPoint {
                         txid: slash_or_take_tx.tx.compute_txid(),
                         vout: 0,
@@ -249,19 +282,54 @@ where
         deposit_outpoint: &OutPoint,
         operator_take_sigs: Vec<schnorr::Signature>,
     ) -> Result<(MuSigPartialSignature, MuSigPartialSignature), BridgeError> {
+        // TODO: remove code duplication
         let kickoff_utxos = self
             .db
             .get_kickoff_utxos(deposit_outpoint)
             .await?
             .ok_or(BridgeError::KickoffOutpointsNotFound)?;
 
-        let bridge_fund_txid = self.db.get_bridge_fund_txid(*deposit_outpoint).await?;
-        let bridge_fund_utxo = OutPoint {
-            txid: bridge_fund_txid,
+        let kickoff_outpoints = kickoff_utxos
+            .iter()
+            .map(|utxo| utxo.outpoint)
+            .collect::<Vec<_>>();
+
+        let (recovery_taproot_address, evm_address) = self
+            .db
+            .get_deposit_info(deposit_outpoint)
+            .await?
+            .ok_or(BridgeError::DepositInfoNotFound)?;
+
+        let mut move_commit_tx_handler = TransactionBuilder::create_move_commit_tx(
+            *deposit_outpoint,
+            &evm_address,
+            &recovery_taproot_address,
+            200, // TODO: Fix this
+            &self.nofn_xonly_pk,
+            &kickoff_outpoints,
+            201, // TODO: Fix this
+            self.config.network.clone(),
+        );
+
+        let mut move_reveal_tx_handler = TransactionBuilder::create_move_reveal_tx(
+            OutPoint {
+                txid: move_commit_tx_handler.tx.compute_txid(),
+                vout: 0,
+            },
+            &evm_address,
+            &recovery_taproot_address,
+            &self.nofn_xonly_pk,
+            &kickoff_outpoints,
+            201, // TODO: Fix this
+            self.config.network.clone(),
+        );
+
+        let bridge_fund_outpoint = OutPoint {
+            txid: move_reveal_tx_handler.tx.compute_txid(),
             vout: 0,
         };
 
-        kickoff_utxos
+        let _ = kickoff_utxos
             .iter()
             .enumerate()
             .map(|(index, kickoff_utxo)| {
@@ -279,7 +347,7 @@ where
                 );
 
                 let mut operator_takes_tx = TransactionBuilder::create_operator_takes_tx(
-                    bridge_fund_utxo.clone(),
+                    bridge_fund_outpoint,
                     OutPoint {
                         txid: slash_or_take_tx.tx.compute_txid(),
                         vout: 0,
@@ -303,54 +371,8 @@ where
                     .unwrap();
             });
 
-        let (recovery_taproot_address, evm_address) = self
-            .db
-            .get_deposit_info(deposit_outpoint)
-            .await?
-            .ok_or(BridgeError::DepositInfoNotFound)?;
-
-        let kickoff_outpoints = kickoff_utxos
-            .iter()
-            .map(|utxo| utxo.outpoint)
-            .collect::<Vec<_>>();
-
-        let mut move_commit_tx_handler = TransactionBuilder::create_move_commit_tx(
-            *deposit_outpoint,
-            &evm_address,
-            &recovery_taproot_address,
-            200, // TODO: Fix this
-            &self.nofn_xonly_pk,
-            &kickoff_outpoints,
-            201, // TODO: Fix this
-            self.config.network.clone(),
-        );
-
         let move_commit_sighash =
             Actor::convert_tx_to_sighash_script_spend(&mut move_commit_tx_handler, 0, 0)?; // TODO: This should be musig
-
-        // let move_commit_nonces = self
-        //     .db
-        //     .get_nonces(&deposit_utxo, 0)
-        //     .await?
-        //     .ok_or(BridgeError::NoncesNotFound)?;
-        // let move_reveal_nonces = self
-        //     .db
-        //     .get_nonces(&deposit_utxo, 1)
-        //     .await?
-        //     .ok_or(BridgeError::NoncesNotFound)?;
-
-        let mut move_reveal_tx_handler = TransactionBuilder::create_move_reveal_tx(
-            OutPoint {
-                txid: move_commit_tx_handler.tx.compute_txid(),
-                vout: 0,
-            },
-            &evm_address,
-            &recovery_taproot_address,
-            &self.nofn_xonly_pk,
-            &kickoff_outpoints,
-            201, // TODO: Fix this
-            self.config.network.clone(),
-        );
 
         let move_reveal_sighash =
             Actor::convert_tx_to_sighash_script_spend(&mut move_reveal_tx_handler, 0, 0)?; // TODO: This should be musig

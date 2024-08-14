@@ -2,7 +2,7 @@
 
 use crate::errors::BridgeError;
 use crate::musig2::create_key_agg_ctx;
-use crate::{script_builder, utils, EVMAddress};
+use crate::{script_builder, utils, EVMAddress, UTXO};
 use bitcoin::address::NetworkUnchecked;
 use bitcoin::Network;
 use bitcoin::{
@@ -289,15 +289,12 @@ impl TransactionBuilder {
         }
     }
 
-    /// Creates the kickoff_tx for the operator. It also returns the change output
-    pub fn create_kickoff_tx(
-        funding_utxo: OutPoint,
-        funding_amount: Amount,
-        address: &Address,
-    ) -> (bitcoin::Transaction, OutPoint, Amount) {
-        let tx_ins = TransactionBuilder::create_tx_ins(vec![funding_utxo]);
+    /// Creates the kickoff_tx for the operator. It also returns the change utxo
+    /// TODO: Make this return tx handler
+    pub fn create_kickoff_tx(funding_utxo: &UTXO, address: &Address) -> bitcoin::Transaction {
+        let tx_ins = TransactionBuilder::create_tx_ins(vec![funding_utxo.outpoint]);
 
-        let change_amount = funding_amount
+        let change_amount = funding_utxo.txout.value
             - Amount::from_sat(100_000)
             - script_builder::anyone_can_spend_txout().value;
 
@@ -312,10 +309,7 @@ impl TransactionBuilder {
             ),
             (change_amount, address.script_pubkey()),
         ]);
-        let tx = TransactionBuilder::create_btc_tx(tx_ins, tx_outs);
-        let txid = tx.compute_txid();
-        let change_utxo = OutPoint { txid, vout: 2 };
-        (tx, change_utxo, change_amount)
+        TransactionBuilder::create_btc_tx(tx_ins, tx_outs)
     }
 
     pub fn create_slash_or_take_tx(
