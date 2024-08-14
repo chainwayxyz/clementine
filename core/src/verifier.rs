@@ -210,7 +210,7 @@ where
         let operator_takes_partial_sigs = kickoff_outpoints_and_amounts
             .iter()
             .enumerate()
-            .map(|(index, (kickoff_outpoint, kickoff_amount))| {
+            .map(|(index, (kickoff_outpoint, kickoff_amount))| async {
                 let (operator_address, _) = TransactionBuilder::create_taproot_address(
                     &[],
                     Some(self.operator_xonly_pks[index]),
@@ -239,15 +239,21 @@ where
                     self.config.network,
                 );
 
-                let sig_hash =
+                let sighash =
                     Actor::convert_tx_to_sighash_pubkey_spend(&mut operator_takes_tx, 0).unwrap();
+
+                let (sec_nonce, agg_nonce) = self
+                    .db
+                    .save_sighash_and_get_nonces(deposit_utxo, index + 2, &sighash.to_byte_array())
+                    .await?
+                    .ok_or(BridgeError::NoncesNotFound)?;
                 let operator_takes_partial_sig = musig2::partial_sign(
                     self.config.verifiers_public_keys.clone(),
                     None,
-                    nonces[index].1,
-                    nonces[index].2.clone(),
+                    sec_nonce,
+                    agg_nonce,
                     &self.signer.keypair,
-                    sig_hash.to_byte_array(),
+                    sighash.to_byte_array(),
                 );
                 operator_takes_partial_sig as MuSigPartialSignature
             })

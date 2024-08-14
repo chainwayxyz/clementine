@@ -354,11 +354,20 @@ impl Database {
         unimplemented!();
     }
 
-    pub async fn get_nonces(
+    // pub async fn get_nonces(
+    //     &self,
+    //     deposit_utxo: &OutPoint,
+    //     idx: usize,
+    // ) -> Result<Option<(MuSigPubNonce, MuSigSecNonce, MuSigAggNonce)>, BridgeError> {
+    //     unimplemented!();
+    // }
+
+    pub async fn save_sighash_and_get_nonces(
         &self,
         deposit_utxo: &OutPoint,
-        idx: usize,
-    ) -> Result<Option<(MuSigPubNonce, MuSigSecNonce, MuSigAggNonce)>, BridgeError> {
+        index: usize,
+        sighash: &[u8; 32],
+    ) -> Result<Option<(MuSigSecNonce, MuSigAggNonce)>, BridgeError> {
         unimplemented!();
     }
 

@@ -28,4 +28,14 @@ create table withdrawal_sigs (
     created_at timestamp not null default now()
 );
 
+
+create table nonces (
+    idx INTEGER primary key,
+    deposit_utxo text primary key not null check (deposit_txid ~ '^[a-fA-F0-9]{64}:\\d+'),
+    pub_nonce text not null check (pub_nonce ~ '^[a-fA-F0-9]{132}'),
+    sec_nonce text not null check (sec_nonce ~ '^[a-fA-F0-9]{128}'),
+    agg_nonce text check (agg_nonce ~ '^[a-fA-F0-9]{132}'),
+    sig_hash text check (sig_hash ~ '^[a-fA-F0-9]{64}'), /* 32 bytes,  */
+)
+
 commit;
