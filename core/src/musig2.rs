@@ -125,9 +125,31 @@ mod tests {
         utils,
     };
     use bitcoin::{hashes::Hash, script, Amount, OutPoint, ScriptBuf, TapNodeHash, TxOut, Txid};
-    use secp256k1::{rand::Rng, Keypair, Message};
+    use secp256k1::{rand::Rng, Keypair, Message, PublicKey, XOnlyPublicKey};
 
     use super::{nonce_pair, MuSigNoncePair};
+
+    trait FromPublicKeys {
+        fn from_musig2_pks(
+            pks: Vec<PublicKey>,
+            tweak: Option<[u8; 32]>,
+        ) -> (musig2::secp256k1::PublicKey, XOnlyPublicKey);
+    }
+
+    impl FromPublicKeys for XOnlyPublicKey {
+        fn from_musig2_pks(
+            pks: Vec<PublicKey>,
+            tweak: Option<[u8; 32]>,
+        ) -> (musig2::secp256k1::PublicKey, XOnlyPublicKey) {
+            let key_agg_ctx = super::create_key_agg_ctx(pks, tweak).unwrap();
+            let musig_agg_pubkey: musig2::secp256k1::PublicKey = key_agg_ctx.aggregated_pubkey();
+            let musig_agg_xonly_pubkey = musig_agg_pubkey.x_only_public_key().0;
+            let musig_agg_xonly_pubkey_wrapped =
+                XOnlyPublicKey::from_slice(&musig_agg_xonly_pubkey.serialize()).unwrap();
+
+            (musig_agg_pubkey, musig_agg_xonly_pubkey_wrapped)
+        }
+    }
 
     // Generates a test setup with a given number of signers. Returns a vector of keypairs and a vector of nonce pairs.
     fn generate_test_setup(num_signers: usize) -> (Vec<Keypair>, Vec<MuSigNoncePair>) {
@@ -387,7 +409,6 @@ mod tests {
             Some(root) => root.to_byte_array(),
             None => TapNodeHash::all_zeros().to_byte_array(),
         };
-        let key_agg_ctx = super::create_key_agg_ctx(pks.clone(), Some(tweak)).unwrap();
 
         let partial_sigs: Vec<[u8; 32]> = kp_vec
             .iter()
@@ -404,17 +425,15 @@ mod tests {
             })
             .collect();
         let final_signature: [u8; 64] = super::aggregate_partial_signatures(
-            pks,
+            pks.clone(),
             Some(tweak),
             &agg_nonce,
             partial_sigs,
             message,
         )
         .unwrap();
-        let musig_agg_pubkey: musig2::secp256k1::PublicKey = key_agg_ctx.aggregated_pubkey();
-        let musig_agg_xonly_pubkey = musig_agg_pubkey.x_only_public_key().0;
-        let musig_agg_xonly_pubkey_wrapped =
-            bitcoin::XOnlyPublicKey::from_slice(&musig_agg_xonly_pubkey.serialize()).unwrap();
+        let (musig_agg_pubkey, musig_agg_xonly_pubkey_wrapped) =
+            XOnlyPublicKey::from_musig2_pks(pks, Some(tweak));
         musig2::verify_single(musig_agg_pubkey, &final_signature, message)
             .expect("Verification failed!");
         let res = utils::SECP
@@ -438,12 +457,10 @@ mod tests {
             .collect::<Vec<secp256k1::PublicKey>>();
         let agg_nonce =
             super::aggregate_nonces(nonce_pair_vec.iter().map(|x| x.1.clone()).collect());
-        let key_agg_ctx = super::create_key_agg_ctx(pks.clone(), None).unwrap();
-        let musig_agg_pubkey: musig2::secp256k1::PublicKey = key_agg_ctx.aggregated_pubkey();
-        let musig_agg_xonly_pubkey = musig_agg_pubkey.x_only_public_key().0;
-        let musig_agg_xonly_pubkey_wrapped =
-            bitcoin::XOnlyPublicKey::from_slice(&musig_agg_xonly_pubkey.serialize()).unwrap();
-        let musig2_script = script_builder::anyone_can_spend_txout().script_pubkey; // TODO: Fix this
+        let (musig_agg_pubkey, musig_agg_xonly_pubkey_wrapped) =
+            XOnlyPublicKey::from_musig2_pks(pks.clone(), None);
+        let musig2_script =
+            script_builder::generate_script_n_of_n(&vec![musig_agg_xonly_pubkey_wrapped]);
         let scripts: Vec<ScriptBuf> = vec![musig2_script];
         let receiving_address = bitcoin::Address::p2tr(
             &utils::SECP,
