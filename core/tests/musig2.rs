@@ -1,3 +1,4 @@
+use bitcoin::opcodes::all::OP_CHECKSIGVERIFY;
 use bitcoin::{hashes::Hash, script, Amount, ScriptBuf, TapNodeHash};
 use bitcoincore_rpc::Client;
 use clementine_core::database::common::Database;
@@ -9,8 +10,7 @@ use clementine_core::{
     config::BridgeConfig,
     extended_rpc::ExtendedRpc,
     musig2::{create_key_agg_ctx, nonce_pair, partial_sign, MuSigNoncePair},
-    script_builder,
-    transaction_builder::{CreateTxOutputs, TransactionBuilder},
+    transaction_builder::{TransactionBuilder, TxHandler},
     utils, ByteArray66,
 };
 use clementine_core::{
@@ -38,13 +38,18 @@ async fn test_musig2_key_spend() {
         .iter()
         .map(|kp| kp.public_key())
         .collect::<Vec<secp256k1::PublicKey>>();
-    let tx_builder = TransactionBuilder::new(pks.clone(), bitcoin::Network::Regtest);
     let agg_nonce = aggregate_nonces(
         nonce_pair_vec
             .iter()
             .map(|x| ByteArray66(x.1 .0))
             .collect::<Vec<MuSigPubNonce>>(),
     );
+    let key_agg_ctx = create_key_agg_ctx(pks.clone(), None).unwrap();
+    let untweaked_pubkey =
+        key_agg_ctx.aggregated_pubkey_untweaked::<musig2::secp256k1::PublicKey>();
+    let untweaked_xonly_pubkey: secp256k1::XOnlyPublicKey =
+        secp256k1::XOnlyPublicKey::from_slice(&untweaked_pubkey.x_only_public_key().0.serialize())
+            .unwrap();
     let dummy_script = script::Builder::new().push_int(1).into_script();
     let scripts: Vec<ScriptBuf> = vec![dummy_script];
     let to_address = bitcoin::Address::p2tr(
@@ -53,9 +58,11 @@ async fn test_musig2_key_spend() {
         None,
         bitcoin::Network::Regtest,
     );
-    let (from_address, from_address_spend_info) = tx_builder
-        .create_taproot_address_musig2(scripts.clone(), bitcoin::Network::Regtest)
-        .unwrap();
+    let (from_address, from_address_spend_info) = TransactionBuilder::create_taproot_address(
+        &scripts,
+        Some(untweaked_xonly_pubkey),
+        bitcoin::Network::Regtest,
+    );
     let utxo = rpc.send_to_address(&from_address, 100_000_000).unwrap();
     let prevout = rpc.get_txout_from_utxo(&utxo).unwrap();
     let tx_outs = TransactionBuilder::create_tx_outs(vec![(
@@ -64,7 +71,7 @@ async fn test_musig2_key_spend() {
     )]);
     let tx_ins = TransactionBuilder::create_tx_ins(vec![utxo]);
     let dummy_tx = TransactionBuilder::create_btc_tx(tx_ins, tx_outs);
-    let mut tx_details = CreateTxOutputs {
+    let mut tx_details = TxHandler {
         tx: dummy_tx,
         prevouts: vec![prevout],
         scripts: vec![scripts],
@@ -138,7 +145,6 @@ async fn test_musig2_script_spend() {
         .iter()
         .map(|kp| kp.public_key())
         .collect::<Vec<secp256k1::PublicKey>>();
-    let tx_builder = TransactionBuilder::new(pks.clone(), bitcoin::Network::Regtest);
     let agg_nonce = aggregate_nonces(
         nonce_pair_vec
             .iter()
@@ -152,7 +158,11 @@ async fn test_musig2_script_spend() {
         bitcoin::XOnlyPublicKey::from_slice(&musig_agg_xonly_pubkey.serialize()).unwrap();
     let agg_xonly_pubkey =
         bitcoin::XOnlyPublicKey::from_slice(&musig_agg_xonly_pubkey.serialize()).unwrap();
-    let musig2_script = script_builder::generate_script_n_of_n(&vec![agg_xonly_pubkey]);
+    let musig2_script = bitcoin::script::Builder::new()
+        .push_int(1)
+        .push_x_only_key(&agg_xonly_pubkey)
+        .push_opcode(OP_CHECKSIGVERIFY)
+        .into_script();
     let scripts: Vec<ScriptBuf> = vec![musig2_script];
     let to_address = bitcoin::Address::p2tr(
         &secp,
@@ -160,9 +170,8 @@ async fn test_musig2_script_spend() {
         None,
         bitcoin::Network::Regtest,
     );
-    let (from_address, from_address_spend_info) = tx_builder
-        .create_taproot_address_musig2(scripts.clone(), bitcoin::Network::Regtest)
-        .unwrap();
+    let (from_address, from_address_spend_info) =
+        TransactionBuilder::create_taproot_address(&scripts, None, bitcoin::Network::Regtest);
     let utxo = rpc.send_to_address(&from_address, 100_000_000).unwrap();
     let prevout = rpc.get_txout_from_utxo(&utxo).unwrap();
     let tx_outs = TransactionBuilder::create_tx_outs(vec![(
@@ -171,7 +180,7 @@ async fn test_musig2_script_spend() {
     )]);
     let tx_ins = TransactionBuilder::create_tx_ins(vec![utxo]);
     let dummy_tx = TransactionBuilder::create_btc_tx(tx_ins, tx_outs);
-    let mut tx_details = CreateTxOutputs {
+    let mut tx_details = TxHandler {
         tx: dummy_tx,
         prevouts: vec![prevout],
         scripts: vec![scripts],

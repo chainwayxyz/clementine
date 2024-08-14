@@ -1,5 +1,5 @@
 use crate::errors::BridgeError;
-use crate::transaction_builder::CreateTxOutputs;
+use crate::transaction_builder::TxHandler;
 use crate::HashTree;
 use bitcoin;
 use bitcoin::consensus::Decodable;
@@ -38,6 +38,9 @@ lazy_static::lazy_static! {
         XOnlyPublicKey::from_str("93c7378d96518a75448821c4f7c8f4bae7ce60f804d03d1f0628dd5dd0f5de51").unwrap();
 }
 
+lazy_static::lazy_static! {
+    pub static ref NETWORK : bitcoin::Network = bitcoin::Network::Regtest;
+}
 pub fn calculate_merkle_root(leaves: Vec<HashType>) -> HashType {
     let mut hashes = leaves;
 
@@ -108,7 +111,7 @@ pub fn handle_taproot_witness<T: AsRef<[u8]>>(
 }
 
 pub fn handle_taproot_witness_new<T: AsRef<[u8]>>(
-    tx: &mut CreateTxOutputs,
+    tx: &mut TxHandler,
     witness_elements: &[T],
     txin_index: usize,
     script_index: usize,

@@ -1,5 +1,5 @@
 use crate::errors::BridgeError;
-use crate::transaction_builder::CreateTxOutputs;
+use crate::transaction_builder::TxHandler;
 use crate::utils;
 use bitcoin::sighash::SighashCache;
 use bitcoin::taproot::LeafVersion;
@@ -81,7 +81,7 @@ impl Actor {
 
     pub fn sighash_taproot_script_spend(
         &self,
-        tx: &mut CreateTxOutputs,
+        tx: &mut TxHandler,
         txin_index: usize,
         script_index: usize,
     ) -> Result<TapSighash, BridgeError> {
@@ -101,12 +101,12 @@ impl Actor {
 
     pub fn sign_taproot_script_spend_tx_new(
         &self,
-        tx: &mut CreateTxOutputs,
+        tx: &mut TxHandler,
         txin_index: usize,
         script_index: usize,
     ) -> Result<schnorr::Signature, BridgeError> {
-        // TODO: if sighash_cache exists in the CreateTxOutputs, use it
-        // else create a new one and save it to the CreateTxOutputs
+        // TODO: if sighash_cache exists in the TxHandler, use it
+        // else create a new one and save it to the TxHandler
 
         let mut sighash_cache: SighashCache<&mut bitcoin::Transaction> =
             SighashCache::new(&mut tx.tx);
@@ -155,12 +155,12 @@ impl Actor {
 
     pub fn sign_taproot_script_spend_tx_new_tweaked(
         &self,
-        tx: &mut CreateTxOutputs,
+        tx: &mut TxHandler,
         txin_index: usize,
         script_index: usize,
     ) -> Result<schnorr::Signature, BridgeError> {
-        // TODO: if sighash_cache exists in the CreateTxOutputs, use it
-        // else create a new one and save it to the CreateTxOutputs
+        // TODO: if sighash_cache exists in the TxHandler, use it
+        // else create a new one and save it to the TxHandler
 
         let mut sighash_cache: SighashCache<&mut bitcoin::Transaction> =
             SighashCache::new(&mut tx.tx);
@@ -177,7 +177,7 @@ impl Actor {
     }
 
     pub fn convert_tx_to_sighash_script_spend(
-        tx: &mut CreateTxOutputs,
+        tx: &mut TxHandler,
         txin_index: usize,
         script_index: usize,
     ) -> Result<TapSighash, BridgeError> {
@@ -195,7 +195,7 @@ impl Actor {
         Ok(sig_hash)
     }
     pub fn convert_tx_to_sighash_pubkey_spend(
-        tx: &mut CreateTxOutputs,
+        tx: &mut TxHandler,
         txin_index: usize,
     ) -> Result<TapSighash, BridgeError> {
         let mut sighash_cache: SighashCache<&mut bitcoin::Transaction> =

@@ -2,8 +2,10 @@ use crate::actor::Actor;
 use crate::config::BridgeConfig;
 use crate::errors::BridgeError;
 use crate::extended_rpc::ExtendedRpc;
+use crate::musig2::{self, MuSigAggNonce, MuSigPartialSignature, MuSigPubNonce};
 use crate::transaction_builder::TransactionBuilder;
 use crate::EVMAddress;
+use ::musig2::secp::Point;
 use bitcoin::Address;
 use bitcoin::OutPoint;
 use bitcoin::XOnlyPublicKey;
@@ -17,7 +19,8 @@ pub struct User<R> {
     rpc: ExtendedRpc<R>,
     signer: Actor,
     transaction_builder: TransactionBuilder,
-    user_takes_after: u32,
+    config: BridgeConfig,
+    nofn_xonly_pk: XOnlyPublicKey,
 }
 
 impl<R> User<R>
@@ -35,11 +38,18 @@ where
 
         let transaction_builder = TransactionBuilder::new(all_pks.clone(), config.network);
 
+        let key_agg_context =
+            musig2::create_key_agg_ctx(config.verifiers_public_keys.clone(), None).unwrap();
+        let agg_point: Point = key_agg_context.aggregated_pubkey_untweaked();
+        let nofn_xonly_pk =
+            secp256k1::XOnlyPublicKey::from_slice(&agg_point.serialize_xonly()).unwrap();
+
         User {
             rpc,
             signer,
             transaction_builder,
-            user_takes_after: config.user_takes_after,
+            config,
+            nofn_xonly_pk,
         }
     }
 
@@ -47,12 +57,14 @@ where
         &self,
         evm_address: EVMAddress,
     ) -> Result<(OutPoint, XOnlyPublicKey, EVMAddress), BridgeError> {
-        let (deposit_address, _) = self.transaction_builder.generate_deposit_address(
+        let (deposit_address, _) = TransactionBuilder::generate_deposit_address(
+            &self.nofn_xonly_pk,
             self.signer.address.as_unchecked(),
             &evm_address,
             BRIDGE_AMOUNT_SATS,
-            self.user_takes_after,
-        )?;
+            self.config.user_takes_after,
+            self.config.network,
+        );
 
         let deposit_utxo = self
             .rpc
@@ -62,12 +74,14 @@ where
     }
 
     pub fn get_deposit_address(&self, evm_address: EVMAddress) -> Result<Address, BridgeError> {
-        let (deposit_address, _) = self.transaction_builder.generate_deposit_address(
+        let (deposit_address, _) = TransactionBuilder::generate_deposit_address(
+            &self.nofn_xonly_pk,
             self.signer.address.as_unchecked(),
             &evm_address,
             BRIDGE_AMOUNT_SATS,
-            self.user_takes_after,
-        )?;
+            self.config.user_takes_after,
+            self.config.network,
+        );
 
         Ok(deposit_address)
     }

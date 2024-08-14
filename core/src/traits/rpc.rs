@@ -1,6 +1,6 @@
 use crate::musig2::{MuSigAggNonce, MuSigPartialSignature, MuSigPubNonce};
+use crate::UTXO;
 use crate::{errors::BridgeError, EVMAddress};
-use crate::{ByteArray66, PsbtOutPoint};
 use bitcoin::address::NetworkUnchecked;
 use bitcoin::{Address, OutPoint};
 use jsonrpsee::proc_macros::rpc;
@@ -28,7 +28,7 @@ pub trait VerifierRpc {
     async fn operator_kickoffs_generated_rpc(
         &self,
         deposit_utxo: OutPoint,
-        kickoff_utxos: Vec<PsbtOutPoint>,
+        kickoff_utxos: Vec<UTXO>,
         operators_kickoff_sigs: Vec<schnorr::Signature>,
         agg_nonces: Vec<MuSigAggNonce>,
     ) -> Result<Vec<MuSigPartialSignature>, BridgeError>;
@@ -62,13 +62,10 @@ pub trait OperatorRpc {
         deposit_utxo: OutPoint,
         recovery_taproot_address: Address<NetworkUnchecked>,
         evm_address: EVMAddress,
-    ) -> Result<PsbtOutPoint, BridgeError>;
+    ) -> Result<(UTXO, secp256k1::schnorr::Signature), BridgeError>;
 
     #[method(name = "set_operator_funding_utxo")]
-    async fn set_operator_funding_utxo_rpc(
-        &self,
-        funding_utxo: OutPoint,
-    ) -> Result<(), BridgeError>;
+    async fn set_operator_funding_utxo_rpc(&self, funding_utxo: UTXO) -> Result<(), BridgeError>;
 
     // #[method(name = "new_withdrawal_sig")]
     // /// Gets the withdrawal utxo from citrea,

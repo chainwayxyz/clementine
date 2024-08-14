@@ -57,13 +57,7 @@ pub async fn create_operator_server<R>(
 where
     R: RpcApiWrapper,
 {
-    let verifiers: Vec<HttpClient> = verifier_endpoints
-        .clone()
-        .iter()
-        .map(|verifier| HttpClientBuilder::default().build(verifier))
-        .collect::<Result<Vec<HttpClient>, jsonrpsee::core::client::Error>>()?;
-
-    let operator = Operator::new(config.clone(), rpc, verifiers).await?;
+    let operator = Operator::new(config.clone(), rpc).await?;
 
     let server = match Server::builder()
         .build(format!("{}:{}", config.host, config.port))

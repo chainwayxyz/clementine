@@ -8,7 +8,7 @@ use clementine_core::database::common::Database;
 use clementine_core::extended_rpc::ExtendedRpc;
 use clementine_core::mock::common;
 use clementine_core::script_builder;
-use clementine_core::transaction_builder::{CreateTxOutputs, TransactionBuilder};
+use clementine_core::transaction_builder::{TransactionBuilder, TxHandler};
 use clementine_core::utils::handle_taproot_witness_new;
 use clementine_core::{
     create_extended_rpc, create_test_config, create_test_config_with_thread_name,
@@ -52,12 +52,11 @@ async fn run() {
         .push_opcode(OP_CHECKSIG)
         .into_script();
 
-    let (taproot_address, taproot_spend_info) =
-        TransactionBuilder::create_taproot_address_script_spend_only(
-            vec![to_pay_script.clone()],
-            config.network,
-        )
-        .unwrap();
+    let (taproot_address, taproot_spend_info) = TransactionBuilder::create_taproot_address(
+        &vec![to_pay_script.clone()],
+        None,
+        config.network,
+    );
     let utxo = rpc.send_to_address(&taproot_address, 1000).unwrap();
 
     let ins = TransactionBuilder::create_tx_ins(vec![utxo]);
@@ -76,7 +75,7 @@ async fn run() {
 
     let signer = Actor::new(config.secret_key, config.network);
 
-    let mut tx_details = CreateTxOutputs {
+    let mut tx_details = TxHandler {
         tx: tx.clone(),
         prevouts,
         scripts: vec![vec![to_pay_script.clone()]],

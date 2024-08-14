@@ -121,10 +121,13 @@ mod tests {
         actor::Actor,
         errors::BridgeError,
         script_builder,
-        transaction_builder::{CreateTxOutputs, TransactionBuilder},
+        transaction_builder::{TransactionBuilder, TxHandler},
         utils,
     };
-    use bitcoin::{hashes::Hash, script, Amount, OutPoint, ScriptBuf, TapNodeHash, TxOut, Txid};
+    use bitcoin::{
+        hashes::Hash, opcodes::all::OP_CHECKSIG, script, Amount, OutPoint, ScriptBuf, TapNodeHash,
+        TxOut, Txid,
+    };
     use secp256k1::{rand::Rng, Keypair, Message, PublicKey, XOnlyPublicKey};
 
     use super::{nonce_pair, MuSigNoncePair};
@@ -356,7 +359,15 @@ mod tests {
             .iter()
             .map(|kp| kp.public_key())
             .collect::<Vec<secp256k1::PublicKey>>();
-        let tx_builder = TransactionBuilder::new(pks.clone(), bitcoin::Network::Regtest);
+        let key_agg_ctx = super::create_key_agg_ctx(pks.clone(), None).unwrap();
+
+        let untweaked_pubkey =
+            key_agg_ctx.aggregated_pubkey_untweaked::<musig2::secp256k1::PublicKey>();
+        let untweaked_xonly_pubkey: secp256k1::XOnlyPublicKey =
+            secp256k1::XOnlyPublicKey::from_slice(
+                &untweaked_pubkey.x_only_public_key().0.serialize(),
+            )
+            .unwrap();
         let agg_nonce =
             super::aggregate_nonces(nonce_pair_vec.iter().map(|x| x.1.clone()).collect());
         let dummy_script = script::Builder::new().push_int(1).into_script();
@@ -367,9 +378,12 @@ mod tests {
             None,
             bitcoin::Network::Regtest,
         );
-        let (sending_address, sending_address_spend_info) = tx_builder
-            .create_taproot_address_musig2(scripts.clone(), bitcoin::Network::Regtest)
-            .unwrap();
+        let (sending_address, sending_address_spend_info) =
+            TransactionBuilder::create_taproot_address(
+                &scripts.clone(),
+                Some(untweaked_xonly_pubkey),
+                bitcoin::Network::Regtest,
+            );
         let prevout = TxOut {
             value: Amount::from_sat(100_000_000),
             script_pubkey: sending_address.script_pubkey(),
@@ -384,7 +398,7 @@ mod tests {
         )]);
         let tx_ins = TransactionBuilder::create_tx_ins(vec![utxo]);
         let dummy_tx = TransactionBuilder::create_btc_tx(tx_ins, tx_outs);
-        let mut tx_details = CreateTxOutputs {
+        let mut tx_details = TxHandler {
             tx: dummy_tx,
             prevouts: vec![prevout],
             scripts: vec![scripts],
@@ -444,13 +458,14 @@ mod tests {
             .iter()
             .map(|kp| kp.public_key())
             .collect::<Vec<secp256k1::PublicKey>>();
-        let tx_builder = TransactionBuilder::new(pks.clone(), bitcoin::Network::Regtest);
         let agg_nonce =
             super::aggregate_nonces(nonce_pair_vec.iter().map(|x| x.1.clone()).collect());
         let (musig_agg_pubkey, musig_agg_xonly_pubkey_wrapped) =
             XOnlyPublicKey::from_musig2_pks(pks.clone(), None);
-        let musig2_script =
-            script_builder::generate_script_n_of_n(&vec![musig_agg_xonly_pubkey_wrapped]);
+        let musig2_script = bitcoin::script::Builder::new()
+            .push_x_only_key(&musig_agg_xonly_pubkey_wrapped)
+            .push_opcode(OP_CHECKSIG)
+            .into_script();
         let scripts: Vec<ScriptBuf> = vec![musig2_script];
         let receiving_address = bitcoin::Address::p2tr(
             &utils::SECP,
@@ -458,9 +473,12 @@ mod tests {
             None,
             bitcoin::Network::Regtest,
         );
-        let (sending_address, sending_address_spend_info) = tx_builder
-            .create_taproot_address_musig2(scripts.clone(), bitcoin::Network::Regtest)
-            .unwrap();
+        let (sending_address, sending_address_spend_info) =
+            TransactionBuilder::create_taproot_address(
+                &scripts.clone(),
+                None,
+                bitcoin::Network::Regtest,
+            );
         let prevout = TxOut {
             value: Amount::from_sat(100_000_000),
             script_pubkey: sending_address.script_pubkey(),
@@ -475,7 +493,7 @@ mod tests {
         )]);
         let tx_ins = TransactionBuilder::create_tx_ins(vec![utxo]);
         let dummy_tx = TransactionBuilder::create_btc_tx(tx_ins, tx_outs);
-        let mut tx_details = CreateTxOutputs {
+        let mut tx_details = TxHandler {
             tx: dummy_tx,
             prevouts: vec![prevout],
             scripts: vec![scripts],
