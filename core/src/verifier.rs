@@ -242,7 +242,7 @@ where
                 let sig_hash =
                     Actor::convert_tx_to_sighash_pubkey_spend(&mut operator_takes_tx, 0).unwrap();
                 let operator_takes_partial_sig = musig2::partial_sign(
-                    vec![], // TODO Fix this
+                    self.config.verifiers_public_keys.clone(),
                     None,
                     nonces[index].1,
                     nonces[index].2.clone(),
@@ -333,7 +333,7 @@ where
             .map(|(outpoint, _)| outpoint.clone())
             .collect::<Vec<_>>();
 
-        let mut move_commit_tx = TransactionBuilder::create_move_commit_tx(
+        let mut move_commit_tx_handler = TransactionBuilder::create_move_commit_tx(
             *deposit_utxo,
             &evm_address,
             &recovery_taproot_address,
@@ -344,13 +344,32 @@ where
             self.config.network.clone(),
         );
 
-        let move_commit_sig =
-            self.signer
-                .sighash_taproot_script_spend(&mut move_commit_tx, 0, 0)?; // TODO: This should be musig
+        let move_commit_sighash =
+            Actor::convert_tx_to_sighash_script_spend(&mut move_commit_tx_handler, 0, 0)?; // TODO: This should be musig
 
-        let mut move_reveal_tx = TransactionBuilder::create_move_reveal_tx(
+        let move_commit_nonces = self
+            .db
+            .get_nonces(&deposit_utxo, 0)
+            .await?
+            .ok_or(BridgeError::NoncesNotFound)?;
+        let move_reveal_nonces = self
+            .db
+            .get_nonces(&deposit_utxo, 1)
+            .await?
+            .ok_or(BridgeError::NoncesNotFound)?;
+
+        let move_commit_sig = musig2::partial_sign(
+            self.config.verifiers_public_keys.clone(),
+            None,
+            move_commit_nonces.1,
+            move_commit_nonces.2.clone(),
+            &self.signer.keypair,
+            move_commit_sighash.to_byte_array(),
+        );
+
+        let mut move_reveal_tx_handler = TransactionBuilder::create_move_reveal_tx(
             OutPoint {
-                txid: move_commit_tx.tx.compute_txid(),
+                txid: move_commit_tx_handler.tx.compute_txid(),
                 vout: 0,
             },
             &evm_address,
@@ -361,13 +380,21 @@ where
             self.config.network.clone(),
         );
 
-        let move_reveal_sig =
-            self.signer
-                .sighash_taproot_script_spend(&mut move_reveal_tx, 0, 0)?; // TODO: This should be musig
+        let move_reveal_sighash =
+            Actor::convert_tx_to_sighash_script_spend(&mut move_reveal_tx_handler, 0, 0)?; // TODO: This should be musig
+
+        let move_reveal_sig = musig2::partial_sign(
+            self.config.verifiers_public_keys.clone(),
+            None,
+            move_reveal_nonces.1,
+            move_reveal_nonces.2.clone(),
+            &self.signer.keypair,
+            move_reveal_sighash.to_byte_array(),
+        );
 
         Ok((
-            move_commit_sig.to_byte_array() as MuSigPartialSignature,
-            move_reveal_sig.to_byte_array() as MuSigPartialSignature,
+            move_commit_sig as MuSigPartialSignature,
+            move_reveal_sig as MuSigPartialSignature,
         ))
     }
 }
