@@ -6,12 +6,14 @@ use crate::extended_rpc::ExtendedRpc;
 use crate::musig2::{self, MuSigAggNonce, MuSigPartialSignature, MuSigPubNonce};
 use crate::traits::rpc::OperatorRpcServer;
 use crate::transaction_builder::TransactionBuilder;
-use crate::{utils, EVMAddress, PsbtOutPoint};
+use crate::{utils, EVMAddress, PsbtOutPoint, UTXO};
 use ::musig2::secp::Point;
 use bitcoin::address::NetworkUnchecked;
-use bitcoin::{Address, OutPoint};
+use bitcoin::hashes::Hash;
+use bitcoin::{Address, OutPoint, TapSighash};
 use bitcoin_mock_rpc::RpcApiWrapper;
 use clementine_circuits::constants::BRIDGE_AMOUNT_SATS;
+use clementine_circuits::sha256_hash;
 use jsonrpsee::core::async_trait;
 
 #[derive(Debug, Clone)]
@@ -65,13 +67,13 @@ where
     /// TODO: Create multiple kickoffs in single transaction
     pub async fn new_deposit(
         &self,
-        deposit_utxo: &OutPoint,
+        deposit_outpoint: &OutPoint,
         recovery_taproot_address: &Address<NetworkUnchecked>,
         evm_address: &EVMAddress,
-    ) -> Result<PsbtOutPoint, BridgeError> {
+    ) -> Result<(UTXO, secp256k1::schnorr::Signature), BridgeError> {
         tracing::info!(
             "New deposit request for UTXO: {:?}, EVM address: {:?} and recovery taproot address of: {:?}",
-            deposit_utxo,
+            deposit_outpoint,
             evm_address,
             recovery_taproot_address
         );
@@ -79,7 +81,7 @@ where
         // 1. Check if the deposit UTXO is valid, finalized (6 blocks confirmation) and not spent
         self.rpc.check_deposit_utxo(
             &self.nofn_xonly_pk,
-            &deposit_utxo,
+            &deposit_outpoint,
             recovery_taproot_address,
             evm_address,
             BRIDGE_AMOUNT_SATS,
@@ -89,11 +91,22 @@ where
         )?;
 
         // 2. Check if we alredy created a kickoff UTXO for this deposit UTXO
-        let deposit_tx_info = self.db.get_kickoff_utxo(deposit_utxo).await?;
+        let kickoff_utxo = self.db.get_kickoff_utxo(deposit_outpoint).await?;
 
         // if we already have a kickoff UTXO for this deposit UTXO, return it
-        if let Some(deposit_tx_info) = deposit_tx_info {
-            return Ok(deposit_tx_info);
+        if let Some(kickoff_utxo) = kickoff_utxo {
+            let kickoff_sig_hash = sha256_hash!(
+                deposit_outpoint.txid,
+                deposit_outpoint.vout.to_be_bytes(),
+                kickoff_utxo.outpoint.txid,
+                kickoff_utxo.outpoint.vout.to_be_bytes()
+            );
+
+            let sig = self
+                .signer
+                .sign(TapSighash::from_byte_array(kickoff_sig_hash));
+
+            return Ok((kickoff_utxo, sig));
         }
 
         // 3. Create a kickoff transaction but do not broadcast it
@@ -120,12 +133,24 @@ where
             &self.signer.address,
         );
 
-        let kickoff_utxo = PsbtOutPoint {
-            tx: kickoff_tx,
-            vout: 0,
+        let kickoff_utxo = UTXO {
+            outpoint: OutPoint {
+                txid: kickoff_tx.compute_txid(),
+                vout: 0,
+            },
+            txout: kickoff_tx.output[0].clone(),
         };
 
-        let kickoff_txid = kickoff_utxo.tx.compute_txid();
+        let kickoff_sig_hash = sha256_hash!(
+            deposit_outpoint.txid,
+            deposit_outpoint.vout.to_be_bytes(),
+            kickoff_utxo.outpoint.txid,
+            kickoff_utxo.outpoint.vout.to_be_bytes()
+        );
+
+        let sig = self
+            .signer
+            .sign(TapSighash::from_byte_array(kickoff_sig_hash));
 
         // In a db tx, save the kickoff_utxo for this deposit_utxo
         // and update the db with the new funding_utxo as the change
@@ -135,9 +160,9 @@ where
         // We save the funding txid and the kickoff txid to be able to track them later
         self.db
             .save_kickoff_utxo(
-                &deposit_utxo,
+                &deposit_outpoint,
                 &kickoff_utxo,
-                &kickoff_txid,
+                &kickoff_utxo.outpoint.txid,
                 &funding_utxo.txid,
             )
             .await?;
@@ -147,9 +172,7 @@ where
 
         transaction.commit().await?;
 
-        // TODO: Sign Hash(Hash(deposit_utxo) || Hash(kickoff_utxo)) with the operator key
-
-        Ok(kickoff_utxo)
+        Ok((kickoff_utxo, sig))
     }
 
     /// Checks if utxo is valid, spendable by operator and not spent
@@ -172,7 +195,7 @@ where
         deposit_utxo: OutPoint,
         recovery_taproot_address: Address<NetworkUnchecked>,
         evm_address: EVMAddress,
-    ) -> Result<PsbtOutPoint, BridgeError> {
+    ) -> Result<(UTXO, secp256k1::schnorr::Signature), BridgeError> {
         self.new_deposit(&deposit_utxo, &recovery_taproot_address, &evm_address)
             .await
     }

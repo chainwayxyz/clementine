@@ -5,16 +5,13 @@ use crate::errors::BridgeError;
 use crate::extended_rpc::ExtendedRpc;
 use crate::musig2::{self, MuSigAggNonce, MuSigPartialSignature, MuSigPubNonce};
 use crate::traits::rpc::VerifierRpcServer;
-use crate::transaction_builder::{
-    TransactionBuilder, MOVE_COMMIT_TX_MIN_RELAY_FEE, MOVE_REVEAL_TX_MIN_RELAY_FEE,
-};
-use crate::{script_builder, utils, EVMAddress, PsbtOutPoint};
+use crate::transaction_builder::TransactionBuilder;
+use crate::{utils, EVMAddress, PsbtOutPoint, UTXO};
 use ::musig2::secp::Point;
 use bitcoin::address::NetworkUnchecked;
 use bitcoin::hashes::Hash;
-use bitcoin::sighash::{self};
 use bitcoin::{secp256k1, OutPoint};
-use bitcoin::{taproot, Address, Amount, TxOut};
+use bitcoin::{Address, TxOut};
 use bitcoin_mock_rpc::RpcApiWrapper;
 use clementine_circuits::constants::BRIDGE_AMOUNT_SATS;
 use clementine_circuits::sha256_hash;
@@ -94,6 +91,9 @@ where
         // Check if we already have pub_nonces for this deposit_utxo.
         let pub_nonces_from_db = self.db.get_pub_nonces(deposit_utxo).await?;
         if let Some(pub_nonces) = pub_nonces_from_db {
+            if pub_nonces.len() != num_required_sigs {
+                return Err(BridgeError::NoncesNotFound);
+            }
             return Ok(pub_nonces);
         }
 
@@ -121,11 +121,11 @@ where
     /// - Save agg_nonces to a db for future use
     /// - for every kickoff_utxo, calculate kickoff2_tx
     /// - for every kickoff2_tx, partial sign burn_tx (ommitted for now)
-    /// - return MuSigPartialSignature of sign(kickoff2_txids)
+    /// - return butn_txs partial signatures (ommitted for now)
     async fn operator_kickoffs_generated(
         &self,
         deposit_utxo: &OutPoint,
-        kickoff_utxos: Vec<PsbtOutPoint>,
+        kickoff_utxos: Vec<UTXO>,
         operators_kickoff_sigs: Vec<secp256k1::schnorr::Signature>, // These are not transaction signatures, rather, they are to verify the operator's identity.
         agg_nonces: Vec<MuSigAggNonce>,
     ) -> Result<Vec<MuSigPartialSignature>, BridgeError> {
@@ -134,7 +134,7 @@ where
         }
 
         for (i, kickoff_utxo) in kickoff_utxos.iter().enumerate() {
-            let value = kickoff_utxo.tx.output[kickoff_utxo.vout as usize].value;
+            let value = kickoff_utxo.txout.value;
             if value.to_sat() < 100_000 {
                 return Err(BridgeError::InvalidKickoffUtxo);
             }
@@ -142,34 +142,21 @@ where
             let kickoff_sig_hash = sha256_hash!(
                 deposit_utxo.txid,
                 deposit_utxo.vout.to_be_bytes(),
-                kickoff_utxo.tx.compute_txid(),
-                kickoff_utxo.vout.to_be_bytes()
+                kickoff_utxo.outpoint.txid,
+                kickoff_utxo.outpoint.vout.to_be_bytes()
             );
 
             utils::SECP.verify_schnorr(
                 &operators_kickoff_sigs[i],
                 &secp256k1::Message::from_digest(kickoff_sig_hash),
-                &self.signer.xonly_public_key, // TODO: Fix this to correct operator
+                &self.config.operators_xonly_pks[i],
             )?;
         }
-
-        let kickoff_outpoints_and_amounts = kickoff_utxos
-            .iter()
-            .map(|x| {
-                (
-                    OutPoint {
-                        txid: x.tx.compute_txid(),
-                        vout: x.vout,
-                    },
-                    x.tx.output[x.vout as usize].value,
-                )
-            })
-            .collect::<Vec<_>>();
 
         self.db.save_agg_nonces(deposit_utxo, &agg_nonces).await?;
 
         self.db
-            .save_kickoff_outpoints_and_amounts(deposit_utxo, &kickoff_outpoints_and_amounts)
+            .save_kickoff_utxos(deposit_utxo, &kickoff_utxos)
             .await?;
 
         // TODO: Sign burn txs
@@ -180,55 +167,42 @@ where
     /// sign operator_takes_txs
     async fn burn_txs_signed_rpc(
         &self,
-        deposit_utxo: &OutPoint,
+        deposit_outpoint: &OutPoint,
         _burn_sigs: Vec<schnorr::Signature>,
     ) -> Result<Vec<MuSigPartialSignature>, BridgeError> {
         // TODO: Verify burn txs are signed by verifiers
 
-        let kickoff_outpoints_and_amounts = self
+        let kickoff_utxos = self
             .db
-            .get_kickoff_outpoints_and_amounts(deposit_utxo)
-            .await?;
+            .get_kickoff_utxos(deposit_outpoint)
+            .await?
+            .ok_or(BridgeError::KickoffOutpointsNotFound)?;
 
-        let kickoff_outpoints_and_amounts =
-            kickoff_outpoints_and_amounts.ok_or(BridgeError::KickoffOutpointsNotFound)?;
-
-        let future_nonces = (0..kickoff_outpoints_and_amounts.len())
-            .map(|i| self.db.get_nonces(&deposit_utxo, i + 2)); // i + 2 is bcs we used the first two nonce for move_txs
-        let bridge_fund_txid = self.db.get_bridge_fund_txid(*deposit_utxo).await?;
-        let bridge_fund_utxo = OutPoint {
+        let bridge_fund_txid = self.db.get_bridge_fund_txid(*deposit_outpoint).await?;
+        let bridge_fund_outpoint = OutPoint {
             txid: bridge_fund_txid,
             vout: 0,
         };
 
-        let nonces = futures::future::try_join_all(future_nonces)
-            .await?
-            .into_iter()
-            .map(|opt| opt.ok_or(BridgeError::NoncesNotFound))
-            .collect::<Result<Vec<_>, _>>()?;
-
-        let operator_takes_partial_sigs = kickoff_outpoints_and_amounts
+        let operator_takes_sighashes = kickoff_utxos
             .iter()
             .enumerate()
-            .map(|(index, (kickoff_outpoint, kickoff_amount))| async {
+            .map(|(index, kickoff_utxo)| {
                 let (operator_address, _) = TransactionBuilder::create_taproot_address(
                     &[],
                     Some(self.operator_xonly_pks[index]),
                     self.config.network.clone(),
                 );
                 let slash_or_take_tx = TransactionBuilder::create_slash_or_take_tx(
-                    kickoff_outpoint.clone(),
-                    TxOut {
-                        value: *kickoff_amount,
-                        script_pubkey: operator_address.script_pubkey(),
-                    },
+                    kickoff_utxo.outpoint,
+                    kickoff_utxo.txout.clone(),
                     &self.operator_xonly_pks[index],
                     &self.nofn_xonly_pk,
                     self.config.network,
                 );
 
                 let mut operator_takes_tx = TransactionBuilder::create_operator_takes_tx(
-                    bridge_fund_utxo.clone(),
+                    bridge_fund_outpoint.clone(),
                     OutPoint {
                         txid: slash_or_take_tx.tx.compute_txid(),
                         vout: 0,
@@ -238,27 +212,33 @@ where
                     &self.nofn_xonly_pk,
                     self.config.network,
                 );
-
-                let sighash =
-                    Actor::convert_tx_to_sighash_pubkey_spend(&mut operator_takes_tx, 0).unwrap();
-
-                let (sec_nonce, agg_nonce) = self
-                    .db
-                    .save_sighash_and_get_nonces(deposit_utxo, index + 2, &sighash.to_byte_array())
-                    .await?
-                    .ok_or(BridgeError::NoncesNotFound)?;
-                let operator_takes_partial_sig = musig2::partial_sign(
-                    self.config.verifiers_public_keys.clone(),
-                    None,
-                    sec_nonce,
-                    agg_nonce,
-                    &self.signer.keypair,
-                    sighash.to_byte_array(),
-                );
-                operator_takes_partial_sig as MuSigPartialSignature
+                Actor::convert_tx_to_sighash_pubkey_spend(&mut operator_takes_tx, 0)
+                    .unwrap()
+                    .to_byte_array()
             })
             .collect::<Vec<_>>();
 
+        let nonces = self
+            .db
+            .save_sighashes_and_get_nonces(deposit_outpoint, 2, &operator_takes_sighashes)
+            .await?
+            .ok_or(BridgeError::NoncesNotFound)?;
+
+        // now iterate over nonces and sighashes and sign the operator_takes_txs
+        let operator_takes_partial_sigs = operator_takes_sighashes
+            .iter()
+            .zip(nonces.iter())
+            .map(|(sighash, (sec_nonce, agg_nonce))| {
+                musig2::partial_sign(
+                    self.config.verifiers_public_keys.clone(),
+                    None,
+                    *sec_nonce,
+                    agg_nonce.clone(),
+                    &self.signer.keypair,
+                    sighash.clone(),
+                )
+            })
+            .collect::<Vec<_>>();
         Ok(operator_takes_partial_sigs)
     }
 
@@ -266,36 +246,33 @@ where
     /// sign move_commit_tx and move_reveal_tx
     async fn operator_take_txs_signed_rpc(
         &self,
-        deposit_utxo: &OutPoint,
+        deposit_outpoint: &OutPoint,
         operator_take_sigs: Vec<schnorr::Signature>,
     ) -> Result<(MuSigPartialSignature, MuSigPartialSignature), BridgeError> {
-        let kickoff_outpoints_and_amounts = self
+        let kickoff_utxos = self
             .db
-            .get_kickoff_outpoints_and_amounts(deposit_utxo)
-            .await?;
+            .get_kickoff_utxos(deposit_outpoint)
+            .await?
+            .ok_or(BridgeError::KickoffOutpointsNotFound)?;
 
-        let kickoff_outpoints_and_amounts =
-            kickoff_outpoints_and_amounts.ok_or(BridgeError::KickoffOutpointsNotFound)?;
-
-        let bridge_fund_txid = self.db.get_bridge_fund_txid(*deposit_utxo).await?;
+        let bridge_fund_txid = self.db.get_bridge_fund_txid(*deposit_outpoint).await?;
         let bridge_fund_utxo = OutPoint {
             txid: bridge_fund_txid,
             vout: 0,
         };
 
-        let verification_result = kickoff_outpoints_and_amounts.iter().enumerate().map(
-            |(index, (kickoff_outpoint, kickoff_amount))| {
+        kickoff_utxos
+            .iter()
+            .enumerate()
+            .map(|(index, kickoff_utxo)| {
                 let (operator_address, _) = TransactionBuilder::create_taproot_address(
                     &[],
                     Some(self.operator_xonly_pks[index]),
                     self.config.network.clone(),
                 );
                 let slash_or_take_tx = TransactionBuilder::create_slash_or_take_tx(
-                    kickoff_outpoint.clone(),
-                    TxOut {
-                        value: *kickoff_amount,
-                        script_pubkey: operator_address.script_pubkey(),
-                    },
+                    kickoff_utxo.outpoint,
+                    kickoff_utxo.txout.clone(),
                     &self.operator_xonly_pks[index],
                     &self.nofn_xonly_pk,
                     self.config.network,
@@ -324,28 +301,26 @@ where
                         &self.nofn_xonly_pk,
                     )
                     .unwrap();
-            },
-        );
-        println!("Verification result: {:?}", verification_result);
+            });
 
         let (recovery_taproot_address, evm_address) = self
             .db
-            .get_deposit_info(deposit_utxo)
+            .get_deposit_info(deposit_outpoint)
             .await?
             .ok_or(BridgeError::DepositInfoNotFound)?;
 
-        let kickoff_utxos = kickoff_outpoints_and_amounts
+        let kickoff_outpoints = kickoff_utxos
             .iter()
-            .map(|(outpoint, _)| outpoint.clone())
+            .map(|utxo| utxo.outpoint)
             .collect::<Vec<_>>();
 
         let mut move_commit_tx_handler = TransactionBuilder::create_move_commit_tx(
-            *deposit_utxo,
+            *deposit_outpoint,
             &evm_address,
             &recovery_taproot_address,
             200, // TODO: Fix this
             &self.nofn_xonly_pk,
-            &kickoff_utxos,
+            &kickoff_outpoints,
             201, // TODO: Fix this
             self.config.network.clone(),
         );
@@ -353,25 +328,16 @@ where
         let move_commit_sighash =
             Actor::convert_tx_to_sighash_script_spend(&mut move_commit_tx_handler, 0, 0)?; // TODO: This should be musig
 
-        let move_commit_nonces = self
-            .db
-            .get_nonces(&deposit_utxo, 0)
-            .await?
-            .ok_or(BridgeError::NoncesNotFound)?;
-        let move_reveal_nonces = self
-            .db
-            .get_nonces(&deposit_utxo, 1)
-            .await?
-            .ok_or(BridgeError::NoncesNotFound)?;
-
-        let move_commit_sig = musig2::partial_sign(
-            self.config.verifiers_public_keys.clone(),
-            None,
-            move_commit_nonces.1,
-            move_commit_nonces.2.clone(),
-            &self.signer.keypair,
-            move_commit_sighash.to_byte_array(),
-        );
+        // let move_commit_nonces = self
+        //     .db
+        //     .get_nonces(&deposit_utxo, 0)
+        //     .await?
+        //     .ok_or(BridgeError::NoncesNotFound)?;
+        // let move_reveal_nonces = self
+        //     .db
+        //     .get_nonces(&deposit_utxo, 1)
+        //     .await?
+        //     .ok_or(BridgeError::NoncesNotFound)?;
 
         let mut move_reveal_tx_handler = TransactionBuilder::create_move_reveal_tx(
             OutPoint {
@@ -381,7 +347,7 @@ where
             &evm_address,
             &recovery_taproot_address,
             &self.nofn_xonly_pk,
-            &kickoff_utxos,
+            &kickoff_outpoints,
             201, // TODO: Fix this
             self.config.network.clone(),
         );
@@ -389,11 +355,33 @@ where
         let move_reveal_sighash =
             Actor::convert_tx_to_sighash_script_spend(&mut move_reveal_tx_handler, 0, 0)?; // TODO: This should be musig
 
+        let nonces = self
+            .db
+            .save_sighashes_and_get_nonces(
+                deposit_outpoint,
+                0,
+                &[
+                    move_commit_sighash.to_byte_array(),
+                    move_reveal_sighash.to_byte_array(),
+                ],
+            )
+            .await?
+            .ok_or(BridgeError::NoncesNotFound)?;
+
+        let move_commit_sig = musig2::partial_sign(
+            self.config.verifiers_public_keys.clone(),
+            None,
+            nonces[0].0,
+            nonces[0].1.clone(),
+            &self.signer.keypair,
+            move_commit_sighash.to_byte_array(),
+        );
+
         let move_reveal_sig = musig2::partial_sign(
             self.config.verifiers_public_keys.clone(),
             None,
-            move_reveal_nonces.1,
-            move_reveal_nonces.2.clone(),
+            nonces[1].0,
+            nonces[2].1.clone(),
             &self.signer.keypair,
             move_reveal_sighash.to_byte_array(),
         );
@@ -423,7 +411,7 @@ where
     async fn operator_kickoffs_generated_rpc(
         &self,
         deposit_utxo: OutPoint,
-        kickoff_utxos: Vec<PsbtOutPoint>,
+        kickoff_utxos: Vec<UTXO>,
         operators_kickoff_sigs: Vec<schnorr::Signature>,
         agg_nonces: Vec<MuSigAggNonce>,
     ) -> Result<Vec<MuSigPartialSignature>, BridgeError> {

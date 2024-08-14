@@ -6,7 +6,7 @@
 
 use crate::musig2::{MuSigAggNonce, MuSigPubNonce, MuSigSecNonce};
 use crate::{config::BridgeConfig, errors::BridgeError};
-use crate::{EVMAddress, PsbtOutPoint};
+use crate::{EVMAddress, PsbtOutPoint, UTXO};
 use bitcoin::address::NetworkUnchecked;
 use bitcoin::{Address, Amount, OutPoint, Txid};
 use sqlx::{Pool, Postgres};
@@ -280,14 +280,14 @@ impl Database {
     pub async fn get_kickoff_utxo(
         &self,
         deposit_utxo: &OutPoint,
-    ) -> Result<Option<PsbtOutPoint>, BridgeError> {
+    ) -> Result<Option<UTXO>, BridgeError> {
         unimplemented!();
     }
 
-    pub async fn get_kickoff_outpoints_and_amounts(
+    pub async fn get_kickoff_utxos(
         &self,
-        deposit_utxo: &OutPoint,
-    ) -> Result<Option<Vec<(OutPoint, Amount)>>, BridgeError> {
+        deposit_outpoint: &OutPoint,
+    ) -> Result<Option<Vec<UTXO>>, BridgeError> {
         unimplemented!();
     }
 
@@ -307,18 +307,18 @@ impl Database {
 
     pub async fn save_kickoff_utxo(
         &self,
-        deposit_utxo: &OutPoint,
-        kickoff_utxo: &PsbtOutPoint,
+        deposit_outpoint: &OutPoint,
+        kickoff_utxo: &UTXO,
         kickoff_txid: &Txid,
         funding_txid: &Txid,
     ) -> Result<(), BridgeError> {
         unimplemented!();
     }
 
-    pub async fn save_kickoff_outpoints_and_amounts(
+    pub async fn save_kickoff_utxos(
         &self,
-        deposit_utxo: &OutPoint,
-        kickoff_utxos: &Vec<(OutPoint, Amount)>,
+        deposit_outpoint: &OutPoint,
+        kickoff_utxos: &Vec<UTXO>,
     ) -> Result<(), BridgeError> {
         unimplemented!();
     }
@@ -368,6 +368,15 @@ impl Database {
         index: usize,
         sighash: &[u8; 32],
     ) -> Result<Option<(MuSigSecNonce, MuSigAggNonce)>, BridgeError> {
+        unimplemented!();
+    }
+
+    pub async fn save_sighashes_and_get_nonces(
+        &self,
+        deposit_utxo: &OutPoint,
+        index: usize,
+        sighashes: &[[u8; 32]],
+    ) -> Result<Option<Vec<(MuSigSecNonce, MuSigAggNonce)>>, BridgeError> {
         unimplemented!();
     }
 

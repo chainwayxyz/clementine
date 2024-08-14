@@ -46,6 +46,12 @@ pub struct PsbtOutPoint {
     pub vout: u32,
 }
 
+#[derive(Clone, Debug, Eq, Hash, PartialEq, PartialOrd, Ord, Serialize, Deserialize)]
+pub struct UTXO {
+    pub outpoint: OutPoint,
+    pub txout: bitcoin::TxOut,
+}
+
 use serde::de::{self, Deserializer, SeqAccess, Visitor};
 use serde::ser::{SerializeTuple, Serializer};
 
