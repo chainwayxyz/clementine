@@ -182,7 +182,6 @@ where
         &self,
         deposit_utxo: &OutPoint,
         _burn_sigs: Vec<schnorr::Signature>,
-        operator_xonly_pks: Vec<secp256k1::XOnlyPublicKey>,
     ) -> Result<Vec<MuSigPartialSignature>, BridgeError> {
         // TODO: Verify burn txs are signed by verifiers
 
@@ -196,67 +195,54 @@ where
 
         let future_nonces = (0..kickoff_outpoints_and_amounts.len())
             .map(|i| self.db.get_nonces(&deposit_utxo, i + 2)); // i + 2 is bcs we used the first two nonce for move_txs
+        let bridge_fund_txid = self.db.get_bridge_fund_txid(*deposit_utxo).await?;
+        let bridge_fund_utxo = OutPoint {
+            txid: bridge_fund_txid,
+            vout: 0,
+        };
 
         let nonces = futures::future::try_join_all(future_nonces)
             .await?
             .into_iter()
             .map(|opt| opt.ok_or(BridgeError::NoncesNotFound))
             .collect::<Result<Vec<_>, _>>()?;
-        let (musig2_address, _) =
-            TransactionBuilder::create_musig2_address(self.nofn_xonly_pk, self.config.network);
 
         let operator_takes_partial_sigs = kickoff_outpoints_and_amounts
             .iter()
             .enumerate()
             .map(|(index, (kickoff_outpoint, kickoff_amount))| {
+                let (operator_address, _) = TransactionBuilder::create_taproot_address(
+                    &[],
+                    Some(self.operator_xonly_pks[index]),
+                    self.config.network.clone(),
+                );
                 let slash_or_take_tx = TransactionBuilder::create_slash_or_take_tx(
                     kickoff_outpoint.clone(),
                     TxOut {
                         value: *kickoff_amount,
-                        script_pubkey: self.signer.address.script_pubkey(), // TODO: Fix this address to operator
+                        script_pubkey: operator_address.script_pubkey(),
                     },
-                    &self.operator_xonly_pks[index], // TODO: Change this to operator[index] xonly pubkey
+                    &self.operator_xonly_pks[index],
                     &self.nofn_xonly_pk,
                     self.config.network,
                 );
 
-                let operator_takes_tx = TransactionBuilder::create_operator_takes_tx(
-                    deposit_utxo.clone(),
+                let mut operator_takes_tx = TransactionBuilder::create_operator_takes_tx(
+                    bridge_fund_utxo.clone(),
                     OutPoint {
                         txid: slash_or_take_tx.tx.compute_txid(),
                         vout: 0,
                     },
-                    slash_or_take_tx.tx.output[0],
-                    &self.signer.address, // TODO: Change this to operator[index] xonly pubkey
+                    slash_or_take_tx.tx.output[0].clone(),
+                    &operator_address,
                     &self.nofn_xonly_pk,
                     self.config.network,
                 );
-                let bridge_txout = TxOut {
-                    value: Amount::from_sat(BRIDGE_AMOUNT_SATS)
-                        - Amount::from_sat(MOVE_COMMIT_TX_MIN_RELAY_FEE)
-                        - Amount::from_sat(MOVE_REVEAL_TX_MIN_RELAY_FEE)
-                        - script_builder::anyone_can_spend_txout().value
-                        - script_builder::anyone_can_spend_txout().value,
-                    script_pubkey: musig2_address.script_pubkey(), // TODO: Fix this to N-of-N
-                };
 
-                let prevouts = vec![bridge_txout, slash_or_take_tx.tx.output[0]];
-
-                let mut sighash_cache = sighash::SighashCache::new(tx);
-                let sig_hash = sighash_cache
-                    .taproot_script_spend_signature_hash(
-                        0,
-                        &bitcoin::sighash::Prevouts::All(&prevouts),
-                        bitcoin::TapLeafHash::from_script(
-                            &musig2_script,
-                            taproot::LeafVersion::TapScript,
-                        ),
-                        sighash::TapSighashType::Default,
-                    )
-                    .unwrap(); // Is unwrap safe here?
-
+                let sig_hash =
+                    Actor::convert_tx_to_sighash_pubkey_spend(&mut operator_takes_tx, 0).unwrap();
                 let operator_takes_partial_sig = musig2::partial_sign(
-                    vec![],
+                    vec![], // TODO Fix this
                     None,
                     nonces[index].1,
                     nonces[index].2.clone(),
@@ -285,74 +271,56 @@ where
         let kickoff_outpoints_and_amounts =
             kickoff_outpoints_and_amounts.ok_or(BridgeError::KickoffOutpointsNotFound)?;
 
-        kickoff_outpoints_and_amounts.iter().enumerate().map(
-            |(index, (kickoff_outpoint, kickoff_amount))| {
-                let ins = TransactionBuilder::create_tx_ins(vec![kickoff_outpoint.clone()]);
-                let outs = vec![
-                    TxOut {
-                        value: Amount::from_sat(kickoff_amount.to_sat() - 330),
-                        script_pubkey: self.signer.address.script_pubkey(), // TODO: Fix this address to operator or 200 blocks N-of-N
-                    },
-                    script_builder::anyone_can_spend_txout(),
-                ];
-                let tx = TransactionBuilder::create_btc_tx(ins, outs);
+        let bridge_fund_txid = self.db.get_bridge_fund_txid(*deposit_utxo).await?;
+        let bridge_fund_utxo = OutPoint {
+            txid: bridge_fund_txid,
+            vout: 0,
+        };
 
-                let ins = TransactionBuilder::create_tx_ins(vec![
-                    deposit_utxo.clone(),
+        let verification_result = kickoff_outpoints_and_amounts.iter().enumerate().map(
+            |(index, (kickoff_outpoint, kickoff_amount))| {
+                let (operator_address, _) = TransactionBuilder::create_taproot_address(
+                    &[],
+                    Some(self.operator_xonly_pks[index]),
+                    self.config.network.clone(),
+                );
+                let slash_or_take_tx = TransactionBuilder::create_slash_or_take_tx(
+                    kickoff_outpoint.clone(),
+                    TxOut {
+                        value: *kickoff_amount,
+                        script_pubkey: operator_address.script_pubkey(),
+                    },
+                    &self.operator_xonly_pks[index],
+                    &self.nofn_xonly_pk,
+                    self.config.network,
+                );
+
+                let mut operator_takes_tx = TransactionBuilder::create_operator_takes_tx(
+                    bridge_fund_utxo.clone(),
                     OutPoint {
-                        txid: tx.compute_txid(),
+                        txid: slash_or_take_tx.tx.compute_txid(),
                         vout: 0,
                     },
-                ]);
-                let outs = vec![
-                    TxOut {
-                        value: Amount::from_sat(
-                            kickoff_amount.to_sat() - 330 + BRIDGE_AMOUNT_SATS - 330,
-                        ),
-                        script_pubkey: operator_xonly, // TODO: Fix this address to operator
-                    },
-                    script_builder::anyone_can_spend_txout(),
-                ];
+                    slash_or_take_tx.tx.output[0].clone(),
+                    &operator_address,
+                    &self.nofn_xonly_pk,
+                    self.config.network,
+                );
 
-                let tx = TransactionBuilder::create_btc_tx(ins, outs);
-
-                let bridge_txout = TxOut {
-                    value: Amount::from_sat(BRIDGE_AMOUNT_SATS - 200 - 330), // TODO: Fix min relay fee, not 200
-                    script_pubkey: self.signer.address.script_pubkey(), // TODO: Fix this to N-of-N
-                };
-                let kickoff_txout = TxOut {
-                    value: *kickoff_amount,
-                    script_pubkey: self.signer.address.script_pubkey(), // TODO: Fix this address to operator or 200 blocks N-of-N
-                };
-
-                let prevouts = vec![bridge_txout, kickoff_txout];
-
-                let musig_script =
-                    script_builder::generate_script_n_of_n(&vec![self.signer.xonly_public_key]); // TODO: Fix this to N-of-N musig
-
-                let mut sighash_cache = sighash::SighashCache::new(tx);
-                let sig_hash = sighash_cache
-                    .taproot_script_spend_signature_hash(
-                        0,
-                        &bitcoin::sighash::Prevouts::All(&prevouts),
-                        bitcoin::TapLeafHash::from_script(
-                            &musig_script,
-                            taproot::LeafVersion::TapScript,
-                        ),
-                        sighash::TapSighashType::Default,
-                    )
-                    .unwrap(); // Is unwrap safe here?
+                let sig_hash =
+                    Actor::convert_tx_to_sighash_pubkey_spend(&mut operator_takes_tx, 0).unwrap();
 
                 // verify the operator_take_sigs
                 utils::SECP
                     .verify_schnorr(
                         &operator_take_sigs[index],
                         &secp256k1::Message::from_digest(sig_hash.to_byte_array()),
-                        &self.signer.xonly_public_key, // TOOD: Fix this to N-of-N pubkey
+                        &self.nofn_xonly_pk,
                     )
                     .unwrap();
             },
         );
+        println!("Verification result: {:?}", verification_result);
 
         let (recovery_taproot_address, evm_address) = self
             .db
@@ -370,9 +338,10 @@ where
             &evm_address,
             &recovery_taproot_address,
             200, // TODO: Fix this
-            &self.config.verifiers_public_keys,
+            &self.nofn_xonly_pk,
             &kickoff_utxos,
             201, // TODO: Fix this
+            self.config.network.clone(),
         );
 
         let move_commit_sig =
@@ -386,9 +355,10 @@ where
             },
             &evm_address,
             &recovery_taproot_address,
-            &self.config.verifiers_public_keys,
+            &self.nofn_xonly_pk,
             &kickoff_utxos,
             201, // TODO: Fix this
+            self.config.network.clone(),
         );
 
         let move_reveal_sig =
@@ -438,8 +408,7 @@ where
         deposit_utxo: OutPoint,
         burn_sigs: Vec<schnorr::Signature>,
     ) -> Result<Vec<MuSigPartialSignature>, BridgeError> {
-        self.burn_txs_signed_rpc(&deposit_utxo, burn_sigs, operator_xonly_pks)
-            .await
+        self.burn_txs_signed_rpc(&deposit_utxo, burn_sigs).await
     }
 
     async fn operator_take_txs_signed_rpc(

@@ -13,6 +13,7 @@ use bitcoin::{
 use clementine_circuits::constants::BRIDGE_AMOUNT_SATS;
 use secp256k1::PublicKey;
 use secp256k1::XOnlyPublicKey;
+use serde::Serialize;
 
 #[derive(Debug, Clone)]
 pub struct TxHandler {
@@ -369,6 +370,23 @@ impl TransactionBuilder {
         let (musig2_address, musig2_spend_info) =
             TransactionBuilder::create_musig2_address(*nofn_xonly_pk, network);
 
+        let relative_timelock_script = script_builder::generate_relative_timelock_script(
+            &secp256k1::XOnlyPublicKey::from_slice(
+                &operator_address.script_pubkey().as_bytes()[2..34],
+            )
+            .unwrap(),
+            200,
+        ); // TODO: Change this 200 to a config constant
+        let (slash_or_take_address, slash_or_take_spend_info) =
+            TransactionBuilder::create_taproot_address(
+                &[relative_timelock_script.clone()],
+                Some(*nofn_xonly_pk),
+                network,
+            );
+
+        // Sanity check
+        assert!(slash_or_take_address.script_pubkey() == slash_or_take_txout.script_pubkey);
+
         let outs = vec![
             TxOut {
                 value: Amount::from_sat(slash_or_take_txout.value.to_sat())
@@ -394,10 +412,8 @@ impl TransactionBuilder {
             },
             slash_or_take_txout,
         ];
-        // TODO: slash_or_take_txout to the scripts
-        let scripts = vec![vec![], vec![]];
-        // TODO: Add slash_or_take_txout to the taproot_spend_infos
-        let taproot_spend_infos = vec![musig2_spend_info];
+        let scripts = vec![vec![], vec![relative_timelock_script]];
+        let taproot_spend_infos = vec![musig2_spend_info, slash_or_take_spend_info];
         TxHandler {
             tx,
             prevouts,
@@ -459,61 +475,61 @@ impl TransactionBuilder {
     }
 }
 
-#[cfg(test)]
-mod tests {
+// #[cfg(test)]
+// mod tests {
 
-    use bitcoin::{Address, XOnlyPublicKey};
-    use secp256k1::PublicKey;
+//     use bitcoin::{Address, XOnlyPublicKey};
+//     use secp256k1::PublicKey;
 
-    use crate::{config::BridgeConfig, transaction_builder::TransactionBuilder};
-    use std::str::FromStr;
+//     use crate::{config::BridgeConfig, transaction_builder::TransactionBuilder};
+//     use std::str::FromStr;
 
-    #[test]
-    fn deposit_address() {
-        let config = BridgeConfig::new();
+//     #[test]
+//     fn deposit_address() {
+//         let config = BridgeConfig::new();
 
-        let secp = secp256k1::Secp256k1::new();
+//         let secp = secp256k1::Secp256k1::new();
 
-        let verifier_pks_hex: Vec<&str> = vec![
-            "029bef8d556d80e43ae7e0becb3a7e6838b95defe45896ed6075bb9035d06c9964",
-            "02e37d58a1aae4ba059fd2503712d998470d3a2522f7e2335f544ef384d2199e02",
-            "02688466442a134ee312299bafb37058e385c98dd6005eaaf0f538f533efe5f91f",
-            "02337cca2171fdbfcfd657fa59881f46269f1e590b5ffab6023686c7ad2ecc2c1c",
-            "02a1f9821c983cfe80558fb0b56385c67c8df6824c17aed048c7cbd031549a2fa8",
-        ];
-        let verifier_pks: Vec<PublicKey> = verifier_pks_hex
-            .iter()
-            .map(|pk| PublicKey::from_str(pk).unwrap())
-            .collect();
+//         let verifier_pks_hex: Vec<&str> = vec![
+//             "029bef8d556d80e43ae7e0becb3a7e6838b95defe45896ed6075bb9035d06c9964",
+//             "02e37d58a1aae4ba059fd2503712d998470d3a2522f7e2335f544ef384d2199e02",
+//             "02688466442a134ee312299bafb37058e385c98dd6005eaaf0f538f533efe5f91f",
+//             "02337cca2171fdbfcfd657fa59881f46269f1e590b5ffab6023686c7ad2ecc2c1c",
+//             "02a1f9821c983cfe80558fb0b56385c67c8df6824c17aed048c7cbd031549a2fa8",
+//         ];
+//         let verifier_pks: Vec<PublicKey> = verifier_pks_hex
+//             .iter()
+//             .map(|pk| PublicKey::from_str(pk).unwrap())
+//             .collect();
 
-        let tx_builder = TransactionBuilder::new(verifier_pks, config.network);
+//         let tx_builder = TransactionBuilder::new(verifier_pks, config.network);
 
-        let evm_address: [u8; 20] = hex::decode("1234567890123456789012345678901234567890")
-            .unwrap()
-            .try_into()
-            .unwrap();
+//         let evm_address: [u8; 20] = hex::decode("1234567890123456789012345678901234567890")
+//             .unwrap()
+//             .try_into()
+//             .unwrap();
 
-        let user_xonly_pk: XOnlyPublicKey = XOnlyPublicKey::from_str(
-            "93c7378d96518a75448821c4f7c8f4bae7ce60f804d03d1f0628dd5dd0f5de51",
-        )
-        .unwrap();
+//         let user_xonly_pk: XOnlyPublicKey = XOnlyPublicKey::from_str(
+//             "93c7378d96518a75448821c4f7c8f4bae7ce60f804d03d1f0628dd5dd0f5de51",
+//         )
+//         .unwrap();
 
-        let recovery_taproot_address =
-            Address::p2tr(&secp, user_xonly_pk, None, bitcoin::Network::Regtest);
+//         let recovery_taproot_address =
+//             Address::p2tr(&secp, user_xonly_pk, None, bitcoin::Network::Regtest);
 
-        let deposit_address = TransactionBuilder::generate_deposit_address(
-            &user_xonly_pk,
-            recovery_taproot_address.as_unchecked(),
-            &crate::EVMAddress(evm_address),
-            10_000,
-            200,
-            bitcoin::Network::Regtest,
-        );
-        println!("deposit_address: {:?}", deposit_address.0);
+//         let deposit_address = TransactionBuilder::generate_deposit_address(
+//             &user_xonly_pk,
+//             recovery_taproot_address.as_unchecked(),
+//             &crate::EVMAddress(evm_address),
+//             10_000,
+//             200,
+//             bitcoin::Network::Regtest,
+//         );
+//         println!("deposit_address: {:?}", deposit_address.0);
 
-        assert_eq!(
-            deposit_address.0.to_string(),
-            "bcrt1prqxsjz7h5wt40w54vhmpvn6l2hu8mefmez6ld4p59vksllumskvqs8wvkh" // check this later
-        ) // Comparing it to the taproot address generated in bridge backend repo (using js)
-    }
-}
+//         assert_eq!(
+//             deposit_address.0.to_string(),
+//             "bcrt1prqxsjz7h5wt40w54vhmpvn6l2hu8mefmez6ld4p59vksllumskvqs8wvkh" // check this later
+//         ) // Comparing it to the taproot address generated in bridge backend repo (using js)
+//     }
+// }

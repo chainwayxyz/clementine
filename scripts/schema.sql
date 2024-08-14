@@ -10,12 +10,13 @@ create table new_deposit_requests (
 
 CREATE SEQUENCE start_from_zero MINVALUE 0 START 0;
 
-create table deposit_move_txs (
+create table deposit_flow_infos (
     id INTEGER primary key default nextval('start_from_zero'),
-    start_utxo text not null,
+    deposit_request_utxo text not null,
     recovery_taproot_address text not null,
     evm_address text not null check (evm_address ~ '^[a-fA-F0-9]{40}'),
-    move_txid text not null unique check (move_txid ~ '^[a-fA-F0-9]{64}'),
+    move_intermediate_txid text not null unique check (move_txid ~ '^[a-fA-F0-9]{64}'),
+    bridge_fund_txid text not null unique check (bridge_fund_txid ~ '^[a-fA-F0-9]{64}'),
     created_at timestamp not null default now()
 );
 
