@@ -194,12 +194,12 @@ impl Database {
 
     pub async fn get_move_txid(
         &self,
-        start_utxo: OutPoint,
+        deposit_request_utxo: OutPoint,
         recovery_taproot_address: Address<NetworkUnchecked>,
         evm_address: EVMAddress,
     ) -> Result<Txid, BridgeError> {
         let qr: (String,) = sqlx::query_as("SELECT (move_txid) FROM deposit_move_txs WHERE start_utxo = $1 AND recovery_taproot_address = $2 AND evm_address = $3;")
-            .bind(start_utxo.to_string())
+            .bind(deposit_request_utxo.to_string())
             .bind(serde_json::to_string(&recovery_taproot_address).unwrap().trim_matches('"'))
             .bind(serde_json::to_string(&evm_address).unwrap().trim_matches('"'))
             .fetch_one(&self.connection)
@@ -207,6 +207,41 @@ impl Database {
 
         let move_txid = Txid::from_str(&qr.0).unwrap();
         Ok(move_txid)
+    }
+
+    pub async fn insert_deposit_flow_info(
+        &self,
+        deposit_request_utxo: OutPoint,
+        recovery_taproot_address: Address<NetworkUnchecked>,
+        evm_address: EVMAddress,
+        move_intermediate_txid: Txid,
+        bridge_fund_txid: Txid,
+    ) -> Result<(), BridgeError> {
+        sqlx::query("INSERT INTO deposit_flow_infos (start_utxo, recovery_taproot_address, evm_address, move_intermediate_txid, bridge_fund_txid) VALUES ($1, $2, $3, $4, $5);")
+            .bind(deposit_request_utxo.to_string())
+            .bind(serde_json::to_string(&recovery_taproot_address).unwrap().trim_matches('"'))
+            .bind(serde_json::to_string(&evm_address).unwrap().trim_matches('"'))
+            .bind(move_intermediate_txid.to_string())
+            .bind(bridge_fund_txid.to_string())
+            .fetch_all(&self.connection)
+            .await?;
+
+        Ok(())
+    }
+
+    pub async fn get_bridge_fund_txid(
+        &self,
+        deposit_request_utxo: OutPoint,
+    ) -> Result<Txid, BridgeError> {
+        let qr: (String,) = sqlx::query_as(
+            "SELECT (bridge_fund_txid) FROM deposit_flow_infos WHERE start_utxo = $1;",
+        )
+        .bind(deposit_request_utxo.to_string())
+        .fetch_one(&self.connection)
+        .await?;
+
+        let bridge_fund_txid = Txid::from_str(&qr.0).unwrap();
+        Ok(bridge_fund_txid)
     }
 
     pub async fn save_withdrawal_sig(

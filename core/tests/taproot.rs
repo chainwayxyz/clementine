@@ -52,12 +52,11 @@ async fn run() {
         .push_opcode(OP_CHECKSIG)
         .into_script();
 
-    let (taproot_address, taproot_spend_info) =
-        TransactionBuilder::create_taproot_address_script_spend_only(
-            vec![to_pay_script.clone()],
-            config.network,
-        )
-        .unwrap();
+    let (taproot_address, taproot_spend_info) = TransactionBuilder::create_taproot_address(
+        &vec![to_pay_script.clone()],
+        None,
+        config.network,
+    );
     let utxo = rpc.send_to_address(&taproot_address, 1000).unwrap();
 
     let ins = TransactionBuilder::create_tx_ins(vec![utxo]);
