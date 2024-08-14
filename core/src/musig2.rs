@@ -124,7 +124,10 @@ mod tests {
         transaction_builder::{TransactionBuilder, TxHandler},
         utils,
     };
-    use bitcoin::{hashes::Hash, script, Amount, OutPoint, ScriptBuf, TapNodeHash, TxOut, Txid};
+    use bitcoin::{
+        hashes::Hash, opcodes::all::OP_CHECKSIG, script, Amount, OutPoint, ScriptBuf, TapNodeHash,
+        TxOut, Txid,
+    };
     use secp256k1::{rand::Rng, Keypair, Message, PublicKey, XOnlyPublicKey};
 
     use super::{nonce_pair, MuSigNoncePair};
@@ -459,8 +462,10 @@ mod tests {
             super::aggregate_nonces(nonce_pair_vec.iter().map(|x| x.1.clone()).collect());
         let (musig_agg_pubkey, musig_agg_xonly_pubkey_wrapped) =
             XOnlyPublicKey::from_musig2_pks(pks.clone(), None);
-        let musig2_script =
-            script_builder::generate_script_n_of_n(&vec![musig_agg_xonly_pubkey_wrapped]);
+        let musig2_script = bitcoin::script::Builder::new()
+            .push_x_only_key(&musig_agg_xonly_pubkey_wrapped)
+            .push_opcode(OP_CHECKSIG)
+            .into_script();
         let scripts: Vec<ScriptBuf> = vec![musig2_script];
         let receiving_address = bitcoin::Address::p2tr(
             &utils::SECP,
