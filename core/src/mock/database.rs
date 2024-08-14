@@ -15,8 +15,10 @@
 macro_rules! create_test_config {
     ($db_name:expr, $config_file:expr) => {{
         let config = common::get_test_config($config_file).unwrap();
+        println!("Creating test database: {}", $db_name);
+        println!("Config: {:?}", config);
         let config = Database::create_database(config, &$db_name).await.unwrap();
-
+        println!("Created test database: {}", $db_name);
         let database = Database::new(config.clone()).await.unwrap();
         database
             .run_sql_file("../scripts/schema.sql")
@@ -48,7 +50,8 @@ macro_rules! create_test_config_with_thread_name {
             .last()
             .unwrap()
             .to_owned();
-
+        println!("Thread name: {}", handle);
+        println!("Config file: {}", $config_file);
         create_test_config!(handle, $config_file)
     }};
 }
