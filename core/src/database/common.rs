@@ -13,6 +13,8 @@ use sqlx::{Pool, Postgres};
 use std::fs;
 use std::str::FromStr;
 
+use super::wrapper::{AddressDB, EVMAddressDB, OutPointDB};
+
 #[derive(Clone, Debug)]
 pub struct Database {
     connection: Pool<Postgres>,
@@ -334,28 +336,46 @@ impl Database {
     /// Verifier: save the generated sec nonce and pub nonces
     pub async fn save_nonces(
         &self,
-        deposit_outpoint: &OutPoint,
-        nonces: &Vec<(MuSigSecNonce, MuSigPubNonce)>,
+        deposit_outpoint: OutPoint,
+        nonces: &[(MuSigSecNonce, MuSigPubNonce)],
     ) -> Result<(), BridgeError> {
-        unimplemented!();
+        sqlx::query(
+            "INSERT INTO nonces (deposit_outpoint, sec_nonce, pub_nonce) VALUES ($1, $2, $3);",
+        )
+        .bind(OutPointDB(deposit_outpoint))
+        .bind(nonces)
+        .execute(&self.connection)
+        .await?;
     }
 
     /// Verifier: Save the deposit info to use later
     pub async fn save_deposit_info(
         &self,
-        deposit_utxo: &OutPoint,
-        recovery_taproot_address: &Address<NetworkUnchecked>,
-        evm_address: &EVMAddress,
+        deposit_outpoint: OutPoint,
+        recovery_taproot_address: Address<NetworkUnchecked>,
+        evm_address: EVMAddress,
     ) -> Result<(), BridgeError> {
-        unimplemented!();
+        sqlx::query("INSERT INTO deposit_infos (start_utxo, recovery_taproot_address, evm_address) VALUES ($1, $2, $3);")
+        .bind(OutPointDB(deposit_outpoint))
+        .bind(AddressDB(recovery_taproot_address))
+        .bind(EVMAddressDB(evm_address))
+        .execute(&self.connection)
+        .await?;
+
+        Ok(())
     }
 
     /// Verifier: Get the deposit info to use later
     pub async fn get_deposit_info(
         &self,
-        deposit_utxo: &OutPoint,
+        deposit_outpoint: OutPoint,
     ) -> Result<Option<(Address<NetworkUnchecked>, EVMAddress)>, BridgeError> {
-        unimplemented!();
+        let qr: (AddressDB, EVMAddressDB) = sqlx::query_as("SELECT recovery_taproot_address, evm_address FROM deposit_infos WHERE start_utxo = $1;")
+            .bind(OutPointDB(deposit_outpoint))
+            .fetch_one(&self.connection)
+            .await?;
+
+        Ok(Some((qr.0 .0, qr.1 .0)))
     }
 
     /// Verifier: saves the sighash and returns sec and agg nonces, if the sighash is already there and different, returns error
