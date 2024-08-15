@@ -1,6 +1,6 @@
 use std::str::FromStr;
 
-use bitcoin::{address::NetworkUnchecked, Address, OutPoint, Txid};
+use bitcoin::{address::NetworkUnchecked, consensus::encode::{deserialize_hex, serialize_hex}, Address, OutPoint, Txid};
 use serde::{Deserialize, Serialize};
 use sqlx::{
     postgres::{PgArgumentBuffer, PgRow, PgValueRef},
@@ -152,50 +152,33 @@ impl sqlx::Type<sqlx::Postgres> for TxidDB {
 
 impl<'q> Encode<'q, Postgres> for TxidDB {
     fn encode_by_ref(&self, buf: &mut PgArgumentBuffer) -> sqlx::encode::IsNull {
-        let s = hex::encode(self.0);
+        let s = serialize_hex(&self.0);
         <&str as Encode<Postgres>>::encode_by_ref(&s.as_str(), buf)
-    }
-
-    fn encode(
-        self,
-        buf: &mut <Postgres as sqlx::database::HasArguments<'q>>::ArgumentBuffer,
-    ) -> sqlx::encode::IsNull
-    where
-        Self: Sized,
-    {
-        self.encode_by_ref(buf)
-    }
-
-    fn produces(&self) -> Option<<Postgres as sqlx::Database>::TypeInfo> {
-        None
-    }
-
-    fn size_hint(&self) -> usize {
-        std::mem::size_of_val(self)
     }
 }
 
 impl<'r> Decode<'r, Postgres> for TxidDB {
     fn decode(value: PgValueRef<'r>) -> Result<Self, sqlx::error::BoxDynError> {
         let s = <&str as Decode<Postgres>>::decode(value)?;
-        Ok(TxidDB(Txid::from_str(s).unwrap()))
+        let x: Txid = deserialize_hex(s)?;
+        Ok(TxidDB(x))
     }
 }
 // TODO: change this to use some other name we are currently using
-impl<'r> FromRow<'r, PgRow> for TxidDB {
-    fn from_row(row: &'r PgRow) -> Result<Self, sqlx::Error> {
-        let s = row.try_get_raw("move_txid").unwrap();
-        let str: &str = Decode::decode(s).map_err(|_| sqlx::Error::ColumnDecode {
-            index: "move_txid".into(),
-            source: Box::new(sqlx::Error::Decode("Invalid Txid".into())),
-        })?;
-        let res = Txid::from_str(str).map_err(|_| sqlx::Error::ColumnDecode {
-            index: "move_txid".into(),
-            source: Box::new(sqlx::Error::Decode("Invalid Txid".into())),
-        })?;
-        Ok(TxidDB(res))
-    }
-}
+// impl<'r> FromRow<'r, PgRow> for TxidDB {
+//     fn from_row(row: &'r PgRow) -> Result<Self, sqlx::Error> {
+//         let s = row.try_get_raw("move_txid").unwrap();
+//         let str: &str = Decode::decode(s).map_err(|_| sqlx::Error::ColumnDecode {
+//             index: "move_txid".into(),
+//             source: Box::new(sqlx::Error::Decode("Invalid Txid".into())),
+//         })?;
+//         let res = Txid::from_str(str).map_err(|_| sqlx::Error::ColumnDecode {
+//             index: "move_txid".into(),
+//             source: Box::new(sqlx::Error::Decode("Invalid Txid".into())),
+//         })?;
+//         Ok(TxidDB(res))
+//     }
+// }
 
 impl sqlx::Type<sqlx::Postgres> for SignatureDB {
     fn type_info() -> sqlx::postgres::PgTypeInfo {
@@ -205,26 +188,8 @@ impl sqlx::Type<sqlx::Postgres> for SignatureDB {
 
 impl<'q> Encode<'q, Postgres> for SignatureDB {
     fn encode_by_ref(&self, buf: &mut PgArgumentBuffer) -> sqlx::encode::IsNull {
-        let s = hex::encode(self.0.as_ref());
+        let s = serialize(&self.0);
         <&str as Encode<Postgres>>::encode_by_ref(&s.as_str(), buf)
-    }
-
-    fn encode(
-        self,
-        buf: &mut <Postgres as sqlx::database::HasArguments<'q>>::ArgumentBuffer,
-    ) -> sqlx::encode::IsNull
-    where
-        Self: Sized,
-    {
-        self.encode_by_ref(buf)
-    }
-
-    fn produces(&self) -> Option<<Postgres as sqlx::Database>::TypeInfo> {
-        None
-    }
-
-    fn size_hint(&self) -> usize {
-        std::mem::size_of_val(self)
     }
 }
 
@@ -253,11 +218,6 @@ impl<'r> FromRow<'r, PgRow> for SignatureDB {
         Ok(SignatureDB(res))
     }
 }
-
-
-
-
-
 
 /// Byte array of length 66
 
