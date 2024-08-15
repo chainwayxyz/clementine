@@ -283,7 +283,7 @@ impl Database {
     /// Operator: If operator already created a kickoff UTXO for this deposit UTXO, return it.
     pub async fn get_kickoff_utxo(
         &self,
-        deposit_outpoint: &OutPoint,
+        deposit_outpoint: OutPoint,
     ) -> Result<Option<UTXO>, BridgeError> {
         unimplemented!();
     }
@@ -291,7 +291,7 @@ impl Database {
     /// Verifier: Get the verified kickoff UTXOs for a deposit UTXO.
     pub async fn get_kickoff_utxos(
         &self,
-        deposit_outpoint: &OutPoint,
+        deposit_outpoint: OutPoint,
     ) -> Result<Option<Vec<UTXO>>, BridgeError> {
         unimplemented!();
     }
@@ -302,16 +302,16 @@ impl Database {
     }
 
     /// Operator: Sets the funding UTXO for kickoffs
-    pub async fn set_funding_utxo(&self, funding_utxo: &UTXO) -> Result<(), BridgeError> {
+    pub async fn set_funding_utxo(&self, funding_utxo: UTXO) -> Result<(), BridgeError> {
         unimplemented!();
     }
 
     /// Operator: Save the kickoff UTXO for this deposit UTXO. also save the funding txid to be able to track them later
     pub async fn save_kickoff_utxo(
         &self,
-        deposit_outpoint: &OutPoint,
-        kickoff_utxo: &UTXO,
-        funding_txid: &Txid,
+        deposit_outpoint: OutPoint,
+        kickoff_utxo: UTXO,
+        funding_txid: Txid,
     ) -> Result<(), BridgeError> {
         unimplemented!();
     }
@@ -319,8 +319,8 @@ impl Database {
     /// Verifier: Save the kickoff UTXOs for this deposit UTXO.
     pub async fn save_kickoff_utxos(
         &self,
-        deposit_outpoint: &OutPoint,
-        kickoff_utxos: &Vec<UTXO>,
+        deposit_outpoint: OutPoint,
+        kickoff_utxos: &[UTXO],
     ) -> Result<(), BridgeError> {
         unimplemented!();
     }
@@ -328,7 +328,7 @@ impl Database {
     /// Verifier: Get the public nonces for a deposit UTXO.
     pub async fn get_pub_nonces(
         &self,
-        deposit_outpoint: &OutPoint,
+        deposit_outpoint: OutPoint,
     ) -> Result<Option<Vec<MuSigPubNonce>>, BridgeError> {
         unimplemented!();
     }
@@ -339,13 +339,18 @@ impl Database {
         deposit_outpoint: OutPoint,
         nonces: &[(MuSigSecNonce, MuSigPubNonce)],
     ) -> Result<(), BridgeError> {
-        sqlx::query(
-            "INSERT INTO nonces (deposit_outpoint, sec_nonce, pub_nonce) VALUES ($1, $2, $3);",
-        )
-        .bind(OutPointDB(deposit_outpoint))
-        .bind(nonces)
-        .execute(&self.connection)
-        .await?;
+        // TODO: Use batch insert
+        for (sec, pub_nonce) in nonces {
+            sqlx::query(
+                "INSERT INTO nonces (deposit_outpoint, sec_nonce, pub_nonce) VALUES ($1, $2, $3);",
+            )
+            .bind(OutPointDB(deposit_outpoint))
+            .bind(sec)
+            .bind(pub_nonce)
+            .execute(&self.connection)
+            .await?;
+        }
+        Ok(())
     }
 
     /// Verifier: Save the deposit info to use later
@@ -381,7 +386,7 @@ impl Database {
     /// Verifier: saves the sighash and returns sec and agg nonces, if the sighash is already there and different, returns error
     pub async fn save_sighashes_and_get_nonces(
         &self,
-        deposit_utxo: &OutPoint,
+        deposit_utxo: OutPoint,
         index: usize,
         sighashes: &[[u8; 32]],
     ) -> Result<Option<Vec<(MuSigSecNonce, MuSigAggNonce)>>, BridgeError> {
@@ -391,7 +396,7 @@ impl Database {
     /// Verifier: Save the agg nonces for signing
     pub async fn save_agg_nonces(
         &self,
-        deposit_utxo: &OutPoint,
+        deposit_utxo: OutPoint,
         agg_nonces: &Vec<MuSigAggNonce>,
     ) -> Result<(), BridgeError> {
         unimplemented!();

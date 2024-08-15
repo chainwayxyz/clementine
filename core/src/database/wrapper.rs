@@ -7,7 +7,7 @@ use sqlx::{
     Decode, Encode, FromRow, Postgres, Row,
 };
 
-use crate::EVMAddress;
+use crate::{ByteArray66, EVMAddress};
 
 #[derive(Serialize, Deserialize)]
 pub struct OutPointDB(pub OutPoint);
@@ -251,5 +251,34 @@ impl<'r> FromRow<'r, PgRow> for SignatureDB {
             }
         })?;
         Ok(SignatureDB(res))
+    }
+}
+
+
+
+
+
+
+/// Byte array of length 66
+
+impl<'r> Decode<'r, Postgres> for ByteArray66 {
+    fn decode(value: PgValueRef<'r>) -> Result<Self, sqlx::error::BoxDynError> {
+        let s = <&str as Decode<Postgres>>::decode(value)?;
+        let x: [u8; 66] = hex::decode(s).unwrap().try_into().unwrap();
+        Ok(ByteArray66(x))
+    }
+}
+
+impl<'q> Encode<'q, Postgres> for ByteArray66 {
+    fn encode_by_ref(&self, buf: &mut PgArgumentBuffer) -> sqlx::encode::IsNull {
+        // Encode as &str
+        let s = hex::encode(self.0);
+        <&str as Encode<Postgres>>::encode_by_ref(&s.as_str(), buf)
+    }
+}
+
+impl sqlx::Type<sqlx::Postgres> for ByteArray66 {
+    fn type_info() -> sqlx::postgres::PgTypeInfo {
+        sqlx::postgres::PgTypeInfo::with_name("text")
     }
 }

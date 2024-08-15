@@ -67,9 +67,9 @@ where
     /// TODO: Create multiple kickoffs in single transaction
     pub async fn new_deposit(
         &self,
-        deposit_outpoint: &OutPoint,
-        recovery_taproot_address: &Address<NetworkUnchecked>,
-        evm_address: &EVMAddress,
+        deposit_outpoint: OutPoint,
+        recovery_taproot_address: Address<NetworkUnchecked>,
+        evm_address: EVMAddress,
     ) -> Result<(UTXO, secp256k1::schnorr::Signature), BridgeError> {
         tracing::info!(
             "New deposit request for UTXO: {:?}, EVM address: {:?} and recovery taproot address of: {:?}",
@@ -82,8 +82,8 @@ where
         self.rpc.check_deposit_utxo(
             &self.nofn_xonly_pk,
             &deposit_outpoint,
-            recovery_taproot_address,
-            evm_address,
+            &recovery_taproot_address,
+            &evm_address,
             BRIDGE_AMOUNT_SATS,
             self.config.user_takes_after,
             self.config.confirmation_treshold,
@@ -165,13 +165,13 @@ where
         // We save the funding txid and the kickoff txid to be able to track them later
         self.db
             .save_kickoff_utxo(
-                &deposit_outpoint,
-                &kickoff_utxo,
-                &funding_utxo.outpoint.txid,
+                deposit_outpoint,
+                kickoff_utxo.clone(),
+                funding_utxo.outpoint.txid,
             )
             .await?;
 
-        self.db.set_funding_utxo(&change_utxo).await?;
+        self.db.set_funding_utxo(change_utxo).await?;
 
         transaction.commit().await?;
 
@@ -196,7 +196,7 @@ where
         recovery_taproot_address: Address<NetworkUnchecked>,
         evm_address: EVMAddress,
     ) -> Result<(UTXO, secp256k1::schnorr::Signature), BridgeError> {
-        self.new_deposit(&deposit_utxo, &recovery_taproot_address, &evm_address)
+        self.new_deposit(deposit_utxo, recovery_taproot_address, evm_address)
             .await
     }
 

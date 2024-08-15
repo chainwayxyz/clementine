@@ -52,53 +52,5 @@ pub struct UTXO {
     pub txout: bitcoin::TxOut,
 }
 
-use serde::de::{self, Deserializer, SeqAccess, Visitor};
-use serde::ser::{SerializeTuple, Serializer};
-
-#[derive(Clone, Debug)]
-pub struct ByteArray66(pub [u8; 66]);
-
-impl Serialize for ByteArray66 {
-    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
-    where
-        S: Serializer,
-    {
-        let mut seq = serializer.serialize_tuple(self.0.len())?;
-        for byte in &self.0 {
-            seq.serialize_element(byte)?;
-        }
-        seq.end()
-    }
-}
-
-impl<'de> Deserialize<'de> for ByteArray66 {
-    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
-    where
-        D: Deserializer<'de>,
-    {
-        struct ByteArray66Visitor;
-
-        impl<'de> Visitor<'de> for ByteArray66Visitor {
-            type Value = ByteArray66;
-
-            fn expecting(&self, formatter: &mut std::fmt::Formatter) -> std::fmt::Result {
-                formatter.write_str("a byte array of length 66")
-            }
-
-            fn visit_seq<A>(self, mut seq: A) -> Result<ByteArray66, A::Error>
-            where
-                A: SeqAccess<'de>,
-            {
-                let mut array = [0u8; 66];
-                for (i, byte) in array.iter_mut().enumerate() {
-                    *byte = seq
-                        .next_element()?
-                        .ok_or_else(|| de::Error::invalid_length(i, &self))?;
-                }
-                Ok(ByteArray66(array))
-            }
-        }
-
-        deserializer.deserialize_tuple(66, ByteArray66Visitor)
-    }
-}
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct ByteArray66(#[serde(with = "hex::serde")] pub [u8; 66]);
