@@ -86,18 +86,18 @@ where
             self.config.network,
         )?;
 
-        let num_required_sigs = 10; // TODO: Fix this: move_commit and move_reveal tx signatures + operator_take_txs signatures for every operator
+        let num_required_nonces = self.operator_xonly_pks.len() + 2;
 
         // Check if we already have pub_nonces for this deposit_utxo.
         let pub_nonces_from_db = self.db.get_pub_nonces(deposit_utxo).await?;
         if let Some(pub_nonces) = pub_nonces_from_db {
-            if pub_nonces.len() != num_required_sigs {
+            if pub_nonces.len() != num_required_nonces {
                 return Err(BridgeError::NoncesNotFound);
             }
             return Ok(pub_nonces);
         }
 
-        let nonces = (0..num_required_sigs)
+        let nonces = (0..num_required_nonces)
             .map(|_| musig2::nonce_pair(&self.signer.keypair, &mut rand::rngs::OsRng))
             .collect::<Vec<_>>();
 
