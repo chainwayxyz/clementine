@@ -153,7 +153,9 @@ where
             )?;
         }
 
-        self.db.save_agg_nonces(deposit_outpoint, &agg_nonces).await?;
+        self.db
+            .save_agg_nonces(deposit_outpoint, &agg_nonces)
+            .await?;
 
         self.db
             .save_kickoff_utxos(deposit_outpoint, &kickoff_utxos)

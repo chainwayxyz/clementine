@@ -1,6 +1,10 @@
 use std::str::FromStr;
 
-use bitcoin::{address::NetworkUnchecked, consensus::encode::{deserialize_hex, serialize_hex}, Address, OutPoint, Txid};
+use bitcoin::{
+    address::NetworkUnchecked,
+    consensus::encode::{deserialize_hex, serialize_hex},
+    Address, OutPoint, Txid,
+};
 use serde::{Deserialize, Serialize};
 use sqlx::{
     postgres::{PgArgumentBuffer, PgRow, PgValueRef},
