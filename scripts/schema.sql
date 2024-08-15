@@ -4,7 +4,7 @@ begin;
 /* This table holds the information related to a deposit request. */
 create table deposit_request_infos (
     id INTEGER primary key,
-    deposit_request_utxo text not null,
+    deposit_request_outpoint text not null check (deposit_request_outpoint ~ '^[a-fA-F0-9]{64}:\\d+'),
     recovery_taproot_address text not null,
     evm_address text not null check (evm_address ~ '^[a-fA-F0-9]{40}'),
     created_at timestamp not null default now()
@@ -18,18 +18,19 @@ for each operator. Also for each triple, we hold the sig_hash to be signed to pr
 of the nonces. */ 
 create table nonces (
     idx INTEGER primary key,
-    deposit_utxo text primary key not null check (deposit_txid ~ '^[a-fA-F0-9]{64}:\\d+'),
+    deposit_outpoint text primary key not null check (deposit_txid ~ '^[a-fA-F0-9]{64}:\\d+'),
     pub_nonce text not null check (pub_nonce ~ '^[a-fA-F0-9]{132}'),
     sec_nonce text not null check (sec_nonce ~ '^[a-fA-F0-9]{128}'),
     agg_nonce text check (agg_nonce ~ '^[a-fA-F0-9]{132}'),
     sig_hash text check (sig_hash ~ '^[a-fA-F0-9]{64}'), /* 32 bytes */
+    created_at timestamp not null default now()
 )
 
 -- Verifier table for kickoff utxos for deposit requests
 /* This table holds the kickoff utxos sent by the operators for each deposit request. */
 create table deposit_kickoff_utxos (
     id INTEGER primary key,
-    deposit_request_utxo text not null,
+    deposit_request_outpoint text not null check (deposit_txid ~ '^[a-fA-F0-9]{64}:\\d+'),
     kickoff_utxo text not null,
     created_at timestamp not null default now()
 );
@@ -37,7 +38,7 @@ create table deposit_kickoff_utxos (
 -- Operator table for kickoff utxo and funding utxo for deposit requests
 /* This table holds the funding utxos sent by the operators for each deposit request. */
 create table deposit_kickoff_funding_utxos (
-    deposit_request_utxo text primary key not null,
+    deposit_request_outpoint text primary key not null check (deposit_txid ~ '^[a-fA-F0-9]{64}:\\d+'),
     kickoff_utxo text not null,
     funding_utxo text not null,
     created_at timestamp not null default now()
