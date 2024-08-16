@@ -39,14 +39,6 @@ pub struct EVMAddress(#[serde(with = "hex::serde")] pub [u8; 20]);
 pub type WithdrawalPayment = (Txid, HashType);
 
 #[derive(Clone, Debug, Eq, Hash, PartialEq, PartialOrd, Ord, Serialize, Deserialize)]
-pub struct PsbtOutPoint {
-    /// The referenced transaction's txid.
-    pub tx: bitcoin::Transaction,
-    /// The index of the referenced output in its transaction's vout.
-    pub vout: u32,
-}
-
-#[derive(Clone, Debug, Eq, Hash, PartialEq, PartialOrd, Ord, Serialize, Deserialize)]
 pub struct UTXO {
     pub outpoint: OutPoint,
     pub txout: bitcoin::TxOut,

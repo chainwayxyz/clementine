@@ -2,7 +2,7 @@ use crate::actor::Actor;
 use crate::config::BridgeConfig;
 use crate::errors::BridgeError;
 use crate::extended_rpc::ExtendedRpc;
-use crate::musig2::{self, MuSigAggNonce, MuSigPartialSignature, MuSigPubNonce};
+use crate::musig2::{self};
 use crate::transaction_builder::TransactionBuilder;
 use crate::EVMAddress;
 use ::musig2::secp::Point;

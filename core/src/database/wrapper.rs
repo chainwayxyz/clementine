@@ -7,7 +7,7 @@ use sqlx::{
     Decode, Encode, Postgres,
 };
 
-use crate::{ByteArray66, EVMAddress};
+use crate::{ByteArray66, EVMAddress, UTXO};
 
 #[derive(Serialize, Deserialize)]
 pub struct OutPointDB(pub OutPoint);
@@ -150,5 +150,26 @@ impl<'r> Decode<'r, Postgres> for ByteArray66 {
         let s = <&str as Decode<Postgres>>::decode(value)?;
         let x: [u8; 66] = hex::decode(s).unwrap().try_into().unwrap();
         Ok(ByteArray66(x))
+    }
+}
+
+impl sqlx::Type<sqlx::Postgres> for UTXO {
+    fn type_info() -> sqlx::postgres::PgTypeInfo {
+        sqlx::postgres::PgTypeInfo::with_name("TEXT")
+    }
+}
+
+impl<'q> Encode<'q, Postgres> for UTXO {
+    fn encode_by_ref(&self, buf: &mut PgArgumentBuffer) -> sqlx::encode::IsNull {
+        let s = serde_json::to_string(self).unwrap();
+        <&str as Encode<Postgres>>::encode_by_ref(&s.as_str(), buf)
+    }
+}
+
+impl<'r> Decode<'r, Postgres> for UTXO {
+    fn decode(value: PgValueRef<'r>) -> Result<Self, sqlx::error::BoxDynError> {
+        let s = <&str as Decode<Postgres>>::decode(value)?;
+        let x: UTXO = serde_json::from_str(s).unwrap();
+        Ok(x)
     }
 }

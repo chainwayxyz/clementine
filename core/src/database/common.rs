@@ -6,7 +6,7 @@
 
 use crate::musig2::{MuSigAggNonce, MuSigPubNonce, MuSigSecNonce};
 use crate::{config::BridgeConfig, errors::BridgeError};
-use crate::{EVMAddress, PsbtOutPoint, UTXO};
+use crate::{EVMAddress, UTXO};
 use bitcoin::address::NetworkUnchecked;
 use bitcoin::{Address, Amount, OutPoint, Txid};
 use sqlx::{Pool, Postgres};
@@ -285,7 +285,14 @@ impl Database {
         &self,
         deposit_outpoint: OutPoint,
     ) -> Result<Option<UTXO>, BridgeError> {
-        unimplemented!();
+        let qr: (Option<UTXO>,) = sqlx::query_as(
+            "SELECT kickoff_utxo FROM deposit_kickoff_utxos WHERE deposit_outpoint = $1;",
+        )
+        .bind(OutPointDB(deposit_outpoint))
+        .fetch_one(&self.connection)
+        .await?;
+
+        Ok(qr.0)
     }
 
     /// Verifier: Get the verified kickoff UTXOs for a deposit UTXO.

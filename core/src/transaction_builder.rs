@@ -1,7 +1,5 @@
 //! # Transaction Builder
 
-use crate::errors::BridgeError;
-use crate::musig2::create_key_agg_ctx;
 use crate::{script_builder, utils, EVMAddress, UTXO};
 use bitcoin::address::NetworkUnchecked;
 use bitcoin::Network;
@@ -13,7 +11,6 @@ use bitcoin::{
 use clementine_circuits::constants::BRIDGE_AMOUNT_SATS;
 use secp256k1::PublicKey;
 use secp256k1::XOnlyPublicKey;
-use serde::Serialize;
 
 #[derive(Debug, Clone)]
 pub struct TxHandler {
