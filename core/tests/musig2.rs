@@ -25,7 +25,7 @@ async fn test_musig2_key_spend() {
 
     let mut config: BridgeConfig = create_test_config_with_thread_name!("test_config_musig2.toml");
     let rpc: ExtendedRpc<Client> = create_extended_rpc!(config);
-    let sks = config.all_secret_keys.unwrap();
+    let sks = config.all_verifiers_secret_keys.unwrap();
     let kp_vec: Vec<Keypair> = sks
         .iter()
         .map(|sk| Keypair::from_secret_key(&secp, &sk))
@@ -132,7 +132,7 @@ async fn test_musig2_script_spend() {
 
     let mut config: BridgeConfig = create_test_config_with_thread_name!("test_config_musig2.toml");
     let rpc: ExtendedRpc<Client> = create_extended_rpc!(config);
-    let sks = config.all_secret_keys.unwrap();
+    let sks = config.all_verifiers_secret_keys.unwrap();
     let kp_vec: Vec<Keypair> = sks
         .iter()
         .map(|sk| Keypair::from_secret_key(&secp, &sk))

@@ -101,13 +101,14 @@ pub async fn create_operator_and_verifiers<R>(
 where
     R: RpcApiWrapper,
 {
-    let mut all_secret_keys = config.all_secret_keys.clone().unwrap_or_else(|| {
-        panic!("All secret keys are required for testing");
-    });
+    let mut all_verifiers_secret_keys =
+        config.all_verifiers_secret_keys.clone().unwrap_or_else(|| {
+            panic!("All secret keys are required for testing");
+        });
     // Remove the operator secret key.
-    all_secret_keys.pop().unwrap();
+    all_verifiers_secret_keys.pop().unwrap();
 
-    let futures = all_secret_keys
+    let futures = all_verifiers_secret_keys
         .iter()
         .enumerate()
         .map(|(i, sk)| {

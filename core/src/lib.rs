@@ -44,5 +44,5 @@ pub struct UTXO {
     pub txout: bitcoin::TxOut,
 }
 
-#[derive(Clone, Debug, Serialize, Deserialize)]
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
 pub struct ByteArray66(#[serde(with = "hex::serde")] pub [u8; 66]);

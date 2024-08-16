@@ -484,16 +484,22 @@ impl Database {
 mod tests {
     use super::Database;
     use crate::{
-        config::BridgeConfig, create_test_config, create_test_config_with_thread_name,
-        mock::common, transaction_builder::TransactionBuilder, EVMAddress,
+        config::BridgeConfig,
+        create_test_config, create_test_config_with_thread_name,
+        mock::common,
+        musig2::{nonce_pair, MuSigAggNonce, MuSigPubNonce, MuSigSecNonce},
+        transaction_builder::TransactionBuilder,
+        EVMAddress,
     };
-    use bitcoin::{Address, Amount, OutPoint, ScriptBuf, TxOut, XOnlyPublicKey};
+    use bitcoin::{Address, Amount, OutPoint, PublicKey, ScriptBuf, TxOut, XOnlyPublicKey};
+    use crypto_bigint::rand_core::OsRng;
+    use musig2::secp256k1::Keypair;
     use secp256k1::{schnorr::Signature, Secp256k1};
     use std::thread;
 
     #[tokio::test]
     #[should_panic]
-    async fn invalid_connection() {
+    async fn test_invalid_connection() {
         let mut config = BridgeConfig::new();
         config.db_host = "nonexistinghost".to_string();
         config.db_name = "nonexistingpassword".to_string();
@@ -505,14 +511,14 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn valid_connection() {
+    async fn test_valid_connection() {
         let config = common::get_test_config("test_config.toml").unwrap();
 
         Database::new(config).await.unwrap();
     }
 
     #[tokio::test]
-    async fn create_drop_database() {
+    async fn test_create_drop_database() {
         let handle = thread::current()
             .name()
             .unwrap()
@@ -529,58 +535,147 @@ mod tests {
         Database::drop_database(config, &handle).await.unwrap();
     }
 
-    // #[tokio::test]
-    // async fn add_deposit_transaction() {
-    //     let config = create_test_config_with_thread_name!("test_config.toml");
-    //     let database = Database::new(config.clone()).await.unwrap();
+    #[tokio::test]
+    async fn test_save_and_get_deposit_info() {
+        let config = create_test_config_with_thread_name!("test_config.toml");
+        let database = Database::new(config.clone()).await.unwrap();
 
-    //     let secp = Secp256k1::new();
-    //     let xonly_public_key = XOnlyPublicKey::from_slice(&[
-    //         0x78u8, 0x19u8, 0x90u8, 0xd7u8, 0xe2u8, 0x11u8, 0x8cu8, 0xc3u8, 0x61u8, 0xa9u8, 0x3au8,
-    //         0x6fu8, 0xccu8, 0x54u8, 0xceu8, 0x61u8, 0x1du8, 0x6du8, 0xf3u8, 0x81u8, 0x68u8, 0xd6u8,
-    //         0xb1u8, 0xedu8, 0xfbu8, 0x55u8, 0x65u8, 0x35u8, 0xf2u8, 0x20u8, 0x0cu8, 0x4b,
-    //     ])
-    //     .unwrap();
-    //     let address = Address::p2tr(&secp, xonly_public_key, None, config.network);
+        let secp = Secp256k1::new();
+        let xonly_public_key = XOnlyPublicKey::from_slice(&[
+            0x78u8, 0x19u8, 0x90u8, 0xd7u8, 0xe2u8, 0x11u8, 0x8cu8, 0xc3u8, 0x61u8, 0xa9u8, 0x3au8,
+            0x6fu8, 0xccu8, 0x54u8, 0xceu8, 0x61u8, 0x1du8, 0x6du8, 0xf3u8, 0x81u8, 0x68u8, 0xd6u8,
+            0xb1u8, 0xedu8, 0xfbu8, 0x55u8, 0x65u8, 0x35u8, 0xf2u8, 0x20u8, 0x0cu8, 0x4b,
+        ])
+        .unwrap();
+        let outpoint = OutPoint::null();
+        let taproot_address = Address::p2tr(&secp, xonly_public_key, None, config.network);
+        let evm_address = EVMAddress([0u8; 20]);
+        database
+            .save_deposit_info(
+                outpoint,
+                taproot_address.as_unchecked().clone(),
+                evm_address,
+            )
+            .await
+            .unwrap();
 
-    //     database
-    //         .add_new_deposit_request(
-    //             OutPoint::null(),
-    //             address.as_unchecked().clone(),
-    //             EVMAddress([0u8; 20]),
-    //         )
-    //         .await
-    //         .unwrap();
-    // }
+        let (db_taproot_address, db_evm_address) =
+            database.get_deposit_info(outpoint).await.unwrap().unwrap();
 
-    // #[tokio::test]
-    // async fn get_save_withdrawal_sig() {
-    //     let config = create_test_config!("get_save_withdrawal_sig", "test_config.toml");
-    //     let db = Database::new(config).await.unwrap();
+        // Sanity checks
+        assert_eq!(taproot_address, db_taproot_address.assume_checked());
+        assert_eq!(evm_address, db_evm_address);
+    }
 
-    //     let txout = TxOut {
-    //         value: Amount::from_sat(0x45),
-    //         script_pubkey: ScriptBuf::new(),
-    //     };
-    //     let tx = TransactionBuilder::create_btc_tx(vec![], vec![txout]);
-    //     let txid = tx.compute_txid();
+    #[tokio::test]
+    async fn test_nonces_1() {
+        let config = create_test_config!("get_save_withdrawal_sig", "test_config.toml");
+        let db = Database::new(config).await.unwrap();
+        let secp = Secp256k1::new();
 
-    //     let sig_arr = [
-    //         0x14, 0x5f, 0x50, 0x9d, 0xab, 0x82, 0xb0, 0xa1, 0x51, 0x1a, 0x20, 0x00, 0x93, 0x03,
-    //         0x19, 0xb1, 0x11, 0x29, 0xa5, 0x77, 0x3e, 0xe5, 0xc8, 0x6a, 0x13, 0x42, 0x0c, 0x23,
-    //         0x8e, 0x97, 0x26, 0x0b, 0xbe, 0x8b, 0x8e, 0xdd, 0xcd, 0x71, 0x6e, 0x76, 0xd4, 0x06,
-    //         0xb6, 0x1d, 0x54, 0x7d, 0xac, 0xd9, 0xb9, 0x32, 0xdc, 0x93, 0xbf, 0x33, 0xf5, 0xb0,
-    //         0x3c, 0x2f, 0x99, 0x2c, 0x04, 0xf6, 0x70, 0x73,
-    //     ];
-    //     let signature = Signature::from_slice(&sig_arr).unwrap();
+        let outpoint = OutPoint::null();
+        let index = 1;
+        let sighashes = [[0u8; 32], [1u8; 32], [2u8; 32]];
+        let sks = [
+            secp256k1::SecretKey::from_slice(&[0u8; 32]).unwrap(),
+            secp256k1::SecretKey::from_slice(&[1u8; 32]).unwrap(),
+            secp256k1::SecretKey::from_slice(&[2u8; 32]).unwrap(),
+        ];
+        let keypairs: Vec<secp256k1::Keypair> = sks
+            .iter()
+            .map(|sk| secp256k1::Keypair::from_secret_key(&secp, sk))
+            .collect();
+        let nonce_pairs: Vec<(MuSigSecNonce, MuSigPubNonce)> = keypairs
+            .into_iter()
+            .map(|kp| nonce_pair(&kp, &mut OsRng))
+            .collect();
+        let agg_nonces: Vec<MuSigAggNonce> = nonce_pairs
+            .iter()
+            .map(|(_, pub_nonce)| pub_nonce.clone())
+            .collect();
+        db.save_nonces(outpoint, &nonce_pairs).await.unwrap();
+        db.save_agg_nonces(outpoint, &agg_nonces).await.unwrap();
+        let db_sec_and_agg_nonces = db
+            .save_sighashes_and_get_nonces(outpoint, index, &sighashes)
+            .await
+            .unwrap()
+            .unwrap();
 
-    //     db.save_withdrawal_sig(0x45, txid, signature).await.unwrap();
+        // Sanity checks
+        assert_eq!(db_sec_and_agg_nonces.len(), 3);
+        for (i, (db_sec_nonce, db_agg_nonce)) in db_sec_and_agg_nonces.into_iter().enumerate() {
+            assert_eq!(db_sec_nonce, nonce_pairs[i].0);
+            assert_eq!(db_agg_nonce, agg_nonces[i]);
+        }
+    }
 
-    //     let (read_txid, read_signature) = db.get_withdrawal_sig_by_idx(0x45).await.unwrap();
+    #[tokio::test]
+    async fn test_nonces_2() {
+        let config = create_test_config!("get_save_withdrawal_sig", "test_config.toml");
+        let db = Database::new(config).await.unwrap();
+        let secp = Secp256k1::new();
 
-    //     assert_eq!(txid, read_txid);
-    //     assert_eq!(signature, read_signature);
-    // }
+        let outpoint = OutPoint::null();
+        let index = 1;
+        let sighashes = [[0u8; 32], [1u8; 32], [2u8; 32]];
+        let sks = [
+            secp256k1::SecretKey::from_slice(&[0u8; 32]).unwrap(),
+            secp256k1::SecretKey::from_slice(&[1u8; 32]).unwrap(),
+            secp256k1::SecretKey::from_slice(&[2u8; 32]).unwrap(),
+        ];
+        let keypairs: Vec<secp256k1::Keypair> = sks
+            .iter()
+            .map(|sk| secp256k1::Keypair::from_secret_key(&secp, sk))
+            .collect();
+        let nonce_pairs: Vec<(MuSigSecNonce, MuSigPubNonce)> = keypairs
+            .into_iter()
+            .map(|kp| nonce_pair(&kp, &mut OsRng))
+            .collect();
+        let agg_nonces: Vec<MuSigAggNonce> = nonce_pairs
+            .iter()
+            .map(|(_, pub_nonce)| pub_nonce.clone())
+            .collect();
+        db.save_nonces(outpoint, &nonce_pairs).await.unwrap();
+        db.save_agg_nonces(outpoint, &agg_nonces).await.unwrap();
+        let res = db
+            .save_sighashes_and_get_nonces(outpoint, index, &sighashes)
+            .await
+            .unwrap();
+    }
+
+    #[tokio::test]
+    async fn test_nonces_3() {
+        let config = create_test_config!("get_save_withdrawal_sig", "test_config.toml");
+        let db = Database::new(config).await.unwrap();
+        let secp = Secp256k1::new();
+
+        let outpoint = OutPoint::null();
+        let index = 1;
+        let sighashes = [[0u8; 32], [1u8; 32], [2u8; 32]];
+        let sks = [
+            secp256k1::SecretKey::from_slice(&[0u8; 32]).unwrap(),
+            secp256k1::SecretKey::from_slice(&[1u8; 32]).unwrap(),
+            secp256k1::SecretKey::from_slice(&[2u8; 32]).unwrap(),
+        ];
+        let keypairs: Vec<secp256k1::Keypair> = sks
+            .iter()
+            .map(|sk| secp256k1::Keypair::from_secret_key(&secp, sk))
+            .collect();
+        let nonce_pairs: Vec<(MuSigSecNonce, MuSigPubNonce)> = keypairs
+            .into_iter()
+            .map(|kp| nonce_pair(&kp, &mut OsRng))
+            .collect();
+        let agg_nonces: Vec<MuSigAggNonce> = nonce_pairs
+            .iter()
+            .map(|(_, pub_nonce)| pub_nonce.clone())
+            .collect();
+        db.save_nonces(outpoint, &nonce_pairs).await.unwrap();
+        db.save_agg_nonces(outpoint, &agg_nonces).await.unwrap();
+        let res = db
+            .save_sighashes_and_get_nonces(outpoint, index, &sighashes)
+            .await
+            .unwrap();
+    }
 }
 
 #[cfg(poc)]
