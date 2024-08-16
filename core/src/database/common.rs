@@ -410,7 +410,7 @@ impl Database {
         recovery_taproot_address: Address<NetworkUnchecked>,
         evm_address: EVMAddress,
     ) -> Result<(), BridgeError> {
-        sqlx::query("INSERT INTO deposit_infos (start_utxo, recovery_taproot_address, evm_address) VALUES ($1, $2, $3);")
+        sqlx::query("INSERT INTO deposit_infos (deposit_outpoint, recovery_taproot_address, evm_address) VALUES ($1, $2, $3);")
         .bind(OutPointDB(deposit_outpoint))
         .bind(AddressDB(recovery_taproot_address))
         .bind(EVMAddressDB(evm_address))
@@ -425,7 +425,7 @@ impl Database {
         &self,
         deposit_outpoint: OutPoint,
     ) -> Result<Option<(Address<NetworkUnchecked>, EVMAddress)>, BridgeError> {
-        let qr: (AddressDB, EVMAddressDB) = sqlx::query_as("SELECT recovery_taproot_address, evm_address FROM deposit_infos WHERE start_utxo = $1;")
+        let qr: (AddressDB, EVMAddressDB) = sqlx::query_as("SELECT recovery_taproot_address, evm_address FROM deposit_infos WHERE deposit_outpoint = $1;")
             .bind(OutPointDB(deposit_outpoint))
             .fetch_one(&self.connection)
             .await?;
@@ -491,7 +491,9 @@ mod tests {
         transaction_builder::TransactionBuilder,
         EVMAddress,
     };
-    use bitcoin::{Address, Amount, OutPoint, PublicKey, ScriptBuf, TxOut, XOnlyPublicKey};
+    use bitcoin::{
+        hashes::Hash, Address, Amount, OutPoint, PublicKey, ScriptBuf, TxOut, Txid, XOnlyPublicKey,
+    };
     use crypto_bigint::rand_core::OsRng;
     use musig2::secp256k1::Keypair;
     use secp256k1::{schnorr::Signature, Secp256k1};
@@ -549,7 +551,7 @@ mod tests {
         .unwrap();
         let outpoint = OutPoint::null();
         let taproot_address = Address::p2tr(&secp, xonly_public_key, None, config.network);
-        let evm_address = EVMAddress([0u8; 20]);
+        let evm_address = EVMAddress([1u8; 20]);
         database
             .save_deposit_info(
                 outpoint,
@@ -569,17 +571,22 @@ mod tests {
 
     #[tokio::test]
     async fn test_nonces_1() {
-        let config = create_test_config!("get_save_withdrawal_sig", "test_config.toml");
+        let config = create_test_config_with_thread_name!("test_config.toml");
         let db = Database::new(config).await.unwrap();
         let secp = Secp256k1::new();
 
-        let outpoint = OutPoint::null();
+        let outpoint = OutPoint {
+            txid: Txid::from_byte_array([1u8; 32]),
+            vout: 1,
+        };
+        println!("outpoint: {:?}", outpoint);
+        println!("outpoint.to_string(): {:?}", outpoint.to_string());
         let index = 1;
-        let sighashes = [[0u8; 32], [1u8; 32], [2u8; 32]];
+        let sighashes = [[1u8; 32], [2u8; 32], [3u8; 32]];
         let sks = [
-            secp256k1::SecretKey::from_slice(&[0u8; 32]).unwrap(),
             secp256k1::SecretKey::from_slice(&[1u8; 32]).unwrap(),
             secp256k1::SecretKey::from_slice(&[2u8; 32]).unwrap(),
+            secp256k1::SecretKey::from_slice(&[3u8; 32]).unwrap(),
         ];
         let keypairs: Vec<secp256k1::Keypair> = sks
             .iter()
@@ -611,17 +618,17 @@ mod tests {
 
     #[tokio::test]
     async fn test_nonces_2() {
-        let config = create_test_config!("get_save_withdrawal_sig", "test_config.toml");
+        let config = create_test_config_with_thread_name!("test_config.toml");
         let db = Database::new(config).await.unwrap();
         let secp = Secp256k1::new();
 
         let outpoint = OutPoint::null();
         let index = 1;
-        let sighashes = [[0u8; 32], [1u8; 32], [2u8; 32]];
+        let sighashes = [[1u8; 32], [2u8; 32], [3u8; 32]];
         let sks = [
-            secp256k1::SecretKey::from_slice(&[0u8; 32]).unwrap(),
             secp256k1::SecretKey::from_slice(&[1u8; 32]).unwrap(),
             secp256k1::SecretKey::from_slice(&[2u8; 32]).unwrap(),
+            secp256k1::SecretKey::from_slice(&[3u8; 32]).unwrap(),
         ];
         let keypairs: Vec<secp256k1::Keypair> = sks
             .iter()
@@ -645,17 +652,17 @@ mod tests {
 
     #[tokio::test]
     async fn test_nonces_3() {
-        let config = create_test_config!("get_save_withdrawal_sig", "test_config.toml");
+        let config = create_test_config_with_thread_name!("test_config.toml");
         let db = Database::new(config).await.unwrap();
         let secp = Secp256k1::new();
 
         let outpoint = OutPoint::null();
         let index = 1;
-        let sighashes = [[0u8; 32], [1u8; 32], [2u8; 32]];
+        let sighashes = [[1u8; 32], [2u8; 32], [3u8; 32]];
         let sks = [
-            secp256k1::SecretKey::from_slice(&[0u8; 32]).unwrap(),
             secp256k1::SecretKey::from_slice(&[1u8; 32]).unwrap(),
             secp256k1::SecretKey::from_slice(&[2u8; 32]).unwrap(),
+            secp256k1::SecretKey::from_slice(&[3u8; 32]).unwrap(),
         ];
         let keypairs: Vec<secp256k1::Keypair> = sks
             .iter()

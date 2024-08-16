@@ -1,10 +1,10 @@
-begin;
+BEGIN;
 
 -- Verifier table for deposit details
 /* This table holds the information related to a deposit. */
 create table deposit_infos (
     id serial primary key,
-    deposit_outpoint text not null check (deposit_outpoint ~ '^[a-fA-F0-9]{64}:\\d+'),
+    deposit_outpoint text not null check (deposit_outpoint ~ '^[a-fA-F0-9]{64}:(0|[1-9][0-9]{0,9})$'),
     recovery_taproot_address text not null,
     evm_address text not null check (evm_address ~ '^[a-fA-F0-9]{40}'),
     created_at timestamp not null default now()
@@ -13,7 +13,7 @@ create table deposit_infos (
 -- Verifier table for operator signatures, operator will read from here and send the take tx
 create table operator_take_sigs (
     id serial primary key,
-    deposit_outpoint text not null check (deposit_outpoint ~ '^[a-fA-F0-9]{64}:\\d+'),
+    deposit_outpoint text not null check (deposit_outpoint ~ '^[a-fA-F0-9]{64}:(0|[1-9][0-9]{0,9})$'),
     bridge_fund_txout text not null,
     operator_index int not null,
     sig text not null,
@@ -28,13 +28,13 @@ for each operator. Also for each triple, we hold the sig_hash to be signed to pr
 of the nonces. */ 
 create table nonces (
     idx serial primary key,
-    deposit_outpoint text primary key not null check (deposit_outpoint ~ '^[a-fA-F0-9]{64}:\\d+'),
+    deposit_outpoint text not null check (deposit_outpoint ~ '^[a-fA-F0-9]{64}:(0|[1-9][0-9]{0,9})$'),
     pub_nonce text not null check (pub_nonce ~ '^[a-fA-F0-9]{132}'),
-    sec_nonce text not null check (sec_nonce ~ '^[a-fA-F0-9]{128}'),
+    sec_nonce text not null check (sec_nonce ~ '^\\x[a-fA-F0-9]{128}$'),
     agg_nonce text check (agg_nonce ~ '^[a-fA-F0-9]{132}'),
     sig_hash text check (sig_hash ~ '^[a-fA-F0-9]{64}'), /* 32 bytes */
     created_at timestamp not null default now()
-)
+);
 
 CREATE OR REPLACE FUNCTION prevent_sig_hash_update()
 RETURNS TRIGGER AS $$
@@ -57,9 +57,9 @@ EXECUTE FUNCTION prevent_sig_hash_update();
 /* This table holds the kickoff utxos sent by the operators for each deposit. */
 create table deposit_kickoff_utxos (
     id serial primary key,
-    deposit_outpoint text not null check (deposit_outpoint ~ '^[a-fA-F0-9]{64}:\\d+'),
+    deposit_outpoint text not null check (deposit_outpoint ~ '^[a-fA-F0-9]{64}:(0|[1-9][0-9]{0,9})$'),
     kickoff_utxo text not null,
-    created_at timestamp not null default now()
+    created_at timestamp not null default now(),
     unique (deposit_outpoint, kickoff_utxo)
 );
 
@@ -75,19 +75,19 @@ create table deposit_kickoff_generator_txs (
     created_at timestamp not null default now()
 );
 
--- Operator table for 
+-- Operator table for kickoff utxo related to deposits
 /* This table holds the kickoff utxos sent by the operators for each deposit. */
 create table operators_kickoff_utxo (
-    deposit_outpoint primary key text not null check (deposit_outpoint ~ '^[a-fA-F0-9]{64}:\\d+'),
+    deposit_outpoint text primary key not null check (deposit_outpoint ~ '^[a-fA-F0-9]{64}:(0|[1-9][0-9]{0,9})$'),
     kickoff_utxo text not null,
     created_at timestamp not null default now()
 );
 
--- Operator table for funding utxo used for deposits TODO: Change this table
+-- Operator table for funding utxo used for deposits 
 create table funding_utxos (
     id serial primary key,
     funding_utxo text not null,
     created_at timestamp not null default now()
 );
 
-commit;
+COMMIT;
