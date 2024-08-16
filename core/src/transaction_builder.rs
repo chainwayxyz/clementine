@@ -39,7 +39,7 @@ impl TransactionBuilder {
     pub fn new(verifiers_pks: Vec<PublicKey>, network: Network) -> Self {
         let verifiers_xonly_pks: Vec<XOnlyPublicKey> = verifiers_pks
             .iter()
-            .map(|pk| PublicKey::x_only_public_key(&pk).0)
+            .map(|pk| PublicKey::x_only_public_key(pk).0)
             .collect();
         Self {
             verifiers_xonly_pks,
@@ -316,7 +316,7 @@ impl TransactionBuilder {
         nofn_xonly_pk: &XOnlyPublicKey,
         network: bitcoin::Network,
     ) -> TxHandler {
-        let ins = TransactionBuilder::create_tx_ins(vec![kickoff_outpoint.clone()]);
+        let ins = TransactionBuilder::create_tx_ins(vec![kickoff_outpoint]);
         let relative_timelock_script =
             script_builder::generate_relative_timelock_script(operator_address, 200); // TODO: Change this 200 to a config constant
 
@@ -353,10 +353,8 @@ impl TransactionBuilder {
         nofn_xonly_pk: &XOnlyPublicKey,
         network: bitcoin::Network,
     ) -> TxHandler {
-        let ins = TransactionBuilder::create_tx_ins(vec![
-            bridge_fund_outpoint.clone(),
-            slash_or_take_outpoint.clone(),
-        ]);
+        let ins =
+            TransactionBuilder::create_tx_ins(vec![bridge_fund_outpoint, slash_or_take_outpoint]);
 
         let (musig2_address, musig2_spend_info) =
             TransactionBuilder::create_musig2_address(*nofn_xonly_pk, network);

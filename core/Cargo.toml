@@ -26,7 +26,7 @@ futures = { workspace = true }
 dotenv = { workspace = true }
 clap = { workspace = true, features = ["derive"] }
 toml = { workspace = true }
-sqlx = { workspace = true, features = ["runtime-tokio", "postgres"] }
+sqlx = { workspace = true, features = ["runtime-tokio", "postgres", "macros"] }
 bitcoin-mock-rpc = { workspace = true }
 musig2 = { workspace = true }
 

@@ -198,7 +198,7 @@ where
             &self.nofn_xonly_pk,
             &kickoff_outpoints,
             201, // TODO: Fix this
-            self.config.network.clone(),
+            self.config.network,
         );
 
         let move_reveal_tx_handler = TransactionBuilder::create_move_reveal_tx(
@@ -211,7 +211,7 @@ where
             &self.nofn_xonly_pk,
             &kickoff_outpoints,
             201, // TODO: Fix this
-            self.config.network.clone(),
+            self.config.network,
         );
 
         let bridge_fund_outpoint = OutPoint {
@@ -226,7 +226,7 @@ where
                 let (operator_address, _) = TransactionBuilder::create_taproot_address(
                     &[],
                     Some(self.operator_xonly_pks[index]),
-                    self.config.network.clone(),
+                    self.config.network,
                 );
                 let slash_or_take_tx = TransactionBuilder::create_slash_or_take_tx(
                     kickoff_utxo.outpoint,
@@ -270,7 +270,7 @@ where
                     *sec_nonce,
                     agg_nonce.clone(),
                     &self.signer.keypair,
-                    sighash.clone(),
+                    *sighash,
                 )
             })
             .collect::<Vec<_>>();
@@ -310,7 +310,7 @@ where
             &self.nofn_xonly_pk,
             &kickoff_outpoints,
             201, // TODO: Fix this
-            self.config.network.clone(),
+            self.config.network,
         );
 
         let mut move_reveal_tx_handler = TransactionBuilder::create_move_reveal_tx(
@@ -323,7 +323,7 @@ where
             &self.nofn_xonly_pk,
             &kickoff_outpoints,
             201, // TODO: Fix this
-            self.config.network.clone(),
+            self.config.network,
         );
 
         let bridge_fund_outpoint = OutPoint {
@@ -338,7 +338,7 @@ where
                 let (operator_address, _) = TransactionBuilder::create_taproot_address(
                     &[],
                     Some(self.operator_xonly_pks[index]),
-                    self.config.network.clone(),
+                    self.config.network,
                 );
                 let slash_or_take_tx = TransactionBuilder::create_slash_or_take_tx(
                     kickoff_utxo.outpoint,

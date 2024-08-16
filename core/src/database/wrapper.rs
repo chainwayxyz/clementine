@@ -1,16 +1,19 @@
 use std::str::FromStr;
 
-use bitcoin::{address::NetworkUnchecked, Address, OutPoint, Txid};
+use bitcoin::{address::NetworkUnchecked, Address, OutPoint, TxOut, Txid};
 use serde::{Deserialize, Serialize};
 use sqlx::{
-    postgres::{PgArgumentBuffer, PgValueRef},
-    Decode, Encode, Postgres,
+    postgres::{PgArgumentBuffer, PgRow, PgValueRef},
+    Decode, Encode, Postgres, Row,
 };
 
 use crate::{ByteArray66, EVMAddress, UTXO};
 
 #[derive(Serialize, Deserialize)]
 pub struct OutPointDB(pub OutPoint);
+
+#[derive(Serialize, Deserialize)]
+pub struct TxOutDB(pub TxOut);
 
 #[derive(Serialize)]
 pub struct AddressDB(pub Address<NetworkUnchecked>);
@@ -108,6 +111,27 @@ impl<'r> Decode<'r, Postgres> for TxidDB {
     }
 }
 
+impl sqlx::Type<sqlx::Postgres> for TxOutDB {
+    fn type_info() -> sqlx::postgres::PgTypeInfo {
+        sqlx::postgres::PgTypeInfo::with_name("TEXT")
+    }
+}
+
+impl<'q> Encode<'q, Postgres> for TxOutDB {
+    fn encode_by_ref(&self, buf: &mut PgArgumentBuffer) -> sqlx::encode::IsNull {
+        let s = bitcoin::consensus::encode::serialize_hex(&self.0);
+        <&str as Encode<Postgres>>::encode_by_ref(&s.as_str(), buf)
+    }
+}
+
+impl<'r> Decode<'r, Postgres> for TxOutDB {
+    fn decode(value: PgValueRef<'r>) -> Result<Self, sqlx::error::BoxDynError> {
+        let s = <&str as Decode<Postgres>>::decode(value)?;
+        let x: TxOut = bitcoin::consensus::encode::deserialize_hex(s)?;
+        Ok(TxOutDB(x))
+    }
+}
+
 impl sqlx::Type<sqlx::Postgres> for SignatureDB {
     fn type_info() -> sqlx::postgres::PgTypeInfo {
         sqlx::postgres::PgTypeInfo::with_name("TEXT")
@@ -153,6 +177,33 @@ impl<'r> Decode<'r, Postgres> for ByteArray66 {
     }
 }
 
+impl ByteArray66 {
+    fn decode_byte_array_66_from_row(
+        row: &PgRow,
+        column_name: &str,
+    ) -> Result<ByteArray66, sqlx::Error> {
+        let s = row
+            .try_get_raw(column_name)
+            .map_err(|_| sqlx::Error::ColumnNotFound(column_name.into()))?;
+        let str: &str = Decode::decode(s).map_err(|_| sqlx::Error::ColumnDecode {
+            index: column_name.into(),
+            source: Box::new(sqlx::Error::Decode(
+                "ColumnDecode Failed for ByteArray66".into(),
+            )),
+        })?;
+        let res: [u8; 66] = hex::decode(str).unwrap().try_into().unwrap();
+        Ok(ByteArray66(res))
+    }
+}
+
+impl<'r> sqlx::FromRow<'r, PgRow> for ByteArray66 {
+    fn from_row(row: &'r PgRow) -> Result<Self, sqlx::Error> {
+        // This assumes a default column name, adjust as necessary. TODO: Change this to have generic name
+        let res = ByteArray66::decode_byte_array_66_from_row(row, "pub_nonce")?;
+        Ok(res)
+    }
+}
+
 impl sqlx::Type<sqlx::Postgres> for UTXO {
     fn type_info() -> sqlx::postgres::PgTypeInfo {
         sqlx::postgres::PgTypeInfo::with_name("TEXT")
@@ -171,5 +222,30 @@ impl<'r> Decode<'r, Postgres> for UTXO {
         let s = <&str as Decode<Postgres>>::decode(value)?;
         let x: UTXO = serde_json::from_str(s).unwrap();
         Ok(x)
+    }
+}
+
+impl UTXO {
+    fn decode_utxo_from_row(row: &PgRow, column_name: &str) -> Result<UTXO, sqlx::Error> {
+        let s = row
+            .try_get_raw(column_name)
+            .map_err(|_| sqlx::Error::ColumnNotFound(column_name.into()))?;
+        let str: &str = Decode::decode(s).map_err(|_| sqlx::Error::ColumnDecode {
+            index: column_name.into(),
+            source: Box::new(sqlx::Error::Decode("ColumnDecode Failed for UTXO".into())),
+        })?;
+        let res: UTXO = serde_json::from_str(str).unwrap();
+        Ok(res)
+    }
+}
+
+impl<'r> sqlx::FromRow<'r, PgRow> for UTXO {
+    fn from_row(row: &'r PgRow) -> Result<Self, sqlx::Error> {
+        // This assumes a default column name, adjust as necessary. TODO: Change this to have generic name
+        let utxo = UTXO::decode_utxo_from_row(row, "utxo")?;
+        Ok(UTXO {
+            outpoint: utxo.outpoint,
+            txout: utxo.txout,
+        })
     }
 }

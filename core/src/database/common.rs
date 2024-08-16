@@ -9,11 +9,11 @@ use crate::{config::BridgeConfig, errors::BridgeError};
 use crate::{EVMAddress, UTXO};
 use bitcoin::address::NetworkUnchecked;
 use bitcoin::{Address, Amount, OutPoint, Txid};
-use sqlx::{Pool, Postgres};
+use sqlx::{query, Pool, Postgres};
 use std::fs;
 use std::str::FromStr;
 
-use super::wrapper::{AddressDB, EVMAddressDB, OutPointDB};
+use super::wrapper::{AddressDB, EVMAddressDB, OutPointDB, TxidDB};
 
 #[derive(Clone, Debug)]
 pub struct Database {
@@ -286,7 +286,7 @@ impl Database {
         deposit_outpoint: OutPoint,
     ) -> Result<Option<UTXO>, BridgeError> {
         let qr: (Option<UTXO>,) = sqlx::query_as(
-            "SELECT kickoff_utxo FROM deposit_kickoff_utxos WHERE deposit_outpoint = $1;",
+            "SELECT kickoff_utxo FROM operators_kickoff_utxo WHERE deposit_outpoint = $1;",
         )
         .bind(OutPointDB(deposit_outpoint))
         .fetch_one(&self.connection)
@@ -300,27 +300,54 @@ impl Database {
         &self,
         deposit_outpoint: OutPoint,
     ) -> Result<Option<Vec<UTXO>>, BridgeError> {
-        unimplemented!();
+        let qr: Vec<UTXO> = sqlx::query_as(
+            "SELECT kickoff_utxo FROM verifiers_kickoff_utxos WHERE deposit_outpoint = $1;",
+        )
+        .bind(OutPointDB(deposit_outpoint))
+        .fetch_all(&self.connection)
+        .await?;
+
+        Ok(Some(qr))
     }
 
     /// Operator: Gets the funding UTXO for kickoffs
     pub async fn get_funding_utxo(&self) -> Result<Option<UTXO>, BridgeError> {
-        unimplemented!();
+        let qr: (Option<UTXO>,) =
+            sqlx::query_as("SELECT funding_utxo FROM funding_utxos ORDER BY id DESC LIMIT 1;")
+                .fetch_one(&self.connection)
+                .await?;
+
+        Ok(qr.0)
     }
 
     /// Operator: Sets the funding UTXO for kickoffs
     pub async fn set_funding_utxo(&self, funding_utxo: UTXO) -> Result<(), BridgeError> {
-        unimplemented!();
+        sqlx::query("INSERT INTO funding_utxos (funding_utxo) VALUES ($1);")
+            .bind(funding_utxo)
+            .execute(&self.connection)
+            .await?;
+
+        Ok(())
     }
 
     /// Operator: Save the kickoff UTXO for this deposit UTXO. also save the funding txid to be able to track them later
+    /// TODO: Change this later
     pub async fn save_kickoff_utxo(
         &self,
         deposit_outpoint: OutPoint,
         kickoff_utxo: UTXO,
         funding_txid: Txid,
     ) -> Result<(), BridgeError> {
-        unimplemented!();
+        sqlx::query(
+            "INSERT INTO operators_kickoff_utxo (deposit_outpoint, kickoff_utxo, funding_txid) VALUES ($1, $2, $3);",
+        )
+        .bind(OutPointDB(deposit_outpoint))
+        .bind(kickoff_utxo)
+        .bind(TxidDB(funding_txid))
+        .execute(&self.connection)
+        .await?;
+
+        Ok(())
     }
 
     /// Verifier: Save the kickoff UTXOs for this deposit UTXO.
@@ -329,7 +356,17 @@ impl Database {
         deposit_outpoint: OutPoint,
         kickoff_utxos: &[UTXO],
     ) -> Result<(), BridgeError> {
-        unimplemented!();
+        for utxo in kickoff_utxos {
+            sqlx::query(
+                "INSERT INTO deposit_kickoff_utxos (deposit_outpoint, kickoff_utxo) VALUES ($1, $2);",
+            )
+            .bind(OutPointDB(deposit_outpoint))
+            .bind(utxo)
+            .execute(&self.connection)
+            .await?;
+        }
+
+        Ok(())
     }
 
     /// Verifier: Get the public nonces for a deposit UTXO.
@@ -337,7 +374,13 @@ impl Database {
         &self,
         deposit_outpoint: OutPoint,
     ) -> Result<Option<Vec<MuSigPubNonce>>, BridgeError> {
-        unimplemented!();
+        let qr: Vec<MuSigPubNonce> =
+            sqlx::query_as("SELECT pub_nonce FROM nonces WHERE deposit_outpoint = $1;")
+                .bind(OutPointDB(deposit_outpoint))
+                .fetch_all(&self.connection)
+                .await?;
+
+        Ok(Some(qr))
     }
 
     /// Verifier: save the generated sec nonce and pub nonces
@@ -393,20 +436,47 @@ impl Database {
     /// Verifier: saves the sighash and returns sec and agg nonces, if the sighash is already there and different, returns error
     pub async fn save_sighashes_and_get_nonces(
         &self,
-        deposit_utxo: OutPoint,
+        deposit_outpoint: OutPoint,
         index: usize,
         sighashes: &[[u8; 32]],
     ) -> Result<Option<Vec<(MuSigSecNonce, MuSigAggNonce)>>, BridgeError> {
-        unimplemented!();
+        let mut nonces: Vec<(MuSigSecNonce, MuSigAggNonce)> = Vec::new();
+        for sighash in sighashes {
+            sqlx::query(
+                "INSERT INTO  nonces (deposit_outpoint, idx, sighash) VALUES ($1, $2, $3);",
+            )
+            .bind(OutPointDB(deposit_outpoint))
+            .bind(index as i64)
+            .bind(sighash)
+            .fetch_one(&self.connection)
+            .await?;
+            let res: (MuSigSecNonce, MuSigPubNonce,) = sqlx::query_as("SELECT sec_nonce, agg_nonce FROM nonces WHERE deposit_outpoint = $1 AND idx = $2 AND sighash = $3;")
+                .bind(OutPointDB(deposit_outpoint))
+                .bind(index as i64)
+                .bind(sighash)
+                .fetch_one(&self.connection)
+                .await?;
+            nonces.push((res.0, res.1));
+        }
+
+        Ok(Some(nonces))
     }
 
     /// Verifier: Save the agg nonces for signing
     pub async fn save_agg_nonces(
         &self,
-        deposit_utxo: OutPoint,
+        deposit_outpoint: OutPoint,
         agg_nonces: &Vec<MuSigAggNonce>,
     ) -> Result<(), BridgeError> {
-        unimplemented!();
+        for agg_nonce in agg_nonces {
+            sqlx::query("INSERT INTO nonces (deposit_outpoint, agg_nonce) VALUES ($1, $2);")
+                .bind(OutPointDB(deposit_outpoint))
+                .bind(agg_nonce)
+                .execute(&self.connection)
+                .await?;
+        }
+
+        Ok(())
     }
 }
 
