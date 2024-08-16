@@ -75,7 +75,7 @@ pub fn create_move_commit_script(
         .push_slice(evm_address.0);
 
     let builder = kickoff_utxos.iter().fold(builder, |b, utxo| {
-        b.push_slice(&utxo.txid.to_raw_hash().to_byte_array()) // TODO: Optimize here
+        b.push_slice(utxo.txid.to_byte_array()) // TODO: Optimize here
             .push_int(utxo.vout as i64)
     });
 
@@ -110,7 +110,7 @@ pub fn generate_relative_timelock_script(
         .push_int(block_count as i64)
         .push_opcode(OP_CSV)
         .push_opcode(OP_DROP)
-        .push_x_only_key(&actor_taproot_address)
+        .push_x_only_key(actor_taproot_address)
         .push_opcode(OP_CHECKSIG)
         .into_script()
 }

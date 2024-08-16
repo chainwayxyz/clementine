@@ -83,7 +83,7 @@ pub fn nonce_pair(
         .with_pubkey(musig_pubkey)
         .with_spices(spices)
         .build();
-    let pub_nonce = ByteArray66(sec_nonce.public_nonce().try_into().unwrap());
+    let pub_nonce = ByteArray66(sec_nonce.public_nonce().into());
     (sec_nonce.into(), pub_nonce)
 }
 
@@ -106,7 +106,7 @@ pub fn partial_sign(
         musig2::secp256k1::SecretKey::from_slice(&keypair.secret_key().secret_bytes()).unwrap(),
         musig_sec_nonce,
         &musig_agg_nonce,
-        &sighash,
+        sighash,
     )
     .unwrap();
     partial_signature

@@ -6,12 +6,12 @@ use crate::extended_rpc::ExtendedRpc;
 use crate::musig2::{self, MuSigAggNonce, MuSigPartialSignature, MuSigPubNonce};
 use crate::traits::rpc::VerifierRpcServer;
 use crate::transaction_builder::TransactionBuilder;
-use crate::{utils, EVMAddress, PsbtOutPoint, UTXO};
+use crate::{utils, EVMAddress, UTXO};
 use ::musig2::secp::Point;
 use bitcoin::address::NetworkUnchecked;
 use bitcoin::hashes::Hash;
+use bitcoin::Address;
 use bitcoin::{secp256k1, OutPoint};
-use bitcoin::{Address, TxOut};
 use bitcoin_mock_rpc::RpcApiWrapper;
 use clementine_circuits::constants::BRIDGE_AMOUNT_SATS;
 use clementine_circuits::sha256_hash;
@@ -71,41 +71,41 @@ where
     /// 4. Return pubNonces
     async fn new_deposit(
         &self,
-        deposit_utxo: &OutPoint,
-        recovery_taproot_address: &Address<NetworkUnchecked>,
-        evm_address: &EVMAddress,
+        deposit_outpoint: OutPoint,
+        recovery_taproot_address: Address<NetworkUnchecked>,
+        evm_address: EVMAddress,
     ) -> Result<Vec<MuSigPubNonce>, BridgeError> {
         self.rpc.check_deposit_utxo(
             &self.nofn_xonly_pk,
-            &deposit_utxo,
-            recovery_taproot_address,
-            evm_address,
+            &deposit_outpoint,
+            &recovery_taproot_address,
+            &evm_address,
             BRIDGE_AMOUNT_SATS,
             self.config.user_takes_after,
             self.config.confirmation_treshold,
             self.config.network,
         )?;
 
-        let num_required_sigs = 10; // TODO: Fix this: move_commit and move_reveal tx signatures + operator_take_txs signatures for every operator
+        let num_required_nonces = self.operator_xonly_pks.len() + 2;
 
         // Check if we already have pub_nonces for this deposit_utxo.
-        let pub_nonces_from_db = self.db.get_pub_nonces(deposit_utxo).await?;
+        let pub_nonces_from_db = self.db.get_pub_nonces(deposit_outpoint).await?;
         if let Some(pub_nonces) = pub_nonces_from_db {
-            if pub_nonces.len() != num_required_sigs {
+            if pub_nonces.len() != num_required_nonces {
                 return Err(BridgeError::NoncesNotFound);
             }
             return Ok(pub_nonces);
         }
 
-        let nonces = (0..num_required_sigs)
+        let nonces = (0..num_required_nonces)
             .map(|_| musig2::nonce_pair(&self.signer.keypair, &mut rand::rngs::OsRng))
             .collect::<Vec<_>>();
 
         let transaction = self.db.begin_transaction().await?;
         self.db
-            .save_deposit_info(deposit_utxo, recovery_taproot_address, evm_address)
+            .save_deposit_info(deposit_outpoint, recovery_taproot_address, evm_address)
             .await?;
-        self.db.save_nonces(deposit_utxo, &nonces).await?;
+        self.db.save_nonces(deposit_outpoint, &nonces).await?;
         transaction.commit().await?;
 
         let pub_nonces = nonces
@@ -124,7 +124,7 @@ where
     /// - return butn_txs partial signatures (ommitted for now)
     async fn operator_kickoffs_generated(
         &self,
-        deposit_utxo: &OutPoint,
+        deposit_outpoint: OutPoint,
         kickoff_utxos: Vec<UTXO>,
         operators_kickoff_sigs: Vec<secp256k1::schnorr::Signature>, // These are not transaction signatures, rather, they are to verify the operator's identity.
         agg_nonces: Vec<MuSigAggNonce>,
@@ -140,8 +140,8 @@ where
             }
 
             let kickoff_sig_hash = sha256_hash!(
-                deposit_utxo.txid,
-                deposit_utxo.vout.to_be_bytes(),
+                deposit_outpoint.txid,
+                deposit_outpoint.vout.to_be_bytes(),
                 kickoff_utxo.outpoint.txid,
                 kickoff_utxo.outpoint.vout.to_be_bytes()
             );
@@ -153,10 +153,12 @@ where
             )?;
         }
 
-        self.db.save_agg_nonces(deposit_utxo, &agg_nonces).await?;
+        self.db
+            .save_agg_nonces(deposit_outpoint, &agg_nonces)
+            .await?;
 
         self.db
-            .save_kickoff_utxos(deposit_utxo, &kickoff_utxos)
+            .save_kickoff_utxos(deposit_outpoint, &kickoff_utxos)
             .await?;
 
         // TODO: Sign burn txs
@@ -167,7 +169,7 @@ where
     /// sign operator_takes_txs
     async fn burn_txs_signed_rpc(
         &self,
-        deposit_outpoint: &OutPoint,
+        deposit_outpoint: OutPoint,
         _burn_sigs: Vec<schnorr::Signature>,
     ) -> Result<Vec<MuSigPartialSignature>, BridgeError> {
         // TODO: Verify burn txs are signed by verifiers
@@ -189,14 +191,14 @@ where
             .ok_or(BridgeError::DepositInfoNotFound)?;
 
         let move_commit_tx_handler = TransactionBuilder::create_move_commit_tx(
-            *deposit_outpoint,
+            deposit_outpoint,
             &evm_address,
             &recovery_taproot_address,
             200, // TODO: Fix this
             &self.nofn_xonly_pk,
             &kickoff_outpoints,
             201, // TODO: Fix this
-            self.config.network.clone(),
+            self.config.network,
         );
 
         let move_reveal_tx_handler = TransactionBuilder::create_move_reveal_tx(
@@ -209,7 +211,7 @@ where
             &self.nofn_xonly_pk,
             &kickoff_outpoints,
             201, // TODO: Fix this
-            self.config.network.clone(),
+            self.config.network,
         );
 
         let bridge_fund_outpoint = OutPoint {
@@ -224,7 +226,7 @@ where
                 let (operator_address, _) = TransactionBuilder::create_taproot_address(
                     &[],
                     Some(self.operator_xonly_pks[index]),
-                    self.config.network.clone(),
+                    self.config.network,
                 );
                 let slash_or_take_tx = TransactionBuilder::create_slash_or_take_tx(
                     kickoff_utxo.outpoint,
@@ -268,7 +270,7 @@ where
                     *sec_nonce,
                     agg_nonce.clone(),
                     &self.signer.keypair,
-                    sighash.clone(),
+                    *sighash,
                 )
             })
             .collect::<Vec<_>>();
@@ -279,7 +281,7 @@ where
     /// sign move_commit_tx and move_reveal_tx
     async fn operator_take_txs_signed_rpc(
         &self,
-        deposit_outpoint: &OutPoint,
+        deposit_outpoint: OutPoint,
         operator_take_sigs: Vec<schnorr::Signature>,
     ) -> Result<(MuSigPartialSignature, MuSigPartialSignature), BridgeError> {
         // TODO: remove code duplication
@@ -301,14 +303,14 @@ where
             .ok_or(BridgeError::DepositInfoNotFound)?;
 
         let mut move_commit_tx_handler = TransactionBuilder::create_move_commit_tx(
-            *deposit_outpoint,
+            deposit_outpoint,
             &evm_address,
             &recovery_taproot_address,
             200, // TODO: Fix this
             &self.nofn_xonly_pk,
             &kickoff_outpoints,
             201, // TODO: Fix this
-            self.config.network.clone(),
+            self.config.network,
         );
 
         let mut move_reveal_tx_handler = TransactionBuilder::create_move_reveal_tx(
@@ -321,7 +323,7 @@ where
             &self.nofn_xonly_pk,
             &kickoff_outpoints,
             201, // TODO: Fix this
-            self.config.network.clone(),
+            self.config.network,
         );
 
         let bridge_fund_outpoint = OutPoint {
@@ -336,7 +338,7 @@ where
                 let (operator_address, _) = TransactionBuilder::create_taproot_address(
                     &[],
                     Some(self.operator_xonly_pks[index]),
-                    self.config.network.clone(),
+                    self.config.network,
                 );
                 let slash_or_take_tx = TransactionBuilder::create_slash_or_take_tx(
                     kickoff_utxo.outpoint,
@@ -426,7 +428,7 @@ where
         recovery_taproot_address: Address<NetworkUnchecked>,
         evm_address: EVMAddress,
     ) -> Result<Vec<MuSigPubNonce>, BridgeError> {
-        self.new_deposit(&deposit_utxo, &recovery_taproot_address, &evm_address)
+        self.new_deposit(deposit_utxo, recovery_taproot_address, evm_address)
             .await
     }
 
@@ -438,7 +440,7 @@ where
         agg_nonces: Vec<MuSigAggNonce>,
     ) -> Result<Vec<MuSigPartialSignature>, BridgeError> {
         self.operator_kickoffs_generated(
-            &deposit_utxo,
+            deposit_utxo,
             kickoff_utxos,
             operators_kickoff_sigs,
             agg_nonces,
@@ -451,7 +453,7 @@ where
         deposit_utxo: OutPoint,
         burn_sigs: Vec<schnorr::Signature>,
     ) -> Result<Vec<MuSigPartialSignature>, BridgeError> {
-        self.burn_txs_signed_rpc(&deposit_utxo, burn_sigs).await
+        self.burn_txs_signed_rpc(deposit_utxo, burn_sigs).await
     }
 
     async fn operator_take_txs_signed_rpc(
@@ -459,7 +461,7 @@ where
         deposit_utxo: OutPoint,
         operator_take_sigs: Vec<schnorr::Signature>,
     ) -> Result<(MuSigPartialSignature, MuSigPartialSignature), BridgeError> {
-        self.operator_take_txs_signed_rpc(&deposit_utxo, operator_take_sigs)
+        self.operator_take_txs_signed_rpc(deposit_utxo, operator_take_sigs)
             .await
     }
 }
