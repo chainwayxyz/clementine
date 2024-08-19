@@ -526,7 +526,7 @@ mod tests {
         mock::common,
         musig2::{nonce_pair, MuSigAggNonce, MuSigPubNonce, MuSigSecNonce},
         transaction_builder::TransactionBuilder,
-        EVMAddress,
+        EVMAddress, UTXO,
     };
     use bitcoin::{
         hashes::Hash, Address, Amount, OutPoint, PublicKey, ScriptBuf, TxOut, Txid, XOnlyPublicKey,
@@ -747,8 +747,6 @@ mod tests {
             txid: Txid::from_byte_array([1u8; 32]),
             vout: 1,
         };
-        println!("outpoint: {:?}", outpoint);
-        println!("outpoint.to_string(): {:?}", outpoint.to_string());
         let sks = [
             secp256k1::SecretKey::from_slice(&[1u8; 32]).unwrap(),
             secp256k1::SecretKey::from_slice(&[2u8; 32]).unwrap(),
@@ -782,6 +780,31 @@ mod tests {
         };
         let pub_nonces = db.get_pub_nonces(outpoint).await.unwrap();
         assert!(pub_nonces.is_none());
+    }
+
+    #[tokio::test]
+    async fn test_operators_kickoff_utxo() {
+        let config = create_test_config_with_thread_name!("test_config.toml");
+        let db = Database::new(config).await.unwrap();
+
+        let outpoint = OutPoint {
+            txid: Txid::from_byte_array([1u8; 32]),
+            vout: 1,
+        };
+        let kickoff_utxo = UTXO {
+            outpoint,
+            txout: TxOut {
+                value: Amount::from_sat(100),
+                script_pubkey: ScriptBuf::from(vec![1u8]),
+            },
+        };
+        db.save_kickoff_utxo(outpoint, kickoff_utxo.clone(), outpoint.txid)
+            .await
+            .unwrap();
+        let db_kickoff_utxo = db.get_kickoff_utxo(outpoint).await.unwrap().unwrap();
+
+        // Sanity check
+        assert_eq!(db_kickoff_utxo, kickoff_utxo);
     }
 }
 
