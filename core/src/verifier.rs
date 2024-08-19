@@ -38,7 +38,7 @@ impl<R> Verifier<R>
 where
     R: RpcApiWrapper,
 {
-    pub async fn new(rpc: ExtendedRpc<R>, config: BridgeConfig) -> Result<Self, BridgeError> {
+    pub async fn new(config: BridgeConfig, rpc: ExtendedRpc<R>) -> Result<Self, BridgeError> {
         let signer = Actor::new(config.secret_key, config.network);
 
         let pk: secp256k1::PublicKey = config.secret_key.public_key(&utils::SECP);
@@ -101,10 +101,12 @@ where
         // Check if we already have pub_nonces for this deposit_utxo.
         let pub_nonces_from_db = self.db.get_pub_nonces(deposit_outpoint).await?;
         if let Some(pub_nonces) = pub_nonces_from_db {
-            if pub_nonces.len() != num_required_nonces {
-                return Err(BridgeError::NoncesNotFound);
+            if pub_nonces.len() > 0 {
+                if pub_nonces.len() != num_required_nonces {
+                    return Err(BridgeError::NoncesNotFound);
+                }
+                return Ok(pub_nonces);
             }
-            return Ok(pub_nonces);
         }
 
         let nonces = (0..num_required_nonces)
@@ -476,7 +478,7 @@ impl<R> VerifierRpcServer for Verifier<R>
 where
     R: RpcApiWrapper,
 {
-    async fn new_deposit_rpc(
+    async fn verifier_new_deposit_rpc(
         &self,
         deposit_utxo: OutPoint,
         recovery_taproot_address: Address<NetworkUnchecked>,

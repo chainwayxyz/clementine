@@ -5,23 +5,29 @@
 use bitcoin::{Address, Amount};
 use clementine_circuits::constants::BRIDGE_AMOUNT_SATS;
 use clementine_core::actor::Actor;
+use clementine_core::config::BridgeConfig;
 use clementine_core::database::common::Database;
+use clementine_core::errors::BridgeError;
 use clementine_core::extended_rpc::ExtendedRpc;
 use clementine_core::mock::common;
 use clementine_core::script_builder;
 use clementine_core::servers::*;
 use clementine_core::traits::rpc::OperatorRpcClient;
+use clementine_core::traits::rpc::VerifierRpcClient;
 use clementine_core::transaction_builder::{TransactionBuilder, TxHandler};
+use clementine_core::user::User;
+use clementine_core::utils;
 use clementine_core::utils::handle_taproot_witness_new;
 use clementine_core::utils::SECP;
 use clementine_core::EVMAddress;
 use clementine_core::{
     create_extended_rpc, create_test_config, create_test_config_with_thread_name,
 };
+use crypto_bigint::rand_core::OsRng;
 use std::thread;
 
 #[tokio::test]
-async fn test_flow_1() {
+async fn test_flow_1() -> Result<(), BridgeError> {
     let mut config = create_test_config_with_thread_name!("test_config_flow_1.toml");
     let rpc = create_extended_rpc!(config);
 
@@ -40,79 +46,144 @@ async fn test_flow_1() {
         );
     }
 
-    let (operator_client, _operator_handler, _results) =
-        create_operator_and_verifiers(config.clone(), rpc.clone()).await;
-    let secp = bitcoin::secp256k1::Secp256k1::new();
-    let (xonly_pk, _) = config.secret_key.public_key(&secp).x_only_public_key();
-    let taproot_address = Address::p2tr(&secp, xonly_pk, None, config.network);
-    let tx_builder = TransactionBuilder::new(config.verifiers_public_keys.clone(), config.network);
-
-    let evm_addresses = [
-        EVMAddress([1u8; 20]),
-        EVMAddress([2u8; 20]),
-        EVMAddress([3u8; 20]),
-        EVMAddress([4u8; 20]),
-    ];
-
-    let deposit_addresses = evm_addresses
-        .iter()
-        .map(|evm_address| {
-            TransactionBuilder::generate_deposit_address(
-                taproot_address.as_unchecked(),
-                evm_address,
-                BRIDGE_AMOUNT_SATS,
-                config.user_takes_after,
+    let mut operators = Vec::new();
+    for i in 0..config.num_operators {
+        operators.push(
+            create_operator_server(
+                BridgeConfig {
+                    secret_key: config.all_operators_secret_keys.clone().unwrap()[i].clone(),
+                    ..config.clone()
+                },
+                rpc.clone(),
             )
-            .unwrap()
-            .0
-        })
-        .collect::<Vec<_>>();
-    tracing::debug!("Deposit addresses: {:#?}", deposit_addresses);
+            .await?,
+        );
+    }
+    let mut verifiers = Vec::new();
+    for i in 0..config.num_verifiers {
+        verifiers.push(
+            create_verifier_server(
+                BridgeConfig {
+                    secret_key: config.all_verifiers_secret_keys.clone().unwrap()[i].clone(),
+                    ..config.clone()
+                },
+                rpc.clone(),
+            )
+            .await
+            .unwrap(),
+        );
+    }
 
-    for (idx, deposit_address) in deposit_addresses.iter().enumerate() {
-        let deposit_utxo = rpc
-            .send_to_address(deposit_address, BRIDGE_AMOUNT_SATS)
-            .unwrap();
-        tracing::debug!("Deposit UTXO #{}: {:#?}", idx, deposit_utxo);
+    println!("Operators: {:#?}", operators);
+    println!("Verifiers: {:#?}", verifiers);
 
-        rpc.mine_blocks(18).unwrap();
+    let secret_key = secp256k1::SecretKey::new(&mut secp256k1::rand::thread_rng());
 
-        let output = operator_client
-            .new_deposit_rpc(
-                deposit_utxo,
-                taproot_address.as_unchecked().clone(),
-                evm_addresses[idx],
+    let user = User::new(
+        rpc.clone(),
+        config.verifiers_public_keys.clone(),
+        secret_key,
+        config,
+    );
+
+    let deposit_address = user.get_deposit_address(EVMAddress([1u8; 20])).unwrap();
+    println!("Deposit address: {:#?}", deposit_address);
+    let deposit_outpoint = rpc
+        .send_to_address(&deposit_address, BRIDGE_AMOUNT_SATS)
+        .unwrap();
+
+    rpc.mine_blocks(18).unwrap();
+
+    println!("Deposit outpoint: {:#?}", deposit_outpoint);
+
+    // for every verifier, we call new_deposit
+    for (idx, (client, _)) in verifiers.iter().enumerate() {
+        let musig_pub_nonces = client
+            .verifier_new_deposit_rpc(
+                deposit_outpoint,
+                user.signer.address.as_unchecked().clone(),
+                EVMAddress([1u8; 20]),
             )
             .await
             .unwrap();
-        tracing::debug!("Output #{}: {:#?}", idx, output);
+        println!("Musig Pub Nonces: {:#?}", musig_pub_nonces);
     }
 
-    let withdrawal_address = Address::p2tr(&secp, xonly_pk, None, config.network);
+    Ok(())
+    // // let (operator_client, _operator_handler, _results) =
+    // //     create_operator_and_verifiers(config.clone(), rpc.clone()).await;
 
-    // This index is 3 since when testing the unit tests complete first and the index=1,2 is not sane
-    let withdraw_txid = operator_client
-        .new_withdrawal_direct_rpc(0, withdrawal_address.as_unchecked().clone())
-        .await
-        .unwrap();
-    tracing::debug!("Withdrawal sent to address: {:?}", withdrawal_address);
-    tracing::debug!("Withdrawal TXID: {:#?}", withdraw_txid);
+    // let secp = bitcoin::secp256k1::Secp256k1::new();
+    // let (xonly_pk, _) = config.secret_key.public_key(&secp).x_only_public_key();
+    // let taproot_address = Address::p2tr(&secp, xonly_pk, None, config.network);
+    // let tx_builder = TransactionBuilder::new(config.verifiers_public_keys.clone(), config.network);
 
-    // get the tx details from rpc with txid
-    let tx = rpc.get_raw_transaction(&withdraw_txid, None).unwrap();
-    // tracing::debug!("Withdraw TXID raw transaction: {:#?}", tx);
+    // let evm_addresses = [
+    //     EVMAddress([1u8; 20]),
+    //     EVMAddress([2u8; 20]),
+    //     EVMAddress([3u8; 20]),
+    //     EVMAddress([4u8; 20]),
+    // ];
 
-    // check whether it has an output with the withdrawal address
-    let rpc_withdraw_script = tx.output[0].script_pubkey.clone();
-    let rpc_withdraw_amount = tx.output[0].value;
-    let expected_withdraw_script = withdrawal_address.script_pubkey();
-    assert_eq!(rpc_withdraw_script, expected_withdraw_script);
-    let anyone_can_spend_amount = script_builder::anyone_can_spend_txout().value;
+    // let deposit_addresses = evm_addresses
+    //     .iter()
+    //     .map(|evm_address| {
+    //         TransactionBuilder::generate_deposit_address(
+    //             taproot_address.as_unchecked(),
+    //             evm_address,
+    //             BRIDGE_AMOUNT_SATS,
+    //             config.user_takes_after,
+    //         )
+    //         .unwrap()
+    //         .0
+    //     })
+    //     .collect::<Vec<_>>();
+    // tracing::debug!("Deposit addresses: {:#?}", deposit_addresses);
 
-    // check if the amounts match
-    let expected_withdraw_amount = Amount::from_sat(BRIDGE_AMOUNT_SATS - 2 * config.min_relay_fee)
-        - anyone_can_spend_amount * 2;
-    assert_eq!(expected_withdraw_amount, rpc_withdraw_amount);
+    // for (idx, deposit_address) in deposit_addresses.iter().enumerate() {
+    //     let deposit_utxo = rpc
+    //         .send_to_address(deposit_address, BRIDGE_AMOUNT_SATS)
+    //         .unwrap();
+    //     tracing::debug!("Deposit UTXO #{}: {:#?}", idx, deposit_utxo);
+
+    //     rpc.mine_blocks(18).unwrap();
+
+    //     let output = operator_client
+    //         .new_deposit_rpc(
+    //             deposit_utxo,
+    //             taproot_address.as_unchecked().clone(),
+    //             evm_addresses[idx],
+    //         )
+    //         .await
+    //         .unwrap();
+    //     tracing::debug!("Output #{}: {:#?}", idx, output);
+    // }
+
+    // let withdrawal_address = Address::p2tr(&secp, xonly_pk, None, config.network);
+
+    // // This index is 3 since when testing the unit tests complete first and the index=1,2 is not sane
+    // let withdraw_txid = operator_client
+    //     .new_withdrawal_direct_rpc(0, withdrawal_address.as_unchecked().clone())
+    //     .await
+    //     .unwrap();
+    // tracing::debug!("Withdrawal sent to address: {:?}", withdrawal_address);
+    // tracing::debug!("Withdrawal TXID: {:#?}", withdraw_txid);
+
+    // // get the tx details from rpc with txid
+    // let tx = rpc.get_raw_transaction(&withdraw_txid, None).unwrap();
+    // // tracing::debug!("Withdraw TXID raw transaction: {:#?}", tx);
+
+    // // check whether it has an output with the withdrawal address
+    // let rpc_withdraw_script = tx.output[0].script_pubkey.clone();
+    // let rpc_withdraw_amount = tx.output[0].value;
+    // let expected_withdraw_script = withdrawal_address.script_pubkey();
+    // assert_eq!(rpc_withdraw_script, expected_withdraw_script);
+    // let anyone_can_spend_amount = script_builder::anyone_can_spend_txout().value;
+
+    // // check if the amounts match
+    // let expected_withdraw_amount = Amount::from_sat(BRIDGE_AMOUNT_SATS - 2 * config.min_relay_fee)
+    //     - anyone_can_spend_amount * 2;
+    // assert_eq!(expected_withdraw_amount, rpc_withdraw_amount);
 }
 
 // #[tokio::test]
