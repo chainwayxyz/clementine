@@ -7,6 +7,7 @@ use crate::musig2::{self, MuSigAggNonce, MuSigPartialSignature, MuSigPubNonce};
 use crate::traits::rpc::OperatorRpcServer;
 use crate::transaction_builder::TransactionBuilder;
 use crate::{utils, EVMAddress, UTXO};
+use bitcoincore_rpc::RawTx;
 use ::musig2::secp::Point;
 use bitcoin::address::NetworkUnchecked;
 use bitcoin::hashes::Hash;
@@ -167,9 +168,10 @@ where
             .save_kickoff_utxo(
                 deposit_outpoint,
                 kickoff_utxo.clone(),
-                funding_utxo.outpoint.txid,
             )
             .await?;
+
+        self.db.add_deposit_kickoff_generator_txs(kickoff_tx.compute_txid(), kickoff_tx.raw_hex(), 1, 1, funding_utxo.outpoint.txid).await?;
 
         self.db.set_funding_utxo(change_utxo).await?;
 
