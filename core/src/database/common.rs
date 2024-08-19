@@ -9,6 +9,8 @@ use crate::{config::BridgeConfig, errors::BridgeError};
 use crate::{EVMAddress, UTXO};
 use bitcoin::address::NetworkUnchecked;
 use bitcoin::{Address, OutPoint, Txid};
+use sqlx::postgres::PgRow;
+use sqlx::Row;
 use sqlx::{Pool, Postgres};
 use std::fs;
 
@@ -302,15 +304,26 @@ impl Database {
         &self,
         deposit_outpoint: OutPoint,
     ) -> Result<Option<UTXO>, BridgeError> {
-        let result = sqlx::query_as::<_, UTXO>(
+        struct Row {
+            kickoff_utxo: UTXO,
+        }
+        impl sqlx::FromRow<'_, PgRow> for Row {
+            fn from_row(row: &PgRow) -> Result<Self, sqlx::Error> {
+                Ok(Self {
+                    kickoff_utxo: row.try_get("kickoff_utxo")?,
+                })
+            }
+        }
+
+        let row = sqlx::query_as::<_, Row>(
             "SELECT kickoff_utxo FROM operators_kickoff_utxo WHERE deposit_outpoint = $1;",
         )
         .bind(OutPointDB(deposit_outpoint))
         .fetch_one(&self.connection)
         .await;
 
-        match result {
-            Ok(utxo) => Ok(Some(utxo)),
+        match row {
+            Ok(row) => Ok(Some(row.kickoff_utxo)),
             Err(sqlx::Error::RowNotFound) => Ok(None),
             Err(e) => Err(BridgeError::DatabaseError(e)),
         }
