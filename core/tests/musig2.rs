@@ -1,6 +1,6 @@
-use bitcoin::opcodes::all::OP_CHECKSIGVERIFY;
+use bitcoin::opcodes::all::OP_CHECKSIG;
 use bitcoin::{hashes::Hash, script, Amount, ScriptBuf, TapNodeHash};
-use bitcoincore_rpc::Client;
+use bitcoincore_rpc::{Client, RawTx};
 use clementine_core::database::common::Database;
 use clementine_core::mock::common;
 use clementine_core::musig2::{aggregate_nonces, aggregate_partial_signatures, MuSigPubNonce};
@@ -159,9 +159,8 @@ async fn test_musig2_script_spend() {
     let agg_xonly_pubkey =
         bitcoin::XOnlyPublicKey::from_slice(&musig_agg_xonly_pubkey.serialize()).unwrap();
     let musig2_script = bitcoin::script::Builder::new()
-        .push_int(1)
         .push_x_only_key(&agg_xonly_pubkey)
-        .push_opcode(OP_CHECKSIGVERIFY)
+        .push_opcode(OP_CHECKSIG)
         .into_script();
     let scripts: Vec<ScriptBuf> = vec![musig2_script];
     let to_address = bitcoin::Address::p2tr(
@@ -220,6 +219,7 @@ async fn test_musig2_script_spend() {
     let schnorr_sig = secp256k1::schnorr::Signature::from_slice(&final_signature).unwrap();
     let witness_elements = vec![schnorr_sig.as_ref()];
     handle_taproot_witness_new(&mut tx_details, &witness_elements, 0, 0).unwrap();
+    println!("HEX: {:?}", tx_details.tx.raw_hex());
     let txid = rpc.send_raw_transaction(&tx_details.tx).unwrap();
     println!("Transaction sent successfully! Txid: {}", txid);
 }

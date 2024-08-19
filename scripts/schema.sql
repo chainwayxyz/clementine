@@ -30,28 +30,28 @@ create table nonces (
     idx serial primary key,
     deposit_outpoint text not null check (deposit_outpoint ~ '^[a-fA-F0-9]{64}:(0|[1-9][0-9]{0,9})$'),
     pub_nonce text not null check (pub_nonce ~ '^[a-fA-F0-9]{132}'),
-    sec_nonce text not null check (sec_nonce ~ '^\\x[a-fA-F0-9]{128}$'),
+    sec_nonce text not null check (sec_nonce ~ '^[a-fA-F0-9]{128}$'),
     agg_nonce text check (agg_nonce ~ '^[a-fA-F0-9]{132}'),
-    sig_hash text check (sig_hash ~ '^[a-fA-F0-9]{64}'), /* 32 bytes */
+    sighash text check (sighash ~ '^[a-fA-F0-9]{64}'), /* 32 bytes */
     created_at timestamp not null default now()
 );
 
-CREATE OR REPLACE FUNCTION prevent_sig_hash_update()
+CREATE OR REPLACE FUNCTION prevent_sighash_update()
 RETURNS TRIGGER AS $$
 BEGIN
     -- If the old value of sig_hash is not NULL and the new value is different, raise an exception
-    IF OLD.sig_hash IS NOT NULL AND NEW.sig_hash IS DISTINCT FROM OLD.sig_hash THEN
-        RAISE EXCEPTION 'sig_hash cannot be updated once it has a value';
+    IF OLD.sighash IS NOT NULL AND NEW.sighash IS DISTINCT FROM OLD.sighash THEN
+        RAISE EXCEPTION 'sighash cannot be updated once it has a value';
     END IF;
     RETURN NEW;
 END;
 $$ LANGUAGE plpgsql;
 
 -- Create the trigger
-CREATE TRIGGER prevent_sig_hash_update_trigger
+CREATE TRIGGER prevent_sighash_update_trigger
 BEFORE UPDATE ON nonces
 FOR EACH ROW
-EXECUTE FUNCTION prevent_sig_hash_update();
+EXECUTE FUNCTION prevent_sighash_update();
 
 -- Verifier table for kickoff for deposits
 /* This table holds the kickoff utxos sent by the operators for each deposit. */

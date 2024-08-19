@@ -280,6 +280,24 @@ impl Database {
     //     Ok((bridge_fund_txid, sig))
     // }
 
+    /// Database function for debugging purposes.
+    pub async fn get_nonce_table(
+        &self,
+        table_name: &str,
+    ) -> Result<Vec<(i32, String, String, String, String)>, BridgeError> {
+        let qr: Vec<(i32, String, String, String, String)> =
+            sqlx::query_as(&format!("SELECT * FROM {};", table_name))
+                .fetch_all(&self.connection)
+                .await?;
+
+        let res: Vec<(i32, String, String, String, String)> = qr
+            .into_iter()
+            .map(|(s1, s2, s3, s4, s5)| (s1, s2, s3, s4, s5))
+            .collect();
+
+        Ok(res)
+    }
+
     /// Operator: If operator already created a kickoff UTXO for this deposit UTXO, return it.
     pub async fn get_kickoff_utxo(
         &self,
@@ -395,7 +413,7 @@ impl Database {
                 "INSERT INTO nonces (deposit_outpoint, sec_nonce, pub_nonce) VALUES ($1, $2, $3);",
             )
             .bind(OutPointDB(deposit_outpoint))
-            .bind(sec)
+            .bind(hex::encode(sec))
             .bind(pub_nonce)
             .execute(&self.connection)
             .await?;
@@ -440,23 +458,35 @@ impl Database {
         index: usize,
         sighashes: &[[u8; 32]],
     ) -> Result<Option<Vec<(MuSigSecNonce, MuSigAggNonce)>>, BridgeError> {
+        let indices: Vec<i32> = sqlx::query_scalar::<_, i32>(
+            "SELECT idx FROM nonces WHERE deposit_outpoint = $1 ORDER BY idx;",
+        )
+        .bind(OutPointDB(deposit_outpoint))
+        .fetch_all(&self.connection)
+        .await?;
+        println!("AAAAAAAAAA");
         let mut nonces: Vec<(MuSigSecNonce, MuSigAggNonce)> = Vec::new();
-        for sighash in sighashes {
-            sqlx::query(
-                "INSERT INTO  nonces (deposit_outpoint, idx, sighash) VALUES ($1, $2, $3);",
-            )
-            .bind(OutPointDB(deposit_outpoint))
-            .bind(index as i64)
-            .bind(sighash)
-            .fetch_one(&self.connection)
-            .await?;
-            let res: (MuSigSecNonce, MuSigPubNonce,) = sqlx::query_as("SELECT sec_nonce, agg_nonce FROM nonces WHERE deposit_outpoint = $1 AND idx = $2 AND sighash = $3;")
+        for (sighash, idx) in sighashes.iter().zip(indices[index..].iter()) {
+            // After finding the idx deposit_outpoint might be unnecessary
+            println!("BBBBBBBB");
+            sqlx::query("UPDATE nonces SET sighash = $1 WHERE idx = $2 AND deposit_outpoint = $3;")
+                .bind(hex::encode(sighash))
+                .bind(*idx)
                 .bind(OutPointDB(deposit_outpoint))
-                .bind(index as i64)
-                .bind(sighash)
+                .execute(&self.connection)
+                .await?;
+            println!("CCCCCCCC");
+            let nonce_table = self.get_nonce_table("nonces").await.unwrap();
+            println!("nonce_table s: {:?}", nonce_table);
+            let res: (String, MuSigAggNonce) = sqlx::query_as("SELECT sec_nonce, agg_nonce FROM nonces WHERE deposit_outpoint = $1 AND idx = $2 AND sighash = $3;")
+                .bind(OutPointDB(deposit_outpoint))
+                .bind(*idx)
+                .bind(hex::encode(sighash))
                 .fetch_one(&self.connection)
                 .await?;
-            nonces.push((res.0, res.1));
+            println!("DDDDDDDD");
+            let sec_nonce: MuSigSecNonce = hex::decode(res.0).unwrap().try_into()?;
+            nonces.push((sec_nonce, res.1));
         }
 
         Ok(Some(nonces))
@@ -468,12 +498,24 @@ impl Database {
         deposit_outpoint: OutPoint,
         agg_nonces: &Vec<MuSigAggNonce>,
     ) -> Result<(), BridgeError> {
+        let mut idx = sqlx::query_scalar::<_, i32>(
+            "SELECT idx FROM nonces WHERE deposit_outpoint = $1 ORDER BY idx ASC LIMIT 1;",
+        )
+        .bind(OutPointDB(deposit_outpoint))
+        .fetch_optional(&self.connection)
+        .await?
+        .unwrap();
         for agg_nonce in agg_nonces {
-            sqlx::query("INSERT INTO nonces (deposit_outpoint, agg_nonce) VALUES ($1, $2);")
-                .bind(OutPointDB(deposit_outpoint))
-                .bind(agg_nonce)
-                .execute(&self.connection)
-                .await?;
+            // After finding the idx deposit_outpoint might be unnecessary
+            sqlx::query(
+                "UPDATE nonces SET agg_nonce = $1 WHERE idx = $2 AND deposit_outpoint = $3;",
+            )
+            .bind(agg_nonce)
+            .bind(idx)
+            .bind(OutPointDB(deposit_outpoint))
+            .execute(&self.connection)
+            .await?;
+            idx += 1;
         }
 
         Ok(())
@@ -581,7 +623,7 @@ mod tests {
         };
         println!("outpoint: {:?}", outpoint);
         println!("outpoint.to_string(): {:?}", outpoint.to_string());
-        let index = 1;
+        let index = 2;
         let sighashes = [[1u8; 32], [2u8; 32], [3u8; 32]];
         let sks = [
             secp256k1::SecretKey::from_slice(&[1u8; 32]).unwrap(),
@@ -602,6 +644,8 @@ mod tests {
             .collect();
         db.save_nonces(outpoint, &nonce_pairs).await.unwrap();
         db.save_agg_nonces(outpoint, &agg_nonces).await.unwrap();
+        let nonce_table = db.get_nonce_table("nonces").await.unwrap();
+        println!("nonce_table after inserting nonce_pairs: {:?}", nonce_table);
         let db_sec_and_agg_nonces = db
             .save_sighashes_and_get_nonces(outpoint, index, &sighashes)
             .await
@@ -609,11 +653,9 @@ mod tests {
             .unwrap();
 
         // Sanity checks
-        assert_eq!(db_sec_and_agg_nonces.len(), 3);
-        for (i, (db_sec_nonce, db_agg_nonce)) in db_sec_and_agg_nonces.into_iter().enumerate() {
-            assert_eq!(db_sec_nonce, nonce_pairs[i].0);
-            assert_eq!(db_agg_nonce, agg_nonces[i]);
-        }
+        assert_eq!(db_sec_and_agg_nonces.len(), 1);
+        assert_eq!(db_sec_and_agg_nonces[0].0, nonce_pairs[index].0);
+        assert_eq!(db_sec_and_agg_nonces[0].1, agg_nonces[index]);
     }
 
     #[tokio::test]
