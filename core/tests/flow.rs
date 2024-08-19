@@ -109,6 +109,18 @@ async fn test_flow_1() -> Result<(), BridgeError> {
         println!("Musig Pub Nonces: {:#?}", musig_pub_nonces);
     }
 
+    // aggreagte nonces here
+
+    // call operators' new_deposit
+    
+    // call verifiers' operator_kickoffs_generated_rpc
+
+    // aggreate partial signatures here
+
+    // call burn_txs_signed_rpc
+
+    // call operator_take_txs_signed_rpc
+
     Ok(())
     // // let (operator_client, _operator_handler, _results) =
     // //     create_operator_and_verifiers(config.clone(), rpc.clone()).await;
