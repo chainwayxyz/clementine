@@ -2,119 +2,118 @@
 // //!
 // //! This testss checks if basic deposit and withdraw operations are OK or not.
 
-// use bitcoin::{Address, Amount};
-// use clementine_circuits::constants::BRIDGE_AMOUNT_SATS;
-// use clementine_core::actor::Actor;
-// use clementine_core::database::common::Database;
-// use clementine_core::extended_rpc::ExtendedRpc;
-// use clementine_core::mock::common;
-// use clementine_core::script_builder;
-// use clementine_core::servers::*;
-// use clementine_core::traits::rpc::OperatorRpcClient;
-// use clementine_core::transaction_builder::{TxHandler, TransactionBuilder};
-// use clementine_core::utils::handle_taproot_witness_new;
-// use clementine_core::utils::SECP;
-// use clementine_core::EVMAddress;
-// use clementine_core::{
-//     create_extended_rpc, create_test_config, create_test_config_with_thread_name,
-// };
-// use std::thread;
+use bitcoin::{Address, Amount};
+use clementine_circuits::constants::BRIDGE_AMOUNT_SATS;
+use clementine_core::actor::Actor;
+use clementine_core::database::common::Database;
+use clementine_core::extended_rpc::ExtendedRpc;
+use clementine_core::mock::common;
+use clementine_core::script_builder;
+use clementine_core::servers::*;
+use clementine_core::traits::rpc::OperatorRpcClient;
+use clementine_core::transaction_builder::{TransactionBuilder, TxHandler};
+use clementine_core::utils::handle_taproot_witness_new;
+use clementine_core::utils::SECP;
+use clementine_core::EVMAddress;
+use clementine_core::{
+    create_extended_rpc, create_test_config, create_test_config_with_thread_name,
+};
+use std::thread;
 
-// #[tokio::test]
-// async fn test_flow_1() {
-//     let mut config = create_test_config_with_thread_name!("test_config_flow_1.toml");
-//     let rpc = create_extended_rpc!(config);
+#[tokio::test]
+async fn test_flow_1() {
+    let mut config = create_test_config_with_thread_name!("test_config_flow_1.toml");
+    let rpc = create_extended_rpc!(config);
 
-//     // Create temporary databases for testing.
-//     let handle = thread::current()
-//         .name()
-//         .unwrap()
-//         .split(':')
-//         .last()
-//         .unwrap()
-//         .to_owned();
-//     for i in 0..4 {
-//         create_test_config!(
-//             handle.clone() + i.to_string().as_str(),
-//             "test_config_flow_1.toml"
-//         );
-//     }
+    // Create temporary databases for testing.
+    let handle = thread::current()
+        .name()
+        .unwrap()
+        .split(':')
+        .last()
+        .unwrap()
+        .to_owned();
+    for i in 0..4 {
+        create_test_config!(
+            handle.clone() + i.to_string().as_str(),
+            "test_config_flow_1.toml"
+        );
+    }
 
-//     let (operator_client, _operator_handler, _results) =
-//         create_operator_and_verifiers(config.clone(), rpc.clone()).await;
-//     let secp = bitcoin::secp256k1::Secp256k1::new();
-//     let (xonly_pk, _) = config.secret_key.public_key(&secp).x_only_public_key();
-//     let taproot_address = Address::p2tr(&secp, xonly_pk, None, config.network);
-//     let tx_builder = TransactionBuilder::new(config.verifiers_public_keys.clone(), config.network);
+    let (operator_client, _operator_handler, _results) =
+        create_operator_and_verifiers(config.clone(), rpc.clone()).await;
+    let secp = bitcoin::secp256k1::Secp256k1::new();
+    let (xonly_pk, _) = config.secret_key.public_key(&secp).x_only_public_key();
+    let taproot_address = Address::p2tr(&secp, xonly_pk, None, config.network);
+    let tx_builder = TransactionBuilder::new(config.verifiers_public_keys.clone(), config.network);
 
-//     let evm_addresses = [
-//         EVMAddress([1u8; 20]),
-//         EVMAddress([2u8; 20]),
-//         EVMAddress([3u8; 20]),
-//         EVMAddress([4u8; 20]),
-//     ];
+    let evm_addresses = [
+        EVMAddress([1u8; 20]),
+        EVMAddress([2u8; 20]),
+        EVMAddress([3u8; 20]),
+        EVMAddress([4u8; 20]),
+    ];
 
-//     let deposit_addresses = evm_addresses
-//         .iter()
-//         .map(|evm_address| {
-//             tx_builder
-//                 .generate_deposit_address(
-//                     taproot_address.as_unchecked(),
-//                     evm_address,
-//                     BRIDGE_AMOUNT_SATS,
-//                     config.user_takes_after,
-//                 )
-//                 .unwrap()
-//                 .0
-//         })
-//         .collect::<Vec<_>>();
-//     tracing::debug!("Deposit addresses: {:#?}", deposit_addresses);
+    let deposit_addresses = evm_addresses
+        .iter()
+        .map(|evm_address| {
+            TransactionBuilder::generate_deposit_address(
+                taproot_address.as_unchecked(),
+                evm_address,
+                BRIDGE_AMOUNT_SATS,
+                config.user_takes_after,
+            )
+            .unwrap()
+            .0
+        })
+        .collect::<Vec<_>>();
+    tracing::debug!("Deposit addresses: {:#?}", deposit_addresses);
 
-//     for (idx, deposit_address) in deposit_addresses.iter().enumerate() {
-//         let deposit_utxo = rpc
-//             .send_to_address(deposit_address, BRIDGE_AMOUNT_SATS)
-//             .unwrap();
-//         tracing::debug!("Deposit UTXO #{}: {:#?}", idx, deposit_utxo);
+    for (idx, deposit_address) in deposit_addresses.iter().enumerate() {
+        let deposit_utxo = rpc
+            .send_to_address(deposit_address, BRIDGE_AMOUNT_SATS)
+            .unwrap();
+        tracing::debug!("Deposit UTXO #{}: {:#?}", idx, deposit_utxo);
 
-//         rpc.mine_blocks(18).unwrap();
+        rpc.mine_blocks(18).unwrap();
 
-//         let output = operator_client
-//             .new_deposit_rpc(
-//                 deposit_utxo,
-//                 taproot_address.as_unchecked().clone(),
-//                 evm_addresses[idx],
-//             )
-//             .await
-//             .unwrap();
-//         tracing::debug!("Output #{}: {:#?}", idx, output);
-//     }
+        let output = operator_client
+            .new_deposit_rpc(
+                deposit_utxo,
+                taproot_address.as_unchecked().clone(),
+                evm_addresses[idx],
+            )
+            .await
+            .unwrap();
+        tracing::debug!("Output #{}: {:#?}", idx, output);
+    }
 
-//     let withdrawal_address = Address::p2tr(&secp, xonly_pk, None, config.network);
+    let withdrawal_address = Address::p2tr(&secp, xonly_pk, None, config.network);
 
-//     // This index is 3 since when testing the unit tests complete first and the index=1,2 is not sane
-//     let withdraw_txid = operator_client
-//         .new_withdrawal_direct_rpc(0, withdrawal_address.as_unchecked().clone())
-//         .await
-//         .unwrap();
-//     tracing::debug!("Withdrawal sent to address: {:?}", withdrawal_address);
-//     tracing::debug!("Withdrawal TXID: {:#?}", withdraw_txid);
+    // This index is 3 since when testing the unit tests complete first and the index=1,2 is not sane
+    let withdraw_txid = operator_client
+        .new_withdrawal_direct_rpc(0, withdrawal_address.as_unchecked().clone())
+        .await
+        .unwrap();
+    tracing::debug!("Withdrawal sent to address: {:?}", withdrawal_address);
+    tracing::debug!("Withdrawal TXID: {:#?}", withdraw_txid);
 
-//     // get the tx details from rpc with txid
-//     let tx = rpc.get_raw_transaction(&withdraw_txid, None).unwrap();
-//     // tracing::debug!("Withdraw TXID raw transaction: {:#?}", tx);
+    // get the tx details from rpc with txid
+    let tx = rpc.get_raw_transaction(&withdraw_txid, None).unwrap();
+    // tracing::debug!("Withdraw TXID raw transaction: {:#?}", tx);
 
-//     // check whether it has an output with the withdrawal address
-//     let rpc_withdraw_script = tx.output[0].script_pubkey.clone();
-//     let rpc_withdraw_amount = tx.output[0].value;
-//     let expected_withdraw_script = withdrawal_address.script_pubkey();
-//     assert_eq!(rpc_withdraw_script, expected_withdraw_script);
-//     let anyone_can_spend_amount = script_builder::anyone_can_spend_txout().value;
+    // check whether it has an output with the withdrawal address
+    let rpc_withdraw_script = tx.output[0].script_pubkey.clone();
+    let rpc_withdraw_amount = tx.output[0].value;
+    let expected_withdraw_script = withdrawal_address.script_pubkey();
+    assert_eq!(rpc_withdraw_script, expected_withdraw_script);
+    let anyone_can_spend_amount = script_builder::anyone_can_spend_txout().value;
 
-//     // check if the amounts match
-//     let expected_withdraw_amount = Amount::from_sat(BRIDGE_AMOUNT_SATS - 2 * config.min_relay_fee)
-//         - anyone_can_spend_amount * 2;
-//     assert_eq!(expected_withdraw_amount, rpc_withdraw_amount);
-// }
+    // check if the amounts match
+    let expected_withdraw_amount = Amount::from_sat(BRIDGE_AMOUNT_SATS - 2 * config.min_relay_fee)
+        - anyone_can_spend_amount * 2;
+    assert_eq!(expected_withdraw_amount, rpc_withdraw_amount);
+}
 
 // #[tokio::test]
 // async fn test_flow_2() {
