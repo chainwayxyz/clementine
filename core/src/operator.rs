@@ -7,12 +7,12 @@ use crate::musig2::{self, MuSigAggNonce, MuSigPartialSignature, MuSigPubNonce};
 use crate::traits::rpc::OperatorRpcServer;
 use crate::transaction_builder::TransactionBuilder;
 use crate::{utils, EVMAddress, UTXO};
-use bitcoincore_rpc::RawTx;
 use ::musig2::secp::Point;
 use bitcoin::address::NetworkUnchecked;
 use bitcoin::hashes::Hash;
 use bitcoin::{Address, OutPoint, TapSighash};
 use bitcoin_mock_rpc::RpcApiWrapper;
+use bitcoincore_rpc::RawTx;
 use clementine_circuits::constants::BRIDGE_AMOUNT_SATS;
 use clementine_circuits::sha256_hash;
 use jsonrpsee::core::async_trait;
@@ -109,7 +109,7 @@ where
 
             return Ok((kickoff_utxo, sig));
         }
-
+        // TODO: Later we can check if we have unused kickkoff UTXOs and use them instead of creating a new one
         // 3. Create a kickoff transaction but do not broadcast it
 
         // To create a kickoff tx, we first need a funding utxo
@@ -129,22 +129,23 @@ where
             ));
         }
 
-        let kickoff_tx = TransactionBuilder::create_kickoff_tx(&funding_utxo, &self.signer.address);
+        let kickoff_tx_handler =
+            TransactionBuilder::create_kickoff_tx(&funding_utxo, &self.signer.address);
 
         let change_utxo = UTXO {
             outpoint: OutPoint {
-                txid: kickoff_tx.compute_txid(),
-                vout: 1,
+                txid: kickoff_tx_handler.tx.compute_txid(),
+                vout: 1, // TODO: This will equal to the number of kickoff_outputs in the kickoff tx
             },
-            txout: kickoff_tx.output[1].clone(),
+            txout: kickoff_tx_handler.tx.output[1].clone(),
         };
 
         let kickoff_utxo = UTXO {
             outpoint: OutPoint {
-                txid: kickoff_tx.compute_txid(),
+                txid: kickoff_tx_handler.tx.compute_txid(),
                 vout: 0,
             },
-            txout: kickoff_tx.output[0].clone(),
+            txout: kickoff_tx_handler.tx.output[0].clone(),
         };
 
         let kickoff_sig_hash = sha256_hash!(
@@ -165,13 +166,18 @@ where
 
         // We save the funding txid and the kickoff txid to be able to track them later
         self.db
-            .save_kickoff_utxo(
-                deposit_outpoint,
-                kickoff_utxo.clone(),
-            )
+            .save_kickoff_utxo(deposit_outpoint, kickoff_utxo.clone())
             .await?;
 
-        self.db.add_deposit_kickoff_generator_txs(kickoff_tx.compute_txid(), kickoff_tx.raw_hex(), 1, 1, funding_utxo.outpoint.txid).await?;
+        self.db
+            .add_deposit_kickoff_generator_tx(
+                kickoff_tx_handler.tx.compute_txid(),
+                kickoff_tx_handler.tx.raw_hex(),
+                1,
+                1,
+                funding_utxo.outpoint.txid,
+            )
+            .await?;
 
         self.db.set_funding_utxo(change_utxo).await?;
 
@@ -182,8 +188,9 @@ where
 
     /// Checks if utxo is valid, spendable by operator and not spent
     /// Saves the utxo to the db
-    async fn set_operator_funding_utxo_rpc(&self, _funding_utxo: &UTXO) -> Result<(), BridgeError> {
-        unimplemented!();
+    async fn set_operator_funding_utxo_rpc(&self, funding_utxo: UTXO) -> Result<(), BridgeError> {
+        self.db.set_funding_utxo(funding_utxo).await?;
+        Ok(())
     }
 }
 
@@ -203,6 +210,6 @@ where
     }
 
     async fn set_operator_funding_utxo_rpc(&self, funding_utxo: UTXO) -> Result<(), BridgeError> {
-        self.set_operator_funding_utxo_rpc(&funding_utxo).await
+        self.set_operator_funding_utxo_rpc(funding_utxo).await
     }
 }

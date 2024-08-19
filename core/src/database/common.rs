@@ -8,10 +8,9 @@ use crate::musig2::{MuSigAggNonce, MuSigPubNonce, MuSigSecNonce};
 use crate::{config::BridgeConfig, errors::BridgeError};
 use crate::{EVMAddress, UTXO};
 use bitcoin::address::NetworkUnchecked;
-use bitcoin::{Address, Amount, OutPoint, Txid};
-use sqlx::{query, Pool, Postgres};
+use bitcoin::{Address, OutPoint, Txid};
+use sqlx::{Pool, Postgres};
 use std::fs;
-use std::str::FromStr;
 
 use super::wrapper::{AddressDB, EVMAddressDB, OutPointDB, TxidDB};
 
@@ -303,14 +302,18 @@ impl Database {
         &self,
         deposit_outpoint: OutPoint,
     ) -> Result<Option<UTXO>, BridgeError> {
-        let qr: (Option<UTXO>,) = sqlx::query_as(
+        let result = sqlx::query_as::<_, UTXO>(
             "SELECT kickoff_utxo FROM operators_kickoff_utxo WHERE deposit_outpoint = $1;",
         )
         .bind(OutPointDB(deposit_outpoint))
         .fetch_one(&self.connection)
-        .await?;
+        .await;
 
-        Ok(qr.0)
+        match result {
+            Ok(utxo) => Ok(Some(utxo)),
+            Err(sqlx::Error::RowNotFound) => Ok(None),
+            Err(e) => Err(BridgeError::DatabaseError(e)),
+        }
     }
 
     /// Verifier: Get the verified kickoff UTXOs for a deposit UTXO.
@@ -348,20 +351,17 @@ impl Database {
         Ok(())
     }
 
-    /// Operator: Save the kickoff UTXO for this deposit UTXO. also save the funding txid to be able to track them later
-    /// TODO: Change this later
+    /// Operator: Save the kickoff UTXO for this deposit UTXO.
     pub async fn save_kickoff_utxo(
         &self,
         deposit_outpoint: OutPoint,
         kickoff_utxo: UTXO,
-        funding_txid: Txid,
     ) -> Result<(), BridgeError> {
         sqlx::query(
-            "INSERT INTO operators_kickoff_utxo (deposit_outpoint, kickoff_utxo, funding_txid) VALUES ($1, $2, $3);",
+            "INSERT INTO operators_kickoff_utxo (deposit_outpoint, kickoff_utxo) VALUES ($1, $2);",
         )
         .bind(OutPointDB(deposit_outpoint))
         .bind(kickoff_utxo)
-        .bind(TxidDB(funding_txid))
         .execute(&self.connection)
         .await?;
 
@@ -515,6 +515,26 @@ impl Database {
 
         Ok(())
     }
+
+    pub async fn add_deposit_kickoff_generator_tx(
+        &self,
+        txid: Txid,
+        raw_hex: String,
+        num_kickoffs: usize,
+        cur_unused_kickoff_index: usize,
+        funding_txid: Txid,
+    ) -> Result<(), BridgeError> {
+        sqlx::query("INSERT INTO deposit_kickoff_generator_txs (txid, raw_hex, vout, n, funding_txid) VALUES ($1, $2, $3, $4, $5);")
+            .bind(TxidDB(txid))
+            .bind(raw_hex)
+            .bind(num_kickoffs as i32)
+            .bind(cur_unused_kickoff_index as i32)
+            .bind(TxidDB(funding_txid))
+            .execute(&self.connection)
+            .await?;
+
+        Ok(())
+    }
 }
 
 #[cfg(test)]
@@ -525,15 +545,13 @@ mod tests {
         create_test_config, create_test_config_with_thread_name,
         mock::common,
         musig2::{nonce_pair, MuSigAggNonce, MuSigPubNonce, MuSigSecNonce},
-        transaction_builder::TransactionBuilder,
         EVMAddress, UTXO,
     };
     use bitcoin::{
-        hashes::Hash, Address, Amount, OutPoint, PublicKey, ScriptBuf, TxOut, Txid, XOnlyPublicKey,
+        hashes::Hash, Address, Amount, OutPoint, ScriptBuf, TxOut, Txid, XOnlyPublicKey,
     };
     use crypto_bigint::rand_core::OsRng;
-    use musig2::secp256k1::Keypair;
-    use secp256k1::{schnorr::Signature, Secp256k1};
+    use secp256k1::Secp256k1;
     use std::thread;
 
     #[tokio::test]
@@ -783,7 +801,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_operators_kickoff_utxo() {
+    async fn test_operators_kickoff_utxo_1() {
         let config = create_test_config_with_thread_name!("test_config.toml");
         let db = Database::new(config).await.unwrap();
 
@@ -798,13 +816,26 @@ mod tests {
                 script_pubkey: ScriptBuf::from(vec![1u8]),
             },
         };
-        db.save_kickoff_utxo(outpoint, kickoff_utxo.clone(), outpoint.txid)
+        db.save_kickoff_utxo(outpoint, kickoff_utxo.clone())
             .await
             .unwrap();
         let db_kickoff_utxo = db.get_kickoff_utxo(outpoint).await.unwrap().unwrap();
 
         // Sanity check
         assert_eq!(db_kickoff_utxo, kickoff_utxo);
+    }
+
+    #[tokio::test]
+    async fn test_operators_kickoff_utxo_2() {
+        let config = create_test_config_with_thread_name!("test_config.toml");
+        let db = Database::new(config).await.unwrap();
+
+        let outpoint = OutPoint {
+            txid: Txid::from_byte_array([1u8; 32]),
+            vout: 1,
+        };
+        let db_kickoff_utxo = db.get_kickoff_utxo(outpoint).await.unwrap();
+        assert!(db_kickoff_utxo.is_none());
     }
 }
 
