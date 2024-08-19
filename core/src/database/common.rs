@@ -398,7 +398,7 @@ impl Database {
                 .fetch_all(&self.connection)
                 .await?;
 
-        Ok(Some(qr))
+        Ok(if qr.is_empty() { None } else { Some(qr) })
     }
 
     /// Verifier: save the generated sec nonce and pub nonces
@@ -616,8 +616,6 @@ mod tests {
             txid: Txid::from_byte_array([1u8; 32]),
             vout: 1,
         };
-        println!("outpoint: {:?}", outpoint);
-        println!("outpoint.to_string(): {:?}", outpoint.to_string());
         let index = 2;
         let sighashes = [[1u8; 32]];
         let sks = [
@@ -703,8 +701,6 @@ mod tests {
             txid: Txid::from_byte_array([1u8; 32]),
             vout: 1,
         };
-        println!("outpoint: {:?}", outpoint);
-        println!("outpoint.to_string(): {:?}", outpoint.to_string());
         let index = 2;
         let mut sighashes = [[1u8; 32]];
         let sks = [
@@ -739,6 +735,53 @@ mod tests {
             .await
             .expect_err("Should return database sighash update error");
         println!("Error: {:?}", _db_sec_and_agg_nonces);
+    }
+
+    #[tokio::test]
+    async fn test_get_pub_nonces_1() {
+        let config = create_test_config_with_thread_name!("test_config.toml");
+        let db = Database::new(config).await.unwrap();
+        let secp = Secp256k1::new();
+
+        let outpoint = OutPoint {
+            txid: Txid::from_byte_array([1u8; 32]),
+            vout: 1,
+        };
+        println!("outpoint: {:?}", outpoint);
+        println!("outpoint.to_string(): {:?}", outpoint.to_string());
+        let sks = [
+            secp256k1::SecretKey::from_slice(&[1u8; 32]).unwrap(),
+            secp256k1::SecretKey::from_slice(&[2u8; 32]).unwrap(),
+            secp256k1::SecretKey::from_slice(&[3u8; 32]).unwrap(),
+        ];
+        let keypairs: Vec<secp256k1::Keypair> = sks
+            .iter()
+            .map(|sk| secp256k1::Keypair::from_secret_key(&secp, sk))
+            .collect();
+        let nonce_pairs: Vec<(MuSigSecNonce, MuSigPubNonce)> = keypairs
+            .into_iter()
+            .map(|kp| nonce_pair(&kp, &mut OsRng))
+            .collect();
+        db.save_nonces(outpoint, &nonce_pairs).await.unwrap();
+        let pub_nonces = db.get_pub_nonces(outpoint).await.unwrap().unwrap();
+
+        // Sanity checks
+        assert_eq!(pub_nonces.len(), nonce_pairs.len());
+        for (pub_nonce, (_, db_pub_nonce)) in pub_nonces.iter().zip(nonce_pairs.iter()) {
+            assert_eq!(pub_nonce, db_pub_nonce);
+        }
+    }
+
+    #[tokio::test]
+    async fn test_get_pub_nonces_2() {
+        let config = create_test_config_with_thread_name!("test_config.toml");
+        let db = Database::new(config).await.unwrap();
+        let outpoint = OutPoint {
+            txid: Txid::from_byte_array([1u8; 32]),
+            vout: 1,
+        };
+        let pub_nonces = db.get_pub_nonces(outpoint).await.unwrap();
+        assert!(pub_nonces.is_none());
     }
 }
 
