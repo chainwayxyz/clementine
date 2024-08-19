@@ -464,27 +464,22 @@ impl Database {
         .bind(OutPointDB(deposit_outpoint))
         .fetch_all(&self.connection)
         .await?;
-        println!("AAAAAAAAAA");
         let mut nonces: Vec<(MuSigSecNonce, MuSigAggNonce)> = Vec::new();
         for (sighash, idx) in sighashes.iter().zip(indices[index..].iter()) {
             // After finding the idx deposit_outpoint might be unnecessary
-            println!("BBBBBBBB");
             sqlx::query("UPDATE nonces SET sighash = $1 WHERE idx = $2 AND deposit_outpoint = $3;")
                 .bind(hex::encode(sighash))
                 .bind(*idx)
                 .bind(OutPointDB(deposit_outpoint))
                 .execute(&self.connection)
                 .await?;
-            println!("CCCCCCCC");
-            let nonce_table = self.get_nonce_table("nonces").await.unwrap();
-            println!("nonce_table s: {:?}", nonce_table);
             let res: (String, MuSigAggNonce) = sqlx::query_as("SELECT sec_nonce, agg_nonce FROM nonces WHERE deposit_outpoint = $1 AND idx = $2 AND sighash = $3;")
                 .bind(OutPointDB(deposit_outpoint))
                 .bind(*idx)
                 .bind(hex::encode(sighash))
                 .fetch_one(&self.connection)
                 .await?;
-            println!("DDDDDDDD");
+            // println!("res: {:?}", res);
             let sec_nonce: MuSigSecNonce = hex::decode(res.0).unwrap().try_into()?;
             nonces.push((sec_nonce, res.1));
         }
@@ -624,7 +619,7 @@ mod tests {
         println!("outpoint: {:?}", outpoint);
         println!("outpoint.to_string(): {:?}", outpoint.to_string());
         let index = 2;
-        let sighashes = [[1u8; 32], [2u8; 32], [3u8; 32]];
+        let sighashes = [[1u8; 32]];
         let sks = [
             secp256k1::SecretKey::from_slice(&[1u8; 32]).unwrap(),
             secp256k1::SecretKey::from_slice(&[2u8; 32]).unwrap(),
@@ -644,8 +639,6 @@ mod tests {
             .collect();
         db.save_nonces(outpoint, &nonce_pairs).await.unwrap();
         db.save_agg_nonces(outpoint, &agg_nonces).await.unwrap();
-        let nonce_table = db.get_nonce_table("nonces").await.unwrap();
-        println!("nonce_table after inserting nonce_pairs: {:?}", nonce_table);
         let db_sec_and_agg_nonces = db
             .save_sighashes_and_get_nonces(outpoint, index, &sighashes)
             .await
@@ -665,8 +658,8 @@ mod tests {
         let secp = Secp256k1::new();
 
         let outpoint = OutPoint::null();
-        let index = 1;
-        let sighashes = [[1u8; 32], [2u8; 32], [3u8; 32]];
+        let index = 0;
+        let sighashes = [[1u8; 32], [2u8; 32]];
         let sks = [
             secp256k1::SecretKey::from_slice(&[1u8; 32]).unwrap(),
             secp256k1::SecretKey::from_slice(&[2u8; 32]).unwrap(),
@@ -686,10 +679,18 @@ mod tests {
             .collect();
         db.save_nonces(outpoint, &nonce_pairs).await.unwrap();
         db.save_agg_nonces(outpoint, &agg_nonces).await.unwrap();
-        let res = db
+        let db_sec_and_agg_nonces = db
             .save_sighashes_and_get_nonces(outpoint, index, &sighashes)
             .await
+            .unwrap()
             .unwrap();
+
+        // Sanity checks
+        assert_eq!(db_sec_and_agg_nonces.len(), 2);
+        assert_eq!(db_sec_and_agg_nonces[0].0, nonce_pairs[index].0);
+        assert_eq!(db_sec_and_agg_nonces[0].1, agg_nonces[index]);
+        assert_eq!(db_sec_and_agg_nonces[1].0, nonce_pairs[index + 1].0);
+        assert_eq!(db_sec_and_agg_nonces[1].1, agg_nonces[index + 1]);
     }
 
     #[tokio::test]
@@ -698,9 +699,14 @@ mod tests {
         let db = Database::new(config).await.unwrap();
         let secp = Secp256k1::new();
 
-        let outpoint = OutPoint::null();
-        let index = 1;
-        let sighashes = [[1u8; 32], [2u8; 32], [3u8; 32]];
+        let outpoint = OutPoint {
+            txid: Txid::from_byte_array([1u8; 32]),
+            vout: 1,
+        };
+        println!("outpoint: {:?}", outpoint);
+        println!("outpoint.to_string(): {:?}", outpoint.to_string());
+        let index = 2;
+        let mut sighashes = [[1u8; 32]];
         let sks = [
             secp256k1::SecretKey::from_slice(&[1u8; 32]).unwrap(),
             secp256k1::SecretKey::from_slice(&[2u8; 32]).unwrap(),
@@ -720,10 +726,19 @@ mod tests {
             .collect();
         db.save_nonces(outpoint, &nonce_pairs).await.unwrap();
         db.save_agg_nonces(outpoint, &agg_nonces).await.unwrap();
-        let res = db
+        let _db_sec_and_agg_nonces = db
             .save_sighashes_and_get_nonces(outpoint, index, &sighashes)
             .await
+            .unwrap()
             .unwrap();
+
+        // Accidentally try to save a different sighash
+        sighashes[0] = [2u8; 32];
+        let _db_sec_and_agg_nonces = db
+            .save_sighashes_and_get_nonces(outpoint, index, &sighashes)
+            .await
+            .expect_err("Should return database sighash update error");
+        println!("Error: {:?}", _db_sec_and_agg_nonces);
     }
 }
 
