@@ -17,8 +17,7 @@ use secp256k1::SecretKey;
 #[derive(Debug)]
 pub struct User<R> {
     rpc: ExtendedRpc<R>,
-    signer: Actor,
-    transaction_builder: TransactionBuilder,
+    pub signer: Actor,
     config: BridgeConfig,
     nofn_xonly_pk: XOnlyPublicKey,
 }
@@ -47,7 +46,6 @@ where
         User {
             rpc,
             signer,
-            transaction_builder,
             config,
             nofn_xonly_pk,
         }

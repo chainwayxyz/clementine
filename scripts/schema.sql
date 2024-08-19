@@ -47,47 +47,47 @@ BEGIN
 END;
 $$ LANGUAGE plpgsql;
 
--- Create the trigger
-CREATE TRIGGER prevent_sighash_update_trigger
-BEFORE UPDATE ON nonces
-FOR EACH ROW
-EXECUTE FUNCTION prevent_sighash_update();
+-- -- Create the trigger
+-- CREATE TRIGGER prevent_sighash_update_trigger
+-- BEFORE UPDATE ON nonces
+-- FOR EACH ROW
+-- EXECUTE FUNCTION prevent_sighash_update();
 
--- Verifier table for kickoff for deposits
-/* This table holds the kickoff utxos sent by the operators for each deposit. */
-create table deposit_kickoff_utxos (
-    id serial primary key,
-    deposit_outpoint text not null check (deposit_outpoint ~ '^[a-fA-F0-9]{64}:(0|[1-9][0-9]{0,9})$'),
-    kickoff_utxo jsonb not null,
-    created_at timestamp not null default now(),
-    unique (deposit_outpoint, kickoff_utxo)
-);
+-- -- Verifier table for kickoff for deposits
+-- /* This table holds the kickoff utxos sent by the operators for each deposit. */
+-- create table deposit_kickoff_utxos (
+--     id serial primary key,
+--     deposit_outpoint text not null check (deposit_outpoint ~ '^[a-fA-F0-9]{64}:(0|[1-9][0-9]{0,9})$'),
+--     kickoff_utxo jsonb not null,
+--     created_at timestamp not null default now(),
+--     unique (deposit_outpoint, kickoff_utxo)
+-- );
 
--- Operator table for kickoff utxo and funding utxo for deposits
-/* This table holds the funding utxos sent by the operators for each deposit. */
-create table deposit_kickoff_generator_txs (
-    id serial primary key,
-    txid text not null check (txid ~ '^[a-fA-F0-9]{64}'),
-    raw_signed_tx text not null,
-    num_kickoffs int not null,
-    cur_unused_kickoff_index int not null,
-    funding_txid text not null check (funding_txid ~ '^[a-fA-F0-9]{64}'),
-    created_at timestamp not null default now()
-);
+-- -- Operator table for kickoff utxo and funding utxo for deposits
+-- /* This table holds the funding utxos sent by the operators for each deposit. */
+-- create table deposit_kickoff_generator_txs (
+--     id serial primary key,
+--     txid text not null check (txid ~ '^[a-fA-F0-9]{64}'),
+--     raw_signed_tx text not null,
+--     num_kickoffs int not null,
+--     cur_unused_kickoff_index int not null,
+--     funding_txid text not null check (funding_txid ~ '^[a-fA-F0-9]{64}'),
+--     created_at timestamp not null default now()
+-- );
 
--- Operator table for kickoff utxo related to deposits
-/* This table holds the kickoff utxos sent by the operators for each deposit. */
-create table operators_kickoff_utxo (
-    deposit_outpoint text primary key not null check (deposit_outpoint ~ '^[a-fA-F0-9]{64}:(0|[1-9][0-9]{0,9})$'),
-    kickoff_utxo jsonb not null,
-    created_at timestamp not null default now()
-);
+-- -- Operator table for kickoff utxo related to deposits
+-- /* This table holds the kickoff utxos sent by the operators for each deposit. */
+-- create table operators_kickoff_utxo (
+--     deposit_outpoint text primary key not null check (deposit_outpoint ~ '^[a-fA-F0-9]{64}:(0|[1-9][0-9]{0,9})$'),
+--     kickoff_utxo jsonb not null,
+--     created_at timestamp not null default now()
+-- );
 
--- Operator table for funding utxo used for deposits 
-create table funding_utxos (
-    id serial primary key,
-    funding_utxo jsonb not null,
-    created_at timestamp not null default now()
-);
+-- -- Operator table for funding utxo used for deposits
+-- create table funding_utxos (
+--     id serial primary key,
+--     funding_utxo jsonb not null,
+--     created_at timestamp not null default now()
+-- );
 
 COMMIT;

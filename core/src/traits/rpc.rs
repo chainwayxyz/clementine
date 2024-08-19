@@ -13,9 +13,9 @@ pub trait VerifierRpc {
     /// - Generate random pubNonces, secNonces
     /// - Save pubNonces and secNonces to a in-memory db
     /// - Return pubNonces
-    async fn new_deposit_rpc(
+    async fn verifier_new_deposit_rpc(
         &self,
-        deposit_utxo: OutPoint,
+        deposit_outpoint: OutPoint,
         recovery_taproot_address: Address<NetworkUnchecked>,
         evm_address: EVMAddress,
     ) -> Result<Vec<MuSigPubNonce>, BridgeError>;
