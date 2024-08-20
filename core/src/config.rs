@@ -36,10 +36,11 @@ pub struct BridgeConfig {
     pub verifiers_public_keys: Vec<secp256k1::PublicKey>,
     /// Number of verifiers.
     pub num_verifiers: usize,
-    /// Operators xonly public keys.
+    /// Operators x-only public keys.
     pub operators_xonly_pks: Vec<secp256k1::XOnlyPublicKey>,
     /// Number of operators.
     pub num_operators: usize,
+    /// Number of operators.
     /// Minimum relay fee.
     pub min_relay_fee: u64,
     /// User takes after.
@@ -53,7 +54,8 @@ pub struct BridgeConfig {
     /// Bitcoin RPC user password.
     pub bitcoin_rpc_password: String,
     /// All Secret keys. Just for testing purposes.
-    pub all_secret_keys: Option<Vec<secp256k1::SecretKey>>,
+    pub all_operators_secret_keys: Option<Vec<secp256k1::SecretKey>>,
+    pub all_verifiers_secret_keys: Option<Vec<secp256k1::SecretKey>>,
     /// Verifier endpoints.
     pub verifier_endpoints: Option<Vec<String>>,
     /// PostgreSQL database host address.
@@ -132,7 +134,7 @@ impl Default for BridgeConfig {
             port: 3030,
             secret_key: secp256k1::SecretKey::new(&mut secp256k1::rand::thread_rng()),
             verifiers_public_keys: vec![],
-            num_verifiers: 4,
+            num_verifiers: 5,
             operators_xonly_pks: vec![],
             num_operators: 4,
             min_relay_fee: 289,
@@ -142,7 +144,8 @@ impl Default for BridgeConfig {
             bitcoin_rpc_url: "http://127.0.0.1:18443".to_string(),
             bitcoin_rpc_user: "admin".to_string(),
             bitcoin_rpc_password: "admin".to_string(),
-            all_secret_keys: None,
+            all_verifiers_secret_keys: None,
+            all_operators_secret_keys: None,
             verifier_endpoints: None,
             db_host: "127.0.0.1".to_string(),
             db_port: 5432,

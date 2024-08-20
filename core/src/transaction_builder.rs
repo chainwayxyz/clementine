@@ -287,8 +287,7 @@ impl TransactionBuilder {
     }
 
     /// Creates the kickoff_tx for the operator. It also returns the change utxo
-    /// TODO: Make this return tx handler
-    pub fn create_kickoff_tx(funding_utxo: &UTXO, address: &Address) -> bitcoin::Transaction {
+    pub fn create_kickoff_tx(funding_utxo: &UTXO, address: &Address) -> TxHandler {
         let tx_ins = TransactionBuilder::create_tx_ins(vec![funding_utxo.outpoint]);
 
         let change_amount = funding_utxo.txout.value
@@ -300,13 +299,22 @@ impl TransactionBuilder {
                 Amount::from_sat(100_000), // TODO: Change this to a constant
                 address.script_pubkey(),
             ),
+            (change_amount, address.script_pubkey()),
             (
                 script_builder::anyone_can_spend_txout().value,
                 script_builder::anyone_can_spend_txout().script_pubkey,
             ),
-            (change_amount, address.script_pubkey()),
         ]);
-        TransactionBuilder::create_btc_tx(tx_ins, tx_outs)
+        let tx = TransactionBuilder::create_btc_tx(tx_ins, tx_outs);
+        let prevouts = vec![funding_utxo.txout.clone()];
+        let scripts = vec![vec![]];
+        let taproot_spend_infos = vec![];
+        TxHandler {
+            tx,
+            prevouts,
+            scripts,
+            taproot_spend_infos,
+        }
     }
 
     pub fn create_slash_or_take_tx(

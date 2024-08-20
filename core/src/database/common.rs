@@ -8,12 +8,11 @@ use crate::musig2::{MuSigAggNonce, MuSigPubNonce, MuSigSecNonce};
 use crate::{config::BridgeConfig, errors::BridgeError};
 use crate::{EVMAddress, UTXO};
 use bitcoin::address::NetworkUnchecked;
-use bitcoin::{Address, Amount, OutPoint, Txid};
-use sqlx::{query, Pool, Postgres};
+use bitcoin::{Address, OutPoint, Txid};
+use sqlx::{Pool, Postgres};
 use std::fs;
-use std::str::FromStr;
 
-use super::wrapper::{AddressDB, EVMAddressDB, OutPointDB, TxidDB};
+use super::wrapper::{AddressDB, EVMAddressDB, OutPointDB, TxOutDB, TxidDB, UTXODB};
 
 #[derive(Clone, Debug)]
 pub struct Database {
@@ -130,169 +129,44 @@ impl Database {
         }
     }
 
-    // pub async fn add_new_deposit_request(
-    //     &self,
-    //     start_utxo: OutPoint,
-    //     recovery_taproot_address: Address<NetworkUnchecked>,
-    //     evm_address: EVMAddress,
-    // ) -> Result<(), BridgeError> {
-    //     let start_utxo = start_utxo.to_string();
-    //     let recovery_taproot_address = serde_json::to_string(&recovery_taproot_address)
-    //         .unwrap()
-    //         .trim_matches('"')
-    //         .to_owned();
-    //     let evm_address = serde_json::to_string(&evm_address)
-    //         .unwrap()
-    //         .trim_matches('"')
-    //         .to_owned();
+    /// Database function for debugging purposes.
+    pub async fn get_nonce_table(
+        &self,
+        table_name: &str,
+    ) -> Result<Vec<(i32, String, String, String, String)>, BridgeError> {
+        let qr: Vec<(i32, String, String, String, String)> =
+            sqlx::query_as(&format!("SELECT * FROM {};", table_name))
+                .fetch_all(&self.connection)
+                .await?;
 
-    //     sqlx::query("INSERT INTO new_deposit_requests (start_utxo, recovery_taproot_address, evm_address) VALUES ($1, $2, $3);")
-    //         .bind(start_utxo)
-    //         .bind(recovery_taproot_address)
-    //         .bind(evm_address)
-    //         .fetch_all(&self.connection)
-    //         .await?;
+        let res: Vec<(i32, String, String, String, String)> = qr
+            .into_iter()
+            .map(|(s1, s2, s3, s4, s5)| (s1, s2, s3, s4, s5))
+            .collect();
 
-    //     Ok(())
-    // }
-
-    // pub async fn get_deposit_tx(&self, idx: usize) -> Result<Txid, BridgeError> {
-    //     let qr: (String,) = sqlx::query_as("SELECT move_txid FROM deposit_move_txs WHERE id = $1;")
-    //         .bind(idx as i64)
-    //         .fetch_one(&self.connection)
-    //         .await?;
-
-    //     match Txid::from_str(qr.0.as_str()) {
-    //         Ok(c) => Ok(c),
-    //         Err(e) => Err(BridgeError::DatabaseError(sqlx::Error::Decode(Box::new(e)))),
-    //     }
-    // }
-
-    // pub async fn get_next_deposit_index(&self) -> Result<usize, BridgeError> {
-    //     let qr: (i64,) = sqlx::query_as("SELECT COUNT(*) FROM deposit_move_txs;")
-    //         .fetch_one(&self.connection)
-    //         .await?;
-
-    //     Ok(qr.0 as usize)
-    // }
-
-    // pub async fn insert_move_txid(
-    //     &self,
-    //     start_utxo: OutPoint,
-    //     recovery_taproot_address: Address<NetworkUnchecked>,
-    //     evm_address: EVMAddress,
-    //     move_txid: Txid,
-    // ) -> Result<(), BridgeError> {
-    //     sqlx::query("INSERT INTO deposit_move_txs (start_utxo, recovery_taproot_address, evm_address, move_txid) VALUES ($1, $2, $3, $4);")
-    //         .bind(start_utxo.to_string())
-    //         .bind(serde_json::to_string(&recovery_taproot_address).unwrap().trim_matches('"'))
-    //         .bind(serde_json::to_string(&evm_address).unwrap().trim_matches('"'))
-    //         .bind(move_txid.to_string())
-    //         .fetch_all(&self.connection)
-    //         .await?;
-
-    //     Ok(())
-    // }
-
-    // pub async fn get_move_txid(
-    //     &self,
-    //     deposit_request_utxo: OutPoint,
-    //     recovery_taproot_address: Address<NetworkUnchecked>,
-    //     evm_address: EVMAddress,
-    // ) -> Result<Txid, BridgeError> {
-    //     let qr: (String,) = sqlx::query_as("SELECT (move_txid) FROM deposit_move_txs WHERE start_utxo = $1 AND recovery_taproot_address = $2 AND evm_address = $3;")
-    //         .bind(deposit_request_utxo.to_string())
-    //         .bind(serde_json::to_string(&recovery_taproot_address).unwrap().trim_matches('"'))
-    //         .bind(serde_json::to_string(&evm_address).unwrap().trim_matches('"'))
-    //         .fetch_one(&self.connection)
-    //         .await?;
-
-    //     let move_txid = Txid::from_str(&qr.0).unwrap();
-    //     Ok(move_txid)
-    // }
-
-    // pub async fn insert_deposit_flow_info(
-    //     &self,
-    //     deposit_request_utxo: OutPoint,
-    //     recovery_taproot_address: Address<NetworkUnchecked>,
-    //     evm_address: EVMAddress,
-    //     move_intermediate_txid: Txid,
-    //     bridge_fund_txid: Txid,
-    // ) -> Result<(), BridgeError> {
-    //     sqlx::query("INSERT INTO deposit_flow_infos (start_utxo, recovery_taproot_address, evm_address, move_intermediate_txid, bridge_fund_txid) VALUES ($1, $2, $3, $4, $5);")
-    //         .bind(deposit_request_utxo.to_string())
-    //         .bind(serde_json::to_string(&recovery_taproot_address).unwrap().trim_matches('"'))
-    //         .bind(serde_json::to_string(&evm_address).unwrap().trim_matches('"'))
-    //         .bind(move_intermediate_txid.to_string())
-    //         .bind(bridge_fund_txid.to_string())
-    //         .fetch_all(&self.connection)
-    //         .await?;
-
-    //     Ok(())
-    // }
-
-    // /// Verifier: Get the calculated bridge_fund_txid for a deposit UTXO.
-    // pub async fn get_bridge_fund_txid(
-    //     &self,
-    //     deposit_outpoint: OutPoint,
-    // ) -> Result<Txid, BridgeError> {
-    //     let qr: (String,) = sqlx::query_as(
-    //         "SELECT (bridge_fund_txid) FROM deposit_flow_infos WHERE start_utxo = $1;",
-    //     )
-    //     .bind(deposit_outpoint.to_string())
-    //     .fetch_one(&self.connection)
-    //     .await?;
-
-    //     let bridge_fund_txid = Txid::from_str(&qr.0).unwrap();
-    //     Ok(bridge_fund_txid)
-    // }
-
-    // pub async fn save_withdrawal_sig(
-    //     &self,
-    //     idx: usize,
-    //     bridge_fund_txid: Txid,
-    //     sig: secp256k1::schnorr::Signature,
-    // ) -> Result<(), BridgeError> {
-    //     sqlx::query(
-    //         "INSERT INTO withdrawal_sigs (idx, bridge_fund_txid, sig) VALUES ($1, $2, $3);",
-    //     )
-    //     .bind(idx as i64)
-    //     .bind(bridge_fund_txid.to_string())
-    //     .bind(sig.to_string())
-    //     .fetch_all(&self.connection)
-    //     .await?;
-
-    //     Ok(())
-    // }
-
-    // pub async fn get_withdrawal_sig_by_idx(
-    //     &self,
-    //     idx: usize,
-    // ) -> Result<(Txid, secp256k1::schnorr::Signature), BridgeError> {
-    //     let qr: (String, String) =
-    //         sqlx::query_as("SELECT bridge_fund_txid, sig FROM withdrawal_sigs WHERE idx = $1;")
-    //             .bind(idx as i64)
-    //             .fetch_one(&self.connection)
-    //             .await?;
-
-    //     let bridge_fund_txid = Txid::from_str(&qr.0).unwrap();
-    //     let sig = secp256k1::schnorr::Signature::from_str(&qr.1).unwrap();
-    //     Ok((bridge_fund_txid, sig))
-    // }
+        Ok(res)
+    }
 
     /// Operator: If operator already created a kickoff UTXO for this deposit UTXO, return it.
     pub async fn get_kickoff_utxo(
         &self,
         deposit_outpoint: OutPoint,
     ) -> Result<Option<UTXO>, BridgeError> {
-        let qr: (Option<UTXO>,) = sqlx::query_as(
+        let qr: Result<(sqlx::types::Json<UTXODB>,), sqlx::Error> = sqlx::query_as(
             "SELECT kickoff_utxo FROM operators_kickoff_utxo WHERE deposit_outpoint = $1;",
         )
         .bind(OutPointDB(deposit_outpoint))
         .fetch_one(&self.connection)
-        .await?;
+        .await;
 
-        Ok(qr.0)
+        match qr {
+            Ok((utxo_db,)) => Ok(Some(UTXO {
+                outpoint: utxo_db.outpoint_db.0,
+                txout: utxo_db.txout_db.0.clone(),
+            })),
+            Err(sqlx::Error::RowNotFound) => Ok(None),
+            Err(e) => Err(BridgeError::DatabaseError(e)),
+        }
     }
 
     /// Verifier: Get the verified kickoff UTXOs for a deposit UTXO.
@@ -300,50 +174,70 @@ impl Database {
         &self,
         deposit_outpoint: OutPoint,
     ) -> Result<Option<Vec<UTXO>>, BridgeError> {
-        let qr: Vec<UTXO> = sqlx::query_as(
-            "SELECT kickoff_utxo FROM verifiers_kickoff_utxos WHERE deposit_outpoint = $1;",
+        let qr: Vec<(sqlx::types::Json<UTXODB>,)> = sqlx::query_as(
+            "SELECT kickoff_utxo FROM deposit_kickoff_utxos WHERE deposit_outpoint = $1;",
         )
         .bind(OutPointDB(deposit_outpoint))
         .fetch_all(&self.connection)
         .await?;
-
-        Ok(Some(qr))
+        if qr.is_empty() {
+            return Ok(None);
+        } else {
+            let utxos: Vec<UTXO> = qr
+                .into_iter()
+                .map(|utxo_db| UTXO {
+                    outpoint: utxo_db.0.outpoint_db.0,
+                    txout: utxo_db.0.txout_db.0.clone(),
+                })
+                .collect();
+            return Ok(Some(utxos));
+        }
     }
 
     /// Operator: Gets the funding UTXO for kickoffs
     pub async fn get_funding_utxo(&self) -> Result<Option<UTXO>, BridgeError> {
-        let qr: (Option<UTXO>,) =
+        let qr: Result<(sqlx::types::Json<UTXODB>,), sqlx::Error> =
             sqlx::query_as("SELECT funding_utxo FROM funding_utxos ORDER BY id DESC LIMIT 1;")
                 .fetch_one(&self.connection)
-                .await?;
+                .await;
 
-        Ok(qr.0)
+        match qr {
+            Ok((utxo_db,)) => Ok(Some(UTXO {
+                outpoint: utxo_db.outpoint_db.0,
+                txout: utxo_db.txout_db.0.clone(),
+            })),
+            Err(sqlx::Error::RowNotFound) => Ok(None),
+            Err(e) => Err(BridgeError::DatabaseError(e)),
+        }
     }
 
     /// Operator: Sets the funding UTXO for kickoffs
     pub async fn set_funding_utxo(&self, funding_utxo: UTXO) -> Result<(), BridgeError> {
         sqlx::query("INSERT INTO funding_utxos (funding_utxo) VALUES ($1);")
-            .bind(funding_utxo)
+            .bind(sqlx::types::Json(UTXODB {
+                outpoint_db: OutPointDB(funding_utxo.outpoint),
+                txout_db: TxOutDB(funding_utxo.txout),
+            }))
             .execute(&self.connection)
             .await?;
 
         Ok(())
     }
 
-    /// Operator: Save the kickoff UTXO for this deposit UTXO. also save the funding txid to be able to track them later
-    /// TODO: Change this later
+    /// Operator: Save the kickoff UTXO for this deposit UTXO.
     pub async fn save_kickoff_utxo(
         &self,
         deposit_outpoint: OutPoint,
         kickoff_utxo: UTXO,
-        funding_txid: Txid,
     ) -> Result<(), BridgeError> {
         sqlx::query(
-            "INSERT INTO operators_kickoff_utxo (deposit_outpoint, kickoff_utxo, funding_txid) VALUES ($1, $2, $3);",
+            "INSERT INTO operators_kickoff_utxo (deposit_outpoint, kickoff_utxo) VALUES ($1, $2);",
         )
         .bind(OutPointDB(deposit_outpoint))
-        .bind(kickoff_utxo)
-        .bind(TxidDB(funding_txid))
+        .bind(sqlx::types::Json(UTXODB {
+            outpoint_db: OutPointDB(kickoff_utxo.outpoint),
+            txout_db: TxOutDB(kickoff_utxo.txout),
+        }))
         .execute(&self.connection)
         .await?;
 
@@ -357,11 +251,18 @@ impl Database {
         kickoff_utxos: &[UTXO],
     ) -> Result<(), BridgeError> {
         for utxo in kickoff_utxos {
+            // println!("Saving utxo: {:?}", serde_json::to_value(UTXODB {
+            //     outpoint_db: OutPointDB(utxo.outpoint),
+            //     txout_db: TxOutDB(utxo.txout.clone()),
+            // }).unwrap());
             sqlx::query(
                 "INSERT INTO deposit_kickoff_utxos (deposit_outpoint, kickoff_utxo) VALUES ($1, $2);",
             )
             .bind(OutPointDB(deposit_outpoint))
-            .bind(utxo)
+            .bind(sqlx::types::Json(UTXODB {
+                outpoint_db: OutPointDB(utxo.outpoint),
+                txout_db: TxOutDB(utxo.txout.clone()),
+            }))
             .execute(&self.connection)
             .await?;
         }
@@ -374,13 +275,17 @@ impl Database {
         &self,
         deposit_outpoint: OutPoint,
     ) -> Result<Option<Vec<MuSigPubNonce>>, BridgeError> {
-        let qr: Vec<MuSigPubNonce> =
+        let qr: Vec<(MuSigPubNonce,)> =
             sqlx::query_as("SELECT pub_nonce FROM nonces WHERE deposit_outpoint = $1;")
                 .bind(OutPointDB(deposit_outpoint))
                 .fetch_all(&self.connection)
                 .await?;
-
-        Ok(Some(qr))
+        if qr.is_empty() {
+            return Ok(None);
+        } else {
+            let pub_nonces: Vec<MuSigPubNonce> = qr.into_iter().map(|(x,)| x).collect();
+            return Ok(Some(pub_nonces));
+        }
     }
 
     /// Verifier: save the generated sec nonce and pub nonces
@@ -395,7 +300,7 @@ impl Database {
                 "INSERT INTO nonces (deposit_outpoint, sec_nonce, pub_nonce) VALUES ($1, $2, $3);",
             )
             .bind(OutPointDB(deposit_outpoint))
-            .bind(sec)
+            .bind(hex::encode(sec))
             .bind(pub_nonce)
             .execute(&self.connection)
             .await?;
@@ -410,7 +315,7 @@ impl Database {
         recovery_taproot_address: Address<NetworkUnchecked>,
         evm_address: EVMAddress,
     ) -> Result<(), BridgeError> {
-        sqlx::query("INSERT INTO deposit_infos (start_utxo, recovery_taproot_address, evm_address) VALUES ($1, $2, $3);")
+        sqlx::query("INSERT INTO deposit_infos (deposit_outpoint, recovery_taproot_address, evm_address) VALUES ($1, $2, $3);")
         .bind(OutPointDB(deposit_outpoint))
         .bind(AddressDB(recovery_taproot_address))
         .bind(EVMAddressDB(evm_address))
@@ -425,7 +330,7 @@ impl Database {
         &self,
         deposit_outpoint: OutPoint,
     ) -> Result<Option<(Address<NetworkUnchecked>, EVMAddress)>, BridgeError> {
-        let qr: (AddressDB, EVMAddressDB) = sqlx::query_as("SELECT recovery_taproot_address, evm_address FROM deposit_infos WHERE start_utxo = $1;")
+        let qr: (AddressDB, EVMAddressDB) = sqlx::query_as("SELECT recovery_taproot_address, evm_address FROM deposit_infos WHERE deposit_outpoint = $1;")
             .bind(OutPointDB(deposit_outpoint))
             .fetch_one(&self.connection)
             .await?;
@@ -440,23 +345,30 @@ impl Database {
         index: usize,
         sighashes: &[[u8; 32]],
     ) -> Result<Option<Vec<(MuSigSecNonce, MuSigAggNonce)>>, BridgeError> {
+        let indices: Vec<i32> = sqlx::query_scalar::<_, i32>(
+            "SELECT idx FROM nonces WHERE deposit_outpoint = $1 ORDER BY idx;",
+        )
+        .bind(OutPointDB(deposit_outpoint))
+        .fetch_all(&self.connection)
+        .await?;
         let mut nonces: Vec<(MuSigSecNonce, MuSigAggNonce)> = Vec::new();
-        for sighash in sighashes {
-            sqlx::query(
-                "INSERT INTO  nonces (deposit_outpoint, idx, sighash) VALUES ($1, $2, $3);",
-            )
-            .bind(OutPointDB(deposit_outpoint))
-            .bind(index as i64)
-            .bind(sighash)
-            .fetch_one(&self.connection)
-            .await?;
-            let res: (MuSigSecNonce, MuSigPubNonce,) = sqlx::query_as("SELECT sec_nonce, agg_nonce FROM nonces WHERE deposit_outpoint = $1 AND idx = $2 AND sighash = $3;")
+        for (sighash, idx) in sighashes.iter().zip(indices[index..].iter()) {
+            // After finding the idx deposit_outpoint might be unnecessary
+            sqlx::query("UPDATE nonces SET sighash = $1 WHERE idx = $2 AND deposit_outpoint = $3;")
+                .bind(hex::encode(sighash))
+                .bind(*idx)
                 .bind(OutPointDB(deposit_outpoint))
-                .bind(index as i64)
-                .bind(sighash)
+                .execute(&self.connection)
+                .await?;
+            let res: (String, MuSigAggNonce) = sqlx::query_as("SELECT sec_nonce, agg_nonce FROM nonces WHERE deposit_outpoint = $1 AND idx = $2 AND sighash = $3;")
+                .bind(OutPointDB(deposit_outpoint))
+                .bind(*idx)
+                .bind(hex::encode(sighash))
                 .fetch_one(&self.connection)
                 .await?;
-            nonces.push((res.0, res.1));
+            // println!("res: {:?}", res);
+            let sec_nonce: MuSigSecNonce = hex::decode(res.0).unwrap().try_into()?;
+            nonces.push((sec_nonce, res.1));
         }
 
         Ok(Some(nonces))
@@ -468,15 +380,67 @@ impl Database {
         deposit_outpoint: OutPoint,
         agg_nonces: &Vec<MuSigAggNonce>,
     ) -> Result<(), BridgeError> {
+        let mut idx = sqlx::query_scalar::<_, i32>(
+            "SELECT idx FROM nonces WHERE deposit_outpoint = $1 ORDER BY idx ASC LIMIT 1;",
+        )
+        .bind(OutPointDB(deposit_outpoint))
+        .fetch_optional(&self.connection)
+        .await?
+        .unwrap();
         for agg_nonce in agg_nonces {
-            sqlx::query("INSERT INTO nonces (deposit_outpoint, agg_nonce) VALUES ($1, $2);")
-                .bind(OutPointDB(deposit_outpoint))
-                .bind(agg_nonce)
-                .execute(&self.connection)
-                .await?;
+            // After finding the idx deposit_outpoint might be unnecessary
+            sqlx::query(
+                "UPDATE nonces SET agg_nonce = $1 WHERE idx = $2 AND deposit_outpoint = $3;",
+            )
+            .bind(agg_nonce)
+            .bind(idx)
+            .bind(OutPointDB(deposit_outpoint))
+            .execute(&self.connection)
+            .await?;
+            idx += 1;
         }
 
         Ok(())
+    }
+
+    pub async fn add_deposit_kickoff_generator_tx(
+        &self,
+        txid: Txid,
+        raw_hex: String,
+        num_kickoffs: usize,
+        cur_unused_kickoff_index: usize,
+        funding_txid: Txid,
+    ) -> Result<(), BridgeError> {
+        sqlx::query("INSERT INTO deposit_kickoff_generator_txs (txid, raw_signed_tx, num_kickoffs, cur_unused_kickoff_index, funding_txid) VALUES ($1, $2, $3, $4, $5);")
+            .bind(TxidDB(txid))
+            .bind(raw_hex)
+            .bind(num_kickoffs as i32)
+            .bind(cur_unused_kickoff_index as i32)
+            .bind(TxidDB(funding_txid))
+            .execute(&self.connection)
+            .await?;
+
+        Ok(())
+    }
+
+    pub async fn get_deposit_kickoff_generator_tx(
+        &self,
+        txid: Txid,
+    ) -> Result<Option<(String, usize, usize, Txid)>, BridgeError> {
+        let qr: Option<(String, i32, i32, TxidDB)> = sqlx::query_as("SELECT raw_signed_tx, num_kickoffs, cur_unused_kickoff_index, funding_txid FROM deposit_kickoff_generator_txs WHERE txid = $1;")
+            .bind(TxidDB(txid))
+            .fetch_optional(&self.connection)
+            .await?;
+
+        match qr {
+            Some((raw_hex, num_kickoffs, cur_unused_kickoff_index, funding_txid)) => Ok(Some((
+                raw_hex,
+                num_kickoffs as usize,
+                cur_unused_kickoff_index as usize,
+                funding_txid.0,
+            ))),
+            None => Ok(None),
+        }
     }
 }
 
@@ -484,16 +448,22 @@ impl Database {
 mod tests {
     use super::Database;
     use crate::{
-        config::BridgeConfig, create_test_config, create_test_config_with_thread_name,
-        mock::common, transaction_builder::TransactionBuilder, EVMAddress,
+        config::BridgeConfig,
+        create_test_config, create_test_config_with_thread_name,
+        mock::common,
+        musig2::{nonce_pair, MuSigAggNonce, MuSigPubNonce, MuSigSecNonce},
+        EVMAddress, UTXO,
     };
-    use bitcoin::{Address, Amount, OutPoint, ScriptBuf, TxOut, XOnlyPublicKey};
-    use secp256k1::{schnorr::Signature, Secp256k1};
+    use bitcoin::{
+        hashes::Hash, Address, Amount, OutPoint, ScriptBuf, TxOut, Txid, XOnlyPublicKey,
+    };
+    use crypto_bigint::rand_core::OsRng;
+    use secp256k1::Secp256k1;
     use std::thread;
 
     #[tokio::test]
     #[should_panic]
-    async fn invalid_connection() {
+    async fn test_invalid_connection() {
         let mut config = BridgeConfig::new();
         config.db_host = "nonexistinghost".to_string();
         config.db_name = "nonexistingpassword".to_string();
@@ -505,14 +475,14 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn valid_connection() {
+    async fn test_valid_connection() {
         let config = common::get_test_config("test_config.toml").unwrap();
 
         Database::new(config).await.unwrap();
     }
 
     #[tokio::test]
-    async fn create_drop_database() {
+    async fn test_create_drop_database() {
         let handle = thread::current()
             .name()
             .unwrap()
@@ -529,58 +499,375 @@ mod tests {
         Database::drop_database(config, &handle).await.unwrap();
     }
 
-    // #[tokio::test]
-    // async fn add_deposit_transaction() {
-    //     let config = create_test_config_with_thread_name!("test_config.toml");
-    //     let database = Database::new(config.clone()).await.unwrap();
+    #[tokio::test]
+    async fn test_save_and_get_deposit_info() {
+        let config = create_test_config_with_thread_name!("test_config.toml");
+        let database = Database::new(config.clone()).await.unwrap();
 
-    //     let secp = Secp256k1::new();
-    //     let xonly_public_key = XOnlyPublicKey::from_slice(&[
-    //         0x78u8, 0x19u8, 0x90u8, 0xd7u8, 0xe2u8, 0x11u8, 0x8cu8, 0xc3u8, 0x61u8, 0xa9u8, 0x3au8,
-    //         0x6fu8, 0xccu8, 0x54u8, 0xceu8, 0x61u8, 0x1du8, 0x6du8, 0xf3u8, 0x81u8, 0x68u8, 0xd6u8,
-    //         0xb1u8, 0xedu8, 0xfbu8, 0x55u8, 0x65u8, 0x35u8, 0xf2u8, 0x20u8, 0x0cu8, 0x4b,
-    //     ])
-    //     .unwrap();
-    //     let address = Address::p2tr(&secp, xonly_public_key, None, config.network);
+        let secp = Secp256k1::new();
+        let xonly_public_key = XOnlyPublicKey::from_slice(&[
+            0x78u8, 0x19u8, 0x90u8, 0xd7u8, 0xe2u8, 0x11u8, 0x8cu8, 0xc3u8, 0x61u8, 0xa9u8, 0x3au8,
+            0x6fu8, 0xccu8, 0x54u8, 0xceu8, 0x61u8, 0x1du8, 0x6du8, 0xf3u8, 0x81u8, 0x68u8, 0xd6u8,
+            0xb1u8, 0xedu8, 0xfbu8, 0x55u8, 0x65u8, 0x35u8, 0xf2u8, 0x20u8, 0x0cu8, 0x4b,
+        ])
+        .unwrap();
+        let outpoint = OutPoint::null();
+        let taproot_address = Address::p2tr(&secp, xonly_public_key, None, config.network);
+        let evm_address = EVMAddress([1u8; 20]);
+        database
+            .save_deposit_info(
+                outpoint,
+                taproot_address.as_unchecked().clone(),
+                evm_address,
+            )
+            .await
+            .unwrap();
 
-    //     database
-    //         .add_new_deposit_request(
-    //             OutPoint::null(),
-    //             address.as_unchecked().clone(),
-    //             EVMAddress([0u8; 20]),
-    //         )
-    //         .await
-    //         .unwrap();
-    // }
+        let (db_taproot_address, db_evm_address) =
+            database.get_deposit_info(outpoint).await.unwrap().unwrap();
 
-    // #[tokio::test]
-    // async fn get_save_withdrawal_sig() {
-    //     let config = create_test_config!("get_save_withdrawal_sig", "test_config.toml");
-    //     let db = Database::new(config).await.unwrap();
+        // Sanity checks
+        assert_eq!(taproot_address, db_taproot_address.assume_checked());
+        assert_eq!(evm_address, db_evm_address);
+    }
 
-    //     let txout = TxOut {
-    //         value: Amount::from_sat(0x45),
-    //         script_pubkey: ScriptBuf::new(),
-    //     };
-    //     let tx = TransactionBuilder::create_btc_tx(vec![], vec![txout]);
-    //     let txid = tx.compute_txid();
+    #[tokio::test]
+    async fn test_nonces_1() {
+        let config = create_test_config_with_thread_name!("test_config.toml");
+        let db = Database::new(config).await.unwrap();
+        let secp = Secp256k1::new();
 
-    //     let sig_arr = [
-    //         0x14, 0x5f, 0x50, 0x9d, 0xab, 0x82, 0xb0, 0xa1, 0x51, 0x1a, 0x20, 0x00, 0x93, 0x03,
-    //         0x19, 0xb1, 0x11, 0x29, 0xa5, 0x77, 0x3e, 0xe5, 0xc8, 0x6a, 0x13, 0x42, 0x0c, 0x23,
-    //         0x8e, 0x97, 0x26, 0x0b, 0xbe, 0x8b, 0x8e, 0xdd, 0xcd, 0x71, 0x6e, 0x76, 0xd4, 0x06,
-    //         0xb6, 0x1d, 0x54, 0x7d, 0xac, 0xd9, 0xb9, 0x32, 0xdc, 0x93, 0xbf, 0x33, 0xf5, 0xb0,
-    //         0x3c, 0x2f, 0x99, 0x2c, 0x04, 0xf6, 0x70, 0x73,
-    //     ];
-    //     let signature = Signature::from_slice(&sig_arr).unwrap();
+        let outpoint = OutPoint {
+            txid: Txid::from_byte_array([1u8; 32]),
+            vout: 1,
+        };
+        let index = 2;
+        let sighashes = [[1u8; 32]];
+        let sks = [
+            secp256k1::SecretKey::from_slice(&[1u8; 32]).unwrap(),
+            secp256k1::SecretKey::from_slice(&[2u8; 32]).unwrap(),
+            secp256k1::SecretKey::from_slice(&[3u8; 32]).unwrap(),
+        ];
+        let keypairs: Vec<secp256k1::Keypair> = sks
+            .iter()
+            .map(|sk| secp256k1::Keypair::from_secret_key(&secp, sk))
+            .collect();
+        let nonce_pairs: Vec<(MuSigSecNonce, MuSigPubNonce)> = keypairs
+            .into_iter()
+            .map(|kp| nonce_pair(&kp, &mut OsRng))
+            .collect();
+        let agg_nonces: Vec<MuSigAggNonce> = nonce_pairs
+            .iter()
+            .map(|(_, pub_nonce)| pub_nonce.clone())
+            .collect();
+        db.save_nonces(outpoint, &nonce_pairs).await.unwrap();
+        db.save_agg_nonces(outpoint, &agg_nonces).await.unwrap();
+        let db_sec_and_agg_nonces = db
+            .save_sighashes_and_get_nonces(outpoint, index, &sighashes)
+            .await
+            .unwrap()
+            .unwrap();
 
-    //     db.save_withdrawal_sig(0x45, txid, signature).await.unwrap();
+        // Sanity checks
+        assert_eq!(db_sec_and_agg_nonces.len(), 1);
+        assert_eq!(db_sec_and_agg_nonces[0].0, nonce_pairs[index].0);
+        assert_eq!(db_sec_and_agg_nonces[0].1, agg_nonces[index]);
+    }
 
-    //     let (read_txid, read_signature) = db.get_withdrawal_sig_by_idx(0x45).await.unwrap();
+    #[tokio::test]
+    async fn test_nonces_2() {
+        let config = create_test_config_with_thread_name!("test_config.toml");
+        let db = Database::new(config).await.unwrap();
+        let secp = Secp256k1::new();
 
-    //     assert_eq!(txid, read_txid);
-    //     assert_eq!(signature, read_signature);
-    // }
+        let outpoint = OutPoint::null();
+        let index = 0;
+        let sighashes = [[1u8; 32], [2u8; 32]];
+        let sks = [
+            secp256k1::SecretKey::from_slice(&[1u8; 32]).unwrap(),
+            secp256k1::SecretKey::from_slice(&[2u8; 32]).unwrap(),
+            secp256k1::SecretKey::from_slice(&[3u8; 32]).unwrap(),
+        ];
+        let keypairs: Vec<secp256k1::Keypair> = sks
+            .iter()
+            .map(|sk| secp256k1::Keypair::from_secret_key(&secp, sk))
+            .collect();
+        let nonce_pairs: Vec<(MuSigSecNonce, MuSigPubNonce)> = keypairs
+            .into_iter()
+            .map(|kp| nonce_pair(&kp, &mut OsRng))
+            .collect();
+        let agg_nonces: Vec<MuSigAggNonce> = nonce_pairs
+            .iter()
+            .map(|(_, pub_nonce)| pub_nonce.clone())
+            .collect();
+        db.save_nonces(outpoint, &nonce_pairs).await.unwrap();
+        db.save_agg_nonces(outpoint, &agg_nonces).await.unwrap();
+        let db_sec_and_agg_nonces = db
+            .save_sighashes_and_get_nonces(outpoint, index, &sighashes)
+            .await
+            .unwrap()
+            .unwrap();
+
+        // Sanity checks
+        assert_eq!(db_sec_and_agg_nonces.len(), 2);
+        assert_eq!(db_sec_and_agg_nonces[0].0, nonce_pairs[index].0);
+        assert_eq!(db_sec_and_agg_nonces[0].1, agg_nonces[index]);
+        assert_eq!(db_sec_and_agg_nonces[1].0, nonce_pairs[index + 1].0);
+        assert_eq!(db_sec_and_agg_nonces[1].1, agg_nonces[index + 1]);
+    }
+
+    #[tokio::test]
+    async fn test_nonces_3() {
+        let config = create_test_config_with_thread_name!("test_config.toml");
+        let db = Database::new(config).await.unwrap();
+        let secp = Secp256k1::new();
+
+        let outpoint = OutPoint {
+            txid: Txid::from_byte_array([1u8; 32]),
+            vout: 1,
+        };
+        let index = 2;
+        let mut sighashes = [[1u8; 32]];
+        let sks = [
+            secp256k1::SecretKey::from_slice(&[1u8; 32]).unwrap(),
+            secp256k1::SecretKey::from_slice(&[2u8; 32]).unwrap(),
+            secp256k1::SecretKey::from_slice(&[3u8; 32]).unwrap(),
+        ];
+        let keypairs: Vec<secp256k1::Keypair> = sks
+            .iter()
+            .map(|sk| secp256k1::Keypair::from_secret_key(&secp, sk))
+            .collect();
+        let nonce_pairs: Vec<(MuSigSecNonce, MuSigPubNonce)> = keypairs
+            .into_iter()
+            .map(|kp| nonce_pair(&kp, &mut OsRng))
+            .collect();
+        let agg_nonces: Vec<MuSigAggNonce> = nonce_pairs
+            .iter()
+            .map(|(_, pub_nonce)| pub_nonce.clone())
+            .collect();
+        db.save_nonces(outpoint, &nonce_pairs).await.unwrap();
+        db.save_agg_nonces(outpoint, &agg_nonces).await.unwrap();
+        let _db_sec_and_agg_nonces = db
+            .save_sighashes_and_get_nonces(outpoint, index, &sighashes)
+            .await
+            .unwrap()
+            .unwrap();
+
+        // Accidentally try to save a different sighash
+        sighashes[0] = [2u8; 32];
+        let _db_sec_and_agg_nonces = db
+            .save_sighashes_and_get_nonces(outpoint, index, &sighashes)
+            .await
+            .expect_err("Should return database sighash update error");
+        println!("Error: {:?}", _db_sec_and_agg_nonces);
+    }
+
+    #[tokio::test]
+    async fn test_get_pub_nonces_1() {
+        let config = create_test_config_with_thread_name!("test_config.toml");
+        let db = Database::new(config).await.unwrap();
+        let secp = Secp256k1::new();
+
+        let outpoint = OutPoint {
+            txid: Txid::from_byte_array([1u8; 32]),
+            vout: 1,
+        };
+        let sks = [
+            secp256k1::SecretKey::from_slice(&[1u8; 32]).unwrap(),
+            secp256k1::SecretKey::from_slice(&[2u8; 32]).unwrap(),
+            secp256k1::SecretKey::from_slice(&[3u8; 32]).unwrap(),
+        ];
+        let keypairs: Vec<secp256k1::Keypair> = sks
+            .iter()
+            .map(|sk| secp256k1::Keypair::from_secret_key(&secp, sk))
+            .collect();
+        let nonce_pairs: Vec<(MuSigSecNonce, MuSigPubNonce)> = keypairs
+            .into_iter()
+            .map(|kp| nonce_pair(&kp, &mut OsRng))
+            .collect();
+        db.save_nonces(outpoint, &nonce_pairs).await.unwrap();
+        let pub_nonces = db.get_pub_nonces(outpoint).await.unwrap().unwrap();
+
+        // Sanity checks
+        assert_eq!(pub_nonces.len(), nonce_pairs.len());
+        for (pub_nonce, (_, db_pub_nonce)) in pub_nonces.iter().zip(nonce_pairs.iter()) {
+            assert_eq!(pub_nonce, db_pub_nonce);
+        }
+    }
+
+    #[tokio::test]
+    async fn test_get_pub_nonces_2() {
+        let config = create_test_config_with_thread_name!("test_config.toml");
+        let db = Database::new(config).await.unwrap();
+        let outpoint = OutPoint {
+            txid: Txid::from_byte_array([1u8; 32]),
+            vout: 1,
+        };
+        let pub_nonces = db.get_pub_nonces(outpoint).await.unwrap();
+        assert!(pub_nonces.is_none());
+    }
+
+    #[tokio::test]
+    async fn test_operators_kickoff_utxo_1() {
+        let config = create_test_config_with_thread_name!("test_config.toml");
+        let db = Database::new(config).await.unwrap();
+
+        let outpoint = OutPoint {
+            txid: Txid::from_byte_array([1u8; 32]),
+            vout: 1,
+        };
+        let kickoff_utxo = UTXO {
+            outpoint,
+            txout: TxOut {
+                value: Amount::from_sat(100),
+                script_pubkey: ScriptBuf::from(vec![1u8]),
+            },
+        };
+        db.save_kickoff_utxo(outpoint, kickoff_utxo.clone())
+            .await
+            .unwrap();
+        let db_kickoff_utxo = db.get_kickoff_utxo(outpoint).await.unwrap().unwrap();
+
+        // Sanity check
+        assert_eq!(db_kickoff_utxo, kickoff_utxo);
+    }
+
+    #[tokio::test]
+    async fn test_operators_kickoff_utxo_2() {
+        let config = create_test_config_with_thread_name!("test_config.toml");
+        let db = Database::new(config).await.unwrap();
+
+        let outpoint = OutPoint {
+            txid: Txid::from_byte_array([1u8; 32]),
+            vout: 1,
+        };
+        let db_kickoff_utxo = db.get_kickoff_utxo(outpoint).await.unwrap();
+        assert!(db_kickoff_utxo.is_none());
+    }
+
+    #[tokio::test]
+    async fn test_verifiers_kickoff_utxos_1() {
+        let config = create_test_config_with_thread_name!("test_config.toml");
+        let db = Database::new(config).await.unwrap();
+
+        let outpoint = OutPoint {
+            txid: Txid::from_byte_array([1u8; 32]),
+            vout: 1,
+        };
+        let kickoff_utxos = vec![
+            UTXO {
+                outpoint: outpoint.clone(),
+                txout: TxOut {
+                    value: Amount::from_sat(100),
+                    script_pubkey: ScriptBuf::from(vec![1u8]),
+                },
+            },
+            UTXO {
+                outpoint: outpoint.clone(),
+                txout: TxOut {
+                    value: Amount::from_sat(200),
+                    script_pubkey: ScriptBuf::from(vec![2u8]),
+                },
+            },
+        ];
+        db.save_kickoff_utxos(outpoint, &kickoff_utxos)
+            .await
+            .unwrap();
+        let db_kickoff_utxos = db.get_kickoff_utxos(outpoint).await.unwrap().unwrap();
+
+        // Sanity checks
+        assert_eq!(db_kickoff_utxos.len(), kickoff_utxos.len());
+        for (db_kickoff_utxo, kickoff_utxo) in db_kickoff_utxos.iter().zip(kickoff_utxos.iter()) {
+            assert_eq!(db_kickoff_utxo, kickoff_utxo);
+        }
+    }
+
+    #[tokio::test]
+    async fn test_verifiers_kickoff_utxos_2() {
+        let config = create_test_config_with_thread_name!("test_config.toml");
+        let db = Database::new(config).await.unwrap();
+
+        let outpoint = OutPoint {
+            txid: Txid::from_byte_array([1u8; 32]),
+            vout: 1,
+        };
+        let res = db.get_kickoff_utxos(outpoint).await.unwrap();
+        assert!(res.is_none());
+    }
+
+    #[tokio::test]
+    async fn test_operators_funding_utxo_1() {
+        let config = create_test_config_with_thread_name!("test_config.toml");
+        let db = Database::new(config).await.unwrap();
+
+        let utxo = UTXO {
+            outpoint: OutPoint {
+                txid: Txid::from_byte_array([1u8; 32]),
+                vout: 1,
+            },
+            txout: TxOut {
+                value: Amount::from_sat(100),
+                script_pubkey: ScriptBuf::from(vec![1u8]),
+            },
+        };
+        db.set_funding_utxo(utxo.clone()).await.unwrap();
+        let db_utxo = db.get_funding_utxo().await.unwrap().unwrap();
+
+        // Sanity check
+        assert_eq!(db_utxo, utxo);
+    }
+
+    #[tokio::test]
+    async fn test_operators_funding_utxo_2() {
+        let config = create_test_config_with_thread_name!("test_config.toml");
+        let db = Database::new(config).await.unwrap();
+
+        let db_utxo = db.get_funding_utxo().await.unwrap();
+
+        assert!(db_utxo.is_none());
+    }
+
+    #[tokio::test]
+    async fn test_deposit_kickoff_generator_tx_1() {
+        let config = create_test_config_with_thread_name!("test_config.toml");
+        let db = Database::new(config).await.unwrap();
+
+        let txid = Txid::from_byte_array([1u8; 32]);
+        let raw_hex = "raw_hex".to_string();
+        let num_kickoffs = 10;
+        let cur_unused_kickoff_index = 5;
+        let funding_txid = Txid::from_byte_array([2u8; 32]);
+        db.add_deposit_kickoff_generator_tx(
+            txid,
+            raw_hex.clone(),
+            num_kickoffs,
+            cur_unused_kickoff_index,
+            funding_txid,
+        )
+        .await
+        .unwrap();
+        let (db_raw_hex, db_num_kickoffs, db_cur_unused_kickoff_index, db_funding_txid) = db
+            .get_deposit_kickoff_generator_tx(txid)
+            .await
+            .unwrap()
+            .unwrap();
+
+        // Sanity check
+        assert_eq!(db_raw_hex, raw_hex);
+        assert_eq!(db_num_kickoffs, num_kickoffs);
+        assert_eq!(db_cur_unused_kickoff_index, cur_unused_kickoff_index);
+        assert_eq!(db_funding_txid, funding_txid);
+    }
+
+    #[tokio::test]
+    async fn test_deposit_kickoff_generator_tx_2() {
+        let config = create_test_config_with_thread_name!("test_config.toml");
+        let db = Database::new(config).await.unwrap();
+
+        let txid = Txid::from_byte_array([1u8; 32]);
+        let res = db.get_deposit_kickoff_generator_tx(txid).await.unwrap();
+        assert!(res.is_none());
+    }
 }
 
 #[cfg(poc)]
