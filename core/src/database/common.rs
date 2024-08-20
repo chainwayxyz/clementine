@@ -410,7 +410,7 @@ impl Database {
         cur_unused_kickoff_index: usize,
         funding_txid: Txid,
     ) -> Result<(), BridgeError> {
-        sqlx::query("INSERT INTO deposit_kickoff_generator_txs (txid, raw_hex, vout, n, funding_txid) VALUES ($1, $2, $3, $4, $5);")
+        sqlx::query("INSERT INTO deposit_kickoff_generator_txs (txid, raw_signed_tx, num_kickoffs, cur_unused_kickoff_index, funding_txid) VALUES ($1, $2, $3, $4, $5);")
             .bind(TxidDB(txid))
             .bind(raw_hex)
             .bind(num_kickoffs as i32)
@@ -420,6 +420,26 @@ impl Database {
             .await?;
 
         Ok(())
+    }
+
+    pub async fn get_deposit_kickoff_generator_tx(
+        &self,
+        txid: Txid,
+    ) -> Result<Option<(String, usize, usize, Txid)>, BridgeError> {
+        let qr: Option<(String, i32, i32, TxidDB)> = sqlx::query_as("SELECT raw_signed_tx, num_kickoffs, cur_unused_kickoff_index, funding_txid FROM deposit_kickoff_generator_txs WHERE txid = $1;")
+            .bind(TxidDB(txid))
+            .fetch_optional(&self.connection)
+            .await?;
+
+        match qr {
+            Some((raw_hex, num_kickoffs, cur_unused_kickoff_index, funding_txid)) => Ok(Some((
+                raw_hex,
+                num_kickoffs as usize,
+                cur_unused_kickoff_index as usize,
+                funding_txid.0,
+            ))),
+            None => Ok(None),
+        }
     }
 }
 
@@ -804,6 +824,48 @@ mod tests {
         let db_utxo = db.get_funding_utxo().await.unwrap();
 
         assert!(db_utxo.is_none());
+    }
+
+    #[tokio::test]
+    async fn test_deposit_kickoff_generator_tx_1() {
+        let config = create_test_config_with_thread_name!("test_config.toml");
+        let db = Database::new(config).await.unwrap();
+
+        let txid = Txid::from_byte_array([1u8; 32]);
+        let raw_hex = "raw_hex".to_string();
+        let num_kickoffs = 10;
+        let cur_unused_kickoff_index = 5;
+        let funding_txid = Txid::from_byte_array([2u8; 32]);
+        db.add_deposit_kickoff_generator_tx(
+            txid,
+            raw_hex.clone(),
+            num_kickoffs,
+            cur_unused_kickoff_index,
+            funding_txid,
+        )
+        .await
+        .unwrap();
+        let (db_raw_hex, db_num_kickoffs, db_cur_unused_kickoff_index, db_funding_txid) = db
+            .get_deposit_kickoff_generator_tx(txid)
+            .await
+            .unwrap()
+            .unwrap();
+
+        // Sanity check
+        assert_eq!(db_raw_hex, raw_hex);
+        assert_eq!(db_num_kickoffs, num_kickoffs);
+        assert_eq!(db_cur_unused_kickoff_index, cur_unused_kickoff_index);
+        assert_eq!(db_funding_txid, funding_txid);
+    }
+
+    #[tokio::test]
+    async fn test_deposit_kickoff_generator_tx_2() {
+        let config = create_test_config_with_thread_name!("test_config.toml");
+        let db = Database::new(config).await.unwrap();
+
+        let txid = Txid::from_byte_array([1u8; 32]);
+        let res = db.get_deposit_kickoff_generator_tx(txid).await.unwrap();
+        assert!(res.is_none());
     }
 }
 
