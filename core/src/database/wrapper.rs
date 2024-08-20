@@ -2,6 +2,7 @@ use std::str::FromStr;
 
 use bitcoin::{address::NetworkUnchecked, Address, OutPoint, TxOut, Txid};
 use serde::{Deserialize, Serialize};
+use serde_json::Value;
 use sqlx::{
     postgres::{PgArgumentBuffer, PgRow, PgValueRef},
     Decode, Encode, Postgres, Row,
@@ -27,11 +28,51 @@ pub struct TxidDB(pub Txid);
 #[derive(Serialize, Deserialize)]
 pub struct SignatureDB(pub secp256k1::schnorr::Signature);
 
-#[derive(Serialize, Deserialize, sqlx::Type, sqlx::FromRow)]
-#[sqlx(type_name = "utxodb")]
+#[derive(Serialize, Deserialize, sqlx::FromRow)]
 pub struct UTXODB {
     pub outpoint_db: OutPointDB,
     pub txout_db: TxOutDB,
+}
+
+#[derive(Serialize, Deserialize)]
+struct IntermediateUTXO {
+    outpoint_db: String,
+    txout_db: String,
+}
+
+impl sqlx::Type<sqlx::Postgres> for UTXODB {
+    fn type_info() -> sqlx::postgres::PgTypeInfo {
+        sqlx::postgres::PgTypeInfo::with_name("JSONB")
+    }
+}
+
+impl<'q> Encode<'q, Postgres> for UTXODB {
+    fn encode_by_ref(&self, buf: &mut PgArgumentBuffer) -> sqlx::encode::IsNull {
+        // Encode as &str
+        let outpoint_db = self.outpoint_db.0.to_string();
+        let txout_db = bitcoin::consensus::encode::serialize_hex(&self.txout_db.0);
+        let intermediate_utxo = IntermediateUTXO {
+            outpoint_db,
+            txout_db,
+        };
+        let v = serde_json::to_value(&intermediate_utxo).unwrap();
+        <Value as Encode<Postgres>>::encode_by_ref(&v, buf)
+    }
+}
+
+impl<'r> Decode<'r, Postgres> for UTXODB {
+    fn decode(value: PgValueRef<'r>) -> Result<Self, sqlx::error::BoxDynError> {
+        let v = <Value as Decode<Postgres>>::decode(value)?;
+        let intermediate_utxo: IntermediateUTXO = serde_json::from_value(v).unwrap();
+        let outpoint_db = OutPointDB(OutPoint::from_str(&intermediate_utxo.outpoint_db).unwrap());
+        let txout_db = TxOutDB(
+            bitcoin::consensus::encode::deserialize_hex(&intermediate_utxo.txout_db).unwrap(),
+        );
+        Ok(UTXODB {
+            outpoint_db,
+            txout_db,
+        })
+    }
 }
 
 impl sqlx::Type<sqlx::Postgres> for OutPointDB {
@@ -160,7 +201,7 @@ impl<'r> Decode<'r, Postgres> for SignatureDB {
     }
 }
 
-/// Byte array of length 66
+// Byte array of length 66
 
 // impl sqlx::Type<sqlx::Postgres> for ByteArray66 {
 //     fn type_info() -> sqlx::postgres::PgTypeInfo {
@@ -184,37 +225,37 @@ impl<'r> Decode<'r, Postgres> for SignatureDB {
 //     }
 // }
 
-impl sqlx::Type<sqlx::Postgres> for UTXO {
-    fn type_info() -> sqlx::postgres::PgTypeInfo {
-        sqlx::postgres::PgTypeInfo::with_name("TEXT")
-    }
-}
+// impl sqlx::Type<sqlx::Postgres> for UTXO {
+//     fn type_info() -> sqlx::postgres::PgTypeInfo {
+//         sqlx::postgres::PgTypeInfo::with_name("TEXT")
+//     }
+// }
 
-impl<'q> Encode<'q, Postgres> for UTXO {
-    fn encode_by_ref(&self, buf: &mut PgArgumentBuffer) -> sqlx::encode::IsNull {
-        let s = serde_json::to_string(self).unwrap();
-        <&str as Encode<Postgres>>::encode_by_ref(&s.as_str(), buf)
-    }
-}
+// impl<'q> Encode<'q, Postgres> for UTXO {
+//     fn encode_by_ref(&self, buf: &mut PgArgumentBuffer) -> sqlx::encode::IsNull {
+//         let s = serde_json::to_string(self).unwrap();
+//         <&str as Encode<Postgres>>::encode_by_ref(&s.as_str(), buf)
+//     }
+// }
 
-impl<'r> Decode<'r, Postgres> for UTXO {
-    fn decode(value: PgValueRef<'r>) -> Result<Self, sqlx::error::BoxDynError> {
-        let s = <&str as Decode<Postgres>>::decode(value)?;
-        let x: UTXO = serde_json::from_str(s).unwrap();
-        Ok(x)
-    }
-}
+// impl<'r> Decode<'r, Postgres> for UTXO {
+//     fn decode(value: PgValueRef<'r>) -> Result<Self, sqlx::error::BoxDynError> {
+//         let s = <&str as Decode<Postgres>>::decode(value)?;
+//         let x: UTXO = serde_json::from_str(s).unwrap();
+//         Ok(x)
+//     }
+// }
 
-impl UTXO {
-    fn decode_utxo_from_row(row: &PgRow, column_name: &str) -> Result<UTXO, sqlx::Error> {
-        let s = row
-            .try_get_raw(column_name)
-            .map_err(|_| sqlx::Error::ColumnNotFound(column_name.into()))?;
-        let str: &str = Decode::decode(s).map_err(|_| sqlx::Error::ColumnDecode {
-            index: column_name.into(),
-            source: Box::new(sqlx::Error::Decode("ColumnDecode Failed for UTXO".into())),
-        })?;
-        let res: UTXO = serde_json::from_str(str).unwrap();
-        Ok(res)
-    }
-}
+// impl UTXO {
+//     fn decode_utxo_from_row(row: &PgRow, column_name: &str) -> Result<UTXO, sqlx::Error> {
+//         let s = row
+//             .try_get_raw(column_name)
+//             .map_err(|_| sqlx::Error::ColumnNotFound(column_name.into()))?;
+//         let str: &str = Decode::decode(s).map_err(|_| sqlx::Error::ColumnDecode {
+//             index: column_name.into(),
+//             source: Box::new(sqlx::Error::Decode("ColumnDecode Failed for UTXO".into())),
+//         })?;
+//         let res: UTXO = serde_json::from_str(str).unwrap();
+//         Ok(res)
+//     }
+// }

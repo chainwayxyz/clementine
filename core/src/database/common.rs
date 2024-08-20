@@ -131,156 +131,6 @@ impl Database {
         }
     }
 
-    // pub async fn add_new_deposit_request(
-    //     &self,
-    //     start_utxo: OutPoint,
-    //     recovery_taproot_address: Address<NetworkUnchecked>,
-    //     evm_address: EVMAddress,
-    // ) -> Result<(), BridgeError> {
-    //     let start_utxo = start_utxo.to_string();
-    //     let recovery_taproot_address = serde_json::to_string(&recovery_taproot_address)
-    //         .unwrap()
-    //         .trim_matches('"')
-    //         .to_owned();
-    //     let evm_address = serde_json::to_string(&evm_address)
-    //         .unwrap()
-    //         .trim_matches('"')
-    //         .to_owned();
-
-    //     sqlx::query("INSERT INTO new_deposit_requests (start_utxo, recovery_taproot_address, evm_address) VALUES ($1, $2, $3);")
-    //         .bind(start_utxo)
-    //         .bind(recovery_taproot_address)
-    //         .bind(evm_address)
-    //         .fetch_all(&self.connection)
-    //         .await?;
-
-    //     Ok(())
-    // }
-
-    // pub async fn get_deposit_tx(&self, idx: usize) -> Result<Txid, BridgeError> {
-    //     let qr: (String,) = sqlx::query_as("SELECT move_txid FROM deposit_move_txs WHERE id = $1;")
-    //         .bind(idx as i64)
-    //         .fetch_one(&self.connection)
-    //         .await?;
-
-    //     match Txid::from_str(qr.0.as_str()) {
-    //         Ok(c) => Ok(c),
-    //         Err(e) => Err(BridgeError::DatabaseError(sqlx::Error::Decode(Box::new(e)))),
-    //     }
-    // }
-
-    // pub async fn get_next_deposit_index(&self) -> Result<usize, BridgeError> {
-    //     let qr: (i64,) = sqlx::query_as("SELECT COUNT(*) FROM deposit_move_txs;")
-    //         .fetch_one(&self.connection)
-    //         .await?;
-
-    //     Ok(qr.0 as usize)
-    // }
-
-    // pub async fn insert_move_txid(
-    //     &self,
-    //     start_utxo: OutPoint,
-    //     recovery_taproot_address: Address<NetworkUnchecked>,
-    //     evm_address: EVMAddress,
-    //     move_txid: Txid,
-    // ) -> Result<(), BridgeError> {
-    //     sqlx::query("INSERT INTO deposit_move_txs (start_utxo, recovery_taproot_address, evm_address, move_txid) VALUES ($1, $2, $3, $4);")
-    //         .bind(start_utxo.to_string())
-    //         .bind(serde_json::to_string(&recovery_taproot_address).unwrap().trim_matches('"'))
-    //         .bind(serde_json::to_string(&evm_address).unwrap().trim_matches('"'))
-    //         .bind(move_txid.to_string())
-    //         .fetch_all(&self.connection)
-    //         .await?;
-
-    //     Ok(())
-    // }
-
-    // pub async fn get_move_txid(
-    //     &self,
-    //     deposit_request_utxo: OutPoint,
-    //     recovery_taproot_address: Address<NetworkUnchecked>,
-    //     evm_address: EVMAddress,
-    // ) -> Result<Txid, BridgeError> {
-    //     let qr: (String,) = sqlx::query_as("SELECT (move_txid) FROM deposit_move_txs WHERE start_utxo = $1 AND recovery_taproot_address = $2 AND evm_address = $3;")
-    //         .bind(deposit_request_utxo.to_string())
-    //         .bind(serde_json::to_string(&recovery_taproot_address).unwrap().trim_matches('"'))
-    //         .bind(serde_json::to_string(&evm_address).unwrap().trim_matches('"'))
-    //         .fetch_one(&self.connection)
-    //         .await?;
-
-    //     let move_txid = Txid::from_str(&qr.0).unwrap();
-    //     Ok(move_txid)
-    // }
-
-    // pub async fn insert_deposit_flow_info(
-    //     &self,
-    //     deposit_request_utxo: OutPoint,
-    //     recovery_taproot_address: Address<NetworkUnchecked>,
-    //     evm_address: EVMAddress,
-    //     move_intermediate_txid: Txid,
-    //     bridge_fund_txid: Txid,
-    // ) -> Result<(), BridgeError> {
-    //     sqlx::query("INSERT INTO deposit_flow_infos (start_utxo, recovery_taproot_address, evm_address, move_intermediate_txid, bridge_fund_txid) VALUES ($1, $2, $3, $4, $5);")
-    //         .bind(deposit_request_utxo.to_string())
-    //         .bind(serde_json::to_string(&recovery_taproot_address).unwrap().trim_matches('"'))
-    //         .bind(serde_json::to_string(&evm_address).unwrap().trim_matches('"'))
-    //         .bind(move_intermediate_txid.to_string())
-    //         .bind(bridge_fund_txid.to_string())
-    //         .fetch_all(&self.connection)
-    //         .await?;
-
-    //     Ok(())
-    // }
-
-    // /// Verifier: Get the calculated bridge_fund_txid for a deposit UTXO.
-    // pub async fn get_bridge_fund_txid(
-    //     &self,
-    //     deposit_outpoint: OutPoint,
-    // ) -> Result<Txid, BridgeError> {
-    //     let qr: (String,) = sqlx::query_as(
-    //         "SELECT (bridge_fund_txid) FROM deposit_flow_infos WHERE start_utxo = $1;",
-    //     )
-    //     .bind(deposit_outpoint.to_string())
-    //     .fetch_one(&self.connection)
-    //     .await?;
-
-    //     let bridge_fund_txid = Txid::from_str(&qr.0).unwrap();
-    //     Ok(bridge_fund_txid)
-    // }
-
-    // pub async fn save_withdrawal_sig(
-    //     &self,
-    //     idx: usize,
-    //     bridge_fund_txid: Txid,
-    //     sig: secp256k1::schnorr::Signature,
-    // ) -> Result<(), BridgeError> {
-    //     sqlx::query(
-    //         "INSERT INTO withdrawal_sigs (idx, bridge_fund_txid, sig) VALUES ($1, $2, $3);",
-    //     )
-    //     .bind(idx as i64)
-    //     .bind(bridge_fund_txid.to_string())
-    //     .bind(sig.to_string())
-    //     .fetch_all(&self.connection)
-    //     .await?;
-
-    //     Ok(())
-    // }
-
-    // pub async fn get_withdrawal_sig_by_idx(
-    //     &self,
-    //     idx: usize,
-    // ) -> Result<(Txid, secp256k1::schnorr::Signature), BridgeError> {
-    //     let qr: (String, String) =
-    //         sqlx::query_as("SELECT bridge_fund_txid, sig FROM withdrawal_sigs WHERE idx = $1;")
-    //             .bind(idx as i64)
-    //             .fetch_one(&self.connection)
-    //             .await?;
-
-    //     let bridge_fund_txid = Txid::from_str(&qr.0).unwrap();
-    //     let sig = secp256k1::schnorr::Signature::from_str(&qr.1).unwrap();
-    //     Ok((bridge_fund_txid, sig))
-    // }
-
     /// Database function for debugging purposes.
     pub async fn get_nonce_table(
         &self,
@@ -326,15 +176,19 @@ impl Database {
         &self,
         deposit_outpoint: OutPoint,
     ) -> Result<Option<Vec<UTXO>>, BridgeError> {
+        println!("AAAAAAAA");
         let qr: Vec<UTXODB> = sqlx::query_as(
-            "SELECT kickoff_utxo FROM verifiers_kickoff_utxos WHERE deposit_outpoint = $1;",
+            "SELECT kickoff_utxo FROM deposit_kickoff_utxos WHERE deposit_outpoint = $1;",
         )
         .bind(OutPointDB(deposit_outpoint))
         .fetch_all(&self.connection)
         .await?;
+        println!("BBBBBBBB");
         if qr.is_empty() {
+            println!("CCCCCCCC");
             return Ok(None);
         } else {
+            println!("DDDDDDDD");
             let utxos: Vec<UTXO> = qr
                 .into_iter()
                 .map(|utxo_db| UTXO {
@@ -366,7 +220,10 @@ impl Database {
     /// Operator: Sets the funding UTXO for kickoffs
     pub async fn set_funding_utxo(&self, funding_utxo: UTXO) -> Result<(), BridgeError> {
         sqlx::query("INSERT INTO funding_utxos (funding_utxo) VALUES ($1);")
-            .bind(funding_utxo)
+            .bind(UTXODB {
+                outpoint_db: OutPointDB(funding_utxo.outpoint),
+                txout_db: TxOutDB(funding_utxo.txout),
+            })
             .execute(&self.connection)
             .await?;
 
@@ -400,11 +257,18 @@ impl Database {
         kickoff_utxos: &[UTXO],
     ) -> Result<(), BridgeError> {
         for utxo in kickoff_utxos {
+            // println!("Saving utxo: {:?}", serde_json::to_value(UTXODB {
+            //     outpoint_db: OutPointDB(utxo.outpoint),
+            //     txout_db: TxOutDB(utxo.txout.clone()),
+            // }).unwrap());
             sqlx::query(
                 "INSERT INTO deposit_kickoff_utxos (deposit_outpoint, kickoff_utxo) VALUES ($1, $2);",
             )
             .bind(OutPointDB(deposit_outpoint))
-            .bind(utxo)
+            .bind(UTXODB {
+                outpoint_db: OutPointDB(utxo.outpoint),
+                txout_db: TxOutDB(utxo.txout.clone()),
+            })
             .execute(&self.connection)
             .await?;
         }
@@ -864,6 +728,56 @@ mod tests {
         };
         let db_kickoff_utxo = db.get_kickoff_utxo(outpoint).await.unwrap();
         assert!(db_kickoff_utxo.is_none());
+    }
+
+    #[tokio::test]
+    async fn test_verifiers_kickoff_utxos_1() {
+        let config = create_test_config_with_thread_name!("test_config.toml");
+        let db = Database::new(config).await.unwrap();
+
+        let outpoint = OutPoint {
+            txid: Txid::from_byte_array([1u8; 32]),
+            vout: 1,
+        };
+        let kickoff_utxos = vec![
+            UTXO {
+                outpoint: outpoint.clone(),
+                txout: TxOut {
+                    value: Amount::from_sat(100),
+                    script_pubkey: ScriptBuf::from(vec![1u8]),
+                },
+            },
+            UTXO {
+                outpoint: outpoint.clone(),
+                txout: TxOut {
+                    value: Amount::from_sat(200),
+                    script_pubkey: ScriptBuf::from(vec![2u8]),
+                },
+            },
+        ];
+        db.save_kickoff_utxos(outpoint, &kickoff_utxos)
+            .await
+            .unwrap();
+        let db_kickoff_utxos = db.get_kickoff_utxos(outpoint).await.unwrap().unwrap();
+
+        // Sanity checks
+        assert_eq!(db_kickoff_utxos.len(), kickoff_utxos.len());
+        for (db_kickoff_utxo, kickoff_utxo) in db_kickoff_utxos.iter().zip(kickoff_utxos.iter()) {
+            assert_eq!(db_kickoff_utxo, kickoff_utxo);
+        }
+    }
+
+    #[tokio::test]
+    async fn test_verifiers_kickoff_utxos_2() {
+        let config = create_test_config_with_thread_name!("test_config.toml");
+        let db = Database::new(config).await.unwrap();
+
+        let outpoint = OutPoint {
+            txid: Txid::from_byte_array([1u8; 32]),
+            vout: 1,
+        };
+        let res = db.get_kickoff_utxos(outpoint).await.unwrap();
+        assert!(res.is_none());
     }
 }
 
