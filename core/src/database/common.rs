@@ -9,8 +9,6 @@ use crate::{config::BridgeConfig, errors::BridgeError};
 use crate::{EVMAddress, UTXO};
 use bitcoin::address::NetworkUnchecked;
 use bitcoin::{Address, OutPoint, Txid};
-use sqlx::postgres::PgRow;
-use sqlx::Row;
 use sqlx::{Pool, Postgres};
 use std::fs;
 
@@ -154,7 +152,7 @@ impl Database {
         &self,
         deposit_outpoint: OutPoint,
     ) -> Result<Option<UTXO>, BridgeError> {
-        let qr: Result<(UTXODB,), sqlx::Error> = sqlx::query_as(
+        let qr: Result<(sqlx::types::Json<UTXODB>,), sqlx::Error> = sqlx::query_as(
             "SELECT kickoff_utxo FROM operators_kickoff_utxo WHERE deposit_outpoint = $1;",
         )
         .bind(OutPointDB(deposit_outpoint))
@@ -164,7 +162,7 @@ impl Database {
         match qr {
             Ok((utxo_db,)) => Ok(Some(UTXO {
                 outpoint: utxo_db.outpoint_db.0,
-                txout: utxo_db.txout_db.0,
+                txout: utxo_db.txout_db.0.clone(),
             })),
             Err(sqlx::Error::RowNotFound) => Ok(None),
             Err(e) => Err(BridgeError::DatabaseError(e)),
@@ -176,24 +174,20 @@ impl Database {
         &self,
         deposit_outpoint: OutPoint,
     ) -> Result<Option<Vec<UTXO>>, BridgeError> {
-        println!("AAAAAAAA");
-        let qr: Vec<UTXODB> = sqlx::query_as(
+        let qr: Vec<(sqlx::types::Json<UTXODB>, )> = sqlx::query_as(
             "SELECT kickoff_utxo FROM deposit_kickoff_utxos WHERE deposit_outpoint = $1;",
         )
         .bind(OutPointDB(deposit_outpoint))
         .fetch_all(&self.connection)
         .await?;
-        println!("BBBBBBBB");
         if qr.is_empty() {
-            println!("CCCCCCCC");
             return Ok(None);
         } else {
-            println!("DDDDDDDD");
             let utxos: Vec<UTXO> = qr
                 .into_iter()
                 .map(|utxo_db| UTXO {
-                    outpoint: utxo_db.outpoint_db.0,
-                    txout: utxo_db.txout_db.0,
+                    outpoint: utxo_db.0.outpoint_db.0,
+                    txout: utxo_db.0.txout_db.0.clone(),
                 })
                 .collect();
             return Ok(Some(utxos));
@@ -202,7 +196,7 @@ impl Database {
 
     /// Operator: Gets the funding UTXO for kickoffs
     pub async fn get_funding_utxo(&self) -> Result<Option<UTXO>, BridgeError> {
-        let qr: Result<(UTXODB,), sqlx::Error> =
+        let qr: Result<(sqlx::types::Json<UTXODB>,), sqlx::Error> =
             sqlx::query_as("SELECT funding_utxo FROM funding_utxos ORDER BY id DESC LIMIT 1;")
                 .fetch_one(&self.connection)
                 .await;
@@ -210,7 +204,7 @@ impl Database {
         match qr {
             Ok((utxo_db,)) => Ok(Some(UTXO {
                 outpoint: utxo_db.outpoint_db.0,
-                txout: utxo_db.txout_db.0,
+                txout: utxo_db.txout_db.0.clone(),
             })),
             Err(sqlx::Error::RowNotFound) => Ok(None),
             Err(e) => Err(BridgeError::DatabaseError(e)),
@@ -220,10 +214,10 @@ impl Database {
     /// Operator: Sets the funding UTXO for kickoffs
     pub async fn set_funding_utxo(&self, funding_utxo: UTXO) -> Result<(), BridgeError> {
         sqlx::query("INSERT INTO funding_utxos (funding_utxo) VALUES ($1);")
-            .bind(UTXODB {
+            .bind(sqlx::types::Json(UTXODB {
                 outpoint_db: OutPointDB(funding_utxo.outpoint),
                 txout_db: TxOutDB(funding_utxo.txout),
-            })
+            }))
             .execute(&self.connection)
             .await?;
 
@@ -240,10 +234,10 @@ impl Database {
             "INSERT INTO operators_kickoff_utxo (deposit_outpoint, kickoff_utxo) VALUES ($1, $2);",
         )
         .bind(OutPointDB(deposit_outpoint))
-        .bind(UTXODB {
+        .bind(sqlx::types::Json(UTXODB {
             outpoint_db: OutPointDB(kickoff_utxo.outpoint),
             txout_db: TxOutDB(kickoff_utxo.txout),
-        })
+        }))
         .execute(&self.connection)
         .await?;
 
@@ -265,10 +259,10 @@ impl Database {
                 "INSERT INTO deposit_kickoff_utxos (deposit_outpoint, kickoff_utxo) VALUES ($1, $2);",
             )
             .bind(OutPointDB(deposit_outpoint))
-            .bind(UTXODB {
+            .bind(sqlx::types::Json(UTXODB {
                 outpoint_db: OutPointDB(utxo.outpoint),
                 txout_db: TxOutDB(utxo.txout.clone()),
-            })
+            }))
             .execute(&self.connection)
             .await?;
         }
@@ -778,6 +772,38 @@ mod tests {
         };
         let res = db.get_kickoff_utxos(outpoint).await.unwrap();
         assert!(res.is_none());
+    }
+
+    #[tokio::test]
+    async fn test_operators_funding_utxo_1() {
+        let config = create_test_config_with_thread_name!("test_config.toml");
+        let db = Database::new(config).await.unwrap();
+
+        let utxo = UTXO {
+            outpoint: OutPoint {
+                txid: Txid::from_byte_array([1u8; 32]),
+                vout: 1,
+            },
+            txout: TxOut {
+                value: Amount::from_sat(100),
+                script_pubkey: ScriptBuf::from(vec![1u8]),
+            },
+        };
+        db.set_funding_utxo(utxo.clone()).await.unwrap();
+        let db_utxo = db.get_funding_utxo().await.unwrap().unwrap();
+
+        // Sanity check
+        assert_eq!(db_utxo, utxo);
+    }
+
+    #[tokio::test]
+    async fn test_operators_funding_utxo_2() {
+        let config = create_test_config_with_thread_name!("test_config.toml");
+        let db = Database::new(config).await.unwrap();
+
+        let db_utxo = db.get_funding_utxo().await.unwrap();
+
+        assert!(db_utxo.is_none());
     }
 }
 
