@@ -158,8 +158,6 @@ pub enum BridgeError {
     KickoffOutpointsNotFound,
     #[error("DepositInfoNotFound")]
     DepositInfoNotFound,
-    // #[error("OperatorTakesSighashesMismatch")]
-    // OperatorTakesSighashesMismatch,
 }
 
 impl Into<ErrorObject<'static>> for BridgeError {

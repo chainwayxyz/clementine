@@ -38,14 +38,12 @@ pub struct EVMAddress(#[serde(with = "hex::serde")] pub [u8; 20]);
 /// Type alias for withdrawal payment, HashType is taproot script hash
 pub type WithdrawalPayment = (Txid, HashType);
 
-#[derive(
-    Clone, Debug, Eq, Hash, PartialEq, PartialOrd, Ord, Serialize, Deserialize, sqlx::FromRow,
-)]
+#[derive(Clone, Debug, Eq, Hash, PartialEq, PartialOrd, Ord, Serialize, Deserialize)]
 pub struct UTXO {
     pub outpoint: OutPoint,
     pub txout: bitcoin::TxOut,
 }
 
-#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, sqlx::Type, sqlx::FromRow)]
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, sqlx::Type)]
 #[sqlx(type_name = "bytea")]
 pub struct ByteArray66(#[serde(with = "hex::serde")] pub [u8; 66]);

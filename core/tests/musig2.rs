@@ -61,7 +61,7 @@ async fn test_musig2_key_spend() {
     let (from_address, from_address_spend_info) = TransactionBuilder::create_taproot_address(
         &scripts,
         Some(untweaked_xonly_pubkey),
-        bitcoin::Network::Regtest,
+        config.network,
     );
     let utxo = rpc.send_to_address(&from_address, 100_000_000).unwrap();
     let prevout = rpc.get_txout_from_utxo(&utxo).unwrap();

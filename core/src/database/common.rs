@@ -275,7 +275,7 @@ impl Database {
         &self,
         deposit_outpoint: OutPoint,
     ) -> Result<Option<Vec<MuSigPubNonce>>, BridgeError> {
-        let qr: Vec<MuSigPubNonce> =
+        let qr: Vec<(MuSigPubNonce,)> =
             sqlx::query_as("SELECT pub_nonce FROM nonces WHERE deposit_outpoint = $1;")
                 .bind(OutPointDB(deposit_outpoint))
                 .fetch_all(&self.connection)
@@ -283,7 +283,8 @@ impl Database {
         if qr.is_empty() {
             return Ok(None);
         } else {
-            Ok(Some(qr))
+            let pub_nonces: Vec<MuSigPubNonce> = qr.into_iter().map(|(x,)| x).collect();
+            return Ok(Some(pub_nonces));
         }
     }
 
