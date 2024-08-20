@@ -1,5 +1,14 @@
 BEGIN;
 
+create type utxodb as (
+    outpoint text,
+    txout text
+);
+
+-- create type bytearray66 as (
+--     content text
+-- );
+
 -- Verifier table for deposit details
 /* This table holds the information related to a deposit. */
 create table deposit_infos (
@@ -29,9 +38,9 @@ of the nonces. */
 create table nonces (
     idx serial primary key,
     deposit_outpoint text not null check (deposit_outpoint ~ '^[a-fA-F0-9]{64}:(0|[1-9][0-9]{0,9})$'),
-    pub_nonce text not null check (pub_nonce ~ '^[a-fA-F0-9]{132}'),
+    pub_nonce bytea not null, -- check (pub_nonce ~ '^[a-fA-F0-9]{132}'),
     sec_nonce text not null check (sec_nonce ~ '^[a-fA-F0-9]{128}$'),
-    agg_nonce text check (agg_nonce ~ '^[a-fA-F0-9]{132}'),
+    agg_nonce bytea, -- check (agg_nonce ~ '^[a-fA-F0-9]{132}'),
     sighash text check (sighash ~ '^[a-fA-F0-9]{64}'), /* 32 bytes */
     created_at timestamp not null default now()
 );
@@ -58,7 +67,7 @@ EXECUTE FUNCTION prevent_sighash_update();
 create table deposit_kickoff_utxos (
     id serial primary key,
     deposit_outpoint text not null check (deposit_outpoint ~ '^[a-fA-F0-9]{64}:(0|[1-9][0-9]{0,9})$'),
-    kickoff_utxo text not null,
+    kickoff_utxo utxodb not null,
     created_at timestamp not null default now(),
     unique (deposit_outpoint, kickoff_utxo)
 );
@@ -79,7 +88,7 @@ create table deposit_kickoff_generator_txs (
 /* This table holds the kickoff utxos sent by the operators for each deposit. */
 create table operators_kickoff_utxo (
     deposit_outpoint text primary key not null check (deposit_outpoint ~ '^[a-fA-F0-9]{64}:(0|[1-9][0-9]{0,9})$'),
-    kickoff_utxo text not null,
+    kickoff_utxo utxodb not null,
     created_at timestamp not null default now()
 );
 

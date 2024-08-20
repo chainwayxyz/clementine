@@ -14,7 +14,7 @@ use sqlx::Row;
 use sqlx::{Pool, Postgres};
 use std::fs;
 
-use super::wrapper::{AddressDB, EVMAddressDB, OutPointDB, TxidDB};
+use super::wrapper::{AddressDB, EVMAddressDB, OutPointDB, TxOutDB, TxidDB, UTXODB};
 
 #[derive(Clone, Debug)]
 pub struct Database {
@@ -304,26 +304,18 @@ impl Database {
         &self,
         deposit_outpoint: OutPoint,
     ) -> Result<Option<UTXO>, BridgeError> {
-        struct Row {
-            kickoff_utxo: UTXO,
-        }
-        impl sqlx::FromRow<'_, PgRow> for Row {
-            fn from_row(row: &PgRow) -> Result<Self, sqlx::Error> {
-                Ok(Self {
-                    kickoff_utxo: row.try_get("kickoff_utxo")?,
-                })
-            }
-        }
-
-        let row = sqlx::query_as::<_, Row>(
+        let qr: Result<(UTXODB,), sqlx::Error> = sqlx::query_as(
             "SELECT kickoff_utxo FROM operators_kickoff_utxo WHERE deposit_outpoint = $1;",
         )
         .bind(OutPointDB(deposit_outpoint))
         .fetch_one(&self.connection)
         .await;
 
-        match row {
-            Ok(row) => Ok(Some(row.kickoff_utxo)),
+        match qr {
+            Ok((utxo_db,)) => Ok(Some(UTXO {
+                outpoint: utxo_db.outpoint_db.0,
+                txout: utxo_db.txout_db.0,
+            })),
             Err(sqlx::Error::RowNotFound) => Ok(None),
             Err(e) => Err(BridgeError::DatabaseError(e)),
         }
@@ -334,24 +326,41 @@ impl Database {
         &self,
         deposit_outpoint: OutPoint,
     ) -> Result<Option<Vec<UTXO>>, BridgeError> {
-        let qr: Vec<UTXO> = sqlx::query_as(
+        let qr: Vec<UTXODB> = sqlx::query_as(
             "SELECT kickoff_utxo FROM verifiers_kickoff_utxos WHERE deposit_outpoint = $1;",
         )
         .bind(OutPointDB(deposit_outpoint))
         .fetch_all(&self.connection)
         .await?;
-
-        Ok(Some(qr))
+        if qr.is_empty() {
+            return Ok(None);
+        } else {
+            let utxos: Vec<UTXO> = qr
+                .into_iter()
+                .map(|utxo_db| UTXO {
+                    outpoint: utxo_db.outpoint_db.0,
+                    txout: utxo_db.txout_db.0,
+                })
+                .collect();
+            return Ok(Some(utxos));
+        }
     }
 
     /// Operator: Gets the funding UTXO for kickoffs
     pub async fn get_funding_utxo(&self) -> Result<Option<UTXO>, BridgeError> {
-        let qr: (Option<UTXO>,) =
+        let qr: Result<(UTXODB,), sqlx::Error> =
             sqlx::query_as("SELECT funding_utxo FROM funding_utxos ORDER BY id DESC LIMIT 1;")
                 .fetch_one(&self.connection)
-                .await?;
+                .await;
 
-        Ok(qr.0)
+        match qr {
+            Ok((utxo_db,)) => Ok(Some(UTXO {
+                outpoint: utxo_db.outpoint_db.0,
+                txout: utxo_db.txout_db.0,
+            })),
+            Err(sqlx::Error::RowNotFound) => Ok(None),
+            Err(e) => Err(BridgeError::DatabaseError(e)),
+        }
     }
 
     /// Operator: Sets the funding UTXO for kickoffs
@@ -374,7 +383,10 @@ impl Database {
             "INSERT INTO operators_kickoff_utxo (deposit_outpoint, kickoff_utxo) VALUES ($1, $2);",
         )
         .bind(OutPointDB(deposit_outpoint))
-        .bind(kickoff_utxo)
+        .bind(UTXODB {
+            outpoint_db: OutPointDB(kickoff_utxo.outpoint),
+            txout_db: TxOutDB(kickoff_utxo.txout),
+        })
         .execute(&self.connection)
         .await?;
 
@@ -410,8 +422,11 @@ impl Database {
                 .bind(OutPointDB(deposit_outpoint))
                 .fetch_all(&self.connection)
                 .await?;
-
-        Ok(if qr.is_empty() { None } else { Some(qr) })
+        if qr.is_empty() {
+            return Ok(None);
+        } else {
+            Ok(Some(qr))
+        }
     }
 
     /// Verifier: save the generated sec nonce and pub nonces
