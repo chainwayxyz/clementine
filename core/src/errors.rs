@@ -64,8 +64,8 @@ pub enum BridgeError {
     #[error("TryFromSliceError")]
     TryFromSliceError,
     /// Returned when bitcoin::Transaction error happens, also returns the error
-    #[error("BitcoinTransactionError")]
-    BitcoinTransactionError,
+    #[error("BitcoinTransactionError: {0}")]
+    BitcoinConsensusEncodeError(bitcoin::consensus::encode::Error),
     /// TxInputNotFound is returned when the input is not found in the transaction
     #[error("TxInputNotFound")]
     TxInputNotFound,
@@ -190,9 +190,9 @@ impl From<TryFromSliceError> for BridgeError {
     }
 }
 
-impl From<bitcoin::Transaction> for BridgeError {
-    fn from(_error: bitcoin::Transaction) -> Self {
-        BridgeError::BitcoinTransactionError
+impl From<bitcoin::consensus::encode::Error> for BridgeError {
+    fn from(err: bitcoin::consensus::encode::Error) -> Self {
+        BridgeError::BitcoinConsensusEncodeError(err)
     }
 }
 

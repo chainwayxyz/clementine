@@ -1,3 +1,5 @@
+use std::borrow::Borrow;
+
 use crate::actor::Actor;
 use crate::config::BridgeConfig;
 use crate::database::operator::OperatorDB;
@@ -6,17 +8,20 @@ use crate::extended_rpc::ExtendedRpc;
 use crate::musig2::{self, MuSigAggNonce, MuSigPartialSignature, MuSigPubNonce};
 use crate::traits::rpc::OperatorRpcServer;
 use crate::transaction_builder::TransactionBuilder;
+use crate::utils::parse_hex_to_btc_tx;
 use crate::{script_builder, utils, EVMAddress, UTXO};
 use ::musig2::secp::Point;
 use bitcoin::address::NetworkUnchecked;
 use bitcoin::hashes::Hash;
+use bitcoin::sighash::SighashCache;
 use bitcoin::{Address, OutPoint, TapSighash, TxOut, Txid};
 use bitcoin_mock_rpc::RpcApiWrapper;
+use bitcoincore_rpc::json::SigHashType;
 use bitcoincore_rpc::RawTx;
 use clementine_circuits::constants::BRIDGE_AMOUNT_SATS;
 use clementine_circuits::sha256_hash;
 use jsonrpsee::core::async_trait;
-use secp256k1::schnorr;
+use secp256k1::{schnorr, Message};
 
 #[derive(Debug, Clone)]
 pub struct Operator<R>
@@ -194,10 +199,11 @@ where
         Ok(())
     }
 
-    async fn is_profitable(&self, withdrawal_idx: usize) -> Result<bool, BridgeError> {
+    async fn is_profitable(&self, _withdrawal_idx: usize) -> Result<bool, BridgeError> {
         // check that withdrawal_idx has the input_utxo.outpoint
         // call is_profitable
         // if is profitable, pay the withdrawal
+        // TODO: Implement this
         Ok(true)
     }
 
@@ -213,17 +219,30 @@ where
         if !self.is_profitable(withdrawal_idx).await? {
             return Ok(None);
         }
-        // TODO: Verify user sig and add the user sig to the tx, so that fund_raw_tx can fund it properly
-
-        let txins = TransactionBuilder::create_tx_ins(vec![input_utxo.outpoint]);
+        let tx_ins = TransactionBuilder::create_tx_ins(vec![input_utxo.outpoint]);
+        let user_xonly_pk = secp256k1::XOnlyPublicKey::from_slice(
+            &input_utxo.txout.script_pubkey.as_bytes()[2..34],
+        )?;
+        let tx_outs = vec![output_txout];
+        let mut tx = TransactionBuilder::create_btc_tx(tx_ins, tx_outs);
+        let mut sighash_cache = SighashCache::new(tx.clone());
+        let sighash = sighash_cache.taproot_key_spend_signature_hash(
+            0,
+            &bitcoin::sighash::Prevouts::One(0, &input_utxo.txout),
+            bitcoin::sighash::TapSighashType::SinglePlusAnyoneCanPay,
+        )?;
+        utils::SECP.verify_schnorr(
+            &user_sig,
+            &Message::from_digest_slice(sighash.as_byte_array()).expect("should be hash"),
+            &user_xonly_pk,
+        )?;
         let op_return_txout = script_builder::op_return_txout(5u32.to_be_bytes()); // TODO: Instead of 5u32 use the index of the operator.
-        let txouts = vec![output_txout.clone(), op_return_txout];
-        let tx = TransactionBuilder::create_btc_tx(txins, txouts);
-        let funded_tx = self.rpc.fundrawtransaction(&tx, None, None)?;
-        let signed_tx = self
-            .rpc
-            .signrawtransactionwithkey(&funded_tx.hex, None, None)?;
-        Ok(None)
+        tx.output.push(op_return_txout);
+        let funded_tx = parse_hex_to_btc_tx(&hex::encode(
+            self.rpc.fundrawtransaction(&tx, None, None)?.hex,
+        ))?;
+        let funded_txid = funded_tx.compute_txid();
+        Ok(Some(funded_txid))
     }
 }
 
