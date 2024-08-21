@@ -52,7 +52,7 @@ where
 pub async fn create_operator_server<R>(
     config: BridgeConfig,
     rpc: ExtendedRpc<R>,
-    verifier_endpoints: Vec<String>,
+    _verifier_endpoints: Vec<String>,
 ) -> Result<(std::net::SocketAddr, ServerHandle), BridgeError>
 where
     R: RpcApiWrapper,

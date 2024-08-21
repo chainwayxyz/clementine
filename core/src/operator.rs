@@ -243,7 +243,8 @@ where
         // )?;
         let op_return_txout = script_builder::op_return_txout(5u32.to_be_bytes()); // TODO: Instead of 5u32 use the index of the operator.
         tx.output.push(op_return_txout.clone());
-        let mut funded_tx: Transaction = deserialize(&self.rpc.fundrawtransaction(&tx, None, None)?.hex)?;
+        let mut funded_tx: Transaction =
+            deserialize(&self.rpc.fundrawtransaction(&tx, None, None)?.hex)?;
         // OP_RETURN should be the last output
         if funded_tx.output[funded_tx.output.len() - 1] != op_return_txout.clone() {
             // it should be one previous to the last
@@ -257,7 +258,12 @@ where
                 swap(&mut left[len - 2], &mut right[0]);
             }
         }
-        let signed_tx: Transaction = deserialize(&self.rpc.sign_raw_transaction_with_wallet(&funded_tx, None, None)?.hex)?;
+        let signed_tx: Transaction = deserialize(
+            &self
+                .rpc
+                .sign_raw_transaction_with_wallet(&funded_tx, None, None)?
+                .hex,
+        )?;
         self.rpc.send_raw_transaction(&signed_tx)?;
         Ok(Some(signed_tx.compute_txid()))
     }

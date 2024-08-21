@@ -64,7 +64,7 @@ async fn test_musig2_key_spend() {
         config.network,
     );
     let utxo = rpc.send_to_address(&from_address, 100_000_000).unwrap();
-    let prevout = rpc.get_txout_from_utxo(&utxo).unwrap();
+    let prevout = rpc.get_txout_from_outpoint(&utxo).unwrap();
     let tx_outs = TransactionBuilder::create_tx_outs(vec![(
         Amount::from_sat(99_000_000),
         to_address.script_pubkey(),
@@ -172,7 +172,7 @@ async fn test_musig2_script_spend() {
     let (from_address, from_address_spend_info) =
         TransactionBuilder::create_taproot_address(&scripts, None, bitcoin::Network::Regtest);
     let utxo = rpc.send_to_address(&from_address, 100_000_000).unwrap();
-    let prevout = rpc.get_txout_from_utxo(&utxo).unwrap();
+    let prevout = rpc.get_txout_from_outpoint(&utxo).unwrap();
     let tx_outs = TransactionBuilder::create_tx_outs(vec![(
         Amount::from_sat(99_000_000),
         to_address.script_pubkey(),
