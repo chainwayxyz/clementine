@@ -12,7 +12,7 @@ use bitcoin::{
     script::Builder,
     ScriptBuf, TxOut,
 };
-use bitcoin::{Address, OutPoint};
+use bitcoin::{Address, Amount, OutPoint};
 use secp256k1::XOnlyPublicKey;
 
 pub fn anyone_can_spend_txout() -> TxOut {
@@ -26,17 +26,15 @@ pub fn anyone_can_spend_txout() -> TxOut {
     }
 }
 
-pub fn op_return_txout(evm_address: &EVMAddress) -> TxOut {
+pub fn op_return_txout<S: AsRef<bitcoin::script::PushBytes>>(slice: S) -> TxOut {
     let script = Builder::new()
         .push_opcode(OP_RETURN)
-        .push_slice(evm_address.0)
+        .push_slice(slice)
         .into_script();
-    let script_pubkey = script.to_p2wsh();
-    let value = script_pubkey.minimal_non_dust();
 
     TxOut {
-        script_pubkey,
-        value,
+        value: Amount::from_sat(0),
+        script_pubkey: script,
     }
 }
 

@@ -476,7 +476,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_valid_connection() {
-        let config = common::get_test_config("test_config.toml").unwrap();
+        let config = create_test_config_with_thread_name!("test_config.toml");
 
         Database::new(config).await.unwrap();
     }

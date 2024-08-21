@@ -2,7 +2,7 @@ use crate::musig2::{MuSigAggNonce, MuSigPartialSignature, MuSigPubNonce};
 use crate::UTXO;
 use crate::{errors::BridgeError, EVMAddress};
 use bitcoin::address::NetworkUnchecked;
-use bitcoin::{Address, OutPoint};
+use bitcoin::{Address, OutPoint, TxOut, Txid};
 use jsonrpsee::proc_macros::rpc;
 use secp256k1::schnorr;
 
@@ -67,14 +67,22 @@ pub trait OperatorRpc {
     #[method(name = "set_operator_funding_utxo")]
     async fn set_operator_funding_utxo_rpc(&self, funding_utxo: UTXO) -> Result<(), BridgeError>;
 
-    // #[method(name = "new_withdrawal_sig")]
-    // /// Gets the withdrawal utxo from citrea,
-    // /// checks wheter sig is for a correct withdrawal from citrea,
-    // /// checks the signature, calls is_profitable, if is profitable pays the withdrawal,
-    // /// adds it to flow, when its finalized, proves on citrea, sends kickoff2
-    // async fn new_withdrawal_sig_rpc(
-    //     &self,
-    //     withdrawal_idx: usize,
-    //     alice_sig: schnorr::Signature,
-    // ) -> Result<Txid, BridgeError>;
+    #[method(name = "new_withdrawal_sig")]
+    /// Gets the withdrawal utxo from citrea,
+    /// checks wheter sig is for a correct withdrawal from citrea,
+    /// checks the signature, calls is_profitable, if is profitable pays the withdrawal,
+    /// adds it to flow, when its finalized, proves on citrea, sends kickoff2
+    async fn new_withdrawal_sig_rpc(
+        &self,
+        withdrawal_idx: usize,
+        user_sig: schnorr::Signature,
+        input_utxo: UTXO,
+        output_txout: TxOut,
+    ) -> Result<Option<Txid>, BridgeError>;
+
+    #[method(name = "withdrawal_proved_on_citrea")]
+    async fn withdrawal_proved_on_citrea_rpc(&self, withdrawal_idx: usize) -> Result<(), BridgeError>;
+
+    #[method(name = "operator_take_sendable")]
+    async fn operator_take_sendable_rpc(&self, withdrawal_idx: usize) -> Result<(), BridgeError>;
 }

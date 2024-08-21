@@ -6,16 +6,17 @@ use crate::extended_rpc::ExtendedRpc;
 use crate::musig2::{self, MuSigAggNonce, MuSigPartialSignature, MuSigPubNonce};
 use crate::traits::rpc::OperatorRpcServer;
 use crate::transaction_builder::TransactionBuilder;
-use crate::{utils, EVMAddress, UTXO};
+use crate::{script_builder, utils, EVMAddress, UTXO};
 use ::musig2::secp::Point;
 use bitcoin::address::NetworkUnchecked;
 use bitcoin::hashes::Hash;
-use bitcoin::{Address, OutPoint, TapSighash};
+use bitcoin::{Address, OutPoint, TapSighash, TxOut, Txid};
 use bitcoin_mock_rpc::RpcApiWrapper;
 use bitcoincore_rpc::RawTx;
 use clementine_circuits::constants::BRIDGE_AMOUNT_SATS;
 use clementine_circuits::sha256_hash;
 use jsonrpsee::core::async_trait;
+use secp256k1::schnorr;
 
 #[derive(Debug, Clone)]
 pub struct Operator<R>
@@ -188,9 +189,42 @@ where
 
     /// Checks if utxo is valid, spendable by operator and not spent
     /// Saves the utxo to the db
-    async fn set_operator_funding_utxo_rpc(&self, funding_utxo: UTXO) -> Result<(), BridgeError> {
+    async fn set_operator_funding_utxo(&self, funding_utxo: UTXO) -> Result<(), BridgeError> {
         self.db.set_funding_utxo(funding_utxo).await?;
         Ok(())
+    }
+
+    async fn is_profitable(
+        &self,
+        withdrawal_idx: usize,
+    ) -> Result<bool, BridgeError> {
+        // check that withdrawal_idx has the input_utxo.outpoint
+        // call is_profitable
+        // if is profitable, pay the withdrawal
+        Ok(true)
+    }
+
+    async fn new_withdrawal_sig(
+        &self,
+        withdrawal_idx: usize,
+        user_sig: schnorr::Signature,
+        input_utxo: UTXO,
+        output_txout: TxOut,
+    ) -> Result<Option<Txid>, BridgeError> {
+        // TODO: check that withdrawal_idx has the input_utxo.outpoint
+
+        if !self.is_profitable(withdrawal_idx).await? {
+            return Ok(None);
+        }
+        // TODO: Verify user sig and add the user sig to the tx, so that fund_raw_tx can fund it properly
+
+        let txins = TransactionBuilder::create_tx_ins(vec![input_utxo.outpoint]);
+        let op_return_txout = script_builder::op_return_txout(5u32.to_be_bytes()); // TODO: Instead of 5u32 use the index of the operator.
+        let txouts = vec![output_txout.clone(), op_return_txout];
+        let tx = TransactionBuilder::create_btc_tx(txins, txouts);
+        let funded_tx = self.rpc.fundrawtransaction(&tx, None, None)?;
+        let signed_tx = self.rpc.signrawtransactionwithkey(&funded_tx.hex, None, None)?;
+        Ok(None)
     }
 }
 
@@ -210,6 +244,16 @@ where
     }
 
     async fn set_operator_funding_utxo_rpc(&self, funding_utxo: UTXO) -> Result<(), BridgeError> {
-        self.set_operator_funding_utxo_rpc(funding_utxo).await
+        self.set_operator_funding_utxo(funding_utxo).await
+    }
+
+    async fn new_withdrawal_sig_rpc(
+        &self,
+        withdrawal_idx: usize,
+        user_sig: schnorr::Signature,
+        input_utxo: UTXO,
+        output_txout: TxOut,
+    ) -> Result<Option<Txid>, BridgeError> {
+        self.new_withdrawal_sig(withdrawal_idx, user_sig, input_utxo, output_txout).await
     }
 }
