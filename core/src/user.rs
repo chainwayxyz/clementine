@@ -27,11 +27,7 @@ where
     R: RpcApiWrapper,
 {
     /// Creates a new `User`.
-    pub fn new(
-        rpc: ExtendedRpc<R>,
-        sk: SecretKey,
-        config: BridgeConfig,
-    ) -> Self {
+    pub fn new(rpc: ExtendedRpc<R>, sk: SecretKey, config: BridgeConfig) -> Self {
         let signer = Actor::new(sk, config.network);
 
         let key_agg_context =

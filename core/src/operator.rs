@@ -194,10 +194,7 @@ where
         Ok(())
     }
 
-    async fn is_profitable(
-        &self,
-        withdrawal_idx: usize,
-    ) -> Result<bool, BridgeError> {
+    async fn is_profitable(&self, withdrawal_idx: usize) -> Result<bool, BridgeError> {
         // check that withdrawal_idx has the input_utxo.outpoint
         // call is_profitable
         // if is profitable, pay the withdrawal
@@ -223,7 +220,9 @@ where
         let txouts = vec![output_txout.clone(), op_return_txout];
         let tx = TransactionBuilder::create_btc_tx(txins, txouts);
         let funded_tx = self.rpc.fundrawtransaction(&tx, None, None)?;
-        let signed_tx = self.rpc.signrawtransactionwithkey(&funded_tx.hex, None, None)?;
+        let signed_tx = self
+            .rpc
+            .signrawtransactionwithkey(&funded_tx.hex, None, None)?;
         Ok(None)
     }
 }
@@ -254,6 +253,7 @@ where
         input_utxo: UTXO,
         output_txout: TxOut,
     ) -> Result<Option<Txid>, BridgeError> {
-        self.new_withdrawal_sig(withdrawal_idx, user_sig, input_utxo, output_txout).await
+        self.new_withdrawal_sig(withdrawal_idx, user_sig, input_utxo, output_txout)
+            .await
     }
 }
