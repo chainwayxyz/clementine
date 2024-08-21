@@ -147,7 +147,12 @@ impl Actor {
         let mut sighash_cache = SighashCache::new(tx);
         let sig_hash = sighash_cache.taproot_key_spend_signature_hash(
             input_index,
-            &bitcoin::sighash::Prevouts::All(prevouts),
+            &match sighash_type {
+                Some(TapSighashType::SinglePlusAnyoneCanPay) => {
+                    bitcoin::sighash::Prevouts::One(input_index, prevouts[input_index].clone())
+                }
+                _ => bitcoin::sighash::Prevouts::All(prevouts),
+            },
             sighash_type.unwrap_or(TapSighashType::Default),
         )?;
         self.sign_with_tweak(sig_hash, None)

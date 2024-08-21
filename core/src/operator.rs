@@ -230,11 +230,15 @@ where
             &bitcoin::sighash::Prevouts::One(0, &input_utxo.txout),
             bitcoin::sighash::TapSighashType::SinglePlusAnyoneCanPay,
         )?;
-        tx.input[0].witness.push(user_sig.as_ref());
-        println!("tx: {:?}", tx);
-        println!("tx_hex: {:?}", tx.raw_hex());
-        let res = tx.verify(|_| Some(input_utxo.txout.clone())).unwrap();
-        println!("verify: {:?}", res);
+        let user_sig_wrapped = bitcoin::taproot::Signature {
+            signature: user_sig,
+            sighash_type: bitcoin::sighash::TapSighashType::SinglePlusAnyoneCanPay,
+        };
+        tx.input[0].witness.push(user_sig_wrapped.serialize());
+        // println!("tx: {:?}", tx);
+        // println!("tx_hex: {:?}", tx.raw_hex());
+        // let res = tx.verify(|_| Some(input_utxo.txout.clone())).unwrap();
+        // println!("verify: {:?}", res);
         utils::SECP.verify_schnorr(
             &user_sig,
             &Message::from_digest_slice(sighash.as_byte_array()).expect("should be hash"),
@@ -244,8 +248,6 @@ where
         tx.output.push(op_return_txout.clone());
         let mut funded_tx: Transaction =
             deserialize(&self.rpc.fund_raw_transaction(&tx, None, None)?.hex)?;
-        println!("funded_tx: {:?}", funded_tx);
-        println!("funded_tx_hex: {:?}", funded_tx.raw_hex());
         // OP_RETURN should be the last output
         if funded_tx.output[funded_tx.output.len() - 1] != op_return_txout.clone() {
             // it should be one previous to the last
@@ -259,14 +261,17 @@ where
                 swap(&mut left[len - 2], &mut right[0]);
             }
         }
+        println!("funded_tx: {:?}", funded_tx);
+        println!("funded_tx_hex: {:?}", funded_tx.raw_hex());
+
         let signed_tx: Transaction = deserialize(
             &self
                 .rpc
                 .sign_raw_transaction_with_wallet(&funded_tx, None, None)?
                 .hex,
         )?;
-        println!("signed_tx: {:?}", signed_tx);
-        println!("signed_tx_hex: {:?}", signed_tx.raw_hex());
+        println!("signed_tx: {:#?}", signed_tx);
+        println!("signed_tx_hex: {:#?}", signed_tx.raw_hex());
         let final_txid = self.rpc.send_raw_transaction(&signed_tx)?;
         println!("final_txid: {:?}", final_txid);
         Ok(Some(signed_tx.compute_txid()))
