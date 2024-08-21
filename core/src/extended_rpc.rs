@@ -220,6 +220,16 @@ where
         self.client.fund_raw_transaction(tx, options, is_witness)
     }
 
+    pub fn sign_raw_transaction_with_wallet<T: bitcoincore_rpc::RawTx>(
+        &self,
+        tx: T,
+        utxos: Option<&[bitcoincore_rpc::json::SignRawTransactionInput]>,
+        sighash_type: Option<bitcoincore_rpc::json::SigHashType>,
+    ) -> Result<bitcoincore_rpc::json::SignRawTransactionResult, bitcoincore_rpc::Error> {
+        self.client
+            .sign_raw_transaction_with_wallet(tx, utxos, sighash_type)
+    }
+
     pub fn get_blockchain_info(
         &self,
     ) -> Result<bitcoincore_rpc::json::GetBlockchainInfoResult, bitcoincore_rpc::Error> {
