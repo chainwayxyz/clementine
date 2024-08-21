@@ -211,7 +211,7 @@ where
     }
 
     // Following methods are just wrappers around the bitcoincore_rpc::Client methods
-    pub fn fundrawtransaction(
+    pub fn fund_raw_transaction(
         &self,
         tx: &Transaction,
         options: Option<&bitcoincore_rpc::json::FundRawTransactionOptions>,

@@ -1,4 +1,4 @@
-use clementine_core::{cli, extended_rpc::ExtendedRpc, servers::create_operator_and_verifiers};
+use clementine_core::{cli, extended_rpc::ExtendedRpc};
 
 /// ```bash
 /// curl -X POST http://127.0.0.1:3434 -H "Content-Type: application/json" -d '{
@@ -14,20 +14,20 @@ use clementine_core::{cli, extended_rpc::ExtendedRpc, servers::create_operator_a
 /// ```
 #[tokio::main]
 async fn main() {
-    let config = cli::get_configuration();
-    let rpc = ExtendedRpc::<bitcoincore_rpc::Client>::new(
-        config.bitcoin_rpc_url.clone(),
-        config.bitcoin_rpc_user.clone(),
-        config.bitcoin_rpc_password.clone(),
-    );
+    // let config = cli::get_configuration();
+    // let rpc = ExtendedRpc::<bitcoincore_rpc::Client>::new(
+    //     config.bitcoin_rpc_url.clone(),
+    //     config.bitcoin_rpc_user.clone(),
+    //     config.bitcoin_rpc_password.clone(),
+    // );
 
-    let (operator_client, operator_handle, _verifiers) =
-        create_operator_and_verifiers(config, rpc).await;
+    // let (operator_client, operator_handle, _verifiers) =
+    //     create_operator_and_verifiers(config, rpc).await;
 
-    println!("Operator server started: {:?}", operator_client);
+    // println!("Operator server started: {:?}", operator_client);
 
-    operator_handle.stopped().await;
-    for verifier in _verifiers {
-        verifier.1.stopped().await;
-    }
+    // operator_handle.stopped().await;
+    // for verifier in _verifiers {
+    //     verifier.1.stopped().await;
+    // }
 }

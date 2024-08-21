@@ -32,27 +32,12 @@ async fn test_withdrawal_request() {
     let mut config = create_test_config_with_thread_name!("test_config_flow.toml");
     let rpc = create_extended_rpc!(config);
 
-    // Create temporary databases for testing.
-    let handle = thread::current()
-        .name()
-        .unwrap()
-        .split(':')
-        .last()
-        .unwrap()
-        .to_owned();
-
-    let (operator_client, _operator_handler) = create_operator_server(
-        config.clone(),
-        rpc.clone(),
-        vec!["0".to_string(), "1".to_string(), "2".to_string()],
-    )
-    .await
-    .unwrap();
+    let (operator_client, _operator_handler) = create_operator_server(config.clone(), rpc.clone())
+        .await
+        .unwrap();
     let secp = bitcoin::secp256k1::Secp256k1::new();
     let (operator_internal_xonly_pk, _) = config.secret_key.public_key(&secp).x_only_public_key();
     let operator_address = Address::p2tr(&secp, operator_internal_xonly_pk, None, config.network);
-
-    let (operator_client, _, _) = create_operator_and_verifiers(config.clone(), rpc.clone()).await;
 
     let operator_funding_outpoint = rpc
         .send_to_address(&operator_address, 2 * BRIDGE_AMOUNT_SATS)

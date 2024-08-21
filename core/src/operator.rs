@@ -46,9 +46,6 @@ where
         let num_verifiers = config.verifiers_public_keys.len();
 
         let signer = Actor::new(config.secret_key, config.network);
-        if signer.public_key != config.verifiers_public_keys[num_verifiers - 1] {
-            return Err(BridgeError::InvalidOperatorKey);
-        }
 
         let db = OperatorDB::new(config.clone()).await;
 
@@ -222,29 +219,33 @@ where
             return Ok(None);
         }
         let tx_ins = TransactionBuilder::create_tx_ins(vec![input_utxo.outpoint]);
-        // let user_xonly_pk = secp256k1::XOnlyPublicKey::from_slice(
-        //     &input_utxo.txout.script_pubkey.as_bytes()[2..34],
-        // )?;
+        let user_xonly_pk = secp256k1::XOnlyPublicKey::from_slice(
+            &input_utxo.txout.script_pubkey.as_bytes()[2..34],
+        )?;
         let tx_outs = vec![output_txout];
         let mut tx = TransactionBuilder::create_btc_tx(tx_ins, tx_outs);
-        // let mut sighash_cache = SighashCache::new(tx.clone());
-        // let sighash = sighash_cache.taproot_key_spend_signature_hash(
-        //     0,
-        //     &bitcoin::sighash::Prevouts::One(0, &input_utxo.txout),
-        //     bitcoin::sighash::TapSighashType::SinglePlusAnyoneCanPay,
-        // )?;
+        let mut sighash_cache = SighashCache::new(tx.clone());
+        let sighash = sighash_cache.taproot_key_spend_signature_hash(
+            0,
+            &bitcoin::sighash::Prevouts::One(0, &input_utxo.txout),
+            bitcoin::sighash::TapSighashType::SinglePlusAnyoneCanPay,
+        )?;
         tx.input[0].witness.push(user_sig.as_ref());
-
-        tx.verify(|_| Some(input_utxo.txout.clone())).unwrap();
-        // utils::SECP.verify_schnorr(
-        //     &user_sig,
-        //     &Message::from_digest_slice(sighash.as_byte_array()).expect("should be hash"),
-        //     &user_xonly_pk,
-        // )?;
+        println!("tx: {:?}", tx);
+        println!("tx_hex: {:?}", tx.raw_hex());
+        let res = tx.verify(|_| Some(input_utxo.txout.clone())).unwrap();
+        println!("verify: {:?}", res);
+        utils::SECP.verify_schnorr(
+            &user_sig,
+            &Message::from_digest_slice(sighash.as_byte_array()).expect("should be hash"),
+            &user_xonly_pk,
+        )?;
         let op_return_txout = script_builder::op_return_txout(5u32.to_be_bytes()); // TODO: Instead of 5u32 use the index of the operator.
         tx.output.push(op_return_txout.clone());
         let mut funded_tx: Transaction =
-            deserialize(&self.rpc.fundrawtransaction(&tx, None, None)?.hex)?;
+            deserialize(&self.rpc.fund_raw_transaction(&tx, None, None)?.hex)?;
+        println!("funded_tx: {:?}", funded_tx);
+        println!("funded_tx_hex: {:?}", funded_tx.raw_hex());
         // OP_RETURN should be the last output
         if funded_tx.output[funded_tx.output.len() - 1] != op_return_txout.clone() {
             // it should be one previous to the last
@@ -264,7 +265,10 @@ where
                 .sign_raw_transaction_with_wallet(&funded_tx, None, None)?
                 .hex,
         )?;
-        self.rpc.send_raw_transaction(&signed_tx)?;
+        println!("signed_tx: {:?}", signed_tx);
+        println!("signed_tx_hex: {:?}", signed_tx.raw_hex());
+        let final_txid = self.rpc.send_raw_transaction(&signed_tx)?;
+        println!("final_txid: {:?}", final_txid);
         Ok(Some(signed_tx.compute_txid()))
     }
 }
