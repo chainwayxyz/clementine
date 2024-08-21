@@ -220,22 +220,25 @@ where
             return Ok(None);
         }
         let tx_ins = TransactionBuilder::create_tx_ins(vec![input_utxo.outpoint]);
-        let user_xonly_pk = secp256k1::XOnlyPublicKey::from_slice(
-            &input_utxo.txout.script_pubkey.as_bytes()[2..34],
-        )?;
+        // let user_xonly_pk = secp256k1::XOnlyPublicKey::from_slice(
+        //     &input_utxo.txout.script_pubkey.as_bytes()[2..34],
+        // )?;
         let tx_outs = vec![output_txout];
         let mut tx = TransactionBuilder::create_btc_tx(tx_ins, tx_outs);
-        let mut sighash_cache = SighashCache::new(tx.clone());
-        let sighash = sighash_cache.taproot_key_spend_signature_hash(
-            0,
-            &bitcoin::sighash::Prevouts::One(0, &input_utxo.txout),
-            bitcoin::sighash::TapSighashType::SinglePlusAnyoneCanPay,
-        )?;
-        utils::SECP.verify_schnorr(
-            &user_sig,
-            &Message::from_digest_slice(sighash.as_byte_array()).expect("should be hash"),
-            &user_xonly_pk,
-        )?;
+        // let mut sighash_cache = SighashCache::new(tx.clone());
+        // let sighash = sighash_cache.taproot_key_spend_signature_hash(
+        //     0,
+        //     &bitcoin::sighash::Prevouts::One(0, &input_utxo.txout),
+        //     bitcoin::sighash::TapSighashType::SinglePlusAnyoneCanPay,
+        // )?;
+        tx.input[0].witness.push(user_sig.as_ref());
+
+        tx.verify(|_| Some(input_utxo.txout.clone())).unwrap();
+        // utils::SECP.verify_schnorr(
+        //     &user_sig,
+        //     &Message::from_digest_slice(sighash.as_byte_array()).expect("should be hash"),
+        //     &user_xonly_pk,
+        // )?;
         let op_return_txout = script_builder::op_return_txout(5u32.to_be_bytes()); // TODO: Instead of 5u32 use the index of the operator.
         tx.output.push(op_return_txout);
         let funded_tx = parse_hex_to_btc_tx(&hex::encode(
