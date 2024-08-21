@@ -242,28 +242,26 @@ where
         )?;
         let op_return_txout = script_builder::op_return_txout(5u32.to_be_bytes()); // TODO: Instead of 5u32 use the index of the operator.
         tx.output.push(op_return_txout.clone());
-        let funded_tx: Transaction = deserialize(
-            &self
-                .rpc
-                .fund_raw_transaction(
-                    &tx,
-                    Some(&bitcoincore_rpc::json::FundRawTransactionOptions {
-                        add_inputs: Some(true),
-                        change_address: None,
-                        change_position: Some(1),
-                        change_type: None,
-                        include_watching: None,
-                        lock_unspents: None,
-                        fee_rate: None,
-                        subtract_fee_from_outputs: None,
-                        replaceable: None,
-                        conf_target: None,
-                        estimate_mode: None,
-                    }),
-                    None,
-                )?
-                .hex,
-        )?;
+        let funded_tx = self
+            .rpc
+            .fund_raw_transaction(
+                &tx,
+                Some(&bitcoincore_rpc::json::FundRawTransactionOptions {
+                    add_inputs: Some(true),
+                    change_address: None,
+                    change_position: Some(1),
+                    change_type: None,
+                    include_watching: None,
+                    lock_unspents: None,
+                    fee_rate: None,
+                    subtract_fee_from_outputs: None,
+                    replaceable: None,
+                    conf_target: None,
+                    estimate_mode: None,
+                }),
+                None,
+            )?
+            .hex;
 
         let signed_tx: Transaction = deserialize(
             &self
