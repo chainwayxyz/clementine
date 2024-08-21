@@ -10,6 +10,7 @@ use clementine_core::database::common::Database;
 use clementine_core::errors::BridgeError;
 use clementine_core::extended_rpc::ExtendedRpc;
 use clementine_core::mock::common;
+use clementine_core::musig2::{aggregate_nonces, aggregate_partial_signatures};
 use clementine_core::script_builder;
 use clementine_core::servers::*;
 use clementine_core::traits::rpc::OperatorRpcClient;
@@ -88,38 +89,92 @@ async fn test_flow_1() -> Result<(), BridgeError> {
 
     let deposit_address = user.get_deposit_address(EVMAddress([1u8; 20])).unwrap();
     println!("Deposit address: {:#?}", deposit_address);
-    let deposit_outpoint = rpc
-        .send_to_address(&deposit_address, BRIDGE_AMOUNT_SATS)
-        .unwrap();
+    let deposit_outpoint = rpc.send_to_address(&deposit_address, BRIDGE_AMOUNT_SATS)?;
 
     rpc.mine_blocks(18).unwrap();
 
     println!("Deposit outpoint: {:#?}", deposit_outpoint);
 
     // for every verifier, we call new_deposit
-    for (idx, (client, _)) in verifiers.iter().enumerate() {
+    // aggregate nonces
+    let mut agg_nonces = Vec::new();
+    for (client, _) in verifiers.iter() {
         let musig_pub_nonces = client
             .verifier_new_deposit_rpc(
                 deposit_outpoint,
                 user.signer.address.as_unchecked().clone(),
                 EVMAddress([1u8; 20]),
             )
-            .await
-            .unwrap();
+            .await?;
         println!("Musig Pub Nonces: {:#?}", musig_pub_nonces);
+        agg_nonces.push(aggregate_nonces(musig_pub_nonces));
     }
 
-    // aggreagte nonces here
-
     // call operators' new_deposit
-    
-    // call verifiers' operator_kickoffs_generated_rpc
+    let mut kickoff_utxos = Vec::new();
+    let mut signatures = Vec::new();
+    for (client, _) in operators.iter() {
+        let (kickoff_utxo, signature) = client
+            .new_deposit_rpc(
+                deposit_outpoint,
+                user.signer.address.as_unchecked().clone(),
+                EVMAddress([1u8; 20]),
+            )
+            .await
+            .unwrap();
 
+        kickoff_utxos.push(kickoff_utxo);
+        signatures.push(signature);
+    }
+
+    // call verifiers' operator_kickoffs_generated_rpc
     // aggreate partial signatures here
+    let mut agg_signatures = Vec::new();
+    for (idx, (client, _)) in verifiers.iter().enumerate() {
+        let musig_partial_signatures = client
+            .operator_kickoffs_generated_rpc(
+                deposit_outpoint,
+                kickoff_utxos.clone(),
+                signatures.clone(),
+                agg_nonces.clone(),
+            )
+            .await
+            .unwrap();
+        println!("Musig Pub Nonces: {:#?}", musig_partial_signatures);
+        agg_signatures.push(
+            secp256k1::schnorr::Signature::from_slice(&aggregate_partial_signatures(
+                vec![], // todo pks?
+                None,
+                agg_nonces.get(idx).unwrap(),
+                musig_partial_signatures.clone(),
+                [0u8; 32], // todo msg?
+            )?)
+            .unwrap(),
+        );
+    }
 
     // call burn_txs_signed_rpc
+    let mut agg_burned_signs = Vec::new();
+    for (idx, (client, _)) in operators.iter().enumerate() {
+        let musig_partial_signatures = client
+            .burn_txs_signed_rpc(deposit_outpoint, agg_signatures.clone())
+            .await
+            .unwrap();
+        println!("Musig Pub Nonces: {:#?}", musig_partial_signatures);
+        agg_burned_signs.push(
+            musig_partial_signatures
+                .iter()
+                .map(|v| secp256k1::schnorr::Signature::from_slice(v).unwrap())
+                .collect::<Vec<_>>(),
+        );
+    }
 
     // call operator_take_txs_signed_rpc
+    for (idx, (client, _)) in operators.iter().enumerate() {
+        let _ = client
+            .operator_take_txs_signed_rpc(deposit_outpoint, agg_burned_signs[idx].clone())
+            .await?;
+    }
 
     Ok(())
     // // let (operator_client, _operator_handler, _results) =
