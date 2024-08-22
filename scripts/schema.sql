@@ -90,4 +90,11 @@ create table funding_utxos (
     created_at timestamp not null default now()
 );
 
+-- Verifier table for kickoff merkle roots for deposits
+create table kickoff_roots (
+    deposit_outpoint text primary key not null check (deposit_outpoint ~ '^[a-fA-F0-9]{64}:(0|[1-9][0-9]{0,9})$'),
+    kickoff_merkle_root text not null check (kickoff_merkle_root ~ '^[a-fA-F0-9]{64}'),
+    created_at timestamp not null default now()
+);
+
 COMMIT;

@@ -3,6 +3,7 @@ use crate::config::BridgeConfig;
 use crate::database::verifier::VerifierDB;
 use crate::errors::BridgeError;
 use crate::extended_rpc::ExtendedRpc;
+use crate::merkle::MerkleTree;
 use crate::musig2::{self, MuSigAggNonce, MuSigPartialSignature, MuSigPubNonce};
 use crate::traits::rpc::VerifierRpcServer;
 use crate::transaction_builder::{TransactionBuilder, TxHandler};
@@ -10,10 +11,11 @@ use crate::{utils, EVMAddress, UTXO};
 use ::musig2::secp::Point;
 use bitcoin::address::NetworkUnchecked;
 use bitcoin::hashes::Hash;
-use bitcoin::Address;
+use bitcoin::{merkle_tree, Address};
 use bitcoin::{secp256k1, OutPoint};
 use bitcoin_mock_rpc::RpcApiWrapper;
 use clementine_circuits::constants::BRIDGE_AMOUNT_SATS;
+use clementine_circuits::incremental_merkle::IncrementalMerkleTree;
 use clementine_circuits::sha256_hash;
 use jsonrpsee::core::async_trait;
 use secp256k1::{rand, schnorr};
@@ -153,12 +155,24 @@ where
             )?;
         }
 
+        let root: bitcoin::hashes::sha256::Hash = bitcoin::merkle_tree::calculate_root(
+            kickoff_utxos
+                .iter()
+                .map(|utxo| Hash::from_byte_array(sha256_hash!(utxo.to_vec().as_slice()))),
+        )
+        .unwrap();
+        let root_bytes: [u8; 32] = *root.as_byte_array();
+
         self.db
             .save_agg_nonces(deposit_outpoint, &agg_nonces)
             .await?;
 
         self.db
             .save_kickoff_utxos(deposit_outpoint, &kickoff_utxos)
+            .await?;
+
+        self.db
+            .save_kickoff_root(deposit_outpoint, root_bytes)
             .await?;
 
         // TODO: Sign burn txs

@@ -272,6 +272,14 @@ where
         let final_txid = self.rpc.send_raw_transaction(&signed_tx)?;
         Ok(Some(final_txid))
     }
+
+    async fn withdrawal_proved_on_citrea(
+        &self,
+        withdrawal_idx: usize,
+        kickoff_merkle_root: [u8; 32],
+    ) -> Result<(), BridgeError> {
+        Ok(())
+    }
 }
 
 #[async_trait]
@@ -301,6 +309,15 @@ where
         output_txout: TxOut,
     ) -> Result<Option<Txid>, BridgeError> {
         self.new_withdrawal_sig(withdrawal_idx, user_sig, input_utxo, output_txout)
+            .await
+    }
+
+    async fn withdrawal_proved_on_citrea_rpc(
+        &self,
+        withdrawal_idx: usize,
+        kickoff_merkle_root: [u8; 32],
+    ) -> Result<(), BridgeError> {
+        self.withdrawal_proved_on_citrea(withdrawal_idx, kickoff_merkle_root)
             .await
     }
 }
