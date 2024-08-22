@@ -18,7 +18,7 @@ use bitcoin::hashes::Hash;
 use bitcoin::sighash::SighashCache;
 use bitcoin::{Address, OutPoint, TapSighash, Transaction, TxOut, Txid};
 use bitcoin_mock_rpc::RpcApiWrapper;
-use bitcoincore_rpc::json::SigHashType;
+use bitcoincore_rpc::json::{self, SigHashType};
 use bitcoincore_rpc::RawTx;
 use clementine_circuits::constants::BRIDGE_AMOUNT_SATS;
 use clementine_circuits::sha256_hash;
@@ -46,9 +46,6 @@ where
         let num_verifiers = config.verifiers_public_keys.len();
 
         let signer = Actor::new(config.secret_key, config.network);
-        if signer.public_key != config.verifiers_public_keys[num_verifiers - 1] {
-            return Err(BridgeError::InvalidOperatorKey);
-        }
 
         let db = OperatorDB::new(config.clone()).await;
 
@@ -222,44 +219,58 @@ where
             return Ok(None);
         }
         let tx_ins = TransactionBuilder::create_tx_ins(vec![input_utxo.outpoint]);
-        // let user_xonly_pk = secp256k1::XOnlyPublicKey::from_slice(
-        //     &input_utxo.txout.script_pubkey.as_bytes()[2..34],
-        // )?;
-        let tx_outs = vec![output_txout];
+        let user_xonly_pk = secp256k1::XOnlyPublicKey::from_slice(
+            &input_utxo.txout.script_pubkey.as_bytes()[2..34],
+        )?;
+        let tx_outs = vec![output_txout.clone()];
         let mut tx = TransactionBuilder::create_btc_tx(tx_ins, tx_outs);
-        // let mut sighash_cache = SighashCache::new(tx.clone());
-        // let sighash = sighash_cache.taproot_key_spend_signature_hash(
-        //     0,
-        //     &bitcoin::sighash::Prevouts::One(0, &input_utxo.txout),
-        //     bitcoin::sighash::TapSighashType::SinglePlusAnyoneCanPay,
-        // )?;
-        tx.input[0].witness.push(user_sig.as_ref());
-
-        tx.verify(|_| Some(input_utxo.txout.clone())).unwrap();
-        // utils::SECP.verify_schnorr(
-        //     &user_sig,
-        //     &Message::from_digest_slice(sighash.as_byte_array()).expect("should be hash"),
-        //     &user_xonly_pk,
-        // )?;
+        let mut sighash_cache = SighashCache::new(tx.clone());
+        let sighash = sighash_cache.taproot_key_spend_signature_hash(
+            0,
+            &bitcoin::sighash::Prevouts::One(0, &input_utxo.txout),
+            bitcoin::sighash::TapSighashType::SinglePlusAnyoneCanPay,
+        )?;
+        let user_sig_wrapped = bitcoin::taproot::Signature {
+            signature: user_sig,
+            sighash_type: bitcoin::sighash::TapSighashType::SinglePlusAnyoneCanPay,
+        };
+        tx.input[0].witness.push(user_sig_wrapped.serialize());
+        utils::SECP.verify_schnorr(
+            &user_sig,
+            &Message::from_digest_slice(sighash.as_byte_array()).expect("should be hash"),
+            &user_xonly_pk,
+        )?;
         let op_return_txout = script_builder::op_return_txout(5u32.to_be_bytes()); // TODO: Instead of 5u32 use the index of the operator.
         tx.output.push(op_return_txout.clone());
-        let mut funded_tx: Transaction = deserialize(&self.rpc.fundrawtransaction(&tx, None, None)?.hex)?;
-        // OP_RETURN should be the last output
-        if funded_tx.output[funded_tx.output.len() - 1] != op_return_txout.clone() {
-            // it should be one previous to the last
-            if funded_tx.output[funded_tx.output.len() - 2] != op_return_txout {
-                return Err(BridgeError::TxInputNotFound); // TODO: Fix ths error
-            }
+        let funded_tx = self
+            .rpc
+            .fund_raw_transaction(
+                &tx,
+                Some(&bitcoincore_rpc::json::FundRawTransactionOptions {
+                    add_inputs: Some(true),
+                    change_address: None,
+                    change_position: Some(1),
+                    change_type: None,
+                    include_watching: None,
+                    lock_unspents: None,
+                    fee_rate: None,
+                    subtract_fee_from_outputs: None,
+                    replaceable: None,
+                    conf_target: None,
+                    estimate_mode: None,
+                }),
+                None,
+            )?
+            .hex;
 
-            let len = funded_tx.output.len();
-            if len >= 2 {
-                let (left, right) = funded_tx.output.split_at_mut(len - 1);
-                swap(&mut left[len - 2], &mut right[0]);
-            }
-        }
-        let signed_tx: Transaction = deserialize(&self.rpc.sign_raw_transaction_with_wallet(&funded_tx, None, None)?.hex)?;
-        self.rpc.send_raw_transaction(&signed_tx)?;
-        Ok(Some(signed_tx.compute_txid()))
+        let signed_tx: Transaction = deserialize(
+            &self
+                .rpc
+                .sign_raw_transaction_with_wallet(&funded_tx, None, None)?
+                .hex,
+        )?;
+        let final_txid = self.rpc.send_raw_transaction(&signed_tx)?;
+        Ok(Some(final_txid))
     }
 }
 

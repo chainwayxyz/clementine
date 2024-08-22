@@ -80,12 +80,12 @@ pub trait OperatorRpc {
         output_txout: TxOut,
     ) -> Result<Option<Txid>, BridgeError>;
 
-    #[method(name = "withdrawal_proved_on_citrea")]
-    async fn withdrawal_proved_on_citrea_rpc(
-        &self,
-        withdrawal_idx: usize,
-    ) -> Result<(), BridgeError>;
+    // #[method(name = "withdrawal_proved_on_citrea")]
+    // async fn withdrawal_proved_on_citrea_rpc(
+    //     &self,
+    //     withdrawal_idx: usize,
+    // ) -> Result<(), BridgeError>;
 
-    #[method(name = "operator_take_sendable")]
-    async fn operator_take_sendable_rpc(&self, withdrawal_idx: usize) -> Result<(), BridgeError>;
+    // #[method(name = "operator_take_sendable")]
+    // async fn operator_take_sendable_rpc(&self, withdrawal_idx: usize) -> Result<(), BridgeError>;
 }

@@ -54,8 +54,9 @@ pub struct BridgeConfig {
     /// Bitcoin RPC user password.
     pub bitcoin_rpc_password: String,
     /// All Secret keys. Just for testing purposes.
-    pub all_operators_secret_keys: Option<Vec<secp256k1::SecretKey>>,
     pub all_verifiers_secret_keys: Option<Vec<secp256k1::SecretKey>>,
+    /// All Secret keys. Just for testing purposes.
+    pub all_operators_secret_keys: Option<Vec<secp256k1::SecretKey>>,
     /// Verifier endpoints.
     pub verifier_endpoints: Option<Vec<String>>,
     /// PostgreSQL database host address.
