@@ -182,7 +182,7 @@ where
     async fn create_deposit_details(
         &self,
         deposit_outpoint: OutPoint,
-    ) -> Result<(Vec<UTXO>, TxHandler, TxHandler, OutPoint), BridgeError> {
+    ) -> Result<(Vec<UTXO>, TxHandler, OutPoint), BridgeError> {
         let kickoff_utxos = self
             .db
             .get_kickoff_utxos(deposit_outpoint)
@@ -200,40 +200,44 @@ where
             .await?
             .ok_or(BridgeError::DepositInfoNotFound)?;
 
-        let move_commit_tx_handler = TransactionBuilder::create_move_commit_tx(
+        // let move_commit_tx_handler = TransactionBuilder::create_move_commit_tx(
+        //     deposit_outpoint,
+        //     &evm_address,
+        //     &recovery_taproot_address,
+        //     200, // TODO: Fix this
+        //     &self.nofn_xonly_pk,
+        //     &kickoff_outpoints,
+        //     201, // TODO: Fix this
+        //     self.config.network,
+        // );
+
+        // let move_reveal_tx_handler = TransactionBuilder::create_move_reveal_tx(
+        //     OutPoint {
+        //         txid: move_commit_tx_handler.tx.compute_txid(),
+        //         vout: 0,
+        //     },
+        //     &evm_address,
+        //     &recovery_taproot_address,
+        //     &self.nofn_xonly_pk,
+        //     &kickoff_outpoints,
+        //     201, // TODO: Fix this
+        //     self.config.network,
+        // );
+
+        let move_tx_handler = TransactionBuilder::create_move_tx(
             deposit_outpoint,
             &evm_address,
             &recovery_taproot_address,
             200, // TODO: Fix this
             &self.nofn_xonly_pk,
-            &kickoff_outpoints,
-            201, // TODO: Fix this
-            self.config.network,
-        );
-
-        let move_reveal_tx_handler = TransactionBuilder::create_move_reveal_tx(
-            OutPoint {
-                txid: move_commit_tx_handler.tx.compute_txid(),
-                vout: 0,
-            },
-            &evm_address,
-            &recovery_taproot_address,
-            &self.nofn_xonly_pk,
-            &kickoff_outpoints,
-            201, // TODO: Fix this
             self.config.network,
         );
 
         let bridge_fund_outpoint = OutPoint {
-            txid: move_reveal_tx_handler.tx.compute_txid(),
+            txid: move_tx_handler.tx.compute_txid(),
             vout: 0,
         };
-        Ok((
-            kickoff_utxos,
-            move_commit_tx_handler,
-            move_reveal_tx_handler,
-            bridge_fund_outpoint,
-        ))
+        Ok((kickoff_utxos, move_tx_handler, bridge_fund_outpoint))
     }
 
     /// verify burn txs are signed by verifiers
@@ -244,7 +248,7 @@ where
         _burn_sigs: Vec<schnorr::Signature>,
     ) -> Result<Vec<MuSigPartialSignature>, BridgeError> {
         // TODO: Verify burn txs are signed by verifiers
-        let (kickoff_utxos, _, _, bridge_fund_outpoint) =
+        let (kickoff_utxos, _, bridge_fund_outpoint) =
             self.create_deposit_details(deposit_outpoint).await?;
 
         let operator_takes_sighashes = kickoff_utxos
@@ -311,13 +315,9 @@ where
         &self,
         deposit_outpoint: OutPoint,
         operator_take_sigs: Vec<schnorr::Signature>,
-    ) -> Result<(MuSigPartialSignature, MuSigPartialSignature), BridgeError> {
-        let (
-            kickoff_utxos,
-            mut move_commit_tx_handler,
-            mut move_reveal_tx_handler,
-            bridge_fund_outpoint,
-        ) = self.create_deposit_details(deposit_outpoint).await?;
+    ) -> Result<MuSigPartialSignature, BridgeError> {
+        let (kickoff_utxos, mut move_tx_handler, bridge_fund_outpoint) =
+            self.create_deposit_details(deposit_outpoint).await?;
 
         let _ = kickoff_utxos
             .iter()
@@ -361,47 +361,39 @@ where
                     .unwrap();
             });
 
-        let move_commit_sighash =
-            Actor::convert_tx_to_sighash_script_spend(&mut move_commit_tx_handler, 0, 0)?; // TODO: This should be musig
+        let move_tx_sighash =
+            Actor::convert_tx_to_sighash_script_spend(&mut move_tx_handler, 0, 0)?; // TODO: This should be musig
 
-        let move_reveal_sighash =
-            Actor::convert_tx_to_sighash_script_spend(&mut move_reveal_tx_handler, 0, 0)?; // TODO: This should be musig
+        // let move_reveal_sighash =
+        //     Actor::convert_tx_to_sighash_script_spend(&mut move_reveal_tx_handler, 0, 0)?; // TODO: This should be musig
 
         let nonces = self
             .db
-            .save_sighashes_and_get_nonces(
-                deposit_outpoint,
-                0,
-                &[
-                    move_commit_sighash.to_byte_array(),
-                    move_reveal_sighash.to_byte_array(),
-                ],
-            )
+            .save_sighashes_and_get_nonces(deposit_outpoint, 0, &[move_tx_sighash.to_byte_array()])
             .await?
             .ok_or(BridgeError::NoncesNotFound)?;
 
-        let move_commit_sig = musig2::partial_sign(
+        let move_tx_sig = musig2::partial_sign(
             self.config.verifiers_public_keys.clone(),
             None,
             nonces[0].0,
             nonces[0].1.clone(),
             &self.signer.keypair,
-            move_commit_sighash.to_byte_array(),
+            move_tx_sighash.to_byte_array(),
         );
 
-        let move_reveal_sig = musig2::partial_sign(
-            self.config.verifiers_public_keys.clone(),
-            None,
-            nonces[1].0,
-            nonces[2].1.clone(),
-            &self.signer.keypair,
-            move_reveal_sighash.to_byte_array(),
-        );
+        // let move_reveal_sig = musig2::partial_sign(
+        //     self.config.verifiers_public_keys.clone(),
+        //     None,
+        //     nonces[1].0,
+        //     nonces[2].1.clone(),
+        //     &self.signer.keypair,
+        //     move_reveal_sighash.to_byte_array(),
+        // );
 
-        Ok((
-            move_commit_sig as MuSigPartialSignature,
-            move_reveal_sig as MuSigPartialSignature,
-        ))
+        Ok(
+            move_tx_sig as MuSigPartialSignature, // move_reveal_sig as MuSigPartialSignature,
+        )
     }
 }
 

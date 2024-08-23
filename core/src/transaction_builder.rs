@@ -30,8 +30,9 @@ pub struct TransactionBuilder {
 }
 
 // TODO: Move these constants to a config file
-pub const MOVE_COMMIT_TX_MIN_RELAY_FEE: u64 = 305;
-pub const MOVE_REVEAL_TX_MIN_RELAY_FEE: u64 = 305;
+// pub const MOVE_COMMIT_TX_MIN_RELAY_FEE: u64 = 305;
+// pub const MOVE_REVEAL_TX_MIN_RELAY_FEE: u64 = 305;
+pub const MOVE_TX_MIN_RELAY_FEE: u64 = 305;
 pub const WITHDRAWAL_TX_MIN_RELAY_FEE: u64 = 305;
 
 impl TransactionBuilder {
@@ -126,38 +127,38 @@ impl TransactionBuilder {
         )
     }
 
-    pub fn generate_move_commit_address(
-        nofn_xonly_pk: &XOnlyPublicKey,
-        recovery_taproot_address: &Address<NetworkUnchecked>,
-        user_evm_address: &EVMAddress,
-        kickoff_utxos: &[OutPoint],
-        relative_block_height_to_take_after: u32,
-        network: bitcoin::Network,
-    ) -> CreateAddressOutputs {
-        let kickoffs_commit_script = script_builder::create_move_commit_script(
-            nofn_xonly_pk,
-            user_evm_address,
-            kickoff_utxos,
-        );
+    // pub fn generate_move_commit_address(
+    //     nofn_xonly_pk: &XOnlyPublicKey,
+    //     recovery_taproot_address: &Address<NetworkUnchecked>,
+    //     user_evm_address: &EVMAddress,
+    //     kickoff_utxos: &[OutPoint],
+    //     relative_block_height_to_take_after: u32,
+    //     network: bitcoin::Network,
+    // ) -> CreateAddressOutputs {
+    //     let kickoffs_commit_script = script_builder::create_move_commit_script(
+    //         nofn_xonly_pk,
+    //         user_evm_address,
+    //         kickoff_utxos,
+    //     );
 
-        let recovery_script_pubkey = recovery_taproot_address
-            .clone()
-            .assume_checked()
-            .script_pubkey();
-        let recovery_extracted_xonly_pk =
-            XOnlyPublicKey::from_slice(&recovery_script_pubkey.as_bytes()[2..34]).unwrap();
+    //     let recovery_script_pubkey = recovery_taproot_address
+    //         .clone()
+    //         .assume_checked()
+    //         .script_pubkey();
+    //     let recovery_extracted_xonly_pk =
+    //         XOnlyPublicKey::from_slice(&recovery_script_pubkey.as_bytes()[2..34]).unwrap();
 
-        let timelock_script = script_builder::generate_relative_timelock_script(
-            &recovery_extracted_xonly_pk,
-            relative_block_height_to_take_after,
-        );
+    //     let timelock_script = script_builder::generate_relative_timelock_script(
+    //         &recovery_extracted_xonly_pk,
+    //         relative_block_height_to_take_after,
+    //     );
 
-        TransactionBuilder::create_taproot_address(
-            &[kickoffs_commit_script, timelock_script],
-            None,
-            network,
-        )
-    }
+    //     TransactionBuilder::create_taproot_address(
+    //         &[kickoffs_commit_script, timelock_script],
+    //         None,
+    //         network,
+    //     )
+    // }
 
     pub fn create_musig2_address(
         nofn_xonly_pk: XOnlyPublicKey,
@@ -168,26 +169,135 @@ impl TransactionBuilder {
 
     // TX BUILDERS
 
-    pub fn create_move_commit_tx(
-        deposit_utxo: OutPoint,
+    // pub fn create_move_commit_tx(
+    //     deposit_utxo: OutPoint,
+    //     evm_address: &EVMAddress,
+    //     recovery_taproot_address: &Address<NetworkUnchecked>,
+    //     deposit_user_takes_after: u32,
+    //     nofn_xonly_pk: &XOnlyPublicKey,
+    //     kickoff_utxos: &[OutPoint],
+    //     relative_block_height_to_take_after: u32,
+    //     network: bitcoin::Network,
+    // ) -> TxHandler {
+    //     let anyone_can_spend_txout = script_builder::anyone_can_spend_txout();
+    //     let (move_commit_address, _) = TransactionBuilder::generate_move_commit_address(
+    //         nofn_xonly_pk,
+    //         recovery_taproot_address,
+    //         evm_address,
+    //         kickoff_utxos,
+    //         relative_block_height_to_take_after,
+    //         network,
+    //     );
+
+    //     let (deposit_address, deposit_taproot_spend_info) =
+    //         TransactionBuilder::generate_deposit_address(
+    //             nofn_xonly_pk,
+    //             recovery_taproot_address,
+    //             evm_address,
+    //             BRIDGE_AMOUNT_SATS,
+    //             deposit_user_takes_after,
+    //             network,
+    //         );
+
+    //     let move_commit_txout = TxOut {
+    //         value: Amount::from_sat(BRIDGE_AMOUNT_SATS)
+    //             - Amount::from_sat(MOVE_COMMIT_TX_MIN_RELAY_FEE)
+    //             - anyone_can_spend_txout.value,
+    //         script_pubkey: move_commit_address.script_pubkey(),
+    //     };
+
+    //     let tx_ins = TransactionBuilder::create_tx_ins(vec![deposit_utxo]);
+
+    //     let move_commit_tx = TransactionBuilder::create_btc_tx(
+    //         tx_ins,
+    //         vec![move_commit_txout, anyone_can_spend_txout],
+    //     );
+
+    //     let prevouts = vec![TxOut {
+    //         script_pubkey: deposit_address.script_pubkey(),
+    //         value: Amount::from_sat(BRIDGE_AMOUNT_SATS),
+    //     }];
+
+    //     let deposit_script = vec![script_builder::create_deposit_script(
+    //         nofn_xonly_pk,
+    //         evm_address,
+    //         BRIDGE_AMOUNT_SATS,
+    //     )];
+
+    //     TxHandler {
+    //         tx: move_commit_tx,
+    //         prevouts,
+    //         scripts: vec![deposit_script],
+    //         taproot_spend_infos: vec![deposit_taproot_spend_info],
+    //     }
+    // }
+
+    // pub fn create_move_reveal_tx(
+    //     move_commit_utxo: OutPoint,
+    //     evm_address: &EVMAddress,
+    //     recovery_taproot_address: &Address<NetworkUnchecked>,
+    //     nofn_xonly_pk: &XOnlyPublicKey,
+    //     kickoff_utxos: &[OutPoint],
+    //     relative_block_height_to_take_after: u32,
+    //     network: Network,
+    // ) -> TxHandler {
+    //     let (musig2_address, _) =
+    //         TransactionBuilder::create_musig2_address(*nofn_xonly_pk, network);
+    //     let (move_commit_address, move_commit_taproot_spend_info) =
+    //         TransactionBuilder::generate_move_commit_address(
+    //             nofn_xonly_pk,
+    //             recovery_taproot_address,
+    //             evm_address,
+    //             kickoff_utxos,
+    //             relative_block_height_to_take_after,
+    //             network,
+    //         );
+    //     let move_reveal_txout = TxOut {
+    //         value: Amount::from_sat(BRIDGE_AMOUNT_SATS)
+    //             - Amount::from_sat(MOVE_COMMIT_TX_MIN_RELAY_FEE)
+    //             - Amount::from_sat(MOVE_REVEAL_TX_MIN_RELAY_FEE)
+    //             - script_builder::anyone_can_spend_txout().value
+    //             - script_builder::anyone_can_spend_txout().value,
+    //         script_pubkey: musig2_address.script_pubkey(),
+    //     };
+
+    //     let tx_ins = TransactionBuilder::create_tx_ins(vec![move_commit_utxo]);
+
+    //     let move_reveal_tx = TransactionBuilder::create_btc_tx(
+    //         tx_ins,
+    //         vec![move_reveal_txout, script_builder::anyone_can_spend_txout()],
+    //     );
+
+    //     let prevouts = vec![TxOut {
+    //         script_pubkey: move_commit_address.script_pubkey(),
+    //         value: Amount::from_sat(BRIDGE_AMOUNT_SATS),
+    //     }];
+
+    //     let move_commit_script = vec![script_builder::create_move_commit_script(
+    //         nofn_xonly_pk,
+    //         evm_address,
+    //         kickoff_utxos,
+    //     )];
+
+    //     TxHandler {
+    //         tx: move_reveal_tx,
+    //         prevouts,
+    //         scripts: vec![move_commit_script],
+    //         taproot_spend_infos: vec![move_commit_taproot_spend_info],
+    //     }
+    // }
+
+    /// Creates the move_tx to move the deposit.
+    pub fn create_move_tx(
+        deposit_outpoint: OutPoint,
         evm_address: &EVMAddress,
         recovery_taproot_address: &Address<NetworkUnchecked>,
         deposit_user_takes_after: u32,
         nofn_xonly_pk: &XOnlyPublicKey,
-        kickoff_utxos: &[OutPoint],
-        relative_block_height_to_take_after: u32,
         network: bitcoin::Network,
     ) -> TxHandler {
         let anyone_can_spend_txout = script_builder::anyone_can_spend_txout();
-        let (move_commit_address, _) = TransactionBuilder::generate_move_commit_address(
-            nofn_xonly_pk,
-            recovery_taproot_address,
-            evm_address,
-            kickoff_utxos,
-            relative_block_height_to_take_after,
-            network,
-        );
-
+        let (musig2_address, _) = Self::create_musig2_address(*nofn_xonly_pk, network);
         let (deposit_address, deposit_taproot_spend_info) =
             TransactionBuilder::generate_deposit_address(
                 nofn_xonly_pk,
@@ -197,97 +307,38 @@ impl TransactionBuilder {
                 deposit_user_takes_after,
                 network,
             );
-
-        let move_commit_txout = TxOut {
+        let move_txout = TxOut {
             value: Amount::from_sat(BRIDGE_AMOUNT_SATS)
-                - Amount::from_sat(MOVE_COMMIT_TX_MIN_RELAY_FEE)
+                - Amount::from_sat(MOVE_TX_MIN_RELAY_FEE)
                 - anyone_can_spend_txout.value,
-            script_pubkey: move_commit_address.script_pubkey(),
+            script_pubkey: musig2_address.script_pubkey(),
         };
-
-        let tx_ins = TransactionBuilder::create_tx_ins(vec![deposit_utxo]);
-
-        let move_commit_tx = TransactionBuilder::create_btc_tx(
-            tx_ins,
-            vec![move_commit_txout, anyone_can_spend_txout],
-        );
-
+        let tx_ins = TransactionBuilder::create_tx_ins(vec![deposit_outpoint]);
+        let move_tx =
+            TransactionBuilder::create_btc_tx(tx_ins, vec![move_txout, anyone_can_spend_txout]);
         let prevouts = vec![TxOut {
             script_pubkey: deposit_address.script_pubkey(),
             value: Amount::from_sat(BRIDGE_AMOUNT_SATS),
         }];
-
         let deposit_script = vec![script_builder::create_deposit_script(
             nofn_xonly_pk,
             evm_address,
             BRIDGE_AMOUNT_SATS,
         )];
-
         TxHandler {
-            tx: move_commit_tx,
+            tx: move_tx,
             prevouts,
             scripts: vec![deposit_script],
             taproot_spend_infos: vec![deposit_taproot_spend_info],
         }
     }
 
-    pub fn create_move_reveal_tx(
-        move_commit_utxo: OutPoint,
-        evm_address: &EVMAddress,
-        recovery_taproot_address: &Address<NetworkUnchecked>,
-        nofn_xonly_pk: &XOnlyPublicKey,
-        kickoff_utxos: &[OutPoint],
-        relative_block_height_to_take_after: u32,
-        network: Network,
-    ) -> TxHandler {
-        let (musig2_address, _) =
-            TransactionBuilder::create_musig2_address(*nofn_xonly_pk, network);
-        let (move_commit_address, move_commit_taproot_spend_info) =
-            TransactionBuilder::generate_move_commit_address(
-                nofn_xonly_pk,
-                recovery_taproot_address,
-                evm_address,
-                kickoff_utxos,
-                relative_block_height_to_take_after,
-                network,
-            );
-        let move_reveal_txout = TxOut {
-            value: Amount::from_sat(BRIDGE_AMOUNT_SATS)
-                - Amount::from_sat(MOVE_COMMIT_TX_MIN_RELAY_FEE)
-                - Amount::from_sat(MOVE_REVEAL_TX_MIN_RELAY_FEE)
-                - script_builder::anyone_can_spend_txout().value
-                - script_builder::anyone_can_spend_txout().value,
-            script_pubkey: musig2_address.script_pubkey(),
-        };
-
-        let tx_ins = TransactionBuilder::create_tx_ins(vec![move_commit_utxo]);
-
-        let move_reveal_tx = TransactionBuilder::create_btc_tx(
-            tx_ins,
-            vec![move_reveal_txout, script_builder::anyone_can_spend_txout()],
-        );
-
-        let prevouts = vec![TxOut {
-            script_pubkey: move_commit_address.script_pubkey(),
-            value: Amount::from_sat(BRIDGE_AMOUNT_SATS),
-        }];
-
-        let move_commit_script = vec![script_builder::create_move_commit_script(
-            nofn_xonly_pk,
-            evm_address,
-            kickoff_utxos,
-        )];
-
-        TxHandler {
-            tx: move_reveal_tx,
-            prevouts,
-            scripts: vec![move_commit_script],
-            taproot_spend_infos: vec![move_commit_taproot_spend_info],
-        }
-    }
-
     /// Creates the kickoff_tx for the operator. It also returns the change utxo
-    pub fn create_kickoff_tx(funding_utxo: &UTXO, nofn_xonly_pk: &XOnlyPublicKey, operator_xonly_pk: &XOnlyPublicKey) -> TxHandler {
+    pub fn create_kickoff_tx(
+        funding_utxo: &UTXO,
+        nofn_xonly_pk: &XOnlyPublicKey,
+        operator_xonly_pk: &XOnlyPublicKey,
+    ) -> TxHandler {
         let tx_ins = TransactionBuilder::create_tx_ins(vec![funding_utxo.outpoint]);
 
         let change_amount = funding_utxo.txout.value
@@ -428,10 +479,10 @@ impl TransactionBuilder {
         }
     }
 
-    pub fn create_tx_ins(utxos: Vec<OutPoint>) -> Vec<TxIn> {
+    pub fn create_tx_ins(outpoints: Vec<OutPoint>) -> Vec<TxIn> {
         let mut tx_ins = Vec::new();
 
-        for utxo in utxos {
+        for utxo in outpoints {
             tx_ins.push(TxIn {
                 previous_output: utxo,
                 sequence: bitcoin::transaction::Sequence::ENABLE_RBF_NO_LOCKTIME,

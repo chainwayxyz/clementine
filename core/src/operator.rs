@@ -134,8 +134,11 @@ where
             ));
         }
 
-        let kickoff_tx_handler =
-            TransactionBuilder::create_kickoff_tx(&funding_utxo, &self.signer.address);
+        let kickoff_tx_handler = TransactionBuilder::create_kickoff_tx(
+            &funding_utxo,
+            &self.nofn_xonly_pk,
+            &self.signer.xonly_public_key,
+        );
 
         let change_utxo = UTXO {
             outpoint: OutPoint {
@@ -240,7 +243,7 @@ where
             &Message::from_digest_slice(sighash.as_byte_array()).expect("should be hash"),
             &user_xonly_pk,
         )?;
-        let op_return_txout = script_builder::op_return_txout(5u32.to_be_bytes()); // TODO: Instead of 5u32 use the index of the operator.
+        let op_return_txout = script_builder::op_return_txout(self..to_be_bytes()); // TODO: Instead of 5u32 use the index of the operator.
         tx.output.push(op_return_txout.clone());
         let funded_tx = self
             .rpc
