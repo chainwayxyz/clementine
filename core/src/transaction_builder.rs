@@ -287,7 +287,7 @@ impl TransactionBuilder {
     }
 
     /// Creates the kickoff_tx for the operator. It also returns the change utxo
-    pub fn create_kickoff_tx(funding_utxo: &UTXO, address: &Address) -> TxHandler {
+    pub fn create_kickoff_tx(funding_utxo: &UTXO, nofn_xonly_pk: &XOnlyPublicKey, operator_xonly_pk: &XOnlyPublicKey) -> TxHandler {
         let tx_ins = TransactionBuilder::create_tx_ins(vec![funding_utxo.outpoint]);
 
         let change_amount = funding_utxo.txout.value

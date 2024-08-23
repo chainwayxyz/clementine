@@ -24,14 +24,13 @@ pub trait VerifierRpc {
     /// - Check the kickoff_utxos
     /// - for every kickoff_utxo, calculate kickoff2_tx
     /// - for every kickoff2_tx, partial sign burn_tx (ommitted for now)
-    /// - return MuSigPartialSignature of sign(kickoff2_txids)
     async fn operator_kickoffs_generated_rpc(
         &self,
         deposit_utxo: OutPoint,
         kickoff_utxos: Vec<UTXO>,
         operators_kickoff_sigs: Vec<schnorr::Signature>,
         agg_nonces: Vec<MuSigAggNonce>,
-    ) -> Result<Vec<MuSigPartialSignature>, BridgeError>;
+    ) -> Result<(Vec<MuSigPartialSignature>, Vec<MuSigPartialSignature>), BridgeError>;
 
     #[method(name = "burn_txs_signed")]
     /// verify burn txs are signed by verifiers
@@ -40,6 +39,7 @@ pub trait VerifierRpc {
         &self,
         deposit_utxo: OutPoint,
         burn_sigs: Vec<schnorr::Signature>,
+        slash_or_take_sigs: Vec<schnorr::Signature>,
     ) -> Result<Vec<MuSigPartialSignature>, BridgeError>;
 
     // operator_take_txs_signed
