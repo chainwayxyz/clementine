@@ -35,6 +35,7 @@ where
     signer: Actor,
     config: BridgeConfig,
     nofn_xonly_pk: secp256k1::XOnlyPublicKey,
+    idx: usize,
 }
 
 impl<R> Operator<R>
@@ -43,7 +44,7 @@ where
 {
     /// Creates a new `Operator`.
     pub async fn new(config: BridgeConfig, rpc: ExtendedRpc<R>) -> Result<Self, BridgeError> {
-        let num_verifiers = config.verifiers_public_keys.len();
+        // let num_verifiers = config.verifiers_public_keys.len();
 
         let signer = Actor::new(config.secret_key, config.network);
 
@@ -53,6 +54,11 @@ where
             musig2::create_key_agg_ctx(config.verifiers_public_keys.clone(), None)?;
         let agg_point: Point = key_agg_context.aggregated_pubkey_untweaked();
         let nofn_xonly_pk = secp256k1::XOnlyPublicKey::from_slice(&agg_point.serialize_xonly())?;
+        let idx = config
+            .operators_xonly_pks
+            .iter()
+            .position(|xonly_pk| xonly_pk == &nofn_xonly_pk)
+            .unwrap();
 
         Ok(Self {
             rpc,
@@ -60,6 +66,7 @@ where
             signer,
             config,
             nofn_xonly_pk,
+            idx,
         })
     }
 
@@ -243,7 +250,7 @@ where
             &Message::from_digest_slice(sighash.as_byte_array()).expect("should be hash"),
             &user_xonly_pk,
         )?;
-        let op_return_txout = script_builder::op_return_txout(self..to_be_bytes()); // TODO: Instead of 5u32 use the index of the operator.
+        let op_return_txout = script_builder::op_return_txout(self.idx.to_be_bytes());
         tx.output.push(op_return_txout.clone());
         let funded_tx = self
             .rpc

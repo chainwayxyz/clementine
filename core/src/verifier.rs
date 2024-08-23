@@ -30,6 +30,7 @@ where
     db: VerifierDB,
     config: BridgeConfig,
     nofn_xonly_pk: secp256k1::XOnlyPublicKey,
+    idx: usize,
     operator_xonly_pks: Vec<secp256k1::XOnlyPublicKey>,
 }
 
@@ -54,6 +55,11 @@ where
         let agg_point: Point = key_agg_context.aggregated_pubkey_untweaked();
         let nofn_xonly_pk = secp256k1::XOnlyPublicKey::from_slice(&agg_point.serialize_xonly())?;
         let operator_xonly_pks = config.operators_xonly_pks.clone();
+        let idx = config
+            .verifiers_public_keys
+            .iter()
+            .position(|&x| x == pk)
+            .unwrap();
 
         Ok(Verifier {
             rpc,
@@ -61,6 +67,7 @@ where
             db,
             config,
             nofn_xonly_pk,
+            idx,
             operator_xonly_pks,
         })
     }
@@ -189,10 +196,10 @@ where
             .await?
             .ok_or(BridgeError::KickoffOutpointsNotFound)?;
 
-        let kickoff_outpoints = kickoff_utxos
-            .iter()
-            .map(|utxo| utxo.outpoint)
-            .collect::<Vec<_>>();
+        // let kickoff_outpoints = kickoff_utxos
+        //     .iter()
+        //     .map(|utxo| utxo.outpoint)
+        //     .collect::<Vec<_>>();
 
         let (recovery_taproot_address, evm_address) = self
             .db
@@ -242,7 +249,7 @@ where
 
     /// verify burn txs are signed by verifiers
     /// sign operator_takes_txs
-    async fn burn_txs_signed_rpc(
+    async fn burn_txs_signed(
         &self,
         deposit_outpoint: OutPoint,
         _burn_sigs: Vec<schnorr::Signature>,
@@ -433,7 +440,7 @@ where
         deposit_utxo: OutPoint,
         burn_sigs: Vec<schnorr::Signature>,
     ) -> Result<Vec<MuSigPartialSignature>, BridgeError> {
-        self.burn_txs_signed_rpc(deposit_utxo, burn_sigs).await
+        self.burn_txs_signed(deposit_utxo, burn_sigs).await
     }
 
     async fn operator_take_txs_signed_rpc(

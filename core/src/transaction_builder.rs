@@ -2,6 +2,7 @@
 
 use crate::{script_builder, utils, EVMAddress, UTXO};
 use bitcoin::address::NetworkUnchecked;
+use bitcoin::script::PushBytesBuf;
 use bitcoin::Network;
 use bitcoin::{
     absolute,
@@ -9,6 +10,7 @@ use bitcoin::{
     Address, Amount, OutPoint, ScriptBuf, TxIn, TxOut, Witness,
 };
 use clementine_circuits::constants::BRIDGE_AMOUNT_SATS;
+use hex::ToHex;
 use secp256k1::PublicKey;
 use secp256k1::XOnlyPublicKey;
 
@@ -33,6 +35,7 @@ pub struct TransactionBuilder {
 // pub const MOVE_COMMIT_TX_MIN_RELAY_FEE: u64 = 305;
 // pub const MOVE_REVEAL_TX_MIN_RELAY_FEE: u64 = 305;
 pub const MOVE_TX_MIN_RELAY_FEE: u64 = 305;
+pub const SLASH_OR_TAKE_TX_MIN_RELAY_FEE: u64 = 305;
 pub const WITHDRAWAL_TX_MIN_RELAY_FEE: u64 = 305;
 
 impl TransactionBuilder {
@@ -335,12 +338,22 @@ impl TransactionBuilder {
 
     /// Creates the kickoff_tx for the operator. It also returns the change utxo
     pub fn create_kickoff_tx(
-        funding_utxo: &UTXO,
+        funding_utxo: &UTXO, // Make sure this comes from the operator's address.
         nofn_xonly_pk: &XOnlyPublicKey,
         operator_xonly_pk: &XOnlyPublicKey,
+        network: bitcoin::Network,
     ) -> TxHandler {
         let tx_ins = TransactionBuilder::create_tx_ins(vec![funding_utxo.outpoint]);
-
+        let musig2_and_operator_script = script_builder::create_musig2_and_operator_multisig_script(
+            nofn_xonly_pk,
+            operator_xonly_pk,
+        );
+        let (musig2_and_operator_address, _) = TransactionBuilder::create_taproot_address(
+            &[musig2_and_operator_script],
+            None,
+            network,
+        );
+        let operator_address = Address::p2tr(&utils::SECP, *operator_xonly_pk, None, network);
         let change_amount = funding_utxo.txout.value
             - Amount::from_sat(100_000)
             - script_builder::anyone_can_spend_txout().value;
@@ -348,9 +361,9 @@ impl TransactionBuilder {
         let tx_outs = TransactionBuilder::create_tx_outs(vec![
             (
                 Amount::from_sat(100_000), // TODO: Change this to a constant
-                address.script_pubkey(),
+                musig2_and_operator_address.script_pubkey(),
             ),
-            (change_amount, address.script_pubkey()),
+            (change_amount, operator_address.script_pubkey()),
             (
                 script_builder::anyone_can_spend_txout().value,
                 script_builder::anyone_can_spend_txout().script_pubkey,
@@ -369,33 +382,70 @@ impl TransactionBuilder {
     }
 
     pub fn create_slash_or_take_tx(
+        deposit_outpoint: OutPoint,
         kickoff_outpoint: OutPoint,
         kickoff_txout: TxOut,
         operator_address: &XOnlyPublicKey,
+        operator_idx: usize,
         nofn_xonly_pk: &XOnlyPublicKey,
         network: bitcoin::Network,
     ) -> TxHandler {
+        let musig2_address = Address::p2tr(&utils::SECP, *nofn_xonly_pk, None, network);
+        let anyone_can_spend_txout = script_builder::anyone_can_spend_txout();
+        let move_txins = TransactionBuilder::create_tx_ins(vec![deposit_outpoint]);
+        let move_txout = TxOut {
+            value: Amount::from_sat(BRIDGE_AMOUNT_SATS)
+                - Amount::from_sat(MOVE_TX_MIN_RELAY_FEE)
+                - anyone_can_spend_txout.value,
+            script_pubkey: musig2_address.script_pubkey(),
+        };
+
+        let move_tx_simple =
+            TransactionBuilder::create_btc_tx(move_txins, vec![move_txout, anyone_can_spend_txout]);
+        let move_txid = move_tx_simple.compute_txid();
+
         let ins = TransactionBuilder::create_tx_ins(vec![kickoff_outpoint]);
         let relative_timelock_script =
             script_builder::generate_relative_timelock_script(operator_address, 200); // TODO: Change this 200 to a config constant
-
-        let slash_or_take_address = TransactionBuilder::create_taproot_address(
+        let (slash_or_take_address, _) = TransactionBuilder::create_taproot_address(
             &[relative_timelock_script.clone()],
             Some(*nofn_xonly_pk),
             network,
         );
-
+        let mut op_return_script: Vec<u8> = hex::decode(move_txid.to_string()).unwrap();
+        let op_return_idx: Vec<u8> = if operator_idx < 256 {
+            vec![operator_idx as u8] // Directly create a Vec<u8> for u8
+        } else if operator_idx < 65536 {
+            (operator_idx as u16).to_be_bytes().to_vec() // Convert u16 array to Vec<u8>
+        } else {
+            (operator_idx as u32).to_be_bytes().to_vec() // Convert u32 array to Vec<u8>
+        };
+        op_return_script.extend(op_return_idx);
+        let mut push_bytes = PushBytesBuf::new();
+        push_bytes.extend_from_slice(&op_return_script);
+        let op_return_txout = script_builder::op_return_txout(push_bytes);
         let outs = vec![
             TxOut {
-                value: Amount::from_sat(kickoff_txout.value.to_sat() - 330),
-                script_pubkey: slash_or_take_address.0.script_pubkey(),
+                value: Amount::from_sat(
+                    kickoff_txout.value.to_sat() - 330 - SLASH_OR_TAKE_TX_MIN_RELAY_FEE,
+                ),
+                script_pubkey: slash_or_take_address.script_pubkey(),
             },
+            op_return_txout,
             script_builder::anyone_can_spend_txout(),
         ];
         let tx = TransactionBuilder::create_btc_tx(ins, outs);
-        let prevouts = vec![kickoff_txout];
-        let scripts = vec![vec![relative_timelock_script]];
-        let taproot_spend_infos = vec![slash_or_take_address.1];
+        let prevouts = vec![kickoff_txout.clone()];
+        let scripts = vec![vec![relative_timelock_script.clone()]];
+        let (kickoff_txout_address, kickoff_txout_spend_info) =
+            TransactionBuilder::create_taproot_address(
+                &[relative_timelock_script],
+                Some(*nofn_xonly_pk),
+                network,
+            );
+        // Sanity check
+        assert!(kickoff_txout_address.script_pubkey() == kickoff_txout.script_pubkey);
+        let taproot_spend_infos = vec![kickoff_txout_spend_info];
         TxHandler {
             tx,
             prevouts,

@@ -57,28 +57,40 @@ pub fn create_deposit_script(
         .into_script()
 }
 
-pub fn create_move_commit_script(
+pub fn create_musig2_and_operator_multisig_script(
     nofn_xonly_pk: &XOnlyPublicKey,
-    evm_address: &EVMAddress,
-    kickoff_utxos: &[OutPoint],
+    operator_xonly_pk: &XOnlyPublicKey,
 ) -> ScriptBuf {
-    let citrea: [u8; 6] = "citrea".as_bytes().try_into().unwrap();
-
-    let builder = Builder::new()
+    Builder::new()
         .push_x_only_key(nofn_xonly_pk)
+        .push_opcode(OP_CHECKSIGVERIFY)
+        .push_x_only_key(operator_xonly_pk)
         .push_opcode(OP_CHECKSIG)
-        .push_opcode(OP_FALSE)
-        .push_opcode(OP_IF)
-        .push_slice(citrea)
-        .push_slice(evm_address.0);
-
-    let builder = kickoff_utxos.iter().fold(builder, |b, utxo| {
-        b.push_slice(utxo.txid.to_byte_array()) // TODO: Optimize here
-            .push_int(utxo.vout as i64)
-    });
-
-    builder.push_opcode(OP_ENDIF).into_script()
+        .into_script()
 }
+
+// pub fn create_move_commit_script(
+//     nofn_xonly_pk: &XOnlyPublicKey,
+//     evm_address: &EVMAddress,
+//     kickoff_utxos: &[OutPoint],
+// ) -> ScriptBuf {
+//     let citrea: [u8; 6] = "citrea".as_bytes().try_into().unwrap();
+
+//     let builder = Builder::new()
+//         .push_x_only_key(nofn_xonly_pk)
+//         .push_opcode(OP_CHECKSIG)
+//         .push_opcode(OP_FALSE)
+//         .push_opcode(OP_IF)
+//         .push_slice(citrea)
+//         .push_slice(evm_address.0);
+
+//     let builder = kickoff_utxos.iter().fold(builder, |b, utxo| {
+//         b.push_slice(utxo.txid.to_byte_array()) // TODO: Optimize here
+//             .push_int(utxo.vout as i64)
+//     });
+
+//     builder.push_opcode(OP_ENDIF).into_script()
+// }
 
 // pub fn create_inscription_script_32_bytes(
 //     public_key: &XOnlyPublicKey,
