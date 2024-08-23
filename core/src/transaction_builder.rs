@@ -170,6 +170,18 @@ impl TransactionBuilder {
         TransactionBuilder::create_taproot_address(&[], Some(nofn_xonly_pk), network)
     }
 
+    pub fn create_kickoff_address(
+        nofn_xonly_pk: &XOnlyPublicKey,
+        operator_xonly_pk: &XOnlyPublicKey,
+        network: bitcoin::Network,
+    ) -> CreateAddressOutputs {
+        let musig2_and_operator_script = script_builder::create_musig2_and_operator_multisig_script(
+            nofn_xonly_pk,
+            operator_xonly_pk,
+        );
+        TransactionBuilder::create_taproot_address(&[musig2_and_operator_script], None, network)
+    }
+
     // TX BUILDERS
 
     // pub fn create_move_commit_tx(
@@ -389,23 +401,29 @@ impl TransactionBuilder {
         nofn_xonly_pk: &XOnlyPublicKey,
         network: bitcoin::Network,
     ) -> TxHandler {
-        // First recreate the move_tx and move_txid.
-        let musig2_address = Address::p2tr(&utils::SECP, *nofn_xonly_pk, None, network);
-        let anyone_can_spend_txout = script_builder::anyone_can_spend_txout();
-        let move_txins = TransactionBuilder::create_tx_ins(vec![deposit_outpoint]);
-        let move_txout = TxOut {
-            value: Amount::from_sat(BRIDGE_AMOUNT_SATS)
-                - Amount::from_sat(MOVE_TX_MIN_RELAY_FEE)
-                - anyone_can_spend_txout.value,
-            script_pubkey: musig2_address.script_pubkey(),
-        };
+        // First recreate the move_tx and move_txid. We can give dummy values for some of the parameters since we are only interested in txid.
+        let move_tx_handler = TransactionBuilder::create_move_tx(
+            deposit_outpoint,
+            &EVMAddress([0u8; 20]),
+            &Address::p2tr(
+                &utils::SECP,
+                *utils::UNSPENDABLE_XONLY_PUBKEY,
+                None,
+                network,
+            )
+            .as_unchecked(),
+            200,
+            nofn_xonly_pk,
+            network,
+        );
+        let move_txid = move_tx_handler.tx.compute_txid();
 
-        let move_tx_simple =
-            TransactionBuilder::create_btc_tx(move_txins, vec![move_txout, anyone_can_spend_txout]);
-        let move_txid = move_tx_simple.compute_txid();
+        let (kickoff_utxo_address, kickoff_utxo_spend_info) =
+            Self::create_kickoff_address(nofn_xonly_pk, operator_xonly_pk, network);
 
-        // We assume that the address of the kickoff_utxo will be the same as the operator's taproot address.
-        let ins = TransactionBuilder::create_tx_ins(vec![kickoff_utxo.outpoint]);
+        // Sanity check
+        assert!(kickoff_utxo_address.script_pubkey() == kickoff_utxo.txout.script_pubkey);
+        let ins = Self::create_tx_ins(vec![kickoff_utxo.outpoint]);
         let relative_timelock_script =
             script_builder::generate_relative_timelock_script(operator_xonly_pk, 200); // TODO: Change this 200 to a config constant
         let (slash_or_take_address, _) = TransactionBuilder::create_taproot_address(
@@ -423,7 +441,7 @@ impl TransactionBuilder {
         };
         op_return_script.extend(op_return_idx);
         let mut push_bytes = PushBytesBuf::new();
-        push_bytes.extend_from_slice(&op_return_script);
+        push_bytes.extend_from_slice(&op_return_script).unwrap();
         let op_return_txout = script_builder::op_return_txout(push_bytes);
         let outs = vec![
             TxOut {
@@ -442,7 +460,7 @@ impl TransactionBuilder {
             tx,
             prevouts,
             scripts,
-            taproot_spend_infos: vec![],
+            taproot_spend_infos: vec![kickoff_utxo_spend_info],
         }
     }
 
