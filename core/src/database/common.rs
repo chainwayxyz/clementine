@@ -443,38 +443,38 @@ impl Database {
         }
     }
 
-    pub async fn save_kickoff_root(
-        &self,
-        deposit_outpoint: OutPoint,
-        kickoff_root: [u8; 32],
-    ) -> Result<(), BridgeError> {
-        sqlx::query(
-            "INSERT INTO kickoff_roots (deposit_outpoint, kickoff_merkle_root) VALUES ($1, $2);",
-        )
-        .bind(OutPointDB(deposit_outpoint))
-        .bind(hex::encode(kickoff_root))
-        .execute(&self.connection)
-        .await?;
+    // pub async fn save_kickoff_root(
+    //     &self,
+    //     deposit_outpoint: OutPoint,
+    //     kickoff_root: [u8; 32],
+    // ) -> Result<(), BridgeError> {
+    //     sqlx::query(
+    //         "INSERT INTO kickoff_roots (deposit_outpoint, kickoff_merkle_root) VALUES ($1, $2);",
+    //     )
+    //     .bind(OutPointDB(deposit_outpoint))
+    //     .bind(hex::encode(kickoff_root))
+    //     .execute(&self.connection)
+    //     .await?;
 
-        Ok(())
-    }
+    //     Ok(())
+    // }
 
-    pub async fn get_kickoff_root(
-        &self,
-        deposit_outpoint: OutPoint,
-    ) -> Result<Option<[u8; 32]>, BridgeError> {
-        let qr: Option<String> = sqlx::query_scalar(
-            "SELECT kickoff_merkle_root FROM kickoff_roots WHERE deposit_outpoint = $1;",
-        )
-        .bind(OutPointDB(deposit_outpoint))
-        .fetch_optional(&self.connection)
-        .await?;
+    // pub async fn get_kickoff_root(
+    //     &self,
+    //     deposit_outpoint: OutPoint,
+    // ) -> Result<Option<[u8; 32]>, BridgeError> {
+    //     let qr: Option<String> = sqlx::query_scalar(
+    //         "SELECT kickoff_merkle_root FROM kickoff_roots WHERE deposit_outpoint = $1;",
+    //     )
+    //     .bind(OutPointDB(deposit_outpoint))
+    //     .fetch_optional(&self.connection)
+    //     .await?;
 
-        match qr {
-            Some(root) => Ok(Some(hex::decode(root)?.try_into()?)),
-            None => Ok(None),
-        }
-    }
+    //     match qr {
+    //         Some(root) => Ok(Some(hex::decode(root)?.try_into()?)),
+    //         None => Ok(None),
+    //     }
+    // }
 }
 
 #[cfg(test)]
@@ -902,35 +902,35 @@ mod tests {
         assert!(res.is_none());
     }
 
-    #[tokio::test]
-    async fn test_kickoff_root_1() {
-        let config = create_test_config_with_thread_name!("test_config.toml");
-        let db = Database::new(config).await.unwrap();
+    // #[tokio::test]
+    // async fn test_kickoff_root_1() {
+    //     let config = create_test_config_with_thread_name!("test_config.toml");
+    //     let db = Database::new(config).await.unwrap();
 
-        let outpoint = OutPoint {
-            txid: Txid::from_byte_array([1u8; 32]),
-            vout: 1,
-        };
-        let root = [1u8; 32];
-        db.save_kickoff_root(outpoint, root).await.unwrap();
-        let db_root = db.get_kickoff_root(outpoint).await.unwrap().unwrap();
+    //     let outpoint = OutPoint {
+    //         txid: Txid::from_byte_array([1u8; 32]),
+    //         vout: 1,
+    //     };
+    //     let root = [1u8; 32];
+    //     db.save_kickoff_root(outpoint, root).await.unwrap();
+    //     let db_root = db.get_kickoff_root(outpoint).await.unwrap().unwrap();
 
-        // Sanity check
-        assert_eq!(db_root, root);
-    }
+    //     // Sanity check
+    //     assert_eq!(db_root, root);
+    // }
 
-    #[tokio::test]
-    async fn test_kickoff_root_2() {
-        let config = create_test_config_with_thread_name!("test_config.toml");
-        let db = Database::new(config).await.unwrap();
+    // #[tokio::test]
+    // async fn test_kickoff_root_2() {
+    //     let config = create_test_config_with_thread_name!("test_config.toml");
+    //     let db = Database::new(config).await.unwrap();
 
-        let outpoint = OutPoint {
-            txid: Txid::from_byte_array([1u8; 32]),
-            vout: 1,
-        };
-        let res = db.get_kickoff_root(outpoint).await.unwrap();
-        assert!(res.is_none());
-    }
+    //     let outpoint = OutPoint {
+    //         txid: Txid::from_byte_array([1u8; 32]),
+    //         vout: 1,
+    //     };
+    //     let res = db.get_kickoff_root(outpoint).await.unwrap();
+    //     assert!(res.is_none());
+    // }
 }
 
 #[cfg(poc)]

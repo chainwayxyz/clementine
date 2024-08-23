@@ -7,7 +7,7 @@ use crate::merkle::MerkleTree;
 use crate::musig2::{self, MuSigAggNonce, MuSigPartialSignature, MuSigPubNonce};
 use crate::traits::rpc::VerifierRpcServer;
 use crate::transaction_builder::{TransactionBuilder, TxHandler};
-use crate::{utils, EVMAddress, UTXO};
+use crate::{script_builder, utils, EVMAddress, UTXO};
 use ::musig2::secp::Point;
 use bitcoin::address::NetworkUnchecked;
 use bitcoin::hashes::Hash;
@@ -95,7 +95,7 @@ where
             self.config.network,
         )?;
 
-        let num_required_nonces = self.operator_xonly_pks.len() + 2;
+        let num_required_nonces = 3 * self.operator_xonly_pks.len() + 1;
 
         // Check if we already have pub_nonces for this deposit_utxo.
         let pub_nonces_from_db = self.db.get_pub_nonces(deposit_outpoint).await?;
@@ -128,19 +128,24 @@ where
     /// - Verify operators signatures about kickoffs
     /// - Check the kickoff_utxos
     /// - Save agg_nonces to a db for future use
-    /// - for every kickoff_utxo, calculate kickoff2_tx
-    /// - for every kickoff2_tx, partial sign burn_tx (ommitted for now)
-    /// - return butn_txs partial signatures (ommitted for now)
+    /// - for every kickoff_utxo, calculate slash_or_take_tx
+    /// - for every slash_or_take_tx, partial sign slash_or_take_tx
+    /// - for every slash_or_take_tx, partial sign burn_tx (omitted for now)
+    /// - return burn_txs partial signatures (omitted for now) TODO: For this bit,
+    /// do not forget to add tweak when signing since this address has n_of_n as internal_key
+    /// and operator_timelock as script.
     async fn operator_kickoffs_generated(
         &self,
         deposit_outpoint: OutPoint,
         kickoff_utxos: Vec<UTXO>,
         operators_kickoff_sigs: Vec<secp256k1::schnorr::Signature>, // These are not transaction signatures, rather, they are to verify the operator's identity.
-        agg_nonces: Vec<MuSigAggNonce>,
-    ) -> Result<Vec<MuSigPartialSignature>, BridgeError> {
+        agg_nonces: (Vec<MuSigAggNonce>, Vec<MuSigAggNonce>), // First vector is for the slash_or_take_txs, the second vector is for the burn_txs.
+    ) -> Result<(Vec<MuSigPartialSignature>, Vec<MuSigPartialSignature>), BridgeError> {
         if operators_kickoff_sigs.len() != kickoff_utxos.len() {
-            return Err(BridgeError::InvalidKickoffUtxo);
+            return Err(BridgeError::InvalidKickoffUtxo); // TODO: Better error
         }
+
+        let mut slash_or_take_sighashes: Vec<[u8; 32]> = Vec::new();
 
         for (i, kickoff_utxo) in kickoff_utxos.iter().enumerate() {
             let value = kickoff_utxo.txout.value;
@@ -155,35 +160,91 @@ where
                 kickoff_utxo.outpoint.vout.to_be_bytes()
             );
 
+            // Check if they are really the operators that sent these kickoff_utxos
             utils::SECP.verify_schnorr(
                 &operators_kickoff_sigs[i],
                 &secp256k1::Message::from_digest(kickoff_sig_hash),
                 &self.config.operators_xonly_pks[i],
             )?;
+
+            // Check if for each operator the address of the kickoff_utxo is correct TODO: Maybe handle the possible errors better
+            let musig2_and_operator_script =
+                script_builder::create_musig2_and_operator_multisig_script(
+                    &self.nofn_xonly_pk,
+                    &self.config.operators_xonly_pks[i],
+                );
+            let (musig2_and_operator_address, _) = TransactionBuilder::create_taproot_address(
+                &vec![musig2_and_operator_script],
+                None,
+                self.config.network,
+            );
+            assert!(
+                kickoff_utxo.txout.script_pubkey == musig2_and_operator_address.script_pubkey()
+            );
+
+            let mut slash_or_take_tx_handler = TransactionBuilder::create_slash_or_take_tx(
+                deposit_outpoint,
+                kickoff_utxo.clone(),
+                &self.config.operators_xonly_pks[i],
+                i,
+                &self.nofn_xonly_pk,
+                self.config.network,
+            );
+            let slash_or_take_tx_sighash =
+                Actor::convert_tx_to_sighash_script_spend(&mut slash_or_take_tx_handler, 0, 0)?;
+            slash_or_take_sighashes.push(slash_or_take_tx_sighash.to_byte_array());
+            // let spend_kickoff_utxo_tx_handler = TransactionBuilder::create_slash_or_take_tx(deposit_outpoint, kickoff_outpoint, kickoff_txout, operator_address, operator_idx, nofn_xonly_pk, network)
         }
 
-        let root: bitcoin::hashes::sha256::Hash = bitcoin::merkle_tree::calculate_root(
-            kickoff_utxos
-                .iter()
-                .map(|utxo| Hash::from_byte_array(sha256_hash!(utxo.to_vec().as_slice()))),
-        )
-        .unwrap();
-        let root_bytes: [u8; 32] = *root.as_byte_array();
+        let nonces = self
+            .db
+            .save_sighashes_and_get_nonces(
+                deposit_outpoint,
+                self.config.num_operators + 1,
+                &slash_or_take_sighashes,
+            )
+            .await?
+            .ok_or(BridgeError::NoncesNotFound)?;
+        let slash_or_take_partial_sigs = slash_or_take_sighashes
+            .iter()
+            .zip(nonces.iter())
+            .map(|(sighash, (sec_nonce, agg_nonce))| {
+                musig2::partial_sign(
+                    self.config.verifiers_public_keys.clone(),
+                    None,
+                    *sec_nonce,
+                    agg_nonce.clone(),
+                    &self.signer.keypair,
+                    *sighash,
+                )
+            })
+            .collect::<Vec<_>>();
+        // let root: bitcoin::hashes::sha256::Hash = bitcoin::merkle_tree::calculate_root(
+        //     kickoff_utxos
+        //         .iter()
+        //         .map(|utxo| Hash::from_byte_array(sha256_hash!(utxo.to_vec().as_slice()))),
+        // )
+        // .unwrap();
+        // let root_bytes: [u8; 32] = *root.as_byte_array();
 
         self.db
-            .save_agg_nonces(deposit_outpoint, &agg_nonces)
+            .save_agg_nonces(deposit_outpoint, &agg_nonces.0)
+            .await?;
+
+        self.db
+            .save_agg_nonces(deposit_outpoint, &agg_nonces.1)
             .await?;
 
         self.db
             .save_kickoff_utxos(deposit_outpoint, &kickoff_utxos)
             .await?;
 
-        self.db
-            .save_kickoff_root(deposit_outpoint, root_bytes)
-            .await?;
+        // self.db
+        //     .save_kickoff_root(deposit_outpoint, root_bytes)
+        //     .await?;
 
         // TODO: Sign burn txs
-        Ok(vec![])
+        Ok((slash_or_take_partial_sigs, vec![]))
     }
 
     async fn create_deposit_details(
@@ -253,6 +314,7 @@ where
         &self,
         deposit_outpoint: OutPoint,
         _burn_sigs: Vec<schnorr::Signature>,
+        _slash_or_take_sigs: Vec<schnorr::Signature>,
     ) -> Result<Vec<MuSigPartialSignature>, BridgeError> {
         // TODO: Verify burn txs are signed by verifiers
         let (kickoff_utxos, _, bridge_fund_outpoint) =
@@ -268,9 +330,10 @@ where
                     self.config.network,
                 );
                 let slash_or_take_tx = TransactionBuilder::create_slash_or_take_tx(
-                    kickoff_utxo.outpoint,
-                    kickoff_utxo.txout.clone(),
+                    deposit_outpoint,
+                    kickoff_utxo.clone(),
                     &self.operator_xonly_pks[index],
+                    index,
                     &self.nofn_xonly_pk,
                     self.config.network,
                 );
@@ -294,7 +357,7 @@ where
 
         let nonces = self
             .db
-            .save_sighashes_and_get_nonces(deposit_outpoint, 2, &operator_takes_sighashes)
+            .save_sighashes_and_get_nonces(deposit_outpoint, 1, &operator_takes_sighashes)
             .await?
             .ok_or(BridgeError::NoncesNotFound)?;
 
@@ -318,7 +381,7 @@ where
 
     /// verify the operator_take_sigs
     /// sign move_commit_tx and move_reveal_tx
-    async fn operator_take_txs_signed_rpc(
+    async fn operator_take_txs_signed(
         &self,
         deposit_outpoint: OutPoint,
         operator_take_sigs: Vec<schnorr::Signature>,
@@ -336,9 +399,10 @@ where
                     self.config.network,
                 );
                 let slash_or_take_tx = TransactionBuilder::create_slash_or_take_tx(
-                    kickoff_utxo.outpoint,
-                    kickoff_utxo.txout.clone(),
+                    deposit_outpoint,
+                    kickoff_utxo.clone(),
                     &self.operator_xonly_pks[index],
+                    index,
                     &self.nofn_xonly_pk,
                     self.config.network,
                 );
@@ -424,8 +488,8 @@ where
         deposit_utxo: OutPoint,
         kickoff_utxos: Vec<UTXO>,
         operators_kickoff_sigs: Vec<schnorr::Signature>,
-        agg_nonces: Vec<MuSigAggNonce>,
-    ) -> Result<Vec<MuSigPartialSignature>, BridgeError> {
+        agg_nonces: (Vec<MuSigAggNonce>, Vec<MuSigAggNonce>),
+    ) -> Result<(Vec<MuSigPartialSignature>, Vec<MuSigPartialSignature>), BridgeError> {
         self.operator_kickoffs_generated(
             deposit_utxo,
             kickoff_utxos,
@@ -439,16 +503,18 @@ where
         &self,
         deposit_utxo: OutPoint,
         burn_sigs: Vec<schnorr::Signature>,
+        slash_or_take_sigs: Vec<schnorr::Signature>,
     ) -> Result<Vec<MuSigPartialSignature>, BridgeError> {
-        self.burn_txs_signed(deposit_utxo, burn_sigs).await
+        self.burn_txs_signed(deposit_utxo, burn_sigs, slash_or_take_sigs)
+            .await
     }
 
     async fn operator_take_txs_signed_rpc(
         &self,
         deposit_utxo: OutPoint,
         operator_take_sigs: Vec<schnorr::Signature>,
-    ) -> Result<(MuSigPartialSignature, MuSigPartialSignature), BridgeError> {
-        self.operator_take_txs_signed_rpc(deposit_utxo, operator_take_sigs)
+    ) -> Result<MuSigPartialSignature, BridgeError> {
+        self.operator_take_txs_signed(deposit_utxo, operator_take_sigs)
             .await
     }
 }

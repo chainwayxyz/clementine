@@ -29,7 +29,7 @@ pub trait VerifierRpc {
         deposit_utxo: OutPoint,
         kickoff_utxos: Vec<UTXO>,
         operators_kickoff_sigs: Vec<schnorr::Signature>,
-        agg_nonces: Vec<MuSigAggNonce>,
+        agg_nonces: (Vec<MuSigAggNonce>, Vec<MuSigAggNonce>),
     ) -> Result<(Vec<MuSigPartialSignature>, Vec<MuSigPartialSignature>), BridgeError>;
 
     #[method(name = "burn_txs_signed")]
@@ -50,7 +50,7 @@ pub trait VerifierRpc {
         &self,
         deposit_utxo: OutPoint,
         operator_take_sigs: Vec<schnorr::Signature>,
-    ) -> Result<(MuSigPartialSignature, MuSigPartialSignature), BridgeError>;
+    ) -> Result<MuSigPartialSignature, BridgeError>;
 }
 
 #[rpc(client, server, namespace = "operator")]

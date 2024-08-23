@@ -57,7 +57,7 @@ where
         let idx = config
             .operators_xonly_pks
             .iter()
-            .position(|xonly_pk| xonly_pk == &nofn_xonly_pk)
+            .position(|xonly_pk| xonly_pk == &signer.xonly_public_key)
             .unwrap();
 
         Ok(Self {
@@ -141,10 +141,11 @@ where
             ));
         }
 
-        let kickoff_tx_handler = TransactionBuilder::create_kickoff_tx(
+        let kickoff_tx_handler = TransactionBuilder::create_kickoff_utxo_tx(
             &funding_utxo,
             &self.nofn_xonly_pk,
             &self.signer.xonly_public_key,
+            self.config.network,
         );
 
         let change_utxo = UTXO {

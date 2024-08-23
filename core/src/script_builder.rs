@@ -113,14 +113,14 @@ pub fn create_musig2_and_operator_multisig_script(
 /// condition is that (`# in the script`) < (`# in the sequence of the tx`)
 /// < (`# of blocks mined after UTXO`) appears on the chain.
 pub fn generate_relative_timelock_script(
-    actor_taproot_address: &XOnlyPublicKey,
+    actor_taproot_xonly_pk: &XOnlyPublicKey, // This is the tweaked XonlyPublicKey, which appears in the script_pubkey of the address
     block_count: u32,
 ) -> ScriptBuf {
     Builder::new()
         .push_int(block_count as i64)
         .push_opcode(OP_CSV)
         .push_opcode(OP_DROP)
-        .push_x_only_key(actor_taproot_address)
+        .push_x_only_key(actor_taproot_xonly_pk)
         .push_opcode(OP_CHECKSIG)
         .into_script()
 }

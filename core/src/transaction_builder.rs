@@ -337,7 +337,7 @@ impl TransactionBuilder {
     }
 
     /// Creates the kickoff_tx for the operator. It also returns the change utxo
-    pub fn create_kickoff_tx(
+    pub fn create_kickoff_utxo_tx(
         funding_utxo: &UTXO, // Make sure this comes from the operator's address.
         nofn_xonly_pk: &XOnlyPublicKey,
         operator_xonly_pk: &XOnlyPublicKey,
@@ -383,13 +383,13 @@ impl TransactionBuilder {
 
     pub fn create_slash_or_take_tx(
         deposit_outpoint: OutPoint,
-        kickoff_outpoint: OutPoint,
-        kickoff_txout: TxOut,
-        operator_address: &XOnlyPublicKey,
+        kickoff_utxo: UTXO,
+        operator_xonly_pk: &XOnlyPublicKey,
         operator_idx: usize,
         nofn_xonly_pk: &XOnlyPublicKey,
         network: bitcoin::Network,
     ) -> TxHandler {
+        // First recreate the move_tx and move_txid.
         let musig2_address = Address::p2tr(&utils::SECP, *nofn_xonly_pk, None, network);
         let anyone_can_spend_txout = script_builder::anyone_can_spend_txout();
         let move_txins = TransactionBuilder::create_tx_ins(vec![deposit_outpoint]);
@@ -404,9 +404,10 @@ impl TransactionBuilder {
             TransactionBuilder::create_btc_tx(move_txins, vec![move_txout, anyone_can_spend_txout]);
         let move_txid = move_tx_simple.compute_txid();
 
-        let ins = TransactionBuilder::create_tx_ins(vec![kickoff_outpoint]);
+        // We assume that the address of the kickoff_utxo will be the same as the operator's taproot address.
+        let ins = TransactionBuilder::create_tx_ins(vec![kickoff_utxo.outpoint]);
         let relative_timelock_script =
-            script_builder::generate_relative_timelock_script(operator_address, 200); // TODO: Change this 200 to a config constant
+            script_builder::generate_relative_timelock_script(operator_xonly_pk, 200); // TODO: Change this 200 to a config constant
         let (slash_or_take_address, _) = TransactionBuilder::create_taproot_address(
             &[relative_timelock_script.clone()],
             Some(*nofn_xonly_pk),
@@ -427,7 +428,7 @@ impl TransactionBuilder {
         let outs = vec![
             TxOut {
                 value: Amount::from_sat(
-                    kickoff_txout.value.to_sat() - 330 - SLASH_OR_TAKE_TX_MIN_RELAY_FEE,
+                    kickoff_utxo.txout.value.to_sat() - 330 - SLASH_OR_TAKE_TX_MIN_RELAY_FEE,
                 ),
                 script_pubkey: slash_or_take_address.script_pubkey(),
             },
@@ -435,22 +436,13 @@ impl TransactionBuilder {
             script_builder::anyone_can_spend_txout(),
         ];
         let tx = TransactionBuilder::create_btc_tx(ins, outs);
-        let prevouts = vec![kickoff_txout.clone()];
+        let prevouts = vec![kickoff_utxo.txout.clone()];
         let scripts = vec![vec![relative_timelock_script.clone()]];
-        let (kickoff_txout_address, kickoff_txout_spend_info) =
-            TransactionBuilder::create_taproot_address(
-                &[relative_timelock_script],
-                Some(*nofn_xonly_pk),
-                network,
-            );
-        // Sanity check
-        assert!(kickoff_txout_address.script_pubkey() == kickoff_txout.script_pubkey);
-        let taproot_spend_infos = vec![kickoff_txout_spend_info];
         TxHandler {
             tx,
             prevouts,
             scripts,
-            taproot_spend_infos,
+            taproot_spend_infos: vec![],
         }
     }
 
@@ -489,9 +481,7 @@ impl TransactionBuilder {
             TxOut {
                 value: Amount::from_sat(slash_or_take_txout.value.to_sat())
                     + Amount::from_sat(BRIDGE_AMOUNT_SATS)
-                    - Amount::from_sat(MOVE_COMMIT_TX_MIN_RELAY_FEE)
-                    - Amount::from_sat(MOVE_REVEAL_TX_MIN_RELAY_FEE)
-                    - script_builder::anyone_can_spend_txout().value
+                    - Amount::from_sat(MOVE_TX_MIN_RELAY_FEE)
                     - script_builder::anyone_can_spend_txout().value
                     - script_builder::anyone_can_spend_txout().value,
                 script_pubkey: operator_address.script_pubkey(),
@@ -503,9 +493,7 @@ impl TransactionBuilder {
             TxOut {
                 script_pubkey: musig2_address.script_pubkey(),
                 value: Amount::from_sat(BRIDGE_AMOUNT_SATS)
-                    - Amount::from_sat(MOVE_COMMIT_TX_MIN_RELAY_FEE)
-                    - Amount::from_sat(MOVE_REVEAL_TX_MIN_RELAY_FEE)
-                    - script_builder::anyone_can_spend_txout().value
+                    - Amount::from_sat(MOVE_TX_MIN_RELAY_FEE)
                     - script_builder::anyone_can_spend_txout().value,
             },
             slash_or_take_txout,
