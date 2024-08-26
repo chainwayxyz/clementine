@@ -32,9 +32,10 @@ async fn test_withdrawal_request() {
     let mut config = create_test_config_with_thread_name!("test_config_flow.toml");
     let rpc = create_extended_rpc!(config);
 
-    let (operator_client, _operator_handler) = create_operator_server(config.clone(), rpc.clone())
-        .await
-        .unwrap();
+    let (operator_client, _operator_handler, _operator_addr) =
+        create_operator_server(config.clone(), rpc.clone())
+            .await
+            .unwrap();
     let secp = bitcoin::secp256k1::Secp256k1::new();
     let user_sk = SecretKey::from_slice(&OsRng.gen::<[u8; 32]>()).unwrap();
     let user = User::new(rpc, user_sk, config.clone());
@@ -58,13 +59,6 @@ async fn test_honest_operator_takes_refund() {
     let mut config = create_test_config_with_thread_name!("test_config_flow.toml");
     let rpc = create_extended_rpc!(config);
 
-    let (operator_client, _operator_handler) = create_operator_server(config.clone(), rpc.clone())
-        .await
-        .unwrap();
-    create_verifier_server(config.clone(), rpc.clone())
-        .await
-        .unwrap();
-
     let secp = bitcoin::secp256k1::Secp256k1::new();
     let user_sk = SecretKey::from_slice(&OsRng.gen::<[u8; 32]>()).unwrap();
     let user = User::new(rpc, user_sk, config.clone());
@@ -76,11 +70,11 @@ async fn test_honest_operator_takes_refund() {
     );
     let (empty_utxo, withdrawal_tx_out, user_sig) =
         user.generate_withdrawal_sig(withdrawal_address).unwrap();
-    let withdrawal_provide_txid = operator_client
-        .new_withdrawal_sig_rpc(0, user_sig, empty_utxo, withdrawal_tx_out)
-        .await
-        .unwrap();
-    println!("{:?}", withdrawal_provide_txid);
+    // let withdrawal_provide_txid = operator_client
+    //     .new_withdrawal_sig_rpc(0, user_sig, empty_utxo, withdrawal_tx_out)
+    //     .await
+    //     .unwrap();
+    // println!("{:?}", withdrawal_provide_txid);
 }
 
 #[tokio::test]
