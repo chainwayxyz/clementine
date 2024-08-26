@@ -313,38 +313,44 @@ impl TransactionBuilder {
 
     pub fn create_operator_takes_tx(
         bridge_fund_outpoint: OutPoint,
-        slash_or_take_outpoint: OutPoint,
-        slash_or_take_txout: TxOut,
-        operator_address: &Address,
+        slash_or_take_utxo: UTXO,
+        operator_xonly_pk: &XOnlyPublicKey,
         nofn_xonly_pk: &XOnlyPublicKey,
         network: bitcoin::Network,
     ) -> TxHandler {
-        let ins =
-            TransactionBuilder::create_tx_ins(vec![bridge_fund_outpoint, slash_or_take_outpoint]);
+        tracing::info!("Creating operator takes tx");
+        tracing::info!("Parameters:");
+        tracing::info!("Bridge fund outpoint: {:?}", bridge_fund_outpoint);
+        tracing::info!("Slash or take outpoint: {:?}", slash_or_take_utxo.outpoint);
+        tracing::info!("Slash or take txout: {:?}", slash_or_take_utxo.txout);
+        tracing::info!("Operator address: {:?}", operator_xonly_pk);
+        tracing::info!("Nofn xonly pk: {:?}", nofn_xonly_pk);
+        let operator_address = Address::p2tr(&utils::SECP, *operator_xonly_pk, None, network);
+        let ins = TransactionBuilder::create_tx_ins(vec![
+            bridge_fund_outpoint,
+            slash_or_take_utxo.outpoint,
+        ]);
 
         let (musig2_address, musig2_spend_info) =
             TransactionBuilder::create_musig2_address(*nofn_xonly_pk, network);
 
-        let relative_timelock_script = script_builder::generate_relative_timelock_script(
-            &secp256k1::XOnlyPublicKey::from_slice(
-                &operator_address.script_pubkey().as_bytes()[2..34],
-            )
-            .unwrap(),
-            200,
-        ); // TODO: Change this 200 to a config constant
+        let relative_timelock_script =
+            script_builder::generate_relative_timelock_script(operator_xonly_pk, 200); // TODO: Change this 200 to a config constant
         let (slash_or_take_address, slash_or_take_spend_info) =
             TransactionBuilder::create_taproot_address(
                 &[relative_timelock_script.clone()],
                 Some(*nofn_xonly_pk),
                 network,
             );
-
+        tracing::info!("Slash or take address: {:?}", slash_or_take_address);
+        tracing::info!("Relative timelock script: {:?}", relative_timelock_script);
+        tracing::info!("Slash or take spend info: {:?}", slash_or_take_spend_info);
         // Sanity check
-        assert!(slash_or_take_address.script_pubkey() == slash_or_take_txout.script_pubkey);
+        assert!(slash_or_take_address.script_pubkey() == slash_or_take_utxo.txout.script_pubkey);
 
         let outs = vec![
             TxOut {
-                value: Amount::from_sat(slash_or_take_txout.value.to_sat())
+                value: Amount::from_sat(slash_or_take_utxo.txout.value.to_sat())
                     + Amount::from_sat(BRIDGE_AMOUNT_SATS)
                     - Amount::from_sat(MOVE_TX_MIN_RELAY_FEE)
                     - script_builder::anyone_can_spend_txout().value
@@ -361,7 +367,7 @@ impl TransactionBuilder {
                     - Amount::from_sat(MOVE_TX_MIN_RELAY_FEE)
                     - script_builder::anyone_can_spend_txout().value,
             },
-            slash_or_take_txout,
+            slash_or_take_utxo.txout,
         ];
         let scripts = vec![vec![], vec![relative_timelock_script]];
         let taproot_spend_infos = vec![musig2_spend_info, slash_or_take_spend_info];

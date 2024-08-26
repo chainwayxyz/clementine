@@ -334,6 +334,7 @@ where
                     &self.nofn_xonly_pk,
                     self.config.network,
                 );
+                println!("Slash or take tx handler: {:#?}", slash_or_take_tx_handler);
                 let slash_or_take_sighash =
                     Actor::convert_tx_to_sighash_script_spend(&mut slash_or_take_tx_handler, 0, 0)
                         .unwrap();
@@ -346,20 +347,18 @@ where
                     )
                     .unwrap();
 
-                let (operator_address, _) = TransactionBuilder::create_taproot_address(
-                    &[],
-                    Some(self.operator_xonly_pks[index]),
-                    self.config.network,
-                );
-
-                let mut operator_takes_tx = TransactionBuilder::create_operator_takes_tx(
-                    bridge_fund_outpoint,
-                    OutPoint {
+                let slash_or_take_utxo = UTXO {
+                    outpoint: OutPoint {
                         txid: slash_or_take_tx_handler.tx.compute_txid(),
                         vout: 0,
                     },
-                    slash_or_take_tx_handler.tx.output[0].clone(),
-                    &operator_address,
+                    txout: slash_or_take_tx_handler.tx.output[0].clone(),
+                };
+
+                let mut operator_takes_tx = TransactionBuilder::create_operator_takes_tx(
+                    bridge_fund_outpoint,
+                    slash_or_take_utxo,
+                    &self.operator_xonly_pks[index],
                     &self.nofn_xonly_pk,
                     self.config.network,
                 );
@@ -407,11 +406,6 @@ where
             .iter()
             .enumerate()
             .map(|(index, kickoff_utxo)| {
-                let (operator_address, _) = TransactionBuilder::create_taproot_address(
-                    &[],
-                    Some(self.operator_xonly_pks[index]),
-                    self.config.network,
-                );
                 let slash_or_take_tx = TransactionBuilder::create_slash_or_take_tx(
                     deposit_outpoint,
                     kickoff_utxo.clone(),
@@ -420,15 +414,17 @@ where
                     &self.nofn_xonly_pk,
                     self.config.network,
                 );
-
-                let mut operator_takes_tx = TransactionBuilder::create_operator_takes_tx(
-                    bridge_fund_outpoint,
-                    OutPoint {
+                let slash_or_take_utxo = UTXO {
+                    outpoint: OutPoint {
                         txid: slash_or_take_tx.tx.compute_txid(),
                         vout: 0,
                     },
-                    slash_or_take_tx.tx.output[0].clone(),
-                    &operator_address,
+                    txout: slash_or_take_tx.tx.output[0].clone(),
+                };
+                let mut operator_takes_tx = TransactionBuilder::create_operator_takes_tx(
+                    bridge_fund_outpoint,
+                    slash_or_take_utxo,
+                    &self.operator_xonly_pks[index],
                     &self.nofn_xonly_pk,
                     self.config.network,
                 );

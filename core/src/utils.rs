@@ -164,10 +164,9 @@ pub fn aggregate_slash_or_take_partial_sigs(
 
 pub fn aggregate_operator_takes_partial_sigs(
     bridge_fund_outpoint: OutPoint,
-    slash_or_take_outpoint: OutPoint,
-    slash_or_take_txout: TxOut,
+    slash_or_take_utxo: UTXO,
     verifiers_pks: Vec<secp256k1::PublicKey>,
-    operator_address: &Address,
+    operator_xonly_pk: &XOnlyPublicKey,
     agg_nonce: &MuSigAggNonce,
     partial_sigs: Vec<[u8; 32]>,
     network: bitcoin::Network,
@@ -177,11 +176,11 @@ pub fn aggregate_operator_takes_partial_sigs(
     let (musig_agg_xonly_pubkey, _) = musig_agg_pubkey.x_only_public_key();
     let musig_agg_xonly_pubkey_wrapped =
         bitcoin::XOnlyPublicKey::from_slice(&musig_agg_xonly_pubkey.serialize()).unwrap();
+
     let mut tx = TransactionBuilder::create_operator_takes_tx(
         bridge_fund_outpoint,
-        slash_or_take_outpoint,
-        slash_or_take_txout,
-        operator_address,
+        slash_or_take_utxo,
+        operator_xonly_pk,
         &musig_agg_xonly_pubkey_wrapped,
         network,
     );
