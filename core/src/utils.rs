@@ -1,14 +1,27 @@
+use crate::actor::Actor;
 use crate::errors::BridgeError;
+use crate::musig2::aggregate_partial_signatures;
+use crate::musig2::create_key_agg_ctx;
+use crate::musig2::MuSigAggNonce;
+use crate::transaction_builder::TransactionBuilder;
 use crate::transaction_builder::TxHandler;
+use crate::EVMAddress;
 use crate::HashTree;
+use crate::UTXO;
 use bitcoin;
+use bitcoin::address::NetworkUnchecked;
 use bitcoin::consensus::Decodable;
+use bitcoin::hashes::Hash;
 use bitcoin::sighash::SighashCache;
 use bitcoin::taproot::ControlBlock;
 use bitcoin::taproot::LeafVersion;
 use bitcoin::taproot::TaprootSpendInfo;
+use bitcoin::Address;
 use bitcoin::Amount;
+use bitcoin::OutPoint;
 use bitcoin::ScriptBuf;
+use bitcoin::TapNodeHash;
+use bitcoin::TxOut;
 use bitcoin::XOnlyPublicKey;
 use clementine_circuits::sha256_hash;
 use clementine_circuits::HashType;
@@ -83,33 +96,6 @@ pub fn calculate_amount(depth: usize, value: Amount, fee: Amount) -> Amount {
     (value + fee) * (2u64.pow(depth as u32))
 }
 
-pub fn handle_taproot_witness<T: AsRef<[u8]>>(
-    tx: &mut bitcoin::Transaction,
-    index: usize,
-    witness_elements: &[T],
-    script: &ScriptBuf,
-    tree_info: &TaprootSpendInfo,
-) -> Result<(), BridgeError> {
-    let mut sighash_cache = SighashCache::new(tx.borrow_mut());
-
-    let witness = sighash_cache
-        .witness_mut(index)
-        .ok_or(BridgeError::TxInputNotFound)?;
-
-    witness_elements
-        .iter()
-        .for_each(|element| witness.push(element));
-
-    let spend_control_block = tree_info
-        .control_block(&(script.clone(), LeafVersion::TapScript))
-        .ok_or(BridgeError::ControlBlockError)?;
-
-    witness.push(script);
-    witness.push(&spend_control_block.serialize());
-
-    Ok(())
-}
-
 pub fn handle_taproot_witness_new<T: AsRef<[u8]>>(
     tx: &mut TxHandler,
     witness_elements: &[T],
@@ -137,6 +123,122 @@ pub fn handle_taproot_witness_new<T: AsRef<[u8]>>(
     witness.push(&spend_control_block.serialize());
 
     Ok(())
+}
+
+pub fn aggregate_slash_or_take_partial_sigs(
+    deposit_outpoint: OutPoint,
+    kickoff_utxo: UTXO,
+    verifiers_pks: Vec<secp256k1::PublicKey>,
+    operator_xonly_pk: secp256k1::XOnlyPublicKey,
+    operator_idx: usize,
+    agg_nonce: &MuSigAggNonce,
+    partial_sigs: Vec<[u8; 32]>,
+    network: bitcoin::Network,
+) -> Result<[u8; 64], BridgeError> {
+    let key_agg_ctx = create_key_agg_ctx(verifiers_pks.clone(), None)?;
+    let musig_agg_pubkey: musig2::secp256k1::PublicKey = key_agg_ctx.aggregated_pubkey();
+    let (musig_agg_xonly_pubkey, _) = musig_agg_pubkey.x_only_public_key();
+    let musig_agg_xonly_pubkey_wrapped =
+        bitcoin::XOnlyPublicKey::from_slice(&musig_agg_xonly_pubkey.serialize()).unwrap();
+    let mut tx = TransactionBuilder::create_slash_or_take_tx(
+        deposit_outpoint,
+        kickoff_utxo,
+        &operator_xonly_pk,
+        operator_idx,
+        &musig_agg_xonly_pubkey_wrapped,
+        network,
+    );
+    let message: [u8; 32] = Actor::convert_tx_to_sighash_script_spend(&mut tx, 0, 0)
+        .unwrap()
+        .to_byte_array();
+    let final_sig: [u8; 64] = aggregate_partial_signatures(
+        verifiers_pks.clone(),
+        None,
+        agg_nonce,
+        partial_sigs,
+        message,
+    )?;
+
+    Ok(final_sig)
+}
+
+pub fn aggregate_operator_takes_partial_sigs(
+    bridge_fund_outpoint: OutPoint,
+    slash_or_take_outpoint: OutPoint,
+    slash_or_take_txout: TxOut,
+    verifiers_pks: Vec<secp256k1::PublicKey>,
+    operator_address: &Address,
+    agg_nonce: &MuSigAggNonce,
+    partial_sigs: Vec<[u8; 32]>,
+    network: bitcoin::Network,
+) -> Result<[u8; 64], BridgeError> {
+    let key_agg_ctx = create_key_agg_ctx(verifiers_pks.clone(), None)?;
+    let musig_agg_pubkey: musig2::secp256k1::PublicKey = key_agg_ctx.aggregated_pubkey();
+    let (musig_agg_xonly_pubkey, _) = musig_agg_pubkey.x_only_public_key();
+    let musig_agg_xonly_pubkey_wrapped =
+        bitcoin::XOnlyPublicKey::from_slice(&musig_agg_xonly_pubkey.serialize()).unwrap();
+    let mut tx = TransactionBuilder::create_operator_takes_tx(
+        bridge_fund_outpoint,
+        slash_or_take_outpoint,
+        slash_or_take_txout,
+        operator_address,
+        &musig_agg_xonly_pubkey_wrapped,
+        network,
+    );
+    let message: [u8; 32] = Actor::convert_tx_to_sighash_pubkey_spend(&mut tx, 0)
+        .unwrap()
+        .to_byte_array();
+    let final_sig: [u8; 64] = aggregate_partial_signatures(
+        verifiers_pks.clone(),
+        None,
+        agg_nonce,
+        partial_sigs,
+        message,
+    )?;
+
+    Ok(final_sig)
+}
+
+pub fn aggregate_move_partial_sigs(
+    deposit_outpoint: OutPoint,
+    evm_address: &EVMAddress,
+    recovery_taproot_address: &Address<NetworkUnchecked>,
+    deposit_user_takes_after: u32,
+    verifiers_pks: Vec<secp256k1::PublicKey>,
+    agg_nonce: &MuSigAggNonce,
+    partial_sigs: Vec<[u8; 32]>,
+    network: bitcoin::Network,
+) -> Result<[u8; 64], BridgeError> {
+    let key_agg_ctx = create_key_agg_ctx(verifiers_pks.clone(), None)?;
+    let musig_agg_pubkey: musig2::secp256k1::PublicKey = key_agg_ctx.aggregated_pubkey();
+    let (musig_agg_xonly_pubkey, _) = musig_agg_pubkey.x_only_public_key();
+    let musig_agg_xonly_pubkey_wrapped =
+        bitcoin::XOnlyPublicKey::from_slice(&musig_agg_xonly_pubkey.serialize()).unwrap();
+    let mut tx = TransactionBuilder::create_move_tx(
+        deposit_outpoint,
+        evm_address,
+        recovery_taproot_address,
+        deposit_user_takes_after,
+        &musig_agg_xonly_pubkey_wrapped,
+        network,
+    );
+    let message: [u8; 32] = Actor::convert_tx_to_sighash_pubkey_spend(&mut tx, 0)
+        .unwrap()
+        .to_byte_array();
+    let merkle_root = tx.taproot_spend_infos[0].merkle_root();
+    let tweak: [u8; 32] = match merkle_root {
+        Some(root) => root.to_byte_array(),
+        None => TapNodeHash::all_zeros().to_byte_array(),
+    };
+    let final_sig: [u8; 64] = aggregate_partial_signatures(
+        verifiers_pks.clone(),
+        Some(tweak),
+        agg_nonce,
+        partial_sigs,
+        message,
+    )?;
+
+    Ok(final_sig)
 }
 
 pub fn get_claim_reveal_indices(depth: usize, count: u32) -> Vec<(usize, usize)> {
