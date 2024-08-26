@@ -24,60 +24,17 @@ use std::thread;
 
 #[tokio::test]
 async fn test_deposit() -> Result<(), BridgeError> {
-    let mut config = create_test_config_with_thread_name!("test_config_flow_1.toml");
+    let mut config = create_test_config_with_thread_name!("test_config_flow.toml");
     let rpc = create_extended_rpc!(config);
 
-    // Create temporary databases for testing.
-    let handle = thread::current()
-        .name()
-        .unwrap()
-        .split(':')
-        .last()
-        .unwrap()
-        .to_owned();
-    for i in 0..4 {
-        create_test_config!(
-            handle.clone() + i.to_string().as_str(),
-            "test_config_flow_1.toml"
-        );
-    }
-
-    let mut operators = Vec::new();
-    for i in 0..config.num_operators {
-        let secret_key = config.all_operators_secret_keys.clone().unwrap()[i].clone();
-        let operator = create_operator_server(
-            BridgeConfig {
-                secret_key,
-                ..config.clone()
-            },
-            rpc.clone(),
-        )
-        .await
-        .unwrap();
-
-        operators.push((operator.0, operator.1, secret_key));
-    }
-    let mut verifiers = Vec::new();
-    for i in 0..config.num_verifiers {
-        verifiers.push(
-            create_verifier_server(
-                BridgeConfig {
-                    secret_key: config.all_verifiers_secret_keys.clone().unwrap()[i].clone(),
-                    ..config.clone()
-                },
-                rpc.clone(),
-            )
-            .await
-            .unwrap(),
-        );
-    }
+    let (verifiers, operators) = create_verifiers_and_operators(config.clone(), rpc.clone()).await;
 
     println!("Operators: {:#?}", operators);
     println!("Verifiers: {:#?}", verifiers);
 
     let secret_key = secp256k1::SecretKey::new(&mut secp256k1::rand::thread_rng());
 
-    let signer_address = Actor::new(secret_key, config.network)
+    let signer_address = Actor::new(secret_key, config.network.clone())
         .address
         .as_unchecked()
         .clone();
@@ -101,7 +58,7 @@ async fn test_deposit() -> Result<(), BridgeError> {
             .await
             .unwrap();
 
-        println!("Musig Pub Nonces: {:?}", musig_pub_nonces);
+        // tracing::info!("Musig Pub Nonces: {:?}", musig_pub_nonces);
 
         pub_nonces.push(musig_pub_nonces);
     }
@@ -122,13 +79,13 @@ async fn test_deposit() -> Result<(), BridgeError> {
     let mut kickoff_utxos = Vec::new();
     let mut signatures = Vec::new();
 
-    for (i, (client, _, secret_key)) in operators.iter().enumerate() {
+    for (i, (client, _, _)) in operators.iter().enumerate() {
         // Send operators some bitcoin so that they can afford the kickoff tx
         let secp = bitcoin::secp256k1::Secp256k1::new();
-        let (operator_internal_xonly_pk, _) = secret_key.public_key(&secp).x_only_public_key();
+        let operator_internal_xonly_pk = config.operators_xonly_pks.get(i).unwrap();
         let operator_address = Address::p2tr(
             &secp,
-            operator_internal_xonly_pk,
+            *operator_internal_xonly_pk,
             None,
             config.network.clone(),
         );
@@ -173,7 +130,7 @@ async fn test_deposit() -> Result<(), BridgeError> {
             .await
             .unwrap();
 
-        println!("Musig Pub Nonces: {:?}", musig_partial_signatures);
+        // tracing::info!("Musig Pub Nonces: {:?}", musig_partial_signatures);
 
         // agg_signatures.push(
         //     secp256k1::schnorr::Signature::from_slice(

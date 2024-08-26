@@ -106,8 +106,17 @@ where
         // 2. Check if we alredy created a kickoff UTXO for this deposit UTXO
         let kickoff_utxo = self.db.get_kickoff_utxo(deposit_outpoint).await?;
 
+        tracing::debug!(
+            "Kickoff UTXO for deposit UTXO: {:?} is: {:?}",
+            deposit_outpoint,
+            kickoff_utxo
+        );
         // if we already have a kickoff UTXO for this deposit UTXO, return it
         if let Some(kickoff_utxo) = kickoff_utxo {
+            tracing::debug!(
+                "Kickoff UTXO already exists for deposit UTXO: {:?}",
+                deposit_outpoint
+            );
             let kickoff_sig_hash = sha256_hash!(
                 deposit_outpoint.txid,
                 deposit_outpoint.vout.to_be_bytes(),
@@ -146,6 +155,12 @@ where
             &self.nofn_xonly_pk,
             &self.signer.xonly_public_key,
             self.config.network,
+        );
+
+        tracing::debug!(
+            "For operator index: {:?} Kickoff tx handler: {:#?}",
+            self.idx,
+            kickoff_tx_handler
         );
 
         let change_utxo = UTXO {
