@@ -4,6 +4,7 @@
 
 use crate::{
     config::BridgeConfig,
+    database::common::Database,
     errors,
     extended_rpc::ExtendedRpc,
     operator,
@@ -23,10 +24,11 @@ use traits::rpc::OperatorRpcServer;
 pub async fn create_verifier_server<R>(
     config: BridgeConfig,
     rpc: ExtendedRpc<R>,
-) -> Result<(HttpClient, ServerHandle), BridgeError>
+) -> Result<(HttpClient, ServerHandle, std::net::SocketAddr), BridgeError>
 where
     R: RpcApiWrapper,
 {
+    println!("Database created");
     let server = match Server::builder()
         .build(format!("{}:{}", config.host, config.port))
         .await
@@ -34,10 +36,9 @@ where
         Ok(s) => s,
         Err(e) => return Err(BridgeError::ServerError(e)),
     };
-
     let verifier = Verifier::new(rpc, config).await?;
 
-    let addr = match server.local_addr() {
+    let addr: std::net::SocketAddr = match server.local_addr() {
         Ok(a) => a,
         Err(e) => return Err(BridgeError::ServerError(e)),
     };
@@ -49,14 +50,14 @@ where
 
     tracing::info!("Verifier server started with address: {}", addr);
 
-    Ok((client, handle))
+    Ok((client, handle, addr))
 }
 
 /// Starts the server for the operator.
 pub async fn create_operator_server<R>(
     config: BridgeConfig,
     rpc: ExtendedRpc<R>,
-) -> Result<(HttpClient, ServerHandle), BridgeError>
+) -> Result<(HttpClient, ServerHandle, std::net::SocketAddr), BridgeError>
 where
     R: RpcApiWrapper,
 {
@@ -82,70 +83,76 @@ where
 
     tracing::info!("Operator server started with address: {}", addr);
 
-    Ok((client, handle))
+    Ok((client, handle, addr))
 }
 
-// / Starts operator and verifiers servers. This function's intended use is for
-// / tests.
-// /
-// / # Returns
-// /
-// / Returns a tuple, containing `HttpClient` for operator, `ServerHandle` for
-// / operator and a vector containing `SocketAddr` and `ServerHandle` for
-// / verifiers + operator (operator last).
-// /
-// / # Panics
-// /
-// / Panics if there was an error while creating any of the servers.
-// pub async fn create_operator_and_verifiers<R>(
-//     config: BridgeConfig,
-//     rpc: ExtendedRpc<R>,
-// ) -> (
-//     Vec<(HttpClient, ServerHandle)>, // Verifier clients
-//     Vec<(HttpClient, ServerHandle)>, // Operator clients
-// )
-// where
-//     R: RpcApiWrapper,
-// {
-//     let mut all_secret_keys = config.all_secret_keys.clone().unwrap_or_else(|| {
-//         panic!("All secret keys are required for testing");
-//     });
+/// Starts operators and verifiers servers. This function's intended use is for
+/// tests.
+///
+/// # Returns
+///
+/// Returns a tuple of vectors of clients, handles, and addresses for the
+/// verifiers + operators.
+///
+/// # Panics
+///
+/// Panics if there was an error while creating any of the servers.
+pub async fn create_verifiers_and_operators<R>(
+    config: BridgeConfig,
+    rpc: ExtendedRpc<R>,
+) -> (
+    Vec<(HttpClient, ServerHandle, std::net::SocketAddr)>, // Verifier clients
+    Vec<(HttpClient, ServerHandle, std::net::SocketAddr)>, // Operator clients
+)
+where
+    R: RpcApiWrapper,
+{
+    let all_verifiers_secret_keys = config.all_verifiers_secret_keys.clone().unwrap_or_else(|| {
+        panic!("All secret keys of the verifiers are required for testing");
+    });
+    let verifier_futures = all_verifiers_secret_keys
+        .iter()
+        .enumerate()
+        .map(|(i, sk)| {
+            create_verifier_server(
+                BridgeConfig {
+                    secret_key: *sk,
+                    port: 0, // Use the index to calculate the port
+                    db_name: config.db_name.clone() + &"verifier".to_string() + &i.to_string(),
+                    db_user: config.db_user.clone() + &"verifier".to_string() + &i.to_string(),
+                    ..config.clone()
+                },
+                rpc.clone(),
+            )
+        })
+        .collect::<Vec<_>>();
+    let verifier_endpoints = futures::future::try_join_all(verifier_futures)
+        .await
+        .unwrap();
 
-//     let futures = all_verifiers_secret_keys
-//         .iter()
-//         .enumerate()
-//         .map(|(i, sk)| {
-//             create_verifier_server(
-//                 BridgeConfig {
-//                     verifiers_public_keys: config.verifiers_public_keys.clone(),
-//                     secret_key: *sk,
-//                     port: 0, // Use the index to calculate the port
-//                     db_name: config.db_name.clone() + &i.to_string(),
-//                     ..config.clone()
-//                 },
-//                 rpc.clone(),
-//             )
-//         })
-//         .collect::<Vec<_>>();
-//     let mut results = futures::future::try_join_all(futures).await.unwrap();
+    let all_operators_secret_keys = config.all_operators_secret_keys.clone().unwrap_or_else(|| {
+        panic!("All secret keys of the operators are required for testing");
+    });
 
-//     let verifier_endpoints: Vec<String> = results
-//         .iter()
-//         .map(|(socket_addr, _)| format!("http://{}:{}/", socket_addr.ip(), socket_addr.port()))
-//         .collect();
+    let operator_futures = all_operators_secret_keys
+        .iter()
+        .enumerate()
+        .map(|(i, sk)| {
+            create_verifier_server(
+                BridgeConfig {
+                    secret_key: *sk,
+                    port: 0, // Use the index to calculate the port
+                    db_name: config.db_name.clone() + &"operator".to_string() + &i.to_string(),
+                    db_user: config.db_user.clone() + &"operator".to_string() + &i.to_string(),
+                    ..config.clone()
+                },
+                rpc.clone(),
+            )
+        })
+        .collect::<Vec<_>>();
+    let operator_endpoints = futures::future::try_join_all(operator_futures)
+        .await
+        .unwrap();
 
-//     let (operator_socket_addr, operator_handle) =
-//         create_operator_server(config, rpc)
-//             .await
-//             .unwrap();
-//     let operator_client = HttpClientBuilder::default()
-//         .build(format!(
-//             "http://{}:{}/",
-//             operator_socket_addr.ip(),
-//             operator_socket_addr.port()
-//         ))
-//         .unwrap();
-//     results.push((operator_socket_addr, operator_handle.clone()));
-
-//     (operator_client, operator_handle, results)
-// }
+    (verifier_endpoints, operator_endpoints)
+}

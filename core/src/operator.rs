@@ -35,6 +35,7 @@ where
     signer: Actor,
     config: BridgeConfig,
     nofn_xonly_pk: secp256k1::XOnlyPublicKey,
+    idx: usize,
 }
 
 impl<R> Operator<R>
@@ -43,7 +44,7 @@ where
 {
     /// Creates a new `Operator`.
     pub async fn new(config: BridgeConfig, rpc: ExtendedRpc<R>) -> Result<Self, BridgeError> {
-        let num_verifiers = config.verifiers_public_keys.len();
+        // let num_verifiers = config.verifiers_public_keys.len();
 
         let signer = Actor::new(config.secret_key, config.network);
 
@@ -53,6 +54,11 @@ where
             musig2::create_key_agg_ctx(config.verifiers_public_keys.clone(), None)?;
         let agg_point: Point = key_agg_context.aggregated_pubkey_untweaked();
         let nofn_xonly_pk = secp256k1::XOnlyPublicKey::from_slice(&agg_point.serialize_xonly())?;
+        let idx = config
+            .operators_xonly_pks
+            .iter()
+            .position(|xonly_pk| xonly_pk == &signer.xonly_public_key)
+            .unwrap();
 
         Ok(Self {
             rpc,
@@ -60,6 +66,7 @@ where
             signer,
             config,
             nofn_xonly_pk,
+            idx,
         })
     }
 
@@ -134,8 +141,12 @@ where
             ));
         }
 
-        let kickoff_tx_handler =
-            TransactionBuilder::create_kickoff_tx(&funding_utxo, &self.signer.address);
+        let kickoff_tx_handler = TransactionBuilder::create_kickoff_utxo_tx(
+            &funding_utxo,
+            &self.nofn_xonly_pk,
+            &self.signer.xonly_public_key,
+            self.config.network,
+        );
 
         let change_utxo = UTXO {
             outpoint: OutPoint {
@@ -240,7 +251,7 @@ where
             &Message::from_digest_slice(sighash.as_byte_array()).expect("should be hash"),
             &user_xonly_pk,
         )?;
-        let op_return_txout = script_builder::op_return_txout(5u32.to_be_bytes()); // TODO: Instead of 5u32 use the index of the operator.
+        let op_return_txout = script_builder::op_return_txout(self.idx.to_be_bytes());
         tx.output.push(op_return_txout.clone());
         let funded_tx = self
             .rpc
@@ -272,6 +283,14 @@ where
         let final_txid = self.rpc.send_raw_transaction(&signed_tx)?;
         Ok(Some(final_txid))
     }
+
+    async fn withdrawal_proved_on_citrea(
+        &self,
+        withdrawal_idx: usize,
+        kickoff_merkle_root: [u8; 32],
+    ) -> Result<(), BridgeError> {
+        Ok(())
+    }
 }
 
 #[async_trait]
@@ -301,6 +320,15 @@ where
         output_txout: TxOut,
     ) -> Result<Option<Txid>, BridgeError> {
         self.new_withdrawal_sig(withdrawal_idx, user_sig, input_utxo, output_txout)
+            .await
+    }
+
+    async fn withdrawal_proved_on_citrea_rpc(
+        &self,
+        withdrawal_idx: usize,
+        kickoff_merkle_root: [u8; 32],
+    ) -> Result<(), BridgeError> {
+        self.withdrawal_proved_on_citrea(withdrawal_idx, kickoff_merkle_root)
             .await
     }
 }

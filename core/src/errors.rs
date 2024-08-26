@@ -158,6 +158,12 @@ pub enum BridgeError {
     KickoffOutpointsNotFound,
     #[error("DepositInfoNotFound")]
     DepositInfoNotFound,
+
+    #[error("FromHexError: {0}")]
+    FromHexError(hex::FromHexError),
+
+    #[error("FromSliceError: {0}")]
+    FromSliceError(bitcoin::hashes::FromSliceError),
 }
 
 impl Into<ErrorObject<'static>> for BridgeError {
@@ -259,5 +265,17 @@ impl From<InvalidScalarBytes> for BridgeError {
 impl From<musig2::errors::VerifyError> for BridgeError {
     fn from(err: musig2::errors::VerifyError) -> Self {
         BridgeError::MuSig2VerifyError(err)
+    }
+}
+
+impl From<hex::FromHexError> for BridgeError {
+    fn from(err: hex::FromHexError) -> Self {
+        BridgeError::FromHexError(err)
+    }
+}
+
+impl From<bitcoin::hashes::FromSliceError> for BridgeError {
+    fn from(err: bitcoin::hashes::FromSliceError) -> Self {
+        BridgeError::FromSliceError(err)
     }
 }
