@@ -97,7 +97,7 @@ where
 /// # Panics
 ///
 /// Panics if there was an error while creating any of the servers.
-pub async fn create_operators_and_verifiers<R>(
+pub async fn create_verifiers_and_operators<R>(
     config: BridgeConfig,
     rpc: ExtendedRpc<R>,
 ) -> (
@@ -131,7 +131,7 @@ where
         .unwrap();
 
     let all_operators_secret_keys = config.all_operators_secret_keys.clone().unwrap_or_else(|| {
-        panic!("All secret keys of the verifiers are required for testing");
+        panic!("All secret keys of the operators are required for testing");
     });
 
     let operator_futures = all_operators_secret_keys
