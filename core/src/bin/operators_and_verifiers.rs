@@ -21,7 +21,7 @@ async fn main() {
         config.bitcoin_rpc_password.clone(),
     );
 
-    let (operator_clients, verifier_clients) = create_verifiers_and_operators(config, rpc).await;
+    let (operator_clients, verifier_clients) = create_verifiers_and_operators("test_config.toml").await;
 
     println!("Operator servers started: {:?}", operator_clients);
     println!("Verifier servers started: {:?}", verifier_clients);

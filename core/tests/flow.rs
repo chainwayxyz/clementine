@@ -27,7 +27,7 @@ async fn test_deposit() -> Result<(), BridgeError> {
     let mut config = create_test_config_with_thread_name!("test_config_flow.toml");
     let rpc = create_extended_rpc!(config);
 
-    let (verifiers, operators) = create_verifiers_and_operators(config.clone(), rpc.clone()).await;
+    let (verifiers, operators) = create_verifiers_and_operators("test_config_flow.toml").await;
 
     // println!("Operators: {:#?}", operators);
     // println!("Verifiers: {:#?}", verifiers);
@@ -102,7 +102,7 @@ async fn test_deposit() -> Result<(), BridgeError> {
 
         tracing::debug!("Operator {:?} funding utxo: {:?}", i, operator_funding_utxo);
         client
-            .set_operator_funding_utxo_rpc(operator_funding_utxo)
+            .set_funding_utxo_rpc(operator_funding_utxo)
             .await
             .unwrap();
 
@@ -150,7 +150,7 @@ async fn test_deposit() -> Result<(), BridgeError> {
 
     // call burn_txs_signed_rpc
     let mut operator_take_partial_signs = Vec::new();
-    for (i, (client, ..)) in operators.iter().enumerate() {
+    for (i, (client, ..)) in verifiers.iter().enumerate() {
         let operator_take_partial_sigs = client
             .burn_txs_signed_rpc(deposit_outpoint, Vec::new(), Vec::new())
             .await

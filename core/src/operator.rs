@@ -219,7 +219,7 @@ where
 
     /// Checks if utxo is valid, spendable by operator and not spent
     /// Saves the utxo to the db
-    async fn set_operator_funding_utxo(&self, funding_utxo: UTXO) -> Result<(), BridgeError> {
+    async fn set_funding_utxo(&self, funding_utxo: UTXO) -> Result<(), BridgeError> {
         self.db.set_funding_utxo(funding_utxo).await?;
         Ok(())
     }
@@ -323,8 +323,8 @@ where
             .await
     }
 
-    async fn set_operator_funding_utxo_rpc(&self, funding_utxo: UTXO) -> Result<(), BridgeError> {
-        self.set_operator_funding_utxo(funding_utxo).await
+    async fn set_funding_utxo_rpc(&self, funding_utxo: UTXO) -> Result<(), BridgeError> {
+        self.set_funding_utxo(funding_utxo).await
     }
 
     async fn new_withdrawal_sig_rpc(

@@ -342,7 +342,7 @@ where
                     &slash_or_take_sigs[index],
                     &secp256k1::Message::from_digest(slash_or_take_sighash.to_byte_array()),
                     &self.nofn_xonly_pk,
-                );
+                ).unwrap();
 
                 let (operator_address, _) = TransactionBuilder::create_taproot_address(
                     &[],
