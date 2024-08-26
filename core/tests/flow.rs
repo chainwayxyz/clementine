@@ -15,6 +15,7 @@ use clementine_core::servers::*;
 use clementine_core::traits::rpc::OperatorRpcClient;
 use clementine_core::traits::rpc::VerifierRpcClient;
 use clementine_core::user::User;
+use clementine_core::utils::aggregate_slash_or_take_partial_sigs;
 use clementine_core::EVMAddress;
 use clementine_core::UTXO;
 use clementine_core::{
@@ -120,8 +121,10 @@ async fn test_deposit() -> Result<(), BridgeError> {
     // aggreate partial signatures here
     // let mut agg_signatures = Vec::new();
 
+    let mut slash_or_take_partial_sigs = Vec::new();
+
     for (i, (client, ..)) in verifiers.iter().enumerate() {
-        let musig_partial_signatures = client
+        let (partial_sigs, _) = client
             .operator_kickoffs_generated_rpc(
                 deposit_outpoint,
                 kickoff_utxos.clone(),
@@ -131,28 +134,33 @@ async fn test_deposit() -> Result<(), BridgeError> {
             .await
             .unwrap();
 
-        // tracing::info!("Musig Pub Nonces: {:?}", musig_partial_signatures);
+        slash_or_take_partial_sigs.push(partial_sigs);
+    }
 
-        // agg_signatures.push(
-        //     secp256k1::schnorr::Signature::from_slice(
-        //         &aggregate_partial_signatures(
-        //             vec![], // todo pks?
-        //             None,
-        //             agg_nonces.get(i).unwrap(),
-        //             musig_partial_signatures.clone(),
-        //             [0u8; 32], // todo msg?
-        //         )
-        //         .unwrap(),
-        //     )
-        //     .unwrap(),
-        // );
+    let mut slash_or_take_sigs = Vec::new();
+    for i in 0..slash_or_take_partial_sigs[0].len() {
+        let agg_sig = aggregate_slash_or_take_partial_sigs(
+            deposit_outpoint,
+            kickoff_utxos[i].clone(),
+            config.verifiers_public_keys.clone(),
+            config.operators_xonly_pks[i].clone(),
+            i,
+            &agg_nonces[i + 1 + config.operators_xonly_pks.len()].clone(),
+            slash_or_take_partial_sigs
+                .iter()
+                .map(|v| v.get(i).cloned().unwrap())
+                .collect::<Vec<_>>(),
+            config.network.clone(),
+        )?;
+
+        slash_or_take_sigs.push(secp256k1::schnorr::Signature::from_slice(&agg_sig)?);
     }
 
     // call burn_txs_signed_rpc
     let mut operator_take_partial_signs = Vec::new();
     for (i, (client, ..)) in verifiers.iter().enumerate() {
         let operator_take_partial_sigs = client
-            .burn_txs_signed_rpc(deposit_outpoint, Vec::new(), Vec::new())
+            .burn_txs_signed_rpc(deposit_outpoint, vec![], slash_or_take_sigs.clone())
             .await
             .unwrap();
         println!(
