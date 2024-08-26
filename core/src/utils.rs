@@ -254,18 +254,12 @@ pub fn aggregate_move_partial_sigs(
     );
     println!("MOVE_TX: {:?}", tx);
     println!("MOVE_TXID: {:?}", tx.tx.compute_txid());
-    let message: [u8; 32] = Actor::convert_tx_to_sighash_pubkey_spend(&mut tx, 0)
+    let message: [u8; 32] = Actor::convert_tx_to_sighash_script_spend(&mut tx, 0, 0)
         .unwrap()
         .to_byte_array();
-    let merkle_root = tx.taproot_spend_infos[0].merkle_root();
-    let tweak: [u8; 32] = match merkle_root {
-        Some(root) => root.to_byte_array(),
-        None => TapNodeHash::all_zeros().to_byte_array(),
-    };
-    println!("tweak: {:?}", tweak);
     let final_sig: [u8; 64] = aggregate_partial_signatures(
         verifiers_pks.clone(),
-        Some(tweak),
+        None,
         agg_nonce,
         partial_sigs,
         message,

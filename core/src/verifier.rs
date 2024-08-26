@@ -448,7 +448,8 @@ where
             });
         println!("MOVE_TX: {:?}", move_tx_handler);
         println!("MOVE_TXID: {:?}", move_tx_handler.tx.compute_txid());
-        let move_tx_sighash = Actor::convert_tx_to_sighash_pubkey_spend(&mut move_tx_handler, 0)?; // TODO: This should be musig
+        let move_tx_sighash =
+            Actor::convert_tx_to_sighash_script_spend(&mut move_tx_handler, 0, 0)?; // TODO: This should be musig
 
         // let move_reveal_sighash =
         //     Actor::convert_tx_to_sighash_script_spend(&mut move_reveal_tx_handler, 0, 0)?; // TODO: This should be musig
