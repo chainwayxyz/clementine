@@ -12,10 +12,13 @@ use clementine_core::errors::BridgeError;
 use clementine_core::extended_rpc::ExtendedRpc;
 use clementine_core::mock::common;
 use clementine_core::musig2::aggregate_nonces;
+use clementine_core::musig2::create_key_agg_ctx;
 use clementine_core::servers::*;
 use clementine_core::traits::rpc::OperatorRpcClient;
 use clementine_core::traits::rpc::VerifierRpcClient;
+use clementine_core::transaction_builder::TransactionBuilder;
 use clementine_core::user::User;
+use clementine_core::utils::aggregate_move_partial_sigs;
 use clementine_core::utils::aggregate_operator_takes_partial_sigs;
 use clementine_core::utils::aggregate_slash_or_take_partial_sigs;
 use clementine_core::EVMAddress;
@@ -125,7 +128,7 @@ async fn test_deposit() -> Result<(), BridgeError> {
 
     let mut slash_or_take_partial_sigs = Vec::new();
 
-    for (i, (client, ..)) in verifiers.iter().enumerate() {
+    for (_i, (client, ..)) in verifiers.iter().enumerate() {
         let (partial_sigs, _) = client
             .operator_kickoffs_generated_rpc(
                 deposit_outpoint,
@@ -159,65 +162,73 @@ async fn test_deposit() -> Result<(), BridgeError> {
     }
 
     // call burn_txs_signed_rpc
-    let mut operator_take_partial_signs: Vec<Vec<[u8; 32]>> = Vec::new();
-    for _ in 0..operators.len() {
-        operator_take_partial_signs.push(Vec::new());
-    }
-    for (i, (client, _, _)) in verifiers.iter().enumerate() {
-        let operator_take_partial_sigs = client
+    let mut operator_take_partial_sigs = Vec::new();
+    for (_i, (client, _, _)) in verifiers.iter().enumerate() {
+        let partial_sigs = client
             .burn_txs_signed_rpc(deposit_outpoint, vec![], slash_or_take_sigs.clone())
             .await
             .unwrap();
-        println!(
-            "Operator take partial sigs: {:#?}",
-            operator_take_partial_sigs
-        );
-        for (j, sig) in operator_take_partial_sigs.iter().enumerate() {
-            operator_take_partial_signs[j].push(*sig);
-        }
+        println!("Operator take partial sigs: {:#?}", partial_sigs);
+        operator_take_partial_sigs.push(partial_sigs);
     }
 
-    let move_tx_handler = TransactionBuilder::create_move_tx(
+    let mut operator_take_sigs = Vec::new();
+    for i in 0..operator_take_partial_sigs.len() {
+        let agg_sig = aggregate_operator_takes_partial_sigs(
+            deposit_outpoint,
+            kickoff_utxos[i].clone(),
+            &config.operators_xonly_pks[i].clone(),
+            i,
+            config.verifiers_public_keys.clone(),
+            &agg_nonces[i + 1].clone(),
+            operator_take_partial_sigs
+                .iter()
+                .map(|v| v.get(i).cloned().unwrap())
+                .collect::<Vec<_>>(),
+            config.network.clone(),
+        )?;
+
+        operator_take_sigs.push(secp256k1::schnorr::Signature::from_slice(&agg_sig)?);
+    }
+
+    // call operator_take_txs_signed_rpc
+    let mut move_tx_partial_sigs = Vec::new();
+    for (i, (client, _, _)) in verifiers.iter().enumerate() {
+        let move_tx_partial_sig = client
+            .operator_take_txs_signed_rpc(deposit_outpoint, operator_take_sigs.clone())
+            .await
+            .unwrap();
+        move_tx_partial_sigs.push(move_tx_partial_sig);
+    }
+
+    // aggreagte move_tx_partial_sigs
+    let agg_move_tx_final_sig = aggregate_move_partial_sigs(
         deposit_outpoint,
-        evm_address,
-        signer_address.clone(),
-        BRIDGE_AMOUNT_SATS,
+        &evm_address,
+        &signer_address,
         config.user_takes_after,
+        config.verifiers_public_keys.clone(),
+        &agg_nonces[0].clone(),
+        move_tx_partial_sigs,
+        config.network.clone(),
+    )?;
+
+    let move_tx_sig = secp256k1::schnorr::Signature::from_slice(&agg_move_tx_final_sig)?;
+
+    let key_agg_ctx = create_key_agg_ctx(config.verifiers_public_keys.clone(), None)?;
+    let musig_agg_pubkey: musig2::secp256k1::PublicKey = key_agg_ctx.aggregated_pubkey();
+    let (musig_agg_xonly_pubkey, _) = musig_agg_pubkey.x_only_public_key();
+    let nofn_xonly_pk =
+        bitcoin::XOnlyPublicKey::from_slice(&musig_agg_xonly_pubkey.serialize()).unwrap();
+
+    let mut move_tx_handler = TransactionBuilder::create_move_tx(
+        deposit_outpoint,
+        &evm_address,
+        &signer_address,
+        config.user_takes_after,
+        &nofn_xonly_pk,
         config.network,
     );
-    let deposit_fund_outpoint = OutPoint {
-        txid: move_tx_handler.tx.compute_txid(),
-        vout: 0,
-    };
-    // aggregate partial signatures
-    let mut operator_take_signatures = Vec::new();
-    for i in 0..operator_take_partial_signs[0].len() {
-        let agg_signature = secp256k1::schnorr::Signature::from_slice(
-            aggregate_operator_takes_partial_sigs(
-                deposit_fund_outpoint,
-                config.verifiers_public_keys.clone(),
-                config.operators_xonly_pks.clone(),
-                i,
-                operator_take_partial_signs
-                    .iter()
-                    .map(|v| v.get(i).cloned().unwrap())
-                    .collect::<Vec<_>>(),
-                config.network.clone(),
-            )?
-            )
-        )
-        .unwrap();
-
-        signatures.push(agg_signature);
-    }
-
-    // // call operator_take_txs_signed_rpc
-    // for (i, (client, ..)) in operators.iter().enumerate() {
-    //     let _ = client
-    //         .operator_take_txs_signed_rpc(deposit_outpoints[i], signatures.clone())
-    //         .await
-    //         .unwrap();
-    // }
 
     Ok(())
 }

@@ -163,10 +163,11 @@ pub fn aggregate_slash_or_take_partial_sigs(
 }
 
 pub fn aggregate_operator_takes_partial_sigs(
-    bridge_fund_outpoint: OutPoint,
-    slash_or_take_utxo: UTXO,
-    verifiers_pks: Vec<secp256k1::PublicKey>,
+    deposit_outpoint: OutPoint,
+    kickoff_utxo: UTXO,
     operator_xonly_pk: &XOnlyPublicKey,
+    operator_idx: usize,
+    verifiers_pks: Vec<secp256k1::PublicKey>,
     agg_nonce: &MuSigAggNonce,
     partial_sigs: Vec<[u8; 32]>,
     network: bitcoin::Network,
@@ -174,14 +175,41 @@ pub fn aggregate_operator_takes_partial_sigs(
     let key_agg_ctx = create_key_agg_ctx(verifiers_pks.clone(), None)?;
     let musig_agg_pubkey: musig2::secp256k1::PublicKey = key_agg_ctx.aggregated_pubkey();
     let (musig_agg_xonly_pubkey, _) = musig_agg_pubkey.x_only_public_key();
-    let musig_agg_xonly_pubkey_wrapped =
+    let nofn_xonly_pk =
         bitcoin::XOnlyPublicKey::from_slice(&musig_agg_xonly_pubkey.serialize()).unwrap();
 
+    let move_tx_handler = TransactionBuilder::create_move_tx(
+        deposit_outpoint,
+        &EVMAddress([0u8; 20]),
+        &Address::p2tr(&self::SECP, *self::UNSPENDABLE_XONLY_PUBKEY, None, network).as_unchecked(),
+        0,
+        &nofn_xonly_pk,
+        network,
+    );
+    let bridge_fund_outpoint = OutPoint {
+        txid: move_tx_handler.tx.compute_txid(),
+        vout: 0,
+    };
+    let slash_or_take_tx_handler = TransactionBuilder::create_slash_or_take_tx(
+        deposit_outpoint,
+        kickoff_utxo,
+        operator_xonly_pk,
+        operator_idx,
+        &nofn_xonly_pk,
+        network,
+    );
+    let slash_or_take_utxo = UTXO {
+        outpoint: OutPoint {
+            txid: slash_or_take_tx_handler.tx.compute_txid(),
+            vout: 0,
+        },
+        txout: slash_or_take_tx_handler.tx.output[0].clone(),
+    };
     let mut tx = TransactionBuilder::create_operator_takes_tx(
         bridge_fund_outpoint,
         slash_or_take_utxo,
         operator_xonly_pk,
-        &musig_agg_xonly_pubkey_wrapped,
+        &nofn_xonly_pk,
         network,
     );
     let message: [u8; 32] = Actor::convert_tx_to_sighash_pubkey_spend(&mut tx, 0)
