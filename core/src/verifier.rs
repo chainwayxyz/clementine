@@ -338,11 +338,13 @@ where
                     Actor::convert_tx_to_sighash_script_spend(&mut slash_or_take_tx_handler, 0, 0)
                         .unwrap();
 
-                utils::SECP.verify_schnorr(
-                    &slash_or_take_sigs[index],
-                    &secp256k1::Message::from_digest(slash_or_take_sighash.to_byte_array()),
-                    &self.nofn_xonly_pk,
-                ).unwrap();
+                utils::SECP
+                    .verify_schnorr(
+                        &slash_or_take_sigs[index],
+                        &secp256k1::Message::from_digest(slash_or_take_sighash.to_byte_array()),
+                        &self.nofn_xonly_pk,
+                    )
+                    .unwrap();
 
                 let (operator_address, _) = TransactionBuilder::create_taproot_address(
                     &[],
