@@ -32,8 +32,6 @@ pub struct TransactionBuilder {
 }
 
 // TODO: Move these constants to a config file
-// pub const MOVE_COMMIT_TX_MIN_RELAY_FEE: u64 = 305;
-// pub const MOVE_REVEAL_TX_MIN_RELAY_FEE: u64 = 305;
 pub const MOVE_TX_MIN_RELAY_FEE: u64 = 305;
 pub const SLASH_OR_TAKE_TX_MIN_RELAY_FEE: u64 = 305;
 pub const WITHDRAWAL_TX_MIN_RELAY_FEE: u64 = 305;
