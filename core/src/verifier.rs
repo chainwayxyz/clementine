@@ -38,7 +38,7 @@ impl<R> Verifier<R>
 where
     R: RpcApiWrapper,
 {
-    pub async fn new(config: BridgeConfig, rpc: ExtendedRpc<R>) -> Result<Self, BridgeError> {
+    pub async fn new(rpc: ExtendedRpc<R>, config: BridgeConfig) -> Result<Self, BridgeError> {
         let signer = Actor::new(config.secret_key, config.network);
 
         let pk: secp256k1::PublicKey = config.secret_key.public_key(&utils::SECP);

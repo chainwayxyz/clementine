@@ -4,6 +4,7 @@
 
 use bitcoin::Address;
 use clementine_circuits::constants::BRIDGE_AMOUNT_SATS;
+use clementine_core::actor::Actor;
 use clementine_core::config::BridgeConfig;
 use clementine_core::database::common::Database;
 use clementine_core::errors::BridgeError;
@@ -76,12 +77,11 @@ async fn test_deposit() -> Result<(), BridgeError> {
 
     let secret_key = secp256k1::SecretKey::new(&mut secp256k1::rand::thread_rng());
 
-    let user = User::new(
-        rpc.clone(),
-        config.verifiers_public_keys.clone(),
-        secret_key,
-        config.clone(),
-    );
+    let signer_address = Actor::new(secret_key, config.network)
+        .address
+        .as_unchecked()
+        .clone();
+    let user = User::new(rpc.clone(), secret_key, config.clone());
 
     let evm_address = EVMAddress([1u8; 20]);
     let deposit_address = user.get_deposit_address(evm_address).unwrap();
@@ -95,13 +95,9 @@ async fn test_deposit() -> Result<(), BridgeError> {
     // aggregate nonces
     let mut pub_nonces = Vec::new();
 
-    for (i, (client, _)) in verifiers.iter().enumerate() {
+    for (i, (client, ..)) in verifiers.iter().enumerate() {
         let musig_pub_nonces = client
-            .verifier_new_deposit_rpc(
-                deposit_outpoint,
-                user.signer.address.as_unchecked().clone(),
-                evm_address,
-            )
+            .verifier_new_deposit_rpc(deposit_outpoint, signer_address.clone(), evm_address)
             .await
             .unwrap();
 
@@ -139,7 +135,9 @@ async fn test_deposit() -> Result<(), BridgeError> {
         let operator_funding_outpoint = rpc
             .send_to_address(&operator_address, 2 * BRIDGE_AMOUNT_SATS)
             .unwrap();
-        let operator_funding_txout = rpc.get_txout_from_utxo(&operator_funding_outpoint).unwrap();
+        let operator_funding_txout = rpc
+            .get_txout_from_outpoint(&operator_funding_outpoint)
+            .unwrap();
         let operator_funding_utxo = UTXO {
             outpoint: operator_funding_outpoint,
             txout: operator_funding_txout,
@@ -152,11 +150,7 @@ async fn test_deposit() -> Result<(), BridgeError> {
 
         // Create deposit kickoff transaction
         let (kickoff_utxo, signature) = client
-            .new_deposit_rpc(
-                deposit_outpoint,
-                user.signer.address.as_unchecked().clone(),
-                evm_address,
-            )
+            .new_deposit_rpc(deposit_outpoint, signer_address.clone(), evm_address)
             .await
             .unwrap();
 
@@ -168,7 +162,7 @@ async fn test_deposit() -> Result<(), BridgeError> {
     // aggreate partial signatures here
     // let mut agg_signatures = Vec::new();
 
-    for (i, (client, _)) in verifiers.iter().enumerate() {
+    for (i, (client, ..)) in verifiers.iter().enumerate() {
         let musig_partial_signatures = client
             .operator_kickoffs_generated_rpc(
                 deposit_outpoint,
@@ -200,10 +194,13 @@ async fn test_deposit() -> Result<(), BridgeError> {
     let mut operator_take_partial_signs = Vec::new();
     for (i, (client, ..)) in operators.iter().enumerate() {
         let operator_take_partial_sigs = client
-            .burn_txs_signed_rpc(deposit_outpoint, vec![])
+            .burn_txs_signed_rpc(deposit_outpoint, Vec::new(), Vec::new())
             .await
             .unwrap();
-        println!("Operator take partial sigs: {:#?}", operator_take_partial_sigs);
+        println!(
+            "Operator take partial sigs: {:#?}",
+            operator_take_partial_sigs
+        );
         operator_take_partial_signs.push(
             operator_take_partial_sigs
                 .iter()
