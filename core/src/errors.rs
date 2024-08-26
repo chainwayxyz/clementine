@@ -64,8 +64,8 @@ pub enum BridgeError {
     #[error("TryFromSliceError")]
     TryFromSliceError,
     /// Returned when bitcoin::Transaction error happens, also returns the error
-    #[error("BitcoinTransactionError")]
-    BitcoinTransactionError,
+    #[error("BitcoinTransactionError: {0}")]
+    BitcoinConsensusEncodeError(bitcoin::consensus::encode::Error),
     /// TxInputNotFound is returned when the input is not found in the transaction
     #[error("TxInputNotFound")]
     TxInputNotFound,
@@ -158,6 +158,12 @@ pub enum BridgeError {
     KickoffOutpointsNotFound,
     #[error("DepositInfoNotFound")]
     DepositInfoNotFound,
+
+    #[error("FromHexError: {0}")]
+    FromHexError(hex::FromHexError),
+
+    #[error("FromSliceError: {0}")]
+    FromSliceError(bitcoin::hashes::FromSliceError),
 }
 
 impl Into<ErrorObject<'static>> for BridgeError {
@@ -190,9 +196,9 @@ impl From<TryFromSliceError> for BridgeError {
     }
 }
 
-impl From<bitcoin::Transaction> for BridgeError {
-    fn from(_error: bitcoin::Transaction) -> Self {
-        BridgeError::BitcoinTransactionError
+impl From<bitcoin::consensus::encode::Error> for BridgeError {
+    fn from(err: bitcoin::consensus::encode::Error) -> Self {
+        BridgeError::BitcoinConsensusEncodeError(err)
     }
 }
 
@@ -259,5 +265,17 @@ impl From<InvalidScalarBytes> for BridgeError {
 impl From<musig2::errors::VerifyError> for BridgeError {
     fn from(err: musig2::errors::VerifyError) -> Self {
         BridgeError::MuSig2VerifyError(err)
+    }
+}
+
+impl From<hex::FromHexError> for BridgeError {
+    fn from(err: hex::FromHexError) -> Self {
+        BridgeError::FromHexError(err)
+    }
+}
+
+impl From<bitcoin::hashes::FromSliceError> for BridgeError {
+    fn from(err: bitcoin::hashes::FromSliceError) -> Self {
+        BridgeError::FromSliceError(err)
     }
 }

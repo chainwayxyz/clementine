@@ -1,4 +1,4 @@
-use clementine_core::{cli, extended_rpc::ExtendedRpc, servers::create_operator_and_verifiers};
+use clementine_core::{cli, extended_rpc::ExtendedRpc, servers::create_verifiers_and_operators};
 
 /// ```bash
 /// curl -X POST http://127.0.0.1:3434 -H "Content-Type: application/json" -d '{
@@ -21,13 +21,21 @@ async fn main() {
         config.bitcoin_rpc_password.clone(),
     );
 
-    let (operator_client, operator_handle, _verifiers) =
-        create_operator_and_verifiers(config, rpc).await;
+    let (operator_clients, verifier_clients) = create_verifiers_and_operators(config, rpc).await;
 
-    println!("Operator server started: {:?}", operator_client);
+    println!("Operator servers started: {:?}", operator_clients);
+    println!("Verifier servers started: {:?}", verifier_clients);
+    println!("Number of operator clients: {}", operator_clients.len());
+    println!("Number of verifier clients: {}", verifier_clients.len());
 
-    operator_handle.stopped().await;
-    for verifier in _verifiers {
-        verifier.1.stopped().await;
+    // Stop all servers
+    for (_, handle, _) in operator_clients {
+        handle.clone().stopped().await;
     }
+
+    for (_, handle, _) in verifier_clients {
+        handle.clone().stopped().await;
+    }
+
+    println!("All servers stopped");
 }

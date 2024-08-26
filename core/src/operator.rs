@@ -1,3 +1,6 @@
+use std::borrow::Borrow;
+use std::mem::swap;
+
 use crate::actor::Actor;
 use crate::config::BridgeConfig;
 use crate::database::operator::OperatorDB;
@@ -6,16 +9,21 @@ use crate::extended_rpc::ExtendedRpc;
 use crate::musig2::{self, MuSigAggNonce, MuSigPartialSignature, MuSigPubNonce};
 use crate::traits::rpc::OperatorRpcServer;
 use crate::transaction_builder::TransactionBuilder;
-use crate::{utils, EVMAddress, UTXO};
+use crate::utils::parse_hex_to_btc_tx;
+use crate::{script_builder, utils, EVMAddress, UTXO};
 use ::musig2::secp::Point;
 use bitcoin::address::NetworkUnchecked;
+use bitcoin::consensus::deserialize;
 use bitcoin::hashes::Hash;
-use bitcoin::{Address, OutPoint, TapSighash};
+use bitcoin::sighash::SighashCache;
+use bitcoin::{Address, OutPoint, TapSighash, Transaction, TxOut, Txid};
 use bitcoin_mock_rpc::RpcApiWrapper;
+use bitcoincore_rpc::json::{self, SigHashType};
 use bitcoincore_rpc::RawTx;
 use clementine_circuits::constants::BRIDGE_AMOUNT_SATS;
 use clementine_circuits::sha256_hash;
 use jsonrpsee::core::async_trait;
+use secp256k1::{schnorr, Message};
 
 #[derive(Debug, Clone)]
 pub struct Operator<R>
@@ -27,6 +35,7 @@ where
     signer: Actor,
     config: BridgeConfig,
     nofn_xonly_pk: secp256k1::XOnlyPublicKey,
+    idx: usize,
 }
 
 impl<R> Operator<R>
@@ -35,12 +44,9 @@ where
 {
     /// Creates a new `Operator`.
     pub async fn new(config: BridgeConfig, rpc: ExtendedRpc<R>) -> Result<Self, BridgeError> {
-        let num_verifiers = config.verifiers_public_keys.len();
+        // let num_verifiers = config.verifiers_public_keys.len();
 
         let signer = Actor::new(config.secret_key, config.network);
-        if signer.public_key != config.verifiers_public_keys[num_verifiers - 1] {
-            return Err(BridgeError::InvalidOperatorKey);
-        }
 
         let db = OperatorDB::new(config.clone()).await;
 
@@ -48,6 +54,11 @@ where
             musig2::create_key_agg_ctx(config.verifiers_public_keys.clone(), None)?;
         let agg_point: Point = key_agg_context.aggregated_pubkey_untweaked();
         let nofn_xonly_pk = secp256k1::XOnlyPublicKey::from_slice(&agg_point.serialize_xonly())?;
+        let idx = config
+            .operators_xonly_pks
+            .iter()
+            .position(|xonly_pk| xonly_pk == &signer.xonly_public_key)
+            .unwrap();
 
         Ok(Self {
             rpc,
@@ -55,6 +66,7 @@ where
             signer,
             config,
             nofn_xonly_pk,
+            idx,
         })
     }
 
@@ -129,8 +141,12 @@ where
             ));
         }
 
-        let kickoff_tx_handler =
-            TransactionBuilder::create_kickoff_tx(&funding_utxo, &self.signer.address);
+        let kickoff_tx_handler = TransactionBuilder::create_kickoff_utxo_tx(
+            &funding_utxo,
+            &self.nofn_xonly_pk,
+            &self.signer.xonly_public_key,
+            self.config.network,
+        );
 
         let change_utxo = UTXO {
             outpoint: OutPoint {
@@ -188,8 +204,91 @@ where
 
     /// Checks if utxo is valid, spendable by operator and not spent
     /// Saves the utxo to the db
-    async fn set_operator_funding_utxo_rpc(&self, funding_utxo: UTXO) -> Result<(), BridgeError> {
+    async fn set_operator_funding_utxo(&self, funding_utxo: UTXO) -> Result<(), BridgeError> {
         self.db.set_funding_utxo(funding_utxo).await?;
+        Ok(())
+    }
+
+    async fn is_profitable(&self, _withdrawal_idx: usize) -> Result<bool, BridgeError> {
+        // check that withdrawal_idx has the input_utxo.outpoint
+        // call is_profitable
+        // if is profitable, pay the withdrawal
+        // TODO: Implement this
+        Ok(true)
+    }
+
+    async fn new_withdrawal_sig(
+        &self,
+        withdrawal_idx: usize,
+        user_sig: schnorr::Signature,
+        input_utxo: UTXO,
+        output_txout: TxOut,
+    ) -> Result<Option<Txid>, BridgeError> {
+        // TODO: check that withdrawal_idx has the input_utxo.outpoint
+
+        if !self.is_profitable(withdrawal_idx).await? {
+            return Ok(None);
+        }
+        let tx_ins = TransactionBuilder::create_tx_ins(vec![input_utxo.outpoint]);
+        let user_xonly_pk = secp256k1::XOnlyPublicKey::from_slice(
+            &input_utxo.txout.script_pubkey.as_bytes()[2..34],
+        )?;
+        let tx_outs = vec![output_txout.clone()];
+        let mut tx = TransactionBuilder::create_btc_tx(tx_ins, tx_outs);
+        let mut sighash_cache = SighashCache::new(tx.clone());
+        let sighash = sighash_cache.taproot_key_spend_signature_hash(
+            0,
+            &bitcoin::sighash::Prevouts::One(0, &input_utxo.txout),
+            bitcoin::sighash::TapSighashType::SinglePlusAnyoneCanPay,
+        )?;
+        let user_sig_wrapped = bitcoin::taproot::Signature {
+            signature: user_sig,
+            sighash_type: bitcoin::sighash::TapSighashType::SinglePlusAnyoneCanPay,
+        };
+        tx.input[0].witness.push(user_sig_wrapped.serialize());
+        utils::SECP.verify_schnorr(
+            &user_sig,
+            &Message::from_digest_slice(sighash.as_byte_array()).expect("should be hash"),
+            &user_xonly_pk,
+        )?;
+        let op_return_txout = script_builder::op_return_txout(self.idx.to_be_bytes());
+        tx.output.push(op_return_txout.clone());
+        let funded_tx = self
+            .rpc
+            .fund_raw_transaction(
+                &tx,
+                Some(&bitcoincore_rpc::json::FundRawTransactionOptions {
+                    add_inputs: Some(true),
+                    change_address: None,
+                    change_position: Some(1),
+                    change_type: None,
+                    include_watching: None,
+                    lock_unspents: None,
+                    fee_rate: None,
+                    subtract_fee_from_outputs: None,
+                    replaceable: None,
+                    conf_target: None,
+                    estimate_mode: None,
+                }),
+                None,
+            )?
+            .hex;
+
+        let signed_tx: Transaction = deserialize(
+            &self
+                .rpc
+                .sign_raw_transaction_with_wallet(&funded_tx, None, None)?
+                .hex,
+        )?;
+        let final_txid = self.rpc.send_raw_transaction(&signed_tx)?;
+        Ok(Some(final_txid))
+    }
+
+    async fn withdrawal_proved_on_citrea(
+        &self,
+        withdrawal_idx: usize,
+        kickoff_merkle_root: [u8; 32],
+    ) -> Result<(), BridgeError> {
         Ok(())
     }
 }
@@ -210,6 +309,26 @@ where
     }
 
     async fn set_operator_funding_utxo_rpc(&self, funding_utxo: UTXO) -> Result<(), BridgeError> {
-        self.set_operator_funding_utxo_rpc(funding_utxo).await
+        self.set_operator_funding_utxo(funding_utxo).await
+    }
+
+    async fn new_withdrawal_sig_rpc(
+        &self,
+        withdrawal_idx: usize,
+        user_sig: schnorr::Signature,
+        input_utxo: UTXO,
+        output_txout: TxOut,
+    ) -> Result<Option<Txid>, BridgeError> {
+        self.new_withdrawal_sig(withdrawal_idx, user_sig, input_utxo, output_txout)
+            .await
+    }
+
+    async fn withdrawal_proved_on_citrea_rpc(
+        &self,
+        withdrawal_idx: usize,
+        kickoff_merkle_root: [u8; 32],
+    ) -> Result<(), BridgeError> {
+        self.withdrawal_proved_on_citrea(withdrawal_idx, kickoff_merkle_root)
+            .await
     }
 }

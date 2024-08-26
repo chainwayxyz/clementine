@@ -12,7 +12,7 @@ use bitcoin::{
     script::Builder,
     ScriptBuf, TxOut,
 };
-use bitcoin::{Address, OutPoint};
+use bitcoin::{Address, Amount, OutPoint};
 use secp256k1::XOnlyPublicKey;
 
 pub fn anyone_can_spend_txout() -> TxOut {
@@ -26,17 +26,15 @@ pub fn anyone_can_spend_txout() -> TxOut {
     }
 }
 
-pub fn op_return_txout(evm_address: &EVMAddress) -> TxOut {
+pub fn op_return_txout<S: AsRef<bitcoin::script::PushBytes>>(slice: S) -> TxOut {
     let script = Builder::new()
         .push_opcode(OP_RETURN)
-        .push_slice(evm_address.0)
+        .push_slice(slice)
         .into_script();
-    let script_pubkey = script.to_p2wsh();
-    let value = script_pubkey.minimal_non_dust();
 
     TxOut {
-        script_pubkey,
-        value,
+        value: Amount::from_sat(0),
+        script_pubkey: script,
     }
 }
 
@@ -59,58 +57,30 @@ pub fn create_deposit_script(
         .into_script()
 }
 
-pub fn create_move_commit_script(
+pub fn create_musig2_and_operator_multisig_script(
     nofn_xonly_pk: &XOnlyPublicKey,
-    evm_address: &EVMAddress,
-    kickoff_utxos: &[OutPoint],
+    operator_xonly_pk: &XOnlyPublicKey,
 ) -> ScriptBuf {
-    let citrea: [u8; 6] = "citrea".as_bytes().try_into().unwrap();
-
-    let builder = Builder::new()
+    Builder::new()
         .push_x_only_key(nofn_xonly_pk)
+        .push_opcode(OP_CHECKSIGVERIFY)
+        .push_x_only_key(operator_xonly_pk)
         .push_opcode(OP_CHECKSIG)
-        .push_opcode(OP_FALSE)
-        .push_opcode(OP_IF)
-        .push_slice(citrea)
-        .push_slice(evm_address.0);
-
-    let builder = kickoff_utxos.iter().fold(builder, |b, utxo| {
-        b.push_slice(utxo.txid.to_byte_array()) // TODO: Optimize here
-            .push_int(utxo.vout as i64)
-    });
-
-    builder.push_opcode(OP_ENDIF).into_script()
+        .into_script()
 }
-
-// pub fn create_inscription_script_32_bytes(
-//     public_key: &XOnlyPublicKey,
-//     data: &Vec<[u8; 32]>,
-// ) -> ScriptBuf {
-//     let mut inscribe_preimage_script_builder = Builder::new()
-//         .push_x_only_key(public_key)
-//         .push_opcode(OP_CHECKSIG)
-//         .push_opcode(OP_FALSE)
-//         .push_opcode(OP_IF);
-//     for elem in data {
-//         inscribe_preimage_script_builder = inscribe_preimage_script_builder.push_slice(elem);
-//     }
-//     inscribe_preimage_script_builder = inscribe_preimage_script_builder.push_opcode(OP_ENDIF);
-
-//     inscribe_preimage_script_builder.into_script()
-// }
 
 /// ATTENTION: If you want to spend a UTXO using timelock script, the
 /// condition is that (`# in the script`) < (`# in the sequence of the tx`)
 /// < (`# of blocks mined after UTXO`) appears on the chain.
 pub fn generate_relative_timelock_script(
-    actor_taproot_address: &XOnlyPublicKey,
+    actor_taproot_xonly_pk: &XOnlyPublicKey, // This is the tweaked XonlyPublicKey, which appears in the script_pubkey of the address
     block_count: u32,
 ) -> ScriptBuf {
     Builder::new()
         .push_int(block_count as i64)
         .push_opcode(OP_CSV)
         .push_opcode(OP_DROP)
-        .push_x_only_key(actor_taproot_address)
+        .push_x_only_key(actor_taproot_xonly_pk)
         .push_opcode(OP_CHECKSIG)
         .into_script()
 }

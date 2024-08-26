@@ -2,6 +2,7 @@
 
 use crate::{script_builder, utils, EVMAddress, UTXO};
 use bitcoin::address::NetworkUnchecked;
+use bitcoin::script::PushBytesBuf;
 use bitcoin::Network;
 use bitcoin::{
     absolute,
@@ -9,6 +10,7 @@ use bitcoin::{
     Address, Amount, OutPoint, ScriptBuf, TxIn, TxOut, Witness,
 };
 use clementine_circuits::constants::BRIDGE_AMOUNT_SATS;
+use hex::ToHex;
 use secp256k1::PublicKey;
 use secp256k1::XOnlyPublicKey;
 
@@ -30,8 +32,10 @@ pub struct TransactionBuilder {
 }
 
 // TODO: Move these constants to a config file
-pub const MOVE_COMMIT_TX_MIN_RELAY_FEE: u64 = 305;
-pub const MOVE_REVEAL_TX_MIN_RELAY_FEE: u64 = 305;
+// pub const MOVE_COMMIT_TX_MIN_RELAY_FEE: u64 = 305;
+// pub const MOVE_REVEAL_TX_MIN_RELAY_FEE: u64 = 305;
+pub const MOVE_TX_MIN_RELAY_FEE: u64 = 305;
+pub const SLASH_OR_TAKE_TX_MIN_RELAY_FEE: u64 = 305;
 pub const WITHDRAWAL_TX_MIN_RELAY_FEE: u64 = 305;
 
 impl TransactionBuilder {
@@ -126,39 +130,6 @@ impl TransactionBuilder {
         )
     }
 
-    pub fn generate_move_commit_address(
-        nofn_xonly_pk: &XOnlyPublicKey,
-        recovery_taproot_address: &Address<NetworkUnchecked>,
-        user_evm_address: &EVMAddress,
-        kickoff_utxos: &[OutPoint],
-        relative_block_height_to_take_after: u32,
-        network: bitcoin::Network,
-    ) -> CreateAddressOutputs {
-        let kickoffs_commit_script = script_builder::create_move_commit_script(
-            nofn_xonly_pk,
-            user_evm_address,
-            kickoff_utxos,
-        );
-
-        let recovery_script_pubkey = recovery_taproot_address
-            .clone()
-            .assume_checked()
-            .script_pubkey();
-        let recovery_extracted_xonly_pk =
-            XOnlyPublicKey::from_slice(&recovery_script_pubkey.as_bytes()[2..34]).unwrap();
-
-        let timelock_script = script_builder::generate_relative_timelock_script(
-            &recovery_extracted_xonly_pk,
-            relative_block_height_to_take_after,
-        );
-
-        TransactionBuilder::create_taproot_address(
-            &[kickoffs_commit_script, timelock_script],
-            None,
-            network,
-        )
-    }
-
     pub fn create_musig2_address(
         nofn_xonly_pk: XOnlyPublicKey,
         network: bitcoin::Network,
@@ -166,28 +137,31 @@ impl TransactionBuilder {
         TransactionBuilder::create_taproot_address(&[], Some(nofn_xonly_pk), network)
     }
 
+    pub fn create_kickoff_address(
+        nofn_xonly_pk: &XOnlyPublicKey,
+        operator_xonly_pk: &XOnlyPublicKey,
+        network: bitcoin::Network,
+    ) -> CreateAddressOutputs {
+        let musig2_and_operator_script = script_builder::create_musig2_and_operator_multisig_script(
+            nofn_xonly_pk,
+            operator_xonly_pk,
+        );
+        TransactionBuilder::create_taproot_address(&[musig2_and_operator_script], None, network)
+    }
+
     // TX BUILDERS
 
-    pub fn create_move_commit_tx(
-        deposit_utxo: OutPoint,
+    /// Creates the move_tx to move the deposit.
+    pub fn create_move_tx(
+        deposit_outpoint: OutPoint,
         evm_address: &EVMAddress,
         recovery_taproot_address: &Address<NetworkUnchecked>,
         deposit_user_takes_after: u32,
         nofn_xonly_pk: &XOnlyPublicKey,
-        kickoff_utxos: &[OutPoint],
-        relative_block_height_to_take_after: u32,
         network: bitcoin::Network,
     ) -> TxHandler {
         let anyone_can_spend_txout = script_builder::anyone_can_spend_txout();
-        let (move_commit_address, _) = TransactionBuilder::generate_move_commit_address(
-            nofn_xonly_pk,
-            recovery_taproot_address,
-            evm_address,
-            kickoff_utxos,
-            relative_block_height_to_take_after,
-            network,
-        );
-
+        let (musig2_address, _) = Self::create_musig2_address(*nofn_xonly_pk, network);
         let (deposit_address, deposit_taproot_spend_info) =
             TransactionBuilder::generate_deposit_address(
                 nofn_xonly_pk,
@@ -197,99 +171,50 @@ impl TransactionBuilder {
                 deposit_user_takes_after,
                 network,
             );
-
-        let move_commit_txout = TxOut {
+        let move_txout = TxOut {
             value: Amount::from_sat(BRIDGE_AMOUNT_SATS)
-                - Amount::from_sat(MOVE_COMMIT_TX_MIN_RELAY_FEE)
+                - Amount::from_sat(MOVE_TX_MIN_RELAY_FEE)
                 - anyone_can_spend_txout.value,
-            script_pubkey: move_commit_address.script_pubkey(),
+            script_pubkey: musig2_address.script_pubkey(),
         };
-
-        let tx_ins = TransactionBuilder::create_tx_ins(vec![deposit_utxo]);
-
-        let move_commit_tx = TransactionBuilder::create_btc_tx(
-            tx_ins,
-            vec![move_commit_txout, anyone_can_spend_txout],
-        );
-
+        let tx_ins = TransactionBuilder::create_tx_ins(vec![deposit_outpoint]);
+        let move_tx =
+            TransactionBuilder::create_btc_tx(tx_ins, vec![move_txout, anyone_can_spend_txout]);
         let prevouts = vec![TxOut {
             script_pubkey: deposit_address.script_pubkey(),
             value: Amount::from_sat(BRIDGE_AMOUNT_SATS),
         }];
-
         let deposit_script = vec![script_builder::create_deposit_script(
             nofn_xonly_pk,
             evm_address,
             BRIDGE_AMOUNT_SATS,
         )];
-
         TxHandler {
-            tx: move_commit_tx,
+            tx: move_tx,
             prevouts,
             scripts: vec![deposit_script],
             taproot_spend_infos: vec![deposit_taproot_spend_info],
         }
     }
 
-    pub fn create_move_reveal_tx(
-        move_commit_utxo: OutPoint,
-        evm_address: &EVMAddress,
-        recovery_taproot_address: &Address<NetworkUnchecked>,
-        nofn_xonly_pk: &XOnlyPublicKey,
-        kickoff_utxos: &[OutPoint],
-        relative_block_height_to_take_after: u32,
-        network: Network,
-    ) -> TxHandler {
-        let (musig2_address, _) =
-            TransactionBuilder::create_musig2_address(*nofn_xonly_pk, network);
-        let (move_commit_address, move_commit_taproot_spend_info) =
-            TransactionBuilder::generate_move_commit_address(
-                nofn_xonly_pk,
-                recovery_taproot_address,
-                evm_address,
-                kickoff_utxos,
-                relative_block_height_to_take_after,
-                network,
-            );
-        let move_reveal_txout = TxOut {
-            value: Amount::from_sat(BRIDGE_AMOUNT_SATS)
-                - Amount::from_sat(MOVE_COMMIT_TX_MIN_RELAY_FEE)
-                - Amount::from_sat(MOVE_REVEAL_TX_MIN_RELAY_FEE)
-                - script_builder::anyone_can_spend_txout().value
-                - script_builder::anyone_can_spend_txout().value,
-            script_pubkey: musig2_address.script_pubkey(),
-        };
-
-        let tx_ins = TransactionBuilder::create_tx_ins(vec![move_commit_utxo]);
-
-        let move_reveal_tx = TransactionBuilder::create_btc_tx(
-            tx_ins,
-            vec![move_reveal_txout, script_builder::anyone_can_spend_txout()],
-        );
-
-        let prevouts = vec![TxOut {
-            script_pubkey: move_commit_address.script_pubkey(),
-            value: Amount::from_sat(BRIDGE_AMOUNT_SATS),
-        }];
-
-        let move_commit_script = vec![script_builder::create_move_commit_script(
-            nofn_xonly_pk,
-            evm_address,
-            kickoff_utxos,
-        )];
-
-        TxHandler {
-            tx: move_reveal_tx,
-            prevouts,
-            scripts: vec![move_commit_script],
-            taproot_spend_infos: vec![move_commit_taproot_spend_info],
-        }
-    }
-
     /// Creates the kickoff_tx for the operator. It also returns the change utxo
-    pub fn create_kickoff_tx(funding_utxo: &UTXO, address: &Address) -> TxHandler {
+    pub fn create_kickoff_utxo_tx(
+        funding_utxo: &UTXO, // Make sure this comes from the operator's address.
+        nofn_xonly_pk: &XOnlyPublicKey,
+        operator_xonly_pk: &XOnlyPublicKey,
+        network: bitcoin::Network,
+    ) -> TxHandler {
         let tx_ins = TransactionBuilder::create_tx_ins(vec![funding_utxo.outpoint]);
-
+        let musig2_and_operator_script = script_builder::create_musig2_and_operator_multisig_script(
+            nofn_xonly_pk,
+            operator_xonly_pk,
+        );
+        let (musig2_and_operator_address, _) = TransactionBuilder::create_taproot_address(
+            &[musig2_and_operator_script],
+            None,
+            network,
+        );
+        let operator_address = Address::p2tr(&utils::SECP, *operator_xonly_pk, None, network);
         let change_amount = funding_utxo.txout.value
             - Amount::from_sat(100_000)
             - script_builder::anyone_can_spend_txout().value;
@@ -297,9 +222,9 @@ impl TransactionBuilder {
         let tx_outs = TransactionBuilder::create_tx_outs(vec![
             (
                 Amount::from_sat(100_000), // TODO: Change this to a constant
-                address.script_pubkey(),
+                musig2_and_operator_address.script_pubkey(),
             ),
-            (change_amount, address.script_pubkey()),
+            (change_amount, operator_address.script_pubkey()),
             (
                 script_builder::anyone_can_spend_txout().value,
                 script_builder::anyone_can_spend_txout().script_pubkey,
@@ -318,38 +243,73 @@ impl TransactionBuilder {
     }
 
     pub fn create_slash_or_take_tx(
-        kickoff_outpoint: OutPoint,
-        kickoff_txout: TxOut,
-        operator_address: &XOnlyPublicKey,
+        deposit_outpoint: OutPoint,
+        kickoff_utxo: UTXO,
+        operator_xonly_pk: &XOnlyPublicKey,
+        operator_idx: usize,
         nofn_xonly_pk: &XOnlyPublicKey,
         network: bitcoin::Network,
     ) -> TxHandler {
-        let ins = TransactionBuilder::create_tx_ins(vec![kickoff_outpoint]);
-        let relative_timelock_script =
-            script_builder::generate_relative_timelock_script(operator_address, 200); // TODO: Change this 200 to a config constant
+        // First recreate the move_tx and move_txid. We can give dummy values for some of the parameters since we are only interested in txid.
+        let move_tx_handler = TransactionBuilder::create_move_tx(
+            deposit_outpoint,
+            &EVMAddress([0u8; 20]),
+            &Address::p2tr(
+                &utils::SECP,
+                *utils::UNSPENDABLE_XONLY_PUBKEY,
+                None,
+                network,
+            )
+            .as_unchecked(),
+            200,
+            nofn_xonly_pk,
+            network,
+        );
+        let move_txid = move_tx_handler.tx.compute_txid();
 
-        let slash_or_take_address = TransactionBuilder::create_taproot_address(
+        let (kickoff_utxo_address, kickoff_utxo_spend_info) =
+            Self::create_kickoff_address(nofn_xonly_pk, operator_xonly_pk, network);
+
+        // Sanity check
+        assert!(kickoff_utxo_address.script_pubkey() == kickoff_utxo.txout.script_pubkey);
+        let ins = Self::create_tx_ins(vec![kickoff_utxo.outpoint]);
+        let relative_timelock_script =
+            script_builder::generate_relative_timelock_script(operator_xonly_pk, 200); // TODO: Change this 200 to a config constant
+        let (slash_or_take_address, _) = TransactionBuilder::create_taproot_address(
             &[relative_timelock_script.clone()],
             Some(*nofn_xonly_pk),
             network,
         );
-
+        let mut op_return_script: Vec<u8> = hex::decode(move_txid.to_string()).unwrap();
+        let op_return_idx: Vec<u8> = if operator_idx < 256 {
+            vec![operator_idx as u8] // Directly create a Vec<u8> for u8
+        } else if operator_idx < 65536 {
+            (operator_idx as u16).to_be_bytes().to_vec() // Convert u16 array to Vec<u8>
+        } else {
+            (operator_idx as u32).to_be_bytes().to_vec() // Convert u32 array to Vec<u8>
+        };
+        op_return_script.extend(op_return_idx);
+        let mut push_bytes = PushBytesBuf::new();
+        push_bytes.extend_from_slice(&op_return_script).unwrap();
+        let op_return_txout = script_builder::op_return_txout(push_bytes);
         let outs = vec![
             TxOut {
-                value: Amount::from_sat(kickoff_txout.value.to_sat() - 330),
-                script_pubkey: slash_or_take_address.0.script_pubkey(),
+                value: Amount::from_sat(
+                    kickoff_utxo.txout.value.to_sat() - 330 - SLASH_OR_TAKE_TX_MIN_RELAY_FEE,
+                ),
+                script_pubkey: slash_or_take_address.script_pubkey(),
             },
+            op_return_txout,
             script_builder::anyone_can_spend_txout(),
         ];
         let tx = TransactionBuilder::create_btc_tx(ins, outs);
-        let prevouts = vec![kickoff_txout];
-        let scripts = vec![vec![relative_timelock_script]];
-        let taproot_spend_infos = vec![slash_or_take_address.1];
+        let prevouts = vec![kickoff_utxo.txout.clone()];
+        let scripts = vec![vec![relative_timelock_script.clone()]];
         TxHandler {
             tx,
             prevouts,
             scripts,
-            taproot_spend_infos,
+            taproot_spend_infos: vec![kickoff_utxo_spend_info],
         }
     }
 
@@ -388,9 +348,7 @@ impl TransactionBuilder {
             TxOut {
                 value: Amount::from_sat(slash_or_take_txout.value.to_sat())
                     + Amount::from_sat(BRIDGE_AMOUNT_SATS)
-                    - Amount::from_sat(MOVE_COMMIT_TX_MIN_RELAY_FEE)
-                    - Amount::from_sat(MOVE_REVEAL_TX_MIN_RELAY_FEE)
-                    - script_builder::anyone_can_spend_txout().value
+                    - Amount::from_sat(MOVE_TX_MIN_RELAY_FEE)
                     - script_builder::anyone_can_spend_txout().value
                     - script_builder::anyone_can_spend_txout().value,
                 script_pubkey: operator_address.script_pubkey(),
@@ -402,9 +360,7 @@ impl TransactionBuilder {
             TxOut {
                 script_pubkey: musig2_address.script_pubkey(),
                 value: Amount::from_sat(BRIDGE_AMOUNT_SATS)
-                    - Amount::from_sat(MOVE_COMMIT_TX_MIN_RELAY_FEE)
-                    - Amount::from_sat(MOVE_REVEAL_TX_MIN_RELAY_FEE)
-                    - script_builder::anyone_can_spend_txout().value
+                    - Amount::from_sat(MOVE_TX_MIN_RELAY_FEE)
                     - script_builder::anyone_can_spend_txout().value,
             },
             slash_or_take_txout,
@@ -428,10 +384,10 @@ impl TransactionBuilder {
         }
     }
 
-    pub fn create_tx_ins(utxos: Vec<OutPoint>) -> Vec<TxIn> {
+    pub fn create_tx_ins(outpoints: Vec<OutPoint>) -> Vec<TxIn> {
         let mut tx_ins = Vec::new();
 
-        for utxo in utxos {
+        for utxo in outpoints {
             tx_ins.push(TxIn {
                 previous_output: utxo,
                 sequence: bitcoin::transaction::Sequence::ENABLE_RBF_NO_LOCKTIME,

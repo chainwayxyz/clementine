@@ -203,7 +203,7 @@ where
         Ok(block_height)
     }
 
-    pub fn get_txout_from_utxo(&self, outpoint: &OutPoint) -> Result<TxOut, BridgeError> {
+    pub fn get_txout_from_outpoint(&self, outpoint: &OutPoint) -> Result<TxOut, BridgeError> {
         let tx = self.client.get_raw_transaction(&outpoint.txid, None)?;
         let txout = tx.output[outpoint.vout as usize].clone();
 
@@ -211,13 +211,23 @@ where
     }
 
     // Following methods are just wrappers around the bitcoincore_rpc::Client methods
-    pub fn fundrawtransaction(
+    pub fn fund_raw_transaction(
         &self,
         tx: &Transaction,
         options: Option<&bitcoincore_rpc::json::FundRawTransactionOptions>,
         is_witness: Option<bool>,
     ) -> Result<bitcoincore_rpc::json::FundRawTransactionResult, bitcoincore_rpc::Error> {
         self.client.fund_raw_transaction(tx, options, is_witness)
+    }
+
+    pub fn sign_raw_transaction_with_wallet<T: bitcoincore_rpc::RawTx>(
+        &self,
+        tx: T,
+        utxos: Option<&[bitcoincore_rpc::json::SignRawTransactionInput]>,
+        sighash_type: Option<bitcoincore_rpc::json::SigHashType>,
+    ) -> Result<bitcoincore_rpc::json::SignRawTransactionResult, bitcoincore_rpc::Error> {
+        self.client
+            .sign_raw_transaction_with_wallet(tx, utxos, sighash_type)
     }
 
     pub fn get_blockchain_info(

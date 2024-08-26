@@ -44,6 +44,15 @@ pub struct UTXO {
     pub txout: bitcoin::TxOut,
 }
 
+impl UTXO {
+    fn to_vec(&self) -> Vec<u8> {
+        let outpoint_hex = bitcoin::consensus::encode::serialize_hex(&self.outpoint);
+        let txout_hex = bitcoin::consensus::encode::serialize_hex(&self.txout);
+        let all = format!("{}{}", outpoint_hex, txout_hex);
+        hex::decode(all).unwrap()
+    }
+}
+
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq, sqlx::Type)]
 #[sqlx(type_name = "bytea")]
 pub struct ByteArray66(#[serde(with = "hex::serde")] pub [u8; 66]);

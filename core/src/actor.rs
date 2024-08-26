@@ -147,7 +147,12 @@ impl Actor {
         let mut sighash_cache = SighashCache::new(tx);
         let sig_hash = sighash_cache.taproot_key_spend_signature_hash(
             input_index,
-            &bitcoin::sighash::Prevouts::All(prevouts),
+            &match sighash_type {
+                Some(TapSighashType::SinglePlusAnyoneCanPay) => {
+                    bitcoin::sighash::Prevouts::One(input_index, prevouts[input_index].clone())
+                }
+                _ => bitcoin::sighash::Prevouts::All(prevouts),
+            },
             sighash_type.unwrap_or(TapSighashType::Default),
         )?;
         self.sign_with_tweak(sig_hash, None)
@@ -155,7 +160,7 @@ impl Actor {
 
     pub fn sign_taproot_script_spend_tx_new_tweaked(
         &self,
-        tx: &mut TxHandler,
+        tx_handler: &mut TxHandler,
         txin_index: usize,
         script_index: usize,
     ) -> Result<schnorr::Signature, BridgeError> {
@@ -163,12 +168,12 @@ impl Actor {
         // else create a new one and save it to the TxHandler
 
         let mut sighash_cache: SighashCache<&mut bitcoin::Transaction> =
-            SighashCache::new(&mut tx.tx);
+            SighashCache::new(&mut tx_handler.tx);
         let sig_hash = sighash_cache.taproot_script_spend_signature_hash(
             txin_index,
-            &bitcoin::sighash::Prevouts::All(&tx.prevouts),
+            &bitcoin::sighash::Prevouts::All(&tx_handler.prevouts),
             TapLeafHash::from_script(
-                &tx.scripts[txin_index][script_index],
+                &tx_handler.scripts[txin_index][script_index],
                 LeafVersion::TapScript,
             ),
             bitcoin::sighash::TapSighashType::Default,
@@ -177,17 +182,17 @@ impl Actor {
     }
 
     pub fn convert_tx_to_sighash_script_spend(
-        tx: &mut TxHandler,
+        tx_handler: &mut TxHandler,
         txin_index: usize,
         script_index: usize,
     ) -> Result<TapSighash, BridgeError> {
         let mut sighash_cache: SighashCache<&mut bitcoin::Transaction> =
-            SighashCache::new(&mut tx.tx);
+            SighashCache::new(&mut tx_handler.tx);
         let sig_hash = sighash_cache.taproot_script_spend_signature_hash(
             txin_index,
-            &bitcoin::sighash::Prevouts::All(&tx.prevouts),
+            &bitcoin::sighash::Prevouts::All(&tx_handler.prevouts),
             TapLeafHash::from_script(
-                &tx.scripts[txin_index][script_index],
+                &tx_handler.scripts[txin_index][script_index],
                 LeafVersion::TapScript,
             ),
             bitcoin::sighash::TapSighashType::Default,
