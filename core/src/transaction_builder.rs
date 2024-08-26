@@ -187,12 +187,15 @@ impl TransactionBuilder {
             evm_address,
             BRIDGE_AMOUNT_SATS,
         )];
-        TxHandler {
+        let move_tx_handler = TxHandler {
             tx: move_tx,
             prevouts,
             scripts: vec![deposit_script],
             taproot_spend_infos: vec![deposit_taproot_spend_info],
-        }
+        };
+        println!("MOVE_TX: {:?}", move_tx_handler);
+        println!("MOVE_TXID: {:?}", move_tx_handler.tx.compute_txid());
+        move_tx_handler
     }
 
     /// Creates the kickoff_tx for the operator. It also returns the change utxo
@@ -259,7 +262,7 @@ impl TransactionBuilder {
                 network,
             )
             .as_unchecked(),
-            200,
+            5,
             nofn_xonly_pk,
             network,
         );

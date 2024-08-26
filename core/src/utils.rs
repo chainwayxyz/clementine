@@ -182,7 +182,7 @@ pub fn aggregate_operator_takes_partial_sigs(
         deposit_outpoint,
         &EVMAddress([0u8; 20]),
         &Address::p2tr(&self::SECP, *self::UNSPENDABLE_XONLY_PUBKEY, None, network).as_unchecked(),
-        0,
+        5,
         &nofn_xonly_pk,
         network,
     );
@@ -215,6 +215,9 @@ pub fn aggregate_operator_takes_partial_sigs(
     let message: [u8; 32] = Actor::convert_tx_to_sighash_pubkey_spend(&mut tx, 0)
         .unwrap()
         .to_byte_array();
+    println!("Message: {:?}", message);
+    println!("Partial sigs: {:?}", partial_sigs);
+    println!("Agg nonce: {:?}", agg_nonce);
     let final_sig: [u8; 64] = aggregate_partial_signatures(
         verifiers_pks.clone(),
         None,
@@ -249,6 +252,8 @@ pub fn aggregate_move_partial_sigs(
         &musig_agg_xonly_pubkey_wrapped,
         network,
     );
+    println!("MOVE_TX: {:?}", tx);
+    println!("MOVE_TXID: {:?}", tx.tx.compute_txid());
     let message: [u8; 32] = Actor::convert_tx_to_sighash_pubkey_spend(&mut tx, 0)
         .unwrap()
         .to_byte_array();
@@ -257,6 +262,7 @@ pub fn aggregate_move_partial_sigs(
         Some(root) => root.to_byte_array(),
         None => TapNodeHash::all_zeros().to_byte_array(),
     };
+    println!("tweak: {:?}", tweak);
     let final_sig: [u8; 64] = aggregate_partial_signatures(
         verifiers_pks.clone(),
         Some(tweak),

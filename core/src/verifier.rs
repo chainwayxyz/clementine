@@ -297,7 +297,7 @@ where
             deposit_outpoint,
             &evm_address,
             &recovery_taproot_address,
-            200, // TODO: Fix this
+            5, // TODO: Fix this
             &self.nofn_xonly_pk,
             self.config.network,
         );
@@ -334,7 +334,7 @@ where
                     &self.nofn_xonly_pk,
                     self.config.network,
                 );
-                println!("Slash or take tx handler: {:#?}", slash_or_take_tx_handler);
+                // println!("Slash or take tx handler: {:?}", slash_or_take_tx_handler);
                 let slash_or_take_sighash =
                     Actor::convert_tx_to_sighash_script_spend(&mut slash_or_take_tx_handler, 0, 0)
                         .unwrap();
@@ -367,13 +367,13 @@ where
                     .to_byte_array()
             })
             .collect::<Vec<_>>();
-
+        println!("Operator takes sighashes: {:?}", operator_takes_sighashes);
         let nonces = self
             .db
             .save_sighashes_and_get_nonces(deposit_outpoint, 1, &operator_takes_sighashes)
             .await?
             .ok_or(BridgeError::NoncesNotFound)?;
-
+        println!("Nonces: {:?}", nonces);
         // now iterate over nonces and sighashes and sign the operator_takes_txs
         let operator_takes_partial_sigs = operator_takes_sighashes
             .iter()
@@ -389,6 +389,10 @@ where
                 )
             })
             .collect::<Vec<_>>();
+        println!(
+            "Operator takes partial sigs: {:?}",
+            operator_takes_partial_sigs
+        );
         Ok(operator_takes_partial_sigs)
     }
 
@@ -399,6 +403,7 @@ where
         deposit_outpoint: OutPoint,
         operator_take_sigs: Vec<schnorr::Signature>,
     ) -> Result<MuSigPartialSignature, BridgeError> {
+        println!("Operator take signed: {:?}", operator_take_sigs);
         let (kickoff_utxos, mut move_tx_handler, bridge_fund_outpoint) =
             self.create_deposit_details(deposit_outpoint).await?;
 
@@ -441,9 +446,9 @@ where
                     )
                     .unwrap();
             });
-
-        let move_tx_sighash =
-            Actor::convert_tx_to_sighash_script_spend(&mut move_tx_handler, 0, 0)?; // TODO: This should be musig
+        println!("MOVE_TX: {:?}", move_tx_handler);
+        println!("MOVE_TXID: {:?}", move_tx_handler.tx.compute_txid());
+        let move_tx_sighash = Actor::convert_tx_to_sighash_pubkey_spend(&mut move_tx_handler, 0)?; // TODO: This should be musig
 
         // let move_reveal_sighash =
         //     Actor::convert_tx_to_sighash_script_spend(&mut move_reveal_tx_handler, 0, 0)?; // TODO: This should be musig

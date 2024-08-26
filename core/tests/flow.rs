@@ -3,10 +3,8 @@
 // //! This testss checks if basic deposit and withdraw operations are OK or not.
 
 use bitcoin::Address;
-use bitcoin::Transaction;
 use clementine_circuits::constants::BRIDGE_AMOUNT_SATS;
 use clementine_core::actor::Actor;
-use clementine_core::config::BridgeConfig;
 use clementine_core::database::common::Database;
 use clementine_core::errors::BridgeError;
 use clementine_core::extended_rpc::ExtendedRpc;
@@ -122,10 +120,7 @@ async fn test_deposit() -> Result<(), BridgeError> {
         signatures.push(signature);
     }
 
-    // call verifiers' operator_kickoffs_generated_rpc
-    // aggreate partial signatures here
-    // let mut agg_signatures = Vec::new();
-
+    tracing::debug!("Now the verifiers sequence starts");
     let mut slash_or_take_partial_sigs = Vec::new();
 
     for (_i, (client, ..)) in verifiers.iter().enumerate() {
@@ -141,7 +136,10 @@ async fn test_deposit() -> Result<(), BridgeError> {
 
         slash_or_take_partial_sigs.push(partial_sigs);
     }
-
+    tracing::debug!(
+        "Slash or take partial sigs: {:#?}",
+        slash_or_take_partial_sigs
+    );
     let mut slash_or_take_sigs = Vec::new();
     for i in 0..slash_or_take_partial_sigs[0].len() {
         let agg_sig = aggregate_slash_or_take_partial_sigs(
@@ -160,18 +158,20 @@ async fn test_deposit() -> Result<(), BridgeError> {
 
         slash_or_take_sigs.push(secp256k1::schnorr::Signature::from_slice(&agg_sig)?);
     }
-
+    tracing::debug!("Slash or take sigs: {:#?}", slash_or_take_sigs);
     // call burn_txs_signed_rpc
-    let mut operator_take_partial_sigs = Vec::new();
+    let mut operator_take_partial_sigs: Vec<Vec<[u8; 32]>> = Vec::new();
     for (_i, (client, _, _)) in verifiers.iter().enumerate() {
         let partial_sigs = client
             .burn_txs_signed_rpc(deposit_outpoint, vec![], slash_or_take_sigs.clone())
             .await
             .unwrap();
-        println!("Operator take partial sigs: {:#?}", partial_sigs);
         operator_take_partial_sigs.push(partial_sigs);
     }
-
+    tracing::debug!(
+        "Operator take partial sigs: {:#?}",
+        operator_take_partial_sigs
+    );
     let mut operator_take_sigs = Vec::new();
     for i in 0..operator_take_partial_sigs.len() {
         let agg_sig = aggregate_operator_takes_partial_sigs(
@@ -183,14 +183,14 @@ async fn test_deposit() -> Result<(), BridgeError> {
             &agg_nonces[i + 1].clone(),
             operator_take_partial_sigs
                 .iter()
-                .map(|v| v.get(i).cloned().unwrap())
-                .collect::<Vec<_>>(),
+                .map(|v| v[i].clone())
+                .collect(),
             config.network.clone(),
         )?;
 
         operator_take_sigs.push(secp256k1::schnorr::Signature::from_slice(&agg_sig)?);
     }
-
+    tracing::debug!("Operator take sigs: {:#?}", operator_take_sigs);
     // call operator_take_txs_signed_rpc
     let mut move_tx_partial_sigs = Vec::new();
     for (i, (client, _, _)) in verifiers.iter().enumerate() {
@@ -200,6 +200,8 @@ async fn test_deposit() -> Result<(), BridgeError> {
             .unwrap();
         move_tx_partial_sigs.push(move_tx_partial_sig);
     }
+
+    tracing::debug!("Move tx partial sigs: {:#?}", move_tx_partial_sigs);
 
     // aggreagte move_tx_partial_sigs
     let agg_move_tx_final_sig = aggregate_move_partial_sigs(
