@@ -29,8 +29,8 @@ async fn test_deposit() -> Result<(), BridgeError> {
 
     let (verifiers, operators) = create_verifiers_and_operators(config.clone(), rpc.clone()).await;
 
-    println!("Operators: {:#?}", operators);
-    println!("Verifiers: {:#?}", verifiers);
+    // println!("Operators: {:#?}", operators);
+    // println!("Verifiers: {:#?}", verifiers);
 
     let secret_key = secp256k1::SecretKey::new(&mut secp256k1::rand::thread_rng());
 
@@ -100,6 +100,7 @@ async fn test_deposit() -> Result<(), BridgeError> {
             txout: operator_funding_txout,
         };
 
+        tracing::debug!("Operator {:?} funding utxo: {:?}", i, operator_funding_utxo);
         client
             .set_operator_funding_utxo_rpc(operator_funding_utxo)
             .await

@@ -1,9 +1,10 @@
 //! # Servers
 //!
 //! Utilities for operator and verifier servers.
-
+use crate::mock::common;
 use crate::{
     config::BridgeConfig,
+    create_test_config, create_test_config_with_thread_name,
     database::common::Database,
     errors,
     extended_rpc::ExtendedRpc,
@@ -28,7 +29,14 @@ pub async fn create_verifier_server<R>(
 where
     R: RpcApiWrapper,
 {
-    println!("Database created");
+    let _ = Database::create_database(config.clone(), &config.db_name).await?;
+    let database = Database::new(config.clone()).await.unwrap();
+    database
+        .run_sql_file("../scripts/schema.sql")
+        .await
+        .unwrap();
+    database.close().await;
+    // let config = create_test_config!(config.db_name, config);
     let server = match Server::builder()
         .build(format!("{}:{}", config.host, config.port))
         .await
@@ -61,6 +69,14 @@ pub async fn create_operator_server<R>(
 where
     R: RpcApiWrapper,
 {
+    let _ = Database::create_database(config.clone(), &config.db_name).await?;
+    let database = Database::new(config.clone()).await.unwrap();
+    database
+        .run_sql_file("../scripts/schema.sql")
+        .await
+        .unwrap();
+    database.close().await;
+
     let operator = Operator::new(config.clone(), rpc).await?;
 
     let server = match Server::builder()

@@ -175,11 +175,12 @@ where
             )?;
 
             // Check if for each operator the address of the kickoff_utxo is correct TODO: Maybe handle the possible errors better
-            let (musig2_and_operator_address, spend_info) = TransactionBuilder::create_kickoff_address(
-                &self.nofn_xonly_pk,
-                &self.operator_xonly_pks[i],
-                self.config.network,
-            );
+            let (musig2_and_operator_address, spend_info) =
+                TransactionBuilder::create_kickoff_address(
+                    &self.nofn_xonly_pk,
+                    &self.operator_xonly_pks[i],
+                    self.config.network,
+                );
             tracing::debug!(
                 "musig2_and_operator_address.script_pubkey: {:?}",
                 musig2_and_operator_address.script_pubkey()
