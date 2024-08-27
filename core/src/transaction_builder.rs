@@ -338,6 +338,7 @@ impl TransactionBuilder {
                 Some(*nofn_xonly_pk),
                 network,
             );
+
         // Sanity check
         assert!(slash_or_take_address.script_pubkey() == slash_or_take_utxo.txout.script_pubkey);
 

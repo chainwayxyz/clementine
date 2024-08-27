@@ -159,6 +159,7 @@ async fn test_deposit() -> Result<(), BridgeError> {
 
         slash_or_take_sigs.push(secp256k1::schnorr::Signature::from_slice(&agg_sig)?);
     }
+
     // tracing::debug!("Slash or take sigs: {:#?}", slash_or_take_sigs);
     // call burn_txs_signed_rpc
     let mut operator_take_partial_sigs: Vec<Vec<[u8; 32]>> = Vec::new();
