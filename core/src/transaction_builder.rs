@@ -269,7 +269,10 @@ impl TransactionBuilder {
 
         let (kickoff_utxo_address, kickoff_utxo_spend_info) =
             Self::create_kickoff_address(nofn_xonly_pk, operator_xonly_pk, network);
-
+        let musig2_and_operator_script = script_builder::create_musig2_and_operator_multisig_script(
+            nofn_xonly_pk,
+            operator_xonly_pk,
+        );
         // Sanity check
         assert!(kickoff_utxo_address.script_pubkey() == kickoff_utxo.txout.script_pubkey);
         let ins = Self::create_tx_ins(vec![kickoff_utxo.outpoint]);
@@ -305,7 +308,7 @@ impl TransactionBuilder {
         ];
         let tx = TransactionBuilder::create_btc_tx(ins, outs);
         let prevouts = vec![kickoff_utxo.txout.clone()];
-        let scripts = vec![vec![relative_timelock_script.clone()]];
+        let scripts = vec![vec![musig2_and_operator_script]];
         TxHandler {
             tx,
             prevouts,

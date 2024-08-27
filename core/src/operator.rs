@@ -365,7 +365,7 @@ where
         let our_sig =
             self.signer
                 .sign_taproot_script_spend_tx_new(&mut slash_or_take_tx_handler, 0, 0)?;
-
+        tracing::debug!("slash_or_take_tx_handler: {:#?}", slash_or_take_tx_handler);
         handle_taproot_witness_new(
             &mut slash_or_take_tx_handler,
             &[our_sig.as_ref(), nofn_sig.as_ref()],
@@ -375,7 +375,10 @@ where
 
         txs_to_be_sent.push(slash_or_take_tx_handler.tx.raw_hex());
 
-        tracing::debug!("Found txs to be sent: {:?}", txs_to_be_sent);
+        tracing::debug!(
+            "Found txs to be sent with slash_or_take_tx: {:?}",
+            txs_to_be_sent
+        );
         Ok(())
     }
 }
