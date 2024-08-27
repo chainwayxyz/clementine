@@ -52,25 +52,6 @@ lazy_static::lazy_static! {
 lazy_static::lazy_static! {
     pub static ref NETWORK : bitcoin::Network = bitcoin::Network::Regtest;
 }
-pub fn calculate_merkle_root(leaves: Vec<HashType>) -> HashType {
-    let mut hashes = leaves;
-
-    while hashes.len() > 1 {
-        let mut new_hashes: Vec<HashType> = Vec::new();
-        for i in (0..hashes.len()).step_by(2) {
-            let new_hash = if i + 1 < hashes.len() {
-                sha256_hash!(hashes[i], hashes[i + 1])
-            } else {
-                hashes[i]
-            };
-            new_hashes.push(new_hash);
-        }
-
-        hashes = new_hashes;
-    }
-
-    hashes[0]
-}
 
 pub fn parse_hex_to_btc_tx(
     tx_hex: &str,
@@ -82,16 +63,6 @@ pub fn parse_hex_to_btc_tx(
             "Could not decode hex",
         ))
     }
-}
-
-pub fn create_control_block(tree_info: TaprootSpendInfo, script: &ScriptBuf) -> ControlBlock {
-    tree_info
-        .control_block(&(script.clone(), LeafVersion::TapScript))
-        .expect("Cannot create control block")
-}
-
-pub fn calculate_amount(depth: usize, value: Amount, fee: Amount) -> Amount {
-    (value + fee) * (2u64.pow(depth as u32))
 }
 
 pub fn handle_taproot_witness_new<T: AsRef<[u8]>>(
@@ -287,49 +258,6 @@ pub fn get_claim_reveal_indices(depth: usize, count: u32) -> Vec<(usize, usize)>
     }
 
     indices
-}
-
-pub fn get_claim_proof_tree_leaf(
-    depth: usize,
-    num_claims: usize,
-    connector_tree_hashes: &HashTree,
-) -> [u8; 32] {
-    let indices = get_claim_reveal_indices(depth, num_claims as u32);
-
-    let mut hasher = Sha256::new();
-
-    indices.iter().for_each(|(level, index)| {
-        hasher.update(connector_tree_hashes[*level][*index]);
-    });
-
-    hasher.finalize().into()
-}
-
-pub fn calculate_claim_proof_root(
-    depth: usize,
-    connector_tree_hashes: &Vec<Vec<[u8; 32]>>,
-) -> [u8; 32] {
-    let mut hashes: Vec<[u8; 32]> = (0..2u32.pow(depth as u32))
-        .map(|i| get_claim_proof_tree_leaf(depth, i as usize, connector_tree_hashes))
-        .collect();
-
-    let mut level = 0;
-    while level < depth {
-        let level_hashes: Vec<[u8; 32]> = (0..2u32.pow((depth - level - 1) as u32))
-            .map(|i| {
-                let mut hasher = Sha256::new();
-                hasher.update(hashes[i as usize * 2]);
-                hasher.update(hashes[i as usize * 2 + 1]);
-
-                hasher.finalize().into()
-            })
-            .collect();
-
-        hashes.clone_from(&level_hashes);
-        level += 1;
-    }
-
-    hashes[0]
 }
 
 #[cfg(test)]
