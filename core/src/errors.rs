@@ -32,10 +32,10 @@ pub enum BridgeError {
     InvalidPeriod(InvalidPeriodError),
     /// Returned when the secp256k1 crate returns an error
     #[error("Secpk256Error: {0}")]
-    Secpk256Error(secp256k1::Error),
+    Secpk256Error(#[from] secp256k1::Error),
     /// Returned when the bitcoin crate returns an error in the sighash taproot module
     #[error("BitcoinSighashTaprootError: {0}")]
-    BitcoinSighashTaprootError(bitcoin::sighash::TaprootError),
+    BitcoinSighashTaprootError(#[from] bitcoin::sighash::TaprootError),
     /// Returned when a non finalized deposit request is found
     #[error("DepositNotFinalized")]
     DepositNotFinalized,
@@ -53,7 +53,7 @@ pub enum BridgeError {
     TxidNotFound,
     /// Returned in RPC error
     #[error("BitcoinCoreRPCError: {0}")]
-    BitcoinRpcError(bitcoincore_rpc::Error),
+    BitcoinRpcError(#[from] bitcoincore_rpc::Error),
     /// Returned if there is no confirmation data
     #[error("NoConfirmationData")]
     NoConfirmationData,
@@ -65,7 +65,7 @@ pub enum BridgeError {
     TryFromSliceError,
     /// Returned when bitcoin::Transaction error happens, also returns the error
     #[error("BitcoinTransactionError: {0}")]
-    BitcoinConsensusEncodeError(bitcoin::consensus::encode::Error),
+    BitcoinConsensusEncodeError(#[from] bitcoin::consensus::encode::Error),
     /// TxInputNotFound is returned when the input is not found in the transaction
     #[error("TxInputNotFound")]
     TxInputNotFound,
@@ -101,34 +101,31 @@ pub enum BridgeError {
     BlockNotFound,
     /// Merkle Block Error
     #[error("MerkleBlockError: {0}")]
-    MerkleBlockError(MerkleBlockError),
+    MerkleBlockError(#[from] MerkleBlockError),
     /// Merkle Proof Error
     #[error("MerkleProofError")]
     MerkleProofError,
     /// JSON RPC call failed
     #[error("JsonRpcError: {0}")]
-    JsonRpcError(jsonrpsee::core::client::Error),
-    /// Given key pair is invalid and new pairs can't be generated randomly
-    #[error("InvalidKeyPair")]
-    InvalidKeyPair(std::io::Error),
+    JsonRpcError(#[from] jsonrpsee::core::client::Error),
     /// ConfigError is returned when the configuration is invalid
     #[error("ConfigError: {0}")]
     ConfigError(String),
     /// Bitcoin Address Parse Error, probably given address network is invalid
     #[error("BitcoinAddressParseError: {0}")]
-    BitcoinAddressParseError(bitcoin::address::ParseError),
+    BitcoinAddressParseError(#[from] bitcoin::address::ParseError),
     /// Port error for tests
     #[error("PortError: {0}")]
     PortError(String),
     /// Database error
     #[error("DatabaseError: {0}")]
-    DatabaseError(sqlx::Error),
+    DatabaseError(#[from] sqlx::Error),
     /// Operator tries to claim with different bridge funds with the same withdrawal idx
     #[error("AlreadySpentWithdrawal")]
     AlreadySpentWithdrawal,
     /// There was an error while creating a server.
     #[error("ServerError")]
-    ServerError(std::io::Error),
+    ServerError(#[from] std::io::Error),
     /// When the operators funding utxo is not found
     #[error("OperatorFundingUtxoNotFound: Funding utxo not found, pls send some amount here: {0}, then call the set_operator_funding_utxo RPC")]
     OperatorFundingUtxoNotFound(bitcoin::Address),
@@ -140,19 +137,19 @@ pub enum BridgeError {
     InvalidKickoffUtxo,
 
     #[error("KeyAggContextError: {0}")]
-    KeyAggContextError(musig2::errors::KeyAggError),
+    KeyAggContextError(#[from] musig2::errors::KeyAggError),
 
     #[error("KeyAggContextTweakError: {0}")]
-    KeyAggContextTweakError(musig2::errors::TweakError),
+    KeyAggContextTweakError(#[from] musig2::errors::TweakError),
 
     #[error("InvalidScalarBytes: {0}")]
-    InvalidScalarBytes(InvalidScalarBytes),
+    InvalidScalarBytes(#[from] InvalidScalarBytes),
 
     #[error("NoncesNotFound")]
     NoncesNotFound,
 
     #[error("MuSig2VerifyError: {0}")]
-    MuSig2VerifyError(musig2::errors::VerifyError),
+    MuSig2VerifyError(#[from] musig2::errors::VerifyError),
 
     #[error("KickoffOutpointsNotFound")]
     KickoffOutpointsNotFound,
@@ -160,27 +157,15 @@ pub enum BridgeError {
     DepositInfoNotFound,
 
     #[error("FromHexError: {0}")]
-    FromHexError(hex::FromHexError),
+    FromHexError(#[from] hex::FromHexError),
 
     #[error("FromSliceError: {0}")]
-    FromSliceError(bitcoin::hashes::FromSliceError),
+    FromSliceError(#[from] bitcoin::hashes::FromSliceError),
 }
 
 impl Into<ErrorObject<'static>> for BridgeError {
     fn into(self) -> ErrorObjectOwned {
         ErrorObject::owned(-30000, format!("{:?}", self), Some(1))
-    }
-}
-
-impl From<secp256k1::Error> for BridgeError {
-    fn from(err: secp256k1::Error) -> Self {
-        BridgeError::Secpk256Error(err)
-    }
-}
-
-impl From<bitcoin::sighash::TaprootError> for BridgeError {
-    fn from(err: bitcoin::sighash::TaprootError) -> Self {
-        BridgeError::BitcoinSighashTaprootError(err)
     }
 }
 
@@ -196,12 +181,6 @@ impl From<TryFromSliceError> for BridgeError {
     }
 }
 
-impl From<bitcoin::consensus::encode::Error> for BridgeError {
-    fn from(err: bitcoin::consensus::encode::Error) -> Self {
-        BridgeError::BitcoinConsensusEncodeError(err)
-    }
-}
-
 impl From<TaprootBuilderError> for BridgeError {
     fn from(_error: TaprootBuilderError) -> Self {
         BridgeError::TaprootBuilderError
@@ -211,71 +190,5 @@ impl From<TaprootBuilderError> for BridgeError {
 impl From<TaprootBuilder> for BridgeError {
     fn from(_error: TaprootBuilder) -> Self {
         BridgeError::TaprootBuilderError
-    }
-}
-
-impl From<bitcoincore_rpc::Error> for BridgeError {
-    fn from(err: bitcoincore_rpc::Error) -> Self {
-        BridgeError::BitcoinRpcError(err)
-    }
-}
-
-impl From<MerkleBlockError> for BridgeError {
-    fn from(err: MerkleBlockError) -> Self {
-        BridgeError::MerkleBlockError(err)
-    }
-}
-
-impl From<jsonrpsee::core::client::Error> for BridgeError {
-    fn from(err: jsonrpsee::core::client::Error) -> Self {
-        BridgeError::JsonRpcError(err)
-    }
-}
-
-impl From<bitcoin::address::ParseError> for BridgeError {
-    fn from(err: bitcoin::address::ParseError) -> Self {
-        BridgeError::BitcoinAddressParseError(err)
-    }
-}
-
-impl From<sqlx::Error> for BridgeError {
-    fn from(err: sqlx::Error) -> Self {
-        BridgeError::DatabaseError(err)
-    }
-}
-
-impl From<musig2::errors::KeyAggError> for BridgeError {
-    fn from(err: musig2::errors::KeyAggError) -> Self {
-        BridgeError::KeyAggContextError(err)
-    }
-}
-
-impl From<musig2::errors::TweakError> for BridgeError {
-    fn from(err: musig2::errors::TweakError) -> Self {
-        BridgeError::KeyAggContextTweakError(err)
-    }
-}
-
-impl From<InvalidScalarBytes> for BridgeError {
-    fn from(err: InvalidScalarBytes) -> Self {
-        BridgeError::InvalidScalarBytes(err)
-    }
-}
-
-impl From<musig2::errors::VerifyError> for BridgeError {
-    fn from(err: musig2::errors::VerifyError) -> Self {
-        BridgeError::MuSig2VerifyError(err)
-    }
-}
-
-impl From<hex::FromHexError> for BridgeError {
-    fn from(err: hex::FromHexError) -> Self {
-        BridgeError::FromHexError(err)
-    }
-}
-
-impl From<bitcoin::hashes::FromSliceError> for BridgeError {
-    fn from(err: bitcoin::hashes::FromSliceError) -> Self {
-        BridgeError::FromSliceError(err)
     }
 }

@@ -10,11 +10,9 @@ use bitcoin::{Address, TxOut};
 use bitcoin::{Amount, OutPoint};
 use bitcoin::{TapSighashType, XOnlyPublicKey};
 use bitcoin_mock_rpc::RpcApiWrapper;
-use clementine_circuits::constants::{
-    BRIDGE_AMOUNT_SATS, DEPOSIT_USER_TAKES_AFTER, WITHDRAWAL_EMPTY_UTXO_SATS,
-};
+use clementine_circuits::constants::{BRIDGE_AMOUNT_SATS, WITHDRAWAL_EMPTY_UTXO_SATS};
+use secp256k1::schnorr;
 use secp256k1::SecretKey;
-use secp256k1::{schnorr, PublicKey};
 
 #[derive(Debug)]
 pub struct User<R> {

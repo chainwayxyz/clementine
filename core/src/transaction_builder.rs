@@ -12,7 +12,6 @@ use bitcoin::{
 use clementine_circuits::constants::{
     BRIDGE_AMOUNT_SATS, DEPOSIT_USER_TAKES_AFTER, OPERATOR_TAKES_AFTER,
 };
-use hex::ToHex;
 use secp256k1::PublicKey;
 use secp256k1::XOnlyPublicKey;
 
@@ -282,14 +281,13 @@ impl TransactionBuilder {
             network,
         );
         let mut op_return_script: Vec<u8> = hex::decode(move_txid.to_string()).unwrap();
-        let op_return_idx: Vec<u8> = if operator_idx < 256 {
-            vec![operator_idx as u8] // Directly create a Vec<u8> for u8
-        } else if operator_idx < 65536 {
-            (operator_idx as u16).to_be_bytes().to_vec() // Convert u16 array to Vec<u8>
-        } else {
-            (operator_idx as u32).to_be_bytes().to_vec() // Convert u32 array to Vec<u8>
-        };
-        op_return_script.extend(op_return_idx);
+        let usize_bytes = (usize::BITS / 8) as usize;
+        let bits = operator_idx.max(1).ilog2() + 1;
+        let len = ((bits + 7) / 8) as usize;
+        let empty = usize_bytes - len;
+        let op_idx_bytes = operator_idx.to_be_bytes();
+        let op_idx_bytes = &op_idx_bytes[empty..];
+        op_return_script.extend(op_idx_bytes);
         let mut push_bytes = PushBytesBuf::new();
         push_bytes.extend_from_slice(&op_return_script).unwrap();
         let op_return_txout = script_builder::op_return_txout(push_bytes);
@@ -321,13 +319,6 @@ impl TransactionBuilder {
         nofn_xonly_pk: &XOnlyPublicKey,
         network: bitcoin::Network,
     ) -> TxHandler {
-        tracing::info!("Creating operator takes tx");
-        tracing::info!("Parameters:");
-        tracing::info!("Bridge fund outpoint: {:?}", bridge_fund_outpoint);
-        tracing::info!("Slash or take outpoint: {:?}", slash_or_take_utxo.outpoint);
-        tracing::info!("Slash or take txout: {:?}", slash_or_take_utxo.txout);
-        tracing::info!("Operator address: {:?}", operator_xonly_pk);
-        tracing::info!("Nofn xonly pk: {:?}", nofn_xonly_pk);
         let operator_address = Address::p2tr(&utils::SECP, *operator_xonly_pk, None, network);
         let ins = TransactionBuilder::create_tx_ins(vec![
             bridge_fund_outpoint,
@@ -347,9 +338,6 @@ impl TransactionBuilder {
                 Some(*nofn_xonly_pk),
                 network,
             );
-        tracing::info!("Slash or take address: {:?}", slash_or_take_address);
-        tracing::info!("Relative timelock script: {:?}", relative_timelock_script);
-        tracing::info!("Slash or take spend info: {:?}", slash_or_take_spend_info);
         // Sanity check
         assert!(slash_or_take_address.script_pubkey() == slash_or_take_utxo.txout.script_pubkey);
 

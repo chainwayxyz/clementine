@@ -1,15 +1,11 @@
-use std::borrow::Borrow;
-use std::mem::swap;
-
 use crate::actor::Actor;
 use crate::config::BridgeConfig;
 use crate::database::operator::OperatorDB;
 use crate::errors::BridgeError;
 use crate::extended_rpc::ExtendedRpc;
-use crate::musig2::{self, MuSigAggNonce, MuSigPartialSignature, MuSigPubNonce};
+use crate::musig2;
 use crate::traits::rpc::OperatorRpcServer;
 use crate::transaction_builder::TransactionBuilder;
-use crate::utils::parse_hex_to_btc_tx;
 use crate::{script_builder, utils, EVMAddress, UTXO};
 use ::musig2::secp::Point;
 use bitcoin::address::NetworkUnchecked;
@@ -18,7 +14,6 @@ use bitcoin::hashes::Hash;
 use bitcoin::sighash::SighashCache;
 use bitcoin::{Address, OutPoint, TapSighash, Transaction, TxOut, Txid};
 use bitcoin_mock_rpc::RpcApiWrapper;
-use bitcoincore_rpc::json::{self, SigHashType};
 use bitcoincore_rpc::RawTx;
 use clementine_circuits::constants::BRIDGE_AMOUNT_SATS;
 use clementine_circuits::sha256_hash;
@@ -300,8 +295,8 @@ where
 
     async fn withdrawal_proved_on_citrea(
         &self,
-        withdrawal_idx: usize,
-        kickoff_merkle_root: [u8; 32],
+        _withdrawal_idx: usize,
+        _kickoff_merkle_root: [u8; 32],
     ) -> Result<(), BridgeError> {
         Ok(())
     }

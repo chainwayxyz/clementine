@@ -1,8 +1,8 @@
 //! # Servers
 //!
 //! Utilities for operator and verifier servers.
+use crate::create_extended_rpc;
 use crate::mock::common;
-use crate::{config, create_extended_rpc};
 use crate::{
     config::BridgeConfig,
     create_test_config, create_test_config_with_thread_name,
@@ -38,7 +38,6 @@ where
         .await
         .unwrap();
     database.close().await;
-    // let config = create_test_config!(config.db_name, config);
     let server = match Server::builder()
         .build(format!("{}:{}", config.host, config.port))
         .await
@@ -48,10 +47,9 @@ where
     };
     let verifier = Verifier::new(rpc, config).await?;
 
-    let addr: std::net::SocketAddr = match server.local_addr() {
-        Ok(a) => a,
-        Err(e) => return Err(BridgeError::ServerError(e)),
-    };
+    let addr: std::net::SocketAddr = server
+        .local_addr()
+        .map_err(|e| BridgeError::ServerError(e))?;
     let handle = server.start(verifier.into_rpc());
 
     let client = HttpClientBuilder::default()
@@ -89,10 +87,9 @@ where
         Err(e) => return Err(BridgeError::ServerError(e)),
     };
 
-    let addr = match server.local_addr() {
-        Ok(s) => s,
-        Err(e) => return Err(BridgeError::ServerError(e)),
-    };
+    let addr: std::net::SocketAddr = server
+        .local_addr()
+        .map_err(|e| BridgeError::ServerError(e))?;
     let handle = server.start(operator.into_rpc());
 
     let client = HttpClientBuilder::default()

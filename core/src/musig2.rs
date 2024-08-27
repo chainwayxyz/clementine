@@ -120,7 +120,6 @@ mod tests {
     use crate::{
         actor::Actor,
         errors::BridgeError,
-        script_builder,
         transaction_builder::{TransactionBuilder, TxHandler},
         utils,
     };
