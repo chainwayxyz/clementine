@@ -182,7 +182,6 @@ pub fn aggregate_operator_takes_partial_sigs(
         deposit_outpoint,
         &EVMAddress([0u8; 20]),
         &Address::p2tr(&self::SECP, *self::UNSPENDABLE_XONLY_PUBKEY, None, network).as_unchecked(),
-        5,
         &nofn_xonly_pk,
         network,
     );
@@ -233,7 +232,6 @@ pub fn aggregate_move_partial_sigs(
     deposit_outpoint: OutPoint,
     evm_address: &EVMAddress,
     recovery_taproot_address: &Address<NetworkUnchecked>,
-    deposit_user_takes_after: u32,
     verifiers_pks: Vec<secp256k1::PublicKey>,
     agg_nonce: &MuSigAggNonce,
     partial_sigs: Vec<[u8; 32]>,
@@ -248,7 +246,6 @@ pub fn aggregate_move_partial_sigs(
         deposit_outpoint,
         evm_address,
         recovery_taproot_address,
-        deposit_user_takes_after,
         &musig_agg_xonly_pubkey_wrapped,
         network,
     );

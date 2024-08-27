@@ -40,13 +40,8 @@ pub struct BridgeConfig {
     pub operators_xonly_pks: Vec<secp256k1::XOnlyPublicKey>,
     /// Number of operators.
     pub num_operators: usize,
-    /// Number of operators.
-    /// Minimum relay fee.
-    pub min_relay_fee: u64,
-    /// User takes after.
-    pub user_takes_after: u32,
     /// Threshold for confirmation.
-    pub confirmation_treshold: u32,
+    pub confirmation_threshold: u32,
     /// Bitcoin remote procedure call URL.
     pub bitcoin_rpc_url: String,
     /// Bitcoin RPC user.
@@ -138,9 +133,7 @@ impl Default for BridgeConfig {
             num_verifiers: 5,
             operators_xonly_pks: vec![],
             num_operators: 4,
-            min_relay_fee: 289,
-            user_takes_after: 200,
-            confirmation_treshold: 1,
+            confirmation_threshold: 1,
             network: Network::Regtest,
             bitcoin_rpc_url: "http://127.0.0.1:18443".to_string(),
             bitcoin_rpc_user: "admin".to_string(),
@@ -238,11 +231,9 @@ mod tests {
         let file_name = "2".to_string() + TEST_FILE;
         let content = "[header1]
         num_verifiers = 4
-        min_relay_fee = 289
-        user_takes_after = 200
 
         [header2]
-        confirmation_treshold = 1
+        confirmation_threshold = 1
         network = \"regtest\"
         bitcoin_rpc_url = \"http://localhost:18443\"
         bitcoin_rpc_user = \"admin\"

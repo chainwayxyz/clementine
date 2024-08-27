@@ -3,6 +3,7 @@
 // //! This testss checks if basic deposit and withdraw operations are OK or not.
 
 use bitcoin::Address;
+use bitcoincore_rpc::RawTx;
 use clementine_circuits::constants::BRIDGE_AMOUNT_SATS;
 use clementine_core::actor::Actor;
 use clementine_core::database::common::Database;
@@ -19,6 +20,7 @@ use clementine_core::user::User;
 use clementine_core::utils::aggregate_move_partial_sigs;
 use clementine_core::utils::aggregate_operator_takes_partial_sigs;
 use clementine_core::utils::aggregate_slash_or_take_partial_sigs;
+use clementine_core::utils::handle_taproot_witness_new;
 use clementine_core::EVMAddress;
 use clementine_core::UTXO;
 use clementine_core::{
@@ -208,7 +210,6 @@ async fn test_deposit() -> Result<(), BridgeError> {
         deposit_outpoint,
         &evm_address,
         &signer_address,
-        config.user_takes_after,
         config.verifiers_public_keys.clone(),
         &agg_nonces[0].clone(),
         move_tx_partial_sigs,
@@ -227,10 +228,16 @@ async fn test_deposit() -> Result<(), BridgeError> {
         deposit_outpoint,
         &evm_address,
         &signer_address,
-        config.user_takes_after,
         &nofn_xonly_pk,
         config.network,
     );
-
+    let mut move_tx_witness_elements = Vec::new();
+    move_tx_witness_elements.push(move_tx_sig.serialize().to_vec());
+    handle_taproot_witness_new(&mut move_tx_handler, &move_tx_witness_elements, 0, 0)?;
+    tracing::debug!("Move tx: {:#?}", move_tx_handler.tx);
+    tracing::debug!("Move tx_hex: {:?}", move_tx_handler.tx.raw_hex());
+    tracing::debug!("Move tx weight: {:?}", move_tx_handler.tx.weight());
+    let move_txid = rpc.send_raw_transaction(&move_tx_handler.tx).unwrap();
+    tracing::debug!("Move txid: {:?}", move_txid);
     Ok(())
 }

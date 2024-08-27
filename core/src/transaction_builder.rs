@@ -9,7 +9,9 @@ use bitcoin::{
     taproot::{TaprootBuilder, TaprootSpendInfo},
     Address, Amount, OutPoint, ScriptBuf, TxIn, TxOut, Witness,
 };
-use clementine_circuits::constants::BRIDGE_AMOUNT_SATS;
+use clementine_circuits::constants::{
+    BRIDGE_AMOUNT_SATS, DEPOSIT_USER_TAKES_AFTER, OPERATOR_TAKES_AFTER,
+};
 use hex::ToHex;
 use secp256k1::PublicKey;
 use secp256k1::XOnlyPublicKey;
@@ -103,7 +105,6 @@ impl TransactionBuilder {
         recovery_taproot_address: &Address<NetworkUnchecked>,
         user_evm_address: &EVMAddress,
         amount: u64,
-        user_takes_after: u32,
         network: bitcoin::Network,
     ) -> CreateAddressOutputs {
         let deposit_script =
@@ -118,7 +119,7 @@ impl TransactionBuilder {
 
         let script_timelock = script_builder::generate_relative_timelock_script(
             &recovery_extracted_xonly_pk,
-            user_takes_after,
+            DEPOSIT_USER_TAKES_AFTER,
         );
 
         TransactionBuilder::create_taproot_address(
@@ -154,7 +155,6 @@ impl TransactionBuilder {
         deposit_outpoint: OutPoint,
         evm_address: &EVMAddress,
         recovery_taproot_address: &Address<NetworkUnchecked>,
-        deposit_user_takes_after: u32,
         nofn_xonly_pk: &XOnlyPublicKey,
         network: bitcoin::Network,
     ) -> TxHandler {
@@ -166,7 +166,6 @@ impl TransactionBuilder {
                 recovery_taproot_address,
                 evm_address,
                 BRIDGE_AMOUNT_SATS,
-                deposit_user_takes_after,
                 network,
             );
         let move_txout = TxOut {
@@ -262,7 +261,6 @@ impl TransactionBuilder {
                 network,
             )
             .as_unchecked(),
-            5,
             nofn_xonly_pk,
             network,
         );
@@ -274,8 +272,10 @@ impl TransactionBuilder {
         // Sanity check
         assert!(kickoff_utxo_address.script_pubkey() == kickoff_utxo.txout.script_pubkey);
         let ins = Self::create_tx_ins(vec![kickoff_utxo.outpoint]);
-        let relative_timelock_script =
-            script_builder::generate_relative_timelock_script(operator_xonly_pk, 200); // TODO: Change this 200 to a config constant
+        let relative_timelock_script = script_builder::generate_relative_timelock_script(
+            operator_xonly_pk,
+            OPERATOR_TAKES_AFTER,
+        ); // TODO: Change this 200 to a config constant
         let (slash_or_take_address, _) = TransactionBuilder::create_taproot_address(
             &[relative_timelock_script.clone()],
             Some(*nofn_xonly_pk),
@@ -337,8 +337,10 @@ impl TransactionBuilder {
         let (musig2_address, musig2_spend_info) =
             TransactionBuilder::create_musig2_address(*nofn_xonly_pk, network);
 
-        let relative_timelock_script =
-            script_builder::generate_relative_timelock_script(operator_xonly_pk, 200); // TODO: Change this 200 to a config constant
+        let relative_timelock_script = script_builder::generate_relative_timelock_script(
+            operator_xonly_pk,
+            OPERATOR_TAKES_AFTER,
+        ); // TODO: Change this 200 to a config constant
         let (slash_or_take_address, slash_or_take_spend_info) =
             TransactionBuilder::create_taproot_address(
                 &[relative_timelock_script.clone()],

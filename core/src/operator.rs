@@ -98,8 +98,7 @@ where
             &recovery_taproot_address,
             &evm_address,
             BRIDGE_AMOUNT_SATS,
-            self.config.user_takes_after,
-            self.config.confirmation_treshold,
+            self.config.confirmation_threshold,
             self.config.network,
         )?;
 

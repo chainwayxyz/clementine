@@ -14,7 +14,7 @@ use bitcoin::hashes::Hash;
 use bitcoin::{merkle_tree, Address};
 use bitcoin::{secp256k1, OutPoint};
 use bitcoin_mock_rpc::RpcApiWrapper;
-use clementine_circuits::constants::BRIDGE_AMOUNT_SATS;
+use clementine_circuits::constants::{BRIDGE_AMOUNT_SATS, DEPOSIT_USER_TAKES_AFTER};
 use clementine_circuits::incremental_merkle::IncrementalMerkleTree;
 use clementine_circuits::sha256_hash;
 use jsonrpsee::core::async_trait;
@@ -90,8 +90,7 @@ where
             &recovery_taproot_address,
             &evm_address,
             BRIDGE_AMOUNT_SATS,
-            self.config.user_takes_after,
-            self.config.confirmation_treshold,
+            self.config.confirmation_threshold,
             self.config.network,
         )?;
 
@@ -297,7 +296,6 @@ where
             deposit_outpoint,
             &evm_address,
             &recovery_taproot_address,
-            5, // TODO: Fix this
             &self.nofn_xonly_pk,
             self.config.network,
         );
