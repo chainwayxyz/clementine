@@ -1,0 +1,13 @@
+services:
+  database:
+    image: 'postgres:latest'
+    ports:
+      - 5432:5432
+    volumes:
+      - ${PWD}/.docker/db/data/:/var/lib/postgresql/data/
+      - ${PWD}/.docker/db/init.d/:/docker-entrypoint-initdb.d/
+    environment:
+      POSTGRES_USER: root
+      POSTGRES_PASSWORD: root
+      POSTGRES_DB: root
+      POSTGRES_HOST_AUTH_METHOD: trust
