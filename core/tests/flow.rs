@@ -154,10 +154,10 @@ pub async fn run_single_deposit(
 
         slash_or_take_partial_sigs.push(partial_sigs);
     }
-    tracing::debug!(
-        "Slash or take partial sigs: {:#?}",
-        slash_or_take_partial_sigs
-    );
+    // tracing::debug!(
+    //     "Slash or take partial sigs: {:#?}",
+    //     slash_or_take_partial_sigs
+    // );
     let mut slash_or_take_sigs = Vec::new();
     for i in 0..slash_or_take_partial_sigs[0].len() {
         let agg_sig = aggregate_slash_or_take_partial_sigs(

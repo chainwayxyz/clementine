@@ -13,6 +13,7 @@ use bitcoin::hashes::Hash;
 use bitcoin::Address;
 use bitcoin::{secp256k1, OutPoint};
 use bitcoin_mock_rpc::RpcApiWrapper;
+use bitcoincore_rpc::RawTx;
 use clementine_circuits::constants::BRIDGE_AMOUNT_SATS;
 use clementine_circuits::sha256_hash;
 use jsonrpsee::core::async_trait;
@@ -361,13 +362,13 @@ where
                 .unwrap();
         }
 
-        println!("Operator takes sighashes: {:?}", operator_takes_sighashes);
+        // println!("Operator takes sighashes: {:?}", operator_takes_sighashes);
         let nonces = self
             .db
             .save_sighashes_and_get_nonces(deposit_outpoint, 1, &operator_takes_sighashes)
             .await?
             .ok_or(BridgeError::NoncesNotFound)?;
-        println!("Nonces: {:?}", nonces);
+        // println!("Nonces: {:?}", nonces);
         // now iterate over nonces and sighashes and sign the operator_takes_txs
         let operator_takes_partial_sigs = operator_takes_sighashes
             .iter()
@@ -383,21 +384,21 @@ where
                 )
             })
             .collect::<Vec<_>>();
-        println!(
-            "Operator takes partial sigs: {:?}",
-            operator_takes_partial_sigs
-        );
+        // println!(
+        //     "Operator takes partial sigs: {:?}",
+        //     operator_takes_partial_sigs
+        // );
         Ok(operator_takes_partial_sigs)
     }
 
     /// verify the operator_take_sigs
-    /// sign move_commit_tx and move_reveal_tx
+    /// sign move_tx
     async fn operator_take_txs_signed(
         &self,
         deposit_outpoint: OutPoint,
         operator_take_sigs: Vec<schnorr::Signature>,
     ) -> Result<MuSigPartialSignature, BridgeError> {
-        println!("Operator take signed: {:?}", operator_take_sigs);
+        // println!("Operator take signed: {:?}", operator_take_sigs);
         let (kickoff_utxos, mut move_tx_handler, bridge_fund_outpoint) =
             self.create_deposit_details(deposit_outpoint).await?;
 
@@ -427,6 +428,11 @@ where
                     &self.nofn_xonly_pk,
                     self.config.network,
                 );
+                tracing::debug!(
+                    "INDEXXX: {:?} Operator takes tx hex: {:?}",
+                    index,
+                    operator_takes_tx.tx.raw_hex()
+                );
 
                 let sig_hash =
                     Actor::convert_tx_to_sighash_pubkey_spend(&mut operator_takes_tx, 0).unwrap();
@@ -451,8 +457,8 @@ where
                 .await
                 .unwrap();
         }
-        println!("MOVE_TX: {:?}", move_tx_handler);
-        println!("MOVE_TXID: {:?}", move_tx_handler.tx.compute_txid());
+        // println!("MOVE_TX: {:?}", move_tx_handler);
+        // println!("MOVE_TXID: {:?}", move_tx_handler.tx.compute_txid());
         let move_tx_sighash =
             Actor::convert_tx_to_sighash_script_spend(&mut move_tx_handler, 0, 0)?; // TODO: This should be musig
 

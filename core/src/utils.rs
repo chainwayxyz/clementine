@@ -21,6 +21,7 @@ use bitcoin::Amount;
 use bitcoin::OutPoint;
 use bitcoin::ScriptBuf;
 use bitcoin::XOnlyPublicKey;
+use bitcoincore_rpc::RawTx;
 use clementine_circuits::sha256_hash;
 use clementine_circuits::HashType;
 use hex;
@@ -202,21 +203,23 @@ pub fn aggregate_operator_takes_partial_sigs(
         },
         txout: slash_or_take_tx_handler.tx.output[0].clone(),
     };
-    let mut tx = TransactionBuilder::create_operator_takes_tx(
+    let mut tx_handler = TransactionBuilder::create_operator_takes_tx(
         bridge_fund_outpoint,
         slash_or_take_utxo,
         operator_xonly_pk,
         &nofn_xonly_pk,
         network,
     );
-    tracing::debug!("OPERATOR_TAKES_TX: {:?}", tx);
-    tracing::debug!("OPERATOR_TAKES_TX weight: {:?}", tx.tx.weight());
-    let message: [u8; 32] = Actor::convert_tx_to_sighash_pubkey_spend(&mut tx, 0)
+    tracing::debug!(
+        "OPERATOR_TAKES_TX with operator_idx:{:?} {:?}",
+        operator_idx,
+        tx_handler.tx
+    );
+    tracing::debug!("OPERATOR_TAKES_TX_HEX: {:?}", tx_handler.tx.raw_hex());
+    tracing::debug!("OPERATOR_TAKES_TX weight: {:?}", tx_handler.tx.weight());
+    let message: [u8; 32] = Actor::convert_tx_to_sighash_pubkey_spend(&mut tx_handler, 0)
         .unwrap()
         .to_byte_array();
-    // println!("Message: {:?}", message);
-    // println!("Partial sigs: {:?}", partial_sigs);
-    // println!("Agg nonce: {:?}", agg_nonce);
     let final_sig: [u8; 64] = aggregate_partial_signatures(
         verifiers_pks.clone(),
         None,
@@ -249,8 +252,8 @@ pub fn aggregate_move_partial_sigs(
         &musig_agg_xonly_pubkey_wrapped,
         network,
     );
-    println!("MOVE_TX: {:?}", tx);
-    println!("MOVE_TXID: {:?}", tx.tx.compute_txid());
+    // println!("MOVE_TX: {:?}", tx);
+    // println!("MOVE_TXID: {:?}", tx.tx.compute_txid());
     let message: [u8; 32] = Actor::convert_tx_to_sighash_script_spend(&mut tx, 0, 0)
         .unwrap()
         .to_byte_array();

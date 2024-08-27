@@ -36,6 +36,7 @@ pub struct TransactionBuilder {
 pub const MOVE_TX_MIN_RELAY_FEE: u64 = 305;
 pub const SLASH_OR_TAKE_TX_MIN_RELAY_FEE: u64 = 305;
 pub const WITHDRAWAL_TX_MIN_RELAY_FEE: u64 = 305;
+pub const OPERATOR_TAKES_TX_MIN_RELAY_FEE: u64 = 305;
 
 impl TransactionBuilder {
     /// Creates a new `TransactionBuilder`.
@@ -191,8 +192,8 @@ impl TransactionBuilder {
             scripts: vec![deposit_script],
             taproot_spend_infos: vec![deposit_taproot_spend_info],
         };
-        println!("MOVE_TX: {:?}", move_tx_handler);
-        println!("MOVE_TXID: {:?}", move_tx_handler.tx.compute_txid());
+        // println!("MOVE_TX: {:?}", move_tx_handler);
+        // println!("MOVE_TXID: {:?}", move_tx_handler.tx.compute_txid());
         move_tx_handler
     }
 
@@ -303,8 +304,8 @@ impl TransactionBuilder {
                 ),
                 script_pubkey: slash_or_take_address.script_pubkey(),
             },
-            op_return_txout,
             script_builder::anyone_can_spend_txout(),
+            op_return_txout,
         ];
         let tx = TransactionBuilder::create_btc_tx(ins, outs);
         let prevouts = vec![kickoff_utxo.txout.clone()];
@@ -336,7 +337,7 @@ impl TransactionBuilder {
         let relative_timelock_script = script_builder::generate_relative_timelock_script(
             operator_xonly_pk,
             OPERATOR_TAKES_AFTER,
-        ); // TODO: Change this 200 to a config constant
+        );
         let (slash_or_take_address, slash_or_take_spend_info) =
             TransactionBuilder::create_taproot_address(
                 &[relative_timelock_script.clone()],
@@ -352,6 +353,7 @@ impl TransactionBuilder {
                 value: Amount::from_sat(slash_or_take_utxo.txout.value.to_sat())
                     + Amount::from_sat(BRIDGE_AMOUNT_SATS)
                     - Amount::from_sat(MOVE_TX_MIN_RELAY_FEE)
+                    - Amount::from_sat(OPERATOR_TAKES_TX_MIN_RELAY_FEE)
                     - script_builder::anyone_can_spend_txout().value
                     - script_builder::anyone_can_spend_txout().value,
                 script_pubkey: operator_address.script_pubkey(),

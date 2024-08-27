@@ -3,6 +3,7 @@
 //! This module defines errors, returned by the library.
 
 use bitcoin::{
+    consensus::encode::FromHexError,
     merkle_tree::MerkleBlockError,
     taproot::{TaprootBuilder, TaprootBuilderError},
 };
@@ -157,7 +158,7 @@ pub enum BridgeError {
     DepositInfoNotFound,
 
     #[error("FromHexError: {0}")]
-    FromHexError(#[from] hex::FromHexError),
+    FromHexError(#[from] FromHexError),
 
     #[error("FromSliceError: {0}")]
     FromSliceError(#[from] bitcoin::hashes::FromSliceError),
