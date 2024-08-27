@@ -316,6 +316,7 @@ impl<E: Environment> ENVWriter<E> {
 // write tests for circuits
 #[cfg(test)]
 mod tests {
+
     use std::sync::Mutex;
     lazy_static::lazy_static! {
         static ref SHARED_STATE: Mutex<i32> = Mutex::new(0);
@@ -338,12 +339,12 @@ mod tests {
 
     use crypto_bigint::U256;
 
-    use secp256k1::hashes::Hash;
-
     use crate::{
         env_writer::ENVWriter, errors::BridgeError, merkle::MerkleTree, mock::env::MockEnvironment,
         utils::parse_hex_to_btc_tx,
     };
+
+    use secp256k1::hashes::Hash;
 
     fn test_block_merkle_path(block: Block) -> Result<(), BridgeError> {
         let expected_merkle_root = block.compute_merkle_root().unwrap().to_byte_array();
@@ -439,7 +440,7 @@ mod tests {
         let segwit_block = include_bytes!("../tests/data/mainnet_block_000000000000000000000c835b2adcaedc20fdf6ee440009c249452c726dafae.raw").to_vec();
         let block: Block = deserialize(&segwit_block).unwrap();
 
-        for (_i, tx) in block.txdata.iter().enumerate() {
+        for tx in block.txdata.iter() {
             MockEnvironment::reset_mock_env();
             ENVWriter::<MockEnvironment>::write_tx_to_env(tx);
             let tx_id = read_tx_and_calculate_txid::<MockEnvironment>(None, None);
@@ -455,7 +456,7 @@ mod tests {
         let segwit_block = include_bytes!("../tests/data/mainnet_block_00000000000000000000edfe523d5e2993781d2305f51218ebfc236a250792d6.raw").to_vec();
         let block: Block = deserialize(&segwit_block).unwrap();
 
-        for (_i, tx) in block.txdata.iter().enumerate() {
+        for tx in block.txdata.iter() {
             for output in tx.output.iter() {
                 MockEnvironment::reset_mock_env();
                 let script_pubkey = output.script_pubkey.as_bytes();
@@ -474,7 +475,7 @@ mod tests {
             }
         }
 
-        for (_i, tx) in block.txdata.iter().enumerate() {
+        for tx in block.txdata.iter() {
             for input in tx.input.iter() {
                 MockEnvironment::reset_mock_env();
                 let txid = input.previous_output.txid.to_byte_array();
@@ -575,65 +576,24 @@ mod tests {
 
         // Testing write and read merkle tree proof
         // First write with indices
-        for i in 0..headers.len() {
-            ENVWriter::<MockEnvironment>::write_merkle_tree_proof(
-                serialized_headers[i],
-                Some(i as u32),
-                &test_mt,
-            );
+        for (i, &header) in serialized_headers.iter().enumerate().take(headers.len()) {
+            ENVWriter::<MockEnvironment>::write_merkle_tree_proof(header, Some(i as u32), &test_mt);
         }
         // Then read with indices
-        for i in 0..headers.len() {
-            let calculated_root = read_merkle_tree_proof::<MockEnvironment, 32>(
-                serialized_headers[i],
-                Some(i as u32),
-            );
+        for (i, &header) in serialized_headers.iter().enumerate().take(headers.len()) {
+            let calculated_root =
+                read_merkle_tree_proof::<MockEnvironment, 32>(header, Some(i as u32));
             assert_eq!(test_mt.root(), calculated_root);
         }
 
         // Second write without indices
-        for i in 0..headers.len() {
-            ENVWriter::<MockEnvironment>::write_merkle_tree_proof(
-                serialized_headers[i],
-                None,
-                &test_mt,
-            );
+        for &header in serialized_headers.iter().take(headers.len()) {
+            ENVWriter::<MockEnvironment>::write_merkle_tree_proof(header, None, &test_mt);
         }
         // Then read without indices
-        for i in 0..headers.len() {
-            let calculated_root =
-                read_merkle_tree_proof::<MockEnvironment, 32>(serialized_headers[i], None);
+        for header in serialized_headers.into_iter().take(headers.len()) {
+            let calculated_root = read_merkle_tree_proof::<MockEnvironment, 32>(header, None);
             assert_eq!(test_mt.root(), calculated_root);
-        }
-    }
-
-    #[test]
-    #[cfg(feature = "poc")]
-    fn test_write_and_read_preimages() {
-        let mut _num = SHARED_STATE.lock().unwrap();
-        MockEnvironment::reset_mock_env();
-
-        let operator_xonly: XOnlyPublicKey = XOnlyPublicKey::from_str(
-            "389eb140f72feb754b7e2fd19ced044880221e890bb0631703d96e6071ebbb0f",
-        )
-        .unwrap();
-
-        // Mock tx builder
-        let tx_builder = TransactionBuilder::new(vec![operator_xonly], BridgeConfig::new());
-
-        for i in 0..24u8 {
-            let preimages: Vec<[u8; 32]> = (0..i + 1).map(|j| [j as u8; 32]).collect();
-            let (expected_address, _, _) = tx_builder
-                .create_inscription_commit_address(&operator_xonly, &preimages)
-                .unwrap();
-            let expected_script_pubkey: [u8; 32] = expected_address.script_pubkey().as_bytes()
-                [2..34]
-                .try_into()
-                .unwrap();
-            ENVWriter::<MockEnvironment>::write_preimages(operator_xonly, &preimages);
-            let (taproot_address, _claim_proof_leaf) =
-                read_preimages_and_calculate_commit_taproot::<MockEnvironment>();
-            assert_eq!(expected_script_pubkey, taproot_address);
         }
     }
 

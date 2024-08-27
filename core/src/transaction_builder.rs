@@ -27,9 +27,9 @@ pub type CreateAddressOutputs = (Address, TaprootSpendInfo);
 
 #[derive(Debug, Clone)]
 pub struct TransactionBuilder {
-    verifiers_xonly_pks: Vec<XOnlyPublicKey>,
-    verifiers_pks: Vec<PublicKey>,
-    network: Network,
+    _verifiers_xonly_pks: Vec<XOnlyPublicKey>,
+    _verifiers_pks: Vec<PublicKey>,
+    _network: Network,
 }
 
 // TODO: Move these constants to a config file
@@ -45,9 +45,9 @@ impl TransactionBuilder {
             .map(|pk| PublicKey::x_only_public_key(pk).0)
             .collect();
         Self {
-            verifiers_xonly_pks,
-            verifiers_pks,
-            network,
+            _verifiers_xonly_pks: verifiers_xonly_pks,
+            _verifiers_pks: verifiers_pks,
+            _network: network,
         }
     }
 
@@ -253,7 +253,7 @@ impl TransactionBuilder {
         let move_tx_handler = TransactionBuilder::create_move_tx(
             deposit_outpoint,
             &EVMAddress([0u8; 20]),
-            &Address::p2tr(
+            Address::p2tr(
                 &utils::SECP,
                 *utils::UNSPENDABLE_XONLY_PUBKEY,
                 None,

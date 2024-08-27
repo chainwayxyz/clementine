@@ -1,6 +1,6 @@
 use bitcoin::opcodes::all::OP_CHECKSIG;
 use bitcoin::{hashes::Hash, script, Amount, ScriptBuf, TapNodeHash};
-use bitcoincore_rpc::{Client, RawTx};
+use bitcoincore_rpc::RawTx;
 use clementine_core::database::common::Database;
 use clementine_core::mock::common;
 use clementine_core::musig2::{aggregate_nonces, aggregate_partial_signatures, MuSigPubNonce};
@@ -24,15 +24,15 @@ async fn test_musig2_key_spend() {
     let secp = bitcoin::secp256k1::Secp256k1::new();
 
     let mut config: BridgeConfig = create_test_config_with_thread_name!("test_config_musig2.toml");
-    let rpc: ExtendedRpc<Client> = create_extended_rpc!(config);
+    let rpc: ExtendedRpc<_> = create_extended_rpc!(config);
     let sks = config.all_verifiers_secret_keys.unwrap();
     let kp_vec: Vec<Keypair> = sks
         .iter()
-        .map(|sk| Keypair::from_secret_key(&secp, &sk))
+        .map(|sk| Keypair::from_secret_key(&secp, sk))
         .collect();
     let nonce_pair_vec: Vec<MuSigNoncePair> = kp_vec
         .iter()
-        .map(|kp| nonce_pair(&kp, &mut secp256k1::rand::thread_rng()))
+        .map(|kp| nonce_pair(kp, &mut secp256k1::rand::thread_rng()))
         .collect();
     let pks = kp_vec
         .iter()
@@ -109,19 +109,18 @@ async fn test_musig2_key_spend() {
     let musig_agg_xonly_pubkey_wrapped =
         bitcoin::XOnlyPublicKey::from_slice(&musig_agg_xonly_pubkey.serialize()).unwrap();
 
-    musig2::verify_single(musig_agg_pubkey, &final_signature, message)
+    musig2::verify_single(musig_agg_pubkey, final_signature, message)
         .expect("Verification failed!");
     let schnorr_sig = secp256k1::schnorr::Signature::from_slice(&final_signature).unwrap();
-    let res = secp
-        .verify_schnorr(
-            &schnorr_sig,
-            &Message::from_digest(message),
-            &musig_agg_xonly_pubkey_wrapped,
-        )
-        .unwrap();
+    secp.verify_schnorr(
+        &schnorr_sig,
+        &Message::from_digest(message),
+        &musig_agg_xonly_pubkey_wrapped,
+    )
+    .unwrap();
     println!("MuSig2 signature verified successfully!");
-    println!("SECP Verification: {:?}", res);
-    tx_details.tx.input[0].witness.push(&final_signature);
+    println!("SECP Verification: {:?}", ());
+    tx_details.tx.input[0].witness.push(final_signature);
     let txid = rpc.send_raw_transaction(&tx_details.tx).unwrap();
     println!("Transaction sent successfully! Txid: {}", txid);
 }
@@ -131,15 +130,15 @@ async fn test_musig2_script_spend() {
     let secp = bitcoin::secp256k1::Secp256k1::new();
 
     let mut config: BridgeConfig = create_test_config_with_thread_name!("test_config_musig2.toml");
-    let rpc: ExtendedRpc<Client> = create_extended_rpc!(config);
+    let rpc: ExtendedRpc<_> = create_extended_rpc!(config);
     let sks = config.all_verifiers_secret_keys.unwrap();
     let kp_vec: Vec<Keypair> = sks
         .iter()
-        .map(|sk| Keypair::from_secret_key(&secp, &sk))
+        .map(|sk| Keypair::from_secret_key(&secp, sk))
         .collect();
     let nonce_pair_vec: Vec<MuSigNoncePair> = kp_vec
         .iter()
-        .map(|kp| nonce_pair(&kp, &mut secp256k1::rand::thread_rng()))
+        .map(|kp| nonce_pair(kp, &mut secp256k1::rand::thread_rng()))
         .collect();
     let pks = kp_vec
         .iter()
@@ -205,9 +204,9 @@ async fn test_musig2_script_spend() {
         .collect();
     let final_signature: [u8; 64] =
         aggregate_partial_signatures(pks.clone(), None, &agg_nonce, partial_sigs, message).unwrap();
-    musig2::verify_single(musig_agg_pubkey, &final_signature, message)
+    musig2::verify_single(musig_agg_pubkey, final_signature, message)
         .expect("Verification failed!");
-    let res = utils::SECP
+    utils::SECP
         .verify_schnorr(
             &secp256k1::schnorr::Signature::from_slice(&final_signature).unwrap(),
             &Message::from_digest(message),
@@ -215,7 +214,7 @@ async fn test_musig2_script_spend() {
         )
         .unwrap();
     println!("MuSig2 signature verified successfully!");
-    println!("SECP Verification: {:?}", res);
+    println!("SECP Verification: {:?}", ());
     let schnorr_sig = secp256k1::schnorr::Signature::from_slice(&final_signature).unwrap();
     let witness_elements = vec![schnorr_sig.as_ref()];
     handle_taproot_witness_new(&mut tx_details, &witness_elements, 0, 0).unwrap();

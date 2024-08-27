@@ -207,7 +207,7 @@ mod tests {
         let final_signature: [u8; 64] =
             super::aggregate_partial_signatures(pks, None, &agg_nonce, partial_sigs, message)
                 .unwrap();
-        musig2::verify_single(musig_agg_pubkey, &final_signature, message)
+        musig2::verify_single(musig_agg_pubkey, final_signature, message)
             .expect("Verification failed!");
         println!("MuSig2 signature verified successfully!");
     }
@@ -294,7 +294,7 @@ mod tests {
             message,
         )
         .unwrap();
-        musig2::verify_single(musig_agg_pubkey, &final_signature, message)
+        musig2::verify_single(musig_agg_pubkey, final_signature, message)
             .expect("Verification failed!");
         println!("MuSig2 signature verified successfully!");
     }
@@ -436,9 +436,9 @@ mod tests {
         .unwrap();
         let (musig_agg_pubkey, musig_agg_xonly_pubkey_wrapped) =
             XOnlyPublicKey::from_musig2_pks(pks, Some(tweak));
-        musig2::verify_single(musig_agg_pubkey, &final_signature, message)
+        musig2::verify_single(musig_agg_pubkey, final_signature, message)
             .expect("Verification failed!");
-        let res = utils::SECP
+        utils::SECP
             .verify_schnorr(
                 &secp256k1::schnorr::Signature::from_slice(&final_signature).unwrap(),
                 &Message::from_digest(message),
@@ -446,7 +446,7 @@ mod tests {
             )
             .unwrap();
         println!("MuSig2 signature verified successfully!");
-        println!("SECP Verification: {:?}", res);
+        println!("SECP Verification: {:?}", ());
     }
 
     // Test the MuSig2 signature scheme with a dummy script spend.
@@ -519,9 +519,9 @@ mod tests {
         let final_signature: [u8; 64] =
             super::aggregate_partial_signatures(pks, None, &agg_nonce, partial_sigs, message)
                 .unwrap();
-        musig2::verify_single(musig_agg_pubkey, &final_signature, message)
+        musig2::verify_single(musig_agg_pubkey, final_signature, message)
             .expect("Verification failed!");
-        let res = utils::SECP
+        utils::SECP
             .verify_schnorr(
                 &secp256k1::schnorr::Signature::from_slice(&final_signature).unwrap(),
                 &Message::from_digest(message),
@@ -529,6 +529,6 @@ mod tests {
             )
             .unwrap();
         println!("MuSig2 signature verified successfully!");
-        println!("SECP Verification: {:?}", res);
+        println!("SECP Verification: {:?}", ());
     }
 }

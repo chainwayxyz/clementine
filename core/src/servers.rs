@@ -47,9 +47,7 @@ where
     };
     let verifier = Verifier::new(rpc, config).await?;
 
-    let addr: std::net::SocketAddr = server
-        .local_addr()
-        .map_err(|e| BridgeError::ServerError(e))?;
+    let addr: std::net::SocketAddr = server.local_addr().map_err(BridgeError::ServerError)?;
     let handle = server.start(verifier.into_rpc());
 
     let client = HttpClientBuilder::default()
@@ -87,9 +85,7 @@ where
         Err(e) => return Err(BridgeError::ServerError(e)),
     };
 
-    let addr: std::net::SocketAddr = server
-        .local_addr()
-        .map_err(|e| BridgeError::ServerError(e))?;
+    let addr: std::net::SocketAddr = server.local_addr().map_err(BridgeError::ServerError)?;
     let handle = server.start(operator.into_rpc());
 
     let client = HttpClientBuilder::default()

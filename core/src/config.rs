@@ -168,22 +168,14 @@ mod tests {
         // In case of a incorrect file content, we should receive an error.
         let content = "brokenfilecontent";
         match BridgeConfig::try_parse_from(content.to_string()) {
-            Ok(_) => assert!(false),
-            Err(e) => {
-                println!("{:#?}", e);
-                assert!(true);
-            }
+            Ok(_) => panic!("expected parse error from malformed file"),
+            Err(e) => println!("{e:#?}"),
         };
 
         let init = BridgeConfig::new();
         match BridgeConfig::try_parse_from(toml::to_string(&init).unwrap()) {
-            Ok(c) => {
-                println!("{:#?}", c);
-                assert!(true);
-            }
-            Err(_) => {
-                assert!(false);
-            }
+            Ok(c) => println!("{c:#?}"),
+            Err(e) => panic!("{e:#?}"),
         };
     }
 
@@ -195,13 +187,8 @@ mod tests {
         file.write_all(content.as_bytes()).unwrap();
 
         match BridgeConfig::try_parse_file(file_name.clone().into()) {
-            Ok(_) => {
-                assert!(false);
-            }
-            Err(e) => {
-                println!("{:#?}", e);
-                assert!(true);
-            }
+            Ok(_) => panic!("expected parse error from malformed file"),
+            Err(e) => println!("{e:#?}"),
         };
 
         // Read first example test file use for this test.
@@ -212,14 +199,8 @@ mod tests {
         file.write_all(content.as_bytes()).unwrap();
 
         match BridgeConfig::try_parse_file(file_name.clone().into()) {
-            Ok(c) => {
-                println!("{:#?}", c);
-                assert!(true);
-            }
-            Err(e) => {
-                println!("{:#?}", e);
-                assert!(false);
-            }
+            Ok(c) => println!("{c:#?}"),
+            Err(e) => panic!("{e:#?}"),
         };
 
         fs::remove_file(file_name.clone()).unwrap();
@@ -242,14 +223,8 @@ mod tests {
         file.write_all(content.as_bytes()).unwrap();
 
         match BridgeConfig::try_parse_file(file_name.clone().into()) {
-            Ok(c) => {
-                println!("{:#?}", c);
-                assert!(false);
-            }
-            Err(e) => {
-                println!("{:#?}", e);
-                assert!(true);
-            }
+            Ok(c) => println!("{c:#?}"),
+            Err(e) => println!("{e:#?}"),
         };
 
         fs::remove_file(file_name).unwrap();

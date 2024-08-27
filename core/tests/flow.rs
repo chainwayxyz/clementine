@@ -39,7 +39,7 @@ async fn test_deposit() -> Result<(), BridgeError> {
 
     let secret_key = secp256k1::SecretKey::new(&mut secp256k1::rand::thread_rng());
 
-    let signer_address = Actor::new(secret_key, config.network.clone())
+    let signer_address = Actor::new(secret_key, config.network)
         .address
         .as_unchecked()
         .clone();
@@ -88,12 +88,8 @@ async fn test_deposit() -> Result<(), BridgeError> {
         // Send operators some bitcoin so that they can afford the kickoff tx
         let secp = bitcoin::secp256k1::Secp256k1::new();
         let operator_internal_xonly_pk = config.operators_xonly_pks.get(i).unwrap();
-        let operator_address = Address::p2tr(
-            &secp,
-            *operator_internal_xonly_pk,
-            None,
-            config.network.clone(),
-        );
+        let operator_address =
+            Address::p2tr(&secp, *operator_internal_xonly_pk, None, config.network);
         let operator_funding_outpoint = rpc
             .send_to_address(&operator_address, 2 * BRIDGE_AMOUNT_SATS)
             .unwrap();
@@ -124,7 +120,7 @@ async fn test_deposit() -> Result<(), BridgeError> {
     tracing::debug!("Now the verifiers sequence starts");
     let mut slash_or_take_partial_sigs = Vec::new();
 
-    for (_i, (client, ..)) in verifiers.iter().enumerate() {
+    for (client, ..) in verifiers.iter() {
         let (partial_sigs, _) = client
             .operator_kickoffs_generated_rpc(
                 deposit_outpoint,
@@ -147,14 +143,14 @@ async fn test_deposit() -> Result<(), BridgeError> {
             deposit_outpoint,
             kickoff_utxos[i].clone(),
             config.verifiers_public_keys.clone(),
-            config.operators_xonly_pks[i].clone(),
+            config.operators_xonly_pks[i],
             i,
             &agg_nonces[i + 1 + config.operators_xonly_pks.len()].clone(),
             slash_or_take_partial_sigs
                 .iter()
                 .map(|v| v.get(i).cloned().unwrap())
                 .collect::<Vec<_>>(),
-            config.network.clone(),
+            config.network,
         )?;
 
         slash_or_take_sigs.push(secp256k1::schnorr::Signature::from_slice(&agg_sig)?);
@@ -163,7 +159,7 @@ async fn test_deposit() -> Result<(), BridgeError> {
     // tracing::debug!("Slash or take sigs: {:#?}", slash_or_take_sigs);
     // call burn_txs_signed_rpc
     let mut operator_take_partial_sigs: Vec<Vec<[u8; 32]>> = Vec::new();
-    for (_i, (client, _, _)) in verifiers.iter().enumerate() {
+    for (client, ..) in verifiers.iter() {
         let partial_sigs = client
             .burn_txs_signed_rpc(deposit_outpoint, vec![], slash_or_take_sigs.clone())
             .await
@@ -183,11 +179,8 @@ async fn test_deposit() -> Result<(), BridgeError> {
             i,
             config.verifiers_public_keys.clone(),
             &agg_nonces[i + 1].clone(),
-            operator_take_partial_sigs
-                .iter()
-                .map(|v| v[i].clone())
-                .collect(),
-            config.network.clone(),
+            operator_take_partial_sigs.iter().map(|v| v[i]).collect(),
+            config.network,
         )?;
 
         operator_take_sigs.push(secp256k1::schnorr::Signature::from_slice(&agg_sig)?);
@@ -213,7 +206,7 @@ async fn test_deposit() -> Result<(), BridgeError> {
         config.verifiers_public_keys.clone(),
         &agg_nonces[0].clone(),
         move_tx_partial_sigs,
-        config.network.clone(),
+        config.network,
     )?;
 
     let move_tx_sig = secp256k1::schnorr::Signature::from_slice(&agg_move_tx_final_sig)?;
@@ -231,8 +224,7 @@ async fn test_deposit() -> Result<(), BridgeError> {
         &nofn_xonly_pk,
         config.network,
     );
-    let mut move_tx_witness_elements = Vec::new();
-    move_tx_witness_elements.push(move_tx_sig.serialize().to_vec());
+    let move_tx_witness_elements = vec![move_tx_sig.serialize().to_vec()];
     handle_taproot_witness_new(&mut move_tx_handler, &move_tx_witness_elements, 0, 0)?;
     tracing::debug!("Move tx: {:#?}", move_tx_handler.tx);
     // tracing::debug!("Move tx_hex: {:?}", move_tx_handler.tx.raw_hex());

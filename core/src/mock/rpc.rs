@@ -9,7 +9,7 @@
 ///
 /// - `config`: Mutable `BridgeConfig` structure.
 /// - `db_name`: If mock is used, this will be it's database name. If not used
-/// can be dummy value.
+///    can be dummy value.
 #[cfg(feature = "mock_rpc")]
 #[macro_export]
 macro_rules! create_extended_rpc {
@@ -39,15 +39,15 @@ macro_rules! create_extended_rpc {
 ///
 /// - `config`: Mutable `BridgeConfig` structure.
 /// - `db_name`: If mock is used, this will be it's database name. If not used
-/// can be dummy value.
+///   can be dummy value.
 #[cfg(not(feature = "mock_rpc"))]
 #[macro_export]
 macro_rules! create_extended_rpc {
     ($config:expr) => {{
         println!("Using Bitcoin regtest for testing...");
 
-        // Just to match other mutable macro:
-        $config.bitcoin_rpc_url = $config.bitcoin_rpc_url;
+        // Mutation for consistency with above defined macro
+        $config.bitcoin_rpc_url = $config.bitcoin_rpc_url.clone();
 
         ExtendedRpc::<bitcoincore_rpc::Client>::new(
             $config.bitcoin_rpc_url.clone(),

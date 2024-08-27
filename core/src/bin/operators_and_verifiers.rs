@@ -15,7 +15,7 @@ use clementine_core::{cli, extended_rpc::ExtendedRpc, servers::create_verifiers_
 #[tokio::main]
 async fn main() {
     let config = cli::get_configuration();
-    let rpc = ExtendedRpc::<bitcoincore_rpc::Client>::new(
+    let _rpc = ExtendedRpc::<bitcoincore_rpc::Client>::new(
         config.bitcoin_rpc_url.clone(),
         config.bitcoin_rpc_user.clone(),
         config.bitcoin_rpc_password.clone(),

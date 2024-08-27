@@ -7,7 +7,7 @@ use bitcoin::{
     taproot::{TaprootBuilder, TaprootBuilderError},
 };
 use core::fmt::Debug;
-use jsonrpsee::types::{ErrorObject, ErrorObjectOwned};
+use jsonrpsee::types::ErrorObject;
 use musig2::secp::errors::InvalidScalarBytes;
 use std::array::TryFromSliceError;
 use thiserror::Error;
@@ -163,9 +163,9 @@ pub enum BridgeError {
     FromSliceError(#[from] bitcoin::hashes::FromSliceError),
 }
 
-impl Into<ErrorObject<'static>> for BridgeError {
-    fn into(self) -> ErrorObjectOwned {
-        ErrorObject::owned(-30000, format!("{:?}", self), Some(1))
+impl From<BridgeError> for ErrorObject<'static> {
+    fn from(val: BridgeError) -> Self {
+        ErrorObject::owned(-30000, format!("{:?}", val), Some(1))
     }
 }
 

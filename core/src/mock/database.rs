@@ -8,7 +8,7 @@
 ///
 /// - db_name: New database's name.
 /// - config_file: Test configuration file. Rest of the config will be read from
-/// here and only `db_name` will be overwritten.
+///   here and only `db_name` will be overwritten.
 ///
 /// Returns new `BridgeConfig`.
 #[macro_export]
@@ -35,7 +35,7 @@ macro_rules! create_test_config {
 /// Parameters:
 ///
 /// - config_file: Test configuration file. Rest of the config will be read from
-/// here and only `db_name` will be overwritten.
+///   here and only `db_name` will be overwritten.
 ///
 /// Returns new `BridgeConfig`.
 #[macro_export]
