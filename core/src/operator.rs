@@ -6,6 +6,7 @@ use crate::extended_rpc::ExtendedRpc;
 use crate::musig2;
 use crate::traits::rpc::OperatorRpcServer;
 use crate::transaction_builder::TransactionBuilder;
+use crate::utils::handle_taproot_witness_new;
 use crate::{script_builder, utils, EVMAddress, UTXO};
 use ::musig2::secp::Point;
 use bitcoin::address::NetworkUnchecked;
@@ -144,12 +145,16 @@ where
             ));
         }
 
-        let kickoff_tx_handler = TransactionBuilder::create_kickoff_utxo_tx(
+        let mut kickoff_tx_handler = TransactionBuilder::create_kickoff_utxo_tx(
             &funding_utxo,
             &self.nofn_xonly_pk,
             &self.signer.xonly_public_key,
             self.config.network,
         );
+        let sig = self
+            .signer
+            .sign_taproot_pubkey_spend(&mut kickoff_tx_handler, 0, None)?;
+        handle_taproot_witness_new(&mut kickoff_tx_handler, &[sig.as_ref()], 0, None)?;
 
         tracing::debug!(
             "For operator index: {:?} Kickoff tx handler: {:#?}",
@@ -304,6 +309,39 @@ where
             .await?
             .ok_or(BridgeError::KickoffOutpointsNotFound)?;
         tracing::debug!("Kickoff UTXO FOUND: {:?}", kickoff_utxo);
+        let mut txs_to_be_sent = vec![];
+        let mut current_searching_txid = kickoff_utxo.outpoint.txid;
+        let mut found_txid = false;
+
+        for _ in 0..25 {
+            // Check if the current txid is onchain or in mempool
+            if self
+                .rpc
+                .get_raw_transaction(&current_searching_txid, None)
+                .is_ok()
+            {
+                found_txid = true;
+                break;
+            }
+
+            // Fetch the transaction and continue the loop
+            let (raw_signed_tx, _, _, funding_txid) = self
+                .db
+                .get_deposit_kickoff_generator_tx(current_searching_txid)
+                .await?
+                .ok_or(BridgeError::KickoffOutpointsNotFound)?; // TODO: Fix this error
+
+            txs_to_be_sent.push(raw_signed_tx);
+            current_searching_txid = funding_txid;
+        }
+
+        // Handle the case where no transaction was found in 25 iterations
+        if !found_txid {
+            return Err(BridgeError::KickoffOutpointsNotFound); // TODO: Fix this error
+        }
+
+        tracing::debug!("Found txs to be sent: {:?}", txs_to_be_sent);
+
         Ok(())
     }
 }

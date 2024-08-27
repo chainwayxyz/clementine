@@ -98,7 +98,7 @@ pub fn handle_taproot_witness_new<T: AsRef<[u8]>>(
     tx: &mut TxHandler,
     witness_elements: &[T],
     txin_index: usize,
-    script_index: usize,
+    script_index: Option<usize>,
 ) -> Result<(), BridgeError> {
     let mut sighash_cache = SighashCache::new(tx.tx.borrow_mut());
 
@@ -109,17 +109,15 @@ pub fn handle_taproot_witness_new<T: AsRef<[u8]>>(
     witness_elements
         .iter()
         .for_each(|element| witness.push(element));
+    if let Some(index) = script_index {
+        let script = &tx.scripts[txin_index][index];
+        let spend_control_block = tx.taproot_spend_infos[txin_index]
+            .control_block(&(script.clone(), LeafVersion::TapScript))
+            .ok_or(BridgeError::ControlBlockError)?;
 
-    let spend_control_block = tx.taproot_spend_infos[txin_index]
-        .control_block(&(
-            tx.scripts[txin_index][script_index].clone(),
-            LeafVersion::TapScript,
-        ))
-        .ok_or(BridgeError::ControlBlockError)?;
-
-    witness.push(tx.scripts[txin_index][script_index].clone());
-    witness.push(&spend_control_block.serialize());
-
+        witness.push(script.clone());
+        witness.push(spend_control_block.serialize());
+    }
     Ok(())
 }
 

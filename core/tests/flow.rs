@@ -250,7 +250,7 @@ pub async fn run_single_deposit(
     );
     let mut move_tx_witness_elements = Vec::new();
     move_tx_witness_elements.push(move_tx_sig.serialize().to_vec());
-    handle_taproot_witness_new(&mut move_tx_handler, &move_tx_witness_elements, 0, 0)?;
+    handle_taproot_witness_new(&mut move_tx_handler, &move_tx_witness_elements, 0, Some(0))?;
     tracing::debug!("Move tx: {:#?}", move_tx_handler.tx);
     // tracing::debug!("Move tx_hex: {:?}", move_tx_handler.tx.raw_hex());
     tracing::debug!("Move tx weight: {:?}", move_tx_handler.tx.weight());

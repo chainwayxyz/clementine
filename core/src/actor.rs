@@ -122,6 +122,27 @@ impl Actor {
         Ok(self.sign(sig_hash))
     }
 
+    pub fn sign_taproot_pubkey_spend(
+        &self,
+        tx_handler: &mut TxHandler,
+        input_index: usize,
+        sighash_type: Option<TapSighashType>,
+    ) -> Result<schnorr::Signature, BridgeError> {
+        let mut sighash_cache = SighashCache::new(&mut tx_handler.tx);
+        let sig_hash = sighash_cache.taproot_key_spend_signature_hash(
+            input_index,
+            &match sighash_type {
+                Some(TapSighashType::SinglePlusAnyoneCanPay) => bitcoin::sighash::Prevouts::One(
+                    input_index,
+                    tx_handler.prevouts[input_index].clone(),
+                ),
+                _ => bitcoin::sighash::Prevouts::All(&tx_handler.prevouts),
+            },
+            sighash_type.unwrap_or(TapSighashType::Default),
+        )?;
+        self.sign_with_tweak(sig_hash, None)
+    }
+
     pub fn sign_taproot_pubkey_spend_tx(
         &self,
         tx: &mut bitcoin::Transaction,

@@ -218,7 +218,7 @@ async fn test_musig2_script_spend() {
     println!("SECP Verification: {:?}", res);
     let schnorr_sig = secp256k1::schnorr::Signature::from_slice(&final_signature).unwrap();
     let witness_elements = vec![schnorr_sig.as_ref()];
-    handle_taproot_witness_new(&mut tx_details, &witness_elements, 0, 0).unwrap();
+    handle_taproot_witness_new(&mut tx_details, &witness_elements, 0, Some(0)).unwrap();
     println!("HEX: {:?}", tx_details.tx.raw_hex());
     let txid = rpc.send_raw_transaction(&tx_details.tx).unwrap();
     println!("Transaction sent successfully! Txid: {}", txid);
