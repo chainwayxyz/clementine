@@ -339,9 +339,43 @@ where
         if !found_txid {
             return Err(BridgeError::KickoffOutpointsNotFound); // TODO: Fix this error
         }
-
         tracing::debug!("Found txs to be sent: {:?}", txs_to_be_sent);
 
+        let mut slash_or_take_tx_handler = TransactionBuilder::create_slash_or_take_tx(
+            deposit_outpoint,
+            kickoff_utxo.clone(),
+            &self.signer.xonly_public_key,
+            self.idx,
+            &self.nofn_xonly_pk,
+            self.config.network,
+        );
+
+        tracing::debug!(
+            "Created slash or take tx handler: {:#?}",
+            slash_or_take_tx_handler
+        );
+        let nofn_sig = self
+            .db
+            .get_slash_or_take_sig(deposit_outpoint, kickoff_utxo)
+            .await?
+            .ok_or(BridgeError::KickoffOutpointsNotFound)?; // TODO: Fix this error
+
+        tracing::debug!("Found nofn sig: {:?}", nofn_sig);
+
+        let our_sig =
+            self.signer
+                .sign_taproot_script_spend_tx_new(&mut slash_or_take_tx_handler, 0, 0)?;
+
+        handle_taproot_witness_new(
+            &mut slash_or_take_tx_handler,
+            &[our_sig.as_ref(), nofn_sig.as_ref()],
+            0,
+            Some(0),
+        )?;
+
+        txs_to_be_sent.push(slash_or_take_tx_handler.tx.raw_hex());
+
+        tracing::debug!("Found txs to be sent: {:?}", txs_to_be_sent);
         Ok(())
     }
 }

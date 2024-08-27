@@ -425,6 +425,30 @@ impl Database {
         Ok(())
     }
 
+    pub async fn get_slash_or_take_sig(
+        &self,
+        deposit_outpoint: OutPoint,
+        kickoff_utxo: UTXO,
+    ) -> Result<Option<schnorr::Signature>, BridgeError> {
+        let qr: Option<(SignatureDB,)> = sqlx::query_as(
+            "SELECT slash_or_take_sig
+             FROM deposit_kickoff_utxos
+             WHERE deposit_outpoint = $1 AND kickoff_utxo = $2;",
+        )
+        .bind(OutPointDB(deposit_outpoint))
+        .bind(sqlx::types::Json(UTXODB {
+            outpoint_db: OutPointDB(kickoff_utxo.outpoint),
+            txout_db: TxOutDB(kickoff_utxo.txout),
+        }))
+        .fetch_optional(&self.connection)
+        .await?;
+
+        match qr {
+            Some(sig) => Ok(Some(sig.0 .0)),
+            None => Ok(None),
+        }
+    }
+
     pub async fn save_operator_take_sig(
         &self,
         deposit_outpoint: OutPoint,
