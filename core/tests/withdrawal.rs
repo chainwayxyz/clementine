@@ -2,7 +2,7 @@
 //!
 //! This test checks if basic withdrawal operations are OK or not.
 
-use bitcoin::Address;
+use bitcoin::{Address, OutPoint};
 use clementine_core::database::common::Database;
 use clementine_core::extended_rpc::ExtendedRpc;
 use clementine_core::mock::common;
@@ -49,6 +49,11 @@ async fn test_honest_operator_takes_refund() {
     let mut config = create_test_config_with_thread_name!("test_config_flow.toml");
     let rpc = create_extended_rpc!(config);
 
+    let (operator_client, _operator_handler, _operator_addr) =
+        create_operator_server(config.clone(), rpc.clone())
+            .await
+            .unwrap();
+
     let secp = bitcoin::secp256k1::Secp256k1::new();
     let user_sk = SecretKey::from_slice(&OsRng.gen::<[u8; 32]>()).unwrap();
     let user = User::new(rpc, user_sk, config.clone());
@@ -58,13 +63,14 @@ async fn test_honest_operator_takes_refund() {
         None,
         config.network,
     );
-    let (_empty_utxo, _withdrawal_tx_out, _user_sig) =
+    let (empty_utxo, withdrawal_tx_out, user_sig) =
         user.generate_withdrawal_sig(withdrawal_address).unwrap();
-    // let withdrawal_provide_txid = operator_client
-    //     .new_withdrawal_sig_rpc(0, user_sig, empty_utxo, withdrawal_tx_out)
-    //     .await
-    //     .unwrap();
-    // println!("{:?}", withdrawal_provide_txid);
+    let withdrawal_provide_txid = operator_client
+        .new_withdrawal_sig_rpc(0, user_sig, empty_utxo, withdrawal_tx_out)
+        .await
+        .unwrap();
+    println!("{:?}", withdrawal_provide_txid);
+    // operator_client.withdrawal_proved_on_citrea_rpc(0, deposit_outpoint);
 }
 
 #[tokio::test]

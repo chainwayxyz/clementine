@@ -9,10 +9,11 @@ use crate::{config::BridgeConfig, errors::BridgeError};
 use crate::{EVMAddress, UTXO};
 use bitcoin::address::NetworkUnchecked;
 use bitcoin::{Address, OutPoint, Txid};
+use secp256k1::schnorr;
 use sqlx::{Pool, Postgres};
 use std::fs;
 
-use super::wrapper::{AddressDB, EVMAddressDB, OutPointDB, TxOutDB, TxidDB, UTXODB};
+use super::wrapper::{AddressDB, EVMAddressDB, OutPointDB, SignatureDB, TxOutDB, TxidDB, UTXODB};
 
 #[derive(Clone, Debug)]
 pub struct Database {
@@ -397,6 +398,52 @@ impl Database {
             .await?;
             idx += 1;
         }
+
+        Ok(())
+    }
+
+    pub async fn save_slash_or_take_sig(
+        &self,
+        deposit_outpoint: OutPoint,
+        kickoff_utxo: UTXO,
+        slash_or_take_sig: schnorr::Signature,
+    ) -> Result<(), BridgeError> {
+        sqlx::query(
+            "UPDATE deposit_kickoff_utxos
+             SET slash_or_take_sig = $3
+             WHERE deposit_outpoint = $1 AND kickoff_utxo = $2;",
+        )
+        .bind(OutPointDB(deposit_outpoint))
+        .bind(sqlx::types::Json(UTXODB {
+            outpoint_db: OutPointDB(kickoff_utxo.outpoint),
+            txout_db: TxOutDB(kickoff_utxo.txout),
+        }))
+        .bind(SignatureDB(slash_or_take_sig))
+        .execute(&self.connection)
+        .await?;
+
+        Ok(())
+    }
+
+    pub async fn save_operator_take_sig(
+        &self,
+        deposit_outpoint: OutPoint,
+        kickoff_utxo: UTXO,
+        operator_take_sig: schnorr::Signature,
+    ) -> Result<(), BridgeError> {
+        sqlx::query(
+            "UPDATE deposit_kickoff_utxos
+             SET operator_take_sig = $3
+             WHERE deposit_outpoint = $1 AND kickoff_utxo = $2;",
+        )
+        .bind(OutPointDB(deposit_outpoint))
+        .bind(sqlx::types::Json(UTXODB {
+            outpoint_db: OutPointDB(kickoff_utxo.outpoint),
+            txout_db: TxOutDB(kickoff_utxo.txout),
+        }))
+        .bind(SignatureDB(operator_take_sig))
+        .execute(&self.connection)
+        .await?;
 
         Ok(())
     }

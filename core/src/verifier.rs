@@ -349,6 +349,18 @@ where
                     .to_byte_array()
             })
             .collect::<Vec<_>>();
+
+        for (index, kickoff_utxo) in kickoff_utxos.iter().enumerate() {
+            self.db
+                .save_slash_or_take_sig(
+                    deposit_outpoint,
+                    kickoff_utxo.clone(),
+                    slash_or_take_sigs[index],
+                )
+                .await
+                .unwrap();
+        }
+
         println!("Operator takes sighashes: {:?}", operator_takes_sighashes);
         let nonces = self
             .db
@@ -428,6 +440,17 @@ where
                     )
                     .unwrap();
             });
+
+        for (index, kickoff_utxo) in kickoff_utxos.iter().enumerate() {
+            self.db
+                .save_operator_take_sig(
+                    deposit_outpoint,
+                    kickoff_utxo.clone(),
+                    operator_take_sigs[index],
+                )
+                .await
+                .unwrap();
+        }
         println!("MOVE_TX: {:?}", move_tx_handler);
         println!("MOVE_TXID: {:?}", move_tx_handler.tx.compute_txid());
         let move_tx_sighash =
