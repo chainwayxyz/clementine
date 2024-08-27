@@ -8,6 +8,5 @@ crypto-bigint = { workspace = true }
 k256 = { workspace = true, features = ["arithmetic", "serde", "expose-field", "ecdsa"] }
 sha2 = { workspace = true }
 serde = { workspace = true, features = ["derive"] }
-lazy_static = { workspace = true, features = ["spin_no_std"]}
+lazy_static = { workspace = true, features = ["spin_no_std"] }
 tracing = { workspace = true, default-features = false }
-tracing-subscriber = { workspace = true }
