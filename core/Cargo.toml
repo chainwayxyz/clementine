@@ -23,7 +23,6 @@ tokio = { workspace = true, features = ["full"] }
 jsonrpsee = { workspace = true, features = ["server", "http-client", "macros"] }
 async-trait = { workspace = true }
 futures = { workspace = true }
-dotenv = { workspace = true }
 clap = { workspace = true, features = ["derive"] }
 toml = { workspace = true }
 sqlx = { workspace = true, features = ["runtime-tokio", "postgres", "macros"] }

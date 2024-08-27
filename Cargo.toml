@@ -12,7 +12,7 @@ risc0-zkvm = "0.21.0"
 serde = { version = "1.0", default-features = false }
 serde_json = "1.0.108"
 byteorder = "1.5.0"
-secp256k1 = {version="0.29.0", features=["serde"]}
+secp256k1 = { version = "0.29.0", features = ["serde"] }
 crypto-bigint = { version = "=0.5.5", default-features = false }
 thiserror = "1.0.57"
 tracing = { version = "0.1.40", default-features = false }
@@ -21,7 +21,6 @@ tokio = "1.37.0"
 jsonrpsee = "0.22.5"
 async-trait = "0.1.79"
 futures = "0.3.30"
-dotenv = "0.15.0"
 clap = "4.5.4"
 toml = "0.8.12"
 sqlx = { version = "0.7.4", default-features = false }
