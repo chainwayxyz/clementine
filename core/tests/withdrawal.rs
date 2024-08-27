@@ -1,24 +1,14 @@
-//! # Deposit and Withdraw Flow Test
+//! # Withdrawal Flow Test
 //!
-//! This testss checks if basic deposit and withdraw operations are OK or not.
+//! This test checks if basic withdrawal operations are OK or not.
 
-use bitcoin::XOnlyPublicKey;
-use bitcoin::{Address, Amount};
-use clementine_circuits::constants::BRIDGE_AMOUNT_SATS;
-use clementine_core::actor::Actor;
+use bitcoin::Address;
 use clementine_core::database::common::Database;
 use clementine_core::extended_rpc::ExtendedRpc;
 use clementine_core::mock::common;
-use clementine_core::script_builder;
 use clementine_core::servers::*;
 use clementine_core::traits::rpc::OperatorRpcClient;
-use clementine_core::transaction_builder::{TransactionBuilder, TxHandler};
 use clementine_core::user::User;
-use clementine_core::utils;
-use clementine_core::utils::handle_taproot_witness_new;
-use clementine_core::utils::SECP;
-use clementine_core::EVMAddress;
-use clementine_core::UTXO;
 use clementine_core::{
     create_extended_rpc, create_test_config, create_test_config_with_thread_name,
 };
@@ -68,7 +58,7 @@ async fn test_honest_operator_takes_refund() {
         None,
         config.network,
     );
-    let (empty_utxo, withdrawal_tx_out, user_sig) =
+    let (_empty_utxo, _withdrawal_tx_out, _user_sig) =
         user.generate_withdrawal_sig(withdrawal_address).unwrap();
     // let withdrawal_provide_txid = operator_client
     //     .new_withdrawal_sig_rpc(0, user_sig, empty_utxo, withdrawal_tx_out)

@@ -2,13 +2,12 @@ use std::str::FromStr;
 
 use bitcoin::{address::NetworkUnchecked, Address, OutPoint, TxOut, Txid};
 use serde::{Deserialize, Serialize};
-use serde_json::Value;
 use sqlx::{
-    postgres::{PgArgumentBuffer, PgRow, PgValueRef},
-    Decode, Encode, Postgres, Row,
+    postgres::{PgArgumentBuffer, PgValueRef},
+    Decode, Encode, Postgres,
 };
 
-use crate::{ByteArray66, EVMAddress, UTXO};
+use crate::EVMAddress;
 
 #[derive(Serialize, Deserialize)]
 pub struct OutPointDB(pub OutPoint);

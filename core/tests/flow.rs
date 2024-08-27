@@ -3,7 +3,6 @@
 // //! This testss checks if basic deposit and withdraw operations are OK or not.
 
 use bitcoin::Address;
-use bitcoincore_rpc::RawTx;
 use clementine_circuits::constants::BRIDGE_AMOUNT_SATS;
 use clementine_core::actor::Actor;
 use clementine_core::database::common::Database;
@@ -58,7 +57,7 @@ async fn test_deposit() -> Result<(), BridgeError> {
     // aggregate nonces
     let mut pub_nonces = Vec::new();
 
-    for (i, (client, ..)) in verifiers.iter().enumerate() {
+    for (client, _, _) in verifiers.iter() {
         let musig_pub_nonces = client
             .verifier_new_deposit_rpc(deposit_outpoint, signer_address.clone(), evm_address)
             .await
@@ -160,7 +159,8 @@ async fn test_deposit() -> Result<(), BridgeError> {
 
         slash_or_take_sigs.push(secp256k1::schnorr::Signature::from_slice(&agg_sig)?);
     }
-    tracing::debug!("Slash or take sigs: {:#?}", slash_or_take_sigs);
+
+    // tracing::debug!("Slash or take sigs: {:#?}", slash_or_take_sigs);
     // call burn_txs_signed_rpc
     let mut operator_take_partial_sigs: Vec<Vec<[u8; 32]>> = Vec::new();
     for (_i, (client, _, _)) in verifiers.iter().enumerate() {
@@ -170,10 +170,10 @@ async fn test_deposit() -> Result<(), BridgeError> {
             .unwrap();
         operator_take_partial_sigs.push(partial_sigs);
     }
-    tracing::debug!(
-        "Operator take partial sigs: {:#?}",
-        operator_take_partial_sigs
-    );
+    // tracing::debug!(
+    //     "Operator take partial sigs: {:#?}",
+    //     operator_take_partial_sigs
+    // );
     let mut operator_take_sigs = Vec::new();
     for i in 0..operator_take_partial_sigs.len() {
         let agg_sig = aggregate_operator_takes_partial_sigs(
@@ -192,10 +192,10 @@ async fn test_deposit() -> Result<(), BridgeError> {
 
         operator_take_sigs.push(secp256k1::schnorr::Signature::from_slice(&agg_sig)?);
     }
-    tracing::debug!("Operator take sigs: {:#?}", operator_take_sigs);
+    // tracing::debug!("Operator take sigs: {:#?}", operator_take_sigs);
     // call operator_take_txs_signed_rpc
     let mut move_tx_partial_sigs = Vec::new();
-    for (i, (client, _, _)) in verifiers.iter().enumerate() {
+    for (client, _, _) in verifiers.iter() {
         let move_tx_partial_sig = client
             .operator_take_txs_signed_rpc(deposit_outpoint, operator_take_sigs.clone())
             .await
@@ -203,7 +203,7 @@ async fn test_deposit() -> Result<(), BridgeError> {
         move_tx_partial_sigs.push(move_tx_partial_sig);
     }
 
-    tracing::debug!("Move tx partial sigs: {:#?}", move_tx_partial_sigs);
+    // tracing::debug!("Move tx partial sigs: {:#?}", move_tx_partial_sigs);
 
     // aggreagte move_tx_partial_sigs
     let agg_move_tx_final_sig = aggregate_move_partial_sigs(
@@ -235,7 +235,7 @@ async fn test_deposit() -> Result<(), BridgeError> {
     move_tx_witness_elements.push(move_tx_sig.serialize().to_vec());
     handle_taproot_witness_new(&mut move_tx_handler, &move_tx_witness_elements, 0, 0)?;
     tracing::debug!("Move tx: {:#?}", move_tx_handler.tx);
-    tracing::debug!("Move tx_hex: {:?}", move_tx_handler.tx.raw_hex());
+    // tracing::debug!("Move tx_hex: {:?}", move_tx_handler.tx.raw_hex());
     tracing::debug!("Move tx weight: {:?}", move_tx_handler.tx.weight());
     let move_txid = rpc.send_raw_transaction(&move_tx_handler.tx).unwrap();
     tracing::debug!("Move txid: {:?}", move_txid);

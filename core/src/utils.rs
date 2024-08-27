@@ -20,8 +20,6 @@ use bitcoin::Address;
 use bitcoin::Amount;
 use bitcoin::OutPoint;
 use bitcoin::ScriptBuf;
-use bitcoin::TapNodeHash;
-use bitcoin::TxOut;
 use bitcoin::XOnlyPublicKey;
 use clementine_circuits::sha256_hash;
 use clementine_circuits::HashType;
@@ -148,6 +146,8 @@ pub fn aggregate_slash_or_take_partial_sigs(
         &musig_agg_xonly_pubkey_wrapped,
         network,
     );
+    tracing::debug!("SLASH_OR_TAKE_TX: {:?}", tx);
+    tracing::debug!("SLASH_OR_TAKE_TX weight: {:?}", tx.tx.weight());
     let message: [u8; 32] = Actor::convert_tx_to_sighash_script_spend(&mut tx, 0, 0)
         .unwrap()
         .to_byte_array();
@@ -211,12 +211,14 @@ pub fn aggregate_operator_takes_partial_sigs(
         &nofn_xonly_pk,
         network,
     );
+    tracing::debug!("OPERATOR_TAKES_TX: {:?}", tx);
+    tracing::debug!("OPERATOR_TAKES_TX weight: {:?}", tx.tx.weight());
     let message: [u8; 32] = Actor::convert_tx_to_sighash_pubkey_spend(&mut tx, 0)
         .unwrap()
         .to_byte_array();
-    println!("Message: {:?}", message);
-    println!("Partial sigs: {:?}", partial_sigs);
-    println!("Agg nonce: {:?}", agg_nonce);
+    // println!("Message: {:?}", message);
+    // println!("Partial sigs: {:?}", partial_sigs);
+    // println!("Agg nonce: {:?}", agg_nonce);
     let final_sig: [u8; 64] = aggregate_partial_signatures(
         verifiers_pks.clone(),
         None,

@@ -4,15 +4,13 @@
 //! scripts.
 
 use crate::EVMAddress;
-use bitcoin::address::NetworkUnchecked;
 use bitcoin::blockdata::opcodes::all::OP_PUSHNUM_1;
-use bitcoin::hashes::Hash;
+use bitcoin::Amount;
 use bitcoin::{
     opcodes::{all::*, OP_FALSE},
     script::Builder,
     ScriptBuf, TxOut,
 };
-use bitcoin::{Address, Amount, OutPoint};
 use secp256k1::XOnlyPublicKey;
 
 pub fn anyone_can_spend_txout() -> TxOut {

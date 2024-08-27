@@ -3,19 +3,17 @@ use crate::config::BridgeConfig;
 use crate::database::verifier::VerifierDB;
 use crate::errors::BridgeError;
 use crate::extended_rpc::ExtendedRpc;
-use crate::merkle::MerkleTree;
 use crate::musig2::{self, MuSigAggNonce, MuSigPartialSignature, MuSigPubNonce};
 use crate::traits::rpc::VerifierRpcServer;
 use crate::transaction_builder::{TransactionBuilder, TxHandler};
-use crate::{script_builder, utils, EVMAddress, UTXO};
+use crate::{utils, EVMAddress, UTXO};
 use ::musig2::secp::Point;
 use bitcoin::address::NetworkUnchecked;
 use bitcoin::hashes::Hash;
-use bitcoin::{merkle_tree, Address};
+use bitcoin::Address;
 use bitcoin::{secp256k1, OutPoint};
 use bitcoin_mock_rpc::RpcApiWrapper;
-use clementine_circuits::constants::{BRIDGE_AMOUNT_SATS, DEPOSIT_USER_TAKES_AFTER};
-use clementine_circuits::incremental_merkle::IncrementalMerkleTree;
+use clementine_circuits::constants::BRIDGE_AMOUNT_SATS;
 use clementine_circuits::sha256_hash;
 use jsonrpsee::core::async_trait;
 use secp256k1::{rand, schnorr};
@@ -30,7 +28,6 @@ where
     db: VerifierDB,
     config: BridgeConfig,
     nofn_xonly_pk: secp256k1::XOnlyPublicKey,
-    idx: usize,
     operator_xonly_pks: Vec<secp256k1::XOnlyPublicKey>,
 }
 
@@ -55,11 +52,6 @@ where
         let agg_point: Point = key_agg_context.aggregated_pubkey_untweaked();
         let nofn_xonly_pk = secp256k1::XOnlyPublicKey::from_slice(&agg_point.serialize_xonly())?;
         let operator_xonly_pks = config.operators_xonly_pks.clone();
-        let idx = config
-            .verifiers_public_keys
-            .iter()
-            .position(|&x| x == pk)
-            .unwrap();
 
         Ok(Verifier {
             rpc,
@@ -67,7 +59,6 @@ where
             db,
             config,
             nofn_xonly_pk,
-            idx,
             operator_xonly_pks,
         })
     }
@@ -227,13 +218,6 @@ where
                 )
             })
             .collect::<Vec<_>>();
-        // let root: bitcoin::hashes::sha256::Hash = bitcoin::merkle_tree::calculate_root(
-        //     kickoff_utxos
-        //         .iter()
-        //         .map(|utxo| Hash::from_byte_array(sha256_hash!(utxo.to_vec().as_slice()))),
-        // )
-        // .unwrap();
-        // let root_bytes: [u8; 32] = *root.as_byte_array();
 
         self.db
             .save_kickoff_utxos(deposit_outpoint, &kickoff_utxos)
