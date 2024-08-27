@@ -83,7 +83,7 @@ create table operators_kickoff_utxo (
     created_at timestamp not null default now()
 );
 
--- Operator table for funding utxo used for deposits 
+-- Operator table for funding utxo used for deposits
 create table funding_utxos (
     id serial primary key,
     funding_utxo jsonb not null,

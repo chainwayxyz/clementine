@@ -14,7 +14,7 @@ use bitcoin::hashes::Hash;
 use bitcoin::{merkle_tree, Address};
 use bitcoin::{secp256k1, OutPoint};
 use bitcoin_mock_rpc::RpcApiWrapper;
-use clementine_circuits::constants::BRIDGE_AMOUNT_SATS;
+use clementine_circuits::constants::{BRIDGE_AMOUNT_SATS, DEPOSIT_USER_TAKES_AFTER};
 use clementine_circuits::incremental_merkle::IncrementalMerkleTree;
 use clementine_circuits::sha256_hash;
 use jsonrpsee::core::async_trait;
@@ -90,8 +90,7 @@ where
             &recovery_taproot_address,
             &evm_address,
             BRIDGE_AMOUNT_SATS,
-            self.config.user_takes_after,
-            self.config.confirmation_treshold,
+            self.config.confirmation_threshold,
             self.config.network,
         )?;
 
@@ -101,10 +100,12 @@ where
         // Check if we already have pub_nonces for this deposit_utxo.
         let pub_nonces_from_db = self.db.get_pub_nonces(deposit_outpoint).await?;
         if let Some(pub_nonces) = pub_nonces_from_db {
-            if pub_nonces.len() != num_required_nonces {
-                return Err(BridgeError::NoncesNotFound);
+            if pub_nonces.len() > 0 {
+                if pub_nonces.len() != num_required_nonces {
+                    return Err(BridgeError::NoncesNotFound);
+                }
+                return Ok(pub_nonces);
             }
-            return Ok(pub_nonces);
         }
 
         let nonces = (0..num_required_nonces)
@@ -173,11 +174,18 @@ where
             )?;
 
             // Check if for each operator the address of the kickoff_utxo is correct TODO: Maybe handle the possible errors better
-            let (musig2_and_operator_address, _) = TransactionBuilder::create_kickoff_address(
-                &self.nofn_xonly_pk,
-                &self.operator_xonly_pks[i],
-                self.config.network,
+            let (musig2_and_operator_address, spend_info) =
+                TransactionBuilder::create_kickoff_address(
+                    &self.nofn_xonly_pk,
+                    &self.operator_xonly_pks[i],
+                    self.config.network,
+                );
+            tracing::debug!(
+                "musig2_and_operator_address.script_pubkey: {:?}",
+                musig2_and_operator_address.script_pubkey()
             );
+            tracing::debug!("Kickoff UTXO: {:?}", kickoff_utxo.txout.script_pubkey);
+            tracing::debug!("Spend Info: {:?}", spend_info);
             assert!(
                 kickoff_utxo.txout.script_pubkey == musig2_and_operator_address.script_pubkey()
             );
@@ -288,7 +296,6 @@ where
             deposit_outpoint,
             &evm_address,
             &recovery_taproot_address,
-            200, // TODO: Fix this
             &self.nofn_xonly_pk,
             self.config.network,
         );
@@ -325,30 +332,31 @@ where
                     &self.nofn_xonly_pk,
                     self.config.network,
                 );
+                // println!("Slash or take tx handler: {:?}", slash_or_take_tx_handler);
                 let slash_or_take_sighash =
                     Actor::convert_tx_to_sighash_script_spend(&mut slash_or_take_tx_handler, 0, 0)
                         .unwrap();
 
-                utils::SECP.verify_schnorr(
-                    &slash_or_take_sigs[index],
-                    &secp256k1::Message::from_digest(slash_or_take_sighash.to_byte_array()),
-                    &self.nofn_xonly_pk,
-                );
+                utils::SECP
+                    .verify_schnorr(
+                        &slash_or_take_sigs[index],
+                        &secp256k1::Message::from_digest(slash_or_take_sighash.to_byte_array()),
+                        &self.nofn_xonly_pk,
+                    )
+                    .unwrap();
 
-                let (operator_address, _) = TransactionBuilder::create_taproot_address(
-                    &[],
-                    Some(self.operator_xonly_pks[index]),
-                    self.config.network,
-                );
-
-                let mut operator_takes_tx = TransactionBuilder::create_operator_takes_tx(
-                    bridge_fund_outpoint,
-                    OutPoint {
+                let slash_or_take_utxo = UTXO {
+                    outpoint: OutPoint {
                         txid: slash_or_take_tx_handler.tx.compute_txid(),
                         vout: 0,
                     },
-                    slash_or_take_tx_handler.tx.output[0].clone(),
-                    &operator_address,
+                    txout: slash_or_take_tx_handler.tx.output[0].clone(),
+                };
+
+                let mut operator_takes_tx = TransactionBuilder::create_operator_takes_tx(
+                    bridge_fund_outpoint,
+                    slash_or_take_utxo,
+                    &self.operator_xonly_pks[index],
                     &self.nofn_xonly_pk,
                     self.config.network,
                 );
@@ -357,13 +365,13 @@ where
                     .to_byte_array()
             })
             .collect::<Vec<_>>();
-
+        println!("Operator takes sighashes: {:?}", operator_takes_sighashes);
         let nonces = self
             .db
             .save_sighashes_and_get_nonces(deposit_outpoint, 1, &operator_takes_sighashes)
             .await?
             .ok_or(BridgeError::NoncesNotFound)?;
-
+        println!("Nonces: {:?}", nonces);
         // now iterate over nonces and sighashes and sign the operator_takes_txs
         let operator_takes_partial_sigs = operator_takes_sighashes
             .iter()
@@ -379,6 +387,10 @@ where
                 )
             })
             .collect::<Vec<_>>();
+        println!(
+            "Operator takes partial sigs: {:?}",
+            operator_takes_partial_sigs
+        );
         Ok(operator_takes_partial_sigs)
     }
 
@@ -389,6 +401,7 @@ where
         deposit_outpoint: OutPoint,
         operator_take_sigs: Vec<schnorr::Signature>,
     ) -> Result<MuSigPartialSignature, BridgeError> {
+        println!("Operator take signed: {:?}", operator_take_sigs);
         let (kickoff_utxos, mut move_tx_handler, bridge_fund_outpoint) =
             self.create_deposit_details(deposit_outpoint).await?;
 
@@ -396,11 +409,6 @@ where
             .iter()
             .enumerate()
             .map(|(index, kickoff_utxo)| {
-                let (operator_address, _) = TransactionBuilder::create_taproot_address(
-                    &[],
-                    Some(self.operator_xonly_pks[index]),
-                    self.config.network,
-                );
                 let slash_or_take_tx = TransactionBuilder::create_slash_or_take_tx(
                     deposit_outpoint,
                     kickoff_utxo.clone(),
@@ -409,15 +417,17 @@ where
                     &self.nofn_xonly_pk,
                     self.config.network,
                 );
-
-                let mut operator_takes_tx = TransactionBuilder::create_operator_takes_tx(
-                    bridge_fund_outpoint,
-                    OutPoint {
+                let slash_or_take_utxo = UTXO {
+                    outpoint: OutPoint {
                         txid: slash_or_take_tx.tx.compute_txid(),
                         vout: 0,
                     },
-                    slash_or_take_tx.tx.output[0].clone(),
-                    &operator_address,
+                    txout: slash_or_take_tx.tx.output[0].clone(),
+                };
+                let mut operator_takes_tx = TransactionBuilder::create_operator_takes_tx(
+                    bridge_fund_outpoint,
+                    slash_or_take_utxo,
+                    &self.operator_xonly_pks[index],
                     &self.nofn_xonly_pk,
                     self.config.network,
                 );
@@ -434,7 +444,8 @@ where
                     )
                     .unwrap();
             });
-
+        println!("MOVE_TX: {:?}", move_tx_handler);
+        println!("MOVE_TXID: {:?}", move_tx_handler.tx.compute_txid());
         let move_tx_sighash =
             Actor::convert_tx_to_sighash_script_spend(&mut move_tx_handler, 0, 0)?; // TODO: This should be musig
 
@@ -476,7 +487,7 @@ impl<R> VerifierRpcServer for Verifier<R>
 where
     R: RpcApiWrapper,
 {
-    async fn new_deposit_rpc(
+    async fn verifier_new_deposit_rpc(
         &self,
         deposit_utxo: OutPoint,
         recovery_taproot_address: Address<NetworkUnchecked>,

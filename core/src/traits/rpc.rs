@@ -13,9 +13,9 @@ pub trait VerifierRpc {
     /// - Generate random pubNonces, secNonces
     /// - Save pubNonces and secNonces to a in-memory db
     /// - Return pubNonces
-    async fn new_deposit_rpc(
+    async fn verifier_new_deposit_rpc(
         &self,
-        deposit_utxo: OutPoint,
+        deposit_outpoint: OutPoint,
         recovery_taproot_address: Address<NetworkUnchecked>,
         evm_address: EVMAddress,
     ) -> Result<Vec<MuSigPubNonce>, BridgeError>;
@@ -64,8 +64,8 @@ pub trait OperatorRpc {
         evm_address: EVMAddress,
     ) -> Result<(UTXO, secp256k1::schnorr::Signature), BridgeError>;
 
-    #[method(name = "set_operator_funding_utxo")]
-    async fn set_operator_funding_utxo_rpc(&self, funding_utxo: UTXO) -> Result<(), BridgeError>;
+    #[method(name = "set_funding_utxo")]
+    async fn set_funding_utxo_rpc(&self, funding_utxo: UTXO) -> Result<(), BridgeError>;
 
     #[method(name = "new_withdrawal_sig")]
     /// Gets the withdrawal utxo from citrea,
