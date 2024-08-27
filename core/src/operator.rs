@@ -296,8 +296,14 @@ where
     async fn withdrawal_proved_on_citrea(
         &self,
         _withdrawal_idx: usize,
-        _kickoff_merkle_root: [u8; 32],
+        deposit_outpoint: OutPoint,
     ) -> Result<(), BridgeError> {
+        let kickoff_utxo = self
+            .db
+            .get_kickoff_utxo(deposit_outpoint)
+            .await?
+            .ok_or(BridgeError::KickoffOutpointsNotFound)?;
+        tracing::debug!("Kickoff UTXO FOUND: {:?}", kickoff_utxo);
         Ok(())
     }
 }
@@ -335,9 +341,9 @@ where
     async fn withdrawal_proved_on_citrea_rpc(
         &self,
         withdrawal_idx: usize,
-        kickoff_merkle_root: [u8; 32],
+        deposit_outpoint: OutPoint,
     ) -> Result<(), BridgeError> {
-        self.withdrawal_proved_on_citrea(withdrawal_idx, kickoff_merkle_root)
+        self.withdrawal_proved_on_citrea(withdrawal_idx, deposit_outpoint)
             .await
     }
 }

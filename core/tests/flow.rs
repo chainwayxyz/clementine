@@ -3,8 +3,10 @@
 // //! This testss checks if basic deposit and withdraw operations are OK or not.
 
 use bitcoin::Address;
+use bitcoin::OutPoint;
 use clementine_circuits::constants::BRIDGE_AMOUNT_SATS;
 use clementine_core::actor::Actor;
+use clementine_core::config::BridgeConfig;
 use clementine_core::database::common::Database;
 use clementine_core::errors::BridgeError;
 use clementine_core::extended_rpc::ExtendedRpc;
@@ -25,11 +27,26 @@ use clementine_core::UTXO;
 use clementine_core::{
     create_extended_rpc, create_test_config, create_test_config_with_thread_name,
 };
+use crypto_bigint::rand_core::OsRng;
+use jsonrpsee::http_client::HttpClient;
+use jsonrpsee::server::ServerHandle;
+use secp256k1::rand::Rng;
+use secp256k1::SecretKey;
+use std::net::SocketAddr;
 use std::thread;
 
-#[tokio::test]
-async fn test_deposit() -> Result<(), BridgeError> {
-    let mut config = create_test_config_with_thread_name!("test_config_flow.toml");
+pub async fn run_single_deposit(
+    test_config_name: &str,
+) -> Result<
+    (
+        Vec<(HttpClient, ServerHandle, SocketAddr)>,
+        Vec<(HttpClient, ServerHandle, SocketAddr)>,
+        BridgeConfig,
+        OutPoint,
+    ),
+    BridgeError,
+> {
+    let mut config = create_test_config_with_thread_name!(test_config_name);
     let rpc = create_extended_rpc!(config);
 
     let (verifiers, operators) = create_verifiers_and_operators("test_config_flow.toml").await;
@@ -239,5 +256,52 @@ async fn test_deposit() -> Result<(), BridgeError> {
     tracing::debug!("Move tx weight: {:?}", move_tx_handler.tx.weight());
     let move_txid = rpc.send_raw_transaction(&move_tx_handler.tx).unwrap();
     tracing::debug!("Move txid: {:?}", move_txid);
-    Ok(())
+    Ok((verifiers, operators, config, deposit_outpoint))
+}
+
+#[tokio::test]
+async fn test_deposit() -> Result<(), BridgeError> {
+    match run_single_deposit("test_config_flow.toml").await {
+        Ok((_, _, _, deposit_outpoint)) => {
+            // tracing::debug!("Verifiers: {:#?}", verifiers);
+            // tracing::debug!("Operators: {:#?}", operators);
+            tracing::debug!("Deposit outpoint: {:#?}", deposit_outpoint);
+            Ok(())
+        }
+        Err(e) => {
+            tracing::error!("Error: {:?}", e);
+            Err(e)
+        }
+    }
+}
+
+#[tokio::test]
+async fn test_honest_operator_takes_refund() {
+    // let mut config = create_test_config_with_thread_name!("test_config_flow.toml");
+    let (verifiers, operators, mut config, deposit_outpoint) =
+        run_single_deposit("test_config_flow.toml").await.unwrap();
+    let rpc = create_extended_rpc!(config);
+
+    let secp = bitcoin::secp256k1::Secp256k1::new();
+    let user_sk = SecretKey::from_slice(&OsRng.gen::<[u8; 32]>()).unwrap();
+    let user = User::new(rpc, user_sk, config.clone());
+    let withdrawal_address = Address::p2tr(
+        &secp,
+        user_sk.x_only_public_key(&secp).0,
+        None,
+        config.network,
+    );
+    let (empty_utxo, withdrawal_tx_out, user_sig) =
+        user.generate_withdrawal_sig(withdrawal_address).unwrap();
+    let withdrawal_provide_txid = operators[0]
+        .0
+        .new_withdrawal_sig_rpc(0, user_sig, empty_utxo, withdrawal_tx_out)
+        .await
+        .unwrap();
+    println!("{:?}", withdrawal_provide_txid);
+    operators[0]
+        .0
+        .withdrawal_proved_on_citrea_rpc(0, deposit_outpoint)
+        .await
+        .unwrap();
 }

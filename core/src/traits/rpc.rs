@@ -81,10 +81,13 @@ pub trait OperatorRpc {
     ) -> Result<Option<Txid>, BridgeError>;
 
     #[method(name = "withdrawal_proved_on_citrea")]
+    /// 1- Calculate move_txid, check if the withdrawal idx matches the move_txid
+    /// 2- Check if it is really proved on citrea
+    /// 3- If it is, send operator_take_txs
     async fn withdrawal_proved_on_citrea_rpc(
         &self,
         withdrawal_idx: usize,
-        kickoff_merkle_root: [u8; 32],
+        deposit_outpoint: OutPoint,
     ) -> Result<(), BridgeError>;
 
     // #[method(name = "operator_take_sendable")]
