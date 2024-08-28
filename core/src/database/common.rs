@@ -399,23 +399,34 @@ impl Database {
         Ok(())
     }
 
-    pub async fn save_slash_or_take_sig(
+    pub async fn save_slash_or_take_sigs(
         &self,
         deposit_outpoint: OutPoint,
-        kickoff_utxo: UTXO,
-        slash_or_take_sig: schnorr::Signature,
+        kickoff_utxos_and_sigs: impl IntoIterator<Item = (UTXO, schnorr::Signature)>,
     ) -> Result<(), BridgeError> {
-        sqlx::query(
+        QueryBuilder::new(
             "UPDATE deposit_kickoff_utxos
-             SET slash_or_take_sig = $3
-             WHERE deposit_outpoint = $1 AND kickoff_utxo = $2;",
+             SET slash_or_take_sig = batch.sig
+             FROM (",
         )
-        .bind(OutPointDB(deposit_outpoint))
-        .bind(sqlx::types::Json(UTXODB {
-            outpoint_db: OutPointDB(kickoff_utxo.outpoint),
-            txout_db: TxOutDB(kickoff_utxo.txout),
-        }))
-        .bind(SignatureDB(slash_or_take_sig))
+        .push_values(
+            kickoff_utxos_and_sigs,
+            |mut builder, (kickoff_utxo, slash_or_take_sig)| {
+                builder
+                    .push_bind(sqlx::types::Json(UTXODB {
+                        outpoint_db: OutPointDB(kickoff_utxo.outpoint),
+                        txout_db: TxOutDB(kickoff_utxo.txout),
+                    }))
+                    .push_bind(SignatureDB(slash_or_take_sig));
+            },
+        )
+        .push(
+            ") AS batch (kickoff_utxo, sig)
+             WHERE deposit_kickoff_utxos.deposit_outpoint = ",
+        )
+        .push_bind(OutPointDB(deposit_outpoint))
+        .push(" AND deposit_kickoff_utxos.kickoff_utxo = batch.kickoff_utxo;")
+        .build()
         .execute(&self.connection)
         .await?;
 
