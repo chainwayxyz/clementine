@@ -446,7 +446,6 @@ mod tests {
             )
             .unwrap();
         println!("MuSig2 signature verified successfully!");
-        println!("SECP Verification: {:?}", ());
     }
 
     // Test the MuSig2 signature scheme with a dummy script spend.
@@ -529,6 +528,5 @@ mod tests {
             )
             .unwrap();
         println!("MuSig2 signature verified successfully!");
-        println!("SECP Verification: {:?}", ());
     }
 }

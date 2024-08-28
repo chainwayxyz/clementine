@@ -119,7 +119,6 @@ async fn test_musig2_key_spend() {
     )
     .unwrap();
     println!("MuSig2 signature verified successfully!");
-    println!("SECP Verification: {:?}", ());
     tx_details.tx.input[0].witness.push(final_signature);
     let txid = rpc.send_raw_transaction(&tx_details.tx).unwrap();
     println!("Transaction sent successfully! Txid: {}", txid);
@@ -214,7 +213,6 @@ async fn test_musig2_script_spend() {
         )
         .unwrap();
     println!("MuSig2 signature verified successfully!");
-    println!("SECP Verification: {:?}", ());
     let schnorr_sig = secp256k1::schnorr::Signature::from_slice(&final_signature).unwrap();
     let witness_elements = vec![schnorr_sig.as_ref()];
     handle_taproot_witness_new(&mut tx_details, &witness_elements, 0, 0).unwrap();
