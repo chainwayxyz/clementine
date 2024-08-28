@@ -332,10 +332,11 @@ impl TransactionBuilder {
         network: bitcoin::Network,
     ) -> TxHandler {
         let operator_address = Address::p2tr(&utils::SECP, *operator_xonly_pk, None, network);
-        let ins = TransactionBuilder::create_tx_ins(vec![
-            bridge_fund_outpoint,
-            slash_or_take_utxo.outpoint,
-        ]);
+        let mut ins = TransactionBuilder::create_tx_ins(vec![bridge_fund_outpoint]);
+        ins.extend(TransactionBuilder::create_tx_ins_with_sequence(
+            vec![slash_or_take_utxo.outpoint],
+            OPERATOR_TAKES_AFTER as u16,
+        ));
 
         let (musig2_address, musig2_spend_info) =
             TransactionBuilder::create_musig2_address(*nofn_xonly_pk, network);

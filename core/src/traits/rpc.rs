@@ -88,8 +88,11 @@ pub trait OperatorRpc {
         &self,
         withdrawal_idx: usize,
         deposit_outpoint: OutPoint,
-    ) -> Result<(), BridgeError>;
+    ) -> Result<Vec<String>, BridgeError>;
 
     // #[method(name = "operator_take_sendable")]
     // async fn operator_take_sendable_rpc(&self, withdrawal_idx: usize) -> Result<(), BridgeError>;
 }
+
+
+// #[rpc(client, server, namespace = "aggregator")]

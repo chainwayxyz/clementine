@@ -303,7 +303,7 @@ where
         &self,
         _withdrawal_idx: usize,
         deposit_outpoint: OutPoint,
-    ) -> Result<(), BridgeError> {
+    ) -> Result<Vec<String>, BridgeError> {
         let kickoff_utxo = self
             .db
             .get_kickoff_utxo(deposit_outpoint)
@@ -436,43 +436,43 @@ where
 
         txs_to_be_sent.push(operator_takes_tx.tx.raw_hex());
 
-        let input_0_sighash = Actor::convert_tx_to_sighash_pubkey_spend(&mut operator_takes_tx, 0)?;
-        let input_0_message = Message::from_digest_slice(input_0_sighash.as_byte_array())?;
-        tracing::debug!("Trying to verify signatures for operator_takes_tx");
-        let res_0 = utils::SECP.verify_schnorr(
-            &operator_takes_nofn_sig,
-            &input_0_message,
-            &self.nofn_xonly_pk,
-        )?;
-        tracing::debug!("Signature verified successfully for input 0!");
+        // let input_0_sighash = Actor::convert_tx_to_sighash_pubkey_spend(&mut operator_takes_tx, 0)?;
+        // let input_0_message = Message::from_digest_slice(input_0_sighash.as_byte_array())?;
+        // tracing::debug!("Trying to verify signatures for operator_takes_tx");
+        // let res_0 = utils::SECP.verify_schnorr(
+        //     &operator_takes_nofn_sig,
+        //     &input_0_message,
+        //     &self.nofn_xonly_pk,
+        // )?;
+        // tracing::debug!("Signature verified successfully for input 0!");
 
-        let input_1_sighash =
-            Actor::convert_tx_to_sighash_script_spend(&mut operator_takes_tx, 1, 0)?;
-        let input_1_message = Message::from_digest_slice(input_1_sighash.as_byte_array())?;
-        let res_1 = utils::SECP.verify_schnorr(
-            &our_sig,
-            &input_1_message,
-            &self.signer.xonly_public_key,
-        )?;
-        tracing::debug!("Signature verified successfully for input 1!");
+        // let input_1_sighash =
+        //     Actor::convert_tx_to_sighash_script_spend(&mut operator_takes_tx, 1, 0)?;
+        // let input_1_message = Message::from_digest_slice(input_1_sighash.as_byte_array())?;
+        // let res_1 = utils::SECP.verify_schnorr(
+        //     &our_sig,
+        //     &input_1_message,
+        //     &self.signer.xonly_public_key,
+        // )?;
+        // tracing::debug!("Signature verified successfully for input 1!");
 
-        tracing::debug!(
-            "Found txs to be sent with operator_takes_tx: {:?}",
-            txs_to_be_sent
-        );
-        let kickoff_txid = self
-            .rpc
-            .send_raw_transaction(&deserialize_hex(&txs_to_be_sent[0])?)?;
-        tracing::debug!("Kickoff txid: {:?}", kickoff_txid);
-        let slash_or_take_txid = self
-            .rpc
-            .send_raw_transaction(&deserialize_hex(&txs_to_be_sent[1])?)?;
-        tracing::debug!("Slash or take txid: {:?}", slash_or_take_txid);
-        let operator_takes_tx: Transaction = deserialize_hex(&txs_to_be_sent[2])?;
-        tracing::debug!("Operator takes tx: {:#?}", operator_takes_tx);
-        let operator_takes_txid = self.rpc.send_raw_transaction(&operator_takes_tx)?;
-        tracing::debug!("Operator takes txid: {:?}", operator_takes_txid);
-        Ok(())
+        // tracing::debug!(
+        //     "Found txs to be sent with operator_takes_tx: {:?}",
+        //     txs_to_be_sent
+        // );
+        // let kickoff_txid = self
+        //     .rpc
+        //     .send_raw_transaction(&deserialize_hex(&txs_to_be_sent[0])?)?;
+        // tracing::debug!("Kickoff txid: {:?}", kickoff_txid);
+        // let slash_or_take_txid = self
+        //     .rpc
+        //     .send_raw_transaction(&deserialize_hex(&txs_to_be_sent[1])?)?;
+        // tracing::debug!("Slash or take txid: {:?}", slash_or_take_txid);
+        // let operator_takes_tx: Transaction = deserialize_hex(&txs_to_be_sent[2])?;
+        // tracing::debug!("Operator takes tx: {:#?}", operator_takes_tx);
+        // let operator_takes_txid = self.rpc.send_raw_transaction(&operator_takes_tx)?;
+        // tracing::debug!("Operator takes txid: {:?}", operator_takes_txid);
+        Ok(txs_to_be_sent)
     }
 }
 
@@ -510,7 +510,7 @@ where
         &self,
         withdrawal_idx: usize,
         deposit_outpoint: OutPoint,
-    ) -> Result<(), BridgeError> {
+    ) -> Result<Vec<String>, BridgeError> {
         self.withdrawal_proved_on_citrea(withdrawal_idx, deposit_outpoint)
             .await
     }

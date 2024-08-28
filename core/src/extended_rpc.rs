@@ -260,9 +260,9 @@ where
         self.client.get_transaction(txid, include_watchonly)
     }
 
-    pub fn send_raw_transaction(
+    pub fn send_raw_transaction<T: bitcoincore_rpc::RawTx>(
         &self,
-        tx: &Transaction,
+        tx: T,
     ) -> Result<bitcoin::Txid, bitcoincore_rpc::Error> {
         self.client.send_raw_transaction(tx)
     }
