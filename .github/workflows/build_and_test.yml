@@ -5,28 +5,13 @@ on: [push]
 env:
   CARGO_TERM_COLOR: always
   CARGO_TERM_VERBOSE: true
-  CARGOFLAGS: --workspace --all-targets --all-features
+  CARGOFLAGS: --workspace --all-targets
   RUST_LOG: trace
 
 jobs:
   debug_mode_build:
     name: Compile code in debug mode
     runs-on: ubicloud-standard-4
-
-    services:
-      postgres:
-        image: postgres:latest
-        env:
-          POSTGRES_DB: clementine
-          POSTGRES_USER: clementine
-          POSTGRES_PASSWORD: clementine
-        ports:
-          - 5432:5432
-        options: >-
-          --health-cmd pg_isready
-          --health-interval 10s
-          --health-timeout 5s
-          --health-retries 50
 
     steps:
     - uses: actions/checkout@v4
@@ -49,21 +34,6 @@ jobs:
     name: Compile code in release mode
     runs-on: ubicloud-standard-4
 
-    services:
-      postgres:
-        image: postgres:latest
-        env:
-          POSTGRES_DB: clementine
-          POSTGRES_USER: clementine
-          POSTGRES_PASSWORD: clementine
-        ports:
-          - 5432:5432
-        options: >-
-          --health-cmd pg_isready
-          --health-interval 10s
-          --health-timeout 5s
-          --health-retries 50
-
     steps:
     - uses: actions/checkout@v4
 
@@ -85,6 +55,21 @@ jobs:
     name: Test code in debug mode
     runs-on: ubicloud-standard-4
     needs: debug_mode_build
+
+    services:
+      postgres:
+        image: postgres:latest
+        env:
+          POSTGRES_DB: clementine
+          POSTGRES_USER: clementine
+          POSTGRES_PASSWORD: clementine
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 50
 
     steps:
     - uses: actions/checkout@v4
@@ -160,6 +145,21 @@ jobs:
     name: Test code in release mode
     runs-on: ubicloud-standard-4
     needs: release_mode_build
+
+    services:
+      postgres:
+        image: postgres:latest
+        env:
+          POSTGRES_DB: clementine
+          POSTGRES_USER: clementine
+          POSTGRES_PASSWORD: clementine
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 50
 
     steps:
     - uses: actions/checkout@v4
