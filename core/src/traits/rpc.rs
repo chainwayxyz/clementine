@@ -94,5 +94,4 @@ pub trait OperatorRpc {
     // async fn operator_take_sendable_rpc(&self, withdrawal_idx: usize) -> Result<(), BridgeError>;
 }
 
-
 // #[rpc(client, server, namespace = "aggregator")]

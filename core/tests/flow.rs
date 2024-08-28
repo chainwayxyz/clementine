@@ -4,11 +4,12 @@
 
 use bitcoin::Address;
 use clementine_circuits::constants::OPERATOR_TAKES_AFTER;
-use clementine_core::{create_extended_rpc, errors::BridgeError, traits::rpc::OperatorRpcClient, user::User};
+use clementine_core::extended_rpc::ExtendedRpc;
+use clementine_core::{
+    create_extended_rpc, errors::BridgeError, traits::rpc::OperatorRpcClient, user::User,
+};
 use common::run_single_deposit;
 use secp256k1::SecretKey;
-use clementine_core::extended_rpc::ExtendedRpc;
-
 
 mod common;
 
@@ -36,7 +37,7 @@ async fn test_honest_operator_takes_refund() {
     let rpc = create_extended_rpc!(config);
 
     let secp = bitcoin::secp256k1::Secp256k1::new();
-    let user_sk = SecretKey::from_slice(&[12u8;32]).unwrap();
+    let user_sk = SecretKey::from_slice(&[12u8; 32]).unwrap();
     let user = User::new(rpc.clone(), user_sk, config.clone());
     let withdrawal_address = Address::p2tr(
         &secp,
@@ -63,5 +64,6 @@ async fn test_honest_operator_takes_refund() {
     }
     rpc.mine_blocks(OPERATOR_TAKES_AFTER as u64).unwrap();
     // send the last tx
-    rpc.send_raw_transaction(txs_to_be_sent.last().unwrap().clone()).unwrap();
+    rpc.send_raw_transaction(txs_to_be_sent.last().unwrap().clone())
+        .unwrap();
 }
