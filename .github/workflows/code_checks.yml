@@ -22,4 +22,4 @@ jobs:
     steps:
     - uses: actions/checkout@v4
     - name: Run Cargo clippy
-      run: cargo clippy --no-deps -- -Dwarnings
+      run: cargo clippy --no-deps --all-targets -- -Dwarnings
