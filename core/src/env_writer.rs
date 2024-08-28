@@ -316,12 +316,6 @@ impl<E: Environment> ENVWriter<E> {
 // write tests for circuits
 #[cfg(test)]
 mod tests {
-
-    use std::sync::Mutex;
-    lazy_static::lazy_static! {
-        static ref SHARED_STATE: Mutex<i32> = Mutex::new(0);
-    }
-
     use bitcoin::{
         block::Header,
         consensus::{deserialize, serialize},
@@ -335,16 +329,18 @@ mod tests {
         },
         incremental_merkle::IncrementalMerkleTree,
     };
+    use std::sync::Mutex;
     // use operator_circuit::GUEST_ELF;
-
-    use crypto_bigint::U256;
-
     use crate::{
         env_writer::ENVWriter, errors::BridgeError, merkle::MerkleTree, mock::env::MockEnvironment,
         utils::parse_hex_to_btc_tx,
     };
-
+    use crypto_bigint::U256;
     use secp256k1::hashes::Hash;
+
+    lazy_static::lazy_static! {
+        static ref SHARED_STATE: Mutex<i32> = Mutex::new(0);
+    }
 
     fn test_block_merkle_path(block: Block) -> Result<(), BridgeError> {
         let expected_merkle_root = block.compute_merkle_root().unwrap().to_byte_array();
