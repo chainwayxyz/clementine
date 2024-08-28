@@ -7,3 +7,4 @@ target/
 configs
 ./database
 .vscode
+.docker/db/data/
