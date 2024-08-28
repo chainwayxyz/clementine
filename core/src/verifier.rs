@@ -49,7 +49,7 @@ where
         let db = VerifierDB::new(config.clone()).await;
 
         let key_agg_context =
-            musig2::create_key_agg_ctx(config.verifiers_public_keys.clone(), None)?;
+            musig2::create_key_agg_ctx(config.verifiers_public_keys.clone(), None, false)?;
         let agg_point: Point = key_agg_context.aggregated_pubkey_untweaked();
         let nofn_xonly_pk = secp256k1::XOnlyPublicKey::from_slice(&agg_point.serialize_xonly())?;
         let operator_xonly_pks = config.operators_xonly_pks.clone();
@@ -212,6 +212,7 @@ where
                 musig2::partial_sign(
                     self.config.verifiers_public_keys.clone(),
                     None,
+                    false,
                     *sec_nonce,
                     agg_nonce.clone(),
                     &self.signer.keypair,
@@ -321,7 +322,15 @@ where
                 let slash_or_take_sighash =
                     Actor::convert_tx_to_sighash_script_spend(&mut slash_or_take_tx_handler, 0, 0)
                         .unwrap();
-
+                tracing::debug!(
+                    "Verify SLASH_OR_TAKE_TX message: {:?}",
+                    slash_or_take_sighash
+                );
+                tracing::debug!("Verify SLASH_OR_TAKE_SIG: {:?}", slash_or_take_sigs[index]);
+                tracing::debug!(
+                    "Verify SLASH_OR_TAKE_TX operator xonly_pk: {:?}",
+                    self.operator_xonly_pks[index]
+                );
                 utils::SECP
                     .verify_schnorr(
                         &slash_or_take_sigs[index],
@@ -377,6 +386,7 @@ where
                 musig2::partial_sign(
                     self.config.verifiers_public_keys.clone(),
                     None,
+                    true,
                     *sec_nonce,
                     agg_nonce.clone(),
                     &self.signer.keypair,
@@ -474,6 +484,7 @@ where
         let move_tx_sig = musig2::partial_sign(
             self.config.verifiers_public_keys.clone(),
             None,
+            false,
             nonces[0].0,
             nonces[0].1.clone(),
             &self.signer.keypair,

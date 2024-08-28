@@ -31,7 +31,7 @@ where
         let signer = Actor::new(sk, config.network);
 
         let key_agg_context =
-            musig2::create_key_agg_ctx(config.verifiers_public_keys.clone(), None).unwrap();
+            musig2::create_key_agg_ctx(config.verifiers_public_keys.clone(), None, false).unwrap();
         let agg_point: Point = key_agg_context.aggregated_pubkey_untweaked();
         let nofn_xonly_pk =
             secp256k1::XOnlyPublicKey::from_slice(&agg_point.serialize_xonly()).unwrap();

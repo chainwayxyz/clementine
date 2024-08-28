@@ -48,7 +48,7 @@ where
         let db = OperatorDB::new(config.clone()).await;
 
         let key_agg_context =
-            musig2::create_key_agg_ctx(config.verifiers_public_keys.clone(), None)?;
+            musig2::create_key_agg_ctx(config.verifiers_public_keys.clone(), None, false)?;
         let agg_point: Point = key_agg_context.aggregated_pubkey_untweaked();
         let nofn_xonly_pk = secp256k1::XOnlyPublicKey::from_slice(&agg_point.serialize_xonly())?;
         let idx = config
@@ -420,6 +420,7 @@ where
             .get_operator_take_sig(deposit_outpoint, kickoff_utxo)
             .await?
             .ok_or(BridgeError::KickoffOutpointsNotFound)?; // TODO: Fix this error
+        tracing::debug!("Operator Found nofn sig: {:?}", operator_takes_nofn_sig);
 
         let our_sig = self
             .signer
@@ -437,6 +438,7 @@ where
 
         let input_0_sighash = Actor::convert_tx_to_sighash_pubkey_spend(&mut operator_takes_tx, 0)?;
         let input_0_message = Message::from_digest_slice(input_0_sighash.as_byte_array())?;
+        tracing::debug!("Trying to verify signatures for operator_takes_tx");
         let res_0 = utils::SECP.verify_schnorr(
             &operator_takes_nofn_sig,
             &input_0_message,
