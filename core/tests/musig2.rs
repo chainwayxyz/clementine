@@ -28,11 +28,11 @@ async fn test_musig2_key_spend() {
     let sks = config.all_verifiers_secret_keys.unwrap();
     let kp_vec: Vec<Keypair> = sks
         .iter()
-        .map(|sk| Keypair::from_secret_key(&secp, &sk))
+        .map(|sk| Keypair::from_secret_key(&secp, sk))
         .collect();
     let nonce_pair_vec: Vec<MuSigNoncePair> = kp_vec
         .iter()
-        .map(|kp| nonce_pair(&kp, &mut secp256k1::rand::thread_rng()))
+        .map(|kp| nonce_pair(kp, &mut secp256k1::rand::thread_rng()))
         .collect();
     let pks = kp_vec
         .iter()
@@ -50,9 +50,9 @@ async fn test_musig2_key_spend() {
     let untweaked_xonly_pubkey: secp256k1::XOnlyPublicKey =
         secp256k1::XOnlyPublicKey::from_slice(&untweaked_pubkey.x_only_public_key().0.serialize())
             .unwrap();
-    let (to_address, _) = TransactionBuilder::create_taproot_address(&vec![], None, config.network);
+    let (to_address, _) = TransactionBuilder::create_taproot_address(&[], None, config.network);
     let (from_address, from_address_spend_info) = TransactionBuilder::create_taproot_address(
-        &vec![],
+        &[],
         Some(untweaked_xonly_pubkey),
         config.network,
     );
@@ -106,10 +106,10 @@ async fn test_musig2_key_spend() {
     let musig_agg_xonly_pubkey_wrapped =
         bitcoin::XOnlyPublicKey::from_slice(&musig_agg_xonly_pubkey.serialize()).unwrap();
 
-    musig2::verify_single(musig_agg_pubkey, &final_signature, message)
+    musig2::verify_single(musig_agg_pubkey, final_signature, message)
         .expect("Verification failed!");
     let schnorr_sig = secp256k1::schnorr::Signature::from_slice(&final_signature).unwrap();
-    let res = secp
+    secp
         .verify_schnorr(
             &schnorr_sig,
             &Message::from_digest(message),
@@ -117,8 +117,8 @@ async fn test_musig2_key_spend() {
         )
         .unwrap();
     println!("MuSig2 signature verified successfully!");
-    println!("SECP Verification: {:?}", res);
-    tx_details.tx.input[0].witness.push(&final_signature);
+    println!("SECP Verified Successfully");
+    tx_details.tx.input[0].witness.push(final_signature);
     let txid = rpc.send_raw_transaction(&tx_details.tx).unwrap();
     println!("Transaction sent successfully! Txid: {}", txid);
 }
@@ -132,11 +132,11 @@ async fn test_musig2_key_spend_with_script() {
     let sks = config.all_verifiers_secret_keys.unwrap();
     let kp_vec: Vec<Keypair> = sks
         .iter()
-        .map(|sk| Keypair::from_secret_key(&secp, &sk))
+        .map(|sk| Keypair::from_secret_key(&secp, sk))
         .collect();
     let nonce_pair_vec: Vec<MuSigNoncePair> = kp_vec
         .iter()
-        .map(|kp| nonce_pair(&kp, &mut secp256k1::rand::thread_rng()))
+        .map(|kp| nonce_pair(kp, &mut secp256k1::rand::thread_rng()))
         .collect();
     let pks = kp_vec
         .iter()
@@ -156,7 +156,7 @@ async fn test_musig2_key_spend_with_script() {
             .unwrap();
     let dummy_script = script::Builder::new().push_int(1).into_script();
     let scripts: Vec<ScriptBuf> = vec![dummy_script];
-    let (to_address, _) = TransactionBuilder::create_taproot_address(&vec![], None, config.network);
+    let (to_address, _) = TransactionBuilder::create_taproot_address(&[], None, config.network);
     let (from_address, from_address_spend_info) = TransactionBuilder::create_taproot_address(
         &scripts,
         Some(untweaked_xonly_pubkey),
@@ -211,10 +211,10 @@ async fn test_musig2_key_spend_with_script() {
     let musig_agg_xonly_pubkey_wrapped =
         bitcoin::XOnlyPublicKey::from_slice(&musig_agg_xonly_pubkey.serialize()).unwrap();
 
-    musig2::verify_single(musig_agg_pubkey, &final_signature, message)
+    musig2::verify_single(musig_agg_pubkey, final_signature, message)
         .expect("Verification failed!");
     let schnorr_sig = secp256k1::schnorr::Signature::from_slice(&final_signature).unwrap();
-    let _res = secp
+    secp
         .verify_schnorr(
             &schnorr_sig,
             &Message::from_digest(message),
@@ -223,7 +223,7 @@ async fn test_musig2_key_spend_with_script() {
         .unwrap();
     // println!("MuSig2 signature verified successfully!");
     // println!("SECP Verification: {:?}", res);
-    tx_details.tx.input[0].witness.push(&final_signature);
+    tx_details.tx.input[0].witness.push(final_signature);
     let _txid = rpc.send_raw_transaction(&tx_details.tx).unwrap();
     // println!("Transaction sent successfully! Txid: {}", txid);
 }
@@ -237,11 +237,11 @@ async fn test_musig2_script_spend() {
     let sks = config.all_verifiers_secret_keys.unwrap();
     let kp_vec: Vec<Keypair> = sks
         .iter()
-        .map(|sk| Keypair::from_secret_key(&secp, &sk))
+        .map(|sk| Keypair::from_secret_key(&secp, sk))
         .collect();
     let nonce_pair_vec: Vec<MuSigNoncePair> = kp_vec
         .iter()
-        .map(|kp| nonce_pair(&kp, &mut secp256k1::rand::thread_rng()))
+        .map(|kp| nonce_pair(kp, &mut secp256k1::rand::thread_rng()))
         .collect();
     let pks = kp_vec
         .iter()
@@ -309,9 +309,9 @@ async fn test_musig2_script_spend() {
     let final_signature: [u8; 64] =
         aggregate_partial_signatures(pks.clone(), None, false, &agg_nonce, partial_sigs, message)
             .unwrap();
-    musig2::verify_single(musig_agg_pubkey, &final_signature, message)
+    musig2::verify_single(musig_agg_pubkey, final_signature, message)
         .expect("Verification failed!");
-    let res = utils::SECP
+    utils::SECP
         .verify_schnorr(
             &secp256k1::schnorr::Signature::from_slice(&final_signature).unwrap(),
             &Message::from_digest(message),
@@ -319,7 +319,7 @@ async fn test_musig2_script_spend() {
         )
         .unwrap();
     println!("MuSig2 signature verified successfully!");
-    println!("SECP Verification: {:?}", res);
+    println!("SECP Verified Successfully");
     let schnorr_sig = secp256k1::schnorr::Signature::from_slice(&final_signature).unwrap();
     let witness_elements = vec![schnorr_sig.as_ref()];
     handle_taproot_witness_new(&mut tx_details, &witness_elements, 0, Some(0)).unwrap();
