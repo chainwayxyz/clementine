@@ -165,8 +165,11 @@ mod tests {
             tweak_flag: bool,
         ) -> (musig2::secp256k1::PublicKey, XOnlyPublicKey) {
             let key_agg_ctx = super::create_key_agg_ctx(pks, tweak, tweak_flag).unwrap();
-            let musig_agg_pubkey: musig2::secp256k1::PublicKey =
-                key_agg_ctx.aggregated_pubkey_untweaked();
+            let musig_agg_pubkey: musig2::secp256k1::PublicKey = if tweak_flag {
+                key_agg_ctx.aggregated_pubkey()
+            } else {
+                key_agg_ctx.aggregated_pubkey_untweaked()
+            };
             // tracing::debug!("UNTWEAKED AGGREGATED PUBKEY: {:?}", musig_agg_pubkey);
             let musig_agg_xonly_pubkey = musig_agg_pubkey.x_only_public_key().0;
             let musig_agg_xonly_pubkey_wrapped =
@@ -408,7 +411,7 @@ mod tests {
             .iter()
             .map(|kp| kp.public_key())
             .collect::<Vec<secp256k1::PublicKey>>();
-        let key_agg_ctx = super::create_key_agg_ctx(pks.clone(), None, false).unwrap();
+        let key_agg_ctx = super::create_key_agg_ctx(pks.clone(), None, true).unwrap();
 
         let untweaked_pubkey =
             key_agg_ctx.aggregated_pubkey_untweaked::<musig2::secp256k1::PublicKey>();
