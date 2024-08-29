@@ -3,7 +3,7 @@ use crate::errors::BridgeError;
 use crate::musig2::aggregate_partial_signatures;
 use crate::musig2::create_key_agg_ctx;
 use crate::musig2::MuSigAggNonce;
-use crate::transaction_builder::TransactionBuilder;
+use crate::transaction_builder;
 use crate::transaction_builder::TxHandler;
 use crate::EVMAddress;
 use crate::UTXO;
@@ -102,7 +102,7 @@ pub fn aggregate_slash_or_take_partial_sigs(
     let (musig_agg_xonly_pubkey, _) = musig_agg_pubkey.x_only_public_key();
     let musig_agg_xonly_pubkey_wrapped =
         bitcoin::XOnlyPublicKey::from_slice(&musig_agg_xonly_pubkey.serialize()).unwrap();
-    let mut tx = TransactionBuilder::create_slash_or_take_tx(
+    let mut tx = transaction_builder::create_slash_or_take_tx(
         deposit_outpoint,
         kickoff_utxo,
         &operator_xonly_pk,
@@ -143,7 +143,7 @@ pub fn aggregate_operator_takes_partial_sigs(
     let nofn_xonly_pk =
         bitcoin::XOnlyPublicKey::from_slice(&musig_agg_xonly_pubkey.serialize()).unwrap();
 
-    let move_tx_handler = TransactionBuilder::create_move_tx(
+    let move_tx_handler = transaction_builder::create_move_tx(
         deposit_outpoint,
         &EVMAddress([0u8; 20]),
         Address::p2tr(&self::SECP, *self::UNSPENDABLE_XONLY_PUBKEY, None, network).as_unchecked(),
@@ -154,7 +154,7 @@ pub fn aggregate_operator_takes_partial_sigs(
         txid: move_tx_handler.tx.compute_txid(),
         vout: 0,
     };
-    let slash_or_take_tx_handler = TransactionBuilder::create_slash_or_take_tx(
+    let slash_or_take_tx_handler = transaction_builder::create_slash_or_take_tx(
         deposit_outpoint,
         kickoff_utxo,
         operator_xonly_pk,
@@ -169,7 +169,7 @@ pub fn aggregate_operator_takes_partial_sigs(
         },
         txout: slash_or_take_tx_handler.tx.output[0].clone(),
     };
-    let mut tx = TransactionBuilder::create_operator_takes_tx(
+    let mut tx = transaction_builder::create_operator_takes_tx(
         bridge_fund_outpoint,
         slash_or_take_utxo,
         operator_xonly_pk,
@@ -209,7 +209,7 @@ pub fn aggregate_move_partial_sigs(
     let (musig_agg_xonly_pubkey, _) = musig_agg_pubkey.x_only_public_key();
     let musig_agg_xonly_pubkey_wrapped =
         bitcoin::XOnlyPublicKey::from_slice(&musig_agg_xonly_pubkey.serialize()).unwrap();
-    let mut tx = TransactionBuilder::create_move_tx(
+    let mut tx = transaction_builder::create_move_tx(
         deposit_outpoint,
         evm_address,
         recovery_taproot_address,

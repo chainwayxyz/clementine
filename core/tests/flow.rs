@@ -14,7 +14,7 @@ use clementine_core::musig2::create_key_agg_ctx;
 use clementine_core::servers::*;
 use clementine_core::traits::rpc::OperatorRpcClient;
 use clementine_core::traits::rpc::VerifierRpcClient;
-use clementine_core::transaction_builder::TransactionBuilder;
+use clementine_core::transaction_builder;
 use clementine_core::user::User;
 use clementine_core::utils::aggregate_move_partial_sigs;
 use clementine_core::utils::aggregate_operator_takes_partial_sigs;
@@ -217,7 +217,7 @@ async fn test_deposit() -> Result<(), BridgeError> {
     let nofn_xonly_pk =
         bitcoin::XOnlyPublicKey::from_slice(&musig_agg_xonly_pubkey.serialize()).unwrap();
 
-    let mut move_tx_handler = TransactionBuilder::create_move_tx(
+    let mut move_tx_handler = transaction_builder::create_move_tx(
         deposit_outpoint,
         &evm_address,
         &signer_address,

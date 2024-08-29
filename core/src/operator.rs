@@ -5,7 +5,7 @@ use crate::errors::BridgeError;
 use crate::extended_rpc::ExtendedRpc;
 use crate::musig2;
 use crate::traits::rpc::OperatorRpcServer;
-use crate::transaction_builder::TransactionBuilder;
+use crate::transaction_builder;
 use crate::{script_builder, utils, EVMAddress, UTXO};
 use ::musig2::secp::Point;
 use bitcoin::address::NetworkUnchecked;
@@ -145,7 +145,7 @@ where
             ));
         }
 
-        let kickoff_tx_handler = TransactionBuilder::create_kickoff_utxo_tx(
+        let kickoff_tx_handler = transaction_builder::create_kickoff_utxo_tx(
             &funding_utxo,
             &self.nofn_xonly_pk,
             &self.signer.xonly_public_key,
@@ -239,12 +239,12 @@ where
         if !self.is_profitable(withdrawal_idx).await? {
             return Ok(None);
         }
-        let tx_ins = TransactionBuilder::create_tx_ins(vec![input_utxo.outpoint]);
+        let tx_ins = transaction_builder::create_tx_ins(vec![input_utxo.outpoint]);
         let user_xonly_pk = secp256k1::XOnlyPublicKey::from_slice(
             &input_utxo.txout.script_pubkey.as_bytes()[2..34],
         )?;
         let tx_outs = vec![output_txout.clone()];
-        let mut tx = TransactionBuilder::create_btc_tx(tx_ins, tx_outs);
+        let mut tx = transaction_builder::create_btc_tx(tx_ins, tx_outs);
         let mut sighash_cache = SighashCache::new(tx.clone());
         let sighash = sighash_cache.taproot_key_spend_signature_hash(
             0,

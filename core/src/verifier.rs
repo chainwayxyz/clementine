@@ -5,7 +5,7 @@ use crate::errors::BridgeError;
 use crate::extended_rpc::ExtendedRpc;
 use crate::musig2::{self, MuSigAggNonce, MuSigPartialSignature, MuSigPubNonce};
 use crate::traits::rpc::VerifierRpcServer;
-use crate::transaction_builder::{TransactionBuilder, TxHandler};
+use crate::transaction_builder::{self, TxHandler};
 use crate::{utils, EVMAddress, UTXO};
 use ::musig2::secp::Point;
 use bitcoin::address::NetworkUnchecked;
@@ -167,7 +167,7 @@ where
 
             // Check if for each operator the address of the kickoff_utxo is correct TODO: Maybe handle the possible errors better
             let (musig2_and_operator_address, spend_info) =
-                TransactionBuilder::create_kickoff_address(
+                transaction_builder::create_kickoff_address(
                     &self.nofn_xonly_pk,
                     &self.operator_xonly_pks[i],
                     self.config.network,
@@ -182,7 +182,7 @@ where
                 kickoff_utxo.txout.script_pubkey == musig2_and_operator_address.script_pubkey()
             );
 
-            let mut slash_or_take_tx_handler = TransactionBuilder::create_slash_or_take_tx(
+            let mut slash_or_take_tx_handler = transaction_builder::create_slash_or_take_tx(
                 deposit_outpoint,
                 kickoff_utxo.clone(),
                 &self.config.operators_xonly_pks[i],
@@ -193,7 +193,7 @@ where
             let slash_or_take_tx_sighash =
                 Actor::convert_tx_to_sighash_script_spend(&mut slash_or_take_tx_handler, 0, 0)?;
             slash_or_take_sighashes.push(slash_or_take_tx_sighash.to_byte_array());
-            // let spend_kickoff_utxo_tx_handler = TransactionBuilder::create_slash_or_take_tx(deposit_outpoint, kickoff_outpoint, kickoff_txout, operator_address, operator_idx, nofn_xonly_pk, network)
+            // let spend_kickoff_utxo_tx_handler = transaction_builder::create_slash_or_take_tx(deposit_outpoint, kickoff_outpoint, kickoff_txout, operator_address, operator_idx, nofn_xonly_pk, network)
         }
 
         let nonces = self
@@ -253,7 +253,7 @@ where
             .await?
             .ok_or(BridgeError::DepositInfoNotFound)?;
 
-        // let move_commit_tx_handler = TransactionBuilder::create_move_commit_tx(
+        // let move_commit_tx_handler = transaction_builder::create_move_commit_tx(
         //     deposit_outpoint,
         //     &evm_address,
         //     &recovery_taproot_address,
@@ -264,7 +264,7 @@ where
         //     self.config.network,
         // );
 
-        // let move_reveal_tx_handler = TransactionBuilder::create_move_reveal_tx(
+        // let move_reveal_tx_handler = transaction_builder::create_move_reveal_tx(
         //     OutPoint {
         //         txid: move_commit_tx_handler.tx.compute_txid(),
         //         vout: 0,
@@ -277,7 +277,7 @@ where
         //     self.config.network,
         // );
 
-        let move_tx_handler = TransactionBuilder::create_move_tx(
+        let move_tx_handler = transaction_builder::create_move_tx(
             deposit_outpoint,
             &evm_address,
             &recovery_taproot_address,
@@ -309,7 +309,7 @@ where
             .iter()
             .enumerate()
             .map(|(index, kickoff_utxo)| {
-                let mut slash_or_take_tx_handler = TransactionBuilder::create_slash_or_take_tx(
+                let mut slash_or_take_tx_handler = transaction_builder::create_slash_or_take_tx(
                     deposit_outpoint,
                     kickoff_utxo.clone(),
                     &self.operator_xonly_pks[index],
@@ -338,7 +338,7 @@ where
                     txout: slash_or_take_tx_handler.tx.output[0].clone(),
                 };
 
-                let mut operator_takes_tx = TransactionBuilder::create_operator_takes_tx(
+                let mut operator_takes_tx = transaction_builder::create_operator_takes_tx(
                     bridge_fund_outpoint,
                     slash_or_take_utxo,
                     &self.operator_xonly_pks[index],
@@ -394,7 +394,7 @@ where
             .iter()
             .enumerate()
             .map(|(index, kickoff_utxo)| {
-                let slash_or_take_tx = TransactionBuilder::create_slash_or_take_tx(
+                let slash_or_take_tx = transaction_builder::create_slash_or_take_tx(
                     deposit_outpoint,
                     kickoff_utxo.clone(),
                     &self.operator_xonly_pks[index],
@@ -409,7 +409,7 @@ where
                     },
                     txout: slash_or_take_tx.tx.output[0].clone(),
                 };
-                let mut operator_takes_tx = TransactionBuilder::create_operator_takes_tx(
+                let mut operator_takes_tx = transaction_builder::create_operator_takes_tx(
                     bridge_fund_outpoint,
                     slash_or_take_utxo,
                     &self.operator_xonly_pks[index],

@@ -3,7 +3,7 @@
 //! This module provides helpful functions for Bitcoin RPC.
 
 use crate::errors::BridgeError;
-use crate::transaction_builder::TransactionBuilder;
+use crate::transaction_builder;
 use crate::EVMAddress;
 use bitcoin::address::NetworkUnchecked;
 use bitcoin::Address;
@@ -296,7 +296,7 @@ where
             return Err(BridgeError::DepositNotFinalized);
         }
 
-        let (deposit_address, _) = TransactionBuilder::generate_deposit_address(
+        let (deposit_address, _) = transaction_builder::generate_deposit_address(
             nofn_xonly_pk,
             recovery_taproot_address,
             evm_address,
