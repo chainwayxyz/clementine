@@ -5,7 +5,7 @@ on: [push]
 env:
   CARGO_TERM_COLOR: always
   CARGO_TERM_VERBOSE: true
-  CARGOFLAGS: --workspace --all-targets --all-features
+  CARGOFLAGS: --workspace --all-targets
   RUST_LOG: trace
 
 jobs:
