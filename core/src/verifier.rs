@@ -461,16 +461,16 @@ where
                     .unwrap();
             });
 
-        for (index, kickoff_utxo) in kickoff_utxos.iter().enumerate() {
-            self.db
-                .save_operator_take_sig(
-                    deposit_outpoint,
-                    kickoff_utxo.clone(),
-                    operator_take_sigs[index],
-                )
-                .await
-                .unwrap();
-        }
+        let kickoff_utxos = kickoff_utxos
+            .into_iter()
+            .enumerate()
+            .map(|(index, utxo)| (utxo, operator_take_sigs[index]));
+
+        self.db
+            .save_operator_take_sigs(deposit_outpoint, kickoff_utxos)
+            .await
+            .unwrap();
+
         // println!("MOVE_TX: {:?}", move_tx_handler);
         // println!("MOVE_TXID: {:?}", move_tx_handler.tx.compute_txid());
         let move_tx_sighash =
