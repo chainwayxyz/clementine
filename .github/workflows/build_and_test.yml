@@ -136,6 +136,8 @@ jobs:
         bridge_contract_address = "3100000000000000000000000000000000000002"
         EOF
 
+    - name: Debug mode cache warm up with max paralel jobs
+      run: cargo build $CARGOFLAGS
     - name: Run tests on Bitcoin regtest
       run: RISC0_DEV_MODE=1 TEST_CONFIG=/home/runner/overwrite.toml cargo test --verbose --jobs 1
     - name: Run tests on mock RPC
@@ -226,6 +228,8 @@ jobs:
         bridge_contract_address = "3100000000000000000000000000000000000002"
         EOF
 
+    - name: Release mode cache warm up with max paralel jobs
+      run: cargo build $CARGOFLAGS --release
     - name: Run tests on Bitcoin regtest with release build
       run: RISC0_DEV_MODE=1 TEST_CONFIG=/home/runner/overwrite.toml cargo test --verbose --jobs 1 --release
     - name: Run tests on mock RPC with release build
