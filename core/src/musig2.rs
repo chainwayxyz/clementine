@@ -486,7 +486,7 @@ mod tests {
             XOnlyPublicKey::from_musig2_pks(pks, merkle_root, true);
         // musig2::verify_single(musig_agg_pubkey, &final_signature, message)
         //     .expect("Verification failed!");
-        let res = utils::SECP
+        let _res = utils::SECP
             .verify_schnorr(
                 &secp256k1::schnorr::Signature::from_slice(&final_signature).unwrap(),
                 &Message::from_digest(message),
@@ -575,7 +575,7 @@ mod tests {
         .unwrap();
         // musig2::verify_single(musig_agg_pubkey, &final_signature, message)
         //     .expect("Verification failed!");
-        let res = utils::SECP
+        let _res = utils::SECP
             .verify_schnorr(
                 &secp256k1::schnorr::Signature::from_slice(&final_signature).unwrap(),
                 &Message::from_digest(message),

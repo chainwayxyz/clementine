@@ -2,9 +2,7 @@
 
 use bitcoin::Address;
 use bitcoin::OutPoint;
-use bitcoin::Transaction;
 use clementine_circuits::constants::BRIDGE_AMOUNT_SATS;
-use clementine_circuits::constants::OPERATOR_TAKES_AFTER;
 use clementine_core::actor::Actor;
 use clementine_core::config::BridgeConfig;
 use clementine_core::database::common::Database;
@@ -27,11 +25,8 @@ use clementine_core::UTXO;
 use clementine_core::{
     create_extended_rpc, create_test_config, create_test_config_with_thread_name,
 };
-use crypto_bigint::rand_core::OsRng;
 use jsonrpsee::http_client::HttpClient;
 use jsonrpsee::server::ServerHandle;
-use secp256k1::rand::Rng;
-use secp256k1::SecretKey;
 use std::net::SocketAddr;
 use std::thread;
 

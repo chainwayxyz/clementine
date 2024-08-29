@@ -214,7 +214,7 @@ async fn test_musig2_key_spend_with_script() {
     musig2::verify_single(musig_agg_pubkey, &final_signature, message)
         .expect("Verification failed!");
     let schnorr_sig = secp256k1::schnorr::Signature::from_slice(&final_signature).unwrap();
-    let res = secp
+    let _res = secp
         .verify_schnorr(
             &schnorr_sig,
             &Message::from_digest(message),
@@ -224,7 +224,7 @@ async fn test_musig2_key_spend_with_script() {
     // println!("MuSig2 signature verified successfully!");
     // println!("SECP Verification: {:?}", res);
     tx_details.tx.input[0].witness.push(&final_signature);
-    let txid = rpc.send_raw_transaction(&tx_details.tx).unwrap();
+    let _txid = rpc.send_raw_transaction(&tx_details.tx).unwrap();
     // println!("Transaction sent successfully! Txid: {}", txid);
 }
 
