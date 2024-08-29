@@ -2,7 +2,7 @@ use crate::actor::Actor;
 use crate::config::BridgeConfig;
 use crate::errors::BridgeError;
 use crate::extended_rpc::ExtendedRpc;
-use crate::musig2::{self};
+use crate::musig2::{self, AggregateFromPublicKeys};
 use crate::transaction_builder::TransactionBuilder;
 use crate::{EVMAddress, UTXO};
 use ::musig2::secp::Point;
@@ -30,11 +30,11 @@ where
     pub fn new(rpc: ExtendedRpc<R>, sk: SecretKey, config: BridgeConfig) -> Self {
         let signer = Actor::new(sk, config.network);
 
-        let key_agg_context =
-            musig2::create_key_agg_ctx(config.verifiers_public_keys.clone(), None).unwrap();
-        let agg_point: Point = key_agg_context.aggregated_pubkey_untweaked();
-        let nofn_xonly_pk =
-            secp256k1::XOnlyPublicKey::from_slice(&agg_point.serialize_xonly()).unwrap();
+        let nofn_xonly_pk = secp256k1::XOnlyPublicKey::from_musig2_pks(
+            config.verifiers_public_keys.clone(),
+            None,
+            false,
+        );
 
         User {
             rpc,

@@ -3,13 +3,15 @@ use crate::config::BridgeConfig;
 use crate::database::operator::OperatorDB;
 use crate::errors::BridgeError;
 use crate::extended_rpc::ExtendedRpc;
-use crate::musig2;
+use crate::musig2::{self, AggregateFromPublicKeys};
 use crate::traits::rpc::OperatorRpcServer;
 use crate::transaction_builder::TransactionBuilder;
+use crate::utils::handle_taproot_witness_new;
 use crate::{script_builder, utils, EVMAddress, UTXO};
 use ::musig2::secp::Point;
 use bitcoin::address::NetworkUnchecked;
 use bitcoin::consensus::deserialize;
+use bitcoin::consensus::encode::deserialize_hex;
 use bitcoin::hashes::Hash;
 use bitcoin::sighash::SighashCache;
 use bitcoin::{Address, OutPoint, TapSighash, Transaction, TxOut, Txid};
@@ -45,10 +47,11 @@ where
 
         let db = OperatorDB::new(config.clone()).await;
 
-        let key_agg_context =
-            musig2::create_key_agg_ctx(config.verifiers_public_keys.clone(), None)?;
-        let agg_point: Point = key_agg_context.aggregated_pubkey_untweaked();
-        let nofn_xonly_pk = secp256k1::XOnlyPublicKey::from_slice(&agg_point.serialize_xonly())?;
+        let nofn_xonly_pk = secp256k1::XOnlyPublicKey::from_musig2_pks(
+            config.verifiers_public_keys.clone(),
+            None,
+            false,
+        );
         let idx = config
             .operators_xonly_pks
             .iter()
@@ -144,18 +147,22 @@ where
             ));
         }
 
-        let kickoff_tx_handler = TransactionBuilder::create_kickoff_utxo_tx(
+        let mut kickoff_tx_handler = TransactionBuilder::create_kickoff_utxo_tx(
             &funding_utxo,
             &self.nofn_xonly_pk,
             &self.signer.xonly_public_key,
             self.config.network,
         );
+        let sig = self
+            .signer
+            .sign_taproot_pubkey_spend(&mut kickoff_tx_handler, 0, None)?;
+        handle_taproot_witness_new(&mut kickoff_tx_handler, &[sig.as_ref()], 0, None)?;
 
-        tracing::debug!(
-            "For operator index: {:?} Kickoff tx handler: {:#?}",
-            self.idx,
-            kickoff_tx_handler
-        );
+        // tracing::debug!(
+        //     "For operator index: {:?} Kickoff tx handler: {:#?}",
+        //     self.idx,
+        //     kickoff_tx_handler
+        // );
 
         let change_utxo = UTXO {
             outpoint: OutPoint {
@@ -296,9 +303,177 @@ where
     async fn withdrawal_proved_on_citrea(
         &self,
         _withdrawal_idx: usize,
-        _kickoff_merkle_root: [u8; 32],
-    ) -> Result<(), BridgeError> {
-        Ok(())
+        deposit_outpoint: OutPoint,
+    ) -> Result<Vec<String>, BridgeError> {
+        let kickoff_utxo = self
+            .db
+            .get_kickoff_utxo(deposit_outpoint)
+            .await?
+            .ok_or(BridgeError::KickoffOutpointsNotFound)?;
+        tracing::debug!("Kickoff UTXO FOUND: {:?}", kickoff_utxo);
+        let mut txs_to_be_sent = vec![];
+        let mut current_searching_txid = kickoff_utxo.outpoint.txid;
+        let mut found_txid = false;
+
+        for _ in 0..25 {
+            // Check if the current txid is onchain or in mempool
+            if self
+                .rpc
+                .get_raw_transaction(&current_searching_txid, None)
+                .is_ok()
+            {
+                found_txid = true;
+                break;
+            }
+
+            // Fetch the transaction and continue the loop
+            let (raw_signed_tx, _, _, funding_txid) = self
+                .db
+                .get_deposit_kickoff_generator_tx(current_searching_txid)
+                .await?
+                .ok_or(BridgeError::KickoffOutpointsNotFound)?; // TODO: Fix this error
+
+            txs_to_be_sent.push(raw_signed_tx);
+            current_searching_txid = funding_txid;
+        }
+
+        // Handle the case where no transaction was found in 25 iterations
+        if !found_txid {
+            return Err(BridgeError::KickoffOutpointsNotFound); // TODO: Fix this error
+        }
+        // tracing::debug!("Found txs to be sent: {:?}", txs_to_be_sent);
+
+        let mut slash_or_take_tx_handler = TransactionBuilder::create_slash_or_take_tx(
+            deposit_outpoint,
+            kickoff_utxo.clone(),
+            &self.signer.xonly_public_key,
+            self.idx,
+            &self.nofn_xonly_pk,
+            self.config.network,
+        );
+
+        let slash_or_take_utxo = UTXO {
+            outpoint: OutPoint {
+                txid: slash_or_take_tx_handler.tx.compute_txid(),
+                vout: 0,
+            },
+            txout: slash_or_take_tx_handler.tx.output[0].clone(),
+        };
+
+        // tracing::debug!(
+        //     "Created slash or take tx handler: {:#?}",
+        //     slash_or_take_tx_handler
+        // );
+        let nofn_sig = self
+            .db
+            .get_slash_or_take_sig(deposit_outpoint, kickoff_utxo.clone())
+            .await?
+            .ok_or(BridgeError::KickoffOutpointsNotFound)?; // TODO: Fix this error
+
+        // tracing::debug!("Found nofn sig: {:?}", nofn_sig);
+
+        let our_sig =
+            self.signer
+                .sign_taproot_script_spend_tx_new(&mut slash_or_take_tx_handler, 0, 0)?;
+        // tracing::debug!("slash_or_take_tx_handler: {:#?}", slash_or_take_tx_handler);
+        handle_taproot_witness_new(
+            &mut slash_or_take_tx_handler,
+            &[our_sig.as_ref(), nofn_sig.as_ref()],
+            0,
+            Some(0),
+        )?;
+
+        txs_to_be_sent.push(slash_or_take_tx_handler.tx.raw_hex());
+
+        tracing::debug!(
+            "Found txs to be sent with slash_or_take_tx: {:?}",
+            txs_to_be_sent
+        );
+
+        let move_tx_handler = TransactionBuilder::create_move_tx(
+            deposit_outpoint,
+            &EVMAddress([0u8; 20]),
+            &Address::p2tr(
+                &utils::SECP,
+                *utils::UNSPENDABLE_XONLY_PUBKEY,
+                None,
+                self.config.network,
+            )
+            .as_unchecked(),
+            &self.nofn_xonly_pk,
+            self.config.network,
+        );
+        let bridge_fund_outpoint = OutPoint {
+            txid: move_tx_handler.tx.compute_txid(),
+            vout: 0,
+        };
+
+        let mut operator_takes_tx = TransactionBuilder::create_operator_takes_tx(
+            bridge_fund_outpoint,
+            slash_or_take_utxo,
+            &self.signer.xonly_public_key,
+            &self.nofn_xonly_pk,
+            self.config.network,
+        );
+
+        let operator_takes_nofn_sig = self
+            .db
+            .get_operator_take_sig(deposit_outpoint, kickoff_utxo)
+            .await?
+            .ok_or(BridgeError::KickoffOutpointsNotFound)?; // TODO: Fix this error
+        tracing::debug!("Operator Found nofn sig: {:?}", operator_takes_nofn_sig);
+
+        let our_sig = self
+            .signer
+            .sign_taproot_script_spend_tx_new(&mut operator_takes_tx, 1, 0)?;
+
+        handle_taproot_witness_new(
+            &mut operator_takes_tx,
+            &[operator_takes_nofn_sig.as_ref()],
+            0,
+            None,
+        )?;
+        handle_taproot_witness_new(&mut operator_takes_tx, &[our_sig.as_ref()], 1, Some(0))?;
+
+        txs_to_be_sent.push(operator_takes_tx.tx.raw_hex());
+
+        // let input_0_sighash = Actor::convert_tx_to_sighash_pubkey_spend(&mut operator_takes_tx, 0)?;
+        // let input_0_message = Message::from_digest_slice(input_0_sighash.as_byte_array())?;
+        // tracing::debug!("Trying to verify signatures for operator_takes_tx");
+        // let res_0 = utils::SECP.verify_schnorr(
+        //     &operator_takes_nofn_sig,
+        //     &input_0_message,
+        //     &self.nofn_xonly_pk,
+        // )?;
+        // tracing::debug!("Signature verified successfully for input 0!");
+
+        // let input_1_sighash =
+        //     Actor::convert_tx_to_sighash_script_spend(&mut operator_takes_tx, 1, 0)?;
+        // let input_1_message = Message::from_digest_slice(input_1_sighash.as_byte_array())?;
+        // let res_1 = utils::SECP.verify_schnorr(
+        //     &our_sig,
+        //     &input_1_message,
+        //     &self.signer.xonly_public_key,
+        // )?;
+        // tracing::debug!("Signature verified successfully for input 1!");
+
+        // tracing::debug!(
+        //     "Found txs to be sent with operator_takes_tx: {:?}",
+        //     txs_to_be_sent
+        // );
+        // let kickoff_txid = self
+        //     .rpc
+        //     .send_raw_transaction(&deserialize_hex(&txs_to_be_sent[0])?)?;
+        // tracing::debug!("Kickoff txid: {:?}", kickoff_txid);
+        // let slash_or_take_txid = self
+        //     .rpc
+        //     .send_raw_transaction(&deserialize_hex(&txs_to_be_sent[1])?)?;
+        // tracing::debug!("Slash or take txid: {:?}", slash_or_take_txid);
+        // let operator_takes_tx: Transaction = deserialize_hex(&txs_to_be_sent[2])?;
+        // tracing::debug!("Operator takes tx: {:#?}", operator_takes_tx);
+        // let operator_takes_txid = self.rpc.send_raw_transaction(&operator_takes_tx)?;
+        // tracing::debug!("Operator takes txid: {:?}", operator_takes_txid);
+        Ok(txs_to_be_sent)
     }
 }
 
@@ -335,9 +510,9 @@ where
     async fn withdrawal_proved_on_citrea_rpc(
         &self,
         withdrawal_idx: usize,
-        kickoff_merkle_root: [u8; 32],
-    ) -> Result<(), BridgeError> {
-        self.withdrawal_proved_on_citrea(withdrawal_idx, kickoff_merkle_root)
+        deposit_outpoint: OutPoint,
+    ) -> Result<Vec<String>, BridgeError> {
+        self.withdrawal_proved_on_citrea(withdrawal_idx, deposit_outpoint)
             .await
     }
 }

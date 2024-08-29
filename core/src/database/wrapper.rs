@@ -24,7 +24,7 @@ pub struct EVMAddressDB(pub EVMAddress);
 #[derive(Serialize, Deserialize)]
 pub struct TxidDB(pub Txid);
 
-#[derive(Serialize, Deserialize)]
+#[derive(Serialize, Deserialize, sqlx::FromRow)]
 pub struct SignatureDB(pub secp256k1::schnorr::Signature);
 
 #[derive(Serialize, Deserialize, sqlx::FromRow)]

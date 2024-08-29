@@ -31,13 +31,6 @@ pub async fn create_verifier_server<R>(
 where
     R: RpcApiWrapper,
 {
-    let _ = Database::create_database(config.clone(), &config.db_name).await?;
-    let database = Database::new(config.clone()).await.unwrap();
-    database
-        .run_sql_file("../scripts/schema.sql")
-        .await
-        .unwrap();
-    database.close().await;
     let server = match Server::builder()
         .build(format!("{}:{}", config.host, config.port))
         .await
@@ -69,14 +62,6 @@ pub async fn create_operator_server<R>(
 where
     R: RpcApiWrapper,
 {
-    let _ = Database::create_database(config.clone(), &config.db_name).await?;
-    let database = Database::new(config.clone()).await.unwrap();
-    database
-        .run_sql_file("../scripts/schema.sql")
-        .await
-        .unwrap();
-    database.close().await;
-
     let operator = Operator::new(config.clone(), rpc).await?;
 
     let server = match Server::builder()
@@ -133,21 +118,37 @@ pub async fn create_verifiers_and_operators(
             async move {
                 let config_with_new_db =
                     create_test_config_with_thread_name!(config_name, Some(&i.to_string()));
-                create_verifier_server(
+                let verifier = create_verifier_server(
                     BridgeConfig {
                         secret_key: *sk,
-                        port: 0, // Use the index to calculate the port
-                        ..config_with_new_db
+                        port: 0,
+                        ..config_with_new_db.clone()
                     },
                     rpc,
                 )
                 .await
+                .unwrap();
+                Ok::<
+                    (
+                        (HttpClient, ServerHandle, std::net::SocketAddr),
+                        BridgeConfig,
+                    ),
+                    BridgeError,
+                >((verifier, config_with_new_db))
             }
         })
         .collect::<Vec<_>>();
-    let verifier_endpoints = futures::future::try_join_all(verifier_futures)
+    let verifier_results = futures::future::try_join_all(verifier_futures)
         .await
         .unwrap();
+    let verifier_endpoints = verifier_results
+        .iter()
+        .map(|(v, _)| v.clone())
+        .collect::<Vec<_>>();
+    let verifier_configs = verifier_results
+        .iter()
+        .map(|(_, c)| c.clone())
+        .collect::<Vec<_>>();
 
     let all_operators_secret_keys = config.all_operators_secret_keys.clone().unwrap_or_else(|| {
         panic!("All secret keys of the operators are required for testing");
@@ -157,16 +158,15 @@ pub async fn create_verifiers_and_operators(
         .iter()
         .enumerate()
         .map(|(i, sk)| {
-            let i = (i + 1000).to_string();
+            // let i_str = (i + 1000).to_string();
             let rpc = rpc.clone();
+            let verifier_config = verifier_configs[i].clone();
             async move {
-                let config_with_new_db =
-                    create_test_config_with_thread_name!(config_name, Some(&i.to_string()));
                 create_operator_server(
                     BridgeConfig {
                         secret_key: *sk,
-                        port: 0, // Use the index to calculate the port
-                        ..config_with_new_db
+                        port: 0,
+                        ..verifier_config
                     },
                     rpc,
                 )

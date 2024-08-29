@@ -59,6 +59,8 @@ create table deposit_kickoff_utxos (
     id serial primary key,
     deposit_outpoint text not null check (deposit_outpoint ~ '^[a-fA-F0-9]{64}:(0|[1-9][0-9]{0,9})$'),
     kickoff_utxo jsonb not null,
+    slash_or_take_sig text,
+    operator_take_sig text,
     created_at timestamp not null default now(),
     unique (deposit_outpoint, kickoff_utxo)
 );

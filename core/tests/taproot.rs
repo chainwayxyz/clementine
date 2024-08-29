@@ -86,7 +86,7 @@ async fn run() {
         .sign_taproot_script_spend_tx_new_tweaked(&mut tx_details, 0, 0)
         .unwrap();
 
-    handle_taproot_witness_new(&mut tx_details, &vec![sig.as_ref()], 0, 0).unwrap();
+    handle_taproot_witness_new(&mut tx_details, &vec![sig.as_ref()], 0, Some(0)).unwrap();
     let result = rpc.send_raw_transaction(&tx_details.tx).unwrap();
 
     // let mut sighash_cache = SighashCache::new(tx.clone());
