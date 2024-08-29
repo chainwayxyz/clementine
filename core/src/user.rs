@@ -2,21 +2,23 @@ use crate::actor::Actor;
 use crate::config::BridgeConfig;
 use crate::errors::BridgeError;
 use crate::extended_rpc::ExtendedRpc;
+use crate::musig2::AggregateFromPublicKeys;
 use crate::transaction_builder::TransactionBuilder;
-use crate::EVMAddress;
-use bitcoin::Address;
-use bitcoin::OutPoint;
-use bitcoin::XOnlyPublicKey;
+use crate::{EVMAddress, UTXO};
+use bitcoin::{Address, TxOut};
+use bitcoin::{Amount, OutPoint};
+use bitcoin::{TapSighashType, XOnlyPublicKey};
 use bitcoin_mock_rpc::RpcApiWrapper;
-use clementine_circuits::constants::BRIDGE_AMOUNT_SATS;
+use clementine_circuits::constants::{BRIDGE_AMOUNT_SATS, WITHDRAWAL_EMPTY_UTXO_SATS};
+use secp256k1::schnorr;
 use secp256k1::SecretKey;
 
 #[derive(Debug)]
 pub struct User<R> {
     rpc: ExtendedRpc<R>,
     signer: Actor,
-    transaction_builder: TransactionBuilder,
-    user_takes_after: u32,
+    config: BridgeConfig,
+    nofn_xonly_pk: XOnlyPublicKey,
 }
 
 impl<R> User<R>
@@ -24,21 +26,20 @@ where
     R: RpcApiWrapper,
 {
     /// Creates a new `User`.
-    pub fn new(
-        rpc: ExtendedRpc<R>,
-        all_xonly_pks: Vec<XOnlyPublicKey>,
-        sk: SecretKey,
-        config: BridgeConfig,
-    ) -> Self {
+    pub fn new(rpc: ExtendedRpc<R>, sk: SecretKey, config: BridgeConfig) -> Self {
         let signer = Actor::new(sk, config.network);
 
-        let transaction_builder = TransactionBuilder::new(all_xonly_pks.clone(), config.network);
+        let nofn_xonly_pk = secp256k1::XOnlyPublicKey::from_musig2_pks(
+            config.verifiers_public_keys.clone(),
+            None,
+            false,
+        );
 
         User {
             rpc,
             signer,
-            transaction_builder,
-            user_takes_after: config.user_takes_after,
+            config,
+            nofn_xonly_pk,
         }
     }
 
@@ -46,12 +47,13 @@ where
         &self,
         evm_address: EVMAddress,
     ) -> Result<(OutPoint, XOnlyPublicKey, EVMAddress), BridgeError> {
-        let (deposit_address, _) = self.transaction_builder.generate_deposit_address(
+        let (deposit_address, _) = TransactionBuilder::generate_deposit_address(
+            &self.nofn_xonly_pk,
             self.signer.address.as_unchecked(),
             &evm_address,
             BRIDGE_AMOUNT_SATS,
-            self.user_takes_after,
-        )?;
+            self.config.network,
+        );
 
         let deposit_utxo = self
             .rpc
@@ -61,21 +63,45 @@ where
     }
 
     pub fn get_deposit_address(&self, evm_address: EVMAddress) -> Result<Address, BridgeError> {
-        let (deposit_address, _) = self.transaction_builder.generate_deposit_address(
+        let (deposit_address, _) = TransactionBuilder::generate_deposit_address(
+            &self.nofn_xonly_pk,
             self.signer.address.as_unchecked(),
             &evm_address,
             BRIDGE_AMOUNT_SATS,
-            self.user_takes_after,
-        )?;
+            self.config.network,
+        );
 
         Ok(deposit_address)
     }
 
-    #[cfg(poc)]
-    pub fn generate_deposit_proof(&self, _move_txid: Transaction) -> Result<(), BridgeError> {
-        let out = self.rpc.get_spent_tx_out(&deposit_utxo)?;
-        self.rpc.get_spent_tx_out(outpoint);
-        merkle_tree::PartialMerkleTree::from_txids(&[move_txid.wtxid()], &[move_txid.txid()]);
-        Ok(())
+    pub fn generate_withdrawal_sig(
+        &self,
+        withdrawal_address: Address,
+    ) -> Result<(UTXO, TxOut, schnorr::Signature), BridgeError> {
+        let dust_outpoint = self
+            .rpc
+            .send_to_address(&self.signer.address, WITHDRAWAL_EMPTY_UTXO_SATS)?;
+        let dust_utxo = UTXO {
+            outpoint: dust_outpoint,
+            txout: TxOut {
+                value: Amount::from_sat(WITHDRAWAL_EMPTY_UTXO_SATS),
+                script_pubkey: self.signer.address.script_pubkey(),
+            },
+        };
+        let txins = TransactionBuilder::create_tx_ins(vec![dust_utxo.outpoint]);
+        let txout = TxOut {
+            value: Amount::from_sat(BRIDGE_AMOUNT_SATS), // TODO: Change this in the future since Operators should profit from the bridge
+            script_pubkey: withdrawal_address.script_pubkey(),
+        };
+        let txouts = vec![txout.clone()];
+        let mut tx = TransactionBuilder::create_btc_tx(txins, txouts.clone());
+        let prevouts = vec![dust_utxo.txout.clone()];
+        let sig = self.signer.sign_taproot_pubkey_spend_tx_with_sighash(
+            &mut tx,
+            &prevouts,
+            0,
+            Some(TapSighashType::SinglePlusAnyoneCanPay),
+        )?;
+        Ok((dust_utxo, txout, sig))
     }
 }

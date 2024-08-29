@@ -23,11 +23,11 @@ tokio = { workspace = true, features = ["full"] }
 jsonrpsee = { workspace = true, features = ["server", "http-client", "macros"] }
 async-trait = { workspace = true }
 futures = { workspace = true }
-dotenv = { workspace = true }
 clap = { workspace = true, features = ["derive"] }
 toml = { workspace = true }
-sqlx = { workspace = true, features = ["runtime-tokio", "postgres"] }
+sqlx = { workspace = true, features = ["runtime-tokio", "postgres", "macros"] }
 bitcoin-mock-rpc = { workspace = true }
+musig2 = { workspace = true }
 
 [features]
 default = []
@@ -47,8 +47,8 @@ name = "user_deposit"
 path = "src/bin/user_deposit.rs"
 
 [[bin]]
-name = "operator_and_verifiers"
-path = "src/bin/operator_and_verifiers.rs"
+name = "operators_and_verifiers"
+path = "src/bin/operators_and_verifiers.rs"
 
 [[bin]]
 name = "config_generator"

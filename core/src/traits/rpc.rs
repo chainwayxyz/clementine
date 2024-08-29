@@ -1,43 +1,97 @@
-use crate::{errors::BridgeError, operator::DepositPresigns, EVMAddress};
+use crate::musig2::{MuSigAggNonce, MuSigPartialSignature, MuSigPubNonce};
+use crate::UTXO;
+use crate::{errors::BridgeError, EVMAddress};
 use bitcoin::address::NetworkUnchecked;
-use bitcoin::{Address, OutPoint, Txid};
+use bitcoin::{Address, OutPoint, TxOut, Txid};
 use jsonrpsee::proc_macros::rpc;
 use secp256k1::schnorr;
 
 #[rpc(client, server, namespace = "verifier")]
 pub trait VerifierRpc {
     #[method(name = "new_deposit")]
-    async fn new_deposit_rpc(
+    /// - Check deposit UTXO,
+    /// - Generate random pubNonces, secNonces
+    /// - Save pubNonces and secNonces to a in-memory db
+    /// - Return pubNonces
+    async fn verifier_new_deposit_rpc(
         &self,
-        start_utxo: OutPoint,
+        deposit_outpoint: OutPoint,
         recovery_taproot_address: Address<NetworkUnchecked>,
-        deposit_index: u32,
         evm_address: EVMAddress,
-        operator_address: Address<NetworkUnchecked>,
-    ) -> Result<DepositPresigns, BridgeError>;
-    #[method(name = "new_withdrawal")]
-    async fn new_withdrawal_direct_rpc(
+    ) -> Result<Vec<MuSigPubNonce>, BridgeError>;
+
+    #[method(name = "operator_kickoffs_generated")]
+    /// - Check the kickoff_utxos
+    /// - for every kickoff_utxo, calculate kickoff2_tx
+    /// - for every kickoff2_tx, partial sign burn_tx (ommitted for now)
+    async fn operator_kickoffs_generated_rpc(
         &self,
-        withdrawal_idx: usize,
-        bridge_fund_txid: Txid,
-        withdrawal_address: Address<NetworkUnchecked>,
-    ) -> Result<schnorr::Signature, BridgeError>;
+        deposit_utxo: OutPoint,
+        kickoff_utxos: Vec<UTXO>,
+        operators_kickoff_sigs: Vec<schnorr::Signature>,
+        agg_nonces: Vec<MuSigAggNonce>,
+    ) -> Result<(Vec<MuSigPartialSignature>, Vec<MuSigPartialSignature>), BridgeError>;
+
+    #[method(name = "burn_txs_signed")]
+    /// verify burn txs are signed by verifiers
+    /// sign operator_takes_txs
+    async fn burn_txs_signed_rpc(
+        &self,
+        deposit_utxo: OutPoint,
+        burn_sigs: Vec<schnorr::Signature>,
+        slash_or_take_sigs: Vec<schnorr::Signature>,
+    ) -> Result<Vec<MuSigPartialSignature>, BridgeError>;
+
+    // operator_take_txs_signed
+    #[method(name = "operator_take_txs_signed")]
+    /// verify the operator_take_sigs
+    /// sign move_tx
+    async fn operator_take_txs_signed_rpc(
+        &self,
+        deposit_utxo: OutPoint,
+        operator_take_sigs: Vec<schnorr::Signature>,
+    ) -> Result<MuSigPartialSignature, BridgeError>;
 }
 
 #[rpc(client, server, namespace = "operator")]
 pub trait OperatorRpc {
     #[method(name = "new_deposit")]
+    /// - Create kickoffUTXO, make sure to not send it to bitcoin yet
     async fn new_deposit_rpc(
         &self,
-        start_utxo: OutPoint,
+        deposit_utxo: OutPoint,
         recovery_taproot_address: Address<NetworkUnchecked>,
         evm_address: EVMAddress,
-    ) -> Result<Txid, BridgeError>;
+    ) -> Result<(UTXO, secp256k1::schnorr::Signature), BridgeError>;
 
-    #[method(name = "new_withdrawal")]
-    async fn new_withdrawal_direct_rpc(
+    #[method(name = "set_funding_utxo")]
+    async fn set_funding_utxo_rpc(&self, funding_utxo: UTXO) -> Result<(), BridgeError>;
+
+    #[method(name = "new_withdrawal_sig")]
+    /// Gets the withdrawal utxo from citrea,
+    /// checks wheter sig is for a correct withdrawal from citrea,
+    /// checks the signature, calls is_profitable, if is profitable pays the withdrawal,
+    /// adds it to flow, when its finalized, proves on citrea, sends kickoff2
+    async fn new_withdrawal_sig_rpc(
         &self,
-        idx: usize,
-        withdrawal_address: Address<NetworkUnchecked>,
-    ) -> Result<Txid, BridgeError>;
+        withdrawal_idx: usize,
+        user_sig: schnorr::Signature,
+        input_utxo: UTXO,
+        output_txout: TxOut,
+    ) -> Result<Option<Txid>, BridgeError>;
+
+    #[method(name = "withdrawal_proved_on_citrea")]
+    /// 1- Calculate move_txid, check if the withdrawal idx matches the move_txid
+    /// 2- Check if it is really proved on citrea
+    /// 3- If it is, send operator_take_txs
+    async fn withdrawal_proved_on_citrea_rpc(
+        &self,
+        withdrawal_idx: usize,
+        deposit_outpoint: OutPoint,
+    ) -> Result<Vec<String>, BridgeError>;
+
+    // #[method(name = "operator_take_sendable")]
+    // async fn operator_take_sendable_rpc(&self, withdrawal_idx: usize) -> Result<(), BridgeError>;
 }
+
+// #[rpc(client, server, namespace = "aggregator")]

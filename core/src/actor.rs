@@ -1,5 +1,5 @@
 use crate::errors::BridgeError;
-use crate::transaction_builder::CreateTxOutputs;
+use crate::transaction_builder::TxHandler;
 use crate::utils;
 use bitcoin::sighash::SighashCache;
 use bitcoin::taproot::LeafVersion;
@@ -12,9 +12,10 @@ use bitcoin::{TapLeafHash, TapNodeHash, TapSighashType, TxOut};
 
 #[derive(Debug, Clone)]
 pub struct Actor {
-    keypair: Keypair,
+    pub keypair: Keypair,
     secret_key: SecretKey,
     pub xonly_public_key: XOnlyPublicKey,
+    pub public_key: secp256k1::PublicKey,
     pub address: Address,
 }
 
@@ -28,6 +29,7 @@ impl Actor {
             keypair,
             secret_key: keypair.secret_key(),
             xonly_public_key: xonly,
+            public_key: keypair.public_key(),
             address,
         }
     }
@@ -79,7 +81,7 @@ impl Actor {
 
     pub fn sighash_taproot_script_spend(
         &self,
-        tx: &mut CreateTxOutputs,
+        tx: &mut TxHandler,
         txin_index: usize,
         script_index: usize,
     ) -> Result<TapSighash, BridgeError> {
@@ -99,12 +101,12 @@ impl Actor {
 
     pub fn sign_taproot_script_spend_tx_new(
         &self,
-        tx: &mut CreateTxOutputs,
+        tx: &mut TxHandler,
         txin_index: usize,
         script_index: usize,
     ) -> Result<schnorr::Signature, BridgeError> {
-        // TODO: if sighash_cache exists in the CreateTxOutputs, use it
-        // else create a new one and save it to the CreateTxOutputs
+        // TODO: if sighash_cache exists in the TxHandler, use it
+        // else create a new one and save it to the TxHandler
 
         let mut sighash_cache: SighashCache<&mut bitcoin::Transaction> =
             SighashCache::new(&mut tx.tx);
@@ -118,6 +120,27 @@ impl Actor {
             bitcoin::sighash::TapSighashType::Default,
         )?;
         Ok(self.sign(sig_hash))
+    }
+
+    pub fn sign_taproot_pubkey_spend(
+        &self,
+        tx_handler: &mut TxHandler,
+        input_index: usize,
+        sighash_type: Option<TapSighashType>,
+    ) -> Result<schnorr::Signature, BridgeError> {
+        let mut sighash_cache = SighashCache::new(&mut tx_handler.tx);
+        let sig_hash = sighash_cache.taproot_key_spend_signature_hash(
+            input_index,
+            &match sighash_type {
+                Some(TapSighashType::SinglePlusAnyoneCanPay) => bitcoin::sighash::Prevouts::One(
+                    input_index,
+                    tx_handler.prevouts[input_index].clone(),
+                ),
+                _ => bitcoin::sighash::Prevouts::All(&tx_handler.prevouts),
+            },
+            sighash_type.unwrap_or(TapSighashType::Default),
+        )?;
+        self.sign_with_tweak(sig_hash, None)
     }
 
     pub fn sign_taproot_pubkey_spend_tx(
@@ -145,7 +168,12 @@ impl Actor {
         let mut sighash_cache = SighashCache::new(tx);
         let sig_hash = sighash_cache.taproot_key_spend_signature_hash(
             input_index,
-            &bitcoin::sighash::Prevouts::All(prevouts),
+            &match sighash_type {
+                Some(TapSighashType::SinglePlusAnyoneCanPay) => {
+                    bitcoin::sighash::Prevouts::One(input_index, prevouts[input_index].clone())
+                }
+                _ => bitcoin::sighash::Prevouts::All(prevouts),
+            },
             sighash_type.unwrap_or(TapSighashType::Default),
         )?;
         self.sign_with_tweak(sig_hash, None)
@@ -153,24 +181,56 @@ impl Actor {
 
     pub fn sign_taproot_script_spend_tx_new_tweaked(
         &self,
-        tx: &mut CreateTxOutputs,
+        tx_handler: &mut TxHandler,
         txin_index: usize,
         script_index: usize,
     ) -> Result<schnorr::Signature, BridgeError> {
-        // TODO: if sighash_cache exists in the CreateTxOutputs, use it
-        // else create a new one and save it to the CreateTxOutputs
+        // TODO: if sighash_cache exists in the TxHandler, use it
+        // else create a new one and save it to the TxHandler
 
         let mut sighash_cache: SighashCache<&mut bitcoin::Transaction> =
-            SighashCache::new(&mut tx.tx);
+            SighashCache::new(&mut tx_handler.tx);
         let sig_hash = sighash_cache.taproot_script_spend_signature_hash(
             txin_index,
-            &bitcoin::sighash::Prevouts::All(&tx.prevouts),
+            &bitcoin::sighash::Prevouts::All(&tx_handler.prevouts),
             TapLeafHash::from_script(
-                &tx.scripts[txin_index][script_index],
+                &tx_handler.scripts[txin_index][script_index],
                 LeafVersion::TapScript,
             ),
             bitcoin::sighash::TapSighashType::Default,
         )?;
         Ok(self.sign_with_tweak(sig_hash, None).unwrap())
+    }
+
+    pub fn convert_tx_to_sighash_script_spend(
+        tx_handler: &mut TxHandler,
+        txin_index: usize,
+        script_index: usize,
+    ) -> Result<TapSighash, BridgeError> {
+        let mut sighash_cache: SighashCache<&mut bitcoin::Transaction> =
+            SighashCache::new(&mut tx_handler.tx);
+        let sig_hash = sighash_cache.taproot_script_spend_signature_hash(
+            txin_index,
+            &bitcoin::sighash::Prevouts::All(&tx_handler.prevouts),
+            TapLeafHash::from_script(
+                &tx_handler.scripts[txin_index][script_index],
+                LeafVersion::TapScript,
+            ),
+            bitcoin::sighash::TapSighashType::Default,
+        )?;
+        Ok(sig_hash)
+    }
+    pub fn convert_tx_to_sighash_pubkey_spend(
+        tx: &mut TxHandler,
+        txin_index: usize,
+    ) -> Result<TapSighash, BridgeError> {
+        let mut sighash_cache: SighashCache<&mut bitcoin::Transaction> =
+            SighashCache::new(&mut tx.tx);
+        let sig_hash = sighash_cache.taproot_key_spend_signature_hash(
+            txin_index,
+            &bitcoin::sighash::Prevouts::All(&tx.prevouts),
+            bitcoin::sighash::TapSighashType::Default,
+        )?;
+        Ok(sig_hash)
     }
 }

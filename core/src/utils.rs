@@ -1,17 +1,23 @@
+use crate::actor::Actor;
 use crate::errors::BridgeError;
-use crate::transaction_builder::CreateTxOutputs;
-use crate::HashTree;
+use crate::musig2::aggregate_partial_signatures;
+use crate::musig2::AggregateFromPublicKeys;
+use crate::musig2::MuSigAggNonce;
+use crate::transaction_builder::TransactionBuilder;
+use crate::transaction_builder::TxHandler;
+use crate::EVMAddress;
+use crate::UTXO;
 use bitcoin;
+use bitcoin::address::NetworkUnchecked;
 use bitcoin::consensus::Decodable;
+use bitcoin::hashes::Hash;
 use bitcoin::sighash::SighashCache;
-use bitcoin::taproot::ControlBlock;
 use bitcoin::taproot::LeafVersion;
-use bitcoin::taproot::TaprootSpendInfo;
-use bitcoin::Amount;
-use bitcoin::ScriptBuf;
+use bitcoin::Address;
+use bitcoin::OutPoint;
 use bitcoin::XOnlyPublicKey;
+use bitcoincore_rpc::RawTx;
 use hex;
-use sha2::{Digest, Sha256};
 use std::borrow::BorrowMut;
 use std::str::FromStr;
 
@@ -36,6 +42,10 @@ lazy_static::lazy_static! {
         XOnlyPublicKey::from_str("93c7378d96518a75448821c4f7c8f4bae7ce60f804d03d1f0628dd5dd0f5de51").unwrap();
 }
 
+lazy_static::lazy_static! {
+    pub static ref NETWORK : bitcoin::Network = bitcoin::Network::Regtest;
+}
+
 pub fn parse_hex_to_btc_tx(
     tx_hex: &str,
 ) -> Result<bitcoin::blockdata::transaction::Transaction, bitcoin::consensus::encode::Error> {
@@ -48,48 +58,21 @@ pub fn parse_hex_to_btc_tx(
     }
 }
 
-pub fn create_control_block(tree_info: TaprootSpendInfo, script: &ScriptBuf) -> ControlBlock {
-    tree_info
-        .control_block(&(script.clone(), LeafVersion::TapScript))
-        .expect("Cannot create control block")
-}
-
-pub fn calculate_amount(depth: usize, value: Amount, fee: Amount) -> Amount {
-    (value + fee) * (2u64.pow(depth as u32))
-}
-
-pub fn handle_taproot_witness<T: AsRef<[u8]>>(
-    tx: &mut bitcoin::Transaction,
-    index: usize,
-    witness_elements: &[T],
-    script: &ScriptBuf,
-    tree_info: &TaprootSpendInfo,
-) -> Result<(), BridgeError> {
-    let mut sighash_cache = SighashCache::new(tx.borrow_mut());
-
-    let witness = sighash_cache
-        .witness_mut(index)
-        .ok_or(BridgeError::TxInputNotFound)?;
-
-    witness_elements
-        .iter()
-        .for_each(|element| witness.push(element));
-
-    let spend_control_block = tree_info
-        .control_block(&(script.clone(), LeafVersion::TapScript))
-        .ok_or(BridgeError::ControlBlockError)?;
-
-    witness.push(script);
-    witness.push(&spend_control_block.serialize());
-
-    Ok(())
+pub fn usize_to_var_len_bytes(x: usize) -> Vec<u8> {
+    let usize_bytes = (usize::BITS / 8) as usize;
+    let bits = x.max(1).ilog2() + 1;
+    let len = ((bits + 7) / 8) as usize;
+    let empty = usize_bytes - len;
+    let op_idx_bytes = x.to_be_bytes();
+    let op_idx_bytes = &op_idx_bytes[empty..];
+    op_idx_bytes.to_vec()
 }
 
 pub fn handle_taproot_witness_new<T: AsRef<[u8]>>(
-    tx: &mut CreateTxOutputs,
+    tx: &mut TxHandler,
     witness_elements: &[T],
     txin_index: usize,
-    script_index: usize,
+    script_index: Option<usize>,
 ) -> Result<(), BridgeError> {
     let mut sighash_cache = SighashCache::new(tx.tx.borrow_mut());
 
@@ -100,18 +83,165 @@ pub fn handle_taproot_witness_new<T: AsRef<[u8]>>(
     witness_elements
         .iter()
         .for_each(|element| witness.push(element));
+    if let Some(index) = script_index {
+        let script = &tx.scripts[txin_index][index];
+        let spend_control_block = tx.taproot_spend_infos[txin_index]
+            .control_block(&(script.clone(), LeafVersion::TapScript))
+            .ok_or(BridgeError::ControlBlockError)?;
 
-    let spend_control_block = tx.taproot_spend_infos[txin_index]
-        .control_block(&(
-            tx.scripts[txin_index][script_index].clone(),
-            LeafVersion::TapScript,
-        ))
-        .ok_or(BridgeError::ControlBlockError)?;
-
-    witness.push(tx.scripts[txin_index][script_index].clone());
-    witness.push(&spend_control_block.serialize());
-
+        witness.push(script.clone());
+        witness.push(spend_control_block.serialize());
+    }
     Ok(())
+}
+
+pub fn aggregate_slash_or_take_partial_sigs(
+    deposit_outpoint: OutPoint,
+    kickoff_utxo: UTXO,
+    verifiers_pks: Vec<secp256k1::PublicKey>,
+    operator_xonly_pk: secp256k1::XOnlyPublicKey,
+    operator_idx: usize,
+    agg_nonce: &MuSigAggNonce,
+    partial_sigs: Vec<[u8; 32]>,
+    network: bitcoin::Network,
+) -> Result<[u8; 64], BridgeError> {
+    let musig_agg_xonly_pubkey_wrapped =
+        secp256k1::XOnlyPublicKey::from_musig2_pks(verifiers_pks.clone(), None, false);
+    let mut tx = TransactionBuilder::create_slash_or_take_tx(
+        deposit_outpoint,
+        kickoff_utxo,
+        &operator_xonly_pk,
+        operator_idx,
+        &musig_agg_xonly_pubkey_wrapped,
+        network,
+    );
+    tracing::debug!("SLASH_OR_TAKE_TX: {:?}", tx);
+    tracing::debug!("SLASH_OR_TAKE_TX weight: {:?}", tx.tx.weight());
+    let message: [u8; 32] = Actor::convert_tx_to_sighash_script_spend(&mut tx, 0, 0)
+        .unwrap()
+        .to_byte_array();
+    tracing::debug!("aggregate SLASH_OR_TAKE_TX message: {:?}", message);
+    let final_sig: [u8; 64] = aggregate_partial_signatures(
+        verifiers_pks.clone(),
+        None,
+        false,
+        agg_nonce,
+        partial_sigs,
+        message,
+    )?;
+    tracing::debug!("aggregate SLASH_OR_TAKE_TX final_sig: {:?}", final_sig);
+    tracing::debug!(
+        "aggregate SLASH_OR_TAKE_TX for verifiers: {:?}",
+        verifiers_pks
+    );
+    tracing::debug!(
+        "aggregate SLASH_OR_TAKE_TX for operator: {:?}",
+        operator_xonly_pk
+    );
+    Ok(final_sig)
+}
+
+pub fn aggregate_operator_takes_partial_sigs(
+    deposit_outpoint: OutPoint,
+    kickoff_utxo: UTXO,
+    operator_xonly_pk: &XOnlyPublicKey,
+    operator_idx: usize,
+    verifiers_pks: Vec<secp256k1::PublicKey>,
+    agg_nonce: &MuSigAggNonce,
+    partial_sigs: Vec<[u8; 32]>,
+    network: bitcoin::Network,
+) -> Result<[u8; 64], BridgeError> {
+    let nofn_xonly_pk =
+        secp256k1::XOnlyPublicKey::from_musig2_pks(verifiers_pks.clone(), None, false);
+
+    let move_tx_handler = TransactionBuilder::create_move_tx(
+        deposit_outpoint,
+        &EVMAddress([0u8; 20]),
+        Address::p2tr(&self::SECP, *self::UNSPENDABLE_XONLY_PUBKEY, None, network).as_unchecked(),
+        &nofn_xonly_pk,
+        network,
+    );
+    let bridge_fund_outpoint = OutPoint {
+        txid: move_tx_handler.tx.compute_txid(),
+        vout: 0,
+    };
+    let slash_or_take_tx_handler = TransactionBuilder::create_slash_or_take_tx(
+        deposit_outpoint,
+        kickoff_utxo,
+        operator_xonly_pk,
+        operator_idx,
+        &nofn_xonly_pk,
+        network,
+    );
+    let slash_or_take_utxo = UTXO {
+        outpoint: OutPoint {
+            txid: slash_or_take_tx_handler.tx.compute_txid(),
+            vout: 0,
+        },
+        txout: slash_or_take_tx_handler.tx.output[0].clone(),
+    };
+    let mut tx_handler = TransactionBuilder::create_operator_takes_tx(
+        bridge_fund_outpoint,
+        slash_or_take_utxo,
+        operator_xonly_pk,
+        &nofn_xonly_pk,
+        network,
+    );
+    tracing::debug!(
+        "OPERATOR_TAKES_TX with operator_idx:{:?} {:?}",
+        operator_idx,
+        tx_handler.tx
+    );
+    tracing::debug!("OPERATOR_TAKES_TX_HEX: {:?}", tx_handler.tx.raw_hex());
+    tracing::debug!("OPERATOR_TAKES_TX weight: {:?}", tx_handler.tx.weight());
+    let message: [u8; 32] = Actor::convert_tx_to_sighash_pubkey_spend(&mut tx_handler, 0)
+        .unwrap()
+        .to_byte_array();
+    let final_sig: [u8; 64] = aggregate_partial_signatures(
+        verifiers_pks.clone(),
+        None,
+        true,
+        agg_nonce,
+        partial_sigs,
+        message,
+    )?;
+    tracing::debug!("OPERATOR_TAKES_TX final_sig: {:?}", final_sig);
+    Ok(final_sig)
+}
+
+pub fn aggregate_move_partial_sigs(
+    deposit_outpoint: OutPoint,
+    evm_address: &EVMAddress,
+    recovery_taproot_address: &Address<NetworkUnchecked>,
+    verifiers_pks: Vec<secp256k1::PublicKey>,
+    agg_nonce: &MuSigAggNonce,
+    partial_sigs: Vec<[u8; 32]>,
+    network: bitcoin::Network,
+) -> Result<[u8; 64], BridgeError> {
+    let musig_agg_xonly_pubkey_wrapped =
+        secp256k1::XOnlyPublicKey::from_musig2_pks(verifiers_pks.clone(), None, false);
+    let mut tx = TransactionBuilder::create_move_tx(
+        deposit_outpoint,
+        evm_address,
+        recovery_taproot_address,
+        &musig_agg_xonly_pubkey_wrapped,
+        network,
+    );
+    // println!("MOVE_TX: {:?}", tx);
+    // println!("MOVE_TXID: {:?}", tx.tx.compute_txid());
+    let message: [u8; 32] = Actor::convert_tx_to_sighash_script_spend(&mut tx, 0, 0)
+        .unwrap()
+        .to_byte_array();
+    let final_sig: [u8; 64] = aggregate_partial_signatures(
+        verifiers_pks.clone(),
+        None,
+        false,
+        agg_nonce,
+        partial_sigs,
+        message,
+    )?;
+
+    Ok(final_sig)
 }
 
 pub fn get_claim_reveal_indices(depth: usize, count: u32) -> Vec<(usize, usize)> {
@@ -134,48 +264,6 @@ pub fn get_claim_reveal_indices(depth: usize, count: u32) -> Vec<(usize, usize)>
     }
 
     indices
-}
-
-pub fn get_claim_proof_tree_leaf(
-    depth: usize,
-    num_claims: usize,
-    connector_tree_hashes: &HashTree,
-) -> [u8; 32] {
-    let indices = get_claim_reveal_indices(depth, num_claims as u32);
-
-    let mut hasher = Sha256::new();
-
-    indices.iter().for_each(|(level, index)| {
-        hasher.update(connector_tree_hashes[*level][*index]);
-    });
-
-    hasher.finalize().into()
-}
-pub fn calculate_claim_proof_root(
-    depth: usize,
-    connector_tree_hashes: &Vec<Vec<[u8; 32]>>,
-) -> [u8; 32] {
-    let mut hashes: Vec<[u8; 32]> = (0..2u32.pow(depth as u32))
-        .map(|i| get_claim_proof_tree_leaf(depth, i as usize, connector_tree_hashes))
-        .collect();
-
-    let mut level = 0;
-    while level < depth {
-        let level_hashes: Vec<[u8; 32]> = (0..2u32.pow((depth - level - 1) as u32))
-            .map(|i| {
-                let mut hasher = Sha256::new();
-                hasher.update(hashes[i as usize * 2]);
-                hasher.update(hashes[i as usize * 2 + 1]);
-
-                hasher.finalize().into()
-            })
-            .collect();
-
-        hashes.clone_from(&level_hashes);
-        level += 1;
-    }
-
-    hashes[0]
 }
 
 #[cfg(test)]

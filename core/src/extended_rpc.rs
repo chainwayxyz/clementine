@@ -13,6 +13,7 @@ use bitcoin::ScriptBuf;
 use bitcoin::Transaction;
 use bitcoin::TxOut;
 use bitcoin::Work;
+use bitcoin::XOnlyPublicKey;
 use bitcoin_mock_rpc::RpcApiWrapper;
 use bitcoincore_rpc::json::AddressType;
 use bitcoincore_rpc::Auth;
@@ -202,7 +203,15 @@ where
         Ok(block_height)
     }
 
-    pub fn fundrawtransaction(
+    pub fn get_txout_from_outpoint(&self, outpoint: &OutPoint) -> Result<TxOut, BridgeError> {
+        let tx = self.client.get_raw_transaction(&outpoint.txid, None)?;
+        let txout = tx.output[outpoint.vout as usize].clone();
+
+        Ok(txout)
+    }
+
+    // Following methods are just wrappers around the bitcoincore_rpc::Client methods
+    pub fn fund_raw_transaction(
         &self,
         tx: &Transaction,
         options: Option<&bitcoincore_rpc::json::FundRawTransactionOptions>,
@@ -211,7 +220,16 @@ where
         self.client.fund_raw_transaction(tx, options, is_witness)
     }
 
-    // Following methods are just wrappers around the bitcoincore_rpc::Client methods
+    pub fn sign_raw_transaction_with_wallet<T: bitcoincore_rpc::RawTx>(
+        &self,
+        tx: T,
+        utxos: Option<&[bitcoincore_rpc::json::SignRawTransactionInput]>,
+        sighash_type: Option<bitcoincore_rpc::json::SigHashType>,
+    ) -> Result<bitcoincore_rpc::json::SignRawTransactionResult, bitcoincore_rpc::Error> {
+        self.client
+            .sign_raw_transaction_with_wallet(tx, utxos, sighash_type)
+    }
+
     pub fn get_blockchain_info(
         &self,
     ) -> Result<bitcoincore_rpc::json::GetBlockchainInfoResult, bitcoincore_rpc::Error> {
@@ -242,9 +260,9 @@ where
         self.client.get_transaction(txid, include_watchonly)
     }
 
-    pub fn send_raw_transaction(
+    pub fn send_raw_transaction<T: bitcoincore_rpc::RawTx>(
         &self,
-        tx: &Transaction,
+        tx: T,
     ) -> Result<bitcoin::Txid, bitcoincore_rpc::Error> {
         self.client.send_raw_transaction(tx)
     }
@@ -265,24 +283,25 @@ where
 
     pub fn check_deposit_utxo(
         &self,
-        tx_builder: &TransactionBuilder,
+        nofn_xonly_pk: &XOnlyPublicKey,
         outpoint: &OutPoint,
         recovery_taproot_address: &Address<NetworkUnchecked>,
         evm_address: &EVMAddress,
         amount_sats: u64,
-        user_takes_after: u32,
         confirmation_block_count: u32,
+        network: bitcoin::Network,
     ) -> Result<(), BridgeError> {
         if self.confirmation_blocks(&outpoint.txid)? < confirmation_block_count {
             return Err(BridgeError::DepositNotFinalized);
         }
 
-        let (deposit_address, _) = tx_builder.generate_deposit_address(
+        let (deposit_address, _) = TransactionBuilder::generate_deposit_address(
+            nofn_xonly_pk,
             recovery_taproot_address,
             evm_address,
             BRIDGE_AMOUNT_SATS,
-            user_takes_after,
-        )?;
+            network,
+        );
 
         if !self.check_utxo_address_and_amount(
             outpoint,

@@ -3,11 +3,13 @@
 //! This module defines errors, returned by the library.
 
 use bitcoin::{
+    consensus::encode::FromHexError,
     merkle_tree::MerkleBlockError,
     taproot::{TaprootBuilder, TaprootBuilderError},
 };
 use core::fmt::Debug;
-use jsonrpsee::types::{ErrorObject, ErrorObjectOwned};
+use jsonrpsee::types::ErrorObject;
+use musig2::secp::errors::InvalidScalarBytes;
 use std::array::TryFromSliceError;
 use thiserror::Error;
 
@@ -31,10 +33,10 @@ pub enum BridgeError {
     InvalidPeriod(InvalidPeriodError),
     /// Returned when the secp256k1 crate returns an error
     #[error("Secpk256Error: {0}")]
-    Secpk256Error(secp256k1::Error),
+    Secpk256Error(#[from] secp256k1::Error),
     /// Returned when the bitcoin crate returns an error in the sighash taproot module
     #[error("BitcoinSighashTaprootError: {0}")]
-    BitcoinSighashTaprootError(bitcoin::sighash::TaprootError),
+    BitcoinSighashTaprootError(#[from] bitcoin::sighash::TaprootError),
     /// Returned when a non finalized deposit request is found
     #[error("DepositNotFinalized")]
     DepositNotFinalized,
@@ -52,7 +54,7 @@ pub enum BridgeError {
     TxidNotFound,
     /// Returned in RPC error
     #[error("BitcoinCoreRPCError: {0}")]
-    BitcoinRpcError(bitcoincore_rpc::Error),
+    BitcoinRpcError(#[from] bitcoincore_rpc::Error),
     /// Returned if there is no confirmation data
     #[error("NoConfirmationData")]
     NoConfirmationData,
@@ -63,8 +65,8 @@ pub enum BridgeError {
     #[error("TryFromSliceError")]
     TryFromSliceError,
     /// Returned when bitcoin::Transaction error happens, also returns the error
-    #[error("BitcoinTransactionError")]
-    BitcoinTransactionError,
+    #[error("BitcoinTransactionError: {0}")]
+    BitcoinConsensusEncodeError(#[from] bitcoin::consensus::encode::Error),
     /// TxInputNotFound is returned when the input is not found in the transaction
     #[error("TxInputNotFound")]
     TxInputNotFound,
@@ -100,51 +102,71 @@ pub enum BridgeError {
     BlockNotFound,
     /// Merkle Block Error
     #[error("MerkleBlockError: {0}")]
-    MerkleBlockError(MerkleBlockError),
+    MerkleBlockError(#[from] MerkleBlockError),
     /// Merkle Proof Error
     #[error("MerkleProofError")]
     MerkleProofError,
     /// JSON RPC call failed
     #[error("JsonRpcError: {0}")]
-    JsonRpcError(jsonrpsee::core::client::Error),
-    /// Given key pair is invalid and new pairs can't be generated randomly
-    #[error("InvalidKeyPair")]
-    InvalidKeyPair(std::io::Error),
+    JsonRpcError(#[from] jsonrpsee::core::client::Error),
     /// ConfigError is returned when the configuration is invalid
     #[error("ConfigError: {0}")]
     ConfigError(String),
     /// Bitcoin Address Parse Error, probably given address network is invalid
     #[error("BitcoinAddressParseError: {0}")]
-    BitcoinAddressParseError(bitcoin::address::ParseError),
+    BitcoinAddressParseError(#[from] bitcoin::address::ParseError),
     /// Port error for tests
     #[error("PortError: {0}")]
     PortError(String),
     /// Database error
     #[error("DatabaseError: {0}")]
-    DatabaseError(sqlx::Error),
+    DatabaseError(#[from] sqlx::Error),
     /// Operator tries to claim with different bridge funds with the same withdrawal idx
     #[error("AlreadySpentWithdrawal")]
     AlreadySpentWithdrawal,
     /// There was an error while creating a server.
     #[error("ServerError")]
-    ServerError(std::io::Error),
+    ServerError(#[from] std::io::Error),
+    /// When the operators funding utxo is not found
+    #[error("OperatorFundingUtxoNotFound: Funding utxo not found, pls send some amount here: {0}, then call the set_operator_funding_utxo RPC")]
+    OperatorFundingUtxoNotFound(bitcoin::Address),
+    /// OperatorFundingUtxoAmountNotEnough is returned when the operator funding utxo amount is not enough
+    #[error("OperatorFundingUtxoAmountNotEnough: Operator funding utxo amount is not enough, pls send some amount here: {0}, then call the set_operator_funding_utxo RPC")]
+    OperatorFundingUtxoAmountNotEnough(bitcoin::Address),
+    /// InvalidKickoffUtxo is returned when the kickoff utxo is invalid
+    #[error("InvalidKickoffUtxo")]
+    InvalidKickoffUtxo,
+
+    #[error("KeyAggContextError: {0}")]
+    KeyAggContextError(#[from] musig2::errors::KeyAggError),
+
+    #[error("KeyAggContextTweakError: {0}")]
+    KeyAggContextTweakError(#[from] musig2::errors::TweakError),
+
+    #[error("InvalidScalarBytes: {0}")]
+    InvalidScalarBytes(#[from] InvalidScalarBytes),
+
+    #[error("NoncesNotFound")]
+    NoncesNotFound,
+
+    #[error("MuSig2VerifyError: {0}")]
+    MuSig2VerifyError(#[from] musig2::errors::VerifyError),
+
+    #[error("KickoffOutpointsNotFound")]
+    KickoffOutpointsNotFound,
+    #[error("DepositInfoNotFound")]
+    DepositInfoNotFound,
+
+    #[error("FromHexError: {0}")]
+    FromHexError(#[from] FromHexError),
+
+    #[error("FromSliceError: {0}")]
+    FromSliceError(#[from] bitcoin::hashes::FromSliceError),
 }
 
-impl Into<ErrorObject<'static>> for BridgeError {
-    fn into(self) -> ErrorObjectOwned {
-        ErrorObject::owned(-30000, format!("{:?}", self), Some(1))
-    }
-}
-
-impl From<secp256k1::Error> for BridgeError {
-    fn from(err: secp256k1::Error) -> Self {
-        BridgeError::Secpk256Error(err)
-    }
-}
-
-impl From<bitcoin::sighash::TaprootError> for BridgeError {
-    fn from(err: bitcoin::sighash::TaprootError) -> Self {
-        BridgeError::BitcoinSighashTaprootError(err)
+impl From<BridgeError> for ErrorObject<'static> {
+    fn from(val: BridgeError) -> Self {
+        ErrorObject::owned(-30000, format!("{:?}", val), Some(1))
     }
 }
 
@@ -160,12 +182,6 @@ impl From<TryFromSliceError> for BridgeError {
     }
 }
 
-impl From<bitcoin::Transaction> for BridgeError {
-    fn from(_error: bitcoin::Transaction) -> Self {
-        BridgeError::BitcoinTransactionError
-    }
-}
-
 impl From<TaprootBuilderError> for BridgeError {
     fn from(_error: TaprootBuilderError) -> Self {
         BridgeError::TaprootBuilderError
@@ -175,35 +191,5 @@ impl From<TaprootBuilderError> for BridgeError {
 impl From<TaprootBuilder> for BridgeError {
     fn from(_error: TaprootBuilder) -> Self {
         BridgeError::TaprootBuilderError
-    }
-}
-
-impl From<bitcoincore_rpc::Error> for BridgeError {
-    fn from(err: bitcoincore_rpc::Error) -> Self {
-        BridgeError::BitcoinRpcError(err)
-    }
-}
-
-impl From<MerkleBlockError> for BridgeError {
-    fn from(err: MerkleBlockError) -> Self {
-        BridgeError::MerkleBlockError(err)
-    }
-}
-
-impl From<jsonrpsee::core::client::Error> for BridgeError {
-    fn from(err: jsonrpsee::core::client::Error) -> Self {
-        BridgeError::JsonRpcError(err)
-    }
-}
-
-impl From<bitcoin::address::ParseError> for BridgeError {
-    fn from(err: bitcoin::address::ParseError) -> Self {
-        BridgeError::BitcoinAddressParseError(err)
-    }
-}
-
-impl From<sqlx::Error> for BridgeError {
-    fn from(err: sqlx::Error) -> Self {
-        BridgeError::DatabaseError(err)
     }
 }

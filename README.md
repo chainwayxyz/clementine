@@ -10,7 +10,8 @@ The repository includes:
 The flow is as follows:
 
 - Creating the operator and verifiers
-- Initial setup that includes calculating period block heights, connector tree hashes, and funding connector source UTXOs.
+- Initial setup that includes calculating period block heights, connector tree hashes, and funding connector source
+  UTXOs.
 - User deposit flow that includes creating a deposit transaction, signing it, and submitting it to the operator.
 - Operator processing the deposit, getting signatures from verifiers, and submitting the deposit to the Bitcoin network.
 - Verifiers verifying the deposit and signing the deposit transaction and claim signatures.
@@ -20,7 +21,8 @@ The flow is as follows:
 
 > [!WARNING]
 >
-> Clementine is still work-in-progress. It has not been audited and should not be used in production under any circumstances. It also requires a full BitVM implementation to be run fully on-chain.
+> Clementine is still work-in-progress. It has not been audited and should not be used in production under any
+> circumstances. It also requires a full BitVM implementation to be run fully on-chain.
 
 ## Instructions
 
@@ -59,6 +61,25 @@ if developer's environment is not matching with a test's configuration file
 
 ```sh
 export TEST_CONFIG=/path/to/configuration.toml
+```
+
+#### Database
+
+Some integration tests depend on a properly configured PostgresSQL server. To bring it up you may use provided docker
+configuration.
+
+```bash
+docker compose up -d
+```
+
+##### Reinitialization
+
+In case you to start the database from a completely fresh state, run this:
+
+```bash
+docker compose down
+sudo rm -rf .docker/db/data
+docker compose up -d
 ```
 
 ### Testing

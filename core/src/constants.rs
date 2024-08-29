@@ -2,9 +2,6 @@ use bitcoin::BlockHash;
 use clementine_circuits::constants::CLAIM_MERKLE_TREE_DEPTH;
 use crypto_bigint::U256;
 
-// pub const NUM_VERIFIERS: usize = 4;
-// pub const NUM_USERS: usize = 4;
-
 /// For connector tree utxos, we should wait some time for any verifier to burn the branch if preimage is revealed
 pub const CONNECTOR_TREE_OPERATOR_TAKES_AFTER: u16 = 1;
 

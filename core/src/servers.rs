@@ -1,9 +1,12 @@
 //! # Servers
 //!
 //! Utilities for operator and verifier servers.
-
+use crate::create_extended_rpc;
+use crate::mock::common;
 use crate::{
     config::BridgeConfig,
+    create_test_config, create_test_config_with_thread_name,
+    database::common::Database,
     errors,
     extended_rpc::ExtendedRpc,
     operator,
@@ -17,13 +20,14 @@ use jsonrpsee::{
     server::{Server, ServerHandle},
 };
 use operator::Operator;
+use std::thread;
 use traits::rpc::OperatorRpcServer;
 
 /// Starts a server for a verifier.
 pub async fn create_verifier_server<R>(
     config: BridgeConfig,
     rpc: ExtendedRpc<R>,
-) -> Result<(std::net::SocketAddr, ServerHandle), BridgeError>
+) -> Result<(HttpClient, ServerHandle, std::net::SocketAddr), BridgeError>
 where
     R: RpcApiWrapper,
 {
@@ -34,36 +38,29 @@ where
         Ok(s) => s,
         Err(e) => return Err(BridgeError::ServerError(e)),
     };
-
     let verifier = Verifier::new(rpc, config).await?;
 
-    let addr = match server.local_addr() {
-        Ok(a) => a,
-        Err(e) => return Err(BridgeError::ServerError(e)),
-    };
+    let addr: std::net::SocketAddr = server.local_addr().map_err(BridgeError::ServerError)?;
     let handle = server.start(verifier.into_rpc());
+
+    let client = HttpClientBuilder::default()
+        .build(format!("http://{}:{}/", addr.ip(), addr.port()))
+        .unwrap();
 
     tracing::info!("Verifier server started with address: {}", addr);
 
-    Ok((addr, handle))
+    Ok((client, handle, addr))
 }
 
 /// Starts the server for the operator.
 pub async fn create_operator_server<R>(
     config: BridgeConfig,
     rpc: ExtendedRpc<R>,
-    verifier_endpoints: Vec<String>,
-) -> Result<(std::net::SocketAddr, ServerHandle), BridgeError>
+) -> Result<(HttpClient, ServerHandle, std::net::SocketAddr), BridgeError>
 where
     R: RpcApiWrapper,
 {
-    let verifiers: Vec<HttpClient> = verifier_endpoints
-        .clone()
-        .iter()
-        .map(|verifier| HttpClientBuilder::default().build(verifier))
-        .collect::<Result<Vec<HttpClient>, jsonrpsee::core::client::Error>>()?;
-
-    let operator = Operator::new(config.clone(), rpc, verifiers).await?;
+    let operator = Operator::new(config.clone(), rpc).await?;
 
     let server = match Server::builder()
         .build(format!("{}:{}", config.host, config.port))
@@ -73,81 +70,109 @@ where
         Err(e) => return Err(BridgeError::ServerError(e)),
     };
 
-    let addr = match server.local_addr() {
-        Ok(s) => s,
-        Err(e) => return Err(BridgeError::ServerError(e)),
-    };
+    let addr: std::net::SocketAddr = server.local_addr().map_err(BridgeError::ServerError)?;
     let handle = server.start(operator.into_rpc());
+
+    let client = HttpClientBuilder::default()
+        .build(format!("http://{}:{}/", addr.ip(), addr.port()))
+        .unwrap();
 
     tracing::info!("Operator server started with address: {}", addr);
 
-    Ok((addr, handle))
+    Ok((client, handle, addr))
 }
 
-/// Starts operator and verifiers servers. This function's intended use is for
+/// Starts operators and verifiers servers. This function's intended use is for
 /// tests.
 ///
 /// # Returns
 ///
-/// Returns a tuple, containing `HttpClient` for operator, `ServerHandle` for
-/// operator and a vector containing `SocketAddr` and `ServerHandle` for
-/// verifiers + operator (operator last).
+/// Returns a tuple of vectors of clients, handles, and addresses for the
+/// verifiers + operators.
 ///
 /// # Panics
 ///
 /// Panics if there was an error while creating any of the servers.
-pub async fn create_operator_and_verifiers<R>(
-    config: BridgeConfig,
-    rpc: ExtendedRpc<R>,
+pub async fn create_verifiers_and_operators(
+    config_name: &str,
+    // rpc: ExtendedRpc<R>,
 ) -> (
-    HttpClient,
-    ServerHandle,
-    Vec<(std::net::SocketAddr, ServerHandle)>,
-)
-where
-    R: RpcApiWrapper,
-{
-    let mut all_secret_keys = config.all_secret_keys.clone().unwrap_or_else(|| {
-        panic!("All secret keys are required for testing");
+    Vec<(HttpClient, ServerHandle, std::net::SocketAddr)>, // Verifier clients
+    Vec<(HttpClient, ServerHandle, std::net::SocketAddr)>, // Operator clients
+) {
+    let mut config = create_test_config_with_thread_name!(config_name);
+    let rpc = create_extended_rpc!(config);
+    let all_verifiers_secret_keys = config.all_verifiers_secret_keys.clone().unwrap_or_else(|| {
+        panic!("All secret keys of the verifiers are required for testing");
     });
-    // Remove the operator secret key.
-    all_secret_keys.pop().unwrap();
-
-    let futures = all_secret_keys
+    let verifier_futures = all_verifiers_secret_keys
         .iter()
         .enumerate()
         .map(|(i, sk)| {
-            create_verifier_server(
-                BridgeConfig {
-                    verifiers_public_keys: config.verifiers_public_keys.clone(),
-                    secret_key: *sk,
-                    port: 0, // Use the index to calculate the port
-                    db_name: config.db_name.clone() + &i.to_string(),
-                    ..config.clone()
-                },
-                rpc.clone(),
-            )
+            let i = i.to_string();
+            let rpc = rpc.clone();
+            async move {
+                let config_with_new_db =
+                    create_test_config_with_thread_name!(config_name, Some(&i.to_string()));
+                let verifier = create_verifier_server(
+                    BridgeConfig {
+                        secret_key: *sk,
+                        port: 0,
+                        ..config_with_new_db.clone()
+                    },
+                    rpc,
+                )
+                .await
+                .unwrap();
+                Ok::<
+                    (
+                        (HttpClient, ServerHandle, std::net::SocketAddr),
+                        BridgeConfig,
+                    ),
+                    BridgeError,
+                >((verifier, config_with_new_db))
+            }
         })
         .collect::<Vec<_>>();
-    let mut results = futures::future::try_join_all(futures).await.unwrap();
-
-    let verifier_endpoints: Vec<String> = results
-        .iter()
-        .map(|(socket_addr, _)| format!("http://{}:{}/", socket_addr.ip(), socket_addr.port()))
-        .collect();
-
-    let (operator_socket_addr, operator_handle) =
-        create_operator_server(config, rpc, verifier_endpoints)
-            .await
-            .unwrap();
-    let operator_client = HttpClientBuilder::default()
-        .build(format!(
-            "http://{}:{}/",
-            operator_socket_addr.ip(),
-            operator_socket_addr.port()
-        ))
+    let verifier_results = futures::future::try_join_all(verifier_futures)
+        .await
         .unwrap();
-    results.push((operator_socket_addr, operator_handle.clone()));
+    let verifier_endpoints = verifier_results
+        .iter()
+        .map(|(v, _)| v.clone())
+        .collect::<Vec<_>>();
+    let verifier_configs = verifier_results
+        .iter()
+        .map(|(_, c)| c.clone())
+        .collect::<Vec<_>>();
 
-    (operator_client, operator_handle, results)
+    let all_operators_secret_keys = config.all_operators_secret_keys.clone().unwrap_or_else(|| {
+        panic!("All secret keys of the operators are required for testing");
+    });
+
+    let operator_futures = all_operators_secret_keys
+        .iter()
+        .enumerate()
+        .map(|(i, sk)| {
+            // let i_str = (i + 1000).to_string();
+            let rpc = rpc.clone();
+            let verifier_config = verifier_configs[i].clone();
+            async move {
+                create_operator_server(
+                    BridgeConfig {
+                        secret_key: *sk,
+                        port: 0,
+                        ..verifier_config
+                    },
+                    rpc,
+                )
+                .await
+            }
+        })
+        .collect::<Vec<_>>();
+    let operator_endpoints = futures::future::try_join_all(operator_futures)
+        .await
+        .unwrap();
+
+    (verifier_endpoints, operator_endpoints)
 }

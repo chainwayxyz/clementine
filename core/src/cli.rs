@@ -78,17 +78,10 @@ mod tests {
     /// With help message flag, we should see the help message. Shocking.
     #[test]
     fn help_message() {
-        match parse_from(vec!["clementine-core", "--help"].into_iter()) {
-            Ok(_) => {
-                assert!(false);
-            }
-            Err(BridgeError::ConfigError(e)) => {
-                println!("{}", e);
-                assert!(true);
-            }
-            _ => {
-                assert!(false);
-            }
+        match parse_from(vec!["clementine-core", "--help"]) {
+            Ok(_) => panic!("expected configuration error"),
+            Err(BridgeError::ConfigError(e)) => println!("{e}"),
+            e => panic!("unexpected error {e:#?}"),
         }
     }
 
@@ -96,17 +89,10 @@ mod tests {
     /// `Cargo.toml`.
     #[test]
     fn version() {
-        match parse_from(vec!["clementine-core", "--version"].into_iter()) {
-            Ok(_) => {
-                assert!(false);
-            }
-            Err(BridgeError::ConfigError(e)) => {
-                println!("{}", e);
-                assert!(true);
-            }
-            _ => {
-                assert!(false);
-            }
+        match parse_from(vec!["clementine-core", "--version"]) {
+            Ok(_) => panic!("expected configuration error"),
+            Err(BridgeError::ConfigError(e)) => println!("{e}"),
+            e => panic!("unexpected error {e:#?}"),
         }
     }
 }
