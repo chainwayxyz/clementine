@@ -11,7 +11,7 @@ env:
 jobs:
   debug_mode_build:
     name: Compile code in debug mode
-    runs-on: ubicloud-standard-4
+    runs-on: ubicloud-standard-16
 
     steps:
     - uses: actions/checkout@v4
@@ -32,7 +32,7 @@ jobs:
 
   release_mode_build:
     name: Compile code in release mode
-    runs-on: ubicloud-standard-4
+    runs-on: ubicloud-standard-16
 
     steps:
     - uses: actions/checkout@v4
@@ -53,7 +53,7 @@ jobs:
 
   debug_mode_test:
     name: Test code in debug mode
-    runs-on: ubicloud-standard-4
+    runs-on: ubicloud-standard-16
     needs: debug_mode_build
 
     services:
@@ -158,7 +158,7 @@ jobs:
 
   release_mode_test:
     name: Test code in release mode
-    runs-on: ubicloud-standard-4
+    runs-on: ubicloud-standard-16
     needs: release_mode_build
 
     services:
