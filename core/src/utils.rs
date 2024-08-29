@@ -1,7 +1,7 @@
 use crate::actor::Actor;
 use crate::errors::BridgeError;
 use crate::musig2::aggregate_partial_signatures;
-use crate::musig2::create_key_agg_ctx;
+use crate::musig2::AggregateFromPublicKeys;
 use crate::musig2::MuSigAggNonce;
 use crate::transaction_builder::TransactionBuilder;
 use crate::transaction_builder::TxHandler;
@@ -132,11 +132,8 @@ pub fn aggregate_slash_or_take_partial_sigs(
     partial_sigs: Vec<[u8; 32]>,
     network: bitcoin::Network,
 ) -> Result<[u8; 64], BridgeError> {
-    let key_agg_ctx = create_key_agg_ctx(verifiers_pks.clone(), None, false)?;
-    let musig_agg_pubkey: musig2::secp256k1::PublicKey = key_agg_ctx.aggregated_pubkey_untweaked();
-    let (musig_agg_xonly_pubkey, _) = musig_agg_pubkey.x_only_public_key();
     let musig_agg_xonly_pubkey_wrapped =
-        bitcoin::XOnlyPublicKey::from_slice(&musig_agg_xonly_pubkey.serialize()).unwrap();
+        secp256k1::XOnlyPublicKey::from_musig2_pks(verifiers_pks.clone(), None, false);
     let mut tx = TransactionBuilder::create_slash_or_take_tx(
         deposit_outpoint,
         kickoff_utxo,
@@ -181,11 +178,8 @@ pub fn aggregate_operator_takes_partial_sigs(
     partial_sigs: Vec<[u8; 32]>,
     network: bitcoin::Network,
 ) -> Result<[u8; 64], BridgeError> {
-    let key_agg_ctx = create_key_agg_ctx(verifiers_pks.clone(), None, true)?;
-    let musig_agg_pubkey: musig2::secp256k1::PublicKey = key_agg_ctx.aggregated_pubkey_untweaked();
-    let (musig_agg_xonly_pubkey, _) = musig_agg_pubkey.x_only_public_key();
     let nofn_xonly_pk =
-        bitcoin::XOnlyPublicKey::from_slice(&musig_agg_xonly_pubkey.serialize()).unwrap();
+        secp256k1::XOnlyPublicKey::from_musig2_pks(verifiers_pks.clone(), None, false);
 
     let move_tx_handler = TransactionBuilder::create_move_tx(
         deposit_outpoint,
@@ -251,11 +245,8 @@ pub fn aggregate_move_partial_sigs(
     partial_sigs: Vec<[u8; 32]>,
     network: bitcoin::Network,
 ) -> Result<[u8; 64], BridgeError> {
-    let key_agg_ctx = create_key_agg_ctx(verifiers_pks.clone(), None, false)?;
-    let musig_agg_pubkey: musig2::secp256k1::PublicKey = key_agg_ctx.aggregated_pubkey();
-    let (musig_agg_xonly_pubkey, _) = musig_agg_pubkey.x_only_public_key();
     let musig_agg_xonly_pubkey_wrapped =
-        bitcoin::XOnlyPublicKey::from_slice(&musig_agg_xonly_pubkey.serialize()).unwrap();
+        secp256k1::XOnlyPublicKey::from_musig2_pks(verifiers_pks.clone(), None, false);
     let mut tx = TransactionBuilder::create_move_tx(
         deposit_outpoint,
         evm_address,

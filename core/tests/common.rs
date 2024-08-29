@@ -12,7 +12,7 @@ use clementine_core::errors::BridgeError;
 use clementine_core::extended_rpc::ExtendedRpc;
 use clementine_core::mock::common;
 use clementine_core::musig2::aggregate_nonces;
-use clementine_core::musig2::create_key_agg_ctx;
+use clementine_core::musig2::AggregateFromPublicKeys;
 use clementine_core::servers::*;
 use clementine_core::traits::rpc::OperatorRpcClient;
 use clementine_core::traits::rpc::VerifierRpcClient;
@@ -235,11 +235,11 @@ pub async fn run_single_deposit(
 
     let move_tx_sig = secp256k1::schnorr::Signature::from_slice(&agg_move_tx_final_sig)?;
 
-    let key_agg_ctx = create_key_agg_ctx(config.verifiers_public_keys.clone(), None, true)?;
-    let musig_agg_pubkey: musig2::secp256k1::PublicKey = key_agg_ctx.aggregated_pubkey_untweaked();
-    let (musig_agg_xonly_pubkey, _) = musig_agg_pubkey.x_only_public_key();
-    let nofn_xonly_pk =
-        bitcoin::XOnlyPublicKey::from_slice(&musig_agg_xonly_pubkey.serialize()).unwrap();
+    let nofn_xonly_pk = secp256k1::XOnlyPublicKey::from_musig2_pks(
+        config.verifiers_public_keys.clone(),
+        None,
+        false,
+    );
 
     let mut move_tx_handler = TransactionBuilder::create_move_tx(
         deposit_outpoint,

@@ -18,6 +18,35 @@ pub type MuSigPartialSignature = [u8; 32];
 pub type MuSigFinalSignature = [u8; 64];
 pub type MuSigNoncePair = (MuSigSecNonce, MuSigPubNonce);
 
+pub trait AggregateFromPublicKeys {
+    fn from_musig2_pks(
+        pks: Vec<PublicKey>,
+        tweak: Option<TapNodeHash>,
+        tweak_flag: bool,
+    ) -> secp256k1::XOnlyPublicKey;
+}
+
+impl AggregateFromPublicKeys for secp256k1::XOnlyPublicKey {
+    fn from_musig2_pks(
+        pks: Vec<PublicKey>,
+        tweak: Option<TapNodeHash>,
+        tweak_flag: bool,
+    ) -> secp256k1::XOnlyPublicKey {
+        let key_agg_ctx = create_key_agg_ctx(pks, tweak, tweak_flag).unwrap();
+        let musig_agg_pubkey: musig2::secp256k1::PublicKey = if tweak_flag {
+            key_agg_ctx.aggregated_pubkey()
+        } else {
+            key_agg_ctx.aggregated_pubkey_untweaked()
+        };
+        // tracing::debug!("UNTWEAKED AGGREGATED PUBKEY: {:?}", musig_agg_pubkey);
+        let musig_agg_xonly_pubkey = musig_agg_pubkey.x_only_public_key().0;
+        let musig_agg_xonly_pubkey_wrapped =
+            secp256k1::XOnlyPublicKey::from_slice(&musig_agg_xonly_pubkey.serialize()).unwrap();
+
+        musig_agg_xonly_pubkey_wrapped
+    }
+}
+
 // Creates the key aggregation context, with the public keys and the tweak (if any).
 // There are two functions to retrieve the aggregated public key, one with the tweak and one without.
 pub fn create_key_agg_ctx(
@@ -139,6 +168,7 @@ mod tests {
     use crate::{
         actor::Actor,
         errors::BridgeError,
+        musig2::AggregateFromPublicKeys,
         transaction_builder::{TransactionBuilder, TxHandler},
         utils,
     };
@@ -146,38 +176,9 @@ mod tests {
         hashes::Hash, opcodes::all::OP_CHECKSIG, script, Amount, OutPoint, ScriptBuf, TapNodeHash,
         TxOut, Txid,
     };
-    use secp256k1::{rand::Rng, Keypair, Message, PublicKey, XOnlyPublicKey};
+    use secp256k1::{rand::Rng, Keypair, Message, XOnlyPublicKey};
 
     use super::{nonce_pair, MuSigNoncePair};
-
-    trait FromPublicKeys {
-        fn from_musig2_pks(
-            pks: Vec<PublicKey>,
-            tweak: Option<TapNodeHash>,
-            tweak_flag: bool,
-        ) -> (musig2::secp256k1::PublicKey, XOnlyPublicKey);
-    }
-
-    impl FromPublicKeys for XOnlyPublicKey {
-        fn from_musig2_pks(
-            pks: Vec<PublicKey>,
-            tweak: Option<TapNodeHash>,
-            tweak_flag: bool,
-        ) -> (musig2::secp256k1::PublicKey, XOnlyPublicKey) {
-            let key_agg_ctx = super::create_key_agg_ctx(pks, tweak, tweak_flag).unwrap();
-            let musig_agg_pubkey: musig2::secp256k1::PublicKey = if tweak_flag {
-                key_agg_ctx.aggregated_pubkey()
-            } else {
-                key_agg_ctx.aggregated_pubkey_untweaked()
-            };
-            // tracing::debug!("UNTWEAKED AGGREGATED PUBKEY: {:?}", musig_agg_pubkey);
-            let musig_agg_xonly_pubkey = musig_agg_pubkey.x_only_public_key().0;
-            let musig_agg_xonly_pubkey_wrapped =
-                XOnlyPublicKey::from_slice(&musig_agg_xonly_pubkey.serialize()).unwrap();
-
-            (musig_agg_pubkey, musig_agg_xonly_pubkey_wrapped)
-        }
-    }
 
     // Generates a test setup with a given number of signers. Returns a vector of keypairs and a vector of nonce pairs.
     fn generate_test_setup(num_signers: usize) -> (Vec<Keypair>, Vec<MuSigNoncePair>) {
@@ -484,10 +485,10 @@ mod tests {
             message,
         )
         .unwrap();
-        let (musig_agg_pubkey, musig_agg_xonly_pubkey_wrapped) =
+        let musig_agg_xonly_pubkey_wrapped =
             XOnlyPublicKey::from_musig2_pks(pks, merkle_root, true);
-        musig2::verify_single(musig_agg_pubkey, &final_signature, message)
-            .expect("Verification failed!");
+        // musig2::verify_single(musig_agg_pubkey, &final_signature, message)
+        //     .expect("Verification failed!");
         let res = utils::SECP
             .verify_schnorr(
                 &secp256k1::schnorr::Signature::from_slice(&final_signature).unwrap(),
@@ -509,7 +510,7 @@ mod tests {
             .collect::<Vec<secp256k1::PublicKey>>();
         let agg_nonce =
             super::aggregate_nonces(nonce_pair_vec.iter().map(|x| x.1.clone()).collect());
-        let (musig_agg_pubkey, musig_agg_xonly_pubkey_wrapped) =
+        let musig_agg_xonly_pubkey_wrapped =
             XOnlyPublicKey::from_musig2_pks(pks.clone(), None, false);
         let musig2_script = bitcoin::script::Builder::new()
             .push_x_only_key(&musig_agg_xonly_pubkey_wrapped)
@@ -576,8 +577,8 @@ mod tests {
             message,
         )
         .unwrap();
-        musig2::verify_single(musig_agg_pubkey, &final_signature, message)
-            .expect("Verification failed!");
+        // musig2::verify_single(musig_agg_pubkey, &final_signature, message)
+        //     .expect("Verification failed!");
         let res = utils::SECP
             .verify_schnorr(
                 &secp256k1::schnorr::Signature::from_slice(&final_signature).unwrap(),

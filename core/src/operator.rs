@@ -3,7 +3,7 @@ use crate::config::BridgeConfig;
 use crate::database::operator::OperatorDB;
 use crate::errors::BridgeError;
 use crate::extended_rpc::ExtendedRpc;
-use crate::musig2;
+use crate::musig2::{self, AggregateFromPublicKeys};
 use crate::traits::rpc::OperatorRpcServer;
 use crate::transaction_builder::TransactionBuilder;
 use crate::utils::handle_taproot_witness_new;
@@ -47,10 +47,11 @@ where
 
         let db = OperatorDB::new(config.clone()).await;
 
-        let key_agg_context =
-            musig2::create_key_agg_ctx(config.verifiers_public_keys.clone(), None, false)?;
-        let agg_point: Point = key_agg_context.aggregated_pubkey_untweaked();
-        let nofn_xonly_pk = secp256k1::XOnlyPublicKey::from_slice(&agg_point.serialize_xonly())?;
+        let nofn_xonly_pk = secp256k1::XOnlyPublicKey::from_musig2_pks(
+            config.verifiers_public_keys.clone(),
+            None,
+            false,
+        );
         let idx = config
             .operators_xonly_pks
             .iter()

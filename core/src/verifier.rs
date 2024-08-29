@@ -3,7 +3,9 @@ use crate::config::BridgeConfig;
 use crate::database::verifier::VerifierDB;
 use crate::errors::BridgeError;
 use crate::extended_rpc::ExtendedRpc;
-use crate::musig2::{self, MuSigAggNonce, MuSigPartialSignature, MuSigPubNonce};
+use crate::musig2::{
+    self, AggregateFromPublicKeys, MuSigAggNonce, MuSigPartialSignature, MuSigPubNonce,
+};
 use crate::traits::rpc::VerifierRpcServer;
 use crate::transaction_builder::{TransactionBuilder, TxHandler};
 use crate::{utils, EVMAddress, UTXO};
@@ -48,10 +50,12 @@ where
 
         let db = VerifierDB::new(config.clone()).await;
 
-        let key_agg_context =
-            musig2::create_key_agg_ctx(config.verifiers_public_keys.clone(), None, false)?;
-        let agg_point: Point = key_agg_context.aggregated_pubkey_untweaked();
-        let nofn_xonly_pk = secp256k1::XOnlyPublicKey::from_slice(&agg_point.serialize_xonly())?;
+        let nofn_xonly_pk = secp256k1::XOnlyPublicKey::from_musig2_pks(
+            config.verifiers_public_keys.clone(),
+            None,
+            false,
+        );
+
         let operator_xonly_pks = config.operators_xonly_pks.clone();
 
         Ok(Verifier {
