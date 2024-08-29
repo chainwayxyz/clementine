@@ -1,6 +1,6 @@
 use bitcoin::opcodes::all::OP_CHECKSIG;
 use bitcoin::{hashes::Hash, script, Amount, ScriptBuf};
-use bitcoincore_rpc::{Client, RawTx};
+use bitcoincore_rpc::RawTx;
 use clementine_core::database::common::Database;
 use clementine_core::mock::common;
 use clementine_core::musig2::{aggregate_nonces, aggregate_partial_signatures, MuSigPubNonce};
@@ -24,7 +24,7 @@ async fn test_musig2_key_spend() {
     let secp = bitcoin::secp256k1::Secp256k1::new();
 
     let mut config: BridgeConfig = create_test_config_with_thread_name!("test_config_musig2.toml");
-    let rpc: ExtendedRpc<Client> = create_extended_rpc!(config);
+    let rpc: ExtendedRpc<_> = create_extended_rpc!(config);
     let sks = config.all_verifiers_secret_keys.unwrap();
     let kp_vec: Vec<Keypair> = sks
         .iter()
@@ -127,7 +127,7 @@ async fn test_musig2_key_spend_with_script() {
     let secp = bitcoin::secp256k1::Secp256k1::new();
 
     let mut config: BridgeConfig = create_test_config_with_thread_name!("test_config_musig2.toml");
-    let rpc: ExtendedRpc<Client> = create_extended_rpc!(config);
+    let rpc: ExtendedRpc<_> = create_extended_rpc!(config);
     let sks = config.all_verifiers_secret_keys.unwrap();
     let kp_vec: Vec<Keypair> = sks
         .iter()
@@ -231,7 +231,7 @@ async fn test_musig2_script_spend() {
     let secp = bitcoin::secp256k1::Secp256k1::new();
 
     let mut config: BridgeConfig = create_test_config_with_thread_name!("test_config_musig2.toml");
-    let rpc: ExtendedRpc<Client> = create_extended_rpc!(config);
+    let rpc: ExtendedRpc<_> = create_extended_rpc!(config);
     let sks = config.all_verifiers_secret_keys.unwrap();
     let kp_vec: Vec<Keypair> = sks
         .iter()

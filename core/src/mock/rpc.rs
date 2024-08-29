@@ -15,7 +15,7 @@
 macro_rules! create_extended_rpc {
     ($config:expr) => {{
         println!("Using Mock RPC for testing...");
-        let handle = thread::current()
+        let handle = std::thread::current()
             .name()
             .unwrap()
             .split(":")
