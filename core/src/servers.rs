@@ -1,9 +1,9 @@
 //! # Servers
 //!
 //! Utilities for operator and verifier servers.
+use crate::mock::common;
 use crate::traits::rpc::AggregatorServer;
 use crate::{aggregator, create_extended_rpc};
-use crate::mock::common;
 use crate::{
     config::BridgeConfig,
     create_test_config, create_test_config_with_thread_name,
@@ -83,12 +83,10 @@ where
     Ok((client, handle, addr))
 }
 
-
 /// Starts the server for the aggregator.
 pub async fn create_aggregator_server(
     config: BridgeConfig,
-) -> Result<(HttpClient, ServerHandle, std::net::SocketAddr), BridgeError>
-{
+) -> Result<(HttpClient, ServerHandle, std::net::SocketAddr), BridgeError> {
     let aggregator = aggregator::Aggregator::new(config.clone()).await?;
 
     let server = match Server::builder()
@@ -203,7 +201,6 @@ pub async fn create_verifiers_and_operators(
     let operator_endpoints = futures::future::try_join_all(operator_futures)
         .await
         .unwrap();
-
 
     let config = create_test_config_with_thread_name!(config_name);
     let aggregator = create_aggregator_server(config.clone()).await.unwrap();

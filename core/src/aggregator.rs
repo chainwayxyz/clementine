@@ -3,13 +3,19 @@ use bitcoin::{address::NetworkUnchecked, Address, OutPoint, Transaction};
 use secp256k1::schnorr;
 
 use crate::{
-    config::BridgeConfig, errors::BridgeError, musig2::{
+    config::BridgeConfig,
+    errors::BridgeError,
+    musig2::{
         aggregate_nonces, AggregateFromPublicKeys, MuSigAggNonce, MuSigPartialSignature,
         MuSigPubNonce,
-    }, traits::rpc::AggregatorServer, transaction_builder::TransactionBuilder, utils::{
+    },
+    traits::rpc::AggregatorServer,
+    transaction_builder::TransactionBuilder,
+    utils::{
         aggregate_move_partial_sigs, aggregate_operator_takes_partial_sigs,
         aggregate_slash_or_take_partial_sigs, handle_taproot_witness_new,
-    }, EVMAddress, UTXO
+    },
+    EVMAddress, UTXO,
 };
 
 #[derive(Debug, Clone)]
