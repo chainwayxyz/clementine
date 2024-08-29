@@ -32,7 +32,7 @@ async fn test_deposit() -> Result<(), BridgeError> {
 #[tokio::test]
 async fn test_honest_operator_takes_refund() {
     // let mut config = create_test_config_with_thread_name!("test_config_flow.toml");
-    let (verifiers, operators, mut config, deposit_outpoint) =
+    let (_verifiers, operators, mut config, deposit_outpoint) =
         run_single_deposit("test_config_flow.toml").await.unwrap();
     let rpc = create_extended_rpc!(config);
 

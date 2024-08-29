@@ -52,11 +52,8 @@ async fn run() {
         .push_opcode(OP_CHECKSIG)
         .into_script();
 
-    let (taproot_address, taproot_spend_info) = TransactionBuilder::create_taproot_address(
-        &vec![to_pay_script.clone()],
-        None,
-        config.network,
-    );
+    let (taproot_address, taproot_spend_info) =
+        TransactionBuilder::create_taproot_address(&[to_pay_script.clone()], None, config.network);
     let utxo = rpc.send_to_address(&taproot_address, 1000).unwrap();
 
     let ins = TransactionBuilder::create_tx_ins(vec![utxo]);
@@ -86,7 +83,7 @@ async fn run() {
         .sign_taproot_script_spend_tx_new_tweaked(&mut tx_details, 0, 0)
         .unwrap();
 
-    handle_taproot_witness_new(&mut tx_details, &vec![sig.as_ref()], 0, Some(0)).unwrap();
+    handle_taproot_witness_new(&mut tx_details, &[sig.as_ref()], 0, Some(0)).unwrap();
     let result = rpc.send_raw_transaction(&tx_details.tx).unwrap();
 
     // let mut sighash_cache = SighashCache::new(tx.clone());

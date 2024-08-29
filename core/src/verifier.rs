@@ -9,7 +9,6 @@ use crate::musig2::{
 use crate::traits::rpc::VerifierRpcServer;
 use crate::transaction_builder::{TransactionBuilder, TxHandler};
 use crate::{utils, EVMAddress, UTXO};
-use ::musig2::secp::Point;
 use bitcoin::address::NetworkUnchecked;
 use bitcoin::hashes::Hash;
 use bitcoin::Address;
@@ -96,7 +95,7 @@ where
         // Check if we already have pub_nonces for this deposit_utxo.
         let pub_nonces_from_db = self.db.get_pub_nonces(deposit_outpoint).await?;
         if let Some(pub_nonces) = pub_nonces_from_db {
-            if pub_nonces.len() > 0 {
+            if !pub_nonces.is_empty() {
                 if pub_nonces.len() != num_required_nonces {
                     return Err(BridgeError::NoncesNotFound);
                 }
@@ -130,6 +129,7 @@ where
     /// - for every slash_or_take_tx, partial sign slash_or_take_tx
     /// - for every slash_or_take_tx, partial sign burn_tx (omitted for now)
     /// - return burn_txs partial signatures (omitted for now) TODO: For this bit,
+    ///
     /// do not forget to add tweak when signing since this address has n_of_n as internal_key
     /// and operator_timelock as script.
     async fn operator_kickoffs_generated(

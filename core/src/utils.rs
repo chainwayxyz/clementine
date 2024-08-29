@@ -6,26 +6,18 @@ use crate::musig2::MuSigAggNonce;
 use crate::transaction_builder::TransactionBuilder;
 use crate::transaction_builder::TxHandler;
 use crate::EVMAddress;
-use crate::HashTree;
 use crate::UTXO;
 use bitcoin;
 use bitcoin::address::NetworkUnchecked;
 use bitcoin::consensus::Decodable;
 use bitcoin::hashes::Hash;
 use bitcoin::sighash::SighashCache;
-use bitcoin::taproot::ControlBlock;
 use bitcoin::taproot::LeafVersion;
-use bitcoin::taproot::TaprootSpendInfo;
 use bitcoin::Address;
-use bitcoin::Amount;
 use bitcoin::OutPoint;
-use bitcoin::ScriptBuf;
 use bitcoin::XOnlyPublicKey;
 use bitcoincore_rpc::RawTx;
-use clementine_circuits::sha256_hash;
-use clementine_circuits::HashType;
 use hex;
-use sha2::{Digest, Sha256};
 use std::borrow::BorrowMut;
 use std::str::FromStr;
 
@@ -155,7 +147,7 @@ pub fn aggregate_operator_takes_partial_sigs(
     let move_tx_handler = TransactionBuilder::create_move_tx(
         deposit_outpoint,
         &EVMAddress([0u8; 20]),
-        &Address::p2tr(&self::SECP, *self::UNSPENDABLE_XONLY_PUBKEY, None, network).as_unchecked(),
+        Address::p2tr(&self::SECP, *self::UNSPENDABLE_XONLY_PUBKEY, None, network).as_unchecked(),
         &nofn_xonly_pk,
         network,
     );

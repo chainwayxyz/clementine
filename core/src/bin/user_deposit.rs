@@ -1,9 +1,3 @@
-use bitcoin::Address;
-use clementine_circuits::constants::BRIDGE_AMOUNT_SATS;
-use clementine_core::config::BridgeConfig;
-use clementine_core::transaction_builder::TransactionBuilder;
-use clementine_core::EVMAddress;
-
 fn main() {
     // let config = BridgeConfig::new();
 

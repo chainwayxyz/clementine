@@ -40,10 +40,7 @@ impl AggregateFromPublicKeys for secp256k1::XOnlyPublicKey {
         };
         // tracing::debug!("UNTWEAKED AGGREGATED PUBKEY: {:?}", musig_agg_pubkey);
         let musig_agg_xonly_pubkey = musig_agg_pubkey.x_only_public_key().0;
-        let musig_agg_xonly_pubkey_wrapped =
-            secp256k1::XOnlyPublicKey::from_slice(&musig_agg_xonly_pubkey.serialize()).unwrap();
-
-        musig_agg_xonly_pubkey_wrapped
+        secp256k1::XOnlyPublicKey::from_slice(&musig_agg_xonly_pubkey.serialize()).unwrap()
     }
 }
 
@@ -74,7 +71,7 @@ pub fn create_key_agg_ctx(
         );
         Ok(key_agg_ctx)
     } else {
-        if let Some(_) = tweak {
+        if tweak.is_some() {
             return Err(BridgeError::VecConversionError); // TODO: Change error handling.
         }
         Ok(key_agg_ctx_raw)
@@ -344,7 +341,7 @@ mod tests {
             message,
         )
         .unwrap();
-        musig2::verify_single(musig_agg_pubkey, &final_signature, message)
+        musig2::verify_single(musig_agg_pubkey, final_signature, message)
             .expect("Verification failed!");
         println!("MuSig2 signature verified successfully!");
     }
@@ -497,7 +494,6 @@ mod tests {
             )
             .unwrap();
         println!("MuSig2 signature verified successfully!");
-        println!("SECP Verification: {:?}", res);
     }
 
     // Test the MuSig2 signature scheme with a dummy script spend.
@@ -587,6 +583,5 @@ mod tests {
             )
             .unwrap();
         println!("MuSig2 signature verified successfully!");
-        println!("SECP Verification: {:?}", res);
     }
 }

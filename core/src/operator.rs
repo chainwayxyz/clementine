@@ -3,15 +3,13 @@ use crate::config::BridgeConfig;
 use crate::database::operator::OperatorDB;
 use crate::errors::BridgeError;
 use crate::extended_rpc::ExtendedRpc;
-use crate::musig2::{self, AggregateFromPublicKeys};
+use crate::musig2::AggregateFromPublicKeys;
 use crate::traits::rpc::OperatorRpcServer;
 use crate::transaction_builder::TransactionBuilder;
 use crate::utils::handle_taproot_witness_new;
 use crate::{script_builder, utils, EVMAddress, UTXO};
-use ::musig2::secp::Point;
 use bitcoin::address::NetworkUnchecked;
 use bitcoin::consensus::deserialize;
-use bitcoin::consensus::encode::deserialize_hex;
 use bitcoin::hashes::Hash;
 use bitcoin::sighash::SighashCache;
 use bitcoin::{Address, OutPoint, TapSighash, Transaction, TxOut, Txid};
@@ -75,6 +73,7 @@ where
     /// 1. Check if the deposit UTXO is valid, finalized (6 blocks confirmation) and not spent
     /// 2. Check if we alredy created a kickoff UTXO for this deposit UTXO
     /// 3. Create a kickoff transaction but do not broadcast it
+    ///
     /// TODO: Create multiple kickoffs in single transaction
     pub async fn new_deposit(
         &self,
@@ -393,7 +392,7 @@ where
         let move_tx_handler = TransactionBuilder::create_move_tx(
             deposit_outpoint,
             &EVMAddress([0u8; 20]),
-            &Address::p2tr(
+            Address::p2tr(
                 &utils::SECP,
                 *utils::UNSPENDABLE_XONLY_PUBKEY,
                 None,
