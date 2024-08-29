@@ -171,7 +171,7 @@ pub async fn run_single_deposit(
     // tracing::debug!("Slash or take sigs: {:#?}", slash_or_take_sigs);
     // call burn_txs_signed_rpc
     let mut operator_take_partial_sigs: Vec<Vec<[u8; 32]>> = Vec::new();
-    for (client, _, _) in verifiers.iter() {
+    for (client, ..) in verifiers.iter() {
         let partial_sigs = client
             .burn_txs_signed_rpc(deposit_outpoint, vec![], slash_or_take_sigs.clone())
             .await
