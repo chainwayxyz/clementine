@@ -109,13 +109,12 @@ async fn test_musig2_key_spend() {
     musig2::verify_single(musig_agg_pubkey, final_signature, message)
         .expect("Verification failed!");
     let schnorr_sig = secp256k1::schnorr::Signature::from_slice(&final_signature).unwrap();
-    secp
-        .verify_schnorr(
-            &schnorr_sig,
-            &Message::from_digest(message),
-            &musig_agg_xonly_pubkey_wrapped,
-        )
-        .unwrap();
+    secp.verify_schnorr(
+        &schnorr_sig,
+        &Message::from_digest(message),
+        &musig_agg_xonly_pubkey_wrapped,
+    )
+    .unwrap();
     println!("MuSig2 signature verified successfully!");
     println!("SECP Verified Successfully");
     tx_details.tx.input[0].witness.push(final_signature);
@@ -214,13 +213,12 @@ async fn test_musig2_key_spend_with_script() {
     musig2::verify_single(musig_agg_pubkey, final_signature, message)
         .expect("Verification failed!");
     let schnorr_sig = secp256k1::schnorr::Signature::from_slice(&final_signature).unwrap();
-    secp
-        .verify_schnorr(
-            &schnorr_sig,
-            &Message::from_digest(message),
-            &musig_agg_xonly_pubkey_wrapped,
-        )
-        .unwrap();
+    secp.verify_schnorr(
+        &schnorr_sig,
+        &Message::from_digest(message),
+        &musig_agg_xonly_pubkey_wrapped,
+    )
+    .unwrap();
     // println!("MuSig2 signature verified successfully!");
     // println!("SECP Verification: {:?}", res);
     tx_details.tx.input[0].witness.push(final_signature);

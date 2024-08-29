@@ -100,12 +100,8 @@ pub async fn run_single_deposit(
         // Send operators some bitcoin so that they can afford the kickoff tx
         let secp = bitcoin::secp256k1::Secp256k1::new();
         let operator_internal_xonly_pk = config.operators_xonly_pks.get(i).unwrap();
-        let operator_address = Address::p2tr(
-            &secp,
-            *operator_internal_xonly_pk,
-            None,
-            config.network,
-        );
+        let operator_address =
+            Address::p2tr(&secp, *operator_internal_xonly_pk, None, config.network);
         let operator_funding_outpoint = rpc
             .send_to_address(&operator_address, 2 * BRIDGE_AMOUNT_SATS)
             .unwrap();
@@ -195,10 +191,7 @@ pub async fn run_single_deposit(
             i,
             config.verifiers_public_keys.clone(),
             &agg_nonces[i + 1].clone(),
-            operator_take_partial_sigs
-                .iter()
-                .map(|v| v[i])
-                .collect(),
+            operator_take_partial_sigs.iter().map(|v| v[i]).collect(),
             config.network,
         )?;
 
