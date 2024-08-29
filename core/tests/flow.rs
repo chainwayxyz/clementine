@@ -52,15 +52,17 @@ async fn test_honest_operator_takes_refund() {
         .new_withdrawal_sig_rpc(0, user_sig, empty_utxo, withdrawal_tx_out)
         .await
         .unwrap();
-    println!("{:?}", withdrawal_provide_txid);
+    println!("Withdrawal provide: {:?}", withdrawal_provide_txid);
     let txs_to_be_sent = operators[0]
         .0
         .withdrawal_proved_on_citrea_rpc(0, deposit_outpoint)
         .await
         .unwrap();
+    tracing::debug!("txs_to_be_sent: {:#?}", txs_to_be_sent);
 
     for tx in txs_to_be_sent.iter().take(txs_to_be_sent.len() - 1) {
-        rpc.send_raw_transaction(tx.clone()).unwrap();
+        let outpoint = rpc.send_raw_transaction(tx.clone()).unwrap();
+        tracing::debug!("outpoint: {:#?}", outpoint);
     }
     rpc.mine_blocks(OPERATOR_TAKES_AFTER as u64).unwrap();
     // send the last tx

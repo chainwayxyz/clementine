@@ -58,6 +58,16 @@ pub fn parse_hex_to_btc_tx(
     }
 }
 
+pub fn usize_to_var_len_bytes(x: usize) -> Vec<u8> {
+    let usize_bytes = (usize::BITS / 8) as usize;
+    let bits = x.max(1).ilog2() + 1;
+    let len = ((bits + 7) / 8) as usize;
+    let empty = usize_bytes - len;
+    let op_idx_bytes = x.to_be_bytes();
+    let op_idx_bytes = &op_idx_bytes[empty..];
+    op_idx_bytes.to_vec()
+}
+
 pub fn handle_taproot_witness_new<T: AsRef<[u8]>>(
     tx: &mut TxHandler,
     witness_elements: &[T],

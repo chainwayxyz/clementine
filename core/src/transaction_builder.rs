@@ -290,13 +290,7 @@ impl TransactionBuilder {
             network,
         );
         let mut op_return_script: Vec<u8> = hex::decode(move_txid.to_string()).unwrap();
-        let usize_bytes = (usize::BITS / 8) as usize;
-        let bits = operator_idx.max(1).ilog2() + 1;
-        let len = ((bits + 7) / 8) as usize;
-        let empty = usize_bytes - len;
-        let op_idx_bytes = operator_idx.to_be_bytes();
-        let op_idx_bytes = &op_idx_bytes[empty..];
-        op_return_script.extend(op_idx_bytes);
+        op_return_script.extend(utils::usize_to_var_len_bytes(operator_idx));
         let mut push_bytes = PushBytesBuf::new();
         push_bytes.extend_from_slice(&op_return_script).unwrap();
         let op_return_txout = script_builder::op_return_txout(push_bytes);

@@ -11,6 +11,7 @@ use crate::{script_builder, utils, EVMAddress, UTXO};
 use bitcoin::address::NetworkUnchecked;
 use bitcoin::consensus::deserialize;
 use bitcoin::hashes::Hash;
+use bitcoin::script::PushBytesBuf;
 use bitcoin::sighash::SighashCache;
 use bitcoin::{Address, OutPoint, TapSighash, Transaction, TxOut, Txid};
 use bitcoin_mock_rpc::RpcApiWrapper;
@@ -266,7 +267,9 @@ where
             &Message::from_digest_slice(sighash.as_byte_array()).expect("should be hash"),
             &user_xonly_pk,
         )?;
-        let op_return_txout = script_builder::op_return_txout(self.idx.to_be_bytes());
+        let mut push_bytes = PushBytesBuf::new();
+        push_bytes.extend_from_slice(&utils::usize_to_var_len_bytes(self.idx)).unwrap();
+        let op_return_txout = script_builder::op_return_txout(push_bytes);
         tx.output.push(op_return_txout.clone());
         let funded_tx = self
             .rpc
