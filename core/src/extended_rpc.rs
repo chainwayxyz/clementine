@@ -281,6 +281,7 @@ where
         self.client.get_raw_transaction_info(txid, block_hash)
     }
 
+    #[allow(clippy::too_many_arguments)]
     pub fn check_deposit_utxo(
         &self,
         nofn_xonly_pk: &XOnlyPublicKey,

@@ -86,6 +86,7 @@ pub fn handle_taproot_witness_new<T: AsRef<[u8]>>(
     Ok(())
 }
 
+#[allow(clippy::too_many_arguments)]
 pub fn aggregate_slash_or_take_partial_sigs(
     deposit_outpoint: OutPoint,
     kickoff_utxo: UTXO,
@@ -125,6 +126,7 @@ pub fn aggregate_slash_or_take_partial_sigs(
     Ok(final_sig)
 }
 
+#[allow(clippy::too_many_arguments)]
 pub fn aggregate_operator_takes_partial_sigs(
     deposit_outpoint: OutPoint,
     kickoff_utxo: UTXO,

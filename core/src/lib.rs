@@ -3,8 +3,6 @@
 //! Clementine Core is the backbone of Clementine. As the name suggests,
 //! Clementine Core provides core functionalities for Clementine to operate.
 
-#![allow(clippy::too_many_arguments)]
-
 use bitcoin::{OutPoint, Txid};
 use clementine_circuits::{HashType, PreimageType};
 use serde::{Deserialize, Serialize};
