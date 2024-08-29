@@ -17,6 +17,14 @@ use bitcoin::{address::NetworkUnchecked, Address, OutPoint, Transaction};
 use bitcoincore_rpc::RawTx;
 use secp256k1::schnorr;
 
+/// Aggregator struct.
+/// This struct is responsible for aggregating partial signatures from the verifiers.
+/// It will have in total 3 * num_operator + 1 aggregated nonces.
+/// [0] -> Aggregated nonce for the move transaction.
+/// [1..num_operator + 1] -> Aggregated nonces for the operator_takes transactions.
+/// [num_operator + 1..2 * num_operator + 1] -> Aggregated nonces for the slash_or_take transactions.
+/// [2 * num_operator + 1..3 * num_operator + 1] -> Aggregated nonces for the burn transactions.
+/// For now, we do not have the last bit.
 #[derive(Debug, Clone)]
 pub struct Aggregator {
     config: BridgeConfig,
@@ -230,7 +238,7 @@ impl Aggregator {
                 kickoff_utxos[i].clone(),
                 self.config.operators_xonly_pks[i],
                 i,
-                &agg_nonces[i + 1 + self.config.operators_xonly_pks.len()].clone(),
+                &agg_nonces[i].clone(),
                 partial_sigs
                     .iter()
                     .map(|v| v.get(i).cloned().unwrap())
@@ -256,7 +264,7 @@ impl Aggregator {
                 kickoff_utxos[i].clone(),
                 &self.config.operators_xonly_pks[i].clone(),
                 i,
-                &agg_nonces[i + 1].clone(),
+                &agg_nonces[i].clone(),
                 partial_sigs.iter().map(|v| v[i]).collect(),
             )?;
 

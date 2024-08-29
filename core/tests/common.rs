@@ -139,7 +139,7 @@ pub async fn run_single_deposit(
         .aggregate_slash_or_take_sigs_rpc(
             deposit_outpoint,
             kickoff_utxos.clone(),
-            agg_nonces.clone(),
+            agg_nonces[config.num_operators + 1..2 * config.num_operators + 1].to_vec(),
             slash_or_take_partial_sigs,
         )
         .await
@@ -164,7 +164,7 @@ pub async fn run_single_deposit(
         .aggregate_operator_take_sigs_rpc(
             deposit_outpoint,
             kickoff_utxos.clone(),
-            agg_nonces.clone(),
+            agg_nonces[1..config.num_operators + 1].to_vec(),
             operator_take_partial_sigs,
         )
         .await
