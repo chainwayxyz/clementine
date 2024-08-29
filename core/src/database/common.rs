@@ -10,7 +10,7 @@ use crate::{EVMAddress, UTXO};
 use bitcoin::address::NetworkUnchecked;
 use bitcoin::{Address, OutPoint, Txid};
 use secp256k1::schnorr;
-use sqlx::{Pool, Postgres};
+use sqlx::{Pool, Postgres, QueryBuilder};
 use std::fs;
 
 use super::wrapper::{AddressDB, EVMAddressDB, OutPointDB, SignatureDB, TxOutDB, TxidDB, UTXODB};
@@ -290,17 +290,17 @@ impl Database {
         deposit_outpoint: OutPoint,
         nonces: &[(MuSigSecNonce, MuSigPubNonce)],
     ) -> Result<(), BridgeError> {
-        // TODO: Use batch insert
-        for (sec, pub_nonce) in nonces {
-            sqlx::query(
-                "INSERT INTO nonces (deposit_outpoint, sec_nonce, pub_nonce) VALUES ($1, $2, $3);",
-            )
-            .bind(OutPointDB(deposit_outpoint))
-            .bind(hex::encode(sec))
-            .bind(pub_nonce)
+        QueryBuilder::new("INSERT INTO nonces (deposit_outpoint, sec_nonce, pub_nonce) ")
+            .push_values(nonces, |mut builder, (sec, pub_nonce)| {
+                builder
+                    .push_bind(OutPointDB(deposit_outpoint))
+                    .push_bind(hex::encode(sec))
+                    .push_bind(pub_nonce);
+            })
+            .build()
             .execute(&self.connection)
             .await?;
-        }
+
         Ok(())
     }
 
