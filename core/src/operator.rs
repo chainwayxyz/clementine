@@ -268,7 +268,9 @@ where
             &user_xonly_pk,
         )?;
         let mut push_bytes = PushBytesBuf::new();
-        push_bytes.extend_from_slice(&utils::usize_to_var_len_bytes(self.idx)).unwrap();
+        push_bytes
+            .extend_from_slice(&utils::usize_to_var_len_bytes(self.idx))
+            .unwrap();
         let op_return_txout = script_builder::op_return_txout(push_bytes);
         tx.output.push(op_return_txout.clone());
         let funded_tx = self
