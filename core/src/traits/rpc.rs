@@ -2,7 +2,7 @@ use crate::musig2::{MuSigAggNonce, MuSigPartialSignature, MuSigPubNonce};
 use crate::UTXO;
 use crate::{errors::BridgeError, EVMAddress};
 use bitcoin::address::NetworkUnchecked;
-use bitcoin::{Address, OutPoint, TxOut, Txid};
+use bitcoin::{Address, OutPoint, Transaction, TxOut, Txid};
 use jsonrpsee::proc_macros::rpc;
 use secp256k1::schnorr;
 
@@ -94,4 +94,39 @@ pub trait OperatorRpc {
     // async fn operator_take_sendable_rpc(&self, withdrawal_idx: usize) -> Result<(), BridgeError>;
 }
 
-// #[rpc(client, server, namespace = "aggregator")]
+#[rpc(client, server, namespace = "aggregator")]
+pub trait Aggregator {
+    #[method(name = "aggregate_pub_nonces")]
+    async fn aggregate_pub_nonces_rpc(
+        &self,
+        pub_nonces: Vec<Vec<MuSigPubNonce>>,
+    ) -> Result<Vec<MuSigAggNonce>, BridgeError>;
+
+    #[method(name = "aggregate_slash_or_take_sigs")]
+    async fn aggregate_slash_or_take_sigs_rpc(
+        &self,
+        deposit_outpoint: OutPoint,
+        kickoff_utxos: Vec<UTXO>,
+        agg_nonces: Vec<MuSigAggNonce>,
+        partial_sigs: Vec<Vec<MuSigPartialSignature>>,
+    ) -> Result<Vec<schnorr::Signature>, BridgeError>;
+
+    #[method(name = "aggregate_operator_take_sigs")]
+    async fn aggregate_operator_take_sigs_rpc(
+        &self,
+        deposit_outpoint: OutPoint,
+        kickoff_utxos: Vec<UTXO>,
+        agg_nonces: Vec<MuSigAggNonce>,
+        partial_sigs: Vec<Vec<MuSigPartialSignature>>,
+    ) -> Result<Vec<schnorr::Signature>, BridgeError>;
+
+    #[method(name = "aggregate_move_tx_sigs")]
+    async fn aggregate_move_tx_sigs_rpc(
+        &self,
+        deposit_outpoint: OutPoint,
+        recovery_taproot_address: Address<NetworkUnchecked>,
+        evm_address: EVMAddress,
+        agg_nonce: MuSigAggNonce,
+        partial_sigs: Vec<MuSigPartialSignature>,
+    ) -> Result<Transaction, BridgeError>;
+}
