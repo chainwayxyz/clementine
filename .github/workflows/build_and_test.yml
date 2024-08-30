@@ -206,6 +206,7 @@ jobs:
       uses: Swatinem/rust-cache@v2
       with:
         shared-key: "release-build"
+        save-if: true
         cache-directories: |
           ~/.cargo/bin/
           ~/.cargo/registry/index/
