@@ -1,8 +1,9 @@
 //! # Servers
 //!
 //! Utilities for operator and verifier servers.
-use crate::create_extended_rpc;
 use crate::mock::common;
+use crate::traits::rpc::AggregatorServer;
+use crate::{aggregator, create_extended_rpc};
 use crate::{
     config::BridgeConfig,
     create_test_config, create_test_config_with_thread_name,
@@ -82,6 +83,32 @@ where
     Ok((client, handle, addr))
 }
 
+/// Starts the server for the aggregator.
+pub async fn create_aggregator_server(
+    config: BridgeConfig,
+) -> Result<(HttpClient, ServerHandle, std::net::SocketAddr), BridgeError> {
+    let aggregator = aggregator::Aggregator::new(config.clone()).await?;
+
+    let server = match Server::builder()
+        .build(format!("{}:{}", config.host, config.port))
+        .await
+    {
+        Ok(s) => s,
+        Err(e) => return Err(BridgeError::ServerError(e)),
+    };
+
+    let addr: std::net::SocketAddr = server.local_addr().map_err(BridgeError::ServerError)?;
+    let handle = server.start(aggregator.into_rpc());
+
+    let client = HttpClientBuilder::default()
+        .build(format!("http://{}:{}/", addr.ip(), addr.port()))
+        .unwrap();
+
+    tracing::info!("Aggregator server started with address: {}", addr);
+
+    Ok((client, handle, addr))
+}
+
 /// Starts operators and verifiers servers. This function's intended use is for
 /// tests.
 ///
@@ -99,6 +126,7 @@ pub async fn create_verifiers_and_operators(
 ) -> (
     Vec<(HttpClient, ServerHandle, std::net::SocketAddr)>, // Verifier clients
     Vec<(HttpClient, ServerHandle, std::net::SocketAddr)>, // Operator clients
+    (HttpClient, ServerHandle, std::net::SocketAddr),      // Aggregator client
 ) {
     let mut config = create_test_config_with_thread_name!(config_name);
     let rpc = create_extended_rpc!(config);
@@ -174,5 +202,8 @@ pub async fn create_verifiers_and_operators(
         .await
         .unwrap();
 
-    (verifier_endpoints, operator_endpoints)
+    let config = create_test_config_with_thread_name!(config_name);
+    let aggregator = create_aggregator_server(config.clone()).await.unwrap();
+
+    (verifier_endpoints, operator_endpoints, aggregator)
 }

@@ -9,17 +9,11 @@ use clementine_core::database::common::Database;
 use clementine_core::errors::BridgeError;
 use clementine_core::extended_rpc::ExtendedRpc;
 use clementine_core::mock::common;
-use clementine_core::musig2::aggregate_nonces;
-use clementine_core::musig2::AggregateFromPublicKeys;
 use clementine_core::servers::*;
+use clementine_core::traits::rpc::AggregatorClient;
 use clementine_core::traits::rpc::OperatorRpcClient;
 use clementine_core::traits::rpc::VerifierRpcClient;
-use clementine_core::transaction_builder::TransactionBuilder;
 use clementine_core::user::User;
-use clementine_core::utils::aggregate_move_partial_sigs;
-use clementine_core::utils::aggregate_operator_takes_partial_sigs;
-use clementine_core::utils::aggregate_slash_or_take_partial_sigs;
-use clementine_core::utils::handle_taproot_witness_new;
 use clementine_core::EVMAddress;
 use clementine_core::UTXO;
 use clementine_core::{
@@ -44,7 +38,8 @@ pub async fn run_single_deposit(
     let mut config = create_test_config_with_thread_name!(test_config_name);
     let rpc = create_extended_rpc!(config);
 
-    let (verifiers, operators) = create_verifiers_and_operators("test_config_flow.toml").await;
+    let (verifiers, operators, aggregator) =
+        create_verifiers_and_operators("test_config_flow.toml").await;
 
     // println!("Operators: {:#?}", operators);
     // println!("Verifiers: {:#?}", verifiers);
@@ -80,18 +75,11 @@ pub async fn run_single_deposit(
         pub_nonces.push(musig_pub_nonces);
     }
 
-    let mut agg_nonces = Vec::new();
-    for i in 0..pub_nonces[0].len() {
-        let agg_nonce = aggregate_nonces(
-            pub_nonces
-                .iter()
-                .map(|v| v.get(i).cloned().unwrap())
-                .collect::<Vec<_>>(),
-        );
-
-        agg_nonces.push(agg_nonce);
-    }
-
+    let agg_nonces = aggregator
+        .0
+        .aggregate_pub_nonces_rpc(pub_nonces)
+        .await
+        .unwrap();
     // call operators' new_deposit
     let mut kickoff_utxos = Vec::new();
     let mut signatures = Vec::new();
@@ -145,28 +133,17 @@ pub async fn run_single_deposit(
 
         slash_or_take_partial_sigs.push(partial_sigs);
     }
-    // tracing::debug!(
-    //     "Slash or take partial sigs: {:#?}",
-    //     slash_or_take_partial_sigs
-    // );
-    let mut slash_or_take_sigs = Vec::new();
-    for i in 0..slash_or_take_partial_sigs[0].len() {
-        let agg_sig = aggregate_slash_or_take_partial_sigs(
-            deposit_outpoint,
-            kickoff_utxos[i].clone(),
-            config.verifiers_public_keys.clone(),
-            config.operators_xonly_pks[i],
-            i,
-            &agg_nonces[i + 1 + config.operators_xonly_pks.len()].clone(),
-            slash_or_take_partial_sigs
-                .iter()
-                .map(|v| v.get(i).cloned().unwrap())
-                .collect::<Vec<_>>(),
-            config.network,
-        )?;
 
-        slash_or_take_sigs.push(secp256k1::schnorr::Signature::from_slice(&agg_sig)?);
-    }
+    let slash_or_take_sigs = aggregator
+        .0
+        .aggregate_slash_or_take_sigs_rpc(
+            deposit_outpoint,
+            kickoff_utxos.clone(),
+            agg_nonces[config.num_operators + 1..2 * config.num_operators + 1].to_vec(),
+            slash_or_take_partial_sigs,
+        )
+        .await
+        .unwrap();
 
     // tracing::debug!("Slash or take sigs: {:#?}", slash_or_take_sigs);
     // call burn_txs_signed_rpc
@@ -182,21 +159,16 @@ pub async fn run_single_deposit(
     //     "Operator take partial sigs: {:#?}",
     //     operator_take_partial_sigs
     // );
-    let mut operator_take_sigs = Vec::new();
-    for i in 0..operator_take_partial_sigs.len() {
-        let agg_sig = aggregate_operator_takes_partial_sigs(
+    let operator_take_sigs = aggregator
+        .0
+        .aggregate_operator_take_sigs_rpc(
             deposit_outpoint,
-            kickoff_utxos[i].clone(),
-            &config.operators_xonly_pks[i].clone(),
-            i,
-            config.verifiers_public_keys.clone(),
-            &agg_nonces[i + 1].clone(),
-            operator_take_partial_sigs.iter().map(|v| v[i]).collect(),
-            config.network,
-        )?;
-
-        operator_take_sigs.push(secp256k1::schnorr::Signature::from_slice(&agg_sig)?);
-    }
+            kickoff_utxos.clone(),
+            agg_nonces[1..config.num_operators + 1].to_vec(),
+            operator_take_partial_sigs,
+        )
+        .await
+        .unwrap();
     // tracing::debug!("Operator take sigs: {:#?}", operator_take_sigs);
     // call operator_take_txs_signed_rpc
     let mut move_tx_partial_sigs = Vec::new();
@@ -211,37 +183,22 @@ pub async fn run_single_deposit(
     // tracing::debug!("Move tx partial sigs: {:#?}", move_tx_partial_sigs);
 
     // aggreagte move_tx_partial_sigs
-    let agg_move_tx_final_sig = aggregate_move_partial_sigs(
-        deposit_outpoint,
-        &evm_address,
-        &signer_address,
-        config.verifiers_public_keys.clone(),
-        &agg_nonces[0].clone(),
-        move_tx_partial_sigs,
-        config.network,
-    )?;
 
-    let move_tx_sig = secp256k1::schnorr::Signature::from_slice(&agg_move_tx_final_sig)?;
-
-    let nofn_xonly_pk = secp256k1::XOnlyPublicKey::from_musig2_pks(
-        config.verifiers_public_keys.clone(),
-        None,
-        false,
-    );
-
-    let mut move_tx_handler = TransactionBuilder::create_move_tx(
-        deposit_outpoint,
-        &evm_address,
-        &signer_address,
-        &nofn_xonly_pk,
-        config.network,
-    );
-    let move_tx_witness_elements = vec![move_tx_sig.serialize().to_vec()];
-    handle_taproot_witness_new(&mut move_tx_handler, &move_tx_witness_elements, 0, Some(0))?;
-    tracing::debug!("Move tx: {:#?}", move_tx_handler.tx);
+    let move_tx = aggregator
+        .0
+        .aggregate_move_tx_sigs_rpc(
+            deposit_outpoint,
+            signer_address,
+            evm_address,
+            agg_nonces[0].clone(),
+            move_tx_partial_sigs,
+        )
+        .await
+        .unwrap();
+    tracing::debug!("Move tx: {:#?}", move_tx);
     // tracing::debug!("Move tx_hex: {:?}", move_tx_handler.tx.raw_hex());
-    tracing::debug!("Move tx weight: {:?}", move_tx_handler.tx.weight());
-    let move_txid = rpc.send_raw_transaction(&move_tx_handler.tx).unwrap();
+    tracing::debug!("Move tx weight: {:?}", move_tx.weight());
+    let move_txid = rpc.send_raw_transaction(&move_tx).unwrap();
     tracing::debug!("Move txid: {:?}", move_txid);
     Ok((verifiers, operators, config, deposit_outpoint))
 }

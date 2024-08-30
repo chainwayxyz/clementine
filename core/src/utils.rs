@@ -1,22 +1,10 @@
-use crate::actor::Actor;
 use crate::errors::BridgeError;
-use crate::musig2::aggregate_partial_signatures;
-use crate::musig2::AggregateFromPublicKeys;
-use crate::musig2::MuSigAggNonce;
-use crate::transaction_builder::TransactionBuilder;
 use crate::transaction_builder::TxHandler;
-use crate::EVMAddress;
-use crate::UTXO;
 use bitcoin;
-use bitcoin::address::NetworkUnchecked;
 use bitcoin::consensus::Decodable;
-use bitcoin::hashes::Hash;
 use bitcoin::sighash::SighashCache;
 use bitcoin::taproot::LeafVersion;
-use bitcoin::Address;
-use bitcoin::OutPoint;
 use bitcoin::XOnlyPublicKey;
-use bitcoincore_rpc::RawTx;
 use hex;
 use std::borrow::BorrowMut;
 use std::str::FromStr;
@@ -93,155 +81,6 @@ pub fn handle_taproot_witness_new<T: AsRef<[u8]>>(
         witness.push(spend_control_block.serialize());
     }
     Ok(())
-}
-
-pub fn aggregate_slash_or_take_partial_sigs(
-    deposit_outpoint: OutPoint,
-    kickoff_utxo: UTXO,
-    verifiers_pks: Vec<secp256k1::PublicKey>,
-    operator_xonly_pk: secp256k1::XOnlyPublicKey,
-    operator_idx: usize,
-    agg_nonce: &MuSigAggNonce,
-    partial_sigs: Vec<[u8; 32]>,
-    network: bitcoin::Network,
-) -> Result<[u8; 64], BridgeError> {
-    let musig_agg_xonly_pubkey_wrapped =
-        secp256k1::XOnlyPublicKey::from_musig2_pks(verifiers_pks.clone(), None, false);
-    let mut tx = TransactionBuilder::create_slash_or_take_tx(
-        deposit_outpoint,
-        kickoff_utxo,
-        &operator_xonly_pk,
-        operator_idx,
-        &musig_agg_xonly_pubkey_wrapped,
-        network,
-    );
-    tracing::debug!("SLASH_OR_TAKE_TX: {:?}", tx);
-    tracing::debug!("SLASH_OR_TAKE_TX weight: {:?}", tx.tx.weight());
-    let message: [u8; 32] = Actor::convert_tx_to_sighash_script_spend(&mut tx, 0, 0)
-        .unwrap()
-        .to_byte_array();
-    tracing::debug!("aggregate SLASH_OR_TAKE_TX message: {:?}", message);
-    let final_sig: [u8; 64] = aggregate_partial_signatures(
-        verifiers_pks.clone(),
-        None,
-        false,
-        agg_nonce,
-        partial_sigs,
-        message,
-    )?;
-    tracing::debug!("aggregate SLASH_OR_TAKE_TX final_sig: {:?}", final_sig);
-    tracing::debug!(
-        "aggregate SLASH_OR_TAKE_TX for verifiers: {:?}",
-        verifiers_pks
-    );
-    tracing::debug!(
-        "aggregate SLASH_OR_TAKE_TX for operator: {:?}",
-        operator_xonly_pk
-    );
-    Ok(final_sig)
-}
-
-pub fn aggregate_operator_takes_partial_sigs(
-    deposit_outpoint: OutPoint,
-    kickoff_utxo: UTXO,
-    operator_xonly_pk: &XOnlyPublicKey,
-    operator_idx: usize,
-    verifiers_pks: Vec<secp256k1::PublicKey>,
-    agg_nonce: &MuSigAggNonce,
-    partial_sigs: Vec<[u8; 32]>,
-    network: bitcoin::Network,
-) -> Result<[u8; 64], BridgeError> {
-    let nofn_xonly_pk =
-        secp256k1::XOnlyPublicKey::from_musig2_pks(verifiers_pks.clone(), None, false);
-
-    let move_tx_handler = TransactionBuilder::create_move_tx(
-        deposit_outpoint,
-        &EVMAddress([0u8; 20]),
-        Address::p2tr(&self::SECP, *self::UNSPENDABLE_XONLY_PUBKEY, None, network).as_unchecked(),
-        &nofn_xonly_pk,
-        network,
-    );
-    let bridge_fund_outpoint = OutPoint {
-        txid: move_tx_handler.tx.compute_txid(),
-        vout: 0,
-    };
-    let slash_or_take_tx_handler = TransactionBuilder::create_slash_or_take_tx(
-        deposit_outpoint,
-        kickoff_utxo,
-        operator_xonly_pk,
-        operator_idx,
-        &nofn_xonly_pk,
-        network,
-    );
-    let slash_or_take_utxo = UTXO {
-        outpoint: OutPoint {
-            txid: slash_or_take_tx_handler.tx.compute_txid(),
-            vout: 0,
-        },
-        txout: slash_or_take_tx_handler.tx.output[0].clone(),
-    };
-    let mut tx_handler = TransactionBuilder::create_operator_takes_tx(
-        bridge_fund_outpoint,
-        slash_or_take_utxo,
-        operator_xonly_pk,
-        &nofn_xonly_pk,
-        network,
-    );
-    tracing::debug!(
-        "OPERATOR_TAKES_TX with operator_idx:{:?} {:?}",
-        operator_idx,
-        tx_handler.tx
-    );
-    tracing::debug!("OPERATOR_TAKES_TX_HEX: {:?}", tx_handler.tx.raw_hex());
-    tracing::debug!("OPERATOR_TAKES_TX weight: {:?}", tx_handler.tx.weight());
-    let message: [u8; 32] = Actor::convert_tx_to_sighash_pubkey_spend(&mut tx_handler, 0)
-        .unwrap()
-        .to_byte_array();
-    let final_sig: [u8; 64] = aggregate_partial_signatures(
-        verifiers_pks.clone(),
-        None,
-        true,
-        agg_nonce,
-        partial_sigs,
-        message,
-    )?;
-    tracing::debug!("OPERATOR_TAKES_TX final_sig: {:?}", final_sig);
-    Ok(final_sig)
-}
-
-pub fn aggregate_move_partial_sigs(
-    deposit_outpoint: OutPoint,
-    evm_address: &EVMAddress,
-    recovery_taproot_address: &Address<NetworkUnchecked>,
-    verifiers_pks: Vec<secp256k1::PublicKey>,
-    agg_nonce: &MuSigAggNonce,
-    partial_sigs: Vec<[u8; 32]>,
-    network: bitcoin::Network,
-) -> Result<[u8; 64], BridgeError> {
-    let musig_agg_xonly_pubkey_wrapped =
-        secp256k1::XOnlyPublicKey::from_musig2_pks(verifiers_pks.clone(), None, false);
-    let mut tx = TransactionBuilder::create_move_tx(
-        deposit_outpoint,
-        evm_address,
-        recovery_taproot_address,
-        &musig_agg_xonly_pubkey_wrapped,
-        network,
-    );
-    // println!("MOVE_TX: {:?}", tx);
-    // println!("MOVE_TXID: {:?}", tx.tx.compute_txid());
-    let message: [u8; 32] = Actor::convert_tx_to_sighash_script_spend(&mut tx, 0, 0)
-        .unwrap()
-        .to_byte_array();
-    let final_sig: [u8; 64] = aggregate_partial_signatures(
-        verifiers_pks.clone(),
-        None,
-        false,
-        agg_nonce,
-        partial_sigs,
-        message,
-    )?;
-
-    Ok(final_sig)
 }
 
 pub fn get_claim_reveal_indices(depth: usize, count: u32) -> Vec<(usize, usize)> {

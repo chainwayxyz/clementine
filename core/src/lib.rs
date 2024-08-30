@@ -10,6 +10,7 @@ use clementine_circuits::{HashType, PreimageType};
 use serde::{Deserialize, Serialize};
 
 pub mod actor;
+pub mod aggregator;
 pub mod cli;
 pub mod config;
 pub mod constants;
