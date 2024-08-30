@@ -2,7 +2,7 @@ BEGIN;
 
 -- Verifier table for deposit details
 /* This table holds the information related to a deposit. */
-create table deposit_infos (
+create table if not exists deposit_infos (
     id serial primary key,
     deposit_outpoint text not null check (deposit_outpoint ~ '^[a-fA-F0-9]{64}:(0|[1-9][0-9]{0,9})$'),
     recovery_taproot_address text not null,
@@ -11,7 +11,7 @@ create table deposit_infos (
 );
 
 -- Verifier table for operator signatures, operator will read from here and send the take tx
-create table operator_take_sigs (
+create table if not exists operator_take_sigs (
     id serial primary key,
     deposit_outpoint text not null check (deposit_outpoint ~ '^[a-fA-F0-9]{64}:(0|[1-9][0-9]{0,9})$'),
     bridge_fund_txout text not null,
@@ -26,7 +26,7 @@ For each deposit, we have (2 + num_operators) nonce triples. The first triple is
 move_commit_tx, the second triple is for move_reveal_tx, and the rest is for operator_takes_tx
 for each operator. Also for each triple, we hold the sig_hash to be signed to prevent reuse
 of the nonces. */ 
-create table nonces (
+create table if not exists nonces (
     idx serial primary key,
     deposit_outpoint text not null check (deposit_outpoint ~ '^[a-fA-F0-9]{64}:(0|[1-9][0-9]{0,9})$'),
     pub_nonce bytea not null check (length(pub_nonce) = 66),
@@ -47,15 +47,24 @@ BEGIN
 END;
 $$ LANGUAGE plpgsql;
 
--- Create the trigger
-CREATE TRIGGER prevent_sighash_update_trigger
-BEFORE UPDATE ON nonces
-FOR EACH ROW
-EXECUTE FUNCTION prevent_sighash_update();
+-- Create the trigger if not exists
+DO $$
+BEGIN
+    IF NOT EXISTS (
+        SELECT 1 
+        FROM pg_trigger 
+        WHERE tgname = 'prevent_sighash_update_trigger'
+    ) THEN
+        CREATE TRIGGER prevent_sighash_update_trigger
+        BEFORE UPDATE ON nonces
+        FOR EACH ROW
+        EXECUTE FUNCTION prevent_sighash_update();
+    END IF;
+END $$;
 
 -- Verifier table for kickoff for deposits
 /* This table holds the kickoff utxos sent by the operators for each deposit. */
-create table deposit_kickoff_utxos (
+create table if not exists deposit_kickoff_utxos (
     id serial primary key,
     deposit_outpoint text not null check (deposit_outpoint ~ '^[a-fA-F0-9]{64}:(0|[1-9][0-9]{0,9})$'),
     kickoff_utxo jsonb not null,
@@ -67,7 +76,7 @@ create table deposit_kickoff_utxos (
 
 -- Operator table for kickoff utxo and funding utxo for deposits
 /* This table holds the funding utxos sent by the operators for each deposit. */
-create table deposit_kickoff_generator_txs (
+create table if not exists deposit_kickoff_generator_txs (
     id serial primary key,
     txid text not null check (txid ~ '^[a-fA-F0-9]{64}'),
     raw_signed_tx text not null,
@@ -79,24 +88,17 @@ create table deposit_kickoff_generator_txs (
 
 -- Operator table for kickoff utxo related to deposits
 /* This table holds the kickoff utxos sent by the operators for each deposit. */
-create table operators_kickoff_utxo (
+create table if not exists operators_kickoff_utxo (
     deposit_outpoint text primary key not null check (deposit_outpoint ~ '^[a-fA-F0-9]{64}:(0|[1-9][0-9]{0,9})$'),
     kickoff_utxo jsonb not null,
     created_at timestamp not null default now()
 );
 
 -- Operator table for funding utxo used for deposits
-create table funding_utxos (
+create table if not exists funding_utxos (
     id serial primary key,
     funding_utxo jsonb not null,
     created_at timestamp not null default now()
 );
-
--- Verifier table for kickoff merkle roots for deposits
--- create table kickoff_roots (
---     deposit_outpoint text primary key not null check (deposit_outpoint ~ '^[a-fA-F0-9]{64}:(0|[1-9][0-9]{0,9})$'),
---     kickoff_merkle_root text not null check (kickoff_merkle_root ~ '^[a-fA-F0-9]{64}'),
---     created_at timestamp not null default now()
--- );
 
 COMMIT;

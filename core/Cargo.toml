@@ -31,25 +31,22 @@ musig2 = { workspace = true }
 
 [features]
 default = []
-poc = []
 mock_rpc = []
+verifier_server = []
+operator_server = []
+aggregator_server = []
+testing = []
 
 [[bin]]
-name = "verifier"
-path = "src/bin/verifier.rs"
+name = "server"
+path = "src/bin/server.rs"
 
 [[bin]]
-name = "operator"
-path = "src/bin/operator.rs"
-
-[[bin]]
-name = "user_deposit"
-path = "src/bin/user_deposit.rs"
-
-[[bin]]
-name = "operators_and_verifiers"
-path = "src/bin/operators_and_verifiers.rs"
+name = "all_servers"
+path = "src/bin/all_servers.rs"
+required-features = ["testing"]
 
 [[bin]]
 name = "config_generator"
 path = "src/bin/config_generator.rs"
+required-features = ["testing"]

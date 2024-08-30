@@ -11,7 +11,6 @@ use bitcoin::address::NetworkUnchecked;
 use bitcoin::{Address, OutPoint, Txid};
 use secp256k1::schnorr;
 use sqlx::{Pool, Postgres, QueryBuilder};
-use std::fs;
 
 use super::wrapper::{AddressDB, EVMAddressDB, OutPointDB, SignatureDB, TxOutDB, TxidDB, UTXODB};
 
@@ -103,16 +102,17 @@ impl Database {
         Ok(config)
     }
 
-    /// Runs given SQL file to database. Database connection must be established
+    /// Runs given SQL string to database. Database connection must be established
     /// before calling this function.
-    pub async fn run_sql_file(&self, sql_file: &str) -> Result<(), BridgeError> {
-        let contents = fs::read_to_string(sql_file).unwrap();
-
-        sqlx::raw_sql(contents.as_str())
-            .execute(&self.connection)
-            .await?;
+    pub async fn run_sql(&self, raw_sql: &str) -> Result<(), BridgeError> {
+        sqlx::raw_sql(raw_sql).execute(&self.connection).await?;
 
         Ok(())
+    }
+
+    pub async fn init_from_schema(&self) -> Result<(), BridgeError> {
+        let schema = include_str!("../../../scripts/schema.sql");
+        self.run_sql(schema).await
     }
 
     /// Starts a database transaction.
