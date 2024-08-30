@@ -201,8 +201,9 @@ impl TransactionBuilder {
         nofn_xonly_pk: &XOnlyPublicKey,
         operator_xonly_pk: &XOnlyPublicKey,
         network: bitcoin::Network,
+        num_kickoff_utxos_per_tx: usize,
     ) -> TxHandler {
-        let kickoff_tx_min_relay_fee = 197; // TODO: Change this with variable kickoff utxos per txs
+        let kickoff_tx_min_relay_fee = 2000; // TODO: Change this with variable kickoff utxos per txs
         let tx_ins = TransactionBuilder::create_tx_ins(vec![funding_utxo.outpoint]);
         let musig2_and_operator_script = script_builder::create_musig2_and_operator_multisig_script(
             nofn_xonly_pk,
@@ -215,21 +216,24 @@ impl TransactionBuilder {
         );
         let operator_address = Address::p2tr(&utils::SECP, *operator_xonly_pk, None, network);
         let change_amount = funding_utxo.txout.value
-            - Amount::from_sat(100_000)
+            - Amount::from_sat(100_000 * num_kickoff_utxos_per_tx as u64)
             - script_builder::anyone_can_spend_txout().value
             - Amount::from_sat(kickoff_tx_min_relay_fee);
 
-        let tx_outs = TransactionBuilder::create_tx_outs(vec![
+        let mut tx_outs_raw = vec![
             (
                 Amount::from_sat(100_000), // TODO: Change this to a constant
                 musig2_and_operator_address.script_pubkey(),
-            ),
-            (change_amount, operator_address.script_pubkey()),
-            (
-                script_builder::anyone_can_spend_txout().value,
-                script_builder::anyone_can_spend_txout().script_pubkey,
-            ),
-        ]);
+            );
+            num_kickoff_utxos_per_tx
+        ];
+
+        tx_outs_raw.push((change_amount, operator_address.script_pubkey()));
+        tx_outs_raw.push((
+            script_builder::anyone_can_spend_txout().value,
+            script_builder::anyone_can_spend_txout().script_pubkey,
+        ));
+        let tx_outs = TransactionBuilder::create_tx_outs(tx_outs_raw);
         let tx = TransactionBuilder::create_btc_tx(tx_ins, tx_outs);
         let prevouts = vec![funding_utxo.txout.clone()];
         let scripts = vec![vec![]];

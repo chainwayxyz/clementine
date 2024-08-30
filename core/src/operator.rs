@@ -126,95 +126,114 @@ where
 
             return Ok((kickoff_utxo, sig));
         }
-        // TODO: Later we can check if we have unused kickkoff UTXOs and use them instead of creating a new one
-        // 3. Create a kickoff transaction but do not broadcast it
 
-        // To create a kickoff tx, we first need a funding utxo
-        let funding_utxo =
-            self.db
-                .get_funding_utxo()
-                .await?
-                .ok_or(BridgeError::OperatorFundingUtxoNotFound(
+        // Check if we already have an unused kickoff UTXO available
+        let unused_kickoff_utxo = self.db.get_unused_kickoff_utxo_and_increase_idx().await?;
+        if let Some(unused_kickoff_utxo) = unused_kickoff_utxo {
+            let kickoff_sig_hash = crate::sha256_hash!(
+                deposit_outpoint.txid,
+                deposit_outpoint.vout.to_be_bytes(),
+                unused_kickoff_utxo.outpoint.txid,
+                unused_kickoff_utxo.outpoint.vout.to_be_bytes()
+            );
+
+            let sig = self
+                .signer
+                .sign(TapSighash::from_byte_array(kickoff_sig_hash));
+
+            Ok((unused_kickoff_utxo, sig))
+        } else {
+            // 3. Create a kickoff transaction but do not broadcast it
+
+            // To create a kickoff tx, we first need a funding utxo
+            let funding_utxo = self.db.get_funding_utxo().await?.ok_or(
+                BridgeError::OperatorFundingUtxoNotFound(self.signer.address.clone()),
+            )?;
+
+            // if the amount is not enough, return an error
+            // The amount will be calculated as if the transaction has 1 input
+            // and (num_kickoff_utxos + 2) outputs where the first k outputs are
+            // the kickoff outputs, the penultimante output is the change output,
+            // and the last output is the anyonecanpay output for fee bumping.
+            if funding_utxo.txout.value.to_sat()
+                < (100_000 * self.config.num_kickoff_utxos_per_tx + 2000) as u64
+            {
+                // TODO: Change this amount
+                return Err(BridgeError::OperatorFundingUtxoAmountNotEnough(
                     self.signer.address.clone(),
-                ))?;
+                ));
+            }
 
-        // if the amount is not enough, return an error
-        if funding_utxo.txout.value.to_sat() < 150_000 {
-            // TODO: Change this amount
-            return Err(BridgeError::OperatorFundingUtxoAmountNotEnough(
-                self.signer.address.clone(),
-            ));
+            let mut kickoff_tx_handler = TransactionBuilder::create_kickoff_utxo_tx(
+                &funding_utxo,
+                &self.nofn_xonly_pk,
+                &self.signer.xonly_public_key,
+                self.config.network,
+                self.config.num_kickoff_utxos_per_tx,
+            );
+            let sig = self
+                .signer
+                .sign_taproot_pubkey_spend(&mut kickoff_tx_handler, 0, None)?;
+            handle_taproot_witness_new(&mut kickoff_tx_handler, &[sig.as_ref()], 0, None)?;
+
+            // tracing::debug!(
+            //     "For operator index: {:?} Kickoff tx handler: {:#?}",
+            //     self.idx,
+            //     kickoff_tx_handler
+            // );
+
+            let change_utxo = UTXO {
+                outpoint: OutPoint {
+                    txid: kickoff_tx_handler.tx.compute_txid(),
+                    vout: self.config.num_kickoff_utxos_per_tx as u32,
+                },
+                txout: kickoff_tx_handler.tx.output[1].clone(),
+            };
+
+            let kickoff_utxo = UTXO {
+                outpoint: OutPoint {
+                    txid: kickoff_tx_handler.tx.compute_txid(),
+                    vout: 0,
+                },
+                txout: kickoff_tx_handler.tx.output[0].clone(),
+            };
+
+            let kickoff_sig_hash = crate::sha256_hash!(
+                deposit_outpoint.txid,
+                deposit_outpoint.vout.to_be_bytes(),
+                kickoff_utxo.outpoint.txid,
+                kickoff_utxo.outpoint.vout.to_be_bytes()
+            );
+
+            let sig = self
+                .signer
+                .sign(TapSighash::from_byte_array(kickoff_sig_hash));
+
+            // In a db tx, save the kickoff_utxo for this deposit_utxo
+            // and update the db with the new funding_utxo as the change
+
+            let db_transaction = self.db.begin_transaction().await?;
+
+            // We save the funding txid and the kickoff txid to be able to track them later
+            self.db
+                .save_kickoff_utxo(deposit_outpoint, kickoff_utxo.clone())
+                .await?;
+
+            self.db
+                .add_deposit_kickoff_generator_tx(
+                    kickoff_tx_handler.tx.compute_txid(),
+                    kickoff_tx_handler.tx.raw_hex(),
+                    self.config.num_kickoff_utxos_per_tx,
+                    funding_utxo.outpoint.txid,
+                )
+                .await?;
+
+            self.db.set_funding_utxo(change_utxo).await?;
+
+            db_transaction.commit().await?;
+
+            Ok((kickoff_utxo, sig))
         }
-
-        let mut kickoff_tx_handler = TransactionBuilder::create_kickoff_utxo_tx(
-            &funding_utxo,
-            &self.nofn_xonly_pk,
-            &self.signer.xonly_public_key,
-            self.config.network,
-        );
-        let sig = self
-            .signer
-            .sign_taproot_pubkey_spend(&mut kickoff_tx_handler, 0, None)?;
-        handle_taproot_witness_new(&mut kickoff_tx_handler, &[sig.as_ref()], 0, None)?;
-
-        // tracing::debug!(
-        //     "For operator index: {:?} Kickoff tx handler: {:#?}",
-        //     self.idx,
-        //     kickoff_tx_handler
-        // );
-
-        let change_utxo = UTXO {
-            outpoint: OutPoint {
-                txid: kickoff_tx_handler.tx.compute_txid(),
-                vout: 1, // TODO: This will equal to the number of kickoff_outputs in the kickoff tx
-            },
-            txout: kickoff_tx_handler.tx.output[1].clone(),
-        };
-
-        let kickoff_utxo = UTXO {
-            outpoint: OutPoint {
-                txid: kickoff_tx_handler.tx.compute_txid(),
-                vout: 0,
-            },
-            txout: kickoff_tx_handler.tx.output[0].clone(),
-        };
-
-        let kickoff_sig_hash = crate::sha256_hash!(
-            deposit_outpoint.txid,
-            deposit_outpoint.vout.to_be_bytes(),
-            kickoff_utxo.outpoint.txid,
-            kickoff_utxo.outpoint.vout.to_be_bytes()
-        );
-
-        let sig = self
-            .signer
-            .sign(TapSighash::from_byte_array(kickoff_sig_hash));
-
-        // In a db tx, save the kickoff_utxo for this deposit_utxo
-        // and update the db with the new funding_utxo as the change
-
-        let transaction = self.db.begin_transaction().await?;
-
-        // We save the funding txid and the kickoff txid to be able to track them later
-        self.db
-            .save_kickoff_utxo(deposit_outpoint, kickoff_utxo.clone())
-            .await?;
-
-        self.db
-            .add_deposit_kickoff_generator_tx(
-                kickoff_tx_handler.tx.compute_txid(),
-                kickoff_tx_handler.tx.raw_hex(),
-                1,
-                1,
-                funding_utxo.outpoint.txid,
-            )
-            .await?;
-
-        self.db.set_funding_utxo(change_utxo).await?;
-
-        transaction.commit().await?;
-
-        Ok((kickoff_utxo, sig))
     }
 
     /// Checks if utxo is valid, spendable by operator and not spent

@@ -46,6 +46,8 @@ pub struct BridgeConfig {
     pub operator_takes_after: u32,
     /// Bridge amount in satoshis.
     pub bridge_amount_sats: u64,
+    /// Number of kickoff UTXOs per funding transaction.
+    pub num_kickoff_utxos_per_tx: usize,
     /// Threshold for confirmation.
     pub confirmation_threshold: u32,
     /// Bitcoin remote procedure call URL.
@@ -142,6 +144,7 @@ impl Default for BridgeConfig {
             user_takes_after: 5,
             operator_takes_after: 5,
             bridge_amount_sats: 100_000_000,
+            num_kickoff_utxos_per_tx: 10,
             confirmation_threshold: 1,
             network: Network::Regtest,
             bitcoin_rpc_url: "http://127.0.0.1:18443".to_string(),

@@ -165,6 +165,59 @@ impl Database {
         }
     }
 
+    /// Operator: Get unused kickoff_utxo at ready if there are any.
+    pub async fn get_unused_kickoff_utxo_and_increase_idx(
+        &self,
+    ) -> Result<Option<UTXO>, BridgeError> {
+        // Attempt to fetch the latest transaction details
+        let qr: Option<(TxidDB, i32, i32)> = sqlx::query_as(
+            "SELECT txid, num_kickoffs, cur_unused_kickoff_index FROM deposit_kickoff_generator_txs ORDER BY id DESC LIMIT 1;"
+        )
+        .fetch_optional(&self.connection)
+        .await?;
+
+        // If the table is empty, return None
+        let (txid, num_kickoffs, cur_unused_kickoff_index) = match qr {
+            Some(qr) => qr,
+            None => return Ok(None),
+        };
+
+        // Proceed with the rest of the logic only if there are unused kickoffs
+        if num_kickoffs <= cur_unused_kickoff_index {
+            Ok(None)
+        } else {
+            // Fetch the raw signed transaction
+            let qr_tx: (String,) = sqlx::query_as(
+                "SELECT raw_signed_tx FROM deposit_kickoff_generator_txs ORDER BY id DESC LIMIT 1;",
+            )
+            .fetch_one(&self.connection)
+            .await?;
+
+            // Deserialize the transaction
+            let tx: bitcoin::Transaction =
+                bitcoin::consensus::deserialize(&hex::decode(qr_tx.0).unwrap())?;
+
+            // Create the outpoint and txout
+            let outpoint = OutPoint {
+                txid: tx.compute_txid(),
+                vout: cur_unused_kickoff_index as u32,
+            };
+            let txout = tx.output[cur_unused_kickoff_index as usize].clone();
+
+            // Update the cur_unused_kickoff_index
+            sqlx::query(
+                "UPDATE deposit_kickoff_generator_txs SET cur_unused_kickoff_index = $1 WHERE txid = $2;"
+            )
+            .bind(cur_unused_kickoff_index + 1)
+            .bind(txid)
+            .execute(&self.connection)
+            .await?;
+
+            // Return the UTXO
+            Ok(Some(UTXO { outpoint, txout }))
+        }
+    }
+
     /// Verifier: Get the verified kickoff UTXOs for a deposit UTXO.
     pub async fn get_kickoff_utxos(
         &self,
@@ -515,19 +568,21 @@ impl Database {
         }
     }
 
+    /// Operator: Save the signed kickoff UTXO generator tx.
+    ///  Txid is the txid of the signed tx.
+    /// funding_txid is the txid of the input[0].
     pub async fn add_deposit_kickoff_generator_tx(
         &self,
         txid: Txid,
         raw_hex: String,
         num_kickoffs: usize,
-        cur_unused_kickoff_index: usize,
         funding_txid: Txid,
     ) -> Result<(), BridgeError> {
         sqlx::query("INSERT INTO deposit_kickoff_generator_txs (txid, raw_signed_tx, num_kickoffs, cur_unused_kickoff_index, funding_txid) VALUES ($1, $2, $3, $4, $5);")
             .bind(TxidDB(txid))
             .bind(raw_hex)
             .bind(num_kickoffs as i32)
-            .bind(cur_unused_kickoff_index as i32)
+            .bind(1)
             .bind(TxidDB(funding_txid))
             .execute(&self.connection)
             .await?;
@@ -977,20 +1032,15 @@ mod tests {
         let config = create_test_config_with_thread_name!("test_config.toml");
         let db = Database::new(config).await.unwrap();
 
-        let txid = Txid::from_byte_array([1u8; 32]);
-        let raw_hex = "raw_hex".to_string();
-        let num_kickoffs = 10;
-        let cur_unused_kickoff_index = 5;
-        let funding_txid = Txid::from_byte_array([2u8; 32]);
-        db.add_deposit_kickoff_generator_tx(
-            txid,
-            raw_hex.clone(),
-            num_kickoffs,
-            cur_unused_kickoff_index,
-            funding_txid,
-        )
-        .await
-        .unwrap();
+        let raw_hex = "01000000000101308d840c736eefd114a8fad04cb0d8338b4a3034a2b517250e5498701b25eb360100000000fdffffff02401f00000000000022512024985a1ab5724a5164ae5e0026b3e7e22031e83948eedf99d438b866857946b81f7e000000000000225120f7298da2a2be5b6e02a076ff7d35a1fe6b54a2bc7938c1c86bede23cadb7d9650140ad2fdb01ec5e2772f682867c8c6f30697c63f622e338f7390d3abc6c905b9fd7e96496fdc34cb9e872387758a6a334ec1307b3505b73121e0264fe2ba546d78ad11b0d00".to_string();
+        let tx: bitcoin::Transaction =
+            bitcoin::consensus::deserialize(&hex::decode(raw_hex.clone()).unwrap()).unwrap();
+        let txid = tx.compute_txid();
+        let num_kickoffs = 2;
+        let funding_txid = tx.input[0].previous_output.txid;
+        db.add_deposit_kickoff_generator_tx(txid, raw_hex.clone(), num_kickoffs, funding_txid)
+            .await
+            .unwrap();
         let (db_raw_hex, db_num_kickoffs, db_cur_unused_kickoff_index, db_funding_txid) = db
             .get_deposit_kickoff_generator_tx(txid)
             .await
@@ -1000,8 +1050,22 @@ mod tests {
         // Sanity check
         assert_eq!(db_raw_hex, raw_hex);
         assert_eq!(db_num_kickoffs, num_kickoffs);
-        assert_eq!(db_cur_unused_kickoff_index, cur_unused_kickoff_index);
+        assert_eq!(db_cur_unused_kickoff_index, 1);
         assert_eq!(db_funding_txid, funding_txid);
+
+        let unused_utxo = db
+            .get_unused_kickoff_utxo_and_increase_idx()
+            .await
+            .unwrap()
+            .unwrap();
+        tracing::info!("unused_utxo: {:?}", unused_utxo);
+
+        // Sanity check
+        assert_eq!(unused_utxo.outpoint.txid, txid);
+        assert_eq!(unused_utxo.outpoint.vout, 1);
+
+        let none_utxo = db.get_unused_kickoff_utxo_and_increase_idx().await.unwrap();
+        assert!(none_utxo.is_none());
     }
 
     #[tokio::test]

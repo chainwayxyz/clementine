@@ -21,6 +21,7 @@ num_operators = 5
 bridge_amount_sats = 100000000
 user_takes_after = 5
 operator_takes_after = 5
+num_kickoff_utxos_per_tx = 10
 confirmation_threshold = 1
 network = "regtest"
 bitcoin_rpc_url = "http://127.0.0.1:18443"
