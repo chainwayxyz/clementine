@@ -54,17 +54,12 @@ impl Aggregator {
         agg_nonce: &MuSigAggNonce,
         partial_sigs: Vec<[u8; 32]>,
     ) -> Result<[u8; 64], BridgeError> {
-        let musig_agg_xonly_pubkey_wrapped = secp256k1::XOnlyPublicKey::from_musig2_pks(
-            self.config.verifiers_public_keys.clone(),
-            None,
-            false,
-        );
         let mut tx = TransactionBuilder::create_slash_or_take_tx(
             deposit_outpoint,
             kickoff_utxo,
             &operator_xonly_pk,
             operator_idx,
-            &musig_agg_xonly_pubkey_wrapped,
+            &self.nofn_xonly_pk,
             self.config.network,
         );
         tracing::debug!("SLASH_OR_TAKE_TX: {:?}", tx);
@@ -102,12 +97,6 @@ impl Aggregator {
         agg_nonce: &MuSigAggNonce,
         partial_sigs: Vec<[u8; 32]>,
     ) -> Result<[u8; 64], BridgeError> {
-        let nofn_xonly_pk = secp256k1::XOnlyPublicKey::from_musig2_pks(
-            self.config.verifiers_public_keys.clone(),
-            None,
-            false,
-        );
-
         let move_tx_handler = TransactionBuilder::create_move_tx(
             deposit_outpoint,
             &EVMAddress([0u8; 20]),
@@ -118,7 +107,7 @@ impl Aggregator {
                 self.config.network,
             )
             .as_unchecked(),
-            &nofn_xonly_pk,
+            &self.nofn_xonly_pk,
             self.config.network,
         );
         let bridge_fund_outpoint = OutPoint {
@@ -130,7 +119,7 @@ impl Aggregator {
             kickoff_utxo,
             operator_xonly_pk,
             operator_idx,
-            &nofn_xonly_pk,
+            &self.nofn_xonly_pk,
             self.config.network,
         );
         let slash_or_take_utxo = UTXO {
@@ -144,7 +133,7 @@ impl Aggregator {
             bridge_fund_outpoint,
             slash_or_take_utxo,
             operator_xonly_pk,
-            &nofn_xonly_pk,
+            &self.nofn_xonly_pk,
             self.config.network,
         );
         tracing::debug!(
@@ -177,16 +166,11 @@ impl Aggregator {
         agg_nonce: &MuSigAggNonce,
         partial_sigs: Vec<[u8; 32]>,
     ) -> Result<[u8; 64], BridgeError> {
-        let musig_agg_xonly_pubkey_wrapped = secp256k1::XOnlyPublicKey::from_musig2_pks(
-            self.config.verifiers_public_keys.clone(),
-            None,
-            false,
-        );
         let mut tx = TransactionBuilder::create_move_tx(
             deposit_outpoint,
             evm_address,
             recovery_taproot_address,
-            &musig_agg_xonly_pubkey_wrapped,
+            &self.nofn_xonly_pk,
             self.config.network,
         );
         // println!("MOVE_TX: {:?}", tx);
