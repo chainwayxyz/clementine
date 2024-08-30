@@ -7,6 +7,8 @@ env:
   CARGO_TERM_VERBOSE: true
   CARGOFLAGS: --workspace --all-targets --all-features
   RUST_LOG: trace
+  RISC0_DEV_MODE: 1
+  TEST_CONFIG: /home/runner/overwrite.toml
 
 jobs:
   debug_mode_build:
@@ -74,9 +76,9 @@ jobs:
     - name: Debug mode cache warm up with max paralel jobs
       run: cargo build $CARGOFLAGS
     - name: Run tests on Bitcoin regtest
-      run: RISC0_DEV_MODE=1 TEST_CONFIG=/home/runner/overwrite.toml cargo test --verbose --jobs 1
+      run: cargo test --verbose --jobs 1
     - name: Run tests on mock RPC
-      run: RISC0_DEV_MODE=1 TEST_CONFIG=/home/runner/overwrite.toml cargo test --verbose --features mock_rpc
+      run: cargo test --verbose --features mock_rpc
 
   debug_mode_test_with_mock_rpc:
     name: Test code in debug mode with Bitcoin Mock RPC
@@ -99,7 +101,7 @@ jobs:
         key: ${{ runner.os }}-cargo-debug-${{ hashFiles('**/Cargo.lock') }}
 
     - name: Run tests on mock RPC
-      run: RISC0_DEV_MODE=1 TEST_CONFIG=/home/runner/overwrite.toml cargo test --verbose --features mock_rpc
+      run: cargo test --verbose --features mock_rpc
 
   release_mode_test:
     name: Test code in release mode
@@ -206,6 +208,42 @@ jobs:
     - name: Release mode cache warm up with max paralel jobs
       run: cargo build $CARGOFLAGS --release
     - name: Run tests on Bitcoin regtest with release build
-      run: RISC0_DEV_MODE=1 TEST_CONFIG=/home/runner/overwrite.toml cargo test --verbose --jobs 1 --release
+      run: cargo test --verbose --jobs 1 --release
+
+  release_mode_test_with_mock_rpc:
+    name: Test code in release mode with Bitcoin Mock RPC
+    runs-on: ubicloud-standard-16
+    needs: release_mode_build
+
+    services:
+      postgres:
+        image: postgres:latest
+        env:
+          POSTGRES_DB: clementine
+          POSTGRES_USER: clementine
+          POSTGRES_PASSWORD: clementine
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    steps:
+    - uses: actions/checkout@v4
+    - uses: ./.github/actions/service-action
+
+    - name: Restore cached build artifacts
+      uses: actions/cache/restore@v4
+      with:
+        path: |
+          ~/.cargo/bin/
+          ~/.cargo/registry/index/
+          ~/.cargo/registry/cache/
+          ~/.cargo/git/db/
+          target/
+        key: ${{ runner.os }}-cargo-release-${{ hashFiles('**/Cargo.lock') }}
+
     - name: Run tests on mock RPC with release build
-      run: RISC0_DEV_MODE=1 TEST_CONFIG=/home/runner/overwrite.toml cargo test --verbose --features mock_rpc --release
+      run: cargo test --verbose --features mock_rpc --release
