@@ -120,6 +120,9 @@ jobs:
             "9ac20335eb38768d2052be1dbbc3c8f6178407458e51e6b4ad22f1d91758895b",
         ]
         num_operators = 5
+        bridge_amount_sats = 100000000
+        user_takes_after = 5
+        operator_takes_after = 5
         db_file_path = "database"
         confirmation_threshold = 1
         network = "regtest"
@@ -225,6 +228,9 @@ jobs:
             "9ac20335eb38768d2052be1dbbc3c8f6178407458e51e6b4ad22f1d91758895b",
         ]
         num_operators = 5
+        bridge_amount_sats = 100000000
+        user_takes_after = 5
+        operator_takes_after = 5
         db_file_path = "database"
         confirmation_threshold = 1
         network = "regtest"

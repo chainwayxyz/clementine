@@ -16,8 +16,6 @@ use bitcoin::sighash::SighashCache;
 use bitcoin::{Address, OutPoint, TapSighash, Transaction, TxOut, Txid};
 use bitcoin_mock_rpc::RpcApiWrapper;
 use bitcoincore_rpc::RawTx;
-use clementine_circuits::constants::BRIDGE_AMOUNT_SATS;
-use clementine_circuits::sha256_hash;
 use jsonrpsee::core::async_trait;
 use secp256k1::{schnorr, Message};
 
@@ -95,9 +93,10 @@ where
             &deposit_outpoint,
             &recovery_taproot_address,
             &evm_address,
-            BRIDGE_AMOUNT_SATS,
+            self.config.bridge_amount_sats,
             self.config.confirmation_threshold,
             self.config.network,
+            self.config.user_takes_after,
         )?;
 
         // 2. Check if we alredy created a kickoff UTXO for this deposit UTXO
@@ -114,7 +113,7 @@ where
                 "Kickoff UTXO already exists for deposit UTXO: {:?}",
                 deposit_outpoint
             );
-            let kickoff_sig_hash = sha256_hash!(
+            let kickoff_sig_hash = crate::sha256_hash!(
                 deposit_outpoint.txid,
                 deposit_outpoint.vout.to_be_bytes(),
                 kickoff_utxo.outpoint.txid,
@@ -180,7 +179,7 @@ where
             txout: kickoff_tx_handler.tx.output[0].clone(),
         };
 
-        let kickoff_sig_hash = sha256_hash!(
+        let kickoff_sig_hash = crate::sha256_hash!(
             deposit_outpoint.txid,
             deposit_outpoint.vout.to_be_bytes(),
             kickoff_utxo.outpoint.txid,
@@ -354,6 +353,9 @@ where
             self.idx,
             &self.nofn_xonly_pk,
             self.config.network,
+            self.config.user_takes_after,
+            self.config.operator_takes_after,
+            self.config.bridge_amount_sats,
         );
 
         let slash_or_take_utxo = UTXO {
@@ -406,6 +408,8 @@ where
             .as_unchecked(),
             &self.nofn_xonly_pk,
             self.config.network,
+            self.config.user_takes_after,
+            self.config.bridge_amount_sats,
         );
         let bridge_fund_outpoint = OutPoint {
             txid: move_tx_handler.tx.compute_txid(),
@@ -418,6 +422,8 @@ where
             &self.signer.xonly_public_key,
             &self.nofn_xonly_pk,
             self.config.network,
+            self.config.operator_takes_after,
+            self.config.bridge_amount_sats,
         );
 
         let operator_takes_nofn_sig = self

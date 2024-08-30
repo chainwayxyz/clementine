@@ -2,7 +2,6 @@
 
 use bitcoin::Address;
 use bitcoin::OutPoint;
-use clementine_circuits::constants::BRIDGE_AMOUNT_SATS;
 use clementine_core::actor::Actor;
 use clementine_core::config::BridgeConfig;
 use clementine_core::database::common::Database;
@@ -55,7 +54,7 @@ pub async fn run_single_deposit(
     let evm_address = EVMAddress([1u8; 20]);
     let deposit_address = user.get_deposit_address(evm_address).unwrap();
     let deposit_outpoint = rpc
-        .send_to_address(&deposit_address, BRIDGE_AMOUNT_SATS)
+        .send_to_address(&deposit_address, config.bridge_amount_sats)
         .unwrap();
 
     rpc.mine_blocks(18).unwrap();
@@ -91,7 +90,7 @@ pub async fn run_single_deposit(
         let operator_address =
             Address::p2tr(&secp, *operator_internal_xonly_pk, None, config.network);
         let operator_funding_outpoint = rpc
-            .send_to_address(&operator_address, 2 * BRIDGE_AMOUNT_SATS)
+            .send_to_address(&operator_address, 2 * config.bridge_amount_sats)
             .unwrap();
         let operator_funding_txout = rpc
             .get_txout_from_outpoint(&operator_funding_outpoint)

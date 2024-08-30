@@ -15,8 +15,6 @@ use bitcoin::Address;
 use bitcoin::{secp256k1, OutPoint};
 use bitcoin_mock_rpc::RpcApiWrapper;
 use bitcoincore_rpc::RawTx;
-use clementine_circuits::constants::BRIDGE_AMOUNT_SATS;
-use clementine_circuits::sha256_hash;
 use jsonrpsee::core::async_trait;
 use secp256k1::{rand, schnorr};
 
@@ -84,9 +82,10 @@ where
             &deposit_outpoint,
             &recovery_taproot_address,
             &evm_address,
-            BRIDGE_AMOUNT_SATS,
+            self.config.bridge_amount_sats,
             self.config.confirmation_threshold,
             self.config.network,
+            self.config.user_takes_after,
         )?;
 
         // For now we multiply by 2 since we do not give signatures for burn_txs. // TODO: Change this in future.
@@ -155,7 +154,7 @@ where
                 return Err(BridgeError::InvalidKickoffUtxo);
             }
 
-            let kickoff_sig_hash = sha256_hash!(
+            let kickoff_sig_hash = crate::sha256_hash!(
                 deposit_outpoint.txid,
                 deposit_outpoint.vout.to_be_bytes(),
                 kickoff_utxo.outpoint.txid,
@@ -193,6 +192,9 @@ where
                 i,
                 &self.nofn_xonly_pk,
                 self.config.network,
+                self.config.user_takes_after,
+                self.config.operator_takes_after,
+                self.config.bridge_amount_sats,
             );
             let slash_or_take_tx_sighash =
                 Actor::convert_tx_to_sighash_script_spend(&mut slash_or_take_tx_handler, 0, 0)?;
@@ -288,6 +290,8 @@ where
             &recovery_taproot_address,
             &self.nofn_xonly_pk,
             self.config.network,
+            self.config.user_takes_after,
+            self.config.bridge_amount_sats,
         );
 
         let bridge_fund_outpoint = OutPoint {
@@ -321,6 +325,9 @@ where
                     index,
                     &self.nofn_xonly_pk,
                     self.config.network,
+                    self.config.user_takes_after,
+                    self.config.operator_takes_after,
+                    self.config.bridge_amount_sats,
                 );
                 // println!("Slash or take tx handler: {:?}", slash_or_take_tx_handler);
                 let slash_or_take_sighash =
@@ -357,6 +364,8 @@ where
                     &self.operator_xonly_pks[index],
                     &self.nofn_xonly_pk,
                     self.config.network,
+                    self.config.operator_takes_after,
+                    self.config.bridge_amount_sats,
                 );
                 Actor::convert_tx_to_sighash_pubkey_spend(&mut operator_takes_tx, 0)
                     .unwrap()
@@ -426,6 +435,9 @@ where
                     index,
                     &self.nofn_xonly_pk,
                     self.config.network,
+                    self.config.user_takes_after,
+                    self.config.operator_takes_after,
+                    self.config.bridge_amount_sats,
                 );
                 let slash_or_take_utxo = UTXO {
                     outpoint: OutPoint {
@@ -440,6 +452,8 @@ where
                     &self.operator_xonly_pks[index],
                     &self.nofn_xonly_pk,
                     self.config.network,
+                    self.config.operator_takes_after,
+                    self.config.bridge_amount_sats,
                 );
                 tracing::debug!(
                     "INDEXXX: {:?} Operator takes tx hex: {:?}",
