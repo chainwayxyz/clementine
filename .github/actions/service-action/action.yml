@@ -6,35 +6,26 @@ description: 'Service starters for Clementine tests'
 runs:
   using: "composite"
 
-  services:
-    postgres:
-      image: postgres:latest
-      env:
-        POSTGRES_DB: clementine
-        POSTGRES_USER: clementine
-        POSTGRES_PASSWORD: clementine
-      ports:
-        - 5432:5432
-      options: >-
-        --health-cmd pg_isready
-        --health-interval 10s
-        --health-timeout 5s
-        --health-retries 5
-
   steps:
   - name: Download Bitcoin
+    shell: bash
     run: wget https://bitcoin.org/bin/bitcoin-core-27.0/bitcoin-27.0-x86_64-linux-gnu.tar.gz
   - name: Unpack Bitcoin
+    shell: bash
     run: tar -xzvf bitcoin-27.0-x86_64-linux-gnu.tar.gz
 
   - name: Start Bitcoind
+    shell: bash
     run: bitcoin-27.0/bin/bitcoind -regtest -rpcuser=admin -rpcpassword=admin -rpcport=18443 -fallbackfee=0.00001 -wallet=admin -txindex=1 &
   - name: Create a wallet in Bitcoin regtest
+    shell: bash
     run: bitcoin-27.0/bin/bitcoin-cli -regtest -rpcuser=admin -rpcpassword=admin -rpcport=18443 createwallet "admin"
   - name: Create funds in Bitcoin regtest
+    shell: bash
     run: bitcoin-27.0/bin/bitcoin-cli -regtest -rpcuser=admin -rpcpassword=admin -rpcport=18443 generatetoaddress 101 $(bitcoin-27.0/bin/bitcoin-cli -regtest -rpcuser=admin -rpcpassword=admin -rpcport=18443 getnewaddress)
 
   - name: Create config overwrite file
+    shell: bash
     run: |
       cat << EOF > /home/runner/overwrite.toml
       tracing_debug = "debug,bitcoincore_rpc=info,hyper=error"
