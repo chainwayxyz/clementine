@@ -11,6 +11,7 @@ env:
   TEST_CONFIG: /home/runner/overwrite.toml
 
 jobs:
+# Build ------------------------------------------------------------------------
   debug_mode_build:
     name: Compile code in debug mode
     runs-on: ubicloud-standard-16
@@ -53,6 +54,7 @@ jobs:
           target/
         key: ${{ runner.os }}-cargo-release-${{ hashFiles('**/Cargo.lock') }}
 
+# Test -------------------------------------------------------------------------
   debug_mode_test_with_regtest:
     name: Test code in debug mode with Bitcoin Regtest
     runs-on: ubicloud-standard-16
@@ -77,8 +79,6 @@ jobs:
       run: cargo build $CARGOFLAGS
     - name: Run tests on Bitcoin regtest
       run: cargo test --verbose --jobs 1
-    - name: Run tests on mock RPC
-      run: cargo test --verbose --features mock_rpc
 
   debug_mode_test_with_mock_rpc:
     name: Test code in debug mode with Bitcoin Mock RPC
