@@ -19,9 +19,6 @@ jobs:
     steps:
     - uses: actions/checkout@v4
 
-    - name: Compile in debug mode
-      run: cargo build $CARGOFLAGS
-
     - name: Save build artifacts
       uses: actions/cache/save@v4
       with:
@@ -33,15 +30,15 @@ jobs:
           target/
         key: ${{ runner.os }}-cargo-debug-${{ hashFiles('**/Cargo.lock') }}
 
+    - name: Compile in debug mode
+      run: cargo build $CARGOFLAGS
+
   release_mode_build:
     name: Compile code in release mode
     runs-on: ubicloud-standard-16
 
     steps:
     - uses: actions/checkout@v4
-
-    - name: Compile in release mode
-      run: cargo build $CARGOFLAGS --release
 
     - name: Save build artifacts
       uses: actions/cache/save@v4
@@ -53,6 +50,9 @@ jobs:
           ~/.cargo/git/db/
           target/
         key: ${{ runner.os }}-cargo-release-${{ hashFiles('**/Cargo.lock') }}
+
+    - name: Compile in release mode
+      run: cargo build $CARGOFLAGS --release
 
 # Test -------------------------------------------------------------------------
   debug_mode_test_with_regtest:
