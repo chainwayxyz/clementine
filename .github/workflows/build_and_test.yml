@@ -85,7 +85,7 @@ jobs:
       uses: Swatinem/rust-cache@v2
       with:
         shared-key: "debug-build"
-        save-if: false
+        save-if: true
         cache-directories: |
           ~/.cargo/bin/
           ~/.cargo/registry/index/
@@ -126,7 +126,7 @@ jobs:
       uses: Swatinem/rust-cache@v2
       with:
         shared-key: "debug-build"
-        save-if: false
+        save-if: true
         cache-directories: |
           ~/.cargo/bin/
           ~/.cargo/registry/index/
@@ -165,7 +165,7 @@ jobs:
       uses: Swatinem/rust-cache@v2
       with:
         shared-key: "release-build"
-        save-if: false
+        save-if: true
         cache-directories: |
           ~/.cargo/bin/
           ~/.cargo/registry/index/
@@ -206,7 +206,7 @@ jobs:
       uses: Swatinem/rust-cache@v2
       with:
         shared-key: "release-build"
-        save-if: false
+        save-if: true
         cache-directories: |
           ~/.cargo/bin/
           ~/.cargo/registry/index/
