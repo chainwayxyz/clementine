@@ -17,7 +17,6 @@ use bitcoin::XOnlyPublicKey;
 use bitcoin_mock_rpc::RpcApiWrapper;
 use bitcoincore_rpc::json::AddressType;
 use bitcoincore_rpc::Auth;
-use clementine_circuits::constants::BRIDGE_AMOUNT_SATS;
 use crypto_bigint::Encoding;
 use crypto_bigint::U256;
 
@@ -290,6 +289,7 @@ where
         amount_sats: u64,
         confirmation_block_count: u32,
         network: bitcoin::Network,
+        user_takes_after: u32,
     ) -> Result<(), BridgeError> {
         if self.confirmation_blocks(&outpoint.txid)? < confirmation_block_count {
             return Err(BridgeError::DepositNotFinalized);
@@ -299,8 +299,9 @@ where
             nofn_xonly_pk,
             recovery_taproot_address,
             evm_address,
-            BRIDGE_AMOUNT_SATS,
+            amount_sats,
             network,
+            user_takes_after,
         );
 
         if !self.check_utxo_address_and_amount(

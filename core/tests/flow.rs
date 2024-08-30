@@ -3,7 +3,6 @@
 // //! This testss checks if basic deposit and withdraw operations are OK or not.
 
 use bitcoin::Address;
-use clementine_circuits::constants::OPERATOR_TAKES_AFTER;
 use clementine_core::extended_rpc::ExtendedRpc;
 use clementine_core::{
     create_extended_rpc, errors::BridgeError, traits::rpc::OperatorRpcClient, user::User,
@@ -64,7 +63,7 @@ async fn test_honest_operator_takes_refund() {
         let outpoint = rpc.send_raw_transaction(tx.clone()).unwrap();
         tracing::debug!("outpoint: {:#?}", outpoint);
     }
-    rpc.mine_blocks(OPERATOR_TAKES_AFTER as u64).unwrap();
+    rpc.mine_blocks(config.operator_takes_after as u64).unwrap();
     // send the last tx
     rpc.send_raw_transaction(txs_to_be_sent.last().unwrap().clone())
         .unwrap();

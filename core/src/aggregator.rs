@@ -61,6 +61,9 @@ impl Aggregator {
             operator_idx,
             &self.nofn_xonly_pk,
             self.config.network,
+            self.config.user_takes_after,
+            self.config.operator_takes_after,
+            self.config.bridge_amount_sats,
         );
         tracing::debug!("SLASH_OR_TAKE_TX: {:?}", tx);
         tracing::debug!("SLASH_OR_TAKE_TX weight: {:?}", tx.tx.weight());
@@ -109,6 +112,8 @@ impl Aggregator {
             .as_unchecked(),
             &self.nofn_xonly_pk,
             self.config.network,
+            self.config.user_takes_after,
+            self.config.bridge_amount_sats,
         );
         let bridge_fund_outpoint = OutPoint {
             txid: move_tx_handler.tx.compute_txid(),
@@ -121,6 +126,9 @@ impl Aggregator {
             operator_idx,
             &self.nofn_xonly_pk,
             self.config.network,
+            self.config.user_takes_after,
+            self.config.operator_takes_after,
+            self.config.bridge_amount_sats,
         );
         let slash_or_take_utxo = UTXO {
             outpoint: OutPoint {
@@ -135,6 +143,8 @@ impl Aggregator {
             operator_xonly_pk,
             &self.nofn_xonly_pk,
             self.config.network,
+            self.config.operator_takes_after,
+            self.config.bridge_amount_sats,
         );
         tracing::debug!(
             "OPERATOR_TAKES_TX with operator_idx:{:?} {:?}",
@@ -172,6 +182,8 @@ impl Aggregator {
             recovery_taproot_address,
             &self.nofn_xonly_pk,
             self.config.network,
+            self.config.user_takes_after,
+            self.config.bridge_amount_sats,
         );
         // println!("MOVE_TX: {:?}", tx);
         // println!("MOVE_TXID: {:?}", tx.tx.compute_txid());
@@ -281,6 +293,8 @@ impl Aggregator {
             &recovery_taproot_address,
             &self.nofn_xonly_pk,
             self.config.network,
+            self.config.user_takes_after,
+            self.config.bridge_amount_sats,
         );
         let move_tx_witness_elements = vec![move_tx_sig.serialize().to_vec()];
         handle_taproot_witness_new(&mut move_tx_handler, &move_tx_witness_elements, 0, Some(0))?;

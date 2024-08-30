@@ -9,9 +9,10 @@ use bitcoin::{Address, TxOut};
 use bitcoin::{Amount, OutPoint};
 use bitcoin::{TapSighashType, XOnlyPublicKey};
 use bitcoin_mock_rpc::RpcApiWrapper;
-use clementine_circuits::constants::{BRIDGE_AMOUNT_SATS, WITHDRAWAL_EMPTY_UTXO_SATS};
 use secp256k1::schnorr;
 use secp256k1::SecretKey;
+
+pub const WITHDRAWAL_EMPTY_UTXO_SATS: u64 = 550;
 
 #[derive(Debug)]
 pub struct User<R> {
@@ -51,13 +52,14 @@ where
             &self.nofn_xonly_pk,
             self.signer.address.as_unchecked(),
             &evm_address,
-            BRIDGE_AMOUNT_SATS,
+            self.config.bridge_amount_sats,
             self.config.network,
+            self.config.user_takes_after,
         );
 
         let deposit_utxo = self
             .rpc
-            .send_to_address(&deposit_address, BRIDGE_AMOUNT_SATS)?;
+            .send_to_address(&deposit_address, self.config.bridge_amount_sats)?;
 
         Ok((deposit_utxo, self.signer.xonly_public_key, evm_address))
     }
@@ -67,8 +69,9 @@ where
             &self.nofn_xonly_pk,
             self.signer.address.as_unchecked(),
             &evm_address,
-            BRIDGE_AMOUNT_SATS,
+            self.config.bridge_amount_sats,
             self.config.network,
+            self.config.user_takes_after,
         );
 
         Ok(deposit_address)
@@ -90,7 +93,7 @@ where
         };
         let txins = TransactionBuilder::create_tx_ins(vec![dust_utxo.outpoint]);
         let txout = TxOut {
-            value: Amount::from_sat(BRIDGE_AMOUNT_SATS), // TODO: Change this in the future since Operators should profit from the bridge
+            value: Amount::from_sat(self.config.bridge_amount_sats), // TODO: Change this in the future since Operators should profit from the bridge
             script_pubkey: withdrawal_address.script_pubkey(),
         };
         let txouts = vec![txout.clone()];

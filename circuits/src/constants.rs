@@ -36,14 +36,14 @@ pub const PERIOD_CLAIM_MT_ROOTS: [[u8; 32]; NUM_ROUNDS] = [
 /// Block heights at which each period ends
 /// After each period_end_block_height, the corresponding connector source utxo opens after K_DEEP + MAX_BITVM_CHALLENGE_RESPONSE blocks.
 pub const PERIOD_END_BLOCK_HEIGHTS: [u32; NUM_ROUNDS] = [0; NUM_ROUNDS];
-/// Constant bridge amount in sats
+/// Constant bridge amount in sats, for now only used in clementine-circuits
 pub const BRIDGE_AMOUNT_SATS: u64 = 100_000_000;
 /// Constant withdrawal request txout value in sats
-pub const WITHDRAWAL_EMPTY_UTXO_SATS: u64 = 550;
+// pub const WITHDRAWAL_EMPTY_UTXO_SATS: u64 = 550;
 /// Constant block count for user to take deposit back if deposit does not happen
-pub const DEPOSIT_USER_TAKES_AFTER: u32 = 5;
+// pub const DEPOSIT_USER_TAKES_AFTER: u32 = 5;
 /// Constant block count for operator to take reimburse the bridge fund if they are honest
-pub const OPERATOR_TAKES_AFTER: u32 = 5;
+// pub const OPERATOR_TAKES_AFTER: u32 = 5;
 /// Empty leaf of a merkle tree
 pub const EMPTYDATA: [u8; 32] = [
     0xcb, 0x0c, 0x9f, 0x42, 0x64, 0x54, 0x6b, 0x15, 0xbe, 0x98, 0x01, 0xec, 0xb1, 0x1d, 0xf7, 0xe4,

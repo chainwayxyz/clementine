@@ -9,9 +9,6 @@ use bitcoin::{
     taproot::{TaprootBuilder, TaprootSpendInfo},
     Address, Amount, OutPoint, ScriptBuf, TxIn, TxOut, Witness,
 };
-use clementine_circuits::constants::{
-    BRIDGE_AMOUNT_SATS, DEPOSIT_USER_TAKES_AFTER, OPERATOR_TAKES_AFTER,
-};
 use secp256k1::PublicKey;
 use secp256k1::XOnlyPublicKey;
 
@@ -106,6 +103,7 @@ impl TransactionBuilder {
         user_evm_address: &EVMAddress,
         amount: u64,
         network: bitcoin::Network,
+        user_takes_after: u32,
     ) -> CreateAddressOutputs {
         let deposit_script =
             script_builder::create_deposit_script(nofn_xonly_pk, user_evm_address, amount);
@@ -119,7 +117,7 @@ impl TransactionBuilder {
 
         let script_timelock = script_builder::generate_relative_timelock_script(
             &recovery_extracted_xonly_pk,
-            DEPOSIT_USER_TAKES_AFTER,
+            user_takes_after,
         );
 
         TransactionBuilder::create_taproot_address(
@@ -157,6 +155,8 @@ impl TransactionBuilder {
         recovery_taproot_address: &Address<NetworkUnchecked>,
         nofn_xonly_pk: &XOnlyPublicKey,
         network: bitcoin::Network,
+        user_takes_after: u32,
+        bridge_amount_sats: u64,
     ) -> TxHandler {
         let anyone_can_spend_txout = script_builder::anyone_can_spend_txout();
         let (musig2_address, _) = Self::create_musig2_address(*nofn_xonly_pk, network);
@@ -165,11 +165,12 @@ impl TransactionBuilder {
                 nofn_xonly_pk,
                 recovery_taproot_address,
                 evm_address,
-                BRIDGE_AMOUNT_SATS,
+                bridge_amount_sats,
                 network,
+                user_takes_after,
             );
         let move_txout = TxOut {
-            value: Amount::from_sat(BRIDGE_AMOUNT_SATS)
+            value: Amount::from_sat(bridge_amount_sats)
                 - Amount::from_sat(MOVE_TX_MIN_RELAY_FEE)
                 - anyone_can_spend_txout.value,
             script_pubkey: musig2_address.script_pubkey(),
@@ -179,12 +180,12 @@ impl TransactionBuilder {
             TransactionBuilder::create_btc_tx(tx_ins, vec![move_txout, anyone_can_spend_txout]);
         let prevouts = vec![TxOut {
             script_pubkey: deposit_address.script_pubkey(),
-            value: Amount::from_sat(BRIDGE_AMOUNT_SATS),
+            value: Amount::from_sat(bridge_amount_sats),
         }];
         let deposit_script = vec![script_builder::create_deposit_script(
             nofn_xonly_pk,
             evm_address,
-            BRIDGE_AMOUNT_SATS,
+            bridge_amount_sats,
         )];
         TxHandler {
             tx: move_tx,
@@ -248,6 +249,9 @@ impl TransactionBuilder {
         operator_idx: usize,
         nofn_xonly_pk: &XOnlyPublicKey,
         network: bitcoin::Network,
+        user_takes_after: u32,
+        operator_takes_after: u32,
+        bridge_amount_sats: u64,
     ) -> TxHandler {
         // First recreate the move_tx and move_txid. We can give dummy values for some of the parameters since we are only interested in txid.
         let move_tx_handler = TransactionBuilder::create_move_tx(
@@ -262,6 +266,8 @@ impl TransactionBuilder {
             .as_unchecked(),
             nofn_xonly_pk,
             network,
+            user_takes_after,
+            bridge_amount_sats,
         );
         let move_txid = move_tx_handler.tx.compute_txid();
 
@@ -282,8 +288,8 @@ impl TransactionBuilder {
         let ins = Self::create_tx_ins(vec![kickoff_utxo.outpoint]);
         let relative_timelock_script = script_builder::generate_relative_timelock_script(
             operator_xonly_pk,
-            OPERATOR_TAKES_AFTER,
-        ); // TODO: Change this 200 to a config constant
+            operator_takes_after,
+        );
         let (slash_or_take_address, _) = TransactionBuilder::create_taproot_address(
             &[relative_timelock_script.clone()],
             Some(*nofn_xonly_pk),
@@ -321,12 +327,14 @@ impl TransactionBuilder {
         operator_xonly_pk: &XOnlyPublicKey,
         nofn_xonly_pk: &XOnlyPublicKey,
         network: bitcoin::Network,
+        operator_takes_after: u32,
+        bridge_amount_sats: u64,
     ) -> TxHandler {
         let operator_address = Address::p2tr(&utils::SECP, *operator_xonly_pk, None, network);
         let mut ins = TransactionBuilder::create_tx_ins(vec![bridge_fund_outpoint]);
         ins.extend(TransactionBuilder::create_tx_ins_with_sequence(
             vec![slash_or_take_utxo.outpoint],
-            OPERATOR_TAKES_AFTER as u16,
+            operator_takes_after as u16,
         ));
 
         let (musig2_address, musig2_spend_info) =
@@ -334,7 +342,7 @@ impl TransactionBuilder {
 
         let relative_timelock_script = script_builder::generate_relative_timelock_script(
             operator_xonly_pk,
-            OPERATOR_TAKES_AFTER,
+            operator_takes_after,
         );
         let (slash_or_take_address, slash_or_take_spend_info) =
             TransactionBuilder::create_taproot_address(
@@ -349,7 +357,7 @@ impl TransactionBuilder {
         let outs = vec![
             TxOut {
                 value: Amount::from_sat(slash_or_take_utxo.txout.value.to_sat())
-                    + Amount::from_sat(BRIDGE_AMOUNT_SATS)
+                    + Amount::from_sat(bridge_amount_sats)
                     - Amount::from_sat(MOVE_TX_MIN_RELAY_FEE)
                     - Amount::from_sat(OPERATOR_TAKES_TX_MIN_RELAY_FEE)
                     - script_builder::anyone_can_spend_txout().value
@@ -362,7 +370,7 @@ impl TransactionBuilder {
         let prevouts = vec![
             TxOut {
                 script_pubkey: musig2_address.script_pubkey(),
-                value: Amount::from_sat(BRIDGE_AMOUNT_SATS)
+                value: Amount::from_sat(bridge_amount_sats)
                     - Amount::from_sat(MOVE_TX_MIN_RELAY_FEE)
                     - script_builder::anyone_can_spend_txout().value,
             },

@@ -4,16 +4,16 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
-clementine-circuits = { path = "../circuits" }
+# clementine-circuits = { path = "../circuits" }
 bitcoin = { workspace = true, features = ["rand", "bitcoinconsensus"] }
 bitcoincore-rpc = { workspace = true }
 hex = { workspace = true, features = ["serde"] }
 lazy_static = { workspace = true, features = ["spin_no_std"] }
 sha2 = { workspace = true }
-risc0-zkvm = { workspace = true }
+# risc0-zkvm = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
-byteorder = { workspace = true }
+# byteorder = { workspace = true }
 secp256k1 = { workspace = true, features = ["serde"] }
 crypto-bigint = { workspace = true }
 thiserror = { workspace = true }
