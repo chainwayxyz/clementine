@@ -18,11 +18,7 @@ macro_rules! create_test_config {
         let config = Database::create_database(config, &$db_name).await.unwrap();
 
         let database = Database::new(config.clone()).await.unwrap();
-        database
-            .run_sql_file("../scripts/schema.sql")
-            .await
-            .unwrap();
-
+        database.init_from_schema().await.unwrap();
         database.close().await;
 
         config
