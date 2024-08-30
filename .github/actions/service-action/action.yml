@@ -1,0 +1,86 @@
+# This action starts required services for any test.
+
+jobs:
+  clementine-services:
+    name: Starts required services for testing Clementine
+    runs-on: ubicloud-standard-16
+
+    services:
+      postgres:
+        image: postgres:latest
+        env:
+          POSTGRES_DB: clementine
+          POSTGRES_USER: clementine
+          POSTGRES_PASSWORD: clementine
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    steps:
+    - name: Download Bitcoin
+      run: wget https://bitcoin.org/bin/bitcoin-core-27.0/bitcoin-27.0-x86_64-linux-gnu.tar.gz
+    - name: Unpack Bitcoin
+      run: tar -xzvf bitcoin-27.0-x86_64-linux-gnu.tar.gz
+
+    - name: Start Bitcoind
+      run: bitcoin-27.0/bin/bitcoind -regtest -rpcuser=admin -rpcpassword=admin -rpcport=18443 -fallbackfee=0.00001 -wallet=admin -txindex=1 &
+    - name: Create a wallet in Bitcoin regtest
+      run: bitcoin-27.0/bin/bitcoin-cli -regtest -rpcuser=admin -rpcpassword=admin -rpcport=18443 createwallet "admin"
+    - name: Create funds in Bitcoin regtest
+      run: bitcoin-27.0/bin/bitcoin-cli -regtest -rpcuser=admin -rpcpassword=admin -rpcport=18443 generatetoaddress 101 $(bitcoin-27.0/bin/bitcoin-cli -regtest -rpcuser=admin -rpcpassword=admin -rpcport=18443 getnewaddress)
+
+    - name: Create config overwrite file
+      run: |
+        cat << EOF > /home/runner/overwrite.toml
+        tracing_debug = "debug,bitcoincore_rpc=info,hyper=error"
+        host = "127.0.0.1"
+        port = 3000
+        secret_key = "5555555555555555555555555555555555555555555555555555555555555555"
+        verifiers_public_keys = [
+            "034f355bdcb7cc0af728ef3cceb9615d90684bb5b2ca5f859ab0f0b704075871aa",
+            "02466d7fcae563e5cb09a0d1870bb580344804617879a14949cf22285f1bae3f27",
+            "023c72addb4fdf09af94f0c94d7fe92a386a7e70cf8a1d85916386bb2535c7b1b1",
+            "032c0b7cf95324a07d05398b240174dc0c2be444d96b159aa6c7f7b1e668680991",
+            "029ac20335eb38768d2052be1dbbc3c8f6178407458e51e6b4ad22f1d91758895b",
+        ]
+        num_verifiers = 5
+        operators_xonly_pks = [
+            "4f355bdcb7cc0af728ef3cceb9615d90684bb5b2ca5f859ab0f0b704075871aa",
+            "466d7fcae563e5cb09a0d1870bb580344804617879a14949cf22285f1bae3f27",
+            "3c72addb4fdf09af94f0c94d7fe92a386a7e70cf8a1d85916386bb2535c7b1b1",
+            "2c0b7cf95324a07d05398b240174dc0c2be444d96b159aa6c7f7b1e668680991",
+            "9ac20335eb38768d2052be1dbbc3c8f6178407458e51e6b4ad22f1d91758895b",
+        ]
+        num_operators = 5
+        db_file_path = "database"
+        confirmation_threshold = 1
+        network = "regtest"
+        bitcoin_rpc_url = "http://127.0.0.1:18443"
+        bitcoin_rpc_user = "admin"
+        bitcoin_rpc_password = "admin"
+        all_verifiers_secret_keys = [
+            "1111111111111111111111111111111111111111111111111111111111111111",
+            "2222222222222222222222222222222222222222222222222222222222222222",
+            "3333333333333333333333333333333333333333333333333333333333333333",
+            "4444444444444444444444444444444444444444444444444444444444444444",
+            "5555555555555555555555555555555555555555555555555555555555555555",
+        ]
+        all_operators_secret_keys = [
+            "1111111111111111111111111111111111111111111111111111111111111111",
+            "2222222222222222222222222222222222222222222222222222222222222222",
+            "3333333333333333333333333333333333333333333333333333333333333333",
+            "4444444444444444444444444444444444444444444444444444444444444444",
+            "5555555555555555555555555555555555555555555555555555555555555555",
+        ]
+        db_host = "127.0.0.1"
+        db_port = 5432
+        db_user = "clementine"
+        db_password = "clementine"
+        db_name = "clementine"
+        citrea_rpc_url = "http://159.89.214.47/"
+        bridge_contract_address = "3100000000000000000000000000000000000002"
+        EOF
