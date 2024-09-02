@@ -204,6 +204,13 @@ impl TransactionBuilder {
         network: bitcoin::Network,
         num_kickoff_utxos_per_tx: usize,
     ) -> TxHandler {
+        // Here, we are calculating the minimum relay fee for the kickoff tx based on the number of kickoff utxos per tx.
+        // The formula is: 154 + 43 * num_kickoff_utxos_per_tx where
+        // 154 = (Signature as witness, 66 bytes + 2 bytes from flags) / 4
+        // + 43 * 2 from change and anyone can spend txouts
+        // + 41 from the single input (32 + 8 + 1)
+        // 4 + 4 + 1 + 1 from locktime, version, and VarInt bases of
+        // the number of inputs and outputs.
         let kickoff_tx_min_relay_fee = match num_kickoff_utxos_per_tx {
             0..=250 => 154 + 43 * num_kickoff_utxos_per_tx, // Handles all values from 0 to 250
             _ => 156 + 43 * num_kickoff_utxos_per_tx,       // Handles all other values
