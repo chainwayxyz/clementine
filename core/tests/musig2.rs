@@ -23,7 +23,7 @@ use std::thread;
 async fn test_musig2_key_spend() {
     let secp = bitcoin::secp256k1::Secp256k1::new();
 
-    let mut config: BridgeConfig = create_test_config_with_thread_name!("test_config_musig2.toml");
+    let mut config: BridgeConfig = create_test_config_with_thread_name!("test_config.toml");
     let rpc: ExtendedRpc<_> = create_extended_rpc!(config);
     let sks = config.all_verifiers_secret_keys.unwrap();
     let kp_vec: Vec<Keypair> = sks
@@ -126,7 +126,7 @@ async fn test_musig2_key_spend() {
 async fn test_musig2_key_spend_with_script() {
     let secp = bitcoin::secp256k1::Secp256k1::new();
 
-    let mut config: BridgeConfig = create_test_config_with_thread_name!("test_config_musig2.toml");
+    let mut config: BridgeConfig = create_test_config_with_thread_name!("test_config.toml");
     let rpc: ExtendedRpc<_> = create_extended_rpc!(config);
     let sks = config.all_verifiers_secret_keys.unwrap();
     let kp_vec: Vec<Keypair> = sks
@@ -230,7 +230,7 @@ async fn test_musig2_key_spend_with_script() {
 async fn test_musig2_script_spend() {
     let secp = bitcoin::secp256k1::Secp256k1::new();
 
-    let mut config: BridgeConfig = create_test_config_with_thread_name!("test_config_musig2.toml");
+    let mut config: BridgeConfig = create_test_config_with_thread_name!("test_config.toml");
     let rpc: ExtendedRpc<_> = create_extended_rpc!(config);
     let sks = config.all_verifiers_secret_keys.unwrap();
     let kp_vec: Vec<Keypair> = sks

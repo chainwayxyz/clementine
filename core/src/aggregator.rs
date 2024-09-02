@@ -14,7 +14,6 @@ use crate::{
 use async_trait::async_trait;
 use bitcoin::hashes::Hash;
 use bitcoin::{address::NetworkUnchecked, Address, OutPoint, Transaction};
-use bitcoincore_rpc::RawTx;
 use secp256k1::schnorr;
 
 /// Aggregator struct.
@@ -65,12 +64,12 @@ impl Aggregator {
             self.config.operator_takes_after,
             self.config.bridge_amount_sats,
         );
-        tracing::debug!("SLASH_OR_TAKE_TX: {:?}", tx);
+        // tracing::debug!("SLASH_OR_TAKE_TX: {:?}", tx);
         tracing::debug!("SLASH_OR_TAKE_TX weight: {:?}", tx.tx.weight());
         let message: [u8; 32] = Actor::convert_tx_to_sighash_script_spend(&mut tx, 0, 0)
             .unwrap()
             .to_byte_array();
-        tracing::debug!("aggregate SLASH_OR_TAKE_TX message: {:?}", message);
+        // tracing::debug!("aggregate SLASH_OR_TAKE_TX message: {:?}", message);
         let final_sig: [u8; 64] = aggregate_partial_signatures(
             self.config.verifiers_public_keys.clone(),
             None,
@@ -79,15 +78,15 @@ impl Aggregator {
             partial_sigs,
             message,
         )?;
-        tracing::debug!("aggregate SLASH_OR_TAKE_TX final_sig: {:?}", final_sig);
-        tracing::debug!(
-            "aggregate SLASH_OR_TAKE_TX for verifiers: {:?}",
-            self.config.verifiers_public_keys.clone()
-        );
-        tracing::debug!(
-            "aggregate SLASH_OR_TAKE_TX for operator: {:?}",
-            operator_xonly_pk
-        );
+        // tracing::debug!("aggregate SLASH_OR_TAKE_TX final_sig: {:?}", final_sig);
+        // tracing::debug!(
+        //     "aggregate SLASH_OR_TAKE_TX for verifiers: {:?}",
+        //     self.config.verifiers_public_keys.clone()
+        // );
+        // tracing::debug!(
+        //     "aggregate SLASH_OR_TAKE_TX for operator: {:?}",
+        //     operator_xonly_pk
+        // );
         Ok(final_sig)
     }
 
@@ -137,6 +136,11 @@ impl Aggregator {
             },
             txout: slash_or_take_tx_handler.tx.output[0].clone(),
         };
+        // tracing::debug!(
+        //     "SERDE_UTXO: {:#?}",
+        //     serde_json::to_string(&slash_or_take_utxo).unwrap()
+        // );
+
         let mut tx_handler = TransactionBuilder::create_operator_takes_tx(
             bridge_fund_outpoint,
             slash_or_take_utxo,
@@ -146,12 +150,12 @@ impl Aggregator {
             self.config.operator_takes_after,
             self.config.bridge_amount_sats,
         );
-        tracing::debug!(
-            "OPERATOR_TAKES_TX with operator_idx:{:?} {:?}",
-            operator_idx,
-            tx_handler.tx
-        );
-        tracing::debug!("OPERATOR_TAKES_TX_HEX: {:?}", tx_handler.tx.raw_hex());
+        // tracing::debug!(
+        //     "OPERATOR_TAKES_TX with operator_idx:{:?} {:?}",
+        //     operator_idx,
+        //     tx_handler.tx
+        // );
+        // tracing::debug!("OPERATOR_TAKES_TX_HEX: {:?}", tx_handler.tx.raw_hex());
         tracing::debug!("OPERATOR_TAKES_TX weight: {:?}", tx_handler.tx.weight());
         let message: [u8; 32] = Actor::convert_tx_to_sighash_pubkey_spend(&mut tx_handler, 0)
             .unwrap()
@@ -164,7 +168,7 @@ impl Aggregator {
             partial_sigs,
             message,
         )?;
-        tracing::debug!("OPERATOR_TAKES_TX final_sig: {:?}", final_sig);
+        // tracing::debug!("OPERATOR_TAKES_TX final_sig: {:?}", final_sig);
         Ok(final_sig)
     }
 
