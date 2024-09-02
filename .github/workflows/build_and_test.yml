@@ -45,7 +45,7 @@ jobs:
 # Test ------------------------------------------------------------------------
   debug_mode_test_with_regtest:
     name: Test code in debug mode with Bitcoin Regtest
-    runs-on: ubicloud-standard-16
+    runs-on: ubicloud-standard-4
     needs: debug_mode_build
 
     steps:
@@ -77,9 +77,9 @@ jobs:
     - name: Run tests on mock RPC
       run: cargo test --verbose --features mock_rpc
 
-  release_mode_test:
-    name: Test code in release mode
-    runs-on: ubicloud-standard-16
+  release_mode_test_with_regtest:
+    name: Test code in release mode with Bitcoin Regtest
+    runs-on: ubicloud-standard-4
     needs: release_mode_build
 
     services:
