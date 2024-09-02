@@ -187,6 +187,7 @@ impl Database {
             Ok(None)
         } else {
             // Fetch the raw signed transaction
+            let db_transaction = self.begin_transaction().await?;
             let qr_tx: (String,) = sqlx::query_as(
                 "SELECT raw_signed_tx FROM deposit_kickoff_generator_txs ORDER BY id DESC LIMIT 1;",
             )
@@ -212,6 +213,7 @@ impl Database {
             .bind(txid)
             .execute(&self.connection)
             .await?;
+            db_transaction.commit().await?;
 
             // Return the UTXO
             Ok(Some(UTXO { outpoint, txout }))

@@ -19,7 +19,7 @@ use std::thread;
 async fn run() {
     let secp = bitcoin::secp256k1::Secp256k1::new();
 
-    let mut config = create_test_config_with_thread_name!("test_config_taproot.toml");
+    let mut config = create_test_config_with_thread_name!("test_config.toml");
     let rpc = create_extended_rpc!(config);
 
     let (xonly_pk, _) = config.secret_key.public_key(&secp).x_only_public_key();
@@ -129,7 +129,7 @@ fn calculate_min_relay_fee(n: u64) -> u64 {
 #[tokio::test]
 async fn taproot_key_path_spend() {
     let secp = bitcoin::secp256k1::Secp256k1::new();
-    let mut config = create_test_config_with_thread_name!("test_config_taproot.toml");
+    let mut config = create_test_config_with_thread_name!("test_config.toml");
     let rpc = create_extended_rpc!(config);
 
     let (xonly_pk, _) = config.secret_key.public_key(&secp).x_only_public_key();
@@ -184,7 +184,7 @@ async fn taproot_key_path_spend() {
 
 #[tokio::test]
 async fn taproot_key_path_spend_2() {
-    let mut config = create_test_config_with_thread_name!("test_config_taproot.toml");
+    let mut config = create_test_config_with_thread_name!("test_config.toml");
     let rpc = create_extended_rpc!(config);
 
     let actor = Actor::new(config.secret_key, config.network);

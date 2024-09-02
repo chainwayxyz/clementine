@@ -34,6 +34,7 @@ pub const MOVE_TX_MIN_RELAY_FEE: u64 = 305;
 pub const SLASH_OR_TAKE_TX_MIN_RELAY_FEE: u64 = 305;
 pub const WITHDRAWAL_TX_MIN_RELAY_FEE: u64 = 305;
 pub const OPERATOR_TAKES_TX_MIN_RELAY_FEE: u64 = 305;
+pub const KICKOFF_UTXO_AMOUNT_SATS: u64 = 100_000;
 
 impl TransactionBuilder {
     /// Creates a new `TransactionBuilder`.
@@ -203,7 +204,7 @@ impl TransactionBuilder {
         network: bitcoin::Network,
         num_kickoff_utxos_per_tx: usize,
     ) -> TxHandler {
-        let kickoff_tx_min_relay_fee = 2000; // TODO: Change this with variable kickoff utxos per txs
+        let kickoff_tx_min_relay_fee = 154 + 43 * num_kickoff_utxos_per_tx;
         let tx_ins = TransactionBuilder::create_tx_ins(vec![funding_utxo.outpoint]);
         let musig2_and_operator_script = script_builder::create_musig2_and_operator_multisig_script(
             nofn_xonly_pk,
@@ -216,13 +217,13 @@ impl TransactionBuilder {
         );
         let operator_address = Address::p2tr(&utils::SECP, *operator_xonly_pk, None, network);
         let change_amount = funding_utxo.txout.value
-            - Amount::from_sat(100_000 * num_kickoff_utxos_per_tx as u64)
+            - Amount::from_sat(KICKOFF_UTXO_AMOUNT_SATS * num_kickoff_utxos_per_tx as u64)
             - script_builder::anyone_can_spend_txout().value
-            - Amount::from_sat(kickoff_tx_min_relay_fee);
+            - Amount::from_sat(kickoff_tx_min_relay_fee as u64);
 
         let mut tx_outs_raw = vec![
             (
-                Amount::from_sat(100_000), // TODO: Change this to a constant
+                Amount::from_sat(KICKOFF_UTXO_AMOUNT_SATS),
                 musig2_and_operator_address.script_pubkey(),
             );
             num_kickoff_utxos_per_tx
@@ -277,12 +278,12 @@ impl TransactionBuilder {
 
         let (kickoff_utxo_address, kickoff_utxo_spend_info) =
             Self::create_kickoff_address(nofn_xonly_pk, operator_xonly_pk, network);
-        tracing::debug!(
-            "kickoff_utxo_script_pubkey: {:?}",
-            kickoff_utxo_address.script_pubkey()
-        );
-        tracing::debug!("kickoff_utxo_spend_info: {:?}", kickoff_utxo_spend_info);
-        tracing::debug!("kickoff_utxooo: {:?}", kickoff_utxo);
+        // tracing::debug!(
+        //     "kickoff_utxo_script_pubkey: {:?}",
+        //     kickoff_utxo_address.script_pubkey()
+        // );
+        // tracing::debug!("kickoff_utxo_spend_info: {:?}", kickoff_utxo_spend_info);
+        // tracing::debug!("kickoff_utxooo: {:?}", kickoff_utxo);
         let musig2_and_operator_script = script_builder::create_musig2_and_operator_multisig_script(
             nofn_xonly_pk,
             operator_xonly_pk,

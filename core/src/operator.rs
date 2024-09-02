@@ -5,7 +5,7 @@ use crate::errors::BridgeError;
 use crate::extended_rpc::ExtendedRpc;
 use crate::musig2::AggregateFromPublicKeys;
 use crate::traits::rpc::OperatorRpcServer;
-use crate::transaction_builder::TransactionBuilder;
+use crate::transaction_builder::{TransactionBuilder, KICKOFF_UTXO_AMOUNT_SATS};
 use crate::utils::handle_taproot_witness_new;
 use crate::{script_builder, utils, EVMAddress, UTXO};
 use bitcoin::address::NetworkUnchecked;
@@ -156,7 +156,8 @@ where
             // the kickoff outputs, the penultimante output is the change output,
             // and the last output is the anyonecanpay output for fee bumping.
             if funding_utxo.txout.value.to_sat()
-                < (100_000 * self.config.num_kickoff_utxos_per_tx + 2000) as u64
+                < (KICKOFF_UTXO_AMOUNT_SATS * self.config.operator_num_kickoff_utxos_per_tx as u64
+                    + 2000)
             {
                 // TODO: Change this amount
                 return Err(BridgeError::OperatorFundingUtxoAmountNotEnough(
@@ -169,13 +170,20 @@ where
                 &self.nofn_xonly_pk,
                 &self.signer.xonly_public_key,
                 self.config.network,
-                self.config.num_kickoff_utxos_per_tx,
+                self.config.operator_num_kickoff_utxos_per_tx,
             );
             let sig = self
                 .signer
                 .sign_taproot_pubkey_spend(&mut kickoff_tx_handler, 0, None)?;
             handle_taproot_witness_new(&mut kickoff_tx_handler, &[sig.as_ref()], 0, None)?;
-
+            // tracing::debug!(
+            //     "Created kickoff tx with weight: {:#?}",
+            //     kickoff_tx_handler.tx.weight()
+            // );
+            // tracing::debug!(
+            //     "Created kickoff tx with vsize: {:#?}",
+            //     kickoff_tx_handler.tx.vsize()
+            // );
             // tracing::debug!(
             //     "For operator index: {:?} Kickoff tx handler: {:#?}",
             //     self.idx,
@@ -185,7 +193,7 @@ where
             let change_utxo = UTXO {
                 outpoint: OutPoint {
                     txid: kickoff_tx_handler.tx.compute_txid(),
-                    vout: self.config.num_kickoff_utxos_per_tx as u32,
+                    vout: self.config.operator_num_kickoff_utxos_per_tx as u32,
                 },
                 txout: kickoff_tx_handler.tx.output[1].clone(),
             };
@@ -223,7 +231,7 @@ where
                 .add_deposit_kickoff_generator_tx(
                     kickoff_tx_handler.tx.compute_txid(),
                     kickoff_tx_handler.tx.raw_hex(),
-                    self.config.num_kickoff_utxos_per_tx,
+                    self.config.operator_num_kickoff_utxos_per_tx,
                     funding_utxo.outpoint.txid,
                 )
                 .await?;
