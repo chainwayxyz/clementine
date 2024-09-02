@@ -21,7 +21,7 @@ pub struct AddressDB(pub Address<NetworkUnchecked>);
 #[derive(Serialize, Deserialize)]
 pub struct EVMAddressDB(pub EVMAddress);
 
-#[derive(Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize)]
 pub struct TxidDB(pub Txid);
 
 #[derive(Serialize, Deserialize, sqlx::FromRow)]

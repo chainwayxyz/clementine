@@ -14,7 +14,7 @@ mod common;
 
 #[tokio::test]
 async fn test_deposit() -> Result<(), BridgeError> {
-    match run_single_deposit("test_config_flow.toml").await {
+    match run_single_deposit("test_config.toml").await {
         Ok((_, _, _, deposit_outpoint)) => {
             // tracing::debug!("Verifiers: {:#?}", verifiers);
             // tracing::debug!("Operators: {:#?}", operators);
@@ -32,7 +32,7 @@ async fn test_deposit() -> Result<(), BridgeError> {
 async fn test_honest_operator_takes_refund() {
     // let mut config = create_test_config_with_thread_name!("test_config_flow.toml");
     let (_verifiers, operators, mut config, deposit_outpoint) =
-        run_single_deposit("test_config_flow.toml").await.unwrap();
+        run_single_deposit("test_config.toml").await.unwrap();
     let rpc = create_extended_rpc!(config);
 
     let secp = bitcoin::secp256k1::Secp256k1::new();

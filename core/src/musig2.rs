@@ -56,19 +56,19 @@ pub fn create_key_agg_ctx(
         .map(|pk| musig2::secp256k1::PublicKey::from_slice(&pk.serialize()).unwrap())
         .collect::<Vec<musig2::secp256k1::PublicKey>>();
     let key_agg_ctx_raw = KeyAggContext::new(musig_pks)?;
-    tracing::debug!(
-        "UNTWEAKED AGGREGATED PUBKEY: {:?}",
-        key_agg_ctx_raw.aggregated_pubkey::<musig2::secp256k1::PublicKey>()
-    );
+    // tracing::debug!(
+    //     "UNTWEAKED AGGREGATED PUBKEY: {:?}",
+    //     key_agg_ctx_raw.aggregated_pubkey::<musig2::secp256k1::PublicKey>()
+    // );
     if tweak_flag {
         let key_agg_ctx = match tweak {
             Some(scalar) => key_agg_ctx_raw.with_taproot_tweak(&scalar.to_byte_array())?,
             None => key_agg_ctx_raw.with_unspendable_taproot_tweak()?,
         };
-        tracing::debug!(
-            "TWEAKED AGGREGATED PUBKEY: {:?}",
-            key_agg_ctx.aggregated_pubkey::<musig2::secp256k1::PublicKey>()
-        );
+        // tracing::debug!(
+        //     "TWEAKED AGGREGATED PUBKEY: {:?}",
+        //     key_agg_ctx.aggregated_pubkey::<musig2::secp256k1::PublicKey>()
+        // );
         Ok(key_agg_ctx)
     } else {
         if tweak.is_some() {

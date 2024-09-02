@@ -38,7 +38,7 @@ pub async fn run_single_deposit(
     let rpc = create_extended_rpc!(config);
 
     let (verifiers, operators, aggregator) =
-        create_verifiers_and_operators("test_config_flow.toml").await;
+        create_verifiers_and_operators("test_config.toml").await;
 
     // println!("Operators: {:#?}", operators);
     // println!("Verifiers: {:#?}", verifiers);
@@ -100,7 +100,7 @@ pub async fn run_single_deposit(
             txout: operator_funding_txout,
         };
 
-        tracing::debug!("Operator {:?} funding utxo: {:?}", i, operator_funding_utxo);
+        // tracing::debug!("Operator {:?} funding utxo: {:?}", i, operator_funding_utxo);
         client
             .set_funding_utxo_rpc(operator_funding_utxo)
             .await
@@ -194,7 +194,7 @@ pub async fn run_single_deposit(
         )
         .await
         .unwrap();
-    tracing::debug!("Move tx: {:#?}", move_tx);
+    // tracing::debug!("Move tx: {:#?}", move_tx);
     // tracing::debug!("Move tx_hex: {:?}", move_tx_handler.tx.raw_hex());
     tracing::debug!("Move tx weight: {:?}", move_tx.weight());
     let move_txid = rpc.send_raw_transaction(&move_tx).unwrap();

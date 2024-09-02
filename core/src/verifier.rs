@@ -7,7 +7,7 @@ use crate::musig2::{
     self, AggregateFromPublicKeys, MuSigAggNonce, MuSigPartialSignature, MuSigPubNonce,
 };
 use crate::traits::rpc::VerifierRpcServer;
-use crate::transaction_builder::{TransactionBuilder, TxHandler};
+use crate::transaction_builder::{TransactionBuilder, TxHandler, KICKOFF_UTXO_AMOUNT_SATS};
 use crate::{utils, EVMAddress, UTXO};
 use bitcoin::address::NetworkUnchecked;
 use bitcoin::hashes::Hash;
@@ -150,7 +150,7 @@ where
 
         for (i, kickoff_utxo) in kickoff_utxos.iter().enumerate() {
             let value = kickoff_utxo.txout.value;
-            if value.to_sat() < 100_000 {
+            if value.to_sat() < KICKOFF_UTXO_AMOUNT_SATS {
                 return Err(BridgeError::InvalidKickoffUtxo);
             }
 
@@ -329,19 +329,18 @@ where
                     self.config.operator_takes_after,
                     self.config.bridge_amount_sats,
                 );
-                // println!("Slash or take tx handler: {:?}", slash_or_take_tx_handler);
                 let slash_or_take_sighash =
                     Actor::convert_tx_to_sighash_script_spend(&mut slash_or_take_tx_handler, 0, 0)
                         .unwrap();
-                tracing::debug!(
-                    "Verify SLASH_OR_TAKE_TX message: {:?}",
-                    slash_or_take_sighash
-                );
-                tracing::debug!("Verify SLASH_OR_TAKE_SIG: {:?}", slash_or_take_sigs[index]);
-                tracing::debug!(
-                    "Verify SLASH_OR_TAKE_TX operator xonly_pk: {:?}",
-                    self.operator_xonly_pks[index]
-                );
+                // tracing::debug!(
+                //     "Verify SLASH_OR_TAKE_TX message: {:?}",
+                //     slash_or_take_sighash
+                // );
+                // tracing::debug!("Verify SLASH_OR_TAKE_SIG: {:?}", slash_or_take_sigs[index]);
+                // tracing::debug!(
+                //     "Verify SLASH_OR_TAKE_TX operator xonly_pk: {:?}",
+                //     self.operator_xonly_pks[index]
+                // );
                 utils::SECP
                     .verify_schnorr(
                         &slash_or_take_sigs[index],

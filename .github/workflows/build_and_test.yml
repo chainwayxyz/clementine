@@ -123,6 +123,7 @@ jobs:
         bridge_amount_sats = 100000000
         user_takes_after = 5
         operator_takes_after = 5
+        operator_num_kickoff_utxos_per_tx = 10
         db_file_path = "database"
         confirmation_threshold = 1
         network = "regtest"
@@ -231,6 +232,7 @@ jobs:
         bridge_amount_sats = 100000000
         user_takes_after = 5
         operator_takes_after = 5
+        operator_num_kickoff_utxos_per_tx = 10
         db_file_path = "database"
         confirmation_threshold = 1
         network = "regtest"
