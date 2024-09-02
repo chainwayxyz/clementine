@@ -283,7 +283,7 @@ where
     pub fn check_deposit_utxo(
         &self,
         nofn_xonly_pk: &XOnlyPublicKey,
-        outpoint: &OutPoint,
+        deposit_outpoint: &OutPoint,
         recovery_taproot_address: &Address<NetworkUnchecked>,
         evm_address: &EVMAddress,
         amount_sats: u64,
@@ -291,7 +291,7 @@ where
         network: bitcoin::Network,
         user_takes_after: u32,
     ) -> Result<(), BridgeError> {
-        if self.confirmation_blocks(&outpoint.txid)? < confirmation_block_count {
+        if self.confirmation_blocks(&deposit_outpoint.txid)? < confirmation_block_count {
             return Err(BridgeError::DepositNotFinalized);
         }
 
@@ -305,14 +305,14 @@ where
         );
 
         if !self.check_utxo_address_and_amount(
-            outpoint,
+            deposit_outpoint,
             &deposit_address.script_pubkey(),
             amount_sats,
         )? {
             return Err(BridgeError::InvalidDepositUTXO);
         }
 
-        if self.is_utxo_spent(outpoint)? {
+        if self.is_utxo_spent(deposit_outpoint)? {
             return Err(BridgeError::UTXOSpent);
         }
 

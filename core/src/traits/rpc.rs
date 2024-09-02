@@ -26,7 +26,7 @@ pub trait VerifierRpc {
     /// - for every kickoff2_tx, partial sign burn_tx (ommitted for now)
     async fn operator_kickoffs_generated_rpc(
         &self,
-        deposit_utxo: OutPoint,
+        deposit_outpoint: OutPoint,
         kickoff_utxos: Vec<UTXO>,
         operators_kickoff_sigs: Vec<schnorr::Signature>,
         agg_nonces: Vec<MuSigAggNonce>,
@@ -37,7 +37,7 @@ pub trait VerifierRpc {
     /// sign operator_takes_txs
     async fn burn_txs_signed_rpc(
         &self,
-        deposit_utxo: OutPoint,
+        deposit_outpoint: OutPoint,
         burn_sigs: Vec<schnorr::Signature>,
         slash_or_take_sigs: Vec<schnorr::Signature>,
     ) -> Result<Vec<MuSigPartialSignature>, BridgeError>;
@@ -48,7 +48,7 @@ pub trait VerifierRpc {
     /// sign move_tx
     async fn operator_take_txs_signed_rpc(
         &self,
-        deposit_utxo: OutPoint,
+        deposit_outpoint: OutPoint,
         operator_take_sigs: Vec<schnorr::Signature>,
     ) -> Result<MuSigPartialSignature, BridgeError>;
 }
@@ -59,7 +59,7 @@ pub trait OperatorRpc {
     /// - Create kickoffUTXO, make sure to not send it to bitcoin yet
     async fn new_deposit_rpc(
         &self,
-        deposit_utxo: OutPoint,
+        deposit_outpoint: OutPoint,
         recovery_taproot_address: Address<NetworkUnchecked>,
         evm_address: EVMAddress,
     ) -> Result<(UTXO, secp256k1::schnorr::Signature), BridgeError>;

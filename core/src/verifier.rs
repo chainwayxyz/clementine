@@ -91,7 +91,7 @@ where
         // For now we multiply by 2 since we do not give signatures for burn_txs. // TODO: Change this in future.
         let num_required_nonces = 2 * self.operator_xonly_pks.len() + 1;
 
-        // Check if we already have pub_nonces for this deposit_utxo.
+        // Check if we already have pub_nonces for this deposit_outpoint.
         let pub_nonces_from_db = self.db.get_pub_nonces(deposit_outpoint).await?;
         if let Some(pub_nonces) = pub_nonces_from_db {
             if !pub_nonces.is_empty() {
@@ -529,23 +529,23 @@ where
 {
     async fn verifier_new_deposit_rpc(
         &self,
-        deposit_utxo: OutPoint,
+        deposit_outpoint: OutPoint,
         recovery_taproot_address: Address<NetworkUnchecked>,
         evm_address: EVMAddress,
     ) -> Result<Vec<MuSigPubNonce>, BridgeError> {
-        self.new_deposit(deposit_utxo, recovery_taproot_address, evm_address)
+        self.new_deposit(deposit_outpoint, recovery_taproot_address, evm_address)
             .await
     }
 
     async fn operator_kickoffs_generated_rpc(
         &self,
-        deposit_utxo: OutPoint,
+        deposit_outpoint: OutPoint,
         kickoff_utxos: Vec<UTXO>,
         operators_kickoff_sigs: Vec<schnorr::Signature>,
         agg_nonces: Vec<MuSigAggNonce>,
     ) -> Result<(Vec<MuSigPartialSignature>, Vec<MuSigPartialSignature>), BridgeError> {
         self.operator_kickoffs_generated(
-            deposit_utxo,
+            deposit_outpoint,
             kickoff_utxos,
             operators_kickoff_sigs,
             agg_nonces,
@@ -555,20 +555,20 @@ where
 
     async fn burn_txs_signed_rpc(
         &self,
-        deposit_utxo: OutPoint,
+        deposit_outpoint: OutPoint,
         burn_sigs: Vec<schnorr::Signature>,
         slash_or_take_sigs: Vec<schnorr::Signature>,
     ) -> Result<Vec<MuSigPartialSignature>, BridgeError> {
-        self.burn_txs_signed(deposit_utxo, burn_sigs, slash_or_take_sigs)
+        self.burn_txs_signed(deposit_outpoint, burn_sigs, slash_or_take_sigs)
             .await
     }
 
     async fn operator_take_txs_signed_rpc(
         &self,
-        deposit_utxo: OutPoint,
+        deposit_outpoint: OutPoint,
         operator_take_sigs: Vec<schnorr::Signature>,
     ) -> Result<MuSigPartialSignature, BridgeError> {
-        self.operator_take_txs_signed(deposit_utxo, operator_take_sigs)
+        self.operator_take_txs_signed(deposit_outpoint, operator_take_sigs)
             .await
     }
 }

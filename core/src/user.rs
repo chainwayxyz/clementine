@@ -57,11 +57,11 @@ where
             self.config.user_takes_after,
         );
 
-        let deposit_utxo = self
+        let deposit_outpoint = self
             .rpc
             .send_to_address(&deposit_address, self.config.bridge_amount_sats)?;
 
-        Ok((deposit_utxo, self.signer.xonly_public_key, evm_address))
+        Ok((deposit_outpoint, self.signer.xonly_public_key, evm_address))
     }
 
     pub fn get_deposit_address(&self, evm_address: EVMAddress) -> Result<Address, BridgeError> {
