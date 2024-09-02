@@ -23,13 +23,6 @@ jobs:
       uses: Swatinem/rust-cache@v2
       with:
         shared-key: "debug-build"
-        save-if: true
-        cache-directories: |
-          ~/.cargo/bin/
-          ~/.cargo/registry/index/
-          ~/.cargo/registry/cache/
-          ~/.cargo/git/db/
-          target/
 
     - name: Compile in debug mode
       run: cargo build $CARGOFLAGS
@@ -45,13 +38,6 @@ jobs:
       uses: Swatinem/rust-cache@v2
       with:
         shared-key: "release-build"
-        save-if: true
-        cache-directories: |
-          ~/.cargo/bin/
-          ~/.cargo/registry/index/
-          ~/.cargo/registry/cache/
-          ~/.cargo/git/db/
-          target/
 
     - name: Compile in release mode
       run: cargo build $CARGOFLAGS --release
@@ -85,16 +71,7 @@ jobs:
       uses: Swatinem/rust-cache@v2
       with:
         shared-key: "debug-build"
-        save-if: true
-        cache-directories: |
-          ~/.cargo/bin/
-          ~/.cargo/registry/index/
-          ~/.cargo/registry/cache/
-          ~/.cargo/git/db/
-          target/
 
-    - name: Debug mode cache warm up with max paralel jobs
-      run: cargo build $CARGOFLAGS
     - name: Run tests on Bitcoin regtest
       run: cargo test --verbose --jobs 1
 
@@ -126,13 +103,6 @@ jobs:
       uses: Swatinem/rust-cache@v2
       with:
         shared-key: "debug-build"
-        save-if: true
-        cache-directories: |
-          ~/.cargo/bin/
-          ~/.cargo/registry/index/
-          ~/.cargo/registry/cache/
-          ~/.cargo/git/db/
-          target/
 
     - name: Run tests on mock RPC
       run: cargo test --verbose --features mock_rpc
@@ -165,16 +135,7 @@ jobs:
       uses: Swatinem/rust-cache@v2
       with:
         shared-key: "release-build"
-        save-if: true
-        cache-directories: |
-          ~/.cargo/bin/
-          ~/.cargo/registry/index/
-          ~/.cargo/registry/cache/
-          ~/.cargo/git/db/
-          target/
 
-    - name: Release mode cache warm up with max paralel jobs
-      run: cargo build $CARGOFLAGS --release
     - name: Run tests on Bitcoin regtest with release build
       run: cargo test --verbose --jobs 1 --release
 
@@ -206,13 +167,6 @@ jobs:
       uses: Swatinem/rust-cache@v2
       with:
         shared-key: "release-build"
-        save-if: true
-        cache-directories: |
-          ~/.cargo/bin/
-          ~/.cargo/registry/index/
-          ~/.cargo/registry/cache/
-          ~/.cargo/git/db/
-          target/
 
     - name: Run tests on mock RPC with release build
       run: cargo test --verbose --features mock_rpc --release
