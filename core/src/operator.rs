@@ -217,7 +217,7 @@ where
                 .signer
                 .sign(TapSighash::from_byte_array(kickoff_sig_hash));
 
-            // In a db tx, save the kickoff_utxo for this deposit_utxo
+            // In a db tx, save the kickoff_utxo for this deposit_outpoint
             // and update the db with the new funding_utxo as the change
 
             let db_transaction = self.db.begin_transaction().await?;
@@ -521,11 +521,11 @@ where
 {
     async fn new_deposit_rpc(
         &self,
-        deposit_utxo: OutPoint,
+        deposit_outpoint: OutPoint,
         recovery_taproot_address: Address<NetworkUnchecked>,
         evm_address: EVMAddress,
     ) -> Result<(UTXO, secp256k1::schnorr::Signature), BridgeError> {
-        self.new_deposit(deposit_utxo, recovery_taproot_address, evm_address)
+        self.new_deposit(deposit_outpoint, recovery_taproot_address, evm_address)
             .await
     }
 
