@@ -40,6 +40,12 @@ pub struct BridgeConfig {
     pub operators_xonly_pks: Vec<secp256k1::XOnlyPublicKey>,
     /// Number of operators.
     pub num_operators: usize,
+    /// Number of blocks after which user can take deposit back if deposit request fails.
+    pub user_takes_after: u32,
+    /// Number of blocks after which operator can take reimburse the bridge fund if they are honest.
+    pub operator_takes_after: u32,
+    /// Bridge amount in satoshis.
+    pub bridge_amount_sats: u64,
     /// Threshold for confirmation.
     pub confirmation_threshold: u32,
     /// Bitcoin remote procedure call URL.
@@ -132,7 +138,10 @@ impl Default for BridgeConfig {
             verifiers_public_keys: vec![],
             num_verifiers: 5,
             operators_xonly_pks: vec![],
-            num_operators: 4,
+            num_operators: 5,
+            user_takes_after: 5,
+            operator_takes_after: 5,
+            bridge_amount_sats: 100_000_000,
             confirmation_threshold: 1,
             network: Network::Regtest,
             bitcoin_rpc_url: "http://127.0.0.1:18443".to_string(),

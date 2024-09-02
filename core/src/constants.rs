@@ -1,12 +1,12 @@
 use bitcoin::BlockHash;
-use clementine_circuits::constants::CLAIM_MERKLE_TREE_DEPTH;
+// use clementine_circuits::constants::CLAIM_MERKLE_TREE_DEPTH;
 use crypto_bigint::U256;
 
 /// For connector tree utxos, we should wait some time for any verifier to burn the branch if preimage is revealed
 pub const CONNECTOR_TREE_OPERATOR_TAKES_AFTER: u16 = 1;
 
 /// Depth of the utxo tree from the source connector utxo, it is probably equal to claim merkle tree depth
-pub const CONNECTOR_TREE_DEPTH: usize = CLAIM_MERKLE_TREE_DEPTH;
+// pub const CONNECTOR_TREE_DEPTH: usize = CLAIM_MERKLE_TREE_DEPTH;
 
 /// Dust value for mempool acceptance
 pub const DUST_VALUE: u64 = 1000;
