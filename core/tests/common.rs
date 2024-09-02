@@ -1,6 +1,5 @@
 // //! # Common utilities for tests
 
-use bitcoin::Address;
 use bitcoin::OutPoint;
 use clementine_core::actor::Actor;
 use clementine_core::config::BridgeConfig;
@@ -14,7 +13,6 @@ use clementine_core::traits::rpc::OperatorRpcClient;
 use clementine_core::traits::rpc::VerifierRpcClient;
 use clementine_core::user::User;
 use clementine_core::EVMAddress;
-use clementine_core::UTXO;
 use clementine_core::{
     create_extended_rpc, create_test_config, create_test_config_with_thread_name,
 };
@@ -83,29 +81,7 @@ pub async fn run_single_deposit(
     let mut kickoff_utxos = Vec::new();
     let mut signatures = Vec::new();
 
-    for (i, (client, _, _)) in operators.iter().enumerate() {
-        // Send operators some bitcoin so that they can afford the kickoff tx
-        let secp = bitcoin::secp256k1::Secp256k1::new();
-        let operator_internal_xonly_pk = config.operators_xonly_pks.get(i).unwrap();
-        let operator_address =
-            Address::p2tr(&secp, *operator_internal_xonly_pk, None, config.network);
-        let operator_funding_outpoint = rpc
-            .send_to_address(&operator_address, 2 * config.bridge_amount_sats)
-            .unwrap();
-        let operator_funding_txout = rpc
-            .get_txout_from_outpoint(&operator_funding_outpoint)
-            .unwrap();
-        let operator_funding_utxo = UTXO {
-            outpoint: operator_funding_outpoint,
-            txout: operator_funding_txout,
-        };
-
-        // tracing::debug!("Operator {:?} funding utxo: {:?}", i, operator_funding_utxo);
-        client
-            .set_funding_utxo_rpc(operator_funding_utxo)
-            .await
-            .unwrap();
-
+    for (client, _, _) in operators.iter() {
         // Create deposit kickoff transaction
         let (kickoff_utxo, signature) = client
             .new_deposit_rpc(deposit_outpoint, signer_address.clone(), evm_address)
