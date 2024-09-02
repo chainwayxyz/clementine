@@ -42,7 +42,7 @@ jobs:
     - name: Compile in release mode
       run: cargo build $CARGOFLAGS --release
 
-# Test -------------------------------------------------------------------------
+# Test ------------------------------------------------------------------------
   debug_mode_test_with_regtest:
     name: Test code in debug mode with Bitcoin Regtest
     runs-on: ubicloud-standard-16
