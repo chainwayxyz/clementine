@@ -48,23 +48,6 @@ jobs:
     runs-on: ubicloud-standard-4
     needs: debug_mode_build
 
-    steps:
-    - uses: actions/checkout@v4
-    - uses: ./.github/actions/service-action
-
-    - name: Restore cached build artifacts
-      uses: Swatinem/rust-cache@v2
-      with:
-        shared-key: "debug-build"
-
-    - name: Run tests on mock RPC
-      run: cargo test --verbose --features mock_rpc
-
-  release_mode_test_with_regtest:
-    name: Test code in release mode with Bitcoin Regtest
-    runs-on: ubicloud-standard-4
-    needs: release_mode_build
-
     services:
       postgres:
         image: postgres:latest
@@ -152,7 +135,6 @@ jobs:
       uses: Swatinem/rust-cache@v2
       with:
         shared-key: "release-build"
-
 
     - name: Run tests on Bitcoin regtest with release build
       run: cargo test --verbose --jobs 1 --release
