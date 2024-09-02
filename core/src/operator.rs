@@ -176,13 +176,13 @@ where
                 .signer
                 .sign_taproot_pubkey_spend(&mut kickoff_tx_handler, 0, None)?;
             handle_taproot_witness_new(&mut kickoff_tx_handler, &[sig.as_ref()], 0, None)?;
+            tracing::debug!(
+                "Created kickoff tx with weight: {:#?}",
+                kickoff_tx_handler.tx.weight()
+            );
             // tracing::debug!(
-            //     "Created kickoff tx with weight: {:#?}",
-            //     kickoff_tx_handler.tx.weight()
-            // );
-            // tracing::debug!(
-            //     "Created kickoff tx with vsize: {:#?}",
-            //     kickoff_tx_handler.tx.vsize()
+            //     "Created kickoff tx: {:#?}",
+            //     kickoff_tx_handler.tx.raw_hex()
             // );
             // tracing::debug!(
             //     "For operator index: {:?} Kickoff tx handler: {:#?}",

@@ -204,7 +204,12 @@ impl TransactionBuilder {
         network: bitcoin::Network,
         num_kickoff_utxos_per_tx: usize,
     ) -> TxHandler {
-        let kickoff_tx_min_relay_fee = 154 + 43 * num_kickoff_utxos_per_tx;
+        let kickoff_tx_min_relay_fee = match num_kickoff_utxos_per_tx {
+            0..=250 => 154 + 43 * num_kickoff_utxos_per_tx, // Handles all values from 0 to 250
+            _ => 156 + 43 * num_kickoff_utxos_per_tx,       // Handles all other values
+        };
+
+        //  = 154 + 43 * num_kickoff_utxos_per_tx;
         let tx_ins = TransactionBuilder::create_tx_ins(vec![funding_utxo.outpoint]);
         let musig2_and_operator_script = script_builder::create_musig2_and_operator_multisig_script(
             nofn_xonly_pk,
