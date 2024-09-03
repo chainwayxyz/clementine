@@ -258,7 +258,7 @@ impl Aggregator {
         partial_sigs: Vec<Vec<MuSigPartialSignature>>,
     ) -> Result<Vec<schnorr::Signature>, BridgeError> {
         let mut operator_take_sigs = Vec::new();
-        for i in 0..partial_sigs.len() {
+        for i in 0..partial_sigs[0].len() {
             let agg_sig = self.aggregate_operator_takes_partial_sigs(
                 deposit_outpoint,
                 kickoff_utxos[i].clone(),

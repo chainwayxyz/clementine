@@ -9,7 +9,7 @@ async fn main() {
         config.bitcoin_rpc_password.clone(),
     );
 
-    let (operator_clients, verifier_clients, aggregator) =
+    let (verifier_clients, operator_clients, aggregator) =
         create_verifiers_and_operators("test_config.toml").await;
 
     println!(
