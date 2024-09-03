@@ -111,6 +111,11 @@ pub async fn create_aggregator_server(
     Ok((client, handle, addr))
 }
 
+fn is_test_env() -> bool {
+    // if thread name is not main then it is a test
+    thread::current().name().unwrap_or_default() != "main"
+}
+
 /// Starts operators and verifiers servers. This function's intended use is for
 /// tests.
 ///
@@ -131,6 +136,7 @@ pub async fn create_verifiers_and_operators(
     (HttpClient, ServerHandle, std::net::SocketAddr),      // Aggregator client
 ) {
     let mut config = create_test_config_with_thread_name!(config_name);
+    let start_port = config.port;
     let rpc = create_extended_rpc!(config);
     let all_verifiers_secret_keys = config.all_verifiers_secret_keys.clone().unwrap_or_else(|| {
         panic!("All secret keys of the verifiers are required for testing");
@@ -139,6 +145,8 @@ pub async fn create_verifiers_and_operators(
         .iter()
         .enumerate()
         .map(|(i, sk)| {
+            let port = start_port + i as u16;
+            // println!("Port: {}", port);
             let i = i.to_string();
             let rpc = rpc.clone();
             async move {
@@ -147,7 +155,7 @@ pub async fn create_verifiers_and_operators(
                 let verifier = create_verifier_server(
                     BridgeConfig {
                         secret_key: *sk,
-                        port: 0,
+                        port: if is_test_env() { 0 } else { port },
                         ..config_with_new_db.clone()
                     },
                     rpc,
@@ -184,6 +192,8 @@ pub async fn create_verifiers_and_operators(
         .iter()
         .enumerate()
         .map(|(i, sk)| {
+            let port = start_port + i as u16 + all_verifiers_secret_keys.len() as u16;
+            println!("Port: {}", port);
             // let i_str = (i + 1000).to_string();
             let rpc = rpc.clone();
             let verifier_config = verifier_configs[i].clone();
@@ -191,7 +201,7 @@ pub async fn create_verifiers_and_operators(
                 create_operator_server(
                     BridgeConfig {
                         secret_key: *sk,
-                        port: 0,
+                        port: if is_test_env() { 0 } else { port },
                         ..verifier_config
                     },
                     rpc,
@@ -228,7 +238,16 @@ pub async fn create_verifiers_and_operators(
             .unwrap();
     }
     let config = create_test_config_with_thread_name!(config_name);
-    let aggregator = create_aggregator_server(config.clone()).await.unwrap();
+    println!("Port: {}", start_port);
+    let port = start_port
+        + all_verifiers_secret_keys.len() as u16
+        + all_operators_secret_keys.len() as u16;
+    let aggregator = create_aggregator_server(BridgeConfig {
+        port: if is_test_env() { 0 } else { port },
+        ..config
+    })
+    .await
+    .unwrap();
 
     (verifier_endpoints, operator_endpoints, aggregator)
 }
