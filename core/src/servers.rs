@@ -111,13 +111,10 @@ pub async fn create_aggregator_server(
     Ok((client, handle, addr))
 }
 
-
-
 fn is_test_env() -> bool {
     // if thread name is not main then it is a test
     thread::current().name().unwrap_or_default() != "main"
 }
-
 
 /// Starts operators and verifiers servers. This function's intended use is for
 /// tests.
