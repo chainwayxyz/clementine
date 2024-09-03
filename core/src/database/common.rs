@@ -660,8 +660,47 @@ mod tests {
         hashes::Hash, Address, Amount, OutPoint, ScriptBuf, TxOut, Txid, XOnlyPublicKey,
     };
     use crypto_bigint::rand_core::OsRng;
-    use secp256k1::Secp256k1;
+    use secp256k1::constants::SCHNORR_SIGNATURE_SIZE;
+    use secp256k1::{schnorr, Secp256k1};
     use std::thread;
+
+    #[tokio::test]
+    async fn test_database_gets_previously_saved_operator_take_signature() {
+        let config = create_test_config_with_thread_name!("test_config.toml");
+        let database = Database::new(config).await.unwrap();
+
+        let deposit_outpoint = OutPoint::null();
+        let outpoint = OutPoint {
+            txid: Txid::from_byte_array([1u8; 32]),
+            vout: 1,
+        };
+        let kickoff_utxo = UTXO {
+            outpoint,
+            txout: TxOut {
+                value: Amount::from_sat(100),
+                script_pubkey: ScriptBuf::from(vec![1u8]),
+            },
+        };
+        let signature = schnorr::Signature::from_slice(&[0u8; SCHNORR_SIGNATURE_SIZE]).unwrap();
+
+        database
+            .save_kickoff_utxos(deposit_outpoint, &[kickoff_utxo.clone()])
+            .await
+            .unwrap();
+
+        database
+            .save_operator_take_sigs(deposit_outpoint, [(kickoff_utxo.clone(), signature)])
+            .await
+            .unwrap();
+
+        let actual_sig = database
+            .get_operator_take_sig(deposit_outpoint, kickoff_utxo)
+            .await
+            .unwrap();
+        let expected_sig = Some(signature);
+
+        assert_eq!(actual_sig, expected_sig);
+    }
 
     #[tokio::test]
     #[should_panic]
