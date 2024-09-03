@@ -1,6 +1,6 @@
 tracing_debug = "debug,bitcoincore_rpc=info,hyper=error"
 host = "127.0.0.1"
-port = 3000
+port = 17000
 secret_key = "5555555555555555555555555555555555555555555555555555555555555555"
 verifiers_public_keys = [
     "034f355bdcb7cc0af728ef3cceb9615d90684bb5b2ca5f859ab0f0b704075871aa",
