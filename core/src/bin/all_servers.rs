@@ -1,4 +1,7 @@
-use clementine_core::{cli, extended_rpc::ExtendedRpc, musig2::AggregateFromPublicKeys, servers::create_verifiers_and_operators};
+use clementine_core::{
+    cli, extended_rpc::ExtendedRpc, musig2::AggregateFromPublicKeys,
+    servers::create_verifiers_and_operators,
+};
 
 #[tokio::main]
 async fn main() {
