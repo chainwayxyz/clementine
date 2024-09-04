@@ -231,6 +231,13 @@ impl Aggregator {
         agg_nonces: Vec<MuSigAggNonce>,
         partial_sigs: Vec<Vec<MuSigPartialSignature>>,
     ) -> Result<Vec<schnorr::Signature>, BridgeError> {
+        tracing::debug!(
+            "Aggregate slash or take sigs called with inputs: {:?}\n {:?}\n{:?}\n{:?}",
+            deposit_outpoint,
+            kickoff_utxos,
+            agg_nonces,
+            partial_sigs
+        );
         let mut slash_or_take_sigs = Vec::new();
         for i in 0..partial_sigs[0].len() {
             let agg_sig = self.aggregate_slash_or_take_partial_sigs(
