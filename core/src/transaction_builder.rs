@@ -2,6 +2,7 @@
 
 use crate::{script_builder, utils, EVMAddress, UTXO};
 use bitcoin::address::NetworkUnchecked;
+use bitcoin::hashes::Hash;
 use bitcoin::script::PushBytesBuf;
 use bitcoin::Network;
 use bitcoin::{
@@ -312,7 +313,7 @@ impl TransactionBuilder {
             Some(*nofn_xonly_pk),
             network,
         );
-        let mut op_return_script: Vec<u8> = hex::decode(move_txid.to_string()).unwrap();
+        let mut op_return_script = move_txid.to_byte_array().to_vec();
         op_return_script.extend(utils::usize_to_var_len_bytes(operator_idx));
         let mut push_bytes = PushBytesBuf::new();
         push_bytes.extend_from_slice(&op_return_script).unwrap();
