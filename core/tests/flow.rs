@@ -2,16 +2,18 @@
 // //!
 // //! This testss checks if basic deposit and withdraw operations are OK or not.
 
+use std::str::FromStr;
+
 use bitcoin::consensus::deserialize;
 use bitcoin::consensus::encode::deserialize_hex;
-use bitcoin::{Address, Amount, OutPoint, TxOut};
+use bitcoin::{Address, Amount, OutPoint, ScriptBuf, TxOut};
 use clementine_core::extended_rpc::ExtendedRpc;
 use clementine_core::servers::{create_aggregator_server, create_verifiers_and_operators};
 use clementine_core::traits::rpc::AggregatorClient;
-use clementine_core::{create_test_config_with_thread_name, ByteArray66, UTXO};
 use clementine_core::{
     create_extended_rpc, errors::BridgeError, traits::rpc::OperatorRpcClient, user::User,
 };
+use clementine_core::{create_test_config_with_thread_name, ByteArray66, UTXO};
 use common::run_single_deposit;
 use secp256k1::SecretKey;
 
@@ -77,29 +79,48 @@ async fn test_honest_operator_takes_refund() {
 #[tokio::test]
 async fn test_aggregator() {
     let deposit_outpoint: OutPoint =
-    deserialize_hex("3f3a8e89541fe269e8ab36f70eeacc7cff3ede08fef2cec689aa44125c8ab422:1").unwrap();
+        OutPoint::from_str("3f3a8e89541fe269e8ab36f70eeacc7cff3ede08fef2cec689aa44125c8ab422:1")
+            .unwrap();
     let kickoff_utxos: Vec<UTXO> = vec![
-      UTXO {
-        outpoint: deserialize_hex("fa6dcd0558331ba0a7d9a27bf94b20656b3090430902e875907bcfa823a38744:0").unwrap(),
-        txout: TxOut {
-          value: Amount::from_sat(100000),
-          script_pubkey: deserialize_hex("5120b23da6d2e0390018b953f7d74e3582da4da30fd0fd157cc84a2d2753003d1ca3").unwrap()
-        }
-      },
-      UTXO {
-        outpoint: deserialize_hex("6f45488d33bec4b8a6d4a487713ba835a73faec3c91c079328abc18719314b8a:0").unwrap(),
-        txout: TxOut {
-          value: Amount::from_sat(100000),
-          script_pubkey: deserialize_hex("51202ba7624eb001a94e358ebd0ab125d507ac965e780684dc27bc14a4fde262b31c").unwrap()
-        }
-      },
-      UTXO{
-        outpoint: deserialize_hex("4f64a93e182837a838e27e92661f1b9faeb22735dece64d1026d3437c283be66:0").unwrap(),
-        txout: TxOut {
-          value: Amount::from_sat(100000),
-          script_pubkey: deserialize_hex("51201705dd472480320989f1a399b9a71fb397b437605f9b718ddbe058815467b6d8").unwrap()
-        }
-      }
+        UTXO {
+            outpoint: OutPoint::from_str(
+                "fa6dcd0558331ba0a7d9a27bf94b20656b3090430902e875907bcfa823a38744:0",
+            )
+            .unwrap(),
+            txout: TxOut {
+                value: Amount::from_sat(100000),
+                script_pubkey: ScriptBuf::from_hex(
+                    "5120b23da6d2e0390018b953f7d74e3582da4da30fd0fd157cc84a2d2753003d1ca3",
+                )
+                .unwrap(),
+            },
+        },
+        UTXO {
+            outpoint: OutPoint::from_str(
+                "6f45488d33bec4b8a6d4a487713ba835a73faec3c91c079328abc18719314b8a:0",
+            )
+            .unwrap(),
+            txout: TxOut {
+                value: Amount::from_sat(100000),
+                script_pubkey: ScriptBuf::from_hex(
+                    "51202ba7624eb001a94e358ebd0ab125d507ac965e780684dc27bc14a4fde262b31c",
+                )
+                .unwrap(),
+            },
+        },
+        UTXO {
+            outpoint: OutPoint::from_str(
+                "4f64a93e182837a838e27e92661f1b9faeb22735dece64d1026d3437c283be66:0",
+            )
+            .unwrap(),
+            txout: TxOut {
+                value: Amount::from_sat(100000),
+                script_pubkey: ScriptBuf::from_hex(
+                    "51201705dd472480320989f1a399b9a71fb397b437605f9b718ddbe058815467b6d8",
+                )
+                .unwrap(),
+            },
+        },
     ];
     let agg_nonces: Vec<ByteArray66> = vec![
           ByteArray66(hex::decode("034bc37f0be6e93a2f19170c7a4b07f63897cdff075ed088a643ca945acaa86fa60392d477a293910ea446987a2e0c8107bfc4b93cedcb2ad4478e61b30cd3fca475").unwrap().try_into().unwrap()),
@@ -206,11 +227,12 @@ async fn test_aggregator() {
             ],
         ],
     ];
-    let (_, _, aggregator) =
-        create_verifiers_and_operators("test_config.toml").await;
+    let (_, _, aggregator) = create_verifiers_and_operators("test_config.toml").await;
 
-    let result = aggregator.0.aggregate_slash_or_take_sigs_rpc(deposit_outpoint, kickoff_utxos, agg_nonces, partial_sigs).await.unwrap();
+    let result = aggregator
+        .0
+        .aggregate_slash_or_take_sigs_rpc(deposit_outpoint, kickoff_utxos, agg_nonces, partial_sigs)
+        .await
+        .unwrap();
     println!("{:?}", result);
-
-    
 }
