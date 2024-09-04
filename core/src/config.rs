@@ -143,7 +143,7 @@ impl Default for BridgeConfig {
             num_operators: 5,
             user_takes_after: 5,
             operator_takes_after: 5,
-            bridge_amount_sats: 100_000_000,
+            bridge_amount_sats: 1_000_000_000,
             operator_num_kickoff_utxos_per_tx: 10,
             confirmation_threshold: 1,
             network: Network::Regtest,
