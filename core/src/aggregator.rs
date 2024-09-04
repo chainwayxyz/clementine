@@ -12,8 +12,9 @@ use crate::{
     EVMAddress, UTXO,
 };
 use async_trait::async_trait;
-use bitcoin::hashes::Hash;
-use bitcoin::{address::NetworkUnchecked, Address, OutPoint, Transaction};
+use bitcoin::{hashes::Hash, Txid};
+use bitcoin::{address::NetworkUnchecked, Address, OutPoint};
+use bitcoincore_rpc::RawTx;
 use secp256k1::schnorr;
 
 /// Aggregator struct.
@@ -287,7 +288,7 @@ impl Aggregator {
         evm_address: EVMAddress,
         agg_nonce: MuSigAggNonce,
         partial_sigs: Vec<MuSigPartialSignature>,
-    ) -> Result<Transaction, BridgeError> {
+    ) -> Result<(String, Txid), BridgeError> {
         let agg_move_tx_final_sig = self.aggregate_move_partial_sigs(
             deposit_outpoint,
             &evm_address,
@@ -310,7 +311,8 @@ impl Aggregator {
         let move_tx_witness_elements = vec![move_tx_sig.serialize().to_vec()];
         handle_taproot_witness_new(&mut move_tx_handler, &move_tx_witness_elements, 0, Some(0))?;
 
-        Ok(move_tx_handler.tx)
+        let txid = move_tx_handler.tx.compute_txid();
+        Ok((move_tx_handler.tx.raw_hex(), txid))
     }
 }
 
@@ -352,7 +354,7 @@ impl AggregatorServer for Aggregator {
         evm_address: EVMAddress,
         agg_nonce: MuSigAggNonce,
         partial_sigs: Vec<MuSigPartialSignature>,
-    ) -> Result<Transaction, BridgeError> {
+    ) -> Result<(String, Txid), BridgeError> {
         self.aggregate_move_tx_sigs(
             deposit_outpoint,
             recovery_taproot_address,

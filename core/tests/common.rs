@@ -1,6 +1,8 @@
 // //! # Common utilities for tests
 
+use bitcoin::consensus::encode::deserialize_hex;
 use bitcoin::OutPoint;
+use bitcoin::Transaction;
 use clementine_core::actor::Actor;
 use clementine_core::config::BridgeConfig;
 use clementine_core::database::common::Database;
@@ -159,7 +161,7 @@ pub async fn run_single_deposit(
 
     // aggreagte move_tx_partial_sigs
 
-    let move_tx = aggregator
+    let (move_tx, _) = aggregator
         .0
         .aggregate_move_tx_sigs_rpc(
             deposit_outpoint,
@@ -170,6 +172,7 @@ pub async fn run_single_deposit(
         )
         .await
         .unwrap();
+    let move_tx: Transaction = deserialize_hex(&move_tx).unwrap();
     // tracing::debug!("Move tx: {:#?}", move_tx);
     // tracing::debug!("Move tx_hex: {:?}", move_tx_handler.tx.raw_hex());
     tracing::debug!("Move tx weight: {:?}", move_tx.weight());
@@ -180,6 +183,8 @@ pub async fn run_single_deposit(
 
 #[cfg(test)]
 mod tests {
+    use bitcoin::consensus::encode::deserialize_hex;
+    use bitcoin::Transaction;
     use clementine_core::actor::Actor;
     use clementine_core::database::common::Database;
     use clementine_core::extended_rpc::ExtendedRpc;
@@ -432,7 +437,7 @@ mod tests {
 
         // aggreagte move_tx_partial_sigs
 
-        let _move_tx = aggregator
+        let (_move_tx, _) = aggregator
             .0
             .aggregate_move_tx_sigs_rpc(
                 deposit_outpoint,
@@ -444,7 +449,7 @@ mod tests {
             .await
             .unwrap();
 
-        let move_tx_retry = aggregator
+        let (move_tx_retry, _) = aggregator
             .0
             .aggregate_move_tx_sigs_rpc(
                 deposit_outpoint,
@@ -456,6 +461,7 @@ mod tests {
             .await
             .unwrap();
 
+        let move_tx_retry: Transaction = deserialize_hex(&move_tx_retry).unwrap();
         // tracing::debug!("Move tx: {:#?}", move_tx);
         // tracing::debug!("Move tx_hex: {:?}", move_tx_handler.tx.raw_hex());
         tracing::debug!("Move tx retry weight: {:?}", move_tx_retry.weight());
