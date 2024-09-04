@@ -94,6 +94,7 @@ where
         // Check if we already have pub_nonces for this deposit_outpoint.
         let pub_nonces_from_db = self.db.get_pub_nonces(deposit_outpoint).await?;
         if let Some(pub_nonces) = pub_nonces_from_db {
+            tracing::debug!("AAAAAAAA");
             if !pub_nonces.is_empty() {
                 if pub_nonces.len() != num_required_nonces {
                     return Err(BridgeError::NoncesNotFound);

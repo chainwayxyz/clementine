@@ -438,16 +438,17 @@ impl Database {
         .fetch_optional(&self.connection)
         .await?
         .unwrap();
+
         for agg_nonce in agg_nonces {
-            // After finding the idx deposit_outpoint might be unnecessary
+            // Only update the row if agg_nonce is NULL
             sqlx::query(
-                "UPDATE nonces SET agg_nonce = $1 WHERE idx = $2 AND deposit_outpoint = $3;",
-            )
-            .bind(agg_nonce)
-            .bind(idx)
-            .bind(OutPointDB(deposit_outpoint))
-            .execute(&self.connection)
-            .await?;
+            "UPDATE nonces SET agg_nonce = $1 WHERE idx = $2 AND deposit_outpoint = $3 AND agg_nonce IS NULL;",
+        )
+        .bind(agg_nonce)
+        .bind(idx)
+        .bind(OutPointDB(deposit_outpoint))
+        .execute(&self.connection)
+        .await?;
             idx += 1;
         }
 
