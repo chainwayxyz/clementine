@@ -138,6 +138,14 @@ where
         operators_kickoff_sigs: Vec<secp256k1::schnorr::Signature>, // These are not transaction signatures, rather, they are to verify the operator's identity.
         agg_nonces: Vec<MuSigAggNonce>, // This includes all the agg_nonces for the bridge operations.
     ) -> Result<(Vec<MuSigPartialSignature>, Vec<MuSigPartialSignature>), BridgeError> {
+        tracing::debug!(
+            "Operatos kickoffs generated is called with data: {:?}, {:?}, {:?}, {:?}",
+            deposit_outpoint,
+            kickoff_utxos,
+            operators_kickoff_sigs,
+            agg_nonces
+        );
+
         if operators_kickoff_sigs.len() != kickoff_utxos.len() {
             return Err(BridgeError::InvalidKickoffUtxo); // TODO: Better error
         }
@@ -201,6 +209,11 @@ where
             slash_or_take_sighashes.push(slash_or_take_tx_sighash.to_byte_array());
             // let spend_kickoff_utxo_tx_handler = TransactionBuilder::create_slash_or_take_tx(deposit_outpoint, kickoff_outpoint, kickoff_txout, operator_address, operator_idx, nofn_xonly_pk, network)
         }
+        tracing::debug!(
+            "Slash or take sighashes for verifier: {:?}: {:?}",
+            self.signer.xonly_public_key.to_string(),
+            slash_or_take_sighashes
+        );
 
         let nonces = self
             .db

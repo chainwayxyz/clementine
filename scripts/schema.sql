@@ -31,7 +31,7 @@ create table if not exists nonces (
     deposit_outpoint text not null check (deposit_outpoint ~ '^[a-fA-F0-9]{64}:(0|[1-9][0-9]{0,9})$'),
     pub_nonce bytea not null check (length(pub_nonce) = 66),
     sec_nonce text not null check (sec_nonce ~ '^[a-fA-F0-9]{128}$'),
-    agg_nonce bytea check (length(pub_nonce) = 66),
+    agg_nonce bytea check (length(agg_nonce) = 66),
     sighash text check (sighash ~ '^[a-fA-F0-9]{64}'), /* 32 bytes */
     created_at timestamp not null default now()
 );

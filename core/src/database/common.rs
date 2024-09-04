@@ -307,7 +307,7 @@ impl Database {
             //     txout_db: TxOutDB(utxo.txout.clone()),
             // }).unwrap());
             sqlx::query(
-                "INSERT INTO deposit_kickoff_utxos (deposit_outpoint, kickoff_utxo) VALUES ($1, $2);",
+                "INSERT INTO deposit_kickoff_utxos (deposit_outpoint, kickoff_utxo) VALUES ($1, $2) ON CONFLICT (deposit_outpoint, kickoff_utxo) DO NOTHING;",
             )
             .bind(OutPointDB(deposit_outpoint))
             .bind(sqlx::types::Json(UTXODB {
