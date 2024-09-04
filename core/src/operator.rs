@@ -195,7 +195,7 @@ where
                     txid: kickoff_tx_handler.tx.compute_txid(),
                     vout: self.config.operator_num_kickoff_utxos_per_tx as u32,
                 },
-                txout: kickoff_tx_handler.tx.output[1].clone(),
+                txout: kickoff_tx_handler.tx.output[self.config.operator_num_kickoff_utxos_per_tx].clone(),
             };
 
             let kickoff_utxo = UTXO {
