@@ -88,7 +88,7 @@ async fn test_musig2_key_spend() {
                 merkle_root,
                 true,
                 nonce_pair.0,
-                agg_nonce.clone(),
+                agg_nonce,
                 kp,
                 message,
             )
@@ -192,7 +192,7 @@ async fn test_musig2_key_spend_with_script() {
                 merkle_root,
                 true,
                 nonce_pair.0,
-                agg_nonce.clone(),
+                agg_nonce,
                 kp,
                 message,
             )
@@ -300,7 +300,7 @@ async fn test_musig2_script_spend() {
                 None,
                 false,
                 nonce_pair.0,
-                agg_nonce.clone(),
+                agg_nonce,
                 kp,
                 message,
             )

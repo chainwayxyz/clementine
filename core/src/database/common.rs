@@ -760,7 +760,7 @@ mod tests {
             .collect();
         let agg_nonces: Vec<MuSigAggNonce> = nonce_pairs
             .iter()
-            .map(|(_, pub_nonce)| pub_nonce.clone())
+            .map(|(_, pub_nonce)| *pub_nonce)
             .collect();
         db.save_nonces(outpoint, &nonce_pairs).await.unwrap();
         db.save_agg_nonces(outpoint, &agg_nonces).await.unwrap();
@@ -800,7 +800,7 @@ mod tests {
             .collect();
         let agg_nonces: Vec<MuSigAggNonce> = nonce_pairs
             .iter()
-            .map(|(_, pub_nonce)| pub_nonce.clone())
+            .map(|(_, pub_nonce)| *pub_nonce)
             .collect();
         db.save_nonces(outpoint, &nonce_pairs).await.unwrap();
         db.save_agg_nonces(outpoint, &agg_nonces).await.unwrap();
@@ -845,7 +845,7 @@ mod tests {
             .collect();
         let agg_nonces: Vec<MuSigAggNonce> = nonce_pairs
             .iter()
-            .map(|(_, pub_nonce)| pub_nonce.clone())
+            .map(|(_, pub_nonce)| *pub_nonce)
             .collect();
         db.save_nonces(outpoint, &nonce_pairs).await.unwrap();
         db.save_agg_nonces(outpoint, &agg_nonces).await.unwrap();

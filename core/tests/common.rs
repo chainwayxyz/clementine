@@ -168,7 +168,7 @@ pub async fn run_single_deposit(
             deposit_outpoint,
             signer_address,
             evm_address,
-            agg_nonces[0].clone(),
+            agg_nonces[0],
             move_tx_partial_sigs,
         )
         .await
@@ -445,7 +445,7 @@ mod tests {
                 deposit_outpoint,
                 signer_address.clone(),
                 evm_address,
-                agg_nonces[0].clone(),
+                agg_nonces[0],
                 move_tx_partial_sigs,
             )
             .await
@@ -457,7 +457,7 @@ mod tests {
                 deposit_outpoint,
                 signer_address,
                 evm_address,
-                agg_nonces[0].clone(),
+                agg_nonces[0],
                 move_tx_partial_sigs_retry,
             )
             .await

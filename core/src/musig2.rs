@@ -210,7 +210,7 @@ mod tests {
         let key_agg_ctx = super::create_key_agg_ctx(pks.clone(), None, false).unwrap();
         // Aggregate the public nonces into the aggregated nonce
         let agg_nonce =
-            super::aggregate_nonces(nonce_pair_vec.iter().map(|x| x.1.clone()).collect());
+            super::aggregate_nonces(nonce_pair_vec.iter().map(|x| x.1).collect());
         // Extract the aggregated public key
         let musig_agg_pubkey: musig2::secp256k1::PublicKey = key_agg_ctx.aggregated_pubkey();
         // Calculate the partial signatures
@@ -223,7 +223,7 @@ mod tests {
                     None,
                     false,
                     nonce_pair.0,
-                    agg_nonce.clone(),
+                    agg_nonce,
                     kp,
                     message,
                 )
@@ -264,7 +264,7 @@ mod tests {
             None,
             false,
             sec_nonce_0,
-            agg_nonce.clone(),
+            agg_nonce,
             &kp_0,
             message,
         );
@@ -273,7 +273,7 @@ mod tests {
             None,
             false,
             sec_nonce_1,
-            agg_nonce.clone(),
+            agg_nonce,
             &kp_1,
             message,
         );
@@ -283,7 +283,7 @@ mod tests {
             Some(TapNodeHash::from_slice(&[1u8; 32]).unwrap()),
             true,
             sec_nonce_2,
-            agg_nonce.clone(),
+            agg_nonce,
             &kp_2,
             message,
         );
@@ -316,7 +316,7 @@ mod tests {
         )
         .unwrap();
         let agg_nonce =
-            super::aggregate_nonces(nonce_pair_vec.iter().map(|x| x.1.clone()).collect());
+            super::aggregate_nonces(nonce_pair_vec.iter().map(|x| x.1).collect());
         let musig_agg_pubkey: musig2::secp256k1::PublicKey = key_agg_ctx.aggregated_pubkey();
         let partial_sigs: Vec<MuSigPartialSignature> = kp_vec
             .iter()
@@ -327,7 +327,7 @@ mod tests {
                     Some(TapNodeHash::from_slice(&tweak).unwrap()),
                     true,
                     nonce_pair.0,
-                    agg_nonce.clone(),
+                    agg_nonce,
                     kp,
                     message,
                 )
@@ -367,7 +367,7 @@ mod tests {
             Some(TapNodeHash::from_slice(&tweak).unwrap()),
             true,
             sec_nonce_0,
-            agg_nonce.clone(),
+            agg_nonce,
             &kp_0,
             message,
         );
@@ -376,7 +376,7 @@ mod tests {
             Some(TapNodeHash::from_slice(&tweak).unwrap()),
             true,
             sec_nonce_1,
-            agg_nonce.clone(),
+            agg_nonce,
             &kp_1,
             message,
         );
@@ -386,7 +386,7 @@ mod tests {
             None,
             false,
             sec_nonce_2,
-            agg_nonce.clone(),
+            agg_nonce,
             &kp_2,
             message,
         );
@@ -420,7 +420,7 @@ mod tests {
             )
             .unwrap();
         let agg_nonce =
-            super::aggregate_nonces(nonce_pair_vec.iter().map(|x| x.1.clone()).collect());
+            super::aggregate_nonces(nonce_pair_vec.iter().map(|x| x.1).collect());
         let dummy_script = script::Builder::new().push_int(1).into_script();
         let scripts: Vec<ScriptBuf> = vec![dummy_script];
         let receiving_address = bitcoin::Address::p2tr(
@@ -468,7 +468,7 @@ mod tests {
                     merkle_root,
                     true,
                     nonce_pair.0,
-                    agg_nonce.clone(),
+                    agg_nonce,
                     kp,
                     message,
                 )
@@ -506,7 +506,7 @@ mod tests {
             .map(|kp| kp.public_key())
             .collect::<Vec<secp256k1::PublicKey>>();
         let agg_nonce =
-            super::aggregate_nonces(nonce_pair_vec.iter().map(|x| x.1.clone()).collect());
+            super::aggregate_nonces(nonce_pair_vec.iter().map(|x| x.1).collect());
         let musig_agg_xonly_pubkey_wrapped =
             XOnlyPublicKey::from_musig2_pks(pks.clone(), None, false);
         let musig2_script = bitcoin::script::Builder::new()
@@ -559,7 +559,7 @@ mod tests {
                     None,
                     false,
                     nonce_pair.0,
-                    agg_nonce.clone(),
+                    agg_nonce,
                     kp,
                     message,
                 )
