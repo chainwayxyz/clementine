@@ -398,7 +398,7 @@ impl Database {
         sighashes: &[[u8; 32]],
     ) -> Result<Option<Vec<(MuSigSecNonce, MuSigAggNonce)>>, BridgeError> {
         let indices: Vec<i32> = sqlx::query_scalar::<_, i32>(
-            "SELECT idx FROM nonces WHERE deposit_outpoint = $1 ORDER BY idx;",
+            "SELECT idx FROM nonces WHERE deposit_outpoint = $1 ORDER BY idx ASC;",
         )
         .bind(OutPointDB(deposit_outpoint))
         .fetch_all(&self.connection)
