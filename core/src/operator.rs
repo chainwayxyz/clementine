@@ -112,6 +112,8 @@ where
             self.config.user_takes_after,
         )?;
 
+        let tx = self.db.begin_transaction().await?;
+
         // 2. Check if we alredy created a kickoff UTXO for this deposit UTXO
         let kickoff_utxo = self.db.get_kickoff_utxo(deposit_outpoint).await?;
         // if we already have a kickoff UTXO for this deposit UTXO, return it
@@ -132,7 +134,7 @@ where
                 .signer
                 .sign(TapSighash::from_byte_array(kickoff_sig_hash));
 
-            let tx = self.db.begin_transaction().await?;
+            
             self.db
                 .save_kickoff_utxo(deposit_outpoint, kickoff_utxo.clone())
                 .await?;
@@ -142,7 +144,6 @@ where
         }
 
         // Check if we already have an unused kickoff UTXO available
-        let tx = self.db.begin_transaction().await?;
         let unused_kickoff_utxo = self.db.get_unused_kickoff_utxo_and_increase_idx().await?;
         if let Some(unused_kickoff_utxo) = unused_kickoff_utxo {
             tracing::debug!(
