@@ -226,7 +226,7 @@ impl Database {
         deposit_outpoint: OutPoint,
     ) -> Result<Option<Vec<UTXO>>, BridgeError> {
         let qr: Vec<(sqlx::types::Json<UTXODB>,)> = sqlx::query_as(
-            "SELECT kickoff_utxo FROM deposit_kickoff_utxos WHERE deposit_outpoint = $1;",
+            "SELECT kickoff_utxo FROM deposit_kickoff_utxos WHERE deposit_outpoint = $1 ORDER BY id ASC;",
         )
         .bind(OutPointDB(deposit_outpoint))
         .fetch_all(&self.connection)
