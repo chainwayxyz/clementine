@@ -148,10 +148,6 @@ where
             return Err(BridgeError::InvalidKickoffUtxo); // TODO: Better error
         }
 
-        self.db
-            .save_agg_nonces(deposit_outpoint, &agg_nonces)
-            .await?;
-
         let mut slash_or_take_sighashes: Vec<[u8; 32]> = Vec::new();
 
         for (i, kickoff_utxo) in kickoff_utxos.iter().enumerate() {
@@ -213,6 +209,11 @@ where
             slash_or_take_sighashes
         );
 
+        let db_tx = self.db.begin_transaction().await?;
+
+        self.db
+            .save_agg_nonces(deposit_outpoint, &agg_nonces)
+            .await?;
         let nonces = self
             .db
             .save_sighashes_and_get_nonces(
@@ -242,9 +243,7 @@ where
             .save_kickoff_utxos(deposit_outpoint, &kickoff_utxos)
             .await?;
 
-        // self.db
-        //     .save_kickoff_root(deposit_outpoint, root_bytes)
-        //     .await?;
+        db_tx.commit().await?;
 
         // TODO: Sign burn txs
         Ok((slash_or_take_partial_sigs, vec![]))
