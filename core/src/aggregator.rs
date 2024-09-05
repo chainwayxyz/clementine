@@ -12,8 +12,8 @@ use crate::{
     EVMAddress, UTXO,
 };
 use async_trait::async_trait;
-use bitcoin::{hashes::Hash, Txid};
 use bitcoin::{address::NetworkUnchecked, Address, OutPoint};
+use bitcoin::{hashes::Hash, Txid};
 use bitcoincore_rpc::RawTx;
 use secp256k1::schnorr;
 

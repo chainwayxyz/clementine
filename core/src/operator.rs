@@ -55,6 +55,19 @@ where
             .position(|xonly_pk| xonly_pk == &signer.xonly_public_key)
             .unwrap();
 
+        // check if funding utxo is already set
+        if db.get_funding_utxo().await?.is_none() {
+            let outpoint = rpc.send_to_address(&signer.address, config.bridge_amount_sats * 2)?;
+            let funding_utxo = UTXO {
+                outpoint,
+                txout: TxOut {
+                    value: bitcoin::Amount::from_sat(config.bridge_amount_sats * 2),
+                    script_pubkey: signer.address.script_pubkey(),
+                },
+            };
+            db.set_funding_utxo(funding_utxo).await?;
+        }
+
         Ok(Self {
             rpc,
             db,
