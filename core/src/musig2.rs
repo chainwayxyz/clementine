@@ -209,8 +209,7 @@ mod tests {
         // Create the key aggregation context
         let key_agg_ctx = super::create_key_agg_ctx(pks.clone(), None, false).unwrap();
         // Aggregate the public nonces into the aggregated nonce
-        let agg_nonce =
-            super::aggregate_nonces(nonce_pair_vec.iter().map(|x| x.1).collect());
+        let agg_nonce = super::aggregate_nonces(nonce_pair_vec.iter().map(|x| x.1).collect());
         // Extract the aggregated public key
         let musig_agg_pubkey: musig2::secp256k1::PublicKey = key_agg_ctx.aggregated_pubkey();
         // Calculate the partial signatures
@@ -315,8 +314,7 @@ mod tests {
             true,
         )
         .unwrap();
-        let agg_nonce =
-            super::aggregate_nonces(nonce_pair_vec.iter().map(|x| x.1).collect());
+        let agg_nonce = super::aggregate_nonces(nonce_pair_vec.iter().map(|x| x.1).collect());
         let musig_agg_pubkey: musig2::secp256k1::PublicKey = key_agg_ctx.aggregated_pubkey();
         let partial_sigs: Vec<MuSigPartialSignature> = kp_vec
             .iter()
@@ -419,8 +417,7 @@ mod tests {
                 &untweaked_pubkey.x_only_public_key().0.serialize(),
             )
             .unwrap();
-        let agg_nonce =
-            super::aggregate_nonces(nonce_pair_vec.iter().map(|x| x.1).collect());
+        let agg_nonce = super::aggregate_nonces(nonce_pair_vec.iter().map(|x| x.1).collect());
         let dummy_script = script::Builder::new().push_int(1).into_script();
         let scripts: Vec<ScriptBuf> = vec![dummy_script];
         let receiving_address = bitcoin::Address::p2tr(
@@ -505,8 +502,7 @@ mod tests {
             .iter()
             .map(|kp| kp.public_key())
             .collect::<Vec<secp256k1::PublicKey>>();
-        let agg_nonce =
-            super::aggregate_nonces(nonce_pair_vec.iter().map(|x| x.1).collect());
+        let agg_nonce = super::aggregate_nonces(nonce_pair_vec.iter().map(|x| x.1).collect());
         let musig_agg_xonly_pubkey_wrapped =
             XOnlyPublicKey::from_musig2_pks(pks.clone(), None, false);
         let musig2_script = bitcoin::script::Builder::new()
