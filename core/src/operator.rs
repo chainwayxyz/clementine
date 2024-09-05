@@ -134,10 +134,6 @@ where
                 .signer
                 .sign(TapSighash::from_byte_array(kickoff_sig_hash));
 
-            
-            self.db
-                .save_kickoff_utxo(deposit_outpoint, kickoff_utxo.clone())
-                .await?;
             tx.commit().await?;
 
             return Ok((kickoff_utxo, sig));
