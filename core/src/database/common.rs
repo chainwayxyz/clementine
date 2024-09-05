@@ -226,7 +226,7 @@ impl Database {
         deposit_outpoint: OutPoint,
     ) -> Result<Option<Vec<UTXO>>, BridgeError> {
         let qr: Vec<(sqlx::types::Json<UTXODB>,)> = sqlx::query_as(
-            "SELECT kickoff_utxo FROM deposit_kickoff_utxos WHERE deposit_outpoint = $1;",
+            "SELECT kickoff_utxo FROM deposit_kickoff_utxos WHERE deposit_outpoint = $1 ORDER BY id ASC;",
         )
         .bind(OutPointDB(deposit_outpoint))
         .fetch_all(&self.connection)
@@ -350,7 +350,7 @@ impl Database {
             .push_values(nonces, |mut builder, (sec, pub_nonce)| {
                 builder
                     .push_bind(OutPointDB(deposit_outpoint))
-                    .push_bind(hex::encode(sec))
+                    .push_bind(sec)
                     .push_bind(pub_nonce);
             })
             .build()
@@ -412,15 +412,13 @@ impl Database {
                 .bind(OutPointDB(deposit_outpoint))
                 .execute(&self.connection)
                 .await?;
-            let res: (String, MuSigAggNonce) = sqlx::query_as("SELECT sec_nonce, agg_nonce FROM nonces WHERE deposit_outpoint = $1 AND idx = $2 AND sighash = $3;")
+            let res: (MuSigSecNonce, MuSigAggNonce) = sqlx::query_as("SELECT sec_nonce, agg_nonce FROM nonces WHERE deposit_outpoint = $1 AND idx = $2 AND sighash = $3;")
                 .bind(OutPointDB(deposit_outpoint))
                 .bind(*idx)
                 .bind(hex::encode(sighash))
                 .fetch_one(&self.connection)
                 .await?;
-            // println!("res: {:?}", res);
-            let sec_nonce: MuSigSecNonce = hex::decode(res.0).unwrap().try_into()?;
-            nonces.push((sec_nonce, res.1));
+            nonces.push(res);
         }
 
         Ok(Some(nonces))

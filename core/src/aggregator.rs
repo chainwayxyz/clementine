@@ -52,7 +52,7 @@ impl Aggregator {
         operator_xonly_pk: secp256k1::XOnlyPublicKey,
         operator_idx: usize,
         agg_nonce: &MuSigAggNonce,
-        partial_sigs: Vec<[u8; 32]>,
+        partial_sigs: Vec<MuSigPartialSignature>,
     ) -> Result<[u8; 64], BridgeError> {
         let mut tx = TransactionBuilder::create_slash_or_take_tx(
             deposit_outpoint,
@@ -98,7 +98,7 @@ impl Aggregator {
         operator_xonly_pk: &secp256k1::XOnlyPublicKey,
         operator_idx: usize,
         agg_nonce: &MuSigAggNonce,
-        partial_sigs: Vec<[u8; 32]>,
+        partial_sigs: Vec<MuSigPartialSignature>,
     ) -> Result<[u8; 64], BridgeError> {
         let move_tx_handler = TransactionBuilder::create_move_tx(
             deposit_outpoint,
@@ -179,7 +179,7 @@ impl Aggregator {
         evm_address: &EVMAddress,
         recovery_taproot_address: &Address<NetworkUnchecked>,
         agg_nonce: &MuSigAggNonce,
-        partial_sigs: Vec<[u8; 32]>,
+        partial_sigs: Vec<MuSigPartialSignature>,
     ) -> Result<[u8; 64], BridgeError> {
         let mut tx = TransactionBuilder::create_move_tx(
             deposit_outpoint,

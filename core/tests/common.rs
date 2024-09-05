@@ -9,6 +9,7 @@ use clementine_core::database::common::Database;
 use clementine_core::errors::BridgeError;
 use clementine_core::extended_rpc::ExtendedRpc;
 use clementine_core::mock::common;
+use clementine_core::musig2::MuSigPartialSignature;
 use clementine_core::servers::*;
 use clementine_core::traits::rpc::AggregatorClient;
 use clementine_core::traits::rpc::OperatorRpcClient;
@@ -124,7 +125,7 @@ pub async fn run_single_deposit(
 
     // tracing::debug!("Slash or take sigs: {:#?}", slash_or_take_sigs);
     // call burn_txs_signed_rpc
-    let mut operator_take_partial_sigs: Vec<Vec<[u8; 32]>> = Vec::new();
+    let mut operator_take_partial_sigs: Vec<Vec<MuSigPartialSignature>> = Vec::new();
     for (client, ..) in verifiers.iter() {
         let partial_sigs = client
             .burn_txs_signed_rpc(deposit_outpoint, vec![], slash_or_take_sigs.clone())
@@ -189,6 +190,7 @@ mod tests {
     use clementine_core::database::common::Database;
     use clementine_core::extended_rpc::ExtendedRpc;
     use clementine_core::mock::common;
+    use clementine_core::musig2::MuSigPartialSignature;
     use clementine_core::servers::*;
     use clementine_core::traits::rpc::AggregatorClient;
     use clementine_core::traits::rpc::OperatorRpcClient;
@@ -364,7 +366,7 @@ mod tests {
             .unwrap();
 
         // call burn_txs_signed_rpc
-        let mut operator_take_partial_sigs: Vec<Vec<[u8; 32]>> = Vec::new();
+        let mut operator_take_partial_sigs: Vec<Vec<MuSigPartialSignature>> = Vec::new();
         for (client, ..) in verifiers.iter() {
             let partial_sigs = client
                 .burn_txs_signed_rpc(deposit_outpoint, vec![], slash_or_take_sigs.clone())

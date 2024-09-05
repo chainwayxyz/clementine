@@ -306,7 +306,10 @@ impl TransactionBuilder {
             "kickoff_utxo_script_pubkey: {:?}",
             kickoff_utxo_address.script_pubkey()
         );
-        tracing::debug!("kickoff_utxo_script_pubkey: {:?}", kickoff_utxo.txout.script_pubkey);
+        tracing::debug!(
+            "kickoff_utxo_script_pubkey: {:?}",
+            kickoff_utxo.txout.script_pubkey
+        );
         tracing::debug!("Operator index: {:?}", operator_idx);
         tracing::debug!("Operator xonly pk: {:?}", operator_xonly_pk);
         tracing::debug!("Deposit OutPoint: {:?}", deposit_outpoint);
