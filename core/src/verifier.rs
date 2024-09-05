@@ -114,10 +114,7 @@ where
         self.db.save_nonces(deposit_outpoint, &nonces).await?;
         transaction.commit().await?;
 
-        let pub_nonces = nonces
-            .iter()
-            .map(|(_, pub_nonce)| pub_nonce.clone())
-            .collect();
+        let pub_nonces = nonces.iter().map(|(_, pub_nonce)| *pub_nonce).collect();
 
         Ok(pub_nonces)
     }
@@ -234,7 +231,7 @@ where
                     None,
                     false,
                     *sec_nonce,
-                    agg_nonce.clone(),
+                    *agg_nonce,
                     &self.signer.keypair,
                     *sighash,
                 )
@@ -413,7 +410,7 @@ where
                     None,
                     true,
                     *sec_nonce,
-                    agg_nonce.clone(),
+                    *agg_nonce,
                     &self.signer.keypair,
                     *sighash,
                 )
@@ -516,7 +513,7 @@ where
             None,
             false,
             nonces[0].0,
-            nonces[0].1.clone(),
+            nonces[0].1,
             &self.signer.keypair,
             move_tx_sighash.to_byte_array(),
         );

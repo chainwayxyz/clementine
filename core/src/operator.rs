@@ -179,11 +179,12 @@ where
             // and the last output is the anyonecanpay output for fee bumping.
             let kickoff_tx_min_relay_fee = match self.config.operator_num_kickoff_utxos_per_tx {
                 0..=250 => 154 + 43 * self.config.operator_num_kickoff_utxos_per_tx, // Handles all values from 0 to 250
-                _ => 156 + 43 * self.config.operator_num_kickoff_utxos_per_tx,       // Handles all other values
+                _ => 156 + 43 * self.config.operator_num_kickoff_utxos_per_tx, // Handles all other values
             };
             if funding_utxo.txout.value.to_sat()
                 < (KICKOFF_UTXO_AMOUNT_SATS * self.config.operator_num_kickoff_utxos_per_tx as u64
-                    + kickoff_tx_min_relay_fee as u64 + 330)
+                    + kickoff_tx_min_relay_fee as u64
+                    + 330)
             {
                 return Err(BridgeError::OperatorFundingUtxoAmountNotEnough(
                     self.signer.address.clone(),
@@ -227,7 +228,11 @@ where
                 txout: kickoff_tx_handler.tx.output[self.config.operator_num_kickoff_utxos_per_tx]
                     .clone(),
             };
-            tracing::debug!("Change UTXO: {:?} after new kickoff UTXOs are generated for deposit UTXO: {:?}", change_utxo, deposit_outpoint);
+            tracing::debug!(
+                "Change UTXO: {:?} after new kickoff UTXOs are generated for deposit UTXO: {:?}",
+                change_utxo,
+                deposit_outpoint
+            );
 
             let kickoff_utxo = UTXO {
                 outpoint: OutPoint {
@@ -236,7 +241,11 @@ where
                 },
                 txout: kickoff_tx_handler.tx.output[0].clone(),
             };
-            tracing::debug!("Kickoff UTXO: {:?} after new kickoff UTXOs are generated for deposit UTXO: {:?}", kickoff_utxo, deposit_outpoint);
+            tracing::debug!(
+                "Kickoff UTXO: {:?} after new kickoff UTXOs are generated for deposit UTXO: {:?}",
+                kickoff_utxo,
+                deposit_outpoint
+            );
 
             let kickoff_sig_hash = crate::sha256_hash!(
                 deposit_outpoint.txid,

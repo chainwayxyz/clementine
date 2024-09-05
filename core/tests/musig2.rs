@@ -3,7 +3,9 @@ use bitcoin::{hashes::Hash, script, Amount, ScriptBuf};
 use bitcoincore_rpc::RawTx;
 use clementine_core::database::common::Database;
 use clementine_core::mock::common;
-use clementine_core::musig2::{aggregate_nonces, aggregate_partial_signatures, MuSigPubNonce};
+use clementine_core::musig2::{
+    aggregate_nonces, aggregate_partial_signatures, MuSigPartialSignature, MuSigPubNonce,
+};
 use clementine_core::utils::handle_taproot_witness_new;
 use clementine_core::{
     actor::Actor,
@@ -77,7 +79,7 @@ async fn test_musig2_key_spend() {
     tracing::debug!("Merkle Root: {:?}", merkle_root);
     let key_agg_ctx = create_key_agg_ctx(pks.clone(), merkle_root, true).unwrap();
 
-    let partial_sigs: Vec<[u8; 32]> = kp_vec
+    let partial_sigs: Vec<MuSigPartialSignature> = kp_vec
         .iter()
         .zip(nonce_pair_vec.iter())
         .map(|(kp, nonce_pair)| {
@@ -181,7 +183,7 @@ async fn test_musig2_key_spend_with_script() {
     let merkle_root = from_address_spend_info.merkle_root();
     let key_agg_ctx = create_key_agg_ctx(pks.clone(), merkle_root, true).unwrap();
 
-    let partial_sigs: Vec<[u8; 32]> = kp_vec
+    let partial_sigs: Vec<MuSigPartialSignature> = kp_vec
         .iter()
         .zip(nonce_pair_vec.iter())
         .map(|(kp, nonce_pair)| {
@@ -289,7 +291,7 @@ async fn test_musig2_script_spend() {
         .unwrap()
         .to_byte_array();
 
-    let partial_sigs: Vec<[u8; 32]> = kp_vec
+    let partial_sigs: Vec<MuSigPartialSignature> = kp_vec
         .iter()
         .zip(nonce_pair_vec.iter())
         .map(|(kp, nonce_pair)| {
