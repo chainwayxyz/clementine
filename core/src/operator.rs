@@ -114,16 +114,11 @@ where
 
         // 2. Check if we alredy created a kickoff UTXO for this deposit UTXO
         let kickoff_utxo = self.db.get_kickoff_utxo(deposit_outpoint).await?;
-
-        tracing::debug!(
-            "Kickoff UTXO for deposit UTXO: {:?} is: {:?}",
-            deposit_outpoint,
-            kickoff_utxo
-        );
         // if we already have a kickoff UTXO for this deposit UTXO, return it
         if let Some(kickoff_utxo) = kickoff_utxo {
             tracing::debug!(
-                "Kickoff UTXO already exists for deposit UTXO: {:?}",
+                "Kickoff UTXO found: {:?} already exists for deposit UTXO: {:?}",
+                kickoff_utxo,
                 deposit_outpoint
             );
             let kickoff_sig_hash = crate::sha256_hash!(
@@ -144,6 +139,11 @@ where
         let tx = self.db.begin_transaction().await?;
         let unused_kickoff_utxo = self.db.get_unused_kickoff_utxo_and_increase_idx().await?;
         if let Some(unused_kickoff_utxo) = unused_kickoff_utxo {
+            tracing::debug!(
+                "Unused kickoff UTXO found: {:?} found for deposit UTXO: {:?}",
+                unused_kickoff_utxo,
+                deposit_outpoint
+            );
             let kickoff_sig_hash = crate::sha256_hash!(
                 deposit_outpoint.txid,
                 deposit_outpoint.vout.to_be_bytes(),
@@ -174,22 +174,29 @@ where
             // and (num_kickoff_utxos + 2) outputs where the first k outputs are
             // the kickoff outputs, the penultimante output is the change output,
             // and the last output is the anyonecanpay output for fee bumping.
+            let kickoff_tx_min_relay_fee = match self.config.operator_num_kickoff_utxos_per_tx {
+                0..=250 => 154 + 43 * self.config.operator_num_kickoff_utxos_per_tx, // Handles all values from 0 to 250
+                _ => 156 + 43 * self.config.operator_num_kickoff_utxos_per_tx,       // Handles all other values
+            };
             if funding_utxo.txout.value.to_sat()
                 < (KICKOFF_UTXO_AMOUNT_SATS * self.config.operator_num_kickoff_utxos_per_tx as u64
-                    + 2000)
+                    + kickoff_tx_min_relay_fee as u64 + 330)
             {
-                // TODO: Change this amount
                 return Err(BridgeError::OperatorFundingUtxoAmountNotEnough(
                     self.signer.address.clone(),
                 ));
             }
-
             let mut kickoff_tx_handler = TransactionBuilder::create_kickoff_utxo_tx(
                 &funding_utxo,
                 &self.nofn_xonly_pk,
                 &self.signer.xonly_public_key,
                 self.config.network,
                 self.config.operator_num_kickoff_utxos_per_tx,
+            );
+            tracing::debug!(
+                "Funding UTXO found: {:?} kickoff UTXO is created for deposit UTXO: {:?}",
+                funding_utxo,
+                deposit_outpoint
             );
             let sig = self
                 .signer
@@ -217,6 +224,7 @@ where
                 txout: kickoff_tx_handler.tx.output[self.config.operator_num_kickoff_utxos_per_tx]
                     .clone(),
             };
+            tracing::debug!("Change UTXO: {:?} after new kickoff UTXOs are generated for deposit UTXO: {:?}", change_utxo, deposit_outpoint);
 
             let kickoff_utxo = UTXO {
                 outpoint: OutPoint {
@@ -225,6 +233,7 @@ where
                 },
                 txout: kickoff_tx_handler.tx.output[0].clone(),
             };
+            tracing::debug!("Kickoff UTXO: {:?} after new kickoff UTXOs are generated for deposit UTXO: {:?}", kickoff_utxo, deposit_outpoint);
 
             let kickoff_sig_hash = crate::sha256_hash!(
                 deposit_outpoint.txid,
