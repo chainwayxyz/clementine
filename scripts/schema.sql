@@ -69,10 +69,11 @@ create table if not exists deposit_kickoff_utxos (
 -- Operator table for kickoff utxo and funding utxo for deposits
 /* This table holds the funding utxos sent by the operators for each deposit. */
 create table if not exists deposit_kickoff_generator_txs (
-    txid text primary key not null check (txid ~ '^[a-fA-F0-9]{64}'),
+    id serial primary key,
+    txid text unique not null check (txid ~ '^[a-fA-F0-9]{64}'),
     raw_signed_tx text not null,
     num_kickoffs int not null,
-    cur_unused_kickoff_index int not null,
+    cur_unused_kickoff_index int not null check (cur_unused_kickoff_index <= num_kickoffs),
     funding_txid text not null check (funding_txid ~ '^[a-fA-F0-9]{64}'),
     created_at timestamp not null default now()
 );

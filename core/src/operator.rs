@@ -114,6 +114,8 @@ where
 
         let tx = self.db.begin_transaction().await?;
 
+        self.db.lock_operators_kickoff_utxo_table().await?;
+
         // 2. Check if we alredy created a kickoff UTXO for this deposit UTXO
         let kickoff_utxo = self.db.get_kickoff_utxo(deposit_outpoint).await?;
         // if we already have a kickoff UTXO for this deposit UTXO, return it
@@ -134,14 +136,21 @@ where
                 .signer
                 .sign(TapSighash::from_byte_array(kickoff_sig_hash));
 
+            self.db.unlock_operators_kickoff_utxo_table().await?;
             tx.commit().await?;
-
             return Ok((kickoff_utxo, sig));
         }
 
         // Check if we already have an unused kickoff UTXO available
         let unused_kickoff_utxo = self.db.get_unused_kickoff_utxo_and_increase_idx().await?;
         if let Some(unused_kickoff_utxo) = unused_kickoff_utxo {
+            self.db
+                .save_kickoff_utxo(deposit_outpoint, unused_kickoff_utxo.clone())
+                .await?;
+
+            self.db.unlock_operators_kickoff_utxo_table().await?;
+            tx.commit().await?;
+
             tracing::debug!(
                 "Unused kickoff UTXO found: {:?} found for deposit UTXO: {:?}",
                 unused_kickoff_utxo,
@@ -154,15 +163,10 @@ where
                 unused_kickoff_utxo.outpoint.vout.to_be_bytes()
             );
 
-            self.db
-                .save_kickoff_utxo(deposit_outpoint, unused_kickoff_utxo.clone())
-                .await?;
-
             let sig = self
                 .signer
                 .sign(TapSighash::from_byte_array(kickoff_sig_hash));
 
-            tx.commit().await?;
             Ok((unused_kickoff_utxo, sig))
         } else {
             // 3. Create a kickoff transaction but do not broadcast it
@@ -247,17 +251,6 @@ where
                 deposit_outpoint
             );
 
-            let kickoff_sig_hash = crate::sha256_hash!(
-                deposit_outpoint.txid,
-                deposit_outpoint.vout.to_be_bytes(),
-                kickoff_utxo.outpoint.txid,
-                kickoff_utxo.outpoint.vout.to_be_bytes()
-            );
-
-            let sig = self
-                .signer
-                .sign(TapSighash::from_byte_array(kickoff_sig_hash));
-
             // In a db tx, save the kickoff_utxo for this deposit_outpoint
             // and update the db with the new funding_utxo as the change
 
@@ -280,6 +273,17 @@ where
             self.db.set_funding_utxo(change_utxo).await?;
 
             tx.commit().await?;
+
+            let kickoff_sig_hash = crate::sha256_hash!(
+                deposit_outpoint.txid,
+                deposit_outpoint.vout.to_be_bytes(),
+                kickoff_utxo.outpoint.txid,
+                kickoff_utxo.outpoint.vout.to_be_bytes()
+            );
+
+            let sig = self
+                .signer
+                .sign(TapSighash::from_byte_array(kickoff_sig_hash));
 
             Ok((kickoff_utxo, sig))
         }

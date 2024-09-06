@@ -128,19 +128,21 @@ impl Database {
         }
     }
 
-    /// Database function for debugging purposes.
-    pub async fn get_nonce_table(
+    pub async fn lock_operators_kickoff_utxo_table(
         &self,
-        table_name: &str,
-    ) -> Result<Vec<(i32, String, String, String, String)>, BridgeError> {
-        let qr: Vec<(i32, String, String, String, String)> =
-            sqlx::query_as(&format!("SELECT * FROM {};", table_name))
-                .fetch_all(&self.connection)
-                .await?;
+        // tx: &mut sqlx::Transaction,
+    ) -> Result<(), BridgeError> {
+        sqlx::query("LOCK TABLE operators_kickoff_utxo IN ACCESS EXCLUSIVE MODE;")
+            .execute(&self.connection)
+            .await?;
+        Ok(())
+    }
 
-        let res: Vec<(i32, String, String, String, String)> = qr.into_iter().collect();
-
-        Ok(res)
+    pub async fn unlock_operators_kickoff_utxo_table(&self) -> Result<(), BridgeError> {
+        sqlx::query("UNLOCK TABLE operators_kickoff_utxo;")
+            .execute(&self.connection)
+            .await?;
+        Ok(())
     }
 
     /// Operator: If operator already created a kickoff UTXO for this deposit UTXO, return it.
@@ -170,53 +172,47 @@ impl Database {
         &self,
     ) -> Result<Option<UTXO>, BridgeError> {
         // Attempt to fetch the latest transaction details
-        let qr: Option<(TxidDB, i32, i32)> = sqlx::query_as(
-            "SELECT txid, num_kickoffs, cur_unused_kickoff_index FROM deposit_kickoff_generator_txs ORDER BY id DESC LIMIT 1;"
+        let qr: Result<(TxidDB, String, i32), sqlx::Error> = sqlx::query_as(
+            "UPDATE deposit_kickoff_generator_txs
+                SET cur_unused_kickoff_index = cur_unused_kickoff_index + 1
+                WHERE id = (
+                    SELECT id 
+                    FROM deposit_kickoff_generator_txs 
+                    ORDER BY id DESC 
+                    LIMIT 1
+                )
+                RETURNING txid, raw_signed_tx, cur_unused_kickoff_index;",
         )
-        .fetch_optional(&self.connection)
-        .await?;
+        .fetch_one(&self.connection)
+        .await;
 
-        // If the table is empty, return None
-        let (txid, num_kickoffs, cur_unused_kickoff_index) = match qr {
-            Some(qr) => qr,
-            None => return Ok(None),
-        };
+        match qr {
+            Ok((txid, raw_signed_tx, cur_unused_kickoff_index)) => {
+                // Deserialize the transaction
+                let tx: bitcoin::Transaction =
+                    bitcoin::consensus::deserialize(&hex::decode(raw_signed_tx).unwrap())?;
 
-        // Proceed with the rest of the logic only if there are unused kickoffs
-        if num_kickoffs <= cur_unused_kickoff_index {
-            Ok(None)
-        } else {
-            // Fetch the raw signed transaction
-            let db_transaction = self.begin_transaction().await?;
-            let qr_tx: (String,) = sqlx::query_as(
-                "SELECT raw_signed_tx FROM deposit_kickoff_generator_txs ORDER BY id DESC LIMIT 1;",
-            )
-            .fetch_one(&self.connection)
-            .await?;
+                // Create the outpoint and txout
+                let outpoint = OutPoint {
+                    txid: txid.0,
+                    vout: cur_unused_kickoff_index as u32,
+                };
+                let txout = tx.output[cur_unused_kickoff_index as usize].clone();
 
-            // Deserialize the transaction
-            let tx: bitcoin::Transaction =
-                bitcoin::consensus::deserialize(&hex::decode(qr_tx.0).unwrap())?;
-
-            // Create the outpoint and txout
-            let outpoint = OutPoint {
-                txid: tx.compute_txid(),
-                vout: cur_unused_kickoff_index as u32,
-            };
-            let txout = tx.output[cur_unused_kickoff_index as usize].clone();
-
-            // Update the cur_unused_kickoff_index
-            sqlx::query(
-                "UPDATE deposit_kickoff_generator_txs SET cur_unused_kickoff_index = $1 WHERE txid = $2;"
-            )
-            .bind(cur_unused_kickoff_index + 1)
-            .bind(txid)
-            .execute(&self.connection)
-            .await?;
-            db_transaction.commit().await?;
-
-            // Return the UTXO
-            Ok(Some(UTXO { outpoint, txout }))
+                Ok(Some(UTXO { outpoint, txout }))
+            }
+            Err(sqlx::Error::RowNotFound) => Ok(None),
+            Err(e) => {
+                let db_error = e.as_database_error().ok_or(BridgeError::PgDatabaseError(
+                    "THIS SHOULD NOT HAPPEN".to_string(),
+                ))?;
+                // if error is 23514, it means there is no more unused kickoffs
+                if db_error.is_check_violation() {
+                    Ok(None)
+                } else {
+                    Err(BridgeError::PgDatabaseError(db_error.to_string()))
+                }
+            }
         }
     }
 
