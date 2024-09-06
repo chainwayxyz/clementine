@@ -350,6 +350,7 @@ impl Database {
     /// Verifier: Save the kickoff UTXOs for this deposit UTXO.
     pub async fn save_kickoff_utxos(
         &self,
+        tx: Option<&mut sqlx::Transaction<'_, Postgres>>,
         deposit_outpoint: OutPoint,
         kickoff_utxos: &[UTXO],
     ) -> Result<(), BridgeError> {
@@ -377,7 +378,10 @@ impl Database {
         query_builder.push(" ON CONFLICT (deposit_outpoint, operator_idx) DO NOTHING");
 
         // Execute the batch insert query
-        query_builder.build().execute(&self.connection).await?;
+        match tx {
+            Some(tx) => query_builder.build().execute(&mut **tx).await?,
+            None => query_builder.build().execute(&self.connection).await?,
+        };
 
         Ok(())
     }
@@ -385,18 +389,22 @@ impl Database {
     /// Verifier: Get the public nonces for a deposit UTXO.
     pub async fn get_pub_nonces(
         &self,
+        tx: Option<&mut sqlx::Transaction<'_, Postgres>>,
         deposit_outpoint: OutPoint,
     ) -> Result<Option<Vec<MuSigPubNonce>>, BridgeError> {
-        let qr: Vec<(MuSigPubNonce,)> = sqlx::query_as(
+        let query = sqlx::query_as(
             "SELECT pub_nonce FROM nonces WHERE deposit_outpoint = $1 ORDER BY internal_idx;",
         )
-        .bind(OutPointDB(deposit_outpoint))
-        .fetch_all(&self.connection)
-        .await?;
-        if qr.is_empty() {
+        .bind(OutPointDB(deposit_outpoint));
+
+        let result: Vec<(MuSigPubNonce,)> = match tx {
+            Some(tx) => query.fetch_all(&mut **tx).await?,
+            None => query.fetch_all(&self.connection).await?,
+        };
+        if result.is_empty() {
             Ok(None)
         } else {
-            let pub_nonces: Vec<MuSigPubNonce> = qr.into_iter().map(|(x,)| x).collect();
+            let pub_nonces: Vec<MuSigPubNonce> = result.into_iter().map(|(x,)| x).collect();
             Ok(Some(pub_nonces))
         }
     }
@@ -476,9 +484,10 @@ impl Database {
     ) -> Result<Option<Vec<(MuSigSecNonce, MuSigAggNonce)>>, BridgeError> {
         // Update the sighashes
         let mut query = QueryBuilder::new(
-            "UPDATE nonces
-             SET sighash = batch.sighash
-             FROM (",
+            "WITH updated AS (
+                UPDATE nonces
+                SET sighash = batch.sighash
+                FROM (",
         );
         let query = query.push_values(sighashes.iter().enumerate(), |mut builder, (i, sighash)| {
             builder.push_bind((index + i) as i32).push_bind(sighash);
@@ -487,10 +496,15 @@ impl Database {
         let query = query
             .push(
                 ") AS batch (internal_idx, sighash)
-             WHERE nonces.internal_idx = batch.internal_idx AND nonces.deposit_outpoint = ",
+                WHERE nonces.internal_idx = batch.internal_idx AND nonces.deposit_outpoint = ",
             )
             .push_bind(OutPointDB(deposit_outpoint))
-            .push(" RETURNING sec_nonce, agg_nonce;")
+            .push(
+                " RETURNING nonces.internal_idx, sec_nonce, agg_nonce)
+            SELECT updated.sec_nonce, updated.agg_nonce 
+            FROM updated 
+            ORDER BY updated.internal_idx;",
+            )
             .build_query_as();
 
         let result: Result<Vec<(MuSigSecNonce, MuSigAggNonce)>, sqlx::Error> = match tx {
@@ -508,6 +522,7 @@ impl Database {
     /// Verifier: Save the agg nonces for signing
     pub async fn save_agg_nonces(
         &self,
+        tx: Option<&mut sqlx::Transaction<'_, Postgres>>,
         deposit_outpoint: OutPoint,
         agg_nonces: impl IntoIterator<Item = &MuSigAggNonce>,
     ) -> Result<(), BridgeError> {
@@ -532,7 +547,10 @@ impl Database {
             .push_bind(OutPointDB(deposit_outpoint))
             .build();
 
-        query.execute(&self.connection).await?;
+        match tx {
+            Some(tx) => query.execute(&mut **tx).await?,
+            None => query.execute(&self.connection).await?,
+        };
         Ok(())
     }
 
@@ -708,7 +726,7 @@ mod tests {
         let signature = schnorr::Signature::from_slice(&[0u8; SCHNORR_SIGNATURE_SIZE]).unwrap();
 
         database
-            .save_kickoff_utxos(deposit_outpoint, &[kickoff_utxo.clone()])
+            .save_kickoff_utxos(None, deposit_outpoint, &[kickoff_utxo.clone()])
             .await
             .unwrap();
 
@@ -827,7 +845,9 @@ mod tests {
             .map(|(_, pub_nonce)| *pub_nonce)
             .collect();
         db.save_nonces(None, outpoint, &nonce_pairs).await.unwrap();
-        db.save_agg_nonces(outpoint, &agg_nonces).await.unwrap();
+        db.save_agg_nonces(None, outpoint, &agg_nonces)
+            .await
+            .unwrap();
         let db_sec_and_agg_nonces = db
             .save_sighashes_and_get_nonces(None, outpoint, index, &sighashes)
             .await
@@ -867,7 +887,9 @@ mod tests {
             .map(|(_, pub_nonce)| *pub_nonce)
             .collect();
         db.save_nonces(None, outpoint, &nonce_pairs).await.unwrap();
-        db.save_agg_nonces(outpoint, &agg_nonces).await.unwrap();
+        db.save_agg_nonces(None, outpoint, &agg_nonces)
+            .await
+            .unwrap();
         let db_sec_and_agg_nonces = db
             .save_sighashes_and_get_nonces(None, outpoint, index, &sighashes)
             .await
@@ -912,7 +934,9 @@ mod tests {
             .map(|(_, pub_nonce)| *pub_nonce)
             .collect();
         db.save_nonces(None, outpoint, &nonce_pairs).await.unwrap();
-        db.save_agg_nonces(outpoint, &agg_nonces).await.unwrap();
+        db.save_agg_nonces(None, outpoint, &agg_nonces)
+            .await
+            .unwrap();
         let _db_sec_and_agg_nonces = db
             .save_sighashes_and_get_nonces(None, outpoint, index, &sighashes)
             .await
@@ -952,7 +976,7 @@ mod tests {
             .map(|kp| nonce_pair(&kp, &mut OsRng))
             .collect();
         db.save_nonces(None, outpoint, &nonce_pairs).await.unwrap();
-        let pub_nonces = db.get_pub_nonces(outpoint).await.unwrap().unwrap();
+        let pub_nonces = db.get_pub_nonces(None, outpoint).await.unwrap().unwrap();
 
         // Sanity checks
         assert_eq!(pub_nonces.len(), nonce_pairs.len());
@@ -969,7 +993,7 @@ mod tests {
             txid: Txid::from_byte_array([1u8; 32]),
             vout: 1,
         };
-        let pub_nonces = db.get_pub_nonces(outpoint).await.unwrap();
+        let pub_nonces = db.get_pub_nonces(None, outpoint).await.unwrap();
         assert!(pub_nonces.is_none());
     }
 
@@ -1036,7 +1060,7 @@ mod tests {
                 },
             },
         ];
-        db.save_kickoff_utxos(outpoint, &kickoff_utxos)
+        db.save_kickoff_utxos(None, outpoint, &kickoff_utxos)
             .await
             .unwrap();
         let db_kickoff_utxos = db.get_kickoff_utxos(outpoint).await.unwrap().unwrap();

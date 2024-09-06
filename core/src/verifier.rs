@@ -92,14 +92,19 @@ where
         // For now we multiply by 2 since we do not give signatures for burn_txs. // TODO: Change this in future.
         let num_required_nonces = 2 * self.operator_xonly_pks.len() + 1;
 
+        let mut dbtx = self.db.begin_transaction().await?;
         // Check if we already have pub_nonces for this deposit_outpoint.
-        let pub_nonces_from_db = self.db.get_pub_nonces(deposit_outpoint).await?;
+        let pub_nonces_from_db = self
+            .db
+            .get_pub_nonces(Some(&mut dbtx), deposit_outpoint)
+            .await?;
         if let Some(pub_nonces) = pub_nonces_from_db {
             tracing::debug!("AAAAAAAA");
             if !pub_nonces.is_empty() {
                 if pub_nonces.len() != num_required_nonces {
                     return Err(BridgeError::NoncesNotFound);
                 }
+                dbtx.commit().await?;
                 return Ok(pub_nonces);
             }
         }
@@ -108,7 +113,6 @@ where
             .map(|_| musig2::nonce_pair(&self.signer.keypair, &mut rand::rngs::OsRng))
             .collect::<Vec<_>>();
 
-        let mut dbtx = self.db.begin_transaction().await?;
         self.db
             .save_deposit_info(
                 Some(&mut dbtx),
@@ -217,24 +221,31 @@ where
             slash_or_take_sighashes
         );
 
+        let mut dbtx = self.db.begin_transaction().await?;
+
         self.db
-            .save_agg_nonces(deposit_outpoint, &agg_nonces)
+            .save_agg_nonces(Some(&mut dbtx), deposit_outpoint, &agg_nonces)
             .await?;
 
         self.db
-            .save_kickoff_utxos(deposit_outpoint, &kickoff_utxos)
+            .save_kickoff_utxos(Some(&mut dbtx), deposit_outpoint, &kickoff_utxos)
             .await?;
 
         let nonces = self
             .db
             .save_sighashes_and_get_nonces(
-                None,
+                Some(&mut dbtx),
                 deposit_outpoint,
                 self.config.num_operators + 1,
                 &slash_or_take_sighashes,
             )
             .await?
             .ok_or(BridgeError::NoncesNotFound)?;
+        tracing::debug!(
+            "SIGNING slash or take for outpoint: {:?} with nonces {:?}",
+            deposit_outpoint,
+            nonces
+        );
         let slash_or_take_partial_sigs = slash_or_take_sighashes
             .iter()
             .zip(nonces.iter())
@@ -250,6 +261,8 @@ where
                 )
             })
             .collect::<Vec<_>>();
+
+        dbtx.commit().await?;
 
         // TODO: Sign burn txs
         Ok((slash_or_take_partial_sigs, vec![]))
