@@ -48,7 +48,8 @@ pub async fn run_multiple_deposit(
     let evm_address = EVMAddress([1u8; 20]);
     let deposit_address = user.get_deposit_address(evm_address).unwrap();
     let deposit_outpoints = (0..config.operator_num_kickoff_utxos_per_tx + 5).map(|_| {
-        let outpoint = rpc.send_to_address(&deposit_address, config.bridge_amount_sats)
+        let outpoint = rpc
+            .send_to_address(&deposit_address, config.bridge_amount_sats)
             .unwrap();
         rpc.mine_blocks(1).unwrap();
         outpoint
