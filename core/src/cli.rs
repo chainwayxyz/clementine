@@ -17,14 +17,17 @@ use std::process::exit;
 pub struct Args {
     /// TOML formatted configuration file.
     pub config_file: PathBuf,
+    /// Verbosity level, ranging from 0 (none) to 5 (highest)
+    #[arg(short, long, default_value_t = 0)]
+    pub verbose: u8,
     /// Enable verifier server.
-    #[clap(short, long)]
+    #[clap(long)]
     pub verifier_server: bool,
     /// Enable operator server.
-    #[clap(short, long)]
+    #[clap(long)]
     pub operator_server: bool,
     /// Enable aggregator server.
-    #[clap(short, long)]
+    #[clap(long)]
     pub aggregator_server: bool,
 }
 
