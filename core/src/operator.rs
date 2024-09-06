@@ -55,8 +55,9 @@ where
             .position(|xonly_pk| xonly_pk == &signer.xonly_public_key)
             .unwrap();
 
+        let mut tx = db.begin_transaction().await?;
         // check if funding utxo is already set
-        if db.get_funding_utxo().await?.is_none() {
+        if db.get_funding_utxo(Some(&mut tx)).await?.is_none() {
             let outpoint = rpc.send_to_address(&signer.address, config.bridge_amount_sats * 2)?;
             let funding_utxo = UTXO {
                 outpoint,
@@ -65,8 +66,9 @@ where
                     script_pubkey: signer.address.script_pubkey(),
                 },
             };
-            db.set_funding_utxo(funding_utxo).await?;
+            db.set_funding_utxo(Some(&mut tx), funding_utxo).await?;
         }
+        tx.commit().await?;
 
         Ok(Self {
             rpc,
@@ -112,12 +114,15 @@ where
             self.config.user_takes_after,
         )?;
 
-        let tx = self.db.begin_transaction().await?;
+        let mut tx = self.db.begin_transaction().await?;
 
-        self.db.lock_operators_kickoff_utxo_table().await?;
+        self.db.lock_operators_kickoff_utxo_table(&mut tx).await?;
 
         // 2. Check if we alredy created a kickoff UTXO for this deposit UTXO
-        let kickoff_utxo = self.db.get_kickoff_utxo(deposit_outpoint).await?;
+        let kickoff_utxo = self
+            .db
+            .get_kickoff_utxo(Some(&mut tx), deposit_outpoint)
+            .await?;
         // if we already have a kickoff UTXO for this deposit UTXO, return it
         if let Some(kickoff_utxo) = kickoff_utxo {
             tracing::debug!(
@@ -136,19 +141,22 @@ where
                 .signer
                 .sign(TapSighash::from_byte_array(kickoff_sig_hash));
 
-            self.db.unlock_operators_kickoff_utxo_table().await?;
+            self.db.unlock_operators_kickoff_utxo_table(&mut tx).await?;
             tx.commit().await?;
             return Ok((kickoff_utxo, sig));
         }
 
         // Check if we already have an unused kickoff UTXO available
-        let unused_kickoff_utxo = self.db.get_unused_kickoff_utxo_and_increase_idx().await?;
+        let unused_kickoff_utxo = self
+            .db
+            .get_unused_kickoff_utxo_and_increase_idx(Some(&mut tx))
+            .await?;
         if let Some(unused_kickoff_utxo) = unused_kickoff_utxo {
             self.db
-                .save_kickoff_utxo(deposit_outpoint, unused_kickoff_utxo.clone())
+                .save_kickoff_utxo(Some(&mut tx), deposit_outpoint, unused_kickoff_utxo.clone())
                 .await?;
 
-            self.db.unlock_operators_kickoff_utxo_table().await?;
+            self.db.unlock_operators_kickoff_utxo_table(&mut tx).await?;
             tx.commit().await?;
 
             tracing::debug!(
@@ -172,7 +180,7 @@ where
             // 3. Create a kickoff transaction but do not broadcast it
 
             // To create a kickoff tx, we first need a funding utxo
-            let funding_utxo = self.db.get_funding_utxo().await?.ok_or(
+            let funding_utxo = self.db.get_funding_utxo(Some(&mut tx)).await?.ok_or(
                 BridgeError::OperatorFundingUtxoNotFound(self.signer.address.clone()),
             )?;
 
@@ -258,11 +266,12 @@ where
 
             // We save the funding txid and the kickoff txid to be able to track them later
             self.db
-                .save_kickoff_utxo(deposit_outpoint, kickoff_utxo.clone())
+                .save_kickoff_utxo(Some(&mut tx), deposit_outpoint, kickoff_utxo.clone())
                 .await?;
 
             self.db
                 .add_deposit_kickoff_generator_tx(
+                    Some(&mut tx),
                     kickoff_tx_handler.tx.compute_txid(),
                     kickoff_tx_handler.tx.raw_hex(),
                     self.config.operator_num_kickoff_utxos_per_tx,
@@ -270,7 +279,7 @@ where
                 )
                 .await?;
 
-            self.db.set_funding_utxo(change_utxo).await?;
+            self.db.set_funding_utxo(Some(&mut tx), change_utxo).await?;
 
             tx.commit().await?;
 
@@ -292,7 +301,7 @@ where
     /// Checks if utxo is valid, spendable by operator and not spent
     /// Saves the utxo to the db
     async fn set_funding_utxo(&self, funding_utxo: UTXO) -> Result<(), BridgeError> {
-        self.db.set_funding_utxo(funding_utxo).await?;
+        self.db.set_funding_utxo(None, funding_utxo).await?;
         Ok(())
     }
 
@@ -382,7 +391,7 @@ where
     ) -> Result<Vec<String>, BridgeError> {
         let kickoff_utxo = self
             .db
-            .get_kickoff_utxo(deposit_outpoint)
+            .get_kickoff_utxo(None, deposit_outpoint)
             .await?
             .ok_or(BridgeError::KickoffOutpointsNotFound)?;
         tracing::debug!("Kickoff UTXO FOUND: {:?}", kickoff_utxo);

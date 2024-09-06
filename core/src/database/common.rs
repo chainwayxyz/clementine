@@ -130,17 +130,20 @@ impl Database {
 
     pub async fn lock_operators_kickoff_utxo_table(
         &self,
-        // tx: &mut sqlx::Transaction,
+        tx: &mut sqlx::Transaction<'_, Postgres>,
     ) -> Result<(), BridgeError> {
         sqlx::query("LOCK TABLE operators_kickoff_utxo IN ACCESS EXCLUSIVE MODE;")
-            .execute(&self.connection)
+            .execute(&mut **tx)
             .await?;
         Ok(())
     }
 
-    pub async fn unlock_operators_kickoff_utxo_table(&self) -> Result<(), BridgeError> {
+    pub async fn unlock_operators_kickoff_utxo_table(
+        &self,
+        tx: &mut sqlx::Transaction<'_, Postgres>,
+    ) -> Result<(), BridgeError> {
         sqlx::query("UNLOCK TABLE operators_kickoff_utxo;")
-            .execute(&self.connection)
+            .execute(&mut **tx)
             .await?;
         Ok(())
     }
@@ -148,16 +151,20 @@ impl Database {
     /// Operator: If operator already created a kickoff UTXO for this deposit UTXO, return it.
     pub async fn get_kickoff_utxo(
         &self,
+        tx: Option<&mut sqlx::Transaction<'_, Postgres>>,
         deposit_outpoint: OutPoint,
     ) -> Result<Option<UTXO>, BridgeError> {
-        let qr: Result<(sqlx::types::Json<UTXODB>,), sqlx::Error> = sqlx::query_as(
+        let query = sqlx::query_as(
             "SELECT kickoff_utxo FROM operators_kickoff_utxo WHERE deposit_outpoint = $1;",
         )
-        .bind(OutPointDB(deposit_outpoint))
-        .fetch_one(&self.connection)
-        .await;
+        .bind(OutPointDB(deposit_outpoint));
 
-        match qr {
+        let result: Result<(sqlx::types::Json<UTXODB>,), sqlx::Error> = match tx {
+            Some(tx) => query.fetch_one(&mut **tx).await,
+            None => query.fetch_one(&self.connection).await,
+        };
+
+        match result {
             Ok((utxo_db,)) => Ok(Some(UTXO {
                 outpoint: utxo_db.outpoint_db.0,
                 txout: utxo_db.txout_db.0.clone(),
@@ -170,9 +177,10 @@ impl Database {
     /// Operator: Get unused kickoff_utxo at ready if there are any.
     pub async fn get_unused_kickoff_utxo_and_increase_idx(
         &self,
+        tx: Option<&mut sqlx::Transaction<'_, Postgres>>,
     ) -> Result<Option<UTXO>, BridgeError> {
         // Attempt to fetch the latest transaction details
-        let qr: Result<(TxidDB, String, i32), sqlx::Error> = sqlx::query_as(
+        let query = sqlx::query_as(
             "UPDATE deposit_kickoff_generator_txs
                 SET cur_unused_kickoff_index = cur_unused_kickoff_index + 1
                 WHERE id = (
@@ -182,11 +190,14 @@ impl Database {
                     LIMIT 1
                 )
                 RETURNING txid, raw_signed_tx, cur_unused_kickoff_index;",
-        )
-        .fetch_one(&self.connection)
-        .await;
+        );
 
-        match qr {
+        let result: Result<(TxidDB, String, i32), sqlx::Error> = match tx {
+            Some(tx) => query.fetch_one(&mut **tx).await,
+            None => query.fetch_one(&self.connection).await,
+        };
+
+        match result {
             Ok((txid, raw_signed_tx, cur_unused_kickoff_index)) => {
                 // Deserialize the transaction
                 let tx: bitcoin::Transaction =
@@ -216,6 +227,100 @@ impl Database {
         }
     }
 
+    /// Operator: Gets the funding UTXO for kickoffs
+    pub async fn get_funding_utxo(
+        &self,
+        tx: Option<&mut sqlx::Transaction<'_, Postgres>>,
+    ) -> Result<Option<UTXO>, BridgeError> {
+        let query =
+            sqlx::query_as("SELECT funding_utxo FROM funding_utxos ORDER BY id DESC LIMIT 1;");
+
+        let result: Result<(sqlx::types::Json<UTXODB>,), sqlx::Error> = match tx {
+            Some(tx) => query.fetch_one(&mut **tx).await,
+            None => query.fetch_one(&self.connection).await,
+        };
+
+        match result {
+            Ok((utxo_db,)) => Ok(Some(UTXO {
+                outpoint: utxo_db.outpoint_db.0,
+                txout: utxo_db.txout_db.0.clone(),
+            })),
+            Err(sqlx::Error::RowNotFound) => Ok(None),
+            Err(e) => Err(BridgeError::DatabaseError(e)),
+        }
+    }
+
+    /// Operator: Sets the funding UTXO for kickoffs
+    pub async fn set_funding_utxo(
+        &self,
+        tx: Option<&mut sqlx::Transaction<'_, Postgres>>,
+        funding_utxo: UTXO,
+    ) -> Result<(), BridgeError> {
+        let query = sqlx::query("INSERT INTO funding_utxos (funding_utxo) VALUES ($1);").bind(
+            sqlx::types::Json(UTXODB {
+                outpoint_db: OutPointDB(funding_utxo.outpoint),
+                txout_db: TxOutDB(funding_utxo.txout),
+            }),
+        );
+
+        match tx {
+            Some(tx) => query.execute(&mut **tx).await?,
+            None => query.execute(&self.connection).await?,
+        };
+
+        Ok(())
+    }
+
+    /// Operator: Save the kickoff UTXO for this deposit UTXO.
+    pub async fn save_kickoff_utxo(
+        &self,
+        tx: Option<&mut sqlx::Transaction<'_, Postgres>>,
+        deposit_outpoint: OutPoint,
+        kickoff_utxo: UTXO,
+    ) -> Result<(), BridgeError> {
+        let query = sqlx::query(
+            "INSERT INTO operators_kickoff_utxo (deposit_outpoint, kickoff_utxo) VALUES ($1, $2);",
+        )
+        .bind(OutPointDB(deposit_outpoint))
+        .bind(sqlx::types::Json(UTXODB {
+            outpoint_db: OutPointDB(kickoff_utxo.outpoint),
+            txout_db: TxOutDB(kickoff_utxo.txout),
+        }));
+
+        match tx {
+            Some(tx) => query.execute(&mut **tx).await?,
+            None => query.execute(&self.connection).await?,
+        };
+
+        Ok(())
+    }
+
+    /// Operator: Save the signed kickoff UTXO generator tx.
+    ///  Txid is the txid of the signed tx.
+    /// funding_txid is the txid of the input[0].
+    pub async fn add_deposit_kickoff_generator_tx(
+        &self,
+        tx: Option<&mut sqlx::Transaction<'_, Postgres>>,
+        txid: Txid,
+        raw_hex: String,
+        num_kickoffs: usize,
+        funding_txid: Txid,
+    ) -> Result<(), BridgeError> {
+        let query = sqlx::query("INSERT INTO deposit_kickoff_generator_txs (txid, raw_signed_tx, num_kickoffs, cur_unused_kickoff_index, funding_txid) VALUES ($1, $2, $3, $4, $5);")
+            .bind(TxidDB(txid))
+            .bind(raw_hex)
+            .bind(num_kickoffs as i32)
+            .bind(1)
+            .bind(TxidDB(funding_txid));
+
+        match tx {
+            Some(tx) => query.execute(&mut **tx).await?,
+            None => query.execute(&self.connection).await?,
+        };
+
+        Ok(())
+    }
+
     /// Verifier: Get the verified kickoff UTXOs for a deposit UTXO.
     pub async fn get_kickoff_utxos(
         &self,
@@ -239,56 +344,6 @@ impl Database {
                 .collect();
             Ok(Some(utxos))
         }
-    }
-
-    /// Operator: Gets the funding UTXO for kickoffs
-    pub async fn get_funding_utxo(&self) -> Result<Option<UTXO>, BridgeError> {
-        let qr: Result<(sqlx::types::Json<UTXODB>,), sqlx::Error> =
-            sqlx::query_as("SELECT funding_utxo FROM funding_utxos ORDER BY id DESC LIMIT 1;")
-                .fetch_one(&self.connection)
-                .await;
-
-        match qr {
-            Ok((utxo_db,)) => Ok(Some(UTXO {
-                outpoint: utxo_db.outpoint_db.0,
-                txout: utxo_db.txout_db.0.clone(),
-            })),
-            Err(sqlx::Error::RowNotFound) => Ok(None),
-            Err(e) => Err(BridgeError::DatabaseError(e)),
-        }
-    }
-
-    /// Operator: Sets the funding UTXO for kickoffs
-    pub async fn set_funding_utxo(&self, funding_utxo: UTXO) -> Result<(), BridgeError> {
-        sqlx::query("INSERT INTO funding_utxos (funding_utxo) VALUES ($1);")
-            .bind(sqlx::types::Json(UTXODB {
-                outpoint_db: OutPointDB(funding_utxo.outpoint),
-                txout_db: TxOutDB(funding_utxo.txout),
-            }))
-            .execute(&self.connection)
-            .await?;
-
-        Ok(())
-    }
-
-    /// Operator: Save the kickoff UTXO for this deposit UTXO.
-    pub async fn save_kickoff_utxo(
-        &self,
-        deposit_outpoint: OutPoint,
-        kickoff_utxo: UTXO,
-    ) -> Result<(), BridgeError> {
-        sqlx::query(
-            "INSERT INTO operators_kickoff_utxo (deposit_outpoint, kickoff_utxo) VALUES ($1, $2);",
-        )
-        .bind(OutPointDB(deposit_outpoint))
-        .bind(sqlx::types::Json(UTXODB {
-            outpoint_db: OutPointDB(kickoff_utxo.outpoint),
-            txout_db: TxOutDB(kickoff_utxo.txout),
-        }))
-        .execute(&self.connection)
-        .await?;
-
-        Ok(())
     }
 
     /// Verifier: Save the kickoff UTXOs for this deposit UTXO.
@@ -340,13 +395,14 @@ impl Database {
     /// Verifier: save the generated sec nonce and pub nonces
     pub async fn save_nonces(
         &self,
+        tx: Option<&mut sqlx::Transaction<'_, Postgres>>,
         deposit_outpoint: OutPoint,
         nonces: &[(MuSigSecNonce, MuSigPubNonce)],
     ) -> Result<(), BridgeError> {
-        QueryBuilder::new(
+        let mut query = QueryBuilder::new(
             "INSERT INTO nonces (deposit_outpoint, internal_idx, sec_nonce, pub_nonce) ",
-        )
-        .push_values(
+        );
+        query.push_values(
             nonces.iter().enumerate(),
             |mut builder, (idx, (sec, pub_nonce))| {
                 builder
@@ -355,10 +411,14 @@ impl Database {
                     .push_bind(sec) // Bind sec_nonce
                     .push_bind(pub_nonce); // Bind pub_nonce
             },
-        )
-        .build()
-        .execute(&self.connection)
-        .await?;
+        );
+        let query = query.build();
+
+        // Now you can use the `query` variable in the match statement
+        match tx {
+            Some(tx) => query.execute(&mut **tx).await?,
+            None => query.execute(&self.connection).await?,
+        };
 
         Ok(())
     }
@@ -366,16 +426,20 @@ impl Database {
     /// Verifier: Save the deposit info to use later
     pub async fn save_deposit_info(
         &self,
+        tx: Option<&mut sqlx::Transaction<'_, Postgres>>,
         deposit_outpoint: OutPoint,
         recovery_taproot_address: Address<NetworkUnchecked>,
         evm_address: EVMAddress,
     ) -> Result<(), BridgeError> {
-        sqlx::query("INSERT INTO deposit_infos (deposit_outpoint, recovery_taproot_address, evm_address) VALUES ($1, $2, $3);")
+        let query = sqlx::query("INSERT INTO deposit_infos (deposit_outpoint, recovery_taproot_address, evm_address) VALUES ($1, $2, $3);")
         .bind(OutPointDB(deposit_outpoint))
         .bind(AddressDB(recovery_taproot_address))
-        .bind(EVMAddressDB(evm_address))
-        .execute(&self.connection)
-        .await?;
+        .bind(EVMAddressDB(evm_address));
+
+        match tx {
+            Some(tx) => query.execute(&mut **tx).await?,
+            None => query.execute(&self.connection).await?,
+        };
 
         Ok(())
     }
@@ -587,28 +651,6 @@ impl Database {
         }
     }
 
-    /// Operator: Save the signed kickoff UTXO generator tx.
-    ///  Txid is the txid of the signed tx.
-    /// funding_txid is the txid of the input[0].
-    pub async fn add_deposit_kickoff_generator_tx(
-        &self,
-        txid: Txid,
-        raw_hex: String,
-        num_kickoffs: usize,
-        funding_txid: Txid,
-    ) -> Result<(), BridgeError> {
-        sqlx::query("INSERT INTO deposit_kickoff_generator_txs (txid, raw_signed_tx, num_kickoffs, cur_unused_kickoff_index, funding_txid) VALUES ($1, $2, $3, $4, $5);")
-            .bind(TxidDB(txid))
-            .bind(raw_hex)
-            .bind(num_kickoffs as i32)
-            .bind(1)
-            .bind(TxidDB(funding_txid))
-            .execute(&self.connection)
-            .await?;
-
-        Ok(())
-    }
-
     pub async fn get_deposit_kickoff_generator_tx(
         &self,
         txid: Txid,
@@ -774,6 +816,7 @@ mod tests {
         let evm_address = EVMAddress([1u8; 20]);
         database
             .save_deposit_info(
+                None,
                 outpoint,
                 taproot_address.as_unchecked().clone(),
                 evm_address,
@@ -818,7 +861,7 @@ mod tests {
             .iter()
             .map(|(_, pub_nonce)| *pub_nonce)
             .collect();
-        db.save_nonces(outpoint, &nonce_pairs).await.unwrap();
+        db.save_nonces(None, outpoint, &nonce_pairs).await.unwrap();
         db.save_agg_nonces(outpoint, &agg_nonces).await.unwrap();
         let db_sec_and_agg_nonces = db
             .save_sighashes_and_get_nonces(outpoint, index, &sighashes)
@@ -858,7 +901,7 @@ mod tests {
             .iter()
             .map(|(_, pub_nonce)| *pub_nonce)
             .collect();
-        db.save_nonces(outpoint, &nonce_pairs).await.unwrap();
+        db.save_nonces(None, outpoint, &nonce_pairs).await.unwrap();
         db.save_agg_nonces(outpoint, &agg_nonces).await.unwrap();
         let db_sec_and_agg_nonces = db
             .save_sighashes_and_get_nonces(outpoint, index, &sighashes)
@@ -903,7 +946,7 @@ mod tests {
             .iter()
             .map(|(_, pub_nonce)| *pub_nonce)
             .collect();
-        db.save_nonces(outpoint, &nonce_pairs).await.unwrap();
+        db.save_nonces(None, outpoint, &nonce_pairs).await.unwrap();
         db.save_agg_nonces(outpoint, &agg_nonces).await.unwrap();
         let _db_sec_and_agg_nonces = db
             .save_sighashes_and_get_nonces(outpoint, index, &sighashes)
@@ -943,7 +986,7 @@ mod tests {
             .into_iter()
             .map(|kp| nonce_pair(&kp, &mut OsRng))
             .collect();
-        db.save_nonces(outpoint, &nonce_pairs).await.unwrap();
+        db.save_nonces(None, outpoint, &nonce_pairs).await.unwrap();
         let pub_nonces = db.get_pub_nonces(outpoint).await.unwrap().unwrap();
 
         // Sanity checks
@@ -981,10 +1024,10 @@ mod tests {
                 script_pubkey: ScriptBuf::from(vec![1u8]),
             },
         };
-        db.save_kickoff_utxo(outpoint, kickoff_utxo.clone())
+        db.save_kickoff_utxo(None, outpoint, kickoff_utxo.clone())
             .await
             .unwrap();
-        let db_kickoff_utxo = db.get_kickoff_utxo(outpoint).await.unwrap().unwrap();
+        let db_kickoff_utxo = db.get_kickoff_utxo(None, outpoint).await.unwrap().unwrap();
 
         // Sanity check
         assert_eq!(db_kickoff_utxo, kickoff_utxo);
@@ -999,7 +1042,7 @@ mod tests {
             txid: Txid::from_byte_array([1u8; 32]),
             vout: 1,
         };
-        let db_kickoff_utxo = db.get_kickoff_utxo(outpoint).await.unwrap();
+        let db_kickoff_utxo = db.get_kickoff_utxo(None, outpoint).await.unwrap();
         assert!(db_kickoff_utxo.is_none());
     }
 
@@ -1068,8 +1111,8 @@ mod tests {
                 script_pubkey: ScriptBuf::from(vec![1u8]),
             },
         };
-        db.set_funding_utxo(utxo.clone()).await.unwrap();
-        let db_utxo = db.get_funding_utxo().await.unwrap().unwrap();
+        db.set_funding_utxo(None, utxo.clone()).await.unwrap();
+        let db_utxo = db.get_funding_utxo(None).await.unwrap().unwrap();
 
         // Sanity check
         assert_eq!(db_utxo, utxo);
@@ -1080,7 +1123,7 @@ mod tests {
         let config = create_test_config_with_thread_name!("test_config.toml");
         let db = Database::new(config).await.unwrap();
 
-        let db_utxo = db.get_funding_utxo().await.unwrap();
+        let db_utxo = db.get_funding_utxo(None).await.unwrap();
 
         assert!(db_utxo.is_none());
     }
@@ -1096,9 +1139,15 @@ mod tests {
         let txid = tx.compute_txid();
         let num_kickoffs = 2;
         let funding_txid = tx.input[0].previous_output.txid;
-        db.add_deposit_kickoff_generator_tx(txid, raw_hex.clone(), num_kickoffs, funding_txid)
-            .await
-            .unwrap();
+        db.add_deposit_kickoff_generator_tx(
+            None,
+            txid,
+            raw_hex.clone(),
+            num_kickoffs,
+            funding_txid,
+        )
+        .await
+        .unwrap();
         let (db_raw_hex, db_num_kickoffs, db_cur_unused_kickoff_index, db_funding_txid) = db
             .get_deposit_kickoff_generator_tx(txid)
             .await
@@ -1112,7 +1161,7 @@ mod tests {
         assert_eq!(db_funding_txid, funding_txid);
 
         let unused_utxo = db
-            .get_unused_kickoff_utxo_and_increase_idx()
+            .get_unused_kickoff_utxo_and_increase_idx(None)
             .await
             .unwrap()
             .unwrap();
@@ -1122,7 +1171,10 @@ mod tests {
         assert_eq!(unused_utxo.outpoint.txid, txid);
         assert_eq!(unused_utxo.outpoint.vout, 1);
 
-        let none_utxo = db.get_unused_kickoff_utxo_and_increase_idx().await.unwrap();
+        let none_utxo = db
+            .get_unused_kickoff_utxo_and_increase_idx(None)
+            .await
+            .unwrap();
         assert!(none_utxo.is_none());
     }
 

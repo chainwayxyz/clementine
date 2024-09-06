@@ -107,12 +107,19 @@ where
             .map(|_| musig2::nonce_pair(&self.signer.keypair, &mut rand::rngs::OsRng))
             .collect::<Vec<_>>();
 
-        let transaction = self.db.begin_transaction().await?;
+        let mut dbtx = self.db.begin_transaction().await?;
         self.db
-            .save_deposit_info(deposit_outpoint, recovery_taproot_address, evm_address)
+            .save_deposit_info(
+                Some(&mut dbtx),
+                deposit_outpoint,
+                recovery_taproot_address,
+                evm_address,
+            )
             .await?;
-        self.db.save_nonces(deposit_outpoint, &nonces).await?;
-        transaction.commit().await?;
+        self.db
+            .save_nonces(Some(&mut dbtx), deposit_outpoint, &nonces)
+            .await?;
+        dbtx.commit().await?;
 
         let pub_nonces = nonces.iter().map(|(_, pub_nonce)| *pub_nonce).collect();
 
