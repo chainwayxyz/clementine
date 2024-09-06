@@ -18,8 +18,6 @@ use std::{fs::File, io::Read, path::PathBuf};
 /// Configuration options for any Clementine target (tests, binaries etc.).
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct BridgeConfig {
-    /// Tracing debug level.
-    pub tracing_debug: String,
     /// Host of the operator or the verifier
     pub host: String,
     /// Port of the operator or the verifier
@@ -109,7 +107,6 @@ impl BridgeConfig {
 impl Default for BridgeConfig {
     fn default() -> Self {
         Self {
-            tracing_debug: "debug".to_string(),
             host: "127.0.0.1".to_string(),
             port: 3030,
             secret_key: secp256k1::SecretKey::new(&mut secp256k1::rand::thread_rng()),

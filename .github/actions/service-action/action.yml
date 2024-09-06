@@ -28,7 +28,6 @@ runs:
     shell: bash
     run: |
       cat << EOF > /home/runner/overwrite.toml
-      tracing_debug = "trace,bitcoincore_rpc=info,hyper=error,bitcoin_mock_rpc=trace"
       host = "127.0.0.1"
       port = 3000
       secret_key = "3333333333333333333333333333333333333333333333333333333333333333"
