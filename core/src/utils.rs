@@ -38,6 +38,7 @@ lazy_static::lazy_static! {
     pub static ref NETWORK : bitcoin::Network = bitcoin::Network::Regtest;
 }
 
+#[deprecated(note = "Use bitcoin::consensus::encode::deserialize_hex(tx_hex) instead")]
 pub fn parse_hex_to_btc_tx(
     tx_hex: &str,
 ) -> Result<bitcoin::blockdata::transaction::Transaction, bitcoin::consensus::encode::Error> {
