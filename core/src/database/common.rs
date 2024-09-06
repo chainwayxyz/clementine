@@ -468,67 +468,40 @@ impl Database {
     /// Verifier: saves the sighash and returns sec and agg nonces, if the sighash is already there and different, returns error
     pub async fn save_sighashes_and_get_nonces(
         &self,
+        tx: Option<&mut sqlx::Transaction<'_, Postgres>>,
         deposit_outpoint: OutPoint,
         index: usize,
         sighashes: &[MuSigSigHash],
     ) -> Result<Option<Vec<(MuSigSecNonce, MuSigAggNonce)>>, BridgeError> {
-        let indices: Vec<i32> = sqlx::query_scalar::<_, i32>(
-        "SELECT internal_idx FROM nonces WHERE deposit_outpoint = $1 ORDER BY internal_idx ASC;",
-    )
-    .bind(OutPointDB(deposit_outpoint))
-    .fetch_all(&self.connection)
-    .await?;
+        // Update the sighashes
+        let mut query = QueryBuilder::new(
+            "UPDATE nonces
+             SET sighash = batch.sighash
+             FROM (",
+        );
+        let query = query.push_values(sighashes.iter().enumerate(), |mut builder, (i, sighash)| {
+            builder.push_bind((index + i) as i32).push_bind(sighash);
+        });
 
-        // Start a batch query for updating sighashes
-        let mut update_query_builder = QueryBuilder::new("UPDATE nonces SET sighash = CASE");
+        let query = query
+            .push(
+                ") AS batch (internal_idx, sighash)
+             WHERE nonces.internal_idx = batch.internal_idx AND nonces.deposit_outpoint = ",
+            )
+            .push_bind(OutPointDB(deposit_outpoint))
+            .push(" RETURNING sec_nonce, agg_nonce;")
+            .build_query_as();
 
-        // Create a set of updates for the corresponding sighash and internal_idx
-        for (sighash, idx) in sighashes.iter().zip(indices[index..].iter()) {
-            update_query_builder
-                .push(" WHEN internal_idx = ")
-                .push_bind(*idx)
-                .push(" THEN ")
-                .push_bind(sighash);
+        let result: Result<Vec<(MuSigSecNonce, MuSigAggNonce)>, sqlx::Error> = match tx {
+            Some(tx) => query.fetch_all(&mut **tx).await,
+            None => query.fetch_all(&self.connection).await,
+        };
+
+        match result {
+            Ok(nonces) => Ok(Some(nonces)),
+            Err(sqlx::Error::RowNotFound) => Ok(None),
+            Err(e) => Err(BridgeError::DatabaseError(e)),
         }
-
-        // Finish the CASE statement and add the WHERE clause for deposit_outpoint
-        update_query_builder
-            .push(" END WHERE deposit_outpoint = ")
-            .push_bind(OutPointDB(deposit_outpoint))
-            .push(" AND internal_idx IN (")
-            .push_values(indices[index..].iter(), |mut b, idx| {
-                b.push_bind(*idx); // Add semicolon to ensure closure returns `()`
-            })
-            .push(")");
-
-        // Execute the batch update
-        update_query_builder
-            .build()
-            .execute(&self.connection)
-            .await?;
-
-        // Now batch fetch the sec_nonce and agg_nonce after the update
-        let mut select_query_builder =
-            QueryBuilder::new("SELECT sec_nonce, agg_nonce FROM nonces WHERE deposit_outpoint = ");
-        select_query_builder
-            .push_bind(OutPointDB(deposit_outpoint))
-            .push(" AND internal_idx IN (")
-            .push_values(indices[index..].iter(), |mut b, idx| {
-                b.push_bind(*idx); // Ensure closure returns `()`
-            })
-            .push(") AND sighash IN (")
-            .push_values(sighashes, |mut b, sighash| {
-                b.push_bind(sighash); // Ensure closure returns `()`
-            })
-            .push(")");
-
-        // Execute the batch select query
-        let nonces: Vec<(MuSigSecNonce, MuSigAggNonce)> = select_query_builder
-            .build_query_as()
-            .fetch_all(&self.connection)
-            .await?;
-
-        Ok(Some(nonces))
     }
 
     /// Verifier: Save the agg nonces for signing
@@ -703,39 +676,6 @@ impl Database {
             None => Ok(None),
         }
     }
-
-    // pub async fn save_kickoff_root(
-    //     &self,
-    //     deposit_outpoint: OutPoint,
-    //     kickoff_root: [u8; 32],
-    // ) -> Result<(), BridgeError> {
-    //     sqlx::query(
-    //         "INSERT INTO kickoff_roots (deposit_outpoint, kickoff_merkle_root) VALUES ($1, $2);",
-    //     )
-    //     .bind(OutPointDB(deposit_outpoint))
-    //     .bind(hex::encode(kickoff_root))
-    //     .execute(&self.connection)
-    //     .await?;
-
-    //     Ok(())
-    // }
-
-    // pub async fn get_kickoff_root(
-    //     &self,
-    //     deposit_outpoint: OutPoint,
-    // ) -> Result<Option<[u8; 32]>, BridgeError> {
-    //     let qr: Option<String> = sqlx::query_scalar(
-    //         "SELECT kickoff_merkle_root FROM kickoff_roots WHERE deposit_outpoint = $1;",
-    //     )
-    //     .bind(OutPointDB(deposit_outpoint))
-    //     .fetch_optional(&self.connection)
-    //     .await?;
-
-    //     match qr {
-    //         Some(root) => Ok(Some(hex::decode(root)?.try_into()?)),
-    //         None => Ok(None),
-    //     }
-    // }
 }
 
 #[cfg(test)]
@@ -897,7 +837,7 @@ mod tests {
         db.save_nonces(None, outpoint, &nonce_pairs).await.unwrap();
         db.save_agg_nonces(outpoint, &agg_nonces).await.unwrap();
         let db_sec_and_agg_nonces = db
-            .save_sighashes_and_get_nonces(outpoint, index, &sighashes)
+            .save_sighashes_and_get_nonces(None, outpoint, index, &sighashes)
             .await
             .unwrap()
             .unwrap();
@@ -937,7 +877,7 @@ mod tests {
         db.save_nonces(None, outpoint, &nonce_pairs).await.unwrap();
         db.save_agg_nonces(outpoint, &agg_nonces).await.unwrap();
         let db_sec_and_agg_nonces = db
-            .save_sighashes_and_get_nonces(outpoint, index, &sighashes)
+            .save_sighashes_and_get_nonces(None, outpoint, index, &sighashes)
             .await
             .unwrap()
             .unwrap();
@@ -982,7 +922,7 @@ mod tests {
         db.save_nonces(None, outpoint, &nonce_pairs).await.unwrap();
         db.save_agg_nonces(outpoint, &agg_nonces).await.unwrap();
         let _db_sec_and_agg_nonces = db
-            .save_sighashes_and_get_nonces(outpoint, index, &sighashes)
+            .save_sighashes_and_get_nonces(None, outpoint, index, &sighashes)
             .await
             .unwrap()
             .unwrap();
@@ -990,7 +930,7 @@ mod tests {
         // Accidentally try to save a different sighash
         sighashes[0] = ByteArray32([2u8; 32]);
         let _db_sec_and_agg_nonces = db
-            .save_sighashes_and_get_nonces(outpoint, index, &sighashes)
+            .save_sighashes_and_get_nonces(None, outpoint, index, &sighashes)
             .await
             .expect_err("Should return database sighash update error");
         println!("Error: {:?}", _db_sec_and_agg_nonces);

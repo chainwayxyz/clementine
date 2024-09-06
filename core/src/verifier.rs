@@ -225,6 +225,7 @@ where
         let nonces = self
             .db
             .save_sighashes_and_get_nonces(
+                None,
                 deposit_outpoint,
                 self.config.num_operators + 1,
                 &slash_or_take_sighashes,
@@ -376,7 +377,7 @@ where
         // println!("Operator takes sighashes: {:?}", operator_takes_sighashes);
         let nonces = self
             .db
-            .save_sighashes_and_get_nonces(deposit_outpoint, 1, &operator_takes_sighashes)
+            .save_sighashes_and_get_nonces(None, deposit_outpoint, 1, &operator_takes_sighashes)
             .await?
             .ok_or(BridgeError::NoncesNotFound)?;
         // println!("Nonces: {:?}", nonces);
@@ -482,6 +483,7 @@ where
         let nonces = self
             .db
             .save_sighashes_and_get_nonces(
+                None,
                 deposit_outpoint,
                 0,
                 &[ByteArray32(move_tx_sighash.to_byte_array())],
