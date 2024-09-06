@@ -672,11 +672,12 @@ mod tests {
         hashes::Hash, Address, Amount, OutPoint, ScriptBuf, TxOut, Txid, XOnlyPublicKey,
     };
     use crypto_bigint::rand_core::OsRng;
-    use secp256k1::{constants::SCHNORR_SIGNATURE_SIZE, schnorr, Secp256k1};
+    use secp256k1::constants::SCHNORR_SIGNATURE_SIZE;
+    use secp256k1::{schnorr, Secp256k1};
     use std::thread;
 
     #[tokio::test]
-    async fn test_database_gets_previously_saved_slash_or_take_signature() {
+    async fn test_database_gets_previously_saved_operator_take_signature() {
         let config = create_test_config_with_thread_name!("test_config.toml");
         let database = Database::new(config).await.unwrap();
 
@@ -700,12 +701,12 @@ mod tests {
             .unwrap();
 
         database
-            .save_slash_or_take_sigs(deposit_outpoint, [(kickoff_utxo.clone(), signature)])
+            .save_operator_take_sigs(deposit_outpoint, [(kickoff_utxo.clone(), signature)])
             .await
             .unwrap();
 
         let actual_sig = database
-            .get_slash_or_take_sig(deposit_outpoint, kickoff_utxo)
+            .get_operator_take_sig(deposit_outpoint, kickoff_utxo)
             .await
             .unwrap();
         let expected_sig = Some(signature);
