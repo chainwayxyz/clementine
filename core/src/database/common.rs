@@ -222,7 +222,7 @@ impl Database {
         deposit_outpoint: OutPoint,
     ) -> Result<Option<Vec<UTXO>>, BridgeError> {
         let qr: Vec<(sqlx::types::Json<UTXODB>,)> = sqlx::query_as(
-            "SELECT kickoff_utxo FROM deposit_kickoff_utxos WHERE deposit_outpoint = $1 ORDER BY id ASC;",
+            "SELECT kickoff_utxo FROM deposit_kickoff_utxos WHERE deposit_outpoint = $1 ORDER BY operator_idx ASC;",
         )
         .bind(OutPointDB(deposit_outpoint))
         .fetch_all(&self.connection)
@@ -297,19 +297,20 @@ impl Database {
         deposit_outpoint: OutPoint,
         kickoff_utxos: &[UTXO],
     ) -> Result<(), BridgeError> {
-        for utxo in kickoff_utxos {
+        for (operator_idx, utxo) in kickoff_utxos.iter().enumerate() {
             // println!("Saving utxo: {:?}", serde_json::to_value(UTXODB {
             //     outpoint_db: OutPointDB(utxo.outpoint),
             //     txout_db: TxOutDB(utxo.txout.clone()),
             // }).unwrap());
             sqlx::query(
-                "INSERT INTO deposit_kickoff_utxos (deposit_outpoint, kickoff_utxo) VALUES ($1, $2) ON CONFLICT (deposit_outpoint, kickoff_utxo) DO NOTHING;",
+                "INSERT INTO deposit_kickoff_utxos (deposit_outpoint, kickoff_utxo, operator_idx) VALUES ($1, $2, $3) ON CONFLICT (deposit_outpoint, operator_idx) DO NOTHING;",
             )
             .bind(OutPointDB(deposit_outpoint))
             .bind(sqlx::types::Json(UTXODB {
                 outpoint_db: OutPointDB(utxo.outpoint),
                 txout_db: TxOutDB(utxo.txout.clone()),
             }))
+            .bind(operator_idx as i32)
             .execute(&self.connection)
             .await?;
         }
@@ -400,7 +401,7 @@ impl Database {
         sighashes: &[[u8; 32]],
     ) -> Result<Option<Vec<(MuSigSecNonce, MuSigAggNonce)>>, BridgeError> {
         let indices: Vec<i32> = sqlx::query_scalar::<_, i32>(
-            "SELECT idx FROM nonces WHERE deposit_outpoint = $1 ORDER BY idx ASC;",
+            "SELECT internal_idx FROM nonces WHERE deposit_outpoint = $1 ORDER BY internal_idx ASC;",
         )
         .bind(OutPointDB(deposit_outpoint))
         .fetch_all(&self.connection)
@@ -408,13 +409,15 @@ impl Database {
         let mut nonces: Vec<(MuSigSecNonce, MuSigAggNonce)> = Vec::new();
         for (sighash, idx) in sighashes.iter().zip(indices[index..].iter()) {
             // After finding the idx deposit_outpoint might be unnecessary
-            sqlx::query("UPDATE nonces SET sighash = $1 WHERE idx = $2 AND deposit_outpoint = $3;")
-                .bind(hex::encode(sighash))
-                .bind(*idx)
-                .bind(OutPointDB(deposit_outpoint))
-                .execute(&self.connection)
-                .await?;
-            let res: (MuSigSecNonce, MuSigAggNonce) = sqlx::query_as("SELECT sec_nonce, agg_nonce FROM nonces WHERE deposit_outpoint = $1 AND idx = $2 AND sighash = $3;")
+            sqlx::query(
+                "UPDATE nonces SET sighash = $1 WHERE internal_idx = $2 AND deposit_outpoint = $3;",
+            )
+            .bind(hex::encode(sighash))
+            .bind(*idx)
+            .bind(OutPointDB(deposit_outpoint))
+            .execute(&self.connection)
+            .await?;
+            let res: (MuSigSecNonce, MuSigAggNonce) = sqlx::query_as("SELECT sec_nonce, agg_nonce FROM nonces WHERE deposit_outpoint = $1 AND internal_idx = $2 AND sighash = $3;")
                 .bind(OutPointDB(deposit_outpoint))
                 .bind(*idx)
                 .bind(hex::encode(sighash))
@@ -433,7 +436,7 @@ impl Database {
         agg_nonces: impl IntoIterator<Item = &MuSigAggNonce>,
     ) -> Result<(), BridgeError> {
         let idx = sqlx::query_scalar::<_, i32>(
-            "SELECT idx FROM nonces WHERE deposit_outpoint = $1 ORDER BY internal_idx ASC LIMIT 1;",
+            "SELECT internal_idx FROM nonces WHERE deposit_outpoint = $1 ORDER BY internal_idx ASC LIMIT 1;",
         )
         .bind(OutPointDB(deposit_outpoint))
         .fetch_optional(&self.connection)
@@ -456,8 +459,8 @@ impl Database {
             },
         )
         .push(
-            ") AS batch (idx, agg_nonce)
-            WHERE nonces.idx = batch.idx AND nonces.deposit_outpoint =
+            ") AS batch (internal_idx, agg_nonce)
+            WHERE nonces.internal_idx = batch.internal_idx AND nonces.deposit_outpoint =
             ",
         )
         .push_bind(OutPointDB(deposit_outpoint))
