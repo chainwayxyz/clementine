@@ -251,7 +251,6 @@ where
             })
             .collect::<Vec<_>>();
 
-
         // TODO: Sign burn txs
         Ok((slash_or_take_partial_sigs, vec![]))
     }
