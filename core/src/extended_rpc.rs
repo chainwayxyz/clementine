@@ -49,6 +49,7 @@ where
         }
     }
 
+    #[tracing::instrument(skip(self))]
     pub fn confirmation_blocks(&self, txid: &bitcoin::Txid) -> Result<u32, BridgeError> {
         let raw_transaction_results = self.client.get_raw_transaction_info(txid, None)?;
 
@@ -57,6 +58,7 @@ where
             .ok_or(BridgeError::NoConfirmationData)
     }
 
+    #[tracing::instrument(skip(self))]
     pub fn check_utxo_address_and_amount(
         &self,
         outpoint: &OutPoint,
@@ -75,6 +77,7 @@ where
         Ok(expected_output == current_output)
     }
 
+    #[tracing::instrument(skip(self))]
     pub fn is_utxo_spent(&self, outpoint: &OutPoint) -> Result<bool, BridgeError> {
         let res = self
             .client
@@ -83,6 +86,7 @@ where
         Ok(res.is_none())
     }
 
+    #[tracing::instrument(skip(self))]
     pub fn generate_dummy_block(&self) -> Result<Vec<bitcoin::BlockHash>, BridgeError> {
         let address = self.client.get_new_address(None, None)?.assume_checked();
 
@@ -104,6 +108,7 @@ where
         Ok(self.client.generate_to_address(1, &address)?)
     }
 
+    #[tracing::instrument(skip(self))]
     pub fn mine_blocks(&self, block_num: u64) -> Result<(), BridgeError> {
         let new_address = self.client.get_new_address(None, None)?.assume_checked();
 
@@ -112,6 +117,7 @@ where
         Ok(())
     }
 
+    #[tracing::instrument(skip(self))]
     pub fn send_to_address(
         &self,
         address: &Address,
@@ -134,6 +140,7 @@ where
         Ok(OutPoint { txid, vout })
     }
 
+    #[tracing::instrument(skip(self))]
     pub fn get_work_at_block(&self, blockheight: u64) -> Result<Work, BridgeError> {
         let block_hash = self.get_block_hash(blockheight)?;
         let block = self.client.get_block(&block_hash)?;
@@ -142,6 +149,7 @@ where
         Ok(work)
     }
 
+    #[tracing::instrument(skip(self))]
     pub fn get_block_hash(
         &self,
         blockheight: u64,
@@ -151,6 +159,7 @@ where
         Ok(block_hash)
     }
 
+    #[tracing::instrument(skip(self))]
     pub fn get_block_header(
         &self,
         block_hash: &bitcoin::BlockHash,
@@ -160,6 +169,7 @@ where
         Ok(block_header)
     }
 
+    #[tracing::instrument(skip(self))]
     pub fn calculate_total_work_between_blocks(
         &self,
         start: u64,
@@ -179,6 +189,7 @@ where
         Ok(U256::from_be_bytes(work_bytes))
     }
 
+    #[tracing::instrument(skip(self))]
     pub fn get_total_work_as_u256(&self) -> Result<U256, BridgeError> {
         let chain_info = self.client.get_blockchain_info()?;
         let total_work_bytes = chain_info.chain_work;
@@ -187,6 +198,7 @@ where
         Ok(total_work)
     }
 
+    #[tracing::instrument(skip(self))]
     pub fn get_total_work(&self) -> Result<Work, BridgeError> {
         let chain_info = self.client.get_blockchain_info()?;
         let total_work_bytes = chain_info.chain_work;
@@ -195,6 +207,7 @@ where
         Ok(total_work)
     }
 
+    #[tracing::instrument(skip(self))]
     pub fn get_block_height(&self) -> Result<u64, BridgeError> {
         let chain_info = self.client.get_blockchain_info()?;
         let block_height = chain_info.blocks;
@@ -202,6 +215,7 @@ where
         Ok(block_height)
     }
 
+    #[tracing::instrument(skip(self))]
     pub fn get_txout_from_outpoint(&self, outpoint: &OutPoint) -> Result<TxOut, BridgeError> {
         let tx = self.client.get_raw_transaction(&outpoint.txid, None)?;
         let txout = tx.output[outpoint.vout as usize].clone();
@@ -209,6 +223,7 @@ where
         Ok(txout)
     }
 
+    #[tracing::instrument(skip(self))]
     // Following methods are just wrappers around the bitcoincore_rpc::Client methods
     pub fn fund_raw_transaction(
         &self,
@@ -219,6 +234,7 @@ where
         self.client.fund_raw_transaction(tx, options, is_witness)
     }
 
+    #[tracing::instrument(skip_all)]
     pub fn sign_raw_transaction_with_wallet<T: bitcoincore_rpc::RawTx>(
         &self,
         tx: T,
@@ -229,20 +245,24 @@ where
             .sign_raw_transaction_with_wallet(tx, utxos, sighash_type)
     }
 
+    #[tracing::instrument(skip(self))]
     pub fn get_blockchain_info(
         &self,
     ) -> Result<bitcoincore_rpc::json::GetBlockchainInfoResult, bitcoincore_rpc::Error> {
         self.client.get_blockchain_info()
     }
 
+    #[tracing::instrument(skip(self))]
     pub fn get_block_count(&self) -> Result<u64, bitcoincore_rpc::Error> {
         self.client.get_block_count()
     }
 
+    #[tracing::instrument(skip(self))]
     pub fn get_best_block_hash(&self) -> Result<bitcoin::BlockHash, bitcoincore_rpc::Error> {
         self.client.get_best_block_hash()
     }
 
+    #[tracing::instrument(skip(self))]
     pub fn get_raw_transaction(
         &self,
         txid: &bitcoin::Txid,
@@ -251,6 +271,7 @@ where
         self.client.get_raw_transaction(txid, block_hash)
     }
 
+    #[tracing::instrument(skip(self))]
     pub fn get_transaction(
         &self,
         txid: &bitcoin::Txid,
@@ -259,6 +280,7 @@ where
         self.client.get_transaction(txid, include_watchonly)
     }
 
+    #[tracing::instrument(skip_all)]
     pub fn send_raw_transaction<T: bitcoincore_rpc::RawTx>(
         &self,
         tx: T,
@@ -266,12 +288,14 @@ where
         self.client.send_raw_transaction(tx)
     }
 
+    #[tracing::instrument(skip(self))]
     pub fn get_block(
         &self,
         block_hash: &bitcoin::BlockHash,
     ) -> Result<bitcoin::Block, bitcoincore_rpc::Error> {
         self.client.get_block(block_hash)
     }
+    #[tracing::instrument(skip(self))]
     pub fn get_raw_transaction_info(
         &self,
         txid: &bitcoin::Txid,
@@ -280,6 +304,7 @@ where
         self.client.get_raw_transaction_info(txid, block_hash)
     }
 
+    #[tracing::instrument(skip(self))]
     pub fn check_deposit_utxo(
         &self,
         nofn_xonly_pk: &XOnlyPublicKey,
@@ -320,6 +345,7 @@ where
     }
 
     /// Generates bitcoins to specified address.
+    #[tracing::instrument(skip(self))]
     pub fn generate_to_address(
         &self,
         block_num: u64,
@@ -331,6 +357,7 @@ where
     }
 
     /// Requests a new Bitcoin address via an RPC call.
+    #[tracing::instrument(skip(self))]
     pub fn get_new_address(&self) -> Result<Address, BridgeError> {
         let address = self
             .client
