@@ -7,7 +7,9 @@ use bitcoin::taproot::LeafVersion;
 use bitcoin::XOnlyPublicKey;
 use hex;
 use std::borrow::BorrowMut;
+use std::process::exit;
 use std::str::FromStr;
+use tracing::level_filters::LevelFilter;
 use tracing_subscriber::layer::SubscriberExt;
 use tracing_subscriber::{fmt, EnvFilter};
 
@@ -109,13 +111,38 @@ pub fn get_claim_reveal_indices(depth: usize, count: u32) -> Vec<(usize, usize)>
 
 /// Initializes `tracing` as the logger.
 ///
+/// # Parameters
+///
+/// - `level`: Level ranges from 0 to 5. 0 defaults to no logs but can be
+/// overwritten with `RUST_LOG` env var. While other numbers sets log level from
+/// lowest level (1) to highest level (5). Is is advised to use 0 on tests and
+/// other values for binaries (get value from user).
+///
 /// # Returns
 ///
 /// Returns `Err` if `tracing` can't be initialized. Multiple subscription error
 /// is emmitted and will return `Ok(())`.
-pub fn initialize_logger() -> Result<(), tracing_subscriber::util::TryInitError> {
+pub fn initialize_logger(level: u8) -> Result<(), tracing_subscriber::util::TryInitError> {
+    let level = match level {
+        0 => None,
+        1 => Some(LevelFilter::ERROR),
+        2 => Some(LevelFilter::WARN),
+        3 => Some(LevelFilter::INFO),
+        4 => Some(LevelFilter::DEBUG),
+        5 => Some(LevelFilter::TRACE),
+        _ => {
+            eprintln!("Verbosity level can only be between 0 and 5 (given {level})!");
+            exit(1);
+        }
+    };
+
     let layer = fmt::layer().with_test_writer();
-    let filter = EnvFilter::from_default_env();
+    let filter = match level {
+        Some(level) => EnvFilter::builder()
+            .with_default_directive(level.into())
+            .from_env_lossy(),
+        None => EnvFilter::from_default_env(),
+    };
 
     if let Err(e) = tracing_subscriber::util::SubscriberInitExt::try_init(
         tracing_subscriber::registry().with(layer).with(filter),

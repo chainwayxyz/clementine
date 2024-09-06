@@ -105,7 +105,7 @@ impl BridgeConfig {
         }?;
 
         // Initialize tracing.
-        if let Err(e) = utils::initialize_logger() {
+        if let Err(e) = utils::initialize_logger(0) {
             // No logger is not a no-go. Print error to stderr and continue
             // program flow,
             eprintln!("Can't initialize logger: {e}");
