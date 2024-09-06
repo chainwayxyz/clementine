@@ -4,7 +4,7 @@
 //! directly talks with PostgreSQL. It is expected that PostgreSQL is properly
 //! installed and configured.
 
-use crate::musig2::{MuSigAggNonce, MuSigPubNonce, MuSigSecNonce};
+use crate::musig2::{MuSigAggNonce, MuSigPubNonce, MuSigSecNonce, MuSigSigHash};
 use crate::{config::BridgeConfig, errors::BridgeError};
 use crate::{EVMAddress, UTXO};
 use bitcoin::address::NetworkUnchecked;
@@ -462,7 +462,7 @@ impl Database {
         &self,
         deposit_outpoint: OutPoint,
         index: usize,
-        sighashes: &[[u8; 32]],
+        sighashes: &[MuSigSigHash],
     ) -> Result<Option<Vec<(MuSigSecNonce, MuSigAggNonce)>>, BridgeError> {
         let indices: Vec<i32> = sqlx::query_scalar::<_, i32>(
             "SELECT internal_idx FROM nonces WHERE deposit_outpoint = $1 ORDER BY internal_idx ASC;",
@@ -476,7 +476,7 @@ impl Database {
             sqlx::query(
                 "UPDATE nonces SET sighash = $1 WHERE internal_idx = $2 AND deposit_outpoint = $3;",
             )
-            .bind(hex::encode(sighash))
+            .bind(sighash)
             .bind(*idx)
             .bind(OutPointDB(deposit_outpoint))
             .execute(&self.connection)
@@ -484,7 +484,7 @@ impl Database {
             let res: (MuSigSecNonce, MuSigAggNonce) = sqlx::query_as("SELECT sec_nonce, agg_nonce FROM nonces WHERE deposit_outpoint = $1 AND internal_idx = $2 AND sighash = $3;")
                 .bind(OutPointDB(deposit_outpoint))
                 .bind(*idx)
-                .bind(hex::encode(sighash))
+                .bind(sighash)
                 .fetch_one(&self.connection)
                 .await?;
             nonces.push(res);
@@ -713,7 +713,7 @@ mod tests {
         create_test_config, create_test_config_with_thread_name,
         mock::common,
         musig2::{nonce_pair, MuSigAggNonce, MuSigPubNonce, MuSigSecNonce},
-        EVMAddress, UTXO,
+        ByteArray32, EVMAddress, UTXO,
     };
     use bitcoin::{
         hashes::Hash, Address, Amount, OutPoint, ScriptBuf, TxOut, Txid, XOnlyPublicKey,
@@ -843,7 +843,7 @@ mod tests {
             vout: 1,
         };
         let index = 2;
-        let sighashes = [[1u8; 32]];
+        let sighashes = [ByteArray32([1u8; 32])];
         let sks = [
             secp256k1::SecretKey::from_slice(&[1u8; 32]).unwrap(),
             secp256k1::SecretKey::from_slice(&[2u8; 32]).unwrap(),
@@ -883,7 +883,7 @@ mod tests {
 
         let outpoint = OutPoint::null();
         let index = 0;
-        let sighashes = [[1u8; 32], [2u8; 32]];
+        let sighashes = [ByteArray32([1u8; 32]), ByteArray32([2u8; 32])];
         let sks = [
             secp256k1::SecretKey::from_slice(&[1u8; 32]).unwrap(),
             secp256k1::SecretKey::from_slice(&[2u8; 32]).unwrap(),
@@ -928,7 +928,7 @@ mod tests {
             vout: 1,
         };
         let index = 2;
-        let mut sighashes = [[1u8; 32]];
+        let mut sighashes = [ByteArray32([1u8; 32])];
         let sks = [
             secp256k1::SecretKey::from_slice(&[1u8; 32]).unwrap(),
             secp256k1::SecretKey::from_slice(&[2u8; 32]).unwrap(),
@@ -955,7 +955,7 @@ mod tests {
             .unwrap();
 
         // Accidentally try to save a different sighash
-        sighashes[0] = [2u8; 32];
+        sighashes[0] = ByteArray32([2u8; 32]);
         let _db_sec_and_agg_nonces = db
             .save_sighashes_and_get_nonces(outpoint, index, &sighashes)
             .await

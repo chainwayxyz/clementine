@@ -5,10 +5,11 @@ use crate::errors::BridgeError;
 use crate::extended_rpc::ExtendedRpc;
 use crate::musig2::{
     self, AggregateFromPublicKeys, MuSigAggNonce, MuSigPartialSignature, MuSigPubNonce,
+    MuSigSigHash,
 };
 use crate::traits::rpc::VerifierRpcServer;
 use crate::transaction_builder::{TransactionBuilder, TxHandler, KICKOFF_UTXO_AMOUNT_SATS};
-use crate::{utils, EVMAddress, UTXO};
+use crate::{utils, ByteArray32, EVMAddress, UTXO};
 use bitcoin::address::NetworkUnchecked;
 use bitcoin::hashes::Hash;
 use bitcoin::Address;
@@ -155,7 +156,7 @@ where
             return Err(BridgeError::InvalidKickoffUtxo); // TODO: Better error
         }
 
-        let mut slash_or_take_sighashes: Vec<[u8; 32]> = Vec::new();
+        let mut slash_or_take_sighashes: Vec<MuSigSigHash> = Vec::new();
 
         for (i, kickoff_utxo) in kickoff_utxos.iter().enumerate() {
             let value = kickoff_utxo.txout.value;
@@ -207,7 +208,7 @@ where
             );
             let slash_or_take_tx_sighash =
                 Actor::convert_tx_to_sighash_script_spend(&mut slash_or_take_tx_handler, 0, 0)?;
-            slash_or_take_sighashes.push(slash_or_take_tx_sighash.to_byte_array());
+            slash_or_take_sighashes.push(ByteArray32(slash_or_take_tx_sighash.to_byte_array()));
             // let spend_kickoff_utxo_tx_handler = TransactionBuilder::create_slash_or_take_tx(deposit_outpoint, kickoff_outpoint, kickoff_txout, operator_address, operator_idx, nofn_xonly_pk, network)
         }
         tracing::debug!(
@@ -331,7 +332,7 @@ where
         let (kickoff_utxos, _, bridge_fund_outpoint) =
             self.create_deposit_details(deposit_outpoint).await?;
 
-        let operator_takes_sighashes = kickoff_utxos
+        let operator_takes_sighashes: Vec<MuSigSigHash> = kickoff_utxos
             .iter()
             .enumerate()
             .map(|(index, kickoff_utxo)| {
@@ -383,9 +384,11 @@ where
                     self.config.operator_takes_after,
                     self.config.bridge_amount_sats,
                 );
-                Actor::convert_tx_to_sighash_pubkey_spend(&mut operator_takes_tx, 0)
-                    .unwrap()
-                    .to_byte_array()
+                ByteArray32(
+                    Actor::convert_tx_to_sighash_pubkey_spend(&mut operator_takes_tx, 0)
+                        .unwrap()
+                        .to_byte_array(),
+                )
             })
             .collect::<Vec<_>>();
 
@@ -510,7 +513,11 @@ where
 
         let nonces = self
             .db
-            .save_sighashes_and_get_nonces(deposit_outpoint, 0, &[move_tx_sighash.to_byte_array()])
+            .save_sighashes_and_get_nonces(
+                deposit_outpoint,
+                0,
+                &[ByteArray32(move_tx_sighash.to_byte_array())],
+            )
             .await?
             .ok_or(BridgeError::NoncesNotFound)?;
 
@@ -521,7 +528,7 @@ where
             nonces[0].0,
             nonces[0].1,
             &self.signer.keypair,
-            move_tx_sighash.to_byte_array(),
+            ByteArray32(move_tx_sighash.to_byte_array()),
         );
 
         // let move_reveal_sig = musig2::partial_sign(
