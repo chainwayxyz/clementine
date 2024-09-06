@@ -12,8 +12,9 @@ use crate::{
     EVMAddress, UTXO,
 };
 use async_trait::async_trait;
-use bitcoin::hashes::Hash;
-use bitcoin::{address::NetworkUnchecked, Address, OutPoint, Transaction};
+use bitcoin::{address::NetworkUnchecked, Address, OutPoint};
+use bitcoin::{hashes::Hash, Txid};
+use bitcoincore_rpc::RawTx;
 use secp256k1::schnorr;
 
 /// Aggregator struct.
@@ -51,7 +52,7 @@ impl Aggregator {
         operator_xonly_pk: secp256k1::XOnlyPublicKey,
         operator_idx: usize,
         agg_nonce: &MuSigAggNonce,
-        partial_sigs: Vec<[u8; 32]>,
+        partial_sigs: Vec<MuSigPartialSignature>,
     ) -> Result<[u8; 64], BridgeError> {
         let mut tx = TransactionBuilder::create_slash_or_take_tx(
             deposit_outpoint,
@@ -97,7 +98,7 @@ impl Aggregator {
         operator_xonly_pk: &secp256k1::XOnlyPublicKey,
         operator_idx: usize,
         agg_nonce: &MuSigAggNonce,
-        partial_sigs: Vec<[u8; 32]>,
+        partial_sigs: Vec<MuSigPartialSignature>,
     ) -> Result<[u8; 64], BridgeError> {
         let move_tx_handler = TransactionBuilder::create_move_tx(
             deposit_outpoint,
@@ -178,7 +179,7 @@ impl Aggregator {
         evm_address: &EVMAddress,
         recovery_taproot_address: &Address<NetworkUnchecked>,
         agg_nonce: &MuSigAggNonce,
-        partial_sigs: Vec<[u8; 32]>,
+        partial_sigs: Vec<MuSigPartialSignature>,
     ) -> Result<[u8; 64], BridgeError> {
         let mut tx = TransactionBuilder::create_move_tx(
             deposit_outpoint,
@@ -231,6 +232,13 @@ impl Aggregator {
         agg_nonces: Vec<MuSigAggNonce>,
         partial_sigs: Vec<Vec<MuSigPartialSignature>>,
     ) -> Result<Vec<schnorr::Signature>, BridgeError> {
+        tracing::debug!(
+            "Aggregate slash or take sigs called with inputs: {:?}\n {:?}\n{:?}\n{:?}",
+            deposit_outpoint,
+            kickoff_utxos,
+            agg_nonces,
+            partial_sigs
+        );
         let mut slash_or_take_sigs = Vec::new();
         for i in 0..partial_sigs[0].len() {
             let agg_sig = self.aggregate_slash_or_take_partial_sigs(
@@ -280,7 +288,7 @@ impl Aggregator {
         evm_address: EVMAddress,
         agg_nonce: MuSigAggNonce,
         partial_sigs: Vec<MuSigPartialSignature>,
-    ) -> Result<Transaction, BridgeError> {
+    ) -> Result<(String, Txid), BridgeError> {
         let agg_move_tx_final_sig = self.aggregate_move_partial_sigs(
             deposit_outpoint,
             &evm_address,
@@ -303,7 +311,8 @@ impl Aggregator {
         let move_tx_witness_elements = vec![move_tx_sig.serialize().to_vec()];
         handle_taproot_witness_new(&mut move_tx_handler, &move_tx_witness_elements, 0, Some(0))?;
 
-        Ok(move_tx_handler.tx)
+        let txid = move_tx_handler.tx.compute_txid();
+        Ok((move_tx_handler.tx.raw_hex(), txid))
     }
 }
 
@@ -345,7 +354,7 @@ impl AggregatorServer for Aggregator {
         evm_address: EVMAddress,
         agg_nonce: MuSigAggNonce,
         partial_sigs: Vec<MuSigPartialSignature>,
-    ) -> Result<Transaction, BridgeError> {
+    ) -> Result<(String, Txid), BridgeError> {
         self.aggregate_move_tx_sigs(
             deposit_outpoint,
             recovery_taproot_address,

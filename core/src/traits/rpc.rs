@@ -2,7 +2,7 @@ use crate::musig2::{MuSigAggNonce, MuSigPartialSignature, MuSigPubNonce};
 use crate::UTXO;
 use crate::{errors::BridgeError, EVMAddress};
 use bitcoin::address::NetworkUnchecked;
-use bitcoin::{Address, OutPoint, Transaction, TxOut, Txid};
+use bitcoin::{Address, OutPoint, TxOut, Txid};
 use jsonrpsee::proc_macros::rpc;
 use secp256k1::schnorr;
 
@@ -128,5 +128,5 @@ pub trait Aggregator {
         evm_address: EVMAddress,
         agg_nonce: MuSigAggNonce,
         partial_sigs: Vec<MuSigPartialSignature>,
-    ) -> Result<Transaction, BridgeError>;
+    ) -> Result<(String, Txid), BridgeError>;
 }
