@@ -278,30 +278,6 @@ where
             .await?
             .ok_or(BridgeError::DepositInfoNotFound)?;
 
-        // let move_commit_tx_handler = TransactionBuilder::create_move_commit_tx(
-        //     deposit_outpoint,
-        //     &evm_address,
-        //     &recovery_taproot_address,
-        //     200, // TODO: Fix this
-        //     &self.nofn_xonly_pk,
-        //     &kickoff_outpoints,
-        //     201, // TODO: Fix this
-        //     self.config.network,
-        // );
-
-        // let move_reveal_tx_handler = TransactionBuilder::create_move_reveal_tx(
-        //     OutPoint {
-        //         txid: move_commit_tx_handler.tx.compute_txid(),
-        //         vout: 0,
-        //     },
-        //     &evm_address,
-        //     &recovery_taproot_address,
-        //     &self.nofn_xonly_pk,
-        //     &kickoff_outpoints,
-        //     201, // TODO: Fix this
-        //     self.config.network,
-        // );
-
         let move_tx_handler = TransactionBuilder::create_move_tx(
             deposit_outpoint,
             &evm_address,
@@ -392,13 +368,8 @@ where
             })
             .collect::<Vec<_>>();
 
-        let kickoff_utxos_with_sigs = kickoff_utxos
-            .iter()
-            .enumerate()
-            .map(|(index, kickoff_utxo)| (kickoff_utxo.clone(), slash_or_take_sigs[index]));
-
         self.db
-            .save_slash_or_take_sigs(deposit_outpoint, kickoff_utxos_with_sigs)
+            .save_slash_or_take_sigs(deposit_outpoint, slash_or_take_sigs)
             .await
             .unwrap();
 
@@ -425,10 +396,7 @@ where
                 )
             })
             .collect::<Vec<_>>();
-        // println!(
-        //     "Operator takes partial sigs: {:?}",
-        //     operator_takes_partial_sigs
-        // );
+
         Ok(operator_takes_partial_sigs)
     }
 

@@ -574,7 +574,7 @@ impl Database {
     pub async fn save_slash_or_take_sigs(
         &self,
         deposit_outpoint: OutPoint,
-        kickoff_utxos_and_sigs: impl IntoIterator<Item = (UTXO, schnorr::Signature)>,
+        slash_or_take_sigs: impl IntoIterator<Item = schnorr::Signature>,
     ) -> Result<(), BridgeError> {
         QueryBuilder::new(
             "UPDATE deposit_kickoff_utxos
@@ -582,22 +582,19 @@ impl Database {
              FROM (",
         )
         .push_values(
-            kickoff_utxos_and_sigs,
-            |mut builder, (kickoff_utxo, slash_or_take_sig)| {
+            slash_or_take_sigs.into_iter().enumerate(),
+            |mut builder, (i, slash_or_take_sig)| {
                 builder
-                    .push_bind(sqlx::types::Json(UTXODB {
-                        outpoint_db: OutPointDB(kickoff_utxo.outpoint),
-                        txout_db: TxOutDB(kickoff_utxo.txout),
-                    }))
+                    .push_bind(i as i32)
                     .push_bind(SignatureDB(slash_or_take_sig));
             },
         )
         .push(
-            ") AS batch (kickoff_utxo, sig)
+            ") AS batch (operator_idx, sig)
              WHERE deposit_kickoff_utxos.deposit_outpoint = ",
         )
         .push_bind(OutPointDB(deposit_outpoint))
-        .push(" AND deposit_kickoff_utxos.kickoff_utxo = batch.kickoff_utxo;")
+        .push(" AND deposit_kickoff_utxos.operator_idx = batch.operator_idx;")
         .build()
         .execute(&self.connection)
         .await?;
