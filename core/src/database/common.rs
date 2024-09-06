@@ -352,23 +352,31 @@ impl Database {
         deposit_outpoint: OutPoint,
         kickoff_utxos: &[UTXO],
     ) -> Result<(), BridgeError> {
-        for (operator_idx, utxo) in kickoff_utxos.iter().enumerate() {
-            // println!("Saving utxo: {:?}", serde_json::to_value(UTXODB {
-            //     outpoint_db: OutPointDB(utxo.outpoint),
-            //     txout_db: TxOutDB(utxo.txout.clone()),
-            // }).unwrap());
-            sqlx::query(
-                "INSERT INTO deposit_kickoff_utxos (deposit_outpoint, kickoff_utxo, operator_idx) VALUES ($1, $2, $3) ON CONFLICT (deposit_outpoint, operator_idx) DO NOTHING;",
-            )
-            .bind(OutPointDB(deposit_outpoint))
-            .bind(sqlx::types::Json(UTXODB {
-                outpoint_db: OutPointDB(utxo.outpoint),
-                txout_db: TxOutDB(utxo.txout.clone()),
-            }))
-            .bind(operator_idx as i32)
-            .execute(&self.connection)
-            .await?;
-        }
+        // Use QueryBuilder to construct a batch insert query
+        let mut query_builder = QueryBuilder::new(
+            "INSERT INTO deposit_kickoff_utxos (deposit_outpoint, kickoff_utxo, operator_idx) ",
+        );
+
+        // Add values using push_values
+        query_builder.push_values(
+            kickoff_utxos.iter().enumerate(),
+            |mut builder, (operator_idx, utxo)| {
+                builder
+                    .push_bind(OutPointDB(deposit_outpoint)) // Bind deposit_outpoint
+                    .push_bind(sqlx::types::Json(UTXODB {
+                        // Bind JSON-serialized UTXO
+                        outpoint_db: OutPointDB(utxo.outpoint),
+                        txout_db: TxOutDB(utxo.txout.clone()),
+                    }))
+                    .push_bind(operator_idx as i32); // Bind the operator_idx
+            },
+        );
+
+        // Add the ON CONFLICT clause
+        query_builder.push(" ON CONFLICT (deposit_outpoint, operator_idx) DO NOTHING");
+
+        // Execute the batch insert query
+        query_builder.build().execute(&self.connection).await?;
 
         Ok(())
     }
@@ -465,30 +473,60 @@ impl Database {
         sighashes: &[MuSigSigHash],
     ) -> Result<Option<Vec<(MuSigSecNonce, MuSigAggNonce)>>, BridgeError> {
         let indices: Vec<i32> = sqlx::query_scalar::<_, i32>(
-            "SELECT internal_idx FROM nonces WHERE deposit_outpoint = $1 ORDER BY internal_idx ASC;",
-        )
-        .bind(OutPointDB(deposit_outpoint))
-        .fetch_all(&self.connection)
-        .await?;
-        let mut nonces: Vec<(MuSigSecNonce, MuSigAggNonce)> = Vec::new();
+        "SELECT internal_idx FROM nonces WHERE deposit_outpoint = $1 ORDER BY internal_idx ASC;",
+    )
+    .bind(OutPointDB(deposit_outpoint))
+    .fetch_all(&self.connection)
+    .await?;
+
+        // Start a batch query for updating sighashes
+        let mut update_query_builder = QueryBuilder::new("UPDATE nonces SET sighash = CASE");
+
+        // Create a set of updates for the corresponding sighash and internal_idx
         for (sighash, idx) in sighashes.iter().zip(indices[index..].iter()) {
-            // After finding the idx deposit_outpoint might be unnecessary
-            sqlx::query(
-                "UPDATE nonces SET sighash = $1 WHERE internal_idx = $2 AND deposit_outpoint = $3;",
-            )
-            .bind(sighash)
-            .bind(*idx)
-            .bind(OutPointDB(deposit_outpoint))
+            update_query_builder
+                .push(" WHEN internal_idx = ")
+                .push_bind(*idx)
+                .push(" THEN ")
+                .push_bind(sighash);
+        }
+
+        // Finish the CASE statement and add the WHERE clause for deposit_outpoint
+        update_query_builder
+            .push(" END WHERE deposit_outpoint = ")
+            .push_bind(OutPointDB(deposit_outpoint))
+            .push(" AND internal_idx IN (")
+            .push_values(indices[index..].iter(), |mut b, idx| {
+                b.push_bind(*idx); // Add semicolon to ensure closure returns `()`
+            })
+            .push(")");
+
+        // Execute the batch update
+        update_query_builder
+            .build()
             .execute(&self.connection)
             .await?;
-            let res: (MuSigSecNonce, MuSigAggNonce) = sqlx::query_as("SELECT sec_nonce, agg_nonce FROM nonces WHERE deposit_outpoint = $1 AND internal_idx = $2 AND sighash = $3;")
-                .bind(OutPointDB(deposit_outpoint))
-                .bind(*idx)
-                .bind(sighash)
-                .fetch_one(&self.connection)
-                .await?;
-            nonces.push(res);
-        }
+
+        // Now batch fetch the sec_nonce and agg_nonce after the update
+        let mut select_query_builder =
+            QueryBuilder::new("SELECT sec_nonce, agg_nonce FROM nonces WHERE deposit_outpoint = ");
+        select_query_builder
+            .push_bind(OutPointDB(deposit_outpoint))
+            .push(" AND internal_idx IN (")
+            .push_values(indices[index..].iter(), |mut b, idx| {
+                b.push_bind(*idx); // Ensure closure returns `()`
+            })
+            .push(") AND sighash IN (")
+            .push_values(sighashes, |mut b, sighash| {
+                b.push_bind(sighash); // Ensure closure returns `()`
+            })
+            .push(")");
+
+        // Execute the batch select query
+        let nonces: Vec<(MuSigSecNonce, MuSigAggNonce)> = select_query_builder
+            .build_query_as()
+            .fetch_all(&self.connection)
+            .await?;
 
         Ok(Some(nonces))
     }
@@ -499,38 +537,36 @@ impl Database {
         deposit_outpoint: OutPoint,
         agg_nonces: impl IntoIterator<Item = &MuSigAggNonce>,
     ) -> Result<(), BridgeError> {
-        let idx = sqlx::query_scalar::<_, i32>(
-            "SELECT internal_idx FROM nonces WHERE deposit_outpoint = $1 ORDER BY internal_idx ASC LIMIT 1;",
-        )
-        .bind(OutPointDB(deposit_outpoint))
-        .fetch_optional(&self.connection)
-        .await?
-        .unwrap(); // TODO: Change this query so that we get all the rows belonging to the deposit_outpoint
+        // Fetch all the internal indices related to this deposit_outpoint
+        let indices: Vec<i32> = sqlx::query_scalar::<_, i32>(
+        "SELECT internal_idx FROM nonces WHERE deposit_outpoint = $1 ORDER BY internal_idx ASC;",
+    )
+    .bind(OutPointDB(deposit_outpoint))
+    .fetch_all(&self.connection)
+    .await?;
 
-        QueryBuilder::new(
-            "UPDATE nonces
-            SET agg_nonce = batch.agg_nonce
-            FROM (
-            ",
-        )
-        .push_values(
-            agg_nonces
-                .into_iter()
-                .enumerate()
-                .map(|(i, agg_nonce)| (idx + i as i32, agg_nonce)),
-            |mut builder, (idx, agg_nonce)| {
+        // Ensure we have enough indices to match the number of agg_nonces
+        let agg_nonces: Vec<&MuSigAggNonce> = agg_nonces.into_iter().collect();
+        assert!(indices.len() == agg_nonces.len()); // TODO: Change this
+
+        // Prepare the batch update using QueryBuilder
+        let mut query_builder =
+            QueryBuilder::new("UPDATE nonces SET agg_nonce = batch.agg_nonce FROM (");
+
+        query_builder.push_values(
+            indices.iter().zip(agg_nonces.iter()),
+            |mut builder, (&idx, &agg_nonce)| {
                 builder.push_bind(idx).push_bind(agg_nonce);
             },
-        )
-        .push(
-            ") AS batch (internal_idx, agg_nonce)
-            WHERE nonces.internal_idx = batch.internal_idx AND nonces.deposit_outpoint =
-            ",
-        )
-        .push_bind(OutPointDB(deposit_outpoint))
-        .build()
-        .execute(&self.connection)
-        .await?;
+        );
+
+        query_builder.push(
+        ") AS batch (internal_idx, agg_nonce) WHERE nonces.internal_idx = batch.internal_idx AND nonces.deposit_outpoint = "
+    )
+    .push_bind(OutPointDB(deposit_outpoint));
+
+        // Execute the batch update query
+        query_builder.build().execute(&self.connection).await?;
 
         Ok(())
     }
