@@ -138,15 +138,15 @@ impl Database {
         Ok(())
     }
 
-    pub async fn unlock_operators_kickoff_utxo_table(
-        &self,
-        tx: &mut sqlx::Transaction<'_, Postgres>,
-    ) -> Result<(), BridgeError> {
-        sqlx::query("UNLOCK TABLE operators_kickoff_utxo;")
-            .execute(&mut **tx)
-            .await?;
-        Ok(())
-    }
+    // pub async fn unlock_operators_kickoff_utxo_table(
+    //     &self,
+    //     tx: &mut sqlx::Transaction<'_, Postgres>,
+    // ) -> Result<(), BridgeError> {
+    //     sqlx::query("UNLOCK TABLE operators_kickoff_utxo;")
+    //         .execute(&mut **tx)
+    //         .await?;
+    //     Ok(())
+    // }
 
     /// Operator: If operator already created a kickoff UTXO for this deposit UTXO, return it.
     pub async fn get_kickoff_utxo(
@@ -189,7 +189,7 @@ impl Database {
                     ORDER BY id DESC 
                     LIMIT 1
                 )
-                RETURNING txid, raw_signed_tx, cur_unused_kickoff_index;",
+                RETURNING txid, raw_signed_tx, cur_unused_kickoff_index;", // This query returns the updated cur_unused_kickoff_index.
         );
 
         let result: Result<(TxidDB, String, i32), sqlx::Error> = match tx {
@@ -206,9 +206,9 @@ impl Database {
                 // Create the outpoint and txout
                 let outpoint = OutPoint {
                     txid: txid.0,
-                    vout: cur_unused_kickoff_index as u32,
+                    vout: cur_unused_kickoff_index as u32 - 1,
                 };
-                let txout = tx.output[cur_unused_kickoff_index as usize].clone();
+                let txout = tx.output[cur_unused_kickoff_index as usize - 1].clone();
 
                 Ok(Some(UTXO { outpoint, txout }))
             }
@@ -1137,7 +1137,7 @@ mod tests {
         let tx: bitcoin::Transaction =
             bitcoin::consensus::deserialize(&hex::decode(raw_hex.clone()).unwrap()).unwrap();
         let txid = tx.compute_txid();
-        let num_kickoffs = 2;
+        let num_kickoffs = tx.output.len();
         let funding_txid = tx.input[0].previous_output.txid;
         db.add_deposit_kickoff_generator_tx(
             None,

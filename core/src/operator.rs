@@ -141,7 +141,7 @@ where
                 .signer
                 .sign(TapSighash::from_byte_array(kickoff_sig_hash));
 
-            self.db.unlock_operators_kickoff_utxo_table(&mut tx).await?;
+            // self.db.unlock_operators_kickoff_utxo_table(&mut tx).await?;
             tx.commit().await?;
             return Ok((kickoff_utxo, sig));
         }
@@ -156,7 +156,7 @@ where
                 .save_kickoff_utxo(Some(&mut tx), deposit_outpoint, unused_kickoff_utxo.clone())
                 .await?;
 
-            self.db.unlock_operators_kickoff_utxo_table(&mut tx).await?;
+            // self.db.unlock_operators_kickoff_utxo_table(&mut tx).await?;
             tx.commit().await?;
 
             tracing::debug!(
