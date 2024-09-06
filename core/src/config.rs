@@ -11,7 +11,6 @@
 //! described in `BridgeConfig` struct.
 
 use crate::errors::BridgeError;
-use crate::utils;
 use bitcoin::Network;
 use serde::{Deserialize, Serialize};
 use std::{fs::File, io::Read, path::PathBuf};
@@ -87,11 +86,12 @@ impl BridgeConfig {
             Ok(f) => f,
             Err(e) => return Err(BridgeError::ConfigError(e.to_string())),
         };
+
         if let Err(e) = file.read_to_string(&mut contents) {
             return Err(BridgeError::ConfigError(e.to_string()));
         }
 
-        tracing::debug!("Using configuration file: {:?}", path);
+        tracing::trace!("Using configuration file: {:?}", path);
 
         BridgeConfig::try_parse_from(contents)
     }
@@ -99,19 +99,10 @@ impl BridgeConfig {
     /// Try to parse a `BridgeConfig` from given TOML formatted string and
     /// generate a `BridgeConfig`.
     pub fn try_parse_from(input: String) -> Result<Self, BridgeError> {
-        let config = match toml::from_str::<BridgeConfig>(&input) {
+        match toml::from_str::<BridgeConfig>(&input) {
             Ok(c) => Ok(c),
             Err(e) => Err(BridgeError::ConfigError(e.to_string())),
-        }?;
-
-        // Initialize tracing.
-        if let Err(e) = utils::initialize_logger(0) {
-            // No logger is not a no-go. Print error to stderr and continue
-            // program flow,
-            eprintln!("Can't initialize logger: {e}");
-        };
-
-        Ok(config)
+        }
     }
 }
 
