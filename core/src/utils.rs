@@ -8,6 +8,8 @@ use bitcoin::XOnlyPublicKey;
 use hex;
 use std::borrow::BorrowMut;
 use std::str::FromStr;
+use tracing_subscriber::layer::SubscriberExt;
+use tracing_subscriber::{fmt, EnvFilter};
 
 lazy_static::lazy_static! {
     /// Global secp context.
@@ -103,6 +105,31 @@ pub fn get_claim_reveal_indices(depth: usize, count: u32) -> Vec<(usize, usize)>
     }
 
     indices
+}
+
+/// Initializes `tracing` as the logger.
+///
+/// # Returns
+///
+/// Returns `Err` if `tracing` can't be initialized. Multiple subscription error
+/// is emmitted and will return `Ok(())`.
+pub fn initialize_logger() -> Result<(), tracing_subscriber::util::TryInitError> {
+    let layer = fmt::layer().with_test_writer();
+    let filter = EnvFilter::from_default_env();
+
+    if let Err(e) = tracing_subscriber::util::SubscriberInitExt::try_init(
+        tracing_subscriber::registry().with(layer).with(filter),
+    ) {
+        // If it failed because of a re-initialization, do not care about
+        // the error.
+        if e.to_string() != "a global default trace dispatcher has already been set" {
+            return Err(e);
+        }
+
+        tracing::trace!("Tracing is already initialized, skipping without errors...");
+    };
+
+    Ok(())
 }
 
 #[cfg(test)]
