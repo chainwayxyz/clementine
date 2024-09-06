@@ -428,9 +428,9 @@ impl Database {
     pub async fn save_agg_nonces(
         &self,
         deposit_outpoint: OutPoint,
-        agg_nonces: &Vec<MuSigAggNonce>,
+        agg_nonces: impl IntoIterator<Item = &MuSigAggNonce>,
     ) -> Result<(), BridgeError> {
-        let mut idx = sqlx::query_scalar::<_, i32>(
+        let idx = sqlx::query_scalar::<_, i32>(
             "SELECT idx FROM nonces WHERE deposit_outpoint = $1 ORDER BY idx ASC LIMIT 1;",
         )
         .bind(OutPointDB(deposit_outpoint))
@@ -438,18 +438,30 @@ impl Database {
         .await?
         .unwrap();
 
-        for agg_nonce in agg_nonces {
-            // Only update the row if agg_nonce is NULL
-            sqlx::query(
-            "UPDATE nonces SET agg_nonce = $1 WHERE idx = $2 AND deposit_outpoint = $3 AND agg_nonce IS NULL;",
+        QueryBuilder::new(
+            "UPDATE nonces
+            SET agg_nonce = batch.agg_nonce
+            FROM (
+            ",
         )
-        .bind(agg_nonce)
-        .bind(idx)
-        .bind(OutPointDB(deposit_outpoint))
+        .push_values(
+            agg_nonces
+                .into_iter()
+                .enumerate()
+                .map(|(i, agg_nonce)| (idx + i as i32, agg_nonce)),
+            |mut builder, (idx, agg_nonce)| {
+                builder.push_bind(idx).push_bind(agg_nonce);
+            },
+        )
+        .push(
+            ") AS batch (idx, agg_nonce)
+            WHERE nonces.idx = batch.idx AND nonces.deposit_outpoint =
+            ",
+        )
+        .push_bind(OutPointDB(deposit_outpoint))
+        .build()
         .execute(&self.connection)
         .await?;
-            idx += 1;
-        }
 
         Ok(())
     }
