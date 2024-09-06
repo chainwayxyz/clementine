@@ -186,6 +186,7 @@ impl Database {
                 WHERE id = (
                     SELECT id 
                     FROM deposit_kickoff_generator_txs 
+                    WHERE cur_unused_kickoff_index < num_kickoffs
                     ORDER BY id DESC 
                     LIMIT 1
                 )
