@@ -2,54 +2,59 @@
 //!
 //! This module provides mock database interfaces, for testing.
 
+use super::common;
+use crate::{config::BridgeConfig, database::common::Database, utils::initialize_logger};
+use std::thread;
+
 /// Creates a temporary database for testing.
 ///
-/// Parameters:
+/// # Parameters
 ///
 /// - db_name: New database's name.
 /// - config_file: Test configuration file. Rest of the config will be read from
 ///   here and only `db_name` will be overwritten.
 ///
 /// Returns new `BridgeConfig`.
-#[macro_export]
-macro_rules! create_test_config {
-    ($db_name:expr, $config_file:expr) => {{
-        let config = common::get_test_config($config_file).unwrap();
-        let config = Database::create_database(config, &$db_name).await.unwrap();
+pub async fn create_test_config(db_name: &str, config_file: &str) -> BridgeConfig {
+    // Use `RUST_LOG` env var's value.
+    initialize_logger(0).unwrap();
 
-        let database = Database::new(config.clone()).await.unwrap();
-        database.init_from_schema().await.unwrap();
-        database.close().await;
+    let config = common::get_test_config(config_file).unwrap();
+    let config = Database::create_database(config, db_name).await.unwrap();
 
-        config
-    }};
+    let database = Database::new(config.clone()).await.unwrap();
+    database.init_from_schema().await.unwrap();
+    database.close().await;
+
+    config
 }
 
 /// Creates a temporary database for testing, using current thread's name as the
 /// database name.
 ///
-/// Parameters:
+/// # Parameters
 ///
 /// - config_file: Test configuration file. Rest of the config will be read from
 ///   here and only `db_name` will be overwritten.
+/// - suffix: Optional suffix added to the thread handle.
 ///
-/// Returns new `BridgeConfig`.
-#[macro_export]
-macro_rules! create_test_config_with_thread_name {
-    ($config_file:expr, $suffix:expr) => {{
-        let suffix: String = $suffix.unwrap_or(&String::default()).to_string();
-        let handle = thread::current()
-            .name()
-            .unwrap()
-            .split(':')
-            .last()
-            .unwrap()
-            .to_owned()
-            + &suffix;
+/// # Returns
+///
+/// `BridgeConfig`
+pub async fn create_test_config_with_thread_name(
+    config_file: &str,
+    suffix: Option<&str>,
+) -> BridgeConfig {
+    let suffix: String = suffix.unwrap_or(&String::default()).to_string();
 
-        create_test_config!(handle, $config_file)
-    }};
-    ($config_file:expr) => {{
-        create_test_config_with_thread_name!($config_file, Option::<&str>::None)
-    }};
+    let handle = thread::current()
+        .name()
+        .unwrap()
+        .split(':')
+        .last()
+        .unwrap()
+        .to_owned()
+        + &suffix;
+
+    create_test_config(&handle, config_file).await
 }

@@ -1,14 +1,12 @@
 //! # Servers
 //!
 //! Utilities for operator and verifier servers.
-use crate::mock::common;
-use crate::traits::rpc::AggregatorServer;
-use crate::traits::rpc::OperatorRpcClient;
+
+use crate::mock::database::create_test_config_with_thread_name;
+use crate::traits::rpc::{AggregatorServer, OperatorRpcClient};
 use crate::{aggregator, create_extended_rpc, UTXO};
 use crate::{
     config::BridgeConfig,
-    create_test_config, create_test_config_with_thread_name,
-    database::common::Database,
     errors,
     extended_rpc::ExtendedRpc,
     operator,
@@ -135,7 +133,7 @@ pub async fn create_verifiers_and_operators(
     Vec<(HttpClient, ServerHandle, std::net::SocketAddr)>, // Operator clients
     (HttpClient, ServerHandle, std::net::SocketAddr),      // Aggregator client
 ) {
-    let mut config = create_test_config_with_thread_name!(config_name);
+    let mut config = create_test_config_with_thread_name(config_name, None).await;
     let start_port = config.port;
     let rpc = create_extended_rpc!(config);
     let all_verifiers_secret_keys = config.all_verifiers_secret_keys.clone().unwrap_or_else(|| {
@@ -151,7 +149,7 @@ pub async fn create_verifiers_and_operators(
             let rpc = rpc.clone();
             async move {
                 let config_with_new_db =
-                    create_test_config_with_thread_name!(config_name, Some(&i.to_string()));
+                    create_test_config_with_thread_name(config_name, Some(&i.to_string())).await;
                 let verifier = create_verifier_server(
                     BridgeConfig {
                         secret_key: *sk,
@@ -235,7 +233,7 @@ pub async fn create_verifiers_and_operators(
             .await
             .unwrap();
     }
-    let config = create_test_config_with_thread_name!(config_name);
+    let config = create_test_config_with_thread_name(config_name, None).await;
     println!("Port: {}", start_port);
     let port = start_port
         + all_verifiers_secret_keys.len() as u16

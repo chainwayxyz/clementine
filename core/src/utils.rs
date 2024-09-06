@@ -115,9 +115,9 @@ pub fn get_claim_reveal_indices(depth: usize, count: u32) -> Vec<(usize, usize)>
 /// # Parameters
 ///
 /// - `level`: Level ranges from 0 to 5. 0 defaults to no logs but can be
-/// overwritten with `RUST_LOG` env var. While other numbers sets log level from
-/// lowest level (1) to highest level (5). Is is advised to use 0 on tests and
-/// other values for binaries (get value from user).
+///   overwritten with `RUST_LOG` env var. While other numbers sets log level from
+///   lowest level (1) to highest level (5). Is is advised to use 0 on tests and
+///   other values for binaries (get value from user).
 ///
 /// # Returns
 ///

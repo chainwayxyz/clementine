@@ -22,6 +22,8 @@ pub struct Database {
 impl Database {
     /// Returns a `Database` after establishing a connection to database.
     /// Returns error if database is not available.
+    ///
+    /// TODO: Pass the reference &BridgeConfig instead of copying BridgeConfig.
     pub async fn new(config: BridgeConfig) -> Result<Self, BridgeError> {
         let url = "postgresql://".to_owned()
             + config.db_host.as_str()
@@ -663,8 +665,7 @@ mod tests {
     use super::Database;
     use crate::{
         config::BridgeConfig,
-        create_test_config, create_test_config_with_thread_name,
-        mock::common,
+        mock::{common, database::create_test_config_with_thread_name},
         musig2::{nonce_pair, MuSigAggNonce, MuSigPubNonce, MuSigSecNonce},
         EVMAddress, UTXO,
     };
@@ -678,7 +679,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_database_gets_previously_saved_operator_take_signature() {
-        let config = create_test_config_with_thread_name!("test_config.toml");
+        let config = create_test_config_with_thread_name("test_config.toml", None).await;
         let database = Database::new(config).await.unwrap();
 
         let deposit_outpoint = OutPoint::null();
@@ -729,7 +730,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_valid_connection() {
-        let config = create_test_config_with_thread_name!("test_config.toml");
+        let config = create_test_config_with_thread_name("test_config.toml", None).await;
 
         Database::new(config).await.unwrap();
     }
@@ -754,7 +755,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_save_and_get_deposit_info() {
-        let config = create_test_config_with_thread_name!("test_config.toml");
+        let config = create_test_config_with_thread_name("test_config.toml", None).await;
         let database = Database::new(config.clone()).await.unwrap();
 
         let secp = Secp256k1::new();
@@ -786,7 +787,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_nonces_1() {
-        let config = create_test_config_with_thread_name!("test_config.toml");
+        let config = create_test_config_with_thread_name("test_config.toml", None).await;
         let db = Database::new(config).await.unwrap();
         let secp = Secp256k1::new();
 
@@ -829,7 +830,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_nonces_2() {
-        let config = create_test_config_with_thread_name!("test_config.toml");
+        let config = create_test_config_with_thread_name("test_config.toml", None).await;
         let db = Database::new(config).await.unwrap();
         let secp = Secp256k1::new();
 
@@ -871,7 +872,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_nonces_3() {
-        let config = create_test_config_with_thread_name!("test_config.toml");
+        let config = create_test_config_with_thread_name("test_config.toml", None).await;
         let db = Database::new(config).await.unwrap();
         let secp = Secp256k1::new();
 
@@ -917,7 +918,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_get_pub_nonces_1() {
-        let config = create_test_config_with_thread_name!("test_config.toml");
+        let config = create_test_config_with_thread_name("test_config.toml", None).await;
         let db = Database::new(config).await.unwrap();
         let secp = Secp256k1::new();
 
@@ -950,7 +951,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_get_pub_nonces_2() {
-        let config = create_test_config_with_thread_name!("test_config.toml");
+        let config = create_test_config_with_thread_name("test_config.toml", None).await;
         let db = Database::new(config).await.unwrap();
         let outpoint = OutPoint {
             txid: Txid::from_byte_array([1u8; 32]),
@@ -962,7 +963,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_operators_kickoff_utxo_1() {
-        let config = create_test_config_with_thread_name!("test_config.toml");
+        let config = create_test_config_with_thread_name("test_config.toml", None).await;
         let db = Database::new(config).await.unwrap();
 
         let outpoint = OutPoint {
@@ -987,7 +988,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_operators_kickoff_utxo_2() {
-        let config = create_test_config_with_thread_name!("test_config.toml");
+        let config = create_test_config_with_thread_name("test_config.toml", None).await;
         let db = Database::new(config).await.unwrap();
 
         let outpoint = OutPoint {
@@ -1000,7 +1001,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_verifiers_kickoff_utxos_1() {
-        let config = create_test_config_with_thread_name!("test_config.toml");
+        let config = create_test_config_with_thread_name("test_config.toml", None).await;
         let db = Database::new(config).await.unwrap();
 
         let outpoint = OutPoint {
@@ -1037,7 +1038,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_verifiers_kickoff_utxos_2() {
-        let config = create_test_config_with_thread_name!("test_config.toml");
+        let config = create_test_config_with_thread_name("test_config.toml", None).await;
         let db = Database::new(config).await.unwrap();
 
         let outpoint = OutPoint {
@@ -1050,7 +1051,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_operators_funding_utxo_1() {
-        let config = create_test_config_with_thread_name!("test_config.toml");
+        let config = create_test_config_with_thread_name("test_config.toml", None).await;
         let db = Database::new(config).await.unwrap();
 
         let utxo = UTXO {
@@ -1072,7 +1073,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_operators_funding_utxo_2() {
-        let config = create_test_config_with_thread_name!("test_config.toml");
+        let config = create_test_config_with_thread_name("test_config.toml", None).await;
         let db = Database::new(config).await.unwrap();
 
         let db_utxo = db.get_funding_utxo().await.unwrap();
@@ -1082,7 +1083,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_deposit_kickoff_generator_tx_1() {
-        let config = create_test_config_with_thread_name!("test_config.toml");
+        let config = create_test_config_with_thread_name("test_config.toml", None).await;
         let db = Database::new(config).await.unwrap();
 
         let raw_hex = "01000000000101308d840c736eefd114a8fad04cb0d8338b4a3034a2b517250e5498701b25eb360100000000fdffffff02401f00000000000022512024985a1ab5724a5164ae5e0026b3e7e22031e83948eedf99d438b866857946b81f7e000000000000225120f7298da2a2be5b6e02a076ff7d35a1fe6b54a2bc7938c1c86bede23cadb7d9650140ad2fdb01ec5e2772f682867c8c6f30697c63f622e338f7390d3abc6c905b9fd7e96496fdc34cb9e872387758a6a334ec1307b3505b73121e0264fe2ba546d78ad11b0d00".to_string();
@@ -1123,7 +1124,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_deposit_kickoff_generator_tx_2() {
-        let config = create_test_config_with_thread_name!("test_config.toml");
+        let config = create_test_config_with_thread_name("test_config.toml", None).await;
         let db = Database::new(config).await.unwrap();
 
         let txid = Txid::from_byte_array([1u8; 32]);
@@ -1133,7 +1134,7 @@ mod tests {
 
     // #[tokio::test]
     // async fn test_kickoff_root_1() {
-    //     let config = create_test_config_with_thread_name!("test_config.toml");
+    //     let config = create_test_config_with_thread_name("test_config.toml", None).await;
     //     let db = Database::new(config).await.unwrap();
 
     //     let outpoint = OutPoint {
@@ -1150,7 +1151,7 @@ mod tests {
 
     // #[tokio::test]
     // async fn test_kickoff_root_2() {
-    //     let config = create_test_config_with_thread_name!("test_config.toml");
+    //     let config = create_test_config_with_thread_name("test_config.toml", None).await;
     //     let db = Database::new(config).await.unwrap();
 
     //     let outpoint = OutPoint {
