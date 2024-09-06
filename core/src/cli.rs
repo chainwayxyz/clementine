@@ -17,6 +17,15 @@ use std::process::exit;
 pub struct Args {
     /// TOML formatted configuration file.
     pub config_file: PathBuf,
+    /// Enable verifier server.
+    #[clap(short, long)]
+    pub verifier_server: bool,
+    /// Enable operator server.
+    #[clap(short, long)]
+    pub operator_server: bool,
+    /// Enable aggregator server.
+    #[clap(short, long)]
+    pub aggregator_server: bool,
 }
 
 /// Parse all the command line arguments and generate a `BridgeConfig`.

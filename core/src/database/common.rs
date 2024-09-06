@@ -226,7 +226,7 @@ impl Database {
         deposit_outpoint: OutPoint,
     ) -> Result<Option<Vec<UTXO>>, BridgeError> {
         let qr: Vec<(sqlx::types::Json<UTXODB>,)> = sqlx::query_as(
-            "SELECT kickoff_utxo FROM deposit_kickoff_utxos WHERE deposit_outpoint = $1;",
+            "SELECT kickoff_utxo FROM deposit_kickoff_utxos WHERE deposit_outpoint = $1 ORDER BY id ASC;",
         )
         .bind(OutPointDB(deposit_outpoint))
         .fetch_all(&self.connection)
@@ -307,7 +307,7 @@ impl Database {
             //     txout_db: TxOutDB(utxo.txout.clone()),
             // }).unwrap());
             sqlx::query(
-                "INSERT INTO deposit_kickoff_utxos (deposit_outpoint, kickoff_utxo) VALUES ($1, $2);",
+                "INSERT INTO deposit_kickoff_utxos (deposit_outpoint, kickoff_utxo) VALUES ($1, $2) ON CONFLICT (deposit_outpoint, kickoff_utxo) DO NOTHING;",
             )
             .bind(OutPointDB(deposit_outpoint))
             .bind(sqlx::types::Json(UTXODB {
@@ -326,11 +326,12 @@ impl Database {
         &self,
         deposit_outpoint: OutPoint,
     ) -> Result<Option<Vec<MuSigPubNonce>>, BridgeError> {
-        let qr: Vec<(MuSigPubNonce,)> =
-            sqlx::query_as("SELECT pub_nonce FROM nonces WHERE deposit_outpoint = $1;")
-                .bind(OutPointDB(deposit_outpoint))
-                .fetch_all(&self.connection)
-                .await?;
+        let qr: Vec<(MuSigPubNonce,)> = sqlx::query_as(
+            "SELECT pub_nonce FROM nonces WHERE deposit_outpoint = $1 ORDER BY idx;",
+        )
+        .bind(OutPointDB(deposit_outpoint))
+        .fetch_all(&self.connection)
+        .await?;
         if qr.is_empty() {
             Ok(None)
         } else {
@@ -349,7 +350,7 @@ impl Database {
             .push_values(nonces, |mut builder, (sec, pub_nonce)| {
                 builder
                     .push_bind(OutPointDB(deposit_outpoint))
-                    .push_bind(hex::encode(sec))
+                    .push_bind(sec)
                     .push_bind(pub_nonce);
             })
             .build()
@@ -397,7 +398,7 @@ impl Database {
         sighashes: &[[u8; 32]],
     ) -> Result<Option<Vec<(MuSigSecNonce, MuSigAggNonce)>>, BridgeError> {
         let indices: Vec<i32> = sqlx::query_scalar::<_, i32>(
-            "SELECT idx FROM nonces WHERE deposit_outpoint = $1 ORDER BY idx;",
+            "SELECT idx FROM nonces WHERE deposit_outpoint = $1 ORDER BY idx ASC;",
         )
         .bind(OutPointDB(deposit_outpoint))
         .fetch_all(&self.connection)
@@ -411,15 +412,13 @@ impl Database {
                 .bind(OutPointDB(deposit_outpoint))
                 .execute(&self.connection)
                 .await?;
-            let res: (String, MuSigAggNonce) = sqlx::query_as("SELECT sec_nonce, agg_nonce FROM nonces WHERE deposit_outpoint = $1 AND idx = $2 AND sighash = $3;")
+            let res: (MuSigSecNonce, MuSigAggNonce) = sqlx::query_as("SELECT sec_nonce, agg_nonce FROM nonces WHERE deposit_outpoint = $1 AND idx = $2 AND sighash = $3;")
                 .bind(OutPointDB(deposit_outpoint))
                 .bind(*idx)
                 .bind(hex::encode(sighash))
                 .fetch_one(&self.connection)
                 .await?;
-            // println!("res: {:?}", res);
-            let sec_nonce: MuSigSecNonce = hex::decode(res.0).unwrap().try_into()?;
-            nonces.push((sec_nonce, res.1));
+            nonces.push(res);
         }
 
         Ok(Some(nonces))
@@ -438,16 +437,17 @@ impl Database {
         .fetch_optional(&self.connection)
         .await?
         .unwrap();
+
         for agg_nonce in agg_nonces {
-            // After finding the idx deposit_outpoint might be unnecessary
+            // Only update the row if agg_nonce is NULL
             sqlx::query(
-                "UPDATE nonces SET agg_nonce = $1 WHERE idx = $2 AND deposit_outpoint = $3;",
-            )
-            .bind(agg_nonce)
-            .bind(idx)
-            .bind(OutPointDB(deposit_outpoint))
-            .execute(&self.connection)
-            .await?;
+            "UPDATE nonces SET agg_nonce = $1 WHERE idx = $2 AND deposit_outpoint = $3 AND agg_nonce IS NULL;",
+        )
+        .bind(agg_nonce)
+        .bind(idx)
+        .bind(OutPointDB(deposit_outpoint))
+        .execute(&self.connection)
+        .await?;
             idx += 1;
         }
 
@@ -760,7 +760,7 @@ mod tests {
             .collect();
         let agg_nonces: Vec<MuSigAggNonce> = nonce_pairs
             .iter()
-            .map(|(_, pub_nonce)| pub_nonce.clone())
+            .map(|(_, pub_nonce)| *pub_nonce)
             .collect();
         db.save_nonces(outpoint, &nonce_pairs).await.unwrap();
         db.save_agg_nonces(outpoint, &agg_nonces).await.unwrap();
@@ -800,7 +800,7 @@ mod tests {
             .collect();
         let agg_nonces: Vec<MuSigAggNonce> = nonce_pairs
             .iter()
-            .map(|(_, pub_nonce)| pub_nonce.clone())
+            .map(|(_, pub_nonce)| *pub_nonce)
             .collect();
         db.save_nonces(outpoint, &nonce_pairs).await.unwrap();
         db.save_agg_nonces(outpoint, &agg_nonces).await.unwrap();
@@ -845,7 +845,7 @@ mod tests {
             .collect();
         let agg_nonces: Vec<MuSigAggNonce> = nonce_pairs
             .iter()
-            .map(|(_, pub_nonce)| pub_nonce.clone())
+            .map(|(_, pub_nonce)| *pub_nonce)
             .collect();
         db.save_nonces(outpoint, &nonce_pairs).await.unwrap();
         db.save_agg_nonces(outpoint, &agg_nonces).await.unwrap();

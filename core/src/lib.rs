@@ -49,6 +49,14 @@ pub struct UTXO {
     pub txout: bitcoin::TxOut,
 }
 
-#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, sqlx::Type)]
+#[derive(Clone, Debug, Copy, Serialize, Deserialize, PartialEq, sqlx::Type)]
 #[sqlx(type_name = "bytea")]
 pub struct ByteArray66(#[serde(with = "hex::serde")] pub [u8; 66]);
+
+#[derive(Clone, Debug, Copy, Serialize, Deserialize, PartialEq, sqlx::Type)]
+#[sqlx(type_name = "bytea")]
+pub struct ByteArray32(#[serde(with = "hex::serde")] pub [u8; 32]);
+
+#[derive(Clone, Copy, Debug, Serialize, Deserialize, PartialEq, sqlx::Type)]
+#[sqlx(type_name = "bytea")]
+pub struct ByteArray64(#[serde(with = "hex::serde")] pub [u8; 64]);

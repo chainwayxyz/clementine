@@ -193,8 +193,6 @@ pub async fn create_verifiers_and_operators(
         .enumerate()
         .map(|(i, sk)| {
             let port = start_port + i as u16 + all_verifiers_secret_keys.len() as u16;
-            println!("Port: {}", port);
-            // let i_str = (i + 1000).to_string();
             let rpc = rpc.clone();
             let verifier_config = verifier_configs[i].clone();
             async move {
