@@ -217,11 +217,14 @@ where
             slash_or_take_sighashes
         );
 
-        let db_tx = self.db.begin_transaction().await?;
-
         self.db
             .save_agg_nonces(deposit_outpoint, &agg_nonces)
             .await?;
+
+        self.db
+            .save_kickoff_utxos(deposit_outpoint, &kickoff_utxos)
+            .await?;
+
         let nonces = self
             .db
             .save_sighashes_and_get_nonces(
@@ -248,11 +251,6 @@ where
             })
             .collect::<Vec<_>>();
 
-        self.db
-            .save_kickoff_utxos(deposit_outpoint, &kickoff_utxos)
-            .await?;
-
-        db_tx.commit().await?;
 
         // TODO: Sign burn txs
         Ok((slash_or_take_partial_sigs, vec![]))
@@ -327,15 +325,7 @@ where
                 let slash_or_take_sighash =
                     Actor::convert_tx_to_sighash_script_spend(&mut slash_or_take_tx_handler, 0, 0)
                         .unwrap();
-                // tracing::debug!(
-                //     "Verify SLASH_OR_TAKE_TX message: {:?}",
-                //     slash_or_take_sighash
-                // );
-                // tracing::debug!("Verify SLASH_OR_TAKE_SIG: {:?}", slash_or_take_sigs[index]);
-                // tracing::debug!(
-                //     "Verify SLASH_OR_TAKE_TX operator xonly_pk: {:?}",
-                //     self.operator_xonly_pks[index]
-                // );
+
                 utils::SECP
                     .verify_schnorr(
                         &slash_or_take_sigs[index],

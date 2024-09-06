@@ -510,37 +510,28 @@ impl Database {
         deposit_outpoint: OutPoint,
         agg_nonces: impl IntoIterator<Item = &MuSigAggNonce>,
     ) -> Result<(), BridgeError> {
-        // Fetch all the internal indices related to this deposit_outpoint
-        let indices: Vec<i32> = sqlx::query_scalar::<_, i32>(
-        "SELECT internal_idx FROM nonces WHERE deposit_outpoint = $1 ORDER BY internal_idx ASC;",
-    )
-    .bind(OutPointDB(deposit_outpoint))
-    .fetch_all(&self.connection)
-    .await?;
+        let mut query = QueryBuilder::new(
+            "UPDATE nonces
+             SET agg_nonce = batch.agg_nonce
+             FROM (",
+        );
 
-        // Ensure we have enough indices to match the number of agg_nonces
-        let agg_nonces: Vec<&MuSigAggNonce> = agg_nonces.into_iter().collect();
-        assert!(indices.len() == agg_nonces.len()); // TODO: Change this
-
-        // Prepare the batch update using QueryBuilder
-        let mut query_builder =
-            QueryBuilder::new("UPDATE nonces SET agg_nonce = batch.agg_nonce FROM (");
-
-        query_builder.push_values(
-            indices.iter().zip(agg_nonces.iter()),
-            |mut builder, (&idx, &agg_nonce)| {
-                builder.push_bind(idx).push_bind(agg_nonce);
+        let query = query.push_values(
+            agg_nonces.into_iter().enumerate(),
+            |mut builder, (i, agg_nonce)| {
+                builder.push_bind(i as i32).push_bind(agg_nonce);
             },
         );
 
-        query_builder.push(
-        ") AS batch (internal_idx, agg_nonce) WHERE nonces.internal_idx = batch.internal_idx AND nonces.deposit_outpoint = "
-    )
-    .push_bind(OutPointDB(deposit_outpoint));
+        let query = query
+            .push(
+                ") AS batch (internal_idx, agg_nonce)
+             WHERE nonces.internal_idx = batch.internal_idx AND nonces.deposit_outpoint = ",
+            )
+            .push_bind(OutPointDB(deposit_outpoint))
+            .build();
 
-        // Execute the batch update query
-        query_builder.build().execute(&self.connection).await?;
-
+        query.execute(&self.connection).await?;
         Ok(())
     }
 
