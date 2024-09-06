@@ -1,3 +1,5 @@
+use crate::cli::Args;
+use crate::config::BridgeConfig;
 use crate::errors::BridgeError;
 use crate::transaction_builder::TxHandler;
 use bitcoin;
@@ -49,6 +51,50 @@ pub fn parse_hex_to_btc_tx(
             "Could not decode hex",
         ))
     }
+}
+
+/// Gets configuration from CLI, for binaries. If there are any errors, print
+/// error to stderr and exit program.
+///
+/// Steps:
+///
+/// 1. Get CLI arguments
+/// 2. Initialize logger
+/// 3. Get configuration file
+///
+/// These steps are pretty standard and binaries can use this to get a
+/// `BridgeConfig`.
+///
+/// # Returns
+///
+/// A tuple, containing:
+///
+/// - [`BridgeConfig`] from CLI argument
+/// - [`Args`] from CLI options
+pub fn get_configuration_for_binaries() -> (BridgeConfig, Args) {
+    let args = match crate::cli::parse() {
+        Ok(args) => args,
+        Err(e) => {
+            eprintln!("{e}");
+            exit(1);
+        }
+    };
+    match crate::utils::initialize_logger(args.verbose) {
+        Ok(args) => args,
+        Err(e) => {
+            eprintln!("{e}");
+            exit(1);
+        }
+    };
+    let config = match crate::cli::get_configuration_from(args.clone()) {
+        Ok(config) => config,
+        Err(e) => {
+            eprintln!("{e}");
+            exit(1);
+        }
+    };
+
+    (config, args)
 }
 
 pub fn usize_to_var_len_bytes(x: usize) -> Vec<u8> {
@@ -123,7 +169,7 @@ pub fn get_claim_reveal_indices(depth: usize, count: u32) -> Vec<(usize, usize)>
 ///
 /// Returns `Err` if `tracing` can't be initialized. Multiple subscription error
 /// is emmitted and will return `Ok(())`.
-pub fn initialize_logger(level: u8) -> Result<(), tracing_subscriber::util::TryInitError> {
+pub fn initialize_logger(level: u8) -> Result<(), BridgeError> {
     let level = match level {
         0 => None,
         1 => Some(LevelFilter::ERROR),
@@ -132,8 +178,9 @@ pub fn initialize_logger(level: u8) -> Result<(), tracing_subscriber::util::TryI
         4 => Some(LevelFilter::DEBUG),
         5 => Some(LevelFilter::TRACE),
         _ => {
-            eprintln!("Verbosity level can only be between 0 and 5 (given {level})!");
-            exit(1);
+            return Err(BridgeError::ConfigError(format!(
+                "Verbosity level can only be between 0 and 5 (given {level})!"
+            )))
         }
     };
 
@@ -151,7 +198,7 @@ pub fn initialize_logger(level: u8) -> Result<(), tracing_subscriber::util::TryI
         // If it failed because of a re-initialization, do not care about
         // the error.
         if e.to_string() != "a global default trace dispatcher has already been set" {
-            return Err(e);
+            return Err(BridgeError::ConfigError(e.to_string()));
         }
 
         tracing::trace!("Tracing is already initialized, skipping without errors...");

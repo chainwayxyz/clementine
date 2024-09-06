@@ -76,7 +76,7 @@ pub fn get_configuration() -> BridgeConfig {
 /// Reads configuration file, parses it and generates a `BridgeConfig` from
 /// given cli arguments.
 pub fn get_configuration_from(args: Args) -> Result<BridgeConfig, BridgeError> {
-    match BridgeConfig::try_parse_file(args.config_file) {
+    match BridgeConfig::try_parse_file(args.config_file.clone()) {
         Ok(c) => Ok(c),
         Err(e) => Err(BridgeError::ConfigError(e.to_string())),
     }
