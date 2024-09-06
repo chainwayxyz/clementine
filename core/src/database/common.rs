@@ -327,7 +327,7 @@ impl Database {
         deposit_outpoint: OutPoint,
     ) -> Result<Option<Vec<MuSigPubNonce>>, BridgeError> {
         let qr: Vec<(MuSigPubNonce,)> = sqlx::query_as(
-            "SELECT pub_nonce FROM nonces WHERE deposit_outpoint = $1 ORDER BY idx;",
+            "SELECT pub_nonce FROM nonces WHERE deposit_outpoint = $1 ORDER BY internal_idx;",
         )
         .bind(OutPointDB(deposit_outpoint))
         .fetch_all(&self.connection)
@@ -346,16 +346,22 @@ impl Database {
         deposit_outpoint: OutPoint,
         nonces: &[(MuSigSecNonce, MuSigPubNonce)],
     ) -> Result<(), BridgeError> {
-        QueryBuilder::new("INSERT INTO nonces (deposit_outpoint, sec_nonce, pub_nonce) ")
-            .push_values(nonces, |mut builder, (sec, pub_nonce)| {
+        QueryBuilder::new(
+            "INSERT INTO nonces (deposit_outpoint, internal_idx, sec_nonce, pub_nonce) ",
+        )
+        .push_values(
+            nonces.iter().enumerate(),
+            |mut builder, (idx, (sec, pub_nonce))| {
                 builder
-                    .push_bind(OutPointDB(deposit_outpoint))
-                    .push_bind(sec)
-                    .push_bind(pub_nonce);
-            })
-            .build()
-            .execute(&self.connection)
-            .await?;
+                    .push_bind(OutPointDB(deposit_outpoint)) // Bind deposit_outpoint
+                    .push_bind(idx as i32) // Bind the index as internal_idx
+                    .push_bind(sec) // Bind sec_nonce
+                    .push_bind(pub_nonce); // Bind pub_nonce
+            },
+        )
+        .build()
+        .execute(&self.connection)
+        .await?;
 
         Ok(())
     }
@@ -431,12 +437,12 @@ impl Database {
         agg_nonces: impl IntoIterator<Item = &MuSigAggNonce>,
     ) -> Result<(), BridgeError> {
         let idx = sqlx::query_scalar::<_, i32>(
-            "SELECT idx FROM nonces WHERE deposit_outpoint = $1 ORDER BY idx ASC LIMIT 1;",
+            "SELECT idx FROM nonces WHERE deposit_outpoint = $1 ORDER BY internal_idx ASC LIMIT 1;",
         )
         .bind(OutPointDB(deposit_outpoint))
         .fetch_optional(&self.connection)
         .await?
-        .unwrap();
+        .unwrap(); // TODO: Change this query so that we get all the rows belonging to the deposit_outpoint
 
         QueryBuilder::new(
             "UPDATE nonces

@@ -23,7 +23,7 @@ create table if not exists nonces (
     agg_nonce bytea check (length(agg_nonce) = 66),
     sighash bytea check (length(sighash) = 32),
     partial_sig bytea check (length(partial_sig) = 32),
-    created_at timestamp not null default now()
+    created_at timestamp not null default now(),
     primary key (deposit_outpoint, internal_idx)
 );
 
