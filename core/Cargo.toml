@@ -32,9 +32,6 @@ musig2 = { workspace = true }
 [features]
 default = []
 mock_rpc = []
-verifier_server = []
-operator_server = []
-aggregator_server = []
 testing = []
 
 [[bin]]
