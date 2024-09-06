@@ -11,13 +11,10 @@
 //! described in `BridgeConfig` struct.
 
 use crate::errors::BridgeError;
+use crate::utils;
 use bitcoin::Network;
 use serde::{Deserialize, Serialize};
-use std::str::FromStr;
 use std::{fs::File, io::Read, path::PathBuf};
-use tracing_subscriber::layer::SubscriberExt;
-use tracing_subscriber::util::SubscriberInitExt;
-use tracing_subscriber::{fmt, EnvFilter};
 
 /// Configuration options for any Clementine target (tests, binaries etc.).
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -108,22 +105,10 @@ impl BridgeConfig {
         }?;
 
         // Initialize tracing.
-        if let Err(e) = tracing_subscriber::registry()
-            .with(fmt::layer())
-            .with(
-                EnvFilter::from_str(&config.tracing_debug)
-                    .unwrap_or_else(|_| EnvFilter::from_default_env()),
-            )
-            .try_init()
-        {
-            // If it failed because of a re-initialization, do not care about
-            // the error.
-            //
-            // This error checking is kind of ugly. But nothing to do about it:
-            // Library's error type is this.
-            if e.to_string() != "a global default trace dispatcher has already been set" {
-                return Err(BridgeError::ConfigError(e.to_string()));
-            }
+        if let Err(e) = utils::initialize_logger() {
+            // No logger is not a no-go. Print error to stderr and continue
+            // program flow,
+            eprintln!("Can't initialize logger: {e}");
         };
 
         Ok(config)
