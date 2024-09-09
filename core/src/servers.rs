@@ -168,7 +168,7 @@ pub async fn create_verifiers_and_operators(
         .collect::<Vec<_>>();
     let verifier_results = futures::future::try_join_all(verifier_futures)
         .await
-        .unwrap(); // TODO: Remove unwrap.
+        .unwrap();
     let verifier_endpoints = verifier_results
         .iter()
         .map(|(v, _)| v.clone())
@@ -209,7 +209,7 @@ pub async fn create_verifiers_and_operators(
     for (i, (operator_client, _, _)) in operator_endpoints.iter().enumerate() {
         // Send operators some bitcoin so that they can afford the kickoff tx
         let secp = bitcoin::secp256k1::Secp256k1::new();
-        let operator_internal_xonly_pk = config.operators_xonly_pks.get(i).unwrap(); // TODO: Remove unwrap.
+        let operator_internal_xonly_pk = config.operators_xonly_pks.get(i).unwrap();
         let operator_address =
             Address::p2tr(&secp, *operator_internal_xonly_pk, None, config.network);
         let operator_funding_outpoint = rpc

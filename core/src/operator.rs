@@ -53,7 +53,10 @@ where
             .operators_xonly_pks
             .iter()
             .position(|xonly_pk| xonly_pk == &signer.xonly_public_key)
-            .unwrap(); // TODO: Remove unwrap.
+            .ok_or(BridgeError::ServerError(std::io::Error::other(format!(
+                "{} is not found in operator x-only public keys",
+                signer.xonly_public_key
+            ))))?;
 
         let mut tx = db.begin_transaction().await?;
         // check if funding utxo is already set
@@ -350,7 +353,7 @@ where
         let mut push_bytes = PushBytesBuf::new();
         push_bytes
             .extend_from_slice(&utils::usize_to_var_len_bytes(self.idx))
-            .unwrap(); // TODO: Remove unwrap.
+            .unwrap();
         let op_return_txout = script_builder::op_return_txout(push_bytes);
         tx.output.push(op_return_txout.clone());
         let funded_tx = self

@@ -338,7 +338,7 @@ where
                 );
                 let slash_or_take_sighash =
                     Actor::convert_tx_to_sighash_script_spend(&mut slash_or_take_tx_handler, 0, 0)
-                        .unwrap(); // TODO: Remove unwrap.
+                        .unwrap();
 
                 utils::SECP
                     .verify_schnorr(
@@ -367,7 +367,7 @@ where
                 );
                 ByteArray32(
                     Actor::convert_tx_to_sighash_pubkey_spend(&mut operator_takes_tx, 0)
-                        .unwrap() // TODO: Remove unwrap.
+                        .unwrap()
                         .to_byte_array(),
                 )
             })
@@ -453,7 +453,7 @@ where
                 );
 
                 let sig_hash =
-                    Actor::convert_tx_to_sighash_pubkey_spend(&mut operator_takes_tx, 0).unwrap(); // TODO: Remove unwrap.
+                    Actor::convert_tx_to_sighash_pubkey_spend(&mut operator_takes_tx, 0).unwrap();
 
                 // verify the operator_take_sigs
                 utils::SECP
@@ -462,7 +462,7 @@ where
                         &secp256k1::Message::from_digest(sig_hash.to_byte_array()),
                         &self.nofn_xonly_pk,
                     )
-                    .unwrap(); // TODO: Remove unwrap.
+                    .unwrap();
             });
 
         let kickoff_utxos = kickoff_utxos
