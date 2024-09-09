@@ -433,6 +433,8 @@ where
         _withdrawal_idx: usize,
         deposit_outpoint: OutPoint,
     ) -> Result<Vec<String>, BridgeError> {
+        // call withdrawFillers(withdrawal_idx) check the returned id is our operator id.
+        // calculate the move_txid, txIdToDepositId(move_txid) check the returned id is withdrawal_idx
         let kickoff_utxo = self
             .db
             .get_kickoff_utxo(None, deposit_outpoint)
