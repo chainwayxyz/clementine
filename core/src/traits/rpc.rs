@@ -8,11 +8,12 @@ use secp256k1::schnorr;
 
 #[rpc(client, server, namespace = "verifier")]
 pub trait VerifierRpc {
-    #[method(name = "new_deposit")]
     /// - Check deposit UTXO,
     /// - Generate random pubNonces, secNonces
     /// - Save pubNonces and secNonces to a in-memory db
     /// - Return pubNonces
+    #[tracing::instrument(skip(self))]
+    #[method(name = "new_deposit")]
     async fn verifier_new_deposit_rpc(
         &self,
         deposit_outpoint: OutPoint,
@@ -20,10 +21,11 @@ pub trait VerifierRpc {
         evm_address: EVMAddress,
     ) -> Result<Vec<MuSigPubNonce>, BridgeError>;
 
-    #[method(name = "operator_kickoffs_generated")]
     /// - Check the kickoff_utxos
     /// - for every kickoff_utxo, calculate kickoff2_tx
     /// - for every kickoff2_tx, partial sign burn_tx (ommitted for now)
+    #[tracing::instrument(skip(self))]
+    #[method(name = "operator_kickoffs_generated")]
     async fn operator_kickoffs_generated_rpc(
         &self,
         deposit_outpoint: OutPoint,
@@ -32,9 +34,10 @@ pub trait VerifierRpc {
         agg_nonces: Vec<MuSigAggNonce>,
     ) -> Result<(Vec<MuSigPartialSignature>, Vec<MuSigPartialSignature>), BridgeError>;
 
-    #[method(name = "burn_txs_signed")]
     /// verify burn txs are signed by verifiers
     /// sign operator_takes_txs
+    #[tracing::instrument(skip(self))]
+    #[method(name = "burn_txs_signed")]
     async fn burn_txs_signed_rpc(
         &self,
         deposit_outpoint: OutPoint,
@@ -43,6 +46,7 @@ pub trait VerifierRpc {
     ) -> Result<Vec<MuSigPartialSignature>, BridgeError>;
 
     // operator_take_txs_signed
+    #[tracing::instrument(skip(self))]
     #[method(name = "operator_take_txs_signed")]
     /// verify the operator_take_sigs
     /// sign move_tx
@@ -57,6 +61,7 @@ pub trait VerifierRpc {
 pub trait OperatorRpc {
     #[method(name = "new_deposit")]
     /// - Create kickoffUTXO, make sure to not send it to bitcoin yet
+    #[tracing::instrument(skip(self))]
     async fn new_deposit_rpc(
         &self,
         deposit_outpoint: OutPoint,
@@ -64,14 +69,16 @@ pub trait OperatorRpc {
         evm_address: EVMAddress,
     ) -> Result<(UTXO, secp256k1::schnorr::Signature), BridgeError>;
 
+    #[tracing::instrument(skip(self))]
     #[method(name = "set_funding_utxo")]
     async fn set_funding_utxo_rpc(&self, funding_utxo: UTXO) -> Result<(), BridgeError>;
 
-    #[method(name = "new_withdrawal_sig")]
     /// Gets the withdrawal utxo from citrea,
     /// checks wheter sig is for a correct withdrawal from citrea,
     /// checks the signature, calls is_profitable, if is profitable pays the withdrawal,
     /// adds it to flow, when its finalized, proves on citrea, sends kickoff2
+    #[tracing::instrument(skip(self))]
+    #[method(name = "new_withdrawal_sig")]
     async fn new_withdrawal_sig_rpc(
         &self,
         withdrawal_idx: usize,
@@ -80,10 +87,11 @@ pub trait OperatorRpc {
         output_txout: TxOut,
     ) -> Result<Option<Txid>, BridgeError>;
 
-    #[method(name = "withdrawal_proved_on_citrea")]
     /// 1- Calculate move_txid, check if the withdrawal idx matches the move_txid
     /// 2- Check if it is really proved on citrea
     /// 3- If it is, send operator_take_txs
+    #[tracing::instrument(skip(self))]
+    #[method(name = "withdrawal_proved_on_citrea")]
     async fn withdrawal_proved_on_citrea_rpc(
         &self,
         withdrawal_idx: usize,
@@ -96,12 +104,14 @@ pub trait OperatorRpc {
 
 #[rpc(client, server, namespace = "aggregator")]
 pub trait Aggregator {
+    #[tracing::instrument(skip(self))]
     #[method(name = "aggregate_pub_nonces")]
     async fn aggregate_pub_nonces_rpc(
         &self,
         pub_nonces: Vec<Vec<MuSigPubNonce>>,
     ) -> Result<Vec<MuSigAggNonce>, BridgeError>;
 
+    #[tracing::instrument(skip(self))]
     #[method(name = "aggregate_slash_or_take_sigs")]
     async fn aggregate_slash_or_take_sigs_rpc(
         &self,
@@ -111,6 +121,7 @@ pub trait Aggregator {
         partial_sigs: Vec<Vec<MuSigPartialSignature>>,
     ) -> Result<Vec<schnorr::Signature>, BridgeError>;
 
+    #[tracing::instrument(skip(self))]
     #[method(name = "aggregate_operator_take_sigs")]
     async fn aggregate_operator_take_sigs_rpc(
         &self,
@@ -120,6 +131,7 @@ pub trait Aggregator {
         partial_sigs: Vec<Vec<MuSigPartialSignature>>,
     ) -> Result<Vec<schnorr::Signature>, BridgeError>;
 
+    #[tracing::instrument(skip(self))]
     #[method(name = "aggregate_move_tx_sigs")]
     async fn aggregate_move_tx_sigs_rpc(
         &self,

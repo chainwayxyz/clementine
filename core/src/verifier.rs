@@ -543,6 +543,7 @@ impl<R> VerifierRpcServer for Verifier<R>
 where
     R: RpcApiWrapper,
 {
+    #[tracing::instrument(skip(self))]
     async fn verifier_new_deposit_rpc(
         &self,
         deposit_outpoint: OutPoint,
@@ -553,6 +554,7 @@ where
             .await
     }
 
+    #[tracing::instrument(skip(self))]
     async fn operator_kickoffs_generated_rpc(
         &self,
         deposit_outpoint: OutPoint,
@@ -569,6 +571,7 @@ where
         .await
     }
 
+    #[tracing::instrument(skip(self))]
     async fn burn_txs_signed_rpc(
         &self,
         deposit_outpoint: OutPoint,
@@ -579,6 +582,7 @@ where
             .await
     }
 
+    #[tracing::instrument(skip(self))]
     async fn operator_take_txs_signed_rpc(
         &self,
         deposit_outpoint: OutPoint,

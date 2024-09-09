@@ -564,6 +564,7 @@ impl<R> OperatorRpcServer for Operator<R>
 where
     R: RpcApiWrapper,
 {
+    #[tracing::instrument(skip(self))]
     async fn new_deposit_rpc(
         &self,
         deposit_outpoint: OutPoint,
@@ -574,10 +575,12 @@ where
             .await
     }
 
+    #[tracing::instrument(skip(self))]
     async fn set_funding_utxo_rpc(&self, funding_utxo: UTXO) -> Result<(), BridgeError> {
         self.set_funding_utxo(funding_utxo).await
     }
 
+    #[tracing::instrument(skip(self))]
     async fn new_withdrawal_sig_rpc(
         &self,
         withdrawal_idx: usize,
@@ -589,6 +592,7 @@ where
             .await
     }
 
+    #[tracing::instrument(skip(self))]
     async fn withdrawal_proved_on_citrea_rpc(
         &self,
         withdrawal_idx: usize,

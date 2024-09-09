@@ -325,6 +325,7 @@ impl Aggregator {
 
 #[async_trait]
 impl AggregatorServer for Aggregator {
+    #[tracing::instrument(skip(self))]
     async fn aggregate_pub_nonces_rpc(
         &self,
         pub_nonces: Vec<Vec<MuSigPubNonce>>,
@@ -332,6 +333,7 @@ impl AggregatorServer for Aggregator {
         self.aggregate_pub_nonces(pub_nonces).await
     }
 
+    #[tracing::instrument(skip(self))]
     async fn aggregate_slash_or_take_sigs_rpc(
         &self,
         deposit_outpoint: OutPoint,
@@ -343,6 +345,7 @@ impl AggregatorServer for Aggregator {
             .await
     }
 
+    #[tracing::instrument(skip(self))]
     async fn aggregate_operator_take_sigs_rpc(
         &self,
         deposit_outpoint: OutPoint,
@@ -354,6 +357,7 @@ impl AggregatorServer for Aggregator {
             .await
     }
 
+    #[tracing::instrument(skip(self))]
     async fn aggregate_move_tx_sigs_rpc(
         &self,
         deposit_outpoint: OutPoint,
