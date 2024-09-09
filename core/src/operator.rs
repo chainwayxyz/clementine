@@ -54,6 +54,9 @@ where
             .iter()
             .position(|xonly_pk| xonly_pk == &signer.xonly_public_key)
             .unwrap();
+        if config.operator_withdrawal_fee_sats.is_none() {
+            return Err(BridgeError::OperatorWithdrawalFeeNotSet);
+        }
 
         let mut tx = db.begin_transaction().await?;
         // check if funding utxo is already set

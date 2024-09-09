@@ -78,9 +78,6 @@ runs:
       db_user = "clementine"
       db_password = "clementine"
       db_name = "clementine"
-      citrea_rpc_url = "http://159.89.214.47/"
-      bridge_contract_address = "3100000000000000000000000000000000000002"
       citrea_rpc_url = "http://127.0.0.1:12345"
-      citrea_rpc_user = "admin"
-      citrea_rpc_password = "admin"
+      bridge_contract_address = "3100000000000000000000000000000000000002"
       EOF
