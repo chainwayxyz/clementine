@@ -16,8 +16,8 @@ use std::thread;
 ///
 /// Returns new `BridgeConfig`.
 pub async fn create_test_config(db_name: &str, config_file: &str) -> BridgeConfig {
-    // Use `RUST_LOG` env var's value.
-    initialize_logger(0).unwrap();
+    // Use maximum log level for tests.
+    initialize_logger(5).unwrap();
 
     let config = common::get_test_config(config_file).unwrap();
     let config = Database::create_database(config, db_name).await.unwrap();
