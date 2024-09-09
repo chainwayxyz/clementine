@@ -165,6 +165,9 @@ pub enum BridgeError {
 
     #[error("FromSliceError: {0}")]
     FromSliceError(#[from] bitcoin::hashes::FromSliceError),
+
+    #[error("Musig2 error: {0}")]
+    Musig2Error(#[from] musig2::secp256k1::Error),
 }
 
 impl From<BridgeError> for ErrorObject<'static> {

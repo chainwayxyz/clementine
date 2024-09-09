@@ -9,7 +9,7 @@ use crate::{
     traits::rpc::AggregatorServer,
     transaction_builder::TransactionBuilder,
     utils::{self, handle_taproot_witness_new},
-    ByteArray32, EVMAddress, UTXO,
+    ByteArray32, ByteArray66, EVMAddress, UTXO,
 };
 use async_trait::async_trait;
 use bitcoin::{address::NetworkUnchecked, Address, OutPoint};
@@ -67,9 +67,8 @@ impl Aggregator {
         );
         // tracing::debug!("SLASH_OR_TAKE_TX: {:?}", tx);
         tracing::debug!("SLASH_OR_TAKE_TX weight: {:?}", tx.tx.weight());
-        let message: [u8; 32] = Actor::convert_tx_to_sighash_script_spend(&mut tx, 0, 0)
-            .unwrap()
-            .to_byte_array();
+        let message: [u8; 32] =
+            Actor::convert_tx_to_sighash_script_spend(&mut tx, 0, 0)?.to_byte_array();
         // tracing::debug!("aggregate SLASH_OR_TAKE_TX message: {:?}", message);
         let final_sig: [u8; 64] = aggregate_partial_signatures(
             self.config.verifiers_public_keys.clone(),
@@ -139,7 +138,7 @@ impl Aggregator {
         };
         // tracing::debug!(
         //     "SERDE_UTXO: {:#?}",
-        //     serde_json::to_string(&slash_or_take_utxo).unwrap()
+        //     serde_json::to_string(&slash_or_take_utxo)?
         // );
 
         let mut tx_handler = TransactionBuilder::create_operator_takes_tx(
@@ -158,9 +157,8 @@ impl Aggregator {
         // );
         // tracing::debug!("OPERATOR_TAKES_TX_HEX: {:?}", tx_handler.tx.raw_hex());
         tracing::debug!("OPERATOR_TAKES_TX weight: {:?}", tx_handler.tx.weight());
-        let message: [u8; 32] = Actor::convert_tx_to_sighash_pubkey_spend(&mut tx_handler, 0)
-            .unwrap()
-            .to_byte_array();
+        let message: [u8; 32] =
+            Actor::convert_tx_to_sighash_pubkey_spend(&mut tx_handler, 0)?.to_byte_array();
         let final_sig: [u8; 64] = aggregate_partial_signatures(
             self.config.verifiers_public_keys.clone(),
             None,
@@ -192,9 +190,8 @@ impl Aggregator {
         );
         // println!("MOVE_TX: {:?}", tx);
         // println!("MOVE_TXID: {:?}", tx.tx.compute_txid());
-        let message: [u8; 32] = Actor::convert_tx_to_sighash_script_spend(&mut tx, 0, 0)
-            .unwrap()
-            .to_byte_array();
+        let message: [u8; 32] =
+            Actor::convert_tx_to_sighash_script_spend(&mut tx, 0, 0)?.to_byte_array();
         let final_sig: [u8; 64] = aggregate_partial_signatures(
             self.config.verifiers_public_keys.clone(),
             None,
@@ -213,15 +210,15 @@ impl Aggregator {
     ) -> Result<Vec<MuSigAggNonce>, BridgeError> {
         let mut agg_nonces = Vec::new();
         for i in 0..pub_nonces[0].len() {
-            let agg_nonce = aggregate_nonces(
-                pub_nonces
-                    .iter()
-                    .map(|v| v.get(i).cloned().unwrap())
-                    .collect::<Vec<_>>(),
-            );
+            let pub_nonces = pub_nonces
+                .iter()
+                .map(|v| v.get(i).cloned())
+                .collect::<Option<Vec<ByteArray66>>>()
+                .ok_or(BridgeError::NoncesNotFound)?;
 
-            agg_nonces.push(agg_nonce);
+            agg_nonces.push(aggregate_nonces(pub_nonces));
         }
+
         Ok(agg_nonces)
     }
 
@@ -239,18 +236,22 @@ impl Aggregator {
             agg_nonces,
             partial_sigs
         );
+
         let mut slash_or_take_sigs = Vec::new();
         for i in 0..partial_sigs[0].len() {
+            let partial_sigs = partial_sigs
+                .iter()
+                .map(|v| v.get(i).cloned())
+                .collect::<Option<Vec<ByteArray32>>>()
+                .ok_or(BridgeError::NoncesNotFound)?;
+
             let agg_sig = self.aggregate_slash_or_take_partial_sigs(
                 deposit_outpoint,
                 kickoff_utxos[i].clone(),
                 self.config.operators_xonly_pks[i],
                 i,
                 &agg_nonces[i].clone(),
-                partial_sigs
-                    .iter()
-                    .map(|v| v.get(i).cloned().unwrap())
-                    .collect::<Vec<_>>(),
+                partial_sigs,
             )?;
 
             slash_or_take_sigs.push(secp256k1::schnorr::Signature::from_slice(&agg_sig)?);

@@ -44,9 +44,8 @@ where
     let addr: std::net::SocketAddr = server.local_addr().map_err(BridgeError::ServerError)?;
     let handle = server.start(verifier.into_rpc());
 
-    let client = HttpClientBuilder::default()
-        .build(format!("http://{}:{}/", addr.ip(), addr.port()))
-        .unwrap();
+    let client =
+        HttpClientBuilder::default().build(format!("http://{}:{}/", addr.ip(), addr.port()))?;
 
     tracing::info!("Verifier server started with address: {}", addr);
 
@@ -74,9 +73,8 @@ where
     let addr: std::net::SocketAddr = server.local_addr().map_err(BridgeError::ServerError)?;
     let handle = server.start(operator.into_rpc());
 
-    let client = HttpClientBuilder::default()
-        .build(format!("http://{}:{}/", addr.ip(), addr.port()))
-        .unwrap();
+    let client =
+        HttpClientBuilder::default().build(format!("http://{}:{}/", addr.ip(), addr.port()))?;
 
     tracing::info!("Operator server started with address: {}", addr);
 
@@ -100,9 +98,8 @@ pub async fn create_aggregator_server(
     let addr: std::net::SocketAddr = server.local_addr().map_err(BridgeError::ServerError)?;
     let handle = server.start(aggregator.into_rpc());
 
-    let client = HttpClientBuilder::default()
-        .build(format!("http://{}:{}/", addr.ip(), addr.port()))
-        .unwrap();
+    let client =
+        HttpClientBuilder::default().build(format!("http://{}:{}/", addr.ip(), addr.port()))?;
 
     tracing::info!("Aggregator server started with address: {}", addr);
 
@@ -158,8 +155,7 @@ pub async fn create_verifiers_and_operators(
                     },
                     rpc,
                 )
-                .await
-                .unwrap();
+                .await?;
                 Ok::<
                     (
                         (HttpClient, ServerHandle, std::net::SocketAddr),

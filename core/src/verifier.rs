@@ -9,7 +9,7 @@ use crate::musig2::{
 };
 use crate::traits::rpc::VerifierRpcServer;
 use crate::transaction_builder::{TransactionBuilder, TxHandler, KICKOFF_UTXO_AMOUNT_SATS};
-use crate::{utils, ByteArray32, EVMAddress, UTXO};
+use crate::{utils, ByteArray32, ByteArray64, ByteArray66, EVMAddress, UTXO};
 use bitcoin::address::NetworkUnchecked;
 use bitcoin::hashes::Hash;
 use bitcoin::Address;
@@ -99,7 +99,6 @@ where
             .get_pub_nonces(Some(&mut dbtx), deposit_outpoint)
             .await?;
         if let Some(pub_nonces) = pub_nonces_from_db {
-            tracing::debug!("AAAAAAAA");
             if !pub_nonces.is_empty() {
                 if pub_nonces.len() != num_required_nonces {
                     return Err(BridgeError::NoncesNotFound);
@@ -112,6 +111,9 @@ where
         let nonces = (0..num_required_nonces)
             .map(|_| musig2::nonce_pair(&self.signer.keypair, &mut rand::rngs::OsRng))
             .collect::<Vec<_>>();
+        let nonces: Vec<(ByteArray64, ByteArray66)> = nonces
+            .into_iter()
+            .collect::<Vec<(ByteArray64, ByteArray66)>>();
 
         self.db
             .save_deposit_info(
@@ -373,8 +375,7 @@ where
 
         self.db
             .save_slash_or_take_sigs(deposit_outpoint, slash_or_take_sigs)
-            .await
-            .unwrap();
+            .await?;
 
         // println!("Operator takes sighashes: {:?}", operator_takes_sighashes);
         let nonces = self
@@ -471,8 +472,7 @@ where
 
         self.db
             .save_operator_take_sigs(deposit_outpoint, kickoff_utxos)
-            .await
-            .unwrap();
+            .await?;
 
         // println!("MOVE_TX: {:?}", move_tx_handler);
         // println!("MOVE_TXID: {:?}", move_tx_handler.tx.compute_txid());
