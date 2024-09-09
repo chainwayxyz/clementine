@@ -16,10 +16,63 @@ use clementine_core::traits::rpc::OperatorRpcClient;
 use clementine_core::traits::rpc::VerifierRpcClient;
 use clementine_core::user::User;
 use clementine_core::EVMAddress;
+use clementine_core::UTXO;
+use clementine_core::{
+    create_extended_rpc, create_test_config, create_test_config_with_thread_name,
+};
 use jsonrpsee::http_client::HttpClient;
 use jsonrpsee::server::ServerHandle;
+use secp256k1::schnorr;
 use std::net::SocketAddr;
 
+pub async fn run_multiple_deposit(
+    test_config_name: &str,
+) -> Result<(Vec<UTXO>, Vec<schnorr::Signature>), BridgeError> {
+    let mut config = create_test_config_with_thread_name!(test_config_name);
+    let rpc = create_extended_rpc!(config);
+
+    let (_, operators, _) = create_verifiers_and_operators("test_config.toml").await;
+
+    // println!("Operators: {:#?}", operators);
+    // println!("Verifiers: {:#?}", verifiers);
+
+    let secret_key = secp256k1::SecretKey::new(&mut secp256k1::rand::thread_rng());
+
+    let signer_address = Actor::new(secret_key, config.network)
+        .address
+        .as_unchecked()
+        .clone();
+    let user = User::new(rpc.clone(), secret_key, config.clone());
+
+    let evm_address = EVMAddress([1u8; 20]);
+    let deposit_address = user.get_deposit_address(evm_address).unwrap();
+    let deposit_outpoints = (0..config.operator_num_kickoff_utxos_per_tx + 5).map(|_| {
+        let outpoint = rpc
+            .send_to_address(&deposit_address, config.bridge_amount_sats)
+            .unwrap();
+        rpc.mine_blocks(1).unwrap();
+        outpoint
+    });
+
+    for _ in 0..18 {
+        rpc.mine_blocks(1).unwrap();
+    }
+
+    let mut kickoff_utxos = vec![];
+    let mut signatures = vec![];
+    for deposit_outpoint in deposit_outpoints {
+        println!("Deposit outpoint: {:#?}", deposit_outpoint);
+        let (kickoff_utxo, signature) = operators[0]
+            .0
+            .new_deposit_rpc(deposit_outpoint, signer_address.clone(), evm_address)
+            .await
+            .unwrap();
+
+        kickoff_utxos.push(kickoff_utxo);
+        signatures.push(signature);
+    }
+    Ok((kickoff_utxos, signatures))
+}
 pub async fn run_single_deposit(
     test_config_name: &str,
 ) -> Result<

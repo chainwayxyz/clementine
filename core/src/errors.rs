@@ -121,6 +121,9 @@ pub enum BridgeError {
     /// Database error
     #[error("DatabaseError: {0}")]
     DatabaseError(#[from] sqlx::Error),
+    /// Database error
+    #[error("PgDatabaseError: {0}")]
+    PgDatabaseError(String),
     /// Operator tries to claim with different bridge funds with the same withdrawal idx
     #[error("AlreadySpentWithdrawal")]
     AlreadySpentWithdrawal,

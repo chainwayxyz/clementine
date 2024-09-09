@@ -16,6 +16,8 @@ pub type MuSigAggNonce = ByteArray66;
 pub type MuSigPartialSignature = ByteArray32;
 // MuSigFinalSignature is a Schnorr signature, so it's 64 bytes.
 pub type MuSigFinalSignature = ByteArray64;
+// SigHash used for MuSig2 operations.
+pub type MuSigSigHash = ByteArray32;
 pub type MuSigNoncePair = (MuSigSecNonce, MuSigPubNonce);
 
 pub trait AggregateFromPublicKeys {
@@ -95,7 +97,7 @@ pub fn aggregate_partial_signatures(
     tweak_flag: bool,
     agg_nonce: &MuSigAggNonce,
     partial_sigs: Vec<MuSigPartialSignature>,
-    message: [u8; 32],
+    message: MuSigSigHash,
 ) -> Result<[u8; 64], BridgeError> {
     let key_agg_ctx = create_key_agg_ctx(pks, tweak, tweak_flag).unwrap();
     let musig_partial_sigs: Vec<musig2::PartialSignature> = partial_sigs
@@ -106,7 +108,7 @@ pub fn aggregate_partial_signatures(
         &key_agg_ctx,
         &AggNonce::from_bytes(&agg_nonce.0).unwrap(),
         musig_partial_sigs,
-        message,
+        message.0,
     )?)
 }
 
@@ -142,7 +144,7 @@ pub fn partial_sign(
     sec_nonce: MuSigSecNonce,
     agg_nonce: MuSigAggNonce,
     keypair: &secp256k1::Keypair,
-    sighash: [u8; 32],
+    sighash: MuSigSigHash,
 ) -> MuSigPartialSignature {
     let key_agg_ctx = create_key_agg_ctx(pks, tweak, tweak_flag).unwrap();
     let musig_sec_nonce = SecNonce::from_bytes(&sec_nonce.0).unwrap();
@@ -152,7 +154,7 @@ pub fn partial_sign(
         musig2::secp256k1::SecretKey::from_slice(&keypair.secret_key().secret_bytes()).unwrap(),
         musig_sec_nonce,
         &musig_agg_nonce,
-        sighash,
+        sighash.0,
     )
     .unwrap();
     ByteArray32(partial_signature)
@@ -168,7 +170,7 @@ mod tests {
         errors::BridgeError,
         musig2::{AggregateFromPublicKeys, MuSigPartialSignature},
         transaction_builder::{TransactionBuilder, TxHandler},
-        utils,
+        utils, ByteArray32,
     };
     use bitcoin::{
         hashes::Hash, opcodes::all::OP_CHECKSIG, script, Amount, OutPoint, ScriptBuf, TapNodeHash,
@@ -224,7 +226,7 @@ mod tests {
                     nonce_pair.0,
                     agg_nonce,
                     kp,
-                    message,
+                    ByteArray32(message),
                 )
             })
             .collect();
@@ -235,7 +237,7 @@ mod tests {
             false,
             &agg_nonce,
             partial_sigs,
-            message,
+            ByteArray32(message),
         )
         .unwrap();
         musig2::verify_single(musig_agg_pubkey, final_signature, message)
@@ -265,7 +267,7 @@ mod tests {
             sec_nonce_0,
             agg_nonce,
             &kp_0,
-            message,
+            ByteArray32(message),
         );
         let partial_sig_1 = super::partial_sign(
             pks.clone(),
@@ -274,7 +276,7 @@ mod tests {
             sec_nonce_1,
             agg_nonce,
             &kp_1,
-            message,
+            ByteArray32(message),
         );
         // Oops, a verifier accidentally added some tweak!
         let partial_sig_2 = super::partial_sign(
@@ -284,7 +286,7 @@ mod tests {
             sec_nonce_2,
             agg_nonce,
             &kp_2,
-            message,
+            ByteArray32(message),
         );
         let partial_sigs = vec![partial_sig_0, partial_sig_1, partial_sig_2];
         let final_signature: Result<[u8; 64], BridgeError> = super::aggregate_partial_signatures(
@@ -293,7 +295,7 @@ mod tests {
             false,
             &agg_nonce,
             partial_sigs,
-            message,
+            ByteArray32(message),
         );
         assert!(final_signature.is_err());
     }
@@ -327,7 +329,7 @@ mod tests {
                     nonce_pair.0,
                     agg_nonce,
                     kp,
-                    message,
+                    ByteArray32(message),
                 )
             })
             .collect();
@@ -337,7 +339,7 @@ mod tests {
             true,
             &agg_nonce,
             partial_sigs,
-            message,
+            ByteArray32(message),
         )
         .unwrap();
         musig2::verify_single(musig_agg_pubkey, final_signature, message)
@@ -367,7 +369,7 @@ mod tests {
             sec_nonce_0,
             agg_nonce,
             &kp_0,
-            message,
+            ByteArray32(message),
         );
         let partial_sig_1 = super::partial_sign(
             pks.clone(),
@@ -376,7 +378,7 @@ mod tests {
             sec_nonce_1,
             agg_nonce,
             &kp_1,
-            message,
+            ByteArray32(message),
         );
         // Oops, a verifier accidentally forgot to put the tweak!
         let partial_sig_2 = super::partial_sign(
@@ -386,7 +388,7 @@ mod tests {
             sec_nonce_2,
             agg_nonce,
             &kp_2,
-            message,
+            ByteArray32(message),
         );
         let partial_sigs = vec![partial_sig_0, partial_sig_1, partial_sig_2];
         let final_signature = super::aggregate_partial_signatures(
@@ -395,7 +397,7 @@ mod tests {
             true,
             &agg_nonce,
             partial_sigs,
-            message,
+            ByteArray32(message),
         );
         assert!(final_signature.is_err());
     }
@@ -467,7 +469,7 @@ mod tests {
                     nonce_pair.0,
                     agg_nonce,
                     kp,
-                    message,
+                    ByteArray32(message),
                 )
             })
             .collect();
@@ -477,7 +479,7 @@ mod tests {
             true,
             &agg_nonce,
             partial_sigs,
-            message,
+            ByteArray32(message),
         )
         .unwrap();
         let musig_agg_xonly_pubkey_wrapped =
@@ -557,7 +559,7 @@ mod tests {
                     nonce_pair.0,
                     agg_nonce,
                     kp,
-                    message,
+                    ByteArray32(message),
                 )
             })
             .collect();
@@ -567,7 +569,7 @@ mod tests {
             false,
             &agg_nonce,
             partial_sigs,
-            message,
+            ByteArray32(message),
         )
         .unwrap();
         // musig2::verify_single(musig_agg_pubkey, &final_signature, message)

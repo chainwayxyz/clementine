@@ -15,6 +15,9 @@ use clementine_core::{
     transaction_builder::{TransactionBuilder, TxHandler},
     utils, ByteArray66,
 };
+use clementine_core::{
+    create_extended_rpc, create_test_config, create_test_config_with_thread_name, ByteArray32,
+};
 use secp256k1::{Keypair, Message};
 
 #[tokio::test]
@@ -87,7 +90,7 @@ async fn test_musig2_key_spend() {
                 nonce_pair.0,
                 agg_nonce,
                 kp,
-                message,
+                ByteArray32(message),
             )
         })
         .collect();
@@ -97,7 +100,7 @@ async fn test_musig2_key_spend() {
         true,
         &agg_nonce,
         partial_sigs,
-        message,
+        ByteArray32(message),
     )
     .unwrap();
     let musig_agg_pubkey: musig2::secp256k1::PublicKey = key_agg_ctx.aggregated_pubkey();
@@ -192,7 +195,7 @@ async fn test_musig2_key_spend_with_script() {
                 nonce_pair.0,
                 agg_nonce,
                 kp,
-                message,
+                ByteArray32(message),
             )
         })
         .collect();
@@ -202,7 +205,7 @@ async fn test_musig2_key_spend_with_script() {
         true,
         &agg_nonce,
         partial_sigs,
-        message,
+        ByteArray32(message),
     )
     .unwrap();
     let musig_agg_pubkey: musig2::secp256k1::PublicKey = key_agg_ctx.aggregated_pubkey();
@@ -301,13 +304,19 @@ async fn test_musig2_script_spend() {
                 nonce_pair.0,
                 agg_nonce,
                 kp,
-                message,
+                ByteArray32(message),
             )
         })
         .collect();
-    let final_signature: [u8; 64] =
-        aggregate_partial_signatures(pks.clone(), None, false, &agg_nonce, partial_sigs, message)
-            .unwrap();
+    let final_signature: [u8; 64] = aggregate_partial_signatures(
+        pks.clone(),
+        None,
+        false,
+        &agg_nonce,
+        partial_sigs,
+        ByteArray32(message),
+    )
+    .unwrap();
     musig2::verify_single(musig_agg_pubkey, final_signature, message)
         .expect("Verification failed!");
     utils::SECP

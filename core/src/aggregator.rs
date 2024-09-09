@@ -9,7 +9,7 @@ use crate::{
     traits::rpc::AggregatorServer,
     transaction_builder::TransactionBuilder,
     utils::{self, handle_taproot_witness_new},
-    EVMAddress, UTXO,
+    ByteArray32, EVMAddress, UTXO,
 };
 use async_trait::async_trait;
 use bitcoin::{address::NetworkUnchecked, Address, OutPoint};
@@ -77,7 +77,7 @@ impl Aggregator {
             false,
             agg_nonce,
             partial_sigs,
-            message,
+            ByteArray32(message),
         )?;
         // tracing::debug!("aggregate SLASH_OR_TAKE_TX final_sig: {:?}", final_sig);
         // tracing::debug!(
@@ -167,7 +167,7 @@ impl Aggregator {
             true,
             agg_nonce,
             partial_sigs,
-            message,
+            ByteArray32(message),
         )?;
         // tracing::debug!("OPERATOR_TAKES_TX final_sig: {:?}", final_sig);
         Ok(final_sig)
@@ -201,7 +201,7 @@ impl Aggregator {
             false,
             agg_nonce,
             partial_sigs,
-            message,
+            ByteArray32(message),
         )?;
 
         Ok(final_sig)

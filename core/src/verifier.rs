@@ -5,10 +5,11 @@ use crate::errors::BridgeError;
 use crate::extended_rpc::ExtendedRpc;
 use crate::musig2::{
     self, AggregateFromPublicKeys, MuSigAggNonce, MuSigPartialSignature, MuSigPubNonce,
+    MuSigSigHash,
 };
 use crate::traits::rpc::VerifierRpcServer;
 use crate::transaction_builder::{TransactionBuilder, TxHandler, KICKOFF_UTXO_AMOUNT_SATS};
-use crate::{utils, EVMAddress, UTXO};
+use crate::{utils, ByteArray32, EVMAddress, UTXO};
 use bitcoin::address::NetworkUnchecked;
 use bitcoin::hashes::Hash;
 use bitcoin::Address;
@@ -91,14 +92,19 @@ where
         // For now we multiply by 2 since we do not give signatures for burn_txs. // TODO: Change this in future.
         let num_required_nonces = 2 * self.operator_xonly_pks.len() + 1;
 
+        let mut dbtx = self.db.begin_transaction().await?;
         // Check if we already have pub_nonces for this deposit_outpoint.
-        let pub_nonces_from_db = self.db.get_pub_nonces(deposit_outpoint).await?;
+        let pub_nonces_from_db = self
+            .db
+            .get_pub_nonces(Some(&mut dbtx), deposit_outpoint)
+            .await?;
         if let Some(pub_nonces) = pub_nonces_from_db {
             tracing::debug!("AAAAAAAA");
             if !pub_nonces.is_empty() {
                 if pub_nonces.len() != num_required_nonces {
                     return Err(BridgeError::NoncesNotFound);
                 }
+                dbtx.commit().await?;
                 return Ok(pub_nonces);
             }
         }
@@ -107,12 +113,18 @@ where
             .map(|_| musig2::nonce_pair(&self.signer.keypair, &mut rand::rngs::OsRng))
             .collect::<Vec<_>>();
 
-        let transaction = self.db.begin_transaction().await?;
         self.db
-            .save_deposit_info(deposit_outpoint, recovery_taproot_address, evm_address)
+            .save_deposit_info(
+                Some(&mut dbtx),
+                deposit_outpoint,
+                recovery_taproot_address,
+                evm_address,
+            )
             .await?;
-        self.db.save_nonces(deposit_outpoint, &nonces).await?;
-        transaction.commit().await?;
+        self.db
+            .save_nonces(Some(&mut dbtx), deposit_outpoint, &nonces)
+            .await?;
+        dbtx.commit().await?;
 
         let pub_nonces = nonces.iter().map(|(_, pub_nonce)| *pub_nonce).collect();
 
@@ -148,7 +160,7 @@ where
             return Err(BridgeError::InvalidKickoffUtxo); // TODO: Better error
         }
 
-        let mut slash_or_take_sighashes: Vec<[u8; 32]> = Vec::new();
+        let mut slash_or_take_sighashes: Vec<MuSigSigHash> = Vec::new();
 
         for (i, kickoff_utxo) in kickoff_utxos.iter().enumerate() {
             let value = kickoff_utxo.txout.value;
@@ -200,7 +212,7 @@ where
             );
             let slash_or_take_tx_sighash =
                 Actor::convert_tx_to_sighash_script_spend(&mut slash_or_take_tx_handler, 0, 0)?;
-            slash_or_take_sighashes.push(slash_or_take_tx_sighash.to_byte_array());
+            slash_or_take_sighashes.push(ByteArray32(slash_or_take_tx_sighash.to_byte_array()));
             // let spend_kickoff_utxo_tx_handler = TransactionBuilder::create_slash_or_take_tx(deposit_outpoint, kickoff_outpoint, kickoff_txout, operator_address, operator_idx, nofn_xonly_pk, network)
         }
         tracing::debug!(
@@ -209,20 +221,31 @@ where
             slash_or_take_sighashes
         );
 
-        let db_tx = self.db.begin_transaction().await?;
+        let mut dbtx = self.db.begin_transaction().await?;
 
         self.db
-            .save_agg_nonces(deposit_outpoint, &agg_nonces)
+            .save_agg_nonces(Some(&mut dbtx), deposit_outpoint, &agg_nonces)
             .await?;
+
+        self.db
+            .save_kickoff_utxos(Some(&mut dbtx), deposit_outpoint, &kickoff_utxos)
+            .await?;
+
         let nonces = self
             .db
             .save_sighashes_and_get_nonces(
+                Some(&mut dbtx),
                 deposit_outpoint,
                 self.config.num_operators + 1,
                 &slash_or_take_sighashes,
             )
             .await?
             .ok_or(BridgeError::NoncesNotFound)?;
+        tracing::debug!(
+            "SIGNING slash or take for outpoint: {:?} with nonces {:?}",
+            deposit_outpoint,
+            nonces
+        );
         let slash_or_take_partial_sigs = slash_or_take_sighashes
             .iter()
             .zip(nonces.iter())
@@ -239,11 +262,7 @@ where
             })
             .collect::<Vec<_>>();
 
-        self.db
-            .save_kickoff_utxos(deposit_outpoint, &kickoff_utxos)
-            .await?;
-
-        db_tx.commit().await?;
+        dbtx.commit().await?;
 
         // TODO: Sign burn txs
         Ok((slash_or_take_partial_sigs, vec![]))
@@ -269,30 +288,6 @@ where
             .get_deposit_info(deposit_outpoint)
             .await?
             .ok_or(BridgeError::DepositInfoNotFound)?;
-
-        // let move_commit_tx_handler = TransactionBuilder::create_move_commit_tx(
-        //     deposit_outpoint,
-        //     &evm_address,
-        //     &recovery_taproot_address,
-        //     200, // TODO: Fix this
-        //     &self.nofn_xonly_pk,
-        //     &kickoff_outpoints,
-        //     201, // TODO: Fix this
-        //     self.config.network,
-        // );
-
-        // let move_reveal_tx_handler = TransactionBuilder::create_move_reveal_tx(
-        //     OutPoint {
-        //         txid: move_commit_tx_handler.tx.compute_txid(),
-        //         vout: 0,
-        //     },
-        //     &evm_address,
-        //     &recovery_taproot_address,
-        //     &self.nofn_xonly_pk,
-        //     &kickoff_outpoints,
-        //     201, // TODO: Fix this
-        //     self.config.network,
-        // );
 
         let move_tx_handler = TransactionBuilder::create_move_tx(
             deposit_outpoint,
@@ -324,7 +319,7 @@ where
         let (kickoff_utxos, _, bridge_fund_outpoint) =
             self.create_deposit_details(deposit_outpoint).await?;
 
-        let operator_takes_sighashes = kickoff_utxos
+        let operator_takes_sighashes: Vec<MuSigSigHash> = kickoff_utxos
             .iter()
             .enumerate()
             .map(|(index, kickoff_utxo)| {
@@ -342,15 +337,7 @@ where
                 let slash_or_take_sighash =
                     Actor::convert_tx_to_sighash_script_spend(&mut slash_or_take_tx_handler, 0, 0)
                         .unwrap();
-                // tracing::debug!(
-                //     "Verify SLASH_OR_TAKE_TX message: {:?}",
-                //     slash_or_take_sighash
-                // );
-                // tracing::debug!("Verify SLASH_OR_TAKE_SIG: {:?}", slash_or_take_sigs[index]);
-                // tracing::debug!(
-                //     "Verify SLASH_OR_TAKE_TX operator xonly_pk: {:?}",
-                //     self.operator_xonly_pks[index]
-                // );
+
                 utils::SECP
                     .verify_schnorr(
                         &slash_or_take_sigs[index],
@@ -376,26 +363,23 @@ where
                     self.config.operator_takes_after,
                     self.config.bridge_amount_sats,
                 );
-                Actor::convert_tx_to_sighash_pubkey_spend(&mut operator_takes_tx, 0)
-                    .unwrap()
-                    .to_byte_array()
+                ByteArray32(
+                    Actor::convert_tx_to_sighash_pubkey_spend(&mut operator_takes_tx, 0)
+                        .unwrap()
+                        .to_byte_array(),
+                )
             })
             .collect::<Vec<_>>();
 
-        let kickoff_utxos_with_sigs = kickoff_utxos
-            .iter()
-            .enumerate()
-            .map(|(index, kickoff_utxo)| (kickoff_utxo.clone(), slash_or_take_sigs[index]));
-
         self.db
-            .save_slash_or_take_sigs(deposit_outpoint, kickoff_utxos_with_sigs)
+            .save_slash_or_take_sigs(deposit_outpoint, slash_or_take_sigs)
             .await
             .unwrap();
 
         // println!("Operator takes sighashes: {:?}", operator_takes_sighashes);
         let nonces = self
             .db
-            .save_sighashes_and_get_nonces(deposit_outpoint, 1, &operator_takes_sighashes)
+            .save_sighashes_and_get_nonces(None, deposit_outpoint, 1, &operator_takes_sighashes)
             .await?
             .ok_or(BridgeError::NoncesNotFound)?;
         // println!("Nonces: {:?}", nonces);
@@ -415,10 +399,7 @@ where
                 )
             })
             .collect::<Vec<_>>();
-        // println!(
-        //     "Operator takes partial sigs: {:?}",
-        //     operator_takes_partial_sigs
-        // );
+
         Ok(operator_takes_partial_sigs)
     }
 
@@ -503,7 +484,12 @@ where
 
         let nonces = self
             .db
-            .save_sighashes_and_get_nonces(deposit_outpoint, 0, &[move_tx_sighash.to_byte_array()])
+            .save_sighashes_and_get_nonces(
+                None,
+                deposit_outpoint,
+                0,
+                &[ByteArray32(move_tx_sighash.to_byte_array())],
+            )
             .await?
             .ok_or(BridgeError::NoncesNotFound)?;
 
@@ -514,7 +500,7 @@ where
             nonces[0].0,
             nonces[0].1,
             &self.signer.keypair,
-            move_tx_sighash.to_byte_array(),
+            ByteArray32(move_tx_sighash.to_byte_array()),
         );
 
         // let move_reveal_sig = musig2::partial_sign(
