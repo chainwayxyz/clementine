@@ -47,3 +47,6 @@ db_port = 5432
 db_user = "clementine"
 db_password = ""
 db_name = "clementine"
+citrea_rpc_url = "http://127.0.0.1:12345"
+citrea_rpc_user = "admin"
+citrea_rpc_password = "admin"

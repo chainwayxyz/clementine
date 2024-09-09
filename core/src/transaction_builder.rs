@@ -31,10 +31,9 @@ pub struct TransactionBuilder {
 }
 
 // TODO: Move these constants to a config file
-pub const MOVE_TX_MIN_RELAY_FEE: u64 = 305;
-pub const SLASH_OR_TAKE_TX_MIN_RELAY_FEE: u64 = 305;
-pub const WITHDRAWAL_TX_MIN_RELAY_FEE: u64 = 305;
-pub const OPERATOR_TAKES_TX_MIN_RELAY_FEE: u64 = 305;
+pub const MOVE_TX_MIN_RELAY_FEE: u64 = 190;
+pub const SLASH_OR_TAKE_TX_MIN_RELAY_FEE: u64 = 240;
+pub const OPERATOR_TAKES_TX_MIN_RELAY_FEE: u64 = 230;
 pub const KICKOFF_UTXO_AMOUNT_SATS: u64 = 100_000;
 
 impl TransactionBuilder {
@@ -342,6 +341,7 @@ impl TransactionBuilder {
         let tx = TransactionBuilder::create_btc_tx(ins, outs);
         let prevouts = vec![kickoff_utxo.txout.clone()];
         let scripts = vec![vec![musig2_and_operator_script]];
+        tracing::debug!("slash_or_take_tx weight: {:?}", tx.weight());
         TxHandler {
             tx,
             prevouts,
