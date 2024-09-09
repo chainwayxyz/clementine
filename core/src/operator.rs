@@ -447,8 +447,11 @@ where
             let operator_idx_response = &response[58..66];
             let operator_idx_as_vec = hex::decode(operator_idx_response).unwrap();
             let operator_idx = u32::from_be_bytes(operator_idx_as_vec.try_into().unwrap());
-            if operator_idx != self.idx as u32 {
-                return Err(BridgeError::InvalidOperatorIndex(operator_idx as usize, self.idx));
+            if operator_idx - 1 != self.idx as u32 {
+                return Err(BridgeError::InvalidOperatorIndex(
+                    operator_idx as usize,
+                    self.idx,
+                ));
             }
         }
 
