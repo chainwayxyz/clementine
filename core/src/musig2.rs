@@ -99,7 +99,7 @@ pub fn aggregate_partial_signatures(
     partial_sigs: Vec<MuSigPartialSignature>,
     message: MuSigSigHash,
 ) -> Result<[u8; 64], BridgeError> {
-    let key_agg_ctx = create_key_agg_ctx(pks, tweak, tweak_flag).unwrap();
+    let key_agg_ctx = create_key_agg_ctx(pks, tweak, tweak_flag)?;
     let musig_partial_sigs: Vec<musig2::PartialSignature> = partial_sigs
         .iter()
         .map(|x| musig2::PartialSignature::from_slice(&x.0).unwrap())
