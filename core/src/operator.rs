@@ -305,24 +305,21 @@ where
         Ok(())
     }
 
-    async fn is_profitable(&self, _withdrawal_idx: usize) -> Result<bool, BridgeError> {
-        // check that withdrawal_idx has the input_utxo.outpoint
-        // call is_profitable
-        // if is profitable, pay the withdrawal
-        // TODO: Implement this
-        Ok(true)
+    async fn is_profitable(&self, withdrawal_amount: u64) -> Result<bool, BridgeError> {
+        let net_profit = self.config.bridge_amount_sats - withdrawal_amount;
+        Ok(self.config.operator_withdrawal_fee_sats.unwrap() < net_profit)
     }
 
     async fn new_withdrawal_sig(
         &self,
-        withdrawal_idx: usize,
+        _withdrawal_idx: usize,
         user_sig: schnorr::Signature,
         input_utxo: UTXO,
         output_txout: TxOut,
     ) -> Result<Option<Txid>, BridgeError> {
         // TODO: check that withdrawal_idx has the input_utxo.outpoint
 
-        if !self.is_profitable(withdrawal_idx).await? {
+        if !self.is_profitable(output_txout.value.to_sat()).await? {
             return Ok(None);
         }
         let tx_ins = TransactionBuilder::create_tx_ins(vec![input_utxo.outpoint]);

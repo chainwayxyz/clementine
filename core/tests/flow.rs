@@ -44,8 +44,10 @@ async fn test_honest_operator_takes_refund() {
         None,
         config.network,
     );
-    let (empty_utxo, withdrawal_tx_out, user_sig) =
-        user.generate_withdrawal_sig(withdrawal_address).unwrap();
+    // We are giving 99_800_000 sats to the user so that the operator can pay the withdrawal and profit.
+    let (empty_utxo, withdrawal_tx_out, user_sig) = user
+        .generate_withdrawal_sig(withdrawal_address, 99_800_000)
+        .unwrap();
     let withdrawal_provide_txid = operators[0]
         .0
         .new_withdrawal_sig_rpc(0, user_sig, empty_utxo, withdrawal_tx_out)
@@ -67,6 +69,33 @@ async fn test_honest_operator_takes_refund() {
     // send the last tx
     rpc.send_raw_transaction(txs_to_be_sent.last().unwrap().clone())
         .unwrap();
+}
+
+#[tokio::test]
+async fn test_withdrawal_fee_too_low() {
+    let (_verifiers, operators, mut config, _) =
+        run_single_deposit("test_config.toml").await.unwrap();
+    let rpc = create_extended_rpc!(config);
+
+    let secp = bitcoin::secp256k1::Secp256k1::new();
+    let user_sk = SecretKey::from_slice(&[12u8; 32]).unwrap();
+    let user = User::new(rpc.clone(), user_sk, config.clone());
+    let withdrawal_address = Address::p2tr(
+        &secp,
+        user_sk.x_only_public_key(&secp).0,
+        None,
+        config.network,
+    );
+    // We are giving 100_000_000 sats to the user so that the operator cannot pay it because it is not profitable.
+    let (empty_utxo, withdrawal_tx_out, user_sig) = user
+        .generate_withdrawal_sig(withdrawal_address, 100_000_000)
+        .unwrap();
+    let withdrawal_provide_txid = operators[0]
+        .0
+        .new_withdrawal_sig_rpc(0, user_sig, empty_utxo, withdrawal_tx_out)
+        .await
+        .unwrap();
+    assert!(withdrawal_provide_txid.is_none());
 }
 
 #[tokio::test]

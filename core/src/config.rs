@@ -40,6 +40,8 @@ pub struct BridgeConfig {
     pub operators_xonly_pks: Vec<secp256k1::XOnlyPublicKey>,
     /// Number of operators.
     pub num_operators: usize,
+    /// Operator's fee for withdrawal, in satoshis.
+    pub operator_withdrawal_fee_sats: Option<u64>,
     /// Number of blocks after which user can take deposit back if deposit request fails.
     pub user_takes_after: u32,
     /// Number of blocks after which operator can take reimburse the bridge fund if they are honest.
@@ -141,6 +143,7 @@ impl Default for BridgeConfig {
             num_verifiers: 7,
             operators_xonly_pks: vec![],
             num_operators: 3,
+            operator_withdrawal_fee_sats: None,
             user_takes_after: 5,
             operator_takes_after: 5,
             bridge_amount_sats: 100_000_000,

@@ -80,6 +80,7 @@ where
     pub fn generate_withdrawal_sig(
         &self,
         withdrawal_address: Address,
+        withdrawal_amount: u64,
     ) -> Result<(UTXO, TxOut, schnorr::Signature), BridgeError> {
         let dust_outpoint = self
             .rpc
@@ -93,7 +94,7 @@ where
         };
         let txins = TransactionBuilder::create_tx_ins(vec![dust_utxo.outpoint]);
         let txout = TxOut {
-            value: Amount::from_sat(self.config.bridge_amount_sats), // TODO: Change this in the future since Operators should profit from the bridge
+            value: Amount::from_sat(withdrawal_amount), // TODO: Change this in the future since Operators should profit from the bridge
             script_pubkey: withdrawal_address.script_pubkey(),
         };
         let txouts = vec![txout.clone()];
