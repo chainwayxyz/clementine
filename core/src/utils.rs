@@ -13,7 +13,7 @@ use std::process::exit;
 use std::str::FromStr;
 use tracing::level_filters::LevelFilter;
 use tracing_subscriber::layer::SubscriberExt;
-use tracing_subscriber::{fmt, EnvFilter};
+use tracing_subscriber::{fmt, EnvFilter, Registry};
 
 lazy_static::lazy_static! {
     /// Global secp context.
@@ -184,7 +184,11 @@ pub fn initialize_logger(level: u8) -> Result<(), BridgeError> {
         }
     };
 
+    // Standard layer that will output human readable logs.
     let layer = fmt::layer().with_test_writer();
+    // JSON layer that will output JSON formatted logs.
+    let json_layer = fmt::layer::<Registry>().with_test_writer().json();
+
     let filter = match level {
         Some(level) => EnvFilter::builder()
             .with_default_directive(level.into())
@@ -192,9 +196,18 @@ pub fn initialize_logger(level: u8) -> Result<(), BridgeError> {
         None => EnvFilter::from_default_env(),
     };
 
-    if let Err(e) = tracing_subscriber::util::SubscriberInitExt::try_init(
-        tracing_subscriber::registry().with(layer).with(filter),
-    ) {
+    // Try to initialize tracing, depending on the `JSON_LOGS` env var,
+    let res = if std::env::var("JSON_LOGS").is_ok() {
+        tracing_subscriber::util::SubscriberInitExt::try_init(
+            tracing_subscriber::registry().with(json_layer).with(filter),
+        )
+    } else {
+        tracing_subscriber::util::SubscriberInitExt::try_init(
+            tracing_subscriber::registry().with(layer).with(filter),
+        )
+    };
+
+    if let Err(e) = res {
         // If it failed because of a re-initialization, do not care about
         // the error.
         if e.to_string() != "a global default trace dispatcher has already been set" {
