@@ -86,7 +86,7 @@ pub trait OperatorRpc {
     /// 3- If it is, send operator_take_txs
     async fn withdrawal_proved_on_citrea_rpc(
         &self,
-        withdrawal_idx: usize,
+        withdrawal_idx: u32,
         deposit_outpoint: OutPoint,
     ) -> Result<Vec<String>, BridgeError>;
 

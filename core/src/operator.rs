@@ -351,7 +351,7 @@ where
             ];
             let response: String = self.citrea_client.request("eth_call", params).await?;
             let txid_response = &response[2..66];
-            let mut txid = hex::decode(txid_response).unwrap();
+            let txid = hex::decode(txid_response).unwrap();
             // txid.reverse(); // TODO: we should need to reverse this, test this with declareWithdrawalFiller
             let txid = Txid::from_slice(&txid).unwrap();
             if txid != input_utxo.outpoint.txid || 0 != input_utxo.outpoint.vout {
@@ -430,11 +430,28 @@ where
 
     async fn withdrawal_proved_on_citrea(
         &self,
-        _withdrawal_idx: usize,
+        withdrawal_idx: u32,
         deposit_outpoint: OutPoint,
     ) -> Result<Vec<String>, BridgeError> {
         // call withdrawFillers(withdrawal_idx) check the returned id is our operator id.
         // calculate the move_txid, txIdToDepositId(move_txid) check the returned id is withdrawal_idx
+        if !self.config.citrea_rpc_url.is_empty() {
+            let params = rpc_params![
+                json!({
+                    "to": "0x3100000000000000000000000000000000000002",
+                    "data": format!("0xc045577b00000000000000000000000000000000000000000000000000000000{}", hex::encode(withdrawal_idx.to_be_bytes())), // See: https://gist.github.com/okkothejawa/a9379b02a16dada07a2b85cbbd3c1e80
+                }),
+                "latest"
+            ];
+            let response: String = self.citrea_client.request("eth_call", params).await?;
+            let operator_idx_response = &response[58..66];
+            let operator_idx_as_vec = hex::decode(operator_idx_response).unwrap();
+            let operator_idx = u32::from_be_bytes(operator_idx_as_vec.try_into().unwrap());
+            if operator_idx != self.idx as u32 {
+                return Err(BridgeError::InvalidOperatorIndex(operator_idx as usize, self.idx));
+            }
+        }
+
         let kickoff_utxo = self
             .db
             .get_kickoff_utxo(None, deposit_outpoint)
@@ -646,7 +663,7 @@ where
 
     async fn withdrawal_proved_on_citrea_rpc(
         &self,
-        withdrawal_idx: usize,
+        withdrawal_idx: u32,
         deposit_outpoint: OutPoint,
     ) -> Result<Vec<String>, BridgeError> {
         self.withdrawal_proved_on_citrea(withdrawal_idx, deposit_outpoint)

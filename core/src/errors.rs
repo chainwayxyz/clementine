@@ -172,6 +172,9 @@ pub enum BridgeError {
 
     #[error("InvalidInputUTXO: {0}, {1}")]
     InvalidInputUTXO(Txid, Txid),
+
+    #[error("InvalidOperatorIndex: {0}, {1}")]
+    InvalidOperatorIndex(usize, usize),
 }
 
 impl From<BridgeError> for ErrorObject<'static> {
