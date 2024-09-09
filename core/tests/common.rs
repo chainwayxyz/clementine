@@ -17,9 +17,6 @@ use clementine_core::traits::rpc::VerifierRpcClient;
 use clementine_core::user::User;
 use clementine_core::EVMAddress;
 use clementine_core::UTXO;
-use clementine_core::{
-    create_extended_rpc, create_test_config, create_test_config_with_thread_name,
-};
 use jsonrpsee::http_client::HttpClient;
 use jsonrpsee::server::ServerHandle;
 use secp256k1::schnorr;
@@ -28,7 +25,7 @@ use std::net::SocketAddr;
 pub async fn run_multiple_deposit(
     test_config_name: &str,
 ) -> Result<(Vec<UTXO>, Vec<schnorr::Signature>), BridgeError> {
-    let mut config = create_test_config_with_thread_name!(test_config_name);
+    let mut config = create_test_config_with_thread_name(test_config_name, None).await;
     let rpc = create_extended_rpc!(config);
 
     let (_, operators, _) = create_verifiers_and_operators("test_config.toml").await;

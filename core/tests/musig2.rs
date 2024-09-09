@@ -7,6 +7,7 @@ use clementine_core::musig2::{
     aggregate_nonces, aggregate_partial_signatures, MuSigPartialSignature, MuSigPubNonce,
 };
 use clementine_core::utils::handle_taproot_witness_new;
+use clementine_core::ByteArray32;
 use clementine_core::{
     actor::Actor,
     config::BridgeConfig,
@@ -14,9 +15,6 @@ use clementine_core::{
     musig2::{create_key_agg_ctx, nonce_pair, partial_sign, MuSigNoncePair},
     transaction_builder::{TransactionBuilder, TxHandler},
     utils, ByteArray66,
-};
-use clementine_core::{
-    create_extended_rpc, create_test_config, create_test_config_with_thread_name, ByteArray32,
 };
 use secp256k1::{Keypair, Message};
 
