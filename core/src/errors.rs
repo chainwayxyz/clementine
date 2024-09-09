@@ -5,7 +5,7 @@
 use bitcoin::{
     consensus::encode::FromHexError,
     merkle_tree::MerkleBlockError,
-    taproot::{TaprootBuilder, TaprootBuilderError},
+    taproot::{TaprootBuilder, TaprootBuilderError}, Txid,
 };
 use core::fmt::Debug;
 use jsonrpsee::types::ErrorObject;
@@ -168,6 +168,9 @@ pub enum BridgeError {
 
     #[error("FromSliceError: {0}")]
     FromSliceError(#[from] bitcoin::hashes::FromSliceError),
+
+    #[error("InvalidInputUTXO: {0}, {1}")]
+    InvalidInputUTXO(Txid, Txid),
 }
 
 impl From<BridgeError> for ErrorObject<'static> {

@@ -17,7 +17,11 @@ use bitcoin::{Address, OutPoint, TapSighash, Transaction, TxOut, Txid};
 use bitcoin_mock_rpc::RpcApiWrapper;
 use bitcoincore_rpc::RawTx;
 use jsonrpsee::core::async_trait;
+use jsonrpsee::core::client::ClientT;
+use jsonrpsee::http_client::HttpClientBuilder;
+use jsonrpsee::rpc_params;
 use secp256k1::{schnorr, Message};
+use serde_json::json;
 
 #[derive(Debug, Clone)]
 pub struct Operator<R>
@@ -30,6 +34,7 @@ where
     config: BridgeConfig,
     nofn_xonly_pk: secp256k1::XOnlyPublicKey,
     idx: usize,
+    citrea_client: jsonrpsee::http_client::HttpClient,
 }
 
 impl<R> Operator<R>
@@ -73,6 +78,10 @@ where
         }
         tx.commit().await?;
 
+        let citrea_client = HttpClientBuilder::default()
+            .build(config.citrea_rpc_url.clone())
+            .unwrap();
+
         Ok(Self {
             rpc,
             db,
@@ -80,6 +89,7 @@ where
             config,
             nofn_xonly_pk,
             idx,
+            citrea_client,
         })
     }
 
@@ -325,12 +335,30 @@ where
 
     async fn new_withdrawal_sig(
         &self,
-        _withdrawal_idx: usize,
+        withdrawal_idx: u32,
         user_sig: schnorr::Signature,
         input_utxo: UTXO,
         output_txout: TxOut,
     ) -> Result<Option<Txid>, BridgeError> {
-        // TODO: check that withdrawal_idx has the input_utxo.outpoint
+        // only if citrea rpc url is set, check if the withdrawal idx is valid
+        if !self.config.citrea_rpc_url.is_empty() {
+            let params = rpc_params![
+                json!({
+                    "to": "0x3100000000000000000000000000000000000002",
+                    "data": format!("0x471ba1e300000000000000000000000000000000000000000000000000000000{}", hex::encode(withdrawal_idx.to_be_bytes())), // See: https://gist.github.com/okkothejawa/a9379b02a16dada07a2b85cbbd3c1e80
+                }),
+                "latest"
+            ];
+            let response: String = self.citrea_client.request("eth_call", params).await?;
+            let txid_response = &response[2..66];
+            let mut txid = hex::decode(txid_response).unwrap();
+            // txid.reverse(); // TODO: we should need to reverse this, test this with declareWithdrawalFiller
+            let txid = Txid::from_slice(&txid).unwrap();
+            if txid != input_utxo.outpoint.txid || 0 != input_utxo.outpoint.vout {
+                // TODO: Fix this, vout can be different from 0 as well
+                return Err(BridgeError::InvalidInputUTXO(txid, input_utxo.outpoint.txid));
+            }
+        }
 
         if !self
             .is_profitable(input_utxo.txout.value.to_sat(), output_txout.value.to_sat())
@@ -602,7 +630,7 @@ where
 
     async fn new_withdrawal_sig_rpc(
         &self,
-        withdrawal_idx: usize,
+        withdrawal_idx: u32,
         user_sig: schnorr::Signature,
         input_utxo: UTXO,
         output_txout: TxOut,

@@ -74,7 +74,7 @@ pub trait OperatorRpc {
     /// adds it to flow, when its finalized, proves on citrea, sends kickoff2
     async fn new_withdrawal_sig_rpc(
         &self,
-        withdrawal_idx: usize,
+        withdrawal_idx: u32,
         user_sig: schnorr::Signature,
         input_utxo: UTXO,
         output_txout: TxOut,
