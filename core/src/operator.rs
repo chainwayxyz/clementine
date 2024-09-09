@@ -319,12 +319,7 @@ where
         } else {
             // Calculate net profit after the withdrawal
             let net_profit = self.config.bridge_amount_sats - withdrawal_amount;
-
-            // Check if the operator withdrawal fee is set and calculate profitability
-            match self.config.operator_withdrawal_fee_sats {
-                Some(fee) => Ok(fee < net_profit),
-                None => Err(BridgeError::OperatorWithdrawalFeeNotSet),
-            }
+            return Ok(net_profit > self.config.operator_withdrawal_fee_sats.unwrap());
         }
     }
 
