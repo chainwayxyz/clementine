@@ -1,4 +1,6 @@
 use crate::actor::Actor;
+use crate::bridge_contract::BridgeContract;
+use crate::bridge_contract::BridgeContract::BridgeContractInstance;
 use crate::config::BridgeConfig;
 use crate::database::operator::OperatorDB;
 use crate::errors::BridgeError;
@@ -8,6 +10,11 @@ use crate::traits::rpc::OperatorRpcServer;
 use crate::transaction_builder::{TransactionBuilder, KICKOFF_UTXO_AMOUNT_SATS};
 use crate::utils::handle_taproot_witness_new;
 use crate::{script_builder, utils, EVMAddress, UTXO};
+use alloy::primitives::address;
+use alloy::providers::{ProviderBuilder, RootProvider};
+use alloy::transports::http::reqwest::Url;
+use alloy::transports::http::{Client, Http};
+use alloy::transports::Transport;
 use bitcoin::address::NetworkUnchecked;
 use bitcoin::consensus::deserialize;
 use bitcoin::hashes::Hash;
@@ -30,6 +37,7 @@ where
     config: BridgeConfig,
     nofn_xonly_pk: secp256k1::XOnlyPublicKey,
     idx: usize,
+    bridge_contract: BridgeContractInstance<Http<Client>, RootProvider<Http<Client>>>,
 }
 
 impl<R> Operator<R>
@@ -38,7 +46,13 @@ where
 {
     /// Creates a new `Operator`.
     pub async fn new(config: BridgeConfig, rpc: ExtendedRpc<R>) -> Result<Self, BridgeError> {
-        // let num_verifiers = config.verifiers_public_keys.len();
+        let citrea_rpc_url = Url::parse(&config.citrea_rpc_url).unwrap();
+        let citrea_provider: alloy::providers::RootProvider<Http<alloy::transports::http::Client>> =
+            ProviderBuilder::new().on_http(citrea_rpc_url);
+        let bridge_contract = BridgeContract::new(
+            address!("3100000000000000000000000000000000000002"),
+            citrea_provider,
+        );
 
         let signer = Actor::new(config.secret_key, config.network);
 
@@ -80,6 +94,7 @@ where
             config,
             nofn_xonly_pk,
             idx,
+            bridge_contract,
         })
     }
 

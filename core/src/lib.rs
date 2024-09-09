@@ -31,6 +31,17 @@ pub mod user;
 pub mod utils;
 pub mod verifier;
 
+pub mod bridge_contract {
+    use alloy::sol;
+
+    sol!(
+        #[allow(missing_docs)]
+        #[sol(rpc)]
+        BridgeContract,
+        "tests/data/bridge.json"
+    );
+}
+
 pub type ConnectorUTXOTree = Vec<Vec<OutPoint>>;
 // pub type HashTree = Vec<Vec<HashType>>;
 // pub type PreimageTree = Vec<Vec<PreimageType>>;
