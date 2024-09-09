@@ -839,7 +839,7 @@ mod tests {
             .collect();
         let nonce_pairs: Vec<(MuSigSecNonce, MuSigPubNonce)> = keypairs
             .into_iter()
-            .map(|kp| nonce_pair(&kp, &mut OsRng))
+            .map(|kp| nonce_pair(&kp, &mut OsRng).unwrap())
             .collect();
         let agg_nonces: Vec<MuSigAggNonce> = nonce_pairs
             .iter()
@@ -881,7 +881,7 @@ mod tests {
             .collect();
         let nonce_pairs: Vec<(MuSigSecNonce, MuSigPubNonce)> = keypairs
             .into_iter()
-            .map(|kp| nonce_pair(&kp, &mut OsRng))
+            .map(|kp| nonce_pair(&kp, &mut OsRng).unwrap())
             .collect();
         let agg_nonces: Vec<MuSigAggNonce> = nonce_pairs
             .iter()
@@ -928,7 +928,7 @@ mod tests {
             .collect();
         let nonce_pairs: Vec<(MuSigSecNonce, MuSigPubNonce)> = keypairs
             .into_iter()
-            .map(|kp| nonce_pair(&kp, &mut OsRng))
+            .map(|kp| nonce_pair(&kp, &mut OsRng).unwrap())
             .collect();
         let agg_nonces: Vec<MuSigAggNonce> = nonce_pairs
             .iter()
@@ -974,7 +974,7 @@ mod tests {
             .collect();
         let nonce_pairs: Vec<(MuSigSecNonce, MuSigPubNonce)> = keypairs
             .into_iter()
-            .map(|kp| nonce_pair(&kp, &mut OsRng))
+            .map(|kp| nonce_pair(&kp, &mut OsRng).unwrap())
             .collect();
         db.save_nonces(None, outpoint, &nonce_pairs).await.unwrap();
         let pub_nonces = db.get_pub_nonces(None, outpoint).await.unwrap().unwrap();
