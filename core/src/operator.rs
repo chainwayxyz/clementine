@@ -308,9 +308,13 @@ where
         Ok(())
     }
 
-    async fn is_profitable(&self, withdrawal_amount: u64) -> Result<bool, BridgeError> {
+    async fn is_profitable(
+        &self,
+        input_amount: u64,
+        withdrawal_amount: u64,
+    ) -> Result<bool, BridgeError> {
         // Check if the withdrawal amount is within the acceptable range
-        if withdrawal_amount > self.config.bridge_amount_sats {
+        if (withdrawal_amount - input_amount) > self.config.bridge_amount_sats {
             Ok(false)
         } else {
             // Calculate net profit after the withdrawal
@@ -333,7 +337,10 @@ where
     ) -> Result<Option<Txid>, BridgeError> {
         // TODO: check that withdrawal_idx has the input_utxo.outpoint
 
-        if !self.is_profitable(output_txout.value.to_sat()).await? {
+        if !self
+            .is_profitable(input_utxo.txout.value.to_sat(), output_txout.value.to_sat())
+            .await?
+        {
             return Ok(None);
         }
         let tx_ins = TransactionBuilder::create_tx_ins(vec![input_utxo.outpoint]);
