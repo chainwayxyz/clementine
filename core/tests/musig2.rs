@@ -32,7 +32,7 @@ async fn test_musig2_key_spend() {
         .collect();
     let nonce_pair_vec: Vec<MuSigNoncePair> = kp_vec
         .iter()
-        .map(|kp| nonce_pair(kp, &mut secp256k1::rand::thread_rng()).unwrap())
+        .map(|kp| nonce_pair(kp, &mut secp256k1::rand::thread_rng()))
         .collect();
     let pks = kp_vec
         .iter()
@@ -136,7 +136,7 @@ async fn test_musig2_key_spend_with_script() {
         .collect();
     let nonce_pair_vec: Vec<MuSigNoncePair> = kp_vec
         .iter()
-        .map(|kp| nonce_pair(kp, &mut secp256k1::rand::thread_rng()).unwrap())
+        .map(|kp| nonce_pair(kp, &mut secp256k1::rand::thread_rng()))
         .collect();
     let pks = kp_vec
         .iter()
@@ -241,7 +241,7 @@ async fn test_musig2_script_spend() {
         .collect();
     let nonce_pair_vec: Vec<MuSigNoncePair> = kp_vec
         .iter()
-        .map(|kp| nonce_pair(kp, &mut secp256k1::rand::thread_rng()).unwrap())
+        .map(|kp| nonce_pair(kp, &mut secp256k1::rand::thread_rng()))
         .collect();
     let pks = kp_vec
         .iter()

@@ -118,9 +118,9 @@ pub fn aggregate_partial_signatures(
 pub fn nonce_pair(
     keypair: &secp256k1::Keypair,
     rng: &mut impl Rng,
-) -> Result<(MuSigSecNonce, MuSigPubNonce), BridgeError> {
+) -> (MuSigSecNonce, MuSigPubNonce) {
     let musig_pubkey: musig2::secp256k1::PublicKey =
-        musig2::secp256k1::PublicKey::from_slice(&keypair.public_key().serialize())?;
+        musig2::secp256k1::PublicKey::from_slice(&keypair.public_key().serialize()).unwrap();
     let rnd = rng.gen::<[u8; 32]>();
     let spices = SecNonceSpices::new().with_seckey(
         musig2::secp256k1::SecretKey::from_slice(&keypair.secret_key().secret_bytes()).unwrap(),
@@ -134,7 +134,7 @@ pub fn nonce_pair(
     let pub_nonce = ByteArray66(sec_nonce.public_nonce().into());
     let sec_nonce: [u8; 64] = sec_nonce.into();
 
-    Ok((ByteArray64(sec_nonce), pub_nonce))
+    (ByteArray64(sec_nonce), pub_nonce)
 }
 
 // We are creating the key aggregation context manually here, adding the tweaks by hand.
@@ -191,7 +191,7 @@ mod tests {
         }
         let nonce_pair_vec: Vec<MuSigNoncePair> = keypair_vec
             .iter()
-            .map(|keypair| nonce_pair(keypair, &mut secp256k1::rand::thread_rng()).unwrap())
+            .map(|keypair| nonce_pair(keypair, &mut secp256k1::rand::thread_rng()))
             .collect();
         (keypair_vec, nonce_pair_vec)
     }
@@ -254,11 +254,11 @@ mod tests {
         let message: [u8; 32] = secp256k1::rand::thread_rng().gen();
         let pks = vec![kp_0.public_key(), kp_1.public_key(), kp_2.public_key()];
         let (sec_nonce_0, pub_nonce_0) =
-            super::nonce_pair(&kp_0, &mut secp256k1::rand::thread_rng()).unwrap();
+            super::nonce_pair(&kp_0, &mut secp256k1::rand::thread_rng());
         let (sec_nonce_1, pub_nonce_1) =
-            super::nonce_pair(&kp_1, &mut secp256k1::rand::thread_rng()).unwrap();
+            super::nonce_pair(&kp_1, &mut secp256k1::rand::thread_rng());
         let (sec_nonce_2, pub_nonce_2) =
-            super::nonce_pair(&kp_2, &mut secp256k1::rand::thread_rng()).unwrap();
+            super::nonce_pair(&kp_2, &mut secp256k1::rand::thread_rng());
         let agg_nonce = super::aggregate_nonces(vec![pub_nonce_0, pub_nonce_1, pub_nonce_2]);
         let partial_sig_0 = super::partial_sign(
             pks.clone(),
@@ -356,11 +356,11 @@ mod tests {
         let tweak: [u8; 32] = secp256k1::rand::thread_rng().gen();
         let pks = vec![kp_0.public_key(), kp_1.public_key(), kp_2.public_key()];
         let (sec_nonce_0, pub_nonce_0) =
-            super::nonce_pair(&kp_0, &mut secp256k1::rand::thread_rng()).unwrap();
+            super::nonce_pair(&kp_0, &mut secp256k1::rand::thread_rng());
         let (sec_nonce_1, pub_nonce_1) =
-            super::nonce_pair(&kp_1, &mut secp256k1::rand::thread_rng()).unwrap();
+            super::nonce_pair(&kp_1, &mut secp256k1::rand::thread_rng());
         let (sec_nonce_2, pub_nonce_2) =
-            super::nonce_pair(&kp_2, &mut secp256k1::rand::thread_rng()).unwrap();
+            super::nonce_pair(&kp_2, &mut secp256k1::rand::thread_rng());
         let agg_nonce = super::aggregate_nonces(vec![pub_nonce_0, pub_nonce_1, pub_nonce_2]);
         let partial_sig_0 = super::partial_sign(
             pks.clone(),

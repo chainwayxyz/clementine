@@ -113,7 +113,7 @@ where
             .collect::<Vec<_>>();
         let nonces: Vec<(ByteArray64, ByteArray66)> = nonces
             .into_iter()
-            .collect::<Result<Vec<(ByteArray64, ByteArray66)>, BridgeError>>()?;
+            .collect::<Vec<(ByteArray64, ByteArray66)>>();
 
         self.db
             .save_deposit_info(
