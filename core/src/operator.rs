@@ -37,6 +37,7 @@ where
     R: RpcApiWrapper,
 {
     /// Creates a new `Operator`.
+    #[tracing::instrument]
     pub async fn new(config: BridgeConfig, rpc: ExtendedRpc<R>) -> Result<Self, BridgeError> {
         // let num_verifiers = config.verifiers_public_keys.len();
 
@@ -87,6 +88,7 @@ where
     /// 3. Create a kickoff transaction but do not broadcast it
     ///
     /// TODO: Create multiple kickoffs in single transaction
+    #[tracing::instrument(skip(self))]
     pub async fn new_deposit(
         &self,
         deposit_outpoint: OutPoint,
@@ -300,6 +302,7 @@ where
         Ok(true)
     }
 
+    #[tracing::instrument(skip(self))]
     async fn new_withdrawal_sig(
         &self,
         withdrawal_idx: usize,
@@ -371,6 +374,7 @@ where
         Ok(Some(final_txid))
     }
 
+    #[tracing::instrument(skip(self))]
     async fn withdrawal_proved_on_citrea(
         &self,
         _withdrawal_idx: usize,
@@ -412,7 +416,7 @@ where
         if !found_txid {
             return Err(BridgeError::KickoffOutpointsNotFound); // TODO: Fix this error
         }
-        // tracing::debug!("Found txs to be sent: {:?}", txs_to_be_sent);
+        tracing::trace!("Found txs to be sent: {:?}", txs_to_be_sent);
 
         let mut slash_or_take_tx_handler = TransactionBuilder::create_slash_or_take_tx(
             deposit_outpoint,
@@ -434,22 +438,22 @@ where
             txout: slash_or_take_tx_handler.tx.output[0].clone(),
         };
 
-        // tracing::debug!(
-        //     "Created slash or take tx handler: {:#?}",
-        //     slash_or_take_tx_handler
-        // );
+        tracing::trace!(
+            "Created slash or take tx handler: {:#?}",
+            slash_or_take_tx_handler
+        );
         let nofn_sig = self
             .db
             .get_slash_or_take_sig(deposit_outpoint, kickoff_utxo.clone())
             .await?
             .ok_or(BridgeError::KickoffOutpointsNotFound)?; // TODO: Fix this error
 
-        // tracing::debug!("Found nofn sig: {:?}", nofn_sig);
+        tracing::trace!("Found nofn sig: {:?}", nofn_sig);
 
         let our_sig =
             self.signer
                 .sign_taproot_script_spend_tx_new(&mut slash_or_take_tx_handler, 0, 0)?;
-        // tracing::debug!("slash_or_take_tx_handler: {:#?}", slash_or_take_tx_handler);
+        tracing::trace!("slash_or_take_tx_handler: {:#?}", slash_or_take_tx_handler);
         handle_taproot_witness_new(
             &mut slash_or_take_tx_handler,
             &[our_sig.as_ref(), nofn_sig.as_ref()],
@@ -459,7 +463,7 @@ where
 
         txs_to_be_sent.push(slash_or_take_tx_handler.tx.raw_hex());
 
-        tracing::debug!(
+        tracing::trace!(
             "Found txs to be sent with slash_or_take_tx: {:?}",
             txs_to_be_sent
         );

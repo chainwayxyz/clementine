@@ -25,6 +25,7 @@ use std::thread;
 use traits::rpc::OperatorRpcServer;
 
 /// Starts a server for a verifier.
+#[tracing::instrument]
 pub async fn create_verifier_server<R>(
     config: BridgeConfig,
     rpc: ExtendedRpc<R>,
@@ -54,7 +55,8 @@ where
 }
 
 /// Starts the server for the operator.
-pub async fn create_operator_server<R>(
+#[tracing::instrument]
+pub async fn create_operator_server<R: RpcApiWrapper>(
     config: BridgeConfig,
     rpc: ExtendedRpc<R>,
 ) -> Result<(HttpClient, ServerHandle, std::net::SocketAddr), BridgeError>
@@ -84,6 +86,7 @@ where
 }
 
 /// Starts the server for the aggregator.
+#[tracing::instrument]
 pub async fn create_aggregator_server(
     config: BridgeConfig,
 ) -> Result<(HttpClient, ServerHandle, std::net::SocketAddr), BridgeError> {
@@ -125,6 +128,7 @@ fn is_test_env() -> bool {
 /// # Panics
 ///
 /// Panics if there was an error while creating any of the servers.
+#[tracing::instrument]
 pub async fn create_verifiers_and_operators(
     config_name: &str,
     // rpc: ExtendedRpc<R>,

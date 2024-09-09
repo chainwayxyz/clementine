@@ -27,6 +27,7 @@ where
     R: RpcApiWrapper,
 {
     /// Creates a new `User`.
+    #[tracing::instrument]
     pub fn new(rpc: ExtendedRpc<R>, sk: SecretKey, config: BridgeConfig) -> Self {
         let signer = Actor::new(sk, config.network);
 
@@ -44,6 +45,7 @@ where
         }
     }
 
+    #[tracing::instrument(skip(self))]
     pub fn deposit_tx(
         &self,
         evm_address: EVMAddress,
@@ -64,6 +66,7 @@ where
         Ok((deposit_outpoint, self.signer.xonly_public_key, evm_address))
     }
 
+    #[tracing::instrument(skip(self))]
     pub fn get_deposit_address(&self, evm_address: EVMAddress) -> Result<Address, BridgeError> {
         let (deposit_address, _) = TransactionBuilder::generate_deposit_address(
             &self.nofn_xonly_pk,
@@ -77,6 +80,7 @@ where
         Ok(deposit_address)
     }
 
+    #[tracing::instrument(skip(self))]
     pub fn generate_withdrawal_sig(
         &self,
         withdrawal_address: Address,

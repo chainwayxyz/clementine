@@ -35,6 +35,7 @@ impl<R> Verifier<R>
 where
     R: RpcApiWrapper,
 {
+    #[tracing::instrument]
     pub async fn new(rpc: ExtendedRpc<R>, config: BridgeConfig) -> Result<Self, BridgeError> {
         let signer = Actor::new(config.secret_key, config.network);
 
@@ -71,6 +72,7 @@ where
     /// 2. Generate random pubNonces, secNonces
     /// 3. Save pubNonces and secNonces to a db
     /// 4. Return pubNonces
+    #[tracing::instrument(skip(self))]
     async fn new_deposit(
         &self,
         deposit_outpoint: OutPoint,
@@ -129,6 +131,7 @@ where
     ///
     /// do not forget to add tweak when signing since this address has n_of_n as internal_key
     /// and operator_timelock as script.
+    #[tracing::instrument(skip(self))]
     async fn operator_kickoffs_generated(
         &self,
         deposit_outpoint: OutPoint,
@@ -249,6 +252,7 @@ where
         Ok((slash_or_take_partial_sigs, vec![]))
     }
 
+    #[tracing::instrument(skip(self))]
     async fn create_deposit_details(
         &self,
         deposit_outpoint: OutPoint,
@@ -314,6 +318,7 @@ where
     /// verify burn txs are signed by verifiers
     /// sign operator_takes_txs
     /// TODO: Change the name of this function.
+    #[tracing::instrument(skip(self))]
     async fn burn_txs_signed(
         &self,
         deposit_outpoint: OutPoint,
@@ -342,15 +347,15 @@ where
                 let slash_or_take_sighash =
                     Actor::convert_tx_to_sighash_script_spend(&mut slash_or_take_tx_handler, 0, 0)
                         .unwrap();
-                // tracing::debug!(
-                //     "Verify SLASH_OR_TAKE_TX message: {:?}",
-                //     slash_or_take_sighash
-                // );
-                // tracing::debug!("Verify SLASH_OR_TAKE_SIG: {:?}", slash_or_take_sigs[index]);
-                // tracing::debug!(
-                //     "Verify SLASH_OR_TAKE_TX operator xonly_pk: {:?}",
-                //     self.operator_xonly_pks[index]
-                // );
+                tracing::trace!(
+                    "Verify SLASH_OR_TAKE_TX message: {:?}",
+                    slash_or_take_sighash
+                );
+                tracing::trace!("Verify SLASH_OR_TAKE_SIG: {:?}", slash_or_take_sigs[index]);
+                tracing::trace!(
+                    "Verify SLASH_OR_TAKE_TX operator xonly_pk: {:?}",
+                    self.operator_xonly_pks[index]
+                );
                 utils::SECP
                     .verify_schnorr(
                         &slash_or_take_sigs[index],
@@ -392,13 +397,13 @@ where
             .await
             .unwrap();
 
-        // println!("Operator takes sighashes: {:?}", operator_takes_sighashes);
+        tracing::trace!("Operator takes sighashes: {:?}", operator_takes_sighashes);
         let nonces = self
             .db
             .save_sighashes_and_get_nonces(deposit_outpoint, 1, &operator_takes_sighashes)
             .await?
             .ok_or(BridgeError::NoncesNotFound)?;
-        // println!("Nonces: {:?}", nonces);
+        tracing::trace!("Nonces: {:?}", nonces);
         // now iterate over nonces and sighashes and sign the operator_takes_txs
         let operator_takes_partial_sigs = operator_takes_sighashes
             .iter()
@@ -415,15 +420,16 @@ where
                 )
             })
             .collect::<Vec<_>>();
-        // println!(
-        //     "Operator takes partial sigs: {:?}",
-        //     operator_takes_partial_sigs
-        // );
+        tracing::trace!(
+            "Operator takes partial sigs: {:?}",
+            operator_takes_partial_sigs
+        );
         Ok(operator_takes_partial_sigs)
     }
 
     /// verify the operator_take_sigs
     /// sign move_tx
+    #[tracing::instrument(skip(self))]
     async fn operator_take_txs_signed(
         &self,
         deposit_outpoint: OutPoint,
@@ -493,8 +499,8 @@ where
             .await
             .unwrap();
 
-        // println!("MOVE_TX: {:?}", move_tx_handler);
-        // println!("MOVE_TXID: {:?}", move_tx_handler.tx.compute_txid());
+        tracing::trace!("MOVE_TX: {:?}", move_tx_handler);
+        tracing::trace!("MOVE_TXID: {:?}", move_tx_handler.tx.compute_txid());
         let move_tx_sighash =
             Actor::convert_tx_to_sighash_script_spend(&mut move_tx_handler, 0, 0)?; // TODO: This should be musig
 

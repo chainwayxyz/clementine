@@ -45,6 +45,7 @@ impl Aggregator {
         })
     }
 
+    #[tracing::instrument(skip(self))]
     fn aggregate_slash_or_take_partial_sigs(
         &self,
         deposit_outpoint: OutPoint,
@@ -91,6 +92,7 @@ impl Aggregator {
         Ok(final_sig)
     }
 
+    #[tracing::instrument(skip(self))]
     fn aggregate_operator_takes_partial_sigs(
         &self,
         deposit_outpoint: OutPoint,
@@ -173,6 +175,7 @@ impl Aggregator {
         Ok(final_sig)
     }
 
+    #[tracing::instrument(skip(self))]
     fn aggregate_move_partial_sigs(
         &self,
         deposit_outpoint: OutPoint,
@@ -207,6 +210,7 @@ impl Aggregator {
         Ok(final_sig)
     }
 
+    #[tracing::instrument(skip(self))]
     pub async fn aggregate_pub_nonces(
         &self,
         pub_nonces: Vec<Vec<MuSigPubNonce>>,
@@ -225,6 +229,7 @@ impl Aggregator {
         Ok(agg_nonces)
     }
 
+    #[tracing::instrument(skip(self))]
     pub async fn aggregate_slash_or_take_sigs(
         &self,
         deposit_outpoint: OutPoint,
@@ -258,6 +263,7 @@ impl Aggregator {
         Ok(slash_or_take_sigs)
     }
 
+    #[tracing::instrument(skip(self))]
     pub async fn aggregate_operator_take_sigs(
         &self,
         deposit_outpoint: OutPoint,
@@ -281,6 +287,7 @@ impl Aggregator {
         Ok(operator_take_sigs)
     }
 
+    #[tracing::instrument(skip(self))]
     pub async fn aggregate_move_tx_sigs(
         &self,
         deposit_outpoint: OutPoint,
