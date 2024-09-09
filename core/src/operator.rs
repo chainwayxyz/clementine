@@ -319,7 +319,7 @@ where
         } else {
             // Calculate net profit after the withdrawal
             let net_profit = self.config.bridge_amount_sats - withdrawal_amount;
-            return Ok(net_profit > self.config.operator_withdrawal_fee_sats.unwrap());
+            Ok(net_profit > self.config.operator_withdrawal_fee_sats.unwrap())
         }
     }
 
