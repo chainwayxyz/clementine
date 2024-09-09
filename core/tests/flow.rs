@@ -7,7 +7,7 @@ use clementine_core::extended_rpc::ExtendedRpc;
 use clementine_core::{
     create_extended_rpc, errors::BridgeError, traits::rpc::OperatorRpcClient, user::User,
 };
-use common::run_single_deposit;
+use common::{run_multiple_deposit, run_single_deposit};
 use secp256k1::SecretKey;
 
 mod common;
@@ -67,4 +67,9 @@ async fn test_honest_operator_takes_refund() {
     // send the last tx
     rpc.send_raw_transaction(txs_to_be_sent.last().unwrap().clone())
         .unwrap();
+}
+
+#[tokio::test]
+async fn multiple_deposits_for_operator() {
+    run_multiple_deposit("test_config.toml").await.unwrap();
 }
