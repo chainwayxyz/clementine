@@ -5,7 +5,8 @@
 use bitcoin::{
     consensus::encode::FromHexError,
     merkle_tree::MerkleBlockError,
-    taproot::{TaprootBuilder, TaprootBuilderError}, Txid,
+    taproot::{TaprootBuilder, TaprootBuilderError},
+    Txid,
 };
 use core::fmt::Debug;
 use jsonrpsee::types::ErrorObject;

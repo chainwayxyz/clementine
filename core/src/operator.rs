@@ -356,7 +356,10 @@ where
             let txid = Txid::from_slice(&txid).unwrap();
             if txid != input_utxo.outpoint.txid || 0 != input_utxo.outpoint.vout {
                 // TODO: Fix this, vout can be different from 0 as well
-                return Err(BridgeError::InvalidInputUTXO(txid, input_utxo.outpoint.txid));
+                return Err(BridgeError::InvalidInputUTXO(
+                    txid,
+                    input_utxo.outpoint.txid,
+                ));
             }
         }
 
