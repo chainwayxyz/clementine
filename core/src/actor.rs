@@ -199,7 +199,8 @@ impl Actor {
             ),
             bitcoin::sighash::TapSighashType::Default,
         )?;
-        Ok(self.sign_with_tweak(sig_hash, None).unwrap())
+
+        self.sign_with_tweak(sig_hash, None)
     }
 
     pub fn convert_tx_to_sighash_script_spend(

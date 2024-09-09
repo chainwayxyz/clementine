@@ -67,9 +67,8 @@ impl Aggregator {
         );
         // tracing::debug!("SLASH_OR_TAKE_TX: {:?}", tx);
         tracing::debug!("SLASH_OR_TAKE_TX weight: {:?}", tx.tx.weight());
-        let message: [u8; 32] = Actor::convert_tx_to_sighash_script_spend(&mut tx, 0, 0)
-            .unwrap()
-            .to_byte_array();
+        let message: [u8; 32] =
+            Actor::convert_tx_to_sighash_script_spend(&mut tx, 0, 0)?.to_byte_array();
         // tracing::debug!("aggregate SLASH_OR_TAKE_TX message: {:?}", message);
         let final_sig: [u8; 64] = aggregate_partial_signatures(
             self.config.verifiers_public_keys.clone(),
@@ -139,7 +138,7 @@ impl Aggregator {
         };
         // tracing::debug!(
         //     "SERDE_UTXO: {:#?}",
-        //     serde_json::to_string(&slash_or_take_utxo).unwrap()
+        //     serde_json::to_string(&slash_or_take_utxo)?
         // );
 
         let mut tx_handler = TransactionBuilder::create_operator_takes_tx(
@@ -158,9 +157,8 @@ impl Aggregator {
         // );
         // tracing::debug!("OPERATOR_TAKES_TX_HEX: {:?}", tx_handler.tx.raw_hex());
         tracing::debug!("OPERATOR_TAKES_TX weight: {:?}", tx_handler.tx.weight());
-        let message: [u8; 32] = Actor::convert_tx_to_sighash_pubkey_spend(&mut tx_handler, 0)
-            .unwrap()
-            .to_byte_array();
+        let message: [u8; 32] =
+            Actor::convert_tx_to_sighash_pubkey_spend(&mut tx_handler, 0)?.to_byte_array();
         let final_sig: [u8; 64] = aggregate_partial_signatures(
             self.config.verifiers_public_keys.clone(),
             None,
@@ -192,9 +190,8 @@ impl Aggregator {
         );
         // println!("MOVE_TX: {:?}", tx);
         // println!("MOVE_TXID: {:?}", tx.tx.compute_txid());
-        let message: [u8; 32] = Actor::convert_tx_to_sighash_script_spend(&mut tx, 0, 0)
-            .unwrap()
-            .to_byte_array();
+        let message: [u8; 32] =
+            Actor::convert_tx_to_sighash_script_spend(&mut tx, 0, 0)?.to_byte_array();
         let final_sig: [u8; 64] = aggregate_partial_signatures(
             self.config.verifiers_public_keys.clone(),
             None,
@@ -216,7 +213,7 @@ impl Aggregator {
             let agg_nonce = aggregate_nonces(
                 pub_nonces
                     .iter()
-                    .map(|v| v.get(i).cloned().unwrap())
+                    .map(|v| v.get(i).cloned().unwrap()) // TODO: remove unwrap
                     .collect::<Vec<_>>(),
             );
 
@@ -249,7 +246,7 @@ impl Aggregator {
                 &agg_nonces[i].clone(),
                 partial_sigs
                     .iter()
-                    .map(|v| v.get(i).cloned().unwrap())
+                    .map(|v| v.get(i).cloned().unwrap()) // TODO: remove unwrap
                     .collect::<Vec<_>>(),
             )?;
 
