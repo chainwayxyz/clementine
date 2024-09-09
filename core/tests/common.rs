@@ -1,4 +1,4 @@
-// //! # Common utilities for tests
+//! # Common utilities for tests
 
 use bitcoin::consensus::encode::deserialize_hex;
 use bitcoin::OutPoint;
