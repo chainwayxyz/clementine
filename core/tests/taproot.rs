@@ -4,22 +4,18 @@ use bitcoin::script::Builder;
 use bitcoin::taproot::Signature;
 use bitcoin::{Address, Amount, TapTweakHash, TxOut, XOnlyPublicKey};
 use clementine_core::actor::Actor;
-use clementine_core::database::common::Database;
+use clementine_core::create_extended_rpc;
 use clementine_core::extended_rpc::ExtendedRpc;
-use clementine_core::mock::common;
+use clementine_core::mock::database::create_test_config_with_thread_name;
 use clementine_core::script_builder;
 use clementine_core::transaction_builder::{TransactionBuilder, TxHandler};
 use clementine_core::utils::handle_taproot_witness_new;
-use clementine_core::{
-    create_extended_rpc, create_test_config, create_test_config_with_thread_name,
-};
-use std::thread;
 
 #[tokio::test]
 async fn run() {
     let secp = bitcoin::secp256k1::Secp256k1::new();
 
-    let mut config = create_test_config_with_thread_name!("test_config.toml");
+    let mut config = create_test_config_with_thread_name("test_config.toml", None).await;
     let rpc = create_extended_rpc!(config);
 
     let (xonly_pk, _) = config.secret_key.public_key(&secp).x_only_public_key();
@@ -129,7 +125,7 @@ fn calculate_min_relay_fee(n: u64) -> u64 {
 #[tokio::test]
 async fn taproot_key_path_spend() {
     let secp = bitcoin::secp256k1::Secp256k1::new();
-    let mut config = create_test_config_with_thread_name!("test_config.toml");
+    let mut config = create_test_config_with_thread_name("test_config.toml", None).await;
     let rpc = create_extended_rpc!(config);
 
     let (xonly_pk, _) = config.secret_key.public_key(&secp).x_only_public_key();
@@ -184,7 +180,7 @@ async fn taproot_key_path_spend() {
 
 #[tokio::test]
 async fn taproot_key_path_spend_2() {
-    let mut config = create_test_config_with_thread_name!("test_config.toml");
+    let mut config = create_test_config_with_thread_name("test_config.toml", None).await;
     let rpc = create_extended_rpc!(config);
 
     let actor = Actor::new(config.secret_key, config.network);

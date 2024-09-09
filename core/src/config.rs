@@ -13,17 +13,11 @@
 use crate::errors::BridgeError;
 use bitcoin::Network;
 use serde::{Deserialize, Serialize};
-use std::str::FromStr;
 use std::{fs::File, io::Read, path::PathBuf};
-use tracing_subscriber::layer::SubscriberExt;
-use tracing_subscriber::util::SubscriberInitExt;
-use tracing_subscriber::{fmt, EnvFilter};
 
 /// Configuration options for any Clementine target (tests, binaries etc.).
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct BridgeConfig {
-    /// Tracing debug level.
-    pub tracing_debug: String,
     /// Host of the operator or the verifier
     pub host: String,
     /// Port of the operator or the verifier
@@ -90,11 +84,12 @@ impl BridgeConfig {
             Ok(f) => f,
             Err(e) => return Err(BridgeError::ConfigError(e.to_string())),
         };
+
         if let Err(e) = file.read_to_string(&mut contents) {
             return Err(BridgeError::ConfigError(e.to_string()));
         }
 
-        tracing::debug!("Using configuration file: {:?}", path);
+        tracing::trace!("Using configuration file: {:?}", path);
 
         BridgeConfig::try_parse_from(contents)
     }
@@ -102,38 +97,16 @@ impl BridgeConfig {
     /// Try to parse a `BridgeConfig` from given TOML formatted string and
     /// generate a `BridgeConfig`.
     pub fn try_parse_from(input: String) -> Result<Self, BridgeError> {
-        let config = match toml::from_str::<BridgeConfig>(&input) {
+        match toml::from_str::<BridgeConfig>(&input) {
             Ok(c) => Ok(c),
             Err(e) => Err(BridgeError::ConfigError(e.to_string())),
-        }?;
-
-        // Initialize tracing.
-        if let Err(e) = tracing_subscriber::registry()
-            .with(fmt::layer())
-            .with(
-                EnvFilter::from_str(&config.tracing_debug)
-                    .unwrap_or_else(|_| EnvFilter::from_default_env()),
-            )
-            .try_init()
-        {
-            // If it failed because of a re-initialization, do not care about
-            // the error.
-            //
-            // This error checking is kind of ugly. But nothing to do about it:
-            // Library's error type is this.
-            if e.to_string() != "a global default trace dispatcher has already been set" {
-                return Err(BridgeError::ConfigError(e.to_string()));
-            }
-        };
-
-        Ok(config)
+        }
     }
 }
 
 impl Default for BridgeConfig {
     fn default() -> Self {
         Self {
-            tracing_debug: "debug".to_string(),
             host: "127.0.0.1".to_string(),
             port: 3030,
             secret_key: secp256k1::SecretKey::new(&mut secp256k1::rand::thread_rng()),

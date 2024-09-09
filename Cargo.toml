@@ -16,7 +16,7 @@ secp256k1 = { version = "0.29.0", features = ["serde"] }
 crypto-bigint = { version = "=0.5.5", features = ["rand_core"] }
 thiserror = "1.0.63"
 tracing = { version = "0.1.40", default-features = false }
-tracing-subscriber = { version = "0.3.18" }
+tracing-subscriber = { version = "0.3.18", features = ["json"] }
 tokio = "1.39.3"
 jsonrpsee = "0.22.5"
 async-trait = "0.1.81"
