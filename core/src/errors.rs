@@ -136,6 +136,9 @@ pub enum BridgeError {
     /// OperatorFundingUtxoAmountNotEnough is returned when the operator funding utxo amount is not enough
     #[error("OperatorFundingUtxoAmountNotEnough: Operator funding utxo amount is not enough, pls send some amount here: {0}, then call the set_operator_funding_utxo RPC")]
     OperatorFundingUtxoAmountNotEnough(bitcoin::Address),
+    /// OperatorWithdrawalFeeNotSet is returned when the operator withdrawal fee is not set
+    #[error("OperatorWithdrawalFeeNotSet")]
+    OperatorWithdrawalFeeNotSet,
     /// InvalidKickoffUtxo is returned when the kickoff utxo is invalid
     #[error("InvalidKickoffUtxo")]
     InvalidKickoffUtxo,

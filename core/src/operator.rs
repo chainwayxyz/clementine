@@ -306,8 +306,19 @@ where
     }
 
     async fn is_profitable(&self, withdrawal_amount: u64) -> Result<bool, BridgeError> {
-        let net_profit = self.config.bridge_amount_sats - withdrawal_amount;
-        Ok(self.config.operator_withdrawal_fee_sats.unwrap() < net_profit)
+        // Check if the withdrawal amount is within the acceptable range
+        if withdrawal_amount > self.config.bridge_amount_sats {
+            Ok(false)
+        } else {
+            // Calculate net profit after the withdrawal
+            let net_profit = self.config.bridge_amount_sats - withdrawal_amount;
+    
+            // Check if the operator withdrawal fee is set and calculate profitability
+            match self.config.operator_withdrawal_fee_sats {
+                Some(fee) => Ok(fee < net_profit),
+                None => Err(BridgeError::OperatorWithdrawalFeeNotSet),
+            }
+        }
     }
 
     async fn new_withdrawal_sig(
