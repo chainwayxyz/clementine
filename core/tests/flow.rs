@@ -63,7 +63,8 @@ async fn test_honest_operator_takes_refund() {
         let outpoint = rpc.send_raw_transaction(tx.clone()).unwrap();
         tracing::debug!("outpoint: {:#?}", outpoint);
     }
-    rpc.mine_blocks(config.operator.takes_after as u64).unwrap();
+    rpc.mine_blocks(config.operator.operator_takes_after as u64)
+        .unwrap();
     // send the last tx
     rpc.send_raw_transaction(txs_to_be_sent.last().unwrap().clone())
         .unwrap();

@@ -68,24 +68,24 @@ impl Default for Bitcoin {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Operator {
     /// Number of operators.
-    pub count: usize,
+    pub num_operators: usize,
     /// Operators x-only public keys.
-    pub xonly_pks: Vec<secp256k1::XOnlyPublicKey>,
+    pub operators_xonly_pks: Vec<secp256k1::XOnlyPublicKey>,
     /// Number of blocks after which operator can take reimburse the bridge fund if they are honest.
-    pub takes_after: u32,
+    pub operator_takes_after: u32,
     /// Operator: number of kickoff UTXOs per funding transaction.
-    pub kickoff_utxos_per_tx: usize,
+    pub operator_num_kickoff_utxos_per_tx: usize,
     /// All Secret keys. Just for testing purposes.
-    pub all_secret_keys: Option<Vec<secp256k1::SecretKey>>,
+    pub all_operators_secret_keys: Option<Vec<secp256k1::SecretKey>>,
 }
 impl Default for Operator {
     fn default() -> Self {
         Self {
-            count: 3,
-            xonly_pks: vec![],
-            takes_after: 5,
-            kickoff_utxos_per_tx: 10,
-            all_secret_keys: None,
+            num_operators: 3,
+            operators_xonly_pks: vec![],
+            operator_takes_after: 5,
+            operator_num_kickoff_utxos_per_tx: 10,
+            all_operators_secret_keys: None,
         }
     }
 }
