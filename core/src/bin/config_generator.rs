@@ -1,5 +1,6 @@
 use clap::Parser;
 use clementine_core::config::BridgeConfig;
+use clementine_core::config::Verifier;
 use crypto_bigint::rand_core::OsRng;
 use secp256k1::PublicKey;
 use secp256k1::SecretKey;
@@ -47,13 +48,16 @@ fn main() {
     for i in 0..num_verifiers {
         let mut new_config = BridgeConfig {
             secret_key: secret_keys[i],
-            verifiers_public_keys: public_keys.clone(),
-            num_verifiers,
+            verifier: Verifier {
+                verifiers_public_keys: public_keys.clone(),
+                num_verifiers,
+                ..cur_config
+            },
             port: ports[i],
             ..cur_config.clone()
         };
         if i == num_verifiers - 1 {
-            new_config.verifier_endpoints = Some(
+            new_config.verifier.verifier_endpoints = Some(
                 ports[0..ports.len() - 1]
                     .iter()
                     .map(|p| format!("http://{}:{}", cur_config.host, p))

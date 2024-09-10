@@ -90,6 +90,29 @@ impl Default for Operator {
     }
 }
 
+/// Verifier configuration options.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Verifier {
+    /// Number of verifiers.
+    pub num_verifiers: usize,
+    /// Verifiers public keys.
+    pub verifiers_public_keys: Vec<secp256k1::PublicKey>,
+    /// All Secret keys. Just for testing purposes.
+    pub all_verifiers_secret_keys: Option<Vec<secp256k1::SecretKey>>,
+    /// Verifier endpoints.
+    pub verifier_endpoints: Option<Vec<String>>,
+}
+impl Default for Verifier {
+    fn default() -> Self {
+        Self {
+            verifiers_public_keys: vec![],
+            num_verifiers: 7,
+            all_verifiers_secret_keys: None,
+            verifier_endpoints: None,
+        }
+    }
+}
+
 /// Configuration options for any Clementine target (tests, binaries etc.).
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct BridgeConfig {
@@ -99,6 +122,8 @@ pub struct BridgeConfig {
     pub bitcoin: Bitcoin,
     /// Operator configuration options.
     pub operator: Operator,
+    /// Verifier configuration options.
+    pub verifier: Verifier,
 
     /// Host of the operator or the verifier
     pub host: String,
@@ -106,20 +131,12 @@ pub struct BridgeConfig {
     pub port: u16,
     /// Secret key for the operator or the verifier.
     pub secret_key: secp256k1::SecretKey,
-    /// Verifiers public keys.
-    pub verifiers_public_keys: Vec<secp256k1::PublicKey>,
-    /// Number of verifiers.
-    pub num_verifiers: usize,
     /// Number of blocks after which user can take deposit back if deposit request fails.
     pub user_takes_after: u32,
     /// Bridge amount in satoshis.
     pub bridge_amount_sats: u64,
     /// Threshold for confirmation.
     pub confirmation_threshold: u32,
-    /// All Secret keys. Just for testing purposes.
-    pub all_verifiers_secret_keys: Option<Vec<secp256k1::SecretKey>>,
-    /// Verifier endpoints.
-    pub verifier_endpoints: Option<Vec<String>>,
 }
 impl Default for BridgeConfig {
     fn default() -> Self {
@@ -127,17 +144,14 @@ impl Default for BridgeConfig {
             database: Database::default(),
             bitcoin: Bitcoin::default(),
             operator: Operator::default(),
+            verifier: Verifier::default(),
 
             host: "127.0.0.1".to_string(),
             port: 3030,
             secret_key: secp256k1::SecretKey::new(&mut secp256k1::rand::thread_rng()),
-            verifiers_public_keys: vec![],
-            num_verifiers: 7,
             user_takes_after: 5,
             bridge_amount_sats: 100_000_000,
             confirmation_threshold: 1,
-            all_verifiers_secret_keys: None,
-            verifier_endpoints: None,
         }
     }
 }

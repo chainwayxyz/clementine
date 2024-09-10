@@ -26,8 +26,11 @@ async fn main() {
             .collect::<Vec<_>>()
             .join(",")
     );
-    let xonly =
-        secp256k1::XOnlyPublicKey::from_musig2_pks(config.verifiers_public_keys, None, false);
+    let xonly = secp256k1::XOnlyPublicKey::from_musig2_pks(
+        config.verifier.verifiers_public_keys,
+        None,
+        false,
+    );
     println!(
         "AGGREGATOR_URL={}",
         format!("http://127.0.0.1:{}", aggregator.2.port())

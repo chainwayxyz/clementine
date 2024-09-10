@@ -38,14 +38,14 @@ where
 {
     /// Creates a new `Operator`.
     pub async fn new(config: BridgeConfig, rpc: ExtendedRpc<R>) -> Result<Self, BridgeError> {
-        // let num_verifiers = config.verifiers_public_keys.len();
+        // let num_verifiers = config.verifier.verifiers_public_keys.len();
 
         let signer = Actor::new(config.secret_key, config.bitcoin.network);
 
         let db = OperatorDB::new(config.clone()).await;
 
         let nofn_xonly_pk = secp256k1::XOnlyPublicKey::from_musig2_pks(
-            config.verifiers_public_keys.clone(),
+            config.verifier.verifiers_public_keys.clone(),
             None,
             false,
         );
