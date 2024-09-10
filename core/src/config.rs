@@ -94,21 +94,21 @@ impl Default for Operator {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Verifier {
     /// Number of verifiers.
-    pub count: usize,
+    pub num_verifiers: usize,
     /// Verifiers public keys.
-    pub public_keys: Vec<secp256k1::PublicKey>,
+    pub verifiers_public_keys: Vec<secp256k1::PublicKey>,
     /// All Secret keys. Just for testing purposes.
-    pub all_secret_keys: Option<Vec<secp256k1::SecretKey>>,
+    pub all_verifiers_secret_keys: Option<Vec<secp256k1::SecretKey>>,
     /// Verifier endpoints.
-    pub endpoints: Option<Vec<String>>,
+    pub verifier_endpoints: Option<Vec<String>>,
 }
 impl Default for Verifier {
     fn default() -> Self {
         Self {
-            public_keys: vec![],
-            count: 7,
-            all_secret_keys: None,
-            endpoints: None,
+            verifiers_public_keys: vec![],
+            num_verifiers: 7,
+            all_verifiers_secret_keys: None,
+            verifier_endpoints: None,
         }
     }
 }
