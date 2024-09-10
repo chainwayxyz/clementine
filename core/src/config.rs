@@ -102,10 +102,8 @@ pub struct BridgeConfig {
     /// Verifier endpoints.
     pub verifier_endpoints: Option<Vec<String>>,
 }
-
-impl BridgeConfig {
-    /// Create a new `BridgeConfig` with default values.
-    pub fn new() -> Self {
+impl Default for BridgeConfig {
+    fn default() -> Self {
         Self {
             database: Database::default(),
             bitcoin: Bitcoin::default(),
@@ -126,7 +124,9 @@ impl BridgeConfig {
             verifier_endpoints: None,
         }
     }
+}
 
+impl BridgeConfig {
     /// Read contents of a TOML file and generate a `BridgeConfig`.
     pub fn try_parse_file(path: PathBuf) -> Result<Self, BridgeError> {
         let mut contents = String::new();
@@ -155,12 +155,6 @@ impl BridgeConfig {
     }
 }
 
-impl Default for BridgeConfig {
-    fn default() -> Self {
-        BridgeConfig::new()
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::BridgeConfig;
@@ -183,7 +177,7 @@ mod tests {
             Err(e) => println!("{e:#?}"),
         };
 
-        let init = BridgeConfig::new();
+        let init = BridgeConfig::default();
         match BridgeConfig::try_parse_from(toml::to_string(&init).unwrap()) {
             Ok(c) => println!("{c:#?}"),
             Err(e) => panic!("{e:#?}"),

@@ -752,7 +752,7 @@ mod tests {
     #[tokio::test]
     #[should_panic]
     async fn test_invalid_connection() {
-        let mut config = BridgeConfig::new();
+        let mut config = BridgeConfig::default();
         config.database.host = "nonexistinghost".to_string();
         config.database.name = "nonexistingpassword".to_string();
         config.database.user = "nonexistinguser".to_string();
