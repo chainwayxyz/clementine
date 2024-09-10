@@ -1,10 +1,9 @@
 //! # Servers
 //!
 //! Utilities for operator and verifier servers.
-use crate::mock::common;
 use crate::mock::database::create_test_config_with_thread_name;
-use crate::traits::rpc::{AggregatorServer, OperatorRpcClient};
-use crate::{aggregator, create_extended_rpc, UTXO};
+use crate::traits::rpc::AggregatorServer;
+use crate::{aggregator, create_extended_rpc};
 use crate::{
     config::BridgeConfig,
     errors,
@@ -205,7 +204,7 @@ pub async fn create_verifiers_and_operators(
         .await
         .unwrap();
 
-    let config = create_test_config_with_thread_name!(config_name);
+    let config = create_test_config_with_thread_name(config_name, None).await;
     println!("Port: {}", start_port);
     let port = start_port
         + all_verifiers_secret_keys.len() as u16

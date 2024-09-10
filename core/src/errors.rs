@@ -178,10 +178,10 @@ pub enum BridgeError {
 
     #[error("NotEnoughFeeForOperator")]
     NotEnoughFeeForOperator,
-  
+
     #[error("Musig2 error: {0}")]
     Musig2Error(#[from] musig2::secp256k1::Error),
-
+}
 
 impl From<BridgeError> for ErrorObject<'static> {
     fn from(val: BridgeError) -> Self {
