@@ -42,14 +42,14 @@ where
         let pk: secp256k1::PublicKey = config.secret_key.public_key(&utils::SECP);
 
         // Generated public key must be in given public key list.
-        if !config.verifier.verifiers_public_keys.contains(&pk) {
+        if !config.verifier.public_keys.contains(&pk) {
             return Err(BridgeError::PublicKeyNotFound);
         }
 
         let db = VerifierDB::new(config.clone()).await;
 
         let nofn_xonly_pk = secp256k1::XOnlyPublicKey::from_musig2_pks(
-            config.verifier.verifiers_public_keys.clone(),
+            config.verifier.public_keys.clone(),
             None,
             false,
         );
@@ -253,7 +253,7 @@ where
             .zip(nonces.iter())
             .map(|(sighash, (sec_nonce, agg_nonce))| {
                 musig2::partial_sign(
-                    self.config.verifier.verifiers_public_keys.clone(),
+                    self.config.verifier.public_keys.clone(),
                     None,
                     false,
                     *sec_nonce,
@@ -390,7 +390,7 @@ where
             .zip(nonces.iter())
             .map(|(sighash, (sec_nonce, agg_nonce))| {
                 musig2::partial_sign(
-                    self.config.verifier.verifiers_public_keys.clone(),
+                    self.config.verifier.public_keys.clone(),
                     None,
                     true,
                     *sec_nonce,
@@ -494,7 +494,7 @@ where
             .ok_or(BridgeError::NoncesNotFound)?;
 
         let move_tx_sig = musig2::partial_sign(
-            self.config.verifier.verifiers_public_keys.clone(),
+            self.config.verifier.public_keys.clone(),
             None,
             false,
             nonces[0].0,
