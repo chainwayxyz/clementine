@@ -23,6 +23,7 @@ use std::thread;
 use traits::rpc::OperatorRpcServer;
 
 /// Starts a server for a verifier.
+#[tracing::instrument(skip(rpc), err(level = tracing::Level::ERROR), ret(level = tracing::Level::TRACE))]
 pub async fn create_verifier_server<R>(
     config: BridgeConfig,
     rpc: ExtendedRpc<R>,
@@ -51,6 +52,7 @@ where
 }
 
 /// Starts the server for the operator.
+#[tracing::instrument(skip(rpc), err(level = tracing::Level::ERROR), ret(level = tracing::Level::TRACE))]
 pub async fn create_operator_server<R>(
     config: BridgeConfig,
     rpc: ExtendedRpc<R>,
@@ -80,6 +82,7 @@ where
 }
 
 /// Starts the server for the aggregator.
+#[tracing::instrument(err(level = tracing::Level::ERROR), ret(level = tracing::Level::TRACE))]
 pub async fn create_aggregator_server(
     config: BridgeConfig,
 ) -> Result<(HttpClient, ServerHandle, std::net::SocketAddr), BridgeError> {
@@ -104,6 +107,7 @@ pub async fn create_aggregator_server(
     Ok((client, handle, addr))
 }
 
+#[tracing::instrument(ret(level = tracing::Level::TRACE))]
 fn is_test_env() -> bool {
     // if thread name is not main then it is a test
     thread::current().name().unwrap_or_default() != "main"
@@ -120,6 +124,7 @@ fn is_test_env() -> bool {
 /// # Panics
 ///
 /// Panics if there was an error while creating any of the servers.
+#[tracing::instrument(ret(level = tracing::Level::TRACE))]
 pub async fn create_verifiers_and_operators(
     config_name: &str,
     // rpc: ExtendedRpc<R>,
