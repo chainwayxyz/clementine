@@ -133,13 +133,9 @@ pub async fn create_verifiers_and_operators(
     let mut config = create_test_config_with_thread_name(config_name, None).await;
     let start_port = config.port;
     let rpc = create_extended_rpc!(config);
-    let all_verifiers_secret_keys = config
-        .verifier
-        .all_verifiers_secret_keys
-        .clone()
-        .unwrap_or_else(|| {
-            panic!("All secret keys of the verifiers are required for testing");
-        });
+    let all_verifiers_secret_keys = config.verifier.all_secret_keys.clone().unwrap_or_else(|| {
+        panic!("All secret keys of the verifiers are required for testing");
+    });
     let verifier_futures = all_verifiers_secret_keys
         .iter()
         .enumerate()
@@ -182,13 +178,9 @@ pub async fn create_verifiers_and_operators(
         .map(|(_, c)| c.clone())
         .collect::<Vec<_>>();
 
-    let all_operators_secret_keys = config
-        .operator
-        .all_operators_secret_keys
-        .clone()
-        .unwrap_or_else(|| {
-            panic!("All secret keys of the operators are required for testing");
-        });
+    let all_operators_secret_keys = config.operator.all_secret_keys.clone().unwrap_or_else(|| {
+        panic!("All secret keys of the operators are required for testing");
+    });
 
     let operator_futures = all_operators_secret_keys
         .iter()
@@ -217,7 +209,7 @@ pub async fn create_verifiers_and_operators(
     for (i, (operator_client, _, _)) in operator_endpoints.iter().enumerate() {
         // Send operators some bitcoin so that they can afford the kickoff tx
         let secp = bitcoin::secp256k1::Secp256k1::new();
-        let operator_internal_xonly_pk = config.operator.operators_xonly_pks.get(i).unwrap();
+        let operator_internal_xonly_pk = config.operator.xonly_pks.get(i).unwrap();
         let operator_address = Address::p2tr(
             &secp,
             *operator_internal_xonly_pk,

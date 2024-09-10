@@ -49,15 +49,15 @@ fn main() {
         let mut new_config = BridgeConfig {
             secret_key: secret_keys[i],
             verifier: Verifier {
-                verifiers_public_keys: public_keys.clone(),
-                num_verifiers,
+                public_keys: public_keys.clone(),
+                count: num_verifiers,
                 ..cur_config.verifier.clone()
             },
             port: ports[i],
             ..cur_config.clone()
         };
         if i == num_verifiers - 1 {
-            new_config.verifier.verifier_endpoints = Some(
+            new_config.verifier.endpoints = Some(
                 ports[0..ports.len() - 1]
                     .iter()
                     .map(|p| format!("http://{}:{}", cur_config.host, p))
