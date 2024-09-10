@@ -15,6 +15,7 @@ use bitcoin::Network;
 use serde::{Deserialize, Serialize};
 use std::{fs::File, io::Read, path::PathBuf};
 
+/// PostgreSQL database configuration options.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Database {
     /// PostgreSQL database host address.
@@ -43,7 +44,7 @@ impl Default for Database {
 /// Configuration options for any Clementine target (tests, binaries etc.).
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct BridgeConfig {
-    /// PostgreSQL database information.
+    /// PostgreSQL database configuration options.
     pub database: Database,
     /// Host of the operator or the verifier
     pub host: String,
