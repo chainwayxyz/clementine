@@ -89,8 +89,27 @@ pub struct BridgeConfig {
 impl BridgeConfig {
     /// Create a new `BridgeConfig` with default values.
     pub fn new() -> Self {
-        BridgeConfig {
-            ..Default::default()
+        Self {
+            database: Database::default(),
+            host: "127.0.0.1".to_string(),
+            port: 3030,
+            secret_key: secp256k1::SecretKey::new(&mut secp256k1::rand::thread_rng()),
+            verifiers_public_keys: vec![],
+            num_verifiers: 7,
+            operators_xonly_pks: vec![],
+            num_operators: 3,
+            user_takes_after: 5,
+            operator_takes_after: 5,
+            bridge_amount_sats: 100_000_000,
+            operator_num_kickoff_utxos_per_tx: 10,
+            confirmation_threshold: 1,
+            network: Network::Regtest,
+            bitcoin_rpc_url: "http://127.0.0.1:18443".to_string(),
+            bitcoin_rpc_user: "admin".to_string(),
+            bitcoin_rpc_password: "admin".to_string(),
+            all_verifiers_secret_keys: None,
+            all_operators_secret_keys: None,
+            verifier_endpoints: None,
         }
     }
 
@@ -124,28 +143,7 @@ impl BridgeConfig {
 
 impl Default for BridgeConfig {
     fn default() -> Self {
-        Self {
-            database: Database::default(),
-            host: "127.0.0.1".to_string(),
-            port: 3030,
-            secret_key: secp256k1::SecretKey::new(&mut secp256k1::rand::thread_rng()),
-            verifiers_public_keys: vec![],
-            num_verifiers: 7,
-            operators_xonly_pks: vec![],
-            num_operators: 3,
-            user_takes_after: 5,
-            operator_takes_after: 5,
-            bridge_amount_sats: 100_000_000,
-            operator_num_kickoff_utxos_per_tx: 10,
-            confirmation_threshold: 1,
-            network: Network::Regtest,
-            bitcoin_rpc_url: "http://127.0.0.1:18443".to_string(),
-            bitcoin_rpc_user: "admin".to_string(),
-            bitcoin_rpc_password: "admin".to_string(),
-            all_verifiers_secret_keys: None,
-            all_operators_secret_keys: None,
-            verifier_endpoints: None,
-        }
+        BridgeConfig::new()
     }
 }
 
