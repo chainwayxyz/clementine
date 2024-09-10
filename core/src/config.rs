@@ -64,6 +64,32 @@ impl Default for Bitcoin {
     }
 }
 
+/// Operator configuration options.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Operator {
+    /// Number of operators.
+    pub num_operators: usize,
+    /// Operators x-only public keys.
+    pub operators_xonly_pks: Vec<secp256k1::XOnlyPublicKey>,
+    /// Number of blocks after which operator can take reimburse the bridge fund if they are honest.
+    pub operator_takes_after: u32,
+    /// Operator: number of kickoff UTXOs per funding transaction.
+    pub operator_num_kickoff_utxos_per_tx: usize,
+    /// All Secret keys. Just for testing purposes.
+    pub all_operators_secret_keys: Option<Vec<secp256k1::SecretKey>>,
+}
+impl Default for Operator {
+    fn default() -> Self {
+        Self {
+            num_operators: 3,
+            operators_xonly_pks: vec![],
+            operator_takes_after: 5,
+            operator_num_kickoff_utxos_per_tx: 10,
+            all_operators_secret_keys: None,
+        }
+    }
+}
+
 /// Configuration options for any Clementine target (tests, binaries etc.).
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct BridgeConfig {
@@ -71,6 +97,9 @@ pub struct BridgeConfig {
     pub database: Database,
     /// Bitcoin connection configuration options.
     pub bitcoin: Bitcoin,
+    /// Operator configuration options.
+    pub operator: Operator,
+
     /// Host of the operator or the verifier
     pub host: String,
     /// Port of the operator or the verifier
@@ -81,24 +110,14 @@ pub struct BridgeConfig {
     pub verifiers_public_keys: Vec<secp256k1::PublicKey>,
     /// Number of verifiers.
     pub num_verifiers: usize,
-    /// Operators x-only public keys.
-    pub operators_xonly_pks: Vec<secp256k1::XOnlyPublicKey>,
-    /// Number of operators.
-    pub num_operators: usize,
     /// Number of blocks after which user can take deposit back if deposit request fails.
     pub user_takes_after: u32,
-    /// Number of blocks after which operator can take reimburse the bridge fund if they are honest.
-    pub operator_takes_after: u32,
     /// Bridge amount in satoshis.
     pub bridge_amount_sats: u64,
-    /// Operator: number of kickoff UTXOs per funding transaction.
-    pub operator_num_kickoff_utxos_per_tx: usize,
     /// Threshold for confirmation.
     pub confirmation_threshold: u32,
     /// All Secret keys. Just for testing purposes.
     pub all_verifiers_secret_keys: Option<Vec<secp256k1::SecretKey>>,
-    /// All Secret keys. Just for testing purposes.
-    pub all_operators_secret_keys: Option<Vec<secp256k1::SecretKey>>,
     /// Verifier endpoints.
     pub verifier_endpoints: Option<Vec<String>>,
 }
@@ -107,20 +126,17 @@ impl Default for BridgeConfig {
         Self {
             database: Database::default(),
             bitcoin: Bitcoin::default(),
+            operator: Operator::default(),
+
             host: "127.0.0.1".to_string(),
             port: 3030,
             secret_key: secp256k1::SecretKey::new(&mut secp256k1::rand::thread_rng()),
             verifiers_public_keys: vec![],
             num_verifiers: 7,
-            operators_xonly_pks: vec![],
-            num_operators: 3,
             user_takes_after: 5,
-            operator_takes_after: 5,
             bridge_amount_sats: 100_000_000,
-            operator_num_kickoff_utxos_per_tx: 10,
             confirmation_threshold: 1,
             all_verifiers_secret_keys: None,
-            all_operators_secret_keys: None,
             verifier_endpoints: None,
         }
     }

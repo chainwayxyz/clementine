@@ -50,6 +50,7 @@ where
             false,
         );
         let idx = config
+            .operator
             .operators_xonly_pks
             .iter()
             .position(|xonly_pk| xonly_pk == &signer.xonly_public_key)
@@ -192,12 +193,14 @@ where
             // and (num_kickoff_utxos + 2) outputs where the first k outputs are
             // the kickoff outputs, the penultimante output is the change output,
             // and the last output is the anyonecanpay output for fee bumping.
-            let kickoff_tx_min_relay_fee = match self.config.operator_num_kickoff_utxos_per_tx {
-                0..=250 => 154 + 43 * self.config.operator_num_kickoff_utxos_per_tx, // Handles all values from 0 to 250
-                _ => 156 + 43 * self.config.operator_num_kickoff_utxos_per_tx, // Handles all other values
-            };
+            let kickoff_tx_min_relay_fee =
+                match self.config.operator.operator_num_kickoff_utxos_per_tx {
+                    0..=250 => 154 + 43 * self.config.operator.operator_num_kickoff_utxos_per_tx, // Handles all values from 0 to 250
+                    _ => 156 + 43 * self.config.operator.operator_num_kickoff_utxos_per_tx, // Handles all other values
+                };
             if funding_utxo.txout.value.to_sat()
-                < (KICKOFF_UTXO_AMOUNT_SATS * self.config.operator_num_kickoff_utxos_per_tx as u64
+                < (KICKOFF_UTXO_AMOUNT_SATS
+                    * self.config.operator.operator_num_kickoff_utxos_per_tx as u64
                     + kickoff_tx_min_relay_fee as u64
                     + 330)
             {
@@ -210,7 +213,7 @@ where
                 &self.nofn_xonly_pk,
                 &self.signer.xonly_public_key,
                 self.config.bitcoin.network,
-                self.config.operator_num_kickoff_utxos_per_tx,
+                self.config.operator.operator_num_kickoff_utxos_per_tx,
             );
             tracing::debug!(
                 "Funding UTXO found: {:?} kickoff UTXO is created for deposit UTXO: {:?}",
@@ -238,9 +241,10 @@ where
             let change_utxo = UTXO {
                 outpoint: OutPoint {
                     txid: kickoff_tx_handler.tx.compute_txid(),
-                    vout: self.config.operator_num_kickoff_utxos_per_tx as u32,
+                    vout: self.config.operator.operator_num_kickoff_utxos_per_tx as u32,
                 },
-                txout: kickoff_tx_handler.tx.output[self.config.operator_num_kickoff_utxos_per_tx]
+                txout: kickoff_tx_handler.tx.output
+                    [self.config.operator.operator_num_kickoff_utxos_per_tx]
                     .clone(),
             };
             tracing::debug!(
@@ -277,7 +281,7 @@ where
                     Some(&mut tx),
                     kickoff_tx_handler.tx.compute_txid(),
                     kickoff_tx_handler.tx.raw_hex(),
-                    self.config.operator_num_kickoff_utxos_per_tx,
+                    self.config.operator.operator_num_kickoff_utxos_per_tx,
                     funding_utxo.outpoint.txid,
                 )
                 .await?;
@@ -438,7 +442,7 @@ where
             &self.nofn_xonly_pk,
             self.config.bitcoin.network,
             self.config.user_takes_after,
-            self.config.operator_takes_after,
+            self.config.operator.operator_takes_after,
             self.config.bridge_amount_sats,
         );
 
@@ -506,7 +510,7 @@ where
             &self.signer.xonly_public_key,
             &self.nofn_xonly_pk,
             self.config.bitcoin.network,
-            self.config.operator_takes_after,
+            self.config.operator.operator_takes_after,
             self.config.bridge_amount_sats,
         );
 

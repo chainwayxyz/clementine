@@ -43,7 +43,7 @@ pub async fn run_multiple_deposit(
 
     let evm_address = EVMAddress([1u8; 20]);
     let deposit_address = user.get_deposit_address(evm_address).unwrap();
-    let deposit_outpoints = (0..config.operator_num_kickoff_utxos_per_tx + 5).map(|_| {
+    let deposit_outpoints = (0..config.operator.operator_num_kickoff_utxos_per_tx + 5).map(|_| {
         let outpoint = rpc
             .send_to_address(&deposit_address, config.bridge_amount_sats)
             .unwrap();
@@ -163,7 +163,8 @@ pub async fn run_single_deposit(
         .aggregate_slash_or_take_sigs_rpc(
             deposit_outpoint,
             kickoff_utxos.clone(),
-            agg_nonces[config.num_operators + 1..2 * config.num_operators + 1].to_vec(),
+            agg_nonces[config.operator.num_operators + 1..2 * config.operator.num_operators + 1]
+                .to_vec(),
             slash_or_take_partial_sigs,
         )
         .await
@@ -188,7 +189,7 @@ pub async fn run_single_deposit(
         .aggregate_operator_take_sigs_rpc(
             deposit_outpoint,
             kickoff_utxos.clone(),
-            agg_nonces[1..config.num_operators + 1].to_vec(),
+            agg_nonces[1..config.operator.num_operators + 1].to_vec(),
             operator_take_partial_sigs,
         )
         .await
@@ -370,7 +371,9 @@ mod tests {
             .aggregate_slash_or_take_sigs_rpc(
                 deposit_outpoint,
                 kickoff_utxos.clone(),
-                agg_nonces[config.num_operators + 1..2 * config.num_operators + 1].to_vec(),
+                agg_nonces
+                    [config.operator.num_operators + 1..2 * config.operator.num_operators + 1]
+                    .to_vec(),
                 slash_or_take_partial_sigs,
             )
             .await
@@ -401,7 +404,9 @@ mod tests {
             .aggregate_slash_or_take_sigs_rpc(
                 deposit_outpoint,
                 kickoff_utxos.clone(),
-                agg_nonces[config.num_operators + 1..2 * config.num_operators + 1].to_vec(),
+                agg_nonces
+                    [config.operator.num_operators + 1..2 * config.operator.num_operators + 1]
+                    .to_vec(),
                 slash_or_take_partial_sigs_retry,
             )
             .await
@@ -425,7 +430,7 @@ mod tests {
             .aggregate_operator_take_sigs_rpc(
                 deposit_outpoint,
                 kickoff_utxos.clone(),
-                agg_nonces[1..config.num_operators + 1].to_vec(),
+                agg_nonces[1..config.operator.num_operators + 1].to_vec(),
                 operator_take_partial_sigs,
             )
             .await
@@ -448,7 +453,7 @@ mod tests {
             .aggregate_operator_take_sigs_rpc(
                 deposit_outpoint,
                 kickoff_utxos.clone(),
-                agg_nonces[1..config.num_operators + 1].to_vec(),
+                agg_nonces[1..config.operator.num_operators + 1].to_vec(),
                 operator_take_partial_sigs_retry,
             )
             .await

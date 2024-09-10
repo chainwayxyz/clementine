@@ -62,7 +62,7 @@ impl Aggregator {
             &self.nofn_xonly_pk,
             self.config.bitcoin.network,
             self.config.user_takes_after,
-            self.config.operator_takes_after,
+            self.config.operator.operator_takes_after,
             self.config.bridge_amount_sats,
         );
         // tracing::debug!("SLASH_OR_TAKE_TX: {:?}", tx);
@@ -126,7 +126,7 @@ impl Aggregator {
             &self.nofn_xonly_pk,
             self.config.bitcoin.network,
             self.config.user_takes_after,
-            self.config.operator_takes_after,
+            self.config.operator.operator_takes_after,
             self.config.bridge_amount_sats,
         );
         let slash_or_take_utxo = UTXO {
@@ -147,7 +147,7 @@ impl Aggregator {
             operator_xonly_pk,
             &self.nofn_xonly_pk,
             self.config.bitcoin.network,
-            self.config.operator_takes_after,
+            self.config.operator.operator_takes_after,
             self.config.bridge_amount_sats,
         );
         // tracing::debug!(
@@ -248,7 +248,7 @@ impl Aggregator {
             let agg_sig = self.aggregate_slash_or_take_partial_sigs(
                 deposit_outpoint,
                 kickoff_utxos[i].clone(),
-                self.config.operators_xonly_pks[i],
+                self.config.operator.operators_xonly_pks[i],
                 i,
                 &agg_nonces[i].clone(),
                 partial_sigs,
@@ -271,7 +271,7 @@ impl Aggregator {
             let agg_sig = self.aggregate_operator_takes_partial_sigs(
                 deposit_outpoint,
                 kickoff_utxos[i].clone(),
-                &self.config.operators_xonly_pks[i].clone(),
+                &self.config.operator.operators_xonly_pks[i].clone(),
                 i,
                 &agg_nonces[i].clone(),
                 partial_sigs.iter().map(|v| v[i]).collect(),
