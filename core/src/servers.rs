@@ -125,6 +125,7 @@ fn is_test_env() -> bool {
 ///
 /// Panics if there was an error while creating any of the servers.
 #[tracing::instrument(ret(level = tracing::Level::TRACE))]
+#[allow(clippy::type_complexity)] // Enabling tracing::instrument causes this.
 pub async fn create_verifiers_and_operators(
     config_name: &str,
     // rpc: ExtendedRpc<R>,
