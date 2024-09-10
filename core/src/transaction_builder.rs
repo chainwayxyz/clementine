@@ -52,6 +52,7 @@ impl TransactionBuilder {
 
     // ADDRESS BUILDERS
 
+    #[tracing::instrument(ret(level = tracing::Level::TRACE))]
     pub fn create_taproot_address(
         scripts: &[ScriptBuf],
         internal_key: Option<XOnlyPublicKey>,
@@ -98,6 +99,7 @@ impl TransactionBuilder {
 
     /// Generates a deposit address for the user. N-of-N or user takes after
     /// timelock script can be used to spend the funds.
+    #[tracing::instrument(ret(level = tracing::Level::TRACE))]
     pub fn generate_deposit_address(
         nofn_xonly_pk: &XOnlyPublicKey,
         recovery_taproot_address: &Address<NetworkUnchecked>,
@@ -128,6 +130,7 @@ impl TransactionBuilder {
         )
     }
 
+    #[tracing::instrument(ret(level = tracing::Level::TRACE))]
     pub fn create_musig2_address(
         nofn_xonly_pk: XOnlyPublicKey,
         network: bitcoin::Network,
@@ -135,6 +138,7 @@ impl TransactionBuilder {
         TransactionBuilder::create_taproot_address(&[], Some(nofn_xonly_pk), network)
     }
 
+    #[tracing::instrument(ret(level = tracing::Level::TRACE))]
     pub fn create_kickoff_address(
         nofn_xonly_pk: &XOnlyPublicKey,
         operator_xonly_pk: &XOnlyPublicKey,
@@ -150,6 +154,7 @@ impl TransactionBuilder {
     // TX BUILDERS
 
     /// Creates the move_tx to move the deposit.
+    #[tracing::instrument(ret(level = tracing::Level::TRACE))]
     pub fn create_move_tx(
         deposit_outpoint: OutPoint,
         evm_address: &EVMAddress,
@@ -197,6 +202,7 @@ impl TransactionBuilder {
     }
 
     /// Creates the kickoff_tx for the operator. It also returns the change utxo
+    #[tracing::instrument(ret(level = tracing::Level::TRACE))]
     pub fn create_kickoff_utxo_tx(
         funding_utxo: &UTXO, // Make sure this comes from the operator's address.
         nofn_xonly_pk: &XOnlyPublicKey,
@@ -259,6 +265,7 @@ impl TransactionBuilder {
         }
     }
 
+    #[tracing::instrument(ret(level = tracing::Level::TRACE))]
     pub fn create_slash_or_take_tx(
         deposit_outpoint: OutPoint,
         kickoff_utxo: UTXO,
@@ -350,6 +357,7 @@ impl TransactionBuilder {
         }
     }
 
+    #[tracing::instrument(ret(level = tracing::Level::TRACE))]
     pub fn create_operator_takes_tx(
         bridge_fund_outpoint: OutPoint,
         slash_or_take_utxo: UTXO,
