@@ -54,7 +54,7 @@ where
             false,
         );
 
-        let operator_xonly_pks = config.operator.operators_xonly_pks.clone();
+        let operator_xonly_pks = config.operator.xonly_pks.clone();
 
         Ok(Verifier {
             rpc,
@@ -181,7 +181,7 @@ where
             utils::SECP.verify_schnorr(
                 &operators_kickoff_sigs[i],
                 &secp256k1::Message::from_digest(kickoff_sig_hash),
-                &self.config.operator.operators_xonly_pks[i],
+                &self.config.operator.xonly_pks[i],
             )?;
 
             // Check if for each operator the address of the kickoff_utxo is correct TODO: Maybe handle the possible errors better
@@ -204,12 +204,12 @@ where
             let mut slash_or_take_tx_handler = TransactionBuilder::create_slash_or_take_tx(
                 deposit_outpoint,
                 kickoff_utxo.clone(),
-                &self.config.operator.operators_xonly_pks[i],
+                &self.config.operator.xonly_pks[i],
                 i,
                 &self.nofn_xonly_pk,
                 self.config.bitcoin.network,
                 self.config.user_takes_after,
-                self.config.operator.operator_takes_after,
+                self.config.operator.takes_after,
                 self.config.bridge_amount_sats,
             );
             let slash_or_take_tx_sighash =
@@ -238,7 +238,7 @@ where
             .save_sighashes_and_get_nonces(
                 Some(&mut dbtx),
                 deposit_outpoint,
-                self.config.operator.num_operators + 1,
+                self.config.operator.count + 1,
                 &slash_or_take_sighashes,
             )
             .await?
@@ -333,7 +333,7 @@ where
                     &self.nofn_xonly_pk,
                     self.config.bitcoin.network,
                     self.config.user_takes_after,
-                    self.config.operator.operator_takes_after,
+                    self.config.operator.takes_after,
                     self.config.bridge_amount_sats,
                 );
                 let slash_or_take_sighash =
@@ -362,7 +362,7 @@ where
                     &self.operator_xonly_pks[index],
                     &self.nofn_xonly_pk,
                     self.config.bitcoin.network,
-                    self.config.operator.operator_takes_after,
+                    self.config.operator.takes_after,
                     self.config.bridge_amount_sats,
                 );
                 ByteArray32(
@@ -427,7 +427,7 @@ where
                     &self.nofn_xonly_pk,
                     self.config.bitcoin.network,
                     self.config.user_takes_after,
-                    self.config.operator.operator_takes_after,
+                    self.config.operator.takes_after,
                     self.config.bridge_amount_sats,
                 );
                 let slash_or_take_utxo = UTXO {
@@ -443,7 +443,7 @@ where
                     &self.operator_xonly_pks[index],
                     &self.nofn_xonly_pk,
                     self.config.bitcoin.network,
-                    self.config.operator.operator_takes_after,
+                    self.config.operator.takes_after,
                     self.config.bridge_amount_sats,
                 );
                 tracing::debug!(
