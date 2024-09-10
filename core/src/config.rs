@@ -11,6 +11,7 @@
 //! described in `BridgeConfig` struct.
 
 use crate::errors::BridgeError;
+use bitcoin::address::NetworkUnchecked;
 use bitcoin::Network;
 use serde::{Deserialize, Serialize};
 use std::{fs::File, io::Read, path::PathBuf};
@@ -32,8 +33,12 @@ pub struct BridgeConfig {
     pub num_verifiers: usize,
     /// Operators x-only public keys.
     pub operators_xonly_pks: Vec<secp256k1::XOnlyPublicKey>,
+    /// Operators wallet addresses.
+    pub operator_wallet_addresses: Vec<bitcoin::Address<NetworkUnchecked>>,
     /// Number of operators.
     pub num_operators: usize,
+    /// Operator's fee for withdrawal, in satoshis.
+    pub operator_withdrawal_fee_sats: Option<u64>,
     /// Number of blocks after which user can take deposit back if deposit request fails.
     pub user_takes_after: u32,
     /// Number of blocks after which operator can take reimburse the bridge fund if they are honest.
@@ -66,6 +71,10 @@ pub struct BridgeConfig {
     pub db_password: String,
     /// PostgreSQL database name.
     pub db_name: String,
+    /// Citrea RPC URL.
+    pub citrea_rpc_url: String,
+    /// Bridge contract address.
+    pub bridge_contract_address: String,
 }
 
 impl BridgeConfig {
@@ -113,7 +122,9 @@ impl Default for BridgeConfig {
             verifiers_public_keys: vec![],
             num_verifiers: 7,
             operators_xonly_pks: vec![],
+            operator_wallet_addresses: vec![],
             num_operators: 3,
+            operator_withdrawal_fee_sats: None,
             user_takes_after: 5,
             operator_takes_after: 5,
             bridge_amount_sats: 100_000_000,
@@ -131,6 +142,8 @@ impl Default for BridgeConfig {
             db_user: "postgres".to_string(),
             db_password: "postgres".to_string(),
             db_name: "postgres".to_string(),
+            citrea_rpc_url: "http://127.0.0.1:12345".to_string(),
+            bridge_contract_address: "3100000000000000000000000000000000000002".to_string(),
         }
     }
 }
