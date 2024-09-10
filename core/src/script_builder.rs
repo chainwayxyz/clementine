@@ -13,6 +13,7 @@ use bitcoin::{
 };
 use secp256k1::XOnlyPublicKey;
 
+#[tracing::instrument(ret(level = tracing::Level::TRACE))]
 pub fn anyone_can_spend_txout() -> TxOut {
     let script = Builder::new().push_opcode(OP_PUSHNUM_1).into_script();
     let script_pubkey = script.to_p2wsh();
@@ -24,6 +25,7 @@ pub fn anyone_can_spend_txout() -> TxOut {
     }
 }
 
+#[tracing::instrument(skip_all, ret(level = tracing::Level::TRACE))]
 pub fn op_return_txout<S: AsRef<bitcoin::script::PushBytes>>(slice: S) -> TxOut {
     let script = Builder::new()
         .push_opcode(OP_RETURN)
@@ -36,6 +38,7 @@ pub fn op_return_txout<S: AsRef<bitcoin::script::PushBytes>>(slice: S) -> TxOut 
     }
 }
 
+#[tracing::instrument(ret(level = tracing::Level::TRACE))]
 pub fn create_deposit_script(
     nofn_xonly_pk: &XOnlyPublicKey,
     evm_address: &EVMAddress,
@@ -55,6 +58,7 @@ pub fn create_deposit_script(
         .into_script()
 }
 
+#[tracing::instrument(ret(level = tracing::Level::TRACE))]
 pub fn create_musig2_and_operator_multisig_script(
     nofn_xonly_pk: &XOnlyPublicKey,
     operator_xonly_pk: &XOnlyPublicKey,
@@ -70,6 +74,7 @@ pub fn create_musig2_and_operator_multisig_script(
 /// ATTENTION: If you want to spend a UTXO using timelock script, the
 /// condition is that (`# in the script`) < (`# in the sequence of the tx`)
 /// < (`# of blocks mined after UTXO`) appears on the chain.
+#[tracing::instrument(ret(level = tracing::Level::TRACE))]
 pub fn generate_relative_timelock_script(
     actor_taproot_xonly_pk: &XOnlyPublicKey, // This is the tweaked XonlyPublicKey, which appears in the script_pubkey of the address
     block_count: u32,
@@ -83,6 +88,7 @@ pub fn generate_relative_timelock_script(
         .into_script()
 }
 
+#[tracing::instrument(ret(level = tracing::Level::TRACE))]
 pub fn generate_absolute_timelock_script(actor_pk: &XOnlyPublicKey, block_count: u32) -> ScriptBuf {
     Builder::new()
         .push_int(block_count as i64)
@@ -93,6 +99,7 @@ pub fn generate_absolute_timelock_script(actor_pk: &XOnlyPublicKey, block_count:
         .into_script()
 }
 
+#[tracing::instrument(ret(level = tracing::Level::TRACE))]
 pub fn generate_hash_script(hash: [u8; 32]) -> ScriptBuf {
     Builder::new()
         .push_opcode(OP_SHA256)
@@ -101,6 +108,7 @@ pub fn generate_hash_script(hash: [u8; 32]) -> ScriptBuf {
         .into_script()
 }
 
+#[tracing::instrument(ret(level = tracing::Level::TRACE))]
 pub fn generate_dust_script(evm_address: &EVMAddress) -> ScriptBuf {
     Builder::new()
         .push_opcode(OP_RETURN)
