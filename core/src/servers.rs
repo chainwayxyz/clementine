@@ -3,8 +3,7 @@
 //! Utilities for operator and verifier servers.
 use crate::mock::common;
 use crate::traits::rpc::AggregatorServer;
-use crate::traits::rpc::OperatorRpcClient;
-use crate::{aggregator, create_extended_rpc, UTXO};
+use crate::{aggregator, create_extended_rpc};
 use crate::{
     config::BridgeConfig,
     create_test_config, create_test_config_with_thread_name,
@@ -15,7 +14,6 @@ use crate::{
     traits::{self, rpc::VerifierRpcServer},
     verifier::Verifier,
 };
-use bitcoin::Address;
 use bitcoin_mock_rpc::RpcApiWrapper;
 use errors::BridgeError;
 use jsonrpsee::{
@@ -212,29 +210,6 @@ pub async fn create_verifiers_and_operators(
         .await
         .unwrap();
 
-    for (i, (operator_client, _, _)) in operator_endpoints.iter().enumerate() {
-        // Send operators some bitcoin so that they can afford the kickoff tx
-        let secp = bitcoin::secp256k1::Secp256k1::new();
-        let operator_internal_xonly_pk = config.operators_xonly_pks.get(i).unwrap();
-        let operator_address =
-            Address::p2tr(&secp, *operator_internal_xonly_pk, None, config.network);
-        let operator_funding_outpoint = rpc
-            .send_to_address(&operator_address, 2 * config.bridge_amount_sats)
-            .unwrap();
-        let operator_funding_txout = rpc
-            .get_txout_from_outpoint(&operator_funding_outpoint)
-            .unwrap();
-        let operator_funding_utxo = UTXO {
-            outpoint: operator_funding_outpoint,
-            txout: operator_funding_txout,
-        };
-
-        tracing::debug!("Operator {:?} funding utxo: {:?}", i, operator_funding_utxo);
-        operator_client
-            .set_funding_utxo_rpc(operator_funding_utxo)
-            .await
-            .unwrap();
-    }
     let config = create_test_config_with_thread_name!(config_name);
     println!("Port: {}", start_port);
     let port = start_port

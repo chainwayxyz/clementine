@@ -358,8 +358,10 @@ impl TransactionBuilder {
         network: bitcoin::Network,
         operator_takes_after: u32,
         bridge_amount_sats: u64,
+        operator_wallet_address: Address<NetworkUnchecked>,
     ) -> TxHandler {
-        let operator_address = Address::p2tr(&utils::SECP, *operator_xonly_pk, None, network);
+        let operator_wallet_address_checked =
+            operator_wallet_address.require_network(network).unwrap();
         let mut ins = TransactionBuilder::create_tx_ins(vec![bridge_fund_outpoint]);
         ins.extend(TransactionBuilder::create_tx_ins_with_sequence(
             vec![slash_or_take_utxo.outpoint],
@@ -391,7 +393,7 @@ impl TransactionBuilder {
                     - Amount::from_sat(OPERATOR_TAKES_TX_MIN_RELAY_FEE)
                     - script_builder::anyone_can_spend_txout().value
                     - script_builder::anyone_can_spend_txout().value,
-                script_pubkey: operator_address.script_pubkey(),
+                script_pubkey: operator_wallet_address_checked.script_pubkey(),
             },
             script_builder::anyone_can_spend_txout(),
         ];

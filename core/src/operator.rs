@@ -34,7 +34,7 @@ where
     config: BridgeConfig,
     nofn_xonly_pk: secp256k1::XOnlyPublicKey,
     idx: usize,
-    citrea_client: jsonrpsee::http_client::HttpClient,
+    citrea_client: Option<jsonrpsee::http_client::HttpClient>,
 }
 
 impl<R> Operator<R>
@@ -78,9 +78,15 @@ where
         }
         tx.commit().await?;
 
-        let citrea_client = HttpClientBuilder::default()
-            .build(config.citrea_rpc_url.clone())
-            .unwrap();
+        let citrea_client = if !config.citrea_rpc_url.is_empty() {
+            Some(
+                HttpClientBuilder::default()
+                    .build(config.citrea_rpc_url.clone())
+                    .unwrap(),
+            )
+        } else {
+            None
+        };
 
         Ok(Self {
             rpc,
@@ -340,8 +346,7 @@ where
         input_utxo: UTXO,
         output_txout: TxOut,
     ) -> Result<Txid, BridgeError> {
-        // only if citrea rpc url is set, check if the withdrawal idx is valid
-        if !self.config.citrea_rpc_url.is_empty() {
+        if let Some(citrea_client) = &self.citrea_client {
             let params = rpc_params![
                 json!({
                     "to": "0x3100000000000000000000000000000000000002",
@@ -349,7 +354,7 @@ where
                 }),
                 "latest"
             ];
-            let response: String = self.citrea_client.request("eth_call", params).await?;
+            let response: String = citrea_client.request("eth_call", params).await?;
             let txid_response = &response[2..66];
             let txid = hex::decode(txid_response).unwrap();
             // txid.reverse(); // TODO: we should need to reverse this, test this with declareWithdrawalFiller
@@ -435,7 +440,7 @@ where
     ) -> Result<Vec<String>, BridgeError> {
         // call withdrawFillers(withdrawal_idx) check the returned id is our operator id.
         // calculate the move_txid, txIdToDepositId(move_txid) check the returned id is withdrawal_idx
-        if !self.config.citrea_rpc_url.is_empty() {
+        if let Some(citrea_client) = &self.citrea_client {
             let params = rpc_params![
                 json!({
                     "to": "0x3100000000000000000000000000000000000002",
@@ -443,7 +448,7 @@ where
                 }),
                 "latest"
             ];
-            let response: String = self.citrea_client.request("eth_call", params).await?;
+            let response: String = citrea_client.request("eth_call", params).await?;
             let operator_idx_response = &response[58..66];
             let operator_idx_as_vec = hex::decode(operator_idx_response).unwrap();
             let operator_idx = u32::from_be_bytes(operator_idx_as_vec.try_into().unwrap());
@@ -571,6 +576,7 @@ where
             self.config.network,
             self.config.operator_takes_after,
             self.config.bridge_amount_sats,
+            self.config.operator_wallet_addresses[self.idx].clone(),
         );
 
         let operator_takes_nofn_sig = self

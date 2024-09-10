@@ -362,6 +362,7 @@ where
                     self.config.network,
                     self.config.operator_takes_after,
                     self.config.bridge_amount_sats,
+                    self.config.operator_wallet_addresses[index].clone(),
                 );
                 ByteArray32(
                     Actor::convert_tx_to_sighash_pubkey_spend(&mut operator_takes_tx, 0)
@@ -444,6 +445,7 @@ where
                     self.config.network,
                     self.config.operator_takes_after,
                     self.config.bridge_amount_sats,
+                    self.config.operator_wallet_addresses[index].clone(),
                 );
                 tracing::debug!(
                     "INDEXXX: {:?} Operator takes tx hex: {:?}",

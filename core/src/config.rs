@@ -11,6 +11,7 @@
 //! described in `BridgeConfig` struct.
 
 use crate::errors::BridgeError;
+use bitcoin::address::NetworkUnchecked;
 use bitcoin::Network;
 use serde::{Deserialize, Serialize};
 use std::str::FromStr;
@@ -38,6 +39,8 @@ pub struct BridgeConfig {
     pub num_verifiers: usize,
     /// Operators x-only public keys.
     pub operators_xonly_pks: Vec<secp256k1::XOnlyPublicKey>,
+    /// Operators wallet addresses.
+    pub operator_wallet_addresses: Vec<bitcoin::Address<NetworkUnchecked>>,
     /// Number of operators.
     pub num_operators: usize,
     /// Operator's fee for withdrawal, in satoshis.
@@ -146,6 +149,7 @@ impl Default for BridgeConfig {
             verifiers_public_keys: vec![],
             num_verifiers: 7,
             operators_xonly_pks: vec![],
+            operator_wallet_addresses: vec![],
             num_operators: 3,
             operator_withdrawal_fee_sats: None,
             user_takes_after: 5,
