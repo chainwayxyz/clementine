@@ -1,10 +1,9 @@
 //! # Servers
 //!
 //! Utilities for operator and verifier servers.
-
 use crate::mock::database::create_test_config_with_thread_name;
-use crate::traits::rpc::{AggregatorServer, OperatorRpcClient};
-use crate::{aggregator, create_extended_rpc, UTXO};
+use crate::traits::rpc::AggregatorServer;
+use crate::{aggregator, create_extended_rpc};
 use crate::{
     config::BridgeConfig,
     errors,
@@ -13,7 +12,6 @@ use crate::{
     traits::{self, rpc::VerifierRpcServer},
     verifier::Verifier,
 };
-use bitcoin::Address;
 use bitcoin_mock_rpc::RpcApiWrapper;
 use errors::BridgeError;
 use jsonrpsee::{

@@ -8,3 +8,4 @@ configs
 ./database
 .vscode
 .docker/db/data/
+*.log

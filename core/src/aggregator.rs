@@ -149,6 +149,7 @@ impl Aggregator {
             self.config.bitcoin.network,
             self.config.operator.takes_after,
             self.config.bridge_amount_sats,
+            self.config.operator_wallet_addresses[operator_idx].clone(),
         );
         // tracing::debug!(
         //     "OPERATOR_TAKES_TX with operator_idx:{:?} {:?}",

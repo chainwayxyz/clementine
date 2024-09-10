@@ -11,6 +11,7 @@
 //! described in `BridgeConfig` struct.
 
 use crate::errors::BridgeError;
+use bitcoin::address::NetworkUnchecked;
 use bitcoin::Network;
 use serde::{Deserialize, Serialize};
 use std::{fs::File, io::Read, path::PathBuf};
