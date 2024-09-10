@@ -1,14 +1,14 @@
-// //! # Common utilities for tests
+//! # Common utilities for tests
 
 use bitcoin::consensus::encode::deserialize_hex;
 use bitcoin::OutPoint;
 use bitcoin::Transaction;
 use clementine_core::actor::Actor;
 use clementine_core::config::BridgeConfig;
-use clementine_core::database::common::Database;
+use clementine_core::create_extended_rpc;
 use clementine_core::errors::BridgeError;
 use clementine_core::extended_rpc::ExtendedRpc;
-use clementine_core::mock::common;
+use clementine_core::mock::database::create_test_config_with_thread_name;
 use clementine_core::musig2::MuSigPartialSignature;
 use clementine_core::servers::*;
 use clementine_core::traits::rpc::AggregatorClient;
@@ -17,19 +17,15 @@ use clementine_core::traits::rpc::VerifierRpcClient;
 use clementine_core::user::User;
 use clementine_core::EVMAddress;
 use clementine_core::UTXO;
-use clementine_core::{
-    create_extended_rpc, create_test_config, create_test_config_with_thread_name,
-};
 use jsonrpsee::http_client::HttpClient;
 use jsonrpsee::server::ServerHandle;
 use secp256k1::schnorr;
 use std::net::SocketAddr;
-use std::thread;
 
 pub async fn run_multiple_deposit(
     test_config_name: &str,
 ) -> Result<(Vec<UTXO>, Vec<schnorr::Signature>), BridgeError> {
-    let mut config = create_test_config_with_thread_name!(test_config_name);
+    let mut config = create_test_config_with_thread_name(test_config_name, None).await;
     let rpc = create_extended_rpc!(config);
 
     let (_, operators, _) = create_verifiers_and_operators("test_config.toml").await;
@@ -85,7 +81,7 @@ pub async fn run_single_deposit(
     ),
     BridgeError,
 > {
-    let mut config = create_test_config_with_thread_name!(test_config_name);
+    let mut config = create_test_config_with_thread_name(test_config_name, None).await;
     let rpc = create_extended_rpc!(config);
 
     let (verifiers, operators, aggregator) =
@@ -237,9 +233,9 @@ mod tests {
     use bitcoin::consensus::encode::deserialize_hex;
     use bitcoin::Transaction;
     use clementine_core::actor::Actor;
-    use clementine_core::database::common::Database;
+    use clementine_core::create_extended_rpc;
     use clementine_core::extended_rpc::ExtendedRpc;
-    use clementine_core::mock::common;
+    use clementine_core::mock::database::create_test_config_with_thread_name;
     use clementine_core::musig2::MuSigPartialSignature;
     use clementine_core::servers::*;
     use clementine_core::traits::rpc::AggregatorClient;
@@ -247,14 +243,10 @@ mod tests {
     use clementine_core::traits::rpc::VerifierRpcClient;
     use clementine_core::user::User;
     use clementine_core::EVMAddress;
-    use clementine_core::{
-        create_extended_rpc, create_test_config, create_test_config_with_thread_name,
-    };
-    use std::thread;
 
     #[tokio::test]
     async fn test_deposit_retry() {
-        let mut config = create_test_config_with_thread_name!("test_config.toml");
+        let mut config = create_test_config_with_thread_name("test_config.toml", None).await;
         let rpc = create_extended_rpc!(config);
 
         let (verifiers, operators, aggregator) =

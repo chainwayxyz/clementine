@@ -58,7 +58,11 @@ where
             .operators_xonly_pks
             .iter()
             .position(|xonly_pk| xonly_pk == &signer.xonly_public_key)
-            .unwrap();
+            .ok_or(BridgeError::ServerError(std::io::Error::other(format!(
+                "{} is not found in operator x-only public keys",
+                signer.xonly_public_key
+            ))))?;
+
         if config.operator_withdrawal_fee_sats.is_none() {
             return Err(BridgeError::OperatorWithdrawalFeeNotSet);
         }

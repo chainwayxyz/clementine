@@ -1,4 +1,3 @@
-tracing_debug = "debug,bitcoincore_rpc=info,hyper=error"
 host = "127.0.0.1"
 port = 17000
 secret_key = "3333333333333333333333333333333333333333333333333333333333333333"

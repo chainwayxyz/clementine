@@ -1,12 +1,13 @@
 use bitcoin::opcodes::all::OP_CHECKSIG;
 use bitcoin::{hashes::Hash, script, Amount, ScriptBuf};
 use bitcoincore_rpc::RawTx;
-use clementine_core::database::common::Database;
-use clementine_core::mock::common;
+use clementine_core::create_extended_rpc;
+use clementine_core::mock::database::create_test_config_with_thread_name;
 use clementine_core::musig2::{
     aggregate_nonces, aggregate_partial_signatures, MuSigPartialSignature, MuSigPubNonce,
 };
 use clementine_core::utils::handle_taproot_witness_new;
+use clementine_core::ByteArray32;
 use clementine_core::{
     actor::Actor,
     config::BridgeConfig,
@@ -15,17 +16,14 @@ use clementine_core::{
     transaction_builder::{TransactionBuilder, TxHandler},
     utils, ByteArray66,
 };
-use clementine_core::{
-    create_extended_rpc, create_test_config, create_test_config_with_thread_name, ByteArray32,
-};
 use secp256k1::{Keypair, Message};
-use std::thread;
 
 #[tokio::test]
 async fn test_musig2_key_spend() {
     let secp = bitcoin::secp256k1::Secp256k1::new();
 
-    let mut config: BridgeConfig = create_test_config_with_thread_name!("test_config.toml");
+    let mut config: BridgeConfig =
+        create_test_config_with_thread_name("test_config.toml", None).await;
     let rpc: ExtendedRpc<_> = create_extended_rpc!(config);
     let sks = config.all_verifiers_secret_keys.unwrap();
     let kp_vec: Vec<Keypair> = sks
@@ -128,7 +126,8 @@ async fn test_musig2_key_spend() {
 async fn test_musig2_key_spend_with_script() {
     let secp = bitcoin::secp256k1::Secp256k1::new();
 
-    let mut config: BridgeConfig = create_test_config_with_thread_name!("test_config.toml");
+    let mut config: BridgeConfig =
+        create_test_config_with_thread_name("test_config.toml", None).await;
     let rpc: ExtendedRpc<_> = create_extended_rpc!(config);
     let sks = config.all_verifiers_secret_keys.unwrap();
     let kp_vec: Vec<Keypair> = sks
@@ -232,7 +231,8 @@ async fn test_musig2_key_spend_with_script() {
 async fn test_musig2_script_spend() {
     let secp = bitcoin::secp256k1::Secp256k1::new();
 
-    let mut config: BridgeConfig = create_test_config_with_thread_name!("test_config.toml");
+    let mut config: BridgeConfig =
+        create_test_config_with_thread_name("test_config.toml", None).await;
     let rpc: ExtendedRpc<_> = create_extended_rpc!(config);
     let sks = config.all_verifiers_secret_keys.unwrap();
     let kp_vec: Vec<Keypair> = sks

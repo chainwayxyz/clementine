@@ -99,7 +99,7 @@ pub fn aggregate_partial_signatures(
     partial_sigs: Vec<MuSigPartialSignature>,
     message: MuSigSigHash,
 ) -> Result<[u8; 64], BridgeError> {
-    let key_agg_ctx = create_key_agg_ctx(pks, tweak, tweak_flag).unwrap();
+    let key_agg_ctx = create_key_agg_ctx(pks, tweak, tweak_flag)?;
     let musig_partial_sigs: Vec<musig2::PartialSignature> = partial_sigs
         .iter()
         .map(|x| musig2::PartialSignature::from_slice(&x.0).unwrap())
@@ -125,12 +125,15 @@ pub fn nonce_pair(
     let spices = SecNonceSpices::new().with_seckey(
         musig2::secp256k1::SecretKey::from_slice(&keypair.secret_key().secret_bytes()).unwrap(),
     );
+
     let sec_nonce = SecNonce::build(rnd)
         .with_pubkey(musig_pubkey)
         .with_spices(spices)
         .build();
+
     let pub_nonce = ByteArray66(sec_nonce.public_nonce().into());
     let sec_nonce: [u8; 64] = sec_nonce.into();
+
     (ByteArray64(sec_nonce), pub_nonce)
 }
 
@@ -162,9 +165,7 @@ pub fn partial_sign(
 
 #[cfg(test)]
 mod tests {
-
-    use std::vec;
-
+    use super::{nonce_pair, MuSigNoncePair};
     use crate::{
         actor::Actor,
         errors::BridgeError,
@@ -177,8 +178,7 @@ mod tests {
         TxOut, Txid,
     };
     use secp256k1::{rand::Rng, Keypair, Message, XOnlyPublicKey};
-
-    use super::{nonce_pair, MuSigNoncePair};
+    use std::vec;
 
     // Generates a test setup with a given number of signers. Returns a vector of keypairs and a vector of nonce pairs.
     fn generate_test_setup(num_signers: usize) -> (Vec<Keypair>, Vec<MuSigNoncePair>) {

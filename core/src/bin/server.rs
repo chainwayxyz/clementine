@@ -1,20 +1,19 @@
 use clementine_core::servers::create_aggregator_server;
 use clementine_core::servers::create_operator_server;
 use clementine_core::servers::create_verifier_server;
-use clementine_core::{cli, database::common::Database, extended_rpc::ExtendedRpc};
+use clementine_core::utils::get_configuration_for_binaries;
+use clementine_core::{database::common::Database, extended_rpc::ExtendedRpc};
 use std::process::exit;
 
 #[tokio::main]
 async fn main() {
-    let args = match cli::parse() {
-        Ok(args) => args,
-        Err(e) => {
-            eprintln!("{e}");
-            exit(1);
-        }
-    };
+    let (mut config, args) = get_configuration_for_binaries();
 
-    let mut config = cli::get_configuration();
+    if !args.verifier_server && !args.operator_server && !args.aggregator_server {
+        eprintln!("No servers are specified. Please specify one.");
+        exit(1);
+    }
+
     let rpc = ExtendedRpc::<bitcoincore_rpc::Client>::new(
         config.bitcoin_rpc_url.clone(),
         config.bitcoin_rpc_user.clone(),
@@ -37,7 +36,7 @@ async fn main() {
         );
         config.port += 1;
 
-        tracing::trace!("Verifier servers are started.");
+        println!("Verifier server is started.");
     }
 
     if args.operator_server {
@@ -50,16 +49,13 @@ async fn main() {
         );
         config.port += 1;
 
-        tracing::trace!("Operator servers are started.");
+        println!("Operator server is started.");
     }
 
     if args.aggregator_server {
         handles.push(create_aggregator_server(config).await.unwrap().1.stopped());
-    }
 
-    if !args.verifier_server && !args.operator_server && !args.aggregator_server {
-        eprintln!("No servers are specified. Please specify one.");
-        exit(1);
+        println!("Aggregator server is started.");
     }
 
     futures::future::join_all(handles).await;

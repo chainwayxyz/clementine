@@ -1,16 +1,11 @@
 use clementine_core::{
-    cli, extended_rpc::ExtendedRpc, musig2::AggregateFromPublicKeys,
-    servers::create_verifiers_and_operators,
+    musig2::AggregateFromPublicKeys, servers::create_verifiers_and_operators,
+    utils::get_configuration_for_binaries,
 };
 
 #[tokio::main]
 async fn main() {
-    let config = cli::get_configuration();
-    let _rpc = ExtendedRpc::<bitcoincore_rpc::Client>::new(
-        config.bitcoin_rpc_url.clone(),
-        config.bitcoin_rpc_user.clone(),
-        config.bitcoin_rpc_password.clone(),
-    );
+    let (config, _) = get_configuration_for_binaries();
 
     let (verifier_clients, operator_clients, aggregator) =
         create_verifiers_and_operators("test_config.toml").await;
