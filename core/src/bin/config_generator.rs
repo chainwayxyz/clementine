@@ -51,7 +51,7 @@ fn main() {
             verifier: Verifier {
                 verifiers_public_keys: public_keys.clone(),
                 num_verifiers,
-                ..cur_config
+                ..cur_config.verifier.clone()
             },
             port: ports[i],
             ..cur_config.clone()
