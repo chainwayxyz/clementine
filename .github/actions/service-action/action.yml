@@ -71,11 +71,13 @@ runs:
           "2222222222222222222222222222222222222222222222222222222222222222",
           "3333333333333333333333333333333333333333333333333333333333333333",
       ]
-      db_host = "127.0.0.1"
-      db_port = 5432
-      db_user = "clementine"
-      db_password = "clementine"
-      db_name = "clementine"
       citrea_rpc_url = "http://159.89.214.47/"
       bridge_contract_address = "3100000000000000000000000000000000000002"
+
+      [database]
+      host = "127.0.0.1"
+      port = 5432
+      user = "clementine"
+      password = "clementine"
+      name = "clementine"
       EOF

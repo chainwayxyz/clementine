@@ -4,6 +4,7 @@
 //! directly talks with PostgreSQL. It is expected that PostgreSQL is properly
 //! installed and configured.
 
+use crate::config;
 use crate::musig2::{MuSigAggNonce, MuSigPubNonce, MuSigSecNonce, MuSigSigHash};
 use crate::{config::BridgeConfig, errors::BridgeError};
 use crate::{EVMAddress, UTXO};
@@ -26,15 +27,15 @@ impl Database {
     /// TODO: Pass the reference &BridgeConfig instead of copying BridgeConfig.
     pub async fn new(config: BridgeConfig) -> Result<Self, BridgeError> {
         let url = "postgresql://".to_owned()
-            + config.db_host.as_str()
+            + config.database.host.as_str()
             + ":"
-            + config.db_port.to_string().as_str()
+            + config.database.port.to_string().as_str()
             + "?dbname="
-            + config.db_name.as_str()
+            + config.database.name.as_str()
             + "&user="
-            + config.db_user.as_str()
+            + config.database.user.as_str()
             + "&password="
-            + config.db_password.as_str();
+            + config.database.password.as_str();
         tracing::debug!("Connecting database: {}", url);
 
         match sqlx::PgPool::connect(url.as_str()).await {
@@ -54,11 +55,11 @@ impl Database {
         database_name: &str,
     ) -> Result<(), BridgeError> {
         let url = "postgresql://".to_owned()
-            + config.db_user.as_str()
+            + config.database.user.as_str()
             + ":"
-            + config.db_password.as_str()
+            + config.database.password.as_str()
             + "@"
-            + config.db_host.as_str();
+            + config.database.host.as_str();
         let conn = sqlx::PgPool::connect(url.as_str()).await?;
 
         let query = format!("DROP DATABASE IF EXISTS {database_name}");
@@ -81,23 +82,26 @@ impl Database {
         database_name: &str,
     ) -> Result<BridgeConfig, BridgeError> {
         let url = "postgresql://".to_owned()
-            + config.db_user.as_str()
+            + config.database.user.as_str()
             + ":"
-            + config.db_password.as_str()
+            + config.database.password.as_str()
             + "@"
-            + config.db_host.as_str();
+            + config.database.host.as_str();
         let conn = sqlx::PgPool::connect(url.as_str()).await?;
         Database::drop_database(config.clone(), database_name).await?;
         let query = format!(
             "CREATE DATABASE {} WITH OWNER {}",
-            database_name, config.db_user
+            database_name, config.database.user
         );
         sqlx::query(&query).execute(&conn).await?;
 
         conn.close().await;
 
         let config = BridgeConfig {
-            db_name: database_name.to_string(),
+            database: config::Database {
+                name: database_name.to_string(),
+                ..config.database
+            },
             ..config
         };
 
@@ -749,11 +753,11 @@ mod tests {
     #[should_panic]
     async fn test_invalid_connection() {
         let mut config = BridgeConfig::new();
-        config.db_host = "nonexistinghost".to_string();
-        config.db_name = "nonexistingpassword".to_string();
-        config.db_user = "nonexistinguser".to_string();
-        config.db_password = "nonexistingpassword".to_string();
-        config.db_port = 123;
+        config.database.host = "nonexistinghost".to_string();
+        config.database.name = "nonexistingpassword".to_string();
+        config.database.user = "nonexistinguser".to_string();
+        config.database.password = "nonexistingpassword".to_string();
+        config.database.port = 123;
 
         Database::new(config).await.unwrap();
     }

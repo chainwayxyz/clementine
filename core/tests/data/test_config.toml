@@ -40,8 +40,10 @@ all_operators_secret_keys = [
     "2222222222222222222222222222222222222222222222222222222222222222",
     "3333333333333333333333333333333333333333333333333333333333333333",
 ]
-db_host = "127.0.0.1"
-db_port = 5432
-db_user = "clementine"
-db_password = ""
-db_name = "clementine"
+
+[database]
+host = "127.0.0.1"
+port = 5432
+user = "clementine"
+password = "clementine"
+name = "clementine"

@@ -15,9 +15,36 @@ use bitcoin::Network;
 use serde::{Deserialize, Serialize};
 use std::{fs::File, io::Read, path::PathBuf};
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Database {
+    /// PostgreSQL database host address.
+    pub host: String,
+    /// PostgreSQL database port.
+    pub port: usize,
+    /// PostgreSQL database user name.
+    pub user: String,
+    /// PostgreSQL database user password.
+    pub password: String,
+    /// PostgreSQL database name.
+    pub name: String,
+}
+impl Default for Database {
+    fn default() -> Self {
+        Self {
+            host: "127.0.0.1".to_string(),
+            port: 5432,
+            user: "clementine".to_string(),
+            password: "clementine".to_string(),
+            name: "clementine".to_string(),
+        }
+    }
+}
+
 /// Configuration options for any Clementine target (tests, binaries etc.).
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct BridgeConfig {
+    /// PostgreSQL database information.
+    pub database: Database,
     /// Host of the operator or the verifier
     pub host: String,
     /// Port of the operator or the verifier
@@ -56,16 +83,6 @@ pub struct BridgeConfig {
     pub all_operators_secret_keys: Option<Vec<secp256k1::SecretKey>>,
     /// Verifier endpoints.
     pub verifier_endpoints: Option<Vec<String>>,
-    /// PostgreSQL database host address.
-    pub db_host: String,
-    /// PostgreSQL database port.
-    pub db_port: usize,
-    /// PostgreSQL database user name.
-    pub db_user: String,
-    /// PostgreSQL database user password.
-    pub db_password: String,
-    /// PostgreSQL database name.
-    pub db_name: String,
 }
 
 impl BridgeConfig {
@@ -107,6 +124,7 @@ impl BridgeConfig {
 impl Default for BridgeConfig {
     fn default() -> Self {
         Self {
+            database: Database::default(),
             host: "127.0.0.1".to_string(),
             port: 3030,
             secret_key: secp256k1::SecretKey::new(&mut secp256k1::rand::thread_rng()),
@@ -126,11 +144,6 @@ impl Default for BridgeConfig {
             all_verifiers_secret_keys: None,
             all_operators_secret_keys: None,
             verifier_endpoints: None,
-            db_host: "127.0.0.1".to_string(),
-            db_port: 5432,
-            db_user: "postgres".to_string(),
-            db_password: "postgres".to_string(),
-            db_name: "postgres".to_string(),
         }
     }
 }
