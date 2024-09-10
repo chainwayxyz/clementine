@@ -175,6 +175,9 @@ pub enum BridgeError {
 
     #[error("InvalidOperatorIndex: {0}, {1}")]
     InvalidOperatorIndex(usize, usize),
+
+    #[error("NotEnoughFeeForOperator")]
+    NotEnoughFeeForOperator,
 }
 
 impl From<BridgeError> for ErrorObject<'static> {

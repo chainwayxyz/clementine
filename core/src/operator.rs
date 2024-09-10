@@ -339,7 +339,7 @@ where
         user_sig: schnorr::Signature,
         input_utxo: UTXO,
         output_txout: TxOut,
-    ) -> Result<Option<Txid>, BridgeError> {
+    ) -> Result<Txid, BridgeError> {
         // only if citrea rpc url is set, check if the withdrawal idx is valid
         if !self.config.citrea_rpc_url.is_empty() {
             let params = rpc_params![
@@ -367,7 +367,7 @@ where
             .is_profitable(input_utxo.txout.value.to_sat(), output_txout.value.to_sat())
             .await?
         {
-            return Ok(None);
+            return Err(BridgeError::NotEnoughFeeForOperator);
         }
         let tx_ins = TransactionBuilder::create_tx_ins(vec![input_utxo.outpoint]);
         let user_xonly_pk = secp256k1::XOnlyPublicKey::from_slice(
@@ -425,7 +425,7 @@ where
                 .hex,
         )?;
         let final_txid = self.rpc.send_raw_transaction(&signed_tx)?;
-        Ok(Some(final_txid))
+        Ok(final_txid)
     }
 
     async fn withdrawal_proved_on_citrea(
@@ -659,7 +659,7 @@ where
         user_sig: schnorr::Signature,
         input_utxo: UTXO,
         output_txout: TxOut,
-    ) -> Result<Option<Txid>, BridgeError> {
+    ) -> Result<Txid, BridgeError> {
         self.new_withdrawal_sig(withdrawal_idx, user_sig, input_utxo, output_txout)
             .await
     }

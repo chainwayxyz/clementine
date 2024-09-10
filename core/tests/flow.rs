@@ -93,9 +93,8 @@ async fn test_withdrawal_fee_too_low() {
     let withdrawal_provide_txid = operators[0]
         .0
         .new_withdrawal_sig_rpc(0, user_sig, empty_utxo, withdrawal_tx_out)
-        .await
-        .unwrap();
-    assert!(withdrawal_provide_txid.is_none());
+        .await;
+    assert!(withdrawal_provide_txid.is_err());
 }
 
 #[tokio::test]

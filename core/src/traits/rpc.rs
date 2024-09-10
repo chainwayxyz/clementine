@@ -78,7 +78,7 @@ pub trait OperatorRpc {
         user_sig: schnorr::Signature,
         input_utxo: UTXO,
         output_txout: TxOut,
-    ) -> Result<Option<Txid>, BridgeError>;
+    ) -> Result<Txid, BridgeError>;
 
     #[method(name = "withdrawal_proved_on_citrea")]
     /// 1- Calculate move_txid, check if the withdrawal idx matches the move_txid
