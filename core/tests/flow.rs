@@ -36,7 +36,7 @@ async fn test_honest_operator_takes_refund() {
     let rpc = create_extended_rpc!(config);
 
     let secp = bitcoin::secp256k1::Secp256k1::new();
-    let user_sk = SecretKey::from_slice(&[12u8; 32]).unwrap();
+    let user_sk = SecretKey::from_slice(&[13u8; 32]).unwrap();
     let user = User::new(rpc.clone(), user_sk, config.clone());
     let withdrawal_address = Address::p2tr(
         &secp,
@@ -44,15 +44,17 @@ async fn test_honest_operator_takes_refund() {
         None,
         config.network,
     );
-    let (empty_utxo, withdrawal_tx_out, user_sig) =
-        user.generate_withdrawal_sig(withdrawal_address).unwrap();
-    let withdrawal_provide_txid = operators[0]
+    // We are giving 99_800_000 sats to the user so that the operator can pay the withdrawal and profit.
+    let (empty_utxo, withdrawal_tx_out, user_sig) = user
+        .generate_withdrawal_sig(withdrawal_address, 99_800_000)
+        .unwrap();
+    let withdrawal_provide_txid = operators[1]
         .0
         .new_withdrawal_sig_rpc(0, user_sig, empty_utxo, withdrawal_tx_out)
         .await
         .unwrap();
     println!("Withdrawal provide: {:?}", withdrawal_provide_txid);
-    let txs_to_be_sent = operators[0]
+    let txs_to_be_sent = operators[1]
         .0
         .withdrawal_proved_on_citrea_rpc(0, deposit_outpoint)
         .await
@@ -61,12 +63,54 @@ async fn test_honest_operator_takes_refund() {
 
     for tx in txs_to_be_sent.iter().take(txs_to_be_sent.len() - 1) {
         let outpoint = rpc.send_raw_transaction(tx.clone()).unwrap();
+        rpc.mine_blocks(1).unwrap();
         tracing::debug!("outpoint: {:#?}", outpoint);
     }
-    rpc.mine_blocks(config.operator_takes_after as u64).unwrap();
-    // send the last tx
-    rpc.send_raw_transaction(txs_to_be_sent.last().unwrap().clone())
+    rpc.mine_blocks(1 + config.operator_takes_after as u64)
         .unwrap();
+    // send the last tx
+    let operator_take_txid = rpc
+        .send_raw_transaction(txs_to_be_sent.last().unwrap().clone())
+        .unwrap();
+    let operator_take_tx = rpc.get_raw_transaction(&operator_take_txid, None).unwrap();
+
+    assert!(
+        operator_take_tx.output[0].value > bitcoin::Amount::from_sat(99_800_000),
+        "Expected value to be greater than 99,800,000 satoshis, but it was not."
+    );
+    assert_eq!(
+        operator_take_tx.output[0].script_pubkey,
+        config.operator_wallet_addresses[1]
+            .clone()
+            .assume_checked()
+            .script_pubkey()
+    );
+}
+
+#[tokio::test]
+async fn test_withdrawal_fee_too_low() {
+    let (_verifiers, operators, mut config, _) =
+        run_single_deposit("test_config.toml").await.unwrap();
+    let rpc = create_extended_rpc!(config);
+
+    let secp = bitcoin::secp256k1::Secp256k1::new();
+    let user_sk = SecretKey::from_slice(&[12u8; 32]).unwrap();
+    let user = User::new(rpc.clone(), user_sk, config.clone());
+    let withdrawal_address = Address::p2tr(
+        &secp,
+        user_sk.x_only_public_key(&secp).0,
+        None,
+        config.network,
+    );
+    // We are giving 100_000_000 sats to the user so that the operator cannot pay it because it is not profitable.
+    let (empty_utxo, withdrawal_tx_out, user_sig) = user
+        .generate_withdrawal_sig(withdrawal_address, 100_000_000)
+        .unwrap();
+    let withdrawal_provide_txid = operators[0]
+        .0
+        .new_withdrawal_sig_rpc(0, user_sig, empty_utxo, withdrawal_tx_out)
+        .await;
+    assert!(withdrawal_provide_txid.is_err());
 }
 
 #[tokio::test]

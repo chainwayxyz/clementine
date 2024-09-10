@@ -74,11 +74,11 @@ pub trait OperatorRpc {
     /// adds it to flow, when its finalized, proves on citrea, sends kickoff2
     async fn new_withdrawal_sig_rpc(
         &self,
-        withdrawal_idx: usize,
+        withdrawal_idx: u32,
         user_sig: schnorr::Signature,
         input_utxo: UTXO,
         output_txout: TxOut,
-    ) -> Result<Option<Txid>, BridgeError>;
+    ) -> Result<Txid, BridgeError>;
 
     #[method(name = "withdrawal_proved_on_citrea")]
     /// 1- Calculate move_txid, check if the withdrawal idx matches the move_txid
@@ -86,7 +86,7 @@ pub trait OperatorRpc {
     /// 3- If it is, send operator_take_txs
     async fn withdrawal_proved_on_citrea_rpc(
         &self,
-        withdrawal_idx: usize,
+        withdrawal_idx: u32,
         deposit_outpoint: OutPoint,
     ) -> Result<Vec<String>, BridgeError>;
 
