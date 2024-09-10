@@ -37,7 +37,7 @@ where
     R: RpcApiWrapper,
 {
     pub async fn new(rpc: ExtendedRpc<R>, config: BridgeConfig) -> Result<Self, BridgeError> {
-        let signer = Actor::new(config.secret_key, config.network);
+        let signer = Actor::new(config.secret_key, config.bitcoin.network);
 
         let pk: secp256k1::PublicKey = config.secret_key.public_key(&utils::SECP);
 
@@ -85,7 +85,7 @@ where
             &evm_address,
             self.config.bridge_amount_sats,
             self.config.confirmation_threshold,
-            self.config.network,
+            self.config.bitcoin.network,
             self.config.user_takes_after,
         )?;
 
@@ -189,7 +189,7 @@ where
                 TransactionBuilder::create_kickoff_address(
                     &self.nofn_xonly_pk,
                     &self.operator_xonly_pks[i],
-                    self.config.network,
+                    self.config.bitcoin.network,
                 );
             tracing::debug!(
                 "musig2_and_operator_address.script_pubkey: {:?}",
@@ -207,7 +207,7 @@ where
                 &self.config.operators_xonly_pks[i],
                 i,
                 &self.nofn_xonly_pk,
-                self.config.network,
+                self.config.bitcoin.network,
                 self.config.user_takes_after,
                 self.config.operator_takes_after,
                 self.config.bridge_amount_sats,
@@ -296,7 +296,7 @@ where
             &evm_address,
             &recovery_taproot_address,
             &self.nofn_xonly_pk,
-            self.config.network,
+            self.config.bitcoin.network,
             self.config.user_takes_after,
             self.config.bridge_amount_sats,
         );
@@ -331,7 +331,7 @@ where
                     &self.operator_xonly_pks[index],
                     index,
                     &self.nofn_xonly_pk,
-                    self.config.network,
+                    self.config.bitcoin.network,
                     self.config.user_takes_after,
                     self.config.operator_takes_after,
                     self.config.bridge_amount_sats,
@@ -361,7 +361,7 @@ where
                     slash_or_take_utxo,
                     &self.operator_xonly_pks[index],
                     &self.nofn_xonly_pk,
-                    self.config.network,
+                    self.config.bitcoin.network,
                     self.config.operator_takes_after,
                     self.config.bridge_amount_sats,
                 );
@@ -425,7 +425,7 @@ where
                     &self.operator_xonly_pks[index],
                     index,
                     &self.nofn_xonly_pk,
-                    self.config.network,
+                    self.config.bitcoin.network,
                     self.config.user_takes_after,
                     self.config.operator_takes_after,
                     self.config.bridge_amount_sats,
@@ -442,7 +442,7 @@ where
                     slash_or_take_utxo,
                     &self.operator_xonly_pks[index],
                     &self.nofn_xonly_pk,
-                    self.config.network,
+                    self.config.bitcoin.network,
                     self.config.operator_takes_after,
                     self.config.bridge_amount_sats,
                 );

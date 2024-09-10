@@ -28,7 +28,7 @@ where
 {
     /// Creates a new `User`.
     pub fn new(rpc: ExtendedRpc<R>, sk: SecretKey, config: BridgeConfig) -> Self {
-        let signer = Actor::new(sk, config.network);
+        let signer = Actor::new(sk, config.bitcoin.network);
 
         let nofn_xonly_pk = secp256k1::XOnlyPublicKey::from_musig2_pks(
             config.verifiers_public_keys.clone(),
@@ -53,7 +53,7 @@ where
             self.signer.address.as_unchecked(),
             &evm_address,
             self.config.bridge_amount_sats,
-            self.config.network,
+            self.config.bitcoin.network,
             self.config.user_takes_after,
         );
 
@@ -70,7 +70,7 @@ where
             self.signer.address.as_unchecked(),
             &evm_address,
             self.config.bridge_amount_sats,
-            self.config.network,
+            self.config.bitcoin.network,
             self.config.user_takes_after,
         );
 

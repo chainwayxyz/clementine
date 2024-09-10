@@ -800,7 +800,7 @@ mod tests {
         ])
         .unwrap();
         let outpoint = OutPoint::null();
-        let taproot_address = Address::p2tr(&secp, xonly_public_key, None, config.network);
+        let taproot_address = Address::p2tr(&secp, xonly_public_key, None, config.bitcoin.network);
         let evm_address = EVMAddress([1u8; 20]);
         database
             .save_deposit_info(

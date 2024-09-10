@@ -22,10 +22,6 @@ user_takes_after = 200
 operator_takes_after = 5
 operator_num_kickoff_utxos_per_tx = 10
 confirmation_threshold = 1
-network = "regtest"
-bitcoin_rpc_url = "http://127.0.0.1:18443"
-bitcoin_rpc_user = "admin"
-bitcoin_rpc_password = "admin"
 all_verifiers_secret_keys = [
     "1111111111111111111111111111111111111111111111111111111111111111",
     "2222222222222222222222222222222222222222222222222222222222222222",
@@ -47,3 +43,9 @@ port = 5432
 user = "clementine"
 password = "clementine"
 name = "clementine"
+
+[bitcoin]
+network = "regtest"
+rpc_url = "http://127.0.0.1:18443"
+rpc_user = "admin"
+rpc_password = "admin"

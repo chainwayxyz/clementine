@@ -40,7 +40,7 @@ where
     pub async fn new(config: BridgeConfig, rpc: ExtendedRpc<R>) -> Result<Self, BridgeError> {
         // let num_verifiers = config.verifiers_public_keys.len();
 
-        let signer = Actor::new(config.secret_key, config.network);
+        let signer = Actor::new(config.secret_key, config.bitcoin.network);
 
         let db = OperatorDB::new(config.clone()).await;
 
@@ -113,7 +113,7 @@ where
             &evm_address,
             self.config.bridge_amount_sats,
             self.config.confirmation_threshold,
-            self.config.network,
+            self.config.bitcoin.network,
             self.config.user_takes_after,
         )?;
 
@@ -209,7 +209,7 @@ where
                 &funding_utxo,
                 &self.nofn_xonly_pk,
                 &self.signer.xonly_public_key,
-                self.config.network,
+                self.config.bitcoin.network,
                 self.config.operator_num_kickoff_utxos_per_tx,
             );
             tracing::debug!(
@@ -436,7 +436,7 @@ where
             &self.signer.xonly_public_key,
             self.idx,
             &self.nofn_xonly_pk,
-            self.config.network,
+            self.config.bitcoin.network,
             self.config.user_takes_after,
             self.config.operator_takes_after,
             self.config.bridge_amount_sats,
@@ -487,11 +487,11 @@ where
                 &utils::SECP,
                 *utils::UNSPENDABLE_XONLY_PUBKEY,
                 None,
-                self.config.network,
+                self.config.bitcoin.network,
             )
             .as_unchecked(),
             &self.nofn_xonly_pk,
-            self.config.network,
+            self.config.bitcoin.network,
             self.config.user_takes_after,
             self.config.bridge_amount_sats,
         );
@@ -505,7 +505,7 @@ where
             slash_or_take_utxo,
             &self.signer.xonly_public_key,
             &self.nofn_xonly_pk,
-            self.config.network,
+            self.config.bitcoin.network,
             self.config.operator_takes_after,
             self.config.bridge_amount_sats,
         );

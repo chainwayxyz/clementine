@@ -42,7 +42,7 @@ async fn test_honest_operator_takes_refund() {
         &secp,
         user_sk.x_only_public_key(&secp).0,
         None,
-        config.network,
+        config.bitcoin.network,
     );
     let (empty_utxo, withdrawal_tx_out, user_sig) =
         user.generate_withdrawal_sig(withdrawal_address).unwrap();

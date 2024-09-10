@@ -41,17 +41,40 @@ impl Default for Database {
     }
 }
 
+/// Bitcoin connection configuration options.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Bitcoin {
+    /// Butcoin RPC url.
+    pub rpc_url: String,
+    /// Bitcoin RPC user.
+    pub rpc_user: String,
+    /// Bitcoin RPC user password.
+    pub rpc_password: String,
+    /// Bitcoin network to work on.
+    pub network: Network,
+}
+impl Default for Bitcoin {
+    fn default() -> Self {
+        Self {
+            network: Network::Regtest,
+            rpc_url: "http://127.0.0.1:18443".to_string(),
+            rpc_user: "admin".to_string(),
+            rpc_password: "admin".to_string(),
+        }
+    }
+}
+
 /// Configuration options for any Clementine target (tests, binaries etc.).
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct BridgeConfig {
     /// PostgreSQL database configuration options.
     pub database: Database,
+    /// Bitcoin connection configuration options.
+    pub bitcoin: Bitcoin,
     /// Host of the operator or the verifier
     pub host: String,
     /// Port of the operator or the verifier
     pub port: u16,
-    /// Bitcoin network to work on.
-    pub network: Network,
     /// Secret key for the operator or the verifier.
     pub secret_key: secp256k1::SecretKey,
     /// Verifiers public keys.
@@ -72,12 +95,6 @@ pub struct BridgeConfig {
     pub operator_num_kickoff_utxos_per_tx: usize,
     /// Threshold for confirmation.
     pub confirmation_threshold: u32,
-    /// Bitcoin remote procedure call URL.
-    pub bitcoin_rpc_url: String,
-    /// Bitcoin RPC user.
-    pub bitcoin_rpc_user: String,
-    /// Bitcoin RPC user password.
-    pub bitcoin_rpc_password: String,
     /// All Secret keys. Just for testing purposes.
     pub all_verifiers_secret_keys: Option<Vec<secp256k1::SecretKey>>,
     /// All Secret keys. Just for testing purposes.
@@ -91,6 +108,7 @@ impl BridgeConfig {
     pub fn new() -> Self {
         Self {
             database: Database::default(),
+            bitcoin: Bitcoin::default(),
             host: "127.0.0.1".to_string(),
             port: 3030,
             secret_key: secp256k1::SecretKey::new(&mut secp256k1::rand::thread_rng()),
@@ -103,10 +121,6 @@ impl BridgeConfig {
             bridge_amount_sats: 100_000_000,
             operator_num_kickoff_utxos_per_tx: 10,
             confirmation_threshold: 1,
-            network: Network::Regtest,
-            bitcoin_rpc_url: "http://127.0.0.1:18443".to_string(),
-            bitcoin_rpc_user: "admin".to_string(),
-            bitcoin_rpc_password: "admin".to_string(),
             all_verifiers_secret_keys: None,
             all_operators_secret_keys: None,
             verifier_endpoints: None,

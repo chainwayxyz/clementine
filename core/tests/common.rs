@@ -35,7 +35,7 @@ pub async fn run_multiple_deposit(
 
     let secret_key = secp256k1::SecretKey::new(&mut secp256k1::rand::thread_rng());
 
-    let signer_address = Actor::new(secret_key, config.network)
+    let signer_address = Actor::new(secret_key, config.bitcoin.network)
         .address
         .as_unchecked()
         .clone();
@@ -92,7 +92,7 @@ pub async fn run_single_deposit(
 
     let secret_key = secp256k1::SecretKey::new(&mut secp256k1::rand::thread_rng());
 
-    let signer_address = Actor::new(secret_key, config.network)
+    let signer_address = Actor::new(secret_key, config.bitcoin.network)
         .address
         .as_unchecked()
         .clone();
@@ -257,7 +257,7 @@ mod tests {
 
         let secret_key = secp256k1::SecretKey::new(&mut secp256k1::rand::thread_rng());
 
-        let signer_address = Actor::new(secret_key, config.network)
+        let signer_address = Actor::new(secret_key, config.bitcoin.network)
             .address
             .as_unchecked()
             .clone();

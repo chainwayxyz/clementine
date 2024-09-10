@@ -60,7 +60,7 @@ impl Aggregator {
             &operator_xonly_pk,
             operator_idx,
             &self.nofn_xonly_pk,
-            self.config.network,
+            self.config.bitcoin.network,
             self.config.user_takes_after,
             self.config.operator_takes_after,
             self.config.bridge_amount_sats,
@@ -106,11 +106,11 @@ impl Aggregator {
                 &utils::SECP,
                 *utils::UNSPENDABLE_XONLY_PUBKEY,
                 None,
-                self.config.network,
+                self.config.bitcoin.network,
             )
             .as_unchecked(),
             &self.nofn_xonly_pk,
-            self.config.network,
+            self.config.bitcoin.network,
             self.config.user_takes_after,
             self.config.bridge_amount_sats,
         );
@@ -124,7 +124,7 @@ impl Aggregator {
             operator_xonly_pk,
             operator_idx,
             &self.nofn_xonly_pk,
-            self.config.network,
+            self.config.bitcoin.network,
             self.config.user_takes_after,
             self.config.operator_takes_after,
             self.config.bridge_amount_sats,
@@ -146,7 +146,7 @@ impl Aggregator {
             slash_or_take_utxo,
             operator_xonly_pk,
             &self.nofn_xonly_pk,
-            self.config.network,
+            self.config.bitcoin.network,
             self.config.operator_takes_after,
             self.config.bridge_amount_sats,
         );
@@ -184,7 +184,7 @@ impl Aggregator {
             evm_address,
             recovery_taproot_address,
             &self.nofn_xonly_pk,
-            self.config.network,
+            self.config.bitcoin.network,
             self.config.user_takes_after,
             self.config.bridge_amount_sats,
         );
@@ -305,7 +305,7 @@ impl Aggregator {
             &evm_address,
             &recovery_taproot_address,
             &self.nofn_xonly_pk,
-            self.config.network,
+            self.config.bitcoin.network,
             self.config.user_takes_after,
             self.config.bridge_amount_sats,
         );

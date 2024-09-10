@@ -23,12 +23,12 @@ macro_rules! create_extended_rpc {
             .unwrap()
             .to_owned();
 
-        $config.bitcoin_rpc_url = handle.to_string();
+        $config.bitcoin.rpc_url = handle.to_string();
 
         ExtendedRpc::<bitcoin_mock_rpc::Client>::new(
-            $config.bitcoin_rpc_url.clone(),
-            $config.bitcoin_rpc_user.clone(),
-            $config.bitcoin_rpc_password.clone(),
+            $config.bitcoin.rpc_url.clone(),
+            $config.bitcoin.rpc_user.clone(),
+            $config.bitcoin.rpc_password.clone(),
         )
     }};
 }
@@ -47,12 +47,12 @@ macro_rules! create_extended_rpc {
         println!("Using Bitcoin regtest for testing...");
 
         // Mutation for consistency with above defined macro
-        $config.bitcoin_rpc_url = $config.bitcoin_rpc_url.clone();
+        $config.bitcoin.rpc_url = $config.bitcoin.rpc_url.clone();
 
         ExtendedRpc::<bitcoincore_rpc::Client>::new(
-            $config.bitcoin_rpc_url.clone(),
-            $config.bitcoin_rpc_user.clone(),
-            $config.bitcoin_rpc_password.clone(),
+            $config.bitcoin.rpc_url.clone(),
+            $config.bitcoin.rpc_user.clone(),
+            $config.bitcoin.rpc_password.clone(),
         )
     }};
 }
