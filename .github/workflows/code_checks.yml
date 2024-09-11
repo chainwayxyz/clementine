@@ -72,5 +72,11 @@ jobs:
         run: rustup update stable
       - name: Install cargo-llvm-cov
         uses: taiki-e/install-action@cargo-llvm-cov
-      - name: Generate code coverage
-        run: cargo llvm-cov $CARGOFLAGS
+      - name: Generate code coverage and print that to a JSON file
+        run: cargo llvm-cov $CARGOFLAGS --json --output-path lcov.json
+      - name: Save how many lines of code are covered
+        run: LINES_COVERED=$(cat lcov.json | jq -r .data[0].totals.lines.percent)
+      - name: Save how many functions are covered
+        run: FUNCTIONS_COVERED=$(cat lcov.json | jq -r .data[0].totals.functions.percent)
+      - name: Print
+        run: echo $LINES_COVERED $FUNCTIONS_COVERED
