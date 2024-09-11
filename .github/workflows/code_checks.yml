@@ -23,3 +23,22 @@ jobs:
     - uses: actions/checkout@v4
     - name: Run Cargo clippy
       run: cargo clippy --no-deps --all-targets -- -Dwarnings
+
+  udeps:
+    name: udeps
+    runs-on: ubicloud-standard-8
+
+    steps:
+      - uses: actions/checkout@v4
+      - name: Toolchain
+        uses: actions-rs/toolchain@v1
+        with:
+          toolchain: nightly-2024-07-27
+          override: true
+      - name: Run cargo-udeps
+        env:
+          RUSTFLAGS: -A warnings
+        uses: aig787/cargo-udeps-action@v1
+        with:
+          version: "latest"
+          args: "--workspace --all-features --all-targets"
