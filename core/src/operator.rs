@@ -541,6 +541,8 @@ where
             current_searching_txid = funding_txid;
         }
 
+        txs_to_be_sent.reverse();
+
         // Handle the case where no transaction was found in 25 iterations
         if !found_txid {
             return Err(BridgeError::KickoffOutpointsNotFound); // TODO: Fix this error
