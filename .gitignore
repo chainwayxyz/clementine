@@ -9,3 +9,4 @@ configs
 .vscode
 .docker/db/data/
 *.log
+lcov.info
