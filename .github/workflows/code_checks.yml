@@ -45,7 +45,7 @@ jobs:
         uses: aig787/cargo-udeps-action@v1
         with:
           version: "latest"
-          args: $CARGOFLAGS
+          args: "--workspace --all-features --all-targets"
 
   coverage:
     name: Check code coverage percentage
