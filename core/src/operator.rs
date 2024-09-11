@@ -42,6 +42,7 @@ where
     R: RpcApiWrapper,
 {
     /// Creates a new `Operator`.
+    #[tracing::instrument(skip_all, err(level = tracing::Level::ERROR))]
     pub async fn new(config: BridgeConfig, rpc: ExtendedRpc<R>) -> Result<Self, BridgeError> {
         // let num_verifiers = config.verifiers_public_keys.len();
 
@@ -112,6 +113,7 @@ where
     /// 3. Create a kickoff transaction but do not broadcast it
     ///
     /// TODO: Create multiple kickoffs in single transaction
+    #[tracing::instrument(skip(self), err(level = tracing::Level::ERROR), ret(level = tracing::Level::TRACE))]
     pub async fn new_deposit(
         &self,
         deposit_outpoint: OutPoint,
@@ -323,11 +325,13 @@ where
 
     /// Checks if utxo is valid, spendable by operator and not spent
     /// Saves the utxo to the db
+    #[tracing::instrument(skip(self), err(level = tracing::Level::ERROR), ret(level = tracing::Level::TRACE))]
     async fn set_funding_utxo(&self, funding_utxo: UTXO) -> Result<(), BridgeError> {
         self.db.set_funding_utxo(None, funding_utxo).await?;
         Ok(())
     }
 
+    #[tracing::instrument(skip(self), err(level = tracing::Level::ERROR), ret(level = tracing::Level::TRACE))]
     async fn is_profitable(
         &self,
         input_amount: u64,
@@ -343,6 +347,7 @@ where
         }
     }
 
+    #[tracing::instrument(skip(self), err(level = tracing::Level::ERROR), ret(level = tracing::Level::TRACE))]
     async fn new_withdrawal_sig(
         &self,
         withdrawal_idx: u32,
@@ -437,6 +442,7 @@ where
         Ok(final_txid)
     }
 
+    #[tracing::instrument(skip(self), err(level = tracing::Level::ERROR), ret(level = tracing::Level::TRACE))]
     async fn withdrawal_proved_on_citrea(
         &self,
         withdrawal_idx: u32,

@@ -20,6 +20,7 @@ pub struct Actor {
 }
 
 impl Actor {
+    #[tracing::instrument(ret(level = tracing::Level::TRACE))]
     pub fn new(sk: SecretKey, network: bitcoin::Network) -> Self {
         let keypair = Keypair::from_secret_key(&utils::SECP, &sk);
         let (xonly, _parity) = XOnlyPublicKey::from_keypair(&keypair);
@@ -34,6 +35,7 @@ impl Actor {
         }
     }
 
+    #[tracing::instrument(skip(self), err(level = tracing::Level::ERROR), ret(level = tracing::Level::TRACE))]
     pub fn sign_with_tweak(
         &self,
         sighash: TapSighash,
@@ -48,6 +50,7 @@ impl Actor {
         ))
     }
 
+    #[tracing::instrument(skip(self), ret(level = tracing::Level::TRACE))]
     pub fn sign(&self, sighash: TapSighash) -> schnorr::Signature {
         utils::SECP.sign_schnorr(
             &Message::from_digest_slice(sighash.as_byte_array()).expect("should be hash"),
@@ -55,6 +58,7 @@ impl Actor {
         )
     }
 
+    #[tracing::instrument(skip(self), ret(level = tracing::Level::TRACE))]
     pub fn sign_ecdsa(&self, data: [u8; 32]) -> ecdsa::Signature {
         utils::SECP.sign_ecdsa(
             &Message::from_digest_slice(&data).expect("should be hash"),
@@ -62,6 +66,7 @@ impl Actor {
         )
     }
 
+    #[tracing::instrument(skip(self), err(level = tracing::Level::ERROR), ret(level = tracing::Level::TRACE))]
     pub fn sign_taproot_script_spend_tx(
         &self,
         tx: &mut bitcoin::Transaction,
@@ -76,9 +81,11 @@ impl Actor {
             TapLeafHash::from_script(spend_script, LeafVersion::TapScript),
             bitcoin::sighash::TapSighashType::Default,
         )?;
+
         Ok(self.sign(sig_hash))
     }
 
+    #[tracing::instrument(skip(self), err(level = tracing::Level::ERROR), ret(level = tracing::Level::TRACE))]
     pub fn sighash_taproot_script_spend(
         &self,
         tx: &mut TxHandler,
@@ -99,6 +106,7 @@ impl Actor {
         Ok(sig_hash)
     }
 
+    #[tracing::instrument(skip(self), err(level = tracing::Level::ERROR), ret(level = tracing::Level::TRACE))]
     pub fn sign_taproot_script_spend_tx_new(
         &self,
         tx: &mut TxHandler,
@@ -122,6 +130,7 @@ impl Actor {
         Ok(self.sign(sig_hash))
     }
 
+    #[tracing::instrument(skip(self), err(level = tracing::Level::ERROR), ret(level = tracing::Level::TRACE))]
     pub fn sign_taproot_pubkey_spend(
         &self,
         tx_handler: &mut TxHandler,
@@ -143,6 +152,7 @@ impl Actor {
         self.sign_with_tweak(sig_hash, None)
     }
 
+    #[tracing::instrument(skip(self), err(level = tracing::Level::ERROR), ret(level = tracing::Level::TRACE))]
     pub fn sign_taproot_pubkey_spend_tx(
         &self,
         tx: &mut bitcoin::Transaction,
@@ -158,6 +168,7 @@ impl Actor {
         self.sign_with_tweak(sig_hash, None)
     }
 
+    #[tracing::instrument(skip(self), err(level = tracing::Level::ERROR), ret(level = tracing::Level::TRACE))]
     pub fn sign_taproot_pubkey_spend_tx_with_sighash(
         &self,
         tx: &mut bitcoin::Transaction,
@@ -179,6 +190,7 @@ impl Actor {
         self.sign_with_tweak(sig_hash, None)
     }
 
+    #[tracing::instrument(skip(self), err(level = tracing::Level::ERROR), ret(level = tracing::Level::TRACE))]
     pub fn sign_taproot_script_spend_tx_new_tweaked(
         &self,
         tx_handler: &mut TxHandler,
@@ -203,6 +215,7 @@ impl Actor {
         self.sign_with_tweak(sig_hash, None)
     }
 
+    #[tracing::instrument(err(level = tracing::Level::ERROR), ret(level = tracing::Level::TRACE))]
     pub fn convert_tx_to_sighash_script_spend(
         tx_handler: &mut TxHandler,
         txin_index: usize,
@@ -221,6 +234,8 @@ impl Actor {
         )?;
         Ok(sig_hash)
     }
+
+    #[tracing::instrument(err(level = tracing::Level::ERROR), ret(level = tracing::Level::TRACE))]
     pub fn convert_tx_to_sighash_pubkey_spend(
         tx: &mut TxHandler,
         txin_index: usize,

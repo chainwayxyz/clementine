@@ -130,6 +130,7 @@ impl Database {
         }
     }
 
+    #[tracing::instrument(skip(self), err(level = tracing::Level::ERROR), ret(level = tracing::Level::TRACE))]
     pub async fn lock_operators_kickoff_utxo_table(
         &self,
         tx: &mut sqlx::Transaction<'_, Postgres>,
@@ -140,6 +141,7 @@ impl Database {
         Ok(())
     }
 
+    // #[tracing::instrument(skip(self), err(level = tracing::Level::ERROR), ret(level = tracing::Level::TRACE))]
     // pub async fn unlock_operators_kickoff_utxo_table(
     //     &self,
     //     tx: &mut sqlx::Transaction<'_, Postgres>,
@@ -151,6 +153,7 @@ impl Database {
     // }
 
     /// Operator: If operator already created a kickoff UTXO for this deposit UTXO, return it.
+    #[tracing::instrument(skip(self), err(level = tracing::Level::ERROR), ret(level = tracing::Level::TRACE))]
     pub async fn get_kickoff_utxo(
         &self,
         tx: Option<&mut sqlx::Transaction<'_, Postgres>>,
@@ -177,6 +180,7 @@ impl Database {
     }
 
     /// Operator: Get unused kickoff_utxo at ready if there are any.
+    #[tracing::instrument(skip(self), err(level = tracing::Level::ERROR), ret(level = tracing::Level::TRACE))]
     pub async fn get_unused_kickoff_utxo_and_increase_idx(
         &self,
         tx: Option<&mut sqlx::Transaction<'_, Postgres>>,
@@ -231,6 +235,7 @@ impl Database {
     }
 
     /// Operator: Gets the funding UTXO for kickoffs
+    #[tracing::instrument(skip(self), err(level = tracing::Level::ERROR), ret(level = tracing::Level::TRACE))]
     pub async fn get_funding_utxo(
         &self,
         tx: Option<&mut sqlx::Transaction<'_, Postgres>>,
@@ -254,6 +259,7 @@ impl Database {
     }
 
     /// Operator: Sets the funding UTXO for kickoffs
+    #[tracing::instrument(skip(self), err(level = tracing::Level::ERROR), ret(level = tracing::Level::TRACE))]
     pub async fn set_funding_utxo(
         &self,
         tx: Option<&mut sqlx::Transaction<'_, Postgres>>,
@@ -275,6 +281,7 @@ impl Database {
     }
 
     /// Operator: Save the kickoff UTXO for this deposit UTXO.
+    #[tracing::instrument(skip(self), err(level = tracing::Level::ERROR), ret(level = tracing::Level::TRACE))]
     pub async fn save_kickoff_utxo(
         &self,
         tx: Option<&mut sqlx::Transaction<'_, Postgres>>,
@@ -301,6 +308,7 @@ impl Database {
     /// Operator: Save the signed kickoff UTXO generator tx.
     ///  Txid is the txid of the signed tx.
     /// funding_txid is the txid of the input[0].
+    #[tracing::instrument(skip(self), err(level = tracing::Level::ERROR), ret(level = tracing::Level::TRACE))]
     pub async fn add_deposit_kickoff_generator_tx(
         &self,
         tx: Option<&mut sqlx::Transaction<'_, Postgres>>,
@@ -325,6 +333,7 @@ impl Database {
     }
 
     /// Verifier: Get the verified kickoff UTXOs for a deposit UTXO.
+    #[tracing::instrument(skip(self), err(level = tracing::Level::ERROR), ret(level = tracing::Level::TRACE))]
     pub async fn get_kickoff_utxos(
         &self,
         deposit_outpoint: OutPoint,
@@ -350,6 +359,7 @@ impl Database {
     }
 
     /// Verifier: Save the kickoff UTXOs for this deposit UTXO.
+    #[tracing::instrument(skip(self), err(level = tracing::Level::ERROR), ret(level = tracing::Level::TRACE))]
     pub async fn save_kickoff_utxos(
         &self,
         tx: Option<&mut sqlx::Transaction<'_, Postgres>>,
@@ -389,6 +399,7 @@ impl Database {
     }
 
     /// Verifier: Get the public nonces for a deposit UTXO.
+    #[tracing::instrument(skip(self), err(level = tracing::Level::ERROR), ret(level = tracing::Level::TRACE))]
     pub async fn get_pub_nonces(
         &self,
         tx: Option<&mut sqlx::Transaction<'_, Postgres>>,
@@ -412,6 +423,7 @@ impl Database {
     }
 
     /// Verifier: save the generated sec nonce and pub nonces
+    #[tracing::instrument(skip(self), err(level = tracing::Level::ERROR), ret(level = tracing::Level::TRACE))]
     pub async fn save_nonces(
         &self,
         tx: Option<&mut sqlx::Transaction<'_, Postgres>>,
@@ -443,6 +455,7 @@ impl Database {
     }
 
     /// Verifier: Save the deposit info to use later
+    #[tracing::instrument(skip(self), err(level = tracing::Level::ERROR), ret(level = tracing::Level::TRACE))]
     pub async fn save_deposit_info(
         &self,
         tx: Option<&mut sqlx::Transaction<'_, Postgres>>,
@@ -464,6 +477,7 @@ impl Database {
     }
 
     /// Verifier: Get the deposit info to use later
+    #[tracing::instrument(skip(self), err(level = tracing::Level::ERROR), ret(level = tracing::Level::TRACE))]
     pub async fn get_deposit_info(
         &self,
         deposit_outpoint: OutPoint,
@@ -477,6 +491,7 @@ impl Database {
     }
 
     /// Verifier: saves the sighash and returns sec and agg nonces, if the sighash is already there and different, returns error
+    #[tracing::instrument(skip(self), err(level = tracing::Level::ERROR), ret(level = tracing::Level::TRACE))]
     pub async fn save_sighashes_and_get_nonces(
         &self,
         tx: Option<&mut sqlx::Transaction<'_, Postgres>>,
@@ -522,6 +537,7 @@ impl Database {
     }
 
     /// Verifier: Save the agg nonces for signing
+    #[tracing::instrument(skip(self, agg_nonces), err(level = tracing::Level::ERROR), ret(level = tracing::Level::TRACE))]
     pub async fn save_agg_nonces(
         &self,
         tx: Option<&mut sqlx::Transaction<'_, Postgres>>,
@@ -556,6 +572,7 @@ impl Database {
         Ok(())
     }
 
+    #[tracing::instrument(skip(self, slash_or_take_sigs), err(level = tracing::Level::ERROR), ret(level = tracing::Level::TRACE))]
     pub async fn save_slash_or_take_sigs(
         &self,
         deposit_outpoint: OutPoint,
@@ -587,6 +604,7 @@ impl Database {
         Ok(())
     }
 
+    #[tracing::instrument(skip(self), err(level = tracing::Level::ERROR), ret(level = tracing::Level::TRACE))]
     pub async fn get_slash_or_take_sig(
         &self,
         deposit_outpoint: OutPoint,
@@ -611,6 +629,7 @@ impl Database {
         }
     }
 
+    #[tracing::instrument(skip(self, kickoff_utxos_and_sigs), err(level = tracing::Level::ERROR), ret(level = tracing::Level::TRACE))]
     pub async fn save_operator_take_sigs(
         &self,
         deposit_outpoint: OutPoint,
@@ -645,6 +664,7 @@ impl Database {
         Ok(())
     }
 
+    #[tracing::instrument(skip(self), err(level = tracing::Level::ERROR), ret(level = tracing::Level::TRACE))]
     pub async fn get_operator_take_sig(
         &self,
         deposit_outpoint: OutPoint,
@@ -669,6 +689,7 @@ impl Database {
         }
     }
 
+    #[tracing::instrument(skip(self), err(level = tracing::Level::ERROR), ret(level = tracing::Level::TRACE))]
     pub async fn get_deposit_kickoff_generator_tx(
         &self,
         txid: Txid,

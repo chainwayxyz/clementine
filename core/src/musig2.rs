@@ -29,6 +29,7 @@ pub trait AggregateFromPublicKeys {
 }
 
 impl AggregateFromPublicKeys for secp256k1::XOnlyPublicKey {
+    #[tracing::instrument(ret(level = tracing::Level::TRACE))]
     fn from_musig2_pks(
         pks: Vec<PublicKey>,
         tweak: Option<TapNodeHash>,
@@ -48,6 +49,7 @@ impl AggregateFromPublicKeys for secp256k1::XOnlyPublicKey {
 
 // Creates the key aggregation context, with the public keys and the tweak (if any).
 // There are two functions to retrieve the aggregated public key, one with the tweak and one without.
+#[tracing::instrument(err(level = tracing::Level::ERROR), ret(level = tracing::Level::TRACE))]
 pub fn create_key_agg_ctx(
     pks: Vec<PublicKey>,
     tweak: Option<TapNodeHash>,
@@ -81,6 +83,7 @@ pub fn create_key_agg_ctx(
 }
 
 // Aggregates the public nonces into a single aggregated nonce. Wrapper for the musig2::AggNonce::sum function.
+#[tracing::instrument(ret(level = tracing::Level::TRACE))]
 pub fn aggregate_nonces(pub_nonces: Vec<MuSigPubNonce>) -> MuSigAggNonce {
     let musig_pub_nonces: Vec<musig2::PubNonce> = pub_nonces
         .iter()
@@ -91,6 +94,7 @@ pub fn aggregate_nonces(pub_nonces: Vec<MuSigPubNonce>) -> MuSigAggNonce {
 }
 
 // Aggregates the partial signatures into a single final signature. Wrapper for the musig2::aggregate_partial_signatures function.
+#[tracing::instrument(err(level = tracing::Level::ERROR), ret(level = tracing::Level::TRACE))]
 pub fn aggregate_partial_signatures(
     pks: Vec<PublicKey>,
     tweak: Option<TapNodeHash>,
@@ -115,6 +119,7 @@ pub fn aggregate_partial_signatures(
 // Generates a pair of nonces, one secret and one public. Wrapper for the musig2::SecNonce::build function. Be careful,
 // DO NOT REUSE the same pair of nonces for multiple transactions. It will cause you to leak your secret key. For more information,
 // see https://medium.com/blockstream/musig-dn-schnorr-multisignatures-with-verifiably-deterministic-nonces-27424b5df9d6#e3b6.
+#[tracing::instrument(skip(rng), ret(level = tracing::Level::TRACE))]
 pub fn nonce_pair(
     keypair: &secp256k1::Keypair,
     rng: &mut impl Rng,
@@ -138,6 +143,7 @@ pub fn nonce_pair(
 }
 
 // We are creating the key aggregation context manually here, adding the tweaks by hand.
+#[tracing::instrument(ret(level = tracing::Level::TRACE))]
 pub fn partial_sign(
     pks: Vec<PublicKey>,
     // Aggregated tweak, if there is any. This is useful for
