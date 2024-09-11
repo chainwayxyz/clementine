@@ -25,12 +25,6 @@ impl Actor {
         let keypair = Keypair::from_secret_key(&utils::SECP, &sk);
         let (xonly, _parity) = XOnlyPublicKey::from_keypair(&keypair);
         let address = Address::p2tr(&utils::SECP, xonly, None, network);
-        tracing::trace!(
-            "Creating a new actor with keypair {:?}, x-only public key {:?} and address {:?}",
-            keypair,
-            xonly,
-            address
-        );
 
         Actor {
             keypair,
@@ -87,7 +81,6 @@ impl Actor {
             TapLeafHash::from_script(spend_script, LeafVersion::TapScript),
             bitcoin::sighash::TapSighashType::Default,
         )?;
-        tracing::trace!("Signature hash is {:?}", sig_hash);
 
         Ok(self.sign(sig_hash))
     }
