@@ -28,6 +28,7 @@ operators_xonly_pks = [
 # Operator can take funds back after this amount of blocks.
 operator_takes_after = 5
 
+# Operator reimbursement addresses after the 2 week period.
 operator_wallet_addresses = [
     "bcrt1pvaua4gvvglk27al5trh337xz8l8zzhgzageky0xt0dgv64xee8tqwwvzmf",
     "bcrt1pvaua4gvvglk27al5trh337xz8l8zzhgzageky0xt0dgv64xee8tqwwvzmf",
@@ -37,7 +38,7 @@ operator_withdrawal_fee_sats = 100000
 
 operator_num_kickoff_utxos_per_tx = 10
 
-# User can take funds back after this amount of blocks.
+# User can take funds back after this amount of blocks, if deposit fails.
 user_takes_after = 200
 
 # Bitcoin node configuration options
