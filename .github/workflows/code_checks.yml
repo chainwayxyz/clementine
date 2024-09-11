@@ -4,6 +4,10 @@ on: [push]
 
 env:
   CARGO_TERM_COLOR: always
+  CARGO_TERM_VERBOSE: true
+  CARGOFLAGS: --workspace --all-targets --all-features
+  RUST_LOG: trace
+  RISC0_DEV_MODE: 1
 
 jobs:
   formatting:
@@ -23,3 +27,52 @@ jobs:
     - uses: actions/checkout@v4
     - name: Run Cargo clippy
       run: cargo clippy --no-deps --all-targets -- -Dwarnings
+
+  udeps:
+    name: Check unused dependencies
+    runs-on: ubicloud-standard-8
+
+    steps:
+      - uses: actions/checkout@v4
+      - name: Toolchain
+        uses: actions-rs/toolchain@v1
+        with:
+          toolchain: nightly-2024-07-27
+          override: true
+      - name: Run cargo-udeps
+        env:
+          RUSTFLAGS: -A warnings
+        uses: aig787/cargo-udeps-action@v1
+        with:
+          version: "latest"
+          args: "--workspace --all-features --all-targets"
+
+  coverage:
+    name: Check code coverage percentage
+    runs-on: ubicloud-standard-16
+
+    services:
+      postgres:
+        image: postgres:latest
+        env:
+          POSTGRES_DB: clementine
+          POSTGRES_USER: clementine
+          POSTGRES_PASSWORD: clementine
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install Rust
+        run: rustup update stable
+      - name: Install cargo-llvm-cov
+        uses: taiki-e/install-action@cargo-llvm-cov
+      - name: Generate code coverage and print that to a JSON file
+        run: cargo llvm-cov $CARGOFLAGS --json --output-path lcov.json
+      - name: Check coverage
+        run: scripts/check_json_code_coverage.py lcov.json
