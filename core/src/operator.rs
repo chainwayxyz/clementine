@@ -468,6 +468,44 @@ where
                     self.idx,
                 ));
             }
+
+            // calculate move_txid
+
+            let move_tx_handler = TransactionBuilder::create_move_tx(
+                deposit_outpoint,
+                &EVMAddress([0u8; 20]),
+                Address::p2tr(
+                    &utils::SECP,
+                    *utils::UNSPENDABLE_XONLY_PUBKEY,
+                    None,
+                    self.config.network,
+                )
+                .as_unchecked(),
+                &self.nofn_xonly_pk,
+                self.config.network,
+                self.config.user_takes_after,
+                self.config.bridge_amount_sats,
+            );
+
+            let move_txid = move_tx_handler.tx.compute_txid();
+            let move_txid_bytes = move_txid.to_byte_array();
+
+            let params = rpc_params![json!({
+                "to": "0x3100000000000000000000000000000000000002",
+                "data": format!("0x11e53a01{}", hex::encode(move_txid_bytes)), // See: https://gist.github.com/okkothejawa/a9379b02a16dada07a2b85cbbd3c1e80
+            })];
+            let response: String = citrea_client.request("eth_call", params).await?;
+            tracing::debug!("Response from citrea: {:?}", response);
+            let deposit_idx_response = &response[58..66];
+            let deposit_idx_as_vec = hex::decode(deposit_idx_response).unwrap();
+            let deposit_idx = u32::from_be_bytes(deposit_idx_as_vec.try_into().unwrap());
+
+            if deposit_idx - 1 != withdrawal_idx {
+                return Err(BridgeError::InvalidDepositOutpointGiven(
+                    deposit_idx as usize - 1,
+                    withdrawal_idx as usize,
+                ));
+            }
         }
 
         let kickoff_utxo = self
