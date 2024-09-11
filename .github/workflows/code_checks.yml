@@ -25,7 +25,7 @@ jobs:
       run: cargo clippy --no-deps --all-targets -- -Dwarnings
 
   udeps:
-    name: udeps
+    name: Check unused dependencies
     runs-on: ubicloud-standard-8
 
     steps:
