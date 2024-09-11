@@ -72,6 +72,7 @@ where
     /// 2. Generate random pubNonces, secNonces
     /// 3. Save pubNonces and secNonces to a db
     /// 4. Return pubNonces
+    #[tracing::instrument(skip(self), err(level = tracing::Level::ERROR), ret(level = tracing::Level::TRACE))]
     async fn new_deposit(
         &self,
         deposit_outpoint: OutPoint,
@@ -143,6 +144,7 @@ where
     ///
     /// do not forget to add tweak when signing since this address has n_of_n as internal_key
     /// and operator_timelock as script.
+    #[tracing::instrument(skip(self), err(level = tracing::Level::ERROR), ret(level = tracing::Level::TRACE))]
     async fn operator_kickoffs_generated(
         &self,
         deposit_outpoint: OutPoint,
@@ -270,6 +272,7 @@ where
         Ok((slash_or_take_partial_sigs, vec![]))
     }
 
+    #[tracing::instrument(skip(self), err(level = tracing::Level::ERROR), ret(level = tracing::Level::TRACE))]
     async fn create_deposit_details(
         &self,
         deposit_outpoint: OutPoint,
@@ -311,6 +314,7 @@ where
     /// verify burn txs are signed by verifiers
     /// sign operator_takes_txs
     /// TODO: Change the name of this function.
+    #[tracing::instrument(skip(self), err(level = tracing::Level::ERROR), ret(level = tracing::Level::TRACE))]
     async fn burn_txs_signed(
         &self,
         deposit_outpoint: OutPoint,
@@ -407,6 +411,7 @@ where
 
     /// verify the operator_take_sigs
     /// sign move_tx
+    #[tracing::instrument(skip(self), err(level = tracing::Level::ERROR), ret(level = tracing::Level::TRACE))]
     async fn operator_take_txs_signed(
         &self,
         deposit_outpoint: OutPoint,

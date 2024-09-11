@@ -32,6 +32,7 @@ pub struct Aggregator {
 }
 
 impl Aggregator {
+    #[tracing::instrument(err(level = tracing::Level::ERROR), ret(level = tracing::Level::TRACE))]
     pub async fn new(config: BridgeConfig) -> Result<Self, BridgeError> {
         let nofn_xonly_pk = secp256k1::XOnlyPublicKey::from_musig2_pks(
             config.verifier.public_keys.clone(),
@@ -45,6 +46,7 @@ impl Aggregator {
         })
     }
 
+    #[tracing::instrument(skip(self), err(level = tracing::Level::ERROR), ret(level = tracing::Level::TRACE))]
     fn aggregate_slash_or_take_partial_sigs(
         &self,
         deposit_outpoint: OutPoint,
@@ -90,6 +92,7 @@ impl Aggregator {
         Ok(final_sig)
     }
 
+    #[tracing::instrument(skip(self), err(level = tracing::Level::ERROR), ret(level = tracing::Level::TRACE))]
     fn aggregate_operator_takes_partial_sigs(
         &self,
         deposit_outpoint: OutPoint,
@@ -172,6 +175,7 @@ impl Aggregator {
         Ok(final_sig)
     }
 
+    #[tracing::instrument(skip(self), err(level = tracing::Level::ERROR), ret(level = tracing::Level::TRACE))]
     fn aggregate_move_partial_sigs(
         &self,
         deposit_outpoint: OutPoint,
@@ -205,6 +209,7 @@ impl Aggregator {
         Ok(final_sig)
     }
 
+    #[tracing::instrument(skip(self), err(level = tracing::Level::ERROR), ret(level = tracing::Level::TRACE))]
     pub async fn aggregate_pub_nonces(
         &self,
         pub_nonces: Vec<Vec<MuSigPubNonce>>,
@@ -223,6 +228,7 @@ impl Aggregator {
         Ok(agg_nonces)
     }
 
+    #[tracing::instrument(skip(self), err(level = tracing::Level::ERROR), ret(level = tracing::Level::TRACE))]
     pub async fn aggregate_slash_or_take_sigs(
         &self,
         deposit_outpoint: OutPoint,
@@ -260,6 +266,7 @@ impl Aggregator {
         Ok(slash_or_take_sigs)
     }
 
+    #[tracing::instrument(skip(self), err(level = tracing::Level::ERROR), ret(level = tracing::Level::TRACE))]
     pub async fn aggregate_operator_take_sigs(
         &self,
         deposit_outpoint: OutPoint,
@@ -283,6 +290,7 @@ impl Aggregator {
         Ok(operator_take_sigs)
     }
 
+    #[tracing::instrument(skip(self), err(level = tracing::Level::ERROR), ret(level = tracing::Level::TRACE))]
     pub async fn aggregate_move_tx_sigs(
         &self,
         deposit_outpoint: OutPoint,
