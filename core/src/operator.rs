@@ -449,7 +449,30 @@ where
         deposit_outpoint: OutPoint,
     ) -> Result<Vec<String>, BridgeError> {
         // call withdrawFillers(withdrawal_idx) check the returned id is our operator id.
-        // calculate the move_txid, txIdToDepositId(move_txid) check the returned id is withdrawal_idx
+        let kickoff_utxo = self
+            .db
+            .get_kickoff_utxo(None, deposit_outpoint)
+            .await?
+            .ok_or(BridgeError::KickoffOutpointsNotFound)?;
+        let move_tx = TransactionBuilder::create_move_tx(
+            deposit_outpoint,
+            &EVMAddress([0u8; 20]),
+            Address::p2tr(
+                &utils::SECP,
+                *utils::UNSPENDABLE_XONLY_PUBKEY,
+                None,
+                self.config.network,
+            )
+            .as_unchecked(),
+            &self.nofn_xonly_pk,
+            self.config.network,
+            self.config.user_takes_after,
+            self.config.bridge_amount_sats,
+        );
+        let move_txid = move_tx.tx.compute_txid();
+        let mut move_tx_bytes = move_txid.to_byte_array();
+        move_tx_bytes.reverse();
+        // calculate the move_txid, txIdToDepositId(move_txid) (11e53a01) check the returned id is withdrawal_idx
         if let Some(citrea_client) = &self.citrea_client {
             let params = rpc_params![
                 json!({
@@ -468,13 +491,24 @@ where
                     self.idx,
                 ));
             }
+            let params = rpc_params![
+                json!({
+                    "to": "0x3100000000000000000000000000000000000002",
+                    "data": format!("0x11e53a01{}", hex::encode(move_tx_bytes)), // See: https://gist.github.com/okkothejawa/a9379b02a16dada07a2b85cbbd3c1e80
+                }),
+                "latest"
+            ];
+            let response: String = citrea_client.request("eth_call", params).await?;
+            let deposit_idx_response = &response[58..66];
+            let deposit_idx_as_vec = hex::decode(deposit_idx_response).unwrap();
+            let deposit_idx = u32::from_be_bytes(deposit_idx_as_vec.try_into().unwrap());
+            if deposit_idx != withdrawal_idx {
+                return Err(BridgeError::InvalidDepositIndex(
+                    deposit_idx as usize,
+                    withdrawal_idx as usize,
+                ));
+            }
         }
-
-        let kickoff_utxo = self
-            .db
-            .get_kickoff_utxo(None, deposit_outpoint)
-            .await?
-            .ok_or(BridgeError::KickoffOutpointsNotFound)?;
         tracing::debug!("Kickoff UTXO FOUND: {:?}", kickoff_utxo);
         let mut txs_to_be_sent = vec![];
         let mut current_searching_txid = kickoff_utxo.outpoint.txid;

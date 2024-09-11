@@ -176,6 +176,9 @@ pub enum BridgeError {
     #[error("InvalidOperatorIndex: {0}, {1}")]
     InvalidOperatorIndex(usize, usize),
 
+    #[error("InvalidDepositIndex: {0}, {1}")]
+    InvalidDepositIndex(usize, usize),
+
     #[error("NotEnoughFeeForOperator")]
     NotEnoughFeeForOperator,
 
