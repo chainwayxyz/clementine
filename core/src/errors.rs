@@ -182,6 +182,18 @@ pub enum BridgeError {
     #[error("NotEnoughFeeForOperator")]
     NotEnoughFeeForOperator,
 
+    #[error("KickoffGeneratorTxNotFound")]
+    KickoffGeneratorTxNotFound,
+
+    #[error("KickoffGeneratorTxsTooManyIterations")]
+    KickoffGeneratorTxsTooManyIterations,
+
+    #[error("OperatorSlashOrTakeSigNotFound")]
+    OperatorSlashOrTakeSigNotFound,
+
+    #[error("OperatorTakesSigNotFound")]
+    OperatorTakesSigNotFound,
+
     #[error("Musig2 error: {0}")]
     Musig2Error(#[from] musig2::secp256k1::Error),
 }
