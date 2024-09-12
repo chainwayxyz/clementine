@@ -4,8 +4,7 @@ Clementine is Citrea's BitVM based trust-minimized two-way peg program.
 
 The repository includes:
 
-- Smart contracts for deposit and withdrawal
-- A library for bridge operator and verifiers
+- A library for bridge operator, verifiers and aggregator
 - Circuits that will be optimistically verified with BitVM
 
 > [!WARNING]
