@@ -9,7 +9,7 @@ The repository includes:
 
 > [!WARNING]
 >
-> Clementine is still work-in-progress. It has not been audited and should not
+> Clementine is still a work in progress. It has not been audited and should not
 > be used in production under any circumstances. It also requires a full BitVM
 > implementation to be run fully on-chain.
 
@@ -23,8 +23,8 @@ and configure Bitcoin Core if you haven't already.
 Running a binary as a verifier, aggregator or operator requires a configuration
 file. Example configuration file is located at
 [`core/tests/data/test_config.toml`](core/tests/data/test_config.toml) and can
-be taken as reference. Please copy that configuration file to somewhere else and
-modify fields to your local configuration.
+be taken as reference. Please copy that configuration file to another location
+and modify fields to your local configuration.
 
 ### Starting a Server
 
@@ -56,8 +56,8 @@ More information, use `--help` flag:
 
 #### Bitcoin Regtest Setup
 
-To run the whole process of simulating deposits, withdrawals, proof generation
-on the Bitcoin Regtest network, some configuration is needed.
+To simulate deposits, withdrawals, proof generation on the Bitcoin Regtest
+network, some configuration is needed.
 
 Start the regtest server with the following command:
 
@@ -83,14 +83,14 @@ for testing.
 
 #### Optional Database Docker Image
 
-If PostgreSQL database is not present in your system, included Docker image can
-be used to bring the database up.
+If PostgreSQL is not present on your system, the included Docker image can be
+used to bring up the database:
 
 ```bash
 docker compose up -d
 ```
 
-In case you to start the database from a completely fresh state, run this:
+In case you want to start the database from a completely fresh state, run this:
 
 ```bash
 docker compose down
@@ -108,7 +108,7 @@ export RISC0_DEV_MODE=1
 
 A custom configuration file can be specified for testing. This can be helpful
 if developer's environment is not matching with the example test configuration
-(e.g. database user name). Please note that, only database fields are necessary
+(e.g. database user name). Please note that only database fields are necessary
 in this overwrite configuration file.
 
 ```sh
@@ -117,7 +117,7 @@ export TEST_CONFIG=/path/to/configuration.toml
 
 #### Run Tests
 
-To run every test:
+To run all tests:
 
 ```sh
 cargo test
