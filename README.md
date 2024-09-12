@@ -28,7 +28,7 @@ modify fields to your local configuration.
 
 ### Starting a Server
 
-A server can be started using it's corresponding CLI flag:
+A server can be started using its corresponding CLI flag:
 
 ```sh
 # Build the binary
