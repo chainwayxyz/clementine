@@ -27,9 +27,31 @@ file. Example configuration file is located at
 be taken as reference. Please copy that configuration file to somewhere else and
 modify fields to your local configuration.
 
+### Starting Servers
+
+A server can be started using corresponding CLI flag:
+
+```sh
+cargo run --bin server -- $CONFIGFILE --verifier-server # Start verifier server
+cargo run --bin server -- $CONFIGFILE --aggregator-server # Start aggregator server
+cargo run --bin server -- $CONFIGFILE --operator-server # Start operator server
+```
+
+A server's log level can be specified with `--verbose` flag:
+
+```sh
+cargo run --bin server -- $CONFIGFILE --operator-server --verbose 5 # Logs everything
+```
+
+More information, use `--help` flag:
+
+```sh
+cargo run --bin server -- --help
+```
+
 ### Testing
 
-#### Environment Setup
+#### Bitcoin Regtest Setup
 
 To run the whole process of simulating deposits, withdrawals, proof generation
 on the Bitcoin Regtest network, some configuration is needed.
@@ -56,6 +78,23 @@ Please note that this step is not necessary if
 [bitcoin-mock-rpc](https://github.com/chainwayxyz/bitcoin-mock-rpc) will be used
 for testing.
 
+#### Optional Database Docker Image
+
+If PostgreSQL database is not present in your system, included Docker image can
+be used to bring the database up.
+
+```bash
+docker compose up -d
+```
+
+In case you to start the database from a completely fresh state, run this:
+
+```bash
+docker compose down
+sudo rm -rf .docker/db/data
+docker compose up -d
+```
+
 #### Configuration
 
 Enabling dev-mode for risc0-zkvm can help lower the compilation times.
@@ -71,23 +110,6 @@ in this overwrite configuration file.
 
 ```sh
 export TEST_CONFIG=/path/to/configuration.toml
-```
-
-#### Database Docker Image
-
-If PostgreSQL database is not present in your system, included Docker image can
-be used to bring the database up.
-
-```bash
-docker compose up -d
-```
-
-In case you to start the database from a completely fresh state, run this:
-
-```bash
-docker compose down
-sudo rm -rf .docker/db/data
-docker compose up -d
 ```
 
 #### Run Tests
