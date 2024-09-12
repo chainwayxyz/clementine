@@ -26,26 +26,30 @@ file. Example configuration file is located at
 be taken as reference. Please copy that configuration file to somewhere else and
 modify fields to your local configuration.
 
-### Starting Servers
+### Starting a Server
 
-A server can be started using corresponding CLI flag:
+A server can be started using it's corresponding CLI flag:
 
 ```sh
-cargo run --bin server -- $CONFIGFILE --verifier-server # Start verifier server
-cargo run --bin server -- $CONFIGFILE --aggregator-server # Start aggregator server
-cargo run --bin server -- $CONFIGFILE --operator-server # Start operator server
+# Build the binary
+cargo build --release --bin server
+
+# Run binary with a target
+./target/release/server $CONFIGFILE --verifier-server # Start verifier server
+./target/release/server $CONFIGFILE --aggregator-server # Start aggregator server
+./target/release/server $CONFIGFILE --operator-server # Start operator server
 ```
 
 A server's log level can be specified with `--verbose` flag:
 
 ```sh
-cargo run --bin server -- $CONFIGFILE --operator-server --verbose 5 # Logs everything
+./target/release/server $CONFIGFILE --operator-server --verbose 5 # Logs everything
 ```
 
 More information, use `--help` flag:
 
 ```sh
-cargo run --bin server -- --help
+./target/release/server --help
 ```
 
 ### Testing
