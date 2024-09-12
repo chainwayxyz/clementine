@@ -1,35 +1,30 @@
 # Clementine 🍊
 
 Clementine is Citrea's BitVM based trust-minimized two-way peg program.
+
 The repository includes:
 
 - Smart contracts for deposit and withdrawal
 - A library for bridge operator and verifiers
 - Circuits that will be optimistically verified with BitVM
 
-The flow is as follows:
-
-- Creating the operator and verifiers
-- Initial setup that includes calculating period block heights, connector tree hashes, and funding connector source
-  UTXOs.
-- User deposit flow that includes creating a deposit transaction, signing it, and submitting it to the operator.
-- Operator processing the deposit, getting signatures from verifiers, and submitting the deposit to the Bitcoin network.
-- Verifiers verifying the deposit and signing the deposit transaction and claim signatures.
-- Operator withdrawal flow for front covering withdrawal requests.
-- Verifier to start a challenge with Bitcoin Proof of Work
-- Operator to respond to the challenge with a bridge proof.
-
 > [!WARNING]
 >
-> Clementine is still work-in-progress. It has not been audited and should not be used in production under any
-> circumstances. It also requires a full BitVM implementation to be run fully on-chain.
+> Clementine is still work-in-progress. It has not been audited and should not
+> be used in production under any circumstances. It also requires a full BitVM
+> implementation to be run fully on-chain.
 
 ## Instructions
 
-### Preparing Test Environment
+Clementine requires a Bitcoin node up and running on the client. Please install
+and configure Bitcoin Core if you haven't already.
+
+### Testing
+
+#### Environment Setup
 
 To run the whole process of simulating deposits, withdrawals, proof generation
-on the Bitcoin Regtest network, you need Bitcoin Core to be installed.
+on the Bitcoin Regtest network, some configuration is needed.
 
 Start the regtest server with the following command:
 
@@ -49,30 +44,35 @@ Mine some blocks to the wallet:
 bitcoin-cli -regtest -rpcuser=admin -rpcpassword=admin -rpcport=18443 generatetoaddress 101 $(bitcoin-cli -regtest -rpcuser=admin -rpcpassword=admin -rpcport=18443 getnewaddress)
 ```
 
-Enable dev-mode for risc0-zkvm. This can help lower compilation times.
+Please note that this step is not necessary if
+[bitcoin-mock-rpc](https://github.com/chainwayxyz/bitcoin-mock-rpc) will be used
+for testing.
+
+#### Configuration
+
+Enabling dev-mode for risc0-zkvm can help lower the compilation times.
 
 ```sh
 export RISC0_DEV_MODE=1
 ```
 
 A custom configuration file can be specified for testing. This can be helpful
-if developer's environment is not matching with a test's configuration file
-(e.g. database user name).
+if developer's environment is not matching with the example test configuration
+(e.g. database user name). Please note that, only database fields are necessary
+in this overwrite configuration file.
 
 ```sh
 export TEST_CONFIG=/path/to/configuration.toml
 ```
 
-#### Database
+#### Database Docker Image
 
-Some integration tests depend on a properly configured PostgresSQL server. To bring it up you may use provided docker
-configuration.
+If PostgreSQL database is not present in your system, included Docker image can
+be used to bring the database up.
 
 ```bash
 docker compose up -d
 ```
-
-##### Reinitialization
 
 In case you to start the database from a completely fresh state, run this:
 
@@ -82,7 +82,7 @@ sudo rm -rf .docker/db/data
 docker compose up -d
 ```
 
-### Testing
+#### Run Tests
 
 To run every test:
 
@@ -90,14 +90,12 @@ To run every test:
 cargo test
 ```
 
-User's environment configuration can be different than hard coded test
-configuration file. In that case, user can specify an external configuration
-file that overwrites test configurations some fields, like database user and
-password. To do that, set `TEST_CONFIG` environment variable with the path of
-configuration file:
+Tests can also be run with
+[bitcoin-mock-rpc](https://github.com/chainwayxyz/bitcoin-mock-rpc), which is an
+alternative to Bitcoin Regtest:
 
 ```sh
-TEST_CONFIG=/path/to/user.toml cargo test
+cargo test --features mock_rpc
 ```
 
 ## License
