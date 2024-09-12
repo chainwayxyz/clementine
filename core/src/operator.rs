@@ -76,7 +76,7 @@ where
             let funding_utxo = UTXO {
                 outpoint,
                 txout: TxOut {
-                    value: bitcoin::Amount::from_sat(config.bridge_amount_sats * 2),
+                    value: bitcoin::Amount::from_sat(200_000_000),
                     script_pubkey: signer.address.script_pubkey(),
                 },
             };
