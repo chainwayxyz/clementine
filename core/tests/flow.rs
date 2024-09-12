@@ -7,7 +7,7 @@ use clementine_core::extended_rpc::ExtendedRpc;
 use clementine_core::{
     create_extended_rpc, errors::BridgeError, traits::rpc::OperatorRpcClient, user::User,
 };
-use common::{run_multiple_deposit, run_single_deposit};
+use common::{run_multiple_deposits, run_single_deposit};
 use secp256k1::SecretKey;
 
 mod common;
@@ -46,7 +46,10 @@ async fn test_honest_operator_takes_refund() {
     );
     // We are giving 99_800_000 sats to the user so that the operator can pay the withdrawal and profit.
     let (empty_utxo, withdrawal_tx_out, user_sig) = user
-        .generate_withdrawal_sig(withdrawal_address, 99_800_000)
+        .generate_withdrawal_sig(
+            withdrawal_address,
+            config.bridge_amount_sats - 2 * config.operator_withdrawal_fee_sats.unwrap(),
+        )
         .unwrap();
     let withdrawal_provide_txid = operators[1]
         .0
@@ -75,7 +78,10 @@ async fn test_honest_operator_takes_refund() {
     let operator_take_tx = rpc.get_raw_transaction(&operator_take_txid, None).unwrap();
 
     assert!(
-        operator_take_tx.output[0].value > bitcoin::Amount::from_sat(99_800_000),
+        operator_take_tx.output[0].value
+            > bitcoin::Amount::from_sat(
+                config.bridge_amount_sats - 2 * config.operator_withdrawal_fee_sats.unwrap()
+            ),
         "Expected value to be greater than 99,800,000 satoshis, but it was not."
     );
     assert_eq!(
@@ -104,7 +110,7 @@ async fn test_withdrawal_fee_too_low() {
     );
     // We are giving 100_000_000 sats to the user so that the operator cannot pay it because it is not profitable.
     let (empty_utxo, withdrawal_tx_out, user_sig) = user
-        .generate_withdrawal_sig(withdrawal_address, 100_000_000)
+        .generate_withdrawal_sig(withdrawal_address, config.bridge_amount_sats)
         .unwrap();
     let withdrawal_provide_txid = operators[0]
         .0
@@ -115,5 +121,5 @@ async fn test_withdrawal_fee_too_low() {
 
 #[tokio::test]
 async fn multiple_deposits_for_operator() {
-    run_multiple_deposit("test_config.toml").await.unwrap();
+    run_multiple_deposits("test_config.toml").await;
 }
