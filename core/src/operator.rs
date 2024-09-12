@@ -94,6 +94,12 @@ where
             None
         };
 
+        tracing::debug!(
+            "Operator idx: {:?}, db created with name: {:?}",
+            idx,
+            config.db_name
+        );
+
         Ok(Self {
             rpc,
             db,
@@ -514,7 +520,7 @@ where
             .get_kickoff_utxo(None, deposit_outpoint)
             .await?
             .ok_or(BridgeError::KickoffOutpointsNotFound)?;
-        tracing::debug!("Kickoff UTXO FOUND: {:?}", kickoff_utxo);
+        tracing::debug!("Kickoff UTXO FOUND after withdrawal: {:?}", kickoff_utxo);
         let mut txs_to_be_sent = vec![];
         let mut current_searching_txid = kickoff_utxo.outpoint.txid;
         let mut found_txid = false;
@@ -535,7 +541,7 @@ where
                 .db
                 .get_deposit_kickoff_generator_tx(current_searching_txid)
                 .await?
-                .ok_or(BridgeError::KickoffOutpointsNotFound)?; // TODO: Fix this error
+                .ok_or(BridgeError::KickoffGeneratorTxNotFound)?;
 
             txs_to_be_sent.push(raw_signed_tx);
             current_searching_txid = funding_txid;
@@ -545,7 +551,7 @@ where
 
         // Handle the case where no transaction was found in 25 iterations
         if !found_txid {
-            return Err(BridgeError::KickoffOutpointsNotFound); // TODO: Fix this error
+            return Err(BridgeError::KickoffGeneratorTxsTooManyIterations); // TODO: Fix this error
         }
         // tracing::debug!("Found txs to be sent: {:?}", txs_to_be_sent);
 
@@ -577,7 +583,7 @@ where
             .db
             .get_slash_or_take_sig(deposit_outpoint, kickoff_utxo.clone())
             .await?
-            .ok_or(BridgeError::KickoffOutpointsNotFound)?; // TODO: Fix this error
+            .ok_or(BridgeError::OperatorSlashOrTakeSigNotFound)?;
 
         // tracing::debug!("Found nofn sig: {:?}", nofn_sig);
 
@@ -634,7 +640,7 @@ where
             .db
             .get_operator_take_sig(deposit_outpoint, kickoff_utxo)
             .await?
-            .ok_or(BridgeError::KickoffOutpointsNotFound)?; // TODO: Fix this error
+            .ok_or(BridgeError::OperatorTakesSigNotFound)?;
         tracing::debug!("Operator Found nofn sig: {:?}", operator_takes_nofn_sig);
 
         let our_sig = self

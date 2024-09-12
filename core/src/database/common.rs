@@ -1144,6 +1144,62 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn test_deposit_kickoff_generator_tx_0() {
+        let config = create_test_config_with_thread_name("test_config.toml", None).await;
+        let db = Database::new(config).await.unwrap();
+
+        let raw_hex = "02000000000101eb87b1a80d47b7f5bd5082b77653f5ca37e566951742b80c361875ba0e5c478f0a00000000fdffffff0ca086010000000000225120b23da6d2e0390018b953f7d74e3582da4da30fd0fd157cc84a2d2753003d1ca3a086010000000000225120b23da6d2e0390018b953f7d74e3582da4da30fd0fd157cc84a2d2753003d1ca3a086010000000000225120b23da6d2e0390018b953f7d74e3582da4da30fd0fd157cc84a2d2753003d1ca3a086010000000000225120b23da6d2e0390018b953f7d74e3582da4da30fd0fd157cc84a2d2753003d1ca3a086010000000000225120b23da6d2e0390018b953f7d74e3582da4da30fd0fd157cc84a2d2753003d1ca3a086010000000000225120b23da6d2e0390018b953f7d74e3582da4da30fd0fd157cc84a2d2753003d1ca3a086010000000000225120b23da6d2e0390018b953f7d74e3582da4da30fd0fd157cc84a2d2753003d1ca3a086010000000000225120b23da6d2e0390018b953f7d74e3582da4da30fd0fd157cc84a2d2753003d1ca3a086010000000000225120b23da6d2e0390018b953f7d74e3582da4da30fd0fd157cc84a2d2753003d1ca3a086010000000000225120b23da6d2e0390018b953f7d74e3582da4da30fd0fd157cc84a2d2753003d1ca35c081777000000002251202a64b1ee3375f3bb4b367b8cb8384a47f73cf231717f827c6c6fbbf5aecf0c364a010000000000002200204ae81572f06e1b88fd5ced7a1a000945432e83e1551e6f721ee9c00b8cc33260014005a41e6f4a4bcfcc5cd3ef602687215f97c18949019a491df56af7413c5dce9292ba3966edc4564a39d9bc0d6c0faae19030f1cedf4d931a6cdc57cc5b83c8ef00000000".to_string();
+        let tx: bitcoin::Transaction =
+            bitcoin::consensus::deserialize(&hex::decode(raw_hex.clone()).unwrap()).unwrap();
+        let txid = tx.compute_txid();
+        let num_kickoffs = tx.output.len() - 2;
+        let funding_txid = tx.input[0].previous_output.txid;
+        db.add_deposit_kickoff_generator_tx(
+            None,
+            txid,
+            raw_hex.clone(),
+            num_kickoffs,
+            funding_txid,
+        )
+        .await
+        .unwrap();
+        for i in 0..num_kickoffs - 1 {
+            let (db_raw_hex, db_num_kickoffs, db_cur_unused_kickoff_index, db_funding_txid) = db
+                .get_deposit_kickoff_generator_tx(txid)
+                .await
+                .unwrap()
+                .unwrap();
+
+            // Sanity check
+            assert_eq!(db_raw_hex, raw_hex);
+            assert_eq!(db_num_kickoffs, num_kickoffs);
+            assert_eq!(db_cur_unused_kickoff_index, i + 1);
+            assert_eq!(db_funding_txid, funding_txid);
+
+            let unused_utxo = db
+                .get_unused_kickoff_utxo_and_increase_idx(None)
+                .await
+                .unwrap()
+                .unwrap();
+            tracing::info!("unused_utxo: {:?}", unused_utxo);
+
+            // Sanity check
+            assert_eq!(unused_utxo.outpoint.txid, txid);
+            assert_eq!(unused_utxo.outpoint.vout, i as u32 + 1);
+        }
+    }
+
+    #[tokio::test]
+    async fn test_deposit_kickoff_generator_tx_2() {
+        let config = create_test_config_with_thread_name("test_config.toml", None).await;
+        let db = Database::new(config).await.unwrap();
+
+        let txid = Txid::from_byte_array([1u8; 32]);
+        let res = db.get_deposit_kickoff_generator_tx(txid).await.unwrap();
+        assert!(res.is_none());
+    }
+
+    #[tokio::test]
     async fn test_deposit_kickoff_generator_tx_1() {
         let config = create_test_config_with_thread_name("test_config.toml", None).await;
         let db = Database::new(config).await.unwrap();
@@ -1194,7 +1250,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_deposit_kickoff_generator_tx_2() {
+    async fn test_deposit_kickoff_generator_tx_3() {
         let config = create_test_config_with_thread_name("test_config.toml", None).await;
         let db = Database::new(config).await.unwrap();
 
