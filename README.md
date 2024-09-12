@@ -19,6 +19,14 @@ The repository includes:
 Clementine requires a Bitcoin node up and running on the client. Please install
 and configure Bitcoin Core if you haven't already.
 
+### Preparing a Configuration File
+
+Running a binary as a verifier, aggregator or operator requires a configuration
+file. Example configuration file is located at
+[`core/tests/data/test_config.toml`](core/tests/data/test_config.toml) and can
+be taken as reference. Please copy that configuration file to somewhere else and
+modify fields to your local configuration.
+
 ### Testing
 
 #### Environment Setup
