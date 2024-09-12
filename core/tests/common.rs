@@ -19,7 +19,6 @@ use clementine_core::user::User;
 use clementine_core::EVMAddress;
 use jsonrpsee::http_client::HttpClient;
 use jsonrpsee::server::ServerHandle;
-use secp256k1::schnorr;
 use std::net::SocketAddr;
 
 pub async fn run_multiple_deposits(test_config_name: &str) {
@@ -43,15 +42,13 @@ pub async fn run_multiple_deposits(test_config_name: &str) {
     let evm_address = EVMAddress([1u8; 20]);
     let deposit_address = user.get_deposit_address(evm_address).unwrap();
     let mut deposit_outpoints = Vec::new();
-    for _ in 0..4 {
+    for _ in 0..config.operator_num_kickoff_utxos_per_tx + 1 {
         let deposit_outpoint = rpc
             .send_to_address(&deposit_address, config.bridge_amount_sats)
             .unwrap();
 
         rpc.mine_blocks(18).unwrap();
 
-        // for every verifier, we call new_deposit
-        // aggregate nonces
         let mut pub_nonces = Vec::new();
 
         for (client, _, _) in verifiers.iter() {
@@ -59,8 +56,6 @@ pub async fn run_multiple_deposits(test_config_name: &str) {
                 .verifier_new_deposit_rpc(deposit_outpoint, signer_address.clone(), evm_address)
                 .await
                 .unwrap();
-
-            // tracing::info!("Musig Pub Nonces: {:?}", musig_pub_nonces);
 
             pub_nonces.push(musig_pub_nonces);
         }
@@ -70,12 +65,10 @@ pub async fn run_multiple_deposits(test_config_name: &str) {
             .aggregate_pub_nonces_rpc(pub_nonces)
             .await
             .unwrap();
-        // call operators' new_deposit
         let mut kickoff_utxos = Vec::new();
         let mut signatures = Vec::new();
 
         for (client, _, _) in operators.iter() {
-            // Create deposit kickoff transaction
             let (kickoff_utxo, signature) = client
                 .new_deposit_rpc(deposit_outpoint, signer_address.clone(), evm_address)
                 .await
@@ -112,9 +105,6 @@ pub async fn run_multiple_deposits(test_config_name: &str) {
             )
             .await
             .unwrap();
-
-        // tracing::debug!("Slash or take sigs: {:#?}", slash_or_take_sigs);
-        // call burn_txs_signed_rpc
         let mut operator_take_partial_sigs: Vec<Vec<MuSigPartialSignature>> = Vec::new();
         for (client, ..) in verifiers.iter() {
             let partial_sigs = client
@@ -123,10 +113,7 @@ pub async fn run_multiple_deposits(test_config_name: &str) {
                 .unwrap();
             operator_take_partial_sigs.push(partial_sigs);
         }
-        // tracing::debug!(
-        //     "Operator take partial sigs: {:#?}",
-        //     operator_take_partial_sigs
-        // );
+
         let operator_take_sigs = aggregator
             .0
             .aggregate_operator_take_sigs_rpc(
@@ -137,8 +124,7 @@ pub async fn run_multiple_deposits(test_config_name: &str) {
             )
             .await
             .unwrap();
-        // tracing::debug!("Operator take sigs: {:#?}", operator_take_sigs);
-        // call operator_take_txs_signed_rpc
+
         let mut move_tx_partial_sigs = Vec::new();
         for (client, _, _) in verifiers.iter() {
             let move_tx_partial_sig = client
@@ -147,10 +133,6 @@ pub async fn run_multiple_deposits(test_config_name: &str) {
                 .unwrap();
             move_tx_partial_sigs.push(move_tx_partial_sig);
         }
-
-        // tracing::debug!("Move tx partial sigs: {:#?}", move_tx_partial_sigs);
-
-        // aggreagte move_tx_partial_sigs
 
         let (move_tx, _) = aggregator
             .0
@@ -164,133 +146,7 @@ pub async fn run_multiple_deposits(test_config_name: &str) {
             .await
             .unwrap();
         let move_tx: Transaction = deserialize_hex(&move_tx).unwrap();
-        // tracing::debug!("Move tx: {:#?}", move_tx);
-        // tracing::debug!("Move tx_hex: {:?}", move_tx_handler.tx.raw_hex());
-        tracing::debug!("Move tx weight: {:?}", move_tx.weight());
-        let move_txid = rpc.send_raw_transaction(&move_tx).unwrap();
-        tracing::debug!("Move txid: {:?}", move_txid);
-        let deposit_outpoint = rpc
-            .send_to_address(&deposit_address, config.bridge_amount_sats)
-            .unwrap();
 
-        rpc.mine_blocks(18).unwrap();
-
-        // for every verifier, we call new_deposit
-        // aggregate nonces
-        let mut pub_nonces = Vec::new();
-
-        for (client, _, _) in verifiers.iter() {
-            let musig_pub_nonces = client
-                .verifier_new_deposit_rpc(deposit_outpoint, signer_address.clone(), evm_address)
-                .await
-                .unwrap();
-
-            // tracing::info!("Musig Pub Nonces: {:?}", musig_pub_nonces);
-
-            pub_nonces.push(musig_pub_nonces);
-        }
-
-        let agg_nonces = aggregator
-            .0
-            .aggregate_pub_nonces_rpc(pub_nonces)
-            .await
-            .unwrap();
-        // call operators' new_deposit
-        let mut kickoff_utxos = Vec::new();
-        let mut signatures = Vec::new();
-
-        for (client, _, _) in operators.iter() {
-            // Create deposit kickoff transaction
-            let (kickoff_utxo, signature) = client
-                .new_deposit_rpc(deposit_outpoint, signer_address.clone(), evm_address)
-                .await
-                .unwrap();
-
-            kickoff_utxos.push(kickoff_utxo);
-            signatures.push(signature);
-        }
-
-        tracing::debug!("Now the verifiers sequence starts");
-        let mut slash_or_take_partial_sigs = Vec::new();
-
-        for (client, ..) in verifiers.iter() {
-            let (partial_sigs, _) = client
-                .operator_kickoffs_generated_rpc(
-                    deposit_outpoint,
-                    kickoff_utxos.clone(),
-                    signatures.clone(),
-                    agg_nonces.clone(),
-                )
-                .await
-                .unwrap();
-
-            slash_or_take_partial_sigs.push(partial_sigs);
-        }
-
-        let slash_or_take_sigs = aggregator
-            .0
-            .aggregate_slash_or_take_sigs_rpc(
-                deposit_outpoint,
-                kickoff_utxos.clone(),
-                agg_nonces[config.num_operators + 1..2 * config.num_operators + 1].to_vec(),
-                slash_or_take_partial_sigs,
-            )
-            .await
-            .unwrap();
-
-        // tracing::debug!("Slash or take sigs: {:#?}", slash_or_take_sigs);
-        // call burn_txs_signed_rpc
-        let mut operator_take_partial_sigs: Vec<Vec<MuSigPartialSignature>> = Vec::new();
-        for (client, ..) in verifiers.iter() {
-            let partial_sigs = client
-                .burn_txs_signed_rpc(deposit_outpoint, vec![], slash_or_take_sigs.clone())
-                .await
-                .unwrap();
-            operator_take_partial_sigs.push(partial_sigs);
-        }
-        // tracing::debug!(
-        //     "Operator take partial sigs: {:#?}",
-        //     operator_take_partial_sigs
-        // );
-        let operator_take_sigs = aggregator
-            .0
-            .aggregate_operator_take_sigs_rpc(
-                deposit_outpoint,
-                kickoff_utxos.clone(),
-                agg_nonces[1..config.num_operators + 1].to_vec(),
-                operator_take_partial_sigs,
-            )
-            .await
-            .unwrap();
-        // tracing::debug!("Operator take sigs: {:#?}", operator_take_sigs);
-        // call operator_take_txs_signed_rpc
-        let mut move_tx_partial_sigs = Vec::new();
-        for (client, _, _) in verifiers.iter() {
-            let move_tx_partial_sig = client
-                .operator_take_txs_signed_rpc(deposit_outpoint, operator_take_sigs.clone())
-                .await
-                .unwrap();
-            move_tx_partial_sigs.push(move_tx_partial_sig);
-        }
-
-        // tracing::debug!("Move tx partial sigs: {:#?}", move_tx_partial_sigs);
-
-        // aggreagte move_tx_partial_sigs
-
-        let (move_tx, _) = aggregator
-            .0
-            .aggregate_move_tx_sigs_rpc(
-                deposit_outpoint,
-                signer_address.clone(),
-                evm_address,
-                agg_nonces[0],
-                move_tx_partial_sigs,
-            )
-            .await
-            .unwrap();
-        let move_tx: Transaction = deserialize_hex(&move_tx).unwrap();
-        // tracing::debug!("Move tx: {:#?}", move_tx);
-        // tracing::debug!("Move tx_hex: {:?}", move_tx_handler.tx.raw_hex());
         tracing::debug!("Move tx weight: {:?}", move_tx.weight());
         let move_txid = rpc.send_raw_transaction(&move_tx).unwrap();
         tracing::debug!("Move txid: {:?}", move_txid);
@@ -314,28 +170,38 @@ pub async fn run_multiple_deposits(test_config_name: &str) {
         .await
         .unwrap();
     tracing::debug!("Withdrawal provide txid: {:?}", withdrawal_provide_txid);
-    let txs_to_be_sent = operators[0]
+    let txs_to_be_sent_0 = operators[0]
         .0
         .withdrawal_proved_on_citrea_rpc(0, deposit_outpoints[0])
         .await
         .unwrap();
+    assert!(txs_to_be_sent_0.len() == 3);
     let (user_utxo, user_txout, user_sig) = user
         .generate_withdrawal_sig(
             withdrawal_address.clone(),
             config.bridge_amount_sats - 2 * config.operator_withdrawal_fee_sats.unwrap(),
         )
         .unwrap();
-    let withdrawal_provide_txid = operators[0]
+    let withdrawal_provide_txid = operators[1]
         .0
-        .new_withdrawal_sig_rpc(1, user_sig, user_utxo, user_txout)
+        .new_withdrawal_sig_rpc(
+            config.operator_num_kickoff_utxos_per_tx as u32 - 1,
+            user_sig,
+            user_utxo,
+            user_txout,
+        )
         .await
         .unwrap();
     tracing::debug!("Withdrawal provide txid: {:?}", withdrawal_provide_txid);
-    let txs_to_be_sent = operators[0]
+    let txs_to_be_sent_penultimate = operators[1]
         .0
-        .withdrawal_proved_on_citrea_rpc(1, deposit_outpoints[1])
+        .withdrawal_proved_on_citrea_rpc(
+            config.operator_num_kickoff_utxos_per_tx as u32 - 1,
+            deposit_outpoints[config.operator_num_kickoff_utxos_per_tx - 1],
+        )
         .await
         .unwrap();
+    assert!(txs_to_be_sent_penultimate.len() == 3);
     let (user_utxo, user_txout, user_sig) = user
         .generate_withdrawal_sig(
             withdrawal_address.clone(),
@@ -348,32 +214,15 @@ pub async fn run_multiple_deposits(test_config_name: &str) {
         .await
         .unwrap();
     tracing::debug!("Withdrawal provide txid: {:?}", withdrawal_provide_txid);
-    let txs_to_be_sent = operators[0]
+    let txs_to_be_sent_last = operators[2]
         .0
-        .withdrawal_proved_on_citrea_rpc(2, deposit_outpoints[2])
-        .await
-        .unwrap();
-    let (user_utxo, user_txout, user_sig) = user
-        .generate_withdrawal_sig(
-            withdrawal_address.clone(),
-            config.bridge_amount_sats - 2 * config.operator_withdrawal_fee_sats.unwrap(),
+        .withdrawal_proved_on_citrea_rpc(
+            config.operator_num_kickoff_utxos_per_tx as u32,
+            deposit_outpoints[config.operator_num_kickoff_utxos_per_tx],
         )
-        .unwrap();
-    let withdrawal_provide_txid = operators[0]
-        .0
-        .new_withdrawal_sig_rpc(3, user_sig, user_utxo, user_txout)
         .await
         .unwrap();
-    tracing::debug!("Withdrawal provide txid: {:?}", withdrawal_provide_txid);
-    let txs_to_be_sent = operators[0]
-        .0
-        .withdrawal_proved_on_citrea_rpc(3, deposit_outpoints[3])
-        .await
-        .unwrap();
-    // let txs_to_be_sent = operators[0].0.withdrawal_proved_on_citrea_rpc(1, deposit_outpoints[1]).await.unwrap();
-    // tracing::debug!("txs_to_be_sent.len: {:#?}", txs_to_be_sent.len());
-    assert!(false);
-    // let _ = txs_to_be_sent[0.]
+    assert!(txs_to_be_sent_last.len() == 4);
 }
 
 pub async fn run_single_deposit(
