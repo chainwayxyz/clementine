@@ -1,35 +1,63 @@
 # Clementine 🍊
 
 Clementine is Citrea's BitVM based trust-minimized two-way peg program.
+
 The repository includes:
 
-- Smart contracts for deposit and withdrawal
-- A library for bridge operator and verifiers
+- A library for bridge operator, verifiers and aggregator
 - Circuits that will be optimistically verified with BitVM
-
-The flow is as follows:
-
-- Creating the operator and verifiers
-- Initial setup that includes calculating period block heights, connector tree hashes, and funding connector source
-  UTXOs.
-- User deposit flow that includes creating a deposit transaction, signing it, and submitting it to the operator.
-- Operator processing the deposit, getting signatures from verifiers, and submitting the deposit to the Bitcoin network.
-- Verifiers verifying the deposit and signing the deposit transaction and claim signatures.
-- Operator withdrawal flow for front covering withdrawal requests.
-- Verifier to start a challenge with Bitcoin Proof of Work
-- Operator to respond to the challenge with a bridge proof.
 
 > [!WARNING]
 >
-> Clementine is still work-in-progress. It has not been audited and should not be used in production under any
-> circumstances. It also requires a full BitVM implementation to be run fully on-chain.
+> Clementine is still a work in progress. It has not been audited and should not
+> be used in production under any circumstances. It also requires a full BitVM
+> implementation to be run fully on-chain.
 
 ## Instructions
 
-### Preparing Test Environment
+Clementine requires a Bitcoin node up and running on the client. Please install
+and configure Bitcoin Core if you haven't already.
 
-To run the whole process of simulating deposits, withdrawals, proof generation
-on the Bitcoin Regtest network, you need Bitcoin Core to be installed.
+### Preparing a Configuration File
+
+Running a binary as a verifier, aggregator or operator requires a configuration
+file. Example configuration file is located at
+[`core/tests/data/test_config.toml`](core/tests/data/test_config.toml) and can
+be taken as reference. Please copy that configuration file to another location
+and modify fields to your local configuration.
+
+### Starting a Server
+
+A server can be started using its corresponding CLI flag:
+
+```sh
+# Build the binary
+cargo build --release --bin server
+
+# Run binary with a target
+./target/release/server $CONFIGFILE --verifier-server # Start verifier server
+./target/release/server $CONFIGFILE --aggregator-server # Start aggregator server
+./target/release/server $CONFIGFILE --operator-server # Start operator server
+```
+
+A server's log level can be specified with `--verbose` flag:
+
+```sh
+./target/release/server $CONFIGFILE --operator-server --verbose 5 # Logs everything
+```
+
+More information, use `--help` flag:
+
+```sh
+./target/release/server --help
+```
+
+### Testing
+
+#### Bitcoin Regtest Setup
+
+To simulate deposits, withdrawals, proof generation on the Bitcoin Regtest
+network, some configuration is needed.
 
 Start the regtest server with the following command:
 
@@ -49,32 +77,20 @@ Mine some blocks to the wallet:
 bitcoin-cli -regtest -rpcuser=admin -rpcpassword=admin -rpcport=18443 generatetoaddress 101 $(bitcoin-cli -regtest -rpcuser=admin -rpcpassword=admin -rpcport=18443 getnewaddress)
 ```
 
-Enable dev-mode for risc0-zkvm. This can help lower compilation times.
+Please note that this step is not necessary if
+[bitcoin-mock-rpc](https://github.com/chainwayxyz/bitcoin-mock-rpc) will be used
+for testing.
 
-```sh
-export RISC0_DEV_MODE=1
-```
+#### Optional Database Docker Image
 
-A custom configuration file can be specified for testing. This can be helpful
-if developer's environment is not matching with a test's configuration file
-(e.g. database user name).
-
-```sh
-export TEST_CONFIG=/path/to/configuration.toml
-```
-
-#### Database
-
-Some integration tests depend on a properly configured PostgresSQL server. To bring it up you may use provided docker
-configuration.
+If PostgreSQL is not present on your system, the included Docker image can be
+used to bring up the database:
 
 ```bash
 docker compose up -d
 ```
 
-##### Reinitialization
-
-In case you to start the database from a completely fresh state, run this:
+In case you want to start the database from a completely fresh state, run this:
 
 ```bash
 docker compose down
@@ -82,22 +98,37 @@ sudo rm -rf .docker/db/data
 docker compose up -d
 ```
 
-### Testing
+#### Configuration
 
-To run every test:
+Enabling dev-mode for risc0-zkvm can help lower the compilation times.
+
+```sh
+export RISC0_DEV_MODE=1
+```
+
+A custom configuration file can be specified for testing. This can be helpful
+if developer's environment is not matching with the example test configuration
+(e.g. database user name). Please note that only database fields are necessary
+in this overwrite configuration file.
+
+```sh
+export TEST_CONFIG=/path/to/configuration.toml
+```
+
+#### Run Tests
+
+To run all tests:
 
 ```sh
 cargo test
 ```
 
-User's environment configuration can be different than hard coded test
-configuration file. In that case, user can specify an external configuration
-file that overwrites test configurations some fields, like database user and
-password. To do that, set `TEST_CONFIG` environment variable with the path of
-configuration file:
+Tests can also be run with
+[bitcoin-mock-rpc](https://github.com/chainwayxyz/bitcoin-mock-rpc), which is an
+alternative to Bitcoin Regtest:
 
 ```sh
-TEST_CONFIG=/path/to/user.toml cargo test
+cargo test --features mock_rpc
 ```
 
 ## License
