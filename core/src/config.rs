@@ -132,12 +132,20 @@ pub struct BridgeConfig {
     pub port: u16,
     /// Secret key for the operator or the verifier.
     pub secret_key: secp256k1::SecretKey,
+    /// Operators wallet addresses.
+    pub operator_wallet_addresses: Vec<bitcoin::Address<NetworkUnchecked>>,
+    /// Number of operators.
+    pub operator_withdrawal_fee_sats: Option<u64>,
     /// Number of blocks after which user can take deposit back if deposit request fails.
     pub user_takes_after: u32,
     /// Bridge amount in satoshis.
     pub bridge_amount_sats: u64,
     /// Threshold for confirmation.
     pub confirmation_threshold: u32,
+    /// Citrea RPC URL.
+    pub citrea_rpc_url: String,
+    /// Bridge contract address.
+    pub bridge_contract_address: String,
 }
 impl Default for BridgeConfig {
     fn default() -> Self {
@@ -153,6 +161,10 @@ impl Default for BridgeConfig {
             user_takes_after: 5,
             bridge_amount_sats: 100_000_000,
             confirmation_threshold: 1,
+            operator_withdrawal_fee_sats: None,
+            operator_wallet_addresses: vec![],
+            citrea_rpc_url: "http://127.0.0.1:12345".to_string(),
+            bridge_contract_address: "3100000000000000000000000000000000000002".to_string(),
         }
     }
 }

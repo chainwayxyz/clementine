@@ -97,7 +97,7 @@ where
         tracing::debug!(
             "Operator idx: {:?}, db created with name: {:?}",
             idx,
-            config.db_name
+            config.database.name
         );
 
         Ok(Self {
@@ -485,11 +485,11 @@ where
                     &utils::SECP,
                     *utils::UNSPENDABLE_XONLY_PUBKEY,
                     None,
-                    self.config.network,
+                    self.config.bitcoin.network,
                 )
                 .as_unchecked(),
                 &self.nofn_xonly_pk,
-                self.config.network,
+                self.config.bitcoin.network,
                 self.config.user_takes_after,
                 self.config.bridge_amount_sats,
             );

@@ -42,7 +42,7 @@ pub async fn run_multiple_deposits(test_config_name: &str) {
     let evm_address = EVMAddress([1u8; 20]);
     let deposit_address = user.get_deposit_address(evm_address).unwrap();
     let mut deposit_outpoints = Vec::new();
-    for _ in 0..config.operator_num_kickoff_utxos_per_tx + 1 {
+    for _ in 0..config.operator.kickoff_utxos_per_tx + 1 {
         let deposit_outpoint = rpc
             .send_to_address(&deposit_address, config.bridge_amount_sats)
             .unwrap();
@@ -100,7 +100,7 @@ pub async fn run_multiple_deposits(test_config_name: &str) {
             .aggregate_slash_or_take_sigs_rpc(
                 deposit_outpoint,
                 kickoff_utxos.clone(),
-                agg_nonces[config.num_operators + 1..2 * config.num_operators + 1].to_vec(),
+                agg_nonces[config.operator.count + 1..2 * config.operator.count + 1].to_vec(),
                 slash_or_take_partial_sigs,
             )
             .await
@@ -119,7 +119,7 @@ pub async fn run_multiple_deposits(test_config_name: &str) {
             .aggregate_operator_take_sigs_rpc(
                 deposit_outpoint,
                 kickoff_utxos.clone(),
-                agg_nonces[1..config.num_operators + 1].to_vec(),
+                agg_nonces[1..config.operator.count + 1].to_vec(),
                 operator_take_partial_sigs,
             )
             .await
@@ -156,7 +156,7 @@ pub async fn run_multiple_deposits(test_config_name: &str) {
         &secp,
         secret_key.x_only_public_key(&secp).0,
         None,
-        config.network,
+        config.bitcoin.network,
     );
     let (user_utxo, user_txout, user_sig) = user
         .generate_withdrawal_sig(
@@ -185,7 +185,7 @@ pub async fn run_multiple_deposits(test_config_name: &str) {
     let withdrawal_provide_txid = operators[1]
         .0
         .new_withdrawal_sig_rpc(
-            config.operator_num_kickoff_utxos_per_tx as u32 - 1,
+            config.operator.kickoff_utxos_per_tx as u32 - 1,
             user_sig,
             user_utxo,
             user_txout,
@@ -196,8 +196,8 @@ pub async fn run_multiple_deposits(test_config_name: &str) {
     let txs_to_be_sent_penultimate = operators[1]
         .0
         .withdrawal_proved_on_citrea_rpc(
-            config.operator_num_kickoff_utxos_per_tx as u32 - 1,
-            deposit_outpoints[config.operator_num_kickoff_utxos_per_tx - 1],
+            config.operator.kickoff_utxos_per_tx as u32 - 1,
+            deposit_outpoints[config.operator.kickoff_utxos_per_tx - 1],
         )
         .await
         .unwrap();
@@ -217,8 +217,8 @@ pub async fn run_multiple_deposits(test_config_name: &str) {
     let txs_to_be_sent_last = operators[2]
         .0
         .withdrawal_proved_on_citrea_rpc(
-            config.operator_num_kickoff_utxos_per_tx as u32,
-            deposit_outpoints[config.operator_num_kickoff_utxos_per_tx],
+            config.operator.kickoff_utxos_per_tx as u32,
+            deposit_outpoints[config.operator.kickoff_utxos_per_tx],
         )
         .await
         .unwrap();
