@@ -35,7 +35,7 @@ impl Aggregator {
     #[tracing::instrument(err(level = tracing::Level::ERROR), ret(level = tracing::Level::TRACE))]
     pub async fn new(config: BridgeConfig) -> Result<Self, BridgeError> {
         let nofn_xonly_pk = secp256k1::XOnlyPublicKey::from_musig2_pks(
-            config.verifiers_public_keys.clone(),
+            config.verifier.public_keys.clone(),
             None,
             false,
         );
@@ -62,9 +62,9 @@ impl Aggregator {
             &operator_xonly_pk,
             operator_idx,
             &self.nofn_xonly_pk,
-            self.config.network,
+            self.config.bitcoin.network,
             self.config.user_takes_after,
-            self.config.operator_takes_after,
+            self.config.operator.takes_after,
             self.config.bridge_amount_sats,
         );
         // tracing::debug!("SLASH_OR_TAKE_TX: {:?}", tx);
@@ -73,7 +73,7 @@ impl Aggregator {
             Actor::convert_tx_to_sighash_script_spend(&mut tx, 0, 0)?.to_byte_array();
         // tracing::debug!("aggregate SLASH_OR_TAKE_TX message: {:?}", message);
         let final_sig: [u8; 64] = aggregate_partial_signatures(
-            self.config.verifiers_public_keys.clone(),
+            self.config.verifier.public_keys.clone(),
             None,
             false,
             agg_nonce,
@@ -83,7 +83,7 @@ impl Aggregator {
         // tracing::debug!("aggregate SLASH_OR_TAKE_TX final_sig: {:?}", final_sig);
         // tracing::debug!(
         //     "aggregate SLASH_OR_TAKE_TX for verifiers: {:?}",
-        //     self.config.verifiers_public_keys.clone()
+        //     self.config.verifier.public_keys.clone()
         // );
         // tracing::debug!(
         //     "aggregate SLASH_OR_TAKE_TX for operator: {:?}",
@@ -109,11 +109,11 @@ impl Aggregator {
                 &utils::SECP,
                 *utils::UNSPENDABLE_XONLY_PUBKEY,
                 None,
-                self.config.network,
+                self.config.bitcoin.network,
             )
             .as_unchecked(),
             &self.nofn_xonly_pk,
-            self.config.network,
+            self.config.bitcoin.network,
             self.config.user_takes_after,
             self.config.bridge_amount_sats,
         );
@@ -127,9 +127,9 @@ impl Aggregator {
             operator_xonly_pk,
             operator_idx,
             &self.nofn_xonly_pk,
-            self.config.network,
+            self.config.bitcoin.network,
             self.config.user_takes_after,
-            self.config.operator_takes_after,
+            self.config.operator.takes_after,
             self.config.bridge_amount_sats,
         );
         let slash_or_take_utxo = UTXO {
@@ -149,8 +149,8 @@ impl Aggregator {
             slash_or_take_utxo,
             operator_xonly_pk,
             &self.nofn_xonly_pk,
-            self.config.network,
-            self.config.operator_takes_after,
+            self.config.bitcoin.network,
+            self.config.operator.takes_after,
             self.config.bridge_amount_sats,
             self.config.operator_wallet_addresses[operator_idx].clone(),
         );
@@ -164,7 +164,7 @@ impl Aggregator {
         let message: [u8; 32] =
             Actor::convert_tx_to_sighash_pubkey_spend(&mut tx_handler, 0)?.to_byte_array();
         let final_sig: [u8; 64] = aggregate_partial_signatures(
-            self.config.verifiers_public_keys.clone(),
+            self.config.verifier.public_keys.clone(),
             None,
             true,
             agg_nonce,
@@ -189,7 +189,7 @@ impl Aggregator {
             evm_address,
             recovery_taproot_address,
             &self.nofn_xonly_pk,
-            self.config.network,
+            self.config.bitcoin.network,
             self.config.user_takes_after,
             self.config.bridge_amount_sats,
         );
@@ -198,7 +198,7 @@ impl Aggregator {
         let message: [u8; 32] =
             Actor::convert_tx_to_sighash_script_spend(&mut tx, 0, 0)?.to_byte_array();
         let final_sig: [u8; 64] = aggregate_partial_signatures(
-            self.config.verifiers_public_keys.clone(),
+            self.config.verifier.public_keys.clone(),
             None,
             false,
             agg_nonce,
@@ -255,7 +255,7 @@ impl Aggregator {
             let agg_sig = self.aggregate_slash_or_take_partial_sigs(
                 deposit_outpoint,
                 kickoff_utxos[i].clone(),
-                self.config.operators_xonly_pks[i],
+                self.config.operator.xonly_pks[i],
                 i,
                 &agg_nonces[i].clone(),
                 partial_sigs,
@@ -279,7 +279,7 @@ impl Aggregator {
             let agg_sig = self.aggregate_operator_takes_partial_sigs(
                 deposit_outpoint,
                 kickoff_utxos[i].clone(),
-                &self.config.operators_xonly_pks[i].clone(),
+                &self.config.operator.xonly_pks[i].clone(),
                 i,
                 &agg_nonces[i].clone(),
                 partial_sigs.iter().map(|v| v[i]).collect(),
@@ -314,7 +314,7 @@ impl Aggregator {
             &evm_address,
             &recovery_taproot_address,
             &self.nofn_xonly_pk,
-            self.config.network,
+            self.config.bitcoin.network,
             self.config.user_takes_after,
             self.config.bridge_amount_sats,
         );

@@ -37,24 +37,24 @@ where
     R: RpcApiWrapper,
 {
     pub async fn new(rpc: ExtendedRpc<R>, config: BridgeConfig) -> Result<Self, BridgeError> {
-        let signer = Actor::new(config.secret_key, config.network);
+        let signer = Actor::new(config.secret_key, config.bitcoin.network);
 
         let pk: secp256k1::PublicKey = config.secret_key.public_key(&utils::SECP);
 
         // Generated public key must be in given public key list.
-        if !config.verifiers_public_keys.contains(&pk) {
+        if !config.verifier.public_keys.contains(&pk) {
             return Err(BridgeError::PublicKeyNotFound);
         }
 
         let db = VerifierDB::new(config.clone()).await;
 
         let nofn_xonly_pk = secp256k1::XOnlyPublicKey::from_musig2_pks(
-            config.verifiers_public_keys.clone(),
+            config.verifier.public_keys.clone(),
             None,
             false,
         );
 
-        let operator_xonly_pks = config.operators_xonly_pks.clone();
+        let operator_xonly_pks = config.operator.xonly_pks.clone();
 
         Ok(Verifier {
             rpc,
@@ -86,7 +86,7 @@ where
             &evm_address,
             self.config.bridge_amount_sats,
             self.config.confirmation_threshold,
-            self.config.network,
+            self.config.bitcoin.network,
             self.config.user_takes_after,
         )?;
 
@@ -183,7 +183,7 @@ where
             utils::SECP.verify_schnorr(
                 &operators_kickoff_sigs[i],
                 &secp256k1::Message::from_digest(kickoff_sig_hash),
-                &self.config.operators_xonly_pks[i],
+                &self.config.operator.xonly_pks[i],
             )?;
 
             // Check if for each operator the address of the kickoff_utxo is correct TODO: Maybe handle the possible errors better
@@ -191,7 +191,7 @@ where
                 TransactionBuilder::create_kickoff_address(
                     &self.nofn_xonly_pk,
                     &self.operator_xonly_pks[i],
-                    self.config.network,
+                    self.config.bitcoin.network,
                 );
             tracing::debug!(
                 "musig2_and_operator_address.script_pubkey: {:?}",
@@ -206,12 +206,12 @@ where
             let mut slash_or_take_tx_handler = TransactionBuilder::create_slash_or_take_tx(
                 deposit_outpoint,
                 kickoff_utxo.clone(),
-                &self.config.operators_xonly_pks[i],
+                &self.config.operator.xonly_pks[i],
                 i,
                 &self.nofn_xonly_pk,
-                self.config.network,
+                self.config.bitcoin.network,
                 self.config.user_takes_after,
-                self.config.operator_takes_after,
+                self.config.operator.takes_after,
                 self.config.bridge_amount_sats,
             );
             let slash_or_take_tx_sighash =
@@ -240,7 +240,7 @@ where
             .save_sighashes_and_get_nonces(
                 Some(&mut dbtx),
                 deposit_outpoint,
-                self.config.num_operators + 1,
+                self.config.operator.count + 1,
                 &slash_or_take_sighashes,
             )
             .await?
@@ -255,7 +255,7 @@ where
             .zip(nonces.iter())
             .map(|(sighash, (sec_nonce, agg_nonce))| {
                 musig2::partial_sign(
-                    self.config.verifiers_public_keys.clone(),
+                    self.config.verifier.public_keys.clone(),
                     None,
                     false,
                     *sec_nonce,
@@ -299,7 +299,7 @@ where
             &evm_address,
             &recovery_taproot_address,
             &self.nofn_xonly_pk,
-            self.config.network,
+            self.config.bitcoin.network,
             self.config.user_takes_after,
             self.config.bridge_amount_sats,
         );
@@ -335,9 +335,9 @@ where
                     &self.operator_xonly_pks[index],
                     index,
                     &self.nofn_xonly_pk,
-                    self.config.network,
+                    self.config.bitcoin.network,
                     self.config.user_takes_after,
-                    self.config.operator_takes_after,
+                    self.config.operator.takes_after,
                     self.config.bridge_amount_sats,
                 );
                 let slash_or_take_sighash =
@@ -365,8 +365,8 @@ where
                     slash_or_take_utxo,
                     &self.operator_xonly_pks[index],
                     &self.nofn_xonly_pk,
-                    self.config.network,
-                    self.config.operator_takes_after,
+                    self.config.bitcoin.network,
+                    self.config.operator.takes_after,
                     self.config.bridge_amount_sats,
                     self.config.operator_wallet_addresses[index].clone(),
                 );
@@ -395,7 +395,7 @@ where
             .zip(nonces.iter())
             .map(|(sighash, (sec_nonce, agg_nonce))| {
                 musig2::partial_sign(
-                    self.config.verifiers_public_keys.clone(),
+                    self.config.verifier.public_keys.clone(),
                     None,
                     true,
                     *sec_nonce,
@@ -431,9 +431,9 @@ where
                     &self.operator_xonly_pks[index],
                     index,
                     &self.nofn_xonly_pk,
-                    self.config.network,
+                    self.config.bitcoin.network,
                     self.config.user_takes_after,
-                    self.config.operator_takes_after,
+                    self.config.operator.takes_after,
                     self.config.bridge_amount_sats,
                 );
                 let slash_or_take_utxo = UTXO {
@@ -448,8 +448,8 @@ where
                     slash_or_take_utxo,
                     &self.operator_xonly_pks[index],
                     &self.nofn_xonly_pk,
-                    self.config.network,
-                    self.config.operator_takes_after,
+                    self.config.bitcoin.network,
+                    self.config.operator.takes_after,
                     self.config.bridge_amount_sats,
                     self.config.operator_wallet_addresses[index].clone(),
                 );
@@ -501,7 +501,7 @@ where
             .ok_or(BridgeError::NoncesNotFound)?;
 
         let move_tx_sig = musig2::partial_sign(
-            self.config.verifiers_public_keys.clone(),
+            self.config.verifier.public_keys.clone(),
             None,
             false,
             nonces[0].0,
@@ -511,7 +511,7 @@ where
         );
 
         // let move_reveal_sig = musig2::partial_sign(
-        //     self.config.verifiers_public_keys.clone(),
+        //     self.config.verifier.public_keys.clone(),
         //     None,
         //     nonces[1].0,
         //     nonces[2].1.clone(),

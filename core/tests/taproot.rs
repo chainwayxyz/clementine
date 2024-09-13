@@ -21,7 +21,7 @@ async fn run() {
     let (xonly_pk, _) = config.secret_key.public_key(&secp).x_only_public_key();
     println!("x only pub key: {:?}", xonly_pk);
 
-    let address = Address::p2tr(&secp, xonly_pk, None, config.network);
+    let address = Address::p2tr(&secp, xonly_pk, None, config.bitcoin.network);
     println!("address: {:?}", address.to_string());
 
     let script = address.script_pubkey();
@@ -49,7 +49,7 @@ async fn run() {
         .into_script();
 
     let (taproot_address, taproot_spend_info) =
-        TransactionBuilder::create_taproot_address(&[to_pay_script.clone()], None, config.network);
+        TransactionBuilder::create_taproot_address(&[to_pay_script.clone()], None, config.bitcoin.network);
     let utxo = rpc.send_to_address(&taproot_address, 1000).unwrap();
 
     let ins = TransactionBuilder::create_tx_ins(vec![utxo]);
@@ -66,7 +66,7 @@ async fn run() {
 
     let tx = TransactionBuilder::create_btc_tx(ins, tx_outs.clone());
 
-    let signer = Actor::new(config.secret_key, config.network);
+    let signer = Actor::new(config.secret_key, config.bitcoin.network);
 
     let mut tx_details = TxHandler {
         tx: tx.clone(),
@@ -103,7 +103,7 @@ async fn run() {
 
     println!("UTXO: {:?}", utxo);
 
-    // let tx_builder = TransactionBuilder::new(config.verifiers_public_keys.clone(), config);
+    // let tx_builder = TransactionBuilder::new(config.verifier.public_keys.clone(), config);
     // let evm_address: EVMAddress = EVMAddress([1u8; 20]);
     // let deposit_address = tx_builder
     //     .generate_deposit_address(&xonly_pk, &evm_address, BRIDGE_AMOUNT_SATS)
@@ -129,9 +129,9 @@ async fn taproot_key_path_spend() {
     let rpc = create_extended_rpc!(config);
 
     let (xonly_pk, _) = config.secret_key.public_key(&secp).x_only_public_key();
-    let actor = Actor::new(config.secret_key, config.network);
+    let actor = Actor::new(config.secret_key, config.bitcoin.network);
 
-    let address = Address::p2tr(&secp, xonly_pk, None, config.network);
+    let address = Address::p2tr(&secp, xonly_pk, None, config.bitcoin.network);
     const INPUT_AMOUNT: u64 = 600;
     const INPUT_COUNT: u32 = 2;
     let mut inputs = vec![];
@@ -183,7 +183,7 @@ async fn taproot_key_path_spend_2() {
     let mut config = create_test_config_with_thread_name("test_config.toml", None).await;
     let rpc = create_extended_rpc!(config);
 
-    let actor = Actor::new(config.secret_key, config.network);
+    let actor = Actor::new(config.secret_key, config.bitcoin.network);
 
     let address = actor.address.clone();
 

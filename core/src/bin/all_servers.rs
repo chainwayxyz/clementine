@@ -27,7 +27,7 @@ async fn main() {
             .join(",")
     );
     let xonly =
-        secp256k1::XOnlyPublicKey::from_musig2_pks(config.verifiers_public_keys, None, false);
+        secp256k1::XOnlyPublicKey::from_musig2_pks(config.verifier.public_keys, None, false);
     println!(
         "AGGREGATOR_URL={}",
         format!("http://127.0.0.1:{}", aggregator.2.port())

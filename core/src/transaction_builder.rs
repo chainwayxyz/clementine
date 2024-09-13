@@ -208,21 +208,21 @@ impl TransactionBuilder {
         nofn_xonly_pk: &XOnlyPublicKey,
         operator_xonly_pk: &XOnlyPublicKey,
         network: bitcoin::Network,
-        num_kickoff_utxos_per_tx: usize,
+        kickoff_utxos_per_tx: usize,
     ) -> TxHandler {
         // Here, we are calculating the minimum relay fee for the kickoff tx based on the number of kickoff utxos per tx.
-        // The formula is: 154 + 43 * num_kickoff_utxos_per_tx where
+        // The formula is: 154 + 43 * kickoff_utxos_per_tx where
         // 154 = (Signature as witness, 66 bytes + 2 bytes from flags) / 4
         // + 43 * 2 from change and anyone can spend txouts
         // + 41 from the single input (32 + 8 + 1)
         // 4 + 4 + 1 + 1 from locktime, version, and VarInt bases of
         // the number of inputs and outputs.
-        let kickoff_tx_min_relay_fee = match num_kickoff_utxos_per_tx {
-            0..=250 => 154 + 43 * num_kickoff_utxos_per_tx, // Handles all values from 0 to 250
-            _ => 156 + 43 * num_kickoff_utxos_per_tx,       // Handles all other values
+        let kickoff_tx_min_relay_fee = match kickoff_utxos_per_tx {
+            0..=250 => 154 + 43 * kickoff_utxos_per_tx, // Handles all values from 0 to 250
+            _ => 156 + 43 * kickoff_utxos_per_tx,       // Handles all other values
         };
 
-        //  = 154 + 43 * num_kickoff_utxos_per_tx;
+        //  = 154 + 43 * kickoff_utxos_per_tx;
         let tx_ins = TransactionBuilder::create_tx_ins(vec![funding_utxo.outpoint]);
         let musig2_and_operator_script = script_builder::create_musig2_and_operator_multisig_script(
             nofn_xonly_pk,
@@ -235,7 +235,7 @@ impl TransactionBuilder {
         );
         let operator_address = Address::p2tr(&utils::SECP, *operator_xonly_pk, None, network);
         let change_amount = funding_utxo.txout.value
-            - Amount::from_sat(KICKOFF_UTXO_AMOUNT_SATS * num_kickoff_utxos_per_tx as u64)
+            - Amount::from_sat(KICKOFF_UTXO_AMOUNT_SATS * kickoff_utxos_per_tx as u64)
             - script_builder::anyone_can_spend_txout().value
             - Amount::from_sat(kickoff_tx_min_relay_fee as u64);
         tracing::debug!("Change amount: {:?}", change_amount);
@@ -244,7 +244,7 @@ impl TransactionBuilder {
                 Amount::from_sat(KICKOFF_UTXO_AMOUNT_SATS),
                 musig2_and_operator_address.script_pubkey(),
             );
-            num_kickoff_utxos_per_tx
+            kickoff_utxos_per_tx
         ];
 
         tx_outs_raw.push((change_amount, operator_address.script_pubkey()));

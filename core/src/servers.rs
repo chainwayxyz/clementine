@@ -137,7 +137,7 @@ pub async fn create_verifiers_and_operators(
     let mut config = create_test_config_with_thread_name(config_name, None).await;
     let start_port = config.port;
     let rpc = create_extended_rpc!(config);
-    let all_verifiers_secret_keys = config.all_verifiers_secret_keys.clone().unwrap_or_else(|| {
+    let all_verifiers_secret_keys = config.verifier.all_secret_keys.clone().unwrap_or_else(|| {
         panic!("All secret keys of the verifiers are required for testing");
     });
     let verifier_futures = all_verifiers_secret_keys
@@ -182,7 +182,7 @@ pub async fn create_verifiers_and_operators(
         .map(|(_, c)| c.clone())
         .collect::<Vec<_>>();
 
-    let all_operators_secret_keys = config.all_operators_secret_keys.clone().unwrap_or_else(|| {
+    let all_operators_secret_keys = config.operator.all_secret_keys.clone().unwrap_or_else(|| {
         panic!("All secret keys of the operators are required for testing");
     });
 
