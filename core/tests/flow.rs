@@ -42,7 +42,7 @@ async fn test_honest_operator_takes_refund() {
         &secp,
         user_sk.x_only_public_key(&secp).0,
         None,
-        config.network,
+        config.bitcoin.network,
     );
     // We are giving 99_800_000 sats to the user so that the operator can pay the withdrawal and profit.
     let (empty_utxo, withdrawal_tx_out, user_sig) = user
@@ -69,7 +69,7 @@ async fn test_honest_operator_takes_refund() {
         rpc.mine_blocks(1).unwrap();
         tracing::debug!("outpoint: {:#?}", outpoint);
     }
-    rpc.mine_blocks(1 + config.operator_takes_after as u64)
+    rpc.mine_blocks(1 + config.operator.takes_after as u64)
         .unwrap();
     // send the last tx
     let operator_take_txid = rpc
@@ -106,7 +106,7 @@ async fn test_withdrawal_fee_too_low() {
         &secp,
         user_sk.x_only_public_key(&secp).0,
         None,
-        config.network,
+        config.bitcoin.network,
     );
     // We are giving 100_000_000 sats to the user so that the operator cannot pay it because it is not profitable.
     let (empty_utxo, withdrawal_tx_out, user_sig) = user

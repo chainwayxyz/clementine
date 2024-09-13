@@ -15,9 +15,9 @@ async fn main() {
     }
 
     let rpc = ExtendedRpc::<bitcoincore_rpc::Client>::new(
-        config.bitcoin_rpc_url.clone(),
-        config.bitcoin_rpc_user.clone(),
-        config.bitcoin_rpc_password.clone(),
+        config.bitcoin.rpc_url.clone(),
+        config.bitcoin.rpc_user.clone(),
+        config.bitcoin.rpc_password.clone(),
     );
 
     let database = Database::new(config.clone()).await.unwrap();

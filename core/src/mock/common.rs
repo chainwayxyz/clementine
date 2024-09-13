@@ -34,11 +34,11 @@ pub fn get_test_config(configuration_file: &str) -> Result<BridgeConfig, BridgeE
     // Overwrite user's environment to test's hard coded data if environment
     // file is specified.
     if let Some(env_config) = env_config {
-        config.db_host = env_config.db_host;
-        config.db_port = env_config.db_port;
-        config.db_user = env_config.db_user;
-        config.db_password = env_config.db_password;
-        config.db_name = env_config.db_name;
+        config.database.host = env_config.database.host;
+        config.database.port = env_config.database.port;
+        config.database.user = env_config.database.user;
+        config.database.password = env_config.database.password;
+        config.database.name = env_config.database.name;
     };
 
     #[cfg(test)]
