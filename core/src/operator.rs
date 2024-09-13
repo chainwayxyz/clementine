@@ -56,7 +56,8 @@ where
             false,
         );
         let idx = config
-            .operator.xonly_pks
+            .operator
+            .xonly_pks
             .iter()
             .position(|xonly_pk| xonly_pk == &signer.xonly_public_key)
             .ok_or(BridgeError::ServerError(std::io::Error::other(format!(

@@ -97,7 +97,7 @@ impl Database {
         conn.close().await;
 
         let config = BridgeConfig {
-            database: crate::config::Database{
+            database: crate::config::Database {
                 name: database_name.to_string(),
                 ..config.database
             },

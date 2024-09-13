@@ -48,8 +48,11 @@ async fn run() {
         .push_opcode(OP_CHECKSIG)
         .into_script();
 
-    let (taproot_address, taproot_spend_info) =
-        TransactionBuilder::create_taproot_address(&[to_pay_script.clone()], None, config.bitcoin.network);
+    let (taproot_address, taproot_spend_info) = TransactionBuilder::create_taproot_address(
+        &[to_pay_script.clone()],
+        None,
+        config.bitcoin.network,
+    );
     let utxo = rpc.send_to_address(&taproot_address, 1000).unwrap();
 
     let ins = TransactionBuilder::create_tx_ins(vec![utxo]);

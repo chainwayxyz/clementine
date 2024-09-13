@@ -50,7 +50,8 @@ async fn test_musig2_key_spend() {
     let untweaked_xonly_pubkey: secp256k1::XOnlyPublicKey =
         secp256k1::XOnlyPublicKey::from_slice(&untweaked_pubkey.x_only_public_key().0.serialize())
             .unwrap();
-    let (to_address, _) = TransactionBuilder::create_taproot_address(&[], None, config.bitcoin.network);
+    let (to_address, _) =
+        TransactionBuilder::create_taproot_address(&[], None, config.bitcoin.network);
     let (from_address, from_address_spend_info) = TransactionBuilder::create_taproot_address(
         &[],
         Some(untweaked_xonly_pubkey),
@@ -156,7 +157,8 @@ async fn test_musig2_key_spend_with_script() {
             .unwrap();
     let dummy_script = script::Builder::new().push_int(1).into_script();
     let scripts: Vec<ScriptBuf> = vec![dummy_script];
-    let (to_address, _) = TransactionBuilder::create_taproot_address(&[], None, config.bitcoin.network);
+    let (to_address, _) =
+        TransactionBuilder::create_taproot_address(&[], None, config.bitcoin.network);
     let (from_address, from_address_spend_info) = TransactionBuilder::create_taproot_address(
         &scripts,
         Some(untweaked_xonly_pubkey),
