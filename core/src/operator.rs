@@ -71,7 +71,7 @@ where
         let mut tx = db.begin_transaction().await?;
         // check if funding utxo is already set
         if db.get_funding_utxo(Some(&mut tx)).await?.is_none() {
-            let outpoint = rpc.send_to_address(&signer.address, config.bridge_amount_sats * 2)?;
+            let outpoint = rpc.send_to_address(&signer.address, 200_000_000)?;
             let funding_utxo = UTXO {
                 outpoint,
                 txout: TxOut {
