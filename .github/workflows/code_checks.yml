@@ -31,7 +31,6 @@ jobs:
   udeps:
     name: Check unused dependencies
     runs-on: ubicloud-standard-8
-    if: ${{ github.event.pull_request.ready_for_review == true }}
 
     steps:
       - uses: actions/checkout@v4
@@ -51,7 +50,6 @@ jobs:
   coverage:
     name: Check code coverage percentage
     runs-on: ubicloud-standard-16
-    if: ${{ github.event.pull_request.ready_for_review == true }}
 
     services:
       postgres:
