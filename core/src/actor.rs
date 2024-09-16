@@ -270,14 +270,12 @@ mod tests {
             }],
         };
 
-        let tx_handler = TxHandler {
+        TxHandler {
             tx,
             prevouts,
             scripts: vec![],
             taproot_spend_infos: vec![],
-        };
-
-        tx_handler
+        }
     }
 
     #[test]
