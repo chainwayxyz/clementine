@@ -1238,34 +1238,4 @@ mod tests {
         let res = db.get_deposit_kickoff_generator_tx(txid).await.unwrap();
         assert!(res.is_none());
     }
-
-    // #[tokio::test]
-    // async fn test_kickoff_root_1() {
-    //     let config = create_test_config_with_thread_name("test_config.toml", None).await;
-    //     let db = Database::new(config).await.unwrap();
-
-    //     let outpoint = OutPoint {
-    //         txid: Txid::from_byte_array([1u8; 32]),
-    //         vout: 1,
-    //     };
-    //     let root = [1u8; 32];
-    //     db.save_kickoff_root(outpoint, root).await.unwrap();
-    //     let db_root = db.get_kickoff_root(outpoint).await.unwrap().unwrap();
-
-    //     // Sanity check
-    //     assert_eq!(db_root, root);
-    // }
-
-    // #[tokio::test]
-    // async fn test_kickoff_root_2() {
-    //     let config = create_test_config_with_thread_name("test_config.toml", None).await;
-    //     let db = Database::new(config).await.unwrap();
-
-    //     let outpoint = OutPoint {
-    //         txid: Txid::from_byte_array([1u8; 32]),
-    //         vout: 1,
-    //     };
-    //     let res = db.get_kickoff_root(outpoint).await.unwrap();
-    //     assert!(res.is_none());
-    // }
 }
