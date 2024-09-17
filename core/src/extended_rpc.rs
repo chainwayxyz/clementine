@@ -12,13 +12,9 @@ use bitcoin::OutPoint;
 use bitcoin::ScriptBuf;
 use bitcoin::Transaction;
 use bitcoin::TxOut;
-use bitcoin::Work;
 use bitcoin::XOnlyPublicKey;
 use bitcoin_mock_rpc::RpcApiWrapper;
-use bitcoincore_rpc::json::AddressType;
 use bitcoincore_rpc::Auth;
-use crypto_bigint::Encoding;
-use crypto_bigint::U256;
 
 #[derive(Debug)]
 pub struct ExtendedRpc<R> {
@@ -87,28 +83,6 @@ where
     }
 
     #[tracing::instrument(skip(self), err(level = tracing::Level::ERROR), ret(level = tracing::Level::TRACE))]
-    pub fn generate_dummy_block(&self) -> Result<Vec<bitcoin::BlockHash>, BridgeError> {
-        let address = self.client.get_new_address(None, None)?.assume_checked();
-
-        for _ in 0..10 {
-            let new_address = self.client.get_new_address(None, None)?.assume_checked();
-            let amount = bitcoin::Amount::from_sat(1000); // TODO: Specify the amount to send
-            self.client.send_to_address(
-                &new_address,
-                amount,
-                None,
-                None,
-                None,
-                None,
-                None,
-                None,
-            )?;
-        }
-
-        Ok(self.client.generate_to_address(1, &address)?)
-    }
-
-    #[tracing::instrument(skip(self), err(level = tracing::Level::ERROR), ret(level = tracing::Level::TRACE))]
     pub fn mine_blocks(&self, block_num: u64) -> Result<(), BridgeError> {
         let new_address = self.client.get_new_address(None, None)?.assume_checked();
 
@@ -138,81 +112,6 @@ where
         let vout = tx_result.details[0].vout;
 
         Ok(OutPoint { txid, vout })
-    }
-
-    #[tracing::instrument(skip(self), err(level = tracing::Level::ERROR), ret(level = tracing::Level::TRACE))]
-    pub fn get_work_at_block(&self, blockheight: u64) -> Result<Work, BridgeError> {
-        let block_hash = self.get_block_hash(blockheight)?;
-        let block = self.client.get_block(&block_hash)?;
-        let work = block.header.work();
-
-        Ok(work)
-    }
-
-    #[tracing::instrument(skip(self), err(level = tracing::Level::ERROR), ret(level = tracing::Level::TRACE))]
-    pub fn get_block_hash(
-        &self,
-        blockheight: u64,
-    ) -> Result<bitcoin::BlockHash, bitcoincore_rpc::Error> {
-        let block_hash = self.client.get_block_hash(blockheight)?;
-
-        Ok(block_hash)
-    }
-
-    #[tracing::instrument(skip(self), err(level = tracing::Level::ERROR), ret(level = tracing::Level::TRACE))]
-    pub fn get_block_header(
-        &self,
-        block_hash: &bitcoin::BlockHash,
-    ) -> Result<bitcoin::block::Header, bitcoincore_rpc::Error> {
-        let block_header = self.client.get_block_header(block_hash)?;
-
-        Ok(block_header)
-    }
-
-    #[tracing::instrument(skip(self), err(level = tracing::Level::ERROR), ret(level = tracing::Level::TRACE))]
-    pub fn calculate_total_work_between_blocks(
-        &self,
-        start: u64,
-        end: u64,
-    ) -> Result<U256, BridgeError> {
-        if start == end {
-            return Ok(U256::from_be_bytes([0u8; 32]));
-        }
-
-        let mut total_work = Work::from_be_bytes([0u8; 32]);
-        for i in start + 1..end + 1 {
-            total_work = total_work + self.get_work_at_block(i)?;
-        }
-
-        let work_bytes = total_work.to_be_bytes();
-
-        Ok(U256::from_be_bytes(work_bytes))
-    }
-
-    #[tracing::instrument(skip(self), err(level = tracing::Level::ERROR), ret(level = tracing::Level::TRACE))]
-    pub fn get_total_work_as_u256(&self) -> Result<U256, BridgeError> {
-        let chain_info = self.client.get_blockchain_info()?;
-        let total_work_bytes = chain_info.chain_work;
-        let total_work: U256 = U256::from_be_bytes(total_work_bytes.try_into()?);
-
-        Ok(total_work)
-    }
-
-    #[tracing::instrument(skip(self), err(level = tracing::Level::ERROR), ret(level = tracing::Level::TRACE))]
-    pub fn get_total_work(&self) -> Result<Work, BridgeError> {
-        let chain_info = self.client.get_blockchain_info()?;
-        let total_work_bytes = chain_info.chain_work;
-        let total_work: Work = Work::from_be_bytes(total_work_bytes.try_into()?);
-
-        Ok(total_work)
-    }
-
-    #[tracing::instrument(skip(self), err(level = tracing::Level::ERROR), ret(level = tracing::Level::TRACE))]
-    pub fn get_block_height(&self) -> Result<u64, BridgeError> {
-        let chain_info = self.client.get_blockchain_info()?;
-        let block_height = chain_info.blocks;
-
-        Ok(block_height)
     }
 
     #[tracing::instrument(skip(self), err(level = tracing::Level::ERROR), ret(level = tracing::Level::TRACE))]
@@ -246,23 +145,6 @@ where
     }
 
     #[tracing::instrument(skip(self), err(level = tracing::Level::ERROR), ret(level = tracing::Level::TRACE))]
-    pub fn get_blockchain_info(
-        &self,
-    ) -> Result<bitcoincore_rpc::json::GetBlockchainInfoResult, bitcoincore_rpc::Error> {
-        self.client.get_blockchain_info()
-    }
-
-    #[tracing::instrument(skip(self), err(level = tracing::Level::ERROR), ret(level = tracing::Level::TRACE))]
-    pub fn get_block_count(&self) -> Result<u64, bitcoincore_rpc::Error> {
-        self.client.get_block_count()
-    }
-
-    #[tracing::instrument(skip(self), err(level = tracing::Level::ERROR), ret(level = tracing::Level::TRACE))]
-    pub fn get_best_block_hash(&self) -> Result<bitcoin::BlockHash, bitcoincore_rpc::Error> {
-        self.client.get_best_block_hash()
-    }
-
-    #[tracing::instrument(skip(self), err(level = tracing::Level::ERROR), ret(level = tracing::Level::TRACE))]
     pub fn get_raw_transaction(
         &self,
         txid: &bitcoin::Txid,
@@ -271,37 +153,12 @@ where
         self.client.get_raw_transaction(txid, block_hash)
     }
 
-    #[tracing::instrument(skip(self), err(level = tracing::Level::ERROR), ret(level = tracing::Level::TRACE))]
-    pub fn get_transaction(
-        &self,
-        txid: &bitcoin::Txid,
-        include_watchonly: Option<bool>,
-    ) -> Result<bitcoincore_rpc::json::GetTransactionResult, bitcoincore_rpc::Error> {
-        self.client.get_transaction(txid, include_watchonly)
-    }
-
     #[tracing::instrument(skip(self, tx), err(level = tracing::Level::ERROR), ret(level = tracing::Level::TRACE))]
     pub fn send_raw_transaction<T: bitcoincore_rpc::RawTx>(
         &self,
         tx: T,
     ) -> Result<bitcoin::Txid, bitcoincore_rpc::Error> {
         self.client.send_raw_transaction(tx)
-    }
-
-    #[tracing::instrument(skip(self), err(level = tracing::Level::ERROR), ret(level = tracing::Level::TRACE))]
-    pub fn get_block(
-        &self,
-        block_hash: &bitcoin::BlockHash,
-    ) -> Result<bitcoin::Block, bitcoincore_rpc::Error> {
-        self.client.get_block(block_hash)
-    }
-    #[tracing::instrument(skip(self), err(level = tracing::Level::ERROR), ret(level = tracing::Level::TRACE))]
-    pub fn get_raw_transaction_info(
-        &self,
-        txid: &bitcoin::Txid,
-        block_hash: Option<&bitcoin::BlockHash>,
-    ) -> Result<bitcoincore_rpc::json::GetRawTransactionResult, bitcoincore_rpc::Error> {
-        self.client.get_raw_transaction_info(txid, block_hash)
     }
 
     #[tracing::instrument(skip(self), err(level = tracing::Level::ERROR), ret(level = tracing::Level::TRACE))]
@@ -343,28 +200,6 @@ where
 
         Ok(())
     }
-
-    /// Generates bitcoins to specified address.
-    #[tracing::instrument(skip(self), err(level = tracing::Level::ERROR), ret(level = tracing::Level::TRACE))]
-    pub fn generate_to_address(
-        &self,
-        block_num: u64,
-        address: &Address,
-    ) -> Result<(), BridgeError> {
-        self.client.generate_to_address(block_num, address)?;
-
-        Ok(())
-    }
-
-    /// Requests a new Bitcoin address via an RPC call.
-    #[tracing::instrument(skip(self), err(level = tracing::Level::ERROR), ret(level = tracing::Level::TRACE))]
-    pub fn get_new_address(&self) -> Result<Address, BridgeError> {
-        let address = self
-            .client
-            .get_new_address(None, Some(AddressType::Bech32m));
-
-        Ok(address?.assume_checked())
-    }
 }
 
 impl<R> Clone for ExtendedRpc<R>
@@ -380,18 +215,5 @@ where
             auth: self.auth.clone(),
             client: new_client,
         }
-    }
-}
-
-impl<R> Default for ExtendedRpc<R>
-where
-    R: RpcApiWrapper,
-{
-    fn default() -> Self {
-        Self::new(
-            "http://localhost:18443".to_string(),
-            "admin".to_string(),
-            "admin".to_string(),
-        )
     }
 }
