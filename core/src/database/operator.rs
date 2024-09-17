@@ -1,7 +1,8 @@
 use super::common::Database;
 use crate::config::BridgeConfig;
-use std::ops::{Deref, DerefMut};
+use std::ops::Deref;
 
+/// TODO: Remove this wrapper and use Database directly.
 #[derive(Debug, Clone)]
 pub struct OperatorDB {
     database: Database,
@@ -20,11 +21,5 @@ impl Deref for OperatorDB {
 
     fn deref(&self) -> &Self::Target {
         &self.database
-    }
-}
-
-impl DerefMut for OperatorDB {
-    fn deref_mut(&mut self) -> &mut Self::Target {
-        &mut self.database
     }
 }
