@@ -2,16 +2,10 @@
 //!
 //! This module defines errors, returned by the library.
 
-use bitcoin::{
-    consensus::encode::FromHexError,
-    merkle_tree::MerkleBlockError,
-    taproot::{TaprootBuilder, TaprootBuilderError},
-    Txid,
-};
+use bitcoin::{consensus::encode::FromHexError, merkle_tree::MerkleBlockError, Txid};
 use core::fmt::Debug;
 use jsonrpsee::types::ErrorObject;
 use musig2::secp::errors::InvalidScalarBytes;
-use std::array::TryFromSliceError;
 use thiserror::Error;
 
 /// Errors related to periods.
@@ -201,29 +195,5 @@ pub enum BridgeError {
 impl From<BridgeError> for ErrorObject<'static> {
     fn from(val: BridgeError) -> Self {
         ErrorObject::owned(-30000, format!("{:?}", val), Some(1))
-    }
-}
-
-impl From<Vec<u8>> for BridgeError {
-    fn from(_error: Vec<u8>) -> Self {
-        BridgeError::VecConversionError
-    }
-}
-
-impl From<TryFromSliceError> for BridgeError {
-    fn from(_error: TryFromSliceError) -> Self {
-        BridgeError::TryFromSliceError
-    }
-}
-
-impl From<TaprootBuilderError> for BridgeError {
-    fn from(_error: TaprootBuilderError) -> Self {
-        BridgeError::TaprootBuilderError
-    }
-}
-
-impl From<TaprootBuilder> for BridgeError {
-    fn from(_error: TaprootBuilder) -> Self {
-        BridgeError::TaprootBuilderError
     }
 }
