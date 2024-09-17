@@ -64,9 +64,6 @@ pub trait OperatorRpc {
         evm_address: EVMAddress,
     ) -> Result<(UTXO, secp256k1::schnorr::Signature), BridgeError>;
 
-    #[method(name = "set_funding_utxo")]
-    async fn set_funding_utxo_rpc(&self, funding_utxo: UTXO) -> Result<(), BridgeError>;
-
     #[method(name = "new_withdrawal_sig")]
     /// Gets the withdrawal utxo from citrea,
     /// checks wheter sig is for a correct withdrawal from citrea,

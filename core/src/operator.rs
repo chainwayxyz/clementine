@@ -5,7 +5,7 @@ use crate::errors::BridgeError;
 use crate::extended_rpc::ExtendedRpc;
 use crate::musig2::AggregateFromPublicKeys;
 use crate::traits::rpc::OperatorRpcServer;
-use crate::transaction_builder::{TransactionBuilder, KICKOFF_UTXO_AMOUNT_SATS};
+use crate::transaction_builder::{self, KICKOFF_UTXO_AMOUNT_SATS};
 use crate::utils::handle_taproot_witness_new;
 use crate::{script_builder, utils, EVMAddress, UTXO};
 use bitcoin::address::NetworkUnchecked;
@@ -233,7 +233,7 @@ where
                     self.signer.address.clone(),
                 ));
             }
-            let mut kickoff_tx_handler = TransactionBuilder::create_kickoff_utxo_tx(
+            let mut kickoff_tx_handler = transaction_builder::create_kickoff_utxo_tx(
                 &funding_utxo,
                 &self.nofn_xonly_pk,
                 &self.signer.xonly_public_key,
@@ -329,14 +329,6 @@ where
         }
     }
 
-    /// Checks if utxo is valid, spendable by operator and not spent
-    /// Saves the utxo to the db
-    #[tracing::instrument(skip(self), err(level = tracing::Level::ERROR), ret(level = tracing::Level::TRACE))]
-    async fn set_funding_utxo(&self, funding_utxo: UTXO) -> Result<(), BridgeError> {
-        self.db.set_funding_utxo(None, funding_utxo).await?;
-        Ok(())
-    }
-
     #[tracing::instrument(skip(self), err(level = tracing::Level::ERROR), ret(level = tracing::Level::TRACE))]
     async fn is_profitable(
         &self,
@@ -389,12 +381,12 @@ where
         {
             return Err(BridgeError::NotEnoughFeeForOperator);
         }
-        let tx_ins = TransactionBuilder::create_tx_ins(vec![input_utxo.outpoint]);
+        let tx_ins = transaction_builder::create_tx_ins(vec![input_utxo.outpoint]);
         let user_xonly_pk = secp256k1::XOnlyPublicKey::from_slice(
             &input_utxo.txout.script_pubkey.as_bytes()[2..34],
         )?;
         let tx_outs = vec![output_txout.clone()];
-        let mut tx = TransactionBuilder::create_btc_tx(tx_ins, tx_outs);
+        let mut tx = transaction_builder::create_btc_tx(tx_ins, tx_outs);
         let mut sighash_cache = SighashCache::new(tx.clone());
         let sighash = sighash_cache.taproot_key_spend_signature_hash(
             0,
@@ -477,7 +469,7 @@ where
 
             // calculate move_txid
 
-            let move_tx_handler = TransactionBuilder::create_move_tx(
+            let move_tx_handler = transaction_builder::create_move_tx(
                 deposit_outpoint,
                 &EVMAddress([0u8; 20]),
                 Address::p2tr(
@@ -554,7 +546,7 @@ where
         }
         // tracing::debug!("Found txs to be sent: {:?}", txs_to_be_sent);
 
-        let mut slash_or_take_tx_handler = TransactionBuilder::create_slash_or_take_tx(
+        let mut slash_or_take_tx_handler = transaction_builder::create_slash_or_take_tx(
             deposit_outpoint,
             kickoff_utxo.clone(),
             &self.signer.xonly_public_key,
@@ -604,7 +596,7 @@ where
             txs_to_be_sent
         );
 
-        let move_tx_handler = TransactionBuilder::create_move_tx(
+        let move_tx_handler = transaction_builder::create_move_tx(
             deposit_outpoint,
             &EVMAddress([0u8; 20]),
             Address::p2tr(
@@ -624,7 +616,7 @@ where
             vout: 0,
         };
 
-        let mut operator_takes_tx = TransactionBuilder::create_operator_takes_tx(
+        let mut operator_takes_tx = transaction_builder::create_operator_takes_tx(
             bridge_fund_outpoint,
             slash_or_take_utxo,
             &self.signer.xonly_public_key,
@@ -709,10 +701,6 @@ where
     ) -> Result<(UTXO, secp256k1::schnorr::Signature), BridgeError> {
         self.new_deposit(deposit_outpoint, recovery_taproot_address, evm_address)
             .await
-    }
-
-    async fn set_funding_utxo_rpc(&self, funding_utxo: UTXO) -> Result<(), BridgeError> {
-        self.set_funding_utxo(funding_utxo).await
     }
 
     async fn new_withdrawal_sig_rpc(
