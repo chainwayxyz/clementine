@@ -8,24 +8,10 @@ use jsonrpsee::types::ErrorObject;
 use musig2::secp::errors::InvalidScalarBytes;
 use thiserror::Error;
 
-/// Errors related to periods.
-#[derive(Debug, Error)]
-pub enum InvalidPeriodError {
-    #[error("DepositPeriodMismatch")]
-    WithdrawalPeriodMismatch,
-    #[error("DepositPeriodMismatch")]
-    PreimageRevealPeriodMismatch,
-    #[error("DepositPeriodMismatch")]
-    InscriptionPeriodMismatch,
-}
-
 /// Errors returned by the bridge.
 #[derive(Debug, Error)]
 #[non_exhaustive]
 pub enum BridgeError {
-    /// Returned when the period is invalid
-    #[error("InvalidPeriod")]
-    InvalidPeriod(InvalidPeriodError),
     /// Returned when the secp256k1 crate returns an error
     #[error("Secpk256Error: {0}")]
     Secpk256Error(#[from] secp256k1::Error),
