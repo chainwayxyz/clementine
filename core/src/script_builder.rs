@@ -87,31 +87,3 @@ pub fn generate_relative_timelock_script(
         .push_opcode(OP_CHECKSIG)
         .into_script()
 }
-
-#[tracing::instrument(ret(level = tracing::Level::TRACE))]
-pub fn generate_absolute_timelock_script(actor_pk: &XOnlyPublicKey, block_count: u32) -> ScriptBuf {
-    Builder::new()
-        .push_int(block_count as i64)
-        .push_opcode(OP_CLTV)
-        .push_opcode(OP_DROP)
-        .push_x_only_key(actor_pk)
-        .push_opcode(OP_CHECKSIG)
-        .into_script()
-}
-
-#[tracing::instrument(ret(level = tracing::Level::TRACE))]
-pub fn generate_hash_script(hash: [u8; 32]) -> ScriptBuf {
-    Builder::new()
-        .push_opcode(OP_SHA256)
-        .push_slice(hash)
-        .push_opcode(OP_EQUAL)
-        .into_script()
-}
-
-#[tracing::instrument(ret(level = tracing::Level::TRACE))]
-pub fn generate_dust_script(evm_address: &EVMAddress) -> ScriptBuf {
-    Builder::new()
-        .push_opcode(OP_RETURN)
-        .push_slice(evm_address.0)
-        .into_script()
-}
