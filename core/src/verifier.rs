@@ -575,3 +575,24 @@ where
             .await
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use crate::extended_rpc::ExtendedRpc;
+    use crate::verifier::Verifier;
+    use crate::{create_extended_rpc, mock::database::create_test_config};
+
+    #[tokio::test]
+    async fn verifier_new_public_key_check() {
+        let mut config =
+            create_test_config("verifier_new_public_key_check", "test_config.toml").await;
+        let rpc = create_extended_rpc!(config);
+
+        // Test config file has correct keys.
+        Verifier::new(rpc.clone(), config.clone()).await.unwrap();
+
+        // Clearing them should result in error.
+        config.verifiers_public_keys.clear();
+        assert!(Verifier::new(rpc, config).await.is_err());
+    }
+}
