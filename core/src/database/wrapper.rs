@@ -237,7 +237,7 @@ mod tests {
         );
 
         let evmaddress = EVMAddress([0x45u8; 20]);
-        let evmaddressdb = EVMAddressDB(evmaddress.clone());
+        let evmaddressdb = EVMAddressDB(evmaddress);
 
         let mut hex: PgArgumentBuffer = PgArgumentBuffer::default();
         if let IsNull::Yes = evmaddressdb.clone().encode(&mut hex) {
@@ -253,7 +253,7 @@ mod tests {
         );
 
         let txid = Txid::all_zeros();
-        let txiddb = TxidDB(txid.clone());
+        let txiddb = TxidDB(txid);
 
         let mut hex: PgArgumentBuffer = PgArgumentBuffer::default();
         if let IsNull::Yes = txiddb.clone().encode(&mut hex) {
@@ -269,7 +269,7 @@ mod tests {
         );
 
         let signature = Signature::from_slice(&[0u8; 64]).unwrap();
-        let signaturedb = SignatureDB(signature.clone());
+        let signaturedb = SignatureDB(signature);
 
         let mut hex: PgArgumentBuffer = PgArgumentBuffer::default();
         if let IsNull::Yes = signaturedb.clone().encode(&mut hex) {
