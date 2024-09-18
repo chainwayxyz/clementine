@@ -578,9 +578,15 @@ where
 
 #[cfg(test)]
 mod tests {
+    use crate::actor::Actor;
+    use crate::errors::BridgeError;
     use crate::extended_rpc::ExtendedRpc;
+    use crate::musig2::nonce_pair;
+    use crate::user::User;
     use crate::verifier::Verifier;
+    use crate::EVMAddress;
     use crate::{create_extended_rpc, mock::database::create_test_config};
+    use secp256k1::rand;
 
     #[tokio::test]
     async fn verifier_new_public_key_check() {
@@ -594,5 +600,72 @@ mod tests {
         // Clearing them should result in error.
         config.verifiers_public_keys.clear();
         assert!(Verifier::new(rpc, config).await.is_err());
+    }
+
+    #[tokio::test]
+    async fn new_deposit_nonce_checks() {
+        let mut config = create_test_config("new_deposit_nonce_checks", "test_config.toml").await;
+        let rpc = create_extended_rpc!(config);
+        let verifier = Verifier::new(rpc.clone(), config.clone()).await.unwrap();
+        let user = User::new(rpc.clone(), config.secret_key, config.clone());
+
+        let evm_address = EVMAddress([1u8; 20]);
+        let deposit_address = user.get_deposit_address(evm_address).unwrap();
+
+        let signer_address = Actor::new(config.secret_key, config.network)
+            .address
+            .as_unchecked()
+            .clone();
+
+        let required_nonce_count = 2 * config.operators_xonly_pks.len() + 1;
+
+        // Not enough nonces.
+        let deposit_outpoint = rpc
+            .send_to_address(&deposit_address.clone(), config.bridge_amount_sats)
+            .unwrap();
+        rpc.mine_blocks((config.confirmation_threshold + 2).into())
+            .unwrap();
+
+        let nonces = (0..required_nonce_count / 2)
+            .map(|_| nonce_pair(&verifier.signer.keypair, &mut rand::rngs::OsRng))
+            .collect::<Vec<_>>();
+        verifier
+            .db
+            .save_nonces(None, deposit_outpoint, &nonces)
+            .await
+            .unwrap();
+
+        assert!(verifier
+            .new_deposit(deposit_outpoint, signer_address.clone(), evm_address)
+            .await
+            .is_err_and(|e| {
+                if let BridgeError::NoncesNotFound = e {
+                    true
+                } else {
+                    println!("Error was {e}");
+                    false
+                }
+            }));
+
+        // Enough nonces.
+        let deposit_outpoint = rpc
+            .send_to_address(&deposit_address.clone(), config.bridge_amount_sats)
+            .unwrap();
+        rpc.mine_blocks((config.confirmation_threshold + 2).into())
+            .unwrap();
+
+        let nonces = (0..required_nonce_count)
+            .map(|_| nonce_pair(&verifier.signer.keypair, &mut rand::rngs::OsRng))
+            .collect::<Vec<_>>();
+        verifier
+            .db
+            .save_nonces(None, deposit_outpoint, &nonces)
+            .await
+            .unwrap();
+
+        verifier
+            .new_deposit(deposit_outpoint, signer_address, evm_address)
+            .await
+            .unwrap();
     }
 }
