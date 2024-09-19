@@ -59,7 +59,7 @@ impl Actor {
     }
 
     #[tracing::instrument(skip(self), err(level = tracing::Level::ERROR), ret(level = tracing::Level::TRACE))]
-    pub fn sign_taproot_script_spend_tx_new(
+    pub fn sign_taproot_script_spend_tx(
         &self,
         tx: &mut TxHandler,
         txin_index: usize,
