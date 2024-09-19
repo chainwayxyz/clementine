@@ -14,7 +14,7 @@ use thiserror::Error;
 pub enum BridgeError {
     /// Returned when the secp256k1 crate returns an error
     #[error("Secpk256Error: {0}")]
-    Secpk256Error(#[from] secp256k1::Error),
+    Secp256k1Error(#[from] secp256k1::Error),
     /// Returned when the bitcoin crate returns an error in the sighash taproot module
     #[error("BitcoinSighashTaprootError: {0}")]
     BitcoinSighashTaprootError(#[from] bitcoin::sighash::TaprootError),

@@ -420,11 +420,15 @@ where
         // println!("Operator take signed: {:?}", operator_take_sigs);
         let (kickoff_utxos, mut move_tx_handler, bridge_fund_outpoint) =
             self.create_deposit_details(deposit_outpoint).await?;
-
-        let _ = kickoff_utxos
+        let nofn_taproot_xonly_pk = secp256k1::XOnlyPublicKey::from_slice(
+            &Address::p2tr(&utils::SECP, self.nofn_xonly_pk, None, self.config.network)
+                .script_pubkey()
+                .as_bytes()[2..34],
+        )?;
+        kickoff_utxos
             .iter()
             .enumerate()
-            .map(|(index, kickoff_utxo)| {
+            .for_each(|(index, kickoff_utxo)| {
                 let slash_or_take_tx = transaction_builder::create_slash_or_take_tx(
                     deposit_outpoint,
                     kickoff_utxo.clone(),
@@ -467,7 +471,7 @@ where
                     .verify_schnorr(
                         &operator_take_sigs[index],
                         &secp256k1::Message::from_digest(sig_hash.to_byte_array()),
-                        &self.nofn_xonly_pk,
+                        &nofn_taproot_xonly_pk,
                     )
                     .unwrap();
             });
