@@ -19,104 +19,101 @@ async fn deposit_retry() {
     let mut config = create_test_config_with_thread_name("test_config.toml", None).await;
     let rpc = create_extended_rpc!(config);
 
-    let (verifiers, operators, aggregator) =
-        create_verifiers_and_operators("test_config.toml").await;
-
-    // println!("Operators: {:#?}", operators);
-    // println!("Verifiers: {:#?}", verifiers);
-
     let secret_key = secp256k1::SecretKey::new(&mut secp256k1::rand::thread_rng());
-
     let signer_address = Actor::new(secret_key, config.network)
         .address
         .as_unchecked()
         .clone();
     let user = User::new(rpc.clone(), secret_key, config.clone());
 
-    let evm_address = EVMAddress([1u8; 20]);
+    let evm_address: EVMAddress = EVMAddress([1u8; 20]);
     let deposit_address = user.get_deposit_address(evm_address).unwrap();
+
     let deposit_outpoint = rpc
         .send_to_address(&deposit_address, config.bridge_amount_sats)
         .unwrap();
-
     rpc.mine_blocks(18).unwrap();
 
-    // for every verifier, we call new_deposit
-    // aggregate nonces
-    let mut pub_nonces = Vec::new();
+    let (verifiers, operators, aggregator) =
+        create_verifiers_and_operators("test_config.toml").await;
 
-    for (client, _, _) in verifiers.iter() {
-        let musig_pub_nonces = client
-            .verifier_new_deposit_rpc(deposit_outpoint, signer_address.clone(), evm_address)
+    // Check if aggregator nonces can be retrieved again, in case of a failure.
+    let agg_nonces = {
+        let mut pub_nonces = Vec::new();
+
+        for (client, _, _) in verifiers.iter() {
+            let musig_pub_nonces = client
+                .verifier_new_deposit_rpc(deposit_outpoint, signer_address.clone(), evm_address)
+                .await
+                .unwrap();
+
+            pub_nonces.push(musig_pub_nonces);
+        }
+
+        // Acquire pub_nonces for aggregator.
+        let agg_nonces = aggregator
+            .0
+            .aggregate_pub_nonces_rpc(pub_nonces)
             .await
             .unwrap();
 
-        // tracing::info!("Musig Pub Nonces: {:?}", musig_pub_nonces);
+        // Oops, we lost the pub_nonces, need to call the verifiers again
+        let mut pub_nonces_retry = Vec::new();
+        for (client, _, _) in verifiers.iter() {
+            let musig_pub_nonces = client
+                .verifier_new_deposit_rpc(deposit_outpoint, signer_address.clone(), evm_address)
+                .await
+                .unwrap();
 
-        pub_nonces.push(musig_pub_nonces);
-    }
+            pub_nonces_retry.push(musig_pub_nonces);
+        }
 
-    let agg_nonces = aggregator
-        .0
-        .aggregate_pub_nonces_rpc(pub_nonces)
-        .await
-        .unwrap();
-
-    // Oops, we lost the pub_nonces, need to call the verifiers again
-    let mut pub_nonces_retry = Vec::new();
-
-    for (client, _, _) in verifiers.iter() {
-        let musig_pub_nonces = client
-            .verifier_new_deposit_rpc(deposit_outpoint, signer_address.clone(), evm_address)
+        // Collect pub_nonces for aggregator, again.
+        let agg_nonces_retry = aggregator
+            .0
+            .aggregate_pub_nonces_rpc(pub_nonces_retry)
             .await
             .unwrap();
 
-        // tracing::info!("Musig Pub Nonces: {:?}", musig_pub_nonces);
+        assert_eq!(agg_nonces, agg_nonces_retry);
 
-        pub_nonces_retry.push(musig_pub_nonces);
-    }
+        agg_nonces
+    };
 
-    let agg_nonces_retry = aggregator
-        .0
-        .aggregate_pub_nonces_rpc(pub_nonces_retry)
-        .await
-        .unwrap();
+    // Check if kickoff UTXOs and signatures can be retrieved again, in case of a failure.
+    let (kickoff_utxos, signatures) = {
+        let mut kickoff_utxos = Vec::new();
+        let mut signatures = Vec::new();
 
-    // Sanity check
-    assert_eq!(agg_nonces, agg_nonces_retry);
+        for (client, _, _) in operators.iter() {
+            // Create deposit kickoff transaction.
+            let (kickoff_utxo, signature) = client
+                .new_deposit_rpc(deposit_outpoint, signer_address.clone(), evm_address)
+                .await
+                .unwrap();
 
-    // call operators' new_deposit
-    let mut kickoff_utxos = Vec::new();
-    let mut signatures = Vec::new();
+            kickoff_utxos.push(kickoff_utxo);
+            signatures.push(signature);
+        }
 
-    for (client, _, _) in operators.iter() {
-        // Create deposit kickoff transaction
-        let (kickoff_utxo, signature) = client
-            .new_deposit_rpc(deposit_outpoint, signer_address.clone(), evm_address)
-            .await
-            .unwrap();
+        // Oops, we lost the kickoff_utxos, need to call the operators again
+        let mut kickoff_utxos_retry = Vec::new();
+        let mut signatures_retry = Vec::new();
+        for (client, _, _) in operators.iter() {
+            // Create deposit kickoff transaction
+            let (kickoff_utxo, signature) = client
+                .new_deposit_rpc(deposit_outpoint, signer_address.clone(), evm_address)
+                .await
+                .unwrap();
 
-        kickoff_utxos.push(kickoff_utxo);
-        signatures.push(signature);
-    }
+            kickoff_utxos_retry.push(kickoff_utxo);
+            signatures_retry.push(signature);
+        }
 
-    // Oops, we lost the kickoff_utxos, need to call the operators again
-    let mut kickoff_utxos_retry = Vec::new();
-    let mut signatures_retry = Vec::new();
+        assert_eq!(kickoff_utxos, kickoff_utxos_retry);
 
-    for (client, _, _) in operators.iter() {
-        // Create deposit kickoff transaction
-        let (kickoff_utxo, signature) = client
-            .new_deposit_rpc(deposit_outpoint, signer_address.clone(), evm_address)
-            .await
-            .unwrap();
-
-        kickoff_utxos_retry.push(kickoff_utxo);
-        signatures_retry.push(signature);
-    }
-
-    // Sanity check
-    assert_eq!(kickoff_utxos, kickoff_utxos_retry);
+        (kickoff_utxos, signatures)
+    };
 
     println!("Now the verifiers sequence starts");
     let mut slash_or_take_partial_sigs = Vec::new();
@@ -125,8 +122,8 @@ async fn deposit_retry() {
         let (partial_sigs, _) = client
             .operator_kickoffs_generated_rpc(
                 deposit_outpoint,
-                kickoff_utxos_retry.clone(),
-                signatures_retry.clone(),
+                kickoff_utxos.clone(),
+                signatures.clone(),
                 agg_nonces.clone(),
             )
             .await
@@ -156,8 +153,8 @@ async fn deposit_retry() {
         let (partial_sigs, _) = client
             .operator_kickoffs_generated_rpc(
                 deposit_outpoint,
-                kickoff_utxos_retry.clone(),
-                signatures_retry.clone(),
+                kickoff_utxos.clone(),
+                signatures.clone(),
                 agg_nonces.clone(),
             )
             .await
