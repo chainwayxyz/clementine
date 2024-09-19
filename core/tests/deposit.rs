@@ -15,7 +15,7 @@ use clementine_core::user::User;
 use clementine_core::EVMAddress;
 
 #[tokio::test]
-async fn deposit_retry() {
+async fn deposit_with_retry_checks() {
     let mut config = create_test_config_with_thread_name("test_config.toml", None).await;
     let rpc = create_extended_rpc!(config);
 
@@ -32,12 +32,12 @@ async fn deposit_retry() {
     let deposit_outpoint = rpc
         .send_to_address(&deposit_address, config.bridge_amount_sats)
         .unwrap();
-    rpc.mine_blocks(18).unwrap();
+    rpc.mine_blocks((config.confirmation_threshold + 2).into())
+        .unwrap();
 
     let (verifiers, operators, aggregator) =
         create_verifiers_and_operators("test_config.toml").await;
 
-    // Check if aggregator nonces can be retrieved again, in case of a failure.
     let agg_nonces = {
         let mut pub_nonces = Vec::new();
 
@@ -49,15 +49,12 @@ async fn deposit_retry() {
 
             pub_nonces.push(musig_pub_nonces);
         }
-
-        // Acquire pub_nonces for aggregator.
         let agg_nonces = aggregator
             .0
             .aggregate_pub_nonces_rpc(pub_nonces)
             .await
             .unwrap();
 
-        // Oops, we lost the pub_nonces, need to call the verifiers again
         let mut pub_nonces_retry = Vec::new();
         for (client, _, _) in verifiers.iter() {
             let musig_pub_nonces = client
@@ -67,8 +64,6 @@ async fn deposit_retry() {
 
             pub_nonces_retry.push(musig_pub_nonces);
         }
-
-        // Collect pub_nonces for aggregator, again.
         let agg_nonces_retry = aggregator
             .0
             .aggregate_pub_nonces_rpc(pub_nonces_retry)
@@ -80,13 +75,11 @@ async fn deposit_retry() {
         agg_nonces
     };
 
-    // Check if kickoff UTXOs and signatures can be retrieved again, in case of a failure.
     let (kickoff_utxos, signatures) = {
         let mut kickoff_utxos = Vec::new();
         let mut signatures = Vec::new();
 
         for (client, _, _) in operators.iter() {
-            // Create deposit kickoff transaction.
             let (kickoff_utxo, signature) = client
                 .new_deposit_rpc(deposit_outpoint, signer_address.clone(), evm_address)
                 .await
@@ -96,11 +89,9 @@ async fn deposit_retry() {
             signatures.push(signature);
         }
 
-        // Oops, we lost the kickoff_utxos, need to call the operators again
         let mut kickoff_utxos_retry = Vec::new();
         let mut signatures_retry = Vec::new();
         for (client, _, _) in operators.iter() {
-            // Create deposit kickoff transaction
             let (kickoff_utxo, signature) = client
                 .new_deposit_rpc(deposit_outpoint, signer_address.clone(), evm_address)
                 .await
@@ -115,167 +106,164 @@ async fn deposit_retry() {
         (kickoff_utxos, signatures)
     };
 
-    println!("Now the verifiers sequence starts");
-    let mut slash_or_take_partial_sigs = Vec::new();
+    // Operator part is done; Verifier part starts.
 
-    for (client, ..) in verifiers.iter() {
-        let (partial_sigs, _) = client
-            .operator_kickoffs_generated_rpc(
+    let slash_or_take_sigs = {
+        let mut slash_or_take_partial_sigs = Vec::new();
+        for (client, ..) in verifiers.iter() {
+            let (partial_sigs, _) = client
+                .operator_kickoffs_generated_rpc(
+                    deposit_outpoint,
+                    kickoff_utxos.clone(),
+                    signatures.clone(),
+                    agg_nonces.clone(),
+                )
+                .await
+                .unwrap();
+
+            slash_or_take_partial_sigs.push(partial_sigs);
+        }
+        let slash_or_take_sigs = aggregator
+            .0
+            .aggregate_slash_or_take_sigs_rpc(
                 deposit_outpoint,
                 kickoff_utxos.clone(),
-                signatures.clone(),
-                agg_nonces.clone(),
+                agg_nonces[config.num_operators + 1..2 * config.num_operators + 1].to_vec(),
+                slash_or_take_partial_sigs.clone(),
             )
             .await
             .unwrap();
 
-        slash_or_take_partial_sigs.push(partial_sigs);
-    }
+        let mut slash_or_take_partial_sigs_retry = Vec::new();
+        for (client, ..) in verifiers.iter() {
+            let (partial_sigs, _) = client
+                .operator_kickoffs_generated_rpc(
+                    deposit_outpoint,
+                    kickoff_utxos.clone(),
+                    signatures.clone(),
+                    agg_nonces.clone(),
+                )
+                .await
+                .unwrap();
 
-    let slash_or_take_sigs = aggregator
-        .0
-        .aggregate_slash_or_take_sigs_rpc(
-            deposit_outpoint,
-            kickoff_utxos.clone(),
-            agg_nonces[config.num_operators + 1..2 * config.num_operators + 1].to_vec(),
-            slash_or_take_partial_sigs,
-        )
-        .await
-        .unwrap();
-
-    // println!("Slash or take sigs: {:#?}", slash_or_take_sigs);
-
-    // Oops, we lost the slash_or_take_sigs, need to call the verifiers again
-
-    let mut slash_or_take_partial_sigs_retry = Vec::new();
-
-    for (client, ..) in verifiers.iter() {
-        let (partial_sigs, _) = client
-            .operator_kickoffs_generated_rpc(
+            slash_or_take_partial_sigs_retry.push(partial_sigs);
+        }
+        let slash_or_take_sigs_retry = aggregator
+            .0
+            .aggregate_slash_or_take_sigs_rpc(
                 deposit_outpoint,
                 kickoff_utxos.clone(),
-                signatures.clone(),
-                agg_nonces.clone(),
+                agg_nonces[config.num_operators + 1..2 * config.num_operators + 1].to_vec(),
+                slash_or_take_partial_sigs_retry.clone(),
             )
             .await
             .unwrap();
 
-        slash_or_take_partial_sigs_retry.push(partial_sigs);
-    }
+        assert_eq!(slash_or_take_partial_sigs, slash_or_take_partial_sigs_retry);
+        assert_eq!(slash_or_take_sigs, slash_or_take_sigs_retry);
 
-    let slash_or_take_sigs_retry = aggregator
-        .0
-        .aggregate_slash_or_take_sigs_rpc(
-            deposit_outpoint,
-            kickoff_utxos.clone(),
-            agg_nonces[config.num_operators + 1..2 * config.num_operators + 1].to_vec(),
-            slash_or_take_partial_sigs_retry,
-        )
-        .await
-        .unwrap();
+        slash_or_take_sigs
+    };
 
-    // call burn_txs_signed_rpc
-    let mut operator_take_partial_sigs: Vec<Vec<MuSigPartialSignature>> = Vec::new();
-    for (client, ..) in verifiers.iter() {
-        let partial_sigs = client
-            .burn_txs_signed_rpc(deposit_outpoint, vec![], slash_or_take_sigs.clone())
+    let operator_take_sigs = {
+        let mut operator_take_partial_sigs: Vec<Vec<MuSigPartialSignature>> = Vec::new();
+        for (client, ..) in verifiers.iter() {
+            let partial_sigs = client
+                .burn_txs_signed_rpc(deposit_outpoint, vec![], slash_or_take_sigs.clone())
+                .await
+                .unwrap();
+            operator_take_partial_sigs.push(partial_sigs);
+        }
+        let operator_take_sigs = aggregator
+            .0
+            .aggregate_operator_take_sigs_rpc(
+                deposit_outpoint,
+                kickoff_utxos.clone(),
+                agg_nonces[1..config.num_operators + 1].to_vec(),
+                operator_take_partial_sigs,
+            )
             .await
             .unwrap();
-        operator_take_partial_sigs.push(partial_sigs);
-    }
-    // println!(
-    //     "Operator take partial sigs: {:#?}",
-    //     operator_take_partial_sigs
-    // );
-    let operator_take_sigs = aggregator
-        .0
-        .aggregate_operator_take_sigs_rpc(
-            deposit_outpoint,
-            kickoff_utxos.clone(),
-            agg_nonces[1..config.num_operators + 1].to_vec(),
-            operator_take_partial_sigs,
-        )
-        .await
-        .unwrap();
 
-    // Oops, we lost the operator_take_sigs, need to call the verifiers again
-
-    let mut operator_take_partial_sigs_retry = Vec::new();
-
-    for (client, ..) in verifiers.iter() {
-        let partial_sigs = client
-            .burn_txs_signed_rpc(deposit_outpoint, vec![], slash_or_take_sigs_retry.clone())
+        let mut operator_take_partial_sigs_retry = Vec::new();
+        for (client, ..) in verifiers.iter() {
+            let partial_sigs = client
+                .burn_txs_signed_rpc(deposit_outpoint, vec![], slash_or_take_sigs.clone())
+                .await
+                .unwrap();
+            operator_take_partial_sigs_retry.push(partial_sigs);
+        }
+        let operator_take_sigs_retry = aggregator
+            .0
+            .aggregate_operator_take_sigs_rpc(
+                deposit_outpoint,
+                kickoff_utxos.clone(),
+                agg_nonces[1..config.num_operators + 1].to_vec(),
+                operator_take_partial_sigs_retry,
+            )
             .await
             .unwrap();
-        operator_take_partial_sigs_retry.push(partial_sigs);
-    }
 
-    let operator_take_sigs_retry = aggregator
-        .0
-        .aggregate_operator_take_sigs_rpc(
-            deposit_outpoint,
-            kickoff_utxos.clone(),
-            agg_nonces[1..config.num_operators + 1].to_vec(),
-            operator_take_partial_sigs_retry,
-        )
-        .await
-        .unwrap();
+        assert_eq!(operator_take_sigs, operator_take_sigs_retry);
 
-    // println!("Operator take sigs: {:#?}", operator_take_sigs);
-    // call operator_take_txs_signed_rpc
-    let mut move_tx_partial_sigs = Vec::new();
-    for (client, _, _) in verifiers.iter() {
-        let move_tx_partial_sig = client
-            .operator_take_txs_signed_rpc(deposit_outpoint, operator_take_sigs.clone())
+        operator_take_sigs
+    };
+
+    let move_tx_partial_sigs = {
+        let mut move_tx_partial_sigs = Vec::new();
+        for (client, _, _) in verifiers.iter() {
+            let move_tx_partial_sig = client
+                .operator_take_txs_signed_rpc(deposit_outpoint, operator_take_sigs.clone())
+                .await
+                .unwrap();
+            move_tx_partial_sigs.push(move_tx_partial_sig);
+        }
+
+        let mut move_tx_partial_sigs_retry = Vec::new();
+        for (client, _, _) in verifiers.iter() {
+            let move_tx_partial_sig = client
+                .operator_take_txs_signed_rpc(deposit_outpoint, operator_take_sigs.clone())
+                .await
+                .unwrap();
+            move_tx_partial_sigs_retry.push(move_tx_partial_sig);
+        }
+
+        assert_eq!(move_tx_partial_sigs, move_tx_partial_sigs_retry);
+
+        move_tx_partial_sigs
+    };
+
+    let move_tx = {
+        let (move_tx, _) = aggregator
+            .0
+            .aggregate_move_tx_sigs_rpc(
+                deposit_outpoint,
+                signer_address.clone(),
+                evm_address,
+                agg_nonces[0],
+                move_tx_partial_sigs.clone(),
+            )
             .await
             .unwrap();
-        move_tx_partial_sigs.push(move_tx_partial_sig);
-    }
-
-    // Oops, we lost the move_tx_partial_sigs, need to call the verifiers again
-
-    let mut move_tx_partial_sigs_retry = Vec::new();
-
-    for (client, _, _) in verifiers.iter() {
-        let move_tx_partial_sig = client
-            .operator_take_txs_signed_rpc(deposit_outpoint, operator_take_sigs_retry.clone())
+    
+        let (move_tx_retry, _) = aggregator
+            .0
+            .aggregate_move_tx_sigs_rpc(
+                deposit_outpoint,
+                signer_address,
+                evm_address,
+                agg_nonces[0],
+                move_tx_partial_sigs,
+            )
             .await
             .unwrap();
-        move_tx_partial_sigs_retry.push(move_tx_partial_sig);
-    }
 
-    // println!("Move tx partial sigs: {:#?}", move_tx_partial_sigs);
+        assert_eq!(move_tx, move_tx_retry);
 
-    // aggreagte move_tx_partial_sigs
+        move_tx 
+    };
 
-    let (_move_tx, _) = aggregator
-        .0
-        .aggregate_move_tx_sigs_rpc(
-            deposit_outpoint,
-            signer_address.clone(),
-            evm_address,
-            agg_nonces[0],
-            move_tx_partial_sigs,
-        )
-        .await
-        .unwrap();
+    let move_tx: Transaction = deserialize_hex(&move_tx).unwrap();
 
-    let (move_tx_retry, _) = aggregator
-        .0
-        .aggregate_move_tx_sigs_rpc(
-            deposit_outpoint,
-            signer_address,
-            evm_address,
-            agg_nonces[0],
-            move_tx_partial_sigs_retry,
-        )
-        .await
-        .unwrap();
-
-    let move_tx_retry: Transaction = deserialize_hex(&move_tx_retry).unwrap();
-    // println!("Move tx: {:#?}", move_tx);
-    // println!("Move tx_hex: {:?}", move_tx_handler.tx.raw_hex());
-    println!("Move tx retry weight: {:?}", move_tx_retry.weight());
-    let move_txid = rpc.send_raw_transaction(&move_tx_retry).unwrap();
-    println!("Move txid: {:?}", move_txid);
+    println!("Move tx weight: {:?}", move_tx.weight());
 }
