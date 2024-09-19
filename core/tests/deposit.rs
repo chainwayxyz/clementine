@@ -245,7 +245,7 @@ async fn deposit_with_retry_checks() {
             )
             .await
             .unwrap();
-    
+
         let (move_tx_retry, _) = aggregator
             .0
             .aggregate_move_tx_sigs_rpc(
@@ -260,7 +260,7 @@ async fn deposit_with_retry_checks() {
 
         assert_eq!(move_tx, move_tx_retry);
 
-        move_tx 
+        move_tx
     };
 
     let move_tx: Transaction = deserialize_hex(&move_tx).unwrap();
