@@ -587,7 +587,7 @@ where
 
         let our_sig =
             self.signer
-                .sign_taproot_script_spend_tx_new(&mut slash_or_take_tx_handler, 0, 0)?;
+                .sign_taproot_script_spend_tx(&mut slash_or_take_tx_handler, 0, 0)?;
         // tracing::debug!("slash_or_take_tx_handler: {:#?}", slash_or_take_tx_handler);
         handle_taproot_witness_new(
             &mut slash_or_take_tx_handler,
@@ -643,7 +643,7 @@ where
 
         let our_sig = self
             .signer
-            .sign_taproot_script_spend_tx_new(&mut operator_takes_tx, 1, 0)?;
+            .sign_taproot_script_spend_tx(&mut operator_takes_tx, 1, 0)?;
 
         handle_taproot_witness_new(
             &mut operator_takes_tx,
