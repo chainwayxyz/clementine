@@ -710,6 +710,10 @@ where
             .await
     }
 
+    async fn set_funding_utxo_rpc(&self, funding_utxo: UTXO) -> Result<(), BridgeError> {
+        self.set_funding_utxo(funding_utxo).await
+    }
+
     async fn new_withdrawal_sig_rpc(
         &self,
         withdrawal_idx: u32,
