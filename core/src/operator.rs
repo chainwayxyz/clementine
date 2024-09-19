@@ -333,7 +333,7 @@ where
     /// Saves the utxo to the db
     #[tracing::instrument(skip(self), err(level = tracing::Level::ERROR), ret(level = tracing::Level::TRACE))]
     async fn set_funding_utxo(&self, funding_utxo: UTXO) -> Result<(), BridgeError> {
-        Ok(self.db.set_funding_utxo(None, funding_utxo).await?)
+        self.db.set_funding_utxo(None, funding_utxo).await
     }
 
     #[tracing::instrument(skip(self), err(level = tracing::Level::ERROR), ret(level = tracing::Level::TRACE))]
@@ -739,7 +739,7 @@ where
 mod tests {
     use crate::{
         create_extended_rpc, extended_rpc::ExtendedRpc, mock::database::create_test_config,
-        operator::Operator, UTXO,
+        operator::Operator, servers::create_operator_server, traits::rpc::OperatorRpcClient, UTXO,
     };
     use bitcoin::{hashes::Hash, Amount, OutPoint, ScriptBuf, TxOut, Txid};
 
@@ -769,5 +769,28 @@ mod tests {
         let db_funding_utxo = operator.db.get_funding_utxo(None).await.unwrap().unwrap();
 
         assert_eq!(funding_utxo, db_funding_utxo);
+    }
+
+    #[tokio::test]
+    async fn set_funding_utxo_rpc() {
+        let mut config = create_test_config("set_funding_utxo_rpc", "test_config.toml").await;
+        let rpc = create_extended_rpc!(config);
+
+        let operator = create_operator_server(config, rpc).await.unwrap();
+
+        let funding_utxo = UTXO {
+            outpoint: OutPoint {
+                txid: Txid::all_zeros(),
+                vout: 0x45,
+            },
+            txout: TxOut {
+                value: Amount::from_sat(0x1F),
+                script_pubkey: ScriptBuf::new(),
+            },
+        };
+
+        operator.0.set_funding_utxo_rpc(funding_utxo).await.unwrap();
+
+        // Currently, no way to retrive this data using rpc calls.
     }
 }
