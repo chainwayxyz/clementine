@@ -5,8 +5,8 @@ use crate::extended_rpc::ExtendedRpc;
 use crate::musig2::AggregateFromPublicKeys;
 use crate::transaction_builder;
 use crate::{EVMAddress, UTXO};
-use bitcoin::Amount;
 use bitcoin::{Address, TxOut};
+use bitcoin::{Amount, OutPoint};
 use bitcoin::{TapSighashType, XOnlyPublicKey};
 use bitcoin_mock_rpc::RpcApiWrapper;
 use secp256k1::schnorr;
@@ -42,6 +42,27 @@ where
             config,
             nofn_xonly_pk,
         }
+    }
+
+    #[tracing::instrument(skip(self), err(level = tracing::Level::ERROR), ret(level = tracing::Level::TRACE))]
+    pub fn deposit_tx(
+        &self,
+        evm_address: EVMAddress,
+    ) -> Result<(OutPoint, XOnlyPublicKey, EVMAddress), BridgeError> {
+        let (deposit_address, _) = transaction_builder::generate_deposit_address(
+            &self.nofn_xonly_pk,
+            self.signer.address.as_unchecked(),
+            &evm_address,
+            self.config.bridge_amount_sats,
+            self.config.network,
+            self.config.user_takes_after,
+        );
+
+        let deposit_outpoint = self
+            .rpc
+            .send_to_address(&deposit_address, self.config.bridge_amount_sats)?;
+
+        Ok((deposit_outpoint, self.signer.xonly_public_key, evm_address))
     }
 
     #[tracing::instrument(skip(self), err(level = tracing::Level::ERROR), ret(level = tracing::Level::TRACE))]
