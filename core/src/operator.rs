@@ -329,6 +329,13 @@ where
         }
     }
 
+    /// Checks if utxo is valid, spendable by operator and not spent
+    /// Saves the utxo to the db
+    #[tracing::instrument(skip(self), err(level = tracing::Level::ERROR), ret(level = tracing::Level::TRACE))]
+    async fn set_funding_utxo(&self, funding_utxo: UTXO) -> Result<(), BridgeError> {
+        Ok(self.db.set_funding_utxo(None, funding_utxo).await?)
+    }
+
     #[tracing::instrument(skip(self), err(level = tracing::Level::ERROR), ret(level = tracing::Level::TRACE))]
     async fn is_profitable(
         &self,
@@ -721,5 +728,42 @@ where
     ) -> Result<Vec<String>, BridgeError> {
         self.withdrawal_proved_on_citrea(withdrawal_idx, deposit_outpoint)
             .await
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::{
+        create_extended_rpc, extended_rpc::ExtendedRpc, mock::database::create_test_config,
+        operator::Operator, UTXO,
+    };
+    use bitcoin::{hashes::Hash, Amount, OutPoint, ScriptBuf, TxOut, Txid};
+
+    #[tokio::test]
+    async fn set_funding_utxo() {
+        let mut config = create_test_config("set_funding_utxo", "test_config.toml").await;
+        let rpc = create_extended_rpc!(config);
+
+        let operator = Operator::new(config, rpc).await.unwrap();
+
+        let funding_utxo = UTXO {
+            outpoint: OutPoint {
+                txid: Txid::all_zeros(),
+                vout: 0x45,
+            },
+            txout: TxOut {
+                value: Amount::from_sat(0x1F),
+                script_pubkey: ScriptBuf::new(),
+            },
+        };
+
+        operator
+            .set_funding_utxo(funding_utxo.clone())
+            .await
+            .unwrap();
+
+        let db_funding_utxo = operator.db.get_funding_utxo(None).await.unwrap().unwrap();
+
+        assert_eq!(funding_utxo, db_funding_utxo);
     }
 }
