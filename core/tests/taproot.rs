@@ -8,7 +8,7 @@ use clementine_core::create_extended_rpc;
 use clementine_core::extended_rpc::ExtendedRpc;
 use clementine_core::mock::database::create_test_config_with_thread_name;
 use clementine_core::script_builder;
-use clementine_core::transaction_builder::{TransactionBuilder, TxHandler};
+use clementine_core::transaction_builder::{self, TxHandler};
 use clementine_core::utils::handle_taproot_witness_new;
 
 #[tokio::test]
@@ -49,10 +49,10 @@ async fn run() {
         .into_script();
 
     let (taproot_address, taproot_spend_info) =
-        TransactionBuilder::create_taproot_address(&[to_pay_script.clone()], None, config.network);
+        transaction_builder::create_taproot_address(&[to_pay_script.clone()], None, config.network);
     let utxo = rpc.send_to_address(&taproot_address, 1000).unwrap();
 
-    let ins = TransactionBuilder::create_tx_ins(vec![utxo]);
+    let ins = transaction_builder::create_tx_ins(vec![utxo]);
 
     let tx_outs = vec![TxOut {
         value: Amount::from_sat(330),
@@ -64,7 +64,7 @@ async fn run() {
         script_pubkey: taproot_address.script_pubkey(),
     }];
 
-    let tx = TransactionBuilder::create_btc_tx(ins, tx_outs.clone());
+    let tx = transaction_builder::create_btc_tx(ins, tx_outs.clone());
 
     let signer = Actor::new(config.secret_key, config.network);
 
@@ -103,7 +103,7 @@ async fn run() {
 
     println!("UTXO: {:?}", utxo);
 
-    // let tx_builder = TransactionBuilder::new(config.verifiers_public_keys.clone(), config);
+    // let tx_builder = transaction_builder::new(config.verifiers_public_keys.clone(), config);
     // let evm_address: EVMAddress = EVMAddress([1u8; 20]);
     // let deposit_address = tx_builder
     //     .generate_deposit_address(&xonly_pk, &evm_address, BRIDGE_AMOUNT_SATS)
@@ -145,10 +145,10 @@ async fn taproot_key_path_spend() {
             value: Amount::from_sat(INPUT_AMOUNT),
         });
     }
-    let txins = TransactionBuilder::create_tx_ins(inputs);
+    let txins = transaction_builder::create_tx_ins(inputs);
     let anchor = script_builder::anyone_can_spend_txout();
 
-    let mut txouts = TransactionBuilder::create_tx_outs(vec![(
+    let mut txouts = transaction_builder::create_tx_outs(vec![(
         Amount::from_sat(
             INPUT_AMOUNT * INPUT_COUNT as u64
                 - anchor.value.to_sat()
@@ -158,7 +158,7 @@ async fn taproot_key_path_spend() {
         address.script_pubkey(),
     )]);
     txouts.push(anchor);
-    let mut tx = TransactionBuilder::create_btc_tx(txins, txouts);
+    let mut tx = transaction_builder::create_btc_tx(txins, txouts);
     for i in 0..INPUT_COUNT {
         let sig = actor
             .sign_taproot_pubkey_spend_tx(&mut tx, &prevouts, i as usize)
@@ -190,12 +190,12 @@ async fn taproot_key_path_spend_2() {
     let operator_commitment = rpc.send_to_address(&address, 10_000_000).unwrap();
     let leaf = rpc.send_to_address(&address, 330).unwrap();
 
-    let txouts = TransactionBuilder::create_tx_outs(vec![(
+    let txouts = transaction_builder::create_tx_outs(vec![(
         Amount::from_sat(9_000_000),
         address.script_pubkey(),
     )]);
 
-    let txins = TransactionBuilder::create_tx_ins(vec![operator_commitment, leaf]);
+    let txins = transaction_builder::create_tx_ins(vec![operator_commitment, leaf]);
     let prevouts = vec![
         TxOut {
             script_pubkey: address.script_pubkey(),
@@ -207,7 +207,7 @@ async fn taproot_key_path_spend_2() {
         },
     ];
 
-    let mut tx = TransactionBuilder::create_btc_tx(txins, txouts);
+    let mut tx = transaction_builder::create_btc_tx(txins, txouts);
     for i in 0..2 {
         let sig = actor
             .sign_taproot_pubkey_spend_tx_with_sighash(

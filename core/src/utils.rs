@@ -3,11 +3,9 @@ use crate::config::BridgeConfig;
 use crate::errors::BridgeError;
 use crate::transaction_builder::TxHandler;
 use bitcoin;
-use bitcoin::consensus::Decodable;
 use bitcoin::sighash::SighashCache;
 use bitcoin::taproot::LeafVersion;
 use bitcoin::XOnlyPublicKey;
-use hex;
 use std::borrow::BorrowMut;
 use std::process::exit;
 use std::str::FromStr;
@@ -38,19 +36,6 @@ lazy_static::lazy_static! {
 
 lazy_static::lazy_static! {
     pub static ref NETWORK : bitcoin::Network = bitcoin::Network::Regtest;
-}
-
-#[deprecated(note = "Use bitcoin::consensus::encode::deserialize_hex(tx_hex) instead")]
-pub fn parse_hex_to_btc_tx(
-    tx_hex: &str,
-) -> Result<bitcoin::blockdata::transaction::Transaction, bitcoin::consensus::encode::Error> {
-    if let Ok(reader) = hex::decode(tx_hex) {
-        bitcoin::blockdata::transaction::Transaction::consensus_decode(&mut &reader[..])
-    } else {
-        Err(bitcoin::consensus::encode::Error::ParseFailed(
-            "Could not decode hex",
-        ))
-    }
 }
 
 /// Gets configuration from CLI, for binaries. If there are any errors, print

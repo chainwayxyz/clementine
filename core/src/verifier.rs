@@ -8,7 +8,7 @@ use crate::musig2::{
     MuSigSigHash,
 };
 use crate::traits::rpc::VerifierRpcServer;
-use crate::transaction_builder::{TransactionBuilder, TxHandler, KICKOFF_UTXO_AMOUNT_SATS};
+use crate::transaction_builder::{self, TxHandler, KICKOFF_UTXO_AMOUNT_SATS};
 use crate::{utils, ByteArray32, ByteArray64, ByteArray66, EVMAddress, UTXO};
 use bitcoin::address::NetworkUnchecked;
 use bitcoin::hashes::Hash;
@@ -188,7 +188,7 @@ where
 
             // Check if for each operator the address of the kickoff_utxo is correct TODO: Maybe handle the possible errors better
             let (musig2_and_operator_address, spend_info) =
-                TransactionBuilder::create_kickoff_address(
+                transaction_builder::create_kickoff_address(
                     &self.nofn_xonly_pk,
                     &self.operator_xonly_pks[i],
                     self.config.network,
@@ -203,7 +203,7 @@ where
                 kickoff_utxo.txout.script_pubkey == musig2_and_operator_address.script_pubkey()
             );
 
-            let mut slash_or_take_tx_handler = TransactionBuilder::create_slash_or_take_tx(
+            let mut slash_or_take_tx_handler = transaction_builder::create_slash_or_take_tx(
                 deposit_outpoint,
                 kickoff_utxo.clone(),
                 &self.config.operators_xonly_pks[i],
@@ -217,7 +217,7 @@ where
             let slash_or_take_tx_sighash =
                 Actor::convert_tx_to_sighash_script_spend(&mut slash_or_take_tx_handler, 0, 0)?;
             slash_or_take_sighashes.push(ByteArray32(slash_or_take_tx_sighash.to_byte_array()));
-            // let spend_kickoff_utxo_tx_handler = TransactionBuilder::create_slash_or_take_tx(deposit_outpoint, kickoff_outpoint, kickoff_txout, operator_address, operator_idx, nofn_xonly_pk, network)
+            // let spend_kickoff_utxo_tx_handler = transaction_builder::create_slash_or_take_tx(deposit_outpoint, kickoff_outpoint, kickoff_txout, operator_address, operator_idx, nofn_xonly_pk, network)
         }
         tracing::debug!(
             "Slash or take sighashes for verifier: {:?}: {:?}",
@@ -294,7 +294,7 @@ where
             .await?
             .ok_or(BridgeError::DepositInfoNotFound)?;
 
-        let move_tx_handler = TransactionBuilder::create_move_tx(
+        let move_tx_handler = transaction_builder::create_move_tx(
             deposit_outpoint,
             &evm_address,
             &recovery_taproot_address,
@@ -329,7 +329,7 @@ where
             .iter()
             .enumerate()
             .map(|(index, kickoff_utxo)| {
-                let mut slash_or_take_tx_handler = TransactionBuilder::create_slash_or_take_tx(
+                let mut slash_or_take_tx_handler = transaction_builder::create_slash_or_take_tx(
                     deposit_outpoint,
                     kickoff_utxo.clone(),
                     &self.operator_xonly_pks[index],
@@ -360,7 +360,7 @@ where
                     txout: slash_or_take_tx_handler.tx.output[0].clone(),
                 };
 
-                let mut operator_takes_tx = TransactionBuilder::create_operator_takes_tx(
+                let mut operator_takes_tx = transaction_builder::create_operator_takes_tx(
                     bridge_fund_outpoint,
                     slash_or_take_utxo,
                     &self.operator_xonly_pks[index],
@@ -420,12 +420,16 @@ where
         // println!("Operator take signed: {:?}", operator_take_sigs);
         let (kickoff_utxos, mut move_tx_handler, bridge_fund_outpoint) =
             self.create_deposit_details(deposit_outpoint).await?;
-
-        let _ = kickoff_utxos
+        let nofn_taproot_xonly_pk = secp256k1::XOnlyPublicKey::from_slice(
+            &Address::p2tr(&utils::SECP, self.nofn_xonly_pk, None, self.config.network)
+                .script_pubkey()
+                .as_bytes()[2..34],
+        )?;
+        kickoff_utxos
             .iter()
             .enumerate()
-            .map(|(index, kickoff_utxo)| {
-                let slash_or_take_tx = TransactionBuilder::create_slash_or_take_tx(
+            .for_each(|(index, kickoff_utxo)| {
+                let slash_or_take_tx = transaction_builder::create_slash_or_take_tx(
                     deposit_outpoint,
                     kickoff_utxo.clone(),
                     &self.operator_xonly_pks[index],
@@ -443,7 +447,7 @@ where
                     },
                     txout: slash_or_take_tx.tx.output[0].clone(),
                 };
-                let mut operator_takes_tx = TransactionBuilder::create_operator_takes_tx(
+                let mut operator_takes_tx = transaction_builder::create_operator_takes_tx(
                     bridge_fund_outpoint,
                     slash_or_take_utxo,
                     &self.operator_xonly_pks[index],
@@ -467,7 +471,7 @@ where
                     .verify_schnorr(
                         &operator_take_sigs[index],
                         &secp256k1::Message::from_digest(sig_hash.to_byte_array()),
-                        &self.nofn_xonly_pk,
+                        &nofn_taproot_xonly_pk,
                     )
                     .unwrap();
             });
@@ -573,5 +577,99 @@ where
     ) -> Result<MuSigPartialSignature, BridgeError> {
         self.operator_take_txs_signed(deposit_outpoint, operator_take_sigs)
             .await
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::actor::Actor;
+    use crate::errors::BridgeError;
+    use crate::extended_rpc::ExtendedRpc;
+    use crate::musig2::nonce_pair;
+    use crate::user::User;
+    use crate::verifier::Verifier;
+    use crate::EVMAddress;
+    use crate::{create_extended_rpc, mock::database::create_test_config};
+    use secp256k1::rand;
+
+    #[tokio::test]
+    async fn verifier_new_public_key_check() {
+        let mut config =
+            create_test_config("verifier_new_public_key_check", "test_config.toml").await;
+        let rpc = create_extended_rpc!(config);
+
+        // Test config file has correct keys.
+        Verifier::new(rpc.clone(), config.clone()).await.unwrap();
+
+        // Clearing them should result in error.
+        config.verifiers_public_keys.clear();
+        assert!(Verifier::new(rpc, config).await.is_err());
+    }
+
+    #[tokio::test]
+    async fn new_deposit_nonce_checks() {
+        let mut config = create_test_config("new_deposit_nonce_checks", "test_config.toml").await;
+        let rpc = create_extended_rpc!(config);
+        let verifier = Verifier::new(rpc.clone(), config.clone()).await.unwrap();
+        let user = User::new(rpc.clone(), config.secret_key, config.clone());
+
+        let evm_address = EVMAddress([1u8; 20]);
+        let deposit_address = user.get_deposit_address(evm_address).unwrap();
+
+        let signer_address = Actor::new(config.secret_key, config.network)
+            .address
+            .as_unchecked()
+            .clone();
+
+        let required_nonce_count = 2 * config.operators_xonly_pks.len() + 1;
+
+        // Not enough nonces.
+        let deposit_outpoint = rpc
+            .send_to_address(&deposit_address.clone(), config.bridge_amount_sats)
+            .unwrap();
+        rpc.mine_blocks((config.confirmation_threshold + 2).into())
+            .unwrap();
+
+        let nonces = (0..required_nonce_count / 2)
+            .map(|_| nonce_pair(&verifier.signer.keypair, &mut rand::rngs::OsRng))
+            .collect::<Vec<_>>();
+        verifier
+            .db
+            .save_nonces(None, deposit_outpoint, &nonces)
+            .await
+            .unwrap();
+
+        assert!(verifier
+            .new_deposit(deposit_outpoint, signer_address.clone(), evm_address)
+            .await
+            .is_err_and(|e| {
+                if let BridgeError::NoncesNotFound = e {
+                    true
+                } else {
+                    println!("Error was {e}");
+                    false
+                }
+            }));
+
+        // Enough nonces.
+        let deposit_outpoint = rpc
+            .send_to_address(&deposit_address.clone(), config.bridge_amount_sats)
+            .unwrap();
+        rpc.mine_blocks((config.confirmation_threshold + 2).into())
+            .unwrap();
+
+        let nonces = (0..required_nonce_count)
+            .map(|_| nonce_pair(&verifier.signer.keypair, &mut rand::rngs::OsRng))
+            .collect::<Vec<_>>();
+        verifier
+            .db
+            .save_nonces(None, deposit_outpoint, &nonces)
+            .await
+            .unwrap();
+
+        verifier
+            .new_deposit(deposit_outpoint, signer_address, evm_address)
+            .await
+            .unwrap();
     }
 }

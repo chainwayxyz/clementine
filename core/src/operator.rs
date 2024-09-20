@@ -5,7 +5,7 @@ use crate::errors::BridgeError;
 use crate::extended_rpc::ExtendedRpc;
 use crate::musig2::AggregateFromPublicKeys;
 use crate::traits::rpc::OperatorRpcServer;
-use crate::transaction_builder::{TransactionBuilder, KICKOFF_UTXO_AMOUNT_SATS};
+use crate::transaction_builder::{self, KICKOFF_UTXO_AMOUNT_SATS};
 use crate::utils::handle_taproot_witness_new;
 use crate::{script_builder, utils, EVMAddress, UTXO};
 use bitcoin::address::NetworkUnchecked;
@@ -233,7 +233,7 @@ where
                     self.signer.address.clone(),
                 ));
             }
-            let mut kickoff_tx_handler = TransactionBuilder::create_kickoff_utxo_tx(
+            let mut kickoff_tx_handler = transaction_builder::create_kickoff_utxo_tx(
                 &funding_utxo,
                 &self.nofn_xonly_pk,
                 &self.signer.xonly_public_key,
@@ -333,8 +333,7 @@ where
     /// Saves the utxo to the db
     #[tracing::instrument(skip(self), err(level = tracing::Level::ERROR), ret(level = tracing::Level::TRACE))]
     async fn set_funding_utxo(&self, funding_utxo: UTXO) -> Result<(), BridgeError> {
-        self.db.set_funding_utxo(None, funding_utxo).await?;
-        Ok(())
+        self.db.set_funding_utxo(None, funding_utxo).await
     }
 
     #[tracing::instrument(skip(self), err(level = tracing::Level::ERROR), ret(level = tracing::Level::TRACE))]
@@ -389,12 +388,12 @@ where
         {
             return Err(BridgeError::NotEnoughFeeForOperator);
         }
-        let tx_ins = TransactionBuilder::create_tx_ins(vec![input_utxo.outpoint]);
+        let tx_ins = transaction_builder::create_tx_ins(vec![input_utxo.outpoint]);
         let user_xonly_pk = secp256k1::XOnlyPublicKey::from_slice(
             &input_utxo.txout.script_pubkey.as_bytes()[2..34],
         )?;
         let tx_outs = vec![output_txout.clone()];
-        let mut tx = TransactionBuilder::create_btc_tx(tx_ins, tx_outs);
+        let mut tx = transaction_builder::create_btc_tx(tx_ins, tx_outs);
         let mut sighash_cache = SighashCache::new(tx.clone());
         let sighash = sighash_cache.taproot_key_spend_signature_hash(
             0,
@@ -477,7 +476,7 @@ where
 
             // calculate move_txid
 
-            let move_tx_handler = TransactionBuilder::create_move_tx(
+            let move_tx_handler = transaction_builder::create_move_tx(
                 deposit_outpoint,
                 &EVMAddress([0u8; 20]),
                 Address::p2tr(
@@ -554,7 +553,7 @@ where
         }
         // tracing::debug!("Found txs to be sent: {:?}", txs_to_be_sent);
 
-        let mut slash_or_take_tx_handler = TransactionBuilder::create_slash_or_take_tx(
+        let mut slash_or_take_tx_handler = transaction_builder::create_slash_or_take_tx(
             deposit_outpoint,
             kickoff_utxo.clone(),
             &self.signer.xonly_public_key,
@@ -588,7 +587,7 @@ where
 
         let our_sig =
             self.signer
-                .sign_taproot_script_spend_tx_new(&mut slash_or_take_tx_handler, 0, 0)?;
+                .sign_taproot_script_spend_tx(&mut slash_or_take_tx_handler, 0, 0)?;
         // tracing::debug!("slash_or_take_tx_handler: {:#?}", slash_or_take_tx_handler);
         handle_taproot_witness_new(
             &mut slash_or_take_tx_handler,
@@ -604,7 +603,7 @@ where
             txs_to_be_sent
         );
 
-        let move_tx_handler = TransactionBuilder::create_move_tx(
+        let move_tx_handler = transaction_builder::create_move_tx(
             deposit_outpoint,
             &EVMAddress([0u8; 20]),
             Address::p2tr(
@@ -624,7 +623,7 @@ where
             vout: 0,
         };
 
-        let mut operator_takes_tx = TransactionBuilder::create_operator_takes_tx(
+        let mut operator_takes_tx = transaction_builder::create_operator_takes_tx(
             bridge_fund_outpoint,
             slash_or_take_utxo,
             &self.signer.xonly_public_key,
@@ -644,7 +643,7 @@ where
 
         let our_sig = self
             .signer
-            .sign_taproot_script_spend_tx_new(&mut operator_takes_tx, 1, 0)?;
+            .sign_taproot_script_spend_tx(&mut operator_takes_tx, 1, 0)?;
 
         handle_taproot_witness_new(
             &mut operator_takes_tx,
@@ -733,5 +732,66 @@ where
     ) -> Result<Vec<String>, BridgeError> {
         self.withdrawal_proved_on_citrea(withdrawal_idx, deposit_outpoint)
             .await
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::{
+        create_extended_rpc, extended_rpc::ExtendedRpc, mock::database::create_test_config,
+        operator::Operator, servers::create_operator_server, traits::rpc::OperatorRpcClient, UTXO,
+    };
+    use bitcoin::{hashes::Hash, Amount, OutPoint, ScriptBuf, TxOut, Txid};
+
+    #[tokio::test]
+    async fn set_funding_utxo() {
+        let mut config = create_test_config("set_funding_utxo", "test_config.toml").await;
+        let rpc = create_extended_rpc!(config);
+
+        let operator = Operator::new(config, rpc).await.unwrap();
+
+        let funding_utxo = UTXO {
+            outpoint: OutPoint {
+                txid: Txid::all_zeros(),
+                vout: 0x45,
+            },
+            txout: TxOut {
+                value: Amount::from_sat(0x1F),
+                script_pubkey: ScriptBuf::new(),
+            },
+        };
+
+        operator
+            .set_funding_utxo(funding_utxo.clone())
+            .await
+            .unwrap();
+
+        let db_funding_utxo = operator.db.get_funding_utxo(None).await.unwrap().unwrap();
+
+        assert_eq!(funding_utxo, db_funding_utxo);
+    }
+
+    #[tokio::test]
+    async fn set_funding_utxo_rpc() {
+        let mut config = create_test_config("set_funding_utxo_rpc", "test_config.toml").await;
+        let rpc = create_extended_rpc!(config);
+
+        let operator = create_operator_server(config, rpc).await.unwrap();
+
+        let funding_utxo = UTXO {
+            outpoint: OutPoint {
+                txid: Txid::all_zeros(),
+                vout: 0x45,
+            },
+            txout: TxOut {
+                value: Amount::from_sat(0x1F),
+                script_pubkey: ScriptBuf::new(),
+            },
+        };
+
+        operator.0.set_funding_utxo_rpc(funding_utxo).await.unwrap();
+
+        // TODO: Currently, no way to retrive this data using rpc calls. Add
+        // checks if added in the future.
     }
 }
