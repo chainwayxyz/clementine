@@ -3,7 +3,7 @@ use crate::config::BridgeConfig;
 use crate::errors::BridgeError;
 use crate::extended_rpc::ExtendedRpc;
 use crate::musig2::AggregateFromPublicKeys;
-use crate::transaction_builder::TransactionBuilder;
+use crate::transaction_builder;
 use crate::{EVMAddress, UTXO};
 use bitcoin::{Address, TxOut};
 use bitcoin::{Amount, OutPoint};
@@ -45,29 +45,19 @@ where
     }
 
     #[tracing::instrument(skip(self), err(level = tracing::Level::ERROR), ret(level = tracing::Level::TRACE))]
-    pub fn deposit_tx(
-        &self,
-        evm_address: EVMAddress,
-    ) -> Result<(OutPoint, XOnlyPublicKey, EVMAddress), BridgeError> {
-        let (deposit_address, _) = TransactionBuilder::generate_deposit_address(
-            &self.nofn_xonly_pk,
-            self.signer.address.as_unchecked(),
-            &evm_address,
-            self.config.bridge_amount_sats,
-            self.config.network,
-            self.config.user_takes_after,
-        );
+    pub fn deposit_tx(&self, evm_address: EVMAddress) -> Result<OutPoint, BridgeError> {
+        let deposit_address = self.get_deposit_address(evm_address)?;
 
         let deposit_outpoint = self
             .rpc
             .send_to_address(&deposit_address, self.config.bridge_amount_sats)?;
 
-        Ok((deposit_outpoint, self.signer.xonly_public_key, evm_address))
+        Ok(deposit_outpoint)
     }
 
     #[tracing::instrument(skip(self), err(level = tracing::Level::ERROR), ret(level = tracing::Level::TRACE))]
     pub fn get_deposit_address(&self, evm_address: EVMAddress) -> Result<Address, BridgeError> {
-        let (deposit_address, _) = TransactionBuilder::generate_deposit_address(
+        let (deposit_address, _) = transaction_builder::generate_deposit_address(
             &self.nofn_xonly_pk,
             self.signer.address.as_unchecked(),
             &evm_address,
@@ -95,13 +85,13 @@ where
                 script_pubkey: self.signer.address.script_pubkey(),
             },
         };
-        let txins = TransactionBuilder::create_tx_ins(vec![dust_utxo.outpoint]);
+        let txins = transaction_builder::create_tx_ins(vec![dust_utxo.outpoint]);
         let txout = TxOut {
             value: Amount::from_sat(withdrawal_amount), // TODO: Change this in the future since Operators should profit from the bridge
             script_pubkey: withdrawal_address.script_pubkey(),
         };
         let txouts = vec![txout.clone()];
-        let mut tx = TransactionBuilder::create_btc_tx(txins, txouts.clone());
+        let mut tx = transaction_builder::create_btc_tx(txins, txouts.clone());
         let prevouts = vec![dust_utxo.txout.clone()];
         let sig = self.signer.sign_taproot_pubkey_spend_tx_with_sighash(
             &mut tx,
@@ -110,5 +100,47 @@ where
             Some(TapSighashType::SinglePlusAnyoneCanPay),
         )?;
         Ok((dust_utxo, txout, sig))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::extended_rpc::ExtendedRpc;
+    use crate::user::User;
+    use crate::EVMAddress;
+    use crate::{create_extended_rpc, mock::database::create_test_config};
+    use secp256k1::{rand, SecretKey};
+
+    #[tokio::test]
+    async fn deposit_tx() {
+        let mut config = create_test_config("deposit_tx", "test_config.toml").await;
+        let rpc = create_extended_rpc!(config);
+
+        let evm_address = EVMAddress([0x45u8; 20]);
+        let sk = SecretKey::new(&mut rand::thread_rng());
+        let user = User::new(rpc.clone(), sk, config.clone());
+
+        let deposit_utxo = user.deposit_tx(evm_address).unwrap();
+        let deposit_txout = rpc.get_raw_transaction(&deposit_utxo.txid, None).unwrap();
+
+        assert_eq!(
+            deposit_txout
+                .output
+                .get(deposit_utxo.vout as usize)
+                .unwrap()
+                .value
+                .to_sat(),
+            config.bridge_amount_sats
+        );
+
+        let deposit_address = user.get_deposit_address(evm_address).unwrap();
+        assert_eq!(
+            deposit_txout
+                .output
+                .get(deposit_utxo.vout as usize)
+                .unwrap()
+                .script_pubkey,
+            deposit_address.script_pubkey()
+        );
     }
 }

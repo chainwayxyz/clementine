@@ -2,39 +2,19 @@
 //!
 //! This module defines errors, returned by the library.
 
-use bitcoin::{
-    consensus::encode::FromHexError,
-    merkle_tree::MerkleBlockError,
-    taproot::{TaprootBuilder, TaprootBuilderError},
-    Txid,
-};
+use bitcoin::{consensus::encode::FromHexError, merkle_tree::MerkleBlockError, Txid};
 use core::fmt::Debug;
 use jsonrpsee::types::ErrorObject;
 use musig2::secp::errors::InvalidScalarBytes;
-use std::array::TryFromSliceError;
 use thiserror::Error;
-
-/// Errors related to periods.
-#[derive(Debug, Error)]
-pub enum InvalidPeriodError {
-    #[error("DepositPeriodMismatch")]
-    WithdrawalPeriodMismatch,
-    #[error("DepositPeriodMismatch")]
-    PreimageRevealPeriodMismatch,
-    #[error("DepositPeriodMismatch")]
-    InscriptionPeriodMismatch,
-}
 
 /// Errors returned by the bridge.
 #[derive(Debug, Error)]
 #[non_exhaustive]
 pub enum BridgeError {
-    /// Returned when the period is invalid
-    #[error("InvalidPeriod")]
-    InvalidPeriod(InvalidPeriodError),
     /// Returned when the secp256k1 crate returns an error
     #[error("Secpk256Error: {0}")]
-    Secpk256Error(#[from] secp256k1::Error),
+    Secp256k1Error(#[from] secp256k1::Error),
     /// Returned when the bitcoin crate returns an error in the sighash taproot module
     #[error("BitcoinSighashTaprootError: {0}")]
     BitcoinSighashTaprootError(#[from] bitcoin::sighash::TaprootError),
@@ -201,29 +181,5 @@ pub enum BridgeError {
 impl From<BridgeError> for ErrorObject<'static> {
     fn from(val: BridgeError) -> Self {
         ErrorObject::owned(-30000, format!("{:?}", val), Some(1))
-    }
-}
-
-impl From<Vec<u8>> for BridgeError {
-    fn from(_error: Vec<u8>) -> Self {
-        BridgeError::VecConversionError
-    }
-}
-
-impl From<TryFromSliceError> for BridgeError {
-    fn from(_error: TryFromSliceError) -> Self {
-        BridgeError::TryFromSliceError
-    }
-}
-
-impl From<TaprootBuilderError> for BridgeError {
-    fn from(_error: TaprootBuilderError) -> Self {
-        BridgeError::TaprootBuilderError
-    }
-}
-
-impl From<TaprootBuilder> for BridgeError {
-    fn from(_error: TaprootBuilder) -> Self {
-        BridgeError::TaprootBuilderError
     }
 }

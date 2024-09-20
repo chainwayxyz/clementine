@@ -4,6 +4,7 @@
 //! directly talks with PostgreSQL. It is expected that PostgreSQL is properly
 //! installed and configured.
 
+use super::wrapper::{AddressDB, EVMAddressDB, OutPointDB, SignatureDB, TxOutDB, TxidDB, UTXODB};
 use crate::musig2::{MuSigAggNonce, MuSigPubNonce, MuSigSecNonce, MuSigSigHash};
 use crate::{config::BridgeConfig, errors::BridgeError};
 use crate::{EVMAddress, UTXO};
@@ -11,8 +12,6 @@ use bitcoin::address::NetworkUnchecked;
 use bitcoin::{Address, OutPoint, Txid};
 use secp256k1::schnorr;
 use sqlx::{Pool, Postgres, QueryBuilder};
-
-use super::wrapper::{AddressDB, EVMAddressDB, OutPointDB, SignatureDB, TxOutDB, TxidDB, UTXODB};
 
 #[derive(Clone, Debug)]
 pub struct Database {
@@ -124,10 +123,7 @@ impl Database {
     pub async fn begin_transaction(
         &self,
     ) -> Result<sqlx::Transaction<'_, sqlx::Postgres>, BridgeError> {
-        match self.connection.begin().await {
-            Ok(t) => Ok(t),
-            Err(e) => Err(BridgeError::DatabaseError(e)),
-        }
+        Ok(self.connection.begin().await?)
     }
 
     #[tracing::instrument(skip(self), err(level = tracing::Level::ERROR), ret(level = tracing::Level::TRACE))]
@@ -140,17 +136,6 @@ impl Database {
             .await?;
         Ok(())
     }
-
-    // #[tracing::instrument(skip(self), err(level = tracing::Level::ERROR), ret(level = tracing::Level::TRACE))]
-    // pub async fn unlock_operators_kickoff_utxo_table(
-    //     &self,
-    //     tx: &mut sqlx::Transaction<'_, Postgres>,
-    // ) -> Result<(), BridgeError> {
-    //     sqlx::query("UNLOCK TABLE operators_kickoff_utxo;")
-    //         .execute(&mut **tx)
-    //         .await?;
-    //     Ok(())
-    // }
 
     /// Operator: If operator already created a kickoff UTXO for this deposit UTXO, return it.
     #[tracing::instrument(skip(self), err(level = tracing::Level::ERROR), ret(level = tracing::Level::TRACE))]
@@ -221,15 +206,14 @@ impl Database {
             }
             Err(sqlx::Error::RowNotFound) => Ok(None),
             Err(e) => {
-                let db_error = e.as_database_error().ok_or(BridgeError::PgDatabaseError(
-                    "THIS SHOULD NOT HAPPEN".to_string(),
-                ))?;
-                // if error is 23514, it means there is no more unused kickoffs
-                if db_error.is_check_violation() {
-                    Ok(None)
-                } else {
-                    Err(BridgeError::PgDatabaseError(db_error.to_string()))
-                }
+                if let Some(postgresql_error) = e.as_database_error() {
+                    // if error is 23514 (check_violation), it means there is no more unused kickoffs
+                    if postgresql_error.is_check_violation() {
+                        return Ok(None);
+                    }
+                };
+
+                Err(BridgeError::DatabaseError(e))
             }
         }
     }
@@ -1177,7 +1161,7 @@ mod tests {
                 .await
                 .unwrap()
                 .unwrap();
-            tracing::info!("unused_utxo: {:?}", unused_utxo);
+            println!("unused_utxo: {:?}", unused_utxo);
 
             // Sanity check
             assert_eq!(unused_utxo.outpoint.txid, txid);
@@ -1254,34 +1238,4 @@ mod tests {
         let res = db.get_deposit_kickoff_generator_tx(txid).await.unwrap();
         assert!(res.is_none());
     }
-
-    // #[tokio::test]
-    // async fn test_kickoff_root_1() {
-    //     let config = create_test_config_with_thread_name("test_config.toml", None).await;
-    //     let db = Database::new(config).await.unwrap();
-
-    //     let outpoint = OutPoint {
-    //         txid: Txid::from_byte_array([1u8; 32]),
-    //         vout: 1,
-    //     };
-    //     let root = [1u8; 32];
-    //     db.save_kickoff_root(outpoint, root).await.unwrap();
-    //     let db_root = db.get_kickoff_root(outpoint).await.unwrap().unwrap();
-
-    //     // Sanity check
-    //     assert_eq!(db_root, root);
-    // }
-
-    // #[tokio::test]
-    // async fn test_kickoff_root_2() {
-    //     let config = create_test_config_with_thread_name("test_config.toml", None).await;
-    //     let db = Database::new(config).await.unwrap();
-
-    //     let outpoint = OutPoint {
-    //         txid: Txid::from_byte_array([1u8; 32]),
-    //         vout: 1,
-    //     };
-    //     let res = db.get_kickoff_root(outpoint).await.unwrap();
-    //     assert!(res.is_none());
-    // }
 }

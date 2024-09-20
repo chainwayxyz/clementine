@@ -156,58 +156,40 @@ mod tests {
         io::Write,
     };
 
-    /// This needs a prefix for every test function, because of the async nature
-    /// of the tests. I am not going to implement a mutex solution. Just do:
-    /// let file_name = "someprefix".to_string() + TEST_FILE;
-    pub const TEST_FILE: &str = "test.toml";
-
     #[test]
     fn parse_from_string() {
         // In case of a incorrect file content, we should receive an error.
         let content = "brokenfilecontent";
-        match BridgeConfig::try_parse_from(content.to_string()) {
-            Ok(_) => panic!("expected parse error from malformed file"),
-            Err(e) => println!("{e:#?}"),
-        };
+        assert!(BridgeConfig::try_parse_from(content.to_string()).is_err());
 
         let init = BridgeConfig::new();
-        match BridgeConfig::try_parse_from(toml::to_string(&init).unwrap()) {
-            Ok(c) => println!("{c:#?}"),
-            Err(e) => panic!("{e:#?}"),
-        };
+        BridgeConfig::try_parse_from(toml::to_string(&init).unwrap()).unwrap();
     }
 
     #[test]
     fn parse_from_file() {
-        let file_name = "1".to_string() + TEST_FILE;
-        let content = "brokenfilecontent";
-        let mut file = File::create(file_name.clone()).unwrap();
+        let file_name = "parse_from_file";
+        let content = "invalid file content";
+        let mut file = File::create(file_name).unwrap();
         file.write_all(content.as_bytes()).unwrap();
 
-        match BridgeConfig::try_parse_file(file_name.clone().into()) {
-            Ok(_) => panic!("expected parse error from malformed file"),
-            Err(e) => println!("{e:#?}"),
-        };
+        assert!(BridgeConfig::try_parse_file(file_name.into()).is_err());
 
         // Read first example test file use for this test.
         let base_path = env!("CARGO_MANIFEST_DIR");
         let config_path = format!("{}/tests/data/test_config.toml", base_path);
         let content = fs::read_to_string(config_path).unwrap();
-        let mut file = File::create(file_name.clone()).unwrap();
+        let mut file = File::create(file_name).unwrap();
         file.write_all(content.as_bytes()).unwrap();
 
-        match BridgeConfig::try_parse_file(file_name.clone().into()) {
-            Ok(c) => println!("{c:#?}"),
-            Err(e) => panic!("{e:#?}"),
-        };
+        BridgeConfig::try_parse_file(file_name.into()).unwrap();
 
-        fs::remove_file(file_name.clone()).unwrap();
+        fs::remove_file(file_name).unwrap();
     }
 
     #[test]
-    /// Currently, no support for headers.
-    fn parse_from_file_with_headers() {
-        let file_name = "2".to_string() + TEST_FILE;
+    fn parse_from_file_with_invalid_headers() {
+        let file_name = "parse_from_file_with_invalid_headers";
         let content = "[header1]
         num_verifiers = 4
 
@@ -217,13 +199,10 @@ mod tests {
         bitcoin_rpc_url = \"http://localhost:18443\"
         bitcoin_rpc_user = \"admin\"
         bitcoin_rpc_password = \"admin\"\n";
-        let mut file = File::create(file_name.clone()).unwrap();
+        let mut file = File::create(file_name).unwrap();
         file.write_all(content.as_bytes()).unwrap();
 
-        match BridgeConfig::try_parse_file(file_name.clone().into()) {
-            Ok(c) => println!("{c:#?}"),
-            Err(e) => println!("{e:#?}"),
-        };
+        assert!(BridgeConfig::try_parse_file(file_name.into()).is_err());
 
         fs::remove_file(file_name).unwrap();
     }
