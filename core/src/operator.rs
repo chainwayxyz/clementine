@@ -791,6 +791,7 @@ mod tests {
 
         operator.0.set_funding_utxo_rpc(funding_utxo).await.unwrap();
 
-        // Currently, no way to retrive this data using rpc calls.
+        // TODO: Currently, no way to retrive this data using rpc calls. Add
+        // checks if added in the future.
     }
 }
