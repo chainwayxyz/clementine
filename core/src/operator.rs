@@ -725,7 +725,7 @@ where
         self.set_funding_utxo(funding_utxo).await
     }
 
-    async fn new_withdrawal_sig_rpc(
+    async fn new_signed_withdrawal(
         &self,
         withdrawal_idx: u32,
         user_sig: schnorr::Signature,
