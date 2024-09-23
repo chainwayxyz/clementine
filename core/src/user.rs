@@ -77,7 +77,7 @@ where
     /// - `TxOut`: Withdrawal transaction output
     /// - `Signature`: Schnorr signature of the withdrawal transaction
     #[tracing::instrument(skip(self), err(level = tracing::Level::ERROR), ret(level = tracing::Level::TRACE))]
-    pub fn generate_withdrawal_sig(
+    pub fn generate_withdrawal_transaction_and_signature(
         &self,
         withdrawal_address: Address,
         withdrawal_amount: u64,

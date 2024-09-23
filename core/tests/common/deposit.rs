@@ -159,7 +159,7 @@ pub async fn run_multiple_deposits(test_config_name: &str) {
         config.network,
     );
     let (user_utxo, user_txout, user_sig) = user
-        .generate_withdrawal_sig(
+        .generate_withdrawal_transaction_and_signature(
             withdrawal_address.clone(),
             config.bridge_amount_sats - 2 * config.operator_withdrawal_fee_sats.unwrap(),
         )
@@ -177,7 +177,7 @@ pub async fn run_multiple_deposits(test_config_name: &str) {
         .unwrap();
     assert!(txs_to_be_sent_0.len() == 3);
     let (user_utxo, user_txout, user_sig) = user
-        .generate_withdrawal_sig(
+        .generate_withdrawal_transaction_and_signature(
             withdrawal_address.clone(),
             config.bridge_amount_sats - 2 * config.operator_withdrawal_fee_sats.unwrap(),
         )
@@ -203,7 +203,7 @@ pub async fn run_multiple_deposits(test_config_name: &str) {
         .unwrap();
     assert!(txs_to_be_sent_penultimate.len() == 3);
     let (user_utxo, user_txout, user_sig) = user
-        .generate_withdrawal_sig(
+        .generate_withdrawal_transaction_and_signature(
             withdrawal_address.clone(),
             config.bridge_amount_sats - 2 * config.operator_withdrawal_fee_sats.unwrap(),
         )
