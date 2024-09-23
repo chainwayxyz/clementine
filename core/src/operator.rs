@@ -329,27 +329,28 @@ where
         }
     }
 
-    /// Checks if utxo is valid, spendable by operator and not spent
-    /// Saves the utxo to the db
-    #[tracing::instrument(skip(self), err(level = tracing::Level::ERROR), ret(level = tracing::Level::TRACE))]
+    /// Saves funding UTXO to the database.
     async fn set_funding_utxo(&self, funding_utxo: UTXO) -> Result<(), BridgeError> {
         self.db.set_funding_utxo(None, funding_utxo).await
     }
 
-    #[tracing::instrument(skip(self), err(level = tracing::Level::ERROR), ret(level = tracing::Level::TRACE))]
-    async fn is_profitable(
-        &self,
-        input_amount: u64,
-        withdrawal_amount: u64,
-    ) -> Result<bool, BridgeError> {
-        // Check if the withdrawal amount is within the acceptable range
-        if (withdrawal_amount - input_amount) > self.config.bridge_amount_sats {
-            Ok(false)
-        } else {
-            // Calculate net profit after the withdrawal
-            let net_profit = self.config.bridge_amount_sats - withdrawal_amount;
-            Ok(net_profit > self.config.operator_withdrawal_fee_sats.unwrap())
+    /// Checks if the withdrawal amount is within the acceptable range.
+    ///
+    /// # Parameters
+    ///
+    /// - `input_amount`:
+    /// - `withdrawal_amount`:
+    #[tracing::instrument(skip(self), ret(level = tracing::Level::TRACE))]
+    fn is_profitable(&self, input_amount: u64, withdrawal_amount: u64) -> bool {
+        if withdrawal_amount.wrapping_sub(input_amount) > self.config.bridge_amount_sats {
+            return false;
         }
+
+        // Calculate net profit after the withdrawal.
+        let net_profit = self.config.bridge_amount_sats - withdrawal_amount;
+
+        // Net profit must be bigger than withdrawal fee.
+        net_profit > self.config.operator_withdrawal_fee_sats.unwrap()
     }
 
     #[tracing::instrument(skip(self), err(level = tracing::Level::ERROR), ret(level = tracing::Level::TRACE))]
@@ -382,10 +383,7 @@ where
             }
         }
 
-        if !self
-            .is_profitable(input_utxo.txout.value.to_sat(), output_txout.value.to_sat())
-            .await?
-        {
+        if !self.is_profitable(input_utxo.txout.value.to_sat(), output_txout.value.to_sat()) {
             return Err(BridgeError::NotEnoughFeeForOperator);
         }
         let tx_ins = transaction_builder::create_tx_ins(vec![input_utxo.outpoint]);
@@ -793,5 +791,33 @@ mod tests {
 
         // TODO: Currently, no way to retrive this data using rpc calls. Add
         // checks if added in the future.
+    }
+
+    #[tokio::test]
+    async fn is_profitable() {
+        let mut config = create_test_config("is_profitable", "test_config.toml").await;
+        let rpc = create_extended_rpc!(config);
+
+        config.bridge_amount_sats = 0x45;
+        config.operator_withdrawal_fee_sats = Some(0x1F);
+
+        let operator = Operator::new(config.clone(), rpc).await.unwrap();
+
+        // Smaller input amount must not cause a panic.
+        operator.is_profitable(3, 1);
+        // Bigger input amount must not cause a panic.
+        operator.is_profitable(6, 9);
+
+        // False because difference between input and withdrawal amount is
+        // bigger than `config.bridge_amount_sats`.
+        assert!(!operator.is_profitable(6, 90));
+
+        // False because net profit is smaller than
+        // `config.operator_withdrawal_fee_sats`.
+        assert!(!operator.is_profitable(0, config.bridge_amount_sats));
+
+        // True because net profit is bigger than
+        // `config.operator_withdrawal_fee_sats`.
+        assert!(operator.is_profitable(0, config.operator_withdrawal_fee_sats.unwrap() - 1));
     }
 }
