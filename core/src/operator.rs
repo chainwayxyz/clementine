@@ -411,6 +411,7 @@ where
         let tx_outs = vec![output_txout.clone()];
         let mut tx = transaction_builder::create_btc_tx(tx_ins, tx_outs);
 
+
         let mut sighash_cache = SighashCache::new(&tx);
         let sighash = sighash_cache.taproot_key_spend_signature_hash(
             0,
@@ -603,7 +604,7 @@ where
             self.signer
                 .sign_taproot_script_spend_tx(&mut slash_or_take_tx_handler, 0, 0)?;
 
-        handle_taproot_witness_new(
+      handle_taproot_witness_new(
             &mut slash_or_take_tx_handler,
             &[our_sig.as_ref(), nofn_sig.as_ref()],
             0,
