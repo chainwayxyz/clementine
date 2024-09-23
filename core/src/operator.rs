@@ -352,20 +352,21 @@ where
         net_profit > self.config.operator_withdrawal_fee_sats.unwrap()
     }
 
-    /// Makes a withdrawal with given signature.
+    /// Creates a withdrawal transaction with given signature and sends it to
+    /// Bitcoin.
     ///
     /// # Parameters
     ///
     /// - `withdrawal_idx`: Citrea withdrawal UTXO index
-    /// - `user_sig`:
+    /// - `user_sig`: User's signature that is going to be used for signing withdrawal transaction input
     /// - `input_utxo`:
     /// - `output_txout`:
     ///
     /// # Returns
     ///
-    /// Withdrawal transaction id.
+    /// Withdrawal transaction's transaction id.
     #[tracing::instrument(skip(self), err(level = tracing::Level::ERROR), ret(level = tracing::Level::TRACE))]
-    async fn new_withdrawal_sig(
+    async fn new_signed_withdrawal(
         &self,
         withdrawal_idx: u32,
         user_sig: schnorr::Signature,
@@ -464,9 +465,8 @@ where
                 .sign_raw_transaction_with_wallet(&funded_tx, None, None)?
                 .hex,
         )?;
-        let final_txid = self.rpc.send_raw_transaction(&signed_tx)?;
 
-        Ok(final_txid)
+        Ok(self.rpc.send_raw_transaction(&signed_tx)?)
     }
 
     #[tracing::instrument(skip(self), err(level = tracing::Level::ERROR), ret(level = tracing::Level::TRACE))]
@@ -732,7 +732,7 @@ where
         input_utxo: UTXO,
         output_txout: TxOut,
     ) -> Result<Txid, BridgeError> {
-        self.new_withdrawal_sig(withdrawal_idx, user_sig, input_utxo, output_txout)
+        self.new_signed_withdrawal(withdrawal_idx, user_sig, input_utxo, output_txout)
             .await
     }
 
