@@ -93,14 +93,14 @@ where
             },
         };
 
-      let txins = transaction_builder::create_tx_ins(vec![dust_utxo.outpoint]);
+        let txins = transaction_builder::create_tx_ins(vec![dust_utxo.outpoint]);
         let txout = TxOut {
             value: Amount::from_sat(withdrawal_amount), // TODO: Change this in the future since Operators should profit from the bridge
             script_pubkey: withdrawal_address.script_pubkey(),
         };
         let txouts = vec![txout.clone()];
 
-      let mut tx = transaction_builder::create_btc_tx(txins, txouts.clone());
+        let mut tx = transaction_builder::create_btc_tx(txins, txouts.clone());
         let prevouts = vec![dust_utxo.txout.clone()];
 
         let sig = self.signer.sign_taproot_pubkey_spend_tx_with_sighash(
