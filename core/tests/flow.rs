@@ -6,7 +6,7 @@ use bitcoin::Address;
 use clementine_core::extended_rpc::ExtendedRpc;
 use clementine_core::utils::SECP;
 use clementine_core::{create_extended_rpc, traits::rpc::OperatorRpcClient, user::User};
-use common::{run_multiple_deposits, run_single_deposit};
+use common::run_single_deposit;
 use secp256k1::SecretKey;
 
 mod common;
@@ -95,9 +95,4 @@ async fn test_withdrawal_fee_too_low() {
         .new_withdrawal_sig_rpc(0, user_sig, empty_utxo, withdrawal_tx_out)
         .await;
     assert!(withdrawal_provide_txid.is_err());
-}
-
-#[tokio::test]
-async fn multiple_deposits_for_operator() {
-    run_multiple_deposits("test_config.toml").await;
 }

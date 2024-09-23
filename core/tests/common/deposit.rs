@@ -374,10 +374,15 @@ pub async fn run_single_deposit(
 
 #[cfg(test)]
 mod tests {
-    use crate::common::run_single_deposit;
+    use crate::common::{run_multiple_deposits, run_single_deposit};
 
     #[tokio::test]
     async fn test_deposit() {
         run_single_deposit("test_config.toml").await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn multiple_deposits_for_operator() {
+        run_multiple_deposits("test_config.toml").await;
     }
 }
