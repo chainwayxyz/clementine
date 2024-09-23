@@ -34,12 +34,12 @@ async fn honest_operator_takes_refund() {
         config.bridge_amount_sats - 2 * config.operator_withdrawal_fee_sats.unwrap();
 
     let (empty_utxo, withdrawal_tx_out, user_sig) = user
-        .generate_withdrawal_sig(withdrawal_address, withdrawal_amount)
+        .generate_withdrawal_transaction_and_signature(withdrawal_address, withdrawal_amount)
         .unwrap();
 
     let _withdrawal_provide_txid = operators[1]
         .0
-        .new_withdrawal_sig_rpc(0, user_sig, empty_utxo, withdrawal_tx_out)
+        .new_signed_withdrawal(0, user_sig, empty_utxo, withdrawal_tx_out)
         .await
         .unwrap();
 
@@ -91,13 +91,16 @@ async fn withdrawal_fee_too_low() {
 
     // We are giving too much sats to the user so that operator won't pay it.
     let (empty_utxo, withdrawal_tx_out, user_sig) = user
-        .generate_withdrawal_sig(withdrawal_address, config.bridge_amount_sats)
+        .generate_withdrawal_transaction_and_signature(
+            withdrawal_address,
+            config.bridge_amount_sats,
+        )
         .unwrap();
 
     // Operator will reject because it its not profitable.
     assert!(operators[0]
         .0
-        .new_withdrawal_sig_rpc(0, user_sig, empty_utxo, withdrawal_tx_out)
+        .new_signed_withdrawal(0, user_sig, empty_utxo, withdrawal_tx_out)
         .await
         .is_err_and(|err| {
             if let jsonrpsee::core::client::Error::Call(err) = err {
