@@ -478,17 +478,20 @@ where
         // call withdrawFillers(withdrawal_idx) check the returned id is our operator id.
         // calculate the move_txid, txIdToDepositId(move_txid) check the returned id is withdrawal_idx
         if let Some(citrea_client) = &self.citrea_client {
+            // See: https://gist.github.com/okkothejawa/a9379b02a16dada07a2b85cbbd3c1e80
             let params = rpc_params![
                 json!({
                     "to": "0x3100000000000000000000000000000000000002",
-                    "data": format!("0xc045577b00000000000000000000000000000000000000000000000000000000{}", hex::encode(withdrawal_idx.to_be_bytes())), // See: https://gist.github.com/okkothejawa/a9379b02a16dada07a2b85cbbd3c1e80
+                    "data": format!("0xc045577b00000000000000000000000000000000000000000000000000000000{}",
+                    hex::encode(withdrawal_idx.to_be_bytes())),
                 }),
                 "latest"
             ];
             let response: String = citrea_client.request("eth_call", params).await?;
-            let operator_idx_response = &response[58..66];
-            let operator_idx_as_vec = hex::decode(operator_idx_response).unwrap();
+
+            let operator_idx_as_vec = hex::decode(&response[58..66]).unwrap();
             let operator_idx = u32::from_be_bytes(operator_idx_as_vec.try_into().unwrap());
+
             if operator_idx - 1 != self.idx as u32 {
                 return Err(BridgeError::InvalidOperatorIndex(
                     operator_idx as usize,
@@ -496,11 +499,10 @@ where
                 ));
             }
 
-            // calculate move_txid
-
+            // Calculate move_txid.
             let move_tx_handler = transaction_builder::create_move_tx(
                 deposit_outpoint,
-                &EVMAddress([0u8; 20]),
+                &EVMAddress([0u8; 20]), // TODO: This doesn't look OK.
                 Address::p2tr(
                     &utils::SECP,
                     *utils::UNSPENDABLE_XONLY_PUBKEY,
@@ -513,16 +515,17 @@ where
                 self.config.user_takes_after,
                 self.config.bridge_amount_sats,
             );
-
             let move_txid = move_tx_handler.tx.compute_txid();
             let move_txid_bytes = move_txid.to_byte_array();
 
+            // See: https://gist.github.com/okkothejawa/a9379b02a16dada07a2b85cbbd3c1e80
             let params = rpc_params![json!({
                 "to": "0x3100000000000000000000000000000000000002",
-                "data": format!("0x11e53a01{}", hex::encode(move_txid_bytes)), // See: https://gist.github.com/okkothejawa/a9379b02a16dada07a2b85cbbd3c1e80
+                "data": format!("0x11e53a01{}",
+                hex::encode(move_txid_bytes)),
             })];
-            let response: String = citrea_client.request("eth_call", params).await?;
-            tracing::debug!("Response from citrea: {:?}", response);
+            let response: String = citrea_client.request("eth_call", params.clone()).await?;
+
             let deposit_idx_response = &response[58..66];
             let deposit_idx_as_vec = hex::decode(deposit_idx_response).unwrap();
             let deposit_idx = u32::from_be_bytes(deposit_idx_as_vec.try_into().unwrap());
