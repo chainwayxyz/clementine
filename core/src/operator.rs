@@ -340,7 +340,6 @@ where
     ///
     /// - `input_amount`:
     /// - `withdrawal_amount`:
-    #[tracing::instrument(skip(self), ret(level = tracing::Level::TRACE))]
     fn is_profitable(&self, input_amount: u64, withdrawal_amount: u64) -> bool {
         if withdrawal_amount.wrapping_sub(input_amount) > self.config.bridge_amount_sats {
             return false;
