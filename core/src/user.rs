@@ -69,6 +69,13 @@ where
         Ok(deposit_address)
     }
 
+    /// Generates a withdrawal transaction and it's signature.
+    ///
+    /// # Returns
+    ///
+    /// - `UTXO`: Dust UTXO
+    /// - `TxOut`: Withdrawal transaction output
+    /// - `Signature`: Schnorr signature of the withdrawal transaction
     #[tracing::instrument(skip(self), err(level = tracing::Level::ERROR), ret(level = tracing::Level::TRACE))]
     pub fn generate_withdrawal_sig(
         &self,
@@ -85,20 +92,24 @@ where
                 script_pubkey: self.signer.address.script_pubkey(),
             },
         };
+
         let txins = transaction_builder::create_tx_ins(vec![dust_utxo.outpoint]);
         let txout = TxOut {
             value: Amount::from_sat(withdrawal_amount), // TODO: Change this in the future since Operators should profit from the bridge
             script_pubkey: withdrawal_address.script_pubkey(),
         };
         let txouts = vec![txout.clone()];
+
         let mut tx = transaction_builder::create_btc_tx(txins, txouts.clone());
         let prevouts = vec![dust_utxo.txout.clone()];
+
         let sig = self.signer.sign_taproot_pubkey_spend_tx_with_sighash(
             &mut tx,
             &prevouts,
             0,
             Some(TapSighashType::SinglePlusAnyoneCanPay),
         )?;
+
         Ok((dust_utxo, txout, sig))
     }
 }
