@@ -425,7 +425,7 @@ where
 
         utils::SECP.verify_schnorr(
             &user_sig,
-            &Message::from_digest_slice(sighash.as_byte_array()).expect("should be hash"),
+            &Message::from_digest(*sighash.as_byte_array()),
             &user_xonly_pk,
         )?;
 
