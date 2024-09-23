@@ -3,6 +3,7 @@
 //! This tests checks if typical flows works or not.
 
 use bitcoin::Address;
+use clementine_core::errors::BridgeError;
 use clementine_core::extended_rpc::ExtendedRpc;
 use clementine_core::utils::SECP;
 use clementine_core::{create_extended_rpc, traits::rpc::OperatorRpcClient, user::User};
@@ -73,26 +74,36 @@ async fn honest_operator_takes_refund() {
 }
 
 #[tokio::test]
-async fn test_withdrawal_fee_too_low() {
+async fn withdrawal_fee_too_low() {
     let (_verifiers, operators, mut config, _) =
         run_single_deposit("test_config.toml").await.unwrap();
     let rpc = create_extended_rpc!(config);
 
     let user_sk = SecretKey::from_slice(&[12u8; 32]).unwrap();
-    let user = User::new(rpc.clone(), user_sk, config.clone());
     let withdrawal_address = Address::p2tr(
         &SECP,
         user_sk.x_only_public_key(&SECP).0,
         None,
         config.network,
     );
-    // We are giving 100_000_000 sats to the user so that the operator cannot pay it because it is not profitable.
+
+    let user = User::new(rpc.clone(), user_sk, config.clone());
+
+    // We are giving too much sats to the user so that operator won't pay it.
     let (empty_utxo, withdrawal_tx_out, user_sig) = user
         .generate_withdrawal_sig(withdrawal_address, config.bridge_amount_sats)
         .unwrap();
-    let withdrawal_provide_txid = operators[0]
+
+    // Operator will reject because it its not profitable.
+    assert!(operators[0]
         .0
         .new_withdrawal_sig_rpc(0, user_sig, empty_utxo, withdrawal_tx_out)
-        .await;
-    assert!(withdrawal_provide_txid.is_err());
+        .await
+        .is_err_and(|err| {
+            if let jsonrpsee::core::client::Error::Call(err) = err {
+                err.message() == BridgeError::NotEnoughFeeForOperator.to_string()
+            } else {
+                false
+            }
+        }));
 }
