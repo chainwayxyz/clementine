@@ -4,29 +4,11 @@
 
 use bitcoin::Address;
 use clementine_core::extended_rpc::ExtendedRpc;
-use clementine_core::{
-    create_extended_rpc, errors::BridgeError, traits::rpc::OperatorRpcClient, user::User,
-};
+use clementine_core::{create_extended_rpc, traits::rpc::OperatorRpcClient, user::User};
 use common::{run_multiple_deposits, run_single_deposit};
 use secp256k1::SecretKey;
 
 mod common;
-
-#[tokio::test]
-async fn test_deposit() -> Result<(), BridgeError> {
-    match run_single_deposit("test_config.toml").await {
-        Ok((_, _, _, deposit_outpoint)) => {
-            // tracing::debug!("Verifiers: {:#?}", verifiers);
-            // tracing::debug!("Operators: {:#?}", operators);
-            tracing::debug!("Deposit outpoint: {:#?}", deposit_outpoint);
-            Ok(())
-        }
-        Err(e) => {
-            tracing::error!("Error: {:?}", e);
-            Err(e)
-        }
-    }
-}
 
 #[tokio::test]
 async fn test_honest_operator_takes_refund() {

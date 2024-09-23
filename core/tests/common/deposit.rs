@@ -382,3 +382,13 @@ pub async fn run_single_deposit(
     println!("Move txid: {:?}", move_txid);
     Ok((verifiers, operators, config, deposit_outpoint))
 }
+
+#[cfg(test)]
+mod tests {
+    use crate::common::run_single_deposit;
+
+    #[tokio::test]
+    async fn test_deposit() {
+        run_single_deposit("test_config.toml").await.unwrap();
+    }
+}
