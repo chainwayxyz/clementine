@@ -76,3 +76,13 @@ jobs:
         run: cargo llvm-cov $CARGOFLAGS --json --output-path lcov.json
       - name: Check coverage
         run: scripts/check_json_code_coverage.py lcov.json
+
+  todo:
+    name: Check for TODO statements
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+      - name: Run script
+        run: scripts/check_for_todos.sh
+        continue-on-error: true # TODO: This should be removed later
