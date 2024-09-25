@@ -18,7 +18,7 @@ use clementine_core::{
 };
 use secp256k1::{Keypair, Message, PublicKey};
 
-fn get_verifiers_keypairs_and_untweaked_xonly_pk(
+fn get_verifiers_keys(
     config: &BridgeConfig,
 ) -> (Vec<Keypair>, secp256k1::XOnlyPublicKey, Vec<PublicKey>) {
     let verifiers_secret_keys = config.all_verifiers_secret_keys.clone().unwrap();
@@ -51,6 +51,7 @@ fn get_nonces(verifiers_secret_public_keys: Vec<Keypair>) -> (Vec<MuSigNoncePair
         .iter()
         .map(|kp| nonce_pair(kp, &mut secp256k1::rand::thread_rng()))
         .collect();
+
     let agg_nonce = aggregate_nonces(
         nonce_pairs
             .iter()
@@ -68,7 +69,7 @@ async fn key_spend() {
     let rpc = create_extended_rpc!(config);
 
     let (verifiers_secret_public_keys, untweaked_xonly_pubkey, verifier_public_keys) =
-        get_verifiers_keypairs_and_untweaked_xonly_pk(&config);
+        get_verifiers_keys(&config);
     let (nonce_pairs, agg_nonce) = get_nonces(verifiers_secret_public_keys.clone());
 
     let (to_address, _) = transaction_builder::create_taproot_address(&[], None, config.network);
@@ -151,7 +152,7 @@ async fn test_musig2_key_spend_with_script() {
     let rpc = create_extended_rpc!(config);
 
     let (verifiers_secret_public_keys, untweaked_xonly_pubkey, verifier_public_keys) =
-        get_verifiers_keypairs_and_untweaked_xonly_pk(&config);
+        get_verifiers_keys(&config);
     let (nonce_pairs, agg_nonce) = get_nonces(verifiers_secret_public_keys.clone());
 
     let dummy_script = script::Builder::new().push_int(1).into_script();
@@ -234,7 +235,7 @@ async fn test_musig2_script_spend() {
     let rpc = create_extended_rpc!(config);
 
     let (verifiers_secret_public_keys, _untweaked_xonly_pubkey, verifier_public_keys) =
-        get_verifiers_keypairs_and_untweaked_xonly_pk(&config);
+        get_verifiers_keys(&config);
     let (nonce_pairs, agg_nonce) = get_nonces(verifiers_secret_public_keys.clone());
 
     let key_agg_ctx = create_key_agg_ctx(verifier_public_keys.clone(), None, false).unwrap();
