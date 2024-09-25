@@ -10,7 +10,6 @@ use bitcoin::{
     Address, Amount, OutPoint, ScriptBuf, TxIn, TxOut, Witness,
 };
 use secp256k1::XOnlyPublicKey;
-use std::cmp::Ordering;
 
 #[derive(Debug, Clone)]
 pub struct TxHandler {
@@ -50,21 +49,21 @@ pub fn create_taproot_address(
     internal_key: Option<XOnlyPublicKey>,
     network: bitcoin::Network,
 ) -> (Address, TaprootSpendInfo) {
-    let scripts_len = scripts.len();
+    let n = scripts.len();
 
-    let taproot_builder = match scripts_len.cmp(&1) {
-        Ordering::Less => TaprootBuilder::new(),
-        Ordering::Equal => TaprootBuilder::new()
+    let taproot_builder = if n == 0 {
+        TaprootBuilder::new()
+    } else if n > 1 {
+        let m: u8 = ((n - 1).ilog2() + 1) as u8; // m = ceil(log(n))
+        let k = 2_usize.pow(m.into()) - n;
+        (0..n).fold(TaprootBuilder::new(), |acc, i| {
+            acc.add_leaf(m - ((i >= n - k) as u8), scripts[i].clone())
+                .unwrap()
+        })
+    } else {
+        TaprootBuilder::new()
             .add_leaf(0, scripts[0].clone())
-            .unwrap(),
-        Ordering::Greater => {
-            let m: u8 = ((scripts_len - 1).ilog2() + 1) as u8; // m = ceil(log(n))
-            let k = 2_usize.pow(m.into()) - scripts_len;
-            (0..scripts_len).fold(TaprootBuilder::new(), |acc, i| {
-                acc.add_leaf(m - ((i >= scripts_len - k) as u8), scripts[i].clone())
-                    .unwrap()
-            })
-        }
+            .unwrap()
     };
 
     let tree_info = match internal_key {
