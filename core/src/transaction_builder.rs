@@ -20,22 +20,36 @@ pub struct TxHandler {
     pub taproot_spend_infos: Vec<TaprootSpendInfo>,
 }
 
-pub type CreateAddressOutputs = (Address, TaprootSpendInfo);
-
-// TODO: Move these constants to a config file
+// TODO: Move these constants to the config file
 pub const MOVE_TX_MIN_RELAY_FEE: u64 = 190;
 pub const SLASH_OR_TAKE_TX_MIN_RELAY_FEE: u64 = 240;
 pub const OPERATOR_TAKES_TX_MIN_RELAY_FEE: u64 = 230;
 pub const KICKOFF_UTXO_AMOUNT_SATS: u64 = 100_000;
 
-// ADDRESS BUILDERS
+// Address Builders ------------------------------------------------------------
 
-#[tracing::instrument(ret(level = tracing::Level::TRACE))]
+/// Creates a taproot address with either key path spend or script spend path
+/// addresses. This depends on given arguments.
+///
+/// # Arguments
+///
+/// - `scripts`: If empty, script will be key path spend.
+/// - `internal_key`: If not given, will be defaulted to an unspendable x-only public key.
+/// - `network`: Bitcoin network.
+///
+/// # Returns
+///
+/// - [`Address`]: Generated taproot address.
+/// - [`TaprootSpendInfo`]: Taproot spending information.
+///
+/// # Panics
+///
+/// Will panic if some of the operations have invalid paramaters.
 pub fn create_taproot_address(
     scripts: &[ScriptBuf],
     internal_key: Option<XOnlyPublicKey>,
     network: bitcoin::Network,
-) -> CreateAddressOutputs {
+) -> (Address, TaprootSpendInfo) {
     let scripts_len = scripts.len();
 
     let taproot_builder = match scripts_len.cmp(&1) {
@@ -75,7 +89,6 @@ pub fn create_taproot_address(
 
 /// Generates a deposit address for the user. N-of-N or user takes after
 /// timelock script can be used to spend the funds.
-#[tracing::instrument(ret(level = tracing::Level::TRACE))]
 pub fn generate_deposit_address(
     nofn_xonly_pk: &XOnlyPublicKey,
     recovery_taproot_address: &Address<NetworkUnchecked>,
@@ -83,7 +96,7 @@ pub fn generate_deposit_address(
     amount: u64,
     network: bitcoin::Network,
     user_takes_after: u32,
-) -> CreateAddressOutputs {
+) -> (Address, TaprootSpendInfo) {
     let deposit_script =
         script_builder::create_deposit_script(nofn_xonly_pk, user_evm_address, amount);
 
@@ -102,20 +115,18 @@ pub fn generate_deposit_address(
     create_taproot_address(&[deposit_script, script_timelock], None, network)
 }
 
-#[tracing::instrument(ret(level = tracing::Level::TRACE))]
 pub fn create_musig2_address(
     nofn_xonly_pk: XOnlyPublicKey,
     network: bitcoin::Network,
-) -> CreateAddressOutputs {
+) -> (Address, TaprootSpendInfo) {
     create_taproot_address(&[], Some(nofn_xonly_pk), network)
 }
 
-#[tracing::instrument(ret(level = tracing::Level::TRACE))]
 pub fn create_kickoff_address(
     nofn_xonly_pk: &XOnlyPublicKey,
     operator_xonly_pk: &XOnlyPublicKey,
     network: bitcoin::Network,
-) -> CreateAddressOutputs {
+) -> (Address, TaprootSpendInfo) {
     let musig2_and_operator_script = script_builder::create_musig2_and_operator_multisig_script(
         nofn_xonly_pk,
         operator_xonly_pk,
@@ -123,10 +134,9 @@ pub fn create_kickoff_address(
     create_taproot_address(&[musig2_and_operator_script], None, network)
 }
 
-// TX BUILDERS
+// Transaction Builders --------------------------------------------------------
 
 /// Creates the move_tx to move the deposit.
-#[tracing::instrument(ret(level = tracing::Level::TRACE))]
 pub fn create_move_tx(
     deposit_outpoint: OutPoint,
     evm_address: &EVMAddress,
@@ -172,7 +182,6 @@ pub fn create_move_tx(
 }
 
 /// Creates the kickoff_tx for the operator. It also returns the change utxo
-#[tracing::instrument(ret(level = tracing::Level::TRACE))]
 pub fn create_kickoff_utxo_tx(
     funding_utxo: &UTXO, // Make sure this comes from the operator's address.
     nofn_xonly_pk: &XOnlyPublicKey,
@@ -232,7 +241,6 @@ pub fn create_kickoff_utxo_tx(
     }
 }
 
-#[tracing::instrument(ret(level = tracing::Level::TRACE))]
 pub fn create_slash_or_take_tx(
     deposit_outpoint: OutPoint,
     kickoff_utxo: UTXO,
@@ -322,7 +330,6 @@ pub fn create_slash_or_take_tx(
     }
 }
 
-#[tracing::instrument(ret(level = tracing::Level::TRACE))]
 pub fn create_operator_takes_tx(
     bridge_fund_outpoint: OutPoint,
     slash_or_take_utxo: UTXO,
@@ -350,7 +357,7 @@ pub fn create_operator_takes_tx(
         network,
     );
 
-    // Sanity check
+    // Sanity check TODO: No asserts outside of tests
     assert!(slash_or_take_address.script_pubkey() == slash_or_take_utxo.txout.script_pubkey);
 
     let outs = vec![
@@ -439,10 +446,73 @@ pub fn create_tx_outs(pairs: Vec<(Amount, ScriptBuf)>) -> Vec<TxOut> {
 
 #[cfg(test)]
 mod tests {
-    use crate::{musig2::AggregateFromPublicKeys, transaction_builder};
-    use bitcoin::{Address, XOnlyPublicKey};
-    use secp256k1::PublicKey;
+    use crate::{
+        musig2::AggregateFromPublicKeys,
+        transaction_builder,
+        utils::{self, SECP},
+    };
+    use bitcoin::{key::TapTweak, Address, AddressType, ScriptBuf, XOnlyPublicKey};
+    use secp256k1::{rand, Keypair, PublicKey, SecretKey};
     use std::str::FromStr;
+
+    #[test]
+    fn create_taproot_address() {
+        let secret_key = SecretKey::new(&mut rand::thread_rng());
+        let internal_key =
+            XOnlyPublicKey::from_keypair(&Keypair::from_secret_key(&SECP, &secret_key)).0;
+
+        // No internal key or scripts (key path spend).
+        let (address, spend_info) =
+            super::create_taproot_address(&[], None, bitcoin::Network::Regtest);
+        assert_eq!(address.address_type().unwrap(), AddressType::P2tr);
+        assert!(address.is_related_to_xonly_pubkey(
+            &utils::UNSPENDABLE_XONLY_PUBKEY
+                .tap_tweak(&SECP, spend_info.merkle_root())
+                .0
+                .to_inner()
+        ));
+        assert_eq!(spend_info.internal_key(), *utils::UNSPENDABLE_XONLY_PUBKEY);
+        assert!(spend_info.merkle_root().is_none());
+
+        // Key path spend.
+        let (address, spend_info) =
+            super::create_taproot_address(&[], Some(internal_key), bitcoin::Network::Regtest);
+        assert_eq!(address.address_type().unwrap(), AddressType::P2tr);
+        assert!(address.is_related_to_xonly_pubkey(
+            &internal_key
+                .tap_tweak(&SECP, spend_info.merkle_root())
+                .0
+                .to_inner()
+        ));
+        assert_eq!(spend_info.internal_key(), internal_key);
+        assert!(spend_info.merkle_root().is_none());
+
+        let scripts = [ScriptBuf::new()];
+        let (address, spend_info) =
+            super::create_taproot_address(&scripts, Some(internal_key), bitcoin::Network::Regtest);
+        assert_eq!(address.address_type().unwrap(), AddressType::P2tr);
+        assert!(address.is_related_to_xonly_pubkey(
+            &internal_key
+                .tap_tweak(&SECP, spend_info.merkle_root())
+                .0
+                .to_inner()
+        ));
+        assert_eq!(spend_info.internal_key(), internal_key);
+        assert!(spend_info.merkle_root().is_some());
+
+        let scripts = [ScriptBuf::new(), ScriptBuf::new()];
+        let (address, spend_info) =
+            super::create_taproot_address(&scripts, Some(internal_key), bitcoin::Network::Regtest);
+        assert_eq!(address.address_type().unwrap(), AddressType::P2tr);
+        assert!(address.is_related_to_xonly_pubkey(
+            &internal_key
+                .tap_tweak(&SECP, spend_info.merkle_root())
+                .0
+                .to_inner()
+        ));
+        assert_eq!(spend_info.internal_key(), internal_key);
+        assert!(spend_info.merkle_root().is_some());
+    }
 
     #[test]
     fn deposit_address() {
