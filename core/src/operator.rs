@@ -525,7 +525,7 @@ where
                 "data": format!("0x11e53a01{}",
                 hex::encode(move_txid_bytes)),
             })];
-            let response: String = citrea_client.request("eth_call", params.clone()).await?;
+            let response: String = citrea_client.request("eth_call", params).await?;
 
             let deposit_idx_response = &response[58..66];
             let deposit_idx_as_vec = hex::decode(deposit_idx_response).unwrap();
