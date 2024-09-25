@@ -33,14 +33,14 @@ pub const KICKOFF_UTXO_AMOUNT_SATS: u64 = 100_000;
 ///
 /// # Arguments
 ///
-/// - `scripts`: If empty, script will be key path spend.
-/// - `internal_key`: If not given, will be defaulted to an unspendable x-only public key.
-/// - `network`: Bitcoin network.
+/// - `scripts`: If empty, script will be key path spend
+/// - `internal_key`: If not given, will be defaulted to an unspendable x-only public key
+/// - `network`: Bitcoin network
 ///
 /// # Returns
 ///
-/// - [`Address`]: Generated taproot address.
-/// - [`TaprootSpendInfo`]: Taproot spending information.
+/// - [`Address`]: Generated taproot address
+/// - [`TaprootSpendInfo`]: Taproot spending information
 ///
 /// # Panics
 ///
@@ -87,10 +87,30 @@ pub fn create_taproot_address(
     (taproot_address, tree_info)
 }
 
-/// Generates a deposit address for the user. N-of-N or user takes after
-/// timelock script can be used to spend the funds.
+/// Generates a deposit address for the user. Funds can be spend by N-of-N or
+/// user can take after specified time.
+///
+/// # Parameters
+///
+/// - `nofn_xonly_public_key`: N-of-N x-only public key of the depositor
+/// - `recovery_taproot_address`: User's x-only public key that can be used to
+/// take funds after some time
+/// - `user_evm_address`: User's EVM address.
+/// - `amount`: Amount to deposit (in sats)
+/// - `network`: Bitcoin network to work on
+/// - `user_takes_after`: User can take the funds back, after this amounts of
+/// blocks have passed
+///
+/// # Returns
+///
+/// - [`Address`]: Deposit taproot Bitcoin address
+/// - [`TaprootSpendInfo`]: Deposit address's taproot spending information
+///
+/// # Panics
+///
+/// Panics if given parameters are malformed.
 pub fn generate_deposit_address(
-    nofn_xonly_pk: &XOnlyPublicKey,
+    nofn_xonly_public_key: &XOnlyPublicKey,
     recovery_taproot_address: &Address<NetworkUnchecked>,
     user_evm_address: &EVMAddress,
     amount: u64,
@@ -98,7 +118,7 @@ pub fn generate_deposit_address(
     user_takes_after: u32,
 ) -> (Address, TaprootSpendInfo) {
     let deposit_script =
-        script_builder::create_deposit_script(nofn_xonly_pk, user_evm_address, amount);
+        script_builder::create_deposit_script(nofn_xonly_public_key, user_evm_address, amount);
 
     let recovery_script_pubkey = recovery_taproot_address
         .clone()
@@ -115,6 +135,15 @@ pub fn generate_deposit_address(
     create_taproot_address(&[deposit_script, script_timelock], None, network)
 }
 
+/// Shorthand function for creating a MuSig2 taproot address: No scripts and
+/// `nofn_xonly_pk` as the internal key.
+///
+/// # Returns
+///
+/// See [`create_taproot_address`].
+///
+/// - [`Address`]: MuSig2 taproot Bitcoin address
+/// - [`TaprootSpendInfo`]: MuSig2 address's taproot spending information
 pub fn create_musig2_address(
     nofn_xonly_pk: XOnlyPublicKey,
     network: bitcoin::Network,
@@ -122,6 +151,14 @@ pub fn create_musig2_address(
     create_taproot_address(&[], Some(nofn_xonly_pk), network)
 }
 
+/// Creates a kickoff taproot address with multisig script.
+///
+/// # Returns
+///
+/// See [`create_taproot_address`].
+///
+/// - [`Address`]: Kickoff taproot Bitcoin address
+/// - [`TaprootSpendInfo`]: Kickoff address's taproot spending information
 pub fn create_kickoff_address(
     nofn_xonly_pk: &XOnlyPublicKey,
     operator_xonly_pk: &XOnlyPublicKey,
@@ -131,6 +168,7 @@ pub fn create_kickoff_address(
         nofn_xonly_pk,
         operator_xonly_pk,
     );
+
     create_taproot_address(&[musig2_and_operator_script], None, network)
 }
 
@@ -515,7 +553,7 @@ mod tests {
     }
 
     #[test]
-    fn deposit_address() {
+    fn generate_deposit_address_musig2_fixed_address() {
         let verifier_pks_hex: Vec<&str> = vec![
             "034f355bdcb7cc0af728ef3cceb9615d90684bb5b2ca5f859ab0f0b704075871aa",
             "02466d7fcae563e5cb09a0d1870bb580344804617879a14949cf22285f1bae3f27",
@@ -548,11 +586,11 @@ mod tests {
             bitcoin::Network::Regtest,
             200,
         );
-        println!("deposit_address: {:?}", deposit_address.0);
 
+        // Comparing it to the taproot address generated in bridge backend.
         assert_eq!(
             deposit_address.0.to_string(),
-            "bcrt1ptlz698wumzl7uyk6pgrvsx5ep29thtvngxftywnd4mwq24fuwkwsxasqf5" // check this later
-        ) // Comparing it to the taproot address generated in bridge backend repo (using js)
+            "bcrt1ptlz698wumzl7uyk6pgrvsx5ep29thtvngxftywnd4mwq24fuwkwsxasqf5" // TODO: check this later
+        )
     }
 }
