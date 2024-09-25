@@ -166,7 +166,7 @@ pub async fn run_multiple_deposits(test_config_name: &str) {
         .unwrap();
     let withdrawal_provide_txid = operators[0]
         .0
-        .new_signed_withdrawal(0, user_sig, user_utxo, user_txout)
+        .new_withdrawal_sig_rpc(0, user_sig, user_utxo, user_txout)
         .await
         .unwrap();
     println!("Withdrawal provide txid: {:?}", withdrawal_provide_txid);
@@ -184,7 +184,7 @@ pub async fn run_multiple_deposits(test_config_name: &str) {
         .unwrap();
     let withdrawal_provide_txid = operators[1]
         .0
-        .new_signed_withdrawal(
+        .new_withdrawal_sig_rpc(
             config.operator_num_kickoff_utxos_per_tx as u32 - 1,
             user_sig,
             user_utxo,
@@ -210,7 +210,7 @@ pub async fn run_multiple_deposits(test_config_name: &str) {
         .unwrap();
     let withdrawal_provide_txid = operators[0]
         .0
-        .new_signed_withdrawal(2, user_sig, user_utxo, user_txout)
+        .new_withdrawal_sig_rpc(2, user_sig, user_utxo, user_txout)
         .await
         .unwrap();
     println!("Withdrawal provide txid: {:?}", withdrawal_provide_txid);

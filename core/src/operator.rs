@@ -352,8 +352,9 @@ where
         net_profit > self.config.operator_withdrawal_fee_sats.unwrap()
     }
 
-    /// Creates a withdrawal transaction with given signature and sends it to
-    /// Bitcoin.
+    /// Checks of the withdrawal has been made on Citrea, verifies a given
+    /// [`bitcoin::sighash::TapSighashType::SinglePlusAnyoneCanPay`] signature,
+    /// checks if it is profitable and finally, funds the withdrawal.
     ///
     /// # Parameters
     ///
@@ -366,7 +367,7 @@ where
     ///
     /// Withdrawal transaction's transaction id.
     #[tracing::instrument(skip(self), err(level = tracing::Level::ERROR), ret(level = tracing::Level::TRACE))]
-    async fn new_signed_withdrawal(
+    async fn new_withdrawal_sig(
         &self,
         withdrawal_idx: u32,
         user_sig: schnorr::Signature,
@@ -689,14 +690,14 @@ where
         self.set_funding_utxo(funding_utxo).await
     }
 
-    async fn new_signed_withdrawal(
+    async fn new_withdrawal_sig_rpc(
         &self,
         withdrawal_idx: u32,
         user_sig: schnorr::Signature,
         input_utxo: UTXO,
         output_txout: TxOut,
     ) -> Result<Txid, BridgeError> {
-        self.new_signed_withdrawal(withdrawal_idx, user_sig, input_utxo, output_txout)
+        self.new_withdrawal_sig(withdrawal_idx, user_sig, input_utxo, output_txout)
             .await
     }
 

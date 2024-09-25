@@ -39,7 +39,7 @@ async fn honest_operator_takes_refund() {
 
     let _withdrawal_provide_txid = operators[1]
         .0
-        .new_signed_withdrawal(0, user_sig, empty_utxo, withdrawal_tx_out)
+        .new_withdrawal_sig_rpc(0, user_sig, empty_utxo, withdrawal_tx_out)
         .await
         .unwrap();
 
@@ -100,7 +100,7 @@ async fn withdrawal_fee_too_low() {
     // Operator will reject because it its not profitable.
     assert!(operators[0]
         .0
-        .new_signed_withdrawal(0, user_sig, empty_utxo, withdrawal_tx_out)
+        .new_withdrawal_sig_rpc(0, user_sig, empty_utxo, withdrawal_tx_out)
         .await
         .is_err_and(|err| {
             if let jsonrpsee::core::client::Error::Call(err) = err {

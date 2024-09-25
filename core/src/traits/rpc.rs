@@ -72,7 +72,7 @@ pub trait OperatorRpc {
     /// checks wheter sig is for a correct withdrawal from citrea,
     /// checks the signature, calls is_profitable, if is profitable pays the withdrawal,
     /// adds it to flow, when its finalized, proves on citrea, sends kickoff2
-    async fn new_signed_withdrawal(
+    async fn new_withdrawal_sig_rpc(
         &self,
         withdrawal_idx: u32,
         user_sig: schnorr::Signature,
