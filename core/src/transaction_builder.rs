@@ -94,12 +94,12 @@ pub fn create_taproot_address(
 ///
 /// - `nofn_xonly_public_key`: N-of-N x-only public key of the depositor
 /// - `recovery_taproot_address`: User's x-only public key that can be used to
-/// take funds after some time
+///   take funds after some time
 /// - `user_evm_address`: User's EVM address.
 /// - `amount`: Amount to deposit (in sats)
 /// - `network`: Bitcoin network to work on
 /// - `user_takes_after`: User can take the funds back, after this amounts of
-/// blocks have passed
+///   blocks have passed
 ///
 /// # Returns
 ///
