@@ -102,7 +102,7 @@ impl Aggregator {
         agg_nonce: &MuSigAggNonce,
         partial_sigs: Vec<MuSigPartialSignature>,
     ) -> Result<[u8; 64], BridgeError> {
-        let move_tx_handler = transaction_builder::create_move_tx(
+        let move_tx_handler = transaction_builder::create_move_tx_handler(
             deposit_outpoint,
             &EVMAddress([0u8; 20]),
             Address::p2tr(
@@ -184,7 +184,7 @@ impl Aggregator {
         agg_nonce: &MuSigAggNonce,
         partial_sigs: Vec<MuSigPartialSignature>,
     ) -> Result<[u8; 64], BridgeError> {
-        let mut tx = transaction_builder::create_move_tx(
+        let mut tx = transaction_builder::create_move_tx_handler(
             deposit_outpoint,
             evm_address,
             recovery_taproot_address,
@@ -309,7 +309,7 @@ impl Aggregator {
 
         let move_tx_sig = secp256k1::schnorr::Signature::from_slice(&agg_move_tx_final_sig)?;
 
-        let mut move_tx_handler = transaction_builder::create_move_tx(
+        let mut move_tx_handler = transaction_builder::create_move_tx_handler(
             deposit_outpoint,
             &evm_address,
             &recovery_taproot_address,

@@ -289,7 +289,7 @@ where
             .await?
             .ok_or(BridgeError::DepositInfoNotFound)?;
 
-        let move_tx_handler = transaction_builder::create_move_tx(
+        let move_tx_handler = transaction_builder::create_move_tx_handler(
             deposit_outpoint,
             &evm_address,
             &recovery_taproot_address,

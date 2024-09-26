@@ -4,6 +4,7 @@ use crate::{script_builder, utils, EVMAddress, UTXO};
 use bitcoin::address::NetworkUnchecked;
 use bitcoin::hashes::Hash;
 use bitcoin::script::PushBytesBuf;
+use bitcoin::Transaction;
 use bitcoin::{
     absolute,
     taproot::{TaprootBuilder, TaprootSpendInfo},
@@ -176,6 +177,27 @@ pub fn create_kickoff_address(
 /// Creates the move_tx to move the deposit.
 pub fn create_move_tx(
     deposit_outpoint: OutPoint,
+    nofn_xonly_pk: &XOnlyPublicKey,
+    bridge_amount_sats: u64,
+    network: bitcoin::Network,
+) -> Transaction {
+    let anyone_can_spend_txout = script_builder::anyone_can_spend_txout();
+    let (musig2_address, _) = create_musig2_address(*nofn_xonly_pk, network);
+
+    let tx_ins = create_tx_ins(vec![deposit_outpoint]);
+    let move_txout = TxOut {
+        value: Amount::from_sat(bridge_amount_sats)
+            - Amount::from_sat(MOVE_TX_MIN_RELAY_FEE)
+            - anyone_can_spend_txout.value,
+        script_pubkey: musig2_address.script_pubkey(),
+    };
+
+    create_btc_tx(tx_ins, vec![move_txout, anyone_can_spend_txout])
+}
+
+/// Creates an [`TxHandler`] that includes move_tx to move the deposit.
+pub fn create_move_tx_handler(
+    deposit_outpoint: OutPoint,
     evm_address: &EVMAddress,
     recovery_taproot_address: &Address<NetworkUnchecked>,
     nofn_xonly_pk: &XOnlyPublicKey,
@@ -183,8 +205,8 @@ pub fn create_move_tx(
     user_takes_after: u32,
     bridge_amount_sats: u64,
 ) -> TxHandler {
-    let anyone_can_spend_txout = script_builder::anyone_can_spend_txout();
-    let (musig2_address, _) = create_musig2_address(*nofn_xonly_pk, network);
+    let move_tx = create_move_tx(deposit_outpoint, nofn_xonly_pk, bridge_amount_sats, network);
+
     let (deposit_address, deposit_taproot_spend_info) = generate_deposit_address(
         nofn_xonly_pk,
         recovery_taproot_address,
@@ -193,23 +215,18 @@ pub fn create_move_tx(
         network,
         user_takes_after,
     );
-    let move_txout = TxOut {
-        value: Amount::from_sat(bridge_amount_sats)
-            - Amount::from_sat(MOVE_TX_MIN_RELAY_FEE)
-            - anyone_can_spend_txout.value,
-        script_pubkey: musig2_address.script_pubkey(),
-    };
-    let tx_ins = create_tx_ins(vec![deposit_outpoint]);
-    let move_tx = create_btc_tx(tx_ins, vec![move_txout, anyone_can_spend_txout]);
+
     let prevouts = vec![TxOut {
         script_pubkey: deposit_address.script_pubkey(),
         value: Amount::from_sat(bridge_amount_sats),
     }];
+
     let deposit_script = vec![script_builder::create_deposit_script(
         nofn_xonly_pk,
         evm_address,
         bridge_amount_sats,
     )];
+
     TxHandler {
         tx: move_tx,
         prevouts,
@@ -290,7 +307,7 @@ pub fn create_slash_or_take_tx(
     bridge_amount_sats: u64,
 ) -> TxHandler {
     // First recreate the move_tx and move_txid. We can give dummy values for some of the parameters since we are only interested in txid.
-    let move_tx_handler = create_move_tx(
+    let move_tx_handler = create_move_tx_handler(
         deposit_outpoint,
         &EVMAddress([0u8; 20]),
         Address::p2tr(

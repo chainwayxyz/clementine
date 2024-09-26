@@ -501,7 +501,7 @@ where
             }
 
             // Calculate move_txid.
-            let move_tx_handler = transaction_builder::create_move_tx(
+            let move_tx_handler = transaction_builder::create_move_tx_handler(
                 deposit_outpoint,
                 &EVMAddress([0u8; 20]), // TODO: This doesn't look OK.
                 Address::p2tr(
@@ -615,7 +615,7 @@ where
 
         txs_to_be_sent.push(slash_or_take_tx_handler.tx.raw_hex());
 
-        let move_tx_handler = transaction_builder::create_move_tx(
+        let move_tx_handler = transaction_builder::create_move_tx_handler(
             deposit_outpoint,
             &EVMAddress([0u8; 20]),
             Address::p2tr(
