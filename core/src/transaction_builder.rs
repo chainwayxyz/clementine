@@ -181,10 +181,11 @@ pub fn create_move_tx(
     bridge_amount_sats: u64,
     network: bitcoin::Network,
 ) -> Transaction {
-    let anyone_can_spend_txout = script_builder::anyone_can_spend_txout();
     let (musig2_address, _) = create_musig2_address(*nofn_xonly_pk, network);
 
     let tx_ins = create_tx_ins(vec![deposit_outpoint]);
+
+    let anyone_can_spend_txout = script_builder::anyone_can_spend_txout();
     let move_txout = TxOut {
         value: Amount::from_sat(bridge_amount_sats)
             - Amount::from_sat(MOVE_TX_MIN_RELAY_FEE)
@@ -502,10 +503,14 @@ pub fn create_tx_outs(pairs: Vec<(Amount, ScriptBuf)>) -> Vec<TxOut> {
 mod tests {
     use crate::{
         musig2::AggregateFromPublicKeys,
-        transaction_builder,
+        script_builder,
+        transaction_builder::{self, create_musig2_address},
         utils::{self, SECP},
     };
-    use bitcoin::{key::TapTweak, Address, AddressType, ScriptBuf, XOnlyPublicKey};
+    use bitcoin::{
+        hashes::Hash, key::TapTweak, Address, AddressType, OutPoint, ScriptBuf, Txid,
+        XOnlyPublicKey,
+    };
     use secp256k1::{rand, Keypair, PublicKey, SecretKey};
     use std::str::FromStr;
 
@@ -608,5 +613,40 @@ mod tests {
             deposit_address.0.to_string(),
             "bcrt1ptlz698wumzl7uyk6pgrvsx5ep29thtvngxftywnd4mwq24fuwkwsxasqf5" // TODO: check this later
         )
+    }
+
+    #[test]
+    fn create_move_tx() {
+        let deposit_outpoint = OutPoint {
+            txid: Txid::all_zeros(),
+            vout: 0x45,
+        };
+        let secret_key = SecretKey::new(&mut rand::thread_rng());
+        let nofn_xonly_pk =
+            XOnlyPublicKey::from_keypair(&Keypair::from_secret_key(&SECP, &secret_key)).0;
+        let bridge_amount_sats = 0x1F45;
+        let network = bitcoin::Network::Regtest;
+
+        let move_tx = super::create_move_tx(
+            deposit_outpoint,
+            &nofn_xonly_pk,
+            bridge_amount_sats,
+            network,
+        );
+
+        assert_eq!(
+            move_tx.input.first().unwrap().previous_output,
+            deposit_outpoint
+        );
+        assert_eq!(
+            move_tx.output.first().unwrap().script_pubkey,
+            create_musig2_address(nofn_xonly_pk, network)
+                .0
+                .script_pubkey()
+        );
+        assert_eq!(
+            *move_tx.output.get(1).unwrap(),
+            script_builder::anyone_can_spend_txout()
+        );
     }
 }
