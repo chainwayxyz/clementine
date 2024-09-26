@@ -37,14 +37,14 @@ pub fn op_return_txout<S: AsRef<bitcoin::script::PushBytes>>(slice: S) -> TxOut 
 }
 
 pub fn create_deposit_script(
-    nofn_xonly_pk: &XOnlyPublicKey,
+    nofn_xonly_pk: XOnlyPublicKey,
     evm_address: &EVMAddress,
     amount: u64,
 ) -> ScriptBuf {
     let citrea: [u8; 6] = "citrea".as_bytes().try_into().unwrap();
 
     Builder::new()
-        .push_x_only_key(nofn_xonly_pk)
+        .push_x_only_key(&nofn_xonly_pk)
         .push_opcode(OP_CHECKSIG)
         .push_opcode(OP_FALSE)
         .push_opcode(OP_IF)
@@ -56,13 +56,13 @@ pub fn create_deposit_script(
 }
 
 pub fn create_musig2_and_operator_multisig_script(
-    nofn_xonly_pk: &XOnlyPublicKey,
-    operator_xonly_pk: &XOnlyPublicKey,
+    nofn_xonly_pk: XOnlyPublicKey,
+    operator_xonly_pk: XOnlyPublicKey,
 ) -> ScriptBuf {
     Builder::new()
-        .push_x_only_key(nofn_xonly_pk)
+        .push_x_only_key(&nofn_xonly_pk)
         .push_opcode(OP_CHECKSIGVERIFY)
-        .push_x_only_key(operator_xonly_pk)
+        .push_x_only_key(&operator_xonly_pk)
         .push_opcode(OP_CHECKSIG)
         .into_script()
 }
@@ -71,14 +71,14 @@ pub fn create_musig2_and_operator_multisig_script(
 /// condition is that (`# in the script`) < (`# in the sequence of the tx`)
 /// < (`# of blocks mined after UTXO`) appears on the chain.
 pub fn generate_relative_timelock_script(
-    actor_taproot_xonly_pk: &XOnlyPublicKey, // This is the tweaked XonlyPublicKey, which appears in the script_pubkey of the address
+    actor_taproot_xonly_pk: XOnlyPublicKey, // This is the tweaked XonlyPublicKey, which appears in the script_pubkey of the address
     block_count: u32,
 ) -> ScriptBuf {
     Builder::new()
         .push_int(block_count as i64)
         .push_opcode(OP_CSV)
         .push_opcode(OP_DROP)
-        .push_x_only_key(actor_taproot_xonly_pk)
+        .push_x_only_key(&actor_taproot_xonly_pk)
         .push_opcode(OP_CHECKSIG)
         .into_script()
 }

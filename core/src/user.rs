@@ -58,7 +58,7 @@ where
     #[tracing::instrument(skip(self), err(level = tracing::Level::ERROR), ret(level = tracing::Level::TRACE))]
     pub fn get_deposit_address(&self, evm_address: EVMAddress) -> Result<Address, BridgeError> {
         let (deposit_address, _) = transaction_builder::generate_deposit_address(
-            &self.nofn_xonly_pk,
+            self.nofn_xonly_pk,
             self.signer.address.as_unchecked(),
             &evm_address,
             self.config.bridge_amount_sats,

@@ -135,7 +135,7 @@ where
 
         // 1. Check if the deposit UTXO is valid, finalized (6 blocks confirmation) and not spent
         self.rpc.check_deposit_utxo(
-            &self.nofn_xonly_pk,
+            self.nofn_xonly_pk,
             &deposit_outpoint,
             &recovery_taproot_address,
             &evm_address,
@@ -235,8 +235,8 @@ where
             }
             let mut kickoff_tx_handler = transaction_builder::create_kickoff_utxo_tx(
                 &funding_utxo,
-                &self.nofn_xonly_pk,
-                &self.signer.xonly_public_key,
+                self.nofn_xonly_pk,
+                self.signer.xonly_public_key,
                 self.config.network,
                 self.config.operator_num_kickoff_utxos_per_tx,
             );
@@ -503,7 +503,7 @@ where
             // Calculate move_txid.
             let move_tx = transaction_builder::create_move_tx(
                 deposit_outpoint,
-                &self.nofn_xonly_pk,
+                self.nofn_xonly_pk,
                 self.config.bridge_amount_sats,
                 self.config.network,
             );
@@ -570,9 +570,9 @@ where
         let mut slash_or_take_tx_handler = transaction_builder::create_slash_or_take_tx(
             deposit_outpoint,
             kickoff_utxo.clone(),
-            &self.signer.xonly_public_key,
+            self.signer.xonly_public_key,
             self.idx,
-            &self.nofn_xonly_pk,
+            self.nofn_xonly_pk,
             self.config.network,
             self.config.user_takes_after,
             self.config.operator_takes_after,
@@ -616,7 +616,7 @@ where
                 self.config.network,
             )
             .as_unchecked(),
-            &self.nofn_xonly_pk,
+            self.nofn_xonly_pk,
             self.config.network,
             self.config.user_takes_after,
             self.config.bridge_amount_sats,
@@ -629,8 +629,8 @@ where
         let mut operator_takes_tx = transaction_builder::create_operator_takes_tx(
             bridge_fund_outpoint,
             slash_or_take_utxo,
-            &self.signer.xonly_public_key,
-            &self.nofn_xonly_pk,
+            self.signer.xonly_public_key,
+            self.nofn_xonly_pk,
             self.config.network,
             self.config.operator_takes_after,
             self.config.bridge_amount_sats,

@@ -59,9 +59,9 @@ impl Aggregator {
         let mut tx = transaction_builder::create_slash_or_take_tx(
             deposit_outpoint,
             kickoff_utxo,
-            &operator_xonly_pk,
+            operator_xonly_pk,
             operator_idx,
-            &self.nofn_xonly_pk,
+            self.nofn_xonly_pk,
             self.config.network,
             self.config.user_takes_after,
             self.config.operator_takes_after,
@@ -104,7 +104,7 @@ impl Aggregator {
     ) -> Result<[u8; 64], BridgeError> {
         let move_tx = transaction_builder::create_move_tx(
             deposit_outpoint,
-            &self.nofn_xonly_pk,
+            self.nofn_xonly_pk,
             self.config.bridge_amount_sats,
             self.config.network,
         );
@@ -115,9 +115,9 @@ impl Aggregator {
         let slash_or_take_tx_handler = transaction_builder::create_slash_or_take_tx(
             deposit_outpoint,
             kickoff_utxo,
-            operator_xonly_pk,
+            *operator_xonly_pk,
             operator_idx,
-            &self.nofn_xonly_pk,
+            self.nofn_xonly_pk,
             self.config.network,
             self.config.user_takes_after,
             self.config.operator_takes_after,
@@ -138,8 +138,8 @@ impl Aggregator {
         let mut tx_handler = transaction_builder::create_operator_takes_tx(
             bridge_fund_outpoint,
             slash_or_take_utxo,
-            operator_xonly_pk,
-            &self.nofn_xonly_pk,
+            *operator_xonly_pk,
+            self.nofn_xonly_pk,
             self.config.network,
             self.config.operator_takes_after,
             self.config.bridge_amount_sats,
@@ -179,7 +179,7 @@ impl Aggregator {
             deposit_outpoint,
             evm_address,
             recovery_taproot_address,
-            &self.nofn_xonly_pk,
+            self.nofn_xonly_pk,
             self.config.network,
             self.config.user_takes_after,
             self.config.bridge_amount_sats,
@@ -304,7 +304,7 @@ impl Aggregator {
             deposit_outpoint,
             &evm_address,
             &recovery_taproot_address,
-            &self.nofn_xonly_pk,
+            self.nofn_xonly_pk,
             self.config.network,
             self.config.user_takes_after,
             self.config.bridge_amount_sats,

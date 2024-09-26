@@ -164,7 +164,7 @@ where
     #[tracing::instrument(skip(self), err(level = tracing::Level::ERROR), ret(level = tracing::Level::TRACE))]
     pub fn check_deposit_utxo(
         &self,
-        nofn_xonly_pk: &XOnlyPublicKey,
+        nofn_xonly_pk: XOnlyPublicKey,
         deposit_outpoint: &OutPoint,
         recovery_taproot_address: &Address<NetworkUnchecked>,
         evm_address: &EVMAddress,
