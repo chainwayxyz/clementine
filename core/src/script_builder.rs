@@ -38,7 +38,7 @@ pub fn op_return_txout<S: AsRef<bitcoin::script::PushBytes>>(slice: S) -> TxOut 
 
 pub fn create_deposit_script(
     nofn_xonly_pk: XOnlyPublicKey,
-    evm_address: &EVMAddress,
+    evm_address: EVMAddress,
     amount: u64,
 ) -> ScriptBuf {
     let citrea: [u8; 6] = "citrea".as_bytes().try_into().unwrap();

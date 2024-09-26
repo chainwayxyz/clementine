@@ -83,7 +83,7 @@ where
             self.nofn_xonly_pk,
             &deposit_outpoint,
             &recovery_taproot_address,
-            &evm_address,
+            evm_address,
             self.config.bridge_amount_sats,
             self.config.confirmation_threshold,
             self.config.network,
@@ -291,7 +291,7 @@ where
 
         let move_tx_handler = transaction_builder::create_move_tx_handler(
             deposit_outpoint,
-            &evm_address,
+            evm_address,
             &recovery_taproot_address,
             self.nofn_xonly_pk,
             self.config.network,

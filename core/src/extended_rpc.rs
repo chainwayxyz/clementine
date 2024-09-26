@@ -167,7 +167,7 @@ where
         nofn_xonly_pk: XOnlyPublicKey,
         deposit_outpoint: &OutPoint,
         recovery_taproot_address: &Address<NetworkUnchecked>,
-        evm_address: &EVMAddress,
+        evm_address: EVMAddress,
         amount_sats: u64,
         confirmation_block_count: u32,
         network: bitcoin::Network,

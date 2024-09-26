@@ -112,7 +112,7 @@ pub fn create_taproot_address(
 pub fn generate_deposit_address(
     nofn_xonly_public_key: XOnlyPublicKey,
     recovery_taproot_address: &Address<NetworkUnchecked>,
-    user_evm_address: &EVMAddress,
+    user_evm_address: EVMAddress,
     amount: u64,
     network: bitcoin::Network,
     user_takes_after: u32,
@@ -199,7 +199,7 @@ pub fn create_move_tx(
 /// Creates an [`TxHandler`] that includes move_tx to move the deposit.
 pub fn create_move_tx_handler(
     deposit_outpoint: OutPoint,
-    evm_address: &EVMAddress,
+    evm_address: EVMAddress,
     recovery_taproot_address: &Address<NetworkUnchecked>,
     nofn_xonly_pk: XOnlyPublicKey,
     network: bitcoin::Network,
@@ -310,7 +310,7 @@ pub fn create_slash_or_take_tx(
     // First recreate the move_tx and move_txid. We can give dummy values for some of the parameters since we are only interested in txid.
     let move_tx_handler = create_move_tx_handler(
         deposit_outpoint,
-        &EVMAddress([0u8; 20]),
+        EVMAddress([0u8; 20]),
         Address::p2tr(
             &utils::SECP,
             *utils::UNSPENDABLE_XONLY_PUBKEY,
@@ -602,7 +602,7 @@ mod tests {
         let deposit_address = transaction_builder::generate_deposit_address(
             nofn_xonly_pk,
             recovery_taproot_address.as_unchecked(),
-            &crate::EVMAddress(evm_address),
+            crate::EVMAddress(evm_address),
             100_000_000,
             bitcoin::Network::Regtest,
             200,

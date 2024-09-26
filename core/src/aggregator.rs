@@ -170,7 +170,7 @@ impl Aggregator {
     fn aggregate_move_partial_sigs(
         &self,
         deposit_outpoint: OutPoint,
-        evm_address: &EVMAddress,
+        evm_address: EVMAddress,
         recovery_taproot_address: &Address<NetworkUnchecked>,
         agg_nonce: &MuSigAggNonce,
         partial_sigs: Vec<MuSigPartialSignature>,
@@ -292,7 +292,7 @@ impl Aggregator {
     ) -> Result<(String, Txid), BridgeError> {
         let agg_move_tx_final_sig = self.aggregate_move_partial_sigs(
             deposit_outpoint,
-            &evm_address,
+            evm_address,
             &recovery_taproot_address,
             &agg_nonce,
             partial_sigs,
@@ -302,7 +302,7 @@ impl Aggregator {
 
         let mut move_tx_handler = transaction_builder::create_move_tx_handler(
             deposit_outpoint,
-            &evm_address,
+            evm_address,
             &recovery_taproot_address,
             self.nofn_xonly_pk,
             self.config.network,

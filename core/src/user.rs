@@ -60,7 +60,7 @@ where
         let (deposit_address, _) = transaction_builder::generate_deposit_address(
             self.nofn_xonly_pk,
             self.signer.address.as_unchecked(),
-            &evm_address,
+            evm_address,
             self.config.bridge_amount_sats,
             self.config.network,
             self.config.user_takes_after,

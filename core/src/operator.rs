@@ -138,7 +138,7 @@ where
             self.nofn_xonly_pk,
             &deposit_outpoint,
             &recovery_taproot_address,
-            &evm_address,
+            evm_address,
             self.config.bridge_amount_sats,
             self.config.confirmation_threshold,
             self.config.network,
@@ -608,7 +608,7 @@ where
 
         let move_tx_handler = transaction_builder::create_move_tx_handler(
             deposit_outpoint,
-            &EVMAddress([0u8; 20]),
+            EVMAddress([0u8; 20]),
             Address::p2tr(
                 &utils::SECP,
                 *utils::UNSPENDABLE_XONLY_PUBKEY,
