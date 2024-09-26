@@ -501,22 +501,13 @@ where
             }
 
             // Calculate move_txid.
-            let move_tx_handler = transaction_builder::create_move_tx_handler(
+            let move_tx = transaction_builder::create_move_tx(
                 deposit_outpoint,
-                &EVMAddress([0u8; 20]), // TODO: This doesn't look OK.
-                Address::p2tr(
-                    &utils::SECP,
-                    *utils::UNSPENDABLE_XONLY_PUBKEY,
-                    None,
-                    self.config.network,
-                )
-                .as_unchecked(),
                 &self.nofn_xonly_pk,
-                self.config.network,
-                self.config.user_takes_after,
                 self.config.bridge_amount_sats,
+                self.config.network,
             );
-            let move_txid = move_tx_handler.tx.compute_txid();
+            let move_txid = move_tx.compute_txid();
             let move_txid_bytes = move_txid.to_byte_array();
 
             // See: https://gist.github.com/okkothejawa/a9379b02a16dada07a2b85cbbd3c1e80

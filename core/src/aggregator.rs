@@ -8,7 +8,7 @@ use crate::{
     },
     traits::rpc::AggregatorServer,
     transaction_builder,
-    utils::{self, handle_taproot_witness_new},
+    utils::handle_taproot_witness_new,
     ByteArray32, ByteArray66, EVMAddress, UTXO,
 };
 use async_trait::async_trait;
@@ -102,23 +102,14 @@ impl Aggregator {
         agg_nonce: &MuSigAggNonce,
         partial_sigs: Vec<MuSigPartialSignature>,
     ) -> Result<[u8; 64], BridgeError> {
-        let move_tx_handler = transaction_builder::create_move_tx_handler(
+        let move_tx = transaction_builder::create_move_tx(
             deposit_outpoint,
-            &EVMAddress([0u8; 20]),
-            Address::p2tr(
-                &utils::SECP,
-                *utils::UNSPENDABLE_XONLY_PUBKEY,
-                None,
-                self.config.network,
-            )
-            .as_unchecked(),
             &self.nofn_xonly_pk,
-            self.config.network,
-            self.config.user_takes_after,
             self.config.bridge_amount_sats,
+            self.config.network,
         );
         let bridge_fund_outpoint = OutPoint {
-            txid: move_tx_handler.tx.compute_txid(),
+            txid: move_tx.compute_txid(),
             vout: 0,
         };
         let slash_or_take_tx_handler = transaction_builder::create_slash_or_take_tx(
