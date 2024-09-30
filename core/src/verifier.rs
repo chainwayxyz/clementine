@@ -93,22 +93,28 @@ where
         // For now we multiply by 2 since we do not give signatures for burn_txs. // TODO: Change this in future.
         let num_required_nonces = 2 * self.operator_xonly_pks.len() + 1;
 
+        let mut dbtx = self.db.begin_transaction().await?;
         // Check if we already have pub_nonces for this deposit_outpoint.
-        if let Some(pub_nonces) = self.db.get_pub_nonces(None, deposit_outpoint).await? {
+        let pub_nonces_from_db = self
+            .db
+            .get_pub_nonces(Some(&mut dbtx), deposit_outpoint)
+            .await?;
+        if let Some(pub_nonces) = pub_nonces_from_db {
             if !pub_nonces.is_empty() {
                 if pub_nonces.len() != num_required_nonces {
                     return Err(BridgeError::NoncesNotFound);
                 }
-
+                dbtx.commit().await?;
                 return Ok(pub_nonces);
             }
         }
 
-        let mut dbtx = self.db.begin_transaction().await?;
-
-        let nonces: Vec<(ByteArray64, ByteArray66)> = (0..num_required_nonces)
+        let nonces = (0..num_required_nonces)
             .map(|_| musig2::nonce_pair(&self.signer.keypair, &mut rand::rngs::OsRng))
-            .collect();
+            .collect::<Vec<_>>();
+        let nonces: Vec<(ByteArray64, ByteArray66)> = nonces
+            .into_iter()
+            .collect::<Vec<(ByteArray64, ByteArray66)>>();
 
         self.db
             .save_deposit_info(
@@ -121,7 +127,6 @@ where
         self.db
             .save_nonces(Some(&mut dbtx), deposit_outpoint, &nonces)
             .await?;
-
         dbtx.commit().await?;
 
         let pub_nonces = nonces.iter().map(|(_, pub_nonce)| *pub_nonce).collect();
