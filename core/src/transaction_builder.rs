@@ -92,7 +92,7 @@ pub fn create_taproot_address(
 ///
 /// # Parameters
 ///
-/// - `nofn_xonly_public_key`: N-of-N x-only public key of the depositor
+/// - `nofn_xonly_pk`: N-of-N x-only public key of the depositor
 /// - `recovery_taproot_address`: User's x-only public key that can be used to
 ///   take funds after some time
 /// - `user_evm_address`: User's EVM address.
@@ -110,7 +110,7 @@ pub fn create_taproot_address(
 ///
 /// Panics if given parameters are malformed.
 pub fn generate_deposit_address(
-    nofn_xonly_public_key: XOnlyPublicKey,
+    nofn_xonly_pk: XOnlyPublicKey,
     recovery_taproot_address: &Address<NetworkUnchecked>,
     user_evm_address: EVMAddress,
     amount: u64,
@@ -118,7 +118,7 @@ pub fn generate_deposit_address(
     user_takes_after: u32,
 ) -> (Address, TaprootSpendInfo) {
     let deposit_script =
-        script_builder::create_deposit_script(nofn_xonly_public_key, user_evm_address, amount);
+        script_builder::create_deposit_script(nofn_xonly_pk, user_evm_address, amount);
 
     let recovery_script_pubkey = recovery_taproot_address
         .clone()
