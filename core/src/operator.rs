@@ -606,23 +606,14 @@ where
 
         txs_to_be_sent.push(slash_or_take_tx_handler.tx.raw_hex());
 
-        let move_tx_handler = transaction_builder::create_move_tx_handler(
+        let move_tx = transaction_builder::create_move_tx(
             deposit_outpoint,
-            EVMAddress([0u8; 20]),
-            Address::p2tr(
-                &utils::SECP,
-                *utils::UNSPENDABLE_XONLY_PUBKEY,
-                None,
-                self.config.network,
-            )
-            .as_unchecked(),
             self.nofn_xonly_pk,
-            self.config.network,
-            self.config.user_takes_after,
             self.config.bridge_amount_sats,
+            self.config.network,
         );
         let bridge_fund_outpoint = OutPoint {
-            txid: move_tx_handler.tx.compute_txid(),
+            txid: move_tx.compute_txid(),
             vout: 0,
         };
 
