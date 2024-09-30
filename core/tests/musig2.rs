@@ -1,12 +1,11 @@
 use bitcoin::opcodes::all::OP_CHECKSIG;
 use bitcoin::{hashes::Hash, script, Amount, ScriptBuf};
-use bitcoincore_rpc::RawTx;
 use clementine_core::create_extended_rpc;
 use clementine_core::mock::database::create_test_config_with_thread_name;
 use clementine_core::musig2::{
     aggregate_nonces, aggregate_partial_signatures, MuSigPartialSignature, MuSigPubNonce,
 };
-use clementine_core::utils::handle_taproot_witness_new;
+use clementine_core::utils::{handle_taproot_witness_new, SECP};
 use clementine_core::ByteArray32;
 use clementine_core::{
     actor::Actor,
@@ -16,54 +15,80 @@ use clementine_core::{
     transaction_builder::{self, TxHandler},
     utils, ByteArray66,
 };
-use secp256k1::{Keypair, Message};
+use secp256k1::{Keypair, Message, PublicKey};
 
-#[tokio::test]
-async fn test_musig2_key_spend() {
-    let secp = bitcoin::secp256k1::Secp256k1::new();
+fn get_verifiers_keys(
+    config: &BridgeConfig,
+) -> (Vec<Keypair>, secp256k1::XOnlyPublicKey, Vec<PublicKey>) {
+    let verifiers_secret_keys = config.all_verifiers_secret_keys.clone().unwrap();
 
-    let mut config: BridgeConfig =
-        create_test_config_with_thread_name("test_config.toml", None).await;
-    let rpc: ExtendedRpc<_> = create_extended_rpc!(config);
-    let sks = config.all_verifiers_secret_keys.unwrap();
-    let kp_vec: Vec<Keypair> = sks
+    let verifiers_secret_public_keys: Vec<Keypair> = verifiers_secret_keys
         .iter()
-        .map(|sk| Keypair::from_secret_key(&secp, sk))
+        .map(|sk| Keypair::from_secret_key(&SECP, sk))
         .collect();
-    let nonce_pair_vec: Vec<MuSigNoncePair> = kp_vec
-        .iter()
-        .map(|kp| nonce_pair(kp, &mut secp256k1::rand::thread_rng()))
-        .collect();
-    let pks = kp_vec
+
+    let verifier_public_keys = verifiers_secret_public_keys
         .iter()
         .map(|kp| kp.public_key())
         .collect::<Vec<secp256k1::PublicKey>>();
-    let agg_nonce = aggregate_nonces(
-        nonce_pair_vec
-            .iter()
-            .map(|x| ByteArray66(x.1 .0))
-            .collect::<Vec<MuSigPubNonce>>(),
-    );
-    let key_agg_ctx = create_key_agg_ctx(pks.clone(), None, true).unwrap();
+
+    let key_agg_ctx = create_key_agg_ctx(verifier_public_keys.clone(), None, true).unwrap();
     let untweaked_pubkey =
         key_agg_ctx.aggregated_pubkey_untweaked::<musig2::secp256k1::PublicKey>();
     let untweaked_xonly_pubkey: secp256k1::XOnlyPublicKey =
         secp256k1::XOnlyPublicKey::from_slice(&untweaked_pubkey.x_only_public_key().0.serialize())
             .unwrap();
+
+    (
+        verifiers_secret_public_keys,
+        untweaked_xonly_pubkey,
+        verifier_public_keys,
+    )
+}
+
+fn get_nonces(verifiers_secret_public_keys: Vec<Keypair>) -> (Vec<MuSigNoncePair>, ByteArray66) {
+    let nonce_pairs: Vec<MuSigNoncePair> = verifiers_secret_public_keys
+        .iter()
+        .map(|kp| nonce_pair(kp, &mut secp256k1::rand::thread_rng()))
+        .collect();
+
+    let agg_nonce = aggregate_nonces(
+        nonce_pairs
+            .iter()
+            .map(|x| ByteArray66(x.1 .0))
+            .collect::<Vec<MuSigPubNonce>>(),
+    );
+
+    (nonce_pairs, agg_nonce)
+}
+
+#[tokio::test]
+async fn key_spend() {
+    let mut config: BridgeConfig =
+        create_test_config_with_thread_name("test_config.toml", None).await;
+    let rpc = create_extended_rpc!(config);
+
+    let (verifiers_secret_public_keys, untweaked_xonly_pubkey, verifier_public_keys) =
+        get_verifiers_keys(&config);
+    let (nonce_pairs, agg_nonce) = get_nonces(verifiers_secret_public_keys.clone());
+
     let (to_address, _) = transaction_builder::create_taproot_address(&[], None, config.network);
     let (from_address, from_address_spend_info) = transaction_builder::create_taproot_address(
         &[],
         Some(untweaked_xonly_pubkey),
         config.network,
     );
+
     let utxo = rpc.send_to_address(&from_address, 100_000_000).unwrap();
     let prevout = rpc.get_txout_from_outpoint(&utxo).unwrap();
+
+    let tx_ins = transaction_builder::create_tx_ins(vec![utxo]);
     let tx_outs = transaction_builder::create_tx_outs(vec![(
         Amount::from_sat(99_000_000),
         to_address.script_pubkey(),
     )]);
-    let tx_ins = transaction_builder::create_tx_ins(vec![utxo]);
     let dummy_tx = transaction_builder::create_btc_tx(tx_ins, tx_outs);
+
     let mut tx_details = TxHandler {
         tx: dummy_tx,
         prevouts: vec![prevout],
@@ -74,15 +99,14 @@ async fn test_musig2_key_spend() {
         .unwrap()
         .to_byte_array();
     let merkle_root = from_address_spend_info.merkle_root();
-    tracing::debug!("Merkle Root: {:?}", merkle_root);
-    let key_agg_ctx = create_key_agg_ctx(pks.clone(), merkle_root, true).unwrap();
+    let key_agg_ctx = create_key_agg_ctx(verifier_public_keys.clone(), merkle_root, true).unwrap();
 
-    let partial_sigs: Vec<MuSigPartialSignature> = kp_vec
+    let partial_sigs: Vec<MuSigPartialSignature> = verifiers_secret_public_keys
         .iter()
-        .zip(nonce_pair_vec.iter())
+        .zip(nonce_pairs.iter())
         .map(|(kp, nonce_pair)| {
             partial_sign(
-                pks.clone(),
+                verifier_public_keys.clone(),
                 merkle_root,
                 true,
                 nonce_pair.0,
@@ -92,8 +116,8 @@ async fn test_musig2_key_spend() {
             )
         })
         .collect();
-    let final_signature: [u8; 64] = aggregate_partial_signatures(
-        pks.clone(),
+    let final_signature = aggregate_partial_signatures(
+        verifier_public_keys.clone(),
         merkle_root,
         true,
         &agg_nonce,
@@ -101,75 +125,56 @@ async fn test_musig2_key_spend() {
         ByteArray32(message),
     )
     .unwrap();
+
     let musig_agg_pubkey: musig2::secp256k1::PublicKey = key_agg_ctx.aggregated_pubkey();
     let musig_agg_xonly_pubkey = musig_agg_pubkey.x_only_public_key().0;
     let musig_agg_xonly_pubkey_wrapped =
         bitcoin::XOnlyPublicKey::from_slice(&musig_agg_xonly_pubkey.serialize()).unwrap();
 
-    musig2::verify_single(musig_agg_pubkey, final_signature, message)
-        .expect("Verification failed!");
+    musig2::verify_single(musig_agg_pubkey, final_signature, message).unwrap();
+
     let schnorr_sig = secp256k1::schnorr::Signature::from_slice(&final_signature).unwrap();
-    secp.verify_schnorr(
+    SECP.verify_schnorr(
         &schnorr_sig,
         &Message::from_digest(message),
         &musig_agg_xonly_pubkey_wrapped,
     )
     .unwrap();
-    println!("MuSig2 signature verified successfully!");
-    println!("SECP Verified Successfully");
+
     tx_details.tx.input[0].witness.push(final_signature);
-    let txid = rpc.send_raw_transaction(&tx_details.tx).unwrap();
-    println!("Transaction sent successfully! Txid: {}", txid);
+    rpc.send_raw_transaction(&tx_details.tx).unwrap();
 }
 
 #[tokio::test]
-async fn test_musig2_key_spend_with_script() {
-    let secp = bitcoin::secp256k1::Secp256k1::new();
-
+async fn key_spend_with_script() {
     let mut config: BridgeConfig =
         create_test_config_with_thread_name("test_config.toml", None).await;
-    let rpc: ExtendedRpc<_> = create_extended_rpc!(config);
-    let sks = config.all_verifiers_secret_keys.unwrap();
-    let kp_vec: Vec<Keypair> = sks
-        .iter()
-        .map(|sk| Keypair::from_secret_key(&secp, sk))
-        .collect();
-    let nonce_pair_vec: Vec<MuSigNoncePair> = kp_vec
-        .iter()
-        .map(|kp| nonce_pair(kp, &mut secp256k1::rand::thread_rng()))
-        .collect();
-    let pks = kp_vec
-        .iter()
-        .map(|kp| kp.public_key())
-        .collect::<Vec<secp256k1::PublicKey>>();
-    let agg_nonce = aggregate_nonces(
-        nonce_pair_vec
-            .iter()
-            .map(|x| ByteArray66(x.1 .0))
-            .collect::<Vec<MuSigPubNonce>>(),
-    );
-    let key_agg_ctx = create_key_agg_ctx(pks.clone(), None, false).unwrap();
-    let untweaked_pubkey =
-        key_agg_ctx.aggregated_pubkey_untweaked::<musig2::secp256k1::PublicKey>();
-    let untweaked_xonly_pubkey: secp256k1::XOnlyPublicKey =
-        secp256k1::XOnlyPublicKey::from_slice(&untweaked_pubkey.x_only_public_key().0.serialize())
-            .unwrap();
+    let rpc = create_extended_rpc!(config);
+
+    let (verifiers_secret_public_keys, untweaked_xonly_pubkey, verifier_public_keys) =
+        get_verifiers_keys(&config);
+    let (nonce_pairs, agg_nonce) = get_nonces(verifiers_secret_public_keys.clone());
+
     let dummy_script = script::Builder::new().push_int(1).into_script();
     let scripts: Vec<ScriptBuf> = vec![dummy_script];
+
     let (to_address, _) = transaction_builder::create_taproot_address(&[], None, config.network);
     let (from_address, from_address_spend_info) = transaction_builder::create_taproot_address(
         &scripts,
         Some(untweaked_xonly_pubkey),
         config.network,
     );
+
     let utxo = rpc.send_to_address(&from_address, 100_000_000).unwrap();
     let prevout = rpc.get_txout_from_outpoint(&utxo).unwrap();
     let tx_outs = transaction_builder::create_tx_outs(vec![(
         Amount::from_sat(99_000_000),
         to_address.script_pubkey(),
     )]);
+
     let tx_ins = transaction_builder::create_tx_ins(vec![utxo]);
     let dummy_tx = transaction_builder::create_btc_tx(tx_ins, tx_outs);
+
     let mut tx_details = TxHandler {
         tx: dummy_tx,
         prevouts: vec![prevout],
@@ -180,14 +185,14 @@ async fn test_musig2_key_spend_with_script() {
         .unwrap()
         .to_byte_array();
     let merkle_root = from_address_spend_info.merkle_root();
-    let key_agg_ctx = create_key_agg_ctx(pks.clone(), merkle_root, true).unwrap();
+    let key_agg_ctx = create_key_agg_ctx(verifier_public_keys.clone(), merkle_root, true).unwrap();
 
-    let partial_sigs: Vec<MuSigPartialSignature> = kp_vec
+    let partial_sigs: Vec<MuSigPartialSignature> = verifiers_secret_public_keys
         .iter()
-        .zip(nonce_pair_vec.iter())
+        .zip(nonce_pairs.iter())
         .map(|(kp, nonce_pair)| {
             partial_sign(
-                pks.clone(),
+                verifier_public_keys.clone(),
                 merkle_root,
                 true,
                 nonce_pair.0,
@@ -198,7 +203,7 @@ async fn test_musig2_key_spend_with_script() {
         })
         .collect();
     let final_signature: [u8; 64] = aggregate_partial_signatures(
-        pks.clone(),
+        verifier_public_keys.clone(),
         merkle_root,
         true,
         &agg_nonce,
@@ -206,58 +211,42 @@ async fn test_musig2_key_spend_with_script() {
         ByteArray32(message),
     )
     .unwrap();
+
     let musig_agg_pubkey: musig2::secp256k1::PublicKey = key_agg_ctx.aggregated_pubkey();
     let musig_agg_xonly_pubkey = musig_agg_pubkey.x_only_public_key().0;
     let musig_agg_xonly_pubkey_wrapped =
         bitcoin::XOnlyPublicKey::from_slice(&musig_agg_xonly_pubkey.serialize()).unwrap();
 
-    musig2::verify_single(musig_agg_pubkey, final_signature, message)
-        .expect("Verification failed!");
+    musig2::verify_single(musig_agg_pubkey, final_signature, message).unwrap();
+
     let schnorr_sig = secp256k1::schnorr::Signature::from_slice(&final_signature).unwrap();
-    secp.verify_schnorr(
+    SECP.verify_schnorr(
         &schnorr_sig,
         &Message::from_digest(message),
         &musig_agg_xonly_pubkey_wrapped,
     )
     .unwrap();
-    // println!("MuSig2 signature verified successfully!");
-    // println!("SECP Verification: {:?}", res);
+
     tx_details.tx.input[0].witness.push(final_signature);
-    let _txid = rpc.send_raw_transaction(&tx_details.tx).unwrap();
-    // println!("Transaction sent successfully! Txid: {}", txid);
+    rpc.send_raw_transaction(&tx_details.tx).unwrap();
 }
 
 #[tokio::test]
-async fn test_musig2_script_spend() {
-    let secp = bitcoin::secp256k1::Secp256k1::new();
-
+async fn script_spend() {
     let mut config: BridgeConfig =
         create_test_config_with_thread_name("test_config.toml", None).await;
-    let rpc: ExtendedRpc<_> = create_extended_rpc!(config);
-    let sks = config.all_verifiers_secret_keys.unwrap();
-    let kp_vec: Vec<Keypair> = sks
-        .iter()
-        .map(|sk| Keypair::from_secret_key(&secp, sk))
-        .collect();
-    let nonce_pair_vec: Vec<MuSigNoncePair> = kp_vec
-        .iter()
-        .map(|kp| nonce_pair(kp, &mut secp256k1::rand::thread_rng()))
-        .collect();
-    let pks = kp_vec
-        .iter()
-        .map(|kp| kp.public_key())
-        .collect::<Vec<secp256k1::PublicKey>>();
-    let agg_nonce = aggregate_nonces(
-        nonce_pair_vec
-            .iter()
-            .map(|x| ByteArray66(x.1 .0))
-            .collect::<Vec<MuSigPubNonce>>(),
-    );
-    let key_agg_ctx = create_key_agg_ctx(pks.clone(), None, false).unwrap();
+    let rpc = create_extended_rpc!(config);
+
+    let (verifiers_secret_public_keys, _untweaked_xonly_pubkey, verifier_public_keys) =
+        get_verifiers_keys(&config);
+    let (nonce_pairs, agg_nonce) = get_nonces(verifiers_secret_public_keys.clone());
+
+    let key_agg_ctx = create_key_agg_ctx(verifier_public_keys.clone(), None, false).unwrap();
     let musig_agg_pubkey: musig2::secp256k1::PublicKey = key_agg_ctx.aggregated_pubkey();
     let (musig_agg_xonly_pubkey, _) = musig_agg_pubkey.x_only_public_key();
     let musig_agg_xonly_pubkey_wrapped =
         bitcoin::XOnlyPublicKey::from_slice(&musig_agg_xonly_pubkey.serialize()).unwrap();
+
     let agg_xonly_pubkey =
         bitcoin::XOnlyPublicKey::from_slice(&musig_agg_xonly_pubkey.serialize()).unwrap();
     let musig2_script = bitcoin::script::Builder::new()
@@ -265,20 +254,23 @@ async fn test_musig2_script_spend() {
         .push_opcode(OP_CHECKSIG)
         .into_script();
     let scripts: Vec<ScriptBuf> = vec![musig2_script];
+
     let to_address = bitcoin::Address::p2tr(
-        &secp,
+        &SECP,
         *utils::UNSPENDABLE_XONLY_PUBKEY,
         None,
         bitcoin::Network::Regtest,
     );
     let (from_address, from_address_spend_info) =
         transaction_builder::create_taproot_address(&scripts, None, bitcoin::Network::Regtest);
+
     let utxo = rpc.send_to_address(&from_address, 100_000_000).unwrap();
     let prevout = rpc.get_txout_from_outpoint(&utxo).unwrap();
     let tx_outs = transaction_builder::create_tx_outs(vec![(
         Amount::from_sat(99_000_000),
         to_address.script_pubkey(),
     )]);
+
     let tx_ins = transaction_builder::create_tx_ins(vec![utxo]);
     let dummy_tx = transaction_builder::create_btc_tx(tx_ins, tx_outs);
     let mut tx_details = TxHandler {
@@ -291,12 +283,12 @@ async fn test_musig2_script_spend() {
         .unwrap()
         .to_byte_array();
 
-    let partial_sigs: Vec<MuSigPartialSignature> = kp_vec
+    let partial_sigs: Vec<MuSigPartialSignature> = verifiers_secret_public_keys
         .iter()
-        .zip(nonce_pair_vec.iter())
+        .zip(nonce_pairs.iter())
         .map(|(kp, nonce_pair)| {
             partial_sign(
-                pks.clone(),
+                verifier_public_keys.clone(),
                 None,
                 false,
                 nonce_pair.0,
@@ -307,7 +299,7 @@ async fn test_musig2_script_spend() {
         })
         .collect();
     let final_signature: [u8; 64] = aggregate_partial_signatures(
-        pks.clone(),
+        verifier_public_keys.clone(),
         None,
         false,
         &agg_nonce,
@@ -315,8 +307,7 @@ async fn test_musig2_script_spend() {
         ByteArray32(message),
     )
     .unwrap();
-    musig2::verify_single(musig_agg_pubkey, final_signature, message)
-        .expect("Verification failed!");
+    musig2::verify_single(musig_agg_pubkey, final_signature, message).unwrap();
     utils::SECP
         .verify_schnorr(
             &secp256k1::schnorr::Signature::from_slice(&final_signature).unwrap(),
@@ -324,12 +315,10 @@ async fn test_musig2_script_spend() {
             &musig_agg_xonly_pubkey_wrapped,
         )
         .unwrap();
-    println!("MuSig2 signature verified successfully!");
-    println!("SECP Verified Successfully");
+
     let schnorr_sig = secp256k1::schnorr::Signature::from_slice(&final_signature).unwrap();
     let witness_elements = vec![schnorr_sig.as_ref()];
     handle_taproot_witness_new(&mut tx_details, &witness_elements, 0, Some(0)).unwrap();
-    println!("HEX: {:?}", tx_details.tx.raw_hex());
-    let txid = rpc.send_raw_transaction(&tx_details.tx).unwrap();
-    println!("Transaction sent successfully! Txid: {}", txid);
+
+    rpc.send_raw_transaction(&tx_details.tx).unwrap();
 }

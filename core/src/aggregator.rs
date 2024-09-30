@@ -8,7 +8,7 @@ use crate::{
     },
     traits::rpc::AggregatorServer,
     transaction_builder,
-    utils::{self, handle_taproot_witness_new},
+    utils::handle_taproot_witness_new,
     ByteArray32, ByteArray66, EVMAddress, UTXO,
 };
 use async_trait::async_trait;
@@ -59,9 +59,9 @@ impl Aggregator {
         let mut tx = transaction_builder::create_slash_or_take_tx(
             deposit_outpoint,
             kickoff_utxo,
-            &operator_xonly_pk,
+            operator_xonly_pk,
             operator_idx,
-            &self.nofn_xonly_pk,
+            self.nofn_xonly_pk,
             self.config.network,
             self.config.user_takes_after,
             self.config.operator_takes_after,
@@ -102,31 +102,22 @@ impl Aggregator {
         agg_nonce: &MuSigAggNonce,
         partial_sigs: Vec<MuSigPartialSignature>,
     ) -> Result<[u8; 64], BridgeError> {
-        let move_tx_handler = transaction_builder::create_move_tx(
+        let move_tx = transaction_builder::create_move_tx(
             deposit_outpoint,
-            &EVMAddress([0u8; 20]),
-            Address::p2tr(
-                &utils::SECP,
-                *utils::UNSPENDABLE_XONLY_PUBKEY,
-                None,
-                self.config.network,
-            )
-            .as_unchecked(),
-            &self.nofn_xonly_pk,
-            self.config.network,
-            self.config.user_takes_after,
+            self.nofn_xonly_pk,
             self.config.bridge_amount_sats,
+            self.config.network,
         );
         let bridge_fund_outpoint = OutPoint {
-            txid: move_tx_handler.tx.compute_txid(),
+            txid: move_tx.compute_txid(),
             vout: 0,
         };
         let slash_or_take_tx_handler = transaction_builder::create_slash_or_take_tx(
             deposit_outpoint,
             kickoff_utxo,
-            operator_xonly_pk,
+            *operator_xonly_pk,
             operator_idx,
-            &self.nofn_xonly_pk,
+            self.nofn_xonly_pk,
             self.config.network,
             self.config.user_takes_after,
             self.config.operator_takes_after,
@@ -147,8 +138,8 @@ impl Aggregator {
         let mut tx_handler = transaction_builder::create_operator_takes_tx(
             bridge_fund_outpoint,
             slash_or_take_utxo,
-            operator_xonly_pk,
-            &self.nofn_xonly_pk,
+            *operator_xonly_pk,
+            self.nofn_xonly_pk,
             self.config.network,
             self.config.operator_takes_after,
             self.config.bridge_amount_sats,
@@ -179,16 +170,16 @@ impl Aggregator {
     fn aggregate_move_partial_sigs(
         &self,
         deposit_outpoint: OutPoint,
-        evm_address: &EVMAddress,
+        evm_address: EVMAddress,
         recovery_taproot_address: &Address<NetworkUnchecked>,
         agg_nonce: &MuSigAggNonce,
         partial_sigs: Vec<MuSigPartialSignature>,
     ) -> Result<[u8; 64], BridgeError> {
-        let mut tx = transaction_builder::create_move_tx(
+        let mut tx = transaction_builder::create_move_tx_handler(
             deposit_outpoint,
             evm_address,
             recovery_taproot_address,
-            &self.nofn_xonly_pk,
+            self.nofn_xonly_pk,
             self.config.network,
             self.config.user_takes_after,
             self.config.bridge_amount_sats,
@@ -301,7 +292,7 @@ impl Aggregator {
     ) -> Result<(String, Txid), BridgeError> {
         let agg_move_tx_final_sig = self.aggregate_move_partial_sigs(
             deposit_outpoint,
-            &evm_address,
+            evm_address,
             &recovery_taproot_address,
             &agg_nonce,
             partial_sigs,
@@ -309,11 +300,11 @@ impl Aggregator {
 
         let move_tx_sig = secp256k1::schnorr::Signature::from_slice(&agg_move_tx_final_sig)?;
 
-        let mut move_tx_handler = transaction_builder::create_move_tx(
+        let mut move_tx_handler = transaction_builder::create_move_tx_handler(
             deposit_outpoint,
-            &evm_address,
+            evm_address,
             &recovery_taproot_address,
-            &self.nofn_xonly_pk,
+            self.nofn_xonly_pk,
             self.config.network,
             self.config.user_takes_after,
             self.config.bridge_amount_sats,

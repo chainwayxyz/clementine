@@ -135,10 +135,10 @@ where
 
         // 1. Check if the deposit UTXO is valid, finalized (6 blocks confirmation) and not spent
         self.rpc.check_deposit_utxo(
-            &self.nofn_xonly_pk,
+            self.nofn_xonly_pk,
             &deposit_outpoint,
             &recovery_taproot_address,
-            &evm_address,
+            evm_address,
             self.config.bridge_amount_sats,
             self.config.confirmation_threshold,
             self.config.network,
@@ -235,8 +235,8 @@ where
             }
             let mut kickoff_tx_handler = transaction_builder::create_kickoff_utxo_tx(
                 &funding_utxo,
-                &self.nofn_xonly_pk,
-                &self.signer.xonly_public_key,
+                self.nofn_xonly_pk,
+                self.signer.xonly_public_key,
                 self.config.network,
                 self.config.operator_num_kickoff_utxos_per_tx,
             );
@@ -329,29 +329,43 @@ where
         }
     }
 
-    /// Checks if utxo is valid, spendable by operator and not spent
-    /// Saves the utxo to the db
-    #[tracing::instrument(skip(self), err(level = tracing::Level::ERROR), ret(level = tracing::Level::TRACE))]
+    /// Saves funding UTXO to the database.
     async fn set_funding_utxo(&self, funding_utxo: UTXO) -> Result<(), BridgeError> {
         self.db.set_funding_utxo(None, funding_utxo).await
     }
 
-    #[tracing::instrument(skip(self), err(level = tracing::Level::ERROR), ret(level = tracing::Level::TRACE))]
-    async fn is_profitable(
-        &self,
-        input_amount: u64,
-        withdrawal_amount: u64,
-    ) -> Result<bool, BridgeError> {
-        // Check if the withdrawal amount is within the acceptable range
-        if (withdrawal_amount - input_amount) > self.config.bridge_amount_sats {
-            Ok(false)
-        } else {
-            // Calculate net profit after the withdrawal
-            let net_profit = self.config.bridge_amount_sats - withdrawal_amount;
-            Ok(net_profit > self.config.operator_withdrawal_fee_sats.unwrap())
+    /// Checks if the withdrawal amount is within the acceptable range.
+    ///
+    /// # Parameters
+    ///
+    /// - `input_amount`:
+    /// - `withdrawal_amount`:
+    fn is_profitable(&self, input_amount: u64, withdrawal_amount: u64) -> bool {
+        if withdrawal_amount.wrapping_sub(input_amount) > self.config.bridge_amount_sats {
+            return false;
         }
+
+        // Calculate net profit after the withdrawal.
+        let net_profit = self.config.bridge_amount_sats - withdrawal_amount;
+
+        // Net profit must be bigger than withdrawal fee.
+        net_profit > self.config.operator_withdrawal_fee_sats.unwrap()
     }
 
+    /// Checks of the withdrawal has been made on Citrea, verifies a given
+    /// [`bitcoin::sighash::TapSighashType::SinglePlusAnyoneCanPay`] signature,
+    /// checks if it is profitable and finally, funds the withdrawal.
+    ///
+    /// # Parameters
+    ///
+    /// - `withdrawal_idx`: Citrea withdrawal UTXO index
+    /// - `user_sig`: User's signature that is going to be used for signing withdrawal transaction input
+    /// - `input_utxo`:
+    /// - `output_txout`:
+    ///
+    /// # Returns
+    ///
+    /// Withdrawal transaction's transaction id.
     #[tracing::instrument(skip(self), err(level = tracing::Level::ERROR), ret(level = tracing::Level::TRACE))]
     async fn new_withdrawal_sig(
         &self,
@@ -361,17 +375,21 @@ where
         output_txout: TxOut,
     ) -> Result<Txid, BridgeError> {
         if let Some(citrea_client) = &self.citrea_client {
+            // See: https://gist.github.com/okkothejawa/a9379b02a16dada07a2b85cbbd3c1e80
             let params = rpc_params![
                 json!({
                     "to": "0x3100000000000000000000000000000000000002",
-                    "data": format!("0x471ba1e300000000000000000000000000000000000000000000000000000000{}", hex::encode(withdrawal_idx.to_be_bytes())), // See: https://gist.github.com/okkothejawa/a9379b02a16dada07a2b85cbbd3c1e80
+                    "data": format!("0x471ba1e300000000000000000000000000000000000000000000000000000000{}",
+                    hex::encode(withdrawal_idx.to_be_bytes())),
                 }),
                 "latest"
             ];
             let response: String = citrea_client.request("eth_call", params).await?;
+
             let txid_response = &response[2..66];
             let txid = hex::decode(txid_response).unwrap();
             // txid.reverse(); // TODO: we should need to reverse this, test this with declareWithdrawalFiller
+
             let txid = Txid::from_slice(&txid).unwrap();
             if txid != input_utxo.outpoint.txid || 0 != input_utxo.outpoint.vout {
                 // TODO: Fix this, vout can be different from 0 as well
@@ -382,40 +400,45 @@ where
             }
         }
 
-        if !self
-            .is_profitable(input_utxo.txout.value.to_sat(), output_txout.value.to_sat())
-            .await?
-        {
+        if !self.is_profitable(input_utxo.txout.value.to_sat(), output_txout.value.to_sat()) {
             return Err(BridgeError::NotEnoughFeeForOperator);
         }
-        let tx_ins = transaction_builder::create_tx_ins(vec![input_utxo.outpoint]);
+
         let user_xonly_pk = secp256k1::XOnlyPublicKey::from_slice(
             &input_utxo.txout.script_pubkey.as_bytes()[2..34],
         )?;
+
+        let tx_ins = transaction_builder::create_tx_ins(vec![input_utxo.outpoint]);
         let tx_outs = vec![output_txout.clone()];
         let mut tx = transaction_builder::create_btc_tx(tx_ins, tx_outs);
-        let mut sighash_cache = SighashCache::new(tx.clone());
+
+        let mut sighash_cache = SighashCache::new(&tx);
         let sighash = sighash_cache.taproot_key_spend_signature_hash(
             0,
             &bitcoin::sighash::Prevouts::One(0, &input_utxo.txout),
             bitcoin::sighash::TapSighashType::SinglePlusAnyoneCanPay,
         )?;
+
         let user_sig_wrapped = bitcoin::taproot::Signature {
             signature: user_sig,
             sighash_type: bitcoin::sighash::TapSighashType::SinglePlusAnyoneCanPay,
         };
         tx.input[0].witness.push(user_sig_wrapped.serialize());
+
         utils::SECP.verify_schnorr(
             &user_sig,
-            &Message::from_digest_slice(sighash.as_byte_array()).expect("should be hash"),
+            &Message::from_digest(*sighash.as_byte_array()),
             &user_xonly_pk,
         )?;
+
         let mut push_bytes = PushBytesBuf::new();
         push_bytes
             .extend_from_slice(&utils::usize_to_var_len_bytes(self.idx))
             .unwrap();
         let op_return_txout = script_builder::op_return_txout(push_bytes);
+
         tx.output.push(op_return_txout.clone());
+
         let funded_tx = self
             .rpc
             .fund_raw_transaction(
@@ -443,8 +466,8 @@ where
                 .sign_raw_transaction_with_wallet(&funded_tx, None, None)?
                 .hex,
         )?;
-        let final_txid = self.rpc.send_raw_transaction(&signed_tx)?;
-        Ok(final_txid)
+
+        Ok(self.rpc.send_raw_transaction(&signed_tx)?)
     }
 
     #[tracing::instrument(skip(self), err(level = tracing::Level::ERROR), ret(level = tracing::Level::TRACE))]
@@ -456,17 +479,20 @@ where
         // call withdrawFillers(withdrawal_idx) check the returned id is our operator id.
         // calculate the move_txid, txIdToDepositId(move_txid) check the returned id is withdrawal_idx
         if let Some(citrea_client) = &self.citrea_client {
+            // See: https://gist.github.com/okkothejawa/a9379b02a16dada07a2b85cbbd3c1e80
             let params = rpc_params![
                 json!({
                     "to": "0x3100000000000000000000000000000000000002",
-                    "data": format!("0xc045577b00000000000000000000000000000000000000000000000000000000{}", hex::encode(withdrawal_idx.to_be_bytes())), // See: https://gist.github.com/okkothejawa/a9379b02a16dada07a2b85cbbd3c1e80
+                    "data": format!("0xc045577b00000000000000000000000000000000000000000000000000000000{}",
+                    hex::encode(withdrawal_idx.to_be_bytes())),
                 }),
                 "latest"
             ];
             let response: String = citrea_client.request("eth_call", params).await?;
-            let operator_idx_response = &response[58..66];
-            let operator_idx_as_vec = hex::decode(operator_idx_response).unwrap();
+
+            let operator_idx_as_vec = hex::decode(&response[58..66]).unwrap();
             let operator_idx = u32::from_be_bytes(operator_idx_as_vec.try_into().unwrap());
+
             if operator_idx - 1 != self.idx as u32 {
                 return Err(BridgeError::InvalidOperatorIndex(
                     operator_idx as usize,
@@ -474,33 +500,24 @@ where
                 ));
             }
 
-            // calculate move_txid
-
-            let move_tx_handler = transaction_builder::create_move_tx(
+            // Calculate move_txid.
+            let move_tx = transaction_builder::create_move_tx(
                 deposit_outpoint,
-                &EVMAddress([0u8; 20]),
-                Address::p2tr(
-                    &utils::SECP,
-                    *utils::UNSPENDABLE_XONLY_PUBKEY,
-                    None,
-                    self.config.network,
-                )
-                .as_unchecked(),
-                &self.nofn_xonly_pk,
-                self.config.network,
-                self.config.user_takes_after,
+                self.nofn_xonly_pk,
                 self.config.bridge_amount_sats,
+                self.config.network,
             );
-
-            let move_txid = move_tx_handler.tx.compute_txid();
+            let move_txid = move_tx.compute_txid();
             let move_txid_bytes = move_txid.to_byte_array();
 
+            // See: https://gist.github.com/okkothejawa/a9379b02a16dada07a2b85cbbd3c1e80
             let params = rpc_params![json!({
                 "to": "0x3100000000000000000000000000000000000002",
-                "data": format!("0x11e53a01{}", hex::encode(move_txid_bytes)), // See: https://gist.github.com/okkothejawa/a9379b02a16dada07a2b85cbbd3c1e80
+                "data": format!("0x11e53a01{}",
+                hex::encode(move_txid_bytes)),
             })];
             let response: String = citrea_client.request("eth_call", params).await?;
-            tracing::debug!("Response from citrea: {:?}", response);
+
             let deposit_idx_response = &response[58..66];
             let deposit_idx_as_vec = hex::decode(deposit_idx_response).unwrap();
             let deposit_idx = u32::from_be_bytes(deposit_idx_as_vec.try_into().unwrap());
@@ -519,12 +536,12 @@ where
             .await?
             .ok_or(BridgeError::KickoffOutpointsNotFound)?;
         tracing::debug!("Kickoff UTXO FOUND after withdrawal: {:?}", kickoff_utxo);
+
+        // Check if current TxId is onchain or in mempool.
         let mut txs_to_be_sent = vec![];
         let mut current_searching_txid = kickoff_utxo.outpoint.txid;
         let mut found_txid = false;
-
         for _ in 0..25 {
-            // Check if the current txid is onchain or in mempool
             if self
                 .rpc
                 .get_raw_transaction(&current_searching_txid, None)
@@ -534,7 +551,7 @@ where
                 break;
             }
 
-            // Fetch the transaction and continue the loop
+            // Fetch the transaction and continue the loop.
             let (raw_signed_tx, _, _, funding_txid) = self
                 .db
                 .get_deposit_kickoff_generator_tx(current_searching_txid)
@@ -544,21 +561,18 @@ where
             txs_to_be_sent.push(raw_signed_tx);
             current_searching_txid = funding_txid;
         }
-
         txs_to_be_sent.reverse();
 
-        // Handle the case where no transaction was found in 25 iterations
         if !found_txid {
             return Err(BridgeError::KickoffGeneratorTxsTooManyIterations); // TODO: Fix this error
         }
-        // tracing::debug!("Found txs to be sent: {:?}", txs_to_be_sent);
 
         let mut slash_or_take_tx_handler = transaction_builder::create_slash_or_take_tx(
             deposit_outpoint,
             kickoff_utxo.clone(),
-            &self.signer.xonly_public_key,
+            self.signer.xonly_public_key,
             self.idx,
-            &self.nofn_xonly_pk,
+            self.nofn_xonly_pk,
             self.config.network,
             self.config.user_takes_after,
             self.config.operator_takes_after,
@@ -573,22 +587,16 @@ where
             txout: slash_or_take_tx_handler.tx.output[0].clone(),
         };
 
-        // tracing::debug!(
-        //     "Created slash or take tx handler: {:#?}",
-        //     slash_or_take_tx_handler
-        // );
         let nofn_sig = self
             .db
             .get_slash_or_take_sig(deposit_outpoint, kickoff_utxo.clone())
             .await?
             .ok_or(BridgeError::OperatorSlashOrTakeSigNotFound)?;
 
-        // tracing::debug!("Found nofn sig: {:?}", nofn_sig);
-
         let our_sig =
             self.signer
                 .sign_taproot_script_spend_tx(&mut slash_or_take_tx_handler, 0, 0)?;
-        // tracing::debug!("slash_or_take_tx_handler: {:#?}", slash_or_take_tx_handler);
+
         handle_taproot_witness_new(
             &mut slash_or_take_tx_handler,
             &[our_sig.as_ref(), nofn_sig.as_ref()],
@@ -598,36 +606,22 @@ where
 
         txs_to_be_sent.push(slash_or_take_tx_handler.tx.raw_hex());
 
-        tracing::debug!(
-            "Found txs to be sent with slash_or_take_tx: {:?}",
-            txs_to_be_sent
-        );
-
-        let move_tx_handler = transaction_builder::create_move_tx(
+        let move_tx = transaction_builder::create_move_tx(
             deposit_outpoint,
-            &EVMAddress([0u8; 20]),
-            Address::p2tr(
-                &utils::SECP,
-                *utils::UNSPENDABLE_XONLY_PUBKEY,
-                None,
-                self.config.network,
-            )
-            .as_unchecked(),
-            &self.nofn_xonly_pk,
-            self.config.network,
-            self.config.user_takes_after,
+            self.nofn_xonly_pk,
             self.config.bridge_amount_sats,
+            self.config.network,
         );
         let bridge_fund_outpoint = OutPoint {
-            txid: move_tx_handler.tx.compute_txid(),
+            txid: move_tx.compute_txid(),
             vout: 0,
         };
 
         let mut operator_takes_tx = transaction_builder::create_operator_takes_tx(
             bridge_fund_outpoint,
             slash_or_take_utxo,
-            &self.signer.xonly_public_key,
-            &self.nofn_xonly_pk,
+            self.signer.xonly_public_key,
+            self.nofn_xonly_pk,
             self.config.network,
             self.config.operator_takes_after,
             self.config.bridge_amount_sats,
@@ -655,42 +649,6 @@ where
 
         txs_to_be_sent.push(operator_takes_tx.tx.raw_hex());
 
-        // let input_0_sighash = Actor::convert_tx_to_sighash_pubkey_spend(&mut operator_takes_tx, 0)?;
-        // let input_0_message = Message::from_digest_slice(input_0_sighash.as_byte_array())?;
-        // tracing::debug!("Trying to verify signatures for operator_takes_tx");
-        // let res_0 = utils::SECP.verify_schnorr(
-        //     &operator_takes_nofn_sig,
-        //     &input_0_message,
-        //     &self.nofn_xonly_pk,
-        // )?;
-        // tracing::debug!("Signature verified successfully for input 0!");
-
-        // let input_1_sighash =
-        //     Actor::convert_tx_to_sighash_script_spend(&mut operator_takes_tx, 1, 0)?;
-        // let input_1_message = Message::from_digest_slice(input_1_sighash.as_byte_array())?;
-        // let res_1 = utils::SECP.verify_schnorr(
-        //     &our_sig,
-        //     &input_1_message,
-        //     &self.signer.xonly_public_key,
-        // )?;
-        // tracing::debug!("Signature verified successfully for input 1!");
-
-        // tracing::debug!(
-        //     "Found txs to be sent with operator_takes_tx: {:?}",
-        //     txs_to_be_sent
-        // );
-        // let kickoff_txid = self
-        //     .rpc
-        //     .send_raw_transaction(&deserialize_hex(&txs_to_be_sent[0])?)?;
-        // tracing::debug!("Kickoff txid: {:?}", kickoff_txid);
-        // let slash_or_take_txid = self
-        //     .rpc
-        //     .send_raw_transaction(&deserialize_hex(&txs_to_be_sent[1])?)?;
-        // tracing::debug!("Slash or take txid: {:?}", slash_or_take_txid);
-        // let operator_takes_tx: Transaction = deserialize_hex(&txs_to_be_sent[2])?;
-        // tracing::debug!("Operator takes tx: {:#?}", operator_takes_tx);
-        // let operator_takes_txid = self.rpc.send_raw_transaction(&operator_takes_tx)?;
-        // tracing::debug!("Operator takes txid: {:?}", operator_takes_txid);
         Ok(txs_to_be_sent)
     }
 }
@@ -793,5 +751,33 @@ mod tests {
 
         // TODO: Currently, no way to retrive this data using rpc calls. Add
         // checks if added in the future.
+    }
+
+    #[tokio::test]
+    async fn is_profitable() {
+        let mut config = create_test_config("is_profitable", "test_config.toml").await;
+        let rpc = create_extended_rpc!(config);
+
+        config.bridge_amount_sats = 0x45;
+        config.operator_withdrawal_fee_sats = Some(0x1F);
+
+        let operator = Operator::new(config.clone(), rpc).await.unwrap();
+
+        // Smaller input amount must not cause a panic.
+        operator.is_profitable(3, 1);
+        // Bigger input amount must not cause a panic.
+        operator.is_profitable(6, 9);
+
+        // False because difference between input and withdrawal amount is
+        // bigger than `config.bridge_amount_sats`.
+        assert!(!operator.is_profitable(6, 90));
+
+        // False because net profit is smaller than
+        // `config.operator_withdrawal_fee_sats`.
+        assert!(!operator.is_profitable(0, config.bridge_amount_sats));
+
+        // True because net profit is bigger than
+        // `config.operator_withdrawal_fee_sats`.
+        assert!(operator.is_profitable(0, config.operator_withdrawal_fee_sats.unwrap() - 1));
     }
 }

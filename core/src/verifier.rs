@@ -80,10 +80,10 @@ where
         evm_address: EVMAddress,
     ) -> Result<Vec<MuSigPubNonce>, BridgeError> {
         self.rpc.check_deposit_utxo(
-            &self.nofn_xonly_pk,
+            self.nofn_xonly_pk,
             &deposit_outpoint,
             &recovery_taproot_address,
-            &evm_address,
+            evm_address,
             self.config.bridge_amount_sats,
             self.config.confirmation_threshold,
             self.config.network,
@@ -189,8 +189,8 @@ where
             // Check if for each operator the address of the kickoff_utxo is correct TODO: Maybe handle the possible errors better
             let (musig2_and_operator_address, spend_info) =
                 transaction_builder::create_kickoff_address(
-                    &self.nofn_xonly_pk,
-                    &self.operator_xonly_pks[i],
+                    self.nofn_xonly_pk,
+                    self.operator_xonly_pks[i],
                     self.config.network,
                 );
             tracing::debug!(
@@ -206,9 +206,9 @@ where
             let mut slash_or_take_tx_handler = transaction_builder::create_slash_or_take_tx(
                 deposit_outpoint,
                 kickoff_utxo.clone(),
-                &self.config.operators_xonly_pks[i],
+                self.config.operators_xonly_pks[i],
                 i,
-                &self.nofn_xonly_pk,
+                self.nofn_xonly_pk,
                 self.config.network,
                 self.config.user_takes_after,
                 self.config.operator_takes_after,
@@ -294,11 +294,11 @@ where
             .await?
             .ok_or(BridgeError::DepositInfoNotFound)?;
 
-        let move_tx_handler = transaction_builder::create_move_tx(
+        let move_tx_handler = transaction_builder::create_move_tx_handler(
             deposit_outpoint,
-            &evm_address,
+            evm_address,
             &recovery_taproot_address,
-            &self.nofn_xonly_pk,
+            self.nofn_xonly_pk,
             self.config.network,
             self.config.user_takes_after,
             self.config.bridge_amount_sats,
@@ -332,9 +332,9 @@ where
                 let mut slash_or_take_tx_handler = transaction_builder::create_slash_or_take_tx(
                     deposit_outpoint,
                     kickoff_utxo.clone(),
-                    &self.operator_xonly_pks[index],
+                    self.operator_xonly_pks[index],
                     index,
-                    &self.nofn_xonly_pk,
+                    self.nofn_xonly_pk,
                     self.config.network,
                     self.config.user_takes_after,
                     self.config.operator_takes_after,
@@ -363,8 +363,8 @@ where
                 let mut operator_takes_tx = transaction_builder::create_operator_takes_tx(
                     bridge_fund_outpoint,
                     slash_or_take_utxo,
-                    &self.operator_xonly_pks[index],
-                    &self.nofn_xonly_pk,
+                    self.operator_xonly_pks[index],
+                    self.nofn_xonly_pk,
                     self.config.network,
                     self.config.operator_takes_after,
                     self.config.bridge_amount_sats,
@@ -432,9 +432,9 @@ where
                 let slash_or_take_tx = transaction_builder::create_slash_or_take_tx(
                     deposit_outpoint,
                     kickoff_utxo.clone(),
-                    &self.operator_xonly_pks[index],
+                    self.operator_xonly_pks[index],
                     index,
-                    &self.nofn_xonly_pk,
+                    self.nofn_xonly_pk,
                     self.config.network,
                     self.config.user_takes_after,
                     self.config.operator_takes_after,
@@ -450,8 +450,8 @@ where
                 let mut operator_takes_tx = transaction_builder::create_operator_takes_tx(
                     bridge_fund_outpoint,
                     slash_or_take_utxo,
-                    &self.operator_xonly_pks[index],
-                    &self.nofn_xonly_pk,
+                    self.operator_xonly_pks[index],
+                    self.nofn_xonly_pk,
                     self.config.network,
                     self.config.operator_takes_after,
                     self.config.bridge_amount_sats,

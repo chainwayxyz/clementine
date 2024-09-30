@@ -1,4 +1,4 @@
-//! # Common utilities for tests
+//! # Deposit Related Utilities
 
 use bitcoin::consensus::encode::deserialize_hex;
 use bitcoin::Address;
@@ -78,7 +78,7 @@ pub async fn run_multiple_deposits(test_config_name: &str) {
             signatures.push(signature);
         }
 
-        tracing::debug!("Now the verifiers sequence starts");
+        println!("Now the verifiers sequence starts");
         let mut slash_or_take_partial_sigs = Vec::new();
 
         for (client, ..) in verifiers.iter() {
@@ -147,9 +147,9 @@ pub async fn run_multiple_deposits(test_config_name: &str) {
             .unwrap();
         let move_tx: Transaction = deserialize_hex(&move_tx).unwrap();
 
-        tracing::debug!("Move tx weight: {:?}", move_tx.weight());
+        println!("Move tx weight: {:?}", move_tx.weight());
         let move_txid = rpc.send_raw_transaction(&move_tx).unwrap();
-        tracing::debug!("Move txid: {:?}", move_txid);
+        println!("Move txid: {:?}", move_txid);
         deposit_outpoints.push(deposit_outpoint);
     }
     let withdrawal_address = Address::p2tr(
@@ -159,7 +159,7 @@ pub async fn run_multiple_deposits(test_config_name: &str) {
         config.network,
     );
     let (user_utxo, user_txout, user_sig) = user
-        .generate_withdrawal_sig(
+        .generate_withdrawal_transaction_and_signature(
             withdrawal_address.clone(),
             config.bridge_amount_sats - 2 * config.operator_withdrawal_fee_sats.unwrap(),
         )
@@ -169,7 +169,7 @@ pub async fn run_multiple_deposits(test_config_name: &str) {
         .new_withdrawal_sig_rpc(0, user_sig, user_utxo, user_txout)
         .await
         .unwrap();
-    tracing::debug!("Withdrawal provide txid: {:?}", withdrawal_provide_txid);
+    println!("Withdrawal provide txid: {:?}", withdrawal_provide_txid);
     let txs_to_be_sent_0 = operators[0]
         .0
         .withdrawal_proved_on_citrea_rpc(0, deposit_outpoints[0])
@@ -177,7 +177,7 @@ pub async fn run_multiple_deposits(test_config_name: &str) {
         .unwrap();
     assert!(txs_to_be_sent_0.len() == 3);
     let (user_utxo, user_txout, user_sig) = user
-        .generate_withdrawal_sig(
+        .generate_withdrawal_transaction_and_signature(
             withdrawal_address.clone(),
             config.bridge_amount_sats - 2 * config.operator_withdrawal_fee_sats.unwrap(),
         )
@@ -192,7 +192,7 @@ pub async fn run_multiple_deposits(test_config_name: &str) {
         )
         .await
         .unwrap();
-    tracing::debug!("Withdrawal provide txid: {:?}", withdrawal_provide_txid);
+    println!("Withdrawal provide txid: {:?}", withdrawal_provide_txid);
     let txs_to_be_sent_penultimate = operators[1]
         .0
         .withdrawal_proved_on_citrea_rpc(
@@ -203,7 +203,7 @@ pub async fn run_multiple_deposits(test_config_name: &str) {
         .unwrap();
     assert!(txs_to_be_sent_penultimate.len() == 3);
     let (user_utxo, user_txout, user_sig) = user
-        .generate_withdrawal_sig(
+        .generate_withdrawal_transaction_and_signature(
             withdrawal_address.clone(),
             config.bridge_amount_sats - 2 * config.operator_withdrawal_fee_sats.unwrap(),
         )
@@ -213,7 +213,7 @@ pub async fn run_multiple_deposits(test_config_name: &str) {
         .new_withdrawal_sig_rpc(2, user_sig, user_utxo, user_txout)
         .await
         .unwrap();
-    tracing::debug!("Withdrawal provide txid: {:?}", withdrawal_provide_txid);
+    println!("Withdrawal provide txid: {:?}", withdrawal_provide_txid);
     let txs_to_be_sent_last = operators[2]
         .0
         .withdrawal_proved_on_citrea_rpc(
@@ -239,39 +239,33 @@ pub async fn run_single_deposit(
     let mut config = create_test_config_with_thread_name(test_config_name, None).await;
     let rpc = create_extended_rpc!(config);
 
-    let (verifiers, operators, aggregator) =
-        create_verifiers_and_operators("test_config.toml").await;
-
-    // println!("Operators: {:#?}", operators);
-    // println!("Verifiers: {:#?}", verifiers);
-
     let secret_key = secp256k1::SecretKey::new(&mut secp256k1::rand::thread_rng());
-
     let signer_address = Actor::new(secret_key, config.network)
         .address
         .as_unchecked()
         .clone();
+
     let user = User::new(rpc.clone(), secret_key, config.clone());
 
     let evm_address = EVMAddress([1u8; 20]);
     let deposit_address = user.get_deposit_address(evm_address).unwrap();
+
+    let (verifiers, operators, aggregator) =
+        create_verifiers_and_operators("test_config.toml").await;
+
     let deposit_outpoint = rpc
         .send_to_address(&deposit_address, config.bridge_amount_sats)
         .unwrap();
-
     rpc.mine_blocks(18).unwrap();
 
     // for every verifier, we call new_deposit
     // aggregate nonces
     let mut pub_nonces = Vec::new();
-
     for (client, _, _) in verifiers.iter() {
         let musig_pub_nonces = client
             .verifier_new_deposit_rpc(deposit_outpoint, signer_address.clone(), evm_address)
             .await
             .unwrap();
-
-        // tracing::info!("Musig Pub Nonces: {:?}", musig_pub_nonces);
 
         pub_nonces.push(musig_pub_nonces);
     }
@@ -281,10 +275,10 @@ pub async fn run_single_deposit(
         .aggregate_pub_nonces_rpc(pub_nonces)
         .await
         .unwrap();
+
     // call operators' new_deposit
     let mut kickoff_utxos = Vec::new();
     let mut signatures = Vec::new();
-
     for (client, _, _) in operators.iter() {
         // Create deposit kickoff transaction
         let (kickoff_utxo, signature) = client
@@ -296,9 +290,8 @@ pub async fn run_single_deposit(
         signatures.push(signature);
     }
 
-    tracing::debug!("Now the verifiers sequence starts");
+    // Verifiers part starts here.
     let mut slash_or_take_partial_sigs = Vec::new();
-
     for (client, ..) in verifiers.iter() {
         let (partial_sigs, _) = client
             .operator_kickoffs_generated_rpc(
@@ -324,7 +317,6 @@ pub async fn run_single_deposit(
         .await
         .unwrap();
 
-    // tracing::debug!("Slash or take sigs: {:#?}", slash_or_take_sigs);
     // call burn_txs_signed_rpc
     let mut operator_take_partial_sigs: Vec<Vec<MuSigPartialSignature>> = Vec::new();
     for (client, ..) in verifiers.iter() {
@@ -332,12 +324,10 @@ pub async fn run_single_deposit(
             .burn_txs_signed_rpc(deposit_outpoint, vec![], slash_or_take_sigs.clone())
             .await
             .unwrap();
+
         operator_take_partial_sigs.push(partial_sigs);
     }
-    // tracing::debug!(
-    //     "Operator take partial sigs: {:#?}",
-    //     operator_take_partial_sigs
-    // );
+
     let operator_take_sigs = aggregator
         .0
         .aggregate_operator_take_sigs_rpc(
@@ -348,21 +338,19 @@ pub async fn run_single_deposit(
         )
         .await
         .unwrap();
-    // tracing::debug!("Operator take sigs: {:#?}", operator_take_sigs);
-    // call operator_take_txs_signed_rpc
+
+    // Call operator_take_txs_signed_rpc
     let mut move_tx_partial_sigs = Vec::new();
     for (client, _, _) in verifiers.iter() {
         let move_tx_partial_sig = client
             .operator_take_txs_signed_rpc(deposit_outpoint, operator_take_sigs.clone())
             .await
             .unwrap();
+
         move_tx_partial_sigs.push(move_tx_partial_sig);
     }
 
-    // tracing::debug!("Move tx partial sigs: {:#?}", move_tx_partial_sigs);
-
-    // aggreagte move_tx_partial_sigs
-
+    // Aggregate move_tx_partial_sigs
     let (move_tx, _) = aggregator
         .0
         .aggregate_move_tx_sigs_rpc(
@@ -374,297 +362,27 @@ pub async fn run_single_deposit(
         )
         .await
         .unwrap();
+
     let move_tx: Transaction = deserialize_hex(&move_tx).unwrap();
-    // tracing::debug!("Move tx: {:#?}", move_tx);
-    // tracing::debug!("Move tx_hex: {:?}", move_tx_handler.tx.raw_hex());
-    tracing::debug!("Move tx weight: {:?}", move_tx.weight());
+    println!("Move tx weight: {:?}", move_tx.weight());
+
     let move_txid = rpc.send_raw_transaction(&move_tx).unwrap();
-    tracing::debug!("Move txid: {:?}", move_txid);
+    println!("Move txid: {:?}", move_txid);
+
     Ok((verifiers, operators, config, deposit_outpoint))
 }
 
 #[cfg(test)]
 mod tests {
-    use bitcoin::consensus::encode::deserialize_hex;
-    use bitcoin::Transaction;
-    use clementine_core::actor::Actor;
-    use clementine_core::create_extended_rpc;
-    use clementine_core::extended_rpc::ExtendedRpc;
-    use clementine_core::mock::database::create_test_config_with_thread_name;
-    use clementine_core::musig2::MuSigPartialSignature;
-    use clementine_core::servers::*;
-    use clementine_core::traits::rpc::AggregatorClient;
-    use clementine_core::traits::rpc::OperatorRpcClient;
-    use clementine_core::traits::rpc::VerifierRpcClient;
-    use clementine_core::user::User;
-    use clementine_core::EVMAddress;
+    use crate::common::{run_multiple_deposits, run_single_deposit};
 
     #[tokio::test]
-    async fn test_deposit_retry() {
-        let mut config = create_test_config_with_thread_name("test_config.toml", None).await;
-        let rpc = create_extended_rpc!(config);
+    async fn test_deposit() {
+        run_single_deposit("test_config.toml").await.unwrap();
+    }
 
-        let (verifiers, operators, aggregator) =
-            create_verifiers_and_operators("test_config.toml").await;
-
-        // println!("Operators: {:#?}", operators);
-        // println!("Verifiers: {:#?}", verifiers);
-
-        let secret_key = secp256k1::SecretKey::new(&mut secp256k1::rand::thread_rng());
-
-        let signer_address = Actor::new(secret_key, config.network)
-            .address
-            .as_unchecked()
-            .clone();
-        let user = User::new(rpc.clone(), secret_key, config.clone());
-
-        let evm_address = EVMAddress([1u8; 20]);
-        let deposit_address = user.get_deposit_address(evm_address).unwrap();
-        let deposit_outpoint = rpc
-            .send_to_address(&deposit_address, config.bridge_amount_sats)
-            .unwrap();
-
-        rpc.mine_blocks(18).unwrap();
-
-        // for every verifier, we call new_deposit
-        // aggregate nonces
-        let mut pub_nonces = Vec::new();
-
-        for (client, _, _) in verifiers.iter() {
-            let musig_pub_nonces = client
-                .verifier_new_deposit_rpc(deposit_outpoint, signer_address.clone(), evm_address)
-                .await
-                .unwrap();
-
-            // tracing::info!("Musig Pub Nonces: {:?}", musig_pub_nonces);
-
-            pub_nonces.push(musig_pub_nonces);
-        }
-
-        let agg_nonces = aggregator
-            .0
-            .aggregate_pub_nonces_rpc(pub_nonces)
-            .await
-            .unwrap();
-
-        // Oops, we lost the pub_nonces, need to call the verifiers again
-        let mut pub_nonces_retry = Vec::new();
-
-        for (client, _, _) in verifiers.iter() {
-            let musig_pub_nonces = client
-                .verifier_new_deposit_rpc(deposit_outpoint, signer_address.clone(), evm_address)
-                .await
-                .unwrap();
-
-            // tracing::info!("Musig Pub Nonces: {:?}", musig_pub_nonces);
-
-            pub_nonces_retry.push(musig_pub_nonces);
-        }
-
-        let agg_nonces_retry = aggregator
-            .0
-            .aggregate_pub_nonces_rpc(pub_nonces_retry)
-            .await
-            .unwrap();
-
-        // Sanity check
-        assert_eq!(agg_nonces, agg_nonces_retry);
-
-        // call operators' new_deposit
-        let mut kickoff_utxos = Vec::new();
-        let mut signatures = Vec::new();
-
-        for (client, _, _) in operators.iter() {
-            // Create deposit kickoff transaction
-            let (kickoff_utxo, signature) = client
-                .new_deposit_rpc(deposit_outpoint, signer_address.clone(), evm_address)
-                .await
-                .unwrap();
-
-            kickoff_utxos.push(kickoff_utxo);
-            signatures.push(signature);
-        }
-
-        // Oops, we lost the kickoff_utxos, need to call the operators again
-        let mut kickoff_utxos_retry = Vec::new();
-        let mut signatures_retry = Vec::new();
-
-        for (client, _, _) in operators.iter() {
-            // Create deposit kickoff transaction
-            let (kickoff_utxo, signature) = client
-                .new_deposit_rpc(deposit_outpoint, signer_address.clone(), evm_address)
-                .await
-                .unwrap();
-
-            kickoff_utxos_retry.push(kickoff_utxo);
-            signatures_retry.push(signature);
-        }
-
-        // Sanity check
-        assert_eq!(kickoff_utxos, kickoff_utxos_retry);
-
-        tracing::debug!("Now the verifiers sequence starts");
-        let mut slash_or_take_partial_sigs = Vec::new();
-
-        for (client, ..) in verifiers.iter() {
-            let (partial_sigs, _) = client
-                .operator_kickoffs_generated_rpc(
-                    deposit_outpoint,
-                    kickoff_utxos_retry.clone(),
-                    signatures_retry.clone(),
-                    agg_nonces.clone(),
-                )
-                .await
-                .unwrap();
-
-            slash_or_take_partial_sigs.push(partial_sigs);
-        }
-
-        let slash_or_take_sigs = aggregator
-            .0
-            .aggregate_slash_or_take_sigs_rpc(
-                deposit_outpoint,
-                kickoff_utxos.clone(),
-                agg_nonces[config.num_operators + 1..2 * config.num_operators + 1].to_vec(),
-                slash_or_take_partial_sigs,
-            )
-            .await
-            .unwrap();
-
-        // tracing::debug!("Slash or take sigs: {:#?}", slash_or_take_sigs);
-
-        // Oops, we lost the slash_or_take_sigs, need to call the verifiers again
-
-        let mut slash_or_take_partial_sigs_retry = Vec::new();
-
-        for (client, ..) in verifiers.iter() {
-            let (partial_sigs, _) = client
-                .operator_kickoffs_generated_rpc(
-                    deposit_outpoint,
-                    kickoff_utxos_retry.clone(),
-                    signatures_retry.clone(),
-                    agg_nonces.clone(),
-                )
-                .await
-                .unwrap();
-
-            slash_or_take_partial_sigs_retry.push(partial_sigs);
-        }
-
-        let slash_or_take_sigs_retry = aggregator
-            .0
-            .aggregate_slash_or_take_sigs_rpc(
-                deposit_outpoint,
-                kickoff_utxos.clone(),
-                agg_nonces[config.num_operators + 1..2 * config.num_operators + 1].to_vec(),
-                slash_or_take_partial_sigs_retry,
-            )
-            .await
-            .unwrap();
-
-        // call burn_txs_signed_rpc
-        let mut operator_take_partial_sigs: Vec<Vec<MuSigPartialSignature>> = Vec::new();
-        for (client, ..) in verifiers.iter() {
-            let partial_sigs = client
-                .burn_txs_signed_rpc(deposit_outpoint, vec![], slash_or_take_sigs.clone())
-                .await
-                .unwrap();
-            operator_take_partial_sigs.push(partial_sigs);
-        }
-        // tracing::debug!(
-        //     "Operator take partial sigs: {:#?}",
-        //     operator_take_partial_sigs
-        // );
-        let operator_take_sigs = aggregator
-            .0
-            .aggregate_operator_take_sigs_rpc(
-                deposit_outpoint,
-                kickoff_utxos.clone(),
-                agg_nonces[1..config.num_operators + 1].to_vec(),
-                operator_take_partial_sigs,
-            )
-            .await
-            .unwrap();
-
-        // Oops, we lost the operator_take_sigs, need to call the verifiers again
-
-        let mut operator_take_partial_sigs_retry = Vec::new();
-
-        for (client, ..) in verifiers.iter() {
-            let partial_sigs = client
-                .burn_txs_signed_rpc(deposit_outpoint, vec![], slash_or_take_sigs_retry.clone())
-                .await
-                .unwrap();
-            operator_take_partial_sigs_retry.push(partial_sigs);
-        }
-
-        let operator_take_sigs_retry = aggregator
-            .0
-            .aggregate_operator_take_sigs_rpc(
-                deposit_outpoint,
-                kickoff_utxos.clone(),
-                agg_nonces[1..config.num_operators + 1].to_vec(),
-                operator_take_partial_sigs_retry,
-            )
-            .await
-            .unwrap();
-
-        // tracing::debug!("Operator take sigs: {:#?}", operator_take_sigs);
-        // call operator_take_txs_signed_rpc
-        let mut move_tx_partial_sigs = Vec::new();
-        for (client, _, _) in verifiers.iter() {
-            let move_tx_partial_sig = client
-                .operator_take_txs_signed_rpc(deposit_outpoint, operator_take_sigs.clone())
-                .await
-                .unwrap();
-            move_tx_partial_sigs.push(move_tx_partial_sig);
-        }
-
-        // Oops, we lost the move_tx_partial_sigs, need to call the verifiers again
-
-        let mut move_tx_partial_sigs_retry = Vec::new();
-
-        for (client, _, _) in verifiers.iter() {
-            let move_tx_partial_sig = client
-                .operator_take_txs_signed_rpc(deposit_outpoint, operator_take_sigs_retry.clone())
-                .await
-                .unwrap();
-            move_tx_partial_sigs_retry.push(move_tx_partial_sig);
-        }
-
-        // tracing::debug!("Move tx partial sigs: {:#?}", move_tx_partial_sigs);
-
-        // aggreagte move_tx_partial_sigs
-
-        let (_move_tx, _) = aggregator
-            .0
-            .aggregate_move_tx_sigs_rpc(
-                deposit_outpoint,
-                signer_address.clone(),
-                evm_address,
-                agg_nonces[0],
-                move_tx_partial_sigs,
-            )
-            .await
-            .unwrap();
-
-        let (move_tx_retry, _) = aggregator
-            .0
-            .aggregate_move_tx_sigs_rpc(
-                deposit_outpoint,
-                signer_address,
-                evm_address,
-                agg_nonces[0],
-                move_tx_partial_sigs_retry,
-            )
-            .await
-            .unwrap();
-
-        let move_tx_retry: Transaction = deserialize_hex(&move_tx_retry).unwrap();
-        // tracing::debug!("Move tx: {:#?}", move_tx);
-        // tracing::debug!("Move tx_hex: {:?}", move_tx_handler.tx.raw_hex());
-        tracing::debug!("Move tx retry weight: {:?}", move_tx_retry.weight());
-        let move_txid = rpc.send_raw_transaction(&move_tx_retry).unwrap();
-        tracing::debug!("Move txid: {:?}", move_txid);
+    #[tokio::test]
+    async fn multiple_deposits_for_operator() {
+        run_multiple_deposits("test_config.toml").await;
     }
 }
