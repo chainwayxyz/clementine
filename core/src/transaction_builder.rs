@@ -303,27 +303,13 @@ pub fn create_slash_or_take_tx(
     operator_idx: usize,
     nofn_xonly_pk: XOnlyPublicKey,
     network: bitcoin::Network,
-    user_takes_after: u32,
+    _user_takes_after: u32,
     operator_takes_after: u32,
     bridge_amount_sats: u64,
 ) -> TxHandler {
     // First recreate the move_tx and move_txid. We can give dummy values for some of the parameters since we are only interested in txid.
-    let move_tx_handler = create_move_tx_handler(
-        deposit_outpoint,
-        EVMAddress([0u8; 20]),
-        Address::p2tr(
-            &utils::SECP,
-            *utils::UNSPENDABLE_XONLY_PUBKEY,
-            None,
-            network,
-        )
-        .as_unchecked(),
-        nofn_xonly_pk,
-        network,
-        user_takes_after,
-        bridge_amount_sats,
-    );
-    let move_txid = move_tx_handler.tx.compute_txid();
+    let move_tx = create_move_tx(deposit_outpoint, nofn_xonly_pk, bridge_amount_sats, network);
+    let move_txid = move_tx.compute_txid();
 
     let (kickoff_utxo_address, kickoff_utxo_spend_info) =
         create_kickoff_address(nofn_xonly_pk, operator_xonly_pk, network);
