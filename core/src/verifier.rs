@@ -9,7 +9,6 @@ use crate::musig2::{
     self, AggregateFromPublicKeys, MuSigAggNonce, MuSigPartialSignature, MuSigPubNonce,
     MuSigSigHash,
 };
-use crate::traits::rpc::VerifierRpcServer;
 use crate::{utils, ByteArray32, ByteArray64, ByteArray66, EVMAddress, UTXO};
 use bitcoin::address::NetworkUnchecked;
 use bitcoin::hashes::Hash;
@@ -18,6 +17,7 @@ use bitcoin::{secp256k1, OutPoint};
 use bitcoin_mock_rpc::RpcApiWrapper;
 use bitcoincore_rpc::RawTx;
 use jsonrpsee::core::async_trait;
+use jsonrpsee::proc_macros::rpc;
 use secp256k1::{rand, schnorr};
 
 #[derive(Debug, Clone)]
@@ -105,6 +105,41 @@ where
         };
         Ok((kickoff_utxos, move_tx_handler, bridge_fund_outpoint))
     }
+}
+
+#[rpc(client, server, namespace = "verifier")]
+pub trait VerifierRpc {
+    #[method(name = "new_deposit")]
+    async fn new_deposit(
+        &self,
+        deposit_outpoint: OutPoint,
+        recovery_taproot_address: Address<NetworkUnchecked>,
+        evm_address: EVMAddress,
+    ) -> Result<Vec<MuSigPubNonce>, BridgeError>;
+
+    #[method(name = "operator_kickoffs_generated")]
+    async fn operator_kickoffs_generated(
+        &self,
+        deposit_outpoint: OutPoint,
+        kickoff_utxos: Vec<UTXO>,
+        operators_kickoff_sigs: Vec<schnorr::Signature>,
+        agg_nonces: Vec<MuSigAggNonce>,
+    ) -> Result<(Vec<MuSigPartialSignature>, Vec<MuSigPartialSignature>), BridgeError>;
+
+    #[method(name = "burn_txs_signed")]
+    async fn burn_txs_signed(
+        &self,
+        deposit_outpoint: OutPoint,
+        burn_sigs: Vec<schnorr::Signature>,
+        slash_or_take_sigs: Vec<schnorr::Signature>,
+    ) -> Result<Vec<MuSigPartialSignature>, BridgeError>;
+
+    #[method(name = "operator_take_txs_signed")]
+    async fn operator_take_txs_signed(
+        &self,
+        deposit_outpoint: OutPoint,
+        operator_take_sigs: Vec<schnorr::Signature>,
+    ) -> Result<MuSigPartialSignature, BridgeError>;
 }
 
 #[async_trait]
@@ -538,9 +573,8 @@ mod tests {
     use crate::errors::BridgeError;
     use crate::extended_rpc::ExtendedRpc;
     use crate::musig2::nonce_pair;
-    use crate::traits::rpc::VerifierRpcServer;
     use crate::user::User;
-    use crate::verifier::Verifier;
+    use crate::verifier::{Verifier, VerifierRpcServer};
     use crate::EVMAddress;
     use crate::{create_extended_rpc, mock::database::create_test_config};
     use secp256k1::rand;

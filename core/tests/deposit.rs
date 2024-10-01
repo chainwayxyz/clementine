@@ -10,8 +10,8 @@ use clementine_core::musig2::MuSigPartialSignature;
 use clementine_core::servers::*;
 use clementine_core::traits::rpc::AggregatorClient;
 use clementine_core::traits::rpc::OperatorRpcClient;
-use clementine_core::traits::rpc::VerifierRpcClient;
 use clementine_core::user::User;
+use clementine_core::verifier::VerifierRpcClient;
 use clementine_core::EVMAddress;
 
 #[tokio::test]

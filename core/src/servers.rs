@@ -3,14 +3,10 @@
 //! Utilities for operator and verifier servers.
 use crate::mock::database::create_test_config_with_thread_name;
 use crate::traits::rpc::AggregatorServer;
+use crate::verifier::VerifierRpcServer;
 use crate::{aggregator, create_extended_rpc};
 use crate::{
-    config::BridgeConfig,
-    errors,
-    extended_rpc::ExtendedRpc,
-    operator,
-    traits::{self, rpc::VerifierRpcServer},
-    verifier::Verifier,
+    config::BridgeConfig, errors, extended_rpc::ExtendedRpc, operator, traits, verifier::Verifier,
 };
 use bitcoin_mock_rpc::RpcApiWrapper;
 use errors::BridgeError;
