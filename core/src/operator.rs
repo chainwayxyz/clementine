@@ -14,7 +14,7 @@ use bitcoin::consensus::deserialize;
 use bitcoin::hashes::Hash;
 use bitcoin::script::PushBytesBuf;
 use bitcoin::sighash::SighashCache;
-use bitcoin::{Address, OutPoint, TapSighash, Transaction, TxOut, Txid};
+use bitcoin::{Address, Amount, OutPoint, TapSighash, Transaction, TxOut, Txid};
 use bitcoin_mock_rpc::RpcApiWrapper;
 use bitcoincore_rpc::RawTx;
 use jsonrpsee::core::async_trait;
@@ -72,7 +72,7 @@ where
         let mut tx = db.begin_transaction().await?;
         // check if funding utxo is already set
         if db.get_funding_utxo(Some(&mut tx)).await?.is_none() {
-            let outpoint = rpc.send_to_address(&signer.address, 200_000_000)?;
+            let outpoint = rpc.send_to_address(&signer.address, Amount::from_sat(200_000_000))?; // TODO: Is this OK to be a fixed value
             let funding_utxo = UTXO {
                 outpoint,
                 txout: TxOut {
@@ -226,7 +226,8 @@ where
                 _ => 156 + 43 * self.config.operator_num_kickoff_utxos_per_tx, // Handles all other values
             };
             if funding_utxo.txout.value.to_sat()
-                < (KICKOFF_UTXO_AMOUNT_SATS * self.config.operator_num_kickoff_utxos_per_tx as u64
+                < (KICKOFF_UTXO_AMOUNT_SATS.to_sat()
+                    * self.config.operator_num_kickoff_utxos_per_tx as u64
                     + kickoff_tx_min_relay_fee as u64
                     + 330)
             {
@@ -341,8 +342,12 @@ where
     ///
     /// - `input_amount`:
     /// - `withdrawal_amount`:
-    fn is_profitable(&self, input_amount: u64, withdrawal_amount: u64) -> bool {
-        if withdrawal_amount.wrapping_sub(input_amount) > self.config.bridge_amount_sats {
+    fn is_profitable(&self, input_amount: Amount, withdrawal_amount: Amount) -> bool {
+        if withdrawal_amount
+            .to_sat()
+            .wrapping_sub(input_amount.to_sat())
+            > self.config.bridge_amount_sats.to_sat()
+        {
             return false;
         }
 
@@ -401,7 +406,7 @@ where
             }
         }
 
-        if !self.is_profitable(input_utxo.txout.value.to_sat(), output_txout.value.to_sat()) {
+        if !self.is_profitable(input_utxo.txout.value, output_txout.value) {
             return Err(BridgeError::NotEnoughFeeForOperator);
         }
 
@@ -759,26 +764,29 @@ mod tests {
         let mut config = create_test_config("is_profitable", "test_config.toml").await;
         let rpc = create_extended_rpc!(config);
 
-        config.bridge_amount_sats = 0x45;
-        config.operator_withdrawal_fee_sats = Some(0x1F);
+        config.bridge_amount_sats = Amount::from_sat(0x45);
+        config.operator_withdrawal_fee_sats = Some(Amount::from_sat(0x1F));
 
         let operator = Operator::new(config.clone(), rpc).await.unwrap();
 
         // Smaller input amount must not cause a panic.
-        operator.is_profitable(3, 1);
+        operator.is_profitable(Amount::from_sat(3), Amount::from_sat(1));
         // Bigger input amount must not cause a panic.
-        operator.is_profitable(6, 9);
+        operator.is_profitable(Amount::from_sat(6), Amount::from_sat(9));
 
         // False because difference between input and withdrawal amount is
         // bigger than `config.bridge_amount_sats`.
-        assert!(!operator.is_profitable(6, 90));
+        assert!(!operator.is_profitable(Amount::from_sat(6), Amount::from_sat(90)));
 
         // False because net profit is smaller than
         // `config.operator_withdrawal_fee_sats`.
-        assert!(!operator.is_profitable(0, config.bridge_amount_sats));
+        assert!(!operator.is_profitable(Amount::from_sat(0), config.bridge_amount_sats));
 
         // True because net profit is bigger than
         // `config.operator_withdrawal_fee_sats`.
-        assert!(operator.is_profitable(0, config.operator_withdrawal_fee_sats.unwrap() - 1));
+        assert!(operator.is_profitable(
+            Amount::from_sat(0),
+            config.operator_withdrawal_fee_sats.unwrap() - Amount::from_sat(1)
+        ));
     }
 }

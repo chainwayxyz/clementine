@@ -77,7 +77,9 @@ async fn key_spend() {
     let (from_address, from_address_spend_info) =
         builder::address::create_taproot_address(&[], Some(untweaked_xonly_pubkey), config.network);
 
-    let utxo = rpc.send_to_address(&from_address, 100_000_000).unwrap();
+    let utxo = rpc
+        .send_to_address(&from_address, Amount::from_sat(100_000_000))
+        .unwrap();
     let prevout = rpc.get_txout_from_outpoint(&utxo).unwrap();
 
     let tx_ins = builder::transaction::create_tx_ins(vec![utxo]);
@@ -163,7 +165,9 @@ async fn key_spend_with_script() {
         config.network,
     );
 
-    let utxo = rpc.send_to_address(&from_address, 100_000_000).unwrap();
+    let utxo = rpc
+        .send_to_address(&from_address, Amount::from_sat(100_000_000))
+        .unwrap();
     let prevout = rpc.get_txout_from_outpoint(&utxo).unwrap();
     let tx_outs = builder::transaction::create_tx_outs(vec![(
         Amount::from_sat(99_000_000),
@@ -262,7 +266,9 @@ async fn script_spend() {
     let (from_address, from_address_spend_info) =
         builder::address::create_taproot_address(&scripts, None, bitcoin::Network::Regtest);
 
-    let utxo = rpc.send_to_address(&from_address, 100_000_000).unwrap();
+    let utxo = rpc
+        .send_to_address(&from_address, Amount::from_sat(100_000_000))
+        .unwrap();
     let prevout = rpc.get_txout_from_outpoint(&utxo).unwrap();
     let tx_outs = builder::transaction::create_tx_outs(vec![(
         Amount::from_sat(99_000_000),

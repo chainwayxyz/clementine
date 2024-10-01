@@ -59,7 +59,7 @@ where
         &self,
         outpoint: &OutPoint,
         address: &ScriptBuf,
-        amount_sats: u64,
+        amount_sats: Amount,
     ) -> Result<bool, BridgeError> {
         let tx = self.client.get_raw_transaction(&outpoint.txid, None)?;
 
@@ -67,7 +67,7 @@ where
 
         let expected_output = TxOut {
             script_pubkey: address.clone(),
-            value: Amount::from_sat(amount_sats),
+            value: amount_sats,
         };
 
         Ok(expected_output == current_output)
@@ -95,11 +95,11 @@ where
     pub fn send_to_address(
         &self,
         address: &Address,
-        amount_sats: u64,
+        amount_sats: Amount,
     ) -> Result<OutPoint, BridgeError> {
         let txid = self.client.send_to_address(
             address,
-            Amount::from_sat(amount_sats),
+            amount_sats,
             None,
             None,
             None,
@@ -168,7 +168,7 @@ where
         deposit_outpoint: &OutPoint,
         recovery_taproot_address: &Address<NetworkUnchecked>,
         evm_address: EVMAddress,
-        amount_sats: u64,
+        amount_sats: Amount,
         confirmation_block_count: u32,
         network: bitcoin::Network,
         user_takes_after: u32,

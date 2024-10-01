@@ -23,10 +23,10 @@ pub struct TxHandler {
 }
 
 // TODO: Move these constants to the config file
-pub const MOVE_TX_MIN_RELAY_FEE: u64 = 190;
-pub const SLASH_OR_TAKE_TX_MIN_RELAY_FEE: u64 = 240;
-pub const OPERATOR_TAKES_TX_MIN_RELAY_FEE: u64 = 230;
-pub const KICKOFF_UTXO_AMOUNT_SATS: u64 = 100_000;
+pub const MOVE_TX_MIN_RELAY_FEE: Amount = Amount::from_sat(190);
+pub const SLASH_OR_TAKE_TX_MIN_RELAY_FEE: Amount = Amount::from_sat(240);
+pub const OPERATOR_TAKES_TX_MIN_RELAY_FEE: Amount = Amount::from_sat(230);
+pub const KICKOFF_UTXO_AMOUNT_SATS: Amount = Amount::from_sat(100_000);
 
 // Transaction Builders --------------------------------------------------------
 
@@ -34,7 +34,7 @@ pub const KICKOFF_UTXO_AMOUNT_SATS: u64 = 100_000;
 pub fn create_move_tx(
     deposit_outpoint: OutPoint,
     nofn_xonly_pk: XOnlyPublicKey,
-    bridge_amount_sats: u64,
+    bridge_amount_sats: Amount,
     network: bitcoin::Network,
 ) -> Transaction {
     let (musig2_address, _) = builder::address::create_musig2_address(nofn_xonly_pk, network);
@@ -43,9 +43,7 @@ pub fn create_move_tx(
 
     let anyone_can_spend_txout = builder::script::anyone_can_spend_txout();
     let move_txout = TxOut {
-        value: Amount::from_sat(bridge_amount_sats)
-            - Amount::from_sat(MOVE_TX_MIN_RELAY_FEE)
-            - anyone_can_spend_txout.value,
+        value: bridge_amount_sats - MOVE_TX_MIN_RELAY_FEE - anyone_can_spend_txout.value,
         script_pubkey: musig2_address.script_pubkey(),
     };
 
@@ -60,7 +58,7 @@ pub fn create_move_tx_handler(
     nofn_xonly_pk: XOnlyPublicKey,
     network: bitcoin::Network,
     user_takes_after: u32,
-    bridge_amount_sats: u64,
+    bridge_amount_sats: Amount,
 ) -> TxHandler {
     let move_tx = create_move_tx(deposit_outpoint, nofn_xonly_pk, bridge_amount_sats, network);
 
@@ -75,7 +73,7 @@ pub fn create_move_tx_handler(
 
     let prevouts = vec![TxOut {
         script_pubkey: deposit_address.script_pubkey(),
-        value: Amount::from_sat(bridge_amount_sats),
+        value: bridge_amount_sats,
     }];
 
     let deposit_script = vec![builder::script::create_deposit_script(
@@ -122,13 +120,13 @@ pub fn create_kickoff_utxo_tx(
         builder::address::create_taproot_address(&[musig2_and_operator_script], None, network);
     let operator_address = Address::p2tr(&utils::SECP, operator_xonly_pk, None, network);
     let change_amount = funding_utxo.txout.value
-        - Amount::from_sat(KICKOFF_UTXO_AMOUNT_SATS * num_kickoff_utxos_per_tx as u64)
+        - Amount::from_sat(KICKOFF_UTXO_AMOUNT_SATS.to_sat() * num_kickoff_utxos_per_tx as u64)
         - builder::script::anyone_can_spend_txout().value
         - Amount::from_sat(kickoff_tx_min_relay_fee as u64);
     tracing::debug!("Change amount: {:?}", change_amount);
     let mut tx_outs_raw = vec![
         (
-            Amount::from_sat(KICKOFF_UTXO_AMOUNT_SATS),
+            KICKOFF_UTXO_AMOUNT_SATS,
             musig2_and_operator_address.script_pubkey(),
         );
         num_kickoff_utxos_per_tx
@@ -161,7 +159,7 @@ pub fn create_slash_or_take_tx(
     network: bitcoin::Network,
     _user_takes_after: u32,
     operator_takes_after: u32,
-    bridge_amount_sats: u64,
+    bridge_amount_sats: Amount,
 ) -> TxHandler {
     // First recreate the move_tx and move_txid. We can give dummy values for some of the parameters since we are only interested in txid.
     let move_tx = create_move_tx(deposit_outpoint, nofn_xonly_pk, bridge_amount_sats, network);
@@ -207,9 +205,9 @@ pub fn create_slash_or_take_tx(
     let op_return_txout = builder::script::op_return_txout(push_bytes);
     let outs = vec![
         TxOut {
-            value: Amount::from_sat(
-                kickoff_utxo.txout.value.to_sat() - 330 - SLASH_OR_TAKE_TX_MIN_RELAY_FEE,
-            ),
+            value: kickoff_utxo.txout.value
+                - Amount::from_sat(330)
+                - SLASH_OR_TAKE_TX_MIN_RELAY_FEE,
             script_pubkey: slash_or_take_address.script_pubkey(),
         },
         builder::script::anyone_can_spend_txout(),
@@ -234,7 +232,7 @@ pub fn create_operator_takes_tx(
     nofn_xonly_pk: XOnlyPublicKey,
     network: bitcoin::Network,
     operator_takes_after: u32,
-    bridge_amount_sats: u64,
+    bridge_amount_sats: Amount,
     operator_wallet_address: Address<NetworkUnchecked>,
 ) -> TxHandler {
     let operator_wallet_address_checked = operator_wallet_address.require_network(network).unwrap();
@@ -261,10 +259,9 @@ pub fn create_operator_takes_tx(
 
     let outs = vec![
         TxOut {
-            value: Amount::from_sat(slash_or_take_utxo.txout.value.to_sat())
-                + Amount::from_sat(bridge_amount_sats)
-                - Amount::from_sat(MOVE_TX_MIN_RELAY_FEE)
-                - Amount::from_sat(OPERATOR_TAKES_TX_MIN_RELAY_FEE)
+            value: slash_or_take_utxo.txout.value + bridge_amount_sats
+                - MOVE_TX_MIN_RELAY_FEE
+                - OPERATOR_TAKES_TX_MIN_RELAY_FEE
                 - builder::script::anyone_can_spend_txout().value
                 - builder::script::anyone_can_spend_txout().value,
             script_pubkey: operator_wallet_address_checked.script_pubkey(),
@@ -275,8 +272,8 @@ pub fn create_operator_takes_tx(
     let prevouts = vec![
         TxOut {
             script_pubkey: musig2_address.script_pubkey(),
-            value: Amount::from_sat(bridge_amount_sats)
-                - Amount::from_sat(MOVE_TX_MIN_RELAY_FEE)
+            value: bridge_amount_sats
+                - MOVE_TX_MIN_RELAY_FEE
                 - builder::script::anyone_can_spend_txout().value,
         },
         slash_or_take_utxo.txout,
@@ -346,7 +343,7 @@ pub fn create_tx_outs(pairs: Vec<(Amount, ScriptBuf)>) -> Vec<TxOut> {
 #[cfg(test)]
 mod tests {
     use crate::{builder, utils::SECP};
-    use bitcoin::{hashes::Hash, OutPoint, Txid, XOnlyPublicKey};
+    use bitcoin::{hashes::Hash, Amount, OutPoint, Txid, XOnlyPublicKey};
     use secp256k1::{rand, Keypair, SecretKey};
 
     #[test]
@@ -358,7 +355,7 @@ mod tests {
         let secret_key = SecretKey::new(&mut rand::thread_rng());
         let nofn_xonly_pk =
             XOnlyPublicKey::from_keypair(&Keypair::from_secret_key(&SECP, &secret_key)).0;
-        let bridge_amount_sats = 0x1F45;
+        let bridge_amount_sats = Amount::from_sat(0x1F45);
         let network = bitcoin::Network::Regtest;
 
         let move_tx =

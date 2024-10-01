@@ -6,6 +6,7 @@
 use crate::builder;
 use crate::{utils, EVMAddress};
 use bitcoin::address::NetworkUnchecked;
+use bitcoin::Amount;
 use bitcoin::{
     taproot::{TaprootBuilder, TaprootSpendInfo},
     Address, ScriptBuf,
@@ -80,7 +81,7 @@ pub fn create_taproot_address(
 /// - `recovery_taproot_address`: User's x-only public key that can be used to
 ///   take funds after some time
 /// - `user_evm_address`: User's EVM address.
-/// - `amount`: Amount to deposit (in sats)
+/// - `amount`: Amount to deposit
 /// - `network`: Bitcoin network to work on
 /// - `user_takes_after`: User can take the funds back, after this amounts of
 ///   blocks have passed
@@ -97,7 +98,7 @@ pub fn generate_deposit_address(
     nofn_xonly_pk: XOnlyPublicKey,
     recovery_taproot_address: &Address<NetworkUnchecked>,
     user_evm_address: EVMAddress,
-    amount: u64,
+    amount: Amount,
     network: bitcoin::Network,
     user_takes_after: u32,
 ) -> (Address, TaprootSpendInfo) {
@@ -163,7 +164,7 @@ mod tests {
         musig2::AggregateFromPublicKeys,
         utils::{self, SECP},
     };
-    use bitcoin::{key::TapTweak, Address, AddressType, ScriptBuf, XOnlyPublicKey};
+    use bitcoin::{key::TapTweak, Address, AddressType, Amount, ScriptBuf, XOnlyPublicKey};
     use secp256k1::{rand, Keypair, PublicKey, SecretKey};
     use std::str::FromStr;
 
@@ -265,7 +266,7 @@ mod tests {
             nofn_xonly_pk,
             recovery_taproot_address.as_unchecked(),
             crate::EVMAddress(evm_address),
-            100_000_000,
+            Amount::from_sat(100_000_000),
             bitcoin::Network::Regtest,
             200,
         );
