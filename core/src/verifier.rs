@@ -247,7 +247,7 @@ where
 
         for (i, kickoff_utxo) in kickoff_utxos.iter().enumerate() {
             let value = kickoff_utxo.txout.value;
-            if value.to_sat() < KICKOFF_UTXO_AMOUNT_SATS {
+            if value < KICKOFF_UTXO_AMOUNT_SATS {
                 return Err(BridgeError::InvalidKickoffUtxo);
             }
 

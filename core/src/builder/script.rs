@@ -39,7 +39,7 @@ pub fn op_return_txout<S: AsRef<bitcoin::script::PushBytes>>(slice: S) -> TxOut 
 pub fn create_deposit_script(
     nofn_xonly_pk: XOnlyPublicKey,
     evm_address: EVMAddress,
-    amount: u64,
+    amount: Amount,
 ) -> ScriptBuf {
     let citrea: [u8; 6] = "citrea".as_bytes().try_into().unwrap();
 
@@ -50,7 +50,7 @@ pub fn create_deposit_script(
         .push_opcode(OP_IF)
         .push_slice(citrea)
         .push_slice(evm_address.0)
-        .push_slice(amount.to_be_bytes())
+        .push_slice(amount.to_sat().to_be_bytes())
         .push_opcode(OP_ENDIF)
         .into_script()
 }

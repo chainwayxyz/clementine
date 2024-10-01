@@ -41,7 +41,9 @@ async fn create_address_and_transaction_then_sign_transaction() {
         builder::address::create_taproot_address(&[to_pay_script.clone()], None, config.network);
 
     // Create a new transaction.
-    let utxo = rpc.send_to_address(&taproot_address, 1000).unwrap();
+    let utxo = rpc
+        .send_to_address(&taproot_address, Amount::from_sat(1000))
+        .unwrap();
     let tx_ins = builder::transaction::create_tx_ins(vec![utxo]);
     let tx_outs = vec![TxOut {
         value: Amount::from_sat(330),

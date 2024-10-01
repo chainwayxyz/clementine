@@ -11,8 +11,8 @@
 //! described in `BridgeConfig` struct.
 
 use crate::errors::BridgeError;
-use bitcoin::address::NetworkUnchecked;
 use bitcoin::Network;
+use bitcoin::{address::NetworkUnchecked, Amount};
 use serde::{Deserialize, Serialize};
 use std::{fs::File, io::Read, path::PathBuf};
 
@@ -38,13 +38,13 @@ pub struct BridgeConfig {
     /// Number of operators.
     pub num_operators: usize,
     /// Operator's fee for withdrawal, in satoshis.
-    pub operator_withdrawal_fee_sats: Option<u64>,
+    pub operator_withdrawal_fee_sats: Option<Amount>,
     /// Number of blocks after which user can take deposit back if deposit request fails.
     pub user_takes_after: u32,
     /// Number of blocks after which operator can take reimburse the bridge fund if they are honest.
     pub operator_takes_after: u32,
     /// Bridge amount in satoshis.
-    pub bridge_amount_sats: u64,
+    pub bridge_amount_sats: Amount,
     /// Operator: number of kickoff UTXOs per funding transaction.
     pub operator_num_kickoff_utxos_per_tx: usize,
     /// Threshold for confirmation.
@@ -127,7 +127,7 @@ impl Default for BridgeConfig {
             operator_withdrawal_fee_sats: None,
             user_takes_after: 5,
             operator_takes_after: 5,
-            bridge_amount_sats: 100_000_000,
+            bridge_amount_sats: Amount::from_sat(100_000_000),
             operator_num_kickoff_utxos_per_tx: 10,
             confirmation_threshold: 1,
             network: Network::Regtest,
