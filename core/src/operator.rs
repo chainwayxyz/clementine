@@ -226,7 +226,8 @@ where
                 _ => 156 + 43 * self.config.operator_num_kickoff_utxos_per_tx, // Handles all other values
             };
             if funding_utxo.txout.value.to_sat()
-                < (KICKOFF_UTXO_AMOUNT_SATS * self.config.operator_num_kickoff_utxos_per_tx as u64
+                < (KICKOFF_UTXO_AMOUNT_SATS.to_sat()
+                    * self.config.operator_num_kickoff_utxos_per_tx as u64
                     + kickoff_tx_min_relay_fee as u64
                     + 330)
             {
