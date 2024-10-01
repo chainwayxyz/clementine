@@ -2,7 +2,7 @@
 //!
 //! This tests checks if typical flows works or not.
 
-use bitcoin::Address;
+use bitcoin::{Address, Amount};
 use clementine_core::errors::BridgeError;
 use clementine_core::extended_rpc::ExtendedRpc;
 use clementine_core::utils::SECP;
@@ -30,8 +30,9 @@ async fn honest_operator_takes_refund() {
 
     // We are giving enough sats to the user so that the operator can pay the
     // withdrawal and profit.
-    let withdrawal_amount =
-        config.bridge_amount_sats - 2 * config.operator_withdrawal_fee_sats.unwrap();
+    let withdrawal_amount = Amount::from_sat(
+        config.bridge_amount_sats - 2 * config.operator_withdrawal_fee_sats.unwrap(),
+    );
 
     let (empty_utxo, withdrawal_tx_out, user_sig) = user
         .generate_withdrawal_transaction_and_signature(withdrawal_address, withdrawal_amount)
@@ -62,7 +63,7 @@ async fn honest_operator_takes_refund() {
         .unwrap();
     let operator_take_tx = rpc.get_raw_transaction(&operator_take_txid, None).unwrap();
 
-    assert!(operator_take_tx.output[0].value > bitcoin::Amount::from_sat(withdrawal_amount));
+    assert!(operator_take_tx.output[0].value > withdrawal_amount);
 
     assert_eq!(
         operator_take_tx.output[0].script_pubkey,
@@ -93,7 +94,7 @@ async fn withdrawal_fee_too_low() {
     let (empty_utxo, withdrawal_tx_out, user_sig) = user
         .generate_withdrawal_transaction_and_signature(
             withdrawal_address,
-            config.bridge_amount_sats,
+            Amount::from_sat(config.bridge_amount_sats),
         )
         .unwrap();
 

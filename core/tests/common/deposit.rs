@@ -2,6 +2,7 @@
 
 use bitcoin::consensus::encode::deserialize_hex;
 use bitcoin::Address;
+use bitcoin::Amount;
 use bitcoin::OutPoint;
 use bitcoin::Transaction;
 use clementine_core::actor::Actor;
@@ -161,7 +162,9 @@ pub async fn run_multiple_deposits(test_config_name: &str) {
     let (user_utxo, user_txout, user_sig) = user
         .generate_withdrawal_transaction_and_signature(
             withdrawal_address.clone(),
-            config.bridge_amount_sats - 2 * config.operator_withdrawal_fee_sats.unwrap(),
+            Amount::from_sat(
+                config.bridge_amount_sats - 2 * config.operator_withdrawal_fee_sats.unwrap(),
+            ),
         )
         .unwrap();
     let withdrawal_provide_txid = operators[0]
@@ -179,7 +182,9 @@ pub async fn run_multiple_deposits(test_config_name: &str) {
     let (user_utxo, user_txout, user_sig) = user
         .generate_withdrawal_transaction_and_signature(
             withdrawal_address.clone(),
-            config.bridge_amount_sats - 2 * config.operator_withdrawal_fee_sats.unwrap(),
+            Amount::from_sat(
+                config.bridge_amount_sats - 2 * config.operator_withdrawal_fee_sats.unwrap(),
+            ),
         )
         .unwrap();
     let withdrawal_provide_txid = operators[1]
@@ -205,7 +210,9 @@ pub async fn run_multiple_deposits(test_config_name: &str) {
     let (user_utxo, user_txout, user_sig) = user
         .generate_withdrawal_transaction_and_signature(
             withdrawal_address.clone(),
-            config.bridge_amount_sats - 2 * config.operator_withdrawal_fee_sats.unwrap(),
+            Amount::from_sat(
+                config.bridge_amount_sats - 2 * config.operator_withdrawal_fee_sats.unwrap(),
+            ),
         )
         .unwrap();
     let withdrawal_provide_txid = operators[0]
