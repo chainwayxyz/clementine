@@ -43,7 +43,7 @@ async fn deposit_with_retry_checks() {
 
         for (client, _, _) in verifiers.iter() {
             let musig_pub_nonces = client
-                .verifier_new_deposit_rpc(deposit_outpoint, signer_address.clone(), evm_address)
+                .new_deposit(deposit_outpoint, signer_address.clone(), evm_address)
                 .await
                 .unwrap();
 
@@ -58,7 +58,7 @@ async fn deposit_with_retry_checks() {
         let mut pub_nonces_retry = Vec::new();
         for (client, _, _) in verifiers.iter() {
             let musig_pub_nonces = client
-                .verifier_new_deposit_rpc(deposit_outpoint, signer_address.clone(), evm_address)
+                .new_deposit(deposit_outpoint, signer_address.clone(), evm_address)
                 .await
                 .unwrap();
 
@@ -112,7 +112,7 @@ async fn deposit_with_retry_checks() {
         let mut slash_or_take_partial_sigs = Vec::new();
         for (client, ..) in verifiers.iter() {
             let (partial_sigs, _) = client
-                .operator_kickoffs_generated_rpc(
+                .operator_kickoffs_generated(
                     deposit_outpoint,
                     kickoff_utxos.clone(),
                     signatures.clone(),
@@ -137,7 +137,7 @@ async fn deposit_with_retry_checks() {
         let mut slash_or_take_partial_sigs_retry = Vec::new();
         for (client, ..) in verifiers.iter() {
             let (partial_sigs, _) = client
-                .operator_kickoffs_generated_rpc(
+                .operator_kickoffs_generated(
                     deposit_outpoint,
                     kickoff_utxos.clone(),
                     signatures.clone(),
@@ -169,7 +169,7 @@ async fn deposit_with_retry_checks() {
         let mut operator_take_partial_sigs: Vec<Vec<MuSigPartialSignature>> = Vec::new();
         for (client, ..) in verifiers.iter() {
             let partial_sigs = client
-                .burn_txs_signed_rpc(deposit_outpoint, vec![], slash_or_take_sigs.clone())
+                .burn_txs_signed(deposit_outpoint, vec![], slash_or_take_sigs.clone())
                 .await
                 .unwrap();
             operator_take_partial_sigs.push(partial_sigs);
@@ -188,7 +188,7 @@ async fn deposit_with_retry_checks() {
         let mut operator_take_partial_sigs_retry = Vec::new();
         for (client, ..) in verifiers.iter() {
             let partial_sigs = client
-                .burn_txs_signed_rpc(deposit_outpoint, vec![], slash_or_take_sigs.clone())
+                .burn_txs_signed(deposit_outpoint, vec![], slash_or_take_sigs.clone())
                 .await
                 .unwrap();
             operator_take_partial_sigs_retry.push(partial_sigs);
@@ -213,7 +213,7 @@ async fn deposit_with_retry_checks() {
         let mut move_tx_partial_sigs = Vec::new();
         for (client, _, _) in verifiers.iter() {
             let move_tx_partial_sig = client
-                .operator_take_txs_signed_rpc(deposit_outpoint, operator_take_sigs.clone())
+                .operator_take_txs_signed(deposit_outpoint, operator_take_sigs.clone())
                 .await
                 .unwrap();
             move_tx_partial_sigs.push(move_tx_partial_sig);
@@ -222,7 +222,7 @@ async fn deposit_with_retry_checks() {
         let mut move_tx_partial_sigs_retry = Vec::new();
         for (client, _, _) in verifiers.iter() {
             let move_tx_partial_sig = client
-                .operator_take_txs_signed_rpc(deposit_outpoint, operator_take_sigs.clone())
+                .operator_take_txs_signed(deposit_outpoint, operator_take_sigs.clone())
                 .await
                 .unwrap();
             move_tx_partial_sigs_retry.push(move_tx_partial_sig);

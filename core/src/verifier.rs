@@ -67,13 +67,57 @@ where
         })
     }
 
+    #[tracing::instrument(skip(self), err(level = tracing::Level::ERROR), ret(level = tracing::Level::TRACE))]
+    async fn create_deposit_details(
+        &self,
+        deposit_outpoint: OutPoint,
+    ) -> Result<(Vec<UTXO>, TxHandler, OutPoint), BridgeError> {
+        let kickoff_utxos = self
+            .db
+            .get_kickoff_utxos(deposit_outpoint)
+            .await?
+            .ok_or(BridgeError::KickoffOutpointsNotFound)?;
+
+        // let kickoff_outpoints = kickoff_utxos
+        //     .iter()
+        //     .map(|utxo| utxo.outpoint)
+        //     .collect::<Vec<_>>();
+
+        let (recovery_taproot_address, evm_address) = self
+            .db
+            .get_deposit_info(deposit_outpoint)
+            .await?
+            .ok_or(BridgeError::DepositInfoNotFound)?;
+
+        let move_tx_handler = builder::transaction::create_move_tx_handler(
+            deposit_outpoint,
+            evm_address,
+            &recovery_taproot_address,
+            self.nofn_xonly_pk,
+            self.config.network,
+            self.config.user_takes_after,
+            self.config.bridge_amount_sats,
+        );
+
+        let bridge_fund_outpoint = OutPoint {
+            txid: move_tx_handler.tx.compute_txid(),
+            vout: 0,
+        };
+        Ok((kickoff_utxos, move_tx_handler, bridge_fund_outpoint))
+    }
+}
+
+#[async_trait]
+impl<R> VerifierRpcServer for Verifier<R>
+where
+    R: RpcApiWrapper,
+{
     /// Inform verifiers about the new deposit request
     ///
     /// 1. Check if the deposit UTXO is valid, finalized (6 blocks confirmation) and not spent
     /// 2. Generate random pubNonces, secNonces
     /// 3. Save pubNonces and secNonces to a db
     /// 4. Return pubNonces
-    #[tracing::instrument(skip(self), err(level = tracing::Level::ERROR), ret(level = tracing::Level::TRACE))]
     async fn new_deposit(
         &self,
         deposit_outpoint: OutPoint,
@@ -145,13 +189,12 @@ where
     ///
     /// do not forget to add tweak when signing since this address has n_of_n as internal_key
     /// and operator_timelock as script.
-    #[tracing::instrument(skip(self), err(level = tracing::Level::ERROR), ret(level = tracing::Level::TRACE))]
     async fn operator_kickoffs_generated(
         &self,
         deposit_outpoint: OutPoint,
         kickoff_utxos: Vec<UTXO>,
-        operators_kickoff_sigs: Vec<secp256k1::schnorr::Signature>, // These are not transaction signatures, rather, they are to verify the operator's identity.
-        agg_nonces: Vec<MuSigAggNonce>, // This includes all the agg_nonces for the bridge operations.
+        operators_kickoff_sigs: Vec<schnorr::Signature>,
+        agg_nonces: Vec<MuSigAggNonce>,
     ) -> Result<(Vec<MuSigPartialSignature>, Vec<MuSigPartialSignature>), BridgeError> {
         tracing::debug!(
             "Operatos kickoffs generated is called with data: {:?}, {:?}, {:?}, {:?}",
@@ -273,49 +316,9 @@ where
         Ok((slash_or_take_partial_sigs, vec![]))
     }
 
-    #[tracing::instrument(skip(self), err(level = tracing::Level::ERROR), ret(level = tracing::Level::TRACE))]
-    async fn create_deposit_details(
-        &self,
-        deposit_outpoint: OutPoint,
-    ) -> Result<(Vec<UTXO>, TxHandler, OutPoint), BridgeError> {
-        let kickoff_utxos = self
-            .db
-            .get_kickoff_utxos(deposit_outpoint)
-            .await?
-            .ok_or(BridgeError::KickoffOutpointsNotFound)?;
-
-        // let kickoff_outpoints = kickoff_utxos
-        //     .iter()
-        //     .map(|utxo| utxo.outpoint)
-        //     .collect::<Vec<_>>();
-
-        let (recovery_taproot_address, evm_address) = self
-            .db
-            .get_deposit_info(deposit_outpoint)
-            .await?
-            .ok_or(BridgeError::DepositInfoNotFound)?;
-
-        let move_tx_handler = builder::transaction::create_move_tx_handler(
-            deposit_outpoint,
-            evm_address,
-            &recovery_taproot_address,
-            self.nofn_xonly_pk,
-            self.config.network,
-            self.config.user_takes_after,
-            self.config.bridge_amount_sats,
-        );
-
-        let bridge_fund_outpoint = OutPoint {
-            txid: move_tx_handler.tx.compute_txid(),
-            vout: 0,
-        };
-        Ok((kickoff_utxos, move_tx_handler, bridge_fund_outpoint))
-    }
-
     /// verify burn txs are signed by verifiers
     /// sign operator_takes_txs
     /// TODO: Change the name of this function.
-    #[tracing::instrument(skip(self), err(level = tracing::Level::ERROR), ret(level = tracing::Level::TRACE))]
     async fn burn_txs_signed(
         &self,
         deposit_outpoint: OutPoint,
@@ -412,7 +415,6 @@ where
 
     /// verify the operator_take_sigs
     /// sign move_tx
-    #[tracing::instrument(skip(self), err(level = tracing::Level::ERROR), ret(level = tracing::Level::TRACE))]
     async fn operator_take_txs_signed(
         &self,
         deposit_outpoint: OutPoint,
@@ -530,63 +532,13 @@ where
     }
 }
 
-#[async_trait]
-impl<R> VerifierRpcServer for Verifier<R>
-where
-    R: RpcApiWrapper,
-{
-    async fn verifier_new_deposit_rpc(
-        &self,
-        deposit_outpoint: OutPoint,
-        recovery_taproot_address: Address<NetworkUnchecked>,
-        evm_address: EVMAddress,
-    ) -> Result<Vec<MuSigPubNonce>, BridgeError> {
-        self.new_deposit(deposit_outpoint, recovery_taproot_address, evm_address)
-            .await
-    }
-
-    async fn operator_kickoffs_generated_rpc(
-        &self,
-        deposit_outpoint: OutPoint,
-        kickoff_utxos: Vec<UTXO>,
-        operators_kickoff_sigs: Vec<schnorr::Signature>,
-        agg_nonces: Vec<MuSigAggNonce>,
-    ) -> Result<(Vec<MuSigPartialSignature>, Vec<MuSigPartialSignature>), BridgeError> {
-        self.operator_kickoffs_generated(
-            deposit_outpoint,
-            kickoff_utxos,
-            operators_kickoff_sigs,
-            agg_nonces,
-        )
-        .await
-    }
-
-    async fn burn_txs_signed_rpc(
-        &self,
-        deposit_outpoint: OutPoint,
-        burn_sigs: Vec<schnorr::Signature>,
-        slash_or_take_sigs: Vec<schnorr::Signature>,
-    ) -> Result<Vec<MuSigPartialSignature>, BridgeError> {
-        self.burn_txs_signed(deposit_outpoint, burn_sigs, slash_or_take_sigs)
-            .await
-    }
-
-    async fn operator_take_txs_signed_rpc(
-        &self,
-        deposit_outpoint: OutPoint,
-        operator_take_sigs: Vec<schnorr::Signature>,
-    ) -> Result<MuSigPartialSignature, BridgeError> {
-        self.operator_take_txs_signed(deposit_outpoint, operator_take_sigs)
-            .await
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use crate::actor::Actor;
     use crate::errors::BridgeError;
     use crate::extended_rpc::ExtendedRpc;
     use crate::musig2::nonce_pair;
+    use crate::traits::rpc::VerifierRpcServer;
     use crate::user::User;
     use crate::verifier::Verifier;
     use crate::EVMAddress;

@@ -13,7 +13,7 @@ pub trait VerifierRpc {
     /// - Generate random pubNonces, secNonces
     /// - Save pubNonces and secNonces to a in-memory db
     /// - Return pubNonces
-    async fn verifier_new_deposit_rpc(
+    async fn new_deposit(
         &self,
         deposit_outpoint: OutPoint,
         recovery_taproot_address: Address<NetworkUnchecked>,
@@ -24,7 +24,7 @@ pub trait VerifierRpc {
     /// - Check the kickoff_utxos
     /// - for every kickoff_utxo, calculate kickoff2_tx
     /// - for every kickoff2_tx, partial sign burn_tx (ommitted for now)
-    async fn operator_kickoffs_generated_rpc(
+    async fn operator_kickoffs_generated(
         &self,
         deposit_outpoint: OutPoint,
         kickoff_utxos: Vec<UTXO>,
@@ -35,7 +35,7 @@ pub trait VerifierRpc {
     #[method(name = "burn_txs_signed")]
     /// verify burn txs are signed by verifiers
     /// sign operator_takes_txs
-    async fn burn_txs_signed_rpc(
+    async fn burn_txs_signed(
         &self,
         deposit_outpoint: OutPoint,
         burn_sigs: Vec<schnorr::Signature>,
@@ -46,7 +46,7 @@ pub trait VerifierRpc {
     #[method(name = "operator_take_txs_signed")]
     /// verify the operator_take_sigs
     /// sign move_tx
-    async fn operator_take_txs_signed_rpc(
+    async fn operator_take_txs_signed(
         &self,
         deposit_outpoint: OutPoint,
         operator_take_sigs: Vec<schnorr::Signature>,

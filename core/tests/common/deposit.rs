@@ -53,7 +53,7 @@ pub async fn run_multiple_deposits(test_config_name: &str) {
 
         for (client, _, _) in verifiers.iter() {
             let musig_pub_nonces = client
-                .verifier_new_deposit_rpc(deposit_outpoint, signer_address.clone(), evm_address)
+                .new_deposit(deposit_outpoint, signer_address.clone(), evm_address)
                 .await
                 .unwrap();
 
@@ -83,7 +83,7 @@ pub async fn run_multiple_deposits(test_config_name: &str) {
 
         for (client, ..) in verifiers.iter() {
             let (partial_sigs, _) = client
-                .operator_kickoffs_generated_rpc(
+                .operator_kickoffs_generated(
                     deposit_outpoint,
                     kickoff_utxos.clone(),
                     signatures.clone(),
@@ -108,7 +108,7 @@ pub async fn run_multiple_deposits(test_config_name: &str) {
         let mut operator_take_partial_sigs: Vec<Vec<MuSigPartialSignature>> = Vec::new();
         for (client, ..) in verifiers.iter() {
             let partial_sigs = client
-                .burn_txs_signed_rpc(deposit_outpoint, vec![], slash_or_take_sigs.clone())
+                .burn_txs_signed(deposit_outpoint, vec![], slash_or_take_sigs.clone())
                 .await
                 .unwrap();
             operator_take_partial_sigs.push(partial_sigs);
@@ -128,7 +128,7 @@ pub async fn run_multiple_deposits(test_config_name: &str) {
         let mut move_tx_partial_sigs = Vec::new();
         for (client, _, _) in verifiers.iter() {
             let move_tx_partial_sig = client
-                .operator_take_txs_signed_rpc(deposit_outpoint, operator_take_sigs.clone())
+                .operator_take_txs_signed(deposit_outpoint, operator_take_sigs.clone())
                 .await
                 .unwrap();
             move_tx_partial_sigs.push(move_tx_partial_sig);
@@ -263,7 +263,7 @@ pub async fn run_single_deposit(
     let mut pub_nonces = Vec::new();
     for (client, _, _) in verifiers.iter() {
         let musig_pub_nonces = client
-            .verifier_new_deposit_rpc(deposit_outpoint, signer_address.clone(), evm_address)
+            .new_deposit(deposit_outpoint, signer_address.clone(), evm_address)
             .await
             .unwrap();
 
@@ -294,7 +294,7 @@ pub async fn run_single_deposit(
     let mut slash_or_take_partial_sigs = Vec::new();
     for (client, ..) in verifiers.iter() {
         let (partial_sigs, _) = client
-            .operator_kickoffs_generated_rpc(
+            .operator_kickoffs_generated(
                 deposit_outpoint,
                 kickoff_utxos.clone(),
                 signatures.clone(),
@@ -321,7 +321,7 @@ pub async fn run_single_deposit(
     let mut operator_take_partial_sigs: Vec<Vec<MuSigPartialSignature>> = Vec::new();
     for (client, ..) in verifiers.iter() {
         let partial_sigs = client
-            .burn_txs_signed_rpc(deposit_outpoint, vec![], slash_or_take_sigs.clone())
+            .burn_txs_signed(deposit_outpoint, vec![], slash_or_take_sigs.clone())
             .await
             .unwrap();
 
@@ -343,7 +343,7 @@ pub async fn run_single_deposit(
     let mut move_tx_partial_sigs = Vec::new();
     for (client, _, _) in verifiers.iter() {
         let move_tx_partial_sig = client
-            .operator_take_txs_signed_rpc(deposit_outpoint, operator_take_sigs.clone())
+            .operator_take_txs_signed(deposit_outpoint, operator_take_sigs.clone())
             .await
             .unwrap();
 
