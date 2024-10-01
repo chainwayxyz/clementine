@@ -1,13 +1,14 @@
 use crate::actor::Actor;
+use crate::builder::transaction::KICKOFF_UTXO_AMOUNT_SATS;
+use crate::builder::{self};
 use crate::config::BridgeConfig;
 use crate::database::operator::OperatorDB;
 use crate::errors::BridgeError;
 use crate::extended_rpc::ExtendedRpc;
 use crate::musig2::AggregateFromPublicKeys;
 use crate::traits::rpc::OperatorRpcServer;
-use crate::transaction_builder::{self, KICKOFF_UTXO_AMOUNT_SATS};
 use crate::utils::handle_taproot_witness_new;
-use crate::{script_builder, utils, EVMAddress, UTXO};
+use crate::{utils, EVMAddress, UTXO};
 use bitcoin::address::NetworkUnchecked;
 use bitcoin::consensus::deserialize;
 use bitcoin::hashes::Hash;
@@ -233,7 +234,7 @@ where
                     self.signer.address.clone(),
                 ));
             }
-            let mut kickoff_tx_handler = transaction_builder::create_kickoff_utxo_tx(
+            let mut kickoff_tx_handler = builder::transaction::create_kickoff_utxo_tx(
                 &funding_utxo,
                 self.nofn_xonly_pk,
                 self.signer.xonly_public_key,
@@ -408,9 +409,9 @@ where
             &input_utxo.txout.script_pubkey.as_bytes()[2..34],
         )?;
 
-        let tx_ins = transaction_builder::create_tx_ins(vec![input_utxo.outpoint]);
+        let tx_ins = builder::transaction::create_tx_ins(vec![input_utxo.outpoint]);
         let tx_outs = vec![output_txout.clone()];
-        let mut tx = transaction_builder::create_btc_tx(tx_ins, tx_outs);
+        let mut tx = builder::transaction::create_btc_tx(tx_ins, tx_outs);
 
         let mut sighash_cache = SighashCache::new(&tx);
         let sighash = sighash_cache.taproot_key_spend_signature_hash(
@@ -435,7 +436,7 @@ where
         push_bytes
             .extend_from_slice(&utils::usize_to_var_len_bytes(self.idx))
             .unwrap();
-        let op_return_txout = script_builder::op_return_txout(push_bytes);
+        let op_return_txout = builder::script::op_return_txout(push_bytes);
 
         tx.output.push(op_return_txout.clone());
 
@@ -501,7 +502,7 @@ where
             }
 
             // Calculate move_txid.
-            let move_tx = transaction_builder::create_move_tx(
+            let move_tx = builder::transaction::create_move_tx(
                 deposit_outpoint,
                 self.nofn_xonly_pk,
                 self.config.bridge_amount_sats,
@@ -567,7 +568,7 @@ where
             return Err(BridgeError::KickoffGeneratorTxsTooManyIterations); // TODO: Fix this error
         }
 
-        let mut slash_or_take_tx_handler = transaction_builder::create_slash_or_take_tx(
+        let mut slash_or_take_tx_handler = builder::transaction::create_slash_or_take_tx(
             deposit_outpoint,
             kickoff_utxo.clone(),
             self.signer.xonly_public_key,
@@ -606,7 +607,7 @@ where
 
         txs_to_be_sent.push(slash_or_take_tx_handler.tx.raw_hex());
 
-        let move_tx = transaction_builder::create_move_tx(
+        let move_tx = builder::transaction::create_move_tx(
             deposit_outpoint,
             self.nofn_xonly_pk,
             self.config.bridge_amount_sats,
@@ -617,7 +618,7 @@ where
             vout: 0,
         };
 
-        let mut operator_takes_tx = transaction_builder::create_operator_takes_tx(
+        let mut operator_takes_tx = builder::transaction::create_operator_takes_tx(
             bridge_fund_outpoint,
             slash_or_take_utxo,
             self.signer.xonly_public_key,

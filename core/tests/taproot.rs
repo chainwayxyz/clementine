@@ -3,10 +3,11 @@ use bitcoin::opcodes::all::OP_CHECKSIG;
 use bitcoin::script::Builder;
 use bitcoin::{Address, Amount, TapTweakHash, TxOut, XOnlyPublicKey};
 use clementine_core::actor::Actor;
+use clementine_core::builder::transaction::TxHandler;
+use clementine_core::builder::{self};
 use clementine_core::create_extended_rpc;
 use clementine_core::extended_rpc::ExtendedRpc;
 use clementine_core::mock::database::create_test_config_with_thread_name;
-use clementine_core::transaction_builder::{self, TxHandler};
 use clementine_core::utils::{handle_taproot_witness_new, SECP};
 
 #[tokio::test]
@@ -37,11 +38,11 @@ async fn create_address_and_transaction_then_sign_transaction() {
         .push_opcode(OP_CHECKSIG)
         .into_script();
     let (taproot_address, taproot_spend_info) =
-        transaction_builder::create_taproot_address(&[to_pay_script.clone()], None, config.network);
+        builder::address::create_taproot_address(&[to_pay_script.clone()], None, config.network);
 
     // Create a new transaction.
     let utxo = rpc.send_to_address(&taproot_address, 1000).unwrap();
-    let tx_ins = transaction_builder::create_tx_ins(vec![utxo]);
+    let tx_ins = builder::transaction::create_tx_ins(vec![utxo]);
     let tx_outs = vec![TxOut {
         value: Amount::from_sat(330),
         script_pubkey: taproot_address.script_pubkey(),
@@ -50,7 +51,7 @@ async fn create_address_and_transaction_then_sign_transaction() {
         value: Amount::from_sat(1000),
         script_pubkey: taproot_address.script_pubkey(),
     }];
-    let tx = transaction_builder::create_btc_tx(tx_ins, tx_outs.clone());
+    let tx = builder::transaction::create_btc_tx(tx_ins, tx_outs.clone());
     let mut tx_details = TxHandler {
         tx: tx.clone(),
         prevouts,

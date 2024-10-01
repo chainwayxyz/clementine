@@ -1,5 +1,6 @@
 use crate::{
     actor::Actor,
+    builder,
     config::BridgeConfig,
     errors::BridgeError,
     musig2::{
@@ -7,7 +8,6 @@ use crate::{
         MuSigPartialSignature, MuSigPubNonce,
     },
     traits::rpc::AggregatorServer,
-    transaction_builder,
     utils::handle_taproot_witness_new,
     ByteArray32, ByteArray66, EVMAddress, UTXO,
 };
@@ -56,7 +56,7 @@ impl Aggregator {
         agg_nonce: &MuSigAggNonce,
         partial_sigs: Vec<MuSigPartialSignature>,
     ) -> Result<[u8; 64], BridgeError> {
-        let mut tx = transaction_builder::create_slash_or_take_tx(
+        let mut tx = builder::transaction::create_slash_or_take_tx(
             deposit_outpoint,
             kickoff_utxo,
             operator_xonly_pk,
@@ -102,7 +102,7 @@ impl Aggregator {
         agg_nonce: &MuSigAggNonce,
         partial_sigs: Vec<MuSigPartialSignature>,
     ) -> Result<[u8; 64], BridgeError> {
-        let move_tx = transaction_builder::create_move_tx(
+        let move_tx = builder::transaction::create_move_tx(
             deposit_outpoint,
             self.nofn_xonly_pk,
             self.config.bridge_amount_sats,
@@ -112,7 +112,7 @@ impl Aggregator {
             txid: move_tx.compute_txid(),
             vout: 0,
         };
-        let slash_or_take_tx_handler = transaction_builder::create_slash_or_take_tx(
+        let slash_or_take_tx_handler = builder::transaction::create_slash_or_take_tx(
             deposit_outpoint,
             kickoff_utxo,
             *operator_xonly_pk,
@@ -135,7 +135,7 @@ impl Aggregator {
         //     serde_json::to_string(&slash_or_take_utxo)?
         // );
 
-        let mut tx_handler = transaction_builder::create_operator_takes_tx(
+        let mut tx_handler = builder::transaction::create_operator_takes_tx(
             bridge_fund_outpoint,
             slash_or_take_utxo,
             *operator_xonly_pk,
@@ -175,7 +175,7 @@ impl Aggregator {
         agg_nonce: &MuSigAggNonce,
         partial_sigs: Vec<MuSigPartialSignature>,
     ) -> Result<[u8; 64], BridgeError> {
-        let mut tx = transaction_builder::create_move_tx_handler(
+        let mut tx = builder::transaction::create_move_tx_handler(
             deposit_outpoint,
             evm_address,
             recovery_taproot_address,
@@ -300,7 +300,7 @@ impl Aggregator {
 
         let move_tx_sig = secp256k1::schnorr::Signature::from_slice(&agg_move_tx_final_sig)?;
 
-        let mut move_tx_handler = transaction_builder::create_move_tx_handler(
+        let mut move_tx_handler = builder::transaction::create_move_tx_handler(
             deposit_outpoint,
             evm_address,
             &recovery_taproot_address,

@@ -174,9 +174,9 @@ mod tests {
     use super::{nonce_pair, MuSigNoncePair};
     use crate::{
         actor::Actor,
+        builder::{self, transaction::TxHandler},
         errors::BridgeError,
         musig2::{AggregateFromPublicKeys, MuSigPartialSignature},
-        transaction_builder::{self, TxHandler},
         utils, ByteArray32,
     };
     use bitcoin::{
@@ -435,7 +435,7 @@ mod tests {
             bitcoin::Network::Regtest,
         );
         let (sending_address, sending_address_spend_info) =
-            transaction_builder::create_taproot_address(
+            builder::address::create_taproot_address(
                 &scripts.clone(),
                 Some(untweaked_xonly_pubkey),
                 bitcoin::Network::Regtest,
@@ -448,12 +448,12 @@ mod tests {
             txid: Txid::from_byte_array([0u8; 32]),
             vout: 0,
         };
-        let tx_outs = transaction_builder::create_tx_outs(vec![(
+        let tx_outs = builder::transaction::create_tx_outs(vec![(
             Amount::from_sat(99_000_000),
             receiving_address.script_pubkey(),
         )]);
-        let tx_ins = transaction_builder::create_tx_ins(vec![utxo]);
-        let dummy_tx = transaction_builder::create_btc_tx(tx_ins, tx_outs);
+        let tx_ins = builder::transaction::create_tx_ins(vec![utxo]);
+        let dummy_tx = builder::transaction::create_btc_tx(tx_ins, tx_outs);
         let mut tx_details = TxHandler {
             tx: dummy_tx,
             prevouts: vec![prevout],
@@ -525,7 +525,7 @@ mod tests {
             bitcoin::Network::Regtest,
         );
         let (sending_address, sending_address_spend_info) =
-            transaction_builder::create_taproot_address(
+            builder::address::create_taproot_address(
                 &scripts.clone(),
                 None,
                 bitcoin::Network::Regtest,
@@ -538,12 +538,12 @@ mod tests {
             txid: Txid::from_byte_array([0u8; 32]),
             vout: 0,
         };
-        let tx_outs = transaction_builder::create_tx_outs(vec![(
+        let tx_outs = builder::transaction::create_tx_outs(vec![(
             Amount::from_sat(99_000_000),
             receiving_address.script_pubkey(),
         )]);
-        let tx_ins = transaction_builder::create_tx_ins(vec![utxo]);
-        let dummy_tx = transaction_builder::create_btc_tx(tx_ins, tx_outs);
+        let tx_ins = builder::transaction::create_tx_ins(vec![utxo]);
+        let dummy_tx = builder::transaction::create_btc_tx(tx_ins, tx_outs);
         let mut tx_details = TxHandler {
             tx: dummy_tx,
             prevouts: vec![prevout],

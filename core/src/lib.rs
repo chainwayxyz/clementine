@@ -11,6 +11,7 @@ use serde::{Deserialize, Serialize};
 
 pub mod actor;
 pub mod aggregator;
+pub mod builder;
 pub mod cli;
 pub mod config;
 pub mod constants;
@@ -23,10 +24,8 @@ pub mod merkle;
 pub mod mock;
 pub mod musig2;
 pub mod operator;
-pub mod script_builder;
 pub mod servers;
 pub mod traits;
-pub mod transaction_builder;
 pub mod user;
 pub mod utils;
 pub mod verifier;
