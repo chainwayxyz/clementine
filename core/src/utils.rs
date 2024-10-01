@@ -1,7 +1,7 @@
+use crate::builder::transaction::TxHandler;
 use crate::cli::Args;
 use crate::config::BridgeConfig;
 use crate::errors::BridgeError;
-use crate::transaction_builder::TxHandler;
 use bitcoin;
 use bitcoin::sighash::SighashCache;
 use bitcoin::taproot::LeafVersion;

@@ -1,5 +1,5 @@
+use crate::builder::transaction::TxHandler;
 use crate::errors::BridgeError;
-use crate::transaction_builder::TxHandler;
 use crate::utils;
 use bitcoin::sighash::SighashCache;
 use bitcoin::taproot::LeafVersion;
@@ -217,7 +217,7 @@ impl Actor {
 #[cfg(test)]
 mod tests {
     use super::Actor;
-    use crate::transaction_builder::TxHandler;
+    use crate::builder::transaction::TxHandler;
     use bitcoin::{
         absolute::Height, transaction::Version, Amount, Network, OutPoint, Transaction, TxIn, TxOut,
     };

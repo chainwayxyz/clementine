@@ -1,9 +1,9 @@
 use crate::actor::Actor;
+use crate::builder;
 use crate::config::BridgeConfig;
 use crate::errors::BridgeError;
 use crate::extended_rpc::ExtendedRpc;
 use crate::musig2::AggregateFromPublicKeys;
-use crate::transaction_builder;
 use crate::{EVMAddress, UTXO};
 use bitcoin::{Address, TxOut};
 use bitcoin::{Amount, OutPoint};
@@ -57,7 +57,7 @@ where
 
     #[tracing::instrument(skip(self), err(level = tracing::Level::ERROR), ret(level = tracing::Level::TRACE))]
     pub fn get_deposit_address(&self, evm_address: EVMAddress) -> Result<Address, BridgeError> {
-        let (deposit_address, _) = transaction_builder::generate_deposit_address(
+        let (deposit_address, _) = builder::address::generate_deposit_address(
             self.nofn_xonly_pk,
             self.signer.address.as_unchecked(),
             evm_address,
@@ -93,14 +93,14 @@ where
             },
         };
 
-        let txins = transaction_builder::create_tx_ins(vec![dust_utxo.outpoint]);
+        let txins = builder::transaction::create_tx_ins(vec![dust_utxo.outpoint]);
         let txout = TxOut {
             value: Amount::from_sat(withdrawal_amount), // TODO: Change this in the future since Operators should profit from the bridge
             script_pubkey: withdrawal_address.script_pubkey(),
         };
         let txouts = vec![txout.clone()];
 
-        let mut tx = transaction_builder::create_btc_tx(txins, txouts.clone());
+        let mut tx = builder::transaction::create_btc_tx(txins, txouts.clone());
         let prevouts = vec![dust_utxo.txout.clone()];
 
         let sig = self.signer.sign_taproot_pubkey_spend_tx_with_sighash(
