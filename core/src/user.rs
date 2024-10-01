@@ -61,7 +61,7 @@ where
             self.nofn_xonly_pk,
             self.signer.address.as_unchecked(),
             evm_address,
-            self.config.bridge_amount_sats,
+            Amount::from_sat(self.config.bridge_amount_sats),
             self.config.network,
             self.config.user_takes_after,
         );

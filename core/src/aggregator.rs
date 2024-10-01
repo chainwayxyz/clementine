@@ -12,7 +12,7 @@ use crate::{
     ByteArray32, ByteArray66, EVMAddress, UTXO,
 };
 use async_trait::async_trait;
-use bitcoin::{address::NetworkUnchecked, Address, OutPoint};
+use bitcoin::{address::NetworkUnchecked, Address, Amount, OutPoint};
 use bitcoin::{hashes::Hash, Txid};
 use bitcoincore_rpc::RawTx;
 use secp256k1::schnorr;
@@ -65,7 +65,7 @@ impl Aggregator {
             self.config.network,
             self.config.user_takes_after,
             self.config.operator_takes_after,
-            self.config.bridge_amount_sats,
+            Amount::from_sat(self.config.bridge_amount_sats),
         );
         // tracing::debug!("SLASH_OR_TAKE_TX: {:?}", tx);
         tracing::debug!("SLASH_OR_TAKE_TX weight: {:?}", tx.tx.weight());
@@ -105,7 +105,7 @@ impl Aggregator {
         let move_tx = builder::transaction::create_move_tx(
             deposit_outpoint,
             self.nofn_xonly_pk,
-            self.config.bridge_amount_sats,
+            Amount::from_sat(self.config.bridge_amount_sats),
             self.config.network,
         );
         let bridge_fund_outpoint = OutPoint {
@@ -121,7 +121,7 @@ impl Aggregator {
             self.config.network,
             self.config.user_takes_after,
             self.config.operator_takes_after,
-            self.config.bridge_amount_sats,
+            Amount::from_sat(self.config.bridge_amount_sats),
         );
         let slash_or_take_utxo = UTXO {
             outpoint: OutPoint {
@@ -142,7 +142,7 @@ impl Aggregator {
             self.nofn_xonly_pk,
             self.config.network,
             self.config.operator_takes_after,
-            self.config.bridge_amount_sats,
+            Amount::from_sat(self.config.bridge_amount_sats),
             self.config.operator_wallet_addresses[operator_idx].clone(),
         );
         // tracing::debug!(
@@ -182,7 +182,7 @@ impl Aggregator {
             self.nofn_xonly_pk,
             self.config.network,
             self.config.user_takes_after,
-            self.config.bridge_amount_sats,
+            Amount::from_sat(self.config.bridge_amount_sats),
         );
         // println!("MOVE_TX: {:?}", tx);
         // println!("MOVE_TXID: {:?}", tx.tx.compute_txid());
@@ -307,7 +307,7 @@ impl Aggregator {
             self.nofn_xonly_pk,
             self.config.network,
             self.config.user_takes_after,
-            self.config.bridge_amount_sats,
+            Amount::from_sat(self.config.bridge_amount_sats),
         );
         let move_tx_witness_elements = vec![move_tx_sig.serialize().to_vec()];
         handle_taproot_witness_new(&mut move_tx_handler, &move_tx_witness_elements, 0, Some(0))?;

@@ -13,8 +13,8 @@ use crate::traits::rpc::VerifierRpcServer;
 use crate::{utils, ByteArray32, ByteArray64, ByteArray66, EVMAddress, UTXO};
 use bitcoin::address::NetworkUnchecked;
 use bitcoin::hashes::Hash;
-use bitcoin::Address;
 use bitcoin::{secp256k1, OutPoint};
+use bitcoin::{Address, Amount};
 use bitcoin_mock_rpc::RpcApiWrapper;
 use bitcoincore_rpc::RawTx;
 use jsonrpsee::core::async_trait;
@@ -85,7 +85,7 @@ where
             &deposit_outpoint,
             &recovery_taproot_address,
             evm_address,
-            self.config.bridge_amount_sats,
+            Amount::from_sat(self.config.bridge_amount_sats),
             self.config.confirmation_threshold,
             self.config.network,
             self.config.user_takes_after,
@@ -213,7 +213,7 @@ where
                 self.config.network,
                 self.config.user_takes_after,
                 self.config.operator_takes_after,
-                self.config.bridge_amount_sats,
+                Amount::from_sat(self.config.bridge_amount_sats),
             );
             let slash_or_take_tx_sighash =
                 Actor::convert_tx_to_sighash_script_spend(&mut slash_or_take_tx_handler, 0, 0)?;
@@ -302,7 +302,7 @@ where
             self.nofn_xonly_pk,
             self.config.network,
             self.config.user_takes_after,
-            self.config.bridge_amount_sats,
+            Amount::from_sat(self.config.bridge_amount_sats),
         );
 
         let bridge_fund_outpoint = OutPoint {
@@ -339,7 +339,7 @@ where
                     self.config.network,
                     self.config.user_takes_after,
                     self.config.operator_takes_after,
-                    self.config.bridge_amount_sats,
+                    Amount::from_sat(self.config.bridge_amount_sats),
                 );
                 let slash_or_take_sighash =
                     Actor::convert_tx_to_sighash_script_spend(&mut slash_or_take_tx_handler, 0, 0)
@@ -368,7 +368,7 @@ where
                     self.nofn_xonly_pk,
                     self.config.network,
                     self.config.operator_takes_after,
-                    self.config.bridge_amount_sats,
+                    Amount::from_sat(self.config.bridge_amount_sats),
                     self.config.operator_wallet_addresses[index].clone(),
                 );
                 ByteArray32(
@@ -439,7 +439,7 @@ where
                     self.config.network,
                     self.config.user_takes_after,
                     self.config.operator_takes_after,
-                    self.config.bridge_amount_sats,
+                    Amount::from_sat(self.config.bridge_amount_sats),
                 );
                 let slash_or_take_utxo = UTXO {
                     outpoint: OutPoint {
@@ -455,7 +455,7 @@ where
                     self.nofn_xonly_pk,
                     self.config.network,
                     self.config.operator_takes_after,
-                    self.config.bridge_amount_sats,
+                    Amount::from_sat(self.config.bridge_amount_sats),
                     self.config.operator_wallet_addresses[index].clone(),
                 );
                 tracing::debug!(
