@@ -95,11 +95,11 @@ where
     pub fn send_to_address(
         &self,
         address: &Address,
-        amount_sats: u64,
+        amount_sats: Amount,
     ) -> Result<OutPoint, BridgeError> {
         let txid = self.client.send_to_address(
             address,
-            Amount::from_sat(amount_sats),
+            amount_sats,
             None,
             None,
             None,

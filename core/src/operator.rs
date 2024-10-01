@@ -72,7 +72,7 @@ where
         let mut tx = db.begin_transaction().await?;
         // check if funding utxo is already set
         if db.get_funding_utxo(Some(&mut tx)).await?.is_none() {
-            let outpoint = rpc.send_to_address(&signer.address, 200_000_000)?;
+            let outpoint = rpc.send_to_address(&signer.address, Amount::from_sat(200_000_000))?; // TODO: Is this OK to be a fixed value
             let funding_utxo = UTXO {
                 outpoint,
                 txout: TxOut {
@@ -140,7 +140,7 @@ where
             &deposit_outpoint,
             &recovery_taproot_address,
             evm_address,
-            Amount::from_sat(self.config.bridge_amount_sats),
+            self.config.bridge_amount_sats,
             self.config.confirmation_threshold,
             self.config.network,
             self.config.user_takes_after,
@@ -345,13 +345,13 @@ where
         if withdrawal_amount
             .to_sat()
             .wrapping_sub(input_amount.to_sat())
-            > self.config.bridge_amount_sats
+            > self.config.bridge_amount_sats.to_sat()
         {
             return false;
         }
 
         // Calculate net profit after the withdrawal.
-        let net_profit = self.config.bridge_amount_sats - withdrawal_amount.to_sat();
+        let net_profit = self.config.bridge_amount_sats - withdrawal_amount;
 
         // Net profit must be bigger than withdrawal fee.
         net_profit > self.config.operator_withdrawal_fee_sats.unwrap()
@@ -509,7 +509,7 @@ where
             let move_tx = builder::transaction::create_move_tx(
                 deposit_outpoint,
                 self.nofn_xonly_pk,
-                Amount::from_sat(self.config.bridge_amount_sats),
+                self.config.bridge_amount_sats,
                 self.config.network,
             );
             let move_txid = move_tx.compute_txid();
@@ -581,7 +581,7 @@ where
             self.config.network,
             self.config.user_takes_after,
             self.config.operator_takes_after,
-            Amount::from_sat(self.config.bridge_amount_sats),
+            self.config.bridge_amount_sats,
         );
 
         let slash_or_take_utxo = UTXO {
@@ -614,7 +614,7 @@ where
         let move_tx = builder::transaction::create_move_tx(
             deposit_outpoint,
             self.nofn_xonly_pk,
-            Amount::from_sat(self.config.bridge_amount_sats),
+            self.config.bridge_amount_sats,
             self.config.network,
         );
         let bridge_fund_outpoint = OutPoint {
@@ -629,7 +629,7 @@ where
             self.nofn_xonly_pk,
             self.config.network,
             self.config.operator_takes_after,
-            Amount::from_sat(self.config.bridge_amount_sats),
+            self.config.bridge_amount_sats,
             self.config.operator_wallet_addresses[self.idx].clone(),
         );
 
@@ -763,8 +763,8 @@ mod tests {
         let mut config = create_test_config("is_profitable", "test_config.toml").await;
         let rpc = create_extended_rpc!(config);
 
-        config.bridge_amount_sats = 0x45;
-        config.operator_withdrawal_fee_sats = Some(0x1F);
+        config.bridge_amount_sats = Amount::from_sat(0x45);
+        config.operator_withdrawal_fee_sats = Some(Amount::from_sat(0x1F));
 
         let operator = Operator::new(config.clone(), rpc).await.unwrap();
 
@@ -779,16 +779,13 @@ mod tests {
 
         // False because net profit is smaller than
         // `config.operator_withdrawal_fee_sats`.
-        assert!(!operator.is_profitable(
-            Amount::from_sat(0),
-            Amount::from_sat(config.bridge_amount_sats)
-        ));
+        assert!(!operator.is_profitable(Amount::from_sat(0), config.bridge_amount_sats));
 
         // True because net profit is bigger than
         // `config.operator_withdrawal_fee_sats`.
         assert!(operator.is_profitable(
             Amount::from_sat(0),
-            Amount::from_sat(config.operator_withdrawal_fee_sats.unwrap() - 1)
+            config.operator_withdrawal_fee_sats.unwrap() - Amount::from_sat(1)
         ));
     }
 }

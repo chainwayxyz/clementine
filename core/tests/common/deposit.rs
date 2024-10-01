@@ -163,7 +163,8 @@ pub async fn run_multiple_deposits(test_config_name: &str) {
         .generate_withdrawal_transaction_and_signature(
             withdrawal_address.clone(),
             Amount::from_sat(
-                config.bridge_amount_sats - 2 * config.operator_withdrawal_fee_sats.unwrap(),
+                config.bridge_amount_sats.to_sat()
+                    - 2 * config.operator_withdrawal_fee_sats.unwrap().to_sat(),
             ),
         )
         .unwrap();
@@ -183,7 +184,8 @@ pub async fn run_multiple_deposits(test_config_name: &str) {
         .generate_withdrawal_transaction_and_signature(
             withdrawal_address.clone(),
             Amount::from_sat(
-                config.bridge_amount_sats - 2 * config.operator_withdrawal_fee_sats.unwrap(),
+                config.bridge_amount_sats.to_sat()
+                    - 2 * config.operator_withdrawal_fee_sats.unwrap().to_sat(),
             ),
         )
         .unwrap();
@@ -211,7 +213,8 @@ pub async fn run_multiple_deposits(test_config_name: &str) {
         .generate_withdrawal_transaction_and_signature(
             withdrawal_address.clone(),
             Amount::from_sat(
-                config.bridge_amount_sats - 2 * config.operator_withdrawal_fee_sats.unwrap(),
+                config.bridge_amount_sats.to_sat()
+                    - 2 * config.operator_withdrawal_fee_sats.unwrap().to_sat(),
             ),
         )
         .unwrap();

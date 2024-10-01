@@ -61,7 +61,7 @@ where
             self.nofn_xonly_pk,
             self.signer.address.as_unchecked(),
             evm_address,
-            Amount::from_sat(self.config.bridge_amount_sats),
+            self.config.bridge_amount_sats,
             self.config.network,
             self.config.user_takes_after,
         );
@@ -82,9 +82,10 @@ where
         withdrawal_address: Address,
         withdrawal_amount: Amount,
     ) -> Result<(UTXO, TxOut, schnorr::Signature), BridgeError> {
-        let dust_outpoint = self
-            .rpc
-            .send_to_address(&self.signer.address, WITHDRAWAL_EMPTY_UTXO_SATS)?;
+        let dust_outpoint = self.rpc.send_to_address(
+            &self.signer.address,
+            Amount::from_sat(WITHDRAWAL_EMPTY_UTXO_SATS),
+        )?;
         let dust_utxo = UTXO {
             outpoint: dust_outpoint,
             txout: TxOut {
@@ -139,8 +140,7 @@ mod tests {
                 .output
                 .get(deposit_utxo.vout as usize)
                 .unwrap()
-                .value
-                .to_sat(),
+                .value,
             config.bridge_amount_sats
         );
 

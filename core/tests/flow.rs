@@ -31,7 +31,8 @@ async fn honest_operator_takes_refund() {
     // We are giving enough sats to the user so that the operator can pay the
     // withdrawal and profit.
     let withdrawal_amount = Amount::from_sat(
-        config.bridge_amount_sats - 2 * config.operator_withdrawal_fee_sats.unwrap(),
+        config.bridge_amount_sats.to_sat()
+            - 2 * config.operator_withdrawal_fee_sats.unwrap().to_sat(),
     );
 
     let (empty_utxo, withdrawal_tx_out, user_sig) = user
@@ -94,7 +95,7 @@ async fn withdrawal_fee_too_low() {
     let (empty_utxo, withdrawal_tx_out, user_sig) = user
         .generate_withdrawal_transaction_and_signature(
             withdrawal_address,
-            Amount::from_sat(config.bridge_amount_sats),
+            Amount::from_sat(config.bridge_amount_sats.to_sat()),
         )
         .unwrap();
 
