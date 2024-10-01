@@ -14,7 +14,7 @@ use bitcoin::consensus::deserialize;
 use bitcoin::hashes::Hash;
 use bitcoin::script::PushBytesBuf;
 use bitcoin::sighash::SighashCache;
-use bitcoin::{Address, OutPoint, TapSighash, Transaction, TxOut, Txid};
+use bitcoin::{Address, Amount, OutPoint, TapSighash, Transaction, TxOut, Txid};
 use bitcoin_mock_rpc::RpcApiWrapper;
 use bitcoincore_rpc::RawTx;
 use jsonrpsee::core::async_trait;
@@ -341,13 +341,17 @@ where
     ///
     /// - `input_amount`:
     /// - `withdrawal_amount`:
-    fn is_profitable(&self, input_amount: u64, withdrawal_amount: u64) -> bool {
-        if withdrawal_amount.wrapping_sub(input_amount) > self.config.bridge_amount_sats {
+    fn is_profitable(&self, input_amount: Amount, withdrawal_amount: Amount) -> bool {
+        if withdrawal_amount
+            .to_sat()
+            .wrapping_sub(input_amount.to_sat())
+            > self.config.bridge_amount_sats
+        {
             return false;
         }
 
         // Calculate net profit after the withdrawal.
-        let net_profit = self.config.bridge_amount_sats - withdrawal_amount;
+        let net_profit = self.config.bridge_amount_sats - withdrawal_amount.to_sat();
 
         // Net profit must be bigger than withdrawal fee.
         net_profit > self.config.operator_withdrawal_fee_sats.unwrap()
@@ -401,7 +405,7 @@ where
             }
         }
 
-        if !self.is_profitable(input_utxo.txout.value.to_sat(), output_txout.value.to_sat()) {
+        if !self.is_profitable(input_utxo.txout.value, output_txout.value) {
             return Err(BridgeError::NotEnoughFeeForOperator);
         }
 
@@ -765,20 +769,26 @@ mod tests {
         let operator = Operator::new(config.clone(), rpc).await.unwrap();
 
         // Smaller input amount must not cause a panic.
-        operator.is_profitable(3, 1);
+        operator.is_profitable(Amount::from_sat(3), Amount::from_sat(1));
         // Bigger input amount must not cause a panic.
-        operator.is_profitable(6, 9);
+        operator.is_profitable(Amount::from_sat(6), Amount::from_sat(9));
 
         // False because difference between input and withdrawal amount is
         // bigger than `config.bridge_amount_sats`.
-        assert!(!operator.is_profitable(6, 90));
+        assert!(!operator.is_profitable(Amount::from_sat(6), Amount::from_sat(90)));
 
         // False because net profit is smaller than
         // `config.operator_withdrawal_fee_sats`.
-        assert!(!operator.is_profitable(0, config.bridge_amount_sats));
+        assert!(!operator.is_profitable(
+            Amount::from_sat(0),
+            Amount::from_sat(config.bridge_amount_sats)
+        ));
 
         // True because net profit is bigger than
         // `config.operator_withdrawal_fee_sats`.
-        assert!(operator.is_profitable(0, config.operator_withdrawal_fee_sats.unwrap() - 1));
+        assert!(operator.is_profitable(
+            Amount::from_sat(0),
+            Amount::from_sat(config.operator_withdrawal_fee_sats.unwrap() - 1)
+        ));
     }
 }
