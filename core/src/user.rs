@@ -12,7 +12,7 @@ use bitcoin_mock_rpc::RpcApiWrapper;
 use secp256k1::schnorr;
 use secp256k1::SecretKey;
 
-pub const WITHDRAWAL_EMPTY_UTXO_SATS: u64 = 550;
+pub const WITHDRAWAL_EMPTY_UTXO_SATS: Amount = Amount::from_sat(550);
 
 #[derive(Debug)]
 pub struct User<R> {
@@ -82,14 +82,13 @@ where
         withdrawal_address: Address,
         withdrawal_amount: Amount,
     ) -> Result<(UTXO, TxOut, schnorr::Signature), BridgeError> {
-        let dust_outpoint = self.rpc.send_to_address(
-            &self.signer.address,
-            Amount::from_sat(WITHDRAWAL_EMPTY_UTXO_SATS),
-        )?;
+        let dust_outpoint = self
+            .rpc
+            .send_to_address(&self.signer.address, WITHDRAWAL_EMPTY_UTXO_SATS)?;
         let dust_utxo = UTXO {
             outpoint: dust_outpoint,
             txout: TxOut {
-                value: Amount::from_sat(WITHDRAWAL_EMPTY_UTXO_SATS),
+                value: WITHDRAWAL_EMPTY_UTXO_SATS,
                 script_pubkey: self.signer.address.script_pubkey(),
             },
         };
