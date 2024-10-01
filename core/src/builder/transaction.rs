@@ -1,4 +1,7 @@
 //! # Transaction Builder
+//!
+//! Transaction builder provides useful functions for building typical Bitcoin
+//! transactions.
 
 use crate::builder;
 use crate::{utils, EVMAddress, UTXO};

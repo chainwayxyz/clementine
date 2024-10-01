@@ -1,6 +1,6 @@
 //! # Script Builder
 //!
-//! Script builder module includes useful functions for building Bitcoin
+//! Script builder provides useful functions for building typical Bitcoin
 //! scripts.
 
 use crate::EVMAddress;

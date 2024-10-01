@@ -1,3 +1,8 @@
+//! # Address Builder
+//!
+//! Address builder provides useful functions for building typical Bitcoin
+//! addresses.
+
 use crate::builder;
 use crate::{utils, EVMAddress};
 use bitcoin::address::NetworkUnchecked;
