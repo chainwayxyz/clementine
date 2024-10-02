@@ -127,7 +127,7 @@ impl Database {
     ///
     /// Will return [`BridgeError`] if there was a problem with database
     /// connection.
-    async fn run_schema_script(config: &BridgeConfig) -> Result<(), BridgeError> {
+    pub async fn run_schema_script(config: &BridgeConfig) -> Result<(), BridgeError> {
         let database = Database::new(config.clone()).await?;
 
         sqlx::raw_sql(include_str!("../../../scripts/schema.sql"))
