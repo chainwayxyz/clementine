@@ -112,16 +112,7 @@ impl Database {
     /// URL contains host, port, database name, user and password fields, which
     /// are picked from given configuration.
     fn get_postgresql_database_url(config: &BridgeConfig) -> String {
-        "postgresql://".to_owned()
-            + &config.db_host
-            + ":"
-            + &config.db_port.to_string()
-            + "?dbname="
-            + &config.db_name
-            + "&user="
-            + &config.db_user
-            + "&password="
-            + &config.db_password
+        Database::get_postgresql_url(config) + "/" + &config.db_name
     }
 
     /// Runs given SQL string to database. Database connection must be established
@@ -214,15 +205,15 @@ mod tests {
     fn get_postgresql_database_url() {
         let mut config = BridgeConfig::new();
 
-        config.db_user = "butforgot".to_string();
-        config.db_name = "bitcoins".to_string();
+        config.db_name = "times".to_string();
+        config.db_password = "funnier".to_string();
         config.db_port = 45;
-        config.db_password = "help".to_string();
-        config.db_host = "ihave".to_string();
+        config.db_user = "butyouare".to_string();
+        config.db_host = "parties".to_string();
 
         assert_eq!(
             &Database::get_postgresql_database_url(&config),
-            "postgresql://ihave:45?dbname=bitcoins&user=butforgot&password=help"
+            "postgresql://butyouare:funnier@parties:45/times"
         );
     }
 }
