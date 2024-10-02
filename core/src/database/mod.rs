@@ -1,23 +1,30 @@
-//! # Database
+//! # Database Operations
 //!
-//! Database module directly talks with database and does common operations for
-//! every module. So that other modules don't have to talk with database
-//! directly.
+//! Database crate provides functions that adds/reads values from PostgreSQL
+//! database.
+//!
+//! **Warning:** This crate won't configure PostgreSQL itself but excepts admin
+//! privileges to create/drop databases.
 
 use crate::{config::BridgeConfig, errors::BridgeError};
 use sqlx::{Pool, Postgres};
 
-pub mod common;
-pub mod wrapper;
+mod common;
+mod wrapper;
 
+/// Holds data about the connected PostgreSQL database.
 #[derive(Clone, Debug)]
 pub struct Database {
     connection: Pool<Postgres>,
 }
 
 impl Database {
-    /// Returns a `Database` after establishing a connection to database.
-    /// Returns error if database is not available.
+    /// Connects to the PostgreSQL database with given configuration. Returns
+    /// [`Database`] if database is accessible.
+    ///
+    /// # Errors
+    ///
+    /// Returns a [`BridgeError`] if database is not accessible.
     ///
     /// TODO: Pass the reference &BridgeConfig instead of copying BridgeConfig.
     pub async fn new(config: BridgeConfig) -> Result<Self, BridgeError> {
@@ -31,7 +38,6 @@ impl Database {
             + config.db_user.as_str()
             + "&password="
             + config.db_password.as_str();
-        tracing::debug!("Connecting database: {}", url);
 
         match sqlx::PgPool::connect(url.as_str()).await {
             Ok(c) => Ok(Self { connection: c }),
@@ -39,30 +45,9 @@ impl Database {
         }
     }
 
-    /// Closes database connection.
+    /// Closes current database connection.
     pub async fn close(&self) {
         self.connection.close().await;
-    }
-
-    /// Drops the given database if it exists.
-    pub async fn drop_database(
-        config: BridgeConfig,
-        database_name: &str,
-    ) -> Result<(), BridgeError> {
-        let url = "postgresql://".to_owned()
-            + config.db_user.as_str()
-            + ":"
-            + config.db_password.as_str()
-            + "@"
-            + config.db_host.as_str();
-        let conn = sqlx::PgPool::connect(url.as_str()).await?;
-
-        let query = format!("DROP DATABASE IF EXISTS {database_name}");
-        sqlx::query(&query).execute(&conn).await?;
-
-        conn.close().await;
-
-        Ok(())
     }
 
     /// Creates a new database with given name. A new database connection should
@@ -98,6 +83,27 @@ impl Database {
         };
 
         Ok(config)
+    }
+
+    /// Drops the given database if it exists.
+    pub async fn drop_database(
+        config: BridgeConfig,
+        database_name: &str,
+    ) -> Result<(), BridgeError> {
+        let url = "postgresql://".to_owned()
+            + config.db_user.as_str()
+            + ":"
+            + config.db_password.as_str()
+            + "@"
+            + config.db_host.as_str();
+        let conn = sqlx::PgPool::connect(url.as_str()).await?;
+
+        let query = format!("DROP DATABASE IF EXISTS {database_name}");
+        sqlx::query(&query).execute(&conn).await?;
+
+        conn.close().await;
+
+        Ok(())
     }
 
     /// Runs given SQL string to database. Database connection must be established
