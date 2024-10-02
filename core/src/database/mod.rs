@@ -71,22 +71,14 @@ impl Database {
     /// [`Database::new`] must be called after this to connect to the
     /// initialized database.
     pub async fn initialize_database(config: &BridgeConfig) -> Result<(), BridgeError> {
-        Database::drop_database(config.clone(), &config.db_name).await?;
+        // Clear artifacts.
+        Database::drop_database(config).await?;
 
-        let url = Database::get_postgresql_url(config);
-        let conn = sqlx::PgPool::connect(url.as_str()).await?;
+        // Create new database with correct owner.
+        Database::create_database(config).await?;
 
-        let query = format!(
-            "CREATE DATABASE {} WITH OWNER {}",
-            config.db_name, config.db_user
-        );
-        sqlx::query(&query).execute(&conn).await?;
-
-        conn.close().await;
-
-        let database = Database::new(config.clone()).await?;
-        database.init_from_schema().await?;
-        database.close().await;
+        // Run schema SQL script to initialize database.
+        Database::run_schema_script(config).await?;
 
         Ok(())
     }
@@ -96,22 +88,53 @@ impl Database {
     /// # Errors
     ///
     /// Will return [`BridgeError`] if there was a problem with database
-    /// connection.
-    async fn drop_database(config: BridgeConfig, database_name: &str) -> Result<(), BridgeError> {
-        let url = Database::get_postgresql_url(&config);
+    /// connection. Won't return any errors if database already not exists.
+    async fn drop_database(config: &BridgeConfig) -> Result<(), BridgeError> {
+        let url = Database::get_postgresql_url(config);
         let conn = sqlx::PgPool::connect(url.as_str()).await?;
 
-        let query = format!("DROP DATABASE IF EXISTS {database_name}");
+        let query = format!("DROP DATABASE IF EXISTS {}", &config.db_name);
         sqlx::query(&query).execute(&conn).await?;
 
         conn.close().await;
         Ok(())
     }
 
-    async fn init_from_schema(&self) -> Result<(), BridgeError> {
-        let schema = include_str!("../../../scripts/schema.sql");
-        sqlx::raw_sql(schema).execute(&self.connection).await?;
+    /// Drops a database with given name, if it exists.
+    ///
+    /// # Errors
+    ///
+    /// Will return [`BridgeError`] if there was a problem with database
+    /// connection.
+    async fn create_database(config: &BridgeConfig) -> Result<(), BridgeError> {
+        let url = Database::get_postgresql_url(config);
+        let conn = sqlx::PgPool::connect(url.as_str()).await?;
 
+        sqlx::query(&format!(
+            "CREATE DATABASE {} WITH OWNER {}",
+            config.db_name, config.db_user
+        ))
+        .execute(&conn)
+        .await?;
+
+        conn.close().await;
+        Ok(())
+    }
+
+    /// Drops a database with given name, if it exists.
+    ///
+    /// # Errors
+    ///
+    /// Will return [`BridgeError`] if there was a problem with database
+    /// connection.
+    async fn run_schema_script(config: &BridgeConfig) -> Result<(), BridgeError> {
+        let database = Database::new(config.clone()).await?;
+
+        sqlx::raw_sql(include_str!("../../../scripts/schema.sql"))
+            .execute(&database.connection)
+            .await?;
+
+        database.close().await;
         Ok(())
     }
 
@@ -171,7 +194,7 @@ mod tests {
         // Do not save return result so that connection will drop immediately.
         Database::new(config.clone()).await.unwrap();
 
-        Database::drop_database(config, &handle).await.unwrap();
+        Database::drop_database(&config).await.unwrap();
     }
 
     #[test]
