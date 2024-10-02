@@ -23,10 +23,6 @@ pub async fn create_test_config(db_name: &str, config_file: &str) -> BridgeConfi
     config.db_name = db_name.to_owned();
     Database::initialize_database(&config).await.unwrap();
 
-    let database = Database::new(config.clone()).await.unwrap();
-    database.init_from_schema().await.unwrap();
-    database.close().await;
-
     config
 }
 

@@ -20,9 +20,7 @@ async fn main() {
         config.bitcoin_rpc_password.clone(),
     );
 
-    let database = Database::new(config.clone()).await.unwrap();
-    database.init_from_schema().await.unwrap();
-    database.close().await;
+    Database::initialize_database(&config).await.unwrap();
 
     let mut handles = vec![];
 

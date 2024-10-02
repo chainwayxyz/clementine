@@ -83,6 +83,11 @@ impl Database {
         sqlx::query(&query).execute(&conn).await?;
 
         conn.close().await;
+
+        let database = Database::new(config.clone()).await?;
+        database.init_from_schema().await?;
+        database.close().await;
+
         Ok(())
     }
 
@@ -103,17 +108,11 @@ impl Database {
         Ok(())
     }
 
-    /// Runs given SQL string to database. Database connection must be established
-    /// before calling this function.
-    pub async fn run_sql(&self, raw_sql: &str) -> Result<(), BridgeError> {
-        sqlx::raw_sql(raw_sql).execute(&self.connection).await?;
+    async fn init_from_schema(&self) -> Result<(), BridgeError> {
+        let schema = include_str!("../../../scripts/schema.sql");
+        sqlx::raw_sql(schema).execute(&self.connection).await?;
 
         Ok(())
-    }
-
-    pub async fn init_from_schema(&self) -> Result<(), BridgeError> {
-        let schema = include_str!("../../../scripts/schema.sql");
-        self.run_sql(schema).await
     }
 
     /// Starts a database transaction.
