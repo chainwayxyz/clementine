@@ -28,19 +28,10 @@ impl Database {
     ///
     /// TODO: Pass the reference &BridgeConfig instead of copying BridgeConfig.
     pub async fn new(config: BridgeConfig) -> Result<Self, BridgeError> {
-        let url = "postgresql://".to_owned()
-            + config.db_host.as_str()
-            + ":"
-            + config.db_port.to_string().as_str()
-            + "?dbname="
-            + config.db_name.as_str()
-            + "&user="
-            + config.db_user.as_str()
-            + "&password="
-            + config.db_password.as_str();
+        let url = Database::get_database_url(&config);
 
-        match sqlx::PgPool::connect(url.as_str()).await {
-            Ok(c) => Ok(Self { connection: c }),
+        match sqlx::PgPool::connect(&url).await {
+            Ok(connection) => Ok(Self { connection }),
             Err(e) => Err(BridgeError::DatabaseError(e)),
         }
     }
@@ -85,7 +76,12 @@ impl Database {
         Ok(config)
     }
 
-    /// Drops the given database if it exists.
+    /// Drops a database with given name, if it exists.
+    ///
+    /// # Errors
+    ///
+    /// Will return [`BridgeError`] if there was a problem with database
+    /// connection.
     pub async fn drop_database(
         config: BridgeConfig,
         database_name: &str,
@@ -104,6 +100,21 @@ impl Database {
         conn.close().await;
 
         Ok(())
+    }
+
+    /// Prepares a valid PostgreSQL URL containing host, port, database name,
+    /// user and password fields, which are picked from given configuration.
+    fn get_database_url(config: &BridgeConfig) -> String {
+        "postgresql://".to_owned()
+            + &config.db_host
+            + ":"
+            + &config.db_port.to_string()
+            + "?dbname="
+            + &config.db_name
+            + "&user="
+            + &config.db_user
+            + "&password="
+            + &config.db_password
     }
 
     /// Runs given SQL string to database. Database connection must be established
@@ -140,8 +151,15 @@ mod tests {
     use std::thread;
 
     #[tokio::test]
+    async fn valid_database_connection() {
+        let config = create_test_config_with_thread_name("test_config.toml", None).await;
+
+        Database::new(config).await.unwrap();
+    }
+
+    #[tokio::test]
     #[should_panic]
-    async fn test_invalid_connection() {
+    async fn invalid_database_connection() {
         let mut config = BridgeConfig::new();
         config.db_host = "nonexistinghost".to_string();
         config.db_name = "nonexistingpassword".to_string();
@@ -153,14 +171,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_valid_connection() {
-        let config = create_test_config_with_thread_name("test_config.toml", None).await;
-
-        Database::new(config).await.unwrap();
-    }
-
-    #[tokio::test]
-    async fn test_create_drop_database() {
+    async fn create_drop_database() {
         let handle = thread::current()
             .name()
             .unwrap()
@@ -175,5 +186,21 @@ mod tests {
         Database::new(config.clone()).await.unwrap();
 
         Database::drop_database(config, &handle).await.unwrap();
+    }
+
+    #[test]
+    fn get_database_url() {
+        let mut config = BridgeConfig::new();
+
+        config.db_user = "butforgot".to_string();
+        config.db_name = "bitcoins".to_string();
+        config.db_port = 45;
+        config.db_password = "help".to_string();
+        config.db_host = "ihave".to_string();
+
+        assert_eq!(
+            &Database::get_database_url(&config),
+            "postgresql://ihave:45?dbname=bitcoins&user=butforgot&password=help"
+        );
     }
 }
