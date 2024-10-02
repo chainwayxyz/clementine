@@ -19,8 +19,9 @@ pub async fn create_test_config(db_name: &str, config_file: &str) -> BridgeConfi
     // Use maximum log level for tests.
     initialize_logger(5).unwrap();
 
-    let config = common::get_test_config(config_file).unwrap();
-    let config = Database::create_database(config, db_name).await.unwrap();
+    let mut config = common::get_test_config(config_file).unwrap();
+    config.db_name = db_name.to_owned();
+    Database::initialize_database(&config).await.unwrap();
 
     let database = Database::new(config.clone()).await.unwrap();
     database.init_from_schema().await.unwrap();

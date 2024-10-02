@@ -12,15 +12,15 @@ use sqlx::{Pool, Postgres};
 mod common;
 mod wrapper;
 
-/// Holds data about the connected PostgreSQL database.
+/// PostgreSQL database connection details.
 #[derive(Clone, Debug)]
 pub struct Database {
     connection: Pool<Postgres>,
 }
 
 impl Database {
-    /// Connects to the PostgreSQL database with given configuration. Returns
-    /// [`Database`] if database is accessible.
+    /// Establishes a new connection to a PostgreSQL database with given
+    /// configuration.
     ///
     /// # Errors
     ///
@@ -36,60 +36,9 @@ impl Database {
         }
     }
 
-    /// Closes current database connection.
+    /// Closes database connection.
     pub async fn close(&self) {
         self.connection.close().await;
-    }
-
-    /// Creates a new database with given name. A new database connection should
-    /// be established after with `Database::new(config)` call after this.
-    ///
-    /// This will drop the target database if it exist.
-    ///
-    /// Returns a new `BridgeConfig` with updated database name. Use that
-    /// `BridgeConfig` to create a new connection, using `Database::new()`.
-    pub async fn create_database(
-        config: BridgeConfig,
-        database_name: &str,
-    ) -> Result<BridgeConfig, BridgeError> {
-        let url = Database::get_postgresql_url(&config);
-        let conn = sqlx::PgPool::connect(url.as_str()).await?;
-        Database::drop_database(config.clone(), database_name).await?;
-        let query = format!(
-            "CREATE DATABASE {} WITH OWNER {}",
-            database_name, config.db_user
-        );
-        sqlx::query(&query).execute(&conn).await?;
-
-        conn.close().await;
-
-        let config = BridgeConfig {
-            db_name: database_name.to_string(),
-            ..config
-        };
-
-        Ok(config)
-    }
-
-    /// Drops a database with given name, if it exists.
-    ///
-    /// # Errors
-    ///
-    /// Will return [`BridgeError`] if there was a problem with database
-    /// connection.
-    pub async fn drop_database(
-        config: BridgeConfig,
-        database_name: &str,
-    ) -> Result<(), BridgeError> {
-        let url = Database::get_postgresql_url(&config);
-        let conn = sqlx::PgPool::connect(url.as_str()).await?;
-
-        let query = format!("DROP DATABASE IF EXISTS {database_name}");
-        sqlx::query(&query).execute(&conn).await?;
-
-        conn.close().await;
-
-        Ok(())
     }
 
     /// Prepares a valid PostgreSQL URL.
@@ -113,6 +62,48 @@ impl Database {
     /// are picked from given configuration.
     fn get_postgresql_database_url(config: &BridgeConfig) -> String {
         Database::get_postgresql_url(config) + "/" + &config.db_name
+    }
+
+    /// Initializes a new database with given configuration. If the database is
+    /// already initialized, it will be dropped before initialization. Meaning,
+    /// a clean state is guaranteed.
+    ///
+    /// [`Database::new`] must be called after this to connect to the
+    /// initialized database.
+    pub async fn initialize_database(config: &BridgeConfig) -> Result<(), BridgeError> {
+        let url = Database::get_postgresql_url(&config);
+
+        Database::drop_database(config.clone(), &config.db_name).await?;
+
+        let conn = sqlx::PgPool::connect(url.as_str()).await?;
+
+        let query = format!(
+            "CREATE DATABASE {} WITH OWNER {}",
+            config.db_name, config.db_user
+        );
+        sqlx::query(&query).execute(&conn).await?;
+
+        conn.close().await;
+
+        Ok(())
+    }
+
+    /// Drops a database with given name, if it exists.
+    ///
+    /// # Errors
+    ///
+    /// Will return [`BridgeError`] if there was a problem with database
+    /// connection.
+    async fn drop_database(config: BridgeConfig, database_name: &str) -> Result<(), BridgeError> {
+        let url = Database::get_postgresql_url(&config);
+        let conn = sqlx::PgPool::connect(url.as_str()).await?;
+
+        let query = format!("DROP DATABASE IF EXISTS {database_name}");
+        sqlx::query(&query).execute(&conn).await?;
+
+        conn.close().await;
+
+        Ok(())
     }
 
     /// Runs given SQL string to database. Database connection must be established
@@ -177,8 +168,9 @@ mod tests {
             .last()
             .unwrap()
             .to_owned();
-        let config = common::get_test_config("test_config.toml").unwrap();
-        let config = Database::create_database(config, &handle).await.unwrap();
+        let mut config = common::get_test_config("test_config.toml").unwrap();
+        config.db_name = handle.clone();
+        Database::initialize_database(&config).await.unwrap();
 
         // Do not save return result so that connection will drop immediately.
         Database::new(config.clone()).await.unwrap();
