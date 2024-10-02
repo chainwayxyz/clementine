@@ -71,10 +71,9 @@ impl Database {
     /// [`Database::new`] must be called after this to connect to the
     /// initialized database.
     pub async fn initialize_database(config: &BridgeConfig) -> Result<(), BridgeError> {
-        let url = Database::get_postgresql_url(&config);
-
         Database::drop_database(config.clone(), &config.db_name).await?;
 
+        let url = Database::get_postgresql_url(config);
         let conn = sqlx::PgPool::connect(url.as_str()).await?;
 
         let query = format!(
@@ -84,7 +83,6 @@ impl Database {
         sqlx::query(&query).execute(&conn).await?;
 
         conn.close().await;
-
         Ok(())
     }
 
@@ -102,7 +100,6 @@ impl Database {
         sqlx::query(&query).execute(&conn).await?;
 
         conn.close().await;
-
         Ok(())
     }
 
