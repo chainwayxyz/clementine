@@ -5,6 +5,5 @@
 //! directly.
 
 pub mod common;
-pub mod operator;
 pub mod verifier;
 pub mod wrapper;
