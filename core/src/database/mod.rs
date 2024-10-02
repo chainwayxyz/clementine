@@ -66,39 +66,21 @@ impl Database {
     /// already initialized, it will be dropped before initialization. Meaning,
     /// a clean state is guaranteed.
     ///
+    /// **Warning:** This must not be used in release environment.
+    ///
     /// [`Database::new`] must be called after this to connect to the
     /// initialized database.
     pub async fn initialize_database(config: &BridgeConfig) -> Result<(), BridgeError> {
-        // Clear artifacts.
         Database::drop_database(&config).await?;
 
-        // Create new database with correct owner.
         Database::create_database(&config).await?;
 
-        // Run schema SQL script to initialize database.
         Database::run_schema_script(&config).await?;
 
         Ok(())
     }
 
-    /// Drops a database with given name, if it exists.
-    ///
-    /// # Errors
-    ///
-    /// Will return [`BridgeError`] if there was a problem with database
-    /// connection. Won't return any errors if database already not exists.
-    async fn drop_database(config: &BridgeConfig) -> Result<(), BridgeError> {
-        let url = Database::get_postgresql_url(&config);
-        let conn = sqlx::PgPool::connect(url.as_str()).await?;
-
-        let query = format!("DROP DATABASE IF EXISTS {}", &config.db_name);
-        sqlx::query(&query).execute(&conn).await?;
-
-        conn.close().await;
-        Ok(())
-    }
-
-    /// Drops a database with given name, if it exists.
+    /// Creates a new database with given configuration.
     ///
     /// # Errors
     ///
@@ -119,7 +101,25 @@ impl Database {
         Ok(())
     }
 
-    /// Drops a database with given name, if it exists.
+    /// Drops the database for the given configuration, if it exists.
+    ///
+    /// # Errors
+    ///
+    /// Will return [`BridgeError`] if there was a problem with database
+    /// connection. It won't return any errors if the database does not already
+    /// exist.
+    async fn drop_database(config: &BridgeConfig) -> Result<(), BridgeError> {
+        let url = Database::get_postgresql_url(&config);
+        let conn = sqlx::PgPool::connect(url.as_str()).await?;
+
+        let query = format!("DROP DATABASE IF EXISTS {}", &config.db_name);
+        sqlx::query(&query).execute(&conn).await?;
+
+        conn.close().await;
+        Ok(())
+    }
+
+    /// Runs the schema script on a database for the given configuration.
     ///
     /// # Errors
     ///
