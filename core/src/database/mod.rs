@@ -39,29 +39,6 @@ impl Database {
         self.connection.close().await;
     }
 
-    /// Prepares a valid PostgreSQL URL.
-    ///
-    /// URL contains user, password, host and port fields, which are picked from
-    /// the given configuration.
-    fn get_postgresql_url(config: &BridgeConfig) -> String {
-        "postgresql://".to_owned()
-            + &config.db_user
-            + ":"
-            + &config.db_password
-            + "@"
-            + &config.db_host
-            + ":"
-            + &config.db_port.to_string()
-    }
-
-    /// Prepares a valid PostgreSQL URL to a specific database.
-    ///
-    /// URL contains user, password, host, port and database name fields, which
-    /// are picked from the given configuration.
-    fn get_postgresql_database_url(config: &BridgeConfig) -> String {
-        Database::get_postgresql_url(&config) + "/" + &config.db_name
-    }
-
     /// Initializes a new database with given configuration. If the database is
     /// already initialized, it will be dropped before initialization. Meaning,
     /// a clean state is guaranteed.
@@ -134,6 +111,29 @@ impl Database {
 
         database.close().await;
         Ok(())
+    }
+
+    /// Prepares a valid PostgreSQL URL.
+    ///
+    /// URL contains user, password, host and port fields, which are picked from
+    /// the given configuration.
+    fn get_postgresql_url(config: &BridgeConfig) -> String {
+        "postgresql://".to_owned()
+            + &config.db_user
+            + ":"
+            + &config.db_password
+            + "@"
+            + &config.db_host
+            + ":"
+            + &config.db_port.to_string()
+    }
+
+    /// Prepares a valid PostgreSQL URL to a specific database.
+    ///
+    /// URL contains user, password, host, port and database name fields, which
+    /// are picked from the given configuration.
+    fn get_postgresql_database_url(config: &BridgeConfig) -> String {
+        Database::get_postgresql_url(&config) + "/" + &config.db_name
     }
 
     /// Starts a database transaction.
