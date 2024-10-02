@@ -2,7 +2,7 @@ use crate::actor::Actor;
 use crate::builder::transaction::{TxHandler, KICKOFF_UTXO_AMOUNT_SATS};
 use crate::builder::{self};
 use crate::config::BridgeConfig;
-use crate::database::verifier::VerifierDB;
+use crate::database::common::Database;
 use crate::errors::BridgeError;
 use crate::extended_rpc::ExtendedRpc;
 use crate::musig2::{
@@ -27,7 +27,7 @@ where
 {
     rpc: ExtendedRpc<R>,
     signer: Actor,
-    db: VerifierDB,
+    db: Database,
     config: BridgeConfig,
     nofn_xonly_pk: secp256k1::XOnlyPublicKey,
     operator_xonly_pks: Vec<secp256k1::XOnlyPublicKey>,
@@ -47,7 +47,7 @@ where
             return Err(BridgeError::PublicKeyNotFound);
         }
 
-        let db = VerifierDB::new(config.clone()).await;
+        let db = Database::new(config.clone()).await?;
 
         let nofn_xonly_pk = secp256k1::XOnlyPublicKey::from_musig2_pks(
             config.verifiers_public_keys.clone(),
