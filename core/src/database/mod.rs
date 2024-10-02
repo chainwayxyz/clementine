@@ -94,8 +94,8 @@ impl Database {
 
     /// Prepares a valid PostgreSQL URL.
     ///
-    /// URL contains host, user and password fields, which are picked from given
-    /// configuration.
+    /// URL contains user, password, host and password fields, which are picked
+    /// from given configuration.
     fn get_postgresql_url(config: &BridgeConfig) -> String {
         "postgresql://".to_owned()
             + &config.db_user
@@ -103,6 +103,8 @@ impl Database {
             + &config.db_password
             + "@"
             + &config.db_host
+            + ":"
+            + &config.db_port.to_string()
     }
 
     /// Prepares a valid PostgreSQL URL to a specific database.
@@ -204,7 +206,7 @@ mod tests {
 
         assert_eq!(
             &Database::get_postgresql_url(&config),
-            "postgresql://iam:sofun@parties"
+            "postgresql://iam:sofun@parties:45"
         );
     }
 
