@@ -2,7 +2,7 @@ use clementine_core::servers::create_aggregator_server;
 use clementine_core::servers::create_operator_server;
 use clementine_core::servers::create_verifier_server;
 use clementine_core::utils::get_configuration_for_binaries;
-use clementine_core::{database::common::Database, extended_rpc::ExtendedRpc};
+use clementine_core::{database::Database, extended_rpc::ExtendedRpc};
 use std::process::exit;
 
 #[tokio::main]

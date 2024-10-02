@@ -3,7 +3,7 @@
 //! This module provides mock database interfaces, for testing.
 
 use super::common;
-use crate::{config::BridgeConfig, database::common::Database, utils::initialize_logger};
+use crate::{config::BridgeConfig, database::Database, utils::initialize_logger};
 use std::thread;
 
 /// Creates a temporary database for testing.

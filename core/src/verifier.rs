@@ -2,7 +2,7 @@ use crate::actor::Actor;
 use crate::builder::transaction::{TxHandler, KICKOFF_UTXO_AMOUNT_SATS};
 use crate::builder::{self};
 use crate::config::BridgeConfig;
-use crate::database::common::Database;
+use crate::database::Database;
 use crate::errors::BridgeError;
 use crate::extended_rpc::ExtendedRpc;
 use crate::musig2::{
