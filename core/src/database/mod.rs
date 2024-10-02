@@ -156,7 +156,6 @@ mod tests {
         database::Database,
         mock::{common, database::create_test_config_with_thread_name},
     };
-    use std::thread;
 
     #[tokio::test]
     async fn valid_database_connection() {
@@ -180,21 +179,42 @@ mod tests {
 
     #[tokio::test]
     async fn create_drop_database() {
-        let handle = thread::current()
-            .name()
-            .unwrap()
-            .split(':')
-            .last()
-            .unwrap()
-            .to_owned();
         let mut config = common::get_test_config("test_config.toml").unwrap();
-        config.db_name = handle.clone();
-        Database::initialize_database(&config).await.unwrap();
+        config.db_name = "create_drop_database".to_string();
 
-        // Do not save return result so that connection will drop immediately.
+        // Drop database (clear previous test run artifacts) and check that
+        // connection can't be established.
+        Database::drop_database(&config).await.unwrap();
+        assert!(Database::new(config.clone()).await.is_err());
+
+        // It should be possible to connect new database after creating it.
+        Database::create_database(&config).await.unwrap();
         Database::new(config.clone()).await.unwrap();
 
+        // Dropping database again should result connection to not be
+        // established.
         Database::drop_database(&config).await.unwrap();
+        assert!(Database::new(config.clone()).await.is_err());
+    }
+
+    #[tokio::test]
+    async fn initialize_database() {
+        let mut config = common::get_test_config("test_config.toml").unwrap();
+        config.db_name = "initialize_database".to_string();
+
+        // Drop database (clear previous test run artifacts) and check that
+        // connection can't be established.
+        Database::drop_database(&config).await.unwrap();
+        assert!(Database::new(config.clone()).await.is_err());
+
+        // It should be possible to initialize and connect to the new database.
+        Database::initialize_database(&config).await.unwrap();
+        Database::new(config.clone()).await.unwrap();
+
+        // Dropping database again should result connection to not be
+        // established.
+        Database::drop_database(&config).await.unwrap();
+        assert!(Database::new(config.clone()).await.is_err());
     }
 
     #[test]
