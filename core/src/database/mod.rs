@@ -3,7 +3,7 @@
 //! Database crate provides functions that adds/reads values from PostgreSQL
 //! database.
 //!
-//! **Warning:** This crate won't configure PostgreSQL itself but excepts admin
+//! **Warning:** This crate won't configure PostgreSQL itself and excepts admin
 //! privileges to create/drop databases.
 
 use crate::{config::BridgeConfig, errors::BridgeError};
@@ -28,7 +28,7 @@ impl Database {
     ///
     /// TODO: Pass the reference &BridgeConfig instead of copying BridgeConfig.
     pub async fn new(config: BridgeConfig) -> Result<Self, BridgeError> {
-        let url = Database::get_database_url(&config);
+        let url = Database::get_postgresql_database_url(&config);
 
         match sqlx::PgPool::connect(&url).await {
             Ok(connection) => Ok(Self { connection }),
@@ -52,12 +52,7 @@ impl Database {
         config: BridgeConfig,
         database_name: &str,
     ) -> Result<BridgeConfig, BridgeError> {
-        let url = "postgresql://".to_owned()
-            + config.db_user.as_str()
-            + ":"
-            + config.db_password.as_str()
-            + "@"
-            + config.db_host.as_str();
+        let url = Database::get_postgresql_url(&config);
         let conn = sqlx::PgPool::connect(url.as_str()).await?;
         Database::drop_database(config.clone(), database_name).await?;
         let query = format!(
@@ -86,12 +81,7 @@ impl Database {
         config: BridgeConfig,
         database_name: &str,
     ) -> Result<(), BridgeError> {
-        let url = "postgresql://".to_owned()
-            + config.db_user.as_str()
-            + ":"
-            + config.db_password.as_str()
-            + "@"
-            + config.db_host.as_str();
+        let url = Database::get_postgresql_url(&config);
         let conn = sqlx::PgPool::connect(url.as_str()).await?;
 
         let query = format!("DROP DATABASE IF EXISTS {database_name}");
@@ -102,9 +92,24 @@ impl Database {
         Ok(())
     }
 
-    /// Prepares a valid PostgreSQL URL containing host, port, database name,
-    /// user and password fields, which are picked from given configuration.
-    fn get_database_url(config: &BridgeConfig) -> String {
+    /// Prepares a valid PostgreSQL URL.
+    ///
+    /// URL contains host, user and password fields, which are picked from given
+    /// configuration.
+    fn get_postgresql_url(config: &BridgeConfig) -> String {
+        "postgresql://".to_owned()
+            + &config.db_user
+            + ":"
+            + &config.db_password
+            + "@"
+            + &config.db_host
+    }
+
+    /// Prepares a valid PostgreSQL URL to a specific database.
+    ///
+    /// URL contains host, port, database name, user and password fields, which
+    /// are picked from given configuration.
+    fn get_postgresql_database_url(config: &BridgeConfig) -> String {
         "postgresql://".to_owned()
             + &config.db_host
             + ":"
@@ -189,7 +194,22 @@ mod tests {
     }
 
     #[test]
-    fn get_database_url() {
+    fn get_postgresql_url() {
+        let mut config = BridgeConfig::new();
+
+        config.db_password = "sofun".to_string();
+        config.db_port = 45;
+        config.db_user = "iam".to_string();
+        config.db_host = "parties".to_string();
+
+        assert_eq!(
+            &Database::get_postgresql_url(&config),
+            "postgresql://iam:sofun@parties"
+        );
+    }
+
+    #[test]
+    fn get_postgresql_database_url() {
         let mut config = BridgeConfig::new();
 
         config.db_user = "butforgot".to_string();
@@ -199,7 +219,7 @@ mod tests {
         config.db_host = "ihave".to_string();
 
         assert_eq!(
-            &Database::get_database_url(&config),
+            &Database::get_postgresql_database_url(&config),
             "postgresql://ihave:45?dbname=bitcoins&user=butforgot&password=help"
         );
     }
