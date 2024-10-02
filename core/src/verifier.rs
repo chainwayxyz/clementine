@@ -47,7 +47,7 @@ where
             return Err(BridgeError::PublicKeyNotFound);
         }
 
-        let db = Database::new(config.clone()).await?;
+        let db = Database::new(&config).await?;
 
         let nofn_xonly_pk = secp256k1::XOnlyPublicKey::from_musig2_pks(
             config.verifiers_public_keys.clone(),
