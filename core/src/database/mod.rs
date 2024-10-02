@@ -26,7 +26,7 @@ impl Database {
     ///
     /// Returns a [`BridgeError`] if database is not accessible.
     pub async fn new(config: &BridgeConfig) -> Result<Self, BridgeError> {
-        let url = Database::get_postgresql_database_url(&config);
+        let url = Database::get_postgresql_database_url(config);
 
         match sqlx::PgPool::connect(&url).await {
             Ok(connection) => Ok(Self { connection }),
@@ -43,16 +43,21 @@ impl Database {
     /// already initialized, it will be dropped before initialization. Meaning,
     /// a clean state is guaranteed.
     ///
-    /// **Warning:** This must not be used in release environment.
-    ///
     /// [`Database::new`] must be called after this to connect to the
     /// initialized database.
+    ///
+    /// **Warning:** This must not be used in release environments and is only
+    /// suitable for testing.
+    ///
+    /// TODO: This function must be marked with `#[cfg(test)]` to prevent it
+    /// from infiltrating the binaries. See:
+    /// https://github.com/chainwayxyz/clementine/issues/181
     pub async fn initialize_database(config: &BridgeConfig) -> Result<(), BridgeError> {
-        Database::drop_database(&config).await?;
+        Database::drop_database(config).await?;
 
-        Database::create_database(&config).await?;
+        Database::create_database(config).await?;
 
-        Database::run_schema_script(&config).await?;
+        Database::run_schema_script(config).await?;
 
         Ok(())
     }
@@ -64,7 +69,7 @@ impl Database {
     /// Will return [`BridgeError`] if there was a problem with database
     /// connection.
     async fn create_database(config: &BridgeConfig) -> Result<(), BridgeError> {
-        let url = Database::get_postgresql_url(&config);
+        let url = Database::get_postgresql_url(config);
         let conn = sqlx::PgPool::connect(url.as_str()).await?;
 
         sqlx::query(&format!(
@@ -86,7 +91,7 @@ impl Database {
     /// connection. It won't return any errors if the database does not already
     /// exist.
     async fn drop_database(config: &BridgeConfig) -> Result<(), BridgeError> {
-        let url = Database::get_postgresql_url(&config);
+        let url = Database::get_postgresql_url(config);
         let conn = sqlx::PgPool::connect(url.as_str()).await?;
 
         let query = format!("DROP DATABASE IF EXISTS {}", &config.db_name);
@@ -103,7 +108,7 @@ impl Database {
     /// Will return [`BridgeError`] if there was a problem with database
     /// connection.
     pub async fn run_schema_script(config: &BridgeConfig) -> Result<(), BridgeError> {
-        let database = Database::new(&config).await?;
+        let database = Database::new(config).await?;
 
         sqlx::raw_sql(include_str!("../../../scripts/schema.sql"))
             .execute(&database.connection)
@@ -133,7 +138,7 @@ impl Database {
     /// URL contains user, password, host, port and database name fields, which
     /// are picked from the given configuration.
     fn get_postgresql_database_url(config: &BridgeConfig) -> String {
-        Database::get_postgresql_url(&config) + "/" + &config.db_name
+        Database::get_postgresql_url(config) + "/" + &config.db_name
     }
 
     /// Starts a database transaction.
