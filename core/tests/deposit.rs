@@ -1,18 +1,15 @@
 //! # Deposit Tests
 
+mod common;
+
 use bitcoin::consensus::encode::deserialize_hex;
 use bitcoin::Transaction;
-use clementine_core::actor::Actor;
-use clementine_core::create_extended_rpc;
-use clementine_core::extended_rpc::ExtendedRpc;
-use clementine_core::mock::database::create_test_config_with_thread_name;
 use clementine_core::musig2::MuSigPartialSignature;
-use clementine_core::servers::*;
-use clementine_core::traits::rpc::AggregatorClient;
-use clementine_core::traits::rpc::OperatorRpcClient;
-use clementine_core::traits::rpc::VerifierRpcClient;
+use clementine_core::traits::rpc::{AggregatorClient, OperatorRpcClient};
 use clementine_core::user::User;
 use clementine_core::EVMAddress;
+use clementine_core::{actor::Actor, traits::rpc::VerifierRpcClient};
+use common::{create_test_config_with_thread_name, create_verifiers_and_operators};
 
 #[tokio::test]
 async fn deposit_with_retry_checks() {

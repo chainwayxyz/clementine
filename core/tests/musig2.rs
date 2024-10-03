@@ -1,8 +1,8 @@
+mod common;
+
 use bitcoin::opcodes::all::OP_CHECKSIG;
 use bitcoin::{hashes::Hash, script, Amount, ScriptBuf};
 use clementine_core::builder::transaction::TxHandler;
-use clementine_core::create_extended_rpc;
-use clementine_core::mock::database::create_test_config_with_thread_name;
 use clementine_core::musig2::{
     aggregate_nonces, aggregate_partial_signatures, MuSigPartialSignature, MuSigPubNonce,
 };
@@ -12,10 +12,10 @@ use clementine_core::{
     actor::Actor,
     builder::{self},
     config::BridgeConfig,
-    extended_rpc::ExtendedRpc,
     musig2::{create_key_agg_ctx, nonce_pair, partial_sign, MuSigNoncePair},
     utils, ByteArray66,
 };
+use common::create_test_config_with_thread_name;
 use secp256k1::{Keypair, Message, PublicKey};
 
 fn get_verifiers_keys(

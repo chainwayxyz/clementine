@@ -92,10 +92,7 @@ impl Database {
 
 #[cfg(test)]
 mod tests {
-    use crate::{
-        config::BridgeConfig, database::Database,
-        mock::database::create_test_config_with_thread_name,
-    };
+    use crate::{config::BridgeConfig, database::Database};
 
     #[tokio::test]
     async fn valid_database_connection() {

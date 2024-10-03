@@ -25,7 +25,7 @@ macro_rules! create_extended_rpc {
 
         $config.bitcoin_rpc_url = handle.to_string();
 
-        ExtendedRpc::<bitcoin_mock_rpc::Client>::new(
+        clementine_core::extended_rpc::ExtendedRpc::<bitcoin_mock_rpc::Client>::new(
             $config.bitcoin_rpc_url.clone(),
             $config.bitcoin_rpc_user.clone(),
             $config.bitcoin_rpc_password.clone(),
@@ -49,7 +49,7 @@ macro_rules! create_extended_rpc {
         // Mutation for consistency with above defined macro
         $config.bitcoin_rpc_url = $config.bitcoin_rpc_url.clone();
 
-        ExtendedRpc::<bitcoincore_rpc::Client>::new(
+        clementine_core::extended_rpc::ExtendedRpc::<bitcoincore_rpc::Client>::new(
             $config.bitcoin_rpc_url.clone(),
             $config.bitcoin_rpc_user.clone(),
             $config.bitcoin_rpc_password.clone(),

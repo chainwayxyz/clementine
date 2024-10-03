@@ -585,12 +585,10 @@ where
 mod tests {
     use crate::actor::Actor;
     use crate::errors::BridgeError;
-    use crate::extended_rpc::ExtendedRpc;
     use crate::musig2::nonce_pair;
     use crate::user::User;
     use crate::verifier::Verifier;
     use crate::EVMAddress;
-    use crate::{create_extended_rpc, mock::database::create_test_config};
     use secp256k1::rand;
 
     #[tokio::test]

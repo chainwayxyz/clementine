@@ -588,7 +588,6 @@ impl Database {
 mod tests {
     use super::Database;
     use crate::{
-        mock::database::create_test_config_with_thread_name,
         musig2::{nonce_pair, MuSigAggNonce, MuSigPubNonce, MuSigSecNonce},
         ByteArray32, EVMAddress, UTXO,
     };

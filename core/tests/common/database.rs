@@ -2,6 +2,10 @@
 //!
 //! This module provides mock database interfaces, for testing.
 
+use clementine_core::{
+    config::BridgeConfig, database::Database, errors::BridgeError, utils::initialize_logger,
+};
+
 use super::common;
 use std::thread;
 
@@ -113,10 +117,17 @@ async fn drop_database(config: &BridgeConfig) -> Result<(), BridgeError> {
     Ok(())
 }
 
+#[cfg(test)]
 mod tests {
+    use crate::common::{
+        common::get_test_config,
+        database::{self, create_database, drop_database},
+    };
+    use clementine_core::database::Database;
+
     #[tokio::test]
     async fn create_drop_database() {
-        let mut config = common::get_test_config("test_config.toml").unwrap();
+        let mut config = get_test_config("test_config.toml").unwrap();
         config.db_name = "create_drop_database".to_string();
 
         // Drop database (clear previous test run artifacts) and check that
@@ -135,8 +146,8 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_initialize_database() {
-        let mut config = common::get_test_config("test_config.toml").unwrap();
+    async fn initialize_database() {
+        let mut config = get_test_config("test_config.toml").unwrap();
         config.db_name = "initialize_database".to_string();
 
         // Drop database (clear previous test run artifacts) and check that
@@ -145,9 +156,7 @@ mod tests {
         assert!(Database::new(&config).await.is_err());
 
         // It should be possible to initialize and connect to the new database.
-        crate::mock::database::initialize_database(&config)
-            .await
-            .unwrap();
+        database::initialize_database(&config).await.unwrap();
         Database::new(&config).await.unwrap();
 
         // Dropping database again should result connection to not be

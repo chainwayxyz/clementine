@@ -702,7 +702,6 @@ where
 #[cfg(test)]
 mod tests {
     use crate::{
-        create_extended_rpc, extended_rpc::ExtendedRpc, mock::database::create_test_config,
         operator::Operator, servers::create_operator_server, traits::rpc::OperatorRpcClient, UTXO,
     };
     use bitcoin::{hashes::Hash, Amount, OutPoint, ScriptBuf, TxOut, Txid};

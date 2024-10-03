@@ -1,3 +1,5 @@
+mod common;
+
 use bitcoin::hashes::{Hash, HashEngine};
 use bitcoin::opcodes::all::OP_CHECKSIG;
 use bitcoin::script::Builder;
@@ -5,10 +7,8 @@ use bitcoin::{Address, Amount, TapTweakHash, TxOut, XOnlyPublicKey};
 use clementine_core::actor::Actor;
 use clementine_core::builder::transaction::TxHandler;
 use clementine_core::builder::{self};
-use clementine_core::create_extended_rpc;
-use clementine_core::extended_rpc::ExtendedRpc;
-use clementine_core::mock::database::create_test_config_with_thread_name;
 use clementine_core::utils::{handle_taproot_witness_new, SECP};
+use common::create_test_config_with_thread_name;
 
 #[tokio::test]
 async fn create_address_and_transaction_then_sign_transaction() {

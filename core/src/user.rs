@@ -119,7 +119,6 @@ mod tests {
     use crate::extended_rpc::ExtendedRpc;
     use crate::user::User;
     use crate::EVMAddress;
-    use crate::{create_extended_rpc, mock::database::create_test_config};
     use secp256k1::{rand, SecretKey};
 
     #[tokio::test]

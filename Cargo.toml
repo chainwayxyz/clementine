@@ -1,6 +1,6 @@
 [workspace]
 resolver = "2"
-members = ["core", "mock"] # TODO: Add "circuits" back later
+members = ["core"] # TODO: Add "circuits" back later
 
 [workspace.dependencies]
 bitcoin = "0.32.2"

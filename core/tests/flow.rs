@@ -2,15 +2,14 @@
 //!
 //! This tests checks if typical flows works or not.
 
+mod common;
+
 use bitcoin::{Address, Amount};
 use clementine_core::errors::BridgeError;
-use clementine_core::extended_rpc::ExtendedRpc;
 use clementine_core::utils::SECP;
-use clementine_core::{create_extended_rpc, traits::rpc::OperatorRpcClient, user::User};
+use clementine_core::{traits::rpc::OperatorRpcClient, user::User};
 use common::run_single_deposit;
 use secp256k1::SecretKey;
-
-mod common;
 
 #[tokio::test]
 async fn honest_operator_takes_refund() {

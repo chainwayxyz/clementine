@@ -29,9 +29,6 @@ sqlx = { workspace = true, features = ["runtime-tokio", "postgres", "macros"] }
 bitcoin-mock-rpc = { workspace = true }
 musig2 = { workspace = true }
 
-[dev-dependencies]
-mock = { path = "../mock" }
-
 [features]
 default = []
 mock_rpc = []

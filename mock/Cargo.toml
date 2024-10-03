@@ -1,5 +1,0 @@
-[package]
-name = "mock"
-description = "Mock interfaces for testing"
-version = "0.0.0"
-edition = "2021"
