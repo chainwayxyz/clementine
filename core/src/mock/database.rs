@@ -67,10 +67,6 @@ pub async fn create_test_config_with_thread_name(
 ///
 /// **Warning:** This must not be used in release environments and is only
 /// suitable for testing.
-///
-/// TODO: This function must be marked with `#[cfg(test)]` to prevent it
-/// from infiltrating the binaries. See:
-/// https://github.com/chainwayxyz/clementine/issues/181
 pub async fn initialize_database(config: &BridgeConfig) -> Result<(), BridgeError> {
     drop_database(config).await?;
 
