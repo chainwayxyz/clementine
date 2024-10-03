@@ -1,4 +1,4 @@
-use crypto_bigint::U256;
+use crypto_bigint::{Encoding, U256};
 
 use crate::{
     bitcoin::{
@@ -89,6 +89,39 @@ fn read_header_except_prev_blockhash<E: Environment>() -> HeaderWithoutPrevBlock
     let bits = E::read_u32();
     let nonce = E::read_u32();
     (version, merkle_root, time, bits, nonce)
+}
+
+pub fn header_chain_proof<E: Environment>() -> (u32, [u8; 32], [u8; 32]) {
+    let start_block_hash = E::read_32bytes();
+    let _method_id = E::read_32bytes();
+    let return_offset = E::read_u32();
+    // let prev_receipt = E::read_32bytes();
+    let batch_size = E::read_u32();
+    let mut total_work = U256::ZERO; // Change this to previeous work
+    let mut curr_prev_block_hash = start_block_hash;
+
+    let mut to_return_block_hash: [u8; 32] = [0; 32];
+
+    for i in 0..batch_size {
+        let header_without_prev_blockhash = read_header_except_prev_blockhash::<E>();
+        curr_prev_block_hash =
+            calculate_next_block_hash(curr_prev_block_hash, header_without_prev_blockhash);
+        total_work = validate_threshold_and_add_work(
+            header_without_prev_blockhash.3.to_le_bytes(),
+            curr_prev_block_hash,
+            total_work,
+        );
+        if i == batch_size - return_offset - 1 {
+            to_return_block_hash = curr_prev_block_hash;
+        }
+    }
+    // tracing::debug!(
+    //     "READ {:?} blocks from blockhash {:?}, total_work: {:?}",
+    //     num_blocks,
+    //     start_prev_block_hash,
+    //     total_work
+    // );
+    (return_offset, to_return_block_hash, total_work.to_be_bytes())
 }
 
 fn read_header_except_root_and_calculate_blockhash<E: Environment>(mt_root: HashType) -> [u8; 32] {
