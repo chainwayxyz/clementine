@@ -3,9 +3,6 @@
 //! This module provides mock database interfaces, for testing.
 
 use super::common;
-use crate::{
-    config::BridgeConfig, database::Database, errors::BridgeError, utils::initialize_logger,
-};
 use std::thread;
 
 /// Creates a temporary database for testing.
@@ -116,19 +113,10 @@ async fn drop_database(config: &BridgeConfig) -> Result<(), BridgeError> {
     Ok(())
 }
 
-#[cfg(test)]
 mod tests {
-    use crate::{
-        database::Database,
-        mock::{
-            common::get_test_config,
-            database::{create_database, drop_database},
-        },
-    };
-
     #[tokio::test]
     async fn create_drop_database() {
-        let mut config = get_test_config("test_config.toml").unwrap();
+        let mut config = common::get_test_config("test_config.toml").unwrap();
         config.db_name = "create_drop_database".to_string();
 
         // Drop database (clear previous test run artifacts) and check that
@@ -147,8 +135,8 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn initialize_database() {
-        let mut config = get_test_config("test_config.toml").unwrap();
+    async fn test_initialize_database() {
+        let mut config = common::get_test_config("test_config.toml").unwrap();
         config.db_name = "initialize_database".to_string();
 
         // Drop database (clear previous test run artifacts) and check that

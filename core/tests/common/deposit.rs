@@ -1,5 +1,7 @@
 //! # Deposit Related Utilities
 
+use crate::common::mock::database::create_test_config_with_thread_name;
+use crate::create_extended_rpc;
 use bitcoin::consensus::encode::deserialize_hex;
 use bitcoin::Address;
 use bitcoin::Amount;
@@ -7,15 +9,9 @@ use bitcoin::OutPoint;
 use bitcoin::Transaction;
 use clementine_core::actor::Actor;
 use clementine_core::config::BridgeConfig;
-use clementine_core::create_extended_rpc;
 use clementine_core::errors::BridgeError;
-use clementine_core::extended_rpc::ExtendedRpc;
-use clementine_core::mock::database::create_test_config_with_thread_name;
 use clementine_core::musig2::MuSigPartialSignature;
-use clementine_core::servers::*;
-use clementine_core::traits::rpc::AggregatorClient;
-use clementine_core::traits::rpc::OperatorRpcClient;
-use clementine_core::traits::rpc::VerifierRpcClient;
+use clementine_core::servers::create_verifiers_and_operators;
 use clementine_core::user::User;
 use clementine_core::EVMAddress;
 use jsonrpsee::http_client::HttpClient;
