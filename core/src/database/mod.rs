@@ -39,68 +39,6 @@ impl Database {
         self.connection.close().await;
     }
 
-    /// Initializes a new database with given configuration. If the database is
-    /// already initialized, it will be dropped before initialization. Meaning,
-    /// a clean state is guaranteed.
-    ///
-    /// [`Database::new`] must be called after this to connect to the
-    /// initialized database.
-    ///
-    /// **Warning:** This must not be used in release environments and is only
-    /// suitable for testing.
-    ///
-    /// TODO: This function must be marked with `#[cfg(test)]` to prevent it
-    /// from infiltrating the binaries. See:
-    /// https://github.com/chainwayxyz/clementine/issues/181
-    pub async fn initialize_database(config: &BridgeConfig) -> Result<(), BridgeError> {
-        Database::drop_database(config).await?;
-
-        Database::create_database(config).await?;
-
-        Database::run_schema_script(config).await?;
-
-        Ok(())
-    }
-
-    /// Creates a new database with given configuration.
-    ///
-    /// # Errors
-    ///
-    /// Will return [`BridgeError`] if there was a problem with database
-    /// connection.
-    async fn create_database(config: &BridgeConfig) -> Result<(), BridgeError> {
-        let url = Database::get_postgresql_url(config);
-        let conn = sqlx::PgPool::connect(url.as_str()).await?;
-
-        sqlx::query(&format!(
-            "CREATE DATABASE {} WITH OWNER {}",
-            config.db_name, config.db_user
-        ))
-        .execute(&conn)
-        .await?;
-
-        conn.close().await;
-        Ok(())
-    }
-
-    /// Drops the database for the given configuration, if it exists.
-    ///
-    /// # Errors
-    ///
-    /// Will return [`BridgeError`] if there was a problem with database
-    /// connection. It won't return any errors if the database does not already
-    /// exist.
-    async fn drop_database(config: &BridgeConfig) -> Result<(), BridgeError> {
-        let url = Database::get_postgresql_url(config);
-        let conn = sqlx::PgPool::connect(url.as_str()).await?;
-
-        let query = format!("DROP DATABASE IF EXISTS {}", &config.db_name);
-        sqlx::query(&query).execute(&conn).await?;
-
-        conn.close().await;
-        Ok(())
-    }
-
     /// Runs the schema script on a database for the given configuration.
     ///
     /// # Errors
@@ -122,7 +60,7 @@ impl Database {
     ///
     /// URL contains user, password, host and port fields, which are picked from
     /// the given configuration.
-    fn get_postgresql_url(config: &BridgeConfig) -> String {
+    pub fn get_postgresql_url(config: &BridgeConfig) -> String {
         "postgresql://".to_owned()
             + &config.db_user
             + ":"
@@ -137,7 +75,7 @@ impl Database {
     ///
     /// URL contains user, password, host, port and database name fields, which
     /// are picked from the given configuration.
-    fn get_postgresql_database_url(config: &BridgeConfig) -> String {
+    pub fn get_postgresql_database_url(config: &BridgeConfig) -> String {
         Database::get_postgresql_url(config) + "/" + &config.db_name
     }
 
@@ -155,9 +93,8 @@ impl Database {
 #[cfg(test)]
 mod tests {
     use crate::{
-        config::BridgeConfig,
-        database::Database,
-        mock::{common, database::create_test_config_with_thread_name},
+        config::BridgeConfig, database::Database,
+        mock::database::create_test_config_with_thread_name,
     };
 
     #[tokio::test]
@@ -178,46 +115,6 @@ mod tests {
         config.db_port = 123;
 
         Database::new(&config).await.unwrap();
-    }
-
-    #[tokio::test]
-    async fn create_drop_database() {
-        let mut config = common::get_test_config("test_config.toml").unwrap();
-        config.db_name = "create_drop_database".to_string();
-
-        // Drop database (clear previous test run artifacts) and check that
-        // connection can't be established.
-        Database::drop_database(&config).await.unwrap();
-        assert!(Database::new(&config).await.is_err());
-
-        // It should be possible to connect new database after creating it.
-        Database::create_database(&config).await.unwrap();
-        Database::new(&config).await.unwrap();
-
-        // Dropping database again should result connection to not be
-        // established.
-        Database::drop_database(&config).await.unwrap();
-        assert!(Database::new(&config).await.is_err());
-    }
-
-    #[tokio::test]
-    async fn initialize_database() {
-        let mut config = common::get_test_config("test_config.toml").unwrap();
-        config.db_name = "initialize_database".to_string();
-
-        // Drop database (clear previous test run artifacts) and check that
-        // connection can't be established.
-        Database::drop_database(&config).await.unwrap();
-        assert!(Database::new(&config).await.is_err());
-
-        // It should be possible to initialize and connect to the new database.
-        Database::initialize_database(&config).await.unwrap();
-        Database::new(&config).await.unwrap();
-
-        // Dropping database again should result connection to not be
-        // established.
-        Database::drop_database(&config).await.unwrap();
-        assert!(Database::new(&config).await.is_err());
     }
 
     #[test]
