@@ -549,7 +549,7 @@ mod tests {
 
         MockEnvironment::write_u32(1); // this is the genesis proof
         MockEnvironment::write_32bytes(start_block_hash);
-        MockEnvironment::write_32bytes([0u8; 32]);
+        MockEnvironment::write_u32x8(GUEST_ID);
         MockEnvironment::write_u32(0);
 
         ENVWriter::<MockEnvironment>::write_blocks(headers[0..5].to_vec());
@@ -574,6 +574,7 @@ mod tests {
         println!("pow: {:?}", pow);
         println!("receipt: {:?}", prove_info.receipt);
         println!("guest id: {:?}", GUEST_ID);
+        println!("method_id: {:?}", method_id);
         MockEnvironment::reset_mock_env();
 
         MockEnvironment::write_u32(0); // this is not the genesis proof
@@ -582,11 +583,11 @@ mod tests {
         MockEnvironment::write_32bytes(pow);
         MockEnvironment::write_u32x8(GUEST_ID);
 
-        MockEnvironment::write_32bytes(start_block_hash);
-        MockEnvironment::write_32bytes([0u8; 32]);
+        // MockEnvironment::write_32bytes(start_block_hash);
+        // MockEnvironment::write_32bytes([0u8; 32]);
         MockEnvironment::write_u32(0);
 
-        ENVWriter::<MockEnvironment>::write_blocks(headers[0..5].to_vec());
+        ENVWriter::<MockEnvironment>::write_blocks(headers[5..10].to_vec());
         let mut env = MockEnvironment::output_env();
         let env = env.add_assumption(prove_info.receipt).build().unwrap();
         let prove_info = prover

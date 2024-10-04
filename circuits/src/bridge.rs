@@ -99,6 +99,8 @@ pub fn header_chain_proof<E: Environment>() -> (u32, [u8; 32], [u8; 32], [u32; 8
         let prev_total_work = E::read_32bytes();
         let prev_method_id = E::read_u32x8();
 
+        assert_eq!(prev_offset, 0);
+
         let mut journal = [0u32; 73];
         journal[0] = prev_offset;
         for i in 0..32 {
@@ -112,12 +114,11 @@ pub fn header_chain_proof<E: Environment>() -> (u32, [u8; 32], [u8; 32], [u32; 8
         }
         E::verify(prev_method_id, &journal);
 
-        (prev_block_hash, prev_method_id, U256::from_le_slice(&prev_total_work))
+        (prev_block_hash, prev_method_id, U256::from_be_bytes(prev_total_work))
     } else {
         let start_block_hash = E::read_32bytes();
-        let _method_id = E::read_32bytes();
-
-        (start_block_hash, [0u32; 8], U256::ZERO)
+        let method_id = E::read_u32x8();
+        (start_block_hash, method_id, U256::ZERO)
     };
     let return_offset = E::read_u32();
     // let prev_receipt = E::read_32bytes();
