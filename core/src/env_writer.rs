@@ -330,7 +330,8 @@ mod tests {
         env::Environment,
         incremental_merkle::IncrementalMerkleTree,
     };
-    use risc0_zkvm::{default_prover, ProverOpts};
+    use risc0_zkvm::{default_prover, ProverOpts, Receipt};
+    use serde::Serialize;
     use std::sync::Mutex;
     // use operator_circuit::GUEST_ELF;
     use crate::{
@@ -545,55 +546,71 @@ mod tests {
             include_bytes!("../tests/data/mainnet_blocks_from_832000_to_833096.raw").to_vec();
 
         let headers: Vec<Header> = deserialize(&mainnet_blocks_from_832000_to_833096).unwrap();
-        let start_block_hash = headers[0].prev_blockhash.to_byte_array();
+        let genesis_block_hash = headers[0].prev_blockhash.to_byte_array();
+
+        MockEnvironment::write_32bytes(genesis_block_hash); // Write the geneis block hash first.
 
         MockEnvironment::write_u32(1); // this is the genesis proof
-        MockEnvironment::write_32bytes(start_block_hash);
+
         MockEnvironment::write_u32x8(GUEST_ID);
         MockEnvironment::write_u32(0);
 
-        ENVWriter::<MockEnvironment>::write_blocks(headers[0..5].to_vec());
-
-        // let res = header_chain_proof::<MockEnvironment>();
-        // assert_eq!(
-        //     U256::from(380064701315057048298976312u128).to_be_bytes(),
-        //     res.2
-        // )
+        ENVWriter::<MockEnvironment>::write_blocks(headers[0..540].to_vec());
 
         let env = MockEnvironment::output_env().build().unwrap();
         let prover = default_prover();
-        // let env = risc0_zkvm::ExecutorEnv::builder().build().unwrap();
         let prover_opts = ProverOpts::succinct();
         let prove_info = prover
             .prove_with_opts(env, GUEST_ELF, &prover_opts)
             .unwrap();
-        let (offset, blockhash, pow, method_id): (u32, [u8; 32], [u8; 32], [u32; 8]) = prove_info.receipt.journal.decode().unwrap();
+        let (method_id, genesis_block_hash, offset, blockhash, pow): (
+            [u32; 8],
+            [u8; 32],
+            u32,
+            [u8; 32],
+            [u8; 32],
+        ) = prove_info.receipt.journal.decode().unwrap();
         // let blockhash = prove_info.receipt.journal.decode().unwrap();
         println!("offset: {:?}", offset);
         println!("blockhash: {:?}", blockhash);
         println!("pow: {:?}", pow);
-        println!("receipt: {:?}", prove_info.receipt);
+        // println!("receipt: {:?}", prove_info.receipt);
         println!("guest id: {:?}", GUEST_ID);
         println!("method_id: {:?}", method_id);
+        // save the receipt to a file
+        let receipt = serde_json::to_string(&prove_info.receipt).unwrap();
+        // write to a file with filename blockhash.json
+        std::fs::write(format!("{}.json", hex::encode(blockhash)), receipt).unwrap();
+
+        // read the receipt from the file
+        let receipt: Receipt = serde_json::from_str(
+            &std::fs::read_to_string(format!("{}.json", hex::encode(blockhash))).unwrap(),
+        )
+        .unwrap();
+
         MockEnvironment::reset_mock_env();
 
+        MockEnvironment::write_32bytes(genesis_block_hash); // Write the geneis block hash first.
+
         MockEnvironment::write_u32(0); // this is not the genesis proof
+        MockEnvironment::write_u32x8(GUEST_ID);
         MockEnvironment::write_u32(offset);
         MockEnvironment::write_32bytes(blockhash);
         MockEnvironment::write_32bytes(pow);
-        MockEnvironment::write_u32x8(GUEST_ID);
-
-        // MockEnvironment::write_32bytes(start_block_hash);
-        // MockEnvironment::write_32bytes([0u8; 32]);
-        MockEnvironment::write_u32(0);
-
-        ENVWriter::<MockEnvironment>::write_blocks(headers[5..10].to_vec());
+        MockEnvironment::write_u32(500); // offset we need
+        ENVWriter::<MockEnvironment>::write_blocks(headers[540..1080].to_vec());
         let mut env = MockEnvironment::output_env();
-        let env = env.add_assumption(prove_info.receipt).build().unwrap();
+        let env = env.add_assumption(receipt).build().unwrap();
         let prove_info = prover
             .prove_with_opts(env, GUEST_ELF, &prover_opts)
             .unwrap();
-        let (offset, blockhash, pow, method_id): (u32, [u8; 32], [u8; 32], [u32; 8]) = prove_info.receipt.journal.decode().unwrap();
+        let (method_id, genesis_block_hash, offset, blockhash, pow): (
+            [u32; 8],
+            [u8; 32],
+            u32,
+            [u8; 32],
+            [u8; 32],
+        ) = prove_info.receipt.journal.decode().unwrap();
         // let blockhash: [u8; 32] = prove_info.receipt.journal.decode().unwrap();
         println!("offset: {:?}", offset);
         println!("blockhash: {:?}", blockhash);

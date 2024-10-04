@@ -91,41 +91,46 @@ fn read_header_except_prev_blockhash<E: Environment>() -> HeaderWithoutPrevBlock
     (version, merkle_root, time, bits, nonce)
 }
 
-pub fn header_chain_proof<E: Environment>() -> (u32, [u8; 32], [u8; 32], [u32; 8]) {
+pub fn header_chain_proof<E: Environment>() -> ([u32; 8], [u8; 32], u32, [u8; 32], [u8; 32]) {
+    let genesis_block_hash = E::read_32bytes();
     let is_genesis = E::read_u32();
     let (mut curr_prev_block_hash, method_id, mut total_work) = if is_genesis == 0 {
+        let prev_method_id = E::read_u32x8();
         let prev_offset = E::read_u32();
         let prev_block_hash = E::read_32bytes();
         let prev_total_work = E::read_32bytes();
-        let prev_method_id = E::read_u32x8();
 
         assert_eq!(prev_offset, 0);
 
-        let mut journal = [0u32; 73];
-        journal[0] = prev_offset;
-        for i in 0..32 {
-            journal[i + 1] = prev_block_hash[i] as u32;
-        }
-        for i in 0..32 {
-            journal[i + 33] = prev_total_work[i] as u32;
-        }
+        let mut journal = [0u32; 105];
         for i in 0..8 {
-            journal[i + 65] = prev_method_id[i];
+            journal[i] = prev_method_id[i];
         }
+        for i in 0..32 {
+            journal[i + 8] = genesis_block_hash[i] as u32;
+        }
+        journal[40] = prev_offset;
+        for i in 0..32 {
+            journal[i + 41] = prev_block_hash[i] as u32;
+        }
+        for i in 0..32 {
+            journal[i + 73] = prev_total_work[i] as u32;
+        }
+
         E::verify(prev_method_id, &journal);
 
-        (prev_block_hash, prev_method_id, U256::from_be_bytes(prev_total_work))
+        (
+            prev_block_hash,
+            prev_method_id,
+            U256::from_be_bytes(prev_total_work),
+        )
     } else {
-        let start_block_hash = E::read_32bytes();
         let method_id = E::read_u32x8();
-        (start_block_hash, method_id, U256::ZERO)
+        (genesis_block_hash, method_id, U256::ZERO)
     };
     let return_offset = E::read_u32();
-    // let prev_receipt = E::read_32bytes();
     let batch_size = E::read_u32();
     // TODO: Requrie offset<batch_size
-    // let mut total_work = U256::ZERO; // Change this to previeous work
-    // let mut curr_prev_block_hash = start_block_hash;
 
     let mut to_return_block_hash: [u8; 32] = [0; 32];
 
@@ -143,10 +148,11 @@ pub fn header_chain_proof<E: Environment>() -> (u32, [u8; 32], [u8; 32], [u32; 8
         }
     }
     (
+        method_id,
+        genesis_block_hash,
         return_offset,
         to_return_block_hash,
         total_work.to_be_bytes(),
-        method_id,
     )
 }
 
