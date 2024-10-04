@@ -91,29 +91,40 @@ fn read_header_except_prev_blockhash<E: Environment>() -> HeaderWithoutPrevBlock
     (version, merkle_root, time, bits, nonce)
 }
 
-use risc0_zkvm::serde::to_vec;
-
-pub fn header_chain_proof<E: Environment>() -> (u32, [u8; 32], [u8; 32]) {
+pub fn header_chain_proof<E: Environment>() -> (u32, [u8; 32], [u8; 32], [u32; 8]) {
     let is_genesis = E::read_u32();
-    if is_genesis == 0 {
+    let (mut curr_prev_block_hash, method_id, mut total_work) = if is_genesis == 0 {
         let prev_offset = E::read_u32();
-        // let prev_block_hash = E::read_32bytes();
-        // let prev_total_work = E::read_32bytes();
+        let prev_block_hash = E::read_32bytes();
+        let prev_total_work = E::read_32bytes();
         let prev_method_id = E::read_u32x8();
 
-        // let mut journal: [u8; 72] = [0; 72];
-        // journal[..4].copy_from_slice(&prev_offset.to_le_bytes());
-        // journal[4..36].copy_from_slice(&prev_block_hash);
-        // journal[36..68].copy_from_slice(&prev_total_work);
-        E::verify(prev_method_id, &to_vec(&prev_offset).unwrap());
-    }
-    let start_block_hash = E::read_32bytes();
-    let _method_id = E::read_32bytes();
+        let mut journal = [0u32; 73];
+        journal[0] = prev_offset;
+        for i in 0..32 {
+            journal[i + 1] = prev_block_hash[i] as u32;
+        }
+        for i in 0..32 {
+            journal[i + 33] = prev_total_work[i] as u32;
+        }
+        for i in 0..8 {
+            journal[i + 65] = prev_method_id[i];
+        }
+        E::verify(prev_method_id, &journal);
+
+        (prev_block_hash, prev_method_id, U256::from_le_slice(&prev_total_work))
+    } else {
+        let start_block_hash = E::read_32bytes();
+        let _method_id = E::read_32bytes();
+
+        (start_block_hash, [0u32; 8], U256::ZERO)
+    };
     let return_offset = E::read_u32();
     // let prev_receipt = E::read_32bytes();
     let batch_size = E::read_u32();
-    let mut total_work = U256::ZERO; // Change this to previeous work
-    let mut curr_prev_block_hash = start_block_hash;
+    // TODO: Requrie offset<batch_size
+    // let mut total_work = U256::ZERO; // Change this to previeous work
+    // let mut curr_prev_block_hash = start_block_hash;
 
     let mut to_return_block_hash: [u8; 32] = [0; 32];
 
@@ -134,6 +145,7 @@ pub fn header_chain_proof<E: Environment>() -> (u32, [u8; 32], [u8; 32]) {
         return_offset,
         to_return_block_hash,
         total_work.to_be_bytes(),
+        method_id,
     )
 }
 

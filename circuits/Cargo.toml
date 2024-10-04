@@ -10,5 +10,3 @@ sha2 = { workspace = true }
 serde = { workspace = true, features = ["derive"] }
 # lazy_static = { workspace = true, features = ["spin_no_std"] }
 tracing = { workspace = true, default-features = false }
-
-risc0-zkvm = { workspace = true, default-features = false }

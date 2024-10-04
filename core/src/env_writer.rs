@@ -567,19 +567,19 @@ mod tests {
         let prove_info = prover
             .prove_with_opts(env, GUEST_ELF, &prover_opts)
             .unwrap();
-        // let (offset, blockhash, pow): (u32, [u8; 32], [u8; 32]) = prove_info.receipt.journal.decode().unwrap();
-        let offset = prove_info.receipt.journal.decode().unwrap();
+        let (offset, blockhash, pow, method_id): (u32, [u8; 32], [u8; 32], [u32; 8]) = prove_info.receipt.journal.decode().unwrap();
+        // let blockhash = prove_info.receipt.journal.decode().unwrap();
         println!("offset: {:?}", offset);
-        // println!("blockhash: {:?}", blockhash);
-        // println!("pow: {:?}", pow);
+        println!("blockhash: {:?}", blockhash);
+        println!("pow: {:?}", pow);
         println!("receipt: {:?}", prove_info.receipt);
         println!("guest id: {:?}", GUEST_ID);
         MockEnvironment::reset_mock_env();
 
         MockEnvironment::write_u32(0); // this is not the genesis proof
         MockEnvironment::write_u32(offset);
-        // MockEnvironment::write_32bytes(blockhash);
-        // MockEnvironment::write_32bytes(pow);
+        MockEnvironment::write_32bytes(blockhash);
+        MockEnvironment::write_32bytes(pow);
         MockEnvironment::write_u32x8(GUEST_ID);
 
         MockEnvironment::write_32bytes(start_block_hash);
@@ -592,11 +592,13 @@ mod tests {
         let prove_info = prover
             .prove_with_opts(env, GUEST_ELF, &prover_opts)
             .unwrap();
-        // let (offset, blockhash, pow): (u32, [u8; 32], [u8; 32]) = prove_info.receipt.journal.decode().unwrap();
-        let offset: u32 = prove_info.receipt.journal.decode().unwrap();
+        let (offset, blockhash, pow, method_id): (u32, [u8; 32], [u8; 32], [u32; 8]) = prove_info.receipt.journal.decode().unwrap();
+        // let blockhash: [u8; 32] = prove_info.receipt.journal.decode().unwrap();
         println!("offset: {:?}", offset);
-        // println!("blockhash: {:?}", blockhash);
-        // println!("pow: {:?}", pow);
+        println!("blockhash: {:?}", blockhash);
+        println!("pow: {:?}", pow);
+        println!("method_id: {:?}", method_id);
+        println!("GUEST ID: {:?}", GUEST_ID);
 
         // println!("receipt.journal: {:?}", prove_info.receipt.serialize());
         // assert_eq!(btc_tx_id, Txid::from_byte_array(tx_id));
