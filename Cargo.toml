@@ -25,8 +25,8 @@ toml = "0.8.19"
 sqlx = { version = "0.7.4", default-features = false }
 
 k256 = { version = "=0.13.3", default-features = false }
-risc0-build = "=1.0.5"
-risc0-zkvm = { version = "=1.0.5" }
+risc0-build = "=1.1.2"
+risc0-zkvm = { version = "=1.1.2" }
 
 bitcoin-mock-rpc = { git = "https://github.com/chainwayxyz/bitcoin-mock-rpc", tag = "v0.0.11" }
 musig2 = { version = "0.0.11", features = ["serde"] }
