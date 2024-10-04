@@ -8,6 +8,8 @@ use risc0_zkvm::guest::env;
 risc0_zkvm::guest::entry!(main); 
 
 pub fn main() {
-    let txid = header_chain_proof::<RealEnvironment>();
-    env::commit(&5);
+    let (offset, blockhash, pow) = header_chain_proof::<RealEnvironment>();
+    env::commit(&offset);
+    // env::commit(&blockhash);
+    // env::commit(&pow);
 }

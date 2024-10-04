@@ -333,12 +333,12 @@ mod tests {
     use risc0_zkvm::{default_prover, ProverOpts};
     use std::sync::Mutex;
     // use operator_circuit::GUEST_ELF;
-    use verifier_circuit::GUEST_ELF;
     use crate::{
         env_writer::ENVWriter, errors::BridgeError, merkle::MerkleTree, mock::env::MockEnvironment,
     };
     use crypto_bigint::{Encoding, U256};
     use secp256k1::hashes::Hash;
+    use verifier_circuit::{GUEST_ELF, GUEST_ID};
 
     lazy_static::lazy_static! {
         static ref SHARED_STATE: Mutex<i32> = Mutex::new(0);
@@ -547,6 +547,7 @@ mod tests {
         let headers: Vec<Header> = deserialize(&mainnet_blocks_from_832000_to_833096).unwrap();
         let start_block_hash = headers[0].prev_blockhash.to_byte_array();
 
+        MockEnvironment::write_u32(1); // this is the genesis proof
         MockEnvironment::write_32bytes(start_block_hash);
         MockEnvironment::write_32bytes([0u8; 32]);
         MockEnvironment::write_u32(0);
@@ -559,15 +560,46 @@ mod tests {
         //     res.2
         // )
 
-        let env = MockEnvironment::output_env();
+        let env = MockEnvironment::output_env().build().unwrap();
         let prover = default_prover();
         // let env = risc0_zkvm::ExecutorEnv::builder().build().unwrap();
-        let prover_opts = ProverOpts::default();
-        let prove_info = prover.prove_with_opts(env, GUEST_ELF, &prover_opts).unwrap();
-        let tx_id: u32 = prove_info.receipt.journal.decode().unwrap();
-        println!("tx_id: {:?}", tx_id);
-        // assert_eq!(btc_tx_id, Txid::from_byte_array(tx_id));
+        let prover_opts = ProverOpts::succinct();
+        let prove_info = prover
+            .prove_with_opts(env, GUEST_ELF, &prover_opts)
+            .unwrap();
+        // let (offset, blockhash, pow): (u32, [u8; 32], [u8; 32]) = prove_info.receipt.journal.decode().unwrap();
+        let offset = prove_info.receipt.journal.decode().unwrap();
+        println!("offset: {:?}", offset);
+        // println!("blockhash: {:?}", blockhash);
+        // println!("pow: {:?}", pow);
+        println!("receipt: {:?}", prove_info.receipt);
+        println!("guest id: {:?}", GUEST_ID);
+        MockEnvironment::reset_mock_env();
 
+        MockEnvironment::write_u32(0); // this is not the genesis proof
+        MockEnvironment::write_u32(offset);
+        // MockEnvironment::write_32bytes(blockhash);
+        // MockEnvironment::write_32bytes(pow);
+        MockEnvironment::write_u32x8(GUEST_ID);
+
+        MockEnvironment::write_32bytes(start_block_hash);
+        MockEnvironment::write_32bytes([0u8; 32]);
+        MockEnvironment::write_u32(0);
+
+        ENVWriter::<MockEnvironment>::write_blocks(headers[0..5].to_vec());
+        let mut env = MockEnvironment::output_env();
+        let env = env.add_assumption(prove_info.receipt).build().unwrap();
+        let prove_info = prover
+            .prove_with_opts(env, GUEST_ELF, &prover_opts)
+            .unwrap();
+        // let (offset, blockhash, pow): (u32, [u8; 32], [u8; 32]) = prove_info.receipt.journal.decode().unwrap();
+        let offset: u32 = prove_info.receipt.journal.decode().unwrap();
+        println!("offset: {:?}", offset);
+        // println!("blockhash: {:?}", blockhash);
+        // println!("pow: {:?}", pow);
+
+        // println!("receipt.journal: {:?}", prove_info.receipt.serialize());
+        // assert_eq!(btc_tx_id, Txid::from_byte_array(tx_id));
     }
 
     #[test]

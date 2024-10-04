@@ -91,7 +91,22 @@ fn read_header_except_prev_blockhash<E: Environment>() -> HeaderWithoutPrevBlock
     (version, merkle_root, time, bits, nonce)
 }
 
+use risc0_zkvm::serde::to_vec;
+
 pub fn header_chain_proof<E: Environment>() -> (u32, [u8; 32], [u8; 32]) {
+    let is_genesis = E::read_u32();
+    if is_genesis == 0 {
+        let prev_offset = E::read_u32();
+        // let prev_block_hash = E::read_32bytes();
+        // let prev_total_work = E::read_32bytes();
+        let prev_method_id = E::read_u32x8();
+
+        // let mut journal: [u8; 72] = [0; 72];
+        // journal[..4].copy_from_slice(&prev_offset.to_le_bytes());
+        // journal[4..36].copy_from_slice(&prev_block_hash);
+        // journal[36..68].copy_from_slice(&prev_total_work);
+        E::verify(prev_method_id, &to_vec(&prev_offset).unwrap());
+    }
     let start_block_hash = E::read_32bytes();
     let _method_id = E::read_32bytes();
     let return_offset = E::read_u32();
@@ -115,13 +130,11 @@ pub fn header_chain_proof<E: Environment>() -> (u32, [u8; 32], [u8; 32]) {
             to_return_block_hash = curr_prev_block_hash;
         }
     }
-    // tracing::debug!(
-    //     "READ {:?} blocks from blockhash {:?}, total_work: {:?}",
-    //     num_blocks,
-    //     start_prev_block_hash,
-    //     total_work
-    // );
-    (return_offset, to_return_block_hash, total_work.to_be_bytes())
+    (
+        return_offset,
+        to_return_block_hash,
+        total_work.to_be_bytes(),
+    )
 }
 
 fn read_header_except_root_and_calculate_blockhash<E: Environment>(mt_root: HashType) -> [u8; 32] {

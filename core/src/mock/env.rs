@@ -41,7 +41,7 @@ impl MockEnvironment {
         *read_position = 0;
     }
 
-    pub fn output_env<'a>() -> risc0_zkvm::ExecutorEnv<'a> {
+    pub fn output_env<'a>() -> risc0_zkvm::ExecutorEnvBuilder<'a> {
         let global_data = GLOBAL_DATA.read().unwrap(); // Use read lock for data
         let global_data_types = GLOBAL_DATA_TYPES.read().unwrap(); // Use read lock for data types
         let mut env = ExecutorEnv::builder();
@@ -78,7 +78,7 @@ impl MockEnvironment {
                 _ => panic!("Invalid data type"),
             }
         }
-        env.build().unwrap()
+        env
     }
 }
 
@@ -103,6 +103,25 @@ impl Environment for MockEnvironment {
     fn read_i32() -> i32 {
         let bytes = Self::read_global(4);
         i32::from_le_bytes(bytes.try_into().unwrap())
+    }
+
+    fn read_u32x8() -> [u32; 8] {
+        let mut data = [0; 8];
+        for i in 0..8 {
+            let bytes = Self::read_global(4);
+            data[i] = u32::from_le_bytes(bytes.try_into().unwrap())
+        }
+        data
+    }
+
+    fn write_u32x8(data: [u32; 8]) {
+        for i in 0..8 {
+            Self::write_global(&data[i].to_le_bytes(), 1);
+        }
+    }
+
+    fn verify(method_id: [u32; 8], journal: &[u32]) {
+        unimplemented!()
     }
 
     fn write_32bytes(data: [u8; 32]) {
@@ -138,6 +157,18 @@ impl Environment for RealEnvironment {
     }
 
     fn read_i32() -> i32 {
+        unimplemented!()
+    }
+
+    fn read_u32x8() -> [u32; 8] {
+        unimplemented!()
+    }
+
+    fn write_u32x8(data: [u32; 8]) {
+        unimplemented!()
+    }
+
+    fn verify(method_id: [u32; 8], journal: &[u32]) {
         unimplemented!()
     }
 
