@@ -130,7 +130,6 @@ pub fn header_chain_proof<E: Environment>() -> ([u32; 8], [u8; 32], u32, [u8; 32
     };
     let return_offset = E::read_u32();
     let batch_size = E::read_u32();
-    // TODO: Requrie offset<batch_size
 
     let mut to_return_block_hash: [u8; 32] = [0; 32];
 
