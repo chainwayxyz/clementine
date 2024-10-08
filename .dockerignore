@@ -5,6 +5,7 @@
 !/core
 !/circuits
 !/risc0-guests
+!/scripts
 !Cargo.lock
 !Cargo.toml
 
