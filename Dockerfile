@@ -15,5 +15,5 @@ WORKDIR /clementine
 RUN /root/.cargo/bin/cargo +1.79.0 build --release --bin server
 
 # Set up Clementine
-ENTRYPOINT [ "/root/.cargo/bin/cargo", "+1.79.0", "run", "--release", "--bin", "server", "/core/tests/data/test_config.toml" ]
+ENTRYPOINT [ "/target/release/server", "/core/tests/data/test_config.toml" ]
 EXPOSE 17000
