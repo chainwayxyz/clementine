@@ -2,8 +2,8 @@ name: Dockerization
 
 on:
   push:
-    branches:
-      - main
+    # branches:
+    #   - main
 
 env:
   CARGO_TERM_COLOR: always
@@ -32,6 +32,6 @@ jobs:
         uses: docker/build-push-action@v5.3.0
         with:
           context: .
-          file: ./Dockerfile
+          file: ./scripts/docker/Dockerfile
           push: true
           tags: ${{ secrets.DOCKERHUB_USERNAME }}/clementine:latest
