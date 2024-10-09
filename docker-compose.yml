@@ -2,8 +2,6 @@ services:
   postgres_db:
     image: 'postgres:latest'
     container_name: postgres_db
-    ports:
-      - '5432:5432'
     volumes:
       - .docker/db/data/:/var/lib/postgresql/data/
       - .docker/db/init.d/:/docker-entrypoint-initdb.d/
