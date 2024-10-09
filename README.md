@@ -91,19 +91,13 @@ built with:
 docker build -f scripts/docker/Dockerfile -t clementine:latest .
 ```
 
-If PostgreSQL is not present on your system, the included Docker image can be
-used to bring up the database:
+An example Docker compose file is located at
+[`scripts/docker/docker-compose.yml`](scripts/docker/docker-compose.yml) and it
+can be used to bring up a verifier server. It can also be modified for bringing
+up other servers. To bring it up:
 
 ```bash
-docker compose up -d
-```
 
-In case you want to start the database from a completely fresh state, run this:
-
-```bash
-docker compose down
-sudo rm -rf .docker/db/data
-docker compose up -d
 ```
 
 #### Configuration

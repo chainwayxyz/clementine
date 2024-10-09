@@ -26,6 +26,7 @@ services:
     platform: linux/amd64
     container_name: clementine
     command:
+      /scripts/docker/docker_config.toml
       --verifier-server
     environment:
       - RUST_LOG=trace
