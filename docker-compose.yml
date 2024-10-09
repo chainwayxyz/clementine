@@ -1,5 +1,5 @@
 services:
-  database:
+  postgres_db:
     image: 'postgres:latest'
     container_name: postgres_db
     ports:
@@ -8,36 +8,37 @@ services:
       - .docker/db/data/:/var/lib/postgresql/data/
       - .docker/db/init.d/:/docker-entrypoint-initdb.d/
     environment:
-      POSTGRES_USER: ${DB_USER:-root}
-      POSTGRES_PASSWORD: ${DB_PASSWORD:-root}
-      POSTGRES_DB: ${DB_NAME:-root}
+      POSTGRES_USER: clementine
+      POSTGRES_PASSWORD: clementine
+      POSTGRES_DB: clementine
       POSTGRES_HOST_AUTH_METHOD: trust
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U ${DB_USER:-root} -d ${DB_NAME:-root}"]
-      interval: 10s
+      test: ["CMD-SHELL", "pg_isready -U clementine -d clementine"]
+      interval: 2s
       timeout: 5s
-      retries: 5
+      retries: 10
     restart: unless-stopped
-
   clementine:
     depends_on:
-      - database
-    image: chainwayxyz/clementine:testnet
+      - postgres_db
+    image: clementine
     platform: linux/amd64
-    container_name: full-node
+    container_name: clementine
+    command:
+      --verifier-server
     environment:
       - RUST_LOG=trace
     ports:
       - "8080:8080"
     volumes:
-      - clementine:/mnt/task/clementine-db
+      - clementine:/mnt/task/clementine
     networks:
-      - clementine-testnet-network
+      - bitcoin-network
 
 volumes:
-  database:
+  postgres_db:
   clementine:
 
 networks:
-  clementine-testnet-network:
+  bitcoin-network:
     driver: bridge
