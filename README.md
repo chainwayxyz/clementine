@@ -97,7 +97,7 @@ can be used to bring up a verifier server. It can also be modified for bringing
 up other servers. To bring it up:
 
 ```bash
-
+docker compose -f scripts/docker/docker-compose.yml up
 ```
 
 #### Configuration
