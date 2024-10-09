@@ -1,10 +1,9 @@
 name: Dockerization
 
 on:
-  workflow_dispatch:
-  schedule:
-    # every day
-    - cron: "13 21 * * *" # 21:13 UTC
+  push:
+    branches:
+      - main
 
 env:
   CARGO_TERM_COLOR: always
