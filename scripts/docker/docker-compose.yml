@@ -17,11 +17,34 @@ services:
       retries: 10
     restart: unless-stopped
     networks:
-      - bitcoin-network
+      - clementine-network
+
+  bitcoin_testnet4:
+    image: bitcoin/bitcoin:28.0rc1
+    container_name: bitcoin_testnet4
+    ports:
+      - "18443:18443"
+      - "18444:18444"
+    command:
+      -printtoconsole
+      -testnet4=1
+      -rest
+      -rpcbind=0.0.0.0
+      -rpcallowip=0.0.0.0/0
+      -rpcport=18443
+      -rpcuser=admin
+      -rpcpassword=admin
+      -server
+      -txindex=1
+    volumes:
+      - bitcoin_testnet4:/home/bitcoin/.bitcoin
+    networks:
+      - clementine-network
 
   clementine:
     depends_on:
       - postgres_db
+      - bitcoin_testnet4
     image: clementine
     platform: linux/amd64
     container_name: clementine
@@ -35,12 +58,13 @@ services:
     volumes:
       - clementine:/mnt/task/clementine
     networks:
-      - bitcoin-network
+      - clementine-network
 
 volumes:
   postgres_db:
+  bitcoin_testnet4:
   clementine:
 
 networks:
-  bitcoin-network:
+  clementine-network:
     driver: bridge
