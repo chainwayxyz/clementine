@@ -18,6 +18,9 @@ services:
       timeout: 5s
       retries: 10
     restart: unless-stopped
+    networks:
+      - bitcoin-network
+
   clementine:
     depends_on:
       - postgres_db
