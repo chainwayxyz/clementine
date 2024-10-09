@@ -1,11 +1,10 @@
 name: Dockerization
 
-on: [push]
-# on:
-  # workflow_dispatch:
-  # schedule:
-  #   # every day
-  #   - cron: "13 21 * * *" # 21:13 UTC
+on:
+  workflow_dispatch:
+  schedule:
+    # every day
+    - cron: "13 21 * * *" # 21:13 UTC
 
 env:
   CARGO_TERM_COLOR: always
