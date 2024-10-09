@@ -1,4 +1,4 @@
-name: Build Docker Image and Publish on Docker Hub
+name: Dockerization
 
 on: [push]
 # on:
