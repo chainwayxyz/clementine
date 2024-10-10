@@ -4,128 +4,17 @@
 //! directly talks with PostgreSQL. It is expected that PostgreSQL is properly
 //! installed and configured.
 
-use super::wrapper::{AddressDB, EVMAddressDB, OutPointDB, SignatureDB, TxOutDB, TxidDB, UTXODB};
+use super::wrapper::{AddressDB, EVMAddressDB, OutPointDB, SignatureDB, TxOutDB, TxidDB, Utxodb};
+use super::Database;
+use crate::errors::BridgeError;
 use crate::musig2::{MuSigAggNonce, MuSigPubNonce, MuSigSecNonce, MuSigSigHash};
-use crate::{config::BridgeConfig, errors::BridgeError};
 use crate::{EVMAddress, UTXO};
 use bitcoin::address::NetworkUnchecked;
 use bitcoin::{Address, OutPoint, Txid};
 use secp256k1::schnorr;
-use sqlx::{Pool, Postgres, QueryBuilder};
-
-#[derive(Clone, Debug)]
-pub struct Database {
-    connection: Pool<Postgres>,
-}
+use sqlx::{Postgres, QueryBuilder};
 
 impl Database {
-    /// Returns a `Database` after establishing a connection to database.
-    /// Returns error if database is not available.
-    ///
-    /// TODO: Pass the reference &BridgeConfig instead of copying BridgeConfig.
-    pub async fn new(config: BridgeConfig) -> Result<Self, BridgeError> {
-        let url = "postgresql://".to_owned()
-            + config.db_host.as_str()
-            + ":"
-            + config.db_port.to_string().as_str()
-            + "?dbname="
-            + config.db_name.as_str()
-            + "&user="
-            + config.db_user.as_str()
-            + "&password="
-            + config.db_password.as_str();
-        tracing::debug!("Connecting database: {}", url);
-
-        match sqlx::PgPool::connect(url.as_str()).await {
-            Ok(c) => Ok(Self { connection: c }),
-            Err(e) => Err(BridgeError::DatabaseError(e)),
-        }
-    }
-
-    /// Closes database connection.
-    pub async fn close(&self) {
-        self.connection.close().await;
-    }
-
-    /// Drops the given database if it exists.
-    pub async fn drop_database(
-        config: BridgeConfig,
-        database_name: &str,
-    ) -> Result<(), BridgeError> {
-        let url = "postgresql://".to_owned()
-            + config.db_user.as_str()
-            + ":"
-            + config.db_password.as_str()
-            + "@"
-            + config.db_host.as_str();
-        let conn = sqlx::PgPool::connect(url.as_str()).await?;
-
-        let query = format!("DROP DATABASE IF EXISTS {database_name}");
-        sqlx::query(&query).execute(&conn).await?;
-
-        conn.close().await;
-
-        Ok(())
-    }
-
-    /// Creates a new database with given name. A new database connection should
-    /// be established after with `Database::new(config)` call after this.
-    ///
-    /// This will drop the target database if it exist.
-    ///
-    /// Returns a new `BridgeConfig` with updated database name. Use that
-    /// `BridgeConfig` to create a new connection, using `Database::new()`.
-    pub async fn create_database(
-        config: BridgeConfig,
-        database_name: &str,
-    ) -> Result<BridgeConfig, BridgeError> {
-        let url = "postgresql://".to_owned()
-            + config.db_user.as_str()
-            + ":"
-            + config.db_password.as_str()
-            + "@"
-            + config.db_host.as_str();
-        let conn = sqlx::PgPool::connect(url.as_str()).await?;
-        Database::drop_database(config.clone(), database_name).await?;
-        let query = format!(
-            "CREATE DATABASE {} WITH OWNER {}",
-            database_name, config.db_user
-        );
-        sqlx::query(&query).execute(&conn).await?;
-
-        conn.close().await;
-
-        let config = BridgeConfig {
-            db_name: database_name.to_string(),
-            ..config
-        };
-
-        Ok(config)
-    }
-
-    /// Runs given SQL string to database. Database connection must be established
-    /// before calling this function.
-    pub async fn run_sql(&self, raw_sql: &str) -> Result<(), BridgeError> {
-        sqlx::raw_sql(raw_sql).execute(&self.connection).await?;
-
-        Ok(())
-    }
-
-    pub async fn init_from_schema(&self) -> Result<(), BridgeError> {
-        let schema = include_str!("../../../scripts/schema.sql");
-        self.run_sql(schema).await
-    }
-
-    /// Starts a database transaction.
-    ///
-    /// Return value can be used for committing changes. If not committed,
-    /// database will rollback every operation done after that call.
-    pub async fn begin_transaction(
-        &self,
-    ) -> Result<sqlx::Transaction<'_, sqlx::Postgres>, BridgeError> {
-        Ok(self.connection.begin().await?)
-    }
-
     #[tracing::instrument(skip(self), err(level = tracing::Level::ERROR), ret(level = tracing::Level::TRACE))]
     pub async fn lock_operators_kickoff_utxo_table(
         &self,
@@ -149,7 +38,7 @@ impl Database {
         )
         .bind(OutPointDB(deposit_outpoint));
 
-        let result: Result<(sqlx::types::Json<UTXODB>,), sqlx::Error> = match tx {
+        let result: Result<(sqlx::types::Json<Utxodb>,), sqlx::Error> = match tx {
             Some(tx) => query.fetch_one(&mut **tx).await,
             None => query.fetch_one(&self.connection).await,
         };
@@ -227,7 +116,7 @@ impl Database {
         let query =
             sqlx::query_as("SELECT funding_utxo FROM funding_utxos ORDER BY id DESC LIMIT 1;");
 
-        let result: Result<(sqlx::types::Json<UTXODB>,), sqlx::Error> = match tx {
+        let result: Result<(sqlx::types::Json<Utxodb>,), sqlx::Error> = match tx {
             Some(tx) => query.fetch_one(&mut **tx).await,
             None => query.fetch_one(&self.connection).await,
         };
@@ -250,7 +139,7 @@ impl Database {
         funding_utxo: UTXO,
     ) -> Result<(), BridgeError> {
         let query = sqlx::query("INSERT INTO funding_utxos (funding_utxo) VALUES ($1);").bind(
-            sqlx::types::Json(UTXODB {
+            sqlx::types::Json(Utxodb {
                 outpoint_db: OutPointDB(funding_utxo.outpoint),
                 txout_db: TxOutDB(funding_utxo.txout),
             }),
@@ -276,7 +165,7 @@ impl Database {
             "INSERT INTO operators_kickoff_utxo (deposit_outpoint, kickoff_utxo) VALUES ($1, $2);",
         )
         .bind(OutPointDB(deposit_outpoint))
-        .bind(sqlx::types::Json(UTXODB {
+        .bind(sqlx::types::Json(Utxodb {
             outpoint_db: OutPointDB(kickoff_utxo.outpoint),
             txout_db: TxOutDB(kickoff_utxo.txout),
         }));
@@ -322,7 +211,7 @@ impl Database {
         &self,
         deposit_outpoint: OutPoint,
     ) -> Result<Option<Vec<UTXO>>, BridgeError> {
-        let qr: Vec<(sqlx::types::Json<UTXODB>,)> = sqlx::query_as(
+        let qr: Vec<(sqlx::types::Json<Utxodb>,)> = sqlx::query_as(
             "SELECT kickoff_utxo FROM deposit_kickoff_utxos WHERE deposit_outpoint = $1 ORDER BY operator_idx ASC;",
         )
         .bind(OutPointDB(deposit_outpoint))
@@ -361,7 +250,7 @@ impl Database {
             |mut builder, (operator_idx, utxo)| {
                 builder
                     .push_bind(OutPointDB(deposit_outpoint)) // Bind deposit_outpoint
-                    .push_bind(sqlx::types::Json(UTXODB {
+                    .push_bind(sqlx::types::Json(Utxodb {
                         // Bind JSON-serialized UTXO
                         outpoint_db: OutPointDB(utxo.outpoint),
                         txout_db: TxOutDB(utxo.txout.clone()),
@@ -600,7 +489,7 @@ impl Database {
              WHERE deposit_outpoint = $1 AND kickoff_utxo = $2;",
         )
         .bind(OutPointDB(deposit_outpoint))
-        .bind(sqlx::types::Json(UTXODB {
+        .bind(sqlx::types::Json(Utxodb {
             outpoint_db: OutPointDB(kickoff_utxo.outpoint),
             txout_db: TxOutDB(kickoff_utxo.txout),
         }))
@@ -628,7 +517,7 @@ impl Database {
             kickoff_utxos_and_sigs,
             |mut builder, (kickoff_utxo, operator_take_sig)| {
                 builder
-                    .push_bind(sqlx::types::Json(UTXODB {
+                    .push_bind(sqlx::types::Json(Utxodb {
                         outpoint_db: OutPointDB(kickoff_utxo.outpoint),
                         txout_db: TxOutDB(kickoff_utxo.txout),
                     }))
@@ -660,7 +549,7 @@ impl Database {
              WHERE deposit_outpoint = $1 AND kickoff_utxo = $2;",
         )
         .bind(OutPointDB(deposit_outpoint))
-        .bind(sqlx::types::Json(UTXODB {
+        .bind(sqlx::types::Json(Utxodb {
             outpoint_db: OutPointDB(kickoff_utxo.outpoint),
             txout_db: TxOutDB(kickoff_utxo.txout),
         }))
@@ -699,8 +588,7 @@ impl Database {
 mod tests {
     use super::Database;
     use crate::{
-        config::BridgeConfig,
-        mock::{common, database::create_test_config_with_thread_name},
+        mock::database::create_test_config_with_thread_name,
         musig2::{nonce_pair, MuSigAggNonce, MuSigPubNonce, MuSigSecNonce},
         ByteArray32, EVMAddress, UTXO,
     };
@@ -710,12 +598,11 @@ mod tests {
     use crypto_bigint::rand_core::OsRng;
     use secp256k1::constants::SCHNORR_SIGNATURE_SIZE;
     use secp256k1::{schnorr, Secp256k1};
-    use std::thread;
 
     #[tokio::test]
     async fn test_database_gets_previously_saved_operator_take_signature() {
         let config = create_test_config_with_thread_name("test_config.toml", None).await;
-        let database = Database::new(config).await.unwrap();
+        let database = Database::new(&config).await.unwrap();
 
         let deposit_outpoint = OutPoint::null();
         let outpoint = OutPoint {
@@ -751,47 +638,9 @@ mod tests {
     }
 
     #[tokio::test]
-    #[should_panic]
-    async fn test_invalid_connection() {
-        let mut config = BridgeConfig::new();
-        config.db_host = "nonexistinghost".to_string();
-        config.db_name = "nonexistingpassword".to_string();
-        config.db_user = "nonexistinguser".to_string();
-        config.db_password = "nonexistingpassword".to_string();
-        config.db_port = 123;
-
-        Database::new(config).await.unwrap();
-    }
-
-    #[tokio::test]
-    async fn test_valid_connection() {
-        let config = create_test_config_with_thread_name("test_config.toml", None).await;
-
-        Database::new(config).await.unwrap();
-    }
-
-    #[tokio::test]
-    async fn test_create_drop_database() {
-        let handle = thread::current()
-            .name()
-            .unwrap()
-            .split(':')
-            .last()
-            .unwrap()
-            .to_owned();
-        let config = common::get_test_config("test_config.toml").unwrap();
-        let config = Database::create_database(config, &handle).await.unwrap();
-
-        // Do not save return result so that connection will drop immediately.
-        Database::new(config.clone()).await.unwrap();
-
-        Database::drop_database(config, &handle).await.unwrap();
-    }
-
-    #[tokio::test]
     async fn test_save_and_get_deposit_info() {
         let config = create_test_config_with_thread_name("test_config.toml", None).await;
-        let database = Database::new(config.clone()).await.unwrap();
+        let database = Database::new(&config).await.unwrap();
 
         let secp = Secp256k1::new();
         let xonly_public_key = XOnlyPublicKey::from_slice(&[
@@ -824,7 +673,7 @@ mod tests {
     #[tokio::test]
     async fn test_nonces_1() {
         let config = create_test_config_with_thread_name("test_config.toml", None).await;
-        let db = Database::new(config).await.unwrap();
+        let db = Database::new(&config).await.unwrap();
         let secp = Secp256k1::new();
 
         let outpoint = OutPoint {
@@ -869,7 +718,7 @@ mod tests {
     #[tokio::test]
     async fn test_nonces_2() {
         let config = create_test_config_with_thread_name("test_config.toml", None).await;
-        let db = Database::new(config).await.unwrap();
+        let db = Database::new(&config).await.unwrap();
         let secp = Secp256k1::new();
 
         let outpoint = OutPoint::null();
@@ -913,7 +762,7 @@ mod tests {
     #[tokio::test]
     async fn test_nonces_3() {
         let config = create_test_config_with_thread_name("test_config.toml", None).await;
-        let db = Database::new(config).await.unwrap();
+        let db = Database::new(&config).await.unwrap();
         let secp = Secp256k1::new();
 
         let outpoint = OutPoint {
@@ -961,7 +810,7 @@ mod tests {
     #[tokio::test]
     async fn test_get_pub_nonces_1() {
         let config = create_test_config_with_thread_name("test_config.toml", None).await;
-        let db = Database::new(config).await.unwrap();
+        let db = Database::new(&config).await.unwrap();
         let secp = Secp256k1::new();
 
         let outpoint = OutPoint {
@@ -994,7 +843,7 @@ mod tests {
     #[tokio::test]
     async fn test_get_pub_nonces_2() {
         let config = create_test_config_with_thread_name("test_config.toml", None).await;
-        let db = Database::new(config).await.unwrap();
+        let db = Database::new(&config).await.unwrap();
         let outpoint = OutPoint {
             txid: Txid::from_byte_array([1u8; 32]),
             vout: 1,
@@ -1006,7 +855,7 @@ mod tests {
     #[tokio::test]
     async fn test_operators_kickoff_utxo_1() {
         let config = create_test_config_with_thread_name("test_config.toml", None).await;
-        let db = Database::new(config).await.unwrap();
+        let db = Database::new(&config).await.unwrap();
 
         let outpoint = OutPoint {
             txid: Txid::from_byte_array([1u8; 32]),
@@ -1031,7 +880,7 @@ mod tests {
     #[tokio::test]
     async fn test_operators_kickoff_utxo_2() {
         let config = create_test_config_with_thread_name("test_config.toml", None).await;
-        let db = Database::new(config).await.unwrap();
+        let db = Database::new(&config).await.unwrap();
 
         let outpoint = OutPoint {
             txid: Txid::from_byte_array([1u8; 32]),
@@ -1044,7 +893,7 @@ mod tests {
     #[tokio::test]
     async fn test_verifiers_kickoff_utxos_1() {
         let config = create_test_config_with_thread_name("test_config.toml", None).await;
-        let db = Database::new(config).await.unwrap();
+        let db = Database::new(&config).await.unwrap();
 
         let outpoint = OutPoint {
             txid: Txid::from_byte_array([1u8; 32]),
@@ -1081,7 +930,7 @@ mod tests {
     #[tokio::test]
     async fn test_verifiers_kickoff_utxos_2() {
         let config = create_test_config_with_thread_name("test_config.toml", None).await;
-        let db = Database::new(config).await.unwrap();
+        let db = Database::new(&config).await.unwrap();
 
         let outpoint = OutPoint {
             txid: Txid::from_byte_array([1u8; 32]),
@@ -1094,7 +943,7 @@ mod tests {
     #[tokio::test]
     async fn test_operators_funding_utxo_1() {
         let config = create_test_config_with_thread_name("test_config.toml", None).await;
-        let db = Database::new(config).await.unwrap();
+        let db = Database::new(&config).await.unwrap();
 
         let utxo = UTXO {
             outpoint: OutPoint {
@@ -1116,7 +965,7 @@ mod tests {
     #[tokio::test]
     async fn test_operators_funding_utxo_2() {
         let config = create_test_config_with_thread_name("test_config.toml", None).await;
-        let db = Database::new(config).await.unwrap();
+        let db = Database::new(&config).await.unwrap();
 
         let db_utxo = db.get_funding_utxo(None).await.unwrap();
 
@@ -1126,7 +975,7 @@ mod tests {
     #[tokio::test]
     async fn test_deposit_kickoff_generator_tx_0() {
         let config = create_test_config_with_thread_name("test_config.toml", None).await;
-        let db = Database::new(config).await.unwrap();
+        let db = Database::new(&config).await.unwrap();
 
         let raw_hex = "02000000000101eb87b1a80d47b7f5bd5082b77653f5ca37e566951742b80c361875ba0e5c478f0a00000000fdffffff0ca086010000000000225120b23da6d2e0390018b953f7d74e3582da4da30fd0fd157cc84a2d2753003d1ca3a086010000000000225120b23da6d2e0390018b953f7d74e3582da4da30fd0fd157cc84a2d2753003d1ca3a086010000000000225120b23da6d2e0390018b953f7d74e3582da4da30fd0fd157cc84a2d2753003d1ca3a086010000000000225120b23da6d2e0390018b953f7d74e3582da4da30fd0fd157cc84a2d2753003d1ca3a086010000000000225120b23da6d2e0390018b953f7d74e3582da4da30fd0fd157cc84a2d2753003d1ca3a086010000000000225120b23da6d2e0390018b953f7d74e3582da4da30fd0fd157cc84a2d2753003d1ca3a086010000000000225120b23da6d2e0390018b953f7d74e3582da4da30fd0fd157cc84a2d2753003d1ca3a086010000000000225120b23da6d2e0390018b953f7d74e3582da4da30fd0fd157cc84a2d2753003d1ca3a086010000000000225120b23da6d2e0390018b953f7d74e3582da4da30fd0fd157cc84a2d2753003d1ca3a086010000000000225120b23da6d2e0390018b953f7d74e3582da4da30fd0fd157cc84a2d2753003d1ca35c081777000000002251202a64b1ee3375f3bb4b367b8cb8384a47f73cf231717f827c6c6fbbf5aecf0c364a010000000000002200204ae81572f06e1b88fd5ced7a1a000945432e83e1551e6f721ee9c00b8cc33260014005a41e6f4a4bcfcc5cd3ef602687215f97c18949019a491df56af7413c5dce9292ba3966edc4564a39d9bc0d6c0faae19030f1cedf4d931a6cdc57cc5b83c8ef00000000".to_string();
         let tx: bitcoin::Transaction =
@@ -1172,7 +1021,7 @@ mod tests {
     #[tokio::test]
     async fn test_deposit_kickoff_generator_tx_2() {
         let config = create_test_config_with_thread_name("test_config.toml", None).await;
-        let db = Database::new(config).await.unwrap();
+        let db = Database::new(&config).await.unwrap();
 
         let txid = Txid::from_byte_array([1u8; 32]);
         let res = db.get_deposit_kickoff_generator_tx(txid).await.unwrap();
@@ -1182,7 +1031,7 @@ mod tests {
     #[tokio::test]
     async fn test_deposit_kickoff_generator_tx_1() {
         let config = create_test_config_with_thread_name("test_config.toml", None).await;
-        let db = Database::new(config).await.unwrap();
+        let db = Database::new(&config).await.unwrap();
 
         let raw_hex = "01000000000101308d840c736eefd114a8fad04cb0d8338b4a3034a2b517250e5498701b25eb360100000000fdffffff02401f00000000000022512024985a1ab5724a5164ae5e0026b3e7e22031e83948eedf99d438b866857946b81f7e000000000000225120f7298da2a2be5b6e02a076ff7d35a1fe6b54a2bc7938c1c86bede23cadb7d9650140ad2fdb01ec5e2772f682867c8c6f30697c63f622e338f7390d3abc6c905b9fd7e96496fdc34cb9e872387758a6a334ec1307b3505b73121e0264fe2ba546d78ad11b0d00".to_string();
         let tx: bitcoin::Transaction =
@@ -1232,7 +1081,7 @@ mod tests {
     #[tokio::test]
     async fn test_deposit_kickoff_generator_tx_3() {
         let config = create_test_config_with_thread_name("test_config.toml", None).await;
-        let db = Database::new(config).await.unwrap();
+        let db = Database::new(&config).await.unwrap();
 
         let txid = Txid::from_byte_array([1u8; 32]);
         let res = db.get_deposit_kickoff_generator_tx(txid).await.unwrap();

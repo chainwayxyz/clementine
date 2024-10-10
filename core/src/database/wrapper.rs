@@ -26,7 +26,7 @@ pub struct TxidDB(pub Txid);
 pub struct SignatureDB(pub secp256k1::schnorr::Signature);
 
 #[derive(Serialize, Deserialize, sqlx::FromRow)]
-pub struct UTXODB {
+pub struct Utxodb {
     pub outpoint_db: OutPointDB,
     pub txout_db: TxOutDB,
 }

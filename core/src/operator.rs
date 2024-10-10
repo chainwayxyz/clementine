@@ -2,7 +2,7 @@ use crate::actor::Actor;
 use crate::builder::transaction::KICKOFF_UTXO_AMOUNT_SATS;
 use crate::builder::{self};
 use crate::config::BridgeConfig;
-use crate::database::operator::OperatorDB;
+use crate::database::Database;
 use crate::errors::BridgeError;
 use crate::extended_rpc::ExtendedRpc;
 use crate::musig2::AggregateFromPublicKeys;
@@ -30,7 +30,7 @@ where
     R: RpcApiWrapper,
 {
     rpc: ExtendedRpc<R>,
-    db: OperatorDB,
+    db: Database,
     signer: Actor,
     config: BridgeConfig,
     nofn_xonly_pk: secp256k1::XOnlyPublicKey,
@@ -49,7 +49,7 @@ where
 
         let signer = Actor::new(config.secret_key, config.network);
 
-        let db = OperatorDB::new(config.clone()).await;
+        let db = Database::new(&config).await?;
 
         let nofn_xonly_pk = secp256k1::XOnlyPublicKey::from_musig2_pks(
             config.verifiers_public_keys.clone(),
