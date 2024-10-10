@@ -1,0 +1,52 @@
+syntax = "proto3";
+
+package clementine;
+
+service Operator {
+  rpc GetParams(Empty) returns (OperatorParams) {}
+
+  rpc DepositSign(DepositParams) returns (OperatorBurnSigs) {}
+}
+message Outpoint {
+  bytes txid = 1;
+  uint32 vout = 2;
+}
+
+message DepositParams {
+    Outpoint deposit_outpoint = 1;
+    bytes evm_address = 2;
+    string recovery_taproot_address = 3;
+    uint64 user_takes_after = 4;
+}
+
+message OperatorBurnSigs {
+    repeated bytes sigs = 1;
+}
+
+message PubNonce {
+    bytes pub_nonce = 1;
+}
+
+message AggNonce {
+    bytes agg_nonce = 1;
+}
+
+message PartialSig {
+    bytes partial_sig = 1;
+}
+
+message Signature {
+    bytes sig = 1;
+}
+
+message OperatorParams {
+    uint32 operator_id = 1;
+    Outpoint initial_time_tx_outpoint = 2;
+    string xonly_pk = 3;
+    string wallet_reimburse_address = 4;
+    repeated bytes winternitz_pubkeys = 5;
+    repeated bytes preimages = 6;
+    repeated Signature timeout_tx_sigs = 7;
+}
+
+message Empty {}
