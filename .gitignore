@@ -11,3 +11,4 @@ configs
 *.log
 lcov.info
 lcov.json
+.docker/

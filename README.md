@@ -81,21 +81,23 @@ Please note that this step is not necessary if
 [bitcoin-mock-rpc](https://github.com/chainwayxyz/bitcoin-mock-rpc) will be used
 for testing.
 
-#### Optional Database Docker Image
+#### [Optional] Docker
 
-If PostgreSQL is not present on your system, the included Docker image can be
-used to bring up the database:
+A docker image is provided in
+[Docker Hub](https://hub.docker.com/r/chainwayxyz/clementine). It can be locally
+built with:
 
 ```bash
-docker compose up -d
+docker build -f scripts/docker/Dockerfile -t clementine:latest .
 ```
 
-In case you want to start the database from a completely fresh state, run this:
+An example Docker compose file is located at
+[`scripts/docker/docker-compose.yml`](scripts/docker/docker-compose.yml) and it
+can be used to bring up a verifier server. It can also be modified for bringing
+up other servers. To bring it up:
 
 ```bash
-docker compose down
-sudo rm -rf .docker/db/data
-docker compose up -d
+docker compose -f scripts/docker/docker-compose.yml up
 ```
 
 #### Configuration
