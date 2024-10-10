@@ -2,11 +2,30 @@ syntax = "proto3";
 
 package clementine;
 
-service Operator {
+service ClementineOperator {
   rpc GetParams(Empty) returns (OperatorParams) {}
 
-  rpc DepositSign(DepositParams) returns (OperatorBurnSigs) {}
+  rpc DepositSign(DepositParams) returns (stream OperatorBurnSig) {}
 }
+
+service ClementineVerifier {
+    rpc SetVerifiers(Verifiers) returns (Empty) {}
+    rpc SetOperator(OperatorParams) returns (Empty) {}
+    rpc DepositNonceGen(Empty) returns (stream PubNonce) {}
+}
+
+service ClementineAggregator {
+    rpc AggreagteNonces(stream AggreateNoncesParams) returns (stream AggNonce) {}
+}
+
+message Verifiers {
+    repeated string verifier_public_keys = 1;
+}
+
+message AggreateNoncesParams {
+    repeated PubNonce pub_nonces = 1;
+}
+
 message Outpoint {
   bytes txid = 1;
   uint32 vout = 2;
@@ -19,9 +38,29 @@ message DepositParams {
     uint64 user_takes_after = 4;
 }
 
+message OperatorBurnSig {
+    bytes schnorr_sig = 1;
+}
+
 message OperatorBurnSigs {
     repeated bytes sigs = 1;
 }
+
+
+message OperatorDetails {
+    uint32 operator_id = 1;
+    Outpoint initial_time_tx_outpoint = 2;
+    string xonly_pk = 3;
+    string wallet_reimburse_address = 4;
+}
+
+message OperatorParams {
+    OperatorDetails operator_details = 1;
+    repeated bytes winternitz_pubkeys = 5;
+    repeated bytes preimages = 6;
+    repeated SchnorrSig timeout_tx_sigs = 7;
+}
+
 
 message PubNonce {
     bytes pub_nonce = 1;
@@ -35,18 +74,45 @@ message PartialSig {
     bytes partial_sig = 1;
 }
 
-message Signature {
-    bytes sig = 1;
+message SchnorrSig {
+    bytes schnorr_sig = 1;
 }
 
-message OperatorParams {
-    uint32 operator_id = 1;
-    Outpoint initial_time_tx_outpoint = 2;
-    string xonly_pk = 3;
-    string wallet_reimburse_address = 4;
-    repeated bytes winternitz_pubkeys = 5;
-    repeated bytes preimages = 6;
-    repeated Signature timeout_tx_sigs = 7;
+
+message WinternitzPubkey {
+    uint32 d = 1;
+    uint32 n0 = 2;
+    repeated bytes digit_pubkey = 3;
 }
+
+
+// Watchtowers only needs the operator_id, initial_time_tx_outpoint and the xonly_pk.
+// They will calculate all time_txs
+message WathctowerSetOperatorParams {
+    OperatorDetails operator_details = 1;
+}
+
+message WatchtowerGetPubkeysPerOperatorParams {
+    uint32 operator_id = 1;
+}
+
+// Their winternitz pubkeys 
+message WatchtowerGetPubkeysPerOperatorResponse {
+    // This is the order of the watchtower, starting from 0, vouts reserved for this watchtower is 2*wathctower_id and 2*wathctower_id + 1.
+    uint32 wathctower_id = 1;
+    // The winternitz pubkeys to start a challenge
+    repeated WinternitzPubkey winternitz_pubkeys = 2;
+}
+
+// Verifier set operator params
+message VerifierSetOperatorParams {
+    OperatorDetails operator_details = 1;
+    repeated WinternitzPubkey winternitz_pubkeys = 2;
+    repeated bytes preimages = 3;
+    repeated SchnorrSig timeout_tx_sigs = 4;
+}
+
+
+
 
 message Empty {}
