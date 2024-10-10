@@ -12,18 +12,52 @@ service ClementineVerifier {
     rpc SetVerifiers(Verifiers) returns (Empty) {}
     rpc SetOperator(OperatorParams) returns (Empty) {}
     rpc DepositNonceGen(Empty) returns (stream PubNonce) {}
+    rpc DepositSign(stream VerifierDepositSignParams) returns (stream PartialSig) {}
+    rpc DepositFinalize(stream VerifierDepositFinalizeParams) returns (PartialSig) {}
+}
+
+service ClementineWatchtower {
 }
 
 service ClementineAggregator {
-    rpc AggreagteNonces(stream AggreateNoncesParams) returns (stream AggNonce) {}
+    // This will call, DepositNonceGen for every verifier,
+    // then it will aggregate one by one and then send it to DepositSign,
+    // then it will aggregate the partial sigs and send it to DepositFinalize,
+    // this will also call the operator to get their signatures and send it to DepositFinalize
+    // then it will collect the partial sigs and create the move tx.
+    rpc NewDeposit(DepositParams) returns (RawSignedMoveTx) {}
+}
+
+message RawSignedMoveTx {
+    bytes raw_tx = 1;
 }
 
 message Verifiers {
     repeated string verifier_public_keys = 1;
 }
 
+// Musig2 Public Nonces of every verifier
 message AggreateNoncesParams {
     repeated PubNonce pub_nonces = 1;
+}
+
+// Musig2 Partial Signatures of every verifier
+message AggregatePartialSigParams {
+    repeated PartialSig partial_sigs = 1;
+}
+
+message VerifierDepositSignParams {
+    oneof params {
+        DepositParams DepositParams = 1;
+        AggNonce agg_nonce = 2;
+    }
+ }
+
+message VerifierDepositFinalizeParams {
+    oneof params {
+        DepositParams DepositParams = 1;
+        SchnorrSig schnorr_sig = 2;
+    }
 }
 
 message Outpoint {
