@@ -1,0 +1,17 @@
+# exclude everything
+*
+
+# include source files
+!/core
+!/circuits
+!/risc0-guests
+!/scripts
+!Cargo.lock
+!Cargo.toml
+
+# include for vergen constants
+!/.git
+
+# include licenses
+!LICENSE-*
+!LICENSE
