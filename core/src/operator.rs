@@ -116,7 +116,7 @@ where
     /// It will get signatures from all verifiers:
     ///
     /// 1. Check if the deposit UTXO is valid, finalized (6 blocks confirmation) and not spent
-    /// 2. Check if we alredy created a kickoff UTXO for this deposit UTXO
+    /// 2. Check if we already created a kickoff UTXO for this deposit UTXO
     /// 3. Create a kickoff transaction but do not broadcast it
     ///
     /// TODO: Create multiple kickoffs in single transaction
@@ -150,7 +150,7 @@ where
 
         self.db.lock_operators_kickoff_utxo_table(&mut tx).await?;
 
-        // 2. Check if we alredy created a kickoff UTXO for this deposit UTXO
+        // 2. Check if we already created a kickoff UTXO for this deposit UTXO
         let kickoff_utxo = self
             .db
             .get_kickoff_utxo(Some(&mut tx), deposit_outpoint)
@@ -220,7 +220,7 @@ where
             // The amount will be calculated as if the transaction has 1 input
             // and (num_kickoff_utxos + 2) outputs where the first k outputs are
             // the kickoff outputs, the penultimante output is the change output,
-            // and the last output is the anyonecanpay output for fee bumping.
+            // and the last output is the anyone canpay output for fee bumping.
             let kickoff_tx_min_relay_fee = match self.config.operator_num_kickoff_utxos_per_tx {
                 0..=250 => 154 + 43 * self.config.operator_num_kickoff_utxos_per_tx, // Handles all values from 0 to 250
                 _ => 156 + 43 * self.config.operator_num_kickoff_utxos_per_tx, // Handles all other values
