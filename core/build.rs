@@ -1,6 +1,12 @@
-use std::path::Path;
+use std::{env, path::Path};
 
 fn compile_protobuf() {
+    // Skip compilation if env var is not set.
+    if env::var("PROTOC").is_err() {
+        eprintln!("PROTOC env var is not set!");
+        return;
+    };
+
     let proto_root = Path::new(env!("CARGO_MANIFEST_DIR")).join("src/rpc/");
     let protos = &["clementine.proto"];
 
@@ -10,14 +16,12 @@ fn compile_protobuf() {
         .collect();
 
     // Compile server and client code from proto files
-    if let Err(e) = tonic_build::configure()
+    tonic_build::configure()
         .build_server(true)
         .build_client(true)
         .out_dir("./src/rpc")
-        .compile_protos(&proto_files, &[proto_root.to_str().unwrap()]) 
-    {
-        panic!("Failed to compile protos: {}", e);
-    }
+        .compile_protos(&proto_files, &[proto_root.to_str().unwrap()])
+        .unwrap();
 }
 
 fn main() {
