@@ -10,7 +10,7 @@ service ClementineOperator {
     // This will be called once by the aggregator to set all public keys.
     rpc GetParams(Empty) returns (OperatorParams) {}
 
-    rpc DepositSign(DepositParams) returns (stream OperatorBurnSig) {}
+    rpc DepositSign(DepositSignSession) returns (stream OperatorBurnSig) {}
 }
 
 // Watchtowers are responsible for challenging the operator's kickoff txs.
@@ -21,11 +21,18 @@ service ClementineWatchtower {
 
 
 service ClementineVerifier {
-    rpc SetVerifiers(Verifiers) returns (Empty) {}
-
+    // This will be called once on setup
+    rpc SetVerifiers(VerifierPublicKeys) returns (Empty) {}
+    // This will be called once on setup
     rpc SetOperator(OperatorParams) returns (Empty) {}
+    // This will be called once on setup
+    rpc SetWatchtower(WatchtowerParams) returns (Empty) {}
 
-    rpc DepositNonceGen(Empty) returns (stream PubNonce) {}
+    // Generates nonces for a deposit.
+    // First streamed value will be always NonceGenFirstResponse then continues with PubNonces
+    rpc NonceGen(Empty) returns (stream NonceGenResponse) {}
+
+    // 
     rpc DepositSign(stream VerifierDepositSignParams) returns (stream PartialSig) {}
     rpc DepositFinalize(stream VerifierDepositFinalizeParams) returns (PartialSig) {}
 }
@@ -39,36 +46,50 @@ service ClementineAggregator {
     rpc NewDeposit(DepositParams) returns (RawSignedMoveTx) {}
 }
 
-message RawSignedMoveTx {
-    bytes raw_tx = 1;
+
+message NonceGenFirstResponse {
+    uint32 id = 1;
+    // New public key for the deposit
+    bytes public_key = 2;
+    // They sign the new public key with their private key
+    bytes sig = 3;
+    // Number of nonces to generate
+    uint32 num_nonces = 4;
 }
 
-message Verifiers {
-    repeated string verifier_public_keys = 1;
+
+message NonceGenResponse {
+    oneof response {
+        NonceGenFirstResponse first_response = 1;
+        bytes pub_nonce = 2;
+    }
 }
 
-// Musig2 Public Nonces of every verifier
-message AggreateNoncesParams {
-    repeated PubNonce pub_nonces = 1;
-}
-
-// Musig2 Partial Signatures of every verifier
-message AggregatePartialSigParams {
-    repeated PartialSig partial_sigs = 1;
+message DepositSignSession {
+    DepositParams deposit_params = 1;
+    repeated NonceGenFirstResponse nonce_gen_first_responses = 2;
 }
 
 message VerifierDepositSignParams {
     oneof params {
-        DepositParams deposit_params = 1;
-        AggNonce agg_nonce = 2;
+        DepositSignSession deposit_sign_first_param = 1;
+        bytes agg_nonce = 2;
     }
- }
+}
 
 message VerifierDepositFinalizeParams {
     oneof params {
-        DepositParams deposit_params = 1;
-        SchnorrSig schnorr_sig = 2;
+        DepositSignSession deposit_sign_first_param = 1;
+        bytes schnorr_sig = 2;
     }
+}
+
+message RawSignedMoveTx {
+    bytes raw_tx = 1;
+}
+
+message VerifierPublicKeys {
+    repeated string verifier_public_keys = 1;
 }
 
 message Outpoint {
@@ -87,11 +108,6 @@ message OperatorBurnSig {
     bytes schnorr_sig = 1;
 }
 
-message OperatorBurnSigs {
-    repeated bytes sigs = 1;
-}
-
-
 message OperatorConfig {
     uint32 operator_id = 1;
     Outpoint initial_time_tx_outpoint = 2;
@@ -106,10 +122,10 @@ message OperatorParams {
     repeated WinternitzPubkey winternitz_pubkeys = 5;
     // Adaptor signatures for asserting a watchtower's challenge to zero.
     // Total of, 1000*100 preimages.
-    repeated AssertEmptyPreimage assert_empty_preimages = 6;
+    repeated AssertEmptyPublicKey assert_empty_public_key = 6;
     // We don't want N-of-N in time txs, so operator will sign the timeout txs.
     // Total of 1000 schnorr sigs.
-    repeated SchnorrSig timeout_tx_sigs = 7;
+    repeated bytes timeout_tx_sigs = 7;
 }
 
 message WatchtowerParams {
@@ -118,25 +134,8 @@ message WatchtowerParams {
     repeated WinternitzPubkey winternitz_pubkeys = 2;
 }
 
-message AssertEmptyPreimage {
-    bytes preimage = 1;
-}
-
-
-message PubNonce {
-    bytes pub_nonce = 1;
-}
-
-message AggNonce {
-    bytes agg_nonce = 1;
-}
-
-message PartialSig {
-    bytes partial_sig = 1;
-}
-
-message SchnorrSig {
-    bytes schnorr_sig = 1;
+message AssertEmptyPublicKey {
+    bytes hash = 1;
 }
 
 
@@ -146,34 +145,23 @@ message WinternitzPubkey {
     repeated bytes digit_pubkey = 3;
 }
 
-
-// Watchtowers only needs the operator_id, initial_time_tx_outpoint and the xonly_pk.
-// They will calculate all time_txs
-message WathctowerSetOperatorParams {
-    OperatorConfig operator_details = 1;
-}
-
-message WatchtowerGetPubkeysPerOperatorParams {
-    uint32 operator_id = 1;
-}
-
-// Their winternitz pubkeys 
-message WatchtowerGetPubkeysPerOperatorResponse {
-    // This is the order of the watchtower, starting from 0, vouts reserved for this watchtower is 2*wathctower_id and 2*wathctower_id + 1.
-    uint32 wathctower_id = 1;
-    // The winternitz pubkeys to start a challenge
-    repeated WinternitzPubkey winternitz_pubkeys = 2;
-}
-
-// Verifier set operator params
-message VerifierSetOperatorParams {
-    OperatorConfig operator_details = 1;
-    repeated WinternitzPubkey winternitz_pubkeys = 2;
-    repeated bytes preimages = 3;
-    repeated SchnorrSig timeout_tx_sigs = 4;
+message PartialSig {
+    bytes partial_sig = 1;
 }
 
 
+// message PubNonce {
+//     bytes pub_nonce = 1;
+// }
+
+// message AggNonce {
+//     bytes agg_nonce = 1;
+// }
+
+
+// message SchnorrSig {
+//     bytes schnorr_sig = 1;
+// }
 
 
 message Empty {}
