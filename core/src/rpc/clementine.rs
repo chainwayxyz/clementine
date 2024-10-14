@@ -162,10 +162,10 @@ pub mod clementine_operator_client {
         dead_code,
         missing_docs,
         clippy::wildcard_imports,
-        clippy::let_unit_value
+        clippy::let_unit_value,
     )]
-    use tonic::codegen::http::Uri;
     use tonic::codegen::*;
+    use tonic::codegen::http::Uri;
     /// Operator is responsible for paying withdrawals
     /// Each operator has their own chain of utxos named time_txs.
     /// Each operator has a unique id which will be given in config.
@@ -213,8 +213,9 @@ pub mod clementine_operator_client {
                     <T as tonic::client::GrpcService<tonic::body::BoxBody>>::ResponseBody,
                 >,
             >,
-            <T as tonic::codegen::Service<http::Request<tonic::body::BoxBody>>>::Error:
-                Into<StdError> + std::marker::Send + std::marker::Sync,
+            <T as tonic::codegen::Service<
+                http::Request<tonic::body::BoxBody>,
+            >>::Error: Into<StdError> + std::marker::Send + std::marker::Sync,
         {
             ClementineOperatorClient::new(InterceptedService::new(inner, interceptor))
         }
@@ -254,17 +255,21 @@ pub mod clementine_operator_client {
             &mut self,
             request: impl tonic::IntoRequest<super::Empty>,
         ) -> std::result::Result<tonic::Response<super::OperatorParams>, tonic::Status> {
-            self.inner.ready().await.map_err(|e| {
-                tonic::Status::unknown(format!("Service was not ready: {}", e.into()))
-            })?;
+            self.inner
+                .ready()
+                .await
+                .map_err(|e| {
+                    tonic::Status::unknown(
+                        format!("Service was not ready: {}", e.into()),
+                    )
+                })?;
             let codec = tonic::codec::ProstCodec::default();
-            let path =
-                http::uri::PathAndQuery::from_static("/clementine.ClementineOperator/GetParams");
+            let path = http::uri::PathAndQuery::from_static(
+                "/clementine.ClementineOperator/GetParams",
+            );
             let mut req = request.into_request();
-            req.extensions_mut().insert(GrpcMethod::new(
-                "clementine.ClementineOperator",
-                "GetParams",
-            ));
+            req.extensions_mut()
+                .insert(GrpcMethod::new("clementine.ClementineOperator", "GetParams"));
             self.inner.unary(req, path, codec).await
         }
         pub async fn deposit_sign(
@@ -274,17 +279,21 @@ pub mod clementine_operator_client {
             tonic::Response<tonic::codec::Streaming<super::OperatorBurnSig>>,
             tonic::Status,
         > {
-            self.inner.ready().await.map_err(|e| {
-                tonic::Status::unknown(format!("Service was not ready: {}", e.into()))
-            })?;
+            self.inner
+                .ready()
+                .await
+                .map_err(|e| {
+                    tonic::Status::unknown(
+                        format!("Service was not ready: {}", e.into()),
+                    )
+                })?;
             let codec = tonic::codec::ProstCodec::default();
-            let path =
-                http::uri::PathAndQuery::from_static("/clementine.ClementineOperator/DepositSign");
+            let path = http::uri::PathAndQuery::from_static(
+                "/clementine.ClementineOperator/DepositSign",
+            );
             let mut req = request.into_request();
-            req.extensions_mut().insert(GrpcMethod::new(
-                "clementine.ClementineOperator",
-                "DepositSign",
-            ));
+            req.extensions_mut()
+                .insert(GrpcMethod::new("clementine.ClementineOperator", "DepositSign"));
             self.inner.server_streaming(req, path, codec).await
         }
     }
@@ -296,10 +305,10 @@ pub mod clementine_watchtower_client {
         dead_code,
         missing_docs,
         clippy::wildcard_imports,
-        clippy::let_unit_value
+        clippy::let_unit_value,
     )]
-    use tonic::codegen::http::Uri;
     use tonic::codegen::*;
+    use tonic::codegen::http::Uri;
     /// Watchtowers are responsible for challenging the operator's kickoff txs.
     /// Each watchtower also runs a verifier server connected to the same db. Thus, they will have the operator's winternitz pubkeys.
     #[derive(Debug, Clone)]
@@ -345,8 +354,9 @@ pub mod clementine_watchtower_client {
                     <T as tonic::client::GrpcService<tonic::body::BoxBody>>::ResponseBody,
                 >,
             >,
-            <T as tonic::codegen::Service<http::Request<tonic::body::BoxBody>>>::Error:
-                Into<StdError> + std::marker::Send + std::marker::Sync,
+            <T as tonic::codegen::Service<
+                http::Request<tonic::body::BoxBody>,
+            >>::Error: Into<StdError> + std::marker::Send + std::marker::Sync,
         {
             ClementineWatchtowerClient::new(InterceptedService::new(inner, interceptor))
         }
@@ -384,18 +394,25 @@ pub mod clementine_watchtower_client {
         pub async fn get_params(
             &mut self,
             request: impl tonic::IntoRequest<super::Empty>,
-        ) -> std::result::Result<tonic::Response<super::WatchtowerParams>, tonic::Status> {
-            self.inner.ready().await.map_err(|e| {
-                tonic::Status::unknown(format!("Service was not ready: {}", e.into()))
-            })?;
+        ) -> std::result::Result<
+            tonic::Response<super::WatchtowerParams>,
+            tonic::Status,
+        > {
+            self.inner
+                .ready()
+                .await
+                .map_err(|e| {
+                    tonic::Status::unknown(
+                        format!("Service was not ready: {}", e.into()),
+                    )
+                })?;
             let codec = tonic::codec::ProstCodec::default();
-            let path =
-                http::uri::PathAndQuery::from_static("/clementine.ClementineWatchtower/GetParams");
+            let path = http::uri::PathAndQuery::from_static(
+                "/clementine.ClementineWatchtower/GetParams",
+            );
             let mut req = request.into_request();
-            req.extensions_mut().insert(GrpcMethod::new(
-                "clementine.ClementineWatchtower",
-                "GetParams",
-            ));
+            req.extensions_mut()
+                .insert(GrpcMethod::new("clementine.ClementineWatchtower", "GetParams"));
             self.inner.unary(req, path, codec).await
         }
     }
@@ -407,10 +424,10 @@ pub mod clementine_verifier_client {
         dead_code,
         missing_docs,
         clippy::wildcard_imports,
-        clippy::let_unit_value
+        clippy::let_unit_value,
     )]
-    use tonic::codegen::http::Uri;
     use tonic::codegen::*;
+    use tonic::codegen::http::Uri;
     #[derive(Debug, Clone)]
     pub struct ClementineVerifierClient<T> {
         inner: tonic::client::Grpc<T>,
@@ -454,8 +471,9 @@ pub mod clementine_verifier_client {
                     <T as tonic::client::GrpcService<tonic::body::BoxBody>>::ResponseBody,
                 >,
             >,
-            <T as tonic::codegen::Service<http::Request<tonic::body::BoxBody>>>::Error:
-                Into<StdError> + std::marker::Send + std::marker::Sync,
+            <T as tonic::codegen::Service<
+                http::Request<tonic::body::BoxBody>,
+            >>::Error: Into<StdError> + std::marker::Send + std::marker::Sync,
         {
             ClementineVerifierClient::new(InterceptedService::new(inner, interceptor))
         }
@@ -495,17 +513,23 @@ pub mod clementine_verifier_client {
             &mut self,
             request: impl tonic::IntoRequest<super::VerifierPublicKeys>,
         ) -> std::result::Result<tonic::Response<super::Empty>, tonic::Status> {
-            self.inner.ready().await.map_err(|e| {
-                tonic::Status::unknown(format!("Service was not ready: {}", e.into()))
-            })?;
+            self.inner
+                .ready()
+                .await
+                .map_err(|e| {
+                    tonic::Status::unknown(
+                        format!("Service was not ready: {}", e.into()),
+                    )
+                })?;
             let codec = tonic::codec::ProstCodec::default();
-            let path =
-                http::uri::PathAndQuery::from_static("/clementine.ClementineVerifier/SetVerifiers");
+            let path = http::uri::PathAndQuery::from_static(
+                "/clementine.ClementineVerifier/SetVerifiers",
+            );
             let mut req = request.into_request();
-            req.extensions_mut().insert(GrpcMethod::new(
-                "clementine.ClementineVerifier",
-                "SetVerifiers",
-            ));
+            req.extensions_mut()
+                .insert(
+                    GrpcMethod::new("clementine.ClementineVerifier", "SetVerifiers"),
+                );
             self.inner.unary(req, path, codec).await
         }
         /// This will be called once on setup
@@ -513,17 +537,21 @@ pub mod clementine_verifier_client {
             &mut self,
             request: impl tonic::IntoRequest<super::OperatorParams>,
         ) -> std::result::Result<tonic::Response<super::Empty>, tonic::Status> {
-            self.inner.ready().await.map_err(|e| {
-                tonic::Status::unknown(format!("Service was not ready: {}", e.into()))
-            })?;
+            self.inner
+                .ready()
+                .await
+                .map_err(|e| {
+                    tonic::Status::unknown(
+                        format!("Service was not ready: {}", e.into()),
+                    )
+                })?;
             let codec = tonic::codec::ProstCodec::default();
-            let path =
-                http::uri::PathAndQuery::from_static("/clementine.ClementineVerifier/SetOperator");
+            let path = http::uri::PathAndQuery::from_static(
+                "/clementine.ClementineVerifier/SetOperator",
+            );
             let mut req = request.into_request();
-            req.extensions_mut().insert(GrpcMethod::new(
-                "clementine.ClementineVerifier",
-                "SetOperator",
-            ));
+            req.extensions_mut()
+                .insert(GrpcMethod::new("clementine.ClementineVerifier", "SetOperator"));
             self.inner.unary(req, path, codec).await
         }
         /// This will be called once on setup
@@ -531,18 +559,23 @@ pub mod clementine_verifier_client {
             &mut self,
             request: impl tonic::IntoRequest<super::WatchtowerParams>,
         ) -> std::result::Result<tonic::Response<super::Empty>, tonic::Status> {
-            self.inner.ready().await.map_err(|e| {
-                tonic::Status::unknown(format!("Service was not ready: {}", e.into()))
-            })?;
+            self.inner
+                .ready()
+                .await
+                .map_err(|e| {
+                    tonic::Status::unknown(
+                        format!("Service was not ready: {}", e.into()),
+                    )
+                })?;
             let codec = tonic::codec::ProstCodec::default();
             let path = http::uri::PathAndQuery::from_static(
                 "/clementine.ClementineVerifier/SetWatchtower",
             );
             let mut req = request.into_request();
-            req.extensions_mut().insert(GrpcMethod::new(
-                "clementine.ClementineVerifier",
-                "SetWatchtower",
-            ));
+            req.extensions_mut()
+                .insert(
+                    GrpcMethod::new("clementine.ClementineVerifier", "SetWatchtower"),
+                );
             self.inner.unary(req, path, codec).await
         }
         /// Generates nonces for a deposit.
@@ -554,12 +587,18 @@ pub mod clementine_verifier_client {
             tonic::Response<tonic::codec::Streaming<super::NonceGenResponse>>,
             tonic::Status,
         > {
-            self.inner.ready().await.map_err(|e| {
-                tonic::Status::unknown(format!("Service was not ready: {}", e.into()))
-            })?;
+            self.inner
+                .ready()
+                .await
+                .map_err(|e| {
+                    tonic::Status::unknown(
+                        format!("Service was not ready: {}", e.into()),
+                    )
+                })?;
             let codec = tonic::codec::ProstCodec::default();
-            let path =
-                http::uri::PathAndQuery::from_static("/clementine.ClementineVerifier/NonceGen");
+            let path = http::uri::PathAndQuery::from_static(
+                "/clementine.ClementineVerifier/NonceGen",
+            );
             let mut req = request.into_request();
             req.extensions_mut()
                 .insert(GrpcMethod::new("clementine.ClementineVerifier", "NonceGen"));
@@ -568,40 +607,53 @@ pub mod clementine_verifier_client {
         ///
         pub async fn deposit_sign(
             &mut self,
-            request: impl tonic::IntoStreamingRequest<Message = super::VerifierDepositSignParams>,
+            request: impl tonic::IntoStreamingRequest<
+                Message = super::VerifierDepositSignParams,
+            >,
         ) -> std::result::Result<
             tonic::Response<tonic::codec::Streaming<super::PartialSig>>,
             tonic::Status,
         > {
-            self.inner.ready().await.map_err(|e| {
-                tonic::Status::unknown(format!("Service was not ready: {}", e.into()))
-            })?;
+            self.inner
+                .ready()
+                .await
+                .map_err(|e| {
+                    tonic::Status::unknown(
+                        format!("Service was not ready: {}", e.into()),
+                    )
+                })?;
             let codec = tonic::codec::ProstCodec::default();
-            let path =
-                http::uri::PathAndQuery::from_static("/clementine.ClementineVerifier/DepositSign");
+            let path = http::uri::PathAndQuery::from_static(
+                "/clementine.ClementineVerifier/DepositSign",
+            );
             let mut req = request.into_streaming_request();
-            req.extensions_mut().insert(GrpcMethod::new(
-                "clementine.ClementineVerifier",
-                "DepositSign",
-            ));
+            req.extensions_mut()
+                .insert(GrpcMethod::new("clementine.ClementineVerifier", "DepositSign"));
             self.inner.streaming(req, path, codec).await
         }
         pub async fn deposit_finalize(
             &mut self,
-            request: impl tonic::IntoStreamingRequest<Message = super::VerifierDepositFinalizeParams>,
+            request: impl tonic::IntoStreamingRequest<
+                Message = super::VerifierDepositFinalizeParams,
+            >,
         ) -> std::result::Result<tonic::Response<super::PartialSig>, tonic::Status> {
-            self.inner.ready().await.map_err(|e| {
-                tonic::Status::unknown(format!("Service was not ready: {}", e.into()))
-            })?;
+            self.inner
+                .ready()
+                .await
+                .map_err(|e| {
+                    tonic::Status::unknown(
+                        format!("Service was not ready: {}", e.into()),
+                    )
+                })?;
             let codec = tonic::codec::ProstCodec::default();
             let path = http::uri::PathAndQuery::from_static(
                 "/clementine.ClementineVerifier/DepositFinalize",
             );
             let mut req = request.into_streaming_request();
-            req.extensions_mut().insert(GrpcMethod::new(
-                "clementine.ClementineVerifier",
-                "DepositFinalize",
-            ));
+            req.extensions_mut()
+                .insert(
+                    GrpcMethod::new("clementine.ClementineVerifier", "DepositFinalize"),
+                );
             self.inner.client_streaming(req, path, codec).await
         }
     }
@@ -613,10 +665,10 @@ pub mod clementine_aggregator_client {
         dead_code,
         missing_docs,
         clippy::wildcard_imports,
-        clippy::let_unit_value
+        clippy::let_unit_value,
     )]
-    use tonic::codegen::http::Uri;
     use tonic::codegen::*;
+    use tonic::codegen::http::Uri;
     #[derive(Debug, Clone)]
     pub struct ClementineAggregatorClient<T> {
         inner: tonic::client::Grpc<T>,
@@ -660,8 +712,9 @@ pub mod clementine_aggregator_client {
                     <T as tonic::client::GrpcService<tonic::body::BoxBody>>::ResponseBody,
                 >,
             >,
-            <T as tonic::codegen::Service<http::Request<tonic::body::BoxBody>>>::Error:
-                Into<StdError> + std::marker::Send + std::marker::Sync,
+            <T as tonic::codegen::Service<
+                http::Request<tonic::body::BoxBody>,
+            >>::Error: Into<StdError> + std::marker::Send + std::marker::Sync,
         {
             ClementineAggregatorClient::new(InterceptedService::new(inner, interceptor))
         }
@@ -704,18 +757,27 @@ pub mod clementine_aggregator_client {
         pub async fn new_deposit(
             &mut self,
             request: impl tonic::IntoRequest<super::DepositParams>,
-        ) -> std::result::Result<tonic::Response<super::RawSignedMoveTx>, tonic::Status> {
-            self.inner.ready().await.map_err(|e| {
-                tonic::Status::unknown(format!("Service was not ready: {}", e.into()))
-            })?;
+        ) -> std::result::Result<
+            tonic::Response<super::RawSignedMoveTx>,
+            tonic::Status,
+        > {
+            self.inner
+                .ready()
+                .await
+                .map_err(|e| {
+                    tonic::Status::unknown(
+                        format!("Service was not ready: {}", e.into()),
+                    )
+                })?;
             let codec = tonic::codec::ProstCodec::default();
-            let path =
-                http::uri::PathAndQuery::from_static("/clementine.ClementineAggregator/NewDeposit");
+            let path = http::uri::PathAndQuery::from_static(
+                "/clementine.ClementineAggregator/NewDeposit",
+            );
             let mut req = request.into_request();
-            req.extensions_mut().insert(GrpcMethod::new(
-                "clementine.ClementineAggregator",
-                "NewDeposit",
-            ));
+            req.extensions_mut()
+                .insert(
+                    GrpcMethod::new("clementine.ClementineAggregator", "NewDeposit"),
+                );
             self.inner.unary(req, path, codec).await
         }
     }
@@ -727,7 +789,7 @@ pub mod clementine_operator_server {
         dead_code,
         missing_docs,
         clippy::wildcard_imports,
-        clippy::let_unit_value
+        clippy::let_unit_value,
     )]
     use tonic::codegen::*;
     /// Generated trait containing gRPC methods that should be implemented for use with ClementineOperatorServer.
@@ -741,12 +803,16 @@ pub mod clementine_operator_server {
         /// Server streaming response type for the DepositSign method.
         type DepositSignStream: tonic::codegen::tokio_stream::Stream<
                 Item = std::result::Result<super::OperatorBurnSig, tonic::Status>,
-            > + std::marker::Send
+            >
+            + std::marker::Send
             + 'static;
         async fn deposit_sign(
             &self,
             request: tonic::Request<super::DepositSignSession>,
-        ) -> std::result::Result<tonic::Response<Self::DepositSignStream>, tonic::Status>;
+        ) -> std::result::Result<
+            tonic::Response<Self::DepositSignStream>,
+            tonic::Status,
+        >;
     }
     /// Operator is responsible for paying withdrawals
     /// Each operator has their own chain of utxos named time_txs.
@@ -773,7 +839,10 @@ pub mod clementine_operator_server {
                 max_encoding_message_size: None,
             }
         }
-        pub fn with_interceptor<F>(inner: T, interceptor: F) -> InterceptedService<Self, F>
+        pub fn with_interceptor<F>(
+            inner: T,
+            interceptor: F,
+        ) -> InterceptedService<Self, F>
         where
             F: tonic::service::Interceptor,
         {
@@ -828,10 +897,17 @@ pub mod clementine_operator_server {
                 "/clementine.ClementineOperator/GetParams" => {
                     #[allow(non_camel_case_types)]
                     struct GetParamsSvc<T: ClementineOperator>(pub Arc<T>);
-                    impl<T: ClementineOperator> tonic::server::UnaryService<super::Empty> for GetParamsSvc<T> {
+                    impl<T: ClementineOperator> tonic::server::UnaryService<super::Empty>
+                    for GetParamsSvc<T> {
                         type Response = super::OperatorParams;
-                        type Future = BoxFuture<tonic::Response<Self::Response>, tonic::Status>;
-                        fn call(&mut self, request: tonic::Request<super::Empty>) -> Self::Future {
+                        type Future = BoxFuture<
+                            tonic::Response<Self::Response>,
+                            tonic::Status,
+                        >;
+                        fn call(
+                            &mut self,
+                            request: tonic::Request<super::Empty>,
+                        ) -> Self::Future {
                             let inner = Arc::clone(&self.0);
                             let fut = async move {
                                 <T as ClementineOperator>::get_params(&inner, request).await
@@ -864,21 +940,24 @@ pub mod clementine_operator_server {
                 "/clementine.ClementineOperator/DepositSign" => {
                     #[allow(non_camel_case_types)]
                     struct DepositSignSvc<T: ClementineOperator>(pub Arc<T>);
-                    impl<T: ClementineOperator>
-                        tonic::server::ServerStreamingService<super::DepositSignSession>
-                        for DepositSignSvc<T>
-                    {
+                    impl<
+                        T: ClementineOperator,
+                    > tonic::server::ServerStreamingService<super::DepositSignSession>
+                    for DepositSignSvc<T> {
                         type Response = super::OperatorBurnSig;
                         type ResponseStream = T::DepositSignStream;
-                        type Future =
-                            BoxFuture<tonic::Response<Self::ResponseStream>, tonic::Status>;
+                        type Future = BoxFuture<
+                            tonic::Response<Self::ResponseStream>,
+                            tonic::Status,
+                        >;
                         fn call(
                             &mut self,
                             request: tonic::Request<super::DepositSignSession>,
                         ) -> Self::Future {
                             let inner = Arc::clone(&self.0);
                             let fut = async move {
-                                <T as ClementineOperator>::deposit_sign(&inner, request).await
+                                <T as ClementineOperator>::deposit_sign(&inner, request)
+                                    .await
                             };
                             Box::pin(fut)
                         }
@@ -905,19 +984,23 @@ pub mod clementine_operator_server {
                     };
                     Box::pin(fut)
                 }
-                _ => Box::pin(async move {
-                    let mut response = http::Response::new(empty_body());
-                    let headers = response.headers_mut();
-                    headers.insert(
-                        tonic::Status::GRPC_STATUS,
-                        (tonic::Code::Unimplemented as i32).into(),
-                    );
-                    headers.insert(
-                        http::header::CONTENT_TYPE,
-                        tonic::metadata::GRPC_CONTENT_TYPE,
-                    );
-                    Ok(response)
-                }),
+                _ => {
+                    Box::pin(async move {
+                        let mut response = http::Response::new(empty_body());
+                        let headers = response.headers_mut();
+                        headers
+                            .insert(
+                                tonic::Status::GRPC_STATUS,
+                                (tonic::Code::Unimplemented as i32).into(),
+                            );
+                        headers
+                            .insert(
+                                http::header::CONTENT_TYPE,
+                                tonic::metadata::GRPC_CONTENT_TYPE,
+                            );
+                        Ok(response)
+                    })
+                }
             }
         }
     }
@@ -946,7 +1029,7 @@ pub mod clementine_watchtower_server {
         dead_code,
         missing_docs,
         clippy::wildcard_imports,
-        clippy::let_unit_value
+        clippy::let_unit_value,
     )]
     use tonic::codegen::*;
     /// Generated trait containing gRPC methods that should be implemented for use with ClementineWatchtowerServer.
@@ -955,7 +1038,10 @@ pub mod clementine_watchtower_server {
         async fn get_params(
             &self,
             request: tonic::Request<super::Empty>,
-        ) -> std::result::Result<tonic::Response<super::WatchtowerParams>, tonic::Status>;
+        ) -> std::result::Result<
+            tonic::Response<super::WatchtowerParams>,
+            tonic::Status,
+        >;
     }
     /// Watchtowers are responsible for challenging the operator's kickoff txs.
     /// Each watchtower also runs a verifier server connected to the same db. Thus, they will have the operator's winternitz pubkeys.
@@ -980,7 +1066,10 @@ pub mod clementine_watchtower_server {
                 max_encoding_message_size: None,
             }
         }
-        pub fn with_interceptor<F>(inner: T, interceptor: F) -> InterceptedService<Self, F>
+        pub fn with_interceptor<F>(
+            inner: T,
+            interceptor: F,
+        ) -> InterceptedService<Self, F>
         where
             F: tonic::service::Interceptor,
         {
@@ -1015,7 +1104,8 @@ pub mod clementine_watchtower_server {
             self
         }
     }
-    impl<T, B> tonic::codegen::Service<http::Request<B>> for ClementineWatchtowerServer<T>
+    impl<T, B> tonic::codegen::Service<http::Request<B>>
+    for ClementineWatchtowerServer<T>
     where
         T: ClementineWatchtower,
         B: Body + std::marker::Send + 'static,
@@ -1035,13 +1125,22 @@ pub mod clementine_watchtower_server {
                 "/clementine.ClementineWatchtower/GetParams" => {
                     #[allow(non_camel_case_types)]
                     struct GetParamsSvc<T: ClementineWatchtower>(pub Arc<T>);
-                    impl<T: ClementineWatchtower> tonic::server::UnaryService<super::Empty> for GetParamsSvc<T> {
+                    impl<
+                        T: ClementineWatchtower,
+                    > tonic::server::UnaryService<super::Empty> for GetParamsSvc<T> {
                         type Response = super::WatchtowerParams;
-                        type Future = BoxFuture<tonic::Response<Self::Response>, tonic::Status>;
-                        fn call(&mut self, request: tonic::Request<super::Empty>) -> Self::Future {
+                        type Future = BoxFuture<
+                            tonic::Response<Self::Response>,
+                            tonic::Status,
+                        >;
+                        fn call(
+                            &mut self,
+                            request: tonic::Request<super::Empty>,
+                        ) -> Self::Future {
                             let inner = Arc::clone(&self.0);
                             let fut = async move {
-                                <T as ClementineWatchtower>::get_params(&inner, request).await
+                                <T as ClementineWatchtower>::get_params(&inner, request)
+                                    .await
                             };
                             Box::pin(fut)
                         }
@@ -1068,19 +1167,23 @@ pub mod clementine_watchtower_server {
                     };
                     Box::pin(fut)
                 }
-                _ => Box::pin(async move {
-                    let mut response = http::Response::new(empty_body());
-                    let headers = response.headers_mut();
-                    headers.insert(
-                        tonic::Status::GRPC_STATUS,
-                        (tonic::Code::Unimplemented as i32).into(),
-                    );
-                    headers.insert(
-                        http::header::CONTENT_TYPE,
-                        tonic::metadata::GRPC_CONTENT_TYPE,
-                    );
-                    Ok(response)
-                }),
+                _ => {
+                    Box::pin(async move {
+                        let mut response = http::Response::new(empty_body());
+                        let headers = response.headers_mut();
+                        headers
+                            .insert(
+                                tonic::Status::GRPC_STATUS,
+                                (tonic::Code::Unimplemented as i32).into(),
+                            );
+                        headers
+                            .insert(
+                                http::header::CONTENT_TYPE,
+                                tonic::metadata::GRPC_CONTENT_TYPE,
+                            );
+                        Ok(response)
+                    })
+                }
             }
         }
     }
@@ -1109,7 +1212,7 @@ pub mod clementine_verifier_server {
         dead_code,
         missing_docs,
         clippy::wildcard_imports,
-        clippy::let_unit_value
+        clippy::let_unit_value,
     )]
     use tonic::codegen::*;
     /// Generated trait containing gRPC methods that should be implemented for use with ClementineVerifierServer.
@@ -1133,7 +1236,8 @@ pub mod clementine_verifier_server {
         /// Server streaming response type for the NonceGen method.
         type NonceGenStream: tonic::codegen::tokio_stream::Stream<
                 Item = std::result::Result<super::NonceGenResponse, tonic::Status>,
-            > + std::marker::Send
+            >
+            + std::marker::Send
             + 'static;
         /// Generates nonces for a deposit.
         /// First streamed value will be always NonceGenFirstResponse then continues with PubNonces
@@ -1144,16 +1248,22 @@ pub mod clementine_verifier_server {
         /// Server streaming response type for the DepositSign method.
         type DepositSignStream: tonic::codegen::tokio_stream::Stream<
                 Item = std::result::Result<super::PartialSig, tonic::Status>,
-            > + std::marker::Send
+            >
+            + std::marker::Send
             + 'static;
         ///
         async fn deposit_sign(
             &self,
             request: tonic::Request<tonic::Streaming<super::VerifierDepositSignParams>>,
-        ) -> std::result::Result<tonic::Response<Self::DepositSignStream>, tonic::Status>;
+        ) -> std::result::Result<
+            tonic::Response<Self::DepositSignStream>,
+            tonic::Status,
+        >;
         async fn deposit_finalize(
             &self,
-            request: tonic::Request<tonic::Streaming<super::VerifierDepositFinalizeParams>>,
+            request: tonic::Request<
+                tonic::Streaming<super::VerifierDepositFinalizeParams>,
+            >,
         ) -> std::result::Result<tonic::Response<super::PartialSig>, tonic::Status>;
     }
     #[derive(Debug)]
@@ -1177,7 +1287,10 @@ pub mod clementine_verifier_server {
                 max_encoding_message_size: None,
             }
         }
-        pub fn with_interceptor<F>(inner: T, interceptor: F) -> InterceptedService<Self, F>
+        pub fn with_interceptor<F>(
+            inner: T,
+            interceptor: F,
+        ) -> InterceptedService<Self, F>
         where
             F: tonic::service::Interceptor,
         {
@@ -1232,19 +1345,23 @@ pub mod clementine_verifier_server {
                 "/clementine.ClementineVerifier/SetVerifiers" => {
                     #[allow(non_camel_case_types)]
                     struct SetVerifiersSvc<T: ClementineVerifier>(pub Arc<T>);
-                    impl<T: ClementineVerifier>
-                        tonic::server::UnaryService<super::VerifierPublicKeys>
-                        for SetVerifiersSvc<T>
-                    {
+                    impl<
+                        T: ClementineVerifier,
+                    > tonic::server::UnaryService<super::VerifierPublicKeys>
+                    for SetVerifiersSvc<T> {
                         type Response = super::Empty;
-                        type Future = BoxFuture<tonic::Response<Self::Response>, tonic::Status>;
+                        type Future = BoxFuture<
+                            tonic::Response<Self::Response>,
+                            tonic::Status,
+                        >;
                         fn call(
                             &mut self,
                             request: tonic::Request<super::VerifierPublicKeys>,
                         ) -> Self::Future {
                             let inner = Arc::clone(&self.0);
                             let fut = async move {
-                                <T as ClementineVerifier>::set_verifiers(&inner, request).await
+                                <T as ClementineVerifier>::set_verifiers(&inner, request)
+                                    .await
                             };
                             Box::pin(fut)
                         }
@@ -1274,18 +1391,23 @@ pub mod clementine_verifier_server {
                 "/clementine.ClementineVerifier/SetOperator" => {
                     #[allow(non_camel_case_types)]
                     struct SetOperatorSvc<T: ClementineVerifier>(pub Arc<T>);
-                    impl<T: ClementineVerifier> tonic::server::UnaryService<super::OperatorParams>
-                        for SetOperatorSvc<T>
-                    {
+                    impl<
+                        T: ClementineVerifier,
+                    > tonic::server::UnaryService<super::OperatorParams>
+                    for SetOperatorSvc<T> {
                         type Response = super::Empty;
-                        type Future = BoxFuture<tonic::Response<Self::Response>, tonic::Status>;
+                        type Future = BoxFuture<
+                            tonic::Response<Self::Response>,
+                            tonic::Status,
+                        >;
                         fn call(
                             &mut self,
                             request: tonic::Request<super::OperatorParams>,
                         ) -> Self::Future {
                             let inner = Arc::clone(&self.0);
                             let fut = async move {
-                                <T as ClementineVerifier>::set_operator(&inner, request).await
+                                <T as ClementineVerifier>::set_operator(&inner, request)
+                                    .await
                             };
                             Box::pin(fut)
                         }
@@ -1315,18 +1437,23 @@ pub mod clementine_verifier_server {
                 "/clementine.ClementineVerifier/SetWatchtower" => {
                     #[allow(non_camel_case_types)]
                     struct SetWatchtowerSvc<T: ClementineVerifier>(pub Arc<T>);
-                    impl<T: ClementineVerifier> tonic::server::UnaryService<super::WatchtowerParams>
-                        for SetWatchtowerSvc<T>
-                    {
+                    impl<
+                        T: ClementineVerifier,
+                    > tonic::server::UnaryService<super::WatchtowerParams>
+                    for SetWatchtowerSvc<T> {
                         type Response = super::Empty;
-                        type Future = BoxFuture<tonic::Response<Self::Response>, tonic::Status>;
+                        type Future = BoxFuture<
+                            tonic::Response<Self::Response>,
+                            tonic::Status,
+                        >;
                         fn call(
                             &mut self,
                             request: tonic::Request<super::WatchtowerParams>,
                         ) -> Self::Future {
                             let inner = Arc::clone(&self.0);
                             let fut = async move {
-                                <T as ClementineVerifier>::set_watchtower(&inner, request).await
+                                <T as ClementineVerifier>::set_watchtower(&inner, request)
+                                    .await
                             };
                             Box::pin(fut)
                         }
@@ -1356,12 +1483,20 @@ pub mod clementine_verifier_server {
                 "/clementine.ClementineVerifier/NonceGen" => {
                     #[allow(non_camel_case_types)]
                     struct NonceGenSvc<T: ClementineVerifier>(pub Arc<T>);
-                    impl<T: ClementineVerifier> tonic::server::ServerStreamingService<super::Empty> for NonceGenSvc<T> {
+                    impl<
+                        T: ClementineVerifier,
+                    > tonic::server::ServerStreamingService<super::Empty>
+                    for NonceGenSvc<T> {
                         type Response = super::NonceGenResponse;
                         type ResponseStream = T::NonceGenStream;
-                        type Future =
-                            BoxFuture<tonic::Response<Self::ResponseStream>, tonic::Status>;
-                        fn call(&mut self, request: tonic::Request<super::Empty>) -> Self::Future {
+                        type Future = BoxFuture<
+                            tonic::Response<Self::ResponseStream>,
+                            tonic::Status,
+                        >;
+                        fn call(
+                            &mut self,
+                            request: tonic::Request<super::Empty>,
+                        ) -> Self::Future {
                             let inner = Arc::clone(&self.0);
                             let fut = async move {
                                 <T as ClementineVerifier>::nonce_gen(&inner, request).await
@@ -1394,14 +1529,16 @@ pub mod clementine_verifier_server {
                 "/clementine.ClementineVerifier/DepositSign" => {
                     #[allow(non_camel_case_types)]
                     struct DepositSignSvc<T: ClementineVerifier>(pub Arc<T>);
-                    impl<T: ClementineVerifier>
-                        tonic::server::StreamingService<super::VerifierDepositSignParams>
-                        for DepositSignSvc<T>
-                    {
+                    impl<
+                        T: ClementineVerifier,
+                    > tonic::server::StreamingService<super::VerifierDepositSignParams>
+                    for DepositSignSvc<T> {
                         type Response = super::PartialSig;
                         type ResponseStream = T::DepositSignStream;
-                        type Future =
-                            BoxFuture<tonic::Response<Self::ResponseStream>, tonic::Status>;
+                        type Future = BoxFuture<
+                            tonic::Response<Self::ResponseStream>,
+                            tonic::Status,
+                        >;
                         fn call(
                             &mut self,
                             request: tonic::Request<
@@ -1410,7 +1547,8 @@ pub mod clementine_verifier_server {
                         ) -> Self::Future {
                             let inner = Arc::clone(&self.0);
                             let fut = async move {
-                                <T as ClementineVerifier>::deposit_sign(&inner, request).await
+                                <T as ClementineVerifier>::deposit_sign(&inner, request)
+                                    .await
                             };
                             Box::pin(fut)
                         }
@@ -1440,12 +1578,16 @@ pub mod clementine_verifier_server {
                 "/clementine.ClementineVerifier/DepositFinalize" => {
                     #[allow(non_camel_case_types)]
                     struct DepositFinalizeSvc<T: ClementineVerifier>(pub Arc<T>);
-                    impl<T: ClementineVerifier>
-                        tonic::server::ClientStreamingService<super::VerifierDepositFinalizeParams>
-                        for DepositFinalizeSvc<T>
-                    {
+                    impl<
+                        T: ClementineVerifier,
+                    > tonic::server::ClientStreamingService<
+                        super::VerifierDepositFinalizeParams,
+                    > for DepositFinalizeSvc<T> {
                         type Response = super::PartialSig;
-                        type Future = BoxFuture<tonic::Response<Self::Response>, tonic::Status>;
+                        type Future = BoxFuture<
+                            tonic::Response<Self::Response>,
+                            tonic::Status,
+                        >;
                         fn call(
                             &mut self,
                             request: tonic::Request<
@@ -1454,7 +1596,8 @@ pub mod clementine_verifier_server {
                         ) -> Self::Future {
                             let inner = Arc::clone(&self.0);
                             let fut = async move {
-                                <T as ClementineVerifier>::deposit_finalize(&inner, request).await
+                                <T as ClementineVerifier>::deposit_finalize(&inner, request)
+                                    .await
                             };
                             Box::pin(fut)
                         }
@@ -1481,19 +1624,23 @@ pub mod clementine_verifier_server {
                     };
                     Box::pin(fut)
                 }
-                _ => Box::pin(async move {
-                    let mut response = http::Response::new(empty_body());
-                    let headers = response.headers_mut();
-                    headers.insert(
-                        tonic::Status::GRPC_STATUS,
-                        (tonic::Code::Unimplemented as i32).into(),
-                    );
-                    headers.insert(
-                        http::header::CONTENT_TYPE,
-                        tonic::metadata::GRPC_CONTENT_TYPE,
-                    );
-                    Ok(response)
-                }),
+                _ => {
+                    Box::pin(async move {
+                        let mut response = http::Response::new(empty_body());
+                        let headers = response.headers_mut();
+                        headers
+                            .insert(
+                                tonic::Status::GRPC_STATUS,
+                                (tonic::Code::Unimplemented as i32).into(),
+                            );
+                        headers
+                            .insert(
+                                http::header::CONTENT_TYPE,
+                                tonic::metadata::GRPC_CONTENT_TYPE,
+                            );
+                        Ok(response)
+                    })
+                }
             }
         }
     }
@@ -1522,7 +1669,7 @@ pub mod clementine_aggregator_server {
         dead_code,
         missing_docs,
         clippy::wildcard_imports,
-        clippy::let_unit_value
+        clippy::let_unit_value,
     )]
     use tonic::codegen::*;
     /// Generated trait containing gRPC methods that should be implemented for use with ClementineAggregatorServer.
@@ -1559,7 +1706,10 @@ pub mod clementine_aggregator_server {
                 max_encoding_message_size: None,
             }
         }
-        pub fn with_interceptor<F>(inner: T, interceptor: F) -> InterceptedService<Self, F>
+        pub fn with_interceptor<F>(
+            inner: T,
+            interceptor: F,
+        ) -> InterceptedService<Self, F>
         where
             F: tonic::service::Interceptor,
         {
@@ -1594,7 +1744,8 @@ pub mod clementine_aggregator_server {
             self
         }
     }
-    impl<T, B> tonic::codegen::Service<http::Request<B>> for ClementineAggregatorServer<T>
+    impl<T, B> tonic::codegen::Service<http::Request<B>>
+    for ClementineAggregatorServer<T>
     where
         T: ClementineAggregator,
         B: Body + std::marker::Send + 'static,
@@ -1614,18 +1765,23 @@ pub mod clementine_aggregator_server {
                 "/clementine.ClementineAggregator/NewDeposit" => {
                     #[allow(non_camel_case_types)]
                     struct NewDepositSvc<T: ClementineAggregator>(pub Arc<T>);
-                    impl<T: ClementineAggregator> tonic::server::UnaryService<super::DepositParams>
-                        for NewDepositSvc<T>
-                    {
+                    impl<
+                        T: ClementineAggregator,
+                    > tonic::server::UnaryService<super::DepositParams>
+                    for NewDepositSvc<T> {
                         type Response = super::RawSignedMoveTx;
-                        type Future = BoxFuture<tonic::Response<Self::Response>, tonic::Status>;
+                        type Future = BoxFuture<
+                            tonic::Response<Self::Response>,
+                            tonic::Status,
+                        >;
                         fn call(
                             &mut self,
                             request: tonic::Request<super::DepositParams>,
                         ) -> Self::Future {
                             let inner = Arc::clone(&self.0);
                             let fut = async move {
-                                <T as ClementineAggregator>::new_deposit(&inner, request).await
+                                <T as ClementineAggregator>::new_deposit(&inner, request)
+                                    .await
                             };
                             Box::pin(fut)
                         }
@@ -1652,19 +1808,23 @@ pub mod clementine_aggregator_server {
                     };
                     Box::pin(fut)
                 }
-                _ => Box::pin(async move {
-                    let mut response = http::Response::new(empty_body());
-                    let headers = response.headers_mut();
-                    headers.insert(
-                        tonic::Status::GRPC_STATUS,
-                        (tonic::Code::Unimplemented as i32).into(),
-                    );
-                    headers.insert(
-                        http::header::CONTENT_TYPE,
-                        tonic::metadata::GRPC_CONTENT_TYPE,
-                    );
-                    Ok(response)
-                }),
+                _ => {
+                    Box::pin(async move {
+                        let mut response = http::Response::new(empty_body());
+                        let headers = response.headers_mut();
+                        headers
+                            .insert(
+                                tonic::Status::GRPC_STATUS,
+                                (tonic::Code::Unimplemented as i32).into(),
+                            );
+                        headers
+                            .insert(
+                                http::header::CONTENT_TYPE,
+                                tonic::metadata::GRPC_CONTENT_TYPE,
+                            );
+                        Ok(response)
+                    })
+                }
             }
         }
     }
