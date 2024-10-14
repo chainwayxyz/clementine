@@ -13,7 +13,7 @@ fn compile_protobuf() {
     if let Err(e) = tonic_build::configure()
         .build_server(true)
         .build_client(true)
-        .out_dir("./src/")
+        .out_dir("./src/rpc")
         .compile_protos(&proto_files, &[proto_root.to_str().unwrap()]) 
     {
         panic!("Failed to compile protos: {}", e);

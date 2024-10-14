@@ -28,6 +28,7 @@ pub mod servers;
 pub mod traits;
 pub mod user;
 pub mod utils;
+pub mod rpc;
 pub mod verifier;
 
 pub type ConnectorUTXOTree = Vec<Vec<OutPoint>>;
