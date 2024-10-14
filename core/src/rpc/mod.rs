@@ -1,3 +1,3 @@
-#![allow(clippy::all)]
+#[allow(clippy::all)]
 #[rustfmt::skip]
 pub mod clementine;
