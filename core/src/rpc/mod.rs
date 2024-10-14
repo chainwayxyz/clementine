@@ -2,14 +2,14 @@
 #[rustfmt::skip]
 pub mod clementine;
 
-use crate::{operator::Operator, verifier::Verifier};
+use crate::{operator::Operator, verifier::Verifier, watchtower::Watchtower};
 use bitcoin_mock_rpc::RpcApiWrapper;
 use clementine::{
     clementine_operator_server::ClementineOperator, clementine_verifier_server::ClementineVerifier,
-    DepositSignSession, Empty, NewWithdrawalSigParams, NewWithdrawalSigResponse, NonceGenResponse,
-    OperatorBurnSig, OperatorParams, PartialSig, VerifierDepositFinalizeParams,
-    VerifierDepositSignParams, VerifierParams, VerifierPublicKeys, WatchtowerParams,
-    WithdrawalFinalizedParams,
+    clementine_watchtower_server::ClementineWatchtower, DepositSignSession, Empty,
+    NewWithdrawalSigParams, NewWithdrawalSigResponse, NonceGenResponse, OperatorBurnSig,
+    OperatorParams, PartialSig, VerifierDepositFinalizeParams, VerifierDepositSignParams,
+    VerifierParams, VerifierPublicKeys, WatchtowerParams, WithdrawalFinalizedParams,
 };
 use tokio_stream::wrappers::ReceiverStream;
 use tonic::{async_trait, Request, Response, Status, Streaming};
@@ -101,6 +101,19 @@ where
         &self,
         _request: tonic::Request<tonic::Streaming<VerifierDepositFinalizeParams>>,
     ) -> Result<Response<PartialSig>, Status> {
+        todo!()
+    }
+}
+
+#[async_trait]
+impl<T> ClementineWatchtower for Watchtower<T>
+where
+    T: RpcApiWrapper,
+{
+    async fn get_params(
+        &self,
+        _request: tonic::Request<Empty>,
+    ) -> Result<tonic::Response<WatchtowerParams>, tonic::Status> {
         todo!()
     }
 }

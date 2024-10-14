@@ -30,6 +30,7 @@ pub mod traits;
 pub mod user;
 pub mod utils;
 pub mod verifier;
+pub mod watchtower;
 
 pub type ConnectorUTXOTree = Vec<Vec<OutPoint>>;
 // pub type HashTree = Vec<Vec<HashType>>;
