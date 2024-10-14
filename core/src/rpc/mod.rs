@@ -6,8 +6,10 @@ use crate::{operator::Operator, verifier::Verifier};
 use bitcoin_mock_rpc::RpcApiWrapper;
 use clementine::{
     clementine_operator_server::ClementineOperator, clementine_verifier_server::ClementineVerifier,
-    DepositSignSession, Empty, NonceGenResponse, OperatorBurnSig, OperatorParams, PartialSig,
-    VerifierDepositFinalizeParams, VerifierDepositSignParams, VerifierPublicKeys, WatchtowerParams,
+    DepositSignSession, Empty, NewWithdrawalSigParams, NewWithdrawalSigResponse, NonceGenResponse,
+    OperatorBurnSig, OperatorParams, PartialSig, VerifierDepositFinalizeParams,
+    VerifierDepositSignParams, VerifierParams, VerifierPublicKeys, WatchtowerParams,
+    WithdrawalFinalizedParams,
 };
 use tokio_stream::wrappers::ReceiverStream;
 use tonic::{async_trait, Request, Response, Status, Streaming};
@@ -17,6 +19,8 @@ impl<T> ClementineOperator for Operator<T>
 where
     T: RpcApiWrapper,
 {
+    type DepositSignStream = ReceiverStream<Result<OperatorBurnSig, Status>>;
+
     async fn get_params(
         &self,
         _request: Request<Empty>,
@@ -31,8 +35,19 @@ where
         todo!()
     }
 
-    #[doc = " Server streaming response type for the DepositSign method."]
-    type DepositSignStream = ReceiverStream<Result<OperatorBurnSig, Status>>;
+    async fn new_withdrawal_sig(
+        &self,
+        _: Request<NewWithdrawalSigParams>,
+    ) -> Result<Response<NewWithdrawalSigResponse>, Status> {
+        todo!()
+    }
+
+    async fn withdrawal_finalized(
+        &self,
+        _: Request<WithdrawalFinalizedParams>,
+    ) -> Result<Response<Empty>, Status> {
+        todo!()
+    }
 }
 
 #[async_trait]
@@ -42,6 +57,10 @@ where
 {
     type NonceGenStream = ReceiverStream<Result<NonceGenResponse, Status>>;
     type DepositSignStream = ReceiverStream<Result<PartialSig, Status>>;
+
+    async fn get_params(&self, _: Request<Empty>) -> Result<Response<VerifierParams>, Status> {
+        todo!()
+    }
 
     async fn set_verifiers(
         &self,
