@@ -1,7 +1,7 @@
 use std::path::Path;
 
 fn compile_protobuf() {
-    let proto_root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../proto");
+    let proto_root = Path::new(env!("CARGO_MANIFEST_DIR")).join("src/rpc/");
     let protos = &["clementine.proto"];
 
     let proto_files: Vec<String> = protos
