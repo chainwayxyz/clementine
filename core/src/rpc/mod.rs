@@ -2,14 +2,18 @@
 #[rustfmt::skip]
 pub mod clementine;
 
-use crate::{operator::Operator, verifier::Verifier, watchtower::Watchtower};
+use crate::{
+    aggregator::Aggregator, operator::Operator, verifier::Verifier, watchtower::Watchtower,
+};
 use bitcoin_mock_rpc::RpcApiWrapper;
 use clementine::{
+    clementine_aggregator_server::ClementineAggregator,
     clementine_operator_server::ClementineOperator, clementine_verifier_server::ClementineVerifier,
-    clementine_watchtower_server::ClementineWatchtower, DepositSignSession, Empty,
+    clementine_watchtower_server::ClementineWatchtower, DepositParams, DepositSignSession, Empty,
     NewWithdrawalSigParams, NewWithdrawalSigResponse, NonceGenResponse, OperatorBurnSig,
-    OperatorParams, PartialSig, VerifierDepositFinalizeParams, VerifierDepositSignParams,
-    VerifierParams, VerifierPublicKeys, WatchtowerParams, WithdrawalFinalizedParams,
+    OperatorParams, PartialSig, RawSignedMoveTx, VerifierDepositFinalizeParams,
+    VerifierDepositSignParams, VerifierParams, VerifierPublicKeys, WatchtowerParams,
+    WithdrawalFinalizedParams,
 };
 use tokio_stream::wrappers::ReceiverStream;
 use tonic::{async_trait, Request, Response, Status, Streaming};
@@ -99,7 +103,7 @@ where
 
     async fn deposit_finalize(
         &self,
-        _request: tonic::Request<tonic::Streaming<VerifierDepositFinalizeParams>>,
+        _request: Request<Streaming<VerifierDepositFinalizeParams>>,
     ) -> Result<Response<PartialSig>, Status> {
         todo!()
     }
@@ -112,8 +116,22 @@ where
 {
     async fn get_params(
         &self,
-        _request: tonic::Request<Empty>,
-    ) -> Result<tonic::Response<WatchtowerParams>, tonic::Status> {
+        _request: Request<Empty>,
+    ) -> Result<Response<WatchtowerParams>, Status> {
+        todo!()
+    }
+}
+
+#[async_trait]
+impl ClementineAggregator for Aggregator {
+    async fn setup(&self, _request: Request<Empty>) -> Result<Response<Empty>, Status> {
+        todo!()
+    }
+
+    async fn new_deposit(
+        &self,
+        _request: Request<DepositParams>,
+    ) -> Result<Response<RawSignedMoveTx>, Status> {
         todo!()
     }
 }
