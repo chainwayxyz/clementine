@@ -2,21 +2,32 @@ syntax = "proto3";
 
 package clementine;
 
+// Operator is responsible for paying withdrawals
+// Each operator has their own chain of utxos named time_txs.
+// Each operator has a unique id which will be given in config.
+// Each operator also runs a verifier server connected to the same db. Thus, they will have wathctowers' winternitz pubkeys.
 service ClementineOperator {
-  rpc GetParams(Empty) returns (OperatorParams) {}
+    // This will be called once by the aggregator to set all public keys.
+    rpc GetParams(Empty) returns (OperatorParams) {}
 
-  rpc DepositSign(DepositParams) returns (stream OperatorBurnSig) {}
+    rpc DepositSign(DepositParams) returns (stream OperatorBurnSig) {}
 }
+
+// Watchtowers are responsible for challenging the operator's kickoff txs.
+// Each watchtower also runs a verifier server connected to the same db. Thus, they will have the operator's winternitz pubkeys.
+service ClementineWatchtower {
+    rpc GetParams(Empty) returns (WatchtowerParams) {}
+}
+
 
 service ClementineVerifier {
     rpc SetVerifiers(Verifiers) returns (Empty) {}
+
     rpc SetOperator(OperatorParams) returns (Empty) {}
+
     rpc DepositNonceGen(Empty) returns (stream PubNonce) {}
     rpc DepositSign(stream VerifierDepositSignParams) returns (stream PartialSig) {}
     rpc DepositFinalize(stream VerifierDepositFinalizeParams) returns (PartialSig) {}
-}
-
-service ClementineWatchtower {
 }
 
 service ClementineAggregator {
@@ -48,14 +59,14 @@ message AggregatePartialSigParams {
 
 message VerifierDepositSignParams {
     oneof params {
-        DepositParams DepositParams = 1;
+        DepositParams deposit_params = 1;
         AggNonce agg_nonce = 2;
     }
  }
 
 message VerifierDepositFinalizeParams {
     oneof params {
-        DepositParams DepositParams = 1;
+        DepositParams deposit_params = 1;
         SchnorrSig schnorr_sig = 2;
     }
 }
@@ -81,7 +92,7 @@ message OperatorBurnSigs {
 }
 
 
-message OperatorDetails {
+message OperatorConfig {
     uint32 operator_id = 1;
     Outpoint initial_time_tx_outpoint = 2;
     string xonly_pk = 3;
@@ -89,10 +100,26 @@ message OperatorDetails {
 }
 
 message OperatorParams {
-    OperatorDetails operator_details = 1;
-    repeated bytes winternitz_pubkeys = 5;
-    repeated bytes preimages = 6;
+    OperatorConfig operator_details = 1;
+    // Winternitz pubkeys for each watchtowers challenge + bitvm assert tx. 
+    // If 100 watchtowers and total of 1000 timetxs, we will have 1000*(100*240 + 600*20) ~= 1 GB hashes for every winternitz pubkey.
+    repeated WinternitzPubkey winternitz_pubkeys = 5;
+    // Adaptor signatures for asserting a watchtower's challenge to zero.
+    // Total of, 1000*100 preimages.
+    repeated AssertEmptyPreimage assert_empty_preimages = 6;
+    // We don't want N-of-N in time txs, so operator will sign the timeout txs.
+    // Total of 1000 schnorr sigs.
     repeated SchnorrSig timeout_tx_sigs = 7;
+}
+
+message WatchtowerParams {
+    uint32 watchtower_id = 1;
+    // Winternitz pubkeys for each operator's timetxs.
+    repeated WinternitzPubkey winternitz_pubkeys = 2;
+}
+
+message AssertEmptyPreimage {
+    bytes preimage = 1;
 }
 
 
@@ -123,7 +150,7 @@ message WinternitzPubkey {
 // Watchtowers only needs the operator_id, initial_time_tx_outpoint and the xonly_pk.
 // They will calculate all time_txs
 message WathctowerSetOperatorParams {
-    OperatorDetails operator_details = 1;
+    OperatorConfig operator_details = 1;
 }
 
 message WatchtowerGetPubkeysPerOperatorParams {
@@ -140,7 +167,7 @@ message WatchtowerGetPubkeysPerOperatorResponse {
 
 // Verifier set operator params
 message VerifierSetOperatorParams {
-    OperatorDetails operator_details = 1;
+    OperatorConfig operator_details = 1;
     repeated WinternitzPubkey winternitz_pubkeys = 2;
     repeated bytes preimages = 3;
     repeated SchnorrSig timeout_tx_sigs = 4;
