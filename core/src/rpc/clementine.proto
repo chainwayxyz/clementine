@@ -5,92 +5,127 @@ package clementine;
 // Operator is responsible for paying withdrawals
 // Each operator has their own chain of utxos named time_txs.
 // Each operator has a unique id which will be given in config.
-// Each operator also runs a verifier server connected to the same db. Thus, they will have wathctowers' winternitz pubkeys.
+// Each operator also runs a verifier server connected to the same db. Thus,
+// they will have wathctowers' winternitz pubkeys.
 service ClementineOperator {
-    // This will be called once by the aggregator to set all public keys.
-    rpc GetParams(Empty) returns (OperatorParams) {}
+  // This will be called once by the aggregator to set all public keys.
+  rpc GetParams(Empty) returns (OperatorParams) {}
 
-    rpc DepositSign(DepositSignSession) returns (stream OperatorBurnSig) {}
+  rpc DepositSign(DepositSignSession) returns (stream OperatorBurnSig) {}
+
+  rpc NewWithdrawalSig(NewWithdrawalSigParams)
+      returns (NewWithdrawalSigResponse) {}
+
+  rpc WithdrawalFinalized(WithdrawalFinalizedParams) returns (Empty) {}
 }
 
 // Watchtowers are responsible for challenging the operator's kickoff txs.
-// Each watchtower also runs a verifier server connected to the same db. Thus, they will have the operator's winternitz pubkeys.
+// Each watchtower also runs a verifier server connected to the same db. Thus,
+// they will have the operator's winternitz pubkeys.
 service ClementineWatchtower {
-    rpc GetParams(Empty) returns (WatchtowerParams) {}
+  rpc GetParams(Empty) returns (WatchtowerParams) {}
 }
 
-
 service ClementineVerifier {
-    // This will be called once on setup
-    rpc SetVerifiers(VerifierPublicKeys) returns (Empty) {}
-    // This will be called once on setup
-    rpc SetOperator(OperatorParams) returns (Empty) {}
-    // This will be called once on setup
-    rpc SetWatchtower(WatchtowerParams) returns (Empty) {}
+  // This will be called once on setup
+  rpc GetParams(Empty) returns (VerifierParams) {}
+  // This will be called once on setup
+  rpc SetVerifiers(VerifierPublicKeys) returns (Empty) {}
+  // This will be called once on setup
+  rpc SetOperator(OperatorParams) returns (Empty) {}
+  // This will be called once on setup
+  rpc SetWatchtower(WatchtowerParams) returns (Empty) {}
 
-    // Generates nonces for a deposit.
-    // First streamed value will be always NonceGenFirstResponse then continues with PubNonces
-    rpc NonceGen(Empty) returns (stream NonceGenResponse) {}
+  // Generates nonces for a deposit.
+  // First streamed value will be always NonceGenFirstResponse then continues
+  // with PubNonces
+  rpc NonceGen(Empty) returns (stream NonceGenResponse) {}
 
-    // 
-    rpc DepositSign(stream VerifierDepositSignParams) returns (stream PartialSig) {}
-    rpc DepositFinalize(stream VerifierDepositFinalizeParams) returns (PartialSig) {}
+  // Will get aggNonce as stream and sign it on the fly.
+  rpc DepositSign(stream VerifierDepositSignParams)
+      returns (stream PartialSig) {}
+
+  // Will get schnorr sigs, verify them, and send partial sig of move tx.
+  rpc DepositFinalize(stream VerifierDepositFinalizeParams)
+      returns (PartialSig) {}
 }
 
 service ClementineAggregator {
-    // This will call, DepositNonceGen for every verifier,
-    // then it will aggregate one by one and then send it to DepositSign,
-    // then it will aggregate the partial sigs and send it to DepositFinalize,
-    // this will also call the operator to get their signatures and send it to DepositFinalize
-    // then it will collect the partial sigs and create the move tx.
-    rpc NewDeposit(DepositParams) returns (RawSignedMoveTx) {}
+  rpc Setup(Empty) returns (Empty) {}
+  // This will call, DepositNonceGen for every verifier,
+  // then it will aggregate one by one and then send it to DepositSign,
+  // then it will aggregate the partial sigs and send it to DepositFinalize,
+  // this will also call the operator to get their signatures and send it to
+  // DepositFinalize then it will collect the partial sigs and create the move
+  // tx.
+  rpc NewDeposit(DepositParams) returns (RawSignedMoveTx) {}
 }
 
+message NewWithdrawalSigParams {
+  uint32 withdrawal_id = 1;
+  bytes user_sig = 2;
+  Outpoint users_intent_outpoint = 3;
+  bytes users_intent_script_pubkey = 4;
+  uint64 users_intent_amount = 5;
+  bytes output_script_pubkey = 6;
+  uint64 output_amount = 7;
+}
+
+message NewWithdrawalSigResponse { bytes txid = 1; }
+
+message WithdrawalFinalizedParams {
+  uint32 withdrawal_id = 1;
+  Outpoint deposit_outpoint = 2;
+}
+
+message VerifierParams {
+  uint32 id = 1;
+  bytes public_key = 2;
+  uint32 num_verifiers = 3;
+  uint32 num_watchtowers = 4;
+  uint32 num_operators = 5;
+  uint32 num_time_txs = 6;
+}
 
 message NonceGenFirstResponse {
-    uint32 id = 1;
-    // New public key for the deposit
-    bytes public_key = 2;
-    // They sign the new public key with their private key
-    bytes sig = 3;
-    // Number of nonces to generate
-    uint32 num_nonces = 4;
+  uint32 id = 1;
+  // New public key for the deposit
+  bytes public_key = 2;
+  // They sign the new public key with their private key
+  bytes sig = 3;
+  // Number of nonces to generate
+  uint32 num_nonces = 4;
 }
 
-
 message NonceGenResponse {
-    oneof response {
-        NonceGenFirstResponse first_response = 1;
-        bytes pub_nonce = 2;
-    }
+  oneof response {
+    NonceGenFirstResponse first_response = 1;
+    bytes pub_nonce = 2;
+  }
 }
 
 message DepositSignSession {
-    DepositParams deposit_params = 1;
-    repeated NonceGenFirstResponse nonce_gen_first_responses = 2;
+  DepositParams deposit_params = 1;
+  repeated NonceGenFirstResponse nonce_gen_first_responses = 2;
 }
 
 message VerifierDepositSignParams {
-    oneof params {
-        DepositSignSession deposit_sign_first_param = 1;
-        bytes agg_nonce = 2;
-    }
+  oneof params {
+    DepositSignSession deposit_sign_first_param = 1;
+    bytes agg_nonce = 2;
+  }
 }
 
 message VerifierDepositFinalizeParams {
-    oneof params {
-        DepositSignSession deposit_sign_first_param = 1;
-        bytes schnorr_sig = 2;
-    }
+  oneof params {
+    DepositSignSession deposit_sign_first_param = 1;
+    bytes schnorr_sig = 2;
+  }
 }
 
-message RawSignedMoveTx {
-    bytes raw_tx = 1;
-}
+message RawSignedMoveTx { bytes raw_tx = 1; }
 
-message VerifierPublicKeys {
-    repeated string verifier_public_keys = 1;
-}
+message VerifierPublicKeys { repeated string verifier_public_keys = 1; }
 
 message Outpoint {
   bytes txid = 1;
@@ -98,70 +133,49 @@ message Outpoint {
 }
 
 message DepositParams {
-    Outpoint deposit_outpoint = 1;
-    bytes evm_address = 2;
-    string recovery_taproot_address = 3;
-    uint64 user_takes_after = 4;
+  Outpoint deposit_outpoint = 1;
+  bytes evm_address = 2;
+  string recovery_taproot_address = 3;
+  uint64 user_takes_after = 4;
 }
 
-message OperatorBurnSig {
-    bytes schnorr_sig = 1;
-}
+message OperatorBurnSig { bytes schnorr_sig = 1; }
 
 message OperatorConfig {
-    uint32 operator_id = 1;
-    Outpoint initial_time_tx_outpoint = 2;
-    string xonly_pk = 3;
-    string wallet_reimburse_address = 4;
+  uint32 operator_id = 1;
+  Outpoint initial_time_tx_outpoint = 2;
+  string xonly_pk = 3;
+  string wallet_reimburse_address = 4;
 }
 
 message OperatorParams {
-    OperatorConfig operator_details = 1;
-    // Winternitz pubkeys for each watchtowers challenge + bitvm assert tx. 
-    // If 100 watchtowers and total of 1000 timetxs, we will have 1000*(100*240 + 600*20) ~= 1 GB hashes for every winternitz pubkey.
-    repeated WinternitzPubkey winternitz_pubkeys = 5;
-    // Adaptor signatures for asserting a watchtower's challenge to zero.
-    // Total of, 1000*100 preimages.
-    repeated AssertEmptyPublicKey assert_empty_public_key = 6;
-    // We don't want N-of-N in time txs, so operator will sign the timeout txs.
-    // Total of 1000 schnorr sigs.
-    repeated bytes timeout_tx_sigs = 7;
+  OperatorConfig operator_details = 1;
+  // Winternitz pubkeys for each watchtowers challenge + bitvm assert tx.
+  // If 100 watchtowers and total of 1000 timetxs, we will have 1000*(100*240 +
+  // 600*20) ~= 1 GB hashes for every winternitz pubkey.
+  repeated WinternitzPubkey winternitz_pubkeys = 5;
+  // Adaptor signatures for asserting a watchtower's challenge to zero.
+  // Total of, 1000*100 preimages.
+  repeated AssertEmptyPublicKey assert_empty_public_key = 6;
+  // We don't want N-of-N in time txs, so operator will sign the timeout txs.
+  // Total of 1000 schnorr sigs.
+  repeated bytes timeout_tx_sigs = 7;
 }
 
 message WatchtowerParams {
-    uint32 watchtower_id = 1;
-    // Winternitz pubkeys for each operator's timetxs.
-    repeated WinternitzPubkey winternitz_pubkeys = 2;
+  uint32 watchtower_id = 1;
+  // Winternitz pubkeys for each operator's timetxs.
+  repeated WinternitzPubkey winternitz_pubkeys = 2;
 }
 
-message AssertEmptyPublicKey {
-    bytes hash = 1;
-}
-
+message AssertEmptyPublicKey { bytes hash = 1; }
 
 message WinternitzPubkey {
-    uint32 d = 1;
-    uint32 n0 = 2;
-    repeated bytes digit_pubkey = 3;
+  uint32 d = 1;
+  uint32 n0 = 2;
+  repeated bytes digit_pubkey = 3;
 }
 
-message PartialSig {
-    bytes partial_sig = 1;
-}
-
-
-// message PubNonce {
-//     bytes pub_nonce = 1;
-// }
-
-// message AggNonce {
-//     bytes agg_nonce = 1;
-// }
-
-
-// message SchnorrSig {
-//     bytes schnorr_sig = 1;
-// }
-
+message PartialSig { bytes partial_sig = 1; }
 
 message Empty {}
