@@ -25,6 +25,7 @@ where
 {
     type DepositSignStream = ReceiverStream<Result<OperatorBurnSig, Status>>;
 
+    #[tracing::instrument(skip(self), err(level = tracing::Level::ERROR), ret(level = tracing::Level::TRACE))]
     async fn get_params(
         &self,
         _request: Request<Empty>,
@@ -32,6 +33,7 @@ where
         todo!()
     }
 
+    #[tracing::instrument(skip(self), err(level = tracing::Level::ERROR), ret(level = tracing::Level::TRACE))]
     async fn deposit_sign(
         &self,
         _request: Request<DepositSignSession>,
@@ -39,6 +41,7 @@ where
         todo!()
     }
 
+    #[tracing::instrument(skip(self), err(level = tracing::Level::ERROR), ret(level = tracing::Level::TRACE))]
     async fn new_withdrawal_sig(
         &self,
         _: Request<NewWithdrawalSigParams>,
@@ -46,6 +49,7 @@ where
         todo!()
     }
 
+    #[tracing::instrument(skip(self), err(level = tracing::Level::ERROR), ret(level = tracing::Level::TRACE))]
     async fn withdrawal_finalized(
         &self,
         _: Request<WithdrawalFinalizedParams>,
@@ -62,10 +66,12 @@ where
     type NonceGenStream = ReceiverStream<Result<NonceGenResponse, Status>>;
     type DepositSignStream = ReceiverStream<Result<PartialSig, Status>>;
 
+    #[tracing::instrument(skip(self), err(level = tracing::Level::ERROR), ret(level = tracing::Level::TRACE))]
     async fn get_params(&self, _: Request<Empty>) -> Result<Response<VerifierParams>, Status> {
         todo!()
     }
 
+    #[tracing::instrument(skip(self), err(level = tracing::Level::ERROR), ret(level = tracing::Level::TRACE))]
     async fn set_verifiers(
         &self,
         _request: Request<VerifierPublicKeys>,
@@ -73,6 +79,7 @@ where
         todo!()
     }
 
+    #[tracing::instrument(skip(self), err(level = tracing::Level::ERROR), ret(level = tracing::Level::TRACE))]
     async fn set_operator(
         &self,
         _request: Request<OperatorParams>,
@@ -80,6 +87,7 @@ where
         todo!()
     }
 
+    #[tracing::instrument(skip(self), err(level = tracing::Level::ERROR), ret(level = tracing::Level::TRACE))]
     async fn set_watchtower(
         &self,
         _request: Request<WatchtowerParams>,
@@ -87,6 +95,7 @@ where
         todo!()
     }
 
+    #[tracing::instrument(skip(self), err(level = tracing::Level::ERROR), ret(level = tracing::Level::TRACE))]
     async fn nonce_gen(
         &self,
         _request: Request<Empty>,
@@ -94,6 +103,7 @@ where
         todo!()
     }
 
+    #[tracing::instrument(skip(self), err(level = tracing::Level::ERROR), ret(level = tracing::Level::TRACE))]
     async fn deposit_sign(
         &self,
         _request: Request<Streaming<VerifierDepositSignParams>>,
@@ -101,6 +111,7 @@ where
         todo!()
     }
 
+    #[tracing::instrument(skip(self), err(level = tracing::Level::ERROR), ret(level = tracing::Level::TRACE))]
     async fn deposit_finalize(
         &self,
         _request: Request<Streaming<VerifierDepositFinalizeParams>>,
@@ -114,6 +125,7 @@ impl<T> ClementineWatchtower for Watchtower<T>
 where
     T: RpcApiWrapper,
 {
+    #[tracing::instrument(skip(self), err(level = tracing::Level::ERROR), ret(level = tracing::Level::TRACE))]
     async fn get_params(
         &self,
         _request: Request<Empty>,
@@ -124,10 +136,12 @@ where
 
 #[async_trait]
 impl ClementineAggregator for Aggregator {
+    #[tracing::instrument(skip(self), err(level = tracing::Level::ERROR), ret(level = tracing::Level::TRACE))]
     async fn setup(&self, _request: Request<Empty>) -> Result<Response<Empty>, Status> {
         todo!()
     }
 
+    #[tracing::instrument(skip(self), err(level = tracing::Level::ERROR), ret(level = tracing::Level::TRACE))]
     async fn new_deposit(
         &self,
         _request: Request<DepositParams>,
