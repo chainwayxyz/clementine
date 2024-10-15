@@ -211,11 +211,11 @@ pub mod clementine_operator_client {
     )]
     use tonic::codegen::*;
     use tonic::codegen::http::Uri;
-    /// Operator is responsible for paying withdrawals
-    /// Each operator has their own chain of utxos named time_txs.
+    /// Operator is responsible for paying withdrawals.
+    /// Each operator has their own chain of UTXOs named `time_txs`.
     /// Each operator has a unique id which will be given in config.
-    /// Each operator also runs a verifier server connected to the same db. Thus,
-    /// they will have wathctowers' winternitz pubkeys.
+    /// Each operator also runs a verifier server connected to the same database.
+    /// Thus, they will have watchtowers' winternitz pubkeys.
     #[derive(Debug, Clone)]
     pub struct ClementineOperatorClient<T> {
         inner: tonic::client::Grpc<T>,
@@ -368,6 +368,9 @@ pub mod clementine_operator_client {
                 );
             self.inner.unary(req, path, codec).await
         }
+        /// 1- Calculate move_txid, check if the withdrawal idx matches the move_txid
+        /// 2- Check if it is really proved on citrea
+        /// 3- If it is, send operator_take_txs
         pub async fn withdrawal_finalized(
             &mut self,
             request: impl tonic::IntoRequest<super::WithdrawalFinalizedParams>,
@@ -965,16 +968,19 @@ pub mod clementine_operator_server {
             tonic::Response<super::NewWithdrawalSigResponse>,
             tonic::Status,
         >;
+        /// 1- Calculate move_txid, check if the withdrawal idx matches the move_txid
+        /// 2- Check if it is really proved on citrea
+        /// 3- If it is, send operator_take_txs
         async fn withdrawal_finalized(
             &self,
             request: tonic::Request<super::WithdrawalFinalizedParams>,
         ) -> std::result::Result<tonic::Response<super::Empty>, tonic::Status>;
     }
-    /// Operator is responsible for paying withdrawals
-    /// Each operator has their own chain of utxos named time_txs.
+    /// Operator is responsible for paying withdrawals.
+    /// Each operator has their own chain of UTXOs named `time_txs`.
     /// Each operator has a unique id which will be given in config.
-    /// Each operator also runs a verifier server connected to the same db. Thus,
-    /// they will have wathctowers' winternitz pubkeys.
+    /// Each operator also runs a verifier server connected to the same database.
+    /// Thus, they will have watchtowers' winternitz pubkeys.
     #[derive(Debug)]
     pub struct ClementineOperatorServer<T> {
         inner: Arc<T>,
