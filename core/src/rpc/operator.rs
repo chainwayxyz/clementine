@@ -5,6 +5,7 @@ use super::clementine::{
 };
 use crate::traits::rpc::OperatorRpcServer;
 use crate::{errors::BridgeError, operator::Operator};
+use bitcoin::OutPoint;
 use bitcoin_mock_rpc::RpcApiWrapper;
 use tokio_stream::wrappers::ReceiverStream;
 use tonic::{async_trait, Request, Response, Status};
@@ -47,13 +48,17 @@ where
     ) -> Result<Response<Empty>, Status> {
         // Decode inputs.
         let withdrawal_idx = request.get_ref().withdrawal_id;
-        let deposit_outpoint = request
+        let deposit_outpoint: OutPoint = request
             .get_ref()
             .deposit_outpoint
             .clone()
-            .ok_or(BridgeError::RPCRequiredFieldError("deposit_outpoint"))?;
+            .ok_or(BridgeError::RPCRequiredFieldError("deposit_outpoint"))?
+            .try_into()?;
 
-        self.withdrawal_proved_on_citrea_rpc(withdrawal_idx, deposit_outpoint.try_into()?)
+        self.check_citrea_for_withdrawal(withdrawal_idx, deposit_outpoint)
+            .await?;
+
+        self.withdrawal_proved_on_citrea_rpc(withdrawal_idx, deposit_outpoint)
             .await
             .unwrap();
 
