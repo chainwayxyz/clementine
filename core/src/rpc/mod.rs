@@ -5,3 +5,4 @@ pub mod aggregator;
 pub mod operator;
 pub mod verifier;
 pub mod watchtower;
+mod wrapper;

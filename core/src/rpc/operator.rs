@@ -4,6 +4,8 @@ use super::clementine::{
     WithdrawalFinalizedParams,
 };
 use crate::operator::Operator;
+use crate::traits::rpc::OperatorRpcServer;
+use bitcoin::OutPoint;
 use bitcoin_mock_rpc::RpcApiWrapper;
 use tokio_stream::wrappers::ReceiverStream;
 use tonic::{async_trait, Request, Response, Status};
@@ -42,8 +44,15 @@ where
     #[tracing::instrument(skip(self), err(level = tracing::Level::ERROR), ret(level = tracing::Level::TRACE))]
     async fn withdrawal_finalized(
         &self,
-        _: Request<WithdrawalFinalizedParams>,
+        request: Request<WithdrawalFinalizedParams>,
     ) -> Result<Response<Empty>, Status> {
-        todo!()
+        let withdrawal_idx = request.get_ref().withdrawal_id;
+        let deposit_outpoint = OutPoint::from(request.get_ref().deposit_outpoint.clone().unwrap());
+
+        self.withdrawal_proved_on_citrea_rpc(withdrawal_idx, deposit_outpoint)
+            .await
+            .unwrap();
+
+        Ok(Response::new(Empty {}))
     }
 }

@@ -2,20 +2,22 @@ syntax = "proto3";
 
 package clementine;
 
-// Operator is responsible for paying withdrawals
-// Each operator has their own chain of utxos named time_txs.
+// Operator is responsible for paying withdrawals.
+// Each operator has their own chain of UTXOs named `time_txs`.
 // Each operator has a unique id which will be given in config.
-// Each operator also runs a verifier server connected to the same db. Thus,
-// they will have wathctowers' winternitz pubkeys.
+// Each operator also runs a verifier server connected to the same database.
+// Thus, they will have watchtowers' winternitz pubkeys.
 service ClementineOperator {
   // This will be called once by the aggregator to set all public keys.
   rpc GetParams(Empty) returns (OperatorParams) {}
 
   rpc DepositSign(DepositSignSession) returns (stream OperatorBurnSig) {}
 
-  rpc NewWithdrawalSig(NewWithdrawalSigParams)
-      returns (NewWithdrawalSigResponse) {}
+  rpc NewWithdrawalSig(NewWithdrawalSigParams) returns (NewWithdrawalSigResponse) {}
 
+  // 1- Calculate move_txid, check if the withdrawal idx matches the move_txid
+  // 2- Check if it is really proved on citrea
+  // 3- If it is, send operator_take_txs
   rpc WithdrawalFinalized(WithdrawalFinalizedParams) returns (Empty) {}
 }
 
