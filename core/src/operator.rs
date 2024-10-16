@@ -476,14 +476,18 @@ where
         Ok(self.rpc.send_raw_transaction(&signed_tx)?)
     }
 
-    /// call withdrawFillers(withdrawal_idx) check the returned id is our operator id.
-    /// calculate the move_txid, txIdToDepositId(move_txid) check the returned id is withdrawal_idx
+    /// Checks Citrea if a withdrawal is finalized.
+    ///
+    /// Calls `withdrawFillers(withdrawal_idx)` to check the returned id is our
+    /// operator's id. Then calculates `move_txid` and calls
+    /// `txIdToDepositId(move_txid)` to check if returned id is
+    /// `withdrawal_idx`.
     pub async fn check_citrea_for_withdrawal(
         &self,
         withdrawal_idx: u32,
         deposit_outpoint: OutPoint,
     ) -> Result<(), BridgeError> {
-        // Bail if Citrea client is not specified.
+        // Don't check anything if Citrea client is not specified.
         let citrea_client = match &self.citrea_client {
             Some(c) => c,
             None => return Ok(()),
@@ -515,21 +519,19 @@ where
 
         // Check for withdrawal idx.
         {
-            // Calculate move_txid.
-            let move_tx = builder::transaction::create_move_tx(
+            let move_txid = builder::transaction::create_move_tx(
                 deposit_outpoint,
                 self.nofn_xonly_pk,
                 self.config.bridge_amount_sats,
                 self.config.network,
-            );
-            let move_txid = move_tx.compute_txid();
-            let move_txid_bytes = move_txid.to_byte_array();
+            )
+            .compute_txid();
 
             // See: https://gist.github.com/okkothejawa/a9379b02a16dada07a2b85cbbd3c1e80
             let params = rpc_params![json!({
                 "to": "0x3100000000000000000000000000000000000002",
                 "data": format!("0x11e53a01{}",
-                hex::encode(move_txid_bytes)),
+                hex::encode(move_txid.to_byte_array())),
             })];
             let response: String = citrea_client.request("eth_call", params).await?;
 
