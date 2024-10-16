@@ -26,3 +26,6 @@ runs:
 
   - name: Install Protoc
     uses: arduino/setup-protoc@v3
+  - name: Set PROTOC environment variable
+    shell: bash
+    run: echo "PROTOC=$(which protoc)" >> $GITHUB_ENV
