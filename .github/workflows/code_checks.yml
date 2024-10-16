@@ -73,7 +73,7 @@ jobs:
       - name: Install cargo-llvm-cov
         uses: taiki-e/install-action@cargo-llvm-cov
       - name: Generate code coverage and print that to a JSON file
-        run: cargo llvm-cov $CARGOFLAGS --json --output-path lcov.json
+        run: cargo llvm-cov $CARGOFLAGS --json --output-path lcov.json --ignore-filename-regex core/src/rpc/clementine.rs
       - name: Check coverage
         run: scripts/check_json_code_coverage.py lcov.json
 
