@@ -3,7 +3,6 @@ use super::clementine::{
     NewWithdrawalSigParams, NewWithdrawalSigResponse, OperatorBurnSig, OperatorParams,
     WithdrawalFinalizedParams,
 };
-use crate::traits::rpc::OperatorRpcServer;
 use crate::{errors::BridgeError, operator::Operator};
 use bitcoin::OutPoint;
 use bitcoin_mock_rpc::RpcApiWrapper;
