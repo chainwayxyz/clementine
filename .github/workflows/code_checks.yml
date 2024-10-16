@@ -8,7 +8,7 @@ env:
   CARGOFLAGS: --workspace --all-targets --all-features
   RUST_LOG: trace
   RISC0_DEV_MODE: 1
-  PROTOC: /opt/hostedtoolcache/protoc/v23.4/x64
+  PROTOC: /opt/hostedtoolcache/protoc/v23.4/x64/protoc
 
 jobs:
   formatting:
