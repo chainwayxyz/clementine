@@ -551,7 +551,7 @@ where
     }
 
     #[tracing::instrument(skip(self), err(level = tracing::Level::ERROR), ret(level = tracing::Level::TRACE))]
-    async fn withdrawal_proved_on_citrea(
+    pub(crate) async fn withdrawal_proved_on_citrea(
         &self,
         withdrawal_idx: u32,
         deposit_outpoint: OutPoint,
