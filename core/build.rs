@@ -2,10 +2,10 @@ use std::{env, path::Path};
 
 fn compile_protobuf() {
     // Skip compilation if env var is not set.
-    // if env::var("PROTOC").is_err() {
-    //     eprintln!("PROTOC env var is not set!");
-    //     return;
-    // };
+    if env::var("PROTOC").is_err() {
+        eprintln!("PROTOC env var is not set!");
+        return;
+    };
 
     let proto_root = Path::new(env!("CARGO_MANIFEST_DIR")).join("src/rpc/");
     let protos = &["clementine.proto"];
