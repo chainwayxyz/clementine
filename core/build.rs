@@ -1,7 +1,8 @@
 use std::{env, path::Path, process::Command};
 
 fn trim_ascii_end(s: &str) -> &str {
-    let trimmed_len = s.as_bytes()
+    let trimmed_len = s
+        .as_bytes()
         .iter()
         .rposition(|&b| !b.is_ascii_whitespace())
         .map_or(0, |pos| pos + 1);
