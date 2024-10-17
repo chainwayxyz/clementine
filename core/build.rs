@@ -1,9 +1,20 @@
-use std::{env, path::Path};
+use std::{env, path::Path, process::Command};
 
 fn compile_protobuf() {
+    // Try to set PROTOC env var if on *nix.
+    if let Ok(output) = Command::new("which").args(["protoc"]).output() {
+        // Skip compilation, if command failed.
+        if !output.status.success() {
+            return;
+        }
+
+        // Set env var.
+        let path = String::from_utf8_lossy(&output.stdout);
+        env::set_var("PROTOC", path.into_owned().trim_ascii_end());
+    }
+
     // Skip compilation if env var is not set.
     if env::var("PROTOC").is_err() {
-        eprintln!("PROTOC env var is not set!");
         return;
     };
 
