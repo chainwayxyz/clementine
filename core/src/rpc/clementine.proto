@@ -18,6 +18,22 @@ message WinternitzPubkey {
   repeated bytes digit_pubkey = 3;
 }
 
+// A deposit request's details.
+message DepositParams {
+  // User's deposit UTXO.
+  Outpoint deposit_outpoint = 1;
+  // User's EVM address.
+  bytes evm_address = 2;
+  // User's recovery taproot address.
+  string recovery_taproot_address = 3;
+  // User can take back funds after this amount of blocks.
+  uint64 user_takes_after = 4;
+}
+message DepositSignSession {
+  DepositParams deposit_params = 1;
+  repeated NonceGenFirstResponse nonce_gen_first_responses = 2;
+}
+
 // Operator --------------------------------------------------------------------
 
 message OperatorConfig {
@@ -42,20 +58,6 @@ message OperatorParams {
   repeated bytes timeout_tx_sigs = 4;
 }
 
-message DepositParams {
-  // User's deposit UTXO.
-  Outpoint deposit_outpoint = 1;
-  // User's EVM address.
-  bytes evm_address = 2;
-  // User's recovery taproot address.
-  string recovery_taproot_address = 3;
-  // User can take back funds after this amount of blocks.
-  uint64 user_takes_after = 4;
-}
-message DepositSignSession {
-  DepositParams deposit_params = 1;
-  repeated NonceGenFirstResponse nonce_gen_first_responses = 2;
-}
 message OperatorBurnSig {
   bytes schnorr_sig = 1;
 }
@@ -177,27 +179,31 @@ message VerifierPublicKeys {
 }
 
 service ClementineVerifier {
-  // This will be called once on setup
+  // Returns verifiers' metadata. Needs to be called once per setup.
   rpc GetParams(Empty) returns (VerifierParams) {}
-  // This will be called once on setup
+
+  // Saves all verifiers public keys.
   rpc SetVerifiers(VerifierPublicKeys) returns (Empty) {}
-  // This will be called once on setup
+
+  // Saves an operator.
   rpc SetOperator(OperatorParams) returns (Empty) {}
-  // This will be called once on setup
+
+  // Saves a watchtower.
   rpc SetWatchtower(WatchtowerParams) returns (Empty) {}
 
   // Generates nonces for a deposit.
   //
   // # Returns
   //
-  // - [`NonceGenResponse`]: Nonce metadata + nonces
+  // Nonce metadata followed by nonces.
   rpc NonceGen(Empty) returns (stream NonceGenResponse) {}
 
-  // Will get aggNonce as stream and sign it on the fly.
+  // Signs deposit with given aggNonces and it's corresponding secNonce using
+  // nonce_id.
   rpc DepositSign(stream VerifierDepositSignParams)
     returns (stream PartialSig) {}
 
-  // Will get schnorr sigs, verify them, and send partial sig of move tx.
+  // Verifies every signature and signs move_tx.
   rpc DepositFinalize(stream VerifierDepositFinalizeParams)
     returns (PartialSig) {}
 }

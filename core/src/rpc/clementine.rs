@@ -22,6 +22,29 @@ pub struct WinternitzPubkey {
     #[prost(bytes = "vec", repeated, tag = "3")]
     pub digit_pubkey: ::prost::alloc::vec::Vec<::prost::alloc::vec::Vec<u8>>,
 }
+/// A deposit request's details.
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct DepositParams {
+    /// User's deposit UTXO.
+    #[prost(message, optional, tag = "1")]
+    pub deposit_outpoint: ::core::option::Option<Outpoint>,
+    /// User's EVM address.
+    #[prost(bytes = "vec", tag = "2")]
+    pub evm_address: ::prost::alloc::vec::Vec<u8>,
+    /// User's recovery taproot address.
+    #[prost(string, tag = "3")]
+    pub recovery_taproot_address: ::prost::alloc::string::String,
+    /// User can take back funds after this amount of blocks.
+    #[prost(uint64, tag = "4")]
+    pub user_takes_after: u64,
+}
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct DepositSignSession {
+    #[prost(message, optional, tag = "1")]
+    pub deposit_params: ::core::option::Option<DepositParams>,
+    #[prost(message, repeated, tag = "2")]
+    pub nonce_gen_first_responses: ::prost::alloc::vec::Vec<NonceGenFirstResponse>,
+}
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct OperatorConfig {
     #[prost(uint32, tag = "1")]
@@ -52,28 +75,6 @@ pub struct OperatorParams {
     /// sigs.
     #[prost(bytes = "vec", repeated, tag = "4")]
     pub timeout_tx_sigs: ::prost::alloc::vec::Vec<::prost::alloc::vec::Vec<u8>>,
-}
-#[derive(Clone, PartialEq, ::prost::Message)]
-pub struct DepositParams {
-    /// User's deposit UTXO.
-    #[prost(message, optional, tag = "1")]
-    pub deposit_outpoint: ::core::option::Option<Outpoint>,
-    /// User's EVM address.
-    #[prost(bytes = "vec", tag = "2")]
-    pub evm_address: ::prost::alloc::vec::Vec<u8>,
-    /// User's recovery taproot address.
-    #[prost(string, tag = "3")]
-    pub recovery_taproot_address: ::prost::alloc::string::String,
-    /// User can take back funds after this amount of blocks.
-    #[prost(uint64, tag = "4")]
-    pub user_takes_after: u64,
-}
-#[derive(Clone, PartialEq, ::prost::Message)]
-pub struct DepositSignSession {
-    #[prost(message, optional, tag = "1")]
-    pub deposit_params: ::core::option::Option<DepositParams>,
-    #[prost(message, repeated, tag = "2")]
-    pub nonce_gen_first_responses: ::prost::alloc::vec::Vec<NonceGenFirstResponse>,
 }
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct OperatorBurnSig {
@@ -525,7 +526,7 @@ pub mod clementine_verifier_client {
             self.inner = self.inner.max_encoding_message_size(limit);
             self
         }
-        /// This will be called once on setup
+        /// Returns verifiers' metadata. Needs to be called once per setup.
         pub async fn get_params(
             &mut self,
             request: impl tonic::IntoRequest<super::Empty>,
@@ -547,7 +548,7 @@ pub mod clementine_verifier_client {
                 .insert(GrpcMethod::new("clementine.ClementineVerifier", "GetParams"));
             self.inner.unary(req, path, codec).await
         }
-        /// This will be called once on setup
+        /// Saves all verifiers public keys.
         pub async fn set_verifiers(
             &mut self,
             request: impl tonic::IntoRequest<super::VerifierPublicKeys>,
@@ -571,7 +572,7 @@ pub mod clementine_verifier_client {
                 );
             self.inner.unary(req, path, codec).await
         }
-        /// This will be called once on setup
+        /// Saves an operator.
         pub async fn set_operator(
             &mut self,
             request: impl tonic::IntoRequest<super::OperatorParams>,
@@ -593,7 +594,7 @@ pub mod clementine_verifier_client {
                 .insert(GrpcMethod::new("clementine.ClementineVerifier", "SetOperator"));
             self.inner.unary(req, path, codec).await
         }
-        /// This will be called once on setup
+        /// Saves a watchtower.
         pub async fn set_watchtower(
             &mut self,
             request: impl tonic::IntoRequest<super::WatchtowerParams>,
@@ -621,7 +622,7 @@ pub mod clementine_verifier_client {
         ///
         /// # Returns
         ///
-        /// - [`NonceGenResponse`]: Nonce metadata + nonces
+        /// Nonce metadata followed by nonces.
         pub async fn nonce_gen(
             &mut self,
             request: impl tonic::IntoRequest<super::Empty>,
@@ -646,7 +647,8 @@ pub mod clementine_verifier_client {
                 .insert(GrpcMethod::new("clementine.ClementineVerifier", "NonceGen"));
             self.inner.server_streaming(req, path, codec).await
         }
-        /// Will get aggNonce as stream and sign it on the fly.
+        /// Signs deposit with given aggNonces and it's corresponding secNonce using
+        /// nonce_id.
         pub async fn deposit_sign(
             &mut self,
             request: impl tonic::IntoStreamingRequest<
@@ -673,7 +675,7 @@ pub mod clementine_verifier_client {
                 .insert(GrpcMethod::new("clementine.ClementineVerifier", "DepositSign"));
             self.inner.streaming(req, path, codec).await
         }
-        /// Will get schnorr sigs, verify them, and send partial sig of move tx.
+        /// Verifies every signature and signs move_tx.
         pub async fn deposit_finalize(
             &mut self,
             request: impl tonic::IntoStreamingRequest<
@@ -1359,22 +1361,22 @@ pub mod clementine_verifier_server {
     /// Generated trait containing gRPC methods that should be implemented for use with ClementineVerifierServer.
     #[async_trait]
     pub trait ClementineVerifier: std::marker::Send + std::marker::Sync + 'static {
-        /// This will be called once on setup
+        /// Returns verifiers' metadata. Needs to be called once per setup.
         async fn get_params(
             &self,
             request: tonic::Request<super::Empty>,
         ) -> std::result::Result<tonic::Response<super::VerifierParams>, tonic::Status>;
-        /// This will be called once on setup
+        /// Saves all verifiers public keys.
         async fn set_verifiers(
             &self,
             request: tonic::Request<super::VerifierPublicKeys>,
         ) -> std::result::Result<tonic::Response<super::Empty>, tonic::Status>;
-        /// This will be called once on setup
+        /// Saves an operator.
         async fn set_operator(
             &self,
             request: tonic::Request<super::OperatorParams>,
         ) -> std::result::Result<tonic::Response<super::Empty>, tonic::Status>;
-        /// This will be called once on setup
+        /// Saves a watchtower.
         async fn set_watchtower(
             &self,
             request: tonic::Request<super::WatchtowerParams>,
@@ -1389,7 +1391,7 @@ pub mod clementine_verifier_server {
         ///
         /// # Returns
         ///
-        /// - [`NonceGenResponse`]: Nonce metadata + nonces
+        /// Nonce metadata followed by nonces.
         async fn nonce_gen(
             &self,
             request: tonic::Request<super::Empty>,
@@ -1400,7 +1402,8 @@ pub mod clementine_verifier_server {
             >
             + std::marker::Send
             + 'static;
-        /// Will get aggNonce as stream and sign it on the fly.
+        /// Signs deposit with given aggNonces and it's corresponding secNonce using
+        /// nonce_id.
         async fn deposit_sign(
             &self,
             request: tonic::Request<tonic::Streaming<super::VerifierDepositSignParams>>,
@@ -1408,7 +1411,7 @@ pub mod clementine_verifier_server {
             tonic::Response<Self::DepositSignStream>,
             tonic::Status,
         >;
-        /// Will get schnorr sigs, verify them, and send partial sig of move tx.
+        /// Verifies every signature and signs move_tx.
         async fn deposit_finalize(
             &self,
             request: tonic::Request<
