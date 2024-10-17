@@ -23,9 +23,69 @@ pub struct WinternitzPubkey {
     pub digit_pubkey: ::prost::alloc::vec::Vec<::prost::alloc::vec::Vec<u8>>,
 }
 #[derive(Clone, PartialEq, ::prost::Message)]
+pub struct OperatorConfig {
+    #[prost(uint32, tag = "1")]
+    pub operator_id: u32,
+    #[prost(message, optional, tag = "2")]
+    pub initial_time_tx_outpoint: ::core::option::Option<Outpoint>,
+    #[prost(string, tag = "3")]
+    pub xonly_pk: ::prost::alloc::string::String,
+    #[prost(string, tag = "4")]
+    pub wallet_reimburse_address: ::prost::alloc::string::String,
+}
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct OperatorParams {
+    /// Operator's configuration.
+    #[prost(message, optional, tag = "1")]
+    pub operator_details: ::core::option::Option<OperatorConfig>,
+    /// Winternitz pubkeys for each watchtowers challenge + bitvm assert tx.
+    /// If there are 100 watchtowers and total of 1000 timetxs, it will take
+    /// 1000 * (100*240 + 600*20) ~= 1 GB of hash for every winternitz pubkey.
+    #[prost(message, repeated, tag = "2")]
+    pub winternitz_pubkeys: ::prost::alloc::vec::Vec<WinternitzPubkey>,
+    /// Adaptor signatures for asserting a watchtower's challenge to zero.
+    /// Total of 1000*100 preimages.
+    #[prost(message, repeated, tag = "3")]
+    pub assert_empty_public_key: ::prost::alloc::vec::Vec<AssertEmptyPublicKey>,
+    /// Timeout transaction signatures. It is not desired to have N-of-N in time
+    /// txs. So, operator will sign the timeout txs. Takes total of 1000 schnorr
+    /// sigs.
+    #[prost(bytes = "vec", repeated, tag = "4")]
+    pub timeout_tx_sigs: ::prost::alloc::vec::Vec<::prost::alloc::vec::Vec<u8>>,
+}
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct DepositParams {
+    /// User's deposit UTXO.
+    #[prost(message, optional, tag = "1")]
+    pub deposit_outpoint: ::core::option::Option<Outpoint>,
+    /// User's EVM address.
+    #[prost(bytes = "vec", tag = "2")]
+    pub evm_address: ::prost::alloc::vec::Vec<u8>,
+    /// User's recovery taproot address.
+    #[prost(string, tag = "3")]
+    pub recovery_taproot_address: ::prost::alloc::string::String,
+    /// User can take back funds after this amount of blocks.
+    #[prost(uint64, tag = "4")]
+    pub user_takes_after: u64,
+}
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct DepositSignSession {
+    #[prost(message, optional, tag = "1")]
+    pub deposit_params: ::core::option::Option<DepositParams>,
+    #[prost(message, repeated, tag = "2")]
+    pub nonce_gen_first_responses: ::prost::alloc::vec::Vec<NonceGenFirstResponse>,
+}
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct OperatorBurnSig {
+    #[prost(bytes = "vec", tag = "1")]
+    pub schnorr_sig: ::prost::alloc::vec::Vec<u8>,
+}
+#[derive(Clone, PartialEq, ::prost::Message)]
 pub struct NewWithdrawalSigParams {
     #[prost(uint32, tag = "1")]
     pub withdrawal_id: u32,
+    /// User's \[`bitcoin::sighash::TapSighashType::SinglePlusAnyoneCanPay`\]
+    /// signature
     #[prost(bytes = "vec", tag = "2")]
     pub user_sig: ::prost::alloc::vec::Vec<u8>,
     #[prost(message, optional, tag = "3")]
@@ -52,48 +112,6 @@ pub struct WithdrawalFinalizedParams {
     pub deposit_outpoint: ::core::option::Option<Outpoint>,
 }
 #[derive(Clone, PartialEq, ::prost::Message)]
-pub struct OperatorBurnSig {
-    #[prost(bytes = "vec", tag = "1")]
-    pub schnorr_sig: ::prost::alloc::vec::Vec<u8>,
-}
-#[derive(Clone, PartialEq, ::prost::Message)]
-pub struct DepositSignSession {
-    #[prost(message, optional, tag = "1")]
-    pub deposit_params: ::core::option::Option<DepositParams>,
-    #[prost(message, repeated, tag = "2")]
-    pub nonce_gen_first_responses: ::prost::alloc::vec::Vec<NonceGenFirstResponse>,
-}
-#[derive(Clone, PartialEq, ::prost::Message)]
-pub struct OperatorConfig {
-    #[prost(uint32, tag = "1")]
-    pub operator_id: u32,
-    #[prost(message, optional, tag = "2")]
-    pub initial_time_tx_outpoint: ::core::option::Option<Outpoint>,
-    #[prost(string, tag = "3")]
-    pub xonly_pk: ::prost::alloc::string::String,
-    #[prost(string, tag = "4")]
-    pub wallet_reimburse_address: ::prost::alloc::string::String,
-}
-/// Operators' parameters for longest chain proofs.
-#[derive(Clone, PartialEq, ::prost::Message)]
-pub struct OperatorParams {
-    #[prost(message, optional, tag = "1")]
-    pub operator_details: ::core::option::Option<OperatorConfig>,
-    /// Winternitz pubkeys for each watchtowers challenge + bitvm assert tx.
-    /// If 100 watchtowers and total of 1000 timetxs, we will have 1000*(100*240 +
-    /// 600*20) ~= 1 GB hashes for every winternitz pubkey.
-    #[prost(message, repeated, tag = "2")]
-    pub winternitz_pubkeys: ::prost::alloc::vec::Vec<WinternitzPubkey>,
-    /// Adaptor signatures for asserting a watchtower's challenge to zero.
-    /// Total of, 1000*100 preimages.
-    #[prost(message, repeated, tag = "3")]
-    pub assert_empty_public_key: ::prost::alloc::vec::Vec<AssertEmptyPublicKey>,
-    /// We don't want N-of-N in time txs, so operator will sign the timeout txs.
-    /// Total of 1000 schnorr sigs.
-    #[prost(bytes = "vec", repeated, tag = "4")]
-    pub timeout_tx_sigs: ::prost::alloc::vec::Vec<::prost::alloc::vec::Vec<u8>>,
-}
-#[derive(Clone, PartialEq, ::prost::Message)]
 pub struct VerifierParams {
     #[prost(uint32, tag = "1")]
     pub id: u32,
@@ -115,6 +133,7 @@ pub struct PartialSig {
 }
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct NonceGenFirstResponse {
+    /// Nonce ID
     #[prost(uint32, tag = "1")]
     pub id: u32,
     /// New public key for the deposit
@@ -184,17 +203,6 @@ pub struct WatchtowerParams {
     /// Winternitz pubkeys for each operator's timetxs.
     #[prost(message, repeated, tag = "2")]
     pub winternitz_pubkeys: ::prost::alloc::vec::Vec<WinternitzPubkey>,
-}
-#[derive(Clone, PartialEq, ::prost::Message)]
-pub struct DepositParams {
-    #[prost(message, optional, tag = "1")]
-    pub deposit_outpoint: ::core::option::Option<Outpoint>,
-    #[prost(bytes = "vec", tag = "2")]
-    pub evm_address: ::prost::alloc::vec::Vec<u8>,
-    #[prost(string, tag = "3")]
-    pub recovery_taproot_address: ::prost::alloc::string::String,
-    #[prost(uint64, tag = "4")]
-    pub user_takes_after: u64,
 }
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct RawSignedMoveTx {
@@ -328,7 +336,7 @@ pub mod clementine_operator_client {
         ///
         /// # Parameters
         ///
-        /// - Deposit parameters
+        /// - User's deposit information
         /// - Nonce metadata
         ///
         /// # Returns
@@ -358,6 +366,8 @@ pub mod clementine_operator_client {
                 .insert(GrpcMethod::new("clementine.ClementineOperator", "DepositSign"));
             self.inner.server_streaming(req, path, codec).await
         }
+        /// Prepares a withdrawal if it's profitable and previous time_tx's timelock
+        /// has ended, by paying for the withdrawal and locking the current time_tx.
         pub async fn new_withdrawal_sig(
             &mut self,
             request: impl tonic::IntoRequest<super::NewWithdrawalSigParams>,
@@ -384,9 +394,18 @@ pub mod clementine_operator_client {
                 );
             self.inner.unary(req, path, codec).await
         }
-        /// 1- Calculate move_txid, check if the withdrawal idx matches the move_txid
-        /// 2- Check if it is really proved on citrea
-        /// 3- If it is, send operator_take_txs
+        /// Checks if a withdrawal is finalized.
+        ///
+        /// Steps:
+        ///
+        /// 1. Calculate move_txid and check if the withdrawal idx matches it
+        /// 2. Check if it is proved on citrea
+        /// 3. Send operator_take_txs
+        ///
+        /// # Parameters
+        ///
+        /// - withdrawal_id: Withdrawal's ID
+        /// - deposit_outpoint: Withdrawal's deposit UTXO
         pub async fn withdrawal_finalized(
             &mut self,
             request: impl tonic::IntoRequest<super::WithdrawalFinalizedParams>,
@@ -982,7 +1001,7 @@ pub mod clementine_operator_server {
         ///
         /// # Parameters
         ///
-        /// - Deposit parameters
+        /// - User's deposit information
         /// - Nonce metadata
         ///
         /// # Returns
@@ -995,6 +1014,8 @@ pub mod clementine_operator_server {
             tonic::Response<Self::DepositSignStream>,
             tonic::Status,
         >;
+        /// Prepares a withdrawal if it's profitable and previous time_tx's timelock
+        /// has ended, by paying for the withdrawal and locking the current time_tx.
         async fn new_withdrawal_sig(
             &self,
             request: tonic::Request<super::NewWithdrawalSigParams>,
@@ -1002,9 +1023,18 @@ pub mod clementine_operator_server {
             tonic::Response<super::NewWithdrawalSigResponse>,
             tonic::Status,
         >;
-        /// 1- Calculate move_txid, check if the withdrawal idx matches the move_txid
-        /// 2- Check if it is really proved on citrea
-        /// 3- If it is, send operator_take_txs
+        /// Checks if a withdrawal is finalized.
+        ///
+        /// Steps:
+        ///
+        /// 1. Calculate move_txid and check if the withdrawal idx matches it
+        /// 2. Check if it is proved on citrea
+        /// 3. Send operator_take_txs
+        ///
+        /// # Parameters
+        ///
+        /// - withdrawal_id: Withdrawal's ID
+        /// - deposit_outpoint: Withdrawal's deposit UTXO
         async fn withdrawal_finalized(
             &self,
             request: tonic::Request<super::WithdrawalFinalizedParams>,
