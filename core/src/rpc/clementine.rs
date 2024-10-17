@@ -153,6 +153,7 @@ pub struct OperatorConfig {
     #[prost(string, tag = "4")]
     pub wallet_reimburse_address: ::prost::alloc::string::String,
 }
+/// Operators' parameters for longest chain proofs.
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct OperatorParams {
     #[prost(message, optional, tag = "1")]
@@ -160,15 +161,15 @@ pub struct OperatorParams {
     /// Winternitz pubkeys for each watchtowers challenge + bitvm assert tx.
     /// If 100 watchtowers and total of 1000 timetxs, we will have 1000*(100*240 +
     /// 600*20) ~= 1 GB hashes for every winternitz pubkey.
-    #[prost(message, repeated, tag = "5")]
+    #[prost(message, repeated, tag = "2")]
     pub winternitz_pubkeys: ::prost::alloc::vec::Vec<WinternitzPubkey>,
     /// Adaptor signatures for asserting a watchtower's challenge to zero.
     /// Total of, 1000*100 preimages.
-    #[prost(message, repeated, tag = "6")]
+    #[prost(message, repeated, tag = "3")]
     pub assert_empty_public_key: ::prost::alloc::vec::Vec<AssertEmptyPublicKey>,
     /// We don't want N-of-N in time txs, so operator will sign the timeout txs.
     /// Total of 1000 schnorr sigs.
-    #[prost(bytes = "vec", repeated, tag = "7")]
+    #[prost(bytes = "vec", repeated, tag = "4")]
     pub timeout_tx_sigs: ::prost::alloc::vec::Vec<::prost::alloc::vec::Vec<u8>>,
 }
 #[derive(Clone, PartialEq, ::prost::Message)]
@@ -211,11 +212,10 @@ pub mod clementine_operator_client {
     )]
     use tonic::codegen::*;
     use tonic::codegen::http::Uri;
-    /// Operator is responsible for paying withdrawals.
-    /// Each operator has their own chain of UTXOs named `time_txs`.
-    /// Each operator has a unique id which will be given in config.
-    /// Each operator also runs a verifier server connected to the same database.
-    /// Thus, they will have watchtowers' winternitz pubkeys.
+    /// An operator is responsible for paying withdrawals. It has an unique ID and
+    /// chain of UTXOs named `time_txs`. An operator also runs a verifier. These are
+    /// connected to the same database and both have access to watchtowers'
+    /// winternitz pubkeys.
     #[derive(Debug, Clone)]
     pub struct ClementineOperatorClient<T> {
         inner: tonic::client::Grpc<T>,
@@ -296,7 +296,13 @@ pub mod clementine_operator_client {
             self.inner = self.inner.max_encoding_message_size(limit);
             self
         }
-        /// This will be called once by the aggregator to set all public keys.
+        /// Returns an operator's parameters. It will be called once, by the
+        /// aggregator, to set all the public keys.
+        ///
+        /// # Returns
+        ///
+        /// Returns an [`OperatorParams`], which includes operator's configuration and
+        /// Watchtower parameters.
         pub async fn get_params(
             &mut self,
             request: impl tonic::IntoRequest<super::Empty>,
@@ -318,6 +324,16 @@ pub mod clementine_operator_client {
                 .insert(GrpcMethod::new("clementine.ClementineOperator", "GetParams"));
             self.inner.unary(req, path, codec).await
         }
+        /// Signs everything that includes Operator's burn connector.
+        ///
+        /// # Parameters
+        ///
+        /// - Deposit parameters
+        /// - Nonce metadata
+        ///
+        /// # Returns
+        ///
+        /// - Operator burn Schnorr signature
         pub async fn deposit_sign(
             &mut self,
             request: impl tonic::IntoRequest<super::DepositSignSession>,
@@ -703,8 +719,10 @@ pub mod clementine_verifier_client {
             self.inner.unary(req, path, codec).await
         }
         /// Generates nonces for a deposit.
-        /// First streamed value will be always NonceGenFirstResponse then continues
-        /// with PubNonces
+        ///
+        /// # Returns
+        ///
+        /// - [`NonceGenResponse`]: Nonce metadata + nonces
         pub async fn nonce_gen(
             &mut self,
             request: impl tonic::IntoRequest<super::Empty>,
@@ -943,7 +961,13 @@ pub mod clementine_operator_server {
     /// Generated trait containing gRPC methods that should be implemented for use with ClementineOperatorServer.
     #[async_trait]
     pub trait ClementineOperator: std::marker::Send + std::marker::Sync + 'static {
-        /// This will be called once by the aggregator to set all public keys.
+        /// Returns an operator's parameters. It will be called once, by the
+        /// aggregator, to set all the public keys.
+        ///
+        /// # Returns
+        ///
+        /// Returns an [`OperatorParams`], which includes operator's configuration and
+        /// Watchtower parameters.
         async fn get_params(
             &self,
             request: tonic::Request<super::Empty>,
@@ -954,6 +978,16 @@ pub mod clementine_operator_server {
             >
             + std::marker::Send
             + 'static;
+        /// Signs everything that includes Operator's burn connector.
+        ///
+        /// # Parameters
+        ///
+        /// - Deposit parameters
+        /// - Nonce metadata
+        ///
+        /// # Returns
+        ///
+        /// - Operator burn Schnorr signature
         async fn deposit_sign(
             &self,
             request: tonic::Request<super::DepositSignSession>,
@@ -976,11 +1010,10 @@ pub mod clementine_operator_server {
             request: tonic::Request<super::WithdrawalFinalizedParams>,
         ) -> std::result::Result<tonic::Response<super::Empty>, tonic::Status>;
     }
-    /// Operator is responsible for paying withdrawals.
-    /// Each operator has their own chain of UTXOs named `time_txs`.
-    /// Each operator has a unique id which will be given in config.
-    /// Each operator also runs a verifier server connected to the same database.
-    /// Thus, they will have watchtowers' winternitz pubkeys.
+    /// An operator is responsible for paying withdrawals. It has an unique ID and
+    /// chain of UTXOs named `time_txs`. An operator also runs a verifier. These are
+    /// connected to the same database and both have access to watchtowers'
+    /// winternitz pubkeys.
     #[derive(Debug)]
     pub struct ClementineOperatorServer<T> {
         inner: Arc<T>,
@@ -1507,8 +1540,10 @@ pub mod clementine_verifier_server {
             + std::marker::Send
             + 'static;
         /// Generates nonces for a deposit.
-        /// First streamed value will be always NonceGenFirstResponse then continues
-        /// with PubNonces
+        ///
+        /// # Returns
+        ///
+        /// - [`NonceGenResponse`]: Nonce metadata + nonces
         async fn nonce_gen(
             &self,
             request: tonic::Request<super::Empty>,

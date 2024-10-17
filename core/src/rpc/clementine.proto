@@ -2,15 +2,30 @@ syntax = "proto3";
 
 package clementine;
 
-// Operator is responsible for paying withdrawals.
-// Each operator has their own chain of UTXOs named `time_txs`.
-// Each operator has a unique id which will be given in config.
-// Each operator also runs a verifier server connected to the same database.
-// Thus, they will have watchtowers' winternitz pubkeys.
+// An operator is responsible for paying withdrawals. It has an unique ID and
+// chain of UTXOs named `time_txs`. An operator also runs a verifier. These are
+// connected to the same database and both have access to watchtowers'
+// winternitz pubkeys.
 service ClementineOperator {
-  // This will be called once by the aggregator to set all public keys.
+  // Returns an operator's parameters. It will be called once, by the
+  // aggregator, to set all the public keys.
+  //
+  // # Returns
+  //
+  // Returns an [`OperatorParams`], which includes operator's configuration and
+  // Watchtower parameters.
   rpc GetParams(Empty) returns (OperatorParams) {}
 
+  // Signs everything that includes Operator's burn connector.
+  //
+  // # Parameters
+  //
+  // - Deposit parameters
+  // - Nonce metadata
+  //
+  // # Returns
+  //
+  // - Operator burn Schnorr signature
   rpc DepositSign(DepositSignSession) returns (stream OperatorBurnSig) {}
 
   rpc NewWithdrawalSig(NewWithdrawalSigParams) returns (NewWithdrawalSigResponse) {}
@@ -39,8 +54,10 @@ service ClementineVerifier {
   rpc SetWatchtower(WatchtowerParams) returns (Empty) {}
 
   // Generates nonces for a deposit.
-  // First streamed value will be always NonceGenFirstResponse then continues
-  // with PubNonces
+  //
+  // # Returns
+  //
+  // - [`NonceGenResponse`]: Nonce metadata + nonces
   rpc NonceGen(Empty) returns (stream NonceGenResponse) {}
 
   // Will get aggNonce as stream and sign it on the fly.
@@ -150,18 +167,19 @@ message OperatorConfig {
   string wallet_reimburse_address = 4;
 }
 
+// Operators' parameters for longest chain proofs.
 message OperatorParams {
   OperatorConfig operator_details = 1;
   // Winternitz pubkeys for each watchtowers challenge + bitvm assert tx.
   // If 100 watchtowers and total of 1000 timetxs, we will have 1000*(100*240 +
   // 600*20) ~= 1 GB hashes for every winternitz pubkey.
-  repeated WinternitzPubkey winternitz_pubkeys = 5;
+  repeated WinternitzPubkey winternitz_pubkeys = 2;
   // Adaptor signatures for asserting a watchtower's challenge to zero.
   // Total of, 1000*100 preimages.
-  repeated AssertEmptyPublicKey assert_empty_public_key = 6;
+  repeated AssertEmptyPublicKey assert_empty_public_key = 3;
   // We don't want N-of-N in time txs, so operator will sign the timeout txs.
   // Total of 1000 schnorr sigs.
-  repeated bytes timeout_tx_sigs = 7;
+  repeated bytes timeout_tx_sigs = 4;
 }
 
 message WatchtowerParams {
