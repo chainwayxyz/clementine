@@ -15,6 +15,11 @@ fn compile_protobuf() {
         .map(|proto| proto_root.join(proto).to_str().unwrap().to_owned())
         .collect();
 
+    // Tell Cargo that if a proto file changes, rerun this build script.
+    for pf in &proto_files {
+        println!("cargo:rerun-if-changed={}", pf);
+    }
+
     // Compile server and client code from proto files
     tonic_build::configure()
         .build_server(true)
