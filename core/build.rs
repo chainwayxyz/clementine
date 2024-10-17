@@ -19,7 +19,7 @@ fn compile_protobuf() {
 
         // Set env var.
         let path = String::from_utf8_lossy(&output.stdout);
-        env::set_var("PROTOC", trim_ascii_end(&path.into_owned()));
+        env::set_var("PROTOC", trim_ascii_end(&path));
     }
 
     // Skip compilation if env var is not set.
