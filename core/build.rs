@@ -1,5 +1,13 @@
 use std::{env, path::Path, process::Command};
 
+fn trim_ascii_end(s: &str) -> &str {
+    let trimmed_len = s.as_bytes()
+        .iter()
+        .rposition(|&b| !b.is_ascii_whitespace())
+        .map_or(0, |pos| pos + 1);
+    &s[..trimmed_len]
+}
+
 fn compile_protobuf() {
     // Try to set PROTOC env var if on *nix.
     if let Ok(output) = Command::new("which").args(["protoc"]).output() {
@@ -10,7 +18,7 @@ fn compile_protobuf() {
 
         // Set env var.
         let path = String::from_utf8_lossy(&output.stdout);
-        env::set_var("PROTOC", path.into_owned().trim_ascii_end());
+        env::set_var("PROTOC", trim_ascii_end(&path.into_owned()));
     }
 
     // Skip compilation if env var is not set.
