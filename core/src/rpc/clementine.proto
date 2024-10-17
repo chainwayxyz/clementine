@@ -220,6 +220,7 @@ message WatchtowerParams {
 // Each watchtower also runs a verifier server connected to the same db. Thus,
 // they will have the operator's winternitz pubkeys.
 service ClementineWatchtower {
+  // Returns every operator's winternitz public keys.
   rpc GetParams(Empty) returns (WatchtowerParams) {}
 }
 

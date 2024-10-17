@@ -797,6 +797,7 @@ pub mod clementine_watchtower_client {
             self.inner = self.inner.max_encoding_message_size(limit);
             self
         }
+        /// Returns every operator's winternitz public keys.
         pub async fn get_params(
             &mut self,
             request: impl tonic::IntoRequest<super::Empty>,
@@ -1871,6 +1872,7 @@ pub mod clementine_watchtower_server {
     /// Generated trait containing gRPC methods that should be implemented for use with ClementineWatchtowerServer.
     #[async_trait]
     pub trait ClementineWatchtower: std::marker::Send + std::marker::Sync + 'static {
+        /// Returns every operator's winternitz public keys.
         async fn get_params(
             &self,
             request: tonic::Request<super::Empty>,
