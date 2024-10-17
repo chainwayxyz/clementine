@@ -3,6 +3,9 @@ name = "clementine-core"
 version = "0.2.0"
 edition = "2021"
 
+[build-dependencies]
+tonic-build = "0.12"
+
 [dependencies]
 # clementine-circuits = { path = "../circuits" }
 bitcoin = { workspace = true, features = ["rand", "bitcoinconsensus"] }
@@ -28,6 +31,10 @@ toml = { workspace = true }
 sqlx = { workspace = true, features = ["runtime-tokio", "postgres", "macros"] }
 bitcoin-mock-rpc = { workspace = true }
 musig2 = { workspace = true }
+
+tonic = { workspace = true}
+prost = { workspace = true }
+tokio-stream = {workspace = true }
 
 [features]
 default = []

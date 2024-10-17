@@ -3,31 +3,41 @@ resolver = "2"
 members = ["core"] # TODO: Add "circuits" back later
 
 [workspace.dependencies]
-bitcoin = "0.32.2"
-bitcoincore-rpc = "0.19.0"
 hex = "0.4.3"
 lazy_static = { version = "1.5.0", default-features = false }
-sha2 = { version = "=0.10.8", default-features = false }
-# risc0-zkvm = "0.21.0"
 serde = { version = "1.0", default-features = false }
-serde_json = "1.0.127"
-# byteorder = "1.5.0"
-secp256k1 = { version = "0.29.0", features = ["serde"] }
-crypto-bigint = { version = "=0.5.5", features = ["rand_core"] }
-thiserror = "1.0.63"
+serde_json = "1.0.128"
+thiserror = "1.0.64"
 tracing = { version = "0.1.40", default-features = false }
 tracing-subscriber = { version = "0.3.18", features = ["json"] }
-tokio = "1.39.3"
 jsonrpsee = "0.22.5"
-async-trait = "0.1.81"
-futures = "0.3.30"
-clap = "4.5.16"
+async-trait = "0.1.83"
+clap = "4.5.20"
 toml = "0.8.19"
 sqlx = { version = "0.7.4", default-features = false }
 # k256 = { version = "=0.13.3", default-features = false }
 # risc0-build = "0.21.0"
-bitcoin-mock-rpc = { git = "https://github.com/chainwayxyz/bitcoin-mock-rpc", tag = "v0.0.11" }
+
+# bitcoin
+bitcoin = "0.32.3"
+bitcoincore-rpc = "0.19.0"
 musig2 = { version = "0.0.11", features = ["serde"] }
+secp256k1 = { version = "0.29.1", features = ["serde"] }
+
+# async + gRPC
+tonic = { version = "0.12.3", features = [ "tls" ] }
+prost = "0.13.3"
+tokio = { version = "1.40.0", features = [ "full" ] }
+tokio-stream = { version = "0.1.16", features = [ "sync" ] }
+futures = "0.3.31"
+
+# Circuits
+sha2 = { version = "=0.10.8", default-features = false }
+crypto-bigint = { version = "=0.5.5", features = ["rand_core"] }
+# risc0-zkvm = "0.21.0"
+
+# TODO: Make this dev-dependency (see #181)
+bitcoin-mock-rpc = { git = "https://github.com/chainwayxyz/bitcoin-mock-rpc", tag = "v0.0.11" }
 
 [profile.release]
 lto = true
