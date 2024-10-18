@@ -93,4 +93,12 @@ create table if not exists funding_utxos (
     created_at timestamp not null default now()
 );
 
+-- Watchtower header chain proofs
+create table if not exists header_chain_proofs (
+    block_hash bytea primary key not null,
+    block_header bytea not null,
+    height int not null,
+    proof bytea
+);
+
 COMMIT;
