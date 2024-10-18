@@ -1,5 +1,11 @@
 use crate::EVMAddress;
-use bitcoin::{address::NetworkUnchecked, Address, OutPoint, TxOut, Txid};
+use bitcoin::{
+    address::NetworkUnchecked,
+    block,
+    consensus::{Decodable, Encodable},
+    hex::DisplayHex,
+    Address, OutPoint, TxOut, Txid,
+};
 use serde::{Deserialize, Serialize};
 use sqlx::{
     postgres::{PgArgumentBuffer, PgValueRef},
@@ -24,6 +30,12 @@ pub struct TxidDB(pub Txid);
 
 #[derive(Serialize, Deserialize, sqlx::FromRow, Debug, Clone)]
 pub struct SignatureDB(pub secp256k1::schnorr::Signature);
+
+#[derive(Serialize, Deserialize, sqlx::FromRow, Debug, Clone)]
+pub struct BlockHashDB(pub block::BlockHash);
+
+#[derive(Serialize, Deserialize, sqlx::FromRow, Debug, Clone)]
+pub struct BlockHeaderDB(pub block::Header);
 
 #[derive(Serialize, Deserialize, sqlx::FromRow)]
 pub struct Utxodb {
@@ -158,14 +170,60 @@ impl<'r> Decode<'r, Postgres> for SignatureDB {
     }
 }
 
+impl sqlx::Type<sqlx::Postgres> for BlockHashDB {
+    fn type_info() -> sqlx::postgres::PgTypeInfo {
+        sqlx::postgres::PgTypeInfo::with_name("TEXT")
+    }
+}
+impl<'q> Encode<'q, Postgres> for BlockHashDB {
+    fn encode_by_ref(&self, buf: &mut PgArgumentBuffer) -> sqlx::encode::IsNull {
+        let s: String = block::BlockHash::to_string(&self.0);
+        <&str as Encode<Postgres>>::encode_by_ref(&s.as_str(), buf)
+    }
+}
+impl<'r> Decode<'r, Postgres> for BlockHashDB {
+    fn decode(value: PgValueRef<'r>) -> Result<Self, sqlx::error::BoxDynError> {
+        let s = <&str as Decode<Postgres>>::decode(value)?;
+        let x: block::BlockHash = block::BlockHash::from_str(s)?;
+        Ok(BlockHashDB(x))
+    }
+}
+
+impl sqlx::Type<sqlx::Postgres> for BlockHeaderDB {
+    fn type_info() -> sqlx::postgres::PgTypeInfo {
+        sqlx::postgres::PgTypeInfo::with_name("TEXT")
+    }
+}
+impl<'q> Encode<'q, Postgres> for BlockHeaderDB {
+    fn encode_by_ref(&self, buf: &mut PgArgumentBuffer) -> sqlx::encode::IsNull {
+        let mut hex: Vec<u8> = Vec::new();
+        self.0.consensus_encode(&mut hex).unwrap();
+        let s = hex.to_hex_string(bitcoin::hex::Case::Lower);
+        <&str as Encode<Postgres>>::encode_by_ref(&s.as_str(), buf)
+    }
+}
+impl<'r> Decode<'r, Postgres> for BlockHeaderDB {
+    fn decode(value: PgValueRef<'r>) -> Result<Self, sqlx::error::BoxDynError> {
+        let mut s = value.as_bytes()?;
+        let x: block::Header = block::Header::consensus_decode(&mut s)?;
+        Ok(BlockHeaderDB(x))
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::OutPointDB;
     use crate::{
-        database::wrapper::{AddressDB, EVMAddressDB, SignatureDB, TxOutDB, TxidDB},
+        database::wrapper::{
+            AddressDB, BlockHashDB, BlockHeaderDB, EVMAddressDB, SignatureDB, TxOutDB, TxidDB,
+        },
         utils, EVMAddress,
     };
-    use bitcoin::{hashes::Hash, Amount, OutPoint, ScriptBuf, TxOut, Txid};
+    use bitcoin::{
+        block::{self, Version},
+        hashes::Hash,
+        Amount, BlockHash, CompactTarget, OutPoint, ScriptBuf, TxMerkleNode, TxOut, Txid,
+    };
     use secp256k1::schnorr::Signature;
     use sqlx::{encode::IsNull, postgres::PgArgumentBuffer, Encode, Type};
 
@@ -274,6 +332,45 @@ mod tests {
         let mut hex: PgArgumentBuffer = PgArgumentBuffer::default();
         if let IsNull::Yes = signaturedb.clone().encode(&mut hex) {
             panic!("Couldn't write {:?} to the buffer!", signaturedb);
+        }
+    }
+
+    #[test]
+    fn blockhashdb() {
+        assert_eq!(
+            OutPointDB::type_info(),
+            sqlx::postgres::PgTypeInfo::with_name("TEXT")
+        );
+
+        let blockhash = BlockHash::all_zeros();
+        let blockhashdb = BlockHashDB(blockhash);
+
+        let mut hex: PgArgumentBuffer = PgArgumentBuffer::default();
+        if let IsNull::Yes = blockhashdb.clone().encode(&mut hex) {
+            panic!("Couldn't write {:?} to the buffer!", blockhashdb);
+        }
+    }
+
+    #[test]
+    fn blockheaderdb() {
+        assert_eq!(
+            OutPointDB::type_info(),
+            sqlx::postgres::PgTypeInfo::with_name("TEXT")
+        );
+
+        let blockheader = block::Header {
+            version: Version::TWO,
+            prev_blockhash: BlockHash::all_zeros(),
+            merkle_root: TxMerkleNode::all_zeros(),
+            time: 0,
+            bits: CompactTarget::default(),
+            nonce: 0,
+        };
+        let blockheaderdb = BlockHeaderDB(blockheader);
+
+        let mut hex: PgArgumentBuffer = PgArgumentBuffer::default();
+        if let IsNull::Yes = blockheaderdb.clone().encode(&mut hex) {
+            panic!("Couldn't write {:?} to the buffer!", blockheaderdb);
         }
     }
 }
