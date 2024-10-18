@@ -12,6 +12,7 @@ use serde::{Deserialize, Serialize};
 pub mod actor;
 pub mod aggregator;
 pub mod builder;
+pub mod chain_prover;
 pub mod cli;
 pub mod config;
 pub mod constants;
