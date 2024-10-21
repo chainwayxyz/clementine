@@ -30,14 +30,12 @@ impl sqlx::Type<sqlx::Postgres> for OutPointDB {
 impl<'q> Encode<'q, Postgres> for OutPointDB {
     fn encode_by_ref(&self, buf: &mut PgArgumentBuffer) -> sqlx::encode::IsNull {
         let s = self.0.to_string();
-
         <&str as Encode<Postgres>>::encode_by_ref(&s.as_str(), buf)
     }
 }
 impl<'r> Decode<'r, Postgres> for OutPointDB {
     fn decode(value: PgValueRef<'r>) -> Result<Self, sqlx::error::BoxDynError> {
         let s = <&str as Decode<Postgres>>::decode(value)?;
-
         Ok(OutPointDB(OutPoint::from_str(s)?))
     }
 }
@@ -162,7 +160,7 @@ impl sqlx::Type<sqlx::Postgres> for BlockHashDB {
 }
 impl<'q> Encode<'q, Postgres> for BlockHashDB {
     fn encode_by_ref(&self, buf: &mut PgArgumentBuffer) -> sqlx::encode::IsNull {
-        let s = self.0.clone().to_string();
+        let s = self.0.to_string();
         <&str as Encode<Postgres>>::encode_by_ref(&s.as_str(), buf)
     }
 }
@@ -356,7 +354,7 @@ mod tests {
         let blockheaderdb = BlockHeaderDB(blockheader);
 
         let mut hex: PgArgumentBuffer = PgArgumentBuffer::default();
-        if let IsNull::Yes = blockheaderdb.clone().encode(&mut hex) {
+        if let IsNull::Yes = blockheaderdb.clone().encode_by_ref(&mut hex) {
             panic!("Couldn't write {:?} to the buffer!", blockheaderdb);
         }
     }

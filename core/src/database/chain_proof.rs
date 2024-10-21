@@ -1,14 +1,12 @@
 //! Chain proof related database operations.
 
-use bitcoin::block;
-use sqlx::Postgres;
-
+use super::Database;
 use crate::{
     database::wrapper::{BlockHashDB, BlockHeaderDB},
     errors::BridgeError,
 };
-
-use super::Database;
+use bitcoin::block;
+use sqlx::Postgres;
 
 impl Database {
     /// Saves a new block to the database, later to be updated by a proof.
@@ -16,19 +14,19 @@ impl Database {
     pub async fn save_new_block(
         &self,
         tx: Option<&mut sqlx::Transaction<'_, Postgres>>,
-        hash: block::BlockHash,
-        header: block::Header,
-        height: u32,
+        block_hash: block::BlockHash,
+        block_header: block::Header,
+        block_height: u32,
     ) -> Result<(), BridgeError> {
         let query = sqlx::query(
             "INSERT INTO header_chain_proofs (block_hash, block_header, height) VALUES ($1, $2, $3);",
         )
-        .bind(BlockHashDB(hash)).bind(BlockHeaderDB(header)).bind(height as i64);
+        .bind(BlockHashDB(block_hash)).bind(BlockHeaderDB(block_header)).bind(block_height as i64);
 
         match tx {
-            Some(tx) => query.execute(&mut **tx).await?,
-            None => query.execute(&self.connection).await?,
-        };
+            Some(tx) => query.execute(&mut **tx).await,
+            None => query.execute(&self.connection).await,
+        }?;
 
         Ok(())
     }
@@ -59,22 +57,23 @@ impl Database {
     ///
     /// TODO: Change proof type.
     #[tracing::instrument(skip(self), err(level = tracing::Level::ERROR), ret(level = tracing::Level::TRACE))]
-    pub async fn get_block_proof_by_height(
+    pub async fn get_proof_info_by_height(
         &self,
         tx: Option<&mut sqlx::Transaction<'_, Postgres>>,
         height: u32,
-    ) -> Result<(), BridgeError> {
-        // let query = sqlx::query(
-        //     "UPDATE header_chain_proofs SET proof = $1 WHERE block_hash = $2;",
-        // )
-        // .bind(proof as i64).bind(BlockHashDB(hash));
+    ) -> Result<(block::BlockHash, block::Header), BridgeError> {
+        let query = sqlx::query_as(
+            "SELECT block_hash, block_header FROM header_chain_proofs WHERE height = $1;",
+        )
+        .bind(height as i64);
 
-        // match tx {
-        //     Some(tx) => query.execute(&mut **tx).await?,
-        //     None => query.execute(&self.connection).await?,
-        // };
+        let result: (BlockHashDB, BlockHeaderDB) = match tx {
+            Some(tx) => query.fetch_one(&mut **tx).await,
+            None => query.fetch_one(&self.connection).await,
+        }
+        .unwrap();
 
-        Ok(())
+        Ok((result.0 .0, result.1 .0))
     }
 
     #[tracing::instrument(skip(self), err(level = tracing::Level::ERROR), ret(level = tracing::Level::TRACE))]
@@ -85,13 +84,12 @@ impl Database {
 
 #[cfg(test)]
 mod tests {
+    use crate::{database::Database, mock::database::create_test_config_with_thread_name};
     use bitcoin::{
         block::{self, Header, Version},
         hashes::Hash,
         BlockHash, CompactTarget, TxMerkleNode,
     };
-
-    use crate::{database::Database, mock::database::create_test_config_with_thread_name};
 
     #[tokio::test]
     pub async fn save_get_new_block() {
@@ -115,5 +113,10 @@ mod tests {
         db.save_new_block(None, block_hash, block.header, height)
             .await
             .unwrap();
+
+        let (read_block_hash, read_block_header) =
+            db.get_proof_info_by_height(None, height).await.unwrap();
+        assert_eq!(block_hash, read_block_hash);
+        assert_eq!(block.header, read_block_header);
     }
 }
