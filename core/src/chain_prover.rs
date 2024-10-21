@@ -5,7 +5,9 @@
 use crate::{
     config::BridgeConfig, database::Database, errors::BridgeError, extended_rpc::ExtendedRpc,
 };
+use bitcoin::block;
 use bitcoin_mock_rpc::RpcApiWrapper;
+use bitcoincore_rpc::json::GetChainTipsResultStatus;
 
 #[derive(Debug, Clone)]
 pub struct ChainProver<R>
@@ -14,7 +16,6 @@ where
 {
     rpc: ExtendedRpc<R>,
     db: Database,
-    config: BridgeConfig,
 }
 
 impl<R> ChainProver<R>
@@ -24,18 +25,33 @@ where
     pub async fn new(config: BridgeConfig, rpc: ExtendedRpc<R>) -> Result<Self, BridgeError> {
         let db = Database::new(&config).await?;
 
-        Ok(ChainProver { rpc, db, config })
+        Ok(ChainProver { rpc, db })
+    }
+
+    pub fn start_block_prover(&'static self) {
+        tokio::spawn(async move {
+            loop {
+                let _ = self.fetch_new_blocks().await;
+            }
+        });
     }
 
     /// Checks for new blocks, that are not in current database. If not, writes
     /// it's details to database.
-    ///
-    /// This function won't return and run forever.
-    async fn check_for_new_blocks(&self) {
-        loop {}
+    async fn fetch_new_blocks(&self) -> Result<(), BridgeError> {
+        // Return early if database is up to date.
+        let db_tip_height = self.db.get_latest_chain_proof_height(None).await?;
+        for tip in self.rpc.client.get_chain_tips()? {
+            if tip.status == GetChainTipsResultStatus::Active && db_tip_height as u64 == tip.height
+            {
+                return Ok(());
+            }
+        }
+
+        todo!()
     }
 
-    pub async fn get_header_chain_proof(blocknum: u32) {
+    pub async fn get_header_chain_proof(_height: u64, _block_hash: Option<block::BlockHash>) {
         todo!()
     }
 }
