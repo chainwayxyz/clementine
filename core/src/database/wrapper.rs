@@ -3,7 +3,7 @@ use bitcoin::{
     address::NetworkUnchecked,
     block,
     consensus::{Decodable, Encodable},
-    hex::DisplayHex,
+    hex::{DisplayHex, FromHex},
     Address, OutPoint, TxOut, Txid,
 };
 use serde::{Deserialize, Serialize};
@@ -184,17 +184,22 @@ impl<'q> Encode<'q, Postgres> for BlockHeaderDB {
         let mut hex: Vec<u8> = Vec::new();
         self.0.consensus_encode(&mut hex).unwrap();
         let s = hex.to_hex_string(bitcoin::hex::Case::Lower);
+
         <&str as Encode<Postgres>>::encode_by_ref(&s.as_str(), buf)
     }
 }
 impl<'r> Decode<'r, Postgres> for BlockHeaderDB {
     fn decode(value: PgValueRef<'r>) -> Result<Self, sqlx::error::BoxDynError> {
-        let mut s = value.as_bytes()?;
-        let x: block::Header = block::Header::consensus_decode(&mut s)?;
-        Ok(BlockHeaderDB(x))
+        let s: String = Decode::decode(value.clone())?;
+        let header: block::Header =
+            block::Header::consensus_decode(&mut Vec::from_hex(&s)?.as_slice())?;
+
+        Ok(BlockHeaderDB(header))
     }
 }
 
+// TODO: Improve these tests by checking conversions both ways. Note: I couldn't
+// find any ways to do this but it needs to be done.
 #[cfg(test)]
 mod tests {
     use super::OutPointDB;
