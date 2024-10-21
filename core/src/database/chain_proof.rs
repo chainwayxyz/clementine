@@ -46,18 +46,19 @@ impl Database {
             .bind(BlockHashDB(hash));
 
         match tx {
-            Some(tx) => query.execute(&mut **tx).await?,
-            None => query.execute(&self.connection).await?,
-        };
+            Some(tx) => query.execute(&mut **tx).await,
+            None => query.execute(&self.connection).await,
+        }?;
 
-        Ok(())
+        // Ok(())
+        todo!()
     }
 
     /// Returns a blocks proof, by it's height.
     ///
-    /// TODO: Change proof type.
+    /// TODO: Add proof to return values.
     #[tracing::instrument(skip(self), err(level = tracing::Level::ERROR), ret(level = tracing::Level::TRACE))]
-    pub async fn get_proof_info_by_height(
+    pub async fn get_block_proof_info_by_height(
         &self,
         tx: Option<&mut sqlx::Transaction<'_, Postgres>>,
         height: u32,
@@ -114,8 +115,10 @@ mod tests {
             .await
             .unwrap();
 
-        let (read_block_hash, read_block_header) =
-            db.get_proof_info_by_height(None, height).await.unwrap();
+        let (read_block_hash, read_block_header) = db
+            .get_block_proof_info_by_height(None, height)
+            .await
+            .unwrap();
         assert_eq!(block_hash, read_block_hash);
         assert_eq!(block.header, read_block_header);
     }
