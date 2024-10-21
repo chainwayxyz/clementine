@@ -13,42 +13,20 @@ use sqlx::{
 };
 use std::str::FromStr;
 
-#[derive(Serialize, Deserialize, Debug, Clone)]
-pub struct OutPointDB(pub OutPoint);
-
-#[derive(Serialize, Deserialize, Debug, Clone)]
-pub struct TxOutDB(pub TxOut);
-
-#[derive(Serialize, Debug, Clone)]
-pub struct AddressDB(pub Address<NetworkUnchecked>);
-
-#[derive(Serialize, Deserialize, Debug, Clone)]
-pub struct EVMAddressDB(pub EVMAddress);
-
-#[derive(Serialize, Deserialize, Debug, Clone)]
-pub struct TxidDB(pub Txid);
-
-#[derive(Serialize, Deserialize, sqlx::FromRow, Debug, Clone)]
-pub struct SignatureDB(pub secp256k1::schnorr::Signature);
-
-#[derive(Serialize, Deserialize, sqlx::FromRow, Debug, Clone)]
-pub struct BlockHashDB(pub block::BlockHash);
-
-#[derive(Serialize, Deserialize, sqlx::FromRow, Debug, Clone)]
-pub struct BlockHeaderDB(pub block::Header);
-
 #[derive(Serialize, Deserialize, sqlx::FromRow)]
 pub struct Utxodb {
     pub outpoint_db: OutPointDB,
     pub txout_db: TxOutDB,
 }
 
+#[derive(Serialize, Deserialize, Debug, Clone)]
+pub struct OutPointDB(pub OutPoint);
+
 impl sqlx::Type<sqlx::Postgres> for OutPointDB {
     fn type_info() -> sqlx::postgres::PgTypeInfo {
         sqlx::postgres::PgTypeInfo::with_name("TEXT")
     }
 }
-
 impl<'q> Encode<'q, Postgres> for OutPointDB {
     fn encode_by_ref(&self, buf: &mut PgArgumentBuffer) -> sqlx::encode::IsNull {
         let s = self.0.to_string();
@@ -56,7 +34,6 @@ impl<'q> Encode<'q, Postgres> for OutPointDB {
         <&str as Encode<Postgres>>::encode_by_ref(&s.as_str(), buf)
     }
 }
-
 impl<'r> Decode<'r, Postgres> for OutPointDB {
     fn decode(value: PgValueRef<'r>) -> Result<Self, sqlx::error::BoxDynError> {
         let s = <&str as Decode<Postgres>>::decode(value)?;
@@ -65,19 +42,20 @@ impl<'r> Decode<'r, Postgres> for OutPointDB {
     }
 }
 
+#[derive(Serialize, Debug, Clone)]
+pub struct AddressDB(pub Address<NetworkUnchecked>);
+
 impl sqlx::Type<sqlx::Postgres> for AddressDB {
     fn type_info() -> sqlx::postgres::PgTypeInfo {
         sqlx::postgres::PgTypeInfo::with_name("TEXT")
     }
 }
-
 impl<'q> Encode<'q, Postgres> for AddressDB {
     fn encode_by_ref(&self, buf: &mut PgArgumentBuffer) -> sqlx::encode::IsNull {
         let s = self.0.clone().assume_checked().to_string();
         <&str as Encode<Postgres>>::encode_by_ref(&s.as_str(), buf)
     }
 }
-
 impl<'r> Decode<'r, Postgres> for AddressDB {
     fn decode(value: PgValueRef<'r>) -> Result<Self, sqlx::error::BoxDynError> {
         let s = <&str as Decode<Postgres>>::decode(value)?;
@@ -85,19 +63,20 @@ impl<'r> Decode<'r, Postgres> for AddressDB {
     }
 }
 
+#[derive(Serialize, Deserialize, Debug, Clone)]
+pub struct EVMAddressDB(pub EVMAddress);
+
 impl sqlx::Type<sqlx::Postgres> for EVMAddressDB {
     fn type_info() -> sqlx::postgres::PgTypeInfo {
         sqlx::postgres::PgTypeInfo::with_name("TEXT")
     }
 }
-
 impl<'q> Encode<'q, Postgres> for EVMAddressDB {
     fn encode_by_ref(&self, buf: &mut PgArgumentBuffer) -> sqlx::encode::IsNull {
         let s = hex::encode(self.0 .0);
         <&str as Encode<Postgres>>::encode_by_ref(&s.as_str(), buf)
     }
 }
-
 impl<'r> Decode<'r, Postgres> for EVMAddressDB {
     fn decode(value: PgValueRef<'r>) -> Result<Self, sqlx::error::BoxDynError> {
         let s = <&str as Decode<Postgres>>::decode(value)?;
@@ -107,19 +86,20 @@ impl<'r> Decode<'r, Postgres> for EVMAddressDB {
     }
 }
 
+#[derive(Serialize, Deserialize, Debug, Clone)]
+pub struct TxidDB(pub Txid);
+
 impl sqlx::Type<sqlx::Postgres> for TxidDB {
     fn type_info() -> sqlx::postgres::PgTypeInfo {
         sqlx::postgres::PgTypeInfo::with_name("TEXT")
     }
 }
-
 impl<'q> Encode<'q, Postgres> for TxidDB {
     fn encode_by_ref(&self, buf: &mut PgArgumentBuffer) -> sqlx::encode::IsNull {
         let s = bitcoin::consensus::encode::serialize_hex(&self.0);
         <&str as Encode<Postgres>>::encode_by_ref(&s.as_str(), buf)
     }
 }
-
 impl<'r> Decode<'r, Postgres> for TxidDB {
     fn decode(value: PgValueRef<'r>) -> Result<Self, sqlx::error::BoxDynError> {
         let s = <&str as Decode<Postgres>>::decode(value)?;
@@ -128,19 +108,20 @@ impl<'r> Decode<'r, Postgres> for TxidDB {
     }
 }
 
+#[derive(Serialize, Deserialize, Debug, Clone)]
+pub struct TxOutDB(pub TxOut);
+
 impl sqlx::Type<sqlx::Postgres> for TxOutDB {
     fn type_info() -> sqlx::postgres::PgTypeInfo {
         sqlx::postgres::PgTypeInfo::with_name("TEXT")
     }
 }
-
 impl<'q> Encode<'q, Postgres> for TxOutDB {
     fn encode_by_ref(&self, buf: &mut PgArgumentBuffer) -> sqlx::encode::IsNull {
         let s = bitcoin::consensus::encode::serialize_hex(&self.0);
         <&str as Encode<Postgres>>::encode_by_ref(&s.as_str(), buf)
     }
 }
-
 impl<'r> Decode<'r, Postgres> for TxOutDB {
     fn decode(value: PgValueRef<'r>) -> Result<Self, sqlx::error::BoxDynError> {
         let s = <&str as Decode<Postgres>>::decode(value)?;
@@ -149,19 +130,20 @@ impl<'r> Decode<'r, Postgres> for TxOutDB {
     }
 }
 
+#[derive(Serialize, Deserialize, sqlx::FromRow, Debug, Clone)]
+pub struct SignatureDB(pub secp256k1::schnorr::Signature);
+
 impl sqlx::Type<sqlx::Postgres> for SignatureDB {
     fn type_info() -> sqlx::postgres::PgTypeInfo {
         sqlx::postgres::PgTypeInfo::with_name("TEXT")
     }
 }
-
 impl<'q> Encode<'q, Postgres> for SignatureDB {
     fn encode_by_ref(&self, buf: &mut PgArgumentBuffer) -> sqlx::encode::IsNull {
         let s: String = secp256k1::schnorr::Signature::to_string(&self.0);
         <&str as Encode<Postgres>>::encode_by_ref(&s.as_str(), buf)
     }
 }
-
 impl<'r> Decode<'r, Postgres> for SignatureDB {
     fn decode(value: PgValueRef<'r>) -> Result<Self, sqlx::error::BoxDynError> {
         let s = <&str as Decode<Postgres>>::decode(value)?;
@@ -170,6 +152,9 @@ impl<'r> Decode<'r, Postgres> for SignatureDB {
     }
 }
 
+#[derive(Serialize, Deserialize, sqlx::FromRow, Debug, Clone)]
+pub struct BlockHashDB(pub block::BlockHash);
+
 impl sqlx::Type<sqlx::Postgres> for BlockHashDB {
     fn type_info() -> sqlx::postgres::PgTypeInfo {
         sqlx::postgres::PgTypeInfo::with_name("TEXT")
@@ -177,17 +162,19 @@ impl sqlx::Type<sqlx::Postgres> for BlockHashDB {
 }
 impl<'q> Encode<'q, Postgres> for BlockHashDB {
     fn encode_by_ref(&self, buf: &mut PgArgumentBuffer) -> sqlx::encode::IsNull {
-        let s: String = block::BlockHash::to_string(&self.0);
+        let s = self.0.clone().to_string();
         <&str as Encode<Postgres>>::encode_by_ref(&s.as_str(), buf)
     }
 }
 impl<'r> Decode<'r, Postgres> for BlockHashDB {
     fn decode(value: PgValueRef<'r>) -> Result<Self, sqlx::error::BoxDynError> {
         let s = <&str as Decode<Postgres>>::decode(value)?;
-        let x: block::BlockHash = block::BlockHash::from_str(s)?;
-        Ok(BlockHashDB(x))
+        Ok(BlockHashDB(block::BlockHash::from_str(s)?))
     }
 }
+
+#[derive(Serialize, Deserialize, sqlx::FromRow, Debug, Clone)]
+pub struct BlockHeaderDB(pub block::Header);
 
 impl sqlx::Type<sqlx::Postgres> for BlockHeaderDB {
     fn type_info() -> sqlx::postgres::PgTypeInfo {
