@@ -14,6 +14,7 @@ use bitcoincore_rpc::json::GetChainTipsResultStatus;
 const DEEPNESS: u64 = 5;
 
 /// Possible fetch results.
+#[derive(Debug, Clone, Copy, PartialEq)]
 enum BlockFetchStatus {
     /// In sync with blockchain.
     UpToDate,
@@ -38,8 +39,8 @@ impl<R> ChainProver<R>
 where
     R: RpcApiWrapper,
 {
-    pub async fn new(config: BridgeConfig, rpc: ExtendedRpc<R>) -> Result<Self, BridgeError> {
-        let db = Database::new(&config).await?;
+    pub async fn new(config: &BridgeConfig, rpc: ExtendedRpc<R>) -> Result<Self, BridgeError> {
+        let db = Database::new(config).await?;
 
         Ok(ChainProver { rpc, db })
     }
@@ -76,6 +77,12 @@ where
     /// - [`BlockFetchStatus`]: Status of the current database tip
     async fn check_for_new_blocks(&self) -> Result<BlockFetchStatus, BridgeError> {
         let (db_tip_height, db_tip_hash) = self.db.get_latest_block_info(None).await?;
+        tracing::trace!(
+            "Database blockchain tip is at height {} with block hash {}",
+            db_tip_height,
+            db_tip_hash
+        );
+
         let tips = self.rpc.client.get_chain_tips()?;
         let tip = tips
             .iter()
@@ -84,6 +91,11 @@ where
         let tip_height = tip.height;
         let tip_hash = tip.hash;
         let tip_block = self.rpc.client.get_block(&tip_hash)?;
+        tracing::trace!(
+            "Active blockchain tip is at height {} with block hash {}",
+            tip_height,
+            tip_hash
+        );
 
         // Return early if database is up to date.
         if db_tip_height == tip_height && db_tip_hash == tip_hash {
@@ -109,6 +121,7 @@ where
                 .0;
 
             if previous_block_hash == db_block_hash {
+                tracing::trace!("Current database blockchain tip is {} blocks behind than the active blockchain tip.", tip_height - deepness);
                 return Ok(BlockFetchStatus::FallenBehind(
                     tip_height - deepness,
                     db_block_hash,
@@ -116,6 +129,7 @@ where
             }
         }
 
+        tracing::error!("Current database blockchain is not on branch with the active blockchain (possible reorg)!");
         Ok(BlockFetchStatus::Fork(db_tip_height, db_tip_hash))
     }
 
@@ -131,15 +145,44 @@ where
 #[cfg(test)]
 mod tests {
     use crate::{
-        chain_prover::ChainProver, create_extended_rpc, extended_rpc::ExtendedRpc,
-        mock::common::get_test_config,
+        chain_prover::{BlockFetchStatus, ChainProver},
+        create_extended_rpc,
+        extended_rpc::ExtendedRpc,
+        mock::database::create_test_config_with_thread_name,
     };
+    use bitcoincore_rpc::RpcApi;
 
     #[tokio::test]
     async fn new() {
-        let mut config = get_test_config("test_config.toml").unwrap();
+        let mut config = create_test_config_with_thread_name("test_config.toml", None).await;
         let rpc = create_extended_rpc!(config);
 
-        let _should_not_panic = ChainProver::new(config, rpc).await.unwrap();
+        let _should_not_panic = ChainProver::new(&config, rpc).await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn check_for_new_blocks() {
+        let mut config = create_test_config_with_thread_name("test_config.toml", None).await;
+        let rpc = create_extended_rpc!(config);
+        let prover = ChainProver::new(&config, rpc.clone()).await.unwrap();
+
+        // Updating database with current block should return [`BlockFetchStatus::UpToDate`].
+        let current_tip = rpc.client.get_chain_tips().unwrap();
+        let current_tip = current_tip.first().unwrap();
+        let current_block = rpc.client.get_block(&current_tip.hash).unwrap();
+        prover
+            .db
+            .save_new_block(
+                None,
+                current_tip.hash,
+                current_block.header,
+                current_tip.height as u32,
+            )
+            .await
+            .unwrap();
+        assert_eq!(
+            prover.check_for_new_blocks().await.unwrap(),
+            BlockFetchStatus::UpToDate
+        );
     }
 }
