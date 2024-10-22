@@ -5,7 +5,7 @@ use crate::{
     database::wrapper::{BlockHashDB, BlockHeaderDB},
     errors::BridgeError,
 };
-use bitcoin::block;
+use bitcoin::{block, hashes::Hash, BlockHash};
 use sqlx::Postgres;
 
 impl Database {
@@ -77,20 +77,22 @@ impl Database {
     }
 
     #[tracing::instrument(skip(self), err(level = tracing::Level::ERROR), ret(level = tracing::Level::TRACE))]
-    pub async fn get_latest_chain_proof_height(
+    pub async fn get_latest_block_info(
         &self,
         tx: Option<&mut sqlx::Transaction<'_, Postgres>>,
-    ) -> Result<u64, BridgeError> {
-        let query = sqlx::query_as("SELECT max(height) FROM header_chain_proofs;");
+    ) -> Result<(u64, BlockHash), BridgeError> {
+        let query = sqlx::query_as(
+            "SELECT height, block_hash FROM header_chain_proofs ORDER BY height DESC;",
+        );
 
-        let result: (Option<i32>,) = match tx {
+        let result: (Option<i32>, Option<BlockHashDB>) = match tx {
             Some(tx) => query.fetch_one(&mut **tx).await,
             None => query.fetch_one(&self.connection).await,
         }?;
 
-        match result.0 {
-            Some(r) => Ok(r as u64),
-            None => Ok(0),
+        match result {
+            (Some(height), Some(hash)) => Ok((height as u64, hash.0)),
+            _ => Ok((0, BlockHash::all_zeros())),
         }
     }
 }
@@ -152,17 +154,17 @@ mod tests {
             txdata: vec![],
         };
 
-        // Initial height should be 0.
-        assert_eq!(0, db.get_latest_chain_proof_height(None).await.unwrap());
+        assert!(db.get_latest_block_info(None).await.is_err());
 
         // Adding a new block should return a height.
         let height = 0x1F;
-        db.save_new_block(None, block.block_hash(), block.header, height as u32)
+        let hash = block.block_hash();
+        db.save_new_block(None, hash, block.header, height as u32)
             .await
             .unwrap();
         assert_eq!(
-            height,
-            db.get_latest_chain_proof_height(None).await.unwrap()
+            (height, hash),
+            db.get_latest_block_info(None).await.unwrap()
         );
 
         // Adding a new block with smaller height should not effect what's
@@ -178,20 +180,21 @@ mod tests {
         .await
         .unwrap();
         assert_eq!(
-            height,
-            db.get_latest_chain_proof_height(None).await.unwrap()
+            (height, hash),
+            db.get_latest_block_info(None).await.unwrap()
         );
 
         // Adding another block with higher height should return a different
         // height.
         let height = 0x45;
         block.header.time = 2; // To avoid same block hash.
-        db.save_new_block(None, block.block_hash(), block.header, height as u32)
+        let hash = block.block_hash();
+        db.save_new_block(None, hash, block.header, height as u32)
             .await
             .unwrap();
         assert_eq!(
-            height,
-            db.get_latest_chain_proof_height(None).await.unwrap()
+            (height, hash),
+            db.get_latest_block_info(None).await.unwrap()
         );
     }
 }
