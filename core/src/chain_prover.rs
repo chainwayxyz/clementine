@@ -104,6 +104,8 @@ where
 
         // Return current height if actual tip is too far behind.
         if db_tip_height + DEEPNESS < tip_height {
+            tracing::error!("Current tip is fallen too far behind!");
+
             return Ok(BlockFetchStatus::OutOfBounds(db_tip_height));
         }
 
@@ -145,7 +147,7 @@ where
 #[cfg(test)]
 mod tests {
     use crate::{
-        chain_prover::{BlockFetchStatus, ChainProver},
+        chain_prover::{BlockFetchStatus, ChainProver, DEEPNESS},
         create_extended_rpc,
         extended_rpc::ExtendedRpc,
         mock::database::create_test_config_with_thread_name,
@@ -183,6 +185,14 @@ mod tests {
         assert_eq!(
             prover.check_for_new_blocks().await.unwrap(),
             BlockFetchStatus::UpToDate
+        );
+
+        // Mining some blocks and not updating database should cause a
+        // [`BlockFetchStatus::OutOfBounds`] return.
+        rpc.mine_blocks(DEEPNESS + 1).unwrap();
+        assert_eq!(
+            prover.check_for_new_blocks().await.unwrap(),
+            BlockFetchStatus::OutOfBounds(current_tip.height)
         );
     }
 }
