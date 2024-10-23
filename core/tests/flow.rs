@@ -3,12 +3,19 @@
 //! This tests checks if typical flows works or not.
 
 use bitcoin::{Address, Amount};
+use clementine_core::aggregator;
 use clementine_core::errors::BridgeError;
 use clementine_core::extended_rpc::ExtendedRpc;
-use clementine_core::utils::SECP;
+use clementine_core::mock::database::create_test_config_with_thread_name;
+use clementine_core::rpc::clementine::clementine_aggregator_client::ClementineAggregatorClient;
+use clementine_core::rpc::clementine::clementine_verifier_client::ClementineVerifierClient;
+use clementine_core::rpc::clementine::{DepositParams, Empty};
+use clementine_core::servers::{create_verifier_grpc_server, create_verifiers_and_operators_grpc};
+use clementine_core::utils::{initialize_logger, SECP};
 use clementine_core::{create_extended_rpc, traits::rpc::OperatorRpcClient, user::User};
 use common::run_single_deposit;
 use secp256k1::SecretKey;
+use tonic::transport::Uri;
 
 mod common;
 
@@ -111,4 +118,39 @@ async fn withdrawal_fee_too_low() {
                 false
             }
         }));
+}
+
+#[tokio::test]
+async fn grpc_flow() {
+    initialize_logger(5).unwrap();
+    let (verifiers, aggregator) = create_verifiers_and_operators_grpc("test_config.toml").await;
+    println!("verifiers: {:?}", verifiers);
+    println!("aggregator: {:?}", aggregator);
+    println!("{}", format!("http://{}", aggregator.0));
+
+    let x: Uri = format!("http://{}", aggregator.0).parse().unwrap();
+
+    println!("x: {:?}", x);
+
+    let mut aggregator_client =
+        ClementineAggregatorClient::connect(x)
+            .await
+            .unwrap();
+
+    aggregator_client
+        .new_deposit(DepositParams {
+            deposit_outpoint: None,
+            evm_address: vec![],
+            recovery_taproot_address: "".to_string(),
+            user_takes_after: 5,
+        })
+        .await
+        .unwrap();
+
+    // let mut verifier_client = ClementineVerifierClient::connect(x)
+    //     .await
+    //     .unwrap();
+
+    // let x= verifier_client.nonce_gen(Empty {}).await.unwrap();
+    // println!("x: {:?}", x);
 }
