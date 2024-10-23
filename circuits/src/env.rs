@@ -3,11 +3,6 @@ pub trait Environment {
     fn read_u32() -> u32;
     fn read_u64() -> u64;
     fn read_i32() -> i32;
-    fn read_u32x8() -> [u32; 8];
-
-    fn write_u32x8(data: [u32; 8]);
-
-    fn verify(method_id: [u32; 8], journal: &[u32]);
 
     fn write_32bytes(data: [u8; 32]);
     fn write_u32(data: u32);

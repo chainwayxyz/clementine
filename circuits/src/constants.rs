@@ -1,6 +1,6 @@
-// use lazy_static::lazy_static;
+use lazy_static::lazy_static;
 
-// use crate::sha256_hash;
+use crate::sha256_hash;
 
 /// Depth of the merkle tree that stores blockhashes
 pub const BLOCKHASH_MERKLE_TREE_DEPTH: usize = 32;
@@ -50,14 +50,13 @@ pub const EMPTYDATA: [u8; 32] = [
     0x3b, 0xfc, 0x68, 0x41, 0x60, 0x9f, 0xc1, 0xe4, 0xe9, 0xde, 0x5b, 0x3a, 0x59, 0x73, 0xaf, 0x38,
 ]; // keccak256("CITREA");
 
-// lazy_static! {
-//     /// Zero subtree hashes
-//     pub static ref ZEROES: [[u8; 32]; WITHDRAWAL_MERKLE_TREE_DEPTH + 1] = {
-//         let mut a = [EMPTYDATA; WITHDRAWAL_MERKLE_TREE_DEPTH + 1];
-//         for i in 0..WITHDRAWAL_MERKLE_TREE_DEPTH {
-//             a[i + 1] = sha256_hash!(a[i], a[i]);
-//         }
-//         a
-//     };
-// }
-pub const ZEROES: [[u8; 32]; WITHDRAWAL_MERKLE_TREE_DEPTH + 1] = [[0; 32]; 33];
+lazy_static! {
+    /// Zero subtree hashes
+    pub static ref ZEROES: [[u8; 32]; WITHDRAWAL_MERKLE_TREE_DEPTH + 1] = {
+        let mut a = [EMPTYDATA; WITHDRAWAL_MERKLE_TREE_DEPTH + 1];
+        for i in 0..WITHDRAWAL_MERKLE_TREE_DEPTH {
+            a[i + 1] = sha256_hash!(a[i], a[i]);
+        }
+        a
+    };
+}
