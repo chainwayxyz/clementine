@@ -59,8 +59,8 @@ impl ClementineAggregator for Aggregator {
             .await
             .map_err(|e| Status::internal(format!("Failed to get nonce: {:?}", e)))?;
 
-            // Aggregate the nonces
-            let agg_nonce = aggregate_nonces(pub_nonces);
+            // // Aggregate the nonces
+            // let agg_nonce = aggregate_nonces(pub_nonces);
 
             tracing::info!("Aggregated nonce: {:?}", agg_nonce);
         }
