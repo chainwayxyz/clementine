@@ -112,18 +112,23 @@ where
         // Go back block by block to check that we are still at the same branch
         // as the active blockchain.
         let mut previous_block_hash = tip_block.header.prev_blockhash;
-        for deepness in 0..DEEPNESS {
-            let previous_block = self.rpc.client.get_block(&previous_block_hash)?;
-            previous_block_hash = previous_block.block_hash();
+        for deepness in 1..DEEPNESS + 1 {
+            let current_block = self.rpc.client.get_block(&previous_block_hash)?;
+            let current_block_hash = previous_block_hash;
+            previous_block_hash = current_block.header.prev_blockhash;
 
-            let db_block_hash = self
+            let db_block_hash = match self
                 .db
                 .get_block_proof_info_by_height(None, tip_height - deepness)
-                .await?
-                .0;
+                .await
+            {
+                Ok(r) => r.0,
+                Err(_) => continue,
+            };
 
-            if previous_block_hash == db_block_hash {
-                tracing::trace!("Current database blockchain tip is {} blocks behind than the active blockchain tip.", tip_height - deepness);
+            if current_block_hash == db_block_hash {
+                tracing::trace!("Current database blockchain tip is {} blocks behind than the active blockchain tip.", deepness);
+
                 return Ok(BlockFetchStatus::FallenBehind(
                     tip_height - deepness,
                     db_block_hash,
@@ -131,7 +136,8 @@ where
             }
         }
 
-        tracing::error!("Current database blockchain is not on branch with the active blockchain (possible reorg)!");
+        tracing::error!("Current database blockchain tip is not on branch with the active blockchain (possible reorg)!");
+
         Ok(BlockFetchStatus::Fork(db_tip_height, db_tip_hash))
     }
 
@@ -152,7 +158,7 @@ mod tests {
         extended_rpc::ExtendedRpc,
         mock::database::create_test_config_with_thread_name,
     };
-    use bitcoincore_rpc::RpcApi;
+    use bitcoincore_rpc::{json::GetChainTipsResultStatus, RpcApi};
 
     #[tokio::test]
     async fn new() {
@@ -168,10 +174,13 @@ mod tests {
         let rpc = create_extended_rpc!(config);
         let prover = ChainProver::new(&config, rpc.clone()).await.unwrap();
 
-        // Updating database with current block should return [`BlockFetchStatus::UpToDate`].
+        // Save current blockchain tip.
         let current_tip = rpc.client.get_chain_tips().unwrap();
         let current_tip = current_tip.first().unwrap();
+        assert_eq!(current_tip.status, GetChainTipsResultStatus::Active);
         let current_block = rpc.client.get_block(&current_tip.hash).unwrap();
+
+        // Updating database with current block should return [`BlockFetchStatus::UpToDate`].
         prover
             .db
             .save_new_block(
@@ -185,6 +194,13 @@ mod tests {
         assert_eq!(
             prover.check_for_new_blocks().await.unwrap(),
             BlockFetchStatus::UpToDate
+        );
+
+        // Falling behind some blocks should return [`BlockFetchStatus::FallenBehind`].
+        rpc.mine_blocks(DEEPNESS - 1).unwrap();
+        assert_eq!(
+            prover.check_for_new_blocks().await.unwrap(),
+            BlockFetchStatus::FallenBehind(current_tip.height, current_tip.hash)
         );
 
         // Mining some blocks and not updating database should cause a
