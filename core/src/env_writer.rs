@@ -313,9 +313,12 @@ impl<E: Environment> ENVWriter<E> {
     }
 }
 
-// write tests for circuits
+// TODO: write tests for circuits
 #[cfg(test)]
 mod tests {
+    use crate::{
+        env_writer::ENVWriter, errors::BridgeError, merkle::MerkleTree, mock::env::MockEnvironment,
+    };
     use bitcoin::{
         block::Header,
         consensus::{deserialize, serialize},
@@ -323,22 +326,14 @@ mod tests {
     };
     use clementine_circuits::{
         bitcoin::{read_and_verify_bitcoin_merkle_path, read_tx_and_calculate_txid},
-        bridge::{
-            header_chain_proof, read_blocks_and_add_to_merkle_tree, read_blocks_and_calculate_work,
-            read_merkle_tree_proof,
-        },
+        bridge::{read_blocks_and_add_to_merkle_tree, read_merkle_tree_proof},
         env::Environment,
         incremental_merkle::IncrementalMerkleTree,
     };
+    use crypto_bigint::U256;
     use risc0_zkvm::{default_prover, ProverOpts, Receipt};
-    use serde::Serialize;
-    use std::sync::Mutex;
-    // use operator_circuit::GUEST_ELF;
-    use crate::{
-        env_writer::ENVWriter, errors::BridgeError, merkle::MerkleTree, mock::env::MockEnvironment,
-    };
-    use crypto_bigint::{Encoding, U256};
     use secp256k1::hashes::Hash;
+    use std::sync::Mutex;
     use verifier_circuit::{GUEST_ELF, GUEST_ID};
 
     lazy_static::lazy_static! {
@@ -604,7 +599,7 @@ mod tests {
         let prove_info = prover
             .prove_with_opts(env, GUEST_ELF, &prover_opts)
             .unwrap();
-        let (method_id, genesis_block_hash, offset, blockhash, pow): (
+        let (method_id, _genesis_block_hash, offset, blockhash, pow): (
             [u32; 8],
             [u8; 32],
             u32,

@@ -103,9 +103,7 @@ pub fn header_chain_proof<E: Environment>() -> ([u32; 8], [u8; 32], u32, [u8; 32
         assert_eq!(prev_offset, 0);
 
         let mut journal = [0u32; 105];
-        for i in 0..8 {
-            journal[i] = prev_method_id[i];
-        }
+        journal[..8].copy_from_slice(&prev_method_id);
         for i in 0..32 {
             journal[i + 8] = genesis_block_hash[i] as u32;
         }

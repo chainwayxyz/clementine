@@ -120,7 +120,7 @@ impl Environment for MockEnvironment {
         }
     }
 
-    fn verify(method_id: [u32; 8], journal: &[u32]) {
+    fn verify(_method_id: [u32; 8], _journal: &[u32]) {
         unimplemented!()
     }
 
@@ -164,11 +164,11 @@ impl Environment for RealEnvironment {
         unimplemented!()
     }
 
-    fn write_u32x8(data: [u32; 8]) {
+    fn write_u32x8(_data: [u32; 8]) {
         unimplemented!()
     }
 
-    fn verify(method_id: [u32; 8], journal: &[u32]) {
+    fn verify(_method_id: [u32; 8], _journal: &[u32]) {
         unimplemented!()
     }
 
