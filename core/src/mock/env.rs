@@ -107,16 +107,16 @@ impl Environment for MockEnvironment {
 
     fn read_u32x8() -> [u32; 8] {
         let mut data = [0; 8];
-        for i in 0..8 {
+        for i in &mut data {
             let bytes = Self::read_global(4);
-            data[i] = u32::from_le_bytes(bytes.try_into().unwrap())
+            *i = u32::from_le_bytes(bytes.try_into().unwrap())
         }
         data
     }
 
     fn write_u32x8(data: [u32; 8]) {
-        for i in 0..8 {
-            Self::write_global(&data[i].to_le_bytes(), 1);
+        for i in data {
+            Self::write_global(&i.to_le_bytes(), 1);
         }
     }
 

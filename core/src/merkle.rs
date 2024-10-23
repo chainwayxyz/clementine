@@ -28,7 +28,7 @@ impl<const DEPTH: usize> MerkleTree<DEPTH> {
         let mut current_level_hash = a;
         let trz = self.index.trailing_zeros();
 
-        for i in 0..DEPTH + 1 {
+        for (i, _item) in ZEROES.iter().enumerate().take(DEPTH + 1) {
             let (left, right) = if current_index % 2 == 0 {
                 (current_level_hash, ZEROES[i])
             } else {
