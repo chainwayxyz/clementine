@@ -1,4 +1,4 @@
-use crypto_bigint::U256;
+use crypto_bigint::{Encoding, U256};
 
 use crate::{
     bitcoin::{
@@ -89,6 +89,68 @@ fn read_header_except_prev_blockhash<E: Environment>() -> HeaderWithoutPrevBlock
     let bits = E::read_u32();
     let nonce = E::read_u32();
     (version, merkle_root, time, bits, nonce)
+}
+
+pub fn header_chain_proof<E: Environment>() -> ([u32; 8], [u8; 32], u32, [u8; 32], [u8; 32]) {
+    let genesis_block_hash = E::read_32bytes();
+    let is_genesis = E::read_u32();
+    let (mut curr_prev_block_hash, method_id, mut total_work) = if is_genesis == 0 {
+        let prev_method_id = E::read_u32x8();
+        let prev_offset = E::read_u32();
+        let prev_block_hash = E::read_32bytes();
+        let prev_total_work = E::read_32bytes();
+
+        assert_eq!(prev_offset, 0);
+
+        let mut journal = [0u32; 105];
+        journal[..8].copy_from_slice(&prev_method_id);
+        for i in 0..32 {
+            journal[i + 8] = genesis_block_hash[i] as u32;
+        }
+        journal[40] = prev_offset;
+        for i in 0..32 {
+            journal[i + 41] = prev_block_hash[i] as u32;
+        }
+        for i in 0..32 {
+            journal[i + 73] = prev_total_work[i] as u32;
+        }
+
+        E::verify(prev_method_id, &journal);
+
+        (
+            prev_block_hash,
+            prev_method_id,
+            U256::from_be_bytes(prev_total_work),
+        )
+    } else {
+        let method_id = E::read_u32x8();
+        (genesis_block_hash, method_id, U256::ZERO)
+    };
+    let return_offset = E::read_u32();
+    let batch_size = E::read_u32();
+
+    let mut to_return_block_hash: [u8; 32] = [0; 32];
+
+    for i in 0..batch_size {
+        let header_without_prev_blockhash = read_header_except_prev_blockhash::<E>();
+        curr_prev_block_hash =
+            calculate_next_block_hash(curr_prev_block_hash, header_without_prev_blockhash);
+        total_work = validate_threshold_and_add_work(
+            header_without_prev_blockhash.3.to_le_bytes(),
+            curr_prev_block_hash,
+            total_work,
+        );
+        if i == batch_size - return_offset - 1 {
+            to_return_block_hash = curr_prev_block_hash;
+        }
+    }
+    (
+        method_id,
+        genesis_block_hash,
+        return_offset,
+        to_return_block_hash,
+        total_work.to_be_bytes(),
+    )
 }
 
 fn read_header_except_root_and_calculate_blockhash<E: Environment>(mt_root: HashType) -> [u8; 32] {

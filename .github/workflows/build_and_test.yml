@@ -8,6 +8,7 @@ env:
   CARGOFLAGS: --workspace --all-targets --all-features
   RUST_LOG: trace
   RISC0_DEV_MODE: 1
+  RISC0_SKIP_BUILD: 1
 
 jobs:
 # Build ------------------------------------------------------------------------
