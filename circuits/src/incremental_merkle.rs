@@ -40,10 +40,10 @@ impl<const DEPTH: usize> IncrementalMerkleTree<DEPTH>
         let mut current_index = self.index;
         let mut current_level_hash = a;
 
-        for i in 0..DEPTH {
+        for (i, item) in ZEROES.iter().enumerate().take(DEPTH) {
             let (left, right) = if current_index % 2 == 0 {
                 self.filled_subtrees[i] = current_level_hash;
-                (current_level_hash, ZEROES[i])
+                (current_level_hash, *item)
             } else {
                 (self.filled_subtrees[i], current_level_hash)
             };

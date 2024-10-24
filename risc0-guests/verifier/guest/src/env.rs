@@ -15,6 +15,26 @@ impl Environment for RealEnvironment {
     fn read_i32() -> i32 {
         env::read()
     }
+
+    fn read_u32x8() -> [u32; 8] {
+        let mut data = [0; 8];
+        for i in 0..8 {
+            data[i] = env::read();
+        }
+        data
+    }
+
+    fn write_u32x8(data: [u32; 8]) {
+        for i in 0..8 {
+            env::write(&data[i]);
+        }
+    }
+
+    fn verify(method_id: [u32; 8], journal: &[u32]) {
+        env::verify(method_id, journal).unwrap();
+    }
+
+
     fn write_32bytes(_data: [u8; 32]) {
         panic!("Not implemented");
     }

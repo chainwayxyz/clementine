@@ -9,6 +9,7 @@
 use crate::{config::BridgeConfig, errors::BridgeError};
 use sqlx::{Pool, Postgres};
 
+mod chain_proof;
 mod common;
 mod wrapper;
 

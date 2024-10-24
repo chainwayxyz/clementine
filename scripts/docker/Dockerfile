@@ -12,7 +12,7 @@ RUN curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --de
 # Compile Clementine
 COPY . .
 WORKDIR /clementine
-RUN /root/.cargo/bin/cargo +1.79.0 build --release --bin server
+RUN RISC0_SKIP_BUILD=1 /root/.cargo/bin/cargo +1.79.0 build --release --bin server
 
 # Set up Clementine
 ENTRYPOINT [ "/target/release/server" ]
