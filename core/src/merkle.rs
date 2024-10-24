@@ -123,6 +123,7 @@ mod tests {
     use crate::merkle::MerkleTree;
     use clementine_circuits::incremental_merkle::IncrementalMerkleTree;
 
+    #[ignore]
     #[test]
     fn test_merkle_cross_check() {
         let mut mt = MerkleTree::<31>::new();

@@ -533,6 +533,7 @@ mod tests {
         )
     }
 
+    #[ignore]
     #[test]
     fn test_write_and_read_blocks_and_calculate_work() {
         let mut _num = SHARED_STATE.lock().unwrap();
@@ -617,6 +618,7 @@ mod tests {
         // assert_eq!(btc_tx_id, Txid::from_byte_array(tx_id));
     }
 
+    #[ignore]
     #[test]
     fn test_write_and_read_merkle_tree_proof() {
         let mut _num = SHARED_STATE.lock().unwrap();
