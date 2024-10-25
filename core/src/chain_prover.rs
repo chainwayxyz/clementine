@@ -28,6 +28,7 @@ enum BlockFetchStatus {
 }
 
 /// Input data for a proof.
+#[derive(Debug, Clone, Copy, PartialEq)]
 pub struct ProofData {
     pub genesis_block_hash: BlockHash,
     pub is_genesis: bool,
@@ -192,8 +193,11 @@ where
     ///
     /// # Returns
     ///
-    /// - [`Vec<u8>`]: Raw proof data.
-    async fn prove_block(&self, proof_data: ProofData) -> Result<Vec<u8>, BridgeError> {
+    /// - TODO
+    async fn prove_block(
+        &self,
+        proof_data: ProofData,
+    ) -> Result<([u32; 8], [u8; 32], u32, [u8; 32], [u8; 32]), BridgeError> {
         let env = ExecutorEnv::builder()
             .write(&proof_data.genesis_block_hash.as_raw_hash().as_byte_array())
             .unwrap()
@@ -215,12 +219,12 @@ where
             .prove(env, verifier_circuit::GUEST_ELF)
             .unwrap()
             .receipt;
-        let output: u32 = receipt.journal.decode().unwrap();
+        let output: ([u32; 8], [u8; 32], u32, [u8; 32], [u8; 32]) =
+            receipt.journal.decode().unwrap();
 
-        println!("Hello, world! I generated a proof of guest execution! {} is a public output from journal ", output);
-        println!("receipt: {:?} ", receipt);
+        tracing::debug!("Decoded journal output: {:?}", output);
 
-        Ok(receipt.journal.bytes)
+        Ok(output)
     }
 
     /// Returns active blockchain tip.
@@ -249,6 +253,7 @@ mod tests {
         extended_rpc::ExtendedRpc,
         mock::database::create_test_config_with_thread_name,
     };
+    use bitcoin::{hashes::Hash, BlockHash, Work};
     use bitcoincore_rpc::RpcApi;
 
     #[tokio::test]
@@ -344,6 +349,28 @@ mod tests {
         let rpc = create_extended_rpc!(config);
         let prover = ChainProver::new(&config, rpc.clone()).await.unwrap();
 
-        prover.prove_block(ProofData::default()).await.unwrap();
+        // Genesis block proving.
+        let proof_data = ProofData::default();
+        let output = prover.prove_block(proof_data).await.unwrap();
+        assert_eq!(output.0, proof_data.prev_method_id);
+        assert_eq!(
+            output.1,
+            proof_data.genesis_block_hash.as_raw_hash().to_byte_array()
+        );
+
+        // Current block proving.
+        let current_tip = prover.get_active_tip().unwrap();
+        let current_block = rpc.client.get_block(&current_tip.hash).unwrap();
+        let prev_block_hash = current_block.header.prev_blockhash;
+        let proof_data = ProofData {
+            genesis_block_hash: BlockHash::all_zeros(),
+            is_genesis: false,
+            prev_method_id: [0; 8],
+            prev_offset: 0,
+            prev_block_hash: prev_block_hash,
+            prev_total_work: Work::from_hex("0x0").unwrap(),
+        };
+        let output = prover.prove_block(proof_data).await.unwrap();
+        assert_eq!(output.0, proof_data.prev_method_id);
     }
 }
