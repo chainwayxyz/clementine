@@ -5,7 +5,7 @@
 use crate::{
     config::BridgeConfig, database::Database, errors::BridgeError, extended_rpc::ExtendedRpc,
 };
-use bitcoin::{block, hashes::Hash, BlockHash};
+use bitcoin::{block, hashes::Hash, BlockHash, Work};
 use bitcoin_mock_rpc::RpcApiWrapper;
 use bitcoincore_rpc::json::{GetChainTipsResultStatus, GetChainTipsResultTip};
 use risc0_zkvm::ExecutorEnv;
@@ -25,6 +25,29 @@ enum BlockFetchStatus {
     OutOfBounds(u64),
     /// Current tip is considered a fork with `height` and `hash`.
     Fork(u64, BlockHash),
+}
+
+/// Input data for a proof.
+pub struct ProofData {
+    pub genesis_block_hash: BlockHash,
+    pub is_genesis: bool,
+    pub prev_method_id: [u32; 8],
+    pub prev_offset: u32,
+    pub prev_block_hash: BlockHash,
+    pub prev_total_work: Work,
+}
+
+impl Default for ProofData {
+    fn default() -> Self {
+        Self {
+            genesis_block_hash: BlockHash::all_zeros(),
+            is_genesis: true,
+            prev_method_id: [0; 8],
+            prev_offset: 0,
+            prev_block_hash: BlockHash::all_zeros(),
+            prev_total_work: Work::from_hex("0x0").unwrap(),
+        }
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -63,7 +86,7 @@ where
             loop {
                 let _status = self.check_for_new_blocks().await;
                 self.sync_blockchain().await.unwrap();
-                self.prove_block().await;
+                let _proof = self.prove_block(ProofData::default()).await.unwrap();
             }
         });
 
@@ -161,53 +184,43 @@ where
         Ok(())
     }
 
-    async fn prove_block(&self) {
-        let genesis_block_hash = BlockHash::all_zeros();
-        let genesis_block_hash = genesis_block_hash.as_raw_hash().as_byte_array();
-
-        let is_genesis = 1u32;
-
-        let prev_method_id = [0u8; 32];
-
-        let prev_offset = 0u32;
-
-        let prev_block_hash = genesis_block_hash;
-
-        let prev_total_work = [0u32; 32];
-
-        // Prepare environment.
+    /// Prove a block.
+    ///
+    /// # Parameters
+    ///
+    /// - proof_data: Target block's information
+    ///
+    /// # Returns
+    ///
+    /// - [`Vec<u8>`]: Raw proof data.
+    async fn prove_block(&self, proof_data: ProofData) -> Result<Vec<u8>, BridgeError> {
         let env = ExecutorEnv::builder()
-            .write(&genesis_block_hash)
+            .write(&proof_data.genesis_block_hash.as_raw_hash().as_byte_array())
             .unwrap()
-            .write(&is_genesis)
+            .write(&proof_data.is_genesis)
             .unwrap()
-            .write(&prev_method_id)
+            .write(&proof_data.prev_method_id)
             .unwrap()
-            .write(&prev_offset)
+            .write(&proof_data.prev_offset)
             .unwrap()
-            .write(&prev_block_hash)
+            .write(&proof_data.prev_block_hash.as_raw_hash().as_byte_array())
             .unwrap()
-            .write(&prev_total_work)
+            .write(&proof_data.prev_total_work.to_be_bytes())
             .unwrap()
             .build()
             .unwrap();
-
-        // Obtain the default prover.
         let prover = risc0_zkvm::default_prover();
 
-        // Produce a receipt by proving the specified ELF binary.
         let receipt = prover
             .prove(env, verifier_circuit::GUEST_ELF)
             .unwrap()
             .receipt;
-
-        // Extract journal of receipt
         let output: u32 = receipt.journal.decode().unwrap();
 
-        // Print, notice, after committing to a journal, the private input became public
         println!("Hello, world! I generated a proof of guest execution! {} is a public output from journal ", output);
+        println!("receipt: {:?} ", receipt);
 
-        // todo!()
+        Ok(receipt.journal.bytes)
     }
 
     /// Returns active blockchain tip.
@@ -231,7 +244,7 @@ where
 #[cfg(test)]
 mod tests {
     use crate::{
-        chain_prover::{BlockFetchStatus, ChainProver, DEEPNESS},
+        chain_prover::{BlockFetchStatus, ChainProver, ProofData, DEEPNESS},
         create_extended_rpc,
         extended_rpc::ExtendedRpc,
         mock::database::create_test_config_with_thread_name,
@@ -331,6 +344,6 @@ mod tests {
         let rpc = create_extended_rpc!(config);
         let prover = ChainProver::new(&config, rpc.clone()).await.unwrap();
 
-        prover.prove_block().await;
+        prover.prove_block(ProofData::default()).await.unwrap();
     }
 }
