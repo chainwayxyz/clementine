@@ -1,5 +1,4 @@
 /// TODO: This could be moved to builder crate.
-
 use crate::{errors::BridgeError, merkle::MerkleTree};
 use bitcoin::{
     block::Header, consensus::serialize, Block, MerkleBlock, Transaction, TxMerkleNode, Txid,

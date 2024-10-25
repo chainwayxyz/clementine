@@ -36,6 +36,8 @@ pub struct ProofData {
     pub prev_offset: u32,
     pub prev_block_hash: BlockHash,
     pub prev_total_work: Work,
+    pub return_offset: u32,
+    pub batch_size: u32,
 }
 
 impl Default for ProofData {
@@ -47,6 +49,8 @@ impl Default for ProofData {
             prev_offset: 0,
             prev_block_hash: BlockHash::all_zeros(),
             prev_total_work: Work::from_hex("0x0").unwrap(),
+            return_offset: 0,
+            batch_size: 0,
         }
     }
 }
@@ -198,21 +202,35 @@ where
         &self,
         proof_data: ProofData,
     ) -> Result<([u32; 8], [u8; 32], u32, [u8; 32], [u8; 32]), BridgeError> {
-        let env = ExecutorEnv::builder()
-            .write(&proof_data.genesis_block_hash.as_raw_hash().as_byte_array())
+        let mut env = ExecutorEnv::builder();
+        env.write(&proof_data.genesis_block_hash.as_raw_hash().as_byte_array())
             .unwrap()
             .write(&proof_data.is_genesis)
-            .unwrap()
-            .write(&proof_data.prev_method_id)
-            .unwrap()
-            .write(&proof_data.prev_offset)
-            .unwrap()
-            .write(&proof_data.prev_block_hash.as_raw_hash().as_byte_array())
-            .unwrap()
-            .write(&proof_data.prev_total_work.to_be_bytes())
-            .unwrap()
-            .build()
             .unwrap();
+
+        if proof_data.is_genesis {
+            env.write(&proof_data.prev_method_id)
+                .unwrap()
+                .write(&proof_data.return_offset)
+                .unwrap()
+                .write(&proof_data.batch_size)
+                .unwrap();
+        } else {
+            env.write(&proof_data.prev_method_id)
+                .unwrap()
+                .write(&proof_data.prev_offset)
+                .unwrap()
+                .write(&proof_data.prev_block_hash.as_raw_hash().as_byte_array())
+                .unwrap()
+                .write(&proof_data.prev_total_work.to_be_bytes())
+                .unwrap()
+                .write(&proof_data.return_offset)
+                .unwrap()
+                .write(&proof_data.batch_size)
+                .unwrap();
+        }
+        let env = env.build().unwrap();
+
         let prover = risc0_zkvm::default_prover();
 
         let receipt = prover
@@ -253,7 +271,7 @@ mod tests {
         extended_rpc::ExtendedRpc,
         mock::database::create_test_config_with_thread_name,
     };
-    use bitcoin::{hashes::Hash, BlockHash, Work};
+    use bitcoin::hashes::Hash;
     use bitcoincore_rpc::RpcApi;
 
     #[tokio::test]
@@ -344,31 +362,39 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn prove_block() {
+    async fn prove_block_genesis() {
         let mut config = create_test_config_with_thread_name("test_config.toml", None).await;
         let rpc = create_extended_rpc!(config);
         let prover = ChainProver::new(&config, rpc.clone()).await.unwrap();
 
-        // Genesis block proving.
         let proof_data = ProofData::default();
         let output = prover.prove_block(proof_data).await.unwrap();
+
         assert_eq!(output.0, proof_data.prev_method_id);
         assert_eq!(
             output.1,
             proof_data.genesis_block_hash.as_raw_hash().to_byte_array()
         );
+    }
 
-        // Current block proving.
+    #[tokio::test]
+    async fn prove_block_current() {
+        let mut config = create_test_config_with_thread_name("test_config.toml", None).await;
+        let rpc = create_extended_rpc!(config);
+        let prover = ChainProver::new(&config, rpc.clone()).await.unwrap();
+
         let current_tip = prover.get_active_tip().unwrap();
         let current_block = rpc.client.get_block(&current_tip.hash).unwrap();
         let prev_block_hash = current_block.header.prev_blockhash;
         let proof_data = ProofData {
-            genesis_block_hash: BlockHash::all_zeros(),
+            genesis_block_hash: prev_block_hash,
             is_genesis: false,
             prev_method_id: [0; 8],
             prev_offset: 0,
-            prev_block_hash: prev_block_hash,
-            prev_total_work: Work::from_hex("0x0").unwrap(),
+            prev_block_hash: current_block.block_hash(),
+            prev_total_work: current_block.header.work(),
+            return_offset: 0,
+            batch_size: 0,
         };
         let output = prover.prove_block(proof_data).await.unwrap();
         assert_eq!(output.0, proof_data.prev_method_id);
