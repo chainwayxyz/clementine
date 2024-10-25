@@ -5,9 +5,10 @@
 use crate::{
     config::BridgeConfig, database::Database, errors::BridgeError, extended_rpc::ExtendedRpc,
 };
-use bitcoin::{block, BlockHash};
+use bitcoin::{block, hashes::Hash, BlockHash};
 use bitcoin_mock_rpc::RpcApiWrapper;
 use bitcoincore_rpc::json::{GetChainTipsResultStatus, GetChainTipsResultTip};
+use risc0_zkvm::ExecutorEnv;
 
 // Checks this amount of previous blocks if not synced with blockchain.
 // TODO: Get this from config file.
@@ -161,7 +162,52 @@ where
     }
 
     async fn prove_block(&self) {
-        todo!()
+        let genesis_block_hash = BlockHash::all_zeros();
+        let genesis_block_hash = genesis_block_hash.as_raw_hash().as_byte_array();
+
+        let is_genesis = 1u32;
+
+        let prev_method_id = [0u8; 32];
+
+        let prev_offset = 0u32;
+
+        let prev_block_hash = genesis_block_hash;
+
+        let prev_total_work = [0u32; 32];
+
+        // Prepare environment.
+        let env = ExecutorEnv::builder()
+            .write(&genesis_block_hash)
+            .unwrap()
+            .write(&is_genesis)
+            .unwrap()
+            .write(&prev_method_id)
+            .unwrap()
+            .write(&prev_offset)
+            .unwrap()
+            .write(&prev_block_hash)
+            .unwrap()
+            .write(&prev_total_work)
+            .unwrap()
+            .build()
+            .unwrap();
+
+        // Obtain the default prover.
+        let prover = risc0_zkvm::default_prover();
+
+        // Produce a receipt by proving the specified ELF binary.
+        let receipt = prover
+            .prove(env, verifier_circuit::GUEST_ELF)
+            .unwrap()
+            .receipt;
+
+        // Extract journal of receipt
+        let output: u32 = receipt.journal.decode().unwrap();
+
+        // Print, notice, after committing to a journal, the private input became public
+        println!("Hello, world! I generated a proof of guest execution! {} is a public output from journal ", output);
+
+        // todo!()
     }
 
     /// Returns active blockchain tip.
@@ -277,5 +323,14 @@ mod tests {
             prover.check_for_new_blocks().await.unwrap(),
             BlockFetchStatus::UpToDate
         );
+    }
+
+    #[tokio::test]
+    async fn prove_block() {
+        let mut config = create_test_config_with_thread_name("test_config.toml", None).await;
+        let rpc = create_extended_rpc!(config);
+        let prover = ChainProver::new(&config, rpc.clone()).await.unwrap();
+
+        prover.prove_block().await;
     }
 }
