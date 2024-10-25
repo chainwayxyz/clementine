@@ -91,18 +91,31 @@ fn read_header_except_prev_blockhash<E: Environment>() -> HeaderWithoutPrevBlock
     (version, merkle_root, time, bits, nonce)
 }
 
-/// Runs header chain prover on a Risczero zkVM.
+/// Runs header chain prover on a Risc Zero zkVM.
 ///
 /// TODO check env and returns
 ///
 /// # Environment
 ///
-/// - `[u8; 32]`: Genesis block's hash.
+/// Environment changes depending on the flow of arguments.
+///
+/// - `[u8; 32]`: Genesis block's hash or previous block's hash depending on current block.
 /// - `u32`: 0 to specify current block is not genesis, bigger than 0 to specify it is
+///
+/// If genesis:
+///
+/// - `[u32; 8]`: Method ID
+/// - `u32`: Offset
+/// - `u32`: Batch size
+///
+/// If not genesis:
+///
 /// - `[u32; 8]`: Previous method ID
 /// - `u32`: Previous offset
 /// - `[u8; 32]`: Previous block's hash
 /// - `[u8; 32]`: Previous block's total work
+/// - `u32`: Offset
+/// - `u32`: Batch size
 ///
 /// # Returns
 ///
