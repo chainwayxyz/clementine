@@ -1,3 +1,5 @@
+/// TODO: This could be moved to builder crate.
+
 use crate::{errors::BridgeError, merkle::MerkleTree};
 use bitcoin::{
     block::Header, consensus::serialize, Block, MerkleBlock, Transaction, TxMerkleNode, Txid,
@@ -672,10 +674,10 @@ mod tests {
     //     let btc_tx = parse_hex_to_btc_tx(input).unwrap();
     //     let btc_tx_id = btc_tx.txid();
     //     ENVWriter::<MockEnvironment>::write_tx_to_env(&btc_tx);
-    //     let env = MockEnvironment::output_env();
+    //     let env = MockEnvironment::output_env().build().unwrap();
     //     let prover = default_prover();
     //     let receipt = prover.prove(env, GUEST_ELF).unwrap();
-    //     let tx_id: [u8; 32] = receipt.journal.decode().unwrap();
+    //     let tx_id: [u8; 32] = receipt.receipt.journal.decode().unwrap();
     //     println!("tx_id: {:?}", tx_id);
     //     assert_eq!(btc_tx_id, Txid::from_byte_array(tx_id));
     //     // This code is working
