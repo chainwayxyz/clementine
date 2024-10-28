@@ -8,7 +8,7 @@ use crate::{
 use bitcoin::{block, hashes::Hash, BlockHash, Work};
 use bitcoin_mock_rpc::RpcApiWrapper;
 use bitcoincore_rpc::json::{GetChainTipsResultStatus, GetChainTipsResultTip};
-use risc0_zkvm::ExecutorEnv;
+use risc0_zkvm::{AssumptionReceipt, ExecutorEnv, Receipt};
 
 // Checks this amount of previous blocks if not synced with blockchain.
 // TODO: Get this from config file.
@@ -91,7 +91,10 @@ where
             loop {
                 let _status = self.check_for_new_blocks().await;
                 self.sync_blockchain().await.unwrap();
-                let _proof = self.prove_block(ProofData::default()).await.unwrap();
+                let _proof = self
+                    .prove_block(ProofData::default(), None::<Receipt>)
+                    .await
+                    .unwrap();
             }
         });
 
@@ -197,8 +200,14 @@ where
     async fn prove_block(
         &self,
         proof_data: ProofData,
-    ) -> Result<([u32; 8], [u8; 32], u32, [u8; 32], [u8; 32]), BridgeError> {
+        assumption: Option<impl Into<AssumptionReceipt>>,
+    ) -> Result<(Receipt, ([u32; 8], [u8; 32], u32, [u8; 32], [u8; 32])), BridgeError> {
         let mut env = ExecutorEnv::builder();
+
+        if let Some(assumption) = assumption {
+            env.add_assumption(assumption);
+        }
+
         env.write(&proof_data.genesis_block_hash.as_raw_hash().as_byte_array())
             .unwrap()
             .write(&proof_data.is_genesis)
@@ -225,6 +234,7 @@ where
                 .write(&proof_data.batch_size)
                 .unwrap();
         }
+
         let env = env
             .build()
             .map_err(|e| BridgeError::ProveError(e.to_string()))?;
@@ -240,9 +250,10 @@ where
             .decode()
             .map_err(|e| BridgeError::ProveError(e.to_string()))?;
 
+        tracing::debug!("Receipt: {:?}", receipt);
         tracing::debug!("Decoded journal output: {:?}", output);
 
-        Ok(output)
+        Ok((receipt, output))
     }
 
     /// Returns active blockchain tip.
@@ -271,8 +282,9 @@ mod tests {
         extended_rpc::ExtendedRpc,
         mock::database::create_test_config_with_thread_name,
     };
-    use bitcoin::hashes::Hash;
+    use bitcoin::{hashes::Hash, BlockHash, Work};
     use bitcoincore_rpc::RpcApi;
+    use risc0_zkvm::Receipt;
 
     #[tokio::test]
     async fn new() {
@@ -368,11 +380,46 @@ mod tests {
         let prover = ChainProver::new(&config, rpc.clone()).await.unwrap();
 
         let proof_data = ProofData::default();
-        let output = prover.prove_block(proof_data).await.unwrap();
+        let output = prover
+            .prove_block(proof_data, None::<Receipt>)
+            .await
+            .unwrap();
 
-        assert_eq!(output.0, proof_data.prev_method_id);
+        assert_eq!(output.1 .0, proof_data.prev_method_id);
         assert_eq!(
-            output.1,
+            output.1 .1,
+            proof_data.genesis_block_hash.as_raw_hash().to_byte_array()
+        );
+    }
+
+    #[tokio::test]
+    async fn prove_block_second_block() {
+        let mut config = create_test_config_with_thread_name("test_config.toml", None).await;
+        let rpc = create_extended_rpc!(config);
+        let prover = ChainProver::new(&config, rpc.clone()).await.unwrap();
+
+        // Prove genesis block,
+        let (receipt, values) = prover
+            .prove_block(ProofData::default(), None::<Receipt>)
+            .await
+            .unwrap();
+
+        // Prove second block
+        let proof_data = ProofData {
+            genesis_block_hash: BlockHash::from_raw_hash(Hash::from_slice(&values.1).unwrap()),
+            is_genesis: false,
+            prev_method_id: values.0,
+            prev_offset: values.2,
+            prev_block_hash: BlockHash::from_raw_hash(Hash::from_slice(&values.3).unwrap()),
+            prev_total_work: Work::from_be_bytes(values.4),
+            return_offset: 0,
+            batch_size: 0,
+        };
+        let output = prover.prove_block(proof_data, Some(receipt)).await.unwrap();
+
+        assert_eq!(output.1 .0, proof_data.prev_method_id);
+        assert_eq!(
+            output.1 .1,
             proof_data.genesis_block_hash.as_raw_hash().to_byte_array()
         );
     }
@@ -396,7 +443,10 @@ mod tests {
             return_offset: 0,
             batch_size: 0,
         };
-        let output = prover.prove_block(proof_data).await.unwrap();
-        assert_eq!(output.0, proof_data.prev_method_id);
+        let output = prover
+            .prove_block(proof_data, None::<Receipt>)
+            .await
+            .unwrap();
+        assert_eq!(output.1 .0, proof_data.prev_method_id);
     }
 }
