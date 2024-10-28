@@ -170,20 +170,16 @@ where
     /// as the active branch. If these conditions are not met, this could cause
     /// an infinite loop.
     async fn sync_blockchain(&self) -> Result<(), BridgeError> {
-        let tip = self.get_active_tip()?;
+        let height = self.rpc.client.get_block_count()?;
         let (db_tip_height, _) = self.db.get_latest_block_info(None).await?;
 
-        // Need to add from tip to current, because no way to get a block's
-        // successor.
-        let mut hash = tip.hash;
-        for height in (db_tip_height + 1..tip.height + 1).rev() {
-            let block = self.rpc.client.get_block(&hash)?;
+        for height in (db_tip_height + 1)..(height + 1) {
+            let hash = self.rpc.client.get_block_hash(height)?;
+            let header = self.rpc.client.get_block_header(&hash)?;
 
             self.db
-                .save_new_block(None, hash, block.header, height as u32)
+                .save_new_block(None, hash, header, height as u32)
                 .await?;
-
-            hash = block.header.prev_blockhash;
         }
 
         Ok(())
