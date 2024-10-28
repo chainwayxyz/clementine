@@ -229,16 +229,20 @@ where
                 .write(&proof_data.batch_size)
                 .unwrap();
         }
-        let env = env.build().unwrap();
+        let env = env
+            .build()
+            .map_err(|e| BridgeError::ProveError(e.to_string()))?;
 
         let prover = risc0_zkvm::default_prover();
 
-        let receipt = match prover.prove(env, verifier_circuit::GUEST_ELF) {
-            Ok(proove_info) => proove_info.receipt,
-            Err(e) => return Err(BridgeError::ProveError(e.to_string())),
-        };
-        let output: ([u32; 8], [u8; 32], u32, [u8; 32], [u8; 32]) =
-            receipt.journal.decode().unwrap();
+        let receipt = prover
+            .prove(env, verifier_circuit::GUEST_ELF)
+            .map_err(|e| BridgeError::ProveError(e.to_string()))?
+            .receipt;
+        let output: ([u32; 8], [u8; 32], u32, [u8; 32], [u8; 32]) = receipt
+            .journal
+            .decode()
+            .map_err(|e| BridgeError::ProveError(e.to_string()))?;
 
         tracing::debug!("Decoded journal output: {:?}", output);
 
