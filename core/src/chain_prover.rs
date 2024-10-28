@@ -233,10 +233,10 @@ where
 
         let prover = risc0_zkvm::default_prover();
 
-        let receipt = prover
-            .prove(env, verifier_circuit::GUEST_ELF)
-            .unwrap()
-            .receipt;
+        let receipt = match prover.prove(env, verifier_circuit::GUEST_ELF) {
+            Ok(proove_info) => proove_info.receipt,
+            Err(e) => return Err(BridgeError::ProveError(e.to_string())),
+        };
         let output: ([u32; 8], [u8; 32], u32, [u8; 32], [u8; 32]) =
             receipt.journal.decode().unwrap();
 
