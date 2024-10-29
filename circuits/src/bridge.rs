@@ -101,21 +101,22 @@ fn read_header_except_prev_blockhash<E: Environment>() -> HeaderWithoutPrevBlock
 ///
 /// - `[u8; 32]`: Genesis block's hash or previous block's hash depending on current block.
 /// - `u32`: 0 to specify current block is not genesis, bigger than 0 to specify it is
-///
-/// If genesis:
-///
-/// - `[u32; 8]`: Method ID
+/// - Depends on if genesis or not
+///   - If genesis
+///   - `[u32; 8]`: Method ID
+///   - If not genesis
+///   - `[u32; 8]`: Previous method ID
+///   - `u32`: Previous offset
+///   - `[u8; 32]`: Previous block's hash
+///   - `[u8; 32]`: Previous block's total work
 /// - `u32`: Offset
 /// - `u32`: Batch size
-///
-/// If not genesis:
-///
-/// - `[u32; 8]`: Previous method ID
-/// - `u32`: Previous offset
-/// - `[u8; 32]`: Previous block's hash
-/// - `[u8; 32]`: Previous block's total work
-/// - `u32`: Offset
-/// - `u32`: Batch size
+/// - For 0..batch_size, read block header
+///   - `i32`: Block version
+///   - `[u8; 32]`: Merkle root
+///   - `u32`: Block time
+///   - `u32`: Bits
+///   - `u32`: Nonce
 ///
 /// # Returns
 ///

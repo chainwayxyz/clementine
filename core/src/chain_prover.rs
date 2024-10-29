@@ -5,7 +5,11 @@
 use crate::{
     config::BridgeConfig, database::Database, errors::BridgeError, extended_rpc::ExtendedRpc,
 };
-use bitcoin::{block, hashes::Hash, BlockHash, Work};
+use bitcoin::{
+    block::{self, Header},
+    hashes::Hash,
+    BlockHash, Work,
+};
 use bitcoin_mock_rpc::RpcApiWrapper;
 use bitcoincore_rpc::json::{GetChainTipsResultStatus, GetChainTipsResultTip};
 use risc0_zkvm::{AssumptionReceipt, ExecutorEnv, Receipt};
@@ -28,7 +32,7 @@ enum BlockFetchStatus {
 }
 
 /// Input data for a proof.
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct ProofData {
     pub genesis_block_hash: BlockHash,
     pub is_genesis: bool,
@@ -37,7 +41,7 @@ pub struct ProofData {
     pub prev_block_hash: BlockHash,
     pub prev_total_work: Work,
     pub return_offset: u32,
-    pub batch_size: u32,
+    pub header_batch: Vec<Header>,
 }
 
 impl Default for ProofData {
@@ -50,7 +54,7 @@ impl Default for ProofData {
             prev_block_hash: BlockHash::all_zeros(),
             prev_total_work: Work::from_hex("0x0").unwrap(),
             return_offset: 0,
-            batch_size: 0,
+            header_batch: vec![],
         }
     }
 }
@@ -218,7 +222,7 @@ where
                 .unwrap()
                 .write(&proof_data.return_offset)
                 .unwrap()
-                .write(&proof_data.batch_size)
+                .write(&proof_data.header_batch.len())
                 .unwrap();
         } else {
             env.write(&proof_data.prev_method_id)
@@ -231,7 +235,20 @@ where
                 .unwrap()
                 .write(&proof_data.return_offset)
                 .unwrap()
-                .write(&proof_data.batch_size)
+                .write(&proof_data.header_batch.len())
+                .unwrap();
+        }
+
+        for i in 0..proof_data.header_batch.len() {
+            env.write(&proof_data.header_batch[i].version)
+                .unwrap()
+                .write(&proof_data.header_batch[i].merkle_root.as_raw_hash())
+                .unwrap()
+                .write(&proof_data.header_batch[i].time)
+                .unwrap()
+                .write(&proof_data.header_batch[i].bits)
+                .unwrap()
+                .write(&proof_data.header_batch[i].nonce)
                 .unwrap();
         }
 
@@ -250,7 +267,7 @@ where
             .decode()
             .map_err(|e| BridgeError::ProveError(e.to_string()))?;
 
-        tracing::debug!("Receipt: {:?}", receipt);
+        tracing::debug!("Receipt: {:#?}", receipt);
         tracing::debug!("Decoded journal output: {:?}", output);
 
         Ok((receipt, output))
@@ -381,7 +398,7 @@ mod tests {
 
         let proof_data = ProofData::default();
         let output = prover
-            .prove_block(proof_data, None::<Receipt>)
+            .prove_block(proof_data.clone(), None::<Receipt>)
             .await
             .unwrap();
 
@@ -405,6 +422,8 @@ mod tests {
             .unwrap();
 
         // Prove second block
+        let hash = rpc.client.get_block_hash(1).unwrap();
+        let header = rpc.client.get_block_header(&hash).unwrap();
         let proof_data = ProofData {
             genesis_block_hash: BlockHash::from_raw_hash(Hash::from_slice(&values.1).unwrap()),
             is_genesis: false,
@@ -413,9 +432,12 @@ mod tests {
             prev_block_hash: BlockHash::from_raw_hash(Hash::from_slice(&values.3).unwrap()),
             prev_total_work: Work::from_be_bytes(values.4),
             return_offset: 0,
-            batch_size: 0,
+            header_batch: vec![header],
         };
-        let output = prover.prove_block(proof_data, Some(receipt)).await.unwrap();
+        let output = prover
+            .prove_block(proof_data.clone(), Some(receipt))
+            .await
+            .unwrap();
 
         assert_eq!(output.1 .0, proof_data.prev_method_id);
         assert_eq!(
@@ -441,10 +463,10 @@ mod tests {
             prev_block_hash: current_block.block_hash(),
             prev_total_work: current_block.header.work(),
             return_offset: 0,
-            batch_size: 0,
+            header_batch: vec![],
         };
         let output = prover
-            .prove_block(proof_data, None::<Receipt>)
+            .prove_block(proof_data.clone(), None::<Receipt>)
             .await
             .unwrap();
         assert_eq!(output.1 .0, proof_data.prev_method_id);
