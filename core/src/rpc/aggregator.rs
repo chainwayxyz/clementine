@@ -1,12 +1,7 @@
 use super::clementine::{
     clementine_aggregator_server::ClementineAggregator, DepositParams, Empty, RawSignedMoveTx,
 };
-use crate::{
-    aggregator::Aggregator,
-    musig2::{aggregate_nonces, MuSigPubNonce},
-    rpc::clementine::nonce_gen_response,
-    ByteArray66,
-};
+use crate::{aggregator::Aggregator, rpc::clementine::nonce_gen_response, ByteArray66};
 use futures::future::try_join_all;
 use tonic::{async_trait, Request, Response, Status};
 
@@ -40,7 +35,7 @@ impl ClementineAggregator for Aggregator {
 
         for _ in 0..num_required_nonces {
             // Get the next nonce from each stream
-            let pub_nonces = try_join_all(nonce_streams.iter_mut().map(|s| async {
+            let _pub_nonces = try_join_all(nonce_streams.iter_mut().map(|s| async {
                 let nonce = s.message().await?;
                 let pub_nonce_response = nonce
                     .ok_or(Status::internal("No nonce received"))?
@@ -62,7 +57,7 @@ impl ClementineAggregator for Aggregator {
             // // Aggregate the nonces
             // let agg_nonce = aggregate_nonces(pub_nonces);
 
-            tracing::info!("Aggregated nonce: {:?}", agg_nonce);
+            // tracing::info!("Aggregated nonce: {:?}", agg_nonce);
         }
 
         Ok(Response::new(RawSignedMoveTx { raw_tx: vec![1, 2] }))

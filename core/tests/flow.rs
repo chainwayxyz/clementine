@@ -3,14 +3,11 @@
 //! This tests checks if typical flows works or not.
 
 use bitcoin::{Address, Amount};
-use clementine_core::aggregator;
 use clementine_core::errors::BridgeError;
 use clementine_core::extended_rpc::ExtendedRpc;
-use clementine_core::mock::database::create_test_config_with_thread_name;
 use clementine_core::rpc::clementine::clementine_aggregator_client::ClementineAggregatorClient;
-use clementine_core::rpc::clementine::clementine_verifier_client::ClementineVerifierClient;
-use clementine_core::rpc::clementine::{DepositParams, Empty};
-use clementine_core::servers::{create_verifier_grpc_server, create_verifiers_and_operators_grpc};
+use clementine_core::rpc::clementine::DepositParams;
+use clementine_core::servers::create_verifiers_and_operators_grpc;
 use clementine_core::utils::{initialize_logger, SECP};
 use clementine_core::{create_extended_rpc, traits::rpc::OperatorRpcClient, user::User};
 use common::run_single_deposit;
@@ -132,10 +129,7 @@ async fn grpc_flow() {
 
     println!("x: {:?}", x);
 
-    let mut aggregator_client =
-        ClementineAggregatorClient::connect(x)
-            .await
-            .unwrap();
+    let mut aggregator_client = ClementineAggregatorClient::connect(x).await.unwrap();
 
     aggregator_client
         .new_deposit(DepositParams {

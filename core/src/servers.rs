@@ -23,7 +23,6 @@ use jsonrpsee::{
 };
 use operator::Operator;
 use std::thread;
-use tracing_subscriber::fmt::format;
 use traits::rpc::OperatorRpcServer;
 
 pub type ServerFuture = dyn futures::Future<Output = Result<(), tonic::transport::Error>>;
