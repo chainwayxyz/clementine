@@ -1,7 +1,7 @@
 use crate::{errors::BridgeError, ByteArray32, ByteArray64, ByteArray66};
 use bitcoin::hashes::Hash;
 use bitcoin::TapNodeHash;
-use musig2::{sign_partial, AggNonce, KeyAggContext, SecNonce, SecNonceSpices};
+use musig2::{sign_partial, AggNonce, KeyAggContext, SecNonce};
 use secp256k1::{rand::Rng, PublicKey};
 
 // We can directly use the musig2 crate for this
