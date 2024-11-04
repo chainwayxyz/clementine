@@ -36,6 +36,8 @@ impl ClementineAggregator for Aggregator {
         .await
         .map_err(|e| Status::internal(format!("Failed to generate nonce streams: {:?}", e)))?;
 
+        tracing::debug!("Generated nonce streams");
+
         // Get the first responses from each stream
         let first_responses = try_join_all(nonce_streams.iter_mut().map(|s| async {
             let nonce = s.message().await?;
@@ -56,6 +58,8 @@ impl ClementineAggregator for Aggregator {
             Status::internal(format!("Failed to get first nonce gen responses {:?}", e))
         })?;
 
+        tracing::debug!("Received first responses: {:?}", first_responses);
+
         let num_required_nonces = first_responses[0].num_nonces as usize; // TODO: This should be the same for all verifiers
 
         // Open the streams for deposit_sign for each verifier
@@ -63,22 +67,28 @@ impl ClementineAggregator for Aggregator {
             let mut client = v.clone(); // Clone each client to avoid mutable borrow
                                         // https://github.com/hyperium/tonic/issues/33#issuecomment-538150828
             async move {
-                let (tx, rx) = tokio::sync::mpsc::unbounded_channel();
-                let receiver_stream = tokio_stream::wrappers::UnboundedReceiverStream::new(rx);
-
+                let (tx, rx) = tokio::sync::mpsc::channel(4);
+                let receiver_stream = tokio_stream::wrappers::ReceiverStream::new(rx);
+                // let x = tokio_stream::iter(1..usize::MAX).map(|i| i.to_string());            
                 let stream = client.deposit_sign(receiver_stream).await?;
                 Ok::<_, Box<dyn std::error::Error + Send + Sync>>((stream.into_inner(), tx))
                 // Return the stream
             }
         }))
         .await
-        .map_err(|e| Status::internal(format!("Failed to generate partial sig streams: {:?}", e)))?;
+        .map_err(|e| {
+            Status::internal(format!("Failed to generate partial sig streams: {:?}", e))
+        })?;
+
+        tracing::debug!("Generated partial sig streams");
 
         // Send the first deposit params to each verifier
         let deposit_sign_session = DepositSignSession {
             deposit_params: Some(deposit_params.into_inner()),
             nonce_gen_first_responses: vec![],
         };
+
+        tracing::debug!("Sent deposit sign session");
 
         for (_, tx) in partial_sig_streams.iter_mut() {
             tx.send(clementine::VerifierDepositSignParams {
@@ -88,6 +98,7 @@ impl ClementineAggregator for Aggregator {
                     ),
                 ),
             })
+            .await
             .unwrap();
         }
 
@@ -125,7 +136,7 @@ impl ClementineAggregator for Aggregator {
 
             // Send the aggregated nonce to each verifier
             for (_, tx) in partial_sig_streams.iter_mut() {
-                tx.send(agg_nonce_wrapped.clone()).unwrap();
+                tx.send(agg_nonce_wrapped.clone()).await.unwrap();
             }
 
             // Get the partial signatures from each verifier

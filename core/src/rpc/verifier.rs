@@ -129,18 +129,21 @@ where
         req: Request<Streaming<VerifierDepositSignParams>>,
     ) -> Result<Response<Self::DepositSignStream>, Status> {
         let mut in_stream = req.into_inner();
+
         let (tx, rx) = mpsc::channel(128);
 
-        let first_message = in_stream
-            .message()
-            .await
-            .unwrap()
-            .ok_or(Status::internal("No first message received"))
-            .unwrap();
-
-        println!("\tfirst message: {:?}", first_message);
+        tracing::info!("Received deposit sign request");
 
         tokio::spawn(async move {
+            let first_message = in_stream
+                .message()
+                .await
+                .unwrap()
+                .ok_or(Status::internal("No first message received"))
+                .unwrap();
+
+            tracing::info!("Received first message: {:?}", first_message);
+
             while let Some(result) = in_stream.message().await.unwrap() {
                 let agg_nonce = match result
                     .params
