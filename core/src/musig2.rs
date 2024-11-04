@@ -121,20 +121,11 @@ pub fn aggregate_partial_signatures(
 // see https://medium.com/blockstream/musig-dn-schnorr-multisignatures-with-verifiably-deterministic-nonces-27424b5df9d6#e3b6.
 #[tracing::instrument(skip(rng), ret(level = tracing::Level::TRACE))]
 pub fn nonce_pair(
-    keypair: &secp256k1::Keypair,
+    keypair: &secp256k1::Keypair, // TODO: Remove this field
     rng: &mut impl Rng,
 ) -> (MuSigSecNonce, MuSigPubNonce) {
-    let musig_pubkey: musig2::secp256k1::PublicKey =
-        musig2::secp256k1::PublicKey::from_slice(&keypair.public_key().serialize()).unwrap();
     let rnd = rng.gen::<[u8; 32]>();
-    let spices = SecNonceSpices::new().with_seckey(
-        musig2::secp256k1::SecretKey::from_slice(&keypair.secret_key().secret_bytes()).unwrap(),
-    );
-
-    let sec_nonce = SecNonce::build(rnd)
-        .with_pubkey(musig_pubkey)
-        .with_spices(spices)
-        .build();
+    let sec_nonce = SecNonce::build(rnd).build();
 
     let pub_nonce = ByteArray66(sec_nonce.public_nonce().into());
     let sec_nonce: [u8; 64] = sec_nonce.into();
