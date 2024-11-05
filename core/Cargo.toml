@@ -4,8 +4,6 @@ version = "0.2.0"
 edition = "2021"
 
 [dependencies]
-clementine-circuits = { path = "../circuits" }
-verifier-circuit = { path = "../risc0-guests/verifier" }
 risc0-zkvm = { workspace = true }
 
 bitcoin = { workspace = true, features = ["rand", "bitcoinconsensus"] }

@@ -1,6 +1,6 @@
 [workspace]
 resolver = "2"
-members = ["core", "circuits", "risc0-guests/verifier"]
+members = ["core"]
 
 [workspace.dependencies]
 bitcoin = "0.32.2"

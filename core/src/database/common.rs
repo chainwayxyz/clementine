@@ -595,8 +595,7 @@ mod tests {
     use bitcoin::{
         hashes::Hash, Address, Amount, OutPoint, ScriptBuf, TxOut, Txid, XOnlyPublicKey,
     };
-    use crypto_bigint::rand_core::OsRng;
-    use secp256k1::constants::SCHNORR_SIGNATURE_SIZE;
+    use secp256k1::{constants::SCHNORR_SIGNATURE_SIZE, rand::rngs::OsRng};
     use secp256k1::{schnorr, Secp256k1};
 
     #[tokio::test]

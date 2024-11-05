@@ -259,7 +259,7 @@ where
         let prover = risc0_zkvm::default_prover();
 
         let receipt = prover
-            .prove(env, verifier_circuit::GUEST_ELF)
+            .prove(env, header_chain_circuit::HEADER_CHAIN_GUEST_ELF)
             .map_err(|e| BridgeError::ProveError(e.to_string()))?
             .receipt;
         let output: ([u32; 8], [u8; 32], u32, [u8; 32], [u8; 32]) = receipt
