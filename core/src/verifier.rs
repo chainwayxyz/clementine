@@ -104,17 +104,12 @@ where
 
         let verifiers_pks = db.get_verifier_public_keys(None).await?;
 
-        let nofn = match verifiers_pks {
-            Some(pks) => {
-                if pks.len() == 0 {
-                    None
-                } else {
-                    tracing::debug!("Verifiers public keys found: {:?}", pks);
-                    let nofn = NofN::new(signer.public_key, pks);
-                    Some(nofn)
-                }
-            }
-            None => None,
+        let nofn = if verifiers_pks.len() != 0 {
+            tracing::debug!("Verifiers public keys found: {:?}", verifiers_pks);
+            let nofn = NofN::new(signer.public_key, verifiers_pks);
+            Some(nofn)
+        } else {
+            None
         };
 
         Ok(Verifier {

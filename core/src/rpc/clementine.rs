@@ -49,8 +49,8 @@ pub struct DepositSignSession {
 pub struct OperatorConfig {
     #[prost(uint32, tag = "1")]
     pub operator_id: u32,
-    #[prost(message, optional, tag = "2")]
-    pub initial_time_tx_outpoint: ::core::option::Option<Outpoint>,
+    #[prost(bytes = "vec", tag = "2")]
+    pub collateral_funding_txid: ::prost::alloc::vec::Vec<u8>,
     #[prost(string, tag = "3")]
     pub xonly_pk: ::prost::alloc::string::String,
     #[prost(string, tag = "4")]

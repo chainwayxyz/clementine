@@ -1,10 +1,10 @@
 use super::clementine::{
-    clementine_operator_server::ClementineOperator, DepositSignSession, Empty,
+    self, clementine_operator_server::ClementineOperator, DepositSignSession, Empty,
     NewWithdrawalSigParams, NewWithdrawalSigResponse, OperatorBurnSig, OperatorParams,
     WithdrawalFinalizedParams,
 };
 use crate::{errors::BridgeError, operator::Operator};
-use bitcoin::OutPoint;
+use bitcoin::{hashes::Hash, OutPoint};
 use bitcoin_mock_rpc::RpcApiWrapper;
 use tokio_stream::wrappers::ReceiverStream;
 use tonic::{async_trait, Request, Response, Status};
@@ -22,7 +22,30 @@ where
         &self,
         _request: Request<Empty>,
     ) -> Result<Response<OperatorParams>, Status> {
-        todo!()
+        let time_txs = self.db.get_time_txs(None, self.idx as i32).await?;
+
+        if time_txs.is_empty() || time_txs[0].0 != 0 {
+            return Err(BridgeError::Error("Time txs not found".to_string()).into());
+        }
+
+        let operator_config = clementine::OperatorConfig {
+            operator_id: self.idx as u32,
+            collateral_funding_txid: time_txs[0].1.to_byte_array().to_vec(),
+            xonly_pk: self.signer.xonly_public_key.to_string(),
+            wallet_reimburse_address: self.config.operator_wallet_addresses[self.idx as usize] // TODO: Fix this where the config will only have one address.
+                .clone()
+                .assume_checked()
+                .to_string(),
+        };
+
+        let operator_params = clementine::OperatorParams {
+            operator_details: Some(operator_config),
+            winternitz_pubkeys: vec![],      // TODO: Implement this.
+            assert_empty_public_key: vec![], // TODO: Implement this.
+            timeout_tx_sigs: vec![],         // TODO: Implement this.
+        };
+
+        Ok(Response::new(operator_params))
     }
 
     #[tracing::instrument(skip(self), err(level = tracing::Level::ERROR), ret(level = tracing::Level::TRACE))]

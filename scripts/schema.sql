@@ -1,11 +1,26 @@
 BEGIN;
 
 -- Table to store the public keys of the verifiers
-CREATE TABLE IF NOT EXISTS verifier_public_keys (
-    idx INTEGER PRIMARY KEY,
-    public_key TEXT NOT NULL
+create table if not exists verifier_public_keys (
+    idx int primary key,
+    public_key text not null
 );
 
+
+create table if not exists operators (
+    idx int primary key,
+    xonly_pk text not null,
+    wallet_reimburse_address text not null
+);
+
+-- Time tx's of operators, Only Operator binaries can add entries to this table
+create table if not exists operator_time_txs (
+    operator_idx int, -- Index of the operator
+    idx int not null, -- Index of the time tx. 0 meaning initial funding tx where the 0th output will be used
+    time_txid text not null check (time_txid ~ '^[a-fA-F0-9]{64}'), -- Txid
+    block_height int not null, -- Block height of the time tx
+    primary key (operator_idx, idx)
+);
 
 -- Verifier table for deposit details
 /* This table holds the information related to a deposit. */
