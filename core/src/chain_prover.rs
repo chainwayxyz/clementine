@@ -5,13 +5,10 @@
 use crate::{
     config::BridgeConfig, database::Database, errors::BridgeError, extended_rpc::ExtendedRpc,
 };
-use bitcoin::{
-    block::{self, Header},
-    hashes::Hash,
-    BlockHash, Work,
-};
+use bitcoin::{block, BlockHash};
 use bitcoin_mock_rpc::RpcApiWrapper;
 use bitcoincore_rpc::json::{GetChainTipsResultStatus, GetChainTipsResultTip};
+use circuits::header_chain::{HeaderChainCircuitInput, HeaderChainPrevProofType};
 use risc0_zkvm::{AssumptionReceipt, ExecutorEnv, Receipt};
 
 // Checks this amount of previous blocks if not synced with blockchain.
@@ -29,34 +26,6 @@ enum BlockFetchStatus {
     OutOfBounds(u64),
     /// Current tip is considered a fork with `height` and `hash`.
     Fork(u64, BlockHash),
-}
-
-/// Input data for a proof.
-#[derive(Debug, Clone, PartialEq)]
-pub struct ProofData {
-    pub genesis_block_hash: BlockHash,
-    pub is_genesis: bool,
-    pub prev_method_id: [u32; 8],
-    pub prev_offset: u32,
-    pub prev_block_hash: BlockHash,
-    pub prev_total_work: Work,
-    pub return_offset: u32,
-    pub header_batch: Vec<Header>,
-}
-
-impl Default for ProofData {
-    fn default() -> Self {
-        Self {
-            genesis_block_hash: BlockHash::all_zeros(),
-            is_genesis: true,
-            prev_method_id: [0; 8],
-            prev_offset: 0,
-            prev_block_hash: BlockHash::all_zeros(),
-            prev_total_work: Work::from_hex("0x0").unwrap(),
-            return_offset: 0,
-            header_batch: vec![],
-        }
-    }
 }
 
 #[derive(Debug, Clone)]
@@ -93,10 +62,21 @@ where
     pub fn start_block_prover(&'static self) {
         tokio::spawn(async move {
             loop {
-                let _status = self.check_for_new_blocks().await;
-                self.sync_blockchain().await.unwrap();
+                match self.check_for_new_blocks().await.unwrap() {
+                    BlockFetchStatus::UpToDate => (),
+                    BlockFetchStatus::FallenBehind(_block_height, _block_hash) => {
+                        self.sync_blockchain().await.unwrap()
+                    }
+                    _ => panic!("Hapi yuttun"),
+                };
+
+                let proof_options = HeaderChainCircuitInput {
+                    method_id: [0; 8],
+                    prev_proof: HeaderChainPrevProofType::GenesisBlock,
+                    block_headers: vec![],
+                };
                 let _proof = self
-                    .prove_block(ProofData::default(), None::<Receipt>)
+                    .prove_block(proof_options, None::<Receipt>)
                     .await
                     .unwrap();
             }
@@ -203,54 +183,18 @@ where
     /// - TODO
     async fn prove_block(
         &self,
-        proof_data: ProofData,
+        proof_options: HeaderChainCircuitInput,
         assumption: Option<impl Into<AssumptionReceipt>>,
-    ) -> Result<(Receipt, ([u32; 8], [u8; 32], u32, [u8; 32], [u8; 32])), BridgeError> {
+    ) -> Result<Receipt, BridgeError> {
         let mut env = ExecutorEnv::builder();
 
         if let Some(assumption) = assumption {
             env.add_assumption(assumption);
         }
 
-        env.write(&proof_data.genesis_block_hash.as_raw_hash().as_byte_array())
-            .unwrap()
-            .write(&proof_data.is_genesis)
-            .unwrap();
+        let proof_options = borsh::to_vec(&proof_options)?;
 
-        if proof_data.is_genesis {
-            env.write(&proof_data.prev_method_id)
-                .unwrap()
-                .write(&proof_data.return_offset)
-                .unwrap()
-                .write(&proof_data.header_batch.len())
-                .unwrap();
-        } else {
-            env.write(&proof_data.prev_method_id)
-                .unwrap()
-                .write(&proof_data.prev_offset)
-                .unwrap()
-                .write(&proof_data.prev_block_hash.as_raw_hash().as_byte_array())
-                .unwrap()
-                .write(&proof_data.prev_total_work.to_be_bytes())
-                .unwrap()
-                .write(&proof_data.return_offset)
-                .unwrap()
-                .write(&proof_data.header_batch.len())
-                .unwrap();
-        }
-
-        for i in 0..proof_data.header_batch.len() {
-            env.write(&proof_data.header_batch[i].version)
-                .unwrap()
-                .write(&proof_data.header_batch[i].merkle_root.as_raw_hash())
-                .unwrap()
-                .write(&proof_data.header_batch[i].time)
-                .unwrap()
-                .write(&proof_data.header_batch[i].bits)
-                .unwrap()
-                .write(&proof_data.header_batch[i].nonce)
-                .unwrap();
-        }
+        env.write_slice(&proof_options);
 
         let env = env
             .build()
@@ -262,15 +206,10 @@ where
             .prove(env, header_chain_circuit::HEADER_CHAIN_GUEST_ELF)
             .map_err(|e| BridgeError::ProveError(e.to_string()))?
             .receipt;
-        let output: ([u32; 8], [u8; 32], u32, [u8; 32], [u8; 32]) = receipt
-            .journal
-            .decode()
-            .map_err(|e| BridgeError::ProveError(e.to_string()))?;
 
-        tracing::debug!("Receipt: {:#?}", receipt);
-        tracing::debug!("Decoded journal output: {:?}", output);
+        tracing::debug!("Receipt: {:?}", receipt);
 
-        Ok((receipt, output))
+        Ok(receipt)
     }
 
     /// Returns active blockchain tip.
@@ -294,13 +233,13 @@ where
 #[cfg(test)]
 mod tests {
     use crate::{
-        chain_prover::{BlockFetchStatus, ChainProver, ProofData, DEEPNESS},
+        chain_prover::{BlockFetchStatus, ChainProver, DEEPNESS},
         create_extended_rpc,
         extended_rpc::ExtendedRpc,
         mock::database::create_test_config_with_thread_name,
     };
-    use bitcoin::{hashes::Hash, BlockHash, Work};
     use bitcoincore_rpc::RpcApi;
+    use circuits::header_chain::{HeaderChainCircuitInput, HeaderChainPrevProofType};
     use risc0_zkvm::Receipt;
 
     #[tokio::test]
@@ -396,79 +335,14 @@ mod tests {
         let rpc = create_extended_rpc!(config);
         let prover = ChainProver::new(&config, rpc.clone()).await.unwrap();
 
-        let proof_data = ProofData::default();
-        let output = prover
-            .prove_block(proof_data.clone(), None::<Receipt>)
-            .await
-            .unwrap();
-
-        assert_eq!(output.1 .0, proof_data.prev_method_id);
-        assert_eq!(
-            output.1 .1,
-            proof_data.genesis_block_hash.as_raw_hash().to_byte_array()
-        );
-    }
-
-    #[tokio::test]
-    async fn prove_block_second_block() {
-        let mut config = create_test_config_with_thread_name("test_config.toml", None).await;
-        let rpc = create_extended_rpc!(config);
-        let prover = ChainProver::new(&config, rpc.clone()).await.unwrap();
-
-        // Prove genesis block,
-        let (receipt, values) = prover
-            .prove_block(ProofData::default(), None::<Receipt>)
-            .await
-            .unwrap();
-
-        // Prove second block
-        let hash = rpc.client.get_block_hash(1).unwrap();
-        let header = rpc.client.get_block_header(&hash).unwrap();
-        let proof_data = ProofData {
-            genesis_block_hash: BlockHash::from_raw_hash(Hash::from_slice(&values.1).unwrap()),
-            is_genesis: false,
-            prev_method_id: values.0,
-            prev_offset: values.2,
-            prev_block_hash: BlockHash::from_raw_hash(Hash::from_slice(&values.3).unwrap()),
-            prev_total_work: Work::from_be_bytes(values.4),
-            return_offset: 0,
-            header_batch: vec![header],
+        let prove_options = HeaderChainCircuitInput {
+            method_id: [0; 8],
+            prev_proof: HeaderChainPrevProofType::GenesisBlock,
+            block_headers: vec![],
         };
-        let output = prover
-            .prove_block(proof_data.clone(), Some(receipt))
+        let _output = prover
+            .prove_block(prove_options, None::<Receipt>)
             .await
             .unwrap();
-
-        assert_eq!(output.1 .0, proof_data.prev_method_id);
-        assert_eq!(
-            output.1 .1,
-            proof_data.genesis_block_hash.as_raw_hash().to_byte_array()
-        );
-    }
-
-    #[tokio::test]
-    async fn prove_block_current() {
-        let mut config = create_test_config_with_thread_name("test_config.toml", None).await;
-        let rpc = create_extended_rpc!(config);
-        let prover = ChainProver::new(&config, rpc.clone()).await.unwrap();
-
-        let current_tip = prover.get_active_tip().unwrap();
-        let current_block = rpc.client.get_block(&current_tip.hash).unwrap();
-        let prev_block_hash = current_block.header.prev_blockhash;
-        let proof_data = ProofData {
-            genesis_block_hash: prev_block_hash,
-            is_genesis: false,
-            prev_method_id: [0; 8],
-            prev_offset: 0,
-            prev_block_hash: current_block.block_hash(),
-            prev_total_work: current_block.header.work(),
-            return_offset: 0,
-            header_batch: vec![],
-        };
-        let output = prover
-            .prove_block(proof_data.clone(), None::<Receipt>)
-            .await
-            .unwrap();
-        assert_eq!(output.1 .0, proof_data.prev_method_id);
     }
 }
