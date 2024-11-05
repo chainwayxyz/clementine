@@ -5,7 +5,7 @@
 use crate::{
     config::BridgeConfig, database::Database, errors::BridgeError, extended_rpc::ExtendedRpc,
 };
-use bitcoin::{block, BlockHash};
+use bitcoin::{block, hashes::Hash, BlockHash};
 use bitcoin_mock_rpc::RpcApiWrapper;
 use bitcoincore_rpc::json::{GetChainTipsResultStatus, GetChainTipsResultTip};
 use circuits::header_chain::{HeaderChainCircuitInput, HeaderChainPrevProofType};
@@ -75,10 +75,13 @@ where
                     prev_proof: HeaderChainPrevProofType::GenesisBlock,
                     block_headers: vec![],
                 };
-                let _proof = self
+                let proof = self
                     .prove_block(proof_options, None::<Receipt>)
                     .await
                     .unwrap();
+
+                // TODO: Use real block hash.
+                self.db.save_block_proof(None, BlockHash::all_zeros(), proof).await.unwrap();
             }
         });
 

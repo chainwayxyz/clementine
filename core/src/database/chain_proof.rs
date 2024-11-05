@@ -6,6 +6,7 @@ use crate::{
     errors::BridgeError,
 };
 use bitcoin::{block, hashes::Hash, BlockHash};
+use risc0_zkvm::Receipt;
 use sqlx::Postgres;
 
 impl Database {
@@ -31,18 +32,18 @@ impl Database {
         Ok(())
     }
 
-    /// Sets a block's proof by referring it to by it's hash.
-    ///
-    /// TODO: Change proof type.
+    /// Sets a block's proof by referring to it by it's hash.
     #[tracing::instrument(skip(self), err(level = tracing::Level::ERROR), ret(level = tracing::Level::TRACE))]
     pub async fn save_block_proof(
         &self,
         tx: Option<&mut sqlx::Transaction<'_, Postgres>>,
         hash: block::BlockHash,
-        proof: u32,
+        proof: Receipt,
     ) -> Result<(), BridgeError> {
+        let proof = borsh::to_vec(&proof)?;
+
         let query = sqlx::query("UPDATE header_chain_proofs SET proof = $1 WHERE block_hash = $2;")
-            .bind(proof as i64)
+            .bind(proof)
             .bind(BlockHashDB(hash));
 
         match tx {
@@ -50,7 +51,28 @@ impl Database {
             None => query.execute(&self.connection).await,
         }?;
 
-        // Ok(())
+        Ok(())
+    }
+
+    /// Sets a block's proof by referring to it by it's hash.
+    #[tracing::instrument(skip(self), err(level = tracing::Level::ERROR), ret(level = tracing::Level::TRACE))]
+    pub async fn get_block_proof(
+        &self,
+        tx: Option<&mut sqlx::Transaction<'_, Postgres>>,
+        hash: block::BlockHash,
+    ) -> Result<Receipt, BridgeError> {
+        // let query = sqlx::query_as(
+        //     "SELECT proof FROM header_chain_proofs WHERE block_hash = $1;",
+        // )
+        // .bind(BlockHashDB(hash));
+
+        // let receipt: Vec<u8> = match tx {
+        //     Some(tx) => query.fetch_one(&mut **tx).await,
+        //     None => query.fetch_one(&self.connection).await,
+        // }?;
+
+        // Ok(receipt)
+
         todo!()
     }
 
