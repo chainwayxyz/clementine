@@ -30,11 +30,13 @@ where
     type DepositSignStream = ReceiverStream<Result<PartialSig, Status>>;
 
     #[tracing::instrument(skip(self), err(level = tracing::Level::ERROR), ret(level = tracing::Level::TRACE))]
+    #[allow(clippy::blocks_in_conditions)]
     async fn get_params(&self, _: Request<Empty>) -> Result<Response<VerifierParams>, Status> {
         todo!()
     }
 
     #[tracing::instrument(skip(self), err(level = tracing::Level::ERROR), ret(level = tracing::Level::TRACE))]
+    #[allow(clippy::blocks_in_conditions)]
     async fn set_verifiers(
         &self,
         _request: Request<VerifierPublicKeys>,
@@ -43,6 +45,7 @@ where
     }
 
     #[tracing::instrument(skip(self), err(level = tracing::Level::ERROR), ret(level = tracing::Level::TRACE))]
+    #[allow(clippy::blocks_in_conditions)]
     async fn set_operator(
         &self,
         _request: Request<OperatorParams>,
@@ -51,6 +54,7 @@ where
     }
 
     #[tracing::instrument(skip(self), err(level = tracing::Level::ERROR), ret(level = tracing::Level::TRACE))]
+    #[allow(clippy::blocks_in_conditions)]
     async fn set_watchtower(
         &self,
         _request: Request<WatchtowerParams>,
@@ -59,6 +63,7 @@ where
     }
 
     #[tracing::instrument(skip(self), err(level = tracing::Level::ERROR), ret(level = tracing::Level::TRACE))]
+    #[allow(clippy::blocks_in_conditions)]
     async fn nonce_gen(
         &self,
         _request: Request<Empty>,
@@ -85,7 +90,7 @@ where
             let all_sessions = &mut *self.nonces.lock().await;
             let session_id = all_sessions.cur_id;
             all_sessions.sessions.insert(session_id, session);
-            all_sessions.cur_id = all_sessions.cur_id + 1;
+            all_sessions.cur_id += 1;
             session_id
         };
 
@@ -138,7 +143,7 @@ where
         tracing::info!("Received deposit sign request");
 
         let verifier_idx = self.idx;
-        let nofn_xonly_pk = self.nofn_xonly_pk.clone();
+        let nofn_xonly_pk = self.nofn_xonly_pk;
         let sessions = Arc::clone(&self.nonces);
         let signer = self.signer.clone();
         let verifiers_public_keys = self.config.verifiers_public_keys.clone();
@@ -241,7 +246,7 @@ where
                     verifiers_public_keys.clone(),
                     None,
                     false,
-                    session.nonces[nonce_idx].clone(),
+                    session.nonces[nonce_idx],
                     agg_nonce,
                     &signer.keypair,
                     move_tx_sighash,
@@ -268,12 +273,13 @@ where
     }
 
     #[tracing::instrument(skip(self), err(level = tracing::Level::ERROR), ret(level = tracing::Level::TRACE))]
+    #[allow(clippy::blocks_in_conditions)]
     async fn deposit_finalize(
         &self,
         req: Request<Streaming<VerifierDepositFinalizeParams>>,
     ) -> Result<Response<PartialSig>, Status> {
         let verifier_idx = self.idx;
-        let nofn_xonly_pk = self.nofn_xonly_pk.clone();
+        let nofn_xonly_pk = self.nofn_xonly_pk;
 
         let mut in_stream = req.into_inner();
 
@@ -289,7 +295,7 @@ where
             .params
             .ok_or(Status::internal("No deposit outpoint received"))
             .unwrap();
-        let (deposit_outpoint, evm_address, recovery_taproot_address, user_takes_after, session_id) =
+        let (deposit_outpoint, evm_address, recovery_taproot_address, user_takes_after, _session_id) =
             match params {
                 clementine::verifier_deposit_finalize_params::Params::DepositSignFirstParam(
                     deposit_sign_first_param,

@@ -122,10 +122,7 @@ async fn withdrawal_fee_too_low() {
 #[tokio::test]
 async fn grpc_flow() {
     initialize_logger(5).unwrap();
-    let (verifiers, aggregator) = create_verifiers_and_operators_grpc("test_config.toml").await;
-    println!("verifiers: {:?}", verifiers);
-    println!("aggregator: {:?}", aggregator);
-    println!("{}", format!("http://{}", aggregator.0));
+    let (_verifiers, aggregator) = create_verifiers_and_operators_grpc("test_config.toml").await;
 
     let x: Uri = format!("http://{}", aggregator.0).parse().unwrap();
 

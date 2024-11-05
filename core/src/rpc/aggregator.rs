@@ -6,17 +6,18 @@ use crate::{
     aggregator::Aggregator,
     builder,
     musig2::aggregate_nonces,
-    rpc::clementine::{self, nonce_gen_response, DepositSignSession, NonceGenResponse},
+    rpc::clementine::{self, nonce_gen_response, DepositSignSession},
     ByteArray32, ByteArray66, EVMAddress,
 };
 use bitcoin::hashes::Hash;
 use bitcoin::Amount;
 use futures::{future::try_join_all, FutureExt};
-use tonic::{async_trait, Request, Response, Status, Streaming};
+use tonic::{async_trait, Request, Response, Status};
 
 #[async_trait]
 impl ClementineAggregator for Aggregator {
     #[tracing::instrument(skip(self), err(level = tracing::Level::ERROR), ret(level = tracing::Level::TRACE))]
+    #[allow(clippy::blocks_in_conditions)]
     async fn setup(&self, _request: Request<Empty>) -> Result<Response<Empty>, Status> {
         todo!()
     }
@@ -44,7 +45,7 @@ impl ClementineAggregator for Aggregator {
             .parse::<bitcoin::Address<_>>()
             .unwrap();
         let user_takes_after = deposit_params.clone().user_takes_after;
-        let nofn_xonly_pk = self.nofn_xonly_pk.clone();
+        let nofn_xonly_pk = self.nofn_xonly_pk;
         let verifiers_public_keys = self.config.verifiers_public_keys.clone();
 
         tracing::debug!("Parsed deposit params");

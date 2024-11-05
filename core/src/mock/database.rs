@@ -20,7 +20,7 @@ pub async fn create_test_config(db_name: &str, config_file: &str) -> BridgeConfi
     initialize_logger(5).unwrap();
 
     let mut config = common::get_test_config(config_file).unwrap();
-    config.db_name = db_name.to_owned();
+    config.db_name = db_name.to_string();
     Database::initialize_database(&config).await.unwrap();
 
     config

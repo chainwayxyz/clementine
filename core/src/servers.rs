@@ -324,7 +324,7 @@ pub async fn create_verifiers_and_operators_grpc(
                 let verifier = create_verifier_grpc_server(
                     BridgeConfig {
                         secret_key: *sk,
-                        port: port,
+                        port,
                         ..config_with_new_db.clone()
                     },
                     rpc,
@@ -342,7 +342,7 @@ pub async fn create_verifiers_and_operators_grpc(
         .unwrap();
     let verifier_endpoints = verifier_results
         .iter()
-        .map(|(v, _)| v.clone())
+        .map(|(v, _)| *v)
         .collect::<Vec<_>>();
 
     let config = create_test_config_with_thread_name(config_name, None).await;
@@ -350,7 +350,7 @@ pub async fn create_verifiers_and_operators_grpc(
     let port = start_port + all_verifiers_secret_keys.len() as u16 + 1;
     // + all_operators_secret_keys.len() as u16;
     let aggregator = create_aggregator_grpc_server(BridgeConfig {
-        port: port,
+        port,
         verifier_endpoints: Some(
             verifier_endpoints
                 .iter()
