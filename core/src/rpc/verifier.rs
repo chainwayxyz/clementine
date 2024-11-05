@@ -39,7 +39,7 @@ where
             id: self.idx as u32,
             public_key,
             num_verifiers: self.config.num_verifiers as u32,
-            num_watchtowers: self.config.num_verifiers as u32, // TODO: Add num_watchtowers to config
+            num_watchtowers: self.config.num_watchtowers as u32,
             num_operators: self.config.num_operators as u32,
             num_time_txs: 10, // TODO: Add num_time_txs to config
         };

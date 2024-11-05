@@ -37,6 +37,8 @@ pub struct BridgeConfig {
     pub operator_wallet_addresses: Vec<bitcoin::Address<NetworkUnchecked>>,
     /// Number of operators.
     pub num_operators: usize,
+    /// Number of watchtowers.
+    pub num_watchtowers: usize,
     /// Operator's fee for withdrawal, in satoshis.
     pub operator_withdrawal_fee_sats: Option<Amount>,
     /// Number of blocks after which user can take deposit back if deposit request fails.
@@ -126,6 +128,7 @@ impl Default for BridgeConfig {
             operators_xonly_pks: vec![],
             operator_wallet_addresses: vec![],
             num_operators: 3,
+            num_watchtowers: 4,
             operator_withdrawal_fee_sats: None,
             user_takes_after: 5,
             operator_takes_after: 5,
