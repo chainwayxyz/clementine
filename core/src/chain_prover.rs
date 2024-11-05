@@ -81,7 +81,10 @@ where
                     .unwrap();
 
                 // TODO: Use real block hash.
-                self.db.save_block_proof(None, BlockHash::all_zeros(), proof).await.unwrap();
+                self.db
+                    .save_block_proof(None, BlockHash::all_zeros(), proof)
+                    .await
+                    .unwrap();
             }
         });
 
@@ -179,11 +182,11 @@ where
     ///
     /// # Parameters
     ///
-    /// - proof_data: Target block's information
+    /// - proof_options: Target block's information
     ///
     /// # Returns
     ///
-    /// - TODO
+    /// - [`Receipt`]: Proved block's proof receipt.
     async fn prove_block(
         &self,
         proof_options: HeaderChainCircuitInput,
@@ -241,8 +244,11 @@ mod tests {
         extended_rpc::ExtendedRpc,
         mock::database::create_test_config_with_thread_name,
     };
+    use bitcoin::{hashes::Hash, BlockHash};
     use bitcoincore_rpc::RpcApi;
-    use circuits::header_chain::{HeaderChainCircuitInput, HeaderChainPrevProofType};
+    use circuits::header_chain::{
+        BlockHeaderCircuitOutput, HeaderChainCircuitInput, HeaderChainPrevProofType,
+    };
     use risc0_zkvm::Receipt;
 
     #[tokio::test]
@@ -338,14 +344,25 @@ mod tests {
         let rpc = create_extended_rpc!(config);
         let prover = ChainProver::new(&config, rpc.clone()).await.unwrap();
 
+        let method_id = [0x45; 8];
         let prove_options = HeaderChainCircuitInput {
-            method_id: [0; 8],
+            method_id,
             prev_proof: HeaderChainPrevProofType::GenesisBlock,
             block_headers: vec![],
         };
-        let _output = prover
+        let receipt = prover
             .prove_block(prove_options, None::<Receipt>)
             .await
             .unwrap();
+
+        let output: BlockHeaderCircuitOutput = borsh::from_slice(&receipt.journal.bytes).unwrap();
+        println!("Proof journal output: {:?}", output);
+
+        assert_eq!(output.method_id, method_id);
+        assert_eq!(output.chain_state.block_height, u32::MAX); // risc0-to-bitvm2 related
+        assert_eq!(
+            output.chain_state.best_block_hash,
+            BlockHash::all_zeros().as_raw_hash().to_byte_array()
+        );
     }
 }
