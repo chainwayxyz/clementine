@@ -175,7 +175,7 @@ message VerifierDepositFinalizeParams {
 }
 
 message VerifierPublicKeys {
-  repeated string verifier_public_keys = 1;
+  repeated bytes verifier_public_keys = 1;
 }
 
 service ClementineVerifier {

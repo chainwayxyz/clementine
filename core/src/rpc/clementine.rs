@@ -194,8 +194,8 @@ pub mod verifier_deposit_finalize_params {
 }
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct VerifierPublicKeys {
-    #[prost(string, repeated, tag = "1")]
-    pub verifier_public_keys: ::prost::alloc::vec::Vec<::prost::alloc::string::String>,
+    #[prost(bytes = "vec", repeated, tag = "1")]
+    pub verifier_public_keys: ::prost::alloc::vec::Vec<::prost::alloc::vec::Vec<u8>>,
 }
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct WatchtowerParams {

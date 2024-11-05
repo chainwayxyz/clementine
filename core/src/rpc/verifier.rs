@@ -10,7 +10,7 @@ use crate::{
     builder,
     musig2::{self, MuSigPubNonce, MuSigSecNonce},
     sha256_hash, utils,
-    verifier::{NonceSession, Verifier},
+    verifier::{NofN, NonceSession, Verifier},
     ByteArray32, ByteArray66, EVMAddress,
 };
 use bitcoin::{hashes::Hash, Amount, TapSighash};
@@ -32,16 +32,50 @@ where
     #[tracing::instrument(skip(self), err(level = tracing::Level::ERROR), ret(level = tracing::Level::TRACE))]
     #[allow(clippy::blocks_in_conditions)]
     async fn get_params(&self, _: Request<Empty>) -> Result<Response<VerifierParams>, Status> {
-        todo!()
+        let public_key = self.signer.public_key.serialize().to_vec();
+
+        let params = VerifierParams {
+            id: self.idx as u32,
+            public_key,
+            num_verifiers: self.config.num_verifiers as u32,
+            num_watchtowers: self.config.num_verifiers as u32, // TODO: Add num_watchtowers to config
+            num_operators: self.config.num_operators as u32,
+            num_time_txs: 10, // TODO: Add num_time_txs to config
+        };
+
+        Ok(Response::new(params))
     }
 
     #[tracing::instrument(skip(self), err(level = tracing::Level::ERROR), ret(level = tracing::Level::TRACE))]
     #[allow(clippy::blocks_in_conditions)]
     async fn set_verifiers(
         &self,
-        _request: Request<VerifierPublicKeys>,
+        req: Request<VerifierPublicKeys>,
     ) -> Result<Response<Empty>, Status> {
-        todo!()
+        // Check if verifiers are already set
+        if self.nofn.read().await.clone().is_some() {
+            return Err(Status::internal("Verifiers already set"));
+        }
+
+        // Extract the public keys from the request
+        let verifiers_public_keys: Vec<secp256k1::PublicKey> = req
+            .into_inner()
+            .verifier_public_keys
+            .iter()
+            .map(|pk| secp256k1::PublicKey::from_slice(pk).unwrap())
+            .collect();
+
+        let nofn = NofN::new(self.signer.public_key, verifiers_public_keys.clone());
+
+        // Save verifiers public keys to db
+        self.db
+            .save_verifier_public_keys(None, &verifiers_public_keys)
+            .await?;
+
+        // Save the nofn to memory for fast access
+        self.nofn.write().await.replace(nofn);
+
+        Ok(Response::new(Empty {}))
     }
 
     #[tracing::instrument(skip(self), err(level = tracing::Level::ERROR), ret(level = tracing::Level::TRACE))]

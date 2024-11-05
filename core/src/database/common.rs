@@ -4,7 +4,9 @@
 //! directly talks with PostgreSQL. It is expected that PostgreSQL is properly
 //! installed and configured.
 
-use super::wrapper::{AddressDB, EVMAddressDB, OutPointDB, SignatureDB, TxOutDB, TxidDB, Utxodb};
+use super::wrapper::{
+    AddressDB, EVMAddressDB, OutPointDB, PublicKeyDB, SignatureDB, TxOutDB, TxidDB, Utxodb,
+};
 use super::Database;
 use crate::errors::BridgeError;
 use crate::musig2::{MuSigAggNonce, MuSigPubNonce, MuSigSecNonce, MuSigSigHash};
@@ -15,6 +17,49 @@ use secp256k1::schnorr;
 use sqlx::{Postgres, QueryBuilder};
 
 impl Database {
+    /// Verifier: save the generated sec nonce and pub nonces
+    #[tracing::instrument(skip(self), err(level = tracing::Level::ERROR), ret(level = tracing::Level::TRACE))]
+    pub async fn save_verifier_public_keys(
+        &self,
+        tx: Option<&mut sqlx::Transaction<'_, Postgres>>,
+        public_keys: &[secp256k1::PublicKey],
+    ) -> Result<(), BridgeError> {
+        let mut query = QueryBuilder::new("INSERT INTO verifier_public_keys (idx, public_key) ");
+        query.push_values(public_keys.iter().enumerate(), |mut builder, (idx, pk)| {
+            builder
+                .push_bind(idx as i32) // Bind the index
+                .push_bind(PublicKeyDB(*pk)); // Bind public key
+        });
+        let query = query.build();
+
+        // Now you can use the `query` variable in the match statement
+        match tx {
+            Some(tx) => query.execute(&mut **tx).await?,
+            None => query.execute(&self.connection).await?,
+        };
+
+        Ok(())
+    }
+
+    #[tracing::instrument(skip(self), err(level = tracing::Level::ERROR), ret(level = tracing::Level::TRACE))]
+    pub async fn get_verifier_public_keys(
+        &self,
+        tx: Option<&mut sqlx::Transaction<'_, Postgres>>,
+    ) -> Result<Option<Vec<secp256k1::PublicKey>>, BridgeError> {
+        let query = sqlx::query_as("SELECT * FROM verifier_public_keys ORDER BY idx;");
+
+        let result: Result<Vec<(i32, PublicKeyDB)>, sqlx::Error> = match tx {
+            Some(tx) => query.fetch_all(&mut **tx).await,
+            None => query.fetch_all(&self.connection).await,
+        };
+
+        match result {
+            Ok(pks) => Ok(Some(pks.into_iter().map(|(_, pk)| pk.0).collect())),
+            Err(sqlx::Error::RowNotFound) => Ok(None),
+            Err(e) => Err(BridgeError::DatabaseError(e)),
+        }
+    }
+
     #[tracing::instrument(skip(self), err(level = tracing::Level::ERROR), ret(level = tracing::Level::TRACE))]
     pub async fn lock_operators_kickoff_utxo_table(
         &self,

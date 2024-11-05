@@ -19,7 +19,40 @@ impl ClementineAggregator for Aggregator {
     #[tracing::instrument(skip(self), err(level = tracing::Level::ERROR), ret(level = tracing::Level::TRACE))]
     #[allow(clippy::blocks_in_conditions)]
     async fn setup(&self, _request: Request<Empty>) -> Result<Response<Empty>, Status> {
-        todo!()
+        let verifier_params = try_join_all(self.verifier_clients.iter().map(|client| {
+            let mut client = client.clone();
+            async move {
+                let response = client.get_params(Request::new(Empty {})).await?;
+                Ok::<_, Status>(response.into_inner())
+            }
+        }))
+        .await?;
+
+        let verifier_public_keys: Vec<Vec<u8>> = verifier_params
+            .iter()
+            .map(|p| {
+                let pk = p.public_key.clone();
+                pk
+            })
+            .collect();
+
+        try_join_all(self.verifier_clients.iter().map(|client| {
+            let mut client = client.clone();
+            {
+                let verifier_public_keys = clementine::VerifierPublicKeys {
+                    verifier_public_keys: verifier_public_keys.clone(),
+                };
+                async move {
+                    let response = client
+                        .set_verifiers(Request::new(verifier_public_keys))
+                        .await?;
+                    Ok::<_, Status>(response.into_inner())
+                }
+            }
+        }))
+        .await?;
+
+        Ok(Response::new(Empty {}))
     }
 
     // #[tracing::instrument(skip(self), err(level = tracing::Level::ERROR), ret(level = tracing::Level::TRACE))]

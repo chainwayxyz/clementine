@@ -1,5 +1,12 @@
 BEGIN;
 
+-- Table to store the public keys of the verifiers
+CREATE TABLE IF NOT EXISTS verifier_public_keys (
+    idx INTEGER PRIMARY KEY,
+    public_key TEXT NOT NULL
+);
+
+
 -- Verifier table for deposit details
 /* This table holds the information related to a deposit. */
 create table if not exists deposit_infos (
