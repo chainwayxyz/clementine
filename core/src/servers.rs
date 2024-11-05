@@ -411,7 +411,7 @@ pub async fn create_verifiers_and_operators_grpc(
         .await
         .unwrap();
 
-    let config = create_test_config_with_thread_name(config_name, None).await;
+    // let config = create_test_config_with_thread_name(config_name, None).await;
     println!("Port: {}", start_port);
     let port = start_port
         + all_verifiers_secret_keys.len() as u16
@@ -432,7 +432,7 @@ pub async fn create_verifiers_and_operators_grpc(
                 .map(|(socket_addr,)| format!("http://{}", socket_addr))
                 .collect(),
         ),
-        ..config
+        ..verifier_configs[0].clone()
     })
     .await
     .unwrap();

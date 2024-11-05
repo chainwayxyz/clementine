@@ -6,16 +6,16 @@ use super::clementine::{
     VerifierDepositSignParams, VerifierParams, VerifierPublicKeys, WatchtowerParams,
 };
 use crate::{
-    actor::Actor,
-    builder,
+    builder::sighash::create_sighash_stream,
     errors::BridgeError,
     musig2::{self, MuSigPubNonce, MuSigSecNonce},
     sha256_hash, utils,
     verifier::{NofN, NonceSession, Verifier},
     ByteArray32, ByteArray66, EVMAddress,
 };
-use bitcoin::{hashes::Hash, Amount, TapSighash};
+use bitcoin::{hashes::Hash, TapSighash};
 use bitcoin_mock_rpc::RpcApiWrapper;
+use futures::{pin_mut, StreamExt};
 use tokio::sync::mpsc;
 use tokio_stream::wrappers::ReceiverStream;
 use tonic::{async_trait, Request, Response, Status, Streaming};
@@ -194,6 +194,7 @@ where
         let sessions = Arc::clone(&self.nonces);
         let signer = self.signer.clone();
         let verifiers_public_keys = self.config.verifiers_public_keys.clone();
+        let db_clone = self.db.clone();
 
         tokio::spawn(async move {
             let first_message = in_stream
@@ -256,6 +257,16 @@ where
                 .unwrap();
             let mut nonce_idx: usize = 0;
 
+            let sighash_stream = create_sighash_stream(
+                db_clone,
+                deposit_outpoint,
+                evm_address,
+                recovery_taproot_address,
+                user_takes_after,
+                nofn_xonly_pk,
+            );
+            pin_mut!(sighash_stream); // needed for iteration
+
             while let Some(result) = in_stream.message().await.unwrap() {
                 let agg_nonce = match result
                     .params
@@ -268,26 +279,8 @@ where
                     _ => panic!("Expected AggNonce"),
                 };
 
-                let mut dummy_move_tx_handler = builder::transaction::create_move_tx_handler(
-                    deposit_outpoint,
-                    evm_address,
-                    &recovery_taproot_address,
-                    nofn_xonly_pk,
-                    bitcoin::Network::Regtest,
-                    user_takes_after as u32,
-                    Amount::from_sat(nonce_idx as u64 + 1000000),
-                );
-
-                let move_tx_sighash = ByteArray32(
-                    Actor::convert_tx_to_sighash_script_spend(&mut dummy_move_tx_handler, 0, 0)
-                        .unwrap()
-                        .to_byte_array(),
-                );
-                tracing::debug!(
-                    "Verifier {} found sighash: {:?}",
-                    verifier_idx,
-                    move_tx_sighash
-                );
+                let sighash = sighash_stream.next().await.unwrap();
+                tracing::debug!("Verifier {} found sighash: {:?}", verifier_idx, sighash);
 
                 let move_tx_sig = musig2::partial_sign(
                     verifiers_public_keys.clone(),
@@ -296,7 +289,7 @@ where
                     session.nonces[nonce_idx],
                     agg_nonce,
                     &signer.keypair,
-                    move_tx_sighash,
+                    ByteArray32(sighash.to_byte_array()),
                 );
 
                 let partial_sig = PartialSig {
@@ -382,24 +375,19 @@ where
             _ => panic!("Expected DepositOutpoint"),
         };
 
+        let sighash_stream = create_sighash_stream(
+            self.db.clone(),
+            deposit_outpoint,
+            evm_address,
+            recovery_taproot_address,
+            user_takes_after,
+            nofn_xonly_pk,
+        );
+        pin_mut!(sighash_stream); // needed for iteration
+
         let mut nonce_idx: usize = 0;
         while let Some(result) = in_stream.message().await.unwrap() {
-            let mut dummy_move_tx_handler = builder::transaction::create_move_tx_handler(
-                deposit_outpoint,
-                evm_address,
-                &recovery_taproot_address,
-                nofn_xonly_pk,
-                bitcoin::Network::Regtest,
-                user_takes_after as u32,
-                Amount::from_sat(nonce_idx as u64 + 1000000),
-            );
-
-            let move_tx_sighash = ByteArray32(
-                Actor::convert_tx_to_sighash_script_spend(&mut dummy_move_tx_handler, 0, 0)
-                    .unwrap()
-                    .to_byte_array(),
-            );
-
+            let sighash = sighash_stream.next().await.unwrap();
             let final_sig = result
                 .params
                 .ok_or(Status::internal("No final sig received"))
@@ -415,7 +403,7 @@ where
             utils::SECP
                 .verify_schnorr(
                     &final_sig,
-                    &secp256k1::Message::from_digest(move_tx_sighash.0),
+                    &secp256k1::Message::from(sighash),
                     &nofn_xonly_pk,
                 )
                 .unwrap();

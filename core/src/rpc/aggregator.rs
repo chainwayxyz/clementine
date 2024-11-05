@@ -2,16 +2,14 @@ use super::clementine::{
     clementine_aggregator_server::ClementineAggregator, DepositParams, Empty, RawSignedMoveTx,
 };
 use crate::{
-    actor::Actor,
     aggregator::Aggregator,
-    builder,
+    builder::sighash::create_sighash_stream,
     musig2::aggregate_nonces,
     rpc::clementine::{self, nonce_gen_response, DepositSignSession},
     ByteArray32, ByteArray66, EVMAddress,
 };
 use bitcoin::hashes::Hash;
-use bitcoin::Amount;
-use futures::{future::try_join_all, FutureExt};
+use futures::{future::try_join_all, pin_mut, FutureExt, StreamExt};
 use tonic::{async_trait, Request, Response, Status};
 
 #[async_trait]
@@ -32,10 +30,7 @@ impl ClementineAggregator for Aggregator {
 
         let verifier_public_keys: Vec<Vec<u8>> = verifier_params
             .iter()
-            .map(|p| {
-                let pk = p.public_key.clone();
-                pk
-            })
+            .map(|p| p.public_key.clone())
             .collect();
 
         // Set the verifiers to all verifiers
@@ -225,7 +220,17 @@ impl ClementineAggregator for Aggregator {
             tx.send(deposit_finalize_first_param.clone()).await.unwrap();
         }
 
-        for nonce_idx in 0..num_required_nonces {
+        let sighash_stream = create_sighash_stream(
+            self.db.clone(),
+            deposit_outpoint,
+            evm_address,
+            recovery_taproot_address,
+            user_takes_after,
+            nofn_xonly_pk,
+        );
+        pin_mut!(sighash_stream); // needed for iteration
+
+        for _ in 0..num_required_nonces {
             // Get the next nonce from each stream
             let pub_nonces = try_join_all(nonce_streams.iter_mut().map(|s| async {
                 let nonce = s.message().await?;
@@ -275,23 +280,9 @@ impl ClementineAggregator for Aggregator {
 
             println!("Partial sigs: {:?}", partial_sigs);
 
-            let mut dummy_move_tx_handler = builder::transaction::create_move_tx_handler(
-                deposit_outpoint,
-                evm_address,
-                &recovery_taproot_address,
-                nofn_xonly_pk,
-                bitcoin::Network::Regtest,
-                user_takes_after as u32,
-                Amount::from_sat(nonce_idx as u64 + 1000000),
-            );
+            let sighash = sighash_stream.next().await.unwrap();
 
-            let move_tx_sighash = ByteArray32(
-                Actor::convert_tx_to_sighash_script_spend(&mut dummy_move_tx_handler, 0, 0)
-                    .unwrap()
-                    .to_byte_array(),
-            );
-
-            tracing::debug!("Aggregator found sighash: {:?}", move_tx_sighash);
+            tracing::debug!("Aggregator found sighash: {:?}", sighash);
 
             let final_sig = crate::musig2::aggregate_partial_signatures(
                 verifiers_public_keys.clone(),
@@ -299,7 +290,7 @@ impl ClementineAggregator for Aggregator {
                 false,
                 &agg_nonce,
                 partial_sigs,
-                move_tx_sighash,
+                ByteArray32(sighash.to_byte_array()),
             )
             .unwrap();
 

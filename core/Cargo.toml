@@ -35,6 +35,9 @@ musig2 = { workspace = true }
 tonic = { workspace = true}
 prost = { workspace = true }
 tokio-stream = {workspace = true }
+async-stream = "0.3.6"
+futures-util = "0.3.31"
+futures-core = "0.3.31"
 
 [features]
 default = []
