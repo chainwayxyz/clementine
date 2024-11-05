@@ -30,6 +30,7 @@ toml = { workspace = true }
 sqlx = { workspace = true, features = ["runtime-tokio", "postgres", "macros"] }
 bitcoin-mock-rpc = { workspace = true }
 musig2 = { workspace = true }
+header-chain-circuit = { workspace = true }
 
 [features]
 default = []
