@@ -35,7 +35,7 @@ pub struct Aggregator {
 }
 
 impl Aggregator {
-    #[tracing::instrument(err(level = tracing::Level::ERROR), ret(level = tracing::Level::TRACE))]
+    // #[tracing::instrument(err(level = tracing::Level::ERROR), ret(level = tracing::Level::TRACE))]
     pub async fn new(config: BridgeConfig) -> Result<Self, BridgeError> {
         let nofn_xonly_pk = secp256k1::XOnlyPublicKey::from_musig2_pks(
             config.verifiers_public_keys.clone(),

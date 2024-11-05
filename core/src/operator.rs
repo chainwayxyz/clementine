@@ -43,7 +43,7 @@ where
     R: RpcApiWrapper,
 {
     /// Creates a new `Operator`.
-    #[tracing::instrument(skip_all, err(level = tracing::Level::ERROR))]
+    // #[tracing::instrument(skip_all, err(level = tracing::Level::ERROR))]
     pub async fn new(config: BridgeConfig, rpc: ExtendedRpc<R>) -> Result<Self, BridgeError> {
         // let num_verifiers = config.verifiers_public_keys.len();
 
