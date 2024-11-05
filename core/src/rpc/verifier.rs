@@ -258,7 +258,9 @@ where
                     break;
                 }
             }
-            println!("\tstream ended");
+            // drop nonces
+            let mut binding = sessions.lock().await;
+            binding.sessions.remove(&session_id);
         });
 
         let out_stream: Self::DepositSignStream = ReceiverStream::new(rx);
