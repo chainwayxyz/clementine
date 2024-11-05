@@ -59,15 +59,12 @@ where
 
         // let pk: secp256k1::PublicKey = config.secret_key.public_key(&utils::SECP);
 
-
         // TODO: In the future, we won't get verifiers public keys from config files, rather in set_verifiers rpc call.
         let idx = config
-        .verifiers_public_keys
-        .iter()
-        .position(|pk| pk == &signer.public_key)
-        .ok_or(BridgeError::PublicKeyNotFound)?;
-
-
+            .verifiers_public_keys
+            .iter()
+            .position(|pk| pk == &signer.public_key)
+            .ok_or(BridgeError::PublicKeyNotFound)?;
 
         let db = Database::new(&config).await?;
 

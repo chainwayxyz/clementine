@@ -146,7 +146,8 @@ async fn grpc_flow() {
                 .into(),
             ),
             evm_address: [1u8; 20].to_vec(),
-            recovery_taproot_address: "tb1pk8vus63mx5zwlmmmglq554kwu0zm9uhswqskxg99k66h8m3arguqfrvywa".to_string(),
+            recovery_taproot_address:
+                "tb1pk8vus63mx5zwlmmmglq554kwu0zm9uhswqskxg99k66h8m3arguqfrvywa".to_string(),
             user_takes_after: 5,
         })
         .await

@@ -131,29 +131,30 @@ impl ClementineAggregator for Aggregator {
 
         let mut deposit_finalize_clients = self.verifier_clients.clone();
         // Open the streams for deposit_finalize
-        let deposit_finalize_streams =
-            try_join_all(deposit_finalize_clients.iter_mut().map(|v| {
-                async move {
-                    let (tx, rx) = tokio::sync::mpsc::channel(128);
-                    let receiver_stream = tokio_stream::wrappers::ReceiverStream::new(rx);
+        let deposit_finalize_streams = try_join_all(deposit_finalize_clients.iter_mut().map(|v| {
+            async move {
+                let (tx, rx) = tokio::sync::mpsc::channel(128);
+                let receiver_stream = tokio_stream::wrappers::ReceiverStream::new(rx);
 
-                    // Move `client` into this async block and use it directly
-                    let deposit_finalize_futures = v.deposit_finalize(receiver_stream).boxed();
+                // Move `client` into this async block and use it directly
+                let deposit_finalize_futures = v.deposit_finalize(receiver_stream).boxed();
 
-                    Ok::<_, Status>((deposit_finalize_futures, tx))
-                }
-            }))
-            .await
-            .map_err(|e| {
-                Status::internal(format!("Failed to generate partial sig streams: {:?}", e))
-            })?;
+                Ok::<_, Status>((deposit_finalize_futures, tx))
+            }
+        }))
+        .await
+        .map_err(|e| {
+            Status::internal(format!("Failed to generate partial sig streams: {:?}", e))
+        })?;
         let (mut deposit_finalize_futures, deposit_finalize_sender): (Vec<_>, Vec<_>) =
             deposit_finalize_streams.into_iter().unzip();
 
         let deposit_finalize_first_param = clementine::VerifierDepositFinalizeParams {
-            params: Some(clementine::verifier_deposit_finalize_params::Params::DepositSignFirstParam(
-                deposit_sign_session.clone(),
-            )),
+            params: Some(
+                clementine::verifier_deposit_finalize_params::Params::DepositSignFirstParam(
+                    deposit_sign_session.clone(),
+                ),
+            ),
         };
 
         for tx in deposit_finalize_sender.iter() {
