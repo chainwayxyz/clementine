@@ -295,40 +295,45 @@ where
             .params
             .ok_or(Status::internal("No deposit outpoint received"))
             .unwrap();
-        let (deposit_outpoint, evm_address, recovery_taproot_address, user_takes_after, _session_id) =
-            match params {
-                clementine::verifier_deposit_finalize_params::Params::DepositSignFirstParam(
-                    deposit_sign_first_param,
-                ) => {
-                    let deposit_params = deposit_sign_first_param
-                        .deposit_params
-                        .ok_or(Status::internal("No deposit outpoint received"))
-                        .unwrap();
-                    let deposit_outpoint: bitcoin::OutPoint = deposit_params
-                        .deposit_outpoint
-                        .ok_or(Status::internal("No deposit outpoint received"))
-                        .unwrap()
-                        .try_into()
-                        .unwrap();
-                    let evm_address: EVMAddress = deposit_params.evm_address.try_into().unwrap();
-                    let recovery_taproot_address = deposit_params
-                        .recovery_taproot_address
-                        .parse::<bitcoin::Address<_>>()
-                        .unwrap();
-                    let user_takes_after = deposit_params.user_takes_after;
+        let (
+            deposit_outpoint,
+            evm_address,
+            recovery_taproot_address,
+            user_takes_after,
+            _session_id,
+        ) = match params {
+            clementine::verifier_deposit_finalize_params::Params::DepositSignFirstParam(
+                deposit_sign_first_param,
+            ) => {
+                let deposit_params = deposit_sign_first_param
+                    .deposit_params
+                    .ok_or(Status::internal("No deposit outpoint received"))
+                    .unwrap();
+                let deposit_outpoint: bitcoin::OutPoint = deposit_params
+                    .deposit_outpoint
+                    .ok_or(Status::internal("No deposit outpoint received"))
+                    .unwrap()
+                    .try_into()
+                    .unwrap();
+                let evm_address: EVMAddress = deposit_params.evm_address.try_into().unwrap();
+                let recovery_taproot_address = deposit_params
+                    .recovery_taproot_address
+                    .parse::<bitcoin::Address<_>>()
+                    .unwrap();
+                let user_takes_after = deposit_params.user_takes_after;
 
-                    let session_id =
-                        deposit_sign_first_param.nonce_gen_first_responses[verifier_idx].id;
-                    (
-                        deposit_outpoint,
-                        evm_address,
-                        recovery_taproot_address,
-                        user_takes_after,
-                        session_id,
-                    )
-                }
-                _ => panic!("Expected DepositOutpoint"),
-            };
+                let session_id =
+                    deposit_sign_first_param.nonce_gen_first_responses[verifier_idx].id;
+                (
+                    deposit_outpoint,
+                    evm_address,
+                    recovery_taproot_address,
+                    user_takes_after,
+                    session_id,
+                )
+            }
+            _ => panic!("Expected DepositOutpoint"),
+        };
 
         let mut nonce_idx: usize = 0;
         while let Some(result) = in_stream.message().await.unwrap() {

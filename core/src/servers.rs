@@ -340,10 +340,7 @@ pub async fn create_verifiers_and_operators_grpc(
     let verifier_results = futures::future::try_join_all(verifier_futures)
         .await
         .unwrap();
-    let verifier_endpoints = verifier_results
-        .iter()
-        .map(|(v, _)| *v)
-        .collect::<Vec<_>>();
+    let verifier_endpoints = verifier_results.iter().map(|(v, _)| *v).collect::<Vec<_>>();
 
     let config = create_test_config_with_thread_name(config_name, None).await;
     println!("Port: {}", start_port);
