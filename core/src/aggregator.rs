@@ -29,8 +29,8 @@ use tonic::transport::Uri;
 /// For now, we do not have the last bit.
 #[derive(Debug, Clone)]
 pub struct Aggregator {
-    config: BridgeConfig,
-    nofn_xonly_pk: secp256k1::XOnlyPublicKey,
+    pub(crate) config: BridgeConfig,
+    pub(crate) nofn_xonly_pk: secp256k1::XOnlyPublicKey,
     pub(crate) verifier_clients: Vec<ClementineVerifierClient<tonic::transport::Channel>>,
 }
 

@@ -2,11 +2,15 @@ use super::clementine::{
     clementine_aggregator_server::ClementineAggregator, DepositParams, Empty, RawSignedMoveTx,
 };
 use crate::{
+    actor::Actor,
     aggregator::Aggregator,
+    builder,
     musig2::aggregate_nonces,
     rpc::clementine::{self, nonce_gen_response, DepositSignSession, NonceGenResponse},
-    ByteArray66,
+    ByteArray32, ByteArray66, EVMAddress,
 };
+use bitcoin::hashes::Hash;
+use bitcoin::Amount;
 use futures::future::try_join_all;
 use tonic::{async_trait, Request, Response, Status, Streaming};
 
@@ -20,9 +24,32 @@ impl ClementineAggregator for Aggregator {
     #[tracing::instrument(skip(self), err(level = tracing::Level::ERROR), ret(level = tracing::Level::TRACE))]
     async fn new_deposit(
         &self,
-        deposit_params: Request<DepositParams>,
+        deposit_params_req: Request<DepositParams>,
     ) -> Result<Response<RawSignedMoveTx>, Status> {
-        // Generate nonces from all verifiers.
+        tracing::info!("Recieved new deposit request: {:?}", deposit_params_req);
+
+        let deposit_params = deposit_params_req.into_inner();
+
+        let deposit_outpoint: bitcoin::OutPoint = deposit_params
+            .clone()
+            .deposit_outpoint
+            .ok_or(Status::internal("No deposit outpoint received"))
+            .unwrap()
+            .try_into()
+            .unwrap();
+        let evm_address: EVMAddress = deposit_params.clone().evm_address.try_into().unwrap();
+        let recovery_taproot_address = deposit_params
+            .clone()
+            .recovery_taproot_address
+            .parse::<bitcoin::Address<_>>()
+            .unwrap();
+        let user_takes_after = deposit_params.clone().user_takes_after;
+        let nofn_xonly_pk = self.nofn_xonly_pk.clone();
+        let verifiers_public_keys = self.config.verifiers_public_keys.clone();
+
+        tracing::debug!("Parsed deposit params");
+
+        // generate nonces from all verifiers
         let mut nonce_streams = try_join_all(self.verifier_clients.iter().map(|client| {
             // Clone each client to avoid mutable borrow.
             // https://github.com/hyperium/tonic/issues/33#issuecomment-538150828
@@ -35,7 +62,8 @@ impl ClementineAggregator for Aggregator {
             }
         }))
         .await?;
-        tracing::debug!("Nonces are generated.");
+
+        tracing::debug!("Generated nonce streams");
 
         // Get the first responses from each stream
         let first_responses = try_join_all(nonce_streams.iter_mut().map(|s| async {
@@ -83,8 +111,8 @@ impl ClementineAggregator for Aggregator {
 
         // Send the first deposit params to each verifier
         let deposit_sign_session = DepositSignSession {
-            deposit_params: Some(deposit_params.into_inner()),
-            nonce_gen_first_responses: vec![],
+            deposit_params: Some(deposit_params),
+            nonce_gen_first_responses: first_responses,
         };
 
         tracing::debug!("Sent deposit sign session");
@@ -101,7 +129,7 @@ impl ClementineAggregator for Aggregator {
             .unwrap();
         }
 
-        for _ in 0..num_required_nonces {
+        for nonce_idx in 0..num_required_nonces {
             // Get the next nonce from each stream
             let pub_nonces = try_join_all(nonce_streams.iter_mut().map(|s| async {
                 let nonce = s.message().await?;
@@ -142,12 +170,42 @@ impl ClementineAggregator for Aggregator {
             let partial_sigs = try_join_all(partial_sig_streams.iter_mut().map(|(s, _)| async {
                 let partial_sig = s.message().await?;
                 let partial_sig = partial_sig.ok_or(Status::internal("No partial sig received"))?;
-                Ok::<_, Box<dyn std::error::Error + Send + Sync>>(partial_sig)
+                Ok::<_, Box<dyn std::error::Error + Send + Sync>>(ByteArray32(
+                    partial_sig.partial_sig.try_into().unwrap(),
+                ))
             }))
             .await
             .map_err(|e| Status::internal(format!("Failed to get partial sig: {:?}", e)))?;
 
             println!("Partial sigs: {:?}", partial_sigs);
+
+            let mut dummy_move_tx_handler = builder::transaction::create_move_tx_handler(
+                deposit_outpoint,
+                evm_address,
+                &recovery_taproot_address,
+                nofn_xonly_pk,
+                bitcoin::Network::Regtest,
+                user_takes_after as u32,
+                Amount::from_sat(nonce_idx as u64 + 1000000),
+            );
+
+            let move_tx_sighash = ByteArray32(
+                Actor::convert_tx_to_sighash_script_spend(&mut dummy_move_tx_handler, 0, 0)
+                    .unwrap()
+                    .to_byte_array(),
+            );
+
+            let final_sig = crate::musig2::aggregate_partial_signatures(
+                verifiers_public_keys.clone(),
+                None,
+                true,
+                &agg_nonce,
+                partial_sigs,
+                move_tx_sighash,
+            )
+            .unwrap();
+
+            tracing::debug!("Final signature: {:?}", final_sig);
         }
 
         Ok(Response::new(RawSignedMoveTx { raw_tx: vec![1, 2] }))

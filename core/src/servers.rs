@@ -295,7 +295,7 @@ pub async fn create_aggregator_grpc_server(
 /// # Panics
 ///
 /// Panics if there was an error while creating any of the servers.
-#[tracing::instrument(ret(level = tracing::Level::TRACE))]
+// #[tracing::instrument(ret(level = tracing::Level::TRACE))]
 #[allow(clippy::type_complexity)] // Enabling tracing::instrument causes this.
 pub async fn create_verifiers_and_operators_grpc(
     config_name: &str,

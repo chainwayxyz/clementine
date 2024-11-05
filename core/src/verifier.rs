@@ -43,10 +43,11 @@ where
     rpc: ExtendedRpc<R>,
     pub(crate) signer: Actor,
     db: Database,
-    config: BridgeConfig,
-    nofn_xonly_pk: secp256k1::XOnlyPublicKey,
+    pub(crate) config: BridgeConfig,
+    pub(crate) nofn_xonly_pk: secp256k1::XOnlyPublicKey,
     operator_xonly_pks: Vec<secp256k1::XOnlyPublicKey>,
     pub(crate) nonces: Arc<tokio::sync::Mutex<AllSessions>>,
+    pub idx: usize,
 }
 
 impl<R> Verifier<R>
@@ -56,12 +57,17 @@ where
     pub async fn new(rpc: ExtendedRpc<R>, config: BridgeConfig) -> Result<Self, BridgeError> {
         let signer = Actor::new(config.secret_key, config.network);
 
-        let pk: secp256k1::PublicKey = config.secret_key.public_key(&utils::SECP);
+        // let pk: secp256k1::PublicKey = config.secret_key.public_key(&utils::SECP);
 
-        // Generated public key must be in given public key list.
-        if !config.verifiers_public_keys.contains(&pk) {
-            return Err(BridgeError::PublicKeyNotFound);
-        }
+
+        // TODO: In the future, we won't get verifiers public keys from config files, rather in set_verifiers rpc call.
+        let idx = config
+        .verifiers_public_keys
+        .iter()
+        .position(|pk| pk == &signer.public_key)
+        .ok_or(BridgeError::PublicKeyNotFound)?;
+
+
 
         let db = Database::new(&config).await?;
 
@@ -86,6 +92,7 @@ where
             nofn_xonly_pk,
             operator_xonly_pks,
             nonces: Arc::new(tokio::sync::Mutex::new(all_sessions)),
+            idx,
         })
     }
 

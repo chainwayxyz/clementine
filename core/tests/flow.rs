@@ -2,7 +2,9 @@
 //!
 //! This tests checks if typical flows works or not.
 
-use bitcoin::{Address, Amount};
+use std::str::FromStr;
+
+use bitcoin::{Address, Amount, Txid};
 use clementine_core::errors::BridgeError;
 use clementine_core::extended_rpc::ExtendedRpc;
 use clementine_core::rpc::clementine::clementine_aggregator_client::ClementineAggregatorClient;
@@ -133,9 +135,18 @@ async fn grpc_flow() {
 
     aggregator_client
         .new_deposit(DepositParams {
-            deposit_outpoint: None,
-            evm_address: vec![],
-            recovery_taproot_address: "".to_string(),
+            deposit_outpoint: Some(
+                bitcoin::OutPoint {
+                    txid: Txid::from_str(
+                        "17e3fc7aae1035e77a91e96d1ba27f91a40a912cf669b367eb32c13a8f82bb02",
+                    )
+                    .unwrap(),
+                    vout: 0,
+                }
+                .into(),
+            ),
+            evm_address: [1u8; 20].to_vec(),
+            recovery_taproot_address: "tb1pk8vus63mx5zwlmmmglq554kwu0zm9uhswqskxg99k66h8m3arguqfrvywa".to_string(),
             user_takes_after: 5,
         })
         .await
