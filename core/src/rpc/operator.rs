@@ -17,6 +17,7 @@ where
     type DepositSignStream = ReceiverStream<Result<OperatorBurnSig, Status>>;
 
     #[tracing::instrument(skip(self), err(level = tracing::Level::ERROR), ret(level = tracing::Level::TRACE))]
+    #[allow(clippy::blocks_in_conditions)]
     async fn get_params(
         &self,
         _request: Request<Empty>,
@@ -25,6 +26,7 @@ where
     }
 
     #[tracing::instrument(skip(self), err(level = tracing::Level::ERROR), ret(level = tracing::Level::TRACE))]
+    #[allow(clippy::blocks_in_conditions)]
     async fn deposit_sign(
         &self,
         _request: Request<DepositSignSession>,
@@ -33,6 +35,7 @@ where
     }
 
     #[tracing::instrument(skip(self), err(level = tracing::Level::ERROR), ret(level = tracing::Level::TRACE))]
+    #[allow(clippy::blocks_in_conditions)]
     async fn new_withdrawal_sig(
         &self,
         _: Request<NewWithdrawalSigParams>,
@@ -41,6 +44,7 @@ where
     }
 
     #[tracing::instrument(skip(self), err(level = tracing::Level::ERROR), ret(level = tracing::Level::TRACE))]
+    #[allow(clippy::blocks_in_conditions)]
     async fn withdrawal_finalized(
         &self,
         request: Request<WithdrawalFinalizedParams>,

@@ -1,7 +1,10 @@
 //! # Servers
 //!
 //! Utilities for operator and verifier servers.
+use crate::aggregator::Aggregator;
 use crate::mock::database::create_test_config_with_thread_name;
+use crate::rpc::clementine::clementine_aggregator_server::ClementineAggregatorServer;
+use crate::rpc::clementine::clementine_verifier_server::ClementineVerifierServer;
 use crate::traits::rpc::AggregatorServer;
 use crate::{aggregator, create_extended_rpc};
 use crate::{
@@ -21,6 +24,8 @@ use jsonrpsee::{
 use operator::Operator;
 use std::thread;
 use traits::rpc::OperatorRpcServer;
+
+pub type ServerFuture = dyn futures::Future<Output = Result<(), tonic::transport::Error>>;
 
 /// Starts a server for a verifier.
 #[tracing::instrument(skip(rpc), err(level = tracing::Level::ERROR), ret(level = tracing::Level::TRACE))]
@@ -223,4 +228,136 @@ pub async fn create_verifiers_and_operators(
     .unwrap();
 
     (verifier_endpoints, operator_endpoints, aggregator)
+}
+
+pub async fn create_verifier_grpc_server<R>(
+    config: BridgeConfig,
+    rpc: ExtendedRpc<R>,
+) -> Result<(std::net::SocketAddr,), BridgeError>
+where
+    R: RpcApiWrapper,
+{
+    tracing::info!(
+        "config host and port are: {} and {}",
+        config.host,
+        config.port
+    );
+    let addr = format!("{}:{}", config.host, config.port).parse().unwrap();
+    tracing::info!("Starting verifier gRPC server with address: {}", addr);
+    let verifier = Verifier::new(rpc, config).await?;
+    tracing::info!("Verifier gRPC server created");
+    let svc = ClementineVerifierServer::new(verifier);
+    let handle = tonic::transport::Server::builder()
+        .add_service(svc)
+        .serve(addr);
+
+    tokio::spawn(async move {
+        if let Err(e) = handle.await {
+            tracing::error!("gRPC server error: {:?}", e);
+        }
+    });
+    tokio::time::sleep(tokio::time::Duration::from_millis(500)).await;
+
+    tracing::info!("Verifier gRPC server started with address: {}", addr);
+    Ok((addr,))
+}
+
+pub async fn create_aggregator_grpc_server(
+    config: BridgeConfig,
+) -> Result<(std::net::SocketAddr,), BridgeError> {
+    let addr = format!("{}:{}", config.host, config.port).parse().unwrap();
+    let aggregator = Aggregator::new(config).await?;
+    let svc = ClementineAggregatorServer::new(aggregator);
+    let handle = tonic::transport::Server::builder()
+        .add_service(svc)
+        .serve(addr);
+
+    tokio::spawn(async move {
+        if let Err(e) = handle.await {
+            tracing::error!("gRPC server error: {:?}", e);
+            panic!("gRPC server error: {:?}", e);
+        }
+    });
+    tokio::time::sleep(tokio::time::Duration::from_millis(500)).await;
+
+    tracing::info!("Aggregator gRPC server started with address: {}", addr);
+    Ok((addr,))
+}
+
+/// Starts operators, verifiers and aggergator gRPC servers. This function's intended use is for
+/// tests.
+///
+/// # Returns
+///
+/// Returns a tuple of vectors of clients, handles, and addresses for the
+/// verifiers + operators.
+///
+/// # Panics
+///
+/// Panics if there was an error while creating any of the servers.
+// #[tracing::instrument(ret(level = tracing::Level::TRACE))]
+#[allow(clippy::type_complexity)] // Enabling tracing::instrument causes this.
+pub async fn create_verifiers_and_operators_grpc(
+    config_name: &str,
+    // rpc: ExtendedRpc<R>,
+) -> (
+    Vec<(std::net::SocketAddr,)>, // Verifier clients
+    (std::net::SocketAddr,),      // Aggregator client
+) {
+    let mut config = create_test_config_with_thread_name(config_name, None).await;
+    let start_port = config.port;
+    let rpc = create_extended_rpc!(config);
+    let all_verifiers_secret_keys = config.all_verifiers_secret_keys.clone().unwrap_or_else(|| {
+        panic!("All secret keys of the verifiers are required for testing");
+    });
+    let verifier_futures = all_verifiers_secret_keys
+        .iter()
+        .enumerate()
+        .map(|(i, sk)| {
+            let port = start_port + i as u16;
+            // println!("Port: {}", port);
+            let i = i.to_string();
+            let rpc = rpc.clone();
+            async move {
+                let config_with_new_db =
+                    create_test_config_with_thread_name(config_name, Some(&i.to_string())).await;
+                let verifier = create_verifier_grpc_server(
+                    BridgeConfig {
+                        secret_key: *sk,
+                        port,
+                        ..config_with_new_db.clone()
+                    },
+                    rpc,
+                )
+                .await?;
+                Ok::<((std::net::SocketAddr,), BridgeConfig), BridgeError>((
+                    verifier,
+                    config_with_new_db,
+                ))
+            }
+        })
+        .collect::<Vec<_>>();
+    let verifier_results = futures::future::try_join_all(verifier_futures)
+        .await
+        .unwrap();
+    let verifier_endpoints = verifier_results.iter().map(|(v, _)| *v).collect::<Vec<_>>();
+
+    let config = create_test_config_with_thread_name(config_name, None).await;
+    println!("Port: {}", start_port);
+    let port = start_port + all_verifiers_secret_keys.len() as u16 + 1;
+    // + all_operators_secret_keys.len() as u16;
+    let aggregator = create_aggregator_grpc_server(BridgeConfig {
+        port,
+        verifier_endpoints: Some(
+            verifier_endpoints
+                .iter()
+                .map(|(socket_addr,)| format!("http://{}", socket_addr))
+                .collect(),
+        ),
+        ..config
+    })
+    .await
+    .unwrap();
+
+    (verifier_endpoints, aggregator)
 }
