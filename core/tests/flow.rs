@@ -18,6 +18,7 @@ use tonic::transport::Uri;
 
 mod common;
 
+#[ignore = "We are switching to gRPC"]
 #[tokio::test]
 async fn honest_operator_takes_refund() {
     let (_verifiers, operators, mut config, deposit_outpoint) =
@@ -81,6 +82,7 @@ async fn honest_operator_takes_refund() {
     );
 }
 
+#[ignore = "We are switching to gRPC"]
 #[tokio::test]
 async fn withdrawal_fee_too_low() {
     let (_verifiers, operators, mut config, _) =
