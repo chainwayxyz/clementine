@@ -8,7 +8,7 @@ create table if not exists verifier_public_keys (
 
 
 create table if not exists operators (
-    idx int primary key,
+    operator_idx int primary key,
     xonly_pk text not null,
     wallet_reimburse_address text not null
 );

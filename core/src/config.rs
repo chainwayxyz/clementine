@@ -59,8 +59,10 @@ pub struct BridgeConfig {
     pub all_verifiers_secret_keys: Option<Vec<secp256k1::SecretKey>>,
     /// All Secret keys. Just for testing purposes.
     pub all_operators_secret_keys: Option<Vec<secp256k1::SecretKey>>,
-    /// Verifier endpoints.
+    /// Verifier endpoints. For the aggregator only
     pub verifier_endpoints: Option<Vec<String>>,
+    /// Operator endpoint. For the aggregator only
+    pub operator_endpoints: Option<Vec<String>>,
     /// PostgreSQL database host address.
     pub db_host: String,
     /// PostgreSQL database port.
@@ -137,6 +139,7 @@ impl Default for BridgeConfig {
             all_verifiers_secret_keys: None,
             all_operators_secret_keys: None,
             verifier_endpoints: None,
+            operator_endpoints: None,
             db_host: "127.0.0.1".to_string(),
             db_port: 5432,
             db_user: "postgres".to_string(),

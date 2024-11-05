@@ -6,6 +6,7 @@
 
 use super::wrapper::{
     AddressDB, EVMAddressDB, OutPointDB, PublicKeyDB, SignatureDB, TxOutDB, TxidDB, Utxodb,
+    XOnlyPublicKeyDB,
 };
 use super::Database;
 use crate::errors::BridgeError;
@@ -91,7 +92,7 @@ impl Database {
         tx: Option<&mut sqlx::Transaction<'_, Postgres>>,
         operator_idx: i32,
     ) -> Result<Vec<(i32, Txid, i32)>, BridgeError> {
-        let query = sqlx::query_as("SELECT (idx, time_txid, block_height) FROM operator_time_txs WHERE operator_idx = $1 ORDER BY idx;").bind(operator_idx);
+        let query = sqlx::query_as("SELECT idx, time_txid, block_height FROM operator_time_txs WHERE operator_idx = $1 ORDER BY idx;").bind(operator_idx);
 
         let result: Result<Vec<(i32, TxidDB, i32)>, sqlx::Error> = match tx {
             Some(tx) => query.fetch_all(&mut **tx).await,
@@ -105,6 +106,28 @@ impl Database {
                 .collect()),
             Err(e) => Err(BridgeError::DatabaseError(e)),
         }
+    }
+
+    pub async fn set_operator(
+        &self,
+        tx: Option<&mut sqlx::Transaction<'_, Postgres>>,
+        operator_idx: i32,
+        xonly_pubkey: secp256k1::XOnlyPublicKey,
+        wallet_address: String,
+    ) -> Result<(), BridgeError> {
+        let query = sqlx::query(
+            "INSERT INTO operators (operator_idx, xonly_pk, wallet_reimburse_address) VALUES ($1, $2, $3);",
+        )
+        .bind(operator_idx)
+        .bind(XOnlyPublicKeyDB(xonly_pubkey))
+        .bind(wallet_address);
+
+        match tx {
+            Some(tx) => query.execute(&mut **tx).await?,
+            None => query.execute(&self.connection).await?,
+        };
+
+        Ok(())
     }
 
     #[tracing::instrument(skip(self), err(level = tracing::Level::ERROR), ret(level = tracing::Level::TRACE))]

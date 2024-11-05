@@ -125,7 +125,8 @@ async fn withdrawal_fee_too_low() {
 #[should_panic]
 async fn double_calling_setip() {
     initialize_logger(5).unwrap();
-    let (_verifiers, aggregator) = create_verifiers_and_operators_grpc("test_config.toml").await;
+    let (_verifiers, _operators, aggregator) =
+        create_verifiers_and_operators_grpc("test_config.toml").await;
 
     let x: Uri = format!("http://{}", aggregator.0).parse().unwrap();
 
@@ -147,7 +148,8 @@ async fn double_calling_setip() {
 #[tokio::test]
 async fn grpc_flow() {
     initialize_logger(5).unwrap();
-    let (_verifiers, aggregator) = create_verifiers_and_operators_grpc("test_config.toml").await;
+    let (_verifiers, _operators, aggregator) =
+        create_verifiers_and_operators_grpc("test_config.toml").await;
 
     let x: Uri = format!("http://{}", aggregator.0).parse().unwrap();
 

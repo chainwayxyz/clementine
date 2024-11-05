@@ -1,4 +1,4 @@
-use std::sync::Arc;
+use std::{str::FromStr, sync::Arc};
 
 use super::clementine::{
     self, clementine_verifier_server::ClementineVerifier, nonce_gen_response, Empty,
@@ -8,6 +8,7 @@ use super::clementine::{
 use crate::{
     actor::Actor,
     builder,
+    errors::BridgeError,
     musig2::{self, MuSigPubNonce, MuSigSecNonce},
     sha256_hash, utils,
     verifier::{NofN, NonceSession, Verifier},
@@ -80,11 +81,23 @@ where
 
     #[tracing::instrument(skip(self), err(level = tracing::Level::ERROR), ret(level = tracing::Level::TRACE))]
     #[allow(clippy::blocks_in_conditions)]
-    async fn set_operator(
-        &self,
-        _request: Request<OperatorParams>,
-    ) -> Result<Response<Empty>, Status> {
-        todo!()
+    async fn set_operator(&self, req: Request<OperatorParams>) -> Result<Response<Empty>, Status> {
+        let operator_params = req.into_inner();
+
+        let operator_config = operator_params
+            .operator_details
+            .ok_or(BridgeError::Error("No operator details".to_string()))?;
+
+        self.db
+            .set_operator(
+                None,
+                operator_config.operator_idx as i32,
+                secp256k1::XOnlyPublicKey::from_str(&operator_config.xonly_pk).unwrap(),
+                operator_config.wallet_reimburse_address,
+            )
+            .await?;
+
+        Ok(Response::new(Empty {}))
     }
 
     #[tracing::instrument(skip(self), err(level = tracing::Level::ERROR), ret(level = tracing::Level::TRACE))]

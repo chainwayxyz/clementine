@@ -48,7 +48,7 @@ pub struct DepositSignSession {
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct OperatorConfig {
     #[prost(uint32, tag = "1")]
-    pub operator_id: u32,
+    pub operator_idx: u32,
     #[prost(bytes = "vec", tag = "2")]
     pub collateral_funding_txid: ::prost::alloc::vec::Vec<u8>,
     #[prost(string, tag = "3")]

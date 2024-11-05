@@ -37,7 +37,7 @@ message DepositSignSession {
 // Operator --------------------------------------------------------------------
 
 message OperatorConfig {
-  uint32 operator_id = 1;
+  uint32 operator_idx = 1;
   bytes collateral_funding_txid = 2;
   string xonly_pk = 3;
   string wallet_reimburse_address = 4;

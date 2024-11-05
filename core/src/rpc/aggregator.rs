@@ -19,6 +19,8 @@ impl ClementineAggregator for Aggregator {
     #[tracing::instrument(skip(self), err(level = tracing::Level::ERROR), ret(level = tracing::Level::TRACE))]
     #[allow(clippy::blocks_in_conditions)]
     async fn setup(&self, _request: Request<Empty>) -> Result<Response<Empty>, Status> {
+        // Collect verifier details
+        tracing::debug!("Collecting verifier details");
         let verifier_params = try_join_all(self.verifier_clients.iter().map(|client| {
             let mut client = client.clone();
             async move {
@@ -36,6 +38,8 @@ impl ClementineAggregator for Aggregator {
             })
             .collect();
 
+        // Set the verifiers to all verifiers
+        tracing::debug!("Setting verifiers to all verifiers");
         try_join_all(self.verifier_clients.iter().map(|client| {
             let mut client = client.clone();
             {
@@ -48,6 +52,32 @@ impl ClementineAggregator for Aggregator {
                         .await?;
                     Ok::<_, Status>(response.into_inner())
                 }
+            }
+        }))
+        .await?;
+
+        // Collect operator details
+        tracing::debug!("Collecting operator details");
+        let operator_params = try_join_all(self.operator_clients.iter().map(|client| {
+            let mut client = client.clone();
+            async move {
+                let response = client.get_params(Request::new(Empty {})).await?;
+                Ok::<_, Status>(response.into_inner())
+            }
+        }))
+        .await?;
+
+        // Set all operator details to all verifiers
+        tracing::debug!("Setting operator details to all verifiers");
+        try_join_all(self.verifier_clients.iter().map(|client| {
+            let mut client = client.clone();
+            let params = operator_params.clone();
+            async move {
+                // Iterate over all operator_params and call set_operator for each one
+                for param in &params {
+                    client.set_operator(Request::new(param.clone())).await?;
+                }
+                Ok::<_, tonic::Status>(())
             }
         }))
         .await?;

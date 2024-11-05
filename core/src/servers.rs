@@ -4,6 +4,7 @@
 use crate::aggregator::Aggregator;
 use crate::mock::database::create_test_config_with_thread_name;
 use crate::rpc::clementine::clementine_aggregator_server::ClementineAggregatorServer;
+use crate::rpc::clementine::clementine_operator_server::ClementineOperatorServer;
 use crate::rpc::clementine::clementine_verifier_server::ClementineVerifierServer;
 use crate::traits::rpc::AggregatorServer;
 use crate::{aggregator, create_extended_rpc};
@@ -262,6 +263,38 @@ where
     Ok((addr,))
 }
 
+pub async fn create_operator_grpc_server<R>(
+    config: BridgeConfig,
+    rpc: ExtendedRpc<R>,
+) -> Result<(std::net::SocketAddr,), BridgeError>
+where
+    R: RpcApiWrapper,
+{
+    tracing::info!(
+        "config host and port are: {} and {}",
+        config.host,
+        config.port
+    );
+    let addr = format!("{}:{}", config.host, config.port).parse().unwrap();
+    tracing::info!("Starting operator gRPC server with address: {}", addr);
+    let operator = Operator::new(config, rpc).await?;
+    tracing::info!("Operator gRPC server created");
+    let svc = ClementineOperatorServer::new(operator);
+    let handle = tonic::transport::Server::builder()
+        .add_service(svc)
+        .serve(addr);
+
+    tokio::spawn(async move {
+        if let Err(e) = handle.await {
+            tracing::error!("gRPC server error: {:?}", e);
+        }
+    });
+    tokio::time::sleep(tokio::time::Duration::from_millis(500)).await;
+
+    tracing::info!("operator gRPC server started with address: {}", addr);
+    Ok((addr,))
+}
+
 pub async fn create_aggregator_grpc_server(
     config: BridgeConfig,
 ) -> Result<(std::net::SocketAddr,), BridgeError> {
@@ -302,6 +335,7 @@ pub async fn create_verifiers_and_operators_grpc(
     // rpc: ExtendedRpc<R>,
 ) -> (
     Vec<(std::net::SocketAddr,)>, // Verifier clients
+    Vec<(std::net::SocketAddr,)>, // Operator clients
     (std::net::SocketAddr,),      // Aggregator client
 ) {
     let mut config = create_test_config_with_thread_name(config_name, None).await;
@@ -341,10 +375,48 @@ pub async fn create_verifiers_and_operators_grpc(
         .await
         .unwrap();
     let verifier_endpoints = verifier_results.iter().map(|(v, _)| *v).collect::<Vec<_>>();
+    let verifier_configs = verifier_results
+        .iter()
+        .map(|(_, c)| c.clone())
+        .collect::<Vec<_>>();
+
+    let all_operators_secret_keys = config.all_operators_secret_keys.clone().unwrap_or_else(|| {
+        panic!("All secret keys of the operators are required for testing");
+    });
+
+    // Create futures for operator gRPC servers
+    let operator_futures = all_operators_secret_keys
+        .iter()
+        .enumerate()
+        .map(|(i, sk)| {
+            let port = start_port + i as u16 + all_verifiers_secret_keys.len() as u16;
+            let rpc = rpc.clone();
+            let verifier_config = verifier_configs[i].clone();
+            async move {
+                let socket_addr = create_operator_grpc_server(
+                    BridgeConfig {
+                        secret_key: *sk,
+                        port,
+                        ..verifier_config
+                    },
+                    rpc,
+                )
+                .await?;
+                Ok::<(std::net::SocketAddr,), BridgeError>(socket_addr)
+            }
+        })
+        .collect::<Vec<_>>();
+
+    let operator_endpoints = futures::future::try_join_all(operator_futures)
+        .await
+        .unwrap();
 
     let config = create_test_config_with_thread_name(config_name, None).await;
     println!("Port: {}", start_port);
-    let port = start_port + all_verifiers_secret_keys.len() as u16 + 1;
+    let port = start_port
+        + all_verifiers_secret_keys.len() as u16
+        + all_operators_secret_keys.len() as u16
+        + 1;
     // + all_operators_secret_keys.len() as u16;
     let aggregator = create_aggregator_grpc_server(BridgeConfig {
         port,
@@ -354,10 +426,16 @@ pub async fn create_verifiers_and_operators_grpc(
                 .map(|(socket_addr,)| format!("http://{}", socket_addr))
                 .collect(),
         ),
+        operator_endpoints: Some(
+            operator_endpoints
+                .iter()
+                .map(|(socket_addr,)| format!("http://{}", socket_addr))
+                .collect(),
+        ),
         ..config
     })
     .await
     .unwrap();
 
-    (verifier_endpoints, aggregator)
+    (verifier_endpoints, operator_endpoints, aggregator)
 }
