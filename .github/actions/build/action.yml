@@ -9,10 +9,10 @@ runs:
   steps:
   - name: Install RISCZero toolchain
     shell: bash
-    run: curl -L https://risczero.com/install | bash
-  - name: Run rzup
-    shell: bash
-    run: rzup install
+    run: curl -L https://risczero.com/install | bash && rzup install
+  # - name: Run rzup
+  #   shell: bash
+  #   run: rzup install
   - name: Build RISCZero
     shell: bash
     run: cargo risczero build
