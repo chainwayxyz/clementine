@@ -7,7 +7,6 @@ env:
   CARGO_TERM_VERBOSE: true
   CARGOFLAGS: --workspace --all-targets --all-features
   RUST_LOG: trace
-  RISC0_DEV_MODE: 1
 
 jobs:
 # Build ------------------------------------------------------------------------
