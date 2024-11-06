@@ -23,3 +23,12 @@ runs:
   - name: Create funds in Bitcoin regtest
     shell: bash
     run: bitcoin-27.0/bin/bitcoin-cli -regtest -rpcuser=admin -rpcpassword=admin -rpcport=18443 generatetoaddress 101 $(bitcoin-27.0/bin/bitcoin-cli -regtest -rpcuser=admin -rpcpassword=admin -rpcport=18443 getnewaddress)
+
+  - name: Install RISCZero toolchain
+    shell: bash
+    uses: taiki-e/install-action@v2
+    with:
+      tool: cargo-risczero@1.1.2
+  - name: Build RISCZero
+    shell: bash
+    run: cargo risczero build
