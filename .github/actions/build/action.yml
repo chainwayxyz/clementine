@@ -1,0 +1,15 @@
+# This action starts required services for any test.
+
+name: Clementine Build Prerequisites
+description: 'Build prerequisites for Clementine builds'
+
+runs:
+  using: "composite"
+
+  steps:
+  - name: Install RISCZero toolchain
+    shell: bash
+    run: curl -L https://risczero.com/install | bash
+  - name: Build RISCZero
+    shell: bash
+    run: cargo risczero build
