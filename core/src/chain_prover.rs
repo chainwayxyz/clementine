@@ -247,7 +247,7 @@ mod tests {
     use bitcoin::{hashes::Hash, BlockHash};
     use bitcoincore_rpc::RpcApi;
     use circuits::header_chain::{
-        BlockHeaderCircuitOutput, HeaderChainCircuitInput, HeaderChainPrevProofType,
+        BlockHeader, BlockHeaderCircuitOutput, HeaderChainCircuitInput, HeaderChainPrevProofType,
     };
     use risc0_zkvm::Receipt;
 
@@ -363,6 +363,59 @@ mod tests {
         assert_eq!(
             output.chain_state.best_block_hash,
             BlockHash::all_zeros().as_raw_hash().to_byte_array()
+        );
+    }
+
+    #[tokio::test]
+    async fn prove_block_second() {
+        let mut config = create_test_config_with_thread_name("test_config.toml", None).await;
+        let rpc = create_extended_rpc!(config);
+        let prover = ChainProver::new(&config, rpc.clone()).await.unwrap();
+
+        // Prove genesis block and get it's receipt.
+        let method_id = [0x45; 8];
+        let prove_options = HeaderChainCircuitInput {
+            method_id,
+            prev_proof: HeaderChainPrevProofType::GenesisBlock,
+            block_headers: vec![],
+        };
+        let receipt = prover
+            .prove_block(prove_options, None::<Receipt>)
+            .await
+            .unwrap();
+        let output: BlockHeaderCircuitOutput = borsh::from_slice(&receipt.journal.bytes).unwrap();
+
+        // Mine blocks in case of no block's are mined before and prepare header.
+        rpc.mine_blocks(1).unwrap();
+        let hash = rpc.client.get_block_hash(1).unwrap();
+        let header = rpc.client.get_block_header(&hash).unwrap();
+        let header = BlockHeader {
+            version: header.version.to_consensus(),
+            prev_block_hash: header.prev_blockhash.as_raw_hash().to_byte_array(),
+            merkle_root: header.merkle_root.as_raw_hash().to_byte_array(),
+            time: header.time,
+            bits: header.bits.to_consensus(),
+            nonce: header.nonce,
+        };
+
+        let prove_options = HeaderChainCircuitInput {
+            method_id: output.method_id,
+            prev_proof: HeaderChainPrevProofType::PrevProof(output),
+            block_headers: vec![header],
+        };
+        let receipt = prover
+            .prove_block(prove_options, Some(receipt))
+            .await
+            .unwrap();
+        let output: BlockHeaderCircuitOutput = borsh::from_slice(&receipt.journal.bytes).unwrap();
+
+        println!("Proof journal output: {:?}", output);
+
+        assert_eq!(output.method_id, method_id);
+        assert_eq!(output.chain_state.block_height, 1);
+        assert_eq!(
+            output.chain_state.best_block_hash,
+            hash.as_raw_hash().to_byte_array()
         );
     }
 }
