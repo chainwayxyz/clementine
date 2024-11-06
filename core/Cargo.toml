@@ -15,7 +15,7 @@ serde = { workspace = true }
 serde_json = { workspace = true }
 # byteorder = { workspace = true }
 secp256k1 = { workspace = true, features = ["serde"] }
-crypto-bigint = { workspace = true }
+crypto-bigint = { workspace = true, features = ["rand_core"]}
 thiserror = { workspace = true }
 tracing = { workspace = true }
 tracing-subscriber = { workspace = true, features = ["env-filter"] }
