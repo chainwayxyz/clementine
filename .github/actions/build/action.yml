@@ -7,9 +7,11 @@ runs:
   using: "composite"
 
   steps:
-  - name: Install RISCZero toolchain
+  - name: Install cargo-risczero
     shell: bash
-    run: curl -L https://risczero.com/install | bash
+    uses: taiki-e/install-action@v2
+    with:
+      tool: cargo-risczero@1.1.2
   - name: Build RISCZero
     shell: bash
     run: cargo risczero build
