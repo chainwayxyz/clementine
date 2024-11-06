@@ -208,7 +208,7 @@ where
         let prover = risc0_zkvm::default_prover();
 
         let receipt = prover
-            .prove(env, header_chain_circuit::HEADER_CHAIN_GUEST_ELF)
+            .prove(env, include_bytes!("../../scripts/header-chain-guest"))
             .map_err(|e| BridgeError::ProveError(e.to_string()))?
             .receipt;
 
