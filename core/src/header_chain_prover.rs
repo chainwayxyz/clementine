@@ -63,8 +63,8 @@ where
             loop {
                 match self.check_for_new_blocks().await.unwrap() {
                     BlockFetchStatus::UpToDate => (),
-                    BlockFetchStatus::FallenBehind(_block_height, _block_hash) => {
-                        self.sync_blockchain().await.unwrap()
+                    BlockFetchStatus::FallenBehind(block_height, _block_hash) => {
+                        self.sync_blockchain(block_height).await.unwrap()
                     }
                     _ => panic!("Hapi yuttun"),
                 };
@@ -162,11 +162,14 @@ where
     /// It expects that current tip is not out of bounds and on the same branch
     /// as the active branch. If these conditions are not met, this could cause
     /// an infinite loop.
-    async fn sync_blockchain(&self) -> Result<(), BridgeError> {
-        let height = self.rpc.client.get_block_count()?;
+    ///
+    /// # Parameters
+    ///
+    /// - current_block_height: Starts synching blocks from this height to database tip.
+    async fn sync_blockchain(&self, current_block_height: u64) -> Result<(), BridgeError> {
         let (db_tip_height, _) = self.db.get_latest_block_info(None).await?;
 
-        for height in (db_tip_height + 1)..(height + 1) {
+        for height in (db_tip_height + 1)..(current_block_height + 1) {
             let hash = self.rpc.client.get_block_hash(height)?;
             let header = self.rpc.client.get_block_header(&hash)?;
 
@@ -325,7 +328,7 @@ mod tests {
         );
 
         // Sync database to current active blockchain.
-        prover.sync_blockchain().await.unwrap();
+        prover.sync_blockchain(current_tip_height).await.unwrap();
         assert_eq!(
             prover.check_for_new_blocks().await.unwrap(),
             BlockFetchStatus::UpToDate
