@@ -3,9 +3,10 @@ use super::clementine::{
     NewWithdrawalSigParams, NewWithdrawalSigResponse, OperatorBurnSig, OperatorParams,
     WithdrawalFinalizedParams,
 };
-use crate::{errors::BridgeError, operator::Operator};
-use bitcoin::{hashes::Hash, OutPoint};
+use crate::{builder, errors::BridgeError, operator::Operator};
+use bitcoin::{hashes::Hash, Amount, OutPoint};
 use bitcoin_mock_rpc::RpcApiWrapper;
+use futures::StreamExt;
 use tokio_stream::wrappers::ReceiverStream;
 use tonic::{async_trait, Request, Response, Status};
 
@@ -38,11 +39,29 @@ where
                 .to_string(),
         };
 
+        let timeout_tx_sighash_stream = builder::sighash::create_timout_tx_sighash_stream(
+            self.signer.xonly_public_key,
+            time_txs[0].1,
+            Amount::from_sat(200_000_000), // TODO: Fix this.
+            3024,
+            6,
+            100,
+            self.config.network,
+        );
+
+        let timeout_tx_sigs: Vec<Vec<u8>> = timeout_tx_sighash_stream
+            .map(|sighash| {
+                // Sign each sighash and transform it to Vec<u8>
+                self.signer.sign(sighash).serialize().to_vec()
+            })
+            .collect()
+            .await;
+
         let operator_params = clementine::OperatorParams {
             operator_details: Some(operator_config),
             winternitz_pubkeys: vec![],      // TODO: Implement this.
             assert_empty_public_key: vec![], // TODO: Implement this.
-            timeout_tx_sigs: vec![],         // TODO: Implement this.
+            timeout_tx_sigs,
         };
 
         Ok(Response::new(operator_params))

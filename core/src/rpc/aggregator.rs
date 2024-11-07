@@ -3,7 +3,7 @@ use super::clementine::{
 };
 use crate::{
     aggregator::Aggregator,
-    builder::sighash::create_sighash_stream,
+    builder::sighash::create_nofn_sighash_stream,
     musig2::aggregate_nonces,
     rpc::clementine::{self, nonce_gen_response, DepositSignSession},
     ByteArray32, ByteArray66, EVMAddress,
@@ -220,7 +220,7 @@ impl ClementineAggregator for Aggregator {
             tx.send(deposit_finalize_first_param.clone()).await.unwrap();
         }
 
-        let sighash_stream = create_sighash_stream(
+        let sighash_stream = create_nofn_sighash_stream(
             self.db.clone(),
             deposit_outpoint,
             evm_address,

@@ -114,7 +114,7 @@ pub fn generate_deposit_address(
 
     let script_timelock = builder::script::generate_relative_timelock_script(
         recovery_extracted_xonly_pk,
-        user_takes_after,
+        user_takes_after as i64,
     );
 
     create_taproot_address(&[deposit_script, script_timelock], None, network)

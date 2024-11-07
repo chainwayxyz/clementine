@@ -6,7 +6,7 @@ use super::clementine::{
     VerifierDepositSignParams, VerifierParams, VerifierPublicKeys, WatchtowerParams,
 };
 use crate::{
-    builder::sighash::create_sighash_stream,
+    builder::sighash::create_nofn_sighash_stream,
     errors::BridgeError,
     musig2::{self, MuSigPubNonce, MuSigSecNonce},
     sha256_hash, utils,
@@ -257,7 +257,7 @@ where
                 .unwrap();
             let mut nonce_idx: usize = 0;
 
-            let sighash_stream = create_sighash_stream(
+            let sighash_stream = create_nofn_sighash_stream(
                 db_clone,
                 deposit_outpoint,
                 evm_address,
@@ -375,7 +375,7 @@ where
             _ => panic!("Expected DepositOutpoint"),
         };
 
-        let sighash_stream = create_sighash_stream(
+        let sighash_stream = create_nofn_sighash_stream(
             self.db.clone(),
             deposit_outpoint,
             evm_address,

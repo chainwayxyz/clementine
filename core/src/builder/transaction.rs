@@ -8,11 +8,13 @@ use crate::{utils, EVMAddress, UTXO};
 use bitcoin::address::NetworkUnchecked;
 use bitcoin::hashes::Hash;
 use bitcoin::script::PushBytesBuf;
-use bitcoin::Transaction;
 use bitcoin::{
     absolute, taproot::TaprootSpendInfo, Address, Amount, OutPoint, ScriptBuf, TxIn, TxOut, Witness,
 };
+use bitcoin::{Transaction, Txid};
 use secp256k1::XOnlyPublicKey;
+
+use super::address::create_taproot_address;
 
 #[derive(Debug, Clone)]
 pub struct TxHandler {
@@ -28,7 +30,155 @@ pub const SLASH_OR_TAKE_TX_MIN_RELAY_FEE: Amount = Amount::from_sat(240);
 pub const OPERATOR_TAKES_TX_MIN_RELAY_FEE: Amount = Amount::from_sat(230);
 pub const KICKOFF_UTXO_AMOUNT_SATS: Amount = Amount::from_sat(100_000);
 
+pub const TIME_TX_MIN_RELAY_FEE: Amount = Amount::from_sat(350); // TODO: Change this to correct value
+pub const TIME2_TX_MIN_RELAY_FEE: Amount = Amount::from_sat(350); // TODO: Change this to correct value
+pub const KICKOFF_INPUT_AMOUNT: Amount = Amount::from_sat(100_000);
+pub const OPERATOR_REIMBURSE_CONNECTOR_AMOUNT: Amount = Amount::from_sat(330);
+pub const ANCHOR_AMOUNT: Amount = Amount::from_sat(330);
+
 // Transaction Builders --------------------------------------------------------
+
+/// Creates time tx, it will always use input txid's first vout as input
+/// Output 0: Operator's Burn Connector
+/// Output 1: Operator's Time Connector: timelocked utxo for operator for the entire withdrawal time
+/// Output 2: Kickoff input utxo: this utxo will be the input for the kickoff tx
+/// Output 3: P2Anchor: Anchor output for CPFP
+pub fn create_time_tx(
+    operator_xonly_pk: XOnlyPublicKey,
+    input_txid: Txid,
+    input_amount: Amount,
+    timeout_block_count: i64,
+    max_withdrawal_time_block_count: i64,
+    network: bitcoin::Network,
+) -> Transaction {
+    let tx_ins = create_tx_ins(vec![OutPoint {
+        txid: input_txid,
+        vout: 0,
+    }]);
+
+    let max_withdrawal_time_locked_script = builder::script::generate_relative_timelock_script(
+        operator_xonly_pk,
+        max_withdrawal_time_block_count,
+    );
+
+    let timout_block_count_locked_script =
+        builder::script::generate_relative_timelock_script(operator_xonly_pk, timeout_block_count);
+
+    let tx_outs = vec![
+        TxOut {
+            value: input_amount
+                - OPERATOR_REIMBURSE_CONNECTOR_AMOUNT
+                - KICKOFF_INPUT_AMOUNT
+                - ANCHOR_AMOUNT
+                - TIME_TX_MIN_RELAY_FEE,
+            script_pubkey: create_taproot_address(&[], Some(operator_xonly_pk), network)
+                .0
+                .script_pubkey(),
+        },
+        TxOut {
+            value: OPERATOR_REIMBURSE_CONNECTOR_AMOUNT,
+            script_pubkey: create_taproot_address(
+                &[max_withdrawal_time_locked_script],
+                None,
+                network,
+            )
+            .0
+            .script_pubkey(),
+        },
+        TxOut {
+            value: KICKOFF_INPUT_AMOUNT,
+            script_pubkey: create_taproot_address(
+                &[timout_block_count_locked_script],
+                Some(operator_xonly_pk),
+                network,
+            )
+            .0
+            .script_pubkey(),
+        },
+        builder::script::anyone_can_spend_txout(),
+    ];
+
+    create_btc_tx(tx_ins, tx_outs)
+}
+
+pub fn create_time2_tx(
+    operator_xonly_pk: XOnlyPublicKey,
+    time_txid: Txid,
+    time_tx_input_amount: Amount,
+    network: bitcoin::Network,
+) -> Transaction {
+    let tx_ins = create_tx_ins(vec![
+        OutPoint {
+            txid: time_txid,
+            vout: 0,
+        },
+        OutPoint {
+            txid: time_txid,
+            vout: 1,
+        },
+    ]);
+
+    let output_script_pubkey = create_taproot_address(&[], Some(operator_xonly_pk), network)
+        .0
+        .script_pubkey();
+
+    let tx_outs = vec![
+        TxOut {
+            value: time_tx_input_amount
+                - OPERATOR_REIMBURSE_CONNECTOR_AMOUNT
+                - KICKOFF_INPUT_AMOUNT
+                - ANCHOR_AMOUNT
+                - TIME_TX_MIN_RELAY_FEE
+                - ANCHOR_AMOUNT
+                - TIME2_TX_MIN_RELAY_FEE,
+            script_pubkey: output_script_pubkey.clone(),
+        },
+        TxOut {
+            value: OPERATOR_REIMBURSE_CONNECTOR_AMOUNT,
+            script_pubkey: output_script_pubkey,
+        },
+        builder::script::anyone_can_spend_txout(),
+    ];
+    create_btc_tx(tx_ins, tx_outs)
+}
+
+pub fn create_timeout_tx_handler(
+    operator_xonly_pk: XOnlyPublicKey,
+    time_txid: Txid,
+    timeout_block_count: i64,
+    network: bitcoin::Network,
+) -> TxHandler {
+    let tx_ins = create_tx_ins(vec![OutPoint {
+        txid: time_txid,
+        vout: 2,
+    }]);
+
+    let tx_outs = vec![builder::script::anyone_can_spend_txout()];
+
+    let tx = create_btc_tx(tx_ins, tx_outs);
+
+    let timout_block_count_locked_script =
+        builder::script::generate_relative_timelock_script(operator_xonly_pk, timeout_block_count);
+
+    let (timeout_input_addr, ttimeout_input_taproot_spend_info) = create_taproot_address(
+        &[timout_block_count_locked_script.clone()],
+        Some(operator_xonly_pk),
+        network,
+    );
+
+    let prevouts = vec![TxOut {
+        value: KICKOFF_INPUT_AMOUNT,
+        script_pubkey: timeout_input_addr.script_pubkey(),
+    }];
+    let scripts = vec![vec![timout_block_count_locked_script]];
+    let taproot_spend_infos = vec![ttimeout_input_taproot_spend_info];
+    TxHandler {
+        tx,
+        prevouts,
+        scripts,
+        taproot_spend_infos,
+    }
+}
 
 /// Creates the move_tx to move the deposit.
 pub fn create_move_tx(
@@ -191,8 +341,10 @@ pub fn create_slash_or_take_tx(
     tracing::debug!("Deposit OutPoint: {:?}", deposit_outpoint);
     assert!(kickoff_utxo_address.script_pubkey() == kickoff_utxo.txout.script_pubkey);
     let ins = create_tx_ins(vec![kickoff_utxo.outpoint]);
-    let relative_timelock_script =
-        builder::script::generate_relative_timelock_script(operator_xonly_pk, operator_takes_after);
+    let relative_timelock_script = builder::script::generate_relative_timelock_script(
+        operator_xonly_pk,
+        operator_takes_after as i64,
+    );
     let (slash_or_take_address, _) = builder::address::create_taproot_address(
         &[relative_timelock_script.clone()],
         Some(nofn_xonly_pk),
@@ -245,8 +397,10 @@ pub fn create_operator_takes_tx(
     let (musig2_address, musig2_spend_info) =
         builder::address::create_musig2_address(nofn_xonly_pk, network);
 
-    let relative_timelock_script =
-        builder::script::generate_relative_timelock_script(operator_xonly_pk, operator_takes_after);
+    let relative_timelock_script = builder::script::generate_relative_timelock_script(
+        operator_xonly_pk,
+        operator_takes_after as i64,
+    );
     let (slash_or_take_address, slash_or_take_spend_info) =
         builder::address::create_taproot_address(
             &[relative_timelock_script.clone()],
