@@ -24,7 +24,6 @@ jobs:
 
     steps:
     - uses: actions/checkout@v4
-    - uses: ./.github/actions/build
 
     - name: Run Cargo clippy
       run: cargo clippy --no-deps --all-targets -- -Dwarnings
@@ -40,7 +39,6 @@ jobs:
         with:
           toolchain: nightly-2024-07-27
           override: true
-      - uses: ./.github/actions/build
 
       - name: Run cargo-udeps
         env:
@@ -71,7 +69,6 @@ jobs:
 
     steps:
       - uses: actions/checkout@v4
-      - uses: ./.github/actions/build
 
       - name: Install Rust
         run: rustup update stable
@@ -88,7 +85,6 @@ jobs:
 
     steps:
       - uses: actions/checkout@v4
-      - uses: ./.github/actions/build
 
       - name: Run script
         run: scripts/check_for_todos.sh

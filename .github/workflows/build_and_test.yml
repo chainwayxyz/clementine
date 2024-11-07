@@ -16,7 +16,6 @@ jobs:
 
     steps:
     - uses: actions/checkout@v4
-    - uses: ./.github/actions/build
 
     - name: Save build artifacts
       uses: Swatinem/rust-cache@v2
@@ -32,7 +31,6 @@ jobs:
 
     steps:
     - uses: actions/checkout@v4
-    - uses: ./.github/actions/build
 
     - name: Save build artifacts
       uses: Swatinem/rust-cache@v2
@@ -65,7 +63,6 @@ jobs:
 
     steps:
     - uses: actions/checkout@v4
-    - uses: ./.github/actions/build
     - uses: ./.github/actions/service-action
 
     - name: Restore cached build artifacts
@@ -98,7 +95,6 @@ jobs:
 
     steps:
     - uses: actions/checkout@v4
-    - uses: ./.github/actions/build
     - uses: ./.github/actions/service-action
 
     - name: Restore cached build artifacts
@@ -131,7 +127,6 @@ jobs:
 
     steps:
     - uses: actions/checkout@v4
-    - uses: ./.github/actions/build
     - uses: ./.github/actions/service-action
 
     - name: Restore cached build artifacts
@@ -164,7 +159,6 @@ jobs:
 
     steps:
     - uses: actions/checkout@v4
-    - uses: ./.github/actions/build
     - uses: ./.github/actions/service-action
 
     - name: Restore cached build artifacts
