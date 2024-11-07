@@ -59,7 +59,7 @@ where
 
     /// Starts a background task that syncs current database to active
     /// blockchain and does proving.
-    pub fn start_block_prover(&'static self) {
+    pub fn start_header_chain_prover(&'static self) {
         tokio::spawn(async move {
             loop {
                 match self.check_for_new_blocks().await.unwrap() {
@@ -238,7 +238,7 @@ where
 #[cfg(test)]
 mod tests {
     use crate::{
-        chain_prover::{BlockFetchStatus, ChainProver, DEEPNESS},
+        header_chain_prover::{BlockFetchStatus, ChainProver, DEEPNESS},
         create_extended_rpc,
         extended_rpc::ExtendedRpc,
         mock::database::create_test_config_with_thread_name,
