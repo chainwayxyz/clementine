@@ -130,6 +130,26 @@ impl Database {
         Ok(())
     }
 
+    pub async fn save_timeout_tx_sigs(
+        &self,
+        tx: Option<&mut sqlx::Transaction<'_, Postgres>>,
+        operator_idx: i32,
+        serialized_signatures: &[u8],
+    ) -> Result<(), BridgeError> {
+        let query = sqlx::query(
+            "INSERT INTO operator_timeout_tx_sigs (operator_idx, timeout_tx_sigs) VALUES ($1, $2);",
+        )
+        .bind(operator_idx)
+        .bind(serialized_signatures);
+
+        match tx {
+            Some(tx) => query.execute(&mut **tx).await?,
+            None => query.execute(&self.connection).await?,
+        };
+
+        Ok(())
+    }
+
     #[tracing::instrument(skip(self), err(level = tracing::Level::ERROR), ret(level = tracing::Level::TRACE))]
     pub async fn lock_operators_kickoff_utxo_table(
         &self,

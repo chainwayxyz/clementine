@@ -139,6 +139,18 @@ where
             ));
         }
         // Save the timeout tx signatures to the db
+        let serialized_signatures: Vec<u8> = timeout_tx_sigs
+            .iter()
+            .flat_map(|sig| sig.serialize().to_vec())
+            .collect();
+
+        self.db
+            .save_timeout_tx_sigs(
+                None,
+                operator_config.operator_idx as i32,
+                &serialized_signatures,
+            )
+            .await?;
 
         Ok(Response::new(Empty {}))
     }
