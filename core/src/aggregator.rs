@@ -7,7 +7,10 @@ use crate::{
         aggregate_nonces, aggregate_partial_signatures, AggregateFromPublicKeys, MuSigAggNonce,
         MuSigPartialSignature, MuSigPubNonce,
     },
-    rpc::clementine::clementine_verifier_client::ClementineVerifierClient,
+    rpc::clementine::{
+        clementine_operator_client::ClementineOperatorClient,
+        clementine_verifier_client::ClementineVerifierClient,
+    },
     traits::rpc::AggregatorServer,
     utils::handle_taproot_witness_new,
     ByteArray32, ByteArray66, EVMAddress, UTXO,
@@ -32,6 +35,7 @@ pub struct Aggregator {
     pub(crate) config: BridgeConfig,
     pub(crate) nofn_xonly_pk: secp256k1::XOnlyPublicKey,
     pub(crate) verifier_clients: Vec<ClementineVerifierClient<tonic::transport::Channel>>,
+    pub(crate) operator_clients: Vec<ClementineOperatorClient<tonic::transport::Channel>>,
 }
 
 impl Aggregator {
@@ -62,10 +66,25 @@ impl Aggregator {
             .await
             .unwrap();
 
+        let operator_clients =
+            futures::future::try_join_all(config.operator_endpoints.clone().unwrap().iter().map(
+                |endpoint| {
+                    let endpoint_clone = endpoint.clone();
+                    async move {
+                        let uri = Uri::try_from(endpoint_clone).unwrap(); // handle unwrap safely in real code
+                        let client = ClementineOperatorClient::connect(uri).await.unwrap();
+                        Ok::<_, Box<dyn std::error::Error>>(client)
+                    }
+                },
+            ))
+            .await
+            .unwrap();
+
         Ok(Aggregator {
             config,
             nofn_xonly_pk,
             verifier_clients,
+            operator_clients,
         })
     }
 

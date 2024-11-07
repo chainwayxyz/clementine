@@ -179,6 +179,9 @@ pub enum BridgeError {
 
     #[error("Musig2 error: {0}")]
     Musig2Error(#[from] musig2::secp256k1::Error),
+
+    #[error("ERROR: {0}")]
+    Error(String),
 }
 
 impl From<BridgeError> for ErrorObject<'static> {

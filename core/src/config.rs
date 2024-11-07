@@ -37,6 +37,10 @@ pub struct BridgeConfig {
     pub operator_wallet_addresses: Vec<bitcoin::Address<NetworkUnchecked>>,
     /// Number of operators.
     pub num_operators: usize,
+    /// Number of watchtowers.
+    pub num_watchtowers: usize,
+    /// Number of time txs
+    pub num_time_txs: usize,
     /// Operator's fee for withdrawal, in satoshis.
     pub operator_withdrawal_fee_sats: Option<Amount>,
     /// Number of blocks after which user can take deposit back if deposit request fails.
@@ -59,8 +63,10 @@ pub struct BridgeConfig {
     pub all_verifiers_secret_keys: Option<Vec<secp256k1::SecretKey>>,
     /// All Secret keys. Just for testing purposes.
     pub all_operators_secret_keys: Option<Vec<secp256k1::SecretKey>>,
-    /// Verifier endpoints.
+    /// Verifier endpoints. For the aggregator only
     pub verifier_endpoints: Option<Vec<String>>,
+    /// Operator endpoint. For the aggregator only
+    pub operator_endpoints: Option<Vec<String>>,
     /// PostgreSQL database host address.
     pub db_host: String,
     /// PostgreSQL database port.
@@ -124,6 +130,8 @@ impl Default for BridgeConfig {
             operators_xonly_pks: vec![],
             operator_wallet_addresses: vec![],
             num_operators: 3,
+            num_watchtowers: 4,
+            num_time_txs: 10,
             operator_withdrawal_fee_sats: None,
             user_takes_after: 5,
             operator_takes_after: 5,
@@ -137,6 +145,7 @@ impl Default for BridgeConfig {
             all_verifiers_secret_keys: None,
             all_operators_secret_keys: None,
             verifier_endpoints: None,
+            operator_endpoints: None,
             db_host: "127.0.0.1".to_string(),
             db_port: 5432,
             db_user: "postgres".to_string(),

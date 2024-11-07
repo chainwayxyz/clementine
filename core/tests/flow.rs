@@ -8,7 +8,7 @@ use bitcoin::{Address, Amount, Txid};
 use clementine_core::errors::BridgeError;
 use clementine_core::extended_rpc::ExtendedRpc;
 use clementine_core::rpc::clementine::clementine_aggregator_client::ClementineAggregatorClient;
-use clementine_core::rpc::clementine::DepositParams;
+use clementine_core::rpc::clementine::{self, DepositParams};
 use clementine_core::servers::create_verifiers_and_operators_grpc;
 use clementine_core::utils::{initialize_logger, SECP};
 use clementine_core::{create_extended_rpc, traits::rpc::OperatorRpcClient, user::User};
@@ -122,15 +122,45 @@ async fn withdrawal_fee_too_low() {
 }
 
 #[tokio::test]
-async fn grpc_flow() {
+#[should_panic]
+async fn double_calling_setip() {
     initialize_logger(5).unwrap();
-    let (_verifiers, aggregator) = create_verifiers_and_operators_grpc("test_config.toml").await;
+    let (_verifiers, _operators, aggregator) =
+        create_verifiers_and_operators_grpc("test_config.toml").await;
 
     let x: Uri = format!("http://{}", aggregator.0).parse().unwrap();
 
     println!("x: {:?}", x);
 
     let mut aggregator_client = ClementineAggregatorClient::connect(x).await.unwrap();
+
+    aggregator_client
+        .setup(tonic::Request::new(clementine::Empty {}))
+        .await
+        .unwrap();
+
+    aggregator_client
+        .setup(tonic::Request::new(clementine::Empty {}))
+        .await
+        .unwrap();
+}
+
+#[tokio::test]
+async fn grpc_flow() {
+    initialize_logger(5).unwrap();
+    let (_verifiers, _operators, aggregator) =
+        create_verifiers_and_operators_grpc("test_config.toml").await;
+
+    let x: Uri = format!("http://{}", aggregator.0).parse().unwrap();
+
+    println!("x: {:?}", x);
+
+    let mut aggregator_client = ClementineAggregatorClient::connect(x).await.unwrap();
+
+    aggregator_client
+        .setup(tonic::Request::new(clementine::Empty {}))
+        .await
+        .unwrap();
 
     aggregator_client
         .new_deposit(DepositParams {

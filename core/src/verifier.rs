@@ -36,15 +36,36 @@ pub struct AllSessions {
 }
 
 #[derive(Debug, Clone)]
+pub struct NofN {
+    pub public_keys: Vec<secp256k1::PublicKey>,
+    pub agg_xonly_pk: secp256k1::XOnlyPublicKey,
+    pub idx: usize,
+}
+
+impl NofN {
+    pub fn new(self_pk: secp256k1::PublicKey, public_keys: Vec<secp256k1::PublicKey>) -> Self {
+        let idx = public_keys.iter().position(|pk| pk == &self_pk).unwrap();
+        let agg_xonly_pk =
+            secp256k1::XOnlyPublicKey::from_musig2_pks(public_keys.clone(), None, false);
+        NofN {
+            public_keys,
+            agg_xonly_pk,
+            idx,
+        }
+    }
+}
+
+#[derive(Debug, Clone)]
 pub struct Verifier<R>
 where
     R: RpcApiWrapper,
 {
     rpc: ExtendedRpc<R>,
     pub(crate) signer: Actor,
-    db: Database,
+    pub(crate) db: Database,
     pub(crate) config: BridgeConfig,
     pub(crate) nofn_xonly_pk: secp256k1::XOnlyPublicKey,
+    pub(crate) nofn: Arc<tokio::sync::RwLock<Option<NofN>>>,
     operator_xonly_pks: Vec<secp256k1::XOnlyPublicKey>,
     pub(crate) nonces: Arc<tokio::sync::Mutex<AllSessions>>,
     pub idx: usize,
@@ -81,12 +102,23 @@ where
             sessions: HashMap::new(),
         };
 
+        let verifiers_pks = db.get_verifier_public_keys(None).await?;
+
+        let nofn = if verifiers_pks.len() != 0 {
+            tracing::debug!("Verifiers public keys found: {:?}", verifiers_pks);
+            let nofn = NofN::new(signer.public_key, verifiers_pks);
+            Some(nofn)
+        } else {
+            None
+        };
+
         Ok(Verifier {
             rpc,
             signer,
             db,
             config,
             nofn_xonly_pk,
+            nofn: Arc::new(tokio::sync::RwLock::new(nofn)),
             operator_xonly_pks,
             nonces: Arc::new(tokio::sync::Mutex::new(all_sessions)),
             idx,

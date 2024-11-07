@@ -30,11 +30,11 @@ where
     R: RpcApiWrapper,
 {
     rpc: ExtendedRpc<R>,
-    db: Database,
-    signer: Actor,
-    config: BridgeConfig,
+    pub db: Database,
+    pub(crate) signer: Actor,
+    pub(crate) config: BridgeConfig,
     nofn_xonly_pk: secp256k1::XOnlyPublicKey,
-    idx: usize,
+    pub(crate) idx: usize,
     citrea_client: Option<jsonrpsee::http_client::HttpClient>,
 }
 
@@ -69,18 +69,28 @@ where
             return Err(BridgeError::OperatorWithdrawalFeeNotSet);
         }
 
+        // let mut tx = db.begin_transaction().await?;
+        // // check if funding utxo is already set
+        // if db.get_funding_utxo(Some(&mut tx)).await?.is_none() {
+        //     let outpoint = rpc.send_to_address(&signer.address, Amount::from_sat(200_000_000))?; // TODO: Is this OK to be a fixed value
+        //     let funding_utxo = UTXO {
+        //         outpoint,
+        //         txout: TxOut {
+        //             value: bitcoin::Amount::from_sat(200_000_000),
+        //             script_pubkey: signer.address.script_pubkey(),
+        //         },
+        //     };
+        //     db.set_funding_utxo(Some(&mut tx), funding_utxo).await?;
+        // }
+        // tx.commit().await?;
+
         let mut tx = db.begin_transaction().await?;
-        // check if funding utxo is already set
-        if db.get_funding_utxo(Some(&mut tx)).await?.is_none() {
+        // check if there is any time tx from the current operator
+        let time_txs = db.get_time_txs(Some(&mut tx), idx as i32).await?;
+        if time_txs.is_empty() {
             let outpoint = rpc.send_to_address(&signer.address, Amount::from_sat(200_000_000))?; // TODO: Is this OK to be a fixed value
-            let funding_utxo = UTXO {
-                outpoint,
-                txout: TxOut {
-                    value: bitcoin::Amount::from_sat(200_000_000),
-                    script_pubkey: signer.address.script_pubkey(),
-                },
-            };
-            db.set_funding_utxo(Some(&mut tx), funding_utxo).await?;
+            db.set_time_tx(Some(&mut tx), idx as i32, 0, outpoint.txid, 0)
+                .await?;
         }
         tx.commit().await?;
 

@@ -37,8 +37,8 @@ message DepositSignSession {
 // Operator --------------------------------------------------------------------
 
 message OperatorConfig {
-  uint32 operator_id = 1;
-  Outpoint initial_time_tx_outpoint = 2;
+  uint32 operator_idx = 1;
+  bytes collateral_funding_txid = 2;
   string xonly_pk = 3;
   string wallet_reimburse_address = 4;
 }
@@ -175,7 +175,7 @@ message VerifierDepositFinalizeParams {
 }
 
 message VerifierPublicKeys {
-  repeated string verifier_public_keys = 1;
+  repeated bytes verifier_public_keys = 1;
 }
 
 service ClementineVerifier {

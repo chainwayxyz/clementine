@@ -48,9 +48,9 @@ pub struct DepositSignSession {
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct OperatorConfig {
     #[prost(uint32, tag = "1")]
-    pub operator_id: u32,
-    #[prost(message, optional, tag = "2")]
-    pub initial_time_tx_outpoint: ::core::option::Option<Outpoint>,
+    pub operator_idx: u32,
+    #[prost(bytes = "vec", tag = "2")]
+    pub collateral_funding_txid: ::prost::alloc::vec::Vec<u8>,
     #[prost(string, tag = "3")]
     pub xonly_pk: ::prost::alloc::string::String,
     #[prost(string, tag = "4")]
@@ -194,8 +194,8 @@ pub mod verifier_deposit_finalize_params {
 }
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct VerifierPublicKeys {
-    #[prost(string, repeated, tag = "1")]
-    pub verifier_public_keys: ::prost::alloc::vec::Vec<::prost::alloc::string::String>,
+    #[prost(bytes = "vec", repeated, tag = "1")]
+    pub verifier_public_keys: ::prost::alloc::vec::Vec<::prost::alloc::vec::Vec<u8>>,
 }
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct WatchtowerParams {
