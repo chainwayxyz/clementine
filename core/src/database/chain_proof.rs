@@ -17,7 +17,7 @@ impl Database {
         tx: Option<&mut sqlx::Transaction<'_, Postgres>>,
         block_hash: block::BlockHash,
         block_header: block::Header,
-        block_height: u32,
+        block_height: u64,
     ) -> Result<(), BridgeError> {
         let query = sqlx::query(
             "INSERT INTO header_chain_proofs (block_hash, block_header, height) VALUES ($1, $2, $3);",
@@ -181,7 +181,7 @@ mod tests {
         // Adding a new block should return a height.
         let height = 0x1F;
         let hash = block.block_hash();
-        db.save_new_block(None, hash, block.header, height as u32)
+        db.save_new_block(None, hash, block.header, height)
             .await
             .unwrap();
         assert_eq!(
@@ -193,14 +193,9 @@ mod tests {
         // getting returned.
         let smaller_height = height - 1;
         block.header.time = 1; // To avoid same block hash.
-        db.save_new_block(
-            None,
-            block.block_hash(),
-            block.header,
-            smaller_height as u32,
-        )
-        .await
-        .unwrap();
+        db.save_new_block(None, block.block_hash(), block.header, smaller_height)
+            .await
+            .unwrap();
         assert_eq!(
             (height, hash),
             db.get_latest_block_info(None).await.unwrap()
@@ -211,7 +206,7 @@ mod tests {
         let height = 0x45;
         block.header.time = 2; // To avoid same block hash.
         let hash = block.block_hash();
-        db.save_new_block(None, hash, block.header, height as u32)
+        db.save_new_block(None, hash, block.header, height)
             .await
             .unwrap();
         assert_eq!(
