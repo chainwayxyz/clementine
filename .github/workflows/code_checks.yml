@@ -53,7 +53,6 @@ jobs:
   coverage:
     name: Check code coverage percentage
     runs-on: ubicloud-standard-16
-    if: false
 
     services:
       postgres:
