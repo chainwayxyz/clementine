@@ -6,16 +6,17 @@ use super::clementine::{
     VerifierDepositSignParams, VerifierParams, VerifierPublicKeys, WatchtowerParams,
 };
 use crate::{
-    builder::sighash::create_nofn_sighash_stream,
+    builder::{self, sighash::create_nofn_sighash_stream},
     errors::BridgeError,
     musig2::{self, MuSigPubNonce, MuSigSecNonce},
     sha256_hash, utils,
     verifier::{NofN, NonceSession, Verifier},
     ByteArray32, ByteArray66, EVMAddress,
 };
-use bitcoin::{hashes::Hash, TapSighash};
+use bitcoin::{hashes::Hash, Amount, TapSighash, Txid};
 use bitcoin_mock_rpc::RpcApiWrapper;
 use futures::{pin_mut, StreamExt};
+use secp256k1::{schnorr, Message};
 use tokio::sync::mpsc;
 use tokio_stream::wrappers::ReceiverStream;
 use tonic::{async_trait, Request, Response, Status, Streaming};
@@ -88,14 +89,56 @@ where
             .operator_details
             .ok_or(BridgeError::Error("No operator details".to_string()))?;
 
+        let operator_xonly_pk = secp256k1::XOnlyPublicKey::from_str(&operator_config.xonly_pk)
+            .map_err(|_| BridgeError::Error("Invalid xonly public key".to_string()))?;
+
+        // Save the operator details to the db
         self.db
             .set_operator(
                 None,
                 operator_config.operator_idx as i32,
-                secp256k1::XOnlyPublicKey::from_str(&operator_config.xonly_pk).unwrap(),
+                operator_xonly_pk,
                 operator_config.wallet_reimburse_address,
             )
             .await?;
+
+        let timeout_tx_sigs: Vec<schnorr::Signature> = operator_params
+            .timeout_tx_sigs
+            .iter()
+            .map(|sig| secp256k1::schnorr::Signature::from_slice(sig).unwrap())
+            .collect();
+
+        let timeout_tx_sighash_stream = builder::sighash::create_timout_tx_sighash_stream(
+            operator_xonly_pk,
+            Txid::from_slice(&operator_config.collateral_funding_txid).unwrap(),
+            Amount::from_sat(200_000_000), // TODO: Fix this.
+            3024,
+            6,
+            100,
+            self.config.network,
+        );
+
+        // Verify the signatures
+        let results: Vec<Result<(), _>> = timeout_tx_sighash_stream
+            .enumerate()
+            .map(|(i, sighash)| {
+                utils::SECP.verify_schnorr(
+                    &timeout_tx_sigs[i],
+                    &Message::from(sighash),
+                    &operator_xonly_pk,
+                )
+            })
+            .collect()
+            .await;
+
+        // Check if all verifications succeeded
+        let x = results.iter().all(|res| res.is_ok());
+        if !x {
+            return Err(Status::internal(
+                "Failed to verify all timeout tx signatures",
+            ));
+        }
+        // Save the timeout tx signatures to the db
 
         Ok(Response::new(Empty {}))
     }
