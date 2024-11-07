@@ -238,9 +238,9 @@ where
 #[cfg(test)]
 mod tests {
     use crate::{
-        header_chain_prover::{BlockFetchStatus, ChainProver, DEEPNESS},
         create_extended_rpc,
         extended_rpc::ExtendedRpc,
+        header_chain_prover::{BlockFetchStatus, ChainProver, DEEPNESS},
         mock::database::create_test_config_with_thread_name,
     };
     use bitcoin::{hashes::Hash, BlockHash};
