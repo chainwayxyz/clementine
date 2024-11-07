@@ -179,9 +179,7 @@ where
             let hash = self.rpc.client.get_block_hash(height)?;
             let header = self.rpc.client.get_block_header(&hash)?;
 
-            self.db
-                .save_new_block(None, hash, header, height as u32)
-                .await?;
+            self.db.save_new_block(None, hash, header, height).await?;
         }
 
         Ok(())
@@ -278,7 +276,7 @@ mod tests {
                 None,
                 current_tip_hash,
                 current_block.header,
-                current_tip_height as u32,
+                current_tip_height,
             )
             .await
             .unwrap();
@@ -306,7 +304,7 @@ mod tests {
                 None,
                 current_tip_hash,
                 current_block.header,
-                current_tip_height as u32,
+                current_tip_height,
             )
             .await
             .unwrap();
@@ -326,19 +324,17 @@ mod tests {
         let rpc = create_extended_rpc!(config);
         let prover = ChainProver::new(&config, rpc.clone()).await.unwrap();
 
-        // Save current blockchain tip.
+        // Add current block to database.
         let current_tip_height = rpc.client.get_block_count().unwrap();
         let current_tip_hash = rpc.client.get_block_hash(current_tip_height).unwrap();
         let current_block = rpc.client.get_block(&current_tip_hash).unwrap();
-
-        // Add current block to database.
         prover
             .db
             .save_new_block(
                 None,
                 current_tip_hash,
                 current_block.header,
-                current_tip_height as u32,
+                current_tip_height,
             )
             .await
             .unwrap();
@@ -350,6 +346,41 @@ mod tests {
         assert_eq!(
             prover.check_for_new_blocks().await.unwrap(),
             BlockFetchStatus::OutOfBounds(diff)
+        );
+
+        // Add current block to database.
+        let current_tip_height = rpc.client.get_block_count().unwrap();
+        let current_tip_hash = rpc.client.get_block_hash(current_tip_height).unwrap();
+        let current_block = rpc.client.get_block(&current_tip_hash).unwrap();
+        prover
+            .db
+            .save_new_block(
+                None,
+                current_tip_hash,
+                current_block.header,
+                current_tip_height,
+            )
+            .await
+            .unwrap();
+        assert_eq!(
+            prover.check_for_new_blocks().await.unwrap(),
+            BlockFetchStatus::UpToDate
+        );
+
+        // Not exceeding deepness should not return an `OutOfBounds`.
+        let diff = DEEPNESS - 1;
+        rpc.mine_blocks(diff).unwrap();
+        assert_eq!(
+            prover.check_for_new_blocks().await.unwrap(),
+            BlockFetchStatus::FallenBehind(current_tip_height, current_tip_hash)
+        );
+
+        // Exceeding deepness should return an `OutOfBounds`.
+        let diff2 = DEEPNESS + DEEPNESS + 1;
+        rpc.mine_blocks(diff2).unwrap();
+        assert_eq!(
+            prover.check_for_new_blocks().await.unwrap(),
+            BlockFetchStatus::OutOfBounds(diff + diff2)
         );
     }
 
@@ -371,7 +402,7 @@ mod tests {
                 None,
                 current_tip_hash,
                 current_block.header,
-                current_tip_height as u32,
+                current_tip_height,
             )
             .await
             .unwrap();
