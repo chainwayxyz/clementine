@@ -21,7 +21,7 @@ enum BlockFetchStatus {
     UpToDate,
     /// Current tip is fallen behind with `height` and `hash`.
     FallenBehind(u64, BlockHash),
-    /// Current saved tip (with `height` specified) is too far behind the actual tip.
+    /// Current saved tip (with `difference` specified) is too far behind the actual tip.
     OutOfBounds(u64),
     /// Current tip is considered a fork with `height` and `hash`.
     Fork(u64, BlockHash),
@@ -112,17 +112,23 @@ where
         // possible reorg might have happened.
         if db_tip_height == tip_height && db_tip_hash == tip_hash {
             return Ok(BlockFetchStatus::UpToDate);
-        } else if db_tip_height == tip_height && db_tip_hash != tip_hash {
+        } else if (db_tip_height == tip_height && db_tip_hash != tip_hash)
+            || (db_tip_height > tip_height)
+        {
             tracing::error!("Current database blockchain tip is not on branch with the active blockchain (possible reorg)!");
 
             return Ok(BlockFetchStatus::Fork(db_tip_height, db_tip_hash));
         }
 
-        // Return current height if actual tip is too far behind.
-        if db_tip_height + DEEPNESS < tip_height {
-            tracing::error!("Current tip is fallen too far behind!");
+        // Return height difference if actual tip is too far behind.
+        let diff = tip_height - db_tip_height;
+        if diff > DEEPNESS {
+            tracing::error!(
+                "Current tip is fallen too far behind (difference: {})!",
+                diff
+            );
 
-            return Ok(BlockFetchStatus::OutOfBounds(db_tip_height));
+            return Ok(BlockFetchStatus::OutOfBounds(diff));
         }
 
         // Go back block by block to check that we are still at the same branch
@@ -255,7 +261,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn check_for_new_blocks() {
+    async fn check_for_new_blocks_uptodate() {
         let mut config = create_test_config_with_thread_name("test_config.toml", None).await;
         let rpc = create_extended_rpc!(config);
         let prover = ChainProver::new(&config, rpc.clone()).await.unwrap();
@@ -280,20 +286,70 @@ mod tests {
             prover.check_for_new_blocks().await.unwrap(),
             BlockFetchStatus::UpToDate
         );
+    }
+
+    #[tokio::test]
+    async fn check_for_new_blocks_fallen_behind() {
+        let mut config = create_test_config_with_thread_name("test_config.toml", None).await;
+        let rpc = create_extended_rpc!(config);
+        let prover = ChainProver::new(&config, rpc.clone()).await.unwrap();
+
+        // Save current blockchain tip.
+        let current_tip_height = rpc.client.get_block_count().unwrap();
+        let current_tip_hash = rpc.client.get_block_hash(current_tip_height).unwrap();
+        let current_block = rpc.client.get_block(&current_tip_hash).unwrap();
+
+        // Add current block to database.
+        prover
+            .db
+            .save_new_block(
+                None,
+                current_tip_hash,
+                current_block.header,
+                current_tip_height as u32,
+            )
+            .await
+            .unwrap();
 
         // Falling behind some blocks should return [`BlockFetchStatus::FallenBehind`].
-        rpc.mine_blocks(DEEPNESS - 1).unwrap();
+        let mine_count = DEEPNESS - 1;
+        rpc.mine_blocks(mine_count).unwrap();
         assert_eq!(
             prover.check_for_new_blocks().await.unwrap(),
             BlockFetchStatus::FallenBehind(current_tip_height, current_tip_hash)
         );
+    }
+
+    #[tokio::test]
+    async fn check_for_new_blocks_out_of_bounds() {
+        let mut config = create_test_config_with_thread_name("test_config.toml", None).await;
+        let rpc = create_extended_rpc!(config);
+        let prover = ChainProver::new(&config, rpc.clone()).await.unwrap();
+
+        // Save current blockchain tip.
+        let current_tip_height = rpc.client.get_block_count().unwrap();
+        let current_tip_hash = rpc.client.get_block_hash(current_tip_height).unwrap();
+        let current_block = rpc.client.get_block(&current_tip_hash).unwrap();
+
+        // Add current block to database.
+        prover
+            .db
+            .save_new_block(
+                None,
+                current_tip_hash,
+                current_block.header,
+                current_tip_height as u32,
+            )
+            .await
+            .unwrap();
 
         // Mining some blocks and not updating database should cause a
         // [`BlockFetchStatus::OutOfBounds`] return.
-        rpc.mine_blocks(DEEPNESS + 1).unwrap();
+        let diff = DEEPNESS * DEEPNESS + DEEPNESS;
+        rpc.mine_blocks(diff).unwrap();
         assert_eq!(
             prover.check_for_new_blocks().await.unwrap(),
-            BlockFetchStatus::OutOfBounds(current_tip_height)
+            BlockFetchStatus::OutOfBounds(diff)
         );
     }
 
