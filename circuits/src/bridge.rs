@@ -1,4 +1,4 @@
-use crypto_bigint::{Encoding, U256};
+use crypto_bigint::U256;
 
 use crate::{
     bitcoin::{
@@ -91,46 +91,9 @@ fn read_header_except_prev_blockhash<E: Environment>() -> HeaderWithoutPrevBlock
     (version, merkle_root, time, bits, nonce)
 }
 
-/// Runs header chain prover on a Risc Zero zkVM.
-///
-/// TODO check env and returns
-///
-/// # Environment
-///
-/// Environment changes depending on the flow of arguments.
-///
-/// - `[u8; 32]`: Genesis block's hash or previous block's hash depending on current block.
-/// - `u32`: 0 to specify current block is not genesis, bigger than 0 to specify it is
-/// - Depends on if genesis or not
-///   - If genesis
-///   - `[u32; 8]`: Method ID
-///   - If not genesis
-///   - `[u32; 8]`: Previous method ID
-///   - `u32`: Previous offset
-///   - `[u8; 32]`: Previous block's hash
-///   - `[u8; 32]`: Previous block's total work
-/// - `u32`: Offset
-/// - `u32`: Batch size
-/// - For 0..batch_size, read block header
-///   - `i32`: Block version
-///   - `[u8; 32]`: Merkle root
-///   - `u32`: Block time
-///   - `u32`: Bits
-///   - `u32`: Nonce
-///
-/// # Returns
-///
-/// A tuple with 5 members:
-///
-/// - `[u32; 8]`: Method ID
-/// - `[u32; 8]`: Genesis block's hash
-/// - `u32`: Offset?
-/// - `[u32; 8]`: Block hash?
-/// - `[u32; 8]`: Total work
 pub fn header_chain_proof<E: Environment>() -> ([u32; 8], [u8; 32], u32, [u8; 32], [u8; 32]) {
     let genesis_block_hash = E::read_32bytes();
     let is_genesis = E::read_u32();
-
     let (mut curr_prev_block_hash, method_id, mut total_work) = if is_genesis == 0 {
         let prev_method_id = E::read_u32x8();
         let prev_offset = E::read_u32();
@@ -140,7 +103,9 @@ pub fn header_chain_proof<E: Environment>() -> ([u32; 8], [u8; 32], u32, [u8; 32
         assert_eq!(prev_offset, 0);
 
         let mut journal = [0u32; 105];
-        journal[..8].copy_from_slice(&prev_method_id);
+        for i in 0..8 {
+            journal[i] = prev_method_id[i];
+        }
         for i in 0..32 {
             journal[i + 8] = genesis_block_hash[i] as u32;
         }
@@ -163,11 +128,11 @@ pub fn header_chain_proof<E: Environment>() -> ([u32; 8], [u8; 32], u32, [u8; 32
         let method_id = E::read_u32x8();
         (genesis_block_hash, method_id, U256::ZERO)
     };
-
     let return_offset = E::read_u32();
     let batch_size = E::read_u32();
 
     let mut to_return_block_hash: [u8; 32] = [0; 32];
+
     for i in 0..batch_size {
         let header_without_prev_blockhash = read_header_except_prev_blockhash::<E>();
         curr_prev_block_hash =
@@ -181,7 +146,6 @@ pub fn header_chain_proof<E: Environment>() -> ([u32; 8], [u8; 32], u32, [u8; 32
             to_return_block_hash = curr_prev_block_hash;
         }
     }
-
     (
         method_id,
         genesis_block_hash,

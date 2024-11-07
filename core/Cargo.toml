@@ -11,6 +11,7 @@ bitcoincore-rpc = { workspace = true }
 hex = { workspace = true, features = ["serde"] }
 lazy_static = { workspace = true, features = ["spin_no_std"] }
 sha2 = { workspace = true }
+# risc0-zkvm = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
 # byteorder = { workspace = true }
