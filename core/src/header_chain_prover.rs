@@ -193,29 +193,32 @@ where
         prev_receipt: Option<Receipt>,
         block_headers: Vec<BlockHeader>,
     ) -> Result<Receipt, BridgeError> {
-        let elf = include_bytes!("../../scripts/header-chain-guest");
-        let (prev_proof, method_id) = match prev_receipt.clone() {
+        // Prepare prover binary.
+        const ELF: &[u8; 186232] = include_bytes!("../../scripts/header-chain-guest");
+        let image_id: [u32; 8] = compute_image_id(ELF)
+            .map_err(|e| BridgeError::ProveError(format!("Can't compute image id {}", e)))?
+            .as_words()
+            .try_into()
+            .map_err(|e| {
+                BridgeError::ProveError(format!(
+                    "Can't convert computed image id to [u32; 8]: {}",
+                    e
+                ))
+            })?;
+
+        // Prepare proof input.
+        let (prev_proof, method_id) = match &prev_receipt {
             Some(receipt) => {
                 let prev_output: BlockHeaderCircuitOutput =
-                    borsh::from_slice(&receipt.journal.clone().bytes).unwrap();
-                let prev_output2: BlockHeaderCircuitOutput =
-                    borsh::from_slice(&receipt.journal.clone().bytes).unwrap();
+                    borsh::from_slice(&receipt.journal.bytes).map_err(|e| {
+                        BridgeError::ProveError(format!("Can't convert journal to bytes: {}", e))
+                    })?;
+                let method_id = prev_output.method_id;
 
-                (
-                    HeaderChainPrevProofType::PrevProof(prev_output),
-                    prev_output2.method_id,
-                )
+                (HeaderChainPrevProofType::PrevProof(prev_output), method_id)
             }
-            None => (
-                HeaderChainPrevProofType::GenesisBlock,
-                compute_image_id(elf)
-                    .unwrap()
-                    .as_words()
-                    .try_into()
-                    .unwrap(),
-            ),
+            None => (HeaderChainPrevProofType::GenesisBlock, image_id),
         };
-
         let input = HeaderChainCircuitInput {
             method_id,
             prev_proof,
@@ -224,8 +227,7 @@ where
 
         let mut env = ExecutorEnv::builder();
 
-        let proof_options = borsh::to_vec(&input)?;
-        env.write_slice(&proof_options);
+        env.write_slice(&borsh::to_vec(&input)?);
 
         if let Some(prev_receipt) = prev_receipt {
             env.add_assumption(prev_receipt);
@@ -238,7 +240,7 @@ where
         let prover = risc0_zkvm::default_prover();
 
         let receipt = prover
-            .prove(env, elf)
+            .prove(env, ELF)
             .map_err(|e| BridgeError::ProveError(e.to_string()))?
             .receipt;
 
