@@ -1,6 +1,6 @@
 //! Chain proof related database operations.
 
-use super::Database;
+use super::{wrapper::ReceiptDB, Database};
 use crate::{
     database::wrapper::{BlockHashDB, BlockHeaderDB},
     errors::BridgeError,
@@ -56,24 +56,20 @@ impl Database {
 
     /// Sets a block's proof by referring to it by it's hash.
     #[tracing::instrument(skip(self), err(level = tracing::Level::ERROR), ret(level = tracing::Level::TRACE))]
-    pub async fn get_block_proof(
+    pub async fn get_block_proof_by_hash(
         &self,
         tx: Option<&mut sqlx::Transaction<'_, Postgres>>,
         hash: block::BlockHash,
     ) -> Result<Receipt, BridgeError> {
-        // let query = sqlx::query_as(
-        //     "SELECT proof FROM header_chain_proofs WHERE block_hash = $1;",
-        // )
-        // .bind(BlockHashDB(hash));
+        let query = sqlx::query_as("SELECT proof FROM header_chain_proofs WHERE block_hash = $1;")
+            .bind(BlockHashDB(hash));
 
-        // let receipt: Vec<u8> = match tx {
-        //     Some(tx) => query.fetch_one(&mut **tx).await,
-        //     None => query.fetch_one(&self.connection).await,
-        // }?;
+        let receipt: (sqlx::types::Json<ReceiptDB>,) = match tx {
+            Some(tx) => query.fetch_one(&mut **tx).await,
+            None => query.fetch_one(&self.connection).await,
+        }?;
 
-        // Ok(receipt)
-
-        todo!()
+        Ok(receipt.0 .0 .0)
     }
 
     /// Returns a blocks proof, by it's height.

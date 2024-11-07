@@ -5,7 +5,7 @@
 use crate::{
     config::BridgeConfig, database::Database, errors::BridgeError, extended_rpc::ExtendedRpc,
 };
-use bitcoin::{block, hashes::Hash, BlockHash};
+use bitcoin::{hashes::Hash, BlockHash};
 use bitcoin_mock_rpc::RpcApiWrapper;
 use circuits::header_chain::{
     BlockHeader, BlockHeaderCircuitOutput, HeaderChainCircuitInput, HeaderChainPrevProofType,
@@ -52,10 +52,9 @@ where
     ///
     /// # Parameters
     ///
-    /// - `height`: Target block height
-    /// - `hash`: [Optional] Target block hash
-    pub async fn get_header_chain_proof(_height: u64, _hash: Option<block::BlockHash>) {
-        todo!()
+    /// - `hash`: Target block hash
+    pub async fn get_header_chain_proof(&self, hash: BlockHash) -> Result<Receipt, BridgeError> {
+        self.db.get_block_proof_by_hash(None, hash).await
     }
 
     /// Starts a background task that syncs current database to active
@@ -484,5 +483,43 @@ mod tests {
         println!("Proof journal output: {:?}", output);
 
         assert_eq!(output.chain_state.block_height, 1);
+    }
+
+    #[tokio::test]
+    #[ignore = "Proving takes too much time: Only run it when it's necessary"]
+    async fn save_and_get_proof() {
+        let mut config = create_test_config_with_thread_name("test_config.toml", None).await;
+        let rpc = create_extended_rpc!(config);
+        let prover = ChainProver::new(&config, rpc.clone()).await.unwrap();
+        let block_headers = get_headers();
+
+        // Prove genesis block.
+        let receipt = prover.prove_block(None, vec![]).await.unwrap();
+        let hash =
+            BlockHash::from_raw_hash(Hash::from_slice(&block_headers[1].prev_block_hash).unwrap());
+        prover
+            .db
+            .save_block_proof(None, hash, receipt.clone())
+            .await
+            .unwrap();
+        let database_receipt = prover.get_header_chain_proof(hash).await.unwrap();
+        assert_eq!(receipt.journal, database_receipt.journal);
+        assert_eq!(receipt.metadata, database_receipt.metadata);
+
+        // Prove second block.
+        let receipt = prover
+            .prove_block(Some(receipt), block_headers[0..2].to_vec())
+            .await
+            .unwrap();
+        let hash =
+            BlockHash::from_raw_hash(Hash::from_slice(&block_headers[2].prev_block_hash).unwrap());
+        prover
+            .db
+            .save_block_proof(None, hash, receipt.clone())
+            .await
+            .unwrap();
+        let database_receipt = prover.get_header_chain_proof(hash).await.unwrap();
+        assert_eq!(receipt.journal, database_receipt.journal);
+        assert_eq!(receipt.metadata, database_receipt.metadata);
     }
 }

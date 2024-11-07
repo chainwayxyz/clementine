@@ -110,7 +110,7 @@ pub enum BridgeError {
     AlreadySpentWithdrawal,
     /// There was an error while creating a server.
     #[error("ServerError")]
-    ServerError(#[from] std::io::Error),
+    ServerError(#[from] std::io::Error), // TODO: Bad idea to auto convert std::io::Error to another type.
     /// When the operators funding utxo is not found
     #[error("OperatorFundingUtxoNotFound: Funding utxo not found, pls send some amount here: {0}, then call the set_operator_funding_utxo RPC")]
     OperatorFundingUtxoNotFound(bitcoin::Address),
