@@ -29,7 +29,6 @@ borsh = { version = "1.5.1", features = ["derive"] }
 k256 = { version = "=0.13.3", default-features = false }
 risc0-build = "=1.1.2"
 risc0-zkvm = { version = "=1.1.2" }
-header-chain-circuit = { git = "https://github.com/chainwayxyz/risc0-to-bitvm2" }
 circuits = { git = "https://github.com/chainwayxyz/risc0-to-bitvm2" }
 
 bitcoin-mock-rpc = { git = "https://github.com/chainwayxyz/bitcoin-mock-rpc", tag = "v0.0.12" }

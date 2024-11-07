@@ -7,8 +7,10 @@ use crate::{
 };
 use bitcoin::{block, hashes::Hash, BlockHash};
 use bitcoin_mock_rpc::RpcApiWrapper;
-use circuits::header_chain::{HeaderChainCircuitInput, HeaderChainPrevProofType};
-use risc0_zkvm::{AssumptionReceipt, ExecutorEnv, Receipt};
+use circuits::header_chain::{
+    BlockHeader, BlockHeaderCircuitOutput, HeaderChainCircuitInput, HeaderChainPrevProofType,
+};
+use risc0_zkvm::{compute_image_id, ExecutorEnv, Receipt};
 
 // Checks this amount of previous blocks if not synced with blockchain.
 // TODO: Get this from config file.
@@ -69,15 +71,7 @@ where
                     _ => panic!("Hapi yuttun"),
                 };
 
-                let proof_options = HeaderChainCircuitInput {
-                    method_id: [0; 8],
-                    prev_proof: HeaderChainPrevProofType::GenesisBlock,
-                    block_headers: vec![],
-                };
-                let proof = self
-                    .prove_block(proof_options, None::<Receipt>)
-                    .await
-                    .unwrap();
+                let proof = self.prove_block(None, vec![]).await.unwrap();
 
                 // TODO: Use real block hash.
                 self.db
@@ -196,16 +190,45 @@ where
     /// - [`Receipt`]: Proved block's proof receipt.
     async fn prove_block(
         &self,
-        proof_options: HeaderChainCircuitInput,
-        assumption: Option<impl Into<AssumptionReceipt>>,
+        prev_receipt: Option<Receipt>,
+        block_headers: Vec<BlockHeader>,
     ) -> Result<Receipt, BridgeError> {
+        let elf = include_bytes!("../../scripts/header-chain-guest");
+        let (prev_proof, method_id) = match prev_receipt.clone() {
+            Some(receipt) => {
+                let prev_output: BlockHeaderCircuitOutput =
+                    borsh::from_slice(&receipt.journal.clone().bytes).unwrap();
+                let prev_output2: BlockHeaderCircuitOutput =
+                    borsh::from_slice(&receipt.journal.clone().bytes).unwrap();
+
+                (
+                    HeaderChainPrevProofType::PrevProof(prev_output),
+                    prev_output2.method_id,
+                )
+            }
+            None => (
+                HeaderChainPrevProofType::GenesisBlock,
+                compute_image_id(elf)
+                    .unwrap()
+                    .as_words()
+                    .try_into()
+                    .unwrap(),
+            ),
+        };
+
+        let input = HeaderChainCircuitInput {
+            method_id,
+            prev_proof,
+            block_headers,
+        };
+
         let mut env = ExecutorEnv::builder();
 
-        let proof_options = borsh::to_vec(&proof_options)?;
+        let proof_options = borsh::to_vec(&input)?;
         env.write_slice(&proof_options);
 
-        if let Some(assumption) = assumption {
-            env.add_assumption(assumption);
+        if let Some(prev_receipt) = prev_receipt {
+            env.add_assumption(prev_receipt);
         }
 
         let env = env
@@ -215,7 +238,7 @@ where
         let prover = risc0_zkvm::default_prover();
 
         let receipt = prover
-            .prove(env, header_chain_circuit::HEADER_CHAIN_GUEST_ELF)
+            .prove(env, elf)
             .map_err(|e| BridgeError::ProveError(e.to_string()))?
             .receipt;
 
@@ -236,10 +259,7 @@ mod tests {
     use bitcoin::{hashes::Hash, BlockHash};
     use bitcoincore_rpc::RpcApi;
     use borsh::BorshDeserialize;
-    use circuits::header_chain::{
-        BlockHeader, BlockHeaderCircuitOutput, HeaderChainCircuitInput, HeaderChainPrevProofType,
-    };
-    use risc0_zkvm::Receipt;
+    use circuits::header_chain::{BlockHeader, BlockHeaderCircuitOutput};
 
     fn get_headers() -> Vec<BlockHeader> {
         let headers = include_bytes!("../../scripts/headers.bin");
@@ -429,21 +449,11 @@ mod tests {
         let rpc = create_extended_rpc!(config);
         let prover = ChainProver::new(&config, rpc.clone()).await.unwrap();
 
-        let method_id = [0x45; 8];
-        let prove_options = HeaderChainCircuitInput {
-            method_id,
-            prev_proof: HeaderChainPrevProofType::GenesisBlock,
-            block_headers: vec![],
-        };
-        let receipt = prover
-            .prove_block(prove_options, None::<Receipt>)
-            .await
-            .unwrap();
+        let receipt = prover.prove_block(None, vec![]).await.unwrap();
 
         let output: BlockHeaderCircuitOutput = borsh::from_slice(&receipt.journal.bytes).unwrap();
         println!("Proof journal output: {:?}", output);
 
-        assert_eq!(output.method_id, method_id);
         assert_eq!(output.chain_state.block_height, u32::MAX); // risc0-to-bitvm2 related
         assert_eq!(
             output.chain_state.best_block_hash,
@@ -459,34 +469,17 @@ mod tests {
         let prover = ChainProver::new(&config, rpc.clone()).await.unwrap();
 
         // Prove genesis block and get it's receipt.
-        let method_id = header_chain_circuit::HEADER_CHAIN_GUEST_ID;
-        let prove_options = HeaderChainCircuitInput {
-            method_id,
-            prev_proof: HeaderChainPrevProofType::GenesisBlock,
-            block_headers: vec![],
-        };
-        let receipt = prover
-            .prove_block(prove_options, None::<Receipt>)
-            .await
-            .unwrap();
-        let output =
-            BlockHeaderCircuitOutput::try_from_slice(&receipt.journal.bytes.clone()).unwrap();
+        let receipt = prover.prove_block(None, vec![]).await.unwrap();
 
         let block_headers = get_headers();
-        let prove_options = HeaderChainCircuitInput {
-            method_id,
-            prev_proof: HeaderChainPrevProofType::PrevProof(output),
-            block_headers: block_headers[0..2].to_vec(),
-        };
         let receipt = prover
-            .prove_block(prove_options, Some(receipt))
+            .prove_block(Some(receipt), block_headers[0..2].to_vec())
             .await
             .unwrap();
         let output: BlockHeaderCircuitOutput = borsh::from_slice(&receipt.journal.bytes).unwrap();
 
         println!("Proof journal output: {:?}", output);
 
-        assert_eq!(output.method_id, method_id);
         assert_eq!(output.chain_state.block_height, 1);
     }
 }
