@@ -7,7 +7,6 @@ use crate::{
 };
 use bitcoin::{block, hashes::Hash, BlockHash};
 use bitcoin_mock_rpc::RpcApiWrapper;
-use bitcoincore_rpc::json::{GetChainTipsResultStatus, GetChainTipsResultTip};
 use circuits::header_chain::{HeaderChainCircuitInput, HeaderChainPrevProofType};
 use risc0_zkvm::{AssumptionReceipt, ExecutorEnv, Receipt};
 
@@ -105,21 +104,22 @@ where
             db_tip_hash
         );
 
-        let tip = self.get_active_tip()?;
-        let tip_block = self.rpc.client.get_block(&tip.hash)?;
+        let tip_height = self.rpc.client.get_block_count()?;
+        let tip_hash = self.rpc.client.get_block_hash(tip_height)?;
+        let tip_prev_blockhash = self.rpc.client.get_block_header(&tip_hash)?.prev_blockhash;
 
         // Return early if database is up to date. Or if hash is not matching,
         // possible reorg might have happened.
-        if db_tip_height == tip.height && db_tip_hash == tip.hash {
+        if db_tip_height == tip_height && db_tip_hash == tip_hash {
             return Ok(BlockFetchStatus::UpToDate);
-        } else if db_tip_height == tip.height && db_tip_hash != tip.hash {
+        } else if db_tip_height == tip_height && db_tip_hash != tip_hash {
             tracing::error!("Current database blockchain tip is not on branch with the active blockchain (possible reorg)!");
 
             return Ok(BlockFetchStatus::Fork(db_tip_height, db_tip_hash));
         }
 
         // Return current height if actual tip is too far behind.
-        if db_tip_height + DEEPNESS < tip.height {
+        if db_tip_height + DEEPNESS < tip_height {
             tracing::error!("Current tip is fallen too far behind!");
 
             return Ok(BlockFetchStatus::OutOfBounds(db_tip_height));
@@ -127,7 +127,7 @@ where
 
         // Go back block by block to check that we are still at the same branch
         // as the active blockchain.
-        let mut previous_block_hash = tip_block.header.prev_blockhash;
+        let mut previous_block_hash = tip_prev_blockhash;
         for deepness in 1..DEEPNESS + 1 {
             let current_block = self.rpc.client.get_block(&previous_block_hash)?;
             let current_block_hash = previous_block_hash;
@@ -135,7 +135,7 @@ where
 
             let db_block_hash = match self
                 .db
-                .get_block_proof_info_by_height(None, tip.height - deepness)
+                .get_block_proof_info_by_height(None, tip_height - deepness)
                 .await
             {
                 Ok(r) => r.0,
@@ -146,7 +146,7 @@ where
                 tracing::trace!("Current database blockchain tip is {} blocks behind than the active blockchain tip.", deepness);
 
                 return Ok(BlockFetchStatus::FallenBehind(
-                    tip.height - deepness,
+                    tip_height - deepness,
                     db_block_hash,
                 ));
             }
@@ -216,23 +216,6 @@ where
 
         Ok(receipt)
     }
-
-    /// Returns active blockchain tip.
-    fn get_active_tip(&self) -> Result<GetChainTipsResultTip, BridgeError> {
-        let tips = self.rpc.client.get_chain_tips()?;
-        let tip = tips
-            .iter()
-            .find(|tip| tip.status == GetChainTipsResultStatus::Active)
-            .ok_or(BridgeError::BlockNotFound)?;
-
-        tracing::trace!(
-            "Active blockchain tip is at height {} with block hash {}",
-            tip.height,
-            tip.hash
-        );
-
-        Ok(tip.to_owned())
-    }
 }
 
 #[cfg(test)]
@@ -275,17 +258,18 @@ mod tests {
         let prover = ChainProver::new(&config, rpc.clone()).await.unwrap();
 
         // Save current blockchain tip.
-        let current_tip = prover.get_active_tip().unwrap();
-        let current_block = rpc.client.get_block(&current_tip.hash).unwrap();
+        let current_tip_height = rpc.client.get_block_count().unwrap();
+        let current_tip_hash = rpc.client.get_block_hash(current_tip_height).unwrap();
+        let current_block = rpc.client.get_block(&current_tip_hash).unwrap();
 
         // Updating database with current block should return [`BlockFetchStatus::UpToDate`].
         prover
             .db
             .save_new_block(
                 None,
-                current_tip.hash,
+                current_tip_hash,
                 current_block.header,
-                current_tip.height as u32,
+                current_tip_height as u32,
             )
             .await
             .unwrap();
@@ -298,7 +282,7 @@ mod tests {
         rpc.mine_blocks(DEEPNESS - 1).unwrap();
         assert_eq!(
             prover.check_for_new_blocks().await.unwrap(),
-            BlockFetchStatus::FallenBehind(current_tip.height, current_tip.hash)
+            BlockFetchStatus::FallenBehind(current_tip_height, current_tip_hash)
         );
 
         // Mining some blocks and not updating database should cause a
@@ -306,7 +290,7 @@ mod tests {
         rpc.mine_blocks(DEEPNESS + 1).unwrap();
         assert_eq!(
             prover.check_for_new_blocks().await.unwrap(),
-            BlockFetchStatus::OutOfBounds(current_tip.height)
+            BlockFetchStatus::OutOfBounds(current_tip_height)
         );
     }
 
@@ -317,17 +301,18 @@ mod tests {
         let prover = ChainProver::new(&config, rpc.clone()).await.unwrap();
 
         // Save current blockchain tip.
-        let current_tip = prover.get_active_tip().unwrap();
-        let current_block = rpc.client.get_block(&current_tip.hash).unwrap();
+        let current_tip_height = rpc.client.get_block_count().unwrap();
+        let current_tip_hash = rpc.client.get_block_hash(current_tip_height).unwrap();
+        let current_block = rpc.client.get_block(&current_tip_hash).unwrap();
 
         // Update database with current block.
         prover
             .db
             .save_new_block(
                 None,
-                current_tip.hash,
+                current_tip_hash,
                 current_block.header,
-                current_tip.height as u32,
+                current_tip_height as u32,
             )
             .await
             .unwrap();
@@ -336,7 +321,7 @@ mod tests {
         rpc.mine_blocks(DEEPNESS - 1).unwrap();
         assert_eq!(
             prover.check_for_new_blocks().await.unwrap(),
-            BlockFetchStatus::FallenBehind(current_tip.height, current_tip.hash)
+            BlockFetchStatus::FallenBehind(current_tip_height, current_tip_hash)
         );
 
         // Sync database to current active blockchain.
@@ -348,6 +333,7 @@ mod tests {
     }
 
     #[tokio::test]
+    #[ignore = "Proving takes too much time: Only run it when it's necessary"]
     async fn prove_block_genesis() {
         let mut config = create_test_config_with_thread_name("test_config.toml", None).await;
         let rpc = create_extended_rpc!(config);
@@ -376,6 +362,7 @@ mod tests {
     }
 
     #[tokio::test]
+    #[ignore = "Proving takes too much time: Only run it when it's necessary"]
     async fn prove_block_second() {
         let mut config = create_test_config_with_thread_name("test_config.toml", None).await;
         let rpc = create_extended_rpc!(config);
