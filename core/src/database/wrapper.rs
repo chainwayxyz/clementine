@@ -6,7 +6,6 @@ use bitcoin::{
     hex::{DisplayHex, FromHex},
     Address, OutPoint, TxOut, Txid,
 };
-use borsh::{BorshDeserialize, BorshSerialize};
 use serde::{Deserialize, Serialize};
 use sqlx::{
     postgres::{PgArgumentBuffer, PgValueRef},
@@ -196,32 +195,6 @@ impl<'r> Decode<'r, Postgres> for BlockHeaderDB {
             block::Header::consensus_decode(&mut Vec::from_hex(&s)?.as_slice())?;
 
         Ok(BlockHeaderDB(header))
-    }
-}
-
-#[derive(Serialize, Deserialize, sqlx::FromRow, Debug, Clone, BorshSerialize, BorshDeserialize)]
-pub struct ReceiptDB(pub risc0_zkvm::Receipt);
-
-impl sqlx::Type<sqlx::Postgres> for ReceiptDB {
-    fn type_info() -> sqlx::postgres::PgTypeInfo {
-        sqlx::postgres::PgTypeInfo::with_name("TEXT")
-    }
-}
-impl<'q> Encode<'q, Postgres> for ReceiptDB {
-    fn encode_by_ref(&self, buf: &mut PgArgumentBuffer) -> sqlx::encode::IsNull {
-        let hex = borsh::to_vec(self).unwrap();
-        let s = hex.to_hex_string(bitcoin::hex::Case::Lower);
-
-        <&str as Encode<Postgres>>::encode_by_ref(&s.as_str(), buf)
-    }
-}
-impl<'r> Decode<'r, Postgres> for ReceiptDB {
-    fn decode(value: PgValueRef<'r>) -> Result<Self, sqlx::error::BoxDynError> {
-        let s: String = Decode::decode(value.clone())?;
-        let s: Vec<u8> = Vec::from_hex(&s).unwrap();
-        let receipt: risc0_zkvm::Receipt = borsh::from_slice(&s).unwrap();
-
-        Ok(ReceiptDB(receipt))
     }
 }
 
