@@ -557,8 +557,9 @@ mod tests {
             .save_block_proof(None, hash, receipt.clone())
             .await
             .unwrap();
-        let database_receipt = prover.get_header_chain_proof(hash).await.unwrap();
-        assert_eq!(receipt.journal, database_receipt.journal);
-        assert_eq!(receipt.metadata, database_receipt.metadata);
+        let database_receipt2 = prover.get_header_chain_proof(hash).await.unwrap();
+        assert_eq!(receipt.journal, database_receipt2.journal);
+        assert_eq!(receipt.metadata, database_receipt2.metadata);
+        assert_ne!(receipt.journal, database_receipt.journal);
     }
 }
