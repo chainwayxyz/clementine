@@ -60,6 +60,7 @@ where
     /// Starts a background task that syncs current database to active
     /// blockchain and does proving.
     pub fn start_header_chain_prover(&'static self) {
+        // Block checks.
         tokio::spawn(async move {
             loop {
                 match self.check_for_new_blocks().await.unwrap() {
@@ -77,6 +78,38 @@ where
                     .save_block_proof(None, BlockHash::all_zeros(), proof)
                     .await
                     .unwrap();
+            }
+        });
+
+        // Prover.
+        tokio::spawn(async move {
+            loop {
+                let non_proved_block = self.db.get_non_proven_block(None).await;
+
+                if let Ok((
+                    current_block_hash,
+                    current_block_header,
+                    _current_block_height,
+                    previous_proof,
+                )) = non_proved_block
+                {
+                    let header = BlockHeader {
+                        version: current_block_header.version.to_consensus(),
+                        prev_block_hash: current_block_header.prev_blockhash.to_byte_array(),
+                        merkle_root: current_block_header.merkle_root.to_byte_array(),
+                        time: current_block_header.time,
+                        bits: current_block_header.bits.to_consensus(),
+                        nonce: current_block_header.nonce,
+                    };
+                    let receipt = self.prove_block(Some(previous_proof), vec![header]).await;
+
+                    if let Ok(receipt) = receipt {
+                        self.db
+                            .save_block_proof(None, current_block_hash, receipt)
+                            .await
+                            .unwrap();
+                    }
+                }
             }
         });
 
