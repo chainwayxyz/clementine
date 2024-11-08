@@ -11,6 +11,8 @@ use circuits::header_chain::{
     BlockHeader, BlockHeaderCircuitOutput, HeaderChainCircuitInput, HeaderChainPrevProofType,
 };
 use risc0_zkvm::{compute_image_id, ExecutorEnv, Receipt};
+use std::{thread, time::Duration};
+use tokio::{sync::mpsc, time::sleep};
 
 // Checks this amount of previous blocks if not synced with blockchain.
 // TODO: Get this from config file.
@@ -59,53 +61,78 @@ where
 
     /// Starts a background task that syncs current database to active
     /// blockchain and does proving.
-    pub fn start_header_chain_prover(&'static self) {
+    pub fn start_header_chain_prover(&self) {
+        let (tx, mut rx) = mpsc::channel::<()>(5);
+
         // Block checks.
+        let block_checks = ChainProver {
+            rpc: self.rpc.clone(),
+            db: self.db.clone(),
+        };
         tokio::spawn(async move {
             loop {
-                match self.check_for_new_blocks().await.unwrap() {
-                    BlockFetchStatus::UpToDate => (),
-                    BlockFetchStatus::FallenBehind(block_height, _block_hash) => {
-                        self.sync_blockchain(block_height).await.unwrap()
+                if let Ok(status) = block_checks.check_for_new_blocks().await {
+                    match status {
+                        BlockFetchStatus::UpToDate => (),
+                        BlockFetchStatus::FallenBehind(block_height, _block_hash) => {
+                            block_checks.sync_blockchain(block_height).await.unwrap();
+                            tx.send(()).await.unwrap();
+                        }
+                        _ => panic!("Hapi yuttun"),
                     }
-                    _ => panic!("Hapi yuttun"),
                 };
+
+                sleep(Duration::from_millis(1000)).await;
             }
         });
 
         // Prover.
-        tokio::spawn(async move {
-            loop {
-                let non_proved_block = self.db.get_non_proven_block(None).await;
+        let prover = ChainProver {
+            rpc: self.rpc.clone(),
+            db: self.db.clone(),
+        };
+        thread::spawn(move || {
+            tokio::spawn(async move {
+                loop {
+                    let non_proved_block = prover.db.get_non_proven_block(None).await;
 
-                if let Ok((
-                    current_block_hash,
-                    current_block_header,
-                    _current_block_height,
-                    previous_proof,
-                )) = non_proved_block
-                {
-                    let header = BlockHeader {
-                        version: current_block_header.version.to_consensus(),
-                        prev_block_hash: current_block_header.prev_blockhash.to_byte_array(),
-                        merkle_root: current_block_header.merkle_root.to_byte_array(),
-                        time: current_block_header.time,
-                        bits: current_block_header.bits.to_consensus(),
-                        nonce: current_block_header.nonce,
-                    };
-                    let receipt = self.prove_block(Some(previous_proof), vec![header]).await;
+                    if let Ok((
+                        current_block_hash,
+                        current_block_header,
+                        _current_block_height,
+                        previous_proof,
+                    )) = non_proved_block
+                    {
+                        let header = BlockHeader {
+                            version: current_block_header.version.to_consensus(),
+                            prev_block_hash: current_block_header.prev_blockhash.to_byte_array(),
+                            merkle_root: current_block_header.merkle_root.to_byte_array(),
+                            time: current_block_header.time,
+                            bits: current_block_header.bits.to_consensus(),
+                            nonce: current_block_header.nonce,
+                        };
+                        let receipt = prover.prove_block(Some(previous_proof), vec![header]).await;
 
-                    if let Ok(receipt) = receipt {
-                        self.db
-                            .save_block_proof(None, current_block_hash, receipt)
-                            .await
-                            .unwrap();
+                        if let Ok(receipt) = receipt {
+                            prover
+                                .db
+                                .save_block_proof(None, current_block_hash, receipt)
+                                .await
+                                .unwrap();
+
+                            // Only continue to check for new unproven blocks, if
+                            // this attempt was successful.
+                            continue;
+                        }
                     }
-                }
-            }
-        });
 
-        todo!()
+                    // If prove is somehow failed, we don't have enough information
+                    // in our hands to prove anything. Wait for block syncher to
+                    // inform us about the new blocks.
+                    rx.blocking_recv();
+                }
+            });
+        });
     }
 
     /// Checks current status of the database against latest active blockchain
@@ -291,6 +318,8 @@ mod tests {
     use bitcoincore_rpc::RpcApi;
     use borsh::BorshDeserialize;
     use circuits::header_chain::{BlockHeader, BlockHeaderCircuitOutput};
+    use std::time::Duration;
+    use tokio::time::sleep;
 
     fn get_headers() -> Vec<BlockHeader> {
         let headers = include_bytes!("../../scripts/headers.bin");
@@ -586,5 +615,15 @@ mod tests {
         assert_eq!(receipt.journal, database_receipt2.journal);
         assert_eq!(receipt.metadata, database_receipt2.metadata);
         assert_ne!(receipt.journal, database_receipt.journal);
+    }
+
+    #[tokio::test]
+    async fn start_header_chain_prover() {
+        let mut config = create_test_config_with_thread_name("test_config.toml", None).await;
+        let rpc = create_extended_rpc!(config);
+        let prover = ChainProver::new(&config, rpc.clone()).await.unwrap();
+
+        prover.start_header_chain_prover();
+        sleep(Duration::from_millis(10000)).await;
     }
 }
