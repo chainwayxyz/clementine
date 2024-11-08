@@ -220,9 +220,7 @@ mod tests {
         let config = create_test_config_with_thread_name("test_config.toml", None).await;
         let db = Database::new(&config).await.unwrap();
 
-        let final_proof = include_bytes!("../../tests/data/first_1.bin");
-        let receipt: Receipt = Receipt::try_from_slice(final_proof).unwrap();
-
+        // Save dummy block.
         let block = block::Block {
             header: Header {
                 version: Version::TWO,
@@ -240,12 +238,17 @@ mod tests {
             .await
             .unwrap();
 
+        // Without updating with a proof, it should return error.
+        assert!(db.get_block_proof_by_hash(None, block_hash).await.is_err());
+
+        // Update it with a proof.
+        let receipt =
+            Receipt::try_from_slice(include_bytes!("../../tests/data/first_1.bin")).unwrap();
         db.save_block_proof(None, block_hash, receipt.clone())
             .await
             .unwrap();
 
         let read_receipt = db.get_block_proof_by_hash(None, block_hash).await.unwrap();
-
         assert_eq!(receipt.journal, read_receipt.journal);
         assert_eq!(receipt.metadata, read_receipt.metadata);
     }
