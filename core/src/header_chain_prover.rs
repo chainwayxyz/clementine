@@ -70,14 +70,6 @@ where
                     }
                     _ => panic!("Hapi yuttun"),
                 };
-
-                let proof = self.prove_block(None, vec![]).await.unwrap();
-
-                // TODO: Use real block hash.
-                self.db
-                    .save_block_proof(None, BlockHash::all_zeros(), proof)
-                    .await
-                    .unwrap();
             }
         });
 
