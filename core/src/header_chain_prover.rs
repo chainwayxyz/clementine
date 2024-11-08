@@ -258,7 +258,11 @@ mod tests {
         header_chain_prover::{BlockFetchStatus, ChainProver, DEEPNESS},
         mock::database::create_test_config_with_thread_name,
     };
-    use bitcoin::{hashes::Hash, BlockHash};
+    use bitcoin::{
+        block::{Header, Version},
+        hashes::Hash,
+        BlockHash, CompactTarget, TxMerkleNode,
+    };
     use bitcoincore_rpc::RpcApi;
     use borsh::BorshDeserialize;
     use circuits::header_chain::{BlockHeader, BlockHeaderCircuitOutput};
@@ -496,7 +500,24 @@ mod tests {
         // Prove genesis block.
         let receipt = prover.prove_block(None, vec![]).await.unwrap();
         let hash =
-            BlockHash::from_raw_hash(Hash::from_slice(&block_headers[1].prev_block_hash).unwrap());
+            BlockHash::from_raw_hash(Hash::from_slice(&block_headers[0].prev_block_hash).unwrap());
+        let header = Header {
+            version: Version::from_consensus(block_headers[0].version),
+            prev_blockhash: BlockHash::from_raw_hash(Hash::from_byte_array(
+                block_headers[0].prev_block_hash,
+            )),
+            merkle_root: TxMerkleNode::from_raw_hash(Hash::from_byte_array(
+                block_headers[0].merkle_root,
+            )),
+            time: block_headers[0].time,
+            bits: CompactTarget::from_consensus(block_headers[0].bits),
+            nonce: block_headers[0].nonce,
+        };
+        prover
+            .db
+            .save_new_block(None, hash, header, 0)
+            .await
+            .unwrap();
         prover
             .db
             .save_block_proof(None, hash, receipt.clone())
@@ -512,7 +533,25 @@ mod tests {
             .await
             .unwrap();
         let hash =
-            BlockHash::from_raw_hash(Hash::from_slice(&block_headers[2].prev_block_hash).unwrap());
+            BlockHash::from_raw_hash(Hash::from_slice(&block_headers[1].prev_block_hash).unwrap());
+        let header = Header {
+            version: Version::from_consensus(block_headers[1].version),
+            prev_blockhash: BlockHash::from_raw_hash(Hash::from_byte_array(
+                block_headers[1].prev_block_hash,
+            )),
+            merkle_root: TxMerkleNode::from_raw_hash(Hash::from_byte_array(
+                block_headers[1].merkle_root,
+            )),
+            time: block_headers[1].time,
+            bits: CompactTarget::from_consensus(block_headers[1].bits),
+            nonce: block_headers[1].nonce,
+        };
+        prover
+            .db
+            .save_new_block(None, hash, header, 0)
+            .await
+            .unwrap();
+
         prover
             .db
             .save_block_proof(None, hash, receipt.clone())
