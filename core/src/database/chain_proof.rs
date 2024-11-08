@@ -1,10 +1,10 @@
 //! Chain proof related database operations.
 
-use super::{wrapper::ReceiptDB, Database};
-use crate::{
-    database::wrapper::{BlockHashDB, BlockHeaderDB},
-    errors::BridgeError,
+use super::{
+    wrapper::{BlockHashDB, BlockHeaderDB},
+    Database,
 };
+use crate::errors::BridgeError;
 use bitcoin::{block, hashes::Hash, BlockHash};
 use risc0_zkvm::Receipt;
 use sqlx::Postgres;
@@ -64,12 +64,14 @@ impl Database {
         let query = sqlx::query_as("SELECT proof FROM header_chain_proofs WHERE block_hash = $1;")
             .bind(BlockHashDB(hash));
 
-        let receipt: (sqlx::types::Json<ReceiptDB>,) = match tx {
+        let receipt: (Vec<u8>,) = match tx {
             Some(tx) => query.fetch_one(&mut **tx).await,
             None => query.fetch_one(&self.connection).await,
         }?;
 
-        Ok(receipt.0 .0 .0)
+        let receipt: Receipt = borsh::from_slice(&receipt.0)?;
+
+        Ok(receipt)
     }
 
     /// Returns a blocks proof, by it's height.
@@ -123,6 +125,8 @@ mod tests {
         hashes::Hash,
         BlockHash, CompactTarget, TxMerkleNode,
     };
+    use borsh::BorshDeserialize;
+    use risc0_zkvm::Receipt;
 
     #[tokio::test]
     pub async fn save_get_new_block() {
@@ -209,5 +213,40 @@ mod tests {
             (height, hash),
             db.get_latest_block_info(None).await.unwrap()
         );
+    }
+
+    #[tokio::test]
+    pub async fn save_get_block_proof() {
+        let config = create_test_config_with_thread_name("test_config.toml", None).await;
+        let db = Database::new(&config).await.unwrap();
+
+        let final_proof = include_bytes!("../../tests/data/first_1.bin");
+        let receipt: Receipt = Receipt::try_from_slice(final_proof).unwrap();
+
+        let block = block::Block {
+            header: Header {
+                version: Version::TWO,
+                prev_blockhash: BlockHash::all_zeros(),
+                merkle_root: TxMerkleNode::all_zeros(),
+                time: 0x1F,
+                bits: CompactTarget::default(),
+                nonce: 0x45,
+            },
+            txdata: vec![],
+        };
+        let block_hash = block.block_hash();
+        let height = 0x45;
+        db.save_new_block(None, block_hash, block.header, height)
+            .await
+            .unwrap();
+
+        db.save_block_proof(None, block_hash, receipt.clone())
+            .await
+            .unwrap();
+
+        let read_receipt = db.get_block_proof_by_hash(None, block_hash).await.unwrap();
+
+        assert_eq!(receipt.journal, read_receipt.journal);
+        assert_eq!(receipt.metadata, read_receipt.metadata);
     }
 }
