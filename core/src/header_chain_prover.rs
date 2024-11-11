@@ -258,9 +258,10 @@ where
     ///
     /// - current_block_height: Starts synching blocks from this height to database tip.
     async fn sync_blockchain(&self, current_block_height: u64) -> Result<(), BridgeError> {
-        let (db_tip_height, _) = self.db.get_latest_block_info(None).await?;
+        tracing::trace!("Synching blockchain to active blockchain.");
+        let tip_height = self.rpc.client.get_block_count()?;
 
-        for height in (db_tip_height + 1)..(current_block_height + 1) {
+        for height in (current_block_height + 1)..(tip_height + 1) {
             let hash = self.rpc.client.get_block_hash(height)?;
             let header = self.rpc.client.get_block_header(&hash)?;
 
