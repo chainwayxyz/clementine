@@ -143,7 +143,7 @@ where
     /// - [`BlockFetchStatus`]: Status of the current database tip
     async fn check_for_new_blocks(&self) -> Result<BlockFetchStatus, BridgeError> {
         let (db_tip_height, db_tip_hash) = self.db.get_latest_block_info(None).await?;
-        tracing::trace!(
+        tracing::debug!(
             "Database blockchain tip is at height {} with block hash {}",
             db_tip_height,
             db_tip_hash
@@ -152,10 +152,17 @@ where
         let tip_height = self.rpc.client.get_block_count()?;
         let tip_hash = self.rpc.client.get_block_hash(tip_height)?;
         let tip_prev_blockhash = self.rpc.client.get_block_header(&tip_hash)?.prev_blockhash;
+        tracing::debug!(
+            "Active blockchain tip is at height {} with block hash {}",
+            tip_height,
+            tip_hash
+        );
 
         // Return early if database is up to date. Or if hash is not matching,
         // possible reorg might have happened.
         if db_tip_height == tip_height && db_tip_hash == tip_hash {
+            tracing::trace!("Database is in sync with active blockchain.");
+
             return Ok(BlockFetchStatus::UpToDate);
         } else if (db_tip_height == tip_height && db_tip_hash != tip_hash)
             || (db_tip_height > tip_height)
@@ -169,7 +176,7 @@ where
         let diff = tip_height - db_tip_height;
         if diff > DEEPNESS {
             tracing::error!(
-                "Current tip is fallen too far behind (difference: {})!",
+                "Current tip is fallen too far behind (difference is {} blocks)!",
                 diff
             );
 
@@ -194,7 +201,7 @@ where
             };
 
             if current_block_hash == db_block_hash {
-                tracing::trace!("Current database blockchain tip is {} blocks behind than the active blockchain tip.", deepness);
+                tracing::debug!("Current database blockchain tip is {} blocks behind than the active blockchain tip.", deepness);
 
                 return Ok(BlockFetchStatus::FallenBehind(
                     tip_height - deepness,
@@ -291,12 +298,13 @@ where
 
         let prover = risc0_zkvm::default_prover();
 
+        tracing::trace!("Proving started for block");
         let receipt = prover
             .prove(env, ELF)
             .map_err(|e| BridgeError::ProveError(e.to_string()))?
             .receipt;
 
-        tracing::debug!("Receipt: {:?}", receipt);
+        tracing::debug!("Proof receipt: {:?}", receipt);
 
         Ok(receipt)
     }
@@ -618,12 +626,17 @@ mod tests {
     }
 
     #[tokio::test]
+    #[ignore = "This test is very host dependent and must need a human observer"]
     async fn start_header_chain_prover() {
         let mut config = create_test_config_with_thread_name("test_config.toml", None).await;
         let rpc = create_extended_rpc!(config);
         let prover = ChainProver::new(&config, rpc.clone()).await.unwrap();
 
         prover.start_header_chain_prover();
+        sleep(Duration::from_millis(1000)).await;
+
+        rpc.mine_blocks(1).unwrap();
+
         sleep(Duration::from_millis(10000)).await;
     }
 }
