@@ -6,9 +6,9 @@ use super::{
 };
 use crate::errors::BridgeError;
 use bitcoin::{
-    block::{self, Header},
+    block::{self, Header, Version},
     hashes::Hash,
-    BlockHash,
+    BlockHash, CompactTarget, TxMerkleNode,
 };
 use risc0_zkvm::Receipt;
 use sqlx::Postgres;
@@ -92,12 +92,25 @@ impl Database {
         )
         .bind(height as i64);
 
-        let result: (BlockHashDB, BlockHeaderDB) = match tx {
+        let result: (Option<BlockHashDB>, Option<BlockHeaderDB>) = match tx {
             Some(tx) => query.fetch_one(&mut **tx).await,
             None => query.fetch_one(&self.connection).await,
         }?;
 
-        Ok((result.0 .0, result.1 .0))
+        match result {
+            (Some(hash), Some(header)) => Ok((hash.0, header.0)),
+            _ => Ok((
+                BlockHash::all_zeros(),
+                Header {
+                    version: Version::TWO,
+                    prev_blockhash: BlockHash::all_zeros(),
+                    merkle_root: TxMerkleNode::all_zeros(),
+                    time: 0,
+                    bits: CompactTarget::default(),
+                    nonce: 0,
+                },
+            )),
+        }
     }
 
     #[tracing::instrument(skip(self), err(level = tracing::Level::ERROR), ret(level = tracing::Level::TRACE))]
