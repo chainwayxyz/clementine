@@ -11,7 +11,7 @@ use circuits::header_chain::{
     BlockHeader, BlockHeaderCircuitOutput, HeaderChainCircuitInput, HeaderChainPrevProofType,
 };
 use risc0_zkvm::{compute_image_id, ExecutorEnv, Receipt};
-use std::{thread, time::Duration};
+use std::time::Duration;
 use tokio::{sync::mpsc, time::sleep};
 
 // Checks this amount of previous blocks if not synced with blockchain.
@@ -91,47 +91,45 @@ where
             rpc: self.rpc.clone(),
             db: self.db.clone(),
         };
-        thread::spawn(move || {
-            tokio::spawn(async move {
-                loop {
-                    let non_proved_block = prover.db.get_non_proven_block(None).await;
+        tokio::spawn(async move {
+            loop {
+                let non_proved_block = prover.db.get_non_proven_block(None).await;
 
-                    if let Ok((
-                        current_block_hash,
-                        current_block_header,
-                        _current_block_height,
-                        previous_proof,
-                    )) = non_proved_block
-                    {
-                        let header = BlockHeader {
-                            version: current_block_header.version.to_consensus(),
-                            prev_block_hash: current_block_header.prev_blockhash.to_byte_array(),
-                            merkle_root: current_block_header.merkle_root.to_byte_array(),
-                            time: current_block_header.time,
-                            bits: current_block_header.bits.to_consensus(),
-                            nonce: current_block_header.nonce,
-                        };
-                        let receipt = prover.prove_block(Some(previous_proof), vec![header]).await;
+                if let Ok((
+                    current_block_hash,
+                    current_block_header,
+                    _current_block_height,
+                    previous_proof,
+                )) = non_proved_block
+                {
+                    let header = BlockHeader {
+                        version: current_block_header.version.to_consensus(),
+                        prev_block_hash: current_block_header.prev_blockhash.to_byte_array(),
+                        merkle_root: current_block_header.merkle_root.to_byte_array(),
+                        time: current_block_header.time,
+                        bits: current_block_header.bits.to_consensus(),
+                        nonce: current_block_header.nonce,
+                    };
+                    let receipt = prover.prove_block(Some(previous_proof), vec![header]).await;
 
-                        if let Ok(receipt) = receipt {
-                            prover
-                                .db
-                                .save_block_proof(None, current_block_hash, receipt)
-                                .await
-                                .unwrap();
+                    if let Ok(receipt) = receipt {
+                        prover
+                            .db
+                            .save_block_proof(None, current_block_hash, receipt)
+                            .await
+                            .unwrap();
 
-                            // Only continue to check for new unproven blocks, if
-                            // this attempt was successful.
-                            continue;
-                        }
+                        // Only continue to check for new unproven blocks, if
+                        // this attempt was successful.
+                        continue;
                     }
-
-                    // If prove is somehow failed, we don't have enough information
-                    // in our hands to prove anything. Wait for block syncher to
-                    // inform us about the new blocks.
-                    rx.blocking_recv();
                 }
-            });
+
+                // If prove is somehow failed, we don't have enough information
+                // in our hands to prove anything. Wait for block syncher to
+                // inform us about the new blocks.
+                rx.recv().await;
+            }
         });
     }
 
@@ -193,7 +191,7 @@ where
 
             let db_block_hash = match self
                 .db
-                .get_block_proof_info_by_height(None, tip_height - deepness)
+                .get_block_proof_info_by_height(None, tip_height.wrapping_sub(deepness))
                 .await
             {
                 Ok(r) => r.0,
