@@ -5,8 +5,11 @@ use crate::{
     aggregator::Aggregator,
     builder::sighash::create_nofn_sighash_stream,
     musig2::aggregate_nonces,
-    rpc::clementine::{self, nonce_gen_response, DepositSignSession},
-    ByteArray32, ByteArray66, EVMAddress,
+    rpc::{
+        clementine::{self, DepositSignSession},
+        verifier::NUM_REQUIRED_SIGS,
+    },
+    ByteArray32, EVMAddress,
 };
 use bitcoin::hashes::Hash;
 use futures::{future::try_join_all, pin_mut, FutureExt, StreamExt};
@@ -109,44 +112,8 @@ impl ClementineAggregator for Aggregator {
         tracing::debug!("Parsed deposit params");
 
         // generate nonces from all verifiers
-        let mut nonce_streams = try_join_all(self.verifier_clients.iter().map(|client| {
-            // Clone each client to avoid mutable borrow.
-            // https://github.com/hyperium/tonic/issues/33#issuecomment-538150828
-            let mut client = client.clone();
-
-            async move {
-                let response_stream = client.nonce_gen(Request::new(Empty {})).await?;
-
-                Ok::<_, Status>(response_stream.into_inner())
-            }
-        }))
-        .await?;
-
-        tracing::debug!("Generated nonce streams");
-
-        // Get the first responses from each stream
-        let first_responses = try_join_all(nonce_streams.iter_mut().map(|s| async {
-            let nonce = s.message().await?;
-            let pub_nonce_response = nonce
-                .ok_or(Status::internal("No nonce received"))?
-                .response
-                .ok_or(Status::internal("No nonce received"))?;
-            // this response is an enum, so we need to match on it
-            match pub_nonce_response {
-                nonce_gen_response::Response::FirstResponse(nonce_gen_first_response) => {
-                    Ok::<_, Status>(nonce_gen_first_response)
-                }
-                _ => panic!("Expected FirstResponse"),
-            }
-        }))
-        .await
-        .map_err(|e| {
-            Status::internal(format!("Failed to get first nonce gen responses {:?}", e))
-        })?;
-
-        tracing::debug!("Received first responses: {:?}", first_responses);
-
-        let num_required_nonces = first_responses[0].num_nonces as usize; // TODO: This should be the same for all verifiers
+        let (first_responses, mut nonce_streams) =
+            self.create_nonce_streams(NUM_REQUIRED_SIGS as u32).await?;
 
         // Open the streams for deposit_sign for each verifier
         let mut partial_sig_streams = try_join_all(self.verifier_clients.iter().map(|v| {
@@ -230,26 +197,16 @@ impl ClementineAggregator for Aggregator {
         );
         pin_mut!(sighash_stream); // needed for iteration
 
-        for _ in 0..num_required_nonces {
+        for _ in 0..NUM_REQUIRED_SIGS {
             // Get the next nonce from each stream
             let pub_nonces = try_join_all(nonce_streams.iter_mut().map(|s| async {
-                let nonce = s.message().await?;
-                let pub_nonce_response = nonce
-                    .ok_or(Status::internal("No nonce received"))?
-                    .response
-                    .ok_or(Status::internal("No nonce received"))?;
-                // this response is an enum, so we need to match on it
-                match pub_nonce_response {
-                    nonce_gen_response::Response::PubNonce(pub_nonce) => {
-                        let musig2_pub_nonce: [u8; 66] = pub_nonce.try_into().unwrap();
-                        let pub_nonce = ByteArray66(musig2_pub_nonce);
-                        Ok::<_, Box<dyn std::error::Error + Send + Sync>>(pub_nonce)
-                    }
-                    _ => panic!("Expected PubNonce"),
-                }
+                s.next()
+                    .await
+                    .ok_or_else(|| Status::internal("Stream ended unexpectedly"))? // Handle if stream ends early
+                    .map_err(|e| Status::internal(format!("Failed to get nonce: {:?}", e)))
+                // Handle if there's an error in the stream item
             }))
-            .await
-            .map_err(|e| Status::internal(format!("Failed to get nonce: {:?}", e)))?;
+            .await?;
 
             tracing::debug!("RECEIVED PUB NONCES: {:?}", pub_nonces);
 

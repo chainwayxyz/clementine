@@ -182,6 +182,9 @@ pub enum BridgeError {
 
     #[error("ERROR: {0}")]
     Error(String),
+
+    #[error("TonicError: {0}")]
+    TonicError(#[from] tonic::Status),
 }
 
 impl From<BridgeError> for ErrorObject<'static> {

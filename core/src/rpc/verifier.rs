@@ -2,7 +2,7 @@ use std::{str::FromStr, sync::Arc};
 
 use super::clementine::{
     self, clementine_verifier_server::ClementineVerifier, nonce_gen_response, Empty,
-    NonceGenResponse, OperatorParams, PartialSig, VerifierDepositFinalizeParams,
+    NonceGenRequest, NonceGenResponse, OperatorParams, PartialSig, VerifierDepositFinalizeParams,
     VerifierDepositSignParams, VerifierParams, VerifierPublicKeys, WatchtowerParams,
 };
 use crate::{
@@ -168,10 +168,10 @@ where
     #[allow(clippy::blocks_in_conditions)]
     async fn nonce_gen(
         &self,
-        _request: Request<Empty>,
+        req: Request<NonceGenRequest>,
     ) -> Result<Response<Self::NonceGenStream>, Status> {
-        let (sec_nonces, pub_nonces): (Vec<MuSigSecNonce>, Vec<MuSigPubNonce>) = (0
-            ..NUM_REQUIRED_SIGS)
+        let num_nonces = req.into_inner().num_nonces as usize;
+        let (sec_nonces, pub_nonces): (Vec<MuSigSecNonce>, Vec<MuSigPubNonce>) = (0..num_nonces)
             .map(|_| {
                 // nonce pair needs keypair and a rng
                 let (sec_nonce, pub_nonce) =
@@ -209,7 +209,7 @@ where
                 .sign(TapSighash::from_byte_array(public_key_hash))
                 .serialize()
                 .to_vec(),
-            num_nonces: NUM_REQUIRED_SIGS as u32,
+            num_nonces: num_nonces as u32,
         };
 
         // now stream the nonces

@@ -132,6 +132,11 @@ pub struct PartialSig {
     #[prost(bytes = "vec", tag = "1")]
     pub partial_sig: ::prost::alloc::vec::Vec<u8>,
 }
+#[derive(Clone, Copy, PartialEq, ::prost::Message)]
+pub struct NonceGenRequest {
+    #[prost(uint32, tag = "1")]
+    pub num_nonces: u32,
+}
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct NonceGenFirstResponse {
     /// Nonce ID
@@ -625,7 +630,7 @@ pub mod clementine_verifier_client {
         /// Nonce metadata followed by nonces.
         pub async fn nonce_gen(
             &mut self,
-            request: impl tonic::IntoRequest<super::Empty>,
+            request: impl tonic::IntoRequest<super::NonceGenRequest>,
         ) -> std::result::Result<
             tonic::Response<tonic::codec::Streaming<super::NonceGenResponse>>,
             tonic::Status,
@@ -1395,7 +1400,7 @@ pub mod clementine_verifier_server {
         /// Nonce metadata followed by nonces.
         async fn nonce_gen(
             &self,
-            request: tonic::Request<super::Empty>,
+            request: tonic::Request<super::NonceGenRequest>,
         ) -> std::result::Result<tonic::Response<Self::NonceGenStream>, tonic::Status>;
         /// Server streaming response type for the DepositSign method.
         type DepositSignStream: tonic::codegen::tokio_stream::Stream<
@@ -1682,7 +1687,7 @@ pub mod clementine_verifier_server {
                     struct NonceGenSvc<T: ClementineVerifier>(pub Arc<T>);
                     impl<
                         T: ClementineVerifier,
-                    > tonic::server::ServerStreamingService<super::Empty>
+                    > tonic::server::ServerStreamingService<super::NonceGenRequest>
                     for NonceGenSvc<T> {
                         type Response = super::NonceGenResponse;
                         type ResponseStream = T::NonceGenStream;
@@ -1692,7 +1697,7 @@ pub mod clementine_verifier_server {
                         >;
                         fn call(
                             &mut self,
-                            request: tonic::Request<super::Empty>,
+                            request: tonic::Request<super::NonceGenRequest>,
                         ) -> Self::Future {
                             let inner = Arc::clone(&self.0);
                             let fut = async move {
