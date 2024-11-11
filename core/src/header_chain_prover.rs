@@ -102,6 +102,10 @@ where
     fn start_prover(prover: ChainProver<R>, mut rx: Receiver<()>) {
         tokio::spawn(async move {
             loop {
+                // Prover waits for blockgazer's notification for new blocks
+                // before doing any proving.
+                rx.recv().await;
+
                 let non_proved_block = prover.db.get_non_proven_block(None).await;
 
                 if let Ok((
@@ -138,11 +142,6 @@ where
                         continue;
                     }
                 }
-
-                // If prove is somehow failed, we don't have enough information
-                // in our hands to prove anything. Wait for block syncher to
-                // inform us about the new blocks.
-                rx.recv().await;
             }
         });
     }
