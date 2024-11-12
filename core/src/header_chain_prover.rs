@@ -73,14 +73,18 @@ where
             rpc: self.rpc.clone(),
             db: self.db.clone(),
         };
-        ChainProver::start_blockgazer(block_checks, tx);
+        let block_gazer = ChainProver::start_blockgazer(block_checks, tx);
 
         // Prover.
         let prover = ChainProver {
             rpc: self.rpc.clone(),
             db: self.db.clone(),
         };
-        ChainProver::start_prover(prover, rx);
+        let prover = ChainProver::start_prover(prover, rx);
+
+        tokio::spawn(async move {
+            tokio::join!(block_gazer, prover);
+        });
     }
 
     /// Checks current status of the database against latest active blockchain
@@ -193,27 +197,25 @@ where
     ///
     /// - prover: [`ChainProver`] instance
     /// - tx: Transmitter end for prover
-    #[tracing::instrument]
-    fn start_blockgazer(prover: ChainProver<R>, tx: Sender<()>)
+    #[tracing::instrument(skip_all)]
+    async fn start_blockgazer(prover: ChainProver<R>, tx: Sender<()>)
     where
         R: RpcApiWrapper,
     {
-        tokio::spawn(async move {
-            loop {
-                if let Ok(status) = prover.check_for_new_blocks().await {
-                    match status {
-                        BlockFetchStatus::UpToDate => (),
-                        BlockFetchStatus::FallenBehind(block_height, _block_hash) => {
-                            prover.sync_blockchain(block_height).await.unwrap();
-                            tx.send(()).await.unwrap();
-                        }
-                        _ => panic!("Hapi yuttun"),
+        loop {
+            if let Ok(status) = prover.check_for_new_blocks().await {
+                match status {
+                    BlockFetchStatus::UpToDate => (),
+                    BlockFetchStatus::FallenBehind(block_height, _block_hash) => {
+                        prover.sync_blockchain(block_height).await.unwrap();
+                        tx.send(()).await.unwrap();
                     }
-                };
+                    _ => panic!("Hapi yuttun"),
+                }
+            };
 
-                sleep(Duration::from_millis(1000)).await;
-            }
-        });
+            sleep(Duration::from_millis(1000)).await;
+        }
     }
 
     /// Prove a block.
@@ -294,52 +296,50 @@ where
     ///
     /// - prover: [`ChainProver`] instance
     /// - rx: Receiver end for blockgazer
-    #[tracing::instrument]
-    fn start_prover(prover: ChainProver<R>, mut rx: Receiver<()>) {
-        tokio::spawn(async move {
-            loop {
-                // Prover waits for blockgazer's notification for new blocks
-                // before doing any proving.
-                rx.recv().await;
+    #[tracing::instrument(skip_all)]
+    async fn start_prover(prover: ChainProver<R>, mut rx: Receiver<()>) {
+        loop {
+            // Prover waits for blockgazer's notification for new blocks
+            // before doing any proving.
+            rx.recv().await;
 
-                let non_proved_block = prover.db.get_non_proven_block(None).await;
+            let non_proved_block = prover.db.get_non_proven_block(None).await;
 
-                if let Ok((
-                    current_block_hash,
-                    current_block_header,
-                    _current_block_height,
-                    previous_proof,
-                )) = non_proved_block
-                {
-                    tracing::trace!(
-                        "Prover starts proving for block with hash: {}",
-                        current_block_hash
-                    );
+            if let Ok((
+                current_block_hash,
+                current_block_header,
+                _current_block_height,
+                previous_proof,
+            )) = non_proved_block
+            {
+                tracing::trace!(
+                    "Prover starts proving for block with hash: {}",
+                    current_block_hash
+                );
 
-                    let header = BlockHeader {
-                        version: current_block_header.version.to_consensus(),
-                        prev_block_hash: current_block_header.prev_blockhash.to_byte_array(),
-                        merkle_root: current_block_header.merkle_root.to_byte_array(),
-                        time: current_block_header.time,
-                        bits: current_block_header.bits.to_consensus(),
-                        nonce: current_block_header.nonce,
-                    };
-                    let receipt = prover.prove_block(Some(previous_proof), vec![header]).await;
+                let header = BlockHeader {
+                    version: current_block_header.version.to_consensus(),
+                    prev_block_hash: current_block_header.prev_blockhash.to_byte_array(),
+                    merkle_root: current_block_header.merkle_root.to_byte_array(),
+                    time: current_block_header.time,
+                    bits: current_block_header.bits.to_consensus(),
+                    nonce: current_block_header.nonce,
+                };
+                let receipt = prover.prove_block(Some(previous_proof), vec![header]).await;
 
-                    if let Ok(receipt) = receipt {
-                        prover
-                            .db
-                            .save_block_proof(None, current_block_hash, receipt)
-                            .await
-                            .unwrap();
+                if let Ok(receipt) = receipt {
+                    prover
+                        .db
+                        .save_block_proof(None, current_block_hash, receipt)
+                        .await
+                        .unwrap();
 
-                        // Only continue to check for new unproven blocks, if
-                        // this attempt was successful.
-                        continue;
-                    }
+                    // Only continue to check for new unproven blocks, if
+                    // this attempt was successful.
+                    continue;
                 }
             }
-        });
+        }
     }
 }
 
