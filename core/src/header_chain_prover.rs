@@ -359,6 +359,7 @@ mod tests {
     use bitcoincore_rpc::RpcApi;
     use borsh::BorshDeserialize;
     use circuits::header_chain::{BlockHeader, BlockHeaderCircuitOutput};
+    use risc0_zkvm::Receipt;
     use std::time::Duration;
     use tokio::time::sleep;
 
@@ -668,8 +669,24 @@ mod tests {
         prover.start_header_chain_prover();
         sleep(Duration::from_millis(1000)).await;
 
+        // Mine a block and write genesis block's proof to database.
         rpc.mine_blocks(1).unwrap();
+        let receipt = Receipt::try_from_slice(include_bytes!("../tests/data/first_1.bin")).unwrap();
+        prover
+            .db
+            .save_block_proof(None, BlockHash::all_zeros(), receipt.clone())
+            .await
+            .unwrap();
 
-        sleep(Duration::from_millis(10000)).await;
+        let hash = rpc.client.get_block_hash(1).unwrap();
+        loop {
+            if let Ok(proof) = prover.get_header_chain_proof(hash).await {
+                println!("Second block's proof is {:?}", proof);
+                break;
+            }
+
+            println!("Waiting for proof to be written to database for second block...");
+            sleep(Duration::from_millis(1000)).await;
+        }
     }
 }
