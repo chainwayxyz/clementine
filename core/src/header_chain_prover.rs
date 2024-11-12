@@ -62,90 +62,6 @@ where
         self.db.get_block_proof_by_hash(None, hash).await
     }
 
-    /// Starts a Tokio task to search for new blocks. New blocks are written to
-    /// database.
-    ///
-    /// # Parameters
-    ///
-    /// - prover: [`ChainProver`] instance
-    /// - tx: Transmitter end for prover
-    #[tracing::instrument]
-    fn start_blockgazer(prover: ChainProver<R>, tx: Sender<()>)
-    where
-        R: RpcApiWrapper,
-    {
-        tokio::spawn(async move {
-            loop {
-                if let Ok(status) = prover.check_for_new_blocks().await {
-                    match status {
-                        BlockFetchStatus::UpToDate => (),
-                        BlockFetchStatus::FallenBehind(block_height, _block_hash) => {
-                            prover.sync_blockchain(block_height).await.unwrap();
-                            tx.send(()).await.unwrap();
-                        }
-                        _ => panic!("Hapi yuttun"),
-                    }
-                };
-
-                sleep(Duration::from_millis(1000)).await;
-            }
-        });
-    }
-
-    /// Starts a Tokio task that proves new blocks.
-    ///
-    /// # Parameters
-    ///
-    /// - prover: [`ChainProver`] instance
-    /// - rx: Receiver end for blockgazer
-    #[tracing::instrument]
-    fn start_prover(prover: ChainProver<R>, mut rx: Receiver<()>) {
-        tokio::spawn(async move {
-            loop {
-                // Prover waits for blockgazer's notification for new blocks
-                // before doing any proving.
-                rx.recv().await;
-
-                let non_proved_block = prover.db.get_non_proven_block(None).await;
-
-                if let Ok((
-                    current_block_hash,
-                    current_block_header,
-                    _current_block_height,
-                    previous_proof,
-                )) = non_proved_block
-                {
-                    tracing::trace!(
-                        "Prover starts proving for block with hash: {}",
-                        current_block_hash
-                    );
-
-                    let header = BlockHeader {
-                        version: current_block_header.version.to_consensus(),
-                        prev_block_hash: current_block_header.prev_blockhash.to_byte_array(),
-                        merkle_root: current_block_header.merkle_root.to_byte_array(),
-                        time: current_block_header.time,
-                        bits: current_block_header.bits.to_consensus(),
-                        nonce: current_block_header.nonce,
-                    };
-                    let receipt = prover.prove_block(Some(previous_proof), vec![header]).await;
-
-                    if let Ok(receipt) = receipt {
-                        prover
-                            .db
-                            .save_block_proof(None, current_block_hash, receipt)
-                            .await
-                            .unwrap();
-
-                        // Only continue to check for new unproven blocks, if
-                        // this attempt was successful.
-                        continue;
-                    }
-                }
-            }
-        });
-    }
-
     /// Starts a background task that syncs current database to active
     /// blockchain and does proving.
     #[tracing::instrument]
@@ -175,7 +91,7 @@ where
     /// - [`BlockFetchStatus`]: Status of the current database tip
     async fn check_for_new_blocks(&self) -> Result<BlockFetchStatus, BridgeError> {
         let (db_tip_height, db_tip_hash) = self.db.get_latest_block_info(None).await?;
-        tracing::debug!(
+        tracing::trace!(
             "Database blockchain tip is at height {} with block hash {}",
             db_tip_height,
             db_tip_hash
@@ -184,7 +100,7 @@ where
         let tip_height = self.rpc.client.get_block_count()?;
         let tip_hash = self.rpc.client.get_block_hash(tip_height)?;
         let tip_prev_blockhash = self.rpc.client.get_block_header(&tip_hash)?.prev_blockhash;
-        tracing::debug!(
+        tracing::trace!(
             "Active blockchain tip is at height {} with block hash {}",
             tip_height,
             tip_hash
@@ -193,7 +109,7 @@ where
         // Return early if database is up to date. Or if hash is not matching,
         // possible reorg might have happened.
         if db_tip_height == tip_height && db_tip_hash == tip_hash {
-            tracing::trace!("Database is in sync with active blockchain.");
+            tracing::debug!("Database is in sync with active blockchain.");
 
             return Ok(BlockFetchStatus::UpToDate);
         } else if (db_tip_height == tip_height && db_tip_hash != tip_hash)
@@ -270,6 +186,36 @@ where
         Ok(())
     }
 
+    /// Starts a Tokio task to search for new blocks. New blocks are written to
+    /// database.
+    ///
+    /// # Parameters
+    ///
+    /// - prover: [`ChainProver`] instance
+    /// - tx: Transmitter end for prover
+    #[tracing::instrument]
+    fn start_blockgazer(prover: ChainProver<R>, tx: Sender<()>)
+    where
+        R: RpcApiWrapper,
+    {
+        tokio::spawn(async move {
+            loop {
+                if let Ok(status) = prover.check_for_new_blocks().await {
+                    match status {
+                        BlockFetchStatus::UpToDate => (),
+                        BlockFetchStatus::FallenBehind(block_height, _block_hash) => {
+                            prover.sync_blockchain(block_height).await.unwrap();
+                            tx.send(()).await.unwrap();
+                        }
+                        _ => panic!("Hapi yuttun"),
+                    }
+                };
+
+                sleep(Duration::from_millis(1000)).await;
+            }
+        });
+    }
+
     /// Prove a block.
     ///
     /// # Parameters
@@ -340,6 +286,60 @@ where
         tracing::debug!("Proof receipt: {:?}", receipt);
 
         Ok(receipt)
+    }
+
+    /// Starts a Tokio task that proves new blocks.
+    ///
+    /// # Parameters
+    ///
+    /// - prover: [`ChainProver`] instance
+    /// - rx: Receiver end for blockgazer
+    #[tracing::instrument]
+    fn start_prover(prover: ChainProver<R>, mut rx: Receiver<()>) {
+        tokio::spawn(async move {
+            loop {
+                // Prover waits for blockgazer's notification for new blocks
+                // before doing any proving.
+                rx.recv().await;
+
+                let non_proved_block = prover.db.get_non_proven_block(None).await;
+
+                if let Ok((
+                    current_block_hash,
+                    current_block_header,
+                    _current_block_height,
+                    previous_proof,
+                )) = non_proved_block
+                {
+                    tracing::trace!(
+                        "Prover starts proving for block with hash: {}",
+                        current_block_hash
+                    );
+
+                    let header = BlockHeader {
+                        version: current_block_header.version.to_consensus(),
+                        prev_block_hash: current_block_header.prev_blockhash.to_byte_array(),
+                        merkle_root: current_block_header.merkle_root.to_byte_array(),
+                        time: current_block_header.time,
+                        bits: current_block_header.bits.to_consensus(),
+                        nonce: current_block_header.nonce,
+                    };
+                    let receipt = prover.prove_block(Some(previous_proof), vec![header]).await;
+
+                    if let Ok(receipt) = receipt {
+                        prover
+                            .db
+                            .save_block_proof(None, current_block_hash, receipt)
+                            .await
+                            .unwrap();
+
+                        // Only continue to check for new unproven blocks, if
+                        // this attempt was successful.
+                        continue;
+                    }
+                }
+            }
+        });
     }
 }
 
