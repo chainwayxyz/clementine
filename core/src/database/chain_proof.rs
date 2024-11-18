@@ -202,7 +202,7 @@ mod tests {
             .unwrap();
 
         let (read_block_hash, read_block_header) = db
-            .get_block_proof_info_by_height(None, height.into())
+            .get_block_proof_info_by_height(None, height)
             .await
             .unwrap();
         assert_eq!(block_hash, read_block_hash);
