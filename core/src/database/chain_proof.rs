@@ -226,7 +226,10 @@ mod tests {
             txdata: vec![],
         };
 
-        assert!(db.get_latest_block_info(None).await.is_err());
+        assert_eq!(
+            db.get_latest_block_info(None).await.unwrap(),
+            (0, BlockHash::all_zeros())
+        );
 
         // Adding a new block should return a height.
         let height = 0x1F;
