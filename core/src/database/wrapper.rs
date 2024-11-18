@@ -223,6 +223,11 @@ impl<'r> Decode<'r, Postgres> for PublicKeyDB {
 #[derive(Serialize, Deserialize, sqlx::FromRow, Debug, Clone)]
 pub struct XOnlyPublicKeyDB(pub secp256k1::XOnlyPublicKey);
 
+impl sqlx::Type<sqlx::Postgres> for XOnlyPublicKeyDB {
+    fn type_info() -> sqlx::postgres::PgTypeInfo {
+        sqlx::postgres::PgTypeInfo::with_name("TEXT")
+    }
+}
 impl<'q> Encode<'q, Postgres> for XOnlyPublicKeyDB {
     fn encode_by_ref(&self, buf: &mut PgArgumentBuffer) -> sqlx::encode::IsNull {
         let s: String = secp256k1::XOnlyPublicKey::to_string(&self.0);
