@@ -73,7 +73,7 @@ jobs:
         shared-key: "debug-build"
 
     - name: Run tests on Bitcoin regtest
-      run: cargo test --verbose --jobs 1
+      run: cargo test --verbose
 
   debug_mode_test_with_mock_rpc:
     name: Test code in debug mode with Bitcoin Mock RPC
@@ -137,7 +137,7 @@ jobs:
         shared-key: "release-build"
 
     - name: Run tests on Bitcoin regtest with release build
-      run: cargo test --verbose --jobs 1 --release
+      run: cargo test --verbose --release
 
   release_mode_test_with_mock_rpc:
     name: Test code in release mode with Bitcoin Mock RPC
