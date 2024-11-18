@@ -32,7 +32,7 @@ where
             operator_idx: self.idx as u32,
             collateral_funding_txid: time_txs[0].1.to_byte_array().to_vec(),
             xonly_pk: self.signer.xonly_public_key.to_string(),
-            wallet_reimburse_address: self.config.operator_wallet_addresses[self.idx as usize] // TODO: Fix this where the config will only have one address.
+            wallet_reimburse_address: self.config.operator_wallet_addresses[self.idx] // TODO: Fix this where the config will only have one address.
                 .clone()
                 .assume_checked()
                 .to_string(),

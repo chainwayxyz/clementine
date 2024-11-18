@@ -104,7 +104,7 @@ where
 
         let verifiers_pks = db.get_verifier_public_keys(None).await?;
 
-        let nofn = if verifiers_pks.len() != 0 {
+        let nofn = if !verifiers_pks.is_empty() {
             tracing::debug!("Verifiers public keys found: {:?}", verifiers_pks);
             let nofn = NofN::new(signer.public_key, verifiers_pks);
             Some(nofn)
