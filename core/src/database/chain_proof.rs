@@ -64,18 +64,22 @@ impl Database {
         &self,
         tx: Option<&mut sqlx::Transaction<'_, Postgres>>,
         hash: block::BlockHash,
-    ) -> Result<Receipt, BridgeError> {
+    ) -> Result<Option<Receipt>, BridgeError> {
         let query = sqlx::query_as("SELECT proof FROM header_chain_proofs WHERE block_hash = $1;")
             .bind(BlockHashDB(hash));
 
-        let receipt: (Vec<u8>,) = match tx {
+        let receipt: (Option<Vec<u8>>,) = match tx {
             Some(tx) => query.fetch_one(&mut **tx).await,
             None => query.fetch_one(&self.connection).await,
         }?;
+        let receipt = match receipt.0 {
+            Some(r) => r,
+            None => return Ok(None),
+        };
 
-        let receipt: Receipt = borsh::from_slice(&receipt.0)?;
+        let receipt: Receipt = borsh::from_slice(&receipt)?;
 
-        Ok(receipt)
+        Ok(Some(receipt))
     }
 
     /// Returns a blocks proof, by it's height.
@@ -284,8 +288,10 @@ mod tests {
             .await
             .unwrap();
 
-        // Without updating with a proof, it should return error.
-        assert!(db.get_block_proof_by_hash(None, block_hash).await.is_err());
+        // Requesting proof for an existing block without a proof should
+        // return `None`.
+        let read_receipt = db.get_block_proof_by_hash(None, block_hash).await.unwrap();
+        assert!(read_receipt.is_none());
 
         // Update it with a proof.
         let receipt =
@@ -294,7 +300,11 @@ mod tests {
             .await
             .unwrap();
 
-        let read_receipt = db.get_block_proof_by_hash(None, block_hash).await.unwrap();
+        let read_receipt = db
+            .get_block_proof_by_hash(None, block_hash)
+            .await
+            .unwrap()
+            .unwrap();
         assert_eq!(receipt.journal, read_receipt.journal);
         assert_eq!(receipt.metadata, read_receipt.metadata);
     }
