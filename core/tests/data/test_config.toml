@@ -63,7 +63,7 @@ bridge_contract_address = "3100000000000000000000000000000000000002"
 
 # Header chain prover's assumption with block height. Must be set these 2 values
 # together.
-header_chain_proof = ["../core/tests/data/first_1.bin", 1]
+header_chain_proof = ["../core/tests/data/first_1.bin", 0]
 
 # Testing only fields.
 all_verifiers_secret_keys = [

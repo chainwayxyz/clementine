@@ -11,7 +11,11 @@ use circuits::header_chain::{
     BlockHeader, BlockHeaderCircuitOutput, HeaderChainCircuitInput, HeaderChainPrevProofType,
 };
 use risc0_zkvm::{compute_image_id, ExecutorEnv, Receipt};
-use std::time::Duration;
+use std::{
+    fs::File,
+    io::{BufReader, Read},
+    time::Duration,
+};
 use tokio::{
     sync::mpsc::{self, Receiver, Sender},
     time::sleep,
@@ -50,6 +54,33 @@ where
     pub async fn new(config: &BridgeConfig, rpc: ExtendedRpc<R>) -> Result<Self, BridgeError> {
         let db = Database::new(config).await?;
 
+        if let Some((proof_file, block_height)) = &config.header_chain_proof {
+            let file = File::open(proof_file).map_err(|e| {
+                BridgeError::ProveError(format!(
+                    "Can't read assumption file {:?} with error {}",
+                    proof_file, e
+                ))
+            })?;
+            let mut reader = BufReader::new(file);
+            let mut assumption = Vec::new();
+            reader.read_to_end(&mut assumption)?;
+
+            let proof = borsh::from_slice(&assumption).map_err(|e| {
+                BridgeError::ProveError(format!("Proof assumption is malformed: {}", e))
+            })?;
+
+            // Create block entry, if not exists.
+            let block_hash = rpc.client.get_block_hash(*block_height)?;
+            let block_header = rpc.client.get_block_header(&block_hash)?;
+            // Ignore error if block entry is in database already.
+            let _ = db
+                .save_new_block(None, block_hash, block_header, *block_height)
+                .await;
+
+            // Save proof assumption.
+            db.save_block_proof(None, block_hash, proof).await?;
+        };
+
         Ok(ChainProver { rpc, db })
     }
 
@@ -59,7 +90,13 @@ where
     ///
     /// - `hash`: Target block hash
     pub async fn get_header_chain_proof(&self, hash: BlockHash) -> Result<Receipt, BridgeError> {
-        self.db.get_block_proof_by_hash(None, hash).await
+        match self.db.get_block_proof_by_hash(None, hash).await? {
+            Some(r) => Ok(r),
+            None => Err(BridgeError::ProveError(format!(
+                "No proof is present for block with block hash {}",
+                hash
+            ))),
+        }
     }
 
     /// Starts a background task that syncs current database to active
@@ -378,6 +415,28 @@ mod tests {
         let rpc = create_extended_rpc!(config);
 
         let _should_not_panic = ChainProver::new(&config, rpc).await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn new_with_proof_assumption() {
+        let mut config = create_test_config_with_thread_name("test_config.toml", None).await;
+        let rpc = create_extended_rpc!(config);
+
+        // First block's assumption will be added to db: Make sure block exists
+        // too.
+        rpc.mine_blocks(1).unwrap();
+
+        let prover = ChainProver::new(&config, rpc.clone()).await.unwrap();
+
+        let hash = rpc
+            .client
+            .get_block_hash(config.header_chain_proof.unwrap().1)
+            .unwrap();
+        let _should_not_panic = prover.get_header_chain_proof(hash).await.unwrap();
+
+        let wrong_hash = BlockHash::from_raw_hash(Hash::from_slice(&[0x45; 32]).unwrap());
+        assert_ne!(wrong_hash, hash);
+        assert!(prover.get_header_chain_proof(wrong_hash).await.is_err());
     }
 
     #[tokio::test]
