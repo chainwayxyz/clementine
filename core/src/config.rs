@@ -75,6 +75,8 @@ pub struct BridgeConfig {
     pub citrea_rpc_url: String,
     /// Bridge contract address.
     pub bridge_contract_address: String,
+    // Latest header chain proof assumption file path and block height.
+    pub header_chain_proof: Option<(PathBuf, u64)>,
 }
 
 impl BridgeConfig {
@@ -144,6 +146,7 @@ impl Default for BridgeConfig {
             db_name: "postgres".to_string(),
             citrea_rpc_url: "http://127.0.0.1:12345".to_string(),
             bridge_contract_address: "3100000000000000000000000000000000000002".to_string(),
+            header_chain_proof: None,
         }
     }
 }
