@@ -7,6 +7,10 @@ use crate::{
         aggregate_nonces, aggregate_partial_signatures, AggregateFromPublicKeys, MuSigAggNonce,
         MuSigPartialSignature, MuSigPubNonce,
     },
+    rpc::clementine::{
+        clementine_operator_client::ClementineOperatorClient,
+        clementine_verifier_client::ClementineVerifierClient,
+    },
     traits::rpc::AggregatorServer,
     utils::handle_taproot_witness_new,
     ByteArray32, ByteArray66, EVMAddress, UTXO,
@@ -16,6 +20,7 @@ use bitcoin::{address::NetworkUnchecked, Address, OutPoint};
 use bitcoin::{hashes::Hash, Txid};
 use bitcoincore_rpc::RawTx;
 use secp256k1::schnorr;
+use tonic::transport::Uri;
 
 /// Aggregator struct.
 /// This struct is responsible for aggregating partial signatures from the verifiers.
@@ -27,12 +32,14 @@ use secp256k1::schnorr;
 /// For now, we do not have the last bit.
 #[derive(Debug, Clone)]
 pub struct Aggregator {
-    config: BridgeConfig,
-    nofn_xonly_pk: secp256k1::XOnlyPublicKey,
+    pub(crate) config: BridgeConfig,
+    pub(crate) nofn_xonly_pk: secp256k1::XOnlyPublicKey,
+    pub(crate) verifier_clients: Vec<ClementineVerifierClient<tonic::transport::Channel>>,
+    pub(crate) operator_clients: Vec<ClementineOperatorClient<tonic::transport::Channel>>,
 }
 
 impl Aggregator {
-    #[tracing::instrument(err(level = tracing::Level::ERROR), ret(level = tracing::Level::TRACE))]
+    // #[tracing::instrument(err(level = tracing::Level::ERROR), ret(level = tracing::Level::TRACE))]
     pub async fn new(config: BridgeConfig) -> Result<Self, BridgeError> {
         let nofn_xonly_pk = secp256k1::XOnlyPublicKey::from_musig2_pks(
             config.verifiers_public_keys.clone(),
@@ -40,9 +47,44 @@ impl Aggregator {
             false,
         );
 
+        tracing::info!(
+            "Aggregator initialized with verifiers: {:?}",
+            config.verifier_endpoints
+        );
+
+        let verifier_clients =
+            futures::future::try_join_all(config.verifier_endpoints.clone().unwrap().iter().map(
+                |endpoint| {
+                    let endpoint_clone = endpoint.clone();
+                    async move {
+                        let uri = Uri::try_from(endpoint_clone).unwrap(); // handle unwrap safely in real code
+                        let client = ClementineVerifierClient::connect(uri).await.unwrap();
+                        Ok::<_, Box<dyn std::error::Error>>(client)
+                    }
+                },
+            ))
+            .await
+            .unwrap();
+
+        let operator_clients =
+            futures::future::try_join_all(config.operator_endpoints.clone().unwrap().iter().map(
+                |endpoint| {
+                    let endpoint_clone = endpoint.clone();
+                    async move {
+                        let uri = Uri::try_from(endpoint_clone).unwrap(); // handle unwrap safely in real code
+                        let client = ClementineOperatorClient::connect(uri).await.unwrap();
+                        Ok::<_, Box<dyn std::error::Error>>(client)
+                    }
+                },
+            ))
+            .await
+            .unwrap();
+
         Ok(Aggregator {
             config,
             nofn_xonly_pk,
+            verifier_clients,
+            operator_clients,
         })
     }
 

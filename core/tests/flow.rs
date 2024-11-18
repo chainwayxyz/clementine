@@ -2,16 +2,23 @@
 //!
 //! This tests checks if typical flows works or not.
 
-use bitcoin::{Address, Amount};
+use std::str::FromStr;
+
+use bitcoin::{Address, Amount, Txid};
 use clementine_core::errors::BridgeError;
 use clementine_core::extended_rpc::ExtendedRpc;
-use clementine_core::utils::SECP;
+use clementine_core::rpc::clementine::clementine_aggregator_client::ClementineAggregatorClient;
+use clementine_core::rpc::clementine::{self, DepositParams};
+use clementine_core::servers::create_verifiers_and_operators_grpc;
+use clementine_core::utils::{initialize_logger, SECP};
 use clementine_core::{create_extended_rpc, traits::rpc::OperatorRpcClient, user::User};
 use common::run_single_deposit;
 use secp256k1::SecretKey;
+use tonic::transport::Uri;
 
 mod common;
 
+#[ignore = "We are switching to gRPC"]
 #[tokio::test]
 async fn honest_operator_takes_refund() {
     let (_verifiers, operators, mut config, deposit_outpoint) =
@@ -75,6 +82,7 @@ async fn honest_operator_takes_refund() {
     );
 }
 
+#[ignore = "We are switching to gRPC"]
 #[tokio::test]
 async fn withdrawal_fee_too_low() {
     let (_verifiers, operators, mut config, _) =
@@ -111,4 +119,73 @@ async fn withdrawal_fee_too_low() {
                 false
             }
         }));
+}
+
+#[tokio::test]
+#[should_panic]
+async fn double_calling_setip() {
+    initialize_logger(5).unwrap();
+    let (_verifiers, _operators, aggregator) =
+        create_verifiers_and_operators_grpc("test_config.toml").await;
+
+    let x: Uri = format!("http://{}", aggregator.0).parse().unwrap();
+
+    println!("x: {:?}", x);
+
+    let mut aggregator_client = ClementineAggregatorClient::connect(x).await.unwrap();
+
+    aggregator_client
+        .setup(tonic::Request::new(clementine::Empty {}))
+        .await
+        .unwrap();
+
+    aggregator_client
+        .setup(tonic::Request::new(clementine::Empty {}))
+        .await
+        .unwrap();
+}
+
+#[tokio::test]
+async fn grpc_flow() {
+    initialize_logger(5).unwrap();
+    let (_verifiers, _operators, aggregator) =
+        create_verifiers_and_operators_grpc("test_config.toml").await;
+
+    let x: Uri = format!("http://{}", aggregator.0).parse().unwrap();
+
+    println!("x: {:?}", x);
+
+    let mut aggregator_client = ClementineAggregatorClient::connect(x).await.unwrap();
+
+    aggregator_client
+        .setup(tonic::Request::new(clementine::Empty {}))
+        .await
+        .unwrap();
+
+    aggregator_client
+        .new_deposit(DepositParams {
+            deposit_outpoint: Some(
+                bitcoin::OutPoint {
+                    txid: Txid::from_str(
+                        "17e3fc7aae1035e77a91e96d1ba27f91a40a912cf669b367eb32c13a8f82bb02",
+                    )
+                    .unwrap(),
+                    vout: 0,
+                }
+                .into(),
+            ),
+            evm_address: [1u8; 20].to_vec(),
+            recovery_taproot_address:
+                "tb1pk8vus63mx5zwlmmmglq554kwu0zm9uhswqskxg99k66h8m3arguqfrvywa".to_string(),
+            user_takes_after: 5,
+        })
+        .await
+        .unwrap();
+
+    // let mut verifier_client = ClementineVerifierClient::connect(x)
+    //     .await
+    //     .unwrap();
+
+    // let x= verifier_client.nonce_gen(Empty {}).await.unwrap();
+    // println!("x: {:?}", x);
 }

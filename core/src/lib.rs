@@ -25,11 +25,13 @@ pub mod merkle;
 pub mod mock;
 pub mod musig2;
 pub mod operator;
+pub mod rpc;
 pub mod servers;
 pub mod traits;
 pub mod user;
 pub mod utils;
 pub mod verifier;
+pub mod watchtower;
 
 pub type ConnectorUTXOTree = Vec<Vec<OutPoint>>;
 // pub type HashTree = Vec<Vec<HashType>>;
@@ -40,6 +42,19 @@ pub type InscriptionTxs = (OutPoint, Txid);
 #[derive(Copy, Clone, Debug, PartialOrd, Ord, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct EVMAddress(#[serde(with = "hex::serde")] pub [u8; 20]);
 
+impl TryFrom<Vec<u8>> for EVMAddress {
+    type Error = &'static str;
+
+    fn try_from(value: Vec<u8>) -> Result<Self, Self::Error> {
+        if value.len() == 20 {
+            let mut arr = [0u8; 20];
+            arr.copy_from_slice(&value);
+            Ok(EVMAddress(arr))
+        } else {
+            Err("Expected a Vec<u8> of length 20")
+        }
+    }
+}
 /// Type alias for withdrawal payment, HashType is taproot script hash
 // pub type WithdrawalPayment = (Txid, HashType);
 

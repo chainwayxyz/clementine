@@ -4,7 +4,10 @@
 //! directly talks with PostgreSQL. It is expected that PostgreSQL is properly
 //! installed and configured.
 
-use super::wrapper::{AddressDB, EVMAddressDB, OutPointDB, SignatureDB, TxOutDB, TxidDB, Utxodb};
+use super::wrapper::{
+    AddressDB, EVMAddressDB, OutPointDB, PublicKeyDB, SignatureDB, TxOutDB, TxidDB, Utxodb,
+    XOnlyPublicKeyDB,
+};
 use super::Database;
 use crate::errors::BridgeError;
 use crate::musig2::{MuSigAggNonce, MuSigPubNonce, MuSigSecNonce, MuSigSigHash};
@@ -15,6 +18,118 @@ use secp256k1::schnorr;
 use sqlx::{Postgres, QueryBuilder};
 
 impl Database {
+    /// Verifier: save the generated sec nonce and pub nonces
+    #[tracing::instrument(skip(self), err(level = tracing::Level::ERROR), ret(level = tracing::Level::TRACE))]
+    pub async fn save_verifier_public_keys(
+        &self,
+        tx: Option<&mut sqlx::Transaction<'_, Postgres>>,
+        public_keys: &[secp256k1::PublicKey],
+    ) -> Result<(), BridgeError> {
+        let mut query = QueryBuilder::new("INSERT INTO verifier_public_keys (idx, public_key) ");
+        query.push_values(public_keys.iter().enumerate(), |mut builder, (idx, pk)| {
+            builder
+                .push_bind(idx as i32) // Bind the index
+                .push_bind(PublicKeyDB(*pk)); // Bind public key
+        });
+        let query = query.build();
+
+        // Now you can use the `query` variable in the match statement
+        match tx {
+            Some(tx) => query.execute(&mut **tx).await?,
+            None => query.execute(&self.connection).await?,
+        };
+
+        Ok(())
+    }
+
+    #[tracing::instrument(skip(self), err(level = tracing::Level::ERROR), ret(level = tracing::Level::TRACE))]
+    pub async fn get_verifier_public_keys(
+        &self,
+        tx: Option<&mut sqlx::Transaction<'_, Postgres>>,
+    ) -> Result<Vec<secp256k1::PublicKey>, BridgeError> {
+        let query = sqlx::query_as("SELECT * FROM verifier_public_keys ORDER BY idx;");
+
+        let result: Result<Vec<(i32, PublicKeyDB)>, sqlx::Error> = match tx {
+            Some(tx) => query.fetch_all(&mut **tx).await,
+            None => query.fetch_all(&self.connection).await,
+        };
+
+        match result {
+            Ok(pks) => Ok(pks.into_iter().map(|(_, pk)| pk.0).collect()),
+            Err(e) => Err(BridgeError::DatabaseError(e)),
+        }
+    }
+
+    /// Verifier: save the generated sec nonce and pub nonces
+    #[tracing::instrument(skip(self), err(level = tracing::Level::ERROR), ret(level = tracing::Level::TRACE))]
+    pub async fn set_time_tx(
+        &self,
+        tx: Option<&mut sqlx::Transaction<'_, Postgres>>,
+        operator_idx: i32,
+        idx: i32,
+        time_txid: Txid,
+        block_height: i32,
+    ) -> Result<(), BridgeError> {
+        let query = sqlx::query(
+            "INSERT INTO operator_time_txs (operator_idx, idx, time_txid, block_height) VALUES ($1, $2, $3, $4);",
+        )
+        .bind(operator_idx)
+        .bind(idx)
+        .bind(TxidDB(time_txid))
+        .bind(block_height);
+
+        match tx {
+            Some(tx) => query.execute(&mut **tx).await?,
+            None => query.execute(&self.connection).await?,
+        };
+
+        Ok(())
+    }
+
+    #[tracing::instrument(skip(self), err(level = tracing::Level::ERROR), ret(level = tracing::Level::TRACE))]
+    pub async fn get_time_txs(
+        &self,
+        tx: Option<&mut sqlx::Transaction<'_, Postgres>>,
+        operator_idx: i32,
+    ) -> Result<Vec<(i32, Txid, i32)>, BridgeError> {
+        let query = sqlx::query_as("SELECT idx, time_txid, block_height FROM operator_time_txs WHERE operator_idx = $1 ORDER BY idx;").bind(operator_idx);
+
+        let result: Result<Vec<(i32, TxidDB, i32)>, sqlx::Error> = match tx {
+            Some(tx) => query.fetch_all(&mut **tx).await,
+            None => query.fetch_all(&self.connection).await,
+        };
+
+        match result {
+            Ok(time_txs) => Ok(time_txs
+                .into_iter()
+                .map(|(idx, txid_db, block_height)| (idx, txid_db.0, block_height))
+                .collect()),
+            Err(e) => Err(BridgeError::DatabaseError(e)),
+        }
+    }
+
+    pub async fn set_operator(
+        &self,
+        tx: Option<&mut sqlx::Transaction<'_, Postgres>>,
+        operator_idx: i32,
+        xonly_pubkey: secp256k1::XOnlyPublicKey,
+        wallet_address: String,
+    ) -> Result<(), BridgeError> {
+        let query = sqlx::query(
+            "INSERT INTO operators (operator_idx, xonly_pk, wallet_reimburse_address) VALUES ($1, $2, $3);",
+        )
+        .bind(operator_idx)
+        .bind(XOnlyPublicKeyDB(xonly_pubkey))
+        .bind(wallet_address);
+
+        match tx {
+            Some(tx) => query.execute(&mut **tx).await?,
+            None => query.execute(&self.connection).await?,
+        };
+
+        Ok(())
+    }
+
     #[tracing::instrument(skip(self), err(level = tracing::Level::ERROR), ret(level = tracing::Level::TRACE))]
     pub async fn lock_operators_kickoff_utxo_table(
         &self,

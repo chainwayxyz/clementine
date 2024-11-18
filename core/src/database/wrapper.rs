@@ -198,6 +198,45 @@ impl<'r> Decode<'r, Postgres> for BlockHeaderDB {
     }
 }
 
+#[derive(Serialize, Deserialize, sqlx::FromRow, Debug, Clone)]
+pub struct PublicKeyDB(pub secp256k1::PublicKey);
+
+impl sqlx::Type<sqlx::Postgres> for PublicKeyDB {
+    fn type_info() -> sqlx::postgres::PgTypeInfo {
+        sqlx::postgres::PgTypeInfo::with_name("TEXT")
+    }
+}
+impl<'q> Encode<'q, Postgres> for PublicKeyDB {
+    fn encode_by_ref(&self, buf: &mut PgArgumentBuffer) -> sqlx::encode::IsNull {
+        let s: String = secp256k1::PublicKey::to_string(&self.0);
+        <&str as Encode<Postgres>>::encode_by_ref(&s.as_str(), buf)
+    }
+}
+impl<'r> Decode<'r, Postgres> for PublicKeyDB {
+    fn decode(value: PgValueRef<'r>) -> Result<Self, sqlx::error::BoxDynError> {
+        let s = <&str as Decode<Postgres>>::decode(value)?;
+        let x: secp256k1::PublicKey = secp256k1::PublicKey::from_str(s)?;
+        Ok(PublicKeyDB(x))
+    }
+}
+
+#[derive(Serialize, Deserialize, sqlx::FromRow, Debug, Clone)]
+pub struct XOnlyPublicKeyDB(pub secp256k1::XOnlyPublicKey);
+
+impl<'q> Encode<'q, Postgres> for XOnlyPublicKeyDB {
+    fn encode_by_ref(&self, buf: &mut PgArgumentBuffer) -> sqlx::encode::IsNull {
+        let s: String = secp256k1::XOnlyPublicKey::to_string(&self.0);
+        <&str as Encode<Postgres>>::encode_by_ref(&s.as_str(), buf)
+    }
+}
+impl<'r> Decode<'r, Postgres> for XOnlyPublicKeyDB {
+    fn decode(value: PgValueRef<'r>) -> Result<Self, sqlx::error::BoxDynError> {
+        let s = <&str as Decode<Postgres>>::decode(value)?;
+        let x: secp256k1::XOnlyPublicKey = secp256k1::XOnlyPublicKey::from_str(s)?;
+        Ok(XOnlyPublicKeyDB(x))
+    }
+}
+
 // TODO: Improve these tests by checking conversions both ways. Note: I couldn't
 // find any ways to do this but it needs to be done.
 #[cfg(test)]

@@ -1,0 +1,242 @@
+syntax = "proto3";
+package clementine;
+
+message Empty {}
+
+message Outpoint {
+  bytes txid = 1;
+  uint32 vout = 2;
+}
+
+message AssertEmptyPublicKey {
+  bytes hash = 1;
+}
+
+message WinternitzPubkey {
+  uint32 d = 1;
+  uint32 n0 = 2;
+  repeated bytes digit_pubkey = 3;
+}
+
+// A deposit request's details.
+message DepositParams {
+  // User's deposit UTXO.
+  Outpoint deposit_outpoint = 1;
+  // User's EVM address.
+  bytes evm_address = 2;
+  // User's recovery taproot address.
+  string recovery_taproot_address = 3;
+  // User can take back funds after this amount of blocks.
+  uint64 user_takes_after = 4;
+}
+message DepositSignSession {
+  DepositParams deposit_params = 1;
+  repeated NonceGenFirstResponse nonce_gen_first_responses = 2;
+}
+
+// Operator --------------------------------------------------------------------
+
+message OperatorConfig {
+  uint32 operator_idx = 1;
+  bytes collateral_funding_txid = 2;
+  string xonly_pk = 3;
+  string wallet_reimburse_address = 4;
+}
+message OperatorParams {
+  // Operator's configuration.
+  OperatorConfig operator_details = 1;
+  // Winternitz pubkeys for each watchtowers challenge + bitvm assert tx.
+  // If there are 100 watchtowers and total of 1000 timetxs, it will take
+  // 1000 * (100*240 + 600*20) ~= 1 GB of hash for every winternitz pubkey.
+  repeated WinternitzPubkey winternitz_pubkeys = 2;
+  // Adaptor signatures for asserting a watchtower's challenge to zero.
+  // Total of 1000*100 preimages.
+  repeated AssertEmptyPublicKey assert_empty_public_key = 3;
+  // Timeout transaction signatures. It is not desired to have N-of-N in time
+  // txs. So, operator will sign the timeout txs. Takes total of 1000 schnorr
+  // sigs.
+  repeated bytes timeout_tx_sigs = 4;
+}
+
+message OperatorBurnSig {
+  bytes schnorr_sig = 1;
+}
+
+message NewWithdrawalSigParams {
+  uint32 withdrawal_id = 1;
+  // User's [`bitcoin::sighash::TapSighashType::SinglePlusAnyoneCanPay`]
+  // signature
+  bytes user_sig = 2;
+  Outpoint users_intent_outpoint = 3;
+  bytes users_intent_script_pubkey = 4;
+  uint64 users_intent_amount = 5;
+  bytes output_script_pubkey = 6;
+  uint64 output_amount = 7;
+}
+message NewWithdrawalSigResponse {
+  bytes txid = 1;
+}
+
+message WithdrawalFinalizedParams {
+  uint32 withdrawal_id = 1;
+  Outpoint deposit_outpoint = 2;
+}
+
+// An operator is responsible for paying withdrawals. It has an unique ID and
+// chain of UTXOs named `time_txs`. An operator also runs a verifier. These are
+// connected to the same database and both have access to watchtowers'
+// winternitz pubkeys.
+service ClementineOperator {
+  // Returns an operator's parameters. It will be called once, by the
+  // aggregator, to set all the public keys.
+  //
+  // # Returns
+  //
+  // Returns an [`OperatorParams`], which includes operator's configuration and
+  // Watchtower parameters.
+  rpc GetParams(Empty) returns (OperatorParams) {}
+
+  // Signs everything that includes Operator's burn connector.
+  //
+  // # Parameters
+  //
+  // - User's deposit information
+  // - Nonce metadata
+  //
+  // # Returns
+  //
+  // - Operator burn Schnorr signature
+  rpc DepositSign(DepositSignSession) returns (stream OperatorBurnSig) {}
+
+  // Prepares a withdrawal if it's profitable and previous time_tx's timelock
+  // has ended, by paying for the withdrawal and locking the current time_tx.
+  rpc NewWithdrawalSig(NewWithdrawalSigParams)
+    returns (NewWithdrawalSigResponse) {}
+
+  // Checks if a withdrawal is finalized.
+  //
+  // Steps:
+  //
+  // 1. Calculate move_txid and check if the withdrawal idx matches it
+  // 2. Check if it is proved on citrea
+  // 3. Send operator_take_txs
+  //
+  // # Parameters
+  //
+  // - withdrawal_id: Withdrawal's ID
+  // - deposit_outpoint: Withdrawal's deposit UTXO
+  rpc WithdrawalFinalized(WithdrawalFinalizedParams) returns (Empty) {}
+}
+
+// Verifier --------------------------------------------------------------------
+
+message VerifierParams {
+  uint32 id = 1;
+  bytes public_key = 2;
+  uint32 num_verifiers = 3;
+  uint32 num_watchtowers = 4;
+  uint32 num_operators = 5;
+  uint32 num_time_txs = 6;
+}
+
+message PartialSig {
+  bytes partial_sig = 1;
+}
+
+message NonceGenFirstResponse {
+  // Nonce ID
+  uint32 id = 1;
+  // New public key for the deposit
+  bytes public_key = 2;
+  // They sign the new public key with their private key
+  bytes sig = 3;
+  // Number of nonces to generate
+  uint32 num_nonces = 4;
+}
+message NonceGenResponse {
+  oneof response {
+    NonceGenFirstResponse first_response = 1;
+    bytes pub_nonce = 2;
+  }
+}
+
+message VerifierDepositSignParams {
+  oneof params {
+    DepositSignSession deposit_sign_first_param = 1;
+    bytes agg_nonce = 2;
+  }
+}
+
+message VerifierDepositFinalizeParams {
+  oneof params {
+    DepositSignSession deposit_sign_first_param = 1;
+    bytes schnorr_sig = 2;
+  }
+}
+
+message VerifierPublicKeys {
+  repeated bytes verifier_public_keys = 1;
+}
+
+service ClementineVerifier {
+  // Returns verifiers' metadata. Needs to be called once per setup.
+  rpc GetParams(Empty) returns (VerifierParams) {}
+
+  // Saves all verifiers public keys.
+  rpc SetVerifiers(VerifierPublicKeys) returns (Empty) {}
+
+  // Saves an operator.
+  rpc SetOperator(OperatorParams) returns (Empty) {}
+
+  // Saves a watchtower.
+  rpc SetWatchtower(WatchtowerParams) returns (Empty) {}
+
+  // Generates nonces for a deposit.
+  //
+  // # Returns
+  //
+  // Nonce metadata followed by nonces.
+  rpc NonceGen(Empty) returns (stream NonceGenResponse) {}
+
+  // Signs deposit with given aggNonces and it's corresponding secNonce using
+  // nonce_id.
+  rpc DepositSign(stream VerifierDepositSignParams)
+    returns (stream PartialSig) {}
+
+  // Verifies every signature and signs move_tx.
+  rpc DepositFinalize(stream VerifierDepositFinalizeParams)
+    returns (PartialSig) {}
+}
+
+// Watchtower ------------------------------------------------------------------
+
+message WatchtowerParams {
+  uint32 watchtower_id = 1;
+  // Winternitz pubkeys for each operator's timetxs.
+  repeated WinternitzPubkey winternitz_pubkeys = 2;
+}
+
+// Watchtowers are responsible for challenging the operator's kickoff txs.
+// Each watchtower also runs a verifier server connected to the same db. Thus,
+// they will have the operator's winternitz pubkeys.
+service ClementineWatchtower {
+  // Returns every operator's winternitz public keys.
+  rpc GetParams(Empty) returns (WatchtowerParams) {}
+}
+
+// Aggregator ------------------------------------------------------------------
+
+message RawSignedMoveTx {
+  bytes raw_tx = 1;
+}
+
+service ClementineAggregator {
+  rpc Setup(Empty) returns (Empty) {}
+  // This will call, DepositNonceGen for every verifier,
+  // then it will aggregate one by one and then send it to DepositSign,
+  // then it will aggregate the partial sigs and send it to DepositFinalize,
+  // this will also call the operator to get their signatures and send it to
+  // DepositFinalize then it will collect the partial sigs and create the move
+  // tx.
+  rpc NewDeposit(DepositParams) returns (RawSignedMoveTx) {}
+}

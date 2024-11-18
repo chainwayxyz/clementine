@@ -14,6 +14,7 @@ use clementine_core::traits::rpc::VerifierRpcClient;
 use clementine_core::user::User;
 use clementine_core::EVMAddress;
 
+#[ignore = "We are switching to gRPC"]
 #[tokio::test]
 async fn deposit_with_retry_checks() {
     let mut config = create_test_config_with_thread_name("test_config.toml", None).await;

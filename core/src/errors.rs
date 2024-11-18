@@ -90,6 +90,9 @@ pub enum BridgeError {
     /// JSON RPC call failed
     #[error("JsonRpcError: {0}")]
     JsonRpcError(#[from] jsonrpsee::core::client::Error),
+    /// RPC interface requires a parameter
+    #[error("RPC function field {0} is required!")]
+    RPCRequiredFieldError(&'static str),
     /// ConfigError is returned when the configuration is invalid
     #[error("ConfigError: {0}")]
     ConfigError(String),
@@ -179,10 +182,19 @@ pub enum BridgeError {
 
     #[error("Proving error: {0}")]
     ProveError(String),
+
+    #[error("ERROR: {0}")]
+    Error(String),
 }
 
 impl From<BridgeError> for ErrorObject<'static> {
     fn from(val: BridgeError) -> Self {
         ErrorObject::owned(-30000, format!("{:?}", val), Some(1))
+    }
+}
+
+impl From<BridgeError> for tonic::Status {
+    fn from(val: BridgeError) -> Self {
+        tonic::Status::from_error(Box::new(val))
     }
 }

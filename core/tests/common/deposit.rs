@@ -386,11 +386,13 @@ pub async fn run_single_deposit(
 mod tests {
     use crate::common::{run_multiple_deposits, run_single_deposit};
 
+    #[ignore = "We are switching to gRPC"]
     #[tokio::test]
     async fn test_deposit() {
         run_single_deposit("test_config.toml").await.unwrap();
     }
 
+    #[ignore = "We are switching to gRPC"]
     #[tokio::test]
     async fn multiple_deposits_for_operator() {
         run_multiple_deposits("test_config.toml").await;

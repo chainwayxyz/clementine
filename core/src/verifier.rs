@@ -1,3 +1,6 @@
+use std::collections::HashMap;
+use std::sync::Arc;
+
 use crate::actor::Actor;
 use crate::builder::transaction::{TxHandler, KICKOFF_UTXO_AMOUNT_SATS};
 use crate::builder::{self};
@@ -7,7 +10,7 @@ use crate::errors::BridgeError;
 use crate::extended_rpc::ExtendedRpc;
 use crate::musig2::{
     self, AggregateFromPublicKeys, MuSigAggNonce, MuSigPartialSignature, MuSigPubNonce,
-    MuSigSigHash,
+    MuSigSecNonce, MuSigSigHash,
 };
 use crate::traits::rpc::VerifierRpcServer;
 use crate::{utils, ByteArray32, ByteArray64, ByteArray66, EVMAddress, UTXO};
@@ -20,17 +23,52 @@ use bitcoincore_rpc::RawTx;
 use jsonrpsee::core::async_trait;
 use secp256k1::{rand, schnorr};
 
+#[derive(Debug)]
+pub struct NonceSession {
+    pub private_key: secp256k1::SecretKey,
+    pub nonces: Vec<MuSigSecNonce>,
+}
+
+#[derive(Debug)]
+pub struct AllSessions {
+    pub cur_id: u32,
+    pub sessions: HashMap<u32, NonceSession>,
+}
+
+#[derive(Debug, Clone)]
+pub struct NofN {
+    pub public_keys: Vec<secp256k1::PublicKey>,
+    pub agg_xonly_pk: secp256k1::XOnlyPublicKey,
+    pub idx: usize,
+}
+
+impl NofN {
+    pub fn new(self_pk: secp256k1::PublicKey, public_keys: Vec<secp256k1::PublicKey>) -> Self {
+        let idx = public_keys.iter().position(|pk| pk == &self_pk).unwrap();
+        let agg_xonly_pk =
+            secp256k1::XOnlyPublicKey::from_musig2_pks(public_keys.clone(), None, false);
+        NofN {
+            public_keys,
+            agg_xonly_pk,
+            idx,
+        }
+    }
+}
+
 #[derive(Debug, Clone)]
 pub struct Verifier<R>
 where
     R: RpcApiWrapper,
 {
     rpc: ExtendedRpc<R>,
-    signer: Actor,
-    db: Database,
-    config: BridgeConfig,
-    nofn_xonly_pk: secp256k1::XOnlyPublicKey,
+    pub(crate) signer: Actor,
+    pub(crate) db: Database,
+    pub(crate) config: BridgeConfig,
+    pub(crate) nofn_xonly_pk: secp256k1::XOnlyPublicKey,
+    pub(crate) nofn: Arc<tokio::sync::RwLock<Option<NofN>>>,
     operator_xonly_pks: Vec<secp256k1::XOnlyPublicKey>,
+    pub(crate) nonces: Arc<tokio::sync::Mutex<AllSessions>>,
+    pub idx: usize,
 }
 
 impl<R> Verifier<R>
@@ -40,12 +78,14 @@ where
     pub async fn new(rpc: ExtendedRpc<R>, config: BridgeConfig) -> Result<Self, BridgeError> {
         let signer = Actor::new(config.secret_key, config.network);
 
-        let pk: secp256k1::PublicKey = config.secret_key.public_key(&utils::SECP);
+        // let pk: secp256k1::PublicKey = config.secret_key.public_key(&utils::SECP);
 
-        // Generated public key must be in given public key list.
-        if !config.verifiers_public_keys.contains(&pk) {
-            return Err(BridgeError::PublicKeyNotFound);
-        }
+        // TODO: In the future, we won't get verifiers public keys from config files, rather in set_verifiers rpc call.
+        let idx = config
+            .verifiers_public_keys
+            .iter()
+            .position(|pk| pk == &signer.public_key)
+            .ok_or(BridgeError::PublicKeyNotFound)?;
 
         let db = Database::new(&config).await?;
 
@@ -57,13 +97,31 @@ where
 
         let operator_xonly_pks = config.operators_xonly_pks.clone();
 
+        let all_sessions = AllSessions {
+            cur_id: 0,
+            sessions: HashMap::new(),
+        };
+
+        let verifiers_pks = db.get_verifier_public_keys(None).await?;
+
+        let nofn = if verifiers_pks.len() != 0 {
+            tracing::debug!("Verifiers public keys found: {:?}", verifiers_pks);
+            let nofn = NofN::new(signer.public_key, verifiers_pks);
+            Some(nofn)
+        } else {
+            None
+        };
+
         Ok(Verifier {
             rpc,
             signer,
             db,
             config,
             nofn_xonly_pk,
+            nofn: Arc::new(tokio::sync::RwLock::new(nofn)),
             operator_xonly_pks,
+            nonces: Arc::new(tokio::sync::Mutex::new(all_sessions)),
+            idx,
         })
     }
 

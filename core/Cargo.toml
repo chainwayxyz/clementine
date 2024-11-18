@@ -3,6 +3,9 @@ name = "clementine-core"
 version = "0.2.0"
 edition = "2021"
 
+[build-dependencies]
+tonic-build = "0.12"
+
 [dependencies]
 risc0-zkvm = { workspace = true }
 
@@ -31,6 +34,10 @@ bitcoin-mock-rpc = { workspace = true }
 musig2 = { workspace = true }
 circuits = { workspace = true }
 borsh = { workspace = true}
+
+tonic = { workspace = true}
+prost = { workspace = true }
+tokio-stream = {workspace = true }
 
 [features]
 default = []
