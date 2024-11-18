@@ -440,6 +440,7 @@ mod tests {
     }
 
     #[tokio::test]
+    #[serial_test::serial]
     async fn check_for_new_blocks_uptodate() {
         let mut config = create_test_config_with_thread_name("test_config.toml", None).await;
         let rpc = create_extended_rpc!(config);
@@ -468,6 +469,7 @@ mod tests {
     }
 
     #[tokio::test]
+    #[serial_test::serial]
     async fn check_for_new_blocks_fallen_behind() {
         let mut config = create_test_config_with_thread_name("test_config.toml", None).await;
         let rpc = create_extended_rpc!(config);
@@ -500,6 +502,7 @@ mod tests {
     }
 
     #[tokio::test]
+    #[serial_test::serial]
     async fn check_for_new_blocks_out_of_bounds() {
         let mut config = create_test_config_with_thread_name("test_config.toml", None).await;
         let rpc = create_extended_rpc!(config);
@@ -566,6 +569,7 @@ mod tests {
     }
 
     #[tokio::test]
+    #[serial_test::serial]
     async fn sync_blockchain() {
         let mut config = create_test_config_with_thread_name("test_config.toml", None).await;
         let rpc = create_extended_rpc!(config);

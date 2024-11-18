@@ -15,6 +15,8 @@ async-trait = "0.1.83"
 clap = "4.5.20"
 toml = "0.8.19"
 sqlx = { version = "0.7.4", default-features = false }
+bitcoin-mock-rpc = { git = "https://github.com/chainwayxyz/bitcoin-mock-rpc", tag = "v0.0.12" }
+serial_test = "3.2.0"
 
 # bitcoin
 bitcoin = "0.32.3"
@@ -37,9 +39,6 @@ k256 = { version = "=0.13.3", default-features = false }
 risc0-build = "=1.1.2"
 risc0-zkvm = { version = "=1.1.2" }
 circuits = { git = "https://github.com/chainwayxyz/risc0-to-bitvm2" }
-
-# TODO: Make this dev-dependency (see #181)
-bitcoin-mock-rpc = { git = "https://github.com/chainwayxyz/bitcoin-mock-rpc", tag = "v0.0.12" }
 
 [profile.release]
 lto = true

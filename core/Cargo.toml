@@ -30,14 +30,18 @@ futures = { workspace = true }
 clap = { workspace = true, features = ["derive"] }
 toml = { workspace = true }
 sqlx = { workspace = true, features = ["runtime-tokio", "postgres", "macros"] }
-bitcoin-mock-rpc = { workspace = true }
 musig2 = { workspace = true }
 circuits = { workspace = true }
 borsh = { workspace = true}
-
 tonic = { workspace = true}
 prost = { workspace = true }
 tokio-stream = {workspace = true }
+
+# TODO: Make this dev-dependency (see #181)
+bitcoin-mock-rpc = { workspace = true }
+
+[dev-dependencies]
+serial_test = { workspace = true }
 
 [features]
 default = []
