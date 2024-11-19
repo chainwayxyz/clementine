@@ -73,7 +73,7 @@ jobs:
         shared-key: "debug-build"
 
     - name: Run tests on Bitcoin regtest
-      run: cargo test --verbose -- --include-ignored
+      run: cargo test --verbose
 
   release_mode_test_with_regtest:
     name: Test code in release mode with Bitcoin Regtest
@@ -105,4 +105,4 @@ jobs:
         shared-key: "release-build"
 
     - name: Run tests on Bitcoin regtest with release build
-      run: cargo test --verbose --release -- --include-ignored
+      run: cargo test --verbose --release
