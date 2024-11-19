@@ -11,6 +11,7 @@ use clementine_core::mock::database::create_test_config_with_thread_name;
 use clementine_core::utils::{handle_taproot_witness_new, SECP};
 
 #[tokio::test]
+#[serial_test::serial]
 async fn create_address_and_transaction_then_sign_transaction() {
     let mut config = create_test_config_with_thread_name("test_config.toml", None).await;
     let rpc = create_extended_rpc!(config);

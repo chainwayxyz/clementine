@@ -64,6 +64,7 @@ fn get_nonces(verifiers_secret_public_keys: Vec<Keypair>) -> (Vec<MuSigNoncePair
 }
 
 #[tokio::test]
+#[serial_test::serial]
 async fn key_spend() {
     let mut config: BridgeConfig =
         create_test_config_with_thread_name("test_config.toml", None).await;
@@ -146,6 +147,7 @@ async fn key_spend() {
 }
 
 #[tokio::test]
+#[serial_test::serial]
 async fn key_spend_with_script() {
     let mut config: BridgeConfig =
         create_test_config_with_thread_name("test_config.toml", None).await;
@@ -234,6 +236,7 @@ async fn key_spend_with_script() {
 }
 
 #[tokio::test]
+#[serial_test::serial]
 async fn script_spend() {
     let mut config: BridgeConfig =
         create_test_config_with_thread_name("test_config.toml", None).await;

@@ -123,6 +123,7 @@ async fn withdrawal_fee_too_low() {
 
 #[tokio::test]
 #[should_panic]
+#[serial_test::serial]
 async fn double_calling_setip() {
     initialize_logger(5).unwrap();
     let (_verifiers, _operators, aggregator) =
@@ -146,6 +147,7 @@ async fn double_calling_setip() {
 }
 
 #[tokio::test]
+#[serial_test::serial]
 async fn grpc_flow() {
     initialize_logger(5).unwrap();
     let (_verifiers, _operators, aggregator) =
