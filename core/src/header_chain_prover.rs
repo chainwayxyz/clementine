@@ -672,7 +672,7 @@ mod tests {
         // Prove genesis block.
         let receipt = prover.prove_block(None, vec![]).await.unwrap();
         let hash =
-            BlockHash::from_raw_hash(Hash::from_slice(&block_headers[0].prev_block_hash).unwrap());
+            BlockHash::from_raw_hash(Hash::from_slice(&block_headers[1].prev_block_hash).unwrap());
         let header = Header {
             version: Version::from_consensus(block_headers[0].version),
             prev_blockhash: BlockHash::from_raw_hash(Hash::from_byte_array(
@@ -705,7 +705,7 @@ mod tests {
             .await
             .unwrap();
         let hash =
-            BlockHash::from_raw_hash(Hash::from_slice(&block_headers[1].prev_block_hash).unwrap());
+            BlockHash::from_raw_hash(Hash::from_slice(&block_headers[2].prev_block_hash).unwrap());
         let header = Header {
             version: Version::from_consensus(block_headers[1].version),
             prev_blockhash: BlockHash::from_raw_hash(Hash::from_byte_array(
@@ -764,6 +764,9 @@ mod tests {
 
             println!("Waiting for proof to be written to database for second block...");
             sleep(Duration::from_millis(1000)).await;
+
+            // Comment below for real testing.
+            break;
         }
     }
 }
