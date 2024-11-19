@@ -2,14 +2,14 @@
 
 // #[cfg_attr(feature = "mock_rpc", mock_rpc)]
 
-/// Creates an [`ExtendedRpc`] struct from either the real Bitcoin RPC or mock
-/// RPC.
-///
-/// # Parameters
-///
-/// - `config`: Mutable `BridgeConfig` structure.
-/// - `db_name`: If mock is used, this will be it's database name. If not used
-///    can be dummy value.
+// / Creates an [`ExtendedRpc`] struct from either the real Bitcoin RPC or mock
+// / RPC.
+// /
+// / # Parameters
+// /
+// / - `config`: Mutable `BridgeConfig` structure.
+// / - `db_name`: If mock is used, this will be it's database name. If not used
+// /    can be dummy value.
 // #[cfg(feature = "mock_rpc")]
 // #[macro_export]
 // macro_rules! create_extended_rpc {
@@ -32,6 +32,7 @@
 //         )
 //     }};
 // }
+
 /// Creates an [`ExtendedRpc`] struct from either the real Bitcoin RPC or mock
 /// RPC.
 ///
