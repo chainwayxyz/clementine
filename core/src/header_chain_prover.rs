@@ -39,7 +39,7 @@ enum BlockFetchStatus {
 }
 
 #[derive(Debug, Clone)]
-pub struct ChainProver<R>
+pub struct HeaderChainProver<R>
 where
     R: RpcApiWrapper,
 {
@@ -47,7 +47,7 @@ where
     db: Database,
 }
 
-impl<R> ChainProver<R>
+impl<R> HeaderChainProver<R>
 where
     R: RpcApiWrapper,
 {
@@ -92,7 +92,7 @@ where
             db.save_block_proof(None, block_hash, proof).await?;
         };
 
-        Ok(ChainProver { rpc, db })
+        Ok(HeaderChainProver { rpc, db })
     }
 
     /// Get the proof of a block.
@@ -117,18 +117,18 @@ where
         let (tx, rx) = mpsc::channel::<()>(5);
 
         // Block checks.
-        let block_checks = ChainProver {
+        let block_checks = HeaderChainProver {
             rpc: self.rpc.clone(),
             db: self.db.clone(),
         };
-        let block_gazer = ChainProver::start_blockgazer(block_checks, tx);
+        let block_gazer = HeaderChainProver::start_blockgazer(block_checks, tx);
 
         // Prover.
-        let prover = ChainProver {
+        let prover = HeaderChainProver {
             rpc: self.rpc.clone(),
             db: self.db.clone(),
         };
-        let prover = ChainProver::start_prover(prover, rx);
+        let prover = HeaderChainProver::start_prover(prover, rx);
 
         tokio::spawn(async move {
             tokio::join!(block_gazer, prover);
@@ -246,7 +246,7 @@ where
     /// - prover: [`ChainProver`] instance
     /// - tx: Transmitter end for prover
     #[tracing::instrument(skip_all)]
-    async fn start_blockgazer(prover: ChainProver<R>, tx: Sender<()>)
+    async fn start_blockgazer(prover: HeaderChainProver<R>, tx: Sender<()>)
     where
         R: RpcApiWrapper,
     {
@@ -345,7 +345,7 @@ where
     /// - prover: [`ChainProver`] instance
     /// - rx: Receiver end for blockgazer
     #[tracing::instrument(skip_all)]
-    async fn start_prover(prover: ChainProver<R>, mut rx: Receiver<()>) {
+    async fn start_prover(prover: HeaderChainProver<R>, mut rx: Receiver<()>) {
         loop {
             // Prover waits for blockgazer's notification for new blocks
             // before doing any proving.
@@ -396,7 +396,7 @@ mod tests {
     use crate::{
         create_extended_rpc,
         extended_rpc::ExtendedRpc,
-        header_chain_prover::{BlockFetchStatus, ChainProver, DEEPNESS},
+        header_chain_prover::{BlockFetchStatus, HeaderChainProver, DEEPNESS},
         mock::database::create_test_config_with_thread_name,
     };
     use bitcoin::{
@@ -425,7 +425,7 @@ mod tests {
         let mut config = create_test_config_with_thread_name("test_config.toml", None).await;
         let rpc = create_extended_rpc!(config);
 
-        let _should_not_panic = ChainProver::new(&config, rpc).await.unwrap();
+        let _should_not_panic = HeaderChainProver::new(&config, rpc).await.unwrap();
     }
 
     #[tokio::test]
@@ -438,7 +438,7 @@ mod tests {
         // too.
         rpc.mine_blocks(1).unwrap();
 
-        let prover = ChainProver::new(&config, rpc.clone()).await.unwrap();
+        let prover = HeaderChainProver::new(&config, rpc.clone()).await.unwrap();
 
         // Test assumption is for block 0.
         let hash = rpc.client.get_block_hash(0).unwrap();
@@ -454,7 +454,7 @@ mod tests {
     async fn check_for_new_blocks_uptodate() {
         let mut config = create_test_config_with_thread_name("test_config.toml", None).await;
         let rpc = create_extended_rpc!(config);
-        let prover = ChainProver::new(&config, rpc.clone()).await.unwrap();
+        let prover = HeaderChainProver::new(&config, rpc.clone()).await.unwrap();
 
         // Save current blockchain tip.
         let current_tip_height = rpc.client.get_block_count().unwrap();
@@ -483,7 +483,7 @@ mod tests {
     async fn check_for_new_blocks_fallen_behind() {
         let mut config = create_test_config_with_thread_name("test_config.toml", None).await;
         let rpc = create_extended_rpc!(config);
-        let prover = ChainProver::new(&config, rpc.clone()).await.unwrap();
+        let prover = HeaderChainProver::new(&config, rpc.clone()).await.unwrap();
 
         // Save current blockchain tip.
         let current_tip_height = rpc.client.get_block_count().unwrap();
@@ -516,7 +516,7 @@ mod tests {
     async fn check_for_new_blocks_out_of_bounds() {
         let mut config = create_test_config_with_thread_name("test_config.toml", None).await;
         let rpc = create_extended_rpc!(config);
-        let prover = ChainProver::new(&config, rpc.clone()).await.unwrap();
+        let prover = HeaderChainProver::new(&config, rpc.clone()).await.unwrap();
 
         // Add current block to database.
         let current_tip_height = rpc.client.get_block_count().unwrap();
@@ -583,7 +583,7 @@ mod tests {
     async fn sync_blockchain() {
         let mut config = create_test_config_with_thread_name("test_config.toml", None).await;
         let rpc = create_extended_rpc!(config);
-        let prover = ChainProver::new(&config, rpc.clone()).await.unwrap();
+        let prover = HeaderChainProver::new(&config, rpc.clone()).await.unwrap();
 
         // Save current blockchain tip.
         let current_tip_height = rpc.client.get_block_count().unwrap();
@@ -622,7 +622,7 @@ mod tests {
     async fn prove_block_genesis() {
         let mut config = create_test_config_with_thread_name("test_config.toml", None).await;
         let rpc = create_extended_rpc!(config);
-        let prover = ChainProver::new(&config, rpc.clone()).await.unwrap();
+        let prover = HeaderChainProver::new(&config, rpc.clone()).await.unwrap();
 
         let receipt = prover.prove_block(None, vec![]).await.unwrap();
 
@@ -641,7 +641,7 @@ mod tests {
     async fn prove_block_second() {
         let mut config = create_test_config_with_thread_name("test_config.toml", None).await;
         let rpc = create_extended_rpc!(config);
-        let prover = ChainProver::new(&config, rpc.clone()).await.unwrap();
+        let prover = HeaderChainProver::new(&config, rpc.clone()).await.unwrap();
 
         // Prove genesis block and get it's receipt.
         let receipt = prover.prove_block(None, vec![]).await.unwrap();
@@ -663,7 +663,7 @@ mod tests {
     async fn save_and_get_proof() {
         let mut config = create_test_config_with_thread_name("test_config.toml", None).await;
         let rpc = create_extended_rpc!(config);
-        let prover = ChainProver::new(&config, rpc.clone()).await.unwrap();
+        let prover = HeaderChainProver::new(&config, rpc.clone()).await.unwrap();
         let block_headers = get_headers();
 
         // Prove genesis block.
@@ -738,7 +738,7 @@ mod tests {
     async fn start_header_chain_prover() {
         let mut config = create_test_config_with_thread_name("test_config.toml", None).await;
         let rpc = create_extended_rpc!(config);
-        let prover = ChainProver::new(&config, rpc.clone()).await.unwrap();
+        let prover = HeaderChainProver::new(&config, rpc.clone()).await.unwrap();
 
         prover.start_header_chain_prover();
         sleep(Duration::from_millis(1000)).await;
