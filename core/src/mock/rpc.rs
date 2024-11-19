@@ -10,28 +10,28 @@
 /// - `config`: Mutable `BridgeConfig` structure.
 /// - `db_name`: If mock is used, this will be it's database name. If not used
 ///    can be dummy value.
-#[cfg(feature = "mock_rpc")]
-#[macro_export]
-macro_rules! create_extended_rpc {
-    ($config:expr) => {{
-        println!("Using Mock RPC for testing...");
-        let handle = std::thread::current()
-            .name()
-            .unwrap()
-            .split(":")
-            .last()
-            .unwrap()
-            .to_owned();
+// #[cfg(feature = "mock_rpc")]
+// #[macro_export]
+// macro_rules! create_extended_rpc {
+//     ($config:expr) => {{
+//         println!("Using Mock RPC for testing...");
+//         let handle = std::thread::current()
+//             .name()
+//             .unwrap()
+//             .split(":")
+//             .last()
+//             .unwrap()
+//             .to_owned();
 
-        $config.bitcoin_rpc_url = handle.to_string();
+//         $config.bitcoin_rpc_url = handle.to_string();
 
-        ExtendedRpc::<bitcoin_mock_rpc::Client>::new(
-            $config.bitcoin_rpc_url.clone(),
-            $config.bitcoin_rpc_user.clone(),
-            $config.bitcoin_rpc_password.clone(),
-        )
-    }};
-}
+//         ExtendedRpc::<bitcoin_mock_rpc::Client>::new(
+//             $config.bitcoin_rpc_url.clone(),
+//             $config.bitcoin_rpc_user.clone(),
+//             $config.bitcoin_rpc_password.clone(),
+//         )
+//     }};
+// }
 /// Creates an [`ExtendedRpc`] struct from either the real Bitcoin RPC or mock
 /// RPC.
 ///
@@ -40,7 +40,7 @@ macro_rules! create_extended_rpc {
 /// - `config`: Mutable `BridgeConfig` structure.
 /// - `db_name`: If mock is used, this will be it's database name. If not used
 ///   can be dummy value.
-#[cfg(not(feature = "mock_rpc"))]
+// #[cfg(not(feature = "mock_rpc"))]
 #[macro_export]
 macro_rules! create_extended_rpc {
     ($config:expr) => {{

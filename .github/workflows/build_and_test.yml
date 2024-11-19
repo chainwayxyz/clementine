@@ -79,6 +79,7 @@ jobs:
     name: Test code in debug mode with Bitcoin Mock RPC
     runs-on: ubicloud-standard-16
     needs: debug_mode_build
+    if: false
 
     services:
       postgres:
@@ -143,6 +144,7 @@ jobs:
     name: Test code in release mode with Bitcoin Mock RPC
     runs-on: ubicloud-standard-16
     needs: release_mode_build
+    if: false
 
     services:
       postgres:

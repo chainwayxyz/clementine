@@ -45,7 +45,7 @@ serial_test = { workspace = true }
 
 [features]
 default = []
-mock_rpc = []
+# mock_rpc = []
 testing = []
 
 [[bin]]
