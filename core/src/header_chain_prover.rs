@@ -761,9 +761,6 @@ mod tests {
 
             println!("Waiting for proof to be written to database for second block...");
             sleep(Duration::from_millis(1000)).await;
-
-            // Comment below for real testing.
-            break;
         }
     }
 }
