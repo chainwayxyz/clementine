@@ -82,7 +82,7 @@ pub struct BridgeConfig {
     /// Bridge contract address.
     pub bridge_contract_address: String,
     // Latest header chain proof assumption file path and block height.
-    pub header_chain_proof: Option<(PathBuf, u64)>,
+    pub header_chain_proof: Option<PathBuf>,
 }
 
 impl BridgeConfig {
