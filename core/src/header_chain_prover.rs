@@ -321,9 +321,9 @@ where
             env.add_assumption(prev_receipt);
         }
 
-        let env = env
-            .build()
-            .map_err(|e| BridgeError::ProveError(e.to_string()))?;
+        let env = env.build().map_err(|e| {
+            BridgeError::ProveError(format!("Can't build environment: {}", e.to_string()))
+        })?;
 
         let prover = risc0_zkvm::default_prover();
 
