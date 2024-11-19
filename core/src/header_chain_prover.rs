@@ -54,7 +54,7 @@ where
     pub async fn new(config: &BridgeConfig, rpc: ExtendedRpc<R>) -> Result<Self, BridgeError> {
         let db = Database::new(config).await?;
 
-        if let Some((proof_file, block_height)) = &config.header_chain_proof {
+        if let Some(proof_file) = &config.header_chain_proof {
             let file = File::open(proof_file).map_err(|e| {
                 BridgeError::ProveError(format!(
                     "Can't read assumption file {:?} with error {}",
@@ -65,16 +65,27 @@ where
             let mut assumption = Vec::new();
             reader.read_to_end(&mut assumption)?;
 
-            let proof = borsh::from_slice(&assumption).map_err(|e| {
+            let proof: Receipt = borsh::from_slice(&assumption).map_err(|e| {
                 BridgeError::ProveError(format!("Proof assumption is malformed: {}", e))
             })?;
+            let prev_output: BlockHeaderCircuitOutput = borsh::from_slice(&proof.journal.bytes)
+                .map_err(|e| {
+                    BridgeError::ProveError(format!("Can't convert journal to bytes: {}", e))
+                })?;
 
             // Create block entry, if not exists.
-            let block_hash = rpc.client.get_block_hash(*block_height)?;
+            let block_hash = rpc
+                .client
+                .get_block_hash(prev_output.chain_state.block_height.into())?;
             let block_header = rpc.client.get_block_header(&block_hash)?;
             // Ignore error if block entry is in database already.
             let _ = db
-                .save_new_block(None, block_hash, block_header, *block_height)
+                .save_new_block(
+                    None,
+                    block_hash,
+                    block_header,
+                    prev_output.chain_state.block_height.into(),
+                )
                 .await;
 
             // Save proof assumption.
@@ -273,7 +284,7 @@ where
         // Prepare prover binary.
         const ELF: &[u8; 186232] = include_bytes!("../../scripts/header-chain-guest");
         let image_id: [u32; 8] = compute_image_id(ELF)
-            .map_err(|e| BridgeError::ProveError(format!("Can't compute image id {}", e)))?
+            .map_err(|e| BridgeError::ProveError(format!("Can't compute image id: {}", e)))?
             .as_words()
             .try_into()
             .map_err(|e| {
@@ -418,6 +429,7 @@ mod tests {
     }
 
     #[tokio::test]
+    #[serial_test::serial]
     async fn new_with_proof_assumption() {
         let mut config = create_test_config_with_thread_name("test_config.toml", None).await;
         let rpc = create_extended_rpc!(config);
@@ -428,10 +440,8 @@ mod tests {
 
         let prover = ChainProver::new(&config, rpc.clone()).await.unwrap();
 
-        let hash = rpc
-            .client
-            .get_block_hash(config.header_chain_proof.unwrap().1)
-            .unwrap();
+        // Test assumption is for block 0.
+        let hash = rpc.client.get_block_hash(0).unwrap();
         let _should_not_panic = prover.get_header_chain_proof(hash).await.unwrap();
 
         let wrong_hash = BlockHash::from_raw_hash(Hash::from_slice(&[0x45; 32]).unwrap());
@@ -608,6 +618,7 @@ mod tests {
     }
 
     #[tokio::test]
+    #[serial_test::serial]
     #[ignore = "Proving takes too much time: Only run it when it's necessary"]
     async fn prove_block_genesis() {
         let mut config = create_test_config_with_thread_name("test_config.toml", None).await;
@@ -627,6 +638,7 @@ mod tests {
     }
 
     #[tokio::test]
+    #[serial_test::serial]
     #[ignore = "Proving takes too much time: Only run it when it's necessary"]
     async fn prove_block_second() {
         let mut config = create_test_config_with_thread_name("test_config.toml", None).await;
@@ -649,6 +661,7 @@ mod tests {
     }
 
     #[tokio::test]
+    #[serial_test::serial]
     #[ignore = "Proving takes too much time: Only run it when it's necessary"]
     async fn save_and_get_proof() {
         let mut config = create_test_config_with_thread_name("test_config.toml", None).await;
@@ -723,6 +736,7 @@ mod tests {
     }
 
     #[tokio::test]
+    #[serial_test::serial]
     #[ignore = "This test is very host dependent and must need a human observer"]
     async fn start_header_chain_prover() {
         let mut config = create_test_config_with_thread_name("test_config.toml", None).await;
