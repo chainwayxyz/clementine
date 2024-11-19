@@ -619,7 +619,6 @@ mod tests {
 
     #[tokio::test]
     #[serial_test::serial]
-    #[ignore = "Proving takes too much time: Only run it when it's necessary"]
     async fn prove_block_genesis() {
         let mut config = create_test_config_with_thread_name("test_config.toml", None).await;
         let rpc = create_extended_rpc!(config);
@@ -639,7 +638,6 @@ mod tests {
 
     #[tokio::test]
     #[serial_test::serial]
-    #[ignore = "Proving takes too much time: Only run it when it's necessary"]
     async fn prove_block_second() {
         let mut config = create_test_config_with_thread_name("test_config.toml", None).await;
         let rpc = create_extended_rpc!(config);
@@ -662,7 +660,6 @@ mod tests {
 
     #[tokio::test]
     #[serial_test::serial]
-    #[ignore = "Proving takes too much time: Only run it when it's necessary"]
     async fn save_and_get_proof() {
         let mut config = create_test_config_with_thread_name("test_config.toml", None).await;
         let rpc = create_extended_rpc!(config);
