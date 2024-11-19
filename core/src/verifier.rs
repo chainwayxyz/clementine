@@ -666,6 +666,7 @@ mod tests {
     }
 
     #[tokio::test]
+    #[serial_test::serial]
     async fn new_deposit_nonce_checks() {
         let mut config = create_test_config("new_deposit_nonce_checks", "test_config.toml").await;
         let rpc = create_extended_rpc!(config);

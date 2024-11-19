@@ -20,6 +20,7 @@ mod common;
 
 #[ignore = "We are switching to gRPC"]
 #[tokio::test]
+#[serial_test::serial]
 async fn honest_operator_takes_refund() {
     let (_verifiers, operators, mut config, deposit_outpoint) =
         run_single_deposit("test_config.toml").await.unwrap();

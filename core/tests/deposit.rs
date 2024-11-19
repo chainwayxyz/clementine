@@ -16,6 +16,7 @@ use clementine_core::EVMAddress;
 
 #[ignore = "We are switching to gRPC"]
 #[tokio::test]
+#[serial_test::serial]
 async fn deposit_with_retry_checks() {
     let mut config = create_test_config_with_thread_name("test_config.toml", None).await;
     let rpc = create_extended_rpc!(config);
