@@ -73,40 +73,7 @@ jobs:
         shared-key: "debug-build"
 
     - name: Run tests on Bitcoin regtest
-      run: cargo test --verbose
-
-  debug_mode_test_with_mock_rpc:
-    name: Test code in debug mode with Bitcoin Mock RPC
-    runs-on: ubicloud-standard-16
-    needs: debug_mode_build
-    if: false
-
-    services:
-      postgres:
-        image: postgres:latest
-        env:
-          POSTGRES_DB: clementine
-          POSTGRES_USER: clementine
-          POSTGRES_PASSWORD: clementine
-        ports:
-          - 5432:5432
-        options: >-
-          --health-cmd pg_isready
-          --health-interval 10s
-          --health-timeout 5s
-          --health-retries 5
-
-    steps:
-    - uses: actions/checkout@v4
-    - uses: ./.github/actions/service-action
-
-    - name: Restore cached build artifacts
-      uses: Swatinem/rust-cache@v2
-      with:
-        shared-key: "debug-build"
-
-    - name: Run tests on mock RPC
-      run: cargo test --verbose --features mock_rpc
+      run: cargo test --verbose -- --include-ignored
 
   release_mode_test_with_regtest:
     name: Test code in release mode with Bitcoin Regtest
@@ -138,37 +105,4 @@ jobs:
         shared-key: "release-build"
 
     - name: Run tests on Bitcoin regtest with release build
-      run: cargo test --verbose --release
-
-  release_mode_test_with_mock_rpc:
-    name: Test code in release mode with Bitcoin Mock RPC
-    runs-on: ubicloud-standard-16
-    needs: release_mode_build
-    if: false
-
-    services:
-      postgres:
-        image: postgres:latest
-        env:
-          POSTGRES_DB: clementine
-          POSTGRES_USER: clementine
-          POSTGRES_PASSWORD: clementine
-        ports:
-          - 5432:5432
-        options: >-
-          --health-cmd pg_isready
-          --health-interval 10s
-          --health-timeout 5s
-          --health-retries 5
-
-    steps:
-    - uses: actions/checkout@v4
-    - uses: ./.github/actions/service-action
-
-    - name: Restore cached build artifacts
-      uses: Swatinem/rust-cache@v2
-      with:
-        shared-key: "release-build"
-
-    - name: Run tests on mock RPC with release build
-      run: cargo test --verbose --features mock_rpc --release
+      run: cargo test --verbose --release -- --include-ignored
