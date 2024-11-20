@@ -54,7 +54,7 @@ where
     pub async fn new(config: &BridgeConfig, rpc: ExtendedRpc<R>) -> Result<Self, BridgeError> {
         let db = Database::new(config).await?;
 
-        if let Some(proof_file) = &config.header_chain_proof {
+        if let Some(proof_file) = &config.header_chain_proof_path {
             let file = File::open(proof_file).map_err(|e| {
                 BridgeError::ProveError(format!(
                     "Can't read assumption file {:?} with error {}",
