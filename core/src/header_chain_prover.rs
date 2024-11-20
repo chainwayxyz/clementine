@@ -123,6 +123,7 @@ where
     pub fn run(&self) {
         let (tx, rx) = mpsc::channel::<()>(5);
 
+        // TODO: Clone self instead.
         // Block checks.
         let block_checks = HeaderChainProver {
             rpc: self.rpc.clone(),
@@ -130,6 +131,7 @@ where
         };
         let block_gazer = HeaderChainProver::start_blockgazer(block_checks, tx);
 
+        // TODO: Clone self instead.
         // Prover.
         let prover = HeaderChainProver {
             rpc: self.rpc.clone(),
