@@ -12,9 +12,7 @@ use circuits::header_chain::{
 };
 use risc0_zkvm::{compute_image_id, ExecutorEnv, Receipt};
 use std::{
-    fs::File,
-    io::{BufReader, Read},
-    time::Duration,
+    fs::File, io::{BufReader, Read}, sync::LazyLock, time::Duration
 };
 use tokio::{
     sync::mpsc::{self, Receiver, Sender},
@@ -24,6 +22,17 @@ use tokio::{
 // Checks this amount of previous blocks if not synced with blockchain.
 // TODO: Get this from config file.
 const DEEPNESS: u64 = 5;
+
+// Prepare prover binary and calculate it's image id.
+const ELF: &[u8; 186232] = include_bytes!("../../scripts/header-chain-guest");
+static IMAGE_ID: LazyLock<[u32; 8]> = LazyLock::new(|| {
+    compute_image_id(ELF)
+    .map_err(|e| BridgeError::ProveError(format!("Can't compute image id: {}", e)))
+    .unwrap()
+    .as_words()
+    .try_into()
+    .unwrap()
+});
 
 /// Possible fetch results.
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -279,19 +288,6 @@ where
         prev_receipt: Option<Receipt>,
         block_headers: Vec<BlockHeader>,
     ) -> Result<Receipt, BridgeError> {
-        // Prepare prover binary.
-        const ELF: &[u8; 186232] = include_bytes!("../../scripts/header-chain-guest");
-        let image_id: [u32; 8] = compute_image_id(ELF)
-            .map_err(|e| BridgeError::ProveError(format!("Can't compute image id: {}", e)))?
-            .as_words()
-            .try_into()
-            .map_err(|e| {
-                BridgeError::ProveError(format!(
-                    "Can't convert computed image id to [u32; 8]: {}",
-                    e
-                ))
-            })?;
-
         // Prepare proof input.
         let (prev_proof, method_id) = match &prev_receipt {
             Some(receipt) => {
@@ -303,7 +299,7 @@ where
 
                 (HeaderChainPrevProofType::PrevProof(prev_output), method_id)
             }
-            None => (HeaderChainPrevProofType::GenesisBlock, image_id),
+            None => (HeaderChainPrevProofType::GenesisBlock, *IMAGE_ID),
         };
         let input = HeaderChainCircuitInput {
             method_id,
