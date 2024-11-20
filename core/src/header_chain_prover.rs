@@ -17,10 +17,7 @@ use std::{
     sync::LazyLock,
     time::Duration,
 };
-use tokio::{
-    sync::mpsc::{self, Receiver, Sender},
-    time::sleep,
-};
+use tokio::time::sleep;
 
 // Checks this amount of previous blocks if not synced with blockchain.
 // TODO: Get this from config file.
@@ -127,15 +124,13 @@ where
     /// blockchain and does proving.
     #[tracing::instrument]
     pub fn run(&self) {
-        let (tx, rx) = mpsc::channel::<()>(5);
-
         // TODO: Clone self instead.
         // Block checks.
         let block_checks = HeaderChainProver {
             rpc: self.rpc.clone(),
             db: self.db.clone(),
         };
-        let block_gazer = HeaderChainProver::start_blockgazer(block_checks, tx);
+        let block_gazer = HeaderChainProver::start_blockgazer(block_checks);
 
         // TODO: Clone self instead.
         // Prover.
@@ -143,7 +138,7 @@ where
             rpc: self.rpc.clone(),
             db: self.db.clone(),
         };
-        let prover = HeaderChainProver::start_prover(prover, rx);
+        let prover = HeaderChainProver::start_prover(prover);
 
         tokio::spawn(async move {
             tokio::join!(block_gazer, prover);
@@ -261,7 +256,7 @@ where
     /// - prover: [`ChainProver`] instance
     /// - tx: Transmitter end for prover
     #[tracing::instrument(skip_all)]
-    async fn start_blockgazer(prover: HeaderChainProver<R>, tx: Sender<()>)
+    async fn start_blockgazer(prover: HeaderChainProver<R>)
     where
         R: RpcApiWrapper,
     {
@@ -271,7 +266,6 @@ where
                     BlockFetchStatus::UpToDate => (),
                     BlockFetchStatus::FallenBehind(block_height, _block_hash) => {
                         prover.sync_blockchain(block_height).await.unwrap();
-                        tx.send(()).await.unwrap();
                     }
                     _ => panic!("Hapi yuttun"),
                 }
@@ -347,12 +341,8 @@ where
     /// - prover: [`ChainProver`] instance
     /// - rx: Receiver end for blockgazer
     #[tracing::instrument(skip_all)]
-    async fn start_prover(prover: HeaderChainProver<R>, mut rx: Receiver<()>) {
+    async fn start_prover(prover: HeaderChainProver<R>) {
         loop {
-            // Prover waits for blockgazer's notification for new blocks
-            // before doing any proving.
-            rx.recv().await;
-
             let non_proved_block = prover.db.get_non_proven_block(None).await;
 
             if let Ok((
@@ -389,6 +379,8 @@ where
                     continue;
                 }
             }
+
+            sleep(Duration::from_secs(1)).await;
         }
     }
 }
