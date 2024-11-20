@@ -3,6 +3,11 @@
 name: Clementine Test Services
 description: 'Service starters for Clementine tests'
 
+inputs:
+  github_token:
+    description: 'GitHub token for authentication'
+    required: true
+
 runs:
   using: "composite"
 
@@ -26,3 +31,14 @@ runs:
 
   - name: Install Protoc
     uses: arduino/setup-protoc@v3
+
+  - name: Install cargo-risczero
+    uses: taiki-e/install-action@v2
+    with:
+      tool: cargo-risczero@1.1.2
+
+  - name: Install risc0-zkvm toolchain
+    shell: bash
+    env:
+      GITHUB_TOKEN: ${{ inputs.github_token }}
+    run: cargo risczero install --version r0.1.79.0-2
