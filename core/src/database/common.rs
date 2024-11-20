@@ -749,7 +749,7 @@ impl Database {
         Ok(())
     }
 
-    /// Sets a block's proof by referring to it by it's hash.
+    /// Gets a block's proof by referring to it by it's hash.
     #[tracing::instrument(skip(self), err(level = tracing::Level::ERROR), ret(level = tracing::Level::TRACE))]
     pub async fn get_block_proof_by_hash(
         &self,
@@ -773,11 +773,9 @@ impl Database {
         Ok(Some(receipt))
     }
 
-    /// Returns a blocks proof, by it's height.
-    ///
-    /// TODO: Add proof to return values.
+    /// Returns a block's hash and header, referring it to by it's height.
     #[tracing::instrument(skip(self), err(level = tracing::Level::ERROR), ret(level = tracing::Level::TRACE))]
-    pub async fn get_block_proof_info_by_height(
+    pub async fn get_block_info_by_height(
         &self,
         tx: Option<&mut sqlx::Transaction<'_, Postgres>>,
         height: u64,
@@ -795,6 +793,7 @@ impl Database {
         match result {
             (Some(hash), Some(header)) => Ok((hash.0, header.0)),
             _ => Ok((
+                // TODO: Do we need to return all zeroed values or an error?
                 BlockHash::all_zeros(),
                 Header {
                     version: Version::TWO,
@@ -1390,10 +1389,8 @@ mod tests {
             .await
             .unwrap();
 
-        let (read_block_hash, read_block_header) = db
-            .get_block_proof_info_by_height(None, height)
-            .await
-            .unwrap();
+        let (read_block_hash, read_block_header) =
+            db.get_block_info_by_height(None, height).await.unwrap();
         assert_eq!(block_hash, read_block_hash);
         assert_eq!(block.header, read_block_header);
     }

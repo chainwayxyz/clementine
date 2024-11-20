@@ -193,10 +193,10 @@ where
 
             let db_block_hash = match self
                 .db
-                .get_block_proof_info_by_height(None, tip_height.wrapping_sub(deepness))
+                .get_block_info_by_height(None, tip_height.wrapping_sub(deepness))
                 .await
             {
-                Ok(r) => r.0,
+                Ok((block_hash, _)) => block_hash,
                 Err(_) => continue,
             };
 
