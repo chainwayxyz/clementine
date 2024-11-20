@@ -87,7 +87,9 @@ where
                 })?;
 
             // Create block entry, if not exists.
-            let block_hash = BlockHash::from_slice(&proof_output.chain_state.best_block_hash)?;
+            let block_hash = rpc
+                .client
+                .get_block_hash(proof_output.chain_state.block_height.into())?;
             let block_header = rpc.client.get_block_header(&block_hash)?;
             // Ignore error if block entry is in database already.
             let _ = db
