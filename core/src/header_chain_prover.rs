@@ -68,15 +68,13 @@ where
             let proof: Receipt = borsh::from_slice(&assumption).map_err(|e| {
                 BridgeError::ProveError(format!("Proof assumption is malformed: {}", e))
             })?;
-            let prev_output: BlockHeaderCircuitOutput = borsh::from_slice(&proof.journal.bytes)
+            let proof_output: BlockHeaderCircuitOutput = borsh::from_slice(&proof.journal.bytes)
                 .map_err(|e| {
                     BridgeError::ProveError(format!("Can't convert journal to bytes: {}", e))
                 })?;
 
             // Create block entry, if not exists.
-            let block_hash = rpc
-                .client
-                .get_block_hash(prev_output.chain_state.block_height.into())?;
+            let block_hash = BlockHash::from_slice(&proof_output.chain_state.best_block_hash)?;
             let block_header = rpc.client.get_block_header(&block_hash)?;
             // Ignore error if block entry is in database already.
             let _ = db
@@ -84,7 +82,7 @@ where
                     None,
                     block_hash,
                     block_header,
-                    prev_output.chain_state.block_height.into(),
+                    proof_output.chain_state.block_height.into(),
                 )
                 .await;
 
@@ -113,7 +111,7 @@ where
     /// Starts a background task that syncs current database to active
     /// blockchain and does proving.
     #[tracing::instrument]
-    pub fn start_header_chain_prover(&self) {
+    pub fn run(&self) {
         let (tx, rx) = mpsc::channel::<()>(5);
 
         // Block checks.
@@ -743,7 +741,7 @@ mod tests {
         let rpc = create_extended_rpc!(config);
         let prover = HeaderChainProver::new(&config, rpc.clone()).await.unwrap();
 
-        prover.start_header_chain_prover();
+        prover.run();
         sleep(Duration::from_millis(1000)).await;
 
         // Mine a block and write genesis block's proof to database.
