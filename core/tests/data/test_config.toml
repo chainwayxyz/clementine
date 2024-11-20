@@ -64,7 +64,7 @@ citrea_rpc_url = ""
 bridge_contract_address = "3100000000000000000000000000000000000002"
 
 # Header chain prover's assumption to start with.
-header_chain_proof = "../core/tests/data/first_1.bin"
+header_chain_proof_path = "../core/tests/data/first_1.bin"
 
 # Testing only fields.
 all_verifiers_secret_keys = [

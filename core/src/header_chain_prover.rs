@@ -67,6 +67,7 @@ where
         let db = Database::new(config).await?;
 
         if let Some(proof_file) = &config.header_chain_proof_path {
+            tracing::trace!("Starting prover with assumption file {:?}.", proof_file);
             let file = File::open(proof_file).map_err(|e| {
                 BridgeError::ProveError(format!(
                     "Can't read assumption file {:?} with error {}",
