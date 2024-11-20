@@ -122,6 +122,5 @@ create table if not exists header_chain_proofs (
     height int not null,
     proof bytea
 );
-insert into header_chain_proofs (block_hash, height) values ('0000000000000000000000000000000000000000000000000000000000000000', 0);
 
 COMMIT;
