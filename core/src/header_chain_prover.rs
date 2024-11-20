@@ -12,7 +12,10 @@ use circuits::header_chain::{
 };
 use risc0_zkvm::{compute_image_id, ExecutorEnv, Receipt};
 use std::{
-    fs::File, io::{BufReader, Read}, sync::LazyLock, time::Duration
+    fs::File,
+    io::{BufReader, Read},
+    sync::LazyLock,
+    time::Duration,
 };
 use tokio::{
     sync::mpsc::{self, Receiver, Sender},
@@ -27,11 +30,11 @@ const DEEPNESS: u64 = 5;
 const ELF: &[u8; 186232] = include_bytes!("../../scripts/header-chain-guest");
 static IMAGE_ID: LazyLock<[u32; 8]> = LazyLock::new(|| {
     compute_image_id(ELF)
-    .map_err(|e| BridgeError::ProveError(format!("Can't compute image id: {}", e)))
-    .unwrap()
-    .as_words()
-    .try_into()
-    .unwrap()
+        .map_err(|e| BridgeError::ProveError(format!("Can't compute image id: {}", e)))
+        .unwrap()
+        .as_words()
+        .try_into()
+        .unwrap()
 });
 
 /// Possible fetch results.
