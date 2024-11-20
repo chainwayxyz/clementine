@@ -4,7 +4,6 @@ on: [push]
 
 env:
   CARGO_TERM_COLOR: always
-  CARGO_TERM_VERBOSE: true
   CARGOFLAGS: --workspace --all-targets --all-features
   RUST_LOG: trace
 
@@ -24,7 +23,7 @@ jobs:
         shared-key: "debug-build"
 
     - name: Compile in debug mode
-      run: cargo build $CARGOFLAGS
+      run: cargo build $CARGOFLAGS --verbose
 
   release_mode_build:
     name: Compile code in release mode
@@ -40,7 +39,7 @@ jobs:
         shared-key: "release-build"
 
     - name: Compile in release mode
-      run: cargo build $CARGOFLAGS --release
+      run: cargo build $CARGOFLAGS --release --verbose
 
 # Tests ------------------------------------------------------------------------
   debug_mode_test_with_regtest:
@@ -73,7 +72,7 @@ jobs:
         shared-key: "debug-build"
 
     - name: Run tests on Bitcoin regtest
-      run: cargo test --verbose
+      run: cargo test
 
   release_mode_test_with_regtest:
     name: Test code in release mode with Bitcoin Regtest
@@ -105,4 +104,4 @@ jobs:
         shared-key: "release-build"
 
     - name: Run tests on Bitcoin regtest with release build
-      run: cargo test --verbose --release
+      run: cargo test --release
