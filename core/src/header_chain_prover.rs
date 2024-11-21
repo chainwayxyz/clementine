@@ -10,11 +10,11 @@ use bitcoin_mock_rpc::RpcApiWrapper;
 use circuits::header_chain::{
     BlockHeader, BlockHeaderCircuitOutput, HeaderChainCircuitInput, HeaderChainPrevProofType,
 };
+use lazy_static::lazy_static;
 use risc0_zkvm::{compute_image_id, ExecutorEnv, Receipt};
 use std::{
     fs::File,
     io::{BufReader, Read},
-    sync::LazyLock,
     time::Duration,
 };
 use tokio::time::sleep;
@@ -25,14 +25,14 @@ const DEEPNESS: u64 = 5;
 
 // Prepare prover binary and calculate it's image id.
 const ELF: &[u8; 186232] = include_bytes!("../../scripts/header-chain-guest");
-static IMAGE_ID: LazyLock<[u32; 8]> = LazyLock::new(|| {
-    compute_image_id(ELF)
+lazy_static! {
+    static ref IMAGE_ID: [u32; 8] = compute_image_id(ELF)
         .map_err(|e| BridgeError::ProveError(format!("Can't compute image id: {}", e)))
         .unwrap()
         .as_words()
         .try_into()
-        .unwrap()
-});
+        .unwrap();
+}
 
 /// Possible fetch results.
 #[derive(Debug, Clone, Copy, PartialEq)]
