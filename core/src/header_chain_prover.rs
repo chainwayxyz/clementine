@@ -43,8 +43,6 @@ enum BlockFetchStatus {
     FallenBehind(u64, BlockHash),
     /// Current saved tip (with `difference` specified) is too far behind the actual tip.
     OutOfBounds(u64),
-    /// Current tip is considered a fork with `height` and `hash`.
-    Fork(u64, BlockHash),
 }
 
 #[derive(Debug, Clone)]
@@ -168,18 +166,11 @@ where
             tip_hash
         );
 
-        // Return early if database is up to date. Or if hash is not matching,
-        // possible reorg might have happened.
+        // Return early if database is up to date.
         if db_tip_height == tip_height && db_tip_hash == tip_hash {
             tracing::debug!("Database is in sync with active blockchain.");
 
             return Ok(BlockFetchStatus::UpToDate);
-        } else if (db_tip_height == tip_height && db_tip_hash != tip_hash)
-            || (db_tip_height > tip_height)
-        {
-            tracing::error!("Current database blockchain tip is not on branch with the active blockchain (possible reorg)!");
-
-            return Ok(BlockFetchStatus::Fork(db_tip_height, db_tip_hash));
         }
 
         // Return height difference if actual tip is too far behind.
@@ -193,8 +184,30 @@ where
             return Ok(BlockFetchStatus::OutOfBounds(diff));
         }
 
-        // Go back block by block to check that we are still at the same branch
-        // as the active blockchain.
+        // if hash is not matching, possible reorg might have happened.
+        if (db_tip_height == tip_height && db_tip_hash != tip_hash) || (db_tip_height > tip_height)
+        {
+            // Check if reorg is whithin the `DEEPNESS` range. If it is, don't
+            // report it as fork.
+            for deepness in 1..DEEPNESS + 1 {
+                let height = tip_height - deepness;
+                let hash = self.rpc.client.get_block_hash(height)?;
+                let db_hash = self.db.get_block_info_by_height(None, height).await?.0;
+
+                if db_hash == hash {
+                    tracing::debug!("Current database blockchain tip is {} blocks behind than the active blockchain tip.", deepness);
+                    return Ok(BlockFetchStatus::FallenBehind(height, hash));
+                };
+            }
+
+            tracing::error!("Current database blockchain tip is not on branch with the active blockchain (possible reorg)!");
+            return Err(BridgeError::ProveError(
+                "Fork happened and it is not recoverable!".to_string(),
+            ));
+        }
+
+        // Go back block by block and get the latest block match with the active
+        // branch.
         let mut previous_block_hash = tip_prev_blockhash;
         for deepness in 1..DEEPNESS + 1 {
             let current_block = self.rpc.client.get_block(&previous_block_hash)?;
@@ -212,7 +225,6 @@ where
 
             if current_block_hash == db_block_hash {
                 tracing::debug!("Current database blockchain tip is {} blocks behind than the active blockchain tip.", deepness);
-
                 return Ok(BlockFetchStatus::FallenBehind(
                     tip_height - deepness,
                     db_block_hash,
@@ -220,9 +232,7 @@ where
             }
         }
 
-        tracing::error!("Current database blockchain tip is not on branch with the active blockchain (possible reorg)!");
-
-        Ok(BlockFetchStatus::Fork(db_tip_height, db_tip_hash))
+        Err(BridgeError::ProveError("Unknown error".to_string()))
     }
 
     /// Synchronizes current database to active blockchain.
