@@ -1,3 +1,8 @@
+//! # Blockgazer
+//!
+//! Blockgazer is responsible for checking active blockchain and synching
+//! current state with it.
+
 use crate::{errors::BridgeError, header_chain_prover::HeaderChainProver};
 use bitcoin::BlockHash;
 use bitcoin_mock_rpc::RpcApiWrapper;
@@ -120,18 +125,25 @@ where
         Err(BridgeError::ProveError("Unknown error".to_string()))
     }
 
-    /// Synchronizes current database to active blockchain.
-    ///
-    /// It expects that current tip is not out of bounds and on the same branch
-    /// as the active branch. If these conditions are not met, this could cause
-    /// an infinite loop.
+    /// Synchronizes current database to active blockchain. It starts fetching
+    /// new blocks, starting with given height and runs until it's in sync with
+    /// current active tip.
     ///
     /// # Parameters
     ///
-    /// - current_block_height: Starts synching blocks from this height to database tip.
+    /// - `current_block_height`: Starts synching blocks from this height to
+    /// active blockchain tip.
+    ///
+    /// # Errors
+    ///
+    /// If tip height gets lower than the start, mid-sync, this will return error.
+    /// Also, mid-sync reorgs are not handled.
     async fn sync_blockchain(&self, current_block_height: u64) -> Result<(), BridgeError> {
-        tracing::trace!("Synching blockchain to active blockchain.");
         let tip_height = self.rpc.client.get_block_count()?;
+        tracing::trace!(
+            "{} new blocks will be written to database.",
+            tip_height.abs_diff(current_block_height)
+        );
 
         for height in (current_block_height + 1)..(tip_height + 1) {
             let hash = self.rpc.client.get_block_hash(height)?;

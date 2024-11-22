@@ -1,6 +1,6 @@
 //! # Prover
 //!
-//! Prover calls
+//! Prover is responsible for preparing RiscZero header chain prover proofs.
 
 use crate::{errors::BridgeError, header_chain_prover::HeaderChainProver};
 use bitcoin::hashes::Hash;

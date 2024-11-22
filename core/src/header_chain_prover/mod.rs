@@ -160,7 +160,7 @@ mod tests {
 
     #[tokio::test]
     #[serial_test::serial]
-    #[ignore = "This test is very host dependent and must need a human observer"]
+    #[ignore = "This test is very host dependent and needs a human observer"]
     async fn start_header_chain_prover() {
         let mut config = create_test_config_with_thread_name("test_config.toml", None).await;
         let rpc = create_extended_rpc!(config);
