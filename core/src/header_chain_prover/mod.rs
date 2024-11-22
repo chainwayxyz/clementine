@@ -36,7 +36,7 @@ where
         if let Some(proof_file) = &config.header_chain_proof_path {
             tracing::trace!("Starting prover with assumption file {:?}.", proof_file);
             let file = File::open(proof_file).map_err(|e| {
-                BridgeError::ProveError(format!(
+                BridgeError::ProverError(format!(
                     "Can't read assumption file {:?} with error {}",
                     proof_file, e
                 ))
@@ -45,13 +45,10 @@ where
             let mut assumption = Vec::new();
             reader.read_to_end(&mut assumption)?;
 
-            let proof: Receipt = borsh::from_slice(&assumption).map_err(|e| {
-                BridgeError::ProveError(format!("Proof assumption is malformed: {}", e))
-            })?;
+            let proof: Receipt = borsh::from_slice(&assumption)
+                .map_err(|e| BridgeError::ProverDeSerializationError(e))?;
             let proof_output: BlockHeaderCircuitOutput = borsh::from_slice(&proof.journal.bytes)
-                .map_err(|e| {
-                    BridgeError::ProveError(format!("Can't convert journal to bytes: {}", e))
-                })?;
+                .map_err(|e| BridgeError::ProverDeSerializationError(e))?;
 
             // Create block entry, if not exists.
             let block_hash = rpc
@@ -83,7 +80,7 @@ where
     pub async fn get_header_chain_proof(&self, hash: BlockHash) -> Result<Receipt, BridgeError> {
         match self.db.get_block_proof_by_hash(None, hash).await? {
             Some(r) => Ok(r),
-            None => Err(BridgeError::ProveError(format!(
+            None => Err(BridgeError::ProverError(format!(
                 "No proof is present for block with block hash {}",
                 hash
             ))),

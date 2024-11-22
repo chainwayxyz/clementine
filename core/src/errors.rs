@@ -180,12 +180,14 @@ pub enum BridgeError {
     #[error("Musig2 error: {0}")]
     Musig2Error(#[from] musig2::secp256k1::Error),
 
-    #[error("Proving error: {0}")]
-    ProveError(String),
+    #[error("Prover returned an error: {0}")]
+    ProverError(String),
     #[error("Blockgazer can't synchronize database with active blockchain; Too deep {0}")]
     BlockgazerTooDeep(u64),
     #[error("Fork has happened and it's not recoverable by blockgazer.")]
     BlockgazerFork,
+    #[error("Error while de/serializing object: {0}")]
+    ProverDeSerializationError(std::io::Error),
 
     #[error("ERROR: {0}")]
     Error(String),

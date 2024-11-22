@@ -17,7 +17,7 @@ use tokio::time::sleep;
 const ELF: &[u8; 186232] = include_bytes!("../../../scripts/header-chain-guest");
 lazy_static! {
     static ref IMAGE_ID: [u32; 8] = compute_image_id(ELF)
-        .map_err(|e| BridgeError::ProveError(format!("Can't compute image id: {}", e)))
+        .map_err(|e| BridgeError::ProverError(format!("Can't compute image id: {}", e)))
         .unwrap()
         .as_words()
         .try_into()
@@ -47,9 +47,8 @@ where
         let (prev_proof, method_id) = match &prev_receipt {
             Some(receipt) => {
                 let prev_output: BlockHeaderCircuitOutput =
-                    borsh::from_slice(&receipt.journal.bytes).map_err(|e| {
-                        BridgeError::ProveError(format!("Can't convert journal to bytes: {}", e))
-                    })?;
+                    borsh::from_slice(&receipt.journal.bytes)
+                        .map_err(|e| BridgeError::ProverDeSerializationError(e))?;
                 let method_id = prev_output.method_id;
 
                 (HeaderChainPrevProofType::PrevProof(prev_output), method_id)
@@ -72,14 +71,14 @@ where
 
         let env = env
             .build()
-            .map_err(|e| BridgeError::ProveError(format!("Can't build environment: {}", e)))?;
+            .map_err(|e| BridgeError::ProverError(format!("Can't build environment: {}", e)))?;
 
         let prover = risc0_zkvm::default_prover();
 
         tracing::trace!("Proving started for block");
         let receipt = prover
             .prove(env, ELF)
-            .map_err(|e| BridgeError::ProveError(format!("Error while running prover: {}", e)))?
+            .map_err(|e| BridgeError::ProverError(format!("Error while running prover: {}", e)))?
             .receipt;
 
         tracing::debug!("Proof receipt: {:?}", receipt);
