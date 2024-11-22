@@ -123,6 +123,7 @@ mod tests {
     use secp256k1::{rand, SecretKey};
 
     #[tokio::test]
+    #[serial_test::parallel]
     async fn deposit_tx() {
         let mut config = create_test_config("deposit_tx", "test_config.toml").await;
         let rpc = create_extended_rpc!(config);
