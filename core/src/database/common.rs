@@ -728,7 +728,7 @@ impl Database {
     }
 
     /// Sets a block's proof by referring to it by it's hash.
-    #[tracing::instrument(skip(self), err(level = tracing::Level::ERROR), ret(level = tracing::Level::TRACE))]
+    #[tracing::instrument(skip(self, proof), err(level = tracing::Level::ERROR), ret(level = tracing::Level::TRACE))]
     pub async fn save_block_proof(
         &self,
         tx: Option<&mut sqlx::Transaction<'_, Postgres>>,
