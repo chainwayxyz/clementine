@@ -11,7 +11,7 @@ use tokio::time::sleep;
 
 // Checks this amount of previous blocks if not synced with blockchain.
 // TODO: Get this from config file.
-pub const DEEPNESS: u64 = 5;
+pub const DEEPNESS: u64 = 6;
 
 /// Possible fetch results.
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -20,8 +20,6 @@ pub enum BlockFetchStatus {
     UpToDate,
     /// Current tip is fallen behind with `height` and `hash`.
     FallenBehind(u64, BlockHash),
-    /// Current saved tip (with `difference` specified) is too far behind the actual tip.
-    OutOfBounds(u64),
 }
 
 impl<R> HeaderChainProver<R>
@@ -36,15 +34,14 @@ where
     /// - [`BlockFetchStatus`]: Status of the current database tip
     async fn check_for_new_blocks(&self) -> Result<BlockFetchStatus, BridgeError> {
         let (db_tip_height, db_tip_hash) = self.db.get_latest_block_info(None).await?;
+        let tip_height = self.rpc.client.get_block_count()?;
+        let tip_hash = self.rpc.client.get_block_hash(tip_height)?;
+        let tip_prev_blockhash = self.rpc.client.get_block_header(&tip_hash)?.prev_blockhash;
         tracing::trace!(
             "Database blockchain tip is at height {} with block hash {}",
             db_tip_height,
             db_tip_hash
         );
-
-        let tip_height = self.rpc.client.get_block_count()?;
-        let tip_hash = self.rpc.client.get_block_hash(tip_height)?;
-        let tip_prev_blockhash = self.rpc.client.get_block_header(&tip_hash)?.prev_blockhash;
         tracing::trace!(
             "Active blockchain tip is at height {} with block hash {}",
             tip_height,
@@ -53,7 +50,7 @@ where
 
         // Return early if database is up to date.
         if db_tip_height == tip_height && db_tip_hash == tip_hash {
-            tracing::debug!("Database is in sync with active blockchain.");
+            tracing::trace!("Database is in sync with active blockchain.");
 
             return Ok(BlockFetchStatus::UpToDate);
         }
@@ -66,43 +63,20 @@ where
                 diff
             );
 
-            return Ok(BlockFetchStatus::OutOfBounds(diff));
+            return Err(BridgeError::BlockgazerTooDeep(diff));
         }
 
-        // if hash is not matching, possible reorg might have happened.
-        if (db_tip_height == tip_height && db_tip_hash != tip_hash) || (db_tip_height > tip_height)
-        {
-            tracing::debug!(
-                "Possible reorg happened, hashes don't match for block height: {}",
-                tip_height
-            );
-
-            // Check if reorg is whithin the `DEEPNESS` range. If it is, don't
-            // report it as fork.
-            for deepness in 1..DEEPNESS + 1 {
-                let height = tip_height - deepness;
-                let hash = self.rpc.client.get_block_hash(height)?;
-                let db_hash = self.db.get_block_info_by_height(None, height).await?.0;
-
-                if db_hash == hash {
-                    tracing::debug!("Current database blockchain tip is {} blocks behind than the active blockchain tip.", deepness);
-                    return Ok(BlockFetchStatus::FallenBehind(height, hash));
-                };
-            }
-
-            tracing::error!("Current database blockchain tip is not on branch with the active blockchain (possible reorg)!");
-            return Err(BridgeError::ProveError(
-                "Fork happened and it is not recoverable!".to_string(),
-            ));
-        }
-
-        // Go back block by block and get the latest block match with the active
-        // branch.
+        // Go back block by block to check latest matched block between database
+        // and active blockchain.
         let mut previous_block_hash = tip_prev_blockhash;
         for deepness in 1..DEEPNESS + 1 {
-            let current_block = self.rpc.client.get_block(&previous_block_hash)?;
             let current_block_hash = previous_block_hash;
-            previous_block_hash = current_block.header.prev_blockhash;
+            previous_block_hash = self
+                .rpc
+                .client
+                .get_block(&previous_block_hash)?
+                .header
+                .prev_blockhash;
 
             let db_block_hash = match self
                 .db
@@ -115,6 +89,7 @@ where
 
             if current_block_hash == db_block_hash {
                 tracing::debug!("Current database blockchain tip is {} blocks behind than the active blockchain tip.", deepness);
+
                 return Ok(BlockFetchStatus::FallenBehind(
                     tip_height - deepness,
                     db_block_hash,
@@ -122,7 +97,7 @@ where
             }
         }
 
-        Err(BridgeError::ProveError("Unknown error".to_string()))
+        Err(BridgeError::BlockgazerFork)
     }
 
     /// Synchronizes current database to active blockchain. It starts fetching
@@ -174,7 +149,6 @@ where
                     BlockFetchStatus::FallenBehind(block_height, _block_hash) => {
                         prover.sync_blockchain(block_height).await.unwrap();
                     }
-                    _ => panic!("Hapi yuttun"),
                 }
             };
 
@@ -188,12 +162,52 @@ mod tests {
     use super::DEEPNESS;
     use crate::{
         create_extended_rpc,
+        errors::BridgeError,
         extended_rpc::ExtendedRpc,
         header_chain_prover::{blockgazer::BlockFetchStatus, HeaderChainProver},
         mock::database::create_test_config_with_thread_name,
     };
-
+    use bitcoin::BlockHash;
+    use bitcoin_mock_rpc::RpcApiWrapper;
     use bitcoincore_rpc::RpcApi;
+
+    async fn mine_and_save_blocks<R>(prover: &HeaderChainProver<R>, height: u64) -> Vec<BlockHash>
+    where
+        R: RpcApiWrapper,
+    {
+        let mut fork_block_hashes = Vec::new();
+        for _ in 0..height {
+            prover.rpc.mine_blocks(1).unwrap();
+
+            let current_tip_height = prover.rpc.client.get_block_count().unwrap();
+            let current_tip_hash = prover
+                .rpc
+                .client
+                .get_block_hash(current_tip_height)
+                .unwrap();
+            let current_block_header = prover
+                .rpc
+                .client
+                .get_block(&current_tip_hash)
+                .unwrap()
+                .header;
+
+            prover
+                .db
+                .save_new_block(
+                    None,
+                    current_tip_hash,
+                    current_block_header,
+                    current_tip_height,
+                )
+                .await
+                .unwrap();
+
+            fork_block_hashes.push(current_tip_hash);
+        }
+
+        fork_block_hashes
+    }
 
     #[tokio::test]
     #[serial_test::serial]
@@ -283,10 +297,12 @@ mod tests {
         // [`BlockFetchStatus::OutOfBounds`] return.
         let diff = DEEPNESS * DEEPNESS + DEEPNESS;
         rpc.mine_blocks(diff).unwrap();
-        assert_eq!(
-            prover.check_for_new_blocks().await.unwrap(),
-            BlockFetchStatus::OutOfBounds(diff)
-        );
+        let err = prover.check_for_new_blocks().await.err().unwrap();
+        if let BridgeError::BlockgazerTooDeep(bdiff) = err {
+            assert_eq!(bdiff, diff);
+        } else {
+            assert!(false);
+        }
 
         // Add current block to database.
         let current_tip_height = rpc.client.get_block_count().unwrap();
@@ -318,10 +334,12 @@ mod tests {
         // Exceeding deepness should return an `OutOfBounds`.
         let diff2 = DEEPNESS + DEEPNESS + 1;
         rpc.mine_blocks(diff2).unwrap();
-        assert_eq!(
-            prover.check_for_new_blocks().await.unwrap(),
-            BlockFetchStatus::OutOfBounds(diff + diff2)
-        );
+        let err = prover.check_for_new_blocks().await.err().unwrap();
+        if let BridgeError::BlockgazerTooDeep(bdiff) = err {
+            assert_eq!(bdiff, diff + diff2);
+        } else {
+            assert!(false);
+        }
     }
 
     #[tokio::test]
@@ -332,45 +350,13 @@ mod tests {
         let prover = HeaderChainProver::new(&config, rpc.clone()).await.unwrap();
 
         // Just to be safe.
-        rpc.mine_blocks(1).unwrap();
-
-        // Save current blockchain tip.
+        mine_and_save_blocks(&prover, 1).await;
+        // Save current status.
         let current_tip_height = rpc.client.get_block_count().unwrap();
         let current_tip_hash = rpc.client.get_block_hash(current_tip_height).unwrap();
-        let current_block = rpc.client.get_block(&current_tip_hash).unwrap();
-        prover
-            .db
-            .save_new_block(
-                None,
-                current_tip_hash,
-                current_block.header,
-                current_tip_height,
-            )
-            .await
-            .unwrap();
 
         // Save the next 3 blocks to database, soon to be invalidated.
-        let mut fork_block_hashes = Vec::new();
-        for _ in 0..3 {
-            rpc.mine_blocks(1).unwrap();
-
-            let current_tip_height = rpc.client.get_block_count().unwrap();
-            let current_tip_hash = rpc.client.get_block_hash(current_tip_height).unwrap();
-            let current_block_header = rpc.client.get_block(&current_tip_hash).unwrap().header;
-
-            prover
-                .db
-                .save_new_block(
-                    None,
-                    current_tip_hash,
-                    current_block_header,
-                    current_tip_height,
-                )
-                .await
-                .unwrap();
-
-            fork_block_hashes.push(current_tip_hash);
-        }
+        let mut fork_block_hashes = mine_and_save_blocks(&prover, 3).await;
         assert_eq!(
             prover.check_for_new_blocks().await.unwrap(),
             BlockFetchStatus::UpToDate
@@ -382,6 +368,39 @@ mod tests {
             .iter()
             .for_each(|hash| rpc.client.invalidate_block(hash).unwrap());
         rpc.mine_blocks(3).unwrap();
+
+        // Same thing as not saving 3 blocks after they are mined.
+        assert_eq!(
+            prover.check_for_new_blocks().await.unwrap(),
+            BlockFetchStatus::FallenBehind(current_tip_height, current_tip_hash)
+        );
+    }
+
+    #[tokio::test]
+    #[serial_test::serial]
+    async fn check_for_new_blocks_fork_mixed() {
+        let mut config = create_test_config_with_thread_name("test_config.toml", None).await;
+        let rpc = create_extended_rpc!(config);
+        let prover = HeaderChainProver::new(&config, rpc.clone()).await.unwrap();
+
+        // Just to be safe.
+        mine_and_save_blocks(&prover, 1).await;
+        // Save current status.
+        let current_tip_height = rpc.client.get_block_count().unwrap();
+        let current_tip_hash = rpc.client.get_block_hash(current_tip_height).unwrap();
+
+        // Save the next 3 blocks to database, soon to be invalidated.
+        let mut fork_block_hashes = mine_and_save_blocks(&prover, 3).await;
+        assert_eq!(
+            prover.check_for_new_blocks().await.unwrap(),
+            BlockFetchStatus::UpToDate
+        );
+
+        // Invalidate previous hashes and don't replace them with new blocks.
+        fork_block_hashes.reverse();
+        fork_block_hashes
+            .iter()
+            .for_each(|hash| rpc.client.invalidate_block(hash).unwrap());
 
         assert_eq!(
             prover.check_for_new_blocks().await.unwrap(),

@@ -182,6 +182,10 @@ pub enum BridgeError {
 
     #[error("Proving error: {0}")]
     ProveError(String),
+    #[error("Blockgazer can't synchronize database with active blockchain; Too deep {0}")]
+    BlockgazerTooDeep(u64),
+    #[error("Fork has happened and it's not recoverable by blockgazer.")]
+    BlockgazerFork,
 
     #[error("ERROR: {0}")]
     Error(String),
