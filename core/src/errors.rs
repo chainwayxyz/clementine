@@ -2,10 +2,11 @@
 //!
 //! This module defines errors, returned by the library.
 
-use bitcoin::{consensus::encode::FromHexError, merkle_tree::MerkleBlockError, Txid};
+use bitcoin::{consensus::encode::FromHexError, merkle_tree::MerkleBlockError, BlockHash, Txid};
 use core::fmt::Debug;
 use jsonrpsee::types::ErrorObject;
 use musig2::secp::errors::InvalidScalarBytes;
+use std::path::PathBuf;
 use thiserror::Error;
 
 /// Errors returned by the bridge.
@@ -188,6 +189,10 @@ pub enum BridgeError {
     BlockgazerFork,
     #[error("Error while de/serializing object: {0}")]
     ProverDeSerializationError(std::io::Error),
+    #[error("No header chain proofs for hash {0}")]
+    NoHeaderChainProof(BlockHash),
+    #[error("Can't read proof assumption receipt from file {0}: {1}")]
+    WrongProofAssumption(PathBuf, std::io::Error),
 
     #[error("ERROR: {0}")]
     Error(String),

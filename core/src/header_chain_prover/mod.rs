@@ -35,12 +35,8 @@ where
 
         if let Some(proof_file) = &config.header_chain_proof_path {
             tracing::trace!("Starting prover with assumption file {:?}.", proof_file);
-            let file = File::open(proof_file).map_err(|e| {
-                BridgeError::ProverError(format!(
-                    "Can't read assumption file {:?} with error {}",
-                    proof_file, e
-                ))
-            })?;
+            let file = File::open(proof_file)
+                .map_err(|e| BridgeError::WrongProofAssumption(proof_file.clone(), e))?;
             let mut reader = BufReader::new(file);
             let mut assumption = Vec::new();
             reader.read_to_end(&mut assumption)?;
@@ -80,10 +76,7 @@ where
     pub async fn get_header_chain_proof(&self, hash: BlockHash) -> Result<Receipt, BridgeError> {
         match self.db.get_block_proof_by_hash(None, hash).await? {
             Some(r) => Ok(r),
-            None => Err(BridgeError::ProverError(format!(
-                "No proof is present for block with block hash {}",
-                hash
-            ))),
+            None => Err(BridgeError::NoHeaderChainProof(hash)),
         }
     }
 
