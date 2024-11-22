@@ -728,7 +728,7 @@ impl Database {
     }
 
     /// Sets a block's proof by referring to it by it's hash.
-    #[tracing::instrument(skip(self, proof), err(level = tracing::Level::ERROR), ret(level = tracing::Level::TRACE))]
+    #[tracing::instrument(skip(self, tx, proof), err(level = tracing::Level::ERROR), ret(level = tracing::Level::TRACE))]
     pub async fn save_block_proof(
         &self,
         tx: Option<&mut sqlx::Transaction<'_, Postgres>>,
@@ -750,7 +750,7 @@ impl Database {
     }
 
     /// Gets a block's proof by referring to it by it's hash.
-    #[tracing::instrument(skip(self), err(level = tracing::Level::ERROR), ret(level = tracing::Level::TRACE))]
+    #[tracing::instrument(skip(self, tx), err(level = tracing::Level::ERROR), ret(level = tracing::Level::TRACE))]
     pub async fn get_block_proof_by_hash(
         &self,
         tx: Option<&mut sqlx::Transaction<'_, Postgres>>,
@@ -774,7 +774,7 @@ impl Database {
     }
 
     /// Returns a block's hash and header, referring it to by it's height.
-    #[tracing::instrument(skip(self), err(level = tracing::Level::ERROR), ret(level = tracing::Level::TRACE))]
+    #[tracing::instrument(skip(self, tx), err(level = tracing::Level::ERROR), ret(level = tracing::Level::TRACE))]
     pub async fn get_block_info_by_height(
         &self,
         tx: Option<&mut sqlx::Transaction<'_, Postgres>>,
@@ -807,7 +807,7 @@ impl Database {
         }
     }
 
-    #[tracing::instrument(skip(self), err(level = tracing::Level::ERROR), ret(level = tracing::Level::TRACE))]
+    #[tracing::instrument(skip(self, tx), err(level = tracing::Level::ERROR), ret(level = tracing::Level::TRACE))]
     pub async fn get_latest_block_info(
         &self,
         tx: Option<&mut sqlx::Transaction<'_, Postgres>>,
@@ -829,7 +829,7 @@ impl Database {
 
     /// TODO: Return Option::None in case of last element is proven but it's
     /// ancestor is not.
-    #[tracing::instrument(skip(self), err(level = tracing::Level::ERROR), ret(level = tracing::Level::TRACE))]
+    #[tracing::instrument(skip(self, tx), err(level = tracing::Level::ERROR), ret(level = tracing::Level::TRACE))]
     pub async fn get_non_proven_block(
         &self,
         tx: Option<&mut sqlx::Transaction<'_, Postgres>>,
