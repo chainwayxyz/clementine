@@ -42,9 +42,9 @@ where
             reader.read_to_end(&mut assumption)?;
 
             let proof: Receipt = borsh::from_slice(&assumption)
-                .map_err(|e| BridgeError::ProverDeSerializationError(e))?;
+                .map_err(BridgeError::ProverDeSerializationError)?;
             let proof_output: BlockHeaderCircuitOutput = borsh::from_slice(&proof.journal.bytes)
-                .map_err(|e| BridgeError::ProverDeSerializationError(e))?;
+                .map_err( BridgeError::ProverDeSerializationError)?;
 
             // Create block entry, if not exists.
             let block_hash = rpc

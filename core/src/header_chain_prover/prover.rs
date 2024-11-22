@@ -48,7 +48,7 @@ where
             Some(receipt) => {
                 let prev_output: BlockHeaderCircuitOutput =
                     borsh::from_slice(&receipt.journal.bytes)
-                        .map_err(|e| BridgeError::ProverDeSerializationError(e))?;
+                        .map_err(BridgeError::ProverDeSerializationError)?;
                 let method_id = prev_output.method_id;
 
                 (HeaderChainPrevProofType::PrevProof(prev_output), method_id)
