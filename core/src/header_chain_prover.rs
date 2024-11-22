@@ -174,7 +174,7 @@ where
         }
 
         // Return height difference if actual tip is too far behind.
-        let diff = tip_height - db_tip_height;
+        let diff = tip_height.abs_diff(db_tip_height);
         if diff > DEEPNESS {
             tracing::error!(
                 "Current tip is fallen too far behind (difference is {} blocks)!",
@@ -187,6 +187,11 @@ where
         // if hash is not matching, possible reorg might have happened.
         if (db_tip_height == tip_height && db_tip_hash != tip_hash) || (db_tip_height > tip_height)
         {
+            tracing::debug!(
+                "Possible reorg happened, hashes don't match for block height: {}",
+                tip_height
+            );
+
             // Check if reorg is whithin the `DEEPNESS` range. If it is, don't
             // report it as fork.
             for deepness in 1..DEEPNESS + 1 {
@@ -579,6 +584,71 @@ mod tests {
         assert_eq!(
             prover.check_for_new_blocks().await.unwrap(),
             BlockFetchStatus::OutOfBounds(diff + diff2)
+        );
+    }
+
+    #[tokio::test]
+    #[serial_test::serial]
+    async fn check_for_new_blocks_fork_basic() {
+        let mut config = create_test_config_with_thread_name("test_config.toml", None).await;
+        let rpc = create_extended_rpc!(config);
+        let prover = HeaderChainProver::new(&config, rpc.clone()).await.unwrap();
+
+        // Just to be safe.
+        rpc.mine_blocks(1).unwrap();
+
+        // Save current blockchain tip.
+        let current_tip_height = rpc.client.get_block_count().unwrap();
+        let current_tip_hash = rpc.client.get_block_hash(current_tip_height).unwrap();
+        let current_block = rpc.client.get_block(&current_tip_hash).unwrap();
+        prover
+            .db
+            .save_new_block(
+                None,
+                current_tip_hash,
+                current_block.header,
+                current_tip_height,
+            )
+            .await
+            .unwrap();
+
+        // Save the next 3 blocks to database, soon to be invalidated.
+        let mut fork_block_hashes = Vec::new();
+        for _ in 0..3 {
+            rpc.mine_blocks(1).unwrap();
+
+            let current_tip_height = rpc.client.get_block_count().unwrap();
+            let current_tip_hash = rpc.client.get_block_hash(current_tip_height).unwrap();
+            let current_block_header = rpc.client.get_block(&current_tip_hash).unwrap().header;
+
+            prover
+                .db
+                .save_new_block(
+                    None,
+                    current_tip_hash,
+                    current_block_header,
+                    current_tip_height,
+                )
+                .await
+                .unwrap();
+
+            fork_block_hashes.push(current_tip_hash);
+        }
+        assert_eq!(
+            prover.check_for_new_blocks().await.unwrap(),
+            BlockFetchStatus::UpToDate
+        );
+
+        // Invalidate previous hashes and replace them with new blocks.
+        fork_block_hashes.reverse();
+        fork_block_hashes
+            .iter()
+            .for_each(|hash| rpc.client.invalidate_block(hash).unwrap());
+        rpc.mine_blocks(3).unwrap();
+
+        assert_eq!(
+            prover.check_for_new_blocks().await.unwrap(),
+            BlockFetchStatus::FallenBehind(current_tip_height, current_tip_hash)
         );
     }
 
