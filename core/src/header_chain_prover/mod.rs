@@ -121,13 +121,12 @@ mod tests {
     use crate::{
         create_extended_rpc,
         extended_rpc::ExtendedRpc,
-        header_chain_prover::{BlockFetchStatus, HeaderChainProver, DEEPNESS},
+        header_chain_prover::HeaderChainProver,
         mock::database::create_test_config_with_thread_name,
     };
     use bitcoin::{
-        block::{Header, Version},
         hashes::Hash,
-        BlockHash, CompactTarget, TxMerkleNode,
+        BlockHash,
     };
     use bitcoincore_rpc::RpcApi;
     use borsh::BorshDeserialize;

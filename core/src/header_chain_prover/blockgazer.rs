@@ -6,11 +6,11 @@ use tokio::time::sleep;
 
 // Checks this amount of previous blocks if not synced with blockchain.
 // TODO: Get this from config file.
-const DEEPNESS: u64 = 5;
+pub const DEEPNESS: u64 = 5;
 
 /// Possible fetch results.
 #[derive(Debug, Clone, Copy, PartialEq)]
-enum BlockFetchStatus {
+pub enum BlockFetchStatus {
     /// In sync with blockchain.
     UpToDate,
     /// Current tip is fallen behind with `height` and `hash`.
@@ -173,21 +173,20 @@ where
 
 #[cfg(test)]
 mod tests {
+    use super::DEEPNESS;
     use crate::{
-        create_extended_rpc, extended_rpc::ExtendedRpc,
+        create_extended_rpc,
+        extended_rpc::ExtendedRpc,
+        header_chain_prover::{blockgazer::BlockFetchStatus, HeaderChainProver},
         mock::database::create_test_config_with_thread_name,
     };
-    use bitcoin::{
-        block::{Header, Version},
-        hashes::Hash,
-        BlockHash, CompactTarget, TxMerkleNode,
-    };
+    
     use bitcoincore_rpc::RpcApi;
-    use borsh::BorshDeserialize;
-    use circuits::header_chain::{BlockHeader, BlockHeaderCircuitOutput};
-    use risc0_zkvm::Receipt;
-    use std::time::Duration;
-    use tokio::time::sleep;
+    
+    
+    
+    
+    
 
     #[tokio::test]
     #[serial_test::serial]
