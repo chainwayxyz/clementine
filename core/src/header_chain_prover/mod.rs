@@ -5,19 +5,14 @@
 use crate::{
     config::BridgeConfig, database::Database, errors::BridgeError, extended_rpc::ExtendedRpc,
 };
-use bitcoin::{hashes::Hash, BlockHash};
+use bitcoin::BlockHash;
 use bitcoin_mock_rpc::RpcApiWrapper;
-use circuits::header_chain::{
-    BlockHeader, BlockHeaderCircuitOutput, HeaderChainCircuitInput, HeaderChainPrevProofType,
-};
-use lazy_static::lazy_static;
-use risc0_zkvm::{compute_image_id, ExecutorEnv, Receipt};
+use circuits::header_chain::BlockHeaderCircuitOutput;
+use risc0_zkvm::Receipt;
 use std::{
     fs::File,
     io::{BufReader, Read},
-    time::Duration,
 };
-use tokio::time::sleep;
 
 mod blockgazer;
 mod prover;
@@ -136,7 +131,6 @@ mod tests {
     };
     use bitcoincore_rpc::RpcApi;
     use borsh::BorshDeserialize;
-    use circuits::header_chain::{BlockHeader, BlockHeaderCircuitOutput};
     use risc0_zkvm::Receipt;
     use std::time::Duration;
     use tokio::time::sleep;

@@ -1,18 +1,7 @@
-use crate::{
-    config::BridgeConfig, database::Database, errors::BridgeError, extended_rpc::ExtendedRpc, header_chain_prover::HeaderChainProver
-};
-use bitcoin::{hashes::Hash, BlockHash};
+use crate::{errors::BridgeError, header_chain_prover::HeaderChainProver};
+use bitcoin::BlockHash;
 use bitcoin_mock_rpc::RpcApiWrapper;
-use circuits::header_chain::{
-    BlockHeader, BlockHeaderCircuitOutput, HeaderChainCircuitInput, HeaderChainPrevProofType,
-};
-use lazy_static::lazy_static;
-use risc0_zkvm::{compute_image_id, ExecutorEnv, Receipt};
-use std::{
-    fs::File,
-    io::{BufReader, Read},
-    time::Duration,
-};
+use std::time::Duration;
 use tokio::time::sleep;
 
 // Checks this amount of previous blocks if not synced with blockchain.
