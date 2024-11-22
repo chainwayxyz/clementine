@@ -67,9 +67,10 @@ where
 
         // Go back block by block to check latest matched block between database
         // and active blockchain.
-        let mut current_block_hash = tip_hash;
-        for deepness in 1..DEEPNESS + 1 {
-            current_block_hash = self
+        let mut prev_block_hash = tip_hash;
+        for deepness in 0..DEEPNESS + 1 {
+            let current_block_hash = prev_block_hash;
+            prev_block_hash = self
                 .rpc
                 .client
                 .get_block_header(&current_block_hash)?
@@ -97,7 +98,7 @@ where
                 tracing::debug!("Current database blockchain tip is {} blocks behind than the active blockchain tip.", deepness);
 
                 return Ok(BlockFetchStatus::FallenBehind(
-                    tip_height - deepness,
+                    current_block_height,
                     db_block_hash,
                 ));
             }
@@ -105,7 +106,7 @@ where
             tracing::debug!(
                 "Block hash for height {} is not matching with active blockchain (possible reorg). Database hash: {}, active blockchain hash {}",
                 current_block_height, db_block_hash, current_block_hash
-            )
+            );
         }
 
         Err(BridgeError::BlockgazerFork)
@@ -118,7 +119,7 @@ where
     /// # Parameters
     ///
     /// - `current_block_height`: Starts synching blocks from this height to
-    /// active blockchain tip.
+    ///   active blockchain tip.
     ///
     /// # Errors
     ///
@@ -258,6 +259,10 @@ mod tests {
 
         // Just to be safe.
         mine_and_save_blocks(&prover, 1).await;
+        assert_eq!(
+            prover.check_for_new_blocks().await.unwrap(),
+            BlockFetchStatus::UpToDate
+        );
 
         // Save current blockchain tip.
         let current_tip_height = rpc.client.get_block_count().unwrap();
@@ -302,7 +307,7 @@ mod tests {
         if let BridgeError::BlockgazerTooDeep(bdiff) = err {
             assert_eq!(bdiff, diff);
         } else {
-            assert!(false);
+            panic!("Wrong error type!");
         }
 
         // Add current block to database.
@@ -339,7 +344,7 @@ mod tests {
         if let BridgeError::BlockgazerTooDeep(bdiff) = err {
             assert_eq!(bdiff, diff + diff2);
         } else {
-            assert!(false);
+            panic!("Wrong error type!");
         }
     }
 
