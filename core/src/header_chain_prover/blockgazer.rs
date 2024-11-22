@@ -180,13 +180,8 @@ mod tests {
         header_chain_prover::{blockgazer::BlockFetchStatus, HeaderChainProver},
         mock::database::create_test_config_with_thread_name,
     };
-    
+
     use bitcoincore_rpc::RpcApi;
-    
-    
-    
-    
-    
 
     #[tokio::test]
     #[serial_test::serial]

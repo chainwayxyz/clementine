@@ -119,15 +119,10 @@ where
 #[cfg(test)]
 mod tests {
     use crate::{
-        create_extended_rpc,
-        extended_rpc::ExtendedRpc,
-        header_chain_prover::HeaderChainProver,
+        create_extended_rpc, extended_rpc::ExtendedRpc, header_chain_prover::HeaderChainProver,
         mock::database::create_test_config_with_thread_name,
     };
-    use bitcoin::{
-        hashes::Hash,
-        BlockHash,
-    };
+    use bitcoin::{hashes::Hash, BlockHash};
     use bitcoincore_rpc::RpcApi;
     use borsh::BorshDeserialize;
     use risc0_zkvm::Receipt;
