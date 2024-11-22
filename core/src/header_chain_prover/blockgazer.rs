@@ -36,13 +36,12 @@ where
         let (db_tip_height, db_tip_hash) = self.db.get_latest_block_info(None).await?;
         let tip_height = self.rpc.client.get_block_count()?;
         let tip_hash = self.rpc.client.get_block_hash(tip_height)?;
-        let tip_prev_blockhash = self.rpc.client.get_block_header(&tip_hash)?.prev_blockhash;
-        tracing::trace!(
+        tracing::debug!(
             "Database blockchain tip is at height {} with block hash {}",
             db_tip_height,
             db_tip_hash
         );
-        tracing::trace!(
+        tracing::debug!(
             "Active blockchain tip is at height {} with block hash {}",
             tip_height,
             tip_hash
@@ -68,23 +67,30 @@ where
 
         // Go back block by block to check latest matched block between database
         // and active blockchain.
-        let mut previous_block_hash = tip_prev_blockhash;
+        let mut current_block_hash = tip_hash;
         for deepness in 1..DEEPNESS + 1 {
-            let current_block_hash = previous_block_hash;
-            previous_block_hash = self
+            current_block_hash = self
                 .rpc
                 .client
-                .get_block(&previous_block_hash)?
-                .header
+                .get_block_header(&current_block_hash)?
                 .prev_blockhash;
+            let current_block_height = tip_height.abs_diff(deepness);
 
             let db_block_hash = match self
                 .db
-                .get_block_info_by_height(None, tip_height.wrapping_sub(deepness))
+                .get_block_info_by_height(None, current_block_height)
                 .await
             {
                 Ok((block_hash, _)) => block_hash,
-                Err(_) => continue,
+                Err(e) => {
+                    tracing::debug!(
+                        "Block hash for height {} is not present in database: {}",
+                        current_block_height,
+                        e
+                    );
+
+                    continue;
+                }
             };
 
             if current_block_hash == db_block_hash {
@@ -95,6 +101,11 @@ where
                     db_block_hash,
                 ));
             }
+
+            tracing::debug!(
+                "Block hash for height {} is not matching with active blockchain (possible reorg). Database hash: {}, active blockchain hash {}",
+                current_block_height, db_block_hash, current_block_hash
+            )
         }
 
         Err(BridgeError::BlockgazerFork)
@@ -245,22 +256,12 @@ mod tests {
         let rpc = create_extended_rpc!(config);
         let prover = HeaderChainProver::new(&config, rpc.clone()).await.unwrap();
 
+        // Just to be safe.
+        mine_and_save_blocks(&prover, 1).await;
+
         // Save current blockchain tip.
         let current_tip_height = rpc.client.get_block_count().unwrap();
         let current_tip_hash = rpc.client.get_block_hash(current_tip_height).unwrap();
-        let current_block = rpc.client.get_block(&current_tip_hash).unwrap();
-
-        // Add current block to database.
-        prover
-            .db
-            .save_new_block(
-                None,
-                current_tip_hash,
-                current_block.header,
-                current_tip_height,
-            )
-            .await
-            .unwrap();
 
         // Falling behind some blocks should return [`BlockFetchStatus::FallenBehind`].
         let mine_count = DEEPNESS - 1;
