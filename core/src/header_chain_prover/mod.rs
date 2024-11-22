@@ -1,0 +1,205 @@
+//! # Header Chain Prover
+//!
+//! Fetches latest blocks from active blockchain and prepares proves for them.
+
+use crate::{
+    config::BridgeConfig, database::Database, errors::BridgeError, extended_rpc::ExtendedRpc,
+};
+use bitcoin::{hashes::Hash, BlockHash};
+use bitcoin_mock_rpc::RpcApiWrapper;
+use circuits::header_chain::{
+    BlockHeader, BlockHeaderCircuitOutput, HeaderChainCircuitInput, HeaderChainPrevProofType,
+};
+use lazy_static::lazy_static;
+use risc0_zkvm::{compute_image_id, ExecutorEnv, Receipt};
+use std::{
+    fs::File,
+    io::{BufReader, Read},
+    time::Duration,
+};
+use tokio::time::sleep;
+
+mod blockgazer;
+mod prover;
+
+#[derive(Debug, Clone)]
+pub struct HeaderChainProver<R>
+where
+    R: RpcApiWrapper,
+{
+    rpc: ExtendedRpc<R>,
+    db: Database,
+}
+
+impl<R> HeaderChainProver<R>
+where
+    R: RpcApiWrapper,
+{
+    pub async fn new(config: &BridgeConfig, rpc: ExtendedRpc<R>) -> Result<Self, BridgeError> {
+        let db = Database::new(config).await?;
+
+        if let Some(proof_file) = &config.header_chain_proof_path {
+            tracing::trace!("Starting prover with assumption file {:?}.", proof_file);
+            let file = File::open(proof_file).map_err(|e| {
+                BridgeError::ProveError(format!(
+                    "Can't read assumption file {:?} with error {}",
+                    proof_file, e
+                ))
+            })?;
+            let mut reader = BufReader::new(file);
+            let mut assumption = Vec::new();
+            reader.read_to_end(&mut assumption)?;
+
+            let proof: Receipt = borsh::from_slice(&assumption).map_err(|e| {
+                BridgeError::ProveError(format!("Proof assumption is malformed: {}", e))
+            })?;
+            let proof_output: BlockHeaderCircuitOutput = borsh::from_slice(&proof.journal.bytes)
+                .map_err(|e| {
+                    BridgeError::ProveError(format!("Can't convert journal to bytes: {}", e))
+                })?;
+
+            // Create block entry, if not exists.
+            let block_hash = rpc
+                .client
+                .get_block_hash(proof_output.chain_state.block_height.into())?;
+            let block_header = rpc.client.get_block_header(&block_hash)?;
+            // Ignore error if block entry is in database already.
+            let _ = db
+                .save_new_block(
+                    None,
+                    block_hash,
+                    block_header,
+                    proof_output.chain_state.block_height.into(),
+                )
+                .await;
+
+            // Save proof assumption.
+            db.save_block_proof(None, block_hash, proof).await?;
+        };
+
+        Ok(HeaderChainProver { rpc, db })
+    }
+
+    /// Get the proof of a block.
+    ///
+    /// # Parameters
+    ///
+    /// - `hash`: Target block hash
+    pub async fn get_header_chain_proof(&self, hash: BlockHash) -> Result<Receipt, BridgeError> {
+        match self.db.get_block_proof_by_hash(None, hash).await? {
+            Some(r) => Ok(r),
+            None => Err(BridgeError::ProveError(format!(
+                "No proof is present for block with block hash {}",
+                hash
+            ))),
+        }
+    }
+
+    /// Starts a background task that syncs current database to active
+    /// blockchain and does proving.
+    #[tracing::instrument]
+    pub fn run(&self) {
+        // TODO: Clone self instead.
+        // Block checks.
+        let block_checks = HeaderChainProver {
+            rpc: self.rpc.clone(),
+            db: self.db.clone(),
+        };
+        let block_gazer = HeaderChainProver::start_blockgazer(block_checks);
+
+        // TODO: Clone self instead.
+        // Prover.
+        let prover = HeaderChainProver {
+            rpc: self.rpc.clone(),
+            db: self.db.clone(),
+        };
+        let prover = HeaderChainProver::start_prover(prover);
+
+        tokio::spawn(async move {
+            tokio::join!(block_gazer, prover);
+        });
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::{
+        create_extended_rpc,
+        extended_rpc::ExtendedRpc,
+        header_chain_prover::{BlockFetchStatus, HeaderChainProver, DEEPNESS},
+        mock::database::create_test_config_with_thread_name,
+    };
+    use bitcoin::{
+        block::{Header, Version},
+        hashes::Hash,
+        BlockHash, CompactTarget, TxMerkleNode,
+    };
+    use bitcoincore_rpc::RpcApi;
+    use borsh::BorshDeserialize;
+    use circuits::header_chain::{BlockHeader, BlockHeaderCircuitOutput};
+    use risc0_zkvm::Receipt;
+    use std::time::Duration;
+    use tokio::time::sleep;
+
+    #[tokio::test]
+    async fn new() {
+        let mut config = create_test_config_with_thread_name("test_config.toml", None).await;
+        let rpc = create_extended_rpc!(config);
+
+        let _should_not_panic = HeaderChainProver::new(&config, rpc).await.unwrap();
+    }
+
+    #[tokio::test]
+    #[serial_test::serial]
+    async fn new_with_proof_assumption() {
+        let mut config = create_test_config_with_thread_name("test_config.toml", None).await;
+        let rpc = create_extended_rpc!(config);
+
+        // First block's assumption will be added to db: Make sure block exists
+        // too.
+        rpc.mine_blocks(1).unwrap();
+
+        let prover = HeaderChainProver::new(&config, rpc.clone()).await.unwrap();
+
+        // Test assumption is for block 0.
+        let hash = rpc.client.get_block_hash(0).unwrap();
+        let _should_not_panic = prover.get_header_chain_proof(hash).await.unwrap();
+
+        let wrong_hash = BlockHash::from_raw_hash(Hash::from_slice(&[0x45; 32]).unwrap());
+        assert_ne!(wrong_hash, hash);
+        assert!(prover.get_header_chain_proof(wrong_hash).await.is_err());
+    }
+
+    #[tokio::test]
+    #[serial_test::serial]
+    #[ignore = "This test is very host dependent and must need a human observer"]
+    async fn start_header_chain_prover() {
+        let mut config = create_test_config_with_thread_name("test_config.toml", None).await;
+        let rpc = create_extended_rpc!(config);
+        let prover = HeaderChainProver::new(&config, rpc.clone()).await.unwrap();
+
+        prover.run();
+        sleep(Duration::from_millis(1000)).await;
+
+        // Mine a block and write genesis block's proof to database.
+        rpc.mine_blocks(1).unwrap();
+        let receipt =
+            Receipt::try_from_slice(include_bytes!("../../tests/data/first_1.bin")).unwrap();
+        prover
+            .db
+            .save_block_proof(None, BlockHash::all_zeros(), receipt.clone())
+            .await
+            .unwrap();
+
+        let hash = rpc.client.get_block_hash(1).unwrap();
+        loop {
+            if let Ok(proof) = prover.get_header_chain_proof(hash).await {
+                println!("Second block's proof is {:?}", proof);
+                break;
+            }
+
+            println!("Waiting for proof to be written to database for second block...");
+            sleep(Duration::from_millis(1000)).await;
+        }
+    }
+}
