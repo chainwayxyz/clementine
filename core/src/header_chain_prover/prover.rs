@@ -88,6 +88,8 @@ where
 
     /// Starts a Tokio task that proves new blocks.
     ///
+    /// TODO: Use `&self`.
+    ///
     /// # Parameters
     ///
     /// - prover: [`ChainProver`] instance

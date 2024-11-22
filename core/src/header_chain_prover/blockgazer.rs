@@ -145,6 +145,8 @@ where
     /// Starts a Tokio task to search for new blocks. New blocks are written to
     /// database.
     ///
+    /// TODO: Use `&self`.
+    ///
     /// # Parameters
     ///
     /// - prover: [`ChainProver`] instance

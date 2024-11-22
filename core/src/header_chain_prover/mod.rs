@@ -37,16 +37,18 @@ where
             tracing::trace!("Starting prover with assumption file {:?}.", proof_file);
             let file = File::open(proof_file)
                 .map_err(|e| BridgeError::WrongProofAssumption(proof_file.clone(), e))?;
+
             let mut reader = BufReader::new(file);
             let mut assumption = Vec::new();
             reader.read_to_end(&mut assumption)?;
 
-            let proof: Receipt = borsh::from_slice(&assumption)
-                .map_err(BridgeError::ProverDeSerializationError)?;
+            let proof: Receipt =
+                borsh::from_slice(&assumption).map_err(BridgeError::ProverDeSerializationError)?;
             let proof_output: BlockHeaderCircuitOutput = borsh::from_slice(&proof.journal.bytes)
-                .map_err( BridgeError::ProverDeSerializationError)?;
+                .map_err(BridgeError::ProverDeSerializationError)?;
 
             // Create block entry, if not exists.
+            // TODO: Get this from chain_state struct.
             let block_hash = rpc
                 .client
                 .get_block_hash(proof_output.chain_state.block_height.into())?;
@@ -61,7 +63,7 @@ where
                 )
                 .await;
 
-            // Save proof assumption.
+            // Save proof receipt.
             db.save_block_proof(None, block_hash, proof).await?;
         };
 
@@ -73,6 +75,10 @@ where
     /// # Parameters
     ///
     /// - `hash`: Target block hash
+    ///
+    /// # Returns
+    ///
+    /// - [`Receipt`]: Specified block's proof receipt
     pub async fn get_header_chain_proof(&self, hash: BlockHash) -> Result<Receipt, BridgeError> {
         match self.db.get_block_proof_by_hash(None, hash).await? {
             Some(r) => Ok(r),
