@@ -544,4 +544,34 @@ mod tests {
             BlockFetchStatus::UpToDate
         );
     }
+
+    #[tokio::test]
+    #[serial_test::serial]
+    async fn sync_blockchain_multiple_blocks() {
+        let mut config = create_test_config_with_thread_name("test_config.toml", None).await;
+        let rpc = create_extended_rpc!(config);
+        let prover = HeaderChainProver::new(&config, rpc.clone()).await.unwrap();
+
+        // Save current blockchain tip.
+        mine_and_save_blocks(&prover, 1).await;
+        let current_tip_height = rpc.client.get_block_count().unwrap();
+
+        // Falling behind some blocks.
+        let mut hash = rpc.mine_blocks(10).unwrap();
+        hash.reverse();
+        assert_eq!(
+            prover.check_for_new_blocks().await.unwrap(),
+            BlockFetchStatus::FallenBehind(current_tip_height, hash.clone())
+        );
+
+        // Sync database to current active blockchain.
+        prover
+            .sync_blockchain(current_tip_height, hash)
+            .await
+            .unwrap();
+        assert_eq!(
+            prover.check_for_new_blocks().await.unwrap(),
+            BlockFetchStatus::UpToDate
+        );
+    }
 }
