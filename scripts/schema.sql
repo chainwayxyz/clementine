@@ -119,6 +119,7 @@ create table if not exists funding_utxos (
 create table if not exists header_chain_proofs (
     block_hash text primary key not null,
     block_header text,
+    prev_block_hash text,
     height int not null,
     proof bytea
 );
