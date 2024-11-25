@@ -9,17 +9,24 @@ use bitcoin_mock_rpc::RpcApiWrapper;
 use std::time::Duration;
 use tokio::time::sleep;
 
-// Checks this amount of previous blocks if not synced with blockchain.
-// TODO: Get this from config file.
-pub const DEEPNESS: u64 = 6;
+/// Maximum height difference in batches.
+pub const BATCH_DEEPNESS: u64 = 100;
+/// Safety barrier for fetcher. This is needed for not getting effected by the
+/// things like reorgs.
+pub const BATCH_DEEPNESS_SAFETY_BARRIER: u64 = 10;
+
+/// Blockgazer's maximum allowed height difference to handle. Above this height
+/// difference, execution gets into a halt.
+pub const MAX_ALLOWED_DISTANCE_TO_ACTIVE_TIP: u64 = 10_000;
 
 /// Possible fetch results.
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum BlockFetchStatus {
-    /// In sync with blockchain.
+    /// Database is in sync with active blockchain.
     UpToDate,
-    /// Current tip is fallen behind with `height` and `hash`.
-    FallenBehind(u64, BlockHash),
+    /// Database tip is fallen behind at this `block height` and this list of
+    /// `block hashes`.
+    FallenBehind(u64, Vec<BlockHash>),
 }
 
 impl<R> HeaderChainProver<R>
@@ -31,7 +38,9 @@ where
     ///
     /// # Returns
     ///
+    /// TODO: Don't need to return an enum, just return values.
     /// - [`BlockFetchStatus`]: Status of the current database tip
+    #[tracing::instrument(skip(self))]
     async fn check_for_new_blocks(&self) -> Result<BlockFetchStatus, BridgeError> {
         let (db_tip_height, db_tip_hash) = self.db.get_latest_block_info(None).await?;
         let tip_height = self.rpc.client.get_block_count()?;
@@ -56,7 +65,7 @@ where
 
         // Return height difference if actual tip is too far behind.
         let diff = tip_height.abs_diff(db_tip_height);
-        if diff > DEEPNESS {
+        if diff > MAX_ALLOWED_DISTANCE_TO_ACTIVE_TIP {
             tracing::error!(
                 "Current tip is fallen too far behind (difference is {} blocks)!",
                 diff
@@ -65,17 +74,31 @@ where
             return Err(BridgeError::BlockgazerTooDeep(diff));
         }
 
+        // Check if active blockchain tip is too far away or in batch bounds. If
+        // it is too far away, just fetch a batch of hashes.
+        let (height, hash) = if tip_height < db_tip_height + BATCH_DEEPNESS {
+            (tip_height, tip_hash)
+        } else {
+            let new_height = db_tip_height + BATCH_DEEPNESS - BATCH_DEEPNESS_SAFETY_BARRIER;
+
+            (new_height, self.rpc.client.get_block_hash(new_height)?)
+        };
+        tracing::debug!("Fetching blocks at range {db_tip_height}-{height}");
+
         // Go back block by block to check latest matched block between database
         // and active blockchain.
-        let mut prev_block_hash = tip_hash;
-        for deepness in 0..DEEPNESS + 1 {
+        let mut block_hashes = Vec::new();
+        let mut prev_block_hash = hash;
+        for deepness in 0..BATCH_DEEPNESS {
             let current_block_hash = prev_block_hash;
+            block_hashes.push(current_block_hash);
+            let current_block_height = height.abs_diff(deepness);
+
             prev_block_hash = self
                 .rpc
                 .client
                 .get_block_header(&current_block_hash)?
                 .prev_blockhash;
-            let current_block_height = tip_height.abs_diff(deepness);
 
             let db_block_hash = match self
                 .db
@@ -97,9 +120,12 @@ where
             if current_block_hash == db_block_hash {
                 tracing::debug!("Current database blockchain tip is {} blocks behind than the active blockchain tip.", deepness);
 
+                // Remove hash that is already present in database.
+                block_hashes.pop();
+
                 return Ok(BlockFetchStatus::FallenBehind(
                     current_block_height,
-                    db_block_hash,
+                    block_hashes,
                 ));
             }
 
@@ -173,12 +199,14 @@ where
 
 #[cfg(test)]
 mod tests {
-    use super::DEEPNESS;
     use crate::{
         create_extended_rpc,
         errors::BridgeError,
         extended_rpc::ExtendedRpc,
-        header_chain_prover::{blockgazer::BlockFetchStatus, HeaderChainProver},
+        header_chain_prover::{
+            blockgazer::{BlockFetchStatus, BATCH_DEEPNESS},
+            HeaderChainProver,
+        },
         mock::database::create_test_config_with_thread_name,
     };
     use bitcoin::BlockHash;
@@ -254,28 +282,36 @@ mod tests {
 
     #[tokio::test]
     #[serial_test::serial]
-    async fn check_for_new_blocks_fallen_behind() {
+    async fn check_for_new_blocks_fallen_behind_single() {
         let mut config = create_test_config_with_thread_name("test_config.toml", None).await;
         let rpc = create_extended_rpc!(config);
         let prover = HeaderChainProver::new(&config, rpc.clone()).await.unwrap();
 
-        // Just to be safe.
-        mine_and_save_blocks(&prover, 1).await;
+        // Mine initial block and save it to database.
+        let block_hashes = mine_and_save_blocks(&prover, 1).await;
         assert_eq!(
             prover.check_for_new_blocks().await.unwrap(),
             BlockFetchStatus::UpToDate
         );
-
-        // Save current blockchain tip.
+        assert_eq!(block_hashes.len(), 1);
         let current_tip_height = rpc.client.get_block_count().unwrap();
-        let current_tip_hash = rpc.client.get_block_hash(current_tip_height).unwrap();
+        println!(
+            "Initial block height is {current_tip_height} and hash is {}",
+            *block_hashes.first().unwrap()
+        );
 
-        // Falling behind some blocks should return [`BlockFetchStatus::FallenBehind`].
-        let mine_count = DEEPNESS - 1;
-        rpc.mine_blocks(mine_count).unwrap();
+        // Mine a block but don't save it to database.
+        rpc.mine_blocks(1).unwrap();
+        let current_tip_hash = rpc
+            .client
+            .get_block_hash(rpc.client.get_block_count().unwrap())
+            .unwrap();
+        assert_ne!(current_tip_hash, *block_hashes.first().unwrap());
+
+        // Falling behind just a block should return that block's hash.
         assert_eq!(
             prover.check_for_new_blocks().await.unwrap(),
-            BlockFetchStatus::FallenBehind(current_tip_height, current_tip_hash)
+            BlockFetchStatus::FallenBehind(current_tip_height, vec![current_tip_hash])
         );
     }
 
@@ -303,7 +339,7 @@ mod tests {
 
         // Mining some blocks and not updating database should cause a
         // [`BlockFetchStatus::OutOfBounds`] return.
-        let diff = DEEPNESS * DEEPNESS + DEEPNESS;
+        let diff = BATCH_DEEPNESS * BATCH_DEEPNESS + BATCH_DEEPNESS;
         rpc.mine_blocks(diff).unwrap();
         let err = prover.check_for_new_blocks().await.err().unwrap();
         if let BridgeError::BlockgazerTooDeep(bdiff) = err {
@@ -332,15 +368,15 @@ mod tests {
         );
 
         // Not exceeding deepness should not return an `OutOfBounds`.
-        let diff = DEEPNESS - 1;
+        let diff = BATCH_DEEPNESS - 1;
         rpc.mine_blocks(diff).unwrap();
         assert_eq!(
             prover.check_for_new_blocks().await.unwrap(),
-            BlockFetchStatus::FallenBehind(current_tip_height, current_tip_hash)
+            BlockFetchStatus::FallenBehind(current_tip_height, vec![current_tip_hash])
         );
 
         // Exceeding deepness should return an `OutOfBounds`.
-        let diff2 = DEEPNESS + DEEPNESS + 1;
+        let diff2 = BATCH_DEEPNESS + BATCH_DEEPNESS + 1;
         rpc.mine_blocks(diff2).unwrap();
         let err = prover.check_for_new_blocks().await.err().unwrap();
         if let BridgeError::BlockgazerTooDeep(bdiff) = err {
@@ -380,7 +416,7 @@ mod tests {
         // Same thing as not saving 3 blocks after they are mined.
         assert_eq!(
             prover.check_for_new_blocks().await.unwrap(),
-            BlockFetchStatus::FallenBehind(current_tip_height, current_tip_hash)
+            BlockFetchStatus::FallenBehind(current_tip_height, vec![current_tip_hash])
         );
     }
 
@@ -412,7 +448,7 @@ mod tests {
 
         assert_eq!(
             prover.check_for_new_blocks().await.unwrap(),
-            BlockFetchStatus::FallenBehind(current_tip_height, current_tip_hash)
+            BlockFetchStatus::FallenBehind(current_tip_height, vec![current_tip_hash])
         );
     }
 
@@ -441,10 +477,10 @@ mod tests {
             .unwrap();
 
         // Falling behind some blocks.
-        rpc.mine_blocks(DEEPNESS - 1).unwrap();
+        rpc.mine_blocks(BATCH_DEEPNESS - 1).unwrap();
         assert_eq!(
             prover.check_for_new_blocks().await.unwrap(),
-            BlockFetchStatus::FallenBehind(current_tip_height, current_tip_hash)
+            BlockFetchStatus::FallenBehind(current_tip_height, vec![current_tip_hash])
         );
 
         // Sync database to current active blockchain.
