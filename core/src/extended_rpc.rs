@@ -8,6 +8,7 @@ use crate::EVMAddress;
 use bitcoin::address::NetworkUnchecked;
 use bitcoin::Address;
 use bitcoin::Amount;
+use bitcoin::BlockHash;
 use bitcoin::OutPoint;
 use bitcoin::ScriptBuf;
 use bitcoin::Transaction;
@@ -82,13 +83,12 @@ where
         Ok(res.is_none())
     }
 
+    /// Mines blocks to a new address.
     #[tracing::instrument(skip(self), err(level = tracing::Level::ERROR), ret(level = tracing::Level::TRACE))]
-    pub fn mine_blocks(&self, block_num: u64) -> Result<(), BridgeError> {
+    pub fn mine_blocks(&self, block_num: u64) -> Result<Vec<BlockHash>, BridgeError> {
         let new_address = self.client.get_new_address(None, None)?.assume_checked();
 
-        self.client.generate_to_address(block_num, &new_address)?;
-
-        Ok(())
+        Ok(self.client.generate_to_address(block_num, &new_address)?)
     }
 
     #[tracing::instrument(skip(self), err(level = tracing::Level::ERROR), ret(level = tracing::Level::TRACE))]
