@@ -162,8 +162,6 @@ where
     ///
     /// # Parameters
     ///
-    /// TODO: Accept block hashes and not ask rpc again.
-    ///
     /// - `current_block_height`: Starts synching blocks from this height to
     ///   active blockchain tip.
     ///
@@ -179,17 +177,15 @@ where
         tracing::trace!("{} new blocks will be written to database.", hashes.len());
 
         for i in 0..hashes.len() {
-            let current_hash = hashes[i];
-            let header = self.rpc.client.get_block_header(&current_hash)?;
+            let block_hash = hashes[i];
+
+            let block_header = self.rpc.client.get_block_header(&block_hash)?;
 
             let diff = hashes.len() - i;
+            let block_height = current_block_height + diff as u64;
+
             self.db
-                .save_new_block(
-                    None,
-                    current_hash,
-                    header,
-                    current_block_height + diff as u64,
-                )
+                .save_new_block(None, block_hash, block_header, block_height)
                 .await?;
         }
 
@@ -567,6 +563,47 @@ mod tests {
         // Sync database to current active blockchain.
         prover
             .sync_blockchain(current_tip_height, hash)
+            .await
+            .unwrap();
+        assert_eq!(
+            prover.check_for_new_blocks().await.unwrap(),
+            BlockFetchStatus::UpToDate
+        );
+    }
+
+    #[tokio::test]
+    #[serial_test::serial]
+    async fn sync_blockchain_multiple_blocks_with_fork() {
+        let mut config = create_test_config_with_thread_name("test_config.toml", None).await;
+        let rpc = create_extended_rpc!(config);
+        let prover = HeaderChainProver::new(&config, rpc.clone()).await.unwrap();
+
+        // Save current blockchain tip.
+        mine_and_save_blocks(&prover, 1).await;
+        let current_tip_height = rpc.client.get_block_count().unwrap();
+
+        // Falling behind some blocks and recovering from it.
+        let mut hash = rpc.mine_blocks(10).unwrap();
+        hash.reverse();
+        prover
+            .sync_blockchain(current_tip_height, hash.clone())
+            .await
+            .unwrap();
+
+        // Latest 3 blocks got invalidated.
+        rpc.client.invalidate_block(hash.get(0).unwrap()).unwrap();
+        rpc.client.invalidate_block(hash.get(1).unwrap()).unwrap();
+        rpc.client.invalidate_block(hash.get(2).unwrap()).unwrap();
+        let current_tip_height = rpc.client.get_block_count().unwrap();
+        assert_eq!(
+            prover.check_for_new_blocks().await.unwrap(),
+            BlockFetchStatus::InvalidBlocksAfter(current_tip_height)
+        );
+
+        // Synching should recover mining new blocks.
+        let hashes = rpc.mine_blocks(2).unwrap();
+        prover
+            .sync_blockchain(current_tip_height, hashes)
             .await
             .unwrap();
         assert_eq!(
