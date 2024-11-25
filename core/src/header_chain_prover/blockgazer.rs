@@ -41,7 +41,6 @@ where
     ///
     /// # Returns
     ///
-    /// TODO: Don't need to return an enum, just return values.
     /// - [`BlockFetchStatus`]: Status of the current database tip
     #[tracing::instrument(skip(self))]
     async fn check_for_new_blocks(&self) -> Result<BlockFetchStatus, BridgeError> {
@@ -172,18 +171,26 @@ where
     ///
     /// If tip height gets lower than the start, mid-sync, this will return error.
     /// Also, mid-sync reorgs are not handled.
-    async fn sync_blockchain(&self, current_block_height: u64) -> Result<(), BridgeError> {
-        let tip_height = self.rpc.client.get_block_count()?;
-        tracing::trace!(
-            "{} new blocks will be written to database.",
-            tip_height.abs_diff(current_block_height)
-        );
+    async fn sync_blockchain(
+        &self,
+        current_block_height: u64,
+        hashes: Vec<BlockHash>,
+    ) -> Result<(), BridgeError> {
+        tracing::trace!("{} new blocks will be written to database.", hashes.len());
 
-        for height in (current_block_height + 1)..(tip_height + 1) {
-            let hash = self.rpc.client.get_block_hash(height)?;
-            let header = self.rpc.client.get_block_header(&hash)?;
+        for i in 0..hashes.len() {
+            let current_hash = hashes[i];
+            let header = self.rpc.client.get_block_header(&current_hash)?;
 
-            self.db.save_new_block(None, hash, header, height).await?;
+            let diff = hashes.len() - i;
+            self.db
+                .save_new_block(
+                    None,
+                    current_hash,
+                    header,
+                    current_block_height + diff as u64,
+                )
+                .await?;
         }
 
         Ok(())
@@ -207,8 +214,11 @@ where
             if let Ok(status) = prover.check_for_new_blocks().await {
                 match status {
                     BlockFetchStatus::UpToDate => (),
-                    BlockFetchStatus::FallenBehind(block_height, _block_hash) => {
-                        prover.sync_blockchain(block_height).await.unwrap();
+                    BlockFetchStatus::FallenBehind(block_height, block_hashes) => {
+                        prover
+                            .sync_blockchain(block_height, block_hashes)
+                            .await
+                            .unwrap();
                     }
                     BlockFetchStatus::InvalidBlocksAfter(_height) => todo!(),
                 }
@@ -508,7 +518,7 @@ mod tests {
 
     #[tokio::test]
     #[serial_test::serial]
-    async fn sync_blockchain() {
+    async fn sync_blockchain_single_block() {
         let mut config = create_test_config_with_thread_name("test_config.toml", None).await;
         let rpc = create_extended_rpc!(config);
         let prover = HeaderChainProver::new(&config, rpc.clone()).await.unwrap();
@@ -518,17 +528,17 @@ mod tests {
         let current_tip_height = rpc.client.get_block_count().unwrap();
 
         // Falling behind some blocks.
-        rpc.mine_blocks(1).unwrap();
+        let hash = rpc.mine_blocks(1).unwrap();
         assert_eq!(
             prover.check_for_new_blocks().await.unwrap(),
-            BlockFetchStatus::FallenBehind(
-                current_tip_height,
-                vec![rpc.client.get_block_hash(current_tip_height + 1).unwrap()]
-            )
+            BlockFetchStatus::FallenBehind(current_tip_height, hash.clone())
         );
 
         // Sync database to current active blockchain.
-        prover.sync_blockchain(current_tip_height).await.unwrap();
+        prover
+            .sync_blockchain(current_tip_height, hash)
+            .await
+            .unwrap();
         assert_eq!(
             prover.check_for_new_blocks().await.unwrap(),
             BlockFetchStatus::UpToDate
