@@ -16,7 +16,7 @@ pub const BATCH_DEEPNESS: u64 = 100;
 pub const BATCH_DEEPNESS_SAFETY_BARRIER: u64 = 10;
 
 /// Blockgazer's maximum allowed height difference to handle. Above this height
-/// difference, execution gets into a halt.
+/// difference, execution halts.
 pub const MAX_ALLOWED_DISTANCE_TO_ACTIVE_TIP: u64 = 10_000;
 
 /// Possible fetch results.
@@ -43,8 +43,8 @@ where
     #[tracing::instrument(skip(self))]
     async fn check_for_new_blocks(&self) -> Result<BlockFetchStatus, BridgeError> {
         let (db_tip_height, db_tip_hash) = self.db.get_latest_block_info(None).await?;
-        let tip_height = self.rpc.client.get_block_count()?;
-        let tip_hash = self.rpc.client.get_block_hash(tip_height)?;
+        let active_tip_height = self.rpc.client.get_block_count()?;
+        let active_tip_hash = self.rpc.client.get_block_hash(active_tip_height)?;
         tracing::debug!(
             "Database blockchain tip is at height {} with block hash {}",
             db_tip_height,
@@ -52,19 +52,19 @@ where
         );
         tracing::debug!(
             "Active blockchain tip is at height {} with block hash {}",
-            tip_height,
-            tip_hash
+            active_tip_height,
+            active_tip_hash
         );
 
         // Return early if database is up to date.
-        if db_tip_height == tip_height && db_tip_hash == tip_hash {
+        if db_tip_height == active_tip_height && db_tip_hash == active_tip_hash {
             tracing::trace!("Database is in sync with active blockchain.");
 
             return Ok(BlockFetchStatus::UpToDate);
         }
 
         // Return height difference if actual tip is too far behind.
-        let diff = tip_height.abs_diff(db_tip_height);
+        let diff = active_tip_height.abs_diff(db_tip_height);
         if diff > MAX_ALLOWED_DISTANCE_TO_ACTIVE_TIP {
             tracing::error!(
                 "Current tip is fallen too far behind (difference is {} blocks)!",
@@ -76,8 +76,8 @@ where
 
         // Check if active blockchain tip is too far away or in batch bounds. If
         // it is too far away, just fetch a batch of hashes.
-        let (height, hash) = if tip_height < db_tip_height + BATCH_DEEPNESS {
-            (tip_height, tip_hash)
+        let (height, hash) = if active_tip_height < db_tip_height + BATCH_DEEPNESS {
+            (active_tip_height, active_tip_hash)
         } else {
             let new_height = db_tip_height + BATCH_DEEPNESS - BATCH_DEEPNESS_SAFETY_BARRIER;
 
@@ -358,7 +358,8 @@ mod tests {
 
     #[tokio::test]
     #[serial_test::serial]
-    async fn check_for_new_blocks_out_of_bounds() {
+    #[ignore = "Mining too much blocks slows down testing. TODO: Change steps"]
+    async fn check_for_new_blocks_too_deep() {
         let mut config = create_test_config_with_thread_name("test_config.toml", None).await;
         let rpc = create_extended_rpc!(config);
         let prover = HeaderChainProver::new(&config, rpc.clone()).await.unwrap();
