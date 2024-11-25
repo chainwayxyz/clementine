@@ -122,6 +122,9 @@ where
 
                 // Remove hash that is already present in database.
                 block_hashes.pop();
+                // TODO: Should this list be reversed so it matches the real
+                // block ordering? This won't introduce any meaningful benefits.
+                // It will become more intuitive, with the cost of performance.
 
                 return Ok(BlockFetchStatus::FallenBehind(
                     current_block_height,
@@ -204,7 +207,7 @@ mod tests {
         errors::BridgeError,
         extended_rpc::ExtendedRpc,
         header_chain_prover::{
-            blockgazer::{BlockFetchStatus, BATCH_DEEPNESS},
+            blockgazer::{BlockFetchStatus, BATCH_DEEPNESS, BATCH_DEEPNESS_SAFETY_BARRIER},
             HeaderChainProver,
         },
         mock::database::create_test_config_with_thread_name,
@@ -312,6 +315,44 @@ mod tests {
         assert_eq!(
             prover.check_for_new_blocks().await.unwrap(),
             BlockFetchStatus::FallenBehind(current_tip_height, vec![current_tip_hash])
+        );
+    }
+
+    #[tokio::test]
+    #[serial_test::serial]
+    async fn check_for_new_blocks_fallen_behind_multiple() {
+        let mut config = create_test_config_with_thread_name("test_config.toml", None).await;
+        let rpc = create_extended_rpc!(config);
+        let prover = HeaderChainProver::new(&config, rpc.clone()).await.unwrap();
+
+        // Mine initial block and save it to database.
+        let block_hashes = mine_and_save_blocks(&prover, 1).await;
+        assert_eq!(
+            prover.check_for_new_blocks().await.unwrap(),
+            BlockFetchStatus::UpToDate
+        );
+        assert_eq!(block_hashes.len(), 1);
+        let current_tip_height = rpc.client.get_block_count().unwrap();
+        println!(
+            "Initial block height is {current_tip_height} and hash is {}",
+            *block_hashes.first().unwrap()
+        );
+
+        // Mine some block but don't save them to database.
+        let amount = BATCH_DEEPNESS - BATCH_DEEPNESS_SAFETY_BARRIER - 1;
+        rpc.mine_blocks(amount).unwrap();
+        let height = rpc.client.get_block_count().unwrap();
+
+        // Get the block hash list of unsaved blocks.
+        let mut block_hashes = Vec::new();
+        for diff in 0..amount {
+            block_hashes.push(rpc.client.get_block_hash(height - diff).unwrap());
+        }
+
+        // Falling behind some blocks should return those blocks' hash.
+        assert_eq!(
+            prover.check_for_new_blocks().await.unwrap(),
+            BlockFetchStatus::FallenBehind(current_tip_height, block_hashes)
         );
     }
 
