@@ -807,6 +807,31 @@ impl Database {
         }
     }
 
+    /// Returns a block's hash and header, referring it to by it's height.
+    #[tracing::instrument(skip(self, tx), err(level = tracing::Level::ERROR), ret(level = tracing::Level::TRACE))]
+    pub async fn get_block_header(
+        &self,
+        tx: Option<&mut sqlx::Transaction<'_, Postgres>>,
+        block_height: u64,
+        block_hash: BlockHash,
+    ) -> Result<Option<block::Header>, BridgeError> {
+        let query = sqlx::query_as(
+            "SELECT block_header FROM header_chain_proofs WHERE height = $1 AND block_hash = $2;",
+        )
+        .bind(block_height as i64)
+        .bind(BlockHashDB(block_hash));
+
+        let result: (Option<BlockHeaderDB>,) = match tx {
+            Some(tx) => query.fetch_one(&mut **tx).await,
+            None => query.fetch_one(&self.connection).await,
+        }?;
+
+        match result {
+            (Some(block_header),) => Ok(Some(block_header.0)),
+            (None,) => Ok(None),
+        }
+    }
+
     #[tracing::instrument(skip(self, tx), err(level = tracing::Level::ERROR), ret(level = tracing::Level::TRACE))]
     pub async fn get_latest_block_info(
         &self,
@@ -1367,7 +1392,7 @@ mod tests {
     }
 
     #[tokio::test]
-    pub async fn save_get_new_block() {
+    async fn save_get_new_block() {
         let config = create_test_config_with_thread_name("test_config.toml", None).await;
         let db = Database::new(&config).await.unwrap();
 
@@ -1393,6 +1418,43 @@ mod tests {
             db.get_block_info_by_height(None, height).await.unwrap();
         assert_eq!(block_hash, read_block_hash);
         assert_eq!(block.header, read_block_header);
+    }
+
+    #[tokio::test]
+    async fn get_block_header() {
+        let config = create_test_config_with_thread_name("test_config.toml", None).await;
+        let db = Database::new(&config).await.unwrap();
+
+        let block = block::Block {
+            header: Header {
+                version: Version::TWO,
+                prev_blockhash: BlockHash::all_zeros(),
+                merkle_root: TxMerkleNode::all_zeros(),
+                time: 0,
+                bits: CompactTarget::default(),
+                nonce: 0,
+            },
+            txdata: vec![],
+        };
+        let block_hash = block.block_hash();
+        let block_header = block.header;
+        let block_height = 0x45;
+
+        assert!(db
+            .get_block_header(None, block_height, block_hash)
+            .await
+            .is_err());
+
+        db.save_new_block(None, block_hash, block_header, block_height)
+            .await
+            .unwrap();
+        assert_eq!(
+            db.get_block_header(None, block_height, block_hash)
+                .await
+                .unwrap()
+                .unwrap(),
+            block_header
+        );
     }
 
     #[tokio::test]
