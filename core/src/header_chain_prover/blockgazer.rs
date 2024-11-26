@@ -591,7 +591,7 @@ mod tests {
             .unwrap();
 
         // Latest 3 blocks got invalidated.
-        rpc.client.invalidate_block(hash.get(0).unwrap()).unwrap();
+        rpc.client.invalidate_block(hash.first().unwrap()).unwrap();
         rpc.client.invalidate_block(hash.get(1).unwrap()).unwrap();
         rpc.client.invalidate_block(hash.get(2).unwrap()).unwrap();
         let current_tip_height = rpc.client.get_block_count().unwrap();
