@@ -28,8 +28,6 @@ pub enum BlockFetchStatus {
     /// `block hashes`. TODO: Could also return optional field for invalid
     /// blocks found in database.
     FallenBehind(u64, Vec<BlockHash>),
-    /// There are invalid blocks present in database after this `block height`.
-    InvalidBlocksAfter(u64),
 }
 
 impl<R> HeaderChainProver<R>
@@ -76,19 +74,6 @@ where
             return Err(BridgeError::BlockgazerTooDeep(diff));
         }
 
-        // Check if database has any invalid blocks. This could happen if active
-        // blockchain tip is invalidated and no other blocks have been mined
-        // after.
-        if let Ok((block_hash, _)) = self
-            .db
-            .get_block_info_by_height(None, active_tip_height)
-            .await
-        {
-            if block_hash == active_tip_hash {
-                return Ok(BlockFetchStatus::InvalidBlocksAfter(active_tip_height));
-            }
-        }
-
         // Check if active blockchain tip is too far away or in batch bounds. If
         // it is too far away, just fetch a batch of hashes.
         let (height, hash) = if active_tip_height < db_tip_height + BATCH_DEEPNESS {
@@ -98,7 +83,7 @@ where
 
             (new_height, self.rpc.client.get_block_hash(new_height)?)
         };
-        tracing::debug!("Fetching blocks at range {db_tip_height}-{height}");
+        tracing::debug!("Fetching blocks between {db_tip_height}-{height}");
 
         // Go back block by block to check latest matched block between database
         // and active blockchain.
@@ -216,7 +201,6 @@ where
                             .await
                             .unwrap();
                     }
-                    BlockFetchStatus::InvalidBlocksAfter(_height) => todo!(),
                 }
             };
 
@@ -455,37 +439,6 @@ mod tests {
 
     #[tokio::test]
     #[serial_test::serial]
-    async fn check_for_new_blocks_fork_no_new_blocks_to_replace() {
-        let mut config = create_test_config_with_thread_name("test_config.toml", None).await;
-        let rpc = create_extended_rpc!(config);
-        let prover = HeaderChainProver::new(&config, rpc.clone()).await.unwrap();
-
-        // Save base block.
-        mine_and_save_blocks(&prover, 1).await;
-        let current_tip_height = rpc.client.get_block_count().unwrap();
-
-        // Save the next 3 blocks to database, soon to be invalidated.
-        let mut fork_block_hashes = mine_and_save_blocks(&prover, 3).await;
-        assert_eq!(
-            prover.check_for_new_blocks().await.unwrap(),
-            BlockFetchStatus::UpToDate
-        );
-
-        // Invalidate previously mined blocks.
-        fork_block_hashes.reverse();
-        fork_block_hashes
-            .iter()
-            .for_each(|hash| rpc.client.invalidate_block(hash).unwrap());
-
-        // Not mining new blocks should return [`BlockFetchStatus::InvalidBlocksAfter`].
-        assert_eq!(
-            prover.check_for_new_blocks().await.unwrap(),
-            BlockFetchStatus::InvalidBlocksAfter(current_tip_height)
-        );
-    }
-
-    #[tokio::test]
-    #[serial_test::serial]
     async fn check_for_new_blocks_fork_and_mine_new() {
         let mut config = create_test_config_with_thread_name("test_config.toml", None).await;
         let rpc = create_extended_rpc!(config);
@@ -589,19 +542,21 @@ mod tests {
             .sync_blockchain(current_tip_height, hash.clone())
             .await
             .unwrap();
-
-        // Latest 3 blocks got invalidated.
-        rpc.client.invalidate_block(hash.first().unwrap()).unwrap();
-        rpc.client.invalidate_block(hash.get(1).unwrap()).unwrap();
-        rpc.client.invalidate_block(hash.get(2).unwrap()).unwrap();
-        let current_tip_height = rpc.client.get_block_count().unwrap();
         assert_eq!(
             prover.check_for_new_blocks().await.unwrap(),
-            BlockFetchStatus::InvalidBlocksAfter(current_tip_height)
+            BlockFetchStatus::UpToDate
         );
 
-        // Synching should recover mining new blocks.
-        let hashes = rpc.mine_blocks(2).unwrap();
+        // Latest block got invalidated, later to be replaced with new block.
+        rpc.client.invalidate_block(hash.first().unwrap()).unwrap();
+        let current_tip_height = rpc.client.get_block_count().unwrap();
+        assert_ne!(
+            prover.check_for_new_blocks().await.unwrap(),
+            BlockFetchStatus::UpToDate
+        );
+
+        // Synching should recover state after mining new blocks.
+        let hashes = rpc.mine_blocks(1).unwrap();
         prover
             .sync_blockchain(current_tip_height, hashes)
             .await
