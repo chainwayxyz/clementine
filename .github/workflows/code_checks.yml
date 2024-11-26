@@ -69,6 +69,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: ./.github/actions/service-action
+      - uses: ./.github/actions/install-risczero
 
       - name: Install Rust
         run: rustup update stable

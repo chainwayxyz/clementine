@@ -65,6 +65,7 @@ jobs:
     steps:
     - uses: actions/checkout@v4
     - uses: ./.github/actions/service-action
+    - uses: ./.github/actions/install-risczero
 
     - name: Restore cached build artifacts
       uses: Swatinem/rust-cache@v2
@@ -97,6 +98,7 @@ jobs:
     steps:
     - uses: actions/checkout@v4
     - uses: ./.github/actions/service-action
+    - uses: ./.github/actions/install-risczero
 
     - name: Restore cached build artifacts
       uses: Swatinem/rust-cache@v2
