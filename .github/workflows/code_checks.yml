@@ -6,6 +6,7 @@ env:
   CARGO_TERM_COLOR: always
   CARGO_TERM_VERBOSE: true
   RUST_LOG: trace
+  RISC0_DEV_MODE: 1
 
 jobs:
   formatting:
