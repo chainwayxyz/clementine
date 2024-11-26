@@ -100,12 +100,32 @@ where
                 .get_block_header(&current_block_hash)?
                 .prev_blockhash;
 
-            let db_block_hash = match self
+            let header = self
                 .db
-                .get_block_info_by_height(None, current_block_height)
-                .await
-            {
-                Ok((block_hash, _)) => block_hash,
+                .get_block_header(None, current_block_height, current_block_hash)
+                .await;
+
+            match header {
+                Ok(Some(_)) => {
+                    tracing::debug!("Current database blockchain tip is {} blocks behind than the active blockchain tip.", deepness);
+
+                    // Remove hash that is already present in database.
+                    block_hashes.pop();
+                    // TODO: Should this list be reversed so it matches the real
+                    // block ordering? This won't introduce any meaningful benefits.
+                    // It will become more intuitive, with the cost of performance.
+
+                    return Ok(BlockFetchStatus::FallenBehind(
+                        current_block_height,
+                        block_hashes,
+                    ));
+                }
+                Ok(None) => {
+                    tracing::debug!(
+                        "Block hash for height {} is not matching with active blockchain (possible reorg). Active blockchain hash {}",
+                        current_block_height, current_block_hash
+                    );
+                }
                 Err(e) => {
                     tracing::debug!(
                         "Block hash for height {} is not present in database: {}",
@@ -116,26 +136,6 @@ where
                     continue;
                 }
             };
-
-            if current_block_hash == db_block_hash {
-                tracing::debug!("Current database blockchain tip is {} blocks behind than the active blockchain tip.", deepness);
-
-                // Remove hash that is already present in database.
-                block_hashes.pop();
-                // TODO: Should this list be reversed so it matches the real
-                // block ordering? This won't introduce any meaningful benefits.
-                // It will become more intuitive, with the cost of performance.
-
-                return Ok(BlockFetchStatus::FallenBehind(
-                    current_block_height,
-                    block_hashes,
-                ));
-            }
-
-            tracing::debug!(
-                "Block hash for height {} is not matching with active blockchain (possible reorg). Database hash: {}, active blockchain hash {}",
-                current_block_height, db_block_hash, current_block_hash
-            );
         }
 
         Err(BridgeError::BlockgazerFork)
