@@ -715,9 +715,9 @@ impl Database {
         block_height: u64,
     ) -> Result<(), BridgeError> {
         let query = sqlx::query(
-                "INSERT INTO header_chain_proofs (block_hash, block_header, height) VALUES ($1, $2, $3);",
+                "INSERT INTO header_chain_proofs (block_hash, block_header, prev_block_hash, height) VALUES ($1, $2, $3, $4);",
             )
-            .bind(BlockHashDB(block_hash)).bind(BlockHeaderDB(block_header)).bind(block_height as i64);
+            .bind(BlockHashDB(block_hash)).bind(BlockHeaderDB(block_header)).bind(BlockHashDB(block_header.prev_blockhash)).bind(block_height as i64);
 
         match tx {
             Some(tx) => query.execute(&mut **tx).await,
@@ -852,8 +852,6 @@ impl Database {
         }
     }
 
-    /// TODO: Return Option::None in case of last element is proven but it's
-    /// ancestor is not.
     #[tracing::instrument(skip(self, tx), err(level = tracing::Level::ERROR), ret(level = tracing::Level::TRACE))]
     pub async fn get_non_proven_block(
         &self,
@@ -865,7 +863,7 @@ impl Database {
                     h1.height,
                     h2.proof
                 FROM header_chain_proofs h1
-                JOIN header_chain_proofs h2 ON h1.height = h2.height + 1
+                JOIN header_chain_proofs h2 ON h1.prev_block_hash = h2.block_hash
                 WHERE h2.proof IS NOT NULL
                 ORDER BY h1.height
                 LIMIT 1;",
@@ -1566,7 +1564,7 @@ mod tests {
 
         let base_height = 0x45;
 
-        // Save dummy block without a proof.
+        // Save initial block without a proof.
         let block = block::Block {
             header: Header {
                 version: Version::TWO,
@@ -1585,11 +1583,11 @@ mod tests {
             .unwrap();
         assert!(db.get_non_proven_block(None).await.is_err());
 
-        // Save dummy block with a proof.
+        // Save second block with a proof.
         let block = block::Block {
             header: Header {
                 version: Version::TWO,
-                prev_blockhash: BlockHash::all_zeros(),
+                prev_blockhash: block_hash,
                 merkle_root: TxMerkleNode::all_zeros(),
                 time: 0x1F,
                 bits: CompactTarget::default(),
@@ -1609,11 +1607,11 @@ mod tests {
             .unwrap();
         assert!(db.get_non_proven_block(None).await.is_err());
 
-        // Save dummy block without a proof.
+        // Save third block without a proof.
         let block = block::Block {
             header: Header {
                 version: Version::TWO,
-                prev_blockhash: BlockHash::all_zeros(),
+                prev_blockhash: block_hash1,
                 merkle_root: TxMerkleNode::all_zeros(),
                 time: 0x1F,
                 bits: CompactTarget::default(),
@@ -1627,6 +1625,7 @@ mod tests {
             .await
             .unwrap();
 
+        // This time, `get_non_proven_block` should return second block's details.
         let res = db.get_non_proven_block(None).await.unwrap();
         assert_eq!(res.0, block_hash2);
         assert_eq!(res.2 as u64, height2);
