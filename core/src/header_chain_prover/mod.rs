@@ -84,21 +84,8 @@ impl HeaderChainProver {
     /// blockchain and does proving.
     #[tracing::instrument]
     pub fn run(&self) {
-        // TODO: Clone self instead.
-        // Block checks.
-        let block_checks = HeaderChainProver {
-            rpc: self.rpc.clone(),
-            db: self.db.clone(),
-        };
-        let block_gazer = HeaderChainProver::start_blockgazer(block_checks);
-
-        // TODO: Clone self instead.
-        // Prover.
-        let prover = HeaderChainProver {
-            rpc: self.rpc.clone(),
-            db: self.db.clone(),
-        };
-        let prover = HeaderChainProver::start_prover(prover);
+        let block_gazer = HeaderChainProver::start_blockgazer(self.clone());
+        let prover = HeaderChainProver::start_prover(self.clone());
 
         tokio::spawn(async move {
             tokio::join!(block_gazer, prover);

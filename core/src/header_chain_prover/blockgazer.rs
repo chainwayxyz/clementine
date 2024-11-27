@@ -178,8 +178,6 @@ impl HeaderChainProver {
     ///
     /// # Parameters
     ///
-    /// TODO: Use `&self`.
-    ///
     /// - prover: [`ChainProver`] instance
     #[tracing::instrument(skip_all)]
     pub async fn start_blockgazer(prover: HeaderChainProver) {
