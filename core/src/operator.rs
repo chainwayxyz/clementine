@@ -15,7 +15,6 @@ use bitcoin::hashes::Hash;
 use bitcoin::script::PushBytesBuf;
 use bitcoin::sighash::SighashCache;
 use bitcoin::{Address, Amount, OutPoint, TapSighash, Transaction, TxOut, Txid};
-use bitcoin_mock_rpc::RpcApiWrapper;
 use bitcoincore_rpc::RawTx;
 use jsonrpsee::core::async_trait;
 use jsonrpsee::core::client::ClientT;
@@ -25,11 +24,8 @@ use secp256k1::{schnorr, Message};
 use serde_json::json;
 
 #[derive(Debug, Clone)]
-pub struct Operator<R>
-where
-    R: RpcApiWrapper,
-{
-    rpc: ExtendedRpc<R>,
+pub struct Operator {
+    rpc: ExtendedRpc,
     pub db: Database,
     pub(crate) signer: Actor,
     pub(crate) config: BridgeConfig,
@@ -38,13 +34,10 @@ where
     citrea_client: Option<jsonrpsee::http_client::HttpClient>,
 }
 
-impl<R> Operator<R>
-where
-    R: RpcApiWrapper,
-{
+impl Operator {
     /// Creates a new `Operator`.
     // #[tracing::instrument(skip_all, err(level = tracing::Level::ERROR))]
-    pub async fn new(config: BridgeConfig, rpc: ExtendedRpc<R>) -> Result<Self, BridgeError> {
+    pub async fn new(config: BridgeConfig, rpc: ExtendedRpc) -> Result<Self, BridgeError> {
         // let num_verifiers = config.verifiers_public_keys.len();
 
         let signer = Actor::new(config.secret_key, config.network);
@@ -693,10 +686,7 @@ where
 }
 
 #[async_trait]
-impl<R> OperatorRpcServer for Operator<R>
-where
-    R: RpcApiWrapper,
-{
+impl OperatorRpcServer for Operator {
     async fn new_deposit_rpc(
         &self,
         deposit_outpoint: OutPoint,
@@ -735,15 +725,23 @@ where
 #[cfg(test)]
 mod tests {
     use crate::{
-        create_extended_rpc, extended_rpc::ExtendedRpc, mock::database::create_test_config,
-        operator::Operator, servers::create_operator_server, traits::rpc::OperatorRpcClient, UTXO,
+        extended_rpc::ExtendedRpc,
+        mock::database::{create_test_config, create_test_config_with_thread_name},
+        operator::Operator,
+        servers::create_operator_server,
+        traits::rpc::OperatorRpcClient,
+        UTXO,
     };
     use bitcoin::{hashes::Hash, Amount, OutPoint, ScriptBuf, TxOut, Txid};
 
     #[tokio::test]
     async fn set_funding_utxo() {
-        let mut config = create_test_config("set_funding_utxo", "test_config.toml").await;
-        let rpc = create_extended_rpc!(config);
+        let config = create_test_config("set_funding_utxo", "test_config.toml").await;
+        let rpc = ExtendedRpc::new(
+            config.bitcoin_rpc_url.clone(),
+            config.bitcoin_rpc_user.clone(),
+            config.bitcoin_rpc_password.clone(),
+        );
 
         let operator = Operator::new(config, rpc).await.unwrap();
 
@@ -770,9 +768,12 @@ mod tests {
 
     #[tokio::test]
     async fn set_funding_utxo_rpc() {
-        let mut config = create_test_config("set_funding_utxo_rpc", "test_config.toml").await;
-        let rpc = create_extended_rpc!(config);
-
+        let config = create_test_config_with_thread_name("test_config.toml", None).await;
+        let rpc = ExtendedRpc::new(
+            config.bitcoin_rpc_url.clone(),
+            config.bitcoin_rpc_user.clone(),
+            config.bitcoin_rpc_password.clone(),
+        );
         let operator = create_operator_server(config, rpc).await.unwrap();
 
         let funding_utxo = UTXO {
@@ -794,8 +795,12 @@ mod tests {
 
     #[tokio::test]
     async fn is_profitable() {
-        let mut config = create_test_config("is_profitable", "test_config.toml").await;
-        let rpc = create_extended_rpc!(config);
+        let mut config = create_test_config_with_thread_name("test_config.toml", None).await;
+        let rpc = ExtendedRpc::new(
+            config.bitcoin_rpc_url.clone(),
+            config.bitcoin_rpc_user.clone(),
+            config.bitcoin_rpc_password.clone(),
+        );
 
         config.bridge_amount_sats = Amount::from_sat(0x45);
         config.operator_withdrawal_fee_sats = Some(Amount::from_sat(0x1F));

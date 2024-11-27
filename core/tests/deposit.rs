@@ -3,7 +3,6 @@
 use bitcoin::consensus::encode::deserialize_hex;
 use bitcoin::Transaction;
 use clementine_core::actor::Actor;
-use clementine_core::create_extended_rpc;
 use clementine_core::extended_rpc::ExtendedRpc;
 use clementine_core::mock::database::create_test_config_with_thread_name;
 use clementine_core::musig2::MuSigPartialSignature;
@@ -18,8 +17,12 @@ use clementine_core::EVMAddress;
 #[tokio::test]
 #[serial_test::serial]
 async fn deposit_with_retry_checks() {
-    let mut config = create_test_config_with_thread_name("test_config.toml", None).await;
-    let rpc = create_extended_rpc!(config);
+    let config = create_test_config_with_thread_name("test_config.toml", None).await;
+    let rpc = ExtendedRpc::new(
+        config.bitcoin_rpc_url.clone(),
+        config.bitcoin_rpc_user.clone(),
+        config.bitcoin_rpc_password.clone(),
+    );
 
     let secret_key = secp256k1::SecretKey::new(&mut secp256k1::rand::thread_rng());
     let signer_address = Actor::new(secret_key, config.network)

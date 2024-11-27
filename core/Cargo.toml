@@ -34,9 +34,6 @@ tonic = { workspace = true}
 prost = { workspace = true }
 tokio-stream = { workspace = true }
 
-# TODO: Make this dev-dependency (see #181)
-bitcoin-mock-rpc = { workspace = true }
-
 [dev-dependencies]
 serial_test = { workspace = true }
 

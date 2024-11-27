@@ -11,7 +11,7 @@ use clementine_core::rpc::clementine::clementine_aggregator_client::ClementineAg
 use clementine_core::rpc::clementine::{self, DepositParams};
 use clementine_core::servers::create_verifiers_and_operators_grpc;
 use clementine_core::utils::{initialize_logger, SECP};
-use clementine_core::{create_extended_rpc, traits::rpc::OperatorRpcClient, user::User};
+use clementine_core::{traits::rpc::OperatorRpcClient, user::User};
 use common::run_single_deposit;
 use secp256k1::SecretKey;
 use tonic::transport::Uri;
@@ -22,9 +22,13 @@ mod common;
 #[tokio::test]
 #[serial_test::serial]
 async fn honest_operator_takes_refund() {
-    let (_verifiers, operators, mut config, deposit_outpoint) =
+    let (_verifiers, operators, config, deposit_outpoint) =
         run_single_deposit("test_config.toml").await.unwrap();
-    let rpc = create_extended_rpc!(config);
+    let rpc = ExtendedRpc::new(
+        config.bitcoin_rpc_url.clone(),
+        config.bitcoin_rpc_user.clone(),
+        config.bitcoin_rpc_password.clone(),
+    );
 
     let user_sk = SecretKey::from_slice(&[13u8; 32]).unwrap();
     let user = User::new(rpc.clone(), user_sk, config.clone());
@@ -86,9 +90,12 @@ async fn honest_operator_takes_refund() {
 #[ignore = "We are switching to gRPC"]
 #[tokio::test]
 async fn withdrawal_fee_too_low() {
-    let (_verifiers, operators, mut config, _) =
-        run_single_deposit("test_config.toml").await.unwrap();
-    let rpc = create_extended_rpc!(config);
+    let (_verifiers, operators, config, _) = run_single_deposit("test_config.toml").await.unwrap();
+    let rpc = ExtendedRpc::new(
+        config.bitcoin_rpc_url.clone(),
+        config.bitcoin_rpc_user.clone(),
+        config.bitcoin_rpc_password.clone(),
+    );
 
     let user_sk = SecretKey::from_slice(&[12u8; 32]).unwrap();
     let withdrawal_address = Address::p2tr(
