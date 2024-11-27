@@ -10,7 +10,7 @@ env:
 
 jobs:
 # Build ------------------------------------------------------------------------
-  debug_mode_build:
+  debug_build:
     name: Compile code in debug mode
     runs-on: ubicloud-standard-16
 
@@ -26,7 +26,7 @@ jobs:
     - name: Compile in debug mode
       run: cargo build $CARGOFLAGS --verbose
 
-  release_mode_build:
+  release_build:
     name: Compile code in release mode
     runs-on: ubicloud-standard-16
 
@@ -40,13 +40,13 @@ jobs:
         shared-key: "release-build"
 
     - name: Compile in release mode
-      run: cargo build $CARGOFLAGS --release --verbose
+      run: cargo build $CARGOFLAGS --verbose --release
 
 # Tests ------------------------------------------------------------------------
-  debug_mode_test_with_regtest:
-    name: Test code in debug mode with Bitcoin Regtest
-    runs-on: ubicloud-standard-4
-    needs: debug_mode_build
+  debug_build_test:
+    name: Test code in debug build
+    runs-on: ubicloud-standard-16
+    needs: debug_build
 
     services:
       postgres:
@@ -73,13 +73,13 @@ jobs:
       with:
         shared-key: "debug-build"
 
-    - name: Run tests on Bitcoin regtest
+    - name: Run tests
       run: cargo test
 
-  release_mode_test_with_regtest:
-    name: Test code in release mode with Bitcoin Regtest
-    runs-on: ubicloud-standard-4
-    needs: release_mode_build
+  release_build_test:
+    name: Test code in release build
+    runs-on: ubicloud-standard-16
+    needs: release_build
 
     services:
       postgres:
@@ -106,5 +106,5 @@ jobs:
       with:
         shared-key: "release-build"
 
-    - name: Run tests on Bitcoin regtest with release build
+    - name: Run tests
       run: cargo test --release
