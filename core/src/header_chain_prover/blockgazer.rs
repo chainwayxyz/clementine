@@ -176,15 +176,14 @@ where
         Ok(())
     }
 
-    /// Starts a Tokio task to search for new blocks. New blocks are written to
+    /// Starts an async task to search for new blocks. New blocks are written to
     /// database.
-    ///
-    /// TODO: Use `&self`.
     ///
     /// # Parameters
     ///
+    /// TODO: Use `&self`.
+    ///
     /// - prover: [`ChainProver`] instance
-    /// - tx: Transmitter end for prover
     #[tracing::instrument(skip_all)]
     pub async fn start_blockgazer(prover: HeaderChainProver<R>)
     where
