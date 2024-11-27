@@ -85,14 +85,13 @@ where
         Ok(receipt)
     }
 
-    /// Starts a Tokio task that proves new blocks.
-    ///
-    /// TODO: Use `&self`.
+    /// Starts an async task that checks for non proved blocks and proves them.
     ///
     /// # Parameters
     ///
+    /// TODO: Use `&self`.
+    ///
     /// - prover: [`ChainProver`] instance
-    /// - rx: Receiver end for blockgazer
     #[tracing::instrument(skip_all)]
     pub async fn start_prover(prover: HeaderChainProver<R>) {
         loop {
@@ -118,19 +117,22 @@ where
                     bits: current_block_header.bits.to_consensus(),
                     nonce: current_block_header.nonce,
                 };
-                let receipt = prover.prove_block(Some(previous_proof), vec![header]).await;
+                let receipt = prover
+                    .prove_block(Some(previous_proof), vec![header.clone()])
+                    .await;
 
-                if let Ok(receipt) = receipt {
-                    prover
-                        .db
-                        .save_block_proof(None, current_block_hash, receipt)
-                        .await
-                        .unwrap();
-
-                    // Only continue to check for new unproven blocks, if
-                    // this attempt was successful.
-                    continue;
-                }
+                match receipt {
+                    Ok(receipt) => {
+                        prover
+                            .db
+                            .save_block_proof(None, current_block_hash, receipt)
+                            .await
+                            .unwrap();
+                    }
+                    Err(e) => {
+                        tracing::error!("Can't prove for header {:?}: {}", header, e)
+                    }
+                };
             }
 
             sleep(Duration::from_secs(1)).await;
@@ -167,7 +169,6 @@ mod tests {
 
     #[tokio::test]
     #[serial_test::serial]
-    // #[ignore = "Proving takes too much time, run only when necessary"]
     async fn prove_block_genesis() {
         let mut config = create_test_config_with_thread_name("test_config.toml", None).await;
         let rpc = create_extended_rpc!(config);
@@ -187,7 +188,6 @@ mod tests {
 
     #[tokio::test]
     #[serial_test::serial]
-    // #[ignore = "Proving takes too much time, run only when necessary"]
     async fn prove_block_second() {
         let mut config = create_test_config_with_thread_name("test_config.toml", None).await;
         let rpc = create_extended_rpc!(config);
@@ -210,7 +210,6 @@ mod tests {
 
     #[tokio::test]
     #[serial_test::serial]
-    // #[ignore = "Proving takes too much time, run only when necessary"]
     async fn save_and_get_proof() {
         let mut config = create_test_config_with_thread_name("test_config.toml", None).await;
         let rpc = create_extended_rpc!(config);
