@@ -13,11 +13,10 @@ use risc0_zkvm::{compute_image_id, ExecutorEnv, Receipt};
 use std::time::Duration;
 use tokio::time::sleep;
 
-// Prepare prover binary and calculate it's image id.
+// Prepare prover binary and calculate it's image id, before anything else.
 const ELF: &[u8; 186232] = include_bytes!("../../../scripts/header-chain-guest");
 lazy_static! {
     static ref IMAGE_ID: [u32; 8] = compute_image_id(ELF)
-        .map_err(|e| BridgeError::ProverError(format!("Can't compute image id: {}", e)))
         .unwrap()
         .as_words()
         .try_into()
