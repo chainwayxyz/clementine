@@ -5,7 +5,7 @@ on: [push]
 env:
   CARGO_TERM_COLOR: always
   CARGOFLAGS: --workspace --all-targets --all-features
-  RUST_LOG: trace
+  RUST_LOG: trace,risc0_zkvm=error,risc0_circuit_rv32im=error
   RISC0_DEV_MODE: 1
 
 jobs:
