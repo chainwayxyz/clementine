@@ -81,7 +81,7 @@ pub struct BridgeConfig {
     pub citrea_rpc_url: String,
     /// Bridge contract address.
     pub bridge_contract_address: String,
-    // Latest header chain proof receipt file path.
+    // Initial header chain proof receipt's file path.
     pub header_chain_proof_path: Option<PathBuf>,
 }
 
