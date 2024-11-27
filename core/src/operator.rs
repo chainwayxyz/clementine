@@ -725,18 +725,14 @@ impl OperatorRpcServer for Operator {
 #[cfg(test)]
 mod tests {
     use crate::{
-        extended_rpc::ExtendedRpc,
-        mock::database::{create_test_config, create_test_config_with_thread_name},
-        operator::Operator,
-        servers::create_operator_server,
-        traits::rpc::OperatorRpcClient,
-        UTXO,
+        extended_rpc::ExtendedRpc, mock::database::create_test_config_with_thread_name,
+        operator::Operator, servers::create_operator_server, traits::rpc::OperatorRpcClient, UTXO,
     };
     use bitcoin::{hashes::Hash, Amount, OutPoint, ScriptBuf, TxOut, Txid};
 
     #[tokio::test]
     async fn set_funding_utxo() {
-        let config = create_test_config("set_funding_utxo", "test_config.toml").await;
+        let config = create_test_config_with_thread_name("test_config.toml", None).await;
         let rpc = ExtendedRpc::new(
             config.bitcoin_rpc_url.clone(),
             config.bitcoin_rpc_user.clone(),
