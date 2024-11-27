@@ -10,18 +10,18 @@ use std::time::Duration;
 use tokio::time::sleep;
 
 /// Maximum height difference in batches.
-pub const BATCH_DEEPNESS: u64 = 100;
+const BATCH_DEEPNESS: u64 = 100;
 /// Safety barrier for fetcher. This is needed for not getting effected by the
 /// things like reorgs.
-pub const BATCH_DEEPNESS_SAFETY_BARRIER: u64 = 10;
+const BATCH_DEEPNESS_SAFETY_BARRIER: u64 = 10;
 
 /// Blockgazer's maximum allowed height difference to handle. Above this height
 /// difference, execution halts.
-pub const MAX_ALLOWED_DISTANCE_TO_ACTIVE_TIP: u64 = 10_000;
+const MAX_ALLOWED_DISTANCE_TO_ACTIVE_TIP: u64 = 10_000;
 
 /// Possible fetch results.
 #[derive(Debug, Clone, PartialEq)]
-pub enum BlockFetchStatus {
+enum BlockFetchStatus {
     /// Database is in sync with active blockchain.
     UpToDate,
     /// Database tip is fallen behind at this `block height` and this list of
