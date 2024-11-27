@@ -31,7 +31,7 @@ where
     ///
     /// # Parameters
     ///
-    /// - `prev_receipt`: Some previous run's receipt, if not genesis block
+    /// - `prev_receipt`: Previous proof's receipt, if not genesis block
     /// - `block_headers`: Block headers to prove
     ///
     /// # Returns
