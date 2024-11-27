@@ -11,7 +11,7 @@ env:
 jobs:
 # Build ------------------------------------------------------------------------
   debug_build:
-    name: Compile code in debug mode
+    name: Compile code with debug profile
     runs-on: ubicloud-standard-16
 
     steps:
@@ -27,7 +27,7 @@ jobs:
       run: cargo build $CARGOFLAGS --verbose
 
   release_build:
-    name: Compile code in release mode
+    name: Compile code with release profile
     runs-on: ubicloud-standard-16
 
     steps:
@@ -44,7 +44,7 @@ jobs:
 
 # Tests ------------------------------------------------------------------------
   debug_build_test:
-    name: Test code in debug build
+    name: Test code with debug build
     runs-on: ubicloud-standard-16
     needs: debug_build
 
@@ -77,7 +77,7 @@ jobs:
       run: cargo test
 
   release_build_test:
-    name: Test code in release build
+    name: Test code with release build
     runs-on: ubicloud-standard-16
     needs: release_build
 
