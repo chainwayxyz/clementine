@@ -211,7 +211,6 @@ where
 mod tests {
     use crate::{
         create_extended_rpc,
-        errors::BridgeError,
         extended_rpc::ExtendedRpc,
         header_chain_prover::{
             blockgazer::{BlockFetchStatus, BATCH_DEEPNESS, BATCH_DEEPNESS_SAFETY_BARRIER},
@@ -361,78 +360,6 @@ mod tests {
             prover.check_for_new_blocks().await.unwrap(),
             BlockFetchStatus::FallenBehind(current_tip_height, block_hashes)
         );
-    }
-
-    #[tokio::test]
-    #[serial_test::serial]
-    #[ignore = "Mining too much blocks slows down testing. TODO: Change steps"]
-    async fn check_for_new_blocks_too_deep() {
-        let mut config = create_test_config_with_thread_name("test_config.toml", None).await;
-        let rpc = create_extended_rpc!(config);
-        let prover = HeaderChainProver::new(&config, rpc.clone()).await.unwrap();
-
-        // Add current block to database.
-        let current_tip_height = rpc.client.get_block_count().unwrap();
-        let current_tip_hash = rpc.client.get_block_hash(current_tip_height).unwrap();
-        let current_block = rpc.client.get_block(&current_tip_hash).unwrap();
-        prover
-            .db
-            .save_new_block(
-                None,
-                current_tip_hash,
-                current_block.header,
-                current_tip_height,
-            )
-            .await
-            .unwrap();
-
-        // Mining some blocks and not updating database should cause a
-        // [`BlockFetchStatus::OutOfBounds`] return.
-        let diff = BATCH_DEEPNESS * BATCH_DEEPNESS + BATCH_DEEPNESS;
-        rpc.mine_blocks(diff).unwrap();
-        let err = prover.check_for_new_blocks().await.err().unwrap();
-        if let BridgeError::BlockgazerTooDeep(bdiff) = err {
-            assert_eq!(bdiff, diff);
-        } else {
-            panic!("Wrong error type!");
-        }
-
-        // Add current block to database.
-        let current_tip_height = rpc.client.get_block_count().unwrap();
-        let current_tip_hash = rpc.client.get_block_hash(current_tip_height).unwrap();
-        let current_block = rpc.client.get_block(&current_tip_hash).unwrap();
-        prover
-            .db
-            .save_new_block(
-                None,
-                current_tip_hash,
-                current_block.header,
-                current_tip_height,
-            )
-            .await
-            .unwrap();
-        assert_eq!(
-            prover.check_for_new_blocks().await.unwrap(),
-            BlockFetchStatus::UpToDate
-        );
-
-        // Not exceeding deepness should not return an `OutOfBounds`.
-        let diff = BATCH_DEEPNESS - 1;
-        rpc.mine_blocks(diff).unwrap();
-        assert_eq!(
-            prover.check_for_new_blocks().await.unwrap(),
-            BlockFetchStatus::FallenBehind(current_tip_height, vec![current_tip_hash])
-        );
-
-        // Exceeding deepness should return an `OutOfBounds`.
-        let diff2 = BATCH_DEEPNESS + BATCH_DEEPNESS + 1;
-        rpc.mine_blocks(diff2).unwrap();
-        let err = prover.check_for_new_blocks().await.err().unwrap();
-        if let BridgeError::BlockgazerTooDeep(bdiff) = err {
-            assert_eq!(bdiff, diff + diff2);
-        } else {
-            panic!("Wrong error type!");
-        }
     }
 
     #[tokio::test]
