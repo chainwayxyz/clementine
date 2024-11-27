@@ -25,8 +25,7 @@ pub enum BlockFetchStatus {
     /// Database is in sync with active blockchain.
     UpToDate,
     /// Database tip is fallen behind at this `block height` and this list of
-    /// `block hashes`. TODO: Could also return optional field for invalid
-    /// blocks found in database.
+    /// `block hashes`.
     FallenBehind(u64, Vec<BlockHash>),
 }
 
