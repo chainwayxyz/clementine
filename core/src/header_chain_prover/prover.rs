@@ -23,7 +23,7 @@ lazy_static! {
 }
 
 impl HeaderChainProver {
-    /// Prove a block.
+    /// Proves given block headers.
     ///
     /// # Parameters
     ///
@@ -32,8 +32,8 @@ impl HeaderChainProver {
     ///
     /// # Returns
     ///
-    /// - [`Receipt`]: Proved block's proof receipt.
-    async fn prove_block(
+    /// - [`Receipt`]: Proved block headers' proof receipt.
+    async fn prove_block_headers(
         &self,
         prev_receipt: Option<Receipt>,
         block_headers: Vec<BlockHeader>,
@@ -114,7 +114,7 @@ impl HeaderChainProver {
                     nonce: current_block_header.nonce,
                 };
                 let receipt = prover
-                    .prove_block(Some(previous_proof), vec![header.clone()])
+                    .prove_block_headers(Some(previous_proof), vec![header.clone()])
                     .await;
 
                 match receipt {
@@ -147,12 +147,8 @@ mod tests {
         hashes::Hash,
         BlockHash, CompactTarget, TxMerkleNode,
     };
-    use bitcoincore_rpc::RpcApi;
     use borsh::BorshDeserialize;
     use circuits::header_chain::{BlockHeader, BlockHeaderCircuitOutput};
-    use risc0_zkvm::Receipt;
-    use std::time::Duration;
-    use tokio::time::sleep;
 
     fn get_headers() -> Vec<BlockHeader> {
         let headers = include_bytes!("../../../scripts/headers.bin");
@@ -165,7 +161,7 @@ mod tests {
 
     #[tokio::test]
     #[serial_test::serial]
-    async fn prove_block_genesis() {
+    async fn prove_block_headers_genesis() {
         let config = create_test_config_with_thread_name("test_config.toml", None).await;
         let rpc = ExtendedRpc::new(
             config.bitcoin_rpc_url.clone(),
@@ -174,7 +170,7 @@ mod tests {
         );
         let prover = HeaderChainProver::new(&config, rpc.clone()).await.unwrap();
 
-        let receipt = prover.prove_block(None, vec![]).await.unwrap();
+        let receipt = prover.prove_block_headers(None, vec![]).await.unwrap();
 
         let output: BlockHeaderCircuitOutput = borsh::from_slice(&receipt.journal.bytes).unwrap();
         println!("Proof journal output: {:?}", output);
@@ -188,7 +184,7 @@ mod tests {
 
     #[tokio::test]
     #[serial_test::serial]
-    async fn prove_block_second() {
+    async fn prove_block_headers_second() {
         let config = create_test_config_with_thread_name("test_config.toml", None).await;
         let rpc = ExtendedRpc::new(
             config.bitcoin_rpc_url.clone(),
@@ -198,11 +194,11 @@ mod tests {
         let prover = HeaderChainProver::new(&config, rpc.clone()).await.unwrap();
 
         // Prove genesis block and get it's receipt.
-        let receipt = prover.prove_block(None, vec![]).await.unwrap();
+        let receipt = prover.prove_block_headers(None, vec![]).await.unwrap();
 
         let block_headers = get_headers();
         let receipt = prover
-            .prove_block(Some(receipt), block_headers[0..2].to_vec())
+            .prove_block_headers(Some(receipt), block_headers[0..2].to_vec())
             .await
             .unwrap();
         let output: BlockHeaderCircuitOutput = borsh::from_slice(&receipt.journal.bytes).unwrap();
@@ -225,7 +221,7 @@ mod tests {
         let block_headers = get_headers();
 
         // Prove genesis block.
-        let receipt = prover.prove_block(None, vec![]).await.unwrap();
+        let receipt = prover.prove_block_headers(None, vec![]).await.unwrap();
         let hash =
             BlockHash::from_raw_hash(Hash::from_slice(&block_headers[1].prev_block_hash).unwrap());
         let header = Header {
@@ -256,7 +252,7 @@ mod tests {
 
         // Prove second block.
         let receipt = prover
-            .prove_block(Some(receipt), block_headers[0..2].to_vec())
+            .prove_block_headers(Some(receipt), block_headers[0..2].to_vec())
             .await
             .unwrap();
         let hash =
@@ -288,42 +284,5 @@ mod tests {
         assert_eq!(receipt.journal, database_receipt2.journal);
         assert_eq!(receipt.metadata, database_receipt2.metadata);
         assert_ne!(receipt.journal, database_receipt.journal);
-    }
-
-    #[tokio::test]
-    #[serial_test::serial]
-    #[ignore = "This test is very host dependent and must need a human observer"]
-    async fn start_header_chain_prover() {
-        let config = create_test_config_with_thread_name("test_config.toml", None).await;
-        let rpc = ExtendedRpc::new(
-            config.bitcoin_rpc_url.clone(),
-            config.bitcoin_rpc_user.clone(),
-            config.bitcoin_rpc_password.clone(),
-        );
-        let prover = HeaderChainProver::new(&config, rpc.clone()).await.unwrap();
-
-        prover.run();
-        sleep(Duration::from_millis(1000)).await;
-
-        // Mine a block and write genesis block's proof to database.
-        rpc.mine_blocks(1).unwrap();
-        let receipt =
-            Receipt::try_from_slice(include_bytes!("../../tests/data/first_1.bin")).unwrap();
-        prover
-            .db
-            .save_block_proof(None, BlockHash::all_zeros(), receipt.clone())
-            .await
-            .unwrap();
-
-        let hash = rpc.client.get_block_hash(1).unwrap();
-        loop {
-            if let Ok(proof) = prover.get_header_chain_proof(hash).await {
-                println!("Second block's proof is {:?}", proof);
-                break;
-            }
-
-            println!("Waiting for proof to be written to database for second block...");
-            sleep(Duration::from_millis(1000)).await;
-        }
     }
 }

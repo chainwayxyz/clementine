@@ -169,7 +169,7 @@ mod tests {
         let prover = HeaderChainProver::new(&config, rpc.clone()).await.unwrap();
 
         prover.run();
-        sleep(Duration::from_millis(1000)).await;
+        sleep(Duration::from_secs(1)).await;
 
         // Mine a block and write genesis block's proof to database.
         rpc.mine_blocks(1).unwrap();
@@ -189,7 +189,7 @@ mod tests {
             }
 
             println!("Waiting for proof to be written to database for second block...");
-            sleep(Duration::from_millis(1000)).await;
+            sleep(Duration::from_secs(1)).await;
         }
     }
 }
