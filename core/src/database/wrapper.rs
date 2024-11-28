@@ -1,5 +1,11 @@
 use crate::EVMAddress;
-use bitcoin::{address::NetworkUnchecked, Address, OutPoint, TxOut, Txid};
+use bitcoin::{
+    address::NetworkUnchecked,
+    block,
+    consensus::{Decodable, Encodable},
+    hex::{DisplayHex, FromHex},
+    Address, OutPoint, TxOut, Txid,
+};
 use serde::{Deserialize, Serialize};
 use sqlx::{
     postgres::{PgArgumentBuffer, PgValueRef},
@@ -7,71 +13,47 @@ use sqlx::{
 };
 use std::str::FromStr;
 
-#[derive(Serialize, Deserialize, Debug, Clone)]
-pub struct OutPointDB(pub OutPoint);
-
-#[derive(Serialize, Deserialize, Debug, Clone)]
-pub struct TxOutDB(pub TxOut);
-
-#[derive(Serialize, Debug, Clone)]
-pub struct AddressDB(pub Address<NetworkUnchecked>);
-
-#[derive(Serialize, Deserialize, Debug, Clone)]
-pub struct EVMAddressDB(pub EVMAddress);
-
-#[derive(Serialize, Deserialize, Debug, Clone)]
-pub struct TxidDB(pub Txid);
-
-#[derive(Serialize, Deserialize, sqlx::FromRow, Debug, Clone)]
-pub struct SignatureDB(pub secp256k1::schnorr::Signature);
-
-#[derive(Serialize, Deserialize, sqlx::FromRow, Debug, Clone)]
-pub struct PublicKeyDB(pub secp256k1::PublicKey);
-
-#[derive(Serialize, Deserialize, sqlx::FromRow, Debug, Clone)]
-pub struct XOnlyPublicKeyDB(pub secp256k1::XOnlyPublicKey);
-
 #[derive(Serialize, Deserialize, sqlx::FromRow)]
 pub struct Utxodb {
     pub outpoint_db: OutPointDB,
     pub txout_db: TxOutDB,
 }
 
+#[derive(Serialize, Deserialize, Debug, Clone)]
+pub struct OutPointDB(pub OutPoint);
+
 impl sqlx::Type<sqlx::Postgres> for OutPointDB {
     fn type_info() -> sqlx::postgres::PgTypeInfo {
         sqlx::postgres::PgTypeInfo::with_name("TEXT")
     }
 }
-
 impl<'q> Encode<'q, Postgres> for OutPointDB {
     fn encode_by_ref(&self, buf: &mut PgArgumentBuffer) -> sqlx::encode::IsNull {
         let s = self.0.to_string();
-
         <&str as Encode<Postgres>>::encode_by_ref(&s.as_str(), buf)
     }
 }
-
 impl<'r> Decode<'r, Postgres> for OutPointDB {
     fn decode(value: PgValueRef<'r>) -> Result<Self, sqlx::error::BoxDynError> {
         let s = <&str as Decode<Postgres>>::decode(value)?;
-
         Ok(OutPointDB(OutPoint::from_str(s)?))
     }
 }
+
+#[derive(Serialize, Debug, Clone)]
+pub struct AddressDB(pub Address<NetworkUnchecked>);
 
 impl sqlx::Type<sqlx::Postgres> for AddressDB {
     fn type_info() -> sqlx::postgres::PgTypeInfo {
         sqlx::postgres::PgTypeInfo::with_name("TEXT")
     }
 }
-
 impl<'q> Encode<'q, Postgres> for AddressDB {
     fn encode_by_ref(&self, buf: &mut PgArgumentBuffer) -> sqlx::encode::IsNull {
         let s = self.0.clone().assume_checked().to_string();
         <&str as Encode<Postgres>>::encode_by_ref(&s.as_str(), buf)
     }
 }
-
 impl<'r> Decode<'r, Postgres> for AddressDB {
     fn decode(value: PgValueRef<'r>) -> Result<Self, sqlx::error::BoxDynError> {
         let s = <&str as Decode<Postgres>>::decode(value)?;
@@ -79,19 +61,20 @@ impl<'r> Decode<'r, Postgres> for AddressDB {
     }
 }
 
+#[derive(Serialize, Deserialize, Debug, Clone)]
+pub struct EVMAddressDB(pub EVMAddress);
+
 impl sqlx::Type<sqlx::Postgres> for EVMAddressDB {
     fn type_info() -> sqlx::postgres::PgTypeInfo {
         sqlx::postgres::PgTypeInfo::with_name("TEXT")
     }
 }
-
 impl<'q> Encode<'q, Postgres> for EVMAddressDB {
     fn encode_by_ref(&self, buf: &mut PgArgumentBuffer) -> sqlx::encode::IsNull {
         let s = hex::encode(self.0 .0);
         <&str as Encode<Postgres>>::encode_by_ref(&s.as_str(), buf)
     }
 }
-
 impl<'r> Decode<'r, Postgres> for EVMAddressDB {
     fn decode(value: PgValueRef<'r>) -> Result<Self, sqlx::error::BoxDynError> {
         let s = <&str as Decode<Postgres>>::decode(value)?;
@@ -101,19 +84,20 @@ impl<'r> Decode<'r, Postgres> for EVMAddressDB {
     }
 }
 
+#[derive(Serialize, Deserialize, Debug, Clone)]
+pub struct TxidDB(pub Txid);
+
 impl sqlx::Type<sqlx::Postgres> for TxidDB {
     fn type_info() -> sqlx::postgres::PgTypeInfo {
         sqlx::postgres::PgTypeInfo::with_name("TEXT")
     }
 }
-
 impl<'q> Encode<'q, Postgres> for TxidDB {
     fn encode_by_ref(&self, buf: &mut PgArgumentBuffer) -> sqlx::encode::IsNull {
         let s = bitcoin::consensus::encode::serialize_hex(&self.0);
         <&str as Encode<Postgres>>::encode_by_ref(&s.as_str(), buf)
     }
 }
-
 impl<'r> Decode<'r, Postgres> for TxidDB {
     fn decode(value: PgValueRef<'r>) -> Result<Self, sqlx::error::BoxDynError> {
         let s = <&str as Decode<Postgres>>::decode(value)?;
@@ -122,19 +106,20 @@ impl<'r> Decode<'r, Postgres> for TxidDB {
     }
 }
 
+#[derive(Serialize, Deserialize, Debug, Clone)]
+pub struct TxOutDB(pub TxOut);
+
 impl sqlx::Type<sqlx::Postgres> for TxOutDB {
     fn type_info() -> sqlx::postgres::PgTypeInfo {
         sqlx::postgres::PgTypeInfo::with_name("TEXT")
     }
 }
-
 impl<'q> Encode<'q, Postgres> for TxOutDB {
     fn encode_by_ref(&self, buf: &mut PgArgumentBuffer) -> sqlx::encode::IsNull {
         let s = bitcoin::consensus::encode::serialize_hex(&self.0);
         <&str as Encode<Postgres>>::encode_by_ref(&s.as_str(), buf)
     }
 }
-
 impl<'r> Decode<'r, Postgres> for TxOutDB {
     fn decode(value: PgValueRef<'r>) -> Result<Self, sqlx::error::BoxDynError> {
         let s = <&str as Decode<Postgres>>::decode(value)?;
@@ -143,19 +128,20 @@ impl<'r> Decode<'r, Postgres> for TxOutDB {
     }
 }
 
+#[derive(Serialize, Deserialize, sqlx::FromRow, Debug, Clone)]
+pub struct SignatureDB(pub secp256k1::schnorr::Signature);
+
 impl sqlx::Type<sqlx::Postgres> for SignatureDB {
     fn type_info() -> sqlx::postgres::PgTypeInfo {
         sqlx::postgres::PgTypeInfo::with_name("TEXT")
     }
 }
-
 impl<'q> Encode<'q, Postgres> for SignatureDB {
     fn encode_by_ref(&self, buf: &mut PgArgumentBuffer) -> sqlx::encode::IsNull {
         let s: String = secp256k1::schnorr::Signature::to_string(&self.0);
         <&str as Encode<Postgres>>::encode_by_ref(&s.as_str(), buf)
     }
 }
-
 impl<'r> Decode<'r, Postgres> for SignatureDB {
     fn decode(value: PgValueRef<'r>) -> Result<Self, sqlx::error::BoxDynError> {
         let s = <&str as Decode<Postgres>>::decode(value)?;
@@ -164,19 +150,68 @@ impl<'r> Decode<'r, Postgres> for SignatureDB {
     }
 }
 
+#[derive(Serialize, Deserialize, sqlx::FromRow, Debug, Clone)]
+pub struct BlockHashDB(pub block::BlockHash);
+
+impl sqlx::Type<sqlx::Postgres> for BlockHashDB {
+    fn type_info() -> sqlx::postgres::PgTypeInfo {
+        sqlx::postgres::PgTypeInfo::with_name("TEXT")
+    }
+}
+impl<'q> Encode<'q, Postgres> for BlockHashDB {
+    fn encode_by_ref(&self, buf: &mut PgArgumentBuffer) -> sqlx::encode::IsNull {
+        let s = self.0.to_string();
+        <&str as Encode<Postgres>>::encode_by_ref(&s.as_str(), buf)
+    }
+}
+impl<'r> Decode<'r, Postgres> for BlockHashDB {
+    fn decode(value: PgValueRef<'r>) -> Result<Self, sqlx::error::BoxDynError> {
+        let s = <&str as Decode<Postgres>>::decode(value)?;
+        Ok(BlockHashDB(block::BlockHash::from_str(s)?))
+    }
+}
+
+#[derive(Serialize, Deserialize, sqlx::FromRow, Debug, Clone)]
+pub struct BlockHeaderDB(pub block::Header);
+
+impl sqlx::Type<sqlx::Postgres> for BlockHeaderDB {
+    fn type_info() -> sqlx::postgres::PgTypeInfo {
+        sqlx::postgres::PgTypeInfo::with_name("TEXT")
+    }
+}
+impl<'q> Encode<'q, Postgres> for BlockHeaderDB {
+    fn encode_by_ref(&self, buf: &mut PgArgumentBuffer) -> sqlx::encode::IsNull {
+        let mut hex: Vec<u8> = Vec::new();
+        self.0.consensus_encode(&mut hex).unwrap();
+        let s = hex.to_hex_string(bitcoin::hex::Case::Lower);
+
+        <&str as Encode<Postgres>>::encode_by_ref(&s.as_str(), buf)
+    }
+}
+impl<'r> Decode<'r, Postgres> for BlockHeaderDB {
+    fn decode(value: PgValueRef<'r>) -> Result<Self, sqlx::error::BoxDynError> {
+        let s: String = Decode::decode(value.clone())?;
+        let header: block::Header =
+            block::Header::consensus_decode(&mut Vec::from_hex(&s)?.as_slice())?;
+
+        Ok(BlockHeaderDB(header))
+    }
+}
+
+#[derive(Serialize, Deserialize, sqlx::FromRow, Debug, Clone)]
+pub struct PublicKeyDB(pub secp256k1::PublicKey);
+
 impl sqlx::Type<sqlx::Postgres> for PublicKeyDB {
     fn type_info() -> sqlx::postgres::PgTypeInfo {
         sqlx::postgres::PgTypeInfo::with_name("TEXT")
     }
 }
-
 impl<'q> Encode<'q, Postgres> for PublicKeyDB {
     fn encode_by_ref(&self, buf: &mut PgArgumentBuffer) -> sqlx::encode::IsNull {
         let s: String = secp256k1::PublicKey::to_string(&self.0);
         <&str as Encode<Postgres>>::encode_by_ref(&s.as_str(), buf)
     }
 }
-
 impl<'r> Decode<'r, Postgres> for PublicKeyDB {
     fn decode(value: PgValueRef<'r>) -> Result<Self, sqlx::error::BoxDynError> {
         let s = <&str as Decode<Postgres>>::decode(value)?;
@@ -185,19 +220,20 @@ impl<'r> Decode<'r, Postgres> for PublicKeyDB {
     }
 }
 
+#[derive(Serialize, Deserialize, sqlx::FromRow, Debug, Clone)]
+pub struct XOnlyPublicKeyDB(pub secp256k1::XOnlyPublicKey);
+
 impl sqlx::Type<sqlx::Postgres> for XOnlyPublicKeyDB {
     fn type_info() -> sqlx::postgres::PgTypeInfo {
         sqlx::postgres::PgTypeInfo::with_name("TEXT")
     }
 }
-
 impl<'q> Encode<'q, Postgres> for XOnlyPublicKeyDB {
     fn encode_by_ref(&self, buf: &mut PgArgumentBuffer) -> sqlx::encode::IsNull {
         let s: String = secp256k1::XOnlyPublicKey::to_string(&self.0);
         <&str as Encode<Postgres>>::encode_by_ref(&s.as_str(), buf)
     }
 }
-
 impl<'r> Decode<'r, Postgres> for XOnlyPublicKeyDB {
     fn decode(value: PgValueRef<'r>) -> Result<Self, sqlx::error::BoxDynError> {
         let s = <&str as Decode<Postgres>>::decode(value)?;
@@ -206,14 +242,22 @@ impl<'r> Decode<'r, Postgres> for XOnlyPublicKeyDB {
     }
 }
 
+// TODO: Improve these tests by checking conversions both ways. Note: I couldn't
+// find any ways to do this but it needs to be done.
 #[cfg(test)]
 mod tests {
     use super::OutPointDB;
     use crate::{
-        database::wrapper::{AddressDB, EVMAddressDB, SignatureDB, TxOutDB, TxidDB},
+        database::wrapper::{
+            AddressDB, BlockHashDB, BlockHeaderDB, EVMAddressDB, SignatureDB, TxOutDB, TxidDB,
+        },
         utils, EVMAddress,
     };
-    use bitcoin::{hashes::Hash, Amount, OutPoint, ScriptBuf, TxOut, Txid};
+    use bitcoin::{
+        block::{self, Version},
+        hashes::Hash,
+        Amount, BlockHash, CompactTarget, OutPoint, ScriptBuf, TxMerkleNode, TxOut, Txid,
+    };
     use secp256k1::schnorr::Signature;
     use sqlx::{encode::IsNull, postgres::PgArgumentBuffer, Encode, Type};
 
@@ -322,6 +366,45 @@ mod tests {
         let mut hex: PgArgumentBuffer = PgArgumentBuffer::default();
         if let IsNull::Yes = signaturedb.clone().encode(&mut hex) {
             panic!("Couldn't write {:?} to the buffer!", signaturedb);
+        }
+    }
+
+    #[test]
+    fn blockhashdb() {
+        assert_eq!(
+            OutPointDB::type_info(),
+            sqlx::postgres::PgTypeInfo::with_name("TEXT")
+        );
+
+        let blockhash = BlockHash::all_zeros();
+        let blockhashdb = BlockHashDB(blockhash);
+
+        let mut hex: PgArgumentBuffer = PgArgumentBuffer::default();
+        if let IsNull::Yes = blockhashdb.clone().encode(&mut hex) {
+            panic!("Couldn't write {:?} to the buffer!", blockhashdb);
+        }
+    }
+
+    #[test]
+    fn blockheaderdb() {
+        assert_eq!(
+            OutPointDB::type_info(),
+            sqlx::postgres::PgTypeInfo::with_name("TEXT")
+        );
+
+        let blockheader = block::Header {
+            version: Version::TWO,
+            prev_blockhash: BlockHash::all_zeros(),
+            merkle_root: TxMerkleNode::all_zeros(),
+            time: 0,
+            bits: CompactTarget::default(),
+            nonce: 0,
+        };
+        let blockheaderdb = BlockHeaderDB(blockheader);
+
+        let mut hex: PgArgumentBuffer = PgArgumentBuffer::default();
+        if let IsNull::Yes = blockheaderdb.clone().encode_by_ref(&mut hex) {
+            panic!("Couldn't write {:?} to the buffer!", blockheaderdb);
         }
     }
 }

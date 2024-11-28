@@ -1,7 +1,6 @@
 use bitcoin::opcodes::all::OP_CHECKSIG;
 use bitcoin::{hashes::Hash, script, Amount, ScriptBuf};
 use clementine_core::builder::transaction::TxHandler;
-use clementine_core::create_extended_rpc;
 use clementine_core::mock::database::create_test_config_with_thread_name;
 use clementine_core::musig2::{
     aggregate_nonces, aggregate_partial_signatures, MuSigPartialSignature, MuSigPubNonce,
@@ -64,10 +63,14 @@ fn get_nonces(verifiers_secret_public_keys: Vec<Keypair>) -> (Vec<MuSigNoncePair
 }
 
 #[tokio::test]
+#[serial_test::serial]
 async fn key_spend() {
-    let mut config: BridgeConfig =
-        create_test_config_with_thread_name("test_config.toml", None).await;
-    let rpc = create_extended_rpc!(config);
+    let config = create_test_config_with_thread_name("test_config.toml", None).await;
+    let rpc = ExtendedRpc::new(
+        config.bitcoin_rpc_url.clone(),
+        config.bitcoin_rpc_user.clone(),
+        config.bitcoin_rpc_password.clone(),
+    );
 
     let (verifiers_secret_public_keys, untweaked_xonly_pubkey, verifier_public_keys) =
         get_verifiers_keys(&config);
@@ -146,10 +149,14 @@ async fn key_spend() {
 }
 
 #[tokio::test]
+#[serial_test::serial]
 async fn key_spend_with_script() {
-    let mut config: BridgeConfig =
-        create_test_config_with_thread_name("test_config.toml", None).await;
-    let rpc = create_extended_rpc!(config);
+    let config = create_test_config_with_thread_name("test_config.toml", None).await;
+    let rpc = ExtendedRpc::new(
+        config.bitcoin_rpc_url.clone(),
+        config.bitcoin_rpc_user.clone(),
+        config.bitcoin_rpc_password.clone(),
+    );
 
     let (verifiers_secret_public_keys, untweaked_xonly_pubkey, verifier_public_keys) =
         get_verifiers_keys(&config);
@@ -234,10 +241,14 @@ async fn key_spend_with_script() {
 }
 
 #[tokio::test]
+#[serial_test::serial]
 async fn script_spend() {
-    let mut config: BridgeConfig =
-        create_test_config_with_thread_name("test_config.toml", None).await;
-    let rpc = create_extended_rpc!(config);
+    let config = create_test_config_with_thread_name("test_config.toml", None).await;
+    let rpc = ExtendedRpc::new(
+        config.bitcoin_rpc_url.clone(),
+        config.bitcoin_rpc_user.clone(),
+        config.bitcoin_rpc_password.clone(),
+    );
 
     let (verifiers_secret_public_keys, _untweaked_xonly_pubkey, verifier_public_keys) =
         get_verifiers_keys(&config);

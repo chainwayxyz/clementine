@@ -5,15 +5,11 @@ use super::clementine::{
 };
 use crate::{errors::BridgeError, operator::Operator};
 use bitcoin::{hashes::Hash, OutPoint};
-use bitcoin_mock_rpc::RpcApiWrapper;
 use tokio_stream::wrappers::ReceiverStream;
 use tonic::{async_trait, Request, Response, Status};
 
 #[async_trait]
-impl<T> ClementineOperator for Operator<T>
-where
-    T: RpcApiWrapper,
-{
+impl ClementineOperator for Operator {
     type DepositSignStream = ReceiverStream<Result<OperatorBurnSig, Status>>;
 
     #[tracing::instrument(skip(self), err(level = tracing::Level::ERROR), ret(level = tracing::Level::TRACE))]
@@ -32,7 +28,7 @@ where
             operator_idx: self.idx as u32,
             collateral_funding_txid: time_txs[0].1.to_byte_array().to_vec(),
             xonly_pk: self.signer.xonly_public_key.to_string(),
-            wallet_reimburse_address: self.config.operator_wallet_addresses[self.idx as usize] // TODO: Fix this where the config will only have one address.
+            wallet_reimburse_address: self.config.operator_wallet_addresses[self.idx] // TODO: Fix this where the config will only have one address.
                 .clone()
                 .assume_checked()
                 .to_string(),

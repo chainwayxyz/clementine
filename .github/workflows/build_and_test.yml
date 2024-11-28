@@ -4,20 +4,19 @@ on: [push]
 
 env:
   CARGO_TERM_COLOR: always
-  CARGO_TERM_VERBOSE: true
   CARGOFLAGS: --workspace --all-targets --all-features
-  RUST_LOG: trace
+  RUST_LOG: trace,risc0_zkvm=error,risc0_circuit_rv32im=error
   RISC0_DEV_MODE: 1
 
 jobs:
 # Build ------------------------------------------------------------------------
-  debug_mode_build:
-    name: Compile code in debug mode
+  debug_build:
+    name: Compile code with debug profile
     runs-on: ubicloud-standard-16
 
     steps:
     - uses: actions/checkout@v4
-    - uses: ./.github/actions/service-action
+    - uses: ./.github/actions/build-prerequisites
 
     - name: Save build artifacts
       uses: Swatinem/rust-cache@v2
@@ -25,15 +24,15 @@ jobs:
         shared-key: "debug-build"
 
     - name: Compile in debug mode
-      run: cargo build $CARGOFLAGS
+      run: cargo build $CARGOFLAGS --verbose
 
-  release_mode_build:
-    name: Compile code in release mode
+  release_build:
+    name: Compile code with release profile
     runs-on: ubicloud-standard-16
 
     steps:
     - uses: actions/checkout@v4
-    - uses: ./.github/actions/service-action
+    - uses: ./.github/actions/build-prerequisites
 
     - name: Save build artifacts
       uses: Swatinem/rust-cache@v2
@@ -41,13 +40,13 @@ jobs:
         shared-key: "release-build"
 
     - name: Compile in release mode
-      run: cargo build $CARGOFLAGS --release
+      run: cargo build $CARGOFLAGS --verbose --release
 
-# Test ------------------------------------------------------------------------
-  debug_mode_test_with_regtest:
-    name: Test code in debug mode with Bitcoin Regtest
-    runs-on: ubicloud-standard-4
-    needs: debug_mode_build
+# Tests ------------------------------------------------------------------------
+  debug_build_test:
+    name: Test code with debug build
+    runs-on: ubicloud-standard-16
+    needs: debug_build
 
     services:
       postgres:
@@ -66,20 +65,21 @@ jobs:
 
     steps:
     - uses: actions/checkout@v4
-    - uses: ./.github/actions/service-action
+    - uses: ./.github/actions/build-prerequisites
+    - uses: ./.github/actions/test-prerequisites
 
     - name: Restore cached build artifacts
       uses: Swatinem/rust-cache@v2
       with:
         shared-key: "debug-build"
 
-    - name: Run tests on Bitcoin regtest
-      run: cargo test --verbose --jobs 1
+    - name: Run tests
+      run: cargo test
 
-  debug_mode_test_with_mock_rpc:
-    name: Test code in debug mode with Bitcoin Mock RPC
+  release_build_test:
+    name: Test code with release build
     runs-on: ubicloud-standard-16
-    needs: debug_mode_build
+    needs: release_build
 
     services:
       postgres:
@@ -98,76 +98,13 @@ jobs:
 
     steps:
     - uses: actions/checkout@v4
-    - uses: ./.github/actions/service-action
-
-    - name: Restore cached build artifacts
-      uses: Swatinem/rust-cache@v2
-      with:
-        shared-key: "debug-build"
-
-    - name: Run tests on mock RPC
-      run: cargo test --verbose --features mock_rpc
-
-  release_mode_test_with_regtest:
-    name: Test code in release mode with Bitcoin Regtest
-    runs-on: ubicloud-standard-4
-    needs: release_mode_build
-
-    services:
-      postgres:
-        image: postgres:latest
-        env:
-          POSTGRES_DB: clementine
-          POSTGRES_USER: clementine
-          POSTGRES_PASSWORD: clementine
-        ports:
-          - 5432:5432
-        options: >-
-          --health-cmd pg_isready
-          --health-interval 10s
-          --health-timeout 5s
-          --health-retries 5
-
-    steps:
-    - uses: actions/checkout@v4
-    - uses: ./.github/actions/service-action
+    - uses: ./.github/actions/build-prerequisites
+    - uses: ./.github/actions/test-prerequisites
 
     - name: Restore cached build artifacts
       uses: Swatinem/rust-cache@v2
       with:
         shared-key: "release-build"
 
-    - name: Run tests on Bitcoin regtest with release build
-      run: cargo test --verbose --jobs 1 --release
-
-  release_mode_test_with_mock_rpc:
-    name: Test code in release mode with Bitcoin Mock RPC
-    runs-on: ubicloud-standard-16
-    needs: release_mode_build
-
-    services:
-      postgres:
-        image: postgres:latest
-        env:
-          POSTGRES_DB: clementine
-          POSTGRES_USER: clementine
-          POSTGRES_PASSWORD: clementine
-        ports:
-          - 5432:5432
-        options: >-
-          --health-cmd pg_isready
-          --health-interval 10s
-          --health-timeout 5s
-          --health-retries 5
-
-    steps:
-    - uses: actions/checkout@v4
-    - uses: ./.github/actions/service-action
-
-    - name: Restore cached build artifacts
-      uses: Swatinem/rust-cache@v2
-      with:
-        shared-key: "release-build"
-
-    - name: Run tests on mock RPC with release build
-      run: cargo test --verbose --features mock_rpc --release
+    - name: Run tests
+      run: cargo test --release

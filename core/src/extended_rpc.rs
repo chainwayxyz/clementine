@@ -8,25 +8,24 @@ use crate::EVMAddress;
 use bitcoin::address::NetworkUnchecked;
 use bitcoin::Address;
 use bitcoin::Amount;
+use bitcoin::BlockHash;
 use bitcoin::OutPoint;
 use bitcoin::ScriptBuf;
 use bitcoin::Transaction;
 use bitcoin::TxOut;
 use bitcoin::XOnlyPublicKey;
-use bitcoin_mock_rpc::RpcApiWrapper;
 use bitcoincore_rpc::Auth;
+use bitcoincore_rpc::Client;
+use bitcoincore_rpc::RpcApi;
 
 #[derive(Debug)]
-pub struct ExtendedRpc<R> {
+pub struct ExtendedRpc {
     url: String,
     auth: Auth,
-    pub client: R,
+    pub client: Client,
 }
 
-impl<R> ExtendedRpc<R>
-where
-    R: RpcApiWrapper,
-{
+impl ExtendedRpc {
     /// Connects to Bitcoin RPC and returns a new `ExtendedRpc`.
     ///
     /// # Panics
@@ -35,7 +34,7 @@ where
     pub fn new(url: String, user: String, password: String) -> Self {
         let auth = Auth::UserPass(user, password);
 
-        let rpc = R::new(&url, auth.clone())
+        let rpc = Client::new(&url, auth.clone())
             .unwrap_or_else(|e| panic!("Failed to connect to Bitcoin RPC: {}", e));
 
         Self {
@@ -82,13 +81,12 @@ where
         Ok(res.is_none())
     }
 
+    /// Mines blocks to a new address.
     #[tracing::instrument(skip(self), err(level = tracing::Level::ERROR), ret(level = tracing::Level::TRACE))]
-    pub fn mine_blocks(&self, block_num: u64) -> Result<(), BridgeError> {
+    pub fn mine_blocks(&self, block_num: u64) -> Result<Vec<BlockHash>, BridgeError> {
         let new_address = self.client.get_new_address(None, None)?.assume_checked();
 
-        self.client.generate_to_address(block_num, &new_address)?;
-
-        Ok(())
+        Ok(self.client.generate_to_address(block_num, &new_address)?)
     }
 
     #[tracing::instrument(skip(self), err(level = tracing::Level::ERROR), ret(level = tracing::Level::TRACE))]
@@ -202,12 +200,9 @@ where
     }
 }
 
-impl<R> Clone for ExtendedRpc<R>
-where
-    R: RpcApiWrapper,
-{
+impl Clone for ExtendedRpc {
     fn clone(&self) -> Self {
-        let new_client = R::new(&self.url, self.auth.clone())
+        let new_client = Client::new(&self.url, self.auth.clone())
             .unwrap_or_else(|e| panic!("Failed to clone Bitcoin RPC client: {}", e));
 
         Self {

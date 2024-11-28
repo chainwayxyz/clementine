@@ -2,10 +2,11 @@
 //!
 //! This module defines errors, returned by the library.
 
-use bitcoin::{consensus::encode::FromHexError, merkle_tree::MerkleBlockError, Txid};
+use bitcoin::{consensus::encode::FromHexError, merkle_tree::MerkleBlockError, BlockHash, Txid};
 use core::fmt::Debug;
 use jsonrpsee::types::ErrorObject;
 use musig2::secp::errors::InvalidScalarBytes;
+use std::path::PathBuf;
 use thiserror::Error;
 
 /// Errors returned by the bridge.
@@ -113,7 +114,7 @@ pub enum BridgeError {
     AlreadySpentWithdrawal,
     /// There was an error while creating a server.
     #[error("ServerError")]
-    ServerError(#[from] std::io::Error),
+    ServerError(#[from] std::io::Error), // TODO: Bad idea to auto convert std::io::Error to another type.
     /// When the operators funding utxo is not found
     #[error("OperatorFundingUtxoNotFound: Funding utxo not found, pls send some amount here: {0}, then call the set_operator_funding_utxo RPC")]
     OperatorFundingUtxoNotFound(bitcoin::Address),
@@ -179,6 +180,19 @@ pub enum BridgeError {
 
     #[error("Musig2 error: {0}")]
     Musig2Error(#[from] musig2::secp256k1::Error),
+
+    #[error("Prover returned an error: {0}")]
+    ProverError(String),
+    #[error("Blockgazer can't synchronize database with active blockchain; Too deep {0}")]
+    BlockgazerTooDeep(u64),
+    #[error("Fork has happened and it's not recoverable by blockgazer.")]
+    BlockgazerFork,
+    #[error("Error while de/serializing object: {0}")]
+    ProverDeSerializationError(std::io::Error),
+    #[error("No header chain proofs for hash {0}")]
+    NoHeaderChainProof(BlockHash),
+    #[error("Can't read proof assumption receipt from file {0}: {1}")]
+    WrongProofAssumption(PathBuf, std::io::Error),
 
     #[error("ERROR: {0}")]
     Error(String),

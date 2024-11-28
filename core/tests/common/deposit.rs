@@ -7,7 +7,6 @@ use bitcoin::OutPoint;
 use bitcoin::Transaction;
 use clementine_core::actor::Actor;
 use clementine_core::config::BridgeConfig;
-use clementine_core::create_extended_rpc;
 use clementine_core::errors::BridgeError;
 use clementine_core::extended_rpc::ExtendedRpc;
 use clementine_core::mock::database::create_test_config_with_thread_name;
@@ -23,8 +22,12 @@ use jsonrpsee::server::ServerHandle;
 use std::net::SocketAddr;
 
 pub async fn run_multiple_deposits(test_config_name: &str) {
-    let mut config = create_test_config_with_thread_name(test_config_name, None).await;
-    let rpc = create_extended_rpc!(config);
+    let config = create_test_config_with_thread_name(test_config_name, None).await;
+    let rpc = ExtendedRpc::new(
+        config.bitcoin_rpc_url.clone(),
+        config.bitcoin_rpc_user.clone(),
+        config.bitcoin_rpc_password.clone(),
+    );
     let secp = secp256k1::Secp256k1::new();
     let (verifiers, operators, aggregator) =
         create_verifiers_and_operators("test_config.toml").await;
@@ -246,8 +249,12 @@ pub async fn run_single_deposit(
     ),
     BridgeError,
 > {
-    let mut config = create_test_config_with_thread_name(test_config_name, None).await;
-    let rpc = create_extended_rpc!(config);
+    let config = create_test_config_with_thread_name(test_config_name, None).await;
+    let rpc = ExtendedRpc::new(
+        config.bitcoin_rpc_url.clone(),
+        config.bitcoin_rpc_user.clone(),
+        config.bitcoin_rpc_password.clone(),
+    );
 
     let secret_key = secp256k1::SecretKey::new(&mut secp256k1::rand::thread_rng());
     let signer_address = Actor::new(secret_key, config.network)

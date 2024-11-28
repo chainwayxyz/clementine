@@ -32,10 +32,7 @@ impl ClementineAggregator for Aggregator {
 
         let verifier_public_keys: Vec<Vec<u8>> = verifier_params
             .iter()
-            .map(|p| {
-                let pk = p.public_key.clone();
-                pk
-            })
+            .map(|p| p.public_key.clone())
             .collect();
 
         // Set the verifiers to all verifiers
