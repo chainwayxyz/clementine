@@ -14,7 +14,6 @@ use crate::{
     ByteArray32, ByteArray66, EVMAddress,
 };
 use bitcoin::{hashes::Hash, Amount, TapSighash, Txid};
-use bitcoin_mock_rpc::RpcApiWrapper;
 use futures::{pin_mut, StreamExt};
 use secp256k1::{schnorr, Message};
 use tokio::sync::mpsc;

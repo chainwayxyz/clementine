@@ -164,19 +164,20 @@ impl Aggregator {
             }
         }
 
-        let transformed_streams: Vec<BoxStream<Result<ByteArray66, BridgeError>>> =
-            nonce_streams
-                .into_iter()
-                .map(|stream| {
-                    stream
-                        .map(|result| {
-                            result.map_err(|e| BridgeError::from(e)).and_then(
-                                |nonce_gen_response| extract_pub_nonce(nonce_gen_response.response),
-                            )
-                        })
-                        .boxed()
-                })
-                .collect();
+        let transformed_streams: Vec<BoxStream<Result<ByteArray66, BridgeError>>> = nonce_streams
+            .into_iter()
+            .map(|stream| {
+                stream
+                    .map(|result| {
+                        result
+                            .map_err(BridgeError::from)
+                            .and_then(|nonce_gen_response| {
+                                extract_pub_nonce(nonce_gen_response.response)
+                            })
+                    })
+                    .boxed()
+            })
+            .collect();
         Ok((first_responses, transformed_streams))
     }
 

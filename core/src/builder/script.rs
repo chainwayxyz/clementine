@@ -75,7 +75,7 @@ pub fn generate_relative_timelock_script(
     block_count: i64,
 ) -> ScriptBuf {
     Builder::new()
-        .push_int(block_count as i64)
+        .push_int(block_count)
         .push_opcode(OP_CSV)
         .push_opcode(OP_DROP)
         .push_x_only_key(&actor_taproot_xonly_pk)

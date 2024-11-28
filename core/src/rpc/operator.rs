@@ -3,9 +3,9 @@ use super::clementine::{
     NewWithdrawalSigParams, NewWithdrawalSigResponse, OperatorBurnSig, OperatorParams,
     WithdrawalFinalizedParams,
 };
-use crate::{errors::BridgeError, operator::Operator};
+use crate::{builder, errors::BridgeError, operator::Operator};
 use bitcoin::{hashes::Hash, Amount, OutPoint};
-use tokio_stream::wrappers::ReceiverStream;
+use tokio_stream::{wrappers::ReceiverStream, StreamExt};
 use tonic::{async_trait, Request, Response, Status};
 
 #[async_trait]
