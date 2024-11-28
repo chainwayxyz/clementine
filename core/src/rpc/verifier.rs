@@ -24,10 +24,7 @@ use tonic::{async_trait, Request, Response, Status, Streaming};
 pub const NUM_REQUIRED_SIGS: usize = 10;
 
 #[async_trait]
-impl<T> ClementineVerifier for Verifier<T>
-where
-    T: RpcApiWrapper,
-{
+impl ClementineVerifier for Verifier {
     type NonceGenStream = ReceiverStream<Result<NonceGenResponse, Status>>;
     type DepositSignStream = ReceiverStream<Result<PartialSig, Status>>;
 

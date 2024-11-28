@@ -3,18 +3,13 @@ use super::clementine::{
     NewWithdrawalSigParams, NewWithdrawalSigResponse, OperatorBurnSig, OperatorParams,
     WithdrawalFinalizedParams,
 };
-use crate::{builder, errors::BridgeError, operator::Operator};
+use crate::{errors::BridgeError, operator::Operator};
 use bitcoin::{hashes::Hash, Amount, OutPoint};
-use bitcoin_mock_rpc::RpcApiWrapper;
-use futures::StreamExt;
 use tokio_stream::wrappers::ReceiverStream;
 use tonic::{async_trait, Request, Response, Status};
 
 #[async_trait]
-impl<T> ClementineOperator for Operator<T>
-where
-    T: RpcApiWrapper,
-{
+impl ClementineOperator for Operator {
     type DepositSignStream = ReceiverStream<Result<OperatorBurnSig, Status>>;
 
     #[tracing::instrument(skip(self), err(level = tracing::Level::ERROR), ret(level = tracing::Level::TRACE))]

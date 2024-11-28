@@ -5,15 +5,19 @@ use bitcoin::{Address, Amount, TapTweakHash, TxOut, XOnlyPublicKey};
 use clementine_core::actor::Actor;
 use clementine_core::builder::transaction::TxHandler;
 use clementine_core::builder::{self};
-use clementine_core::create_extended_rpc;
 use clementine_core::extended_rpc::ExtendedRpc;
 use clementine_core::mock::database::create_test_config_with_thread_name;
 use clementine_core::utils::{handle_taproot_witness_new, SECP};
 
 #[tokio::test]
+#[serial_test::serial]
 async fn create_address_and_transaction_then_sign_transaction() {
-    let mut config = create_test_config_with_thread_name("test_config.toml", None).await;
-    let rpc = create_extended_rpc!(config);
+    let config = create_test_config_with_thread_name("test_config.toml", None).await;
+    let rpc = ExtendedRpc::new(
+        config.bitcoin_rpc_url,
+        config.bitcoin_rpc_user,
+        config.bitcoin_rpc_password,
+    );
 
     let (xonly_pk, _) = config.secret_key.public_key(&SECP).x_only_public_key();
     let address = Address::p2tr(&SECP, xonly_pk, None, config.network);

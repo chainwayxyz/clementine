@@ -7,16 +7,14 @@ edition = "2021"
 tonic-build = "0.12"
 
 [dependencies]
-# clementine-circuits = { path = "../circuits" }
 bitcoin = { workspace = true, features = ["rand", "bitcoinconsensus"] }
 bitcoincore-rpc = { workspace = true }
 hex = { workspace = true, features = ["serde"] }
 lazy_static = { workspace = true, features = ["spin_no_std"] }
 sha2 = { workspace = true }
-# risc0-zkvm = { workspace = true }
+risc0-zkvm = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
-# byteorder = { workspace = true }
 secp256k1 = { workspace = true, features = ["serde"] }
 crypto-bigint = { workspace = true }
 thiserror = { workspace = true }
@@ -29,19 +27,21 @@ futures = { workspace = true }
 clap = { workspace = true, features = ["derive"] }
 toml = { workspace = true }
 sqlx = { workspace = true, features = ["runtime-tokio", "postgres", "macros"] }
-bitcoin-mock-rpc = { workspace = true }
 musig2 = { workspace = true }
-
+circuits = { workspace = true }
+borsh = { workspace = true}
 tonic = { workspace = true}
 prost = { workspace = true }
-tokio-stream = {workspace = true }
+tokio-stream = { workspace = true }
 async-stream = "0.3.6"
 futures-util = "0.3.31"
 futures-core = "0.3.31"
 
+[dev-dependencies]
+serial_test = { workspace = true }
+
 [features]
 default = []
-mock_rpc = []
 testing = []
 
 [[bin]]

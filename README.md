@@ -77,10 +77,6 @@ Mine some blocks to the wallet:
 bitcoin-cli -regtest -rpcuser=admin -rpcpassword=admin -rpcport=18443 generatetoaddress 101 $(bitcoin-cli -regtest -rpcuser=admin -rpcpassword=admin -rpcport=18443 getnewaddress)
 ```
 
-Please note that this step is not necessary if
-[bitcoin-mock-rpc](https://github.com/chainwayxyz/bitcoin-mock-rpc) will be used
-for testing.
-
 #### [Optional] Docker
 
 A docker image is provided in
@@ -102,7 +98,8 @@ docker compose -f scripts/docker/docker-compose.yml up
 
 #### Configuration
 
-Enabling dev-mode for risc0-zkvm can help lower the compilation times.
+Enabling dev-mode for risc0-zkvm can help lower the proving times, in tests.
+Please note that this should only be enabled when testing.
 
 ```sh
 export RISC0_DEV_MODE=1
@@ -123,14 +120,6 @@ To run all tests:
 
 ```sh
 cargo test
-```
-
-Tests can also be run with
-[bitcoin-mock-rpc](https://github.com/chainwayxyz/bitcoin-mock-rpc), which is an
-alternative to Bitcoin Regtest:
-
-```sh
-cargo test --features mock_rpc
 ```
 
 ## License

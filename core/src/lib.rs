@@ -20,6 +20,7 @@ pub mod env_writer;
 pub mod errors;
 pub mod extended_rpc;
 pub mod hashes;
+pub mod header_chain_prover;
 pub mod merkle;
 pub mod mock;
 pub mod musig2;

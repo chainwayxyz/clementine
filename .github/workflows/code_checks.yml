@@ -4,9 +4,7 @@ on: [push]
 
 env:
   CARGO_TERM_COLOR: always
-  CARGO_TERM_VERBOSE: true
-  CARGOFLAGS: --workspace --all-targets --all-features
-  RUST_LOG: trace
+  RUST_LOG: trace,risc0_zkvm=error,risc0_circuit_rv32im=error
   RISC0_DEV_MODE: 1
 
 jobs:
@@ -25,6 +23,7 @@ jobs:
 
     steps:
     - uses: actions/checkout@v4
+
     - name: Run Cargo clippy
       run: cargo clippy --no-deps --all-targets -- -Dwarnings
 
@@ -39,6 +38,7 @@ jobs:
         with:
           toolchain: nightly-2024-07-27
           override: true
+
       - name: Run cargo-udeps
         env:
           RUSTFLAGS: -A warnings
@@ -68,12 +68,15 @@ jobs:
 
     steps:
       - uses: actions/checkout@v4
+      - uses: ./.github/actions/build-prerequisites
+      - uses: ./.github/actions/test-prerequisites
+
       - name: Install Rust
         run: rustup update stable
       - name: Install cargo-llvm-cov
         uses: taiki-e/install-action@cargo-llvm-cov
       - name: Generate code coverage and print that to a JSON file
-        run: cargo llvm-cov $CARGOFLAGS --json --output-path lcov.json --ignore-filename-regex core/src/rpc/clementine.rs # TODO: Remove ignore and test auto generated code too
+        run: cargo llvm-cov --json --output-path lcov.json --ignore-filename-regex core/src/rpc/clementine.rs # TODO: Remove ignore and test auto generated code too
       - name: Check coverage
         run: scripts/check_json_code_coverage.py lcov.json
 
@@ -83,6 +86,7 @@ jobs:
 
     steps:
       - uses: actions/checkout@v4
+
       - name: Run script
         run: scripts/check_for_todos.sh
         continue-on-error: true # TODO: This should be removed later

@@ -1,0 +1,41 @@
+# Start required services for testing Clementine.
+
+name: Clementine Test Services
+description: 'Start services required for testing Clementine'
+
+inputs:
+  github_token:
+    description: 'GitHub token for authentication'
+    required: true
+
+runs:
+  using: "composite"
+
+  steps:
+  - name: Download Bitcoin
+    shell: bash
+    run: wget https://bitcoin.org/bin/bitcoin-core-27.0/bitcoin-27.0-x86_64-linux-gnu.tar.gz
+  - name: Unpack Bitcoin
+    shell: bash
+    run: tar -xzvf bitcoin-27.0-x86_64-linux-gnu.tar.gz
+
+  - name: Start Bitcoind
+    shell: bash
+    run: bitcoin-27.0/bin/bitcoind -regtest -rpcuser=admin -rpcpassword=admin -rpcport=18443 -fallbackfee=0.00001 -wallet=admin -txindex=1 &
+  - name: Create a wallet in Bitcoin regtest
+    shell: bash
+    run: bitcoin-27.0/bin/bitcoin-cli -regtest -rpcuser=admin -rpcpassword=admin -rpcport=18443 createwallet "admin"
+  - name: Create funds in Bitcoin regtest
+    shell: bash
+    run: bitcoin-27.0/bin/bitcoin-cli -regtest -rpcuser=admin -rpcpassword=admin -rpcport=18443 generatetoaddress 101 $(bitcoin-27.0/bin/bitcoin-cli -regtest -rpcuser=admin -rpcpassword=admin -rpcport=18443 getnewaddress)
+
+  - name: Install cargo-risczero
+    uses: taiki-e/install-action@v2
+    with:
+      tool: cargo-risczero@1.1.3
+
+  - name: Install risc0-zkvm toolchain
+    shell: bash
+    env:
+      GITHUB_TOKEN: ${{ inputs.github_token }}
+    run: cargo risczero install --version r0.1.81.0

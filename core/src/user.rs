@@ -8,26 +8,22 @@ use crate::{EVMAddress, UTXO};
 use bitcoin::{Address, TxOut};
 use bitcoin::{Amount, OutPoint};
 use bitcoin::{TapSighashType, XOnlyPublicKey};
-use bitcoin_mock_rpc::RpcApiWrapper;
 use secp256k1::schnorr;
 use secp256k1::SecretKey;
 
 pub const WITHDRAWAL_EMPTY_UTXO_SATS: Amount = Amount::from_sat(550);
 
 #[derive(Debug)]
-pub struct User<R> {
-    rpc: ExtendedRpc<R>,
+pub struct User {
+    rpc: ExtendedRpc,
     signer: Actor,
     config: BridgeConfig,
     nofn_xonly_pk: XOnlyPublicKey,
 }
 
-impl<R> User<R>
-where
-    R: RpcApiWrapper,
-{
+impl User {
     /// Creates a new `User`.
-    pub fn new(rpc: ExtendedRpc<R>, sk: SecretKey, config: BridgeConfig) -> Self {
+    pub fn new(rpc: ExtendedRpc, sk: SecretKey, config: BridgeConfig) -> Self {
         let signer = Actor::new(sk, config.network);
 
         let nofn_xonly_pk = secp256k1::XOnlyPublicKey::from_musig2_pks(
@@ -117,15 +113,20 @@ where
 #[cfg(test)]
 mod tests {
     use crate::extended_rpc::ExtendedRpc;
+    use crate::mock::database::create_test_config_with_thread_name;
     use crate::user::User;
     use crate::EVMAddress;
-    use crate::{create_extended_rpc, mock::database::create_test_config};
     use secp256k1::{rand, SecretKey};
 
     #[tokio::test]
+    #[serial_test::parallel]
     async fn deposit_tx() {
-        let mut config = create_test_config("deposit_tx", "test_config.toml").await;
-        let rpc = create_extended_rpc!(config);
+        let config = create_test_config_with_thread_name("test_config.toml", None).await;
+        let rpc = ExtendedRpc::new(
+            config.bitcoin_rpc_url.clone(),
+            config.bitcoin_rpc_user.clone(),
+            config.bitcoin_rpc_password.clone(),
+        );
 
         let evm_address = EVMAddress([0x45u8; 20]);
         let sk = SecretKey::new(&mut rand::thread_rng());

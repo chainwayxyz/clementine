@@ -18,7 +18,6 @@ use bitcoin::address::NetworkUnchecked;
 use bitcoin::hashes::Hash;
 use bitcoin::Address;
 use bitcoin::{secp256k1, OutPoint};
-use bitcoin_mock_rpc::RpcApiWrapper;
 use bitcoincore_rpc::RawTx;
 use jsonrpsee::core::async_trait;
 use secp256k1::{rand, schnorr};
@@ -56,11 +55,8 @@ impl NofN {
 }
 
 #[derive(Debug, Clone)]
-pub struct Verifier<R>
-where
-    R: RpcApiWrapper,
-{
-    rpc: ExtendedRpc<R>,
+pub struct Verifier {
+    rpc: ExtendedRpc,
     pub(crate) signer: Actor,
     pub(crate) db: Database,
     pub(crate) config: BridgeConfig,
@@ -71,11 +67,8 @@ where
     pub idx: usize,
 }
 
-impl<R> Verifier<R>
-where
-    R: RpcApiWrapper,
-{
-    pub async fn new(rpc: ExtendedRpc<R>, config: BridgeConfig) -> Result<Self, BridgeError> {
+impl Verifier {
+    pub async fn new(rpc: ExtendedRpc, config: BridgeConfig) -> Result<Self, BridgeError> {
         let signer = Actor::new(config.secret_key, config.network);
 
         // let pk: secp256k1::PublicKey = config.secret_key.public_key(&utils::SECP);
@@ -589,10 +582,7 @@ where
 }
 
 #[async_trait]
-impl<R> VerifierRpcServer for Verifier<R>
-where
-    R: RpcApiWrapper,
-{
+impl VerifierRpcServer for Verifier {
     async fn verifier_new_deposit_rpc(
         &self,
         deposit_outpoint: OutPoint,
@@ -644,18 +634,21 @@ mod tests {
     use crate::actor::Actor;
     use crate::errors::BridgeError;
     use crate::extended_rpc::ExtendedRpc;
+    use crate::mock::database::create_test_config_with_thread_name;
     use crate::musig2::nonce_pair;
     use crate::user::User;
     use crate::verifier::Verifier;
     use crate::EVMAddress;
-    use crate::{create_extended_rpc, mock::database::create_test_config};
     use secp256k1::rand;
 
     #[tokio::test]
     async fn verifier_new_public_key_check() {
-        let mut config =
-            create_test_config("verifier_new_public_key_check", "test_config.toml").await;
-        let rpc = create_extended_rpc!(config);
+        let mut config = create_test_config_with_thread_name("test_config.toml", None).await;
+        let rpc = ExtendedRpc::new(
+            config.bitcoin_rpc_url.clone(),
+            config.bitcoin_rpc_user.clone(),
+            config.bitcoin_rpc_password.clone(),
+        );
 
         // Test config file has correct keys.
         Verifier::new(rpc.clone(), config.clone()).await.unwrap();
@@ -666,9 +659,14 @@ mod tests {
     }
 
     #[tokio::test]
+    #[serial_test::serial]
     async fn new_deposit_nonce_checks() {
-        let mut config = create_test_config("new_deposit_nonce_checks", "test_config.toml").await;
-        let rpc = create_extended_rpc!(config);
+        let config = create_test_config_with_thread_name("test_config.toml", None).await;
+        let rpc = ExtendedRpc::new(
+            config.bitcoin_rpc_url.clone(),
+            config.bitcoin_rpc_user.clone(),
+            config.bitcoin_rpc_password.clone(),
+        );
         let verifier = Verifier::new(rpc.clone(), config.clone()).await.unwrap();
         let user = User::new(rpc.clone(), config.secret_key, config.clone());
 
