@@ -1,7 +1,12 @@
-# This action starts required services for any test.
+# Start required services for testing Clementine.
 
 name: Clementine Test Services
-description: 'Service starters for Clementine tests'
+description: 'Start services required for testing Clementine'
+
+inputs:
+  github_token:
+    description: 'GitHub token for authentication'
+    required: true
 
 runs:
   using: "composite"
@@ -24,5 +29,13 @@ runs:
     shell: bash
     run: bitcoin-27.0/bin/bitcoin-cli -regtest -rpcuser=admin -rpcpassword=admin -rpcport=18443 generatetoaddress 101 $(bitcoin-27.0/bin/bitcoin-cli -regtest -rpcuser=admin -rpcpassword=admin -rpcport=18443 getnewaddress)
 
-  - name: Install Protoc
-    uses: arduino/setup-protoc@v3
+  - name: Install cargo-risczero
+    uses: taiki-e/install-action@v2
+    with:
+      tool: cargo-risczero@1.1.3
+
+  - name: Install risc0-zkvm toolchain
+    shell: bash
+    env:
+      GITHUB_TOKEN: ${{ inputs.github_token }}
+    run: cargo risczero install --version r0.1.81.0

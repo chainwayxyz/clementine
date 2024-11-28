@@ -1,0 +1,11 @@
+# Start required services for building Clementine.
+
+name: Clementine Build Services
+description: 'Start services required for building Clementine'
+
+runs:
+  using: "composite"
+
+  steps:
+  - name: Install Protoc
+    uses: arduino/setup-protoc@v3
