@@ -1,13 +1,13 @@
 //! # Servers
 //!
 //! Utilities for operator and verifier servers.
+use crate::aggregator;
 use crate::aggregator::Aggregator;
 use crate::mock::database::create_test_config_with_thread_name;
 use crate::rpc::clementine::clementine_aggregator_server::ClementineAggregatorServer;
 use crate::rpc::clementine::clementine_operator_server::ClementineOperatorServer;
 use crate::rpc::clementine::clementine_verifier_server::ClementineVerifierServer;
 use crate::traits::rpc::AggregatorServer;
-use crate::{aggregator, create_extended_rpc};
 use crate::{
     config::BridgeConfig,
     errors,
@@ -16,7 +16,6 @@ use crate::{
     traits::{self, rpc::VerifierRpcServer},
     verifier::Verifier,
 };
-use bitcoin_mock_rpc::RpcApiWrapper;
 use errors::BridgeError;
 use jsonrpsee::{
     http_client::{HttpClient, HttpClientBuilder},
@@ -30,13 +29,10 @@ pub type ServerFuture = dyn futures::Future<Output = Result<(), tonic::transport
 
 /// Starts a server for a verifier.
 #[tracing::instrument(skip(rpc), err(level = tracing::Level::ERROR), ret(level = tracing::Level::TRACE))]
-pub async fn create_verifier_server<R>(
+pub async fn create_verifier_server(
     config: BridgeConfig,
-    rpc: ExtendedRpc<R>,
-) -> Result<(HttpClient, ServerHandle, std::net::SocketAddr), BridgeError>
-where
-    R: RpcApiWrapper,
-{
+    rpc: ExtendedRpc,
+) -> Result<(HttpClient, ServerHandle, std::net::SocketAddr), BridgeError> {
     let server = match Server::builder()
         .build(format!("{}:{}", config.host, config.port))
         .await
@@ -59,13 +55,10 @@ where
 
 /// Starts the server for the operator.
 #[tracing::instrument(skip(rpc), err(level = tracing::Level::ERROR), ret(level = tracing::Level::TRACE))]
-pub async fn create_operator_server<R>(
+pub async fn create_operator_server(
     config: BridgeConfig,
-    rpc: ExtendedRpc<R>,
-) -> Result<(HttpClient, ServerHandle, std::net::SocketAddr), BridgeError>
-where
-    R: RpcApiWrapper,
-{
+    rpc: ExtendedRpc,
+) -> Result<(HttpClient, ServerHandle, std::net::SocketAddr), BridgeError> {
     let operator = Operator::new(config.clone(), rpc).await?;
 
     let server = match Server::builder()
@@ -140,9 +133,13 @@ pub async fn create_verifiers_and_operators(
     Vec<(HttpClient, ServerHandle, std::net::SocketAddr)>, // Operator clients
     (HttpClient, ServerHandle, std::net::SocketAddr),      // Aggregator client
 ) {
-    let mut config = create_test_config_with_thread_name(config_name, None).await;
+    let config = create_test_config_with_thread_name(config_name, None).await;
     let start_port = config.port;
-    let rpc = create_extended_rpc!(config);
+    let rpc = ExtendedRpc::new(
+        config.bitcoin_rpc_url,
+        config.bitcoin_rpc_user,
+        config.bitcoin_rpc_password,
+    );
     let all_verifiers_secret_keys = config.all_verifiers_secret_keys.clone().unwrap_or_else(|| {
         panic!("All secret keys of the verifiers are required for testing");
     });
@@ -231,13 +228,10 @@ pub async fn create_verifiers_and_operators(
     (verifier_endpoints, operator_endpoints, aggregator)
 }
 
-pub async fn create_verifier_grpc_server<R>(
+pub async fn create_verifier_grpc_server(
     config: BridgeConfig,
-    rpc: ExtendedRpc<R>,
-) -> Result<(std::net::SocketAddr,), BridgeError>
-where
-    R: RpcApiWrapper,
-{
+    rpc: ExtendedRpc,
+) -> Result<(std::net::SocketAddr,), BridgeError> {
     tracing::info!(
         "config host and port are: {} and {}",
         config.host,
@@ -263,13 +257,10 @@ where
     Ok((addr,))
 }
 
-pub async fn create_operator_grpc_server<R>(
+pub async fn create_operator_grpc_server(
     config: BridgeConfig,
-    rpc: ExtendedRpc<R>,
-) -> Result<(std::net::SocketAddr,), BridgeError>
-where
-    R: RpcApiWrapper,
-{
+    rpc: ExtendedRpc,
+) -> Result<(std::net::SocketAddr,), BridgeError> {
     tracing::info!(
         "config host and port are: {} and {}",
         config.host,
@@ -338,9 +329,13 @@ pub async fn create_verifiers_and_operators_grpc(
     Vec<(std::net::SocketAddr,)>, // Operator clients
     (std::net::SocketAddr,),      // Aggregator client
 ) {
-    let mut config = create_test_config_with_thread_name(config_name, None).await;
+    let config = create_test_config_with_thread_name(config_name, None).await;
     let start_port = config.port;
-    let rpc = create_extended_rpc!(config);
+    let rpc = ExtendedRpc::new(
+        config.bitcoin_rpc_url,
+        config.bitcoin_rpc_user,
+        config.bitcoin_rpc_password,
+    );
     let all_verifiers_secret_keys = config.all_verifiers_secret_keys.clone().unwrap_or_else(|| {
         panic!("All secret keys of the verifiers are required for testing");
     });

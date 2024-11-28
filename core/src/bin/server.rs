@@ -14,7 +14,7 @@ async fn main() {
         exit(1);
     }
 
-    let rpc = ExtendedRpc::<bitcoincore_rpc::Client>::new(
+    let rpc = ExtendedRpc::new(
         config.bitcoin_rpc_url.clone(),
         config.bitcoin_rpc_user.clone(),
         config.bitcoin_rpc_password.clone(),

@@ -4,7 +4,6 @@
 
 use crate::{errors::BridgeError, header_chain_prover::HeaderChainProver};
 use bitcoin::hashes::Hash;
-use bitcoin_mock_rpc::RpcApiWrapper;
 use circuits::header_chain::{
     BlockHeader, BlockHeaderCircuitOutput, HeaderChainCircuitInput, HeaderChainPrevProofType,
 };
@@ -23,10 +22,7 @@ lazy_static! {
         .unwrap();
 }
 
-impl<R> HeaderChainProver<R>
-where
-    R: RpcApiWrapper,
-{
+impl HeaderChainProver {
     /// Proves given block headers.
     ///
     /// # Parameters
@@ -89,11 +85,9 @@ where
     ///
     /// # Parameters
     ///
-    /// TODO: Use `&self`.
-    ///
     /// - prover: [`ChainProver`] instance
     #[tracing::instrument(skip_all)]
-    pub async fn start_prover(prover: HeaderChainProver<R>) {
+    pub async fn start_prover(prover: HeaderChainProver) {
         loop {
             let non_proved_block = prover.db.get_non_proven_block(None).await;
 
@@ -143,7 +137,7 @@ where
 #[cfg(test)]
 mod tests {
     use crate::{
-        create_extended_rpc, extended_rpc::ExtendedRpc, header_chain_prover::HeaderChainProver,
+        extended_rpc::ExtendedRpc, header_chain_prover::HeaderChainProver,
         mock::database::create_test_config_with_thread_name,
     };
     use bitcoin::{
@@ -166,8 +160,12 @@ mod tests {
     #[tokio::test]
     #[serial_test::serial]
     async fn prove_block_headers_genesis() {
-        let mut config = create_test_config_with_thread_name("test_config.toml", None).await;
-        let rpc = create_extended_rpc!(config);
+        let config = create_test_config_with_thread_name("test_config.toml", None).await;
+        let rpc = ExtendedRpc::new(
+            config.bitcoin_rpc_url.clone(),
+            config.bitcoin_rpc_user.clone(),
+            config.bitcoin_rpc_password.clone(),
+        );
         let prover = HeaderChainProver::new(&config, rpc.clone()).await.unwrap();
 
         let receipt = prover.prove_block_headers(None, vec![]).await.unwrap();
@@ -185,8 +183,12 @@ mod tests {
     #[tokio::test]
     #[serial_test::serial]
     async fn prove_block_headers_second() {
-        let mut config = create_test_config_with_thread_name("test_config.toml", None).await;
-        let rpc = create_extended_rpc!(config);
+        let config = create_test_config_with_thread_name("test_config.toml", None).await;
+        let rpc = ExtendedRpc::new(
+            config.bitcoin_rpc_url.clone(),
+            config.bitcoin_rpc_user.clone(),
+            config.bitcoin_rpc_password.clone(),
+        );
         let prover = HeaderChainProver::new(&config, rpc.clone()).await.unwrap();
 
         // Prove genesis block and get it's receipt.
@@ -207,8 +209,12 @@ mod tests {
     #[tokio::test]
     #[serial_test::serial]
     async fn save_and_get_proof() {
-        let mut config = create_test_config_with_thread_name("test_config.toml", None).await;
-        let rpc = create_extended_rpc!(config);
+        let config = create_test_config_with_thread_name("test_config.toml", None).await;
+        let rpc = ExtendedRpc::new(
+            config.bitcoin_rpc_url.clone(),
+            config.bitcoin_rpc_user.clone(),
+            config.bitcoin_rpc_password.clone(),
+        );
         let prover = HeaderChainProver::new(&config, rpc.clone()).await.unwrap();
         let block_headers = get_headers();
 

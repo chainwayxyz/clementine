@@ -5,7 +5,7 @@
 
 use crate::{errors::BridgeError, header_chain_prover::HeaderChainProver};
 use bitcoin::BlockHash;
-use bitcoin_mock_rpc::RpcApiWrapper;
+use bitcoincore_rpc::RpcApi;
 use std::time::Duration;
 use tokio::time::sleep;
 
@@ -29,10 +29,7 @@ enum BlockFetchStatus {
     FallenBehind(u64, Vec<BlockHash>),
 }
 
-impl<R> HeaderChainProver<R>
-where
-    R: RpcApiWrapper,
-{
+impl HeaderChainProver {
     /// Checks current status of the database against latest active blockchain
     /// tip.
     ///
@@ -178,14 +175,9 @@ where
     ///
     /// # Parameters
     ///
-    /// TODO: Use `&self`.
-    ///
     /// - prover: [`ChainProver`] instance
     #[tracing::instrument(skip_all)]
-    pub async fn start_blockgazer(prover: HeaderChainProver<R>)
-    where
-        R: RpcApiWrapper,
-    {
+    pub async fn start_blockgazer(prover: HeaderChainProver) {
         loop {
             if let Ok(status) = prover.check_for_new_blocks().await {
                 match status {
@@ -207,7 +199,6 @@ where
 #[cfg(test)]
 mod tests {
     use crate::{
-        create_extended_rpc,
         extended_rpc::ExtendedRpc,
         header_chain_prover::{
             blockgazer::{BlockFetchStatus, BATCH_DEEPNESS, BATCH_DEEPNESS_SAFETY_BARRIER},
@@ -216,13 +207,9 @@ mod tests {
         mock::database::create_test_config_with_thread_name,
     };
     use bitcoin::BlockHash;
-    use bitcoin_mock_rpc::RpcApiWrapper;
     use bitcoincore_rpc::RpcApi;
 
-    async fn mine_and_save_blocks<R>(prover: &HeaderChainProver<R>, height: u64) -> Vec<BlockHash>
-    where
-        R: RpcApiWrapper,
-    {
+    async fn mine_and_save_blocks(prover: &HeaderChainProver, height: u64) -> Vec<BlockHash> {
         let mut fork_block_hashes = Vec::new();
         for _ in 0..height {
             prover.rpc.mine_blocks(1).unwrap();
@@ -260,8 +247,12 @@ mod tests {
     #[tokio::test]
     #[serial_test::serial]
     async fn check_for_new_blocks_uptodate() {
-        let mut config = create_test_config_with_thread_name("test_config.toml", None).await;
-        let rpc = create_extended_rpc!(config);
+        let config = create_test_config_with_thread_name("test_config.toml", None).await;
+        let rpc = ExtendedRpc::new(
+            config.bitcoin_rpc_url.clone(),
+            config.bitcoin_rpc_user.clone(),
+            config.bitcoin_rpc_password.clone(),
+        );
         let prover = HeaderChainProver::new(&config, rpc.clone()).await.unwrap();
 
         // Save current blockchain tip.
@@ -289,8 +280,12 @@ mod tests {
     #[tokio::test]
     #[serial_test::serial]
     async fn check_for_new_blocks_fallen_behind_single() {
-        let mut config = create_test_config_with_thread_name("test_config.toml", None).await;
-        let rpc = create_extended_rpc!(config);
+        let config = create_test_config_with_thread_name("test_config.toml", None).await;
+        let rpc = ExtendedRpc::new(
+            config.bitcoin_rpc_url.clone(),
+            config.bitcoin_rpc_user.clone(),
+            config.bitcoin_rpc_password.clone(),
+        );
         let prover = HeaderChainProver::new(&config, rpc.clone()).await.unwrap();
 
         // Mine initial block and save it to database.
@@ -324,8 +319,12 @@ mod tests {
     #[tokio::test]
     #[serial_test::serial]
     async fn check_for_new_blocks_fallen_behind_multiple() {
-        let mut config = create_test_config_with_thread_name("test_config.toml", None).await;
-        let rpc = create_extended_rpc!(config);
+        let config = create_test_config_with_thread_name("test_config.toml", None).await;
+        let rpc = ExtendedRpc::new(
+            config.bitcoin_rpc_url.clone(),
+            config.bitcoin_rpc_user.clone(),
+            config.bitcoin_rpc_password.clone(),
+        );
         let prover = HeaderChainProver::new(&config, rpc.clone()).await.unwrap();
 
         // Mine initial block and save it to database.
@@ -350,8 +349,12 @@ mod tests {
     #[tokio::test]
     #[serial_test::serial]
     async fn check_for_new_blocks_fork_and_mine_new() {
-        let mut config = create_test_config_with_thread_name("test_config.toml", None).await;
-        let rpc = create_extended_rpc!(config);
+        let config = create_test_config_with_thread_name("test_config.toml", None).await;
+        let rpc = ExtendedRpc::new(
+            config.bitcoin_rpc_url.clone(),
+            config.bitcoin_rpc_user.clone(),
+            config.bitcoin_rpc_password.clone(),
+        );
         let prover = HeaderChainProver::new(&config, rpc.clone()).await.unwrap();
 
         // Save initial block.
@@ -377,8 +380,12 @@ mod tests {
     #[tokio::test]
     #[serial_test::serial]
     async fn sync_blockchain_single_block() {
-        let mut config = create_test_config_with_thread_name("test_config.toml", None).await;
-        let rpc = create_extended_rpc!(config);
+        let config = create_test_config_with_thread_name("test_config.toml", None).await;
+        let rpc = ExtendedRpc::new(
+            config.bitcoin_rpc_url.clone(),
+            config.bitcoin_rpc_user.clone(),
+            config.bitcoin_rpc_password.clone(),
+        );
         let prover = HeaderChainProver::new(&config, rpc.clone()).await.unwrap();
 
         // Save current blockchain tip.
@@ -406,8 +413,12 @@ mod tests {
     #[tokio::test]
     #[serial_test::serial]
     async fn sync_blockchain_multiple_blocks() {
-        let mut config = create_test_config_with_thread_name("test_config.toml", None).await;
-        let rpc = create_extended_rpc!(config);
+        let config = create_test_config_with_thread_name("test_config.toml", None).await;
+        let rpc = ExtendedRpc::new(
+            config.bitcoin_rpc_url.clone(),
+            config.bitcoin_rpc_user.clone(),
+            config.bitcoin_rpc_password.clone(),
+        );
         let prover = HeaderChainProver::new(&config, rpc.clone()).await.unwrap();
 
         // Save current blockchain tip.
@@ -435,8 +446,12 @@ mod tests {
     #[tokio::test]
     #[serial_test::serial]
     async fn sync_blockchain_multiple_blocks_with_fork() {
-        let mut config = create_test_config_with_thread_name("test_config.toml", None).await;
-        let rpc = create_extended_rpc!(config);
+        let config = create_test_config_with_thread_name("test_config.toml", None).await;
+        let rpc = ExtendedRpc::new(
+            config.bitcoin_rpc_url.clone(),
+            config.bitcoin_rpc_user.clone(),
+            config.bitcoin_rpc_password.clone(),
+        );
         let prover = HeaderChainProver::new(&config, rpc.clone()).await.unwrap();
 
         // Save current blockchain tip.

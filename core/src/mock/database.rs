@@ -15,7 +15,7 @@ use std::thread;
 ///   here and only `db_name` will be overwritten.
 ///
 /// Returns new `BridgeConfig`.
-pub async fn create_test_config(db_name: &str, config_file: &str) -> BridgeConfig {
+async fn create_test_config(db_name: &str, config_file: &str) -> BridgeConfig {
     // Use maximum log level for tests.
     initialize_logger(5).unwrap();
 

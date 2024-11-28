@@ -6,7 +6,7 @@ use crate::{
     config::BridgeConfig, database::Database, errors::BridgeError, extended_rpc::ExtendedRpc,
 };
 use bitcoin::BlockHash;
-use bitcoin_mock_rpc::RpcApiWrapper;
+use bitcoincore_rpc::RpcApi;
 use circuits::header_chain::BlockHeaderCircuitOutput;
 use risc0_zkvm::Receipt;
 use std::{
@@ -18,19 +18,13 @@ mod blockgazer;
 mod prover;
 
 #[derive(Debug, Clone)]
-pub struct HeaderChainProver<R>
-where
-    R: RpcApiWrapper,
-{
-    rpc: ExtendedRpc<R>,
+pub struct HeaderChainProver {
+    rpc: ExtendedRpc,
     db: Database,
 }
 
-impl<R> HeaderChainProver<R>
-where
-    R: RpcApiWrapper,
-{
-    pub async fn new(config: &BridgeConfig, rpc: ExtendedRpc<R>) -> Result<Self, BridgeError> {
+impl HeaderChainProver {
+    pub async fn new(config: &BridgeConfig, rpc: ExtendedRpc) -> Result<Self, BridgeError> {
         let db = Database::new(config).await?;
 
         if let Some(proof_file) = &config.header_chain_proof_path {
@@ -90,21 +84,8 @@ where
     /// blockchain and does proving.
     #[tracing::instrument]
     pub fn run(&self) {
-        // TODO: Clone self instead.
-        // Block checks.
-        let block_checks = HeaderChainProver {
-            rpc: self.rpc.clone(),
-            db: self.db.clone(),
-        };
-        let block_gazer = HeaderChainProver::start_blockgazer(block_checks);
-
-        // TODO: Clone self instead.
-        // Prover.
-        let prover = HeaderChainProver {
-            rpc: self.rpc.clone(),
-            db: self.db.clone(),
-        };
-        let prover = HeaderChainProver::start_prover(prover);
+        let block_gazer = HeaderChainProver::start_blockgazer(self.clone());
+        let prover = HeaderChainProver::start_prover(self.clone());
 
         tokio::spawn(async move {
             tokio::join!(block_gazer, prover);
@@ -115,7 +96,7 @@ where
 #[cfg(test)]
 mod tests {
     use crate::{
-        create_extended_rpc, extended_rpc::ExtendedRpc, header_chain_prover::HeaderChainProver,
+        extended_rpc::ExtendedRpc, header_chain_prover::HeaderChainProver,
         mock::database::create_test_config_with_thread_name,
     };
     use bitcoin::{hashes::Hash, BlockHash};
@@ -127,8 +108,12 @@ mod tests {
 
     #[tokio::test]
     async fn new() {
-        let mut config = create_test_config_with_thread_name("test_config.toml", None).await;
-        let rpc = create_extended_rpc!(config);
+        let config = create_test_config_with_thread_name("test_config.toml", None).await;
+        let rpc = ExtendedRpc::new(
+            config.bitcoin_rpc_url.clone(),
+            config.bitcoin_rpc_user.clone(),
+            config.bitcoin_rpc_password.clone(),
+        );
 
         let _should_not_panic = HeaderChainProver::new(&config, rpc).await.unwrap();
     }
@@ -136,8 +121,12 @@ mod tests {
     #[tokio::test]
     #[serial_test::serial]
     async fn new_with_proof_assumption() {
-        let mut config = create_test_config_with_thread_name("test_config.toml", None).await;
-        let rpc = create_extended_rpc!(config);
+        let config = create_test_config_with_thread_name("test_config.toml", None).await;
+        let rpc = ExtendedRpc::new(
+            config.bitcoin_rpc_url.clone(),
+            config.bitcoin_rpc_user.clone(),
+            config.bitcoin_rpc_password.clone(),
+        );
 
         // First block's assumption will be added to db: Make sure block exists
         // too.
@@ -158,8 +147,12 @@ mod tests {
     #[serial_test::serial]
     #[ignore = "This test is very host dependent and needs a human observer"]
     async fn start_header_chain_prover() {
-        let mut config = create_test_config_with_thread_name("test_config.toml", None).await;
-        let rpc = create_extended_rpc!(config);
+        let config = create_test_config_with_thread_name("test_config.toml", None).await;
+        let rpc = ExtendedRpc::new(
+            config.bitcoin_rpc_url.clone(),
+            config.bitcoin_rpc_user.clone(),
+            config.bitcoin_rpc_password.clone(),
+        );
         let prover = HeaderChainProver::new(&config, rpc.clone()).await.unwrap();
 
         prover.run();
