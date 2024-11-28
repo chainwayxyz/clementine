@@ -38,7 +38,7 @@ where
     ///
     /// # Returns
     ///
-    /// - [`BlockFetchStatus`]: Status of the current database tip
+    /// - [`BlockFetchStatus`]: Status of the current database blockchain tip
     #[tracing::instrument(skip(self))]
     async fn check_for_new_blocks(&self) -> Result<BlockFetchStatus, BridgeError> {
         let (db_tip_height, db_tip_hash) = self.db.get_latest_block_info(None).await?;
@@ -145,13 +145,9 @@ where
     ///
     /// # Parameters
     ///
-    /// - `current_block_height`: Starts synching blocks from this height to
-    ///   active blockchain tip.
-    ///
-    /// # Errors
-    ///
-    /// If tip height gets lower than the start, mid-sync, this will return error.
-    /// Also, mid-sync reorgs are not handled.
+    /// - `current_block_height`: Starts adding blocks from this height
+    /// - `block_hashes`: Writes this block hashes' matching block details to
+    ///   database
     #[tracing::instrument(skip(self))]
     async fn sync_blockchain(
         &self,
