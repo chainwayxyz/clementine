@@ -12,9 +12,6 @@ runs:
   using: "composite"
 
   steps:
-  - name: Start build services
-    uses: ./.github/actions/build-prerequisites
-
   - name: Download Bitcoin
     shell: bash
     run: wget https://bitcoin.org/bin/bitcoin-core-27.0/bitcoin-27.0-x86_64-linux-gnu.tar.gz
