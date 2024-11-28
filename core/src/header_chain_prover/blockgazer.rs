@@ -108,11 +108,10 @@ where
                 Ok(Some(_)) => {
                     tracing::debug!("Current database blockchain tip is {} blocks behind than the active blockchain tip.", deepness);
 
-                    // Remove hash that is already present in database.
+                    // Remove hash that is already present in database and
+                    // reverse list so that it matches the natural block order.
                     block_hashes.pop();
-                    // TODO: Should this list be reversed so it matches the real
-                    // block ordering? This won't introduce any meaningful benefits.
-                    // It will become more intuitive, with the cost of performance.
+                    block_hashes.reverse();
 
                     return Ok(BlockFetchStatus::FallenBehind(
                         current_block_height,
@@ -153,23 +152,25 @@ where
     ///
     /// If tip height gets lower than the start, mid-sync, this will return error.
     /// Also, mid-sync reorgs are not handled.
+    #[tracing::instrument(skip(self))]
     async fn sync_blockchain(
         &self,
         current_block_height: u64,
-        hashes: Vec<BlockHash>,
+        block_hashes: Vec<BlockHash>,
     ) -> Result<(), BridgeError> {
-        tracing::trace!("{} new blocks will be written to database.", hashes.len());
+        tracing::trace!(
+            "{} new blocks will be written to database.",
+            block_hashes.len()
+        );
 
-        for i in 0..hashes.len() {
-            let block_hash = hashes[i];
-
-            let block_header = self.rpc.client.get_block_header(&block_hash)?;
-
-            let diff = hashes.len() - i;
-            let block_height = current_block_height + diff as u64;
-
+        for (diff, block_hash) in block_hashes.iter().enumerate() {
             self.db
-                .save_new_block(None, block_hash, block_header, block_height)
+                .save_new_block(
+                    None,
+                    *block_hash,
+                    self.rpc.client.get_block_header(block_hash)?,
+                    current_block_height + diff as u64 + 1,
+                )
                 .await?;
         }
 
@@ -332,33 +333,21 @@ mod tests {
         let prover = HeaderChainProver::new(&config, rpc.clone()).await.unwrap();
 
         // Mine initial block and save it to database.
-        let block_hashes = mine_and_save_blocks(&prover, 1).await;
+        mine_and_save_blocks(&prover, 1).await;
         assert_eq!(
             prover.check_for_new_blocks().await.unwrap(),
             BlockFetchStatus::UpToDate
         );
-        assert_eq!(block_hashes.len(), 1);
-        let current_tip_height = rpc.client.get_block_count().unwrap();
-        println!(
-            "Initial block height is {current_tip_height} and hash is {}",
-            *block_hashes.first().unwrap()
-        );
+        let initial_tip_height = rpc.client.get_block_count().unwrap();
 
-        // Mine some block but don't save them to database.
+        // Mine some blocks but don't save them to database.
         let amount = BATCH_DEEPNESS - BATCH_DEEPNESS_SAFETY_BARRIER - 1;
-        rpc.mine_blocks(amount).unwrap();
-        let height = rpc.client.get_block_count().unwrap();
-
-        // Get the block hash list of unsaved blocks.
-        let mut block_hashes = Vec::new();
-        for diff in 0..amount {
-            block_hashes.push(rpc.client.get_block_hash(height - diff).unwrap());
-        }
+        let block_hashes = rpc.mine_blocks(amount).unwrap();
 
         // Falling behind some blocks should return those blocks' hash.
         assert_eq!(
             prover.check_for_new_blocks().await.unwrap(),
-            BlockFetchStatus::FallenBehind(current_tip_height, block_hashes)
+            BlockFetchStatus::FallenBehind(initial_tip_height, block_hashes)
         );
     }
 
@@ -380,8 +369,7 @@ mod tests {
             .iter()
             .for_each(|hash| rpc.client.invalidate_block(hash).unwrap());
 
-        let mut hashes = rpc.mine_blocks(3).unwrap();
-        hashes.reverse();
+        let hashes = rpc.mine_blocks(3).unwrap();
 
         // Same thing as not saving 3 blocks after they are mined.
         assert_eq!(
@@ -431,8 +419,7 @@ mod tests {
         let current_tip_height = rpc.client.get_block_count().unwrap();
 
         // Falling behind some blocks.
-        let mut hash = rpc.mine_blocks(10).unwrap();
-        hash.reverse();
+        let hash = rpc.mine_blocks(10).unwrap();
         assert_eq!(
             prover.check_for_new_blocks().await.unwrap(),
             BlockFetchStatus::FallenBehind(current_tip_height, hash.clone())
@@ -461,8 +448,7 @@ mod tests {
         let current_tip_height = rpc.client.get_block_count().unwrap();
 
         // Falling behind some blocks and recovering from it.
-        let mut hash = rpc.mine_blocks(10).unwrap();
-        hash.reverse();
+        let hash = rpc.mine_blocks(10).unwrap();
         prover
             .sync_blockchain(current_tip_height, hash.clone())
             .await
@@ -473,8 +459,9 @@ mod tests {
         );
 
         // Latest block got invalidated, later to be replaced with new block.
-        rpc.client.invalidate_block(hash.first().unwrap()).unwrap();
+        rpc.client.invalidate_block(hash.last().unwrap()).unwrap();
         let current_tip_height = rpc.client.get_block_count().unwrap();
+        // Beware that this state will never be present in Bitcoin.
         assert_ne!(
             prover.check_for_new_blocks().await.unwrap(),
             BlockFetchStatus::UpToDate
