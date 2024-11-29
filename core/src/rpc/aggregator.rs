@@ -4,16 +4,106 @@ use super::clementine::{
 use crate::{
     aggregator::Aggregator,
     builder::sighash::create_nofn_sighash_stream,
-    musig2::aggregate_nonces,
+    errors::BridgeError,
+    musig2::{aggregate_nonces, MuSigPubNonce},
     rpc::{
         clementine::{self, DepositSignSession},
         verifier::NUM_REQUIRED_SIGS,
     },
-    ByteArray32, EVMAddress,
+    ByteArray32, ByteArray66, EVMAddress,
 };
 use bitcoin::hashes::Hash;
-use futures::{future::try_join_all, pin_mut, FutureExt, StreamExt};
+use futures::{future::try_join_all, pin_mut, stream::BoxStream, FutureExt, StreamExt};
 use tonic::{async_trait, Request, Response, Status};
+
+impl Aggregator {
+    /// Creates a stream of nonces from verifiers.
+    /// This will automatically get's the first response from the verifiers.
+    async fn create_nonce_streams(
+        &self,
+        num_nonces: u32,
+    ) -> Result<
+        (
+            Vec<clementine::NonceGenFirstResponse>,
+            Vec<BoxStream<Result<MuSigPubNonce, BridgeError>>>,
+        ),
+        BridgeError,
+    > {
+        // generate nonces from all verifiers
+        let mut nonce_streams = try_join_all(self.verifier_clients.iter().map(|client| {
+            // Clone each client to avoid mutable borrow.
+            // https://github.com/hyperium/tonic/issues/33#issuecomment-538150828
+            let mut client = client.clone();
+
+            async move {
+                let response_stream = client
+                    .nonce_gen(tonic::Request::new(clementine::NonceGenRequest {
+                        num_nonces,
+                    }))
+                    .await?;
+
+                Ok::<_, Status>(response_stream.into_inner())
+            }
+        }))
+        .await?;
+
+        // Get the first responses from each stream
+        let first_responses: Vec<clementine::NonceGenFirstResponse> =
+            try_join_all(nonce_streams.iter_mut().map(|s| async {
+                let nonce_gen_first_response = s.message().await?;
+                let nonce_gen_first_response = nonce_gen_first_response
+                    .ok_or(BridgeError::Error("NonceGen returns nothing".to_string()))?
+                    .response
+                    .ok_or(BridgeError::Error(
+                        "NonceGen response field is empty".to_string(),
+                    ))?;
+                // this response is an enum, so we need to match on it
+                match nonce_gen_first_response {
+                    clementine::nonce_gen_response::Response::FirstResponse(
+                        nonce_gen_first_response,
+                    ) => Ok(nonce_gen_first_response),
+                    _ => Err(BridgeError::Error(
+                        "NonceGen response is not FirstResponse".to_string(),
+                    )),
+                }
+            }))
+            .await?;
+
+        // Transform each stream's output using map
+        fn extract_pub_nonce(
+            response: Option<clementine::nonce_gen_response::Response>,
+        ) -> Result<ByteArray66, BridgeError> {
+            match response
+                .ok_or_else(|| BridgeError::Error("NonceGen response is empty".to_string()))?
+            {
+                clementine::nonce_gen_response::Response::PubNonce(pub_nonce) => {
+                    pub_nonce.try_into().map(ByteArray66).map_err(|_| {
+                        BridgeError::Error("PubNonce should be exactly 66 bytes".to_string())
+                    })
+                }
+                _ => Err(BridgeError::Error(
+                    "Expected PubNonce in response".to_string(),
+                )),
+            }
+        }
+
+        let transformed_streams: Vec<BoxStream<Result<ByteArray66, BridgeError>>> = nonce_streams
+            .into_iter()
+            .map(|stream| {
+                stream
+                    .map(|result| {
+                        result
+                            .map_err(BridgeError::from)
+                            .and_then(|nonce_gen_response| {
+                                extract_pub_nonce(nonce_gen_response.response)
+                            })
+                    })
+                    .boxed()
+            })
+            .collect();
+        Ok((first_responses, transformed_streams))
+    }
+}
 
 #[async_trait]
 impl ClementineAggregator for Aggregator {
