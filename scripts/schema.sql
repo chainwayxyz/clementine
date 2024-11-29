@@ -88,7 +88,7 @@ create table if not exists deposit_kickoff_utxos (
     operator_idx int not null,
     kickoff_utxo jsonb not null,
     slash_or_take_sig text,
-    operator_take_sig text,
+    operator_take_sig bytea,
     burn_sig text,
     created_at timestamp not null default now(),
     primary key (deposit_outpoint, operator_idx)

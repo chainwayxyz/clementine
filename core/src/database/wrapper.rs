@@ -133,19 +133,19 @@ pub struct SignatureDB(pub secp256k1::schnorr::Signature);
 
 impl sqlx::Type<sqlx::Postgres> for SignatureDB {
     fn type_info() -> sqlx::postgres::PgTypeInfo {
-        sqlx::postgres::PgTypeInfo::with_name("TEXT")
+        sqlx::postgres::PgTypeInfo::with_name("BYTEA")
     }
 }
 impl Encode<'_, Postgres> for SignatureDB {
     fn encode_by_ref(&self, buf: &mut PgArgumentBuffer) -> sqlx::encode::IsNull {
-        let s: String = secp256k1::schnorr::Signature::to_string(&self.0);
-        <&str as Encode<Postgres>>::encode_by_ref(&s.as_str(), buf)
+        let serialized = self.0.serialize().to_vec();
+        <Vec<u8> as Encode<Postgres>>::encode_by_ref(&serialized, buf)
     }
 }
 impl<'r> Decode<'r, Postgres> for SignatureDB {
     fn decode(value: PgValueRef<'r>) -> Result<Self, sqlx::error::BoxDynError> {
-        let s = <&str as Decode<Postgres>>::decode(value)?;
-        let x: secp256k1::schnorr::Signature = secp256k1::schnorr::Signature::from_str(s)?;
+        let s = <Vec<u8> as Decode<Postgres>>::decode(value)?;
+        let x: secp256k1::schnorr::Signature = secp256k1::schnorr::Signature::from_slice(&s)?;
         Ok(SignatureDB(x))
     }
 }
@@ -357,7 +357,7 @@ mod tests {
     fn signaturedb() {
         assert_eq!(
             SignatureDB::type_info(),
-            sqlx::postgres::PgTypeInfo::with_name("TEXT")
+            sqlx::postgres::PgTypeInfo::with_name("BYTEA")
         );
 
         let signature = Signature::from_slice(&[0u8; 64]).unwrap();
