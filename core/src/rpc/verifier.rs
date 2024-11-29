@@ -134,18 +134,9 @@ impl ClementineVerifier for Verifier {
                 "Failed to verify all timeout tx signatures",
             ));
         }
-        // Save the timeout tx signatures to the db
-        let serialized_signatures: Vec<u8> = timeout_tx_sigs
-            .iter()
-            .flat_map(|sig| sig.serialize().to_vec())
-            .collect();
 
         self.db
-            .save_timeout_tx_sigs(
-                None,
-                operator_config.operator_idx as i32,
-                &serialized_signatures,
-            )
+            .save_timeout_tx_sigs(None, operator_config.operator_idx, timeout_tx_sigs)
             .await?;
 
         Ok(Response::new(Empty {}))

@@ -141,13 +141,19 @@ impl Database {
     pub async fn save_timeout_tx_sigs(
         &self,
         tx: Option<&mut sqlx::Transaction<'_, Postgres>>,
-        operator_idx: i32,
-        serialized_signatures: &[u8],
+        operator_idx: u32,
+        timeout_tx_sigs: Vec<schnorr::Signature>,
     ) -> Result<(), BridgeError> {
+        // Serialize all the signatures before writing them to database.
+        let serialized_signatures: Vec<u8> = timeout_tx_sigs
+            .iter()
+            .flat_map(|sig| sig.serialize().to_vec())
+            .collect();
+
         let query = sqlx::query(
             "INSERT INTO operator_timeout_tx_sigs (operator_idx, timeout_tx_sigs) VALUES ($1, $2);",
         )
-        .bind(operator_idx)
+        .bind(operator_idx as i64)
         .bind(serialized_signatures);
 
         match tx {
@@ -162,12 +168,12 @@ impl Database {
     pub async fn get_timeout_tx_sigs(
         &self,
         tx: Option<&mut sqlx::Transaction<'_, Postgres>>,
-        operator_idx: i32,
+        operator_idx: u32,
     ) -> Result<Vec<schnorr::Signature>, BridgeError> {
         let query = sqlx::query_as(
             "SELECT timeout_tx_sigs FROM operator_timeout_tx_sigs WHERE operator_idx = $1;",
         )
-        .bind(operator_idx);
+        .bind(operator_idx as i64);
 
         let flattened_signatures: (Vec<u8>,) = match tx {
             Some(tx) => query.fetch_one(&mut **tx).await,
@@ -958,16 +964,9 @@ mod tests {
         let signatures: Vec<schnorr::Signature> = (0..0x45)
             .map(|i| schnorr::Signature::from_slice(&[i; SCHNORR_SIGNATURE_SIZE]).unwrap())
             .collect();
-        println!("Signatures are: {:?}", signatures);
-
-        let serialized_signatures: Vec<u8> = signatures
-            .iter()
-            .flat_map(|sig| sig.serialize().to_vec())
-            .collect();
-        println!("Signatures are flattened");
 
         database
-            .save_timeout_tx_sigs(None, 0x45, &serialized_signatures)
+            .save_timeout_tx_sigs(None, 0x45, signatures.clone())
             .await
             .unwrap();
 
