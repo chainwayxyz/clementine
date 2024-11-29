@@ -21,7 +21,7 @@ use bitcoin::{
 };
 use bitcoin::{Address, OutPoint, Txid};
 use risc0_zkvm::Receipt;
-use secp256k1::schnorr;
+use secp256k1::{constants::SCHNORR_SIGNATURE_SIZE, schnorr};
 use sqlx::{Postgres, QueryBuilder};
 
 impl Database {
@@ -137,6 +137,7 @@ impl Database {
         Ok(())
     }
 
+    #[tracing::instrument(skip(self, tx), err(level = tracing::Level::ERROR), ret(level = tracing::Level::TRACE))]
     pub async fn save_timeout_tx_sigs(
         &self,
         tx: Option<&mut sqlx::Transaction<'_, Postgres>>,
@@ -155,6 +156,35 @@ impl Database {
         };
 
         Ok(())
+    }
+
+    #[tracing::instrument(skip(self, tx), err(level = tracing::Level::ERROR), ret(level = tracing::Level::TRACE))]
+    pub async fn get_timeout_tx_sigs(
+        &self,
+        tx: Option<&mut sqlx::Transaction<'_, Postgres>>,
+        operator_idx: i32,
+    ) -> Result<Vec<schnorr::Signature>, BridgeError> {
+        let query = sqlx::query_as(
+            "SELECT timeout_tx_sigs FROM operator_timeout_tx_sigs WHERE operator_idx = $1;",
+        )
+        .bind(operator_idx);
+
+        let flattened_signatures: (Vec<u8>,) = match tx {
+            Some(tx) => query.fetch_one(&mut **tx).await,
+            None => query.fetch_one(&self.connection).await,
+        }?;
+
+        let signature_count = flattened_signatures.0.len() / SCHNORR_SIGNATURE_SIZE;
+        let mut signatures = Vec::new();
+
+        for i in 0..signature_count {
+            let index = i * SCHNORR_SIGNATURE_SIZE;
+            let signature = &flattened_signatures.0[index..index + SCHNORR_SIGNATURE_SIZE];
+
+            signatures.push(schnorr::Signature::from_slice(signature)?);
+        }
+
+        Ok(signatures)
     }
 
     #[tracing::instrument(skip(self), err(level = tracing::Level::ERROR), ret(level = tracing::Level::TRACE))]
@@ -919,6 +949,32 @@ mod tests {
     use risc0_zkvm::Receipt;
     use secp256k1::{constants::SCHNORR_SIGNATURE_SIZE, rand::rngs::OsRng};
     use secp256k1::{schnorr, Secp256k1};
+
+    #[tokio::test]
+    async fn save_get_timeout_tx_sigs() {
+        let config = create_test_config_with_thread_name("test_config.toml", None).await;
+        let database = Database::new(&config).await.unwrap();
+
+        let signatures: Vec<schnorr::Signature> = (0..0x45)
+            .map(|i| schnorr::Signature::from_slice(&[i; SCHNORR_SIGNATURE_SIZE]).unwrap())
+            .collect();
+        println!("Signatures are: {:?}", signatures);
+
+        let serialized_signatures: Vec<u8> = signatures
+            .iter()
+            .flat_map(|sig| sig.serialize().to_vec())
+            .collect();
+        println!("Signatures are flattened");
+
+        database
+            .save_timeout_tx_sigs(None, 0x45, &serialized_signatures)
+            .await
+            .unwrap();
+
+        let read_signatures = database.get_timeout_tx_sigs(None, 0x45).await.unwrap();
+
+        assert_eq!(signatures, read_signatures);
+    }
 
     #[tokio::test]
     async fn test_database_gets_previously_saved_operator_take_signature() {
