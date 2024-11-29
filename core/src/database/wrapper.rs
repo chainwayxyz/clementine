@@ -27,7 +27,7 @@ impl sqlx::Type<sqlx::Postgres> for OutPointDB {
         sqlx::postgres::PgTypeInfo::with_name("TEXT")
     }
 }
-impl<'q> Encode<'q, Postgres> for OutPointDB {
+impl Encode<'_, Postgres> for OutPointDB {
     fn encode_by_ref(&self, buf: &mut PgArgumentBuffer) -> sqlx::encode::IsNull {
         let s = self.0.to_string();
         <&str as Encode<Postgres>>::encode_by_ref(&s.as_str(), buf)
@@ -48,7 +48,7 @@ impl sqlx::Type<sqlx::Postgres> for AddressDB {
         sqlx::postgres::PgTypeInfo::with_name("TEXT")
     }
 }
-impl<'q> Encode<'q, Postgres> for AddressDB {
+impl Encode<'_, Postgres> for AddressDB {
     fn encode_by_ref(&self, buf: &mut PgArgumentBuffer) -> sqlx::encode::IsNull {
         let s = self.0.clone().assume_checked().to_string();
         <&str as Encode<Postgres>>::encode_by_ref(&s.as_str(), buf)
@@ -69,7 +69,7 @@ impl sqlx::Type<sqlx::Postgres> for EVMAddressDB {
         sqlx::postgres::PgTypeInfo::with_name("TEXT")
     }
 }
-impl<'q> Encode<'q, Postgres> for EVMAddressDB {
+impl Encode<'_, Postgres> for EVMAddressDB {
     fn encode_by_ref(&self, buf: &mut PgArgumentBuffer) -> sqlx::encode::IsNull {
         let s = hex::encode(self.0 .0);
         <&str as Encode<Postgres>>::encode_by_ref(&s.as_str(), buf)
@@ -92,7 +92,7 @@ impl sqlx::Type<sqlx::Postgres> for TxidDB {
         sqlx::postgres::PgTypeInfo::with_name("TEXT")
     }
 }
-impl<'q> Encode<'q, Postgres> for TxidDB {
+impl Encode<'_, Postgres> for TxidDB {
     fn encode_by_ref(&self, buf: &mut PgArgumentBuffer) -> sqlx::encode::IsNull {
         let s = bitcoin::consensus::encode::serialize_hex(&self.0);
         <&str as Encode<Postgres>>::encode_by_ref(&s.as_str(), buf)
@@ -114,7 +114,7 @@ impl sqlx::Type<sqlx::Postgres> for TxOutDB {
         sqlx::postgres::PgTypeInfo::with_name("TEXT")
     }
 }
-impl<'q> Encode<'q, Postgres> for TxOutDB {
+impl Encode<'_, Postgres> for TxOutDB {
     fn encode_by_ref(&self, buf: &mut PgArgumentBuffer) -> sqlx::encode::IsNull {
         let s = bitcoin::consensus::encode::serialize_hex(&self.0);
         <&str as Encode<Postgres>>::encode_by_ref(&s.as_str(), buf)
@@ -136,7 +136,7 @@ impl sqlx::Type<sqlx::Postgres> for SignatureDB {
         sqlx::postgres::PgTypeInfo::with_name("TEXT")
     }
 }
-impl<'q> Encode<'q, Postgres> for SignatureDB {
+impl Encode<'_, Postgres> for SignatureDB {
     fn encode_by_ref(&self, buf: &mut PgArgumentBuffer) -> sqlx::encode::IsNull {
         let s: String = secp256k1::schnorr::Signature::to_string(&self.0);
         <&str as Encode<Postgres>>::encode_by_ref(&s.as_str(), buf)
@@ -158,7 +158,7 @@ impl sqlx::Type<sqlx::Postgres> for BlockHashDB {
         sqlx::postgres::PgTypeInfo::with_name("TEXT")
     }
 }
-impl<'q> Encode<'q, Postgres> for BlockHashDB {
+impl Encode<'_, Postgres> for BlockHashDB {
     fn encode_by_ref(&self, buf: &mut PgArgumentBuffer) -> sqlx::encode::IsNull {
         let s = self.0.to_string();
         <&str as Encode<Postgres>>::encode_by_ref(&s.as_str(), buf)
@@ -179,7 +179,7 @@ impl sqlx::Type<sqlx::Postgres> for BlockHeaderDB {
         sqlx::postgres::PgTypeInfo::with_name("TEXT")
     }
 }
-impl<'q> Encode<'q, Postgres> for BlockHeaderDB {
+impl Encode<'_, Postgres> for BlockHeaderDB {
     fn encode_by_ref(&self, buf: &mut PgArgumentBuffer) -> sqlx::encode::IsNull {
         let mut hex: Vec<u8> = Vec::new();
         self.0.consensus_encode(&mut hex).unwrap();
@@ -206,7 +206,7 @@ impl sqlx::Type<sqlx::Postgres> for PublicKeyDB {
         sqlx::postgres::PgTypeInfo::with_name("TEXT")
     }
 }
-impl<'q> Encode<'q, Postgres> for PublicKeyDB {
+impl Encode<'_, Postgres> for PublicKeyDB {
     fn encode_by_ref(&self, buf: &mut PgArgumentBuffer) -> sqlx::encode::IsNull {
         let s: String = secp256k1::PublicKey::to_string(&self.0);
         <&str as Encode<Postgres>>::encode_by_ref(&s.as_str(), buf)
@@ -228,7 +228,7 @@ impl sqlx::Type<sqlx::Postgres> for XOnlyPublicKeyDB {
         sqlx::postgres::PgTypeInfo::with_name("TEXT")
     }
 }
-impl<'q> Encode<'q, Postgres> for XOnlyPublicKeyDB {
+impl Encode<'_, Postgres> for XOnlyPublicKeyDB {
     fn encode_by_ref(&self, buf: &mut PgArgumentBuffer) -> sqlx::encode::IsNull {
         let s: String = secp256k1::XOnlyPublicKey::to_string(&self.0);
         <&str as Encode<Postgres>>::encode_by_ref(&s.as_str(), buf)
