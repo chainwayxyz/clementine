@@ -14,7 +14,7 @@ use crate::{
 use bitcoin::{hashes::Hash, Amount, TapSighash, Txid};
 use futures::StreamExt;
 use secp256k1::{schnorr, Message};
-use std::{pin::pin, str::FromStr, sync::Arc};
+use std::{pin::pin, str::FromStr};
 use tokio::sync::mpsc;
 use tokio_stream::wrappers::ReceiverStream;
 use tonic::{async_trait, Request, Response, Status, Streaming};
@@ -230,12 +230,7 @@ impl ClementineVerifier for Verifier {
 
         tracing::info!("Received deposit sign request");
 
-        let verifier_idx = self.idx;
-        let nofn_xonly_pk = self.nofn_xonly_pk;
-        let sessions = Arc::clone(&self.nonces);
-        let signer = self.signer.clone();
-        let verifiers_public_keys = self.config.verifiers_public_keys.clone();
-        let db_clone = self.db.clone();
+        let verifier = self.clone();
 
         tokio::spawn(async move {
             let first_message = in_stream
@@ -278,7 +273,7 @@ impl ClementineVerifier for Verifier {
                     let user_takes_after = deposit_params.user_takes_after;
 
                     let session_id =
-                        deposit_sign_first_param.nonce_gen_first_responses[verifier_idx].id;
+                        deposit_sign_first_param.nonce_gen_first_responses[verifier.idx].id;
                     (
                         deposit_outpoint,
                         evm_address,
@@ -290,7 +285,7 @@ impl ClementineVerifier for Verifier {
                 _ => panic!("Expected DepositOutpoint"),
             };
 
-            let binding = sessions.lock().await;
+            let binding = verifier.nonces.lock().await;
             let session = binding
                 .sessions
                 .get(&session_id)
@@ -299,12 +294,12 @@ impl ClementineVerifier for Verifier {
             let mut nonce_idx: usize = 0;
 
             let mut sighash_stream = pin!(create_nofn_sighash_stream(
-                db_clone,
+                verifier.db,
                 deposit_outpoint,
                 evm_address,
                 recovery_taproot_address,
                 user_takes_after,
-                nofn_xonly_pk,
+                verifier.nofn_xonly_pk,
             ));
 
             while let Some(result) = in_stream.message().await.unwrap() {
@@ -320,15 +315,15 @@ impl ClementineVerifier for Verifier {
                 };
 
                 let sighash = sighash_stream.next().await.unwrap();
-                tracing::debug!("Verifier {} found sighash: {:?}", verifier_idx, sighash);
+                tracing::debug!("Verifier {} found sighash: {:?}", verifier.idx, sighash);
 
                 let move_tx_sig = musig2::partial_sign(
-                    verifiers_public_keys.clone(),
+                    verifier.config.verifiers_public_keys.clone(),
                     None,
                     false,
                     session.nonces[nonce_idx],
                     agg_nonce,
-                    &signer.keypair,
+                    &verifier.signer.keypair,
                     ByteArray32(sighash.to_byte_array()),
                 );
 
@@ -344,7 +339,7 @@ impl ClementineVerifier for Verifier {
                 }
             }
             // drop nonces
-            let mut binding = sessions.lock().await;
+            let mut binding = verifier.nonces.lock().await;
             binding.sessions.remove(&session_id);
         });
 
@@ -358,23 +353,17 @@ impl ClementineVerifier for Verifier {
         &self,
         req: Request<Streaming<VerifierDepositFinalizeParams>>,
     ) -> Result<Response<PartialSig>, Status> {
-        let verifier_idx = self.idx;
-        let nofn_xonly_pk = self.nofn_xonly_pk;
-
         let mut in_stream = req.into_inner();
 
         let first_message = in_stream
             .message()
-            .await
-            .unwrap()
-            .ok_or(Status::internal("No first message received"))
-            .unwrap();
+            .await?
+            .ok_or(Status::internal("No first message received"))?;
 
         // Parse the first message
         let params = first_message
             .params
-            .ok_or(Status::internal("No deposit outpoint received"))
-            .unwrap();
+            .ok_or(Status::internal("No deposit outpoint received"))?;
         let (
             deposit_outpoint,
             evm_address,
@@ -387,23 +376,19 @@ impl ClementineVerifier for Verifier {
             ) => {
                 let deposit_params = deposit_sign_first_param
                     .deposit_params
-                    .ok_or(Status::internal("No deposit outpoint received"))
-                    .unwrap();
+                    .ok_or(Status::internal("No deposit outpoint received"))?;
                 let deposit_outpoint: bitcoin::OutPoint = deposit_params
                     .deposit_outpoint
-                    .ok_or(Status::internal("No deposit outpoint received"))
-                    .unwrap()
-                    .try_into()
-                    .unwrap();
+                    .ok_or(Status::internal("No deposit outpoint received"))?
+                    .try_into()?;
                 let evm_address: EVMAddress = deposit_params.evm_address.try_into().unwrap();
                 let recovery_taproot_address = deposit_params
                     .recovery_taproot_address
                     .parse::<bitcoin::Address<_>>()
-                    .unwrap();
+                    .map_err(|e| BridgeError::Error(e.to_string()))?;
                 let user_takes_after = deposit_params.user_takes_after;
 
-                let session_id =
-                    deposit_sign_first_param.nonce_gen_first_responses[verifier_idx].id;
+                let session_id = deposit_sign_first_param.nonce_gen_first_responses[self.idx].id;
                 (
                     deposit_outpoint,
                     evm_address,
@@ -421,7 +406,7 @@ impl ClementineVerifier for Verifier {
             evm_address,
             recovery_taproot_address,
             user_takes_after,
-            nofn_xonly_pk,
+            self.nofn_xonly_pk,
         ));
 
         let mut nonce_idx: usize = 0;
@@ -443,7 +428,7 @@ impl ClementineVerifier for Verifier {
                 .verify_schnorr(
                     &final_sig,
                     &secp256k1::Message::from(sighash),
-                    &nofn_xonly_pk,
+                    &self.nofn_xonly_pk,
                 )
                 .unwrap();
 
