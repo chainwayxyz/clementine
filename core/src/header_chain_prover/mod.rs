@@ -45,8 +45,9 @@ impl HeaderChainProver {
             // TODO: Get this from chain_state struct.
             let block_hash = rpc
                 .client
-                .get_block_hash(proof_output.chain_state.block_height.into())?;
-            let block_header = rpc.client.get_block_header(&block_hash)?;
+                .get_block_hash(proof_output.chain_state.block_height.into())
+                .await?;
+            let block_header = rpc.client.get_block_header(&block_hash).await?;
             // Ignore error if block entry is in database already.
             let _ = db
                 .save_new_block(
@@ -113,7 +114,8 @@ mod tests {
             config.bitcoin_rpc_url.clone(),
             config.bitcoin_rpc_user.clone(),
             config.bitcoin_rpc_password.clone(),
-        );
+        )
+        .await;
 
         let _should_not_panic = HeaderChainProver::new(&config, rpc).await.unwrap();
     }
@@ -126,16 +128,17 @@ mod tests {
             config.bitcoin_rpc_url.clone(),
             config.bitcoin_rpc_user.clone(),
             config.bitcoin_rpc_password.clone(),
-        );
+        )
+        .await;
 
         // First block's assumption will be added to db: Make sure block exists
         // too.
-        rpc.mine_blocks(1).unwrap();
+        rpc.mine_blocks(1).await.unwrap();
 
         let prover = HeaderChainProver::new(&config, rpc.clone()).await.unwrap();
 
         // Test assumption is for block 0.
-        let hash = rpc.client.get_block_hash(0).unwrap();
+        let hash = rpc.client.get_block_hash(0).await.unwrap();
         let _should_not_panic = prover.get_header_chain_proof(hash).await.unwrap();
 
         let wrong_hash = BlockHash::from_raw_hash(Hash::from_slice(&[0x45; 32]).unwrap());
@@ -152,14 +155,15 @@ mod tests {
             config.bitcoin_rpc_url.clone(),
             config.bitcoin_rpc_user.clone(),
             config.bitcoin_rpc_password.clone(),
-        );
+        )
+        .await;
         let prover = HeaderChainProver::new(&config, rpc.clone()).await.unwrap();
 
         prover.run();
         sleep(Duration::from_secs(1)).await;
 
         // Mine a block and write genesis block's proof to database.
-        rpc.mine_blocks(1).unwrap();
+        rpc.mine_blocks(1).await.unwrap();
         let receipt =
             Receipt::try_from_slice(include_bytes!("../../tests/data/first_1.bin")).unwrap();
         prover
@@ -168,7 +172,7 @@ mod tests {
             .await
             .unwrap();
 
-        let hash = rpc.client.get_block_hash(1).unwrap();
+        let hash = rpc.client.get_block_hash(1).await.unwrap();
         loop {
             if let Ok(proof) = prover.get_header_chain_proof(hash).await {
                 println!("Second block's proof is {:?}", proof);

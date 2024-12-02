@@ -11,7 +11,6 @@ use bitcoin::Amount;
 use bitcoin::BlockHash;
 use bitcoin::OutPoint;
 use bitcoin::ScriptBuf;
-use bitcoin::Transaction;
 use bitcoin::TxOut;
 use bitcoin::XOnlyPublicKey;
 use bitcoincore_rpc::Auth;
@@ -31,10 +30,11 @@ impl ExtendedRpc {
     /// # Panics
     ///
     /// Panics if it cannot connect to Bitcoin RPC.
-    pub fn new(url: String, user: String, password: String) -> Self {
+    pub async fn new(url: String, user: String, password: String) -> Self {
         let auth = Auth::UserPass(user, password);
 
         let rpc = Client::new(&url, auth.clone())
+            .await
             .unwrap_or_else(|e| panic!("Failed to connect to Bitcoin RPC: {}", e));
 
         Self {
@@ -45,8 +45,8 @@ impl ExtendedRpc {
     }
 
     #[tracing::instrument(skip(self), err(level = tracing::Level::ERROR), ret(level = tracing::Level::TRACE))]
-    pub fn confirmation_blocks(&self, txid: &bitcoin::Txid) -> Result<u32, BridgeError> {
-        let raw_transaction_results = self.client.get_raw_transaction_info(txid, None)?;
+    pub async fn confirmation_blocks(&self, txid: &bitcoin::Txid) -> Result<u32, BridgeError> {
+        let raw_transaction_results = self.client.get_raw_transaction_info(txid, None).await?;
 
         raw_transaction_results
             .confirmations
@@ -54,13 +54,16 @@ impl ExtendedRpc {
     }
 
     #[tracing::instrument(skip(self), err(level = tracing::Level::ERROR), ret(level = tracing::Level::TRACE))]
-    pub fn check_utxo_address_and_amount(
+    pub async fn check_utxo_address_and_amount(
         &self,
         outpoint: &OutPoint,
         address: &ScriptBuf,
         amount_sats: Amount,
     ) -> Result<bool, BridgeError> {
-        let tx = self.client.get_raw_transaction(&outpoint.txid, None)?;
+        let tx = self
+            .client
+            .get_raw_transaction(&outpoint.txid, None)
+            .await?;
 
         let current_output = tx.output[outpoint.vout as usize].clone();
 
@@ -73,94 +76,60 @@ impl ExtendedRpc {
     }
 
     #[tracing::instrument(skip(self), err(level = tracing::Level::ERROR), ret(level = tracing::Level::TRACE))]
-    pub fn is_utxo_spent(&self, outpoint: &OutPoint) -> Result<bool, BridgeError> {
+    pub async fn is_utxo_spent(&self, outpoint: &OutPoint) -> Result<bool, BridgeError> {
         let res = self
             .client
-            .get_tx_out(&outpoint.txid, outpoint.vout, Some(true))?;
+            .get_tx_out(&outpoint.txid, outpoint.vout, Some(true))
+            .await?;
 
         Ok(res.is_none())
     }
 
     /// Mines blocks to a new address.
     #[tracing::instrument(skip(self), err(level = tracing::Level::ERROR), ret(level = tracing::Level::TRACE))]
-    pub fn mine_blocks(&self, block_num: u64) -> Result<Vec<BlockHash>, BridgeError> {
-        let new_address = self.client.get_new_address(None, None)?.assume_checked();
+    pub async fn mine_blocks(&self, block_num: u64) -> Result<Vec<BlockHash>, BridgeError> {
+        let new_address = self
+            .client
+            .get_new_address(None, None)
+            .await?
+            .assume_checked();
 
-        Ok(self.client.generate_to_address(block_num, &new_address)?)
+        Ok(self
+            .client
+            .generate_to_address(block_num, &new_address)
+            .await?)
     }
 
     #[tracing::instrument(skip(self), err(level = tracing::Level::ERROR), ret(level = tracing::Level::TRACE))]
-    pub fn send_to_address(
+    pub async fn send_to_address(
         &self,
         address: &Address,
         amount_sats: Amount,
     ) -> Result<OutPoint, BridgeError> {
-        let txid = self.client.send_to_address(
-            address,
-            amount_sats,
-            None,
-            None,
-            None,
-            None,
-            None,
-            None,
-        )?;
+        let txid = self
+            .client
+            .send_to_address(address, amount_sats, None, None, None, None, None, None)
+            .await?;
 
-        let tx_result = self.client.get_transaction(&txid, None)?;
+        let tx_result = self.client.get_transaction(&txid, None).await?;
         let vout = tx_result.details[0].vout;
 
         Ok(OutPoint { txid, vout })
     }
 
     #[tracing::instrument(skip(self), err(level = tracing::Level::ERROR), ret(level = tracing::Level::TRACE))]
-    pub fn get_txout_from_outpoint(&self, outpoint: &OutPoint) -> Result<TxOut, BridgeError> {
-        let tx = self.client.get_raw_transaction(&outpoint.txid, None)?;
+    pub async fn get_txout_from_outpoint(&self, outpoint: &OutPoint) -> Result<TxOut, BridgeError> {
+        let tx = self
+            .client
+            .get_raw_transaction(&outpoint.txid, None)
+            .await?;
         let txout = tx.output[outpoint.vout as usize].clone();
 
         Ok(txout)
     }
 
-    // Following methods are just wrappers around the bitcoincore_rpc::Client methods
     #[tracing::instrument(skip(self), err(level = tracing::Level::ERROR), ret(level = tracing::Level::TRACE))]
-    pub fn fund_raw_transaction(
-        &self,
-        tx: &Transaction,
-        options: Option<&bitcoincore_rpc::json::FundRawTransactionOptions>,
-        is_witness: Option<bool>,
-    ) -> Result<bitcoincore_rpc::json::FundRawTransactionResult, bitcoincore_rpc::Error> {
-        self.client.fund_raw_transaction(tx, options, is_witness)
-    }
-
-    #[tracing::instrument(skip(self, tx, sighash_type), err(level = tracing::Level::ERROR), ret(level = tracing::Level::TRACE))]
-    pub fn sign_raw_transaction_with_wallet<T: bitcoincore_rpc::RawTx>(
-        &self,
-        tx: T,
-        utxos: Option<&[bitcoincore_rpc::json::SignRawTransactionInput]>,
-        sighash_type: Option<bitcoincore_rpc::json::SigHashType>,
-    ) -> Result<bitcoincore_rpc::json::SignRawTransactionResult, bitcoincore_rpc::Error> {
-        self.client
-            .sign_raw_transaction_with_wallet(tx, utxos, sighash_type)
-    }
-
-    #[tracing::instrument(skip(self), err(level = tracing::Level::ERROR), ret(level = tracing::Level::TRACE))]
-    pub fn get_raw_transaction(
-        &self,
-        txid: &bitcoin::Txid,
-        block_hash: Option<&bitcoin::BlockHash>,
-    ) -> Result<bitcoin::Transaction, bitcoincore_rpc::Error> {
-        self.client.get_raw_transaction(txid, block_hash)
-    }
-
-    #[tracing::instrument(skip(self, tx), err(level = tracing::Level::ERROR), ret(level = tracing::Level::TRACE))]
-    pub fn send_raw_transaction<T: bitcoincore_rpc::RawTx>(
-        &self,
-        tx: T,
-    ) -> Result<bitcoin::Txid, bitcoincore_rpc::Error> {
-        self.client.send_raw_transaction(tx)
-    }
-
-    #[tracing::instrument(skip(self), err(level = tracing::Level::ERROR), ret(level = tracing::Level::TRACE))]
-    pub fn check_deposit_utxo(
+    pub async fn check_deposit_utxo(
         &self,
         nofn_xonly_pk: XOnlyPublicKey,
         deposit_outpoint: &OutPoint,
@@ -171,7 +140,7 @@ impl ExtendedRpc {
         network: bitcoin::Network,
         user_takes_after: u32,
     ) -> Result<(), BridgeError> {
-        if self.confirmation_blocks(&deposit_outpoint.txid)? < confirmation_block_count {
+        if self.confirmation_blocks(&deposit_outpoint.txid).await? < confirmation_block_count {
             return Err(BridgeError::DepositNotFinalized);
         }
 
@@ -184,15 +153,18 @@ impl ExtendedRpc {
             user_takes_after,
         );
 
-        if !self.check_utxo_address_and_amount(
-            deposit_outpoint,
-            &deposit_address.script_pubkey(),
-            amount_sats,
-        )? {
+        if !self
+            .check_utxo_address_and_amount(
+                deposit_outpoint,
+                &deposit_address.script_pubkey(),
+                amount_sats,
+            )
+            .await?
+        {
             return Err(BridgeError::InvalidDepositUTXO);
         }
 
-        if self.is_utxo_spent(deposit_outpoint)? {
+        if self.is_utxo_spent(deposit_outpoint).await? {
             return Err(BridgeError::UTXOSpent);
         }
 
@@ -202,7 +174,7 @@ impl ExtendedRpc {
 
 impl Clone for ExtendedRpc {
     fn clone(&self) -> Self {
-        let new_client = Client::new(&self.url, self.auth.clone())
+        let new_client = futures::executor::block_on(Client::new(&self.url, self.auth.clone()))
             .unwrap_or_else(|e| panic!("Failed to clone Bitcoin RPC client: {}", e));
 
         Self {

@@ -5,6 +5,7 @@
 use std::str::FromStr;
 
 use bitcoin::{Address, Amount, Txid};
+use bitcoincore_rpc::RpcApi;
 use clementine_core::errors::BridgeError;
 use clementine_core::extended_rpc::ExtendedRpc;
 use clementine_core::rpc::clementine::clementine_aggregator_client::ClementineAggregatorClient;
@@ -28,7 +29,8 @@ async fn honest_operator_takes_refund() {
         config.bitcoin_rpc_url.clone(),
         config.bitcoin_rpc_user.clone(),
         config.bitcoin_rpc_password.clone(),
-    );
+    )
+    .await;
 
     let user_sk = SecretKey::from_slice(&[13u8; 32]).unwrap();
     let user = User::new(rpc.clone(), user_sk, config.clone());
@@ -49,6 +51,7 @@ async fn honest_operator_takes_refund() {
 
     let (empty_utxo, withdrawal_tx_out, user_sig) = user
         .generate_withdrawal_transaction_and_signature(withdrawal_address, withdrawal_amount)
+        .await
         .unwrap();
 
     let _withdrawal_provide_txid = operators[1]
@@ -64,17 +67,24 @@ async fn honest_operator_takes_refund() {
         .unwrap();
 
     for tx in txs_to_be_sent.iter().take(txs_to_be_sent.len() - 1) {
-        rpc.send_raw_transaction(tx.clone()).unwrap();
-        rpc.mine_blocks(1).unwrap();
+        rpc.client.send_raw_transaction(tx.clone()).await.unwrap();
+        rpc.mine_blocks(1).await.unwrap();
     }
     rpc.mine_blocks(1 + config.operator_takes_after as u64)
+        .await
         .unwrap();
 
     // Send last transaction.
     let operator_take_txid = rpc
+        .client
         .send_raw_transaction(txs_to_be_sent.last().unwrap().clone())
+        .await
         .unwrap();
-    let operator_take_tx = rpc.get_raw_transaction(&operator_take_txid, None).unwrap();
+    let operator_take_tx = rpc
+        .client
+        .get_raw_transaction(&operator_take_txid, None)
+        .await
+        .unwrap();
 
     assert!(operator_take_tx.output[0].value > withdrawal_amount);
 
@@ -95,7 +105,8 @@ async fn withdrawal_fee_too_low() {
         config.bitcoin_rpc_url.clone(),
         config.bitcoin_rpc_user.clone(),
         config.bitcoin_rpc_password.clone(),
-    );
+    )
+    .await;
 
     let user_sk = SecretKey::from_slice(&[12u8; 32]).unwrap();
     let withdrawal_address = Address::p2tr(
@@ -113,6 +124,7 @@ async fn withdrawal_fee_too_low() {
             withdrawal_address,
             Amount::from_sat(config.bridge_amount_sats.to_sat()),
         )
+        .await
         .unwrap();
 
     // Operator will reject because it its not profitable.

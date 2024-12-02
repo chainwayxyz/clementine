@@ -18,7 +18,8 @@ async fn main() {
         config.bitcoin_rpc_url.clone(),
         config.bitcoin_rpc_user.clone(),
         config.bitcoin_rpc_password.clone(),
-    );
+    )
+    .await;
 
     Database::run_schema_script(&config).await.unwrap();
 

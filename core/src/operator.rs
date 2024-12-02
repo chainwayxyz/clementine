@@ -15,7 +15,7 @@ use bitcoin::hashes::Hash;
 use bitcoin::script::PushBytesBuf;
 use bitcoin::sighash::SighashCache;
 use bitcoin::{Address, Amount, OutPoint, TapSighash, Transaction, TxOut, Txid};
-use bitcoincore_rpc::RawTx;
+use bitcoincore_rpc::{RawTx, RpcApi};
 use jsonrpsee::core::async_trait;
 use jsonrpsee::core::client::ClientT;
 use jsonrpsee::http_client::HttpClientBuilder;
@@ -81,7 +81,9 @@ impl Operator {
         // check if there is any time tx from the current operator
         let time_txs = db.get_time_txs(Some(&mut tx), idx as i32).await?;
         if time_txs.is_empty() {
-            let outpoint = rpc.send_to_address(&signer.address, Amount::from_sat(200_000_000))?; // TODO: Is this OK to be a fixed value
+            let outpoint = rpc
+                .send_to_address(&signer.address, Amount::from_sat(200_000_000))
+                .await?; // TODO: Is this OK to be a fixed value
             db.set_time_tx(Some(&mut tx), idx as i32, 0, outpoint.txid, 0)
                 .await?;
         }
@@ -138,16 +140,18 @@ impl Operator {
         );
 
         // 1. Check if the deposit UTXO is valid, finalized (6 blocks confirmation) and not spent
-        self.rpc.check_deposit_utxo(
-            self.nofn_xonly_pk,
-            &deposit_outpoint,
-            &recovery_taproot_address,
-            evm_address,
-            self.config.bridge_amount_sats,
-            self.config.confirmation_threshold,
-            self.config.network,
-            self.config.user_takes_after,
-        )?;
+        self.rpc
+            .check_deposit_utxo(
+                self.nofn_xonly_pk,
+                &deposit_outpoint,
+                &recovery_taproot_address,
+                evm_address,
+                self.config.bridge_amount_sats,
+                self.config.confirmation_threshold,
+                self.config.network,
+                self.config.user_takes_after,
+            )
+            .await?;
 
         let mut tx = self.db.begin_transaction().await?;
 
@@ -450,6 +454,7 @@ impl Operator {
 
         let funded_tx = self
             .rpc
+            .client
             .fund_raw_transaction(
                 &tx,
                 Some(&bitcoincore_rpc::json::FundRawTransactionOptions {
@@ -466,17 +471,20 @@ impl Operator {
                     estimate_mode: None,
                 }),
                 None,
-            )?
+            )
+            .await?
             .hex;
 
         let signed_tx: Transaction = deserialize(
             &self
                 .rpc
-                .sign_raw_transaction_with_wallet(&funded_tx, None, None)?
+                .client
+                .sign_raw_transaction_with_wallet(&funded_tx, None, None)
+                .await?
                 .hex,
         )?;
 
-        Ok(self.rpc.send_raw_transaction(&signed_tx)?)
+        Ok(self.rpc.client.send_raw_transaction(&signed_tx).await?)
     }
 
     /// Checks Citrea if a withdrawal is finalized.
@@ -576,7 +584,9 @@ impl Operator {
         for _ in 0..25 {
             if self
                 .rpc
+                .client
                 .get_raw_transaction(&current_searching_txid, None)
+                .await
                 .is_ok()
             {
                 found_txid = true;
@@ -737,7 +747,8 @@ mod tests {
             config.bitcoin_rpc_url.clone(),
             config.bitcoin_rpc_user.clone(),
             config.bitcoin_rpc_password.clone(),
-        );
+        )
+        .await;
 
         let operator = Operator::new(config, rpc).await.unwrap();
 
@@ -769,7 +780,8 @@ mod tests {
             config.bitcoin_rpc_url.clone(),
             config.bitcoin_rpc_user.clone(),
             config.bitcoin_rpc_password.clone(),
-        );
+        )
+        .await;
         let operator = create_operator_server(config, rpc).await.unwrap();
 
         let funding_utxo = UTXO {
@@ -796,7 +808,8 @@ mod tests {
             config.bitcoin_rpc_url.clone(),
             config.bitcoin_rpc_user.clone(),
             config.bitcoin_rpc_password.clone(),
-        );
+        )
+        .await;
 
         config.bridge_amount_sats = Amount::from_sat(0x45);
         config.operator_withdrawal_fee_sats = Some(Amount::from_sat(0x1F));

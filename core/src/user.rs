@@ -41,12 +41,13 @@ impl User {
     }
 
     #[tracing::instrument(skip(self), err(level = tracing::Level::ERROR), ret(level = tracing::Level::TRACE))]
-    pub fn deposit_tx(&self, evm_address: EVMAddress) -> Result<OutPoint, BridgeError> {
+    pub async fn deposit_tx(&self, evm_address: EVMAddress) -> Result<OutPoint, BridgeError> {
         let deposit_address = self.get_deposit_address(evm_address)?;
 
         let deposit_outpoint = self
             .rpc
-            .send_to_address(&deposit_address, self.config.bridge_amount_sats)?;
+            .send_to_address(&deposit_address, self.config.bridge_amount_sats)
+            .await?;
 
         Ok(deposit_outpoint)
     }
@@ -73,14 +74,15 @@ impl User {
     /// - `TxOut`: Withdrawal transaction output
     /// - `Signature`: Schnorr signature of the withdrawal transaction
     #[tracing::instrument(skip(self), err(level = tracing::Level::ERROR), ret(level = tracing::Level::TRACE))]
-    pub fn generate_withdrawal_transaction_and_signature(
+    pub async fn generate_withdrawal_transaction_and_signature(
         &self,
         withdrawal_address: Address,
         withdrawal_amount: Amount,
     ) -> Result<(UTXO, TxOut, schnorr::Signature), BridgeError> {
         let dust_outpoint = self
             .rpc
-            .send_to_address(&self.signer.address, WITHDRAWAL_EMPTY_UTXO_SATS)?;
+            .send_to_address(&self.signer.address, WITHDRAWAL_EMPTY_UTXO_SATS)
+            .await?;
         let dust_utxo = UTXO {
             outpoint: dust_outpoint,
             txout: TxOut {
@@ -116,6 +118,7 @@ mod tests {
     use crate::mock::database::create_test_config_with_thread_name;
     use crate::user::User;
     use crate::EVMAddress;
+    use bitcoincore_rpc::RpcApi;
     use secp256k1::{rand, SecretKey};
 
     #[tokio::test]
@@ -126,14 +129,19 @@ mod tests {
             config.bitcoin_rpc_url.clone(),
             config.bitcoin_rpc_user.clone(),
             config.bitcoin_rpc_password.clone(),
-        );
+        )
+        .await;
 
         let evm_address = EVMAddress([0x45u8; 20]);
         let sk = SecretKey::new(&mut rand::thread_rng());
         let user = User::new(rpc.clone(), sk, config.clone());
 
-        let deposit_utxo = user.deposit_tx(evm_address).unwrap();
-        let deposit_txout = rpc.get_raw_transaction(&deposit_utxo.txid, None).unwrap();
+        let deposit_utxo = user.deposit_tx(evm_address).await.unwrap();
+        let deposit_txout = rpc
+            .client
+            .get_raw_transaction(&deposit_utxo.txid, None)
+            .await
+            .unwrap();
 
         assert_eq!(
             deposit_txout

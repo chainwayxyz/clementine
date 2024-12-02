@@ -39,8 +39,8 @@ impl HeaderChainProver {
     #[tracing::instrument(skip(self))]
     async fn check_for_new_blocks(&self) -> Result<BlockFetchStatus, BridgeError> {
         let (db_tip_height, db_tip_hash) = self.db.get_latest_block_info(None).await?;
-        let active_tip_height = self.rpc.client.get_block_count()?;
-        let active_tip_hash = self.rpc.client.get_block_hash(active_tip_height)?;
+        let active_tip_height = self.rpc.client.get_block_count().await?;
+        let active_tip_hash = self.rpc.client.get_block_hash(active_tip_height).await?;
         tracing::debug!(
             "Database blockchain tip is at height {} with block hash {}",
             db_tip_height,
@@ -77,7 +77,10 @@ impl HeaderChainProver {
         } else {
             let new_height = db_tip_height + BATCH_DEEPNESS - BATCH_DEEPNESS_SAFETY_BARRIER;
 
-            (new_height, self.rpc.client.get_block_hash(new_height)?)
+            (
+                new_height,
+                self.rpc.client.get_block_hash(new_height).await?,
+            )
         };
         tracing::debug!("Fetching blocks between {db_tip_height}-{height}");
 
@@ -93,7 +96,8 @@ impl HeaderChainProver {
             prev_block_hash = self
                 .rpc
                 .client
-                .get_block_header(&current_block_hash)?
+                .get_block_header(&current_block_hash)
+                .await?
                 .prev_blockhash;
 
             let header = self
@@ -161,7 +165,7 @@ impl HeaderChainProver {
                 .save_new_block(
                     None,
                     *block_hash,
-                    self.rpc.client.get_block_header(block_hash)?,
+                    self.rpc.client.get_block_header(block_hash).await?,
                     current_block_height + diff as u64 + 1,
                 )
                 .await?;
@@ -212,18 +216,20 @@ mod tests {
     async fn mine_and_save_blocks(prover: &HeaderChainProver, height: u64) -> Vec<BlockHash> {
         let mut fork_block_hashes = Vec::new();
         for _ in 0..height {
-            prover.rpc.mine_blocks(1).unwrap();
+            prover.rpc.mine_blocks(1).await.unwrap();
 
-            let current_tip_height = prover.rpc.client.get_block_count().unwrap();
+            let current_tip_height = prover.rpc.client.get_block_count().await.unwrap();
             let current_tip_hash: BlockHash = prover
                 .rpc
                 .client
                 .get_block_hash(current_tip_height)
+                .await
                 .unwrap();
             let current_block_header = prover
                 .rpc
                 .client
                 .get_block(&current_tip_hash)
+                .await
                 .unwrap()
                 .header;
 
@@ -252,13 +258,14 @@ mod tests {
             config.bitcoin_rpc_url.clone(),
             config.bitcoin_rpc_user.clone(),
             config.bitcoin_rpc_password.clone(),
-        );
+        )
+        .await;
         let prover = HeaderChainProver::new(&config, rpc.clone()).await.unwrap();
 
         // Save current blockchain tip.
-        let current_tip_height = rpc.client.get_block_count().unwrap();
-        let current_tip_hash = rpc.client.get_block_hash(current_tip_height).unwrap();
-        let current_block = rpc.client.get_block(&current_tip_hash).unwrap();
+        let current_tip_height = rpc.client.get_block_count().await.unwrap();
+        let current_tip_hash = rpc.client.get_block_hash(current_tip_height).await.unwrap();
+        let current_block = rpc.client.get_block(&current_tip_hash).await.unwrap();
 
         // Updating database with current block should return [`BlockFetchStatus::UpToDate`].
         prover
@@ -285,7 +292,8 @@ mod tests {
             config.bitcoin_rpc_url.clone(),
             config.bitcoin_rpc_user.clone(),
             config.bitcoin_rpc_password.clone(),
-        );
+        )
+        .await;
         let prover = HeaderChainProver::new(&config, rpc.clone()).await.unwrap();
 
         // Mine initial block and save it to database.
@@ -295,17 +303,18 @@ mod tests {
             BlockFetchStatus::UpToDate
         );
         assert_eq!(block_hashes.len(), 1);
-        let current_tip_height = rpc.client.get_block_count().unwrap();
+        let current_tip_height = rpc.client.get_block_count().await.unwrap();
         println!(
             "Initial block height is {current_tip_height} and hash is {}",
             *block_hashes.first().unwrap()
         );
 
         // Mine a block but don't save it to database.
-        rpc.mine_blocks(1).unwrap();
+        rpc.mine_blocks(1).await.unwrap();
         let current_tip_hash = rpc
             .client
-            .get_block_hash(rpc.client.get_block_count().unwrap())
+            .get_block_hash(rpc.client.get_block_count().await.unwrap())
+            .await
             .unwrap();
         assert_ne!(current_tip_hash, *block_hashes.first().unwrap());
 
@@ -324,7 +333,8 @@ mod tests {
             config.bitcoin_rpc_url.clone(),
             config.bitcoin_rpc_user.clone(),
             config.bitcoin_rpc_password.clone(),
-        );
+        )
+        .await;
         let prover = HeaderChainProver::new(&config, rpc.clone()).await.unwrap();
 
         // Mine initial block and save it to database.
@@ -333,11 +343,11 @@ mod tests {
             prover.check_for_new_blocks().await.unwrap(),
             BlockFetchStatus::UpToDate
         );
-        let initial_tip_height = rpc.client.get_block_count().unwrap();
+        let initial_tip_height = rpc.client.get_block_count().await.unwrap();
 
         // Mine some blocks but don't save them to database.
         let amount = BATCH_DEEPNESS - BATCH_DEEPNESS_SAFETY_BARRIER - 1;
-        let block_hashes = rpc.mine_blocks(amount).unwrap();
+        let block_hashes = rpc.mine_blocks(amount).await.unwrap();
 
         // Falling behind some blocks should return those blocks' hash.
         assert_eq!(
@@ -354,21 +364,22 @@ mod tests {
             config.bitcoin_rpc_url.clone(),
             config.bitcoin_rpc_user.clone(),
             config.bitcoin_rpc_password.clone(),
-        );
+        )
+        .await;
         let prover = HeaderChainProver::new(&config, rpc.clone()).await.unwrap();
 
         // Save initial block.
         mine_and_save_blocks(&prover, 1).await;
-        let initial_tip_height = rpc.client.get_block_count().unwrap();
+        let initial_tip_height = rpc.client.get_block_count().await.unwrap();
 
         // Save the next 3 blocks to database, then invalidate.
-        let mut fork_block_hashes = mine_and_save_blocks(&prover, 3).await;
-        fork_block_hashes.reverse();
-        fork_block_hashes
-            .iter()
-            .for_each(|hash| rpc.client.invalidate_block(hash).unwrap());
+        let fork_block_hashes = mine_and_save_blocks(&prover, 3).await;
+        rpc.client
+            .invalidate_block(fork_block_hashes.first().unwrap())
+            .await
+            .unwrap();
 
-        let hashes = rpc.mine_blocks(3).unwrap();
+        let hashes = rpc.mine_blocks(3).await.unwrap();
 
         // Same thing as not saving 3 blocks after they are mined.
         assert_eq!(
@@ -385,15 +396,16 @@ mod tests {
             config.bitcoin_rpc_url.clone(),
             config.bitcoin_rpc_user.clone(),
             config.bitcoin_rpc_password.clone(),
-        );
+        )
+        .await;
         let prover = HeaderChainProver::new(&config, rpc.clone()).await.unwrap();
 
         // Save current blockchain tip.
         mine_and_save_blocks(&prover, 1).await;
-        let current_tip_height = rpc.client.get_block_count().unwrap();
+        let current_tip_height = rpc.client.get_block_count().await.unwrap();
 
         // Falling behind some blocks.
-        let hash = rpc.mine_blocks(1).unwrap();
+        let hash = rpc.mine_blocks(1).await.unwrap();
         assert_eq!(
             prover.check_for_new_blocks().await.unwrap(),
             BlockFetchStatus::FallenBehind(current_tip_height, hash.clone())
@@ -418,15 +430,16 @@ mod tests {
             config.bitcoin_rpc_url.clone(),
             config.bitcoin_rpc_user.clone(),
             config.bitcoin_rpc_password.clone(),
-        );
+        )
+        .await;
         let prover = HeaderChainProver::new(&config, rpc.clone()).await.unwrap();
 
         // Save current blockchain tip.
         mine_and_save_blocks(&prover, 1).await;
-        let current_tip_height = rpc.client.get_block_count().unwrap();
+        let current_tip_height = rpc.client.get_block_count().await.unwrap();
 
         // Falling behind some blocks.
-        let hash = rpc.mine_blocks(10).unwrap();
+        let hash = rpc.mine_blocks(10).await.unwrap();
         assert_eq!(
             prover.check_for_new_blocks().await.unwrap(),
             BlockFetchStatus::FallenBehind(current_tip_height, hash.clone())
@@ -451,15 +464,16 @@ mod tests {
             config.bitcoin_rpc_url.clone(),
             config.bitcoin_rpc_user.clone(),
             config.bitcoin_rpc_password.clone(),
-        );
+        )
+        .await;
         let prover = HeaderChainProver::new(&config, rpc.clone()).await.unwrap();
 
         // Save current blockchain tip.
         mine_and_save_blocks(&prover, 1).await;
-        let current_tip_height = rpc.client.get_block_count().unwrap();
+        let current_tip_height = rpc.client.get_block_count().await.unwrap();
 
         // Falling behind some blocks and recovering from it.
-        let hash = rpc.mine_blocks(10).unwrap();
+        let hash = rpc.mine_blocks(10).await.unwrap();
         prover
             .sync_blockchain(current_tip_height, hash.clone())
             .await
@@ -470,8 +484,11 @@ mod tests {
         );
 
         // Latest block got invalidated, later to be replaced with new block.
-        rpc.client.invalidate_block(hash.last().unwrap()).unwrap();
-        let current_tip_height = rpc.client.get_block_count().unwrap();
+        rpc.client
+            .invalidate_block(hash.last().unwrap())
+            .await
+            .unwrap();
+        let current_tip_height = rpc.client.get_block_count().await.unwrap();
         // Beware that this state will never be present in Bitcoin.
         assert_ne!(
             prover.check_for_new_blocks().await.unwrap(),
@@ -479,7 +496,7 @@ mod tests {
         );
 
         // Synching should recover state after mining new blocks.
-        let hashes = rpc.mine_blocks(1).unwrap();
+        let hashes = rpc.mine_blocks(1).await.unwrap();
         prover
             .sync_blockchain(current_tip_height, hashes)
             .await

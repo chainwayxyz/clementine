@@ -131,16 +131,18 @@ impl Verifier {
         recovery_taproot_address: Address<NetworkUnchecked>,
         evm_address: EVMAddress,
     ) -> Result<Vec<MuSigPubNonce>, BridgeError> {
-        self.rpc.check_deposit_utxo(
-            self.nofn_xonly_pk,
-            &deposit_outpoint,
-            &recovery_taproot_address,
-            evm_address,
-            self.config.bridge_amount_sats,
-            self.config.confirmation_threshold,
-            self.config.network,
-            self.config.user_takes_after,
-        )?;
+        self.rpc
+            .check_deposit_utxo(
+                self.nofn_xonly_pk,
+                &deposit_outpoint,
+                &recovery_taproot_address,
+                evm_address,
+                self.config.bridge_amount_sats,
+                self.config.confirmation_threshold,
+                self.config.network,
+                self.config.user_takes_after,
+            )
+            .await?;
 
         // For now we multiply by 2 since we do not give signatures for burn_txs. // TODO: Change this in future.
         let num_required_nonces = 2 * self.operator_xonly_pks.len() + 1;
@@ -648,7 +650,8 @@ mod tests {
             config.bitcoin_rpc_url.clone(),
             config.bitcoin_rpc_user.clone(),
             config.bitcoin_rpc_password.clone(),
-        );
+        )
+        .await;
 
         // Test config file has correct keys.
         Verifier::new(rpc.clone(), config.clone()).await.unwrap();
@@ -666,7 +669,8 @@ mod tests {
             config.bitcoin_rpc_url.clone(),
             config.bitcoin_rpc_user.clone(),
             config.bitcoin_rpc_password.clone(),
-        );
+        )
+        .await;
         let verifier = Verifier::new(rpc.clone(), config.clone()).await.unwrap();
         let user = User::new(rpc.clone(), config.secret_key, config.clone());
 
@@ -683,8 +687,10 @@ mod tests {
         // Not enough nonces.
         let deposit_outpoint = rpc
             .send_to_address(&deposit_address.clone(), config.bridge_amount_sats)
+            .await
             .unwrap();
         rpc.mine_blocks((config.confirmation_threshold + 2).into())
+            .await
             .unwrap();
 
         let nonces = (0..required_nonce_count / 2)
@@ -711,8 +717,10 @@ mod tests {
         // Enough nonces.
         let deposit_outpoint = rpc
             .send_to_address(&deposit_address.clone(), config.bridge_amount_sats)
+            .await
             .unwrap();
         rpc.mine_blocks((config.confirmation_threshold + 2).into())
+            .await
             .unwrap();
 
         let nonces = (0..required_nonce_count)
