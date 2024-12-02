@@ -5,4 +5,5 @@
 
 pub mod address;
 pub mod script;
+pub mod sighash;
 pub mod transaction;

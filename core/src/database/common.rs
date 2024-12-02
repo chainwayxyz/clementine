@@ -5,8 +5,8 @@
 //! installed and configured.
 
 use super::wrapper::{
-    AddressDB, EVMAddressDB, OutPointDB, PublicKeyDB, SignatureDB, TxOutDB, TxidDB, Utxodb,
-    XOnlyPublicKeyDB,
+    AddressDB, EVMAddressDB, OutPointDB, PublicKeyDB, SignatureDB, SignaturesDB, TxOutDB, TxidDB,
+    Utxodb, XOnlyPublicKeyDB,
 };
 use super::wrapper::{BlockHashDB, BlockHeaderDB};
 use super::Database;
@@ -135,6 +135,46 @@ impl Database {
         };
 
         Ok(())
+    }
+
+    #[tracing::instrument(skip(self, tx), err(level = tracing::Level::ERROR), ret(level = tracing::Level::TRACE))]
+    pub async fn save_timeout_tx_sigs(
+        &self,
+        tx: Option<&mut sqlx::Transaction<'_, Postgres>>,
+        operator_idx: u32,
+        timeout_tx_sigs: Vec<schnorr::Signature>,
+    ) -> Result<(), BridgeError> {
+        let query = sqlx::query(
+            "INSERT INTO operator_timeout_tx_sigs (operator_idx, timeout_tx_sigs) VALUES ($1, $2);",
+        )
+        .bind(operator_idx as i64)
+        .bind(SignaturesDB(timeout_tx_sigs));
+
+        match tx {
+            Some(tx) => query.execute(&mut **tx).await?,
+            None => query.execute(&self.connection).await?,
+        };
+
+        Ok(())
+    }
+
+    #[tracing::instrument(skip(self, tx), err(level = tracing::Level::ERROR), ret(level = tracing::Level::TRACE))]
+    pub async fn get_timeout_tx_sigs(
+        &self,
+        tx: Option<&mut sqlx::Transaction<'_, Postgres>>,
+        operator_idx: u32,
+    ) -> Result<Vec<schnorr::Signature>, BridgeError> {
+        let query = sqlx::query_as(
+            "SELECT timeout_tx_sigs FROM operator_timeout_tx_sigs WHERE operator_idx = $1;",
+        )
+        .bind(operator_idx as i64);
+
+        let signatures: (SignaturesDB,) = match tx {
+            Some(tx) => query.fetch_one(&mut **tx).await,
+            None => query.fetch_one(&self.connection).await,
+        }?;
+
+        Ok(signatures.0 .0)
     }
 
     #[tracing::instrument(skip(self), err(level = tracing::Level::ERROR), ret(level = tracing::Level::TRACE))]
@@ -899,6 +939,25 @@ mod tests {
     use risc0_zkvm::Receipt;
     use secp256k1::{constants::SCHNORR_SIGNATURE_SIZE, rand::rngs::OsRng};
     use secp256k1::{schnorr, Secp256k1};
+
+    #[tokio::test]
+    async fn save_get_timeout_tx_sigs() {
+        let config = create_test_config_with_thread_name("test_config.toml", None).await;
+        let database = Database::new(&config).await.unwrap();
+
+        let signatures: Vec<schnorr::Signature> = (0..0x45)
+            .map(|i| schnorr::Signature::from_slice(&[i; SCHNORR_SIGNATURE_SIZE]).unwrap())
+            .collect();
+
+        database
+            .save_timeout_tx_sigs(None, 0x45, signatures.clone())
+            .await
+            .unwrap();
+
+        let read_signatures = database.get_timeout_tx_sigs(None, 0x45).await.unwrap();
+
+        assert_eq!(signatures, read_signatures);
+    }
 
     #[tokio::test]
     async fn test_database_gets_previously_saved_operator_take_signature() {
