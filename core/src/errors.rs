@@ -197,7 +197,7 @@ pub enum BridgeError {
     #[error("ERROR: {0}")]
     Error(String),
 
-    #[error("TonicError: {0}")]
+    #[error("RPC endpoint returned an error: {0}")]
     TonicError(#[from] tonic::Status),
 }
 
