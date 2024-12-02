@@ -212,7 +212,6 @@ mod tests {
     };
     use bitcoin::BlockHash;
     use bitcoincore_rpc::RpcApi;
-    use futures::future::try_join_all;
 
     async fn mine_and_save_blocks(prover: &HeaderChainProver, height: u64) -> Vec<BlockHash> {
         let mut fork_block_hashes = Vec::new();
@@ -374,13 +373,11 @@ mod tests {
         let initial_tip_height = rpc.client.get_block_count().await.unwrap();
 
         // Save the next 3 blocks to database, then invalidate.
-        let mut fork_block_hashes = mine_and_save_blocks(&prover, 3).await;
-        fork_block_hashes.reverse();
-        let futures: Vec<_> = fork_block_hashes
-            .iter()
-            .map(|hash| rpc.client.invalidate_block(hash))
-            .collect();
-        try_join_all(futures).await.unwrap();
+        let fork_block_hashes = mine_and_save_blocks(&prover, 3).await;
+        rpc.client
+            .invalidate_block(fork_block_hashes.first().unwrap())
+            .await
+            .unwrap();
 
         let hashes = rpc.mine_blocks(3).await.unwrap();
 
