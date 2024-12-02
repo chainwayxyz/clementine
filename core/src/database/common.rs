@@ -5,8 +5,8 @@
 //! installed and configured.
 
 use super::wrapper::{
-    AddressDB, EVMAddressDB, OutPointDB, PublicKeyDB, SignatureDB, TxOutDB, TxidDB, Utxodb,
-    XOnlyPublicKeyDB,
+    AddressDB, EVMAddressDB, OutPointDB, PublicKeyDB, SignatureDB, SignaturesDB, TxOutDB, TxidDB,
+    Utxodb, XOnlyPublicKeyDB,
 };
 use super::wrapper::{BlockHashDB, BlockHeaderDB};
 use super::Database;
@@ -21,7 +21,7 @@ use bitcoin::{
 };
 use bitcoin::{Address, OutPoint, Txid};
 use risc0_zkvm::Receipt;
-use secp256k1::{constants::SCHNORR_SIGNATURE_SIZE, schnorr};
+use secp256k1::schnorr;
 use sqlx::{Postgres, QueryBuilder};
 
 impl Database {
@@ -144,17 +144,11 @@ impl Database {
         operator_idx: u32,
         timeout_tx_sigs: Vec<schnorr::Signature>,
     ) -> Result<(), BridgeError> {
-        // Serialize all the signatures before writing them to database.
-        let serialized_signatures: Vec<u8> = timeout_tx_sigs
-            .iter()
-            .flat_map(|sig| sig.serialize().to_vec())
-            .collect();
-
         let query = sqlx::query(
             "INSERT INTO operator_timeout_tx_sigs (operator_idx, timeout_tx_sigs) VALUES ($1, $2);",
         )
         .bind(operator_idx as i64)
-        .bind(serialized_signatures);
+        .bind(SignaturesDB(timeout_tx_sigs));
 
         match tx {
             Some(tx) => query.execute(&mut **tx).await?,
@@ -175,22 +169,12 @@ impl Database {
         )
         .bind(operator_idx as i64);
 
-        let flattened_signatures: (Vec<u8>,) = match tx {
+        let signatures: (SignaturesDB,) = match tx {
             Some(tx) => query.fetch_one(&mut **tx).await,
             None => query.fetch_one(&self.connection).await,
         }?;
 
-        let signature_count = flattened_signatures.0.len() / SCHNORR_SIGNATURE_SIZE;
-        let mut signatures = Vec::new();
-
-        for i in 0..signature_count {
-            let index = i * SCHNORR_SIGNATURE_SIZE;
-            let signature = &flattened_signatures.0[index..index + SCHNORR_SIGNATURE_SIZE];
-
-            signatures.push(schnorr::Signature::from_slice(signature)?);
-        }
-
-        Ok(signatures)
+        Ok(signatures.0 .0)
     }
 
     #[tracing::instrument(skip(self), err(level = tracing::Level::ERROR), ret(level = tracing::Level::TRACE))]

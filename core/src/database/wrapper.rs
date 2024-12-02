@@ -151,6 +151,42 @@ impl<'r> Decode<'r, Postgres> for SignatureDB {
 }
 
 #[derive(Serialize, Deserialize, sqlx::FromRow, Debug, Clone)]
+pub struct SignaturesDB(pub Vec<secp256k1::schnorr::Signature>);
+
+impl sqlx::Type<sqlx::Postgres> for SignaturesDB {
+    fn type_info() -> sqlx::postgres::PgTypeInfo {
+        sqlx::postgres::PgTypeInfo::with_name("BYTEA")
+    }
+}
+impl Encode<'_, Postgres> for SignaturesDB {
+    fn encode_by_ref(&self, buf: &mut PgArgumentBuffer) -> sqlx::encode::IsNull {
+        let serialized_signatures: Vec<Vec<u8>> = self
+            .0
+            .iter()
+            .map(|signature| signature.serialize().to_vec())
+            .collect();
+
+        let serialized = borsh::to_vec(&serialized_signatures).unwrap();
+
+        <Vec<u8> as Encode<Postgres>>::encode_by_ref(&serialized, buf)
+    }
+}
+impl<'r> Decode<'r, Postgres> for SignaturesDB {
+    fn decode(value: PgValueRef<'r>) -> Result<Self, sqlx::error::BoxDynError> {
+        let raw = <Vec<u8> as Decode<Postgres>>::decode(value)?;
+
+        let signatures: Vec<secp256k1::schnorr::Signature> =
+            borsh::from_slice::<Vec<Vec<u8>>>(&raw)
+                .unwrap()
+                .iter()
+                .map(|signature| secp256k1::schnorr::Signature::from_slice(signature).unwrap())
+                .collect();
+
+        Ok(SignaturesDB(signatures))
+    }
+}
+
+#[derive(Serialize, Deserialize, sqlx::FromRow, Debug, Clone)]
 pub struct BlockHashDB(pub block::BlockHash);
 
 impl sqlx::Type<sqlx::Postgres> for BlockHashDB {
@@ -249,7 +285,8 @@ mod tests {
     use super::OutPointDB;
     use crate::{
         database::wrapper::{
-            AddressDB, BlockHashDB, BlockHeaderDB, EVMAddressDB, SignatureDB, TxOutDB, TxidDB,
+            AddressDB, BlockHashDB, BlockHeaderDB, EVMAddressDB, SignatureDB, SignaturesDB,
+            TxOutDB, TxidDB,
         },
         utils, EVMAddress,
     };
@@ -366,6 +403,25 @@ mod tests {
         let mut hex: PgArgumentBuffer = PgArgumentBuffer::default();
         if let IsNull::Yes = signaturedb.clone().encode(&mut hex) {
             panic!("Couldn't write {:?} to the buffer!", signaturedb);
+        }
+    }
+
+    #[test]
+    fn signaturesdb() {
+        assert_eq!(
+            SignaturesDB::type_info(),
+            sqlx::postgres::PgTypeInfo::with_name("BYTEA")
+        );
+
+        let signatures = vec![
+            Signature::from_slice(&[0x1Fu8; 64]).unwrap(),
+            Signature::from_slice(&[0x45u8; 64]).unwrap(),
+        ];
+        let signaturesdb = SignaturesDB(signatures);
+
+        let mut hex: PgArgumentBuffer = PgArgumentBuffer::default();
+        if let IsNull::Yes = signaturesdb.clone().encode(&mut hex) {
+            panic!("Couldn't write {:?} to the buffer!", signaturesdb);
         }
     }
 
