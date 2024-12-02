@@ -139,7 +139,8 @@ pub async fn create_verifiers_and_operators(
         config.bitcoin_rpc_url,
         config.bitcoin_rpc_user,
         config.bitcoin_rpc_password,
-    );
+    )
+    .await;
     let all_verifiers_secret_keys = config.all_verifiers_secret_keys.clone().unwrap_or_else(|| {
         panic!("All secret keys of the verifiers are required for testing");
     });
@@ -335,7 +336,8 @@ pub async fn create_verifiers_and_operators_grpc(
         config.bitcoin_rpc_url,
         config.bitcoin_rpc_user,
         config.bitcoin_rpc_password,
-    );
+    )
+    .await;
     let all_verifiers_secret_keys = config.all_verifiers_secret_keys.clone().unwrap_or_else(|| {
         panic!("All secret keys of the verifiers are required for testing");
     });

@@ -165,7 +165,8 @@ mod tests {
             config.bitcoin_rpc_url.clone(),
             config.bitcoin_rpc_user.clone(),
             config.bitcoin_rpc_password.clone(),
-        );
+        )
+        .await;
         let prover = HeaderChainProver::new(&config, rpc.clone()).await.unwrap();
 
         let receipt = prover.prove_block_headers(None, vec![]).await.unwrap();
@@ -188,7 +189,8 @@ mod tests {
             config.bitcoin_rpc_url.clone(),
             config.bitcoin_rpc_user.clone(),
             config.bitcoin_rpc_password.clone(),
-        );
+        )
+        .await;
         let prover = HeaderChainProver::new(&config, rpc.clone()).await.unwrap();
 
         // Prove genesis block and get it's receipt.
@@ -214,7 +216,8 @@ mod tests {
             config.bitcoin_rpc_url.clone(),
             config.bitcoin_rpc_user.clone(),
             config.bitcoin_rpc_password.clone(),
-        );
+        )
+        .await;
         let prover = HeaderChainProver::new(&config, rpc.clone()).await.unwrap();
         let block_headers = get_headers();
 
