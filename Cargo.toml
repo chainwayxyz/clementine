@@ -21,7 +21,7 @@ serial_test = "3.2.0"
 bitcoin = "0.32.3"
 bitcoincore-rpc = "0.18.0"
 musig2 = { version = "0.0.11", features = ["serde"] }
-secp256k1 = { version = "0.29.1", features = ["serde"] }
+secp256k1 = { version = "0.29.1", features = ["serde", "rand-std"] }
 
 # async + gRPC
 tonic = { version = "0.12.3", features = [ "tls" ] }
