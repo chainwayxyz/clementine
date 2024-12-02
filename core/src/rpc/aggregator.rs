@@ -13,7 +13,8 @@ use crate::{
     ByteArray32, ByteArray66, EVMAddress,
 };
 use bitcoin::hashes::Hash;
-use futures::{future::try_join_all, pin_mut, stream::BoxStream, FutureExt, StreamExt};
+use futures::{future::try_join_all, stream::BoxStream, FutureExt, StreamExt};
+use std::pin::pin;
 use tonic::{async_trait, Request, Response, Status};
 
 impl Aggregator {
@@ -277,15 +278,14 @@ impl ClementineAggregator for Aggregator {
             tx.send(deposit_finalize_first_param.clone()).await.unwrap();
         }
 
-        let sighash_stream = create_nofn_sighash_stream(
+        let mut sighash_stream = pin!(create_nofn_sighash_stream(
             self.db.clone(),
             deposit_outpoint,
             evm_address,
             recovery_taproot_address,
             user_takes_after,
             nofn_xonly_pk,
-        );
-        pin_mut!(sighash_stream); // needed for iteration
+        ));
 
         for _ in 0..NUM_REQUIRED_SIGS {
             // Get the next nonce from each stream

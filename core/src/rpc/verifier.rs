@@ -1,5 +1,3 @@
-use std::{str::FromStr, sync::Arc};
-
 use super::clementine::{
     self, clementine_verifier_server::ClementineVerifier, nonce_gen_response, Empty,
     NonceGenRequest, NonceGenResponse, OperatorParams, PartialSig, VerifierDepositFinalizeParams,
@@ -14,8 +12,9 @@ use crate::{
     ByteArray32, ByteArray66, EVMAddress,
 };
 use bitcoin::{hashes::Hash, Amount, TapSighash, Txid};
-use futures::{pin_mut, StreamExt};
+use futures::StreamExt;
 use secp256k1::{schnorr, Message};
+use std::{pin::pin, str::FromStr, sync::Arc};
 use tokio::sync::mpsc;
 use tokio_stream::wrappers::ReceiverStream;
 use tonic::{async_trait, Request, Response, Status, Streaming};
@@ -299,15 +298,14 @@ impl ClementineVerifier for Verifier {
                 .unwrap();
             let mut nonce_idx: usize = 0;
 
-            let sighash_stream = create_nofn_sighash_stream(
+            let mut sighash_stream = pin!(create_nofn_sighash_stream(
                 db_clone,
                 deposit_outpoint,
                 evm_address,
                 recovery_taproot_address,
                 user_takes_after,
                 nofn_xonly_pk,
-            );
-            pin_mut!(sighash_stream); // needed for iteration
+            ));
 
             while let Some(result) = in_stream.message().await.unwrap() {
                 let agg_nonce = match result
@@ -417,15 +415,14 @@ impl ClementineVerifier for Verifier {
             _ => panic!("Expected DepositOutpoint"),
         };
 
-        let sighash_stream = create_nofn_sighash_stream(
+        let mut sighash_stream = pin!(create_nofn_sighash_stream(
             self.db.clone(),
             deposit_outpoint,
             evm_address,
             recovery_taproot_address,
             user_takes_after,
             nofn_xonly_pk,
-        );
-        pin_mut!(sighash_stream); // needed for iteration
+        ));
 
         let mut nonce_idx: usize = 0;
         while let Some(result) = in_stream.message().await.unwrap() {
