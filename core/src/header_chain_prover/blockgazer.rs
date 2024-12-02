@@ -39,8 +39,8 @@ impl HeaderChainProver {
     #[tracing::instrument(skip(self))]
     async fn check_for_new_blocks(&self) -> Result<BlockFetchStatus, BridgeError> {
         let (db_tip_height, db_tip_hash) = self.db.get_latest_block_info(None).await?;
-        let active_tip_height = self.rpc.client.get_block_count()?;
-        let active_tip_hash = self.rpc.client.get_block_hash(active_tip_height)?;
+        let active_tip_height = self.rpc.client.get_block_count().await?;
+        let active_tip_hash = self.rpc.client.get_block_hash(active_tip_height).await?;
         tracing::debug!(
             "Database blockchain tip is at height {} with block hash {}",
             db_tip_height,
@@ -77,7 +77,7 @@ impl HeaderChainProver {
         } else {
             let new_height = db_tip_height + BATCH_DEEPNESS - BATCH_DEEPNESS_SAFETY_BARRIER;
 
-            (new_height, self.rpc.client.get_block_hash(new_height)?)
+            (new_height, self.rpc.client.get_block_hash(new_height).await?)
         };
         tracing::debug!("Fetching blocks between {db_tip_height}-{height}");
 
@@ -93,7 +93,7 @@ impl HeaderChainProver {
             prev_block_hash = self
                 .rpc
                 .client
-                .get_block_header(&current_block_hash)?
+                .get_block_header(&current_block_hash).await?
                 .prev_blockhash;
 
             let header = self
@@ -161,7 +161,7 @@ impl HeaderChainProver {
                 .save_new_block(
                     None,
                     *block_hash,
-                    self.rpc.client.get_block_header(block_hash)?,
+                    self.rpc.client.get_block_header(block_hash).await?,
                     current_block_height + diff as u64 + 1,
                 )
                 .await?;
@@ -214,16 +214,16 @@ mod tests {
         for _ in 0..height {
             prover.rpc.mine_blocks(1).unwrap();
 
-            let current_tip_height = prover.rpc.client.get_block_count().unwrap();
+            let current_tip_height = prover.rpc.client.get_block_count().await.unwrap();
             let current_tip_hash: BlockHash = prover
                 .rpc
                 .client
-                .get_block_hash(current_tip_height)
+                .get_block_hash(current_tip_height).await
                 .unwrap();
             let current_block_header = prover
                 .rpc
                 .client
-                .get_block(&current_tip_hash)
+                .get_block(&current_tip_hash).await
                 .unwrap()
                 .header;
 
@@ -256,9 +256,9 @@ mod tests {
         let prover = HeaderChainProver::new(&config, rpc.clone()).await.unwrap();
 
         // Save current blockchain tip.
-        let current_tip_height = rpc.client.get_block_count().unwrap();
-        let current_tip_hash = rpc.client.get_block_hash(current_tip_height).unwrap();
-        let current_block = rpc.client.get_block(&current_tip_hash).unwrap();
+        let current_tip_height = rpc.client.get_block_count().await.unwrap();
+        let current_tip_hash = rpc.client.get_block_hash(current_tip_height).await.unwrap();
+        let current_block = rpc.client.get_block(&current_tip_hash).await.unwrap();
 
         // Updating database with current block should return [`BlockFetchStatus::UpToDate`].
         prover
