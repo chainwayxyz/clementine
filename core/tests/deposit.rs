@@ -22,7 +22,8 @@ async fn deposit_with_retry_checks() {
         config.bitcoin_rpc_url.clone(),
         config.bitcoin_rpc_user.clone(),
         config.bitcoin_rpc_password.clone(),
-    );
+    )
+    .await;
 
     let secret_key = secp256k1::SecretKey::new(&mut secp256k1::rand::thread_rng());
     let signer_address = Actor::new(secret_key, config.network)
@@ -36,8 +37,10 @@ async fn deposit_with_retry_checks() {
 
     let deposit_outpoint = rpc
         .send_to_address(&deposit_address, config.bridge_amount_sats)
+        .await
         .unwrap();
     rpc.mine_blocks((config.confirmation_threshold + 2).into())
+        .await
         .unwrap();
 
     let (verifiers, operators, aggregator) =

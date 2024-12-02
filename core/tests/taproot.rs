@@ -17,7 +17,8 @@ async fn create_address_and_transaction_then_sign_transaction() {
         config.bitcoin_rpc_url,
         config.bitcoin_rpc_user,
         config.bitcoin_rpc_password,
-    );
+    )
+    .await;
 
     let (xonly_pk, _) = config.secret_key.public_key(&SECP).x_only_public_key();
     let address = Address::p2tr(&SECP, xonly_pk, None, config.network);
@@ -47,6 +48,7 @@ async fn create_address_and_transaction_then_sign_transaction() {
     // Create a new transaction.
     let utxo = rpc
         .send_to_address(&taproot_address, Amount::from_sat(1000))
+        .await
         .unwrap();
     let tx_ins = builder::transaction::create_tx_ins(vec![utxo]);
     let tx_outs = vec![TxOut {
@@ -73,5 +75,5 @@ async fn create_address_and_transaction_then_sign_transaction() {
     handle_taproot_witness_new(&mut tx_details, &[sig.as_ref()], 0, Some(0)).unwrap();
 
     // New transaction should be OK to send.
-    rpc.send_raw_transaction(&tx_details.tx).unwrap();
+    rpc.send_raw_transaction(&tx_details.tx).await.unwrap();
 }

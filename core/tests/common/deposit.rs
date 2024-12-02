@@ -27,7 +27,8 @@ pub async fn run_multiple_deposits(test_config_name: &str) {
         config.bitcoin_rpc_url.clone(),
         config.bitcoin_rpc_user.clone(),
         config.bitcoin_rpc_password.clone(),
-    );
+    )
+    .await;
     let secp = secp256k1::Secp256k1::new();
     let (verifiers, operators, aggregator) =
         create_verifiers_and_operators("test_config.toml").await;
@@ -49,9 +50,10 @@ pub async fn run_multiple_deposits(test_config_name: &str) {
     for _ in 0..config.operator_num_kickoff_utxos_per_tx + 1 {
         let deposit_outpoint = rpc
             .send_to_address(&deposit_address, config.bridge_amount_sats)
+            .await
             .unwrap();
 
-        rpc.mine_blocks(18).unwrap();
+        rpc.mine_blocks(18).await.unwrap();
 
         let mut pub_nonces = Vec::new();
 
@@ -152,7 +154,7 @@ pub async fn run_multiple_deposits(test_config_name: &str) {
         let move_tx: Transaction = deserialize_hex(&move_tx).unwrap();
 
         println!("Move tx weight: {:?}", move_tx.weight());
-        let move_txid = rpc.send_raw_transaction(&move_tx).unwrap();
+        let move_txid = rpc.send_raw_transaction(&move_tx).await.unwrap();
         println!("Move txid: {:?}", move_txid);
         deposit_outpoints.push(deposit_outpoint);
     }
@@ -170,6 +172,7 @@ pub async fn run_multiple_deposits(test_config_name: &str) {
                     - 2 * config.operator_withdrawal_fee_sats.unwrap().to_sat(),
             ),
         )
+        .await
         .unwrap();
     let withdrawal_provide_txid = operators[0]
         .0
@@ -191,6 +194,7 @@ pub async fn run_multiple_deposits(test_config_name: &str) {
                     - 2 * config.operator_withdrawal_fee_sats.unwrap().to_sat(),
             ),
         )
+        .await
         .unwrap();
     let withdrawal_provide_txid = operators[1]
         .0
@@ -220,6 +224,7 @@ pub async fn run_multiple_deposits(test_config_name: &str) {
                     - 2 * config.operator_withdrawal_fee_sats.unwrap().to_sat(),
             ),
         )
+        .await
         .unwrap();
     let withdrawal_provide_txid = operators[0]
         .0
@@ -254,7 +259,8 @@ pub async fn run_single_deposit(
         config.bitcoin_rpc_url.clone(),
         config.bitcoin_rpc_user.clone(),
         config.bitcoin_rpc_password.clone(),
-    );
+    )
+    .await;
 
     let secret_key = secp256k1::SecretKey::new(&mut secp256k1::rand::thread_rng());
     let signer_address = Actor::new(secret_key, config.network)
@@ -272,8 +278,9 @@ pub async fn run_single_deposit(
 
     let deposit_outpoint = rpc
         .send_to_address(&deposit_address, config.bridge_amount_sats)
+        .await
         .unwrap();
-    rpc.mine_blocks(18).unwrap();
+    rpc.mine_blocks(18).await.unwrap();
 
     // for every verifier, we call new_deposit
     // aggregate nonces
@@ -383,7 +390,7 @@ pub async fn run_single_deposit(
     let move_tx: Transaction = deserialize_hex(&move_tx).unwrap();
     println!("Move tx weight: {:?}", move_tx.weight());
 
-    let move_txid = rpc.send_raw_transaction(&move_tx).unwrap();
+    let move_txid = rpc.send_raw_transaction(&move_tx).await.unwrap();
     println!("Move txid: {:?}", move_txid);
 
     Ok((verifiers, operators, config, deposit_outpoint))

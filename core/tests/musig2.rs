@@ -70,7 +70,8 @@ async fn key_spend() {
         config.bitcoin_rpc_url.clone(),
         config.bitcoin_rpc_user.clone(),
         config.bitcoin_rpc_password.clone(),
-    );
+    )
+    .await;
 
     let (verifiers_secret_public_keys, untweaked_xonly_pubkey, verifier_public_keys) =
         get_verifiers_keys(&config);
@@ -82,8 +83,9 @@ async fn key_spend() {
 
     let utxo = rpc
         .send_to_address(&from_address, Amount::from_sat(100_000_000))
+        .await
         .unwrap();
-    let prevout = rpc.get_txout_from_outpoint(&utxo).unwrap();
+    let prevout = rpc.get_txout_from_outpoint(&utxo).await.unwrap();
 
     let tx_ins = builder::transaction::create_tx_ins(vec![utxo]);
     let tx_outs = builder::transaction::create_tx_outs(vec![(
@@ -145,7 +147,7 @@ async fn key_spend() {
     .unwrap();
 
     tx_details.tx.input[0].witness.push(final_signature);
-    rpc.send_raw_transaction(&tx_details.tx).unwrap();
+    rpc.send_raw_transaction(&tx_details.tx).await.unwrap();
 }
 
 #[tokio::test]
@@ -156,7 +158,8 @@ async fn key_spend_with_script() {
         config.bitcoin_rpc_url.clone(),
         config.bitcoin_rpc_user.clone(),
         config.bitcoin_rpc_password.clone(),
-    );
+    )
+    .await;
 
     let (verifiers_secret_public_keys, untweaked_xonly_pubkey, verifier_public_keys) =
         get_verifiers_keys(&config);
@@ -174,8 +177,9 @@ async fn key_spend_with_script() {
 
     let utxo = rpc
         .send_to_address(&from_address, Amount::from_sat(100_000_000))
+        .await
         .unwrap();
-    let prevout = rpc.get_txout_from_outpoint(&utxo).unwrap();
+    let prevout = rpc.get_txout_from_outpoint(&utxo).await.unwrap();
     let tx_outs = builder::transaction::create_tx_outs(vec![(
         Amount::from_sat(99_000_000),
         to_address.script_pubkey(),
@@ -237,7 +241,7 @@ async fn key_spend_with_script() {
     .unwrap();
 
     tx_details.tx.input[0].witness.push(final_signature);
-    rpc.send_raw_transaction(&tx_details.tx).unwrap();
+    rpc.send_raw_transaction(&tx_details.tx).await.unwrap();
 }
 
 #[tokio::test]
@@ -248,7 +252,8 @@ async fn script_spend() {
         config.bitcoin_rpc_url.clone(),
         config.bitcoin_rpc_user.clone(),
         config.bitcoin_rpc_password.clone(),
-    );
+    )
+    .await;
 
     let (verifiers_secret_public_keys, _untweaked_xonly_pubkey, verifier_public_keys) =
         get_verifiers_keys(&config);
@@ -279,8 +284,9 @@ async fn script_spend() {
 
     let utxo = rpc
         .send_to_address(&from_address, Amount::from_sat(100_000_000))
+        .await
         .unwrap();
-    let prevout = rpc.get_txout_from_outpoint(&utxo).unwrap();
+    let prevout = rpc.get_txout_from_outpoint(&utxo).await.unwrap();
     let tx_outs = builder::transaction::create_tx_outs(vec![(
         Amount::from_sat(99_000_000),
         to_address.script_pubkey(),
@@ -335,5 +341,5 @@ async fn script_spend() {
     let witness_elements = vec![schnorr_sig.as_ref()];
     handle_taproot_witness_new(&mut tx_details, &witness_elements, 0, Some(0)).unwrap();
 
-    rpc.send_raw_transaction(&tx_details.tx).unwrap();
+    rpc.send_raw_transaction(&tx_details.tx).await.unwrap();
 }
