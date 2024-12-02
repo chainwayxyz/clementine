@@ -2,6 +2,7 @@ use crate::{
     actor::Actor,
     builder,
     config::BridgeConfig,
+    database::Database,
     errors::BridgeError,
     musig2::{
         aggregate_nonces, aggregate_partial_signatures, AggregateFromPublicKeys, MuSigAggNonce,
@@ -32,6 +33,7 @@ use tonic::transport::Uri;
 /// For now, we do not have the last bit.
 #[derive(Debug, Clone)]
 pub struct Aggregator {
+    pub(crate) db: Database,
     pub(crate) config: BridgeConfig,
     pub(crate) nofn_xonly_pk: secp256k1::XOnlyPublicKey,
     pub(crate) verifier_clients: Vec<ClementineVerifierClient<tonic::transport::Channel>>,
@@ -41,6 +43,8 @@ pub struct Aggregator {
 impl Aggregator {
     // #[tracing::instrument(err(level = tracing::Level::ERROR), ret(level = tracing::Level::TRACE))]
     pub async fn new(config: BridgeConfig) -> Result<Self, BridgeError> {
+        let db = Database::new(&config).await?;
+
         let nofn_xonly_pk = secp256k1::XOnlyPublicKey::from_musig2_pks(
             config.verifiers_public_keys.clone(),
             None,
@@ -81,6 +85,7 @@ impl Aggregator {
             .unwrap();
 
         Ok(Aggregator {
+            db,
             config,
             nofn_xonly_pk,
             verifier_clients,

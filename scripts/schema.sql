@@ -22,6 +22,12 @@ create table if not exists operator_time_txs (
     primary key (operator_idx, idx)
 );
 
+-- Timeout tx signatures. Verifiers needs to store these data and use it when needed
+create table if not exists operator_timeout_tx_sigs (
+    operator_idx int primary key, -- Index of the operator
+    timeout_tx_sigs bytea not null -- Serialized Timeout tx signatures
+);
+
 -- Verifier table for deposit details
 /* This table holds the information related to a deposit. */
 create table if not exists deposit_infos (
@@ -82,7 +88,7 @@ create table if not exists deposit_kickoff_utxos (
     operator_idx int not null,
     kickoff_utxo jsonb not null,
     slash_or_take_sig text,
-    operator_take_sig text,
+    operator_take_sig bytea,
     burn_sig text,
     created_at timestamp not null default now(),
     primary key (deposit_outpoint, operator_idx)

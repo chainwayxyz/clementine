@@ -143,6 +143,10 @@ message PartialSig {
   bytes partial_sig = 1;
 }
 
+message NonceGenRequest {
+  uint32 num_nonces = 1;
+}
+
 message NonceGenFirstResponse {
   // Nonce ID
   uint32 id = 1;
@@ -196,7 +200,7 @@ service ClementineVerifier {
   // # Returns
   //
   // Nonce metadata followed by nonces.
-  rpc NonceGen(Empty) returns (stream NonceGenResponse) {}
+  rpc NonceGen(NonceGenRequest) returns (stream NonceGenResponse) {}
 
   // Signs deposit with given aggNonces and it's corresponding secNonce using
   // nonce_id.

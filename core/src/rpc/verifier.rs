@@ -1,20 +1,20 @@
-use std::{str::FromStr, sync::Arc};
-
 use super::clementine::{
     self, clementine_verifier_server::ClementineVerifier, nonce_gen_response, Empty,
-    NonceGenResponse, OperatorParams, PartialSig, VerifierDepositFinalizeParams,
+    NonceGenRequest, NonceGenResponse, OperatorParams, PartialSig, VerifierDepositFinalizeParams,
     VerifierDepositSignParams, VerifierParams, VerifierPublicKeys, WatchtowerParams,
 };
 use crate::{
-    actor::Actor,
-    builder,
+    builder::{self, sighash::create_nofn_sighash_stream},
     errors::BridgeError,
     musig2::{self, MuSigPubNonce, MuSigSecNonce},
     sha256_hash, utils,
     verifier::{NofN, NonceSession, Verifier},
     ByteArray32, ByteArray66, EVMAddress,
 };
-use bitcoin::{hashes::Hash, Amount, TapSighash};
+use bitcoin::{hashes::Hash, Amount, TapSighash, Txid};
+use futures::StreamExt;
+use secp256k1::{schnorr, Message};
+use std::{pin::pin, str::FromStr};
 use tokio::sync::mpsc;
 use tokio_stream::wrappers::ReceiverStream;
 use tonic::{async_trait, Request, Response, Status, Streaming};
@@ -84,13 +84,58 @@ impl ClementineVerifier for Verifier {
             .operator_details
             .ok_or(BridgeError::Error("No operator details".to_string()))?;
 
+        let operator_xonly_pk = secp256k1::XOnlyPublicKey::from_str(&operator_config.xonly_pk)
+            .map_err(|_| BridgeError::Error("Invalid xonly public key".to_string()))?;
+
+        // Save the operator details to the db
         self.db
             .set_operator(
                 None,
                 operator_config.operator_idx as i32,
-                secp256k1::XOnlyPublicKey::from_str(&operator_config.xonly_pk).unwrap(),
+                operator_xonly_pk,
                 operator_config.wallet_reimburse_address,
             )
+            .await?;
+
+        let timeout_tx_sigs: Vec<schnorr::Signature> = operator_params
+            .timeout_tx_sigs
+            .iter()
+            .map(|sig| secp256k1::schnorr::Signature::from_slice(sig).unwrap())
+            .collect();
+
+        let timeout_tx_sighash_stream = builder::sighash::create_timout_tx_sighash_stream(
+            operator_xonly_pk,
+            Txid::from_slice(&operator_config.collateral_funding_txid).unwrap(),
+            Amount::from_sat(200_000_000), // TODO: Fix this.
+            3024,
+            6,
+            100,
+            self.config.network,
+        );
+
+        // Verify the signatures
+        let results: Vec<Result<(), _>> = timeout_tx_sighash_stream
+            .enumerate()
+            .map(|(i, sighash)| {
+                utils::SECP.verify_schnorr(
+                    &timeout_tx_sigs[i],
+                    &Message::from(sighash),
+                    &operator_xonly_pk,
+                )
+            })
+            .collect()
+            .await;
+
+        // Check if all verifications succeeded
+        let x = results.iter().all(|res| res.is_ok());
+        if !x {
+            return Err(Status::internal(
+                "Failed to verify all timeout tx signatures",
+            ));
+        }
+
+        self.db
+            .save_timeout_tx_sigs(None, operator_config.operator_idx, timeout_tx_sigs)
             .await?;
 
         Ok(Response::new(Empty {}))
@@ -109,10 +154,10 @@ impl ClementineVerifier for Verifier {
     #[allow(clippy::blocks_in_conditions)]
     async fn nonce_gen(
         &self,
-        _request: Request<Empty>,
+        req: Request<NonceGenRequest>,
     ) -> Result<Response<Self::NonceGenStream>, Status> {
-        let (sec_nonces, pub_nonces): (Vec<MuSigSecNonce>, Vec<MuSigPubNonce>) = (0
-            ..NUM_REQUIRED_SIGS)
+        let num_nonces = req.into_inner().num_nonces as usize;
+        let (sec_nonces, pub_nonces): (Vec<MuSigSecNonce>, Vec<MuSigPubNonce>) = (0..num_nonces)
             .map(|_| {
                 // nonce pair needs keypair and a rng
                 let (sec_nonce, pub_nonce) =
@@ -150,7 +195,7 @@ impl ClementineVerifier for Verifier {
                 .sign(TapSighash::from_byte_array(public_key_hash))
                 .serialize()
                 .to_vec(),
-            num_nonces: NUM_REQUIRED_SIGS as u32,
+            num_nonces: num_nonces as u32,
         };
 
         // now stream the nonces
@@ -185,11 +230,7 @@ impl ClementineVerifier for Verifier {
 
         tracing::info!("Received deposit sign request");
 
-        let verifier_idx = self.idx;
-        let nofn_xonly_pk = self.nofn_xonly_pk;
-        let sessions = Arc::clone(&self.nonces);
-        let signer = self.signer.clone();
-        let verifiers_public_keys = self.config.verifiers_public_keys.clone();
+        let verifier = self.clone();
 
         tokio::spawn(async move {
             let first_message = in_stream
@@ -232,7 +273,7 @@ impl ClementineVerifier for Verifier {
                     let user_takes_after = deposit_params.user_takes_after;
 
                     let session_id =
-                        deposit_sign_first_param.nonce_gen_first_responses[verifier_idx].id;
+                        deposit_sign_first_param.nonce_gen_first_responses[verifier.idx].id;
                     (
                         deposit_outpoint,
                         evm_address,
@@ -244,13 +285,22 @@ impl ClementineVerifier for Verifier {
                 _ => panic!("Expected DepositOutpoint"),
             };
 
-            let binding = sessions.lock().await;
+            let binding = verifier.nonces.lock().await;
             let session = binding
                 .sessions
                 .get(&session_id)
                 .ok_or(Status::internal("No session found"))
                 .unwrap();
             let mut nonce_idx: usize = 0;
+
+            let mut sighash_stream = pin!(create_nofn_sighash_stream(
+                verifier.db,
+                deposit_outpoint,
+                evm_address,
+                recovery_taproot_address,
+                user_takes_after,
+                verifier.nofn_xonly_pk,
+            ));
 
             while let Some(result) = in_stream.message().await.unwrap() {
                 let agg_nonce = match result
@@ -264,35 +314,17 @@ impl ClementineVerifier for Verifier {
                     _ => panic!("Expected AggNonce"),
                 };
 
-                let mut dummy_move_tx_handler = builder::transaction::create_move_tx_handler(
-                    deposit_outpoint,
-                    evm_address,
-                    &recovery_taproot_address,
-                    nofn_xonly_pk,
-                    bitcoin::Network::Regtest,
-                    user_takes_after as u32,
-                    Amount::from_sat(nonce_idx as u64 + 1000000),
-                );
-
-                let move_tx_sighash = ByteArray32(
-                    Actor::convert_tx_to_sighash_script_spend(&mut dummy_move_tx_handler, 0, 0)
-                        .unwrap()
-                        .to_byte_array(),
-                );
-                tracing::debug!(
-                    "Verifier {} found sighash: {:?}",
-                    verifier_idx,
-                    move_tx_sighash
-                );
+                let sighash = sighash_stream.next().await.unwrap();
+                tracing::debug!("Verifier {} found sighash: {:?}", verifier.idx, sighash);
 
                 let move_tx_sig = musig2::partial_sign(
-                    verifiers_public_keys.clone(),
+                    verifier.config.verifiers_public_keys.clone(),
                     None,
                     false,
                     session.nonces[nonce_idx],
                     agg_nonce,
-                    &signer.keypair,
-                    move_tx_sighash,
+                    &verifier.signer.keypair,
+                    ByteArray32(sighash.to_byte_array()),
                 );
 
                 let partial_sig = PartialSig {
@@ -307,7 +339,7 @@ impl ClementineVerifier for Verifier {
                 }
             }
             // drop nonces
-            let mut binding = sessions.lock().await;
+            let mut binding = verifier.nonces.lock().await;
             binding.sessions.remove(&session_id);
         });
 
@@ -321,23 +353,17 @@ impl ClementineVerifier for Verifier {
         &self,
         req: Request<Streaming<VerifierDepositFinalizeParams>>,
     ) -> Result<Response<PartialSig>, Status> {
-        let verifier_idx = self.idx;
-        let nofn_xonly_pk = self.nofn_xonly_pk;
-
         let mut in_stream = req.into_inner();
 
         let first_message = in_stream
             .message()
-            .await
-            .unwrap()
-            .ok_or(Status::internal("No first message received"))
-            .unwrap();
+            .await?
+            .ok_or(Status::internal("No first message received"))?;
 
         // Parse the first message
         let params = first_message
             .params
-            .ok_or(Status::internal("No deposit outpoint received"))
-            .unwrap();
+            .ok_or(Status::internal("No deposit outpoint received"))?;
         let (
             deposit_outpoint,
             evm_address,
@@ -350,23 +376,19 @@ impl ClementineVerifier for Verifier {
             ) => {
                 let deposit_params = deposit_sign_first_param
                     .deposit_params
-                    .ok_or(Status::internal("No deposit outpoint received"))
-                    .unwrap();
+                    .ok_or(Status::internal("No deposit outpoint received"))?;
                 let deposit_outpoint: bitcoin::OutPoint = deposit_params
                     .deposit_outpoint
-                    .ok_or(Status::internal("No deposit outpoint received"))
-                    .unwrap()
-                    .try_into()
-                    .unwrap();
+                    .ok_or(Status::internal("No deposit outpoint received"))?
+                    .try_into()?;
                 let evm_address: EVMAddress = deposit_params.evm_address.try_into().unwrap();
                 let recovery_taproot_address = deposit_params
                     .recovery_taproot_address
                     .parse::<bitcoin::Address<_>>()
-                    .unwrap();
+                    .map_err(|e| BridgeError::Error(e.to_string()))?;
                 let user_takes_after = deposit_params.user_takes_after;
 
-                let session_id =
-                    deposit_sign_first_param.nonce_gen_first_responses[verifier_idx].id;
+                let session_id = deposit_sign_first_param.nonce_gen_first_responses[self.idx].id;
                 (
                     deposit_outpoint,
                     evm_address,
@@ -378,24 +400,18 @@ impl ClementineVerifier for Verifier {
             _ => panic!("Expected DepositOutpoint"),
         };
 
+        let mut sighash_stream = pin!(create_nofn_sighash_stream(
+            self.db.clone(),
+            deposit_outpoint,
+            evm_address,
+            recovery_taproot_address,
+            user_takes_after,
+            self.nofn_xonly_pk,
+        ));
+
         let mut nonce_idx: usize = 0;
         while let Some(result) = in_stream.message().await.unwrap() {
-            let mut dummy_move_tx_handler = builder::transaction::create_move_tx_handler(
-                deposit_outpoint,
-                evm_address,
-                &recovery_taproot_address,
-                nofn_xonly_pk,
-                bitcoin::Network::Regtest,
-                user_takes_after as u32,
-                Amount::from_sat(nonce_idx as u64 + 1000000),
-            );
-
-            let move_tx_sighash = ByteArray32(
-                Actor::convert_tx_to_sighash_script_spend(&mut dummy_move_tx_handler, 0, 0)
-                    .unwrap()
-                    .to_byte_array(),
-            );
-
+            let sighash = sighash_stream.next().await.unwrap();
             let final_sig = result
                 .params
                 .ok_or(Status::internal("No final sig received"))
@@ -411,8 +427,8 @@ impl ClementineVerifier for Verifier {
             utils::SECP
                 .verify_schnorr(
                     &final_sig,
-                    &secp256k1::Message::from_digest(move_tx_sighash.0),
-                    &nofn_xonly_pk,
+                    &secp256k1::Message::from(sighash),
+                    &self.nofn_xonly_pk,
                 )
                 .unwrap();
 
