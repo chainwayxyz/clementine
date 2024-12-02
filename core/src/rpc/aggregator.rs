@@ -18,6 +18,23 @@ use std::pin::pin;
 use tonic::{async_trait, Request, Response, Status};
 
 impl Aggregator {
+    // Extracts pub_nonce from given stream.
+    fn extract_pub_nonce(
+        response: Option<clementine::nonce_gen_response::Response>,
+    ) -> Result<ByteArray66, BridgeError> {
+        match response
+            .ok_or_else(|| BridgeError::Error("NonceGen response is empty".to_string()))?
+        {
+            clementine::nonce_gen_response::Response::PubNonce(pub_nonce) => pub_nonce
+                .try_into()
+                .map(ByteArray66)
+                .map_err(|_| BridgeError::Error("PubNonce should be exactly 66 bytes".to_string())),
+            _ => Err(BridgeError::Error(
+                "Expected PubNonce in response".to_string(),
+            )),
+        }
+    }
+
     /// Creates a stream of nonces from verifiers.
     /// This will automatically get's the first response from the verifiers.
     async fn create_nonce_streams(
@@ -70,24 +87,6 @@ impl Aggregator {
             }))
             .await?;
 
-        // Transform each stream's output using map
-        fn extract_pub_nonce(
-            response: Option<clementine::nonce_gen_response::Response>,
-        ) -> Result<ByteArray66, BridgeError> {
-            match response
-                .ok_or_else(|| BridgeError::Error("NonceGen response is empty".to_string()))?
-            {
-                clementine::nonce_gen_response::Response::PubNonce(pub_nonce) => {
-                    pub_nonce.try_into().map(ByteArray66).map_err(|_| {
-                        BridgeError::Error("PubNonce should be exactly 66 bytes".to_string())
-                    })
-                }
-                _ => Err(BridgeError::Error(
-                    "Expected PubNonce in response".to_string(),
-                )),
-            }
-        }
-
         let transformed_streams: Vec<BoxStream<Result<ByteArray66, BridgeError>>> = nonce_streams
             .into_iter()
             .map(|stream| {
@@ -96,7 +95,7 @@ impl Aggregator {
                         result
                             .map_err(BridgeError::from)
                             .and_then(|nonce_gen_response| {
-                                extract_pub_nonce(nonce_gen_response.response)
+                                Self::extract_pub_nonce(nonce_gen_response.response)
                             })
                     })
                     .boxed()
