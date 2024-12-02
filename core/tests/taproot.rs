@@ -2,6 +2,7 @@ use bitcoin::hashes::{Hash, HashEngine};
 use bitcoin::opcodes::all::OP_CHECKSIG;
 use bitcoin::script::Builder;
 use bitcoin::{Address, Amount, TapTweakHash, TxOut, XOnlyPublicKey};
+use bitcoincore_rpc::RpcApi;
 use clementine_core::actor::Actor;
 use clementine_core::builder::transaction::TxHandler;
 use clementine_core::builder::{self};
@@ -75,5 +76,8 @@ async fn create_address_and_transaction_then_sign_transaction() {
     handle_taproot_witness_new(&mut tx_details, &[sig.as_ref()], 0, Some(0)).unwrap();
 
     // New transaction should be OK to send.
-    rpc.send_raw_transaction(&tx_details.tx).await.unwrap();
+    rpc.client
+        .send_raw_transaction(&tx_details.tx)
+        .await
+        .unwrap();
 }

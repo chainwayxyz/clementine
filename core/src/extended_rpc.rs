@@ -11,7 +11,6 @@ use bitcoin::Amount;
 use bitcoin::BlockHash;
 use bitcoin::OutPoint;
 use bitcoin::ScriptBuf;
-use bitcoin::Transaction;
 use bitcoin::TxOut;
 use bitcoin::XOnlyPublicKey;
 use bitcoincore_rpc::Auth;
@@ -127,48 +126,6 @@ impl ExtendedRpc {
         let txout = tx.output[outpoint.vout as usize].clone();
 
         Ok(txout)
-    }
-
-    // Following methods are just wrappers around the bitcoincore_rpc::Client methods
-    #[tracing::instrument(skip(self), err(level = tracing::Level::ERROR), ret(level = tracing::Level::TRACE))]
-    pub async fn fund_raw_transaction(
-        &self,
-        tx: &Transaction,
-        options: Option<&bitcoincore_rpc::json::FundRawTransactionOptions>,
-        is_witness: Option<bool>,
-    ) -> Result<bitcoincore_rpc::json::FundRawTransactionResult, bitcoincore_rpc::Error> {
-        self.client
-            .fund_raw_transaction(tx, options, is_witness)
-            .await
-    }
-
-    #[tracing::instrument(skip(self, tx, sighash_type), err(level = tracing::Level::ERROR), ret(level = tracing::Level::TRACE))]
-    pub async fn sign_raw_transaction_with_wallet<T: bitcoincore_rpc::RawTx>(
-        &self,
-        tx: T,
-        utxos: Option<&[bitcoincore_rpc::json::SignRawTransactionInput]>,
-        sighash_type: Option<bitcoincore_rpc::json::SigHashType>,
-    ) -> Result<bitcoincore_rpc::json::SignRawTransactionResult, bitcoincore_rpc::Error> {
-        self.client
-            .sign_raw_transaction_with_wallet(tx, utxos, sighash_type)
-            .await
-    }
-
-    #[tracing::instrument(skip(self), err(level = tracing::Level::ERROR), ret(level = tracing::Level::TRACE))]
-    pub async fn get_raw_transaction(
-        &self,
-        txid: &bitcoin::Txid,
-        block_hash: Option<&bitcoin::BlockHash>,
-    ) -> Result<bitcoin::Transaction, bitcoincore_rpc::Error> {
-        self.client.get_raw_transaction(txid, block_hash).await
-    }
-
-    #[tracing::instrument(skip(self, tx), err(level = tracing::Level::ERROR), ret(level = tracing::Level::TRACE))]
-    pub async fn send_raw_transaction<T: bitcoincore_rpc::RawTx>(
-        &self,
-        tx: T,
-    ) -> Result<bitcoin::Txid, bitcoincore_rpc::Error> {
-        self.client.send_raw_transaction(tx).await
     }
 
     #[tracing::instrument(skip(self), err(level = tracing::Level::ERROR), ret(level = tracing::Level::TRACE))]

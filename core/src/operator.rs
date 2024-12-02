@@ -15,7 +15,7 @@ use bitcoin::hashes::Hash;
 use bitcoin::script::PushBytesBuf;
 use bitcoin::sighash::SighashCache;
 use bitcoin::{Address, Amount, OutPoint, TapSighash, Transaction, TxOut, Txid};
-use bitcoincore_rpc::RawTx;
+use bitcoincore_rpc::{RawTx, RpcApi};
 use jsonrpsee::core::async_trait;
 use jsonrpsee::core::client::ClientT;
 use jsonrpsee::http_client::HttpClientBuilder;
@@ -454,6 +454,7 @@ impl Operator {
 
         let funded_tx = self
             .rpc
+            .client
             .fund_raw_transaction(
                 &tx,
                 Some(&bitcoincore_rpc::json::FundRawTransactionOptions {
@@ -477,12 +478,13 @@ impl Operator {
         let signed_tx: Transaction = deserialize(
             &self
                 .rpc
+                .client
                 .sign_raw_transaction_with_wallet(&funded_tx, None, None)
                 .await?
                 .hex,
         )?;
 
-        Ok(self.rpc.send_raw_transaction(&signed_tx).await?)
+        Ok(self.rpc.client.send_raw_transaction(&signed_tx).await?)
     }
 
     /// Checks Citrea if a withdrawal is finalized.
@@ -582,6 +584,7 @@ impl Operator {
         for _ in 0..25 {
             if self
                 .rpc
+                .client
                 .get_raw_transaction(&current_searching_txid, None)
                 .await
                 .is_ok()

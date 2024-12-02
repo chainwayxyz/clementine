@@ -118,6 +118,7 @@ mod tests {
     use crate::mock::database::create_test_config_with_thread_name;
     use crate::user::User;
     use crate::EVMAddress;
+    use bitcoincore_rpc::RpcApi;
     use secp256k1::{rand, SecretKey};
 
     #[tokio::test]
@@ -137,6 +138,7 @@ mod tests {
 
         let deposit_utxo = user.deposit_tx(evm_address).await.unwrap();
         let deposit_txout = rpc
+            .client
             .get_raw_transaction(&deposit_utxo.txid, None)
             .await
             .unwrap();

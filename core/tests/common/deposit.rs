@@ -5,6 +5,7 @@ use bitcoin::Address;
 use bitcoin::Amount;
 use bitcoin::OutPoint;
 use bitcoin::Transaction;
+use bitcoincore_rpc::RpcApi;
 use clementine_core::actor::Actor;
 use clementine_core::config::BridgeConfig;
 use clementine_core::errors::BridgeError;
@@ -154,7 +155,7 @@ pub async fn run_multiple_deposits(test_config_name: &str) {
         let move_tx: Transaction = deserialize_hex(&move_tx).unwrap();
 
         println!("Move tx weight: {:?}", move_tx.weight());
-        let move_txid = rpc.send_raw_transaction(&move_tx).await.unwrap();
+        let move_txid = rpc.client.send_raw_transaction(&move_tx).await.unwrap();
         println!("Move txid: {:?}", move_txid);
         deposit_outpoints.push(deposit_outpoint);
     }
@@ -390,7 +391,7 @@ pub async fn run_single_deposit(
     let move_tx: Transaction = deserialize_hex(&move_tx).unwrap();
     println!("Move tx weight: {:?}", move_tx.weight());
 
-    let move_txid = rpc.send_raw_transaction(&move_tx).await.unwrap();
+    let move_txid = rpc.client.send_raw_transaction(&move_tx).await.unwrap();
     println!("Move txid: {:?}", move_txid);
 
     Ok((verifiers, operators, config, deposit_outpoint))

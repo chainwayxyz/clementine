@@ -5,6 +5,7 @@
 use std::str::FromStr;
 
 use bitcoin::{Address, Amount, Txid};
+use bitcoincore_rpc::RpcApi;
 use clementine_core::errors::BridgeError;
 use clementine_core::extended_rpc::ExtendedRpc;
 use clementine_core::rpc::clementine::clementine_aggregator_client::ClementineAggregatorClient;
@@ -66,7 +67,7 @@ async fn honest_operator_takes_refund() {
         .unwrap();
 
     for tx in txs_to_be_sent.iter().take(txs_to_be_sent.len() - 1) {
-        rpc.send_raw_transaction(tx.clone()).await.unwrap();
+        rpc.client.send_raw_transaction(tx.clone()).await.unwrap();
         rpc.mine_blocks(1).await.unwrap();
     }
     rpc.mine_blocks(1 + config.operator_takes_after as u64)
@@ -75,10 +76,12 @@ async fn honest_operator_takes_refund() {
 
     // Send last transaction.
     let operator_take_txid = rpc
+        .client
         .send_raw_transaction(txs_to_be_sent.last().unwrap().clone())
         .await
         .unwrap();
     let operator_take_tx = rpc
+        .client
         .get_raw_transaction(&operator_take_txid, None)
         .await
         .unwrap();
