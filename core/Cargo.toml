@@ -33,9 +33,9 @@ borsh = { workspace = true}
 tonic = { workspace = true}
 prost = { workspace = true }
 tokio-stream = { workspace = true }
-async-stream = "0.3.6"
-futures-util = "0.3.31"
-futures-core = "0.3.31"
+async-stream = { workspace = true }
+futures-util = { workspace = true }
+futures-core = { workspace = true }
 
 [dev-dependencies]
 serial_test = { workspace = true }
