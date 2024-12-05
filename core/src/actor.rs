@@ -9,11 +9,45 @@ use bitcoin::{
     Address, TapSighash, TapTweakHash,
 };
 use bitcoin::{TapLeafHash, TapNodeHash, TapSighashType, TxOut};
+use bitvm::signatures::winternitz;
+
+/// Available transaction types for [`WinternitzDerivationPath`].
+pub enum TxType {
+    TimeTX,
+}
+/// Derivation path specification for Winternitz one time public key generation.
+pub struct WinternitzDerivationPath {
+    pub message_length: u32,
+    pub log_d: u32,
+    pub index: u32,
+    pub tx_type: TxType,
+    pub operator_idx: u32,
+    pub watchtower_idx: u32,
+    pub time_tx_idx: u32,
+}
+impl WinternitzDerivationPath {
+    fn to_vec(&self) -> Vec<u8> {
+        let tx_type: u8 = match self.tx_type {
+            TxType::TimeTX => 0,
+        };
+
+        [
+            vec![tx_type],
+            [
+                self.operator_idx.to_be_bytes(),
+                self.watchtower_idx.to_be_bytes(),
+                self.time_tx_idx.to_be_bytes(),
+            ]
+            .concat(),
+        ]
+        .concat()
+    }
+}
 
 #[derive(Debug, Clone)]
 pub struct Actor {
     pub keypair: Keypair,
-    _secret_key: SecretKey,
+    secret_key: SecretKey,
     pub xonly_public_key: XOnlyPublicKey,
     pub public_key: secp256k1::PublicKey,
     pub address: Address,
@@ -28,11 +62,27 @@ impl Actor {
 
         Actor {
             keypair,
-            _secret_key: keypair.secret_key(),
+            secret_key: keypair.secret_key(),
             xonly_public_key: xonly,
             public_key: keypair.public_key(),
             address,
         }
+    }
+
+    /// Generates a Winternitz public key for given path.
+    pub fn derive_winternitz_pk(
+        &self,
+        path: WinternitzDerivationPath,
+    ) -> Result<winternitz::PublicKey, BridgeError> {
+        let altered_secret_key = [self.secret_key.as_ref().to_vec(), path.to_vec()].concat();
+
+        let winternitz_params = winternitz::Parameters::new(path.message_length, path.log_d);
+
+        let public_key = winternitz::generate_public_key(&winternitz_params, &altered_secret_key);
+
+        // let public_key = PublicKey::from_slice(&public_key).unwrap();
+
+        Ok(public_key)
     }
 
     #[tracing::instrument(skip(self), err(level = tracing::Level::ERROR), ret(level = tracing::Level::TRACE))]
@@ -286,7 +336,7 @@ mod tests {
 
         let actor = Actor::new(sk, network);
 
-        assert_eq!(sk, actor._secret_key);
+        assert_eq!(sk, actor.secret_key);
         assert_eq!(sk.public_key(&secp), actor.public_key);
         assert_eq!(sk.x_only_public_key(&secp).0, actor.xonly_public_key);
     }
@@ -346,6 +396,24 @@ mod tests {
                 0,
                 Some(bitcoin::TapSighashType::SinglePlusAnyoneCanPay),
             )
+            .unwrap();
+    }
+
+    #[test]
+    fn derive_winternitz_pk() {
+        let sk = SecretKey::new(&mut rand::thread_rng());
+        let actor = Actor::new(sk, Network::Regtest);
+
+        actor
+            .derive_winternitz_pk(super::WinternitzDerivationPath {
+                tx_type: super::TxType::TimeTX,
+                operator_idx: 0,
+                watchtower_idx: 1,
+                time_tx_idx: 2,
+                message_length: 0,
+                log_d: 4,
+                index: 0,
+            })
             .unwrap();
     }
 }
