@@ -11,6 +11,16 @@ pub mod verifier;
 pub mod watchtower;
 mod wrapper;
 
+/// Returns gRPC clients.
+///
+/// # Parameters
+///
+/// - `endpoints`: URIs for clients
+/// - `connect`: Function that will be used to initiate gRPC connection
+///
+/// # Returns
+///
+/// - [`CLIENT`]: [`tonic`] gRPC client.
 pub async fn get_clients<CLIENT, F, Fut>(
     endpoints: Vec<String>,
     connect: F,
