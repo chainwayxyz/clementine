@@ -23,20 +23,38 @@ pub enum TxType {
 pub struct WinternitzDerivationPath {
     pub message_length: u32,
     pub log_d: u32,
-    pub index: u32,
     pub tx_type: TxType,
-    pub operator_idx: u32,
-    pub watchtower_idx: u32,
-    pub time_tx_idx: u32,
+    pub index: Option<u32>,
+    pub operator_idx: Option<u32>,
+    pub watchtower_idx: Option<u32>,
+    pub time_tx_idx: Option<u32>,
 }
 impl WinternitzDerivationPath {
     fn to_vec(self) -> Vec<u8> {
+        let index = match self.index {
+            None => 0,
+            Some(i) => i + 1,
+        };
+        let operator_idx = match self.operator_idx {
+            None => 0,
+            Some(i) => i + 1,
+        };
+        let watchtower_idx = match self.watchtower_idx {
+            None => 0,
+            Some(i) => i + 1,
+        };
+        let time_tx_idx = match self.time_tx_idx {
+            None => 0,
+            Some(i) => i + 1,
+        };
+
         [
             vec![self.tx_type as u8],
             [
-                self.operator_idx.to_be_bytes(),
-                self.watchtower_idx.to_be_bytes(),
-                self.time_tx_idx.to_be_bytes(),
+                index.to_be_bytes(),
+                operator_idx.to_be_bytes(),
+                watchtower_idx.to_be_bytes(),
+                time_tx_idx.to_be_bytes(),
             ]
             .concat(),
         ]
@@ -422,6 +440,24 @@ mod tests {
             .unwrap();
     }
 
+    #[test]
+    fn winternitz_derivation_path_to_vec() {
+        let mut params = WinternitzDerivationPath::default();
+        assert_eq!(params.to_vec(), vec![0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]);
+
+        params.index = Some(0);
+        assert_eq!(params.to_vec(), vec![0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]);
+
+        params.operator_idx = Some(1);
+        assert_eq!(params.to_vec(), vec![0, 0, 0, 0, 1, 0, 0, 0, 2, 0, 0, 0, 0, 0, 0, 0, 0]);
+
+        params.watchtower_idx = Some(2);
+        assert_eq!(params.to_vec(), vec![0, 0, 0, 0, 1, 0, 0, 0, 2, 0, 0, 0, 3, 0, 0, 0, 0]);
+
+        params.time_tx_idx = Some(3);
+        assert_eq!(params.to_vec(), vec![0, 0, 0, 0, 1, 0, 0, 0, 2, 0, 0, 0, 3, 0, 0, 0, 4]);
+    }
+
     #[tokio::test]
     async fn derive_winternitz_pk() {
         let config = create_test_config_with_thread_name("test_config.toml", None).await;
@@ -436,7 +472,7 @@ mod tests {
         let pk1 = actor.derive_winternitz_pk(params).unwrap();
         assert_eq!(pk0, pk1);
 
-        params.time_tx_idx += 1;
+        params.message_length += 1;
         let pk2 = actor.derive_winternitz_pk(params).unwrap();
         assert_ne!(pk0, pk2);
     }
