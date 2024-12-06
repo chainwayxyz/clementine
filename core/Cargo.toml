@@ -36,9 +36,11 @@ tokio-stream = { workspace = true }
 async-stream = { workspace = true }
 futures-util = { workspace = true }
 futures-core = { workspace = true }
+bitvm = { workspace = true }
 
 [dev-dependencies]
 serial_test = { workspace = true }
+bitcoin-script = { workspace = true }
 
 [features]
 default = []

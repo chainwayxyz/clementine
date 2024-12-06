@@ -8,12 +8,80 @@ use bitcoin::{
     secp256k1::{schnorr, Keypair, Message, SecretKey, XOnlyPublicKey},
     Address, TapSighash, TapTweakHash,
 };
-use bitcoin::{TapLeafHash, TapNodeHash, TapSighashType, TxOut};
+use bitcoin::{TapLeafHash, TapNodeHash, TapSighashType, TxOut, Witness};
+use bitvm::signatures::winternitz::{
+    self, BinarysearchVerifier, StraightforwardConverter, Winternitz,
+};
+
+/// Available transaction types for [`WinternitzDerivationPath`].
+#[derive(Clone, Copy, Debug)]
+pub enum TxType {
+    TimeTx,
+    KickoffTx,
+}
+
+/// Derivation path specification for Winternitz one time public key generation.
+#[derive(Debug, Clone, Copy)]
+pub struct WinternitzDerivationPath {
+    pub message_length: u32,
+    pub log_d: u32,
+    pub tx_type: TxType,
+    pub index: Option<u32>,
+    pub operator_idx: Option<u32>,
+    pub watchtower_idx: Option<u32>,
+    pub time_tx_idx: Option<u32>,
+}
+impl WinternitzDerivationPath {
+    fn to_vec(self) -> Vec<u8> {
+        let index = match self.index {
+            None => 0,
+            Some(i) => i + 1,
+        };
+        let operator_idx = match self.operator_idx {
+            None => 0,
+            Some(i) => i + 1,
+        };
+        let watchtower_idx = match self.watchtower_idx {
+            None => 0,
+            Some(i) => i + 1,
+        };
+        let time_tx_idx = match self.time_tx_idx {
+            None => 0,
+            Some(i) => i + 1,
+        };
+
+        [
+            vec![self.tx_type as u8],
+            [
+                index.to_be_bytes(),
+                operator_idx.to_be_bytes(),
+                watchtower_idx.to_be_bytes(),
+                time_tx_idx.to_be_bytes(),
+            ]
+            .concat(),
+        ]
+        .concat()
+    }
+}
+impl Default for WinternitzDerivationPath {
+    fn default() -> Self {
+        Self {
+            message_length: Default::default(),
+            log_d: 4,
+            index: Default::default(),
+            tx_type: TxType::TimeTx,
+            operator_idx: Default::default(),
+            watchtower_idx: Default::default(),
+            time_tx_idx: Default::default(),
+        }
+    }
+}
 
 #[derive(Debug, Clone)]
 pub struct Actor {
     pub keypair: Keypair,
     _secret_key: SecretKey,
+    winternitz_secret_key: Option<secp256k1::SecretKey>,
     pub xonly_public_key: XOnlyPublicKey,
     pub public_key: secp256k1::PublicKey,
     pub address: Address,
@@ -21,7 +89,11 @@ pub struct Actor {
 
 impl Actor {
     #[tracing::instrument(ret(level = tracing::Level::TRACE))]
-    pub fn new(sk: SecretKey, network: bitcoin::Network) -> Self {
+    pub fn new(
+        sk: SecretKey,
+        winternitz_secret_key: Option<secp256k1::SecretKey>,
+        network: bitcoin::Network,
+    ) -> Self {
         let keypair = Keypair::from_secret_key(&utils::SECP, &sk);
         let (xonly, _parity) = XOnlyPublicKey::from_keypair(&keypair);
         let address = Address::p2tr(&utils::SECP, xonly, None, network);
@@ -29,6 +101,7 @@ impl Actor {
         Actor {
             keypair,
             _secret_key: keypair.secret_key(),
+            winternitz_secret_key,
             xonly_public_key: xonly,
             public_key: keypair.public_key(),
             address,
@@ -212,16 +285,67 @@ impl Actor {
 
         Ok(sig_hash)
     }
+
+    /// Returns derivied Winternitz secret key from given path.
+    fn get_derived_winternitz_sk(
+        &self,
+        path: WinternitzDerivationPath,
+    ) -> Result<winternitz::SecretKey, BridgeError> {
+        let wsk = self
+            .winternitz_secret_key
+            .ok_or(BridgeError::NoWinternitzSecretKey)?;
+        Ok([wsk.as_ref().to_vec(), path.to_vec()].concat())
+    }
+
+    /// Generates a Winternitz public key for the given path.
+    pub fn derive_winternitz_pk(
+        &self,
+        path: WinternitzDerivationPath,
+    ) -> Result<winternitz::PublicKey, BridgeError> {
+        let winternitz_params = winternitz::Parameters::new(path.message_length, path.log_d);
+
+        let altered_secret_key = self.get_derived_winternitz_sk(path)?;
+        let public_key = winternitz::generate_public_key(&winternitz_params, &altered_secret_key);
+
+        Ok(public_key)
+    }
+
+    /// Signs given data with Winternitz signature.
+    pub fn sign_winternitz_signature(
+        &self,
+        path: WinternitzDerivationPath,
+        data: Vec<u8>,
+    ) -> Result<Witness, BridgeError> {
+        let winternitz = Winternitz::<BinarysearchVerifier, StraightforwardConverter>::new();
+        let winternitz_params = winternitz::Parameters::new(path.message_length, path.log_d);
+
+        let altered_secret_key = self.get_derived_winternitz_sk(path)?;
+
+        let witness = winternitz.sign(&winternitz_params, &altered_secret_key, &data);
+
+        Ok(witness)
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::Actor;
-    use crate::builder::transaction::TxHandler;
+    use crate::{
+        actor::WinternitzDerivationPath, builder::transaction::TxHandler,
+        mock::database::create_test_config_with_thread_name,
+    };
     use bitcoin::{
         absolute::Height, transaction::Version, Amount, Network, OutPoint, Transaction, TxIn, TxOut,
     };
+    use bitvm::{
+        execute_script,
+        signatures::winternitz::{
+            self, BinarysearchVerifier, StraightforwardConverter, Winternitz,
+        },
+        treepp::script,
+    };
     use secp256k1::{rand, Secp256k1, SecretKey};
+    use std::str::FromStr;
 
     /// Returns a valid [`TxHandler`].
     fn create_valid_mock_tx_handler(actor: &Actor) -> TxHandler {
@@ -284,7 +408,7 @@ mod tests {
         let sk = SecretKey::new(&mut rand::thread_rng());
         let network = Network::Regtest;
 
-        let actor = Actor::new(sk, network);
+        let actor = Actor::new(sk, None, network);
 
         assert_eq!(sk, actor._secret_key);
         assert_eq!(sk.public_key(&secp), actor.public_key);
@@ -295,7 +419,7 @@ mod tests {
     fn sign_taproot_pubkey_spend() {
         let sk = SecretKey::new(&mut rand::thread_rng());
         let network = Network::Regtest;
-        let actor = Actor::new(sk, network);
+        let actor = Actor::new(sk, None, network);
 
         // Trying to sign with an invalid transaction will result with an error.
         let mut tx_handler = create_invalid_mock_tx_handler(&actor);
@@ -323,7 +447,7 @@ mod tests {
     fn sign_taproot_pubkey_spend_tx_with_sighash() {
         let sk = SecretKey::new(&mut rand::thread_rng());
         let network = Network::Regtest;
-        let actor = Actor::new(sk, network);
+        let actor = Actor::new(sk, None, network);
 
         // Trying to sign with an invalid transaction will result with an error.
         let mut tx_handler = create_invalid_mock_tx_handler(&actor);
@@ -347,5 +471,123 @@ mod tests {
                 Some(bitcoin::TapSighashType::SinglePlusAnyoneCanPay),
             )
             .unwrap();
+    }
+
+    #[test]
+    fn winternitz_derivation_path_to_vec() {
+        let mut params = WinternitzDerivationPath::default();
+        assert_eq!(
+            params.to_vec(),
+            vec![0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
+        );
+
+        params.index = Some(0);
+        assert_eq!(
+            params.to_vec(),
+            vec![0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
+        );
+
+        params.operator_idx = Some(1);
+        assert_eq!(
+            params.to_vec(),
+            vec![0, 0, 0, 0, 1, 0, 0, 0, 2, 0, 0, 0, 0, 0, 0, 0, 0]
+        );
+
+        params.watchtower_idx = Some(2);
+        assert_eq!(
+            params.to_vec(),
+            vec![0, 0, 0, 0, 1, 0, 0, 0, 2, 0, 0, 0, 3, 0, 0, 0, 0]
+        );
+
+        params.time_tx_idx = Some(3);
+        assert_eq!(
+            params.to_vec(),
+            vec![0, 0, 0, 0, 1, 0, 0, 0, 2, 0, 0, 0, 3, 0, 0, 0, 4]
+        );
+    }
+
+    #[tokio::test]
+    async fn derive_winternitz_pk_uniqueness() {
+        let config = create_test_config_with_thread_name("test_config.toml", None).await;
+        let actor = Actor::new(
+            config.secret_key,
+            config.winternitz_secret_key,
+            Network::Regtest,
+        );
+
+        let mut params = WinternitzDerivationPath::default();
+        let pk0 = actor.derive_winternitz_pk(params).unwrap();
+        let pk1 = actor.derive_winternitz_pk(params).unwrap();
+        assert_eq!(pk0, pk1);
+
+        params.message_length += 1;
+        let pk2 = actor.derive_winternitz_pk(params).unwrap();
+        assert_ne!(pk0, pk2);
+    }
+
+    #[tokio::test]
+    async fn derive_winternitz_pk_fixed_pk() {
+        let config = create_test_config_with_thread_name("test_config.toml", None).await;
+        let actor = Actor::new(
+            config.secret_key,
+            Some(
+                secp256k1::SecretKey::from_str(
+                    "451F451F451F451F451F451F451F451F451F451F451F451F451F451F451F451F",
+                )
+                .unwrap(),
+            ),
+            Network::Regtest,
+        );
+
+        let params = WinternitzDerivationPath::default();
+        let expected_pk = vec![[
+            131, 103, 150, 108, 78, 19, 81, 185, 206, 88, 153, 178, 232, 97, 82, 129, 172, 190,
+            235, 13,
+        ]];
+        assert_eq!(actor.derive_winternitz_pk(params).unwrap(), expected_pk);
+    }
+
+    #[tokio::test]
+    async fn sign_winternitz_signature() {
+        let config = create_test_config_with_thread_name("test_config.toml", None).await;
+        let actor = Actor::new(
+            config.secret_key,
+            Some(
+                secp256k1::SecretKey::from_str(
+                    "451F451F451F451F451F451F451F451F451F451F451F451F451F451F451F451F",
+                )
+                .unwrap(),
+            ),
+            Network::Regtest,
+        );
+
+        let data = "iwantporscheasagiftpls".as_bytes().to_vec();
+        let path = WinternitzDerivationPath {
+            message_length: data.len() as u32,
+            log_d: 8,
+            ..Default::default()
+        };
+        let params = winternitz::Parameters::new(path.message_length, path.log_d);
+
+        let witness = actor.sign_winternitz_signature(path, data.clone()).unwrap();
+        let pk = actor.derive_winternitz_pk(path).unwrap();
+
+        let winternitz = Winternitz::<BinarysearchVerifier, StraightforwardConverter>::new();
+        let check_sig_script = winternitz.checksig_verify(&params, &pk);
+
+        let message_checker = script! {
+            for i in 0..path.message_length {
+                {data[i as usize]}
+                if i == path.message_length - 1 {
+                    OP_EQUAL
+                } else {
+                    OP_EQUALVERIFY
+                }
+            }
+        };
+
+        let script = script!({witness} {check_sig_script} {message_checker});
+        let ret = execute_script(script);
+        assert!(ret.success);
     }
 }

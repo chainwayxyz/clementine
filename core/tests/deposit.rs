@@ -26,7 +26,7 @@ async fn deposit_with_retry_checks() {
     .await;
 
     let secret_key = secp256k1::SecretKey::new(&mut secp256k1::rand::thread_rng());
-    let signer_address = Actor::new(secret_key, config.network)
+    let signer_address = Actor::new(secret_key, config.winternitz_secret_key, config.network)
         .address
         .as_unchecked()
         .clone();

@@ -24,7 +24,7 @@ pub struct User {
 impl User {
     /// Creates a new `User`.
     pub fn new(rpc: ExtendedRpc, sk: SecretKey, config: BridgeConfig) -> Self {
-        let signer = Actor::new(sk, config.network);
+        let signer = Actor::new(sk, config.winternitz_secret_key, config.network);
 
         let nofn_xonly_pk = secp256k1::XOnlyPublicKey::from_musig2_pks(
             config.verifiers_public_keys.clone(),
