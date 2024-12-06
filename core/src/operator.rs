@@ -40,7 +40,11 @@ impl Operator {
     pub async fn new(config: BridgeConfig, rpc: ExtendedRpc) -> Result<Self, BridgeError> {
         // let num_verifiers = config.verifiers_public_keys.len();
 
-        let signer = Actor::new(config.secret_key, config.network);
+        let signer = Actor::new(
+            config.secret_key,
+            config.winternitz_secret_key.clone(),
+            config.network,
+        );
 
         let db = Database::new(&config).await?;
 

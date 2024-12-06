@@ -69,7 +69,11 @@ async fn create_address_and_transaction_then_sign_transaction() {
     };
 
     // Signer should be able to sign the new transaction.
-    let signer = Actor::new(config.secret_key, config.network);
+    let signer = Actor::new(
+        config.secret_key,
+        config.winternitz_secret_key,
+        config.network,
+    );
     let sig = signer
         .sign_taproot_script_spend_tx_new_tweaked(&mut tx_details, 0, 0)
         .unwrap();

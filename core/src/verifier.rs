@@ -69,7 +69,11 @@ pub struct Verifier {
 
 impl Verifier {
     pub async fn new(rpc: ExtendedRpc, config: BridgeConfig) -> Result<Self, BridgeError> {
-        let signer = Actor::new(config.secret_key, config.network);
+        let signer = Actor::new(
+            config.secret_key,
+            config.winternitz_secret_key.clone(),
+            config.network,
+        );
 
         // let pk: secp256k1::PublicKey = config.secret_key.public_key(&utils::SECP);
 
@@ -677,10 +681,14 @@ mod tests {
         let evm_address = EVMAddress([1u8; 20]);
         let deposit_address = user.get_deposit_address(evm_address).unwrap();
 
-        let signer_address = Actor::new(config.secret_key, config.network)
-            .address
-            .as_unchecked()
-            .clone();
+        let signer_address = Actor::new(
+            config.secret_key,
+            config.winternitz_secret_key,
+            config.network,
+        )
+        .address
+        .as_unchecked()
+        .clone();
 
         let required_nonce_count = 2 * config.operators_xonly_pks.len() + 1;
 

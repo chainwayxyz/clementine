@@ -199,6 +199,9 @@ pub enum BridgeError {
 
     #[error("RPC endpoint returned an error: {0}")]
     TonicError(#[from] tonic::Status),
+
+    #[error("No root Winternitz secret key is provided in configuration file")]
+    NoWinternitzSecretKey,
 }
 
 impl From<BridgeError> for ErrorObject<'static> {

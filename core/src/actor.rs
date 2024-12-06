@@ -47,7 +47,8 @@ impl WinternitzDerivationPath {
 #[derive(Debug, Clone)]
 pub struct Actor {
     pub keypair: Keypair,
-    secret_key: SecretKey,
+    _secret_key: SecretKey,
+    winternitz_secret_key: Option<String>,
     pub xonly_public_key: XOnlyPublicKey,
     pub public_key: secp256k1::PublicKey,
     pub address: Address,
@@ -55,26 +56,35 @@ pub struct Actor {
 
 impl Actor {
     #[tracing::instrument(ret(level = tracing::Level::TRACE))]
-    pub fn new(sk: SecretKey, network: bitcoin::Network) -> Self {
+    pub fn new(
+        sk: SecretKey,
+        winternitz_secret_key: Option<String>,
+        network: bitcoin::Network,
+    ) -> Self {
         let keypair = Keypair::from_secret_key(&utils::SECP, &sk);
         let (xonly, _parity) = XOnlyPublicKey::from_keypair(&keypair);
         let address = Address::p2tr(&utils::SECP, xonly, None, network);
 
         Actor {
             keypair,
-            secret_key: keypair.secret_key(),
+            _secret_key: keypair.secret_key(),
+            winternitz_secret_key,
             xonly_public_key: xonly,
             public_key: keypair.public_key(),
             address,
         }
     }
 
-    /// Generates a Winternitz public key for given path.
+    /// Generates a Winternitz public key for the given path.
     pub fn derive_winternitz_pk(
         &self,
         path: WinternitzDerivationPath,
     ) -> Result<winternitz::PublicKey, BridgeError> {
-        let altered_secret_key = [self.secret_key.as_ref().to_vec(), path.to_vec()].concat();
+        let wsk = self
+            .winternitz_secret_key
+            .clone()
+            .ok_or(BridgeError::NoWinternitzSecretKey)?;
+        let altered_secret_key = [wsk.as_bytes().to_vec(), path.to_vec()].concat();
 
         let winternitz_params = winternitz::Parameters::new(path.message_length, path.log_d);
 
@@ -267,7 +277,9 @@ impl Actor {
 #[cfg(test)]
 mod tests {
     use super::Actor;
-    use crate::builder::transaction::TxHandler;
+    use crate::{
+        builder::transaction::TxHandler, mock::database::create_test_config_with_thread_name,
+    };
     use bitcoin::{
         absolute::Height, transaction::Version, Amount, Network, OutPoint, Transaction, TxIn, TxOut,
     };
@@ -334,9 +346,9 @@ mod tests {
         let sk = SecretKey::new(&mut rand::thread_rng());
         let network = Network::Regtest;
 
-        let actor = Actor::new(sk, network);
+        let actor = Actor::new(sk, None, network);
 
-        assert_eq!(sk, actor.secret_key);
+        assert_eq!(sk, actor._secret_key);
         assert_eq!(sk.public_key(&secp), actor.public_key);
         assert_eq!(sk.x_only_public_key(&secp).0, actor.xonly_public_key);
     }
@@ -345,7 +357,7 @@ mod tests {
     fn sign_taproot_pubkey_spend() {
         let sk = SecretKey::new(&mut rand::thread_rng());
         let network = Network::Regtest;
-        let actor = Actor::new(sk, network);
+        let actor = Actor::new(sk, None, network);
 
         // Trying to sign with an invalid transaction will result with an error.
         let mut tx_handler = create_invalid_mock_tx_handler(&actor);
@@ -373,7 +385,7 @@ mod tests {
     fn sign_taproot_pubkey_spend_tx_with_sighash() {
         let sk = SecretKey::new(&mut rand::thread_rng());
         let network = Network::Regtest;
-        let actor = Actor::new(sk, network);
+        let actor = Actor::new(sk, None, network);
 
         // Trying to sign with an invalid transaction will result with an error.
         let mut tx_handler = create_invalid_mock_tx_handler(&actor);
@@ -399,10 +411,14 @@ mod tests {
             .unwrap();
     }
 
-    #[test]
-    fn derive_winternitz_pk() {
-        let sk = SecretKey::new(&mut rand::thread_rng());
-        let actor = Actor::new(sk, Network::Regtest);
+    #[tokio::test]
+    async fn derive_winternitz_pk() {
+        let config = create_test_config_with_thread_name("test_config.toml", None).await;
+        let actor = Actor::new(
+            config.secret_key,
+            config.winternitz_secret_key,
+            Network::Regtest,
+        );
 
         actor
             .derive_winternitz_pk(super::WinternitzDerivationPath {
