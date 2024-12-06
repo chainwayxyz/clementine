@@ -83,6 +83,8 @@ pub struct BridgeConfig {
     pub bridge_contract_address: String,
     // Initial header chain proof receipt's file path.
     pub header_chain_proof_path: Option<PathBuf>,
+    /// Additional secret key that will be used for creating Winternitz one time signature.
+    pub winternitz_secret_key: Option<String>,
 }
 
 impl BridgeConfig {
@@ -156,6 +158,11 @@ impl Default for BridgeConfig {
             citrea_rpc_url: "http://127.0.0.1:12345".to_string(),
             bridge_contract_address: "3100000000000000000000000000000000000002".to_string(),
             header_chain_proof_path: None,
+            winternitz_secret_key: Some(
+                secp256k1::SecretKey::new(&mut secp256k1::rand::thread_rng())
+                    .display_secret()
+                    .to_string(),
+            ),
         }
     }
 }
