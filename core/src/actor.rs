@@ -8,8 +8,10 @@ use bitcoin::{
     secp256k1::{schnorr, Keypair, Message, SecretKey, XOnlyPublicKey},
     Address, TapSighash, TapTweakHash,
 };
-use bitcoin::{TapLeafHash, TapNodeHash, TapSighashType, TxOut};
-use bitvm::signatures::winternitz;
+use bitcoin::{TapLeafHash, TapNodeHash, TapSighashType, TxOut, Witness};
+use bitvm::signatures::winternitz::{
+    self, BinarysearchVerifier, StraightforwardConverter, Winternitz,
+};
 
 /// Available transaction types for [`WinternitzDerivationPath`].
 #[derive(Clone, Copy, Debug)]
@@ -284,21 +286,44 @@ impl Actor {
         Ok(sig_hash)
     }
 
+    /// Returns derivied Winternitz secret key from given path.
+    fn get_derived_winternitz_sk(
+        &self,
+        path: WinternitzDerivationPath,
+    ) -> Result<winternitz::SecretKey, BridgeError> {
+        let wsk = self
+            .winternitz_secret_key
+            .ok_or(BridgeError::NoWinternitzSecretKey)?;
+        Ok([wsk.as_ref().to_vec(), path.to_vec()].concat())
+    }
+
     /// Generates a Winternitz public key for the given path.
     pub fn derive_winternitz_pk(
         &self,
         path: WinternitzDerivationPath,
     ) -> Result<winternitz::PublicKey, BridgeError> {
-        let wsk = self
-            .winternitz_secret_key
-            .ok_or(BridgeError::NoWinternitzSecretKey)?;
-        let altered_secret_key = [wsk.as_ref().to_vec(), path.to_vec()].concat();
-
         let winternitz_params = winternitz::Parameters::new(path.message_length, path.log_d);
 
+        let altered_secret_key = self.get_derived_winternitz_sk(path)?;
         let public_key = winternitz::generate_public_key(&winternitz_params, &altered_secret_key);
 
         Ok(public_key)
+    }
+
+    /// Signs given data with Winternitz signature.
+    pub fn sign_winternitz_signature(
+        &self,
+        path: WinternitzDerivationPath,
+        data: Vec<u8>,
+    ) -> Result<Witness, BridgeError> {
+        let winternitz = Winternitz::<BinarysearchVerifier, StraightforwardConverter>::new();
+        let winternitz_params = winternitz::Parameters::new(path.message_length, path.log_d);
+
+        let altered_secret_key = self.get_derived_winternitz_sk(path)?;
+
+        let witness = winternitz.sign(&winternitz_params, &altered_secret_key, &data);
+
+        Ok(witness)
     }
 }
 
