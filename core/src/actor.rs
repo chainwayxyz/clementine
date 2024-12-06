@@ -337,6 +337,13 @@ mod tests {
     use bitcoin::{
         absolute::Height, transaction::Version, Amount, Network, OutPoint, Transaction, TxIn, TxOut,
     };
+    use bitvm::{
+        execute_script,
+        signatures::winternitz::{
+            self, BinarysearchVerifier, StraightforwardConverter, Winternitz,
+        },
+        treepp::script,
+    };
     use secp256k1::{rand, Secp256k1, SecretKey};
     use std::str::FromStr;
 
@@ -538,5 +545,49 @@ mod tests {
             235, 13,
         ]];
         assert_eq!(actor.derive_winternitz_pk(params).unwrap(), expected_pk);
+    }
+
+    #[tokio::test]
+    async fn sign_winternitz_signature() {
+        let config = create_test_config_with_thread_name("test_config.toml", None).await;
+        let actor = Actor::new(
+            config.secret_key,
+            Some(
+                secp256k1::SecretKey::from_str(
+                    "451F451F451F451F451F451F451F451F451F451F451F451F451F451F451F451F",
+                )
+                .unwrap(),
+            ),
+            Network::Regtest,
+        );
+
+        let data = "iwantporscheasagiftpls".as_bytes().to_vec();
+        let path = WinternitzDerivationPath {
+            message_length: data.len() as u32,
+            log_d: 8,
+            ..Default::default()
+        };
+        let params = winternitz::Parameters::new(path.message_length, path.log_d);
+
+        let witness = actor.sign_winternitz_signature(path, data.clone()).unwrap();
+        let pk = actor.derive_winternitz_pk(path).unwrap();
+
+        let winternitz = Winternitz::<BinarysearchVerifier, StraightforwardConverter>::new();
+        let check_sig_script = winternitz.checksig_verify(&params, &pk);
+
+        let message_checker = script! {
+            for i in 0..path.message_length {
+                {data[i as usize]}
+                if i == path.message_length - 1 {
+                    OP_EQUAL
+                } else {
+                    OP_EQUALVERIFY
+                }
+            }
+        };
+
+        let script = script!({witness} {check_sig_script} {message_checker});
+        let ret = execute_script(script);
+        assert!(ret.success);
     }
 }

@@ -40,6 +40,7 @@ bitvm = { workspace = true }
 
 [dev-dependencies]
 serial_test = { workspace = true }
+bitcoin-script = { workspace = true }
 
 [features]
 default = []

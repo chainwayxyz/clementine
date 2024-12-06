@@ -22,6 +22,7 @@ bitcoin = "0.31.0"
 bitcoincore-rpc = "0.18.0"
 musig2 = { version = "0.0.11", features = ["serde"] }
 secp256k1 = { version = "0.28.1", features = ["serde", "rand-std"] }
+bitcoin-script = { git = "https://github.com/BitVM/rust-bitcoin-script", branch= "StructuredScript" }
 
 # async + gRPC
 tonic = { version = "0.12.3", features = [ "tls" ] }
