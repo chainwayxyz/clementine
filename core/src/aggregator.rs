@@ -24,7 +24,6 @@ use bitcoin::{address::NetworkUnchecked, Address, OutPoint};
 use bitcoin::{hashes::Hash, Txid};
 use bitcoincore_rpc::RawTx;
 use secp256k1::schnorr;
-use tonic::transport::Uri;
 
 /// Aggregator struct.
 /// This struct is responsible for aggregating partial signatures from the verifiers.
@@ -54,25 +53,25 @@ impl Aggregator {
             false,
         );
 
-        let verifier_clients = if let Some(verifier_endpoints) = config.verifier_endpoints.clone() {
-            tracing::info!(
-                "Aggregator initialized with verifiers: {:?}",
-                verifier_endpoints
-            );
-            rpc::get_clients(verifier_endpoints, ClementineVerifierClient::connect)
-                .await
-                .unwrap()
-        } else {
-            return Err(BridgeError::Error("todo".to_string()));
-        };
+        let verifier_endpoints =
+            config
+                .verifier_endpoints
+                .clone()
+                .ok_or(BridgeError::ConfigError(
+                    "Couldn't find operator endpoints in config file!".to_string(),
+                ))?;
+        let verifier_clients =
+            rpc::get_clients(verifier_endpoints, ClementineVerifierClient::connect).await?;
 
-        let operator_clients = if let Some(operator_endpoints) = config.operator_endpoints.clone() {
-            rpc::get_clients(operator_endpoints, ClementineOperatorClient::connect)
-                .await
-                .unwrap()
-        } else {
-            return Err(BridgeError::Error("todo".to_string()));
-        };
+        let operator_endpoints =
+            config
+                .operator_endpoints
+                .clone()
+                .ok_or(BridgeError::ConfigError(
+                    "Couldn't find operator endpoints in config file!".to_string(),
+                ))?;
+        let operator_clients =
+            rpc::get_clients(operator_endpoints, ClementineOperatorClient::connect).await?;
 
         Ok(Aggregator {
             db,
