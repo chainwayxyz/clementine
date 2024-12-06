@@ -12,10 +12,14 @@ use bitcoin::{TapLeafHash, TapNodeHash, TapSighashType, TxOut};
 use bitvm::signatures::winternitz;
 
 /// Available transaction types for [`WinternitzDerivationPath`].
+#[derive(Clone, Copy, Debug)]
 pub enum TxType {
-    TimeTX,
+    TimeTx,
+    KickoffTx,
 }
+
 /// Derivation path specification for Winternitz one time public key generation.
+#[derive(Debug, Clone, Copy)]
 pub struct WinternitzDerivationPath {
     pub message_length: u32,
     pub log_d: u32,
@@ -26,13 +30,9 @@ pub struct WinternitzDerivationPath {
     pub time_tx_idx: u32,
 }
 impl WinternitzDerivationPath {
-    fn to_vec(&self) -> Vec<u8> {
-        let tx_type: u8 = match self.tx_type {
-            TxType::TimeTX => 0,
-        };
-
+    fn to_vec(self) -> Vec<u8> {
         [
-            vec![tx_type],
+            vec![self.tx_type as u8],
             [
                 self.operator_idx.to_be_bytes(),
                 self.watchtower_idx.to_be_bytes(),
@@ -41,6 +41,19 @@ impl WinternitzDerivationPath {
             .concat(),
         ]
         .concat()
+    }
+}
+impl Default for WinternitzDerivationPath {
+    fn default() -> Self {
+        Self {
+            message_length: Default::default(),
+            log_d: 4,
+            index: Default::default(),
+            tx_type: TxType::TimeTx,
+            operator_idx: Default::default(),
+            watchtower_idx: Default::default(),
+            time_tx_idx: Default::default(),
+        }
     }
 }
 
@@ -73,26 +86,6 @@ impl Actor {
             public_key: keypair.public_key(),
             address,
         }
-    }
-
-    /// Generates a Winternitz public key for the given path.
-    pub fn derive_winternitz_pk(
-        &self,
-        path: WinternitzDerivationPath,
-    ) -> Result<winternitz::PublicKey, BridgeError> {
-        let wsk = self
-            .winternitz_secret_key
-            .clone()
-            .ok_or(BridgeError::NoWinternitzSecretKey)?;
-        let altered_secret_key = [wsk.as_bytes().to_vec(), path.to_vec()].concat();
-
-        let winternitz_params = winternitz::Parameters::new(path.message_length, path.log_d);
-
-        let public_key = winternitz::generate_public_key(&winternitz_params, &altered_secret_key);
-
-        // let public_key = PublicKey::from_slice(&public_key).unwrap();
-
-        Ok(public_key)
     }
 
     #[tracing::instrument(skip(self), err(level = tracing::Level::ERROR), ret(level = tracing::Level::TRACE))]
@@ -272,13 +265,32 @@ impl Actor {
 
         Ok(sig_hash)
     }
+
+    /// Generates a Winternitz public key for the given path.
+    pub fn derive_winternitz_pk(
+        &self,
+        path: WinternitzDerivationPath,
+    ) -> Result<winternitz::PublicKey, BridgeError> {
+        let wsk = self
+            .winternitz_secret_key
+            .clone()
+            .ok_or(BridgeError::NoWinternitzSecretKey)?;
+        let altered_secret_key = [wsk.as_bytes().to_vec(), path.to_vec()].concat();
+
+        let winternitz_params = winternitz::Parameters::new(path.message_length, path.log_d);
+
+        let public_key = winternitz::generate_public_key(&winternitz_params, &altered_secret_key);
+
+        Ok(public_key)
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::Actor;
     use crate::{
-        builder::transaction::TxHandler, mock::database::create_test_config_with_thread_name,
+        actor::WinternitzDerivationPath, builder::transaction::TxHandler,
+        mock::database::create_test_config_with_thread_name,
     };
     use bitcoin::{
         absolute::Height, transaction::Version, Amount, Network, OutPoint, Transaction, TxIn, TxOut,
@@ -420,16 +432,13 @@ mod tests {
             Network::Regtest,
         );
 
-        actor
-            .derive_winternitz_pk(super::WinternitzDerivationPath {
-                tx_type: super::TxType::TimeTX,
-                operator_idx: 0,
-                watchtower_idx: 1,
-                time_tx_idx: 2,
-                message_length: 0,
-                log_d: 4,
-                index: 0,
-            })
-            .unwrap();
+        let mut params = WinternitzDerivationPath::default();
+        let pk0 = actor.derive_winternitz_pk(params).unwrap();
+        let pk1 = actor.derive_winternitz_pk(params).unwrap();
+        assert_eq!(pk0, pk1);
+
+        params.time_tx_idx += 1;
+        let pk2 = actor.derive_winternitz_pk(params).unwrap();
+        assert_ne!(pk0, pk2);
     }
 }
