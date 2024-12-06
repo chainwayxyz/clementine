@@ -1,3 +1,4 @@
+use crate::errors::BridgeError;
 use std::future::Future;
 use tonic::transport::Uri;
 
@@ -13,20 +14,17 @@ mod wrapper;
 pub async fn get_clients<CLIENT, F, Fut>(
     endpoints: Vec<String>,
     connect: F,
-) -> Result<Vec<CLIENT>, tonic::transport::Error>
+) -> Result<Vec<CLIENT>, BridgeError>
 where
-    F: FnOnce(Uri) -> Fut + Clone,
+    F: FnOnce(Uri) -> Fut + Copy,
     Fut: Future<Output = Result<CLIENT, tonic::transport::Error>>,
 {
-    futures::future::try_join_all(endpoints.iter().map(|endpoint| {
-        let endpoint_clone = endpoint.clone();
-        let connect_clone = connect.clone();
+    futures::future::try_join_all(endpoints.iter().map(|endpoint| async move {
+        let uri = Uri::try_from(endpoint).map_err(|e| {
+            BridgeError::ConfigError(format!("Endpoint {} is malformed: {}", endpoint, e))
+        })?;
 
-        async move {
-            let uri = Uri::try_from(endpoint_clone).unwrap();
-            let client = connect_clone(uri).await.unwrap();
-            Ok(client)
-        }
+        Ok(connect(uri).await?)
     }))
     .await
 }
