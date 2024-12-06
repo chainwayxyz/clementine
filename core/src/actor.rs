@@ -313,6 +313,7 @@ mod tests {
         absolute::Height, transaction::Version, Amount, Network, OutPoint, Transaction, TxIn, TxOut,
     };
     use secp256k1::{rand, Secp256k1, SecretKey};
+    use std::str::FromStr;
 
     /// Returns a valid [`TxHandler`].
     fn create_valid_mock_tx_handler(actor: &Actor) -> TxHandler {
@@ -443,23 +444,38 @@ mod tests {
     #[test]
     fn winternitz_derivation_path_to_vec() {
         let mut params = WinternitzDerivationPath::default();
-        assert_eq!(params.to_vec(), vec![0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]);
+        assert_eq!(
+            params.to_vec(),
+            vec![0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
+        );
 
         params.index = Some(0);
-        assert_eq!(params.to_vec(), vec![0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]);
+        assert_eq!(
+            params.to_vec(),
+            vec![0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
+        );
 
         params.operator_idx = Some(1);
-        assert_eq!(params.to_vec(), vec![0, 0, 0, 0, 1, 0, 0, 0, 2, 0, 0, 0, 0, 0, 0, 0, 0]);
+        assert_eq!(
+            params.to_vec(),
+            vec![0, 0, 0, 0, 1, 0, 0, 0, 2, 0, 0, 0, 0, 0, 0, 0, 0]
+        );
 
         params.watchtower_idx = Some(2);
-        assert_eq!(params.to_vec(), vec![0, 0, 0, 0, 1, 0, 0, 0, 2, 0, 0, 0, 3, 0, 0, 0, 0]);
+        assert_eq!(
+            params.to_vec(),
+            vec![0, 0, 0, 0, 1, 0, 0, 0, 2, 0, 0, 0, 3, 0, 0, 0, 0]
+        );
 
         params.time_tx_idx = Some(3);
-        assert_eq!(params.to_vec(), vec![0, 0, 0, 0, 1, 0, 0, 0, 2, 0, 0, 0, 3, 0, 0, 0, 4]);
+        assert_eq!(
+            params.to_vec(),
+            vec![0, 0, 0, 0, 1, 0, 0, 0, 2, 0, 0, 0, 3, 0, 0, 0, 4]
+        );
     }
 
     #[tokio::test]
-    async fn derive_winternitz_pk() {
+    async fn derive_winternitz_pk_uniqueness() {
         let config = create_test_config_with_thread_name("test_config.toml", None).await;
         let actor = Actor::new(
             config.secret_key,
@@ -475,5 +491,27 @@ mod tests {
         params.message_length += 1;
         let pk2 = actor.derive_winternitz_pk(params).unwrap();
         assert_ne!(pk0, pk2);
+    }
+
+    #[tokio::test]
+    async fn derive_winternitz_pk_fixed_pk() {
+        let config = create_test_config_with_thread_name("test_config.toml", None).await;
+        let actor = Actor::new(
+            config.secret_key,
+            Some(
+                secp256k1::SecretKey::from_str(
+                    "451F451F451F451F451F451F451F451F451F451F451F451F451F451F451F451F",
+                )
+                .unwrap(),
+            ),
+            Network::Regtest,
+        );
+
+        let params = WinternitzDerivationPath::default();
+        let expected_pk = vec![[
+            131, 103, 150, 108, 78, 19, 81, 185, 206, 88, 153, 178, 232, 97, 82, 129, 172, 190,
+            235, 13,
+        ]];
+        assert_eq!(actor.derive_winternitz_pk(params).unwrap(), expected_pk);
     }
 }
