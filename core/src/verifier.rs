@@ -71,7 +71,7 @@ impl Verifier {
     pub async fn new(rpc: ExtendedRpc, config: BridgeConfig) -> Result<Self, BridgeError> {
         let signer = Actor::new(
             config.secret_key,
-            config.winternitz_secret_key.clone(),
+            config.winternitz_secret_key,
             config.network,
         );
 

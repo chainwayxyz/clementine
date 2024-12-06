@@ -61,7 +61,7 @@ impl Default for WinternitzDerivationPath {
 pub struct Actor {
     pub keypair: Keypair,
     _secret_key: SecretKey,
-    winternitz_secret_key: Option<String>,
+    winternitz_secret_key: Option<secp256k1::SecretKey>,
     pub xonly_public_key: XOnlyPublicKey,
     pub public_key: secp256k1::PublicKey,
     pub address: Address,
@@ -71,7 +71,7 @@ impl Actor {
     #[tracing::instrument(ret(level = tracing::Level::TRACE))]
     pub fn new(
         sk: SecretKey,
-        winternitz_secret_key: Option<String>,
+        winternitz_secret_key: Option<secp256k1::SecretKey>,
         network: bitcoin::Network,
     ) -> Self {
         let keypair = Keypair::from_secret_key(&utils::SECP, &sk);
@@ -273,9 +273,8 @@ impl Actor {
     ) -> Result<winternitz::PublicKey, BridgeError> {
         let wsk = self
             .winternitz_secret_key
-            .clone()
             .ok_or(BridgeError::NoWinternitzSecretKey)?;
-        let altered_secret_key = [wsk.as_bytes().to_vec(), path.to_vec()].concat();
+        let altered_secret_key = [wsk.as_ref().to_vec(), path.to_vec()].concat();
 
         let winternitz_params = winternitz::Parameters::new(path.message_length, path.log_d);
 

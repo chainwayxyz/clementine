@@ -42,7 +42,7 @@ impl Operator {
 
         let signer = Actor::new(
             config.secret_key,
-            config.winternitz_secret_key.clone(),
+            config.winternitz_secret_key,
             config.network,
         );
 
