@@ -8,9 +8,12 @@ use crate::{
         aggregate_nonces, aggregate_partial_signatures, AggregateFromPublicKeys, MuSigAggNonce,
         MuSigPartialSignature, MuSigPubNonce,
     },
-    rpc::clementine::{
-        clementine_operator_client::ClementineOperatorClient,
-        clementine_verifier_client::ClementineVerifierClient,
+    rpc::{
+        self,
+        clementine::{
+            clementine_operator_client::ClementineOperatorClient,
+            clementine_verifier_client::ClementineVerifierClient,
+        },
     },
     traits::rpc::AggregatorServer,
     utils::handle_taproot_witness_new,
@@ -21,7 +24,6 @@ use bitcoin::{address::NetworkUnchecked, Address, OutPoint};
 use bitcoin::{hashes::Hash, Txid};
 use bitcoincore_rpc::RawTx;
 use secp256k1::schnorr;
-use tonic::transport::Uri;
 
 /// Aggregator struct.
 /// This struct is responsible for aggregating partial signatures from the verifiers.
@@ -51,38 +53,25 @@ impl Aggregator {
             false,
         );
 
-        tracing::info!(
-            "Aggregator initialized with verifiers: {:?}",
-            config.verifier_endpoints
-        );
-
+        let verifier_endpoints =
+            config
+                .verifier_endpoints
+                .clone()
+                .ok_or(BridgeError::ConfigError(
+                    "Couldn't find operator endpoints in config file!".to_string(),
+                ))?;
         let verifier_clients =
-            futures::future::try_join_all(config.verifier_endpoints.clone().unwrap().iter().map(
-                |endpoint| {
-                    let endpoint_clone = endpoint.clone();
-                    async move {
-                        let uri = Uri::try_from(endpoint_clone).unwrap(); // handle unwrap safely in real code
-                        let client = ClementineVerifierClient::connect(uri).await.unwrap();
-                        Ok::<_, Box<dyn std::error::Error>>(client)
-                    }
-                },
-            ))
-            .await
-            .unwrap();
+            rpc::get_clients(verifier_endpoints, ClementineVerifierClient::connect).await?;
 
+        let operator_endpoints =
+            config
+                .operator_endpoints
+                .clone()
+                .ok_or(BridgeError::ConfigError(
+                    "Couldn't find operator endpoints in config file!".to_string(),
+                ))?;
         let operator_clients =
-            futures::future::try_join_all(config.operator_endpoints.clone().unwrap().iter().map(
-                |endpoint| {
-                    let endpoint_clone = endpoint.clone();
-                    async move {
-                        let uri = Uri::try_from(endpoint_clone).unwrap(); // handle unwrap safely in real code
-                        let client = ClementineOperatorClient::connect(uri).await.unwrap();
-                        Ok::<_, Box<dyn std::error::Error>>(client)
-                    }
-                },
-            ))
-            .await
-            .unwrap();
+            rpc::get_clients(operator_endpoints, ClementineOperatorClient::connect).await?;
 
         Ok(Aggregator {
             db,
