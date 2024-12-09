@@ -89,7 +89,7 @@ impl Watchtower {
             let mut operator_i = Vec::new();
             for time_tx in 0..self.num_time_tx {
                 let path = WinternitzDerivationPath {
-                    message_length: 0,
+                    message_length: 480,
                     log_d: 4,
                     tx_type: crate::actor::TxType::TimeTx,
                     index: None,
