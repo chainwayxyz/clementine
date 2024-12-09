@@ -3,6 +3,7 @@
 //! Utilities for operator and verifier servers.
 use crate::aggregator;
 use crate::aggregator::Aggregator;
+use crate::database::Database;
 use crate::mock::database::create_test_config_with_thread_name;
 use crate::rpc::clementine::clementine_aggregator_server::ClementineAggregatorServer;
 use crate::rpc::clementine::clementine_operator_server::ClementineOperatorServer;
@@ -347,7 +348,7 @@ pub async fn create_watchtower_grpc_server(
 // #[tracing::instrument(ret(level = tracing::Level::TRACE))]
 #[allow(clippy::type_complexity)] // Enabling tracing::instrument causes this.
 pub async fn create_actors_grpc(
-    config_name: &str,
+    config: BridgeConfig,
     number_of_watchtowers: u32,
 ) -> (
     Vec<(std::net::SocketAddr,)>, // Verifier clients
@@ -355,12 +356,11 @@ pub async fn create_actors_grpc(
     (std::net::SocketAddr,),      // Aggregator client
     Vec<(std::net::SocketAddr,)>, // Watchtower clients
 ) {
-    let config = create_test_config_with_thread_name(config_name, None).await;
-    let start_port = 17000;
+    let start_port = config.port;
     let rpc = ExtendedRpc::new(
-        config.bitcoin_rpc_url,
-        config.bitcoin_rpc_user,
-        config.bitcoin_rpc_password,
+        config.bitcoin_rpc_url.clone(),
+        config.bitcoin_rpc_user.clone(),
+        config.bitcoin_rpc_password.clone(),
     )
     .await;
     let all_verifiers_secret_keys = config.all_verifiers_secret_keys.clone().unwrap_or_else(|| {
@@ -374,9 +374,13 @@ pub async fn create_actors_grpc(
             // println!("Port: {}", port);
             let i = i.to_string();
             let rpc = rpc.clone();
+            let mut config_with_new_db = config.clone();
             async move {
-                let config_with_new_db =
-                    create_test_config_with_thread_name(config_name, Some(&i.to_string())).await;
+                config_with_new_db.db_name += &i;
+                Database::initialize_database(&config_with_new_db)
+                    .await
+                    .unwrap();
+
                 let verifier = create_verifier_grpc_server(
                     BridgeConfig {
                         secret_key: *sk,

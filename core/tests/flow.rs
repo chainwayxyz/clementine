@@ -8,10 +8,11 @@ use bitcoin::{Address, Amount, Txid};
 use bitcoincore_rpc::RpcApi;
 use clementine_core::errors::BridgeError;
 use clementine_core::extended_rpc::ExtendedRpc;
+use clementine_core::mock::database::create_test_config_with_thread_name;
 use clementine_core::rpc::clementine::clementine_aggregator_client::ClementineAggregatorClient;
 use clementine_core::rpc::clementine::{self, DepositParams};
 use clementine_core::servers::create_actors_grpc;
-use clementine_core::utils::{initialize_logger, SECP};
+use clementine_core::utils::{SECP};
 use clementine_core::{traits::rpc::OperatorRpcClient, user::User};
 use common::run_single_deposit;
 use secp256k1::SecretKey;
@@ -145,9 +146,8 @@ async fn withdrawal_fee_too_low() {
 #[should_panic]
 #[serial_test::serial]
 async fn double_calling_setip() {
-    initialize_logger(5).unwrap();
-    let (_verifiers, _operators, aggregator, _watchtowers) =
-        create_actors_grpc("test_config.toml", 0).await;
+    let config = create_test_config_with_thread_name("test_config.toml", None).await;
+    let (_verifiers, _operators, aggregator, _watchtowers) = create_actors_grpc(config, 0).await;
 
     let x: Uri = format!("http://{}", aggregator.0).parse().unwrap();
 
@@ -169,9 +169,8 @@ async fn double_calling_setip() {
 #[tokio::test]
 #[serial_test::serial]
 async fn grpc_flow() {
-    initialize_logger(5).unwrap();
-    let (_verifiers, _operators, aggregator, _watchtowers) =
-        create_actors_grpc("test_config.toml", 0).await;
+    let config = create_test_config_with_thread_name("test_config.toml", None).await;
+    let (_verifiers, _operators, aggregator, _watchtowers) = create_actors_grpc(config, 0).await;
 
     let x: Uri = format!("http://{}", aggregator.0).parse().unwrap();
 
