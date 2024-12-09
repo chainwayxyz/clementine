@@ -76,7 +76,8 @@ impl Watchtower {
     ///
     /// # Returns
     ///
-    /// - [`Vec<Vec<winternitz::PublicKey>>`]: 
+    /// - [`Vec<Vec<winternitz::PublicKey>>`]: Winternitz public key for
+    ///   operator row index and time_tx column index.
     async fn get_winternitz_public_keys(
         &self,
     ) -> Result<Vec<Vec<winternitz::PublicKey>>, BridgeError> {
@@ -107,11 +108,12 @@ impl Watchtower {
 
 #[cfg(test)]
 mod tests {
-    use crate::{mock::database::create_test_config_with_thread_name, watchtower::Watchtower};
+    use crate::{servers::create_actors_grpc, utils::initialize_logger};
 
     #[tokio::test]
-    async fn new() {
-        let config = create_test_config_with_thread_name("test_config.toml", None).await;
-        let _should_not_panic = Watchtower::new(config).await.unwrap();
+    async fn new_watchtower() {
+        initialize_logger(5).unwrap();
+        let (_verifiers, _operators, _aggregators, _watchtowers) =
+            create_actors_grpc("test_config.toml", 2).await;
     }
 }

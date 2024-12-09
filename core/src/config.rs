@@ -63,9 +63,9 @@ pub struct BridgeConfig {
     pub all_verifiers_secret_keys: Option<Vec<secp256k1::SecretKey>>,
     /// All Secret keys. Just for testing purposes.
     pub all_operators_secret_keys: Option<Vec<secp256k1::SecretKey>>,
-    /// Verifier endpoints. For the aggregator only
+    /// Verifier endpoints.
     pub verifier_endpoints: Option<Vec<String>>,
-    /// Operator endpoint. For the aggregator only
+    /// Operator endpoint.
     pub operator_endpoints: Option<Vec<String>>,
     /// PostgreSQL database host address.
     pub db_host: String,

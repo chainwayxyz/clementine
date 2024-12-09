@@ -10,7 +10,7 @@ use clementine_core::errors::BridgeError;
 use clementine_core::extended_rpc::ExtendedRpc;
 use clementine_core::rpc::clementine::clementine_aggregator_client::ClementineAggregatorClient;
 use clementine_core::rpc::clementine::{self, DepositParams};
-use clementine_core::servers::create_verifiers_and_operators_grpc;
+use clementine_core::servers::create_actors_grpc;
 use clementine_core::utils::{initialize_logger, SECP};
 use clementine_core::{traits::rpc::OperatorRpcClient, user::User};
 use common::run_single_deposit;
@@ -146,8 +146,8 @@ async fn withdrawal_fee_too_low() {
 #[serial_test::serial]
 async fn double_calling_setip() {
     initialize_logger(5).unwrap();
-    let (_verifiers, _operators, aggregator) =
-        create_verifiers_and_operators_grpc("test_config.toml").await;
+    let (_verifiers, _operators, aggregator, _watchtowers) =
+        create_actors_grpc("test_config.toml", 0).await;
 
     let x: Uri = format!("http://{}", aggregator.0).parse().unwrap();
 
@@ -170,8 +170,8 @@ async fn double_calling_setip() {
 #[serial_test::serial]
 async fn grpc_flow() {
     initialize_logger(5).unwrap();
-    let (_verifiers, _operators, aggregator) =
-        create_verifiers_and_operators_grpc("test_config.toml").await;
+    let (_verifiers, _operators, aggregator, _watchtowers) =
+        create_actors_grpc("test_config.toml", 0).await;
 
     let x: Uri = format!("http://{}", aggregator.0).parse().unwrap();
 

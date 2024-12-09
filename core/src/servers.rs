@@ -7,7 +7,9 @@ use crate::mock::database::create_test_config_with_thread_name;
 use crate::rpc::clementine::clementine_aggregator_server::ClementineAggregatorServer;
 use crate::rpc::clementine::clementine_operator_server::ClementineOperatorServer;
 use crate::rpc::clementine::clementine_verifier_server::ClementineVerifierServer;
+use crate::rpc::clementine::clementine_watchtower_server::ClementineWatchtowerServer;
 use crate::traits::rpc::AggregatorServer;
+use crate::watchtower::Watchtower;
 use crate::{
     config::BridgeConfig,
     errors,
@@ -309,6 +311,28 @@ pub async fn create_aggregator_grpc_server(
     Ok((addr,))
 }
 
+pub async fn create_watchtower_grpc_server(
+    config: BridgeConfig,
+) -> Result<(std::net::SocketAddr,), BridgeError> {
+    let addr = format!("{}:{}", config.host, config.port).parse().unwrap();
+    let watchtower = Watchtower::new(config).await?;
+    let svc = ClementineWatchtowerServer::new(watchtower);
+    let handle = tonic::transport::Server::builder()
+        .add_service(svc)
+        .serve(addr);
+
+    tokio::spawn(async move {
+        if let Err(e) = handle.await {
+            tracing::error!("gRPC server error: {:?}", e);
+            panic!("gRPC server error: {:?}", e);
+        }
+    });
+    tokio::time::sleep(tokio::time::Duration::from_millis(500)).await;
+
+    tracing::info!("Watchtower gRPC server started with address: {}", addr);
+    Ok((addr,))
+}
+
 /// Starts operators, verifiers and aggergator gRPC servers. This function's intended use is for
 /// tests.
 ///
@@ -322,16 +346,17 @@ pub async fn create_aggregator_grpc_server(
 /// Panics if there was an error while creating any of the servers.
 // #[tracing::instrument(ret(level = tracing::Level::TRACE))]
 #[allow(clippy::type_complexity)] // Enabling tracing::instrument causes this.
-pub async fn create_verifiers_and_operators_grpc(
+pub async fn create_actors_grpc(
     config_name: &str,
-    // rpc: ExtendedRpc<R>,
+    number_of_watchtowers: u32,
 ) -> (
     Vec<(std::net::SocketAddr,)>, // Verifier clients
     Vec<(std::net::SocketAddr,)>, // Operator clients
     (std::net::SocketAddr,),      // Aggregator client
+    Vec<(std::net::SocketAddr,)>, // Watchtower clients
 ) {
     let config = create_test_config_with_thread_name(config_name, None).await;
-    let start_port = config.port;
+    let start_port = 17000;
     let rpc = ExtendedRpc::new(
         config.bitcoin_rpc_url,
         config.bitcoin_rpc_user,
@@ -434,5 +459,43 @@ pub async fn create_verifiers_and_operators_grpc(
     .await
     .unwrap();
 
-    (verifier_endpoints, operator_endpoints, aggregator)
+    println!("Watchtower start port: {}", start_port);
+    let port = start_port
+        + all_verifiers_secret_keys.len() as u16
+        + all_operators_secret_keys.len() as u16
+        + 2;
+    let wathctower_futures = (0..number_of_watchtowers)
+        .map(|i| {
+            let verifier_endpoints = verifier_endpoints.clone();
+            let operator_endpoints = operator_endpoints.clone();
+            let verifier_configs = verifier_configs.clone();
+
+            create_watchtower_grpc_server(BridgeConfig {
+                port: port + i as u16,
+                verifier_endpoints: Some(
+                    verifier_endpoints
+                        .iter()
+                        .map(|(socket_addr,)| format!("http://{}", socket_addr))
+                        .collect(),
+                ),
+                operator_endpoints: Some(
+                    operator_endpoints
+                        .iter()
+                        .map(|(socket_addr,)| format!("http://{}", socket_addr))
+                        .collect(),
+                ),
+                ..verifier_configs[0].clone()
+            })
+        })
+        .collect::<Vec<_>>();
+    let wathctower_endpoints = futures::future::try_join_all(wathctower_futures)
+        .await
+        .unwrap();
+
+    (
+        verifier_endpoints,
+        operator_endpoints,
+        aggregator,
+        wathctower_endpoints,
+    )
 }
