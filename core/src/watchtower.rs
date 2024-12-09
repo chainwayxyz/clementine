@@ -108,12 +108,36 @@ impl Watchtower {
 
 #[cfg(test)]
 mod tests {
-    use crate::{servers::create_actors_grpc, utils::initialize_logger};
+    use crate::{
+        mock::database::create_test_config_with_thread_name, servers::create_actors_grpc,
+        watchtower::Watchtower,
+    };
 
     #[tokio::test]
     async fn new_watchtower() {
-        initialize_logger(5).unwrap();
-        let (_verifiers, _operators, _aggregators, _watchtowers) =
-            create_actors_grpc("test_config.toml", 2).await;
+        let config = create_test_config_with_thread_name("test_config.toml", None).await;
+        let (_, _, _, _should_not_panic) = create_actors_grpc(config, 2).await;
+    }
+
+    #[tokio::test]
+    async fn get_winternitz_public_keys() {
+        let mut config = create_test_config_with_thread_name("test_config.toml", None).await;
+        let (verifiers, operators, _, _watchtowers) = create_actors_grpc(config.clone(), 2).await;
+
+        config.verifier_endpoints = Some(
+            verifiers
+                .iter()
+                .map(|v| format!("http://{}", v.0.to_string()))
+                .collect(),
+        );
+        config.operator_endpoints = Some(
+            operators
+                .iter()
+                .map(|o| format!("http://{}", o.0.to_string()))
+                .collect(),
+        );
+
+        let watchtower = Watchtower::new(config).await.unwrap();
+        let _winternitz_public_keys = watchtower.get_winternitz_public_keys().await.unwrap();
     }
 }

@@ -12,7 +12,7 @@ use clementine_core::mock::database::create_test_config_with_thread_name;
 use clementine_core::rpc::clementine::clementine_aggregator_client::ClementineAggregatorClient;
 use clementine_core::rpc::clementine::{self, DepositParams};
 use clementine_core::servers::create_actors_grpc;
-use clementine_core::utils::{SECP};
+use clementine_core::utils::SECP;
 use clementine_core::{traits::rpc::OperatorRpcClient, user::User};
 use common::run_single_deposit;
 use secp256k1::SecretKey;
