@@ -1,4 +1,5 @@
 use crate::{
+    actor::{Actor, WinternitzDerivationPath},
     config::BridgeConfig,
     database::Database,
     errors::BridgeError,
@@ -11,11 +12,15 @@ use crate::{
         },
     },
 };
+use bitvm::signatures::winternitz;
 
 #[derive(Debug, Clone)]
 pub struct Watchtower {
     rpc: ExtendedRpc,
     db: Database,
+    actor: Actor,
+    num_operators: u32,
+    num_time_tx: u32,
     pub(crate) verifier_clients: Vec<ClementineVerifierClient<tonic::transport::Channel>>,
     pub(crate) operator_clients: Vec<ClementineOperatorClient<tonic::transport::Channel>>,
 }
@@ -29,6 +34,11 @@ impl Watchtower {
         )
         .await;
         let db = Database::new(&config).await?;
+        let actor = Actor::new(
+            config.secret_key,
+            config.winternitz_secret_key,
+            config.network,
+        );
 
         let verifier_endpoints =
             config
@@ -53,8 +63,55 @@ impl Watchtower {
         Ok(Self {
             rpc,
             db,
+            actor,
+            num_operators: config.num_operators as u32,
+            num_time_tx: config.num_time_txs as u32,
             verifier_clients,
             operator_clients,
         })
+    }
+
+    /// Generates Winternitz public keys for every operator and time_tx pair and
+    /// returns them.
+    ///
+    /// # Returns
+    ///
+    /// - [`Vec<Vec<winternitz::PublicKey>>`]: 
+    async fn get_winternitz_public_keys(
+        &self,
+    ) -> Result<Vec<Vec<winternitz::PublicKey>>, BridgeError> {
+        let mut winternitz_pubkeys = Vec::new();
+
+        for operator in 0..self.num_operators {
+            let mut operator_i = Vec::new();
+            for time_tx in 0..self.num_time_tx {
+                let path = WinternitzDerivationPath {
+                    message_length: 0,
+                    log_d: 4,
+                    tx_type: crate::actor::TxType::TimeTx,
+                    index: None,
+                    operator_idx: Some(operator),
+                    watchtower_idx: None,
+                    time_tx_idx: Some(time_tx),
+                };
+
+                operator_i.push(self.actor.derive_winternitz_pk(path)?);
+            }
+
+            winternitz_pubkeys.push(operator_i);
+        }
+
+        Ok(winternitz_pubkeys)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::{mock::database::create_test_config_with_thread_name, watchtower::Watchtower};
+
+    #[tokio::test]
+    async fn new() {
+        let config = create_test_config_with_thread_name("test_config.toml", None).await;
+        let _should_not_panic = Watchtower::new(config).await.unwrap();
     }
 }

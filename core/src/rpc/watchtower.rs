@@ -12,6 +12,7 @@ impl ClementineWatchtower for Watchtower {
         &self,
         _request: Request<Empty>,
     ) -> Result<Response<WatchtowerParams>, Status> {
+        // let sig = self.actor.derive_winternitz_pk(path);
         todo!()
     }
 }
