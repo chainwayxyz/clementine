@@ -139,7 +139,12 @@ mod tests {
                 .collect(),
         );
 
-        let watchtower = Watchtower::new(config).await.unwrap();
-        let _winternitz_public_keys = watchtower.get_winternitz_public_keys().await.unwrap();
+        let watchtower = Watchtower::new(config.clone()).await.unwrap();
+        let winternitz_public_keys = watchtower.get_winternitz_public_keys().await.unwrap();
+
+        assert_eq!(winternitz_public_keys.len(), config.num_operators as usize);
+        for operator_winternitz_pks in winternitz_public_keys {
+            assert_eq!(operator_winternitz_pks.len(), config.num_time_txs as usize);
+        }
     }
 }
