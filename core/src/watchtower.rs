@@ -18,9 +18,10 @@ use bitvm::signatures::winternitz;
 pub struct Watchtower {
     rpc: ExtendedRpc,
     db: Database,
-    actor: Actor,
+    pub actor: Actor,
     num_operators: u32,
     num_time_tx: u32,
+    pub index: u32,
     pub(crate) verifier_clients: Vec<ClementineVerifierClient<tonic::transport::Channel>>,
     pub(crate) operator_clients: Vec<ClementineOperatorClient<tonic::transport::Channel>>,
 }
@@ -64,6 +65,7 @@ impl Watchtower {
             rpc,
             db,
             actor,
+            index: config.index,
             num_operators: config.num_operators as u32,
             num_time_tx: config.num_time_txs as u32,
             verifier_clients,
@@ -78,7 +80,7 @@ impl Watchtower {
     ///
     /// - [`Vec<Vec<winternitz::PublicKey>>`]: Winternitz public key for
     ///   operator row index and time_tx column index.
-    async fn get_winternitz_public_keys(
+    pub async fn get_winternitz_public_keys(
         &self,
     ) -> Result<Vec<Vec<winternitz::PublicKey>>, BridgeError> {
         let mut winternitz_pubkeys = Vec::new();

@@ -1,5 +1,5 @@
 use super::clementine::{
-    clementine_watchtower_server::ClementineWatchtower, Empty, WatchtowerParams,
+    clementine_watchtower_server::ClementineWatchtower, Empty, WatchtowerParams, WinternitzPubkey,
 };
 use crate::watchtower::Watchtower;
 use tonic::{async_trait, Request, Response, Status};
@@ -12,7 +12,76 @@ impl ClementineWatchtower for Watchtower {
         &self,
         _request: Request<Empty>,
     ) -> Result<Response<WatchtowerParams>, Status> {
-        // let sig = self.actor.derive_winternitz_pk(path);
-        todo!()
+        let winternitz_pubkeys: Vec<WinternitzPubkey> = self
+            .get_winternitz_public_keys()
+            .await?
+            .iter()
+            .enumerate()
+            .flat_map(|(operator_index, pks)| {
+                pks.iter()
+                    .enumerate()
+                    .map(|(timetx_index, pks)| {
+                        let digit_pubkey = pks.iter().map(|m| m.to_vec()).collect();
+
+                        WinternitzPubkey {
+                            d: operator_index as u32,
+                            n0: timetx_index as u32,
+                            digit_pubkey,
+                        }
+                    })
+                    .collect::<Vec<_>>()
+            })
+            .collect();
+
+        Ok(Response::new(WatchtowerParams {
+            watchtower_id: self.index,
+            winternitz_pubkeys,
+        }))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::{
+        mock::database::create_test_config_with_thread_name,
+        rpc::clementine::{clementine_watchtower_server::ClementineWatchtower, Empty},
+        servers::create_actors_grpc,
+        watchtower::Watchtower,
+    };
+    use tonic::Request;
+
+    #[tokio::test]
+    #[serial_test::serial]
+    async fn watchtower_get_params() {
+        let mut config = create_test_config_with_thread_name("test_config.toml", None).await;
+        let (verifiers, operators, _, _watchtowers) = create_actors_grpc(config.clone(), 2).await;
+
+        config.verifier_endpoints = Some(
+            verifiers
+                .iter()
+                .map(|v| format!("http://{}", v.0.to_string()))
+                .collect(),
+        );
+        config.operator_endpoints = Some(
+            operators
+                .iter()
+                .map(|o| format!("http://{}", o.0.to_string()))
+                .collect(),
+        );
+        let watchtower = Watchtower::new(config.clone()).await.unwrap();
+
+        let params = watchtower
+            .get_params(Request::new(Empty {}))
+            .await
+            .unwrap()
+            .into_inner();
+
+        assert_eq!(params.watchtower_id, watchtower.index);
+
+        assert!(params.winternitz_pubkeys.len() == config.num_operators * config.num_time_txs);
+        assert!(params
+            .winternitz_pubkeys
+            .iter()
+            .all(|pk| pk.d <= config.num_operators as u32 && pk.n0 <= config.num_time_txs as u32));
     }
 }
