@@ -114,12 +114,14 @@ mod tests {
     };
 
     #[tokio::test]
+    #[serial_test::serial]
     async fn new_watchtower() {
         let config = create_test_config_with_thread_name("test_config.toml", None).await;
         let (_, _, _, _should_not_panic) = create_actors_grpc(config, 2).await;
     }
 
     #[tokio::test]
+    #[serial_test::serial]
     async fn get_winternitz_public_keys() {
         let mut config = create_test_config_with_thread_name("test_config.toml", None).await;
         let (verifiers, operators, _, _watchtowers) = create_actors_grpc(config.clone(), 2).await;

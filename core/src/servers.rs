@@ -463,11 +463,8 @@ pub async fn create_actors_grpc(
     .await
     .unwrap();
 
-    println!("Watchtower start port: {}", start_port);
-    let port = start_port
-        + all_verifiers_secret_keys.len() as u16
-        + all_operators_secret_keys.len() as u16
-        + 2;
+    let port = port + 1;
+    println!("Watchtower start port: {}", port);
     let wathctower_futures = (0..number_of_watchtowers)
         .map(|i| {
             let verifier_endpoints = verifier_endpoints.clone();
