@@ -1,6 +1,7 @@
-# Host and port of the current actor (operator or verifier)
+# Host, port and index of the current actor (operator or verifier)
 host = "127.0.0.1"
 port = 17000
+index = 0
 
 # Secret key of the current actor (operator or verifier)
 secret_key = "3333333333333333333333333333333333333333333333333333333333333333"
