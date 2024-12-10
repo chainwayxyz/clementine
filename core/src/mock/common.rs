@@ -41,11 +41,6 @@ pub fn get_test_config(configuration_file: &str) -> Result<BridgeConfig, BridgeE
         config.db_name = env_config.db_name;
     };
 
-    #[cfg(test)]
-    {
-        config.port = 0;
-    }
-
     Ok(config)
 }
 

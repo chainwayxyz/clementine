@@ -23,6 +23,8 @@ pub struct BridgeConfig {
     pub host: String,
     /// Port of the operator or the verifier
     pub port: u16,
+    /// Entitiy index.
+    pub index: u32,
     /// Bitcoin network to work on.
     pub network: Network,
     /// Secret key for the operator or the verifier.
@@ -128,6 +130,7 @@ impl Default for BridgeConfig {
         Self {
             host: "127.0.0.1".to_string(),
             port: 3030,
+            index: 0,
             secret_key: secp256k1::SecretKey::new(&mut secp256k1::rand::thread_rng()),
             verifiers_public_keys: vec![],
             num_verifiers: 7,

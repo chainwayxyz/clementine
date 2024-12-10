@@ -15,10 +15,6 @@ pub struct AssertEmptyPublicKey {
 }
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct WinternitzPubkey {
-    #[prost(uint32, tag = "1")]
-    pub d: u32,
-    #[prost(uint32, tag = "2")]
-    pub n0: u32,
     #[prost(bytes = "vec", repeated, tag = "3")]
     pub digit_pubkey: ::prost::alloc::vec::Vec<::prost::alloc::vec::Vec<u8>>,
 }
@@ -206,7 +202,7 @@ pub struct VerifierPublicKeys {
 pub struct WatchtowerParams {
     #[prost(uint32, tag = "1")]
     pub watchtower_id: u32,
-    /// Winternitz pubkeys for each operator's timetxs.
+    /// Flattened list of Winternitz pubkeys for each operator's timetxs.
     #[prost(message, repeated, tag = "2")]
     pub winternitz_pubkeys: ::prost::alloc::vec::Vec<WinternitzPubkey>,
 }
