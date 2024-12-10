@@ -20,6 +20,8 @@ use bitcoin::{
     BlockHash, CompactTarget, TxMerkleNode,
 };
 use bitcoin::{Address, OutPoint, Txid};
+use bitvm::bridge::transactions::signing_winternitz::WinternitzPublicKey;
+use bitvm::signatures::winternitz;
 use risc0_zkvm::Receipt;
 use secp256k1::schnorr;
 use sqlx::{Postgres, QueryBuilder};
@@ -918,6 +920,50 @@ impl Database {
 
         Ok((result.0 .0, result.1 .0, result.2, receipt))
     }
+
+    /// Sets Winternitz public keys for a watchtower.
+    #[tracing::instrument(skip(self, tx, winternitz_public_key), err(level = tracing::Level::ERROR), ret(level = tracing::Level::TRACE))]
+    pub async fn save_winternitz_public_key(
+        &self,
+        tx: Option<&mut sqlx::Transaction<'_, Postgres>>,
+        watchtower_id: u32,
+        winternitz_public_key: WinternitzPublicKey,
+    ) -> Result<(), BridgeError> {
+        let wpk = borsh::to_vec(&winternitz_public_key.public_key)?;
+
+        let query = sqlx::query("INSERT INTO winternitz_public_keys (watchtower_id, winternitz_public_key) VALUES ($1, $2);")
+            .bind(watchtower_id as i64)
+            .bind(wpk);
+
+        match tx {
+            Some(tx) => query.execute(&mut **tx).await,
+            None => query.execute(&self.connection).await,
+        }?;
+
+        Ok(())
+    }
+
+    /// Gets Winternitz public keys for a watchtower.
+    #[tracing::instrument(skip(self, tx), err(level = tracing::Level::ERROR), ret(level = tracing::Level::TRACE))]
+    pub async fn get_winternitz_public_key(
+        &self,
+        tx: Option<&mut sqlx::Transaction<'_, Postgres>>,
+        watchtower_id: u32,
+    ) -> Result<winternitz::PublicKey, BridgeError> {
+        let query = sqlx::query_as(
+            "SELECT winternitz_public_key FROM winternitz_public_keys WHERE watchtower_id = $1;",
+        )
+        .bind(watchtower_id as i64);
+
+        let wpk: (Vec<u8>,) = match tx {
+            Some(tx) => query.fetch_one(&mut **tx).await,
+            None => query.fetch_one(&self.connection).await,
+        }?;
+
+        let winternitz_public_key: winternitz::PublicKey = borsh::from_slice(&wpk.0)?;
+
+        Ok(winternitz_public_key)
+    }
 }
 
 #[cfg(test)]
@@ -934,6 +980,10 @@ mod tests {
     };
     use bitcoin::{
         hashes::Hash, Address, Amount, OutPoint, ScriptBuf, TxOut, Txid, XOnlyPublicKey,
+    };
+    use bitvm::{
+        bridge::transactions::signing_winternitz::WinternitzPublicKey,
+        signatures::winternitz::{self, Parameters},
     };
     use borsh::BorshDeserialize;
     use risc0_zkvm::Receipt;
@@ -1688,5 +1738,29 @@ mod tests {
         let res = db.get_non_proven_block(None).await.unwrap();
         assert_eq!(res.0, block_hash2);
         assert_eq!(res.2 as u64, height2);
+    }
+
+    #[tokio::test]
+    async fn save_get_winternitz_public_key() {
+        let config = create_test_config_with_thread_name("test_config.toml", None).await;
+        let database = Database::new(&config).await.unwrap();
+
+        let wpk: winternitz::PublicKey = vec![[0x45; 20]];
+        let winternitz_public_key = WinternitzPublicKey {
+            public_key: wpk.clone(),
+            parameters: Parameters::new(0, 4),
+        };
+
+        database
+            .save_winternitz_public_key(None, 0x45, winternitz_public_key.clone())
+            .await
+            .unwrap();
+
+        let read_wpk = database
+            .get_winternitz_public_key(None, 0x45)
+            .await
+            .unwrap();
+
+        assert_eq!(wpk, read_wpk);
     }
 }
