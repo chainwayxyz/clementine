@@ -69,6 +69,8 @@ pub struct BridgeConfig {
     pub verifier_endpoints: Option<Vec<String>>,
     /// Operator endpoint. For the aggregator only
     pub operator_endpoints: Option<Vec<String>>,
+    /// Watchtower endpoint. For the aggregator only
+    pub watchtower_endpoints: Option<Vec<String>>,
     /// PostgreSQL database host address.
     pub db_host: String,
     /// PostgreSQL database port.
@@ -153,6 +155,7 @@ impl Default for BridgeConfig {
             all_operators_secret_keys: None,
             verifier_endpoints: None,
             operator_endpoints: None,
+            watchtower_endpoints: None,
             db_host: "127.0.0.1".to_string(),
             db_port: 5432,
             db_user: "postgres".to_string(),

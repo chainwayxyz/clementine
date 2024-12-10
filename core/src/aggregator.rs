@@ -13,6 +13,7 @@ use crate::{
         clementine::{
             clementine_operator_client::ClementineOperatorClient,
             clementine_verifier_client::ClementineVerifierClient,
+            clementine_watchtower_client::ClementineWatchtowerClient,
         },
     },
     traits::rpc::AggregatorServer,
@@ -40,6 +41,7 @@ pub struct Aggregator {
     pub(crate) nofn_xonly_pk: secp256k1::XOnlyPublicKey,
     pub(crate) verifier_clients: Vec<ClementineVerifierClient<tonic::transport::Channel>>,
     pub(crate) operator_clients: Vec<ClementineOperatorClient<tonic::transport::Channel>>,
+    pub(crate) watchtower_clients: Vec<ClementineWatchtowerClient<tonic::transport::Channel>>,
 }
 
 impl Aggregator {
@@ -73,12 +75,23 @@ impl Aggregator {
         let operator_clients =
             rpc::get_clients(operator_endpoints, ClementineOperatorClient::connect).await?;
 
+        let watchtower_endpoints =
+            config
+                .watchtower_endpoints
+                .clone()
+                .ok_or(BridgeError::ConfigError(
+                    "Couldn't find operator endpoints in config file!".to_string(),
+                ))?;
+        let watchtower_clients =
+            rpc::get_clients(watchtower_endpoints, ClementineWatchtowerClient::connect).await?;
+
         Ok(Aggregator {
             db,
             config,
             nofn_xonly_pk,
             verifier_clients,
             operator_clients,
+            watchtower_clients,
         })
     }
 
