@@ -1,4 +1,4 @@
-# Host, port and index of the current actor (operator or verifier)
+# Host, port and index of the current actor (operator, verifier, or watchtower)
 host = "127.0.0.1"
 port = 17000
 index = 0
