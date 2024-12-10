@@ -922,14 +922,18 @@ impl Database {
     }
 
     /// Sets Winternitz public keys for a watchtower.
-    #[tracing::instrument(skip(self, tx, winternitz_public_key), err(level = tracing::Level::ERROR), ret(level = tracing::Level::TRACE))]
+    #[tracing::instrument(skip(self, tx, winternitz_public_keys), err(level = tracing::Level::ERROR), ret(level = tracing::Level::TRACE))]
     pub async fn save_winternitz_public_key(
         &self,
         tx: Option<&mut sqlx::Transaction<'_, Postgres>>,
         watchtower_id: u32,
-        winternitz_public_key: WinternitzPublicKey,
+        winternitz_public_keys: Vec<WinternitzPublicKey>,
     ) -> Result<(), BridgeError> {
-        let wpk = borsh::to_vec(&winternitz_public_key.public_key)?;
+        let wpk: Vec<_> = winternitz_public_keys
+            .into_iter()
+            .map(|wpk| wpk.public_key)
+            .collect();
+        let wpk = borsh::to_vec(&wpk)?;
 
         let query = sqlx::query("INSERT INTO winternitz_public_keys (watchtower_id, winternitz_public_key) VALUES ($1, $2);")
             .bind(watchtower_id as i64)
@@ -949,7 +953,7 @@ impl Database {
         &self,
         tx: Option<&mut sqlx::Transaction<'_, Postgres>>,
         watchtower_id: u32,
-    ) -> Result<winternitz::PublicKey, BridgeError> {
+    ) -> Result<Vec<winternitz::PublicKey>, BridgeError> {
         let query = sqlx::query_as(
             "SELECT winternitz_public_key FROM winternitz_public_keys WHERE watchtower_id = $1;",
         )
@@ -960,7 +964,7 @@ impl Database {
             None => query.fetch_one(&self.connection).await,
         }?;
 
-        let winternitz_public_key: winternitz::PublicKey = borsh::from_slice(&wpk.0)?;
+        let winternitz_public_key: Vec<winternitz::PublicKey> = borsh::from_slice(&wpk.0)?;
 
         Ok(winternitz_public_key)
     }
@@ -1746,10 +1750,10 @@ mod tests {
         let database = Database::new(&config).await.unwrap();
 
         let wpk: winternitz::PublicKey = vec![[0x45; 20]];
-        let winternitz_public_key = WinternitzPublicKey {
+        let winternitz_public_key = vec![WinternitzPublicKey {
             public_key: wpk.clone(),
             parameters: Parameters::new(0, 4),
-        };
+        }];
 
         database
             .save_winternitz_public_key(None, 0x45, winternitz_public_key.clone())
@@ -1761,6 +1765,6 @@ mod tests {
             .await
             .unwrap();
 
-        assert_eq!(wpk, read_wpk);
+        assert_eq!(wpk, read_wpk[0]);
     }
 }
