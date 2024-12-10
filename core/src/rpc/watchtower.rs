@@ -59,13 +59,13 @@ mod tests {
         config.verifier_endpoints = Some(
             verifiers
                 .iter()
-                .map(|v| format!("http://{}", v.0.to_string()))
+                .map(|v| format!("http://{}", v.0))
                 .collect(),
         );
         config.operator_endpoints = Some(
             operators
                 .iter()
-                .map(|o| format!("http://{}", o.0.to_string()))
+                .map(|o| format!("http://{}", o.0))
                 .collect(),
         );
         let watchtower = Watchtower::new(config.clone()).await.unwrap();

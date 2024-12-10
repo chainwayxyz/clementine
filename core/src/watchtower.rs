@@ -16,25 +16,25 @@ use bitvm::signatures::winternitz;
 
 #[derive(Debug, Clone)]
 pub struct Watchtower {
-    rpc: ExtendedRpc,
-    db: Database,
+    _erpc: ExtendedRpc,
+    _db: Database,
     pub actor: Actor,
     num_operators: u32,
     num_time_tx: u32,
     pub index: u32,
-    pub(crate) verifier_clients: Vec<ClementineVerifierClient<tonic::transport::Channel>>,
-    pub(crate) operator_clients: Vec<ClementineOperatorClient<tonic::transport::Channel>>,
+    pub(crate) _verifier_clients: Vec<ClementineVerifierClient<tonic::transport::Channel>>,
+    pub(crate) _operator_clients: Vec<ClementineOperatorClient<tonic::transport::Channel>>,
 }
 
 impl Watchtower {
     pub async fn new(config: BridgeConfig) -> Result<Self, BridgeError> {
-        let rpc = ExtendedRpc::new(
+        let _erpc = ExtendedRpc::new(
             config.bitcoin_rpc_url.clone(),
             config.bitcoin_rpc_user.clone(),
             config.bitcoin_rpc_password.clone(),
         )
         .await;
-        let db = Database::new(&config).await?;
+        let _db = Database::new(&config).await?;
         let actor = Actor::new(
             config.secret_key,
             config.winternitz_secret_key,
@@ -48,7 +48,7 @@ impl Watchtower {
                 .ok_or(BridgeError::ConfigError(
                     "Couldn't find operator endpoints in config file!".to_string(),
                 ))?;
-        let verifier_clients =
+        let _verifier_clients =
             rpc::get_clients(verifier_endpoints, ClementineVerifierClient::connect).await?;
 
         let operator_endpoints =
@@ -58,18 +58,18 @@ impl Watchtower {
                 .ok_or(BridgeError::ConfigError(
                     "Couldn't find operator endpoints in config file!".to_string(),
                 ))?;
-        let operator_clients =
+        let _operator_clients =
             rpc::get_clients(operator_endpoints, ClementineOperatorClient::connect).await?;
 
         Ok(Self {
-            rpc,
-            db,
+            _erpc,
+            _db,
             actor,
             index: config.index,
             num_operators: config.num_operators as u32,
             num_time_tx: config.num_time_txs as u32,
-            verifier_clients,
-            operator_clients,
+            _verifier_clients,
+            _operator_clients,
         })
     }
 
@@ -79,7 +79,7 @@ impl Watchtower {
     /// # Returns
     ///
     /// - [`Vec<Vec<winternitz::PublicKey>>`]: Winternitz public key for
-    ///   operator row index and time_tx column index.
+    ///   operator index row and time_tx index column.
     pub async fn get_winternitz_public_keys(
         &self,
     ) -> Result<Vec<Vec<winternitz::PublicKey>>, BridgeError> {
@@ -131,13 +131,13 @@ mod tests {
         config.verifier_endpoints = Some(
             verifiers
                 .iter()
-                .map(|v| format!("http://{}", v.0.to_string()))
+                .map(|v| format!("http://{}", v.0))
                 .collect(),
         );
         config.operator_endpoints = Some(
             operators
                 .iter()
-                .map(|o| format!("http://{}", o.0.to_string()))
+                .map(|o| format!("http://{}", o.0))
                 .collect(),
         );
 
