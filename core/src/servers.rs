@@ -437,12 +437,28 @@ pub async fn create_actors_grpc(
         .await
         .unwrap();
 
-    // let config = create_test_config_with_thread_name(config_name, None).await;
-    println!("Port: {}", start_port);
     let port = start_port
         + all_verifiers_secret_keys.len() as u16
         + all_operators_secret_keys.len() as u16
         + 1;
+    println!("Watchtower start port: {}", port);
+    let wathctower_futures = (0..number_of_watchtowers)
+        .map(|i| {
+            let verifier_configs = verifier_configs.clone();
+
+            create_watchtower_grpc_server(BridgeConfig {
+                port: port + i as u16,
+                ..verifier_configs[0].clone()
+            })
+        })
+        .collect::<Vec<_>>();
+    let wathctower_endpoints = futures::future::try_join_all(wathctower_futures)
+        .await
+        .unwrap();
+
+    // let config = create_test_config_with_thread_name(config_name, None).await;
+    println!("Port: {}", start_port);
+    let port = port + number_of_watchtowers as u16;
     // + all_operators_secret_keys.len() as u16;
     let aggregator = create_aggregator_grpc_server(BridgeConfig {
         port,
@@ -458,26 +474,16 @@ pub async fn create_actors_grpc(
                 .map(|(socket_addr,)| format!("http://{}", socket_addr))
                 .collect(),
         ),
+        watchtower_endpoints: Some(
+            wathctower_endpoints
+                .iter()
+                .map(|(socket_addr,)| format!("http://{}", socket_addr))
+                .collect(),
+        ),
         ..verifier_configs[0].clone()
     })
     .await
     .unwrap();
-
-    let port = port + 1;
-    println!("Watchtower start port: {}", port);
-    let wathctower_futures = (0..number_of_watchtowers)
-        .map(|i| {
-            let verifier_configs = verifier_configs.clone();
-
-            create_watchtower_grpc_server(BridgeConfig {
-                port: port + i as u16,
-                ..verifier_configs[0].clone()
-            })
-        })
-        .collect::<Vec<_>>();
-    let wathctower_endpoints = futures::future::try_join_all(wathctower_futures)
-        .await
-        .unwrap();
 
     (
         verifier_endpoints,
