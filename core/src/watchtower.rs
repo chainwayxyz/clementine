@@ -4,13 +4,6 @@ use crate::{
     database::Database,
     errors::BridgeError,
     extended_rpc::ExtendedRpc,
-    rpc::{
-        self,
-        clementine::{
-            clementine_operator_client::ClementineOperatorClient,
-            clementine_verifier_client::ClementineVerifierClient,
-        },
-    },
 };
 use bitvm::signatures::winternitz;
 
@@ -19,11 +12,7 @@ pub struct Watchtower {
     _erpc: ExtendedRpc,
     _db: Database,
     pub actor: Actor,
-    num_operators: u32,
-    num_time_tx: u32,
-    pub index: u32,
-    pub(crate) _verifier_clients: Vec<ClementineVerifierClient<tonic::transport::Channel>>,
-    pub(crate) _operator_clients: Vec<ClementineOperatorClient<tonic::transport::Channel>>,
+    pub config: BridgeConfig,
 }
 
 impl Watchtower {
@@ -41,35 +30,11 @@ impl Watchtower {
             config.network,
         );
 
-        let verifier_endpoints =
-            config
-                .verifier_endpoints
-                .clone()
-                .ok_or(BridgeError::ConfigError(
-                    "Couldn't find operator endpoints in config file!".to_string(),
-                ))?;
-        let _verifier_clients =
-            rpc::get_clients(verifier_endpoints, ClementineVerifierClient::connect).await?;
-
-        let operator_endpoints =
-            config
-                .operator_endpoints
-                .clone()
-                .ok_or(BridgeError::ConfigError(
-                    "Couldn't find operator endpoints in config file!".to_string(),
-                ))?;
-        let _operator_clients =
-            rpc::get_clients(operator_endpoints, ClementineOperatorClient::connect).await?;
-
         Ok(Self {
             _erpc,
             _db,
             actor,
-            index: config.index,
-            num_operators: config.num_operators as u32,
-            num_time_tx: config.num_time_txs as u32,
-            _verifier_clients,
-            _operator_clients,
+            config,
         })
     }
 
@@ -85,9 +50,9 @@ impl Watchtower {
     ) -> Result<Vec<Vec<winternitz::PublicKey>>, BridgeError> {
         let mut winternitz_pubkeys = Vec::new();
 
-        for operator in 0..self.num_operators {
+        for operator in 0..self.config.num_operators as u32 {
             let mut operator_i = Vec::new();
-            for time_tx in 0..self.num_time_tx {
+            for time_tx in 0..self.config.num_time_txs as u32 {
                 let path = WinternitzDerivationPath {
                     message_length: 480,
                     log_d: 4,

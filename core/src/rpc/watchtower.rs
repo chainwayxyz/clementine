@@ -34,7 +34,7 @@ impl ClementineWatchtower for Watchtower {
             .collect();
 
         Ok(Response::new(WatchtowerParams {
-            watchtower_id: self.index,
+            watchtower_id: self.config.index,
             winternitz_pubkeys,
         }))
     }
@@ -76,7 +76,7 @@ mod tests {
             .unwrap()
             .into_inner();
 
-        assert_eq!(params.watchtower_id, watchtower.index);
+        assert_eq!(params.watchtower_id, watchtower.config.index);
 
         assert!(params.winternitz_pubkeys.len() == config.num_operators * config.num_time_txs);
         assert!(params
