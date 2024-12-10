@@ -467,24 +467,10 @@ pub async fn create_actors_grpc(
     println!("Watchtower start port: {}", port);
     let wathctower_futures = (0..number_of_watchtowers)
         .map(|i| {
-            let verifier_endpoints = verifier_endpoints.clone();
-            let operator_endpoints = operator_endpoints.clone();
             let verifier_configs = verifier_configs.clone();
 
             create_watchtower_grpc_server(BridgeConfig {
                 port: port + i as u16,
-                verifier_endpoints: Some(
-                    verifier_endpoints
-                        .iter()
-                        .map(|(socket_addr,)| format!("http://{}", socket_addr))
-                        .collect(),
-                ),
-                operator_endpoints: Some(
-                    operator_endpoints
-                        .iter()
-                        .map(|(socket_addr,)| format!("http://{}", socket_addr))
-                        .collect(),
-                ),
                 ..verifier_configs[0].clone()
             })
         })
