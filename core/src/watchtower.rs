@@ -44,14 +44,13 @@ impl Watchtower {
     /// # Returns
     ///
     /// - [`Vec<Vec<winternitz::PublicKey>>`]: Winternitz public key for
-    ///   operator index row and time_tx index column.
+    ///   `operator index` row and `time_tx index` column.
     pub async fn get_winternitz_public_keys(
         &self,
-    ) -> Result<Vec<Vec<winternitz::PublicKey>>, BridgeError> {
+    ) -> Result<Vec<winternitz::PublicKey>, BridgeError> {
         let mut winternitz_pubkeys = Vec::new();
 
         for operator in 0..self.config.num_operators as u32 {
-            let mut operator_i = Vec::new();
             for time_tx in 0..self.config.num_time_txs as u32 {
                 let path = WinternitzDerivationPath {
                     message_length: 480,
@@ -63,10 +62,8 @@ impl Watchtower {
                     time_tx_idx: Some(time_tx),
                 };
 
-                operator_i.push(self.actor.derive_winternitz_pk(path)?);
+                winternitz_pubkeys.push(self.actor.derive_winternitz_pk(path)?);
             }
-
-            winternitz_pubkeys.push(operator_i);
         }
 
         Ok(winternitz_pubkeys)
@@ -83,8 +80,24 @@ mod tests {
     #[tokio::test]
     #[serial_test::serial]
     async fn new_watchtower() {
-        let config = create_test_config_with_thread_name("test_config.toml", None).await;
-        let (_, _, _, _should_not_panic) = create_actors_grpc(config, 2).await;
+        let mut config = create_test_config_with_thread_name("test_config.toml", None).await;
+        let (verifiers, operators, _, _should_not_panic) =
+            create_actors_grpc(config.clone(), 1).await;
+
+        config.verifier_endpoints = Some(
+            verifiers
+                .iter()
+                .map(|v| format!("http://{}", v.0))
+                .collect(),
+        );
+        config.operator_endpoints = Some(
+            operators
+                .iter()
+                .map(|o| format!("http://{}", o.0))
+                .collect(),
+        );
+
+        let _should_not_panic = Watchtower::new(config.clone()).await.unwrap();
     }
 
     #[tokio::test]
@@ -109,9 +122,9 @@ mod tests {
         let watchtower = Watchtower::new(config.clone()).await.unwrap();
         let winternitz_public_keys = watchtower.get_winternitz_public_keys().await.unwrap();
 
-        assert_eq!(winternitz_public_keys.len(), config.num_operators as usize);
-        for operator_winternitz_pks in winternitz_public_keys {
-            assert_eq!(operator_winternitz_pks.len(), config.num_time_txs as usize);
-        }
+        assert_eq!(
+            winternitz_public_keys.len(),
+            config.num_operators * config.num_time_txs
+        );
     }
 }

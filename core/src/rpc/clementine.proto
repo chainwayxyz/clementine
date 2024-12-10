@@ -13,8 +13,6 @@ message AssertEmptyPublicKey {
 }
 
 message WinternitzPubkey {
-  uint32 d = 1;
-  uint32 n0 = 2;
   repeated bytes digit_pubkey = 3;
 }
 
@@ -216,7 +214,7 @@ service ClementineVerifier {
 
 message WatchtowerParams {
   uint32 watchtower_id = 1;
-  // Winternitz pubkeys for each operator's timetxs.
+  // Flattened list of Winternitz pubkeys for each operator's timetxs.
   repeated WinternitzPubkey winternitz_pubkeys = 2;
 }
 

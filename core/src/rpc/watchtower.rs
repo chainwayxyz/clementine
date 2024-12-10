@@ -15,23 +15,11 @@ impl ClementineWatchtower for Watchtower {
         let winternitz_pubkeys: Vec<WinternitzPubkey> = self
             .get_winternitz_public_keys()
             .await?
-            .iter()
-            .enumerate()
-            .flat_map(|(operator_index, pks)| {
-                pks.iter()
-                    .enumerate()
-                    .map(|(timetx_index, pks)| {
-                        let digit_pubkey = pks.iter().map(|m| m.to_vec()).collect();
-
-                        WinternitzPubkey {
-                            d: operator_index as u32,
-                            n0: timetx_index as u32,
-                            digit_pubkey,
-                        }
-                    })
-                    .collect::<Vec<_>>()
+            .into_iter()
+            .map(|wpks| WinternitzPubkey {
+                digit_pubkey: wpks.iter().map(|inner| inner.to_vec()).collect(),
             })
-            .collect();
+            .collect::<Vec<WinternitzPubkey>>();
 
         Ok(Response::new(WatchtowerParams {
             watchtower_id: self.config.index,
@@ -77,11 +65,6 @@ mod tests {
             .into_inner();
 
         assert_eq!(params.watchtower_id, watchtower.config.index);
-
         assert!(params.winternitz_pubkeys.len() == config.num_operators * config.num_time_txs);
-        assert!(params
-            .winternitz_pubkeys
-            .iter()
-            .all(|pk| pk.d <= config.num_operators as u32 && pk.n0 <= config.num_time_txs as u32));
     }
 }
