@@ -12,6 +12,9 @@ use crate::{
     ByteArray32, ByteArray66, EVMAddress,
 };
 use bitcoin::{hashes::Hash, Amount, TapSighash, Txid};
+use bitvm::{
+    bridge::transactions::signing_winternitz::WinternitzPublicKey, signatures::winternitz,
+};
 use futures::StreamExt;
 use secp256k1::{schnorr, Message};
 use std::{pin::pin, str::FromStr};
@@ -145,9 +148,33 @@ impl ClementineVerifier for Verifier {
     #[allow(clippy::blocks_in_conditions)]
     async fn set_watchtower(
         &self,
-        _request: Request<WatchtowerParams>,
+        request: Request<WatchtowerParams>,
     ) -> Result<Response<Empty>, Status> {
-        todo!()
+        let watchtower_params = request.into_inner();
+
+        let winternitz_public_keys = watchtower_params
+            .winternitz_pubkeys
+            .into_iter()
+            .map(|wpk| {
+                let wpk = borsh::to_vec(&wpk.digit_pubkey)?;
+                let public_key: winternitz::PublicKey = borsh::from_slice(&wpk)?;
+
+                Ok(WinternitzPublicKey {
+                    public_key,
+                    parameters: winternitz::Parameters::new(0, 4),
+                })
+            })
+            .collect::<Result<Vec<_>, BridgeError>>()?;
+
+        self.db
+            .save_winternitz_public_key(
+                None,
+                watchtower_params.watchtower_id,
+                winternitz_public_keys,
+            )
+            .await?;
+
+        Ok(Response::new(Empty {}))
     }
 
     #[tracing::instrument(skip(self), err(level = tracing::Level::ERROR), ret(level = tracing::Level::TRACE))]

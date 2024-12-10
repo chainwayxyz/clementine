@@ -935,9 +935,11 @@ impl Database {
             .collect();
         let wpk = borsh::to_vec(&wpk)?;
 
-        let query = sqlx::query("INSERT INTO winternitz_public_keys (watchtower_id, winternitz_public_key) VALUES ($1, $2);")
-            .bind(watchtower_id as i64)
-            .bind(wpk);
+        let query = sqlx::query(
+            "INSERT INTO winternitz_public_keys (watchtower_id, public_keys) VALUES ($1, $2);",
+        )
+        .bind(watchtower_id as i64)
+        .bind(wpk);
 
         match tx {
             Some(tx) => query.execute(&mut **tx).await,
@@ -955,7 +957,7 @@ impl Database {
         watchtower_id: u32,
     ) -> Result<Vec<winternitz::PublicKey>, BridgeError> {
         let query = sqlx::query_as(
-            "SELECT winternitz_public_key FROM winternitz_public_keys WHERE watchtower_id = $1;",
+            "SELECT public_keys FROM winternitz_public_keys WHERE watchtower_id = $1;",
         )
         .bind(watchtower_id as i64);
 
