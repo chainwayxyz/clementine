@@ -392,3 +392,86 @@ impl ClementineAggregator for Aggregator {
         Ok(Response::new(RawSignedMoveTx { raw_tx: vec![1, 2] }))
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use crate::{
+        mock::database::create_test_config_with_thread_name,
+        rpc::clementine::{
+            self, clementine_aggregator_client::ClementineAggregatorClient, DepositParams,
+        },
+        servers::create_actors_grpc,
+    };
+    use bitcoin::Txid;
+    use std::str::FromStr;
+    use tonic::transport::Uri;
+
+    #[tokio::test]
+    #[serial_test::serial]
+    async fn aggregator_double_setup_fail() {
+        let config = create_test_config_with_thread_name("test_config.toml", None).await;
+
+        let (_, _, aggregator, _) = create_actors_grpc(config, 0).await;
+
+        let mut aggregator_client =
+            ClementineAggregatorClient::connect(format!("http://{}", aggregator.0))
+                .await
+                .unwrap();
+
+        aggregator_client
+            .setup(tonic::Request::new(clementine::Empty {}))
+            .await
+            .unwrap();
+
+        assert!(aggregator_client
+            .setup(tonic::Request::new(clementine::Empty {}))
+            .await
+            .is_err());
+    }
+
+    #[tokio::test]
+    #[serial_test::serial]
+    async fn aggregator_setup() {
+        let config = create_test_config_with_thread_name("test_config.toml", None).await;
+        let (_verifiers, _operators, aggregator, _watchtowers) =
+            create_actors_grpc(config, 0).await;
+
+        let x: Uri = format!("http://{}", aggregator.0).parse().unwrap();
+
+        println!("x: {:?}", x);
+
+        let mut aggregator_client = ClementineAggregatorClient::connect(x).await.unwrap();
+
+        aggregator_client
+            .setup(tonic::Request::new(clementine::Empty {}))
+            .await
+            .unwrap();
+
+        aggregator_client
+            .new_deposit(DepositParams {
+                deposit_outpoint: Some(
+                    bitcoin::OutPoint {
+                        txid: Txid::from_str(
+                            "17e3fc7aae1035e77a91e96d1ba27f91a40a912cf669b367eb32c13a8f82bb02",
+                        )
+                        .unwrap(),
+                        vout: 0,
+                    }
+                    .into(),
+                ),
+                evm_address: [1u8; 20].to_vec(),
+                recovery_taproot_address:
+                    "tb1pk8vus63mx5zwlmmmglq554kwu0zm9uhswqskxg99k66h8m3arguqfrvywa".to_string(),
+                user_takes_after: 5,
+            })
+            .await
+            .unwrap();
+
+        // let mut verifier_client = ClementineVerifierClient::connect(x)
+        //     .await
+        //     .unwrap();
+
+        // let x= verifier_client.nonce_gen(Empty {}).await.unwrap();
+        // println!("x: {:?}", x);
+    }
+}
