@@ -107,10 +107,10 @@ impl Aggregator {
 
 #[async_trait]
 impl ClementineAggregator for Aggregator {
-    #[tracing::instrument(skip(self), err(level = tracing::Level::ERROR), ret(level = tracing::Level::TRACE))]
+    #[tracing::instrument(skip_all, err(level = tracing::Level::ERROR), ret(level = tracing::Level::TRACE))]
     #[allow(clippy::blocks_in_conditions)]
     async fn setup(&self, _request: Request<Empty>) -> Result<Response<Empty>, Status> {
-        tracing::debug!("Collecting verifier details");
+        tracing::info!("Collecting verifier details...");
         let verifier_params = try_join_all(self.verifier_clients.iter().map(|client| {
             let mut client = client.clone();
             async move {
@@ -121,8 +121,9 @@ impl ClementineAggregator for Aggregator {
         .await?;
         let verifier_public_keys: Vec<Vec<u8>> =
             verifier_params.into_iter().map(|p| p.public_key).collect();
+        tracing::debug!("Verifier public keys: {:?}", verifier_public_keys);
 
-        tracing::debug!("Setting verifiers to all verifiers");
+        tracing::info!("Setting up verifiers...");
         try_join_all(self.verifier_clients.iter().map(|client| {
             let mut client = client.clone();
             {
@@ -139,7 +140,7 @@ impl ClementineAggregator for Aggregator {
         }))
         .await?;
 
-        tracing::debug!("Collecting operator details");
+        tracing::info!("Collecting operator details...");
         let operator_params = try_join_all(self.operator_clients.iter().map(|client| {
             let mut client = client.clone();
             async move {
@@ -149,7 +150,7 @@ impl ClementineAggregator for Aggregator {
         }))
         .await?;
 
-        tracing::debug!("Setting operator details to all verifiers");
+        tracing::info!("Informing verifiers for existing operators...");
         try_join_all(self.verifier_clients.iter().map(|client| {
             let mut client = client.clone();
             let params = operator_params.clone();
@@ -163,7 +164,10 @@ impl ClementineAggregator for Aggregator {
         }))
         .await?;
 
-        tracing::debug!("Collecting Winternitz public keys from Watchtowers");
+        tracing::info!(
+            "Collecting Winternitz public keys from watchtowers... {}",
+            self.watchtower_clients.len()
+        );
         let watchtower_params = try_join_all(self.watchtower_clients.iter().map(|client| {
             let mut client = client.clone();
             async move {
@@ -173,15 +177,19 @@ impl ClementineAggregator for Aggregator {
         }))
         .await?;
 
-        tracing::debug!("Sending Winternitz public keys to all verifiers");
+        tracing::info!("Sending Winternitz public keys to verifiers...");
         try_join_all(self.verifier_clients.iter().map(|client| {
             let mut client = client.clone();
             let params = watchtower_params.clone();
+
             async move {
-                // Iterate over all operator_params and call set_operator for each one
                 for param in &params {
-                    client.set_watchtower(Request::new(param.clone())).await?;
+                    client
+                        .set_watchtower(Request::new(param.clone()))
+                        .await
+                        .unwrap();
                 }
+
                 Ok::<_, tonic::Status>(())
             }
         }))
@@ -396,15 +404,13 @@ impl ClementineAggregator for Aggregator {
 #[cfg(test)]
 mod tests {
     use crate::{
+        extended_rpc::ExtendedRpc,
         mock::database::create_test_config_with_thread_name,
-        rpc::clementine::{
-            self, clementine_aggregator_client::ClementineAggregatorClient, DepositParams,
-        },
+        rpc::clementine::{self, clementine_aggregator_client::ClementineAggregatorClient},
         servers::create_actors_grpc,
+        verifier::Verifier,
+        watchtower::Watchtower,
     };
-    use bitcoin::Txid;
-    use std::str::FromStr;
-    use tonic::transport::Uri;
 
     #[tokio::test]
     #[serial_test::serial]
@@ -412,7 +418,6 @@ mod tests {
         let config = create_test_config_with_thread_name("test_config.toml", None).await;
 
         let (_, _, aggregator, _) = create_actors_grpc(config, 0).await;
-
         let mut aggregator_client =
             ClementineAggregatorClient::connect(format!("http://{}", aggregator.0))
                 .await
@@ -431,47 +436,38 @@ mod tests {
 
     #[tokio::test]
     #[serial_test::serial]
-    async fn aggregator_setup() {
-        let config = create_test_config_with_thread_name("test_config.toml", None).await;
+    async fn aggregator_setup_winternitz_public_keys() {
+        let mut config = create_test_config_with_thread_name("test_config.toml", None).await;
+
         let (_verifiers, _operators, aggregator, _watchtowers) =
-            create_actors_grpc(config, 0).await;
-
-        let x: Uri = format!("http://{}", aggregator.0).parse().unwrap();
-
-        println!("x: {:?}", x);
-
-        let mut aggregator_client = ClementineAggregatorClient::connect(x).await.unwrap();
+            create_actors_grpc(config.clone(), 1).await;
+        let mut aggregator_client =
+            ClementineAggregatorClient::connect(format!("http://{}", aggregator.0))
+                .await
+                .unwrap();
 
         aggregator_client
             .setup(tonic::Request::new(clementine::Empty {}))
             .await
             .unwrap();
 
-        aggregator_client
-            .new_deposit(DepositParams {
-                deposit_outpoint: Some(
-                    bitcoin::OutPoint {
-                        txid: Txid::from_str(
-                            "17e3fc7aae1035e77a91e96d1ba27f91a40a912cf669b367eb32c13a8f82bb02",
-                        )
-                        .unwrap(),
-                        vout: 0,
-                    }
-                    .into(),
-                ),
-                evm_address: [1u8; 20].to_vec(),
-                recovery_taproot_address:
-                    "tb1pk8vus63mx5zwlmmmglq554kwu0zm9uhswqskxg99k66h8m3arguqfrvywa".to_string(),
-                user_takes_after: 5,
-            })
+        let watchtower = Watchtower::new(config.clone()).await.unwrap();
+        let watchtower_wpks = watchtower.get_winternitz_public_keys().await.unwrap();
+
+        let rpc = ExtendedRpc::new(
+            config.bitcoin_rpc_url.clone(),
+            config.bitcoin_rpc_user.clone(),
+            config.bitcoin_rpc_password.clone(),
+        )
+        .await;
+        config.db_name += "0"; // This modification is done by the create_actors_grpc function.
+        let verifier = Verifier::new(rpc, config).await.unwrap();
+        let verifier_wpks = verifier
+            .db
+            .get_winternitz_public_key(None, 0)
             .await
             .unwrap();
 
-        // let mut verifier_client = ClementineVerifierClient::connect(x)
-        //     .await
-        //     .unwrap();
-
-        // let x= verifier_client.nonce_gen(Empty {}).await.unwrap();
-        // println!("x: {:?}", x);
+        assert_eq!(watchtower_wpks, verifier_wpks);
     }
 }
