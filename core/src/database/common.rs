@@ -777,7 +777,7 @@ impl Database {
         hash: block::BlockHash,
         proof: Receipt,
     ) -> Result<(), BridgeError> {
-        let proof = borsh::to_vec(&proof)?;
+        let proof = borsh::to_vec(&proof).map_err(BridgeError::BorschError)?;
 
         let query = sqlx::query("UPDATE header_chain_proofs SET proof = $1 WHERE block_hash = $2;")
             .bind(proof)
@@ -810,7 +810,7 @@ impl Database {
             None => return Ok(None),
         };
 
-        let receipt: Receipt = borsh::from_slice(&receipt)?;
+        let receipt: Receipt = borsh::from_slice(&receipt).map_err(BridgeError::BorschError)?;
 
         Ok(Some(receipt))
     }
@@ -916,7 +916,7 @@ impl Database {
             None => query.fetch_one(&self.connection).await,
         }?;
 
-        let receipt: Receipt = borsh::from_slice(&result.3)?;
+        let receipt: Receipt = borsh::from_slice(&result.3).map_err(BridgeError::BorschError)?;
 
         Ok((result.0 .0, result.1 .0, result.2, receipt))
     }
@@ -933,7 +933,7 @@ impl Database {
             .into_iter()
             .map(|wpk| wpk.public_key)
             .collect();
-        let wpk = borsh::to_vec(&wpk)?;
+        let wpk = borsh::to_vec(&wpk).map_err(BridgeError::BorschError)?;
 
         let query = sqlx::query(
             "INSERT INTO winternitz_public_keys (watchtower_id, public_keys) VALUES ($1, $2);",
@@ -966,7 +966,7 @@ impl Database {
             None => query.fetch_one(&self.connection).await,
         }?;
 
-        let winternitz_public_key: Vec<winternitz::PublicKey> = borsh::from_slice(&wpk.0)?;
+        let winternitz_public_key: Vec<winternitz::PublicKey> = borsh::from_slice(&wpk.0).map_err(BridgeError::BorschError)?;
 
         Ok(winternitz_public_key)
     }

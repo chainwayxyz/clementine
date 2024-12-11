@@ -34,7 +34,7 @@ impl HeaderChainProver {
 
             let mut reader = BufReader::new(file);
             let mut assumption = Vec::new();
-            reader.read_to_end(&mut assumption)?;
+            reader.read_to_end(&mut assumption).map_err(BridgeError::BorschError)?; // TODO: Not borsch.
 
             let proof: Receipt =
                 borsh::from_slice(&assumption).map_err(BridgeError::ProverDeSerializationError)?;
