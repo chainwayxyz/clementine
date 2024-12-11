@@ -12,7 +12,7 @@ use tonic::{async_trait, Request, Response, Status};
 impl ClementineOperator for Operator {
     type DepositSignStream = ReceiverStream<Result<OperatorBurnSig, Status>>;
 
-    #[tracing::instrument(skip(self), err(level = tracing::Level::ERROR), ret(level = tracing::Level::TRACE))]
+    #[tracing::instrument(skip_all, err(level = tracing::Level::ERROR), ret(level = tracing::Level::TRACE))]
     #[allow(clippy::blocks_in_conditions)]
     async fn get_params(
         &self,

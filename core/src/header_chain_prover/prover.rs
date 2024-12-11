@@ -58,7 +58,7 @@ impl HeaderChainProver {
 
         let mut env = ExecutorEnv::builder();
 
-        env.write_slice(&borsh::to_vec(&input)?);
+        env.write_slice(&borsh::to_vec(&input).map_err(BridgeError::BorschError)?);
 
         if let Some(prev_receipt) = prev_receipt {
             env.add_assumption(prev_receipt);

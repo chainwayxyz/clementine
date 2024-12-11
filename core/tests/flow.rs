@@ -2,8 +2,6 @@
 //!
 //! This tests checks if typical flows works or not.
 
-use std::str::FromStr;
-
 use bitcoin::{Address, Amount, Txid};
 use bitcoincore_rpc::RpcApi;
 use clementine_core::errors::BridgeError;
@@ -16,6 +14,7 @@ use clementine_core::utils::SECP;
 use clementine_core::{traits::rpc::OperatorRpcClient, user::User};
 use common::run_single_deposit;
 use secp256k1::SecretKey;
+use std::str::FromStr;
 use tonic::transport::Uri;
 
 mod common;
@@ -142,30 +141,7 @@ async fn withdrawal_fee_too_low() {
         }));
 }
 
-#[tokio::test]
-#[should_panic]
-#[serial_test::serial]
-async fn double_calling_setip() {
-    let config = create_test_config_with_thread_name("test_config.toml", None).await;
-    let (_verifiers, _operators, aggregator, _watchtowers) = create_actors_grpc(config, 0).await;
-
-    let x: Uri = format!("http://{}", aggregator.0).parse().unwrap();
-
-    println!("x: {:?}", x);
-
-    let mut aggregator_client = ClementineAggregatorClient::connect(x).await.unwrap();
-
-    aggregator_client
-        .setup(tonic::Request::new(clementine::Empty {}))
-        .await
-        .unwrap();
-
-    aggregator_client
-        .setup(tonic::Request::new(clementine::Empty {}))
-        .await
-        .unwrap();
-}
-
+/// TODO: Move this test to a new RPC test file and rename test.
 #[tokio::test]
 #[serial_test::serial]
 async fn grpc_flow() {
