@@ -156,11 +156,8 @@ impl ClementineVerifier for Verifier {
             .winternitz_pubkeys
             .into_iter()
             .map(|wpk| {
-                let wpk = borsh::to_vec(&wpk.digit_pubkey)?;
-                let public_key: winternitz::PublicKey = borsh::from_slice(&wpk)?;
-
                 Ok(WinternitzPublicKey {
-                    public_key,
+                    public_key: wpk.to_bitvm(),
                     parameters: winternitz::Parameters::new(0, 4),
                 })
             })

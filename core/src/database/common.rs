@@ -966,7 +966,8 @@ impl Database {
             None => query.fetch_one(&self.connection).await,
         }?;
 
-        let winternitz_public_key: Vec<winternitz::PublicKey> = borsh::from_slice(&wpk.0).map_err(BridgeError::BorschError)?;
+        let winternitz_public_key: Vec<winternitz::PublicKey> =
+            borsh::from_slice(&wpk.0).map_err(BridgeError::BorschError)?;
 
         Ok(winternitz_public_key)
     }
