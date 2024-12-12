@@ -8,7 +8,10 @@ use clementine_core::errors::BridgeError;
 use clementine_core::extended_rpc::ExtendedRpc;
 use clementine_core::rpc::clementine::clementine_aggregator_client::ClementineAggregatorClient;
 use clementine_core::rpc::clementine::{self, DepositParams};
-use clementine_core::servers::create_actors_grpc;
+use clementine_core::servers::{
+    create_aggregator_grpc_server, create_operator_grpc_server, create_verifier_grpc_server,
+    create_watchtower_grpc_server,
+};
 use clementine_core::utils::SECP;
 use clementine_core::{config::BridgeConfig, database::Database, utils::initialize_logger};
 use clementine_core::{traits::rpc::OperatorRpcClient, user::User};
@@ -147,7 +150,7 @@ async fn withdrawal_fee_too_low() {
 #[serial_test::serial]
 async fn grpc_flow() {
     let config = create_test_config_with_thread_name!("test_config.toml", None);
-    let (_verifiers, _operators, aggregator, _watchtowers) = create_actors_grpc(config, 0).await;
+    let (_verifiers, _operators, aggregator, _watchtowers) = create_actors!(config, 0);
 
     let x: Uri = format!("http://{}", aggregator.0).parse().unwrap();
 

@@ -72,17 +72,25 @@ impl Watchtower {
 
 #[cfg(test)]
 mod tests {
+    use crate::create_actors;
+    use crate::servers::create_actors_grpc;
     use crate::{
-        mock::database::create_test_config_with_thread_name, servers::create_actors_grpc,
-        watchtower::Watchtower,
+        config::BridgeConfig,
+        database::Database,
+        errors::BridgeError,
+        extended_rpc::ExtendedRpc,
+        servers::{
+            create_aggregator_grpc_server, create_operator_grpc_server,
+            create_verifier_grpc_server, create_watchtower_grpc_server,
+        },
     };
+    use crate::{mock::database::create_test_config_with_thread_name, watchtower::Watchtower};
 
     #[tokio::test]
     #[serial_test::serial]
     async fn new_watchtower() {
         let mut config = create_test_config_with_thread_name("test_config.toml", None).await;
-        let (verifiers, operators, _, _should_not_panic) =
-            create_actors_grpc(config.clone(), 1).await;
+        let (verifiers, operators, _, _should_not_panic) = create_actors!(config.clone(), 1);
 
         config.verifier_endpoints = Some(
             verifiers

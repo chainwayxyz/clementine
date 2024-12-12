@@ -111,3 +111,187 @@ macro_rules! initialize_database {
         Database::run_schema_script($config).await.unwrap();
     }};
 }
+
+/// Starts operators, verifiers, aggregator and watchtower servers.
+///
+/// # Returns
+///
+/// Returns a tuple of vectors of clients, handles, and addresses for the
+/// verifiers, operators, aggregator and watchtowers.
+///
+/// # Required Imports
+///
+/// ## Unit Tests
+///
+/// ```rust
+/// use crate::{
+///     config::BridgeConfig,
+///     database::Database,
+///     errors::BridgeError,
+///     extended_rpc::ExtendedRpc,
+///     servers::{
+///         create_aggregator_grpc_server, create_operator_grpc_server,
+///         create_verifier_grpc_server, create_watchtower_grpc_server,
+///     },
+/// };
+/// ```
+///
+/// ## Integration Tests And Binaries
+///
+/// ```rust
+/// use clementine_core::servers::{
+///     create_aggregator_grpc_server, create_operator_grpc_server, create_verifier_grpc_server,
+///     create_watchtower_grpc_server,
+/// };
+/// ```
+#[macro_export]
+macro_rules! create_actors {
+    ($config:expr, $number_of_watchtowers:expr) => {{
+        let start_port = $config.port;
+        let rpc = ExtendedRpc::new(
+            $config.bitcoin_rpc_url.clone(),
+            $config.bitcoin_rpc_user.clone(),
+            $config.bitcoin_rpc_password.clone(),
+        )
+        .await;
+        let all_verifiers_secret_keys =
+            $config
+                .all_verifiers_secret_keys
+                .clone()
+                .unwrap_or_else(|| {
+                    panic!("All secret keys of the verifiers are required for testing");
+                });
+        let verifier_futures = all_verifiers_secret_keys
+            .iter()
+            .enumerate()
+            .map(|(i, sk)| {
+                let port = start_port + i as u16;
+                // println!("Port: {}", port);
+                let i = i.to_string();
+                let rpc = rpc.clone();
+                let mut config_with_new_db = $config.clone();
+                async move {
+                    config_with_new_db.db_name += &i;
+                    Database::initialize_database(&config_with_new_db)
+                        .await
+                        .unwrap();
+
+                    let verifier = create_verifier_grpc_server(
+                        BridgeConfig {
+                            secret_key: *sk,
+                            port,
+                            ..config_with_new_db.clone()
+                        },
+                        rpc,
+                    )
+                    .await?;
+                    Ok::<((std::net::SocketAddr,), BridgeConfig), BridgeError>((
+                        verifier,
+                        config_with_new_db,
+                    ))
+                }
+            })
+            .collect::<Vec<_>>();
+        let verifier_results = futures::future::try_join_all(verifier_futures)
+            .await
+            .unwrap();
+        let verifier_endpoints = verifier_results.iter().map(|(v, _)| *v).collect::<Vec<_>>();
+        let verifier_configs = verifier_results
+            .iter()
+            .map(|(_, c)| c.clone())
+            .collect::<Vec<_>>();
+
+        let all_operators_secret_keys =
+            $config
+                .all_operators_secret_keys
+                .clone()
+                .unwrap_or_else(|| {
+                    panic!("All secret keys of the operators are required for testing");
+                });
+
+        // Create futures for operator gRPC servers
+        let operator_futures = all_operators_secret_keys
+            .iter()
+            .enumerate()
+            .map(|(i, sk)| {
+                let port = start_port + i as u16 + all_verifiers_secret_keys.len() as u16;
+                let rpc = rpc.clone();
+                let verifier_config = verifier_configs[i].clone();
+                async move {
+                    let socket_addr = create_operator_grpc_server(
+                        BridgeConfig {
+                            secret_key: *sk,
+                            port,
+                            ..verifier_config
+                        },
+                        rpc,
+                    )
+                    .await?;
+                    Ok::<(std::net::SocketAddr,), BridgeError>(socket_addr)
+                }
+            })
+            .collect::<Vec<_>>();
+
+        let operator_endpoints = futures::future::try_join_all(operator_futures)
+            .await
+            .unwrap();
+
+        let port = start_port
+            + all_verifiers_secret_keys.len() as u16
+            + all_operators_secret_keys.len() as u16
+            + 1;
+        println!("Watchtower start port: {}", port);
+        let watchtower_futures = (0..$number_of_watchtowers)
+            .map(|i| {
+                let verifier_configs = verifier_configs.clone();
+
+                create_watchtower_grpc_server(BridgeConfig {
+                    port: port + i as u16,
+                    ..verifier_configs[0].clone()
+                })
+            })
+            .collect::<Vec<_>>();
+        let watchtower_endpoints = futures::future::try_join_all(watchtower_futures)
+            .await
+            .unwrap();
+
+        let port = start_port
+            + all_verifiers_secret_keys.len() as u16
+            + all_operators_secret_keys.len() as u16
+            + $number_of_watchtowers as u16
+            + 1;
+        println!("Aggregator port: {}", port);
+        // + all_operators_secret_keys.len() as u16;
+        let aggregator = create_aggregator_grpc_server(BridgeConfig {
+            port,
+            verifier_endpoints: Some(
+                verifier_endpoints
+                    .iter()
+                    .map(|(socket_addr,)| format!("http://{}", socket_addr))
+                    .collect(),
+            ),
+            operator_endpoints: Some(
+                operator_endpoints
+                    .iter()
+                    .map(|(socket_addr,)| format!("http://{}", socket_addr))
+                    .collect(),
+            ),
+            watchtower_endpoints: Some(
+                watchtower_endpoints
+                    .iter()
+                    .map(|(socket_addr,)| format!("http://{}", socket_addr))
+                    .collect(),
+            ),
+            ..verifier_configs[0].clone()
+        })
+        .await
+        .unwrap();
+
+        (
+            verifier_endpoints,
+            operator_endpoints,
+            aggregator,
+            watchtower_endpoints,
+        )
+    }};
+}
