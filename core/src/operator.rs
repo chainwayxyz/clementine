@@ -739,14 +739,18 @@ impl OperatorRpcServer for Operator {
 #[cfg(test)]
 mod tests {
     use crate::{
-        extended_rpc::ExtendedRpc, mock::database::create_test_config_with_thread_name,
-        operator::Operator, servers::create_operator_server, traits::rpc::OperatorRpcClient, UTXO,
+        config::BridgeConfig, database::Database, initialize_database, utils::initialize_logger,
+    };
+    use crate::{
+        create_test_config_with_thread_name, extended_rpc::ExtendedRpc, operator::Operator,
+        servers::create_operator_server, traits::rpc::OperatorRpcClient, UTXO,
     };
     use bitcoin::{hashes::Hash, Amount, OutPoint, ScriptBuf, TxOut, Txid};
+    use std::{env, thread};
 
     #[tokio::test]
     async fn set_funding_utxo() {
-        let config = create_test_config_with_thread_name("test_config.toml", None).await;
+        let config = create_test_config_with_thread_name!("test_config.toml", None);
         let rpc = ExtendedRpc::new(
             config.bitcoin_rpc_url.clone(),
             config.bitcoin_rpc_user.clone(),
@@ -779,7 +783,7 @@ mod tests {
 
     #[tokio::test]
     async fn set_funding_utxo_rpc() {
-        let config = create_test_config_with_thread_name("test_config.toml", None).await;
+        let config = create_test_config_with_thread_name!("test_config.toml", None);
         let rpc = ExtendedRpc::new(
             config.bitcoin_rpc_url.clone(),
             config.bitcoin_rpc_user.clone(),
@@ -807,7 +811,7 @@ mod tests {
 
     #[tokio::test]
     async fn is_profitable() {
-        let mut config = create_test_config_with_thread_name("test_config.toml", None).await;
+        let mut config = create_test_config_with_thread_name!("test_config.toml", None);
         let rpc = ExtendedRpc::new(
             config.bitcoin_rpc_url.clone(),
             config.bitcoin_rpc_user.clone(),

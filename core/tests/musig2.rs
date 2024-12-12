@@ -2,7 +2,6 @@ use bitcoin::opcodes::all::OP_CHECKSIG;
 use bitcoin::{hashes::Hash, script, Amount, ScriptBuf};
 use bitcoincore_rpc::RpcApi;
 use clementine_core::builder::transaction::TxHandler;
-use clementine_core::mock::database::create_test_config_with_thread_name;
 use clementine_core::musig2::{
     aggregate_nonces, aggregate_partial_signatures, MuSigPartialSignature, MuSigPubNonce,
 };
@@ -16,7 +15,11 @@ use clementine_core::{
     musig2::{create_key_agg_ctx, nonce_pair, partial_sign, MuSigNoncePair},
     utils, ByteArray66,
 };
+use clementine_core::{database::Database, utils::initialize_logger};
 use secp256k1::{Keypair, Message, PublicKey};
+use std::{env, thread};
+
+mod common;
 
 fn get_verifiers_keys(
     config: &BridgeConfig,
@@ -66,7 +69,7 @@ fn get_nonces(verifiers_secret_public_keys: Vec<Keypair>) -> (Vec<MuSigNoncePair
 #[tokio::test]
 #[serial_test::serial]
 async fn key_spend() {
-    let config = create_test_config_with_thread_name("test_config.toml", None).await;
+    let config = create_test_config_with_thread_name!("test_config.toml", None);
     let rpc = ExtendedRpc::new(
         config.bitcoin_rpc_url.clone(),
         config.bitcoin_rpc_user.clone(),
@@ -157,7 +160,7 @@ async fn key_spend() {
 #[tokio::test]
 #[serial_test::serial]
 async fn key_spend_with_script() {
-    let config = create_test_config_with_thread_name("test_config.toml", None).await;
+    let config = create_test_config_with_thread_name!("test_config.toml", None);
     let rpc = ExtendedRpc::new(
         config.bitcoin_rpc_url.clone(),
         config.bitcoin_rpc_user.clone(),
@@ -254,7 +257,7 @@ async fn key_spend_with_script() {
 #[tokio::test]
 #[serial_test::serial]
 async fn script_spend() {
-    let config = create_test_config_with_thread_name("test_config.toml", None).await;
+    let config = create_test_config_with_thread_name!("test_config.toml", None);
     let rpc = ExtendedRpc::new(
         config.bitcoin_rpc_url.clone(),
         config.bitcoin_rpc_user.clone(),

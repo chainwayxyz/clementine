@@ -137,8 +137,11 @@ impl HeaderChainProver {
 #[cfg(test)]
 mod tests {
     use crate::{
-        extended_rpc::ExtendedRpc, header_chain_prover::HeaderChainProver,
-        mock::database::create_test_config_with_thread_name,
+        config::BridgeConfig, database::Database, initialize_database, utils::initialize_logger,
+    };
+    use crate::{
+        create_test_config_with_thread_name, extended_rpc::ExtendedRpc,
+        header_chain_prover::HeaderChainProver,
     };
     use bitcoin::{
         block::{Header, Version},
@@ -147,6 +150,7 @@ mod tests {
     };
     use borsh::BorshDeserialize;
     use circuits::header_chain::{BlockHeader, BlockHeaderCircuitOutput};
+    use std::{env, thread};
 
     fn get_headers() -> Vec<BlockHeader> {
         let headers = include_bytes!("../../../scripts/headers.bin");
@@ -160,7 +164,7 @@ mod tests {
     #[tokio::test]
     #[serial_test::serial]
     async fn prove_block_headers_genesis() {
-        let config = create_test_config_with_thread_name("test_config.toml", None).await;
+        let config = create_test_config_with_thread_name!("test_config.toml", None);
         let rpc = ExtendedRpc::new(
             config.bitcoin_rpc_url.clone(),
             config.bitcoin_rpc_user.clone(),
@@ -184,7 +188,7 @@ mod tests {
     #[tokio::test]
     #[serial_test::serial]
     async fn prove_block_headers_second() {
-        let config = create_test_config_with_thread_name("test_config.toml", None).await;
+        let config = create_test_config_with_thread_name!("test_config.toml", None);
         let rpc = ExtendedRpc::new(
             config.bitcoin_rpc_url.clone(),
             config.bitcoin_rpc_user.clone(),
@@ -211,7 +215,7 @@ mod tests {
     #[tokio::test]
     #[serial_test::serial]
     async fn save_and_get_proof() {
-        let config = create_test_config_with_thread_name("test_config.toml", None).await;
+        let config = create_test_config_with_thread_name!("test_config.toml", None);
         let rpc = ExtendedRpc::new(
             config.bitcoin_rpc_url.clone(),
             config.bitcoin_rpc_user.clone(),

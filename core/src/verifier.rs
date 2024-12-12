@@ -637,19 +637,22 @@ impl VerifierRpcServer for Verifier {
 
 #[cfg(test)]
 mod tests {
-    use crate::actor::Actor;
     use crate::errors::BridgeError;
     use crate::extended_rpc::ExtendedRpc;
-    use crate::mock::database::create_test_config_with_thread_name;
     use crate::musig2::nonce_pair;
     use crate::user::User;
     use crate::verifier::Verifier;
     use crate::EVMAddress;
+    use crate::{actor::Actor, create_test_config_with_thread_name};
+    use crate::{
+        config::BridgeConfig, database::Database, initialize_database, utils::initialize_logger,
+    };
     use secp256k1::rand;
+    use std::{env, thread};
 
     #[tokio::test]
     async fn verifier_new_public_key_check() {
-        let mut config = create_test_config_with_thread_name("test_config.toml", None).await;
+        let mut config = create_test_config_with_thread_name!("test_config.toml", None);
         let rpc = ExtendedRpc::new(
             config.bitcoin_rpc_url.clone(),
             config.bitcoin_rpc_user.clone(),
@@ -668,7 +671,7 @@ mod tests {
     #[tokio::test]
     #[serial_test::serial]
     async fn new_deposit_nonce_checks() {
-        let config = create_test_config_with_thread_name("test_config.toml", None).await;
+        let config = create_test_config_with_thread_name!("test_config.toml", None);
         let rpc = ExtendedRpc::new(
             config.bitcoin_rpc_url.clone(),
             config.bitcoin_rpc_user.clone(),
