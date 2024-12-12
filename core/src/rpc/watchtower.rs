@@ -31,9 +31,19 @@ impl ClementineWatchtower for Watchtower {
 #[cfg(test)]
 mod tests {
     use crate::{
+        config::BridgeConfig,
+        database::Database,
+        errors::BridgeError,
+        extended_rpc::ExtendedRpc,
+        servers::{
+            create_aggregator_grpc_server, create_operator_grpc_server,
+            create_verifier_grpc_server, create_watchtower_grpc_server,
+        },
+    };
+    use crate::{
+        create_actors,
         mock::database::create_test_config_with_thread_name,
         rpc::clementine::{clementine_watchtower_server::ClementineWatchtower, Empty},
-        servers::create_actors_grpc,
         watchtower::Watchtower,
     };
     use tonic::Request;
@@ -42,7 +52,7 @@ mod tests {
     #[serial_test::serial]
     async fn watchtower_get_params() {
         let mut config = create_test_config_with_thread_name("test_config.toml", None).await;
-        let (verifiers, operators, _, _watchtowers) = create_actors_grpc(config.clone(), 2).await;
+        let (verifiers, operators, _, _watchtowers) = create_actors!(config.clone(), 2);
 
         config.verifier_endpoints = Some(
             verifiers
