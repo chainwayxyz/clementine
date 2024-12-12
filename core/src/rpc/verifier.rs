@@ -152,6 +152,7 @@ impl ClementineVerifier for Verifier {
     ) -> Result<Response<Empty>, Status> {
         let watchtower_params = request.into_inner();
 
+        // Convert RPC type into BitVM type.
         let winternitz_public_keys = watchtower_params
             .winternitz_pubkeys
             .into_iter()
@@ -163,13 +164,17 @@ impl ClementineVerifier for Verifier {
             })
             .collect::<Result<Vec<_>, BridgeError>>()?;
 
-        self.db
-            .save_winternitz_public_key(
-                None,
-                watchtower_params.watchtower_id,
-                winternitz_public_keys,
-            )
-            .await?;
+        for (operator_idx, winternitz_public_key) in winternitz_public_keys.into_iter().enumerate()
+        {
+            self.db
+                .save_winternitz_public_key(
+                    None,
+                    watchtower_params.watchtower_id,
+                    operator_idx as u32,
+                    winternitz_public_key,
+                )
+                .await?;
+        }
 
         Ok(Response::new(Empty {}))
     }

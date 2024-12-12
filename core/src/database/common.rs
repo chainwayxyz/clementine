@@ -922,22 +922,21 @@ impl Database {
     }
 
     /// Sets Winternitz public keys for an operator.
-    #[tracing::instrument(skip(self, tx, winternitz_public_keys), err(level = tracing::Level::ERROR), ret(level = tracing::Level::TRACE))]
+    #[tracing::instrument(skip(self, tx, winternitz_public_key), err(level = tracing::Level::ERROR), ret(level = tracing::Level::TRACE))]
     pub async fn save_winternitz_public_key(
         &self,
         tx: Option<&mut sqlx::Transaction<'_, Postgres>>,
+        watchtower_id: u32,
         operator_id: u32,
-        winternitz_public_keys: Vec<WinternitzPublicKey>,
+        winternitz_public_key: WinternitzPublicKey,
     ) -> Result<(), BridgeError> {
-        let wpk: Vec<_> = winternitz_public_keys
-            .into_iter()
-            .map(|wpk| wpk.public_key)
-            .collect();
-        let wpk = borsh::to_vec(&wpk).map_err(BridgeError::BorschError)?;
+        let wpk =
+            borsh::to_vec(&winternitz_public_key.public_key).map_err(BridgeError::BorschError)?;
 
         let query = sqlx::query(
-            "INSERT INTO winternitz_public_keys (operator_id, public_keys) VALUES ($1, $2);",
+            "INSERT INTO winternitz_public_keys (watchtower_id, operator_id, winternitz_public_key) VALUES ($1, $2, $3);",
         )
+        .bind(watchtower_id as i64)
         .bind(operator_id as i64)
         .bind(wpk);
 
@@ -951,25 +950,56 @@ impl Database {
 
     /// Gets Winternitz public keys for an operator.
     #[tracing::instrument(skip(self, tx), err(level = tracing::Level::ERROR), ret(level = tracing::Level::TRACE))]
-    pub async fn get_winternitz_public_key(
+    pub async fn get_winternitz_public_keys_for_operator(
         &self,
         tx: Option<&mut sqlx::Transaction<'_, Postgres>>,
         operator_id: u32,
     ) -> Result<Vec<winternitz::PublicKey>, BridgeError> {
         let query = sqlx::query_as(
-            "SELECT public_keys FROM winternitz_public_keys WHERE operator_id = $1;",
+            "SELECT winternitz_public_key FROM winternitz_public_keys WHERE operator_id = $1;",
         )
         .bind(operator_id as i64);
 
-        let wpk: (Vec<u8>,) = match tx {
-            Some(tx) => query.fetch_one(&mut **tx).await,
-            None => query.fetch_one(&self.connection).await,
+        let wpk: Vec<(Vec<u8>,)> = match tx {
+            Some(tx) => query.fetch_all(&mut **tx).await,
+            None => query.fetch_all(&self.connection).await,
         }?;
 
-        let winternitz_public_key: Vec<winternitz::PublicKey> =
-            borsh::from_slice(&wpk.0).map_err(BridgeError::BorschError)?;
+        let winternitz_public_keys: Vec<Result<winternitz::PublicKey, BridgeError>> = wpk
+            .into_iter()
+            .map(|wpk| {
+                borsh::from_slice::<winternitz::PublicKey>(&wpk.0).map_err(BridgeError::BorschError)
+            })
+            .collect();
 
-        Ok(winternitz_public_key)
+        winternitz_public_keys.into_iter().collect()
+    }
+
+    /// Gets Winternitz public keys for a watchtower.
+    #[tracing::instrument(skip(self, tx), err(level = tracing::Level::ERROR), ret(level = tracing::Level::TRACE))]
+    pub async fn get_winternitz_public_keys_for_watchtower(
+        &self,
+        tx: Option<&mut sqlx::Transaction<'_, Postgres>>,
+        watchtower_id: u32,
+    ) -> Result<Vec<winternitz::PublicKey>, BridgeError> {
+        let query = sqlx::query_as(
+            "SELECT winternitz_public_key FROM winternitz_public_keys WHERE watchtower_id = $1;",
+        )
+        .bind(watchtower_id as i64);
+
+        let wpk: Vec<(Vec<u8>,)> = match tx {
+            Some(tx) => query.fetch_all(&mut **tx).await,
+            None => query.fetch_all(&self.connection).await,
+        }?;
+
+        let winternitz_public_keys: Vec<Result<winternitz::PublicKey, BridgeError>> = wpk
+            .into_iter()
+            .map(|wpk| {
+                borsh::from_slice::<winternitz::PublicKey>(&wpk.0).map_err(BridgeError::BorschError)
+            })
+            .collect();
+
+        winternitz_public_keys.into_iter().collect()
     }
 }
 
@@ -1753,21 +1783,27 @@ mod tests {
         let database = Database::new(&config).await.unwrap();
 
         let wpk: winternitz::PublicKey = vec![[0x45; 20]];
-        let winternitz_public_key = vec![WinternitzPublicKey {
+        let winternitz_public_key = WinternitzPublicKey {
             public_key: wpk.clone(),
             parameters: Parameters::new(0, 4),
-        }];
+        };
 
         database
-            .save_winternitz_public_key(None, 0x45, winternitz_public_key.clone())
+            .save_winternitz_public_key(None, 0x45, 0x1F, winternitz_public_key.clone())
             .await
             .unwrap();
 
-        let read_wpk = database
-            .get_winternitz_public_key(None, 0x45)
+        let read_wpk_for_operator = database
+            .get_winternitz_public_keys_for_operator(None, 0x1F)
             .await
             .unwrap();
 
-        assert_eq!(wpk, read_wpk[0]);
+        let read_wpk_for_watchtower = database
+            .get_winternitz_public_keys_for_watchtower(None, 0x45)
+            .await
+            .unwrap();
+
+        assert_eq!(wpk, read_wpk_for_operator[0]);
+        assert_eq!(wpk, read_wpk_for_watchtower[0]);
     }
 }

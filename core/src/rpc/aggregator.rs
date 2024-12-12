@@ -464,7 +464,7 @@ mod tests {
         let verifier = Verifier::new(rpc, config).await.unwrap();
         let verifier_wpks = verifier
             .db
-            .get_winternitz_public_key(None, 0)
+            .get_winternitz_public_keys_for_watchtower(None, 0)
             .await
             .unwrap();
 
