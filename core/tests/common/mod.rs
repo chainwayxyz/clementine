@@ -1,7 +1,7 @@
 //! # Common Utilities for Integration Tests
 
-#[path = "../../src/mock_macro.rs"]
-mod mock_macro;
+#[path = "../../src/test_utils.rs"]
+mod test_utils;
 
 use crate::{create_test_config_with_thread_name, initialize_database};
 use bitcoin::consensus::encode::deserialize_hex;

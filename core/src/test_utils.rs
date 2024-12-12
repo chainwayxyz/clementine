@@ -1,4 +1,8 @@
-//! # Mock
+//! # Testing Utilities
+//!
+//! This crate provides testing utilities, which are not possible to be included
+//! in binaries. There will be multiple prerequisites that these macros require.
+//! Please check comments of each for more information.
 
 /// Creates a temporary database for testing, using current thread's name as the
 /// database name.

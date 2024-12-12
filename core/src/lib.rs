@@ -21,7 +21,6 @@ pub mod extended_rpc;
 pub mod hashes;
 pub mod header_chain_prover;
 pub mod merkle;
-pub mod mock;
 pub mod musig2;
 pub mod operator;
 pub mod rpc;
@@ -33,7 +32,7 @@ pub mod verifier;
 pub mod watchtower;
 
 #[cfg(test)]
-mod mock_macro;
+mod test_utils;
 
 pub type ConnectorUTXOTree = Vec<Vec<OutPoint>>;
 // pub type HashTree = Vec<Vec<HashType>>;
