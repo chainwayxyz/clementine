@@ -19,8 +19,7 @@
 /// ## Unit Tests
 ///
 /// ```rust
-/// use crate::{config::BridgeConfig, utils::initialize_logger};
-/// use crate::database::Database;
+/// use crate::{config::BridgeConfig, initialize_database, utils::initialize_logger};
 /// use std::{env, thread};
 /// ```
 ///
@@ -67,8 +66,39 @@ macro_rules! create_test_config_with_thread_name {
         };
 
         config.db_name = handle.to_string();
-        Database::initialize_database(&config).await.unwrap();
+        initialize_database!(&config);
 
         config
+    }};
+}
+
+/// Initializes a new database with given configuration. If the database is
+/// already initialized, it will be dropped before initialization. Meaning,
+/// a clean state is guaranteed.
+///
+/// [`Database::new`] must be called after this to connect to the
+/// initialized database.
+///
+/// # Parameters
+///
+/// - `config`: Configuration options in `BridgeConfig` type.
+///
+/// # Required Imports
+///
+/// ## Unit Tests
+///
+/// ```rust
+/// use crate::database::Database;
+/// ```
+///
+/// ## Integration Tests And Binaries
+#[macro_export]
+macro_rules! initialize_database {
+    ($config:expr) => {{
+        Database::drop_database($config).await.unwrap();
+
+        Database::create_database($config).await.unwrap();
+
+        Database::run_schema_script($config).await.unwrap();
     }};
 }

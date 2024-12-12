@@ -68,7 +68,7 @@ impl Database {
     ///
     /// Will return [`BridgeError`] if there was a problem with database
     /// connection.
-    async fn create_database(config: &BridgeConfig) -> Result<(), BridgeError> {
+    pub async fn create_database(config: &BridgeConfig) -> Result<(), BridgeError> {
         let url = Database::get_postgresql_url(config);
         let conn = sqlx::PgPool::connect(url.as_str()).await?;
 
@@ -90,7 +90,7 @@ impl Database {
     /// Will return [`BridgeError`] if there was a problem with database
     /// connection. It won't return any errors if the database does not already
     /// exist.
-    async fn drop_database(config: &BridgeConfig) -> Result<(), BridgeError> {
+    pub async fn drop_database(config: &BridgeConfig) -> Result<(), BridgeError> {
         let url = Database::get_postgresql_url(config);
         let conn = sqlx::PgPool::connect(url.as_str()).await?;
 
