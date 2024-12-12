@@ -24,6 +24,11 @@
 /// ```
 ///
 /// ## Integration Tests And Binaries
+///
+/// ```rust
+/// use clementine_core::{config::BridgeConfig, database::Database, utils::initialize_logger};
+/// use std::{env, thread};
+/// ```
 #[macro_export]
 macro_rules! create_test_config_with_thread_name {
     ($config_file:expr, $suffix:expr) => {{
@@ -92,6 +97,10 @@ macro_rules! create_test_config_with_thread_name {
 /// ```
 ///
 /// ## Integration Tests And Binaries
+///
+/// ```rust
+/// use clementine_core::database::Database;
+/// ```
 #[macro_export]
 macro_rules! initialize_database {
     ($config:expr) => {{
