@@ -3,7 +3,7 @@
 //! This module provides mock database interfaces, for testing.
 
 use super::common;
-use crate::{config::BridgeConfig, database::Database, utils::initialize_logger};
+use crate::{config::BridgeConfig, utils::initialize_logger};
 use std::thread;
 
 /// Creates a temporary database for testing.
@@ -21,7 +21,7 @@ async fn create_test_config(db_name: &str, config_file: &str) -> BridgeConfig {
 
     let mut config = common::get_test_config(config_file).unwrap();
     config.db_name = db_name.to_string();
-    Database::initialize_database(&config).await.unwrap();
+    // Database::initialize_database(&config).await.unwrap();
 
     config
 }

@@ -39,29 +39,6 @@ impl Database {
         self.connection.close().await;
     }
 
-    /// Initializes a new database with given configuration. If the database is
-    /// already initialized, it will be dropped before initialization. Meaning,
-    /// a clean state is guaranteed.
-    ///
-    /// [`Database::new`] must be called after this to connect to the
-    /// initialized database.
-    ///
-    /// **Warning:** This must not be used in release environments and is only
-    /// suitable for testing.
-    ///
-    /// TODO: This function must be marked with `#[cfg(test)]` to prevent it
-    /// from infiltrating the binaries. See:
-    /// https://github.com/chainwayxyz/clementine/issues/181
-    pub async fn initialize_database(config: &BridgeConfig) -> Result<(), BridgeError> {
-        Database::drop_database(config).await?;
-
-        Database::create_database(config).await?;
-
-        Database::run_schema_script(config).await?;
-
-        Ok(())
-    }
-
     /// Creates a new database with given configuration.
     ///
     /// # Errors
@@ -192,26 +169,6 @@ mod tests {
 
         // It should be possible to connect new database after creating it.
         Database::create_database(&config).await.unwrap();
-        Database::new(&config).await.unwrap();
-
-        // Dropping database again should result connection to not be
-        // established.
-        Database::drop_database(&config).await.unwrap();
-        assert!(Database::new(&config).await.is_err());
-    }
-
-    #[tokio::test]
-    async fn initialize_database() {
-        let mut config = common::get_test_config("test_config.toml").unwrap();
-        config.db_name = "initialize_database".to_string();
-
-        // Drop database (clear previous test run artifacts) and check that
-        // connection can't be established.
-        Database::drop_database(&config).await.unwrap();
-        assert!(Database::new(&config).await.is_err());
-
-        // It should be possible to initialize and connect to the new database.
-        Database::initialize_database(&config).await.unwrap();
         Database::new(&config).await.unwrap();
 
         // Dropping database again should result connection to not be

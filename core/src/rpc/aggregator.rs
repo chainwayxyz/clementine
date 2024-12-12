@@ -407,6 +407,7 @@ mod tests {
         config::BridgeConfig,
         database::Database,
         errors::BridgeError,
+        initialize_database,
         servers::{
             create_aggregator_grpc_server, create_operator_grpc_server,
             create_verifier_grpc_server, create_watchtower_grpc_server,

@@ -35,6 +35,7 @@ mod tests {
         database::Database,
         errors::BridgeError,
         extended_rpc::ExtendedRpc,
+        initialize_database,
         servers::{
             create_aggregator_grpc_server, create_operator_grpc_server,
             create_verifier_grpc_server, create_watchtower_grpc_server,

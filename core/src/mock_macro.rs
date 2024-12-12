@@ -128,6 +128,7 @@ macro_rules! initialize_database {
 ///     config::BridgeConfig,
 ///     database::Database,
 ///     errors::BridgeError,
+///     initialize_database,
 ///     extended_rpc::ExtendedRpc,
 ///     servers::{
 ///         create_aggregator_grpc_server, create_operator_grpc_server,
@@ -172,9 +173,7 @@ macro_rules! create_actors {
                 let mut config_with_new_db = $config.clone();
                 async move {
                     config_with_new_db.db_name += &i;
-                    Database::initialize_database(&config_with_new_db)
-                        .await
-                        .unwrap();
+                    initialize_database!(&config_with_new_db);
 
                     let verifier = create_verifier_grpc_server(
                         BridgeConfig {
