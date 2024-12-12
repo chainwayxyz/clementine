@@ -19,7 +19,9 @@
 /// ## Unit Tests
 ///
 /// ```rust
-/// use crate::{config::BridgeConfig, initialize_database, utils::initialize_logger};
+/// use crate::{
+///     config::BridgeConfig, database::Database, initialize_database, utils::initialize_logger,
+/// };
 /// use std::{env, thread};
 /// ```
 ///

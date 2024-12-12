@@ -72,7 +72,8 @@ impl Watchtower {
 
 #[cfg(test)]
 mod tests {
-    use crate::create_actors;
+    use crate::utils::initialize_logger;
+    use crate::watchtower::Watchtower;
     use crate::{
         config::BridgeConfig,
         database::Database,
@@ -84,12 +85,13 @@ mod tests {
             create_verifier_grpc_server, create_watchtower_grpc_server,
         },
     };
-    use crate::{mock::database::create_test_config_with_thread_name, watchtower::Watchtower};
+    use crate::{create_actors, create_test_config_with_thread_name};
+    use std::{env, thread};
 
     #[tokio::test]
     #[serial_test::serial]
     async fn new_watchtower() {
-        let mut config = create_test_config_with_thread_name("test_config.toml", None).await;
+        let mut config = create_test_config_with_thread_name!("test_config.toml", None);
         let (verifiers, operators, _, _should_not_panic) = create_actors!(config.clone(), 1);
 
         config.verifier_endpoints = Some(
@@ -111,7 +113,7 @@ mod tests {
     #[tokio::test]
     #[serial_test::serial]
     async fn get_winternitz_public_keys() {
-        let mut config = create_test_config_with_thread_name("test_config.toml", None).await;
+        let mut config = create_test_config_with_thread_name!("test_config.toml", None);
         let (verifiers, operators, _, _watchtowers) = create_actors!(config.clone(), 2);
 
         config.verifier_endpoints = Some(

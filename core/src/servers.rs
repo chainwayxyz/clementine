@@ -3,7 +3,6 @@
 //! Utilities for operator and verifier servers.
 use crate::aggregator;
 use crate::aggregator::Aggregator;
-use crate::mock::database::create_test_config_with_thread_name;
 use crate::rpc::clementine::clementine_aggregator_server::ClementineAggregatorServer;
 use crate::rpc::clementine::clementine_operator_server::ClementineOperatorServer;
 use crate::rpc::clementine::clementine_verifier_server::ClementineVerifierServer;
@@ -135,7 +134,8 @@ pub async fn create_verifiers_and_operators(
     Vec<(HttpClient, ServerHandle, std::net::SocketAddr)>, // Operator clients
     (HttpClient, ServerHandle, std::net::SocketAddr),      // Aggregator client
 ) {
-    let config = create_test_config_with_thread_name(config_name, None).await;
+    // let config = create_test_config_with_thread_name!(config_name, None);
+    let config = BridgeConfig::default();
     let start_port = config.port;
     let rpc = ExtendedRpc::new(
         config.bitcoin_rpc_url,
@@ -152,11 +152,10 @@ pub async fn create_verifiers_and_operators(
         .map(|(i, sk)| {
             let port = start_port + i as u16;
             // println!("Port: {}", port);
-            let i = i.to_string();
+            let _i = i.to_string();
             let rpc = rpc.clone();
             async move {
-                let config_with_new_db =
-                    create_test_config_with_thread_name(config_name, Some(&i.to_string())).await;
+                let config_with_new_db = BridgeConfig::default();
                 let verifier = create_verifier_server(
                     BridgeConfig {
                         secret_key: *sk,
@@ -216,7 +215,7 @@ pub async fn create_verifiers_and_operators(
         .await
         .unwrap();
 
-    let config = create_test_config_with_thread_name(config_name, None).await;
+    let config = BridgeConfig::default();
     println!("Port: {}", start_port);
     let port = start_port
         + all_verifiers_secret_keys.len() as u16

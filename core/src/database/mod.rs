@@ -131,15 +131,14 @@ impl Database {
 
 #[cfg(test)]
 mod tests {
-    use crate::{
-        config::BridgeConfig,
-        database::Database,
-        mock::{common, database::create_test_config_with_thread_name},
-    };
+    use crate::create_test_config_with_thread_name;
+    use crate::{config::BridgeConfig, database::Database};
+    use crate::{initialize_database, utils::initialize_logger};
+    use std::{env, thread};
 
     #[tokio::test]
     async fn valid_database_connection() {
-        let config = create_test_config_with_thread_name("test_config.toml", None).await;
+        let config = create_test_config_with_thread_name!("test_config.toml", None);
 
         Database::new(&config).await.unwrap();
     }
@@ -159,7 +158,7 @@ mod tests {
 
     #[tokio::test]
     async fn create_drop_database() {
-        let mut config = common::get_test_config("test_config.toml").unwrap();
+        let mut config = create_test_config_with_thread_name!("test_config.toml", None);
         config.db_name = "create_drop_database".to_string();
 
         // Drop database (clear previous test run artifacts) and check that
