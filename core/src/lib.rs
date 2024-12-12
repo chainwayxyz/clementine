@@ -6,7 +6,6 @@
 #![allow(clippy::too_many_arguments)]
 
 use bitcoin::{OutPoint, Txid};
-// use clementine_circuits::{HashType, PreimageType};
 use serde::{Deserialize, Serialize};
 
 pub mod actor;
@@ -32,6 +31,9 @@ pub mod user;
 pub mod utils;
 pub mod verifier;
 pub mod watchtower;
+
+#[cfg(test)]
+mod mock_macro;
 
 pub type ConnectorUTXOTree = Vec<Vec<OutPoint>>;
 // pub type HashTree = Vec<Vec<HashType>>;
