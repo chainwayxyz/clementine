@@ -4,7 +4,6 @@ use bitcoin::consensus::encode::deserialize_hex;
 use bitcoin::Transaction;
 use clementine_core::actor::Actor;
 use clementine_core::extended_rpc::ExtendedRpc;
-use clementine_core::mock::database::create_test_config_with_thread_name;
 use clementine_core::musig2::MuSigPartialSignature;
 use clementine_core::servers::*;
 use clementine_core::traits::rpc::AggregatorClient;
@@ -12,12 +11,16 @@ use clementine_core::traits::rpc::OperatorRpcClient;
 use clementine_core::traits::rpc::VerifierRpcClient;
 use clementine_core::user::User;
 use clementine_core::EVMAddress;
+use clementine_core::{config::BridgeConfig, database::Database, utils::initialize_logger};
+use std::{env, thread};
+
+mod common;
 
 #[ignore = "We are switching to gRPC"]
 #[tokio::test]
 #[serial_test::serial]
 async fn deposit_with_retry_checks() {
-    let config = create_test_config_with_thread_name("test_config.toml", None).await;
+    let config = create_test_config_with_thread_name!("test_config.toml", None);
     let rpc = ExtendedRpc::new(
         config.bitcoin_rpc_url.clone(),
         config.bitcoin_rpc_user.clone(),
