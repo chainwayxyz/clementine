@@ -921,12 +921,12 @@ impl Database {
         Ok((result.0 .0, result.1 .0, result.2, receipt))
     }
 
-    /// Sets Winternitz public keys for a watchtower.
+    /// Sets Winternitz public keys for an operator.
     #[tracing::instrument(skip(self, tx, winternitz_public_keys), err(level = tracing::Level::ERROR), ret(level = tracing::Level::TRACE))]
     pub async fn save_winternitz_public_key(
         &self,
         tx: Option<&mut sqlx::Transaction<'_, Postgres>>,
-        watchtower_id: u32,
+        operator_id: u32,
         winternitz_public_keys: Vec<WinternitzPublicKey>,
     ) -> Result<(), BridgeError> {
         let wpk: Vec<_> = winternitz_public_keys
@@ -936,9 +936,9 @@ impl Database {
         let wpk = borsh::to_vec(&wpk).map_err(BridgeError::BorschError)?;
 
         let query = sqlx::query(
-            "INSERT INTO winternitz_public_keys (watchtower_id, public_keys) VALUES ($1, $2);",
+            "INSERT INTO winternitz_public_keys (operator_id, public_keys) VALUES ($1, $2);",
         )
-        .bind(watchtower_id as i64)
+        .bind(operator_id as i64)
         .bind(wpk);
 
         match tx {
@@ -949,17 +949,17 @@ impl Database {
         Ok(())
     }
 
-    /// Gets Winternitz public keys for a watchtower.
+    /// Gets Winternitz public keys for an operator.
     #[tracing::instrument(skip(self, tx), err(level = tracing::Level::ERROR), ret(level = tracing::Level::TRACE))]
     pub async fn get_winternitz_public_key(
         &self,
         tx: Option<&mut sqlx::Transaction<'_, Postgres>>,
-        watchtower_id: u32,
+        operator_id: u32,
     ) -> Result<Vec<winternitz::PublicKey>, BridgeError> {
         let query = sqlx::query_as(
-            "SELECT public_keys FROM winternitz_public_keys WHERE watchtower_id = $1;",
+            "SELECT public_keys FROM winternitz_public_keys WHERE operator_id = $1;",
         )
-        .bind(watchtower_id as i64);
+        .bind(operator_id as i64);
 
         let wpk: (Vec<u8>,) = match tx {
             Some(tx) => query.fetch_one(&mut **tx).await,
