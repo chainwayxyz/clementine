@@ -110,9 +110,30 @@ macro_rules! create_test_config_with_thread_name {
 #[macro_export]
 macro_rules! initialize_database {
     ($config:expr) => {{
-        Database::drop_database($config).await.unwrap();
+        let url = "postgresql://".to_owned()
+            + &$config.db_user
+            + ":"
+            + &$config.db_password
+            + "@"
+            + &$config.db_host
+            + ":"
+            + &$config.db_port.to_string();
+        let conn = sqlx::PgPool::connect(url.as_str()).await.unwrap();
 
-        Database::create_database($config).await.unwrap();
+        sqlx::query(&format!("DROP DATABASE IF EXISTS {}", &$config.db_name))
+            .execute(&conn)
+            .await
+            .unwrap();
+
+        sqlx::query(&format!(
+            "CREATE DATABASE {} WITH OWNER {}",
+            $config.db_name, $config.db_user
+        ))
+        .execute(&conn)
+        .await
+        .unwrap();
+
+        conn.close().await;
 
         Database::run_schema_script($config).await.unwrap();
     }};

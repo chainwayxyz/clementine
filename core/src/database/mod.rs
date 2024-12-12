@@ -39,45 +39,6 @@ impl Database {
         self.connection.close().await;
     }
 
-    /// Creates a new database with given configuration.
-    ///
-    /// # Errors
-    ///
-    /// Will return [`BridgeError`] if there was a problem with database
-    /// connection.
-    pub async fn create_database(config: &BridgeConfig) -> Result<(), BridgeError> {
-        let url = Database::get_postgresql_url(config);
-        let conn = sqlx::PgPool::connect(url.as_str()).await?;
-
-        sqlx::query(&format!(
-            "CREATE DATABASE {} WITH OWNER {}",
-            config.db_name, config.db_user
-        ))
-        .execute(&conn)
-        .await?;
-
-        conn.close().await;
-        Ok(())
-    }
-
-    /// Drops the database for the given configuration, if it exists.
-    ///
-    /// # Errors
-    ///
-    /// Will return [`BridgeError`] if there was a problem with database
-    /// connection. It won't return any errors if the database does not already
-    /// exist.
-    pub async fn drop_database(config: &BridgeConfig) -> Result<(), BridgeError> {
-        let url = Database::get_postgresql_url(config);
-        let conn = sqlx::PgPool::connect(url.as_str()).await?;
-
-        let query = format!("DROP DATABASE IF EXISTS {}", &config.db_name);
-        sqlx::query(&query).execute(&conn).await?;
-
-        conn.close().await;
-        Ok(())
-    }
-
     /// Runs the schema script on a database for the given configuration.
     ///
     /// # Errors
@@ -154,26 +115,6 @@ mod tests {
         config.db_port = 123;
 
         Database::new(&config).await.unwrap();
-    }
-
-    #[tokio::test]
-    async fn create_drop_database() {
-        let mut config = create_test_config_with_thread_name!("test_config.toml", None);
-        config.db_name = "create_drop_database".to_string();
-
-        // Drop database (clear previous test run artifacts) and check that
-        // connection can't be established.
-        Database::drop_database(&config).await.unwrap();
-        assert!(Database::new(&config).await.is_err());
-
-        // It should be possible to connect new database after creating it.
-        Database::create_database(&config).await.unwrap();
-        Database::new(&config).await.unwrap();
-
-        // Dropping database again should result connection to not be
-        // established.
-        Database::drop_database(&config).await.unwrap();
-        assert!(Database::new(&config).await.is_err());
     }
 
     #[test]
