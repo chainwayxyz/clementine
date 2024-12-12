@@ -60,7 +60,7 @@ impl Database {
     ///
     /// URL contains user, password, host and port fields, which are picked from
     /// the given configuration.
-    fn get_postgresql_url(config: &BridgeConfig) -> String {
+    pub fn get_postgresql_url(config: &BridgeConfig) -> String {
         "postgresql://".to_owned()
             + &config.db_user
             + ":"

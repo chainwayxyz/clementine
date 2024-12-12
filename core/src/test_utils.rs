@@ -110,14 +110,7 @@ macro_rules! create_test_config_with_thread_name {
 #[macro_export]
 macro_rules! initialize_database {
     ($config:expr) => {{
-        let url = "postgresql://".to_owned()
-            + &$config.db_user
-            + ":"
-            + &$config.db_password
-            + "@"
-            + &$config.db_host
-            + ":"
-            + &$config.db_port.to_string();
+        let url = Database::get_postgresql_url(&$config);
         let conn = sqlx::PgPool::connect(url.as_str()).await.unwrap();
 
         sqlx::query(&format!("DROP DATABASE IF EXISTS {}", &$config.db_name))
