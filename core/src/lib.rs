@@ -25,7 +25,6 @@ pub mod musig2;
 pub mod operator;
 pub mod rpc;
 pub mod servers;
-pub mod traits;
 pub mod user;
 pub mod utils;
 pub mod verifier;
