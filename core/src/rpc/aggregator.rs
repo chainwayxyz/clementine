@@ -108,7 +108,6 @@ impl Aggregator {
 #[async_trait]
 impl ClementineAggregator for Aggregator {
     #[tracing::instrument(skip_all, err(level = tracing::Level::ERROR), ret(level = tracing::Level::TRACE))]
-    #[allow(clippy::blocks_in_conditions)]
     async fn setup(&self, _request: Request<Empty>) -> Result<Response<Empty>, Status> {
         tracing::info!("Collecting verifier details...");
         let verifier_params = try_join_all(self.verifier_clients.iter().map(|client| {
@@ -154,20 +153,18 @@ impl ClementineAggregator for Aggregator {
         try_join_all(self.verifier_clients.iter().map(|client| {
             let mut client = client.clone();
             let params = operator_params.clone();
+
             async move {
-                // Iterate over all operator_params and call set_operator for each one
-                for param in &params {
-                    client.set_operator(Request::new(param.clone())).await?;
+                for param in params {
+                    client.set_operator(Request::new(param)).await?;
                 }
+
                 Ok::<_, tonic::Status>(())
             }
         }))
         .await?;
 
-        tracing::info!(
-            "Collecting Winternitz public keys from watchtowers... {}",
-            self.watchtower_clients.len()
-        );
+        tracing::info!("Collecting Winternitz public keys from watchtowers...");
         let watchtower_params = try_join_all(self.watchtower_clients.iter().map(|client| {
             let mut client = client.clone();
             async move {
@@ -183,11 +180,8 @@ impl ClementineAggregator for Aggregator {
             let params = watchtower_params.clone();
 
             async move {
-                for param in &params {
-                    client
-                        .set_watchtower(Request::new(param.clone()))
-                        .await
-                        .unwrap();
+                for param in params {
+                    client.set_watchtower(Request::new(param)).await.unwrap();
                 }
 
                 Ok::<_, tonic::Status>(())
@@ -461,13 +455,16 @@ mod tests {
         )
         .await;
         config.db_name += "0"; // This modification is done by the create_actors_grpc function.
-        let verifier = Verifier::new(rpc, config).await.unwrap();
+        let verifier = Verifier::new(rpc, config.clone()).await.unwrap();
         let verifier_wpks = verifier
             .db
-            .get_winternitz_public_keys_for_watchtower(None, 0)
+            .get_winternitz_public_keys(None, 0, 0)
             .await
             .unwrap();
 
-        assert_eq!(watchtower_wpks, verifier_wpks);
+        assert_eq!(
+            watchtower_wpks[0..config.num_time_txs].to_vec(),
+            verifier_wpks
+        );
     }
 }

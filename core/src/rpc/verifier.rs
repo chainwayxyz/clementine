@@ -164,14 +164,23 @@ impl ClementineVerifier for Verifier {
             })
             .collect::<Result<Vec<_>, BridgeError>>()?;
 
-        for (operator_idx, winternitz_public_key) in winternitz_public_keys.into_iter().enumerate()
-        {
+        let required_number_of_pubkeys = self.config.num_operators * self.config.num_time_txs;
+        if winternitz_public_keys.len() != required_number_of_pubkeys {
+            return Err(Status::invalid_argument(format!(
+                "Request has {} Winternitz public keys but it needs to be {}!",
+                winternitz_public_keys.len(),
+                required_number_of_pubkeys
+            )));
+        }
+
+        for operator_idx in 0..self.config.num_operators {
+            let index = operator_idx * self.config.num_time_txs;
             self.db
                 .save_winternitz_public_key(
                     None,
                     watchtower_params.watchtower_id,
                     operator_idx as u32,
-                    winternitz_public_key,
+                    winternitz_public_keys[index..index + self.config.num_time_txs].to_vec(),
                 )
                 .await?;
         }
