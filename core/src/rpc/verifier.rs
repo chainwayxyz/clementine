@@ -152,6 +152,7 @@ impl ClementineVerifier for Verifier {
     ) -> Result<Response<Empty>, Status> {
         let watchtower_params = request.into_inner();
 
+        // Convert RPC type into BitVM type.
         let winternitz_public_keys = watchtower_params
             .winternitz_pubkeys
             .into_iter()
@@ -163,13 +164,26 @@ impl ClementineVerifier for Verifier {
             })
             .collect::<Result<Vec<_>, BridgeError>>()?;
 
-        self.db
-            .save_winternitz_public_key(
-                None,
-                watchtower_params.watchtower_id,
-                winternitz_public_keys,
-            )
-            .await?;
+        let required_number_of_pubkeys = self.config.num_operators * self.config.num_time_txs;
+        if winternitz_public_keys.len() != required_number_of_pubkeys {
+            return Err(Status::invalid_argument(format!(
+                "Request has {} Winternitz public keys but it needs to be {}!",
+                winternitz_public_keys.len(),
+                required_number_of_pubkeys
+            )));
+        }
+
+        for operator_idx in 0..self.config.num_operators {
+            let index = operator_idx * self.config.num_time_txs;
+            self.db
+                .save_winternitz_public_key(
+                    None,
+                    watchtower_params.watchtower_id,
+                    operator_idx as u32,
+                    winternitz_public_keys[index..index + self.config.num_time_txs].to_vec(),
+                )
+                .await?;
+        }
 
         Ok(Response::new(Empty {}))
     }

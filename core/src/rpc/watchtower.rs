@@ -12,13 +12,11 @@ impl ClementineWatchtower for Watchtower {
         &self,
         _request: Request<Empty>,
     ) -> Result<Response<WatchtowerParams>, Status> {
-        let winternitz_pubkeys: Vec<WinternitzPubkey> = self
+        let winternitz_pubkeys = self
             .get_winternitz_public_keys()
             .await?
             .into_iter()
-            .map(|wpks| WinternitzPubkey {
-                digit_pubkey: wpks.iter().map(|inner| inner.to_vec()).collect(),
-            })
+            .map(WinternitzPubkey::from_bitvm)
             .collect::<Vec<WinternitzPubkey>>();
 
         Ok(Response::new(WatchtowerParams {
