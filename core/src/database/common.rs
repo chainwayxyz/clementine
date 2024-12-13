@@ -937,7 +937,7 @@ impl Database {
         let wpk = borsh::to_vec(&wpks).map_err(BridgeError::BorschError)?;
 
         let query = sqlx::query(
-            "INSERT INTO winternitz_public_keys (watchtower_id, operator_id, winternitz_public_key) VALUES ($1, $2, $3);",
+            "INSERT INTO winternitz_public_keys (watchtower_id, operator_id, winternitz_public_keys) VALUES ($1, $2, $3);",
         )
         .bind(watchtower_id as i64)
         .bind(operator_id as i64)
@@ -960,7 +960,7 @@ impl Database {
         operator_id: u32,
     ) -> Result<Vec<winternitz::PublicKey>, BridgeError> {
         let query = sqlx::query_as(
-            "SELECT winternitz_public_key FROM winternitz_public_keys WHERE operator_id = $1 AND operator_id = $1;",
+            "SELECT winternitz_public_keys FROM winternitz_public_keys WHERE operator_id = $1 AND operator_id = $1;",
         )
         .bind(operator_id as i64);
 

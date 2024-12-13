@@ -134,7 +134,7 @@ create table if not exists header_chain_proofs (
 create table if not exists winternitz_public_keys (
     watchtower_id int not null,
     operator_id int not null,
-    winternitz_public_key bytea not null,
+    winternitz_public_keys bytea not null,
     primary key (watchtower_id, operator_id)
 );
 
