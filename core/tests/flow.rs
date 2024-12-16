@@ -144,7 +144,7 @@ mod common;
 #[tokio::test]
 #[serial_test::serial]
 async fn grpc_flow() {
-    let config = create_test_config_with_thread_name!("test_config.toml", None);
+    let config = create_test_config_with_thread_name!(None);
     let (_verifiers, _operators, aggregator, _watchtowers) = create_actors!(config, 0);
 
     let x: Uri = format!("http://{}", aggregator.0).parse().unwrap();

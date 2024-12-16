@@ -37,7 +37,7 @@
 /// ```
 #[macro_export]
 macro_rules! create_test_config_with_thread_name {
-    ($config_file:expr, $suffix:expr) => {{
+    ($suffix:expr) => {{
         let suffix = $suffix.unwrap_or(&String::default()).to_string();
 
         let handle = thread::current()
@@ -54,7 +54,12 @@ macro_rules! create_test_config_with_thread_name {
 
         // Read specified configuration file from `tests/data` directory.
         let mut config = BridgeConfig::try_parse_file(
-            format!("{}/tests/data/{}", env!("CARGO_MANIFEST_DIR"), $config_file).into(),
+            format!(
+                "{}/tests/data/{}",
+                env!("CARGO_MANIFEST_DIR"),
+                "test_config.toml"
+            )
+            .into(),
         )
         .unwrap();
 

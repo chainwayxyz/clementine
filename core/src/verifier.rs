@@ -602,7 +602,7 @@ mod tests {
 
     #[tokio::test]
     async fn verifier_new_public_key_check() {
-        let mut config = create_test_config_with_thread_name!("test_config.toml", None);
+        let mut config = create_test_config_with_thread_name!(None);
         let rpc = ExtendedRpc::new(
             config.bitcoin_rpc_url.clone(),
             config.bitcoin_rpc_user.clone(),
@@ -621,7 +621,7 @@ mod tests {
     #[tokio::test]
     #[serial_test::serial]
     async fn new_deposit_nonce_checks() {
-        let config = create_test_config_with_thread_name!("test_config.toml", None);
+        let config = create_test_config_with_thread_name!(None);
         let rpc = ExtendedRpc::new(
             config.bitcoin_rpc_url.clone(),
             config.bitcoin_rpc_user.clone(),

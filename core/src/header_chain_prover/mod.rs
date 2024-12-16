@@ -115,7 +115,7 @@ mod tests {
 
     #[tokio::test]
     async fn new() {
-        let config = create_test_config_with_thread_name!("test_config.toml", None);
+        let config = create_test_config_with_thread_name!(None);
         let rpc = ExtendedRpc::new(
             config.bitcoin_rpc_url.clone(),
             config.bitcoin_rpc_user.clone(),
@@ -129,7 +129,7 @@ mod tests {
     #[tokio::test]
     #[serial_test::serial]
     async fn new_with_proof_assumption() {
-        let config = create_test_config_with_thread_name!("test_config.toml", None);
+        let config = create_test_config_with_thread_name!(None);
         let rpc = ExtendedRpc::new(
             config.bitcoin_rpc_url.clone(),
             config.bitcoin_rpc_user.clone(),
@@ -156,7 +156,7 @@ mod tests {
     #[serial_test::serial]
     #[ignore = "This test is very host dependent and needs a human observer"]
     async fn start_header_chain_prover() {
-        let config = create_test_config_with_thread_name!("test_config.toml", None);
+        let config = create_test_config_with_thread_name!(None);
         let rpc = ExtendedRpc::new(
             config.bitcoin_rpc_url.clone(),
             config.bitcoin_rpc_user.clone(),
