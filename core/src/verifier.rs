@@ -54,13 +54,13 @@ impl NofN {
 
 #[derive(Debug, Clone)]
 pub struct Verifier {
-    _rpc: ExtendedRpc,
+    rpc: ExtendedRpc,
     pub(crate) signer: Actor,
     pub(crate) db: Database,
     pub(crate) config: BridgeConfig,
     pub(crate) nofn_xonly_pk: secp256k1::XOnlyPublicKey,
     pub(crate) nofn: Arc<tokio::sync::RwLock<Option<NofN>>>,
-    _operator_xonly_pks: Vec<secp256k1::XOnlyPublicKey>,
+    operator_xonly_pks: Vec<secp256k1::XOnlyPublicKey>,
     pub(crate) nonces: Arc<tokio::sync::Mutex<AllSessions>>,
     pub idx: usize,
 }
@@ -108,13 +108,13 @@ impl Verifier {
         };
 
         Ok(Verifier {
-            _rpc: rpc,
+            rpc,
             signer,
             db,
             config,
             nofn_xonly_pk,
             nofn: Arc::new(tokio::sync::RwLock::new(nofn)),
-            _operator_xonly_pks: operator_xonly_pks,
+            operator_xonly_pks,
             nonces: Arc::new(tokio::sync::Mutex::new(all_sessions)),
             idx,
         })
@@ -127,13 +127,13 @@ impl Verifier {
     /// 3. Save pubNonces and secNonces to a db
     /// 4. Return pubNonces
     #[tracing::instrument(skip(self), err(level = tracing::Level::ERROR), ret(level = tracing::Level::TRACE))]
-    async fn new_deposit(
+    pub async fn new_deposit(
         &self,
         deposit_outpoint: OutPoint,
         recovery_taproot_address: Address<NetworkUnchecked>,
         evm_address: EVMAddress,
     ) -> Result<Vec<MuSigPubNonce>, BridgeError> {
-        self._rpc
+        self.rpc
             .check_deposit_utxo(
                 self.nofn_xonly_pk,
                 &deposit_outpoint,
@@ -147,7 +147,7 @@ impl Verifier {
             .await?;
 
         // For now we multiply by 2 since we do not give signatures for burn_txs. // TODO: Change this in future.
-        let num_required_nonces = 2 * self._operator_xonly_pks.len() + 1;
+        let num_required_nonces = 2 * self.operator_xonly_pks.len() + 1;
 
         let mut dbtx = self.db.begin_transaction().await?;
         // Check if we already have pub_nonces for this deposit_outpoint.
@@ -201,7 +201,7 @@ impl Verifier {
     /// do not forget to add tweak when signing since this address has n_of_n as internal_key
     /// and operator_timelock as script.
     #[tracing::instrument(skip(self), err(level = tracing::Level::ERROR), ret(level = tracing::Level::TRACE))]
-    async fn operator_kickoffs_generated(
+    pub async fn operator_kickoffs_generated(
         &self,
         deposit_outpoint: OutPoint,
         kickoff_utxos: Vec<UTXO>,
@@ -246,7 +246,7 @@ impl Verifier {
             let (musig2_and_operator_address, spend_info) =
                 builder::address::create_kickoff_address(
                     self.nofn_xonly_pk,
-                    self._operator_xonly_pks[i],
+                    self.operator_xonly_pks[i],
                     self.config.network,
                 );
             tracing::debug!(
@@ -329,7 +329,7 @@ impl Verifier {
     }
 
     #[tracing::instrument(skip(self), err(level = tracing::Level::ERROR), ret(level = tracing::Level::TRACE))]
-    async fn create_deposit_details(
+    pub async fn create_deposit_details(
         &self,
         deposit_outpoint: OutPoint,
     ) -> Result<(Vec<UTXO>, TxHandler, OutPoint), BridgeError> {
@@ -371,7 +371,7 @@ impl Verifier {
     /// sign operator_takes_txs
     /// TODO: Change the name of this function.
     #[tracing::instrument(skip(self), err(level = tracing::Level::ERROR), ret(level = tracing::Level::TRACE))]
-    async fn burn_txs_signed(
+    pub async fn burn_txs_signed(
         &self,
         deposit_outpoint: OutPoint,
         _burn_sigs: Vec<schnorr::Signature>,
@@ -388,7 +388,7 @@ impl Verifier {
                 let mut slash_or_take_tx_handler = builder::transaction::create_slash_or_take_tx(
                     deposit_outpoint,
                     kickoff_utxo.clone(),
-                    self._operator_xonly_pks[index],
+                    self.operator_xonly_pks[index],
                     index,
                     self.nofn_xonly_pk,
                     self.config.network,
@@ -419,7 +419,7 @@ impl Verifier {
                 let mut operator_takes_tx = builder::transaction::create_operator_takes_tx(
                     bridge_fund_outpoint,
                     slash_or_take_utxo,
-                    self._operator_xonly_pks[index],
+                    self.operator_xonly_pks[index],
                     self.nofn_xonly_pk,
                     self.config.network,
                     self.config.operator_takes_after,
@@ -468,7 +468,7 @@ impl Verifier {
     /// verify the operator_take_sigs
     /// sign move_tx
     #[tracing::instrument(skip(self), err(level = tracing::Level::ERROR), ret(level = tracing::Level::TRACE))]
-    async fn operator_take_txs_signed(
+    pub async fn operator_take_txs_signed(
         &self,
         deposit_outpoint: OutPoint,
         operator_take_sigs: Vec<schnorr::Signature>,
@@ -488,7 +488,7 @@ impl Verifier {
                 let slash_or_take_tx = builder::transaction::create_slash_or_take_tx(
                     deposit_outpoint,
                     kickoff_utxo.clone(),
-                    self._operator_xonly_pks[index],
+                    self.operator_xonly_pks[index],
                     index,
                     self.nofn_xonly_pk,
                     self.config.network,
@@ -506,7 +506,7 @@ impl Verifier {
                 let mut operator_takes_tx = builder::transaction::create_operator_takes_tx(
                     bridge_fund_outpoint,
                     slash_or_take_utxo,
-                    self._operator_xonly_pks[index],
+                    self.operator_xonly_pks[index],
                     self.nofn_xonly_pk,
                     self.config.network,
                     self.config.operator_takes_after,
