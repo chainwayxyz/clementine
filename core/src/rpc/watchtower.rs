@@ -52,7 +52,7 @@ mod tests {
     #[tokio::test]
     #[serial_test::serial]
     async fn watchtower_get_params() {
-        let mut config = create_test_config_with_thread_name!("test_config.toml", None);
+        let mut config = create_test_config_with_thread_name!(None);
         let (verifiers, operators, _, _watchtowers) = create_actors!(config.clone(), 2);
 
         config.verifier_endpoints = Some(
