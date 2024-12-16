@@ -12,6 +12,9 @@ use crate::{
     ByteArray32, ByteArray66, EVMAddress,
 };
 use bitcoin::{hashes::Hash, Amount, TapSighash, Txid};
+use bitvm::{
+    bridge::transactions::signing_winternitz::WinternitzPublicKey, signatures::winternitz,
+};
 use futures::StreamExt;
 use secp256k1::{schnorr, Message};
 use std::{pin::pin, str::FromStr};
@@ -145,9 +148,44 @@ impl ClementineVerifier for Verifier {
     #[allow(clippy::blocks_in_conditions)]
     async fn set_watchtower(
         &self,
-        _request: Request<WatchtowerParams>,
+        request: Request<WatchtowerParams>,
     ) -> Result<Response<Empty>, Status> {
-        todo!()
+        let watchtower_params = request.into_inner();
+
+        // Convert RPC type into BitVM type.
+        let winternitz_public_keys = watchtower_params
+            .winternitz_pubkeys
+            .into_iter()
+            .map(|wpk| {
+                Ok(WinternitzPublicKey {
+                    public_key: wpk.to_bitvm(),
+                    parameters: winternitz::Parameters::new(0, 4),
+                })
+            })
+            .collect::<Result<Vec<_>, BridgeError>>()?;
+
+        let required_number_of_pubkeys = self.config.num_operators * self.config.num_time_txs;
+        if winternitz_public_keys.len() != required_number_of_pubkeys {
+            return Err(Status::invalid_argument(format!(
+                "Request has {} Winternitz public keys but it needs to be {}!",
+                winternitz_public_keys.len(),
+                required_number_of_pubkeys
+            )));
+        }
+
+        for operator_idx in 0..self.config.num_operators {
+            let index = operator_idx * self.config.num_time_txs;
+            self.db
+                .save_winternitz_public_key(
+                    None,
+                    watchtower_params.watchtower_id,
+                    operator_idx as u32,
+                    winternitz_public_keys[index..index + self.config.num_time_txs].to_vec(),
+                )
+                .await?;
+        }
+
+        Ok(Response::new(Empty {}))
     }
 
     #[tracing::instrument(skip(self), err(level = tracing::Level::ERROR), ret(level = tracing::Level::TRACE))]

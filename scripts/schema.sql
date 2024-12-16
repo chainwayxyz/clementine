@@ -130,4 +130,12 @@ create table if not exists header_chain_proofs (
     proof bytea
 );
 
+-- Verifier table of watchtower Winternitz public keys for every operator and time_tx pair
+create table if not exists winternitz_public_keys (
+    watchtower_id int not null,
+    operator_id int not null,
+    winternitz_public_keys bytea not null,
+    primary key (watchtower_id, operator_id)
+);
+
 COMMIT;

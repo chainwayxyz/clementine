@@ -13,13 +13,12 @@ use crate::{
         clementine::{
             clementine_operator_client::ClementineOperatorClient,
             clementine_verifier_client::ClementineVerifierClient,
+            clementine_watchtower_client::ClementineWatchtowerClient,
         },
     },
-    traits::rpc::AggregatorServer,
     utils::handle_taproot_witness_new,
     ByteArray32, ByteArray66, EVMAddress, UTXO,
 };
-use async_trait::async_trait;
 use bitcoin::{address::NetworkUnchecked, Address, OutPoint};
 use bitcoin::{hashes::Hash, Txid};
 use bitcoincore_rpc::RawTx;
@@ -40,6 +39,7 @@ pub struct Aggregator {
     pub(crate) nofn_xonly_pk: secp256k1::XOnlyPublicKey,
     pub(crate) verifier_clients: Vec<ClementineVerifierClient<tonic::transport::Channel>>,
     pub(crate) operator_clients: Vec<ClementineOperatorClient<tonic::transport::Channel>>,
+    pub(crate) watchtower_clients: Vec<ClementineWatchtowerClient<tonic::transport::Channel>>,
 }
 
 impl Aggregator {
@@ -73,12 +73,23 @@ impl Aggregator {
         let operator_clients =
             rpc::get_clients(operator_endpoints, ClementineOperatorClient::connect).await?;
 
+        let watchtower_endpoints =
+            config
+                .watchtower_endpoints
+                .clone()
+                .ok_or(BridgeError::ConfigError(
+                    "Couldn't find watchtower endpoints in config file!".to_string(),
+                ))?;
+        let watchtower_clients =
+            rpc::get_clients(watchtower_endpoints, ClementineWatchtowerClient::connect).await?;
+
         Ok(Aggregator {
             db,
             config,
             nofn_xonly_pk,
             verifier_clients,
             operator_clients,
+            watchtower_clients,
         })
     }
 
@@ -350,55 +361,5 @@ impl Aggregator {
 
         let txid = move_tx_handler.tx.compute_txid();
         Ok((move_tx_handler.tx.raw_hex(), txid))
-    }
-}
-
-#[async_trait]
-impl AggregatorServer for Aggregator {
-    async fn aggregate_pub_nonces_rpc(
-        &self,
-        pub_nonces: Vec<Vec<MuSigPubNonce>>,
-    ) -> Result<Vec<MuSigAggNonce>, BridgeError> {
-        self.aggregate_pub_nonces(pub_nonces).await
-    }
-
-    async fn aggregate_slash_or_take_sigs_rpc(
-        &self,
-        deposit_outpoint: OutPoint,
-        kickoff_utxos: Vec<UTXO>,
-        agg_nonces: Vec<MuSigAggNonce>,
-        partial_sigs: Vec<Vec<MuSigPartialSignature>>,
-    ) -> Result<Vec<schnorr::Signature>, BridgeError> {
-        self.aggregate_slash_or_take_sigs(deposit_outpoint, kickoff_utxos, agg_nonces, partial_sigs)
-            .await
-    }
-
-    async fn aggregate_operator_take_sigs_rpc(
-        &self,
-        deposit_outpoint: OutPoint,
-        kickoff_utxos: Vec<UTXO>,
-        agg_nonces: Vec<MuSigAggNonce>,
-        partial_sigs: Vec<Vec<MuSigPartialSignature>>,
-    ) -> Result<Vec<schnorr::Signature>, BridgeError> {
-        self.aggregate_operator_take_sigs(deposit_outpoint, kickoff_utxos, agg_nonces, partial_sigs)
-            .await
-    }
-
-    async fn aggregate_move_tx_sigs_rpc(
-        &self,
-        deposit_outpoint: OutPoint,
-        recovery_taproot_address: Address<NetworkUnchecked>,
-        evm_address: EVMAddress,
-        agg_nonce: MuSigAggNonce,
-        partial_sigs: Vec<MuSigPartialSignature>,
-    ) -> Result<(String, Txid), BridgeError> {
-        self.aggregate_move_tx_sigs(
-            deposit_outpoint,
-            recovery_taproot_address,
-            evm_address,
-            agg_nonce,
-            partial_sigs,
-        )
-        .await
     }
 }

@@ -107,11 +107,9 @@ impl Aggregator {
 
 #[async_trait]
 impl ClementineAggregator for Aggregator {
-    #[tracing::instrument(skip(self), err(level = tracing::Level::ERROR), ret(level = tracing::Level::TRACE))]
-    #[allow(clippy::blocks_in_conditions)]
+    #[tracing::instrument(skip_all, err(level = tracing::Level::ERROR), ret(level = tracing::Level::TRACE))]
     async fn setup(&self, _request: Request<Empty>) -> Result<Response<Empty>, Status> {
-        // Collect verifier details
-        tracing::debug!("Collecting verifier details");
+        tracing::info!("Collecting verifier details...");
         let verifier_params = try_join_all(self.verifier_clients.iter().map(|client| {
             let mut client = client.clone();
             async move {
@@ -120,14 +118,11 @@ impl ClementineAggregator for Aggregator {
             }
         }))
         .await?;
+        let verifier_public_keys: Vec<Vec<u8>> =
+            verifier_params.into_iter().map(|p| p.public_key).collect();
+        tracing::debug!("Verifier public keys: {:?}", verifier_public_keys);
 
-        let verifier_public_keys: Vec<Vec<u8>> = verifier_params
-            .iter()
-            .map(|p| p.public_key.clone())
-            .collect();
-
-        // Set the verifiers to all verifiers
-        tracing::debug!("Setting verifiers to all verifiers");
+        tracing::info!("Setting up verifiers...");
         try_join_all(self.verifier_clients.iter().map(|client| {
             let mut client = client.clone();
             {
@@ -144,8 +139,7 @@ impl ClementineAggregator for Aggregator {
         }))
         .await?;
 
-        // Collect operator details
-        tracing::debug!("Collecting operator details");
+        tracing::info!("Collecting operator details...");
         let operator_params = try_join_all(self.operator_clients.iter().map(|client| {
             let mut client = client.clone();
             async move {
@@ -155,16 +149,41 @@ impl ClementineAggregator for Aggregator {
         }))
         .await?;
 
-        // Set all operator details to all verifiers
-        tracing::debug!("Setting operator details to all verifiers");
+        tracing::info!("Informing verifiers for existing operators...");
         try_join_all(self.verifier_clients.iter().map(|client| {
             let mut client = client.clone();
             let params = operator_params.clone();
+
             async move {
-                // Iterate over all operator_params and call set_operator for each one
-                for param in &params {
-                    client.set_operator(Request::new(param.clone())).await?;
+                for param in params {
+                    client.set_operator(Request::new(param)).await?;
                 }
+
+                Ok::<_, tonic::Status>(())
+            }
+        }))
+        .await?;
+
+        tracing::info!("Collecting Winternitz public keys from watchtowers...");
+        let watchtower_params = try_join_all(self.watchtower_clients.iter().map(|client| {
+            let mut client = client.clone();
+            async move {
+                let response = client.get_params(Request::new(Empty {})).await?;
+                Ok::<_, Status>(response.into_inner())
+            }
+        }))
+        .await?;
+
+        tracing::info!("Sending Winternitz public keys to verifiers...");
+        try_join_all(self.verifier_clients.iter().map(|client| {
+            let mut client = client.clone();
+            let params = watchtower_params.clone();
+
+            async move {
+                for param in params {
+                    client.set_watchtower(Request::new(param)).await.unwrap();
+                }
+
                 Ok::<_, tonic::Status>(())
             }
         }))
@@ -373,5 +392,91 @@ impl ClementineAggregator for Aggregator {
         tracing::debug!("Received move tx partial sigs: {:?}", move_tx_partial_sigs);
 
         Ok(Response::new(RawSignedMoveTx { raw_tx: vec![1, 2] }))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::{
+        config::BridgeConfig,
+        create_test_config_with_thread_name,
+        database::Database,
+        errors::BridgeError,
+        initialize_database,
+        servers::{
+            create_aggregator_grpc_server, create_operator_grpc_server,
+            create_verifier_grpc_server, create_watchtower_grpc_server,
+        },
+        utils::initialize_logger,
+    };
+    use crate::{
+        create_actors,
+        extended_rpc::ExtendedRpc,
+        rpc::clementine::{self, clementine_aggregator_client::ClementineAggregatorClient},
+        verifier::Verifier,
+        watchtower::Watchtower,
+    };
+    use std::{env, thread};
+
+    #[tokio::test]
+    #[serial_test::serial]
+    async fn aggregator_double_setup_fail() {
+        let config = create_test_config_with_thread_name!("test_config.toml", None);
+
+        let (_, _, aggregator, _) = create_actors!(config, 0);
+        let mut aggregator_client =
+            ClementineAggregatorClient::connect(format!("http://{}", aggregator.0))
+                .await
+                .unwrap();
+
+        aggregator_client
+            .setup(tonic::Request::new(clementine::Empty {}))
+            .await
+            .unwrap();
+
+        assert!(aggregator_client
+            .setup(tonic::Request::new(clementine::Empty {}))
+            .await
+            .is_err());
+    }
+
+    #[tokio::test]
+    #[serial_test::serial]
+    async fn aggregator_setup_winternitz_public_keys() {
+        let mut config = create_test_config_with_thread_name!("test_config.toml", None);
+
+        let (_verifiers, _operators, aggregator, _watchtowers) = create_actors!(config.clone(), 1);
+        let mut aggregator_client =
+            ClementineAggregatorClient::connect(format!("http://{}", aggregator.0))
+                .await
+                .unwrap();
+
+        aggregator_client
+            .setup(tonic::Request::new(clementine::Empty {}))
+            .await
+            .unwrap();
+
+        let watchtower = Watchtower::new(config.clone()).await.unwrap();
+        let watchtower_wpks = watchtower.get_winternitz_public_keys().await.unwrap();
+
+        let rpc = ExtendedRpc::new(
+            config.bitcoin_rpc_url.clone(),
+            config.bitcoin_rpc_user.clone(),
+            config.bitcoin_rpc_password.clone(),
+        )
+        .await;
+
+        config.db_name += "0"; // This modification is done by the create_actors_grpc function.
+        let verifier = Verifier::new(rpc, config.clone()).await.unwrap();
+        let verifier_wpks = verifier
+            .db
+            .get_winternitz_public_keys(None, 0, 0)
+            .await
+            .unwrap();
+
+        assert_eq!(
+            watchtower_wpks[0..config.num_time_txs].to_vec(),
+            verifier_wpks
+        );
     }
 }

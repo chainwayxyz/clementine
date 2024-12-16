@@ -34,7 +34,9 @@ impl HeaderChainProver {
 
             let mut reader = BufReader::new(file);
             let mut assumption = Vec::new();
-            reader.read_to_end(&mut assumption)?;
+            reader
+                .read_to_end(&mut assumption)
+                .map_err(BridgeError::BorschError)?; // TODO: Not borsch.
 
             let proof: Receipt =
                 borsh::from_slice(&assumption).map_err(BridgeError::ProverDeSerializationError)?;
@@ -97,19 +99,23 @@ impl HeaderChainProver {
 #[cfg(test)]
 mod tests {
     use crate::{
-        extended_rpc::ExtendedRpc, header_chain_prover::HeaderChainProver,
-        mock::database::create_test_config_with_thread_name,
+        config::BridgeConfig, database::Database, initialize_database, utils::initialize_logger,
+    };
+    use crate::{
+        create_test_config_with_thread_name, extended_rpc::ExtendedRpc,
+        header_chain_prover::HeaderChainProver,
     };
     use bitcoin::{hashes::Hash, BlockHash};
     use bitcoincore_rpc::RpcApi;
     use borsh::BorshDeserialize;
     use risc0_zkvm::Receipt;
     use std::time::Duration;
+    use std::{env, thread};
     use tokio::time::sleep;
 
     #[tokio::test]
     async fn new() {
-        let config = create_test_config_with_thread_name("test_config.toml", None).await;
+        let config = create_test_config_with_thread_name!("test_config.toml", None);
         let rpc = ExtendedRpc::new(
             config.bitcoin_rpc_url.clone(),
             config.bitcoin_rpc_user.clone(),
@@ -123,7 +129,7 @@ mod tests {
     #[tokio::test]
     #[serial_test::serial]
     async fn new_with_proof_assumption() {
-        let config = create_test_config_with_thread_name("test_config.toml", None).await;
+        let config = create_test_config_with_thread_name!("test_config.toml", None);
         let rpc = ExtendedRpc::new(
             config.bitcoin_rpc_url.clone(),
             config.bitcoin_rpc_user.clone(),
@@ -150,7 +156,7 @@ mod tests {
     #[serial_test::serial]
     #[ignore = "This test is very host dependent and needs a human observer"]
     async fn start_header_chain_prover() {
-        let config = create_test_config_with_thread_name("test_config.toml", None).await;
+        let config = create_test_config_with_thread_name!("test_config.toml", None);
         let rpc = ExtendedRpc::new(
             config.bitcoin_rpc_url.clone(),
             config.bitcoin_rpc_user.clone(),

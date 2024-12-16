@@ -12,13 +12,11 @@ impl ClementineWatchtower for Watchtower {
         &self,
         _request: Request<Empty>,
     ) -> Result<Response<WatchtowerParams>, Status> {
-        let winternitz_pubkeys: Vec<WinternitzPubkey> = self
+        let winternitz_pubkeys = self
             .get_winternitz_public_keys()
             .await?
             .into_iter()
-            .map(|wpks| WinternitzPubkey {
-                digit_pubkey: wpks.iter().map(|inner| inner.to_vec()).collect(),
-            })
+            .map(WinternitzPubkey::from_bitvm)
             .collect::<Vec<WinternitzPubkey>>();
 
         Ok(Response::new(WatchtowerParams {
@@ -31,18 +29,31 @@ impl ClementineWatchtower for Watchtower {
 #[cfg(test)]
 mod tests {
     use crate::{
-        mock::database::create_test_config_with_thread_name,
+        config::BridgeConfig,
+        create_test_config_with_thread_name,
+        database::Database,
+        errors::BridgeError,
+        extended_rpc::ExtendedRpc,
+        initialize_database,
+        servers::{
+            create_aggregator_grpc_server, create_operator_grpc_server,
+            create_verifier_grpc_server, create_watchtower_grpc_server,
+        },
+        utils::initialize_logger,
+    };
+    use crate::{
+        create_actors,
         rpc::clementine::{clementine_watchtower_server::ClementineWatchtower, Empty},
-        servers::create_actors_grpc,
         watchtower::Watchtower,
     };
+    use std::{env, thread};
     use tonic::Request;
 
     #[tokio::test]
     #[serial_test::serial]
     async fn watchtower_get_params() {
-        let mut config = create_test_config_with_thread_name("test_config.toml", None).await;
-        let (verifiers, operators, _, _watchtowers) = create_actors_grpc(config.clone(), 2).await;
+        let mut config = create_test_config_with_thread_name!("test_config.toml", None);
+        let (verifiers, operators, _, _watchtowers) = create_actors!(config.clone(), 2);
 
         config.verifier_endpoints = Some(
             verifiers
