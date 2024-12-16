@@ -52,16 +52,7 @@ macro_rules! create_test_config_with_thread_name {
         // Use maximum log level for tests.
         initialize_logger(5).unwrap();
 
-        // Read specified configuration file from `tests/data` directory.
-        let mut config = BridgeConfig::try_parse_file(
-            format!(
-                "{}/tests/data/{}",
-                env!("CARGO_MANIFEST_DIR"),
-                "test_config.toml"
-            )
-            .into(),
-        )
-        .unwrap();
+        let mut config = BridgeConfig::default();
 
         // Check environment for an overwrite config. TODO: Convert this to env vars.
         let env_config: Option<BridgeConfig> = if let Ok(config_file_path) = env::var("TEST_CONFIG")
