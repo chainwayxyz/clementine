@@ -421,7 +421,7 @@ mod tests {
     #[tokio::test]
     #[serial_test::serial]
     async fn aggregator_double_setup_fail() {
-        let config = create_test_config_with_thread_name!("test_config.toml", None);
+        let config = create_test_config_with_thread_name!(None);
 
         let (_, _, aggregator, _) = create_actors!(config, 0);
         let mut aggregator_client =
@@ -443,7 +443,7 @@ mod tests {
     #[tokio::test]
     #[serial_test::serial]
     async fn aggregator_setup_winternitz_public_keys() {
-        let mut config = create_test_config_with_thread_name!("test_config.toml", None);
+        let mut config = create_test_config_with_thread_name!(None);
 
         let (_verifiers, _operators, aggregator, _watchtowers) = create_actors!(config.clone(), 1);
         let mut aggregator_client =

@@ -127,7 +127,7 @@ mod tests {
     #[tokio::test]
     #[serial_test::parallel]
     async fn deposit_tx() {
-        let config = create_test_config_with_thread_name!("test_config.toml", None);
+        let config = create_test_config_with_thread_name!(None);
         let rpc = ExtendedRpc::new(
             config.bitcoin_rpc_url.clone(),
             config.bitcoin_rpc_user.clone(),

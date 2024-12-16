@@ -69,7 +69,7 @@ fn get_nonces(verifiers_secret_public_keys: Vec<Keypair>) -> (Vec<MuSigNoncePair
 #[tokio::test]
 #[serial_test::serial]
 async fn key_spend() {
-    let config = create_test_config_with_thread_name!("test_config.toml", None);
+    let config = create_test_config_with_thread_name!(None);
     let rpc = ExtendedRpc::new(
         config.bitcoin_rpc_url.clone(),
         config.bitcoin_rpc_user.clone(),
@@ -160,7 +160,7 @@ async fn key_spend() {
 #[tokio::test]
 #[serial_test::serial]
 async fn key_spend_with_script() {
-    let config = create_test_config_with_thread_name!("test_config.toml", None);
+    let config = create_test_config_with_thread_name!(None);
     let rpc = ExtendedRpc::new(
         config.bitcoin_rpc_url.clone(),
         config.bitcoin_rpc_user.clone(),
@@ -257,7 +257,7 @@ async fn key_spend_with_script() {
 #[tokio::test]
 #[serial_test::serial]
 async fn script_spend() {
-    let config = create_test_config_with_thread_name!("test_config.toml", None);
+    let config = create_test_config_with_thread_name!(None);
     let rpc = ExtendedRpc::new(
         config.bitcoin_rpc_url.clone(),
         config.bitcoin_rpc_user.clone(),

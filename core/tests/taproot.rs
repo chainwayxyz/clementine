@@ -16,7 +16,7 @@ mod common;
 #[tokio::test]
 #[serial_test::serial]
 async fn create_address_and_transaction_then_sign_transaction() {
-    let config = create_test_config_with_thread_name!("test_config.toml", None);
+    let config = create_test_config_with_thread_name!(None);
     let rpc = ExtendedRpc::new(
         config.bitcoin_rpc_url,
         config.bitcoin_rpc_user,
