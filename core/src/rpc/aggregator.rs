@@ -398,20 +398,32 @@ impl ClementineAggregator for Aggregator {
 #[cfg(test)]
 mod tests {
     use crate::{
+        config::BridgeConfig,
+        create_test_config_with_thread_name,
+        database::Database,
+        errors::BridgeError,
+        initialize_database,
+        servers::{
+            create_aggregator_grpc_server, create_operator_grpc_server,
+            create_verifier_grpc_server, create_watchtower_grpc_server,
+        },
+        utils::initialize_logger,
+    };
+    use crate::{
+        create_actors,
         extended_rpc::ExtendedRpc,
-        mock::database::create_test_config_with_thread_name,
         rpc::clementine::{self, clementine_aggregator_client::ClementineAggregatorClient},
-        servers::create_actors_grpc,
         verifier::Verifier,
         watchtower::Watchtower,
     };
+    use std::{env, thread};
 
     #[tokio::test]
     #[serial_test::serial]
     async fn aggregator_double_setup_fail() {
-        let config = create_test_config_with_thread_name("test_config.toml", None).await;
+        let config = create_test_config_with_thread_name!("test_config.toml", None);
 
-        let (_, _, aggregator, _) = create_actors_grpc(config, 0).await;
+        let (_, _, aggregator, _) = create_actors!(config, 0);
         let mut aggregator_client =
             ClementineAggregatorClient::connect(format!("http://{}", aggregator.0))
                 .await
@@ -431,10 +443,9 @@ mod tests {
     #[tokio::test]
     #[serial_test::serial]
     async fn aggregator_setup_winternitz_public_keys() {
-        let mut config = create_test_config_with_thread_name("test_config.toml", None).await;
+        let mut config = create_test_config_with_thread_name!("test_config.toml", None);
 
-        let (_verifiers, _operators, aggregator, _watchtowers) =
-            create_actors_grpc(config.clone(), 1).await;
+        let (_verifiers, _operators, aggregator, _watchtowers) = create_actors!(config.clone(), 1);
         let mut aggregator_client =
             ClementineAggregatorClient::connect(format!("http://{}", aggregator.0))
                 .await
@@ -454,6 +465,7 @@ mod tests {
             config.bitcoin_rpc_password.clone(),
         )
         .await;
+
         config.db_name += "0"; // This modification is done by the create_actors_grpc function.
         let verifier = Verifier::new(rpc, config.clone()).await.unwrap();
         let verifier_wpks = verifier

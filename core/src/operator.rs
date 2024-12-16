@@ -6,7 +6,6 @@ use crate::database::Database;
 use crate::errors::BridgeError;
 use crate::extended_rpc::ExtendedRpc;
 use crate::musig2::AggregateFromPublicKeys;
-use crate::traits::rpc::OperatorRpcServer;
 use crate::utils::handle_taproot_witness_new;
 use crate::{utils, EVMAddress, UTXO};
 use bitcoin::address::NetworkUnchecked;
@@ -16,7 +15,6 @@ use bitcoin::script::PushBytesBuf;
 use bitcoin::sighash::SighashCache;
 use bitcoin::{Address, Amount, OutPoint, TapSighash, Transaction, TxOut, Txid};
 use bitcoincore_rpc::{RawTx, RpcApi};
-use jsonrpsee::core::async_trait;
 use jsonrpsee::core::client::ClientT;
 use jsonrpsee::http_client::HttpClientBuilder;
 use jsonrpsee::rpc_params;
@@ -699,54 +697,20 @@ impl Operator {
     }
 }
 
-#[async_trait]
-impl OperatorRpcServer for Operator {
-    async fn new_deposit_rpc(
-        &self,
-        deposit_outpoint: OutPoint,
-        recovery_taproot_address: Address<NetworkUnchecked>,
-        evm_address: EVMAddress,
-    ) -> Result<(UTXO, secp256k1::schnorr::Signature), BridgeError> {
-        self.new_deposit(deposit_outpoint, recovery_taproot_address, evm_address)
-            .await
-    }
-
-    async fn set_funding_utxo_rpc(&self, funding_utxo: UTXO) -> Result<(), BridgeError> {
-        self.set_funding_utxo(funding_utxo).await
-    }
-
-    async fn new_withdrawal_sig_rpc(
-        &self,
-        withdrawal_idx: u32,
-        user_sig: schnorr::Signature,
-        input_utxo: UTXO,
-        output_txout: TxOut,
-    ) -> Result<Txid, BridgeError> {
-        self.new_withdrawal_sig(withdrawal_idx, user_sig, input_utxo, output_txout)
-            .await
-    }
-
-    async fn withdrawal_proved_on_citrea_rpc(
-        &self,
-        withdrawal_idx: u32,
-        deposit_outpoint: OutPoint,
-    ) -> Result<Vec<String>, BridgeError> {
-        self.withdrawal_proved_on_citrea(withdrawal_idx, deposit_outpoint)
-            .await
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use crate::{
-        extended_rpc::ExtendedRpc, mock::database::create_test_config_with_thread_name,
-        operator::Operator, servers::create_operator_server, traits::rpc::OperatorRpcClient, UTXO,
+        config::BridgeConfig, database::Database, initialize_database, utils::initialize_logger,
+    };
+    use crate::{
+        create_test_config_with_thread_name, extended_rpc::ExtendedRpc, operator::Operator, UTXO,
     };
     use bitcoin::{hashes::Hash, Amount, OutPoint, ScriptBuf, TxOut, Txid};
+    use std::{env, thread};
 
     #[tokio::test]
     async fn set_funding_utxo() {
-        let config = create_test_config_with_thread_name("test_config.toml", None).await;
+        let config = create_test_config_with_thread_name!("test_config.toml", None);
         let rpc = ExtendedRpc::new(
             config.bitcoin_rpc_url.clone(),
             config.bitcoin_rpc_user.clone(),
@@ -778,36 +742,8 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn set_funding_utxo_rpc() {
-        let config = create_test_config_with_thread_name("test_config.toml", None).await;
-        let rpc = ExtendedRpc::new(
-            config.bitcoin_rpc_url.clone(),
-            config.bitcoin_rpc_user.clone(),
-            config.bitcoin_rpc_password.clone(),
-        )
-        .await;
-        let operator = create_operator_server(config, rpc).await.unwrap();
-
-        let funding_utxo = UTXO {
-            outpoint: OutPoint {
-                txid: Txid::all_zeros(),
-                vout: 0x45,
-            },
-            txout: TxOut {
-                value: Amount::from_sat(0x1F),
-                script_pubkey: ScriptBuf::new(),
-            },
-        };
-
-        operator.0.set_funding_utxo_rpc(funding_utxo).await.unwrap();
-
-        // TODO: Currently, no way to retrive this data using rpc calls. Add
-        // checks if added in the future.
-    }
-
-    #[tokio::test]
     async fn is_profitable() {
-        let mut config = create_test_config_with_thread_name("test_config.toml", None).await;
+        let mut config = create_test_config_with_thread_name!("test_config.toml", None);
         let rpc = ExtendedRpc::new(
             config.bitcoin_rpc_url.clone(),
             config.bitcoin_rpc_user.clone(),

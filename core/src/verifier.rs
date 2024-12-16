@@ -12,14 +12,12 @@ use crate::musig2::{
     self, AggregateFromPublicKeys, MuSigAggNonce, MuSigPartialSignature, MuSigPubNonce,
     MuSigSecNonce, MuSigSigHash,
 };
-use crate::traits::rpc::VerifierRpcServer;
 use crate::{utils, ByteArray32, ByteArray64, ByteArray66, EVMAddress, UTXO};
 use bitcoin::address::NetworkUnchecked;
 use bitcoin::hashes::Hash;
 use bitcoin::Address;
 use bitcoin::{secp256k1, OutPoint};
 use bitcoincore_rpc::RawTx;
-use jsonrpsee::core::async_trait;
 use secp256k1::{rand, schnorr};
 
 #[derive(Debug)]
@@ -129,7 +127,7 @@ impl Verifier {
     /// 3. Save pubNonces and secNonces to a db
     /// 4. Return pubNonces
     #[tracing::instrument(skip(self), err(level = tracing::Level::ERROR), ret(level = tracing::Level::TRACE))]
-    async fn new_deposit(
+    pub async fn new_deposit(
         &self,
         deposit_outpoint: OutPoint,
         recovery_taproot_address: Address<NetworkUnchecked>,
@@ -203,7 +201,7 @@ impl Verifier {
     /// do not forget to add tweak when signing since this address has n_of_n as internal_key
     /// and operator_timelock as script.
     #[tracing::instrument(skip(self), err(level = tracing::Level::ERROR), ret(level = tracing::Level::TRACE))]
-    async fn operator_kickoffs_generated(
+    pub async fn operator_kickoffs_generated(
         &self,
         deposit_outpoint: OutPoint,
         kickoff_utxos: Vec<UTXO>,
@@ -331,7 +329,7 @@ impl Verifier {
     }
 
     #[tracing::instrument(skip(self), err(level = tracing::Level::ERROR), ret(level = tracing::Level::TRACE))]
-    async fn create_deposit_details(
+    pub async fn create_deposit_details(
         &self,
         deposit_outpoint: OutPoint,
     ) -> Result<(Vec<UTXO>, TxHandler, OutPoint), BridgeError> {
@@ -373,7 +371,7 @@ impl Verifier {
     /// sign operator_takes_txs
     /// TODO: Change the name of this function.
     #[tracing::instrument(skip(self), err(level = tracing::Level::ERROR), ret(level = tracing::Level::TRACE))]
-    async fn burn_txs_signed(
+    pub async fn burn_txs_signed(
         &self,
         deposit_outpoint: OutPoint,
         _burn_sigs: Vec<schnorr::Signature>,
@@ -470,7 +468,7 @@ impl Verifier {
     /// verify the operator_take_sigs
     /// sign move_tx
     #[tracing::instrument(skip(self), err(level = tracing::Level::ERROR), ret(level = tracing::Level::TRACE))]
-    async fn operator_take_txs_signed(
+    pub async fn operator_take_txs_signed(
         &self,
         deposit_outpoint: OutPoint,
         operator_take_sigs: Vec<schnorr::Signature>,
@@ -587,69 +585,24 @@ impl Verifier {
     }
 }
 
-#[async_trait]
-impl VerifierRpcServer for Verifier {
-    async fn verifier_new_deposit_rpc(
-        &self,
-        deposit_outpoint: OutPoint,
-        recovery_taproot_address: Address<NetworkUnchecked>,
-        evm_address: EVMAddress,
-    ) -> Result<Vec<MuSigPubNonce>, BridgeError> {
-        self.new_deposit(deposit_outpoint, recovery_taproot_address, evm_address)
-            .await
-    }
-
-    async fn operator_kickoffs_generated_rpc(
-        &self,
-        deposit_outpoint: OutPoint,
-        kickoff_utxos: Vec<UTXO>,
-        operators_kickoff_sigs: Vec<schnorr::Signature>,
-        agg_nonces: Vec<MuSigAggNonce>,
-    ) -> Result<(Vec<MuSigPartialSignature>, Vec<MuSigPartialSignature>), BridgeError> {
-        self.operator_kickoffs_generated(
-            deposit_outpoint,
-            kickoff_utxos,
-            operators_kickoff_sigs,
-            agg_nonces,
-        )
-        .await
-    }
-
-    async fn burn_txs_signed_rpc(
-        &self,
-        deposit_outpoint: OutPoint,
-        burn_sigs: Vec<schnorr::Signature>,
-        slash_or_take_sigs: Vec<schnorr::Signature>,
-    ) -> Result<Vec<MuSigPartialSignature>, BridgeError> {
-        self.burn_txs_signed(deposit_outpoint, burn_sigs, slash_or_take_sigs)
-            .await
-    }
-
-    async fn operator_take_txs_signed_rpc(
-        &self,
-        deposit_outpoint: OutPoint,
-        operator_take_sigs: Vec<schnorr::Signature>,
-    ) -> Result<MuSigPartialSignature, BridgeError> {
-        self.operator_take_txs_signed(deposit_outpoint, operator_take_sigs)
-            .await
-    }
-}
-
 #[cfg(test)]
 mod tests {
-    use crate::actor::Actor;
     use crate::errors::BridgeError;
     use crate::extended_rpc::ExtendedRpc;
-    use crate::mock::database::create_test_config_with_thread_name;
     use crate::musig2::nonce_pair;
     use crate::user::User;
     use crate::verifier::Verifier;
     use crate::EVMAddress;
+    use crate::{actor::Actor, create_test_config_with_thread_name};
+    use crate::{
+        config::BridgeConfig, database::Database, initialize_database, utils::initialize_logger,
+    };
     use secp256k1::rand;
+    use std::{env, thread};
 
     #[tokio::test]
     async fn verifier_new_public_key_check() {
-        let mut config = create_test_config_with_thread_name("test_config.toml", None).await;
+        let mut config = create_test_config_with_thread_name!("test_config.toml", None);
         let rpc = ExtendedRpc::new(
             config.bitcoin_rpc_url.clone(),
             config.bitcoin_rpc_user.clone(),
@@ -668,7 +621,7 @@ mod tests {
     #[tokio::test]
     #[serial_test::serial]
     async fn new_deposit_nonce_checks() {
-        let config = create_test_config_with_thread_name("test_config.toml", None).await;
+        let config = create_test_config_with_thread_name!("test_config.toml", None);
         let rpc = ExtendedRpc::new(
             config.bitcoin_rpc_url.clone(),
             config.bitcoin_rpc_user.clone(),

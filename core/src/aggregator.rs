@@ -16,11 +16,9 @@ use crate::{
             clementine_watchtower_client::ClementineWatchtowerClient,
         },
     },
-    traits::rpc::AggregatorServer,
     utils::handle_taproot_witness_new,
     ByteArray32, ByteArray66, EVMAddress, UTXO,
 };
-use async_trait::async_trait;
 use bitcoin::{address::NetworkUnchecked, Address, OutPoint};
 use bitcoin::{hashes::Hash, Txid};
 use bitcoincore_rpc::RawTx;
@@ -363,55 +361,5 @@ impl Aggregator {
 
         let txid = move_tx_handler.tx.compute_txid();
         Ok((move_tx_handler.tx.raw_hex(), txid))
-    }
-}
-
-#[async_trait]
-impl AggregatorServer for Aggregator {
-    async fn aggregate_pub_nonces_rpc(
-        &self,
-        pub_nonces: Vec<Vec<MuSigPubNonce>>,
-    ) -> Result<Vec<MuSigAggNonce>, BridgeError> {
-        self.aggregate_pub_nonces(pub_nonces).await
-    }
-
-    async fn aggregate_slash_or_take_sigs_rpc(
-        &self,
-        deposit_outpoint: OutPoint,
-        kickoff_utxos: Vec<UTXO>,
-        agg_nonces: Vec<MuSigAggNonce>,
-        partial_sigs: Vec<Vec<MuSigPartialSignature>>,
-    ) -> Result<Vec<schnorr::Signature>, BridgeError> {
-        self.aggregate_slash_or_take_sigs(deposit_outpoint, kickoff_utxos, agg_nonces, partial_sigs)
-            .await
-    }
-
-    async fn aggregate_operator_take_sigs_rpc(
-        &self,
-        deposit_outpoint: OutPoint,
-        kickoff_utxos: Vec<UTXO>,
-        agg_nonces: Vec<MuSigAggNonce>,
-        partial_sigs: Vec<Vec<MuSigPartialSignature>>,
-    ) -> Result<Vec<schnorr::Signature>, BridgeError> {
-        self.aggregate_operator_take_sigs(deposit_outpoint, kickoff_utxos, agg_nonces, partial_sigs)
-            .await
-    }
-
-    async fn aggregate_move_tx_sigs_rpc(
-        &self,
-        deposit_outpoint: OutPoint,
-        recovery_taproot_address: Address<NetworkUnchecked>,
-        evm_address: EVMAddress,
-        agg_nonce: MuSigAggNonce,
-        partial_sigs: Vec<MuSigPartialSignature>,
-    ) -> Result<(String, Txid), BridgeError> {
-        self.aggregate_move_tx_sigs(
-            deposit_outpoint,
-            recovery_taproot_address,
-            evm_address,
-            agg_nonce,
-            partial_sigs,
-        )
-        .await
     }
 }
