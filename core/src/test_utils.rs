@@ -9,8 +9,6 @@
 ///
 /// # Parameters
 ///
-/// - `config_file`: Test configuration file in `str` type. Rest of the config
-///   will be read from here and only `db_name` will be overwritten.
 /// - `suffix`: Optional suffix added to the thread handle in `Option<str>`
 ///   type.
 ///
