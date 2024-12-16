@@ -742,34 +742,6 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn set_funding_utxo_rpc() {
-        // let config = create_test_config_with_thread_name!("test_config.toml", None);
-        // let rpc = ExtendedRpc::new(
-        //     config.bitcoin_rpc_url.clone(),
-        //     config.bitcoin_rpc_user.clone(),
-        //     config.bitcoin_rpc_password.clone(),
-        // )
-        // .await;
-        // let operator = create_operator_server(config, rpc).await.unwrap();
-
-        // let funding_utxo = UTXO {
-        //     outpoint: OutPoint {
-        //         txid: Txid::all_zeros(),
-        //         vout: 0x45,
-        //     },
-        //     txout: TxOut {
-        //         value: Amount::from_sat(0x1F),
-        //         script_pubkey: ScriptBuf::new(),
-        //     },
-        // };
-
-        // operator.0.set_funding_utxo_rpc(funding_utxo).await.unwrap();
-
-        // TODO: Currently, no way to retrive this data using rpc calls. Add
-        // checks if added in the future.
-    }
-
-    #[tokio::test]
     async fn is_profitable() {
         let mut config = create_test_config_with_thread_name!("test_config.toml", None);
         let rpc = ExtendedRpc::new(
