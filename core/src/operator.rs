@@ -707,20 +707,18 @@ impl Operator {
     pub fn get_winternitz_public_keys(&self) -> Result<Vec<winternitz::PublicKey>, BridgeError> {
         let mut winternitz_pubkeys = Vec::new();
 
-        for watchtower in 0..self.config.num_watchtowers as u32 {
-            for time_tx in 0..self.config.num_time_txs as u32 {
-                let path = WinternitzDerivationPath {
-                    message_length: 480,
-                    log_d: 4,
-                    tx_type: crate::actor::TxType::BitVM,
-                    index: Some(self.idx as u32),
-                    operator_idx: None,
-                    watchtower_idx: Some(watchtower),
-                    time_tx_idx: Some(time_tx),
-                };
+        for time_tx in 0..self.config.num_time_txs as u32 {
+            let path = WinternitzDerivationPath {
+                message_length: 480,
+                log_d: 4,
+                tx_type: crate::actor::TxType::BitVM,
+                index: Some(self.idx as u32),
+                operator_idx: None,
+                watchtower_idx: None,
+                time_tx_idx: Some(time_tx),
+            };
 
-                winternitz_pubkeys.push(self.signer.derive_winternitz_pk(path)?);
-            }
+            winternitz_pubkeys.push(self.signer.derive_winternitz_pk(path)?);
         }
 
         Ok(winternitz_pubkeys)
@@ -820,9 +818,6 @@ mod tests {
         let operator = Operator::new(config.clone(), rpc).await.unwrap();
 
         let winternitz_public_key = operator.get_winternitz_public_keys().unwrap();
-        assert_eq!(
-            winternitz_public_key.len(),
-            config.num_watchtowers * config.num_time_txs
-        );
+        assert_eq!(winternitz_public_key.len(), config.num_time_txs);
     }
 }
