@@ -1,6 +1,6 @@
 use crate::errors::BridgeError;
 use crate::{actor::Actor, builder, database::Database, EVMAddress};
-use async_stream::{stream, try_stream};
+use async_stream::try_stream;
 use bitcoin::TapSighash;
 use bitcoin::{address::NetworkUnchecked, Address, Amount, OutPoint};
 use futures_core::stream::Stream;
@@ -12,8 +12,8 @@ pub fn create_nofn_sighash_stream(
     recovery_taproot_address: Address<NetworkUnchecked>,
     user_takes_after: u64,
     nofn_xonly_pk: secp256k1::XOnlyPublicKey,
-) -> impl Stream<Item = TapSighash> {
-    stream! {
+) -> impl Stream<Item = Result<TapSighash, BridgeError>> {
+    try_stream! {
         for i in 0..10 {
             let mut dummy_move_tx_handler = builder::transaction::create_move_tx_handler(
                 deposit_outpoint,
@@ -25,9 +25,7 @@ pub fn create_nofn_sighash_stream(
                 Amount::from_sat(i as u64 + 1000000),
             );
 
-            yield Actor::convert_tx_to_sighash_script_spend(&mut dummy_move_tx_handler, 0, 0)
-                .unwrap();
-
+            yield Actor::convert_tx_to_sighash_script_spend(&mut dummy_move_tx_handler, 0, 0)?;
         }
     }
 }

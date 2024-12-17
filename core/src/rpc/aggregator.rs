@@ -345,7 +345,7 @@ impl ClementineAggregator for Aggregator {
 
             println!("Partial sigs: {:?}", partial_sigs);
 
-            let sighash = sighash_stream.next().await.unwrap();
+            let sighash = sighash_stream.next().await.unwrap().unwrap();
 
             tracing::debug!("Aggregator found sighash: {:?}", sighash);
 

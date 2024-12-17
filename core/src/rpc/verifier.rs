@@ -349,7 +349,7 @@ impl ClementineVerifier for Verifier {
                     _ => panic!("Expected AggNonce"),
                 };
 
-                let sighash = sighash_stream.next().await.unwrap();
+                let sighash = sighash_stream.next().await.unwrap().unwrap();
                 tracing::debug!("Verifier {} found sighash: {:?}", verifier.idx, sighash);
 
                 let move_tx_sig = musig2::partial_sign(
@@ -446,7 +446,7 @@ impl ClementineVerifier for Verifier {
 
         let mut nonce_idx: usize = 0;
         while let Some(result) = in_stream.message().await.unwrap() {
-            let sighash = sighash_stream.next().await.unwrap();
+            let sighash = sighash_stream.next().await.unwrap().unwrap();
             let final_sig = result
                 .params
                 .ok_or(Status::internal("No final sig received"))
