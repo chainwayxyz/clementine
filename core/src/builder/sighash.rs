@@ -1,5 +1,6 @@
+use crate::errors::BridgeError;
 use crate::{actor::Actor, builder, database::Database, EVMAddress};
-use async_stream::stream;
+use async_stream::{stream, try_stream};
 use bitcoin::TapSighash;
 use bitcoin::{address::NetworkUnchecked, Address, Amount, OutPoint};
 use futures_core::stream::Stream;
@@ -39,10 +40,11 @@ pub fn create_timout_tx_sighash_stream(
     max_withdrawal_time_block_count: i64,
     num_time_txs: usize,
     network: bitcoin::Network,
-) -> impl Stream<Item = TapSighash> {
+) -> impl Stream<Item = Result<TapSighash, BridgeError>> {
     let mut input_txid = collateral_funding_txid;
     let mut input_amunt = collateral_funding_amount;
-    stream! {
+
+    try_stream! {
         for _ in 0..num_time_txs {
             let time_tx = builder::transaction::create_time_tx(
                 operator_xonly_pk,
@@ -60,7 +62,7 @@ pub fn create_timout_tx_sighash_stream(
                 network,
             );
 
-            yield Actor::convert_tx_to_sighash_script_spend(&mut timeout_tx_handler, 0, 0).unwrap();
+            yield Actor::convert_tx_to_sighash_script_spend(&mut timeout_tx_handler, 0, 0)?;
 
             let time2_tx = builder::transaction::create_time2_tx(
                 operator_xonly_pk,

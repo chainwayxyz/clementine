@@ -116,26 +116,23 @@ impl ClementineVerifier for Verifier {
             self.config.network,
         );
 
-        // Verify the signatures
-        let results: Vec<Result<(), _>> = timeout_tx_sighash_stream
+        timeout_tx_sighash_stream
             .enumerate()
             .map(|(i, sighash)| {
-                utils::SECP.verify_schnorr(
-                    &timeout_tx_sigs[i],
-                    &Message::from(sighash),
-                    &operator_xonly_pk,
-                )
+                utils::SECP
+                    .verify_schnorr(
+                        &timeout_tx_sigs[i],
+                        &Message::from(sighash?),
+                        &operator_xonly_pk,
+                    )
+                    .map_err(|e| {
+                        BridgeError::Error(format!("Can't verify Schnorr signature: {}", e))
+                    })
             })
-            .collect()
-            .await;
-
-        // Check if all verifications succeeded
-        let x = results.iter().all(|res| res.is_ok());
-        if !x {
-            return Err(Status::internal(
-                "Failed to verify all timeout tx signatures",
-            ));
-        }
+            .collect::<Vec<Result<(), BridgeError>>>()
+            .await
+            .into_iter()
+            .collect::<Result<Vec<()>, BridgeError>>()?;
 
         self.db
             .save_timeout_tx_sigs(None, operator_config.operator_idx, timeout_tx_sigs)
