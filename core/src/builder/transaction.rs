@@ -180,7 +180,7 @@ pub fn create_timeout_tx_handler(
     }
 }
 
-/// Creates the move_tx to move the deposit.
+/// Creates the move_tx.
 pub fn create_move_tx(
     deposit_outpoint: OutPoint,
     nofn_xonly_pk: XOnlyPublicKey,
@@ -200,10 +200,10 @@ pub fn create_move_tx(
     create_btc_tx(tx_ins, vec![move_txout, anyone_can_spend_txout])
 }
 
-/// Creates an [`TxHandler`] that includes move_tx to move the deposit.
+/// Creates a [`TxHandler`] for the move_tx.
 pub fn create_move_tx_handler(
     deposit_outpoint: OutPoint,
-    evm_address: EVMAddress,
+    user_evm_address: EVMAddress,
     recovery_taproot_address: &Address<NetworkUnchecked>,
     nofn_xonly_pk: XOnlyPublicKey,
     network: bitcoin::Network,
@@ -215,7 +215,7 @@ pub fn create_move_tx_handler(
     let (deposit_address, deposit_taproot_spend_info) = builder::address::generate_deposit_address(
         nofn_xonly_pk,
         recovery_taproot_address,
-        evm_address,
+        user_evm_address,
         bridge_amount_sats,
         network,
         user_takes_after,
@@ -228,7 +228,7 @@ pub fn create_move_tx_handler(
 
     let deposit_script = vec![builder::script::create_deposit_script(
         nofn_xonly_pk,
-        evm_address,
+        user_evm_address,
         bridge_amount_sats,
     )];
 

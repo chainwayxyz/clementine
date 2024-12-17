@@ -12,6 +12,7 @@ pub fn create_nofn_sighash_stream(
     recovery_taproot_address: Address<NetworkUnchecked>,
     user_takes_after: u64,
     nofn_xonly_pk: secp256k1::XOnlyPublicKey,
+    network: bitcoin::Network,
 ) -> impl Stream<Item = Result<TapSighash, BridgeError>> {
     try_stream! {
         for i in 0..10 {
@@ -20,7 +21,7 @@ pub fn create_nofn_sighash_stream(
                 evm_address,
                 &recovery_taproot_address,
                 nofn_xonly_pk,
-                bitcoin::Network::Regtest,
+                network,
                 user_takes_after as u32,
                 Amount::from_sat(i as u64 + 1000000),
             );

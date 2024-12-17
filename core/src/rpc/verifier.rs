@@ -335,6 +335,7 @@ impl ClementineVerifier for Verifier {
                 recovery_taproot_address,
                 user_takes_after,
                 verifier.nofn_xonly_pk,
+                verifier.config.network
             ));
 
             while let Some(result) = in_stream.message().await.unwrap() {
@@ -442,6 +443,7 @@ impl ClementineVerifier for Verifier {
             recovery_taproot_address,
             user_takes_after,
             self.nofn_xonly_pk,
+            self.config.network
         ));
 
         let mut nonce_idx: usize = 0;

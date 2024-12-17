@@ -303,6 +303,7 @@ impl ClementineAggregator for Aggregator {
             recovery_taproot_address,
             user_takes_after,
             nofn_xonly_pk,
+            self.config.network
         ));
 
         for _ in 0..NUM_REQUIRED_SIGS {
