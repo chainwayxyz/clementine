@@ -304,6 +304,36 @@ pub fn create_kickoff_utxo_tx(
     }
 }
 
+/// Creates the watchtower challenge page transaction.
+pub fn create_watchtower_challenge_page_txhandler(
+    kickoff_utxo: &UTXO,
+    nofn_xonly_pk: XOnlyPublicKey,
+    bridge_amount_sats: Amount,
+    num_watchtowers: u32,
+    network: bitcoin::Network,
+) -> TxHandler {
+    let (nofn_musig2_address, _) = builder::address::create_musig2_address(nofn_xonly_pk, network);
+
+    let tx_ins = create_tx_ins(vec![kickoff_utxo.outpoint]);
+
+    // TODO: Txout values are dummy.
+    let tx_outs = (0..num_watchtowers)
+        .map(|_| TxOut {
+            value: bridge_amount_sats - MOVE_TX_MIN_RELAY_FEE,
+            script_pubkey: nofn_musig2_address.script_pubkey(),
+        })
+        .collect::<Vec<_>>();
+
+    let wcptx = create_btc_tx(tx_ins, tx_outs);
+
+    TxHandler {
+        tx: wcptx,
+        prevouts: vec![kickoff_utxo.txout.clone()],
+        scripts: vec![vec![]],
+        taproot_spend_infos: vec![],
+    }
+}
+
 pub fn create_slash_or_take_tx(
     deposit_outpoint: OutPoint,
     kickoff_utxo: UTXO,
@@ -502,8 +532,8 @@ pub fn create_tx_outs(pairs: Vec<(Amount, ScriptBuf)>) -> Vec<TxOut> {
 
 #[cfg(test)]
 mod tests {
-    use crate::{builder, utils::SECP};
-    use bitcoin::{hashes::Hash, Amount, OutPoint, Txid, XOnlyPublicKey};
+    use crate::{builder, utils::SECP, UTXO};
+    use bitcoin::{hashes::Hash, Amount, OutPoint, TxOut, Txid, XOnlyPublicKey};
     use secp256k1::{rand, Keypair, SecretKey};
 
     #[test]
@@ -535,5 +565,39 @@ mod tests {
             *move_tx.output.get(1).unwrap(),
             builder::script::anyone_can_spend_txout()
         );
+    }
+
+    #[test]
+    fn create_watchtower_challenge_page_txhandler() {
+        let network = bitcoin::Network::Regtest;
+        let secret_key = SecretKey::new(&mut rand::thread_rng());
+        let nofn_xonly_pk =
+            XOnlyPublicKey::from_keypair(&Keypair::from_secret_key(&SECP, &secret_key)).0;
+        let (nofn_musig2_address, _) =
+            builder::address::create_musig2_address(nofn_xonly_pk, network);
+
+        let kickoff_outpoint = OutPoint {
+            txid: Txid::all_zeros(),
+            vout: 0x45,
+        };
+        let kickoff_utxo = UTXO {
+            outpoint: kickoff_outpoint,
+            txout: TxOut {
+                value: Amount::from_int_btc(2),
+                script_pubkey: nofn_musig2_address.script_pubkey(),
+            },
+        };
+
+        let bridge_amount_sats = Amount::from_sat(0x1F45);
+        let num_watchtowers = 3;
+
+        let wcp_txhandler = super::create_watchtower_challenge_page_txhandler(
+            &kickoff_utxo,
+            nofn_xonly_pk,
+            bridge_amount_sats,
+            num_watchtowers,
+            network,
+        );
+        assert_eq!(wcp_txhandler.tx.output.len(), num_watchtowers as usize);
     }
 }
