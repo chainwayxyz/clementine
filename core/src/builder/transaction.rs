@@ -444,7 +444,7 @@ pub fn create_operator_takes_tx(
 
 pub fn create_btc_tx(tx_ins: Vec<TxIn>, tx_outs: Vec<TxOut>) -> bitcoin::Transaction {
     bitcoin::Transaction {
-        version: bitcoin::transaction::Version(2),
+        version: bitcoin::transaction::Version(3),
         lock_time: absolute::LockTime::from_consensus(0),
         input: tx_ins,
         output: tx_outs,

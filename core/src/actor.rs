@@ -357,7 +357,7 @@ mod tests {
         let mut tx_handler = create_invalid_mock_tx_handler(actor);
 
         let prev_tx: Transaction = Transaction {
-            version: Version::TWO,
+            version: Version(3),
             lock_time: bitcoin::absolute::LockTime::Blocks(Height::ZERO),
             input: vec![],
             output: tx_handler.prevouts.clone(),
@@ -390,7 +390,7 @@ mod tests {
         }];
 
         let tx = Transaction {
-            version: Version::TWO,
+            version: Version(3),
             lock_time: bitcoin::absolute::LockTime::Blocks(Height::ZERO),
             input: vec![],
             output: vec![TxOut {
