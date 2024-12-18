@@ -3,6 +3,7 @@
 //! Transaction builder provides useful functions for building typical Bitcoin
 //! transactions.
 
+use super::address::create_taproot_address;
 use crate::builder;
 use crate::{utils, EVMAddress, UTXO};
 use bitcoin::address::NetworkUnchecked;
@@ -13,8 +14,6 @@ use bitcoin::{
 };
 use bitcoin::{Transaction, Txid};
 use secp256k1::XOnlyPublicKey;
-
-use super::address::create_taproot_address;
 
 #[derive(Debug, Clone)]
 pub struct TxHandler {
@@ -30,19 +29,24 @@ pub const SLASH_OR_TAKE_TX_MIN_RELAY_FEE: Amount = Amount::from_sat(240);
 pub const OPERATOR_TAKES_TX_MIN_RELAY_FEE: Amount = Amount::from_sat(230);
 pub const KICKOFF_UTXO_AMOUNT_SATS: Amount = Amount::from_sat(100_000);
 
-pub const TIME_TX_MIN_RELAY_FEE: Amount = Amount::from_sat(350); // TODO: Change this to correct value
-pub const TIME2_TX_MIN_RELAY_FEE: Amount = Amount::from_sat(350); // TODO: Change this to correct value
+/// TODO: Change this to correct value
+pub const TIME_TX_MIN_RELAY_FEE: Amount = Amount::from_sat(350);
+/// TODO: Change this to correct value
+pub const TIME2_TX_MIN_RELAY_FEE: Amount = Amount::from_sat(350);
 pub const KICKOFF_INPUT_AMOUNT: Amount = Amount::from_sat(100_000);
 pub const OPERATOR_REIMBURSE_CONNECTOR_AMOUNT: Amount = Amount::from_sat(330);
 pub const ANCHOR_AMOUNT: Amount = Amount::from_sat(330);
 
-// Transaction Builders --------------------------------------------------------
-
-/// Creates time tx, it will always use input txid's first vout as input
-/// Output 0: Operator's Burn Connector
-/// Output 1: Operator's Time Connector: timelocked utxo for operator for the entire withdrawal time
-/// Output 2: Kickoff input utxo: this utxo will be the input for the kickoff tx
-/// Output 3: P2Anchor: Anchor output for CPFP
+/// Creates the `time_tx`. It will always use `input_txid`'s first vout as the input.
+///
+/// # Returns
+///
+/// A `time_tx` that has outputs of:
+///
+/// 1. Operator's Burn Connector
+/// 2. Operator's Time Connector: timelocked utxo for operator for the entire withdrawal time
+/// 3. Kickoff input utxo: this utxo will be the input for the kickoff tx
+/// 4. P2Anchor: Anchor output for CPFP
 pub fn create_time_tx(
     operator_xonly_pk: XOnlyPublicKey,
     input_txid: Txid,
@@ -442,6 +446,8 @@ pub fn create_operator_takes_tx(
     }
 }
 
+/// Creates a Bitcoin V3 transaction with no locktime, using given inputs and
+/// outputs.
 pub fn create_btc_tx(tx_ins: Vec<TxIn>, tx_outs: Vec<TxOut>) -> bitcoin::Transaction {
     bitcoin::Transaction {
         version: bitcoin::transaction::Version(3),
