@@ -304,6 +304,22 @@ pub fn create_kickoff_utxo_tx(
     }
 }
 
+pub fn create_challenge_tx(
+    kickoff_outpoint: OutPoint,
+    nofn_xonly_pk: XOnlyPublicKey,
+    operator_xonly_pk: XOnlyPublicKey,
+) -> Transaction {
+    let musig2_and_operator_script = builder::script::create_musig2_and_operator_multisig_script(
+        nofn_xonly_pk,
+        operator_xonly_pk,
+    );
+
+    let tx_ins = create_tx_ins(vec![kickoff_outpoint]);
+    let tx_outs = create_tx_outs(vec![(Amount::from_int_btc(2), musig2_and_operator_script)]);
+
+    create_btc_tx(tx_ins, tx_outs)
+}
+
 /// Creates the watchtower challenge page transaction.
 pub fn create_watchtower_challenge_page_txhandler(
     kickoff_utxo: &UTXO,
@@ -599,5 +615,38 @@ mod tests {
             network,
         );
         assert_eq!(wcp_txhandler.tx.output.len(), num_watchtowers as usize);
+    }
+
+    #[test]
+    fn create_challenge_tx() {
+        let secret_key = SecretKey::new(&mut rand::thread_rng());
+        let nofn_xonly_pk =
+            XOnlyPublicKey::from_keypair(&Keypair::from_secret_key(&SECP, &secret_key)).0;
+
+        let operator_secret_key = SecretKey::new(&mut rand::thread_rng());
+        let operator_xonly_pk =
+            XOnlyPublicKey::from_keypair(&Keypair::from_secret_key(&SECP, &operator_secret_key)).0;
+
+        let kickoff_outpoint = OutPoint {
+            txid: Txid::all_zeros(),
+            vout: 0x45,
+        };
+
+        let musig2_and_operator_script =
+            builder::script::create_musig2_and_operator_multisig_script(
+                nofn_xonly_pk,
+                operator_xonly_pk,
+            );
+
+        let challenge_tx =
+            super::create_challenge_tx(kickoff_outpoint, nofn_xonly_pk, operator_xonly_pk);
+        assert_eq!(
+            challenge_tx.tx_out(0).unwrap().value,
+            Amount::from_int_btc(2)
+        );
+        assert_eq!(
+            challenge_tx.tx_out(0).unwrap().script_pubkey,
+            musig2_and_operator_script
+        )
     }
 }
