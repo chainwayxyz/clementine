@@ -5,7 +5,7 @@
 use crate::{
     config::BridgeConfig, database::Database, errors::BridgeError, extended_rpc::ExtendedRpc,
 };
-use bitcoin::BlockHash;
+use bitcoin::{hashes::Hash, BlockHash};
 use bitcoincore_rpc::RpcApi;
 use circuits::header_chain::BlockHeaderCircuitOutput;
 use risc0_zkvm::Receipt;
@@ -44,11 +44,9 @@ impl HeaderChainProver {
                 .map_err(BridgeError::ProverDeSerializationError)?;
 
             // Create block entry, if not exists.
-            // TODO: Get this from chain_state struct.
-            let block_hash = rpc
-                .client
-                .get_block_hash(proof_output.chain_state.block_height.into())
-                .await?;
+            let block_hash = BlockHash::from_raw_hash(Hash::from_slice(
+                &proof_output.chain_state.best_block_hash,
+            )?);
             let block_header = rpc.client.get_block_header(&block_hash).await?;
             // Ignore error if block entry is in database already.
             let _ = db

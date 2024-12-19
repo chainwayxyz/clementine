@@ -62,6 +62,8 @@ macro_rules! create_test_config_with_thread_name {
             None
         };
 
+        config.db_name = handle.to_string();
+
         // Overwrite user's environment to test's hard coded data if environment
         // file is specified.
         if let Some(env_config) = env_config {
@@ -72,7 +74,6 @@ macro_rules! create_test_config_with_thread_name {
             config.db_name = env_config.db_name;
         };
 
-        config.db_name = handle.to_string();
         initialize_database!(&config);
 
         config
