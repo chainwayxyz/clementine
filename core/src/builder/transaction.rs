@@ -5,6 +5,7 @@
 
 use super::address::create_taproot_address;
 use crate::builder;
+use crate::utils::SECP;
 use crate::{utils, EVMAddress, UTXO};
 use bitcoin::address::NetworkUnchecked;
 use bitcoin::hashes::Hash;
@@ -306,16 +307,13 @@ pub fn create_kickoff_utxo_tx(
 
 pub fn create_challenge_tx(
     kickoff_outpoint: OutPoint,
-    nofn_xonly_pk: XOnlyPublicKey,
     operator_xonly_pk: XOnlyPublicKey,
 ) -> Transaction {
-    let musig2_and_operator_script = builder::script::create_musig2_and_operator_multisig_script(
-        nofn_xonly_pk,
-        operator_xonly_pk,
-    );
-
     let tx_ins = create_tx_ins(vec![kickoff_outpoint]);
-    let tx_outs = create_tx_outs(vec![(Amount::from_int_btc(2), musig2_and_operator_script)]);
+    let tx_outs = create_tx_outs(vec![(
+        Amount::from_int_btc(2),
+        ScriptBuf::new_p2tr(&SECP, operator_xonly_pk, None),
+    )]);
 
     create_btc_tx(tx_ins, tx_outs)
 }
@@ -549,7 +547,7 @@ pub fn create_tx_outs(pairs: Vec<(Amount, ScriptBuf)>) -> Vec<TxOut> {
 #[cfg(test)]
 mod tests {
     use crate::{builder, utils::SECP, UTXO};
-    use bitcoin::{hashes::Hash, Amount, OutPoint, TxOut, Txid, XOnlyPublicKey};
+    use bitcoin::{hashes::Hash, Amount, OutPoint, ScriptBuf, TxOut, Txid, XOnlyPublicKey};
     use secp256k1::{rand, Keypair, SecretKey};
 
     #[test]
@@ -619,10 +617,6 @@ mod tests {
 
     #[test]
     fn create_challenge_tx() {
-        let secret_key = SecretKey::new(&mut rand::thread_rng());
-        let nofn_xonly_pk =
-            XOnlyPublicKey::from_keypair(&Keypair::from_secret_key(&SECP, &secret_key)).0;
-
         let operator_secret_key = SecretKey::new(&mut rand::thread_rng());
         let operator_xonly_pk =
             XOnlyPublicKey::from_keypair(&Keypair::from_secret_key(&SECP, &operator_secret_key)).0;
@@ -632,21 +626,14 @@ mod tests {
             vout: 0x45,
         };
 
-        let musig2_and_operator_script =
-            builder::script::create_musig2_and_operator_multisig_script(
-                nofn_xonly_pk,
-                operator_xonly_pk,
-            );
-
-        let challenge_tx =
-            super::create_challenge_tx(kickoff_outpoint, nofn_xonly_pk, operator_xonly_pk);
+        let challenge_tx = super::create_challenge_tx(kickoff_outpoint, operator_xonly_pk);
         assert_eq!(
             challenge_tx.tx_out(0).unwrap().value,
             Amount::from_int_btc(2)
         );
         assert_eq!(
             challenge_tx.tx_out(0).unwrap().script_pubkey,
-            musig2_and_operator_script
+            ScriptBuf::new_p2tr(&SECP, operator_xonly_pk, None)
         )
     }
 }
