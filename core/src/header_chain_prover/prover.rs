@@ -5,7 +5,7 @@
 use crate::{errors::BridgeError, header_chain_prover::HeaderChainProver};
 use bitcoin::hashes::Hash;
 use circuits::header_chain::{
-    BlockHeaderCircuitOutput, CircuitBlockHeader, HeaderChainCircuitInput, HeaderChainPrevProofType
+    BlockHeaderCircuitOutput, CircuitBlockHeader, HeaderChainCircuitInput, HeaderChainPrevProofType,
 };
 use lazy_static::lazy_static;
 use risc0_zkvm::{compute_image_id, ExecutorEnv, Receipt};
@@ -111,9 +111,8 @@ impl HeaderChainProver {
                     bits: current_block_header.bits.to_consensus(),
                     nonce: current_block_header.nonce,
                 };
-                let receipt = prover
-                    .prove_block_headers(Some(previous_proof), vec![header.clone()])
-                    ;
+                let receipt =
+                    prover.prove_block_headers(Some(previous_proof), vec![header.clone()]);
 
                 match receipt {
                     Ok(receipt) => {
@@ -149,7 +148,7 @@ mod tests {
         BlockHash, CompactTarget, TxMerkleNode,
     };
     use borsh::BorshDeserialize;
-    use circuits::header_chain::{CircuitBlockHeader, BlockHeaderCircuitOutput};
+    use circuits::header_chain::{BlockHeaderCircuitOutput, CircuitBlockHeader};
     use std::{env, thread};
 
     fn get_headers() -> Vec<CircuitBlockHeader> {
@@ -203,7 +202,6 @@ mod tests {
         let block_headers = get_headers();
         let receipt = prover
             .prove_block_headers(Some(receipt), block_headers[0..2].to_vec())
-            
             .unwrap();
         let output: BlockHeaderCircuitOutput = borsh::from_slice(&receipt.journal.bytes).unwrap();
 
@@ -258,7 +256,6 @@ mod tests {
         // Prove second block.
         let receipt = prover
             .prove_block_headers(Some(receipt), block_headers[0..2].to_vec())
-            
             .unwrap();
         let hash =
             BlockHash::from_raw_hash(Hash::from_slice(&block_headers[2].prev_block_hash).unwrap());
