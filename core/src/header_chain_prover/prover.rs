@@ -5,7 +5,7 @@
 use crate::{errors::BridgeError, header_chain_prover::HeaderChainProver};
 use bitcoin::hashes::Hash;
 use circuits::header_chain::{
-    BlockHeader, BlockHeaderCircuitOutput, HeaderChainCircuitInput, HeaderChainPrevProofType,
+    BlockHeaderCircuitOutput, CircuitBlockHeader, HeaderChainCircuitInput, HeaderChainPrevProofType
 };
 use lazy_static::lazy_static;
 use risc0_zkvm::{compute_image_id, ExecutorEnv, Receipt};
@@ -33,10 +33,10 @@ impl HeaderChainProver {
     /// # Returns
     ///
     /// - [`Receipt`]: Proved block headers' proof receipt.
-    async fn prove_block_headers(
+    fn prove_block_headers(
         &self,
         prev_receipt: Option<Receipt>,
-        block_headers: Vec<BlockHeader>,
+        block_headers: Vec<CircuitBlockHeader>,
     ) -> Result<Receipt, BridgeError> {
         // Prepare proof input.
         let (prev_proof, method_id) = match &prev_receipt {
@@ -103,7 +103,7 @@ impl HeaderChainProver {
                     current_block_hash
                 );
 
-                let header = BlockHeader {
+                let header = CircuitBlockHeader {
                     version: current_block_header.version.to_consensus(),
                     prev_block_hash: current_block_header.prev_blockhash.to_byte_array(),
                     merkle_root: current_block_header.merkle_root.to_byte_array(),
@@ -113,7 +113,7 @@ impl HeaderChainProver {
                 };
                 let receipt = prover
                     .prove_block_headers(Some(previous_proof), vec![header.clone()])
-                    .await;
+                    ;
 
                 match receipt {
                     Ok(receipt) => {
@@ -149,16 +149,16 @@ mod tests {
         BlockHash, CompactTarget, TxMerkleNode,
     };
     use borsh::BorshDeserialize;
-    use circuits::header_chain::{BlockHeader, BlockHeaderCircuitOutput};
+    use circuits::header_chain::{CircuitBlockHeader, BlockHeaderCircuitOutput};
     use std::{env, thread};
 
-    fn get_headers() -> Vec<BlockHeader> {
+    fn get_headers() -> Vec<CircuitBlockHeader> {
         let headers = include_bytes!("../../../scripts/headers.bin");
 
         headers
             .chunks(80)
-            .map(|header| BlockHeader::try_from_slice(header).unwrap())
-            .collect::<Vec<BlockHeader>>()
+            .map(|header| CircuitBlockHeader::try_from_slice(header).unwrap())
+            .collect::<Vec<CircuitBlockHeader>>()
     }
 
     #[tokio::test]
@@ -173,7 +173,7 @@ mod tests {
         .await;
         let prover = HeaderChainProver::new(&config, rpc.clone()).await.unwrap();
 
-        let receipt = prover.prove_block_headers(None, vec![]).await.unwrap();
+        let receipt = prover.prove_block_headers(None, vec![]).unwrap();
 
         let output: BlockHeaderCircuitOutput = borsh::from_slice(&receipt.journal.bytes).unwrap();
         println!("Proof journal output: {:?}", output);
@@ -198,12 +198,12 @@ mod tests {
         let prover = HeaderChainProver::new(&config, rpc.clone()).await.unwrap();
 
         // Prove genesis block and get it's receipt.
-        let receipt = prover.prove_block_headers(None, vec![]).await.unwrap();
+        let receipt = prover.prove_block_headers(None, vec![]).unwrap();
 
         let block_headers = get_headers();
         let receipt = prover
             .prove_block_headers(Some(receipt), block_headers[0..2].to_vec())
-            .await
+            
             .unwrap();
         let output: BlockHeaderCircuitOutput = borsh::from_slice(&receipt.journal.bytes).unwrap();
 
@@ -226,7 +226,7 @@ mod tests {
         let block_headers = get_headers();
 
         // Prove genesis block.
-        let receipt = prover.prove_block_headers(None, vec![]).await.unwrap();
+        let receipt = prover.prove_block_headers(None, vec![]).unwrap();
         let hash =
             BlockHash::from_raw_hash(Hash::from_slice(&block_headers[1].prev_block_hash).unwrap());
         let header = Header {
@@ -258,7 +258,7 @@ mod tests {
         // Prove second block.
         let receipt = prover
             .prove_block_headers(Some(receipt), block_headers[0..2].to_vec())
-            .await
+            
             .unwrap();
         let hash =
             BlockHash::from_raw_hash(Hash::from_slice(&block_headers[2].prev_block_hash).unwrap());
