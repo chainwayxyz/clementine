@@ -1,4 +1,4 @@
-use crate::actor::Actor;
+use crate::actor::{Actor, WinternitzDerivationPath};
 use crate::builder::transaction::KICKOFF_UTXO_AMOUNT_SATS;
 use crate::builder::{self};
 use crate::config::BridgeConfig;
@@ -15,6 +15,7 @@ use bitcoin::script::PushBytesBuf;
 use bitcoin::sighash::SighashCache;
 use bitcoin::{Address, Amount, OutPoint, TapSighash, Transaction, TxOut, Txid};
 use bitcoincore_rpc::{RawTx, RpcApi};
+use bitvm::signatures::winternitz;
 use jsonrpsee::core::client::ClientT;
 use jsonrpsee::http_client::HttpClientBuilder;
 use jsonrpsee::rpc_params;
@@ -695,6 +696,33 @@ impl Operator {
 
         Ok(txs_to_be_sent)
     }
+
+    /// Generates Winternitz public keys for every watchtower challenge and
+    /// BitVM assert tx.
+    ///
+    /// # Returns
+    ///
+    /// - [`Vec<Vec<winternitz::PublicKey>>`]: Winternitz public keys for
+    ///   `watchtower index` row and `BitVM assert tx index` column.
+    pub fn get_winternitz_public_keys(&self) -> Result<Vec<winternitz::PublicKey>, BridgeError> {
+        let mut winternitz_pubkeys = Vec::new();
+
+        for time_tx in 0..self.config.num_time_txs as u32 {
+            let path = WinternitzDerivationPath {
+                message_length: 480,
+                log_d: 4,
+                tx_type: crate::actor::TxType::BitVM,
+                index: Some(self.idx as u32),
+                operator_idx: None,
+                watchtower_idx: None,
+                time_tx_idx: Some(time_tx),
+            };
+
+            winternitz_pubkeys.push(self.signer.derive_winternitz_pk(path)?);
+        }
+
+        Ok(winternitz_pubkeys)
+    }
 }
 
 #[cfg(test)]
@@ -775,5 +803,21 @@ mod tests {
             Amount::from_sat(0),
             config.operator_withdrawal_fee_sats.unwrap() - Amount::from_sat(1)
         ));
+    }
+
+    #[tokio::test]
+    async fn get_winternitz_public_keys() {
+        let config = create_test_config_with_thread_name!(None);
+        let rpc = ExtendedRpc::new(
+            config.bitcoin_rpc_url.clone(),
+            config.bitcoin_rpc_user.clone(),
+            config.bitcoin_rpc_password.clone(),
+        )
+        .await;
+
+        let operator = Operator::new(config.clone(), rpc).await.unwrap();
+
+        let winternitz_public_key = operator.get_winternitz_public_keys().unwrap();
+        assert_eq!(winternitz_public_key.len(), config.num_time_txs);
     }
 }

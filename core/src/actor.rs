@@ -18,6 +18,7 @@ use bitvm::signatures::winternitz::{
 pub enum TxType {
     TimeTx,
     KickoffTx,
+    BitVM,
 }
 
 /// Derivation path specification for Winternitz one time public key generation.

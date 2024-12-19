@@ -1,7 +1,7 @@
 use super::clementine::{
     self, clementine_operator_server::ClementineOperator, DepositSignSession, Empty,
     NewWithdrawalSigParams, NewWithdrawalSigResponse, OperatorBurnSig, OperatorParams,
-    WithdrawalFinalizedParams,
+    WinternitzPubkey, WithdrawalFinalizedParams,
 };
 use crate::{builder, errors::BridgeError, operator::Operator};
 use bitcoin::{hashes::Hash, Amount, OutPoint};
@@ -52,9 +52,16 @@ impl ClementineOperator for Operator {
             .collect()
             .await;
 
+        // Generate Winternitz public keys and convert them to RPC type.
+        let winternitz_pubkeys = self.get_winternitz_public_keys()?;
+        let winternitz_pubkeys = winternitz_pubkeys
+            .into_iter()
+            .map(WinternitzPubkey::from_bitvm)
+            .collect::<Vec<_>>();
+
         let operator_params = clementine::OperatorParams {
             operator_details: Some(operator_config),
-            winternitz_pubkeys: vec![],      // TODO: Implement this.
+            winternitz_pubkeys,
             assert_empty_public_key: vec![], // TODO: Implement this.
             timeout_tx_sigs,
         };
