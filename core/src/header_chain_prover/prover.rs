@@ -3,7 +3,6 @@
 //! Prover is responsible for preparing RiscZero header chain prover proofs.
 
 use crate::{errors::BridgeError, header_chain_prover::HeaderChainProver};
-use bitcoin::hashes::Hash;
 use circuits::header_chain::{
     BlockHeaderCircuitOutput, CircuitBlockHeader, HeaderChainCircuitInput, HeaderChainPrevProofType,
 };
@@ -103,14 +102,7 @@ impl HeaderChainProver {
                     current_block_hash
                 );
 
-                let header = CircuitBlockHeader {
-                    version: current_block_header.version.to_consensus(),
-                    prev_block_hash: current_block_header.prev_blockhash.to_byte_array(),
-                    merkle_root: current_block_header.merkle_root.to_byte_array(),
-                    time: current_block_header.time,
-                    bits: current_block_header.bits.to_consensus(),
-                    nonce: current_block_header.nonce,
-                };
+                let header: CircuitBlockHeader = current_block_header.into();
                 let receipt =
                     prover.prove_block_headers(Some(previous_proof), vec![header.clone()]);
 
