@@ -81,6 +81,7 @@ async fn create_address_and_transaction_then_sign_transaction() {
         .sign_taproot_script_spend_tx_new_tweaked(&mut tx_details, 0, 0)
         .unwrap();
     handle_taproot_witness_new(&mut tx_details, &[sig.as_ref()], 0, Some(0)).unwrap();
+    rpc.mine_blocks(1).await.unwrap();
 
     // New transaction should be OK to send.
     rpc.client

@@ -3,7 +3,9 @@
 //! Transaction builder provides useful functions for building typical Bitcoin
 //! transactions.
 
+use super::address::create_taproot_address;
 use crate::builder;
+use crate::utils::SECP;
 use crate::{utils, EVMAddress, UTXO};
 use bitcoin::address::NetworkUnchecked;
 use bitcoin::hashes::Hash;
@@ -13,8 +15,6 @@ use bitcoin::{
 };
 use bitcoin::{Transaction, Txid};
 use secp256k1::XOnlyPublicKey;
-
-use super::address::create_taproot_address;
 
 #[derive(Debug, Clone)]
 pub struct TxHandler {
@@ -30,19 +30,24 @@ pub const SLASH_OR_TAKE_TX_MIN_RELAY_FEE: Amount = Amount::from_sat(240);
 pub const OPERATOR_TAKES_TX_MIN_RELAY_FEE: Amount = Amount::from_sat(230);
 pub const KICKOFF_UTXO_AMOUNT_SATS: Amount = Amount::from_sat(100_000);
 
-pub const TIME_TX_MIN_RELAY_FEE: Amount = Amount::from_sat(350); // TODO: Change this to correct value
-pub const TIME2_TX_MIN_RELAY_FEE: Amount = Amount::from_sat(350); // TODO: Change this to correct value
+/// TODO: Change this to correct value
+pub const TIME_TX_MIN_RELAY_FEE: Amount = Amount::from_sat(350);
+/// TODO: Change this to correct value
+pub const TIME2_TX_MIN_RELAY_FEE: Amount = Amount::from_sat(350);
 pub const KICKOFF_INPUT_AMOUNT: Amount = Amount::from_sat(100_000);
 pub const OPERATOR_REIMBURSE_CONNECTOR_AMOUNT: Amount = Amount::from_sat(330);
 pub const ANCHOR_AMOUNT: Amount = Amount::from_sat(330);
 
-// Transaction Builders --------------------------------------------------------
-
-/// Creates time tx, it will always use input txid's first vout as input
-/// Output 0: Operator's Burn Connector
-/// Output 1: Operator's Time Connector: timelocked utxo for operator for the entire withdrawal time
-/// Output 2: Kickoff input utxo: this utxo will be the input for the kickoff tx
-/// Output 3: P2Anchor: Anchor output for CPFP
+/// Creates the `time_tx`. It will always use `input_txid`'s first vout as the input.
+///
+/// # Returns
+///
+/// A `time_tx` that has outputs of:
+///
+/// 1. Operator's Burn Connector
+/// 2. Operator's Time Connector: timelocked utxo for operator for the entire withdrawal time
+/// 3. Kickoff input utxo: this utxo will be the input for the kickoff tx
+/// 4. P2Anchor: Anchor output for CPFP
 pub fn create_time_tx(
     operator_xonly_pk: XOnlyPublicKey,
     input_txid: Txid,
@@ -180,7 +185,7 @@ pub fn create_timeout_tx_handler(
     }
 }
 
-/// Creates the move_tx to move the deposit.
+/// Creates the move_tx.
 pub fn create_move_tx(
     deposit_outpoint: OutPoint,
     nofn_xonly_pk: XOnlyPublicKey,
@@ -200,10 +205,10 @@ pub fn create_move_tx(
     create_btc_tx(tx_ins, vec![move_txout, anyone_can_spend_txout])
 }
 
-/// Creates an [`TxHandler`] that includes move_tx to move the deposit.
+/// Creates a [`TxHandler`] for the move_tx.
 pub fn create_move_tx_handler(
     deposit_outpoint: OutPoint,
-    evm_address: EVMAddress,
+    user_evm_address: EVMAddress,
     recovery_taproot_address: &Address<NetworkUnchecked>,
     nofn_xonly_pk: XOnlyPublicKey,
     network: bitcoin::Network,
@@ -215,7 +220,7 @@ pub fn create_move_tx_handler(
     let (deposit_address, deposit_taproot_spend_info) = builder::address::generate_deposit_address(
         nofn_xonly_pk,
         recovery_taproot_address,
-        evm_address,
+        user_evm_address,
         bridge_amount_sats,
         network,
         user_takes_after,
@@ -228,7 +233,7 @@ pub fn create_move_tx_handler(
 
     let deposit_script = vec![builder::script::create_deposit_script(
         nofn_xonly_pk,
-        evm_address,
+        user_evm_address,
         bridge_amount_sats,
     )];
 
@@ -297,6 +302,49 @@ pub fn create_kickoff_utxo_tx(
         prevouts,
         scripts,
         taproot_spend_infos,
+    }
+}
+
+pub fn create_challenge_tx(
+    kickoff_outpoint: OutPoint,
+    operator_xonly_pk: XOnlyPublicKey,
+) -> Transaction {
+    let tx_ins = create_tx_ins(vec![kickoff_outpoint]);
+    let tx_outs = create_tx_outs(vec![(
+        Amount::from_int_btc(2),
+        ScriptBuf::new_p2tr(&SECP, operator_xonly_pk, None),
+    )]);
+
+    create_btc_tx(tx_ins, tx_outs)
+}
+
+/// Creates the watchtower challenge page transaction.
+pub fn create_watchtower_challenge_page_txhandler(
+    kickoff_utxo: &UTXO,
+    nofn_xonly_pk: XOnlyPublicKey,
+    bridge_amount_sats: Amount,
+    num_watchtowers: u32,
+    network: bitcoin::Network,
+) -> TxHandler {
+    let (nofn_musig2_address, _) = builder::address::create_musig2_address(nofn_xonly_pk, network);
+
+    let tx_ins = create_tx_ins(vec![kickoff_utxo.outpoint]);
+
+    // TODO: Txout values are dummy.
+    let tx_outs = (0..num_watchtowers)
+        .map(|_| TxOut {
+            value: bridge_amount_sats - MOVE_TX_MIN_RELAY_FEE,
+            script_pubkey: nofn_musig2_address.script_pubkey(),
+        })
+        .collect::<Vec<_>>();
+
+    let wcptx = create_btc_tx(tx_ins, tx_outs);
+
+    TxHandler {
+        tx: wcptx,
+        prevouts: vec![kickoff_utxo.txout.clone()],
+        scripts: vec![vec![]],
+        taproot_spend_infos: vec![],
     }
 }
 
@@ -442,9 +490,11 @@ pub fn create_operator_takes_tx(
     }
 }
 
+/// Creates a Bitcoin V3 transaction with no locktime, using given inputs and
+/// outputs.
 pub fn create_btc_tx(tx_ins: Vec<TxIn>, tx_outs: Vec<TxOut>) -> bitcoin::Transaction {
     bitcoin::Transaction {
-        version: bitcoin::transaction::Version(2),
+        version: bitcoin::transaction::Version(3),
         lock_time: absolute::LockTime::from_consensus(0),
         input: tx_ins,
         output: tx_outs,
@@ -496,8 +546,8 @@ pub fn create_tx_outs(pairs: Vec<(Amount, ScriptBuf)>) -> Vec<TxOut> {
 
 #[cfg(test)]
 mod tests {
-    use crate::{builder, utils::SECP};
-    use bitcoin::{hashes::Hash, Amount, OutPoint, Txid, XOnlyPublicKey};
+    use crate::{builder, utils::SECP, UTXO};
+    use bitcoin::{hashes::Hash, Amount, OutPoint, ScriptBuf, TxOut, Txid, XOnlyPublicKey};
     use secp256k1::{rand, Keypair, SecretKey};
 
     #[test]
@@ -529,5 +579,61 @@ mod tests {
             *move_tx.output.get(1).unwrap(),
             builder::script::anyone_can_spend_txout()
         );
+    }
+
+    #[test]
+    fn create_watchtower_challenge_page_txhandler() {
+        let network = bitcoin::Network::Regtest;
+        let secret_key = SecretKey::new(&mut rand::thread_rng());
+        let nofn_xonly_pk =
+            XOnlyPublicKey::from_keypair(&Keypair::from_secret_key(&SECP, &secret_key)).0;
+        let (nofn_musig2_address, _) =
+            builder::address::create_musig2_address(nofn_xonly_pk, network);
+
+        let kickoff_outpoint = OutPoint {
+            txid: Txid::all_zeros(),
+            vout: 0x45,
+        };
+        let kickoff_utxo = UTXO {
+            outpoint: kickoff_outpoint,
+            txout: TxOut {
+                value: Amount::from_int_btc(2),
+                script_pubkey: nofn_musig2_address.script_pubkey(),
+            },
+        };
+
+        let bridge_amount_sats = Amount::from_sat(0x1F45);
+        let num_watchtowers = 3;
+
+        let wcp_txhandler = super::create_watchtower_challenge_page_txhandler(
+            &kickoff_utxo,
+            nofn_xonly_pk,
+            bridge_amount_sats,
+            num_watchtowers,
+            network,
+        );
+        assert_eq!(wcp_txhandler.tx.output.len(), num_watchtowers as usize);
+    }
+
+    #[test]
+    fn create_challenge_tx() {
+        let operator_secret_key = SecretKey::new(&mut rand::thread_rng());
+        let operator_xonly_pk =
+            XOnlyPublicKey::from_keypair(&Keypair::from_secret_key(&SECP, &operator_secret_key)).0;
+
+        let kickoff_outpoint = OutPoint {
+            txid: Txid::all_zeros(),
+            vout: 0x45,
+        };
+
+        let challenge_tx = super::create_challenge_tx(kickoff_outpoint, operator_xonly_pk);
+        assert_eq!(
+            challenge_tx.tx_out(0).unwrap().value,
+            Amount::from_int_btc(2)
+        );
+        assert_eq!(
+            challenge_tx.tx_out(0).unwrap().script_pubkey,
+            ScriptBuf::new_p2tr(&SECP, operator_xonly_pk, None)
+        )
     }
 }

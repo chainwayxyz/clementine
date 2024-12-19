@@ -116,26 +116,23 @@ impl ClementineVerifier for Verifier {
             self.config.network,
         );
 
-        // Verify the signatures
-        let results: Vec<Result<(), _>> = timeout_tx_sighash_stream
+        timeout_tx_sighash_stream
             .enumerate()
             .map(|(i, sighash)| {
-                utils::SECP.verify_schnorr(
-                    &timeout_tx_sigs[i],
-                    &Message::from(sighash),
-                    &operator_xonly_pk,
-                )
+                utils::SECP
+                    .verify_schnorr(
+                        &timeout_tx_sigs[i],
+                        &Message::from(sighash?),
+                        &operator_xonly_pk,
+                    )
+                    .map_err(|e| {
+                        BridgeError::Error(format!("Can't verify Schnorr signature: {}", e))
+                    })
             })
-            .collect()
-            .await;
-
-        // Check if all verifications succeeded
-        let x = results.iter().all(|res| res.is_ok());
-        if !x {
-            return Err(Status::internal(
-                "Failed to verify all timeout tx signatures",
-            ));
-        }
+            .collect::<Vec<Result<(), BridgeError>>>()
+            .await
+            .into_iter()
+            .collect::<Result<Vec<()>, BridgeError>>()?;
 
         self.db
             .save_timeout_tx_sigs(None, operator_config.operator_idx, timeout_tx_sigs)
@@ -338,6 +335,7 @@ impl ClementineVerifier for Verifier {
                 recovery_taproot_address,
                 user_takes_after,
                 verifier.nofn_xonly_pk,
+                verifier.config.network
             ));
 
             while let Some(result) = in_stream.message().await.unwrap() {
@@ -352,7 +350,7 @@ impl ClementineVerifier for Verifier {
                     _ => panic!("Expected AggNonce"),
                 };
 
-                let sighash = sighash_stream.next().await.unwrap();
+                let sighash = sighash_stream.next().await.unwrap().unwrap();
                 tracing::debug!("Verifier {} found sighash: {:?}", verifier.idx, sighash);
 
                 let move_tx_sig = musig2::partial_sign(
@@ -445,11 +443,12 @@ impl ClementineVerifier for Verifier {
             recovery_taproot_address,
             user_takes_after,
             self.nofn_xonly_pk,
+            self.config.network
         ));
 
         let mut nonce_idx: usize = 0;
         while let Some(result) = in_stream.message().await.unwrap() {
-            let sighash = sighash_stream.next().await.unwrap();
+            let sighash = sighash_stream.next().await.unwrap().unwrap();
             let final_sig = result
                 .params
                 .ok_or(Status::internal("No final sig received"))

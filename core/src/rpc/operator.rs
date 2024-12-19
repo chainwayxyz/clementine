@@ -47,10 +47,10 @@ impl ClementineOperator for Operator {
         let timeout_tx_sigs: Vec<Vec<u8>> = timeout_tx_sighash_stream
             .map(|sighash| {
                 // Sign each sighash and transform it to Vec<u8>
-                self.signer.sign(sighash).serialize().to_vec()
+                Ok(self.signer.sign(sighash?).serialize().to_vec())
             })
-            .collect()
-            .await;
+            .collect::<Result<_, BridgeError>>()
+            .await?;
 
         // Generate Winternitz public keys and convert them to RPC type.
         let winternitz_pubkeys = self.get_winternitz_public_keys()?;

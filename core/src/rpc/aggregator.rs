@@ -303,6 +303,7 @@ impl ClementineAggregator for Aggregator {
             recovery_taproot_address,
             user_takes_after,
             nofn_xonly_pk,
+            self.config.network
         ));
 
         for _ in 0..NUM_REQUIRED_SIGS {
@@ -345,7 +346,7 @@ impl ClementineAggregator for Aggregator {
 
             println!("Partial sigs: {:?}", partial_sigs);
 
-            let sighash = sighash_stream.next().await.unwrap();
+            let sighash = sighash_stream.next().await.unwrap().unwrap();
 
             tracing::debug!("Aggregator found sighash: {:?}", sighash);
 
