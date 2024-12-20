@@ -20,6 +20,7 @@ pub fn create_nofn_sighash_stream(
         // Collect kickoff transactions.
         let kickoff_txs = collect_kickoff_txs(db, config.clone(), nofn_xonly_pk, evm_address).await?;
 
+        let mut wcp_txs = Vec::new();
         for tx in kickoff_txs {
             let kickoff_utxo = UTXO {
                 outpoint: OutPoint {
@@ -28,7 +29,7 @@ pub fn create_nofn_sighash_stream(
                 },
                 txout: tx.output[0].clone()
             };
-            let mut tx_handler = builder::transaction::create_watchtower_challenge_page_txhandler(
+            let mut watchtower_challenge_page_tx_handler = builder::transaction::create_watchtower_challenge_page_txhandler(
                 &kickoff_utxo,
                 nofn_xonly_pk,
                 config.bridge_amount_sats,
@@ -36,7 +37,23 @@ pub fn create_nofn_sighash_stream(
                 config.network,
             );
 
-            yield Actor::convert_tx_to_sighash_script_spend(&mut tx_handler, 0, 0)?;
+            yield Actor::convert_tx_to_sighash_script_spend(&mut watchtower_challenge_page_tx_handler, 0, 0)?;
+            wcp_txs.push(watchtower_challenge_page_tx_handler);
+        }
+
+        for watchtower in 0..config.num_watchtowers {
+            let utxo = UTXO { outpoint: OutPoint {
+                txid: wcp_txs[watchtower].tx.compute_txid(),
+                vout: watchtower as u32
+            }, txout: wcp_txs[watchtower].tx.output[watchtower].clone()
+            };
+            let mut watchtower_challenge_page_tx_2_handler = builder::transaction::create_watchtower_challenge_page_2_txhandler(
+                utxo,
+                nofn_xonly_pk,
+                config.network,
+            );
+
+            yield Actor::convert_tx_to_sighash_script_spend(&mut watchtower_challenge_page_tx_2_handler, 0, 0)?;
         }
 
         // First iterate over operators
@@ -69,6 +86,7 @@ async fn collect_kickoff_txs(
                 time_tx_outpoint,
                 nofn_xonly_pk,
                 user_evm_address,
+                config.network,
             );
 
             kickoff_txs.push(kickoff_tx);

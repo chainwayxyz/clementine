@@ -4,6 +4,7 @@
 //! transactions.
 
 use super::address::create_taproot_address;
+use super::script;
 use crate::builder;
 use crate::utils::SECP;
 use crate::{utils, EVMAddress, UTXO};
@@ -374,6 +375,34 @@ pub fn create_watchtower_challenge_page_txhandler(
     TxHandler {
         tx: wcptx,
         prevouts: vec![kickoff_utxo.txout.clone()],
+        scripts: vec![vec![]],
+        taproot_spend_infos: vec![],
+    }
+}
+
+pub fn create_watchtower_challenge_page_2_txhandler(
+    wcp_utxo: UTXO,
+    nofn_xonly_pk: XOnlyPublicKey,
+    network: bitcoin::Network,
+) -> TxHandler {
+    let tx_ins = create_tx_ins(vec![wcp_utxo.outpoint]);
+
+    let nofn_1week = builder::script::generate_relative_timelock_script(nofn_xonly_pk, 7 * 24 * 6);
+    let (nofn_or_nofn_1week, _) =
+        builder::address::create_taproot_address(&[nofn_1week], Some(nofn_xonly_pk), network);
+    // TODO: This also needs to include nofn + operator preimage hash
+    let script_pubkey = nofn_or_nofn_1week.script_pubkey();
+
+    let tx_outs = vec![TxOut {
+        value: wcp_utxo.txout.value - MOVE_TX_MIN_RELAY_FEE,
+        script_pubkey,
+    }];
+
+    let wcptx2 = create_btc_tx(tx_ins, tx_outs);
+
+    TxHandler {
+        tx: wcptx2,
+        prevouts: vec![wcp_utxo.txout.clone()],
         scripts: vec![vec![]],
         taproot_spend_infos: vec![],
     }
