@@ -16,11 +16,16 @@ use bitcoin::{
 use bitcoin::{Transaction, Txid};
 use secp256k1::XOnlyPublicKey;
 
+/// Verbose information about a transaction.
 #[derive(Debug, Clone)]
 pub struct TxHandler {
+    /// Transaction itself.
     pub tx: bitcoin::Transaction,
+    /// Previous outputs in [`TxOut`] format.
     pub prevouts: Vec<TxOut>,
+    /// Scripts for each previous output.
     pub scripts: Vec<Vec<ScriptBuf>>,
+    /// Taproot spend information for each previous output.
     pub taproot_spend_infos: Vec<TaprootSpendInfo>,
 }
 
@@ -318,7 +323,7 @@ pub fn create_challenge_tx(
     create_btc_tx(tx_ins, tx_outs)
 }
 
-/// Creates the watchtower challenge page transaction.
+/// Creates a [`TxHandler`] for the watchtower challenge page transaction.
 pub fn create_watchtower_challenge_page_txhandler(
     kickoff_utxo: &UTXO,
     nofn_xonly_pk: XOnlyPublicKey,
