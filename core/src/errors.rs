@@ -207,6 +207,11 @@ pub enum BridgeError {
 
     #[error("Can't encode/decode data using borsch: {0}")]
     BorschError(std::io::Error),
+
+    #[error("No scripts in TxHandler for the TxIn with index {0}")]
+    NoScriptsForTxIn(usize),
+    #[error("No script in TxHandler for the index {0}")]
+    NoScriptAtIndex(usize),
 }
 
 impl From<BridgeError> for ErrorObject<'static> {

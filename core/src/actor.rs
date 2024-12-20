@@ -257,13 +257,20 @@ impl Actor {
         let mut sighash_cache: SighashCache<&mut bitcoin::Transaction> =
             SighashCache::new(&mut tx_handler.tx);
 
+        let prevouts = bitcoin::sighash::Prevouts::All(&tx_handler.prevouts);
+        let leaf_hash = TapLeafHash::from_script(
+            &tx_handler
+                .scripts
+                .get(txin_index)
+                .ok_or(BridgeError::NoScriptsForTxIn(txin_index))?
+                .get(script_index)
+                .ok_or(BridgeError::NoScriptAtIndex(script_index))?,
+            LeafVersion::TapScript,
+        );
         let sig_hash = sighash_cache.taproot_script_spend_signature_hash(
             txin_index,
-            &bitcoin::sighash::Prevouts::All(&tx_handler.prevouts),
-            TapLeafHash::from_script(
-                &tx_handler.scripts[txin_index][script_index],
-                LeafVersion::TapScript,
-            ),
+            &prevouts,
+            leaf_hash,
             bitcoin::sighash::TapSighashType::Default,
         )?;
 
