@@ -13,7 +13,7 @@ use bitcoin::script::PushBytesBuf;
 use bitcoin::{
     absolute, taproot::TaprootSpendInfo, Address, Amount, OutPoint, ScriptBuf, TxIn, TxOut, Witness,
 };
-use bitcoin::{Transaction, Txid};
+use bitcoin::{Network, Transaction, Txid};
 use secp256k1::XOnlyPublicKey;
 
 /// Verbose information about a transaction.
@@ -314,21 +314,22 @@ pub fn create_kickoff_tx(
     time_tx_outpoint: OutPoint,
     nofn_xonly_pk: XOnlyPublicKey,
     user_evm_address: EVMAddress,
+    network: Network,
 ) -> Transaction {
     let nofn_script = builder::script::create_deposit_script(
         nofn_xonly_pk,
         user_evm_address,
         KICKOFF_UTXO_AMOUNT_SATS,
     );
-    let nofn_or_1_week_script = builder::script::generate_relative_timelock_script(
-        nofn_xonly_pk,
-        1008, // 1 week in blocks
-    );
+
+    let nofn_1week = builder::script::generate_relative_timelock_script(nofn_xonly_pk, 7 * 24 * 6);
+    let (nofn_or_nofn_1week, _) =
+        builder::address::create_taproot_address(&[nofn_1week], Some(nofn_xonly_pk), network);
 
     let tx_ins = create_tx_ins(vec![time_tx_outpoint]);
     let tx_outs = create_tx_outs(vec![
         (KICKOFF_UTXO_AMOUNT_SATS, nofn_script.clone()),
-        (KICKOFF_UTXO_AMOUNT_SATS, nofn_or_1_week_script),
+        (KICKOFF_UTXO_AMOUNT_SATS, nofn_or_nofn_1week.script_pubkey()),
         (KICKOFF_UTXO_AMOUNT_SATS, nofn_script),
     ]);
 
