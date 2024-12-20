@@ -298,12 +298,12 @@ impl ClementineAggregator for Aggregator {
 
         let mut sighash_stream = pin!(create_nofn_sighash_stream(
             self.db.clone(),
+            self.config.clone(),
             deposit_outpoint,
             evm_address,
             recovery_taproot_address,
-            user_takes_after,
             nofn_xonly_pk,
-            self.config.network
+            user_takes_after,
         ));
 
         for _ in 0..NUM_REQUIRED_SIGS {

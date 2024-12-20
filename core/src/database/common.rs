@@ -95,6 +95,11 @@ impl Database {
         Ok(())
     }
 
+    /// Fetches time txs for an operator.
+    ///
+    /// # Returns
+    ///
+    /// - `Vec<(i32, Txid, i32)>`: A vector of tuples containing the index, TxId, and block height for a time_tx.
     #[tracing::instrument(skip(self), err(level = tracing::Level::ERROR), ret(level = tracing::Level::TRACE))]
     pub async fn get_time_txs(
         &self,

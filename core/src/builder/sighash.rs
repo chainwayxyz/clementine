@@ -1,34 +1,81 @@
+use crate::config::BridgeConfig;
 use crate::errors::BridgeError;
+use crate::UTXO;
 use crate::{actor::Actor, builder, database::Database, EVMAddress};
 use async_stream::try_stream;
-use bitcoin::TapSighash;
 use bitcoin::{address::NetworkUnchecked, Address, Amount, OutPoint};
+use bitcoin::{TapSighash, Transaction};
 use futures_core::stream::Stream;
 
 pub fn create_nofn_sighash_stream(
-    _db: Database,
+    db: Database,
+    config: BridgeConfig,
     deposit_outpoint: OutPoint,
     evm_address: EVMAddress,
     recovery_taproot_address: Address<NetworkUnchecked>,
-    user_takes_after: u64,
     nofn_xonly_pk: secp256k1::XOnlyPublicKey,
-    network: bitcoin::Network,
+    user_takes_after: u64,
 ) -> impl Stream<Item = Result<TapSighash, BridgeError>> {
     try_stream! {
-        for i in 0..10 {
-            let mut dummy_move_tx_handler = builder::transaction::create_move_tx_handler(
-                deposit_outpoint,
-                evm_address,
-                &recovery_taproot_address,
+        // Collect kickoff transactions.
+        let kickoff_txs = collect_kickoff_txs(db, config.clone(), nofn_xonly_pk, evm_address).await?;
+
+        for tx in kickoff_txs {
+            let kickoff_utxo = UTXO {
+                outpoint: OutPoint {
+                    txid: tx.compute_txid(),
+                    vout: 0
+                },
+                txout: tx.output[0].clone()
+            };
+            let mut tx_handler = builder::transaction::create_watchtower_challenge_page_txhandler(
+                &kickoff_utxo,
                 nofn_xonly_pk,
-                network,
-                user_takes_after as u32,
-                Amount::from_sat(i as u64 + 1000000),
+                config.bridge_amount_sats,
+                config.num_watchtowers as u32,
+                config.network,
             );
 
-            yield Actor::convert_tx_to_sighash_script_spend(&mut dummy_move_tx_handler, 0, 0)?;
+            yield Actor::convert_tx_to_sighash_script_spend(&mut tx_handler, 0, 0)?;
+        }
+
+        // First iterate over operators
+        // For each operator, iterate over time txs
+        // For each time tx, create kickoff txid
+        // using kickoff txid, create watchtower challenge page
+        // yield watchtower challenge page sighash
+        // yield watchtower challenge tx sighash per watchtower
+        // yield sighash_single|anyonecanpay sighash for challenge tx
+        // TBC
+
+        // yield Actor::convert_tx_to_sighash_script_spend(&mut timeout_tx_handler, 0, 0)?;
+    }
+}
+
+async fn collect_kickoff_txs(
+    db: Database,
+    config: BridgeConfig,
+    nofn_xonly_pk: secp256k1::XOnlyPublicKey,
+    user_evm_address: EVMAddress,
+) -> Result<Vec<Transaction>, BridgeError> {
+    let mut kickoff_txs: Vec<Transaction> = Vec::new();
+    for operator in 0..config.num_operators {
+        for time_tx in db.get_time_txs(None, operator as i32).await? {
+            let time_tx_outpoint = OutPoint {
+                txid: time_tx.1,
+                vout: 2,
+            };
+            let kickoff_tx = builder::transaction::create_kickoff_tx(
+                time_tx_outpoint,
+                nofn_xonly_pk,
+                user_evm_address,
+            );
+
+            kickoff_txs.push(kickoff_tx);
         }
     }
+
+    Ok(kickoff_txs)
 }
 
 pub fn create_timout_tx_sighash_stream(

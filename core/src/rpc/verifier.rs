@@ -330,12 +330,12 @@ impl ClementineVerifier for Verifier {
 
             let mut sighash_stream = pin!(create_nofn_sighash_stream(
                 verifier.db,
+                verifier.config.clone(),
                 deposit_outpoint,
                 evm_address,
                 recovery_taproot_address,
-                user_takes_after,
                 verifier.nofn_xonly_pk,
-                verifier.config.network
+                user_takes_after
             ));
 
             while let Some(result) = in_stream.message().await.unwrap() {
@@ -438,12 +438,12 @@ impl ClementineVerifier for Verifier {
 
         let mut sighash_stream = pin!(create_nofn_sighash_stream(
             self.db.clone(),
+            self.config.clone(),
             deposit_outpoint,
             evm_address,
             recovery_taproot_address,
-            user_takes_after,
             self.nofn_xonly_pk,
-            self.config.network
+            user_takes_after
         ));
 
         let mut nonce_idx: usize = 0;
