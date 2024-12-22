@@ -405,31 +405,64 @@ pub fn create_watchtower_challenge_page_txhandler(
     }
 }
 
-pub fn create_watchtower_challenge_page_2_txhandler(
-    wcp_utxo: UTXO,
+pub fn create_watchtower_challenge_txhandler(
+    wcp_txid: Txid,
+    watchtower_idx: usize,
+    watchtower_wots: Vec<[u8; 20]>,
+    operator_unlock_hash: &[u8; 20],
     nofn_xonly_pk: XOnlyPublicKey,
+    operator_xonly_pk: XOnlyPublicKey,
     network: bitcoin::Network,
 ) -> TxHandler {
-    let tx_ins = create_tx_ins(vec![wcp_utxo.outpoint]);
+    let tx_ins = create_tx_ins(vec![OutPoint {
+        txid: wcp_txid,
+        vout: watchtower_idx as u32,
+    }]);
 
     let nofn_1week = builder::script::generate_relative_timelock_script(nofn_xonly_pk, 7 * 24 * 6);
-    let (nofn_or_nofn_1week, _) =
-        builder::address::create_taproot_address(&[nofn_1week], Some(nofn_xonly_pk), network);
-    // TODO: This also needs to include nofn + operator preimage hash
-    let script_pubkey = nofn_or_nofn_1week.script_pubkey();
+    let operator_with_preimage =
+        builder::script::actor_with_preimage_script(operator_xonly_pk, operator_unlock_hash);
+    let (nofn_or_nofn_1week, _) = builder::address::create_taproot_address(
+        &[operator_with_preimage, nofn_1week],
+        None,
+        network,
+    );
 
-    let tx_outs = vec![TxOut {
-        value: wcp_utxo.txout.value - MOVE_TX_MIN_RELAY_FEE,
-        script_pubkey,
-    }];
+    let tx_outs = vec![
+        TxOut {
+            value: Amount::from_sat(1000), // TODO: Hand calculate this
+            script_pubkey: nofn_or_nofn_1week.script_pubkey(),
+        },
+        builder::script::anyone_can_spend_txout(),
+    ];
 
     let wcptx2 = create_btc_tx(tx_ins, tx_outs);
 
+    // Calculate prevouts:
+    let verifier =
+        winternitz::Winternitz::<winternitz::ListpickVerifier, winternitz::TabledConverter>::new();
+    let wots_params = winternitz::Parameters::new(240, 4);
+
+    let mut x = verifier.checksig_verify(&wots_params, watchtower_wots.as_ref());
+    x = x.push_x_only_key(&nofn_xonly_pk);
+    x = x.push_opcode(OP_CHECKSIG); // TODO: Add checksig in the beginning
+    let watchtower_challenge_script = x.compile();
+    let (watchtower_challenge_addr, watchtower_challenge_taproot_spend_info) =
+        builder::address::create_taproot_address(
+            &[watchtower_challenge_script.clone()],
+            None,
+            network,
+        );
+
+    let prevouts = vec![TxOut {
+        value: Amount::from_sat(2000), // TOOD: Hand calculate this
+        script_pubkey: watchtower_challenge_addr.script_pubkey(), // TODO: Add winternitz checks here
+    }];
     TxHandler {
         tx: wcptx2,
-        prevouts: vec![wcp_utxo.txout.clone()],
-        scripts: vec![vec![]],
-        taproot_spend_infos: vec![],
+        prevouts,
+        scripts: vec![vec![watchtower_challenge_script]],
+        taproot_spend_infos: vec![watchtower_challenge_taproot_spend_info],
     }
 }
 

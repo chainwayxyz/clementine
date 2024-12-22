@@ -22,8 +22,6 @@ use tokio::sync::mpsc;
 use tokio_stream::wrappers::ReceiverStream;
 use tonic::{async_trait, Request, Response, Status, Streaming};
 
-pub const NUM_REQUIRED_SIGS: usize = 4;
-
 #[async_trait]
 impl ClementineVerifier for Verifier {
     type NonceGenStream = ReceiverStream<Result<NonceGenResponse, Status>>;
@@ -241,7 +239,7 @@ impl ClementineVerifier for Verifier {
         };
 
         // now stream the nonces
-        let (tx, rx) = mpsc::channel(128);
+        let (tx, rx) = mpsc::channel(1280);
         tokio::spawn(async move {
             // First send the session id
             let response = NonceGenResponse {
@@ -268,7 +266,7 @@ impl ClementineVerifier for Verifier {
     ) -> Result<Response<Self::DepositSignStream>, Status> {
         let mut in_stream = req.into_inner();
 
-        let (tx, rx) = mpsc::channel(128);
+        let (tx, rx) = mpsc::channel(1280);
 
         tracing::info!("Received deposit sign request");
 
@@ -349,6 +347,9 @@ impl ClementineVerifier for Verifier {
                 verifier.config.bridge_amount_sats,
                 verifier.config.network,
             ));
+            let num_required_sigs = verifier.config.num_operators
+                * verifier.config.num_time_txs
+                * (1 + verifier.config.num_watchtowers);
 
             while let Some(result) = in_stream.message().await.unwrap() {
                 let agg_nonce = match result
@@ -382,7 +383,7 @@ impl ClementineVerifier for Verifier {
                 tx.send(Ok(partial_sig)).await.unwrap();
 
                 nonce_idx += 1;
-                if nonce_idx == NUM_REQUIRED_SIGS {
+                if nonce_idx == num_required_sigs {
                     break;
                 }
             }
@@ -462,6 +463,9 @@ impl ClementineVerifier for Verifier {
             self.config.bridge_amount_sats,
             self.config.network,
         ));
+        let num_required_sigs = self.config.num_operators
+            * self.config.num_time_txs
+            * (1 + self.config.num_watchtowers);
 
         let mut nonce_idx: usize = 0;
         while let Some(result) = in_stream.message().await.unwrap() {
@@ -489,7 +493,7 @@ impl ClementineVerifier for Verifier {
             tracing::debug!("Final Signature Verified");
 
             nonce_idx += 1;
-            if nonce_idx == NUM_REQUIRED_SIGS {
+            if nonce_idx == num_required_sigs {
                 break;
             }
         }
