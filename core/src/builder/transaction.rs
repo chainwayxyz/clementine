@@ -10,11 +10,13 @@ use crate::utils::SECP;
 use crate::{utils, EVMAddress, UTXO};
 use bitcoin::address::NetworkUnchecked;
 use bitcoin::hashes::Hash;
+use bitcoin::opcodes::all::OP_CHECKSIG;
 use bitcoin::script::PushBytesBuf;
 use bitcoin::{
     absolute, taproot::TaprootSpendInfo, Address, Amount, OutPoint, ScriptBuf, TxIn, TxOut, Witness,
 };
 use bitcoin::{Network, Transaction, Txid};
+use bitvm::signatures::winternitz;
 use secp256k1::XOnlyPublicKey;
 
 /// Verbose information about a transaction.
@@ -356,6 +358,7 @@ pub fn create_watchtower_challenge_page_txhandler(
     kickoff_txid: Txid,
     nofn_xonly_pk: XOnlyPublicKey,
     num_watchtowers: u32,
+    watchtower_wots: Vec<Vec<[u8; 20]>>,
     network: bitcoin::Network,
 ) -> TxHandler {
     let (nofn_taproot_address, nofn_taproot_spend_info) =
@@ -365,10 +368,24 @@ pub fn create_watchtower_challenge_page_txhandler(
         vout: 0,
     }]);
 
+    let verifier =
+        winternitz::Winternitz::<winternitz::ListpickVerifier, winternitz::TabledConverter>::new();
+    let wots_params = winternitz::Parameters::new(240, 4);
+
     let mut tx_outs = (0..num_watchtowers)
-        .map(|_| TxOut {
-            value: Amount::from_sat(2000), // TOOD: Hand calculate this
-            script_pubkey: builder::script::anyone_can_spend_txout().script_pubkey, // TODO: Add winternitz checks here
+        .map(|i| {
+            let mut x =
+                verifier.checksig_verify(&wots_params, watchtower_wots[i as usize].as_ref());
+            x = x.push_x_only_key(&nofn_xonly_pk);
+            x = x.push_opcode(OP_CHECKSIG); // TODO: Add checksig in the beginning
+            let x = x.compile();
+            let (watchtower_challenge_addr, _) =
+                builder::address::create_taproot_address(&[x], None, network);
+
+            TxOut {
+                value: Amount::from_sat(2000), // TOOD: Hand calculate this
+                script_pubkey: watchtower_challenge_addr.script_pubkey(), // TODO: Add winternitz checks here
+            }
         })
         .collect::<Vec<_>>();
 

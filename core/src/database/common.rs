@@ -1011,9 +1011,10 @@ impl Database {
         operator_id: u32,
     ) -> Result<Vec<winternitz::PublicKey>, BridgeError> {
         let query = sqlx::query_as(
-            "SELECT winternitz_public_keys FROM winternitz_public_keys WHERE operator_id = $1 AND operator_id = $1;",
+            "SELECT winternitz_public_keys FROM winternitz_public_keys WHERE operator_id = $1 AND watchtower_id = $2;",
         )
-        .bind(operator_id as i64);
+        .bind(operator_id as i64)
+        .bind(watchtower_id as i64);
 
         let wpks: (Vec<u8>,) = match tx {
             Some(tx) => query.fetch_one(&mut **tx).await,

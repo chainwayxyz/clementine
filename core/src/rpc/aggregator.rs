@@ -349,7 +349,7 @@ impl ClementineAggregator for Aggregator {
             .await
             .map_err(|e| Status::internal(format!("Failed to get partial sig: {:?}", e)))?;
 
-            println!("Partial sigs: {:?}", partial_sigs);
+            tracing::trace!("Received partial sigs: {:?}", partial_sigs);
 
             let sighash = sighash_stream.next().await.unwrap().unwrap();
 
@@ -429,7 +429,7 @@ mod tests {
     async fn aggregator_double_setup_fail() {
         let config = create_test_config_with_thread_name!(None);
 
-        let (_, _, aggregator, _) = create_actors!(config, 0);
+        let (_, _, aggregator, _) = create_actors!(config);
         let mut aggregator_client =
             ClementineAggregatorClient::connect(format!("http://{}", aggregator.0))
                 .await
@@ -451,7 +451,7 @@ mod tests {
     async fn aggregator_setup_winternitz_public_keys() {
         let mut config = create_test_config_with_thread_name!(None);
 
-        let (_verifiers, _operators, aggregator, _watchtowers) = create_actors!(config.clone(), 1);
+        let (_verifiers, _operators, aggregator, _watchtowers) = create_actors!(config.clone());
         let mut aggregator_client =
             ClementineAggregatorClient::connect(format!("http://{}", aggregator.0))
                 .await

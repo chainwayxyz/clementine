@@ -80,6 +80,7 @@ impl Aggregator {
                 .ok_or(BridgeError::ConfigError(
                     "Couldn't find watchtower endpoints in config file!".to_string(),
                 ))?;
+
         let watchtower_clients =
             rpc::get_clients(watchtower_endpoints, ClementineWatchtowerClient::connect).await?;
 

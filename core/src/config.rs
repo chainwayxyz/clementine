@@ -67,6 +67,8 @@ pub struct BridgeConfig {
     pub all_verifiers_secret_keys: Option<Vec<secp256k1::SecretKey>>,
     /// All Secret keys. Just for testing purposes.
     pub all_operators_secret_keys: Option<Vec<secp256k1::SecretKey>>,
+    /// All Secret keys. Just for testing purposes.
+    pub all_watchtowers_secret_keys: Option<Vec<secp256k1::SecretKey>>,
     /// Verifier endpoints. For the aggregator only
     pub verifier_endpoints: Option<Vec<String>>,
     /// Operator endpoint. For the aggregator only
@@ -276,6 +278,24 @@ impl Default for BridgeConfig {
                 .unwrap(),
                 SecretKey::from_str(
                     "3333333333333333333333333333333333333333333333333333333333333333",
+                )
+                .unwrap(),
+            ]),
+            all_watchtowers_secret_keys: Some(vec![
+                SecretKey::from_str(
+                    "1111111111111111111111111111111111111111111111111111111111111111",
+                )
+                .unwrap(),
+                SecretKey::from_str(
+                    "2222222222222222222222222222222222222222222222222222222222222222",
+                )
+                .unwrap(),
+                SecretKey::from_str(
+                    "3333333333333333333333333333333333333333333333333333333333333333",
+                )
+                .unwrap(),
+                SecretKey::from_str(
+                    "4444444444444444444444444444444444444444444444444444444444444444",
                 )
                 .unwrap(),
             ]),

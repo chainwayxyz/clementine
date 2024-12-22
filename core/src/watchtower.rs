@@ -92,7 +92,7 @@ mod tests {
     #[serial_test::serial]
     async fn new_watchtower() {
         let mut config = create_test_config_with_thread_name!(None);
-        let (verifiers, operators, _, _should_not_panic) = create_actors!(config.clone(), 1);
+        let (verifiers, operators, _, _should_not_panic) = create_actors!(config.clone());
 
         config.verifier_endpoints = Some(
             verifiers
@@ -114,7 +114,7 @@ mod tests {
     #[serial_test::serial]
     async fn get_winternitz_public_keys() {
         let mut config = create_test_config_with_thread_name!(None);
-        let (verifiers, operators, _, _watchtowers) = create_actors!(config.clone(), 2);
+        let (verifiers, operators, _, _watchtowers) = create_actors!(config.clone());
 
         config.verifier_endpoints = Some(
             verifiers
