@@ -128,6 +128,14 @@ pub async fn dummy(
     Ok(())
 }
 
+pub fn calculate_num_required_sigs(
+    num_operators: usize,
+    num_time_txs: usize,
+    num_watchtowers: usize,
+) -> usize {
+    num_operators * num_time_txs * (1 + 2 * num_watchtowers)
+}
+
 pub fn create_nofn_sighash_stream(
     db: Database,
     config: BridgeConfig,
@@ -230,6 +238,23 @@ pub fn create_nofn_sighash_stream(
                     &mut watchtower_challenge_txhandler,
                     0,
                     0,
+                )?;
+
+                let mut operator_challenge_nack_txhandler = builder::transaction::create_operator_challenge_nack_txhandler(
+                    wcp_txid,
+                    time_txid,
+                    input_amunt,
+                    i,
+                    &[0u8; 20],
+                    nofn_xonly_pk,
+                    *operator_xonly_pk,
+                    network,
+                );
+
+                yield Actor::convert_tx_to_sighash_script_spend(
+                    &mut operator_challenge_nack_txhandler,
+                    0,
+                    1,
                 )?;
             }
 

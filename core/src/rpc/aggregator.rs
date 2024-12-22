@@ -3,7 +3,7 @@ use super::clementine::{
 };
 use crate::{
     aggregator::Aggregator,
-    builder::sighash::create_nofn_sighash_stream,
+    builder::sighash::{calculate_num_required_sigs, create_nofn_sighash_stream},
     errors::BridgeError,
     musig2::{aggregate_nonces, MuSigPubNonce},
     rpc::clementine::{self, DepositSignSession},
@@ -218,9 +218,11 @@ impl ClementineAggregator for Aggregator {
         tracing::debug!("Parsed deposit params");
 
         // generate nonces from all verifiers
-        let num_required_sigs = self.config.num_operators
-            * self.config.num_time_txs
-            * (1 + self.config.num_watchtowers);
+        let num_required_sigs = calculate_num_required_sigs(
+            self.config.num_operators,
+            self.config.num_time_txs,
+            self.config.num_watchtowers,
+        );
         let (first_responses, mut nonce_streams) =
             self.create_nonce_streams(num_required_sigs as u32).await?;
 
@@ -310,9 +312,12 @@ impl ClementineAggregator for Aggregator {
             self.config.bridge_amount_sats,
             self.config.network,
         ));
-        let num_required_sigs = self.config.num_operators
-            * self.config.num_time_txs
-            * (1 + self.config.num_watchtowers);
+
+        let num_required_sigs = calculate_num_required_sigs(
+            self.config.num_operators,
+            self.config.num_time_txs,
+            self.config.num_watchtowers,
+        );
 
         for _ in 0..num_required_sigs {
             // Get the next nonce from each stream

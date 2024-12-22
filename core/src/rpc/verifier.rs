@@ -4,7 +4,10 @@ use super::clementine::{
     VerifierDepositSignParams, VerifierParams, VerifierPublicKeys, WatchtowerParams,
 };
 use crate::{
-    builder::{self, sighash::create_nofn_sighash_stream},
+    builder::{
+        self,
+        sighash::{calculate_num_required_sigs, create_nofn_sighash_stream},
+    },
     errors::BridgeError,
     musig2::{self, MuSigPubNonce, MuSigSecNonce},
     sha256_hash, utils,
@@ -347,10 +350,11 @@ impl ClementineVerifier for Verifier {
                 verifier.config.bridge_amount_sats,
                 verifier.config.network,
             ));
-            let num_required_sigs = verifier.config.num_operators
-                * verifier.config.num_time_txs
-                * (1 + verifier.config.num_watchtowers);
-
+            let num_required_sigs = calculate_num_required_sigs(
+                verifier.config.num_operators,
+                verifier.config.num_time_txs,
+                verifier.config.num_watchtowers,
+            );
             while let Some(result) = in_stream.message().await.unwrap() {
                 let agg_nonce = match result
                     .params
@@ -463,10 +467,11 @@ impl ClementineVerifier for Verifier {
             self.config.bridge_amount_sats,
             self.config.network,
         ));
-        let num_required_sigs = self.config.num_operators
-            * self.config.num_time_txs
-            * (1 + self.config.num_watchtowers);
-
+        let num_required_sigs = calculate_num_required_sigs(
+            self.config.num_operators,
+            self.config.num_time_txs,
+            self.config.num_watchtowers,
+        );
         let mut nonce_idx: usize = 0;
         while let Some(result) = in_stream.message().await.unwrap() {
             let sighash = sighash_stream.next().await.unwrap().unwrap();
