@@ -10,7 +10,8 @@ create table if not exists verifier_public_keys (
 create table if not exists operators (
     operator_idx int primary key,
     xonly_pk text not null,
-    wallet_reimburse_address text not null
+    wallet_reimburse_address text not null,
+    collateral_funding_txid text not null check (collateral_funding_txid ~ '^[a-fA-F0-9]{64}')
 );
 
 -- Time tx's of operators, Only Operator binaries can add entries to this table

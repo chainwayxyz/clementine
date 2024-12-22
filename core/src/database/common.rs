@@ -4,6 +4,8 @@
 //! directly talks with PostgreSQL. It is expected that PostgreSQL is properly
 //! installed and configured.
 
+use std::str::FromStr;
+
 use super::wrapper::{
     AddressDB, EVMAddressDB, OutPointDB, PublicKeyDB, SignatureDB, SignaturesDB, TxOutDB, TxidDB,
     Utxodb, XOnlyPublicKeyDB,
@@ -128,13 +130,15 @@ impl Database {
         operator_idx: i32,
         xonly_pubkey: secp256k1::XOnlyPublicKey,
         wallet_address: String,
+        collateral_funding_txid: Txid,
     ) -> Result<(), BridgeError> {
         let query = sqlx::query(
-            "INSERT INTO operators (operator_idx, xonly_pk, wallet_reimburse_address) VALUES ($1, $2, $3);",
+            "INSERT INTO operators (operator_idx, xonly_pk, wallet_reimburse_address, collateral_funding_txid) VALUES ($1, $2, $3, $4);",
         )
         .bind(operator_idx)
         .bind(XOnlyPublicKeyDB(xonly_pubkey))
-        .bind(wallet_address);
+        .bind(wallet_address)
+        .bind(TxidDB(collateral_funding_txid));
 
         match tx {
             Some(tx) => query.execute(&mut **tx).await?,
@@ -142,6 +146,48 @@ impl Database {
         };
 
         Ok(())
+    }
+
+    pub async fn get_operators(
+        &self,
+        tx: Option<&mut sqlx::Transaction<'_, Postgres>>,
+    ) -> Result<Vec<(secp256k1::XOnlyPublicKey, bitcoin::Address, Txid)>, BridgeError> {
+        let query = sqlx::query_as(
+            "SELECT operator_idx, xonly_pk, wallet_reimburse_address, collateral_funding_txid FROM operators ORDER BY operator_idx;"
+        );
+
+        let result: Result<Vec<(i32, String, String, String)>, sqlx::Error> = match tx {
+            Some(tx) => query.fetch_all(&mut **tx).await,
+            None => query.fetch_all(&self.connection).await,
+        };
+
+        match result {
+            Ok(operators) => {
+                // Check for missing indices
+                let indices: Vec<i32> = operators.iter().map(|(idx, _, _, _)| *idx).collect();
+                let expected_indices: Vec<i32> = (0..indices.len() as i32).collect();
+
+                if indices != expected_indices {
+                    return Err(BridgeError::Error(
+                        "Operator index is not sequential".to_string(),
+                    ));
+                }
+
+                // Convert the result to the desired format
+                let data = operators
+                    .into_iter()
+                    .map(|(_, pk, addr, txid)| {
+                        let xonly_pk = secp256k1::XOnlyPublicKey::from_str(&pk).unwrap();
+                        let addr = bitcoin::Address::from_str(&addr).unwrap().assume_checked();
+                        let txid = Txid::from_str(&txid).unwrap();
+                        Ok((xonly_pk, addr, txid))
+                    })
+                    .collect::<Result<Vec<_>, BridgeError>>()?;
+
+                Ok(data)
+            }
+            Err(e) => Err(BridgeError::DatabaseError(e)),
+        }
     }
 
     #[tracing::instrument(skip(self, tx), err(level = tracing::Level::ERROR), ret(level = tracing::Level::TRACE))]

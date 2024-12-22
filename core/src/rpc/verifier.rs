@@ -22,7 +22,7 @@ use tokio::sync::mpsc;
 use tokio_stream::wrappers::ReceiverStream;
 use tonic::{async_trait, Request, Response, Status, Streaming};
 
-pub const NUM_REQUIRED_SIGS: usize = 10;
+pub const NUM_REQUIRED_SIGS: usize = 4;
 
 #[async_trait]
 impl ClementineVerifier for Verifier {
@@ -97,6 +97,13 @@ impl ClementineVerifier for Verifier {
                 operator_config.operator_idx as i32,
                 operator_xonly_pk,
                 operator_config.wallet_reimburse_address,
+                Txid::from_byte_array(
+                    operator_config
+                        .collateral_funding_txid
+                        .clone()
+                        .try_into()
+                        .unwrap(),
+                ),
             )
             .await?;
 
@@ -335,7 +342,12 @@ impl ClementineVerifier for Verifier {
                 evm_address,
                 recovery_taproot_address,
                 verifier.nofn_xonly_pk,
-                user_takes_after
+                user_takes_after,
+                Amount::from_sat(200_000_000), // TODO: Fix this.
+                6,
+                100,
+                verifier.config.bridge_amount_sats,
+                verifier.config.network,
             ));
 
             while let Some(result) = in_stream.message().await.unwrap() {
@@ -443,7 +455,12 @@ impl ClementineVerifier for Verifier {
             evm_address,
             recovery_taproot_address,
             self.nofn_xonly_pk,
-            user_takes_after
+            user_takes_after,
+            Amount::from_sat(200_000_000), // TODO: Fix this.
+            6,
+            100,
+            self.config.bridge_amount_sats,
+            self.config.network,
         ));
 
         let mut nonce_idx: usize = 0;

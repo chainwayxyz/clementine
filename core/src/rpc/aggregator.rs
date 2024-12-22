@@ -12,7 +12,7 @@ use crate::{
     },
     ByteArray32, ByteArray66, EVMAddress,
 };
-use bitcoin::hashes::Hash;
+use bitcoin::{hashes::Hash, Amount};
 use futures::{future::try_join_all, stream::BoxStream, FutureExt, StreamExt};
 use std::pin::pin;
 use tonic::{async_trait, Request, Response, Status};
@@ -302,8 +302,13 @@ impl ClementineAggregator for Aggregator {
             deposit_outpoint,
             evm_address,
             recovery_taproot_address,
-            nofn_xonly_pk,
+            self.nofn_xonly_pk,
             user_takes_after,
+            Amount::from_sat(200_000_000), // TODO: Fix this.
+            6,
+            100,
+            self.config.bridge_amount_sats,
+            self.config.network,
         ));
 
         for _ in 0..NUM_REQUIRED_SIGS {
