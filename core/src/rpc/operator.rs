@@ -59,6 +59,13 @@ impl ClementineOperator for Operator {
             .map(WinternitzPubkey::from_bitvm)
             .collect::<Vec<_>>();
 
+        // Generate Winternitz public keys and convert them to RPC type.
+        let winternitz_pubkeys = self.get_winternitz_public_keys()?;
+        let winternitz_pubkeys = winternitz_pubkeys
+            .into_iter()
+            .map(WinternitzPubkey::from_bitvm)
+            .collect::<Vec<_>>();
+
         let operator_params = clementine::OperatorParams {
             operator_details: Some(operator_config),
             winternitz_pubkeys,
