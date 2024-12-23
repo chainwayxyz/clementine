@@ -159,7 +159,7 @@ impl ClementineVerifier for Verifier {
             .collect::<Result<Vec<_>, BridgeError>>()?;
 
         self.db
-            .save_operator_winternitz_pk(
+            .save_operator_winternitz_public_keys(
                 None,
                 operator_config.operator_idx,
                 operator_winternitz_public_keys,
@@ -201,7 +201,7 @@ impl ClementineVerifier for Verifier {
         for operator_idx in 0..self.config.num_operators {
             let index = operator_idx * self.config.num_time_txs;
             self.db
-                .save_watchtower_winternitz_pk(
+                .save_watchtower_winternitz_public_keys(
                     None,
                     watchtower_params.watchtower_id,
                     operator_idx as u32,

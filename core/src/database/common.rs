@@ -974,7 +974,7 @@ impl Database {
 
     /// Sets Winternitz public keys for an operator.
     #[tracing::instrument(skip(self, tx, winternitz_public_key), err(level = tracing::Level::ERROR), ret(level = tracing::Level::TRACE))]
-    pub async fn save_watchtower_winternitz_pk(
+    pub async fn save_watchtower_winternitz_public_keys(
         &self,
         tx: Option<&mut sqlx::Transaction<'_, Postgres>>,
         watchtower_id: u32,
@@ -1029,7 +1029,7 @@ impl Database {
 
     /// Sets Winternitz public keys for an operator.
     #[tracing::instrument(skip(self, tx, winternitz_public_key), err(level = tracing::Level::ERROR), ret(level = tracing::Level::TRACE))]
-    pub async fn save_operator_winternitz_pk(
+    pub async fn save_operator_winternitz_public_keys(
         &self,
         tx: Option<&mut sqlx::Transaction<'_, Postgres>>,
         operator_id: u32,
@@ -1876,7 +1876,7 @@ mod tests {
         ];
 
         database
-            .save_watchtower_winternitz_pk(
+            .save_watchtower_winternitz_public_keys(
                 None,
                 0x45,
                 0x1F,
