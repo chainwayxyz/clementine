@@ -451,7 +451,7 @@ mod tests {
 
     #[tokio::test]
     #[serial_test::serial]
-    async fn aggregator_setup_winternitz_public_keys() {
+    async fn aggregator_setup_watchtower_winternitz_public_keys() {
         let mut config = create_test_config_with_thread_name!(None);
 
         let (_verifiers, _operators, aggregator, _watchtowers) = create_actors!(config.clone());
@@ -466,7 +466,10 @@ mod tests {
             .unwrap();
 
         let watchtower = Watchtower::new(config.clone()).await.unwrap();
-        let watchtower_wpks = watchtower.get_winternitz_public_keys().await.unwrap();
+        let watchtower_wpks = watchtower
+            .get_watchtower_winternitz_public_keys()
+            .await
+            .unwrap();
 
         let rpc = ExtendedRpc::new(
             config.bitcoin_rpc_url.clone(),
@@ -479,7 +482,7 @@ mod tests {
         let verifier = Verifier::new(rpc, config.clone()).await.unwrap();
         let verifier_wpks = verifier
             .db
-            .get_winternitz_public_keys(None, 0, 0)
+            .get_watchtower_winternitz_public_keys(None, 0, 0)
             .await
             .unwrap();
 

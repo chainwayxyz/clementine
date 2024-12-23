@@ -43,7 +43,7 @@ pub async fn dummy(
     {
         // get the watchtower winternitz pubkeys for this operator
         let watchtower_challenge_wots: Vec<_> = (0..config.num_watchtowers)
-            .map(|i| db.get_winternitz_public_keys(None, i as u32, operator_idx as u32))
+            .map(|i| db.get_watchtower_winternitz_public_keys(None, i as u32, operator_idx as u32))
             .collect();
         let watchtower_challenge_wots =
             futures::future::try_join_all(watchtower_challenge_wots).await?;
@@ -172,7 +172,7 @@ pub fn create_nofn_sighash_stream(
     {
         // get the watchtower winternitz pubkeys for this operator
         let watchtower_challenge_wots: Vec<_> = (0..config.num_watchtowers)
-            .map(|i| db.get_winternitz_public_keys(None, i as u32, operator_idx as u32))
+            .map(|i| db.get_watchtower_winternitz_public_keys(None, i as u32, operator_idx as u32))
             .collect();
         let watchtower_challenge_wots =
             futures::future::try_join_all(watchtower_challenge_wots).await?;

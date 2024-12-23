@@ -146,6 +146,26 @@ impl ClementineVerifier for Verifier {
             .save_timeout_tx_sigs(None, operator_config.operator_idx, timeout_tx_sigs)
             .await?;
 
+        // Convert RPC type into BitVM type.
+        let operator_winternitz_public_keys = operator_params
+            .winternitz_pubkeys
+            .into_iter()
+            .map(|wpk| {
+                Ok(WinternitzPublicKey {
+                    public_key: wpk.to_bitvm(),
+                    parameters: winternitz::Parameters::new(0, 4), // TODO: Fix this.
+                })
+            })
+            .collect::<Result<Vec<_>, BridgeError>>()?;
+
+        self.db
+            .save_operator_winternitz_pk(
+                None,
+                operator_config.operator_idx,
+                operator_winternitz_public_keys,
+            )
+            .await?;
+
         Ok(Response::new(Empty {}))
     }
 
@@ -158,22 +178,22 @@ impl ClementineVerifier for Verifier {
         let watchtower_params = request.into_inner();
 
         // Convert RPC type into BitVM type.
-        let winternitz_public_keys = watchtower_params
+        let watchtower_winternitz_public_keys = watchtower_params
             .winternitz_pubkeys
             .into_iter()
             .map(|wpk| {
                 Ok(WinternitzPublicKey {
                     public_key: wpk.to_bitvm(),
-                    parameters: winternitz::Parameters::new(0, 4),
+                    parameters: winternitz::Parameters::new(0, 4), // TODO: Fix this.
                 })
             })
             .collect::<Result<Vec<_>, BridgeError>>()?;
 
         let required_number_of_pubkeys = self.config.num_operators * self.config.num_time_txs;
-        if winternitz_public_keys.len() != required_number_of_pubkeys {
+        if watchtower_winternitz_public_keys.len() != required_number_of_pubkeys {
             return Err(Status::invalid_argument(format!(
                 "Request has {} Winternitz public keys but it needs to be {}!",
-                winternitz_public_keys.len(),
+                watchtower_winternitz_public_keys.len(),
                 required_number_of_pubkeys
             )));
         }
@@ -181,11 +201,12 @@ impl ClementineVerifier for Verifier {
         for operator_idx in 0..self.config.num_operators {
             let index = operator_idx * self.config.num_time_txs;
             self.db
-                .save_winternitz_public_key(
+                .save_watchtower_winternitz_pk(
                     None,
                     watchtower_params.watchtower_id,
                     operator_idx as u32,
-                    winternitz_public_keys[index..index + self.config.num_time_txs].to_vec(),
+                    watchtower_winternitz_public_keys[index..index + self.config.num_time_txs]
+                        .to_vec(),
                 )
                 .await?;
         }

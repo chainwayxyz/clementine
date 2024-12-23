@@ -19,6 +19,8 @@ pub enum TxType {
     TimeTx,
     KickoffTx,
     BitVM,
+    OperatorLongestChain,
+    WatchtowerChallenge,
 }
 
 /// Derivation path specification for Winternitz one time public key generation.
@@ -31,6 +33,7 @@ pub struct WinternitzDerivationPath {
     pub operator_idx: Option<u32>,
     pub watchtower_idx: Option<u32>,
     pub time_tx_idx: Option<u32>,
+    pub intermediate_step_idx: Option<u32>,
 }
 impl WinternitzDerivationPath {
     fn to_vec(self) -> Vec<u8> {
@@ -50,6 +53,10 @@ impl WinternitzDerivationPath {
             None => 0,
             Some(i) => i + 1,
         };
+        let intermediate_step_idx = match self.intermediate_step_idx {
+            None => 0,
+            Some(i) => i + 1,
+        };
 
         [
             vec![self.tx_type as u8],
@@ -58,6 +65,7 @@ impl WinternitzDerivationPath {
                 operator_idx.to_be_bytes(),
                 watchtower_idx.to_be_bytes(),
                 time_tx_idx.to_be_bytes(),
+                intermediate_step_idx.to_be_bytes(),
             ]
             .concat(),
         ]
@@ -74,6 +82,7 @@ impl Default for WinternitzDerivationPath {
             operator_idx: Default::default(),
             watchtower_idx: Default::default(),
             time_tx_idx: Default::default(),
+            intermediate_step_idx: Default::default(),
         }
     }
 }

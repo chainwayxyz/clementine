@@ -33,3 +33,5 @@ pub const MAX_BITVM_CHALLENGE_RESPONSE_BLOCKS: u32 = 5;
 pub type VerifierChallenge = (BlockHash, U256, u8);
 
 // pub const TEST_MODE: bool = true;
+
+pub const NUM_INTERMEDIATE_STEPS: usize = 100;

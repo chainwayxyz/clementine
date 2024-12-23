@@ -13,7 +13,7 @@ impl ClementineWatchtower for Watchtower {
         _request: Request<Empty>,
     ) -> Result<Response<WatchtowerParams>, Status> {
         let winternitz_pubkeys = self
-            .get_winternitz_public_keys()
+            .get_watchtower_winternitz_public_keys()
             .await?
             .into_iter()
             .map(WinternitzPubkey::from_bitvm)
