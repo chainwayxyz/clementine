@@ -184,7 +184,7 @@ impl ClementineVerifier for Verifier {
             .map(|wpk| {
                 Ok(WinternitzPublicKey {
                     public_key: wpk.to_bitvm(),
-                    parameters: winternitz::Parameters::new(0, 4), // TODO: Fix this.
+                    parameters: winternitz::Parameters::new(480, 4), // TODO: Fix this.
                 })
             })
             .collect::<Result<Vec<_>, BridgeError>>()?;

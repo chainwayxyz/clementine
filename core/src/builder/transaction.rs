@@ -5,8 +5,8 @@
 
 use super::address::create_taproot_address;
 use super::script;
-use crate::builder;
 use crate::utils::SECP;
+use crate::{builder, operator};
 use crate::{utils, EVMAddress, UTXO};
 use bitcoin::address::NetworkUnchecked;
 use bitcoin::hashes::Hash;
@@ -316,6 +316,7 @@ pub fn create_kickoff_utxo_tx(
 pub fn create_kickoff_tx(
     time_txid: Txid,
     nofn_xonly_pk: XOnlyPublicKey,
+    operator_xonly_pk: XOnlyPublicKey,
     move_txid: Txid,
     operator_idx: usize,
     network: Network,
@@ -325,8 +326,19 @@ pub fn create_kickoff_tx(
         vout: 2,
     }]);
     let nofn_1week = builder::script::generate_relative_timelock_script(nofn_xonly_pk, 7 * 24 * 6);
+    let operator_2week =
+        builder::script::generate_relative_timelock_script(operator_xonly_pk, 2 * 7 * 24 * 6);
+    let nofn_3week =
+        builder::script::generate_relative_timelock_script(nofn_xonly_pk, 3 * 7 * 24 * 6);
+
     let (nofn_or_nofn_1week, _) =
         builder::address::create_taproot_address(&[nofn_1week], Some(nofn_xonly_pk), network);
+
+    let (nofn_or_operator_2week, _) =
+        builder::address::create_taproot_address(&[operator_2week], Some(nofn_xonly_pk), network);
+
+    let nofn_or_nofn_3week =
+        builder::address::create_taproot_address(&[nofn_3week], Some(nofn_xonly_pk), network).0;
 
     let (nofn_taproot_address, _) = builder::address::create_musig2_address(nofn_xonly_pk, network);
 
@@ -338,8 +350,9 @@ pub fn create_kickoff_tx(
         (KICKOFF_UTXO_AMOUNT_SATS, nofn_or_nofn_1week.script_pubkey()),
         (
             KICKOFF_UTXO_AMOUNT_SATS,
-            nofn_taproot_address.script_pubkey(),
+            nofn_or_operator_2week.script_pubkey(),
         ),
+        (KICKOFF_UTXO_AMOUNT_SATS, nofn_or_nofn_3week.script_pubkey()),
     ]);
     tx_outs.push(builder::script::anyone_can_spend_txout());
 
@@ -469,6 +482,7 @@ pub fn create_watchtower_challenge_txhandler(
 pub fn create_operator_challenge_nack_txhandler(
     wcp_txid: Txid,
     time_txid: Txid,
+    kickoff_txid: Txid,
     time_tx_amount: Amount,
     watchtower_idx: usize,
     operator_unlock_hash: &[u8; 20],
@@ -482,6 +496,10 @@ pub fn create_operator_challenge_nack_txhandler(
             vout: watchtower_idx as u32,
         },
         OutPoint {
+            txid: kickoff_txid,
+            vout: 2,
+        },
+        OutPoint {
             txid: time_txid,
             vout: 0,
         },
@@ -491,6 +509,7 @@ pub fn create_operator_challenge_nack_txhandler(
 
     let challenge_nack_tx = create_btc_tx(tx_ins, tx_outs);
 
+    // prevout1
     let nofn_1week = builder::script::generate_relative_timelock_script(nofn_xonly_pk, 7 * 24 * 6);
     let operator_with_preimage =
         builder::script::actor_with_preimage_script(operator_xonly_pk, operator_unlock_hash);
@@ -501,24 +520,48 @@ pub fn create_operator_challenge_nack_txhandler(
             network,
         );
 
+    // prevout2
+
+    let operator_2week =
+        builder::script::generate_relative_timelock_script(operator_xonly_pk, 2 * 7 * 24 * 6);
+    let (nofn_or_operator_2week, nofn_or_operator_2week_taproot_spend_info) =
+        builder::address::create_taproot_address(
+            &[operator_2week.clone()],
+            Some(nofn_xonly_pk),
+            network,
+        );
+
+    let (operator_taproot_address, operator_taproot_spend_info) =
+        builder::address::create_musig2_address(operator_xonly_pk, network);
+
     let prevouts = vec![
         TxOut {
             value: Amount::from_sat(1000), // TODO: Hand calculate this
             script_pubkey: nofn_or_nofn_1week.script_pubkey(),
         },
         TxOut {
+            value: KICKOFF_UTXO_AMOUNT_SATS, // TODO: Hand calculate this
+            script_pubkey: nofn_or_operator_2week.script_pubkey(),
+        },
+        TxOut {
             value: time_tx_amount,
-            script_pubkey: builder::address::create_musig2_address(operator_xonly_pk, network)
-                .0
-                .script_pubkey(),
+            script_pubkey: operator_taproot_address.script_pubkey(),
         },
     ];
 
     TxHandler {
         tx: challenge_nack_tx,
         prevouts,
-        scripts: vec![vec![operator_with_preimage, nofn_1week]],
-        taproot_spend_infos: vec![nofn_or_nofn_1week_taproot_spend_info],
+        scripts: vec![
+            vec![operator_with_preimage, nofn_1week],
+            vec![operator_2week],
+            vec![],
+        ],
+        taproot_spend_infos: vec![
+            nofn_or_nofn_1week_taproot_spend_info,
+            nofn_or_operator_2week_taproot_spend_info,
+            operator_taproot_spend_info,
+        ],
     }
 }
 

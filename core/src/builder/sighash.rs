@@ -67,6 +67,7 @@ pub async fn dummy(
             let kickoff_tx = builder::transaction::create_kickoff_tx(
                 time_txid,
                 nofn_xonly_pk,
+                *operator_xonly_pk,
                 move_txid,
                 operator_idx as usize,
                 network,
@@ -133,7 +134,7 @@ pub fn calculate_num_required_sigs(
     num_time_txs: usize,
     num_watchtowers: usize,
 ) -> usize {
-    num_operators * num_time_txs * (1 + 2 * num_watchtowers)
+    num_operators * num_time_txs * (1 + 3 * num_watchtowers)
 }
 
 pub fn create_nofn_sighash_stream(
@@ -196,6 +197,7 @@ pub fn create_nofn_sighash_stream(
             let kickoff_tx = builder::transaction::create_kickoff_tx(
                 time_txid,
                 nofn_xonly_pk,
+                *operator_xonly_pk,
                 move_txid,
                 operator_idx as usize,
                 network,
@@ -243,6 +245,7 @@ pub fn create_nofn_sighash_stream(
                 let mut operator_challenge_nack_txhandler = builder::transaction::create_operator_challenge_nack_txhandler(
                     wcp_txid,
                     time_txid,
+                    kickoff_txid,
                     input_amunt,
                     i,
                     &[0u8; 20],
@@ -254,6 +257,11 @@ pub fn create_nofn_sighash_stream(
                 yield Actor::convert_tx_to_sighash_script_spend(
                     &mut operator_challenge_nack_txhandler,
                     0,
+                    1,
+                )?;
+
+                yield Actor::convert_tx_to_sighash_pubkey_spend(
+                    &mut operator_challenge_nack_txhandler,
                     1,
                 )?;
             }
