@@ -1,4 +1,5 @@
 use crate::config::BridgeConfig;
+use crate::constants::NUM_INTERMEDIATE_STEPS;
 use crate::errors::BridgeError;
 use crate::UTXO;
 use crate::{actor::Actor, builder, database::Database, EVMAddress};
@@ -134,7 +135,7 @@ pub fn calculate_num_required_sigs(
     num_time_txs: usize,
     num_watchtowers: usize,
 ) -> usize {
-    num_operators * num_time_txs * (1 + 3 * num_watchtowers)
+    num_operators * num_time_txs * (1 + 3 * num_watchtowers + 1)
 }
 
 pub fn create_nofn_sighash_stream(
@@ -265,6 +266,30 @@ pub fn create_nofn_sighash_stream(
                     1,
                 )?;
             }
+
+            let intermediate_wots= vec![vec![vec![[0u8; 20]; 48]; NUM_INTERMEDIATE_STEPS]; config.num_time_txs]; // TODO: Fetch from db
+            let assert_begin_tx = builder::transaction::create_assert_begin_txhandler(
+                kickoff_txid,
+                nofn_xonly_pk,
+                *operator_xonly_pk,
+                intermediate_wots[time_tx_idx].clone(),
+                network,
+            );
+
+            let assert_begin_txid = assert_begin_tx.tx.compute_txid();
+
+            let mut assert_end_tx = builder::transaction::create_assert_end_txhandler(
+                kickoff_txid,
+                assert_begin_txid,
+                nofn_xonly_pk,
+                *operator_xonly_pk,
+                network,
+            );
+
+            yield Actor::convert_tx_to_sighash_pubkey_spend(
+                &mut assert_end_tx,
+                NUM_INTERMEDIATE_STEPS,
+            )?;
 
             let time2_tx = builder::transaction::create_time2_tx(
                 *operator_xonly_pk,
