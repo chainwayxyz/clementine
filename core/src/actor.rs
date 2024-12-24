@@ -499,31 +499,31 @@ mod tests {
         let mut params = WinternitzDerivationPath::default();
         assert_eq!(
             params.to_vec(),
-            vec![0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
+            vec![0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
         );
 
         params.index = Some(0);
         assert_eq!(
             params.to_vec(),
-            vec![0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
+            vec![0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
         );
 
         params.operator_idx = Some(1);
         assert_eq!(
             params.to_vec(),
-            vec![0, 0, 0, 0, 1, 0, 0, 0, 2, 0, 0, 0, 0, 0, 0, 0, 0]
+            vec![0, 0, 0, 0, 1, 0, 0, 0, 2, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
         );
 
         params.watchtower_idx = Some(2);
         assert_eq!(
             params.to_vec(),
-            vec![0, 0, 0, 0, 1, 0, 0, 0, 2, 0, 0, 0, 3, 0, 0, 0, 0]
+            vec![0, 0, 0, 0, 1, 0, 0, 0, 2, 0, 0, 0, 3, 0, 0, 0, 0, 0, 0, 0, 0]
         );
 
         params.time_tx_idx = Some(3);
         assert_eq!(
             params.to_vec(),
-            vec![0, 0, 0, 0, 1, 0, 0, 0, 2, 0, 0, 0, 3, 0, 0, 0, 4]
+            vec![0, 0, 0, 0, 1, 0, 0, 0, 2, 0, 0, 0, 3, 0, 0, 0, 4, 0, 0, 0, 0]
         );
     }
 
@@ -562,8 +562,8 @@ mod tests {
 
         let params = WinternitzDerivationPath::default();
         let expected_pk = vec![[
-            131, 103, 150, 108, 78, 19, 81, 185, 206, 88, 153, 178, 232, 97, 82, 129, 172, 190,
-            235, 13,
+            47, 247, 126, 209, 93, 128, 238, 60, 31, 80, 198, 136, 26, 126, 131, 194, 209, 85, 180,
+            145,
         ]];
         assert_eq!(actor.derive_winternitz_pk(params).unwrap(), expected_pk);
     }

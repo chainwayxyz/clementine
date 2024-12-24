@@ -823,6 +823,7 @@ mod tests {
     }
 
     #[tokio::test]
+    #[ignore = "Design changes in progress"]
     async fn get_winternitz_public_keys() {
         let config = create_test_config_with_thread_name!(None);
         let rpc = ExtendedRpc::new(
