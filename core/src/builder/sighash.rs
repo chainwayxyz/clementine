@@ -245,7 +245,7 @@ pub fn create_nofn_sighash_stream(
 
                 let mut operator_challenge_nack_txhandler =
                     builder::transaction::create_operator_challenge_nack_txhandler(
-                        wcp_txid,
+                        watchtower_challenge_txhandler.tx.compute_txid(),
                         time_txid,
                         kickoff_txid,
                         input_amunt,

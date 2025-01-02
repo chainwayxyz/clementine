@@ -481,7 +481,7 @@ pub fn create_watchtower_challenge_txhandler(
 }
 
 pub fn create_operator_challenge_nack_txhandler(
-    wcp_txid: Txid,
+    watchtower_challenge_txid: Txid,
     time_txid: Txid,
     kickoff_txid: Txid,
     time_tx_amount: Amount,
@@ -493,7 +493,7 @@ pub fn create_operator_challenge_nack_txhandler(
 ) -> TxHandler {
     let tx_ins = create_tx_ins(vec![
         OutPoint {
-            txid: wcp_txid,
+            txid: watchtower_challenge_txid,
             vout: watchtower_idx as u32,
         },
         OutPoint {
@@ -505,9 +505,7 @@ pub fn create_operator_challenge_nack_txhandler(
             vout: 0,
         },
     ]);
-
     let tx_outs = vec![builder::script::anyone_can_spend_txout()];
-
     let challenge_nack_tx = create_btc_tx(tx_ins, tx_outs);
 
     // prevout1
@@ -522,7 +520,6 @@ pub fn create_operator_challenge_nack_txhandler(
         );
 
     // prevout2
-
     let operator_2week =
         builder::script::generate_relative_timelock_script(operator_xonly_pk, 2 * 7 * 24 * 6);
     let (nofn_or_operator_2week, nofn_or_operator_2week_taproot_spend_info) =
