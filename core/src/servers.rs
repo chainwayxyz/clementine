@@ -13,6 +13,7 @@ use crate::{
 use errors::BridgeError;
 use operator::Operator;
 use std::thread;
+use tokio::sync::oneshot;
 
 pub type ServerFuture = dyn futures::Future<Output = Result<(), tonic::transport::Error>>;
 
@@ -26,26 +27,31 @@ pub async fn create_verifier_grpc_server(
     config: BridgeConfig,
     rpc: ExtendedRpc,
 ) -> Result<(std::net::SocketAddr,), BridgeError> {
-    tracing::info!(
-        "config host and port are: {} and {}",
-        config.host,
-        config.port
-    );
     let addr = format!("{}:{}", config.host, config.port).parse().unwrap();
     tracing::info!("Starting verifier gRPC server with address: {}", addr);
     let verifier = Verifier::new(rpc, config).await?;
-    tracing::info!("Verifier gRPC server created");
     let svc = ClementineVerifierServer::new(verifier);
+
+    // Create a channel to signal when the server is ready
+    let (tx, rx) = oneshot::channel();
+
     let handle = tonic::transport::Server::builder()
         .add_service(svc)
-        .serve(addr);
+        .serve_with_shutdown(addr, async {
+            // Signal that the server is bound and ready
+            let _ = tx.send(());
+            // Wait for shutdown signal (optional - you can add shutdown handling here)
+            std::future::pending::<()>().await;
+        });
 
     tokio::spawn(async move {
         if let Err(e) = handle.await {
             tracing::error!("gRPC server error: {:?}", e);
         }
     });
-    tokio::time::sleep(tokio::time::Duration::from_millis(500)).await;
+
+    // Wait for server to be ready
+    let _ = rx.await;
 
     tracing::info!("Verifier gRPC server started with address: {}", addr);
     Ok((addr,))
@@ -65,16 +71,23 @@ pub async fn create_operator_grpc_server(
     let operator = Operator::new(config, rpc).await?;
     tracing::info!("Operator gRPC server created");
     let svc = ClementineOperatorServer::new(operator);
+
+    let (tx, rx) = oneshot::channel();
+
     let handle = tonic::transport::Server::builder()
         .add_service(svc)
-        .serve(addr);
+        .serve_with_shutdown(addr, async {
+            let _ = tx.send(());
+            std::future::pending::<()>().await;
+        });
 
     tokio::spawn(async move {
         if let Err(e) = handle.await {
             tracing::error!("gRPC server error: {:?}", e);
         }
     });
-    tokio::time::sleep(tokio::time::Duration::from_millis(500)).await;
+
+    let _ = rx.await;
 
     tracing::info!("operator gRPC server started with address: {}", addr);
     Ok((addr,))
@@ -86,9 +99,15 @@ pub async fn create_aggregator_grpc_server(
     let addr = format!("{}:{}", config.host, config.port).parse().unwrap();
     let aggregator = Aggregator::new(config).await?;
     let svc = ClementineAggregatorServer::new(aggregator);
+
+    let (tx, rx) = oneshot::channel();
+
     let handle = tonic::transport::Server::builder()
         .add_service(svc)
-        .serve(addr);
+        .serve_with_shutdown(addr, async {
+            let _ = tx.send(());
+            std::future::pending::<()>().await;
+        });
 
     tokio::spawn(async move {
         if let Err(e) = handle.await {
@@ -96,7 +115,8 @@ pub async fn create_aggregator_grpc_server(
             panic!("gRPC server error: {:?}", e);
         }
     });
-    tokio::time::sleep(tokio::time::Duration::from_millis(500)).await;
+
+    let _ = rx.await;
 
     tracing::info!("Aggregator gRPC server started with address: {}", addr);
     Ok((addr,))
@@ -108,9 +128,15 @@ pub async fn create_watchtower_grpc_server(
     let addr = format!("{}:{}", config.host, config.port).parse().unwrap();
     let watchtower = Watchtower::new(config).await?;
     let svc = ClementineWatchtowerServer::new(watchtower);
+
+    let (tx, rx) = oneshot::channel();
+
     let handle = tonic::transport::Server::builder()
         .add_service(svc)
-        .serve(addr);
+        .serve_with_shutdown(addr, async {
+            let _ = tx.send(());
+            std::future::pending::<()>().await;
+        });
 
     tokio::spawn(async move {
         if let Err(e) = handle.await {
@@ -118,7 +144,8 @@ pub async fn create_watchtower_grpc_server(
             panic!("gRPC server error: {:?}", e);
         }
     });
-    tokio::time::sleep(tokio::time::Duration::from_millis(500)).await;
+
+    let _ = rx.await;
 
     tracing::info!("Watchtower gRPC server started with address: {}", addr);
     Ok((addr,))
