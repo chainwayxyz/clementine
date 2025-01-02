@@ -2,6 +2,8 @@
 //!
 //! This tests checks if typical flows works or not.
 
+#![allow(unused_imports)]
+
 use bitcoin::Txid;
 use clementine_core::errors::BridgeError;
 use clementine_core::extended_rpc::ExtendedRpc;
@@ -143,6 +145,7 @@ mod common;
 /// TODO: Move this test to a new RPC test file and rename test.
 #[tokio::test]
 #[serial_test::serial]
+#[cfg(not(debug_assertions))] // TODO: This test takes too much time in debug mode.
 async fn grpc_flow() {
     let config = create_test_config_with_thread_name!(None);
     let (_verifiers, _operators, aggregator, _watchtowers) = create_actors!(config);
