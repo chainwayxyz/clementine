@@ -268,7 +268,7 @@ impl Actor {
 
         let prevouts = bitcoin::sighash::Prevouts::All(&tx_handler.prevouts);
         let leaf_hash = TapLeafHash::from_script(
-            &tx_handler
+            tx_handler
                 .scripts
                 .get(txin_index)
                 .ok_or(BridgeError::NoScriptsForTxIn(txin_index))?

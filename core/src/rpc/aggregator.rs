@@ -212,7 +212,6 @@ impl ClementineAggregator for Aggregator {
             .parse::<bitcoin::Address<_>>()
             .unwrap();
         let user_takes_after = deposit_params.clone().user_takes_after;
-        let nofn_xonly_pk = self.nofn_xonly_pk;
         let verifiers_public_keys = self.config.verifiers_public_keys.clone();
 
         tracing::debug!("Parsed deposit params");

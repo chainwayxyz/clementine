@@ -4,10 +4,8 @@
 //! transactions.
 
 use super::address::create_taproot_address;
-use super::script;
+use crate::builder;
 use crate::constants::{NUM_DISRPOVE_SCRIPTS, NUM_INTERMEDIATE_STEPS};
-use crate::utils::SECP;
-use crate::{builder, operator};
 use crate::{utils, EVMAddress, UTXO};
 use bitcoin::address::NetworkUnchecked;
 use bitcoin::hashes::Hash;
@@ -567,7 +565,7 @@ pub fn create_assert_begin_txhandler(
     kickoff_txid: Txid,
     nofn_xonly_pk: XOnlyPublicKey,
     operator_xonly_pk: XOnlyPublicKey,
-    intermediate_wots: Vec<Vec<[u8; 20]>>,
+    intermediate_wotss: Vec<Vec<[u8; 20]>>,
     network: bitcoin::Network,
 ) -> TxHandler {
     let tx_ins: Vec<TxIn> = create_tx_ins(vec![OutPoint {
@@ -579,8 +577,9 @@ pub fn create_assert_begin_txhandler(
     let verifier =
         winternitz::Winternitz::<winternitz::ListpickVerifier, winternitz::TabledConverter>::new();
     let wots_params = winternitz::Parameters::new(40, 4);
-    for i in 0..NUM_INTERMEDIATE_STEPS {
-        let mut x = verifier.checksig_verify(&wots_params, intermediate_wots[i].as_ref());
+    for intermediate_wots in intermediate_wotss.iter().take(NUM_INTERMEDIATE_STEPS) {
+        // TODO: Is there a possibility that list going to be longer than NUM_INTERMEDIATE_STEPS?
+        let mut x = verifier.checksig_verify(&wots_params, intermediate_wots);
         x = x.push_x_only_key(&operator_xonly_pk);
         x = x.push_opcode(OP_CHECKSIG); // TODO: Add checksig in the beginning
         let intermediate_script = x.compile();
@@ -674,7 +673,7 @@ pub fn create_assert_end_txhandler(
         disprve_scripts.push(builder::script::checksig_script(nofn_xonly_pk)); // TODO: ADD actual disprove scripts here
     }
 
-    let (disprove_address, disprove_taproot_spend_info) = builder::address::create_taproot_address(
+    let (disprove_address, _disprove_taproot_spend_info) = builder::address::create_taproot_address(
         &disprve_scripts.clone(),
         Some(nofn_xonly_pk),
         network,
@@ -701,7 +700,7 @@ pub fn create_assert_end_txhandler(
         );
 
     let (operator_taproot_address, operator_taproot_spend_info) =
-        builder::address::create_taproot_address(&vec![], Some(operator_xonly_pk), network);
+        builder::address::create_taproot_address(&[], Some(operator_xonly_pk), network);
 
     let mut prevouts = vec![
         TxOut {
@@ -928,8 +927,8 @@ pub fn create_tx_outs(pairs: Vec<(Amount, ScriptBuf)>) -> Vec<TxOut> {
 
 #[cfg(test)]
 mod tests {
-    use crate::{builder, utils::SECP, UTXO};
-    use bitcoin::{hashes::Hash, Amount, OutPoint, ScriptBuf, TxOut, Txid, XOnlyPublicKey};
+    use crate::{builder, utils::SECP};
+    use bitcoin::{hashes::Hash, Amount, OutPoint, Txid, XOnlyPublicKey};
     use secp256k1::{rand, Keypair, SecretKey};
 
     #[test]
