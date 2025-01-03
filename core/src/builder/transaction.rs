@@ -44,6 +44,7 @@ pub const TIME2_TX_MIN_RELAY_FEE: Amount = Amount::from_sat(350);
 pub const KICKOFF_INPUT_AMOUNT: Amount = Amount::from_sat(100_000);
 pub const OPERATOR_REIMBURSE_CONNECTOR_AMOUNT: Amount = Amount::from_sat(330);
 pub const ANCHOR_AMOUNT: Amount = Amount::from_sat(330);
+pub const OPERATOR_CHALLENGE_AMOUNT: Amount = Amount::from_sat(200_000_000);
 
 /// Creates the `time_tx`. It will always use `input_txid`'s first vout as the input.
 ///
@@ -324,14 +325,14 @@ pub fn create_kickoff_tx(
         txid: time_txid,
         vout: 2,
     }]);
-    let nofn_1week = builder::script::generate_relative_timelock_script(nofn_xonly_pk, 7 * 24 * 6);
+    let operator_1week = builder::script::generate_relative_timelock_script(operator_xonly_pk, 7 * 24 * 6);
     let operator_2week =
         builder::script::generate_relative_timelock_script(operator_xonly_pk, 2 * 7 * 24 * 6);
     let nofn_3week =
         builder::script::generate_relative_timelock_script(nofn_xonly_pk, 3 * 7 * 24 * 6);
 
-    let (nofn_or_nofn_1week, _) =
-        builder::address::create_taproot_address(&[nofn_1week], Some(nofn_xonly_pk), network);
+    let (nofn_or_operator_1week, _) =
+        builder::address::create_taproot_address(&[operator_1week], Some(nofn_xonly_pk), network);
 
     let (nofn_or_operator_2week, _) =
         builder::address::create_taproot_address(&[operator_2week], Some(nofn_xonly_pk), network);
@@ -341,12 +342,13 @@ pub fn create_kickoff_tx(
 
     let (nofn_taproot_address, _) = builder::address::create_musig2_address(nofn_xonly_pk, network);
 
+    // TODO: change to normal sats
     let mut tx_outs = create_tx_outs(vec![
         (
             KICKOFF_UTXO_AMOUNT_SATS,
             nofn_taproot_address.script_pubkey(),
         ),
-        (KICKOFF_UTXO_AMOUNT_SATS, nofn_or_nofn_1week.script_pubkey()),
+        (KICKOFF_UTXO_AMOUNT_SATS, nofn_or_operator_1week.script_pubkey()),
         (
             KICKOFF_UTXO_AMOUNT_SATS,
             nofn_or_operator_2week.script_pubkey(),
@@ -765,6 +767,51 @@ pub fn create_disprove_tx(
         prevouts,
         scripts: vec![disprove_scripts, vec![]],
         taproot_spend_infos: vec![disprove_taproot_spend_info],
+    }
+}
+
+pub fn create_challenge_tx(
+    kickoff_txid: Txid,
+    nofn_xonly_pk: XOnlyPublicKey,
+    operator_xonly_pk: XOnlyPublicKey,
+    network: bitcoin::Network,
+) -> TxHandler {
+    let tx_ins = create_tx_ins(vec![
+        OutPoint {
+            txid: kickoff_txid,
+            vout: 1,
+        }
+    ]);
+
+    let (operator_taproot_address, operator_taproot_spend_info) =
+        builder::address::create_taproot_address(&[], Some(operator_xonly_pk), network);
+
+    let tx_outs = vec![
+        TxOut {
+            value: OPERATOR_CHALLENGE_AMOUNT,
+            script_pubkey: operator_taproot_address.script_pubkey(),
+        },
+    ];
+
+    let challenge_tx = create_btc_tx(tx_ins, tx_outs);
+
+    let operator_1week = builder::script::generate_relative_timelock_script(operator_xonly_pk, 7 * 24 * 6);
+
+    let (nofn_or_operator_1week, nofn_or_operator_1week_spend_info) =
+        builder::address::create_taproot_address(&[operator_1week], Some(nofn_xonly_pk), network);
+
+    let prevouts = vec![
+        TxOut {
+            script_pubkey: nofn_or_operator_1week.script_pubkey(),
+            value: KICKOFF_UTXO_AMOUNT_SATS,
+        }
+    ];
+
+    TxHandler {
+        tx: challenge_tx,
+        prevouts,
+        scripts: vec![vec![nofn_or_operator_1week.script_pubkey()]],
+        taproot_spend_infos: vec![nofn_or_operator_1week_spend_info],
     }
 }
 
