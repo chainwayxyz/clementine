@@ -743,12 +743,10 @@ pub fn create_disprove_tx(
         OutPoint {
             txid: time_txid,
             vout: 0,
-        }
+        },
     ]);
 
-    let tx_outs = vec![
-        builder::script::anyone_can_spend_txout(),
-    ];
+    let tx_outs = vec![builder::script::anyone_can_spend_txout()];
 
     let disprove_tx = create_btc_tx(tx_ins, tx_outs);
 
@@ -756,17 +754,12 @@ pub fn create_disprove_tx(
     for _ in 0..NUM_DISPROVE_SCRIPTS {
         disprove_scripts.push(builder::script::checksig_script(nofn_xonly_pk)); // TODO: ADD actual disprove scripts here
     }
-    let (disprove_address, disprove_taproot_spend_info) = builder::address::create_taproot_address(
-        &disprove_scripts,
-        Some(nofn_xonly_pk),
-        network,
-    );
-    let mut prevouts = vec![
-        TxOut {
-            value: Amount::from_sat(330), // TODO: Hand calculate this
-            script_pubkey: disprove_address.script_pubkey(),
-        }
-    ];
+    let (disprove_address, disprove_taproot_spend_info) =
+        builder::address::create_taproot_address(&disprove_scripts, Some(nofn_xonly_pk), network);
+    let mut prevouts = vec![TxOut {
+        value: Amount::from_sat(330), // TODO: Hand calculate this
+        script_pubkey: disprove_address.script_pubkey(),
+    }];
 
     TxHandler {
         tx: disprove_tx,
