@@ -325,7 +325,8 @@ pub fn create_kickoff_tx(
         txid: time_txid,
         vout: 2,
     }]);
-    let operator_1week = builder::script::generate_relative_timelock_script(operator_xonly_pk, 7 * 24 * 6);
+    let operator_1week =
+        builder::script::generate_relative_timelock_script(operator_xonly_pk, 7 * 24 * 6);
     let operator_2week =
         builder::script::generate_relative_timelock_script(operator_xonly_pk, 2 * 7 * 24 * 6);
     let nofn_3week =
@@ -348,7 +349,10 @@ pub fn create_kickoff_tx(
             KICKOFF_UTXO_AMOUNT_SATS,
             nofn_taproot_address.script_pubkey(),
         ),
-        (KICKOFF_UTXO_AMOUNT_SATS, nofn_or_operator_1week.script_pubkey()),
+        (
+            KICKOFF_UTXO_AMOUNT_SATS,
+            nofn_or_operator_1week.script_pubkey(),
+        ),
         (
             KICKOFF_UTXO_AMOUNT_SATS,
             nofn_or_operator_2week.script_pubkey(),
@@ -776,36 +780,31 @@ pub fn create_challenge_tx(
     operator_xonly_pk: XOnlyPublicKey,
     network: bitcoin::Network,
 ) -> TxHandler {
-    let tx_ins = create_tx_ins(vec![
-        OutPoint {
-            txid: kickoff_txid,
-            vout: 1,
-        }
-    ]);
+    let tx_ins = create_tx_ins(vec![OutPoint {
+        txid: kickoff_txid,
+        vout: 1,
+    }]);
 
     let (operator_taproot_address, operator_taproot_spend_info) =
         builder::address::create_taproot_address(&[], Some(operator_xonly_pk), network);
 
-    let tx_outs = vec![
-        TxOut {
-            value: OPERATOR_CHALLENGE_AMOUNT,
-            script_pubkey: operator_taproot_address.script_pubkey(),
-        },
-    ];
+    let tx_outs = vec![TxOut {
+        value: OPERATOR_CHALLENGE_AMOUNT,
+        script_pubkey: operator_taproot_address.script_pubkey(),
+    }];
 
     let challenge_tx = create_btc_tx(tx_ins, tx_outs);
 
-    let operator_1week = builder::script::generate_relative_timelock_script(operator_xonly_pk, 7 * 24 * 6);
+    let operator_1week =
+        builder::script::generate_relative_timelock_script(operator_xonly_pk, 7 * 24 * 6);
 
     let (nofn_or_operator_1week, nofn_or_operator_1week_spend_info) =
         builder::address::create_taproot_address(&[operator_1week], Some(nofn_xonly_pk), network);
 
-    let prevouts = vec![
-        TxOut {
-            script_pubkey: nofn_or_operator_1week.script_pubkey(),
-            value: KICKOFF_UTXO_AMOUNT_SATS,
-        }
-    ];
+    let prevouts = vec![TxOut {
+        script_pubkey: nofn_or_operator_1week.script_pubkey(),
+        value: KICKOFF_UTXO_AMOUNT_SATS,
+    }];
 
     TxHandler {
         tx: challenge_tx,
