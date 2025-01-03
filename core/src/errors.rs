@@ -91,9 +91,12 @@ pub enum BridgeError {
     /// JSON RPC call failed
     #[error("JsonRpcError: {0}")]
     JsonRpcError(#[from] jsonrpsee::core::client::Error),
-    /// RPC interface requires a parameter
-    #[error("RPC function field {0} is required!")]
-    RPCRequiredFieldError(&'static str),
+
+    #[error("RPC function parameter {0} is required!")]
+    RPCRequiredParam(&'static str),
+    #[error("RPC function parameter {0} is malformed: {1}")]
+    RPCParamMalformed(&'static str, String),
+
     /// ConfigError is returned when the configuration is invalid
     #[error("ConfigError: {0}")]
     ConfigError(String),

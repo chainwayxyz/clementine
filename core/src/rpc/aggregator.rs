@@ -197,22 +197,28 @@ impl ClementineAggregator for Aggregator {
         let deposit_params = deposit_params_req.into_inner();
 
         let deposit_outpoint: bitcoin::OutPoint = deposit_params
-            .clone()
             .deposit_outpoint
-            .ok_or(Status::internal("No deposit outpoint received"))?
-            .try_into()?;
-        let evm_address: EVMAddress = deposit_params.clone().evm_address.try_into().unwrap();
-        let recovery_taproot_address = deposit_params
             .clone()
+            .ok_or(BridgeError::RPCRequiredParam("deposit_outpoint"))?
+            .try_into()?;
+        let evm_address: EVMAddress = deposit_params
+            .evm_address
+            .clone()
+            .try_into()
+            .map_err(|e: &str| BridgeError::RPCParamMalformed("evm_address", e.to_string()))?;
+        let recovery_taproot_address = deposit_params
             .recovery_taproot_address
+            .clone()
             .parse::<bitcoin::Address<_>>()
-            .unwrap();
-        let user_takes_after = deposit_params.clone().user_takes_after;
+            .map_err(|e| {
+                BridgeError::RPCParamMalformed("recovery_taproot_address", e.to_string())
+            })?;
+        let user_takes_after = deposit_params.user_takes_after;
         let verifiers_public_keys = self.config.verifiers_public_keys.clone();
 
         tracing::debug!("Parsed deposit params");
 
-        // generate nonces from all verifiers
+        // Generate nonces from all verifiers.
         let num_required_sigs = calculate_num_required_sigs(
             self.config.num_operators,
             self.config.num_time_txs,
