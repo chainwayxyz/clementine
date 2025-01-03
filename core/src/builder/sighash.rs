@@ -1,9 +1,12 @@
+use crate::builder::transaction::TxHandler;
 use crate::config::BridgeConfig;
 use crate::constants::NUM_INTERMEDIATE_STEPS;
 use crate::errors::BridgeError;
-use crate::{actor::Actor, builder, database::Database, EVMAddress};
+use crate::{builder, database::Database, EVMAddress};
 use async_stream::try_stream;
-use bitcoin::{address::NetworkUnchecked, Address, Amount, OutPoint};
+use bitcoin::sighash::SighashCache;
+use bitcoin::taproot::LeafVersion;
+use bitcoin::{address::NetworkUnchecked, Address, Amount, OutPoint, TapLeafHash, TapSighashType};
 use bitcoin::{TapSighash, Txid};
 use futures_core::stream::Stream;
 
@@ -13,6 +16,53 @@ pub fn calculate_num_required_sigs(
     num_watchtowers: usize,
 ) -> usize {
     num_operators * num_time_txs * (1 + 3 * num_watchtowers + 1)
+}
+
+#[tracing::instrument(err(level = tracing::Level::ERROR), ret(level = tracing::Level::TRACE))]
+pub fn convert_tx_to_pubkey_spend(
+    tx: &mut TxHandler,
+    txin_index: usize,
+    sighash_type: Option<TapSighashType>,
+) -> Result<TapSighash, BridgeError> {
+    let mut sighash_cache: SighashCache<&mut bitcoin::Transaction> = SighashCache::new(&mut tx.tx);
+
+    let sig_hash = sighash_cache.taproot_key_spend_signature_hash(
+        txin_index,
+        &bitcoin::sighash::Prevouts::All(&tx.prevouts),
+        sighash_type.unwrap_or(TapSighashType::Default),
+    )?;
+
+    Ok(sig_hash)
+}
+
+#[tracing::instrument(err(level = tracing::Level::ERROR), ret(level = tracing::Level::TRACE))]
+pub fn convert_tx_to_script_spend(
+    tx_handler: &mut TxHandler,
+    txin_index: usize,
+    script_index: usize,
+    sighash_type: Option<TapSighashType>,
+) -> Result<TapSighash, BridgeError> {
+    let mut sighash_cache: SighashCache<&mut bitcoin::Transaction> =
+        SighashCache::new(&mut tx_handler.tx);
+
+    let prevouts = bitcoin::sighash::Prevouts::All(&tx_handler.prevouts);
+    let leaf_hash = TapLeafHash::from_script(
+        tx_handler
+            .scripts
+            .get(txin_index)
+            .ok_or(BridgeError::NoScriptsForTxIn(txin_index))?
+            .get(script_index)
+            .ok_or(BridgeError::NoScriptAtIndex(script_index))?,
+        LeafVersion::TapScript,
+    );
+    let sig_hash = sighash_cache.taproot_script_spend_signature_hash(
+        txin_index,
+        &prevouts,
+        leaf_hash,
+        sighash_type.unwrap_or(TapSighashType::Default),
+    )?;
+
+    Ok(sig_hash)
 }
 
 /// First iterate over operators
@@ -93,7 +143,7 @@ pub fn create_nofn_sighash_stream(
                     network
                 );
 
-                yield Actor::convert_tx_to_pubkey_spend(
+                yield convert_tx_to_pubkey_spend(
                     &mut challenge_tx,
                     0,
                     Some(bitcoin::sighash::TapSighashType::SinglePlusAnyoneCanPay)
@@ -109,13 +159,13 @@ pub fn create_nofn_sighash_stream(
                 );
 
                 // move utxo
-                yield Actor::convert_tx_to_pubkey_spend(
+                yield convert_tx_to_pubkey_spend(
                     &mut happy_reimburse_tx,
                     0,
                     None
                 )?;
                 // nofn_or_nofn3week utxo
-                yield Actor::convert_tx_to_pubkey_spend(
+                yield convert_tx_to_pubkey_spend(
                     &mut happy_reimburse_tx,
                     2,
                     None
@@ -135,9 +185,10 @@ pub fn create_nofn_sighash_stream(
                         network,
                     );
 
-                yield Actor::convert_tx_to_sighash_pubkey_spend(
+                yield convert_tx_to_pubkey_spend(
                     &mut watchtower_challenge_page_tx_handler,
                     0,
+                    None,
                 )?;
 
                 let wcp_txid = watchtower_challenge_page_tx_handler.tx.compute_txid();
@@ -153,10 +204,11 @@ pub fn create_nofn_sighash_stream(
                             *operator_xonly_pk,
                             network,
                         );
-                    yield Actor::convert_tx_to_sighash_script_spend(
+                    yield convert_tx_to_script_spend(
                         &mut watchtower_challenge_txhandler,
                         0,
                         0,
+                        None,
                     )?;
 
                     let mut operator_challenge_nack_txhandler =
@@ -170,14 +222,16 @@ pub fn create_nofn_sighash_stream(
                             *operator_xonly_pk,
                             network,
                         );
-                    yield Actor::convert_tx_to_sighash_script_spend(
+                    yield convert_tx_to_script_spend(
                         &mut operator_challenge_nack_txhandler,
                         0,
                         1,
+                        None,
                     )?;
-                    yield Actor::convert_tx_to_sighash_pubkey_spend(
+                    yield convert_tx_to_pubkey_spend(
                         &mut operator_challenge_nack_txhandler,
                         1,
+                        None,
                     )?;
                 }
 
@@ -200,9 +254,10 @@ pub fn create_nofn_sighash_stream(
                     *operator_xonly_pk,
                     network,
                 );
-                yield Actor::convert_tx_to_sighash_pubkey_spend(
+                yield convert_tx_to_pubkey_spend(
                     &mut assert_end_tx,
                     NUM_INTERMEDIATE_STEPS,
+                    None,
                 )?;
 
                 let mut disprove_tx = builder::transaction::create_disprove_tx(
@@ -214,7 +269,7 @@ pub fn create_nofn_sighash_stream(
 
                 // sign for all disprove scripts
                 for i in 0..NUM_INTERMEDIATE_STEPS {
-                    yield Actor::convert_tx_to_script_spend(
+                    yield convert_tx_to_script_spend(
                         &mut disprove_tx,
                         0,
                         i,
@@ -266,7 +321,7 @@ pub fn create_timout_tx_sighash_stream(
                 network,
             );
 
-            yield Actor::convert_tx_to_sighash_script_spend(&mut timeout_tx_handler, 0, 0)?;
+            yield convert_tx_to_script_spend(&mut timeout_tx_handler, 0, 0, None)?;
 
             let time2_tx = builder::transaction::create_time2_tx(
                 operator_xonly_pk,
