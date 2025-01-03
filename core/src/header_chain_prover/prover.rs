@@ -164,7 +164,7 @@ mod tests {
     }
 
     #[tokio::test]
-    #[serial_test::serial]
+    #[serial_test::parallel]
     async fn prove_block_headers_genesis() {
         let config = create_test_config_with_thread_name!(None);
         let rpc = ExtendedRpc::new(
