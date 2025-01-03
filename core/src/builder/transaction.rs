@@ -785,7 +785,7 @@ pub fn create_challenge_tx(
         vout: 1,
     }]);
 
-    let (operator_taproot_address, operator_taproot_spend_info) =
+    let (operator_taproot_address, _) =
         builder::address::create_taproot_address(&[], Some(operator_xonly_pk), network);
 
     let tx_outs = vec![TxOut {
@@ -799,7 +799,11 @@ pub fn create_challenge_tx(
         builder::script::generate_relative_timelock_script(operator_xonly_pk, 7 * 24 * 6);
 
     let (nofn_or_operator_1week, nofn_or_operator_1week_spend_info) =
-        builder::address::create_taproot_address(&[operator_1week], Some(nofn_xonly_pk), network);
+        builder::address::create_taproot_address(
+            &[operator_1week.clone()],
+            Some(nofn_xonly_pk),
+            network,
+        );
 
     let prevouts = vec![TxOut {
         script_pubkey: nofn_or_operator_1week.script_pubkey(),
@@ -809,7 +813,7 @@ pub fn create_challenge_tx(
     TxHandler {
         tx: challenge_tx,
         prevouts,
-        scripts: vec![vec![nofn_or_operator_1week.script_pubkey()]],
+        scripts: vec![vec![operator_1week]],
         taproot_spend_infos: vec![nofn_or_operator_1week_spend_info],
     }
 }
