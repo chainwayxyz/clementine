@@ -756,7 +756,7 @@ pub fn create_disprove_tx(
     }
     let (disprove_address, disprove_taproot_spend_info) =
         builder::address::create_taproot_address(&disprove_scripts, Some(nofn_xonly_pk), network);
-    let mut prevouts = vec![TxOut {
+    let prevouts = vec![TxOut {
         value: Amount::from_sat(330), // TODO: Hand calculate this
         script_pubkey: disprove_address.script_pubkey(),
     }];

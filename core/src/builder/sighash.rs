@@ -38,149 +38,166 @@ pub fn create_nofn_sighash_stream(
     network: bitcoin::Network,
 ) -> impl Stream<Item = Result<TapSighash, BridgeError>> {
     try_stream! {
-    let move_txid = builder::transaction::create_move_tx(
-        deposit_outpoint,
-        nofn_xonly_pk,
-        bridge_amount_sats,
-        network,
-    )
-    .compute_txid();
+        let move_txid = builder::transaction::create_move_tx(
+            deposit_outpoint,
+            nofn_xonly_pk,
+            bridge_amount_sats,
+            network,
+        )
+        .compute_txid();
 
-    let operators: Vec<(secp256k1::XOnlyPublicKey, bitcoin::Address, Txid)> =
-        db.get_operators(None).await?;
-    if operators.len() < config.num_operators {
-        panic!("Not enough operators");
-    }
+        let operators: Vec<(secp256k1::XOnlyPublicKey, bitcoin::Address, Txid)> =
+            db.get_operators(None).await?;
+        if operators.len() < config.num_operators {
+            panic!("Not enough operators");
+        }
 
-    for (operator_idx, (operator_xonly_pk, _operator_reimburse_address, collateral_funding_txid)) in
-        operators.iter().enumerate()
-    {
-        // Get watchtower Winternitz pubkeys for this operator.
-        let watchtower_challenge_wotss = (0..config.num_watchtowers)
-            .map(|i| db.get_watchtower_winternitz_public_keys(None, i as u32, operator_idx as u32))
-            .collect::<Vec<_>>();
-        let watchtower_challenge_wotss =
-            futures::future::try_join_all(watchtower_challenge_wotss).await?;
-
-        let mut input_txid = *collateral_funding_txid;
-        let mut input_amunt = collateral_funding_amount;
-
-        for time_tx_idx in 0..config.num_time_txs {
-            let time_txid = builder::transaction::create_time_tx(
-                *operator_xonly_pk,
-                input_txid,
-                input_amunt,
-                timeout_block_count,
-                max_withdrawal_time_block_count,
-                network,
-            )
-            .compute_txid();
-
-            let kickoff_txid = builder::transaction::create_kickoff_tx(
-                time_txid,
-                nofn_xonly_pk,
-                *operator_xonly_pk,
-                move_txid,
-                operator_idx,
-                network,
-            )
-            .compute_txid();
-
-            let watchtower_wots = (0..config.num_watchtowers)
-                .map(|i| watchtower_challenge_wotss[i][time_tx_idx].clone())
+        for (operator_idx, (operator_xonly_pk, _operator_reimburse_address, collateral_funding_txid)) in
+            operators.iter().enumerate()
+        {
+            // Get watchtower Winternitz pubkeys for this operator.
+            let watchtower_challenge_wotss = (0..config.num_watchtowers)
+                .map(|i| db.get_watchtower_winternitz_public_keys(None, i as u32, operator_idx as u32))
                 .collect::<Vec<_>>();
+            let watchtower_challenge_wotss =
+                futures::future::try_join_all(watchtower_challenge_wotss).await?;
 
-            let mut watchtower_challenge_page_tx_handler =
-                builder::transaction::create_watchtower_challenge_page_txhandler(
+            let mut input_txid = *collateral_funding_txid;
+            let mut input_amunt = collateral_funding_amount;
+
+            for time_tx_idx in 0..config.num_time_txs {
+                let time_txid = builder::transaction::create_time_tx(
+                    *operator_xonly_pk,
+                    input_txid,
+                    input_amunt,
+                    timeout_block_count,
+                    max_withdrawal_time_block_count,
+                    network,
+                )
+                .compute_txid();
+
+                let kickoff_txid = builder::transaction::create_kickoff_tx(
+                    time_txid,
+                    nofn_xonly_pk,
+                    *operator_xonly_pk,
+                    move_txid,
+                    operator_idx,
+                    network,
+                )
+                .compute_txid();
+
+                let watchtower_wots = (0..config.num_watchtowers)
+                    .map(|i| watchtower_challenge_wotss[i][time_tx_idx].clone())
+                    .collect::<Vec<_>>();
+
+                let mut watchtower_challenge_page_tx_handler =
+                    builder::transaction::create_watchtower_challenge_page_txhandler(
+                        kickoff_txid,
+                        nofn_xonly_pk,
+                        config.num_watchtowers as u32,
+                        watchtower_wots.clone(),
+                        network,
+                    );
+
+                yield Actor::convert_tx_to_sighash_pubkey_spend(
+                    &mut watchtower_challenge_page_tx_handler,
+                    0,
+                )?;
+
+                let wcp_txid = watchtower_challenge_page_tx_handler.tx.compute_txid();
+
+                for (i, watchtower_wots) in watchtower_wots.iter().enumerate().take(config.num_watchtowers) {
+                    let mut watchtower_challenge_txhandler =
+                        builder::transaction::create_watchtower_challenge_txhandler(
+                            wcp_txid,
+                            i,
+                            watchtower_wots.clone(),
+                            &[0u8; 20],
+                            nofn_xonly_pk,
+                            *operator_xonly_pk,
+                            network,
+                        );
+                    yield Actor::convert_tx_to_sighash_script_spend(
+                        &mut watchtower_challenge_txhandler,
+                        0,
+                        0,
+                    )?;
+
+                    let mut operator_challenge_nack_txhandler =
+                        builder::transaction::create_operator_challenge_nack_txhandler(
+                            watchtower_challenge_txhandler.tx.compute_txid(),
+                            time_txid,
+                            kickoff_txid,
+                            input_amunt,
+                            i,
+                            &[0u8; 20],
+                            nofn_xonly_pk,
+                            *operator_xonly_pk,
+                            network,
+                        );
+                    yield Actor::convert_tx_to_sighash_script_spend(
+                        &mut operator_challenge_nack_txhandler,
+                        0,
+                        1,
+                    )?;
+                    yield Actor::convert_tx_to_sighash_pubkey_spend(
+                        &mut operator_challenge_nack_txhandler,
+                        1,
+                    )?;
+                }
+
+                let intermediate_wots =
+                    vec![vec![vec![[0u8; 20]; 48]; NUM_INTERMEDIATE_STEPS]; config.num_time_txs]; // TODO: Fetch from db
+                let assert_begin_txid = builder::transaction::create_assert_begin_txhandler(
                     kickoff_txid,
                     nofn_xonly_pk,
-                    config.num_watchtowers as u32,
-                    watchtower_wots.clone(),
+                    *operator_xonly_pk,
+                    intermediate_wots[time_tx_idx].clone(),
+                    network,
+                )
+                .tx
+                .compute_txid();
+
+                let mut assert_end_tx = builder::transaction::create_assert_end_txhandler(
+                    kickoff_txid,
+                    assert_begin_txid,
+                    nofn_xonly_pk,
+                    *operator_xonly_pk,
+                    network,
+                );
+                yield Actor::convert_tx_to_sighash_pubkey_spend(
+                    &mut assert_end_tx,
+                    NUM_INTERMEDIATE_STEPS,
+                )?;
+
+                let mut disprove_tx = builder::transaction::create_disprove_tx(
+                    assert_end_tx.tx.compute_txid(),
+                    time_txid,
+                    nofn_xonly_pk,
                     network,
                 );
 
-            yield Actor::convert_tx_to_sighash_pubkey_spend(
-                &mut watchtower_challenge_page_tx_handler,
-                0,
-            )?;
-
-            let wcp_txid = watchtower_challenge_page_tx_handler.tx.compute_txid();
-
-            for (i, watchtower_wots) in watchtower_wots.iter().enumerate().take(config.num_watchtowers) {
-                let mut watchtower_challenge_txhandler =
-                    builder::transaction::create_watchtower_challenge_txhandler(
-                        wcp_txid,
+                // sign for all disprove scripts
+                for i in 0..NUM_INTERMEDIATE_STEPS {
+                    yield Actor::convert_tx_to_script_spend(
+                        &mut disprove_tx,
+                        0,
                         i,
-                        watchtower_wots.clone(),
-                        &[0u8; 20],
-                        nofn_xonly_pk,
-                        *operator_xonly_pk,
-                        network,
-                    );
-                yield Actor::convert_tx_to_sighash_script_spend(
-                    &mut watchtower_challenge_txhandler,
-                    0,
-                    0,
-                )?;
+                        bitcoin::sighash::TapSighashType::None,
+                    )?;
+                }
 
-                let mut operator_challenge_nack_txhandler =
-                    builder::transaction::create_operator_challenge_nack_txhandler(
-                        watchtower_challenge_txhandler.tx.compute_txid(),
-                        time_txid,
-                        kickoff_txid,
-                        input_amunt,
-                        i,
-                        &[0u8; 20],
-                        nofn_xonly_pk,
-                        *operator_xonly_pk,
-                        network,
-                    );
-                yield Actor::convert_tx_to_sighash_script_spend(
-                    &mut operator_challenge_nack_txhandler,
-                    0,
-                    1,
-                )?;
-                yield Actor::convert_tx_to_sighash_pubkey_spend(
-                    &mut operator_challenge_nack_txhandler,
-                    1,
-                )?;
+                let time2_tx = builder::transaction::create_time2_tx(
+                    *operator_xonly_pk,
+                    time_txid,
+                    input_amunt,
+                    network,
+                );
+
+                input_txid = time2_tx.compute_txid();
+                input_amunt = time2_tx.output[0].value;
             }
-
-            let intermediate_wots =
-                vec![vec![vec![[0u8; 20]; 48]; NUM_INTERMEDIATE_STEPS]; config.num_time_txs]; // TODO: Fetch from db
-            let assert_begin_txid = builder::transaction::create_assert_begin_txhandler(
-                kickoff_txid,
-                nofn_xonly_pk,
-                *operator_xonly_pk,
-                intermediate_wots[time_tx_idx].clone(),
-                network,
-            )
-            .tx
-            .compute_txid();
-
-            let mut assert_end_tx = builder::transaction::create_assert_end_txhandler(
-                kickoff_txid,
-                assert_begin_txid,
-                nofn_xonly_pk,
-                *operator_xonly_pk,
-                network,
-            );
-            yield Actor::convert_tx_to_sighash_pubkey_spend(
-                &mut assert_end_tx,
-                NUM_INTERMEDIATE_STEPS,
-            )?;
-
-            let time2_tx = builder::transaction::create_time2_tx(
-                *operator_xonly_pk,
-                time_txid,
-                input_amunt,
-                network,
-            );
-
-            input_txid = time2_tx.compute_txid();
-            input_amunt = time2_tx.output[0].value;
         }
-    }
     }
 }
 
