@@ -818,6 +818,91 @@ pub fn create_challenge_tx(
     }
 }
 
+pub fn create_happy_reimburse_tx(
+    move_txid: Txid,
+    kickoff_txid: Txid,
+    nofn_xonly_pk: XOnlyPublicKey,
+    operator_xonly_pk: XOnlyPublicKey,
+    bridge_amount_sats: Amount,
+    network: bitcoin::Network,
+) -> TxHandler {
+    let tx_ins = create_tx_ins(vec![
+        OutPoint {
+            txid: move_txid,
+            vout: 0,
+        },
+        OutPoint {
+            txid: kickoff_txid,
+            vout: 1,
+        },
+        OutPoint {
+            txid: kickoff_txid,
+            vout: 3,
+        },
+    ]);
+    let (operator_taproot_address, _) =
+        builder::address::create_taproot_address(&[], Some(operator_xonly_pk), network);
+    let (nofn_taproot_address, nofn_taproot_address_spend) =
+        builder::address::create_taproot_address(&[], Some(nofn_xonly_pk), network);
+
+    let anyone_can_spend_txout = builder::script::anyone_can_spend_txout();
+
+    let tx_outs = vec![
+        TxOut {
+            // value in create_move_tx currently
+            value: bridge_amount_sats - MOVE_TX_MIN_RELAY_FEE - anyone_can_spend_txout.value,
+            script_pubkey: operator_taproot_address.script_pubkey(),
+        },
+        anyone_can_spend_txout.clone(),
+    ];
+
+    let happy_reimburse_tx = create_btc_tx(tx_ins, tx_outs);
+
+    let operator_1week =
+        builder::script::generate_relative_timelock_script(operator_xonly_pk, 7 * 24 * 6);
+    let nofn_3week =
+        builder::script::generate_relative_timelock_script(nofn_xonly_pk, 3 * 7 * 24 * 6);
+
+    let (nofn_or_operator_1week, nofn_or_operator_1week_spend) =
+        builder::address::create_taproot_address(
+            &[operator_1week.clone()],
+            Some(nofn_xonly_pk),
+            network,
+        );
+
+    let (nofn_or_nofn_3week, nofn_or_nofn_3week_spend) = builder::address::create_taproot_address(
+        &[nofn_3week.clone()],
+        Some(nofn_xonly_pk),
+        network,
+    );
+
+    let prevouts = vec![
+        TxOut {
+            script_pubkey: nofn_taproot_address.script_pubkey(),
+            value: bridge_amount_sats - MOVE_TX_MIN_RELAY_FEE - anyone_can_spend_txout.value,
+        },
+        TxOut {
+            value: KICKOFF_UTXO_AMOUNT_SATS,
+            script_pubkey: nofn_or_operator_1week.script_pubkey(),
+        },
+        TxOut {
+            value: KICKOFF_UTXO_AMOUNT_SATS,
+            script_pubkey: nofn_or_nofn_3week.script_pubkey(),
+        },
+    ];
+
+    TxHandler {
+        tx: happy_reimburse_tx,
+        prevouts,
+        scripts: vec![vec![], vec![operator_1week], vec![nofn_3week]],
+        taproot_spend_infos: vec![
+            nofn_taproot_address_spend,
+            nofn_or_operator_1week_spend,
+            nofn_or_nofn_3week_spend,
+        ],
+    }
+}
+
 pub fn create_slash_or_take_tx(
     deposit_outpoint: OutPoint,
     kickoff_utxo: UTXO,
