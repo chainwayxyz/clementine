@@ -18,7 +18,6 @@ pub fn calculate_num_required_sigs(
     num_operators * num_time_txs * (1 + 3 * num_watchtowers + 1)
 }
 
-#[tracing::instrument(err(level = tracing::Level::ERROR), ret(level = tracing::Level::TRACE))]
 pub fn convert_tx_to_pubkey_spend(
     tx: &mut TxHandler,
     txin_index: usize,
@@ -35,7 +34,6 @@ pub fn convert_tx_to_pubkey_spend(
     Ok(sig_hash)
 }
 
-#[tracing::instrument(err(level = tracing::Level::ERROR), ret(level = tracing::Level::TRACE))]
 pub fn convert_tx_to_script_spend(
     tx_handler: &mut TxHandler,
     txin_index: usize,
