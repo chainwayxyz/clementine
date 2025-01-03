@@ -63,13 +63,13 @@ pub fn create_nofn_sighash_stream(
             futures::future::try_join_all(watchtower_challenge_wotss).await?;
 
         let mut input_txid = *collateral_funding_txid;
-        let mut input_amunt = collateral_funding_amount;
+        let mut input_amount = collateral_funding_amount;
 
         for time_tx_idx in 0..config.num_time_txs {
             let time_txid = builder::transaction::create_time_tx(
                 *operator_xonly_pk,
                 input_txid,
-                input_amunt,
+                input_amount,
                 timeout_block_count,
                 max_withdrawal_time_block_count,
                 network,
@@ -128,8 +128,7 @@ pub fn create_nofn_sighash_stream(
                         watchtower_challenge_txhandler.tx.compute_txid(),
                         time_txid,
                         kickoff_txid,
-                        input_amunt,
-                        i,
+                        input_amount,
                         &[0u8; 20],
                         nofn_xonly_pk,
                         *operator_xonly_pk,
@@ -173,12 +172,12 @@ pub fn create_nofn_sighash_stream(
             let time2_tx = builder::transaction::create_time2_tx(
                 *operator_xonly_pk,
                 time_txid,
-                input_amunt,
+                input_amount,
                 network,
             );
 
             input_txid = time2_tx.compute_txid();
-            input_amunt = time2_tx.output[0].value;
+            input_amount = time2_tx.output[0].value;
         }
     }
     }
@@ -194,14 +193,14 @@ pub fn create_timout_tx_sighash_stream(
     network: bitcoin::Network,
 ) -> impl Stream<Item = Result<TapSighash, BridgeError>> {
     let mut input_txid = collateral_funding_txid;
-    let mut input_amunt = collateral_funding_amount;
+    let mut input_amount = collateral_funding_amount;
 
     try_stream! {
         for _ in 0..num_time_txs {
             let time_tx = builder::transaction::create_time_tx(
                 operator_xonly_pk,
                 input_txid,
-                input_amunt,
+                input_amount,
                 timeout_block_count,
                 max_withdrawal_time_block_count,
                 network,
@@ -219,12 +218,12 @@ pub fn create_timout_tx_sighash_stream(
             let time2_tx = builder::transaction::create_time2_tx(
                 operator_xonly_pk,
                 time_tx.compute_txid(),
-                input_amunt,
+                input_amount,
                 network,
             );
 
             input_txid = time2_tx.compute_txid();
-            input_amunt = time2_tx.output[0].value;
+            input_amount = time2_tx.output[0].value;
         }
     }
 }
