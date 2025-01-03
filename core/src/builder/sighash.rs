@@ -99,6 +99,28 @@ pub fn create_nofn_sighash_stream(
                     Some(bitcoin::sighash::TapSighashType::SinglePlusAnyoneCanPay)
                 )?;
 
+                let mut happy_reimburse_tx = builder::transaction::create_happy_reimburse_tx(
+                    move_txid,
+                    kickoff_txid,
+                    nofn_xonly_pk,
+                    *operator_xonly_pk,
+                    bridge_amount_sats,
+                    network,
+                );
+
+                // move utxo
+                yield Actor::convert_tx_to_pubkey_spend(
+                    &mut happy_reimburse_tx,
+                    0,
+                    None
+                )?;
+                // nofn_or_nofn3week utxo
+                yield Actor::convert_tx_to_pubkey_spend(
+                    &mut happy_reimburse_tx,
+                    2,
+                    None
+                )?;
+
 
                 let watchtower_wots = (0..config.num_watchtowers)
                     .map(|i| watchtower_challenge_wotss[i][time_tx_idx].clone())
