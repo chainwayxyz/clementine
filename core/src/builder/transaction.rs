@@ -73,7 +73,7 @@ pub fn create_time_tx(
         max_withdrawal_time_block_count,
     );
 
-    let timout_block_count_locked_script =
+    let timeout_block_count_locked_script =
         builder::script::generate_relative_timelock_script(operator_xonly_pk, timeout_block_count);
 
     let tx_outs = vec![
@@ -100,7 +100,7 @@ pub fn create_time_tx(
         TxOut {
             value: KICKOFF_INPUT_AMOUNT,
             script_pubkey: create_taproot_address(
-                &[timout_block_count_locked_script],
+                &[timeout_block_count_locked_script],
                 Some(operator_xonly_pk),
                 network,
             )
@@ -169,11 +169,11 @@ pub fn create_timeout_tx_handler(
 
     let tx = create_btc_tx(tx_ins, tx_outs);
 
-    let timout_block_count_locked_script =
+    let timeout_block_count_locked_script =
         builder::script::generate_relative_timelock_script(operator_xonly_pk, timeout_block_count);
 
     let (timeout_input_addr, ttimeout_input_taproot_spend_info) = create_taproot_address(
-        &[timout_block_count_locked_script.clone()],
+        &[timeout_block_count_locked_script.clone()],
         Some(operator_xonly_pk),
         network,
     );
@@ -182,7 +182,7 @@ pub fn create_timeout_tx_handler(
         value: KICKOFF_INPUT_AMOUNT,
         script_pubkey: timeout_input_addr.script_pubkey(),
     }];
-    let scripts = vec![vec![timout_block_count_locked_script]];
+    let scripts = vec![vec![timeout_block_count_locked_script]];
     let taproot_spend_infos = vec![ttimeout_input_taproot_spend_info];
     TxHandler {
         tx,
@@ -492,7 +492,7 @@ pub fn create_operator_challenge_nack_txhandler(
     let tx_ins = create_tx_ins(vec![
         OutPoint {
             txid: watchtower_challenge_txid,
-            vout: watchtower_idx as u32,
+            vout: 0,
         },
         OutPoint {
             txid: kickoff_txid,
