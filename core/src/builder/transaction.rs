@@ -734,7 +734,7 @@ pub fn create_assert_end_txhandler(
     }
 }
 
-pub fn create_disprove_tx(
+pub fn create_disprove_txhandler(
     assert_end_txid: Txid,
     time_txid: Txid,
     nofn_xonly_pk: XOnlyPublicKey,
@@ -774,7 +774,7 @@ pub fn create_disprove_tx(
     }
 }
 
-pub fn create_challenge_tx(
+pub fn create_challenge_txhandler(
     kickoff_txid: Txid,
     nofn_xonly_pk: XOnlyPublicKey,
     operator_xonly_pk: XOnlyPublicKey,
@@ -818,7 +818,7 @@ pub fn create_challenge_tx(
     }
 }
 
-pub fn create_happy_reimburse_tx(
+pub fn create_happy_reimburse_txhandler(
     move_txid: Txid,
     kickoff_txid: Txid,
     nofn_xonly_pk: XOnlyPublicKey,

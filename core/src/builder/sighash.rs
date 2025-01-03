@@ -134,7 +134,7 @@ pub fn create_nofn_sighash_stream(
                 )
                 .compute_txid();
 
-                let mut challenge_tx = builder::transaction::create_challenge_tx(
+                let mut challenge_tx = builder::transaction::create_challenge_txhandler(
                     kickoff_txid,
                     nofn_xonly_pk,
                     *operator_xonly_pk,
@@ -147,7 +147,7 @@ pub fn create_nofn_sighash_stream(
                     Some(bitcoin::sighash::TapSighashType::SinglePlusAnyoneCanPay)
                 )?;
 
-                let mut happy_reimburse_tx = builder::transaction::create_happy_reimburse_tx(
+                let mut happy_reimburse_tx = builder::transaction::create_happy_reimburse_txhandler(
                     move_txid,
                     kickoff_txid,
                     nofn_xonly_pk,
@@ -258,7 +258,7 @@ pub fn create_nofn_sighash_stream(
                     None,
                 )?;
 
-                let mut disprove_tx = builder::transaction::create_disprove_tx(
+                let mut disprove_tx = builder::transaction::create_disprove_txhandler(
                     assert_end_tx.tx.compute_txid(),
                     time_txid,
                     nofn_xonly_pk,
