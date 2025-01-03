@@ -129,7 +129,6 @@ pub fn create_nofn_sighash_stream(
                         time_txid,
                         kickoff_txid,
                         input_amount,
-                        i,
                         &[0u8; 20],
                         nofn_xonly_pk,
                         *operator_xonly_pk,

@@ -483,7 +483,6 @@ pub fn create_operator_challenge_nack_txhandler(
     time_txid: Txid,
     kickoff_txid: Txid,
     time_tx_amount: Amount,
-    watchtower_idx: usize,
     operator_unlock_hash: &[u8; 20],
     nofn_xonly_pk: XOnlyPublicKey,
     operator_xonly_pk: XOnlyPublicKey,
