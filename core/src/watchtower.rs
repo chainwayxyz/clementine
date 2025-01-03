@@ -45,7 +45,7 @@ impl Watchtower {
     ///
     /// - [`Vec<Vec<winternitz::PublicKey>>`]: Winternitz public key for
     ///   `operator index` row and `time_tx index` column.
-    pub async fn get_winternitz_public_keys(
+    pub async fn get_watchtower_winternitz_public_keys(
         &self,
     ) -> Result<Vec<winternitz::PublicKey>, BridgeError> {
         let mut winternitz_pubkeys = Vec::new();
@@ -55,11 +55,12 @@ impl Watchtower {
                 let path = WinternitzDerivationPath {
                     message_length: 480,
                     log_d: 4,
-                    tx_type: crate::actor::TxType::TimeTx,
+                    tx_type: crate::actor::TxType::WatchtowerChallenge,
                     index: None,
                     operator_idx: Some(operator),
                     watchtower_idx: None,
                     time_tx_idx: Some(time_tx),
+                    intermediate_step_idx: None,
                 };
 
                 winternitz_pubkeys.push(self.actor.derive_winternitz_pk(path)?);
@@ -92,7 +93,7 @@ mod tests {
     #[serial_test::serial]
     async fn new_watchtower() {
         let mut config = create_test_config_with_thread_name!(None);
-        let (verifiers, operators, _, _should_not_panic) = create_actors!(config.clone(), 1);
+        let (verifiers, operators, _, _should_not_panic) = create_actors!(config.clone());
 
         config.verifier_endpoints = Some(
             verifiers
@@ -112,9 +113,9 @@ mod tests {
 
     #[tokio::test]
     #[serial_test::serial]
-    async fn get_winternitz_public_keys() {
+    async fn get_watchtower_winternitz_public_keys() {
         let mut config = create_test_config_with_thread_name!(None);
-        let (verifiers, operators, _, _watchtowers) = create_actors!(config.clone(), 2);
+        let (verifiers, operators, _, _watchtowers) = create_actors!(config.clone());
 
         config.verifier_endpoints = Some(
             verifiers
@@ -130,10 +131,13 @@ mod tests {
         );
 
         let watchtower = Watchtower::new(config.clone()).await.unwrap();
-        let winternitz_public_keys = watchtower.get_winternitz_public_keys().await.unwrap();
+        let watchtower_winternitz_public_keys = watchtower
+            .get_watchtower_winternitz_public_keys()
+            .await
+            .unwrap();
 
         assert_eq!(
-            winternitz_public_keys.len(),
+            watchtower_winternitz_public_keys.len(),
             config.num_operators * config.num_time_txs
         );
     }

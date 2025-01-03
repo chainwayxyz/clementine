@@ -149,6 +149,7 @@ async fn key_spend() {
         &musig_agg_xonly_pubkey_wrapped,
     )
     .unwrap();
+    rpc.mine_blocks(1).await.unwrap();
 
     tx_details.tx.input[0].witness.push(final_signature);
     rpc.client
@@ -246,6 +247,7 @@ async fn key_spend_with_script() {
         &musig_agg_xonly_pubkey_wrapped,
     )
     .unwrap();
+    rpc.mine_blocks(1).await.unwrap();
 
     tx_details.tx.input[0].witness.push(final_signature);
     rpc.client
@@ -350,6 +352,7 @@ async fn script_spend() {
     let schnorr_sig = secp256k1::schnorr::Signature::from_slice(&final_signature).unwrap();
     let witness_elements = vec![schnorr_sig.as_ref()];
     handle_taproot_witness_new(&mut tx_details, &witness_elements, 0, Some(0)).unwrap();
+    rpc.mine_blocks(1).await.unwrap();
 
     rpc.client
         .send_raw_transaction(&tx_details.tx)

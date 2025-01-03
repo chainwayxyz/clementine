@@ -3,24 +3,31 @@
 //! Transaction builder provides useful functions for building typical Bitcoin
 //! transactions.
 
+use super::address::create_taproot_address;
 use crate::builder;
+use crate::constants::{NUM_DISRPOVE_SCRIPTS, NUM_INTERMEDIATE_STEPS};
 use crate::{utils, EVMAddress, UTXO};
 use bitcoin::address::NetworkUnchecked;
 use bitcoin::hashes::Hash;
+use bitcoin::opcodes::all::OP_CHECKSIG;
 use bitcoin::script::PushBytesBuf;
 use bitcoin::{
     absolute, taproot::TaprootSpendInfo, Address, Amount, OutPoint, ScriptBuf, TxIn, TxOut, Witness,
 };
-use bitcoin::{Transaction, Txid};
+use bitcoin::{Network, Transaction, Txid};
+use bitvm::signatures::winternitz;
 use secp256k1::XOnlyPublicKey;
 
-use super::address::create_taproot_address;
-
+/// Verbose information about a transaction.
 #[derive(Debug, Clone)]
 pub struct TxHandler {
+    /// Transaction itself.
     pub tx: bitcoin::Transaction,
+    /// Previous outputs in [`TxOut`] format.
     pub prevouts: Vec<TxOut>,
+    /// Scripts for each previous output.
     pub scripts: Vec<Vec<ScriptBuf>>,
+    /// Taproot spend information for each previous output.
     pub taproot_spend_infos: Vec<TaprootSpendInfo>,
 }
 
@@ -30,19 +37,24 @@ pub const SLASH_OR_TAKE_TX_MIN_RELAY_FEE: Amount = Amount::from_sat(240);
 pub const OPERATOR_TAKES_TX_MIN_RELAY_FEE: Amount = Amount::from_sat(230);
 pub const KICKOFF_UTXO_AMOUNT_SATS: Amount = Amount::from_sat(100_000);
 
-pub const TIME_TX_MIN_RELAY_FEE: Amount = Amount::from_sat(350); // TODO: Change this to correct value
-pub const TIME2_TX_MIN_RELAY_FEE: Amount = Amount::from_sat(350); // TODO: Change this to correct value
+/// TODO: Change this to correct value
+pub const TIME_TX_MIN_RELAY_FEE: Amount = Amount::from_sat(350);
+/// TODO: Change this to correct value
+pub const TIME2_TX_MIN_RELAY_FEE: Amount = Amount::from_sat(350);
 pub const KICKOFF_INPUT_AMOUNT: Amount = Amount::from_sat(100_000);
 pub const OPERATOR_REIMBURSE_CONNECTOR_AMOUNT: Amount = Amount::from_sat(330);
 pub const ANCHOR_AMOUNT: Amount = Amount::from_sat(330);
 
-// Transaction Builders --------------------------------------------------------
-
-/// Creates time tx, it will always use input txid's first vout as input
-/// Output 0: Operator's Burn Connector
-/// Output 1: Operator's Time Connector: timelocked utxo for operator for the entire withdrawal time
-/// Output 2: Kickoff input utxo: this utxo will be the input for the kickoff tx
-/// Output 3: P2Anchor: Anchor output for CPFP
+/// Creates the `time_tx`. It will always use `input_txid`'s first vout as the input.
+///
+/// # Returns
+///
+/// A `time_tx` that has outputs of:
+///
+/// 1. Operator's Burn Connector
+/// 2. Operator's Time Connector: timelocked utxo for operator for the entire withdrawal time
+/// 3. Kickoff input utxo: this utxo will be the input for the kickoff tx
+/// 4. P2Anchor: Anchor output for CPFP
 pub fn create_time_tx(
     operator_xonly_pk: XOnlyPublicKey,
     input_txid: Txid,
@@ -180,7 +192,7 @@ pub fn create_timeout_tx_handler(
     }
 }
 
-/// Creates the move_tx to move the deposit.
+/// Creates the move_tx.
 pub fn create_move_tx(
     deposit_outpoint: OutPoint,
     nofn_xonly_pk: XOnlyPublicKey,
@@ -200,10 +212,10 @@ pub fn create_move_tx(
     create_btc_tx(tx_ins, vec![move_txout, anyone_can_spend_txout])
 }
 
-/// Creates an [`TxHandler`] that includes move_tx to move the deposit.
+/// Creates a [`TxHandler`] for the move_tx.
 pub fn create_move_tx_handler(
     deposit_outpoint: OutPoint,
-    evm_address: EVMAddress,
+    user_evm_address: EVMAddress,
     recovery_taproot_address: &Address<NetworkUnchecked>,
     nofn_xonly_pk: XOnlyPublicKey,
     network: bitcoin::Network,
@@ -215,7 +227,7 @@ pub fn create_move_tx_handler(
     let (deposit_address, deposit_taproot_spend_info) = builder::address::generate_deposit_address(
         nofn_xonly_pk,
         recovery_taproot_address,
-        evm_address,
+        user_evm_address,
         bridge_amount_sats,
         network,
         user_takes_after,
@@ -228,7 +240,7 @@ pub fn create_move_tx_handler(
 
     let deposit_script = vec![builder::script::create_deposit_script(
         nofn_xonly_pk,
-        evm_address,
+        user_evm_address,
         bridge_amount_sats,
     )];
 
@@ -294,6 +306,423 @@ pub fn create_kickoff_utxo_tx(
     let taproot_spend_infos = vec![];
     TxHandler {
         tx,
+        prevouts,
+        scripts,
+        taproot_spend_infos,
+    }
+}
+
+pub fn create_kickoff_tx(
+    time_txid: Txid,
+    nofn_xonly_pk: XOnlyPublicKey,
+    operator_xonly_pk: XOnlyPublicKey,
+    move_txid: Txid,
+    operator_idx: usize,
+    network: Network,
+) -> Transaction {
+    let tx_ins = create_tx_ins(vec![OutPoint {
+        txid: time_txid,
+        vout: 2,
+    }]);
+    let nofn_1week = builder::script::generate_relative_timelock_script(nofn_xonly_pk, 7 * 24 * 6);
+    let operator_2week =
+        builder::script::generate_relative_timelock_script(operator_xonly_pk, 2 * 7 * 24 * 6);
+    let nofn_3week =
+        builder::script::generate_relative_timelock_script(nofn_xonly_pk, 3 * 7 * 24 * 6);
+
+    let (nofn_or_nofn_1week, _) =
+        builder::address::create_taproot_address(&[nofn_1week], Some(nofn_xonly_pk), network);
+
+    let (nofn_or_operator_2week, _) =
+        builder::address::create_taproot_address(&[operator_2week], Some(nofn_xonly_pk), network);
+
+    let nofn_or_nofn_3week =
+        builder::address::create_taproot_address(&[nofn_3week], Some(nofn_xonly_pk), network).0;
+
+    let (nofn_taproot_address, _) = builder::address::create_musig2_address(nofn_xonly_pk, network);
+
+    let mut tx_outs = create_tx_outs(vec![
+        (
+            KICKOFF_UTXO_AMOUNT_SATS,
+            nofn_taproot_address.script_pubkey(),
+        ),
+        (KICKOFF_UTXO_AMOUNT_SATS, nofn_or_nofn_1week.script_pubkey()),
+        (
+            KICKOFF_UTXO_AMOUNT_SATS,
+            nofn_or_operator_2week.script_pubkey(),
+        ),
+        (KICKOFF_UTXO_AMOUNT_SATS, nofn_or_nofn_3week.script_pubkey()),
+    ]);
+    tx_outs.push(builder::script::anyone_can_spend_txout());
+
+    let mut op_return_script = move_txid.to_byte_array().to_vec();
+    op_return_script.extend(utils::usize_to_var_len_bytes(operator_idx));
+    let mut push_bytes = PushBytesBuf::new();
+    push_bytes.extend_from_slice(&op_return_script).unwrap();
+    let op_return_txout = builder::script::op_return_txout(push_bytes);
+    tx_outs.push(op_return_txout);
+
+    create_btc_tx(tx_ins, tx_outs)
+}
+
+/// Creates a [`TxHandler`] for the watchtower challenge page transaction.
+pub fn create_watchtower_challenge_page_txhandler(
+    kickoff_txid: Txid,
+    nofn_xonly_pk: XOnlyPublicKey,
+    num_watchtowers: u32,
+    watchtower_wots: Vec<Vec<[u8; 20]>>,
+    network: bitcoin::Network,
+) -> TxHandler {
+    let (nofn_taproot_address, nofn_taproot_spend_info) =
+        builder::address::create_musig2_address(nofn_xonly_pk, network);
+    let tx_ins = create_tx_ins(vec![OutPoint {
+        txid: kickoff_txid,
+        vout: 0,
+    }]);
+
+    let verifier =
+        winternitz::Winternitz::<winternitz::ListpickVerifier, winternitz::TabledConverter>::new();
+    let wots_params = winternitz::Parameters::new(240, 4);
+
+    let mut tx_outs = (0..num_watchtowers)
+        .map(|i| {
+            let mut x =
+                verifier.checksig_verify(&wots_params, watchtower_wots[i as usize].as_ref());
+            x = x.push_x_only_key(&nofn_xonly_pk);
+            x = x.push_opcode(OP_CHECKSIG); // TODO: Add checksig in the beginning
+            let x = x.compile();
+            let (watchtower_challenge_addr, _) =
+                builder::address::create_taproot_address(&[x], None, network);
+
+            TxOut {
+                value: Amount::from_sat(2000), // TOOD: Hand calculate this
+                script_pubkey: watchtower_challenge_addr.script_pubkey(), // TODO: Add winternitz checks here
+            }
+        })
+        .collect::<Vec<_>>();
+
+    // add the anchor output
+    tx_outs.push(builder::script::anyone_can_spend_txout());
+
+    let wcptx = create_btc_tx(tx_ins, tx_outs);
+
+    TxHandler {
+        tx: wcptx,
+        prevouts: vec![TxOut {
+            script_pubkey: nofn_taproot_address.script_pubkey(),
+            value: Amount::from_sat(2000 * num_watchtowers as u64 + 330 + 500), // TOOD: Hand calculate this
+        }],
+        scripts: vec![vec![]],
+        taproot_spend_infos: vec![nofn_taproot_spend_info],
+    }
+}
+
+pub fn create_watchtower_challenge_txhandler(
+    wcp_txid: Txid,
+    watchtower_idx: usize,
+    watchtower_wots: Vec<[u8; 20]>,
+    operator_unlock_hash: &[u8; 20],
+    nofn_xonly_pk: XOnlyPublicKey,
+    operator_xonly_pk: XOnlyPublicKey,
+    network: bitcoin::Network,
+) -> TxHandler {
+    let tx_ins = create_tx_ins(vec![OutPoint {
+        txid: wcp_txid,
+        vout: watchtower_idx as u32,
+    }]);
+
+    let nofn_1week = builder::script::generate_relative_timelock_script(nofn_xonly_pk, 7 * 24 * 6);
+    let operator_with_preimage =
+        builder::script::actor_with_preimage_script(operator_xonly_pk, operator_unlock_hash);
+    let (nofn_or_nofn_1week, _) = builder::address::create_taproot_address(
+        &[operator_with_preimage, nofn_1week],
+        None,
+        network,
+    );
+
+    let tx_outs = vec![
+        TxOut {
+            value: Amount::from_sat(1000), // TODO: Hand calculate this
+            script_pubkey: nofn_or_nofn_1week.script_pubkey(),
+        },
+        builder::script::anyone_can_spend_txout(),
+    ];
+
+    let wcptx2 = create_btc_tx(tx_ins, tx_outs);
+
+    // Calculate prevouts:
+    let verifier =
+        winternitz::Winternitz::<winternitz::ListpickVerifier, winternitz::TabledConverter>::new();
+    let wots_params = winternitz::Parameters::new(240, 4);
+
+    let mut x = verifier.checksig_verify(&wots_params, watchtower_wots.as_ref());
+    x = x.push_x_only_key(&nofn_xonly_pk);
+    x = x.push_opcode(OP_CHECKSIG); // TODO: Add checksig in the beginning
+    let watchtower_challenge_script = x.compile();
+    let (watchtower_challenge_addr, watchtower_challenge_taproot_spend_info) =
+        builder::address::create_taproot_address(
+            &[watchtower_challenge_script.clone()],
+            None,
+            network,
+        );
+
+    let prevouts = vec![TxOut {
+        value: Amount::from_sat(2000), // TOOD: Hand calculate this
+        script_pubkey: watchtower_challenge_addr.script_pubkey(), // TODO: Add winternitz checks here
+    }];
+    TxHandler {
+        tx: wcptx2,
+        prevouts,
+        scripts: vec![vec![watchtower_challenge_script]],
+        taproot_spend_infos: vec![watchtower_challenge_taproot_spend_info],
+    }
+}
+
+pub fn create_operator_challenge_nack_txhandler(
+    watchtower_challenge_txid: Txid,
+    time_txid: Txid,
+    kickoff_txid: Txid,
+    time_tx_amount: Amount,
+    watchtower_idx: usize,
+    operator_unlock_hash: &[u8; 20],
+    nofn_xonly_pk: XOnlyPublicKey,
+    operator_xonly_pk: XOnlyPublicKey,
+    network: bitcoin::Network,
+) -> TxHandler {
+    let tx_ins = create_tx_ins(vec![
+        OutPoint {
+            txid: watchtower_challenge_txid,
+            vout: watchtower_idx as u32,
+        },
+        OutPoint {
+            txid: kickoff_txid,
+            vout: 2,
+        },
+        OutPoint {
+            txid: time_txid,
+            vout: 0,
+        },
+    ]);
+    let tx_outs = vec![builder::script::anyone_can_spend_txout()];
+    let challenge_nack_tx = create_btc_tx(tx_ins, tx_outs);
+
+    // prevout1
+    let nofn_1week = builder::script::generate_relative_timelock_script(nofn_xonly_pk, 7 * 24 * 6);
+    let operator_with_preimage =
+        builder::script::actor_with_preimage_script(operator_xonly_pk, operator_unlock_hash);
+    let (nofn_or_nofn_1week, nofn_or_nofn_1week_taproot_spend_info) =
+        builder::address::create_taproot_address(
+            &[operator_with_preimage.clone(), nofn_1week.clone()],
+            None,
+            network,
+        );
+
+    // prevout2
+    let operator_2week =
+        builder::script::generate_relative_timelock_script(operator_xonly_pk, 2 * 7 * 24 * 6);
+    let (nofn_or_operator_2week, nofn_or_operator_2week_taproot_spend_info) =
+        builder::address::create_taproot_address(
+            &[operator_2week.clone()],
+            Some(nofn_xonly_pk),
+            network,
+        );
+
+    let (operator_taproot_address, operator_taproot_spend_info) =
+        builder::address::create_musig2_address(operator_xonly_pk, network);
+
+    let prevouts = vec![
+        TxOut {
+            value: Amount::from_sat(1000), // TODO: Hand calculate this
+            script_pubkey: nofn_or_nofn_1week.script_pubkey(),
+        },
+        TxOut {
+            value: KICKOFF_UTXO_AMOUNT_SATS, // TODO: Hand calculate this
+            script_pubkey: nofn_or_operator_2week.script_pubkey(),
+        },
+        TxOut {
+            value: time_tx_amount,
+            script_pubkey: operator_taproot_address.script_pubkey(),
+        },
+    ];
+
+    TxHandler {
+        tx: challenge_nack_tx,
+        prevouts,
+        scripts: vec![
+            vec![operator_with_preimage, nofn_1week],
+            vec![operator_2week],
+            vec![],
+        ],
+        taproot_spend_infos: vec![
+            nofn_or_nofn_1week_taproot_spend_info,
+            nofn_or_operator_2week_taproot_spend_info,
+            operator_taproot_spend_info,
+        ],
+    }
+}
+
+pub fn create_assert_begin_txhandler(
+    kickoff_txid: Txid,
+    nofn_xonly_pk: XOnlyPublicKey,
+    operator_xonly_pk: XOnlyPublicKey,
+    intermediate_wotss: Vec<Vec<[u8; 20]>>,
+    network: bitcoin::Network,
+) -> TxHandler {
+    let tx_ins: Vec<TxIn> = create_tx_ins(vec![OutPoint {
+        txid: kickoff_txid,
+        vout: 2,
+    }]);
+
+    let mut txouts = vec![];
+    let verifier =
+        winternitz::Winternitz::<winternitz::ListpickVerifier, winternitz::TabledConverter>::new();
+    let wots_params = winternitz::Parameters::new(40, 4);
+    for intermediate_wots in intermediate_wotss.iter().take(NUM_INTERMEDIATE_STEPS) {
+        // TODO: Is there a possibility that list going to be longer than NUM_INTERMEDIATE_STEPS?
+        let mut x = verifier.checksig_verify(&wots_params, intermediate_wots);
+        x = x.push_x_only_key(&operator_xonly_pk);
+        x = x.push_opcode(OP_CHECKSIG); // TODO: Add checksig in the beginning
+        let intermediate_script = x.compile();
+        let (intermediate_addr, _) =
+            builder::address::create_taproot_address(&[intermediate_script.clone()], None, network);
+
+        txouts.push(TxOut {
+            value: Amount::from_sat(660), // TOOD: Hand calculate this
+            script_pubkey: intermediate_addr.script_pubkey(), // TODO: Add winternitz checks here
+        });
+    }
+    txouts.push(builder::script::anyone_can_spend_txout());
+
+    let assert_begin_tx = create_btc_tx(tx_ins, txouts);
+
+    // Prevouts
+
+    let operator_2week =
+        builder::script::generate_relative_timelock_script(operator_xonly_pk, 2 * 7 * 24 * 6);
+    let (nofn_or_operator_2week, nofn_or_operator_2week_taproot_spend_info) =
+        builder::address::create_taproot_address(
+            &[operator_2week.clone()],
+            Some(nofn_xonly_pk),
+            network,
+        );
+
+    TxHandler {
+        tx: assert_begin_tx,
+        prevouts: vec![TxOut {
+            script_pubkey: nofn_or_operator_2week.script_pubkey(),
+            value: KICKOFF_UTXO_AMOUNT_SATS,
+        }],
+        scripts: vec![vec![operator_2week]],
+        taproot_spend_infos: vec![nofn_or_operator_2week_taproot_spend_info],
+    }
+}
+
+pub fn create_mini_assert_tx(
+    assert_begin_txid: Txid,
+    operator_xonly_pk: XOnlyPublicKey,
+    step_index: u32,
+    network: bitcoin::Network,
+) -> Transaction {
+    let tx_ins = create_tx_ins(vec![OutPoint {
+        txid: assert_begin_txid,
+        vout: step_index,
+    }]);
+
+    let tx_outs = vec![
+        TxOut {
+            value: Amount::from_sat(330), // TOOD: Hand calculate this
+            script_pubkey: builder::address::create_taproot_address(
+                &[],
+                Some(operator_xonly_pk),
+                network,
+            )
+            .0
+            .script_pubkey(),
+        },
+        builder::script::anyone_can_spend_txout(),
+    ];
+
+    create_btc_tx(tx_ins, tx_outs)
+}
+
+pub fn create_assert_end_txhandler(
+    kickoff_txid: Txid,
+    assert_begin_txid: Txid,
+    nofn_xonly_pk: XOnlyPublicKey,
+    operator_xonly_pk: XOnlyPublicKey,
+    network: bitcoin::Network,
+) -> TxHandler {
+    let mut txins = (0..NUM_INTERMEDIATE_STEPS)
+        .map(|i| {
+            let mini_assert_tx =
+                create_mini_assert_tx(assert_begin_txid, operator_xonly_pk, i as u32, network);
+            OutPoint {
+                txid: mini_assert_tx.compute_txid(),
+                vout: 0,
+            }
+        })
+        .collect::<Vec<_>>();
+
+    txins.push(OutPoint {
+        txid: kickoff_txid,
+        vout: 3,
+    });
+
+    let mut disprve_scripts = vec![];
+    for _ in 0..NUM_DISRPOVE_SCRIPTS {
+        disprve_scripts.push(builder::script::checksig_script(nofn_xonly_pk)); // TODO: ADD actual disprove scripts here
+    }
+
+    let (disprove_address, _disprove_taproot_spend_info) = builder::address::create_taproot_address(
+        &disprve_scripts.clone(),
+        Some(nofn_xonly_pk),
+        network,
+    );
+    let tx_outs = vec![
+        TxOut {
+            value: Amount::from_sat(330), // TOOD: Hand calculate this
+            script_pubkey: disprove_address.script_pubkey(),
+        },
+        builder::script::anyone_can_spend_txout(),
+    ];
+
+    let assert_end_tx = create_btc_tx(create_tx_ins(txins), tx_outs);
+
+    // prevouts
+
+    let nofn_3week =
+        builder::script::generate_relative_timelock_script(nofn_xonly_pk, 3 * 7 * 24 * 6);
+    let (nofn_or_nofn_3week, nofn_or_nofn_3week_taproot_spend_info) =
+        builder::address::create_taproot_address(
+            &[nofn_3week.clone()],
+            Some(nofn_xonly_pk),
+            network,
+        );
+
+    let (operator_taproot_address, operator_taproot_spend_info) =
+        builder::address::create_taproot_address(&[], Some(operator_xonly_pk), network);
+
+    let mut prevouts = vec![
+        TxOut {
+            script_pubkey: operator_taproot_address.script_pubkey(),
+            value: Amount::from_sat(330),
+        };
+        NUM_INTERMEDIATE_STEPS
+    ];
+
+    prevouts.push(TxOut {
+        script_pubkey: nofn_or_nofn_3week.script_pubkey(),
+        value: KICKOFF_UTXO_AMOUNT_SATS,
+    });
+
+    let mut scripts = vec![vec![]; NUM_INTERMEDIATE_STEPS];
+    scripts.push(vec![nofn_3week]);
+
+    let mut taproot_spend_infos = vec![operator_taproot_spend_info; NUM_INTERMEDIATE_STEPS];
+    taproot_spend_infos.push(nofn_or_nofn_3week_taproot_spend_info);
+
+    TxHandler {
+        tx: assert_end_tx,
         prevouts,
         scripts,
         taproot_spend_infos,
@@ -442,9 +871,11 @@ pub fn create_operator_takes_tx(
     }
 }
 
+/// Creates a Bitcoin V3 transaction with no locktime, using given inputs and
+/// outputs.
 pub fn create_btc_tx(tx_ins: Vec<TxIn>, tx_outs: Vec<TxOut>) -> bitcoin::Transaction {
     bitcoin::Transaction {
-        version: bitcoin::transaction::Version(2),
+        version: bitcoin::transaction::Version(3),
         lock_time: absolute::LockTime::from_consensus(0),
         input: tx_ins,
         output: tx_outs,
@@ -530,4 +961,60 @@ mod tests {
             builder::script::anyone_can_spend_txout()
         );
     }
+
+    // #[test]
+    // fn create_watchtower_challenge_page_txhandler() {
+    //     let network = bitcoin::Network::Regtest;
+    //     let secret_key = SecretKey::new(&mut rand::thread_rng());
+    //     let nofn_xonly_pk =
+    //         XOnlyPublicKey::from_keypair(&Keypair::from_secret_key(&SECP, &secret_key)).0;
+    //     let (nofn_musig2_address, _) =
+    //         builder::address::create_musig2_address(nofn_xonly_pk, network);
+
+    //     let kickoff_outpoint = OutPoint {
+    //         txid: Txid::all_zeros(),
+    //         vout: 0x45,
+    //     };
+    //     let kickoff_utxo = UTXO {
+    //         outpoint: kickoff_outpoint,
+    //         txout: TxOut {
+    //             value: Amount::from_int_btc(2),
+    //             script_pubkey: nofn_musig2_address.script_pubkey(),
+    //         },
+    //     };
+
+    //     let bridge_amount_sats = Amount::from_sat(0x1F45);
+    //     let num_watchtowers = 3;
+
+    //     let wcp_txhandler = super::create_watchtower_challenge_page_txhandler(
+    //         &kickoff_utxo,
+    //         nofn_xonly_pk,
+    //         bridge_amount_sats,
+    //         num_watchtowers,
+    //         network,
+    //     );
+    //     assert_eq!(wcp_txhandler.tx.output.len(), num_watchtowers as usize);
+    // }
+
+    // #[test]
+    // fn create_challenge_tx() {
+    //     let operator_secret_key = SecretKey::new(&mut rand::thread_rng());
+    //     let operator_xonly_pk =
+    //         XOnlyPublicKey::from_keypair(&Keypair::from_secret_key(&SECP, &operator_secret_key)).0;
+
+    //     let kickoff_outpoint = OutPoint {
+    //         txid: Txid::all_zeros(),
+    //         vout: 0x45,
+    //     };
+
+    //     let challenge_tx = super::create_challenge_tx(kickoff_outpoint, operator_xonly_pk);
+    //     assert_eq!(
+    //         challenge_tx.tx_out(0).unwrap().value,
+    //         Amount::from_int_btc(2)
+    //     );
+    //     assert_eq!(
+    //         challenge_tx.tx_out(0).unwrap().script_pubkey,
+    //         ScriptBuf::new_p2tr(&SECP, operator_xonly_pk, None)
+    //     )
+    // }
 }

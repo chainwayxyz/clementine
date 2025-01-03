@@ -13,7 +13,7 @@ impl ClementineWatchtower for Watchtower {
         _request: Request<Empty>,
     ) -> Result<Response<WatchtowerParams>, Status> {
         let winternitz_pubkeys = self
-            .get_winternitz_public_keys()
+            .get_watchtower_winternitz_public_keys()
             .await?
             .into_iter()
             .map(WinternitzPubkey::from_bitvm)
@@ -53,7 +53,7 @@ mod tests {
     #[serial_test::serial]
     async fn watchtower_get_params() {
         let mut config = create_test_config_with_thread_name!(None);
-        let (verifiers, operators, _, _watchtowers) = create_actors!(config.clone(), 2);
+        let (verifiers, operators, _, _watchtowers) = create_actors!(config.clone());
 
         config.verifier_endpoints = Some(
             verifiers

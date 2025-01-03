@@ -162,7 +162,7 @@ macro_rules! initialize_database {
 /// ```
 #[macro_export]
 macro_rules! create_actors {
-    ($config:expr, $number_of_watchtowers:expr) => {{
+    ($config:expr) => {{
         let start_port = $config.port;
         let rpc = ExtendedRpc::new(
             $config.bitcoin_rpc_url.clone(),
@@ -177,6 +177,12 @@ macro_rules! create_actors {
                 .unwrap_or_else(|| {
                     panic!("All secret keys of the verifiers are required for testing");
                 });
+        let all_watchtowers_secret_keys = $config
+            .all_watchtowers_secret_keys
+            .clone()
+            .unwrap_or_else(|| {
+                panic!("All secret keys of the watchtowers are required for testing");
+            });
         let verifier_futures = all_verifiers_secret_keys
             .iter()
             .enumerate()
@@ -255,16 +261,21 @@ macro_rules! create_actors {
             + all_operators_secret_keys.len() as u16
             + 1;
         println!("Watchtower start port: {}", port);
-        let watchtower_futures = (0..$number_of_watchtowers)
-            .map(|i| {
-                let verifier_configs = verifier_configs.clone();
+        let verifier_configs = verifier_configs.clone();
 
+        let watchtower_futures = all_watchtowers_secret_keys
+            .iter()
+            .enumerate()
+            .map(|(i, sk)| {
                 create_watchtower_grpc_server(BridgeConfig {
+                    index: i as u32,
+                    secret_key: *sk,
                     port: port + i as u16,
-                    ..verifier_configs[0].clone()
+                    ..verifier_configs[i].clone()
                 })
             })
             .collect::<Vec<_>>();
+
         let watchtower_endpoints = futures::future::try_join_all(watchtower_futures)
             .await
             .unwrap();
@@ -272,7 +283,7 @@ macro_rules! create_actors {
         let port = start_port
             + all_verifiers_secret_keys.len() as u16
             + all_operators_secret_keys.len() as u16
-            + $number_of_watchtowers as u16
+            + all_watchtowers_secret_keys.len() as u16
             + 1;
         println!("Aggregator port: {}", port);
         // + all_operators_secret_keys.len() as u16;

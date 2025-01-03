@@ -3,16 +3,13 @@ use super::clementine::{
 };
 use crate::{
     aggregator::Aggregator,
-    builder::sighash::create_nofn_sighash_stream,
+    builder::sighash::{calculate_num_required_sigs, create_nofn_sighash_stream},
     errors::BridgeError,
     musig2::{aggregate_nonces, MuSigPubNonce},
-    rpc::{
-        clementine::{self, DepositSignSession},
-        verifier::NUM_REQUIRED_SIGS,
-    },
+    rpc::clementine::{self, DepositSignSession},
     ByteArray32, ByteArray66, EVMAddress,
 };
-use bitcoin::hashes::Hash;
+use bitcoin::{hashes::Hash, Amount};
 use futures::{future::try_join_all, stream::BoxStream, FutureExt, StreamExt};
 use std::pin::pin;
 use tonic::{async_trait, Request, Response, Status};
@@ -215,21 +212,25 @@ impl ClementineAggregator for Aggregator {
             .parse::<bitcoin::Address<_>>()
             .unwrap();
         let user_takes_after = deposit_params.clone().user_takes_after;
-        let nofn_xonly_pk = self.nofn_xonly_pk;
         let verifiers_public_keys = self.config.verifiers_public_keys.clone();
 
         tracing::debug!("Parsed deposit params");
 
         // generate nonces from all verifiers
+        let num_required_sigs = calculate_num_required_sigs(
+            self.config.num_operators,
+            self.config.num_time_txs,
+            self.config.num_watchtowers,
+        );
         let (first_responses, mut nonce_streams) =
-            self.create_nonce_streams(NUM_REQUIRED_SIGS as u32).await?;
+            self.create_nonce_streams(num_required_sigs as u32).await?;
 
         // Open the streams for deposit_sign for each verifier
         let mut partial_sig_streams = try_join_all(self.verifier_clients.iter().map(|v| {
             let mut client = v.clone(); // Clone each client to avoid mutable borrow
                                         // https://github.com/hyperium/tonic/issues/33#issuecomment-538150828
             async move {
-                let (tx, rx) = tokio::sync::mpsc::channel(128);
+                let (tx, rx) = tokio::sync::mpsc::channel(1280);
                 let receiver_stream = tokio_stream::wrappers::ReceiverStream::new(rx);
                 // let x = tokio_stream::iter(1..usize::MAX).map(|i| i.to_string());
                 let stream = client.deposit_sign(receiver_stream).await?;
@@ -268,7 +269,7 @@ impl ClementineAggregator for Aggregator {
         // Open the streams for deposit_finalize
         let deposit_finalize_streams = try_join_all(deposit_finalize_clients.iter_mut().map(|v| {
             async move {
-                let (tx, rx) = tokio::sync::mpsc::channel(128);
+                let (tx, rx) = tokio::sync::mpsc::channel(1280);
                 let receiver_stream = tokio_stream::wrappers::ReceiverStream::new(rx);
 
                 // Move `client` into this async block and use it directly
@@ -298,14 +299,26 @@ impl ClementineAggregator for Aggregator {
 
         let mut sighash_stream = pin!(create_nofn_sighash_stream(
             self.db.clone(),
+            self.config.clone(),
             deposit_outpoint,
             evm_address,
             recovery_taproot_address,
+            self.nofn_xonly_pk,
             user_takes_after,
-            nofn_xonly_pk,
+            Amount::from_sat(200_000_000), // TODO: Fix this.
+            6,
+            100,
+            self.config.bridge_amount_sats,
+            self.config.network,
         ));
 
-        for _ in 0..NUM_REQUIRED_SIGS {
+        let num_required_sigs = calculate_num_required_sigs(
+            self.config.num_operators,
+            self.config.num_time_txs,
+            self.config.num_watchtowers,
+        );
+
+        for _ in 0..num_required_sigs {
             // Get the next nonce from each stream
             let pub_nonces = try_join_all(nonce_streams.iter_mut().map(|s| async {
                 s.next()
@@ -343,9 +356,9 @@ impl ClementineAggregator for Aggregator {
             .await
             .map_err(|e| Status::internal(format!("Failed to get partial sig: {:?}", e)))?;
 
-            println!("Partial sigs: {:?}", partial_sigs);
+            tracing::trace!("Received partial sigs: {:?}", partial_sigs);
 
-            let sighash = sighash_stream.next().await.unwrap();
+            let sighash = sighash_stream.next().await.unwrap().unwrap();
 
             tracing::debug!("Aggregator found sighash: {:?}", sighash);
 
@@ -373,11 +386,6 @@ impl ClementineAggregator for Aggregator {
                 .unwrap();
             }
         }
-
-        // for (future, _) in deposit_finalize_streams.iter_mut() {
-        //     let x = future;
-        //     let x = future.await.unwrap();
-        // }
 
         tracing::debug!("Waiting for deposit finalization");
 
@@ -423,7 +431,7 @@ mod tests {
     async fn aggregator_double_setup_fail() {
         let config = create_test_config_with_thread_name!(None);
 
-        let (_, _, aggregator, _) = create_actors!(config, 0);
+        let (_, _, aggregator, _) = create_actors!(config);
         let mut aggregator_client =
             ClementineAggregatorClient::connect(format!("http://{}", aggregator.0))
                 .await
@@ -442,10 +450,10 @@ mod tests {
 
     #[tokio::test]
     #[serial_test::serial]
-    async fn aggregator_setup_winternitz_public_keys() {
+    async fn aggregator_setup_watchtower_winternitz_public_keys() {
         let mut config = create_test_config_with_thread_name!(None);
 
-        let (_verifiers, _operators, aggregator, _watchtowers) = create_actors!(config.clone(), 1);
+        let (_verifiers, _operators, aggregator, _watchtowers) = create_actors!(config.clone());
         let mut aggregator_client =
             ClementineAggregatorClient::connect(format!("http://{}", aggregator.0))
                 .await
@@ -457,7 +465,10 @@ mod tests {
             .unwrap();
 
         let watchtower = Watchtower::new(config.clone()).await.unwrap();
-        let watchtower_wpks = watchtower.get_winternitz_public_keys().await.unwrap();
+        let watchtower_wpks = watchtower
+            .get_watchtower_winternitz_public_keys()
+            .await
+            .unwrap();
 
         let rpc = ExtendedRpc::new(
             config.bitcoin_rpc_url.clone(),
@@ -470,7 +481,7 @@ mod tests {
         let verifier = Verifier::new(rpc, config.clone()).await.unwrap();
         let verifier_wpks = verifier
             .db
-            .get_winternitz_public_keys(None, 0, 0)
+            .get_watchtower_winternitz_public_keys(None, 0, 0)
             .await
             .unwrap();
 

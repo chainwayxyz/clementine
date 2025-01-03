@@ -10,7 +10,8 @@ create table if not exists verifier_public_keys (
 create table if not exists operators (
     operator_idx int primary key,
     xonly_pk text not null,
-    wallet_reimburse_address text not null
+    wallet_reimburse_address text not null,
+    collateral_funding_txid text not null check (collateral_funding_txid ~ '^[a-fA-F0-9]{64}')
 );
 
 -- Time tx's of operators, Only Operator binaries can add entries to this table
@@ -131,11 +132,18 @@ create table if not exists header_chain_proofs (
 );
 
 -- Verifier table of watchtower Winternitz public keys for every operator and time_tx pair
-create table if not exists winternitz_public_keys (
+create table if not exists watchtower_winternitz_public_keys (
     watchtower_id int not null,
     operator_id int not null,
     winternitz_public_keys bytea not null,
     primary key (watchtower_id, operator_id)
+);
+
+-- Verifier table of operators Winternitz public keys for every time_tx
+create table if not exists operator_winternitz_public_keys (
+    operator_id int not null,
+    winternitz_public_keys bytea not null,
+    primary key (operator_id)
 );
 
 COMMIT;

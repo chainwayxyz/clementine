@@ -14,20 +14,20 @@ runs:
   steps:
   - name: Download Bitcoin
     shell: bash
-    run: wget https://bitcoin.org/bin/bitcoin-core-27.0/bitcoin-27.0-x86_64-linux-gnu.tar.gz
+    run: wget https://bitcoincore.org/bin/bitcoin-core-28.0/bitcoin-28.0-x86_64-linux-gnu.tar.gz
   - name: Unpack Bitcoin
     shell: bash
-    run: tar -xzvf bitcoin-27.0-x86_64-linux-gnu.tar.gz
+    run: tar -xzvf bitcoin-28.0-x86_64-linux-gnu.tar.gz
 
   - name: Start Bitcoind
     shell: bash
-    run: bitcoin-27.0/bin/bitcoind -regtest -rpcuser=admin -rpcpassword=admin -rpcport=18443 -fallbackfee=0.00001 -wallet=admin -txindex=1 &
+    run: bitcoin-28.0/bin/bitcoind -regtest -rpcuser=admin -rpcpassword=admin -rpcport=18443 -fallbackfee=0.00001 -wallet=admin -txindex=1 &
   - name: Create a wallet in Bitcoin regtest
     shell: bash
-    run: bitcoin-27.0/bin/bitcoin-cli -regtest -rpcuser=admin -rpcpassword=admin -rpcport=18443 createwallet "admin"
+    run: bitcoin-28.0/bin/bitcoin-cli -regtest -rpcuser=admin -rpcpassword=admin -rpcport=18443 createwallet "admin"
   - name: Create funds in Bitcoin regtest
     shell: bash
-    run: bitcoin-27.0/bin/bitcoin-cli -regtest -rpcuser=admin -rpcpassword=admin -rpcport=18443 generatetoaddress 101 $(bitcoin-27.0/bin/bitcoin-cli -regtest -rpcuser=admin -rpcpassword=admin -rpcport=18443 getnewaddress)
+    run: bitcoin-28.0/bin/bitcoin-cli -regtest -rpcuser=admin -rpcpassword=admin -rpcport=18443 generatetoaddress 101 $(bitcoin-28.0/bin/bitcoin-cli -regtest -rpcuser=admin -rpcpassword=admin -rpcport=18443 getnewaddress)
 
   - name: Install cargo-risczero
     uses: taiki-e/install-action@v2

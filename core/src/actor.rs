@@ -19,6 +19,8 @@ pub enum TxType {
     TimeTx,
     KickoffTx,
     BitVM,
+    OperatorLongestChain,
+    WatchtowerChallenge,
 }
 
 /// Derivation path specification for Winternitz one time public key generation.
@@ -31,6 +33,7 @@ pub struct WinternitzDerivationPath {
     pub operator_idx: Option<u32>,
     pub watchtower_idx: Option<u32>,
     pub time_tx_idx: Option<u32>,
+    pub intermediate_step_idx: Option<u32>,
 }
 impl WinternitzDerivationPath {
     fn to_vec(self) -> Vec<u8> {
@@ -50,6 +53,10 @@ impl WinternitzDerivationPath {
             None => 0,
             Some(i) => i + 1,
         };
+        let intermediate_step_idx = match self.intermediate_step_idx {
+            None => 0,
+            Some(i) => i + 1,
+        };
 
         [
             vec![self.tx_type as u8],
@@ -58,6 +65,7 @@ impl WinternitzDerivationPath {
                 operator_idx.to_be_bytes(),
                 watchtower_idx.to_be_bytes(),
                 time_tx_idx.to_be_bytes(),
+                intermediate_step_idx.to_be_bytes(),
             ]
             .concat(),
         ]
@@ -74,6 +82,7 @@ impl Default for WinternitzDerivationPath {
             operator_idx: Default::default(),
             watchtower_idx: Default::default(),
             time_tx_idx: Default::default(),
+            intermediate_step_idx: Default::default(),
         }
     }
 }
@@ -257,13 +266,20 @@ impl Actor {
         let mut sighash_cache: SighashCache<&mut bitcoin::Transaction> =
             SighashCache::new(&mut tx_handler.tx);
 
+        let prevouts = bitcoin::sighash::Prevouts::All(&tx_handler.prevouts);
+        let leaf_hash = TapLeafHash::from_script(
+            tx_handler
+                .scripts
+                .get(txin_index)
+                .ok_or(BridgeError::NoScriptsForTxIn(txin_index))?
+                .get(script_index)
+                .ok_or(BridgeError::NoScriptAtIndex(script_index))?,
+            LeafVersion::TapScript,
+        );
         let sig_hash = sighash_cache.taproot_script_spend_signature_hash(
             txin_index,
-            &bitcoin::sighash::Prevouts::All(&tx_handler.prevouts),
-            TapLeafHash::from_script(
-                &tx_handler.scripts[txin_index][script_index],
-                LeafVersion::TapScript,
-            ),
+            &prevouts,
+            leaf_hash,
             bitcoin::sighash::TapSighashType::Default,
         )?;
 
@@ -357,7 +373,7 @@ mod tests {
         let mut tx_handler = create_invalid_mock_tx_handler(actor);
 
         let prev_tx: Transaction = Transaction {
-            version: Version::TWO,
+            version: Version(3),
             lock_time: bitcoin::absolute::LockTime::Blocks(Height::ZERO),
             input: vec![],
             output: tx_handler.prevouts.clone(),
@@ -390,7 +406,7 @@ mod tests {
         }];
 
         let tx = Transaction {
-            version: Version::TWO,
+            version: Version(3),
             lock_time: bitcoin::absolute::LockTime::Blocks(Height::ZERO),
             input: vec![],
             output: vec![TxOut {
@@ -483,31 +499,31 @@ mod tests {
         let mut params = WinternitzDerivationPath::default();
         assert_eq!(
             params.to_vec(),
-            vec![0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
+            vec![0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
         );
 
         params.index = Some(0);
         assert_eq!(
             params.to_vec(),
-            vec![0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
+            vec![0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
         );
 
         params.operator_idx = Some(1);
         assert_eq!(
             params.to_vec(),
-            vec![0, 0, 0, 0, 1, 0, 0, 0, 2, 0, 0, 0, 0, 0, 0, 0, 0]
+            vec![0, 0, 0, 0, 1, 0, 0, 0, 2, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
         );
 
         params.watchtower_idx = Some(2);
         assert_eq!(
             params.to_vec(),
-            vec![0, 0, 0, 0, 1, 0, 0, 0, 2, 0, 0, 0, 3, 0, 0, 0, 0]
+            vec![0, 0, 0, 0, 1, 0, 0, 0, 2, 0, 0, 0, 3, 0, 0, 0, 0, 0, 0, 0, 0]
         );
 
         params.time_tx_idx = Some(3);
         assert_eq!(
             params.to_vec(),
-            vec![0, 0, 0, 0, 1, 0, 0, 0, 2, 0, 0, 0, 3, 0, 0, 0, 4]
+            vec![0, 0, 0, 0, 1, 0, 0, 0, 2, 0, 0, 0, 3, 0, 0, 0, 4, 0, 0, 0, 0]
         );
     }
 
@@ -546,8 +562,8 @@ mod tests {
 
         let params = WinternitzDerivationPath::default();
         let expected_pk = vec![[
-            131, 103, 150, 108, 78, 19, 81, 185, 206, 88, 153, 178, 232, 97, 82, 129, 172, 190,
-            235, 13,
+            47, 247, 126, 209, 93, 128, 238, 60, 31, 80, 198, 136, 26, 126, 131, 194, 209, 85, 180,
+            145,
         ]];
         assert_eq!(actor.derive_winternitz_pk(params).unwrap(), expected_pk);
     }

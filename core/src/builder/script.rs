@@ -5,6 +5,7 @@
 
 use crate::EVMAddress;
 use bitcoin::blockdata::opcodes::all::OP_PUSHNUM_1;
+use bitcoin::opcodes::OP_TRUE;
 use bitcoin::Amount;
 use bitcoin::{
     opcodes::{all::*, OP_FALSE},
@@ -81,4 +82,28 @@ pub fn generate_relative_timelock_script(
         .push_x_only_key(&actor_taproot_xonly_pk)
         .push_opcode(OP_CHECKSIG)
         .into_script()
+}
+
+pub fn actor_with_preimage_script(
+    actor_taproot_xonly_pk: XOnlyPublicKey,
+    hash: &[u8; 20],
+) -> ScriptBuf {
+    Builder::new()
+        .push_opcode(OP_HASH160)
+        .push_slice(hash)
+        .push_opcode(OP_EQUALVERIFY)
+        .push_x_only_key(&actor_taproot_xonly_pk)
+        .push_opcode(OP_CHECKSIG)
+        .into_script()
+}
+
+pub fn checksig_script(actor_taproot_xonly_pk: XOnlyPublicKey) -> ScriptBuf {
+    Builder::new()
+        .push_x_only_key(&actor_taproot_xonly_pk)
+        .push_opcode(OP_CHECKSIG)
+        .into_script()
+}
+
+pub fn dummy_script() -> ScriptBuf {
+    Builder::new().push_opcode(OP_TRUE).into_script()
 }
