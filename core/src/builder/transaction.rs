@@ -5,7 +5,7 @@
 
 use super::address::create_taproot_address;
 use crate::builder;
-use crate::constants::{NUM_DISRPOVE_SCRIPTS, NUM_INTERMEDIATE_STEPS};
+use crate::constants::{NUM_DISPROVE_SCRIPTS, NUM_INTERMEDIATE_STEPS};
 use crate::{utils, EVMAddress, UTXO};
 use bitcoin::address::NetworkUnchecked;
 use bitcoin::hashes::Hash;
@@ -668,19 +668,19 @@ pub fn create_assert_end_txhandler(
         vout: 3,
     });
 
-    let mut disprve_scripts = vec![];
-    for _ in 0..NUM_DISRPOVE_SCRIPTS {
-        disprve_scripts.push(builder::script::checksig_script(nofn_xonly_pk)); // TODO: ADD actual disprove scripts here
+    let mut disprove_scripts = vec![];
+    for _ in 0..NUM_DISPROVE_SCRIPTS {
+        disprove_scripts.push(builder::script::checksig_script(nofn_xonly_pk)); // TODO: ADD actual disprove scripts here
     }
 
     let (disprove_address, _disprove_taproot_spend_info) = builder::address::create_taproot_address(
-        &disprve_scripts.clone(),
+        &disprove_scripts.clone(),
         Some(nofn_xonly_pk),
         network,
     );
     let tx_outs = vec![
         TxOut {
-            value: Amount::from_sat(330), // TOOD: Hand calculate this
+            value: Amount::from_sat(330), // TODO: Hand calculate this
             script_pubkey: disprove_address.script_pubkey(),
         },
         builder::script::anyone_can_spend_txout(),
@@ -726,6 +726,53 @@ pub fn create_assert_end_txhandler(
         prevouts,
         scripts,
         taproot_spend_infos,
+    }
+}
+
+pub fn create_disprove_tx(
+    assert_end_txid: Txid,
+    time_txid: Txid,
+    nofn_xonly_pk: XOnlyPublicKey,
+    network: bitcoin::Network,
+) -> TxHandler {
+    let tx_ins = create_tx_ins(vec![
+        OutPoint {
+            txid: assert_end_txid,
+            vout: 0,
+        },
+        OutPoint {
+            txid: time_txid,
+            vout: 0,
+        }
+    ]);
+
+    let tx_outs = vec![
+        builder::script::anyone_can_spend_txout(),
+    ];
+
+    let disprove_tx = create_btc_tx(tx_ins, tx_outs);
+
+    let mut disprove_scripts = vec![];
+    for _ in 0..NUM_DISPROVE_SCRIPTS {
+        disprove_scripts.push(builder::script::checksig_script(nofn_xonly_pk)); // TODO: ADD actual disprove scripts here
+    }
+    let (disprove_address, disprove_taproot_spend_info) = builder::address::create_taproot_address(
+        &disprove_scripts,
+        Some(nofn_xonly_pk),
+        network,
+    );
+    let mut prevouts = vec![
+        TxOut {
+            value: Amount::from_sat(330), // TODO: Hand calculate this
+            script_pubkey: disprove_address.script_pubkey(),
+        }
+    ];
+
+    TxHandler {
+        tx: disprove_tx,
+        prevouts,
+        scripts: vec![disprove_scripts, vec![]],
+        taproot_spend_infos: vec![disprove_taproot_spend_info],
     }
 }
 
