@@ -291,7 +291,7 @@ impl Actor {
         tx_handler: &mut TxHandler,
         txin_index: usize,
         script_index: usize,
-        sighash_type: TapSighashType,
+        sighash_type: Option<TapSighashType>,
     ) -> Result<TapSighash, BridgeError> {
         let mut sighash_cache: SighashCache<&mut bitcoin::Transaction> =
             SighashCache::new(&mut tx_handler.tx);
@@ -310,7 +310,7 @@ impl Actor {
             txin_index,
             &prevouts,
             leaf_hash,
-            sighash_type,
+            sighash_type.unwrap_or(TapSighashType::Default),
         )?;
 
         Ok(sig_hash)
@@ -328,6 +328,24 @@ impl Actor {
             txin_index,
             &bitcoin::sighash::Prevouts::All(&tx.prevouts),
             bitcoin::sighash::TapSighashType::Default,
+        )?;
+
+        Ok(sig_hash)
+    }
+
+    #[tracing::instrument(err(level = tracing::Level::ERROR), ret(level = tracing::Level::TRACE))]
+    pub fn convert_tx_to_pubkey_spend(
+        tx: &mut TxHandler,
+        txin_index: usize,
+        sighash_type: Option<TapSighashType>,
+    ) -> Result<TapSighash, BridgeError> {
+        let mut sighash_cache: SighashCache<&mut bitcoin::Transaction> =
+            SighashCache::new(&mut tx.tx);
+
+        let sig_hash = sighash_cache.taproot_key_spend_signature_hash(
+            txin_index,
+            &bitcoin::sighash::Prevouts::All(&tx.prevouts),
+            sighash_type.unwrap_or(TapSighashType::Default),
         )?;
 
         Ok(sig_hash)

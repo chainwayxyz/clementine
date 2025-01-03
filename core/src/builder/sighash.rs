@@ -86,6 +86,20 @@ pub fn create_nofn_sighash_stream(
                 )
                 .compute_txid();
 
+                let mut challenge_tx = builder::transaction::create_challenge_tx(
+                    kickoff_txid,
+                    nofn_xonly_pk,
+                    *operator_xonly_pk,
+                    network
+                );
+
+                yield Actor::convert_tx_to_pubkey_spend(
+                    &mut challenge_tx,
+                    0,
+                    Some(bitcoin::sighash::TapSighashType::SinglePlusAnyoneCanPay)
+                )?;
+
+
                 let watchtower_wots = (0..config.num_watchtowers)
                     .map(|i| watchtower_challenge_wotss[i][time_tx_idx].clone())
                     .collect::<Vec<_>>();
@@ -182,7 +196,7 @@ pub fn create_nofn_sighash_stream(
                         &mut disprove_tx,
                         0,
                         i,
-                        bitcoin::sighash::TapSighashType::None,
+                        Some(bitcoin::sighash::TapSighashType::None),
                     )?;
                 }
 
