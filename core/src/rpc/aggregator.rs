@@ -1,5 +1,6 @@
 use super::clementine::{
-    clementine_aggregator_server::ClementineAggregator, DepositParams, Empty, RawSignedMoveTx,
+    clementine_aggregator_server::ClementineAggregator, verifier_deposit_finalize_params,
+    DepositParams, Empty, RawSignedMoveTx, VerifierDepositFinalizeParams,
 };
 use crate::{
     aggregator::Aggregator,
@@ -9,64 +10,53 @@ use crate::{
     rpc::clementine::{self, DepositSignSession},
     ByteArray32, ByteArray66, EVMAddress,
 };
-use bitcoin::{hashes::Hash, Amount};
-use futures::{future::try_join_all, stream::BoxStream, FutureExt, StreamExt};
+use bitcoin::{hashes::Hash, Amount, TapSighash};
+use futures::{future::try_join_all, stream::BoxStream, FutureExt, Stream, StreamExt};
 use std::pin::pin;
-use tonic::{async_trait, Request, Response, Status};
-use tokio::sync::mpsc::{channel, Sender, Receiver};
+use tokio::sync::mpsc::{channel, Receiver, Sender};
+use tonic::{async_trait, Request, Response, Status, Streaming};
 
 struct AggNonceQueueItem {
-    agg_nonce: ByteArray32,
-    sighash: bitcoin::Sighash,
+    agg_nonce: ByteArray66,
+    sighash: TapSighash,
 }
 
 struct FinalSigQueueItem {
     final_sig: Vec<u8>,
 }
 
-async fn nonce_aggregator_task(
-    mut nonce_streams: Vec<BoxStream<Result<MuSigPubNonce, BridgeError>>>,
-    mut sighash_stream: impl Stream<Item = Result<bitcoin::Sighash, BridgeError>> + Unpin + Send + 'static,
+async fn nonce_aggregator_task<STREAM>(
+    mut nonce_streams: Vec<STREAM>,
+    mut sighash_stream: impl Stream<Item = Result<TapSighash, BridgeError>> + Unpin + Send + 'static,
     agg_nonce_sender: Sender<AggNonceQueueItem>,
-) {
+) -> Result<(), BridgeError>
+where
+    STREAM: Stream<Item = Result<MuSigPubNonce, BridgeError>> + Unpin + Send + 'static,
+{
     while let Ok(sighash) = sighash_stream.next().await.transpose() {
-        let sighash = match sighash {
-            Ok(s) => s,
-            Err(e) => {
-                tracing::error!("Failed to get sighash: {:?}", e);
-                break;
-            }
-        };
-
         // Collect nonces from all verifiers
-        let pub_nonces = match try_join_all(nonce_streams.iter_mut().map(|s| async {
+        let pub_nonces = try_join_all(nonce_streams.iter_mut().map(|s| async {
             s.next()
                 .await
                 .ok_or_else(|| BridgeError::Error("Stream ended unexpectedly".into()))?
                 .map_err(|e| BridgeError::Error(format!("Failed to get nonce: {:?}", e)))
         }))
-        .await
-        {
-            Ok(nonces) => nonces,
-            Err(e) => {
-                tracing::error!("Failed to collect nonces: {:?}", e);
-                break;
-            }
-        };
+        .await?;
 
         // Aggregate nonces in blocking thread
-        let agg_nonce = match tokio::task::spawn_blocking(move || aggregate_nonces(pub_nonces)).await {
-            Ok(nonce) => nonce,
-            Err(e) => {
-                tracing::error!("Failed to aggregate nonces: {:?}", e);
-                break;
-            }
-        };
+        let agg_nonce =
+            match tokio::task::spawn_blocking(move || aggregate_nonces(pub_nonces)).await {
+                Ok(nonce) => nonce,
+                Err(e) => {
+                    tracing::error!("Failed to aggregate nonces: {:?}", e);
+                    break;
+                }
+            };
 
         if agg_nonce_sender
             .send(AggNonceQueueItem {
                 agg_nonce,
-                sighash,
+                sighash: sighash.ok_or(BridgeError::Error("No sighash received".into()))?,
             })
             .await
             .is_err()
@@ -75,11 +65,16 @@ async fn nonce_aggregator_task(
             break;
         }
     }
+
+    Ok(())
 }
 
 async fn nonce_distributor_task(
     mut agg_nonce_receiver: Receiver<AggNonceQueueItem>,
-    partial_sig_streams: Vec<(tonic::Streaming<clementine::VerifierPartialSig>, tokio::sync::mpsc::Sender<clementine::VerifierDepositSignParams>)>,
+    partial_sig_streams: Vec<(
+        Streaming<clementine::PartialSig>,
+        Sender<clementine::VerifierDepositSignParams>,
+    )>,
     partial_sig_sender: Sender<(Vec<ByteArray32>, AggNonceQueueItem)>,
 ) {
     while let Some(queue_item) = agg_nonce_receiver.recv().await {
@@ -100,7 +95,8 @@ async fn nonce_distributor_task(
         // Collect partial signatures
         let partial_sigs = match try_join_all(partial_sig_streams.iter().map(|(s, _)| async {
             let partial_sig = s.message().await?;
-            let partial_sig = partial_sig.ok_or(BridgeError::Error("No partial sig received".into()))?;
+            let partial_sig =
+                partial_sig.ok_or(BridgeError::Error("No partial sig received".into()))?;
             Ok::<_, BridgeError>(ByteArray32(partial_sig.partial_sig.try_into().unwrap()))
         }))
         .await
@@ -125,7 +121,7 @@ async fn nonce_distributor_task(
 
 async fn signature_aggregator_task(
     mut partial_sig_receiver: Receiver<(Vec<ByteArray32>, AggNonceQueueItem)>,
-    verifiers_public_keys: Vec<Vec<u8>>,
+    verifiers_public_keys: Vec<secp256k1::PublicKey>,
     final_sig_sender: Sender<FinalSigQueueItem>,
 ) {
     while let Some((partial_sigs, queue_item)) = partial_sig_receiver.recv().await {
@@ -168,15 +164,13 @@ async fn signature_aggregator_task(
 
 async fn signature_distributor_task(
     mut final_sig_receiver: Receiver<FinalSigQueueItem>,
-    deposit_finalize_sender: Vec<tokio::sync::mpsc::Sender<clementine::VerifierDepositFinalizeParams>>,
+    deposit_finalize_sender: Vec<Sender<VerifierDepositFinalizeParams>>,
 ) {
     while let Some(queue_item) = final_sig_receiver.recv().await {
-        let final_params = clementine::VerifierDepositFinalizeParams {
-            params: Some(
-                clementine::verifier_deposit_finalize_params::Params::SchnorrSig(
-                    queue_item.final_sig,
-                ),
-            ),
+        let final_params = VerifierDepositFinalizeParams {
+            params: Some(verifier_deposit_finalize_params::Params::SchnorrSig(
+                queue_item.final_sig,
+            )),
         };
 
         for tx in &deposit_finalize_sender {
@@ -273,55 +267,6 @@ impl Aggregator {
             })
             .collect();
         Ok((first_responses, transformed_streams))
-    }
-
-    async fn process_signature_rounds(
-        nonce_streams: Vec<BoxStream<Result<MuSigPubNonce, BridgeError>>>,
-        partial_sig_streams: Vec<(tonic::Streaming<clementine::VerifierPartialSig>, tokio::sync::mpsc::Sender<clementine::VerifierDepositSignParams>)>,
-        deposit_finalize_sender: Vec<tokio::sync::mpsc::Sender<clementine::VerifierDepositFinalizeParams>>,
-        verifiers_public_keys: Vec<Vec<u8>>,
-        sighash_stream: impl Stream<Item = Result<bitcoin::Sighash, BridgeError>> + Unpin + Send + 'static,
-    ) -> Result<(), Status> {
-        // Create channels for the pipeline stages
-        let (agg_nonce_sender, agg_nonce_receiver) = channel(32);
-        let (partial_sig_sender, partial_sig_receiver) = channel(32);
-        let (final_sig_sender, final_sig_receiver) = channel(32);
-
-        // Spawn all pipeline tasks
-        let nonce_agg_handle = tokio::spawn(nonce_aggregator_task(
-            nonce_streams,
-            sighash_stream,
-            agg_nonce_sender,
-        ));
-
-        let nonce_dist_handle = tokio::spawn(nonce_distributor_task(
-            agg_nonce_receiver,
-            partial_sig_streams,
-            partial_sig_sender,
-        ));
-
-        let sig_agg_handle = tokio::spawn(signature_aggregator_task(
-            partial_sig_receiver,
-            verifiers_public_keys,
-            final_sig_sender,
-        ));
-
-        let sig_dist_handle = tokio::spawn(signature_distributor_task(
-            final_sig_receiver,
-            deposit_finalize_sender,
-        ));
-
-        // Wait for all tasks to complete
-        try_join_all(vec![
-            nonce_agg_handle,
-            nonce_dist_handle,
-            sig_agg_handle,
-            sig_dist_handle,
-        ])
-        .await
-        .map_err(|e| Status::internal(format!("Pipeline task failed: {:?}", e)))?;
-
-        Ok(())
     }
 }
 
@@ -541,14 +486,43 @@ impl ClementineAggregator for Aggregator {
             self.config.num_watchtowers,
         );
 
-        self.process_signature_rounds(
+        let (agg_nonce_sender, agg_nonce_receiver) = channel(32);
+        let (partial_sig_sender, partial_sig_receiver) = channel(32);
+        let (final_sig_sender, final_sig_receiver) = channel(32);
+
+        // Spawn all pipeline tasks
+        let nonce_agg_handle = tokio::spawn(nonce_aggregator_task(
             nonce_streams,
-            partial_sig_streams,
-            deposit_finalize_sender,
-            verifiers_public_keys.clone(),
             sighash_stream,
-        )
-        .await?;
+            agg_nonce_sender,
+        ));
+
+        let nonce_dist_handle = tokio::spawn(nonce_distributor_task(
+            agg_nonce_receiver,
+            partial_sig_streams,
+            partial_sig_sender,
+        ));
+
+        let sig_agg_handle = tokio::spawn(signature_aggregator_task(
+            partial_sig_receiver,
+            verifiers_public_keys,
+            final_sig_sender,
+        ));
+
+        let sig_dist_handle = tokio::spawn(signature_distributor_task(
+            final_sig_receiver,
+            deposit_finalize_sender,
+        ));
+
+        // Wait for all tasks to complete
+        try_join_all(vec![
+            nonce_agg_handle,
+            nonce_dist_handle,
+            sig_agg_handle,
+            sig_dist_handle,
+        ])
+        .await
+        .map_err(|e| Status::internal(format!("Pipeline task failed: {:?}", e)))?;
 
         tracing::debug!("Waiting for deposit finalization");
 
