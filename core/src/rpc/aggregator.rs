@@ -71,12 +71,12 @@ where
 
 async fn nonce_distributor_task(
     mut agg_nonce_receiver: Receiver<AggNonceQueueItem>,
-    partial_sig_streams: Vec<(
+    mut partial_sig_streams: Vec<(
         Streaming<clementine::PartialSig>,
         Sender<clementine::VerifierDepositSignParams>,
     )>,
     partial_sig_sender: Sender<(Vec<ByteArray32>, AggNonceQueueItem)>,
-) {
+) -> Result<(), BridgeError> {
     while let Some(queue_item) = agg_nonce_receiver.recv().await {
         let agg_nonce_wrapped = clementine::VerifierDepositSignParams {
             params: Some(clementine::verifier_deposit_sign_params::Params::AggNonce(
@@ -86,49 +86,41 @@ async fn nonce_distributor_task(
 
         // Send aggregated nonce to all verifiers
         for (_, tx) in partial_sig_streams.iter() {
-            if tx.send(agg_nonce_wrapped.clone()).await.is_err() {
-                tracing::error!("Failed to send aggregated nonce to verifier");
-                return;
-            }
+            tx.send(agg_nonce_wrapped.clone())
+                .await
+                .map_err(|e| BridgeError::Error(format!("EE {}", e.to_string())))?;
         }
 
         // Collect partial signatures
-        let partial_sigs = match try_join_all(partial_sig_streams.iter().map(|(s, _)| async {
+        let partial_sigs = try_join_all(partial_sig_streams.iter_mut().map(|(s, _)| async {
             let partial_sig = s.message().await?;
             let partial_sig =
                 partial_sig.ok_or(BridgeError::Error("No partial sig received".into()))?;
             Ok::<_, BridgeError>(ByteArray32(partial_sig.partial_sig.try_into().unwrap()))
         }))
         .await
-        {
-            Ok(sigs) => sigs,
-            Err(e) => {
-                tracing::error!("Failed to collect partial signatures: {:?}", e);
-                return;
-            }
-        };
+        .map_err(|e| BridgeError::Error(format!("Failed to get partial sigs: {:?}", e)))?;
 
-        if partial_sig_sender
+        partial_sig_sender
             .send((partial_sigs, queue_item))
             .await
-            .is_err()
-        {
-            tracing::error!("Failed to send partial signatures to queue");
-            return;
-        }
+            .map_err(|e| BridgeError::Error(format!("EE {}", e.to_string())))?;
     }
+
+    Ok(())
 }
 
 async fn signature_aggregator_task(
     mut partial_sig_receiver: Receiver<(Vec<ByteArray32>, AggNonceQueueItem)>,
     verifiers_public_keys: Vec<secp256k1::PublicKey>,
     final_sig_sender: Sender<FinalSigQueueItem>,
-) {
+) -> Result<(), BridgeError> {
     while let Some((partial_sigs, queue_item)) = partial_sig_receiver.recv().await {
         // Aggregate signatures in blocking thread
+        let verifiers_public_keys = verifiers_public_keys.clone();
         let final_sig = match tokio::task::spawn_blocking(move || {
             crate::musig2::aggregate_partial_signatures(
-                verifiers_public_keys.clone(),
+                verifiers_public_keys,
                 None,
                 false,
                 &queue_item.agg_nonce,
@@ -157,15 +149,17 @@ async fn signature_aggregator_task(
             .is_err()
         {
             tracing::error!("Failed to send final signature to queue");
-            return;
+            return Ok(());
         }
     }
+
+    Ok(())
 }
 
 async fn signature_distributor_task(
     mut final_sig_receiver: Receiver<FinalSigQueueItem>,
     deposit_finalize_sender: Vec<Sender<VerifierDepositFinalizeParams>>,
-) {
+) -> Result<(), BridgeError> {
     while let Some(queue_item) = final_sig_receiver.recv().await {
         let final_params = VerifierDepositFinalizeParams {
             params: Some(verifier_deposit_finalize_params::Params::SchnorrSig(
@@ -176,10 +170,12 @@ async fn signature_distributor_task(
         for tx in &deposit_finalize_sender {
             if tx.send(final_params.clone()).await.is_err() {
                 tracing::error!("Failed to send final signature to verifier");
-                return;
+                return Ok(());
             }
         }
     }
+
+    Ok(())
 }
 
 impl Aggregator {
