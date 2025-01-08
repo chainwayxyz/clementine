@@ -2,6 +2,7 @@ use super::clementine::{
     clementine_aggregator_server::ClementineAggregator, verifier_deposit_finalize_params,
     DepositParams, Empty, RawSignedMoveTx, VerifierDepositFinalizeParams,
 };
+use crate::rpc::clementine::clementine_verifier_client::ClementineVerifierClient;
 use crate::{
     aggregator::Aggregator,
     builder::sighash::{calculate_num_required_sigs, create_nofn_sighash_stream},
@@ -85,7 +86,7 @@ async fn nonce_distributor_task(
         };
 
         // Send aggregated nonce to all verifiers
-        for (_, tx) in partial_sig_streams.iter() {
+        for (_, tx) in partial_sig_streams.iter_mut() {
             tx.send(agg_nonce_wrapped.clone())
                 .await
                 .map_err(|e| BridgeError::Error(format!("EE {}", e.to_string())))?;
@@ -178,6 +179,73 @@ async fn signature_distributor_task(
     Ok(())
 }
 
+async fn create_nonce_streams(
+    verifier_clients: Vec<ClementineVerifierClient<tonic::transport::Channel>>,
+    num_nonces: u32,
+) -> Result<
+    (
+        Vec<clementine::NonceGenFirstResponse>,
+        Vec<BoxStream<'static, Result<MuSigPubNonce, BridgeError>>>,
+    ),
+    BridgeError,
+> {
+    // generate nonces from all verifiers
+    let mut nonce_streams = try_join_all(verifier_clients.into_iter().map(|client| {
+        // Clone each client to avoid mutable borrow.
+        // https://github.com/hyperium/tonic/issues/33#issuecomment-538150828
+        let mut client = client.clone();
+
+        async move {
+            let response_stream = client
+                .nonce_gen(tonic::Request::new(clementine::NonceGenRequest {
+                    num_nonces,
+                }))
+                .await?;
+
+            Ok::<_, Status>(response_stream.into_inner())
+        }
+    }))
+    .await?;
+
+    // Get the first responses from each stream
+    let first_responses: Vec<clementine::NonceGenFirstResponse> =
+        try_join_all(nonce_streams.iter_mut().map(|s| async {
+            let nonce_gen_first_response = s.message().await?;
+            let nonce_gen_first_response = nonce_gen_first_response
+                .ok_or(BridgeError::Error("NonceGen returns nothing".to_string()))?
+                .response
+                .ok_or(BridgeError::Error(
+                    "NonceGen response field is empty".to_string(),
+                ))?;
+            // this response is an enum, so we need to match on it
+            match nonce_gen_first_response {
+                clementine::nonce_gen_response::Response::FirstResponse(
+                    nonce_gen_first_response,
+                ) => Ok(nonce_gen_first_response),
+                _ => Err(BridgeError::Error(
+                    "NonceGen response is not FirstResponse".to_string(),
+                )),
+            }
+        }))
+        .await?;
+
+    let transformed_streams: Vec<BoxStream<Result<ByteArray66, BridgeError>>> = nonce_streams
+        .into_iter()
+        .map(|stream| {
+            stream
+                .map(|result| {
+                    result
+                        .map_err(BridgeError::from)
+                        .and_then(|nonce_gen_response| {
+                            Aggregator::extract_pub_nonce(nonce_gen_response.response)
+                        })
+                })
+                .boxed()
+        })
+        .collect();
+    Ok((first_responses, transformed_streams))
+}
+
 impl Aggregator {
     // Extracts pub_nonce from given stream.
     fn extract_pub_nonce(
@@ -194,75 +262,6 @@ impl Aggregator {
                 "Expected PubNonce in response".to_string(),
             )),
         }
-    }
-
-    /// Creates a stream of nonces from verifiers.
-    /// This will automatically get's the first response from the verifiers.
-    async fn create_nonce_streams(
-        &self,
-        num_nonces: u32,
-    ) -> Result<
-        (
-            Vec<clementine::NonceGenFirstResponse>,
-            Vec<BoxStream<Result<MuSigPubNonce, BridgeError>>>,
-        ),
-        BridgeError,
-    > {
-        // generate nonces from all verifiers
-        let mut nonce_streams = try_join_all(self.verifier_clients.iter().map(|client| {
-            // Clone each client to avoid mutable borrow.
-            // https://github.com/hyperium/tonic/issues/33#issuecomment-538150828
-            let mut client = client.clone();
-
-            async move {
-                let response_stream = client
-                    .nonce_gen(tonic::Request::new(clementine::NonceGenRequest {
-                        num_nonces,
-                    }))
-                    .await?;
-
-                Ok::<_, Status>(response_stream.into_inner())
-            }
-        }))
-        .await?;
-
-        // Get the first responses from each stream
-        let first_responses: Vec<clementine::NonceGenFirstResponse> =
-            try_join_all(nonce_streams.iter_mut().map(|s| async {
-                let nonce_gen_first_response = s.message().await?;
-                let nonce_gen_first_response = nonce_gen_first_response
-                    .ok_or(BridgeError::Error("NonceGen returns nothing".to_string()))?
-                    .response
-                    .ok_or(BridgeError::Error(
-                        "NonceGen response field is empty".to_string(),
-                    ))?;
-                // this response is an enum, so we need to match on it
-                match nonce_gen_first_response {
-                    clementine::nonce_gen_response::Response::FirstResponse(
-                        nonce_gen_first_response,
-                    ) => Ok(nonce_gen_first_response),
-                    _ => Err(BridgeError::Error(
-                        "NonceGen response is not FirstResponse".to_string(),
-                    )),
-                }
-            }))
-            .await?;
-
-        let transformed_streams: Vec<BoxStream<Result<ByteArray66, BridgeError>>> = nonce_streams
-            .into_iter()
-            .map(|stream| {
-                stream
-                    .map(|result| {
-                        result
-                            .map_err(BridgeError::from)
-                            .and_then(|nonce_gen_response| {
-                                Self::extract_pub_nonce(nonce_gen_response.response)
-                            })
-                    })
-                    .boxed()
-            })
-            .collect();
-        Ok((first_responses, transformed_streams))
     }
 }
 
@@ -387,7 +386,7 @@ impl ClementineAggregator for Aggregator {
             self.config.num_watchtowers,
         );
         let (first_responses, mut nonce_streams) =
-            self.create_nonce_streams(num_required_sigs as u32).await?;
+            create_nonce_streams(self.verifier_clients.clone(), num_required_sigs as u32).await?;
 
         // Open the streams for deposit_sign for each verifier
         let mut partial_sig_streams = try_join_all(self.verifier_clients.iter().map(|v| {
@@ -461,7 +460,7 @@ impl ClementineAggregator for Aggregator {
             tx.send(deposit_finalize_first_param.clone()).await.unwrap();
         }
 
-        let mut sighash_stream = pin!(create_nofn_sighash_stream(
+        let sighash_stream = create_nofn_sighash_stream(
             self.db.clone(),
             self.config.clone(),
             deposit_outpoint,
@@ -474,7 +473,8 @@ impl ClementineAggregator for Aggregator {
             100,
             self.config.bridge_amount_sats,
             self.config.network,
-        ));
+        );
+        let mut sighash_stream = Box::pin(sighash_stream);
 
         let num_required_sigs = calculate_num_required_sigs(
             self.config.num_operators,
