@@ -108,8 +108,10 @@ pub fn handle_taproot_witness_new<T: AsRef<[u8]>>(
         .iter()
         .for_each(|element| witness.push(element));
     if let Some(index) = script_index {
-        let script = &tx.scripts[txin_index][index];
-        let spend_control_block = tx.taproot_spend_infos[txin_index]
+        let script = &tx.prev_scripts[txin_index][index];
+        let spend_control_block = tx.prev_taproot_spend_infos[txin_index]
+            .clone()
+            .ok_or(BridgeError::TaprootScriptError)?
             .control_block(&(script.clone(), LeafVersion::TapScript))
             .ok_or(BridgeError::ControlBlockError)?;
 

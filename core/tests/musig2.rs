@@ -81,7 +81,8 @@ async fn key_spend() {
         get_verifiers_keys(&config);
     let (nonce_pairs, agg_nonce) = get_nonces(verifiers_secret_public_keys.clone());
 
-    let (to_address, _) = builder::address::create_taproot_address(&[], None, config.network);
+    let (to_address, to_address_spend) =
+        builder::address::create_taproot_address(&[], None, config.network);
     let (from_address, from_address_spend_info) =
         builder::address::create_taproot_address(&[], Some(untweaked_xonly_pubkey), config.network);
 
@@ -99,10 +100,13 @@ async fn key_spend() {
     let dummy_tx = builder::transaction::create_btc_tx(tx_ins, tx_outs);
 
     let mut tx_details = TxHandler {
+        txid: dummy_tx.compute_txid(),
         tx: dummy_tx,
         prevouts: vec![prevout],
-        scripts: vec![vec![]],
-        taproot_spend_infos: vec![from_address_spend_info.clone()],
+        prev_scripts: vec![vec![]],
+        prev_taproot_spend_infos: vec![Some(from_address_spend_info.clone())],
+        out_scripts: vec![vec![]],
+        out_taproot_spend_infos: vec![Some(to_address_spend.clone())],
     };
     let message = Actor::convert_tx_to_sighash_pubkey_spend(&mut tx_details, 0)
         .unwrap()
@@ -176,7 +180,8 @@ async fn key_spend_with_script() {
     let dummy_script = script::Builder::new().push_int(1).into_script();
     let scripts: Vec<ScriptBuf> = vec![dummy_script];
 
-    let (to_address, _) = builder::address::create_taproot_address(&[], None, config.network);
+    let (to_address, to_address_spend) =
+        builder::address::create_taproot_address(&[], None, config.network);
     let (from_address, from_address_spend_info) = builder::address::create_taproot_address(
         &scripts,
         Some(untweaked_xonly_pubkey),
@@ -195,12 +200,14 @@ async fn key_spend_with_script() {
 
     let tx_ins = builder::transaction::create_tx_ins(vec![utxo]);
     let dummy_tx = builder::transaction::create_btc_tx(tx_ins, tx_outs);
-
     let mut tx_details = TxHandler {
+        txid: dummy_tx.compute_txid(),
         tx: dummy_tx,
         prevouts: vec![prevout],
-        scripts: vec![scripts],
-        taproot_spend_infos: vec![from_address_spend_info.clone()],
+        prev_scripts: vec![scripts],
+        prev_taproot_spend_infos: vec![Some(from_address_spend_info.clone())],
+        out_scripts: vec![vec![]],
+        out_taproot_spend_infos: vec![Some(to_address_spend.clone())],
     };
     let message = Actor::convert_tx_to_sighash_pubkey_spend(&mut tx_details, 0)
         .unwrap()
@@ -307,10 +314,13 @@ async fn script_spend() {
     let tx_ins = builder::transaction::create_tx_ins(vec![utxo]);
     let dummy_tx = builder::transaction::create_btc_tx(tx_ins, tx_outs);
     let mut tx_details = TxHandler {
+        txid: dummy_tx.compute_txid(),
         tx: dummy_tx,
         prevouts: vec![prevout],
-        scripts: vec![scripts],
-        taproot_spend_infos: vec![from_address_spend_info.clone()],
+        prev_scripts: vec![scripts],
+        prev_taproot_spend_infos: vec![Some(from_address_spend_info.clone())],
+        out_scripts: vec![vec![]],
+        out_taproot_spend_infos: vec![None],
     };
     let message = Actor::convert_tx_to_sighash_script_spend(&mut tx_details, 0, 0)
         .unwrap()

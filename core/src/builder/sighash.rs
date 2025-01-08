@@ -58,7 +58,7 @@ pub fn convert_tx_to_script_spend(
     };
     let leaf_hash = TapLeafHash::from_script(
         tx_handler
-            .scripts
+            .prev_scripts
             .get(txin_index)
             .ok_or(BridgeError::NoScriptsForTxIn(txin_index))?
             .get(script_index)
@@ -98,13 +98,15 @@ pub fn create_nofn_sighash_stream(
     network: bitcoin::Network,
 ) -> impl Stream<Item = Result<TapSighash, BridgeError>> {
     try_stream! {
-        let move_txid = builder::transaction::create_move_tx(
+        let move_txhandler = builder::transaction::create_move_txhandler(
             deposit_outpoint,
+            _evm_address,
+            &_recovery_taproot_address,
             nofn_xonly_pk,
+            _user_takes_after as u32,
             bridge_amount_sats,
             network,
-        )
-        .compute_txid();
+        );
 
         let operators: Vec<(secp256k1::XOnlyPublicKey, bitcoin::Address, Txid)> =
             db.get_operators(None).await?;
@@ -126,32 +128,27 @@ pub fn create_nofn_sighash_stream(
             let mut input_amount = collateral_funding_amount;
 
             for time_tx_idx in 0..config.num_time_txs {
-                let time_txid = builder::transaction::create_time_tx(
+                let time_txhandler = builder::transaction::create_time_txhandler(
                     *operator_xonly_pk,
                     input_txid,
                     input_amount,
                     timeout_block_count,
                     max_withdrawal_time_block_count,
                     network,
-                )
-                .compute_txid();
+                );
 
-                let kickoff_txid = builder::transaction::create_kickoff_tx(
-                    time_txid,
+                let kickoff_txhandler = builder::transaction::create_kickoff_txhandler(
+                    &time_txhandler,
                     nofn_xonly_pk,
                     *operator_xonly_pk,
-                    move_txid,
+                    move_txhandler.txid,
                     operator_idx,
                     network,
-                )
-                .compute_txid();
+                );
 
                 let mut challenge_tx = builder::transaction::create_challenge_txhandler(
-                    kickoff_txid,
-                    nofn_xonly_pk,
-                    *operator_xonly_pk,
+                    &kickoff_txhandler,
                     _operator_reimburse_address,
-                    network
                 );
 
                 yield convert_tx_to_pubkey_spend(
@@ -161,13 +158,9 @@ pub fn create_nofn_sighash_stream(
                 )?;
 
                 let mut happy_reimburse_tx = builder::transaction::create_happy_reimburse_txhandler(
-                    move_txid,
-                    kickoff_txid,
-                    nofn_xonly_pk,
-                    *operator_xonly_pk,
+                    &move_txhandler,
+                    &kickoff_txhandler,
                     _operator_reimburse_address,
-                    bridge_amount_sats,
-                    network,
                 );
 
                 // move utxo
@@ -190,7 +183,7 @@ pub fn create_nofn_sighash_stream(
 
                 let mut watchtower_challenge_page_tx_handler =
                     builder::transaction::create_watchtower_challenge_page_txhandler(
-                        kickoff_txid,
+                        &kickoff_txhandler,
                         nofn_xonly_pk,
                         config.num_watchtowers as u32,
                         watchtower_wots.clone(),
@@ -203,15 +196,12 @@ pub fn create_nofn_sighash_stream(
                     None,
                 )?;
 
-                let wcp_txid = watchtower_challenge_page_tx_handler.tx.compute_txid();
-
-                for (i, watchtower_wots) in watchtower_wots.iter().enumerate().take(config.num_watchtowers) {
+                for i in 0..config.num_watchtowers {
                     let mut watchtower_challenge_txhandler =
                         builder::transaction::create_watchtower_challenge_txhandler(
-                            wcp_txid,
+                            &watchtower_challenge_page_tx_handler,
                             i,
-                            watchtower_wots.clone(),
-                            &[0u8; 20],
+                            &[0u8; 20], // TODO: real op unlock hash
                             nofn_xonly_pk,
                             *operator_xonly_pk,
                             network,
@@ -225,14 +215,9 @@ pub fn create_nofn_sighash_stream(
 
                     let mut operator_challenge_nack_txhandler =
                         builder::transaction::create_operator_challenge_nack_txhandler(
-                            watchtower_challenge_txhandler.tx.compute_txid(),
-                            time_txid,
-                            kickoff_txid,
-                            input_amount,
-                            &[0u8; 20],
-                            nofn_xonly_pk,
-                            *operator_xonly_pk,
-                            network,
+                            &watchtower_challenge_txhandler,
+                            &time_txhandler,
+                            &kickoff_txhandler
                         );
                     yield convert_tx_to_script_spend(
                         &mut operator_challenge_nack_txhandler,
@@ -249,55 +234,49 @@ pub fn create_nofn_sighash_stream(
 
                 let intermediate_wots =
                     vec![vec![vec![[0u8; 20]; 48]; NUM_INTERMEDIATE_STEPS]; config.num_time_txs]; // TODO: Fetch from db
-                let assert_begin_txid = builder::transaction::create_assert_begin_txhandler(
-                    kickoff_txid,
+                let assert_begin_txhandler = builder::transaction::create_assert_begin_txhandler(
+                    &kickoff_txhandler,
                     nofn_xonly_pk,
-                    *operator_xonly_pk,
                     intermediate_wots[time_tx_idx].clone(),
                     network,
-                )
-                .tx
-                .compute_txid();
+                );
 
-                let mut assert_end_tx = builder::transaction::create_assert_end_txhandler(
-                    kickoff_txid,
-                    assert_begin_txid,
+                let mut assert_end_txhandler = builder::transaction::create_assert_end_txhandler(
+                    &kickoff_txhandler,
+                    &assert_begin_txhandler,
                     nofn_xonly_pk,
                     *operator_xonly_pk,
                     network,
                 );
                 yield convert_tx_to_pubkey_spend(
-                    &mut assert_end_tx,
+                    &mut assert_end_txhandler,
                     NUM_INTERMEDIATE_STEPS,
                     None,
                 )?;
 
-                let mut disprove_tx = builder::transaction::create_disprove_txhandler(
-                    assert_end_tx.tx.compute_txid(),
-                    time_txid,
-                    nofn_xonly_pk,
-                    network,
+                let mut disprove_txhandler = builder::transaction::create_disprove_txhandler(
+                    &assert_end_txhandler,
+                    &time_txhandler,
                 );
 
                 // sign for all disprove scripts
                 for i in 0..NUM_INTERMEDIATE_STEPS {
                     yield convert_tx_to_script_spend(
-                        &mut disprove_tx,
+                        &mut disprove_txhandler,
                         0,
                         i,
                         Some(bitcoin::sighash::TapSighashType::None),
                     )?;
                 }
 
-                let time2_tx = builder::transaction::create_time2_tx(
+                let time2_txhandler = builder::transaction::create_time2_txhandler(
+                    &time_txhandler,
                     *operator_xonly_pk,
-                    time_txid,
-                    input_amount,
                     network,
                 );
 
-                input_txid = time2_tx.compute_txid();
-                input_amount = time2_tx.output[0].value;
+                input_txid = time2_txhandler.txid;
+                input_amount = time2_txhandler.tx.output[0].value;
             }
         }
     }
@@ -317,7 +296,7 @@ pub fn create_timout_tx_sighash_stream(
 
     try_stream! {
         for _ in 0..num_time_txs {
-            let time_tx = builder::transaction::create_time_tx(
+            let time_txhandler = builder::transaction::create_time_txhandler(
                 operator_xonly_pk,
                 input_txid,
                 input_amount,
@@ -326,24 +305,20 @@ pub fn create_timout_tx_sighash_stream(
                 network,
             );
 
-            let mut timeout_tx_handler = builder::transaction::create_timeout_tx_handler(
-                operator_xonly_pk,
-                time_tx.compute_txid(),
-                timeout_block_count,
-                network,
+            let mut timeout_tx_handler = builder::transaction::create_timeout_txhandler(
+                &time_txhandler
             );
 
             yield convert_tx_to_script_spend(&mut timeout_tx_handler, 0, 0, None)?;
 
-            let time2_tx = builder::transaction::create_time2_tx(
+            let time2_txhandler = builder::transaction::create_time2_txhandler(
+                &time_txhandler,
                 operator_xonly_pk,
-                time_tx.compute_txid(),
-                input_amount,
                 network,
             );
 
-            input_txid = time2_tx.compute_txid();
-            input_amount = time2_tx.output[0].value;
+            input_txid = time2_txhandler.txid;
+            input_amount = time2_txhandler.tx.output[0].value;
         }
     }
 }

@@ -446,10 +446,13 @@ mod tests {
         let tx_ins = builder::transaction::create_tx_ins(vec![utxo]);
         let dummy_tx = builder::transaction::create_btc_tx(tx_ins, tx_outs);
         let mut tx_details = TxHandler {
+            txid: dummy_tx.compute_txid(),
             tx: dummy_tx,
             prevouts: vec![prevout],
-            scripts: vec![scripts],
-            taproot_spend_infos: vec![sending_address_spend_info.clone()],
+            prev_scripts: vec![scripts],
+            prev_taproot_spend_infos: vec![Some(sending_address_spend_info.clone())],
+            out_scripts: vec![vec![]],
+            out_taproot_spend_infos: vec![None],
         };
         let message = Actor::convert_tx_to_sighash_pubkey_spend(&mut tx_details, 0)
             .unwrap()
@@ -536,10 +539,13 @@ mod tests {
         let tx_ins = builder::transaction::create_tx_ins(vec![utxo]);
         let dummy_tx = builder::transaction::create_btc_tx(tx_ins, tx_outs);
         let mut tx_details = TxHandler {
+            txid: dummy_tx.compute_txid(),
             tx: dummy_tx,
             prevouts: vec![prevout],
-            scripts: vec![scripts],
-            taproot_spend_infos: vec![sending_address_spend_info.clone()],
+            prev_scripts: vec![scripts],
+            prev_taproot_spend_infos: vec![Some(sending_address_spend_info.clone())],
+            out_scripts: vec![vec![]],
+            out_taproot_spend_infos: vec![None],
         };
         let message = Actor::convert_tx_to_sighash_script_spend(&mut tx_details, 0, 0)
             .unwrap()
