@@ -778,6 +778,7 @@ pub fn create_challenge_txhandler(
     kickoff_txid: Txid,
     nofn_xonly_pk: XOnlyPublicKey,
     operator_xonly_pk: XOnlyPublicKey,
+    operator_reimbursement_address: bitcoin::Address,
     network: bitcoin::Network,
 ) -> TxHandler {
     let tx_ins = create_tx_ins(vec![OutPoint {
@@ -785,12 +786,9 @@ pub fn create_challenge_txhandler(
         vout: 1,
     }]);
 
-    let (operator_taproot_address, _) =
-        builder::address::create_taproot_address(&[], Some(operator_xonly_pk), network);
-
     let tx_outs = vec![TxOut {
         value: OPERATOR_CHALLENGE_AMOUNT,
-        script_pubkey: operator_taproot_address.script_pubkey(),
+        script_pubkey: operator_reimbursement_address.script_pubkey(),
     }];
 
     let challenge_tx = create_btc_tx(tx_ins, tx_outs);
@@ -823,6 +821,7 @@ pub fn create_happy_reimburse_txhandler(
     kickoff_txid: Txid,
     nofn_xonly_pk: XOnlyPublicKey,
     operator_xonly_pk: XOnlyPublicKey,
+    operator_reimbursement_address: bitcoin::Address,
     bridge_amount_sats: Amount,
     network: bitcoin::Network,
 ) -> TxHandler {
@@ -878,7 +877,7 @@ pub fn create_happy_reimburse_txhandler(
 
     let prevouts = vec![
         TxOut {
-            script_pubkey: nofn_taproot_address.script_pubkey(),
+            script_pubkey: operator_reimbursement_address.script_pubkey(),
             value: bridge_amount_sats - MOVE_TX_MIN_RELAY_FEE - anyone_can_spend_txout.value,
         },
         TxOut {
