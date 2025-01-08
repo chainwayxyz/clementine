@@ -150,6 +150,7 @@ pub fn create_nofn_sighash_stream(
                     kickoff_txid,
                     nofn_xonly_pk,
                     *operator_xonly_pk,
+                    _operator_reimburse_address,
                     network
                 );
 
@@ -164,6 +165,7 @@ pub fn create_nofn_sighash_stream(
                     kickoff_txid,
                     nofn_xonly_pk,
                     *operator_xonly_pk,
+                    _operator_reimburse_address,
                     bridge_amount_sats,
                     network,
                 );

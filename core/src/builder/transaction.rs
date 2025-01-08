@@ -778,7 +778,7 @@ pub fn create_challenge_txhandler(
     kickoff_txid: Txid,
     nofn_xonly_pk: XOnlyPublicKey,
     operator_xonly_pk: XOnlyPublicKey,
-    operator_reimbursement_address: bitcoin::Address,
+    operator_reimbursement_address: &bitcoin::Address,
     network: bitcoin::Network,
 ) -> TxHandler {
     let tx_ins = create_tx_ins(vec![OutPoint {
@@ -821,7 +821,7 @@ pub fn create_happy_reimburse_txhandler(
     kickoff_txid: Txid,
     nofn_xonly_pk: XOnlyPublicKey,
     operator_xonly_pk: XOnlyPublicKey,
-    operator_reimbursement_address: bitcoin::Address,
+    operator_reimbursement_address: &bitcoin::Address,
     bridge_amount_sats: Amount,
     network: bitcoin::Network,
 ) -> TxHandler {
