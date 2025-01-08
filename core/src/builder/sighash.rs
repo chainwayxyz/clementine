@@ -19,15 +19,22 @@ pub fn calculate_num_required_sigs(
 }
 
 pub fn convert_tx_to_pubkey_spend(
-    tx: &mut TxHandler,
+    tx_handler: &mut TxHandler,
     txin_index: usize,
     sighash_type: Option<TapSighashType>,
 ) -> Result<TapSighash, BridgeError> {
-    let mut sighash_cache: SighashCache<&mut bitcoin::Transaction> = SighashCache::new(&mut tx.tx);
+    let mut sighash_cache: SighashCache<&mut bitcoin::Transaction> =
+        SighashCache::new(&mut tx_handler.tx);
+    let prevouts = &match sighash_type {
+        Some(TapSighashType::SinglePlusAnyoneCanPay) => {
+            bitcoin::sighash::Prevouts::One(txin_index, tx_handler.prevouts[txin_index].clone())
+        }
+        _ => bitcoin::sighash::Prevouts::All(&tx_handler.prevouts),
+    };
 
     let sig_hash = sighash_cache.taproot_key_spend_signature_hash(
         txin_index,
-        &bitcoin::sighash::Prevouts::All(&tx.prevouts),
+        prevouts,
         sighash_type.unwrap_or(TapSighashType::Default),
     )?;
 
@@ -43,7 +50,12 @@ pub fn convert_tx_to_script_spend(
     let mut sighash_cache: SighashCache<&mut bitcoin::Transaction> =
         SighashCache::new(&mut tx_handler.tx);
 
-    let prevouts = bitcoin::sighash::Prevouts::All(&tx_handler.prevouts);
+    let prevouts = &match sighash_type {
+        Some(TapSighashType::SinglePlusAnyoneCanPay) => {
+            bitcoin::sighash::Prevouts::One(txin_index, tx_handler.prevouts[txin_index].clone())
+        }
+        _ => bitcoin::sighash::Prevouts::All(&tx_handler.prevouts),
+    };
     let leaf_hash = TapLeafHash::from_script(
         tx_handler
             .scripts
@@ -55,7 +67,7 @@ pub fn convert_tx_to_script_spend(
     );
     let sig_hash = sighash_cache.taproot_script_spend_signature_hash(
         txin_index,
-        &prevouts,
+        prevouts,
         leaf_hash,
         sighash_type.unwrap_or(TapSighashType::Default),
     )?;
