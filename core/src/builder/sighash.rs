@@ -26,7 +26,9 @@ pub fn convert_tx_to_pubkey_spend(
     let mut sighash_cache: SighashCache<&mut bitcoin::Transaction> =
         SighashCache::new(&mut tx_handler.tx);
     let prevouts = &match sighash_type {
-        Some(TapSighashType::SinglePlusAnyoneCanPay) => {
+        Some(TapSighashType::SinglePlusAnyoneCanPay)
+        | Some(TapSighashType::AllPlusAnyoneCanPay)
+        | Some(TapSighashType::NonePlusAnyoneCanPay) => {
             bitcoin::sighash::Prevouts::One(txin_index, tx_handler.prevouts[txin_index].clone())
         }
         _ => bitcoin::sighash::Prevouts::All(&tx_handler.prevouts),
@@ -51,7 +53,9 @@ pub fn convert_tx_to_script_spend(
         SighashCache::new(&mut tx_handler.tx);
 
     let prevouts = &match sighash_type {
-        Some(TapSighashType::SinglePlusAnyoneCanPay) => {
+        Some(TapSighashType::SinglePlusAnyoneCanPay)
+        | Some(TapSighashType::AllPlusAnyoneCanPay)
+        | Some(TapSighashType::NonePlusAnyoneCanPay) => {
             bitcoin::sighash::Prevouts::One(txin_index, tx_handler.prevouts[txin_index].clone())
         }
         _ => bitcoin::sighash::Prevouts::All(&tx_handler.prevouts),
