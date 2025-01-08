@@ -839,9 +839,7 @@ pub fn create_happy_reimburse_txhandler(
             vout: 3,
         },
     ]);
-    let (operator_taproot_address, _) =
-        builder::address::create_taproot_address(&[], Some(operator_xonly_pk), network);
-    let (nofn_taproot_address, nofn_taproot_address_spend) =
+    let (nofn_taproot_address, nofn_taproot_spend) =
         builder::address::create_taproot_address(&[], Some(nofn_xonly_pk), network);
 
     let anyone_can_spend_txout = builder::script::anyone_can_spend_txout();
@@ -850,7 +848,7 @@ pub fn create_happy_reimburse_txhandler(
         TxOut {
             // value in create_move_tx currently
             value: bridge_amount_sats - MOVE_TX_MIN_RELAY_FEE - anyone_can_spend_txout.value,
-            script_pubkey: operator_taproot_address.script_pubkey(),
+            script_pubkey: operator_reimbursement_address.script_pubkey(),
         },
         anyone_can_spend_txout.clone(),
     ];
@@ -877,7 +875,7 @@ pub fn create_happy_reimburse_txhandler(
 
     let prevouts = vec![
         TxOut {
-            script_pubkey: operator_reimbursement_address.script_pubkey(),
+            script_pubkey: nofn_taproot_address.script_pubkey(),
             value: bridge_amount_sats - MOVE_TX_MIN_RELAY_FEE - anyone_can_spend_txout.value,
         },
         TxOut {
@@ -895,7 +893,7 @@ pub fn create_happy_reimburse_txhandler(
         prevouts,
         scripts: vec![vec![], vec![operator_1week], vec![nofn_3week]],
         taproot_spend_infos: vec![
-            nofn_taproot_address_spend,
+            nofn_taproot_spend,
             nofn_or_operator_1week_spend,
             nofn_or_nofn_3week_spend,
         ],
