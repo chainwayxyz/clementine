@@ -473,39 +473,38 @@ impl ClementineAggregator for Aggregator {
         let (final_sig_sender, final_sig_receiver) = channel(32);
 
         // Spawn all pipeline tasks
-        let nonce_agg_handle = thread::spawn(move || {
-            tokio::runtime::Runtime::new().unwrap().block_on(async {
-                nonce_aggregator(nonce_streams, sighash_stream, agg_nonce_sender).await
-            })
+        let nonce_agg_handle = thread::spawn(|| {
+            tokio::runtime::Runtime::new()
+                .unwrap()
+                .block_on(nonce_aggregator(
+                    nonce_streams,
+                    sighash_stream,
+                    agg_nonce_sender,
+                ))
         });
-
-        let nonce_dist_handle = thread::spawn(move || {
-            tokio::runtime::Runtime::new().unwrap().block_on(async {
-                nonce_distributor(agg_nonce_receiver, partial_sig_streams, partial_sig_sender).await
-            })
-        });
-
-        let sig_agg_handle = thread::spawn(move || {
-            tokio::runtime::Runtime::new().unwrap().block_on(async {
-                signature_aggregator(
+        let nonce_dist_handle = tokio::spawn(nonce_distributor(
+            agg_nonce_receiver,
+            partial_sig_streams,
+            partial_sig_sender,
+        ));
+        let sig_agg_handle = thread::spawn(|| {
+            tokio::runtime::Runtime::new()
+                .unwrap()
+                .block_on(signature_aggregator(
                     partial_sig_receiver,
                     verifiers_public_keys,
                     final_sig_sender,
-                )
-                .await
-            })
+                ))
         });
-
-        let sig_dist_handle = thread::spawn(move || {
-            tokio::runtime::Runtime::new().unwrap().block_on(async {
-                signature_distributor(final_sig_receiver, deposit_finalize_sender).await
-            })
-        });
+        let sig_dist_handle = tokio::spawn(signature_distributor(
+            final_sig_receiver,
+            deposit_finalize_sender,
+        ));
 
         nonce_agg_handle.join().unwrap().unwrap();
-        nonce_dist_handle.join().unwrap().unwrap();
+        try_join_all(vec![nonce_dist_handle]).await.unwrap();
         sig_agg_handle.join().unwrap().unwrap();
-        sig_dist_handle.join().unwrap().unwrap();
+        try_join_all(vec![sig_dist_handle]).await.unwrap();
 
         tracing::debug!("Waiting for deposit finalization");
 
