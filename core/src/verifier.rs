@@ -350,14 +350,14 @@ impl Verifier {
             .await?
             .ok_or(BridgeError::DepositInfoNotFound)?;
 
-        let move_tx_handler = builder::transaction::create_move_tx_handler(
+        let move_tx_handler = builder::transaction::create_move_txhandler(
             deposit_outpoint,
             evm_address,
             &recovery_taproot_address,
             self.nofn_xonly_pk,
-            self.config.network,
             self.config.user_takes_after,
             self.config.bridge_amount_sats,
+            self.config.network,
         );
 
         let bridge_fund_outpoint = OutPoint {
