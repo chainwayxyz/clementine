@@ -52,7 +52,7 @@ pub const OPERATOR_REIMBURSE_CONNECTOR_AMOUNT: Amount = Amount::from_sat(330);
 pub const ANCHOR_AMOUNT: Amount = Amount::from_sat(330);
 pub const OPERATOR_CHALLENGE_AMOUNT: Amount = Amount::from_sat(200_000_000);
 
-/// Creates the `time_tx`. It will always use `input_txid`'s first vout as the input.
+/// Creates a [`TxHandler`] for `time_tx`. It will always use `input_txid`'s first vout as the input.
 ///
 /// # Returns
 ///
@@ -293,7 +293,7 @@ pub fn create_move_txhandler(
     }
 }
 
-/// Creates the kickoff_tx for the operator. It also returns the change utxo
+/// Creates [`TxHandler`] of the kickoff_tx for the operator.
 pub fn create_kickoff_utxo_txhandler(
     funding_utxo: &UTXO, // Make sure this comes from the operator's address.
     nofn_xonly_pk: XOnlyPublicKey,
