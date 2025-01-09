@@ -88,12 +88,16 @@ pub enum BridgeError {
     /// Merkle Proof Error
     #[error("MerkleProofError")]
     MerkleProofError,
-    /// JSON RPC call failed
+
     #[error("JsonRpcError: {0}")]
     JsonRpcError(#[from] jsonrpsee::core::client::Error),
-    /// RPC interface requires a parameter
     #[error("RPC function field {0} is required!")]
     RPCRequiredFieldError(&'static str),
+    #[error("RPC stream ended unexpectedly: {0}")]
+    RPCStreamEndedUnexpectedly(String),
+    #[error("Invalid response from an RPC endpoint: {0}")]
+    RPCInvalidResponse(String),
+
     /// ConfigError is returned when the configuration is invalid
     #[error("ConfigError: {0}")]
     ConfigError(String),
