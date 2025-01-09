@@ -157,7 +157,7 @@ impl Actor {
             txin_index,
             &bitcoin::sighash::Prevouts::All(&tx.prevouts),
             TapLeafHash::from_script(
-                &tx.scripts[txin_index][script_index],
+                &tx.prev_scripts[txin_index][script_index],
                 LeafVersion::TapScript,
             ),
             bitcoin::sighash::TapSighashType::Default,
@@ -248,7 +248,7 @@ impl Actor {
             txin_index,
             &bitcoin::sighash::Prevouts::All(&tx_handler.prevouts),
             TapLeafHash::from_script(
-                &tx_handler.scripts[txin_index][script_index],
+                &tx_handler.prev_scripts[txin_index][script_index],
                 LeafVersion::TapScript,
             ),
             bitcoin::sighash::TapSighashType::Default,
@@ -269,7 +269,7 @@ impl Actor {
         let prevouts = bitcoin::sighash::Prevouts::All(&tx_handler.prevouts);
         let leaf_hash = TapLeafHash::from_script(
             tx_handler
-                .scripts
+                .prev_scripts
                 .get(txin_index)
                 .ok_or(BridgeError::NoScriptsForTxIn(txin_index))?
                 .get(script_index)
@@ -416,10 +416,13 @@ mod tests {
         };
 
         TxHandler {
+            txid: tx.compute_txid(),
             tx,
             prevouts,
-            scripts: vec![],
-            taproot_spend_infos: vec![],
+            prev_scripts: vec![],
+            prev_taproot_spend_infos: vec![],
+            out_scripts: vec![],
+            out_taproot_spend_infos: vec![],
         }
     }
 

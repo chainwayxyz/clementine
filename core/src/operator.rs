@@ -246,7 +246,7 @@ impl Operator {
                     self.signer.address.clone(),
                 ));
             }
-            let mut kickoff_tx_handler = builder::transaction::create_kickoff_utxo_tx(
+            let mut kickoff_tx_handler = builder::transaction::create_kickoff_utxo_txhandler(
                 &funding_utxo,
                 self.nofn_xonly_pk,
                 self.signer.xonly_public_key,
