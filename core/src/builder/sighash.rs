@@ -118,6 +118,8 @@ pub fn create_nofn_sighash_stream(
             panic!("Not enough operators");
         }
 
+        let watchtower_pks = db.get_all_watchtowers_xonly_pk(None).await?;
+
         for (operator_idx, (operator_xonly_pk, _operator_reimburse_address, collateral_funding_txid)) in
             operators.iter().enumerate()
         {
@@ -188,8 +190,8 @@ pub fn create_nofn_sighash_stream(
                 let mut watchtower_challenge_page_tx_handler =
                     builder::transaction::create_watchtower_challenge_page_txhandler(
                         &kickoff_txhandler,
-                        nofn_xonly_pk,
                         config.num_watchtowers as u32,
+                        &watchtower_pks,
                         watchtower_wots.clone(),
                         network,
                     );
@@ -201,7 +203,7 @@ pub fn create_nofn_sighash_stream(
                 )?;
 
                 for i in 0..config.num_watchtowers {
-                    let mut watchtower_challenge_txhandler =
+                    let watchtower_challenge_txhandler =
                         builder::transaction::create_watchtower_challenge_txhandler(
                             &watchtower_challenge_page_tx_handler,
                             i,
@@ -210,12 +212,6 @@ pub fn create_nofn_sighash_stream(
                             *operator_xonly_pk,
                             network,
                         );
-                    yield convert_tx_to_script_spend(
-                        &mut watchtower_challenge_txhandler,
-                        0,
-                        0,
-                        None,
-                    )?;
 
                     let mut operator_challenge_nack_txhandler =
                         builder::transaction::create_operator_challenge_nack_txhandler(

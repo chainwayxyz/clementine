@@ -1027,69 +1027,6 @@ impl Database {
         Ok(watchtower_winternitz_public_keys)
     }
 
-    /// Sets xonly public key of a watchtoer.
-    #[tracing::instrument(skip(self, tx), err(level = tracing::Level::ERROR), ret(level = tracing::Level::TRACE))]
-    pub async fn save_watchtower_xonly_pk(
-        &self,
-        tx: Option<&mut sqlx::Transaction<'_, Postgres>>,
-        watchtower_id: u32,
-        xonly_pk: &XOnlyPublicKey,
-    ) -> Result<(), BridgeError> {
-        let query = sqlx::query(
-            "INSERT INTO watchtower_xonly_public_keys (watchtower_id, xonly_pk) VALUES ($1, $2);",
-        )
-        .bind(watchtower_id as i64)
-        .bind(xonly_pk.serialize());
-
-        match tx {
-            Some(tx) => query.execute(&mut **tx).await,
-            None => query.execute(&self.connection).await,
-        }?;
-
-        Ok(())
-    }
-
-    /// Gets xonly public keys of all watchtowers.
-    #[tracing::instrument(skip(self, tx), err(level = tracing::Level::ERROR), ret(level = tracing::Level::TRACE))]
-    pub async fn get_all_watchtowers_xonly_pk(
-        &self,
-        tx: Option<&mut sqlx::Transaction<'_, Postgres>>,
-    ) -> Result<Vec<(u32, XOnlyPublicKey)>, BridgeError> {
-        let query =
-            sqlx::query_as("SELECT watchtower_id, xonly_pk FROM watchtower_xonly_public_keys;");
-
-        let rows: Vec<(i32, Vec<u8>)> = match tx {
-            Some(tx) => query.fetch_all(&mut **tx).await,
-            None => query.fetch_all(&self.connection).await,
-        }?;
-
-        rows.into_iter().map(|(w_idx, xonly_pk)| {
-            XOnlyPublicKey::from_slice(&xonly_pk)
-                .map_err(BridgeError::Secp256k1Error)
-                .map(|xonly_pk| (w_idx as u32, xonly_pk))
-        }).collect()
-    }
-
-    /// Gets xonly public key of a single watchtower
-    #[tracing::instrument(skip(self, tx), err(level = tracing::Level::ERROR), ret(level = tracing::Level::TRACE))]
-    pub async fn get_watchtower_xonly_pk(
-        &self,
-        tx: Option<&mut sqlx::Transaction<'_, Postgres>>,
-        watchtower_id: u32,
-    ) -> Result<XOnlyPublicKey, BridgeError> {
-        let query = sqlx::query_as(
-            "SELECT xonly_pk FROM watchtower_xonly_public_keys WHERE watchtower_id = $1;",
-        )
-        .bind(watchtower_id as i64);
-
-        let xonly_key: (Vec<u8>,) = match tx {
-            Some(tx) => query.fetch_one(&mut **tx).await,
-            None => query.fetch_one(&self.connection).await,
-        }?;
-
-        Ok(XOnlyPublicKey::from_slice(&xonly_key.0)?)
-    }
-
     /// Sets Winternitz public keys for an operator.
     #[tracing::instrument(skip(self, tx, winternitz_public_key), err(level = tracing::Level::ERROR), ret(level = tracing::Level::TRACE))]
     pub async fn save_operator_winternitz_public_keys(
@@ -1140,6 +1077,70 @@ impl Database {
             borsh::from_slice(&wpks.0).map_err(BridgeError::BorschError)?;
 
         Ok(watchtower_winternitz_public_keys)
+    }
+
+    /// Sets xonly public key of a watchtoer.
+    #[tracing::instrument(skip(self, tx), err(level = tracing::Level::ERROR), ret(level = tracing::Level::TRACE))]
+    pub async fn save_watchtower_xonly_pk(
+        &self,
+        tx: Option<&mut sqlx::Transaction<'_, Postgres>>,
+        watchtower_id: u32,
+        xonly_pk: &XOnlyPublicKey,
+    ) -> Result<(), BridgeError> {
+        let query = sqlx::query(
+            "INSERT INTO watchtower_xonly_public_keys (watchtower_id, xonly_pk) VALUES ($1, $2);",
+        )
+        .bind(watchtower_id as i64)
+        .bind(xonly_pk.serialize());
+
+        match tx {
+            Some(tx) => query.execute(&mut **tx).await,
+            None => query.execute(&self.connection).await,
+        }?;
+
+        Ok(())
+    }
+
+    /// Gets xonly public keys of all watchtowers.
+    #[tracing::instrument(skip(self, tx), err(level = tracing::Level::ERROR), ret(level = tracing::Level::TRACE))]
+    pub async fn get_all_watchtowers_xonly_pk(
+        &self,
+        tx: Option<&mut sqlx::Transaction<'_, Postgres>>,
+    ) -> Result<Vec<XOnlyPublicKey>, BridgeError> {
+        let query = sqlx::query_as(
+            "SELECT xonly_pk FROM watchtower_xonly_public_keys ORDER BY watchtower_id;",
+        );
+
+        let rows: Vec<(Vec<u8>,)> = match tx {
+            Some(tx) => query.fetch_all(&mut **tx).await,
+            None => query.fetch_all(&self.connection).await,
+        }?;
+
+        rows.into_iter()
+            .map(|xonly_pk| {
+                XOnlyPublicKey::from_slice(&xonly_pk.0).map_err(BridgeError::Secp256k1Error)
+            })
+            .collect()
+    }
+
+    /// Gets xonly public key of a single watchtower
+    #[tracing::instrument(skip(self, tx), err(level = tracing::Level::ERROR), ret(level = tracing::Level::TRACE))]
+    pub async fn get_watchtower_xonly_pk(
+        &self,
+        tx: Option<&mut sqlx::Transaction<'_, Postgres>>,
+        watchtower_id: u32,
+    ) -> Result<XOnlyPublicKey, BridgeError> {
+        let query = sqlx::query_as(
+            "SELECT xonly_pk FROM watchtower_xonly_public_keys WHERE watchtower_id = $1;",
+        )
+        .bind(watchtower_id as i64);
+
+        let xonly_key: (Vec<u8>,) = match tx {
+            Some(tx) => query.fetch_one(&mut **tx).await,
+            None => query.fetch_one(&self.connection).await,
+        }?;
+
+        Ok(XOnlyPublicKey::from_slice(&xonly_key.0)?)
     }
 }
 
@@ -1971,11 +1972,11 @@ mod tests {
         let keypair2 = Keypair::new(&secp, &mut rand::thread_rng());
         let xonly2 = XOnlyPublicKey::from_keypair(&keypair2).0;
 
-        let w_data = vec![(3, xonly1), (5, xonly2)];
+        let w_data = vec![xonly1, xonly2];
 
-        for (id, data) in w_data.iter() {
+        for (id, data) in w_data.iter().enumerate() {
             database
-                .save_watchtower_xonly_pk(None, *id, data)
+                .save_watchtower_xonly_pk(None, id as u32, data)
                 .await
                 .unwrap();
         }
@@ -1984,8 +1985,11 @@ mod tests {
 
         assert_eq!(read_pks, w_data);
 
-        for (id, key) in w_data.iter() {
-            let read_pk = database.get_watchtower_xonly_pk(None, *id).await.unwrap();
+        for (id, key) in w_data.iter().enumerate() {
+            let read_pk = database
+                .get_watchtower_xonly_pk(None, id as u32)
+                .await
+                .unwrap();
             assert_eq!(read_pk, *key);
         }
     }
