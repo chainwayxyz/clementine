@@ -99,7 +99,7 @@ impl ClementineOperator for Operator {
             .get_ref()
             .deposit_outpoint
             .clone()
-            .ok_or(BridgeError::RPCRequiredFieldError("deposit_outpoint"))?
+            .ok_or(BridgeError::RPCRequiredParam("deposit_outpoint"))?
             .try_into()?;
 
         self.withdrawal_proved_on_citrea(withdrawal_idx, deposit_outpoint)
