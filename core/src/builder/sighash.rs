@@ -286,7 +286,7 @@ pub fn create_nofn_sighash_stream(
     }
 }
 
-pub fn create_timout_tx_sighash_stream(
+pub fn create_timeout_tx_sighash_stream(
     operator_xonly_pk: secp256k1::XOnlyPublicKey,
     collateral_funding_txid: bitcoin::Txid,
     collateral_funding_amount: Amount,

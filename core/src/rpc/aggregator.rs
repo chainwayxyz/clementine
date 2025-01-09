@@ -1,6 +1,8 @@
 use super::clementine::{
-    clementine_aggregator_server::ClementineAggregator, DepositParams, Empty, RawSignedMoveTx,
+    clementine_aggregator_server::ClementineAggregator, verifier_deposit_finalize_params,
+    DepositParams, Empty, RawSignedMoveTx, VerifierDepositFinalizeParams,
 };
+use crate::rpc::clementine::clementine_verifier_client::ClementineVerifierClient;
 use crate::{
     aggregator::Aggregator,
     builder::sighash::{calculate_num_required_sigs, create_nofn_sighash_stream},
@@ -9,10 +11,225 @@ use crate::{
     rpc::clementine::{self, DepositSignSession},
     ByteArray32, ByteArray66, EVMAddress,
 };
-use bitcoin::{hashes::Hash, Amount};
-use futures::{future::try_join_all, stream::BoxStream, FutureExt, StreamExt};
-use std::pin::pin;
-use tonic::{async_trait, Request, Response, Status};
+use bitcoin::{hashes::Hash, Amount, TapSighash};
+use futures::{future::try_join_all, stream::BoxStream, FutureExt, Stream, StreamExt};
+use std::thread;
+use tokio::sync::mpsc::{channel, Receiver, Sender};
+use tonic::{async_trait, Request, Response, Status, Streaming};
+
+struct AggNonceQueueItem {
+    agg_nonce: ByteArray66,
+    sighash: TapSighash,
+}
+
+struct FinalSigQueueItem {
+    final_sig: Vec<u8>,
+}
+
+/// Collects public nonces from given streams and aggregates them.
+async fn nonce_aggregator(
+    mut nonce_streams: Vec<
+        impl Stream<Item = Result<MuSigPubNonce, BridgeError>> + Unpin + Send + 'static,
+    >,
+    mut sighash_stream: impl Stream<Item = Result<TapSighash, BridgeError>> + Unpin + Send + 'static,
+    agg_nonce_sender: Sender<AggNonceQueueItem>,
+) -> Result<(), BridgeError> {
+    while let Ok(sighash) = sighash_stream.next().await.transpose() {
+        let pub_nonces = try_join_all(nonce_streams.iter_mut().map(|s| async {
+            s.next().await.ok_or_else(|| {
+                BridgeError::RPCStreamEndedUnexpectedly("Not enough nonces".into())
+            })?
+        }))
+        .await?;
+
+        let agg_nonce = aggregate_nonces(pub_nonces);
+
+        agg_nonce_sender
+            .send(AggNonceQueueItem {
+                agg_nonce,
+                sighash: sighash.ok_or(BridgeError::RPCStreamEndedUnexpectedly(
+                    "Not enough sighashes".into(),
+                ))?,
+            })
+            .await
+            .map_err(|e| {
+                BridgeError::RPCStreamEndedUnexpectedly(format!(
+                    "Can't send aggregated nonces: {}",
+                    e
+                ))
+            })?;
+    }
+
+    Ok(())
+}
+
+/// Reroutes aggregated nonces to the signature aggregator.
+async fn nonce_distributor(
+    mut agg_nonce_receiver: Receiver<AggNonceQueueItem>,
+    mut partial_sig_streams: Vec<(
+        Streaming<clementine::PartialSig>,
+        Sender<clementine::VerifierDepositSignParams>,
+    )>,
+    partial_sig_sender: Sender<(Vec<ByteArray32>, AggNonceQueueItem)>,
+) -> Result<(), BridgeError> {
+    while let Some(queue_item) = agg_nonce_receiver.recv().await {
+        let agg_nonce_wrapped = clementine::VerifierDepositSignParams {
+            params: Some(clementine::verifier_deposit_sign_params::Params::AggNonce(
+                queue_item.agg_nonce.0.to_vec(),
+            )),
+        };
+
+        for (_, tx) in partial_sig_streams.iter_mut() {
+            tx.send(agg_nonce_wrapped.clone()).await.map_err(|e| {
+                BridgeError::RPCStreamEndedUnexpectedly(format!(
+                    "Can't send aggregated nonces: {}",
+                    e
+                ))
+            })?;
+        }
+
+        let partial_sigs = try_join_all(partial_sig_streams.iter_mut().map(|(stream, _)| async {
+            let partial_sig = stream
+                .message()
+                .await?
+                .ok_or(BridgeError::Error("No partial sig received".into()))?;
+
+            Ok::<_, BridgeError>(ByteArray32(partial_sig.partial_sig.try_into().unwrap()))
+        }))
+        .await?;
+
+        partial_sig_sender
+            .send((partial_sigs, queue_item))
+            .await
+            .map_err(|e| {
+                BridgeError::RPCStreamEndedUnexpectedly(format!("Can't send partial sigs: {}", e))
+            })?;
+    }
+
+    Ok(())
+}
+
+/// Collects partial signatures from given stream and aggregates them.
+async fn signature_aggregator(
+    mut partial_sig_receiver: Receiver<(Vec<ByteArray32>, AggNonceQueueItem)>,
+    verifiers_public_keys: Vec<secp256k1::PublicKey>,
+    final_sig_sender: Sender<FinalSigQueueItem>,
+) -> Result<(), BridgeError> {
+    while let Some((partial_sigs, queue_item)) = partial_sig_receiver.recv().await {
+        let final_sig = crate::musig2::aggregate_partial_signatures(
+            verifiers_public_keys.clone(),
+            None,
+            false,
+            &queue_item.agg_nonce,
+            partial_sigs,
+            ByteArray32(queue_item.sighash.to_byte_array()),
+        )?;
+
+        final_sig_sender
+            .send(FinalSigQueueItem {
+                final_sig: final_sig.to_vec(),
+            })
+            .await
+            .map_err(|e| {
+                BridgeError::RPCStreamEndedUnexpectedly(format!("Can't send final sigs: {}", e))
+            })?;
+    }
+
+    Ok(())
+}
+
+/// Reroutes aggregated signatures to the caller.
+async fn signature_distributor(
+    mut final_sig_receiver: Receiver<FinalSigQueueItem>,
+    deposit_finalize_sender: Vec<Sender<VerifierDepositFinalizeParams>>,
+) -> Result<(), BridgeError> {
+    while let Some(queue_item) = final_sig_receiver.recv().await {
+        let final_params = VerifierDepositFinalizeParams {
+            params: Some(verifier_deposit_finalize_params::Params::SchnorrSig(
+                queue_item.final_sig,
+            )),
+        };
+
+        for tx in &deposit_finalize_sender {
+            tx.send(final_params.clone()).await.map_err(|e| {
+                BridgeError::RPCStreamEndedUnexpectedly(format!("Can't send final params: {}", e))
+            })?;
+        }
+    }
+
+    Ok(())
+}
+
+/// Creates a stream of nonces from verifiers.
+/// This will automatically get's the first response from the verifiers.
+///
+/// # Returns
+///
+/// - Vec<[`clementine::NonceGenFirstResponse`]>: First response from each verifier
+/// - Vec<BoxStream<Result<[`MuSigPubNonce`], BridgeError>>>: Stream of nonces from each verifier
+async fn create_nonce_streams(
+    verifier_clients: Vec<ClementineVerifierClient<tonic::transport::Channel>>,
+    num_nonces: u32,
+) -> Result<
+    (
+        Vec<clementine::NonceGenFirstResponse>,
+        Vec<BoxStream<'static, Result<MuSigPubNonce, BridgeError>>>,
+    ),
+    BridgeError,
+> {
+    let mut nonce_streams = try_join_all(verifier_clients.into_iter().map(|client| {
+        let mut client = client.clone();
+
+        async move {
+            let response_stream = client
+                .nonce_gen(tonic::Request::new(clementine::NonceGenRequest {
+                    num_nonces,
+                }))
+                .await?;
+
+            Ok::<_, Status>(response_stream.into_inner())
+        }
+    }))
+    .await?;
+
+    // Get the first responses.
+    let first_responses: Vec<clementine::NonceGenFirstResponse> =
+        try_join_all(nonce_streams.iter_mut().map(|stream| async {
+            let nonce_gen_first_response = stream
+                .message()
+                .await?
+                .ok_or(BridgeError::RPCStreamEndedUnexpectedly(
+                    "NonceGen returns nothing".to_string(),
+                ))?
+                .response
+                .ok_or(BridgeError::RPCStreamEndedUnexpectedly(
+                    "NonceGen response field is empty".to_string(),
+                ))?;
+
+            if let clementine::nonce_gen_response::Response::FirstResponse(
+                nonce_gen_first_response,
+            ) = nonce_gen_first_response
+            {
+                Ok(nonce_gen_first_response)
+            } else {
+                Err(BridgeError::RPCInvalidResponse(
+                    "NonceGen response is not FirstResponse".to_string(),
+                ))
+            }
+        }))
+        .await?;
+
+    let transformed_streams: Vec<BoxStream<Result<ByteArray66, BridgeError>>> = nonce_streams
+        .into_iter()
+        .map(|stream| {
+            stream
+                .map(|result| Aggregator::extract_pub_nonce(result?.response))
+                .boxed()
+        })
+        .collect();
+
+    Ok((first_responses, transformed_streams))
+}
 
 impl Aggregator {
     // Extracts pub_nonce from given stream.
@@ -30,75 +247,6 @@ impl Aggregator {
                 "Expected PubNonce in response".to_string(),
             )),
         }
-    }
-
-    /// Creates a stream of nonces from verifiers.
-    /// This will automatically get's the first response from the verifiers.
-    async fn create_nonce_streams(
-        &self,
-        num_nonces: u32,
-    ) -> Result<
-        (
-            Vec<clementine::NonceGenFirstResponse>,
-            Vec<BoxStream<Result<MuSigPubNonce, BridgeError>>>,
-        ),
-        BridgeError,
-    > {
-        // generate nonces from all verifiers
-        let mut nonce_streams = try_join_all(self.verifier_clients.iter().map(|client| {
-            // Clone each client to avoid mutable borrow.
-            // https://github.com/hyperium/tonic/issues/33#issuecomment-538150828
-            let mut client = client.clone();
-
-            async move {
-                let response_stream = client
-                    .nonce_gen(tonic::Request::new(clementine::NonceGenRequest {
-                        num_nonces,
-                    }))
-                    .await?;
-
-                Ok::<_, Status>(response_stream.into_inner())
-            }
-        }))
-        .await?;
-
-        // Get the first responses from each stream
-        let first_responses: Vec<clementine::NonceGenFirstResponse> =
-            try_join_all(nonce_streams.iter_mut().map(|s| async {
-                let nonce_gen_first_response = s.message().await?;
-                let nonce_gen_first_response = nonce_gen_first_response
-                    .ok_or(BridgeError::Error("NonceGen returns nothing".to_string()))?
-                    .response
-                    .ok_or(BridgeError::Error(
-                        "NonceGen response field is empty".to_string(),
-                    ))?;
-                // this response is an enum, so we need to match on it
-                match nonce_gen_first_response {
-                    clementine::nonce_gen_response::Response::FirstResponse(
-                        nonce_gen_first_response,
-                    ) => Ok(nonce_gen_first_response),
-                    _ => Err(BridgeError::Error(
-                        "NonceGen response is not FirstResponse".to_string(),
-                    )),
-                }
-            }))
-            .await?;
-
-        let transformed_streams: Vec<BoxStream<Result<ByteArray66, BridgeError>>> = nonce_streams
-            .into_iter()
-            .map(|stream| {
-                stream
-                    .map(|result| {
-                        result
-                            .map_err(BridgeError::from)
-                            .and_then(|nonce_gen_response| {
-                                Self::extract_pub_nonce(nonce_gen_response.response)
-                            })
-                    })
-                    .boxed()
-            })
-            .collect();
-        Ok((first_responses, transformed_streams))
     }
 }
 
@@ -189,7 +337,7 @@ impl ClementineAggregator for Aggregator {
         Ok(Response::new(Empty {}))
     }
 
-    // #[tracing::instrument(skip(self), err(level = tracing::Level::ERROR), ret(level = tracing::Level::TRACE))]
+    #[tracing::instrument(skip(self), err(level = tracing::Level::ERROR), ret(level = tracing::Level::TRACE))]
     async fn new_deposit(
         &self,
         deposit_params_req: Request<DepositParams>,
@@ -202,46 +350,50 @@ impl ClementineAggregator for Aggregator {
             .clone()
             .deposit_outpoint
             .ok_or(Status::internal("No deposit outpoint received"))
-            .unwrap()
+            .clone()?
+            .try_into()?;
+        let evm_address: EVMAddress = deposit_params
+            .evm_address
+            .clone()
             .try_into()
-            .unwrap();
-        let evm_address: EVMAddress = deposit_params.clone().evm_address.try_into().unwrap();
+            .map_err(|e: &str| BridgeError::RPCParamMalformed("evm_address", e.to_string()))?;
         let recovery_taproot_address = deposit_params
             .clone()
             .recovery_taproot_address
+            .clone()
             .parse::<bitcoin::Address<_>>()
-            .unwrap();
-        let user_takes_after = deposit_params.clone().user_takes_after;
+            .map_err(|e| {
+                BridgeError::RPCParamMalformed("recovery_taproot_address", e.to_string())
+            })?;
+        let user_takes_after = deposit_params.user_takes_after;
         let verifiers_public_keys = self.config.verifiers_public_keys.clone();
 
         tracing::debug!("Parsed deposit params");
 
-        // generate nonces from all verifiers
+        // Generate nonce streams for all verifiers.
         let num_required_sigs = calculate_num_required_sigs(
             self.config.num_operators,
             self.config.num_time_txs,
             self.config.num_watchtowers,
         );
-        let (first_responses, mut nonce_streams) =
-            self.create_nonce_streams(num_required_sigs as u32).await?;
+        let (first_responses, nonce_streams) =
+            create_nonce_streams(self.verifier_clients.clone(), num_required_sigs as u32).await?;
 
-        // Open the streams for deposit_sign for each verifier
-        let mut partial_sig_streams = try_join_all(self.verifier_clients.iter().map(|v| {
-            let mut client = v.clone(); // Clone each client to avoid mutable borrow
-                                        // https://github.com/hyperium/tonic/issues/33#issuecomment-538150828
-            async move {
-                let (tx, rx) = tokio::sync::mpsc::channel(1280);
-                let receiver_stream = tokio_stream::wrappers::ReceiverStream::new(rx);
-                // let x = tokio_stream::iter(1..usize::MAX).map(|i| i.to_string());
-                let stream = client.deposit_sign(receiver_stream).await?;
-                Ok::<_, Status>((stream.into_inner(), tx))
-                // Return the stream
-            }
-        }))
-        .await
-        .map_err(|e| {
-            Status::internal(format!("Failed to generate partial sig streams: {:?}", e))
-        })?;
+        // Open the deposit signing streams for each verifier.
+        let mut partial_sig_streams =
+            try_join_all(self.verifier_clients.iter().map(|verifier_client| {
+                let mut verifier_client = verifier_client.clone();
+
+                async move {
+                    let (tx, rx) = tokio::sync::mpsc::channel(1280);
+                    let stream = verifier_client
+                        .deposit_sign(tokio_stream::wrappers::ReceiverStream::new(rx))
+                        .await?;
+
+                    Ok::<_, Status>((stream.into_inner(), tx))
+                }
+            }))
+            .await?;
 
         tracing::debug!("Generated partial sig streams");
 
@@ -262,26 +414,24 @@ impl ClementineAggregator for Aggregator {
                 ),
             })
             .await
-            .unwrap();
+            .map_err(|e| {
+                Status::internal(format!("Failed to send deposit sign session: {:?}", e))
+            })?;
         }
 
         let mut deposit_finalize_clients = self.verifier_clients.clone();
-        // Open the streams for deposit_finalize
-        let deposit_finalize_streams = try_join_all(deposit_finalize_clients.iter_mut().map(|v| {
-            async move {
+        let deposit_finalize_streams = try_join_all(deposit_finalize_clients.iter_mut().map(
+            |verifier_client| async move {
                 let (tx, rx) = tokio::sync::mpsc::channel(1280);
                 let receiver_stream = tokio_stream::wrappers::ReceiverStream::new(rx);
 
-                // Move `client` into this async block and use it directly
-                let deposit_finalize_futures = v.deposit_finalize(receiver_stream).boxed();
+                let deposit_finalize_futures =
+                    verifier_client.deposit_finalize(receiver_stream).boxed();
 
                 Ok::<_, Status>((deposit_finalize_futures, tx))
-            }
-        }))
-        .await
-        .map_err(|e| {
-            Status::internal(format!("Failed to generate partial sig streams: {:?}", e))
-        })?;
+            },
+        ))
+        .await?;
         let (mut deposit_finalize_futures, deposit_finalize_sender): (Vec<_>, Vec<_>) =
             deposit_finalize_streams.into_iter().unzip();
 
@@ -294,10 +444,17 @@ impl ClementineAggregator for Aggregator {
         };
 
         for tx in deposit_finalize_sender.iter() {
-            tx.send(deposit_finalize_first_param.clone()).await.unwrap();
+            tx.send(deposit_finalize_first_param.clone())
+                .await
+                .map_err(|e| {
+                    Status::internal(format!(
+                        "Failed to send deposit finalize first param: {:?}",
+                        e
+                    ))
+                })?;
         }
 
-        let mut sighash_stream = pin!(create_nofn_sighash_stream(
+        let sighash_stream = create_nofn_sighash_stream(
             self.db.clone(),
             self.config.clone(),
             deposit_outpoint,
@@ -310,82 +467,46 @@ impl ClementineAggregator for Aggregator {
             100,
             self.config.bridge_amount_sats,
             self.config.network,
+        );
+        let sighash_stream = Box::pin(sighash_stream);
+
+        let (agg_nonce_sender, agg_nonce_receiver) = channel(32);
+        let (partial_sig_sender, partial_sig_receiver) = channel(32);
+        let (final_sig_sender, final_sig_receiver) = channel(32);
+
+        // Spawn all pipeline tasks
+        let nonce_agg_handle = thread::spawn(|| {
+            tokio::runtime::Runtime::new()
+                .unwrap()
+                .block_on(nonce_aggregator(
+                    nonce_streams,
+                    sighash_stream,
+                    agg_nonce_sender,
+                ))
+        });
+        let nonce_dist_handle = tokio::spawn(nonce_distributor(
+            agg_nonce_receiver,
+            partial_sig_streams,
+            partial_sig_sender,
+        ));
+        let sig_agg_handle = thread::spawn(|| {
+            tokio::runtime::Runtime::new()
+                .unwrap()
+                .block_on(signature_aggregator(
+                    partial_sig_receiver,
+                    verifiers_public_keys,
+                    final_sig_sender,
+                ))
+        });
+        let sig_dist_handle = tokio::spawn(signature_distributor(
+            final_sig_receiver,
+            deposit_finalize_sender,
         ));
 
-        let num_required_sigs = calculate_num_required_sigs(
-            self.config.num_operators,
-            self.config.num_time_txs,
-            self.config.num_watchtowers,
-        );
-
-        for _ in 0..num_required_sigs {
-            // Get the next nonce from each stream
-            let pub_nonces = try_join_all(nonce_streams.iter_mut().map(|s| async {
-                s.next()
-                    .await
-                    .ok_or_else(|| Status::internal("Stream ended unexpectedly"))? // Handle if stream ends early
-                    .map_err(|e| Status::internal(format!("Failed to get nonce: {:?}", e)))
-                // Handle if there's an error in the stream item
-            }))
-            .await?;
-
-            tracing::debug!("RECEIVED PUB NONCES: {:?}", pub_nonces);
-
-            // Aggregate the nonces
-            let agg_nonce = aggregate_nonces(pub_nonces);
-
-            let agg_nonce_wrapped = clementine::VerifierDepositSignParams {
-                params: Some(clementine::verifier_deposit_sign_params::Params::AggNonce(
-                    agg_nonce.0.to_vec(),
-                )),
-            };
-
-            // Send the aggregated nonce to each verifier
-            for (_, tx) in partial_sig_streams.iter_mut() {
-                tx.send(agg_nonce_wrapped.clone()).await.unwrap();
-            }
-
-            // Get the partial signatures from each verifier
-            let partial_sigs = try_join_all(partial_sig_streams.iter_mut().map(|(s, _)| async {
-                let partial_sig = s.message().await?;
-                let partial_sig = partial_sig.ok_or(Status::internal("No partial sig received"))?;
-                Ok::<_, Box<dyn std::error::Error + Send + Sync>>(ByteArray32(
-                    partial_sig.partial_sig.try_into().unwrap(),
-                ))
-            }))
-            .await
-            .map_err(|e| Status::internal(format!("Failed to get partial sig: {:?}", e)))?;
-
-            tracing::trace!("Received partial sigs: {:?}", partial_sigs);
-
-            let sighash = sighash_stream.next().await.unwrap().unwrap();
-
-            tracing::debug!("Aggregator found sighash: {:?}", sighash);
-
-            let final_sig = crate::musig2::aggregate_partial_signatures(
-                verifiers_public_keys.clone(),
-                None,
-                false,
-                &agg_nonce,
-                partial_sigs,
-                ByteArray32(sighash.to_byte_array()),
-            )
-            .unwrap();
-
-            tracing::debug!("Final signature: {:?}", final_sig);
-
-            for tx in deposit_finalize_sender.iter() {
-                tx.send(clementine::VerifierDepositFinalizeParams {
-                    params: Some(
-                        clementine::verifier_deposit_finalize_params::Params::SchnorrSig(
-                            final_sig.to_vec(),
-                        ),
-                    ),
-                })
-                .await
-                .unwrap();
-            }
-        }
+        nonce_agg_handle.join().unwrap().unwrap();
+        try_join_all(vec![nonce_dist_handle]).await.unwrap();
+        sig_agg_handle.join().unwrap().unwrap();
+        try_join_all(vec![sig_dist_handle]).await.unwrap();
 
         tracing::debug!("Waiting for deposit finalization");
 
@@ -405,12 +526,15 @@ impl ClementineAggregator for Aggregator {
 
 #[cfg(test)]
 mod tests {
+    use bitcoin::Txid;
+
     use crate::{
         config::BridgeConfig,
         create_test_config_with_thread_name,
         database::Database,
         errors::BridgeError,
         initialize_database,
+        rpc::clementine::DepositParams,
         servers::{
             create_aggregator_grpc_server, create_operator_grpc_server,
             create_verifier_grpc_server, create_watchtower_grpc_server,
@@ -424,7 +548,7 @@ mod tests {
         verifier::Verifier,
         watchtower::Watchtower,
     };
-    use std::{env, thread};
+    use std::{env, str::FromStr, thread};
 
     #[tokio::test]
     #[serial_test::serial]
@@ -489,5 +613,48 @@ mod tests {
             watchtower_wpks[0..config.num_time_txs].to_vec(),
             verifier_wpks
         );
+    }
+
+    #[tokio::test]
+    #[serial_test::serial]
+    async fn aggregator_setup_and_deposit() {
+        let mut config = create_test_config_with_thread_name!(None);
+
+        // Change default values for making the test faster.
+        config.num_time_txs = 1;
+        config.num_operators = 1;
+        config.num_verifiers = 1;
+        config.num_watchtowers = 1;
+
+        let aggregator = create_actors!(config).2;
+        let mut aggregator_client =
+            ClementineAggregatorClient::connect(format!("http://{}", aggregator.0))
+                .await
+                .unwrap();
+
+        aggregator_client
+            .setup(tonic::Request::new(clementine::Empty {}))
+            .await
+            .unwrap();
+
+        aggregator_client
+            .new_deposit(DepositParams {
+                deposit_outpoint: Some(
+                    bitcoin::OutPoint {
+                        txid: Txid::from_str(
+                            "17e3fc7aae1035e77a91e96d1ba27f91a40a912cf669b367eb32c13a8f82bb02",
+                        )
+                        .unwrap(),
+                        vout: 0,
+                    }
+                    .into(),
+                ),
+                evm_address: [1u8; 20].to_vec(),
+                recovery_taproot_address:
+                    "tb1pk8vus63mx5zwlmmmglq554kwu0zm9uhswqskxg99k66h8m3arguqfrvywa".to_string(),
+                user_takes_after: 5,
+            })
+            .await
+            .unwrap();
     }
 }

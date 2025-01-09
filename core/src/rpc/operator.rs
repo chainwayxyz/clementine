@@ -34,7 +34,7 @@ impl ClementineOperator for Operator {
                 .to_string(),
         };
 
-        let timeout_tx_sighash_stream = builder::sighash::create_timout_tx_sighash_stream(
+        let timeout_tx_sighash_stream = builder::sighash::create_timeout_tx_sighash_stream(
             self.signer.xonly_public_key,
             time_txs[0].1,
             Amount::from_sat(200_000_000), // TODO: Fix this.
@@ -99,7 +99,7 @@ impl ClementineOperator for Operator {
             .get_ref()
             .deposit_outpoint
             .clone()
-            .ok_or(BridgeError::RPCRequiredFieldError("deposit_outpoint"))?
+            .ok_or(BridgeError::RPCRequiredParam("deposit_outpoint"))?
             .try_into()?;
 
         self.withdrawal_proved_on_citrea(withdrawal_idx, deposit_outpoint)

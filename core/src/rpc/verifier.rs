@@ -114,7 +114,7 @@ impl ClementineVerifier for Verifier {
             .map(|sig| secp256k1::schnorr::Signature::from_slice(sig).unwrap())
             .collect();
 
-        let timeout_tx_sighash_stream = builder::sighash::create_timout_tx_sighash_stream(
+        let timeout_tx_sighash_stream = builder::sighash::create_timeout_tx_sighash_stream(
             operator_xonly_pk,
             Txid::from_slice(&operator_config.collateral_funding_txid).unwrap(),
             Amount::from_sat(200_000_000), // TODO: Fix this.
