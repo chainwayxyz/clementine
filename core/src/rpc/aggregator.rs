@@ -157,6 +157,13 @@ async fn signature_distributor(
     Ok(())
 }
 
+/// Creates a stream of nonces from verifiers.
+/// This will automatically get's the first response from the verifiers.
+///
+/// # Returns
+///
+/// - Vec<[`clementine::NonceGenFirstResponse`]>: First response from each verifier
+/// - Vec<BoxStream<Result<[`MuSigPubNonce`], BridgeError>>>: Stream of nonces from each verifier
 async fn create_nonce_streams(
     verifier_clients: Vec<ClementineVerifierClient<tonic::transport::Channel>>,
     num_nonces: u32,
@@ -213,13 +220,7 @@ async fn create_nonce_streams(
         .into_iter()
         .map(|stream| {
             stream
-                .map(|result| {
-                    result
-                        .map_err(BridgeError::from)
-                        .and_then(|nonce_gen_response| {
-                            Aggregator::extract_pub_nonce(nonce_gen_response.response)
-                        })
-                })
+                .map(|result| Aggregator::extract_pub_nonce(result?.response))
                 .boxed()
         })
         .collect();
@@ -333,7 +334,7 @@ impl ClementineAggregator for Aggregator {
         Ok(Response::new(Empty {}))
     }
 
-    // #[tracing::instrument(skip(self), err(level = tracing::Level::ERROR), ret(level = tracing::Level::TRACE))]
+    #[tracing::instrument(skip(self), err(level = tracing::Level::ERROR), ret(level = tracing::Level::TRACE))]
     async fn new_deposit(
         &self,
         deposit_params_req: Request<DepositParams>,
@@ -346,21 +347,27 @@ impl ClementineAggregator for Aggregator {
             .clone()
             .deposit_outpoint
             .ok_or(Status::internal("No deposit outpoint received"))
-            .unwrap()
+            .clone()?
+            .try_into()?;
+        let evm_address: EVMAddress = deposit_params
+            .evm_address
+            .clone()
             .try_into()
-            .unwrap();
-        let evm_address: EVMAddress = deposit_params.clone().evm_address.try_into().unwrap();
+            .map_err(|e: &str| BridgeError::RPCParamMalformed("evm_address", e.to_string()))?;
         let recovery_taproot_address = deposit_params
             .clone()
             .recovery_taproot_address
+            .clone()
             .parse::<bitcoin::Address<_>>()
-            .unwrap();
-        let user_takes_after = deposit_params.clone().user_takes_after;
+            .map_err(|e| {
+                BridgeError::RPCParamMalformed("recovery_taproot_address", e.to_string())
+            })?;
+        let user_takes_after = deposit_params.user_takes_after;
         let verifiers_public_keys = self.config.verifiers_public_keys.clone();
 
         tracing::debug!("Parsed deposit params");
 
-        // generate nonces from all verifiers
+        // Generate nonce streams for all verifiers.
         let num_required_sigs = calculate_num_required_sigs(
             self.config.num_operators,
             self.config.num_time_txs,
@@ -369,23 +376,21 @@ impl ClementineAggregator for Aggregator {
         let (first_responses, nonce_streams) =
             create_nonce_streams(self.verifier_clients.clone(), num_required_sigs as u32).await?;
 
-        // Open the streams for deposit_sign for each verifier
-        let mut partial_sig_streams = try_join_all(self.verifier_clients.iter().map(|v| {
-            let mut client = v.clone(); // Clone each client to avoid mutable borrow
-                                        // https://github.com/hyperium/tonic/issues/33#issuecomment-538150828
-            async move {
-                let (tx, rx) = tokio::sync::mpsc::channel(1280);
-                let receiver_stream = tokio_stream::wrappers::ReceiverStream::new(rx);
-                // let x = tokio_stream::iter(1..usize::MAX).map(|i| i.to_string());
-                let stream = client.deposit_sign(receiver_stream).await?;
-                Ok::<_, Status>((stream.into_inner(), tx))
-                // Return the stream
-            }
-        }))
-        .await
-        .map_err(|e| {
-            Status::internal(format!("Failed to generate partial sig streams: {:?}", e))
-        })?;
+        // Open the deposit signing streams for each verifier.
+        let mut partial_sig_streams =
+            try_join_all(self.verifier_clients.iter().map(|verifier_client| {
+                let mut verifier_client = verifier_client.clone();
+
+                async move {
+                    let (tx, rx) = tokio::sync::mpsc::channel(1280);
+                    let stream = verifier_client
+                        .deposit_sign(tokio_stream::wrappers::ReceiverStream::new(rx))
+                        .await?;
+
+                    Ok::<_, Status>((stream.into_inner(), tx))
+                }
+            }))
+            .await?;
 
         tracing::debug!("Generated partial sig streams");
 
@@ -406,26 +411,24 @@ impl ClementineAggregator for Aggregator {
                 ),
             })
             .await
-            .unwrap();
+            .map_err(|e| {
+                Status::internal(format!("Failed to send deposit sign session: {:?}", e))
+            })?;
         }
 
         let mut deposit_finalize_clients = self.verifier_clients.clone();
-        // Open the streams for deposit_finalize
-        let deposit_finalize_streams = try_join_all(deposit_finalize_clients.iter_mut().map(|v| {
-            async move {
+        let deposit_finalize_streams = try_join_all(deposit_finalize_clients.iter_mut().map(
+            |verifier_client| async move {
                 let (tx, rx) = tokio::sync::mpsc::channel(1280);
                 let receiver_stream = tokio_stream::wrappers::ReceiverStream::new(rx);
 
-                // Move `client` into this async block and use it directly
-                let deposit_finalize_futures = v.deposit_finalize(receiver_stream).boxed();
+                let deposit_finalize_futures =
+                    verifier_client.deposit_finalize(receiver_stream).boxed();
 
                 Ok::<_, Status>((deposit_finalize_futures, tx))
-            }
-        }))
-        .await
-        .map_err(|e| {
-            Status::internal(format!("Failed to generate partial sig streams: {:?}", e))
-        })?;
+            },
+        ))
+        .await?;
         let (mut deposit_finalize_futures, deposit_finalize_sender): (Vec<_>, Vec<_>) =
             deposit_finalize_streams.into_iter().unzip();
 
@@ -438,7 +441,14 @@ impl ClementineAggregator for Aggregator {
         };
 
         for tx in deposit_finalize_sender.iter() {
-            tx.send(deposit_finalize_first_param.clone()).await.unwrap();
+            tx.send(deposit_finalize_first_param.clone())
+                .await
+                .map_err(|e| {
+                    Status::internal(format!(
+                        "Failed to send deposit finalize first param: {:?}",
+                        e
+                    ))
+                })?;
         }
 
         let sighash_stream = create_nofn_sighash_stream(
@@ -513,12 +523,15 @@ impl ClementineAggregator for Aggregator {
 
 #[cfg(test)]
 mod tests {
+    use bitcoin::Txid;
+
     use crate::{
         config::BridgeConfig,
         create_test_config_with_thread_name,
         database::Database,
         errors::BridgeError,
         initialize_database,
+        rpc::clementine::DepositParams,
         servers::{
             create_aggregator_grpc_server, create_operator_grpc_server,
             create_verifier_grpc_server, create_watchtower_grpc_server,
@@ -532,7 +545,7 @@ mod tests {
         verifier::Verifier,
         watchtower::Watchtower,
     };
-    use std::{env, thread};
+    use std::{env, str::FromStr, thread};
 
     #[tokio::test]
     #[serial_test::serial]
@@ -597,5 +610,48 @@ mod tests {
             watchtower_wpks[0..config.num_time_txs].to_vec(),
             verifier_wpks
         );
+    }
+
+    #[tokio::test]
+    #[serial_test::serial]
+    async fn aggregator_setup_and_deposit() {
+        let mut config = create_test_config_with_thread_name!(None);
+
+        // Change default values for making the test faster.
+        config.num_time_txs = 1;
+        config.num_operators = 1;
+        config.num_verifiers = 1;
+        config.num_watchtowers = 1;
+
+        let aggregator = create_actors!(config).2;
+        let mut aggregator_client =
+            ClementineAggregatorClient::connect(format!("http://{}", aggregator.0))
+                .await
+                .unwrap();
+
+        aggregator_client
+            .setup(tonic::Request::new(clementine::Empty {}))
+            .await
+            .unwrap();
+
+        aggregator_client
+            .new_deposit(DepositParams {
+                deposit_outpoint: Some(
+                    bitcoin::OutPoint {
+                        txid: Txid::from_str(
+                            "17e3fc7aae1035e77a91e96d1ba27f91a40a912cf669b367eb32c13a8f82bb02",
+                        )
+                        .unwrap(),
+                        vout: 0,
+                    }
+                    .into(),
+                ),
+                evm_address: [1u8; 20].to_vec(),
+                recovery_taproot_address:
+                    "tb1pk8vus63mx5zwlmmmglq554kwu0zm9uhswqskxg99k66h8m3arguqfrvywa".to_string(),
+                user_takes_after: 5,
+            })
+            .await
+            .unwrap();
     }
 }

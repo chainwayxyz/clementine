@@ -92,7 +92,9 @@ pub enum BridgeError {
     #[error("JsonRpcError: {0}")]
     JsonRpcError(#[from] jsonrpsee::core::client::Error),
     #[error("RPC function field {0} is required!")]
-    RPCRequiredFieldError(&'static str),
+    RPCRequiredParam(&'static str),
+    #[error("RPC function parameter {0} is malformed: {1}")]
+    RPCParamMalformed(&'static str, String),
     #[error("RPC stream ended unexpectedly: {0}")]
     RPCStreamEndedUnexpectedly(String),
     #[error("Invalid response from an RPC endpoint: {0}")]
