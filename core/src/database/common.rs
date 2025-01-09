@@ -1954,7 +1954,7 @@ mod tests {
 
         for (id, data) in w_data.iter() {
             database
-                .save_watchtower_xonly_pk(None, *id, &data)
+                .save_watchtower_xonly_pk(None, *id, data)
                 .await
                 .unwrap();
         }
