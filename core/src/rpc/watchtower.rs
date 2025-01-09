@@ -19,9 +19,12 @@ impl ClementineWatchtower for Watchtower {
             .map(WinternitzPubkey::from_bitvm)
             .collect::<Vec<WinternitzPubkey>>();
 
+        let xonly_pk = self.actor.xonly_public_key.serialize().to_vec();
+
         Ok(Response::new(WatchtowerParams {
             watchtower_id: self.config.index,
             winternitz_pubkeys,
+            xonly_pk,
         }))
     }
 }
@@ -76,6 +79,10 @@ mod tests {
             .into_inner();
 
         assert_eq!(params.watchtower_id, watchtower.config.index);
+        assert_eq!(
+            params.xonly_pk,
+            watchtower.actor.xonly_public_key.serialize().to_vec()
+        );
         assert!(params.winternitz_pubkeys.len() == config.num_operators * config.num_time_txs);
     }
 }

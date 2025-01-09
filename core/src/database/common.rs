@@ -25,7 +25,7 @@ use bitcoin::{Address, OutPoint, Txid};
 use bitvm::bridge::transactions::signing_winternitz::WinternitzPublicKey;
 use bitvm::signatures::winternitz;
 use risc0_zkvm::Receipt;
-use secp256k1::schnorr;
+use secp256k1::{schnorr, XOnlyPublicKey};
 use sqlx::{Postgres, QueryBuilder};
 
 impl Database {
@@ -1027,6 +1027,48 @@ impl Database {
         Ok(watchtower_winternitz_public_keys)
     }
 
+    /// Sets xonly public key of a watchtoer.
+    #[tracing::instrument(skip(self, tx), err(level = tracing::Level::ERROR), ret(level = tracing::Level::TRACE))]
+    pub async fn save_watchtower_xonly_pk(
+        &self,
+        tx: Option<&mut sqlx::Transaction<'_, Postgres>>,
+        watchtower_id: u32,
+        xonly_pk: &XOnlyPublicKey,
+    ) -> Result<(), BridgeError> {
+        let query = sqlx::query(
+            "INSERT INTO watchtower_xonly_public_keys (watchtower_id, xonly_pk) VALUES ($1, $2);",
+        )
+        .bind(watchtower_id as i64)
+        .bind(xonly_pk.serialize());
+
+        match tx {
+            Some(tx) => query.execute(&mut **tx).await,
+            None => query.execute(&self.connection).await,
+        }?;
+
+        Ok(())
+    }
+
+    /// Gets xonly public keys of all watchtowers.
+    #[tracing::instrument(skip(self, tx), err(level = tracing::Level::ERROR), ret(level = tracing::Level::TRACE))]
+    pub async fn get_watchtowers_xonly_pk(
+        &self,
+        tx: Option<&mut sqlx::Transaction<'_, Postgres>>,
+    ) -> Result<Vec<(u32, XOnlyPublicKey)>, BridgeError> {
+        let query =
+            sqlx::query_as("SELECT watchtower_id, xonly_pk FROM watchtower_xonly_public_keys");
+
+        let rows: Vec<(i32, Vec<u8>)> = match tx {
+            Some(tx) => query.fetch_all(&mut **tx).await,
+            None => query.fetch_all(&self.connection).await,
+        }?;
+
+        Ok(rows
+            .into_iter()
+            .map(|(w_idx, xonly_pk)| (w_idx as u32, XOnlyPublicKey::from_slice(&xonly_pk).unwrap()))
+            .collect())
+    }
+
     /// Sets Winternitz public keys for an operator.
     #[tracing::instrument(skip(self, tx, winternitz_public_key), err(level = tracing::Level::ERROR), ret(level = tracing::Level::TRACE))]
     pub async fn save_operator_winternitz_public_keys(
@@ -1893,5 +1935,32 @@ mod tests {
         assert_eq!(watchtower_winternitz_public_keys.len(), read_wpks.len());
         assert_eq!(wpk0, read_wpks[0]);
         assert_eq!(wpk1, read_wpks[1]);
+    }
+    #[tokio::test]
+    async fn save_get_watchtower_xonly_pk() {
+        let config = create_test_config_with_thread_name!(None);
+        let database = Database::new(&config).await.unwrap();
+
+        use secp256k1::{rand, Keypair, Secp256k1, XOnlyPublicKey};
+
+        let secp = Secp256k1::new();
+        let keypair1 = Keypair::new(&secp, &mut rand::thread_rng());
+        let xonly1 = XOnlyPublicKey::from_keypair(&keypair1).0;
+
+        let keypair2 = Keypair::new(&secp, &mut rand::thread_rng());
+        let xonly2 = XOnlyPublicKey::from_keypair(&keypair2).0;
+
+        let w_data = vec![(3, xonly1), (5, xonly2)];
+
+        for (id, data) in w_data.iter() {
+            database
+                .save_watchtower_xonly_pk(None, *id, &data)
+                .await
+                .unwrap();
+        }
+
+        let read_pks = database.get_watchtowers_xonly_pk(None).await.unwrap();
+
+        assert_eq!(read_pks, w_data);
     }
 }
