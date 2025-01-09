@@ -1051,22 +1051,43 @@ impl Database {
 
     /// Gets xonly public keys of all watchtowers.
     #[tracing::instrument(skip(self, tx), err(level = tracing::Level::ERROR), ret(level = tracing::Level::TRACE))]
-    pub async fn get_watchtowers_xonly_pk(
+    pub async fn get_all_watchtowers_xonly_pk(
         &self,
         tx: Option<&mut sqlx::Transaction<'_, Postgres>>,
     ) -> Result<Vec<(u32, XOnlyPublicKey)>, BridgeError> {
         let query =
-            sqlx::query_as("SELECT watchtower_id, xonly_pk FROM watchtower_xonly_public_keys");
+            sqlx::query_as("SELECT watchtower_id, xonly_pk FROM watchtower_xonly_public_keys;");
 
         let rows: Vec<(i32, Vec<u8>)> = match tx {
             Some(tx) => query.fetch_all(&mut **tx).await,
             None => query.fetch_all(&self.connection).await,
         }?;
 
-        Ok(rows
-            .into_iter()
-            .map(|(w_idx, xonly_pk)| (w_idx as u32, XOnlyPublicKey::from_slice(&xonly_pk).unwrap()))
-            .collect())
+        rows.into_iter().map(|(w_idx, xonly_pk)| {
+            XOnlyPublicKey::from_slice(&xonly_pk)
+                .map_err(BridgeError::Secp256k1Error)
+                .map(|xonly_pk| (w_idx as u32, xonly_pk))
+        }).collect()
+    }
+
+    /// Gets xonly public key of a single watchtower
+    #[tracing::instrument(skip(self, tx), err(level = tracing::Level::ERROR), ret(level = tracing::Level::TRACE))]
+    pub async fn get_watchtower_xonly_pk(
+        &self,
+        tx: Option<&mut sqlx::Transaction<'_, Postgres>>,
+        watchtower_id: u32,
+    ) -> Result<XOnlyPublicKey, BridgeError> {
+        let query = sqlx::query_as(
+            "SELECT xonly_pk FROM watchtower_xonly_public_keys WHERE watchtower_id = $1;",
+        )
+        .bind(watchtower_id as i64);
+
+        let xonly_key: (Vec<u8>,) = match tx {
+            Some(tx) => query.fetch_one(&mut **tx).await,
+            None => query.fetch_one(&self.connection).await,
+        }?;
+
+        Ok(XOnlyPublicKey::from_slice(&xonly_key.0)?)
     }
 
     /// Sets Winternitz public keys for an operator.
@@ -1959,8 +1980,13 @@ mod tests {
                 .unwrap();
         }
 
-        let read_pks = database.get_watchtowers_xonly_pk(None).await.unwrap();
+        let read_pks = database.get_all_watchtowers_xonly_pk(None).await.unwrap();
 
         assert_eq!(read_pks, w_data);
+
+        for (id, key) in w_data.iter() {
+            let read_pk = database.get_watchtower_xonly_pk(None, *id).await.unwrap();
+            assert_eq!(read_pk, *key);
+        }
     }
 }
