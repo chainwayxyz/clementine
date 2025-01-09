@@ -26,6 +26,7 @@ struct FinalSigQueueItem {
     final_sig: Vec<u8>,
 }
 
+/// Collects public nonces from given streams and aggregates them.
 async fn nonce_aggregator(
     mut nonce_streams: Vec<
         impl Stream<Item = Result<MuSigPubNonce, BridgeError>> + Unpin + Send + 'static,
@@ -62,6 +63,7 @@ async fn nonce_aggregator(
     Ok(())
 }
 
+/// Reroutes aggregated nonces to the signature aggregator.
 async fn nonce_distributor(
     mut agg_nonce_receiver: Receiver<AggNonceQueueItem>,
     mut partial_sig_streams: Vec<(
@@ -107,16 +109,15 @@ async fn nonce_distributor(
     Ok(())
 }
 
+/// Collects partial signatures from given stream and aggregates them.
 async fn signature_aggregator(
     mut partial_sig_receiver: Receiver<(Vec<ByteArray32>, AggNonceQueueItem)>,
     verifiers_public_keys: Vec<secp256k1::PublicKey>,
     final_sig_sender: Sender<FinalSigQueueItem>,
 ) -> Result<(), BridgeError> {
     while let Some((partial_sigs, queue_item)) = partial_sig_receiver.recv().await {
-        // Aggregate signatures in blocking thread
-        let verifiers_public_keys = verifiers_public_keys.clone();
         let final_sig = crate::musig2::aggregate_partial_signatures(
-            verifiers_public_keys,
+            verifiers_public_keys.clone(),
             None,
             false,
             &queue_item.agg_nonce,
@@ -137,6 +138,7 @@ async fn signature_aggregator(
     Ok(())
 }
 
+/// Reroutes aggregated signatures to the caller.
 async fn signature_distributor(
     mut final_sig_receiver: Receiver<FinalSigQueueItem>,
     deposit_finalize_sender: Vec<Sender<VerifierDepositFinalizeParams>>,
