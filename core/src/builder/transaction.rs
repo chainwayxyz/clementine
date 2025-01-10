@@ -454,8 +454,8 @@ pub fn create_kickoff_txhandler(
 /// Creates a [`TxHandler`] for the watchtower challenge page transaction.
 pub fn create_watchtower_challenge_page_txhandler(
     kickoff_tx_handler: &TxHandler,
-    nofn_xonly_pk: XOnlyPublicKey,
     num_watchtowers: u32,
+    watchtower_xonly_pks: &[XOnlyPublicKey],
     watchtower_wots: Vec<Vec<[u8; 20]>>,
     network: bitcoin::Network,
 ) -> TxHandler {
@@ -475,7 +475,7 @@ pub fn create_watchtower_challenge_page_txhandler(
         .map(|i| {
             let mut x =
                 verifier.checksig_verify(&wots_params, watchtower_wots[i as usize].as_ref());
-            x = x.push_x_only_key(&nofn_xonly_pk);
+            x = x.push_x_only_key(&watchtower_xonly_pks[i as usize]);
             x = x.push_opcode(OP_CHECKSIG); // TODO: Add checksig in the beginning
             let x = x.compile();
             let (watchtower_challenge_addr, watchtower_challenge_spend) =

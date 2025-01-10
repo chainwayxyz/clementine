@@ -130,6 +130,12 @@ create table if not exists header_chain_proofs (
     proof bytea
 );
 
+create table if not exists watchtower_xonly_public_keys (
+    watchtower_id int not null,
+    xonly_pk bytea not null,
+    primary key (watchtower_id)
+);
+
 -- Verifier table of watchtower Winternitz public keys for every operator and time_tx pair
 create table if not exists watchtower_winternitz_public_keys (
     watchtower_id int not null,
