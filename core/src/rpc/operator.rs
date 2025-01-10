@@ -34,7 +34,7 @@ impl ClementineOperator for Operator {
                 .to_string(),
         };
 
-        let timeout_tx_sighash_stream = builder::sighash::create_timout_tx_sighash_stream(
+        let timeout_tx_sighash_stream = builder::sighash::create_timeout_tx_sighash_stream(
             self.signer.xonly_public_key,
             time_txs[0].1,
             Amount::from_sat(200_000_000), // TODO: Fix this.

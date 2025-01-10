@@ -223,14 +223,14 @@ impl Aggregator {
         agg_nonce: &MuSigAggNonce,
         partial_sigs: Vec<MuSigPartialSignature>,
     ) -> Result<[u8; 64], BridgeError> {
-        let mut tx = builder::transaction::create_move_tx_handler(
+        let mut tx = builder::transaction::create_move_txhandler(
             deposit_outpoint,
             evm_address,
             recovery_taproot_address,
             self.nofn_xonly_pk,
-            self.config.network,
             self.config.user_takes_after,
             self.config.bridge_amount_sats,
+            self.config.network,
         );
         // println!("MOVE_TX: {:?}", tx);
         // println!("MOVE_TXID: {:?}", tx.tx.compute_txid());
@@ -348,19 +348,19 @@ impl Aggregator {
 
         let move_tx_sig = secp256k1::schnorr::Signature::from_slice(&agg_move_tx_final_sig)?;
 
-        let mut move_tx_handler = builder::transaction::create_move_tx_handler(
+        let mut move_tx_handler = builder::transaction::create_move_txhandler(
             deposit_outpoint,
             evm_address,
             &recovery_taproot_address,
             self.nofn_xonly_pk,
-            self.config.network,
             self.config.user_takes_after,
             self.config.bridge_amount_sats,
+            self.config.network,
         );
         let move_tx_witness_elements = vec![move_tx_sig.serialize().to_vec()];
         handle_taproot_witness_new(&mut move_tx_handler, &move_tx_witness_elements, 0, Some(0))?;
 
-        let txid = move_tx_handler.tx.compute_txid();
+        let txid = move_tx_handler.txid;
         Ok((move_tx_handler.tx.raw_hex(), txid))
     }
 }

@@ -65,10 +65,13 @@ async fn create_address_and_transaction_then_sign_transaction() {
     }];
     let tx = builder::transaction::create_btc_tx(tx_ins, tx_outs.clone());
     let mut tx_details = TxHandler {
+        txid: tx.compute_txid(),
         tx: tx.clone(),
         prevouts,
-        scripts: vec![vec![to_pay_script.clone()]],
-        taproot_spend_infos: vec![taproot_spend_info],
+        prev_scripts: vec![vec![to_pay_script.clone()]],
+        prev_taproot_spend_infos: vec![Some(taproot_spend_info.clone())],
+        out_scripts: vec![vec![to_pay_script]],
+        out_taproot_spend_infos: vec![Some(taproot_spend_info)],
     };
 
     // Signer should be able to sign the new transaction.
