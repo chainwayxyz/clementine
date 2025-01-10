@@ -53,16 +53,16 @@ pub fn create_taproot_address(
     };
 
     let tree_info = match internal_key {
-        Some(xonly_pk) => taproot_builder.finalize(&SECP256K1, xonly_pk).unwrap(),
+        Some(xonly_pk) => taproot_builder.finalize(SECP256K1, xonly_pk).unwrap(),
         None => taproot_builder
-            .finalize(&SECP256K1, *utils::UNSPENDABLE_XONLY_PUBKEY)
+            .finalize(SECP256K1, *utils::UNSPENDABLE_XONLY_PUBKEY)
             .unwrap(),
     };
 
     let taproot_address = match internal_key {
-        Some(xonly_pk) => Address::p2tr(&SECP256K1, xonly_pk, tree_info.merkle_root(), network),
+        Some(xonly_pk) => Address::p2tr(SECP256K1, xonly_pk, tree_info.merkle_root(), network),
         None => Address::p2tr(
-            &SECP256K1,
+            SECP256K1,
             *utils::UNSPENDABLE_XONLY_PUBKEY,
             tree_info.merkle_root(),
             network,
@@ -172,7 +172,7 @@ mod tests {
     fn create_taproot_address() {
         let secret_key = SecretKey::new(&mut rand::thread_rng());
         let internal_key =
-            XOnlyPublicKey::from_keypair(&Keypair::from_secret_key(&SECP256K1, &secret_key)).0;
+            XOnlyPublicKey::from_keypair(&Keypair::from_secret_key(SECP256K1, &secret_key)).0;
 
         // No internal key or scripts (key path spend).
         let (address, spend_info) =
@@ -180,7 +180,7 @@ mod tests {
         assert_eq!(address.address_type().unwrap(), AddressType::P2tr);
         assert!(address.is_related_to_xonly_pubkey(
             &utils::UNSPENDABLE_XONLY_PUBKEY
-                .tap_tweak(&SECP256K1, spend_info.merkle_root())
+                .tap_tweak(SECP256K1, spend_info.merkle_root())
                 .0
                 .to_inner()
         ));
@@ -196,7 +196,7 @@ mod tests {
         assert_eq!(address.address_type().unwrap(), AddressType::P2tr);
         assert!(address.is_related_to_xonly_pubkey(
             &internal_key
-                .tap_tweak(&SECP256K1, spend_info.merkle_root())
+                .tap_tweak(SECP256K1, spend_info.merkle_root())
                 .0
                 .to_inner()
         ));
@@ -212,7 +212,7 @@ mod tests {
         assert_eq!(address.address_type().unwrap(), AddressType::P2tr);
         assert!(address.is_related_to_xonly_pubkey(
             &internal_key
-                .tap_tweak(&SECP256K1, spend_info.merkle_root())
+                .tap_tweak(SECP256K1, spend_info.merkle_root())
                 .0
                 .to_inner()
         ));
@@ -228,7 +228,7 @@ mod tests {
         assert_eq!(address.address_type().unwrap(), AddressType::P2tr);
         assert!(address.is_related_to_xonly_pubkey(
             &internal_key
-                .tap_tweak(&SECP256K1, spend_info.merkle_root())
+                .tap_tweak(SECP256K1, spend_info.merkle_root())
                 .0
                 .to_inner()
         ));

@@ -12,7 +12,7 @@ use crate::musig2::{
     self, AggregateFromPublicKeys, MuSigAggNonce, MuSigPartialSignature, MuSigPubNonce,
     MuSigSecNonce, MuSigSigHash,
 };
-use crate::{utils, ByteArray32, ByteArray64, ByteArray66, EVMAddress, UTXO};
+use crate::{ByteArray32, ByteArray64, ByteArray66, EVMAddress, UTXO};
 use bitcoin::address::NetworkUnchecked;
 use bitcoin::hashes::Hash;
 use bitcoin::Address;
@@ -477,7 +477,7 @@ impl Verifier {
         let (kickoff_utxos, mut move_tx_handler, bridge_fund_outpoint) =
             self.create_deposit_details(deposit_outpoint).await?;
         let nofn_taproot_xonly_pk = secp256k1::XOnlyPublicKey::from_slice(
-            &Address::p2tr(&SECP256K1, self.nofn_xonly_pk, None, self.config.network)
+            &Address::p2tr(SECP256K1, self.nofn_xonly_pk, None, self.config.network)
                 .script_pubkey()
                 .as_bytes()[2..34],
         )?;

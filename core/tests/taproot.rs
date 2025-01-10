@@ -25,8 +25,8 @@ async fn create_address_and_transaction_then_sign_transaction() {
     )
     .await;
 
-    let (xonly_pk, _) = config.secret_key.public_key(&SECP256K1).x_only_public_key();
-    let address = Address::p2tr(&SECP256K1, xonly_pk, None, config.network);
+    let (xonly_pk, _) = config.secret_key.public_key(SECP256K1).x_only_public_key();
+    let address = Address::p2tr(SECP256K1, xonly_pk, None, config.network);
     let script = address.script_pubkey();
     let tweaked_pk_script: [u8; 32] = script.as_bytes()[2..].try_into().unwrap();
 
@@ -35,7 +35,7 @@ async fn create_address_and_transaction_then_sign_transaction() {
     hasher.input(&xonly_pk.serialize());
     xonly_pk
         .add_tweak(
-            &SECP256K1,
+            SECP256K1,
             &secp256k1::Scalar::from_be_bytes(TapTweakHash::from_engine(hasher).to_byte_array())
                 .unwrap(),
         )

@@ -10,7 +10,7 @@ use crate::{
     },
     errors::BridgeError,
     musig2::{self, MuSigPubNonce, MuSigSecNonce},
-    sha256_hash, utils,
+    sha256_hash,
     verifier::{NofN, NonceSession, Verifier},
     ByteArray32, ByteArray66, EVMAddress,
 };
@@ -253,7 +253,7 @@ impl ClementineVerifier for Verifier {
             session_id
         };
 
-        let public_key = secp256k1::PublicKey::from_secret_key(&SECP256K1, &private_key)
+        let public_key = secp256k1::PublicKey::from_secret_key(SECP256K1, &private_key)
             .serialize()
             .to_vec();
         let public_key_hash = sha256_hash!(&public_key);

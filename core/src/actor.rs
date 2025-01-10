@@ -1,6 +1,5 @@
 use crate::builder::transaction::TxHandler;
 use crate::errors::BridgeError;
-use crate::utils;
 use bitcoin::sighash::SighashCache;
 use bitcoin::taproot::LeafVersion;
 use bitcoin::{
@@ -105,9 +104,9 @@ impl Actor {
         winternitz_secret_key: Option<secp256k1::SecretKey>,
         network: bitcoin::Network,
     ) -> Self {
-        let keypair = Keypair::from_secret_key(&SECP256K1, &sk);
+        let keypair = Keypair::from_secret_key(SECP256K1, &sk);
         let (xonly, _parity) = XOnlyPublicKey::from_keypair(&keypair);
-        let address = Address::p2tr(&SECP256K1, xonly, None, network);
+        let address = Address::p2tr(SECP256K1, xonly, None, network);
 
         Actor {
             keypair,
@@ -128,7 +127,7 @@ impl Actor {
         Ok(SECP256K1.sign_schnorr(
             &Message::from_digest_slice(sighash.as_byte_array()).expect("should be hash"),
             &self.keypair.add_xonly_tweak(
-                &SECP256K1,
+                SECP256K1,
                 &TapTweakHash::from_key_and_tweak(self.xonly_public_key, merkle_root).to_scalar(),
             )?,
         ))
@@ -436,8 +435,8 @@ mod tests {
         let actor = Actor::new(sk, None, network);
 
         assert_eq!(sk, actor._secret_key);
-        assert_eq!(sk.public_key(&SECP256K1), actor.public_key);
-        assert_eq!(sk.x_only_public_key(&SECP256K1).0, actor.xonly_public_key);
+        assert_eq!(sk.public_key(SECP256K1), actor.public_key);
+        assert_eq!(sk.x_only_public_key(SECP256K1).0, actor.xonly_public_key);
     }
 
     #[test]

@@ -344,7 +344,7 @@ mod tests {
         );
 
         let address = bitcoin::Address::p2tr(
-            &SECP256K1,
+            SECP256K1,
             *utils::UNSPENDABLE_XONLY_PUBKEY,
             None,
             bitcoin::Network::Regtest,

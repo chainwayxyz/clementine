@@ -181,7 +181,7 @@ mod tests {
     fn generate_test_setup(num_signers: usize) -> (Vec<Keypair>, Vec<MuSigNoncePair>) {
         let mut keypair_vec: Vec<Keypair> = Vec::new();
         for _ in 0..num_signers {
-            keypair_vec.push(Keypair::new(&SECP256K1, &mut secp256k1::rand::thread_rng()));
+            keypair_vec.push(Keypair::new(SECP256K1, &mut secp256k1::rand::thread_rng()));
         }
         let nonce_pair_vec: Vec<MuSigNoncePair> = keypair_vec
             .iter()
@@ -242,9 +242,9 @@ mod tests {
     // Test that the verification fails if one of the partial signatures is invalid.
     #[test]
     fn test_musig2_raw_fail() {
-        let kp_0 = secp256k1::Keypair::new(&SECP256K1, &mut secp256k1::rand::thread_rng());
-        let kp_1 = secp256k1::Keypair::new(&SECP256K1, &mut secp256k1::rand::thread_rng());
-        let kp_2 = secp256k1::Keypair::new(&SECP256K1, &mut secp256k1::rand::thread_rng());
+        let kp_0 = secp256k1::Keypair::new(SECP256K1, &mut secp256k1::rand::thread_rng());
+        let kp_1 = secp256k1::Keypair::new(SECP256K1, &mut secp256k1::rand::thread_rng());
+        let kp_2 = secp256k1::Keypair::new(SECP256K1, &mut secp256k1::rand::thread_rng());
         let message: [u8; 32] = secp256k1::rand::thread_rng().gen();
         let pks = vec![kp_0.public_key(), kp_1.public_key(), kp_2.public_key()];
         let (sec_nonce_0, pub_nonce_0) =
@@ -343,9 +343,9 @@ mod tests {
 
     #[test]
     fn test_musig2_tweak_fail() {
-        let kp_0 = secp256k1::Keypair::new(&SECP256K1, &mut secp256k1::rand::thread_rng());
-        let kp_1 = secp256k1::Keypair::new(&SECP256K1, &mut secp256k1::rand::thread_rng());
-        let kp_2 = secp256k1::Keypair::new(&SECP256K1, &mut secp256k1::rand::thread_rng());
+        let kp_0 = secp256k1::Keypair::new(SECP256K1, &mut secp256k1::rand::thread_rng());
+        let kp_1 = secp256k1::Keypair::new(SECP256K1, &mut secp256k1::rand::thread_rng());
+        let kp_2 = secp256k1::Keypair::new(SECP256K1, &mut secp256k1::rand::thread_rng());
         let message: [u8; 32] = secp256k1::rand::thread_rng().gen();
         let tweak: [u8; 32] = secp256k1::rand::thread_rng().gen();
         let pks = vec![kp_0.public_key(), kp_1.public_key(), kp_2.public_key()];
@@ -417,7 +417,7 @@ mod tests {
         let dummy_script = script::Builder::new().push_int(1).into_script();
         let scripts: Vec<ScriptBuf> = vec![dummy_script];
         let receiving_address = bitcoin::Address::p2tr(
-            &SECP256K1,
+            SECP256K1,
             *utils::UNSPENDABLE_XONLY_PUBKEY,
             None,
             bitcoin::Network::Regtest,
@@ -510,7 +510,7 @@ mod tests {
             .into_script();
         let scripts: Vec<ScriptBuf> = vec![musig2_script];
         let receiving_address = bitcoin::Address::p2tr(
-            &SECP256K1,
+            SECP256K1,
             *utils::UNSPENDABLE_XONLY_PUBKEY,
             None,
             bitcoin::Network::Regtest,

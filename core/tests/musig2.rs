@@ -28,7 +28,7 @@ fn get_verifiers_keys(
 
     let verifiers_secret_public_keys: Vec<Keypair> = verifiers_secret_keys
         .iter()
-        .map(|sk| Keypair::from_secret_key(&SECP256K1, sk))
+        .map(|sk| Keypair::from_secret_key(SECP256K1, sk))
         .collect();
 
     let verifier_public_keys = verifiers_secret_public_keys
@@ -295,7 +295,7 @@ async fn script_spend() {
     let scripts: Vec<ScriptBuf> = vec![musig2_script];
 
     let to_address = bitcoin::Address::p2tr(
-        &SECP256K1,
+        SECP256K1,
         *utils::UNSPENDABLE_XONLY_PUBKEY,
         None,
         bitcoin::Network::Regtest,
