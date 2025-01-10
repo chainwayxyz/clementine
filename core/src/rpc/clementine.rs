@@ -205,6 +205,9 @@ pub struct WatchtowerParams {
     /// Flattened list of Winternitz pubkeys for each operator's timetxs.
     #[prost(message, repeated, tag = "2")]
     pub winternitz_pubkeys: ::prost::alloc::vec::Vec<WinternitzPubkey>,
+    /// xonly public key serialized to bytes
+    #[prost(bytes = "vec", tag = "3")]
+    pub xonly_pk: ::prost::alloc::vec::Vec<u8>,
 }
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct RawSignedMoveTx {

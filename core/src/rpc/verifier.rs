@@ -19,7 +19,7 @@ use bitvm::{
     bridge::transactions::signing_winternitz::WinternitzPublicKey, signatures::winternitz,
 };
 use futures::StreamExt;
-use secp256k1::{schnorr, Message};
+use secp256k1::{schnorr, Message, XOnlyPublicKey};
 use std::{pin::pin, str::FromStr};
 use tokio::sync::mpsc;
 use tokio_stream::wrappers::ReceiverStream;
@@ -210,6 +210,13 @@ impl ClementineVerifier for Verifier {
                 )
                 .await?;
         }
+
+        let xonly_pk = XOnlyPublicKey::from_slice(&watchtower_params.xonly_pk).map_err(|_| {
+            BridgeError::RPCParamMalformed("watchtower.xonly_pk", "Invalid xonly key".to_string())
+        })?;
+        self.db
+            .save_watchtower_xonly_pk(None, watchtower_params.watchtower_id, &xonly_pk)
+            .await?;
 
         Ok(Response::new(Empty {}))
     }
