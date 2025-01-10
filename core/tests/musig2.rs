@@ -5,7 +5,7 @@ use clementine_core::builder::transaction::TxHandler;
 use clementine_core::musig2::{
     aggregate_nonces, aggregate_partial_signatures, MuSigPartialSignature, MuSigPubNonce,
 };
-use clementine_core::utils::{handle_taproot_witness_new, SECP};
+use clementine_core::utils::handle_taproot_witness_new;
 use clementine_core::ByteArray32;
 use clementine_core::{
     actor::Actor,
@@ -16,7 +16,7 @@ use clementine_core::{
     utils, ByteArray66,
 };
 use clementine_core::{database::Database, utils::initialize_logger};
-use secp256k1::{Keypair, Message, PublicKey};
+use secp256k1::{Keypair, Message, PublicKey, SECP256K1};
 use std::{env, thread};
 
 mod common;
@@ -28,7 +28,7 @@ fn get_verifiers_keys(
 
     let verifiers_secret_public_keys: Vec<Keypair> = verifiers_secret_keys
         .iter()
-        .map(|sk| Keypair::from_secret_key(&SECP, sk))
+        .map(|sk| Keypair::from_secret_key(&SECP256K1, sk))
         .collect();
 
     let verifier_public_keys = verifiers_secret_public_keys
@@ -147,12 +147,13 @@ async fn key_spend() {
     musig2::verify_single(musig_agg_pubkey, final_signature, message).unwrap();
 
     let schnorr_sig = secp256k1::schnorr::Signature::from_slice(&final_signature).unwrap();
-    SECP.verify_schnorr(
-        &schnorr_sig,
-        &Message::from_digest(message),
-        &musig_agg_xonly_pubkey_wrapped,
-    )
-    .unwrap();
+    SECP256K1
+        .verify_schnorr(
+            &schnorr_sig,
+            &Message::from_digest(message),
+            &musig_agg_xonly_pubkey_wrapped,
+        )
+        .unwrap();
     rpc.mine_blocks(1).await.unwrap();
 
     tx_details.tx.input[0].witness.push(final_signature);
@@ -248,12 +249,13 @@ async fn key_spend_with_script() {
     musig2::verify_single(musig_agg_pubkey, final_signature, message).unwrap();
 
     let schnorr_sig = secp256k1::schnorr::Signature::from_slice(&final_signature).unwrap();
-    SECP.verify_schnorr(
-        &schnorr_sig,
-        &Message::from_digest(message),
-        &musig_agg_xonly_pubkey_wrapped,
-    )
-    .unwrap();
+    SECP256K1
+        .verify_schnorr(
+            &schnorr_sig,
+            &Message::from_digest(message),
+            &musig_agg_xonly_pubkey_wrapped,
+        )
+        .unwrap();
     rpc.mine_blocks(1).await.unwrap();
 
     tx_details.tx.input[0].witness.push(final_signature);
@@ -293,7 +295,7 @@ async fn script_spend() {
     let scripts: Vec<ScriptBuf> = vec![musig2_script];
 
     let to_address = bitcoin::Address::p2tr(
-        &SECP,
+        &SECP256K1,
         *utils::UNSPENDABLE_XONLY_PUBKEY,
         None,
         bitcoin::Network::Regtest,
@@ -351,7 +353,7 @@ async fn script_spend() {
     )
     .unwrap();
     musig2::verify_single(musig_agg_pubkey, final_signature, message).unwrap();
-    utils::SECP
+    SECP256K1
         .verify_schnorr(
             &secp256k1::schnorr::Signature::from_slice(&final_signature).unwrap(),
             &Message::from_digest(message),

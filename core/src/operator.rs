@@ -20,7 +20,7 @@ use bitvm::signatures::winternitz;
 use jsonrpsee::core::client::ClientT;
 use jsonrpsee::http_client::HttpClientBuilder;
 use jsonrpsee::rpc_params;
-use secp256k1::{schnorr, Message};
+use secp256k1::{schnorr, Message, SECP256K1};
 use serde_json::json;
 
 #[derive(Debug, Clone)]
@@ -442,7 +442,7 @@ impl Operator {
         };
         tx.input[0].witness.push(user_sig_wrapped.serialize());
 
-        utils::SECP.verify_schnorr(
+        SECP256K1.verify_schnorr(
             &user_sig,
             &Message::from_digest(*sighash.as_byte_array()),
             &user_xonly_pk,

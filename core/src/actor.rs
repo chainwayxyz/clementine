@@ -12,6 +12,7 @@ use bitcoin::{TapLeafHash, TapNodeHash, TapSighashType, TxOut, Witness};
 use bitvm::signatures::winternitz::{
     self, BinarysearchVerifier, StraightforwardConverter, Winternitz,
 };
+use secp256k1::SECP256K1;
 
 /// Available transaction types for [`WinternitzDerivationPath`].
 #[derive(Clone, Copy, Debug)]
@@ -104,9 +105,9 @@ impl Actor {
         winternitz_secret_key: Option<secp256k1::SecretKey>,
         network: bitcoin::Network,
     ) -> Self {
-        let keypair = Keypair::from_secret_key(&utils::SECP, &sk);
+        let keypair = Keypair::from_secret_key(&SECP256K1, &sk);
         let (xonly, _parity) = XOnlyPublicKey::from_keypair(&keypair);
-        let address = Address::p2tr(&utils::SECP, xonly, None, network);
+        let address = Address::p2tr(&SECP256K1, xonly, None, network);
 
         Actor {
             keypair,
@@ -124,10 +125,10 @@ impl Actor {
         sighash: TapSighash,
         merkle_root: Option<TapNodeHash>,
     ) -> Result<schnorr::Signature, BridgeError> {
-        Ok(utils::SECP.sign_schnorr(
+        Ok(SECP256K1.sign_schnorr(
             &Message::from_digest_slice(sighash.as_byte_array()).expect("should be hash"),
             &self.keypair.add_xonly_tweak(
-                &utils::SECP,
+                &SECP256K1,
                 &TapTweakHash::from_key_and_tweak(self.xonly_public_key, merkle_root).to_scalar(),
             )?,
         ))
@@ -135,7 +136,7 @@ impl Actor {
 
     #[tracing::instrument(skip(self), ret(level = tracing::Level::TRACE))]
     pub fn sign(&self, sighash: TapSighash) -> schnorr::Signature {
-        utils::SECP.sign_schnorr(
+        SECP256K1.sign_schnorr(
             &Message::from_digest_slice(sighash.as_byte_array()).expect("should be hash"),
             &self.keypair,
         )
@@ -363,7 +364,8 @@ mod tests {
         },
         treepp::script,
     };
-    use secp256k1::{rand, Secp256k1, SecretKey};
+    use secp256k1::SECP256K1;
+    use secp256k1::{rand, SecretKey};
     use std::env;
     use std::str::FromStr;
     use std::thread;
@@ -428,15 +430,14 @@ mod tests {
 
     #[test]
     fn actor_new() {
-        let secp = Secp256k1::new();
         let sk = SecretKey::new(&mut rand::thread_rng());
         let network = Network::Regtest;
 
         let actor = Actor::new(sk, None, network);
 
         assert_eq!(sk, actor._secret_key);
-        assert_eq!(sk.public_key(&secp), actor.public_key);
-        assert_eq!(sk.x_only_public_key(&secp).0, actor.xonly_public_key);
+        assert_eq!(sk.public_key(&SECP256K1), actor.public_key);
+        assert_eq!(sk.x_only_public_key(&SECP256K1).0, actor.xonly_public_key);
     }
 
     #[test]

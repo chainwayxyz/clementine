@@ -174,17 +174,14 @@ mod tests {
         hashes::Hash, opcodes::all::OP_CHECKSIG, script, Amount, OutPoint, ScriptBuf, TapNodeHash,
         TxOut, Txid,
     };
-    use secp256k1::{rand::Rng, Keypair, Message, XOnlyPublicKey};
+    use secp256k1::{rand::Rng, Keypair, Message, XOnlyPublicKey, SECP256K1};
     use std::vec;
 
     // Generates a test setup with a given number of signers. Returns a vector of keypairs and a vector of nonce pairs.
     fn generate_test_setup(num_signers: usize) -> (Vec<Keypair>, Vec<MuSigNoncePair>) {
         let mut keypair_vec: Vec<Keypair> = Vec::new();
         for _ in 0..num_signers {
-            keypair_vec.push(Keypair::new(
-                &crate::utils::SECP,
-                &mut secp256k1::rand::thread_rng(),
-            ));
+            keypair_vec.push(Keypair::new(&SECP256K1, &mut secp256k1::rand::thread_rng()));
         }
         let nonce_pair_vec: Vec<MuSigNoncePair> = keypair_vec
             .iter()
@@ -245,9 +242,9 @@ mod tests {
     // Test that the verification fails if one of the partial signatures is invalid.
     #[test]
     fn test_musig2_raw_fail() {
-        let kp_0 = secp256k1::Keypair::new(&utils::SECP, &mut secp256k1::rand::thread_rng());
-        let kp_1 = secp256k1::Keypair::new(&utils::SECP, &mut secp256k1::rand::thread_rng());
-        let kp_2 = secp256k1::Keypair::new(&utils::SECP, &mut secp256k1::rand::thread_rng());
+        let kp_0 = secp256k1::Keypair::new(&SECP256K1, &mut secp256k1::rand::thread_rng());
+        let kp_1 = secp256k1::Keypair::new(&SECP256K1, &mut secp256k1::rand::thread_rng());
+        let kp_2 = secp256k1::Keypair::new(&SECP256K1, &mut secp256k1::rand::thread_rng());
         let message: [u8; 32] = secp256k1::rand::thread_rng().gen();
         let pks = vec![kp_0.public_key(), kp_1.public_key(), kp_2.public_key()];
         let (sec_nonce_0, pub_nonce_0) =
@@ -346,9 +343,9 @@ mod tests {
 
     #[test]
     fn test_musig2_tweak_fail() {
-        let kp_0 = secp256k1::Keypair::new(&utils::SECP, &mut secp256k1::rand::thread_rng());
-        let kp_1 = secp256k1::Keypair::new(&utils::SECP, &mut secp256k1::rand::thread_rng());
-        let kp_2 = secp256k1::Keypair::new(&utils::SECP, &mut secp256k1::rand::thread_rng());
+        let kp_0 = secp256k1::Keypair::new(&SECP256K1, &mut secp256k1::rand::thread_rng());
+        let kp_1 = secp256k1::Keypair::new(&SECP256K1, &mut secp256k1::rand::thread_rng());
+        let kp_2 = secp256k1::Keypair::new(&SECP256K1, &mut secp256k1::rand::thread_rng());
         let message: [u8; 32] = secp256k1::rand::thread_rng().gen();
         let tweak: [u8; 32] = secp256k1::rand::thread_rng().gen();
         let pks = vec![kp_0.public_key(), kp_1.public_key(), kp_2.public_key()];
@@ -420,7 +417,7 @@ mod tests {
         let dummy_script = script::Builder::new().push_int(1).into_script();
         let scripts: Vec<ScriptBuf> = vec![dummy_script];
         let receiving_address = bitcoin::Address::p2tr(
-            &utils::SECP,
+            &SECP256K1,
             *utils::UNSPENDABLE_XONLY_PUBKEY,
             None,
             bitcoin::Network::Regtest,
@@ -486,7 +483,7 @@ mod tests {
             XOnlyPublicKey::from_musig2_pks(pks, merkle_root, true);
         // musig2::verify_single(musig_agg_pubkey, &final_signature, message)
         //     .expect("Verification failed!");
-        utils::SECP
+        SECP256K1
             .verify_schnorr(
                 &secp256k1::schnorr::Signature::from_slice(&final_signature).unwrap(),
                 &Message::from_digest(message),
@@ -513,7 +510,7 @@ mod tests {
             .into_script();
         let scripts: Vec<ScriptBuf> = vec![musig2_script];
         let receiving_address = bitcoin::Address::p2tr(
-            &utils::SECP,
+            &SECP256K1,
             *utils::UNSPENDABLE_XONLY_PUBKEY,
             None,
             bitcoin::Network::Regtest,
@@ -577,7 +574,7 @@ mod tests {
         .unwrap();
         // musig2::verify_single(musig_agg_pubkey, &final_signature, message)
         //     .expect("Verification failed!");
-        utils::SECP
+        SECP256K1
             .verify_schnorr(
                 &secp256k1::schnorr::Signature::from_slice(&final_signature).unwrap(),
                 &Message::from_digest(message),

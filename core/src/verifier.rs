@@ -18,7 +18,7 @@ use bitcoin::hashes::Hash;
 use bitcoin::Address;
 use bitcoin::{secp256k1, OutPoint};
 use bitcoincore_rpc::RawTx;
-use secp256k1::{rand, schnorr};
+use secp256k1::{rand, schnorr, SECP256K1};
 
 #[derive(Debug)]
 pub struct NonceSession {
@@ -236,7 +236,7 @@ impl Verifier {
             );
 
             // Check if they are really the operators that sent these kickoff_utxos
-            utils::SECP.verify_schnorr(
+            SECP256K1.verify_schnorr(
                 &operators_kickoff_sigs[i],
                 &secp256k1::Message::from_digest(kickoff_sig_hash),
                 &self.config.operators_xonly_pks[i],
@@ -400,7 +400,7 @@ impl Verifier {
                     Actor::convert_tx_to_sighash_script_spend(&mut slash_or_take_tx_handler, 0, 0)
                         .unwrap();
 
-                utils::SECP
+                SECP256K1
                     .verify_schnorr(
                         &slash_or_take_sigs[index],
                         &secp256k1::Message::from_digest(slash_or_take_sighash.to_byte_array()),
@@ -477,7 +477,7 @@ impl Verifier {
         let (kickoff_utxos, mut move_tx_handler, bridge_fund_outpoint) =
             self.create_deposit_details(deposit_outpoint).await?;
         let nofn_taproot_xonly_pk = secp256k1::XOnlyPublicKey::from_slice(
-            &Address::p2tr(&utils::SECP, self.nofn_xonly_pk, None, self.config.network)
+            &Address::p2tr(&SECP256K1, self.nofn_xonly_pk, None, self.config.network)
                 .script_pubkey()
                 .as_bytes()[2..34],
         )?;
@@ -523,7 +523,7 @@ impl Verifier {
                     Actor::convert_tx_to_sighash_pubkey_spend(&mut operator_takes_tx, 0).unwrap();
 
                 // verify the operator_take_sigs
-                utils::SECP
+                SECP256K1
                     .verify_schnorr(
                         &operator_take_sigs[index],
                         &secp256k1::Message::from_digest(sig_hash.to_byte_array()),
