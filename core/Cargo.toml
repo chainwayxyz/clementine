@@ -15,7 +15,7 @@ sha2 = { workspace = true }
 risc0-zkvm = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
-secp256k1 = { workspace = true, features = ["serde"] }
+secp256k1 = { workspace = true, features = ["serde", "rand", "std"] }
 crypto-bigint = { workspace = true }
 thiserror = { workspace = true }
 tracing = { workspace = true }
