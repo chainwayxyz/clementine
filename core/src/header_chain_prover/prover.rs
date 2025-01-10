@@ -3,7 +3,7 @@
 //! Prover is responsible for preparing RiscZero header chain prover proofs.
 
 use crate::{errors::BridgeError, header_chain_prover::HeaderChainProver};
-use circuits::header_chain::{
+use header_chain::header_chain::{
     BlockHeaderCircuitOutput, CircuitBlockHeader, HeaderChainCircuitInput, HeaderChainPrevProofType,
 };
 use lazy_static::lazy_static;
@@ -140,7 +140,7 @@ mod tests {
         BlockHash, CompactTarget, TxMerkleNode,
     };
     use bitcoincore_rpc::RpcApi;
-    use circuits::header_chain::{BlockHeaderCircuitOutput, CircuitBlockHeader};
+    use header_chain::header_chain::{BlockHeaderCircuitOutput, CircuitBlockHeader};
     use std::{env, thread};
 
     async fn mine_and_get_first_n_block_headers(
