@@ -1,24 +1,29 @@
-use crate::{errors::BridgeError, ByteArray32, ByteArray64, ByteArray66};
-use bitcoin::hashes::Hash;
+use crate::{errors::BridgeError, utils::SECP, ByteArray32, ByteArray64};
 use bitcoin::TapNodeHash;
-use musig2::{sign_partial, AggNonce, KeyAggContext, SecNonce};
-use secp256k1::{rand::Rng, PublicKey};
+use secp256k1::{
+    musig::{
+        new_musig_nonce_pair, MusigAggNonce, MusigKeyAggCache, MusigPartialSignature,
+        MusigPubNonce, MusigSecNonce, MusigSecRand, MusigSession,
+    },
+    rand::Rng,
+    schnorr, Message, PublicKey,
+};
 
 // We can directly use the musig2 crate for this
 // No need for extra types etc.
 // MuSigPubNonce consists of two curve points, so it's 66 bytes (compressed).
-pub type MuSigPubNonce = ByteArray66;
+// pub type MuSigPubNonce = ByteArray66;
 // MuSigSecNonce consists of two scalars, so it's 64 bytes.
-pub type MuSigSecNonce = ByteArray64;
+// pub type MuSigSecNonce = ByteArray64;
 // MuSigAggNonce is a scalar, so it's 32 bytes.
-pub type MuSigAggNonce = ByteArray66;
-// MuSigPartialSignature is a scalar, so it's 32 bytes.
-pub type MuSigPartialSignature = ByteArray32;
+// pub type MuSigAggNonce = ByteArray66;
+// MusigPartialSignature is a scalar, so it's 32 bytes.
+// pub type MusigPartialSignature = ByteArray32;
 // MuSigFinalSignature is a Schnorr signature, so it's 64 bytes.
 pub type MuSigFinalSignature = ByteArray64;
 // SigHash used for MuSig2 operations.
 pub type MuSigSigHash = ByteArray32;
-pub type MuSigNoncePair = (MuSigSecNonce, MuSigPubNonce);
+pub type MuSigNoncePair = (MusigSecNonce, MusigPubNonce);
 
 pub trait AggregateFromPublicKeys {
     fn from_musig2_pks(
@@ -47,93 +52,62 @@ impl AggregateFromPublicKeys for secp256k1::XOnlyPublicKey {
     }
 }
 
-// Creates the key aggregation context, with the public keys and the tweak (if any).
-// There are two functions to retrieve the aggregated public key, one with the tweak and one without.
-#[tracing::instrument(err(level = tracing::Level::ERROR), ret(level = tracing::Level::TRACE))]
-pub fn create_key_agg_ctx(
-    pks: Vec<PublicKey>,
-    tweak: Option<TapNodeHash>,
-    tweak_flag: bool,
-) -> Result<KeyAggContext, BridgeError> {
-    let musig_pks: Vec<musig2::secp256k1::PublicKey> = pks
-        .iter()
-        .map(|pk| musig2::secp256k1::PublicKey::from_slice(&pk.serialize()).unwrap())
-        .collect::<Vec<musig2::secp256k1::PublicKey>>();
-    let key_agg_ctx_raw = KeyAggContext::new(musig_pks)?;
-    // tracing::debug!(
-    //     "UNTWEAKED AGGREGATED PUBKEY: {:?}",
-    //     key_agg_ctx_raw.aggregated_pubkey::<musig2::secp256k1::PublicKey>()
-    // );
-    if tweak_flag {
-        let key_agg_ctx = match tweak {
-            Some(scalar) => key_agg_ctx_raw.with_taproot_tweak(&scalar.to_byte_array())?,
-            None => key_agg_ctx_raw.with_unspendable_taproot_tweak()?,
-        };
-        // tracing::debug!(
-        //     "TWEAKED AGGREGATED PUBKEY: {:?}",
-        //     key_agg_ctx.aggregated_pubkey::<musig2::secp256k1::PublicKey>()
-        // );
-        Ok(key_agg_ctx)
-    } else {
-        if tweak.is_some() {
-            return Err(BridgeError::VecConversionError); // TODO: Change error handling.
-        }
-        Ok(key_agg_ctx_raw)
-    }
+// Aggregates the public nonces into a single aggregated nonce.
+pub fn aggregate_nonces(pub_nonces: Vec<MusigPubNonce>) -> MusigAggNonce {
+    let pub_nonces = pub_nonces.iter().map(|x| x).collect::<Vec<_>>();
+
+    MusigAggNonce::new(&SECP, pub_nonces.as_slice())
 }
 
-// Aggregates the public nonces into a single aggregated nonce. Wrapper for the musig2::AggNonce::sum function.
-#[tracing::instrument(ret(level = tracing::Level::TRACE))]
-pub fn aggregate_nonces(pub_nonces: Vec<MuSigPubNonce>) -> MuSigAggNonce {
-    let musig_pub_nonces: Vec<musig2::PubNonce> = pub_nonces
-        .iter()
-        .map(|x| musig2::PubNonce::from_bytes(&x.0).unwrap())
-        .collect::<Vec<musig2::PubNonce>>();
-    let musig_agg_nonce: AggNonce = AggNonce::sum(musig_pub_nonces);
-    ByteArray66(musig_agg_nonce.into())
-}
-
-// Aggregates the partial signatures into a single final signature. Wrapper for the musig2::aggregate_partial_signatures function.
+// Aggregates the partial signatures into a single final signature.
 #[tracing::instrument(err(level = tracing::Level::ERROR), ret(level = tracing::Level::TRACE))]
 pub fn aggregate_partial_signatures(
     pks: Vec<PublicKey>,
     tweak: Option<TapNodeHash>,
     tweak_flag: bool,
-    agg_nonce: &MuSigAggNonce,
-    partial_sigs: Vec<MuSigPartialSignature>,
-    message: MuSigSigHash,
-) -> Result<[u8; 64], BridgeError> {
-    let key_agg_ctx = create_key_agg_ctx(pks, tweak, tweak_flag)?;
-    let musig_partial_sigs: Vec<musig2::PartialSignature> = partial_sigs
-        .iter()
-        .map(|x| musig2::PartialSignature::from_slice(&x.0).unwrap())
-        .collect::<Vec<musig2::PartialSignature>>();
-    Ok(musig2::aggregate_partial_signatures(
-        &key_agg_ctx,
-        &AggNonce::from_bytes(&agg_nonce.0).unwrap(),
-        musig_partial_sigs,
-        message.0,
-    )?)
+    agg_nonce: MusigAggNonce,
+    partial_sigs: Vec<MusigPartialSignature>,
+    message: secp256k1::Message,
+) -> Result<schnorr::Signature, BridgeError> {
+    let pubkeys_ref: Vec<&PublicKey> = pks.iter().collect();
+    let pubkeys_ref = pubkeys_ref.as_slice();
+    let musig_key_agg_cache = MusigKeyAggCache::new(&SECP, pubkeys_ref);
+
+    let session = MusigSession::new(&SECP, &musig_key_agg_cache, agg_nonce, message);
+
+    let musig_partial_sigs = &partial_sigs[0];
+
+    Ok(session.partial_sig_agg(&[&musig_partial_sigs]))
 }
 
-// Generates a pair of nonces, one secret and one public. Wrapper for the musig2::SecNonce::build function. Be careful,
-// DO NOT REUSE the same pair of nonces for multiple transactions. It will cause you to leak your secret key. For more information,
-// see https://medium.com/blockstream/musig-dn-schnorr-multisignatures-with-verifiably-deterministic-nonces-27424b5df9d6#e3b6.
+/// Generates a pair of nonces, one secret and one public. Be careful,
+/// DO NOT REUSE the same pair of nonces for multiple transactions. It will cause
+/// you to leak your secret key. For more information. See:
+/// https://medium.com/blockstream/musig-dn-schnorr-multisignatures-with-verifiably-deterministic-nonces-27424b5df9d6#e3b6.
 #[tracing::instrument(skip(rng), ret(level = tracing::Level::TRACE))]
 pub fn nonce_pair(
     keypair: &secp256k1::Keypair, // TODO: Remove this field
-    rng: &mut impl Rng,
-) -> (MuSigSecNonce, MuSigPubNonce) {
-    let rnd = rng.gen::<[u8; 32]>();
-    let sec_nonce = SecNonce::build(rnd).build();
+    mut rng: &mut impl Rng,
+) -> (MusigSecNonce, MusigPubNonce) {
+    let pk = keypair.public_key();
+    let pubkeys_ref: Vec<&PublicKey> = vec![&pk];
+    let pubkeys_ref = pubkeys_ref.as_slice();
+    let musig_key_agg_cache = MusigKeyAggCache::new(&SECP, pubkeys_ref);
 
-    let pub_nonce = ByteArray66(sec_nonce.public_nonce().into());
-    let sec_nonce: [u8; 64] = sec_nonce.into();
+    let musig_session_sec_rand = MusigSecRand::new(&mut rng);
 
-    (ByteArray64(sec_nonce), pub_nonce)
+    new_musig_nonce_pair(
+        &SECP,
+        musig_session_sec_rand,
+        Some(&musig_key_agg_cache),
+        Some(keypair.secret_key()),
+        keypair.public_key(),
+        None,
+        None,
+    )
+    .unwrap()
 }
 
-// We are creating the key aggregation context manually here, adding the tweaks by hand.
 #[tracing::instrument(ret(level = tracing::Level::TRACE))]
 pub fn partial_sign(
     pks: Vec<PublicKey>,
@@ -141,23 +115,22 @@ pub fn partial_sign(
     // Taproot key-spends, since we might have script-spend conditions.
     tweak: Option<TapNodeHash>,
     tweak_flag: bool,
-    sec_nonce: MuSigSecNonce,
-    agg_nonce: MuSigAggNonce,
+    sec_nonce: MusigSecNonce,
+    agg_nonce: MusigAggNonce,
     keypair: &secp256k1::Keypair,
     sighash: MuSigSigHash,
-) -> MuSigPartialSignature {
-    let key_agg_ctx = create_key_agg_ctx(pks, tweak, tweak_flag).unwrap();
-    let musig_sec_nonce = SecNonce::from_bytes(&sec_nonce.0).unwrap();
-    let musig_agg_nonce = AggNonce::from_bytes(&agg_nonce.0).unwrap();
-    let partial_signature: [u8; 32] = sign_partial(
-        &key_agg_ctx,
-        musig2::secp256k1::SecretKey::from_slice(&keypair.secret_key().secret_bytes()).unwrap(),
-        musig_sec_nonce,
-        &musig_agg_nonce,
-        sighash.0,
-    )
-    .unwrap();
-    ByteArray32(partial_signature)
+) -> MusigPartialSignature {
+    let pubkeys_ref: Vec<&PublicKey> = pks.iter().collect();
+    let pubkeys_ref = pubkeys_ref.as_slice();
+    let musig_key_agg_cache = MusigKeyAggCache::new(&SECP, pubkeys_ref);
+
+    let msg_bytes: [u8; 32] = *b"this_could_be_the_hash_of_a_msg!"; // TODO: Change this to the actual message.
+    let msg = Message::from_digest_slice(&msg_bytes).unwrap();
+    let session = MusigSession::new(&SECP, &musig_key_agg_cache, agg_nonce, msg);
+
+    session
+        .partial_sign(&SECP, sec_nonce, &keypair, &musig_key_agg_cache)
+        .unwrap()
 }
 
 #[cfg(test)]
@@ -167,14 +140,16 @@ mod tests {
         actor::Actor,
         builder::{self, transaction::TxHandler},
         errors::BridgeError,
-        musig2::{AggregateFromPublicKeys, MuSigPartialSignature},
+        musig2::AggregateFromPublicKeys,
         utils, ByteArray32,
     };
     use bitcoin::{
         hashes::Hash, opcodes::all::OP_CHECKSIG, script, Amount, OutPoint, ScriptBuf, TapNodeHash,
         TxOut, Txid,
     };
-    use secp256k1::{rand::Rng, Keypair, Message, XOnlyPublicKey};
+    use secp256k1::{
+        musig::MusigPartialSignature, rand::Rng, schnorr, Keypair, Message, XOnlyPublicKey,
+    };
     use std::vec;
 
     // Generates a test setup with a given number of signers. Returns a vector of keypairs and a vector of nonce pairs.
@@ -199,7 +174,7 @@ mod tests {
         // Generate a test setup with 3 signers
         let (kp_vec, nonce_pair_vec) = generate_test_setup(3);
         // Generate a random message
-        let message: [u8; 32] = secp256k1::rand::thread_rng().gen();
+        let message = Message::from_digest(secp256k1::rand::thread_rng().gen());
         // Extract the public keys
         let pks = kp_vec
             .iter()
@@ -210,9 +185,9 @@ mod tests {
         // Aggregate the public nonces into the aggregated nonce
         let agg_nonce = super::aggregate_nonces(nonce_pair_vec.iter().map(|x| x.1).collect());
         // Extract the aggregated public key
-        let musig_agg_pubkey: musig2::secp256k1::PublicKey = key_agg_ctx.aggregated_pubkey();
+        let musig_agg_pubkey: secp256k1::PublicKey = key_agg_ctx.aggregated_pubkey();
         // Calculate the partial signatures
-        let partial_sigs: Vec<MuSigPartialSignature> = kp_vec
+        let partial_sigs: Vec<MusigPartialSignature> = kp_vec
             .iter()
             .zip(nonce_pair_vec.iter())
             .map(|(kp, nonce_pair)| {
@@ -228,15 +203,9 @@ mod tests {
             })
             .collect();
         // Aggregate the partial signatures into a final signature
-        let final_signature: [u8; 64] = super::aggregate_partial_signatures(
-            pks,
-            None,
-            false,
-            &agg_nonce,
-            partial_sigs,
-            ByteArray32(message),
-        )
-        .unwrap();
+        let final_signature =
+            super::aggregate_partial_signatures(pks, None, false, agg_nonce, partial_sigs, message)
+                .unwrap();
         musig2::verify_single(musig_agg_pubkey, final_signature, message)
             .expect("Verification failed!");
         println!("MuSig2 signature verified successfully!");
@@ -248,7 +217,7 @@ mod tests {
         let kp_0 = secp256k1::Keypair::new(&utils::SECP, &mut secp256k1::rand::thread_rng());
         let kp_1 = secp256k1::Keypair::new(&utils::SECP, &mut secp256k1::rand::thread_rng());
         let kp_2 = secp256k1::Keypair::new(&utils::SECP, &mut secp256k1::rand::thread_rng());
-        let message: [u8; 32] = secp256k1::rand::thread_rng().gen();
+        let message = Message::from_digest(secp256k1::rand::thread_rng().gen());
         let pks = vec![kp_0.public_key(), kp_1.public_key(), kp_2.public_key()];
         let (sec_nonce_0, pub_nonce_0) =
             super::nonce_pair(&kp_0, &mut secp256k1::rand::thread_rng());
@@ -264,7 +233,7 @@ mod tests {
             sec_nonce_0,
             agg_nonce,
             &kp_0,
-            ByteArray32(message),
+            message,
         );
         let partial_sig_1 = super::partial_sign(
             pks.clone(),
@@ -273,7 +242,7 @@ mod tests {
             sec_nonce_1,
             agg_nonce,
             &kp_1,
-            ByteArray32(message),
+            message,
         );
         // Oops, a verifier accidentally added some tweak!
         let partial_sig_2 = super::partial_sign(
@@ -283,17 +252,11 @@ mod tests {
             sec_nonce_2,
             agg_nonce,
             &kp_2,
-            ByteArray32(message),
+            message,
         );
         let partial_sigs = vec![partial_sig_0, partial_sig_1, partial_sig_2];
-        let final_signature: Result<[u8; 64], BridgeError> = super::aggregate_partial_signatures(
-            pks,
-            None,
-            false,
-            &agg_nonce,
-            partial_sigs,
-            ByteArray32(message),
-        );
+        let final_signature: Result<schnorr::Signature, BridgeError> =
+            super::aggregate_partial_signatures(pks, None, false, agg_nonce, partial_sigs, message);
         assert!(final_signature.is_err());
     }
 
@@ -301,7 +264,7 @@ mod tests {
     #[test]
     fn test_musig2_tweak() {
         let (kp_vec, nonce_pair_vec) = generate_test_setup(3);
-        let message: [u8; 32] = secp256k1::rand::thread_rng().gen();
+        let message = Message::from_digest(secp256k1::rand::thread_rng().gen());
         let tweak: [u8; 32] = secp256k1::rand::thread_rng().gen();
         let pks = kp_vec
             .iter()
@@ -314,8 +277,8 @@ mod tests {
         )
         .unwrap();
         let agg_nonce = super::aggregate_nonces(nonce_pair_vec.iter().map(|x| x.1).collect());
-        let musig_agg_pubkey: musig2::secp256k1::PublicKey = key_agg_ctx.aggregated_pubkey();
-        let partial_sigs: Vec<MuSigPartialSignature> = kp_vec
+        let musig_agg_pubkey: secp256k1::PublicKey = key_agg_ctx.aggregated_pubkey();
+        let partial_sigs: Vec<MusigPartialSignature> = kp_vec
             .iter()
             .zip(nonce_pair_vec.iter())
             .map(|(kp, nonce_pair)| {
@@ -326,17 +289,17 @@ mod tests {
                     nonce_pair.0,
                     agg_nonce,
                     kp,
-                    ByteArray32(message),
+                    message,
                 )
             })
             .collect();
-        let final_signature: [u8; 64] = super::aggregate_partial_signatures(
+        let final_signature = super::aggregate_partial_signatures(
             pks,
             Some(TapNodeHash::from_slice(&tweak).unwrap()),
             true,
-            &agg_nonce,
+            agg_nonce,
             partial_sigs,
-            ByteArray32(message),
+            message,
         )
         .unwrap();
         musig2::verify_single(musig_agg_pubkey, final_signature, message)
@@ -409,8 +372,7 @@ mod tests {
             .collect::<Vec<secp256k1::PublicKey>>();
         let key_agg_ctx = super::create_key_agg_ctx(pks.clone(), None, true).unwrap();
 
-        let untweaked_pubkey =
-            key_agg_ctx.aggregated_pubkey_untweaked::<musig2::secp256k1::PublicKey>();
+        let untweaked_pubkey = key_agg_ctx.aggregated_pubkey_untweaked::<secp256k1::PublicKey>();
         let untweaked_xonly_pubkey: secp256k1::XOnlyPublicKey =
             secp256k1::XOnlyPublicKey::from_slice(
                 &untweaked_pubkey.x_only_public_key().0.serialize(),
@@ -454,11 +416,13 @@ mod tests {
             out_scripts: vec![vec![]],
             out_taproot_spend_infos: vec![None],
         };
-        let message = Actor::convert_tx_to_sighash_pubkey_spend(&mut tx_details, 0)
-            .unwrap()
-            .to_byte_array();
+        let message = Message::from_digest(
+            Actor::convert_tx_to_sighash_pubkey_spend(&mut tx_details, 0)
+                .unwrap()
+                .to_byte_array(),
+        );
         let merkle_root = sending_address_spend_info.merkle_root();
-        let partial_sigs: Vec<MuSigPartialSignature> = kp_vec
+        let partial_sigs: Vec<MusigPartialSignature> = kp_vec
             .iter()
             .zip(nonce_pair_vec.iter())
             .map(|(kp, nonce_pair)| {
@@ -469,17 +433,17 @@ mod tests {
                     nonce_pair.0,
                     agg_nonce,
                     kp,
-                    ByteArray32(message),
+                    message,
                 )
             })
             .collect();
-        let final_signature: [u8; 64] = super::aggregate_partial_signatures(
+        let final_signature = super::aggregate_partial_signatures(
             pks.clone(),
             merkle_root,
             true,
-            &agg_nonce,
+            agg_nonce,
             partial_sigs,
-            ByteArray32(message),
+            message,
         )
         .unwrap();
         let musig_agg_xonly_pubkey_wrapped =
@@ -487,11 +451,7 @@ mod tests {
         // musig2::verify_single(musig_agg_pubkey, &final_signature, message)
         //     .expect("Verification failed!");
         utils::SECP
-            .verify_schnorr(
-                &secp256k1::schnorr::Signature::from_slice(&final_signature).unwrap(),
-                &Message::from_digest(message),
-                &musig_agg_xonly_pubkey_wrapped,
-            )
+            .verify_schnorr(&final_signature, &message, &musig_agg_xonly_pubkey_wrapped)
             .unwrap();
         println!("MuSig2 signature verified successfully!");
     }
@@ -547,11 +507,13 @@ mod tests {
             out_scripts: vec![vec![]],
             out_taproot_spend_infos: vec![None],
         };
-        let message = Actor::convert_tx_to_sighash_script_spend(&mut tx_details, 0, 0)
-            .unwrap()
-            .to_byte_array();
+        let message = Message::from_digest(
+            Actor::convert_tx_to_sighash_script_spend(&mut tx_details, 0, 0)
+                .unwrap()
+                .to_byte_array(),
+        );
 
-        let partial_sigs: Vec<MuSigPartialSignature> = kp_vec
+        let partial_sigs: Vec<MusigPartialSignature> = kp_vec
             .iter()
             .zip(nonce_pair_vec.iter())
             .map(|(kp, nonce_pair)| {
@@ -562,27 +524,17 @@ mod tests {
                     nonce_pair.0,
                     agg_nonce,
                     kp,
-                    ByteArray32(message),
+                    message,
                 )
             })
             .collect();
-        let final_signature: [u8; 64] = super::aggregate_partial_signatures(
-            pks,
-            None,
-            false,
-            &agg_nonce,
-            partial_sigs,
-            ByteArray32(message),
-        )
-        .unwrap();
+        let final_signature =
+            super::aggregate_partial_signatures(pks, None, false, agg_nonce, partial_sigs, message)
+                .unwrap();
         // musig2::verify_single(musig_agg_pubkey, &final_signature, message)
         //     .expect("Verification failed!");
         utils::SECP
-            .verify_schnorr(
-                &secp256k1::schnorr::Signature::from_slice(&final_signature).unwrap(),
-                &Message::from_digest(message),
-                &musig_agg_xonly_pubkey_wrapped,
-            )
+            .verify_schnorr(&final_signature, &message, &musig_agg_xonly_pubkey_wrapped)
             .unwrap();
         println!("MuSig2 signature verified successfully!");
     }
