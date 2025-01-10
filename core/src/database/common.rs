@@ -4,16 +4,14 @@
 //! directly talks with PostgreSQL. It is expected that PostgreSQL is properly
 //! installed and configured.
 
-use std::str::FromStr;
-
 use super::wrapper::{
-    AddressDB, EVMAddressDB, OutPointDB, PublicKeyDB, SignatureDB, SignaturesDB, TxOutDB, TxidDB,
-    Utxodb, XOnlyPublicKeyDB,
+    AddressDB, EVMAddressDB, MusigPubNonceDB, OutPointDB, PublicKeyDB, SignatureDB, SignaturesDB,
+    TxOutDB, TxidDB, Utxodb, XOnlyPublicKeyDB,
 };
 use super::wrapper::{BlockHashDB, BlockHeaderDB};
 use super::Database;
 use crate::errors::BridgeError;
-use crate::musig2::{MuSigAggNonce, MuSigPubNonce, MuSigSecNonce, MuSigSigHash};
+use crate::musig2::MuSigSigHash;
 use crate::{EVMAddress, UTXO};
 use bitcoin::address::NetworkUnchecked;
 use bitcoin::{
@@ -25,8 +23,10 @@ use bitcoin::{Address, OutPoint, Txid};
 use bitvm::bridge::transactions::signing_winternitz::WinternitzPublicKey;
 use bitvm::signatures::winternitz;
 use risc0_zkvm::Receipt;
+use secp256k1::musig::{MusigAggNonce, MusigPubNonce, MusigSecNonce};
 use secp256k1::schnorr;
 use sqlx::{Postgres, QueryBuilder};
+use std::str::FromStr;
 
 impl Database {
     /// Verifier: save the generated sec nonce and pub nonces
@@ -492,20 +492,20 @@ impl Database {
         &self,
         tx: Option<&mut sqlx::Transaction<'_, Postgres>>,
         deposit_outpoint: OutPoint,
-    ) -> Result<Option<Vec<MuSigPubNonce>>, BridgeError> {
+    ) -> Result<Option<Vec<MusigPubNonce>>, BridgeError> {
         let query = sqlx::query_as(
             "SELECT pub_nonce FROM nonces WHERE deposit_outpoint = $1 ORDER BY internal_idx;",
         )
         .bind(OutPointDB(deposit_outpoint));
 
-        let result: Vec<(MuSigPubNonce,)> = match tx {
+        let result: Vec<(MusigPubNonceDB,)> = match tx {
             Some(tx) => query.fetch_all(&mut **tx).await?,
             None => query.fetch_all(&self.connection).await?,
         };
         if result.is_empty() {
             Ok(None)
         } else {
-            let pub_nonces: Vec<MuSigPubNonce> = result.into_iter().map(|(x,)| x).collect();
+            let pub_nonces: Vec<MusigPubNonce> = result.into_iter().map(|(x,)| x).collect();
             Ok(Some(pub_nonces))
         }
     }
@@ -516,7 +516,7 @@ impl Database {
         &self,
         tx: Option<&mut sqlx::Transaction<'_, Postgres>>,
         deposit_outpoint: OutPoint,
-        nonces: &[(MuSigSecNonce, MuSigPubNonce)],
+        nonces: &[(MusigSecNonce, MusigPubNonce)],
     ) -> Result<(), BridgeError> {
         let mut query = QueryBuilder::new(
             "INSERT INTO nonces (deposit_outpoint, internal_idx, sec_nonce, pub_nonce) ",
@@ -586,7 +586,7 @@ impl Database {
         deposit_outpoint: OutPoint,
         index: usize,
         sighashes: &[MuSigSigHash],
-    ) -> Result<Option<Vec<(MuSigSecNonce, MuSigAggNonce)>>, BridgeError> {
+    ) -> Result<Option<Vec<(MusigSecNonce, MusigAggNonce)>>, BridgeError> {
         // Update the sighashes
         let mut query = QueryBuilder::new(
             "WITH updated AS (
@@ -612,7 +612,7 @@ impl Database {
             )
             .build_query_as();
 
-        let result: Result<Vec<(MuSigSecNonce, MuSigAggNonce)>, sqlx::Error> = match tx {
+        let result: Result<Vec<(MusigSecNonce, MusigAggNonce)>, sqlx::Error> = match tx {
             Some(tx) => query.fetch_all(&mut **tx).await,
             None => query.fetch_all(&self.connection).await,
         };
@@ -630,7 +630,7 @@ impl Database {
         &self,
         tx: Option<&mut sqlx::Transaction<'_, Postgres>>,
         deposit_outpoint: OutPoint,
-        agg_nonces: impl IntoIterator<Item = &MuSigAggNonce>,
+        agg_nonces: impl IntoIterator<Item = &MusigAggNonce>,
     ) -> Result<(), BridgeError> {
         let mut query = QueryBuilder::new(
             "UPDATE nonces
@@ -1085,9 +1085,7 @@ mod tests {
     use super::Database;
     use crate::{config::BridgeConfig, initialize_database, utils::initialize_logger};
     use crate::{
-        create_test_config_with_thread_name,
-        musig2::{nonce_pair, MuSigAggNonce, MuSigPubNonce, MuSigSecNonce},
-        ByteArray32, EVMAddress, UTXO,
+        create_test_config_with_thread_name, musig2::nonce_pair, ByteArray32, EVMAddress, UTXO,
     };
     use bitcoin::{
         block::{self, Header, Version},
@@ -1102,6 +1100,7 @@ mod tests {
     };
     use borsh::BorshDeserialize;
     use risc0_zkvm::Receipt;
+    use secp256k1::musig::{MusigAggNonce, MusigPubNonce, MusigSecNonce};
     use secp256k1::{constants::SCHNORR_SIGNATURE_SIZE, rand::rngs::OsRng};
     use secp256k1::{schnorr, Secp256k1};
     use std::{env, thread};
@@ -1217,11 +1216,11 @@ mod tests {
             .iter()
             .map(|sk| secp256k1::Keypair::from_secret_key(&secp, sk))
             .collect();
-        let nonce_pairs: Vec<(MuSigSecNonce, MuSigPubNonce)> = keypairs
+        let nonce_pairs: Vec<(MusigSecNonce, MusigPubNonce)> = keypairs
             .into_iter()
             .map(|kp| nonce_pair(&kp, &mut OsRng))
             .collect();
-        let agg_nonces: Vec<MuSigAggNonce> = nonce_pairs
+        let agg_nonces: Vec<MusigAggNonce> = nonce_pairs
             .iter()
             .map(|(_, pub_nonce)| *pub_nonce)
             .collect();
@@ -1259,11 +1258,11 @@ mod tests {
             .iter()
             .map(|sk| secp256k1::Keypair::from_secret_key(&secp, sk))
             .collect();
-        let nonce_pairs: Vec<(MuSigSecNonce, MuSigPubNonce)> = keypairs
+        let nonce_pairs: Vec<(MusigSecNonce, MusigPubNonce)> = keypairs
             .into_iter()
             .map(|kp| nonce_pair(&kp, &mut OsRng))
             .collect();
-        let agg_nonces: Vec<MuSigAggNonce> = nonce_pairs
+        let agg_nonces: Vec<MusigAggNonce> = nonce_pairs
             .iter()
             .map(|(_, pub_nonce)| *pub_nonce)
             .collect();
@@ -1306,11 +1305,11 @@ mod tests {
             .iter()
             .map(|sk| secp256k1::Keypair::from_secret_key(&secp, sk))
             .collect();
-        let nonce_pairs: Vec<(MuSigSecNonce, MuSigPubNonce)> = keypairs
+        let nonce_pairs: Vec<(MusigSecNonce, MusigPubNonce)> = keypairs
             .into_iter()
             .map(|kp| nonce_pair(&kp, &mut OsRng))
             .collect();
-        let agg_nonces: Vec<MuSigAggNonce> = nonce_pairs
+        let agg_nonces: Vec<MusigAggNonce> = nonce_pairs
             .iter()
             .map(|(_, pub_nonce)| *pub_nonce)
             .collect();
@@ -1352,7 +1351,7 @@ mod tests {
             .iter()
             .map(|sk| secp256k1::Keypair::from_secret_key(&secp, sk))
             .collect();
-        let nonce_pairs: Vec<(MuSigSecNonce, MuSigPubNonce)> = keypairs
+        let nonce_pairs: Vec<(MusigSecNonce, MusigPubNonce)> = keypairs
             .into_iter()
             .map(|kp| nonce_pair(&kp, &mut OsRng))
             .collect();

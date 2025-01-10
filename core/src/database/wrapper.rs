@@ -6,6 +6,7 @@ use bitcoin::{
     hex::{DisplayHex, FromHex},
     Address, OutPoint, TxOut, Txid,
 };
+use secp256k1::musig::MusigPubNonce;
 use serde::{Deserialize, Serialize};
 use sqlx::{
     postgres::{PgArgumentBuffer, PgValueRef},
@@ -275,6 +276,34 @@ impl<'r> Decode<'r, Postgres> for XOnlyPublicKeyDB {
         let s = <&str as Decode<Postgres>>::decode(value)?;
         let x: secp256k1::XOnlyPublicKey = secp256k1::XOnlyPublicKey::from_str(s)?;
         Ok(XOnlyPublicKeyDB(x))
+    }
+}
+
+#[derive(sqlx::FromRow, Debug, Clone)]
+pub struct MusigPubNonceDB(pub secp256k1::musig::MusigPubNonce);
+
+impl sqlx::Type<sqlx::Postgres> for MusigPubNonceDB {
+    fn type_info() -> sqlx::postgres::PgTypeInfo {
+        sqlx::postgres::PgTypeInfo::with_name("TEXT")
+    }
+}
+impl Encode<'_, Postgres> for MusigPubNonceDB {
+    fn encode_by_ref(&self, buf: &mut PgArgumentBuffer) -> sqlx::encode::IsNull {
+        let serialized_signatures: Vec<u8> = self.0.serialize().into();
+
+        let serialized = borsh::to_vec(&serialized_signatures).unwrap();
+
+        <Vec<u8> as Encode<Postgres>>::encode_by_ref(&serialized, buf)
+    }
+}
+impl<'r> Decode<'r, Postgres> for MusigPubNonceDB {
+    fn decode(value: PgValueRef<'r>) -> Result<Self, sqlx::error::BoxDynError> {
+        let raw = <Vec<u8> as Decode<Postgres>>::decode(value)?;
+
+        let signatures = borsh::from_slice::<[u8; 66]>(&raw).unwrap();
+        let signatures = MusigPubNonce::from_slice(&signatures).unwrap();
+
+        Ok(MusigPubNonceDB(signatures))
     }
 }
 
