@@ -1,6 +1,3 @@
-use std::collections::HashMap;
-use std::sync::Arc;
-
 use crate::actor::Actor;
 use crate::builder::transaction::{TxHandler, KICKOFF_UTXO_AMOUNT_SATS};
 use crate::builder::{self};
@@ -8,22 +5,22 @@ use crate::config::BridgeConfig;
 use crate::database::Database;
 use crate::errors::BridgeError;
 use crate::extended_rpc::ExtendedRpc;
-use crate::musig2::{
-    self, AggregateFromPublicKeys, MuSigAggNonce, MuSigPartialSignature, MuSigPubNonce,
-    MuSigSecNonce, MuSigSigHash,
-};
-use crate::{utils, ByteArray32, ByteArray64, ByteArray66, EVMAddress, UTXO};
+use crate::musig2::{self, AggregateFromPublicKeys, MuSigSigHash};
+use crate::{utils, ByteArray32, EVMAddress, UTXO};
 use bitcoin::address::NetworkUnchecked;
 use bitcoin::hashes::Hash;
 use bitcoin::Address;
 use bitcoin::{secp256k1, OutPoint};
 use bitcoincore_rpc::RawTx;
+use secp256k1::musig::{MusigAggNonce, MusigPartialSignature, MusigPubNonce, MusigSecNonce};
 use secp256k1::{rand, schnorr};
+use std::collections::HashMap;
+use std::sync::Arc;
 
 #[derive(Debug)]
 pub struct NonceSession {
     pub private_key: secp256k1::SecretKey,
-    pub nonces: Vec<MuSigSecNonce>,
+    pub nonces: Vec<MusigSecNonce>,
 }
 
 #[derive(Debug)]
@@ -132,7 +129,7 @@ impl Verifier {
         deposit_outpoint: OutPoint,
         recovery_taproot_address: Address<NetworkUnchecked>,
         evm_address: EVMAddress,
-    ) -> Result<Vec<MuSigPubNonce>, BridgeError> {
+    ) -> Result<Vec<MusigPubNonce>, BridgeError> {
         self.rpc
             .check_deposit_utxo(
                 self.nofn_xonly_pk,
@@ -168,9 +165,6 @@ impl Verifier {
         let nonces = (0..num_required_nonces)
             .map(|_| musig2::nonce_pair(&self.signer.keypair, &mut rand::rngs::OsRng))
             .collect::<Vec<_>>();
-        let nonces: Vec<(ByteArray64, ByteArray66)> = nonces
-            .into_iter()
-            .collect::<Vec<(ByteArray64, ByteArray66)>>();
 
         self.db
             .save_deposit_info(
@@ -206,8 +200,8 @@ impl Verifier {
         deposit_outpoint: OutPoint,
         kickoff_utxos: Vec<UTXO>,
         operators_kickoff_sigs: Vec<secp256k1::schnorr::Signature>, // These are not transaction signatures, rather, they are to verify the operator's identity.
-        agg_nonces: Vec<MuSigAggNonce>, // This includes all the agg_nonces for the bridge operations.
-    ) -> Result<(Vec<MuSigPartialSignature>, Vec<MuSigPartialSignature>), BridgeError> {
+        agg_nonces: Vec<MusigAggNonce>, // This includes all the agg_nonces for the bridge operations.
+    ) -> Result<(Vec<MusigPartialSignature>, Vec<MusigPartialSignature>), BridgeError> {
         tracing::debug!(
             "Operatos kickoffs generated is called with data: {:?}, {:?}, {:?}, {:?}",
             deposit_outpoint,
@@ -376,7 +370,7 @@ impl Verifier {
         deposit_outpoint: OutPoint,
         _burn_sigs: Vec<schnorr::Signature>,
         slash_or_take_sigs: Vec<schnorr::Signature>,
-    ) -> Result<Vec<MuSigPartialSignature>, BridgeError> {
+    ) -> Result<Vec<MusigPartialSignature>, BridgeError> {
         // TODO: Verify burn txs are signed by verifiers
         let (kickoff_utxos, _, bridge_fund_outpoint) =
             self.create_deposit_details(deposit_outpoint).await?;
@@ -472,7 +466,7 @@ impl Verifier {
         &self,
         deposit_outpoint: OutPoint,
         operator_take_sigs: Vec<schnorr::Signature>,
-    ) -> Result<MuSigPartialSignature, BridgeError> {
+    ) -> Result<MusigPartialSignature, BridgeError> {
         // println!("Operator take signed: {:?}", operator_take_sigs);
         let (kickoff_utxos, mut move_tx_handler, bridge_fund_outpoint) =
             self.create_deposit_details(deposit_outpoint).await?;
@@ -580,7 +574,7 @@ impl Verifier {
         // );
 
         Ok(
-            move_tx_sig as MuSigPartialSignature, // move_reveal_sig as MuSigPartialSignature,
+            move_tx_sig as MusigPartialSignature, // move_reveal_sig as MuSigPartialSignature,
         )
     }
 }

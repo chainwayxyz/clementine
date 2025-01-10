@@ -9,7 +9,7 @@ use crate::{
         sighash::{calculate_num_required_sigs, create_nofn_sighash_stream},
     },
     errors::BridgeError,
-    musig2::{self, MuSigPubNonce, MuSigSecNonce},
+    musig2::{self},
     sha256_hash, utils,
     verifier::{NofN, NonceSession, Verifier},
     ByteArray32, ByteArray66, EVMAddress,
@@ -19,7 +19,10 @@ use bitvm::{
     bridge::transactions::signing_winternitz::WinternitzPublicKey, signatures::winternitz,
 };
 use futures::StreamExt;
-use secp256k1::{schnorr, Message};
+use secp256k1::{
+    musig::{MusigPubNonce, MusigSecNonce},
+    schnorr, Message,
+};
 use std::{pin::pin, str::FromStr};
 use tokio::sync::mpsc;
 use tokio_stream::wrappers::ReceiverStream;
@@ -221,7 +224,7 @@ impl ClementineVerifier for Verifier {
         req: Request<NonceGenRequest>,
     ) -> Result<Response<Self::NonceGenStream>, Status> {
         let num_nonces = req.into_inner().num_nonces as usize;
-        let (sec_nonces, pub_nonces): (Vec<MuSigSecNonce>, Vec<MuSigPubNonce>) = (0..num_nonces)
+        let (sec_nonces, pub_nonces): (Vec<MusigSecNonce>, Vec<MusigPubNonce>) = (0..num_nonces)
             .map(|_| {
                 // nonce pair needs keypair and a rng
                 let (sec_nonce, pub_nonce) =
@@ -276,7 +279,9 @@ impl ClementineVerifier for Verifier {
             // Then send the public nonces
             for pub_nonce in &pub_nonces[..] {
                 let response = NonceGenResponse {
-                    response: Some(nonce_gen_response::Response::PubNonce(pub_nonce.0.to_vec())),
+                    response: Some(nonce_gen_response::Response::PubNonce(
+                        pub_nonce.serialize().to_vec(),
+                    )),
                 };
                 tx.send(Ok(response)).await.unwrap();
             }
@@ -402,7 +407,7 @@ impl ClementineVerifier for Verifier {
                 );
 
                 let partial_sig = PartialSig {
-                    partial_sig: move_tx_sig.0.to_vec(),
+                    partial_sig: move_tx_sig.serialize().to_vec(),
                 };
 
                 tx.send(Ok(partial_sig)).await.unwrap();

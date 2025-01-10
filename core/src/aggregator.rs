@@ -4,10 +4,7 @@ use crate::{
     config::BridgeConfig,
     database::Database,
     errors::BridgeError,
-    musig2::{
-        aggregate_nonces, aggregate_partial_signatures, AggregateFromPublicKeys, MuSigAggNonce,
-        MuSigPartialSignature, MuSigPubNonce,
-    },
+    musig2::{aggregate_nonces, aggregate_partial_signatures, AggregateFromPublicKeys},
     rpc::{
         self,
         clementine::{
@@ -17,12 +14,15 @@ use crate::{
         },
     },
     utils::handle_taproot_witness_new,
-    ByteArray32, ByteArray66, EVMAddress, UTXO,
+    EVMAddress, UTXO,
 };
 use bitcoin::{address::NetworkUnchecked, Address, OutPoint};
 use bitcoin::{hashes::Hash, Txid};
 use bitcoincore_rpc::RawTx;
-use secp256k1::schnorr;
+use secp256k1::{
+    musig::{MusigAggNonce, MusigPartialSignature, MusigPubNonce},
+    schnorr, Message,
+};
 
 /// Aggregator struct.
 /// This struct is responsible for aggregating partial signatures from the verifiers.
@@ -101,9 +101,9 @@ impl Aggregator {
         kickoff_utxo: UTXO,
         operator_xonly_pk: secp256k1::XOnlyPublicKey,
         operator_idx: usize,
-        agg_nonce: &MuSigAggNonce,
-        partial_sigs: Vec<MuSigPartialSignature>,
-    ) -> Result<[u8; 64], BridgeError> {
+        agg_nonce: &MusigAggNonce,
+        partial_sigs: Vec<MusigPartialSignature>,
+    ) -> Result<schnorr::Signature, BridgeError> {
         let mut tx = builder::transaction::create_slash_or_take_tx(
             deposit_outpoint,
             kickoff_utxo,
@@ -117,16 +117,17 @@ impl Aggregator {
         );
         // tracing::debug!("SLASH_OR_TAKE_TX: {:?}", tx);
         tracing::debug!("SLASH_OR_TAKE_TX weight: {:?}", tx.tx.weight());
-        let message: [u8; 32] =
-            Actor::convert_tx_to_sighash_script_spend(&mut tx, 0, 0)?.to_byte_array();
+        let message = Message::from_digest(
+            Actor::convert_tx_to_sighash_script_spend(&mut tx, 0, 0)?.to_byte_array(),
+        );
         // tracing::debug!("aggregate SLASH_OR_TAKE_TX message: {:?}", message);
-        let final_sig: [u8; 64] = aggregate_partial_signatures(
+        let final_sig = aggregate_partial_signatures(
             self.config.verifiers_public_keys.clone(),
             None,
             false,
-            agg_nonce,
+            *agg_nonce,
             partial_sigs,
-            ByteArray32(message),
+            message,
         )?;
         // tracing::debug!("aggregate SLASH_OR_TAKE_TX final_sig: {:?}", final_sig);
         // tracing::debug!(
@@ -147,9 +148,9 @@ impl Aggregator {
         kickoff_utxo: UTXO,
         operator_xonly_pk: &secp256k1::XOnlyPublicKey,
         operator_idx: usize,
-        agg_nonce: &MuSigAggNonce,
-        partial_sigs: Vec<MuSigPartialSignature>,
-    ) -> Result<[u8; 64], BridgeError> {
+        agg_nonce: &MusigAggNonce,
+        partial_sigs: Vec<MusigPartialSignature>,
+    ) -> Result<schnorr::Signature, BridgeError> {
         let move_tx = builder::transaction::create_move_tx(
             deposit_outpoint,
             self.nofn_xonly_pk,
@@ -200,15 +201,16 @@ impl Aggregator {
         // );
         // tracing::debug!("OPERATOR_TAKES_TX_HEX: {:?}", tx_handler.tx.raw_hex());
         tracing::debug!("OPERATOR_TAKES_TX weight: {:?}", tx_handler.tx.weight());
-        let message: [u8; 32] =
-            Actor::convert_tx_to_sighash_pubkey_spend(&mut tx_handler, 0)?.to_byte_array();
-        let final_sig: [u8; 64] = aggregate_partial_signatures(
+        let message = Message::from_digest(
+            Actor::convert_tx_to_sighash_pubkey_spend(&mut tx_handler, 0)?.to_byte_array(),
+        );
+        let final_sig = aggregate_partial_signatures(
             self.config.verifiers_public_keys.clone(),
             None,
             true,
-            agg_nonce,
+            *agg_nonce,
             partial_sigs,
-            ByteArray32(message),
+            message,
         )?;
         // tracing::debug!("OPERATOR_TAKES_TX final_sig: {:?}", final_sig);
         Ok(final_sig)
@@ -220,9 +222,9 @@ impl Aggregator {
         deposit_outpoint: OutPoint,
         evm_address: EVMAddress,
         recovery_taproot_address: &Address<NetworkUnchecked>,
-        agg_nonce: &MuSigAggNonce,
-        partial_sigs: Vec<MuSigPartialSignature>,
-    ) -> Result<[u8; 64], BridgeError> {
+        agg_nonce: &MusigAggNonce,
+        partial_sigs: Vec<MusigPartialSignature>,
+    ) -> Result<schnorr::Signature, BridgeError> {
         let mut tx = builder::transaction::create_move_txhandler(
             deposit_outpoint,
             evm_address,
@@ -234,15 +236,16 @@ impl Aggregator {
         );
         // println!("MOVE_TX: {:?}", tx);
         // println!("MOVE_TXID: {:?}", tx.tx.compute_txid());
-        let message: [u8; 32] =
-            Actor::convert_tx_to_sighash_script_spend(&mut tx, 0, 0)?.to_byte_array();
-        let final_sig: [u8; 64] = aggregate_partial_signatures(
+        let message = Message::from_digest(
+            Actor::convert_tx_to_sighash_script_spend(&mut tx, 0, 0)?.to_byte_array(),
+        );
+        let final_sig = aggregate_partial_signatures(
             self.config.verifiers_public_keys.clone(),
             None,
             false,
-            agg_nonce,
+            *agg_nonce,
             partial_sigs,
-            ByteArray32(message),
+            message,
         )?;
 
         Ok(final_sig)
@@ -251,14 +254,14 @@ impl Aggregator {
     #[tracing::instrument(skip(self), err(level = tracing::Level::ERROR), ret(level = tracing::Level::TRACE))]
     pub async fn aggregate_pub_nonces(
         &self,
-        pub_nonces: Vec<Vec<MuSigPubNonce>>,
-    ) -> Result<Vec<MuSigAggNonce>, BridgeError> {
+        pub_nonces: Vec<Vec<MusigPubNonce>>,
+    ) -> Result<Vec<MusigAggNonce>, BridgeError> {
         let mut agg_nonces = Vec::new();
         for i in 0..pub_nonces[0].len() {
             let pub_nonces = pub_nonces
                 .iter()
-                .map(|v| v.get(i).cloned())
-                .collect::<Option<Vec<ByteArray66>>>()
+                .map(|ith_pub_nonces| ith_pub_nonces.get(i).cloned())
+                .collect::<Option<Vec<_>>>()
                 .ok_or(BridgeError::NoncesNotFound)?;
 
             agg_nonces.push(aggregate_nonces(pub_nonces));
@@ -272,8 +275,8 @@ impl Aggregator {
         &self,
         deposit_outpoint: OutPoint,
         kickoff_utxos: Vec<UTXO>,
-        agg_nonces: Vec<MuSigAggNonce>,
-        partial_sigs: Vec<Vec<MuSigPartialSignature>>,
+        agg_nonces: Vec<MusigAggNonce>,
+        partial_sigs: Vec<Vec<MusigPartialSignature>>,
     ) -> Result<Vec<schnorr::Signature>, BridgeError> {
         tracing::debug!(
             "Aggregate slash or take sigs called with inputs: {:?}\n {:?}\n{:?}\n{:?}",
@@ -287,8 +290,8 @@ impl Aggregator {
         for i in 0..partial_sigs[0].len() {
             let partial_sigs = partial_sigs
                 .iter()
-                .map(|v| v.get(i).cloned())
-                .collect::<Option<Vec<ByteArray32>>>()
+                .map(|ith_partial_sigs| ith_partial_sigs.get(i).cloned())
+                .collect::<Option<Vec<_>>>()
                 .ok_or(BridgeError::NoncesNotFound)?;
 
             let agg_sig = self.aggregate_slash_or_take_partial_sigs(
@@ -300,8 +303,9 @@ impl Aggregator {
                 partial_sigs,
             )?;
 
-            slash_or_take_sigs.push(secp256k1::schnorr::Signature::from_slice(&agg_sig)?);
+            slash_or_take_sigs.push(agg_sig);
         }
+
         Ok(slash_or_take_sigs)
     }
 
@@ -310,8 +314,8 @@ impl Aggregator {
         &self,
         deposit_outpoint: OutPoint,
         kickoff_utxos: Vec<UTXO>,
-        agg_nonces: Vec<MuSigAggNonce>,
-        partial_sigs: Vec<Vec<MuSigPartialSignature>>,
+        agg_nonces: Vec<MusigAggNonce>,
+        partial_sigs: Vec<Vec<MusigPartialSignature>>,
     ) -> Result<Vec<schnorr::Signature>, BridgeError> {
         let mut operator_take_sigs = Vec::new();
         for i in 0..partial_sigs[0].len() {
@@ -324,8 +328,9 @@ impl Aggregator {
                 partial_sigs.iter().map(|v| v[i]).collect(),
             )?;
 
-            operator_take_sigs.push(secp256k1::schnorr::Signature::from_slice(&agg_sig)?);
+            operator_take_sigs.push(agg_sig);
         }
+
         Ok(operator_take_sigs)
     }
 
@@ -335,18 +340,16 @@ impl Aggregator {
         deposit_outpoint: OutPoint,
         recovery_taproot_address: Address<NetworkUnchecked>,
         evm_address: EVMAddress,
-        agg_nonce: MuSigAggNonce,
-        partial_sigs: Vec<MuSigPartialSignature>,
+        agg_nonce: MusigAggNonce,
+        partial_sigs: Vec<MusigPartialSignature>,
     ) -> Result<(String, Txid), BridgeError> {
-        let agg_move_tx_final_sig = self.aggregate_move_partial_sigs(
+        let move_tx_sig = self.aggregate_move_partial_sigs(
             deposit_outpoint,
             evm_address,
             &recovery_taproot_address,
             &agg_nonce,
             partial_sigs,
         )?;
-
-        let move_tx_sig = secp256k1::schnorr::Signature::from_slice(&agg_move_tx_final_sig)?;
 
         let mut move_tx_handler = builder::transaction::create_move_txhandler(
             deposit_outpoint,
