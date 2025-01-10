@@ -40,7 +40,7 @@ borsh = { version = "1.5.1", features = ["derive"] }
 k256 = { version = "=0.13.3", default-features = false }
 risc0-build = "1.2"
 risc0-zkvm = { version = "1.2" }
-circuits = { git = "https://github.com/chainwayxyz/risc0-to-bitvm2", rev = "3b113b8" }
+header-chain = { git = "https://github.com/chainwayxyz/risc0-to-bitvm2", rev = "a233e27" }
 bitvm = { git = "https://github.com/BitVM/BitVM", rev = "f9cb29e" }
 
 [patch.crates-io]

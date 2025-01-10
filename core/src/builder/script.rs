@@ -13,6 +13,8 @@ use bitcoin::{
     ScriptBuf, TxOut, XOnlyPublicKey,
 };
 
+use super::transaction::ANCHOR_AMOUNT;
+
 pub fn anyone_can_spend_txout() -> TxOut {
     let script = Builder::new().push_opcode(OP_PUSHNUM_1).into_script();
     let script_pubkey = script.to_p2wsh();
@@ -21,6 +23,13 @@ pub fn anyone_can_spend_txout() -> TxOut {
     TxOut {
         script_pubkey,
         value,
+    }
+}
+
+pub fn anchor_output() -> TxOut {
+    TxOut {
+        value: ANCHOR_AMOUNT,
+        script_pubkey: ScriptBuf::from_hex("51024e73").unwrap(),
     }
 }
 

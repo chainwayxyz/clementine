@@ -38,18 +38,18 @@ pub struct TxHandler {
 }
 
 // TODO: Move these constants to the config file
-pub const MOVE_TX_MIN_RELAY_FEE: Amount = Amount::from_sat(190);
-pub const SLASH_OR_TAKE_TX_MIN_RELAY_FEE: Amount = Amount::from_sat(240);
-pub const OPERATOR_TAKES_TX_MIN_RELAY_FEE: Amount = Amount::from_sat(230);
+// pub const MOVE_TX_MIN_RELAY_FEE: Amount = Amount::from_sat(190);
+// pub const SLASH_OR_TAKE_TX_MIN_RELAY_FEE: Amount = Amount::from_sat(240);
+// pub const OPERATOR_TAKES_TX_MIN_RELAY_FEE: Amount = Amount::from_sat(230);
 pub const KICKOFF_UTXO_AMOUNT_SATS: Amount = Amount::from_sat(100_000);
 
 /// TODO: Change this to correct value
-pub const TIME_TX_MIN_RELAY_FEE: Amount = Amount::from_sat(350);
+// pub const TIME_TX_MIN_RELAY_FEE: Amount = Amount::from_sat(350);
 /// TODO: Change this to correct value
-pub const TIME2_TX_MIN_RELAY_FEE: Amount = Amount::from_sat(350);
+// pub const TIME2_TX_MIN_RELAY_FEE: Amount = Amount::from_sat(350);
 pub const KICKOFF_INPUT_AMOUNT: Amount = Amount::from_sat(100_000);
 pub const OPERATOR_REIMBURSE_CONNECTOR_AMOUNT: Amount = Amount::from_sat(330);
-pub const ANCHOR_AMOUNT: Amount = Amount::from_sat(330);
+pub const ANCHOR_AMOUNT: Amount = Amount::from_sat(240); // TODO: This will change to 0 in the future after Bitcoin v0.29.0
 pub const OPERATOR_CHALLENGE_AMOUNT: Amount = Amount::from_sat(200_000_000);
 
 /// Creates a [`TxHandler`] for `time_tx`. It will always use `input_txid`'s first vout as the input.
@@ -98,8 +98,7 @@ pub fn create_time_txhandler(
             value: input_amount
                 - OPERATOR_REIMBURSE_CONNECTOR_AMOUNT
                 - KICKOFF_INPUT_AMOUNT
-                - ANCHOR_AMOUNT
-                - TIME_TX_MIN_RELAY_FEE,
+                - ANCHOR_AMOUNT,
             script_pubkey: txout1_address.script_pubkey(),
         },
         TxOut {
@@ -110,7 +109,8 @@ pub fn create_time_txhandler(
             value: KICKOFF_INPUT_AMOUNT,
             script_pubkey: txout3_address.script_pubkey(),
         },
-        builder::script::anyone_can_spend_txout(),
+        // builder::script::anyone_can_spend_txout(),
+        builder::script::anchor_output(),
     ];
 
     let time_tx1 = create_btc_tx(tx_ins, tx_outs);
@@ -166,16 +166,15 @@ pub fn create_time2_txhandler(
                 - OPERATOR_REIMBURSE_CONNECTOR_AMOUNT
                 - KICKOFF_INPUT_AMOUNT
                 - ANCHOR_AMOUNT
-                - TIME_TX_MIN_RELAY_FEE
-                - ANCHOR_AMOUNT
-                - TIME2_TX_MIN_RELAY_FEE,
+                - ANCHOR_AMOUNT,
             script_pubkey: output_script_address.script_pubkey(),
         },
         TxOut {
             value: OPERATOR_REIMBURSE_CONNECTOR_AMOUNT,
             script_pubkey: output_script_address.script_pubkey(),
         },
-        builder::script::anyone_can_spend_txout(),
+        // builder::script::anyone_can_spend_txout(),
+        builder::script::anchor_output(),
     ];
     let time_tx2 = create_btc_tx(tx_ins, tx_outs);
     TxHandler {
@@ -204,7 +203,8 @@ pub fn create_timeout_txhandler(time_tx1_txhandler: &TxHandler) -> TxHandler {
         vout: 2,
     }]);
 
-    let tx_outs = vec![builder::script::anyone_can_spend_txout()];
+    // let tx_outs = vec![builder::script::anyone_can_spend_txout()];
+    let tx_outs = vec![builder::script::anchor_output()];
 
     let tx = create_btc_tx(tx_ins, tx_outs);
 
@@ -230,13 +230,19 @@ pub fn create_move_tx(
 
     let tx_ins = create_tx_ins(vec![deposit_outpoint]);
 
-    let anyone_can_spend_txout = builder::script::anyone_can_spend_txout();
+    // let anyone_can_spend_txout = builder::script::anyone_can_spend_txout();
+    // let move_txout = TxOut {
+    //     value: bridge_amount_sats - anyone_can_spend_txout.value,
+    //     script_pubkey: musig2_address.script_pubkey(),
+    // };
+    let anchor_output = builder::script::anchor_output();
     let move_txout = TxOut {
-        value: bridge_amount_sats - MOVE_TX_MIN_RELAY_FEE - anyone_can_spend_txout.value,
+        value: bridge_amount_sats - anchor_output.value,
         script_pubkey: musig2_address.script_pubkey(),
     };
 
-    create_btc_tx(tx_ins, vec![move_txout, anyone_can_spend_txout])
+    // create_btc_tx(tx_ins, vec![move_txout, anyone_can_spend_txout])
+    create_btc_tx(tx_ins, vec![move_txout, anchor_output])
 }
 
 /// Creates a [`TxHandler`] for the move_tx.
@@ -254,13 +260,21 @@ pub fn create_move_txhandler(
 
     let tx_ins = create_tx_ins(vec![deposit_outpoint]);
 
-    let anyone_can_spend_txout = builder::script::anyone_can_spend_txout();
+    // let anyone_can_spend_txout = builder::script::anyone_can_spend_txout();
+    // let move_txout = TxOut {
+    //     value: bridge_amount_sats - anyone_can_spend_txout.value,
+    //     script_pubkey: musig2_address.script_pubkey(),
+    // };
+
+    // let move_tx = create_btc_tx(tx_ins, vec![move_txout, anyone_can_spend_txout]);
+
+    let anchor_output = builder::script::anchor_output();
     let move_txout = TxOut {
-        value: bridge_amount_sats - MOVE_TX_MIN_RELAY_FEE - anyone_can_spend_txout.value,
+        value: bridge_amount_sats - anchor_output.value,
         script_pubkey: musig2_address.script_pubkey(),
     };
 
-    let move_tx = create_btc_tx(tx_ins, vec![move_txout, anyone_can_spend_txout]);
+    let move_tx = create_btc_tx(tx_ins, vec![move_txout, anchor_output]);
 
     let (deposit_address, deposit_taproot_spend_info) = builder::address::generate_deposit_address(
         nofn_xonly_pk,
@@ -324,7 +338,8 @@ pub fn create_kickoff_utxo_txhandler(
     let operator_address = Address::p2tr(&utils::SECP, operator_xonly_pk, None, network);
     let change_amount = funding_utxo.txout.value
         - Amount::from_sat(KICKOFF_UTXO_AMOUNT_SATS.to_sat() * num_kickoff_utxos_per_tx as u64)
-        - builder::script::anyone_can_spend_txout().value
+        // - builder::script::anyone_can_spend_txout().value
+        - builder::script::anchor_output().value
         - Amount::from_sat(kickoff_tx_min_relay_fee as u64);
     tracing::debug!("Change amount: {:?}", change_amount);
     let mut tx_outs_raw = vec![
@@ -336,9 +351,13 @@ pub fn create_kickoff_utxo_txhandler(
     ];
 
     tx_outs_raw.push((change_amount, operator_address.script_pubkey()));
+    // tx_outs_raw.push((
+    //     builder::script::anyone_can_spend_txout().value,
+    //     builder::script::anyone_can_spend_txout().script_pubkey,
+    // ));
     tx_outs_raw.push((
-        builder::script::anyone_can_spend_txout().value,
-        builder::script::anyone_can_spend_txout().script_pubkey,
+        builder::script::anchor_output().value,
+        builder::script::anchor_output().script_pubkey,
     ));
     let tx_outs = create_tx_outs(tx_outs_raw);
     let tx = create_btc_tx(tx_ins, tx_outs);
@@ -415,7 +434,8 @@ pub fn create_kickoff_txhandler(
         ),
         (KICKOFF_UTXO_AMOUNT_SATS, nofn_or_nofn_3week.script_pubkey()),
     ]);
-    tx_outs.push(builder::script::anyone_can_spend_txout());
+    // tx_outs.push(builder::script::anyone_can_spend_txout());
+    tx_outs.push(builder::script::anchor_output());
 
     let mut op_return_script = move_txid.to_byte_array().to_vec();
     op_return_script.extend(utils::usize_to_var_len_bytes(operator_idx));
@@ -490,7 +510,8 @@ pub fn create_watchtower_challenge_page_txhandler(
         .collect::<Vec<_>>();
 
     // add the anchor output
-    tx_outs.push(builder::script::anyone_can_spend_txout());
+    // tx_outs.push(builder::script::anyone_can_spend_txout());
+    tx_outs.push(builder::script::anchor_output());
     scripts.push(vec![]);
     spendinfos.push(None);
 
@@ -534,7 +555,8 @@ pub fn create_watchtower_challenge_txhandler(
             value: Amount::from_sat(1000), // TODO: Hand calculate this
             script_pubkey: nofn_or_nofn_1week.script_pubkey(),
         },
-        builder::script::anyone_can_spend_txout(),
+        // builder::script::anyone_can_spend_txout(),
+        builder::script::anchor_output(),
     ];
 
     let wcptx2 = create_btc_tx(tx_ins, tx_outs);
@@ -571,7 +593,8 @@ pub fn create_operator_challenge_nack_txhandler(
             vout: 0,
         },
     ]);
-    let tx_outs = vec![builder::script::anyone_can_spend_txout()];
+    // let tx_outs = vec![builder::script::anyone_can_spend_txout()];
+    let tx_outs = vec![builder::script::anchor_output()];
     let challenge_nack_tx = create_btc_tx(tx_ins, tx_outs);
 
     TxHandler {
@@ -629,7 +652,8 @@ pub fn create_assert_begin_txhandler(
             script_pubkey: intermediate_addr.script_pubkey(), // TODO: Add winternitz checks here
         });
     }
-    txouts.push(builder::script::anyone_can_spend_txout());
+    // txouts.push(builder::script::anyone_can_spend_txout());
+    txouts.push(builder::script::anchor_output());
     scripts.push(vec![]);
     spendinfos.push(None);
 
@@ -665,7 +689,8 @@ pub fn create_mini_assert_txhandler(
             value: Amount::from_sat(330), // TOOD: Hand calculate this
             script_pubkey: op_address.script_pubkey(),
         },
-        builder::script::anyone_can_spend_txout(),
+        // builder::script::anyone_can_spend_txout(),
+        builder::script::anchor_output(),
     ];
 
     let tx = create_btc_tx(tx_ins, tx_outs);
@@ -728,7 +753,8 @@ pub fn create_assert_end_txhandler(
             value: Amount::from_sat(330), // TODO: Hand calculate this
             script_pubkey: disprove_address.script_pubkey(),
         },
-        builder::script::anyone_can_spend_txout(),
+        // builder::script::anyone_can_spend_txout(),
+        builder::script::anchor_output(),
     ];
 
     let assert_end_tx = create_btc_tx(create_tx_ins(txins), tx_outs);
@@ -774,7 +800,8 @@ pub fn create_disprove_txhandler(
         },
     ]);
 
-    let tx_outs = vec![builder::script::anyone_can_spend_txout()];
+    // let tx_outs = vec![builder::script::anyone_can_spend_txout()];
+    let tx_outs = vec![builder::script::anchor_output()];
 
     let disprove_tx = create_btc_tx(tx_ins, tx_outs);
 
@@ -845,15 +872,24 @@ pub fn create_happy_reimburse_txhandler(
         },
     ]);
 
-    let anyone_can_spend_txout = builder::script::anyone_can_spend_txout();
+    // let anyone_can_spend_txout = builder::script::anyone_can_spend_txout();
+    // let tx_outs = vec![
+    //     TxOut {
+    //         // value in move_tx currently
+    //         value: move_txhandler.tx.output[0].value,
+    //         script_pubkey: operator_reimbursement_address.script_pubkey(),
+    //     },
+    //     anyone_can_spend_txout.clone(),
+    // ];
 
+    let anchor_txout = builder::script::anchor_output();
     let tx_outs = vec![
         TxOut {
             // value in move_tx currently
             value: move_txhandler.tx.output[0].value,
             script_pubkey: operator_reimbursement_address.script_pubkey(),
         },
-        anyone_can_spend_txout.clone(),
+        anchor_txout.clone(),
     ];
 
     let happy_reimburse_tx = create_btc_tx(tx_ins, tx_outs);
@@ -938,12 +974,11 @@ pub fn create_slash_or_take_tx(
     let op_return_txout = builder::script::op_return_txout(push_bytes);
     let outs = vec![
         TxOut {
-            value: kickoff_utxo.txout.value
-                - Amount::from_sat(330)
-                - SLASH_OR_TAKE_TX_MIN_RELAY_FEE,
+            value: kickoff_utxo.txout.value - Amount::from_sat(330),
             script_pubkey: slash_or_take_address.script_pubkey(),
         },
-        builder::script::anyone_can_spend_txout(),
+        // builder::script::anyone_can_spend_txout(),
+        builder::script::anchor_output(),
         op_return_txout,
     ];
     let tx = create_btc_tx(ins, outs);
@@ -999,21 +1034,22 @@ pub fn create_operator_takes_tx(
     let outs = vec![
         TxOut {
             value: slash_or_take_utxo.txout.value + bridge_amount_sats
-                - MOVE_TX_MIN_RELAY_FEE
-                - OPERATOR_TAKES_TX_MIN_RELAY_FEE
-                - builder::script::anyone_can_spend_txout().value
-                - builder::script::anyone_can_spend_txout().value,
+                // - builder::script::anyone_can_spend_txout().value
+                // - builder::script::anyone_can_spend_txout().value,
+                - builder::script::anchor_output().value
+                - builder::script::anchor_output().value,
             script_pubkey: operator_wallet_address_checked.script_pubkey(),
         },
-        builder::script::anyone_can_spend_txout(),
+        // builder::script::anyone_can_spend_txout(),
+        builder::script::anchor_output(),
     ];
     let tx = create_btc_tx(ins, outs);
     let prevouts = vec![
         TxOut {
             script_pubkey: musig2_address.script_pubkey(),
             value: bridge_amount_sats
-                - MOVE_TX_MIN_RELAY_FEE
-                - builder::script::anyone_can_spend_txout().value,
+                // - builder::script::anyone_can_spend_txout().value,
+                - builder::script::anchor_output().value,
         },
         slash_or_take_utxo.txout,
     ];
@@ -1120,7 +1156,8 @@ mod tests {
         );
         assert_eq!(
             *move_tx.output.get(1).unwrap(),
-            builder::script::anyone_can_spend_txout()
+            // builder::script::anyone_can_spend_txout()
+            builder::script::anchor_output()
         );
     }
 
