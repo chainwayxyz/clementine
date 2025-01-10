@@ -27,7 +27,6 @@ futures = { workspace = true }
 clap = { workspace = true, features = ["derive"] }
 toml = { workspace = true }
 sqlx = { workspace = true, features = ["runtime-tokio", "postgres", "macros"] }
-musig2 = { workspace = true }
 circuits = { workspace = true }
 borsh = { workspace = true}
 tonic = { workspace = true}
