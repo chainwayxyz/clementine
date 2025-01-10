@@ -216,6 +216,7 @@ message WatchtowerParams {
   uint32 watchtower_id = 1;
   // Flattened list of Winternitz pubkeys for each operator's timetxs.
   repeated WinternitzPubkey winternitz_pubkeys = 2;
+  // xonly public key serialized to bytes
   bytes xonly_pk = 3;
 }
 

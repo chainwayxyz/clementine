@@ -211,8 +211,9 @@ impl ClementineVerifier for Verifier {
                 .await?;
         }
 
-        let xonly_pk = XOnlyPublicKey::from_slice(&watchtower_params.xonly_pk)
-            .map_err(|_| BridgeError::Error("Invalid watchtower xonly public key".to_string()))?;
+        let xonly_pk = XOnlyPublicKey::from_slice(&watchtower_params.xonly_pk).map_err(|_| {
+            BridgeError::RPCParamMalformed("watchtower.xonly_pk", "Invalid xonly key".to_string())
+        })?;
         self.db
             .save_watchtower_xonly_pk(None, watchtower_params.watchtower_id, &xonly_pk)
             .await?;

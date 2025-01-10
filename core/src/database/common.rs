@@ -1103,7 +1103,7 @@ impl Database {
 
     /// Gets xonly public keys of all watchtowers.
     #[tracing::instrument(skip(self, tx), err(level = tracing::Level::ERROR), ret(level = tracing::Level::TRACE))]
-    pub async fn get_all_watchtowers_xonly_pk(
+    pub async fn get_all_watchtowers_xonly_pks(
         &self,
         tx: Option<&mut sqlx::Transaction<'_, Postgres>>,
     ) -> Result<Vec<XOnlyPublicKey>, BridgeError> {
@@ -1981,7 +1981,7 @@ mod tests {
                 .unwrap();
         }
 
-        let read_pks = database.get_all_watchtowers_xonly_pk(None).await.unwrap();
+        let read_pks = database.get_all_watchtowers_xonly_pks(None).await.unwrap();
 
         assert_eq!(read_pks, w_data);
 

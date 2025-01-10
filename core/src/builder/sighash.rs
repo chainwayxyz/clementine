@@ -118,7 +118,7 @@ pub fn create_nofn_sighash_stream(
             panic!("Not enough operators");
         }
 
-        let watchtower_pks = db.get_all_watchtowers_xonly_pk(None).await?;
+        let watchtower_pks = db.get_all_watchtowers_xonly_pks(None).await?;
 
         for (operator_idx, (operator_xonly_pk, _operator_reimburse_address, collateral_funding_txid)) in
             operators.iter().enumerate()
