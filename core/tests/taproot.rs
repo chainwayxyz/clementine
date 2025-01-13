@@ -8,8 +8,9 @@ use clementine_core::actor::Actor;
 use clementine_core::builder::transaction::TxHandler;
 use clementine_core::builder::{self};
 use clementine_core::extended_rpc::ExtendedRpc;
-use clementine_core::utils::{handle_taproot_witness_new, SECP};
+use clementine_core::utils::handle_taproot_witness_new;
 use clementine_core::{config::BridgeConfig, database::Database, utils::initialize_logger};
+use secp256k1::SECP256K1;
 use std::{env, thread};
 
 mod common;
@@ -25,8 +26,8 @@ async fn create_address_and_transaction_then_sign_transaction() {
     )
     .await;
 
-    let (xonly_pk, _) = config.secret_key.public_key(&SECP).x_only_public_key();
-    let address = Address::p2tr(&SECP, xonly_pk, None, config.network);
+    let (xonly_pk, _) = config.secret_key.public_key(SECP256K1).x_only_public_key();
+    let address = Address::p2tr(SECP256K1, xonly_pk, None, config.network);
     let script = address.script_pubkey();
     let tweaked_pk_script: [u8; 32] = script.as_bytes()[2..].try_into().unwrap();
 

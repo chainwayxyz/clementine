@@ -335,7 +335,7 @@ pub fn create_kickoff_utxo_txhandler(
     );
     let (musig2_and_operator_address, _) =
         builder::address::create_taproot_address(&[musig2_and_operator_script], None, network);
-    let operator_address = Address::p2tr(&utils::SECP, operator_xonly_pk, None, network);
+    let operator_address = Address::p2tr(SECP256K1, operator_xonly_pk, None, network);
     let change_amount = funding_utxo.txout.value
         - Amount::from_sat(KICKOFF_UTXO_AMOUNT_SATS.to_sat() * num_kickoff_utxos_per_tx as u64)
         // - builder::script::anyone_can_spend_txout().value
@@ -1137,7 +1137,7 @@ mod tests {
         };
         let secret_key = SecretKey::new(&mut rand::thread_rng());
         let nofn_xonly_pk =
-            XOnlyPublicKey::from_keypair(&Keypair::from_secret_key(&SECP, &secret_key)).0;
+            XOnlyPublicKey::from_keypair(&Keypair::from_secret_key(SECP256K1, &secret_key)).0;
         let bridge_amount_sats = Amount::from_sat(0x1F45);
         let network = bitcoin::Network::Regtest;
 

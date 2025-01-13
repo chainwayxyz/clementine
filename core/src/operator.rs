@@ -438,7 +438,7 @@ impl Operator {
         };
         tx.input[0].witness.push(user_sig_wrapped.serialize());
 
-        utils::SECP.verify_schnorr(
+        SECP256K1.verify_schnorr(
             &user_sig,
             &Message::from_digest(*sighash.as_byte_array()),
             &user_xonly_pk,

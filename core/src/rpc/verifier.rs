@@ -131,7 +131,7 @@ impl ClementineVerifier for Verifier {
         timeout_tx_sighash_stream
             .enumerate()
             .map(|(i, sighash)| {
-                utils::SECP
+                SECP256K1
                     .verify_schnorr(
                         &timeout_tx_sigs[i],
                         &Message::from(sighash?),

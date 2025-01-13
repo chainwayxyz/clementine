@@ -13,6 +13,7 @@ use bitcoin::{TapLeafHash, TapNodeHash, TapSighashType, TxOut, Witness};
 use bitvm::signatures::winternitz::{
     self, BinarysearchVerifier, StraightforwardConverter, Winternitz,
 };
+use secp256k1::SECP256K1;
 
 /// Available transaction types for [`WinternitzDerivationPath`].
 #[derive(Clone, Copy, Debug)]
@@ -105,9 +106,9 @@ impl Actor {
         winternitz_secret_key: Option<SecretKey>,
         network: bitcoin::Network,
     ) -> Self {
-        let keypair = Keypair::from_secret_key(&utils::SECP, &sk);
+        let keypair = Keypair::from_secret_key(SECP256K1, &sk);
         let (xonly, _parity) = XOnlyPublicKey::from_keypair(&keypair);
-        let address = Address::p2tr(&utils::SECP, xonly, None, network);
+        let address = Address::p2tr(SECP256K1, xonly, None, network);
 
         Actor {
             keypair,
@@ -128,7 +129,7 @@ impl Actor {
         Ok(utils::SECP.sign_schnorr(
             &Message::from_digest(*sighash.as_byte_array()),
             &self.keypair.add_xonly_tweak(
-                &utils::SECP,
+                SECP256K1,
                 &TapTweakHash::from_key_and_tweak(self.xonly_public_key, merkle_root).to_scalar(),
             )?,
         ))
