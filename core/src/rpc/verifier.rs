@@ -409,7 +409,7 @@ impl ClementineVerifier for Verifier {
                     false,
                     nonce,
                     agg_nonce,
-                    &verifier.signer.keypair,
+                    verifier.signer.keypair,
                     Message::from_digest_slice(sighash.as_byte_array().as_slice())
                         .map_err(BridgeError::from)
                         .unwrap(),

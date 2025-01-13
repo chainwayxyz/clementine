@@ -9,11 +9,13 @@ use crate::{
     errors::BridgeError,
     musig2::aggregate_nonces,
     rpc::clementine::{self, DepositSignSession},
-    ByteArray32, EVMAddress,
+    EVMAddress,
 };
+use bitcoin::hashes::Hash;
 use bitcoin::{Amount, TapSighash};
 use futures::{future::try_join_all, stream::BoxStream, FutureExt, Stream, StreamExt};
 use secp256k1::musig::{MusigAggNonce, MusigPartialSignature, MusigPubNonce};
+use secp256k1::Message;
 use std::thread;
 use tokio::sync::mpsc::{channel, Receiver, Sender};
 use tonic::{async_trait, Request, Response, Status, Streaming};
@@ -71,7 +73,7 @@ async fn nonce_distributor(
         Streaming<clementine::PartialSig>,
         Sender<clementine::VerifierDepositSignParams>,
     )>,
-    partial_sig_sender: Sender<(Vec<ByteArray32>, AggNonceQueueItem)>,
+    partial_sig_sender: Sender<(Vec<MusigPartialSignature>, AggNonceQueueItem)>,
 ) -> Result<(), BridgeError> {
     while let Some(queue_item) = agg_nonce_receiver.recv().await {
         let agg_nonce_wrapped = clementine::VerifierDepositSignParams {
@@ -95,7 +97,7 @@ async fn nonce_distributor(
                 .await?
                 .ok_or(BridgeError::Error("No partial sig received".into()))?;
 
-            Ok::<_, BridgeError>(ByteArray32(partial_sig.partial_sig.try_into().unwrap()))
+            Ok::<_, BridgeError>(MusigPartialSignature::from_slice(&partial_sig.partial_sig)?)
         }))
         .await?;
 
@@ -123,7 +125,7 @@ async fn signature_aggregator(
             false,
             queue_item.agg_nonce,
             partial_sigs,
-            queue_item.sighash,
+            Message::from_digest(queue_item.sighash.as_raw_hash().to_byte_array()),
         )?;
 
         final_sig_sender
