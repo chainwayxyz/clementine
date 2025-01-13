@@ -13,11 +13,6 @@ use tracing::level_filters::LevelFilter;
 use tracing_subscriber::layer::SubscriberExt;
 use tracing_subscriber::{fmt, EnvFilter, Registry};
 
-// lazy_static::lazy_static! {
-//     /// Global secp context.
-//     pub static ref SECP: secp256k1::Secp256k1<secp256k1::All> = secp256k1::Secp256k1::new();
-// }
-
 lazy_static::lazy_static! {
     /// This is an unspendable pubkey.
     ///
