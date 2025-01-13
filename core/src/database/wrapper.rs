@@ -360,7 +360,7 @@ impl<'r> Decode<'r, Postgres> for MessageDB {
         let raw = <Vec<u8> as Decode<Postgres>>::decode(value)?;
 
         let message = borsh::from_slice::<[u8; 32]>(&raw).unwrap();
-        let message = Message::from_digest_slice(&message).unwrap();
+        let message = Message::from_digest(message);
 
         Ok(MessageDB(message))
     }

@@ -125,7 +125,7 @@ impl Actor {
         merkle_root: Option<TapNodeHash>,
     ) -> Result<schnorr::Signature, BridgeError> {
         Ok(utils::SECP.sign_schnorr(
-            &Message::from_digest_slice(sighash.as_byte_array()).expect("should be hash"),
+            &Message::from_digest(*sighash.as_byte_array()),
             &self.keypair.add_xonly_tweak(
                 &utils::SECP,
                 &TapTweakHash::from_key_and_tweak(self.xonly_public_key, merkle_root).to_scalar(),
@@ -136,7 +136,7 @@ impl Actor {
     #[tracing::instrument(skip(self), ret(level = tracing::Level::TRACE))]
     pub fn sign(&self, sighash: TapSighash) -> schnorr::Signature {
         utils::SECP.sign_schnorr(
-            &Message::from_digest_slice(sighash.as_byte_array()).expect("should be hash"),
+            &Message::from_digest(*sighash.as_byte_array()),
             &self.keypair,
         )
     }

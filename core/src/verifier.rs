@@ -261,7 +261,7 @@ impl Verifier {
     //         );
     //         let slash_or_take_tx_sighash =
     //             Actor::convert_tx_to_sighash_script_spend(&mut slash_or_take_tx_handler, 0, 0)?;
-    //         slash_or_take_sighashes.push(Message::from_digest_slice(&slash_or_take_tx_sighash.to_byte_array())?);
+    //         slash_or_take_sighashes.push(Message::from_digest(slash_or_take_tx_sighash.to_byte_array())?);
     //         // let spend_kickoff_utxo_tx_handler = builder::transaction::create_slash_or_take_tx(deposit_outpoint, kickoff_outpoint, kickoff_txout, operator_address, operator_idx, nofn_xonly_pk, network)
     //     }
     //     tracing::debug!(

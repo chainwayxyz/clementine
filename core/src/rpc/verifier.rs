@@ -410,9 +410,7 @@ impl ClementineVerifier for Verifier {
                     nonce,
                     agg_nonce,
                     verifier.signer.keypair,
-                    Message::from_digest_slice(sighash.as_byte_array().as_slice())
-                        .map_err(BridgeError::from)
-                        .unwrap(),
+                    Message::from_digest(*sighash.as_byte_array()),
                 );
 
                 let partial_sig = PartialSig {

@@ -343,8 +343,7 @@ mod tests {
         let kp_1 = secp256k1::Keypair::new(&utils::SECP, &mut secp256k1::rand::thread_rng());
         let kp_2 = secp256k1::Keypair::new(&utils::SECP, &mut secp256k1::rand::thread_rng());
 
-        let message =
-            Message::from_digest_slice(&secp256k1::rand::thread_rng().gen::<[u8; 32]>()).unwrap();
+        let message = Message::from_digest(secp256k1::rand::thread_rng().gen::<[u8; 32]>());
         let tweak: [u8; 32] = secp256k1::rand::thread_rng().gen();
 
         let pks = vec![kp_0.public_key(), kp_1.public_key(), kp_2.public_key()];
