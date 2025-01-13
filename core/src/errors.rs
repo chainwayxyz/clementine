@@ -218,6 +218,9 @@ pub enum BridgeError {
     NoScriptsForTxIn(usize),
     #[error("No script in TxHandler for the index {0}")]
     NoScriptAtIndex(usize),
+
+    #[error("No P2A output found in the transaction")]
+    NoP2AOutputFound,
 }
 
 impl From<BridgeError> for ErrorObject<'static> {

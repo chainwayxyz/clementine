@@ -45,7 +45,7 @@ header-chain = { git = "https://github.com/chainwayxyz/risc0-to-bitvm2", rev = "
 bitvm = { git = "https://github.com/BitVM/BitVM", rev = "f9cb29e" }
 
 [patch.crates-io]
-bitcoincore-rpc = { version = "0.18.0", git = "https://github.com/chainwayxyz/rust-bitcoincore-rpc.git", rev = "ca3cfa2" }
+bitcoincore-rpc = { version = "0.18.0", git = "https://github.com/chainwayxyz/rust-bitcoincore-rpc.git", rev = "54f2392" }
 ark-ff = { git = "https://github.com/chainwayxyz/algebra/", branch = "new-ate-loop" }
 ark-ec = { git = "https://github.com/chainwayxyz/algebra/", branch = "new-ate-loop" }
 ark-poly = { git = "https://github.com/chainwayxyz/algebra/", branch = "new-ate-loop" }

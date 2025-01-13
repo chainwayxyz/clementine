@@ -597,6 +597,7 @@ mod tests {
     use crate::{
         config::BridgeConfig, database::Database, initialize_database, utils::initialize_logger,
     };
+    use bitcoincore_rpc::RpcApi;
     use secp256k1::rand;
     use std::{env, thread};
 
