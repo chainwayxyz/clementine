@@ -17,6 +17,7 @@ use bitcoin::TxIn;
 use bitcoin::TxOut;
 use bitcoin::Witness;
 use bitcoin::XOnlyPublicKey;
+use bitcoincore_rpc::json::AddressType;
 use bitcoincore_rpc::json::CreateRawTransactionInput;
 use bitcoincore_rpc::Auth;
 use bitcoincore_rpc::Client;
@@ -223,12 +224,20 @@ impl FeeBumper for ExtendedRpc {
             vout: anchor_outpoint.vout,
             sequence: None,
         };
-        let txout = TxOut {
-            value: Amount::from_sat(0),
-            script_pubkey: ScriptBuf::from_hex("6a").unwrap(),
-        };
+        let address_str = self
+            .client
+            .get_new_address(None, Some(AddressType::Bech32m))
+            .await
+            .unwrap()
+            .assume_checked()
+            .to_string();
+        // let txout = TxOut {
+        //     value: Amount::from_sat(330),
+        //     script_pubkey: self.client.get_new_address(None, Some(AddressType::Bech32m)).await.unwrap().assume_checked().script_pubkey(),
+        // };
         let mut hashmap_txout = std::collections::HashMap::new();
-        hashmap_txout.insert(txout.script_pubkey.to_hex_string(), txout.value);
+        // hashmap_txout.insert(txout.script_pubkey.to_hex_string(), txout.value);
+        hashmap_txout.insert(address_str, Amount::from_sat(330));
 
         // let tx = create_btc_tx(vec![anchor_txin], vec![txout]);
         // let funded_tx = self
