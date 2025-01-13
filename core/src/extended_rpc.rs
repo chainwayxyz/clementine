@@ -216,7 +216,11 @@ impl FeeBumper for ExtendedRpc {
             script_sig: ScriptBuf::default(),
             witness: Witness::new(),
         };
-        let tx = create_btc_tx(vec![anchor_txin], vec![]);
+        let txout = TxOut {
+            value: Amount::from_sat(0),
+            script_pubkey: ScriptBuf::from_hex("6a").unwrap(),
+        };
+        let tx = create_btc_tx(vec![anchor_txin], vec![txout]);
         let funded_tx = self
             .client
             .fund_raw_transaction(
