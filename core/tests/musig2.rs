@@ -114,7 +114,7 @@ async fn key_spend() {
 
     let partial_sigs: Vec<MusigPartialSignature> = verifiers_secret_public_keys
         .into_iter()
-        .zip(nonce_pairs.into_iter())
+        .zip(nonce_pairs)
         .map(|(kp, nonce_pair)| {
             partial_sign(
                 verifier_public_keys.clone(),
@@ -209,7 +209,7 @@ async fn key_spend_with_script() {
 
     let partial_sigs: Vec<MusigPartialSignature> = verifiers_secret_public_keys
         .into_iter()
-        .zip(nonce_pairs.into_iter())
+        .zip(nonce_pairs)
         .map(|(kp, nonce_pair)| {
             partial_sign(
                 verifier_public_keys.clone(),
@@ -311,7 +311,7 @@ async fn script_spend() {
 
     let partial_sigs: Vec<MusigPartialSignature> = verifiers_secret_public_keys
         .into_iter()
-        .zip(nonce_pairs.into_iter())
+        .zip(nonce_pairs)
         .map(|(kp, nonce_pair)| {
             partial_sign(
                 verifier_public_keys.clone(),

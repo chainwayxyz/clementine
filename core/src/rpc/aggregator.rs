@@ -239,7 +239,7 @@ impl Aggregator {
     fn extract_pub_nonce(
         response: Option<clementine::nonce_gen_response::Response>,
     ) -> Result<MusigPubNonce, BridgeError> {
-        Ok(match response
+        match response
             .ok_or_else(|| BridgeError::Error("NonceGen response is empty".to_string()))?
         {
             clementine::nonce_gen_response::Response::PubNonce(pub_nonce) => {
@@ -248,7 +248,7 @@ impl Aggregator {
             _ => Err(BridgeError::Error(
                 "Expected PubNonce in response".to_string(),
             )),
-        }?)
+        }
     }
 }
 

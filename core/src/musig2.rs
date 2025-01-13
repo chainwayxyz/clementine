@@ -49,7 +49,7 @@ impl AggregateFromPublicKeys for secp256k1::XOnlyPublicKey {
 
         let mut musig_key_agg_cache = MusigKeyAggCache::new(&SECP, pubkeys_ref);
 
-        let musig_agg_pubkey = if let Some(tweak) = tweak {
+        if let Some(tweak) = tweak {
             let xonly_tweak = Scalar::from_be_bytes(tweak.to_raw_hash().to_byte_array()).unwrap();
             let _tweaked_agg_pk = musig_key_agg_cache
                 .pubkey_xonly_tweak_add(&SECP, &xonly_tweak)
@@ -58,9 +58,7 @@ impl AggregateFromPublicKeys for secp256k1::XOnlyPublicKey {
             musig_key_agg_cache.agg_pk()
         } else {
             musig_key_agg_cache.agg_pk()
-        };
-
-        musig_agg_pubkey
+        }
 
         // let key_agg_ctx = create_key_agg_ctx(pks, tweak, tweak_flag).unwrap();
         // let musig_agg_pubkey: secp256k1::PublicKey = if tweak_flag {
@@ -76,7 +74,7 @@ impl AggregateFromPublicKeys for secp256k1::XOnlyPublicKey {
 
 // Aggregates the public nonces into a single aggregated nonce.
 pub fn aggregate_nonces(pub_nonces: Vec<MusigPubNonce>) -> MusigAggNonce {
-    let pub_nonces = pub_nonces.iter().map(|x| x).collect::<Vec<_>>();
+    let pub_nonces = pub_nonces.iter().collect::<Vec<_>>();
 
     MusigAggNonce::new(&SECP, pub_nonces.as_slice())
 }
@@ -99,7 +97,7 @@ pub fn aggregate_partial_signatures(
 
     let musig_partial_sigs = &partial_sigs[0];
 
-    Ok(session.partial_sig_agg(&[&musig_partial_sigs]))
+    Ok(session.partial_sig_agg(&[musig_partial_sigs]))
 }
 
 /// Generates a pair of nonces, one secret and one public. Be careful,
@@ -203,7 +201,7 @@ mod tests {
 
         let partial_sigs = key_pairs
             .into_iter()
-            .zip(nonce_pairs.into_iter())
+            .zip(nonce_pairs)
             .map(|(kp, nonce_pair)| {
                 super::partial_sign(
                     public_keys.clone(),
@@ -311,7 +309,7 @@ mod tests {
 
         let partial_sigs = key_pairs
             .into_iter()
-            .zip(nonce_pairs.into_iter())
+            .zip(nonce_pairs)
             .map(|(kp, nonce_pair)| {
                 super::partial_sign(
                     public_keys.clone(),
@@ -469,7 +467,7 @@ mod tests {
 
         let partial_sigs: Vec<MusigPartialSignature> = key_pairs
             .into_iter()
-            .zip(nonce_pairs.into_iter())
+            .zip(nonce_pairs)
             .map(|(kp, nonce_pair)| {
                 super::partial_sign(
                     public_keys.clone(),
@@ -565,7 +563,7 @@ mod tests {
 
         let partial_sigs: Vec<MusigPartialSignature> = key_pairs
             .into_iter()
-            .zip(nonce_pairs.into_iter())
+            .zip(nonce_pairs)
             .map(|(kp, nonce_pair)| {
                 super::partial_sign(
                     public_keys.clone(),

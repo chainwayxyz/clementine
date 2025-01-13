@@ -112,12 +112,12 @@ impl Verifier {
         })
     }
 
-    /// Inform verifiers about the new deposit request
-    ///
-    /// 1. Check if the deposit UTXO is valid, finalized (6 blocks confirmation) and not spent
-    /// 2. Generate random pubNonces, secNonces
-    /// 3. Save pubNonces and secNonces to a db
-    /// 4. Return pubNonces
+    // / Inform verifiers about the new deposit request
+    // /
+    // / 1. Check if the deposit UTXO is valid, finalized (6 blocks confirmation) and not spent
+    // / 2. Generate random pubNonces, secNonces
+    // / 3. Save pubNonces and secNonces to a db
+    // / 4. Return pubNonces
     // #[tracing::instrument(skip(self), err(level = tracing::Level::ERROR), ret(level = tracing::Level::TRACE))]
     // pub async fn new_deposit(
     //     &self,

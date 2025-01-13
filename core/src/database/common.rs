@@ -525,7 +525,7 @@ impl Database {
                 builder
                     .push_bind(OutPointDB(deposit_outpoint))
                     .push_bind(idx as i32)
-                    .push_bind(MusigPubNonceDB(pub_nonce.clone()));
+                    .push_bind(MusigPubNonceDB(*pub_nonce));
             },
         );
         let query = query.build();
@@ -644,7 +644,7 @@ impl Database {
             |mut builder, (i, agg_nonce)| {
                 builder
                     .push_bind(i as i32)
-                    .push_bind(MusigAggNonceDB(agg_nonce.clone()));
+                    .push_bind(MusigAggNonceDB(*agg_nonce));
             },
         );
 
