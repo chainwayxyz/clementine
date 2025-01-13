@@ -6,7 +6,10 @@ use bitcoin::{
     hex::{DisplayHex, FromHex},
     Address, OutPoint, TxOut, Txid,
 };
-use secp256k1::musig::{MusigAggNonce, MusigPubNonce};
+use secp256k1::{
+    musig::{MusigAggNonce, MusigPubNonce},
+    Message,
+};
 use serde::{Deserialize, Serialize};
 use sqlx::{
     postgres::{PgArgumentBuffer, PgValueRef},
@@ -332,6 +335,34 @@ impl<'r> Decode<'r, Postgres> for MusigAggNonceDB {
         let aggregated_nonces = MusigAggNonce::from_slice(&aggregated_nonces).unwrap();
 
         Ok(MusigAggNonceDB(aggregated_nonces))
+    }
+}
+
+#[derive(sqlx::FromRow, Debug, Clone)]
+pub struct MessageDB(pub secp256k1::Message);
+
+impl sqlx::Type<sqlx::Postgres> for MessageDB {
+    fn type_info() -> sqlx::postgres::PgTypeInfo {
+        sqlx::postgres::PgTypeInfo::with_name("BYTEA")
+    }
+}
+impl Encode<'_, Postgres> for MessageDB {
+    fn encode_by_ref(&self, buf: &mut PgArgumentBuffer) -> sqlx::encode::IsNull {
+        let serialized_message: &[u8; 32] = self.0.as_ref();
+
+        let serialized = borsh::to_vec(&serialized_message).unwrap();
+
+        <Vec<u8> as Encode<Postgres>>::encode_by_ref(&serialized, buf)
+    }
+}
+impl<'r> Decode<'r, Postgres> for MessageDB {
+    fn decode(value: PgValueRef<'r>) -> Result<Self, sqlx::error::BoxDynError> {
+        let raw = <Vec<u8> as Decode<Postgres>>::decode(value)?;
+
+        let message = borsh::from_slice::<[u8; 32]>(&raw).unwrap();
+        let message = Message::from_digest_slice(&message).unwrap();
+
+        Ok(MessageDB(message))
     }
 }
 

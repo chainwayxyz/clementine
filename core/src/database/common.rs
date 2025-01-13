@@ -5,13 +5,12 @@
 //! installed and configured.
 
 use super::wrapper::{
-    AddressDB, EVMAddressDB, MusigAggNonceDB, MusigPubNonceDB, OutPointDB, PublicKeyDB,
+    AddressDB, EVMAddressDB, MessageDB, MusigAggNonceDB, MusigPubNonceDB, OutPointDB, PublicKeyDB,
     SignatureDB, SignaturesDB, TxOutDB, TxidDB, Utxodb, XOnlyPublicKeyDB,
 };
 use super::wrapper::{BlockHashDB, BlockHeaderDB};
 use super::Database;
 use crate::errors::BridgeError;
-use crate::musig2::MuSigSigHash;
 use crate::{EVMAddress, UTXO};
 use bitcoin::address::NetworkUnchecked;
 use bitcoin::{
@@ -24,7 +23,7 @@ use bitvm::bridge::transactions::signing_winternitz::WinternitzPublicKey;
 use bitvm::signatures::winternitz;
 use risc0_zkvm::Receipt;
 use secp256k1::musig::{MusigAggNonce, MusigPubNonce};
-use secp256k1::schnorr;
+use secp256k1::{schnorr, Message};
 use sqlx::{Postgres, QueryBuilder};
 use std::str::FromStr;
 
@@ -583,7 +582,7 @@ impl Database {
         tx: Option<&mut sqlx::Transaction<'_, Postgres>>,
         deposit_outpoint: OutPoint,
         index: usize,
-        sighashes: &[MuSigSigHash],
+        sighashes: &[Message],
     ) -> Result<Option<Vec<MusigAggNonce>>, BridgeError> {
         let mut query = QueryBuilder::new(
             "WITH updated AS (
@@ -592,7 +591,9 @@ impl Database {
                 FROM (",
         );
         let query = query.push_values(sighashes.iter().enumerate(), |mut builder, (i, sighash)| {
-            builder.push_bind((index + i) as i32).push_bind(sighash);
+            builder
+                .push_bind((index + i) as i32)
+                .push_bind(MessageDB(*sighash));
         });
 
         let query = query
