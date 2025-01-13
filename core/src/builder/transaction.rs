@@ -16,7 +16,7 @@ use bitcoin::{
 };
 use bitcoin::{Network, Transaction, Txid};
 use bitvm::signatures::winternitz;
-use secp256k1::XOnlyPublicKey;
+use secp256k1::{XOnlyPublicKey, SECP256K1};
 
 /// Verbose information about a transaction.
 #[derive(Debug, Clone)]
@@ -335,7 +335,7 @@ pub fn create_kickoff_utxo_txhandler(
     );
     let (musig2_and_operator_address, _) =
         builder::address::create_taproot_address(&[musig2_and_operator_script], None, network);
-    let operator_address = Address::p2tr(&utils::SECP, operator_xonly_pk, None, network);
+    let operator_address = Address::p2tr(SECP256K1, operator_xonly_pk, None, network);
     let change_amount = funding_utxo.txout.value
         - Amount::from_sat(KICKOFF_UTXO_AMOUNT_SATS.to_sat() * num_kickoff_utxos_per_tx as u64)
         // - builder::script::anyone_can_spend_txout().value
@@ -1123,9 +1123,9 @@ pub fn create_tx_outs(pairs: Vec<(Amount, ScriptBuf)>) -> Vec<TxOut> {
 
 #[cfg(test)]
 mod tests {
-    use crate::{builder, utils::SECP};
+    use crate::builder;
     use bitcoin::{hashes::Hash, Amount, OutPoint, Txid, XOnlyPublicKey};
-    use secp256k1::{rand, Keypair, SecretKey};
+    use secp256k1::{rand, Keypair, SecretKey, SECP256K1};
 
     #[test]
     fn create_move_tx() {
@@ -1135,7 +1135,7 @@ mod tests {
         };
         let secret_key = SecretKey::new(&mut rand::thread_rng());
         let nofn_xonly_pk =
-            XOnlyPublicKey::from_keypair(&Keypair::from_secret_key(&SECP, &secret_key)).0;
+            XOnlyPublicKey::from_keypair(&Keypair::from_secret_key(SECP256K1, &secret_key)).0;
         let bridge_amount_sats = Amount::from_sat(0x1F45);
         let network = bitcoin::Network::Regtest;
 

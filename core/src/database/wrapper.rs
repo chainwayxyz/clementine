@@ -295,7 +295,7 @@ mod tests {
         hashes::Hash,
         Amount, BlockHash, CompactTarget, OutPoint, ScriptBuf, TxMerkleNode, TxOut, Txid,
     };
-    use secp256k1::schnorr::Signature;
+    use secp256k1::{schnorr::Signature, SECP256K1};
     use sqlx::{encode::IsNull, postgres::PgArgumentBuffer, Encode, Type};
 
     #[test]
@@ -344,7 +344,7 @@ mod tests {
         );
 
         let address = bitcoin::Address::p2tr(
-            &utils::SECP,
+            SECP256K1,
             *utils::UNSPENDABLE_XONLY_PUBKEY,
             None,
             bitcoin::Network::Regtest,

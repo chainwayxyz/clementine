@@ -10,7 +10,7 @@ use crate::{
     },
     errors::BridgeError,
     musig2::{self, MuSigPubNonce, MuSigSecNonce},
-    sha256_hash, utils,
+    sha256_hash,
     verifier::{NofN, NonceSession, Verifier},
     ByteArray32, ByteArray66, EVMAddress,
 };
@@ -19,7 +19,7 @@ use bitvm::{
     bridge::transactions::signing_winternitz::WinternitzPublicKey, signatures::winternitz,
 };
 use futures::StreamExt;
-use secp256k1::{schnorr, Message, XOnlyPublicKey};
+use secp256k1::{schnorr, Message, XOnlyPublicKey, SECP256K1};
 use std::{pin::pin, str::FromStr};
 use tokio::sync::mpsc;
 use tokio_stream::wrappers::ReceiverStream;
@@ -127,7 +127,7 @@ impl ClementineVerifier for Verifier {
         timeout_tx_sighash_stream
             .enumerate()
             .map(|(i, sighash)| {
-                utils::SECP
+                SECP256K1
                     .verify_schnorr(
                         &timeout_tx_sigs[i],
                         &Message::from(sighash?),
@@ -253,7 +253,7 @@ impl ClementineVerifier for Verifier {
             session_id
         };
 
-        let public_key = secp256k1::PublicKey::from_secret_key(&utils::SECP, &private_key)
+        let public_key = secp256k1::PublicKey::from_secret_key(SECP256K1, &private_key)
             .serialize()
             .to_vec();
         let public_key_hash = sha256_hash!(&public_key);
@@ -515,7 +515,7 @@ impl ClementineVerifier for Verifier {
             };
 
             tracing::debug!("Verifying Final Signature");
-            utils::SECP
+            SECP256K1
                 .verify_schnorr(
                     &final_sig,
                     &secp256k1::Message::from(sighash),
