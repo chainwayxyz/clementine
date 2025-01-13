@@ -17,9 +17,11 @@ use bitcoin::TxIn;
 use bitcoin::TxOut;
 use bitcoin::Witness;
 use bitcoin::XOnlyPublicKey;
+use bitcoincore_rpc::json::CreateRawTransactionInput;
 use bitcoincore_rpc::Auth;
 use bitcoincore_rpc::Client;
 use bitcoincore_rpc::RpcApi;
+use bitvm::hash;
 
 #[derive(Debug)]
 pub struct ExtendedRpc {
@@ -216,42 +218,63 @@ impl FeeBumper for ExtendedRpc {
             script_sig: ScriptBuf::default(),
             witness: Witness::new(),
         };
+        let raw_txin = CreateRawTransactionInput {
+            txid: anchor_outpoint.txid,
+            vout: anchor_outpoint.vout,
+            sequence: None,
+        };
         let txout = TxOut {
             value: Amount::from_sat(0),
             script_pubkey: ScriptBuf::from_hex("6a").unwrap(),
         };
-        let tx = create_btc_tx(vec![anchor_txin], vec![txout]);
-        let funded_tx = self
+        let mut hashmap_txout = std::collections::HashMap::new();
+        hashmap_txout.insert(txout.script_pubkey.to_hex_string(), txout.value);
+
+        // let tx = create_btc_tx(vec![anchor_txin], vec![txout]);
+        // let funded_tx = self
+        //     .client
+        //     .fund_raw_transaction(
+        //         &tx,
+        //         Some(&bitcoincore_rpc::json::FundRawTransactionOptions {
+        //             add_inputs: Some(true),
+        //             change_address: None,
+        //             change_position: Some(0),
+        //             change_type: None,
+        //             include_watching: None,
+        //             lock_unspents: None,
+        //             fee_rate: Some(Amount::from_sat(2)),
+        //             subtract_fee_from_outputs: None,
+        //             replaceable: None,
+        //             conf_target: None,
+        //             estimate_mode: None,
+        //         }),
+        //         None,
+        //     )
+        //     .await?
+        //     .hex;
+        // let signed_tx: Transaction = bitcoin::consensus::deserialize(
+        //     &self
+        //         .client
+        //         .sign_raw_transaction_with_wallet(&funded_tx, None, None)
+        //         .await?
+        //         .hex,
+        // )?;
+
+        let funded_psbt = self
             .client
-            .fund_raw_transaction(
-                &tx,
-                Some(&bitcoincore_rpc::json::FundRawTransactionOptions {
-                    add_inputs: Some(true),
-                    change_address: None,
-                    change_position: Some(0),
-                    change_type: None,
-                    include_watching: None,
-                    lock_unspents: None,
-                    fee_rate: Some(Amount::from_sat(2)),
-                    subtract_fee_from_outputs: None,
-                    replaceable: None,
-                    conf_target: None,
-                    estimate_mode: None,
-                }),
-                None,
-            )
-            .await?
-            .hex;
+            .wallet_create_funded_psbt(&[raw_txin], &hashmap_txout, None, None, None)
+            .await?;
 
-        let signed_tx: Transaction = bitcoin::consensus::deserialize(
-            &self
-                .client
-                .sign_raw_transaction_with_wallet(&funded_tx, None, None)
-                .await?
-                .hex,
-        )?;
+        let signed_psbt = self
+            .client
+            .wallet_process_psbt(&funded_psbt.psbt, Some(true), None, None)
+            .await?;
 
-        Ok(vec![parent_tx, signed_tx])
+        let final_funded_psbt = self.client.finalize_psbt(&signed_psbt.psbt, None).await?;
+
+        let funded_tx = final_funded_psbt.transaction().unwrap().unwrap();
+
+        Ok(vec![parent_tx, funded_tx])
     }
 }
 
