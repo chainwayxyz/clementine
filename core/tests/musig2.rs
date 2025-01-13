@@ -1,21 +1,22 @@
 use bitcoin::opcodes::all::OP_CHECKSIG;
+use bitcoin::XOnlyPublicKey;
 use bitcoin::{hashes::Hash, script, Amount, ScriptBuf};
 use bitcoincore_rpc::RpcApi;
 use clementine_core::builder::transaction::TxHandler;
 use clementine_core::musig2::{
-    aggregate_nonces, aggregate_partial_signatures, MuSigPartialSignature, MuSigPubNonce,
+    aggregate_nonces, aggregate_partial_signatures, AggregateFromPublicKeys,
 };
 use clementine_core::utils::{handle_taproot_witness_new, SECP};
-use clementine_core::ByteArray32;
 use clementine_core::{
     actor::Actor,
     builder::{self},
     config::BridgeConfig,
     extended_rpc::ExtendedRpc,
-    musig2::{create_key_agg_ctx, nonce_pair, partial_sign, MuSigNoncePair},
-    utils, ByteArray66,
+    musig2::{nonce_pair, partial_sign, MuSigNoncePair},
+    utils,
 };
 use clementine_core::{database::Database, utils::initialize_logger};
+use secp256k1::musig::{MusigAggNonce, MusigPartialSignature, MusigPubNonce};
 use secp256k1::{Keypair, Message, PublicKey};
 use std::{env, thread};
 
@@ -36,12 +37,8 @@ fn get_verifiers_keys(
         .map(|kp| kp.public_key())
         .collect::<Vec<secp256k1::PublicKey>>();
 
-    let key_agg_ctx = create_key_agg_ctx(verifier_public_keys.clone(), None, true).unwrap();
-    let untweaked_pubkey =
-        key_agg_ctx.aggregated_pubkey_untweaked::<musig2::secp256k1::PublicKey>();
-    let untweaked_xonly_pubkey: secp256k1::XOnlyPublicKey =
-        secp256k1::XOnlyPublicKey::from_slice(&untweaked_pubkey.x_only_public_key().0.serialize())
-            .unwrap();
+    let untweaked_xonly_pubkey =
+        XOnlyPublicKey::from_musig2_pks(verifier_public_keys.clone(), None, false);
 
     (
         verifiers_secret_public_keys,
@@ -50,7 +47,7 @@ fn get_verifiers_keys(
     )
 }
 
-fn get_nonces(verifiers_secret_public_keys: Vec<Keypair>) -> (Vec<MuSigNoncePair>, ByteArray66) {
+fn get_nonces(verifiers_secret_public_keys: Vec<Keypair>) -> (Vec<MuSigNoncePair>, MusigAggNonce) {
     let nonce_pairs: Vec<MuSigNoncePair> = verifiers_secret_public_keys
         .iter()
         .map(|kp| nonce_pair(kp, &mut secp256k1::rand::thread_rng()))
@@ -59,8 +56,8 @@ fn get_nonces(verifiers_secret_public_keys: Vec<Keypair>) -> (Vec<MuSigNoncePair
     let agg_nonce = aggregate_nonces(
         nonce_pairs
             .iter()
-            .map(|x| ByteArray66(x.1 .0))
-            .collect::<Vec<MuSigPubNonce>>(),
+            .map(|(_, musig_pub_nonces)| *musig_pub_nonces)
+            .collect::<Vec<MusigPubNonce>>(),
     );
 
     (nonce_pairs, agg_nonce)
@@ -98,7 +95,6 @@ async fn key_spend() {
         to_address.script_pubkey(),
     )]);
     let dummy_tx = builder::transaction::create_btc_tx(tx_ins, tx_outs);
-
     let mut tx_details = TxHandler {
         txid: dummy_tx.compute_txid(),
         tx: dummy_tx,
@@ -108,15 +104,17 @@ async fn key_spend() {
         out_scripts: vec![vec![]],
         out_taproot_spend_infos: vec![Some(to_address_spend.clone())],
     };
-    let message = Actor::convert_tx_to_sighash_pubkey_spend(&mut tx_details, 0)
-        .unwrap()
-        .to_byte_array();
-    let merkle_root = from_address_spend_info.merkle_root();
-    let key_agg_ctx = create_key_agg_ctx(verifier_public_keys.clone(), merkle_root, true).unwrap();
 
-    let partial_sigs: Vec<MuSigPartialSignature> = verifiers_secret_public_keys
-        .iter()
-        .zip(nonce_pairs.iter())
+    let message = Message::from_digest(
+        Actor::convert_tx_to_sighash_pubkey_spend(&mut tx_details, 0)
+            .unwrap()
+            .to_byte_array(),
+    );
+    let merkle_root = from_address_spend_info.merkle_root();
+
+    let partial_sigs: Vec<MusigPartialSignature> = verifiers_secret_public_keys
+        .into_iter()
+        .zip(nonce_pairs.into_iter())
         .map(|(kp, nonce_pair)| {
             partial_sign(
                 verifier_public_keys.clone(),
@@ -125,37 +123,30 @@ async fn key_spend() {
                 nonce_pair.0,
                 agg_nonce,
                 kp,
-                ByteArray32(message),
+                message,
             )
         })
         .collect();
+
     let final_signature = aggregate_partial_signatures(
         verifier_public_keys.clone(),
         merkle_root,
         true,
-        &agg_nonce,
+        agg_nonce,
         partial_sigs,
-        ByteArray32(message),
+        message,
     )
     .unwrap();
 
-    let musig_agg_pubkey: musig2::secp256k1::PublicKey = key_agg_ctx.aggregated_pubkey();
-    let musig_agg_xonly_pubkey = musig_agg_pubkey.x_only_public_key().0;
-    let musig_agg_xonly_pubkey_wrapped =
-        bitcoin::XOnlyPublicKey::from_slice(&musig_agg_xonly_pubkey.serialize()).unwrap();
+    let agg_pk = XOnlyPublicKey::from_musig2_pks(verifier_public_keys.clone(), None, false);
+    SECP.verify_schnorr(&final_signature, &message, &agg_pk)
+        .unwrap();
 
-    musig2::verify_single(musig_agg_pubkey, final_signature, message).unwrap();
-
-    let schnorr_sig = secp256k1::schnorr::Signature::from_slice(&final_signature).unwrap();
-    SECP.verify_schnorr(
-        &schnorr_sig,
-        &Message::from_digest(message),
-        &musig_agg_xonly_pubkey_wrapped,
-    )
-    .unwrap();
     rpc.mine_blocks(1).await.unwrap();
 
-    tx_details.tx.input[0].witness.push(final_signature);
+    tx_details.tx.input[0]
+        .witness
+        .push(final_signature.serialize());
     rpc.client
         .send_raw_transaction(&tx_details.tx)
         .await
@@ -209,15 +200,16 @@ async fn key_spend_with_script() {
         out_scripts: vec![vec![]],
         out_taproot_spend_infos: vec![Some(to_address_spend.clone())],
     };
-    let message = Actor::convert_tx_to_sighash_pubkey_spend(&mut tx_details, 0)
-        .unwrap()
-        .to_byte_array();
+    let message = Message::from_digest(
+        Actor::convert_tx_to_sighash_pubkey_spend(&mut tx_details, 0)
+            .unwrap()
+            .to_byte_array(),
+    );
     let merkle_root = from_address_spend_info.merkle_root();
-    let key_agg_ctx = create_key_agg_ctx(verifier_public_keys.clone(), merkle_root, true).unwrap();
 
-    let partial_sigs: Vec<MuSigPartialSignature> = verifiers_secret_public_keys
-        .iter()
-        .zip(nonce_pairs.iter())
+    let partial_sigs: Vec<MusigPartialSignature> = verifiers_secret_public_keys
+        .into_iter()
+        .zip(nonce_pairs.into_iter())
         .map(|(kp, nonce_pair)| {
             partial_sign(
                 verifier_public_keys.clone(),
@@ -226,37 +218,31 @@ async fn key_spend_with_script() {
                 nonce_pair.0,
                 agg_nonce,
                 kp,
-                ByteArray32(message),
+                message,
             )
         })
         .collect();
-    let final_signature: [u8; 64] = aggregate_partial_signatures(
+
+    let final_signature = aggregate_partial_signatures(
         verifier_public_keys.clone(),
         merkle_root,
         true,
-        &agg_nonce,
+        agg_nonce,
         partial_sigs,
-        ByteArray32(message),
+        message,
     )
     .unwrap();
 
-    let musig_agg_pubkey: musig2::secp256k1::PublicKey = key_agg_ctx.aggregated_pubkey();
-    let musig_agg_xonly_pubkey = musig_agg_pubkey.x_only_public_key().0;
-    let musig_agg_xonly_pubkey_wrapped =
-        bitcoin::XOnlyPublicKey::from_slice(&musig_agg_xonly_pubkey.serialize()).unwrap();
+    let agg_pk = XOnlyPublicKey::from_musig2_pks(verifier_public_keys.clone(), None, false);
 
-    musig2::verify_single(musig_agg_pubkey, final_signature, message).unwrap();
+    SECP.verify_schnorr(&final_signature, &message, &agg_pk)
+        .unwrap();
 
-    let schnorr_sig = secp256k1::schnorr::Signature::from_slice(&final_signature).unwrap();
-    SECP.verify_schnorr(
-        &schnorr_sig,
-        &Message::from_digest(message),
-        &musig_agg_xonly_pubkey_wrapped,
-    )
-    .unwrap();
     rpc.mine_blocks(1).await.unwrap();
 
-    tx_details.tx.input[0].witness.push(final_signature);
+    tx_details.tx.input[0]
+        .witness
+        .push(final_signature.serialize());
     rpc.client
         .send_raw_transaction(&tx_details.tx)
         .await
@@ -278,14 +264,9 @@ async fn script_spend() {
         get_verifiers_keys(&config);
     let (nonce_pairs, agg_nonce) = get_nonces(verifiers_secret_public_keys.clone());
 
-    let key_agg_ctx = create_key_agg_ctx(verifier_public_keys.clone(), None, false).unwrap();
-    let musig_agg_pubkey: musig2::secp256k1::PublicKey = key_agg_ctx.aggregated_pubkey();
-    let (musig_agg_xonly_pubkey, _) = musig_agg_pubkey.x_only_public_key();
-    let musig_agg_xonly_pubkey_wrapped =
-        bitcoin::XOnlyPublicKey::from_slice(&musig_agg_xonly_pubkey.serialize()).unwrap();
+    let agg_pk = XOnlyPublicKey::from_musig2_pks(verifier_public_keys.clone(), None, false);
 
-    let agg_xonly_pubkey =
-        bitcoin::XOnlyPublicKey::from_slice(&musig_agg_xonly_pubkey.serialize()).unwrap();
+    let agg_xonly_pubkey = bitcoin::XOnlyPublicKey::from_slice(&agg_pk.serialize()).unwrap();
     let musig2_script = bitcoin::script::Builder::new()
         .push_x_only_key(&agg_xonly_pubkey)
         .push_opcode(OP_CHECKSIG)
@@ -322,13 +303,15 @@ async fn script_spend() {
         out_scripts: vec![vec![]],
         out_taproot_spend_infos: vec![None],
     };
-    let message = Actor::convert_tx_to_sighash_script_spend(&mut tx_details, 0, 0)
-        .unwrap()
-        .to_byte_array();
+    let message = Message::from_digest(
+        Actor::convert_tx_to_sighash_script_spend(&mut tx_details, 0, 0)
+            .unwrap()
+            .to_byte_array(),
+    );
 
-    let partial_sigs: Vec<MuSigPartialSignature> = verifiers_secret_public_keys
-        .iter()
-        .zip(nonce_pairs.iter())
+    let partial_sigs: Vec<MusigPartialSignature> = verifiers_secret_public_keys
+        .into_iter()
+        .zip(nonce_pairs.into_iter())
         .map(|(kp, nonce_pair)| {
             partial_sign(
                 verifier_public_keys.clone(),
@@ -337,31 +320,26 @@ async fn script_spend() {
                 nonce_pair.0,
                 agg_nonce,
                 kp,
-                ByteArray32(message),
+                message,
             )
         })
         .collect();
-    let final_signature: [u8; 64] = aggregate_partial_signatures(
+    let final_signature = aggregate_partial_signatures(
         verifier_public_keys.clone(),
         None,
         false,
-        &agg_nonce,
+        agg_nonce,
         partial_sigs,
-        ByteArray32(message),
+        message,
     )
     .unwrap();
-    musig2::verify_single(musig_agg_pubkey, final_signature, message).unwrap();
     utils::SECP
-        .verify_schnorr(
-            &secp256k1::schnorr::Signature::from_slice(&final_signature).unwrap(),
-            &Message::from_digest(message),
-            &musig_agg_xonly_pubkey_wrapped,
-        )
+        .verify_schnorr(&final_signature, &message, &agg_xonly_pubkey)
         .unwrap();
 
-    let schnorr_sig = secp256k1::schnorr::Signature::from_slice(&final_signature).unwrap();
-    let witness_elements = vec![schnorr_sig.as_ref()];
+    let witness_elements = vec![final_signature.as_ref()];
     handle_taproot_witness_new(&mut tx_details, &witness_elements, 0, Some(0)).unwrap();
+
     rpc.mine_blocks(1).await.unwrap();
 
     rpc.client
