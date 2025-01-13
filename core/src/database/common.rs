@@ -5,8 +5,8 @@
 //! installed and configured.
 
 use super::wrapper::{
-    AddressDB, EVMAddressDB, MusigPubNonceDB, OutPointDB, PublicKeyDB, SignatureDB, SignaturesDB,
-    TxOutDB, TxidDB, Utxodb, XOnlyPublicKeyDB,
+    AddressDB, EVMAddressDB, MusigAggNonceDB, MusigPubNonceDB, OutPointDB, PublicKeyDB,
+    SignatureDB, SignaturesDB, TxOutDB, TxidDB, Utxodb, XOnlyPublicKeyDB,
 };
 use super::wrapper::{BlockHashDB, BlockHeaderDB};
 use super::Database;
@@ -23,7 +23,7 @@ use bitcoin::{Address, OutPoint, Txid};
 use bitvm::bridge::transactions::signing_winternitz::WinternitzPublicKey;
 use bitvm::signatures::winternitz;
 use risc0_zkvm::Receipt;
-use secp256k1::musig::{MusigAggNonce, MusigPubNonce, MusigSecNonce};
+use secp256k1::musig::{MusigAggNonce, MusigPubNonce};
 use secp256k1::schnorr;
 use sqlx::{Postgres, QueryBuilder};
 use std::str::FromStr;
@@ -505,35 +505,32 @@ impl Database {
         if result.is_empty() {
             Ok(None)
         } else {
-            let pub_nonces: Vec<MusigPubNonce> = result.into_iter().map(|(x,)| x).collect();
+            let pub_nonces: Vec<MusigPubNonce> = result.into_iter().map(|(x,)| x.0).collect();
             Ok(Some(pub_nonces))
         }
     }
 
-    /// Verifier: save the generated sec nonce and pub nonces
+    /// Saves the generated pub nonces for a verifier.
     #[tracing::instrument(skip(self), err(level = tracing::Level::ERROR), ret(level = tracing::Level::TRACE))]
     pub async fn save_nonces(
         &self,
         tx: Option<&mut sqlx::Transaction<'_, Postgres>>,
         deposit_outpoint: OutPoint,
-        nonces: &[(MusigSecNonce, MusigPubNonce)],
+        pub_nonces: &[MusigPubNonce],
     ) -> Result<(), BridgeError> {
-        let mut query = QueryBuilder::new(
-            "INSERT INTO nonces (deposit_outpoint, internal_idx, sec_nonce, pub_nonce) ",
-        );
+        let mut query =
+            QueryBuilder::new("INSERT INTO nonces (deposit_outpoint, internal_idx, pub_nonce) ");
         query.push_values(
-            nonces.iter().enumerate(),
-            |mut builder, (idx, (sec, pub_nonce))| {
+            pub_nonces.iter().enumerate(),
+            |mut builder, (idx, pub_nonce)| {
                 builder
-                    .push_bind(OutPointDB(deposit_outpoint)) // Bind deposit_outpoint
-                    .push_bind(idx as i32) // Bind the index as internal_idx
-                    .push_bind(sec) // Bind sec_nonce
-                    .push_bind(pub_nonce); // Bind pub_nonce
+                    .push_bind(OutPointDB(deposit_outpoint))
+                    .push_bind(idx as i32)
+                    .push_bind(MusigPubNonceDB(pub_nonce.clone()));
             },
         );
         let query = query.build();
 
-        // Now you can use the `query` variable in the match statement
         match tx {
             Some(tx) => query.execute(&mut **tx).await?,
             None => query.execute(&self.connection).await?,
@@ -578,7 +575,8 @@ impl Database {
         Ok(Some((qr.0 .0, qr.1 .0)))
     }
 
-    /// Verifier: saves the sighash and returns sec and agg nonces, if the sighash is already there and different, returns error
+    /// Saves the sighash and returns agg nonces for the verifier. If the
+    /// sighash already exists and is different, returns error.
     #[tracing::instrument(skip(self), err(level = tracing::Level::ERROR), ret(level = tracing::Level::TRACE))]
     pub async fn save_sighashes_and_get_nonces(
         &self,
@@ -586,8 +584,7 @@ impl Database {
         deposit_outpoint: OutPoint,
         index: usize,
         sighashes: &[MuSigSigHash],
-    ) -> Result<Option<Vec<(MusigSecNonce, MusigAggNonce)>>, BridgeError> {
-        // Update the sighashes
+    ) -> Result<Option<Vec<MusigAggNonce>>, BridgeError> {
         let mut query = QueryBuilder::new(
             "WITH updated AS (
                 UPDATE nonces
@@ -605,20 +602,23 @@ impl Database {
             )
             .push_bind(OutPointDB(deposit_outpoint))
             .push(
-                " RETURNING nonces.internal_idx, sec_nonce, agg_nonce)
-            SELECT updated.sec_nonce, updated.agg_nonce 
-            FROM updated 
-            ORDER BY updated.internal_idx;",
+                " RETURNING nonces.internal_idx, agg_nonce)
+                SELECT updated.agg_nonce 
+                FROM updated 
+                ORDER BY updated.internal_idx;",
             )
             .build_query_as();
 
-        let result: Result<Vec<(MusigSecNonce, MusigAggNonce)>, sqlx::Error> = match tx {
+        let result: Result<Vec<(MusigAggNonceDB,)>, sqlx::Error> = match tx {
             Some(tx) => query.fetch_all(&mut **tx).await,
             None => query.fetch_all(&self.connection).await,
         };
 
         match result {
-            Ok(nonces) => Ok(Some(nonces)),
+            Ok(nonces) => {
+                let nonces = nonces.into_iter().map(|x| x.0 .0).collect();
+                Ok(Some(nonces))
+            }
             Err(sqlx::Error::RowNotFound) => Ok(None),
             Err(e) => Err(BridgeError::DatabaseError(e)),
         }
@@ -641,7 +641,9 @@ impl Database {
         let query = query.push_values(
             agg_nonces.into_iter().enumerate(),
             |mut builder, (i, agg_nonce)| {
-                builder.push_bind(i as i32).push_bind(agg_nonce);
+                builder
+                    .push_bind(i as i32)
+                    .push_bind(MusigAggNonceDB(agg_nonce.clone()));
             },
         );
 
@@ -1084,9 +1086,7 @@ impl Database {
 mod tests {
     use super::Database;
     use crate::{config::BridgeConfig, initialize_database, utils::initialize_logger};
-    use crate::{
-        create_test_config_with_thread_name, musig2::nonce_pair, ByteArray32, EVMAddress, UTXO,
-    };
+    use crate::{create_test_config_with_thread_name, musig2::nonce_pair, EVMAddress, UTXO};
     use bitcoin::{
         block::{self, Header, Version},
         BlockHash, CompactTarget, TxMerkleNode,
@@ -1100,7 +1100,7 @@ mod tests {
     };
     use borsh::BorshDeserialize;
     use risc0_zkvm::Receipt;
-    use secp256k1::musig::{MusigAggNonce, MusigPubNonce, MusigSecNonce};
+    use secp256k1::musig::MusigPubNonce;
     use secp256k1::{constants::SCHNORR_SIGNATURE_SIZE, rand::rngs::OsRng};
     use secp256k1::{schnorr, Secp256k1};
     use std::{env, thread};
@@ -1196,143 +1196,6 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_nonces_1() {
-        let config = create_test_config_with_thread_name!(None);
-        let db = Database::new(&config).await.unwrap();
-        let secp = Secp256k1::new();
-
-        let outpoint = OutPoint {
-            txid: Txid::from_byte_array([1u8; 32]),
-            vout: 1,
-        };
-        let index = 2;
-        let sighashes = [ByteArray32([1u8; 32])];
-        let sks = [
-            secp256k1::SecretKey::from_slice(&[1u8; 32]).unwrap(),
-            secp256k1::SecretKey::from_slice(&[2u8; 32]).unwrap(),
-            secp256k1::SecretKey::from_slice(&[3u8; 32]).unwrap(),
-        ];
-        let keypairs: Vec<secp256k1::Keypair> = sks
-            .iter()
-            .map(|sk| secp256k1::Keypair::from_secret_key(&secp, sk))
-            .collect();
-        let nonce_pairs: Vec<(MusigSecNonce, MusigPubNonce)> = keypairs
-            .into_iter()
-            .map(|kp| nonce_pair(&kp, &mut OsRng))
-            .collect();
-        let agg_nonces: Vec<MusigAggNonce> = nonce_pairs
-            .iter()
-            .map(|(_, pub_nonce)| *pub_nonce)
-            .collect();
-        db.save_nonces(None, outpoint, &nonce_pairs).await.unwrap();
-        db.save_agg_nonces(None, outpoint, &agg_nonces)
-            .await
-            .unwrap();
-        let db_sec_and_agg_nonces = db
-            .save_sighashes_and_get_nonces(None, outpoint, index, &sighashes)
-            .await
-            .unwrap()
-            .unwrap();
-
-        // Sanity checks
-        assert_eq!(db_sec_and_agg_nonces.len(), 1);
-        assert_eq!(db_sec_and_agg_nonces[0].0, nonce_pairs[index].0);
-        assert_eq!(db_sec_and_agg_nonces[0].1, agg_nonces[index]);
-    }
-
-    #[tokio::test]
-    async fn test_nonces_2() {
-        let config = create_test_config_with_thread_name!(None);
-        let db = Database::new(&config).await.unwrap();
-        let secp = Secp256k1::new();
-
-        let outpoint = OutPoint::null();
-        let index = 0;
-        let sighashes = [ByteArray32([1u8; 32]), ByteArray32([2u8; 32])];
-        let sks = [
-            secp256k1::SecretKey::from_slice(&[1u8; 32]).unwrap(),
-            secp256k1::SecretKey::from_slice(&[2u8; 32]).unwrap(),
-            secp256k1::SecretKey::from_slice(&[3u8; 32]).unwrap(),
-        ];
-        let keypairs: Vec<secp256k1::Keypair> = sks
-            .iter()
-            .map(|sk| secp256k1::Keypair::from_secret_key(&secp, sk))
-            .collect();
-        let nonce_pairs: Vec<(MusigSecNonce, MusigPubNonce)> = keypairs
-            .into_iter()
-            .map(|kp| nonce_pair(&kp, &mut OsRng))
-            .collect();
-        let agg_nonces: Vec<MusigAggNonce> = nonce_pairs
-            .iter()
-            .map(|(_, pub_nonce)| *pub_nonce)
-            .collect();
-        db.save_nonces(None, outpoint, &nonce_pairs).await.unwrap();
-        db.save_agg_nonces(None, outpoint, &agg_nonces)
-            .await
-            .unwrap();
-        let db_sec_and_agg_nonces = db
-            .save_sighashes_and_get_nonces(None, outpoint, index, &sighashes)
-            .await
-            .unwrap()
-            .unwrap();
-
-        // Sanity checks
-        assert_eq!(db_sec_and_agg_nonces.len(), 2);
-        assert_eq!(db_sec_and_agg_nonces[0].0, nonce_pairs[index].0);
-        assert_eq!(db_sec_and_agg_nonces[0].1, agg_nonces[index]);
-        assert_eq!(db_sec_and_agg_nonces[1].0, nonce_pairs[index + 1].0);
-        assert_eq!(db_sec_and_agg_nonces[1].1, agg_nonces[index + 1]);
-    }
-
-    #[tokio::test]
-    async fn test_nonces_3() {
-        let config = create_test_config_with_thread_name!(None);
-        let db = Database::new(&config).await.unwrap();
-        let secp = Secp256k1::new();
-
-        let outpoint = OutPoint {
-            txid: Txid::from_byte_array([1u8; 32]),
-            vout: 1,
-        };
-        let index = 2;
-        let mut sighashes = [ByteArray32([1u8; 32])];
-        let sks = [
-            secp256k1::SecretKey::from_slice(&[1u8; 32]).unwrap(),
-            secp256k1::SecretKey::from_slice(&[2u8; 32]).unwrap(),
-            secp256k1::SecretKey::from_slice(&[3u8; 32]).unwrap(),
-        ];
-        let keypairs: Vec<secp256k1::Keypair> = sks
-            .iter()
-            .map(|sk| secp256k1::Keypair::from_secret_key(&secp, sk))
-            .collect();
-        let nonce_pairs: Vec<(MusigSecNonce, MusigPubNonce)> = keypairs
-            .into_iter()
-            .map(|kp| nonce_pair(&kp, &mut OsRng))
-            .collect();
-        let agg_nonces: Vec<MusigAggNonce> = nonce_pairs
-            .iter()
-            .map(|(_, pub_nonce)| *pub_nonce)
-            .collect();
-        db.save_nonces(None, outpoint, &nonce_pairs).await.unwrap();
-        db.save_agg_nonces(None, outpoint, &agg_nonces)
-            .await
-            .unwrap();
-        let _db_sec_and_agg_nonces = db
-            .save_sighashes_and_get_nonces(None, outpoint, index, &sighashes)
-            .await
-            .unwrap()
-            .unwrap();
-
-        // Accidentally try to save a different sighash
-        sighashes[0] = ByteArray32([2u8; 32]);
-        let _db_sec_and_agg_nonces = db
-            .save_sighashes_and_get_nonces(None, outpoint, index, &sighashes)
-            .await
-            .expect_err("Should return database sighash update error");
-        println!("Error: {:?}", _db_sec_and_agg_nonces);
-    }
-
-    #[tokio::test]
     async fn test_get_pub_nonces_1() {
         let config = create_test_config_with_thread_name!(None);
         let db = Database::new(&config).await.unwrap();
@@ -1351,16 +1214,16 @@ mod tests {
             .iter()
             .map(|sk| secp256k1::Keypair::from_secret_key(&secp, sk))
             .collect();
-        let nonce_pairs: Vec<(MusigSecNonce, MusigPubNonce)> = keypairs
+        let nonce_pairs: Vec<MusigPubNonce> = keypairs
             .into_iter()
-            .map(|kp| nonce_pair(&kp, &mut OsRng))
+            .map(|kp| nonce_pair(&kp, &mut OsRng).1)
             .collect();
         db.save_nonces(None, outpoint, &nonce_pairs).await.unwrap();
         let pub_nonces = db.get_pub_nonces(None, outpoint).await.unwrap().unwrap();
 
         // Sanity checks
         assert_eq!(pub_nonces.len(), nonce_pairs.len());
-        for (pub_nonce, (_, db_pub_nonce)) in pub_nonces.iter().zip(nonce_pairs.iter()) {
+        for (pub_nonce, db_pub_nonce) in pub_nonces.iter().zip(nonce_pairs.iter()) {
             assert_eq!(pub_nonce, db_pub_nonce);
         }
     }
