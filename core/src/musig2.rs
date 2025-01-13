@@ -22,7 +22,7 @@ use secp256k1::{
 // MuSigFinalSignature is a Schnorr signature, so it's 64 bytes.
 pub type MuSigFinalSignature = ByteArray64;
 // SigHash used for MuSig2 operations.
-pub type MuSigSigHash = ByteArray32;
+// pub type MuSigSigHash = ByteArray32;
 pub type MuSigNoncePair = (MusigSecNonce, MusigPubNonce);
 
 pub trait AggregateFromPublicKeys {
@@ -89,18 +89,13 @@ pub fn nonce_pair(
     keypair: &secp256k1::Keypair, // TODO: Remove this field
     mut rng: &mut impl Rng,
 ) -> (MusigSecNonce, MusigPubNonce) {
-    let pk = keypair.public_key();
-    let pubkeys_ref: Vec<&PublicKey> = vec![&pk];
-    let pubkeys_ref = pubkeys_ref.as_slice();
-    let musig_key_agg_cache = MusigKeyAggCache::new(&SECP, pubkeys_ref);
-
     let musig_session_sec_rand = MusigSecRand::new(&mut rng);
 
     new_musig_nonce_pair(
         &SECP,
         musig_session_sec_rand,
-        Some(&musig_key_agg_cache),
-        Some(keypair.secret_key()),
+        None,
+        None,
         keypair.public_key(),
         None,
         None,
@@ -118,15 +113,13 @@ pub fn partial_sign(
     sec_nonce: MusigSecNonce,
     agg_nonce: MusigAggNonce,
     keypair: &secp256k1::Keypair,
-    sighash: MuSigSigHash,
+    sighash: Message,
 ) -> MusigPartialSignature {
     let pubkeys_ref: Vec<&PublicKey> = pks.iter().collect();
     let pubkeys_ref = pubkeys_ref.as_slice();
     let musig_key_agg_cache = MusigKeyAggCache::new(&SECP, pubkeys_ref);
 
-    let msg_bytes: [u8; 32] = *b"this_could_be_the_hash_of_a_msg!"; // TODO: Change this to the actual message.
-    let msg = Message::from_digest_slice(&msg_bytes).unwrap();
-    let session = MusigSession::new(&SECP, &musig_key_agg_cache, agg_nonce, msg);
+    let session = MusigSession::new(&SECP, &musig_key_agg_cache, agg_nonce, sighash);
 
     session
         .partial_sign(&SECP, sec_nonce, &keypair, &musig_key_agg_cache)

@@ -12,7 +12,7 @@ use crate::{
     musig2::{self},
     sha256_hash, utils,
     verifier::{NofN, NonceSession, Verifier},
-    ByteArray32, ByteArray66, EVMAddress,
+    EVMAddress,
 };
 use bitcoin::{hashes::Hash, Amount, TapSighash, Txid};
 use bitvm::{
@@ -20,7 +20,7 @@ use bitvm::{
 };
 use futures::StreamExt;
 use secp256k1::{
-    musig::{MusigPubNonce, MusigSecNonce},
+    musig::{MusigAggNonce, MusigPubNonce, MusigSecNonce},
     schnorr, Message,
 };
 use std::{pin::pin, str::FromStr};
@@ -354,12 +354,17 @@ impl ClementineVerifier for Verifier {
                 _ => panic!("Expected DepositOutpoint"),
             };
 
-            let binding = verifier.nonces.lock().await;
-            let session = binding
+            let mut binding = verifier.nonces.lock().await;
+            let mut session = binding
                 .sessions
-                .get(&session_id)
-                .ok_or(Status::internal("No session found"))
+                .remove(&session_id)
+                .ok_or(BridgeError::Error(format!(
+                    "No session found for id: {}",
+                    session_id
+                )))
                 .unwrap();
+            session.nonces.reverse();
+
             let mut nonce_idx: usize = 0;
 
             let mut sighash_stream = pin!(create_nofn_sighash_stream(
@@ -388,7 +393,7 @@ impl ClementineVerifier for Verifier {
                     .unwrap()
                 {
                     clementine::verifier_deposit_sign_params::Params::AggNonce(agg_nonce) => {
-                        ByteArray66(agg_nonce.try_into().unwrap())
+                        MusigAggNonce::from_slice(agg_nonce.as_slice()).unwrap()
                     }
                     _ => panic!("Expected AggNonce"),
                 };
@@ -396,14 +401,18 @@ impl ClementineVerifier for Verifier {
                 let sighash = sighash_stream.next().await.unwrap().unwrap();
                 tracing::debug!("Verifier {} found sighash: {:?}", verifier.idx, sighash);
 
+                let nonce = session.nonces.pop().expect("No nonce available");
+
                 let move_tx_sig = musig2::partial_sign(
                     verifier.config.verifiers_public_keys.clone(),
                     None,
                     false,
-                    session.nonces[nonce_idx],
+                    nonce,
                     agg_nonce,
                     &verifier.signer.keypair,
-                    ByteArray32(sighash.to_byte_array()),
+                    Message::from_digest_slice(sighash.as_byte_array().as_slice())
+                        .map_err(BridgeError::from)
+                        .unwrap(),
                 );
 
                 let partial_sig = PartialSig {
@@ -417,9 +426,6 @@ impl ClementineVerifier for Verifier {
                     break;
                 }
             }
-            // drop nonces
-            let mut binding = verifier.nonces.lock().await;
-            binding.sessions.remove(&session_id);
         });
 
         let out_stream: Self::DepositSignStream = ReceiverStream::new(rx);
