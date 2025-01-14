@@ -37,7 +37,7 @@ fn get_verifiers_keys(config: &BridgeConfig) -> (Vec<Keypair>, XOnlyPublicKey, V
         .collect::<Vec<PublicKey>>();
 
     let untweaked_xonly_pubkey =
-        XOnlyPublicKey::from_musig2_pks(verifier_public_keys.clone(), None, false);
+        XOnlyPublicKey::from_musig2_pks(verifier_public_keys.clone(), None);
 
     (
         verifiers_secret_public_keys,
@@ -137,7 +137,7 @@ async fn key_spend() {
     )
     .unwrap();
 
-    let agg_pk = XOnlyPublicKey::from_musig2_pks(verifier_public_keys.clone(), None, false);
+    let agg_pk = XOnlyPublicKey::from_musig2_pks(verifier_public_keys.clone(), None);
     SECP.verify_schnorr(&final_signature, &message, &agg_pk)
         .unwrap();
 
@@ -232,7 +232,7 @@ async fn key_spend_with_script() {
     )
     .unwrap();
 
-    let agg_pk = XOnlyPublicKey::from_musig2_pks(verifier_public_keys.clone(), None, false);
+    let agg_pk = XOnlyPublicKey::from_musig2_pks(verifier_public_keys.clone(), None);
 
     SECP.verify_schnorr(&final_signature, &message, &agg_pk)
         .unwrap();
@@ -263,7 +263,7 @@ async fn script_spend() {
         get_verifiers_keys(&config);
     let (nonce_pairs, agg_nonce) = get_nonces(verifiers_secret_public_keys.clone());
 
-    let agg_pk = XOnlyPublicKey::from_musig2_pks(verifier_public_keys.clone(), None, false);
+    let agg_pk = XOnlyPublicKey::from_musig2_pks(verifier_public_keys.clone(), None);
 
     let agg_xonly_pubkey = bitcoin::XOnlyPublicKey::from_slice(&agg_pk.serialize()).unwrap();
     let musig2_script = bitcoin::script::Builder::new()
