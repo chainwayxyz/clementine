@@ -6,6 +6,7 @@
 use super::address::create_taproot_address;
 use crate::builder;
 use crate::constants::{NUM_DISPROVE_SCRIPTS, NUM_INTERMEDIATE_STEPS};
+use crate::utils::UNSPENDABLE_XONLY_PUBKEY;
 use crate::{utils, EVMAddress, UTXO};
 use bitcoin::address::NetworkUnchecked;
 use bitcoin::hashes::Hash;
@@ -38,15 +39,8 @@ pub struct TxHandler {
 }
 
 // TODO: Move these constants to the config file
-// pub const MOVE_TX_MIN_RELAY_FEE: Amount = Amount::from_sat(190);
-// pub const SLASH_OR_TAKE_TX_MIN_RELAY_FEE: Amount = Amount::from_sat(240);
-// pub const OPERATOR_TAKES_TX_MIN_RELAY_FEE: Amount = Amount::from_sat(230);
 pub const KICKOFF_UTXO_AMOUNT_SATS: Amount = Amount::from_sat(100_000);
 
-/// TODO: Change this to correct value
-// pub const TIME_TX_MIN_RELAY_FEE: Amount = Amount::from_sat(350);
-/// TODO: Change this to correct value
-// pub const TIME2_TX_MIN_RELAY_FEE: Amount = Amount::from_sat(350);
 pub const KICKOFF_INPUT_AMOUNT: Amount = Amount::from_sat(100_000);
 pub const OPERATOR_REIMBURSE_CONNECTOR_AMOUNT: Amount = Amount::from_sat(330);
 pub const ANCHOR_AMOUNT: Amount = Amount::from_sat(240); // TODO: This will change to 0 in the future after Bitcoin v0.29.0
@@ -911,6 +905,49 @@ pub fn create_happy_reimburse_txhandler(
             move_txhandler.out_taproot_spend_infos[0].clone(),
             kickoff_txhandler.out_taproot_spend_infos[1].clone(),
             kickoff_txhandler.out_taproot_spend_infos[3].clone(),
+        ],
+        out_scripts: vec![vec![], vec![]],
+        out_taproot_spend_infos: vec![None, None],
+    }
+}
+
+pub fn create_kickoff_timeout_txhandler(
+    kickoff_tx_handler: &TxHandler,
+    time_tx1_txhandler: &TxHandler,
+    network: Network,
+) -> TxHandler {
+    let tx_ins = create_tx_ins(vec![
+        OutPoint {
+            txid: kickoff_tx_handler.txid,
+            vout: 3,
+        },
+        OutPoint {
+            txid: time_tx1_txhandler.txid,
+            vout: 0,
+        },
+    ]);
+    let (dust_address, _) = create_taproot_address(&[], Some(*UNSPENDABLE_XONLY_PUBKEY), network);
+    let dust_output = TxOut {
+        value: Amount::from_sat(330),
+        script_pubkey: dust_address.script_pubkey(),
+    };
+    let anchor_output = builder::script::anchor_output();
+    let tx_outs = vec![dust_output, anchor_output];
+    let kickoff_timeout_tx = create_btc_tx(tx_ins, tx_outs);
+    TxHandler {
+        txid: kickoff_timeout_tx.compute_txid(),
+        tx: kickoff_timeout_tx,
+        prevouts: vec![
+            kickoff_tx_handler.tx.output[3].clone(),
+            time_tx1_txhandler.tx.output[0].clone(),
+        ],
+        prev_scripts: vec![
+            kickoff_tx_handler.out_scripts[3].clone(),
+            time_tx1_txhandler.out_scripts[0].clone(),
+        ],
+        prev_taproot_spend_infos: vec![
+            kickoff_tx_handler.out_taproot_spend_infos[3].clone(),
+            time_tx1_txhandler.out_taproot_spend_infos[0].clone(),
         ],
         out_scripts: vec![vec![], vec![]],
         out_taproot_spend_infos: vec![None, None],
