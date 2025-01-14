@@ -2,7 +2,7 @@
 //!
 //! Helper functions for the MuSig2 signature scheme.
 
-use crate::{errors::BridgeError, utils::SECP};
+use crate::{errors::BridgeError, utils::SECP, ByteArray64};
 use bitcoin::{
     hashes::Hash,
     key::Keypair,
@@ -18,7 +18,29 @@ use secp256k1::{
     Scalar, SECP256K1,
 };
 
+// We can directly use the musig2 crate for this
+// No need for extra types etc.
+// MuSigPubNonce consists of two curve points, so it's 66 bytes (compressed).
+// pub type MuSigPubNonce = ByteArray66;
+// MuSigSecNonce consists of two scalars, so it's 64 bytes.
+// pub type MuSigSecNonce = ByteArray64;
+// MuSigAggNonce is a scalar, so it's 32 bytes.
+// pub type MuSigAggNonce = ByteArray66;
+// MusigPartialSignature is a scalar, so it's 32 bytes.
+// pub type MusigPartialSignature = ByteArray32;
+// MuSigFinalSignature is a Schnorr signature, so it's 64 bytes.
+pub type MuSigFinalSignature = ByteArray64;
+// SigHash used for MuSig2 operations.
+// pub type MuSigSigHash = ByteArray32;
 pub type MuSigNoncePair = (MusigSecNonce, MusigPubNonce);
+
+pub trait AggregateFromPublicKeys {
+    fn from_musig2_pks(
+        pks: Vec<PublicKey>,
+        tweak: Option<TapNodeHash>,
+        tweak_flag: bool,
+    ) -> XOnlyPublicKey;
+}
 
 pub fn from_secp_xonly(xpk: secp256k1::XOnlyPublicKey) -> XOnlyPublicKey {
     XOnlyPublicKey::from_slice(&xpk.serialize()).unwrap()
@@ -52,13 +74,13 @@ pub fn to_secp_msg(msg: &Message) -> secp256k1::Message {
     secp256k1::Message::from_digest(*msg.as_ref())
 }
 
-pub trait AggregateFromPublicKeys {
-    fn from_musig2_pks(pks: Vec<PublicKey>, tweak: Option<TapNodeHash>) -> XOnlyPublicKey;
-}
-
 impl AggregateFromPublicKeys for XOnlyPublicKey {
     #[tracing::instrument(ret(level = tracing::Level::TRACE))]
-    fn from_musig2_pks(pks: Vec<PublicKey>, tweak: Option<TapNodeHash>) -> XOnlyPublicKey {
+    fn from_musig2_pks(
+        pks: Vec<PublicKey>,
+        tweak: Option<TapNodeHash>,
+        tweak_flag: bool,
+    ) -> XOnlyPublicKey {
         let secp_pubkeys: Vec<secp256k1::PublicKey> =
             pks.iter().map(|pk| to_secp_pk(*pk)).collect();
         let pubkeys_ref: Vec<&secp256k1::PublicKey> = secp_pubkeys.iter().collect();
@@ -230,7 +252,7 @@ mod tests {
             .iter()
             .map(|kp| kp.public_key())
             .collect::<Vec<PublicKey>>();
-        let agg_pk = XOnlyPublicKey::from_musig2_pks(public_keys.clone(), None);
+        let agg_pk = XOnlyPublicKey::from_musig2_pks(public_keys.clone(), None, false);
 
         let aggregated_nonce = super::aggregate_nonces(
             nonce_pairs
@@ -337,6 +359,7 @@ mod tests {
         let aggregated_pk = XOnlyPublicKey::from_musig2_pks(
             public_keys.clone(),
             Some(TapNodeHash::from_slice(&tweak).unwrap()),
+            true,
         );
 
         let aggregated_nonce = super::aggregate_nonces(
@@ -446,7 +469,8 @@ mod tests {
             .map(|key_pair| key_pair.public_key())
             .collect::<Vec<PublicKey>>();
 
-        let untweaked_xonly_pubkey = XOnlyPublicKey::from_musig2_pks(public_keys.clone(), None);
+        let untweaked_xonly_pubkey =
+            XOnlyPublicKey::from_musig2_pks(public_keys.clone(), None, false);
 
         let agg_nonce = super::aggregate_nonces(
             nonce_pairs
@@ -528,7 +552,8 @@ mod tests {
         )
         .unwrap();
 
-        let musig_agg_xonly_pubkey = XOnlyPublicKey::from_musig2_pks(public_keys, merkle_root);
+        let musig_agg_xonly_pubkey =
+            XOnlyPublicKey::from_musig2_pks(public_keys, merkle_root, true);
 
         utils::SECP
             .verify_schnorr(&final_signature, &message, &musig_agg_xonly_pubkey)
@@ -545,7 +570,7 @@ mod tests {
 
         let agg_nonce = super::aggregate_nonces(nonce_pairs.iter().map(|x| x.1).collect());
         let musig_agg_xonly_pubkey_wrapped =
-            XOnlyPublicKey::from_musig2_pks(public_keys.clone(), None);
+            XOnlyPublicKey::from_musig2_pks(public_keys.clone(), None, false);
 
         let musig2_script = bitcoin::script::Builder::new()
             .push_x_only_key(&musig_agg_xonly_pubkey_wrapped)

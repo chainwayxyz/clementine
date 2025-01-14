@@ -26,7 +26,7 @@ impl User {
         let signer = Actor::new(sk, config.winternitz_secret_key, config.network);
 
         let nofn_xonly_pk =
-            XOnlyPublicKey::from_musig2_pks(config.verifiers_public_keys.clone(), None);
+            XOnlyPublicKey::from_musig2_pks(config.verifiers_public_keys.clone(), None, false);
 
         User {
             rpc,
