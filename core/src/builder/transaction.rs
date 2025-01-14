@@ -6,7 +6,7 @@
 use super::address::create_taproot_address;
 use crate::builder;
 use crate::constants::{NUM_DISPROVE_SCRIPTS, NUM_INTERMEDIATE_STEPS};
-use crate::utils::{UNSPENDABLE_PUBKEY, UNSPENDABLE_XONLY_PUBKEY};
+use crate::utils::UNSPENDABLE_XONLY_PUBKEY;
 use crate::{utils, EVMAddress, UTXO};
 use bitcoin::address::NetworkUnchecked;
 use bitcoin::hashes::Hash;
