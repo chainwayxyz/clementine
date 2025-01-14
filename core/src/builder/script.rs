@@ -10,9 +10,8 @@ use bitcoin::Amount;
 use bitcoin::{
     opcodes::{all::*, OP_FALSE},
     script::Builder,
-    ScriptBuf, TxOut,
+    ScriptBuf, TxOut, XOnlyPublicKey,
 };
-use secp256k1::XOnlyPublicKey;
 
 pub fn anyone_can_spend_txout() -> TxOut {
     let script = Builder::new().push_opcode(OP_PUSHNUM_1).into_script();

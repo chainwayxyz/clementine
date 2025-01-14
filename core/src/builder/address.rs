@@ -8,10 +8,10 @@ use crate::{utils, EVMAddress};
 use bitcoin::address::NetworkUnchecked;
 use bitcoin::Amount;
 use bitcoin::{
+    secp256k1::XOnlyPublicKey,
     taproot::{TaprootBuilder, TaprootSpendInfo},
     Address, ScriptBuf,
 };
-use secp256k1::XOnlyPublicKey;
 
 /// Creates a taproot address with either key path spend or script spend path
 /// addresses. This depends on given arguments.
@@ -164,8 +164,12 @@ mod tests {
         musig2::AggregateFromPublicKeys,
         utils::{self, SECP},
     };
-    use bitcoin::{key::TapTweak, Address, AddressType, Amount, ScriptBuf, XOnlyPublicKey};
-    use secp256k1::{rand, Keypair, PublicKey, SecretKey};
+    use bitcoin::{
+        key::{Keypair, TapTweak},
+        secp256k1::{PublicKey, SecretKey},
+        Address, AddressType, Amount, ScriptBuf, XOnlyPublicKey,
+    };
+    use secp256k1::rand;
     use std::str::FromStr;
 
     #[test]

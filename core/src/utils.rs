@@ -15,7 +15,7 @@ use tracing_subscriber::{fmt, EnvFilter, Registry};
 
 lazy_static::lazy_static! {
     /// Global secp context.
-    pub static ref SECP: secp256k1::Secp256k1<secp256k1::All> = secp256k1::Secp256k1::new();
+    pub static ref SECP: bitcoin::secp256k1::Secp256k1<bitcoin::secp256k1::All> = bitcoin::secp256k1::Secp256k1::new();
 }
 
 lazy_static::lazy_static! {

@@ -13,14 +13,14 @@ use bitcoin::address::NetworkUnchecked;
 use bitcoin::consensus::deserialize;
 use bitcoin::hashes::Hash;
 use bitcoin::script::PushBytesBuf;
+use bitcoin::secp256k1::{schnorr, Message};
 use bitcoin::sighash::SighashCache;
-use bitcoin::{Address, Amount, OutPoint, TapSighash, Transaction, TxOut, Txid};
+use bitcoin::{Address, Amount, OutPoint, TapSighash, Transaction, TxOut, Txid, XOnlyPublicKey};
 use bitcoincore_rpc::{RawTx, RpcApi};
 use bitvm::signatures::winternitz;
 use jsonrpsee::core::client::ClientT;
 use jsonrpsee::http_client::HttpClientBuilder;
 use jsonrpsee::rpc_params;
-use secp256k1::{schnorr, Message};
 use serde_json::json;
 
 #[derive(Debug, Clone)]
@@ -29,7 +29,7 @@ pub struct Operator {
     pub db: Database,
     pub(crate) signer: Actor,
     pub(crate) config: BridgeConfig,
-    nofn_xonly_pk: secp256k1::XOnlyPublicKey,
+    nofn_xonly_pk: XOnlyPublicKey,
     pub(crate) idx: usize,
     citrea_client: Option<jsonrpsee::http_client::HttpClient>,
 }
@@ -48,11 +48,8 @@ impl Operator {
 
         let db = Database::new(&config).await?;
 
-        let nofn_xonly_pk = secp256k1::XOnlyPublicKey::from_musig2_pks(
-            config.verifiers_public_keys.clone(),
-            None,
-            false,
-        );
+        let nofn_xonly_pk =
+            XOnlyPublicKey::from_musig2_pks(config.verifiers_public_keys.clone(), None, false);
         let idx = config
             .operators_xonly_pks
             .iter()
@@ -135,7 +132,7 @@ impl Operator {
         deposit_outpoint: OutPoint,
         recovery_taproot_address: Address<NetworkUnchecked>,
         evm_address: EVMAddress,
-    ) -> Result<(UTXO, secp256k1::schnorr::Signature), BridgeError> {
+    ) -> Result<(UTXO, schnorr::Signature), BridgeError> {
         tracing::info!(
             "New deposit request for UTXO: {:?}, EVM address: {:?} and recovery taproot address of: {:?}",
             deposit_outpoint,
@@ -421,9 +418,8 @@ impl Operator {
             return Err(BridgeError::NotEnoughFeeForOperator);
         }
 
-        let user_xonly_pk = secp256k1::XOnlyPublicKey::from_slice(
-            &input_utxo.txout.script_pubkey.as_bytes()[2..34],
-        )?;
+        let user_xonly_pk =
+            XOnlyPublicKey::from_slice(&input_utxo.txout.script_pubkey.as_bytes()[2..34])?;
 
         let tx_ins = builder::transaction::create_tx_ins(vec![input_utxo.outpoint]);
         let tx_outs = vec![output_txout.clone()];

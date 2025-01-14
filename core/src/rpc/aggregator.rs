@@ -12,10 +12,10 @@ use crate::{
     EVMAddress,
 };
 use bitcoin::hashes::Hash;
+use bitcoin::secp256k1::{Message, PublicKey};
 use bitcoin::{Amount, TapSighash};
 use futures::{future::try_join_all, stream::BoxStream, FutureExt, Stream, StreamExt};
 use secp256k1::musig::{MusigAggNonce, MusigPartialSignature, MusigPubNonce};
-use secp256k1::Message;
 use std::thread;
 use tokio::sync::mpsc::{channel, Receiver, Sender};
 use tonic::{async_trait, Request, Response, Status, Streaming};
@@ -115,7 +115,7 @@ async fn nonce_distributor(
 /// Collects partial signatures from given stream and aggregates them.
 async fn signature_aggregator(
     mut partial_sig_receiver: Receiver<(Vec<MusigPartialSignature>, AggNonceQueueItem)>,
-    verifiers_public_keys: Vec<secp256k1::PublicKey>,
+    verifiers_public_keys: Vec<PublicKey>,
     final_sig_sender: Sender<FinalSigQueueItem>,
 ) -> Result<(), BridgeError> {
     while let Some((partial_sigs, queue_item)) = partial_sig_receiver.recv().await {

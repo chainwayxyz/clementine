@@ -7,8 +7,8 @@ use crate::errors::BridgeError;
 use crate::extended_rpc::ExtendedRpc;
 use crate::musig2::AggregateFromPublicKeys;
 use crate::UTXO;
+use ::secp256k1::musig::MusigSecNonce;
 use bitcoin::{secp256k1, OutPoint};
-use secp256k1::musig::MusigSecNonce;
 use std::collections::HashMap;
 use std::sync::Arc;
 

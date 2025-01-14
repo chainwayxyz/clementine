@@ -13,17 +13,17 @@ use super::Database;
 use crate::errors::BridgeError;
 use crate::{EVMAddress, UTXO};
 use bitcoin::address::NetworkUnchecked;
+use bitcoin::secp256k1::{schnorr, Message, PublicKey};
 use bitcoin::{
     block::{self, Header, Version},
     hashes::Hash,
     BlockHash, CompactTarget, TxMerkleNode,
 };
-use bitcoin::{Address, OutPoint, Txid};
+use bitcoin::{Address, OutPoint, Txid, XOnlyPublicKey};
 use bitvm::bridge::transactions::signing_winternitz::WinternitzPublicKey;
 use bitvm::signatures::winternitz;
 use risc0_zkvm::Receipt;
 use secp256k1::musig::{MusigAggNonce, MusigPubNonce};
-use secp256k1::{schnorr, Message};
 use sqlx::{Postgres, QueryBuilder};
 use std::str::FromStr;
 
@@ -33,7 +33,7 @@ impl Database {
     pub async fn save_verifier_public_keys(
         &self,
         tx: Option<&mut sqlx::Transaction<'_, Postgres>>,
-        public_keys: &[secp256k1::PublicKey],
+        public_keys: &[PublicKey],
     ) -> Result<(), BridgeError> {
         let mut query = QueryBuilder::new("INSERT INTO verifier_public_keys (idx, public_key) ");
         query.push_values(public_keys.iter().enumerate(), |mut builder, (idx, pk)| {
@@ -56,7 +56,7 @@ impl Database {
     pub async fn get_verifier_public_keys(
         &self,
         tx: Option<&mut sqlx::Transaction<'_, Postgres>>,
-    ) -> Result<Vec<secp256k1::PublicKey>, BridgeError> {
+    ) -> Result<Vec<PublicKey>, BridgeError> {
         let query = sqlx::query_as("SELECT * FROM verifier_public_keys ORDER BY idx;");
 
         let result: Result<Vec<(i32, PublicKeyDB)>, sqlx::Error> = match tx {
@@ -127,7 +127,7 @@ impl Database {
         &self,
         tx: Option<&mut sqlx::Transaction<'_, Postgres>>,
         operator_idx: i32,
-        xonly_pubkey: secp256k1::XOnlyPublicKey,
+        xonly_pubkey: XOnlyPublicKey,
         wallet_address: String,
         collateral_funding_txid: Txid,
     ) -> Result<(), BridgeError> {
@@ -150,7 +150,7 @@ impl Database {
     pub async fn get_operators(
         &self,
         tx: Option<&mut sqlx::Transaction<'_, Postgres>>,
-    ) -> Result<Vec<(secp256k1::XOnlyPublicKey, bitcoin::Address, Txid)>, BridgeError> {
+    ) -> Result<Vec<(XOnlyPublicKey, bitcoin::Address, Txid)>, BridgeError> {
         let query = sqlx::query_as(
             "SELECT operator_idx, xonly_pk, wallet_reimburse_address, collateral_funding_txid FROM operators ORDER BY operator_idx;"
         );
@@ -176,7 +176,7 @@ impl Database {
                 let data = operators
                     .into_iter()
                     .map(|(_, pk, addr, txid)| {
-                        let xonly_pk = secp256k1::XOnlyPublicKey::from_str(&pk).unwrap();
+                        let xonly_pk = XOnlyPublicKey::from_str(&pk).unwrap();
                         let addr = bitcoin::Address::from_str(&addr).unwrap().assume_checked();
                         let txid = Txid::from_str(&txid).unwrap();
                         Ok((xonly_pk, addr, txid))
@@ -1086,8 +1086,11 @@ impl Database {
 #[cfg(test)]
 mod tests {
     use super::Database;
+    use crate::utils::SECP;
     use crate::{config::BridgeConfig, initialize_database, utils::initialize_logger};
     use crate::{create_test_config_with_thread_name, musig2::nonce_pair, EVMAddress, UTXO};
+    use bitcoin::key::Keypair;
+    use bitcoin::secp256k1::{schnorr, SecretKey};
     use bitcoin::{
         block::{self, Header, Version},
         BlockHash, CompactTarget, TxMerkleNode,
@@ -1103,7 +1106,6 @@ mod tests {
     use risc0_zkvm::Receipt;
     use secp256k1::musig::MusigPubNonce;
     use secp256k1::{constants::SCHNORR_SIGNATURE_SIZE, rand::rngs::OsRng};
-    use secp256k1::{schnorr, Secp256k1};
     use std::{env, thread};
 
     #[tokio::test]
@@ -1168,7 +1170,6 @@ mod tests {
         let config = create_test_config_with_thread_name!(None);
         let database = Database::new(&config).await.unwrap();
 
-        let secp = Secp256k1::new();
         let xonly_public_key = XOnlyPublicKey::from_slice(&[
             0x78u8, 0x19u8, 0x90u8, 0xd7u8, 0xe2u8, 0x11u8, 0x8cu8, 0xc3u8, 0x61u8, 0xa9u8, 0x3au8,
             0x6fu8, 0xccu8, 0x54u8, 0xceu8, 0x61u8, 0x1du8, 0x6du8, 0xf3u8, 0x81u8, 0x68u8, 0xd6u8,
@@ -1176,7 +1177,7 @@ mod tests {
         ])
         .unwrap();
         let outpoint = OutPoint::null();
-        let taproot_address = Address::p2tr(&secp, xonly_public_key, None, config.network);
+        let taproot_address = Address::p2tr(&SECP, xonly_public_key, None, config.network);
         let evm_address = EVMAddress([1u8; 20]);
         database
             .save_deposit_info(
@@ -1200,20 +1201,19 @@ mod tests {
     async fn test_get_pub_nonces_1() {
         let config = create_test_config_with_thread_name!(None);
         let db = Database::new(&config).await.unwrap();
-        let secp = Secp256k1::new();
 
         let outpoint = OutPoint {
             txid: Txid::from_byte_array([1u8; 32]),
             vout: 1,
         };
         let sks = [
-            secp256k1::SecretKey::from_slice(&[1u8; 32]).unwrap(),
-            secp256k1::SecretKey::from_slice(&[2u8; 32]).unwrap(),
-            secp256k1::SecretKey::from_slice(&[3u8; 32]).unwrap(),
+            SecretKey::from_slice(&[1u8; 32]).unwrap(),
+            SecretKey::from_slice(&[2u8; 32]).unwrap(),
+            SecretKey::from_slice(&[3u8; 32]).unwrap(),
         ];
-        let keypairs: Vec<secp256k1::Keypair> = sks
+        let keypairs: Vec<Keypair> = sks
             .iter()
-            .map(|sk| secp256k1::Keypair::from_secret_key(&secp, sk))
+            .map(|sk| Keypair::from_secret_key(&SECP, sk))
             .collect();
         let nonce_pairs: Vec<MusigPubNonce> = keypairs
             .into_iter()

@@ -4,12 +4,10 @@ use bitcoin::{
     block,
     consensus::{Decodable, Encodable},
     hex::{DisplayHex, FromHex},
-    Address, OutPoint, TxOut, Txid,
+    secp256k1::{schnorr, Message, PublicKey},
+    Address, OutPoint, TxOut, Txid, XOnlyPublicKey,
 };
-use secp256k1::{
-    musig::{MusigAggNonce, MusigPubNonce},
-    Message,
-};
+use secp256k1::musig::{self, MusigAggNonce, MusigPubNonce};
 use serde::{Deserialize, Serialize};
 use sqlx::{
     postgres::{PgArgumentBuffer, PgValueRef},
@@ -133,7 +131,7 @@ impl<'r> Decode<'r, Postgres> for TxOutDB {
 }
 
 #[derive(Serialize, Deserialize, sqlx::FromRow, Debug, Clone)]
-pub struct SignatureDB(pub secp256k1::schnorr::Signature);
+pub struct SignatureDB(pub schnorr::Signature);
 
 impl sqlx::Type<sqlx::Postgres> for SignatureDB {
     fn type_info() -> sqlx::postgres::PgTypeInfo {
@@ -149,13 +147,13 @@ impl Encode<'_, Postgres> for SignatureDB {
 impl<'r> Decode<'r, Postgres> for SignatureDB {
     fn decode(value: PgValueRef<'r>) -> Result<Self, sqlx::error::BoxDynError> {
         let s = <Vec<u8> as Decode<Postgres>>::decode(value)?;
-        let x: secp256k1::schnorr::Signature = secp256k1::schnorr::Signature::from_slice(&s)?;
+        let x: schnorr::Signature = schnorr::Signature::from_slice(&s)?;
         Ok(SignatureDB(x))
     }
 }
 
 #[derive(Serialize, Deserialize, sqlx::FromRow, Debug, Clone)]
-pub struct SignaturesDB(pub Vec<secp256k1::schnorr::Signature>);
+pub struct SignaturesDB(pub Vec<schnorr::Signature>);
 
 impl sqlx::Type<sqlx::Postgres> for SignaturesDB {
     fn type_info() -> sqlx::postgres::PgTypeInfo {
@@ -179,12 +177,11 @@ impl<'r> Decode<'r, Postgres> for SignaturesDB {
     fn decode(value: PgValueRef<'r>) -> Result<Self, sqlx::error::BoxDynError> {
         let raw = <Vec<u8> as Decode<Postgres>>::decode(value)?;
 
-        let signatures: Vec<secp256k1::schnorr::Signature> =
-            borsh::from_slice::<Vec<Vec<u8>>>(&raw)
-                .unwrap()
-                .iter()
-                .map(|signature| secp256k1::schnorr::Signature::from_slice(signature).unwrap())
-                .collect();
+        let signatures: Vec<schnorr::Signature> = borsh::from_slice::<Vec<Vec<u8>>>(&raw)
+            .unwrap()
+            .iter()
+            .map(|signature| schnorr::Signature::from_slice(signature).unwrap())
+            .collect();
 
         Ok(SignaturesDB(signatures))
     }
@@ -239,7 +236,7 @@ impl<'r> Decode<'r, Postgres> for BlockHeaderDB {
 }
 
 #[derive(Serialize, Deserialize, sqlx::FromRow, Debug, Clone)]
-pub struct PublicKeyDB(pub secp256k1::PublicKey);
+pub struct PublicKeyDB(pub PublicKey);
 
 impl sqlx::Type<sqlx::Postgres> for PublicKeyDB {
     fn type_info() -> sqlx::postgres::PgTypeInfo {
@@ -248,20 +245,20 @@ impl sqlx::Type<sqlx::Postgres> for PublicKeyDB {
 }
 impl Encode<'_, Postgres> for PublicKeyDB {
     fn encode_by_ref(&self, buf: &mut PgArgumentBuffer) -> sqlx::encode::IsNull {
-        let s: String = secp256k1::PublicKey::to_string(&self.0);
+        let s: String = PublicKey::to_string(&self.0);
         <&str as Encode<Postgres>>::encode_by_ref(&s.as_str(), buf)
     }
 }
 impl<'r> Decode<'r, Postgres> for PublicKeyDB {
     fn decode(value: PgValueRef<'r>) -> Result<Self, sqlx::error::BoxDynError> {
         let s = <&str as Decode<Postgres>>::decode(value)?;
-        let x: secp256k1::PublicKey = secp256k1::PublicKey::from_str(s)?;
+        let x: PublicKey = PublicKey::from_str(s)?;
         Ok(PublicKeyDB(x))
     }
 }
 
 #[derive(Serialize, Deserialize, sqlx::FromRow, Debug, Clone)]
-pub struct XOnlyPublicKeyDB(pub secp256k1::XOnlyPublicKey);
+pub struct XOnlyPublicKeyDB(pub XOnlyPublicKey);
 
 impl sqlx::Type<sqlx::Postgres> for XOnlyPublicKeyDB {
     fn type_info() -> sqlx::postgres::PgTypeInfo {
@@ -270,20 +267,20 @@ impl sqlx::Type<sqlx::Postgres> for XOnlyPublicKeyDB {
 }
 impl Encode<'_, Postgres> for XOnlyPublicKeyDB {
     fn encode_by_ref(&self, buf: &mut PgArgumentBuffer) -> sqlx::encode::IsNull {
-        let s: String = secp256k1::XOnlyPublicKey::to_string(&self.0);
+        let s: String = XOnlyPublicKey::to_string(&self.0);
         <&str as Encode<Postgres>>::encode_by_ref(&s.as_str(), buf)
     }
 }
 impl<'r> Decode<'r, Postgres> for XOnlyPublicKeyDB {
     fn decode(value: PgValueRef<'r>) -> Result<Self, sqlx::error::BoxDynError> {
         let s = <&str as Decode<Postgres>>::decode(value)?;
-        let x: secp256k1::XOnlyPublicKey = secp256k1::XOnlyPublicKey::from_str(s)?;
+        let x: XOnlyPublicKey = XOnlyPublicKey::from_str(s)?;
         Ok(XOnlyPublicKeyDB(x))
     }
 }
 
 #[derive(sqlx::FromRow, Debug, Clone)]
-pub struct MusigPubNonceDB(pub secp256k1::musig::MusigPubNonce);
+pub struct MusigPubNonceDB(pub musig::MusigPubNonce);
 
 impl sqlx::Type<sqlx::Postgres> for MusigPubNonceDB {
     fn type_info() -> sqlx::postgres::PgTypeInfo {
@@ -311,7 +308,7 @@ impl<'r> Decode<'r, Postgres> for MusigPubNonceDB {
 }
 
 #[derive(sqlx::FromRow, Debug, Clone)]
-pub struct MusigAggNonceDB(pub secp256k1::musig::MusigAggNonce);
+pub struct MusigAggNonceDB(pub musig::MusigAggNonce);
 
 impl sqlx::Type<sqlx::Postgres> for MusigAggNonceDB {
     fn type_info() -> sqlx::postgres::PgTypeInfo {
@@ -339,7 +336,7 @@ impl<'r> Decode<'r, Postgres> for MusigAggNonceDB {
 }
 
 #[derive(sqlx::FromRow, Debug, Clone)]
-pub struct MessageDB(pub secp256k1::Message);
+pub struct MessageDB(pub Message);
 
 impl sqlx::Type<sqlx::Postgres> for MessageDB {
     fn type_info() -> sqlx::postgres::PgTypeInfo {
@@ -381,9 +378,9 @@ mod tests {
     use bitcoin::{
         block::{self, Version},
         hashes::Hash,
+        secp256k1::schnorr::Signature,
         Amount, BlockHash, CompactTarget, OutPoint, ScriptBuf, TxMerkleNode, TxOut, Txid,
     };
-    use secp256k1::schnorr::Signature;
     use sqlx::{encode::IsNull, postgres::PgArgumentBuffer, Encode, Type};
 
     #[test]

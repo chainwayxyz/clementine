@@ -14,15 +14,16 @@ use crate::{
     verifier::{NofN, NonceSession, Verifier},
     EVMAddress,
 };
-use bitcoin::{hashes::Hash, Amount, TapSighash, Txid};
+use bitcoin::{
+    hashes::Hash,
+    secp256k1::{schnorr, Message, PublicKey, SecretKey},
+    Amount, TapSighash, Txid, XOnlyPublicKey,
+};
 use bitvm::{
     bridge::transactions::signing_winternitz::WinternitzPublicKey, signatures::winternitz,
 };
 use futures::StreamExt;
-use secp256k1::{
-    musig::{MusigAggNonce, MusigPubNonce, MusigSecNonce},
-    schnorr, Message,
-};
+use secp256k1::musig::{MusigAggNonce, MusigPubNonce, MusigSecNonce};
 use std::{pin::pin, str::FromStr};
 use tokio::sync::mpsc;
 use tokio_stream::wrappers::ReceiverStream;
@@ -62,11 +63,11 @@ impl ClementineVerifier for Verifier {
         }
 
         // Extract the public keys from the request
-        let verifiers_public_keys: Vec<secp256k1::PublicKey> = req
+        let verifiers_public_keys: Vec<PublicKey> = req
             .into_inner()
             .verifier_public_keys
             .iter()
-            .map(|pk| secp256k1::PublicKey::from_slice(pk).unwrap())
+            .map(|pk| PublicKey::from_slice(pk).unwrap())
             .collect();
 
         let nofn = NofN::new(self.signer.public_key, verifiers_public_keys.clone());
@@ -91,7 +92,7 @@ impl ClementineVerifier for Verifier {
             .operator_details
             .ok_or(BridgeError::Error("No operator details".to_string()))?;
 
-        let operator_xonly_pk = secp256k1::XOnlyPublicKey::from_str(&operator_config.xonly_pk)
+        let operator_xonly_pk = XOnlyPublicKey::from_str(&operator_config.xonly_pk)
             .map_err(|_| BridgeError::Error("Invalid xonly public key".to_string()))?;
 
         // Save the operator details to the db
@@ -114,7 +115,7 @@ impl ClementineVerifier for Verifier {
         let timeout_tx_sigs: Vec<schnorr::Signature> = operator_params
             .timeout_tx_sigs
             .iter()
-            .map(|sig| secp256k1::schnorr::Signature::from_slice(sig).unwrap())
+            .map(|sig| schnorr::Signature::from_slice(sig).unwrap())
             .collect();
 
         let timeout_tx_sighash_stream = builder::sighash::create_timeout_tx_sighash_stream(
@@ -227,13 +228,15 @@ impl ClementineVerifier for Verifier {
         let (sec_nonces, pub_nonces): (Vec<MusigSecNonce>, Vec<MusigPubNonce>) = (0..num_nonces)
             .map(|_| {
                 // nonce pair needs keypair and a rng
-                let (sec_nonce, pub_nonce) =
-                    musig2::nonce_pair(&self.signer.keypair, &mut secp256k1::rand::thread_rng());
+                let (sec_nonce, pub_nonce) = musig2::nonce_pair(
+                    &self.signer.keypair,
+                    &mut bitcoin::secp256k1::rand::thread_rng(),
+                );
                 (sec_nonce, pub_nonce)
             })
             .unzip();
 
-        let private_key = secp256k1::SecretKey::new(&mut secp256k1::rand::thread_rng());
+        let private_key = SecretKey::new(&mut bitcoin::secp256k1::rand::thread_rng());
 
         let session = NonceSession {
             private_key,
@@ -249,7 +252,7 @@ impl ClementineVerifier for Verifier {
             session_id
         };
 
-        let public_key = secp256k1::PublicKey::from_secret_key(&utils::SECP, &private_key)
+        let public_key = PublicKey::from_secret_key(&utils::SECP, &private_key)
             .serialize()
             .to_vec();
         let public_key_hash = sha256_hash!(&public_key);
@@ -511,18 +514,14 @@ impl ClementineVerifier for Verifier {
                 .unwrap();
             let final_sig = match final_sig {
                 clementine::verifier_deposit_finalize_params::Params::SchnorrSig(final_sig) => {
-                    secp256k1::schnorr::Signature::from_slice(&final_sig).unwrap()
+                    schnorr::Signature::from_slice(&final_sig).unwrap()
                 }
                 _ => panic!("Expected FinalSig"),
             };
 
             tracing::debug!("Verifying Final Signature");
             utils::SECP
-                .verify_schnorr(
-                    &final_sig,
-                    &secp256k1::Message::from(sighash),
-                    &self.nofn_xonly_pk,
-                )
+                .verify_schnorr(&final_sig, &Message::from(sighash), &self.nofn_xonly_pk)
                 .unwrap();
 
             tracing::debug!("Final Signature Verified");

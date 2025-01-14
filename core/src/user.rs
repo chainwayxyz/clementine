@@ -5,11 +5,10 @@ use crate::errors::BridgeError;
 use crate::extended_rpc::ExtendedRpc;
 use crate::musig2::AggregateFromPublicKeys;
 use crate::{EVMAddress, UTXO};
+use bitcoin::secp256k1::{schnorr, SecretKey};
 use bitcoin::{Address, TxOut};
 use bitcoin::{Amount, OutPoint};
 use bitcoin::{TapSighashType, XOnlyPublicKey};
-use secp256k1::schnorr;
-use secp256k1::SecretKey;
 
 pub const WITHDRAWAL_EMPTY_UTXO_SATS: Amount = Amount::from_sat(550);
 
@@ -26,11 +25,8 @@ impl User {
     pub fn new(rpc: ExtendedRpc, sk: SecretKey, config: BridgeConfig) -> Self {
         let signer = Actor::new(sk, config.winternitz_secret_key, config.network);
 
-        let nofn_xonly_pk = secp256k1::XOnlyPublicKey::from_musig2_pks(
-            config.verifiers_public_keys.clone(),
-            None,
-            false,
-        );
+        let nofn_xonly_pk =
+            XOnlyPublicKey::from_musig2_pks(config.verifiers_public_keys.clone(), None, false);
 
         User {
             rpc,
@@ -120,8 +116,9 @@ mod tests {
         config::BridgeConfig, database::Database, initialize_database, utils::initialize_logger,
     };
     use crate::{create_test_config_with_thread_name, extended_rpc::ExtendedRpc};
+    use bitcoin::secp256k1::SecretKey;
     use bitcoincore_rpc::RpcApi;
-    use secp256k1::{rand, SecretKey};
+    use secp256k1::rand;
     use std::{env, thread};
 
     #[tokio::test]

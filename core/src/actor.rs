@@ -1,6 +1,7 @@
 use crate::builder::transaction::TxHandler;
 use crate::errors::BridgeError;
 use crate::utils;
+use bitcoin::secp256k1::PublicKey;
 use bitcoin::sighash::SighashCache;
 use bitcoin::taproot::LeafVersion;
 use bitcoin::{
@@ -91,9 +92,9 @@ impl Default for WinternitzDerivationPath {
 pub struct Actor {
     pub keypair: Keypair,
     _secret_key: SecretKey,
-    winternitz_secret_key: Option<secp256k1::SecretKey>,
+    winternitz_secret_key: Option<SecretKey>,
     pub xonly_public_key: XOnlyPublicKey,
-    pub public_key: secp256k1::PublicKey,
+    pub public_key: PublicKey,
     pub address: Address,
 }
 
@@ -101,7 +102,7 @@ impl Actor {
     #[tracing::instrument(ret(level = tracing::Level::TRACE))]
     pub fn new(
         sk: SecretKey,
-        winternitz_secret_key: Option<secp256k1::SecretKey>,
+        winternitz_secret_key: Option<SecretKey>,
         network: bitcoin::Network,
     ) -> Self {
         let keypair = Keypair::from_secret_key(&utils::SECP, &sk);
@@ -348,11 +349,12 @@ impl Actor {
 mod tests {
     use super::Actor;
     use crate::config::BridgeConfig;
-    use crate::utils::initialize_logger;
+    use crate::utils::{initialize_logger, SECP};
     use crate::{
         actor::WinternitzDerivationPath, builder::transaction::TxHandler,
         create_test_config_with_thread_name, database::Database, initialize_database,
     };
+    use bitcoin::secp256k1::SecretKey;
     use bitcoin::{
         absolute::Height, transaction::Version, Amount, Network, OutPoint, Transaction, TxIn, TxOut,
     };
@@ -363,7 +365,7 @@ mod tests {
         },
         treepp::script,
     };
-    use secp256k1::{rand, Secp256k1, SecretKey};
+    use secp256k1::rand;
     use std::env;
     use std::str::FromStr;
     use std::thread;
@@ -428,15 +430,14 @@ mod tests {
 
     #[test]
     fn actor_new() {
-        let secp = Secp256k1::new();
         let sk = SecretKey::new(&mut rand::thread_rng());
         let network = Network::Regtest;
 
         let actor = Actor::new(sk, None, network);
 
         assert_eq!(sk, actor._secret_key);
-        assert_eq!(sk.public_key(&secp), actor.public_key);
-        assert_eq!(sk.x_only_public_key(&secp).0, actor.xonly_public_key);
+        assert_eq!(sk.public_key(&SECP), actor.public_key);
+        assert_eq!(sk.x_only_public_key(&SECP).0, actor.xonly_public_key);
     }
 
     #[test]
@@ -555,7 +556,7 @@ mod tests {
         let actor = Actor::new(
             config.secret_key,
             Some(
-                secp256k1::SecretKey::from_str(
+                SecretKey::from_str(
                     "451F451F451F451F451F451F451F451F451F451F451F451F451F451F451F451F",
                 )
                 .unwrap(),
@@ -577,7 +578,7 @@ mod tests {
         let actor = Actor::new(
             config.secret_key,
             Some(
-                secp256k1::SecretKey::from_str(
+                SecretKey::from_str(
                     "451F451F451F451F451F451F451F451F451F451F451F451F451F451F451F451F",
                 )
                 .unwrap(),

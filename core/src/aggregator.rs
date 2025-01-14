@@ -16,13 +16,14 @@ use crate::{
     utils::handle_taproot_witness_new,
     EVMAddress, UTXO,
 };
-use bitcoin::{address::NetworkUnchecked, Address, OutPoint};
+use bitcoin::{
+    address::NetworkUnchecked,
+    secp256k1::{schnorr, Message},
+    Address, OutPoint, XOnlyPublicKey,
+};
 use bitcoin::{hashes::Hash, Txid};
 use bitcoincore_rpc::RawTx;
-use secp256k1::{
-    musig::{MusigAggNonce, MusigPartialSignature, MusigPubNonce},
-    schnorr, Message,
-};
+use secp256k1::musig::{MusigAggNonce, MusigPartialSignature, MusigPubNonce};
 
 /// Aggregator struct.
 /// This struct is responsible for aggregating partial signatures from the verifiers.
@@ -36,7 +37,7 @@ use secp256k1::{
 pub struct Aggregator {
     pub(crate) db: Database,
     pub(crate) config: BridgeConfig,
-    pub(crate) nofn_xonly_pk: secp256k1::XOnlyPublicKey,
+    pub(crate) nofn_xonly_pk: XOnlyPublicKey,
     pub(crate) verifier_clients: Vec<ClementineVerifierClient<tonic::transport::Channel>>,
     pub(crate) operator_clients: Vec<ClementineOperatorClient<tonic::transport::Channel>>,
     pub(crate) watchtower_clients: Vec<ClementineWatchtowerClient<tonic::transport::Channel>>,
@@ -47,11 +48,8 @@ impl Aggregator {
     pub async fn new(config: BridgeConfig) -> Result<Self, BridgeError> {
         let db = Database::new(&config).await?;
 
-        let nofn_xonly_pk = secp256k1::XOnlyPublicKey::from_musig2_pks(
-            config.verifiers_public_keys.clone(),
-            None,
-            false,
-        );
+        let nofn_xonly_pk =
+            XOnlyPublicKey::from_musig2_pks(config.verifiers_public_keys.clone(), None, false);
 
         let verifier_endpoints =
             config
@@ -99,7 +97,7 @@ impl Aggregator {
         &self,
         deposit_outpoint: OutPoint,
         kickoff_utxo: UTXO,
-        operator_xonly_pk: secp256k1::XOnlyPublicKey,
+        operator_xonly_pk: XOnlyPublicKey,
         operator_idx: usize,
         agg_nonce: &MusigAggNonce,
         partial_sigs: Vec<MusigPartialSignature>,
@@ -146,7 +144,7 @@ impl Aggregator {
         &self,
         deposit_outpoint: OutPoint,
         kickoff_utxo: UTXO,
-        operator_xonly_pk: &secp256k1::XOnlyPublicKey,
+        operator_xonly_pk: &XOnlyPublicKey,
         operator_idx: usize,
         agg_nonce: &MusigAggNonce,
         partial_sigs: Vec<MusigPartialSignature>,

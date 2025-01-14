@@ -12,11 +12,11 @@ use bitcoin::hashes::Hash;
 use bitcoin::opcodes::all::OP_CHECKSIG;
 use bitcoin::script::PushBytesBuf;
 use bitcoin::{
-    absolute, taproot::TaprootSpendInfo, Address, Amount, OutPoint, ScriptBuf, TxIn, TxOut, Witness,
+    absolute, taproot::TaprootSpendInfo, Address, Amount, OutPoint, ScriptBuf, TxIn, TxOut,
+    Witness, XOnlyPublicKey,
 };
 use bitcoin::{Network, Transaction, Txid};
 use bitvm::signatures::winternitz;
-use secp256k1::XOnlyPublicKey;
 
 /// Verbose information about a transaction.
 #[derive(Debug, Clone)]
@@ -1088,8 +1088,10 @@ pub fn create_tx_outs(pairs: Vec<(Amount, ScriptBuf)>) -> Vec<TxOut> {
 #[cfg(test)]
 mod tests {
     use crate::{builder, utils::SECP};
-    use bitcoin::{hashes::Hash, Amount, OutPoint, Txid, XOnlyPublicKey};
-    use secp256k1::{rand, Keypair, SecretKey};
+    use bitcoin::{
+        hashes::Hash, key::Keypair, secp256k1::SecretKey, Amount, OutPoint, Txid, XOnlyPublicKey,
+    };
+    use secp256k1::rand;
 
     #[test]
     fn create_move_tx() {

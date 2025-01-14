@@ -7,7 +7,7 @@ use async_stream::try_stream;
 use bitcoin::sighash::SighashCache;
 use bitcoin::taproot::LeafVersion;
 use bitcoin::{address::NetworkUnchecked, Address, Amount, OutPoint, TapLeafHash, TapSighashType};
-use bitcoin::{TapSighash, Txid};
+use bitcoin::{TapSighash, Txid, XOnlyPublicKey};
 use futures_core::stream::Stream;
 
 pub fn calculate_num_required_sigs(
@@ -93,7 +93,7 @@ pub fn create_nofn_sighash_stream(
     deposit_outpoint: OutPoint,
     _evm_address: EVMAddress,
     _recovery_taproot_address: Address<NetworkUnchecked>,
-    nofn_xonly_pk: secp256k1::XOnlyPublicKey,
+    nofn_xonly_pk: XOnlyPublicKey,
     _user_takes_after: u64,
     collateral_funding_amount: Amount,
     timeout_block_count: i64,
@@ -112,7 +112,7 @@ pub fn create_nofn_sighash_stream(
             network,
         );
 
-        let operators: Vec<(secp256k1::XOnlyPublicKey, bitcoin::Address, Txid)> =
+        let operators: Vec<(XOnlyPublicKey, bitcoin::Address, Txid)> =
             db.get_operators(None).await?;
         if operators.len() < config.num_operators {
             panic!("Not enough operators");
@@ -287,7 +287,7 @@ pub fn create_nofn_sighash_stream(
 }
 
 pub fn create_timeout_tx_sighash_stream(
-    operator_xonly_pk: secp256k1::XOnlyPublicKey,
+    operator_xonly_pk: XOnlyPublicKey,
     collateral_funding_txid: bitcoin::Txid,
     collateral_funding_amount: Amount,
     timeout_block_count: i64,
