@@ -10,12 +10,14 @@ use bitcoin::{address::NetworkUnchecked, Address, Amount, OutPoint, TapLeafHash,
 use bitcoin::{TapSighash, Txid};
 use futures_core::stream::Stream;
 
+// TODO: For now, this is equal to the number of sighashes we yield in create_nofn_sighash_stream.
+// This will change as we implement the system design.
 pub fn calculate_num_required_sigs(
     num_operators: usize,
     num_time_txs: usize,
     num_watchtowers: usize,
 ) -> usize {
-    num_operators * num_time_txs * (1 + 3 * num_watchtowers + 1)
+    num_operators * num_time_txs * (6 + 2 * num_watchtowers + NUM_INTERMEDIATE_STEPS)
 }
 
 pub fn convert_tx_to_pubkey_spend(
@@ -198,6 +200,19 @@ pub fn create_nofn_sighash_stream(
 
                 yield convert_tx_to_pubkey_spend(
                     &mut watchtower_challenge_page_tx_handler,
+                    0,
+                    None,
+                )?;
+
+                let mut kickoff_timeout_txhandler = builder::transaction::create_kickoff_timeout_txhandler(
+                    &kickoff_txhandler,
+                    &time_txhandler,
+                    network,
+                );
+
+                yield convert_tx_to_script_spend(
+                    &mut kickoff_timeout_txhandler,
+                    0,
                     0,
                     None,
                 )?;
