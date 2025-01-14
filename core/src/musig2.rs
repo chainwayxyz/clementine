@@ -2,11 +2,11 @@
 //!
 //! Helper functions for the MuSig2 signature scheme.
 
-use crate::{errors::BridgeError, ByteArray64};
+use crate::{errors::BridgeError, utils::SECP, ByteArray64};
 use bitcoin::{
     hashes::Hash,
     key::Keypair,
-    secp256k1::{schnorr, Message, PublicKey, Scalar},
+    secp256k1::{schnorr, Message, PublicKey, SecretKey},
     TapNodeHash, XOnlyPublicKey,
 };
 use secp256k1::{
@@ -15,7 +15,7 @@ use secp256k1::{
         MusigPubNonce, MusigSecNonce, MusigSecRand, MusigSession,
     },
     rand::Rng,
-    SECP256K1,
+    Scalar, SECP256K1,
 };
 
 // We can directly use the musig2 crate for this
@@ -42,6 +42,38 @@ pub trait AggregateFromPublicKeys {
     ) -> XOnlyPublicKey;
 }
 
+pub fn from_secp_xonly(xpk: secp256k1::XOnlyPublicKey) -> XOnlyPublicKey {
+    XOnlyPublicKey::from_slice(&xpk.serialize()).unwrap()
+}
+
+pub fn to_secp_pk(pk: PublicKey) -> secp256k1::PublicKey {
+    secp256k1::PublicKey::from_slice(&pk.serialize()).unwrap()
+}
+
+pub fn from_secp_pk(pk: secp256k1::PublicKey) -> PublicKey {
+    PublicKey::from_slice(&pk.serialize()).unwrap()
+}
+
+pub fn to_secp_sk(sk: SecretKey) -> secp256k1::SecretKey {
+    secp256k1::SecretKey::from_slice(&sk.secret_bytes()).unwrap()
+}
+
+pub fn to_secp_kp(kp: &Keypair) -> secp256k1::Keypair {
+    secp256k1::Keypair::from_seckey_slice(SECP256K1, &kp.secret_bytes()).unwrap()
+}
+
+pub fn from_secp_kp(kp: &secp256k1::Keypair) -> Keypair {
+    Keypair::from_seckey_slice(&SECP, &kp.secret_bytes()).unwrap()
+}
+
+pub fn from_secp_sig(sig: secp256k1::schnorr::Signature) -> schnorr::Signature {
+    schnorr::Signature::from_slice(&sig.to_byte_array()).unwrap()
+}
+
+pub fn to_secp_msg(msg: &Message) -> secp256k1::Message {
+    secp256k1::Message::from_digest(*msg.as_ref())
+}
+
 impl AggregateFromPublicKeys for XOnlyPublicKey {
     #[tracing::instrument(ret(level = tracing::Level::TRACE))]
     fn from_musig2_pks(
@@ -49,12 +81,14 @@ impl AggregateFromPublicKeys for XOnlyPublicKey {
         tweak: Option<TapNodeHash>,
         tweak_flag: bool,
     ) -> XOnlyPublicKey {
-        let pubkeys_ref: Vec<&PublicKey> = pks.iter().collect();
+        let secp_pubkeys: Vec<secp256k1::PublicKey> =
+            pks.iter().map(|pk| to_secp_pk(*pk)).collect();
+        let pubkeys_ref: Vec<&secp256k1::PublicKey> = secp_pubkeys.iter().collect();
         let pubkeys_ref = pubkeys_ref.as_slice();
 
         let mut musig_key_agg_cache = MusigKeyAggCache::new(SECP256K1, pubkeys_ref);
 
-        if let Some(tweak) = tweak {
+        let ret = if let Some(tweak) = tweak {
             let xonly_tweak = Scalar::from_be_bytes(tweak.to_raw_hash().to_byte_array()).unwrap();
             let _tweaked_agg_pk = musig_key_agg_cache
                 .pubkey_xonly_tweak_add(SECP256K1, &xonly_tweak)
@@ -63,7 +97,9 @@ impl AggregateFromPublicKeys for XOnlyPublicKey {
             musig_key_agg_cache.agg_pk()
         } else {
             musig_key_agg_cache.agg_pk()
-        }
+        };
+
+        XOnlyPublicKey::from_slice(&ret.serialize()).unwrap()
 
         // let key_agg_ctx = create_key_agg_ctx(pks, tweak, tweak_flag).unwrap();
         // let musig_agg_pubkey: secp256k1::PublicKey = if tweak_flag {
@@ -94,15 +130,23 @@ pub fn aggregate_partial_signatures(
     partial_sigs: Vec<MusigPartialSignature>,
     message: Message,
 ) -> Result<schnorr::Signature, BridgeError> {
-    let pubkeys_ref: Vec<&PublicKey> = pks.iter().collect();
+    let secp_pubkeys: Vec<secp256k1::PublicKey> = pks.iter().map(|pk| to_secp_pk(*pk)).collect();
+    let pubkeys_ref: Vec<&secp256k1::PublicKey> = secp_pubkeys.iter().collect();
     let pubkeys_ref = pubkeys_ref.as_slice();
     let musig_key_agg_cache = MusigKeyAggCache::new(SECP256K1, pubkeys_ref);
 
-    let session = MusigSession::new(SECP256K1, &musig_key_agg_cache, agg_nonce, message);
+    let session = MusigSession::new(
+        SECP256K1,
+        &musig_key_agg_cache,
+        agg_nonce,
+        to_secp_msg(&message),
+    );
 
     let musig_partial_sigs = &partial_sigs[0];
 
-    Ok(session.partial_sig_agg(&[musig_partial_sigs]))
+    Ok(from_secp_sig(
+        session.partial_sig_agg(&[musig_partial_sigs]),
+    ))
 }
 
 /// Generates a pair of nonces, one secret and one public. Be careful,
@@ -121,7 +165,7 @@ pub fn nonce_pair(
         musig_session_sec_rand,
         None,
         None,
-        keypair.public_key(),
+        to_secp_kp(keypair).public_key(),
         None,
         None,
     )
@@ -140,14 +184,25 @@ pub fn partial_sign(
     keypair: Keypair,
     sighash: Message,
 ) -> MusigPartialSignature {
-    let pubkeys_ref: Vec<&PublicKey> = pks.iter().collect();
+    let secp_pubkeys: Vec<secp256k1::PublicKey> = pks.iter().map(|pk| to_secp_pk(*pk)).collect();
+    let pubkeys_ref: Vec<&secp256k1::PublicKey> = secp_pubkeys.iter().collect();
     let pubkeys_ref = pubkeys_ref.as_slice();
     let musig_key_agg_cache = MusigKeyAggCache::new(SECP256K1, pubkeys_ref);
 
-    let session = MusigSession::new(SECP256K1, &musig_key_agg_cache, agg_nonce, sighash);
+    let session = MusigSession::new(
+        SECP256K1,
+        &musig_key_agg_cache,
+        agg_nonce,
+        to_secp_msg(&sighash),
+    );
 
     session
-        .partial_sign(SECP256K1, sec_nonce, &keypair, &musig_key_agg_cache)
+        .partial_sign(
+            SECP256K1,
+            sec_nonce,
+            &to_secp_kp(&keypair),
+            &musig_key_agg_cache,
+        )
         .unwrap()
 }
 
@@ -162,12 +217,14 @@ mod tests {
         utils::{self, SECP},
     };
     use bitcoin::{
-        hashes::Hash, opcodes::all::OP_CHECKSIG, script, Amount, OutPoint, ScriptBuf, TapNodeHash,
-        TxOut, Txid,
+        hashes::Hash,
+        key::Keypair,
+        opcodes::all::OP_CHECKSIG,
+        script,
+        secp256k1::{schnorr, Message, PublicKey},
+        Amount, OutPoint, ScriptBuf, TapNodeHash, TxOut, Txid, XOnlyPublicKey,
     };
-    use secp256k1::{
-        musig::MusigPartialSignature, rand::Rng, schnorr, Keypair, Message, XOnlyPublicKey,
-    };
+    use secp256k1::{musig::MusigPartialSignature, rand::Rng};
     use std::vec;
 
     /// Generates random key and nonce pairs for a given number of signers.
@@ -176,8 +233,8 @@ mod tests {
         let mut nonce_pairs = Vec::new();
 
         for _ in 0..num_signers {
-            let key_pair = Keypair::new(SECP256K1, &mut secp256k1::rand::thread_rng());
-            let nonce_pair = nonce_pair(&key_pair, &mut secp256k1::rand::thread_rng());
+            let key_pair = Keypair::new(&SECP, &mut bitcoin::secp256k1::rand::thread_rng());
+            let nonce_pair = nonce_pair(&key_pair, &mut bitcoin::secp256k1::rand::thread_rng());
 
             key_pairs.push(key_pair);
             nonce_pairs.push(nonce_pair);
@@ -194,7 +251,7 @@ mod tests {
         let public_keys = key_pairs
             .iter()
             .map(|kp| kp.public_key())
-            .collect::<Vec<secp256k1::PublicKey>>();
+            .collect::<Vec<PublicKey>>();
         let agg_pk = XOnlyPublicKey::from_musig2_pks(public_keys.clone(), None, false);
 
         let aggregated_nonce = super::aggregate_nonces(
@@ -236,9 +293,9 @@ mod tests {
 
     #[test]
     fn musig2_raw_fail_if_partial_sigs_invalid() {
-        let kp_0 = secp256k1::Keypair::new(&utils::SECP, &mut secp256k1::rand::thread_rng());
-        let kp_1 = secp256k1::Keypair::new(&utils::SECP, &mut secp256k1::rand::thread_rng());
-        let kp_2 = secp256k1::Keypair::new(&utils::SECP, &mut secp256k1::rand::thread_rng());
+        let kp_0 = Keypair::new(&utils::SECP, &mut secp256k1::rand::thread_rng());
+        let kp_1 = Keypair::new(&utils::SECP, &mut secp256k1::rand::thread_rng());
+        let kp_2 = Keypair::new(&utils::SECP, &mut secp256k1::rand::thread_rng());
 
         let message = Message::from_digest(secp256k1::rand::thread_rng().gen());
 
@@ -298,7 +355,7 @@ mod tests {
         let public_keys = key_pairs
             .iter()
             .map(|kp| kp.public_key())
-            .collect::<Vec<secp256k1::PublicKey>>();
+            .collect::<Vec<PublicKey>>();
         let aggregated_pk = XOnlyPublicKey::from_musig2_pks(
             public_keys.clone(),
             Some(TapNodeHash::from_slice(&tweak).unwrap()),
@@ -344,9 +401,9 @@ mod tests {
 
     #[test]
     fn musig2_tweak_fail() {
-        let kp_0 = secp256k1::Keypair::new(&utils::SECP, &mut secp256k1::rand::thread_rng());
-        let kp_1 = secp256k1::Keypair::new(&utils::SECP, &mut secp256k1::rand::thread_rng());
-        let kp_2 = secp256k1::Keypair::new(&utils::SECP, &mut secp256k1::rand::thread_rng());
+        let kp_0 = Keypair::new(&utils::SECP, &mut secp256k1::rand::thread_rng());
+        let kp_1 = Keypair::new(&utils::SECP, &mut secp256k1::rand::thread_rng());
+        let kp_2 = Keypair::new(&utils::SECP, &mut secp256k1::rand::thread_rng());
 
         let message = Message::from_digest(secp256k1::rand::thread_rng().gen::<[u8; 32]>());
         let tweak: [u8; 32] = secp256k1::rand::thread_rng().gen();
@@ -410,7 +467,7 @@ mod tests {
         let public_keys = key_pairs
             .iter()
             .map(|key_pair| key_pair.public_key())
-            .collect::<Vec<secp256k1::PublicKey>>();
+            .collect::<Vec<PublicKey>>();
 
         let untweaked_xonly_pubkey =
             XOnlyPublicKey::from_musig2_pks(public_keys.clone(), None, false);
@@ -509,7 +566,7 @@ mod tests {
         let public_keys = key_pairs
             .iter()
             .map(|key_pair| key_pair.public_key())
-            .collect::<Vec<secp256k1::PublicKey>>();
+            .collect::<Vec<PublicKey>>();
 
         let agg_nonce = super::aggregate_nonces(nonce_pairs.iter().map(|x| x.1).collect());
         let musig_agg_xonly_pubkey_wrapped =

@@ -1,4 +1,6 @@
+use bitcoin::key::Keypair;
 use bitcoin::opcodes::all::OP_CHECKSIG;
+use bitcoin::secp256k1::{Message, PublicKey};
 use bitcoin::XOnlyPublicKey;
 use bitcoin::{hashes::Hash, script, Amount, ScriptBuf};
 use bitcoincore_rpc::RpcApi;
@@ -17,14 +19,11 @@ use clementine_core::{
 };
 use clementine_core::{database::Database, utils::initialize_logger};
 use secp256k1::musig::{MusigAggNonce, MusigPartialSignature, MusigPubNonce};
-use secp256k1::{Keypair, Message, PublicKey};
 use std::{env, thread};
 
 mod common;
 
-fn get_verifiers_keys(
-    config: &BridgeConfig,
-) -> (Vec<Keypair>, secp256k1::XOnlyPublicKey, Vec<PublicKey>) {
+fn get_verifiers_keys(config: &BridgeConfig) -> (Vec<Keypair>, XOnlyPublicKey, Vec<PublicKey>) {
     let verifiers_secret_keys = config.all_verifiers_secret_keys.clone().unwrap();
 
     let verifiers_secret_public_keys: Vec<Keypair> = verifiers_secret_keys
@@ -35,7 +34,7 @@ fn get_verifiers_keys(
     let verifier_public_keys = verifiers_secret_public_keys
         .iter()
         .map(|kp| kp.public_key())
-        .collect::<Vec<secp256k1::PublicKey>>();
+        .collect::<Vec<PublicKey>>();
 
     let untweaked_xonly_pubkey =
         XOnlyPublicKey::from_musig2_pks(verifier_public_keys.clone(), None, false);

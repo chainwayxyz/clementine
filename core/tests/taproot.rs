@@ -1,6 +1,7 @@
 use bitcoin::hashes::{Hash, HashEngine};
 use bitcoin::opcodes::all::OP_CHECKSIG;
 use bitcoin::script::Builder;
+use bitcoin::secp256k1::Scalar;
 use bitcoin::{Address, Amount, TapTweakHash, TxOut, XOnlyPublicKey};
 use bitcoincore_rpc::RpcApi;
 use clementine_core::actor::Actor;
@@ -35,8 +36,7 @@ async fn create_address_and_transaction_then_sign_transaction() {
     xonly_pk
         .add_tweak(
             &SECP,
-            &secp256k1::Scalar::from_be_bytes(TapTweakHash::from_engine(hasher).to_byte_array())
-                .unwrap(),
+            &Scalar::from_be_bytes(TapTweakHash::from_engine(hasher).to_byte_array()).unwrap(),
         )
         .unwrap();
 
