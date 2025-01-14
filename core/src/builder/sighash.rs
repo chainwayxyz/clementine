@@ -202,6 +202,19 @@ pub fn create_nofn_sighash_stream(
                     None,
                 )?;
 
+                let mut kickoff_timeout_txhandler = builder::transaction::create_kickoff_timeout_txhandler(
+                    &kickoff_txhandler,
+                    &time_txhandler,
+                    network,
+                );
+
+                yield convert_tx_to_script_spend(
+                    &mut kickoff_timeout_txhandler,
+                    0,
+                    0,
+                    None,
+                )?;
+
                 for i in 0..config.num_watchtowers {
                     let watchtower_challenge_txhandler =
                         builder::transaction::create_watchtower_challenge_txhandler(
