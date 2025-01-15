@@ -13,12 +13,15 @@ use thiserror::Error;
 #[derive(Debug, Error)]
 #[non_exhaustive]
 pub enum BridgeError {
-    /// Returned when the secp256k1 crate returns an error
+    /// Returned when the bitcoin::secp256k1 crate returns an error
     #[error("Secpk256Error: {0}")]
-    Secp256k1Error(#[from] bitcoin::secp256k1::Error),
+    BitcoinSecp256k1Error(#[from] bitcoin::secp256k1::Error),
     /// Returned when the bitcoin crate returns an error in the sighash taproot module
     #[error("BitcoinSighashTaprootError: {0}")]
     BitcoinSighashTaprootError(#[from] bitcoin::sighash::TaprootError),
+    /// Returned when the secp256k1 crate returns an error
+    #[error("Secp256k1Error: {0}")]
+    Secp256k1Error(#[from] secp256k1::Error),
     /// Returned when a non finalized deposit request is found
     #[error("DepositNotFinalized")]
     DepositNotFinalized,

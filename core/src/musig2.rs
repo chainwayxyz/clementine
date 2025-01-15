@@ -11,7 +11,7 @@ use bitcoin::{
 };
 use secp256k1::{
     musig::{
-        new_musig_nonce_pair, MusigAggNonce, MusigKeyAggCache, MusigPartialSignature,
+        self, new_musig_nonce_pair, MusigAggNonce, MusigKeyAggCache, MusigPartialSignature,
         MusigPubNonce, MusigSecNonce, MusigSecRand, MusigSession,
     },
     rand::Rng,
@@ -117,15 +117,17 @@ pub fn aggregate_partial_signatures(
     message: Message,
 ) -> Result<schnorr::Signature, BridgeError> {
     let musig_key_agg_cache = create_key_agg_cache(pks, tweak);
+    let secp_message = to_secp_msg(&message);
 
-    let session = MusigSession::new(
-        SECP256K1,
-        &musig_key_agg_cache,
-        agg_nonce,
-        to_secp_msg(&message),
-    );
+    let session = MusigSession::new(SECP256K1, &musig_key_agg_cache, agg_nonce, secp_message);
 
     let partial_sigs: Vec<&MusigPartialSignature> = partial_sigs.iter().collect();
+    let final_sig = session.partial_sig_agg(&partial_sigs);
+    SECP256K1.verify_schnorr(
+        &final_sig,
+        secp_message.as_ref(),
+        &musig_key_agg_cache.agg_pk(),
+    )?; // TODO: Change this later
 
     Ok(from_secp_sig(session.partial_sig_agg(&partial_sigs)))
 }
