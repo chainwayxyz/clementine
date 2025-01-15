@@ -9,6 +9,7 @@ use bitcoin::{
     secp256k1::{schnorr, Message, PublicKey, SecretKey},
     TapNodeHash, XOnlyPublicKey,
 };
+use lazy_static::lazy_static;
 use secp256k1::{
     musig::{
         new_musig_nonce_pair, MusigAggNonce, MusigKeyAggCache, MusigPartialSignature,
@@ -17,6 +18,7 @@ use secp256k1::{
     rand::Rng,
     Scalar, SECP256K1,
 };
+use sha2::{Digest, Sha256};
 
 pub type MuSigNoncePair = (MusigSecNonce, MusigPubNonce);
 
@@ -58,6 +60,18 @@ pub enum Musig2Mode {
     KeySpendWithScript(TapNodeHash),
 }
 
+/// sha256(b"TapTweak")
+const TAPROOT_TWEAK_TAG_DIGEST: [u8; 32] = [
+    0xe8, 0x0f, 0xe1, 0x63, 0x9c, 0x9c, 0xa0, 0x50, 0xe3, 0xaf, 0x1b, 0x39, 0xc1, 0x43, 0xc6, 0x3e,
+    0x42, 0x9c, 0xbc, 0xeb, 0x15, 0xd9, 0x40, 0xfb, 0xb5, 0xc5, 0xa1, 0xf4, 0xaf, 0x57, 0xc5, 0xe9,
+];
+
+lazy_static! {
+    pub static ref TAPROOT_TWEAK: Sha256 = Sha256::new()
+        .chain_update(TAPROOT_TWEAK_TAG_DIGEST)
+        .chain_update(TAPROOT_TWEAK_TAG_DIGEST);
+}
+
 fn create_key_agg_cache(
     public_keys: Vec<PublicKey>,
     tweak: Option<Musig2Mode>,
@@ -68,22 +82,39 @@ fn create_key_agg_cache(
     let pubkeys_ref = pubkeys_ref.as_slice();
 
     let mut musig_key_agg_cache = MusigKeyAggCache::new(SECP256K1, pubkeys_ref);
+    let agg_key = musig_key_agg_cache.agg_pk();
 
+    // TODO:
     if let Some(tweak) = tweak {
         match tweak {
             Musig2Mode::ScriptSpend => (),
-            Musig2Mode::OnlyKeySpend(x_only_public_key) => {
-                let xonly_tweak = Scalar::from_be_bytes(x_only_public_key.serialize()).unwrap();
+            Musig2Mode::OnlyKeySpend(_) => {
+                let xonly_tweak = TAPROOT_TWEAK
+                    .clone()
+                    .chain_update(agg_key.serialize())
+                    .finalize(); // sha256(C, C, IPK) where C = sha256("TapTweak")
 
                 musig_key_agg_cache
-                    .pubkey_xonly_tweak_add(SECP256K1, &xonly_tweak)
+                    .pubkey_xonly_tweak_add(
+                        SECP256K1,
+                        &Scalar::from_be_bytes(xonly_tweak.into())
+                            .expect("Failed to convert xonly_tweak to scalar"),
+                    )
                     .unwrap();
             }
-            Musig2Mode::KeySpendWithScript(tweak) => {
-                let tweak = Scalar::from_be_bytes(tweak.to_raw_hash().to_byte_array()).unwrap();
+            Musig2Mode::KeySpendWithScript(merkle_root) => {
+                let xonly_tweak = TAPROOT_TWEAK
+                    .clone()
+                    .chain_update(agg_key.serialize())
+                    .chain_update(merkle_root.to_raw_hash().to_byte_array())
+                    .finalize(); // sha256(C, C, IPK) where C = sha256("TapTweak")
 
                 musig_key_agg_cache
-                    .pubkey_ec_tweak_add(SECP256K1, &tweak)
+                    .pubkey_ec_tweak_add(
+                        SECP256K1,
+                        &Scalar::from_be_bytes(xonly_tweak.into())
+                            .expect("Failed to convert xonly_tweak to scalar"),
+                    )
                     .unwrap();
             }
         }
