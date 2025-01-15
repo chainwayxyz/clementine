@@ -291,17 +291,14 @@ impl Encode<'_, Postgres> for MusigPubNonceDB {
     fn encode_by_ref(&self, buf: &mut PgArgumentBuffer) -> sqlx::encode::IsNull {
         let serialized_pub_nonces: Vec<u8> = self.0.serialize().into();
 
-        let serialized = borsh::to_vec(&serialized_pub_nonces).unwrap();
-
-        <Vec<u8> as Encode<Postgres>>::encode_by_ref(&serialized, buf)
+        <Vec<u8> as Encode<Postgres>>::encode_by_ref(&serialized_pub_nonces, buf)
     }
 }
 impl<'r> Decode<'r, Postgres> for MusigPubNonceDB {
     fn decode(value: PgValueRef<'r>) -> Result<Self, sqlx::error::BoxDynError> {
         let raw = <Vec<u8> as Decode<Postgres>>::decode(value)?;
 
-        let pub_nonces = borsh::from_slice::<[u8; 66]>(&raw).unwrap();
-        let pub_nonces = MusigPubNonce::from_slice(&pub_nonces).unwrap();
+        let pub_nonces = MusigPubNonce::from_slice(&raw).unwrap();
 
         Ok(MusigPubNonceDB(pub_nonces))
     }
@@ -319,17 +316,14 @@ impl Encode<'_, Postgres> for MusigAggNonceDB {
     fn encode_by_ref(&self, buf: &mut PgArgumentBuffer) -> sqlx::encode::IsNull {
         let serialized_aggregated_nonces: Vec<u8> = self.0.serialize().into();
 
-        let serialized = borsh::to_vec(&serialized_aggregated_nonces).unwrap();
-
-        <Vec<u8> as Encode<Postgres>>::encode_by_ref(&serialized, buf)
+        <Vec<u8> as Encode<Postgres>>::encode_by_ref(&serialized_aggregated_nonces, buf)
     }
 }
 impl<'r> Decode<'r, Postgres> for MusigAggNonceDB {
     fn decode(value: PgValueRef<'r>) -> Result<Self, sqlx::error::BoxDynError> {
         let raw = <Vec<u8> as Decode<Postgres>>::decode(value)?;
 
-        let aggregated_nonces = borsh::from_slice::<[u8; 66]>(&raw).unwrap();
-        let aggregated_nonces = MusigAggNonce::from_slice(&aggregated_nonces).unwrap();
+        let aggregated_nonces = MusigAggNonce::from_slice(&raw).unwrap();
 
         Ok(MusigAggNonceDB(aggregated_nonces))
     }

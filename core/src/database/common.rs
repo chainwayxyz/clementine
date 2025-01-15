@@ -1215,16 +1215,16 @@ mod tests {
             .iter()
             .map(|sk| Keypair::from_secret_key(&SECP, sk))
             .collect();
-        let nonce_pairs: Vec<MusigPubNonce> = keypairs
+        let pub_nonces: Vec<MusigPubNonce> = keypairs
             .into_iter()
             .map(|kp| nonce_pair(&kp, &mut OsRng).1)
             .collect();
-        db.save_nonces(None, outpoint, &nonce_pairs).await.unwrap();
+        db.save_nonces(None, outpoint, &pub_nonces).await.unwrap();
         let pub_nonces = db.get_pub_nonces(None, outpoint).await.unwrap().unwrap();
 
         // Sanity checks
-        assert_eq!(pub_nonces.len(), nonce_pairs.len());
-        for (pub_nonce, db_pub_nonce) in pub_nonces.iter().zip(nonce_pairs.iter()) {
+        assert_eq!(pub_nonces.len(), pub_nonces.len());
+        for (pub_nonce, db_pub_nonce) in pub_nonces.iter().zip(pub_nonces.iter()) {
             assert_eq!(pub_nonce, db_pub_nonce);
         }
     }
