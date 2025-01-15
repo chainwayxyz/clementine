@@ -203,7 +203,7 @@ impl Aggregator {
         );
         let final_sig = aggregate_partial_signatures(
             self.config.verifiers_public_keys.clone(),
-            MusigTweak::TaprootScriptSpend,
+            MusigTweak::KeySpend(*operator_xonly_pk),
             *agg_nonce,
             partial_sigs,
             message,

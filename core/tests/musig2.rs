@@ -111,9 +111,9 @@ async fn key_spend() {
     );
     let merkle_root = from_address_spend_info.merkle_root();
     let tweak = if let Some(merkle_root) = merkle_root {
-        MusigTweak::TaprootKeySpend(merkle_root)
+        MusigTweak::ScriptSpend(merkle_root)
     } else {
-        MusigTweak::TaprootScriptSpend
+        MusigTweak::KeySpend(untweaked_xonly_pubkey)
     };
 
     let partial_sigs: Vec<MusigPartialSignature> = verifiers_secret_public_keys
@@ -209,9 +209,9 @@ async fn key_spend_with_script() {
     );
     let merkle_root = from_address_spend_info.merkle_root();
     let tweak = if let Some(merkle_root) = merkle_root {
-        MusigTweak::TaprootKeySpend(merkle_root)
+        MusigTweak::ScriptSpend(merkle_root)
     } else {
-        MusigTweak::TaprootScriptSpend
+        MusigTweak::KeySpend(untweaked_xonly_pubkey)
     };
 
     let partial_sigs: Vec<MusigPartialSignature> = verifiers_secret_public_keys

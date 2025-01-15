@@ -54,8 +54,9 @@ pub fn to_secp_msg(msg: &Message) -> secp256k1::Message {
 #[derive(Debug, Clone, Copy)]
 pub enum MusigTweak {
     None,
-    TaprootKeySpend(TapNodeHash),
-    TaprootScriptSpend,
+    KeySpend(XOnlyPublicKey),
+    ScriptSpend(TapNodeHash),
+    KeyAndScriptSpend(XOnlyPublicKey, TapNodeHash),
 }
 
 fn create_key_agg_cache(public_keys: Vec<PublicKey>, tweak: MusigTweak) -> MusigKeyAggCache {
@@ -68,13 +69,21 @@ fn create_key_agg_cache(public_keys: Vec<PublicKey>, tweak: MusigTweak) -> Musig
 
     match tweak {
         MusigTweak::None => (),
-        MusigTweak::TaprootKeySpend(tweak) => {
+        MusigTweak::ScriptSpend(tweak) => {
             let xonly_tweak = Scalar::from_be_bytes(tweak.to_raw_hash().to_byte_array()).unwrap();
+            musig_key_agg_cache
+                .pubkey_ec_tweak_add(SECP256K1, &xonly_tweak)
+                .unwrap();
+        }
+        MusigTweak::KeySpend(x_only_public_key) => {
+            let xonly_tweak = Scalar::from_be_bytes(x_only_public_key.serialize()).unwrap();
             musig_key_agg_cache
                 .pubkey_xonly_tweak_add(SECP256K1, &xonly_tweak)
                 .unwrap();
         }
-        MusigTweak::TaprootScriptSpend => (),
+        MusigTweak::KeyAndScriptSpend(_x_only_public_key, _tweak) => {
+            todo!()
+        }
     };
 
     musig_key_agg_cache
@@ -290,7 +299,7 @@ mod tests {
         // Oops, a verifier accidentally added some tweak!
         let partial_sig_2 = super::partial_sign(
             pks.clone(),
-            MusigTweak::TaprootKeySpend(TapNodeHash::from_slice(&[1u8; 32]).unwrap()),
+            MusigTweak::ScriptSpend(TapNodeHash::from_slice(&[1u8; 32]).unwrap()),
             sec_nonce_2,
             agg_nonce,
             kp_2,
@@ -322,7 +331,7 @@ mod tests {
             .collect::<Vec<PublicKey>>();
         let aggregated_pk = XOnlyPublicKey::from_musig2_pks(
             public_keys.clone(),
-            MusigTweak::TaprootKeySpend(TapNodeHash::from_slice(&tweak).unwrap()),
+            MusigTweak::ScriptSpend(TapNodeHash::from_slice(&tweak).unwrap()),
         );
 
         let aggregated_nonce = super::aggregate_nonces(
@@ -338,7 +347,7 @@ mod tests {
             .map(|(kp, nonce_pair)| {
                 super::partial_sign(
                     public_keys.clone(),
-                    MusigTweak::TaprootKeySpend(TapNodeHash::from_slice(&tweak).unwrap()),
+                    MusigTweak::ScriptSpend(TapNodeHash::from_slice(&tweak).unwrap()),
                     nonce_pair.0,
                     aggregated_nonce,
                     kp,
@@ -349,7 +358,7 @@ mod tests {
 
         let final_signature = super::aggregate_partial_signatures(
             public_keys,
-            MusigTweak::TaprootKeySpend(TapNodeHash::from_slice(&tweak).unwrap()),
+            MusigTweak::ScriptSpend(TapNodeHash::from_slice(&tweak).unwrap()),
             aggregated_nonce,
             partial_sigs,
             message,
@@ -382,7 +391,7 @@ mod tests {
 
         let partial_sig_0 = super::partial_sign(
             pks.clone(),
-            MusigTweak::TaprootKeySpend(TapNodeHash::from_slice(&tweak).unwrap()),
+            MusigTweak::ScriptSpend(TapNodeHash::from_slice(&tweak).unwrap()),
             sec_nonce_0,
             agg_nonce,
             kp_0,
@@ -390,7 +399,7 @@ mod tests {
         );
         let partial_sig_1 = super::partial_sign(
             pks.clone(),
-            MusigTweak::TaprootKeySpend(TapNodeHash::from_slice(&tweak).unwrap()),
+            MusigTweak::ScriptSpend(TapNodeHash::from_slice(&tweak).unwrap()),
             sec_nonce_1,
             agg_nonce,
             kp_1,
@@ -409,7 +418,7 @@ mod tests {
 
         let final_signature = super::aggregate_partial_signatures(
             pks,
-            MusigTweak::TaprootKeySpend(TapNodeHash::from_slice(&tweak).unwrap()),
+            MusigTweak::ScriptSpend(TapNodeHash::from_slice(&tweak).unwrap()),
             agg_nonce,
             partial_sigs,
             message,
@@ -483,9 +492,9 @@ mod tests {
         );
         let merkle_root = sending_address_spend_info.merkle_root();
         let tweak = if let Some(merkle_root) = merkle_root {
-            MusigTweak::TaprootKeySpend(merkle_root)
+            MusigTweak::ScriptSpend(merkle_root)
         } else {
-            MusigTweak::TaprootScriptSpend
+            MusigTweak::KeySpend(untweaked_xonly_pubkey)
         };
 
         let partial_sigs: Vec<MusigPartialSignature> = key_pairs
