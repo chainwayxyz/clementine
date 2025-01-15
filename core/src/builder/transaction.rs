@@ -570,7 +570,6 @@ pub fn create_watchtower_challenge_txhandler(
 
 pub fn create_operator_challenge_nack_txhandler(
     watchtower_challenge_txhandler: &TxHandler,
-    time_tx1_txhandler: &TxHandler,
     kickoff_txhandler: &TxHandler,
 ) -> TxHandler {
     let tx_ins = create_tx_ins(vec![
@@ -581,10 +580,6 @@ pub fn create_operator_challenge_nack_txhandler(
         OutPoint {
             txid: kickoff_txhandler.txid,
             vout: 2,
-        },
-        OutPoint {
-            txid: time_tx1_txhandler.txid,
-            vout: 0,
         },
     ]);
     // let tx_outs = vec![builder::script::anyone_can_spend_txout()];
@@ -597,17 +592,14 @@ pub fn create_operator_challenge_nack_txhandler(
         prevouts: vec![
             watchtower_challenge_txhandler.tx.output[0].clone(),
             kickoff_txhandler.tx.output[2].clone(),
-            time_tx1_txhandler.tx.output[0].clone(),
         ],
         prev_scripts: vec![
             watchtower_challenge_txhandler.out_scripts[0].clone(),
             kickoff_txhandler.out_scripts[2].clone(),
-            time_tx1_txhandler.out_scripts[0].clone(),
         ],
         prev_taproot_spend_infos: vec![
             watchtower_challenge_txhandler.out_taproot_spend_infos[0].clone(),
             kickoff_txhandler.out_taproot_spend_infos[2].clone(),
-            time_tx1_txhandler.out_taproot_spend_infos[0].clone(),
         ],
         out_scripts: vec![vec![]],
         out_taproot_spend_infos: vec![None],
