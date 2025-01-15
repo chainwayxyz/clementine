@@ -6,7 +6,7 @@ use bitcoin::{hashes::Hash, script, Amount, ScriptBuf};
 use bitcoincore_rpc::RpcApi;
 use clementine_core::builder::transaction::TxHandler;
 use clementine_core::musig2::{
-    aggregate_nonces, aggregate_partial_signatures, AggregateFromPublicKeys,
+    aggregate_nonces, aggregate_partial_signatures, AggregateFromPublicKeys, MusigTweak,
 };
 use clementine_core::utils::{handle_taproot_witness_new, SECP};
 use clementine_core::{
@@ -37,7 +37,7 @@ fn get_verifiers_keys(config: &BridgeConfig) -> (Vec<Keypair>, XOnlyPublicKey, V
         .collect::<Vec<PublicKey>>();
 
     let untweaked_xonly_pubkey =
-        XOnlyPublicKey::from_musig2_pks(verifier_public_keys.clone(), None, false);
+        XOnlyPublicKey::from_musig2_pks(verifier_public_keys.clone(), MusigTweak::None);
 
     (
         verifiers_secret_public_keys,
@@ -110,6 +110,11 @@ async fn key_spend() {
             .to_byte_array(),
     );
     let merkle_root = from_address_spend_info.merkle_root();
+    let tweak = if let Some(merkle_root) = merkle_root {
+        MusigTweak::TaprootKeySpend(merkle_root)
+    } else {
+        MusigTweak::TaprootScriptSpend
+    };
 
     let partial_sigs: Vec<MusigPartialSignature> = verifiers_secret_public_keys
         .into_iter()
@@ -117,8 +122,7 @@ async fn key_spend() {
         .map(|(kp, nonce_pair)| {
             partial_sign(
                 verifier_public_keys.clone(),
-                merkle_root,
-                true,
+                tweak,
                 nonce_pair.0,
                 agg_nonce,
                 kp,
@@ -129,15 +133,14 @@ async fn key_spend() {
 
     let final_signature = aggregate_partial_signatures(
         verifier_public_keys.clone(),
-        merkle_root,
-        true,
+        tweak,
         agg_nonce,
         partial_sigs,
         message,
     )
     .unwrap();
 
-    let agg_pk = XOnlyPublicKey::from_musig2_pks(verifier_public_keys.clone(), None, false);
+    let agg_pk = XOnlyPublicKey::from_musig2_pks(verifier_public_keys.clone(), MusigTweak::None);
     SECP.verify_schnorr(&final_signature, &message, &agg_pk)
         .unwrap();
 
@@ -205,6 +208,11 @@ async fn key_spend_with_script() {
             .to_byte_array(),
     );
     let merkle_root = from_address_spend_info.merkle_root();
+    let tweak = if let Some(merkle_root) = merkle_root {
+        MusigTweak::TaprootKeySpend(merkle_root)
+    } else {
+        MusigTweak::TaprootScriptSpend
+    };
 
     let partial_sigs: Vec<MusigPartialSignature> = verifiers_secret_public_keys
         .into_iter()
@@ -212,8 +220,7 @@ async fn key_spend_with_script() {
         .map(|(kp, nonce_pair)| {
             partial_sign(
                 verifier_public_keys.clone(),
-                merkle_root,
-                true,
+                tweak,
                 nonce_pair.0,
                 agg_nonce,
                 kp,
@@ -224,15 +231,14 @@ async fn key_spend_with_script() {
 
     let final_signature = aggregate_partial_signatures(
         verifier_public_keys.clone(),
-        merkle_root,
-        true,
+        tweak,
         agg_nonce,
         partial_sigs,
         message,
     )
     .unwrap();
 
-    let agg_pk = XOnlyPublicKey::from_musig2_pks(verifier_public_keys.clone(), None, false);
+    let agg_pk = XOnlyPublicKey::from_musig2_pks(verifier_public_keys.clone(), MusigTweak::None);
 
     SECP.verify_schnorr(&final_signature, &message, &agg_pk)
         .unwrap();
@@ -263,7 +269,7 @@ async fn script_spend() {
         get_verifiers_keys(&config);
     let (nonce_pairs, agg_nonce) = get_nonces(verifiers_secret_public_keys.clone());
 
-    let agg_pk = XOnlyPublicKey::from_musig2_pks(verifier_public_keys.clone(), None, false);
+    let agg_pk = XOnlyPublicKey::from_musig2_pks(verifier_public_keys.clone(), MusigTweak::None);
 
     let agg_xonly_pubkey = bitcoin::XOnlyPublicKey::from_slice(&agg_pk.serialize()).unwrap();
     let musig2_script = bitcoin::script::Builder::new()
@@ -314,8 +320,7 @@ async fn script_spend() {
         .map(|(kp, nonce_pair)| {
             partial_sign(
                 verifier_public_keys.clone(),
-                None,
-                false,
+                MusigTweak::None,
                 nonce_pair.0,
                 agg_nonce,
                 kp,
@@ -325,8 +330,7 @@ async fn script_spend() {
         .collect();
     let final_signature = aggregate_partial_signatures(
         verifier_public_keys.clone(),
-        None,
-        false,
+        MusigTweak::None,
         agg_nonce,
         partial_sigs,
         message,

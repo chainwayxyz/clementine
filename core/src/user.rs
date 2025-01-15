@@ -3,7 +3,7 @@ use crate::builder;
 use crate::config::BridgeConfig;
 use crate::errors::BridgeError;
 use crate::extended_rpc::ExtendedRpc;
-use crate::musig2::AggregateFromPublicKeys;
+use crate::musig2::{AggregateFromPublicKeys, MusigTweak};
 use crate::{EVMAddress, UTXO};
 use bitcoin::secp256k1::{schnorr, SecretKey};
 use bitcoin::{Address, TxOut};
@@ -26,7 +26,7 @@ impl User {
         let signer = Actor::new(sk, config.winternitz_secret_key, config.network);
 
         let nofn_xonly_pk =
-            XOnlyPublicKey::from_musig2_pks(config.verifiers_public_keys.clone(), None, false);
+            XOnlyPublicKey::from_musig2_pks(config.verifiers_public_keys.clone(), MusigTweak::None);
 
         User {
             rpc,

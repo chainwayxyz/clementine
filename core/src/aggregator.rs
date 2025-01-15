@@ -4,7 +4,7 @@ use crate::{
     config::BridgeConfig,
     database::Database,
     errors::BridgeError,
-    musig2::{aggregate_nonces, aggregate_partial_signatures, AggregateFromPublicKeys},
+    musig2::{aggregate_nonces, aggregate_partial_signatures, AggregateFromPublicKeys, MusigTweak},
     rpc::{
         self,
         clementine::{
@@ -49,7 +49,7 @@ impl Aggregator {
         let db = Database::new(&config).await?;
 
         let nofn_xonly_pk =
-            XOnlyPublicKey::from_musig2_pks(config.verifiers_public_keys.clone(), None, false);
+            XOnlyPublicKey::from_musig2_pks(config.verifiers_public_keys.clone(), MusigTweak::None);
 
         let verifier_endpoints =
             config
@@ -121,8 +121,7 @@ impl Aggregator {
         // tracing::debug!("aggregate SLASH_OR_TAKE_TX message: {:?}", message);
         let final_sig = aggregate_partial_signatures(
             self.config.verifiers_public_keys.clone(),
-            None,
-            false,
+            MusigTweak::None,
             *agg_nonce,
             partial_sigs,
             message,
@@ -204,8 +203,7 @@ impl Aggregator {
         );
         let final_sig = aggregate_partial_signatures(
             self.config.verifiers_public_keys.clone(),
-            None,
-            true,
+            MusigTweak::TaprootScriptSpend,
             *agg_nonce,
             partial_sigs,
             message,
@@ -239,8 +237,7 @@ impl Aggregator {
         );
         let final_sig = aggregate_partial_signatures(
             self.config.verifiers_public_keys.clone(),
-            None,
-            false,
+            MusigTweak::None,
             *agg_nonce,
             partial_sigs,
             message,

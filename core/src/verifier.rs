@@ -5,7 +5,7 @@ use crate::config::BridgeConfig;
 use crate::database::Database;
 use crate::errors::BridgeError;
 use crate::extended_rpc::ExtendedRpc;
-use crate::musig2::AggregateFromPublicKeys;
+use crate::musig2::{AggregateFromPublicKeys, MusigTweak};
 use crate::UTXO;
 use ::secp256k1::musig::MusigSecNonce;
 use bitcoin::{secp256k1, OutPoint};
@@ -35,7 +35,7 @@ impl NofN {
     pub fn new(self_pk: secp256k1::PublicKey, public_keys: Vec<secp256k1::PublicKey>) -> Self {
         let idx = public_keys.iter().position(|pk| pk == &self_pk).unwrap();
         let agg_xonly_pk =
-            secp256k1::XOnlyPublicKey::from_musig2_pks(public_keys.clone(), None, false);
+            secp256k1::XOnlyPublicKey::from_musig2_pks(public_keys.clone(), MusigTweak::None);
         NofN {
             public_keys,
             agg_xonly_pk,
@@ -78,8 +78,7 @@ impl Verifier {
 
         let nofn_xonly_pk = secp256k1::XOnlyPublicKey::from_musig2_pks(
             config.verifiers_public_keys.clone(),
-            None,
-            false,
+            MusigTweak::None,
         );
 
         let operator_xonly_pks = config.operators_xonly_pks.clone();

@@ -6,7 +6,7 @@ use crate::constants::NUM_INTERMEDIATE_STEPS;
 use crate::database::Database;
 use crate::errors::BridgeError;
 use crate::extended_rpc::ExtendedRpc;
-use crate::musig2::AggregateFromPublicKeys;
+use crate::musig2::{AggregateFromPublicKeys, MusigTweak};
 use crate::utils::handle_taproot_witness_new;
 use crate::{utils, EVMAddress, UTXO};
 use bitcoin::address::NetworkUnchecked;
@@ -49,7 +49,7 @@ impl Operator {
         let db = Database::new(&config).await?;
 
         let nofn_xonly_pk =
-            XOnlyPublicKey::from_musig2_pks(config.verifiers_public_keys.clone(), None, false);
+            XOnlyPublicKey::from_musig2_pks(config.verifiers_public_keys.clone(), MusigTweak::None);
         let idx = config
             .operators_xonly_pks
             .iter()
