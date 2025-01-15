@@ -2,7 +2,6 @@ use super::clementine::{
     clementine_aggregator_server::ClementineAggregator, verifier_deposit_finalize_params,
     DepositParams, Empty, RawSignedMoveTx, VerifierDepositFinalizeParams,
 };
-use crate::musig2::MusigTweak;
 use crate::rpc::clementine::clementine_verifier_client::ClementineVerifierClient;
 use crate::{
     aggregator::Aggregator,
@@ -122,7 +121,7 @@ async fn signature_aggregator(
     while let Some((partial_sigs, queue_item)) = partial_sig_receiver.recv().await {
         let final_sig = crate::musig2::aggregate_partial_signatures(
             verifiers_public_keys.clone(),
-            MusigTweak::None,
+            None,
             queue_item.agg_nonce,
             partial_sigs,
             Message::from_digest(queue_item.sighash.as_raw_hash().to_byte_array()),

@@ -9,7 +9,7 @@ use crate::{
         sighash::{calculate_num_required_sigs, create_nofn_sighash_stream},
     },
     errors::BridgeError,
-    musig2::{self, MusigTweak},
+    musig2::{self},
     sha256_hash, utils,
     verifier::{NofN, NonceSession, Verifier},
     EVMAddress,
@@ -408,7 +408,7 @@ impl ClementineVerifier for Verifier {
 
                 let move_tx_sig = musig2::partial_sign(
                     verifier.config.verifiers_public_keys.clone(),
-                    MusigTweak::None,
+                    None,
                     nonce,
                     agg_nonce,
                     verifier.signer.keypair,
