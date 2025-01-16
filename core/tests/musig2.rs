@@ -109,7 +109,8 @@ async fn key_spend() {
             .unwrap()
             .to_byte_array(),
     );
-    let merkle_root = from_address_spend_info.merkle_root().unwrap();
+    let merkle_root = from_address_spend_info.merkle_root();
+    assert!(merkle_root.is_none());
 
     let partial_sigs: Vec<MusigPartialSignature> = verifiers_secret_public_keys
         .into_iter()
@@ -117,7 +118,7 @@ async fn key_spend() {
         .map(|(kp, nonce_pair)| {
             partial_sign(
                 verifier_public_keys.clone(),
-                Some(Musig2Mode::KeySpendWithScript(merkle_root)),
+                Some(Musig2Mode::OnlyKeySpend(untweaked_xonly_pubkey)),
                 nonce_pair.0,
                 agg_nonce,
                 kp,
@@ -129,14 +130,18 @@ async fn key_spend() {
 
     let final_signature = aggregate_partial_signatures(
         verifier_public_keys.clone(),
-        Some(Musig2Mode::KeySpendWithScript(merkle_root)),
+        Some(Musig2Mode::OnlyKeySpend(untweaked_xonly_pubkey)),
         agg_nonce,
         partial_sigs,
         message,
     )
     .unwrap();
 
-    let agg_pk = XOnlyPublicKey::from_musig2_pks(verifier_public_keys.clone(), None).unwrap();
+    let agg_pk = XOnlyPublicKey::from_musig2_pks(
+        verifier_public_keys.clone(),
+        Some(Musig2Mode::OnlyKeySpend(untweaked_xonly_pubkey)),
+    )
+    .unwrap();
     SECP.verify_schnorr(&final_signature, &message, &agg_pk)
         .unwrap();
 
@@ -230,7 +235,11 @@ async fn key_spend_with_script() {
     )
     .unwrap();
 
-    let agg_pk = XOnlyPublicKey::from_musig2_pks(verifier_public_keys.clone(), None).unwrap();
+    let agg_pk = XOnlyPublicKey::from_musig2_pks(
+        verifier_public_keys.clone(),
+        Some(Musig2Mode::KeySpendWithScript(merkle_root)),
+    )
+    .unwrap();
 
     SECP.verify_schnorr(&final_signature, &message, &agg_pk)
         .unwrap();
