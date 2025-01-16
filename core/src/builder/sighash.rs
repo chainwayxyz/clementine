@@ -276,14 +276,42 @@ pub fn create_nofn_sighash_stream(
                         None,
                     )?;
 
-                    let mut disprove_txhandler = builder::transaction::create_disprove_txhandler(
+                    let mut disprove_timeout_txhandler = builder::transaction::create_disprove_timeout_txhandler(
+                        &assert_end_txhandler,
+                        *operator_xonly_pk,
+                        network,
+                    );
+
+                    // sign disprove scripts utxo
+                    yield convert_tx_to_pubkey_spend(
+                        &mut disprove_timeout_txhandler,
+                        0,
+                        None,
+                    )?;
+                    // sign nofn_1week disprove timeout utxo
+                    yield convert_tx_to_script_spend(
+                        &mut disprove_timeout_txhandler,
+                        1,
+                        0,
+                        None,
+                    )?;
+
+                    let mut already_disproved_txhandler = builder::transaction::create_already_disproved_txhandler(
                         &assert_end_txhandler,
                         &time_txhandler,
                     );
 
+                    // sign nofn_2week disprove timeout utxo
+                    yield convert_tx_to_script_spend(
+                        &mut already_disproved_txhandler,
+                        0,
+                        1,
+                        None,
+                    )?;
+
                     let mut reimburse_txhandler = builder::transaction::create_reimburse_txhandler(
                         &move_txhandler,
-                        &disprove_txhandler,
+                        &disprove_timeout_txhandler,
                         &time2_txhandler,
                         kickoff_idx,
                         _operator_reimburse_address,

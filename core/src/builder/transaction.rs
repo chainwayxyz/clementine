@@ -739,10 +739,22 @@ pub fn create_assert_end_txhandler(
         Some(nofn_xonly_pk),
         network,
     );
+    let nofn_1week = builder::script::generate_relative_timelock_script(nofn_xonly_pk, 7 * 24 * 6);
+    let nofn_2week =
+        builder::script::generate_relative_timelock_script(nofn_xonly_pk, 2 * 7 * 24 * 6);
+    let (connector_addr, connector_spend) = builder::address::create_taproot_address(
+        &[nofn_1week.clone(), nofn_2week.clone()],
+        Some(*UNSPENDABLE_XONLY_PUBKEY),
+        network,
+    );
     let tx_outs = vec![
         TxOut {
             value: MIN_TAPROOT_AMOUNT,
             script_pubkey: disprove_address.script_pubkey(),
+        },
+        TxOut {
+            value: MIN_TAPROOT_AMOUNT,
+            script_pubkey: connector_addr.script_pubkey(),
         },
         builder::script::anchor_output(),
     ];
@@ -770,8 +782,96 @@ pub fn create_assert_end_txhandler(
         prevouts,
         prev_scripts: scripts,
         prev_taproot_spend_infos,
-        out_scripts: vec![disprove_scripts, vec![]],
-        out_taproot_spend_infos: vec![Some(disprove_taproot_spend_info), None],
+        out_scripts: vec![disprove_scripts, vec![nofn_1week, nofn_2week], vec![]],
+        out_taproot_spend_infos: vec![
+            Some(disprove_taproot_spend_info),
+            Some(connector_spend),
+            None,
+        ],
+    }
+}
+
+pub fn create_disprove_timeout_txhandler(
+    assert_end_txhandler: &TxHandler,
+    operator_xonly_pk: XOnlyPublicKey,
+    network: bitcoin::Network,
+) -> TxHandler {
+    let tx_ins = create_tx_ins(vec![
+        OutPoint {
+            txid: assert_end_txhandler.txid,
+            vout: 0,
+        },
+        OutPoint {
+            txid: assert_end_txhandler.txid,
+            vout: 1,
+        },
+    ]);
+
+    let (op_address, op_spend) = create_taproot_address(&[], Some(operator_xonly_pk), network);
+
+    let tx_outs = vec![TxOut {
+        value: MIN_TAPROOT_AMOUNT,
+        script_pubkey: op_address.script_pubkey(),
+    }];
+
+    let disprove_tx = create_btc_tx(tx_ins, tx_outs);
+
+    TxHandler {
+        txid: disprove_tx.compute_txid(),
+        tx: disprove_tx,
+        prevouts: vec![
+            assert_end_txhandler.tx.output[0].clone(),
+            assert_end_txhandler.tx.output[1].clone(),
+        ],
+        prev_scripts: vec![
+            assert_end_txhandler.out_scripts[0].clone(),
+            assert_end_txhandler.out_scripts[1].clone(),
+        ],
+        prev_taproot_spend_infos: vec![
+            assert_end_txhandler.out_taproot_spend_infos[0].clone(),
+            assert_end_txhandler.out_taproot_spend_infos[1].clone(),
+        ],
+        out_scripts: vec![vec![]],
+        out_taproot_spend_infos: vec![Some(op_spend)],
+    }
+}
+
+pub fn create_already_disproved_txhandler(
+    assert_end_txhandler: &TxHandler,
+    sequential_collateral_txhandler: &TxHandler,
+) -> TxHandler {
+    let tx_ins = create_tx_ins(vec![
+        OutPoint {
+            txid: assert_end_txhandler.txid,
+            vout: 1,
+        },
+        OutPoint {
+            txid: sequential_collateral_txhandler.txid,
+            vout: 0,
+        },
+    ]);
+
+    let tx_outs = vec![builder::script::anchor_output()];
+
+    let disprove_tx = create_btc_tx(tx_ins, tx_outs);
+
+    TxHandler {
+        txid: disprove_tx.compute_txid(),
+        tx: disprove_tx,
+        prevouts: vec![
+            assert_end_txhandler.tx.output[1].clone(),
+            sequential_collateral_txhandler.tx.output[0].clone(),
+        ],
+        prev_scripts: vec![
+            assert_end_txhandler.out_scripts[1].clone(),
+            sequential_collateral_txhandler.out_scripts[0].clone(),
+        ],
+        prev_taproot_spend_infos: vec![
+            assert_end_txhandler.out_taproot_spend_infos[1].clone(),
+            sequential_collateral_txhandler.out_taproot_spend_infos[0].clone(),
+        ],
+        out_scripts: vec![vec![]],
+        out_taproot_spend_infos: vec![None],
     }
 }
 
@@ -790,7 +890,6 @@ pub fn create_disprove_txhandler(
         },
     ]);
 
-    // let tx_outs = vec![builder::script::anyone_can_spend_txout()];
     let tx_outs = vec![builder::script::anchor_output()];
 
     let disprove_tx = create_btc_tx(tx_ins, tx_outs);
@@ -899,7 +998,7 @@ pub fn create_happy_reimburse_txhandler(
 
 pub fn create_reimburse_txhandler(
     move_txhandler: &TxHandler,
-    disprove_txhandler: &TxHandler,
+    disprove_timeout_txhandler: &TxHandler,
     reimburse_generator_txhandler: &TxHandler,
     kickoff_idx: usize,
     operator_reimbursement_address: &bitcoin::Address,
@@ -910,7 +1009,7 @@ pub fn create_reimburse_txhandler(
             vout: 0,
         },
         OutPoint {
-            txid: disprove_txhandler.txid,
+            txid: disprove_timeout_txhandler.txid,
             vout: 0,
         },
         OutPoint {
@@ -935,17 +1034,17 @@ pub fn create_reimburse_txhandler(
         tx: reimburse_tx,
         prevouts: vec![
             move_txhandler.tx.output[0].clone(),
-            disprove_txhandler.tx.output[0].clone(),
+            disprove_timeout_txhandler.tx.output[0].clone(),
             reimburse_generator_txhandler.tx.output[1 + kickoff_idx].clone(),
         ],
         prev_scripts: vec![
             move_txhandler.out_scripts[0].clone(),
-            disprove_txhandler.out_scripts[0].clone(),
+            disprove_timeout_txhandler.out_scripts[0].clone(),
             reimburse_generator_txhandler.out_scripts[1 + kickoff_idx].clone(),
         ],
         prev_taproot_spend_infos: vec![
             move_txhandler.out_taproot_spend_infos[0].clone(),
-            disprove_txhandler.out_taproot_spend_infos[0].clone(),
+            disprove_timeout_txhandler.out_taproot_spend_infos[0].clone(),
             reimburse_generator_txhandler.out_taproot_spend_infos[1 + kickoff_idx].clone(),
         ],
         out_scripts: vec![vec![], vec![]],
