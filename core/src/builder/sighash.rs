@@ -136,7 +136,7 @@ pub fn create_nofn_sighash_stream(
             let mut input_amount = collateral_funding_amount;
 
             for time_tx_idx in 0..config.num_time_txs {
-                let time_txhandler = builder::transaction::create_sequential_collateral_txhandler(
+                let sequential_collateral_txhandler = builder::transaction::create_sequential_collateral_txhandler(
                     *operator_xonly_pk,
                     input_txid,
                     input_amount,
@@ -145,15 +145,15 @@ pub fn create_nofn_sighash_stream(
                     network,
                 );
 
-                let time2_txhandler = builder::transaction::create_reimburse_generator_txhandler(
-                    &time_txhandler,
+                let reimburse_generator_txhandler = builder::transaction::create_reimburse_generator_txhandler(
+                    &sequential_collateral_txhandler,
                     *operator_xonly_pk,
                     network,
                 );
 
                 for kickoff_idx in 0..NUM_KICKOFFS_PER_TIMETX {
                     let kickoff_txhandler = builder::transaction::create_kickoff_txhandler(
-                        &time_txhandler,
+                        &sequential_collateral_txhandler,
                         kickoff_idx,
                         nofn_xonly_pk,
                         *operator_xonly_pk,
@@ -189,7 +189,7 @@ pub fn create_nofn_sighash_stream(
                     let mut happy_reimburse_txhandler = builder::transaction::create_happy_reimburse_txhandler(
                         &move_txhandler,
                         &start_happy_reimburse_txhandler,
-                        &time2_txhandler,
+                        &reimburse_generator_txhandler,
                         kickoff_idx,
                         _operator_reimburse_address,
                     );
@@ -222,7 +222,7 @@ pub fn create_nofn_sighash_stream(
 
                     let mut kickoff_timeout_txhandler = builder::transaction::create_kickoff_timeout_txhandler(
                         &kickoff_txhandler,
-                        &time_txhandler,
+                        &sequential_collateral_txhandler,
                         network,
                     );
 
@@ -306,7 +306,7 @@ pub fn create_nofn_sighash_stream(
 
                     let mut already_disproved_txhandler = builder::transaction::create_already_disproved_txhandler(
                         &assert_end_txhandler,
-                        &time_txhandler,
+                        &sequential_collateral_txhandler,
                     );
 
                     // sign nofn_2week disprove timeout utxo
@@ -320,7 +320,7 @@ pub fn create_nofn_sighash_stream(
                     let mut reimburse_txhandler = builder::transaction::create_reimburse_txhandler(
                         &move_txhandler,
                         &disprove_timeout_txhandler,
-                        &time2_txhandler,
+                        &reimburse_generator_txhandler,
                         kickoff_idx,
                         _operator_reimburse_address,
                     );
@@ -328,8 +328,8 @@ pub fn create_nofn_sighash_stream(
                     yield convert_tx_to_pubkey_spend(&mut reimburse_txhandler, 0, None)?;
                 }
 
-                input_txid = time2_txhandler.txid;
-                input_amount = time2_txhandler.tx.output[0].value;
+                input_txid = reimburse_generator_txhandler.txid;
+                input_amount = reimburse_generator_txhandler.tx.output[0].value;
             }
         }
     }
