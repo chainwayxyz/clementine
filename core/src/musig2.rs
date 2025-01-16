@@ -220,7 +220,10 @@ mod tests {
         actor::Actor,
         builder::{self, transaction::TxHandler},
         errors::BridgeError,
-        musig2::AggregateFromPublicKeys,
+        musig2::{
+            aggregate_nonces, aggregate_partial_signatures, create_key_agg_cache, from_secp_xonly,
+            partial_sign, AggregateFromPublicKeys,
+        },
         utils::{self, SECP},
     };
     use bitcoin::{
@@ -650,38 +653,39 @@ mod tests {
             .unwrap();
     }
 
-    use super::*;
-    #[test]
     /// Tests:
     /// - that different tweaks produce different aggregate public keys
     /// - that partial_sign with tweaks signs correctly
     /// - that the signature is invalid with the untweaked aggregate public key
     /// - that the signature is valid with the tweaked aggregate public key
-    fn test_key_agg_cache_tweaks() {
+    #[test]
+    fn key_agg_cache_tweak_checks() {
         // Create some test keypairs
         let kp1 = Keypair::new(&SECP, &mut bitcoin::secp256k1::rand::thread_rng());
         let kp2 = Keypair::new(&SECP, &mut bitcoin::secp256k1::rand::thread_rng());
         let public_keys = vec![kp1.public_key(), kp2.public_key()];
 
         // Test case 1: No tweak
-        let cache_no_tweak = create_key_agg_cache(public_keys.clone(), None);
-        let agg_pk_no_tweak = from_secp_xonly(cache_no_tweak.agg_pk().into());
+        let cache_no_tweak = create_key_agg_cache(public_keys.clone(), None).unwrap();
+        let agg_pk_no_tweak = from_secp_xonly(cache_no_tweak.agg_pk());
 
         // Test case 2: KeySpendWithScript tweak
         let merkle_root = TapNodeHash::from_slice(&[1u8; 32]).unwrap();
         let cache_script_tweak = create_key_agg_cache(
             public_keys.clone(),
             Some(Musig2Mode::KeySpendWithScript(merkle_root)),
-        );
-        let agg_pk_script_tweak = from_secp_xonly(cache_script_tweak.agg_pk().into());
+        )
+        .unwrap();
+        let agg_pk_script_tweak = from_secp_xonly(cache_script_tweak.agg_pk());
 
         // Test case 3: OnlyKeySpend tweak
         let internal_key = XOnlyPublicKey::from_keypair(&kp1).0;
         let cache_key_tweak = create_key_agg_cache(
             public_keys.clone(),
             Some(Musig2Mode::OnlyKeySpend(internal_key)),
-        );
-        let agg_pk_key_tweak = from_secp_xonly(cache_key_tweak.agg_pk().into());
+        )
+        .unwrap();
+        let agg_pk_key_tweak = from_secp_xonly(cache_key_tweak.agg_pk());
 
         // Verify that different tweaks produce different aggregate public keys
         assert_ne!(agg_pk_no_tweak, agg_pk_script_tweak);
@@ -694,33 +698,35 @@ mod tests {
 
         // Create nonces
         let (sec_nonce1, pub_nonce1) =
-            nonce_pair(&kp1, &mut bitcoin::secp256k1::rand::thread_rng());
+            nonce_pair(&kp1, &mut bitcoin::secp256k1::rand::thread_rng()).unwrap();
         let (sec_nonce2, pub_nonce2) =
-            nonce_pair(&kp2, &mut bitcoin::secp256k1::rand::thread_rng());
+            nonce_pair(&kp2, &mut bitcoin::secp256k1::rand::thread_rng()).unwrap();
         let agg_nonce = aggregate_nonces(vec![pub_nonce1, pub_nonce2]);
 
         // Sign with script tweak
         let partial_sig1 = partial_sign(
             public_keys.clone(),
-            tweak.clone(),
+            tweak,
             sec_nonce1,
             agg_nonce,
             kp1,
             message,
-        );
+        )
+        .unwrap();
         let partial_sig2 = partial_sign(
             public_keys.clone(),
-            tweak.clone(),
+            tweak,
             sec_nonce2,
             agg_nonce,
             kp2,
             message,
-        );
+        )
+        .unwrap();
 
         // Aggregate and verify signatures
         let final_sig = aggregate_partial_signatures(
             public_keys.clone(),
-            tweak.clone(),
+            tweak,
             agg_nonce,
             vec![partial_sig1, partial_sig2],
             message,
