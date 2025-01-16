@@ -75,7 +75,7 @@ pub fn create_sequential_collateral_txhandler(
     );
 
     let timeout_block_count_locked_script =
-        builder::script::generate_relative_timelock_script(operator_xonly_pk, timeout_block_count);
+        builder::script::generate_relative_timelock_script_no_key(timeout_block_count);
 
     let (op_address, op_spend) = create_taproot_address(&[], Some(operator_xonly_pk), network);
     let (reimburse_gen_connector, reimburse_gen_spend) =
@@ -744,7 +744,7 @@ pub fn create_assert_end_txhandler(
         builder::script::generate_relative_timelock_script(nofn_xonly_pk, 2 * 7 * 24 * 6);
     let (connector_addr, connector_spend) = builder::address::create_taproot_address(
         &[nofn_1week.clone(), nofn_2week.clone()],
-        Some(*UNSPENDABLE_XONLY_PUBKEY),
+        None,
         network,
     );
     let tx_outs = vec![
@@ -1117,7 +1117,7 @@ pub fn create_kickoff_timeout_txhandler(
             vout: 0,
         },
     ]);
-    let (dust_address, _) = create_taproot_address(&[], Some(*UNSPENDABLE_XONLY_PUBKEY), network);
+    let (dust_address, _) = create_taproot_address(&[], None, network);
     let dust_output = TxOut {
         value: Amount::from_sat(330),
         script_pubkey: dust_address.script_pubkey(),
