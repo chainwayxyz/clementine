@@ -731,7 +731,7 @@ pub fn create_assert_end_txhandler(
 
     let mut disprove_scripts = vec![];
     for _ in 0..NUM_INTERMEDIATE_STEPS {
-        disprove_scripts.push(builder::script::checksig_script(nofn_xonly_pk)); // TODO: ADD actual disprove scripts here
+        disprove_scripts.push(builder::script::dummy_script()); // TODO: ADD actual disprove scripts here
     }
 
     let (disprove_address, disprove_taproot_spend_info) = builder::address::create_taproot_address(
@@ -741,10 +741,9 @@ pub fn create_assert_end_txhandler(
     );
     let tx_outs = vec![
         TxOut {
-            value: Amount::from_sat(330), // TODO: Hand calculate this
+            value: MIN_TAPROOT_AMOUNT,
             script_pubkey: disprove_address.script_pubkey(),
         },
-        // builder::script::anyone_can_spend_txout(),
         builder::script::anchor_output(),
     ];
 
@@ -778,7 +777,7 @@ pub fn create_assert_end_txhandler(
 
 pub fn create_disprove_txhandler(
     assert_end_txhandler: &TxHandler,
-    time_tx1_txhandler: &TxHandler,
+    sequential_collateral_txhandler: &TxHandler,
 ) -> TxHandler {
     let tx_ins = create_tx_ins(vec![
         OutPoint {
@@ -786,7 +785,7 @@ pub fn create_disprove_txhandler(
             vout: 0,
         },
         OutPoint {
-            txid: time_tx1_txhandler.txid,
+            txid: sequential_collateral_txhandler.txid,
             vout: 0,
         },
     ]);
@@ -801,15 +800,15 @@ pub fn create_disprove_txhandler(
         tx: disprove_tx,
         prevouts: vec![
             assert_end_txhandler.tx.output[0].clone(),
-            time_tx1_txhandler.tx.output[0].clone(),
+            sequential_collateral_txhandler.tx.output[0].clone(),
         ],
         prev_scripts: vec![
             assert_end_txhandler.out_scripts[0].clone(),
-            time_tx1_txhandler.out_scripts[0].clone(),
+            sequential_collateral_txhandler.out_scripts[0].clone(),
         ],
         prev_taproot_spend_infos: vec![
             assert_end_txhandler.out_taproot_spend_infos[0].clone(),
-            time_tx1_txhandler.out_taproot_spend_infos[0].clone(),
+            sequential_collateral_txhandler.out_taproot_spend_infos[0].clone(),
         ],
         out_scripts: vec![vec![]],
         out_taproot_spend_infos: vec![None],

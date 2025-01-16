@@ -281,16 +281,6 @@ pub fn create_nofn_sighash_stream(
                         &time_txhandler,
                     );
 
-                    // sign for all disprove scripts
-                    for i in 0..NUM_INTERMEDIATE_STEPS {
-                        yield convert_tx_to_script_spend(
-                            &mut disprove_txhandler,
-                            0,
-                            i,
-                            Some(bitcoin::sighash::TapSighashType::None),
-                        )?;
-                    }
-
                     let mut reimburse_txhandler = builder::transaction::create_reimburse_txhandler(
                         &move_txhandler,
                         &disprove_txhandler,
