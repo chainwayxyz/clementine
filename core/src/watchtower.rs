@@ -52,18 +52,21 @@ impl Watchtower {
 
         for operator in 0..self.config.num_operators as u32 {
             for time_tx in 0..self.config.num_time_txs as u32 {
-                let path = WinternitzDerivationPath {
-                    message_length: 480,
-                    log_d: 4,
-                    tx_type: crate::actor::TxType::WatchtowerChallenge,
-                    index: None,
-                    operator_idx: Some(operator),
-                    watchtower_idx: None,
-                    time_tx_idx: Some(time_tx),
-                    intermediate_step_idx: None,
-                };
+                for kickoff_idx in 0..self.config.num_kickoffs_per_timetx as u32 {
+                    let path = WinternitzDerivationPath {
+                        message_length: 480,
+                        log_d: 4,
+                        tx_type: crate::actor::TxType::WatchtowerChallenge,
+                        index: None,
+                        operator_idx: Some(operator),
+                        watchtower_idx: None,
+                        time_tx_idx: Some(time_tx),
+                        kickoff_idx: Some(kickoff_idx),
+                        intermediate_step_idx: None,
+                    };
 
-                winternitz_pubkeys.push(self.actor.derive_winternitz_pk(path)?);
+                    winternitz_pubkeys.push(self.actor.derive_winternitz_pk(path)?);
+                }
             }
         }
 
@@ -138,7 +141,7 @@ mod tests {
 
         assert_eq!(
             watchtower_winternitz_public_keys.len(),
-            config.num_operators * config.num_time_txs
+            config.num_operators * config.num_time_txs * config.num_kickoffs_per_timetx
         );
     }
 }

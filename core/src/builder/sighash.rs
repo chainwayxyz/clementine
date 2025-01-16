@@ -204,7 +204,7 @@ pub fn create_nofn_sighash_stream(
                     )?;
 
                     let watchtower_wots = (0..config.num_watchtowers)
-                        .map(|i| watchtower_challenge_wotss[i][time_tx_idx].clone())
+                        .map(|i| watchtower_challenge_wotss[i][time_tx_idx * config.num_kickoffs_per_timetx + kickoff_idx].clone())
                         .collect::<Vec<_>>();
 
                     let mut watchtower_challenge_page_tx_handler =

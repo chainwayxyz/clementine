@@ -148,7 +148,9 @@ impl ClementineVerifier for Verifier {
             })
             .collect::<Result<Vec<_>, BridgeError>>()?;
 
-        let required_number_of_pubkeys = self.config.num_operators * self.config.num_time_txs;
+        let required_number_of_pubkeys = self.config.num_operators
+            * self.config.num_time_txs
+            * self.config.num_kickoffs_per_timetx;
         if watchtower_winternitz_public_keys.len() != required_number_of_pubkeys {
             return Err(Status::invalid_argument(format!(
                 "Request has {} Winternitz public keys but it needs to be {}!",
@@ -158,7 +160,8 @@ impl ClementineVerifier for Verifier {
         }
 
         for operator_idx in 0..self.config.num_operators {
-            let index = operator_idx * self.config.num_time_txs;
+            let index =
+                operator_idx * self.config.num_time_txs * self.config.num_kickoffs_per_timetx;
             self.db
                 .save_watchtower_winternitz_public_keys(
                     None,
