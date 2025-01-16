@@ -22,6 +22,7 @@ verifiers_public_keys = [
 num_operators = 3
 num_watchtowers = 4
 num_time_txs = 10
+num_kickoffs_per_timetx = 10
 operators_xonly_pks = [
     "4f355bdcb7cc0af728ef3cceb9615d90684bb5b2ca5f859ab0f0b704075871aa",
     "466d7fcae563e5cb09a0d1870bb580344804617879a14949cf22285f1bae3f27",
