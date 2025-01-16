@@ -20,8 +20,8 @@ and configure Bitcoin Core if you haven't already.
 
 ### Preparing a Configuration File
 
-Running a binary as a verifier, aggregator or operator requires a configuration
-file. Example configuration file is located at
+Running the binary as a verifier, aggregator or operator requires a configuration
+file. An example configuration file is located at
 [`core/tests/data/test_config.toml`](core/tests/data/test_config.toml) and can
 be taken as reference. Please copy that configuration file to another location
 and modify fields to your local configuration.
@@ -53,6 +53,30 @@ More information, use `--help` flag:
 ```
 
 ### Testing
+
+#### Prerequisites
+
+1. **PostgreSQL Database**
+
+   Tests require a PostgreSQL database. You can quickly set one up using Docker:
+
+   ```bash
+   docker run --name clementine-test-db \
+     -e POSTGRES_USER=clementine \
+     -e POSTGRES_PASSWORD=clementine \
+     -e POSTGRES_DB=clementine \
+     -p 5432:5432 \
+     --restart always \
+     -d postgres:15
+   ```
+
+2. **RISC Zero Toolchain**
+
+   For prover tests, you'll need to install the RISC Zero toolchain:
+
+   ```bash
+   cargo install cargo-risczero
+   ```
 
 #### Bitcoin Regtest Setup
 

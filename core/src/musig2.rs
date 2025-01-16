@@ -67,7 +67,7 @@ const TAPROOT_TWEAK_TAG_DIGEST: [u8; 32] = [
 ];
 
 lazy_static! {
-    pub static ref TAPROOT_TWEAK: Sha256 = Sha256::new()
+    pub static ref TAPROOT_TWEAK_TAGGED_HASH: Sha256 = Sha256::new()
         .chain_update(TAPROOT_TWEAK_TAG_DIGEST)
         .chain_update(TAPROOT_TWEAK_TAG_DIGEST);
 }
@@ -89,7 +89,7 @@ fn create_key_agg_cache(
         match tweak {
             Musig2Mode::ScriptSpend => (),
             Musig2Mode::OnlyKeySpend(_) => {
-                let xonly_tweak = TAPROOT_TWEAK
+                let xonly_tweak = TAPROOT_TWEAK_TAGGED_HASH
                     .clone()
                     .chain_update(agg_key.serialize())
                     .finalize(); // sha256(C, C, IPK) where C = sha256("TapTweak")
@@ -103,7 +103,7 @@ fn create_key_agg_cache(
                     .unwrap();
             }
             Musig2Mode::KeySpendWithScript(merkle_root) => {
-                let xonly_tweak = TAPROOT_TWEAK
+                let xonly_tweak = TAPROOT_TWEAK_TAGGED_HASH
                     .clone()
                     .chain_update(agg_key.serialize())
                     .chain_update(merkle_root.to_raw_hash().to_byte_array())
@@ -299,9 +299,9 @@ mod tests {
 
     #[test]
     fn musig2_raw_fail_if_partial_sigs_invalid() {
-        let kp_0 = Keypair::new(&utils::SECP, &mut secp256k1::rand::thread_rng());
-        let kp_1 = Keypair::new(&utils::SECP, &mut secp256k1::rand::thread_rng());
-        let kp_2 = Keypair::new(&utils::SECP, &mut secp256k1::rand::thread_rng());
+        let kp_0 = Keypair::new(&SECP, &mut secp256k1::rand::thread_rng());
+        let kp_1 = Keypair::new(&SECP, &mut secp256k1::rand::thread_rng());
+        let kp_2 = Keypair::new(&SECP, &mut secp256k1::rand::thread_rng());
 
         let message = Message::from_digest(secp256k1::rand::thread_rng().gen());
 
@@ -397,9 +397,9 @@ mod tests {
 
     #[test]
     fn musig2_tweak_fail() {
-        let kp_0 = Keypair::new(&utils::SECP, &mut secp256k1::rand::thread_rng());
-        let kp_1 = Keypair::new(&utils::SECP, &mut secp256k1::rand::thread_rng());
-        let kp_2 = Keypair::new(&utils::SECP, &mut secp256k1::rand::thread_rng());
+        let kp_0 = Keypair::new(&SECP, &mut secp256k1::rand::thread_rng());
+        let kp_1 = Keypair::new(&SECP, &mut secp256k1::rand::thread_rng());
+        let kp_2 = Keypair::new(&SECP, &mut secp256k1::rand::thread_rng());
 
         let message = Message::from_digest(secp256k1::rand::thread_rng().gen::<[u8; 32]>());
         let tweak: [u8; 32] = secp256k1::rand::thread_rng().gen();
@@ -473,7 +473,7 @@ mod tests {
         let dummy_script = script::Builder::new().push_int(1).into_script();
         let scripts: Vec<ScriptBuf> = vec![dummy_script];
         let receiving_address = bitcoin::Address::p2tr(
-            &utils::SECP,
+            &SECP,
             *utils::UNSPENDABLE_XONLY_PUBKEY,
             None,
             bitcoin::Network::Regtest,
@@ -546,8 +546,7 @@ mod tests {
             Some(Musig2Mode::KeySpendWithScript(merkle_root)),
         );
 
-        utils::SECP
-            .verify_schnorr(&final_signature, &message, &musig_agg_xonly_pubkey)
+        SECP.verify_schnorr(&final_signature, &message, &musig_agg_xonly_pubkey)
             .unwrap();
     }
 
@@ -570,7 +569,7 @@ mod tests {
         let scripts: Vec<ScriptBuf> = vec![musig2_script];
 
         let receiving_address = bitcoin::Address::p2tr(
-            &utils::SECP,
+            &SECP,
             *utils::UNSPENDABLE_XONLY_PUBKEY,
             None,
             bitcoin::Network::Regtest,
@@ -637,8 +636,94 @@ mod tests {
         )
         .unwrap();
 
-        utils::SECP
-            .verify_schnorr(&final_signature, &message, &musig_agg_xonly_pubkey_wrapped)
+        SECP.verify_schnorr(&final_signature, &message, &musig_agg_xonly_pubkey_wrapped)
             .unwrap();
+    }
+
+    use super::*;
+    #[test]
+    /// Tests:
+    /// - that different tweaks produce different aggregate public keys
+    /// - that partial_sign with tweaks signs correctly
+    /// - that the signature is invalid with the untweaked aggregate public key
+    /// - that the signature is valid with the tweaked aggregate public key
+    fn test_key_agg_cache_tweaks() {
+        // Create some test keypairs
+        let kp1 = Keypair::new(&SECP, &mut bitcoin::secp256k1::rand::thread_rng());
+        let kp2 = Keypair::new(&SECP, &mut bitcoin::secp256k1::rand::thread_rng());
+        let public_keys = vec![kp1.public_key(), kp2.public_key()];
+
+        // Test case 1: No tweak
+        let cache_no_tweak = create_key_agg_cache(public_keys.clone(), None);
+        let agg_pk_no_tweak = from_secp_xonly(cache_no_tweak.agg_pk().into());
+
+        // Test case 2: KeySpendWithScript tweak
+        let merkle_root = TapNodeHash::from_slice(&[1u8; 32]).unwrap();
+        let cache_script_tweak = create_key_agg_cache(
+            public_keys.clone(),
+            Some(Musig2Mode::KeySpendWithScript(merkle_root)),
+        );
+        let agg_pk_script_tweak = from_secp_xonly(cache_script_tweak.agg_pk().into());
+
+        // Test case 3: OnlyKeySpend tweak
+        let internal_key = XOnlyPublicKey::from_keypair(&kp1).0;
+        let cache_key_tweak = create_key_agg_cache(
+            public_keys.clone(),
+            Some(Musig2Mode::OnlyKeySpend(internal_key)),
+        );
+        let agg_pk_key_tweak = from_secp_xonly(cache_key_tweak.agg_pk().into());
+
+        // Verify that different tweaks produce different aggregate public keys
+        assert_ne!(agg_pk_no_tweak, agg_pk_script_tweak);
+        assert_ne!(agg_pk_no_tweak, agg_pk_key_tweak);
+        assert_ne!(agg_pk_script_tweak, agg_pk_key_tweak);
+
+        // Test signing with the tweaked keys
+        let message = Message::from_digest(secp256k1::rand::thread_rng().gen());
+        let tweak = Some(Musig2Mode::KeySpendWithScript(merkle_root));
+
+        // Create nonces
+        let (sec_nonce1, pub_nonce1) =
+            nonce_pair(&kp1, &mut bitcoin::secp256k1::rand::thread_rng());
+        let (sec_nonce2, pub_nonce2) =
+            nonce_pair(&kp2, &mut bitcoin::secp256k1::rand::thread_rng());
+        let agg_nonce = aggregate_nonces(vec![pub_nonce1, pub_nonce2]);
+
+        // Sign with script tweak
+        let partial_sig1 = partial_sign(
+            public_keys.clone(),
+            tweak.clone(),
+            sec_nonce1,
+            agg_nonce,
+            kp1,
+            message,
+        );
+        let partial_sig2 = partial_sign(
+            public_keys.clone(),
+            tweak.clone(),
+            sec_nonce2,
+            agg_nonce,
+            kp2,
+            message,
+        );
+
+        // Aggregate and verify signatures
+        let final_sig = aggregate_partial_signatures(
+            public_keys.clone(),
+            tweak.clone(),
+            agg_nonce,
+            vec![partial_sig1, partial_sig2],
+            message,
+        )
+        .unwrap();
+
+        // Verify the signature works with the tweaked aggregate public key
+        SECP.verify_schnorr(&final_sig, &message, &agg_pk_script_tweak)
+            .expect("Signature verification should succeed with tweaked aggregate key");
+
+        // Verify the signature fails with the untweaked aggregate public key
+        assert!(SECP
+            .verify_schnorr(&final_sig, &message, &agg_pk_no_tweak)
+            .is_err());
     }
 }
