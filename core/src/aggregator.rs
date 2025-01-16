@@ -203,7 +203,7 @@ impl Aggregator {
         );
         let final_sig = aggregate_partial_signatures(
             self.config.verifiers_public_keys.clone(),
-            Some(Musig2Mode::OnlyKeySpend(*operator_xonly_pk)),
+            Some(Musig2Mode::OnlyKeySpend),
             *agg_nonce,
             partial_sigs,
             message,

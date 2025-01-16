@@ -52,10 +52,10 @@ pub fn to_secp_msg(msg: &Message) -> secp256k1::Message {
     secp256k1::Message::from_digest(*msg.as_ref())
 }
 
-/// Possible Musig2 tweaks.
+/// Possible Musig2 modes.
 #[derive(Debug, Clone, Copy)]
 pub enum Musig2Mode {
-    OnlyKeySpend(XOnlyPublicKey),
+    OnlyKeySpend,
     ScriptSpend,
     KeySpendWithScript(TapNodeHash),
 }
@@ -87,7 +87,7 @@ fn create_key_agg_cache(
     if let Some(tweak) = tweak {
         match tweak {
             Musig2Mode::ScriptSpend => (),
-            Musig2Mode::OnlyKeySpend(_) => {
+            Musig2Mode::OnlyKeySpend => {
                 let xonly_tweak = TAPROOT_TWEAK_TAGGED_HASH
                     .clone()
                     .chain_update(agg_key.serialize())
@@ -679,12 +679,9 @@ mod tests {
         let agg_pk_script_tweak = from_secp_xonly(cache_script_tweak.agg_pk());
 
         // Test case 3: OnlyKeySpend tweak
-        let internal_key = XOnlyPublicKey::from_keypair(&kp1).0;
-        let cache_key_tweak = create_key_agg_cache(
-            public_keys.clone(),
-            Some(Musig2Mode::OnlyKeySpend(internal_key)),
-        )
-        .unwrap();
+        // let internal_key = XOnlyPublicKey::from_keypair(&kp1).0;
+        let cache_key_tweak =
+            create_key_agg_cache(public_keys.clone(), Some(Musig2Mode::OnlyKeySpend)).unwrap();
         let agg_pk_key_tweak = from_secp_xonly(cache_key_tweak.agg_pk());
 
         // Verify that different tweaks produce different aggregate public keys

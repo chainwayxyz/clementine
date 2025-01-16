@@ -118,7 +118,7 @@ async fn key_spend() {
         .map(|(kp, nonce_pair)| {
             partial_sign(
                 verifier_public_keys.clone(),
-                Some(Musig2Mode::OnlyKeySpend(untweaked_xonly_pubkey)),
+                Some(Musig2Mode::OnlyKeySpend),
                 nonce_pair.0,
                 agg_nonce,
                 kp,
@@ -130,7 +130,7 @@ async fn key_spend() {
 
     let final_signature = aggregate_partial_signatures(
         verifier_public_keys.clone(),
-        Some(Musig2Mode::OnlyKeySpend(untweaked_xonly_pubkey)),
+        Some(Musig2Mode::OnlyKeySpend),
         agg_nonce,
         partial_sigs,
         message,
@@ -139,7 +139,7 @@ async fn key_spend() {
 
     let agg_pk = XOnlyPublicKey::from_musig2_pks(
         verifier_public_keys.clone(),
-        Some(Musig2Mode::OnlyKeySpend(untweaked_xonly_pubkey)),
+        Some(Musig2Mode::OnlyKeySpend),
     )
     .unwrap();
     SECP.verify_schnorr(&final_signature, &message, &agg_pk)
