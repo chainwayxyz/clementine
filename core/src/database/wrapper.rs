@@ -341,17 +341,14 @@ impl Encode<'_, Postgres> for MessageDB {
     fn encode_by_ref(&self, buf: &mut PgArgumentBuffer) -> sqlx::encode::IsNull {
         let serialized_message: &[u8; 32] = self.0.as_ref();
 
-        let serialized = borsh::to_vec(&serialized_message).unwrap();
-
-        <Vec<u8> as Encode<Postgres>>::encode_by_ref(&serialized, buf)
+        <Vec<u8> as Encode<Postgres>>::encode_by_ref(&serialized_message.to_vec(), buf)
     }
 }
 impl<'r> Decode<'r, Postgres> for MessageDB {
     fn decode(value: PgValueRef<'r>) -> Result<Self, sqlx::error::BoxDynError> {
         let raw = <Vec<u8> as Decode<Postgres>>::decode(value)?;
 
-        let message = borsh::from_slice::<[u8; 32]>(&raw).unwrap();
-        let message = Message::from_digest(message);
+        let message = Message::from_digest(raw.try_into().unwrap());
 
         Ok(MessageDB(message))
     }
