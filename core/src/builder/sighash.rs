@@ -364,15 +364,6 @@ pub fn create_timeout_tx_sighash_stream(
                 network,
             );
 
-            for kickoff_idx in 0..NUM_KICKOFFS_PER_TIMETX {
-                let mut kickoff_utxo_timeout_txhandler = builder::transaction::create_kickoff_utxo_timeout_txhandler(
-                    &sequential_collateral_txhandler,
-                    kickoff_idx,
-                );
-
-                yield convert_tx_to_script_spend(&mut kickoff_utxo_timeout_txhandler, 0, 0, None)?;
-            }
-
 
             input_txid = reimburse_generator_txhandler.txid;
             input_amount = reimburse_generator_txhandler.tx.output[0].value;
