@@ -108,44 +108,6 @@ impl ClementineVerifier for Verifier {
             )
             .await?;
 
-        let timeout_tx_sigs: Vec<schnorr::Signature> = operator_params
-            .timeout_tx_sigs
-            .iter()
-            .map(|sig| secp256k1::schnorr::Signature::from_slice(sig).unwrap())
-            .collect();
-
-        let timeout_tx_sighash_stream = builder::sighash::create_timeout_tx_sighash_stream(
-            operator_xonly_pk,
-            Txid::from_slice(&operator_config.collateral_funding_txid).unwrap(),
-            Amount::from_sat(200_000_000), // TODO: Fix this.
-            3024,
-            6,
-            100,
-            self.config.network,
-        );
-
-        timeout_tx_sighash_stream
-            .enumerate()
-            .map(|(i, sighash)| {
-                SECP256K1
-                    .verify_schnorr(
-                        &timeout_tx_sigs[i],
-                        &Message::from(sighash?),
-                        &operator_xonly_pk,
-                    )
-                    .map_err(|e| {
-                        BridgeError::Error(format!("Can't verify Schnorr signature: {}", e))
-                    })
-            })
-            .collect::<Vec<Result<(), BridgeError>>>()
-            .await
-            .into_iter()
-            .collect::<Result<Vec<()>, BridgeError>>()?;
-
-        self.db
-            .save_timeout_tx_sigs(None, operator_config.operator_idx, timeout_tx_sigs)
-            .await?;
-
         // Convert RPC type into BitVM type.
         let operator_winternitz_public_keys = operator_params
             .winternitz_pubkeys

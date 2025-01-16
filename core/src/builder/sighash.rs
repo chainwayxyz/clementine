@@ -334,39 +334,3 @@ pub fn create_nofn_sighash_stream(
         }
     }
 }
-
-pub fn create_timeout_tx_sighash_stream(
-    operator_xonly_pk: secp256k1::XOnlyPublicKey,
-    collateral_funding_txid: bitcoin::Txid,
-    collateral_funding_amount: Amount,
-    timeout_block_count: i64,
-    max_withdrawal_time_block_count: i64,
-    num_time_txs: usize,
-    network: bitcoin::Network,
-) -> impl Stream<Item = Result<TapSighash, BridgeError>> {
-    let mut input_txid = collateral_funding_txid;
-    let mut input_amount = collateral_funding_amount;
-
-    try_stream! {
-        for _ in 0..num_time_txs {
-            let sequential_collateral_txhandler = builder::transaction::create_sequential_collateral_txhandler(
-                operator_xonly_pk,
-                input_txid,
-                input_amount,
-                timeout_block_count,
-                max_withdrawal_time_block_count,
-                network,
-            );
-
-            let reimburse_generator_txhandler = builder::transaction::create_reimburse_generator_txhandler(
-                &sequential_collateral_txhandler,
-                operator_xonly_pk,
-                network,
-            );
-
-
-            input_txid = reimburse_generator_txhandler.txid;
-            input_amount = reimburse_generator_txhandler.tx.output[0].value;
-        }
-    }
-}
