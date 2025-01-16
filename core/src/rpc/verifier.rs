@@ -4,10 +4,7 @@ use super::clementine::{
     VerifierDepositSignParams, VerifierParams, VerifierPublicKeys, WatchtowerParams,
 };
 use crate::{
-    builder::{
-        self,
-        sighash::{calculate_num_required_sigs, create_nofn_sighash_stream},
-    },
+    builder::sighash::{calculate_num_required_sigs, create_nofn_sighash_stream},
     errors::BridgeError,
     musig2::{self, MuSigPubNonce, MuSigSecNonce},
     sha256_hash,
@@ -19,7 +16,7 @@ use bitvm::{
     bridge::transactions::signing_winternitz::WinternitzPublicKey, signatures::winternitz,
 };
 use futures::StreamExt;
-use secp256k1::{schnorr, Message, XOnlyPublicKey, SECP256K1};
+use secp256k1::{XOnlyPublicKey, SECP256K1};
 use std::{pin::pin, str::FromStr};
 use tokio::sync::mpsc;
 use tokio_stream::wrappers::ReceiverStream;
