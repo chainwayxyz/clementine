@@ -1,6 +1,6 @@
 use crate::builder::transaction::TxHandler;
 use crate::config::BridgeConfig;
-use crate::constants::{NUM_INTERMEDIATE_STEPS, NUM_KICKOFFS_PER_TIMETX};
+use crate::constants::NUM_INTERMEDIATE_STEPS;
 use crate::errors::BridgeError;
 use crate::{builder, database::Database, EVMAddress};
 use async_stream::try_stream;
@@ -142,16 +142,18 @@ pub fn create_nofn_sighash_stream(
                     input_amount,
                     timeout_block_count,
                     max_withdrawal_time_block_count,
+                    config.num_kickoffs_per_timetx,
                     network,
                 );
 
                 let reimburse_generator_txhandler = builder::transaction::create_reimburse_generator_txhandler(
                     &sequential_collateral_txhandler,
                     *operator_xonly_pk,
+                    config.num_kickoffs_per_timetx,
                     network,
                 );
 
-                for kickoff_idx in 0..NUM_KICKOFFS_PER_TIMETX {
+                for kickoff_idx in 0..config.num_kickoffs_per_timetx {
                     let kickoff_txhandler = builder::transaction::create_kickoff_txhandler(
                         &sequential_collateral_txhandler,
                         kickoff_idx,

@@ -5,7 +5,7 @@
 
 use super::address::create_taproot_address;
 use crate::builder;
-use crate::constants::{NUM_INTERMEDIATE_STEPS, NUM_KICKOFFS_PER_TIMETX};
+use crate::constants::NUM_INTERMEDIATE_STEPS;
 use crate::{utils, EVMAddress, UTXO};
 use bitcoin::address::NetworkUnchecked;
 use bitcoin::hashes::Hash;
@@ -61,6 +61,7 @@ pub fn create_sequential_collateral_txhandler(
     input_amount: Amount,
     timeout_block_count: i64,
     max_withdrawal_time_block_count: i64,
+    num_kickoffs_per_timetx: usize,
     network: bitcoin::Network,
 ) -> TxHandler {
     let tx_ins = create_tx_ins(vec![OutPoint {
@@ -105,7 +106,7 @@ pub fn create_sequential_collateral_txhandler(
         },
     ];
     // add kickoff utxos
-    for _ in 0..NUM_KICKOFFS_PER_TIMETX {
+    for _ in 0..num_kickoffs_per_timetx {
         tx_outs.push(kickoff_txout.clone());
         out_scripts.push(vec![timeout_block_count_locked_script.clone()]);
         out_taproot_spend_infos.push(Some(kickoff_utxo_spend.clone()));
@@ -134,6 +135,7 @@ pub fn create_sequential_collateral_txhandler(
 pub fn create_reimburse_generator_txhandler(
     sequential_collateral_txhandler: &TxHandler,
     operator_xonly_pk: XOnlyPublicKey,
+    num_kickoffs_per_timetx: usize,
     network: bitcoin::Network,
 ) -> TxHandler {
     let tx_ins = create_tx_ins(vec![
@@ -164,7 +166,7 @@ pub fn create_reimburse_generator_txhandler(
     }];
 
     // add reimburse utxos
-    for _ in 0..NUM_KICKOFFS_PER_TIMETX {
+    for _ in 0..num_kickoffs_per_timetx {
         tx_outs.push(reimburse_txout.clone());
         out_scripts.push(vec![]);
         out_taproot_spend_infos.push(Some(op_spend.clone()));
