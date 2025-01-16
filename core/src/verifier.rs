@@ -570,6 +570,223 @@ impl Verifier {
     //         move_tx_sig as MusigPartialSignature, // move_reveal_sig as MuSigPartialSignature,
     //     )
     // }
+
+    /// verify burn txs are signed by verifiers
+    /// sign operator_takes_txs
+    /// TODO: Change the name of this function.
+    #[tracing::instrument(skip(self), err(level = tracing::Level::ERROR), ret(level = tracing::Level::TRACE))]
+    pub async fn burn_txs_signed(
+        &self,
+        deposit_outpoint: OutPoint,
+        _burn_sigs: Vec<schnorr::Signature>,
+        slash_or_take_sigs: Vec<schnorr::Signature>,
+    ) -> Result<Vec<MuSigPartialSignature>, BridgeError> {
+        // TODO: Verify burn txs are signed by verifiers
+        let (kickoff_utxos, _, bridge_fund_outpoint) =
+            self.create_deposit_details(deposit_outpoint).await?;
+
+        let operator_takes_sighashes: Vec<MuSigSigHash> = kickoff_utxos
+            .iter()
+            .enumerate()
+            .map(|(index, kickoff_utxo)| {
+                let mut slash_or_take_tx_handler = builder::transaction::create_slash_or_take_tx(
+                    deposit_outpoint,
+                    kickoff_utxo.clone(),
+                    self.operator_xonly_pks[index],
+                    index,
+                    self.nofn_xonly_pk,
+                    self.config.network,
+                    self.config.user_takes_after,
+                    self.config.operator_takes_after,
+                    self.config.bridge_amount_sats,
+                );
+                let slash_or_take_sighash =
+                    Actor::convert_tx_to_sighash_script_spend(&mut slash_or_take_tx_handler, 0, 0)
+                        .unwrap();
+
+                SECP256K1
+                    .verify_schnorr(
+                        &slash_or_take_sigs[index],
+                        &secp256k1::Message::from_digest(slash_or_take_sighash.to_byte_array()),
+                        &self.nofn_xonly_pk,
+                    )
+                    .unwrap();
+
+                let slash_or_take_utxo = UTXO {
+                    outpoint: OutPoint {
+                        txid: slash_or_take_tx_handler.tx.compute_txid(),
+                        vout: 0,
+                    },
+                    txout: slash_or_take_tx_handler.tx.output[0].clone(),
+                };
+
+                let mut operator_takes_tx = builder::transaction::create_operator_takes_tx(
+                    bridge_fund_outpoint,
+                    slash_or_take_utxo,
+                    self.operator_xonly_pks[index],
+                    self.nofn_xonly_pk,
+                    self.config.network,
+                    self.config.operator_takes_after,
+                    self.config.bridge_amount_sats,
+                    self.config.operator_wallet_addresses[index].clone(),
+                );
+                ByteArray32(
+                    Actor::convert_tx_to_sighash_pubkey_spend(&mut operator_takes_tx, 0)
+                        .unwrap()
+                        .to_byte_array(),
+                )
+            })
+            .collect::<Vec<_>>();
+
+        self.db
+            .save_slash_or_take_sigs(deposit_outpoint, slash_or_take_sigs)
+            .await?;
+
+        // println!("Operator takes sighashes: {:?}", operator_takes_sighashes);
+        let nonces = self
+            .db
+            .save_sighashes_and_get_nonces(None, deposit_outpoint, 1, &operator_takes_sighashes)
+            .await?
+            .ok_or(BridgeError::NoncesNotFound)?;
+        // println!("Nonces: {:?}", nonces);
+        // now iterate over nonces and sighashes and sign the operator_takes_txs
+        let operator_takes_partial_sigs = operator_takes_sighashes
+            .iter()
+            .zip(nonces.iter())
+            .map(|(sighash, (sec_nonce, agg_nonce))| {
+                musig2::partial_sign(
+                    self.config.verifiers_public_keys.clone(),
+                    None,
+                    true,
+                    *sec_nonce,
+                    *agg_nonce,
+                    &self.signer.keypair,
+                    *sighash,
+                )
+            })
+            .collect::<Vec<_>>();
+
+        Ok(operator_takes_partial_sigs)
+    }
+
+    /// verify the operator_take_sigs
+    /// sign move_tx
+    #[tracing::instrument(skip(self), err(level = tracing::Level::ERROR), ret(level = tracing::Level::TRACE))]
+    pub async fn operator_take_txs_signed(
+        &self,
+        deposit_outpoint: OutPoint,
+        operator_take_sigs: Vec<schnorr::Signature>,
+    ) -> Result<MuSigPartialSignature, BridgeError> {
+        // println!("Operator take signed: {:?}", operator_take_sigs);
+        let (kickoff_utxos, mut move_tx_handler, bridge_fund_outpoint) =
+            self.create_deposit_details(deposit_outpoint).await?;
+        let nofn_taproot_xonly_pk = secp256k1::XOnlyPublicKey::from_slice(
+            &Address::p2tr(SECP256K1, self.nofn_xonly_pk, None, self.config.network)
+                .script_pubkey()
+                .as_bytes()[2..34],
+        )?;
+        kickoff_utxos
+            .iter()
+            .enumerate()
+            .for_each(|(index, kickoff_utxo)| {
+                let slash_or_take_tx = builder::transaction::create_slash_or_take_tx(
+                    deposit_outpoint,
+                    kickoff_utxo.clone(),
+                    self.operator_xonly_pks[index],
+                    index,
+                    self.nofn_xonly_pk,
+                    self.config.network,
+                    self.config.user_takes_after,
+                    self.config.operator_takes_after,
+                    self.config.bridge_amount_sats,
+                );
+                let slash_or_take_utxo = UTXO {
+                    outpoint: OutPoint {
+                        txid: slash_or_take_tx.tx.compute_txid(),
+                        vout: 0,
+                    },
+                    txout: slash_or_take_tx.tx.output[0].clone(),
+                };
+                let mut operator_takes_tx = builder::transaction::create_operator_takes_tx(
+                    bridge_fund_outpoint,
+                    slash_or_take_utxo,
+                    self.operator_xonly_pks[index],
+                    self.nofn_xonly_pk,
+                    self.config.network,
+                    self.config.operator_takes_after,
+                    self.config.bridge_amount_sats,
+                    self.config.operator_wallet_addresses[index].clone(),
+                );
+                tracing::debug!(
+                    "INDEXXX: {:?} Operator takes tx hex: {:?}",
+                    index,
+                    operator_takes_tx.tx.raw_hex()
+                );
+
+                let sig_hash =
+                    Actor::convert_tx_to_sighash_pubkey_spend(&mut operator_takes_tx, 0).unwrap();
+
+                // verify the operator_take_sigs
+                SECP256K1
+                    .verify_schnorr(
+                        &operator_take_sigs[index],
+                        &secp256k1::Message::from_digest(sig_hash.to_byte_array()),
+                        &nofn_taproot_xonly_pk,
+                    )
+                    .unwrap();
+            });
+
+        let kickoff_utxos = kickoff_utxos
+            .into_iter()
+            .enumerate()
+            .map(|(index, utxo)| (utxo, operator_take_sigs[index]));
+
+        self.db
+            .save_operator_take_sigs(deposit_outpoint, kickoff_utxos)
+            .await?;
+
+        // println!("MOVE_TX: {:?}", move_tx_handler);
+        // println!("MOVE_TXID: {:?}", move_tx_handler.tx.compute_txid());
+        let move_tx_sighash =
+            Actor::convert_tx_to_sighash_script_spend(&mut move_tx_handler, 0, 0)?; // TODO: This should be musig
+
+        // let move_reveal_sighash =
+        //     Actor::convert_tx_to_sighash_script_spend(&mut move_reveal_tx_handler, 0, 0)?; // TODO: This should be musig
+
+        let nonces = self
+            .db
+            .save_sighashes_and_get_nonces(
+                None,
+                deposit_outpoint,
+                0,
+                &[ByteArray32(move_tx_sighash.to_byte_array())],
+            )
+            .await?
+            .ok_or(BridgeError::NoncesNotFound)?;
+
+        let move_tx_sig = musig2::partial_sign(
+            self.config.verifiers_public_keys.clone(),
+            None,
+            false,
+            nonces[0].0,
+            nonces[0].1,
+            &self.signer.keypair,
+            ByteArray32(move_tx_sighash.to_byte_array()),
+        );
+
+        // let move_reveal_sig = musig2::partial_sign(
+        //     self.config.verifiers_public_keys.clone(),
+        //     None,
+        //     nonces[1].0,
+        //     nonces[2].1.clone(),
+        //     &self.signer.keypair,
+        //     move_reveal_sighash.to_byte_array(),
+        // );
+
+        Ok(
+            move_tx_sig as MuSigPartialSignature, // move_reveal_sig as MuSigPartialSignature,
+        )
+    }
 }
 
 // #[cfg(test)]

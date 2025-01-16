@@ -144,7 +144,7 @@ async fn key_spend() {
     .unwrap();
     SECP.verify_schnorr(&final_signature, &message, &agg_pk)
         .unwrap();
-
+ 
     rpc.mine_blocks(1).await.unwrap();
 
     tx_details.tx.input[0]
@@ -244,6 +244,7 @@ async fn key_spend_with_script() {
     SECP.verify_schnorr(&final_signature, &message, &agg_pk)
         .unwrap();
 
+
     rpc.mine_blocks(1).await.unwrap();
 
     tx_details.tx.input[0]
@@ -338,8 +339,10 @@ async fn script_spend() {
         message,
     )
     .unwrap();
+  
     utils::SECP
         .verify_schnorr(&final_signature, &message, &agg_xonly_pubkey)
+
         .unwrap();
 
     let witness_elements = vec![final_signature.as_ref()];

@@ -15,6 +15,8 @@ use bitcoin::{
 
 use super::transaction::ANCHOR_AMOUNT;
 
+use super::transaction::ANCHOR_AMOUNT;
+
 pub fn anyone_can_spend_txout() -> TxOut {
     let script = Builder::new().push_opcode(OP_PUSHNUM_1).into_script();
     let script_pubkey = script.to_p2wsh();

@@ -139,6 +139,7 @@ impl Actor {
     pub fn sign(&self, sighash: TapSighash) -> schnorr::Signature {
         utils::SECP.sign_schnorr(
             &Message::from_digest(*sighash.as_byte_array()),
+
             &self.keypair,
         )
     }

@@ -409,6 +409,7 @@ mod tests {
         let kp_2 = Keypair::new(&SECP, &mut secp256k1::rand::thread_rng());
 
         let message = Message::from_digest(secp256k1::rand::thread_rng().gen::<[u8; 32]>());
+
         let tweak: [u8; 32] = secp256k1::rand::thread_rng().gen();
 
         let pks = vec![kp_0.public_key(), kp_1.public_key(), kp_2.public_key()];
@@ -484,6 +485,7 @@ mod tests {
         let scripts: Vec<ScriptBuf> = vec![dummy_script];
         let receiving_address = bitcoin::Address::p2tr(
             &SECP,
+
             *utils::UNSPENDABLE_XONLY_PUBKEY,
             None,
             bitcoin::Network::Regtest,
@@ -559,6 +561,7 @@ mod tests {
         .unwrap();
 
         SECP.verify_schnorr(&final_signature, &message, &musig_agg_xonly_pubkey)
+
             .unwrap();
     }
 
