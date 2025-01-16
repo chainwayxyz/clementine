@@ -173,25 +173,33 @@ pub fn create_nofn_sighash_stream(
                         Some(bitcoin::sighash::TapSighashType::SinglePlusAnyoneCanPay)
                     )?;
 
-                    let mut happy_reimburse_tx = builder::transaction::create_happy_reimburse_txhandler(
-                        &move_txhandler,
+                    let mut start_happy_reimburse_txhandler = builder::transaction::create_start_happy_reimburse_txhandler(
                         &kickoff_txhandler,
+                        *operator_xonly_pk,
+                        network
+                    );
+
+                    // sign kickoff_tx utxo
+                    yield convert_tx_to_pubkey_spend(
+                        &mut start_happy_reimburse_txhandler,
+                        1,
+                        None
+                    )?;
+
+                    let mut happy_reimburse_txhandler = builder::transaction::create_happy_reimburse_txhandler(
+                        &move_txhandler,
+                        &start_happy_reimburse_txhandler,
+                        &time2_txhandler,
+                        kickoff_idx,
                         _operator_reimburse_address,
                     );
 
-                    // move utxo
+                    // sign move_tx utxo
                     yield convert_tx_to_pubkey_spend(
-                        &mut happy_reimburse_tx,
+                        &mut happy_reimburse_txhandler,
                         0,
                         None
                     )?;
-                    // nofn_or_nofn3week utxo
-                    yield convert_tx_to_pubkey_spend(
-                        &mut happy_reimburse_tx,
-                        2,
-                        None
-                    )?;
-
 
                     let watchtower_wots = (0..config.num_watchtowers)
                         .map(|i| watchtower_challenge_wotss[i][time_tx_idx].clone())

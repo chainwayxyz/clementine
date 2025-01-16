@@ -941,9 +941,59 @@ pub fn create_challenge_txhandler(
     }
 }
 
+pub fn create_start_happy_reimburse_txhandler(
+    kickoff_txhandler: &TxHandler,
+    operator_xonly_pk: XOnlyPublicKey,
+    network: bitcoin::Network,
+) -> TxHandler {
+    let tx_ins = create_tx_ins(vec![
+        OutPoint {
+            txid: kickoff_txhandler.txid,
+            vout: 1,
+        },
+        OutPoint {
+            txid: kickoff_txhandler.txid,
+            vout: 3,
+        },
+    ]);
+
+    let (op_address, op_spend) = create_taproot_address(&[], Some(operator_xonly_pk), network);
+
+    let tx_outs = vec![
+        TxOut {
+            value: MIN_TAPROOT_AMOUNT,
+            script_pubkey: op_address.script_pubkey(),
+        },
+        builder::script::anchor_output(),
+    ];
+
+    let happy_reimburse_tx = create_btc_tx(tx_ins, tx_outs);
+
+    TxHandler {
+        txid: happy_reimburse_tx.compute_txid(),
+        tx: happy_reimburse_tx,
+        prevouts: vec![
+            kickoff_txhandler.tx.output[1].clone(),
+            kickoff_txhandler.tx.output[3].clone(),
+        ],
+        prev_scripts: vec![
+            kickoff_txhandler.out_scripts[1].clone(),
+            kickoff_txhandler.out_scripts[3].clone(),
+        ],
+        prev_taproot_spend_infos: vec![
+            kickoff_txhandler.out_taproot_spend_infos[1].clone(),
+            kickoff_txhandler.out_taproot_spend_infos[3].clone(),
+        ],
+        out_scripts: vec![vec![], vec![]],
+        out_taproot_spend_infos: vec![Some(op_spend), None],
+    }
+}
+
 pub fn create_happy_reimburse_txhandler(
     move_txhandler: &TxHandler,
-    kickoff_txhandler: &TxHandler,
+    start_happy_reimburse_txhandler: &TxHandler,
+    reimburse_generator_txhandler: &TxHandler,
+    kickoff_idx: usize,
     operator_reimbursement_address: &bitcoin::Address,
 ) -> TxHandler {
     let tx_ins = create_tx_ins(vec![
@@ -952,12 +1002,12 @@ pub fn create_happy_reimburse_txhandler(
             vout: 0,
         },
         OutPoint {
-            txid: kickoff_txhandler.txid,
-            vout: 1,
+            txid: start_happy_reimburse_txhandler.txid,
+            vout: 0,
         },
         OutPoint {
-            txid: kickoff_txhandler.txid,
-            vout: 3,
+            txid: reimburse_generator_txhandler.txid,
+            vout: 1 + kickoff_idx as u32,
         },
     ]);
 
@@ -978,18 +1028,18 @@ pub fn create_happy_reimburse_txhandler(
         tx: happy_reimburse_tx,
         prevouts: vec![
             move_txhandler.tx.output[0].clone(),
-            kickoff_txhandler.tx.output[1].clone(),
-            kickoff_txhandler.tx.output[3].clone(),
+            start_happy_reimburse_txhandler.tx.output[0].clone(),
+            reimburse_generator_txhandler.tx.output[1 + kickoff_idx].clone(),
         ],
         prev_scripts: vec![
             move_txhandler.out_scripts[0].clone(),
-            kickoff_txhandler.out_scripts[1].clone(),
-            kickoff_txhandler.out_scripts[3].clone(),
+            start_happy_reimburse_txhandler.out_scripts[0].clone(),
+            reimburse_generator_txhandler.out_scripts[1 + kickoff_idx].clone(),
         ],
         prev_taproot_spend_infos: vec![
             move_txhandler.out_taproot_spend_infos[0].clone(),
-            kickoff_txhandler.out_taproot_spend_infos[1].clone(),
-            kickoff_txhandler.out_taproot_spend_infos[3].clone(),
+            start_happy_reimburse_txhandler.out_taproot_spend_infos[0].clone(),
+            reimburse_generator_txhandler.out_taproot_spend_infos[1 + kickoff_idx].clone(),
         ],
         out_scripts: vec![vec![], vec![]],
         out_taproot_spend_infos: vec![None, None],
