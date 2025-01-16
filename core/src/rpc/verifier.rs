@@ -231,7 +231,8 @@ impl ClementineVerifier for Verifier {
                 let (sec_nonce, pub_nonce) = musig2::nonce_pair(
                     &self.signer.keypair,
                     &mut bitcoin::secp256k1::rand::thread_rng(),
-                );
+                )
+                .unwrap();
                 (sec_nonce, pub_nonce)
             })
             .unzip();
@@ -413,7 +414,8 @@ impl ClementineVerifier for Verifier {
                     agg_nonce,
                     verifier.signer.keypair,
                     Message::from_digest(*sighash.as_byte_array()),
-                );
+                )
+                .unwrap();
 
                 let partial_sig = PartialSig {
                     partial_sig: move_tx_sig.serialize().to_vec(),

@@ -34,7 +34,8 @@ pub struct NofN {
 impl NofN {
     pub fn new(self_pk: secp256k1::PublicKey, public_keys: Vec<secp256k1::PublicKey>) -> Self {
         let idx = public_keys.iter().position(|pk| pk == &self_pk).unwrap();
-        let agg_xonly_pk = secp256k1::XOnlyPublicKey::from_musig2_pks(public_keys.clone(), None);
+        let agg_xonly_pk =
+            secp256k1::XOnlyPublicKey::from_musig2_pks(public_keys.clone(), None).unwrap();
         NofN {
             public_keys,
             agg_xonly_pk,
@@ -76,7 +77,8 @@ impl Verifier {
         let db = Database::new(&config).await?;
 
         let nofn_xonly_pk =
-            secp256k1::XOnlyPublicKey::from_musig2_pks(config.verifiers_public_keys.clone(), None);
+            secp256k1::XOnlyPublicKey::from_musig2_pks(config.verifiers_public_keys.clone(), None)
+                .unwrap();
 
         let operator_xonly_pks = config.operators_xonly_pks.clone();
 

@@ -49,7 +49,7 @@ impl Aggregator {
         let db = Database::new(&config).await?;
 
         let nofn_xonly_pk =
-            XOnlyPublicKey::from_musig2_pks(config.verifiers_public_keys.clone(), None);
+            XOnlyPublicKey::from_musig2_pks(config.verifiers_public_keys.clone(), None)?;
 
         let verifier_endpoints =
             config

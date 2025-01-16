@@ -256,7 +256,7 @@ mod tests {
             .iter()
             .map(|pk| PublicKey::from_str(pk).unwrap())
             .collect();
-        let nofn_xonly_pk = XOnlyPublicKey::from_musig2_pks(verifier_pks, None);
+        let nofn_xonly_pk = XOnlyPublicKey::from_musig2_pks(verifier_pks, None).unwrap();
 
         let evm_address: [u8; 20] = hex::decode("1234567890123456789012345678901234567890")
             .unwrap()

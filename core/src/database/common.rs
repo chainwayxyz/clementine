@@ -1217,7 +1217,7 @@ mod tests {
             .collect();
         let pub_nonces: Vec<MusigPubNonce> = keypairs
             .into_iter()
-            .map(|kp| nonce_pair(&kp, &mut OsRng).1)
+            .map(|kp| nonce_pair(&kp, &mut OsRng).unwrap().1)
             .collect();
         db.save_nonces(None, outpoint, &pub_nonces).await.unwrap();
         let pub_nonces = db.get_pub_nonces(None, outpoint).await.unwrap().unwrap();

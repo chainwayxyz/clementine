@@ -19,9 +19,12 @@ pub enum BridgeError {
     /// Returned when the bitcoin crate returns an error in the sighash taproot module
     #[error("BitcoinSighashTaprootError: {0}")]
     BitcoinSighashTaprootError(#[from] bitcoin::sighash::TaprootError),
-    /// Returned when the secp256k1 crate returns an error
+
     #[error("Secp256k1Error: {0}")]
     Secp256k1Error(#[from] secp256k1::Error),
+    #[error("Scalar can't be build: {0}")]
+    Secp256k1ScalarOutOfRange(#[from] secp256k1::scalar::OutOfRangeError),
+
     /// Returned when a non finalized deposit request is found
     #[error("DepositNotFinalized")]
     DepositNotFinalized,
