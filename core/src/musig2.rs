@@ -156,11 +156,13 @@ pub fn aggregate_partial_signatures(
 
     let partial_sigs: Vec<&MusigPartialSignature> = partial_sigs.iter().collect();
     let final_sig = session.partial_sig_agg(&partial_sigs);
-    SECP256K1.verify_schnorr(
-        &final_sig,
-        secp_message.as_ref(),
-        &musig_key_agg_cache.agg_pk(),
-    )?; // TODO: Change this later
+    SECP256K1
+        .verify_schnorr(
+            &final_sig,
+            secp_message.as_ref(),
+            &musig_key_agg_cache.agg_pk(),
+        )
+        .map_err(|e| BridgeError::Error(format!("Can't verify schnorr sig: {}", e)))?; // TODO: Change this later
 
     Ok(from_secp_sig(session.partial_sig_agg(&partial_sigs)))
 }
@@ -485,7 +487,6 @@ mod tests {
         let scripts: Vec<ScriptBuf> = vec![dummy_script];
         let receiving_address = bitcoin::Address::p2tr(
             &SECP,
-
             *utils::UNSPENDABLE_XONLY_PUBKEY,
             None,
             bitcoin::Network::Regtest,
@@ -561,7 +562,6 @@ mod tests {
         .unwrap();
 
         SECP.verify_schnorr(&final_signature, &message, &musig_agg_xonly_pubkey)
-
             .unwrap();
     }
 

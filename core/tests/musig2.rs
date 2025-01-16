@@ -28,7 +28,7 @@ fn get_verifiers_keys(config: &BridgeConfig) -> (Vec<Keypair>, XOnlyPublicKey, V
 
     let verifiers_secret_public_keys: Vec<Keypair> = verifiers_secret_keys
         .iter()
-        .map(|sk| Keypair::from_secret_key(SECP256K1, sk))
+        .map(|sk| Keypair::from_secret_key(&SECP, sk))
         .collect();
 
     let verifier_public_keys = verifiers_secret_public_keys
@@ -144,7 +144,7 @@ async fn key_spend() {
     .unwrap();
     SECP.verify_schnorr(&final_signature, &message, &agg_pk)
         .unwrap();
- 
+
     rpc.mine_blocks(1).await.unwrap();
 
     tx_details.tx.input[0]
@@ -244,7 +244,6 @@ async fn key_spend_with_script() {
     SECP.verify_schnorr(&final_signature, &message, &agg_pk)
         .unwrap();
 
-
     rpc.mine_blocks(1).await.unwrap();
 
     tx_details.tx.input[0]
@@ -281,7 +280,7 @@ async fn script_spend() {
     let scripts: Vec<ScriptBuf> = vec![musig2_script];
 
     let to_address = bitcoin::Address::p2tr(
-        SECP256K1,
+        &SECP,
         *utils::UNSPENDABLE_XONLY_PUBKEY,
         None,
         bitcoin::Network::Regtest,
@@ -339,10 +338,9 @@ async fn script_spend() {
         message,
     )
     .unwrap();
-  
+
     utils::SECP
         .verify_schnorr(&final_signature, &message, &agg_xonly_pubkey)
-
         .unwrap();
 
     let witness_elements = vec![final_signature.as_ref()];

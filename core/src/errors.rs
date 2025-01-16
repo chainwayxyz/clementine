@@ -20,8 +20,8 @@ pub enum BridgeError {
     #[error("BitcoinSighashTaprootError: {0}")]
     BitcoinSighashTaprootError(#[from] bitcoin::sighash::TaprootError),
 
-    #[error("Secp256k1Error: {0}")]
-    Secp256k1Error(#[from] secp256k1::Error),
+    // #[error("Secp256k1Error: {0}")]
+    // Secp256k1Error(#[from] bitcoin::secp256k1::Error),
     #[error("Scalar can't be build: {0}")]
     Secp256k1ScalarOutOfRange(#[from] secp256k1::scalar::OutOfRangeError),
 

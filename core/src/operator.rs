@@ -7,7 +7,7 @@ use crate::database::Database;
 use crate::errors::BridgeError;
 use crate::extended_rpc::ExtendedRpc;
 use crate::musig2::AggregateFromPublicKeys;
-use crate::utils::handle_taproot_witness_new;
+use crate::utils::{handle_taproot_witness_new, SECP};
 use crate::{utils, EVMAddress, UTXO};
 use bitcoin::address::NetworkUnchecked;
 use bitcoin::consensus::deserialize;
@@ -438,7 +438,7 @@ impl Operator {
         };
         tx.input[0].witness.push(user_sig_wrapped.serialize());
 
-        SECP256K1.verify_schnorr(
+        SECP.verify_schnorr(
             &user_sig,
             &Message::from_digest(*sighash.as_byte_array()),
             &user_xonly_pk,

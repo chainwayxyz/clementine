@@ -367,7 +367,8 @@ mod tests {
             AddressDB, BlockHashDB, BlockHeaderDB, EVMAddressDB, SignatureDB, SignaturesDB,
             TxOutDB, TxidDB,
         },
-        utils, EVMAddress,
+        utils::{self, SECP},
+        EVMAddress,
     };
     use bitcoin::{
         block::{self, Version},
@@ -423,7 +424,7 @@ mod tests {
         );
 
         let address = bitcoin::Address::p2tr(
-            SECP256K1,
+            &SECP,
             *utils::UNSPENDABLE_XONLY_PUBKEY,
             None,
             bitcoin::Network::Regtest,

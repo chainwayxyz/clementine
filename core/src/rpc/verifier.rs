@@ -10,7 +10,8 @@ use crate::{
     },
     errors::BridgeError,
     musig2::{self},
-    sha256_hash, utils,
+    sha256_hash,
+    utils::{self, SECP},
     verifier::{NofN, NonceSession, Verifier},
     EVMAddress,
 };
@@ -131,20 +132,17 @@ impl ClementineVerifier for Verifier {
         timeout_tx_sighash_stream
             .enumerate()
             .map(|(i, sighash)| {
-                SECP256K1
-                    .verify_schnorr(
-                        &timeout_tx_sigs[i],
-                        &Message::from(sighash?),
-                        &operator_xonly_pk,
-                    )
-                    .map_err(|e| {
-                        BridgeError::Error(format!("Can't verify Schnorr signature: {}", e))
-                    })
+                SECP.verify_schnorr(
+                    &timeout_tx_sigs[i],
+                    &Message::from(sighash?),
+                    &operator_xonly_pk,
+                )
+                .map_err(|e| BridgeError::Error(format!("Can't verify Schnorr signature: {}", e)))
             })
             .collect::<Vec<Result<(), BridgeError>>>()
             .await
             .into_iter()
-            .collect::<Result<Vec<()>, BridgeError>>()?;
+            .collect::<Result<Vec<_>, BridgeError>>()?;
 
         self.db
             .save_timeout_tx_sigs(None, operator_config.operator_idx, timeout_tx_sigs)

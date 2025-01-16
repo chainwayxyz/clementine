@@ -1121,7 +1121,8 @@ impl Database {
 
         rows.into_iter()
             .map(|xonly_pk| {
-                XOnlyPublicKey::from_slice(&xonly_pk.0).map_err(BridgeError::Secp256k1Error)
+                XOnlyPublicKey::from_slice(&xonly_pk.0)
+                    .map_err(|e| BridgeError::Error(format!("Can't convert xonly pubkey: {}", e)))
             })
             .collect()
     }
@@ -1153,7 +1154,7 @@ mod tests {
     use crate::utils::SECP;
     use crate::{config::BridgeConfig, initialize_database, utils::initialize_logger};
     use crate::{create_test_config_with_thread_name, musig2::nonce_pair, EVMAddress, UTXO};
-    use bitcoin::key::Keypair;
+    use bitcoin::key::{Keypair, Secp256k1};
     use bitcoin::secp256k1::{schnorr, SecretKey};
     use bitcoin::{
         block::{self, Header, Version},
@@ -1169,6 +1170,7 @@ mod tests {
     use borsh::BorshDeserialize;
     use risc0_zkvm::Receipt;
     use secp256k1::musig::MusigPubNonce;
+    use secp256k1::rand;
     use secp256k1::{constants::SCHNORR_SIGNATURE_SIZE, rand::rngs::OsRng};
     use std::{env, thread};
 
@@ -1825,8 +1827,6 @@ mod tests {
     async fn save_get_watchtower_xonly_pk() {
         let config = create_test_config_with_thread_name!(None);
         let database = Database::new(&config).await.unwrap();
-
-        use secp256k1::{rand, Keypair, Secp256k1, XOnlyPublicKey};
 
         let secp = Secp256k1::new();
         let keypair1 = Keypair::new(&secp, &mut rand::thread_rng());

@@ -1,6 +1,6 @@
 use crate::builder::transaction::TxHandler;
 use crate::errors::BridgeError;
-use crate::utils;
+use crate::utils::{self, SECP};
 use bitcoin::secp256k1::PublicKey;
 use bitcoin::sighash::SighashCache;
 use bitcoin::taproot::LeafVersion;
@@ -13,7 +13,6 @@ use bitcoin::{TapLeafHash, TapNodeHash, TapSighashType, TxOut, Witness};
 use bitvm::signatures::winternitz::{
     self, BinarysearchVerifier, StraightforwardConverter, Winternitz,
 };
-use secp256k1::SECP256K1;
 
 /// Available transaction types for [`WinternitzDerivationPath`].
 #[derive(Clone, Copy, Debug)]
@@ -106,9 +105,9 @@ impl Actor {
         winternitz_secret_key: Option<SecretKey>,
         network: bitcoin::Network,
     ) -> Self {
-        let keypair = Keypair::from_secret_key(SECP256K1, &sk);
+        let keypair = Keypair::from_secret_key(&SECP, &sk);
         let (xonly, _parity) = XOnlyPublicKey::from_keypair(&keypair);
-        let address = Address::p2tr(SECP256K1, xonly, None, network);
+        let address = Address::p2tr(&SECP, xonly, None, network);
 
         Actor {
             keypair,
@@ -129,7 +128,7 @@ impl Actor {
         Ok(utils::SECP.sign_schnorr(
             &Message::from_digest(*sighash.as_byte_array()),
             &self.keypair.add_xonly_tweak(
-                SECP256K1,
+                &SECP,
                 &TapTweakHash::from_key_and_tweak(self.xonly_public_key, merkle_root).to_scalar(),
             )?,
         ))
@@ -139,7 +138,6 @@ impl Actor {
     pub fn sign(&self, sighash: TapSighash) -> schnorr::Signature {
         utils::SECP.sign_schnorr(
             &Message::from_digest(*sighash.as_byte_array()),
-
             &self.keypair,
         )
     }
