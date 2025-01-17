@@ -355,11 +355,7 @@ impl ClementineVerifier for Verifier {
                 verifier.config.bridge_amount_sats,
                 verifier.config.network,
             ));
-            let num_required_sigs = calculate_num_required_sigs(
-                verifier.config.num_operators,
-                verifier.config.num_time_txs,
-                verifier.config.num_watchtowers,
-            );
+            let num_required_sigs = calculate_num_required_sigs(&verifier.config);
             while let Some(result) = in_stream.message().await.unwrap() {
                 let agg_nonce = match result
                     .params
@@ -471,11 +467,7 @@ impl ClementineVerifier for Verifier {
             self.config.bridge_amount_sats,
             self.config.network,
         ));
-        let num_required_sigs = calculate_num_required_sigs(
-            self.config.num_operators,
-            self.config.num_time_txs,
-            self.config.num_watchtowers,
-        );
+        let num_required_sigs = calculate_num_required_sigs(&self.config);
         let mut nonce_idx: usize = 0;
         while let Some(result) = in_stream.message().await.unwrap() {
             let sighash = sighash_stream.next().await.unwrap().unwrap();

@@ -12,12 +12,11 @@ use futures_core::stream::Stream;
 
 // TODO: For now, this is equal to the number of sighashes we yield in create_nofn_sighash_stream.
 // This will change as we implement the system design.
-pub fn calculate_num_required_sigs(
-    num_operators: usize,
-    num_time_txs: usize,
-    num_watchtowers: usize,
-) -> usize {
-    num_operators * num_time_txs * (6 + 2 * num_watchtowers + NUM_INTERMEDIATE_STEPS)
+pub fn calculate_num_required_sigs(config: &BridgeConfig) -> usize {
+    config.num_operators
+        * config.num_time_txs
+        * config.num_kickoffs_per_timetx
+        * (10 + 2 * config.num_watchtowers)
 }
 
 pub fn convert_tx_to_pubkey_spend(
@@ -202,8 +201,8 @@ pub fn create_nofn_sighash_stream(
                         .map(|i| watchtower_challenge_wotss[i][time_tx_idx * config.num_kickoffs_per_timetx + kickoff_idx].clone())
                         .collect::<Vec<_>>();
 
-                    let mut watchtower_challenge_page_tx_handler =
-                        builder::transaction::create_watchtower_challenge_page_txhandler(
+                    let mut watchtower_challenge_kickoff_txhandler =
+                        builder::transaction::create_watchtower_challenge_kickoff_txhandler(
                             &kickoff_txhandler,
                             config.num_watchtowers as u32,
                             &watchtower_pks,
@@ -212,7 +211,7 @@ pub fn create_nofn_sighash_stream(
                         );
 
                     yield convert_tx_to_pubkey_spend(
-                        &mut watchtower_challenge_page_tx_handler,
+                        &mut watchtower_challenge_kickoff_txhandler,
                         0,
                         None,
                     )?;
@@ -233,7 +232,7 @@ pub fn create_nofn_sighash_stream(
                     for i in 0..config.num_watchtowers {
                         let watchtower_challenge_txhandler =
                             builder::transaction::create_watchtower_challenge_txhandler(
-                                &watchtower_challenge_page_tx_handler,
+                                &watchtower_challenge_kickoff_txhandler,
                                 i,
                                 &[0u8; 20], // TODO: real op unlock hash
                                 nofn_xonly_pk,

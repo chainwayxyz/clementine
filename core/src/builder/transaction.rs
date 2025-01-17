@@ -473,7 +473,7 @@ pub fn create_kickoff_txhandler(
 }
 
 /// Creates a [`TxHandler`] for the watchtower challenge page transaction.
-pub fn create_watchtower_challenge_page_txhandler(
+pub fn create_watchtower_challenge_kickoff_txhandler(
     kickoff_tx_handler: &TxHandler,
     num_watchtowers: u32,
     watchtower_xonly_pks: &[XOnlyPublicKey],
