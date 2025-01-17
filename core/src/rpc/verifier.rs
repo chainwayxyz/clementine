@@ -4,9 +4,11 @@ use super::clementine::{
     VerifierDepositSignParams, VerifierParams, VerifierPublicKeys, WatchtowerParams,
 };
 use crate::{
+    actor::Actor,
     builder::{
         self,
         sighash::{calculate_num_required_sigs, create_nofn_sighash_stream},
+        transaction::create_move_txhandler,
     },
     errors::BridgeError,
     musig2::{self, MuSigPubNonce, MuSigSecNonce},
@@ -486,7 +488,7 @@ impl ClementineVerifier for Verifier {
             self.config.clone(),
             deposit_outpoint,
             evm_address,
-            recovery_taproot_address,
+            recovery_taproot_address.clone(),
             self.nofn_xonly_pk,
             user_takes_after,
             Amount::from_sat(200_000_000), // TODO: Fix this.
@@ -500,7 +502,10 @@ impl ClementineVerifier for Verifier {
             self.config.num_time_txs,
             self.config.num_watchtowers,
         );
+
+        let mut verified_sigs = Vec::with_capacity(num_required_sigs);
         let mut nonce_idx: usize = 0;
+
         while let Some(result) = in_stream.message().await.unwrap() {
             let sighash = sighash_stream.next().await.unwrap().unwrap();
             let final_sig = result
@@ -523,6 +528,7 @@ impl ClementineVerifier for Verifier {
                 )
                 .unwrap();
 
+            verified_sigs.push(final_sig);
             tracing::debug!("Final Signature Verified");
 
             nonce_idx += 1;
@@ -531,10 +537,29 @@ impl ClementineVerifier for Verifier {
             }
         }
 
-        tracing::info!("Deposit finalized");
+        // Save signatures to database
+        self.db
+            .save_deposit_signatures(None, deposit_outpoint, 0, verified_sigs)
+            .await?;
 
+        // Generate partial signature for move transaction
+        let mut move_txhandler = create_move_txhandler(
+            deposit_outpoint,
+            evm_address,
+            &recovery_taproot_address,
+            self.nofn_xonly_pk,
+            u32::try_from(user_takes_after).expect("User takes after is too large"),
+            self.config.bridge_amount_sats,
+            self.config.network,
+        );
+
+        let move_tx_sighash = Actor::convert_tx_to_sighash_script_spend(&mut move_txhandler, 0, 0)?;
+
+        let partial_sig = self.signer.sign(move_tx_sighash);
+
+        tracing::info!("Deposit finalized");
         Ok(Response::new(PartialSig {
-            partial_sig: vec![1, 2],
+            partial_sig: partial_sig.serialize().to_vec(),
         }))
     }
 }

@@ -279,10 +279,10 @@ impl Database {
             "UPDATE deposit_kickoff_generator_txs
                 SET cur_unused_kickoff_index = cur_unused_kickoff_index + 1
                 WHERE id = (
-                    SELECT id 
-                    FROM deposit_kickoff_generator_txs 
+                    SELECT id
+                    FROM deposit_kickoff_generator_txs
                     WHERE cur_unused_kickoff_index < num_kickoffs
-                    ORDER BY id DESC 
+                    ORDER BY id DESC
                     LIMIT 1
                 )
                 RETURNING txid, raw_signed_tx, cur_unused_kickoff_index;", // This query returns the updated cur_unused_kickoff_index.
@@ -606,8 +606,8 @@ impl Database {
             .push_bind(OutPointDB(deposit_outpoint))
             .push(
                 " RETURNING nonces.internal_idx, sec_nonce, agg_nonce)
-            SELECT updated.sec_nonce, updated.agg_nonce 
-            FROM updated 
+            SELECT updated.sec_nonce, updated.agg_nonce
+            FROM updated
             ORDER BY updated.internal_idx;",
             )
             .build_query_as();
@@ -1141,6 +1141,56 @@ impl Database {
         }?;
 
         Ok(XOnlyPublicKey::from_slice(&xonly_key.0)?)
+    }
+
+    /// Saves the verified deposit signatures to the database
+    #[tracing::instrument(skip(self, tx, signatures), err(level = tracing::Level::ERROR), ret(level = tracing::Level::TRACE))]
+    pub async fn save_deposit_signatures(
+        &self,
+        tx: Option<&mut sqlx::Transaction<'_, Postgres>>,
+        deposit_outpoint: OutPoint,
+        operator_idx: u32,
+        signatures: Vec<schnorr::Signature>,
+    ) -> Result<(), BridgeError> {
+        let query = sqlx::query(
+            "INSERT INTO deposit_signatures (deposit_outpoint, operator_idx, signatures) VALUES ($1, $2, $3);"
+        )
+        .bind(OutPointDB(deposit_outpoint))
+        .bind(operator_idx as i64)
+        .bind(SignaturesDB(signatures));
+
+        match tx {
+            Some(tx) => query.execute(&mut **tx).await?,
+            None => query.execute(&self.connection).await?,
+        };
+
+        Ok(())
+    }
+
+    /// Retrieves the deposit signatures from the database
+    #[tracing::instrument(skip(self, tx), err(level = tracing::Level::ERROR), ret(level = tracing::Level::TRACE))]
+    pub async fn get_deposit_signatures(
+        &self,
+        tx: Option<&mut sqlx::Transaction<'_, Postgres>>,
+        deposit_outpoint: OutPoint,
+        operator_idx: u32,
+    ) -> Result<Option<Vec<schnorr::Signature>>, BridgeError> {
+        let query = sqlx::query_as(
+            "SELECT signatures FROM deposit_signatures WHERE deposit_outpoint = $1 AND operator_idx = $2;"
+        )
+        .bind(OutPointDB(deposit_outpoint))
+        .bind(operator_idx as i64);
+
+        let result: Result<(SignaturesDB,), sqlx::Error> = match tx {
+            Some(tx) => query.fetch_one(&mut **tx).await,
+            None => query.fetch_one(&self.connection).await,
+        };
+
+        match result {
+            Ok((SignaturesDB(signatures),)) => Ok(Some(signatures)),
+            Err(sqlx::Error::RowNotFound) => Ok(None),
+            Err(e) => Err(BridgeError::DatabaseError(e)),
+        }
     }
 }
 
