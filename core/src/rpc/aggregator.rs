@@ -576,31 +576,26 @@ mod tests {
     #[serial_test::serial]
     async fn aggregator_setup_watchtower_winternitz_public_keys() {
         let mut config = create_test_config_with_thread_name!(None);
-
         let (_verifiers, _operators, aggregator, _watchtowers) = create_actors!(config.clone());
         let mut aggregator_client =
             ClementineAggregatorClient::connect(format!("http://{}", aggregator.0))
                 .await
                 .unwrap();
-
         aggregator_client
             .setup(tonic::Request::new(clementine::Empty {}))
             .await
             .unwrap();
-
         let watchtower = Watchtower::new(config.clone()).await.unwrap();
         let watchtower_wpks = watchtower
             .get_watchtower_winternitz_public_keys()
             .await
             .unwrap();
-
         let rpc = ExtendedRpc::new(
             config.bitcoin_rpc_url.clone(),
             config.bitcoin_rpc_user.clone(),
             config.bitcoin_rpc_password.clone(),
         )
         .await;
-
         config.db_name += "0"; // This modification is done by the create_actors_grpc function.
         let verifier = Verifier::new(rpc, config.clone()).await.unwrap();
         let verifier_wpks = verifier
@@ -608,9 +603,8 @@ mod tests {
             .get_watchtower_winternitz_public_keys(None, 0, 0)
             .await
             .unwrap();
-
         assert_eq!(
-            watchtower_wpks[0..config.num_time_txs].to_vec(),
+            watchtower_wpks[0..config.num_time_txs * config.num_kickoffs_per_timetx].to_vec(),
             verifier_wpks
         );
     }

@@ -840,6 +840,9 @@ mod tests {
         let operator = Operator::new(config.clone(), rpc).await.unwrap();
 
         let winternitz_public_key = operator.get_winternitz_public_keys().unwrap();
-        assert_eq!(winternitz_public_key.len(), config.num_time_txs);
+        assert_eq!(
+            winternitz_public_key.len(),
+            config.num_time_txs * config.num_kickoffs_per_timetx
+        );
     }
 }

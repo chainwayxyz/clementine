@@ -180,7 +180,7 @@ impl Default for BridgeConfig {
             num_operators: 3,
             num_watchtowers: 4,
             num_time_txs: 10,
-            num_kickoffs_per_timetx: 10,
+            num_kickoffs_per_timetx: 2, // TODO: increase after implementing stream for watchtower params
             operators_xonly_pks: vec![
                 XOnlyPublicKey::from_str(
                     "4f355bdcb7cc0af728ef3cceb9615d90684bb5b2ca5f859ab0f0b704075871aa",
