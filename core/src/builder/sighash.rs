@@ -81,14 +81,9 @@ pub fn convert_tx_to_script_spend(
     Ok(sig_hash)
 }
 
-/// First iterate over operators
-/// For each operator, iterate over time txs
-/// For each time tx, create kickoff txid
-/// using kickoff txid, create watchtower challenge page
-/// yield watchtower challenge page sighash
-/// yield watchtower challenge tx sighash per watchtower
-/// yield sighash_single|anyonecanpay sighash for challenge tx
-/// TBC
+/// Construct every deposit tx for each operator, sequential_collateral, and kickoff utxo,
+/// and yield the sighash for each txin that needs a NofN signature.
+/// Refer to bridge design diagram to see which NofN signatures are needed (the ones marked with blue arrows)
 pub fn create_nofn_sighash_stream(
     db: Database,
     config: BridgeConfig,

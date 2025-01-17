@@ -509,37 +509,106 @@ mod tests {
         let mut params = WinternitzDerivationPath::default();
         assert_eq!(
             params.to_vec(),
-            vec![0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
+            vec![
+                vec![0],
+                vec![0; 4],
+                vec![0; 4],
+                vec![0; 4],
+                vec![0; 4],
+                vec![0; 4],
+                vec![0; 4]
+            ]
+            .concat()
         );
 
         params.index = Some(0);
         assert_eq!(
             params.to_vec(),
-            vec![0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
+            vec![
+                vec![0],
+                1u32.to_be_bytes().to_vec(),
+                vec![0; 4],
+                vec![0; 4],
+                vec![0; 4],
+                vec![0; 4],
+                vec![0; 4]
+            ]
+            .concat()
         );
 
         params.operator_idx = Some(1);
         assert_eq!(
             params.to_vec(),
-            vec![0, 0, 0, 0, 1, 0, 0, 0, 2, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
+            vec![
+                vec![0],
+                1u32.to_be_bytes().to_vec(),
+                2u32.to_be_bytes().to_vec(),
+                vec![0; 4],
+                vec![0; 4],
+                vec![0; 4],
+                vec![0; 4]
+            ]
+            .concat()
         );
 
         params.watchtower_idx = Some(2);
         assert_eq!(
             params.to_vec(),
-            vec![0, 0, 0, 0, 1, 0, 0, 0, 2, 0, 0, 0, 3, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
+            vec![
+                vec![0],
+                1u32.to_be_bytes().to_vec(),
+                2u32.to_be_bytes().to_vec(),
+                3u32.to_be_bytes().to_vec(),
+                vec![0; 4],
+                vec![0; 4],
+                vec![0; 4]
+            ]
+            .concat()
         );
 
         params.time_tx_idx = Some(3);
         assert_eq!(
             params.to_vec(),
-            vec![0, 0, 0, 0, 1, 0, 0, 0, 2, 0, 0, 0, 3, 0, 0, 0, 4, 0, 0, 0, 0, 0, 0, 0, 0]
+            vec![
+                vec![0],
+                1u32.to_be_bytes().to_vec(),
+                2u32.to_be_bytes().to_vec(),
+                3u32.to_be_bytes().to_vec(),
+                4u32.to_be_bytes().to_vec(),
+                vec![0; 4],
+                vec![0; 4]
+            ]
+            .concat()
         );
 
         params.kickoff_idx = Some(4);
         assert_eq!(
             params.to_vec(),
-            vec![0, 0, 0, 0, 1, 0, 0, 0, 2, 0, 0, 0, 3, 0, 0, 0, 4, 0, 0, 0, 5, 0, 0, 0, 0]
+            vec![
+                vec![0],
+                1u32.to_be_bytes().to_vec(),
+                2u32.to_be_bytes().to_vec(),
+                3u32.to_be_bytes().to_vec(),
+                4u32.to_be_bytes().to_vec(),
+                5u32.to_be_bytes().to_vec(),
+                vec![0; 4]
+            ]
+            .concat()
+        );
+
+        params.intermediate_step_idx = Some(5);
+        assert_eq!(
+            params.to_vec(),
+            vec![
+                vec![0],
+                1u32.to_be_bytes().to_vec(),
+                2u32.to_be_bytes().to_vec(),
+                3u32.to_be_bytes().to_vec(),
+                4u32.to_be_bytes().to_vec(),
+                5u32.to_be_bytes().to_vec(),
+                6u32.to_be_bytes().to_vec()
+            ]
+            .concat()
         );
     }
 
