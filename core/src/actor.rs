@@ -510,65 +510,75 @@ mod tests {
         let mut params = WinternitzDerivationPath::default();
         assert_eq!(
             params.to_vec(),
-            [vec![0],
+            [
+                vec![0],
                 vec![0; 4],
                 vec![0; 4],
                 vec![0; 4],
                 vec![0; 4],
                 vec![0; 4],
-                vec![0; 4]]
+                vec![0; 4]
+            ]
             .concat()
         );
 
         params.index = Some(0);
         assert_eq!(
             params.to_vec(),
-            [vec![0],
+            [
+                vec![0],
                 1u32.to_be_bytes().to_vec(),
                 vec![0; 4],
                 vec![0; 4],
                 vec![0; 4],
                 vec![0; 4],
-                vec![0; 4]]
+                vec![0; 4]
+            ]
             .concat()
         );
 
         params.operator_idx = Some(1);
         assert_eq!(
             params.to_vec(),
-            [vec![0],
+            [
+                vec![0],
                 1u32.to_be_bytes().to_vec(),
                 2u32.to_be_bytes().to_vec(),
                 vec![0; 4],
                 vec![0; 4],
                 vec![0; 4],
-                vec![0; 4]]
+                vec![0; 4]
+            ]
             .concat()
         );
 
         params.watchtower_idx = Some(2);
         assert_eq!(
             params.to_vec(),
-            [vec![0],
+            [
+                vec![0],
                 1u32.to_be_bytes().to_vec(),
                 2u32.to_be_bytes().to_vec(),
                 3u32.to_be_bytes().to_vec(),
                 vec![0; 4],
                 vec![0; 4],
-                vec![0; 4]]
+                vec![0; 4]
+            ]
             .concat()
         );
 
         params.time_tx_idx = Some(3);
         assert_eq!(
             params.to_vec(),
-            [vec![0],
+            [
+                vec![0],
                 1u32.to_be_bytes().to_vec(),
                 2u32.to_be_bytes().to_vec(),
                 3u32.to_be_bytes().to_vec(),
                 4u32.to_be_bytes().to_vec(),
                 vec![0; 4],
-                vec![0; 4]]
+                vec![0; 4]
+            ]
             .concat()
         );
 
