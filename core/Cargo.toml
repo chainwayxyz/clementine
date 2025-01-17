@@ -15,7 +15,7 @@ sha2 = { workspace = true }
 risc0-zkvm = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
-secp256k1 = { workspace = true, features = ["serde"] }
+secp256k1 = { workspace = true, features = ["serde", "rand", "std"] }
 crypto-bigint = { workspace = true }
 thiserror = { workspace = true }
 tracing = { workspace = true }
@@ -27,7 +27,6 @@ futures = { workspace = true }
 clap = { workspace = true, features = ["derive"] }
 toml = { workspace = true }
 sqlx = { workspace = true, features = ["runtime-tokio", "postgres", "macros"] }
-musig2 = { workspace = true }
 header-chain = { workspace = true }
 borsh = { workspace = true}
 tonic = { workspace = true}
@@ -49,8 +48,3 @@ testing = []
 [[bin]]
 name = "server"
 path = "src/bin/server.rs"
-
-[[bin]]
-name = "config_generator"
-path = "src/bin/config_generator.rs"
-required-features = ["testing"]
