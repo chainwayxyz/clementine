@@ -6,17 +6,22 @@ use super::clementine::{
 use crate::{
     builder::sighash::{calculate_num_required_sigs, create_nofn_sighash_stream},
     errors::BridgeError,
-    musig2::{self, MuSigPubNonce, MuSigSecNonce},
+    musig2::{self},
     sha256_hash,
+    utils::{self, SECP},
     verifier::{NofN, NonceSession, Verifier},
-    ByteArray32, ByteArray66, EVMAddress,
+    EVMAddress,
 };
-use bitcoin::{hashes::Hash, Amount, TapSighash, Txid};
+use bitcoin::{
+    hashes::Hash,
+    secp256k1::{schnorr, Message, PublicKey, SecretKey},
+    Amount, TapSighash, Txid, XOnlyPublicKey,
+};
 use bitvm::{
     bridge::transactions::signing_winternitz::WinternitzPublicKey, signatures::winternitz,
 };
 use futures::StreamExt;
-use secp256k1::{XOnlyPublicKey, SECP256K1};
+use secp256k1::musig::{MusigAggNonce, MusigPubNonce, MusigSecNonce};
 use std::{pin::pin, str::FromStr};
 use tokio::sync::mpsc;
 use tokio_stream::wrappers::ReceiverStream;
@@ -56,11 +61,11 @@ impl ClementineVerifier for Verifier {
         }
 
         // Extract the public keys from the request
-        let verifiers_public_keys: Vec<secp256k1::PublicKey> = req
+        let verifiers_public_keys: Vec<PublicKey> = req
             .into_inner()
             .verifier_public_keys
             .iter()
-            .map(|pk| secp256k1::PublicKey::from_slice(pk).unwrap())
+            .map(|pk| PublicKey::from_slice(pk).unwrap())
             .collect();
 
         let nofn = NofN::new(self.signer.public_key, verifiers_public_keys.clone());
@@ -85,7 +90,7 @@ impl ClementineVerifier for Verifier {
             .operator_details
             .ok_or(BridgeError::Error("No operator details".to_string()))?;
 
-        let operator_xonly_pk = secp256k1::XOnlyPublicKey::from_str(&operator_config.xonly_pk)
+        let operator_xonly_pk = XOnlyPublicKey::from_str(&operator_config.xonly_pk)
             .map_err(|_| BridgeError::Error("Invalid xonly public key".to_string()))?;
 
         // Save the operator details to the db
@@ -190,16 +195,19 @@ impl ClementineVerifier for Verifier {
         req: Request<NonceGenRequest>,
     ) -> Result<Response<Self::NonceGenStream>, Status> {
         let num_nonces = req.into_inner().num_nonces as usize;
-        let (sec_nonces, pub_nonces): (Vec<MuSigSecNonce>, Vec<MuSigPubNonce>) = (0..num_nonces)
+        let (sec_nonces, pub_nonces): (Vec<MusigSecNonce>, Vec<MusigPubNonce>) = (0..num_nonces)
             .map(|_| {
                 // nonce pair needs keypair and a rng
-                let (sec_nonce, pub_nonce) =
-                    musig2::nonce_pair(&self.signer.keypair, &mut secp256k1::rand::thread_rng());
+                let (sec_nonce, pub_nonce) = musig2::nonce_pair(
+                    &self.signer.keypair,
+                    &mut bitcoin::secp256k1::rand::thread_rng(),
+                )
+                .unwrap();
                 (sec_nonce, pub_nonce)
             })
             .unzip();
 
-        let private_key = secp256k1::SecretKey::new(&mut secp256k1::rand::thread_rng());
+        let private_key = SecretKey::new(&mut bitcoin::secp256k1::rand::thread_rng());
 
         let session = NonceSession {
             private_key,
@@ -215,7 +223,7 @@ impl ClementineVerifier for Verifier {
             session_id
         };
 
-        let public_key = secp256k1::PublicKey::from_secret_key(SECP256K1, &private_key)
+        let public_key = PublicKey::from_secret_key(&utils::SECP, &private_key)
             .serialize()
             .to_vec();
         let public_key_hash = sha256_hash!(&public_key);
@@ -245,7 +253,9 @@ impl ClementineVerifier for Verifier {
             // Then send the public nonces
             for pub_nonce in &pub_nonces[..] {
                 let response = NonceGenResponse {
-                    response: Some(nonce_gen_response::Response::PubNonce(pub_nonce.0.to_vec())),
+                    response: Some(nonce_gen_response::Response::PubNonce(
+                        pub_nonce.serialize().to_vec(),
+                    )),
                 };
                 tx.send(Ok(response)).await.unwrap();
             }
@@ -318,12 +328,17 @@ impl ClementineVerifier for Verifier {
                 _ => panic!("Expected DepositOutpoint"),
             };
 
-            let binding = verifier.nonces.lock().await;
-            let session = binding
+            let mut binding = verifier.nonces.lock().await;
+            let mut session = binding
                 .sessions
-                .get(&session_id)
-                .ok_or(Status::internal("No session found"))
+                .remove(&session_id)
+                .ok_or(BridgeError::Error(format!(
+                    "No session found for id: {}",
+                    session_id
+                )))
                 .unwrap();
+            session.nonces.reverse();
+
             let mut nonce_idx: usize = 0;
 
             let mut sighash_stream = pin!(create_nofn_sighash_stream(
@@ -352,7 +367,7 @@ impl ClementineVerifier for Verifier {
                     .unwrap()
                 {
                     clementine::verifier_deposit_sign_params::Params::AggNonce(agg_nonce) => {
-                        ByteArray66(agg_nonce.try_into().unwrap())
+                        MusigAggNonce::from_slice(agg_nonce.as_slice()).unwrap()
                     }
                     _ => panic!("Expected AggNonce"),
                 };
@@ -360,18 +375,20 @@ impl ClementineVerifier for Verifier {
                 let sighash = sighash_stream.next().await.unwrap().unwrap();
                 tracing::debug!("Verifier {} found sighash: {:?}", verifier.idx, sighash);
 
+                let nonce = session.nonces.pop().expect("No nonce available");
+
                 let move_tx_sig = musig2::partial_sign(
                     verifier.config.verifiers_public_keys.clone(),
                     None,
-                    false,
-                    session.nonces[nonce_idx],
+                    nonce,
                     agg_nonce,
-                    &verifier.signer.keypair,
-                    ByteArray32(sighash.to_byte_array()),
-                );
+                    verifier.signer.keypair,
+                    Message::from_digest(*sighash.as_byte_array()),
+                )
+                .unwrap();
 
                 let partial_sig = PartialSig {
-                    partial_sig: move_tx_sig.0.to_vec(),
+                    partial_sig: move_tx_sig.serialize().to_vec(),
                 };
 
                 tx.send(Ok(partial_sig)).await.unwrap();
@@ -381,9 +398,6 @@ impl ClementineVerifier for Verifier {
                     break;
                 }
             }
-            // drop nonces
-            let mut binding = verifier.nonces.lock().await;
-            binding.sessions.remove(&session_id);
         });
 
         let out_stream: Self::DepositSignStream = ReceiverStream::new(rx);
@@ -471,18 +485,14 @@ impl ClementineVerifier for Verifier {
                 .unwrap();
             let final_sig = match final_sig {
                 clementine::verifier_deposit_finalize_params::Params::SchnorrSig(final_sig) => {
-                    secp256k1::schnorr::Signature::from_slice(&final_sig).unwrap()
+                    schnorr::Signature::from_slice(&final_sig).unwrap()
                 }
                 _ => panic!("Expected FinalSig"),
             };
 
             tracing::debug!("Verifying Final Signature");
-            SECP256K1
-                .verify_schnorr(
-                    &final_sig,
-                    &secp256k1::Message::from(sighash),
-                    &self.nofn_xonly_pk,
-                )
+            utils::SECP
+                .verify_schnorr(&final_sig, &Message::from(sighash), &self.nofn_xonly_pk)
                 .unwrap();
 
             tracing::debug!("Final Signature Verified");

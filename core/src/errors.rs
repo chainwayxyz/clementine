@@ -5,7 +5,7 @@
 use bitcoin::{consensus::encode::FromHexError, merkle_tree::MerkleBlockError, BlockHash, Txid};
 use core::fmt::Debug;
 use jsonrpsee::types::ErrorObject;
-use musig2::secp::errors::InvalidScalarBytes;
+use secp256k1::musig;
 use std::path::PathBuf;
 use thiserror::Error;
 
@@ -13,12 +13,18 @@ use thiserror::Error;
 #[derive(Debug, Error)]
 #[non_exhaustive]
 pub enum BridgeError {
-    /// Returned when the secp256k1 crate returns an error
+    /// Returned when the bitcoin::secp256k1 crate returns an error
     #[error("Secpk256Error: {0}")]
-    Secp256k1Error(#[from] secp256k1::Error),
+    BitcoinSecp256k1Error(#[from] bitcoin::secp256k1::Error),
     /// Returned when the bitcoin crate returns an error in the sighash taproot module
     #[error("BitcoinSighashTaprootError: {0}")]
     BitcoinSighashTaprootError(#[from] bitcoin::sighash::TaprootError),
+
+    #[error("Secp256k1 returned an error: {0}")]
+    Secp256k1Error(#[from] secp256k1::Error),
+    #[error("Scalar can't be build: {0}")]
+    Secp256k1ScalarOutOfRange(#[from] secp256k1::scalar::OutOfRangeError),
+
     /// Returned when a non finalized deposit request is found
     #[error("DepositNotFinalized")]
     DepositNotFinalized,
@@ -134,20 +140,17 @@ pub enum BridgeError {
     #[error("InvalidKickoffUtxo")]
     InvalidKickoffUtxo,
 
-    #[error("KeyAggContextError: {0}")]
-    KeyAggContextError(#[from] musig2::errors::KeyAggError),
-
-    #[error("KeyAggContextTweakError: {0}")]
-    KeyAggContextTweakError(#[from] musig2::errors::TweakError),
-
-    #[error("InvalidScalarBytes: {0}")]
-    InvalidScalarBytes(#[from] InvalidScalarBytes),
+    #[error("Error while generating musig nonces: {0}")]
+    MusigNonceGenFailed(#[from] musig::MusigNonceGenError),
+    #[error("Error while signing a musig member: {0}")]
+    MusigSignFailed(#[from] musig::MusigSignError),
+    #[error("Error while tweaking a musig member: {0}")]
+    MusigTweakFailed(#[from] musig::MusigTweakErr),
+    #[error("Error while parsing a musig member: {0}")]
+    MusigParseError(#[from] musig::ParseError),
 
     #[error("NoncesNotFound")]
     NoncesNotFound,
-
-    #[error("MuSig2VerifyError: {0}")]
-    MuSig2VerifyError(#[from] musig2::errors::VerifyError),
 
     #[error("KickoffOutpointsNotFound")]
     KickoffOutpointsNotFound,
@@ -183,9 +186,6 @@ pub enum BridgeError {
 
     #[error("OperatorTakesSigNotFound")]
     OperatorTakesSigNotFound,
-
-    #[error("Musig2 error: {0}")]
-    Musig2Error(#[from] musig2::secp256k1::Error),
 
     #[error("Prover returned an error: {0}")]
     ProverError(String),

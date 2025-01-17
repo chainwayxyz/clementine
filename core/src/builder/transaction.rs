@@ -6,17 +6,18 @@
 use super::address::create_taproot_address;
 use crate::builder;
 use crate::constants::NUM_INTERMEDIATE_STEPS;
+use crate::utils::{SECP, UNSPENDABLE_XONLY_PUBKEY};
 use crate::{utils, EVMAddress, UTXO};
 use bitcoin::address::NetworkUnchecked;
 use bitcoin::hashes::Hash;
 use bitcoin::opcodes::all::OP_CHECKSIG;
 use bitcoin::script::PushBytesBuf;
 use bitcoin::{
-    absolute, taproot::TaprootSpendInfo, Address, Amount, OutPoint, ScriptBuf, TxIn, TxOut, Witness,
+    absolute, taproot::TaprootSpendInfo, Address, Amount, OutPoint, ScriptBuf, TxIn, TxOut,
+    Witness, XOnlyPublicKey,
 };
 use bitcoin::{Network, Transaction, Txid};
 use bitvm::signatures::winternitz;
-use secp256k1::{XOnlyPublicKey, SECP256K1};
 
 /// Verbose information about a transaction.
 #[derive(Debug, Clone)]
@@ -342,7 +343,7 @@ pub fn create_kickoff_utxo_txhandler(
     );
     let (musig2_and_operator_address, _) =
         builder::address::create_taproot_address(&[musig2_and_operator_script], None, network);
-    let operator_address = Address::p2tr(SECP256K1, operator_xonly_pk, None, network);
+    let operator_address = Address::p2tr(&SECP, operator_xonly_pk, None, network);
     let change_amount = funding_utxo.txout.value
         - Amount::from_sat(KICKOFF_UTXO_AMOUNT_SATS.to_sat() * num_kickoff_utxos_per_tx as u64)
         // - builder::script::anyone_can_spend_txout().value
@@ -1354,9 +1355,11 @@ pub fn create_tx_outs(pairs: Vec<(Amount, ScriptBuf)>) -> Vec<TxOut> {
 
 #[cfg(test)]
 mod tests {
-    use crate::builder;
-    use bitcoin::{hashes::Hash, Amount, OutPoint, Txid, XOnlyPublicKey};
-    use secp256k1::{rand, Keypair, SecretKey, SECP256K1};
+    use crate::{builder, utils::SECP};
+    use bitcoin::{
+        hashes::Hash, key::Keypair, secp256k1::SecretKey, Amount, OutPoint, Txid, XOnlyPublicKey,
+    };
+    use secp256k1::rand;
 
     #[test]
     fn create_move_tx() {
@@ -1366,7 +1369,7 @@ mod tests {
         };
         let secret_key = SecretKey::new(&mut rand::thread_rng());
         let nofn_xonly_pk =
-            XOnlyPublicKey::from_keypair(&Keypair::from_secret_key(SECP256K1, &secret_key)).0;
+            XOnlyPublicKey::from_keypair(&Keypair::from_secret_key(&SECP, &secret_key)).0;
         let bridge_amount_sats = Amount::from_sat(0x1F45);
         let network = bitcoin::Network::Regtest;
 

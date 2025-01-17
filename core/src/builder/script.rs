@@ -3,6 +3,7 @@
 //! Script builder provides useful functions for building typical Bitcoin
 //! scripts.
 
+use super::transaction::ANCHOR_AMOUNT;
 use crate::EVMAddress;
 use bitcoin::blockdata::opcodes::all::OP_PUSHNUM_1;
 use bitcoin::opcodes::OP_TRUE;
@@ -10,11 +11,8 @@ use bitcoin::Amount;
 use bitcoin::{
     opcodes::{all::*, OP_FALSE},
     script::Builder,
-    ScriptBuf, TxOut,
+    ScriptBuf, TxOut, XOnlyPublicKey,
 };
-use secp256k1::XOnlyPublicKey;
-
-use super::transaction::ANCHOR_AMOUNT;
 
 pub fn anyone_can_spend_txout() -> TxOut {
     let script = Builder::new().push_opcode(OP_PUSHNUM_1).into_script();

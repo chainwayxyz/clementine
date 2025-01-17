@@ -39,7 +39,7 @@ create table if not exists deposit_infos (
 );
 
 -- Verifier table for nonces related to deposits
-/* This table holds the public, secret, and aggregated nonces related to a deposit.
+/* This table holds the public and aggregated nonces related to a deposit.
 For each deposit, we have (2 + num_operators) nonce triples. The first triple is for 
 move_commit_tx, the second triple is for move_reveal_tx, and the rest is for operator_takes_tx
 for each operator. Also for each triple, we hold the sig_hash to be signed to prevent reuse
@@ -48,7 +48,6 @@ create table if not exists nonces (
     deposit_outpoint text not null check (deposit_outpoint ~ '^[a-fA-F0-9]{64}:(0|[1-9][0-9]{0,9})$'),
     internal_idx int not null,
     pub_nonce bytea not null check (length(pub_nonce) = 66),
-    sec_nonce bytea not null check (length(sec_nonce) = 64),
     agg_nonce bytea check (length(agg_nonce) = 66),
     sighash bytea check (length(sighash) = 32),
     partial_sig bytea check (length(partial_sig) = 32),
