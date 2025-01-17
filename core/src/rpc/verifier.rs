@@ -16,7 +16,7 @@ use crate::{
     verifier::{NofN, NonceSession, Verifier},
     ByteArray32, ByteArray66, EVMAddress,
 };
-use bitcoin::{hashes::Hash, Amount, TapSighash, Txid};
+use bitcoin::{address::NetworkUnchecked, hashes::Hash, Amount, TapSighash, Txid};
 use bitvm::{
     bridge::transactions::signing_winternitz::WinternitzPublicKey, signatures::winternitz,
 };
@@ -27,6 +27,42 @@ use tokio::sync::mpsc;
 use tokio_stream::wrappers::ReceiverStream;
 use tonic::{async_trait, Request, Response, Status, Streaming};
 
+fn get_deposit_params(
+    deposit_sign_session: clementine::DepositSignSession,
+    verifier_idx: usize,
+) -> Result<
+    (
+        bitcoin::OutPoint,
+        EVMAddress,
+        bitcoin::Address<NetworkUnchecked>,
+        u64,
+        u32,
+    ),
+    Status,
+> {
+    let deposit_params = deposit_sign_session
+        .deposit_params
+        .ok_or(Status::internal("No deposit outpoint received"))?;
+    let deposit_outpoint: bitcoin::OutPoint = deposit_params
+        .deposit_outpoint
+        .ok_or(Status::internal("No deposit outpoint received"))?
+        .try_into()?;
+    let evm_address: EVMAddress = deposit_params.evm_address.try_into().unwrap();
+    let recovery_taproot_address = deposit_params
+        .recovery_taproot_address
+        .parse::<bitcoin::Address<_>>()
+        .map_err(|e| Status::internal(e.to_string()))?;
+    let user_takes_after = deposit_params.user_takes_after;
+
+    let session_id = deposit_sign_session.nonce_gen_first_responses[verifier_idx].id;
+    Ok((
+        deposit_outpoint,
+        evm_address,
+        recovery_taproot_address,
+        user_takes_after,
+        session_id,
+    ))
+}
 #[async_trait]
 impl ClementineVerifier for Verifier {
     type NonceGenStream = ReceiverStream<Result<NonceGenResponse, Status>>;
@@ -326,43 +362,16 @@ impl ClementineVerifier for Verifier {
                 session_id,
             ) = match params {
                 clementine::verifier_deposit_sign_params::Params::DepositSignFirstParam(
-                    deposit_sign_first_param,
-                ) => {
-                    let deposit_params = deposit_sign_first_param
-                        .deposit_params
-                        .ok_or(Status::internal("No deposit outpoint received"))
-                        .unwrap();
-                    let deposit_outpoint: bitcoin::OutPoint = deposit_params
-                        .deposit_outpoint
-                        .ok_or(Status::internal("No deposit outpoint received"))
-                        .unwrap()
-                        .try_into()
-                        .unwrap();
-                    let evm_address: EVMAddress = deposit_params.evm_address.try_into().unwrap();
-                    let recovery_taproot_address = deposit_params
-                        .recovery_taproot_address
-                        .parse::<bitcoin::Address<_>>()
-                        .unwrap();
-                    let user_takes_after = deposit_params.user_takes_after;
-
-                    let session_id =
-                        deposit_sign_first_param.nonce_gen_first_responses[verifier.idx].id;
-                    (
-                        deposit_outpoint,
-                        evm_address,
-                        recovery_taproot_address,
-                        user_takes_after,
-                        session_id,
-                    )
-                }
+                    deposit_sign_session,
+                ) => get_deposit_params(deposit_sign_session, verifier.idx).unwrap(),
                 _ => panic!("Expected DepositOutpoint"),
             };
 
-            let binding = verifier.nonces.lock().await;
-            let session = binding
+            let session_map = verifier.nonces.lock().await;
+            let session = session_map
                 .sessions
                 .get(&session_id)
-                .ok_or(Status::internal("No session found"))
+                .ok_or_else(|| Status::internal(format!("Could not find session id {session_id}")))
                 .unwrap();
             let mut nonce_idx: usize = 0;
 
@@ -444,42 +453,19 @@ impl ClementineVerifier for Verifier {
             .ok_or(Status::internal("No first message received"))?;
 
         // Parse the first message
-        let params = first_message
-            .params
-            .ok_or(Status::internal("No deposit outpoint received"))?;
         let (
             deposit_outpoint,
             evm_address,
             recovery_taproot_address,
             user_takes_after,
             _session_id,
-        ) = match params {
+        ) = match first_message
+            .params
+            .ok_or(Status::internal("No deposit outpoint received"))?
+        {
             clementine::verifier_deposit_finalize_params::Params::DepositSignFirstParam(
-                deposit_sign_first_param,
-            ) => {
-                let deposit_params = deposit_sign_first_param
-                    .deposit_params
-                    .ok_or(Status::internal("No deposit outpoint received"))?;
-                let deposit_outpoint: bitcoin::OutPoint = deposit_params
-                    .deposit_outpoint
-                    .ok_or(Status::internal("No deposit outpoint received"))?
-                    .try_into()?;
-                let evm_address: EVMAddress = deposit_params.evm_address.try_into().unwrap();
-                let recovery_taproot_address = deposit_params
-                    .recovery_taproot_address
-                    .parse::<bitcoin::Address<_>>()
-                    .map_err(|e| BridgeError::Error(e.to_string()))?;
-                let user_takes_after = deposit_params.user_takes_after;
-
-                let session_id = deposit_sign_first_param.nonce_gen_first_responses[self.idx].id;
-                (
-                    deposit_outpoint,
-                    evm_address,
-                    recovery_taproot_address,
-                    user_takes_after,
-                    session_id,
-                )
-            }
+                deposit_sign_session,
+            ) => get_deposit_params(deposit_sign_session, self.idx)?,
             _ => panic!("Expected DepositOutpoint"),
         };
 
@@ -497,6 +483,7 @@ impl ClementineVerifier for Verifier {
             self.config.bridge_amount_sats,
             self.config.network,
         ));
+
         let num_required_sigs = calculate_num_required_sigs(
             self.config.num_operators,
             self.config.num_time_txs,
