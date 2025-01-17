@@ -1,5 +1,7 @@
 use crate::builder::transaction::TxHandler;
 use crate::errors::BridgeError;
+use crate::utils::{self, SECP};
+use bitcoin::secp256k1::PublicKey;
 use bitcoin::sighash::SighashCache;
 use bitcoin::taproot::LeafVersion;
 use bitcoin::{
@@ -11,7 +13,6 @@ use bitcoin::{TapLeafHash, TapNodeHash, TapSighashType, TxOut, Witness};
 use bitvm::signatures::winternitz::{
     self, BinarysearchVerifier, StraightforwardConverter, Winternitz,
 };
-use secp256k1::SECP256K1;
 
 /// Available transaction types for [`WinternitzDerivationPath`].
 #[derive(Clone, Copy, Debug)]
@@ -91,9 +92,9 @@ impl Default for WinternitzDerivationPath {
 pub struct Actor {
     pub keypair: Keypair,
     _secret_key: SecretKey,
-    winternitz_secret_key: Option<secp256k1::SecretKey>,
+    winternitz_secret_key: Option<SecretKey>,
     pub xonly_public_key: XOnlyPublicKey,
-    pub public_key: secp256k1::PublicKey,
+    pub public_key: PublicKey,
     pub address: Address,
 }
 
@@ -101,12 +102,12 @@ impl Actor {
     #[tracing::instrument(ret(level = tracing::Level::TRACE))]
     pub fn new(
         sk: SecretKey,
-        winternitz_secret_key: Option<secp256k1::SecretKey>,
+        winternitz_secret_key: Option<SecretKey>,
         network: bitcoin::Network,
     ) -> Self {
-        let keypair = Keypair::from_secret_key(SECP256K1, &sk);
+        let keypair = Keypair::from_secret_key(&SECP, &sk);
         let (xonly, _parity) = XOnlyPublicKey::from_keypair(&keypair);
-        let address = Address::p2tr(SECP256K1, xonly, None, network);
+        let address = Address::p2tr(&SECP, xonly, None, network);
 
         Actor {
             keypair,
@@ -124,10 +125,10 @@ impl Actor {
         sighash: TapSighash,
         merkle_root: Option<TapNodeHash>,
     ) -> Result<schnorr::Signature, BridgeError> {
-        Ok(SECP256K1.sign_schnorr(
-            &Message::from_digest_slice(sighash.as_byte_array()).expect("should be hash"),
+        Ok(utils::SECP.sign_schnorr(
+            &Message::from_digest(*sighash.as_byte_array()),
             &self.keypair.add_xonly_tweak(
-                SECP256K1,
+                &SECP,
                 &TapTweakHash::from_key_and_tweak(self.xonly_public_key, merkle_root).to_scalar(),
             )?,
         ))
@@ -135,8 +136,8 @@ impl Actor {
 
     #[tracing::instrument(skip(self), ret(level = tracing::Level::TRACE))]
     pub fn sign(&self, sighash: TapSighash) -> schnorr::Signature {
-        SECP256K1.sign_schnorr(
-            &Message::from_digest_slice(sighash.as_byte_array()).expect("should be hash"),
+        utils::SECP.sign_schnorr(
+            &Message::from_digest(*sighash.as_byte_array()),
             &self.keypair,
         )
     }
@@ -348,11 +349,12 @@ impl Actor {
 mod tests {
     use super::Actor;
     use crate::config::BridgeConfig;
-    use crate::utils::initialize_logger;
+    use crate::utils::{initialize_logger, SECP};
     use crate::{
         actor::WinternitzDerivationPath, builder::transaction::TxHandler,
         create_test_config_with_thread_name, database::Database, initialize_database,
     };
+    use bitcoin::secp256k1::SecretKey;
     use bitcoin::{
         absolute::Height, transaction::Version, Amount, Network, OutPoint, Transaction, TxIn, TxOut,
     };
@@ -363,8 +365,7 @@ mod tests {
         },
         treepp::script,
     };
-    use secp256k1::SECP256K1;
-    use secp256k1::{rand, SecretKey};
+    use secp256k1::rand;
     use std::env;
     use std::str::FromStr;
     use std::thread;
@@ -435,8 +436,8 @@ mod tests {
         let actor = Actor::new(sk, None, network);
 
         assert_eq!(sk, actor._secret_key);
-        assert_eq!(sk.public_key(SECP256K1), actor.public_key);
-        assert_eq!(sk.x_only_public_key(SECP256K1).0, actor.xonly_public_key);
+        assert_eq!(sk.public_key(&SECP), actor.public_key);
+        assert_eq!(sk.x_only_public_key(&SECP).0, actor.xonly_public_key);
     }
 
     #[test]
@@ -555,7 +556,7 @@ mod tests {
         let actor = Actor::new(
             config.secret_key,
             Some(
-                secp256k1::SecretKey::from_str(
+                SecretKey::from_str(
                     "451F451F451F451F451F451F451F451F451F451F451F451F451F451F451F451F",
                 )
                 .unwrap(),
@@ -577,7 +578,7 @@ mod tests {
         let actor = Actor::new(
             config.secret_key,
             Some(
-                secp256k1::SecretKey::from_str(
+                SecretKey::from_str(
                     "451F451F451F451F451F451F451F451F451F451F451F451F451F451F451F451F",
                 )
                 .unwrap(),

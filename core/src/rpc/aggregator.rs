@@ -7,18 +7,21 @@ use crate::{
     aggregator::Aggregator,
     builder::sighash::{calculate_num_required_sigs, create_nofn_sighash_stream},
     errors::BridgeError,
-    musig2::{aggregate_nonces, MuSigPubNonce},
+    musig2::aggregate_nonces,
     rpc::clementine::{self, DepositSignSession},
-    ByteArray32, ByteArray66, EVMAddress,
+    EVMAddress,
 };
-use bitcoin::{hashes::Hash, Amount, TapSighash};
+use bitcoin::hashes::Hash;
+use bitcoin::secp256k1::{Message, PublicKey};
+use bitcoin::{Amount, TapSighash};
 use futures::{future::try_join_all, stream::BoxStream, FutureExt, Stream, StreamExt};
+use secp256k1::musig::{MusigAggNonce, MusigPartialSignature, MusigPubNonce};
 use std::thread;
 use tokio::sync::mpsc::{channel, Receiver, Sender};
 use tonic::{async_trait, Request, Response, Status, Streaming};
 
 struct AggNonceQueueItem {
-    agg_nonce: ByteArray66,
+    agg_nonce: MusigAggNonce,
     sighash: TapSighash,
 }
 
@@ -29,7 +32,7 @@ struct FinalSigQueueItem {
 /// Collects public nonces from given streams and aggregates them.
 async fn nonce_aggregator(
     mut nonce_streams: Vec<
-        impl Stream<Item = Result<MuSigPubNonce, BridgeError>> + Unpin + Send + 'static,
+        impl Stream<Item = Result<MusigPubNonce, BridgeError>> + Unpin + Send + 'static,
     >,
     mut sighash_stream: impl Stream<Item = Result<TapSighash, BridgeError>> + Unpin + Send + 'static,
     agg_nonce_sender: Sender<AggNonceQueueItem>,
@@ -70,12 +73,12 @@ async fn nonce_distributor(
         Streaming<clementine::PartialSig>,
         Sender<clementine::VerifierDepositSignParams>,
     )>,
-    partial_sig_sender: Sender<(Vec<ByteArray32>, AggNonceQueueItem)>,
+    partial_sig_sender: Sender<(Vec<MusigPartialSignature>, AggNonceQueueItem)>,
 ) -> Result<(), BridgeError> {
     while let Some(queue_item) = agg_nonce_receiver.recv().await {
         let agg_nonce_wrapped = clementine::VerifierDepositSignParams {
             params: Some(clementine::verifier_deposit_sign_params::Params::AggNonce(
-                queue_item.agg_nonce.0.to_vec(),
+                queue_item.agg_nonce.serialize().to_vec(),
             )),
         };
 
@@ -94,7 +97,7 @@ async fn nonce_distributor(
                 .await?
                 .ok_or(BridgeError::Error("No partial sig received".into()))?;
 
-            Ok::<_, BridgeError>(ByteArray32(partial_sig.partial_sig.try_into().unwrap()))
+            Ok::<_, BridgeError>(MusigPartialSignature::from_slice(&partial_sig.partial_sig)?)
         }))
         .await?;
 
@@ -111,23 +114,22 @@ async fn nonce_distributor(
 
 /// Collects partial signatures from given stream and aggregates them.
 async fn signature_aggregator(
-    mut partial_sig_receiver: Receiver<(Vec<ByteArray32>, AggNonceQueueItem)>,
-    verifiers_public_keys: Vec<secp256k1::PublicKey>,
+    mut partial_sig_receiver: Receiver<(Vec<MusigPartialSignature>, AggNonceQueueItem)>,
+    verifiers_public_keys: Vec<PublicKey>,
     final_sig_sender: Sender<FinalSigQueueItem>,
 ) -> Result<(), BridgeError> {
     while let Some((partial_sigs, queue_item)) = partial_sig_receiver.recv().await {
         let final_sig = crate::musig2::aggregate_partial_signatures(
             verifiers_public_keys.clone(),
             None,
-            false,
-            &queue_item.agg_nonce,
+            queue_item.agg_nonce,
             partial_sigs,
-            ByteArray32(queue_item.sighash.to_byte_array()),
+            Message::from_digest(queue_item.sighash.as_raw_hash().to_byte_array()),
         )?;
 
         final_sig_sender
             .send(FinalSigQueueItem {
-                final_sig: final_sig.to_vec(),
+                final_sig: final_sig.serialize().to_vec(),
             })
             .await
             .map_err(|e| {
@@ -166,14 +168,14 @@ async fn signature_distributor(
 /// # Returns
 ///
 /// - Vec<[`clementine::NonceGenFirstResponse`]>: First response from each verifier
-/// - Vec<BoxStream<Result<[`MuSigPubNonce`], BridgeError>>>: Stream of nonces from each verifier
+/// - Vec<BoxStream<Result<[`MusigPubNonce`], BridgeError>>>: Stream of nonces from each verifier
 async fn create_nonce_streams(
     verifier_clients: Vec<ClementineVerifierClient<tonic::transport::Channel>>,
     num_nonces: u32,
 ) -> Result<
     (
         Vec<clementine::NonceGenFirstResponse>,
-        Vec<BoxStream<'static, Result<MuSigPubNonce, BridgeError>>>,
+        Vec<BoxStream<'static, Result<MusigPubNonce, BridgeError>>>,
     ),
     BridgeError,
 > {
@@ -219,14 +221,14 @@ async fn create_nonce_streams(
         }))
         .await?;
 
-    let transformed_streams: Vec<BoxStream<Result<ByteArray66, BridgeError>>> = nonce_streams
+    let transformed_streams = nonce_streams
         .into_iter()
         .map(|stream| {
             stream
                 .map(|result| Aggregator::extract_pub_nonce(result?.response))
                 .boxed()
         })
-        .collect();
+        .collect::<Vec<_>>();
 
     Ok((first_responses, transformed_streams))
 }
@@ -235,14 +237,13 @@ impl Aggregator {
     // Extracts pub_nonce from given stream.
     fn extract_pub_nonce(
         response: Option<clementine::nonce_gen_response::Response>,
-    ) -> Result<ByteArray66, BridgeError> {
+    ) -> Result<MusigPubNonce, BridgeError> {
         match response
             .ok_or_else(|| BridgeError::Error("NonceGen response is empty".to_string()))?
         {
-            clementine::nonce_gen_response::Response::PubNonce(pub_nonce) => pub_nonce
-                .try_into()
-                .map(ByteArray66)
-                .map_err(|_| BridgeError::Error("PubNonce should be exactly 66 bytes".to_string())),
+            clementine::nonce_gen_response::Response::PubNonce(pub_nonce) => {
+                Ok(MusigPubNonce::from_slice(&pub_nonce)?)
+            }
             _ => Err(BridgeError::Error(
                 "Expected PubNonce in response".to_string(),
             )),
