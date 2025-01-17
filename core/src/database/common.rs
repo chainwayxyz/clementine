@@ -1006,7 +1006,7 @@ impl Database {
     }
 
     /// Gets Winternitz public keys for every time_tx of an operator and a watchtower.
-    #[tracing::instrument(skip(self, tx), err(level = tracing::Level::ERROR), ret(level = tracing::Level::TRACE))]
+    //#[tracing::instrument(skip(self, tx), err(level = tracing::Level::ERROR), ret(level = tracing::Level::TRACE))]
     pub async fn get_watchtower_winternitz_public_keys(
         &self,
         tx: Option<&mut sqlx::Transaction<'_, Postgres>>,
