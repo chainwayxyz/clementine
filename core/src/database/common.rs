@@ -19,12 +19,7 @@ use bitcoin::{
     hashes::Hash,
     BlockHash, CompactTarget, TxMerkleNode,
 };
-<<<<<<< HEAD
-use bitcoin::{Address, OutPoint, Txid};
-=======
 use bitcoin::{Address, OutPoint, Txid, XOnlyPublicKey};
-use bitvm::bridge::transactions::signing_winternitz::WinternitzPublicKey;
->>>>>>> dev
 use bitvm::signatures::winternitz;
 use bitvm::signatures::winternitz::PublicKey as WinternitzPublicKey;
 use risc0_zkvm::Receipt;
