@@ -7,8 +7,7 @@ use crate::{
     builder::sighash::{calculate_num_required_sigs, create_nofn_sighash_stream},
     errors::BridgeError,
     musig2::{self},
-    sha256_hash,
-    utils::{self, SECP},
+    sha256_hash, utils,
     verifier::{NofN, NonceSession, Verifier},
     EVMAddress,
 };
@@ -172,7 +171,8 @@ impl ClementineVerifier for Verifier {
                     None,
                     watchtower_params.watchtower_id,
                     operator_idx as u32,
-                    watchtower_winternitz_public_keys[index..index + self.config.num_time_txs]
+                    watchtower_winternitz_public_keys[index
+                        ..index + self.config.num_time_txs * self.config.num_kickoffs_per_timetx]
                         .to_vec(),
                 )
                 .await?;
