@@ -22,8 +22,8 @@ use bitcoin::{
     BlockHash, CompactTarget, TxMerkleNode,
 };
 use bitcoin::{Address, OutPoint, Txid};
-use bitvm::bridge::transactions::signing_winternitz::WinternitzPublicKey;
 use bitvm::signatures::winternitz;
+use bitvm::signatures::winternitz::PublicKey as WinternitzPublicKey;
 use risc0_zkvm::Receipt;
 use secp256k1::{schnorr, XOnlyPublicKey};
 use sqlx::{Postgres, QueryBuilder};
@@ -981,11 +981,7 @@ impl Database {
         operator_id: u32,
         winternitz_public_key: Vec<WinternitzPublicKey>,
     ) -> Result<(), BridgeError> {
-        let wpks = winternitz_public_key
-            .into_iter()
-            .map(|wpk| wpk.public_key)
-            .collect::<Vec<_>>();
-        let wpk = borsh::to_vec(&wpks).map_err(BridgeError::BorschError)?;
+        let wpk = borsh::to_vec(&winternitz_public_key).map_err(BridgeError::BorschError)?;
 
         let query = sqlx::query(
             "INSERT INTO watchtower_winternitz_public_keys (watchtower_id, operator_id, winternitz_public_keys) VALUES ($1, $2, $3);",
@@ -1035,11 +1031,7 @@ impl Database {
         operator_id: u32,
         winternitz_public_key: Vec<WinternitzPublicKey>,
     ) -> Result<(), BridgeError> {
-        let wpks = winternitz_public_key
-            .into_iter()
-            .map(|wpk| wpk.public_key)
-            .collect::<Vec<_>>();
-        let wpk = borsh::to_vec(&wpks).map_err(BridgeError::BorschError)?;
+        let wpk = borsh::to_vec(&winternitz_public_key).map_err(BridgeError::BorschError)?;
 
         let query = sqlx::query(
             "INSERT INTO operator_winternitz_public_keys (operator_id, winternitz_public_keys) VALUES ($1, $2);",
@@ -1160,10 +1152,7 @@ mod tests {
     use bitcoin::{
         hashes::Hash, Address, Amount, OutPoint, ScriptBuf, TxOut, Txid, XOnlyPublicKey,
     };
-    use bitvm::{
-        bridge::transactions::signing_winternitz::WinternitzPublicKey,
-        signatures::winternitz::{self, Parameters},
-    };
+    use bitvm::signatures::winternitz::{self};
     use borsh::BorshDeserialize;
     use risc0_zkvm::Receipt;
     use secp256k1::{constants::SCHNORR_SIGNATURE_SIZE, rand::rngs::OsRng};
@@ -1928,16 +1917,7 @@ mod tests {
         // Assuming there are 2 time_txs.
         let wpk0: winternitz::PublicKey = vec![[0x45; 20], [0x1F; 20]];
         let wpk1: winternitz::PublicKey = vec![[0x12; 20], [0x34; 20]];
-        let watchtower_winternitz_public_keys = vec![
-            WinternitzPublicKey {
-                public_key: wpk0.clone(),
-                parameters: Parameters::new(0, 4),
-            },
-            WinternitzPublicKey {
-                public_key: wpk1.clone(),
-                parameters: Parameters::new(0, 4),
-            },
-        ];
+        let watchtower_winternitz_public_keys = vec![wpk0.clone(), wpk1.clone()];
 
         database
             .save_watchtower_winternitz_public_keys(

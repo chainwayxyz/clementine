@@ -15,9 +15,6 @@ use crate::{
     ByteArray32, ByteArray66, EVMAddress,
 };
 use bitcoin::{hashes::Hash, Amount, TapSighash, Txid};
-use bitvm::{
-    bridge::transactions::signing_winternitz::WinternitzPublicKey, signatures::winternitz,
-};
 use futures::StreamExt;
 use secp256k1::{schnorr, Message, XOnlyPublicKey, SECP256K1};
 use std::{pin::pin, str::FromStr};
@@ -150,12 +147,7 @@ impl ClementineVerifier for Verifier {
         let operator_winternitz_public_keys = operator_params
             .winternitz_pubkeys
             .into_iter()
-            .map(|wpk| {
-                Ok(WinternitzPublicKey {
-                    public_key: wpk.to_bitvm(),
-                    parameters: winternitz::Parameters::new(0, 4), // TODO: Fix this.
-                })
-            })
+            .map(|wpk| Ok(wpk.to_bitvm()))
             .collect::<Result<Vec<_>, BridgeError>>()?;
 
         self.db
@@ -181,12 +173,7 @@ impl ClementineVerifier for Verifier {
         let watchtower_winternitz_public_keys = watchtower_params
             .winternitz_pubkeys
             .into_iter()
-            .map(|wpk| {
-                Ok(WinternitzPublicKey {
-                    public_key: wpk.to_bitvm(),
-                    parameters: winternitz::Parameters::new(480, 4), // TODO: Fix this.
-                })
-            })
+            .map(|wpk| Ok(wpk.to_bitvm()))
             .collect::<Result<Vec<_>, BridgeError>>()?;
 
         let required_number_of_pubkeys = self.config.num_operators * self.config.num_time_txs;
