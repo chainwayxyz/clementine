@@ -21,19 +21,21 @@ use bitcoin::{
     Amount, ScriptBuf, TapSighash, Txid, XOnlyPublicKey,
 };
 use bitvm::{
-    chunker::{assigner::BCAssigner, elements::ElementTrait},
-    signatures::winternitz,
-};
-use bitvm::{
     chunker::{
-        assigner::BridgeAssigner, chunk_groth16_verifier::groth16_verify_to_segments,
+        assigner::{BCAssigner, BridgeAssigner},
+        chunk_groth16_verifier::groth16_verify_to_segments,
         disprove_execution::RawProof,
+        elements::{dummy_element, DummyElement, ElementTrait},
     },
-    signatures::signing_winternitz::WinternitzPublicKey,
+    signatures::{
+        signing_winternitz::{generate_winternitz_checksig_leave_variable, WinternitzPublicKey},
+        winternitz,
+    },
 };
 use futures::StreamExt;
 use secp256k1::musig::{MusigAggNonce, MusigPubNonce, MusigSecNonce};
-use std::collections::BTreeMap;
+use std::sync::Arc;
+use std::{collections::BTreeMap, rc::Rc};
 use std::{pin::pin, str::FromStr};
 use tokio::sync::mpsc;
 use tokio_stream::wrappers::ReceiverStream;
@@ -93,7 +95,7 @@ impl ClementineVerifier for Verifier {
         Ok(Response::new(Empty {}))
     }
 
-    #[tracing::instrument(skip(self), err(level = tracing::Level::ERROR), ret(level = tracing::Level::TRACE))]
+    // #[tracing::instrument(skip(self), err(level = tracing::Level::ERROR), ret(level = tracing::Level::TRACE))]
     #[allow(clippy::blocks_in_conditions)]
     async fn set_operator(&self, req: Request<OperatorParams>) -> Result<Response<Empty>, Status> {
         let operator_params = req.into_inner();
@@ -137,70 +139,95 @@ impl ClementineVerifier for Verifier {
             )
             .await?;
 
-        // Generate precalculated BitVM Setups
-        let commits_publickeys = utils::ALL_BITVM_INTERMEDIATE_VARIABLES
-            .iter()
-            .enumerate()
-            .map(|(idx, (intermediate_step, intermediate_step_size))| {
-                let winternitz_pk: WinternitzPublicKey = WinternitzPublicKey {
-                    public_key: operator_winternitz_public_keys[idx].clone(),
-                    parameters: winternitz::Parameters::new(*intermediate_step_size as u32 * 2, 4),
-                };
-                Ok((intermediate_step.clone(), winternitz_pk))
-            })
-            .collect::<Result<BTreeMap<_, _>, BridgeError>>()?;
+        // Split the winternitz public keys into chunks for every sequential collateral tx and kickoff index.
+        // This is done because we need to generate a separate BitVM setup for each collateral tx and kickoff index.
+        let winternitz_public_keys_chunks = operator_winternitz_public_keys
+            .chunks_exact(self.config.num_time_txs * self.config.num_kickoffs_per_timetx);
 
-        let mut bridge_assigner = BridgeAssigner::new_watcher(commits_publickeys);
-        // For now we use dummy proof
-        let proof = RawProof::default();
-        let segments = groth16_verify_to_segments(
-            &mut bridge_assigner,
-            &proof.public,
-            &proof.proof,
-            &proof.vk,
-        );
+        // iterate over the chunks and generate precalculated BitVM Setups
+        for (idx, winternitz_public_keys) in winternitz_public_keys_chunks.enumerate() {
+            let time_tx_idx = idx / self.config.num_kickoffs_per_timetx;
+            let kickoff_idx = idx % self.config.num_kickoffs_per_timetx;
 
-        let mut elements: BTreeMap<String, std::rc::Rc<Box<dyn ElementTrait>>> = BTreeMap::new();
-        for segment in segments.iter() {
-            for parameter in segment.parameter_list.iter() {
-                elements.insert(parameter.id().to_owned(), parameter.clone());
-            }
-            for result in segment.result_list.iter() {
-                elements.insert(result.id().to_owned(), result.clone());
-            }
-        }
+            let mut public_input_wots = vec![];
+            // Generate precalculated BitVM Setups
+            let commits_publickeys = utils::ALL_BITVM_INTERMEDIATE_VARIABLES
+                .iter()
+                .enumerate()
+                .map(|(idx, (intermediate_step, intermediate_step_size))| {
+                    let winternitz_pk: WinternitzPublicKey = WinternitzPublicKey {
+                        public_key: winternitz_public_keys[idx].clone(),
+                        parameters: winternitz::Parameters::new(
+                            *intermediate_step_size as u32 * 2,
+                            4,
+                        ),
+                    };
 
-        let assert_tx_addrs: Vec<_> = elements
-            .values()
-            .map(|element| {
-                let locking_script = bridge_assigner.locking_script(element);
-                let (assert_tx_addr, _) = builder::address::create_taproot_address(
-                    &[locking_script.compile()],
+                    if intermediate_step == "scalar_1" {
+                        // scalar_1 is the public input.
+                        public_input_wots = winternitz_pk.public_key.clone();
+                    }
+
+                    Ok((intermediate_step.clone(), winternitz_pk))
+                })
+                .collect::<Result<BTreeMap<_, _>, BridgeError>>()?;
+
+            let assert_tx_addrs = utils::ALL_BITVM_INTERMEDIATE_VARIABLES
+                .iter()
+                .map(|(_, intermediate_step_size)| {
+                    let script = generate_winternitz_checksig_leave_variable(
+                        &WinternitzPublicKey {
+                            public_key: winternitz_public_keys[idx].clone(),
+                            parameters: winternitz::Parameters::new(
+                                *intermediate_step_size as u32 * 2,
+                                4,
+                            ),
+                        },
+                        *intermediate_step_size as usize,
+                    )
+                    .compile();
+                    let (assert_tx_addr, _) = builder::address::create_taproot_address(
+                        &[script.clone()],
+                        None,
+                        self.config.network,
+                    );
+                    assert_tx_addr.script_pubkey().to_bytes()
+                })
+                .collect::<Vec<_>>();
+
+            // // This part is not working.
+            // // TODO: Use correct verification key and along with a dummy proof.
+            // let mut bridge_assigner = BridgeAssigner::new_watcher(commits_publickeys);
+            // let proof = RawProof::default();
+            // let segments = groth16_verify_to_segments(
+            //     &mut bridge_assigner,
+            //     &proof.public,
+            //     &proof.proof,
+            //     &proof.vk,
+            // );
+
+            // let scripts: Vec<ScriptBuf> = segments
+            //     .iter()
+            //     .map(|s| s.script.clone().compile())
+            //     .collect();
+
+            let taproot_builder = create_taproot_builder(&[]);
+            let root_hash = taproot_builder.try_into_taptree().unwrap().root_hash();
+            let root_hash_bytes = root_hash.to_raw_hash().to_byte_array();
+
+            // Save the public input wots to db along with the root hash
+            self.db
+                .save_bitvm_setup(
                     None,
-                    self.config.network,
-                );
-                assert_tx_addr.script_pubkey().to_bytes()
-            })
-            .collect();
-
-        // Save assert tx addrs to db
-        // self.db.save_assert_tx_addrs(None, assert_tx_addrs).await?;
-
-        let scripts: Vec<ScriptBuf> = segments
-            .iter()
-            .map(|s| s.script.clone().compile())
-            .collect();
-
-        let taproot_builder = create_taproot_builder(&scripts);
-        let root_hash = taproot_builder.try_into_taptree().unwrap().root_hash();
-        let root_hash_bytes = root_hash.to_raw_hash().to_byte_array();
-
-        // Also save the winternitz public keys for the public input so that
-        // we can generate disprove scripts for the public input at the time of deposit.
-        // let public_input_wots = bridge_assigner.all_intermediate_scripts().get("scalar_1").unwrap();
-
-        // Save the public input wots to db along with the root hash
-        // self.db.save_public_input_wots(None, root_hash_bytes, public_input_wots).await?;
+                    operator_config.operator_idx as i32,
+                    time_tx_idx as i32,
+                    kickoff_idx as i32,
+                    assert_tx_addrs,
+                    &root_hash_bytes,
+                    public_input_wots,
+                )
+                .await?;
+        }
 
         Ok(Response::new(Empty {}))
     }
