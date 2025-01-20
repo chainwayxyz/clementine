@@ -4,7 +4,11 @@ use super::clementine::{
     VerifierDepositSignParams, VerifierParams, VerifierPublicKeys, WatchtowerParams,
 };
 use crate::{
-    builder::sighash::{calculate_num_required_sigs, create_nofn_sighash_stream},
+    builder::{
+        self,
+        address::create_taproot_builder,
+        sighash::{calculate_num_required_sigs, create_nofn_sighash_stream},
+    },
     errors::BridgeError,
     musig2::{self},
     sha256_hash, utils,
@@ -12,12 +16,22 @@ use crate::{
     EVMAddress,
 };
 use bitcoin::{
-    hashes::Hash,
-    secp256k1::{schnorr, Message, PublicKey, SecretKey},
-    Amount, TapSighash, Txid, XOnlyPublicKey,
+    hashes::Hash, secp256k1::{schnorr, Message, PublicKey, SecretKey}, Amount, ScriptBuf, TapSighash, Txid, XOnlyPublicKey
+};
+use bitvm::{
+    chunker::{assigner::BCAssigner, elements::ElementTrait},
+    signatures::winternitz,
+};
+use bitvm::{
+    chunker::{
+        assigner::BridgeAssigner, chunk_groth16_verifier::groth16_verify_to_segments,
+        disprove_execution::RawProof,
+    },
+    signatures::signing_winternitz::WinternitzPublicKey,
 };
 use futures::StreamExt;
 use secp256k1::musig::{MusigAggNonce, MusigPubNonce, MusigSecNonce};
+use std::collections::BTreeMap;
 use std::{pin::pin, str::FromStr};
 use tokio::sync::mpsc;
 use tokio_stream::wrappers::ReceiverStream;
@@ -117,9 +131,71 @@ impl ClementineVerifier for Verifier {
             .save_operator_winternitz_public_keys(
                 None,
                 operator_config.operator_idx,
-                operator_winternitz_public_keys,
+                operator_winternitz_public_keys.clone(),
             )
             .await?;
+
+        // Generate precalculated BitVM Setups
+        let commits_publickeys = utils::ALL_BITVM_INTERMEDIATE_VARIABLES
+            .iter()
+            .enumerate()
+            .map(|(idx, (intermediate_step, intermediate_step_size))| {
+                let winternitz_pk: WinternitzPublicKey = WinternitzPublicKey {
+                    public_key: operator_winternitz_public_keys[idx].clone(),
+                    parameters: winternitz::Parameters::new(*intermediate_step_size as u32 * 2, 4),
+                };
+                Ok((intermediate_step.clone(), winternitz_pk))
+            })
+            .collect::<Result<BTreeMap<_, _>, BridgeError>>()?;
+
+        let mut bridge_assigner = BridgeAssigner::new_watcher(commits_publickeys);
+        // For now we use dummy proof
+        let proof = RawProof::default();
+        let segments = groth16_verify_to_segments(
+            &mut bridge_assigner,
+            &proof.public,
+            &proof.proof,
+            &proof.vk,
+        );
+
+        let mut elements: BTreeMap<String, std::rc::Rc<Box<dyn ElementTrait>>> = BTreeMap::new();
+        for segment in segments.iter() {
+            for parameter in segment.parameter_list.iter() {
+                elements.insert(parameter.id().to_owned(), parameter.clone());
+            }
+            for result in segment.result_list.iter() {
+                elements.insert(result.id().to_owned(), result.clone());
+            }
+        }
+
+        let assert_tx_addrs: Vec<_> = elements
+            .values()
+            .map(|element| {
+                let locking_script = bridge_assigner.locking_script(element);
+                let (assert_tx_addr, _) = builder::address::create_taproot_address(
+                    &[locking_script.compile()],
+                    None,
+                    self.config.network,
+                );
+                assert_tx_addr.script_pubkey().to_bytes()
+            })
+            .collect();
+
+        // Save assert tx addrs to db
+        // self.db.save_assert_tx_addrs(None, assert_tx_addrs).await?;
+
+        let scripts: Vec<ScriptBuf> = segments.iter().map(|s| s.script.clone().compile()).collect();
+
+        let taproot_builder = create_taproot_builder(&scripts);
+        let root_hash = taproot_builder.try_into_taptree().unwrap().root_hash();
+        let root_hash_bytes = root_hash.to_raw_hash().to_byte_array();
+
+        // Also save the winternitz public keys for the public input so that
+        // we can generate disprove scripts for the public input at the time of deposit.
+        // let public_input_wots = bridge_assigner.all_intermediate_scripts().get("scalar_1").unwrap();
+
+        // Save the public input wots to db along with the root hash
+        // self.db.save_public_input_wots(None, root_hash_bytes, public_input_wots).await?;
 
         Ok(Response::new(Empty {}))
     }
