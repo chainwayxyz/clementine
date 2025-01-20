@@ -16,7 +16,9 @@ use crate::{
     EVMAddress,
 };
 use bitcoin::{
-    hashes::Hash, secp256k1::{schnorr, Message, PublicKey, SecretKey}, Amount, ScriptBuf, TapSighash, Txid, XOnlyPublicKey
+    hashes::Hash,
+    secp256k1::{schnorr, Message, PublicKey, SecretKey},
+    Amount, ScriptBuf, TapSighash, Txid, XOnlyPublicKey,
 };
 use bitvm::{
     chunker::{assigner::BCAssigner, elements::ElementTrait},
@@ -184,7 +186,10 @@ impl ClementineVerifier for Verifier {
         // Save assert tx addrs to db
         // self.db.save_assert_tx_addrs(None, assert_tx_addrs).await?;
 
-        let scripts: Vec<ScriptBuf> = segments.iter().map(|s| s.script.clone().compile()).collect();
+        let scripts: Vec<ScriptBuf> = segments
+            .iter()
+            .map(|s| s.script.clone().compile())
+            .collect();
 
         let taproot_builder = create_taproot_builder(&scripts);
         let root_hash = taproot_builder.try_into_taptree().unwrap().root_hash();

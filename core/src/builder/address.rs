@@ -33,7 +33,6 @@ pub fn create_taproot_builder(scripts: &[ScriptBuf]) -> TaprootBuilder {
     }
 }
 
-
 /// Creates a taproot address with either key path spend or script spend path
 /// addresses. This depends on given arguments.
 ///

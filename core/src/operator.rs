@@ -706,12 +706,13 @@ impl Operator {
 
         for time_tx in 0..self.config.num_time_txs as u32 {
             for kickoff_idx in 0..self.config.num_kickoffs_per_timetx as u32 {
-
                 // ALL_BITVM_INTERMEDIATE_VARIABLES is a global variable that contains the intermediate variables for the BitVM in BTreeMap
-                for (intermediate_step, intermediate_step_size) in ALL_BITVM_INTERMEDIATE_VARIABLES.iter() {
+                for (intermediate_step, intermediate_step_size) in
+                    ALL_BITVM_INTERMEDIATE_VARIABLES.iter()
+                {
                     let step_name = intermediate_step.as_str();
                     let path = WinternitzDerivationPath {
-                        message_length: *intermediate_step_size as u32*2,
+                        message_length: *intermediate_step_size as u32 * 2,
                         log_d: 4,
                         tx_type: crate::actor::TxType::BitVM,
                         index: Some(self.idx as u32),
