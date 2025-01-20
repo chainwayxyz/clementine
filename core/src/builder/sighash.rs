@@ -12,7 +12,9 @@ use futures_core::stream::Stream;
 
 // TODO: For now, this is equal to the number of sighashes we yield in create_nofn_sighash_stream.
 // This will change as we implement the system design.
-pub fn calculate_num_required_sigs(config: &BridgeConfig) -> usize {
+
+/// Returns the number of required signatures for N-of-N signing session.
+pub fn number_of_required_sigs(config: &BridgeConfig) -> usize {
     config.num_operators
         * config.num_time_txs
         * config.num_kickoffs_per_timetx
@@ -328,5 +330,100 @@ pub fn create_nofn_sighash_stream(
                 input_amount = reimburse_generator_txhandler.tx.output[0].value;
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::builder::sighash::create_nofn_sighash_stream;
+    use crate::{builder, create_actors, create_test_config_with_thread_name};
+    use crate::{
+        config::BridgeConfig, database::Database, initialize_database, utils::initialize_logger,
+    };
+    use crate::{
+        errors::BridgeError,
+        extended_rpc::ExtendedRpc,
+        servers::{
+            create_aggregator_grpc_server, create_operator_grpc_server,
+            create_verifier_grpc_server, create_watchtower_grpc_server,
+        },
+    };
+    use bitcoin::hashes::Hash;
+    use bitcoin::{Amount, OutPoint, TapSighash, Txid, XOnlyPublicKey};
+    use futures::StreamExt;
+    use std::pin::pin;
+    use std::{env, thread};
+
+    #[tokio::test]
+    async fn number_of_required_sigs() {
+        let config = create_test_config_with_thread_name!(None);
+        let db = Database::new(&config).await.unwrap();
+
+        let _ = create_actors!(config.clone());
+
+        // Dummy inputs for nofn_stream.
+        let deposit_outpoint = OutPoint {
+            txid: Txid::all_zeros(),
+            vout: 0x45,
+        };
+        let evm_address = crate::EVMAddress([0x45; 20]);
+        let recovery_taproot_address =
+            builder::address::create_taproot_address(&[], None, bitcoin::Network::Regtest).0;
+        let nofn_xonly_pk = XOnlyPublicKey::from_slice(&[0x45; 32]).unwrap();
+        let collateral_funding_amount = Amount::from_sat(0x1F);
+        let timeout_block_count = 0x1F;
+        let max_withdrawal_time_block_count = 100 - 0x1F;
+        let bridge_amount_sats = Amount::from_sat(100 - 0x45);
+
+        let mut nofn_stream = pin!(create_nofn_sighash_stream(
+            db,
+            config.clone(),
+            deposit_outpoint,
+            evm_address,
+            recovery_taproot_address.as_unchecked().clone(),
+            nofn_xonly_pk,
+            config.user_takes_after.into(),
+            collateral_funding_amount,
+            timeout_block_count,
+            max_withdrawal_time_block_count,
+            bridge_amount_sats,
+            bitcoin::Network::Regtest,
+        ));
+
+        let mut challenge_tx_sighashes = Vec::<TapSighash>::new();
+        let mut start_happy_reimburse_sighashes = Vec::<TapSighash>::new();
+        let mut happy_reimburse_sighashes = Vec::<TapSighash>::new();
+        let mut watchtower_challenge_kickoff_sighashes = Vec::<TapSighash>::new();
+        let mut kickoff_timeout_sighashes = Vec::<TapSighash>::new();
+        let mut operator_challenge_nack_sighashes = Vec::<TapSighash>::new();
+        let mut assert_end_sighashes = Vec::<TapSighash>::new();
+        let mut disprove_timeout_sighashes = Vec::<TapSighash>::new();
+        let mut already_disproved_sighashes = Vec::<TapSighash>::new();
+        let mut reimburse_sighashes = Vec::<TapSighash>::new();
+
+        for _ in 0..config.num_kickoffs_per_timetx {
+            challenge_tx_sighashes.push(nofn_stream.next().await.unwrap().unwrap());
+            start_happy_reimburse_sighashes.push(nofn_stream.next().await.unwrap().unwrap());
+            happy_reimburse_sighashes.push(nofn_stream.next().await.unwrap().unwrap());
+            watchtower_challenge_kickoff_sighashes.push(nofn_stream.next().await.unwrap().unwrap());
+            kickoff_timeout_sighashes.push(nofn_stream.next().await.unwrap().unwrap());
+
+            for _ in 0..config.num_watchtowers {
+                // Script spend.
+                operator_challenge_nack_sighashes.push(nofn_stream.next().await.unwrap().unwrap());
+                // Pubkey spend.
+                operator_challenge_nack_sighashes.push(nofn_stream.next().await.unwrap().unwrap());
+            }
+
+            assert_end_sighashes.push(nofn_stream.next().await.unwrap().unwrap());
+            // Pubkey spend.
+            disprove_timeout_sighashes.push(nofn_stream.next().await.unwrap().unwrap());
+            // Script spend.
+            disprove_timeout_sighashes.push(nofn_stream.next().await.unwrap().unwrap());
+            already_disproved_sighashes.push(nofn_stream.next().await.unwrap().unwrap());
+            reimburse_sighashes.push(nofn_stream.next().await.unwrap().unwrap());
+        }
+
+        assert!(nofn_stream.next().await.is_none());
     }
 }
