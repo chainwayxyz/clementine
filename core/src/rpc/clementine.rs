@@ -142,9 +142,6 @@ pub struct NonceGenFirstResponse {
     /// New public key for the deposit
     #[prost(bytes = "vec", tag = "2")]
     pub public_key: ::prost::alloc::vec::Vec<u8>,
-    /// They sign the new public key with their private key
-    #[prost(bytes = "vec", tag = "3")]
-    pub sig: ::prost::alloc::vec::Vec<u8>,
     /// Number of nonces to generate
     #[prost(uint32, tag = "4")]
     pub num_nonces: u32,

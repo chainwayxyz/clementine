@@ -35,23 +35,29 @@ async fn nonce_aggregator(
     mut sighash_stream: impl Stream<Item = Result<TapSighash, BridgeError>> + Unpin + Send + 'static,
     agg_nonce_sender: Sender<AggNonceQueueItem>,
 ) -> Result<MuSigPubNonce, BridgeError> {
-    while let Ok(sighash) = sighash_stream.next().await.transpose() {
-        let pub_nonces = try_join_all(nonce_streams.iter_mut().map(|s| async {
-            s.next().await.ok_or_else(|| {
-                BridgeError::RPCStreamEndedUnexpectedly("Not enough nonces".into())
-            })?
-        }))
+    let mut total_sigs = 0;
+
+    while let Some(msg) = sighash_stream.next().await {
+        let sighash = msg.map_err(|e| {
+            tracing::error!("Error when reading from sighash stream: {}", e);
+            BridgeError::RPCStreamEndedUnexpectedly("Sighash stream ended unexpectedly".into())
+        })?;
+
+        let pub_nonces = try_join_all(nonce_streams.iter_mut().enumerate().map(
+            |(i, s)| async move {
+                s.next().await.ok_or_else(|| {
+                    BridgeError::RPCStreamEndedUnexpectedly(format!(
+                        "Not enough nonces from verifier {i}",
+                    ))
+                })?
+            },
+        ))
         .await?;
 
         let agg_nonce = aggregate_nonces(pub_nonces);
 
         agg_nonce_sender
-            .send(AggNonceQueueItem {
-                agg_nonce,
-                sighash: sighash.ok_or(BridgeError::RPCStreamEndedUnexpectedly(
-                    "Not enough sighashes".into(),
-                ))?,
-            })
+            .send(AggNonceQueueItem { agg_nonce, sighash })
             .await
             .map_err(|e| {
                 BridgeError::RPCStreamEndedUnexpectedly(format!(
@@ -59,8 +65,13 @@ async fn nonce_aggregator(
                     e
                 ))
             })?;
+
+        total_sigs += 1;
     }
 
+    if total_sigs == 0 {
+        tracing::warn!("Sighash stream returned 0 signatures");
+    }
     // Finally, aggregate nonces for the movetx signature
     let pub_nonces = try_join_all(nonce_streams.iter_mut().map(|s| async {
         s.next().await.ok_or_else(|| {

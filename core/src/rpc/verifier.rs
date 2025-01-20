@@ -275,12 +275,7 @@ impl ClementineVerifier for Verifier {
             })
             .unzip();
 
-        let private_key = secp256k1::SecretKey::new(&mut secp256k1::rand::thread_rng());
-
-        let session = NonceSession {
-            private_key,
-            nonces: sec_nonces,
-        };
+        let session = NonceSession { nonces: sec_nonces };
 
         // save the session
         let session_id = {
@@ -291,19 +286,9 @@ impl ClementineVerifier for Verifier {
             session_id
         };
 
-        let public_key = secp256k1::PublicKey::from_secret_key(SECP256K1, &private_key)
-            .serialize()
-            .to_vec();
-        let public_key_hash = sha256_hash!(&public_key);
-
         let nonce_gen_first_response = clementine::NonceGenFirstResponse {
             id: session_id,
-            public_key,
-            sig: self
-                .signer
-                .sign(TapSighash::from_byte_array(public_key_hash))
-                .serialize()
-                .to_vec(),
+            public_key: self.signer.public_key.serialize().to_vec(),
             num_nonces: num_nonces as u32,
         };
 
@@ -425,7 +410,7 @@ impl ClementineVerifier for Verifier {
                     false,
                     session.nonces[nonce_idx],
                     agg_nonce,
-                    &secp256k1::Keypair::from_secret_key(SECP256K1, &session.private_key),
+                    &verifier.signer.keypair,
                     ByteArray32(sighash.to_byte_array()),
                 );
 
@@ -511,7 +496,7 @@ impl ClementineVerifier for Verifier {
                 Params::SchnorrSig(final_sig) => {
                     secp256k1::schnorr::Signature::from_slice(&final_sig).unwrap()
                 }
-                _ => Err(Status::internal("Expected FinalSig"))?,
+                _ => return Err(Status::internal("Expected FinalSig")),
             };
 
             tracing::debug!("Verifying Final Signature");
@@ -565,10 +550,10 @@ impl ClementineVerifier for Verifier {
             _ => Err(Status::internal("Expected MoveTxAggNonce"))?,
         };
 
-        let (movetx_secnonce, sk) = {
+        let movetx_secnonce = {
             let session_map = self.nonces.lock().await;
             let session = session_map.sessions.get(&session_id).unwrap();
-            (session.nonces[0], session.private_key)
+            session.nonces[0]
         };
 
         let partial_sig = musig2::partial_sign(
@@ -577,7 +562,7 @@ impl ClementineVerifier for Verifier {
             false,
             movetx_secnonce,
             agg_nonce,
-            &secp256k1::Keypair::from_secret_key(SECP256K1, &sk),
+            &self.signer.keypair,
             ByteArray32(move_tx_sighash.to_byte_array()),
         );
 

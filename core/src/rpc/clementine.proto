@@ -148,12 +148,11 @@ message NonceGenRequest {
 }
 
 message NonceGenFirstResponse {
+  reserved 3; // 3 = sig, previously used for signing new keypairs
   // Nonce ID
   uint32 id = 1;
   // New public key for the deposit
   bytes public_key = 2;
-  // They sign the new public key with their private key
-  bytes sig = 3;
   // Number of nonces to generate
   uint32 num_nonces = 4;
 }
