@@ -1,6 +1,6 @@
 use crate::builder::transaction::TxHandler;
 use crate::config::BridgeConfig;
-use crate::constants::NUM_INTERMEDIATE_STEPS;
+use crate::constants::{NUM_INTERMEDIATE_STEPS, PARALLEL_ASSERT_TX_CHAIN_SIZE};
 use crate::errors::BridgeError;
 use crate::{builder, database::Database, EVMAddress};
 use async_stream::try_stream;
@@ -258,25 +258,25 @@ pub fn create_nofn_sighash_stream(
                         )?;
                     }
 
-                    let intermediate_wots =
-                        vec![vec![vec![[0u8; 20]; 48]; NUM_INTERMEDIATE_STEPS]; config.num_time_txs]; // TODO: Fetch from db
+                    let (assert_tx_addrs, root_hash, public_input_wots) = db.get_bitvm_setup(None, operator_idx as i32, time_tx_idx as i32, kickoff_idx as i32).await.unwrap().ok_or(BridgeError::BitvmSetupNotFound(operator_idx as i32, time_tx_idx as i32, kickoff_idx as i32))?;
                     let assert_begin_txhandler = builder::transaction::create_assert_begin_txhandler(
                         &kickoff_txhandler,
-                        nofn_xonly_pk,
-                        intermediate_wots[time_tx_idx].clone(),
+                        &assert_tx_addrs,
                         network,
                     );
 
                     let mut assert_end_txhandler = builder::transaction::create_assert_end_txhandler(
                         &kickoff_txhandler,
                         &assert_begin_txhandler,
+                        &assert_tx_addrs,
+                        &root_hash,
                         nofn_xonly_pk,
-                        *operator_xonly_pk,
+                        public_input_wots,
                         network,
                     );
                     yield convert_tx_to_pubkey_spend(
                         &mut assert_end_txhandler,
-                        NUM_INTERMEDIATE_STEPS,
+                        PARALLEL_ASSERT_TX_CHAIN_SIZE,
                         None,
                     )?;
 
