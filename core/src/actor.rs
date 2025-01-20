@@ -26,7 +26,7 @@ pub enum TxType {
 
 /// Derivation path specification for Winternitz one time public key generation.
 #[derive(Debug, Clone, Copy)]
-pub struct WinternitzDerivationPath {
+pub struct WinternitzDerivationPath<'a> {
     pub message_length: u32,
     pub log_d: u32,
     pub tx_type: TxType,
@@ -35,9 +35,9 @@ pub struct WinternitzDerivationPath {
     pub watchtower_idx: Option<u32>,
     pub time_tx_idx: Option<u32>,
     pub kickoff_idx: Option<u32>,
-    pub intermediate_step_idx: Option<u32>,
+    pub intermediate_step_name: Option<&'a str>,
 }
-impl WinternitzDerivationPath {
+impl<'a> WinternitzDerivationPath<'a> {
     fn to_vec(self) -> Vec<u8> {
         let index = match self.index {
             None => 0,
@@ -59,9 +59,9 @@ impl WinternitzDerivationPath {
             None => 0,
             Some(i) => i + 1,
         };
-        let intermediate_step_idx = match self.intermediate_step_idx {
-            None => 0,
-            Some(i) => i + 1,
+        let intermediate_step_name = match self.intermediate_step_name {
+            None => vec![],
+            Some(name) => name.as_bytes().to_vec(),
         };
 
         [
@@ -72,14 +72,14 @@ impl WinternitzDerivationPath {
                 watchtower_idx.to_be_bytes(),
                 time_tx_idx.to_be_bytes(),
                 kickoff_idx.to_be_bytes(),
-                intermediate_step_idx.to_be_bytes(),
             ]
             .concat(),
+            intermediate_step_name,
         ]
         .concat()
     }
 }
-impl Default for WinternitzDerivationPath {
+impl Default for WinternitzDerivationPath<'_> {
     fn default() -> Self {
         Self {
             message_length: Default::default(),
@@ -90,7 +90,7 @@ impl Default for WinternitzDerivationPath {
             watchtower_idx: Default::default(),
             time_tx_idx: Default::default(),
             kickoff_idx: Default::default(),
-            intermediate_step_idx: Default::default(),
+            intermediate_step_name: Default::default(),
         }
     }
 }
@@ -314,7 +314,7 @@ impl Actor {
     /// Returns derivied Winternitz secret key from given path.
     fn get_derived_winternitz_sk(
         &self,
-        path: WinternitzDerivationPath,
+        path: WinternitzDerivationPath<'_>,
     ) -> Result<winternitz::SecretKey, BridgeError> {
         let wsk = self
             .winternitz_secret_key
@@ -325,7 +325,7 @@ impl Actor {
     /// Generates a Winternitz public key for the given path.
     pub fn derive_winternitz_pk(
         &self,
-        path: WinternitzDerivationPath,
+        path: WinternitzDerivationPath<'_>,
     ) -> Result<winternitz::PublicKey, BridgeError> {
         let winternitz_params = winternitz::Parameters::new(path.message_length, path.log_d);
 
@@ -338,7 +338,7 @@ impl Actor {
     /// Signs given data with Winternitz signature.
     pub fn sign_winternitz_signature(
         &self,
-        path: WinternitzDerivationPath,
+        path: WinternitzDerivationPath<'_>,
         data: Vec<u8>,
     ) -> Result<Witness, BridgeError> {
         let winternitz = Winternitz::<BinarysearchVerifier, StraightforwardConverter>::new();
@@ -597,7 +597,7 @@ mod tests {
             .concat()
         );
 
-        params.intermediate_step_idx = Some(5);
+        params.intermediate_step_name = Some("step5");
         assert_eq!(
             params.to_vec(),
             [
