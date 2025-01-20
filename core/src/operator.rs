@@ -7,20 +7,20 @@ use crate::database::Database;
 use crate::errors::BridgeError;
 use crate::extended_rpc::ExtendedRpc;
 use crate::musig2::AggregateFromPublicKeys;
-use crate::utils::handle_taproot_witness_new;
+use crate::utils::{handle_taproot_witness_new, SECP};
 use crate::{utils, EVMAddress, UTXO};
 use bitcoin::address::NetworkUnchecked;
 use bitcoin::consensus::deserialize;
 use bitcoin::hashes::Hash;
 use bitcoin::script::PushBytesBuf;
+use bitcoin::secp256k1::{schnorr, Message};
 use bitcoin::sighash::SighashCache;
-use bitcoin::{Address, Amount, OutPoint, TapSighash, Transaction, TxOut, Txid};
+use bitcoin::{Address, Amount, OutPoint, TapSighash, Transaction, TxOut, Txid, XOnlyPublicKey};
 use bitcoincore_rpc::{RawTx, RpcApi};
 use bitvm::signatures::winternitz;
 use jsonrpsee::core::client::ClientT;
 use jsonrpsee::http_client::HttpClientBuilder;
 use jsonrpsee::rpc_params;
-use secp256k1::{schnorr, Message, SECP256K1};
 use serde_json::json;
 
 #[derive(Debug, Clone)]
@@ -29,7 +29,7 @@ pub struct Operator {
     pub db: Database,
     pub(crate) signer: Actor,
     pub(crate) config: BridgeConfig,
-    nofn_xonly_pk: secp256k1::XOnlyPublicKey,
+    nofn_xonly_pk: XOnlyPublicKey,
     pub(crate) idx: usize,
     citrea_client: Option<jsonrpsee::http_client::HttpClient>,
 }
@@ -48,11 +48,8 @@ impl Operator {
 
         let db = Database::new(&config).await?;
 
-        let nofn_xonly_pk = secp256k1::XOnlyPublicKey::from_musig2_pks(
-            config.verifiers_public_keys.clone(),
-            None,
-            false,
-        );
+        let nofn_xonly_pk =
+            XOnlyPublicKey::from_musig2_pks(config.verifiers_public_keys.clone(), None)?;
         let idx = config
             .operators_xonly_pks
             .iter()
@@ -135,7 +132,7 @@ impl Operator {
         deposit_outpoint: OutPoint,
         recovery_taproot_address: Address<NetworkUnchecked>,
         evm_address: EVMAddress,
-    ) -> Result<(UTXO, secp256k1::schnorr::Signature), BridgeError> {
+    ) -> Result<(UTXO, schnorr::Signature), BridgeError> {
         tracing::info!(
             "New deposit request for UTXO: {:?}, EVM address: {:?} and recovery taproot address of: {:?}",
             deposit_outpoint,
@@ -421,9 +418,8 @@ impl Operator {
             return Err(BridgeError::NotEnoughFeeForOperator);
         }
 
-        let user_xonly_pk = secp256k1::XOnlyPublicKey::from_slice(
-            &input_utxo.txout.script_pubkey.as_bytes()[2..34],
-        )?;
+        let user_xonly_pk =
+            XOnlyPublicKey::from_slice(&input_utxo.txout.script_pubkey.as_bytes()[2..34])?;
 
         let tx_ins = builder::transaction::create_tx_ins(vec![input_utxo.outpoint]);
         let tx_outs = vec![output_txout.clone()];
@@ -442,7 +438,7 @@ impl Operator {
         };
         tx.input[0].witness.push(user_sig_wrapped.serialize());
 
-        SECP256K1.verify_schnorr(
+        SECP.verify_schnorr(
             &user_sig,
             &Message::from_digest(*sighash.as_byte_array()),
             &user_xonly_pk,
@@ -709,32 +705,36 @@ impl Operator {
         let mut winternitz_pubkeys = Vec::new();
 
         for time_tx in 0..self.config.num_time_txs as u32 {
-            let path = WinternitzDerivationPath {
-                message_length: 128,
-                log_d: 4,
-                tx_type: crate::actor::TxType::OperatorLongestChain,
-                index: Some(self.idx as u32),
-                operator_idx: None,
-                watchtower_idx: None,
-                time_tx_idx: Some(time_tx),
-                intermediate_step_idx: None,
-            };
-
-            winternitz_pubkeys.push(self.signer.derive_winternitz_pk(path)?);
-
-            for intermediate_step in 0..NUM_INTERMEDIATE_STEPS as u32 {
+            for kickoff_idx in 0..self.config.num_kickoffs_per_timetx as u32 {
                 let path = WinternitzDerivationPath {
-                    message_length: 40,
+                    message_length: 128,
                     log_d: 4,
-                    tx_type: crate::actor::TxType::BitVM,
+                    tx_type: crate::actor::TxType::OperatorLongestChain,
                     index: Some(self.idx as u32),
                     operator_idx: None,
                     watchtower_idx: None,
                     time_tx_idx: Some(time_tx),
-                    intermediate_step_idx: Some(intermediate_step),
+                    kickoff_idx: Some(kickoff_idx),
+                    intermediate_step_idx: None,
                 };
 
                 winternitz_pubkeys.push(self.signer.derive_winternitz_pk(path)?);
+
+                for intermediate_step in 0..NUM_INTERMEDIATE_STEPS as u32 {
+                    let path = WinternitzDerivationPath {
+                        message_length: 40,
+                        log_d: 4,
+                        tx_type: crate::actor::TxType::BitVM,
+                        index: Some(self.idx as u32),
+                        operator_idx: None,
+                        watchtower_idx: None,
+                        time_tx_idx: Some(time_tx),
+                        kickoff_idx: Some(kickoff_idx),
+                        intermediate_step_idx: Some(intermediate_step),
+                    };
+
+                    winternitz_pubkeys.push(self.signer.derive_winternitz_pk(path)?);
+                }
             }
         }
 
@@ -836,6 +836,9 @@ mod tests {
         let operator = Operator::new(config.clone(), rpc).await.unwrap();
 
         let winternitz_public_key = operator.get_winternitz_public_keys().unwrap();
-        assert_eq!(winternitz_public_key.len(), config.num_time_txs);
+        assert_eq!(
+            winternitz_public_key.len(),
+            config.num_time_txs * config.num_kickoffs_per_timetx
+        );
     }
 }

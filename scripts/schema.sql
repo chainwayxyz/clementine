@@ -48,7 +48,6 @@ create table if not exists nonces (
     deposit_outpoint text not null check (deposit_outpoint ~ '^[a-fA-F0-9]{64}:(0|[1-9][0-9]{0,9})$'),
     internal_idx int not null,
     pub_nonce bytea not null check (length(pub_nonce) = 66),
-    sec_nonce bytea not null check (length(sec_nonce) = 64),
     agg_nonce bytea check (length(agg_nonce) = 66),
     sighash bytea check (length(sighash) = 32),
     partial_sig bytea check (length(partial_sig) = 32),

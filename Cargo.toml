@@ -20,8 +20,7 @@ serial_test = "3.2.0"
 # bitcoin
 bitcoin = "0.32.5"
 bitcoincore-rpc = "0.18.0"
-musig2 = { version = "0.0.11", features = ["serde"] }
-secp256k1 = { version = "0.29.1", features = ["serde", "rand-std", "global-context"] }
+secp256k1 = { version = "0.30.0", features = ["serde", "rand", "std", "global-context"] }
 bitcoin-script = { git = "https://github.com/BitVM/rust-bitcoin-script", branch= "StructuredScript" }
 
 # async + gRPC
@@ -42,7 +41,7 @@ k256 = { version = "=0.13.3", default-features = false }
 risc0-build = "1.2"
 risc0-zkvm = { version = "1.2" }
 header-chain = { git = "https://github.com/chainwayxyz/risc0-to-bitvm2", rev = "a233e27" }
-bitvm = { git = "https://github.com/BitVM/BitVM", rev = "f9cb29e" }
+bitvm = { git = "https://github.com/BitVM/BitVM", rev = "02157f6" }
 
 [patch.crates-io]
 bitcoincore-rpc = { version = "0.18.0", git = "https://github.com/chainwayxyz/rust-bitcoincore-rpc.git", rev = "ca3cfa2" }
@@ -58,6 +57,8 @@ ark-crypto-primitives = { git = "https://github.com/arkworks-rs/crypto-primitive
 ark-relations = { git = "https://github.com/arkworks-rs/snark/" }
 ark-snark = { git = "https://github.com/arkworks-rs/snark/" }
 ark-groth16 = { git = "https://github.com/arkworks-rs/groth16" }
+
+secp256k1 = { git = "https://github.com/jlest01/rust-secp256k1", branch = "musig2-module" }
 
 [profile.release]
 lto = true

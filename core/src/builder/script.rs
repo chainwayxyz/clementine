@@ -3,6 +3,7 @@
 //! Script builder provides useful functions for building typical Bitcoin
 //! scripts.
 
+use super::transaction::ANCHOR_AMOUNT;
 use crate::EVMAddress;
 use bitcoin::blockdata::opcodes::all::OP_PUSHNUM_1;
 use bitcoin::opcodes::OP_TRUE;
@@ -10,11 +11,8 @@ use bitcoin::Amount;
 use bitcoin::{
     opcodes::{all::*, OP_FALSE},
     script::Builder,
-    ScriptBuf, TxOut,
+    ScriptBuf, TxOut, XOnlyPublicKey,
 };
-use secp256k1::XOnlyPublicKey;
-
-use super::transaction::ANCHOR_AMOUNT;
 
 pub fn anyone_can_spend_txout() -> TxOut {
     let script = Builder::new().push_opcode(OP_PUSHNUM_1).into_script();
@@ -90,6 +88,15 @@ pub fn generate_relative_timelock_script(
         .push_opcode(OP_DROP)
         .push_x_only_key(&actor_taproot_xonly_pk)
         .push_opcode(OP_CHECKSIG)
+        .into_script()
+}
+
+pub fn generate_relative_timelock_script_no_key(block_count: i64) -> ScriptBuf {
+    Builder::new()
+        .push_int(block_count)
+        .push_opcode(OP_CSV)
+        .push_opcode(OP_DROP)
+        .push_opcode(OP_TRUE)
         .into_script()
 }
 

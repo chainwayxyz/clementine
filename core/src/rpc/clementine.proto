@@ -52,10 +52,6 @@ message OperatorParams {
   // Adaptor signatures for asserting a watchtower's challenge to zero.
   // Total of 1000*100 preimages.
   repeated AssertEmptyPublicKey assert_empty_public_key = 3;
-  // Timeout transaction signatures. It is not desired to have N-of-N in time
-  // txs. So, operator will sign the timeout txs. Takes total of 1000 schnorr
-  // sigs.
-  repeated bytes timeout_tx_sigs = 4;
 }
 
 message OperatorBurnSig {

@@ -11,9 +11,9 @@
 //! described in `BridgeConfig` struct.
 
 use crate::errors::BridgeError;
+use bitcoin::secp256k1::{PublicKey, SecretKey};
 use bitcoin::{address::NetworkUnchecked, Amount};
 use bitcoin::{Address, Network, XOnlyPublicKey};
-use secp256k1::{PublicKey, SecretKey};
 use serde::{Deserialize, Serialize};
 use std::str::FromStr;
 use std::{fs::File, io::Read, path::PathBuf};
@@ -30,13 +30,13 @@ pub struct BridgeConfig {
     /// Bitcoin network to work on.
     pub network: Network,
     /// Secret key for the operator or the verifier.
-    pub secret_key: secp256k1::SecretKey,
+    pub secret_key: SecretKey,
     /// Verifiers public keys.
-    pub verifiers_public_keys: Vec<secp256k1::PublicKey>,
+    pub verifiers_public_keys: Vec<PublicKey>,
     /// Number of verifiers.
     pub num_verifiers: usize,
     /// Operators x-only public keys.
-    pub operators_xonly_pks: Vec<secp256k1::XOnlyPublicKey>,
+    pub operators_xonly_pks: Vec<XOnlyPublicKey>,
     /// Operators wallet addresses.
     pub operator_wallet_addresses: Vec<bitcoin::Address<NetworkUnchecked>>,
     /// Number of operators.
@@ -45,6 +45,8 @@ pub struct BridgeConfig {
     pub num_watchtowers: usize,
     /// Number of time txs
     pub num_time_txs: usize,
+    /// number of kickoffs per time tx
+    pub num_kickoffs_per_timetx: usize,
     /// Operator's fee for withdrawal, in satoshis.
     pub operator_withdrawal_fee_sats: Option<Amount>,
     /// Number of blocks after which user can take deposit back if deposit request fails.
@@ -64,11 +66,11 @@ pub struct BridgeConfig {
     /// Bitcoin RPC user password.
     pub bitcoin_rpc_password: String,
     /// All Secret keys. Just for testing purposes.
-    pub all_verifiers_secret_keys: Option<Vec<secp256k1::SecretKey>>,
+    pub all_verifiers_secret_keys: Option<Vec<SecretKey>>,
     /// All Secret keys. Just for testing purposes.
-    pub all_operators_secret_keys: Option<Vec<secp256k1::SecretKey>>,
+    pub all_operators_secret_keys: Option<Vec<SecretKey>>,
     /// All Secret keys. Just for testing purposes.
-    pub all_watchtowers_secret_keys: Option<Vec<secp256k1::SecretKey>>,
+    pub all_watchtowers_secret_keys: Option<Vec<SecretKey>>,
     /// Verifier endpoints. For the aggregator only
     pub verifier_endpoints: Option<Vec<String>>,
     /// Operator endpoint. For the aggregator only
@@ -92,7 +94,7 @@ pub struct BridgeConfig {
     // Initial header chain proof receipt's file path.
     pub header_chain_proof_path: Option<PathBuf>,
     /// Additional secret key that will be used for creating Winternitz one time signature.
-    pub winternitz_secret_key: Option<secp256k1::SecretKey>,
+    pub winternitz_secret_key: Option<SecretKey>,
 }
 
 impl BridgeConfig {
@@ -138,7 +140,7 @@ impl Default for BridgeConfig {
             port: 17000,
             index: 0,
 
-            secret_key: secp256k1::SecretKey::from_str(
+            secret_key: SecretKey::from_str(
                 "3333333333333333333333333333333333333333333333333333333333333333",
             )
             .unwrap(),
@@ -178,6 +180,7 @@ impl Default for BridgeConfig {
             num_operators: 3,
             num_watchtowers: 4,
             num_time_txs: 10,
+            num_kickoffs_per_timetx: 2, // TODO: increase after implementing stream for watchtower params
             operators_xonly_pks: vec![
                 XOnlyPublicKey::from_str(
                     "4f355bdcb7cc0af728ef3cceb9615d90684bb5b2ca5f859ab0f0b704075871aa",
@@ -301,7 +304,7 @@ impl Default for BridgeConfig {
             ]),
 
             winternitz_secret_key: Some(
-                secp256k1::SecretKey::from_str(
+                SecretKey::from_str(
                     "2222222222222222222222222222222222222222222222222222222222222222",
                 )
                 .unwrap(),

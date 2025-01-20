@@ -67,11 +67,6 @@ pub struct OperatorParams {
     /// Total of 1000*100 preimages.
     #[prost(message, repeated, tag = "3")]
     pub assert_empty_public_key: ::prost::alloc::vec::Vec<AssertEmptyPublicKey>,
-    /// Timeout transaction signatures. It is not desired to have N-of-N in time
-    /// txs. So, operator will sign the timeout txs. Takes total of 1000 schnorr
-    /// sigs.
-    #[prost(bytes = "vec", repeated, tag = "4")]
-    pub timeout_tx_sigs: ::prost::alloc::vec::Vec<::prost::alloc::vec::Vec<u8>>,
 }
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct OperatorBurnSig {

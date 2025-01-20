@@ -15,6 +15,5 @@ pub type VerifierChallenge = (BlockHash, U256, u8);
 
 // pub const TEST_MODE: bool = true;
 
+// dummy number of BitVM disprove scripts
 pub const NUM_INTERMEDIATE_STEPS: usize = 100;
-
-pub const NUM_DISPROVE_SCRIPTS: usize = 100;
