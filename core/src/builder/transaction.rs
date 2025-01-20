@@ -1356,18 +1356,18 @@ pub fn create_tx_ins(outpoints: Vec<OutPoint>) -> Vec<TxIn> {
 
 /// Create tx_ins with relative time locks using block height
 /// This function needs to be used with any TX that has a relative time lock in at least one of the inputs.
-pub fn create_tx_ins_with_sequence(utxos: Vec<OutPoint>, height: &[Option<u16>]) -> Vec<TxIn> {
+pub fn create_tx_ins_with_sequence(utxos: Vec<OutPoint>, heights: &[Option<u16>]) -> Vec<TxIn> {
     assert_eq!(
         utxos.len(),
-        height.len(),
-        "create_tx_ins_with_sequence: Length of utxos and height should be the same"
+        heights.len(),
+        "create_tx_ins_with_sequence: Length of utxos and timelock heights should be the same"
     );
     utxos
         .into_iter()
         .enumerate()
         .map(|(i, utxo)| TxIn {
             previous_output: utxo,
-            sequence: match height[i] {
+            sequence: match heights[i] {
                 Some(h) => bitcoin::transaction::Sequence::from_height(h),
                 None => bitcoin::transaction::Sequence::ENABLE_RBF_NO_LOCKTIME,
             },
