@@ -4,14 +4,10 @@ use super::clementine::{
     VerifierDepositSignParams, VerifierParams, VerifierPublicKeys, WatchtowerParams,
 };
 use crate::{
-    builder::{
-        self,
-        sighash::{calculate_num_required_sigs, create_nofn_sighash_stream},
-    },
+    builder::sighash::{calculate_num_required_sigs, create_nofn_sighash_stream},
     errors::BridgeError,
     musig2::{self},
-    sha256_hash,
-    utils::{self, SECP},
+    sha256_hash, utils,
     verifier::{NofN, NonceSession, Verifier},
     EVMAddress,
 };
@@ -110,41 +106,6 @@ impl ClementineVerifier for Verifier {
             )
             .await?;
 
-        let timeout_tx_sigs: Vec<schnorr::Signature> = operator_params
-            .timeout_tx_sigs
-            .iter()
-            .map(|sig| schnorr::Signature::from_slice(sig).unwrap())
-            .collect();
-
-        let timeout_tx_sighash_stream = builder::sighash::create_timeout_tx_sighash_stream(
-            operator_xonly_pk,
-            Txid::from_slice(&operator_config.collateral_funding_txid).unwrap(),
-            Amount::from_sat(200_000_000), // TODO: Fix this.
-            3024,
-            6,
-            100,
-            self.config.network,
-        );
-
-        timeout_tx_sighash_stream
-            .enumerate()
-            .map(|(i, sighash)| {
-                SECP.verify_schnorr(
-                    &timeout_tx_sigs[i],
-                    &Message::from(sighash?),
-                    &operator_xonly_pk,
-                )
-                .map_err(|e| BridgeError::Error(format!("Can't verify Schnorr signature: {}", e)))
-            })
-            .collect::<Vec<Result<(), BridgeError>>>()
-            .await
-            .into_iter()
-            .collect::<Result<Vec<_>, BridgeError>>()?;
-
-        self.db
-            .save_timeout_tx_sigs(None, operator_config.operator_idx, timeout_tx_sigs)
-            .await?;
-
         // Convert RPC type into BitVM type.
         let operator_winternitz_public_keys = operator_params
             .winternitz_pubkeys
@@ -178,7 +139,9 @@ impl ClementineVerifier for Verifier {
             .map(|wpk| Ok(wpk.to_bitvm()))
             .collect::<Result<Vec<_>, BridgeError>>()?;
 
-        let required_number_of_pubkeys = self.config.num_operators * self.config.num_time_txs;
+        let required_number_of_pubkeys = self.config.num_operators
+            * self.config.num_time_txs
+            * self.config.num_kickoffs_per_timetx;
         if watchtower_winternitz_public_keys.len() != required_number_of_pubkeys {
             return Err(Status::invalid_argument(format!(
                 "Request has {} Winternitz public keys but it needs to be {}!",
@@ -188,13 +151,15 @@ impl ClementineVerifier for Verifier {
         }
 
         for operator_idx in 0..self.config.num_operators {
-            let index = operator_idx * self.config.num_time_txs;
+            let index =
+                operator_idx * self.config.num_time_txs * self.config.num_kickoffs_per_timetx;
             self.db
                 .save_watchtower_winternitz_public_keys(
                     None,
                     watchtower_params.watchtower_id,
                     operator_idx as u32,
-                    watchtower_winternitz_public_keys[index..index + self.config.num_time_txs]
+                    watchtower_winternitz_public_keys[index
+                        ..index + self.config.num_time_txs * self.config.num_kickoffs_per_timetx]
                         .to_vec(),
                 )
                 .await?;
@@ -377,11 +342,7 @@ impl ClementineVerifier for Verifier {
                 verifier.config.bridge_amount_sats,
                 verifier.config.network,
             ));
-            let num_required_sigs = calculate_num_required_sigs(
-                verifier.config.num_operators,
-                verifier.config.num_time_txs,
-                verifier.config.num_watchtowers,
-            );
+            let num_required_sigs = calculate_num_required_sigs(&verifier.config);
             while let Some(result) = in_stream.message().await.unwrap() {
                 let agg_nonce = match result
                     .params
@@ -493,11 +454,7 @@ impl ClementineVerifier for Verifier {
             self.config.bridge_amount_sats,
             self.config.network,
         ));
-        let num_required_sigs = calculate_num_required_sigs(
-            self.config.num_operators,
-            self.config.num_time_txs,
-            self.config.num_watchtowers,
-        );
+        let num_required_sigs = calculate_num_required_sigs(&self.config);
         let mut nonce_idx: usize = 0;
         while let Some(result) = in_stream.message().await.unwrap() {
             let sighash = sighash_stream.next().await.unwrap().unwrap();

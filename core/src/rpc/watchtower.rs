@@ -83,6 +83,9 @@ mod tests {
             params.xonly_pk,
             watchtower.actor.xonly_public_key.serialize().to_vec()
         );
-        assert!(params.winternitz_pubkeys.len() == config.num_operators * config.num_time_txs);
+        assert_eq!(
+            params.winternitz_pubkeys.len(),
+            config.num_operators * config.num_time_txs * config.num_kickoffs_per_timetx
+        );
     }
 }

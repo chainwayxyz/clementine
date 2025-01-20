@@ -12,12 +12,11 @@ use futures_core::stream::Stream;
 
 // TODO: For now, this is equal to the number of sighashes we yield in create_nofn_sighash_stream.
 // This will change as we implement the system design.
-pub fn calculate_num_required_sigs(
-    num_operators: usize,
-    num_time_txs: usize,
-    num_watchtowers: usize,
-) -> usize {
-    num_operators * num_time_txs * (6 + 2 * num_watchtowers + NUM_INTERMEDIATE_STEPS)
+pub fn calculate_num_required_sigs(config: &BridgeConfig) -> usize {
+    config.num_operators
+        * config.num_time_txs
+        * config.num_kickoffs_per_timetx
+        * (10 + 2 * config.num_watchtowers)
 }
 
 pub fn convert_tx_to_pubkey_spend(
@@ -81,14 +80,9 @@ pub fn convert_tx_to_script_spend(
     Ok(sig_hash)
 }
 
-/// First iterate over operators
-/// For each operator, iterate over time txs
-/// For each time tx, create kickoff txid
-/// using kickoff txid, create watchtower challenge page
-/// yield watchtower challenge page sighash
-/// yield watchtower challenge tx sighash per watchtower
-/// yield sighash_single|anyonecanpay sighash for challenge tx
-/// TBC
+/// Construct every deposit tx for each operator, sequential_collateral, and kickoff utxo,
+/// and yield the sighash for each txin that needs a NofN signature.
+/// Refer to bridge design diagram to see which NofN signatures are needed (the ones marked with blue arrows)
 pub fn create_nofn_sighash_stream(
     db: Database,
     config: BridgeConfig,
@@ -136,203 +130,203 @@ pub fn create_nofn_sighash_stream(
             let mut input_amount = collateral_funding_amount;
 
             for time_tx_idx in 0..config.num_time_txs {
-                let time_txhandler = builder::transaction::create_time_txhandler(
+                let sequential_collateral_txhandler = builder::transaction::create_sequential_collateral_txhandler(
                     *operator_xonly_pk,
                     input_txid,
                     input_amount,
                     timeout_block_count,
                     max_withdrawal_time_block_count,
+                    config.num_kickoffs_per_timetx,
                     network,
                 );
 
-                let kickoff_txhandler = builder::transaction::create_kickoff_txhandler(
-                    &time_txhandler,
-                    nofn_xonly_pk,
+                let reimburse_generator_txhandler = builder::transaction::create_reimburse_generator_txhandler(
+                    &sequential_collateral_txhandler,
                     *operator_xonly_pk,
-                    move_txhandler.txid,
-                    operator_idx,
+                    config.num_kickoffs_per_timetx,
                     network,
                 );
 
-                let mut challenge_tx = builder::transaction::create_challenge_txhandler(
-                    &kickoff_txhandler,
-                    _operator_reimburse_address,
-                );
-
-                yield convert_tx_to_pubkey_spend(
-                    &mut challenge_tx,
-                    0,
-                    Some(bitcoin::sighash::TapSighashType::SinglePlusAnyoneCanPay)
-                )?;
-
-                let mut happy_reimburse_tx = builder::transaction::create_happy_reimburse_txhandler(
-                    &move_txhandler,
-                    &kickoff_txhandler,
-                    _operator_reimburse_address,
-                );
-
-                // move utxo
-                yield convert_tx_to_pubkey_spend(
-                    &mut happy_reimburse_tx,
-                    0,
-                    None
-                )?;
-                // nofn_or_nofn3week utxo
-                yield convert_tx_to_pubkey_spend(
-                    &mut happy_reimburse_tx,
-                    2,
-                    None
-                )?;
-
-
-                let watchtower_wots = (0..config.num_watchtowers)
-                    .map(|i| watchtower_challenge_wotss[i][time_tx_idx].clone())
-                    .collect::<Vec<_>>();
-
-                let mut watchtower_challenge_page_tx_handler =
-                    builder::transaction::create_watchtower_challenge_page_txhandler(
-                        &kickoff_txhandler,
-                        config.num_watchtowers as u32,
-                        &watchtower_pks,
-                        watchtower_wots.clone(),
+                for kickoff_idx in 0..config.num_kickoffs_per_timetx {
+                    let kickoff_txhandler = builder::transaction::create_kickoff_txhandler(
+                        &sequential_collateral_txhandler,
+                        kickoff_idx,
+                        nofn_xonly_pk,
+                        *operator_xonly_pk,
+                        move_txhandler.txid,
+                        operator_idx,
                         network,
                     );
 
-                yield convert_tx_to_pubkey_spend(
-                    &mut watchtower_challenge_page_tx_handler,
-                    0,
-                    None,
-                )?;
+                    let mut challenge_tx = builder::transaction::create_challenge_txhandler(
+                        &kickoff_txhandler,
+                        _operator_reimburse_address,
+                    );
 
-                let mut kickoff_timeout_txhandler = builder::transaction::create_kickoff_timeout_txhandler(
-                    &kickoff_txhandler,
-                    &time_txhandler,
-                    network,
-                );
+                    yield convert_tx_to_pubkey_spend(
+                        &mut challenge_tx,
+                        0,
+                        Some(bitcoin::sighash::TapSighashType::SinglePlusAnyoneCanPay)
+                    )?;
 
-                yield convert_tx_to_script_spend(
-                    &mut kickoff_timeout_txhandler,
-                    0,
-                    0,
-                    None,
-                )?;
+                    let mut start_happy_reimburse_txhandler = builder::transaction::create_start_happy_reimburse_txhandler(
+                        &kickoff_txhandler,
+                        *operator_xonly_pk,
+                        network
+                    );
 
-                for i in 0..config.num_watchtowers {
-                    let watchtower_challenge_txhandler =
-                        builder::transaction::create_watchtower_challenge_txhandler(
-                            &watchtower_challenge_page_tx_handler,
-                            i,
-                            &[0u8; 20], // TODO: real op unlock hash
-                            nofn_xonly_pk,
-                            *operator_xonly_pk,
+                    // sign kickoff_tx utxo
+                    yield convert_tx_to_pubkey_spend(
+                        &mut start_happy_reimburse_txhandler,
+                        1,
+                        None
+                    )?;
+
+                    let mut happy_reimburse_txhandler = builder::transaction::create_happy_reimburse_txhandler(
+                        &move_txhandler,
+                        &start_happy_reimburse_txhandler,
+                        &reimburse_generator_txhandler,
+                        kickoff_idx,
+                        _operator_reimburse_address,
+                    );
+
+                    // sign move_tx utxo
+                    yield convert_tx_to_pubkey_spend(
+                        &mut happy_reimburse_txhandler,
+                        0,
+                        None
+                    )?;
+
+                    let watchtower_wots = (0..config.num_watchtowers)
+                        .map(|i| watchtower_challenge_wotss[i][time_tx_idx * config.num_kickoffs_per_timetx + kickoff_idx].clone())
+                        .collect::<Vec<_>>();
+
+                    let mut watchtower_challenge_kickoff_txhandler =
+                        builder::transaction::create_watchtower_challenge_kickoff_txhandler(
+                            &kickoff_txhandler,
+                            config.num_watchtowers as u32,
+                            &watchtower_pks,
+                            watchtower_wots.clone(),
                             network,
                         );
 
-                    let mut operator_challenge_nack_txhandler =
-                        builder::transaction::create_operator_challenge_nack_txhandler(
-                            &watchtower_challenge_txhandler,
-                            &kickoff_txhandler
-                        );
-                    yield convert_tx_to_script_spend(
-                        &mut operator_challenge_nack_txhandler,
-                        0,
-                        1,
-                        None,
-                    )?;
                     yield convert_tx_to_pubkey_spend(
-                        &mut operator_challenge_nack_txhandler,
+                        &mut watchtower_challenge_kickoff_txhandler,
+                        0,
+                        None,
+                    )?;
+
+                    let mut kickoff_timeout_txhandler = builder::transaction::create_kickoff_timeout_txhandler(
+                        &kickoff_txhandler,
+                        &sequential_collateral_txhandler,
+                        network,
+                    );
+
+                    yield convert_tx_to_script_spend(
+                        &mut kickoff_timeout_txhandler,
+                        0,
+                        0,
+                        None,
+                    )?;
+
+                    for i in 0..config.num_watchtowers {
+                        let watchtower_challenge_txhandler =
+                            builder::transaction::create_watchtower_challenge_txhandler(
+                                &watchtower_challenge_kickoff_txhandler,
+                                i,
+                                &[0u8; 20], // TODO: real op unlock hash
+                                nofn_xonly_pk,
+                                *operator_xonly_pk,
+                                network,
+                            );
+
+                        let mut operator_challenge_nack_txhandler =
+                            builder::transaction::create_operator_challenge_nack_txhandler(
+                                &watchtower_challenge_txhandler,
+                                &kickoff_txhandler
+                            );
+                        yield convert_tx_to_script_spend(
+                            &mut operator_challenge_nack_txhandler,
+                            0,
+                            1,
+                            None,
+                        )?;
+                        yield convert_tx_to_pubkey_spend(
+                            &mut operator_challenge_nack_txhandler,
+                            1,
+                            None,
+                        )?;
+                    }
+
+                    let intermediate_wots =
+                        vec![vec![vec![[0u8; 20]; 48]; NUM_INTERMEDIATE_STEPS]; config.num_time_txs]; // TODO: Fetch from db
+                    let assert_begin_txhandler = builder::transaction::create_assert_begin_txhandler(
+                        &kickoff_txhandler,
+                        nofn_xonly_pk,
+                        intermediate_wots[time_tx_idx].clone(),
+                        network,
+                    );
+
+                    let mut assert_end_txhandler = builder::transaction::create_assert_end_txhandler(
+                        &kickoff_txhandler,
+                        &assert_begin_txhandler,
+                        nofn_xonly_pk,
+                        *operator_xonly_pk,
+                        network,
+                    );
+                    yield convert_tx_to_pubkey_spend(
+                        &mut assert_end_txhandler,
+                        NUM_INTERMEDIATE_STEPS,
+                        None,
+                    )?;
+
+                    let mut disprove_timeout_txhandler = builder::transaction::create_disprove_timeout_txhandler(
+                        &assert_end_txhandler,
+                        *operator_xonly_pk,
+                        network,
+                    );
+
+                    // sign disprove scripts utxo
+                    yield convert_tx_to_pubkey_spend(
+                        &mut disprove_timeout_txhandler,
+                        0,
+                        None,
+                    )?;
+                    // sign nofn_1week disprove timeout utxo
+                    yield convert_tx_to_script_spend(
+                        &mut disprove_timeout_txhandler,
+                        1,
+                        0,
+                        None,
+                    )?;
+
+                    let mut already_disproved_txhandler = builder::transaction::create_already_disproved_txhandler(
+                        &assert_end_txhandler,
+                        &sequential_collateral_txhandler,
+                    );
+
+                    // sign nofn_2week disprove timeout utxo
+                    yield convert_tx_to_script_spend(
+                        &mut already_disproved_txhandler,
+                        0,
                         1,
                         None,
                     )?;
+
+                    let mut reimburse_txhandler = builder::transaction::create_reimburse_txhandler(
+                        &move_txhandler,
+                        &disprove_timeout_txhandler,
+                        &reimburse_generator_txhandler,
+                        kickoff_idx,
+                        _operator_reimburse_address,
+                    );
+
+                    yield convert_tx_to_pubkey_spend(&mut reimburse_txhandler, 0, None)?;
                 }
 
-                let intermediate_wots =
-                    vec![vec![vec![[0u8; 20]; 48]; NUM_INTERMEDIATE_STEPS]; config.num_time_txs]; // TODO: Fetch from db
-                let assert_begin_txhandler = builder::transaction::create_assert_begin_txhandler(
-                    &kickoff_txhandler,
-                    nofn_xonly_pk,
-                    intermediate_wots[time_tx_idx].clone(),
-                    network,
-                );
-
-                let mut assert_end_txhandler = builder::transaction::create_assert_end_txhandler(
-                    &kickoff_txhandler,
-                    &assert_begin_txhandler,
-                    nofn_xonly_pk,
-                    *operator_xonly_pk,
-                    network,
-                );
-                yield convert_tx_to_pubkey_spend(
-                    &mut assert_end_txhandler,
-                    NUM_INTERMEDIATE_STEPS,
-                    None,
-                )?;
-
-                let mut disprove_txhandler = builder::transaction::create_disprove_txhandler(
-                    &assert_end_txhandler,
-                    &time_txhandler,
-                );
-
-                // sign for all disprove scripts
-                for i in 0..NUM_INTERMEDIATE_STEPS {
-                    yield convert_tx_to_script_spend(
-                        &mut disprove_txhandler,
-                        0,
-                        i,
-                        Some(bitcoin::sighash::TapSighashType::None),
-                    )?;
-                }
-
-                let time2_txhandler = builder::transaction::create_time2_txhandler(
-                    &time_txhandler,
-                    *operator_xonly_pk,
-                    network,
-                );
-
-                input_txid = time2_txhandler.txid;
-                input_amount = time2_txhandler.tx.output[0].value;
+                input_txid = reimburse_generator_txhandler.txid;
+                input_amount = reimburse_generator_txhandler.tx.output[0].value;
             }
-        }
-    }
-}
-
-pub fn create_timeout_tx_sighash_stream(
-    operator_xonly_pk: XOnlyPublicKey,
-    collateral_funding_txid: bitcoin::Txid,
-    collateral_funding_amount: Amount,
-    timeout_block_count: i64,
-    max_withdrawal_time_block_count: i64,
-    num_time_txs: usize,
-    network: bitcoin::Network,
-) -> impl Stream<Item = Result<TapSighash, BridgeError>> {
-    let mut input_txid = collateral_funding_txid;
-    let mut input_amount = collateral_funding_amount;
-
-    try_stream! {
-        for _ in 0..num_time_txs {
-            let time_txhandler = builder::transaction::create_time_txhandler(
-                operator_xonly_pk,
-                input_txid,
-                input_amount,
-                timeout_block_count,
-                max_withdrawal_time_block_count,
-                network,
-            );
-
-            let mut timeout_tx_handler = builder::transaction::create_timeout_txhandler(
-                &time_txhandler
-            );
-
-            yield convert_tx_to_script_spend(&mut timeout_tx_handler, 0, 0, None)?;
-
-            let time2_txhandler = builder::transaction::create_time2_txhandler(
-                &time_txhandler,
-                operator_xonly_pk,
-                network,
-            );
-
-            input_txid = time2_txhandler.txid;
-            input_amount = time2_txhandler.tx.output[0].value;
         }
     }
 }

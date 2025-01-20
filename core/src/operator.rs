@@ -705,32 +705,36 @@ impl Operator {
         let mut winternitz_pubkeys = Vec::new();
 
         for time_tx in 0..self.config.num_time_txs as u32 {
-            let path = WinternitzDerivationPath {
-                message_length: 128,
-                log_d: 4,
-                tx_type: crate::actor::TxType::OperatorLongestChain,
-                index: Some(self.idx as u32),
-                operator_idx: None,
-                watchtower_idx: None,
-                time_tx_idx: Some(time_tx),
-                intermediate_step_idx: None,
-            };
-
-            winternitz_pubkeys.push(self.signer.derive_winternitz_pk(path)?);
-
-            for intermediate_step in 0..NUM_INTERMEDIATE_STEPS as u32 {
+            for kickoff_idx in 0..self.config.num_kickoffs_per_timetx as u32 {
                 let path = WinternitzDerivationPath {
-                    message_length: 40,
+                    message_length: 128,
                     log_d: 4,
-                    tx_type: crate::actor::TxType::BitVM,
+                    tx_type: crate::actor::TxType::OperatorLongestChain,
                     index: Some(self.idx as u32),
                     operator_idx: None,
                     watchtower_idx: None,
                     time_tx_idx: Some(time_tx),
-                    intermediate_step_idx: Some(intermediate_step),
+                    kickoff_idx: Some(kickoff_idx),
+                    intermediate_step_idx: None,
                 };
 
                 winternitz_pubkeys.push(self.signer.derive_winternitz_pk(path)?);
+
+                for intermediate_step in 0..NUM_INTERMEDIATE_STEPS as u32 {
+                    let path = WinternitzDerivationPath {
+                        message_length: 40,
+                        log_d: 4,
+                        tx_type: crate::actor::TxType::BitVM,
+                        index: Some(self.idx as u32),
+                        operator_idx: None,
+                        watchtower_idx: None,
+                        time_tx_idx: Some(time_tx),
+                        kickoff_idx: Some(kickoff_idx),
+                        intermediate_step_idx: Some(intermediate_step),
+                    };
+
+                    winternitz_pubkeys.push(self.signer.derive_winternitz_pk(path)?);
+                }
             }
         }
 
@@ -832,6 +836,9 @@ mod tests {
         let operator = Operator::new(config.clone(), rpc).await.unwrap();
 
         let winternitz_public_key = operator.get_winternitz_public_keys().unwrap();
-        assert_eq!(winternitz_public_key.len(), config.num_time_txs);
+        assert_eq!(
+            winternitz_public_key.len(),
+            config.num_time_txs * config.num_kickoffs_per_timetx
+        );
     }
 }

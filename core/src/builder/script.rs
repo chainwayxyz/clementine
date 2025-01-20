@@ -91,6 +91,15 @@ pub fn generate_relative_timelock_script(
         .into_script()
 }
 
+pub fn generate_relative_timelock_script_no_key(block_count: i64) -> ScriptBuf {
+    Builder::new()
+        .push_int(block_count)
+        .push_opcode(OP_CSV)
+        .push_opcode(OP_DROP)
+        .push_opcode(OP_TRUE)
+        .into_script()
+}
+
 pub fn actor_with_preimage_script(
     actor_taproot_xonly_pk: XOnlyPublicKey,
     hash: &[u8; 20],
