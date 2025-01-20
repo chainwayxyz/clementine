@@ -3,7 +3,7 @@
 //! Script builder provides useful functions for building typical Bitcoin
 //! scripts.
 
-use super::transaction::ANCHOR_AMOUNT;
+use crate::constants::ANCHOR_AMOUNT;
 use crate::EVMAddress;
 use bitcoin::blockdata::opcodes::all::OP_PUSHNUM_1;
 use bitcoin::opcodes::OP_TRUE;
@@ -14,6 +14,7 @@ use bitcoin::{
     ScriptBuf, TxOut, XOnlyPublicKey,
 };
 
+/// Creates a P2WSH output that anyone can spend. TODO: We will not need this in the future.
 pub fn anyone_can_spend_txout() -> TxOut {
     let script = Builder::new().push_opcode(OP_PUSHNUM_1).into_script();
     let script_pubkey = script.to_p2wsh();
@@ -25,6 +26,7 @@ pub fn anyone_can_spend_txout() -> TxOut {
     }
 }
 
+/// Creates a P2A output for CPFP.
 pub fn anchor_output() -> TxOut {
     TxOut {
         value: ANCHOR_AMOUNT,
@@ -32,6 +34,7 @@ pub fn anchor_output() -> TxOut {
     }
 }
 
+/// Creates a OP_RETURN output.
 pub fn op_return_txout<S: AsRef<bitcoin::script::PushBytes>>(slice: S) -> TxOut {
     let script = Builder::new()
         .push_opcode(OP_RETURN)
@@ -44,6 +47,7 @@ pub fn op_return_txout<S: AsRef<bitcoin::script::PushBytes>>(slice: S) -> TxOut 
     }
 }
 
+/// Creates a script with inscription tagged `citrea` that states the EVM address and amount to be deposited.
 pub fn create_deposit_script(
     nofn_xonly_pk: XOnlyPublicKey,
     evm_address: EVMAddress,
@@ -63,23 +67,11 @@ pub fn create_deposit_script(
         .into_script()
 }
 
-pub fn create_musig2_and_operator_multisig_script(
-    nofn_xonly_pk: XOnlyPublicKey,
-    operator_xonly_pk: XOnlyPublicKey,
-) -> ScriptBuf {
-    Builder::new()
-        .push_x_only_key(&nofn_xonly_pk)
-        .push_opcode(OP_CHECKSIGVERIFY)
-        .push_x_only_key(&operator_xonly_pk)
-        .push_opcode(OP_CHECKSIG)
-        .into_script()
-}
-
 /// ATTENTION: If you want to spend a UTXO using timelock script, the
-/// condition is that (`# in the script`) < (`# in the sequence of the tx`)
-/// < (`# of blocks mined after UTXO`) appears on the chain.
+/// condition is that (`# in the script`) ≤ (`# in the sequence of the tx`)
+/// ≤ (`# of blocks mined after UTXO appears on the chain`).
 pub fn generate_relative_timelock_script(
-    actor_taproot_xonly_pk: XOnlyPublicKey, // This is the tweaked XonlyPublicKey, which appears in the script_pubkey of the address
+    actor_taproot_xonly_pk: XOnlyPublicKey, // This is the tweaked XonlyPublicKey, which appears in the script_pubkey of the address. The tweaked signature will be given accordingly.
     block_count: i64,
 ) -> ScriptBuf {
     Builder::new()
@@ -91,6 +83,7 @@ pub fn generate_relative_timelock_script(
         .into_script()
 }
 
+/// Generates a relative timelock script without a key. This means after the specified block count, the funds can be spent by anyone.
 pub fn generate_relative_timelock_script_no_key(block_count: i64) -> ScriptBuf {
     Builder::new()
         .push_int(block_count)
@@ -100,6 +93,7 @@ pub fn generate_relative_timelock_script_no_key(block_count: i64) -> ScriptBuf {
         .into_script()
 }
 
+/// Generates a hashlock script. This script can be unlocked by revealing the preimage of the hash.
 pub fn actor_with_preimage_script(
     actor_taproot_xonly_pk: XOnlyPublicKey,
     hash: &[u8; 20],
@@ -113,6 +107,7 @@ pub fn actor_with_preimage_script(
         .into_script()
 }
 
+/// Generates a signature verification script.
 pub fn checksig_script(actor_taproot_xonly_pk: XOnlyPublicKey) -> ScriptBuf {
     Builder::new()
         .push_x_only_key(&actor_taproot_xonly_pk)
@@ -120,6 +115,7 @@ pub fn checksig_script(actor_taproot_xonly_pk: XOnlyPublicKey) -> ScriptBuf {
         .into_script()
 }
 
+/// WIP: This will be replaced by actual disprove scripts
 pub fn dummy_script() -> ScriptBuf {
     Builder::new().push_opcode(OP_TRUE).into_script()
 }

@@ -224,7 +224,11 @@ mod tests {
     use super::{nonce_pair, MuSigNoncePair, Musig2Mode};
     use crate::{
         actor::Actor,
-        builder::{self, transaction::TxHandler},
+        builder::{
+            self,
+            sighash::{convert_tx_to_pubkey_spend, convert_tx_to_script_spend},
+            transaction::TxHandler,
+        },
         errors::BridgeError,
         musig2::{
             aggregate_nonces, aggregate_partial_signatures, create_key_agg_cache, from_secp_xonly,
@@ -528,7 +532,7 @@ mod tests {
         };
 
         let message = Message::from_digest(
-            Actor::convert_tx_to_sighash_pubkey_spend(&mut tx_details, 0)
+            convert_tx_to_pubkey_spend(&mut tx_details, 0, None)
                 .unwrap()
                 .to_byte_array(),
         );
@@ -626,7 +630,7 @@ mod tests {
         };
 
         let message = Message::from_digest(
-            Actor::convert_tx_to_sighash_script_spend(&mut tx_details, 0, 0)
+            convert_tx_to_script_spend(&mut tx_details, 0, 0, None)
                 .unwrap()
                 .to_byte_array(),
         );

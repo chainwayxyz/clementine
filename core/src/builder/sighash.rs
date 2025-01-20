@@ -1,3 +1,10 @@
+//! # Sighash Builder
+//!
+//! Sighash builder provides useful functions for building related SigHashes.
+//! Sighash is the message that is signed by the private key of the signer. It is used to signal
+//! under which conditions the input is signed. See for more:
+//! https://developer.bitcoin.org/devguide/transactions.html?highlight=sighash#signature-hash-types
+
 use crate::builder::transaction::TxHandler;
 use crate::config::BridgeConfig;
 use crate::constants::NUM_INTERMEDIATE_STEPS;
@@ -10,7 +17,7 @@ use bitcoin::{address::NetworkUnchecked, Address, Amount, OutPoint, TapLeafHash,
 use bitcoin::{TapSighash, Txid, XOnlyPublicKey};
 use futures_core::stream::Stream;
 
-// TODO: For now, this is equal to the number of sighashes we yield in create_nofn_sighash_stream.
+// WIP: For now, this is equal to the number of sighashes we yield in create_nofn_sighash_stream.
 // This will change as we implement the system design.
 pub fn calculate_num_required_sigs(config: &BridgeConfig) -> usize {
     config.num_operators
@@ -19,6 +26,7 @@ pub fn calculate_num_required_sigs(config: &BridgeConfig) -> usize {
         * (10 + 2 * config.num_watchtowers)
 }
 
+/// Generates the sighash for a given transaction input for key spend path.
 pub fn convert_tx_to_pubkey_spend(
     tx_handler: &mut TxHandler,
     txin_index: usize,
@@ -44,6 +52,8 @@ pub fn convert_tx_to_pubkey_spend(
     Ok(sig_hash)
 }
 
+/// Generates the sighash for a given transaction input for script spend path.
+#[tracing::instrument(err(level = tracing::Level::ERROR), ret(level = tracing::Level::TRACE))]
 pub fn convert_tx_to_script_spend(
     tx_handler: &mut TxHandler,
     txin_index: usize,
@@ -80,9 +90,14 @@ pub fn convert_tx_to_script_spend(
     Ok(sig_hash)
 }
 
-/// Construct every deposit tx for each operator, sequential_collateral, and kickoff utxo,
-/// and yield the sighash for each txin that needs a NofN signature.
-/// Refer to bridge design diagram to see which NofN signatures are needed (the ones marked with blue arrows)
+/// For a given deposit tx, for each operator and sequential_collateral tx, generates the SigHash stream for:
+/// - challenge_tx,
+/// - start_happy_reimburse_tx,
+/// - happy_reimburse_tx,
+/// -
+/// -
+/// Refer to bridge design diagram to see which NofN signatures are needed (the ones marked with blue arrows).
+/// WIP: Update if the design changes.
 pub fn create_nofn_sighash_stream(
     db: Database,
     config: BridgeConfig,
@@ -98,6 +113,7 @@ pub fn create_nofn_sighash_stream(
     network: bitcoin::Network,
 ) -> impl Stream<Item = Result<TapSighash, BridgeError>> {
     try_stream! {
+        // Create move_tx handler. This is unique for each deposit tx.
         let move_txhandler = builder::transaction::create_move_txhandler(
             deposit_outpoint,
             _evm_address,
@@ -107,16 +123,17 @@ pub fn create_nofn_sighash_stream(
             bridge_amount_sats,
             network,
         );
-
+        // Get operator details (for each operator, (X-Only Public Key, Address, Collateral Funding Txid))
         let operators: Vec<(XOnlyPublicKey, bitcoin::Address, Txid)> =
             db.get_operators(None).await?;
         if operators.len() < config.num_operators {
             panic!("Not enough operators");
         }
 
+        // Get the X-Only Public Keys of all watchtowers. These are needed since they will be used inside the scripts.
         let watchtower_pks = db.get_all_watchtowers_xonly_pks(None).await?;
 
-        for (operator_idx, (operator_xonly_pk, _operator_reimburse_address, collateral_funding_txid)) in
+        for (operator_idx, (operator_xonly_pk, operator_reimburse_address, collateral_funding_txid)) in
             operators.iter().enumerate()
         {
             // Get watchtower Winternitz pubkeys for this operator.
@@ -147,6 +164,10 @@ pub fn create_nofn_sighash_stream(
                     network,
                 );
 
+                // For each time_tx, we have multiple kickoff_utxos as the connectors (TODO: Maybe change later).
+                // For each kickoff_utxo, it connnects to a kickoff_tx that results in
+                // either start_happy_reimburse_tx
+                // or challenge_tx, which forces the operator to initiate BitVM sequence (assert_begin_tx -> assert_end_tx -> either disprove_timeout_tx or already_disproven_tx).
                 for kickoff_idx in 0..config.num_kickoffs_per_timetx {
                     let kickoff_txhandler = builder::transaction::create_kickoff_txhandler(
                         &sequential_collateral_txhandler,
@@ -158,45 +179,50 @@ pub fn create_nofn_sighash_stream(
                         network,
                     );
 
+                    // Creates the challenge_tx handler.
                     let mut challenge_tx = builder::transaction::create_challenge_txhandler(
                         &kickoff_txhandler,
-                        _operator_reimburse_address,
+                        operator_reimburse_address,
                     );
 
+                    // Creates the sighash for the challenge_tx.
                     yield convert_tx_to_pubkey_spend(
                         &mut challenge_tx,
                         0,
                         Some(bitcoin::sighash::TapSighashType::SinglePlusAnyoneCanPay)
                     )?;
 
+                    // Creates the start_happy_reimburse_tx handler.
                     let mut start_happy_reimburse_txhandler = builder::transaction::create_start_happy_reimburse_txhandler(
                         &kickoff_txhandler,
                         *operator_xonly_pk,
                         network
                     );
 
-                    // sign kickoff_tx utxo
+                    // Creates the sighash for the start_happy_reimburse_tx.
                     yield convert_tx_to_pubkey_spend(
                         &mut start_happy_reimburse_txhandler,
                         1,
                         None
                     )?;
 
+                    // Creates the happy_reimburse_tx handler.
                     let mut happy_reimburse_txhandler = builder::transaction::create_happy_reimburse_txhandler(
                         &move_txhandler,
                         &start_happy_reimburse_txhandler,
                         &reimburse_generator_txhandler,
                         kickoff_idx,
-                        _operator_reimburse_address,
+                        operator_reimburse_address,
                     );
 
-                    // sign move_tx utxo
+                    // Creates the sighash for the happy_reimburse_tx.
                     yield convert_tx_to_pubkey_spend(
                         &mut happy_reimburse_txhandler,
                         0,
                         None
                     )?;
 
+                    //
                     let watchtower_wots = (0..config.num_watchtowers)
                         .map(|i| watchtower_challenge_wotss[i][time_tx_idx * config.num_kickoffs_per_timetx + kickoff_idx].clone())
                         .collect::<Vec<_>>();
@@ -234,7 +260,7 @@ pub fn create_nofn_sighash_stream(
                             builder::transaction::create_watchtower_challenge_txhandler(
                                 &watchtower_challenge_kickoff_txhandler,
                                 i,
-                                &[0u8; 20], // TODO: real op unlock hash
+                                &[0u8; 20], // TODO: ozan real op unlock hash PUT THE HASHES OF THE PREIMAGES HERE
                                 nofn_xonly_pk,
                                 *operator_xonly_pk,
                                 network,
@@ -292,6 +318,7 @@ pub fn create_nofn_sighash_stream(
                         0,
                         None,
                     )?;
+
                     // sign nofn_1week disprove timeout utxo
                     yield convert_tx_to_script_spend(
                         &mut disprove_timeout_txhandler,
@@ -318,7 +345,7 @@ pub fn create_nofn_sighash_stream(
                         &disprove_timeout_txhandler,
                         &reimburse_generator_txhandler,
                         kickoff_idx,
-                        _operator_reimburse_address,
+                        operator_reimburse_address,
                     );
 
                     yield convert_tx_to_pubkey_spend(&mut reimburse_txhandler, 0, None)?;

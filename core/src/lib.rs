@@ -15,12 +15,9 @@ pub mod cli;
 pub mod config;
 pub mod constants;
 pub mod database;
-pub mod env_writer;
 pub mod errors;
 pub mod extended_rpc;
-pub mod hashes;
 pub mod header_chain_prover;
-pub mod merkle;
 pub mod musig2;
 pub mod operator;
 pub mod rpc;
@@ -32,11 +29,6 @@ pub mod watchtower;
 
 #[cfg(test)]
 mod test_utils;
-
-pub type ConnectorUTXOTree = Vec<Vec<OutPoint>>;
-// pub type HashTree = Vec<Vec<HashType>>;
-// pub type PreimageTree = Vec<Vec<PreimageType>>;
-pub type InscriptionTxs = (OutPoint, Txid);
 
 /// Type alias for EVM address
 #[derive(Copy, Clone, Debug, PartialOrd, Ord, PartialEq, Eq, Hash, Serialize, Deserialize)]
@@ -75,3 +67,16 @@ pub struct ByteArray32(#[serde(with = "hex::serde")] pub [u8; 32]);
 #[derive(Clone, Copy, Debug, Serialize, Deserialize, PartialEq, sqlx::Type)]
 #[sqlx(type_name = "bytea")]
 pub struct ByteArray64(#[serde(with = "hex::serde")] pub [u8; 64]);
+
+#[macro_export]
+macro_rules! sha256_hash {
+    ($($data:expr),+) => {{
+        use sha2::{Digest, Sha256};
+        let mut hasher = Sha256::new();
+        $(
+            hasher.update($data);
+        )+
+        let result: [u8; 32] = hasher.finalize().try_into().expect("SHA256 should produce a 32-byte output");
+        result
+    }};
+}

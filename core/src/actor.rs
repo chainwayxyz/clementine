@@ -156,8 +156,6 @@ impl Actor {
         txin_index: usize,
         script_index: usize,
     ) -> Result<schnorr::Signature, BridgeError> {
-        // TODO: if sighash_cache exists in the TxHandler, use it
-        // else create a new one and save it to the TxHandler
         let mut sighash_cache: SighashCache<&mut bitcoin::Transaction> =
             SighashCache::new(&mut tx.tx);
 
@@ -247,8 +245,6 @@ impl Actor {
         txin_index: usize,
         script_index: usize,
     ) -> Result<schnorr::Signature, BridgeError> {
-        // TODO: if sighash_cache exists in the TxHandler, use it
-        // else create a new one and save it to the TxHandler
         let mut sighash_cache: SighashCache<&mut bitcoin::Transaction> =
             SighashCache::new(&mut tx_handler.tx);
 
@@ -263,52 +259,6 @@ impl Actor {
         )?;
 
         self.sign_with_tweak(sig_hash, None)
-    }
-
-    #[tracing::instrument(err(level = tracing::Level::ERROR), ret(level = tracing::Level::TRACE))]
-    pub fn convert_tx_to_sighash_script_spend(
-        tx_handler: &mut TxHandler,
-        txin_index: usize,
-        script_index: usize,
-    ) -> Result<TapSighash, BridgeError> {
-        let mut sighash_cache: SighashCache<&mut bitcoin::Transaction> =
-            SighashCache::new(&mut tx_handler.tx);
-
-        let prevouts = bitcoin::sighash::Prevouts::All(&tx_handler.prevouts);
-        let leaf_hash = TapLeafHash::from_script(
-            tx_handler
-                .prev_scripts
-                .get(txin_index)
-                .ok_or(BridgeError::NoScriptsForTxIn(txin_index))?
-                .get(script_index)
-                .ok_or(BridgeError::NoScriptAtIndex(script_index))?,
-            LeafVersion::TapScript,
-        );
-        let sig_hash = sighash_cache.taproot_script_spend_signature_hash(
-            txin_index,
-            &prevouts,
-            leaf_hash,
-            bitcoin::sighash::TapSighashType::Default,
-        )?;
-
-        Ok(sig_hash)
-    }
-
-    #[tracing::instrument(err(level = tracing::Level::ERROR), ret(level = tracing::Level::TRACE))]
-    pub fn convert_tx_to_sighash_pubkey_spend(
-        tx: &mut TxHandler,
-        txin_index: usize,
-    ) -> Result<TapSighash, BridgeError> {
-        let mut sighash_cache: SighashCache<&mut bitcoin::Transaction> =
-            SighashCache::new(&mut tx.tx);
-
-        let sig_hash = sighash_cache.taproot_key_spend_signature_hash(
-            txin_index,
-            &bitcoin::sighash::Prevouts::All(&tx.prevouts),
-            bitcoin::sighash::TapSighashType::Default,
-        )?;
-
-        Ok(sig_hash)
     }
 
     /// Returns derivied Winternitz secret key from given path.

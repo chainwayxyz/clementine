@@ -83,8 +83,8 @@ impl ClementineOperator for Operator {
             .ok_or(BridgeError::RPCRequiredParam("deposit_outpoint"))?
             .try_into()?;
 
-        self.withdrawal_proved_on_citrea(withdrawal_idx, deposit_outpoint)
-            .await?;
+        // self.withdrawal_proved_on_citrea(withdrawal_idx, deposit_outpoint)
+        //     .await?; // TODO: Reuse this in the new design.
 
         Ok(Response::new(Empty {}))
     }

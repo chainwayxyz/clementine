@@ -5,9 +5,8 @@
 
 use super::address::create_taproot_address;
 use crate::builder;
-use crate::constants::NUM_INTERMEDIATE_STEPS;
-use crate::utils::SECP;
-use crate::{utils, EVMAddress, UTXO};
+use crate::constants::{MIN_TAPROOT_AMOUNT, NUM_INTERMEDIATE_STEPS, OPERATOR_CHALLENGE_AMOUNT};
+use crate::{utils, EVMAddress};
 use bitcoin::address::NetworkUnchecked;
 use bitcoin::hashes::Hash;
 use bitcoin::opcodes::all::OP_CHECKSIG;
@@ -37,14 +36,6 @@ pub struct TxHandler {
     /// Taproot spend information for each tx output.
     pub out_taproot_spend_infos: Vec<Option<TaprootSpendInfo>>,
 }
-
-// TODO: Move these constants to the config file
-pub const KICKOFF_UTXO_AMOUNT_SATS: Amount = Amount::from_sat(100_000);
-
-pub const KICKOFF_INPUT_AMOUNT: Amount = Amount::from_sat(100_000);
-pub const MIN_TAPROOT_AMOUNT: Amount = Amount::from_sat(330);
-pub const ANCHOR_AMOUNT: Amount = Amount::from_sat(240); // TODO: This will change to 0 in the future after Bitcoin v0.29.0
-pub const OPERATOR_CHALLENGE_AMOUNT: Amount = Amount::from_sat(200_000_000);
 
 /// Creates a [`TxHandler`] for `time_tx`. It will always use `input_txid`'s first vout as the input.
 ///
@@ -208,7 +199,6 @@ pub fn create_kickoff_utxo_timeout_txhandler(
         vout: 2 + kickoff_idx as u32,
     }]);
 
-    // let tx_outs = vec![builder::script::anyone_can_spend_txout()];
     let tx_outs = vec![builder::script::anchor_output()];
 
     let tx = create_btc_tx(tx_ins, tx_outs);
@@ -237,18 +227,12 @@ pub fn create_move_tx(
 
     let tx_ins = create_tx_ins(vec![deposit_outpoint]);
 
-    // let anyone_can_spend_txout = builder::script::anyone_can_spend_txout();
-    // let move_txout = TxOut {
-    //     value: bridge_amount_sats - anyone_can_spend_txout.value,
-    //     script_pubkey: musig2_address.script_pubkey(),
-    // };
     let anchor_output = builder::script::anchor_output();
     let move_txout = TxOut {
         value: bridge_amount_sats,
         script_pubkey: musig2_address.script_pubkey(),
     };
 
-    // create_btc_tx(tx_ins, vec![move_txout, anyone_can_spend_txout])
     create_btc_tx(tx_ins, vec![move_txout, anchor_output])
 }
 
@@ -314,76 +298,6 @@ pub fn create_move_txhandler(
     }
 }
 
-// TODO: this function is outdated, delete after updating operator new_deposit()
-/// Creates [`TxHandler`] of the kickoff_tx for the operator.
-pub fn create_kickoff_utxo_txhandler(
-    funding_utxo: &UTXO, // Make sure this comes from the operator's address.
-    nofn_xonly_pk: XOnlyPublicKey,
-    operator_xonly_pk: XOnlyPublicKey,
-    network: bitcoin::Network,
-    num_kickoff_utxos_per_tx: usize,
-) -> TxHandler {
-    // Here, we are calculating the minimum relay fee for the kickoff tx based on the number of kickoff utxos per tx.
-    // The formula is: 154 + 43 * num_kickoff_utxos_per_tx where
-    // 154 = (Signature as witness, 66 bytes + 2 bytes from flags) / 4
-    // + 43 * 2 from change and anyone can spend txouts
-    // + 41 from the single input (32 + 8 + 1)
-    // 4 + 4 + 1 + 1 from locktime, version, and VarInt bases of
-    // the number of inputs and outputs.
-    let kickoff_tx_min_relay_fee = match num_kickoff_utxos_per_tx {
-        0..=250 => 154 + 43 * num_kickoff_utxos_per_tx, // Handles all values from 0 to 250
-        _ => 156 + 43 * num_kickoff_utxos_per_tx,       // Handles all other values
-    };
-
-    //  = 154 + 43 * num_kickoff_utxos_per_tx;
-    let tx_ins = create_tx_ins(vec![funding_utxo.outpoint]);
-    let musig2_and_operator_script = builder::script::create_musig2_and_operator_multisig_script(
-        nofn_xonly_pk,
-        operator_xonly_pk,
-    );
-    let (musig2_and_operator_address, _) =
-        builder::address::create_taproot_address(&[musig2_and_operator_script], None, network);
-    let operator_address = Address::p2tr(&SECP, operator_xonly_pk, None, network);
-    let change_amount = funding_utxo.txout.value
-        - Amount::from_sat(KICKOFF_UTXO_AMOUNT_SATS.to_sat() * num_kickoff_utxos_per_tx as u64)
-        // - builder::script::anyone_can_spend_txout().value
-        - builder::script::anchor_output().value
-        - Amount::from_sat(kickoff_tx_min_relay_fee as u64);
-    tracing::debug!("Change amount: {:?}", change_amount);
-    let mut tx_outs_raw = vec![
-        (
-            KICKOFF_UTXO_AMOUNT_SATS,
-            musig2_and_operator_address.script_pubkey(),
-        );
-        num_kickoff_utxos_per_tx
-    ];
-
-    tx_outs_raw.push((change_amount, operator_address.script_pubkey()));
-    // tx_outs_raw.push((
-    //     builder::script::anyone_can_spend_txout().value,
-    //     builder::script::anyone_can_spend_txout().script_pubkey,
-    // ));
-    tx_outs_raw.push((
-        builder::script::anchor_output().value,
-        builder::script::anchor_output().script_pubkey,
-    ));
-    let tx_outs = create_tx_outs(tx_outs_raw);
-    let tx = create_btc_tx(tx_ins, tx_outs);
-    let prevouts = vec![funding_utxo.txout.clone()];
-    let scripts = vec![vec![]];
-    let taproot_spend_infos = vec![];
-    TxHandler {
-        txid: tx.compute_txid(),
-        tx,
-        prevouts,
-        prev_scripts: scripts,
-        prev_taproot_spend_infos: taproot_spend_infos,
-        // placeholders
-        out_scripts: vec![],
-        out_taproot_spend_infos: vec![],
-    }
-}
-
 pub fn create_kickoff_txhandler(
     sequential_collateral_txhandler: &TxHandler,
     kickoff_idx: usize,
@@ -433,7 +347,6 @@ pub fn create_kickoff_txhandler(
         (MIN_TAPROOT_AMOUNT, nofn_or_operator_2week.script_pubkey()),
         (MIN_TAPROOT_AMOUNT, nofn_or_nofn_3week.script_pubkey()),
     ]);
-    // tx_outs.push(builder::script::anyone_can_spend_txout());
     tx_outs.push(builder::script::anchor_output());
 
     let mut op_return_script = move_txid.to_byte_array().to_vec();
@@ -1147,158 +1060,6 @@ pub fn create_kickoff_timeout_txhandler(
     }
 }
 
-// TODO: outdated, delete after changing functions it is used in
-pub fn create_slash_or_take_tx(
-    deposit_outpoint: OutPoint,
-    kickoff_utxo: UTXO,
-    operator_xonly_pk: XOnlyPublicKey,
-    operator_idx: usize,
-    nofn_xonly_pk: XOnlyPublicKey,
-    network: bitcoin::Network,
-    _user_takes_after: u32,
-    operator_takes_after: u32,
-    bridge_amount_sats: Amount,
-) -> TxHandler {
-    // First recreate the move_tx and move_txid. We can give dummy values for some of the parameters since we are only interested in txid.
-    let move_tx = create_move_tx(deposit_outpoint, nofn_xonly_pk, bridge_amount_sats, network);
-    let move_txid = move_tx.compute_txid();
-
-    let (kickoff_utxo_address, kickoff_utxo_spend_info) =
-        builder::address::create_kickoff_address(nofn_xonly_pk, operator_xonly_pk, network);
-    // tracing::debug!(
-    //     "kickoff_utxo_script_pubkey: {:?}",
-    //     kickoff_utxo_address.script_pubkey()
-    // );
-    // tracing::debug!("kickoff_utxo_spend_info: {:?}", kickoff_utxo_spend_info);
-    // tracing::debug!("kickoff_utxooo: {:?}", kickoff_utxo);
-    let musig2_and_operator_script = builder::script::create_musig2_and_operator_multisig_script(
-        nofn_xonly_pk,
-        operator_xonly_pk,
-    );
-    // Sanity check
-    tracing::debug!(
-        "kickoff_utxo_script_pubkey: {:?}",
-        kickoff_utxo_address.script_pubkey()
-    );
-    tracing::debug!(
-        "kickoff_utxo_script_pubkey: {:?}",
-        kickoff_utxo.txout.script_pubkey
-    );
-    tracing::debug!("Operator index: {:?}", operator_idx);
-    tracing::debug!("Operator xonly pk: {:?}", operator_xonly_pk);
-    tracing::debug!("Deposit OutPoint: {:?}", deposit_outpoint);
-    assert!(kickoff_utxo_address.script_pubkey() == kickoff_utxo.txout.script_pubkey);
-    let ins = create_tx_ins(vec![kickoff_utxo.outpoint]);
-    let relative_timelock_script = builder::script::generate_relative_timelock_script(
-        operator_xonly_pk,
-        operator_takes_after as i64,
-    );
-    let (slash_or_take_address, _) = builder::address::create_taproot_address(
-        &[relative_timelock_script.clone()],
-        Some(nofn_xonly_pk),
-        network,
-    );
-    let mut op_return_script = move_txid.to_byte_array().to_vec();
-    op_return_script.extend(utils::usize_to_var_len_bytes(operator_idx));
-    let mut push_bytes = PushBytesBuf::new();
-    push_bytes.extend_from_slice(&op_return_script).unwrap();
-    let op_return_txout = builder::script::op_return_txout(push_bytes);
-    let outs = vec![
-        TxOut {
-            value: kickoff_utxo.txout.value - Amount::from_sat(330),
-            script_pubkey: slash_or_take_address.script_pubkey(),
-        },
-        // builder::script::anyone_can_spend_txout(),
-        builder::script::anchor_output(),
-        op_return_txout,
-    ];
-    let tx = create_btc_tx(ins, outs);
-    let prevouts = vec![kickoff_utxo.txout.clone()];
-    let scripts = vec![vec![musig2_and_operator_script]];
-    tracing::debug!("slash_or_take_tx weight: {:?}", tx.weight());
-    TxHandler {
-        txid: tx.compute_txid(),
-        tx,
-        prevouts,
-        prev_scripts: scripts,
-        prev_taproot_spend_infos: vec![Some(kickoff_utxo_spend_info)],
-        // just placeholders below
-        out_scripts: vec![vec![], vec![], vec![]],
-        out_taproot_spend_infos: vec![None, None, None],
-    }
-}
-
-// TODO: outdated
-pub fn create_operator_takes_tx(
-    bridge_fund_outpoint: OutPoint,
-    slash_or_take_utxo: UTXO,
-    operator_xonly_pk: XOnlyPublicKey,
-    nofn_xonly_pk: XOnlyPublicKey,
-    network: bitcoin::Network,
-    operator_takes_after: u32,
-    bridge_amount_sats: Amount,
-    operator_wallet_address: Address<NetworkUnchecked>,
-) -> TxHandler {
-    let operator_wallet_address_checked = operator_wallet_address.require_network(network).unwrap();
-    let mut ins = create_tx_ins(vec![bridge_fund_outpoint]);
-    ins.extend(create_tx_ins_with_sequence(
-        vec![slash_or_take_utxo.outpoint],
-        operator_takes_after as u16,
-    ));
-
-    let (musig2_address, musig2_spend_info) =
-        builder::address::create_musig2_address(nofn_xonly_pk, network);
-
-    let relative_timelock_script = builder::script::generate_relative_timelock_script(
-        operator_xonly_pk,
-        operator_takes_after as i64,
-    );
-    let (slash_or_take_address, slash_or_take_spend_info) =
-        builder::address::create_taproot_address(
-            &[relative_timelock_script.clone()],
-            Some(nofn_xonly_pk),
-            network,
-        );
-
-    // Sanity check TODO: No asserts outside of tests
-    assert!(slash_or_take_address.script_pubkey() == slash_or_take_utxo.txout.script_pubkey);
-
-    let outs = vec![
-        TxOut {
-            value: slash_or_take_utxo.txout.value + bridge_amount_sats
-                // - builder::script::anyone_can_spend_txout().value
-                // - builder::script::anyone_can_spend_txout().value,
-                - builder::script::anchor_output().value
-                - builder::script::anchor_output().value,
-            script_pubkey: operator_wallet_address_checked.script_pubkey(),
-        },
-        // builder::script::anyone_can_spend_txout(),
-        builder::script::anchor_output(),
-    ];
-    let tx = create_btc_tx(ins, outs);
-    let prevouts = vec![
-        TxOut {
-            script_pubkey: musig2_address.script_pubkey(),
-            value: bridge_amount_sats
-                // - builder::script::anyone_can_spend_txout().value,
-                - builder::script::anchor_output().value,
-        },
-        slash_or_take_utxo.txout,
-    ];
-    let scripts = vec![vec![], vec![relative_timelock_script]];
-    let taproot_spend_infos = vec![Some(musig2_spend_info), Some(slash_or_take_spend_info)];
-    TxHandler {
-        txid: tx.compute_txid(),
-        tx,
-        prevouts,
-        prev_scripts: scripts,
-        prev_taproot_spend_infos: taproot_spend_infos,
-        // placeholders
-        out_scripts: vec![vec![], vec![]],
-        out_taproot_spend_infos: vec![None, None],
-    }
-}
-
 /// Creates a Bitcoin V3 transaction with no locktime, using given inputs and
 /// outputs.
 pub fn create_btc_tx(tx_ins: Vec<TxIn>, tx_outs: Vec<TxOut>) -> bitcoin::Transaction {
@@ -1388,7 +1149,6 @@ mod tests {
         );
         assert_eq!(
             *move_tx.output.get(1).unwrap(),
-            // builder::script::anyone_can_spend_txout()
             builder::script::anchor_output()
         );
     }

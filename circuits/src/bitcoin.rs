@@ -11,8 +11,6 @@ use crate::sha256_hash;
 use crate::HashType;
 use sha2::{Digest, Sha256};
 
-// /// Data is generic type we use to represent 32 bytes of data
-// pub type Data = [u8; 32];
 pub type HeaderWithoutPrevBlockHash = (i32, HashType, u32, u32, u32);
 
 pub fn validate_threshold_and_add_work(

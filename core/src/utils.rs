@@ -121,28 +121,6 @@ pub fn handle_taproot_witness_new<T: AsRef<[u8]>>(
     Ok(())
 }
 
-pub fn get_claim_reveal_indices(depth: usize, count: u32) -> Vec<(usize, usize)> {
-    assert!(count <= 2u32.pow(depth as u32));
-
-    if count == 0 {
-        return vec![(0, 0)];
-    }
-
-    let mut indices: Vec<(usize, usize)> = Vec::new();
-    if count == 2u32.pow(depth as u32) {
-        return indices;
-    }
-
-    if count % 2 == 1 {
-        indices.push((depth, count as usize));
-        indices.extend(get_claim_reveal_indices(depth - 1, (count + 1) / 2));
-    } else {
-        indices.extend(get_claim_reveal_indices(depth - 1, count / 2));
-    }
-
-    indices
-}
-
 /// Initializes `tracing` as the logger.
 ///
 /// # Parameters
@@ -205,43 +183,4 @@ pub fn initialize_logger(level: u8) -> Result<(), BridgeError> {
     };
 
     Ok(())
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn test_get_indices() {
-        let test_cases = vec![
-            ((0, 0), vec![(0, 0)]),
-            ((0, 1), vec![]),
-            ((1, 0), vec![(0, 0)]),
-            ((1, 1), vec![(1, 1)]),
-            ((1, 2), vec![]),
-            ((2, 0), vec![(0, 0)]),
-            ((2, 1), vec![(2, 1), (1, 1)]),
-            ((2, 2), vec![(1, 1)]),
-            ((2, 3), vec![(2, 3)]),
-            ((2, 4), vec![]),
-            ((3, 0), vec![(0, 0)]),
-            ((3, 1), vec![(3, 1), (2, 1), (1, 1)]),
-            ((3, 2), vec![(2, 1), (1, 1)]),
-            ((3, 3), vec![(3, 3), (1, 1)]),
-            ((3, 4), vec![(1, 1)]),
-            ((3, 5), vec![(3, 5), (2, 3)]),
-            ((3, 6), vec![(2, 3)]),
-            ((3, 7), vec![(3, 7)]),
-            ((3, 8), vec![]),
-        ];
-
-        for ((depth, index), expected) in test_cases {
-            let indices = get_claim_reveal_indices(depth, index);
-            assert_eq!(
-                indices, expected,
-                "Failed at get_indices({}, {})",
-                depth, index
-            );
-        }
-    }
 }
