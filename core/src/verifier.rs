@@ -22,7 +22,9 @@ use secp256k1::{rand, schnorr, SECP256K1};
 
 #[derive(Debug)]
 pub struct NonceSession {
+    /// Private key used for a deposit session
     pub private_key: secp256k1::SecretKey,
+    /// Nonces used for a deposit session (last nonce is for the movetx signature)
     pub nonces: Vec<MuSigSecNonce>,
 }
 

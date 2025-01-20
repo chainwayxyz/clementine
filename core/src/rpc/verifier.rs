@@ -14,7 +14,7 @@ use crate::{
     musig2::{self, MuSigPubNonce, MuSigSecNonce},
     sha256_hash,
     verifier::{NofN, NonceSession, Verifier},
-    ByteArray32, ByteArray66, EVMAddress,
+    ByteArray32, EVMAddress,
 };
 use bitcoin::{address::NetworkUnchecked, hashes::Hash, Amount, TapSighash, Txid};
 use bitvm::{
@@ -354,6 +354,7 @@ impl ClementineVerifier for Verifier {
                 .params
                 .ok_or(Status::internal("No deposit outpoint received"))
                 .unwrap();
+
             let (
                 deposit_outpoint,
                 evm_address,
@@ -367,10 +368,10 @@ impl ClementineVerifier for Verifier {
                 _ => panic!("Expected DepositOutpoint"),
             };
 
-            let session_map = verifier.nonces.lock().await;
+            let mut session_map = verifier.nonces.lock().await;
             let session = session_map
                 .sessions
-                .get(&session_id)
+                .get_mut(&session_id)
                 .ok_or_else(|| Status::internal(format!("Could not find session id {session_id}")))
                 .unwrap();
             let mut nonce_idx: usize = 0;
@@ -394,6 +395,12 @@ impl ClementineVerifier for Verifier {
                 verifier.config.num_time_txs,
                 verifier.config.num_watchtowers,
             );
+
+            assert!(
+                num_required_sigs + 1 == session.nonces.len(),
+                "Expected nonce count to be num_required_sigs + 1 (movetx)"
+            );
+
             while let Some(result) = in_stream.message().await.unwrap() {
                 let agg_nonce = match result
                     .params
@@ -401,7 +408,10 @@ impl ClementineVerifier for Verifier {
                     .unwrap()
                 {
                     clementine::verifier_deposit_sign_params::Params::AggNonce(agg_nonce) => {
-                        ByteArray66(agg_nonce.try_into().unwrap())
+                        agg_nonce
+                            .try_into()
+                            .map_err(|e| Status::internal(format!("Invalid agg nonce: {}", e)))
+                            .unwrap()
                     }
                     _ => panic!("Expected AggNonce"),
                 };
@@ -409,30 +419,32 @@ impl ClementineVerifier for Verifier {
                 let sighash = sighash_stream.next().await.unwrap().unwrap();
                 tracing::debug!("Verifier {} found sighash: {:?}", verifier.idx, sighash);
 
-                let move_tx_sig = musig2::partial_sign(
+                let partial_sig = musig2::partial_sign(
                     verifier.config.verifiers_public_keys.clone(),
                     None,
                     false,
                     session.nonces[nonce_idx],
                     agg_nonce,
-                    &verifier.signer.keypair,
+                    &secp256k1::Keypair::from_secret_key(SECP256K1, &session.private_key),
                     ByteArray32(sighash.to_byte_array()),
                 );
 
-                let partial_sig = PartialSig {
-                    partial_sig: move_tx_sig.0.to_vec(),
-                };
-
-                tx.send(Ok(partial_sig)).await.unwrap();
+                tx.send(Ok(PartialSig {
+                    partial_sig: partial_sig.0.to_vec(),
+                }))
+                .await
+                .unwrap();
 
                 nonce_idx += 1;
                 if nonce_idx == num_required_sigs {
                     break;
                 }
             }
-            // drop nonces
-            let mut binding = verifier.nonces.lock().await;
-            binding.sessions.remove(&session_id);
+
+            // Drop all the nonces except the last one, to avoid reusing the nonces.
+            let last_nonce = session.nonces.pop().unwrap();
+            session.nonces.clear();
+            session.nonces.push(last_nonce);
         });
 
         let out_stream: Self::DepositSignStream = ReceiverStream::new(rx);
@@ -445,6 +457,7 @@ impl ClementineVerifier for Verifier {
         &self,
         req: Request<Streaming<VerifierDepositFinalizeParams>>,
     ) -> Result<Response<PartialSig>, Status> {
+        use clementine::verifier_deposit_finalize_params::Params;
         let mut in_stream = req.into_inner();
 
         let first_message = in_stream
@@ -453,21 +466,16 @@ impl ClementineVerifier for Verifier {
             .ok_or(Status::internal("No first message received"))?;
 
         // Parse the first message
-        let (
-            deposit_outpoint,
-            evm_address,
-            recovery_taproot_address,
-            user_takes_after,
-            _session_id,
-        ) = match first_message
-            .params
-            .ok_or(Status::internal("No deposit outpoint received"))?
-        {
-            clementine::verifier_deposit_finalize_params::Params::DepositSignFirstParam(
-                deposit_sign_session,
-            ) => get_deposit_params(deposit_sign_session, self.idx)?,
-            _ => panic!("Expected DepositOutpoint"),
-        };
+        let (deposit_outpoint, evm_address, recovery_taproot_address, user_takes_after, session_id) =
+            match first_message
+                .params
+                .ok_or(Status::internal("No deposit outpoint received"))?
+            {
+                clementine::verifier_deposit_finalize_params::Params::DepositSignFirstParam(
+                    deposit_sign_session,
+                ) => get_deposit_params(deposit_sign_session, self.idx)?,
+                _ => Err(Status::internal("Expected DepositOutpoint"))?,
+            };
 
         let mut sighash_stream = pin!(create_nofn_sighash_stream(
             self.db.clone(),
@@ -500,10 +508,10 @@ impl ClementineVerifier for Verifier {
                 .ok_or(Status::internal("No final sig received"))
                 .unwrap();
             let final_sig = match final_sig {
-                clementine::verifier_deposit_finalize_params::Params::SchnorrSig(final_sig) => {
+                Params::SchnorrSig(final_sig) => {
                     secp256k1::schnorr::Signature::from_slice(&final_sig).unwrap()
                 }
-                _ => panic!("Expected FinalSig"),
+                _ => Err(Status::internal("Expected FinalSig"))?,
             };
 
             tracing::debug!("Verifying Final Signature");
@@ -524,10 +532,18 @@ impl ClementineVerifier for Verifier {
             }
         }
 
-        // Save signatures to database
-        self.db
-            .save_deposit_signatures(None, deposit_outpoint, 0, verified_sigs)
-            .await?;
+        assert!(
+            verified_sigs.len() % self.config.num_operators == 0,
+            "Number of verified sigs is not divisible by number of operators"
+        );
+        for (i, window) in verified_sigs
+            .chunks_exact(verified_sigs.len() / self.config.num_operators)
+            .enumerate()
+        {
+            self.db
+                .save_deposit_signatures(None, deposit_outpoint, i as u32, window.to_vec())
+                .await?;
+        }
 
         // Generate partial signature for move transaction
         let mut move_txhandler = create_move_txhandler(
@@ -542,11 +558,32 @@ impl ClementineVerifier for Verifier {
 
         let move_tx_sighash = Actor::convert_tx_to_sighash_script_spend(&mut move_txhandler, 0, 0)?;
 
-        let partial_sig = self.signer.sign(move_tx_sighash);
+        let agg_nonce = match in_stream.message().await.unwrap().unwrap().params.unwrap() {
+            Params::MoveTxAggNonce(aggnonce) => aggnonce
+                .try_into()
+                .map_err(|e| Status::internal(format!("Invalid agg nonce: {}", e)))?,
+            _ => Err(Status::internal("Expected MoveTxAggNonce"))?,
+        };
 
-        tracing::info!("Deposit finalized");
+        let (movetx_secnonce, sk) = {
+            let session_map = self.nonces.lock().await;
+            let session = session_map.sessions.get(&session_id).unwrap();
+            (session.nonces[0], session.private_key)
+        };
+
+        let partial_sig = musig2::partial_sign(
+            self.config.verifiers_public_keys.clone(),
+            None,
+            false,
+            movetx_secnonce,
+            agg_nonce,
+            &secp256k1::Keypair::from_secret_key(SECP256K1, &sk),
+            ByteArray32(move_tx_sighash.to_byte_array()),
+        );
+
+        tracing::info!("Deposit finalized, returning partial sig");
         Ok(Response::new(PartialSig {
-            partial_sig: partial_sig.serialize().to_vec(),
+            partial_sig: partial_sig.0.to_vec(),
         }))
     }
 }

@@ -27,6 +27,8 @@ message DepositParams {
   // User can take back funds after this amount of blocks.
   uint64 user_takes_after = 4;
 }
+
+// Includes the deposit params and the nonce gen initial responses (pubkeys and their signatures from all verifiers)
 message DepositSignSession {
   DepositParams deposit_params = 1;
   repeated NonceGenFirstResponse nonce_gen_first_responses = 2;
@@ -173,6 +175,7 @@ message VerifierDepositFinalizeParams {
   oneof params {
     DepositSignSession deposit_sign_first_param = 1;
     bytes schnorr_sig = 2;
+    bytes move_tx_agg_nonce = 3;
   }
 }
 

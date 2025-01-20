@@ -34,6 +34,7 @@ pub struct DepositParams {
     #[prost(uint64, tag = "4")]
     pub user_takes_after: u64,
 }
+/// Includes the deposit params and the nonce gen initial responses (pubkeys and their signatures from all verifiers)
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct DepositSignSession {
     #[prost(message, optional, tag = "1")]
@@ -180,7 +181,7 @@ pub mod verifier_deposit_sign_params {
 }
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct VerifierDepositFinalizeParams {
-    #[prost(oneof = "verifier_deposit_finalize_params::Params", tags = "1, 2")]
+    #[prost(oneof = "verifier_deposit_finalize_params::Params", tags = "1, 2, 3")]
     pub params: ::core::option::Option<verifier_deposit_finalize_params::Params>,
 }
 /// Nested message and enum types in `VerifierDepositFinalizeParams`.
@@ -191,6 +192,8 @@ pub mod verifier_deposit_finalize_params {
         DepositSignFirstParam(super::DepositSignSession),
         #[prost(bytes, tag = "2")]
         SchnorrSig(::prost::alloc::vec::Vec<u8>),
+        #[prost(bytes, tag = "3")]
+        MoveTxAggNonce(::prost::alloc::vec::Vec<u8>),
     }
 }
 #[derive(Clone, PartialEq, ::prost::Message)]

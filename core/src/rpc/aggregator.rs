@@ -2,6 +2,7 @@ use super::clementine::{
     clementine_aggregator_server::ClementineAggregator, verifier_deposit_finalize_params,
     DepositParams, Empty, RawSignedMoveTx, VerifierDepositFinalizeParams,
 };
+use crate::musig2::MuSigAggNonce;
 use crate::rpc::clementine::clementine_verifier_client::ClementineVerifierClient;
 use crate::{
     aggregator::Aggregator,
@@ -26,14 +27,14 @@ struct FinalSigQueueItem {
     final_sig: Vec<u8>,
 }
 
-/// Collects public nonces from given streams and aggregates them.
+/// For each expected sighash, we collect a batch of public nonces from all verifiers. We aggregate and send to the agg_nonce_sender. Then repeat for the next sighash.
 async fn nonce_aggregator(
     mut nonce_streams: Vec<
         impl Stream<Item = Result<MuSigPubNonce, BridgeError>> + Unpin + Send + 'static,
     >,
     mut sighash_stream: impl Stream<Item = Result<TapSighash, BridgeError>> + Unpin + Send + 'static,
     agg_nonce_sender: Sender<AggNonceQueueItem>,
-) -> Result<(), BridgeError> {
+) -> Result<MuSigPubNonce, BridgeError> {
     while let Ok(sighash) = sighash_stream.next().await.transpose() {
         let pub_nonces = try_join_all(nonce_streams.iter_mut().map(|s| async {
             s.next().await.ok_or_else(|| {
@@ -60,7 +61,19 @@ async fn nonce_aggregator(
             })?;
     }
 
-    Ok(())
+    // Finally, aggregate nonces for the movetx signature
+    let pub_nonces = try_join_all(nonce_streams.iter_mut().map(|s| async {
+        s.next().await.ok_or_else(|| {
+            BridgeError::RPCStreamEndedUnexpectedly(
+                "Not enough nonces (expected movetx nonce)".into(),
+            )
+        })?
+    }))
+    .await?;
+
+    let agg_nonce = aggregate_nonces(pub_nonces);
+
+    Ok(agg_nonce)
 }
 
 /// Reroutes aggregated nonces to the signature aggregator.
@@ -142,12 +155,12 @@ async fn signature_aggregator(
 async fn signature_distributor(
     mut final_sig_receiver: Receiver<FinalSigQueueItem>,
     deposit_finalize_sender: Vec<Sender<VerifierDepositFinalizeParams>>,
+    movetx_agg_nonce: MuSigAggNonce,
 ) -> Result<(), BridgeError> {
+    use verifier_deposit_finalize_params::Params;
     while let Some(queue_item) = final_sig_receiver.recv().await {
         let final_params = VerifierDepositFinalizeParams {
-            params: Some(verifier_deposit_finalize_params::Params::SchnorrSig(
-                queue_item.final_sig,
-            )),
+            params: Some(Params::SchnorrSig(queue_item.final_sig)),
         };
 
         for tx in &deposit_finalize_sender {
@@ -155,6 +168,15 @@ async fn signature_distributor(
                 BridgeError::RPCStreamEndedUnexpectedly(format!("Can't send final params: {}", e))
             })?;
         }
+    }
+
+    // Send the movetx agg nonce to the verifiers.
+    for tx in &deposit_finalize_sender {
+        tx.send(VerifierDepositFinalizeParams {
+            params: Some(Params::MoveTxAggNonce(movetx_agg_nonce.0.to_vec())),
+        })
+        .await
+        .unwrap();
     }
 
     Ok(())
@@ -337,49 +359,69 @@ impl ClementineAggregator for Aggregator {
         Ok(Response::new(Empty {}))
     }
 
+    /// Handles a new deposit request from a user. This function coordinates the signing process
+    /// between verifiers to create a valid move transaction. It ensures a covenant using pre-signed NofN transactions.
+    ///
+    /// Overview:
+    /// 1. Receive and parse deposit parameters from user
+    /// 2. Signs all NofN transactions with verifiers using MuSig2:
+    ///    - Creates nonce streams with verifiers (get pub nonces for each transaction)
+    ///    - Opens deposit signing streams with verifiers (sends aggnonces for each transaction, receives partial sigs)
+    ///    - Opens deposit finalization streams with verifiers (sends final signatures, receives movetx signatures)
+    /// 3. Waits for all tasks to complete
+    /// 4. Returns signed move transaction
+    ///
+    /// The following pipelines are used to coordinate the signing process, these move the data between the verifiers and the aggregator:
+    ///    - Nonce aggregation
+    ///    - Nonce distribution
+    ///    - Signature aggregation
+    ///    - Signature distribution
     #[tracing::instrument(skip(self), err(level = tracing::Level::ERROR), ret(level = tracing::Level::TRACE))]
     async fn new_deposit(
         &self,
         deposit_params_req: Request<DepositParams>,
     ) -> Result<Response<RawSignedMoveTx>, Status> {
-        tracing::info!("Recieved new deposit request: {:?}", deposit_params_req);
+        tracing::info!("Received new deposit request: {:?}", deposit_params_req);
 
-        let deposit_params = deposit_params_req.into_inner();
+        // Extract and validate deposit parameters
+        let deposit_params = deposit_params_req.get_ref().clone();
 
+        // Parse deposit outpoint (the UTXO being deposited)
         let deposit_outpoint: bitcoin::OutPoint = deposit_params
-            .clone()
             .deposit_outpoint
-            .ok_or(Status::internal("No deposit outpoint received"))
-            .clone()?
+            .ok_or(Status::internal("No deposit outpoint received"))?
             .try_into()?;
+
+        // Parse user's EVM address
         let evm_address: EVMAddress = deposit_params
             .evm_address
-            .clone()
             .try_into()
             .map_err(|e: &str| BridgeError::RPCParamMalformed("evm_address", e.to_string()))?;
+
+        // Parse user's recovery taproot address
         let recovery_taproot_address = deposit_params
-            .clone()
             .recovery_taproot_address
-            .clone()
             .parse::<bitcoin::Address<_>>()
             .map_err(|e| {
                 BridgeError::RPCParamMalformed("recovery_taproot_address", e.to_string())
             })?;
+
         let user_takes_after = deposit_params.user_takes_after;
         let verifiers_public_keys = self.config.verifiers_public_keys.clone();
 
         tracing::debug!("Parsed deposit params");
 
-        // Generate nonce streams for all verifiers.
+        // Calculate required signatures and create nonce streams
         let num_required_sigs = calculate_num_required_sigs(
             self.config.num_operators,
             self.config.num_time_txs,
             self.config.num_watchtowers,
         );
         let (first_responses, nonce_streams) =
-            create_nonce_streams(self.verifier_clients.clone(), num_required_sigs as u32).await?;
+            create_nonce_streams(self.verifier_clients.clone(), num_required_sigs as u32 + 1)
+                .await?; // ask for +1 for the final movetx signature, but don't send it on deposit_sign stage
 
-        // Open the deposit signing streams for each verifier.
+        // Create deposit signing streams with each verifier
         let mut partial_sig_streams =
             try_join_all(self.verifier_clients.iter().map(|verifier_client| {
                 let mut verifier_client = verifier_client.clone();
@@ -397,14 +439,15 @@ impl ClementineAggregator for Aggregator {
 
         tracing::debug!("Generated partial sig streams");
 
-        // Send the first deposit params to each verifier
+        // Create initial deposit session and send to verifiers
         let deposit_sign_session = DepositSignSession {
-            deposit_params: Some(deposit_params),
+            deposit_params: Some(deposit_params_req.into_inner()),
             nonce_gen_first_responses: first_responses,
         };
 
-        tracing::debug!("Sent deposit sign session");
+        tracing::debug!("Sending deposit sign session to verifiers");
 
+        // Send deposit session to each verifier
         for (_, tx) in partial_sig_streams.iter_mut() {
             tx.send(clementine::VerifierDepositSignParams {
                 params: Some(
@@ -419,6 +462,7 @@ impl ClementineAggregator for Aggregator {
             })?;
         }
 
+        // Set up deposit finalization streams
         let mut deposit_finalize_clients = self.verifier_clients.clone();
         let deposit_finalize_streams = try_join_all(deposit_finalize_clients.iter_mut().map(
             |verifier_client| async move {
@@ -435,6 +479,7 @@ impl ClementineAggregator for Aggregator {
         let (mut deposit_finalize_futures, deposit_finalize_sender): (Vec<_>, Vec<_>) =
             deposit_finalize_streams.into_iter().unzip();
 
+        // Send initial finalization params
         let deposit_finalize_first_param = clementine::VerifierDepositFinalizeParams {
             params: Some(
                 clementine::verifier_deposit_finalize_params::Params::DepositSignFirstParam(
@@ -454,6 +499,7 @@ impl ClementineAggregator for Aggregator {
                 })?;
         }
 
+        // Create sighash stream for transaction signing
         let sighash_stream = create_nofn_sighash_stream(
             self.db.clone(),
             self.config.clone(),
@@ -470,11 +516,12 @@ impl ClementineAggregator for Aggregator {
         );
         let sighash_stream = Box::pin(sighash_stream);
 
+        // Create channels for pipeline communication
         let (agg_nonce_sender, agg_nonce_receiver) = channel(32);
         let (partial_sig_sender, partial_sig_receiver) = channel(32);
         let (final_sig_sender, final_sig_receiver) = channel(32);
 
-        // Spawn all pipeline tasks
+        // Start the nonce aggregation pipe.
         let nonce_agg_handle = thread::spawn(|| {
             tokio::runtime::Runtime::new()
                 .unwrap()
@@ -484,11 +531,15 @@ impl ClementineAggregator for Aggregator {
                     agg_nonce_sender,
                 ))
         });
+
+        // Start the nonce distribution pipe.
         let nonce_dist_handle = tokio::spawn(nonce_distributor(
             agg_nonce_receiver,
             partial_sig_streams,
             partial_sig_sender,
         ));
+
+        // Start the signature aggregation pipe.
         let sig_agg_handle = thread::spawn(|| {
             tokio::runtime::Runtime::new()
                 .unwrap()
@@ -498,18 +549,25 @@ impl ClementineAggregator for Aggregator {
                     final_sig_sender,
                 ))
         });
+
+        // Join the nonce aggregation handle to get the movetx agg nonce.
+        let movetx_agg_nonce = nonce_agg_handle.join().unwrap().unwrap();
+
+        // Start the deposit finalization pipe.
         let sig_dist_handle = tokio::spawn(signature_distributor(
             final_sig_receiver,
             deposit_finalize_sender,
+            movetx_agg_nonce,
         ));
 
-        nonce_agg_handle.join().unwrap().unwrap();
+        // Wait for all pipeline tasks to complete
         try_join_all(vec![nonce_dist_handle]).await.unwrap();
         sig_agg_handle.join().unwrap().unwrap();
         try_join_all(vec![sig_dist_handle]).await.unwrap();
 
         tracing::debug!("Waiting for deposit finalization");
 
+        // Collect partial signatures for move transaction
         let move_tx_partial_sigs = try_join_all(
             deposit_finalize_futures
                 .iter_mut()
