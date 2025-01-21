@@ -54,7 +54,7 @@ async fn create_address_and_transaction_then_sign_transaction() {
         .send_to_address(&taproot_address, Amount::from_sat(1000))
         .await
         .unwrap();
-    let tx_ins = builder::transaction::create_tx_ins(vec![utxo]);
+    let tx_ins = builder::transaction::create_tx_ins(vec![utxo].into());
     let tx_outs = vec![TxOut {
         value: Amount::from_sat(330),
         script_pubkey: taproot_address.script_pubkey(),

@@ -159,4 +159,17 @@ create table if not exists deposit_signatures (
     primary key (deposit_outpoint, operator_idx)
 );
 
+-- Verifier table for BitVM setup data
+/* This table holds the BitVM setup data for each operator and time_tx pair. */
+create table if not exists bitvm_setups (
+    operator_idx int not null,
+    time_tx_idx int not null,
+    kickoff_idx int not null,
+    assert_tx_addrs bytea[] not null,
+    root_hash bytea not null check (length(root_hash) = 32),
+    public_input_wots bytea[] not null,
+    created_at timestamp not null default now(),
+    primary key (operator_idx, time_tx_idx, kickoff_idx)
+);
+
 COMMIT;

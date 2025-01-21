@@ -17,3 +17,5 @@ pub type VerifierChallenge = (BlockHash, U256, u8);
 
 // dummy number of BitVM disprove scripts
 pub const NUM_INTERMEDIATE_STEPS: usize = 100;
+
+pub const PARALLEL_ASSERT_TX_CHAIN_SIZE: usize = 10;

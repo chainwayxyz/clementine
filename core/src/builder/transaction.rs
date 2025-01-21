@@ -5,18 +5,19 @@
 
 use super::address::create_taproot_address;
 use crate::builder;
-use crate::constants::NUM_INTERMEDIATE_STEPS;
+use crate::constants::{NUM_INTERMEDIATE_STEPS, PARALLEL_ASSERT_TX_CHAIN_SIZE};
 use crate::utils::SECP;
 use crate::{utils, EVMAddress, UTXO};
 use bitcoin::address::NetworkUnchecked;
 use bitcoin::hashes::Hash;
 use bitcoin::opcodes::all::OP_CHECKSIG;
 use bitcoin::script::PushBytesBuf;
+use bitcoin::taproot::TaprootBuilder;
 use bitcoin::{
     absolute, taproot::TaprootSpendInfo, Address, Amount, OutPoint, ScriptBuf, TxIn, TxOut,
     Witness, XOnlyPublicKey,
 };
-use bitcoin::{Network, Transaction, Txid};
+use bitcoin::{Network, TapNodeHash, Transaction, Txid};
 use bitvm::signatures::winternitz;
 
 /// Verbose information about a transaction.
@@ -65,11 +66,14 @@ pub fn create_sequential_collateral_txhandler(
     num_kickoffs_per_timetx: usize,
     network: bitcoin::Network,
 ) -> TxHandler {
-    let tx_ins = create_tx_ins(vec![OutPoint {
-        txid: input_txid,
-        vout: 0,
-    }]);
-
+    let tx_ins = create_tx_ins(
+        vec![OutPoint {
+            txid: input_txid,
+            vout: 0,
+        }]
+        .into(),
+    );
+    u16::try_from(max_withdrawal_time_block_count).expect("Max withdrawal time block count is larger than u16::MAX (sequence relative timelock is 16 bits");
     let max_withdrawal_time_locked_script = builder::script::generate_relative_timelock_script(
         operator_xonly_pk,
         max_withdrawal_time_block_count,
@@ -137,18 +141,28 @@ pub fn create_reimburse_generator_txhandler(
     sequential_collateral_txhandler: &TxHandler,
     operator_xonly_pk: XOnlyPublicKey,
     num_kickoffs_per_timetx: usize,
+    max_withdrawal_time_block_count: i64,
     network: bitcoin::Network,
 ) -> TxHandler {
-    let tx_ins = create_tx_ins(vec![
-        OutPoint {
-            txid: sequential_collateral_txhandler.txid,
-            vout: 0,
-        },
-        OutPoint {
-            txid: sequential_collateral_txhandler.txid,
-            vout: 1,
-        },
-    ]);
+    let tx_ins = create_tx_ins(
+        vec![
+            (
+                OutPoint {
+                    txid: sequential_collateral_txhandler.txid,
+                    vout: 0,
+                },
+                None,
+            ),
+            (
+                OutPoint {
+                    txid: sequential_collateral_txhandler.txid,
+                    vout: 1,
+                },
+                Some(max_withdrawal_time_block_count as u16),
+            ),
+        ]
+        .into(),
+    );
 
     let (op_address, op_spend) = create_taproot_address(&[], Some(operator_xonly_pk), network);
 
@@ -203,10 +217,13 @@ pub fn create_kickoff_utxo_timeout_txhandler(
     sequential_collateral_txhandler: &TxHandler,
     kickoff_idx: usize,
 ) -> TxHandler {
-    let tx_ins = create_tx_ins(vec![OutPoint {
-        txid: sequential_collateral_txhandler.txid,
-        vout: 2 + kickoff_idx as u32,
-    }]);
+    let tx_ins = create_tx_ins(
+        vec![OutPoint {
+            txid: sequential_collateral_txhandler.txid,
+            vout: 2 + kickoff_idx as u32,
+        }]
+        .into(),
+    );
 
     // let tx_outs = vec![builder::script::anyone_can_spend_txout()];
     let tx_outs = vec![builder::script::anchor_output()];
@@ -235,7 +252,7 @@ pub fn create_move_tx(
 ) -> Transaction {
     let (musig2_address, _) = builder::address::create_musig2_address(nofn_xonly_pk, network);
 
-    let tx_ins = create_tx_ins(vec![deposit_outpoint]);
+    let tx_ins = create_tx_ins(vec![deposit_outpoint].into());
 
     // let anyone_can_spend_txout = builder::script::anyone_can_spend_txout();
     // let move_txout = TxOut {
@@ -265,7 +282,7 @@ pub fn create_move_txhandler(
     let (musig2_address, musig2_spendinfo) =
         create_taproot_address(&[], Some(nofn_xonly_pk), network);
 
-    let tx_ins = create_tx_ins(vec![deposit_outpoint]);
+    let tx_ins = create_tx_ins(vec![deposit_outpoint].into());
 
     // let anyone_can_spend_txout = builder::script::anyone_can_spend_txout();
     // let move_txout = TxOut {
@@ -336,7 +353,7 @@ pub fn create_kickoff_utxo_txhandler(
     };
 
     //  = 154 + 43 * num_kickoff_utxos_per_tx;
-    let tx_ins = create_tx_ins(vec![funding_utxo.outpoint]);
+    let tx_ins = create_tx_ins(vec![funding_utxo.outpoint].into());
     let musig2_and_operator_script = builder::script::create_musig2_and_operator_multisig_script(
         nofn_xonly_pk,
         operator_xonly_pk,
@@ -393,14 +410,17 @@ pub fn create_kickoff_txhandler(
     operator_idx: usize,
     network: Network,
 ) -> TxHandler {
-    let tx_ins = create_tx_ins(vec![OutPoint {
-        txid: sequential_collateral_txhandler.txid,
-        vout: 2 + kickoff_idx as u32,
-    }]);
+    let tx_ins = create_tx_ins(
+        vec![OutPoint {
+            txid: sequential_collateral_txhandler.txid,
+            vout: 2 + kickoff_idx as u32,
+        }]
+        .into(),
+    );
     let operator_1week =
         builder::script::generate_relative_timelock_script(operator_xonly_pk, 7 * 24 * 6);
-    let operator_2week =
-        builder::script::generate_relative_timelock_script(operator_xonly_pk, 2 * 7 * 24 * 6);
+    let operator_2_5_week =
+        builder::script::generate_relative_timelock_script(operator_xonly_pk, 7 * 24 * 6 / 2 * 5); // 2.5 weeks
     let nofn_3week =
         builder::script::generate_relative_timelock_script(nofn_xonly_pk, 3 * 7 * 24 * 6);
 
@@ -411,9 +431,9 @@ pub fn create_kickoff_txhandler(
             network,
         );
 
-    let (nofn_or_operator_2week, nofn_or_operator_2week_spend) =
+    let (nofn_or_operator_2_5_week, nofn_or_operator_2_5_week_spend) =
         builder::address::create_taproot_address(
-            &[operator_2week.clone()],
+            &[operator_2_5_week.clone()],
             Some(nofn_xonly_pk),
             network,
         );
@@ -430,7 +450,10 @@ pub fn create_kickoff_txhandler(
     let mut tx_outs = create_tx_outs(vec![
         (MIN_TAPROOT_AMOUNT, nofn_taproot_address.script_pubkey()),
         (MIN_TAPROOT_AMOUNT, nofn_or_operator_1week.script_pubkey()),
-        (MIN_TAPROOT_AMOUNT, nofn_or_operator_2week.script_pubkey()),
+        (
+            MIN_TAPROOT_AMOUNT,
+            nofn_or_operator_2_5_week.script_pubkey(),
+        ),
         (MIN_TAPROOT_AMOUNT, nofn_or_nofn_3week.script_pubkey()),
     ]);
     // tx_outs.push(builder::script::anyone_can_spend_txout());
@@ -456,7 +479,7 @@ pub fn create_kickoff_txhandler(
         out_scripts: vec![
             vec![],
             vec![operator_1week],
-            vec![operator_2week],
+            vec![operator_2_5_week],
             vec![nofn_3week],
             vec![],
             vec![],
@@ -464,7 +487,7 @@ pub fn create_kickoff_txhandler(
         out_taproot_spend_infos: vec![
             Some(nofn_taproot_spend),
             Some(nofn_or_operator_1week_spend),
-            Some(nofn_or_operator_2week_spend),
+            Some(nofn_or_operator_2_5_week_spend),
             Some(nofn_or_nofn_3week_spend),
             None,
             None,
@@ -480,10 +503,13 @@ pub fn create_watchtower_challenge_kickoff_txhandler(
     watchtower_wots: Vec<Vec<[u8; 20]>>,
     network: bitcoin::Network,
 ) -> TxHandler {
-    let tx_ins = create_tx_ins(vec![OutPoint {
-        txid: kickoff_tx_handler.txid,
-        vout: 0,
-    }]);
+    let tx_ins = create_tx_ins(
+        vec![OutPoint {
+            txid: kickoff_tx_handler.txid,
+            vout: 0,
+        }]
+        .into(),
+    );
 
     let verifier =
         winternitz::Winternitz::<winternitz::ListpickVerifier, winternitz::TabledConverter>::new();
@@ -537,16 +563,20 @@ pub fn create_watchtower_challenge_txhandler(
     operator_xonly_pk: XOnlyPublicKey,
     network: bitcoin::Network,
 ) -> TxHandler {
-    let tx_ins = create_tx_ins(vec![OutPoint {
-        txid: wcp_txhandler.txid,
-        vout: watchtower_idx as u32,
-    }]);
+    let tx_ins = create_tx_ins(
+        vec![OutPoint {
+            txid: wcp_txhandler.txid,
+            vout: watchtower_idx as u32,
+        }]
+        .into(),
+    );
 
-    let nofn_1week = builder::script::generate_relative_timelock_script(nofn_xonly_pk, 7 * 24 * 6);
+    let nofn_halfweek =
+        builder::script::generate_relative_timelock_script(nofn_xonly_pk, 7 * 24 * 6 / 2); // 0.5 week
     let operator_with_preimage =
         builder::script::actor_with_preimage_script(operator_xonly_pk, operator_unlock_hash);
-    let (nofn_or_nofn_1week, nofn_or_nofn_1week_spend) = builder::address::create_taproot_address(
-        &[operator_with_preimage.clone(), nofn_1week.clone()],
+    let (op_or_nofn_halfweek, op_or_nofn_halfweek_spend) = builder::address::create_taproot_address(
+        &[operator_with_preimage.clone(), nofn_halfweek.clone()],
         None,
         network,
     );
@@ -554,7 +584,7 @@ pub fn create_watchtower_challenge_txhandler(
     let tx_outs = vec![
         TxOut {
             value: Amount::from_sat(1000), // TODO: Hand calculate this
-            script_pubkey: nofn_or_nofn_1week.script_pubkey(),
+            script_pubkey: op_or_nofn_halfweek.script_pubkey(),
         },
         // builder::script::anyone_can_spend_txout(),
         builder::script::anchor_output(),
@@ -570,8 +600,8 @@ pub fn create_watchtower_challenge_txhandler(
         prev_taproot_spend_infos: vec![
             wcp_txhandler.out_taproot_spend_infos[watchtower_idx].clone()
         ],
-        out_scripts: vec![vec![operator_with_preimage, nofn_1week], vec![]],
-        out_taproot_spend_infos: vec![Some(nofn_or_nofn_1week_spend), None],
+        out_scripts: vec![vec![operator_with_preimage, nofn_halfweek], vec![]],
+        out_taproot_spend_infos: vec![Some(op_or_nofn_halfweek_spend), None],
     }
 }
 
@@ -579,16 +609,25 @@ pub fn create_operator_challenge_nack_txhandler(
     watchtower_challenge_txhandler: &TxHandler,
     kickoff_txhandler: &TxHandler,
 ) -> TxHandler {
-    let tx_ins = create_tx_ins(vec![
-        OutPoint {
-            txid: watchtower_challenge_txhandler.txid,
-            vout: 0,
-        },
-        OutPoint {
-            txid: kickoff_txhandler.txid,
-            vout: 2,
-        },
-    ]);
+    let tx_ins = create_tx_ins(
+        vec![
+            (
+                OutPoint {
+                    txid: watchtower_challenge_txhandler.txid,
+                    vout: 0,
+                },
+                Some(7 * 24 * 6 / 2),
+            ),
+            (
+                OutPoint {
+                    txid: kickoff_txhandler.txid,
+                    vout: 2,
+                },
+                None,
+            ),
+        ]
+        .into(),
+    );
     // let tx_outs = vec![builder::script::anyone_can_spend_txout()];
     let tx_outs = vec![builder::script::anchor_output()];
     let challenge_nack_tx = create_btc_tx(tx_ins, tx_outs);
@@ -615,37 +654,30 @@ pub fn create_operator_challenge_nack_txhandler(
 
 pub fn create_assert_begin_txhandler(
     kickoff_txhandler: &TxHandler,
-    operator_xonly_pk: XOnlyPublicKey,
-    intermediate_wotss: Vec<Vec<[u8; 20]>>,
-    network: bitcoin::Network,
+    assert_tx_addrs: &Vec<ScriptBuf>,
+    _network: bitcoin::Network,
 ) -> TxHandler {
-    let tx_ins: Vec<TxIn> = create_tx_ins(vec![OutPoint {
-        txid: kickoff_txhandler.txid,
-        vout: 2,
-    }]);
+    let tx_ins: Vec<TxIn> = create_tx_ins(
+        vec![(
+            OutPoint {
+                txid: kickoff_txhandler.txid,
+                vout: 2,
+            },
+            Some(7 * 24 * 6 / 2 * 5),
+        )]
+        .into(),
+    );
 
-    let mut txouts = vec![];
     let mut scripts: Vec<Vec<ScriptBuf>> = Vec::new();
     let mut spendinfos: Vec<Option<TaprootSpendInfo>> = Vec::new();
-    let verifier =
-        winternitz::Winternitz::<winternitz::ListpickVerifier, winternitz::TabledConverter>::new();
-    let wots_params = winternitz::Parameters::new(40, 4);
-    for intermediate_wots in intermediate_wotss.iter().take(NUM_INTERMEDIATE_STEPS) {
-        // TODO: Is there a possibility that list going to be longer than NUM_INTERMEDIATE_STEPS?
-        let mut x = verifier.checksig_verify(&wots_params, intermediate_wots);
-        x = x.push_x_only_key(&operator_xonly_pk);
-        x = x.push_opcode(OP_CHECKSIG); // TODO: Add checksig in the beginning
-        let intermediate_script = x.compile();
-        let (intermediate_addr, intermediate_spend) =
-            builder::address::create_taproot_address(&[intermediate_script.clone()], None, network);
-        scripts.push(vec![intermediate_script]);
-        spendinfos.push(Some(intermediate_spend));
+
+    let mut txouts = vec![];
+    for i in 0..PARALLEL_ASSERT_TX_CHAIN_SIZE {
         txouts.push(TxOut {
-            value: Amount::from_sat(660), // TOOD: Hand calculate this
-            script_pubkey: intermediate_addr.script_pubkey(), // TODO: Add winternitz checks here
+            value: MIN_TAPROOT_AMOUNT, // Minimum amount for a taproot output
+            script_pubkey: assert_tx_addrs[i].clone(),
         });
     }
-    // txouts.push(builder::script::anyone_can_spend_txout());
     txouts.push(builder::script::anchor_output());
     scripts.push(vec![]);
     spendinfos.push(None);
@@ -663,84 +695,87 @@ pub fn create_assert_begin_txhandler(
     }
 }
 
-pub fn create_mini_assert_txhandler(
-    assert_begin_txhandler: &TxHandler,
-    operator_xonly_pk: XOnlyPublicKey,
-    step_index: u32,
-    network: bitcoin::Network,
-) -> TxHandler {
-    let tx_ins = create_tx_ins(vec![OutPoint {
-        txid: assert_begin_txhandler.txid,
-        vout: step_index,
-    }]);
-
-    let (op_address, op_spend) =
-        builder::address::create_taproot_address(&[], Some(operator_xonly_pk), network);
+pub fn create_mini_assert_tx(
+    prev_txid: Txid,
+    prev_vout: u32,
+    out_script: ScriptBuf,
+    _network: bitcoin::Network,
+) -> Transaction {
+    let tx_ins = create_tx_ins(
+        vec![OutPoint {
+            txid: prev_txid,
+            vout: prev_vout,
+        }]
+        .into(),
+    );
 
     let tx_outs = vec![
         TxOut {
-            value: Amount::from_sat(330), // TOOD: Hand calculate this
-            script_pubkey: op_address.script_pubkey(),
+            value: Amount::from_sat(330),
+            script_pubkey: out_script,
         },
-        // builder::script::anyone_can_spend_txout(),
         builder::script::anchor_output(),
     ];
 
-    let tx = create_btc_tx(tx_ins, tx_outs);
-
-    TxHandler {
-        txid: tx.compute_txid(),
-        tx,
-        prevouts: vec![assert_begin_txhandler.tx.output[step_index as usize].clone()],
-        prev_scripts: vec![assert_begin_txhandler.out_scripts[step_index as usize].clone()],
-        prev_taproot_spend_infos: vec![assert_begin_txhandler.out_taproot_spend_infos
-            [step_index as usize]
-            .clone()],
-        out_scripts: vec![vec![], vec![]],
-        out_taproot_spend_infos: vec![Some(op_spend), None],
-    }
+    create_btc_tx(tx_ins, tx_outs)
 }
 
 pub fn create_assert_end_txhandler(
     kickoff_txhandler: &TxHandler,
     assert_begin_txhandler: &TxHandler,
+    assert_tx_addrs: &Vec<ScriptBuf>,
+    root_hash: &[u8; 32],
     nofn_xonly_pk: XOnlyPublicKey,
-    operator_xonly_pk: XOnlyPublicKey,
+    public_input_wots: Vec<[u8; 20]>,
     network: bitcoin::Network,
 ) -> TxHandler {
-    let mini_assert_txhandlers = (0..NUM_INTERMEDIATE_STEPS)
-        .map(|i| {
-            create_mini_assert_txhandler(
-                assert_begin_txhandler,
-                operator_xonly_pk,
-                i as u32,
-                network,
-            )
-        })
-        .collect::<Vec<_>>();
+    let mut last_mini_assert_txid =
+        vec![assert_begin_txhandler.txid; PARALLEL_ASSERT_TX_CHAIN_SIZE];
 
-    let mut txins = (0..NUM_INTERMEDIATE_STEPS)
-        .map(|i| OutPoint {
-            txid: mini_assert_txhandlers[i].txid,
+    for i in PARALLEL_ASSERT_TX_CHAIN_SIZE..assert_tx_addrs.len() {
+        let mini_assert_tx = create_mini_assert_tx(
+            last_mini_assert_txid[i % PARALLEL_ASSERT_TX_CHAIN_SIZE],
+            // if i - PARALLEL_ASSERT_TX_CHAIN_SIZE < PARALLEL_ASSERT_TX_CHAIN_SIZE, then i - PARALLEL_ASSERT_TX_CHAIN_SIZE, otherwise 0
+            if i - PARALLEL_ASSERT_TX_CHAIN_SIZE < PARALLEL_ASSERT_TX_CHAIN_SIZE {
+                i as u32 - PARALLEL_ASSERT_TX_CHAIN_SIZE as u32
+            } else {
+                0
+            },
+            assert_tx_addrs[i].clone(),
+            network,
+        );
+        last_mini_assert_txid[i % PARALLEL_ASSERT_TX_CHAIN_SIZE] = mini_assert_tx.compute_txid();
+    }
+
+    let mut txins = vec![];
+    for i in 0..PARALLEL_ASSERT_TX_CHAIN_SIZE {
+        txins.push(OutPoint {
+            txid: last_mini_assert_txid[i],
             vout: 0,
-        })
-        .collect::<Vec<_>>();
-
+        });
+    }
     txins.push(OutPoint {
         txid: kickoff_txhandler.txid,
         vout: 3,
     });
 
-    let mut disprove_scripts = vec![];
-    for _ in 0..NUM_INTERMEDIATE_STEPS {
-        disprove_scripts.push(builder::script::dummy_script()); // TODO: ADD actual disprove scripts here
-    }
+    // mini asserts have no timelocks, the last input (from kickoff tx) has a timelock of 3 weeks
+    let mut timelocks: Vec<Option<u16>> = vec![None; NUM_INTERMEDIATE_STEPS];
+    timelocks.push(Some(7 * 24 * 6 * 3));
 
-    let (disprove_address, disprove_taproot_spend_info) = builder::address::create_taproot_address(
-        &disprove_scripts.clone(),
-        Some(nofn_xonly_pk),
+    let disprove_taproot_spend_info = TaprootBuilder::new()
+        .add_hidden_node(0, TapNodeHash::from_slice(root_hash).unwrap())
+        .unwrap()
+        .finalize(&SECP, nofn_xonly_pk)
+        .unwrap();
+
+    let disprove_address = Address::p2tr(
+        &SECP,
+        nofn_xonly_pk,
+        disprove_taproot_spend_info.merkle_root(),
         network,
     );
+
     let nofn_1week = builder::script::generate_relative_timelock_script(nofn_xonly_pk, 7 * 24 * 6);
     let nofn_2week =
         builder::script::generate_relative_timelock_script(nofn_xonly_pk, 2 * 7 * 24 * 6);
@@ -761,20 +796,23 @@ pub fn create_assert_end_txhandler(
         builder::script::anchor_output(),
     ];
 
-    let assert_end_tx = create_btc_tx(create_tx_ins(txins), tx_outs);
+    let assert_end_tx = create_btc_tx(create_tx_ins(txins.into()), tx_outs);
 
-    let mut prevouts = (0..NUM_INTERMEDIATE_STEPS)
-        .map(|i| mini_assert_txhandlers[i].tx.output[0].clone())
+    let mut prevouts = (0..PARALLEL_ASSERT_TX_CHAIN_SIZE)
+        .map(|i| TxOut {
+            value: MIN_TAPROOT_AMOUNT,
+            script_pubkey: disprove_address.script_pubkey(), // TODO: this is wrong
+        })
         .collect::<Vec<_>>();
     prevouts.push(kickoff_txhandler.tx.output[3].clone());
 
     let mut scripts = (0..NUM_INTERMEDIATE_STEPS)
-        .map(|i| mini_assert_txhandlers[i].out_scripts[0].clone())
+        .map(|i| vec![]) // TODO: Add actual scripts here
         .collect::<Vec<_>>();
     scripts.push(kickoff_txhandler.out_scripts[3].clone());
 
     let mut prev_taproot_spend_infos = (0..NUM_INTERMEDIATE_STEPS)
-        .map(|i| mini_assert_txhandlers[i].out_taproot_spend_infos[0].clone())
+        .map(|i| None) // TODO: Add actual spend info here
         .collect::<Vec<_>>();
     prev_taproot_spend_infos.push(kickoff_txhandler.out_taproot_spend_infos[3].clone());
 
@@ -784,7 +822,7 @@ pub fn create_assert_end_txhandler(
         prevouts,
         prev_scripts: scripts,
         prev_taproot_spend_infos,
-        out_scripts: vec![disprove_scripts, vec![nofn_1week, nofn_2week], vec![]],
+        out_scripts: vec![vec![], vec![nofn_1week, nofn_2week], vec![]],
         out_taproot_spend_infos: vec![
             Some(disprove_taproot_spend_info),
             Some(connector_spend),
@@ -798,16 +836,25 @@ pub fn create_disprove_timeout_txhandler(
     operator_xonly_pk: XOnlyPublicKey,
     network: bitcoin::Network,
 ) -> TxHandler {
-    let tx_ins = create_tx_ins(vec![
-        OutPoint {
-            txid: assert_end_txhandler.txid,
-            vout: 0,
-        },
-        OutPoint {
-            txid: assert_end_txhandler.txid,
-            vout: 1,
-        },
-    ]);
+    let tx_ins = create_tx_ins(
+        vec![
+            (
+                OutPoint {
+                    txid: assert_end_txhandler.txid,
+                    vout: 0,
+                },
+                None,
+            ),
+            (
+                OutPoint {
+                    txid: assert_end_txhandler.txid,
+                    vout: 1,
+                },
+                Some(7 * 24 * 6),
+            ),
+        ]
+        .into(),
+    );
 
     let (op_address, op_spend) = create_taproot_address(&[], Some(operator_xonly_pk), network);
 
@@ -842,16 +889,25 @@ pub fn create_already_disproved_txhandler(
     assert_end_txhandler: &TxHandler,
     sequential_collateral_txhandler: &TxHandler,
 ) -> TxHandler {
-    let tx_ins = create_tx_ins(vec![
-        OutPoint {
-            txid: assert_end_txhandler.txid,
-            vout: 1,
-        },
-        OutPoint {
-            txid: sequential_collateral_txhandler.txid,
-            vout: 0,
-        },
-    ]);
+    let tx_ins = create_tx_ins(
+        vec![
+            (
+                OutPoint {
+                    txid: assert_end_txhandler.txid,
+                    vout: 1,
+                },
+                Some(7 * 24 * 6 * 2),
+            ),
+            (
+                OutPoint {
+                    txid: sequential_collateral_txhandler.txid,
+                    vout: 0,
+                },
+                None,
+            ),
+        ]
+        .into(),
+    );
 
     let tx_outs = vec![builder::script::anchor_output()];
 
@@ -881,16 +937,19 @@ pub fn create_disprove_txhandler(
     assert_end_txhandler: &TxHandler,
     sequential_collateral_txhandler: &TxHandler,
 ) -> TxHandler {
-    let tx_ins = create_tx_ins(vec![
-        OutPoint {
-            txid: assert_end_txhandler.txid,
-            vout: 0,
-        },
-        OutPoint {
-            txid: sequential_collateral_txhandler.txid,
-            vout: 0,
-        },
-    ]);
+    let tx_ins = create_tx_ins(
+        vec![
+            OutPoint {
+                txid: assert_end_txhandler.txid,
+                vout: 0,
+            },
+            OutPoint {
+                txid: sequential_collateral_txhandler.txid,
+                vout: 0,
+            },
+        ]
+        .into(),
+    );
 
     let tx_outs = vec![builder::script::anchor_output()];
 
@@ -920,10 +979,13 @@ pub fn create_challenge_txhandler(
     kickoff_txhandler: &TxHandler,
     operator_reimbursement_address: &bitcoin::Address,
 ) -> TxHandler {
-    let tx_ins = create_tx_ins(vec![OutPoint {
-        txid: kickoff_txhandler.txid,
-        vout: 1,
-    }]);
+    let tx_ins = create_tx_ins(
+        vec![OutPoint {
+            txid: kickoff_txhandler.txid,
+            vout: 1,
+        }]
+        .into(),
+    );
 
     let tx_outs = vec![TxOut {
         value: OPERATOR_CHALLENGE_AMOUNT,
@@ -948,16 +1010,25 @@ pub fn create_start_happy_reimburse_txhandler(
     operator_xonly_pk: XOnlyPublicKey,
     network: bitcoin::Network,
 ) -> TxHandler {
-    let tx_ins = create_tx_ins(vec![
-        OutPoint {
-            txid: kickoff_txhandler.txid,
-            vout: 1,
-        },
-        OutPoint {
-            txid: kickoff_txhandler.txid,
-            vout: 3,
-        },
-    ]);
+    let tx_ins = create_tx_ins(
+        vec![
+            (
+                OutPoint {
+                    txid: kickoff_txhandler.txid,
+                    vout: 1,
+                },
+                Some(7 * 24 * 6),
+            ),
+            (
+                OutPoint {
+                    txid: kickoff_txhandler.txid,
+                    vout: 3,
+                },
+                None,
+            ),
+        ]
+        .into(),
+    );
 
     let (op_address, op_spend) = create_taproot_address(&[], Some(operator_xonly_pk), network);
 
@@ -998,20 +1069,23 @@ pub fn create_happy_reimburse_txhandler(
     kickoff_idx: usize,
     operator_reimbursement_address: &bitcoin::Address,
 ) -> TxHandler {
-    let tx_ins = create_tx_ins(vec![
-        OutPoint {
-            txid: move_txhandler.txid,
-            vout: 0,
-        },
-        OutPoint {
-            txid: start_happy_reimburse_txhandler.txid,
-            vout: 0,
-        },
-        OutPoint {
-            txid: reimburse_generator_txhandler.txid,
-            vout: 1 + kickoff_idx as u32,
-        },
-    ]);
+    let tx_ins = create_tx_ins(
+        vec![
+            OutPoint {
+                txid: move_txhandler.txid,
+                vout: 0,
+            },
+            OutPoint {
+                txid: start_happy_reimburse_txhandler.txid,
+                vout: 0,
+            },
+            OutPoint {
+                txid: reimburse_generator_txhandler.txid,
+                vout: 1 + kickoff_idx as u32,
+            },
+        ]
+        .into(),
+    );
 
     let anchor_txout = builder::script::anchor_output();
     let tx_outs = vec![
@@ -1055,20 +1129,23 @@ pub fn create_reimburse_txhandler(
     kickoff_idx: usize,
     operator_reimbursement_address: &bitcoin::Address,
 ) -> TxHandler {
-    let tx_ins = create_tx_ins(vec![
-        OutPoint {
-            txid: move_txhandler.txid,
-            vout: 0,
-        },
-        OutPoint {
-            txid: disprove_timeout_txhandler.txid,
-            vout: 0,
-        },
-        OutPoint {
-            txid: reimburse_generator_txhandler.txid,
-            vout: 1 + kickoff_idx as u32,
-        },
-    ]);
+    let tx_ins = create_tx_ins(
+        vec![
+            OutPoint {
+                txid: move_txhandler.txid,
+                vout: 0,
+            },
+            OutPoint {
+                txid: disprove_timeout_txhandler.txid,
+                vout: 0,
+            },
+            OutPoint {
+                txid: reimburse_generator_txhandler.txid,
+                vout: 1 + kickoff_idx as u32,
+            },
+        ]
+        .into(),
+    );
 
     let tx_outs = vec![
         TxOut {
@@ -1109,16 +1186,19 @@ pub fn create_kickoff_timeout_txhandler(
     sequential_collateral_txhandler: &TxHandler,
     network: Network,
 ) -> TxHandler {
-    let tx_ins = create_tx_ins(vec![
-        OutPoint {
-            txid: kickoff_tx_handler.txid,
-            vout: 3,
-        },
-        OutPoint {
-            txid: sequential_collateral_txhandler.txid,
-            vout: 0,
-        },
-    ]);
+    let tx_ins = create_tx_ins(
+        vec![
+            OutPoint {
+                txid: kickoff_tx_handler.txid,
+                vout: 3,
+            },
+            OutPoint {
+                txid: sequential_collateral_txhandler.txid,
+                vout: 0,
+            },
+        ]
+        .into(),
+    );
     let (dust_address, _) = create_taproot_address(&[], None, network);
     let dust_output = TxOut {
         value: Amount::from_sat(330),
@@ -1188,7 +1268,7 @@ pub fn create_slash_or_take_tx(
     tracing::debug!("Operator xonly pk: {:?}", operator_xonly_pk);
     tracing::debug!("Deposit OutPoint: {:?}", deposit_outpoint);
     assert!(kickoff_utxo_address.script_pubkey() == kickoff_utxo.txout.script_pubkey);
-    let ins = create_tx_ins(vec![kickoff_utxo.outpoint]);
+    let ins = create_tx_ins(vec![kickoff_utxo.outpoint].into());
     let relative_timelock_script = builder::script::generate_relative_timelock_script(
         operator_xonly_pk,
         operator_takes_after as i64,
@@ -1240,10 +1320,13 @@ pub fn create_operator_takes_tx(
     operator_wallet_address: Address<NetworkUnchecked>,
 ) -> TxHandler {
     let operator_wallet_address_checked = operator_wallet_address.require_network(network).unwrap();
-    let mut ins = create_tx_ins(vec![bridge_fund_outpoint]);
-    ins.extend(create_tx_ins_with_sequence(
-        vec![slash_or_take_utxo.outpoint],
-        operator_takes_after as u16,
+    let mut ins = create_tx_ins(vec![bridge_fund_outpoint].into());
+    ins.extend(create_tx_ins(
+        vec![(
+            slash_or_take_utxo.outpoint,
+            Some(operator_takes_after as u16),
+        )]
+        .into(),
     ));
 
     let (musig2_address, musig2_spend_info) =
@@ -1310,34 +1393,43 @@ pub fn create_btc_tx(tx_ins: Vec<TxIn>, tx_outs: Vec<TxOut>) -> bitcoin::Transac
     }
 }
 
-pub fn create_tx_ins(outpoints: Vec<OutPoint>) -> Vec<TxIn> {
-    let mut tx_ins = Vec::new();
+pub struct TxInArgs(pub Vec<(OutPoint, Option<u16>)>);
 
-    for utxo in outpoints {
-        tx_ins.push(TxIn {
-            previous_output: utxo,
-            sequence: bitcoin::transaction::Sequence::ENABLE_RBF_NO_LOCKTIME,
-            script_sig: ScriptBuf::default(),
-            witness: Witness::new(),
-        });
+impl From<Vec<OutPoint>> for TxInArgs {
+    fn from(outpoints: Vec<OutPoint>) -> TxInArgs {
+        TxInArgs(
+            outpoints
+                .into_iter()
+                .map(|outpoint| (outpoint, None))
+                .collect(),
+        )
     }
-
-    tx_ins
 }
 
-pub fn create_tx_ins_with_sequence(utxos: Vec<OutPoint>, height: u16) -> Vec<TxIn> {
-    let mut tx_ins = Vec::new();
+impl From<Vec<(OutPoint, Option<u16>)>> for TxInArgs {
+    fn from(value: Vec<(OutPoint, Option<u16>)>) -> TxInArgs {
+        TxInArgs(value)
+    }
+}
 
-    for utxo in utxos {
-        tx_ins.push(TxIn {
-            previous_output: utxo,
-            sequence: bitcoin::transaction::Sequence::from_height(height),
+/// Creates a Vec of TxIn from a TxInArgs (helper struct to represent args)
+/// If only a Vec of OutPoints are provided there are no relative locktimes
+/// If at least one TxIn requires a locktime, a Vec of (OutPoint, Option<u16>) is required
+/// Option represents Some(locktime) or None if there is no locktime for that TxIn
+pub fn create_tx_ins(tx_in_args: TxInArgs) -> Vec<TxIn> {
+    tx_in_args
+        .0
+        .into_iter()
+        .map(|(outpoint, height)| TxIn {
+            previous_output: outpoint,
+            sequence: match height {
+                Some(h) => bitcoin::transaction::Sequence::from_height(h),
+                None => bitcoin::transaction::Sequence::ENABLE_RBF_NO_LOCKTIME,
+            },
             script_sig: ScriptBuf::default(),
             witness: Witness::new(),
-        });
-    }
-
-    tx_ins
+        })
+        .collect()
 }
 
 pub fn create_tx_outs(pairs: Vec<(Amount, ScriptBuf)>) -> Vec<TxOut> {
