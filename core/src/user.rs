@@ -87,7 +87,7 @@ impl User {
             },
         };
 
-        let txins = builder::transaction::create_tx_ins(vec![dust_utxo.outpoint]);
+        let txins = builder::transaction::create_tx_ins(vec![dust_utxo.outpoint].into());
         let txout = TxOut {
             value: withdrawal_amount, // TODO: Change this in the future since Operators should profit from the bridge
             script_pubkey: withdrawal_address.script_pubkey(),

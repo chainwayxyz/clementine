@@ -421,7 +421,7 @@ impl Operator {
         let user_xonly_pk =
             XOnlyPublicKey::from_slice(&input_utxo.txout.script_pubkey.as_bytes()[2..34])?;
 
-        let tx_ins = builder::transaction::create_tx_ins(vec![input_utxo.outpoint]);
+        let tx_ins = builder::transaction::create_tx_ins(vec![input_utxo.outpoint].into());
         let tx_outs = vec![output_txout.clone()];
         let mut tx = builder::transaction::create_btc_tx(tx_ins, tx_outs);
 
