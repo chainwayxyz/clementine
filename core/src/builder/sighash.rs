@@ -144,6 +144,7 @@ pub fn create_nofn_sighash_stream(
                     &sequential_collateral_txhandler,
                     *operator_xonly_pk,
                     config.num_kickoffs_per_timetx,
+                    max_withdrawal_time_block_count,
                     network,
                 );
 
