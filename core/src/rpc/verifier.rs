@@ -18,7 +18,7 @@ use crate::{
 use bitcoin::{
     hashes::Hash,
     secp256k1::{schnorr, Message, PublicKey, SecretKey},
-    Amount, ScriptBuf, TapSighash, Txid, XOnlyPublicKey,
+    Amount, Script, ScriptBuf, TapSighash, Txid, XOnlyPublicKey,
 };
 use bitvm::{
     chunker::{
@@ -138,16 +138,16 @@ impl ClementineVerifier for Verifier {
                 operator_winternitz_public_keys.clone(),
             )
             .await?;
-
         // Split the winternitz public keys into chunks for every sequential collateral tx and kickoff index.
         // This is done because we need to generate a separate BitVM setup for each collateral tx and kickoff index.
-        let winternitz_public_keys_chunks = operator_winternitz_public_keys
-            .chunks_exact(self.config.num_time_txs * self.config.num_kickoffs_per_timetx);
+        let chunk_size = utils::ALL_BITVM_INTERMEDIATE_VARIABLES.len();
+        let winternitz_public_keys_chunks =
+            operator_winternitz_public_keys.chunks_exact(chunk_size);
 
         // iterate over the chunks and generate precalculated BitVM Setups
-        for (idx, winternitz_public_keys) in winternitz_public_keys_chunks.enumerate() {
-            let time_tx_idx = idx / self.config.num_kickoffs_per_timetx;
-            let kickoff_idx = idx % self.config.num_kickoffs_per_timetx;
+        for (chunk_idx, winternitz_public_keys) in winternitz_public_keys_chunks.enumerate() {
+            let time_tx_idx = chunk_idx / self.config.num_kickoffs_per_timetx;
+            let kickoff_idx = chunk_idx % self.config.num_kickoffs_per_timetx;
 
             let mut public_input_wots = vec![];
             // Generate precalculated BitVM Setups
@@ -174,7 +174,8 @@ impl ClementineVerifier for Verifier {
 
             let assert_tx_addrs = utils::ALL_BITVM_INTERMEDIATE_VARIABLES
                 .iter()
-                .map(|(_, intermediate_step_size)| {
+                .enumerate()
+                .map(|(idx, (_intermediate_step, intermediate_step_size))| {
                     let script = generate_winternitz_checksig_leave_variable(
                         &WinternitzPublicKey {
                             public_key: winternitz_public_keys[idx].clone(),
@@ -210,7 +211,9 @@ impl ClementineVerifier for Verifier {
                 //     .iter()
                 //     .map(|s| s.script.clone().compile())
                 //     .collect()
-                vec![]
+                vec![bitcoin::script::Builder::new()
+                    .push_opcode(bitcoin::opcodes::all::OP_PUSHNUM_1)
+                    .into_script()]
             };
 
             let taproot_builder = create_taproot_builder(&scripts);
