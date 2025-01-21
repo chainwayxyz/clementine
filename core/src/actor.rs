@@ -517,7 +517,6 @@ mod tests {
                 vec![0; 4],
                 vec![0; 4],
                 vec![0; 4],
-                vec![0; 4]
             ]
             .concat()
         );
@@ -532,7 +531,6 @@ mod tests {
                 vec![0; 4],
                 vec![0; 4],
                 vec![0; 4],
-                vec![0; 4]
             ]
             .concat()
         );
@@ -547,7 +545,6 @@ mod tests {
                 vec![0; 4],
                 vec![0; 4],
                 vec![0; 4],
-                vec![0; 4]
             ]
             .concat()
         );
@@ -562,7 +559,6 @@ mod tests {
                 3u32.to_be_bytes().to_vec(),
                 vec![0; 4],
                 vec![0; 4],
-                vec![0; 4]
             ]
             .concat()
         );
@@ -577,7 +573,6 @@ mod tests {
                 3u32.to_be_bytes().to_vec(),
                 4u32.to_be_bytes().to_vec(),
                 vec![0; 4],
-                vec![0; 4]
             ]
             .concat()
         );
@@ -592,7 +587,6 @@ mod tests {
                 3u32.to_be_bytes().to_vec(),
                 4u32.to_be_bytes().to_vec(),
                 5u32.to_be_bytes().to_vec(),
-                vec![0; 4]
             ]
             .concat()
         );
@@ -607,7 +601,7 @@ mod tests {
                 3u32.to_be_bytes().to_vec(),
                 4u32.to_be_bytes().to_vec(),
                 5u32.to_be_bytes().to_vec(),
-                6u32.to_be_bytes().to_vec()
+                "step5".as_bytes().to_vec()
             ]
             .concat()
         );
