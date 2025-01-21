@@ -2004,7 +2004,7 @@ mod tests {
         let operator_idx = 0;
         let time_tx_idx = 1;
         let kickoff_idx = 2;
-        let assert_tx_addrs = vec![vec![1u8; 34], vec![4u8; 34]];
+        let assert_tx_addrs = [vec![1u8; 34], vec![4u8; 34]];
         let root_hash = [42u8; 32];
         let public_input_wots = vec![[1u8; 20], [2u8; 20]];
 
