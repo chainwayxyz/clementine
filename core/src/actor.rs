@@ -37,7 +37,7 @@ pub struct WinternitzDerivationPath<'a> {
     pub kickoff_idx: Option<u32>,
     pub intermediate_step_name: Option<&'a str>,
 }
-impl<'a> WinternitzDerivationPath<'a> {
+impl WinternitzDerivationPath<'_> {
     fn to_vec(self) -> Vec<u8> {
         let index = match self.index {
             None => 0,

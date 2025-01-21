@@ -27,6 +27,12 @@ use secp256k1::musig::{MusigAggNonce, MusigPubNonce};
 use sqlx::{Postgres, QueryBuilder};
 use std::str::FromStr;
 
+pub type RootHash = [u8; 32];
+pub type PublicInputWots = Vec<[u8; 20]>;
+pub type AssertTxAddrs = Vec<ScriptBuf>;
+
+pub type BitvmSetup = (AssertTxAddrs, RootHash, PublicInputWots);
+
 impl Database {
     /// Verifier: save the generated sec nonce and pub nonces
     #[tracing::instrument(skip(self), err(level = tracing::Level::ERROR), ret(level = tracing::Level::TRACE))]
@@ -1245,7 +1251,7 @@ impl Database {
         operator_idx: i32,
         time_tx_idx: i32,
         kickoff_idx: i32,
-    ) -> Result<Option<(Vec<ScriptBuf>, [u8; 32], Vec<[u8; 20]>)>, BridgeError> {
+    ) -> Result<Option<BitvmSetup>, BridgeError> {
         let query = sqlx::query_as::<_, (Vec<Vec<u8>>, Vec<u8>, Vec<Vec<u8>>)>(
             "SELECT assert_tx_addrs, root_hash, public_input_wots
              FROM bitvm_setups
