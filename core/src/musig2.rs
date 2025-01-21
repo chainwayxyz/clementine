@@ -515,7 +515,7 @@ mod tests {
             Amount::from_sat(99_000_000),
             receiving_address.script_pubkey(),
         )]);
-        let tx_ins = builder::transaction::create_tx_ins(vec![utxo]);
+        let tx_ins = builder::transaction::create_tx_ins(vec![utxo].into());
         let dummy_tx = builder::transaction::create_btc_tx(tx_ins, tx_outs);
         let mut tx_details = TxHandler {
             txid: dummy_tx.compute_txid(),
@@ -613,7 +613,7 @@ mod tests {
             Amount::from_sat(99_000_000),
             receiving_address.script_pubkey(),
         )]);
-        let tx_ins = builder::transaction::create_tx_ins(vec![utxo]);
+        let tx_ins = builder::transaction::create_tx_ins(vec![utxo].into());
         let dummy_tx = builder::transaction::create_btc_tx(tx_ins, tx_outs);
         let mut tx_details = TxHandler {
             txid: dummy_tx.compute_txid(),
