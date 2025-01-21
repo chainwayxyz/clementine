@@ -195,22 +195,22 @@ impl ClementineVerifier for Verifier {
                 })
                 .collect::<Vec<_>>();
 
-            // // This part is not working.
-            // // TODO: Use correct verification key and along with a dummy proof.
+            // TODO: Use correct verification key and along with a dummy proof.
             let scripts: Vec<ScriptBuf> = {
-                let mut bridge_assigner = BridgeAssigner::new_watcher(commits_publickeys);
-                let proof = RawProof::default();
-                let segments = groth16_verify_to_segments(
-                    &mut bridge_assigner,
-                    &proof.public,
-                    &proof.proof,
-                    &proof.vk,
-                );
+                // let mut bridge_assigner = BridgeAssigner::new_watcher(commits_publickeys);
+                // let proof = RawProof::default();
+                // let segments = groth16_verify_to_segments(
+                //     &mut bridge_assigner,
+                //     &proof.public,
+                //     &proof.proof,
+                //     &proof.vk,
+                // );
 
-                segments
-                    .iter()
-                    .map(|s| s.script.clone().compile())
-                    .collect()
+                // segments
+                //     .iter()
+                //     .map(|s| s.script.clone().compile())
+                //     .collect()
+                vec![]
             };
 
             let taproot_builder = create_taproot_builder(&scripts);

@@ -1140,20 +1140,21 @@ impl Database {
     }
 
     /// Saves BitVM setup data for a specific operator, time_tx and kickoff index combination
-    #[tracing::instrument(skip(self), err(level = tracing::Level::ERROR), ret(level = tracing::Level::TRACE))]
+    // #[tracing::instrument(skip(self), err(level = tracing::Level::ERROR), ret(level = tracing::Level::TRACE))]
     pub async fn save_bitvm_setup(
         &self,
         tx: Option<&mut sqlx::Transaction<'_, Postgres>>,
         operator_idx: i32,
         time_tx_idx: i32,
         kickoff_idx: i32,
-        assert_tx_addrs: Vec<Vec<u8>>,
+        assert_tx_addrs: impl AsRef<[Vec<u8>]>,
         root_hash: &[u8; 32],
-        public_input_wots: Vec<[u8; 20]>,
+        public_input_wots: impl AsRef<[[u8; 20]]>,
     ) -> Result<(), BridgeError> {
         // Convert public_input_wots Vec<[u8; 20]> to Vec<Vec<u8>> for PostgreSQL array compatibility
         let public_input_wots: Vec<Vec<u8>> = public_input_wots
-            .into_iter()
+            .as_ref()
+            .iter()
             .map(|arr| arr.to_vec())
             .collect();
 
@@ -1168,7 +1169,7 @@ impl Database {
         .bind(operator_idx)
         .bind(time_tx_idx)
         .bind(kickoff_idx)
-        .bind(&assert_tx_addrs)
+        .bind(assert_tx_addrs.as_ref())
         .bind(root_hash.to_vec())
         .bind(&public_input_wots);
 

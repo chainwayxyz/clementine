@@ -630,7 +630,7 @@ pub fn create_assert_begin_txhandler(
     let mut txouts = vec![];
     for i in 0..PARALLEL_ASSERT_TX_CHAIN_SIZE {
         txouts.push(TxOut {
-            value: Amount::from_sat(330), // Minimum amount for a taproot output
+            value: MIN_TAPROOT_AMOUNT, // Minimum amount for a taproot output
             script_pubkey: assert_tx_addrs[i].clone().into(),
         });
     }
