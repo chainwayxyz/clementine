@@ -90,7 +90,7 @@ pub fn create_nofn_sighash_stream(
     _evm_address: EVMAddress,
     _recovery_taproot_address: Address<NetworkUnchecked>,
     nofn_xonly_pk: XOnlyPublicKey,
-    _user_takes_after: u64,
+    _user_takes_after: u32,
     collateral_funding_amount: Amount,
     timeout_block_count: i64,
     max_withdrawal_time_block_count: i64,
@@ -103,7 +103,7 @@ pub fn create_nofn_sighash_stream(
             _evm_address,
             &_recovery_taproot_address,
             nofn_xonly_pk,
-            _user_takes_after as u32,
+            _user_takes_after,
             bridge_amount_sats,
             network,
         );

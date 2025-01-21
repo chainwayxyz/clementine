@@ -31,8 +31,8 @@ pub struct DepositParams {
     #[prost(string, tag = "3")]
     pub recovery_taproot_address: ::prost::alloc::string::String,
     /// User can take back funds after this amount of blocks.
-    #[prost(uint64, tag = "4")]
-    pub user_takes_after: u64,
+    #[prost(uint32, tag = "4")]
+    pub user_takes_after: u32,
 }
 /// Includes the deposit params and the nonce gen initial responses (pubkeys and their signatures from all verifiers)
 #[derive(Clone, PartialEq, ::prost::Message)]
@@ -129,16 +129,13 @@ pub struct NonceGenRequest {
     #[prost(uint32, tag = "1")]
     pub num_nonces: u32,
 }
-#[derive(Clone, PartialEq, ::prost::Message)]
+#[derive(Clone, Copy, PartialEq, ::prost::Message)]
 pub struct NonceGenFirstResponse {
-    /// Nonce ID
+    /// ID of the nonce session (used to store nonces in verifier's memory)
     #[prost(uint32, tag = "1")]
     pub id: u32,
-    /// New public key for the deposit
-    #[prost(bytes = "vec", tag = "2")]
-    pub public_key: ::prost::alloc::vec::Vec<u8>,
     /// Number of nonces to generate
-    #[prost(uint32, tag = "4")]
+    #[prost(uint32, tag = "2")]
     pub num_nonces: u32,
 }
 #[derive(Clone, PartialEq, ::prost::Message)]

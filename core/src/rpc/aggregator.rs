@@ -560,7 +560,7 @@ impl ClementineAggregator for Aggregator {
         });
 
         // Join the nonce aggregation handle to get the movetx agg nonce.
-        let movetx_agg_nonce = nonce_agg_handle.join().unwrap().unwrap();
+        let movetx_agg_nonce = nonce_agg_handle.join().unwrap()?;
 
         // Start the deposit finalization pipe.
         let sig_dist_handle = tokio::spawn(signature_distributor(
@@ -570,9 +570,9 @@ impl ClementineAggregator for Aggregator {
         ));
 
         // Wait for all pipeline tasks to complete
-        try_join_all(vec![nonce_dist_handle]).await.unwrap();
-        sig_agg_handle.join().unwrap().unwrap();
-        try_join_all(vec![sig_dist_handle]).await.unwrap();
+        nonce_dist_handle.await.unwrap()?;
+        sig_agg_handle.join().unwrap()?;
+        sig_dist_handle.await.unwrap()?;
 
         tracing::debug!("Waiting for deposit finalization");
 

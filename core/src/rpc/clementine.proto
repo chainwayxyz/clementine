@@ -25,7 +25,7 @@ message DepositParams {
   // User's recovery taproot address.
   string recovery_taproot_address = 3;
   // User can take back funds after this amount of blocks.
-  uint64 user_takes_after = 4;
+  uint32 user_takes_after = 4;
 }
 
 // Includes the deposit params and the nonce gen initial responses (pubkeys and their signatures from all verifiers)
@@ -144,13 +144,10 @@ message NonceGenRequest {
 }
 
 message NonceGenFirstResponse {
-  reserved 3; // 3 = sig, previously used for signing new keypairs
-  // Nonce ID
+  // ID of the nonce session (used to store nonces in verifier's memory)
   uint32 id = 1;
-  // New public key for the deposit
-  bytes public_key = 2;
   // Number of nonces to generate
-  uint32 num_nonces = 4;
+  uint32 num_nonces = 2;
 }
 message NonceGenResponse {
   oneof response {

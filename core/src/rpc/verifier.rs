@@ -34,7 +34,7 @@ fn get_deposit_params(
         bitcoin::OutPoint,
         EVMAddress,
         bitcoin::Address<NetworkUnchecked>,
-        u64,
+        u32,
         u32,
     ),
     Status,
@@ -246,7 +246,6 @@ impl ClementineVerifier for Verifier {
 
         let nonce_gen_first_response = clementine::NonceGenFirstResponse {
             id: session_id,
-            public_key: self.signer.public_key.serialize().to_vec(),
             num_nonces: num_nonces as u32,
         };
 
@@ -412,9 +411,9 @@ impl ClementineVerifier for Verifier {
                 .params
                 .ok_or(Status::internal("No deposit outpoint received"))?
             {
-                clementine::verifier_deposit_finalize_params::Params::DepositSignFirstParam(
-                    deposit_sign_session,
-                ) => get_deposit_params(deposit_sign_session, self.idx)?,
+                Params::DepositSignFirstParam(deposit_sign_session) => {
+                    get_deposit_params(deposit_sign_session, self.idx)?
+                }
                 _ => Err(Status::internal("Expected DepositOutpoint"))?,
             };
 
@@ -483,7 +482,7 @@ impl ClementineVerifier for Verifier {
             evm_address,
             &recovery_taproot_address,
             self.nofn_xonly_pk,
-            u32::try_from(user_takes_after).expect("User takes after is too large"),
+            user_takes_after,
             self.config.bridge_amount_sats,
             self.config.network,
         );
