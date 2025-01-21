@@ -213,7 +213,7 @@ impl ClementineVerifier for Verifier {
                     .collect()
             };
 
-            let taproot_builder = create_taproot_builder(&[]);
+            let taproot_builder = create_taproot_builder(&scripts);
             let root_hash = taproot_builder.try_into_taptree().unwrap().root_hash();
             let root_hash_bytes = root_hash.to_raw_hash().to_byte_array();
 
