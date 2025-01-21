@@ -747,7 +747,7 @@ pub fn create_assert_end_txhandler(
 
     let assert_end_tx = create_btc_tx(create_tx_ins(txins), tx_outs);
 
-    let mut prevouts = (0..NUM_INTERMEDIATE_STEPS)
+    let mut prevouts = (0..PARALLEL_ASSERT_TX_CHAIN_SIZE)
         .map(|i| TxOut {
             value: MIN_TAPROOT_AMOUNT,
             script_pubkey: disprove_address.script_pubkey(), // TODO: this is wrong
