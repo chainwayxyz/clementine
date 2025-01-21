@@ -529,7 +529,7 @@ impl Operator {
 
         // Check for withdrawal idx.
         {
-            let move_txid = builder::transaction::create_move_tx(
+            let move_txid = builder::transaction::create_move_to_vault_tx(
                 deposit_outpoint,
                 self.nofn_xonly_pk,
                 self.config.bridge_amount_sats,
@@ -647,7 +647,7 @@ impl Operator {
 
     //     txs_to_be_sent.push(slash_or_take_tx_handler.tx.raw_hex());
 
-    //     let move_tx = builder::transaction::create_move_tx(
+    //     let move_tx = builder::transaction::create_move_to_vault_tx(
     //         deposit_outpoint,
     //         self.nofn_xonly_pk,
     //         self.config.bridge_amount_sats,

@@ -1,8 +1,5 @@
 use crate::{
-    builder::{
-        self,
-        sighash::{convert_tx_to_pubkey_spend, convert_tx_to_script_spend},
-    },
+    builder::{self},
     config::BridgeConfig,
     database::Database,
     errors::BridgeError,
@@ -118,7 +115,7 @@ impl Aggregator {
     //     // tracing::debug!("SLASH_OR_TAKE_TX: {:?}", tx);
     //     tracing::debug!("SLASH_OR_TAKE_TX weight: {:?}", tx.tx.weight());
     //     let message = Message::from_digest(
-    //         convert_tx_to_script_spend(&mut tx, 0, 0, None)?.to_byte_array(),
+    //         calculate_script_spend_sighash_from_tx(&mut tx, 0, 0, None)?.to_byte_array(),
     //     );
     //     // tracing::debug!("aggregate SLASH_OR_TAKE_TX message: {:?}", message);
     //     let final_sig = aggregate_partial_signatures(
@@ -150,7 +147,7 @@ impl Aggregator {
     //     agg_nonce: &MusigAggNonce,
     //     partial_sigs: Vec<MusigPartialSignature>,
     // ) -> Result<schnorr::Signature, BridgeError> {
-    //     let move_tx = builder::transaction::create_move_tx(
+    //     let move_tx = builder::transaction::create_move_to_vault_tx(
     //         deposit_outpoint,
     //         self.nofn_xonly_pk,
     //         self.config.bridge_amount_sats,
@@ -201,7 +198,7 @@ impl Aggregator {
     //     // tracing::debug!("OPERATOR_TAKES_TX_HEX: {:?}", tx_handler.tx.raw_hex());
     //     tracing::debug!("OPERATOR_TAKES_TX weight: {:?}", tx_handler.tx.weight());
     //     let message = Message::from_digest(
-    //         convert_tx_to_pubkey_spend(&mut tx_handler, 0, None)?.to_byte_array(),
+    //         calculate_pubkey_spend_sighash_from_tx(&mut tx_handler, 0, None)?.to_byte_array(),
     //     );
     //     let final_sig = aggregate_partial_signatures(
     //         self.config.verifiers_public_keys.clone(),
@@ -234,8 +231,10 @@ impl Aggregator {
         );
         // println!("MOVE_TX: {:?}", tx);
         // println!("MOVE_TXID: {:?}", tx.tx.compute_txid());
-        let message =
-            Message::from_digest(convert_tx_to_script_spend(&mut tx, 0, 0, None)?.to_byte_array());
+        let message = Message::from_digest(
+            tx.calculate_script_spend_sighash(0, 0, None)?
+                .to_byte_array(),
+        );
         let final_sig = aggregate_partial_signatures(
             self.config.verifiers_public_keys.clone(),
             None,

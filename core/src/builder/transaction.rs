@@ -6,16 +6,19 @@
 use super::address::create_taproot_address;
 use crate::builder;
 use crate::constants::{MIN_TAPROOT_AMOUNT, NUM_INTERMEDIATE_STEPS, OPERATOR_CHALLENGE_AMOUNT};
+use crate::errors::BridgeError;
 use crate::{utils, EVMAddress};
 use bitcoin::address::NetworkUnchecked;
 use bitcoin::hashes::Hash;
 use bitcoin::opcodes::all::OP_CHECKSIG;
 use bitcoin::script::PushBytesBuf;
+use bitcoin::sighash::SighashCache;
+use bitcoin::taproot::LeafVersion;
 use bitcoin::{
     absolute, taproot::TaprootSpendInfo, Address, Amount, OutPoint, ScriptBuf, TxIn, TxOut,
     Witness, XOnlyPublicKey,
 };
-use bitcoin::{Network, Transaction, Txid};
+use bitcoin::{Network, TapLeafHash, TapSighash, TapSighashType, Transaction, Txid};
 use bitvm::signatures::winternitz;
 
 /// Verbose information about a transaction.
@@ -36,16 +39,85 @@ pub struct TxHandler {
     /// Taproot spend information for each tx output.
     pub out_taproot_spend_infos: Vec<Option<TaprootSpendInfo>>,
 }
+impl TxHandler {
+    /// Calculates the sighash for a given transaction input for key spend path.
+    /// See [`bitcoin::sighash::SighashCache::taproot_key_spend_signature_hash`] for more details.
+    #[tracing::instrument(err(level = tracing::Level::ERROR), ret(level = tracing::Level::TRACE))]
+    pub fn calculate_pubkey_spend_sighash(
+        &mut self,
+        txin_index: usize,
+        sighash_type: Option<TapSighashType>,
+    ) -> Result<TapSighash, BridgeError> {
+        let mut sighash_cache: SighashCache<&mut bitcoin::Transaction> =
+            SighashCache::new(&mut self.tx);
+        let prevouts = &match sighash_type {
+            Some(TapSighashType::SinglePlusAnyoneCanPay)
+            | Some(TapSighashType::AllPlusAnyoneCanPay)
+            | Some(TapSighashType::NonePlusAnyoneCanPay) => {
+                bitcoin::sighash::Prevouts::One(txin_index, self.prevouts[txin_index].clone())
+            }
+            _ => bitcoin::sighash::Prevouts::All(&self.prevouts),
+        };
 
-/// Creates a [`TxHandler`] for `time_tx`. It will always use `input_txid`'s first vout as the input.
+        let sig_hash = sighash_cache.taproot_key_spend_signature_hash(
+            txin_index,
+            prevouts,
+            sighash_type.unwrap_or(TapSighashType::Default),
+        )?;
+
+        Ok(sig_hash)
+    }
+
+    /// Calculates the sighash for a given transaction input for script spend path.
+    /// See [`bitcoin::sighash::SighashCache::taproot_script_spend_signature_hash`] for more details.
+    #[tracing::instrument(err(level = tracing::Level::ERROR), ret(level = tracing::Level::TRACE))]
+    pub fn calculate_script_spend_sighash(
+        &mut self,
+        txin_index: usize,
+        script_index: usize,
+        sighash_type: Option<TapSighashType>,
+    ) -> Result<TapSighash, BridgeError> {
+        let mut sighash_cache: SighashCache<&mut bitcoin::Transaction> =
+            SighashCache::new(&mut self.tx);
+
+        let prevouts = &match sighash_type {
+            Some(TapSighashType::SinglePlusAnyoneCanPay)
+            | Some(TapSighashType::AllPlusAnyoneCanPay)
+            | Some(TapSighashType::NonePlusAnyoneCanPay) => {
+                bitcoin::sighash::Prevouts::One(txin_index, self.prevouts[txin_index].clone())
+            }
+            _ => bitcoin::sighash::Prevouts::All(&self.prevouts),
+        };
+        let leaf_hash = TapLeafHash::from_script(
+            self.prev_scripts
+                .get(txin_index)
+                .ok_or(BridgeError::NoScriptsForTxIn(txin_index))?
+                .get(script_index)
+                .ok_or(BridgeError::NoScriptAtIndex(script_index))?,
+            LeafVersion::TapScript,
+        );
+        let sig_hash = sighash_cache.taproot_script_spend_signature_hash(
+            txin_index,
+            prevouts,
+            leaf_hash,
+            sighash_type.unwrap_or(TapSighashType::Default),
+        )?;
+
+        Ok(sig_hash)
+    }
+}
+
+/// Creates a [`TxHandler`] for `sequential_collateral_tx`. It will always use the first
+/// output of the  previous `reimburse_generator_tx` as the input. The flow is as follows:
+/// `sequential_collateral_tx -> reimburse_generator_tx -> sequential_collateral_tx -> ...`
 ///
 /// # Returns
 ///
-/// A `time_tx` that has outputs of:
+/// A `sequential_collateral_tx` that has outputs of:
 ///
 /// 1. Operator's Burn Connector
 /// 2. Operator's Time Connector: timelocked utxo for operator for the entire withdrawal time
-/// 3. Kickoff input utxo: this utxo will be the input for the kickoff tx
+/// 3. Kickoff input utxo(s): the utxo(s) will be used as the input(s) for the kickoff_tx(s)
 /// 4. P2Anchor: Anchor output for CPFP
 pub fn create_sequential_collateral_txhandler(
     operator_xonly_pk: XOnlyPublicKey,
@@ -97,12 +169,14 @@ pub fn create_sequential_collateral_txhandler(
             script_pubkey: reimburse_gen_connector.script_pubkey(),
         },
     ];
+
     // add kickoff utxos
     for _ in 0..num_kickoffs_per_timetx {
         tx_outs.push(kickoff_txout.clone());
         out_scripts.push(vec![timeout_block_count_locked_script.clone()]);
         out_taproot_spend_infos.push(Some(kickoff_utxo_spend.clone()));
     }
+
     // add anchor
     tx_outs.push(builder::script::anchor_output());
     out_scripts.push(vec![]);
@@ -124,6 +198,16 @@ pub fn create_sequential_collateral_txhandler(
     }
 }
 
+/// Creates a [`TxHandler`] for `reimburse_generator_tx`. It will always use the first
+/// two outputs of the  previous `sequential_collateral_tx` as the two inputs.
+///
+/// # Returns
+///
+/// A `sequential_collateral_tx` that has outputs of:
+///
+/// 1. Operator's Fund from the previous `sequential_collateral_tx`
+/// 2. Reimburse connector utxo(s): the utxo(s) will be used as the input(s) for the reimburse_tx(s)
+/// 3. P2Anchor: Anchor output for CPFP
 pub fn create_reimburse_generator_txhandler(
     sequential_collateral_txhandler: &TxHandler,
     operator_xonly_pk: XOnlyPublicKey,
@@ -190,6 +274,9 @@ pub fn create_reimburse_generator_txhandler(
     }
 }
 
+/// Creates a [`TxHandler`] for the `kickoff_utxo_timeout_tx`. This transaction is sent when
+/// the operator does not send the `kickoff_tx` within the timeout period (6 blocks), for a withdrawal
+/// that they provided. Anyone will be able to burn the utxo after the timeout period.
 pub fn create_kickoff_utxo_timeout_txhandler(
     sequential_collateral_txhandler: &TxHandler,
     kickoff_idx: usize,
@@ -216,8 +303,8 @@ pub fn create_kickoff_utxo_timeout_txhandler(
     }
 }
 
-/// Creates the move_tx.
-pub fn create_move_tx(
+/// Creates the `move_to_vault_tx`.
+pub fn create_move_to_vault_tx(
     deposit_outpoint: OutPoint,
     nofn_xonly_pk: XOnlyPublicKey,
     bridge_amount_sats: Amount,
@@ -236,7 +323,7 @@ pub fn create_move_tx(
     create_btc_tx(tx_ins, vec![move_txout, anchor_output])
 }
 
-/// Creates a [`TxHandler`] for the move_tx.
+/// Creates a [`TxHandler`] for the `move_to_vault_tx`.
 pub fn create_move_txhandler(
     deposit_outpoint: OutPoint,
     user_evm_address: EVMAddress,
@@ -250,14 +337,6 @@ pub fn create_move_txhandler(
         create_taproot_address(&[], Some(nofn_xonly_pk), network);
 
     let tx_ins = create_tx_ins(vec![deposit_outpoint]);
-
-    // let anyone_can_spend_txout = builder::script::anyone_can_spend_txout();
-    // let move_txout = TxOut {
-    //     value: bridge_amount_sats - anyone_can_spend_txout.value,
-    //     script_pubkey: musig2_address.script_pubkey(),
-    // };
-
-    // let move_tx = create_btc_tx(tx_ins, vec![move_txout, anyone_can_spend_txout]);
 
     let anchor_output = builder::script::anchor_output();
     let move_txout = TxOut {
@@ -298,6 +377,7 @@ pub fn create_move_txhandler(
     }
 }
 
+/// Creates a [`TxHandler`] for the `kickoff_tx`. This transaction is sent by the operator to initiate the reimburse process.
 pub fn create_kickoff_txhandler(
     sequential_collateral_txhandler: &TxHandler,
     kickoff_idx: usize,
@@ -385,12 +465,14 @@ pub fn create_kickoff_txhandler(
     }
 }
 
-/// Creates a [`TxHandler`] for the watchtower challenge page transaction.
+/// Creates a [`TxHandler`] for the `watchtower_challenge_kickoff_tx`. This transaction can be sent by anyone.
+/// When spent, the outputs of this transaction will reveal the Groth16 proofs with their public inputs for the longest
+/// chain proof, signed by the corresponding watchtowers using WOTS.
 pub fn create_watchtower_challenge_kickoff_txhandler(
     kickoff_tx_handler: &TxHandler,
     num_watchtowers: u32,
     watchtower_xonly_pks: &[XOnlyPublicKey],
-    watchtower_wots: Vec<Vec<[u8; 20]>>,
+    watchtower_challenge_winternitz_pks: Vec<Vec<[u8; 20]>>,
     network: bitcoin::Network,
 ) -> TxHandler {
     let tx_ins = create_tx_ins(vec![OutPoint {
@@ -407,8 +489,10 @@ pub fn create_watchtower_challenge_kickoff_txhandler(
 
     let mut tx_outs = (0..num_watchtowers)
         .map(|i| {
-            let mut x =
-                verifier.checksig_verify(&wots_params, watchtower_wots[i as usize].as_ref());
+            let mut x = verifier.checksig_verify(
+                &wots_params,
+                watchtower_challenge_winternitz_pks[i as usize].as_ref(),
+            );
             x = x.push_x_only_key(&watchtower_xonly_pks[i as usize]);
             x = x.push_opcode(OP_CHECKSIG); // TODO: Add checksig in the beginning
             let x = x.compile();
@@ -424,7 +508,6 @@ pub fn create_watchtower_challenge_kickoff_txhandler(
         .collect::<Vec<_>>();
 
     // add the anchor output
-    // tx_outs.push(builder::script::anyone_can_spend_txout());
     tx_outs.push(builder::script::anchor_output());
     scripts.push(vec![]);
     spendinfos.push(None);
@@ -442,6 +525,15 @@ pub fn create_watchtower_challenge_kickoff_txhandler(
     }
 }
 
+/// Creates a [`TxHandler`] for the `watchtower_challenge_tx`. This transaction
+/// is sent by the watchtowers to reveal their Groth16 proofs with their public
+/// inputs for the longest chain proof, signed by the corresponding watchtowers
+/// using WOTS. The output of this transaction can be spend by:
+/// 1- the operator with revealing the preimage for the corresponding watchtower
+/// 2- the NofN after 0.5 week `using kickoff_tx.output[2]`, which will also prevent
+/// the operator from sending `assert_begin_tx`.
+/// The revealed preimage will later be used to send `disprove_tx` if the operator
+/// claims that the corresponding watchtower did not challenge them.
 pub fn create_watchtower_challenge_txhandler(
     wcp_txhandler: &TxHandler,
     watchtower_idx: usize,
@@ -469,7 +561,6 @@ pub fn create_watchtower_challenge_txhandler(
             value: Amount::from_sat(1000), // TODO: Hand calculate this
             script_pubkey: nofn_or_nofn_1week.script_pubkey(),
         },
-        // builder::script::anyone_can_spend_txout(),
         builder::script::anchor_output(),
     ];
 
@@ -1123,7 +1214,7 @@ mod tests {
     use secp256k1::rand;
 
     #[test]
-    fn create_move_tx() {
+    fn create_move_to_vault_tx() {
         let deposit_outpoint = OutPoint {
             txid: Txid::all_zeros(),
             vout: 0x45,
@@ -1134,8 +1225,12 @@ mod tests {
         let bridge_amount_sats = Amount::from_sat(0x1F45);
         let network = bitcoin::Network::Regtest;
 
-        let move_tx =
-            super::create_move_tx(deposit_outpoint, nofn_xonly_pk, bridge_amount_sats, network);
+        let move_tx = super::create_move_to_vault_tx(
+            deposit_outpoint,
+            nofn_xonly_pk,
+            bridge_amount_sats,
+            network,
+        );
 
         assert_eq!(
             move_tx.input.first().unwrap().previous_output,

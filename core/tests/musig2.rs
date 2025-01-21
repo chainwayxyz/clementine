@@ -4,7 +4,6 @@ use bitcoin::secp256k1::{Message, PublicKey};
 use bitcoin::XOnlyPublicKey;
 use bitcoin::{hashes::Hash, script, Amount, ScriptBuf};
 use bitcoincore_rpc::RpcApi;
-use clementine_core::builder::sighash::{convert_tx_to_pubkey_spend, convert_tx_to_script_spend};
 use clementine_core::builder::transaction::TxHandler;
 use clementine_core::musig2::{
     aggregate_nonces, aggregate_partial_signatures, AggregateFromPublicKeys, Musig2Mode,
@@ -105,7 +104,8 @@ async fn key_spend() {
     };
 
     let message = Message::from_digest(
-        convert_tx_to_pubkey_spend(&mut tx_details, 0, None)
+        tx_details
+            .calculate_pubkey_spend_sighash(0, None)
             .unwrap()
             .to_byte_array(),
     );
@@ -204,7 +204,8 @@ async fn key_spend_with_script() {
         out_taproot_spend_infos: vec![Some(to_address_spend.clone())],
     };
     let message = Message::from_digest(
-        convert_tx_to_pubkey_spend(&mut tx_details, 0, None)
+        tx_details
+            .calculate_pubkey_spend_sighash(0, None)
             .unwrap()
             .to_byte_array(),
     );
@@ -310,7 +311,8 @@ async fn script_spend() {
         out_taproot_spend_infos: vec![None],
     };
     let message = Message::from_digest(
-        convert_tx_to_script_spend(&mut tx_details, 0, 0, None)
+        tx_details
+            .calculate_script_spend_sighash(0, 0, None)
             .unwrap()
             .to_byte_array(),
     );
