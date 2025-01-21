@@ -130,7 +130,7 @@ pub fn create_sequential_collateral_txhandler(
     input_txid: Txid,
     input_amount: Amount,
     timeout_block_count: i64,
-    max_withdrawal_time_block_count: i64,
+    max_withdrawal_time_block_count: u16,
     num_kickoffs_per_timetx: usize,
     network: bitcoin::Network,
 ) -> TxHandler {
@@ -221,7 +221,7 @@ pub fn create_reimburse_generator_txhandler(
     sequential_collateral_txhandler: &TxHandler,
     operator_xonly_pk: XOnlyPublicKey,
     num_kickoffs_per_timetx: usize,
-    max_withdrawal_time_block_count: i64,
+    max_withdrawal_time_block_count: u16,
     network: bitcoin::Network,
 ) -> TxHandler {
     let tx_ins = create_tx_ins(
@@ -238,7 +238,7 @@ pub fn create_reimburse_generator_txhandler(
                     txid: sequential_collateral_txhandler.txid,
                     vout: 1,
                 },
-                Some(max_withdrawal_time_block_count as u16),
+                Some(max_withdrawal_time_block_count),
             ),
         ]
         .into(),
@@ -351,7 +351,7 @@ pub fn create_move_txhandler(
     user_evm_address: EVMAddress,
     recovery_taproot_address: &Address<NetworkUnchecked>,
     nofn_xonly_pk: XOnlyPublicKey,
-    user_takes_after: u32,
+    user_takes_after: u16,
     bridge_amount_sats: Amount,
     network: bitcoin::Network,
 ) -> TxHandler {

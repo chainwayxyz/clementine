@@ -39,17 +39,17 @@ fn get_deposit_params(
         bitcoin::OutPoint,
         EVMAddress,
         bitcoin::Address<NetworkUnchecked>,
-        u32,
+        u16,
         u32,
     ),
     Status,
 > {
     let deposit_params = deposit_sign_session
         .deposit_params
-        .ok_or(Status::internal("No deposit outpoint received"))?;
+        .ok_or(Status::invalid_argument("No deposit outpoint received"))?;
     let deposit_outpoint: bitcoin::OutPoint = deposit_params
         .deposit_outpoint
-        .ok_or(Status::internal("No deposit outpoint received"))?
+        .ok_or(Status::invalid_argument("No deposit outpoint received"))?
         .try_into()?;
     let evm_address: EVMAddress = deposit_params.evm_address.try_into().unwrap();
     let recovery_taproot_address = deposit_params
@@ -63,7 +63,12 @@ fn get_deposit_params(
         deposit_outpoint,
         evm_address,
         recovery_taproot_address,
-        user_takes_after,
+        u16::try_from(user_takes_after).map_err(|e| {
+            Status::invalid_argument(format!(
+                "user_takes_after is too big, failed to convert: {}",
+                e.to_string()
+            ))
+        })?,
         session_id,
     ))
 }
@@ -429,7 +434,7 @@ impl ClementineVerifier for Verifier {
                 evm_address,
                 recovery_taproot_address,
                 verifier.nofn_xonly_pk,
-                user_takes_after,
+                u16::try_from(user_takes_after).unwrap(),
                 Amount::from_sat(200_000_000), // TODO: Fix this.
                 6,
                 100,

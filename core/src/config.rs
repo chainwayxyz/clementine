@@ -50,7 +50,7 @@ pub struct BridgeConfig {
     /// Operator's fee for withdrawal, in satoshis.
     pub operator_withdrawal_fee_sats: Option<Amount>,
     /// Number of blocks after which user can take deposit back if deposit request fails.
-    pub user_takes_after: u32,
+    pub user_takes_after: u16,
     /// Number of blocks after which operator can take reimburse the bridge fund if they are honest.
     pub operator_takes_after: u32,
     /// Bridge amount in satoshis.

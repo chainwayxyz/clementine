@@ -138,7 +138,7 @@ impl ExtendedRpc {
         amount_sats: Amount,
         confirmation_block_count: u32,
         network: bitcoin::Network,
-        user_takes_after: u32,
+        user_takes_after: u16,
     ) -> Result<(), BridgeError> {
         if self.confirmation_blocks(&deposit_outpoint.txid).await? < confirmation_block_count {
             return Err(BridgeError::DepositNotFinalized);

@@ -107,7 +107,7 @@ pub fn generate_deposit_address(
     user_evm_address: EVMAddress,
     amount: Amount,
     network: bitcoin::Network,
-    user_takes_after: u32,
+    user_takes_after: u16,
 ) -> (Address, TaprootSpendInfo) {
     let deposit_script =
         builder::script::create_deposit_script(nofn_xonly_pk, user_evm_address, amount);
@@ -121,7 +121,7 @@ pub fn generate_deposit_address(
 
     let script_timelock = builder::script::generate_relative_timelock_script(
         recovery_extracted_xonly_pk,
-        user_takes_after as i64,
+        user_takes_after,
     );
 
     create_taproot_address(&[deposit_script, script_timelock], None, network)

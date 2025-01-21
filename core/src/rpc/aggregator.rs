@@ -419,7 +419,8 @@ impl ClementineAggregator for Aggregator {
                 BridgeError::RPCParamMalformed("recovery_taproot_address", e.to_string())
             })?;
 
-        let user_takes_after = deposit_params.user_takes_after;
+        let user_takes_after = u16::try_from(deposit_params.user_takes_after)
+            .map_err(|e| BridgeError::RPCParamMalformed("user_takes_after", e.to_string()))?;
         let verifiers_public_keys = self.config.verifiers_public_keys.clone();
 
         tracing::debug!("Parsed deposit params");
