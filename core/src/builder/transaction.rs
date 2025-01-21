@@ -697,7 +697,7 @@ pub fn create_assert_end_txhandler(
             assert_tx_addrs[i].clone().into(),
             network,
         );
-        last_mini_assert_txid[i] = mini_assert_tx.compute_txid();
+        last_mini_assert_txid[i % PARALLEL_ASSERT_TX_CHAIN_SIZE] = mini_assert_tx.compute_txid();
     }
 
     let mut txins = vec![];
