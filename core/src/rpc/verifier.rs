@@ -6,7 +6,7 @@ use super::clementine::{
 use crate::{
     builder::{
         self,
-        address::create_taproot_builder,
+        address::taproot_builder_with_scripts,
         sighash::{calculate_num_required_sigs, create_nofn_sighash_stream},
     },
     errors::BridgeError,
@@ -216,7 +216,7 @@ impl ClementineVerifier for Verifier {
                     .into_script()]
             };
 
-            let taproot_builder = create_taproot_builder(&scripts);
+            let taproot_builder = taproot_builder_with_scripts(&scripts);
             let root_hash = taproot_builder.try_into_taptree().unwrap().root_hash();
             let root_hash_bytes = root_hash.to_raw_hash().to_byte_array();
 

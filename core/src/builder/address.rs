@@ -15,7 +15,7 @@ use bitcoin::{
     Address, ScriptBuf,
 };
 
-pub fn create_taproot_builder(scripts: &[ScriptBuf]) -> TaprootBuilder {
+pub fn taproot_builder_with_scripts(scripts: &[ScriptBuf]) -> TaprootBuilder {
     let n = scripts.len();
     if n == 0 {
         TaprootBuilder::new()
@@ -55,7 +55,7 @@ pub fn create_taproot_address(
     internal_key: Option<XOnlyPublicKey>,
     network: bitcoin::Network,
 ) -> (Address, TaprootSpendInfo) {
-    let taproot_builder = create_taproot_builder(scripts);
+    let taproot_builder = taproot_builder_with_scripts(scripts);
 
     let tree_info = match internal_key {
         Some(xonly_pk) => taproot_builder.finalize(&SECP, xonly_pk).unwrap(),
