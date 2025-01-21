@@ -76,10 +76,10 @@ pub fn create_deposit_script(
 /// https://github.com/bitcoin/bips/blob/master/bip-0112.mediawiki
 pub fn generate_relative_timelock_script(
     actor_taproot_xonly_pk: XOnlyPublicKey, // This is the tweaked XonlyPublicKey, which appears in the script_pubkey of the address. The tweaked signature will be given accordingly.
-    block_count: i64,
+    block_count: u16,
 ) -> ScriptBuf {
     Builder::new()
-        .push_int(block_count)
+        .push_int(i64::from(block_count))
         .push_opcode(OP_CSV)
         .push_opcode(OP_DROP)
         .push_x_only_key(&actor_taproot_xonly_pk)
