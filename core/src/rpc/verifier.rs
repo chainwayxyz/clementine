@@ -197,19 +197,21 @@ impl ClementineVerifier for Verifier {
 
             // // This part is not working.
             // // TODO: Use correct verification key and along with a dummy proof.
-            // let mut bridge_assigner = BridgeAssigner::new_watcher(commits_publickeys);
-            // let proof = RawProof::default();
-            // let segments = groth16_verify_to_segments(
-            //     &mut bridge_assigner,
-            //     &proof.public,
-            //     &proof.proof,
-            //     &proof.vk,
-            // );
+            let scripts: Vec<ScriptBuf> = {
+                let mut bridge_assigner = BridgeAssigner::new_watcher(commits_publickeys);
+                let proof = RawProof::default();
+                let segments = groth16_verify_to_segments(
+                    &mut bridge_assigner,
+                    &proof.public,
+                    &proof.proof,
+                    &proof.vk,
+                );
 
-            // let scripts: Vec<ScriptBuf> = segments
-            //     .iter()
-            //     .map(|s| s.script.clone().compile())
-            //     .collect();
+                segments
+                    .iter()
+                    .map(|s| s.script.clone().compile())
+                    .collect()
+            };
 
             let taproot_builder = create_taproot_builder(&[]);
             let root_hash = taproot_builder.try_into_taptree().unwrap().root_hash();
