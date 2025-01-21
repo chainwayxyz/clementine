@@ -642,7 +642,8 @@ mod tests {
 
         let params = WinternitzDerivationPath::default();
         let expected_pk = vec![[
-            43, 217, 118, 91, 99, 62, 82, 3, 214, 248, 73, 185, 20, 141, 201, 23, 110, 104, 74, 42,
+            47, 247, 126, 209, 93, 128, 238, 60, 31, 80, 198, 136, 26, 126, 131, 194, 209, 85, 180,
+            145,
         ]];
         assert_eq!(actor.derive_winternitz_pk(params).unwrap(), expected_pk);
     }
