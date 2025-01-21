@@ -14,6 +14,24 @@ use bitcoin::{
     Address, ScriptBuf,
 };
 
+pub fn taproot_builder_with_scripts(scripts: &[ScriptBuf]) -> TaprootBuilder {
+    let n = scripts.len();
+    if n == 0 {
+        TaprootBuilder::new()
+    } else if n > 1 {
+        let m: u8 = ((n - 1).ilog2() + 1) as u8; // m = ceil(log(n))
+        let k = 2_usize.pow(m.into()) - n;
+        (0..n).fold(TaprootBuilder::new(), |acc, i| {
+            acc.add_leaf(m - ((i >= n - k) as u8), scripts[i].clone())
+                .unwrap()
+        })
+    } else {
+        TaprootBuilder::new()
+            .add_leaf(0, scripts[0].clone())
+            .unwrap()
+    }
+}
+
 /// Creates a taproot address with either key path spend or script spend path
 /// addresses. This depends on given arguments.
 ///
@@ -38,22 +56,8 @@ pub fn create_taproot_address(
     internal_key: Option<XOnlyPublicKey>,
     network: bitcoin::Network,
 ) -> (Address, TaprootSpendInfo) {
-    let n = scripts.len();
     // Build script tree
-    let taproot_builder = if n == 0 {
-        TaprootBuilder::new()
-    } else if n > 1 {
-        let m: u8 = ((n - 1).ilog2() + 1) as u8; // m = ceil(log(n))
-        let k = 2_usize.pow(m.into()) - n;
-        (0..n).fold(TaprootBuilder::new(), |acc, i| {
-            acc.add_leaf(m - ((i >= n - k) as u8), scripts[i].clone())
-                .unwrap()
-        })
-    } else {
-        TaprootBuilder::new()
-            .add_leaf(0, scripts[0].clone())
-            .unwrap()
-    };
+    let taproot_builder = taproot_builder_with_scripts(scripts);
     // Finalize the tree
     let tree_info = match internal_key {
         Some(xonly_pk) => taproot_builder.finalize(&SECP, xonly_pk).unwrap(),

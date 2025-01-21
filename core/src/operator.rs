@@ -1,12 +1,11 @@
 use crate::actor::{Actor, WinternitzDerivationPath};
 use crate::builder::{self};
 use crate::config::BridgeConfig;
-use crate::constants::{KICKOFF_UTXO_AMOUNT_SATS, NUM_INTERMEDIATE_STEPS};
 use crate::database::Database;
 use crate::errors::BridgeError;
 use crate::extended_rpc::ExtendedRpc;
 use crate::musig2::AggregateFromPublicKeys;
-use crate::utils::{handle_taproot_witness_new, SECP};
+use crate::utils::{handle_taproot_witness_new, ALL_BITVM_INTERMEDIATE_VARIABLES, SECP};
 use crate::{utils, EVMAddress, UTXO};
 use bitcoin::address::NetworkUnchecked;
 use bitcoin::consensus::deserialize;
@@ -420,9 +419,9 @@ impl Operator {
     //     let user_xonly_pk =
     //         XOnlyPublicKey::from_slice(&input_utxo.txout.script_pubkey.as_bytes()[2..34])?;
 
-    //     let tx_ins = builder::transaction::create_tx_ins(vec![input_utxo.outpoint]);
-    //     let tx_outs = vec![output_txout.clone()];
-    //     let mut tx = builder::transaction::create_btc_tx(tx_ins, tx_outs);
+    // let tx_ins = builder::transaction::create_tx_ins(vec![input_utxo.outpoint].into());
+    // let tx_outs = vec![output_txout.clone()];
+    // let mut tx = builder::transaction::create_btc_tx(tx_ins, tx_outs);
 
     //     let mut sighash_cache = SighashCache::new(&tx);
     //     let sighash = sighash_cache.taproot_key_spend_signature_hash(
@@ -705,23 +704,13 @@ impl Operator {
 
         for time_tx in 0..self.config.num_time_txs as u32 {
             for kickoff_idx in 0..self.config.num_kickoffs_per_timetx as u32 {
-                let path = WinternitzDerivationPath {
-                    message_length: 128,
-                    log_d: 4,
-                    tx_type: crate::actor::TxType::OperatorLongestChain,
-                    index: Some(self.idx as u32),
-                    operator_idx: None,
-                    watchtower_idx: None,
-                    time_tx_idx: Some(time_tx),
-                    kickoff_idx: Some(kickoff_idx),
-                    intermediate_step_idx: None,
-                };
-
-                winternitz_pubkeys.push(self.signer.derive_winternitz_pk(path)?);
-
-                for intermediate_step in 0..NUM_INTERMEDIATE_STEPS as u32 {
+                // ALL_BITVM_INTERMEDIATE_VARIABLES is a global variable that contains the intermediate variables for the BitVM in BTreeMap
+                for (intermediate_step, intermediate_step_size) in
+                    ALL_BITVM_INTERMEDIATE_VARIABLES.iter()
+                {
+                    let step_name = intermediate_step.as_str();
                     let path = WinternitzDerivationPath {
-                        message_length: 40,
+                        message_length: *intermediate_step_size as u32 * 2,
                         log_d: 4,
                         tx_type: crate::actor::TxType::BitVM,
                         index: Some(self.idx as u32),
@@ -729,7 +718,7 @@ impl Operator {
                         watchtower_idx: None,
                         time_tx_idx: Some(time_tx),
                         kickoff_idx: Some(kickoff_idx),
-                        intermediate_step_idx: Some(intermediate_step),
+                        intermediate_step_name: Some(step_name),
                     };
 
                     winternitz_pubkeys.push(self.signer.derive_winternitz_pk(path)?);

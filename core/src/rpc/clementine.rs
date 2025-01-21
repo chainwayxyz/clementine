@@ -31,9 +31,10 @@ pub struct DepositParams {
     #[prost(string, tag = "3")]
     pub recovery_taproot_address: ::prost::alloc::string::String,
     /// User can take back funds after this amount of blocks.
-    #[prost(uint64, tag = "4")]
-    pub user_takes_after: u64,
+    #[prost(uint32, tag = "4")]
+    pub user_takes_after: u32,
 }
+/// Includes the deposit params and the nonce gen initial responses (pubkeys and their signatures from all verifiers)
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct DepositSignSession {
     #[prost(message, optional, tag = "1")]
@@ -128,19 +129,13 @@ pub struct NonceGenRequest {
     #[prost(uint32, tag = "1")]
     pub num_nonces: u32,
 }
-#[derive(Clone, PartialEq, ::prost::Message)]
+#[derive(Clone, Copy, PartialEq, ::prost::Message)]
 pub struct NonceGenFirstResponse {
-    /// Nonce ID
+    /// ID of the nonce session (used to store nonces in verifier's memory)
     #[prost(uint32, tag = "1")]
     pub id: u32,
-    /// New public key for the deposit
-    #[prost(bytes = "vec", tag = "2")]
-    pub public_key: ::prost::alloc::vec::Vec<u8>,
-    /// They sign the new public key with their private key
-    #[prost(bytes = "vec", tag = "3")]
-    pub sig: ::prost::alloc::vec::Vec<u8>,
     /// Number of nonces to generate
-    #[prost(uint32, tag = "4")]
+    #[prost(uint32, tag = "2")]
     pub num_nonces: u32,
 }
 #[derive(Clone, PartialEq, ::prost::Message)]
@@ -175,7 +170,7 @@ pub mod verifier_deposit_sign_params {
 }
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct VerifierDepositFinalizeParams {
-    #[prost(oneof = "verifier_deposit_finalize_params::Params", tags = "1, 2")]
+    #[prost(oneof = "verifier_deposit_finalize_params::Params", tags = "1, 2, 3")]
     pub params: ::core::option::Option<verifier_deposit_finalize_params::Params>,
 }
 /// Nested message and enum types in `VerifierDepositFinalizeParams`.
@@ -186,6 +181,8 @@ pub mod verifier_deposit_finalize_params {
         DepositSignFirstParam(super::DepositSignSession),
         #[prost(bytes, tag = "2")]
         SchnorrSig(::prost::alloc::vec::Vec<u8>),
+        #[prost(bytes, tag = "3")]
+        MoveTxAggNonce(::prost::alloc::vec::Vec<u8>),
     }
 }
 #[derive(Clone, PartialEq, ::prost::Message)]

@@ -30,23 +30,32 @@ pub mod watchtower;
 #[cfg(test)]
 mod test_utils;
 
+macro_rules! impl_try_from_vec_u8 {
+    ($name:ident, $size:expr) => {
+        impl TryFrom<Vec<u8>> for $name {
+            type Error = &'static str;
+
+            fn try_from(value: Vec<u8>) -> Result<Self, Self::Error> {
+                if value.len() == $size {
+                    Ok($name(value.try_into().unwrap()))
+                } else {
+                    Err(concat!("Expected a Vec<u8> of length ", stringify!($size)))
+                }
+            }
+        }
+    };
+}
+
+pub type ConnectorUTXOTree = Vec<Vec<OutPoint>>;
+// pub type HashTree = Vec<Vec<HashType>>;
+// pub type PreimageTree = Vec<Vec<PreimageType>>;
+pub type InscriptionTxs = (OutPoint, Txid);
+
 /// Type alias for EVM address
 #[derive(Copy, Clone, Debug, PartialOrd, Ord, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct EVMAddress(#[serde(with = "hex::serde")] pub [u8; 20]);
 
-impl TryFrom<Vec<u8>> for EVMAddress {
-    type Error = &'static str;
-
-    fn try_from(value: Vec<u8>) -> Result<Self, Self::Error> {
-        if value.len() == 20 {
-            let mut arr = [0u8; 20];
-            arr.copy_from_slice(&value);
-            Ok(EVMAddress(arr))
-        } else {
-            Err("Expected a Vec<u8> of length 20")
-        }
-    }
-}
+impl_try_from_vec_u8!(EVMAddress, 20);
 /// Type alias for withdrawal payment, HashType is taproot script hash
 // pub type WithdrawalPayment = (Txid, HashType);
 
@@ -60,23 +69,16 @@ pub struct UTXO {
 #[sqlx(type_name = "bytea")]
 pub struct ByteArray66(#[serde(with = "hex::serde")] pub [u8; 66]);
 
+impl_try_from_vec_u8!(ByteArray66, 66);
+
 #[derive(Clone, Debug, Copy, Serialize, Deserialize, PartialEq, sqlx::Type)]
 #[sqlx(type_name = "bytea")]
 pub struct ByteArray32(#[serde(with = "hex::serde")] pub [u8; 32]);
+
+impl_try_from_vec_u8!(ByteArray32, 32);
 
 #[derive(Clone, Copy, Debug, Serialize, Deserialize, PartialEq, sqlx::Type)]
 #[sqlx(type_name = "bytea")]
 pub struct ByteArray64(#[serde(with = "hex::serde")] pub [u8; 64]);
 
-#[macro_export]
-macro_rules! sha256_hash {
-    ($($data:expr),+) => {{
-        use sha2::{Digest, Sha256};
-        let mut hasher = Sha256::new();
-        $(
-            hasher.update($data);
-        )+
-        let result: [u8; 32] = hasher.finalize().try_into().expect("SHA256 should produce a 32-byte output");
-        result
-    }};
-}
+impl_try_from_vec_u8!(ByteArray64, 64);

@@ -6,7 +6,7 @@
 //! https://developer.bitcoin.org/devguide/transactions.html?highlight=sighash#signature-hash-types
 
 use crate::config::BridgeConfig;
-use crate::constants::NUM_INTERMEDIATE_STEPS;
+use crate::constants::PARALLEL_ASSERT_TX_CHAIN_SIZE;
 use crate::errors::BridgeError;
 use crate::{builder, database::Database, EVMAddress};
 use async_stream::try_stream;
@@ -44,7 +44,7 @@ pub fn create_nofn_sighash_stream(
     _evm_address: EVMAddress,
     _recovery_taproot_address: Address<NetworkUnchecked>,
     nofn_xonly_pk: XOnlyPublicKey,
-    _user_takes_after: u64,
+    _user_takes_after: u32,
     collateral_funding_amount: Amount,
     timeout_block_count: i64,
     max_withdrawal_time_block_count: i64,
@@ -58,7 +58,7 @@ pub fn create_nofn_sighash_stream(
             _evm_address,
             &_recovery_taproot_address,
             nofn_xonly_pk,
-            _user_takes_after as u32,
+            _user_takes_after,
             bridge_amount_sats,
             network,
         );
@@ -103,6 +103,7 @@ pub fn create_nofn_sighash_stream(
                     &sequential_collateral_txhandler,
                     *operator_xonly_pk,
                     config.num_kickoffs_per_timetx,
+                    max_withdrawal_time_block_count,
                     network,
                 );
 
@@ -235,14 +236,12 @@ pub fn create_nofn_sighash_stream(
                         )?;
                     }
 
-                    let intermediate_wots =
-                        vec![vec![vec![[0u8; 20]; 48]; NUM_INTERMEDIATE_STEPS]; config.num_time_txs]; // TODO: Fetch from db
+                    let (assert_tx_addrs, root_hash, public_input_wots) = db.get_bitvm_setup(None, operator_idx as i32, time_tx_idx as i32, kickoff_idx as i32).await?.ok_or(BridgeError::BitvmSetupNotFound(operator_idx as i32, time_tx_idx as i32, kickoff_idx as i32))?;
 
                     // Creates the assert_begin_tx handler.
                     let assert_begin_txhandler = builder::transaction::create_assert_begin_txhandler(
                         &kickoff_txhandler,
-                        nofn_xonly_pk,
-                        intermediate_wots[time_tx_idx].clone(),
+                        &assert_tx_addrs,
                         network,
                     );
 
@@ -250,14 +249,16 @@ pub fn create_nofn_sighash_stream(
                     let mut assert_end_txhandler = builder::transaction::create_assert_end_txhandler(
                         &kickoff_txhandler,
                         &assert_begin_txhandler,
+                        &assert_tx_addrs,
+                        &root_hash,
                         nofn_xonly_pk,
-                        *operator_xonly_pk,
+                        public_input_wots,
                         network,
                     );
 
                     // Yields the sighash for the assert_end_tx, which spends kickoff_tx.output[3].
                     yield assert_end_txhandler.calculate_pubkey_spend_sighash(
-                        NUM_INTERMEDIATE_STEPS,
+                        PARALLEL_ASSERT_TX_CHAIN_SIZE,
                         None,
                     )?;
 

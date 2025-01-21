@@ -87,7 +87,7 @@ async fn key_spend() {
         .unwrap();
     let prevout = rpc.get_txout_from_outpoint(&utxo).await.unwrap();
 
-    let tx_ins = builder::transaction::create_tx_ins(vec![utxo]);
+    let tx_ins = builder::transaction::create_tx_ins(vec![utxo].into());
     let tx_outs = builder::transaction::create_tx_outs(vec![(
         Amount::from_sat(99_000_000),
         to_address.script_pubkey(),
@@ -192,7 +192,7 @@ async fn key_spend_with_script() {
         to_address.script_pubkey(),
     )]);
 
-    let tx_ins = builder::transaction::create_tx_ins(vec![utxo]);
+    let tx_ins = builder::transaction::create_tx_ins(vec![utxo].into());
     let dummy_tx = builder::transaction::create_btc_tx(tx_ins, tx_outs);
     let mut tx_details = TxHandler {
         txid: dummy_tx.compute_txid(),
@@ -299,7 +299,7 @@ async fn script_spend() {
         to_address.script_pubkey(),
     )]);
 
-    let tx_ins = builder::transaction::create_tx_ins(vec![utxo]);
+    let tx_ins = builder::transaction::create_tx_ins(vec![utxo].into());
     let dummy_tx = builder::transaction::create_btc_tx(tx_ins, tx_outs);
     let mut tx_details = TxHandler {
         txid: dummy_tx.compute_txid(),

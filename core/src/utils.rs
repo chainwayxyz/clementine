@@ -6,7 +6,9 @@ use bitcoin;
 use bitcoin::sighash::SighashCache;
 use bitcoin::taproot::LeafVersion;
 use bitcoin::XOnlyPublicKey;
+use bitvm::chunker::assigner::BridgeAssigner;
 use std::borrow::BorrowMut;
+use std::collections::BTreeMap;
 use std::process::exit;
 use std::str::FromStr;
 use tracing::level_filters::LevelFilter;
@@ -36,6 +38,10 @@ lazy_static::lazy_static! {
 
 lazy_static::lazy_static! {
     pub static ref NETWORK : bitcoin::Network = bitcoin::Network::Regtest;
+}
+
+lazy_static::lazy_static! {
+    pub static ref ALL_BITVM_INTERMEDIATE_VARIABLES: BTreeMap<String, usize> = BridgeAssigner::default().all_intermediate_variable();
 }
 
 /// Gets configuration from CLI, for binaries. If there are any errors, print
