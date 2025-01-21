@@ -18,7 +18,7 @@ use clementine_core::{
     utils,
 };
 use clementine_core::{database::Database, utils::initialize_logger};
-use secp256k1::musig::{MusigAggNonce, MusigPartialSignature, MusigPubNonce};
+use secp256k1::musig::{MusigAggNonce, MusigPartialSignature};
 use std::{env, thread};
 
 mod common;
@@ -55,8 +55,9 @@ fn get_nonces(verifiers_secret_public_keys: Vec<Keypair>) -> (Vec<MuSigNoncePair
     let agg_nonce = aggregate_nonces(
         nonce_pairs
             .iter()
-            .map(|(_, musig_pub_nonces)| *musig_pub_nonces)
-            .collect::<Vec<MusigPubNonce>>(),
+            .map(|(_, musig_pub_nonces)| musig_pub_nonces)
+            .collect::<Vec<_>>()
+            .as_slice(),
     );
 
     (nonce_pairs, agg_nonce)
@@ -129,10 +130,10 @@ async fn key_spend() {
         .collect();
 
     let final_signature = aggregate_partial_signatures(
-        verifier_public_keys.clone(),
+        &verifier_public_keys,
         Some(Musig2Mode::OnlyKeySpend),
         agg_nonce,
-        partial_sigs,
+        &partial_sigs,
         message,
     )
     .unwrap();
@@ -227,10 +228,10 @@ async fn key_spend_with_script() {
         .collect();
 
     let final_signature = aggregate_partial_signatures(
-        verifier_public_keys.clone(),
+        &verifier_public_keys,
         Some(Musig2Mode::KeySpendWithScript(merkle_root)),
         agg_nonce,
-        partial_sigs,
+        &partial_sigs,
         message,
     )
     .unwrap();
@@ -331,10 +332,10 @@ async fn script_spend() {
         })
         .collect();
     let final_signature = aggregate_partial_signatures(
-        verifier_public_keys.clone(),
+        &verifier_public_keys,
         None,
         agg_nonce,
-        partial_sigs,
+        &partial_sigs,
         message,
     )
     .unwrap();
