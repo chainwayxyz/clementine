@@ -1139,7 +1139,10 @@ impl Database {
         Ok(XOnlyPublicKey::from_slice(&xonly_key.0)?)
     }
 
-    /// Saves the verified deposit signatures to the database
+    /// Saves the deposit signatures to the database for a single operator.
+    /// The signatures array is identified by the deposit_outpoint and operator_idx.
+    /// For the order of signatures, please check [`crate::builder::sighash::create_nofn_sighash_stream`]
+    /// which determines the order of the sighashes that are signed.
     #[tracing::instrument(skip(self, tx, signatures), err(level = tracing::Level::ERROR), ret(level = tracing::Level::TRACE))]
     pub async fn save_deposit_signatures(
         &self,
@@ -1163,7 +1166,10 @@ impl Database {
         Ok(())
     }
 
-    /// Retrieves the deposit signatures from the database
+    /// Retrieves the deposit signatures for a single operator.
+    /// The signatures array is identified by the deposit_outpoint and operator_idx.
+    /// For the order of signatures, please check [`crate::builder::sighash::create_nofn_sighash_stream`]
+    /// which determines the order of the sighashes that are signed.
     #[tracing::instrument(skip(self, tx), err(level = tracing::Level::ERROR), ret(level = tracing::Level::TRACE))]
     pub async fn get_deposit_signatures(
         &self,
