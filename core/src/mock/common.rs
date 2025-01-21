@@ -19,17 +19,14 @@ pub fn get_test_config(configuration_file: &str) -> Result<BridgeConfig, BridgeE
     };
 
     // Read specified configuration file from `tests/data` directory.
-    let mut config = match BridgeConfig::try_parse_file(
+    let mut config = BridgeConfig::try_parse_file(
         format!(
             "{}/tests/data/{}",
             env!("CARGO_MANIFEST_DIR"),
             configuration_file
         )
         .into(),
-    ) {
-        Ok(c) => c,
-        Err(e) => return Err(e),
-    };
+    )?;
 
     // Overwrite user's environment to test's hard coded data if environment
     // file is specified.
