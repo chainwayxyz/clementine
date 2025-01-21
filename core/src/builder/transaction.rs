@@ -613,6 +613,10 @@ pub fn create_watchtower_challenge_txhandler(
     }
 }
 
+/// Creates a [`TxHandler`] for the `operator_challenge_NACK_tx`. This transaction will force
+/// the operator to reveal the preimage for the corresponding watchtower since if they do not
+/// reveal the preimage, the NofN will be able to spend the output after 0.5 week, which will
+/// prevent the operator from sending `assert_begin_tx`.
 pub fn create_operator_challenge_nack_txhandler(
     watchtower_challenge_txhandler: &TxHandler,
     kickoff_txhandler: &TxHandler,
@@ -636,7 +640,7 @@ pub fn create_operator_challenge_nack_txhandler(
         ]
         .into(),
     );
-    // let tx_outs = vec![builder::script::anyone_can_spend_txout()];
+
     let tx_outs = vec![builder::script::anchor_output()];
     let challenge_nack_tx = create_btc_tx(tx_ins, tx_outs);
 
@@ -660,6 +664,8 @@ pub fn create_operator_challenge_nack_txhandler(
     }
 }
 
+/// Creates a [`TxHandler`] for the `operator_challenge_ACK_tx`. This transaction will allow the operator
+/// to send the `assert_begin_tx` to basically respond to the challenge(s).
 pub fn create_assert_begin_txhandler(
     kickoff_txhandler: &TxHandler,
     assert_tx_addrs: &Vec<ScriptBuf>,
@@ -703,6 +709,7 @@ pub fn create_assert_begin_txhandler(
     }
 }
 
+/// Creates the `mini_assert_tx` for `assert_begin_tx -> assert_end_tx` flow.
 pub fn create_mini_assert_tx(
     prev_txid: Txid,
     prev_vout: u32,
@@ -728,6 +735,17 @@ pub fn create_mini_assert_tx(
     create_btc_tx(tx_ins, tx_outs)
 }
 
+/// Creates a [`TxHandler`] for the `assert_end_tx`. When this transaction is sent,
+/// There are three scenarios:
+/// 1- If the operator is malicious and deliberately spends assert_end_tx.output[0]
+/// inside a transaction other than `disprove_tx`, then they cannot send the
+/// `disprove_timeout_tx` anymore. This means after 2 weeks, NofN can spend the
+/// `already_disproved_tx`. If the operator does not allow this by spending
+/// sequential_collateral_tx.output[0], then they cannot send the `reimburse_tx`.
+/// 2- If the operator is malicious and does not spend assert_end_tx.output[0], then
+/// their burn connector can be burned by using the `disprove_tx`.
+/// 3- If the operator is honest and there is a challenge, then eventually they will
+/// send the `disprove_timeout_tx` to be able to send the `reimburse_tx` later.
 pub fn create_assert_end_txhandler(
     kickoff_txhandler: &TxHandler,
     assert_begin_txhandler: &TxHandler,
@@ -839,6 +857,8 @@ pub fn create_assert_end_txhandler(
     }
 }
 
+/// Creates a [`TxHandler`] for the `disprove_timeout_tx`. This transaction will be sent by the operator
+/// to be able to send `reimburse_tx` later.
 pub fn create_disprove_timeout_txhandler(
     assert_end_txhandler: &TxHandler,
     operator_xonly_pk: XOnlyPublicKey,
@@ -893,6 +913,9 @@ pub fn create_disprove_timeout_txhandler(
     }
 }
 
+/// Creates a [`TxHandler`] for the `already_disproved_tx`. This transaction will be sent by NofN, meaning
+/// that the operator was malicious. This transaction "burns" the operator's burn connector, kicking the
+/// operator out of the system.
 pub fn create_already_disproved_txhandler(
     assert_end_txhandler: &TxHandler,
     sequential_collateral_txhandler: &TxHandler,
@@ -941,6 +964,9 @@ pub fn create_already_disproved_txhandler(
     }
 }
 
+/// Creates a [`TxHandler`] for the `disprove_tx`. This transaction will be sent by NofN, meaning
+/// that the operator was malicious. This transaction burns the operator's burn connector, kicking the
+/// operator out of the system.
 pub fn create_disprove_txhandler(
     assert_end_txhandler: &TxHandler,
     sequential_collateral_txhandler: &TxHandler,
@@ -1013,6 +1039,9 @@ pub fn create_challenge_txhandler(
     }
 }
 
+/// Creates a [`TxHandler`] for the `start_happy_reimburse_tx`. This transaction will be sent by the operator
+/// in case of no challenges, to be able to send `happy_reimburse_tx` later. Everyone is happy because the
+/// operator is honest and the system does not have to deal with any disputes.
 pub fn create_start_happy_reimburse_txhandler(
     kickoff_txhandler: &TxHandler,
     operator_xonly_pk: XOnlyPublicKey,
@@ -1070,6 +1099,8 @@ pub fn create_start_happy_reimburse_txhandler(
     }
 }
 
+/// Creates a [`TxHandler`] for the `happy_reimburse_tx`. This transaction will be sent by the operator
+/// in case of no challenges, to reimburse the operator for their honest behavior.
 pub fn create_happy_reimburse_txhandler(
     move_txhandler: &TxHandler,
     start_happy_reimburse_txhandler: &TxHandler,
@@ -1098,7 +1129,6 @@ pub fn create_happy_reimburse_txhandler(
     let anchor_txout = builder::script::anchor_output();
     let tx_outs = vec![
         TxOut {
-            // value in move_tx currently (bridge amount)
             value: move_txhandler.tx.output[0].value,
             script_pubkey: operator_reimbursement_address.script_pubkey(),
         },
@@ -1130,6 +1160,8 @@ pub fn create_happy_reimburse_txhandler(
     }
 }
 
+/// Creates a [`TxHandler`] for the `reimburse_tx`. This transaction will be sent by the operator
+/// in case of a challenge, to reimburse the operator for their honest behavior.
 pub fn create_reimburse_txhandler(
     move_txhandler: &TxHandler,
     disprove_timeout_txhandler: &TxHandler,
@@ -1189,6 +1221,8 @@ pub fn create_reimburse_txhandler(
     }
 }
 
+/// Creates a [`TxHandler`] for the `kickoff_timeout_tx`. This transaction will be sent by the operator
+/// if there are no challenges, to be able to send `reimburse_tx` later.
 pub fn create_kickoff_timeout_txhandler(
     kickoff_tx_handler: &TxHandler,
     sequential_collateral_txhandler: &TxHandler,
