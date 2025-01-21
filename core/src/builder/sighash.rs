@@ -336,17 +336,11 @@ pub fn create_nofn_sighash_stream(
 #[cfg(test)]
 mod tests {
     use crate::builder::sighash::create_nofn_sighash_stream;
-    use crate::{builder, create_actors, create_test_config_with_thread_name};
+    use crate::extended_rpc::ExtendedRpc;
+    use crate::operator::Operator;
+    use crate::{builder, create_test_config_with_thread_name};
     use crate::{
         config::BridgeConfig, database::Database, initialize_database, utils::initialize_logger,
-    };
-    use crate::{
-        errors::BridgeError,
-        extended_rpc::ExtendedRpc,
-        servers::{
-            create_aggregator_grpc_server, create_operator_grpc_server,
-            create_verifier_grpc_server, create_watchtower_grpc_server,
-        },
     };
     use bitcoin::hashes::Hash;
     use bitcoin::{Amount, OutPoint, TapSighash, Txid, XOnlyPublicKey};
@@ -358,8 +352,13 @@ mod tests {
     async fn number_of_required_sigs() {
         let config = create_test_config_with_thread_name!(None);
         let db = Database::new(&config).await.unwrap();
-
-        let _ = create_actors!(config.clone());
+        let rpc = ExtendedRpc::new(
+            config.bitcoin_rpc_url.clone(),
+            config.bitcoin_rpc_user.clone(),
+            config.bitcoin_rpc_password.clone(),
+        )
+        .await;
+        let operator = Operator::new(config.clone(), rpc).await.unwrap();
 
         // Dummy inputs for nofn_stream.
         let deposit_outpoint = OutPoint {
@@ -374,6 +373,40 @@ mod tests {
         let timeout_block_count = 0x1F;
         let max_withdrawal_time_block_count = 100 - 0x1F;
         let bridge_amount_sats = Amount::from_sat(100 - 0x45);
+
+        // Initialize database.
+        for i in 0..config.num_operators {
+            db.set_operator(
+                None,
+                i.try_into().unwrap(),
+                XOnlyPublicKey::from_slice(&[0x45; 32]).unwrap(),
+                recovery_taproot_address.to_string(),
+                Txid::all_zeros(),
+            )
+            .await
+            .unwrap();
+        }
+        for i in 0..config.num_watchtowers {
+            db.save_watchtower_xonly_pk(
+                None,
+                i.try_into().unwrap(),
+                &XOnlyPublicKey::from_slice(&[0x45; 32]).unwrap(),
+            )
+            .await
+            .unwrap();
+        }
+        for j in 0..config.num_operators {
+            for i in 0..config.num_watchtowers {
+                db.save_watchtower_winternitz_public_keys(
+                    None,
+                    i.try_into().unwrap(),
+                    j.try_into().unwrap(),
+                    operator.get_winternitz_public_keys().unwrap(),
+                )
+                .await
+                .unwrap();
+            }
+        }
 
         let mut nofn_stream = pin!(create_nofn_sighash_stream(
             db,
