@@ -2,7 +2,6 @@ use crate::actor::{Actor, WinternitzDerivationPath};
 use crate::builder::transaction::KICKOFF_UTXO_AMOUNT_SATS;
 use crate::builder::{self};
 use crate::config::BridgeConfig;
-use crate::constants::NUM_INTERMEDIATE_STEPS;
 use crate::database::Database;
 use crate::errors::BridgeError;
 use crate::extended_rpc::ExtendedRpc;

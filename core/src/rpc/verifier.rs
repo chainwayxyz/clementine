@@ -4,43 +4,70 @@ use super::clementine::{
     VerifierDepositSignParams, VerifierParams, VerifierPublicKeys, WatchtowerParams,
 };
 use crate::{
-    builder::{
-        self,
-        address::taproot_builder_with_scripts,
-        sighash::{calculate_num_required_sigs, create_nofn_sighash_stream},
-    },
+    actor::Actor,
+    builder::sighash::{calculate_num_required_sigs, create_nofn_sighash_stream},
+    builder::transaction::create_move_txhandler,
+    builder::{self, address::taproot_builder_with_scripts},
     errors::BridgeError,
     musig2::{self},
-    sha256_hash, utils,
+    utils,
     verifier::{NofN, NonceSession, Verifier},
     EVMAddress,
 };
+use bitcoin::{address::NetworkUnchecked, hashes::Hash, Amount, Txid};
 use bitcoin::{
-    hashes::Hash,
-    secp256k1::{schnorr, Message, PublicKey, SecretKey},
-    Amount, Script, ScriptBuf, TapSighash, Txid, XOnlyPublicKey,
+    secp256k1::{schnorr, Message, PublicKey},
+    ScriptBuf, XOnlyPublicKey,
 };
-use bitvm::{
-    chunker::{
-        assigner::{BCAssigner, BridgeAssigner},
-        chunk_groth16_verifier::groth16_verify_to_segments,
-        disprove_execution::RawProof,
-        elements::{dummy_element, DummyElement, ElementTrait},
-    },
-    signatures::{
-        signing_winternitz::{generate_winternitz_checksig_leave_variable, WinternitzPublicKey},
-        winternitz,
-    },
+use bitvm::signatures::{
+    signing_winternitz::{generate_winternitz_checksig_leave_variable, WinternitzPublicKey},
+    winternitz,
 };
+
 use futures::StreamExt;
 use secp256k1::musig::{MusigAggNonce, MusigPubNonce, MusigSecNonce};
-use std::sync::Arc;
-use std::{collections::BTreeMap, rc::Rc};
+use std::collections::BTreeMap;
 use std::{pin::pin, str::FromStr};
 use tokio::sync::mpsc;
 use tokio_stream::wrappers::ReceiverStream;
 use tonic::{async_trait, Request, Response, Status, Streaming};
 
+fn get_deposit_params(
+    deposit_sign_session: clementine::DepositSignSession,
+    verifier_idx: usize,
+) -> Result<
+    (
+        bitcoin::OutPoint,
+        EVMAddress,
+        bitcoin::Address<NetworkUnchecked>,
+        u32,
+        u32,
+    ),
+    Status,
+> {
+    let deposit_params = deposit_sign_session
+        .deposit_params
+        .ok_or(Status::internal("No deposit outpoint received"))?;
+    let deposit_outpoint: bitcoin::OutPoint = deposit_params
+        .deposit_outpoint
+        .ok_or(Status::internal("No deposit outpoint received"))?
+        .try_into()?;
+    let evm_address: EVMAddress = deposit_params.evm_address.try_into().unwrap();
+    let recovery_taproot_address = deposit_params
+        .recovery_taproot_address
+        .parse::<bitcoin::Address<_>>()
+        .map_err(|e| Status::internal(e.to_string()))?;
+    let user_takes_after = deposit_params.user_takes_after;
+
+    let session_id = deposit_sign_session.nonce_gen_first_responses[verifier_idx].id;
+    Ok((
+        deposit_outpoint,
+        evm_address,
+        recovery_taproot_address,
+        user_takes_after,
+        session_id,
+    ))
+}
 #[async_trait]
 impl ClementineVerifier for Verifier {
     type NonceGenStream = ReceiverStream<Result<NonceGenResponse, Status>>;
@@ -184,7 +211,7 @@ impl ClementineVerifier for Verifier {
                                 4,
                             ),
                         },
-                        *intermediate_step_size as usize,
+                        *intermediate_step_size,
                     )
                     .compile();
                     let (assert_tx_addr, _) = builder::address::create_taproot_address(
@@ -307,12 +334,7 @@ impl ClementineVerifier for Verifier {
             })
             .unzip();
 
-        let private_key = SecretKey::new(&mut bitcoin::secp256k1::rand::thread_rng());
-
-        let session = NonceSession {
-            private_key,
-            nonces: sec_nonces,
-        };
+        let session = NonceSession { nonces: sec_nonces };
 
         // save the session
         let session_id = {
@@ -323,19 +345,8 @@ impl ClementineVerifier for Verifier {
             session_id
         };
 
-        let public_key = PublicKey::from_secret_key(&utils::SECP, &private_key)
-            .serialize()
-            .to_vec();
-        let public_key_hash = sha256_hash!(&public_key);
-
         let nonce_gen_first_response = clementine::NonceGenFirstResponse {
             id: session_id,
-            public_key,
-            sig: self
-                .signer
-                .sign(TapSighash::from_byte_array(public_key_hash))
-                .serialize()
-                .to_vec(),
             num_nonces: num_nonces as u32,
         };
 
@@ -388,6 +399,7 @@ impl ClementineVerifier for Verifier {
                 .params
                 .ok_or(Status::internal("No deposit outpoint received"))
                 .unwrap();
+
             let (
                 deposit_outpoint,
                 evm_address,
@@ -396,46 +408,16 @@ impl ClementineVerifier for Verifier {
                 session_id,
             ) = match params {
                 clementine::verifier_deposit_sign_params::Params::DepositSignFirstParam(
-                    deposit_sign_first_param,
-                ) => {
-                    let deposit_params = deposit_sign_first_param
-                        .deposit_params
-                        .ok_or(Status::internal("No deposit outpoint received"))
-                        .unwrap();
-                    let deposit_outpoint: bitcoin::OutPoint = deposit_params
-                        .deposit_outpoint
-                        .ok_or(Status::internal("No deposit outpoint received"))
-                        .unwrap()
-                        .try_into()
-                        .unwrap();
-                    let evm_address: EVMAddress = deposit_params.evm_address.try_into().unwrap();
-                    let recovery_taproot_address = deposit_params
-                        .recovery_taproot_address
-                        .parse::<bitcoin::Address<_>>()
-                        .unwrap();
-                    let user_takes_after = deposit_params.user_takes_after;
-
-                    let session_id =
-                        deposit_sign_first_param.nonce_gen_first_responses[verifier.idx].id;
-                    (
-                        deposit_outpoint,
-                        evm_address,
-                        recovery_taproot_address,
-                        user_takes_after,
-                        session_id,
-                    )
-                }
+                    deposit_sign_session,
+                ) => get_deposit_params(deposit_sign_session, verifier.idx).unwrap(),
                 _ => panic!("Expected DepositOutpoint"),
             };
 
-            let mut binding = verifier.nonces.lock().await;
-            let mut session = binding
+            let mut session_map = verifier.nonces.lock().await;
+            let session = session_map
                 .sessions
-                .remove(&session_id)
-                .ok_or(BridgeError::Error(format!(
-                    "No session found for id: {}",
-                    session_id
-                )))
+                .get_mut(&session_id)
+                .ok_or_else(|| Status::internal(format!("Could not find session id {session_id}")))
                 .unwrap();
             session.nonces.reverse();
 
@@ -456,6 +438,12 @@ impl ClementineVerifier for Verifier {
                 verifier.config.network,
             ));
             let num_required_sigs = calculate_num_required_sigs(&verifier.config);
+
+            assert!(
+                num_required_sigs + 1 == session.nonces.len(),
+                "Expected nonce count to be num_required_sigs + 1 (movetx)"
+            );
+
             while let Some(result) = in_stream.message().await.unwrap() {
                 let agg_nonce = match result
                     .params
@@ -472,8 +460,7 @@ impl ClementineVerifier for Verifier {
                 tracing::debug!("Verifier {} found sighash: {:?}", verifier.idx, sighash);
 
                 let nonce = session.nonces.pop().expect("No nonce available");
-
-                let move_tx_sig = musig2::partial_sign(
+                let partial_sig = musig2::partial_sign(
                     verifier.config.verifiers_public_keys.clone(),
                     None,
                     nonce,
@@ -483,17 +470,22 @@ impl ClementineVerifier for Verifier {
                 )
                 .unwrap();
 
-                let partial_sig = PartialSig {
-                    partial_sig: move_tx_sig.serialize().to_vec(),
-                };
-
-                tx.send(Ok(partial_sig)).await.unwrap();
+                tx.send(Ok(PartialSig {
+                    partial_sig: partial_sig.serialize().to_vec(),
+                }))
+                .await
+                .unwrap();
 
                 nonce_idx += 1;
                 if nonce_idx == num_required_sigs {
                     break;
                 }
             }
+
+            // Drop all the nonces except the last one, to avoid reusing the nonces.
+            let last_nonce = session.nonces.pop().unwrap();
+            session.nonces.clear();
+            session.nonces.push(last_nonce);
         });
 
         let out_stream: Self::DepositSignStream = ReceiverStream::new(rx);
@@ -506,6 +498,7 @@ impl ClementineVerifier for Verifier {
         &self,
         req: Request<Streaming<VerifierDepositFinalizeParams>>,
     ) -> Result<Response<PartialSig>, Status> {
+        use clementine::verifier_deposit_finalize_params::Params;
         let mut in_stream = req.into_inner();
 
         let first_message = in_stream
@@ -514,51 +507,23 @@ impl ClementineVerifier for Verifier {
             .ok_or(Status::internal("No first message received"))?;
 
         // Parse the first message
-        let params = first_message
-            .params
-            .ok_or(Status::internal("No deposit outpoint received"))?;
-        let (
-            deposit_outpoint,
-            evm_address,
-            recovery_taproot_address,
-            user_takes_after,
-            _session_id,
-        ) = match params {
-            clementine::verifier_deposit_finalize_params::Params::DepositSignFirstParam(
-                deposit_sign_first_param,
-            ) => {
-                let deposit_params = deposit_sign_first_param
-                    .deposit_params
-                    .ok_or(Status::internal("No deposit outpoint received"))?;
-                let deposit_outpoint: bitcoin::OutPoint = deposit_params
-                    .deposit_outpoint
-                    .ok_or(Status::internal("No deposit outpoint received"))?
-                    .try_into()?;
-                let evm_address: EVMAddress = deposit_params.evm_address.try_into().unwrap();
-                let recovery_taproot_address = deposit_params
-                    .recovery_taproot_address
-                    .parse::<bitcoin::Address<_>>()
-                    .map_err(|e| BridgeError::Error(e.to_string()))?;
-                let user_takes_after = deposit_params.user_takes_after;
-
-                let session_id = deposit_sign_first_param.nonce_gen_first_responses[self.idx].id;
-                (
-                    deposit_outpoint,
-                    evm_address,
-                    recovery_taproot_address,
-                    user_takes_after,
-                    session_id,
-                )
-            }
-            _ => panic!("Expected DepositOutpoint"),
-        };
+        let (deposit_outpoint, evm_address, recovery_taproot_address, user_takes_after, session_id) =
+            match first_message
+                .params
+                .ok_or(Status::internal("No deposit outpoint received"))?
+            {
+                Params::DepositSignFirstParam(deposit_sign_session) => {
+                    get_deposit_params(deposit_sign_session, self.idx)?
+                }
+                _ => Err(Status::internal("Expected DepositOutpoint"))?,
+            };
 
         let mut sighash_stream = pin!(create_nofn_sighash_stream(
             self.db.clone(),
             self.config.clone(),
             deposit_outpoint,
             evm_address,
-            recovery_taproot_address,
+            recovery_taproot_address.clone(),
             self.nofn_xonly_pk,
             user_takes_after,
             Amount::from_sat(200_000_000), // TODO: Fix this.
@@ -567,8 +532,11 @@ impl ClementineVerifier for Verifier {
             self.config.bridge_amount_sats,
             self.config.network,
         ));
+
         let num_required_sigs = calculate_num_required_sigs(&self.config);
+        let mut verified_sigs = Vec::with_capacity(num_required_sigs);
         let mut nonce_idx: usize = 0;
+
         while let Some(result) = in_stream.message().await.unwrap() {
             let sighash = sighash_stream.next().await.unwrap().unwrap();
             let final_sig = result
@@ -576,10 +544,10 @@ impl ClementineVerifier for Verifier {
                 .ok_or(Status::internal("No final sig received"))
                 .unwrap();
             let final_sig = match final_sig {
-                clementine::verifier_deposit_finalize_params::Params::SchnorrSig(final_sig) => {
+                Params::SchnorrSig(final_sig) => {
                     schnorr::Signature::from_slice(&final_sig).unwrap()
                 }
-                _ => panic!("Expected FinalSig"),
+                _ => return Err(Status::internal("Expected FinalSig")),
             };
 
             tracing::debug!("Verifying Final Signature");
@@ -587,6 +555,7 @@ impl ClementineVerifier for Verifier {
                 .verify_schnorr(&final_sig, &Message::from(sighash), &self.nofn_xonly_pk)
                 .unwrap();
 
+            verified_sigs.push(final_sig);
             tracing::debug!("Final Signature Verified");
 
             nonce_idx += 1;
@@ -595,10 +564,59 @@ impl ClementineVerifier for Verifier {
             }
         }
 
-        tracing::info!("Deposit finalized");
+        assert!(
+            verified_sigs.len() % self.config.num_operators == 0,
+            "Number of verified sigs is not divisible by number of operators"
+        );
+        for (i, window) in verified_sigs
+            .chunks_exact(verified_sigs.len() / self.config.num_operators)
+            .enumerate()
+        {
+            self.db
+                .save_deposit_signatures(None, deposit_outpoint, i as u32, window.to_vec())
+                .await?;
+        }
 
+        // Generate partial signature for move transaction
+        let mut move_txhandler = create_move_txhandler(
+            deposit_outpoint,
+            evm_address,
+            &recovery_taproot_address,
+            self.nofn_xonly_pk,
+            user_takes_after,
+            self.config.bridge_amount_sats,
+            self.config.network,
+        );
+
+        let move_tx_sighash = Actor::convert_tx_to_sighash_script_spend(&mut move_txhandler, 0, 0)?;
+
+        let agg_nonce = match in_stream.message().await.unwrap().unwrap().params.unwrap() {
+            Params::MoveTxAggNonce(aggnonce) => MusigAggNonce::from_slice(&aggnonce)
+                .map_err(|e| Status::internal(format!("Invalid aggregate nonce: {}", e)))?,
+            _ => Err(Status::internal("Expected MoveTxAggNonce"))?,
+        };
+
+        let movetx_secnonce = {
+            let mut session_map = self.nonces.lock().await;
+            let session = session_map.sessions.get_mut(&session_id).unwrap();
+            session
+                .nonces
+                .pop()
+                .ok_or_else(|| Status::internal("No move tx secnonce in session"))?
+        };
+
+        let partial_sig = musig2::partial_sign(
+            self.config.verifiers_public_keys.clone(),
+            None,
+            movetx_secnonce,
+            agg_nonce,
+            self.signer.keypair,
+            Message::from_digest(move_tx_sighash.to_byte_array()),
+        )?;
+
+        tracing::info!("Deposit finalized, returning partial sig");
         Ok(Response::new(PartialSig {
-            partial_sig: vec![1, 2],
+            partial_sig: partial_sig.serialize().to_vec(),
         }))
     }
 }

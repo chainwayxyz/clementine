@@ -14,7 +14,7 @@ use std::sync::Arc;
 
 #[derive(Debug)]
 pub struct NonceSession {
-    pub private_key: secp256k1::SecretKey,
+    /// Nonces used for a deposit session (last nonce is for the movetx signature)
     pub nonces: Vec<MusigSecNonce>,
 }
 

@@ -7,7 +7,6 @@ use crate::builder;
 use crate::utils::SECP;
 use crate::{utils, EVMAddress};
 use bitcoin::address::NetworkUnchecked;
-use bitcoin::hashes::Hash;
 use bitcoin::Amount;
 use bitcoin::{
     secp256k1::XOnlyPublicKey,

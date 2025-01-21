@@ -39,11 +39,11 @@ create table if not exists deposit_infos (
 );
 
 -- Verifier table for nonces related to deposits
-/* This table holds the public and aggregated nonces related to a deposit.
-For each deposit, we have (2 + num_operators) nonce triples. The first triple is for 
+/* This table holds the public, secret, and aggregated nonces related to a deposit.
+For each deposit, we have (2 + num_operators) nonce triples. The first triple is for
 move_commit_tx, the second triple is for move_reveal_tx, and the rest is for operator_takes_tx
 for each operator. Also for each triple, we hold the sig_hash to be signed to prevent reuse
-of the nonces. */ 
+of the nonces. */
 create table if not exists nonces (
     deposit_outpoint text not null check (deposit_outpoint ~ '^[a-fA-F0-9]{64}:(0|[1-9][0-9]{0,9})$'),
     internal_idx int not null,
@@ -70,8 +70,8 @@ $$ LANGUAGE plpgsql;
 DO $$
 BEGIN
     IF NOT EXISTS (
-        SELECT 1 
-        FROM pg_trigger 
+        SELECT 1
+        FROM pg_trigger
         WHERE tgname = 'prevent_sighash_update_trigger'
     ) THEN
         CREATE TRIGGER prevent_sighash_update_trigger
@@ -149,6 +149,14 @@ create table if not exists operator_winternitz_public_keys (
     operator_id int not null,
     winternitz_public_keys bytea not null,
     primary key (operator_id)
+);
+
+-- Deposit signatures
+create table if not exists deposit_signatures (
+    deposit_outpoint text not null check (deposit_outpoint ~ '^[a-fA-F0-9]{64}:(0|[1-9][0-9]{0,9})$'),
+    operator_idx int not null,
+    signatures bytea not null,
+    primary key (deposit_outpoint, operator_idx)
 );
 
 -- Verifier table for BitVM setup data
