@@ -19,7 +19,7 @@ use bitcoin::{
     hashes::Hash,
     BlockHash, CompactTarget, TxMerkleNode,
 };
-use bitcoin::{Address, OutPoint, Txid, XOnlyPublicKey};
+use bitcoin::{Address, OutPoint, ScriptBuf, Txid, XOnlyPublicKey};
 use bitvm::signatures::winternitz;
 use bitvm::signatures::winternitz::PublicKey as WinternitzPublicKey;
 use risc0_zkvm::Receipt;
@@ -1138,6 +1138,103 @@ impl Database {
 
         Ok(XOnlyPublicKey::from_slice(&xonly_key.0)?)
     }
+
+    /// Saves BitVM setup data for a specific operator, time_tx and kickoff index combination
+    // #[tracing::instrument(skip(self), err(level = tracing::Level::ERROR), ret(level = tracing::Level::TRACE))]
+    pub async fn save_bitvm_setup(
+        &self,
+        tx: Option<&mut sqlx::Transaction<'_, Postgres>>,
+        operator_idx: i32,
+        time_tx_idx: i32,
+        kickoff_idx: i32,
+        assert_tx_addrs: impl AsRef<[ScriptBuf]>,
+        root_hash: &[u8; 32],
+        public_input_wots: impl AsRef<[[u8; 20]]>,
+    ) -> Result<(), BridgeError> {
+        // Convert public_input_wots Vec<[u8; 20]> to Vec<Vec<u8>> for PostgreSQL array compatibility
+        let public_input_wots: Vec<Vec<u8>> = public_input_wots
+            .as_ref()
+            .iter()
+            .map(|arr| arr.to_vec())
+            .collect();
+
+        let query = sqlx::query(
+            "INSERT INTO bitvm_setups (operator_idx, time_tx_idx, kickoff_idx, assert_tx_addrs, root_hash, public_input_wots) 
+             VALUES ($1, $2, $3, $4, $5, $6)
+             ON CONFLICT (operator_idx, time_tx_idx, kickoff_idx) DO UPDATE 
+             SET assert_tx_addrs = EXCLUDED.assert_tx_addrs,
+                 root_hash = EXCLUDED.root_hash,
+                 public_input_wots = EXCLUDED.public_input_wots;"
+        )
+        .bind(operator_idx)
+        .bind(time_tx_idx)
+        .bind(kickoff_idx)
+        .bind(assert_tx_addrs.as_ref().iter().map(|addr| addr.as_ref()).collect::<Vec<&[u8]>>())
+        .bind(root_hash.to_vec())
+        .bind(&public_input_wots);
+
+        match tx {
+            Some(tx) => query.execute(&mut **tx).await?,
+            None => query.execute(&self.connection).await?,
+        };
+
+        Ok(())
+    }
+
+    /// Retrieves BitVM setup data for a specific operator, time_tx and kickoff index combination
+    #[tracing::instrument(skip(self), err(level = tracing::Level::ERROR), ret(level = tracing::Level::TRACE))]
+    pub async fn get_bitvm_setup(
+        &self,
+        tx: Option<&mut sqlx::Transaction<'_, Postgres>>,
+        operator_idx: i32,
+        time_tx_idx: i32,
+        kickoff_idx: i32,
+    ) -> Result<Option<(Vec<ScriptBuf>, [u8; 32], Vec<[u8; 20]>)>, BridgeError> {
+        let query = sqlx::query_as::<_, (Vec<Vec<u8>>, Vec<u8>, Vec<Vec<u8>>)>(
+            "SELECT assert_tx_addrs, root_hash, public_input_wots 
+             FROM bitvm_setups 
+             WHERE operator_idx = $1 AND time_tx_idx = $2 AND kickoff_idx = $3;",
+        )
+        .bind(operator_idx)
+        .bind(time_tx_idx)
+        .bind(kickoff_idx);
+
+        let result = match tx {
+            Some(tx) => query.fetch_optional(&mut **tx).await?,
+            None => query.fetch_optional(&self.connection).await?,
+        };
+
+        match result {
+            Some((assert_tx_addrs, root_hash, public_input_wots)) => {
+                // Convert root_hash Vec<u8> back to [u8; 32]
+                let mut root_hash_array = [0u8; 32];
+                root_hash_array.copy_from_slice(&root_hash);
+
+                // Convert public_input_wots Vec<Vec<u8>> back to Vec<[u8; 20]>
+                let public_input_wots: Result<Vec<[u8; 20]>, _> = public_input_wots
+                    .into_iter()
+                    .map(|v| {
+                        let mut arr = [0u8; 20];
+                        if v.len() != 20 {
+                            return Err(BridgeError::Error(
+                                "Invalid public_input_wots length".to_string(),
+                            ));
+                        }
+                        arr.copy_from_slice(&v);
+                        Ok(arr)
+                    })
+                    .collect();
+
+                let assert_tx_addrs: Vec<ScriptBuf> = assert_tx_addrs
+                    .into_iter()
+                    .map(|addr| addr.into())
+                    .collect();
+
+                Ok(Some((assert_tx_addrs, root_hash_array, public_input_wots?)))
+            }
+            None => Ok(None),
+        }
+    }
 }
 
 #[cfg(test)]
@@ -1835,5 +1932,59 @@ mod tests {
                 .unwrap();
             assert_eq!(read_pk, *key);
         }
+    }
+
+    #[tokio::test]
+    async fn test_save_get_bitvm_setup() {
+        let config = create_test_config_with_thread_name!(None);
+        let database = Database::new(&config).await.unwrap();
+
+        let operator_idx = 0;
+        let time_tx_idx = 1;
+        let kickoff_idx = 2;
+        let assert_tx_addrs = vec![vec![1u8; 34], vec![4u8; 34]];
+        let root_hash = [42u8; 32];
+        let public_input_wots = vec![[1u8; 20], [2u8; 20]];
+
+        // Save BitVM setup
+        database
+            .save_bitvm_setup(
+                None,
+                operator_idx,
+                time_tx_idx,
+                kickoff_idx,
+                assert_tx_addrs
+                    .iter()
+                    .map(|addr| addr.clone().into())
+                    .collect::<Vec<ScriptBuf>>(),
+                &root_hash,
+                public_input_wots.clone(),
+            )
+            .await
+            .unwrap();
+
+        // Retrieve and verify
+        let result = database
+            .get_bitvm_setup(None, operator_idx, time_tx_idx, kickoff_idx)
+            .await
+            .unwrap()
+            .unwrap();
+
+        assert_eq!(
+            result.0,
+            assert_tx_addrs
+                .iter()
+                .map(|addr| addr.clone().into())
+                .collect::<Vec<ScriptBuf>>()
+        );
+        assert_eq!(result.1, root_hash);
+        assert_eq!(result.2, public_input_wots);
+
+        // Test non-existent entry
+        let non_existent = database
+            .get_bitvm_setup(None, 999, time_tx_idx, kickoff_idx)
+            .await
+            .unwrap();
+        assert!(non_existent.is_none());
     }
 }

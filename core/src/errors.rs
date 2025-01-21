@@ -218,6 +218,9 @@ pub enum BridgeError {
     NoScriptsForTxIn(usize),
     #[error("No script in TxHandler for the index {0}")]
     NoScriptAtIndex(usize),
+
+    #[error("BitvmSetupNotFound for operator {0}, time_tx {1}, kickoff {2}")]
+    BitvmSetupNotFound(i32, i32, i32),
 }
 
 impl From<BridgeError> for ErrorObject<'static> {

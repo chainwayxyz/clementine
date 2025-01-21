@@ -62,7 +62,7 @@ impl Watchtower {
                         watchtower_idx: None,
                         time_tx_idx: Some(time_tx),
                         kickoff_idx: Some(kickoff_idx),
-                        intermediate_step_idx: None,
+                        intermediate_step_name: None,
                     };
 
                     winternitz_pubkeys.push(self.actor.derive_winternitz_pk(path)?);
