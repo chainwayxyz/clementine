@@ -616,7 +616,7 @@ pub fn create_operator_challenge_nack_txhandler(
 
 pub fn create_assert_begin_txhandler(
     kickoff_txhandler: &TxHandler,
-    assert_tx_addrs: &Vec<Vec<u8>>,
+    assert_tx_addrs: &Vec<ScriptBuf>,
     _network: bitcoin::Network,
 ) -> TxHandler {
     let tx_ins: Vec<TxIn> = create_tx_ins(vec![OutPoint {
@@ -631,7 +631,7 @@ pub fn create_assert_begin_txhandler(
     for i in 0..PARALLEL_ASSERT_TX_CHAIN_SIZE {
         txouts.push(TxOut {
             value: MIN_TAPROOT_AMOUNT, // Minimum amount for a taproot output
-            script_pubkey: assert_tx_addrs[i].clone().into(),
+            script_pubkey: assert_tx_addrs[i].clone(),
         });
     }
     txouts.push(builder::script::anchor_output());
@@ -676,7 +676,7 @@ pub fn create_mini_assert_tx(
 pub fn create_assert_end_txhandler(
     kickoff_txhandler: &TxHandler,
     assert_begin_txhandler: &TxHandler,
-    assert_tx_addrs: &Vec<Vec<u8>>,
+    assert_tx_addrs: &Vec<ScriptBuf>,
     root_hash: &[u8; 32],
     nofn_xonly_pk: XOnlyPublicKey,
     public_input_wots: Vec<[u8; 20]>,
@@ -687,14 +687,14 @@ pub fn create_assert_end_txhandler(
 
     for i in PARALLEL_ASSERT_TX_CHAIN_SIZE..assert_tx_addrs.len() {
         let mini_assert_tx = create_mini_assert_tx(
-            last_mini_assert_txid[i - PARALLEL_ASSERT_TX_CHAIN_SIZE],
+            last_mini_assert_txid[i % PARALLEL_ASSERT_TX_CHAIN_SIZE],
             // if i - PARALLEL_ASSERT_TX_CHAIN_SIZE < PARALLEL_ASSERT_TX_CHAIN_SIZE, then i - PARALLEL_ASSERT_TX_CHAIN_SIZE, otherwise 0
             if i - PARALLEL_ASSERT_TX_CHAIN_SIZE < PARALLEL_ASSERT_TX_CHAIN_SIZE {
                 i as u32 - PARALLEL_ASSERT_TX_CHAIN_SIZE as u32
             } else {
                 0
             },
-            assert_tx_addrs[i].clone().into(),
+            assert_tx_addrs[i].clone(),
             network,
         );
         last_mini_assert_txid[i % PARALLEL_ASSERT_TX_CHAIN_SIZE] = mini_assert_tx.compute_txid();

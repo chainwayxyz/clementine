@@ -192,7 +192,7 @@ impl ClementineVerifier for Verifier {
                         None,
                         self.config.network,
                     );
-                    assert_tx_addr.script_pubkey().to_bytes()
+                    assert_tx_addr.script_pubkey()
                 })
                 .collect::<Vec<_>>();
 

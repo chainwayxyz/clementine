@@ -19,7 +19,7 @@ use bitcoin::{
     hashes::Hash,
     BlockHash, CompactTarget, TxMerkleNode,
 };
-use bitcoin::{Address, OutPoint, Txid, XOnlyPublicKey};
+use bitcoin::{Address, OutPoint, ScriptBuf, Txid, XOnlyPublicKey};
 use bitvm::signatures::winternitz;
 use bitvm::signatures::winternitz::PublicKey as WinternitzPublicKey;
 use risc0_zkvm::Receipt;
@@ -1147,7 +1147,7 @@ impl Database {
         operator_idx: i32,
         time_tx_idx: i32,
         kickoff_idx: i32,
-        assert_tx_addrs: impl AsRef<[Vec<u8>]>,
+        assert_tx_addrs: impl AsRef<[ScriptBuf]>,
         root_hash: &[u8; 32],
         public_input_wots: impl AsRef<[[u8; 20]]>,
     ) -> Result<(), BridgeError> {
@@ -1169,7 +1169,7 @@ impl Database {
         .bind(operator_idx)
         .bind(time_tx_idx)
         .bind(kickoff_idx)
-        .bind(assert_tx_addrs.as_ref())
+        .bind(assert_tx_addrs.as_ref().iter().map(|addr| addr.as_ref()).collect::<Vec<&[u8]>>())
         .bind(root_hash.to_vec())
         .bind(&public_input_wots);
 
@@ -1189,7 +1189,7 @@ impl Database {
         operator_idx: i32,
         time_tx_idx: i32,
         kickoff_idx: i32,
-    ) -> Result<Option<(Vec<Vec<u8>>, [u8; 32], Vec<[u8; 20]>)>, BridgeError> {
+    ) -> Result<Option<(Vec<ScriptBuf>, [u8; 32], Vec<[u8; 20]>)>, BridgeError> {
         let query = sqlx::query_as::<_, (Vec<Vec<u8>>, Vec<u8>, Vec<Vec<u8>>)>(
             "SELECT assert_tx_addrs, root_hash, public_input_wots 
              FROM bitvm_setups 
@@ -1223,6 +1223,11 @@ impl Database {
                         arr.copy_from_slice(&v);
                         Ok(arr)
                     })
+                    .collect();
+
+                let assert_tx_addrs: Vec<ScriptBuf> = assert_tx_addrs
+                    .into_iter()
+                    .map(|addr| addr.into())
                     .collect();
 
                 Ok(Some((assert_tx_addrs, root_hash_array, public_input_wots?)))
@@ -1937,7 +1942,7 @@ mod tests {
         let operator_idx = 0;
         let time_tx_idx = 1;
         let kickoff_idx = 2;
-        let assert_tx_addrs = vec![vec![1, 2, 3], vec![4, 5, 6]];
+        let assert_tx_addrs = vec![vec![1u8; 34], vec![4u8; 34]];
         let root_hash = [42u8; 32];
         let public_input_wots = vec![[1u8; 20], [2u8; 20]];
 
@@ -1948,7 +1953,10 @@ mod tests {
                 operator_idx,
                 time_tx_idx,
                 kickoff_idx,
-                assert_tx_addrs.clone(),
+                assert_tx_addrs
+                    .iter()
+                    .map(|addr| addr.clone().into())
+                    .collect::<Vec<ScriptBuf>>(),
                 &root_hash,
                 public_input_wots.clone(),
             )
@@ -1962,7 +1970,13 @@ mod tests {
             .unwrap()
             .unwrap();
 
-        assert_eq!(result.0, assert_tx_addrs);
+        assert_eq!(
+            result.0,
+            assert_tx_addrs
+                .iter()
+                .map(|addr| addr.clone().into())
+                .collect::<Vec<ScriptBuf>>()
+        );
         assert_eq!(result.1, root_hash);
         assert_eq!(result.2, public_input_wots);
 
