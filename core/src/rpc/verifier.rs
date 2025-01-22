@@ -182,7 +182,7 @@ impl ClementineVerifier for Verifier {
 
             let mut public_input_wots = vec![];
             // Generate precalculated BitVM Setups
-            let commits_publickeys = utils::ALL_BITVM_INTERMEDIATE_VARIABLES
+            let _commits_publickeys = utils::ALL_BITVM_INTERMEDIATE_VARIABLES
                 .iter()
                 .enumerate()
                 .map(|(idx, (intermediate_step, intermediate_step_size))| {
