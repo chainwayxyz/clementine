@@ -15,7 +15,7 @@ use jsonrpsee::rpc_params;
 use serde_json::json;
 
 pub type SecretPreimage = [u8; 20];
-pub type PublicHash = [u8; 20];
+pub type PublicHash = [u8; 20]; // TODO: Make sure these are 20 bytes and maybe do this a struct?
 
 #[derive(Debug, Clone)]
 pub struct Operator {
@@ -696,6 +696,7 @@ impl Operator {
     /// - [`Vec<Vec<winternitz::PublicKey>>`]: Winternitz public keys for
     ///   `watchtower index` row and `BitVM assert tx index` column.
     pub fn get_winternitz_public_keys(&self) -> Result<Vec<winternitz::PublicKey>, BridgeError> {
+        // TODO: Misleading name
         let mut winternitz_pubkeys = Vec::new();
 
         for time_tx in 0..self.config.num_time_txs as u32 {

@@ -11,6 +11,7 @@ use super::wrapper::{
 use super::wrapper::{BlockHashDB, BlockHeaderDB};
 use super::Database;
 use crate::errors::BridgeError;
+use crate::operator::PublicHash;
 use crate::{EVMAddress, UTXO};
 use bitcoin::address::NetworkUnchecked;
 use bitcoin::secp256k1::{schnorr, Message, PublicKey};
@@ -1295,6 +1296,76 @@ impl Database {
                 Ok(Some((assert_tx_addrs, root_hash_array, public_input_wots?)))
             }
             None => Ok(None),
+        }
+    }
+
+    /// Saves public hashes for a specific operator, time_tx and kickoff index combination
+    // #[tracing::instrument(skip(self), err(level = tracing::Level::ERROR), ret(level = tracing::Level::TRACE))]
+    pub async fn save_public_hashes(
+        &self,
+        tx: Option<&mut sqlx::Transaction<'_, Postgres>>,
+        operator_idx: i32,
+        time_tx_idx: i32,
+        kickoff_idx: i32,
+        public_hashes: impl AsRef<[PublicHash]>,
+    ) -> Result<(), BridgeError> {
+        let public_hashes: Vec<Vec<u8>> = public_hashes
+            .as_ref()
+            .iter()
+            .map(|hash| hash.to_vec())
+            .collect();
+
+        let query = sqlx::query(
+            "INSERT INTO public_hashes (operator_idx, time_tx_idx, kickoff_idx, public_hashes)
+             VALUES ($1, $2, $3, $4)
+             ON CONFLICT (operator_idx, time_tx_idx, kickoff_idx) DO UPDATE
+             SET public_hashes = EXCLUDED.public_hashes;",
+        )
+        .bind(operator_idx)
+        .bind(time_tx_idx)
+        .bind(kickoff_idx)
+        .bind(&public_hashes);
+
+        match tx {
+            Some(tx) => query.execute(&mut **tx).await?,
+            None => query.execute(&self.connection).await?,
+        };
+
+        Ok(())
+    }
+
+    /// Retrieves public hashes for a specific operator, time_tx and kickoff index combination
+    #[tracing::instrument(skip(self), err(level = tracing::Level::ERROR), ret(level = tracing::Level::TRACE))]
+    pub async fn get_public_hashes(
+        &self,
+        tx: Option<&mut sqlx::Transaction<'_, Postgres>>,
+        operator_idx: i32,
+        time_tx_idx: i32,
+        kickoff_idx: i32,
+    ) -> Result<Vec<PublicHash>, BridgeError> {
+        let query = sqlx::query_as::<_, (Vec<Vec<u8>>,)>(
+            "SELECT public_hashes
+            FROM public_hashes
+            WHERE operator_idx = $1 AND time_tx_idx = $2 AND kickoff_idx = $3;",
+        )
+        .bind(operator_idx)
+        .bind(time_tx_idx)
+        .bind(kickoff_idx);
+
+        let result = match tx {
+            Some(tx) => query.fetch_optional(&mut **tx).await?,
+            None => query.fetch_optional(&self.connection).await?,
+        };
+
+        match result {
+            Some((public_hashes,)) => {
+                let public_hashes: Vec<PublicHash> = public_hashes
+                    .into_iter()
+                    .map(|hash| hash.try_into().unwrap()) // TODO: Handle unwrap better
+                    .collect();
+                Ok(public_hashes)
+            }
+            None => Err(BridgeError::Error("Public hashes not found".to_string())),
         }
     }
 }

@@ -9,7 +9,7 @@ pub struct Outpoint {
     pub vout: u32,
 }
 #[derive(Clone, PartialEq, ::prost::Message)]
-pub struct AssertEmptyPublicKey {
+pub struct ChallengeAckDigest {
     #[prost(bytes = "vec", tag = "1")]
     pub hash: ::prost::alloc::vec::Vec<u8>,
 }
@@ -64,9 +64,9 @@ pub struct OperatorParams {
     #[prost(message, repeated, tag = "2")]
     pub winternitz_pubkeys: ::prost::alloc::vec::Vec<WinternitzPubkey>,
     /// Adaptor signatures for asserting a watchtower's challenge to zero.
-    /// Total of 1000*100 preimages.
+    /// Total of 1000*100 preimages. TODO: Change comments here
     #[prost(message, repeated, tag = "3")]
-    pub assert_empty_public_key: ::prost::alloc::vec::Vec<AssertEmptyPublicKey>,
+    pub challenge_ack_digests: ::prost::alloc::vec::Vec<ChallengeAckDigest>,
 }
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct OperatorBurnSig {

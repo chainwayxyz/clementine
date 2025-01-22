@@ -1,6 +1,6 @@
 use super::clementine::{
-    self, clementine_operator_server::ClementineOperator, DepositSignSession, Empty,
-    NewWithdrawalSigParams, NewWithdrawalSigResponse, OperatorBurnSig, OperatorParams,
+    self, clementine_operator_server::ClementineOperator, ChallengeAckDigest, DepositSignSession,
+    Empty, NewWithdrawalSigParams, NewWithdrawalSigResponse, OperatorBurnSig, OperatorParams,
     WinternitzPubkey, WithdrawalFinalizedParams,
 };
 use crate::{errors::BridgeError, operator::Operator};
@@ -41,10 +41,18 @@ impl ClementineOperator for Operator {
             .map(WinternitzPubkey::from_bitvm)
             .collect::<Vec<_>>();
 
+        let public_hashes = self.generate_preimages_and_hashes()?;
+        let public_hashes = public_hashes
+            .into_iter()
+            .map(|hash| ChallengeAckDigest {
+                hash: hash.to_vec(),
+            })
+            .collect::<Vec<_>>();
+
         let operator_params = clementine::OperatorParams {
             operator_details: Some(operator_config),
             winternitz_pubkeys,
-            assert_empty_public_key: vec![], // TODO: Implement this.
+            challenge_ack_digests: public_hashes,
         };
 
         Ok(Response::new(operator_params))

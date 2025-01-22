@@ -1,4 +1,4 @@
-use crate::EVMAddress;
+use crate::{operator::PublicHash, EVMAddress};
 use bitcoin::{
     address::NetworkUnchecked,
     block,
@@ -353,6 +353,31 @@ impl<'r> Decode<'r, Postgres> for MessageDB {
         Ok(MessageDB(message))
     }
 }
+
+// #[derive(sqlx::FromRow, Debug, Clone)]
+// pub struct PublicHashDB(pub PublicHash);
+
+// impl sqlx::Type<sqlx::Postgres> for PublicHashDB {
+//     fn type_info() -> sqlx::postgres::PgTypeInfo {
+//         sqlx::postgres::PgTypeInfo::with_name("BYTEA")
+//     }
+// }
+// impl Encode<'_, Postgres> for PublicHashDB {
+//     fn encode_by_ref(&self, buf: &mut PgArgumentBuffer) -> sqlx::encode::IsNull {
+//         let serialized_aggregated_nonces: Vec<u8> = self.0.to_vec().into();
+
+//         <Vec<u8> as Encode<Postgres>>::encode_by_ref(&serialized_aggregated_nonces, buf)
+//     }
+// }
+// impl<'r> Decode<'r, Postgres> for PublicHashDB {
+//     fn decode(value: PgValueRef<'r>) -> Result<Self, sqlx::error::BoxDynError> {
+//         let raw = <Vec<u8> as Decode<Postgres>>::decode(value)?;
+
+//         let public_hash: PublicHash = raw.try_into().unwrap(); // TODO: Handle unwrap better
+
+//         Ok(PublicHashDB(public_hash))
+//     }
+// }
 
 // TODO: Improve these tests by checking conversions both ways. Note: I couldn't
 // find any ways to do this but it needs to be done.

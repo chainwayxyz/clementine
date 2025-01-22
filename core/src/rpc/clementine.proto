@@ -8,7 +8,7 @@ message Outpoint {
   uint32 vout = 2;
 }
 
-message AssertEmptyPublicKey {
+message ChallengeACKDigest {
   bytes hash = 1;
 }
 
@@ -50,8 +50,8 @@ message OperatorParams {
   // 1000 * (100*240 + 600*20) ~= 1 GB of hash for every winternitz pubkey.
   repeated WinternitzPubkey winternitz_pubkeys = 2;
   // Adaptor signatures for asserting a watchtower's challenge to zero.
-  // Total of 1000*100 preimages.
-  repeated AssertEmptyPublicKey assert_empty_public_key = 3;
+  // Total of 1000*100 preimages. TODO: Change comments here
+  repeated ChallengeACKDigest challenge_ack_digests = 3;
 }
 
 message OperatorBurnSig {
