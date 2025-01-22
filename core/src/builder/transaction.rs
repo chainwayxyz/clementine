@@ -6,8 +6,7 @@
 use super::address::create_taproot_address;
 use crate::builder;
 use crate::constants::{
-    OPERATOR_CHALLENGE_AMOUNT,
-    {MIN_TAPROOT_AMOUNT, NUM_INTERMEDIATE_STEPS, PARALLEL_ASSERT_TX_CHAIN_SIZE},
+    OPERATOR_CHALLENGE_AMOUNT, {MIN_TAPROOT_AMOUNT, PARALLEL_ASSERT_TX_CHAIN_SIZE},
 };
 use crate::errors::BridgeError;
 use crate::utils::SECP;
@@ -795,10 +794,6 @@ pub fn create_assert_end_txhandler(
         vout: 3,
     });
 
-    // mini asserts have no timelocks, the last input (from kickoff tx) has a timelock of 3 weeks
-    let mut timelocks: Vec<Option<u16>> = vec![None; NUM_INTERMEDIATE_STEPS];
-    timelocks.push(Some(7 * 24 * 6 * 3));
-
     let disprove_taproot_spend_info = TaprootBuilder::new()
         .add_hidden_node(0, TapNodeHash::from_slice(root_hash).unwrap())
         .unwrap()
@@ -842,12 +837,12 @@ pub fn create_assert_end_txhandler(
         .collect::<Vec<_>>();
     prevouts.push(kickoff_txhandler.tx.output[3].clone());
 
-    let mut scripts = (0..NUM_INTERMEDIATE_STEPS)
+    let mut scripts = (0..PARALLEL_ASSERT_TX_CHAIN_SIZE)
         .map(|_| vec![]) // TODO: Add actual scripts here
         .collect::<Vec<_>>();
     scripts.push(kickoff_txhandler.out_scripts[3].clone());
 
-    let mut prev_taproot_spend_infos = (0..NUM_INTERMEDIATE_STEPS)
+    let mut prev_taproot_spend_infos = (0..PARALLEL_ASSERT_TX_CHAIN_SIZE)
         .map(|_| None) // TODO: Add actual spend info here
         .collect::<Vec<_>>();
     prev_taproot_spend_infos.push(kickoff_txhandler.out_taproot_spend_infos[3].clone());
