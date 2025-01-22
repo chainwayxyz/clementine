@@ -98,6 +98,7 @@ pub fn create_nofn_sighash_stream(
     network: bitcoin::Network,
 ) -> impl Stream<Item = Result<TapSighash, BridgeError>> {
     try_stream! {
+        tracing::info!("Creating move txhandler");
         let move_txhandler = builder::transaction::create_move_txhandler(
             deposit_outpoint,
             _evm_address,
@@ -108,27 +109,33 @@ pub fn create_nofn_sighash_stream(
             network,
         );
 
+        tracing::info!("Getting operators");
         let operators: Vec<(XOnlyPublicKey, bitcoin::Address, Txid)> =
             db.get_operators(None).await?;
         if operators.len() < config.num_operators {
             panic!("Not enough operators");
         }
+        tracing::info!("Got operators");
 
         let watchtower_pks = db.get_all_watchtowers_xonly_pks(None).await?;
+        tracing::info!("Got watchtowers");
 
         for (operator_idx, (operator_xonly_pk, _operator_reimburse_address, collateral_funding_txid)) in
             operators.iter().enumerate()
         {
+            tracing::info!("Getting watchtower challenge wotss");
             // Get watchtower Winternitz pubkeys for this operator.
             let watchtower_challenge_wotss = (0..config.num_watchtowers)
                 .map(|i| db.get_watchtower_winternitz_public_keys(None, i as u32, operator_idx as u32))
                 .collect::<Vec<_>>();
+            tracing::info!("Got watchtower challenge wotss");
             let watchtower_challenge_wotss =
                 futures::future::try_join_all(watchtower_challenge_wotss).await?;
+            tracing::info!("Got watchtower challenge wotss");
 
             let mut input_txid = *collateral_funding_txid;
             let mut input_amount = collateral_funding_amount;
-
+            tracing::info!("Got input txid and amount");
             for time_tx_idx in 0..config.num_time_txs {
                 let sequential_collateral_txhandler = builder::transaction::create_sequential_collateral_txhandler(
                     *operator_xonly_pk,
@@ -259,7 +266,11 @@ pub fn create_nofn_sighash_stream(
                         )?;
                     }
 
+                    tracing::info!("Getting bitvm setup");
+
                     let (assert_tx_addrs, root_hash, public_input_wots) = db.get_bitvm_setup(None, operator_idx as i32, time_tx_idx as i32, kickoff_idx as i32).await?.ok_or(BridgeError::BitvmSetupNotFound(operator_idx as i32, time_tx_idx as i32, kickoff_idx as i32))?;
+                    tracing::info!("Got bitvm setup");
+
                     let assert_begin_txhandler = builder::transaction::create_assert_begin_txhandler(
                         &kickoff_txhandler,
                         &assert_tx_addrs,

@@ -101,7 +101,7 @@ pub enum BridgeError {
     RPCRequiredParam(&'static str),
     #[error("RPC function parameter {0} is malformed: {1}")]
     RPCParamMalformed(&'static str, String),
-    #[error("RPC stream ended unexpectedly: {0}")]
+    #[error("RPC stream ended unexpectedlyyyyyyy: {0}")]
     RPCStreamEndedUnexpectedly(String),
     #[error("Invalid response from an RPC endpoint: {0}")]
     RPCInvalidResponse(String),

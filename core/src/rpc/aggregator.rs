@@ -37,29 +37,25 @@ async fn nonce_aggregator(
     mut sighash_stream: impl Stream<Item = Result<TapSighash, BridgeError>> + Unpin + Send + 'static,
     agg_nonce_sender: Sender<AggNonceQueueItem>,
 ) -> Result<MusigAggNonce, BridgeError> {
-    let mut total_sigs = 0;
-
-    while let Some(msg) = sighash_stream.next().await {
-        let sighash = msg.map_err(|e| {
-            tracing::error!("Error when reading from sighash stream: {}", e);
-            BridgeError::RPCStreamEndedUnexpectedly("Sighash stream ended unexpectedly".into())
-        })?;
-
-        let pub_nonces = try_join_all(nonce_streams.iter_mut().enumerate().map(
-            |(i, s)| async move {
-                s.next().await.ok_or_else(|| {
-                    BridgeError::RPCStreamEndedUnexpectedly(format!(
-                        "Not enough nonces from verifier {i}",
-                    ))
-                })?
-            },
-        ))
+    let mut agg_nonce = None;
+    while let Ok(sighash) = sighash_stream.next().await.transpose() {
+        let pub_nonces = try_join_all(nonce_streams.iter_mut().map(|s| async {
+            s.next().await.ok_or_else(|| {
+                BridgeError::RPCStreamEndedUnexpectedly("Not enough nonces".into())
+            })?
+        }))
         .await?;
 
-        let agg_nonce = aggregate_nonces(pub_nonces);
+        let agg_nonce_x = aggregate_nonces(pub_nonces);
+        agg_nonce = Some(agg_nonce_x);
 
         agg_nonce_sender
-            .send(AggNonceQueueItem { agg_nonce, sighash })
+            .send(AggNonceQueueItem {
+                agg_nonce: agg_nonce_x,
+                sighash: sighash.ok_or(BridgeError::RPCStreamEndedUnexpectedly(
+                    "Not enough sighashes".into(),
+                ))?,
+            })
             .await
             .map_err(|e| {
                 BridgeError::RPCStreamEndedUnexpectedly(format!(
@@ -67,26 +63,9 @@ async fn nonce_aggregator(
                     e
                 ))
             })?;
-
-        total_sigs += 1;
     }
 
-    if total_sigs == 0 {
-        tracing::warn!("Sighash stream returned 0 signatures");
-    }
-    // Finally, aggregate nonces for the movetx signature
-    let pub_nonces = try_join_all(nonce_streams.iter_mut().map(|s| async {
-        s.next().await.ok_or_else(|| {
-            BridgeError::RPCStreamEndedUnexpectedly(
-                "Not enough nonces (expected movetx nonce)".into(),
-            )
-        })?
-    }))
-    .await?;
-
-    let agg_nonce = aggregate_nonces(pub_nonces);
-
-    Ok(agg_nonce)
+    Ok(agg_nonce.unwrap())
 }
 
 /// Reroutes aggregated nonces to the signature aggregator.
@@ -436,7 +415,7 @@ impl ClementineAggregator for Aggregator {
                 let mut verifier_client = verifier_client.clone();
 
                 async move {
-                    let (tx, rx) = tokio::sync::mpsc::channel(1280);
+                    let (tx, rx) = tokio::sync::mpsc::channel(12800);
                     let stream = verifier_client
                         .deposit_sign(tokio_stream::wrappers::ReceiverStream::new(rx))
                         .await?;
@@ -475,7 +454,7 @@ impl ClementineAggregator for Aggregator {
         let mut deposit_finalize_clients = self.verifier_clients.clone();
         let deposit_finalize_streams = try_join_all(deposit_finalize_clients.iter_mut().map(
             |verifier_client| async move {
-                let (tx, rx) = tokio::sync::mpsc::channel(1280);
+                let (tx, rx) = tokio::sync::mpsc::channel(12800);
                 let receiver_stream = tokio_stream::wrappers::ReceiverStream::new(rx);
 
                 let deposit_finalize_futures =
@@ -507,6 +486,11 @@ impl ClementineAggregator for Aggregator {
                     ))
                 })?;
         }
+
+        tracing::info!(
+            "agg db test: {:?}",
+            self.db.get_operators(None).await.unwrap()
+        );
 
         // Create sighash stream for transaction signing
         let sighash_stream = create_nofn_sighash_stream(

@@ -158,6 +158,8 @@ impl ClementineVerifier for Verifier {
             .map(|wpk| Ok(wpk.to_bitvm()))
             .collect::<Result<Vec<_>, BridgeError>>()?;
 
+        tracing::info!("Got operator winternitz public keys");
+
         self.db
             .save_operator_winternitz_public_keys(
                 None,
@@ -165,9 +167,14 @@ impl ClementineVerifier for Verifier {
                 operator_winternitz_public_keys.clone(),
             )
             .await?;
+
+        tracing::info!("Saved operator winternitz public keys");
+
         // Split the winternitz public keys into chunks for every sequential collateral tx and kickoff index.
         // This is done because we need to generate a separate BitVM setup for each collateral tx and kickoff index.
         let chunk_size = utils::ALL_BITVM_INTERMEDIATE_VARIABLES.len();
+
+        tracing::info!("Chunk size: {}", chunk_size);
         let winternitz_public_keys_chunks =
             operator_winternitz_public_keys.chunks_exact(chunk_size);
 
@@ -247,6 +254,7 @@ impl ClementineVerifier for Verifier {
             let root_hash = taproot_builder.try_into_taptree().unwrap().root_hash();
             let root_hash_bytes = root_hash.to_raw_hash().to_byte_array();
 
+            tracing::info!("Saving bitvm setup");
             // Save the public input wots to db along with the root hash
             self.db
                 .save_bitvm_setup(
@@ -259,6 +267,7 @@ impl ClementineVerifier for Verifier {
                     public_input_wots,
                 )
                 .await?;
+            tracing::info!("Saved bitvm setup");
         }
 
         Ok(Response::new(Empty {}))
@@ -351,7 +360,7 @@ impl ClementineVerifier for Verifier {
         };
 
         // now stream the nonces
-        let (tx, rx) = mpsc::channel(1280);
+        let (tx, rx) = mpsc::channel(12800);
         tokio::spawn(async move {
             // First send the session id
             let response = NonceGenResponse {
@@ -380,7 +389,7 @@ impl ClementineVerifier for Verifier {
     ) -> Result<Response<Self::DepositSignStream>, Status> {
         let mut in_stream = req.into_inner();
 
-        let (tx, rx) = mpsc::channel(1280);
+        let (tx, rx) = mpsc::channel(12800);
 
         tracing::info!("Received deposit sign request");
 
@@ -422,9 +431,23 @@ impl ClementineVerifier for Verifier {
             session.nonces.reverse();
 
             let mut nonce_idx: usize = 0;
+            tracing::info!("Creating sighash stream");
+            tracing::info!("Deposit outpoint: {:?}", deposit_outpoint);
+            tracing::info!("EVM address: {:?}", evm_address);
+            tracing::info!("Recovery taproot address: {:?}", recovery_taproot_address);
+            tracing::info!("User takes after: {:?}", user_takes_after);
+            tracing::info!("Session ID: {:?}", session_id);
+            tracing::info!("Bridge amount sats: {:?}", verifier.config.bridge_amount_sats);
+            tracing::info!("Network: {:?}", verifier.config.network);
+            tracing::info!("NoFN xonly pk: {:?}", verifier.nofn_xonly_pk);
+            tracing::info!("User takes after: {:?}", user_takes_after);
+            tracing::info!("Amount: {:?}", Amount::from_sat(200_000_000));
+            tracing::info!("Num operators: {:?}", verifier.config.num_operators);
+            tracing::info!("Num time txs: {:?}", verifier.config.num_time_txs);
+            tracing::info!("Num kickoffs per timetx: {:?}", verifier.config.num_kickoffs_per_timetx);
 
-            let mut sighash_stream = pin!(create_nofn_sighash_stream(
-                verifier.db,
+            let mut sighash_stream = Box::pin(create_nofn_sighash_stream(
+                verifier.db.clone(),
                 verifier.config.clone(),
                 deposit_outpoint,
                 evm_address,
@@ -438,10 +461,13 @@ impl ClementineVerifier for Verifier {
                 verifier.config.network,
             ));
             let num_required_sigs = calculate_num_required_sigs(&verifier.config);
-
-            assert!(
-                num_required_sigs + 1 == session.nonces.len(),
-                "Expected nonce count to be num_required_sigs + 1 (movetx)"
+            tracing::info!("Number of required sigs: {}", num_required_sigs);
+            assert_eq!(
+                num_required_sigs + 1,
+                session.nonces.len(),
+                "Expected nonce count to be {} (num_required_sigs + 1 for movetx), but got {}",
+                num_required_sigs + 1,
+                session.nonces.len()
             );
 
             while let Some(result) = in_stream.message().await.unwrap() {
@@ -456,6 +482,7 @@ impl ClementineVerifier for Verifier {
                     _ => panic!("Expected AggNonce"),
                 };
 
+                tracing::info!("Trying to get sighash");
                 let sighash = sighash_stream.next().await.unwrap().unwrap();
                 tracing::debug!("Verifier {} found sighash: {:?}", verifier.idx, sighash);
 
