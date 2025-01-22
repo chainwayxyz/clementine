@@ -56,7 +56,7 @@ async fn nonce_aggregator(
         ))
         .await?;
 
-        let agg_nonce = aggregate_nonces(pub_nonces);
+        let agg_nonce = aggregate_nonces(pub_nonces.iter().collect::<Vec<_>>().as_slice());
 
         agg_nonce_sender
             .send(AggNonceQueueItem { agg_nonce, sighash })
@@ -84,7 +84,7 @@ async fn nonce_aggregator(
     }))
     .await?;
 
-    let agg_nonce = aggregate_nonces(pub_nonces);
+    let agg_nonce = aggregate_nonces(pub_nonces.iter().collect::<Vec<_>>().as_slice());
 
     Ok(agg_nonce)
 }
@@ -143,10 +143,10 @@ async fn signature_aggregator(
 ) -> Result<(), BridgeError> {
     while let Some((partial_sigs, queue_item)) = partial_sig_receiver.recv().await {
         let final_sig = crate::musig2::aggregate_partial_signatures(
-            verifiers_public_keys.clone(),
+            &verifiers_public_keys,
             None,
             queue_item.agg_nonce,
-            partial_sigs,
+            &partial_sigs,
             Message::from_digest(queue_item.sighash.as_raw_hash().to_byte_array()),
         )?;
 

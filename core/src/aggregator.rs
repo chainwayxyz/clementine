@@ -120,10 +120,10 @@ impl Aggregator {
         );
         // tracing::debug!("aggregate SLASH_OR_TAKE_TX message: {:?}", message);
         let final_sig = aggregate_partial_signatures(
-            self.config.verifiers_public_keys.clone(),
+            &self.config.verifiers_public_keys,
             None,
             *agg_nonce,
-            partial_sigs,
+            &partial_sigs,
             message,
         )?;
         // tracing::debug!("aggregate SLASH_OR_TAKE_TX final_sig: {:?}", final_sig);
@@ -202,10 +202,10 @@ impl Aggregator {
             Actor::convert_tx_to_sighash_pubkey_spend(&mut tx_handler, 0)?.to_byte_array(),
         );
         let final_sig = aggregate_partial_signatures(
-            self.config.verifiers_public_keys.clone(),
+            &self.config.verifiers_public_keys,
             Some(Musig2Mode::OnlyKeySpend),
             *agg_nonce,
-            partial_sigs,
+            &partial_sigs,
             message,
         )?;
         // tracing::debug!("OPERATOR_TAKES_TX final_sig: {:?}", final_sig);
@@ -236,10 +236,10 @@ impl Aggregator {
             Actor::convert_tx_to_sighash_script_spend(&mut tx, 0, 0)?.to_byte_array(),
         );
         let final_sig = aggregate_partial_signatures(
-            self.config.verifiers_public_keys.clone(),
+            &self.config.verifiers_public_keys,
             None,
             *agg_nonce,
-            partial_sigs,
+            &partial_sigs,
             message,
         )?;
 
@@ -255,11 +255,11 @@ impl Aggregator {
         for i in 0..pub_nonces[0].len() {
             let pub_nonces = pub_nonces
                 .iter()
-                .map(|ith_pub_nonces| ith_pub_nonces.get(i).cloned())
+                .map(|ith_pub_nonces| ith_pub_nonces.get(i))
                 .collect::<Option<Vec<_>>>()
                 .ok_or(BridgeError::NoncesNotFound)?;
 
-            agg_nonces.push(aggregate_nonces(pub_nonces));
+            agg_nonces.push(aggregate_nonces(&pub_nonces));
         }
 
         Ok(agg_nonces)

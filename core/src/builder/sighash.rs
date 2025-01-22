@@ -207,7 +207,7 @@ pub fn create_nofn_sighash_stream(
                             &kickoff_txhandler,
                             config.num_watchtowers as u32,
                             &watchtower_pks,
-                            watchtower_wots.clone(),
+                            &watchtower_wots,
                             network,
                         );
 
@@ -272,7 +272,7 @@ pub fn create_nofn_sighash_stream(
                         &assert_tx_addrs,
                         &root_hash,
                         nofn_xonly_pk,
-                        public_input_wots,
+                        &public_input_wots,
                         network,
                     );
                     yield convert_tx_to_pubkey_spend(
