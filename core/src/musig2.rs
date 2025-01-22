@@ -224,7 +224,6 @@ pub fn partial_sign(
 mod tests {
     use super::{nonce_pair, MuSigNoncePair, Musig2Mode};
     use crate::{
-        actor::Actor,
         builder::{self, transaction::TxHandler},
         errors::BridgeError,
         musig2::{
@@ -532,7 +531,8 @@ mod tests {
         };
 
         let message = Message::from_digest(
-            Actor::convert_tx_to_sighash_pubkey_spend(&mut tx_details, 0)
+            tx_details
+                .calculate_pubkey_spend_sighash(0, None)
                 .unwrap()
                 .to_byte_array(),
         );
@@ -636,7 +636,8 @@ mod tests {
         };
 
         let message = Message::from_digest(
-            Actor::convert_tx_to_sighash_script_spend(&mut tx_details, 0, 0)
+            tx_details
+                .calculate_script_spend_sighash(0, 0, None)
                 .unwrap()
                 .to_byte_array(),
         );

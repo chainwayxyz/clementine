@@ -10,7 +10,6 @@ use clementine_core::musig2::{
 };
 use clementine_core::utils::{handle_taproot_witness_new, SECP};
 use clementine_core::{
-    actor::Actor,
     builder::{self},
     config::BridgeConfig,
     extended_rpc::ExtendedRpc,
@@ -106,7 +105,8 @@ async fn key_spend() {
     };
 
     let message = Message::from_digest(
-        Actor::convert_tx_to_sighash_pubkey_spend(&mut tx_details, 0)
+        tx_details
+            .calculate_pubkey_spend_sighash(0, None)
             .unwrap()
             .to_byte_array(),
     );
@@ -205,7 +205,8 @@ async fn key_spend_with_script() {
         out_taproot_spend_infos: vec![Some(to_address_spend.clone())],
     };
     let message = Message::from_digest(
-        Actor::convert_tx_to_sighash_pubkey_spend(&mut tx_details, 0)
+        tx_details
+            .calculate_pubkey_spend_sighash(0, None)
             .unwrap()
             .to_byte_array(),
     );
@@ -311,7 +312,8 @@ async fn script_spend() {
         out_taproot_spend_infos: vec![None],
     };
     let message = Message::from_digest(
-        Actor::convert_tx_to_sighash_script_spend(&mut tx_details, 0, 0)
+        tx_details
+            .calculate_script_spend_sighash(0, 0, None)
             .unwrap()
             .to_byte_array(),
     );

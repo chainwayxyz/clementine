@@ -4,9 +4,8 @@ use super::clementine::{
     VerifierDepositSignParams, VerifierParams, VerifierPublicKeys, WatchtowerParams,
 };
 use crate::{
-    actor::Actor,
     builder::sighash::{calculate_num_required_sigs, create_nofn_sighash_stream},
-    builder::transaction::create_move_txhandler,
+    builder::transaction::create_move_to_vault_txhandler,
     builder::{self, address::taproot_builder_with_scripts},
     errors::BridgeError,
     musig2::{self},
@@ -40,17 +39,17 @@ fn get_deposit_params(
         bitcoin::OutPoint,
         EVMAddress,
         bitcoin::Address<NetworkUnchecked>,
-        u32,
+        u16,
         u32,
     ),
     Status,
 > {
     let deposit_params = deposit_sign_session
         .deposit_params
-        .ok_or(Status::internal("No deposit outpoint received"))?;
+        .ok_or(Status::invalid_argument("No deposit outpoint received"))?;
     let deposit_outpoint: bitcoin::OutPoint = deposit_params
         .deposit_outpoint
-        .ok_or(Status::internal("No deposit outpoint received"))?
+        .ok_or(Status::invalid_argument("No deposit outpoint received"))?
         .try_into()?;
     let evm_address: EVMAddress = deposit_params.evm_address.try_into().unwrap();
     let recovery_taproot_address = deposit_params
@@ -64,7 +63,12 @@ fn get_deposit_params(
         deposit_outpoint,
         evm_address,
         recovery_taproot_address,
-        user_takes_after,
+        u16::try_from(user_takes_after).map_err(|e| {
+            Status::invalid_argument(format!(
+                "user_takes_after is too big, failed to convert: {}",
+                e
+            ))
+        })?,
         session_id,
     ))
 }
@@ -578,7 +582,7 @@ impl ClementineVerifier for Verifier {
         }
 
         // Generate partial signature for move transaction
-        let mut move_txhandler = create_move_txhandler(
+        let mut move_txhandler = create_move_to_vault_txhandler(
             deposit_outpoint,
             evm_address,
             &recovery_taproot_address,
@@ -588,7 +592,7 @@ impl ClementineVerifier for Verifier {
             self.config.network,
         );
 
-        let move_tx_sighash = Actor::convert_tx_to_sighash_script_spend(&mut move_txhandler, 0, 0)?;
+        let move_tx_sighash = move_txhandler.calculate_script_spend_sighash(0, 0, None)?;
 
         let agg_nonce = match in_stream.message().await.unwrap().unwrap().params.unwrap() {
             Params::MoveTxAggNonce(aggnonce) => MusigAggNonce::from_slice(&aggnonce)
