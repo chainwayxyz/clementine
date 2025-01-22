@@ -76,11 +76,14 @@ lazy_static! {
 }
 
 fn create_key_agg_cache(
-    public_keys: Vec<PublicKey>,
+    public_keys: impl AsRef<[PublicKey]>,
     mode: Option<Musig2Mode>,
 ) -> Result<MusigKeyAggCache, BridgeError> {
-    let secp_pubkeys: Vec<secp256k1::PublicKey> =
-        public_keys.iter().map(|pk| to_secp_pk(*pk)).collect();
+    let secp_pubkeys: Vec<secp256k1::PublicKey> = public_keys
+        .as_ref()
+        .iter()
+        .map(|pk| to_secp_pk(*pk))
+        .collect();
     let pubkeys_ref: Vec<&secp256k1::PublicKey> = secp_pubkeys.iter().collect();
     let pubkeys_ref = pubkeys_ref.as_slice();
 
@@ -140,21 +143,19 @@ impl AggregateFromPublicKeys for XOnlyPublicKey {
 }
 
 // Aggregates the public nonces into a single aggregated nonce.
-pub fn aggregate_nonces(pub_nonces: Vec<MusigPubNonce>) -> MusigAggNonce {
-    let pub_nonces = pub_nonces.iter().collect::<Vec<_>>();
-
-    MusigAggNonce::new(SECP256K1, pub_nonces.as_slice())
+pub fn aggregate_nonces(pub_nonces: &[&MusigPubNonce]) -> MusigAggNonce {
+    MusigAggNonce::new(SECP256K1, pub_nonces)
 }
 
 // Aggregates the partial signatures into a single aggregated signature.
 pub fn aggregate_partial_signatures(
-    pks: Vec<PublicKey>,
+    pks: &[PublicKey],
     tweak: Option<Musig2Mode>,
     agg_nonce: MusigAggNonce,
-    partial_sigs: Vec<MusigPartialSignature>,
+    partial_sigs: &[MusigPartialSignature],
     message: Message,
 ) -> Result<schnorr::Signature, BridgeError> {
-    let musig_key_agg_cache = create_key_agg_cache(pks, tweak)?;
+    let musig_key_agg_cache: MusigKeyAggCache = create_key_agg_cache(pks, tweak)?;
     let secp_message = to_secp_msg(&message);
 
     let session = MusigSession::new(SECP256K1, &musig_key_agg_cache, agg_nonce, secp_message);
@@ -274,8 +275,9 @@ mod tests {
         let aggregated_nonce = super::aggregate_nonces(
             nonce_pairs
                 .iter()
-                .map(|(_, musig_pub_nonce)| *musig_pub_nonce)
-                .collect(),
+                .map(|(_, musig_pub_nonce)| musig_pub_nonce)
+                .collect::<Vec<_>>()
+                .as_slice(),
         );
 
         let partial_sigs = key_pairs
@@ -295,10 +297,10 @@ mod tests {
             .collect::<Vec<_>>();
 
         let final_signature = super::aggregate_partial_signatures(
-            public_keys.clone(),
+            &public_keys,
             None,
             aggregated_nonce,
-            partial_sigs,
+            &partial_sigs,
             message,
         )
         .unwrap();
@@ -324,7 +326,7 @@ mod tests {
         let (sec_nonce_2, pub_nonce_2) =
             super::nonce_pair(&kp_2, &mut secp256k1::rand::thread_rng()).unwrap();
 
-        let agg_nonce = super::aggregate_nonces(vec![pub_nonce_0, pub_nonce_1, pub_nonce_2]);
+        let agg_nonce = super::aggregate_nonces(&[&pub_nonce_0, &pub_nonce_1, &pub_nonce_2]);
 
         let partial_sig_0 =
             super::partial_sign(pks.clone(), None, sec_nonce_0, agg_nonce, kp_0, message).unwrap();
@@ -345,7 +347,7 @@ mod tests {
         let partial_sigs = vec![partial_sig_0, partial_sig_1, partial_sig_2];
 
         let final_signature: Result<schnorr::Signature, BridgeError> =
-            super::aggregate_partial_signatures(pks, None, agg_nonce, partial_sigs, message);
+            super::aggregate_partial_signatures(&pks, None, agg_nonce, &partial_sigs, message);
 
         assert!(final_signature.is_err());
     }
@@ -371,8 +373,9 @@ mod tests {
         let aggregated_nonce = super::aggregate_nonces(
             nonce_pairs
                 .iter()
-                .map(|(_, musig_pub_nonce)| *musig_pub_nonce)
-                .collect(),
+                .map(|(_, musig_pub_nonce)| musig_pub_nonce)
+                .collect::<Vec<_>>()
+                .as_slice(),
         );
 
         let partial_sigs = key_pairs
@@ -394,12 +397,12 @@ mod tests {
             .collect::<Vec<_>>();
 
         let final_signature = super::aggregate_partial_signatures(
-            public_keys,
+            &public_keys,
             Some(Musig2Mode::KeySpendWithScript(
                 TapNodeHash::from_slice(&tweak).unwrap(),
             )),
             aggregated_nonce,
-            partial_sigs,
+            &partial_sigs,
             message,
         )
         .unwrap();
@@ -427,7 +430,7 @@ mod tests {
         let (sec_nonce_2, pub_nonce_2) =
             super::nonce_pair(&kp_2, &mut secp256k1::rand::thread_rng()).unwrap();
 
-        let agg_nonce = super::aggregate_nonces(vec![pub_nonce_0, pub_nonce_1, pub_nonce_2]);
+        let agg_nonce = super::aggregate_nonces(&[&pub_nonce_0, &pub_nonce_1, &pub_nonce_2]);
 
         let partial_sig_0 = super::partial_sign(
             pks.clone(),
@@ -457,12 +460,12 @@ mod tests {
         let partial_sigs = vec![partial_sig_0, partial_sig_1, partial_sig_2];
 
         let final_signature = super::aggregate_partial_signatures(
-            pks,
+            &pks,
             Some(Musig2Mode::KeySpendWithScript(
                 TapNodeHash::from_slice(&tweak).unwrap(),
             )),
             agg_nonce,
-            partial_sigs,
+            &partial_sigs,
             message,
         );
 
@@ -483,8 +486,9 @@ mod tests {
         let agg_nonce = super::aggregate_nonces(
             nonce_pairs
                 .iter()
-                .map(|(_, musig_pub_nonce)| *musig_pub_nonce)
-                .collect(),
+                .map(|(_, musig_pub_nonce)| musig_pub_nonce)
+                .collect::<Vec<_>>()
+                .as_slice(),
         );
 
         let dummy_script = script::Builder::new().push_int(1).into_script();
@@ -552,10 +556,10 @@ mod tests {
             .collect();
 
         let final_signature = super::aggregate_partial_signatures(
-            public_keys.clone(),
+            &public_keys,
             Some(Musig2Mode::KeySpendWithScript(merkle_root)),
             agg_nonce,
-            partial_sigs,
+            &partial_sigs,
             message,
         )
         .unwrap();
@@ -578,7 +582,13 @@ mod tests {
             .map(|key_pair| key_pair.public_key())
             .collect::<Vec<PublicKey>>();
 
-        let agg_nonce = super::aggregate_nonces(nonce_pairs.iter().map(|x| x.1).collect());
+        let agg_nonce = super::aggregate_nonces(
+            nonce_pairs
+                .iter()
+                .map(|x| &x.1)
+                .collect::<Vec<_>>()
+                .as_slice(),
+        );
         let musig_agg_xonly_pubkey_wrapped =
             XOnlyPublicKey::from_musig2_pks(public_keys.clone(), None).unwrap();
 
@@ -650,10 +660,10 @@ mod tests {
             .collect();
 
         let final_signature = super::aggregate_partial_signatures(
-            public_keys,
+            &public_keys,
             None,
             agg_nonce,
-            partial_sigs,
+            &partial_sigs,
             message,
         )
         .unwrap();
@@ -715,7 +725,7 @@ mod tests {
             nonce_pair(&kp1, &mut bitcoin::secp256k1::rand::thread_rng()).unwrap();
         let (sec_nonce2, pub_nonce2) =
             nonce_pair(&kp2, &mut bitcoin::secp256k1::rand::thread_rng()).unwrap();
-        let agg_nonce = aggregate_nonces(vec![pub_nonce1, pub_nonce2]);
+        let agg_nonce = aggregate_nonces(&[&pub_nonce1, &pub_nonce2]);
 
         let partial_sig1 = partial_sign(
             public_keys.clone(),
@@ -737,10 +747,10 @@ mod tests {
         .unwrap();
 
         let final_sig = aggregate_partial_signatures(
-            public_keys.clone(),
+            &public_keys,
             Some(key_spend_with_script_tweak),
             agg_nonce,
-            vec![partial_sig1, partial_sig2],
+            &[partial_sig1, partial_sig2],
             message,
         )
         .unwrap();

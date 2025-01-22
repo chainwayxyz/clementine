@@ -236,10 +236,10 @@ impl Aggregator {
                 .to_byte_array(),
         );
         let final_sig = aggregate_partial_signatures(
-            self.config.verifiers_public_keys.clone(),
+            &self.config.verifiers_public_keys,
             None,
             *agg_nonce,
-            partial_sigs,
+            &partial_sigs,
             message,
         )?;
 

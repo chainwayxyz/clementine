@@ -499,7 +499,7 @@ pub fn create_watchtower_challenge_kickoff_txhandler(
     kickoff_tx_handler: &TxHandler,
     num_watchtowers: u32,
     watchtower_xonly_pks: &[XOnlyPublicKey],
-    watchtower_challenge_winternitz_pks: Vec<Vec<[u8; 20]>>,
+    watchtower_challenge_winternitz_pks: &[Vec<[u8; 20]>],
     network: bitcoin::Network,
 ) -> TxHandler {
     let tx_ins = create_tx_ins(
@@ -521,7 +521,7 @@ pub fn create_watchtower_challenge_kickoff_txhandler(
         .map(|i| {
             let mut x = verifier.checksig_verify(
                 &wots_params,
-                watchtower_challenge_winternitz_pks[i as usize].as_ref(),
+                &watchtower_challenge_winternitz_pks[i as usize].as_ref(),
             );
             x = x.push_x_only_key(&watchtower_xonly_pks[i as usize]);
             x = x.push_opcode(OP_CHECKSIG); // TODO: Add checksig in the beginning
@@ -757,7 +757,7 @@ pub fn create_assert_end_txhandler(
     assert_tx_addrs: &[ScriptBuf],
     root_hash: &[u8; 32],
     nofn_xonly_pk: XOnlyPublicKey,
-    _public_input_wots: Vec<[u8; 20]>,
+    _public_input_wots: &[[u8; 20]],
     network: bitcoin::Network,
 ) -> TxHandler {
     let mut last_mini_assert_txid =

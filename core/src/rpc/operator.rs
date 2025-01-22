@@ -75,8 +75,8 @@ impl ClementineOperator for Operator {
         request: Request<WithdrawalFinalizedParams>,
     ) -> Result<Response<Empty>, Status> {
         // Decode inputs.
-        let withdrawal_idx: u32 = request.get_ref().withdrawal_id;
-        let deposit_outpoint: OutPoint = request
+        let _withdrawal_idx: u32 = request.get_ref().withdrawal_id;
+        let _deposit_outpoint: OutPoint = request
             .get_ref()
             .deposit_outpoint
             .clone()
