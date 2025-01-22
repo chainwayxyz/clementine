@@ -37,7 +37,7 @@ impl sqlx::Type<sqlx::Postgres> for OutPointDB {
     }
 }
 
-impl<'q> Encode<'q, Postgres> for OutPointDB {
+impl Encode<'_, Postgres> for OutPointDB {
     fn encode_by_ref(&self, buf: &mut PgArgumentBuffer) -> sqlx::encode::IsNull {
         let s = self.0.to_string();
 
@@ -59,7 +59,7 @@ impl sqlx::Type<sqlx::Postgres> for AddressDB {
     }
 }
 
-impl<'q> Encode<'q, Postgres> for AddressDB {
+impl Encode<'_, Postgres> for AddressDB {
     fn encode_by_ref(&self, buf: &mut PgArgumentBuffer) -> sqlx::encode::IsNull {
         let s = self.0.clone().assume_checked().to_string();
         <&str as Encode<Postgres>>::encode_by_ref(&s.as_str(), buf)
@@ -79,7 +79,7 @@ impl sqlx::Type<sqlx::Postgres> for EVMAddressDB {
     }
 }
 
-impl<'q> Encode<'q, Postgres> for EVMAddressDB {
+impl Encode<'_, Postgres> for EVMAddressDB {
     fn encode_by_ref(&self, buf: &mut PgArgumentBuffer) -> sqlx::encode::IsNull {
         let s = hex::encode(self.0 .0);
         <&str as Encode<Postgres>>::encode_by_ref(&s.as_str(), buf)
@@ -101,7 +101,7 @@ impl sqlx::Type<sqlx::Postgres> for TxidDB {
     }
 }
 
-impl<'q> Encode<'q, Postgres> for TxidDB {
+impl Encode<'_, Postgres> for TxidDB {
     fn encode_by_ref(&self, buf: &mut PgArgumentBuffer) -> sqlx::encode::IsNull {
         let s = bitcoin::consensus::encode::serialize_hex(&self.0);
         <&str as Encode<Postgres>>::encode_by_ref(&s.as_str(), buf)
@@ -122,7 +122,7 @@ impl sqlx::Type<sqlx::Postgres> for TxOutDB {
     }
 }
 
-impl<'q> Encode<'q, Postgres> for TxOutDB {
+impl Encode<'_, Postgres> for TxOutDB {
     fn encode_by_ref(&self, buf: &mut PgArgumentBuffer) -> sqlx::encode::IsNull {
         let s = bitcoin::consensus::encode::serialize_hex(&self.0);
         <&str as Encode<Postgres>>::encode_by_ref(&s.as_str(), buf)
@@ -143,7 +143,7 @@ impl sqlx::Type<sqlx::Postgres> for SignatureDB {
     }
 }
 
-impl<'q> Encode<'q, Postgres> for SignatureDB {
+impl Encode<'_, Postgres> for SignatureDB {
     fn encode_by_ref(&self, buf: &mut PgArgumentBuffer) -> sqlx::encode::IsNull {
         let s: String = secp256k1::schnorr::Signature::to_string(&self.0);
         <&str as Encode<Postgres>>::encode_by_ref(&s.as_str(), buf)
