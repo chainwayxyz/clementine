@@ -1019,6 +1019,9 @@ pub fn create_disprove_txhandler(
     }
 }
 
+/// Creates a [`TxHandler`] for the `challenge`. This transaction is for covering
+/// the operators' cost for a challenge to prevent people from maliciously
+/// challenging them and causing them to lose money.
 pub fn create_challenge_txhandler(
     kickoff_txhandler: &TxHandler,
     operator_reimbursement_address: &bitcoin::Address,
