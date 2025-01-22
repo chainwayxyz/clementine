@@ -323,37 +323,46 @@ impl ClementineAggregator for Aggregator {
         let operator_params = try_join_all(self.operator_clients.iter().map(|client| {
             let mut client = client.clone();
             async move {
-                let response = client
+                let mut responses = Vec::new();
+                while let Some(response) = client
                     .get_params(Request::new(Empty {}))
                     .await?
                     .into_inner()
                     .message()
                     .await?
-                    .ok_or(Status::invalid_argument("No response from operator"))?;
-                Ok::<_, Status>(response)
+                {
+                    responses.push(response);
+                }
+
+                Ok::<_, Status>(responses)
             }
         }))
         .await?;
 
         tracing::info!("Informing verifiers for existing operators...");
-        try_join_all(self.verifier_clients.iter().map(|client| {
-            let mut client = client.clone();
-            let params = operator_params.clone();
+        try_join_all(
+            self.verifier_clients
+                .iter()
+                .enumerate()
+                .map(|(idx, client)| {
+                    let mut client = client.clone();
+                    let params = operator_params.clone().get(idx).unwrap().to_owned();
 
-            async move {
-                let (tx, rx) = tokio::sync::mpsc::channel(1280);
+                    async move {
+                        let (tx, rx) = tokio::sync::mpsc::channel(1280);
 
-                client
-                    .set_operator(tokio_stream::wrappers::ReceiverStream::new(rx))
-                    .await?;
+                        client
+                            .set_operator(tokio_stream::wrappers::ReceiverStream::new(rx))
+                            .await?;
 
-                for param in params {
-                    tx.send(param).await.unwrap();
-                }
+                        for param in params {
+                            tx.send(param).await.unwrap();
+                        }
 
-                Ok::<_, tonic::Status>(())
-            }
-        }))
+                        Ok::<_, tonic::Status>(())
+                    }
+                }),
+        )
         .await?;
 
         tracing::info!("Collecting Winternitz public keys from watchtowers...");
