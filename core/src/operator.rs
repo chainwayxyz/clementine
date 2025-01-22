@@ -14,7 +14,8 @@ use jsonrpsee::http_client::HttpClientBuilder;
 use jsonrpsee::rpc_params;
 use serde_json::json;
 
-pub type PreImage = [u8; 20];
+pub type SecretPreimage = [u8; 20];
+pub type PublicHash = [u8; 20];
 
 #[derive(Debug, Clone)]
 pub struct Operator {
@@ -724,7 +725,7 @@ impl Operator {
         Ok(winternitz_pubkeys)
     }
 
-    pub fn generate_preimages_and_hashes(&self) -> Result<Vec<PreImage>, BridgeError> {
+    pub fn generate_preimages_and_hashes(&self) -> Result<Vec<PublicHash>, BridgeError> {
         let mut preimages = Vec::new();
 
         for sequential_collateral_tx in 0..self.config.num_time_txs as u32 {
@@ -741,9 +742,8 @@ impl Operator {
                         kickoff_idx: Some(kickoff_idx),
                         intermediate_step_name: None,
                     };
-                    let preimage_vec = self.signer.derive_winternitz_pk(path)?;
-                    println!("Preimage vec length: {:?}", preimage_vec.len());
-                    preimages.push(preimage_vec[0]); // TODO: Change this later, this is probably wrong since Winternitz public key is a Vec<[u8; 20]>
+                    let hash = self.signer.generate_public_hash_from_path(path)?;
+                    preimages.push(hash); // Subject to change
                 }
             }
         }
