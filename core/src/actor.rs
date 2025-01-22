@@ -22,6 +22,7 @@ pub enum TxType {
     BitVM,
     OperatorLongestChain,
     WatchtowerChallenge,
+    OperatorChallengeACK,
 }
 
 /// Derivation path specification for Winternitz one time public key generation.
