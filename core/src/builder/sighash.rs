@@ -23,6 +23,9 @@ pub fn calculate_num_required_sigs(config: &BridgeConfig) -> usize {
         * (10 + 2 * config.num_watchtowers)
 }
 
+/// Refer to bridge design diagram to see which NofN signatures are needed (the ones marked with blue arrows).
+/// These sighashes are needed in order to create the message to be signed later for MuSig2 of NofN.
+/// WIP: Update if the design changes.
 /// For a given deposit tx, for each operator and sequential_collateral tx, generates the sighash stream for:
 /// - challenge_tx,
 /// - start_happy_reimburse_tx,
@@ -34,9 +37,6 @@ pub fn calculate_num_required_sigs(config: &BridgeConfig) -> usize {
 /// - disprove_timeout_tx (for 2 inputs),
 /// - already_disproved_tx,
 /// - reimburse_tx.
-/// Refer to bridge design diagram to see which NofN signatures are needed (the ones marked with blue arrows).
-/// These sighashes are needed in order to create the message to be signed later for MuSig2 of NofN.
-/// WIP: Update if the design changes.
 pub fn create_nofn_sighash_stream(
     db: Database,
     config: BridgeConfig,

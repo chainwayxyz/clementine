@@ -4,14 +4,13 @@
 //! transactions.
 
 use super::address::create_taproot_address;
-use crate::constants::KICKOFF_UTXO_AMOUNT_SATS;
+use crate::builder;
 use crate::constants::{
     OPERATOR_CHALLENGE_AMOUNT,
     {MIN_TAPROOT_AMOUNT, NUM_INTERMEDIATE_STEPS, PARALLEL_ASSERT_TX_CHAIN_SIZE},
 };
 use crate::errors::BridgeError;
 use crate::utils::SECP;
-use crate::{builder, UTXO};
 use crate::{utils, EVMAddress};
 use bitcoin::address::NetworkUnchecked;
 use bitcoin::hashes::Hash;
@@ -141,7 +140,6 @@ pub fn create_sequential_collateral_txhandler(
         }]
         .into(),
     );
-    u16::try_from(max_withdrawal_time_block_count).expect("Max withdrawal time block count is larger than u16::MAX (sequence relative timelock is 16 bits");
     let max_withdrawal_time_locked_script = builder::script::generate_relative_timelock_script(
         operator_xonly_pk,
         max_withdrawal_time_block_count,
@@ -521,7 +519,7 @@ pub fn create_watchtower_challenge_kickoff_txhandler(
         .map(|i| {
             let mut x = verifier.checksig_verify(
                 &wots_params,
-                &watchtower_challenge_winternitz_pks[i as usize].as_ref(),
+                &watchtower_challenge_winternitz_pks[i as usize],
             );
             x = x.push_x_only_key(&watchtower_xonly_pks[i as usize]);
             x = x.push_opcode(OP_CHECKSIG); // TODO: Add checksig in the beginning

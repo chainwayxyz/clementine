@@ -224,7 +224,6 @@ pub fn partial_sign(
 mod tests {
     use super::{nonce_pair, MuSigNoncePair, Musig2Mode};
     use crate::{
-        actor::Actor,
         builder::{self, transaction::TxHandler},
         errors::BridgeError,
         musig2::{

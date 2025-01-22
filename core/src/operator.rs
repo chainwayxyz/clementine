@@ -5,16 +5,9 @@ use crate::database::Database;
 use crate::errors::BridgeError;
 use crate::extended_rpc::ExtendedRpc;
 use crate::musig2::AggregateFromPublicKeys;
-use crate::utils::{handle_taproot_witness_new, ALL_BITVM_INTERMEDIATE_VARIABLES, SECP};
-use crate::{utils, EVMAddress, UTXO};
-use bitcoin::address::NetworkUnchecked;
-use bitcoin::consensus::deserialize;
+use crate::utils::ALL_BITVM_INTERMEDIATE_VARIABLES;
 use bitcoin::hashes::Hash;
-use bitcoin::script::PushBytesBuf;
-use bitcoin::secp256k1::{schnorr, Message};
-use bitcoin::sighash::SighashCache;
-use bitcoin::{Address, Amount, OutPoint, TapSighash, Transaction, TxOut, Txid, XOnlyPublicKey};
-use bitcoincore_rpc::{RawTx, RpcApi};
+use bitcoin::{Amount, OutPoint, XOnlyPublicKey};
 use bitvm::signatures::winternitz;
 use jsonrpsee::core::client::ClientT;
 use jsonrpsee::http_client::HttpClientBuilder;
@@ -23,7 +16,7 @@ use serde_json::json;
 
 #[derive(Debug, Clone)]
 pub struct Operator {
-    rpc: ExtendedRpc,
+    _rpc: ExtendedRpc,
     pub db: Database,
     pub(crate) signer: Actor,
     pub(crate) config: BridgeConfig,
@@ -35,7 +28,7 @@ pub struct Operator {
 impl Operator {
     /// Creates a new `Operator`.
     // #[tracing::instrument(skip_all, err(level = tracing::Level::ERROR))]
-    pub async fn new(config: BridgeConfig, rpc: ExtendedRpc) -> Result<Self, BridgeError> {
+    pub async fn new(config: BridgeConfig, _rpc: ExtendedRpc) -> Result<Self, BridgeError> {
         // let num_verifiers = config.verifiers_public_keys.len();
 
         let signer = Actor::new(
@@ -80,7 +73,7 @@ impl Operator {
         // check if there is any time tx from the current operator
         let time_txs = db.get_time_txs(Some(&mut tx), idx as i32).await?;
         if time_txs.is_empty() {
-            let outpoint = rpc
+            let outpoint = _rpc
                 .send_to_address(&signer.address, Amount::from_sat(200_000_000))
                 .await?; // TODO: Is this OK to be a fixed value
             db.set_time_tx(Some(&mut tx), idx as i32, 0, outpoint.txid, 0)
@@ -105,7 +98,7 @@ impl Operator {
         );
 
         Ok(Self {
-            rpc,
+            _rpc,
             db,
             signer,
             config,
@@ -115,15 +108,15 @@ impl Operator {
         })
     }
 
-    /// Public endpoint for every depositor to call.
-    ///
-    /// It will get signatures from all verifiers:
-    ///
-    /// 1. Check if the deposit UTXO is valid, finalized (6 blocks confirmation) and not spent
-    /// 2. Check if we alredy created a kickoff UTXO for this deposit UTXO
-    /// 3. Create a kickoff transaction but do not broadcast it
-    ///
-    /// TODO: Create multiple kickoffs in single transaction
+    // /// Public endpoint for every depositor to call.
+    // ///
+    // /// It will get signatures from all verifiers:
+    // ///
+    // /// 1. Check if the deposit UTXO is valid, finalized (6 blocks confirmation) and not spent
+    // /// 2. Check if we alredy created a kickoff UTXO for this deposit UTXO
+    // /// 3. Create a kickoff transaction but do not broadcast it
+    // ///
+    // /// TODO: Create multiple kickoffs in single transaction
     // #[tracing::instrument(skip(self), err(level = tracing::Level::ERROR), ret(level = tracing::Level::TRACE))]
     // pub async fn new_deposit(
     //     &self,
@@ -337,17 +330,17 @@ impl Operator {
     //     }
     // }
 
-    /// Saves funding UTXO to the database.
+    // /// Saves funding UTXO to the database.
     // async fn set_funding_utxo(&self, funding_utxo: UTXO) -> Result<(), BridgeError> {
     //     self.db.set_funding_utxo(None, funding_utxo).await
     // }
 
-    /// Checks if the withdrawal amount is within the acceptable range.
-    ///
-    /// # Parameters
-    ///
-    /// - `input_amount`:
-    /// - `withdrawal_amount`:
+    // /// Checks if the withdrawal amount is within the acceptable range.
+    // ///
+    // /// # Parameters
+    // ///
+    // /// - `input_amount`:
+    // /// - `withdrawal_amount`:
     // fn is_profitable(&self, input_amount: Amount, withdrawal_amount: Amount) -> bool {
     //     if withdrawal_amount
     //         .to_sat()
@@ -364,20 +357,20 @@ impl Operator {
     //     net_profit > self.config.operator_withdrawal_fee_sats.unwrap()
     // }
 
-    /// Checks of the withdrawal has been made on Citrea, verifies a given
-    /// [`bitcoin::sighash::TapSighashType::SinglePlusAnyoneCanPay`] signature,
-    /// checks if it is profitable and finally, funds the withdrawal.
-    ///
-    /// # Parameters
-    ///
-    /// - `withdrawal_idx`: Citrea withdrawal UTXO index
-    /// - `user_sig`: User's signature that is going to be used for signing withdrawal transaction input
-    /// - `input_utxo`:
-    /// - `output_txout`:
-    ///
-    /// # Returns
-    ///
-    /// Withdrawal transaction's transaction id.
+    // /// Checks of the withdrawal has been made on Citrea, verifies a given
+    // /// [`bitcoin::sighash::TapSighashType::SinglePlusAnyoneCanPay`] signature,
+    // /// checks if it is profitable and finally, funds the withdrawal.
+    // ///
+    // /// # Parameters
+    // ///
+    // /// - `withdrawal_idx`: Citrea withdrawal UTXO index
+    // /// - `user_sig`: User's signature that is going to be used for signing withdrawal transaction input
+    // /// - `input_utxo`:
+    // /// - `output_txout`:
+    // ///
+    // /// # Returns
+    // ///
+    // /// Withdrawal transaction's transaction id.
     // #[tracing::instrument(skip(self), err(level = tracing::Level::ERROR), ret(level = tracing::Level::TRACE))]
     // async fn new_withdrawal_sig(
     //     &self,
@@ -736,9 +729,8 @@ mod tests {
         config::BridgeConfig, database::Database, initialize_database, utils::initialize_logger,
     };
     use crate::{
-        create_test_config_with_thread_name, extended_rpc::ExtendedRpc, operator::Operator, UTXO,
+        create_test_config_with_thread_name, extended_rpc::ExtendedRpc, operator::Operator,
     };
-    use bitcoin::{hashes::Hash, Amount, OutPoint, ScriptBuf, TxOut, Txid};
     use std::{env, thread};
 
     // #[tokio::test]

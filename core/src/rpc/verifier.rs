@@ -66,7 +66,7 @@ fn get_deposit_params(
         u16::try_from(user_takes_after).map_err(|e| {
             Status::invalid_argument(format!(
                 "user_takes_after is too big, failed to convert: {}",
-                e.to_string()
+                e
             ))
         })?,
         session_id,
@@ -434,7 +434,7 @@ impl ClementineVerifier for Verifier {
                 evm_address,
                 recovery_taproot_address,
                 verifier.nofn_xonly_pk,
-                u16::try_from(user_takes_after).unwrap(),
+                user_takes_after,
                 Amount::from_sat(200_000_000), // TODO: Fix this.
                 6,
                 100,

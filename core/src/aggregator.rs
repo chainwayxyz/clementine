@@ -3,7 +3,7 @@ use crate::{
     config::BridgeConfig,
     database::Database,
     errors::BridgeError,
-    musig2::{aggregate_nonces, aggregate_partial_signatures, AggregateFromPublicKeys, Musig2Mode},
+    musig2::{aggregate_partial_signatures, AggregateFromPublicKeys},
     rpc::{
         self,
         clementine::{
@@ -13,7 +13,7 @@ use crate::{
         },
     },
     utils::handle_taproot_witness_new,
-    EVMAddress, UTXO,
+    EVMAddress,
 };
 use bitcoin::{
     address::NetworkUnchecked,
@@ -22,7 +22,7 @@ use bitcoin::{
 };
 use bitcoin::{hashes::Hash, Txid};
 use bitcoincore_rpc::RawTx;
-use secp256k1::musig::{MusigAggNonce, MusigPartialSignature, MusigPubNonce};
+use secp256k1::musig::{MusigAggNonce, MusigPartialSignature};
 
 /// Aggregator struct.
 /// This struct is responsible for aggregating partial signatures from the verifiers.
