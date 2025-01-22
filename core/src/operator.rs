@@ -7,7 +7,7 @@ use crate::extended_rpc::ExtendedRpc;
 use crate::musig2::AggregateFromPublicKeys;
 use crate::utils::ALL_BITVM_INTERMEDIATE_VARIABLES;
 use bitcoin::hashes::Hash;
-use bitcoin::{Amount, OutPoint, XOnlyPublicKey};
+use bitcoin::{Amount, OutPoint, Txid, XOnlyPublicKey};
 use bitvm::signatures::winternitz;
 use jsonrpsee::core::client::ClientT;
 use jsonrpsee::http_client::HttpClientBuilder;
@@ -21,6 +21,7 @@ pub struct Operator {
     pub(crate) signer: Actor,
     pub(crate) config: BridgeConfig,
     nofn_xonly_pk: XOnlyPublicKey,
+    pub(crate) collateral_funding_txid: Txid,
     pub(crate) idx: usize,
     citrea_client: Option<jsonrpsee::http_client::HttpClient>,
 }
@@ -72,13 +73,16 @@ impl Operator {
         let mut tx = db.begin_transaction().await?;
         // check if there is any time tx from the current operator
         let time_txs = db.get_time_txs(Some(&mut tx), idx as i32).await?;
-        if time_txs.is_empty() {
+        let collateral_funding_txid = if time_txs.is_empty() {
             let outpoint = _rpc
                 .send_to_address(&signer.address, Amount::from_sat(200_000_000))
                 .await?; // TODO: Is this OK to be a fixed value
             db.set_time_tx(Some(&mut tx), idx as i32, 0, outpoint.txid, 0)
                 .await?;
-        }
+            outpoint.txid
+        } else {
+            time_txs[0].1
+        };
         tx.commit().await?;
 
         let citrea_client = if !config.citrea_rpc_url.is_empty() {
@@ -104,6 +108,7 @@ impl Operator {
             config,
             nofn_xonly_pk,
             idx,
+            collateral_funding_txid,
             citrea_client,
         })
     }
