@@ -323,8 +323,15 @@ impl ClementineAggregator for Aggregator {
         let operator_params = try_join_all(self.operator_clients.iter().map(|client| {
             let mut client = client.clone();
             async move {
-                let response = client.get_params(Request::new(Empty {})).await?;
-                Ok::<_, Status>(response.into_inner())
+                let response = client
+                    .get_params(Request::new(Empty {}))
+                    .await?
+                    .into_inner()
+                    .message()
+                    .await
+                    .unwrap()
+                    .unwrap();
+                Ok::<_, Status>(response)
             }
         }))
         .await?;
@@ -335,8 +342,14 @@ impl ClementineAggregator for Aggregator {
             let params = operator_params.clone();
 
             async move {
+                let (tx, rx) = tokio::sync::mpsc::channel(1280);
+
+                client
+                    .set_operator(tokio_stream::wrappers::ReceiverStream::new(rx))
+                    .await?;
+
                 for param in params {
-                    client.set_operator(Request::new(param)).await?;
+                    tx.send(param).await.unwrap();
                 }
 
                 Ok::<_, tonic::Status>(())

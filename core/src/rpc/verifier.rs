@@ -1,7 +1,8 @@
 use super::clementine::{
-    self, clementine_verifier_server::ClementineVerifier, nonce_gen_response, Empty,
-    NonceGenRequest, NonceGenResponse, OperatorParams, PartialSig, VerifierDepositFinalizeParams,
-    VerifierDepositSignParams, VerifierParams, VerifierPublicKeys, WatchtowerParams,
+    self, clementine_verifier_server::ClementineVerifier, nonce_gen_response, operator_params,
+    Empty, NonceGenRequest, NonceGenResponse, OperatorParams, PartialSig,
+    VerifierDepositFinalizeParams, VerifierDepositSignParams, VerifierParams, VerifierPublicKeys,
+    WatchtowerParams,
 };
 use crate::{
     actor::Actor,
@@ -124,12 +125,28 @@ impl ClementineVerifier for Verifier {
 
     // #[tracing::instrument(skip(self), err(level = tracing::Level::ERROR), ret(level = tracing::Level::TRACE))]
     #[allow(clippy::blocks_in_conditions)]
-    async fn set_operator(&self, req: Request<OperatorParams>) -> Result<Response<Empty>, Status> {
-        let operator_params = req.into_inner();
+    async fn set_operator(
+        &self,
+        req: Request<Streaming<OperatorParams>>,
+    ) -> Result<Response<Empty>, Status> {
+        let mut in_stream = req.into_inner();
 
-        let operator_config = operator_params
-            .operator_details
-            .ok_or(BridgeError::Error("No operator details".to_string()))?;
+        let operator_params = in_stream
+            .message()
+            .await
+            .unwrap()
+            .ok_or(Status::internal("No first message received"))
+            .unwrap()
+            .response
+            .ok_or(Status::internal("No deposit outpoint received"))
+            .unwrap();
+
+        let operator_config =
+            if let operator_params::Response::OperatorDetails(operator_config) = operator_params {
+                operator_config
+            } else {
+                return Err(Status::internal("Expected OperatorDetails"));
+            };
 
         let operator_xonly_pk = XOnlyPublicKey::from_str(&operator_config.xonly_pk)
             .map_err(|_| BridgeError::Error("Invalid xonly public key".to_string()))?;
@@ -151,11 +168,27 @@ impl ClementineVerifier for Verifier {
             )
             .await?;
 
-        // Convert RPC type into BitVM type.
-        let operator_winternitz_public_keys = operator_params
-            .winternitz_pubkeys
+        let mut operator_winternitz_public_keys = Vec::new();
+        for _ in 0..self.config.num_operators {
+            let operator_params = in_stream
+                .message()
+                .await
+                .unwrap()
+                .ok_or(Status::internal("No first message received"))
+                .unwrap()
+                .response
+                .ok_or(Status::internal("No deposit outpoint received"))
+                .unwrap();
+
+            if let operator_params::Response::WinternitzPubkeys(wpk) = operator_params {
+                operator_winternitz_public_keys.push(wpk.to_bitvm());
+            } else {
+                return Err(Status::internal("Expected WinternitzPubkeys"));
+            }
+        }
+        let operator_winternitz_public_keys = operator_winternitz_public_keys
             .into_iter()
-            .map(|wpk| Ok(wpk.to_bitvm()))
+            .map(Ok)
             .collect::<Result<Vec<_>, BridgeError>>()?;
 
         self.db

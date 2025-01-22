@@ -55,18 +55,26 @@ pub struct OperatorConfig {
 }
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct OperatorParams {
-    /// Operator's configuration.
-    #[prost(message, optional, tag = "1")]
-    pub operator_details: ::core::option::Option<OperatorConfig>,
-    /// Winternitz pubkeys for each watchtowers challenge + bitvm assert tx.
-    /// If there are 100 watchtowers and total of 1000 timetxs, it will take
-    /// 1000 * (100*240 + 600*20) ~= 1 GB of hash for every winternitz pubkey.
-    #[prost(message, repeated, tag = "2")]
-    pub winternitz_pubkeys: ::prost::alloc::vec::Vec<WinternitzPubkey>,
-    /// Adaptor signatures for asserting a watchtower's challenge to zero.
-    /// Total of 1000*100 preimages.
-    #[prost(message, repeated, tag = "3")]
-    pub assert_empty_public_key: ::prost::alloc::vec::Vec<AssertEmptyPublicKey>,
+    #[prost(oneof = "operator_params::Response", tags = "1, 2, 3")]
+    pub response: ::core::option::Option<operator_params::Response>,
+}
+/// Nested message and enum types in `OperatorParams`.
+pub mod operator_params {
+    #[derive(Clone, PartialEq, ::prost::Oneof)]
+    pub enum Response {
+        /// Operator's configuration.
+        #[prost(message, tag = "1")]
+        OperatorDetails(super::OperatorConfig),
+        /// Winternitz pubkeys for each watchtowers challenge + bitvm assert tx.
+        /// If there are 100 watchtowers and total of 1000 timetxs, it will take
+        /// 1000 * (100*240 + 600*20) ~= 1 GB of hash for every winternitz pubkey.
+        #[prost(message, tag = "2")]
+        WinternitzPubkeys(super::WinternitzPubkey),
+        /// Adaptor signatures for asserting a watchtower's challenge to zero.
+        /// Total of 1000*100 preimages.
+        #[prost(message, tag = "3")]
+        AssertEmptyPublicKey(super::AssertEmptyPublicKey),
+    }
 }
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct OperatorBurnSig {
@@ -311,7 +319,10 @@ pub mod clementine_operator_client {
         pub async fn get_params(
             &mut self,
             request: impl tonic::IntoRequest<super::Empty>,
-        ) -> std::result::Result<tonic::Response<super::OperatorParams>, tonic::Status> {
+        ) -> std::result::Result<
+            tonic::Response<tonic::codec::Streaming<super::OperatorParams>>,
+            tonic::Status,
+        > {
             self.inner
                 .ready()
                 .await
@@ -327,7 +338,7 @@ pub mod clementine_operator_client {
             let mut req = request.into_request();
             req.extensions_mut()
                 .insert(GrpcMethod::new("clementine.ClementineOperator", "GetParams"));
-            self.inner.unary(req, path, codec).await
+            self.inner.server_streaming(req, path, codec).await
         }
         /// Signs everything that includes Operator's burn connector.
         ///
@@ -571,7 +582,7 @@ pub mod clementine_verifier_client {
         /// Saves an operator.
         pub async fn set_operator(
             &mut self,
-            request: impl tonic::IntoRequest<super::OperatorParams>,
+            request: impl tonic::IntoStreamingRequest<Message = super::OperatorParams>,
         ) -> std::result::Result<tonic::Response<super::Empty>, tonic::Status> {
             self.inner
                 .ready()
@@ -585,10 +596,10 @@ pub mod clementine_verifier_client {
             let path = http::uri::PathAndQuery::from_static(
                 "/clementine.ClementineVerifier/SetOperator",
             );
-            let mut req = request.into_request();
+            let mut req = request.into_streaming_request();
             req.extensions_mut()
                 .insert(GrpcMethod::new("clementine.ClementineVerifier", "SetOperator"));
-            self.inner.unary(req, path, codec).await
+            self.inner.client_streaming(req, path, codec).await
         }
         /// Saves a watchtower.
         pub async fn set_watchtower(
@@ -979,6 +990,12 @@ pub mod clementine_operator_server {
     /// Generated trait containing gRPC methods that should be implemented for use with ClementineOperatorServer.
     #[async_trait]
     pub trait ClementineOperator: std::marker::Send + std::marker::Sync + 'static {
+        /// Server streaming response type for the GetParams method.
+        type GetParamsStream: tonic::codegen::tokio_stream::Stream<
+                Item = std::result::Result<super::OperatorParams, tonic::Status>,
+            >
+            + std::marker::Send
+            + 'static;
         /// Returns an operator's parameters. It will be called once, by the
         /// aggregator, to set all the public keys.
         ///
@@ -989,7 +1006,7 @@ pub mod clementine_operator_server {
         async fn get_params(
             &self,
             request: tonic::Request<super::Empty>,
-        ) -> std::result::Result<tonic::Response<super::OperatorParams>, tonic::Status>;
+        ) -> std::result::Result<tonic::Response<Self::GetParamsStream>, tonic::Status>;
         /// Server streaming response type for the DepositSign method.
         type DepositSignStream: tonic::codegen::tokio_stream::Stream<
                 Item = std::result::Result<super::OperatorBurnSig, tonic::Status>,
@@ -1122,11 +1139,14 @@ pub mod clementine_operator_server {
                 "/clementine.ClementineOperator/GetParams" => {
                     #[allow(non_camel_case_types)]
                     struct GetParamsSvc<T: ClementineOperator>(pub Arc<T>);
-                    impl<T: ClementineOperator> tonic::server::UnaryService<super::Empty>
+                    impl<
+                        T: ClementineOperator,
+                    > tonic::server::ServerStreamingService<super::Empty>
                     for GetParamsSvc<T> {
                         type Response = super::OperatorParams;
+                        type ResponseStream = T::GetParamsStream;
                         type Future = BoxFuture<
-                            tonic::Response<Self::Response>,
+                            tonic::Response<Self::ResponseStream>,
                             tonic::Status,
                         >;
                         fn call(
@@ -1157,7 +1177,7 @@ pub mod clementine_operator_server {
                                 max_decoding_message_size,
                                 max_encoding_message_size,
                             );
-                        let res = grpc.unary(method, req).await;
+                        let res = grpc.server_streaming(method, req).await;
                         Ok(res)
                     };
                     Box::pin(fut)
@@ -1371,7 +1391,7 @@ pub mod clementine_verifier_server {
         /// Saves an operator.
         async fn set_operator(
             &self,
-            request: tonic::Request<super::OperatorParams>,
+            request: tonic::Request<tonic::Streaming<super::OperatorParams>>,
         ) -> std::result::Result<tonic::Response<super::Empty>, tonic::Status>;
         /// Saves a watchtower.
         async fn set_watchtower(
@@ -1586,7 +1606,7 @@ pub mod clementine_verifier_server {
                     struct SetOperatorSvc<T: ClementineVerifier>(pub Arc<T>);
                     impl<
                         T: ClementineVerifier,
-                    > tonic::server::UnaryService<super::OperatorParams>
+                    > tonic::server::ClientStreamingService<super::OperatorParams>
                     for SetOperatorSvc<T> {
                         type Response = super::Empty;
                         type Future = BoxFuture<
@@ -1595,7 +1615,9 @@ pub mod clementine_verifier_server {
                         >;
                         fn call(
                             &mut self,
-                            request: tonic::Request<super::OperatorParams>,
+                            request: tonic::Request<
+                                tonic::Streaming<super::OperatorParams>,
+                            >,
                         ) -> Self::Future {
                             let inner = Arc::clone(&self.0);
                             let fut = async move {
@@ -1622,7 +1644,7 @@ pub mod clementine_verifier_server {
                                 max_decoding_message_size,
                                 max_encoding_message_size,
                             );
-                        let res = grpc.unary(method, req).await;
+                        let res = grpc.client_streaming(method, req).await;
                         Ok(res)
                     };
                     Box::pin(fut)
