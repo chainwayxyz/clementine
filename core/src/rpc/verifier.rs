@@ -133,19 +133,16 @@ impl ClementineVerifier for Verifier {
 
         let operator_params = in_stream
             .message()
-            .await
-            .unwrap()
-            .ok_or(Status::internal("No first message received"))
-            .unwrap()
+            .await?
+            .ok_or(Status::invalid_argument("No message is received"))?
             .response
-            .ok_or(Status::internal("No deposit outpoint received"))
-            .unwrap();
+            .ok_or(Status::invalid_argument("No message is received"))?;
 
         let operator_config =
             if let operator_params::Response::OperatorDetails(operator_config) = operator_params {
                 operator_config
             } else {
-                return Err(Status::internal("Expected OperatorDetails"));
+                return Err(Status::invalid_argument("Expected OperatorDetails"));
             };
 
         let operator_xonly_pk = XOnlyPublicKey::from_str(&operator_config.xonly_pk)
@@ -172,18 +169,15 @@ impl ClementineVerifier for Verifier {
         for _ in 0..self.config.num_operators {
             let operator_params = in_stream
                 .message()
-                .await
-                .unwrap()
-                .ok_or(Status::internal("No first message received"))
-                .unwrap()
+                .await?
+                .ok_or(Status::invalid_argument("No first message received"))?
                 .response
-                .ok_or(Status::internal("No deposit outpoint received"))
-                .unwrap();
+                .ok_or(Status::invalid_argument("No deposit outpoint received"))?;
 
             if let operator_params::Response::WinternitzPubkeys(wpk) = operator_params {
                 operator_winternitz_public_keys.push(wpk.to_bitvm());
             } else {
-                return Err(Status::internal("Expected WinternitzPubkeys"));
+                return Err(Status::invalid_argument("Expected WinternitzPubkeys"));
             }
         }
         let operator_winternitz_public_keys = operator_winternitz_public_keys

@@ -328,9 +328,8 @@ impl ClementineAggregator for Aggregator {
                     .await?
                     .into_inner()
                     .message()
-                    .await
-                    .unwrap()
-                    .unwrap();
+                    .await?
+                    .ok_or(Status::invalid_argument("No response from operator"))?;
                 Ok::<_, Status>(response)
             }
         }))
