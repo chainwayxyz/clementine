@@ -361,8 +361,14 @@ impl ClementineAggregator for Aggregator {
         let watchtower_params = try_join_all(self.watchtower_clients.iter().map(|client| {
             let mut client = client.clone();
             async move {
-                let response = client.get_params(Request::new(Empty {})).await?;
-                Ok::<_, Status>(response.into_inner())
+                let response = client
+                    .get_params(Request::new(Empty {}))
+                    .await?
+                    .into_inner()
+                    .message()
+                    .await?
+                    .ok_or(Status::invalid_argument("No response from watchtower"))?;
+                Ok::<_, Status>(response)
             }
         }))
         .await?;
@@ -373,8 +379,13 @@ impl ClementineAggregator for Aggregator {
             let params = watchtower_params.clone();
 
             async move {
+                let (tx, rx) = tokio::sync::mpsc::channel(1280);
+
+                client
+                    .set_watchtower(tokio_stream::wrappers::ReceiverStream::new(rx))
+                    .await?;
                 for param in params {
-                    client.set_watchtower(Request::new(param)).await.unwrap();
+                    tx.send(param).await.unwrap();
                 }
 
                 Ok::<_, tonic::Status>(())

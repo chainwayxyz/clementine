@@ -200,14 +200,22 @@ pub struct VerifierPublicKeys {
 }
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct WatchtowerParams {
-    #[prost(uint32, tag = "1")]
-    pub watchtower_id: u32,
-    /// Flattened list of Winternitz pubkeys for each operator's timetxs.
-    #[prost(message, repeated, tag = "2")]
-    pub winternitz_pubkeys: ::prost::alloc::vec::Vec<WinternitzPubkey>,
-    /// xonly public key serialized to bytes
-    #[prost(bytes = "vec", tag = "3")]
-    pub xonly_pk: ::prost::alloc::vec::Vec<u8>,
+    #[prost(oneof = "watchtower_params::Response", tags = "1, 2, 3")]
+    pub response: ::core::option::Option<watchtower_params::Response>,
+}
+/// Nested message and enum types in `WatchtowerParams`.
+pub mod watchtower_params {
+    #[derive(Clone, PartialEq, ::prost::Oneof)]
+    pub enum Response {
+        #[prost(uint32, tag = "1")]
+        WatchtowerId(u32),
+        /// Flattened list of Winternitz pubkeys for each operator's timetxs.
+        #[prost(message, tag = "2")]
+        WinternitzPubkeys(super::WinternitzPubkey),
+        /// xonly public key serialized to bytes
+        #[prost(bytes, tag = "3")]
+        XonlyPk(::prost::alloc::vec::Vec<u8>),
+    }
 }
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct RawSignedMoveTx {
@@ -604,7 +612,7 @@ pub mod clementine_verifier_client {
         /// Saves a watchtower.
         pub async fn set_watchtower(
             &mut self,
-            request: impl tonic::IntoRequest<super::WatchtowerParams>,
+            request: impl tonic::IntoStreamingRequest<Message = super::WatchtowerParams>,
         ) -> std::result::Result<tonic::Response<super::Empty>, tonic::Status> {
             self.inner
                 .ready()
@@ -618,12 +626,12 @@ pub mod clementine_verifier_client {
             let path = http::uri::PathAndQuery::from_static(
                 "/clementine.ClementineVerifier/SetWatchtower",
             );
-            let mut req = request.into_request();
+            let mut req = request.into_streaming_request();
             req.extensions_mut()
                 .insert(
                     GrpcMethod::new("clementine.ClementineVerifier", "SetWatchtower"),
                 );
-            self.inner.unary(req, path, codec).await
+            self.inner.client_streaming(req, path, codec).await
         }
         /// Generates nonces for a deposit.
         ///
@@ -809,7 +817,7 @@ pub mod clementine_watchtower_client {
             &mut self,
             request: impl tonic::IntoRequest<super::Empty>,
         ) -> std::result::Result<
-            tonic::Response<super::WatchtowerParams>,
+            tonic::Response<tonic::codec::Streaming<super::WatchtowerParams>>,
             tonic::Status,
         > {
             self.inner
@@ -827,7 +835,7 @@ pub mod clementine_watchtower_client {
             let mut req = request.into_request();
             req.extensions_mut()
                 .insert(GrpcMethod::new("clementine.ClementineWatchtower", "GetParams"));
-            self.inner.unary(req, path, codec).await
+            self.inner.server_streaming(req, path, codec).await
         }
     }
 }
@@ -1396,7 +1404,7 @@ pub mod clementine_verifier_server {
         /// Saves a watchtower.
         async fn set_watchtower(
             &self,
-            request: tonic::Request<super::WatchtowerParams>,
+            request: tonic::Request<tonic::Streaming<super::WatchtowerParams>>,
         ) -> std::result::Result<tonic::Response<super::Empty>, tonic::Status>;
         /// Server streaming response type for the NonceGen method.
         type NonceGenStream: tonic::codegen::tokio_stream::Stream<
@@ -1654,7 +1662,7 @@ pub mod clementine_verifier_server {
                     struct SetWatchtowerSvc<T: ClementineVerifier>(pub Arc<T>);
                     impl<
                         T: ClementineVerifier,
-                    > tonic::server::UnaryService<super::WatchtowerParams>
+                    > tonic::server::ClientStreamingService<super::WatchtowerParams>
                     for SetWatchtowerSvc<T> {
                         type Response = super::Empty;
                         type Future = BoxFuture<
@@ -1663,7 +1671,9 @@ pub mod clementine_verifier_server {
                         >;
                         fn call(
                             &mut self,
-                            request: tonic::Request<super::WatchtowerParams>,
+                            request: tonic::Request<
+                                tonic::Streaming<super::WatchtowerParams>,
+                            >,
                         ) -> Self::Future {
                             let inner = Arc::clone(&self.0);
                             let fut = async move {
@@ -1690,7 +1700,7 @@ pub mod clementine_verifier_server {
                                 max_decoding_message_size,
                                 max_encoding_message_size,
                             );
-                        let res = grpc.unary(method, req).await;
+                        let res = grpc.client_streaming(method, req).await;
                         Ok(res)
                     };
                     Box::pin(fut)
@@ -1890,14 +1900,17 @@ pub mod clementine_watchtower_server {
     /// Generated trait containing gRPC methods that should be implemented for use with ClementineWatchtowerServer.
     #[async_trait]
     pub trait ClementineWatchtower: std::marker::Send + std::marker::Sync + 'static {
+        /// Server streaming response type for the GetParams method.
+        type GetParamsStream: tonic::codegen::tokio_stream::Stream<
+                Item = std::result::Result<super::WatchtowerParams, tonic::Status>,
+            >
+            + std::marker::Send
+            + 'static;
         /// Returns every operator's winternitz public keys.
         async fn get_params(
             &self,
             request: tonic::Request<super::Empty>,
-        ) -> std::result::Result<
-            tonic::Response<super::WatchtowerParams>,
-            tonic::Status,
-        >;
+        ) -> std::result::Result<tonic::Response<Self::GetParamsStream>, tonic::Status>;
     }
     /// Watchtowers are responsible for challenging the operator's kickoff txs.
     /// Each watchtower also runs a verifier server connected to the same db. Thus,
@@ -1984,10 +1997,12 @@ pub mod clementine_watchtower_server {
                     struct GetParamsSvc<T: ClementineWatchtower>(pub Arc<T>);
                     impl<
                         T: ClementineWatchtower,
-                    > tonic::server::UnaryService<super::Empty> for GetParamsSvc<T> {
+                    > tonic::server::ServerStreamingService<super::Empty>
+                    for GetParamsSvc<T> {
                         type Response = super::WatchtowerParams;
+                        type ResponseStream = T::GetParamsStream;
                         type Future = BoxFuture<
-                            tonic::Response<Self::Response>,
+                            tonic::Response<Self::ResponseStream>,
                             tonic::Status,
                         >;
                         fn call(
@@ -2019,7 +2034,7 @@ pub mod clementine_watchtower_server {
                                 max_decoding_message_size,
                                 max_encoding_message_size,
                             );
-                        let res = grpc.unary(method, req).await;
+                        let res = grpc.server_streaming(method, req).await;
                         Ok(res)
                     };
                     Box::pin(fut)

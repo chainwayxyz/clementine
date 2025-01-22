@@ -188,7 +188,7 @@ service ClementineVerifier {
   rpc SetOperator(stream OperatorParams) returns (Empty) {}
 
   // Saves a watchtower.
-  rpc SetWatchtower(WatchtowerParams) returns (Empty) {}
+  rpc SetWatchtower(stream WatchtowerParams) returns (Empty) {}
 
   // Generates nonces for a deposit.
   //
@@ -210,11 +210,13 @@ service ClementineVerifier {
 // Watchtower ------------------------------------------------------------------
 
 message WatchtowerParams {
-  uint32 watchtower_id = 1;
-  // Flattened list of Winternitz pubkeys for each operator's timetxs.
-  repeated WinternitzPubkey winternitz_pubkeys = 2;
-  // xonly public key serialized to bytes
-  bytes xonly_pk = 3;
+  oneof response {
+    uint32 watchtower_id = 1;
+    // Flattened list of Winternitz pubkeys for each operator's timetxs.
+    WinternitzPubkey winternitz_pubkeys = 2;
+    // xonly public key serialized to bytes
+    bytes xonly_pk = 3;
+  }
 }
 
 // Watchtowers are responsible for challenging the operator's kickoff txs.
@@ -222,7 +224,7 @@ message WatchtowerParams {
 // they will have the operator's winternitz pubkeys.
 service ClementineWatchtower {
   // Returns every operator's winternitz public keys.
-  rpc GetParams(Empty) returns (WatchtowerParams) {}
+  rpc GetParams(Empty) returns (stream WatchtowerParams) {}
 }
 
 // Aggregator ------------------------------------------------------------------
