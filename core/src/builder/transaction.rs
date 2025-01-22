@@ -343,8 +343,10 @@ pub fn create_move_to_vault_tx(
     create_btc_tx(tx_ins, vec![move_txout, anchor_output])
 }
 
-/// Creates a [`TxHandler`] for the `move_to_vault_tx`.
-pub fn create_move_txhandler(
+/// Creates a [`TxHandler`] for the `move_to_vault_tx`. This transaction will move
+/// the funds to a NofN address from the deposit intent address, after all the signature
+/// collection operations are done.
+pub fn create_move_to_vault_txhandler(
     deposit_outpoint: OutPoint,
     user_evm_address: EVMAddress,
     recovery_taproot_address: &Address<NetworkUnchecked>,
@@ -663,7 +665,10 @@ pub fn create_operator_challenge_nack_txhandler(
 }
 
 /// Creates a [`TxHandler`] for the `operator_challenge_ACK_tx`. This transaction will allow the operator
-/// to send the `assert_begin_tx` to basically respond to the challenge(s).
+/// to send the `assert_begin_tx` to basically respond to the challenge(s). This transaction will allow
+/// the operator to create `PARALLEL_ASSERT_TX_CHAIN_SIZE` outputs so that they can send `mini_assert_tx`s
+/// in parallel. These transactions allow the operator to "commit" their intermediate values inside the
+/// Groth16 verifier script. Commitments are possible using Winternitz OTSs.
 pub fn create_assert_begin_txhandler(
     kickoff_txhandler: &TxHandler,
     assert_tx_addrs: &[ScriptBuf],
@@ -1226,8 +1231,9 @@ pub fn create_reimburse_txhandler(
     }
 }
 
-/// Creates a [`TxHandler`] for the `kickoff_timeout_tx`. This transaction will be sent by the operator
-/// if there are no challenges, to be able to send `reimburse_tx` later.
+/// Creates a [`TxHandler`] for the `kickoff_timeout_tx`. This transaction will be sent by anyone
+/// in case the operator does not respond to a challenge (did not manage to send `assert_end_tx`)
+/// in time, burning their burn connector.
 pub fn create_kickoff_timeout_txhandler(
     kickoff_tx_handler: &TxHandler,
     sequential_collateral_txhandler: &TxHandler,

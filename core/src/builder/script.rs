@@ -72,10 +72,14 @@ pub fn create_deposit_script(
 /// ≤ (`# of blocks mined after UTXO appears on the chain`). However, this is not mandatory.
 /// One can spend an output delayed for some number of blocks just by using the nSequence field
 /// of the input inside the transaction. For more, see:
-/// https://github.com/bitcoin/bips/blob/master/bip-0068.mediawiki and
-/// https://github.com/bitcoin/bips/blob/master/bip-0112.mediawiki
+///
+/// - [BIP-0068](https://github.com/bitcoin/bips/blob/master/bip-0068.mediawiki)
+/// - [BIP-0112](https://github.com/bitcoin/bips/blob/master/bip-0112.mediawiki)
+///
+/// `actor_taproot_xonly_pk` is the tweaked XonlyPublicKey, which appears in the script_pubkey
+/// of the address. The tweaked signature will be given accordingly.
 pub fn generate_relative_timelock_script(
-    actor_taproot_xonly_pk: XOnlyPublicKey, // This is the tweaked XonlyPublicKey, which appears in the script_pubkey of the address. The tweaked signature will be given accordingly.
+    actor_taproot_xonly_pk: XOnlyPublicKey,
     block_count: u16,
 ) -> ScriptBuf {
     Builder::new()

@@ -337,7 +337,7 @@ impl Verifier {
             .await?
             .ok_or(BridgeError::DepositInfoNotFound)?;
 
-        let move_tx_handler = builder::transaction::create_move_txhandler(
+        let move_tx_handler = builder::transaction::create_move_to_vault_txhandler(
             deposit_outpoint,
             evm_address,
             &recovery_taproot_address,

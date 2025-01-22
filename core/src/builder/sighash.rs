@@ -53,7 +53,7 @@ pub fn create_nofn_sighash_stream(
 ) -> impl Stream<Item = Result<TapSighash, BridgeError>> {
     try_stream! {
         // Create move_tx handler. This is unique for each deposit tx.
-        let move_txhandler = builder::transaction::create_move_txhandler(
+        let move_txhandler = builder::transaction::create_move_to_vault_txhandler(
             deposit_outpoint,
             _evm_address,
             &_recovery_taproot_address,

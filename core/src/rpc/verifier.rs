@@ -5,7 +5,7 @@ use super::clementine::{
 };
 use crate::{
     builder::sighash::{calculate_num_required_sigs, create_nofn_sighash_stream},
-    builder::transaction::create_move_txhandler,
+    builder::transaction::create_move_to_vault_txhandler,
     builder::{self, address::taproot_builder_with_scripts},
     errors::BridgeError,
     musig2::{self},
@@ -582,7 +582,7 @@ impl ClementineVerifier for Verifier {
         }
 
         // Generate partial signature for move transaction
-        let mut move_txhandler = create_move_txhandler(
+        let mut move_txhandler = create_move_to_vault_txhandler(
             deposit_outpoint,
             evm_address,
             &recovery_taproot_address,

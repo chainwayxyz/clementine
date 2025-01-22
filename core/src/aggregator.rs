@@ -220,7 +220,7 @@ impl Aggregator {
         agg_nonce: &MusigAggNonce,
         partial_sigs: Vec<MusigPartialSignature>,
     ) -> Result<schnorr::Signature, BridgeError> {
-        let mut tx = builder::transaction::create_move_txhandler(
+        let mut tx = builder::transaction::create_move_to_vault_txhandler(
             deposit_outpoint,
             evm_address,
             recovery_taproot_address,
@@ -346,7 +346,7 @@ impl Aggregator {
             partial_sigs,
         )?;
 
-        let mut move_tx_handler = builder::transaction::create_move_txhandler(
+        let mut move_tx_handler = builder::transaction::create_move_to_vault_txhandler(
             deposit_outpoint,
             evm_address,
             &recovery_taproot_address,
