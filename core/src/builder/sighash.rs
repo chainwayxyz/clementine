@@ -16,11 +16,17 @@ use futures_core::stream::Stream;
 
 // WIP: For now, this is equal to the number of sighashes we yield in create_nofn_sighash_stream.
 // This will change as we implement the system design.
-pub fn calculate_num_required_sigs(config: &BridgeConfig) -> usize {
+pub fn calculate_num_required_nofn_sigs(config: &BridgeConfig) -> usize {
     config.num_operators
         * config.num_time_txs
         * config.num_kickoffs_per_timetx
         * (10 + 2 * config.num_watchtowers)
+}
+
+// WIP: For now, this is equal to the number of sighashes we yield in create_operator_sighash_stream.
+// This will change as we implement the system design.
+pub fn calculate_num_required_operator_sigs(config: &BridgeConfig) -> usize {
+    config.num_time_txs * config.num_kickoffs_per_timetx * 3
 }
 
 /// Refer to bridge design diagram to see which NofN signatures are needed (the ones marked with blue arrows).
@@ -311,6 +317,148 @@ pub fn create_nofn_sighash_stream(
                 input_txid = reimburse_generator_txhandler.txid;
                 input_amount = reimburse_generator_txhandler.tx.output[0].value;
             }
+        }
+    }
+}
+
+/// Refer to bridge design diagram to see which Operator signatures are needed (the ones marked with red arrows).
+/// These operator sighashes are needed so that each operator can share the signatures with each verifier, so that
+/// verifiers have the ability to burn the burn connector of operators.
+/// WIP: Update if the design changes.
+/// This function generates each tx that is an ancestor of Kickoff Timeout TX, Already Disproved TX,
+/// and Disprove TX. It yields the sighashes for these tx's for the input that has operators burn connector.
+/// TODO: Possible future optimization: Each verifier already generates some of these TX's in create_operator_sighash_stream()
+/// TODO: It is possible to return the required sighashes for operator signatures there too. But operators only needs to use sighashes included in this function.
+pub fn create_operator_sighash_stream(
+    db: Database,
+    operator_idx: usize,
+    collateral_funding_txid: Txid,
+    operator_xonly_pk: XOnlyPublicKey,
+    config: BridgeConfig,
+    deposit_outpoint: OutPoint,
+    _evm_address: EVMAddress,
+    _recovery_taproot_address: Address<NetworkUnchecked>,
+    nofn_xonly_pk: XOnlyPublicKey,
+    _user_takes_after: u16,
+    collateral_funding_amount: Amount,
+    timeout_block_count: i64,
+    max_withdrawal_time_block_count: u16,
+    bridge_amount_sats: Amount,
+    network: bitcoin::Network,
+) -> impl Stream<Item = Result<TapSighash, BridgeError>> {
+    try_stream! {
+        // Create move_tx handler. This is unique for each deposit tx.
+        let move_txhandler = builder::transaction::create_move_to_vault_txhandler(
+            deposit_outpoint,
+            _evm_address,
+            &_recovery_taproot_address,
+            nofn_xonly_pk,
+            _user_takes_after,
+            bridge_amount_sats,
+            network,
+        );
+
+        let mut input_txid = collateral_funding_txid;
+        let mut input_amount = collateral_funding_amount;
+
+        // For each sequential_collateral_tx, we have multiple kickoff_utxos as the connectors.
+        for time_tx_idx in 0..config.num_time_txs {
+            // Create the sequential_collateral_tx handler.
+            let sequential_collateral_txhandler = builder::transaction::create_sequential_collateral_txhandler(
+                operator_xonly_pk,
+                input_txid,
+                input_amount,
+                timeout_block_count,
+                max_withdrawal_time_block_count,
+                config.num_kickoffs_per_timetx,
+                network,
+            );
+
+            // Create the reimburse_generator_tx handler.
+            let reimburse_generator_txhandler = builder::transaction::create_reimburse_generator_txhandler(
+                &sequential_collateral_txhandler,
+                operator_xonly_pk,
+                config.num_kickoffs_per_timetx,
+                max_withdrawal_time_block_count,
+                network,
+            );
+
+            // For each kickoff_utxo, it connnects to a kickoff_tx that results in
+            // either start_happy_reimburse_tx
+            // or challenge_tx, which forces the operator to initiate BitVM sequence
+            // (assert_begin_tx -> assert_end_tx -> either disprove_timeout_tx or already_disproven_tx).
+            // If the operator is honest, the sequence will end with the operator being able to send the reimburse_tx.
+            // Otherwise, by using the disprove_tx, the operator's sequential_collateral_tx burn connector will be burned.
+            for kickoff_idx in 0..config.num_kickoffs_per_timetx {
+                let kickoff_txhandler = builder::transaction::create_kickoff_txhandler(
+                    &sequential_collateral_txhandler,
+                    kickoff_idx,
+                    nofn_xonly_pk,
+                    operator_xonly_pk,
+                    move_txhandler.txid,
+                    operator_idx,
+                    network,
+                );
+
+                // Creates the kickoff_timeout_tx handler.
+                let mut kickoff_timeout_txhandler = builder::transaction::create_kickoff_timeout_txhandler(
+                    &kickoff_txhandler,
+                    &sequential_collateral_txhandler,
+                    network,
+                );
+
+                // Yields the sighash for the kickoff_timeout_tx.input[0], which spends kickoff_tx.output[3].
+                yield kickoff_timeout_txhandler.calculate_pubkey_spend_sighash(
+                    1,
+                    None,
+                )?;
+
+                let (assert_tx_addrs, root_hash, public_input_wots) = db.get_bitvm_setup(None, operator_idx as i32, time_tx_idx as i32, kickoff_idx as i32).await?.ok_or(BridgeError::BitvmSetupNotFound(operator_idx as i32, time_tx_idx as i32, kickoff_idx as i32))?;
+
+                // Creates the assert_begin_tx handler.
+                let assert_begin_txhandler = builder::transaction::create_assert_begin_txhandler(
+                    &kickoff_txhandler,
+                    &assert_tx_addrs,
+                    network,
+                );
+
+                // Creates the assert_end_tx handler.
+                let assert_end_txhandler = builder::transaction::create_assert_end_txhandler(
+                    &kickoff_txhandler,
+                    &assert_begin_txhandler,
+                    &assert_tx_addrs,
+                    &root_hash,
+                    nofn_xonly_pk,
+                    &public_input_wots,
+                    network,
+                );
+
+                // Creates the already_disproved_tx handler.
+                let mut already_disproved_txhandler = builder::transaction::create_already_disproved_txhandler(
+                    &assert_end_txhandler,
+                    &sequential_collateral_txhandler,
+                );
+
+                // Yields the sighash for the already_disproved_tx.input[0], which spends assert_end_tx.output[1].
+                yield already_disproved_txhandler.calculate_pubkey_spend_sighash(
+                    1,
+                    None,
+                )?;
+
+                let mut disprove_txhandler = builder::transaction::create_disprove_txhandler(
+                    &assert_end_txhandler,
+                    &sequential_collateral_txhandler,
+                );
+
+                // Yields the sighash for the disprove_tx.input[1], which spends sequential_collateral_tx.output[0].
+                yield disprove_txhandler.calculate_pubkey_spend_sighash(
+                    1,
+                    None,
+                )?;
+            }
+
+            input_txid = reimburse_generator_txhandler.txid;
+            input_amount = reimburse_generator_txhandler.tx.output[0].value;
         }
     }
 }

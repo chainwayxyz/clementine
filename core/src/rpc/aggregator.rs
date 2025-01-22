@@ -5,7 +5,7 @@ use super::clementine::{
 use crate::rpc::clementine::clementine_verifier_client::ClementineVerifierClient;
 use crate::{
     aggregator::Aggregator,
-    builder::sighash::{calculate_num_required_sigs, create_nofn_sighash_stream},
+    builder::sighash::{calculate_num_required_nofn_sigs, create_nofn_sighash_stream},
     errors::BridgeError,
     musig2::aggregate_nonces,
     rpc::clementine::{self, DepositSignSession},
@@ -426,7 +426,7 @@ impl ClementineAggregator for Aggregator {
         tracing::debug!("Parsed deposit params");
 
         // Generate nonce streams for all verifiers.
-        let num_required_sigs = calculate_num_required_sigs(&self.config);
+        let num_required_sigs = calculate_num_required_nofn_sigs(&self.config);
         let (first_responses, nonce_streams) =
             create_nonce_streams(self.verifier_clients.clone(), num_required_sigs as u32 + 1)
                 .await?; // ask for +1 for the final movetx signature, but don't send it on deposit_sign stage
