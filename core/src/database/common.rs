@@ -137,11 +137,6 @@ impl Database {
         wallet_address: String,
         collateral_funding_txid: Txid,
     ) -> Result<(), BridgeError> {
-        tracing::info!(
-            "Setting operator: {}, collat: {}",
-            operator_idx,
-            collateral_funding_txid
-        );
         let query = sqlx::query(
             "INSERT INTO operators (operator_idx, xonly_pk, wallet_reimburse_address, collateral_funding_txid) VALUES ($1, $2, $3, $4);",
         )
@@ -197,7 +192,6 @@ impl Database {
                         Ok((xonly_pk, addr, txid))
                     })
                     .collect::<Result<Vec<_>, BridgeError>>()?;
-                tracing::info!("Getting Operators: {:?}", data);
                 Ok(data)
             }
             Err(e) => Err(BridgeError::DatabaseError(e)),

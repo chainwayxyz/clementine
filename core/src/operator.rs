@@ -85,12 +85,6 @@ impl Operator {
         };
         tx.commit().await?;
 
-        tracing::info!(
-            "Creating new operator with idx: {} and collat txid: {}",
-            idx,
-            collateral_funding_txid
-        );
-
         let citrea_client = if !config.citrea_rpc_url.is_empty() {
             Some(
                 HttpClientBuilder::default()

@@ -115,19 +115,11 @@ impl ClementineOperator for Operator {
                 operator.config.bridge_amount_sats,
                 operator.config.network,
             ));
-            tracing::info!("In rpc/operator.rs: deposit_sign create_operator_sighash_stream \n{} \n{} \n{} \n{:?} \n{} \n{:?} \n{} \n{} \n{} \n{} \n{} \n{} \n{}",
-                 operator.idx, operator.collateral_funding_txid, operator.signer.xonly_public_key, operator.config, deposit_outpoint, evm_address, operator.nofn_xonly_pk, user_takes_after, Amount::from_sat(200_000_000), 6, 100, operator.config.bridge_amount_sats, operator.config.network);
             while let Some(sighash_result) = sighash_stream.next().await {
                 let sighash = sighash_result?;
                 // None because utxos that operators need to sign do not have scripts
                 let sig = operator.signer.sign_with_tweak(sighash, None)?;
-                tracing::info!(
-                    "signing with operator idx: {}\nsighash: {}\nsig: {}\nxonly: {}",
-                    operator.idx,
-                    sighash,
-                    sig,
-                    operator.signer.xonly_public_key,
-                );
+
                 let operator_burn_sig = OperatorBurnSig {
                     schnorr_sig: sig.serialize().to_vec(),
                 };

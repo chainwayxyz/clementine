@@ -142,18 +142,6 @@ impl ClementineVerifier for Verifier {
         let operator_xonly_pk = XOnlyPublicKey::from_str(&operator_config.xonly_pk)
             .map_err(|_| BridgeError::Error("Invalid xonly public key".to_string()))?;
 
-        tracing::info!(
-            "Setting new operator with idx: {} and collat txid: {}",
-            operator_config.operator_idx,
-            Txid::from_byte_array(
-                operator_config
-                    .collateral_funding_txid
-                    .clone()
-                    .try_into()
-                    .unwrap(),
-            )
-        );
-
         // Save the operator details to the db
         self.db
             .set_operator(
@@ -669,8 +657,6 @@ impl ClementineVerifier for Verifier {
                 self.config.bridge_amount_sats,
                 self.config.network,
             ));
-            tracing::info!("In rpc/verifier.rs: deposit_sign create_operator_sighash_stream \n{} \n{} \n{} \n{:?} \n{} \n{:?} \n{} \n{} \n{} \n{} \n{} \n{} \n{}",
-                 operator_idx, *collateral_txid, *op_xonly_pk, self.config, deposit_outpoint, evm_address, self.nofn_xonly_pk, user_takes_after, Amount::from_sat(200_000_000), 6, 100, self.config.bridge_amount_sats, self.config.network);
             while let Some(result) = in_stream.message().await? {
                 let sighash = sighash_stream.next().await.unwrap()?;
                 let operator_sig = result
@@ -687,15 +673,6 @@ impl ClementineVerifier for Verifier {
                         )))
                     }
                 };
-
-                tracing::info!(
-                    "Verifying Operator {}, Signature idx: {}\n Sighash: {}\nSig: {}\nXonly: {}",
-                    operator_idx,
-                    op_sig_count + 1,
-                    sighash,
-                    final_sig,
-                    op_xonly_pk,
-                );
 
                 utils::SECP
                     .verify_schnorr(&final_sig, &Message::from(sighash), &tweaked_op_xonly_pk)
