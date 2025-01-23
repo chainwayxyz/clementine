@@ -4,11 +4,15 @@ use super::clementine::{
     VerifierDepositSignParams, VerifierParams, VerifierPublicKeys, WatchtowerParams,
 };
 use crate::{
-    builder::sighash::{calculate_num_required_sigs, create_nofn_sighash_stream},
-    builder::transaction::create_move_to_vault_txhandler,
-    builder::{self, address::taproot_builder_with_scripts},
+    builder::{
+        self,
+        address::taproot_builder_with_scripts,
+        sighash::{calculate_num_required_sigs, create_nofn_sighash_stream},
+        transaction::create_move_to_vault_txhandler,
+    },
     errors::BridgeError,
     musig2::{self},
+    operator::PublicHash,
     utils,
     verifier::{NofN, NonceSession, Verifier},
     EVMAddress,
@@ -169,6 +173,33 @@ impl ClementineVerifier for Verifier {
                 operator_winternitz_public_keys.clone(),
             )
             .await?;
+
+        let operators_public_hashes = operator_params
+            .challenge_ack_digests
+            .into_iter()
+            .map(|digest| {
+                digest
+                    .hash
+                    .try_into()
+                    .map_err(|_| BridgeError::VecConversionError)
+            }) // TODO: Carry this logic somewhere else
+            .collect::<Result<Vec<PublicHash>, BridgeError>>()?;
+        for i in 0..self.config.num_time_txs {
+            for j in 0..self.config.num_kickoffs_per_timetx {
+                self.db
+                    .save_public_hashes(
+                        None,
+                        operator_config.operator_idx as i32,
+                        i as i32,
+                        j as i32,
+                        &operators_public_hashes[self.config.num_watchtowers
+                            * (i * self.config.num_kickoffs_per_timetx + j)
+                            ..self.config.num_watchtowers
+                                * (i * self.config.num_kickoffs_per_timetx + j + 1)],
+                    )
+                    .await?;
+            }
+        }
         // Split the winternitz public keys into chunks for every sequential collateral tx and kickoff index.
         // This is done because we need to generate a separate BitVM setup for each collateral tx and kickoff index.
         let chunk_size = utils::ALL_BITVM_INTERMEDIATE_VARIABLES.len();

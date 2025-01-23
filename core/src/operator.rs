@@ -729,7 +729,7 @@ impl Operator {
     pub fn generate_preimages_and_hashes(&self) -> Result<Vec<PublicHash>, BridgeError> {
         let mut preimages = Vec::new();
 
-        for sequential_collateral_tx in 0..self.config.num_time_txs as u32 {
+        for sequential_collateral_tx_idx in 0..self.config.num_time_txs as u32 {
             for kickoff_idx in 0..self.config.num_kickoffs_per_timetx as u32 {
                 for watchtower_idx in 0..self.config.num_watchtowers {
                     let path = WinternitzDerivationPath {
@@ -739,7 +739,7 @@ impl Operator {
                         index: None,
                         operator_idx: Some(self.idx as u32), // TODO: Handle casting better
                         watchtower_idx: Some(watchtower_idx as u32), // TODO: Handle casting better
-                        time_tx_idx: Some(sequential_collateral_tx),
+                        time_tx_idx: Some(sequential_collateral_tx_idx),
                         kickoff_idx: Some(kickoff_idx),
                         intermediate_step_name: None,
                     };
