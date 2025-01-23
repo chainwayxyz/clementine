@@ -175,14 +175,13 @@ create table if not exists bitvm_setups (
 -- Verifier table for the operators public digests to acknowledge watchtower challenges.
 /* This table holds the public digests of the operators  to use for the watchtower
 challenges for each (operator_idx, sequential_collateral_tx_idx, kickoff_idx, watchtower_idx) tuple. */
-create table if not exists operator_public_digests (
+create table if not exists operator_public_hashes (
     operator_idx int not null,
     sequential_collateral_tx_idx int not null,
     kickoff_idx int not null,
-    watchtower_idx int not null,
-    public_digest bytea not null,
+    public_hashes bytea[] not null,
     created_at timestamp not null default now(),
-    primary key (operator_idx, sequential_collateral_tx_idx, kickoff_idx, watchtower_idx)
+    primary key (operator_idx, sequential_collateral_tx_idx, kickoff_idx)
 );
 
 COMMIT;

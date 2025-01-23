@@ -1305,7 +1305,7 @@ impl Database {
         &self,
         tx: Option<&mut sqlx::Transaction<'_, Postgres>>,
         operator_idx: i32,
-        time_tx_idx: i32,
+        sequential_collateral_tx_idx: i32,
         kickoff_idx: i32,
         public_hashes: impl AsRef<[PublicHash]>,
     ) -> Result<(), BridgeError> {
@@ -1316,13 +1316,13 @@ impl Database {
             .collect();
 
         let query = sqlx::query(
-            "INSERT INTO public_hashes (operator_idx, time_tx_idx, kickoff_idx, public_hashes)
+            "INSERT INTO operator_public_hashes (operator_idx, sequential_collateral_tx_idx, kickoff_idx, public_hashes)
              VALUES ($1, $2, $3, $4)
-             ON CONFLICT (operator_idx, time_tx_idx, kickoff_idx) DO UPDATE
+             ON CONFLICT (operator_idx, sequential_collateral_tx_idx, kickoff_idx) DO UPDATE
              SET public_hashes = EXCLUDED.public_hashes;",
         )
         .bind(operator_idx)
-        .bind(time_tx_idx)
+        .bind(sequential_collateral_tx_idx)
         .bind(kickoff_idx)
         .bind(&public_hashes);
 
@@ -1340,16 +1340,16 @@ impl Database {
         &self,
         tx: Option<&mut sqlx::Transaction<'_, Postgres>>,
         operator_idx: i32,
-        time_tx_idx: i32,
+        sequential_collateral_tx_idx: i32,
         kickoff_idx: i32,
     ) -> Result<Option<Vec<PublicHash>>, BridgeError> {
         let query = sqlx::query_as::<_, (Vec<Vec<u8>>,)>(
             "SELECT public_hashes
-            FROM public_hashes
-            WHERE operator_idx = $1 AND time_tx_idx = $2 AND kickoff_idx = $3;",
+            FROM operator_public_hashes
+            WHERE operator_idx = $1 AND sequential_collateral_tx_idx = $2 AND kickoff_idx = $3;",
         )
         .bind(operator_idx)
-        .bind(time_tx_idx)
+        .bind(sequential_collateral_tx_idx)
         .bind(kickoff_idx);
 
         let result = match tx {
@@ -2137,7 +2137,7 @@ mod tests {
         let operator_idx = 0;
         let time_tx_idx = 1;
         let kickoff_idx = 2;
-        let public_digests = vec![[1u8; 20], [2u8; 20]];
+        let public_hashes = vec![[1u8; 20], [2u8; 20]];
 
         // Save public hashes
         database
@@ -2146,7 +2146,7 @@ mod tests {
                 operator_idx,
                 time_tx_idx,
                 kickoff_idx,
-                public_digests.clone(),
+                public_hashes.clone(),
             )
             .await
             .unwrap();
@@ -2157,7 +2157,7 @@ mod tests {
             .await
             .unwrap();
 
-        assert_eq!(result, Some(public_digests));
+        assert_eq!(result, Some(public_hashes));
 
         // Test non-existent entry
         let non_existent = database
