@@ -203,13 +203,13 @@ pub fn create_nofn_sighash_stream(
                     // - acknowledge the challenge by sending the operator_challenge_ACK_tx, which will prevent the burning of the kickoff_tx.output[2],
                     // - or do nothing, which will cause one to send the operator_challenge_NACK_tx, which will burn the kickoff_tx.output[2]
                     // using watchtower_challenge_tx.output[0].
-                    for i in 0..config.num_watchtowers {
+                    for (watchtower_idx, public_hash) in public_hashes.iter().enumerate() {
                         // Creates the watchtower_challenge_tx handler.
                         let watchtower_challenge_txhandler =
                             builder::transaction::create_watchtower_challenge_txhandler(
                                 &watchtower_challenge_kickoff_txhandler,
-                                i,
-                                &public_hashes[i],
+                                watchtower_idx,
+                                public_hash,
                                 nofn_xonly_pk,
                                 *operator_xonly_pk,
                                 network,

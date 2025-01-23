@@ -1,4 +1,4 @@
-use crate::{operator::PublicHash, EVMAddress};
+use crate::EVMAddress;
 use bitcoin::{
     address::NetworkUnchecked,
     block,
