@@ -454,7 +454,7 @@ impl ClementineAggregator for Aggregator {
         let mut deposit_finalize_clients = self.verifier_clients.clone();
         let deposit_finalize_streams = try_join_all(deposit_finalize_clients.iter_mut().map(
             |verifier_client| async move {
-                let (tx, rx) = tokio::sync::mpsc::channel(12800);
+                let (tx, rx) = tokio::sync::mpsc::channel(1280);
                 let receiver_stream = tokio_stream::wrappers::ReceiverStream::new(rx);
 
                 let deposit_finalize_futures =
