@@ -221,6 +221,9 @@ pub enum BridgeError {
 
     #[error("BitvmSetupNotFound for operator {0}, time_tx {1}, kickoff {2}")]
     BitvmSetupNotFound(i32, i32, i32),
+
+    #[error("WatchtowerPublicHashesNotFound for operator {0}, time_tx {1}, kickoff {2}")]
+    WatchtowerPublicHashesNotFound(i32, i32, i32),
 }
 
 impl From<BridgeError> for ErrorObject<'static> {

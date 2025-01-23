@@ -1342,7 +1342,7 @@ impl Database {
         operator_idx: i32,
         time_tx_idx: i32,
         kickoff_idx: i32,
-    ) -> Result<Vec<PublicHash>, BridgeError> {
+    ) -> Result<Option<Vec<PublicHash>>, BridgeError> {
         let query = sqlx::query_as::<_, (Vec<Vec<u8>>,)>(
             "SELECT public_hashes
             FROM public_hashes
@@ -1359,13 +1359,21 @@ impl Database {
 
         match result {
             Some((public_hashes,)) => {
-                let public_hashes: Vec<PublicHash> = public_hashes
-                    .into_iter()
-                    .map(|hash| hash.try_into().unwrap()) // TODO: Handle unwrap better
-                    .collect();
-                Ok(public_hashes)
+                let mut converted_hashes = Vec::new();
+                for hash in public_hashes {
+                    match hash.try_into() {
+                        Ok(public_hash) => converted_hashes.push(public_hash),
+                        Err(err) => {
+                            tracing::error!("Failed to convert hash: {:?}", err);
+                            return Err(BridgeError::Error(
+                                "Failed to convert public hash".to_string(),
+                            ));
+                        }
+                    }
+                }
+                Ok(Some(converted_hashes))
             }
-            None => Err(BridgeError::Error("Public hashes not found".to_string())),
+            None => Ok(None), // If no result is found, return Ok(None)
         }
     }
 }
@@ -2116,6 +2124,44 @@ mod tests {
         // Test non-existent entry
         let non_existent = database
             .get_bitvm_setup(None, 999, time_tx_idx, kickoff_idx)
+            .await
+            .unwrap();
+        assert!(non_existent.is_none());
+    }
+
+    #[tokio::test]
+    async fn test_save_get_public_hashes() {
+        let config = create_test_config_with_thread_name!(None);
+        let database = Database::new(&config).await.unwrap();
+
+        let operator_idx = 0;
+        let time_tx_idx = 1;
+        let kickoff_idx = 2;
+        let public_digests = vec![[1u8; 20], [2u8; 20]];
+
+        // Save public hashes
+        database
+            .save_public_hashes(
+                None,
+                operator_idx,
+                time_tx_idx,
+                kickoff_idx,
+                public_digests.clone(),
+            )
+            .await
+            .unwrap();
+
+        // Retrieve and verify
+        let result = database
+            .get_watchtowers_public_hashes(None, operator_idx, time_tx_idx, kickoff_idx)
+            .await
+            .unwrap();
+
+        assert_eq!(result, Some(public_digests));
+
+        // Test non-existent entry
+        let non_existent = database
+            .get_watchtowers_public_hashes(None, 999, time_tx_idx, kickoff_idx)
             .await
             .unwrap();
         assert!(non_existent.is_none());
