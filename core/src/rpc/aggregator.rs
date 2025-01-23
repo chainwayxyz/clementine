@@ -684,10 +684,10 @@ mod tests {
         let mut config = create_test_config_with_thread_name!(None);
 
         //Change default values for making the test faster.
-        config.num_time_txs = 1;
-        config.num_operators = 1;
-        config.num_verifiers = 1;
-        config.num_watchtowers = 1;
+        // config.num_time_txs = 1;
+        // config.num_operators = 1;
+        // config.num_verifiers = 1;
+        // config.num_watchtowers = 1;
 
         let aggregator = create_actors!(config).2;
         let mut aggregator_client =
