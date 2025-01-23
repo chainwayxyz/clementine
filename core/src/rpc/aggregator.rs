@@ -351,7 +351,7 @@ impl ClementineAggregator for Aggregator {
                         tx.send(param).await.unwrap();
                     }
 
-                    future.await?;
+                    future.await?; // TODO: This is dangerous: If channel size becomes not sufficient, this will block forever.
                 }
 
                 Ok::<_, tonic::Status>(())
@@ -392,7 +392,7 @@ impl ClementineAggregator for Aggregator {
                         tx.send(param).await.unwrap();
                     }
 
-                    future.await?;
+                    future.await?; // TODO: This is dangerous: If channel size becomes not sufficient, this will block forever.
                 }
 
                 Ok::<_, tonic::Status>(())
