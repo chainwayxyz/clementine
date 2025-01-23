@@ -198,7 +198,7 @@ pub fn create_nofn_sighash_stream(
                         0,
                         None,
                     )?;
-                    let public_hashes = db.get_public_hashes(None, operator_idx as i32, time_tx_idx as i32, kickoff_idx as i32).await?;
+                    let public_hashes = db.get_watchtowers_public_hashes(None, operator_idx as i32, time_tx_idx as i32, kickoff_idx as i32).await?;
                     // Each watchtower will sign their Groth16 proof of the header chain circuit. Then, the operator will either
                     // - acknowledge the challenge by sending the operator_challenge_ACK_tx, which will prevent the burning of the kickoff_tx.output[2],
                     // - or do nothing, which will cause one to send the operator_challenge_NACK_tx, which will burn the kickoff_tx.output[2]

@@ -1336,7 +1336,7 @@ impl Database {
 
     /// Retrieves public hashes for a specific operator, time_tx and kickoff index combination
     #[tracing::instrument(skip(self), err(level = tracing::Level::ERROR), ret(level = tracing::Level::TRACE))]
-    pub async fn get_public_hashes(
+    pub async fn get_watchtowers_public_hashes(
         &self,
         tx: Option<&mut sqlx::Transaction<'_, Postgres>>,
         operator_idx: i32,
