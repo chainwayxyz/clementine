@@ -323,10 +323,11 @@ impl ClementineAggregator for Aggregator {
             let mut client = client.clone();
             async move {
                 let mut responses = Vec::new();
-                while let Some(response) = client
-                    .get_params(Request::new(Empty {}))
-                    .await?
-                    .into_inner()
+                let mut params_stream = client
+                .get_params(Request::new(Empty {}))
+                .await?
+                .into_inner();
+                while let Some(response) = params_stream
                     .message()
                     .await?
                 {
