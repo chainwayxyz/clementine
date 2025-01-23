@@ -7,7 +7,7 @@
 //! privileges to create/drop databases.
 
 use crate::{config::BridgeConfig, errors::BridgeError};
-use sqlx::{Pool, Postgres, postgres::{PgPool, PgPoolOptions}};
+use sqlx::{Pool, Postgres};
 
 mod common;
 mod wrapper;
@@ -28,13 +28,10 @@ impl Database {
     pub async fn new(config: &BridgeConfig) -> Result<Self, BridgeError> {
         let url = Database::get_postgresql_database_url(config);
 
-        let pool = PgPoolOptions::new()
-            .max_connections(100)
-            .acquire_timeout(std::time::Duration::from_secs(3))
-            .connect(&url)
-            .await?;
-
-        Ok(Self { connection: pool })
+        match sqlx::PgPool::connect(&url).await {
+            Ok(connection) => Ok(Self { connection }),
+            Err(e) => Err(BridgeError::DatabaseError(e)),
+        }
     }
 
     /// Closes database connection.
