@@ -1316,7 +1316,7 @@ impl Database {
             .collect();
 
         let query = sqlx::query(
-            "INSERT INTO operator_public_hashes (operator_idx, sequential_collateral_tx_idx, kickoff_idx, public_hashes)
+            "INSERT INTO operators_challenge_ack_hashes (operator_idx, sequential_collateral_tx_idx, kickoff_idx, public_hashes)
              VALUES ($1, $2, $3, $4)
              ON CONFLICT (operator_idx, sequential_collateral_tx_idx, kickoff_idx) DO UPDATE
              SET public_hashes = EXCLUDED.public_hashes;",
@@ -1336,7 +1336,7 @@ impl Database {
 
     /// Retrieves public hashes for a specific operator, time_tx and kickoff index combination
     #[tracing::instrument(skip(self), err(level = tracing::Level::ERROR), ret(level = tracing::Level::TRACE))]
-    pub async fn get_watchtowers_public_hashes(
+    pub async fn get_operators_challenge_ack_hashes(
         &self,
         tx: Option<&mut sqlx::Transaction<'_, Postgres>>,
         operator_idx: i32,
@@ -1345,7 +1345,7 @@ impl Database {
     ) -> Result<Option<Vec<PublicHash>>, BridgeError> {
         let query = sqlx::query_as::<_, (Vec<Vec<u8>>,)>(
             "SELECT public_hashes
-            FROM operator_public_hashes
+            FROM operators_challenge_ack_hashes
             WHERE operator_idx = $1 AND sequential_collateral_tx_idx = $2 AND kickoff_idx = $3;",
         )
         .bind(operator_idx)
@@ -2153,7 +2153,7 @@ mod tests {
 
         // Retrieve and verify
         let result = database
-            .get_watchtowers_public_hashes(None, operator_idx, time_tx_idx, kickoff_idx)
+            .get_operators_challenge_ack_hashes(None, operator_idx, time_tx_idx, kickoff_idx)
             .await
             .unwrap();
 
@@ -2161,7 +2161,7 @@ mod tests {
 
         // Test non-existent entry
         let non_existent = database
-            .get_watchtowers_public_hashes(None, 999, time_tx_idx, kickoff_idx)
+            .get_operators_challenge_ack_hashes(None, 999, time_tx_idx, kickoff_idx)
             .await
             .unwrap();
         assert!(non_existent.is_none());

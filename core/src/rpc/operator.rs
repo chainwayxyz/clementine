@@ -41,7 +41,7 @@ impl ClementineOperator for Operator {
             .map(WinternitzPubkey::from_bitvm)
             .collect::<Vec<_>>();
 
-        let public_hashes = self.generate_preimages_and_hashes()?;
+        let public_hashes = self.generate_challenge_ack_preimages_and_hashes()?;
         let public_hashes = public_hashes
             .into_iter()
             .map(|hash| ChallengeAckDigest {

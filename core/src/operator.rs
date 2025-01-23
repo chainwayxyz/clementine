@@ -726,7 +726,9 @@ impl Operator {
         Ok(winternitz_pubkeys)
     }
 
-    pub fn generate_preimages_and_hashes(&self) -> Result<Vec<PublicHash>, BridgeError> {
+    pub fn generate_challenge_ack_preimages_and_hashes(
+        &self,
+    ) -> Result<Vec<PublicHash>, BridgeError> {
         let mut preimages = Vec::new();
 
         for sequential_collateral_tx_idx in 0..self.config.num_time_txs as u32 {
@@ -852,8 +854,7 @@ mod tests {
     }
 
     #[tokio::test]
-    #[ignore = "Design changes in progress"]
-    async fn generate_preimages_and_hashes() {
+    async fn test_generate_preimages_and_hashes() {
         let config = create_test_config_with_thread_name!(None);
         let rpc = ExtendedRpc::new(
             config.bitcoin_rpc_url.clone(),
@@ -864,7 +865,9 @@ mod tests {
 
         let operator = Operator::new(config.clone(), rpc).await.unwrap();
 
-        let preimages = operator.generate_preimages_and_hashes().unwrap();
+        let preimages = operator
+            .generate_challenge_ack_preimages_and_hashes()
+            .unwrap();
         assert_eq!(
             preimages.len(),
             config.num_time_txs * config.num_kickoffs_per_timetx * config.num_watchtowers
