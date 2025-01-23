@@ -16,7 +16,6 @@ use bitcoin::secp256k1::{Message, PublicKey};
 use bitcoin::{Amount, TapSighash};
 use futures::{future::try_join_all, stream::BoxStream, FutureExt, Stream, StreamExt};
 use secp256k1::musig::{MusigAggNonce, MusigPartialSignature, MusigPubNonce};
-use std::thread;
 use tokio::sync::mpsc::{channel, Receiver, Sender};
 use tonic::{async_trait, Request, Response, Status, Streaming};
 
@@ -546,15 +545,11 @@ impl ClementineAggregator for Aggregator {
         ));
 
         // Start the signature aggregation pipe.
-        let sig_agg_handle = thread::spawn(|| {
-            tokio::runtime::Runtime::new()
-                .unwrap()
-                .block_on(signature_aggregator(
-                    partial_sig_receiver,
-                    verifiers_public_keys,
-                    final_sig_sender,
-                ))
-        });
+        let sig_agg_handle = tokio::spawn(signature_aggregator(
+            partial_sig_receiver,
+            verifiers_public_keys,
+            final_sig_sender,
+        ));
 
         // Join the nonce aggregation handle to get the movetx agg nonce.
         let movetx_agg_nonce = nonce_agg_handle.await.unwrap()?;
@@ -568,7 +563,7 @@ impl ClementineAggregator for Aggregator {
 
         // Wait for all pipeline tasks to complete
         nonce_dist_handle.await.unwrap()?;
-        sig_agg_handle.join().unwrap()?;
+        sig_agg_handle.await.unwrap()?;
         sig_dist_handle.await.unwrap()?;
 
         tracing::debug!("Waiting for deposit finalization");
@@ -682,12 +677,6 @@ mod tests {
     #[serial_test::serial]
     async fn aggregator_setup_and_deposit() {
         let config = create_test_config_with_thread_name!(None);
-
-        //Change default values for making the test faster.
-        // config.num_time_txs = 1;
-        // config.num_operators = 1;
-        // config.num_verifiers = 1;
-        // config.num_watchtowers = 1;
 
         let aggregator = create_actors!(config).2;
         let mut aggregator_client =
