@@ -452,8 +452,8 @@ impl ClementineVerifier for Verifier {
                 verifier.config.num_kickoffs_per_timetx
             );
 
-            let mut sighash_stream = Box::pin(create_nofn_sighash_stream(
-                verifier.db.clone(),
+            let mut sighash_stream = pin!(create_nofn_sighash_stream(
+                verifier.db,
                 verifier.config.clone(),
                 deposit_outpoint,
                 evm_address,
