@@ -20,7 +20,7 @@ pub struct Operator {
     pub db: Database,
     pub(crate) signer: Actor,
     pub(crate) config: BridgeConfig,
-    nofn_xonly_pk: XOnlyPublicKey,
+    pub(crate) nofn_xonly_pk: XOnlyPublicKey,
     pub(crate) collateral_funding_txid: Txid,
     pub(crate) idx: usize,
     citrea_client: Option<jsonrpsee::http_client::HttpClient>,
@@ -84,6 +84,12 @@ impl Operator {
             time_txs[0].1
         };
         tx.commit().await?;
+
+        tracing::info!(
+            "Creating new operator with idx: {} and collat txid: {}",
+            idx,
+            collateral_funding_txid
+        );
 
         let citrea_client = if !config.citrea_rpc_url.is_empty() {
             Some(

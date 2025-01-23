@@ -187,8 +187,9 @@ impl Database {
                 let data = operators
                     .into_iter()
                     .map(|(_, pk, addr, txid_db)| {
-                        let xonly_pk = XOnlyPublicKey::from_str(&pk)
-                            .map_err(|e| BridgeError::Error(format!("Invalid XOnlyPublicKey: {}", e)))?;
+                        let xonly_pk = XOnlyPublicKey::from_str(&pk).map_err(|e| {
+                            BridgeError::Error(format!("Invalid XOnlyPublicKey: {}", e))
+                        })?;
                         let addr = bitcoin::Address::from_str(&addr)
                             .map_err(|e| BridgeError::Error(format!("Invalid Address: {}", e)))?
                             .assume_checked();
@@ -1350,9 +1351,15 @@ mod tests {
             ));
         }
         // add to db
-        for i in 0..2 {
+        for x in ops.iter() {
             database
-                .set_operator(None, ops[i].0 as i32, ops[i].1, ops[i].2.clone().assume_checked().to_string(), ops[i].3)
+                .set_operator(
+                    None,
+                    x.0 as i32,
+                    x.1,
+                    x.2.clone().assume_checked().to_string(),
+                    x.3,
+                )
                 .await
                 .unwrap();
         }

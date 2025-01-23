@@ -327,8 +327,8 @@ pub fn create_nofn_sighash_stream(
 /// WIP: Update if the design changes.
 /// This function generates each tx that is an ancestor of Kickoff Timeout TX, Already Disproved TX,
 /// and Disprove TX. It yields the sighashes for these tx's for the input that has operators burn connector.
-/// TODO: Possible future optimization: Each verifier already generates some of these TX's in create_operator_sighash_stream()
-/// TODO: It is possible to return the required sighashes for operator signatures there too. But operators only needs to use sighashes included in this function.
+/// Possible future optimization: Each verifier already generates some of these TX's in create_operator_sighash_stream()
+/// It is possible to for verifiers somehow return the required sighashes for operator signatures there too. But operators only needs to use sighashes included in this function.
 pub fn create_operator_sighash_stream(
     db: Database,
     operator_idx: usize,

@@ -2,16 +2,22 @@ use super::clementine::{
     clementine_aggregator_server::ClementineAggregator, verifier_deposit_finalize_params,
     DepositParams, Empty, RawSignedMoveTx, VerifierDepositFinalizeParams,
 };
+use crate::config::BridgeConfig;
+use crate::rpc::clementine::clementine_operator_client::ClementineOperatorClient;
 use crate::rpc::clementine::clementine_verifier_client::ClementineVerifierClient;
 use crate::{
     aggregator::Aggregator,
-    builder::sighash::{calculate_num_required_nofn_sigs, create_nofn_sighash_stream},
+    builder::sighash::{
+        calculate_num_required_nofn_sigs, calculate_num_required_operator_sigs,
+        create_nofn_sighash_stream,
+    },
     errors::BridgeError,
     musig2::aggregate_nonces,
     rpc::clementine::{self, DepositSignSession},
     EVMAddress,
 };
 use bitcoin::hashes::Hash;
+use bitcoin::secp256k1::schnorr::Signature;
 use bitcoin::secp256k1::{Message, PublicKey};
 use bitcoin::{Amount, TapSighash};
 use futures::{future::try_join_all, stream::BoxStream, FutureExt, Stream, StreamExt};
@@ -281,6 +287,50 @@ impl Aggregator {
                 "Expected PubNonce in response".to_string(),
             )),
         }
+    }
+
+    /// For a specific deposit, gets needed signatures from each operator and returns a Vec with signatures from each operator
+    async fn get_operator_sigs(
+        operator_clients: Vec<ClementineOperatorClient<tonic::transport::Channel>>,
+        config: BridgeConfig,
+        mut deposit_sign_session: DepositSignSession,
+    ) -> Result<Vec<Vec<Signature>>, BridgeError> {
+        deposit_sign_session.nonce_gen_first_responses = Vec::new(); // not needed for operators
+        let mut operator_sigs_streams =
+            // create deposit sign streams with each operator
+            try_join_all(operator_clients.into_iter().map(|mut operator_client| {
+                let sign_session = deposit_sign_session.clone();
+                async move {
+                    let stream = operator_client
+                        .deposit_sign(tonic::Request::new(sign_session))
+                        .await?;
+                    Ok::<_, Status>(stream.into_inner())
+                }
+            }))
+                .await?;
+        // calculate number of signatures needed from each operator
+        let needed_sigs = calculate_num_required_operator_sigs(&config);
+        // get signatures from each operator's signature streams
+        let operator_sigs = try_join_all(operator_sigs_streams.iter_mut().map(|stream| async {
+            let mut sigs: Vec<Signature> = Vec::with_capacity(needed_sigs);
+            while let Some(sig) = stream.message().await? {
+                sigs.push(Signature::from_slice(&sig.schnorr_sig)?);
+            }
+            Ok::<_, BridgeError>(sigs)
+        }))
+            .await?;
+        // check if all signatures are received
+        for (idx, sigs) in operator_sigs.iter().enumerate() {
+            if sigs.len() != needed_sigs {
+                return Err(BridgeError::Error(format!(
+                    "Not all operator sigs received from op: {}.\n Expected: {}, got: {}",
+                    idx,
+                    needed_sigs,
+                    sigs.len()
+                )));
+            }
+        }
+        Ok(operator_sigs)
     }
 }
 
@@ -557,14 +607,53 @@ impl ClementineAggregator for Aggregator {
         // Start the deposit finalization pipe.
         let sig_dist_handle = tokio::spawn(signature_distributor(
             final_sig_receiver,
-            deposit_finalize_sender,
+            deposit_finalize_sender.clone(),
             movetx_agg_nonce,
         ));
 
+        tracing::debug!("Getting signatures from operators");
+        // Get sigs from each operator in background
+        let operator_sigs_fut = tokio::spawn(Aggregator::get_operator_sigs(
+            self.operator_clients.clone(),
+            self.config.clone(),
+            deposit_sign_session,
+        ));
+
+        tracing::debug!(
+            "Waiting for pipeline tasks to complete (nonce agg, sig agg, sig dist, operator sigs)"
+        );
         // Wait for all pipeline tasks to complete
         nonce_dist_handle.await.unwrap()?;
         sig_agg_handle.await.unwrap()?;
         sig_dist_handle.await.unwrap()?;
+        let operator_sigs = operator_sigs_fut.await.unwrap()?;
+
+        // send operators sigs to verifiers after all verifiers have signed
+        let send_operator_sigs: Vec<_> = deposit_finalize_sender
+            .iter()
+            .map(|tx| async {
+                for sigs in operator_sigs.iter() {
+                    for sig in sigs.iter() {
+                        tx.send(VerifierDepositFinalizeParams {
+                            params: Some(verifier_deposit_finalize_params::Params::SchnorrSig(
+                                sig.serialize().to_vec(),
+                            )),
+                        })
+                            .await
+                            .map_err(|e| {
+                                BridgeError::RPCStreamEndedUnexpectedly(format!(
+                                    "Can't send operator sigs to verifier: {}",
+                                    e
+                                ))
+                            })?;
+                    }
+                }
+                Ok::<(), BridgeError>(())
+            })
+            .collect();
+
+        // wait until all operator sigs are sent to every verifier
+        try_join_all(send_operator_sigs).await?;
 
         tracing::debug!("Waiting for deposit finalization");
 
