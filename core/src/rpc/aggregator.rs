@@ -38,7 +38,7 @@ async fn nonce_aggregator(
     agg_nonce_sender: Sender<AggNonceQueueItem>,
 ) -> Result<MusigAggNonce, BridgeError> {
     let mut total_sigs = 0;
-
+    tracing::info!("Starting nonce aggregation");
     while let Some(msg) = sighash_stream.next().await {
         let sighash = msg.map_err(|e| {
             tracing::error!("Error when reading from sighash stream: {}", e);
@@ -532,15 +532,11 @@ impl ClementineAggregator for Aggregator {
         let (final_sig_sender, final_sig_receiver) = channel(32);
 
         // Start the nonce aggregation pipe.
-        let nonce_agg_handle = thread::spawn(|| {
-            tokio::runtime::Runtime::new()
-                .unwrap()
-                .block_on(nonce_aggregator(
-                    nonce_streams,
-                    sighash_stream,
-                    agg_nonce_sender,
-                ))
-        });
+        let nonce_agg_handle = tokio::spawn(nonce_aggregator(
+            nonce_streams,
+            sighash_stream,
+            agg_nonce_sender,
+        ));
 
         // Start the nonce distribution pipe.
         let nonce_dist_handle = tokio::spawn(nonce_distributor(
@@ -561,7 +557,7 @@ impl ClementineAggregator for Aggregator {
         });
 
         // Join the nonce aggregation handle to get the movetx agg nonce.
-        let movetx_agg_nonce = nonce_agg_handle.join().unwrap()?;
+        let movetx_agg_nonce = nonce_agg_handle.await.unwrap()?;
 
         // Start the deposit finalization pipe.
         let sig_dist_handle = tokio::spawn(signature_distributor(
@@ -687,7 +683,7 @@ mod tests {
     async fn aggregator_setup_and_deposit() {
         let mut config = create_test_config_with_thread_name!(None);
 
-        // Change default values for making the test faster.
+        //Change default values for making the test faster.
         config.num_time_txs = 1;
         config.num_operators = 1;
         config.num_verifiers = 1;
