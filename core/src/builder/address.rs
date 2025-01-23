@@ -37,9 +37,11 @@ pub fn taproot_builder_with_scripts(scripts: &[ScriptBuf]) -> TaprootBuilder {
 ///
 /// # Arguments
 ///
-/// - `scripts`: If empty, script will be key path spend
+/// - `scripts`: If empty, it is most likely a key path spend address
 /// - `internal_key`: If not given, will be defaulted to an unspendable x-only public key
 /// - `network`: Bitcoin network
+/// - If both `scripts` and `internal_key` are given, it means one can spend using both script and key path.
+/// - If none given, it is an unspendable address.
 ///
 /// # Returns
 ///
@@ -54,15 +56,16 @@ pub fn create_taproot_address(
     internal_key: Option<XOnlyPublicKey>,
     network: bitcoin::Network,
 ) -> (Address, TaprootSpendInfo) {
+    // Build script tree
     let taproot_builder = taproot_builder_with_scripts(scripts);
-
+    // Finalize the tree
     let tree_info = match internal_key {
         Some(xonly_pk) => taproot_builder.finalize(&SECP, xonly_pk).unwrap(),
         None => taproot_builder
             .finalize(&SECP, *utils::UNSPENDABLE_XONLY_PUBKEY)
             .unwrap(),
     };
-
+    // Create the address
     let taproot_address = match internal_key {
         Some(xonly_pk) => Address::p2tr(&SECP, xonly_pk, tree_info.merkle_root(), network),
         None => Address::p2tr(
@@ -77,7 +80,7 @@ pub fn create_taproot_address(
 }
 
 /// Generates a deposit address for the user. Funds can be spend by N-of-N or
-/// user can take after specified time.
+/// user can take after specified time should the deposit fail.
 ///
 /// # Parameters
 ///
@@ -104,7 +107,7 @@ pub fn generate_deposit_address(
     user_evm_address: EVMAddress,
     amount: Amount,
     network: bitcoin::Network,
-    user_takes_after: u32,
+    user_takes_after: u16,
 ) -> (Address, TaprootSpendInfo) {
     let deposit_script =
         builder::script::create_deposit_script(nofn_xonly_pk, user_evm_address, amount);
@@ -118,7 +121,7 @@ pub fn generate_deposit_address(
 
     let script_timelock = builder::script::generate_relative_timelock_script(
         recovery_extracted_xonly_pk,
-        user_takes_after as i64,
+        user_takes_after,
     );
 
     create_taproot_address(&[deposit_script, script_timelock], None, network)
@@ -138,27 +141,6 @@ pub fn create_musig2_address(
     network: bitcoin::Network,
 ) -> (Address, TaprootSpendInfo) {
     create_taproot_address(&[], Some(nofn_xonly_pk), network)
-}
-
-/// Creates a kickoff taproot address with multisig script.
-///
-/// # Returns
-///
-/// See [`create_taproot_address`].
-///
-/// - [`Address`]: Kickoff taproot Bitcoin address
-/// - [`TaprootSpendInfo`]: Kickoff address's taproot spending information
-pub fn create_kickoff_address(
-    nofn_xonly_pk: XOnlyPublicKey,
-    operator_xonly_pk: XOnlyPublicKey,
-    network: bitcoin::Network,
-) -> (Address, TaprootSpendInfo) {
-    let musig2_and_operator_script = builder::script::create_musig2_and_operator_multisig_script(
-        nofn_xonly_pk,
-        operator_xonly_pk,
-    );
-
-    create_taproot_address(&[musig2_and_operator_script], None, network)
 }
 
 #[cfg(test)]

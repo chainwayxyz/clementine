@@ -5,19 +5,25 @@
 
 use super::address::create_taproot_address;
 use crate::builder;
-use crate::constants::{NUM_INTERMEDIATE_STEPS, PARALLEL_ASSERT_TX_CHAIN_SIZE};
+use crate::constants::{
+    OPERATOR_CHALLENGE_AMOUNT,
+    {MIN_TAPROOT_AMOUNT, NUM_INTERMEDIATE_STEPS, PARALLEL_ASSERT_TX_CHAIN_SIZE},
+};
+use crate::errors::BridgeError;
 use crate::utils::SECP;
-use crate::{utils, EVMAddress, UTXO};
+use crate::{utils, EVMAddress};
 use bitcoin::address::NetworkUnchecked;
 use bitcoin::hashes::Hash;
 use bitcoin::opcodes::all::OP_CHECKSIG;
 use bitcoin::script::PushBytesBuf;
+use bitcoin::sighash::SighashCache;
+use bitcoin::taproot::LeafVersion;
 use bitcoin::taproot::TaprootBuilder;
 use bitcoin::{
     absolute, taproot::TaprootSpendInfo, Address, Amount, OutPoint, ScriptBuf, TxIn, TxOut,
     Witness, XOnlyPublicKey,
 };
-use bitcoin::{Network, TapNodeHash, Transaction, Txid};
+use bitcoin::{Network, TapLeafHash, TapNodeHash, TapSighash, TapSighashType, Transaction, Txid};
 use bitvm::signatures::winternitz;
 
 /// Verbose information about a transaction.
@@ -38,31 +44,92 @@ pub struct TxHandler {
     /// Taproot spend information for each tx output.
     pub out_taproot_spend_infos: Vec<Option<TaprootSpendInfo>>,
 }
+impl TxHandler {
+    /// Calculates the sighash for a given transaction input for key spend path.
+    /// See [`bitcoin::sighash::SighashCache::taproot_key_spend_signature_hash`] for more details.
+    #[tracing::instrument(err(level = tracing::Level::ERROR), ret(level = tracing::Level::TRACE))]
+    pub fn calculate_pubkey_spend_sighash(
+        &mut self,
+        txin_index: usize,
+        sighash_type: Option<TapSighashType>,
+    ) -> Result<TapSighash, BridgeError> {
+        let mut sighash_cache: SighashCache<&mut bitcoin::Transaction> =
+            SighashCache::new(&mut self.tx);
+        let prevouts = &match sighash_type {
+            Some(TapSighashType::SinglePlusAnyoneCanPay)
+            | Some(TapSighashType::AllPlusAnyoneCanPay)
+            | Some(TapSighashType::NonePlusAnyoneCanPay) => {
+                bitcoin::sighash::Prevouts::One(txin_index, self.prevouts[txin_index].clone())
+            }
+            _ => bitcoin::sighash::Prevouts::All(&self.prevouts),
+        };
 
-// TODO: Move these constants to the config file
-pub const KICKOFF_UTXO_AMOUNT_SATS: Amount = Amount::from_sat(100_000);
+        let sig_hash = sighash_cache.taproot_key_spend_signature_hash(
+            txin_index,
+            prevouts,
+            sighash_type.unwrap_or(TapSighashType::Default),
+        )?;
 
-pub const KICKOFF_INPUT_AMOUNT: Amount = Amount::from_sat(100_000);
-pub const MIN_TAPROOT_AMOUNT: Amount = Amount::from_sat(330);
-pub const ANCHOR_AMOUNT: Amount = Amount::from_sat(240); // TODO: This will change to 0 in the future after Bitcoin v0.29.0
-pub const OPERATOR_CHALLENGE_AMOUNT: Amount = Amount::from_sat(200_000_000);
+        Ok(sig_hash)
+    }
 
-/// Creates a [`TxHandler`] for `time_tx`. It will always use `input_txid`'s first vout as the input.
+    /// Calculates the sighash for a given transaction input for script spend path.
+    /// See [`bitcoin::sighash::SighashCache::taproot_script_spend_signature_hash`] for more details.
+    #[tracing::instrument(err(level = tracing::Level::ERROR), ret(level = tracing::Level::TRACE))]
+    pub fn calculate_script_spend_sighash(
+        &mut self,
+        txin_index: usize,
+        script_index: usize,
+        sighash_type: Option<TapSighashType>,
+    ) -> Result<TapSighash, BridgeError> {
+        let mut sighash_cache: SighashCache<&mut bitcoin::Transaction> =
+            SighashCache::new(&mut self.tx);
+
+        let prevouts = &match sighash_type {
+            Some(TapSighashType::SinglePlusAnyoneCanPay)
+            | Some(TapSighashType::AllPlusAnyoneCanPay)
+            | Some(TapSighashType::NonePlusAnyoneCanPay) => {
+                bitcoin::sighash::Prevouts::One(txin_index, self.prevouts[txin_index].clone())
+            }
+            _ => bitcoin::sighash::Prevouts::All(&self.prevouts),
+        };
+        let leaf_hash = TapLeafHash::from_script(
+            self.prev_scripts
+                .get(txin_index)
+                .ok_or(BridgeError::NoScriptsForTxIn(txin_index))?
+                .get(script_index)
+                .ok_or(BridgeError::NoScriptAtIndex(script_index))?,
+            LeafVersion::TapScript,
+        );
+        let sig_hash = sighash_cache.taproot_script_spend_signature_hash(
+            txin_index,
+            prevouts,
+            leaf_hash,
+            sighash_type.unwrap_or(TapSighashType::Default),
+        )?;
+
+        Ok(sig_hash)
+    }
+}
+
+/// Creates a [`TxHandler`] for `sequential_collateral_tx`. It will always use the first
+/// output of the  previous `reimburse_generator_tx` as the input. The flow is as follows:
+/// `sequential_collateral_tx -> reimburse_generator_tx -> sequential_collateral_tx -> ...`
 ///
 /// # Returns
 ///
-/// A `time_tx` that has outputs of:
+/// A `sequential_collateral_tx` that has outputs of:
 ///
 /// 1. Operator's Burn Connector
 /// 2. Operator's Time Connector: timelocked utxo for operator for the entire withdrawal time
-/// 3. Kickoff input utxo: this utxo will be the input for the kickoff tx
+/// 3. Kickoff input utxo(s): the utxo(s) will be used as the input(s) for the kickoff_tx(s)
 /// 4. P2Anchor: Anchor output for CPFP
 pub fn create_sequential_collateral_txhandler(
     operator_xonly_pk: XOnlyPublicKey,
     input_txid: Txid,
     input_amount: Amount,
     timeout_block_count: i64,
-    max_withdrawal_time_block_count: i64,
+    max_withdrawal_time_block_count: u16,
     num_kickoffs_per_timetx: usize,
     network: bitcoin::Network,
 ) -> TxHandler {
@@ -73,7 +140,6 @@ pub fn create_sequential_collateral_txhandler(
         }]
         .into(),
     );
-    u16::try_from(max_withdrawal_time_block_count).expect("Max withdrawal time block count is larger than u16::MAX (sequence relative timelock is 16 bits");
     let max_withdrawal_time_locked_script = builder::script::generate_relative_timelock_script(
         operator_xonly_pk,
         max_withdrawal_time_block_count,
@@ -110,12 +176,14 @@ pub fn create_sequential_collateral_txhandler(
             script_pubkey: reimburse_gen_connector.script_pubkey(),
         },
     ];
+
     // add kickoff utxos
     for _ in 0..num_kickoffs_per_timetx {
         tx_outs.push(kickoff_txout.clone());
         out_scripts.push(vec![timeout_block_count_locked_script.clone()]);
         out_taproot_spend_infos.push(Some(kickoff_utxo_spend.clone()));
     }
+
     // add anchor
     tx_outs.push(builder::script::anchor_output());
     out_scripts.push(vec![]);
@@ -137,11 +205,21 @@ pub fn create_sequential_collateral_txhandler(
     }
 }
 
+/// Creates a [`TxHandler`] for `reimburse_generator_tx`. It will always use the first
+/// two outputs of the  previous `sequential_collateral_tx` as the two inputs.
+///
+/// # Returns
+///
+/// A `sequential_collateral_tx` that has outputs of:
+///
+/// 1. Operator's Fund from the previous `sequential_collateral_tx`
+/// 2. Reimburse connector utxo(s): the utxo(s) will be used as the input(s) for the reimburse_tx(s)
+/// 3. P2Anchor: Anchor output for CPFP
 pub fn create_reimburse_generator_txhandler(
     sequential_collateral_txhandler: &TxHandler,
     operator_xonly_pk: XOnlyPublicKey,
     num_kickoffs_per_timetx: usize,
-    max_withdrawal_time_block_count: i64,
+    max_withdrawal_time_block_count: u16,
     network: bitcoin::Network,
 ) -> TxHandler {
     let tx_ins = create_tx_ins(
@@ -158,7 +236,7 @@ pub fn create_reimburse_generator_txhandler(
                     txid: sequential_collateral_txhandler.txid,
                     vout: 1,
                 },
-                Some(max_withdrawal_time_block_count as u16),
+                Some(max_withdrawal_time_block_count),
             ),
         ]
         .into(),
@@ -213,6 +291,9 @@ pub fn create_reimburse_generator_txhandler(
     }
 }
 
+/// Creates a [`TxHandler`] for the `kickoff_utxo_timeout_tx`. This transaction is sent when
+/// the operator does not send the `kickoff_tx` within the timeout period (6 blocks), for a withdrawal
+/// that they provided. Anyone will be able to burn the utxo after the timeout period.
 pub fn create_kickoff_utxo_timeout_txhandler(
     sequential_collateral_txhandler: &TxHandler,
     kickoff_idx: usize,
@@ -225,7 +306,6 @@ pub fn create_kickoff_utxo_timeout_txhandler(
         .into(),
     );
 
-    // let tx_outs = vec![builder::script::anyone_can_spend_txout()];
     let tx_outs = vec![builder::script::anchor_output()];
 
     let tx = create_btc_tx(tx_ins, tx_outs);
@@ -243,8 +323,8 @@ pub fn create_kickoff_utxo_timeout_txhandler(
     }
 }
 
-/// Creates the move_tx.
-pub fn create_move_tx(
+/// Creates the `move_to_vault_tx`.
+pub fn create_move_to_vault_tx(
     deposit_outpoint: OutPoint,
     nofn_xonly_pk: XOnlyPublicKey,
     bridge_amount_sats: Amount,
@@ -254,28 +334,24 @@ pub fn create_move_tx(
 
     let tx_ins = create_tx_ins(vec![deposit_outpoint].into());
 
-    // let anyone_can_spend_txout = builder::script::anyone_can_spend_txout();
-    // let move_txout = TxOut {
-    //     value: bridge_amount_sats - anyone_can_spend_txout.value,
-    //     script_pubkey: musig2_address.script_pubkey(),
-    // };
     let anchor_output = builder::script::anchor_output();
     let move_txout = TxOut {
         value: bridge_amount_sats,
         script_pubkey: musig2_address.script_pubkey(),
     };
 
-    // create_btc_tx(tx_ins, vec![move_txout, anyone_can_spend_txout])
     create_btc_tx(tx_ins, vec![move_txout, anchor_output])
 }
 
-/// Creates a [`TxHandler`] for the move_tx.
-pub fn create_move_txhandler(
+/// Creates a [`TxHandler`] for the `move_to_vault_tx`. This transaction will move
+/// the funds to a NofN address from the deposit intent address, after all the signature
+/// collection operations are done.
+pub fn create_move_to_vault_txhandler(
     deposit_outpoint: OutPoint,
     user_evm_address: EVMAddress,
     recovery_taproot_address: &Address<NetworkUnchecked>,
     nofn_xonly_pk: XOnlyPublicKey,
-    user_takes_after: u32,
+    user_takes_after: u16,
     bridge_amount_sats: Amount,
     network: bitcoin::Network,
 ) -> TxHandler {
@@ -283,14 +359,6 @@ pub fn create_move_txhandler(
         create_taproot_address(&[], Some(nofn_xonly_pk), network);
 
     let tx_ins = create_tx_ins(vec![deposit_outpoint].into());
-
-    // let anyone_can_spend_txout = builder::script::anyone_can_spend_txout();
-    // let move_txout = TxOut {
-    //     value: bridge_amount_sats - anyone_can_spend_txout.value,
-    //     script_pubkey: musig2_address.script_pubkey(),
-    // };
-
-    // let move_tx = create_btc_tx(tx_ins, vec![move_txout, anyone_can_spend_txout]);
 
     let anchor_output = builder::script::anchor_output();
     let move_txout = TxOut {
@@ -328,76 +396,6 @@ pub fn create_move_txhandler(
         prev_taproot_spend_infos: vec![Some(deposit_taproot_spend_info)],
         out_scripts: vec![vec![], vec![]],
         out_taproot_spend_infos: vec![Some(musig2_spendinfo), None],
-    }
-}
-
-// TODO: this function is outdated, delete after updating operator new_deposit()
-/// Creates [`TxHandler`] of the kickoff_tx for the operator.
-pub fn create_kickoff_utxo_txhandler(
-    funding_utxo: &UTXO, // Make sure this comes from the operator's address.
-    nofn_xonly_pk: XOnlyPublicKey,
-    operator_xonly_pk: XOnlyPublicKey,
-    network: bitcoin::Network,
-    num_kickoff_utxos_per_tx: usize,
-) -> TxHandler {
-    // Here, we are calculating the minimum relay fee for the kickoff tx based on the number of kickoff utxos per tx.
-    // The formula is: 154 + 43 * num_kickoff_utxos_per_tx where
-    // 154 = (Signature as witness, 66 bytes + 2 bytes from flags) / 4
-    // + 43 * 2 from change and anyone can spend txouts
-    // + 41 from the single input (32 + 8 + 1)
-    // 4 + 4 + 1 + 1 from locktime, version, and VarInt bases of
-    // the number of inputs and outputs.
-    let kickoff_tx_min_relay_fee = match num_kickoff_utxos_per_tx {
-        0..=250 => 154 + 43 * num_kickoff_utxos_per_tx, // Handles all values from 0 to 250
-        _ => 156 + 43 * num_kickoff_utxos_per_tx,       // Handles all other values
-    };
-
-    //  = 154 + 43 * num_kickoff_utxos_per_tx;
-    let tx_ins = create_tx_ins(vec![funding_utxo.outpoint].into());
-    let musig2_and_operator_script = builder::script::create_musig2_and_operator_multisig_script(
-        nofn_xonly_pk,
-        operator_xonly_pk,
-    );
-    let (musig2_and_operator_address, _) =
-        builder::address::create_taproot_address(&[musig2_and_operator_script], None, network);
-    let operator_address = Address::p2tr(&SECP, operator_xonly_pk, None, network);
-    let change_amount = funding_utxo.txout.value
-        - Amount::from_sat(KICKOFF_UTXO_AMOUNT_SATS.to_sat() * num_kickoff_utxos_per_tx as u64)
-        // - builder::script::anyone_can_spend_txout().value
-        - builder::script::anchor_output().value
-        - Amount::from_sat(kickoff_tx_min_relay_fee as u64);
-    tracing::debug!("Change amount: {:?}", change_amount);
-    let mut tx_outs_raw = vec![
-        (
-            KICKOFF_UTXO_AMOUNT_SATS,
-            musig2_and_operator_address.script_pubkey(),
-        );
-        num_kickoff_utxos_per_tx
-    ];
-
-    tx_outs_raw.push((change_amount, operator_address.script_pubkey()));
-    // tx_outs_raw.push((
-    //     builder::script::anyone_can_spend_txout().value,
-    //     builder::script::anyone_can_spend_txout().script_pubkey,
-    // ));
-    tx_outs_raw.push((
-        builder::script::anchor_output().value,
-        builder::script::anchor_output().script_pubkey,
-    ));
-    let tx_outs = create_tx_outs(tx_outs_raw);
-    let tx = create_btc_tx(tx_ins, tx_outs);
-    let prevouts = vec![funding_utxo.txout.clone()];
-    let scripts = vec![vec![]];
-    let taproot_spend_infos = vec![];
-    TxHandler {
-        txid: tx.compute_txid(),
-        tx,
-        prevouts,
-        prev_scripts: scripts,
-        prev_taproot_spend_infos: taproot_spend_infos,
-        // placeholders
-        out_scripts: vec![],
-        out_taproot_spend_infos: vec![],
     }
 }
 
@@ -456,7 +454,6 @@ pub fn create_kickoff_txhandler(
         ),
         (MIN_TAPROOT_AMOUNT, nofn_or_nofn_3week.script_pubkey()),
     ]);
-    // tx_outs.push(builder::script::anyone_can_spend_txout());
     tx_outs.push(builder::script::anchor_output());
 
     let mut op_return_script = move_txid.to_byte_array().to_vec();
@@ -495,12 +492,14 @@ pub fn create_kickoff_txhandler(
     }
 }
 
-/// Creates a [`TxHandler`] for the watchtower challenge page transaction.
+/// Creates a [`TxHandler`] for the `watchtower_challenge_kickoff_tx`. This transaction can be sent by anyone.
+/// When spent, the outputs of this transaction will reveal the Groth16 proofs with their public inputs for the longest
+/// chain proof, signed by the corresponding watchtowers using WOTS.
 pub fn create_watchtower_challenge_kickoff_txhandler(
     kickoff_tx_handler: &TxHandler,
     num_watchtowers: u32,
     watchtower_xonly_pks: &[XOnlyPublicKey],
-    watchtower_wots: &[Vec<[u8; 20]>],
+    watchtower_challenge_winternitz_pks: &[Vec<[u8; 20]>],
     network: bitcoin::Network,
 ) -> TxHandler {
     let tx_ins = create_tx_ins(
@@ -520,7 +519,10 @@ pub fn create_watchtower_challenge_kickoff_txhandler(
 
     let mut tx_outs = (0..num_watchtowers)
         .map(|i| {
-            let mut x = verifier.checksig_verify(&wots_params, &watchtower_wots[i as usize]);
+            let mut x = verifier.checksig_verify(
+                &wots_params,
+                &watchtower_challenge_winternitz_pks[i as usize],
+            );
             x = x.push_x_only_key(&watchtower_xonly_pks[i as usize]);
             x = x.push_opcode(OP_CHECKSIG); // TODO: Add checksig in the beginning
             let x = x.compile();
@@ -536,7 +538,6 @@ pub fn create_watchtower_challenge_kickoff_txhandler(
         .collect::<Vec<_>>();
 
     // add the anchor output
-    // tx_outs.push(builder::script::anyone_can_spend_txout());
     tx_outs.push(builder::script::anchor_output());
     scripts.push(vec![]);
     spendinfos.push(None);
@@ -554,6 +555,15 @@ pub fn create_watchtower_challenge_kickoff_txhandler(
     }
 }
 
+/// Creates a [`TxHandler`] for the `watchtower_challenge_tx`. This transaction
+/// is sent by the watchtowers to reveal their Groth16 proofs with their public
+/// inputs for the longest chain proof, signed by the corresponding watchtowers
+/// using WOTS. The output of this transaction can be spend by:
+/// 1- the operator with revealing the preimage for the corresponding watchtower
+/// 2- the NofN after 0.5 week `using kickoff_tx.output[2]`, which will also prevent
+/// the operator from sending `assert_begin_tx`.
+/// The revealed preimage will later be used to send `disprove_tx` if the operator
+/// claims that the corresponding watchtower did not challenge them.
 pub fn create_watchtower_challenge_txhandler(
     wcp_txhandler: &TxHandler,
     watchtower_idx: usize,
@@ -585,7 +595,6 @@ pub fn create_watchtower_challenge_txhandler(
             value: Amount::from_sat(1000), // TODO: Hand calculate this
             script_pubkey: op_or_nofn_halfweek.script_pubkey(),
         },
-        // builder::script::anyone_can_spend_txout(),
         builder::script::anchor_output(),
     ];
 
@@ -604,6 +613,10 @@ pub fn create_watchtower_challenge_txhandler(
     }
 }
 
+/// Creates a [`TxHandler`] for the `operator_challenge_NACK_tx`. This transaction will force
+/// the operator to reveal the preimage for the corresponding watchtower since if they do not
+/// reveal the preimage, the NofN will be able to spend the output after 0.5 week, which will
+/// prevent the operator from sending `assert_begin_tx`.
 pub fn create_operator_challenge_nack_txhandler(
     watchtower_challenge_txhandler: &TxHandler,
     kickoff_txhandler: &TxHandler,
@@ -627,7 +640,7 @@ pub fn create_operator_challenge_nack_txhandler(
         ]
         .into(),
     );
-    // let tx_outs = vec![builder::script::anyone_can_spend_txout()];
+
     let tx_outs = vec![builder::script::anchor_output()];
     let challenge_nack_tx = create_btc_tx(tx_ins, tx_outs);
 
@@ -651,6 +664,11 @@ pub fn create_operator_challenge_nack_txhandler(
     }
 }
 
+/// Creates a [`TxHandler`] for the `operator_challenge_ACK_tx`. This transaction will allow the operator
+/// to send the `assert_begin_tx` to basically respond to the challenge(s). This transaction will allow
+/// the operator to create `PARALLEL_ASSERT_TX_CHAIN_SIZE` outputs so that they can send `mini_assert_tx`s
+/// in parallel. These transactions allow the operator to "commit" their intermediate values inside the
+/// Groth16 verifier script. Commitments are possible using Winternitz OTSs.
 pub fn create_assert_begin_txhandler(
     kickoff_txhandler: &TxHandler,
     assert_tx_addrs: &[ScriptBuf],
@@ -699,6 +717,7 @@ pub fn create_assert_begin_txhandler(
     }
 }
 
+/// Creates the `mini_assert_tx` for `assert_begin_tx -> assert_end_tx` flow.
 pub fn create_mini_assert_tx(
     prev_txid: Txid,
     prev_vout: u32,
@@ -724,6 +743,17 @@ pub fn create_mini_assert_tx(
     create_btc_tx(tx_ins, tx_outs)
 }
 
+/// Creates a [`TxHandler`] for the `assert_end_tx`. When this transaction is sent,
+/// There are three scenarios:
+/// 1- If the operator is malicious and deliberately spends assert_end_tx.output[0]
+/// inside a transaction other than `disprove_tx`, then they cannot send the
+/// `disprove_timeout_tx` anymore. This means after 2 weeks, NofN can spend the
+/// `already_disproved_tx`. If the operator does not allow this by spending
+/// sequential_collateral_tx.output[0], then they cannot send the `reimburse_tx`.
+/// 2- If the operator is malicious and does not spend assert_end_tx.output[0], then
+/// their burn connector can be burned by using the `disprove_tx`.
+/// 3- If the operator is honest and there is a challenge, then eventually they will
+/// send the `disprove_timeout_tx` to be able to send the `reimburse_tx` later.
 pub fn create_assert_end_txhandler(
     kickoff_txhandler: &TxHandler,
     assert_begin_txhandler: &TxHandler,
@@ -837,6 +867,8 @@ pub fn create_assert_end_txhandler(
     }
 }
 
+/// Creates a [`TxHandler`] for the `disprove_timeout_tx`. This transaction will be sent by the operator
+/// to be able to send `reimburse_tx` later.
 pub fn create_disprove_timeout_txhandler(
     assert_end_txhandler: &TxHandler,
     operator_xonly_pk: XOnlyPublicKey,
@@ -891,6 +923,9 @@ pub fn create_disprove_timeout_txhandler(
     }
 }
 
+/// Creates a [`TxHandler`] for the `already_disproved_tx`. This transaction will be sent by NofN, meaning
+/// that the operator was malicious. This transaction "burns" the operator's burn connector, kicking the
+/// operator out of the system.
 pub fn create_already_disproved_txhandler(
     assert_end_txhandler: &TxHandler,
     sequential_collateral_txhandler: &TxHandler,
@@ -939,6 +974,9 @@ pub fn create_already_disproved_txhandler(
     }
 }
 
+/// Creates a [`TxHandler`] for the `disprove_tx`. This transaction will be sent by NofN, meaning
+/// that the operator was malicious. This transaction burns the operator's burn connector, kicking the
+/// operator out of the system.
 pub fn create_disprove_txhandler(
     assert_end_txhandler: &TxHandler,
     sequential_collateral_txhandler: &TxHandler,
@@ -981,6 +1019,9 @@ pub fn create_disprove_txhandler(
     }
 }
 
+/// Creates a [`TxHandler`] for the `challenge`. This transaction is for covering
+/// the operators' cost for a challenge to prevent people from maliciously
+/// challenging them and causing them to lose money.
 pub fn create_challenge_txhandler(
     kickoff_txhandler: &TxHandler,
     operator_reimbursement_address: &bitcoin::Address,
@@ -1011,6 +1052,9 @@ pub fn create_challenge_txhandler(
     }
 }
 
+/// Creates a [`TxHandler`] for the `start_happy_reimburse_tx`. This transaction will be sent by the operator
+/// in case of no challenges, to be able to send `happy_reimburse_tx` later. Everyone is happy because the
+/// operator is honest and the system does not have to deal with any disputes.
 pub fn create_start_happy_reimburse_txhandler(
     kickoff_txhandler: &TxHandler,
     operator_xonly_pk: XOnlyPublicKey,
@@ -1068,6 +1112,8 @@ pub fn create_start_happy_reimburse_txhandler(
     }
 }
 
+/// Creates a [`TxHandler`] for the `happy_reimburse_tx`. This transaction will be sent by the operator
+/// in case of no challenges, to reimburse the operator for their honest behavior.
 pub fn create_happy_reimburse_txhandler(
     move_txhandler: &TxHandler,
     start_happy_reimburse_txhandler: &TxHandler,
@@ -1096,7 +1142,6 @@ pub fn create_happy_reimburse_txhandler(
     let anchor_txout = builder::script::anchor_output();
     let tx_outs = vec![
         TxOut {
-            // value in move_tx currently (bridge amount)
             value: move_txhandler.tx.output[0].value,
             script_pubkey: operator_reimbursement_address.script_pubkey(),
         },
@@ -1128,6 +1173,8 @@ pub fn create_happy_reimburse_txhandler(
     }
 }
 
+/// Creates a [`TxHandler`] for the `reimburse_tx`. This transaction will be sent by the operator
+/// in case of a challenge, to reimburse the operator for their honest behavior.
 pub fn create_reimburse_txhandler(
     move_txhandler: &TxHandler,
     disprove_timeout_txhandler: &TxHandler,
@@ -1187,6 +1234,9 @@ pub fn create_reimburse_txhandler(
     }
 }
 
+/// Creates a [`TxHandler`] for the `kickoff_timeout_tx`. This transaction will be sent by anyone
+/// in case the operator does not respond to a challenge (did not manage to send `assert_end_tx`)
+/// in time, burning their burn connector.
 pub fn create_kickoff_timeout_txhandler(
     kickoff_tx_handler: &TxHandler,
     sequential_collateral_txhandler: &TxHandler,
@@ -1228,161 +1278,6 @@ pub fn create_kickoff_timeout_txhandler(
             kickoff_tx_handler.out_taproot_spend_infos[3].clone(),
             sequential_collateral_txhandler.out_taproot_spend_infos[0].clone(),
         ],
-        out_scripts: vec![vec![], vec![]],
-        out_taproot_spend_infos: vec![None, None],
-    }
-}
-
-// TODO: outdated, delete after changing functions it is used in
-pub fn create_slash_or_take_tx(
-    deposit_outpoint: OutPoint,
-    kickoff_utxo: UTXO,
-    operator_xonly_pk: XOnlyPublicKey,
-    operator_idx: usize,
-    nofn_xonly_pk: XOnlyPublicKey,
-    network: bitcoin::Network,
-    _user_takes_after: u32,
-    operator_takes_after: u32,
-    bridge_amount_sats: Amount,
-) -> TxHandler {
-    // First recreate the move_tx and move_txid. We can give dummy values for some of the parameters since we are only interested in txid.
-    let move_tx = create_move_tx(deposit_outpoint, nofn_xonly_pk, bridge_amount_sats, network);
-    let move_txid = move_tx.compute_txid();
-
-    let (kickoff_utxo_address, kickoff_utxo_spend_info) =
-        builder::address::create_kickoff_address(nofn_xonly_pk, operator_xonly_pk, network);
-    // tracing::debug!(
-    //     "kickoff_utxo_script_pubkey: {:?}",
-    //     kickoff_utxo_address.script_pubkey()
-    // );
-    // tracing::debug!("kickoff_utxo_spend_info: {:?}", kickoff_utxo_spend_info);
-    // tracing::debug!("kickoff_utxooo: {:?}", kickoff_utxo);
-    let musig2_and_operator_script = builder::script::create_musig2_and_operator_multisig_script(
-        nofn_xonly_pk,
-        operator_xonly_pk,
-    );
-    // Sanity check
-    tracing::debug!(
-        "kickoff_utxo_script_pubkey: {:?}",
-        kickoff_utxo_address.script_pubkey()
-    );
-    tracing::debug!(
-        "kickoff_utxo_script_pubkey: {:?}",
-        kickoff_utxo.txout.script_pubkey
-    );
-    tracing::debug!("Operator index: {:?}", operator_idx);
-    tracing::debug!("Operator xonly pk: {:?}", operator_xonly_pk);
-    tracing::debug!("Deposit OutPoint: {:?}", deposit_outpoint);
-    assert!(kickoff_utxo_address.script_pubkey() == kickoff_utxo.txout.script_pubkey);
-    let ins = create_tx_ins(vec![kickoff_utxo.outpoint].into());
-    let relative_timelock_script = builder::script::generate_relative_timelock_script(
-        operator_xonly_pk,
-        operator_takes_after as i64,
-    );
-    let (slash_or_take_address, _) = builder::address::create_taproot_address(
-        &[relative_timelock_script.clone()],
-        Some(nofn_xonly_pk),
-        network,
-    );
-    let mut op_return_script = move_txid.to_byte_array().to_vec();
-    op_return_script.extend(utils::usize_to_var_len_bytes(operator_idx));
-    let mut push_bytes = PushBytesBuf::new();
-    push_bytes.extend_from_slice(&op_return_script).unwrap();
-    let op_return_txout = builder::script::op_return_txout(push_bytes);
-    let outs = vec![
-        TxOut {
-            value: kickoff_utxo.txout.value - Amount::from_sat(330),
-            script_pubkey: slash_or_take_address.script_pubkey(),
-        },
-        // builder::script::anyone_can_spend_txout(),
-        builder::script::anchor_output(),
-        op_return_txout,
-    ];
-    let tx = create_btc_tx(ins, outs);
-    let prevouts = vec![kickoff_utxo.txout.clone()];
-    let scripts = vec![vec![musig2_and_operator_script]];
-    tracing::debug!("slash_or_take_tx weight: {:?}", tx.weight());
-    TxHandler {
-        txid: tx.compute_txid(),
-        tx,
-        prevouts,
-        prev_scripts: scripts,
-        prev_taproot_spend_infos: vec![Some(kickoff_utxo_spend_info)],
-        // just placeholders below
-        out_scripts: vec![vec![], vec![], vec![]],
-        out_taproot_spend_infos: vec![None, None, None],
-    }
-}
-
-// TODO: outdated
-pub fn create_operator_takes_tx(
-    bridge_fund_outpoint: OutPoint,
-    slash_or_take_utxo: UTXO,
-    operator_xonly_pk: XOnlyPublicKey,
-    nofn_xonly_pk: XOnlyPublicKey,
-    network: bitcoin::Network,
-    operator_takes_after: u32,
-    bridge_amount_sats: Amount,
-    operator_wallet_address: Address<NetworkUnchecked>,
-) -> TxHandler {
-    let operator_wallet_address_checked = operator_wallet_address.require_network(network).unwrap();
-    let mut ins = create_tx_ins(vec![bridge_fund_outpoint].into());
-    ins.extend(create_tx_ins(
-        vec![(
-            slash_or_take_utxo.outpoint,
-            Some(operator_takes_after as u16),
-        )]
-        .into(),
-    ));
-
-    let (musig2_address, musig2_spend_info) =
-        builder::address::create_musig2_address(nofn_xonly_pk, network);
-
-    let relative_timelock_script = builder::script::generate_relative_timelock_script(
-        operator_xonly_pk,
-        operator_takes_after as i64,
-    );
-    let (slash_or_take_address, slash_or_take_spend_info) =
-        builder::address::create_taproot_address(
-            &[relative_timelock_script.clone()],
-            Some(nofn_xonly_pk),
-            network,
-        );
-
-    // Sanity check TODO: No asserts outside of tests
-    assert!(slash_or_take_address.script_pubkey() == slash_or_take_utxo.txout.script_pubkey);
-
-    let outs = vec![
-        TxOut {
-            value: slash_or_take_utxo.txout.value + bridge_amount_sats
-                // - builder::script::anyone_can_spend_txout().value
-                // - builder::script::anyone_can_spend_txout().value,
-                - builder::script::anchor_output().value
-                - builder::script::anchor_output().value,
-            script_pubkey: operator_wallet_address_checked.script_pubkey(),
-        },
-        // builder::script::anyone_can_spend_txout(),
-        builder::script::anchor_output(),
-    ];
-    let tx = create_btc_tx(ins, outs);
-    let prevouts = vec![
-        TxOut {
-            script_pubkey: musig2_address.script_pubkey(),
-            value: bridge_amount_sats
-                // - builder::script::anyone_can_spend_txout().value,
-                - builder::script::anchor_output().value,
-        },
-        slash_or_take_utxo.txout,
-    ];
-    let scripts = vec![vec![], vec![relative_timelock_script]];
-    let taproot_spend_infos = vec![Some(musig2_spend_info), Some(slash_or_take_spend_info)];
-    TxHandler {
-        txid: tx.compute_txid(),
-        tx,
-        prevouts,
-        prev_scripts: scripts,
-        prev_taproot_spend_infos: taproot_spend_infos,
-        // placeholders
         out_scripts: vec![vec![], vec![]],
         out_taproot_spend_infos: vec![None, None],
     }
@@ -1460,7 +1355,7 @@ mod tests {
     use secp256k1::rand;
 
     #[test]
-    fn create_move_tx() {
+    fn create_move_to_vault_tx() {
         let deposit_outpoint = OutPoint {
             txid: Txid::all_zeros(),
             vout: 0x45,
@@ -1471,8 +1366,12 @@ mod tests {
         let bridge_amount_sats = Amount::from_sat(0x1F45);
         let network = bitcoin::Network::Regtest;
 
-        let move_tx =
-            super::create_move_tx(deposit_outpoint, nofn_xonly_pk, bridge_amount_sats, network);
+        let move_tx = super::create_move_to_vault_tx(
+            deposit_outpoint,
+            nofn_xonly_pk,
+            bridge_amount_sats,
+            network,
+        );
 
         assert_eq!(
             move_tx.input.first().unwrap().previous_output,
@@ -1486,7 +1385,6 @@ mod tests {
         );
         assert_eq!(
             *move_tx.output.get(1).unwrap(),
-            // builder::script::anyone_can_spend_txout()
             builder::script::anchor_output()
         );
     }
