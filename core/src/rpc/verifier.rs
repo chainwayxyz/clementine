@@ -170,7 +170,10 @@ impl ClementineVerifier for Verifier {
             .await?;
 
         let mut operator_winternitz_public_keys = Vec::new();
-        for _ in 0..self.config.num_operators {
+        for _ in 0..self.config.num_kickoffs_per_timetx
+            * self.config.num_time_txs
+            * utils::ALL_BITVM_INTERMEDIATE_VARIABLES.len()
+        {
             let operator_params = in_stream
                 .message()
                 .await?
