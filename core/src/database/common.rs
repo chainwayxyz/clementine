@@ -137,6 +137,11 @@ impl Database {
         wallet_address: String,
         collateral_funding_txid: Txid,
     ) -> Result<(), BridgeError> {
+        tracing::info!(
+            "Setting operator: {}, collat: {}",
+            operator_idx,
+            collateral_funding_txid
+        );
         let query = sqlx::query(
             "INSERT INTO operators (operator_idx, xonly_pk, wallet_reimburse_address, collateral_funding_txid) VALUES ($1, $2, $3, $4);",
         )
@@ -161,7 +166,7 @@ impl Database {
             "SELECT operator_idx, xonly_pk, wallet_reimburse_address, collateral_funding_txid FROM operators ORDER BY operator_idx;"
         );
 
-        let result: Result<Vec<(i32, String, String, String)>, sqlx::Error> = match tx {
+        let result: Result<Vec<(i32, String, String, TxidDB)>, sqlx::Error> = match tx {
             Some(tx) => query.fetch_all(&mut **tx).await,
             None => query.fetch_all(&self.connection).await,
         };
@@ -181,14 +186,17 @@ impl Database {
                 // Convert the result to the desired format
                 let data = operators
                     .into_iter()
-                    .map(|(_, pk, addr, txid)| {
-                        let xonly_pk = XOnlyPublicKey::from_str(&pk).unwrap();
-                        let addr = bitcoin::Address::from_str(&addr).unwrap().assume_checked();
-                        let txid = Txid::from_str(&txid).unwrap();
+                    .map(|(_, pk, addr, txid_db)| {
+                        let xonly_pk = XOnlyPublicKey::from_str(&pk)
+                            .map_err(|e| BridgeError::Error(format!("Invalid XOnlyPublicKey: {}", e)))?;
+                        let addr = bitcoin::Address::from_str(&addr)
+                            .map_err(|e| BridgeError::Error(format!("Invalid Address: {}", e)))?
+                            .assume_checked();
+                        let txid = txid_db.0; // Extract the Txid from TxidDB
                         Ok((xonly_pk, addr, txid))
                     })
                     .collect::<Result<Vec<_>, BridgeError>>()?;
-
+                tracing::info!("Getting Operators: {:?}", data);
                 Ok(data)
             }
             Err(e) => Err(BridgeError::DatabaseError(e)),
@@ -1320,7 +1328,42 @@ mod tests {
     use secp256k1::musig::MusigPubNonce;
     use secp256k1::rand;
     use secp256k1::{constants::SCHNORR_SIGNATURE_SIZE, rand::rngs::OsRng};
+    use std::str::FromStr;
     use std::{env, thread};
+
+    #[tokio::test]
+    async fn save_get_operators() {
+        let config = create_test_config_with_thread_name!(None);
+        let database = Database::new(&config).await.unwrap();
+        let mut ops = Vec::new();
+        for i in 0..2 {
+            let txid_str = format!(
+                "16b3a5951cb816afeb9dab8a30d0ece7acd3a7b34437436734edd1b72b6bf0{:02x}",
+                i
+            );
+            let txid = Txid::from_str(&txid_str).unwrap();
+            ops.push((
+                i,
+                config.operators_xonly_pks[i],
+                config.operator_wallet_addresses[i].clone(),
+                txid,
+            ));
+        }
+        // add to db
+        for i in 0..2 {
+            database
+                .set_operator(None, ops[i].0 as i32, ops[i].1, ops[i].2.clone().assume_checked().to_string(), ops[i].3)
+                .await
+                .unwrap();
+        }
+        let res = database.get_operators(None).await.unwrap();
+        assert_eq!(res.len(), ops.len());
+        for i in 0..2 {
+            assert_eq!(res[i].0, ops[i].1);
+            assert_eq!(res[i].1, ops[i].2.clone().assume_checked());
+            assert_eq!(res[i].2, ops[i].3);
+        }
+    }
 
     #[tokio::test]
     async fn save_get_timeout_tx_sigs() {
