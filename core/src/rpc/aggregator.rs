@@ -415,7 +415,7 @@ impl ClementineAggregator for Aggregator {
                 let mut verifier_client = verifier_client.clone();
 
                 async move {
-                    let (tx, rx) = tokio::sync::mpsc::channel(12800);
+                    let (tx, rx) = tokio::sync::mpsc::channel(1280);
                     let stream = verifier_client
                         .deposit_sign(tokio_stream::wrappers::ReceiverStream::new(rx))
                         .await?;

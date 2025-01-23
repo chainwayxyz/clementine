@@ -360,7 +360,7 @@ impl ClementineVerifier for Verifier {
         };
 
         // now stream the nonces
-        let (tx, rx) = mpsc::channel(12800);
+        let (tx, rx) = mpsc::channel(1280);
         tokio::spawn(async move {
             // First send the session id
             let response = NonceGenResponse {
@@ -389,7 +389,7 @@ impl ClementineVerifier for Verifier {
     ) -> Result<Response<Self::DepositSignStream>, Status> {
         let mut in_stream = req.into_inner();
 
-        let (tx, rx) = mpsc::channel(12800);
+        let (tx, rx) = mpsc::channel(1280);
 
         tracing::info!("Received deposit sign request");
 
@@ -437,14 +437,20 @@ impl ClementineVerifier for Verifier {
             tracing::info!("Recovery taproot address: {:?}", recovery_taproot_address);
             tracing::info!("User takes after: {:?}", user_takes_after);
             tracing::info!("Session ID: {:?}", session_id);
-            tracing::info!("Bridge amount sats: {:?}", verifier.config.bridge_amount_sats);
+            tracing::info!(
+                "Bridge amount sats: {:?}",
+                verifier.config.bridge_amount_sats
+            );
             tracing::info!("Network: {:?}", verifier.config.network);
             tracing::info!("NoFN xonly pk: {:?}", verifier.nofn_xonly_pk);
             tracing::info!("User takes after: {:?}", user_takes_after);
             tracing::info!("Amount: {:?}", Amount::from_sat(200_000_000));
             tracing::info!("Num operators: {:?}", verifier.config.num_operators);
             tracing::info!("Num time txs: {:?}", verifier.config.num_time_txs);
-            tracing::info!("Num kickoffs per timetx: {:?}", verifier.config.num_kickoffs_per_timetx);
+            tracing::info!(
+                "Num kickoffs per timetx: {:?}",
+                verifier.config.num_kickoffs_per_timetx
+            );
 
             let mut sighash_stream = Box::pin(create_nofn_sighash_stream(
                 verifier.db.clone(),
