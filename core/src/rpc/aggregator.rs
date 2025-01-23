@@ -318,7 +318,7 @@ impl Aggregator {
             }
             Ok::<_, BridgeError>(sigs)
         }))
-            .await?;
+        .await?;
         // check if all signatures are received
         for (idx, sigs) in operator_sigs.iter().enumerate() {
             if sigs.len() != needed_sigs {
@@ -639,13 +639,13 @@ impl ClementineAggregator for Aggregator {
                                 sig.serialize().to_vec(),
                             )),
                         })
-                            .await
-                            .map_err(|e| {
-                                BridgeError::RPCStreamEndedUnexpectedly(format!(
-                                    "Can't send operator sigs to verifier: {}",
-                                    e
-                                ))
-                            })?;
+                        .await
+                        .map_err(|e| {
+                            BridgeError::RPCStreamEndedUnexpectedly(format!(
+                                "Can't send operator sigs to verifier: {}",
+                                e
+                            ))
+                        })?;
                     }
                 }
                 Ok::<(), BridgeError>(())
