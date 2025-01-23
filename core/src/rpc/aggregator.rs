@@ -324,13 +324,10 @@ impl ClementineAggregator for Aggregator {
             async move {
                 let mut responses = Vec::new();
                 let mut params_stream = client
-                .get_params(Request::new(Empty {}))
-                .await?
-                .into_inner();
-                while let Some(response) = params_stream
-                    .message()
+                    .get_params(Request::new(Empty {}))
                     .await?
-                {
+                    .into_inner();
+                while let Some(response) = params_stream.message().await? {
                     responses.push(response);
                 }
 
@@ -340,43 +337,42 @@ impl ClementineAggregator for Aggregator {
         .await?;
 
         tracing::info!("Informing verifiers for existing operators...");
-        try_join_all(
-            self.verifier_clients
-                .iter()
-                .enumerate()
-                .map(|(idx, client)| {
-                    let mut client = client.clone();
-                    let params = operator_params.clone().get(idx).unwrap().to_owned();
+        try_join_all(self.verifier_clients.iter().map(|client| {
+            let mut client = client.clone();
+            let operator_params = operator_params.clone();
 
-                    async move {
-                        let (tx, rx) = tokio::sync::mpsc::channel(1280);
+            async move {
+                for params in operator_params {
+                    let (tx, rx) = tokio::sync::mpsc::channel(1280);
+                    let future =
+                        client.set_operator(tokio_stream::wrappers::ReceiverStream::new(rx));
 
-                        client
-                            .set_operator(tokio_stream::wrappers::ReceiverStream::new(rx))
-                            .await?;
-
-                        for param in params {
-                            tx.send(param).await.unwrap();
-                        }
-
-                        Ok::<_, tonic::Status>(())
+                    for param in params {
+                        tx.send(param).await.unwrap();
                     }
-                }),
-        )
+
+                    future.await?;
+                }
+
+                Ok::<_, tonic::Status>(())
+            }
+        }))
         .await?;
 
         tracing::info!("Collecting Winternitz public keys from watchtowers...");
         let watchtower_params = try_join_all(self.watchtower_clients.iter().map(|client| {
             let mut client = client.clone();
             async move {
-                let response = client
+                let mut responses = Vec::new();
+                let mut params_stream = client
                     .get_params(Request::new(Empty {}))
                     .await?
-                    .into_inner()
-                    .message()
-                    .await?
-                    .ok_or(Status::invalid_argument("No response from watchtower"))?;
-                Ok::<_, Status>(response)
+                    .into_inner();
+                while let Some(response) = params_stream.message().await? {
+                    responses.push(response);
+                }
+
+                Ok::<_, Status>(responses)
             }
         }))
         .await?;
@@ -384,16 +380,19 @@ impl ClementineAggregator for Aggregator {
         tracing::info!("Sending Winternitz public keys to verifiers...");
         try_join_all(self.verifier_clients.iter().map(|client| {
             let mut client = client.clone();
-            let params = watchtower_params.clone();
+            let watchtower_params = watchtower_params.clone();
 
             async move {
-                let (tx, rx) = tokio::sync::mpsc::channel(1280);
+                for params in watchtower_params {
+                    let (tx, rx) = tokio::sync::mpsc::channel(1280);
 
-                client
-                    .set_watchtower(tokio_stream::wrappers::ReceiverStream::new(rx))
-                    .await?;
-                for param in params {
-                    tx.send(param).await.unwrap();
+                    let future =
+                        client.set_watchtower(tokio_stream::wrappers::ReceiverStream::new(rx));
+                    for param in params {
+                        tx.send(param).await.unwrap();
+                    }
+
+                    future.await?;
                 }
 
                 Ok::<_, tonic::Status>(())
