@@ -681,7 +681,7 @@ mod tests {
     #[tokio::test]
     #[serial_test::serial]
     async fn aggregator_setup_and_deposit() {
-        let mut config = create_test_config_with_thread_name!(None);
+        let config = create_test_config_with_thread_name!(None);
 
         //Change default values for making the test faster.
         // config.num_time_txs = 1;
