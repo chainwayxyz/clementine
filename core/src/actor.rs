@@ -26,7 +26,7 @@ pub enum TxType {
 
 /// Derivation path specification for Winternitz one time public key generation.
 #[derive(Debug, Clone, Copy)]
-pub struct WinternitzDerivationPath {
+pub struct WinternitzDerivationPath<'a> {
     pub message_length: u32,
     pub log_d: u32,
     pub tx_type: TxType,
@@ -35,9 +35,9 @@ pub struct WinternitzDerivationPath {
     pub watchtower_idx: Option<u32>,
     pub time_tx_idx: Option<u32>,
     pub kickoff_idx: Option<u32>,
-    pub intermediate_step_idx: Option<u32>,
+    pub intermediate_step_name: Option<&'a str>,
 }
-impl WinternitzDerivationPath {
+impl WinternitzDerivationPath<'_> {
     fn to_vec(self) -> Vec<u8> {
         let index = match self.index {
             None => 0,
@@ -59,9 +59,9 @@ impl WinternitzDerivationPath {
             None => 0,
             Some(i) => i + 1,
         };
-        let intermediate_step_idx = match self.intermediate_step_idx {
-            None => 0,
-            Some(i) => i + 1,
+        let intermediate_step_name = match self.intermediate_step_name {
+            None => vec![],
+            Some(name) => name.as_bytes().to_vec(),
         };
 
         [
@@ -72,14 +72,14 @@ impl WinternitzDerivationPath {
                 watchtower_idx.to_be_bytes(),
                 time_tx_idx.to_be_bytes(),
                 kickoff_idx.to_be_bytes(),
-                intermediate_step_idx.to_be_bytes(),
             ]
             .concat(),
+            intermediate_step_name,
         ]
         .concat()
     }
 }
-impl Default for WinternitzDerivationPath {
+impl Default for WinternitzDerivationPath<'_> {
     fn default() -> Self {
         Self {
             message_length: Default::default(),
@@ -90,7 +90,7 @@ impl Default for WinternitzDerivationPath {
             watchtower_idx: Default::default(),
             time_tx_idx: Default::default(),
             kickoff_idx: Default::default(),
-            intermediate_step_idx: Default::default(),
+            intermediate_step_name: Default::default(),
         }
     }
 }
@@ -156,8 +156,6 @@ impl Actor {
         txin_index: usize,
         script_index: usize,
     ) -> Result<schnorr::Signature, BridgeError> {
-        // TODO: if sighash_cache exists in the TxHandler, use it
-        // else create a new one and save it to the TxHandler
         let mut sighash_cache: SighashCache<&mut bitcoin::Transaction> =
             SighashCache::new(&mut tx.tx);
 
@@ -247,8 +245,6 @@ impl Actor {
         txin_index: usize,
         script_index: usize,
     ) -> Result<schnorr::Signature, BridgeError> {
-        // TODO: if sighash_cache exists in the TxHandler, use it
-        // else create a new one and save it to the TxHandler
         let mut sighash_cache: SighashCache<&mut bitcoin::Transaction> =
             SighashCache::new(&mut tx_handler.tx);
 
@@ -265,56 +261,10 @@ impl Actor {
         self.sign_with_tweak(sig_hash, None)
     }
 
-    #[tracing::instrument(err(level = tracing::Level::ERROR), ret(level = tracing::Level::TRACE))]
-    pub fn convert_tx_to_sighash_script_spend(
-        tx_handler: &mut TxHandler,
-        txin_index: usize,
-        script_index: usize,
-    ) -> Result<TapSighash, BridgeError> {
-        let mut sighash_cache: SighashCache<&mut bitcoin::Transaction> =
-            SighashCache::new(&mut tx_handler.tx);
-
-        let prevouts = bitcoin::sighash::Prevouts::All(&tx_handler.prevouts);
-        let leaf_hash = TapLeafHash::from_script(
-            tx_handler
-                .prev_scripts
-                .get(txin_index)
-                .ok_or(BridgeError::NoScriptsForTxIn(txin_index))?
-                .get(script_index)
-                .ok_or(BridgeError::NoScriptAtIndex(script_index))?,
-            LeafVersion::TapScript,
-        );
-        let sig_hash = sighash_cache.taproot_script_spend_signature_hash(
-            txin_index,
-            &prevouts,
-            leaf_hash,
-            bitcoin::sighash::TapSighashType::Default,
-        )?;
-
-        Ok(sig_hash)
-    }
-
-    #[tracing::instrument(err(level = tracing::Level::ERROR), ret(level = tracing::Level::TRACE))]
-    pub fn convert_tx_to_sighash_pubkey_spend(
-        tx: &mut TxHandler,
-        txin_index: usize,
-    ) -> Result<TapSighash, BridgeError> {
-        let mut sighash_cache: SighashCache<&mut bitcoin::Transaction> =
-            SighashCache::new(&mut tx.tx);
-
-        let sig_hash = sighash_cache.taproot_key_spend_signature_hash(
-            txin_index,
-            &bitcoin::sighash::Prevouts::All(&tx.prevouts),
-            bitcoin::sighash::TapSighashType::Default,
-        )?;
-
-        Ok(sig_hash)
-    }
-
     /// Returns derivied Winternitz secret key from given path.
     fn get_derived_winternitz_sk(
         &self,
-        path: WinternitzDerivationPath,
+        path: WinternitzDerivationPath<'_>,
     ) -> Result<winternitz::SecretKey, BridgeError> {
         let wsk = self
             .winternitz_secret_key
@@ -325,7 +275,7 @@ impl Actor {
     /// Generates a Winternitz public key for the given path.
     pub fn derive_winternitz_pk(
         &self,
-        path: WinternitzDerivationPath,
+        path: WinternitzDerivationPath<'_>,
     ) -> Result<winternitz::PublicKey, BridgeError> {
         let winternitz_params = winternitz::Parameters::new(path.message_length, path.log_d);
 
@@ -338,7 +288,7 @@ impl Actor {
     /// Signs given data with Winternitz signature.
     pub fn sign_winternitz_signature(
         &self,
-        path: WinternitzDerivationPath,
+        path: WinternitzDerivationPath<'_>,
         data: Vec<u8>,
     ) -> Result<Witness, BridgeError> {
         let winternitz = Winternitz::<BinarysearchVerifier, StraightforwardConverter>::new();
@@ -517,7 +467,6 @@ mod tests {
                 vec![0; 4],
                 vec![0; 4],
                 vec![0; 4],
-                vec![0; 4]
             ]
             .concat()
         );
@@ -532,7 +481,6 @@ mod tests {
                 vec![0; 4],
                 vec![0; 4],
                 vec![0; 4],
-                vec![0; 4]
             ]
             .concat()
         );
@@ -547,7 +495,6 @@ mod tests {
                 vec![0; 4],
                 vec![0; 4],
                 vec![0; 4],
-                vec![0; 4]
             ]
             .concat()
         );
@@ -562,7 +509,6 @@ mod tests {
                 3u32.to_be_bytes().to_vec(),
                 vec![0; 4],
                 vec![0; 4],
-                vec![0; 4]
             ]
             .concat()
         );
@@ -577,7 +523,6 @@ mod tests {
                 3u32.to_be_bytes().to_vec(),
                 4u32.to_be_bytes().to_vec(),
                 vec![0; 4],
-                vec![0; 4]
             ]
             .concat()
         );
@@ -592,12 +537,11 @@ mod tests {
                 3u32.to_be_bytes().to_vec(),
                 4u32.to_be_bytes().to_vec(),
                 5u32.to_be_bytes().to_vec(),
-                vec![0; 4]
             ]
             .concat()
         );
 
-        params.intermediate_step_idx = Some(5);
+        params.intermediate_step_name = Some("step5");
         assert_eq!(
             params.to_vec(),
             [
@@ -607,7 +551,7 @@ mod tests {
                 3u32.to_be_bytes().to_vec(),
                 4u32.to_be_bytes().to_vec(),
                 5u32.to_be_bytes().to_vec(),
-                6u32.to_be_bytes().to_vec()
+                "step5".as_bytes().to_vec()
             ]
             .concat()
         );
@@ -648,7 +592,8 @@ mod tests {
 
         let params = WinternitzDerivationPath::default();
         let expected_pk = vec![[
-            43, 217, 118, 91, 99, 62, 82, 3, 214, 248, 73, 185, 20, 141, 201, 23, 110, 104, 74, 42,
+            47, 247, 126, 209, 93, 128, 238, 60, 31, 80, 198, 136, 26, 126, 131, 194, 209, 85, 180,
+            145,
         ]];
         assert_eq!(actor.derive_winternitz_pk(params).unwrap(), expected_pk);
     }

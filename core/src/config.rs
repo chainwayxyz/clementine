@@ -50,7 +50,7 @@ pub struct BridgeConfig {
     /// Operator's fee for withdrawal, in satoshis.
     pub operator_withdrawal_fee_sats: Option<Amount>,
     /// Number of blocks after which user can take deposit back if deposit request fails.
-    pub user_takes_after: u32,
+    pub user_takes_after: u16,
     /// Number of blocks after which operator can take reimburse the bridge fund if they are honest.
     pub operator_takes_after: u32,
     /// Bridge amount in satoshis.
@@ -179,8 +179,8 @@ impl Default for BridgeConfig {
 
             num_operators: 3,
             num_watchtowers: 4,
-            num_time_txs: 10,
-            num_kickoffs_per_timetx: 2, // TODO: increase after implementing stream for watchtower params
+            num_time_txs: 1,
+            num_kickoffs_per_timetx: 1, // TODO: increase after implementing stream for watchtower params
             operators_xonly_pks: vec![
                 XOnlyPublicKey::from_str(
                     "4f355bdcb7cc0af728ef3cceb9615d90684bb5b2ca5f859ab0f0b704075871aa",

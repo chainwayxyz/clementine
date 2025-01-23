@@ -10,7 +10,6 @@ use clementine_core::musig2::{
 };
 use clementine_core::utils::{handle_taproot_witness_new, SECP};
 use clementine_core::{
-    actor::Actor,
     builder::{self},
     config::BridgeConfig,
     extended_rpc::ExtendedRpc,
@@ -18,7 +17,7 @@ use clementine_core::{
     utils,
 };
 use clementine_core::{database::Database, utils::initialize_logger};
-use secp256k1::musig::{MusigAggNonce, MusigPartialSignature, MusigPubNonce};
+use secp256k1::musig::{MusigAggNonce, MusigPartialSignature};
 use std::{env, thread};
 
 mod common;
@@ -55,8 +54,9 @@ fn get_nonces(verifiers_secret_public_keys: Vec<Keypair>) -> (Vec<MuSigNoncePair
     let agg_nonce = aggregate_nonces(
         nonce_pairs
             .iter()
-            .map(|(_, musig_pub_nonces)| *musig_pub_nonces)
-            .collect::<Vec<MusigPubNonce>>(),
+            .map(|(_, musig_pub_nonces)| musig_pub_nonces)
+            .collect::<Vec<_>>()
+            .as_slice(),
     );
 
     (nonce_pairs, agg_nonce)
@@ -88,7 +88,7 @@ async fn key_spend() {
         .unwrap();
     let prevout = rpc.get_txout_from_outpoint(&utxo).await.unwrap();
 
-    let tx_ins = builder::transaction::create_tx_ins(vec![utxo]);
+    let tx_ins = builder::transaction::create_tx_ins(vec![utxo].into());
     let tx_outs = builder::transaction::create_tx_outs(vec![(
         Amount::from_sat(99_000_000),
         to_address.script_pubkey(),
@@ -105,7 +105,8 @@ async fn key_spend() {
     };
 
     let message = Message::from_digest(
-        Actor::convert_tx_to_sighash_pubkey_spend(&mut tx_details, 0)
+        tx_details
+            .calculate_pubkey_spend_sighash(0, None)
             .unwrap()
             .to_byte_array(),
     );
@@ -129,10 +130,10 @@ async fn key_spend() {
         .collect();
 
     let final_signature = aggregate_partial_signatures(
-        verifier_public_keys.clone(),
+        &verifier_public_keys,
         Some(Musig2Mode::OnlyKeySpend),
         agg_nonce,
-        partial_sigs,
+        &partial_sigs,
         message,
     )
     .unwrap();
@@ -192,7 +193,7 @@ async fn key_spend_with_script() {
         to_address.script_pubkey(),
     )]);
 
-    let tx_ins = builder::transaction::create_tx_ins(vec![utxo]);
+    let tx_ins = builder::transaction::create_tx_ins(vec![utxo].into());
     let dummy_tx = builder::transaction::create_btc_tx(tx_ins, tx_outs);
     let mut tx_details = TxHandler {
         txid: dummy_tx.compute_txid(),
@@ -204,7 +205,8 @@ async fn key_spend_with_script() {
         out_taproot_spend_infos: vec![Some(to_address_spend.clone())],
     };
     let message = Message::from_digest(
-        Actor::convert_tx_to_sighash_pubkey_spend(&mut tx_details, 0)
+        tx_details
+            .calculate_pubkey_spend_sighash(0, None)
             .unwrap()
             .to_byte_array(),
     );
@@ -227,10 +229,10 @@ async fn key_spend_with_script() {
         .collect();
 
     let final_signature = aggregate_partial_signatures(
-        verifier_public_keys.clone(),
+        &verifier_public_keys,
         Some(Musig2Mode::KeySpendWithScript(merkle_root)),
         agg_nonce,
-        partial_sigs,
+        &partial_sigs,
         message,
     )
     .unwrap();
@@ -298,7 +300,7 @@ async fn script_spend() {
         to_address.script_pubkey(),
     )]);
 
-    let tx_ins = builder::transaction::create_tx_ins(vec![utxo]);
+    let tx_ins = builder::transaction::create_tx_ins(vec![utxo].into());
     let dummy_tx = builder::transaction::create_btc_tx(tx_ins, tx_outs);
     let mut tx_details = TxHandler {
         txid: dummy_tx.compute_txid(),
@@ -310,7 +312,8 @@ async fn script_spend() {
         out_taproot_spend_infos: vec![None],
     };
     let message = Message::from_digest(
-        Actor::convert_tx_to_sighash_script_spend(&mut tx_details, 0, 0)
+        tx_details
+            .calculate_script_spend_sighash(0, 0, None)
             .unwrap()
             .to_byte_array(),
     );
@@ -331,10 +334,10 @@ async fn script_spend() {
         })
         .collect();
     let final_signature = aggregate_partial_signatures(
-        verifier_public_keys.clone(),
+        &verifier_public_keys,
         None,
         agg_nonce,
-        partial_sigs,
+        &partial_sigs,
         message,
     )
     .unwrap();

@@ -14,7 +14,7 @@ use std::sync::Arc;
 
 #[derive(Debug)]
 pub struct NonceSession {
-    pub private_key: secp256k1::SecretKey,
+    /// Nonces used for a deposit session (last nonce is for the movetx signature)
     pub nonces: Vec<MusigSecNonce>,
 }
 
@@ -337,7 +337,7 @@ impl Verifier {
             .await?
             .ok_or(BridgeError::DepositInfoNotFound)?;
 
-        let move_tx_handler = builder::transaction::create_move_txhandler(
+        let move_tx_handler = builder::transaction::create_move_to_vault_txhandler(
             deposit_outpoint,
             evm_address,
             &recovery_taproot_address,
