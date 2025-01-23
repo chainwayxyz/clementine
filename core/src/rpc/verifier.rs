@@ -177,9 +177,13 @@ impl ClementineVerifier for Verifier {
             let operator_params = in_stream
                 .message()
                 .await?
-                .ok_or(Status::invalid_argument("No first message received"))?
+                .ok_or(Status::invalid_argument(
+                    "Operator param stream ended early",
+                ))?
                 .response
-                .ok_or(Status::invalid_argument("No deposit outpoint received"))?;
+                .ok_or(Status::invalid_argument(
+                    "Operator param stream ended early",
+                ))?;
 
             if let operator_params::Response::WinternitzPubkeys(wpk) = operator_params {
                 operator_winternitz_public_keys.push(wpk.to_bitvm());
