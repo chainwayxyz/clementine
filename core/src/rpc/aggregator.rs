@@ -322,8 +322,16 @@ impl ClementineAggregator for Aggregator {
         let operator_params = try_join_all(self.operator_clients.iter().map(|client| {
             let mut client = client.clone();
             async move {
-                let response = client.get_params(Request::new(Empty {})).await?;
-                Ok::<_, Status>(response.into_inner())
+                let mut responses = Vec::new();
+                let mut params_stream = client
+                    .get_params(Request::new(Empty {}))
+                    .await?
+                    .into_inner();
+                while let Some(response) = params_stream.message().await? {
+                    responses.push(response);
+                }
+
+                Ok::<_, Status>(responses)
             }
         }))
         .await?;
@@ -331,11 +339,19 @@ impl ClementineAggregator for Aggregator {
         tracing::info!("Informing verifiers for existing operators...");
         try_join_all(self.verifier_clients.iter().map(|client| {
             let mut client = client.clone();
-            let params = operator_params.clone();
+            let operator_params = operator_params.clone();
 
             async move {
-                for param in params {
-                    client.set_operator(Request::new(param)).await?;
+                for params in operator_params {
+                    let (tx, rx) = tokio::sync::mpsc::channel(1280);
+                    let future =
+                        client.set_operator(tokio_stream::wrappers::ReceiverStream::new(rx));
+
+                    for param in params {
+                        tx.send(param).await.unwrap();
+                    }
+
+                    future.await?; // TODO: This is dangerous: If channel size becomes not sufficient, this will block forever.
                 }
 
                 Ok::<_, tonic::Status>(())
@@ -347,8 +363,16 @@ impl ClementineAggregator for Aggregator {
         let watchtower_params = try_join_all(self.watchtower_clients.iter().map(|client| {
             let mut client = client.clone();
             async move {
-                let response = client.get_params(Request::new(Empty {})).await?;
-                Ok::<_, Status>(response.into_inner())
+                let mut responses = Vec::new();
+                let mut params_stream = client
+                    .get_params(Request::new(Empty {}))
+                    .await?
+                    .into_inner();
+                while let Some(response) = params_stream.message().await? {
+                    responses.push(response);
+                }
+
+                Ok::<_, Status>(responses)
             }
         }))
         .await?;
@@ -356,11 +380,19 @@ impl ClementineAggregator for Aggregator {
         tracing::info!("Sending Winternitz public keys to verifiers...");
         try_join_all(self.verifier_clients.iter().map(|client| {
             let mut client = client.clone();
-            let params = watchtower_params.clone();
+            let watchtower_params = watchtower_params.clone();
 
             async move {
-                for param in params {
-                    client.set_watchtower(Request::new(param)).await.unwrap();
+                for params in watchtower_params {
+                    let (tx, rx) = tokio::sync::mpsc::channel(1280);
+
+                    let future =
+                        client.set_watchtower(tokio_stream::wrappers::ReceiverStream::new(rx));
+                    for param in params {
+                        tx.send(param).await.unwrap();
+                    }
+
+                    future.await?; // TODO: This is dangerous: If channel size becomes not sufficient, this will block forever.
                 }
 
                 Ok::<_, tonic::Status>(())
