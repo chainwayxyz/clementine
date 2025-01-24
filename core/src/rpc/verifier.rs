@@ -712,7 +712,8 @@ impl ClementineVerifier for Verifier {
             Message::from_digest(move_tx_sighash.to_byte_array()),
         )?;
 
-        // TODO: deposit is not actually finalized here, its only finalized after the aggregator gets all the correct partial sigs
+        // Deposit is not actually finalized here, its only finalized after the aggregator gets all the partial sigs and checks the aggregated sig
+        // TODO: It can create problems if the deposit fails at the end by some verifier not sending movetx partial sig, but we still added sigs to db
         for (i, window) in op_deposit_sigs.into_iter().enumerate() {
             self.db
                 .save_deposit_signatures(None, deposit_outpoint, i as u32, window)

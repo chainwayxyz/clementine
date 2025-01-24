@@ -2,6 +2,7 @@ use super::clementine::{
     clementine_aggregator_server::ClementineAggregator, verifier_deposit_finalize_params,
     DepositParams, Empty, RawSignedMoveTx, VerifierDepositFinalizeParams,
 };
+use crate::builder::transaction::create_move_to_vault_txhandler;
 use crate::config::BridgeConfig;
 use crate::rpc::clementine::clementine_operator_client::ClementineOperatorClient;
 use crate::rpc::clementine::clementine_verifier_client::ClementineVerifierClient;
@@ -16,6 +17,7 @@ use crate::{
     rpc::clementine::{self, DepositSignSession},
     EVMAddress,
 };
+use bitcoin::address::NetworkUnchecked;
 use bitcoin::hashes::Hash;
 use bitcoin::secp256k1::schnorr::Signature;
 use bitcoin::secp256k1::{Message, PublicKey};
@@ -152,7 +154,7 @@ async fn signature_aggregator(
             None,
             queue_item.agg_nonce,
             &partial_sigs,
-            Message::from_digest(queue_item.sighash.as_raw_hash().to_byte_array()),
+            Message::from_digest(queue_item.sighash.to_byte_array()),
         )?;
 
         final_sig_sender
@@ -332,6 +334,94 @@ impl Aggregator {
         }
         Ok(operator_sigs)
     }
+
+    fn parse_deposit_params(
+        deposit_params: DepositParams,
+    ) -> Result<
+        (
+            bitcoin::OutPoint,
+            EVMAddress,
+            bitcoin::Address<NetworkUnchecked>,
+            u16,
+        ),
+        BridgeError,
+    > {
+        // Parse deposit outpoint (the UTXO being deposited)
+        let deposit_outpoint: bitcoin::OutPoint = deposit_params
+            .deposit_outpoint
+            .ok_or(Status::internal("No deposit outpoint received"))?
+            .try_into()?;
+
+        // Parse user's EVM address
+        let evm_address: EVMAddress = deposit_params
+            .evm_address
+            .try_into()
+            .map_err(|e: &str| BridgeError::RPCParamMalformed("evm_address", e.to_string()))?;
+
+        // Parse user's recovery taproot address
+        let recovery_taproot_address = deposit_params
+            .recovery_taproot_address
+            .parse::<bitcoin::Address<_>>()
+            .map_err(|e| {
+                BridgeError::RPCParamMalformed("recovery_taproot_address", e.to_string())
+            })?;
+
+        let user_takes_after = u16::try_from(deposit_params.user_takes_after)
+            .map_err(|e| BridgeError::RPCParamMalformed("user_takes_after", e.to_string()))?;
+        Ok((
+            deposit_outpoint,
+            evm_address,
+            recovery_taproot_address,
+            user_takes_after,
+        ))
+    }
+
+    fn create_movetx_check_sig(
+        &self,
+        partial_sigs: Vec<Vec<u8>>,
+        movetx_agg_nonce: MusigAggNonce,
+        deposit_params: DepositParams,
+    ) -> Result<RawSignedMoveTx, Status> {
+        let (deposit_outpoint, evm_address, recovery_taproot_address, user_takes_after) =
+            Aggregator::parse_deposit_params(deposit_params)?;
+        let musig_partial_sigs: Vec<MusigPartialSignature> = partial_sigs
+            .iter()
+            .map(|sig: &Vec<u8>| MusigPartialSignature::from_slice(sig))
+            .collect::<Result<Vec<_>, _>>()
+            .map_err(|e| {
+                BridgeError::RPCParamMalformed(
+                    "Partial sigs for movetx could not be parsed into MusigPartialSignature",
+                    e.to_string(),
+                )
+            })?;
+
+        // create move tx and calculate sighash
+        let mut move_txhandler = create_move_to_vault_txhandler(
+            deposit_outpoint,
+            evm_address,
+            &recovery_taproot_address,
+            self.nofn_xonly_pk,
+            user_takes_after,
+            self.config.bridge_amount_sats,
+            self.config.network,
+        );
+        let sighash = move_txhandler.calculate_script_spend_sighash(0, 0, None)?;
+
+        // aggregate partial signatures
+        let _final_sig = crate::musig2::aggregate_partial_signatures(
+            &self.config.verifiers_public_keys,
+            None,
+            movetx_agg_nonce,
+            &musig_partial_sigs,
+            Message::from_digest(sighash.to_byte_array()),
+        )
+        .map_err(|x| BridgeError::Error(format!("Aggregating MoveTx signatures failed {}", x)))?;
+
+        // everything is fine, return the signed move tx
+        let _move_tx = move_txhandler.tx;
+        // TODO: Sign the transaction correctly after we create taproot witness generation functions
+        Ok(RawSignedMoveTx { raw_tx: vec![1, 2] })
+    }
 }
 
 #[async_trait]
@@ -447,29 +537,8 @@ impl ClementineAggregator for Aggregator {
 
         // Extract and validate deposit parameters
         let deposit_params = deposit_params_req.get_ref().clone();
-
-        // Parse deposit outpoint (the UTXO being deposited)
-        let deposit_outpoint: bitcoin::OutPoint = deposit_params
-            .deposit_outpoint
-            .ok_or(Status::internal("No deposit outpoint received"))?
-            .try_into()?;
-
-        // Parse user's EVM address
-        let evm_address: EVMAddress = deposit_params
-            .evm_address
-            .try_into()
-            .map_err(|e: &str| BridgeError::RPCParamMalformed("evm_address", e.to_string()))?;
-
-        // Parse user's recovery taproot address
-        let recovery_taproot_address = deposit_params
-            .recovery_taproot_address
-            .parse::<bitcoin::Address<_>>()
-            .map_err(|e| {
-                BridgeError::RPCParamMalformed("recovery_taproot_address", e.to_string())
-            })?;
-
-        let user_takes_after = u16::try_from(deposit_params.user_takes_after)
-            .map_err(|e| BridgeError::RPCParamMalformed("user_takes_after", e.to_string()))?;
+        let (deposit_outpoint, evm_address, recovery_taproot_address, user_takes_after) =
+            Aggregator::parse_deposit_params(deposit_params.clone())?;
         let verifiers_public_keys = self.config.verifiers_public_keys.clone();
 
         tracing::debug!("Parsed deposit params");
@@ -667,8 +736,11 @@ impl ClementineAggregator for Aggregator {
         .map_err(|e| Status::internal(format!("Failed to finalize deposit: {:?}", e)))?;
 
         tracing::debug!("Received move tx partial sigs: {:?}", move_tx_partial_sigs);
+        // Create the final move transaction and check the signatures
+        let raw_signed_movetx =
+            self.create_movetx_check_sig(move_tx_partial_sigs, movetx_agg_nonce, deposit_params)?;
 
-        Ok(Response::new(RawSignedMoveTx { raw_tx: vec![1, 2] }))
+        Ok(Response::new(raw_signed_movetx))
     }
 }
 
