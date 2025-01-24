@@ -1,12 +1,16 @@
 use super::clementine::{
-    self, clementine_verifier_server::ClementineVerifier, nonce_gen_response, Empty,
-    NonceGenRequest, NonceGenResponse, OperatorParams, PartialSig, VerifierDepositFinalizeParams,
-    VerifierDepositSignParams, VerifierParams, VerifierPublicKeys, WatchtowerParams,
+    self, clementine_verifier_server::ClementineVerifier, nonce_gen_response, operator_params,
+    watchtower_params, Empty, NonceGenRequest, NonceGenResponse, OperatorParams, PartialSig,
+    VerifierDepositFinalizeParams, VerifierDepositSignParams, VerifierParams, VerifierPublicKeys,
+    WatchtowerParams,
 };
 use crate::{
-    builder::sighash::{calculate_num_required_nofn_sigs, create_nofn_sighash_stream},
-    builder::transaction::create_move_to_vault_txhandler,
-    builder::{self, address::taproot_builder_with_scripts},
+    builder::{
+        self,
+        address::taproot_builder_with_scripts,
+        sighash::{calculate_num_required_nofn_sigs, create_nofn_sighash_stream, calculate_num_required_operator_sigs, create_operator_sighash_stream},
+        transaction::create_move_to_vault_txhandler,
+    },
     errors::BridgeError,
     musig2::{self},
     utils,
@@ -23,9 +27,6 @@ use bitvm::signatures::{
     winternitz,
 };
 
-use crate::builder::sighash::{
-    calculate_num_required_operator_sigs, create_operator_sighash_stream,
-};
 use crate::utils::SECP;
 use futures::StreamExt;
 use secp256k1::musig::{MusigAggNonce, MusigPubNonce, MusigSecNonce};
@@ -132,12 +133,25 @@ impl ClementineVerifier for Verifier {
 
     // #[tracing::instrument(skip(self), err(level = tracing::Level::ERROR), ret(level = tracing::Level::TRACE))]
     #[allow(clippy::blocks_in_conditions)]
-    async fn set_operator(&self, req: Request<OperatorParams>) -> Result<Response<Empty>, Status> {
-        let operator_params = req.into_inner();
+    async fn set_operator(
+        &self,
+        req: Request<Streaming<OperatorParams>>,
+    ) -> Result<Response<Empty>, Status> {
+        let mut in_stream = req.into_inner();
 
-        let operator_config = operator_params
-            .operator_details
-            .ok_or(BridgeError::Error("No operator details".to_string()))?;
+        let operator_params = in_stream
+            .message()
+            .await?
+            .ok_or(Status::invalid_argument("No message is received"))?
+            .response
+            .ok_or(Status::invalid_argument("No message is received"))?;
+
+        let operator_config =
+            if let operator_params::Response::OperatorDetails(operator_config) = operator_params {
+                operator_config
+            } else {
+                return Err(Status::invalid_argument("Expected OperatorDetails"));
+            };
 
         let operator_xonly_pk = XOnlyPublicKey::from_str(&operator_config.xonly_pk)
             .map_err(|_| BridgeError::Error("Invalid xonly public key".to_string()))?;
@@ -159,11 +173,31 @@ impl ClementineVerifier for Verifier {
             )
             .await?;
 
-        // Convert RPC type into BitVM type.
-        let operator_winternitz_public_keys = operator_params
-            .winternitz_pubkeys
+        let mut operator_winternitz_public_keys = Vec::new();
+        for _ in 0..self.config.num_kickoffs_per_timetx
+            * self.config.num_time_txs
+            * utils::ALL_BITVM_INTERMEDIATE_VARIABLES.len()
+        {
+            let operator_params = in_stream
+                .message()
+                .await?
+                .ok_or(Status::invalid_argument(
+                    "Operator param stream ended early",
+                ))?
+                .response
+                .ok_or(Status::invalid_argument(
+                    "Operator param stream ended early",
+                ))?;
+
+            if let operator_params::Response::WinternitzPubkeys(wpk) = operator_params {
+                operator_winternitz_public_keys.push(wpk.to_bitvm());
+            } else {
+                return Err(Status::invalid_argument("Expected WinternitzPubkeys"));
+            }
+        }
+        let operator_winternitz_public_keys = operator_winternitz_public_keys
             .into_iter()
-            .map(|wpk| Ok(wpk.to_bitvm()))
+            .map(Ok)
             .collect::<Result<Vec<_>, BridgeError>>()?;
 
         self.db
@@ -173,6 +207,58 @@ impl ClementineVerifier for Verifier {
                 operator_winternitz_public_keys.clone(),
             )
             .await?;
+
+        let mut operators_challenge_ack_public_hashes = Vec::new();
+        for _ in 0..self.config.num_time_txs
+            * self.config.num_kickoffs_per_timetx
+            * self.config.num_watchtowers
+        {
+            let operator_params = in_stream
+                .message()
+                .await?
+                .ok_or(Status::invalid_argument(
+                    "Operator param stream ended early",
+                ))?
+                .response
+                .ok_or(Status::invalid_argument(
+                    "Operator param stream ended early",
+                ))?;
+
+            if let operator_params::Response::ChallengeAckDigests(digest) = operator_params {
+                // Ensure `digest.hash` is exactly 20 bytes
+                if digest.hash.len() != 20 {
+                    return Err(Status::invalid_argument(
+                        "Digest hash length is not 20 bytes",
+                    ));
+                }
+
+                // Convert the `Vec<u8>` into a `[u8; 20]`
+                let public_hash: [u8; 20] = digest.hash.try_into().map_err(|_| {
+                    Status::invalid_argument("Failed to convert digest hash into PublicHash")
+                })?;
+
+                operators_challenge_ack_public_hashes.push(public_hash);
+            } else {
+                return Err(Status::invalid_argument("Expected ChallengeAckDigests"));
+            }
+        }
+
+        for i in 0..self.config.num_time_txs {
+            for j in 0..self.config.num_kickoffs_per_timetx {
+                self.db
+                    .save_public_hashes(
+                        None,
+                        operator_config.operator_idx as i32,
+                        i as i32,
+                        j as i32,
+                        &operators_challenge_ack_public_hashes[self.config.num_watchtowers
+                            * (i * self.config.num_kickoffs_per_timetx + j)
+                            ..self.config.num_watchtowers
+                                * (i * self.config.num_kickoffs_per_timetx + j + 1)],
+                    )
+                    .await?;
+            }
+        }
         // Split the winternitz public keys into chunks for every sequential collateral tx and kickoff index.
         // This is done because we need to generate a separate BitVM setup for each collateral tx and kickoff index.
         let chunk_size = utils::ALL_BITVM_INTERMEDIATE_VARIABLES.len();
@@ -276,15 +362,41 @@ impl ClementineVerifier for Verifier {
     #[allow(clippy::blocks_in_conditions)]
     async fn set_watchtower(
         &self,
-        request: Request<WatchtowerParams>,
+        request: Request<Streaming<WatchtowerParams>>,
     ) -> Result<Response<Empty>, Status> {
-        let watchtower_params = request.into_inner();
+        let mut in_stream = request.into_inner();
 
-        // Convert RPC type into BitVM type.
-        let watchtower_winternitz_public_keys = watchtower_params
-            .winternitz_pubkeys
+        let watchtower_id = in_stream
+            .message()
+            .await?
+            .ok_or(Status::invalid_argument("No message is received"))?
+            .response
+            .ok_or(Status::invalid_argument("No message is received"))?;
+        let watchtower_id =
+            if let watchtower_params::Response::WatchtowerId(watchtower_id) = watchtower_id {
+                watchtower_id
+            } else {
+                return Err(Status::invalid_argument("Expected watchtower id"));
+            };
+
+        let mut watchtower_winternitz_public_keys = Vec::new();
+        for _ in 0..self.config.num_operators {
+            let wpks = in_stream
+                .message()
+                .await?
+                .ok_or(Status::invalid_argument("No message is received"))?
+                .response
+                .ok_or(Status::invalid_argument("No message is received"))?;
+
+            if let watchtower_params::Response::WinternitzPubkeys(wpk) = wpks {
+                watchtower_winternitz_public_keys.push(wpk.to_bitvm());
+            } else {
+                return Err(Status::invalid_argument("Expected WinternitzPubkeys"));
+            }
+        }
+        let watchtower_winternitz_public_keys = watchtower_winternitz_public_keys
             .into_iter()
-            .map(|wpk| Ok(wpk.to_bitvm()))
+            .map(Ok)
             .collect::<Result<Vec<_>, BridgeError>>()?;
 
         let required_number_of_pubkeys = self.config.num_operators
@@ -304,7 +416,7 @@ impl ClementineVerifier for Verifier {
             self.db
                 .save_watchtower_winternitz_public_keys(
                     None,
-                    watchtower_params.watchtower_id,
+                    watchtower_id,
                     operator_idx as u32,
                     watchtower_winternitz_public_keys[index
                         ..index + self.config.num_time_txs * self.config.num_kickoffs_per_timetx]
@@ -313,11 +425,23 @@ impl ClementineVerifier for Verifier {
                 .await?;
         }
 
-        let xonly_pk = XOnlyPublicKey::from_slice(&watchtower_params.xonly_pk).map_err(|_| {
+        let xonly_pk = in_stream
+            .message()
+            .await?
+            .ok_or(Status::invalid_argument("No message is received"))?
+            .response
+            .ok_or(Status::invalid_argument("No message is received"))?;
+        let xonly_pk = if let watchtower_params::Response::XonlyPk(xonly_pk) = xonly_pk {
+            xonly_pk
+        } else {
+            return Err(Status::invalid_argument("Expected x-only-pk")); // TODO: tell whats returned too
+        };
+
+        let xonly_pk = XOnlyPublicKey::from_slice(&xonly_pk).map_err(|_| {
             BridgeError::RPCParamMalformed("watchtower.xonly_pk", "Invalid xonly key".to_string())
         })?;
         self.db
-            .save_watchtower_xonly_pk(None, watchtower_params.watchtower_id, &xonly_pk)
+            .save_watchtower_xonly_pk(None, watchtower_id, &xonly_pk)
             .await?;
 
         Ok(Response::new(Empty {}))

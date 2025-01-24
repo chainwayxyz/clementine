@@ -1,7 +1,7 @@
 use super::clementine::{
-    self, clementine_operator_server::ClementineOperator, DepositParams, DepositSignSession, Empty,
-    NewWithdrawalSigParams, NewWithdrawalSigResponse, OperatorBurnSig, OperatorParams,
-    WinternitzPubkey, WithdrawalFinalizedParams,
+    self, clementine_operator_server::ClementineOperator, operator_params, ChallengeAckDigest,
+    DepositSignSession, Empty, NewWithdrawalSigParams, NewWithdrawalSigResponse, OperatorBurnSig,
+    OperatorParams, WinternitzPubkey, WithdrawalFinalizedParams,
 };
 use crate::builder::sighash::create_operator_sighash_stream;
 use crate::{errors::BridgeError, operator::Operator, EVMAddress};
@@ -17,37 +17,67 @@ use crate::rpc::parsers;
 #[async_trait]
 impl ClementineOperator for Operator {
     type DepositSignStream = ReceiverStream<Result<OperatorBurnSig, Status>>;
+    type GetParamsStream = ReceiverStream<Result<OperatorParams, Status>>;
 
     #[tracing::instrument(skip_all, err(level = tracing::Level::ERROR), ret(level = tracing::Level::TRACE))]
     #[allow(clippy::blocks_in_conditions)]
     async fn get_params(
         &self,
         _request: Request<Empty>,
-    ) -> Result<Response<OperatorParams>, Status> {
-        let operator_config = clementine::OperatorConfig {
-            operator_idx: self.idx as u32,
-            collateral_funding_txid: self.collateral_funding_txid.to_byte_array().to_vec(),
-            xonly_pk: self.signer.xonly_public_key.to_string(),
-            wallet_reimburse_address: self.config.operator_wallet_addresses[self.idx] // TODO: Fix this where the config will only have one address.
-                .clone()
-                .assume_checked()
-                .to_string(),
-        };
+    ) -> Result<Response<Self::GetParamsStream>, Status> {
+        let operator = self.clone();
 
-        // Generate Winternitz public keys and convert them to RPC type.
-        let winternitz_pubkeys = self.get_winternitz_public_keys()?;
-        let winternitz_pubkeys = winternitz_pubkeys
-            .into_iter()
-            .map(WinternitzPubkey::from_bitvm)
-            .collect::<Vec<_>>();
+        let (tx, rx) = mpsc::channel(1280);
+        tokio::spawn(async move {
+            let operator_config = clementine::OperatorConfig {
+                operator_idx: self.idx as u32,
+                collateral_funding_txid: self.collateral_funding_txid.to_byte_array().to_vec(),
+                xonly_pk: self.signer.xonly_public_key.to_string(),
+                wallet_reimburse_address: self.config.operator_wallet_addresses[self.idx] // TODO: Fix this where the config will only have one address.
+                    .clone()
+                    .assume_checked()
+                    .to_string(),
+            };
+            tx.send(Ok(OperatorParams {
+                response: Some(operator_params::Response::OperatorDetails(operator_config)),
+            }))
+            .await
+            .unwrap();
 
-        let operator_params = clementine::OperatorParams {
-            operator_details: Some(operator_config),
-            winternitz_pubkeys,
-            assert_empty_public_key: vec![], // TODO: Implement this.
-        };
+            let winternitz_pubkeys = operator.get_winternitz_public_keys().unwrap(); // TODO: Handle unwrap.
+            let winternitz_pubkeys = winternitz_pubkeys
+                .into_iter()
+                .map(WinternitzPubkey::from_bitvm)
+                .collect::<Vec<_>>();
+            for wpk in winternitz_pubkeys {
+                tx.send(Ok(OperatorParams {
+                    response: Some(operator_params::Response::WinternitzPubkeys(wpk)),
+                }))
+                .await
+                .unwrap();
+            }
 
-        Ok(Response::new(operator_params))
+            let public_hashes = operator
+                .generate_challenge_ack_preimages_and_hashes()
+                .unwrap(); // TODO: Handle unwrap.
+            let public_hashes = public_hashes
+                .into_iter()
+                .map(|hash| ChallengeAckDigest {
+                    hash: hash.to_vec(),
+                })
+                .collect::<Vec<_>>();
+
+            for hash in public_hashes {
+                tx.send(Ok(OperatorParams {
+                    response: Some(operator_params::Response::ChallengeAckDigests(hash)),
+                }))
+                .await
+                .unwrap();
+            }
+        });
+
+        let out_stream: Self::GetParamsStream = ReceiverStream::new(rx);
+        Ok(Response::new(out_stream))
     }
 
     #[tracing::instrument(skip(self), err(level = tracing::Level::ERROR), ret(level = tracing::Level::TRACE))]
