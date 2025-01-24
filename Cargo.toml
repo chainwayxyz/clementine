@@ -21,7 +21,7 @@ serial_test = "3.2.0"
 bitcoin = "0.32.5"
 bitcoincore-rpc = "0.18.0"
 secp256k1 = { version = "0.30.0", features = ["serde", "rand", "std", "global-context"] }
-bitcoin-script = { git = "https://github.com/BitVM/rust-bitcoin-script", branch= "StructuredScript" }
+bitcoin-script = { git = "https://github.com/BitVM/rust-bitcoin-script", rev = "bea92021800fb89bd1fc54d4cb45f3027129953c" }
 
 # async + gRPC
 tonic = { version = "0.12.3", features = [ "tls" ] }
