@@ -208,16 +208,41 @@ impl ClementineVerifier for Verifier {
             )
             .await?;
 
-        let operators_public_hashes = operator_params
-            .challenge_ack_digests
-            .into_iter()
-            .map(|digest| {
-                digest
-                    .hash
-                    .try_into()
-                    .map_err(|_| BridgeError::VecConversionError)
-            }) // TODO: Carry this logic somewhere else
-            .collect::<Result<Vec<PublicHash>, BridgeError>>()?;
+        let mut operators_challenge_ack_public_hashes = Vec::new();
+        for _ in 0..self.config.num_time_txs
+            * self.config.num_kickoffs_per_timetx
+            * self.config.num_watchtowers
+        {
+            let operator_params = in_stream
+                .message()
+                .await?
+                .ok_or(Status::invalid_argument(
+                    "Operator param stream ended early",
+                ))?
+                .response
+                .ok_or(Status::invalid_argument(
+                    "Operator param stream ended early",
+                ))?;
+
+            if let operator_params::Response::ChallengeAckDigests(digest) = operator_params {
+                // Ensure `digest.hash` is exactly 20 bytes
+                if digest.hash.len() != 20 {
+                    return Err(Status::invalid_argument(
+                        "Digest hash length is not 20 bytes",
+                    ));
+                }
+
+                // Convert the `Vec<u8>` into a `[u8; 20]`
+                let public_hash: [u8; 20] = digest.hash.try_into().map_err(|_| {
+                    Status::invalid_argument("Failed to convert digest hash into PublicHash")
+                })?;
+
+                operators_challenge_ack_public_hashes.push(public_hash);
+            } else {
+                return Err(Status::invalid_argument("Expected ChallengeAckDigests"));
+            }
+        }
+
         for i in 0..self.config.num_time_txs {
             for j in 0..self.config.num_kickoffs_per_timetx {
                 self.db
@@ -226,7 +251,7 @@ impl ClementineVerifier for Verifier {
                         operator_config.operator_idx as i32,
                         i as i32,
                         j as i32,
-                        &operators_public_hashes[self.config.num_watchtowers
+                        &operators_challenge_ack_public_hashes[self.config.num_watchtowers
                             * (i * self.config.num_kickoffs_per_timetx + j)
                             ..self.config.num_watchtowers
                                 * (i * self.config.num_kickoffs_per_timetx + j + 1)],
