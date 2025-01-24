@@ -849,7 +849,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_generate_preimages_and_hashes() {
-        let config = create_test_config_with_thread_name!(None);
+        let (config, _db) = create_test_setup().await.expect("test setup");
         let rpc = ExtendedRpc::new(
             config.bitcoin_rpc_url.clone(),
             config.bitcoin_rpc_user.clone(),

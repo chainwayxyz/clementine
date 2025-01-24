@@ -2129,7 +2129,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_save_get_public_hashes() {
-        let config = create_test_config_with_thread_name!(None);
+        let (config, _db) = create_test_setup().await.expect("test setup");
         let database = Database::new(&config).await.unwrap();
 
         let operator_idx = 0;
