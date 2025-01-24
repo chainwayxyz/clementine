@@ -1,7 +1,7 @@
 use super::clementine::{
-    self, clementine_operator_server::ClementineOperator, operator_params, DepositSignSession,
-    Empty, NewWithdrawalSigParams, NewWithdrawalSigResponse, OperatorBurnSig, OperatorParams,
-    WinternitzPubkey, WithdrawalFinalizedParams,
+    self, clementine_operator_server::ClementineOperator, operator_params, ChallengeAckDigest,
+    DepositSignSession, Empty, NewWithdrawalSigParams, NewWithdrawalSigResponse, OperatorBurnSig,
+    OperatorParams, WinternitzPubkey, WithdrawalFinalizedParams,
 };
 use crate::{errors::BridgeError, operator::Operator};
 use bitcoin::{hashes::Hash, OutPoint};
@@ -44,7 +44,7 @@ impl ClementineOperator for Operator {
             .await
             .unwrap();
 
-            let winternitz_pubkeys = operator.get_winternitz_public_keys().unwrap();
+            let winternitz_pubkeys = operator.get_winternitz_public_keys().unwrap(); // TODO: Handle unwrap.
             let winternitz_pubkeys = winternitz_pubkeys
                 .into_iter()
                 .map(WinternitzPubkey::from_bitvm)
@@ -52,6 +52,24 @@ impl ClementineOperator for Operator {
             for wpk in winternitz_pubkeys {
                 tx.send(Ok(OperatorParams {
                     response: Some(operator_params::Response::WinternitzPubkeys(wpk)),
+                }))
+                .await
+                .unwrap();
+            }
+
+            let public_hashes = operator
+                .generate_challenge_ack_preimages_and_hashes()
+                .unwrap(); // TODO: Handle unwrap.
+            let public_hashes = public_hashes
+                .into_iter()
+                .map(|hash| ChallengeAckDigest {
+                    hash: hash.to_vec(),
+                })
+                .collect::<Vec<_>>();
+
+            for hash in public_hashes {
+                tx.send(Ok(OperatorParams {
+                    response: Some(operator_params::Response::ChallengeAckDigests(hash)),
                 }))
                 .await
                 .unwrap();

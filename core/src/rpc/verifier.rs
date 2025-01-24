@@ -5,9 +5,12 @@ use super::clementine::{
     WatchtowerParams,
 };
 use crate::{
-    builder::sighash::{calculate_num_required_sigs, create_nofn_sighash_stream},
-    builder::transaction::create_move_to_vault_txhandler,
-    builder::{self, address::taproot_builder_with_scripts},
+    builder::{
+        self,
+        address::taproot_builder_with_scripts,
+        sighash::{calculate_num_required_sigs, create_nofn_sighash_stream},
+        transaction::create_move_to_vault_txhandler,
+    },
     errors::BridgeError,
     musig2::{self},
     utils,
@@ -203,6 +206,58 @@ impl ClementineVerifier for Verifier {
                 operator_winternitz_public_keys.clone(),
             )
             .await?;
+
+        let mut operators_challenge_ack_public_hashes = Vec::new();
+        for _ in 0..self.config.num_time_txs
+            * self.config.num_kickoffs_per_timetx
+            * self.config.num_watchtowers
+        {
+            let operator_params = in_stream
+                .message()
+                .await?
+                .ok_or(Status::invalid_argument(
+                    "Operator param stream ended early",
+                ))?
+                .response
+                .ok_or(Status::invalid_argument(
+                    "Operator param stream ended early",
+                ))?;
+
+            if let operator_params::Response::ChallengeAckDigests(digest) = operator_params {
+                // Ensure `digest.hash` is exactly 20 bytes
+                if digest.hash.len() != 20 {
+                    return Err(Status::invalid_argument(
+                        "Digest hash length is not 20 bytes",
+                    ));
+                }
+
+                // Convert the `Vec<u8>` into a `[u8; 20]`
+                let public_hash: [u8; 20] = digest.hash.try_into().map_err(|_| {
+                    Status::invalid_argument("Failed to convert digest hash into PublicHash")
+                })?;
+
+                operators_challenge_ack_public_hashes.push(public_hash);
+            } else {
+                return Err(Status::invalid_argument("Expected ChallengeAckDigests"));
+            }
+        }
+
+        for i in 0..self.config.num_time_txs {
+            for j in 0..self.config.num_kickoffs_per_timetx {
+                self.db
+                    .save_public_hashes(
+                        None,
+                        operator_config.operator_idx as i32,
+                        i as i32,
+                        j as i32,
+                        &operators_challenge_ack_public_hashes[self.config.num_watchtowers
+                            * (i * self.config.num_kickoffs_per_timetx + j)
+                            ..self.config.num_watchtowers
+                                * (i * self.config.num_kickoffs_per_timetx + j + 1)],
+                    )
+                    .await?;
+            }
+        }
         // Split the winternitz public keys into chunks for every sequential collateral tx and kickoff index.
         // This is done because we need to generate a separate BitVM setup for each collateral tx and kickoff index.
         let chunk_size = utils::ALL_BITVM_INTERMEDIATE_VARIABLES.len();

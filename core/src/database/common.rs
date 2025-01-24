@@ -11,6 +11,7 @@ use super::wrapper::{
 use super::wrapper::{BlockHashDB, BlockHeaderDB};
 use super::Database;
 use crate::errors::BridgeError;
+use crate::operator::PublicHash;
 use crate::{EVMAddress, UTXO};
 use bitcoin::address::NetworkUnchecked;
 use bitcoin::secp256k1::{schnorr, Message, PublicKey};
@@ -1297,6 +1298,84 @@ impl Database {
             None => Ok(None),
         }
     }
+
+    /// Saves public hashes for a specific operator, time_tx and kickoff index combination
+    // #[tracing::instrument(skip(self), err(level = tracing::Level::ERROR), ret(level = tracing::Level::TRACE))]
+    pub async fn save_public_hashes(
+        &self,
+        tx: Option<&mut sqlx::Transaction<'_, Postgres>>,
+        operator_idx: i32,
+        sequential_collateral_tx_idx: i32,
+        kickoff_idx: i32,
+        public_hashes: impl AsRef<[PublicHash]>,
+    ) -> Result<(), BridgeError> {
+        let public_hashes: Vec<Vec<u8>> = public_hashes
+            .as_ref()
+            .iter()
+            .map(|hash| hash.to_vec())
+            .collect();
+
+        let query = sqlx::query(
+            "INSERT INTO operators_challenge_ack_hashes (operator_idx, sequential_collateral_tx_idx, kickoff_idx, public_hashes)
+             VALUES ($1, $2, $3, $4)
+             ON CONFLICT (operator_idx, sequential_collateral_tx_idx, kickoff_idx) DO UPDATE
+             SET public_hashes = EXCLUDED.public_hashes;",
+        )
+        .bind(operator_idx)
+        .bind(sequential_collateral_tx_idx)
+        .bind(kickoff_idx)
+        .bind(&public_hashes);
+
+        match tx {
+            Some(tx) => query.execute(&mut **tx).await?,
+            None => query.execute(&self.connection).await?,
+        };
+
+        Ok(())
+    }
+
+    /// Retrieves public hashes for a specific operator, time_tx and kickoff index combination
+    #[tracing::instrument(skip(self), err(level = tracing::Level::ERROR), ret(level = tracing::Level::TRACE))]
+    pub async fn get_operators_challenge_ack_hashes(
+        &self,
+        tx: Option<&mut sqlx::Transaction<'_, Postgres>>,
+        operator_idx: i32,
+        sequential_collateral_tx_idx: i32,
+        kickoff_idx: i32,
+    ) -> Result<Option<Vec<PublicHash>>, BridgeError> {
+        let query = sqlx::query_as::<_, (Vec<Vec<u8>>,)>(
+            "SELECT public_hashes
+            FROM operators_challenge_ack_hashes
+            WHERE operator_idx = $1 AND sequential_collateral_tx_idx = $2 AND kickoff_idx = $3;",
+        )
+        .bind(operator_idx)
+        .bind(sequential_collateral_tx_idx)
+        .bind(kickoff_idx);
+
+        let result = match tx {
+            Some(tx) => query.fetch_optional(&mut **tx).await?,
+            None => query.fetch_optional(&self.connection).await?,
+        };
+
+        match result {
+            Some((public_hashes,)) => {
+                let mut converted_hashes = Vec::new();
+                for hash in public_hashes {
+                    match hash.try_into() {
+                        Ok(public_hash) => converted_hashes.push(public_hash),
+                        Err(err) => {
+                            tracing::error!("Failed to convert hash: {:?}", err);
+                            return Err(BridgeError::Error(
+                                "Failed to convert public hash".to_string(),
+                            ));
+                        }
+                    }
+                }
+                Ok(Some(converted_hashes))
+            }
+            None => Ok(None), // If no result is found, return Ok(None)
+        }
+    }
 }
 
 #[cfg(test)]
@@ -2045,6 +2124,44 @@ mod tests {
         // Test non-existent entry
         let non_existent = database
             .get_bitvm_setup(None, 999, time_tx_idx, kickoff_idx)
+            .await
+            .unwrap();
+        assert!(non_existent.is_none());
+    }
+
+    #[tokio::test]
+    async fn test_save_get_public_hashes() {
+        let config = create_test_config_with_thread_name!(None);
+        let database = Database::new(&config).await.unwrap();
+
+        let operator_idx = 0;
+        let time_tx_idx = 1;
+        let kickoff_idx = 2;
+        let public_hashes = vec![[1u8; 20], [2u8; 20]];
+
+        // Save public hashes
+        database
+            .save_public_hashes(
+                None,
+                operator_idx,
+                time_tx_idx,
+                kickoff_idx,
+                public_hashes.clone(),
+            )
+            .await
+            .unwrap();
+
+        // Retrieve and verify
+        let result = database
+            .get_operators_challenge_ack_hashes(None, operator_idx, time_tx_idx, kickoff_idx)
+            .await
+            .unwrap();
+
+        assert_eq!(result, Some(public_hashes));
+
+        // Test non-existent entry
+        let non_existent = database
+            .get_operators_challenge_ack_hashes(None, 999, time_tx_idx, kickoff_idx)
             .await
             .unwrap();
         assert!(non_existent.is_none());

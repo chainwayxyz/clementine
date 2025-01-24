@@ -1,6 +1,8 @@
 use crate::builder::transaction::TxHandler;
 use crate::errors::BridgeError;
+use crate::operator::PublicHash;
 use crate::utils::{self, SECP};
+use bitcoin::hashes::hash160;
 use bitcoin::secp256k1::PublicKey;
 use bitcoin::sighash::SighashCache;
 use bitcoin::taproot::LeafVersion;
@@ -22,6 +24,7 @@ pub enum TxType {
     BitVM,
     OperatorLongestChain,
     WatchtowerChallenge,
+    OperatorChallengeACK,
 }
 
 /// Derivation path specification for Winternitz one time public key generation.
@@ -299,6 +302,18 @@ impl Actor {
         let witness = winternitz.sign(&winternitz_params, &altered_secret_key, &data);
 
         Ok(witness)
+    }
+
+    /// Generates the hashes from the preimages. Preimages are constructed using
+    /// the Winternitz derivation path and the secret key.
+    pub fn generate_public_hash_from_path(
+        &self,
+        path: WinternitzDerivationPath<'_>,
+    ) -> Result<PublicHash, BridgeError> {
+        let mut preimage = path.to_vec();
+        preimage.extend_from_slice(&self.get_derived_winternitz_sk(path)?);
+        let hash = hash160::Hash::hash(&preimage);
+        Ok(hash.to_byte_array())
     }
 }
 
