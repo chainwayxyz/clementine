@@ -889,12 +889,12 @@ dependencies = [
  "hex",
  "jsonrpsee",
  "lazy_static",
+ "pgtemp",
  "prost",
  "risc0-zkvm",
  "secp256k1 0.30.0",
  "serde",
  "serde_json",
- "serial_test",
  "sha2",
  "sqlx",
  "thiserror 1.0.69",
@@ -2386,6 +2386,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "pgtemp"
+version = "0.5.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "f7ea85bad42702a887144e8358825576ebad4e61d9056a8107bf3d581840b5b3"
+dependencies = [
+ "libc",
+ "tempfile",
+ "tokio",
+ "url",
+]
+
+[[package]]
 name = "pin-project"
 version = "1.1.7"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3067,15 +3079,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "f3cb5ba0dc43242ce17de99c180e96db90b235b8a9fdc9543c96d2209116bd9f"
 
 [[package]]
-name = "scc"
-version = "2.3.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "28e1c91382686d21b5ac7959341fcb9780fa7c03773646995a87c950fa7be640"
-dependencies = [
- "sdd",
-]
-
-[[package]]
 name = "schannel"
 version = "0.1.27"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3112,12 +3115,6 @@ dependencies = [
  "ring",
  "untrusted",
 ]
-
-[[package]]
-name = "sdd"
-version = "3.0.5"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "478f121bb72bbf63c52c93011ea1791dca40140dfe13f8336c4c5ac952c33aa9"
 
 [[package]]
 name = "secp256k1"
@@ -3253,31 +3250,6 @@ dependencies = [
  "itoa",
  "ryu",
  "serde",
-]
-
-[[package]]
-name = "serial_test"
-version = "3.2.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "1b258109f244e1d6891bf1053a55d63a5cd4f8f4c30cf9a1280989f80e7a1fa9"
-dependencies = [
- "futures",
- "log",
- "once_cell",
- "parking_lot",
- "scc",
- "serial_test_derive",
-]
-
-[[package]]
-name = "serial_test_derive"
-version = "3.2.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "5d69265a08751de7844521fd15003ae0a888e035773ba05695c5c759a6f89eef"
-dependencies = [
- "proc-macro2",
- "quote",
- "syn 2.0.94",
 ]
 
 [[package]]
