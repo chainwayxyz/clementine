@@ -12,6 +12,8 @@ runs:
   ## Embedded Postgres requirements:
   ## https://github.com/boustrophedon/pgtemp?tab=readme-ov-file#requirements
   - name: Install postgres
+    shell: bash
     run: sudo apt-get install postgresql postgresql-client
   - name: Update path
+    shell: bash
     run: find /usr/lib/postgresql/ -type d -name "bin" >> $GITHUB_PATH
