@@ -4,7 +4,7 @@ use super::clementine::{
     VerifierDepositSignParams, VerifierParams, VerifierPublicKeys, WatchtowerParams,
 };
 use crate::{
-    builder::sighash::{create_nofn_sighash_stream, number_of_required_sigs},
+    builder::sighash::{calculate_num_required_sigs, create_nofn_sighash_stream},
     builder::transaction::create_move_to_vault_txhandler,
     builder::{self, address::taproot_builder_with_scripts},
     errors::BridgeError,
@@ -441,7 +441,7 @@ impl ClementineVerifier for Verifier {
                 verifier.config.bridge_amount_sats,
                 verifier.config.network,
             ));
-            let num_required_sigs = number_of_required_sigs(&verifier.config);
+            let num_required_sigs = calculate_num_required_sigs(&verifier.config);
 
             assert!(
                 num_required_sigs + 1 == session.nonces.len(),
@@ -536,7 +536,7 @@ impl ClementineVerifier for Verifier {
             self.config.bridge_amount_sats,
             self.config.network,
         ));
-        let num_required_sigs = number_of_required_sigs(&self.config);
+        let num_required_sigs = calculate_num_required_sigs(&self.config);
         let mut verified_sigs = Vec::with_capacity(num_required_sigs);
         let mut nonce_idx: usize = 0;
 

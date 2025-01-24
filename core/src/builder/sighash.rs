@@ -14,11 +14,8 @@ use bitcoin::{address::NetworkUnchecked, Address, Amount, OutPoint};
 use bitcoin::{TapSighash, Txid, XOnlyPublicKey};
 use futures_core::stream::Stream;
 
-// WIP: For now, this is equal to the number of sighashes we yield in create_nofn_sighash_stream.
-// This will change as we implement the system design.
-
 /// Returns the number of required signatures for N-of-N signing session.
-pub fn number_of_required_sigs(config: &BridgeConfig) -> usize {
+pub fn calculate_num_required_sigs(config: &BridgeConfig) -> usize {
     config.num_operators
         * config.num_time_txs
         * config.num_kickoffs_per_timetx
@@ -334,7 +331,7 @@ mod tests {
     use std::{env, thread};
 
     #[tokio::test]
-    async fn number_of_required_sigs() {
+    async fn calculate_num_required_sigs() {
         let config = create_test_config_with_thread_name!(None);
         let db = Database::new(&config).await.unwrap();
         let rpc = ExtendedRpc::new(
@@ -487,6 +484,6 @@ mod tests {
             + disprove_timeout_sighashes.len()
             + already_disproved_sighashes.len()
             + reimburse_sighashes.len();
-        assert_eq!(sum, super::number_of_required_sigs(&config));
+        assert_eq!(sum, super::calculate_num_required_sigs(&config));
     }
 }
