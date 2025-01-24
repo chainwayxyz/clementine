@@ -4,15 +4,14 @@ use super::clementine::{
     OperatorParams, WinternitzPubkey, WithdrawalFinalizedParams,
 };
 use crate::builder::sighash::create_operator_sighash_stream;
-use crate::{errors::BridgeError, operator::Operator, EVMAddress};
-use bitcoin::address::NetworkUnchecked;
+use crate::rpc::parsers;
+use crate::{errors::BridgeError, operator::Operator};
 use bitcoin::{hashes::Hash, Amount, OutPoint};
 use futures::StreamExt;
 use std::pin::pin;
 use tokio::sync::mpsc;
 use tokio_stream::wrappers::ReceiverStream;
 use tonic::{async_trait, Request, Response, Status};
-use crate::rpc::parsers;
 
 #[async_trait]
 impl ClementineOperator for Operator {
@@ -30,10 +29,10 @@ impl ClementineOperator for Operator {
         let (tx, rx) = mpsc::channel(1280);
         tokio::spawn(async move {
             let operator_config = clementine::OperatorConfig {
-                operator_idx: self.idx as u32,
-                collateral_funding_txid: self.collateral_funding_txid.to_byte_array().to_vec(),
-                xonly_pk: self.signer.xonly_public_key.to_string(),
-                wallet_reimburse_address: self.config.operator_wallet_addresses[self.idx] // TODO: Fix this where the config will only have one address.
+                operator_idx: operator.idx as u32,
+                collateral_funding_txid: operator.collateral_funding_txid.to_byte_array().to_vec(),
+                xonly_pk: operator.signer.xonly_public_key.to_string(),
+                wallet_reimburse_address: operator.config.operator_wallet_addresses[operator.idx] // TODO: Fix this where the config will only have one address.
                     .clone()
                     .assume_checked()
                     .to_string(),

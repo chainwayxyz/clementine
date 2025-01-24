@@ -6,6 +6,7 @@ use crate::builder::transaction::create_move_to_vault_txhandler;
 use crate::config::BridgeConfig;
 use crate::rpc::clementine::clementine_operator_client::ClementineOperatorClient;
 use crate::rpc::clementine::clementine_verifier_client::ClementineVerifierClient;
+use crate::rpc::parsers;
 use crate::{
     aggregator::Aggregator,
     builder::sighash::{
@@ -15,9 +16,7 @@ use crate::{
     errors::BridgeError,
     musig2::aggregate_nonces,
     rpc::clementine::{self, DepositSignSession},
-    EVMAddress,
 };
-use bitcoin::address::NetworkUnchecked;
 use bitcoin::hashes::Hash;
 use bitcoin::secp256k1::schnorr::Signature;
 use bitcoin::secp256k1::{Message, PublicKey};
@@ -26,7 +25,6 @@ use futures::{future::try_join_all, stream::BoxStream, FutureExt, Stream, Stream
 use secp256k1::musig::{MusigAggNonce, MusigPartialSignature, MusigPubNonce};
 use tokio::sync::mpsc::{channel, Receiver, Sender};
 use tonic::{async_trait, Request, Response, Status, Streaming};
-use crate::rpc::parsers;
 
 struct AggNonceQueueItem {
     agg_nonce: MusigAggNonce,

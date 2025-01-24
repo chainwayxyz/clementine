@@ -8,7 +8,10 @@ use crate::{
     builder::{
         self,
         address::taproot_builder_with_scripts,
-        sighash::{calculate_num_required_nofn_sigs, create_nofn_sighash_stream, calculate_num_required_operator_sigs, create_operator_sighash_stream},
+        sighash::{
+            calculate_num_required_nofn_sigs, calculate_num_required_operator_sigs,
+            create_nofn_sighash_stream, create_operator_sighash_stream,
+        },
         transaction::create_move_to_vault_txhandler,
     },
     errors::BridgeError,

@@ -1,7 +1,7 @@
+use crate::rpc::clementine::DepositParams;
+use crate::EVMAddress;
 use bitcoin::address::NetworkUnchecked;
 use tonic::Status;
-use crate::EVMAddress;
-use crate::rpc::clementine::DepositParams;
 
 pub fn parse_deposit_params(
     deposit_params: DepositParams,
