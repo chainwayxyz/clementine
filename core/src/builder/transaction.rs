@@ -815,10 +815,11 @@ pub fn create_assert_end_txhandler(
         None,
         network,
     );
+    let disprove_addr_pubkey = disprove_address.script_pubkey();
     let tx_outs = vec![
         TxOut {
             value: MIN_TAPROOT_AMOUNT,
-            script_pubkey: disprove_address.script_pubkey(),
+            script_pubkey: disprove_addr_pubkey.clone(),
         },
         TxOut {
             value: MIN_TAPROOT_AMOUNT,
@@ -829,21 +830,25 @@ pub fn create_assert_end_txhandler(
 
     let assert_end_tx = create_btc_tx(create_tx_ins(txins.into()), tx_outs);
 
+    // We do not create the scripts for Parallel assert txs, so that deposit process for verifiers is faster
+    // Because of this we do not have scripts, spendinfos etc. for parallel asserts
+    // For operator to create txs for parallel asserts and assert_end_txs, they need to create the scripts themselves
+    // That's why prevout variables have dummy values here
     let mut prevouts = (0..PARALLEL_ASSERT_TX_CHAIN_SIZE)
         .map(|_| TxOut {
             value: MIN_TAPROOT_AMOUNT,
-            script_pubkey: disprove_address.script_pubkey(), // TODO: this is wrong
+            script_pubkey: disprove_addr_pubkey.clone(), // Dummy random script pubkey, not the actual pubkey
         })
         .collect::<Vec<_>>();
     prevouts.push(kickoff_txhandler.tx.output[3].clone());
 
     let mut scripts = (0..PARALLEL_ASSERT_TX_CHAIN_SIZE)
-        .map(|_| vec![]) // TODO: Add actual scripts here
+        .map(|_| vec![]) // Dummy empty scripts, not the actual script
         .collect::<Vec<_>>();
     scripts.push(kickoff_txhandler.out_scripts[3].clone());
 
     let mut prev_taproot_spend_infos = (0..PARALLEL_ASSERT_TX_CHAIN_SIZE)
-        .map(|_| None) // TODO: Add actual spend info here
+        .map(|_| None) // Dummy empty spendinfo, not the actual spendinfo
         .collect::<Vec<_>>();
     prev_taproot_spend_infos.push(kickoff_txhandler.out_taproot_spend_infos[3].clone());
 
