@@ -30,7 +30,7 @@ pub async fn create_test_setup() -> Result<(BridgeConfig, PgTempDB), BridgeError
         db_name: "clementine_test".to_owned(),
         ..Default::default()
     };
-    
+
     init_db(&config).await?;
     Ok((config, db))
 }

@@ -620,7 +620,13 @@ mod tests {
     use bitcoin::Txid;
 
     use crate::{
-        extended_rpc::ExtendedRpc, rpc::clementine::{self, clementine_aggregator_client::ClementineAggregatorClient, DepositParams}, testkit::{create_actors, create_test_setup}, verifier::Verifier, watchtower::Watchtower
+        extended_rpc::ExtendedRpc,
+        rpc::clementine::{
+            self, clementine_aggregator_client::ClementineAggregatorClient, DepositParams,
+        },
+        testkit::{create_actors, create_test_setup},
+        verifier::Verifier,
+        watchtower::Watchtower,
     };
     use std::str::FromStr;
 

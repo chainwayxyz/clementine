@@ -756,10 +756,7 @@ impl Operator {
 
 #[cfg(test)]
 mod tests {
-    use crate::{
-        extended_rpc::ExtendedRpc, operator::Operator,
-        testkit::create_test_setup,
-    };
+    use crate::{extended_rpc::ExtendedRpc, operator::Operator, testkit::create_test_setup};
 
     // #[tokio::test]
     // async fn set_funding_utxo() {
