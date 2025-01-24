@@ -322,6 +322,7 @@ mod tests {
     use crate::builder::sighash::create_nofn_sighash_stream;
     use crate::extended_rpc::ExtendedRpc;
     use crate::operator::Operator;
+    use crate::watchtower::Watchtower;
     use crate::{builder, create_test_config_with_thread_name};
     use crate::{
         config::BridgeConfig, database::Database, initialize_database, utils::initialize_logger,
@@ -342,7 +343,9 @@ mod tests {
             config.bitcoin_rpc_password.clone(),
         )
         .await;
+
         let operator = Operator::new(config.clone(), rpc).await.unwrap();
+        let watchtower = Watchtower::new(config.clone()).await.unwrap();
 
         // Dummy inputs for nofn_stream.
         let deposit_outpoint = OutPoint {
@@ -359,11 +362,13 @@ mod tests {
         let bridge_amount_sats = Amount::from_sat(100 - 0x45);
 
         // Initialize database.
+        let operator_xonly_pk = XOnlyPublicKey::from_slice(&[0x45; 32]).unwrap();
+        let watchtower_xonly_pk = XOnlyPublicKey::from_slice(&[0x1F; 32]).unwrap();
         for i in 0..config.num_operators {
             db.set_operator(
                 None,
                 i.try_into().unwrap(),
-                XOnlyPublicKey::from_slice(&[0x45; 32]).unwrap(),
+                operator_xonly_pk,
                 recovery_taproot_address.to_string(),
                 Txid::all_zeros(),
             )
@@ -371,24 +376,49 @@ mod tests {
             .unwrap();
         }
         for i in 0..config.num_watchtowers {
-            db.save_watchtower_xonly_pk(
+            db.save_watchtower_xonly_pk(None, i.try_into().unwrap(), &watchtower_xonly_pk)
+                .await
+                .unwrap();
+        }
+        for i in 0..config.num_operators {
+            db.save_operator_winternitz_public_keys(
                 None,
                 i.try_into().unwrap(),
-                &XOnlyPublicKey::from_slice(&[0x45; 32]).unwrap(),
+                operator.get_winternitz_public_keys().unwrap(),
             )
             .await
             .unwrap();
         }
-        for j in 0..config.num_operators {
-            for i in 0..config.num_watchtowers {
+        for i in 0..config.num_operators {
+            for j in 0..config.num_watchtowers {
                 db.save_watchtower_winternitz_public_keys(
                     None,
-                    i.try_into().unwrap(),
                     j.try_into().unwrap(),
-                    operator.get_winternitz_public_keys().unwrap(),
+                    i.try_into().unwrap(),
+                    watchtower
+                        .get_watchtower_winternitz_public_keys()
+                        .await
+                        .unwrap(),
                 )
                 .await
                 .unwrap();
+            }
+        }
+        for o in 0..config.num_operators {
+            for t in 0..config.num_time_txs {
+                for k in 0..config.num_kickoffs_per_timetx {
+                    db.save_bitvm_setup(
+                        None,
+                        o.try_into().unwrap(),
+                        t.try_into().unwrap(),
+                        k.try_into().unwrap(),
+                        vec![],
+                        &[0x45; 32],
+                        vec![],
+                    )
+                    .await
+                    .unwrap();
+                }
             }
         }
 
@@ -399,7 +429,7 @@ mod tests {
             evm_address,
             recovery_taproot_address.as_unchecked().clone(),
             nofn_xonly_pk,
-            config.user_takes_after.into(),
+            config.user_takes_after,
             collateral_funding_amount,
             timeout_block_count,
             max_withdrawal_time_block_count,
@@ -418,29 +448,45 @@ mod tests {
         let mut already_disproved_sighashes = Vec::<TapSighash>::new();
         let mut reimburse_sighashes = Vec::<TapSighash>::new();
 
-        for _ in 0..config.num_kickoffs_per_timetx {
-            challenge_tx_sighashes.push(nofn_stream.next().await.unwrap().unwrap());
-            start_happy_reimburse_sighashes.push(nofn_stream.next().await.unwrap().unwrap());
-            happy_reimburse_sighashes.push(nofn_stream.next().await.unwrap().unwrap());
-            watchtower_challenge_kickoff_sighashes.push(nofn_stream.next().await.unwrap().unwrap());
-            kickoff_timeout_sighashes.push(nofn_stream.next().await.unwrap().unwrap());
+        for _ in 0..config.num_operators {
+            for _ in 0..config.num_kickoffs_per_timetx {
+                challenge_tx_sighashes.push(nofn_stream.next().await.unwrap().unwrap());
+                start_happy_reimburse_sighashes.push(nofn_stream.next().await.unwrap().unwrap());
+                happy_reimburse_sighashes.push(nofn_stream.next().await.unwrap().unwrap());
+                watchtower_challenge_kickoff_sighashes
+                    .push(nofn_stream.next().await.unwrap().unwrap());
+                kickoff_timeout_sighashes.push(nofn_stream.next().await.unwrap().unwrap());
 
-            for _ in 0..config.num_watchtowers {
-                // Script spend.
-                operator_challenge_nack_sighashes.push(nofn_stream.next().await.unwrap().unwrap());
+                for _ in 0..config.num_watchtowers {
+                    // Script spend.
+                    operator_challenge_nack_sighashes
+                        .push(nofn_stream.next().await.unwrap().unwrap());
+                    // Pubkey spend.
+                    operator_challenge_nack_sighashes
+                        .push(nofn_stream.next().await.unwrap().unwrap());
+                }
+
+                assert_end_sighashes.push(nofn_stream.next().await.unwrap().unwrap());
                 // Pubkey spend.
-                operator_challenge_nack_sighashes.push(nofn_stream.next().await.unwrap().unwrap());
+                disprove_timeout_sighashes.push(nofn_stream.next().await.unwrap().unwrap());
+                // Script spend.
+                disprove_timeout_sighashes.push(nofn_stream.next().await.unwrap().unwrap());
+                already_disproved_sighashes.push(nofn_stream.next().await.unwrap().unwrap());
+                reimburse_sighashes.push(nofn_stream.next().await.unwrap().unwrap());
             }
-
-            assert_end_sighashes.push(nofn_stream.next().await.unwrap().unwrap());
-            // Pubkey spend.
-            disprove_timeout_sighashes.push(nofn_stream.next().await.unwrap().unwrap());
-            // Script spend.
-            disprove_timeout_sighashes.push(nofn_stream.next().await.unwrap().unwrap());
-            already_disproved_sighashes.push(nofn_stream.next().await.unwrap().unwrap());
-            reimburse_sighashes.push(nofn_stream.next().await.unwrap().unwrap());
         }
-
         assert!(nofn_stream.next().await.is_none());
+
+        let sum = challenge_tx_sighashes.len()
+            + start_happy_reimburse_sighashes.len()
+            + happy_reimburse_sighashes.len()
+            + watchtower_challenge_kickoff_sighashes.len()
+            + kickoff_timeout_sighashes.len()
+            + operator_challenge_nack_sighashes.len()
+            + assert_end_sighashes.len()
+            + disprove_timeout_sighashes.len()
+            + already_disproved_sighashes.len()
+            + reimburse_sighashes.len();
+        assert_eq!(sum, super::number_of_required_sigs(&config));
     }
 }
