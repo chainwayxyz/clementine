@@ -97,23 +97,19 @@ impl HeaderChainProver {
 #[cfg(test)]
 mod tests {
     use crate::{
-        config::BridgeConfig, database::Database, initialize_database, utils::initialize_logger,
-    };
-    use crate::{
-        create_test_config_with_thread_name, extended_rpc::ExtendedRpc,
-        header_chain_prover::HeaderChainProver,
+        extended_rpc::ExtendedRpc, header_chain_prover::HeaderChainProver,
+        testkit::create_test_setup,
     };
     use bitcoin::{hashes::Hash, BlockHash};
     use bitcoincore_rpc::RpcApi;
     use borsh::BorshDeserialize;
     use risc0_zkvm::Receipt;
     use std::time::Duration;
-    use std::{env, thread};
     use tokio::time::sleep;
 
     #[tokio::test]
     async fn new() {
-        let config = create_test_config_with_thread_name!(None);
+        let (config, _db) = create_test_setup().await.expect("test setup");
         let rpc = ExtendedRpc::new(
             config.bitcoin_rpc_url.clone(),
             config.bitcoin_rpc_user.clone(),
@@ -121,13 +117,12 @@ mod tests {
         )
         .await;
 
-        let _should_not_panic = HeaderChainProver::new(&config, rpc).await.unwrap();
+        assert!(HeaderChainProver::new(&config, rpc).await.is_ok());
     }
 
     #[tokio::test]
-    #[serial_test::serial]
     async fn new_with_proof_assumption() {
-        let config = create_test_config_with_thread_name!(None);
+        let (config, _db) = create_test_setup().await.expect("test setup");
         let rpc = ExtendedRpc::new(
             config.bitcoin_rpc_url.clone(),
             config.bitcoin_rpc_user.clone(),
@@ -151,10 +146,9 @@ mod tests {
     }
 
     #[tokio::test]
-    #[serial_test::serial]
     #[ignore = "This test is very host dependent and needs a human observer"]
     async fn start_header_chain_prover() {
-        let config = create_test_config_with_thread_name!(None);
+        let (config, _db) = create_test_setup().await.expect("test setup");
         let rpc = ExtendedRpc::new(
             config.bitcoin_rpc_url.clone(),
             config.bitcoin_rpc_user.clone(),

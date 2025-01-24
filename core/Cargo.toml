@@ -36,9 +36,9 @@ async-stream = { workspace = true }
 futures-util = { workspace = true }
 futures-core = { workspace = true }
 bitvm = { workspace = true }
+pgtemp = "0.5.0"
 
 [dev-dependencies]
-serial_test = { workspace = true }
 bitcoin-script = { workspace = true }
 
 [features]

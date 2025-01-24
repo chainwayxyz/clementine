@@ -8,6 +8,7 @@ use clementine_core::builder::transaction::TxHandler;
 use clementine_core::musig2::{
     aggregate_nonces, aggregate_partial_signatures, AggregateFromPublicKeys, Musig2Mode,
 };
+use clementine_core::testkit::create_test_setup;
 use clementine_core::utils::{handle_taproot_witness_new, SECP};
 use clementine_core::{
     builder::{self},
@@ -16,9 +17,7 @@ use clementine_core::{
     musig2::{nonce_pair, partial_sign, MuSigNoncePair},
     utils,
 };
-use clementine_core::{database::Database, utils::initialize_logger};
 use secp256k1::musig::{MusigAggNonce, MusigPartialSignature};
-use std::{env, thread};
 
 mod common;
 
@@ -63,9 +62,8 @@ fn get_nonces(verifiers_secret_public_keys: Vec<Keypair>) -> (Vec<MuSigNoncePair
 }
 
 #[tokio::test]
-#[serial_test::serial]
 async fn key_spend() {
-    let config = create_test_config_with_thread_name!(None);
+    let (config, _db) = create_test_setup().await.expect("test setup");
     let rpc = ExtendedRpc::new(
         config.bitcoin_rpc_url.clone(),
         config.bitcoin_rpc_user.clone(),
@@ -158,9 +156,8 @@ async fn key_spend() {
 }
 
 #[tokio::test]
-#[serial_test::serial]
 async fn key_spend_with_script() {
-    let config = create_test_config_with_thread_name!(None);
+    let (config, _db) = create_test_setup().await.expect("test setup");
     let rpc = ExtendedRpc::new(
         config.bitcoin_rpc_url.clone(),
         config.bitcoin_rpc_user.clone(),
@@ -258,9 +255,8 @@ async fn key_spend_with_script() {
 }
 
 #[tokio::test]
-#[serial_test::serial]
 async fn script_spend() {
-    let config = create_test_config_with_thread_name!(None);
+    let (config, _db) = create_test_setup().await.expect("test setup");
     let rpc = ExtendedRpc::new(
         config.bitcoin_rpc_url.clone(),
         config.bitcoin_rpc_user.clone(),

@@ -80,7 +80,7 @@ pub struct BridgeConfig {
     /// PostgreSQL database host address.
     pub db_host: String,
     /// PostgreSQL database port.
-    pub db_port: usize,
+    pub db_port: u16,
     /// PostgreSQL database user name.
     pub db_user: String,
     /// PostgreSQL database user password.

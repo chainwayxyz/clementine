@@ -110,21 +110,17 @@ impl User {
 
 #[cfg(test)]
 mod tests {
+    use crate::extended_rpc::ExtendedRpc;
+    use crate::testkit::create_test_setup;
     use crate::user::User;
     use crate::EVMAddress;
-    use crate::{
-        config::BridgeConfig, database::Database, initialize_database, utils::initialize_logger,
-    };
-    use crate::{create_test_config_with_thread_name, extended_rpc::ExtendedRpc};
     use bitcoin::secp256k1::SecretKey;
     use bitcoincore_rpc::RpcApi;
     use secp256k1::rand;
-    use std::{env, thread};
 
     #[tokio::test]
-    #[serial_test::parallel]
     async fn deposit_tx() {
-        let config = create_test_config_with_thread_name!(None);
+        let (config, _db) = create_test_setup().await.expect("test setup");
         let rpc = ExtendedRpc::new(
             config.bitcoin_rpc_url.clone(),
             config.bitcoin_rpc_user.clone(),

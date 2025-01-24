@@ -320,12 +320,9 @@ impl Actor {
 #[cfg(test)]
 mod tests {
     use super::Actor;
-    use crate::config::BridgeConfig;
-    use crate::utils::{initialize_logger, SECP};
-    use crate::{
-        actor::WinternitzDerivationPath, builder::transaction::TxHandler,
-        create_test_config_with_thread_name, database::Database, initialize_database,
-    };
+    use crate::testkit::create_test_setup;
+    use crate::utils::SECP;
+    use crate::{actor::WinternitzDerivationPath, builder::transaction::TxHandler};
     use bitcoin::secp256k1::SecretKey;
     use bitcoin::{
         absolute::Height, transaction::Version, Amount, Network, OutPoint, Transaction, TxIn, TxOut,
@@ -338,9 +335,7 @@ mod tests {
         treepp::script,
     };
     use secp256k1::rand;
-    use std::env;
     use std::str::FromStr;
-    use std::thread;
 
     /// Returns a valid [`TxHandler`].
     fn create_valid_mock_tx_handler(actor: &Actor) -> TxHandler {
@@ -574,7 +569,7 @@ mod tests {
 
     #[tokio::test]
     async fn derive_winternitz_pk_uniqueness() {
-        let config = create_test_config_with_thread_name!(None);
+        let (config, _db) = create_test_setup().await.expect("test setup");
         let actor = Actor::new(
             config.secret_key,
             config.winternitz_secret_key,
@@ -593,7 +588,7 @@ mod tests {
 
     #[tokio::test]
     async fn derive_winternitz_pk_fixed_pk() {
-        let config = create_test_config_with_thread_name!(None);
+        let (config, _db) = create_test_setup().await.expect("test setup");
         let actor = Actor::new(
             config.secret_key,
             Some(
@@ -615,7 +610,7 @@ mod tests {
 
     #[tokio::test]
     async fn sign_winternitz_signature() {
-        let config = create_test_config_with_thread_name!(None);
+        let (config, _db) = create_test_setup().await.expect("test setup");
         let actor = Actor::new(
             config.secret_key,
             Some(

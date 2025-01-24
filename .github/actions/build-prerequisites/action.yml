@@ -9,3 +9,9 @@ runs:
   steps:
   - name: Install Protoc
     uses: arduino/setup-protoc@v3
+  ## Embedded Postgres requirements:
+  ## https://github.com/boustrophedon/pgtemp?tab=readme-ov-file#requirements
+  - name: Install postgres
+    run: sudo apt-get install postgresql postgresql-client
+  - name: Update path
+    run: find /usr/lib/postgresql/ -type d -name "bin" >> $GITHUB_PATH

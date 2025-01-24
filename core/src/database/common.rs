@@ -1381,9 +1381,9 @@ impl Database {
 #[cfg(test)]
 mod tests {
     use super::Database;
+    use crate::testkit::create_test_setup;
     use crate::utils::SECP;
-    use crate::{config::BridgeConfig, initialize_database, utils::initialize_logger};
-    use crate::{create_test_config_with_thread_name, musig2::nonce_pair, EVMAddress, UTXO};
+    use crate::{musig2::nonce_pair, EVMAddress, UTXO};
     use bitcoin::key::{Keypair, Secp256k1};
     use bitcoin::secp256k1::{schnorr, SecretKey};
     use bitcoin::{
@@ -1399,11 +1399,10 @@ mod tests {
     use secp256k1::musig::MusigPubNonce;
     use secp256k1::rand;
     use secp256k1::{constants::SCHNORR_SIGNATURE_SIZE, rand::rngs::OsRng};
-    use std::{env, thread};
 
     #[tokio::test]
     async fn save_get_timeout_tx_sigs() {
-        let config = create_test_config_with_thread_name!(None);
+        let (config, _db) = create_test_setup().await.expect("test setup");
         let database = Database::new(&config).await.unwrap();
 
         let signatures: Vec<schnorr::Signature> = (0..0x45)
@@ -1422,7 +1421,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_database_gets_previously_saved_operator_take_signature() {
-        let config = create_test_config_with_thread_name!(None);
+        let (config, _db) = create_test_setup().await.expect("test setup");
         let database = Database::new(&config).await.unwrap();
 
         let deposit_outpoint = OutPoint::null();
@@ -1460,7 +1459,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_save_and_get_deposit_info() {
-        let config = create_test_config_with_thread_name!(None);
+        let (config, _db) = create_test_setup().await.expect("test setup");
         let database = Database::new(&config).await.unwrap();
 
         let xonly_public_key = XOnlyPublicKey::from_slice(&[
@@ -1492,7 +1491,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_get_pub_nonces_1() {
-        let config = create_test_config_with_thread_name!(None);
+        let (config, _db) = create_test_setup().await.expect("test setup");
         let db = Database::new(&config).await.unwrap();
 
         let outpoint = OutPoint {
@@ -1524,7 +1523,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_get_pub_nonces_2() {
-        let config = create_test_config_with_thread_name!(None);
+        let (config, _db) = create_test_setup().await.expect("test setup");
         let db = Database::new(&config).await.unwrap();
         let outpoint = OutPoint {
             txid: Txid::from_byte_array([1u8; 32]),
@@ -1536,7 +1535,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_operators_kickoff_utxo_1() {
-        let config = create_test_config_with_thread_name!(None);
+        let (config, _db) = create_test_setup().await.expect("test setup");
         let db = Database::new(&config).await.unwrap();
 
         let outpoint = OutPoint {
@@ -1561,7 +1560,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_operators_kickoff_utxo_2() {
-        let config = create_test_config_with_thread_name!(None);
+        let (config, _db) = create_test_setup().await.expect("test setup");
         let db = Database::new(&config).await.unwrap();
 
         let outpoint = OutPoint {
@@ -1574,7 +1573,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_verifiers_kickoff_utxos_1() {
-        let config = create_test_config_with_thread_name!(None);
+        let (config, _db) = create_test_setup().await.expect("test setup");
         let db = Database::new(&config).await.unwrap();
 
         let outpoint = OutPoint {
@@ -1611,7 +1610,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_verifiers_kickoff_utxos_2() {
-        let config = create_test_config_with_thread_name!(None);
+        let (config, _db) = create_test_setup().await.expect("test setup");
         let db = Database::new(&config).await.unwrap();
 
         let outpoint = OutPoint {
@@ -1624,7 +1623,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_operators_funding_utxo_1() {
-        let config = create_test_config_with_thread_name!(None);
+        let (config, _db) = create_test_setup().await.expect("test setup");
         let db = Database::new(&config).await.unwrap();
 
         let utxo = UTXO {
@@ -1646,17 +1645,16 @@ mod tests {
 
     #[tokio::test]
     async fn test_operators_funding_utxo_2() {
-        let config = create_test_config_with_thread_name!(None);
+        let (config, _db) = create_test_setup().await.expect("test setup");
         let db = Database::new(&config).await.unwrap();
 
         let db_utxo = db.get_funding_utxo(None).await.unwrap();
-
         assert!(db_utxo.is_none());
     }
 
     #[tokio::test]
     async fn test_deposit_kickoff_generator_tx_0() {
-        let config = create_test_config_with_thread_name!(None);
+        let (config, _db) = create_test_setup().await.expect("test setup");
         let db = Database::new(&config).await.unwrap();
 
         let raw_hex = "02000000000101eb87b1a80d47b7f5bd5082b77653f5ca37e566951742b80c361875ba0e5c478f0a00000000fdffffff0ca086010000000000225120b23da6d2e0390018b953f7d74e3582da4da30fd0fd157cc84a2d2753003d1ca3a086010000000000225120b23da6d2e0390018b953f7d74e3582da4da30fd0fd157cc84a2d2753003d1ca3a086010000000000225120b23da6d2e0390018b953f7d74e3582da4da30fd0fd157cc84a2d2753003d1ca3a086010000000000225120b23da6d2e0390018b953f7d74e3582da4da30fd0fd157cc84a2d2753003d1ca3a086010000000000225120b23da6d2e0390018b953f7d74e3582da4da30fd0fd157cc84a2d2753003d1ca3a086010000000000225120b23da6d2e0390018b953f7d74e3582da4da30fd0fd157cc84a2d2753003d1ca3a086010000000000225120b23da6d2e0390018b953f7d74e3582da4da30fd0fd157cc84a2d2753003d1ca3a086010000000000225120b23da6d2e0390018b953f7d74e3582da4da30fd0fd157cc84a2d2753003d1ca3a086010000000000225120b23da6d2e0390018b953f7d74e3582da4da30fd0fd157cc84a2d2753003d1ca3a086010000000000225120b23da6d2e0390018b953f7d74e3582da4da30fd0fd157cc84a2d2753003d1ca35c081777000000002251202a64b1ee3375f3bb4b367b8cb8384a47f73cf231717f827c6c6fbbf5aecf0c364a010000000000002200204ae81572f06e1b88fd5ced7a1a000945432e83e1551e6f721ee9c00b8cc33260014005a41e6f4a4bcfcc5cd3ef602687215f97c18949019a491df56af7413c5dce9292ba3966edc4564a39d9bc0d6c0faae19030f1cedf4d931a6cdc57cc5b83c8ef00000000".to_string();
@@ -1702,7 +1700,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_deposit_kickoff_generator_tx_2() {
-        let config = create_test_config_with_thread_name!(None);
+        let (config, _db) = create_test_setup().await.expect("test setup");
         let db = Database::new(&config).await.unwrap();
 
         let txid = Txid::from_byte_array([1u8; 32]);
@@ -1712,7 +1710,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_deposit_kickoff_generator_tx_1() {
-        let config = create_test_config_with_thread_name!(None);
+        let (config, _db) = create_test_setup().await.expect("test setup");
         let db = Database::new(&config).await.unwrap();
 
         let raw_hex = "01000000000101308d840c736eefd114a8fad04cb0d8338b4a3034a2b517250e5498701b25eb360100000000fdffffff02401f00000000000022512024985a1ab5724a5164ae5e0026b3e7e22031e83948eedf99d438b866857946b81f7e000000000000225120f7298da2a2be5b6e02a076ff7d35a1fe6b54a2bc7938c1c86bede23cadb7d9650140ad2fdb01ec5e2772f682867c8c6f30697c63f622e338f7390d3abc6c905b9fd7e96496fdc34cb9e872387758a6a334ec1307b3505b73121e0264fe2ba546d78ad11b0d00".to_string();
@@ -1762,7 +1760,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_deposit_kickoff_generator_tx_3() {
-        let config = create_test_config_with_thread_name!(None);
+        let (config, _db) = create_test_setup().await.expect("test setup");
         let db = Database::new(&config).await.unwrap();
 
         let txid = Txid::from_byte_array([1u8; 32]);
@@ -1772,7 +1770,7 @@ mod tests {
 
     #[tokio::test]
     async fn save_get_new_block() {
-        let config = create_test_config_with_thread_name!(None);
+        let (config, _db) = create_test_setup().await.expect("test setup");
         let db = Database::new(&config).await.unwrap();
 
         let block = block::Block {
@@ -1801,7 +1799,7 @@ mod tests {
 
     #[tokio::test]
     async fn get_block_header() {
-        let config = create_test_config_with_thread_name!(None);
+        let (config, _db) = create_test_setup().await.expect("test setup");
         let db = Database::new(&config).await.unwrap();
 
         let block = block::Block {
@@ -1838,7 +1836,7 @@ mod tests {
 
     #[tokio::test]
     pub async fn get_latest_chain_proof_height() {
-        let config = create_test_config_with_thread_name!(None);
+        let (config, _db) = create_test_setup().await.expect("test setup");
         let db = Database::new(&config).await.unwrap();
 
         let mut block = block::Block {
@@ -1894,7 +1892,7 @@ mod tests {
 
     #[tokio::test]
     pub async fn save_get_block_proof() {
-        let config = create_test_config_with_thread_name!(None);
+        let (config, _db) = create_test_setup().await.expect("test setup");
         let db = Database::new(&config).await.unwrap();
 
         // Save dummy block.
@@ -1938,7 +1936,7 @@ mod tests {
 
     #[tokio::test]
     pub async fn get_non_proven_block() {
-        let config = create_test_config_with_thread_name!(None);
+        let (config, _db) = create_test_setup().await.expect("test setup");
         let db = Database::new(&config).await.unwrap();
 
         assert!(db.get_non_proven_block(None).await.is_err());
@@ -2014,7 +2012,7 @@ mod tests {
 
     #[tokio::test]
     async fn save_get_winternitz_public_key() {
-        let config = create_test_config_with_thread_name!(None);
+        let (config, _db) = create_test_setup().await.expect("test setup");
         let database = Database::new(&config).await.unwrap();
 
         // Assuming there are 2 time_txs.
@@ -2043,7 +2041,7 @@ mod tests {
     }
     #[tokio::test]
     async fn save_get_watchtower_xonly_pk() {
-        let config = create_test_config_with_thread_name!(None);
+        let (config, _db) = create_test_setup().await.expect("test setup");
         let database = Database::new(&config).await.unwrap();
 
         let secp = Secp256k1::new();
@@ -2077,7 +2075,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_save_get_bitvm_setup() {
-        let config = create_test_config_with_thread_name!(None);
+        let (config, _db) = create_test_setup().await.expect("test setup");
         let database = Database::new(&config).await.unwrap();
 
         let operator_idx = 0;

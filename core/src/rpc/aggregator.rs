@@ -620,33 +620,15 @@ mod tests {
     use bitcoin::Txid;
 
     use crate::{
-        config::BridgeConfig,
-        create_test_config_with_thread_name,
-        database::Database,
-        errors::BridgeError,
-        initialize_database,
-        rpc::clementine::DepositParams,
-        servers::{
-            create_aggregator_grpc_server, create_operator_grpc_server,
-            create_verifier_grpc_server, create_watchtower_grpc_server,
-        },
-        utils::initialize_logger,
+        extended_rpc::ExtendedRpc, rpc::clementine::{self, clementine_aggregator_client::ClementineAggregatorClient, DepositParams}, testkit::{create_actors, create_test_setup}, verifier::Verifier, watchtower::Watchtower
     };
-    use crate::{
-        create_actors,
-        extended_rpc::ExtendedRpc,
-        rpc::clementine::{self, clementine_aggregator_client::ClementineAggregatorClient},
-        verifier::Verifier,
-        watchtower::Watchtower,
-    };
-    use std::{env, str::FromStr, thread};
+    use std::str::FromStr;
 
     #[tokio::test]
-    #[serial_test::serial]
     async fn aggregator_double_setup_fail() {
-        let config = create_test_config_with_thread_name!(None);
+        let (config, _db) = create_test_setup().await.expect("test setup");
+        let (_, _, aggregator, _) = create_actors(&config).await;
 
-        let (_, _, aggregator, _) = create_actors!(config);
         let mut aggregator_client =
             ClementineAggregatorClient::connect(format!("http://{}", aggregator.0))
                 .await
@@ -664,10 +646,9 @@ mod tests {
     }
 
     #[tokio::test]
-    #[serial_test::serial]
     async fn aggregator_setup_watchtower_winternitz_public_keys() {
-        let mut config = create_test_config_with_thread_name!(None);
-        let (_verifiers, _operators, aggregator, _watchtowers) = create_actors!(config.clone());
+        let (mut config, _db) = create_test_setup().await.expect("test setup");
+        let (_verifiers, _operators, aggregator, _watchtowers) = create_actors(&config).await;
         let mut aggregator_client =
             ClementineAggregatorClient::connect(format!("http://{}", aggregator.0))
                 .await
@@ -706,11 +687,10 @@ mod tests {
     }
 
     #[tokio::test]
-    #[serial_test::serial]
     async fn aggregator_setup_and_deposit() {
-        let config = create_test_config_with_thread_name!(None);
+        let (config, _db) = create_test_setup().await.expect("test setup");
 
-        let aggregator = create_actors!(config).2;
+        let aggregator = create_actors(&config).await.2;
         let mut aggregator_client =
             ClementineAggregatorClient::connect(format!("http://{}", aggregator.0))
                 .await

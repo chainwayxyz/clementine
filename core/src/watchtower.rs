@@ -76,27 +76,13 @@ impl Watchtower {
 
 #[cfg(test)]
 mod tests {
-    use crate::utils::initialize_logger;
+    use crate::testkit::{create_actors, create_test_setup};
     use crate::watchtower::Watchtower;
-    use crate::{
-        config::BridgeConfig,
-        database::Database,
-        errors::BridgeError,
-        extended_rpc::ExtendedRpc,
-        initialize_database,
-        servers::{
-            create_aggregator_grpc_server, create_operator_grpc_server,
-            create_verifier_grpc_server, create_watchtower_grpc_server,
-        },
-    };
-    use crate::{create_actors, create_test_config_with_thread_name};
-    use std::{env, thread};
 
     #[tokio::test]
-    #[serial_test::serial]
     async fn new_watchtower() {
-        let mut config = create_test_config_with_thread_name!(None);
-        let (verifiers, operators, _, _should_not_panic) = create_actors!(config.clone());
+        let (mut config, _db) = create_test_setup().await.expect("test setup");
+        let (verifiers, operators, _, _should_not_panic) = create_actors(&config).await;
 
         config.verifier_endpoints = Some(
             verifiers
@@ -115,10 +101,9 @@ mod tests {
     }
 
     #[tokio::test]
-    #[serial_test::serial]
     async fn get_watchtower_winternitz_public_keys() {
-        let mut config = create_test_config_with_thread_name!(None);
-        let (verifiers, operators, _, _watchtowers) = create_actors!(config.clone());
+        let (mut config, _db) = create_test_setup().await.expect("test setup");
+        let (verifiers, operators, _, _watchtowers) = create_actors(&config).await;
 
         config.verifier_endpoints = Some(
             verifiers

@@ -92,16 +92,14 @@ impl Database {
 
 #[cfg(test)]
 mod tests {
-    use crate::create_test_config_with_thread_name;
-    use crate::{config::BridgeConfig, database::Database};
-    use crate::{initialize_database, utils::initialize_logger};
-    use std::{env, thread};
+    use crate::{
+        config::BridgeConfig, database::Database, testkit::create_test_setup,
+    };
 
     #[tokio::test]
     async fn valid_database_connection() {
-        let config = create_test_config_with_thread_name!(None);
-
-        Database::new(&config).await.unwrap();
+        let (config, _db) = create_test_setup().await.expect("test setup");
+        assert!(Database::new(&config).await.is_ok());
     }
 
     #[tokio::test]

@@ -128,11 +128,8 @@ impl HeaderChainProver {
 #[cfg(test)]
 mod tests {
     use crate::{
-        config::BridgeConfig, database::Database, initialize_database, utils::initialize_logger,
-    };
-    use crate::{
-        create_test_config_with_thread_name, extended_rpc::ExtendedRpc,
-        header_chain_prover::HeaderChainProver,
+        extended_rpc::ExtendedRpc, header_chain_prover::HeaderChainProver,
+        testkit::create_test_setup,
     };
     use bitcoin::{
         block::{Header, Version},
@@ -141,7 +138,6 @@ mod tests {
     };
     use bitcoincore_rpc::RpcApi;
     use header_chain::header_chain::{BlockHeaderCircuitOutput, CircuitBlockHeader};
-    use std::{env, thread};
 
     async fn mine_and_get_first_n_block_headers(
         rpc: ExtendedRpc,
@@ -164,9 +160,8 @@ mod tests {
     }
 
     #[tokio::test]
-    #[serial_test::parallel]
     async fn prove_block_headers_genesis() {
-        let config = create_test_config_with_thread_name!(None);
+        let (config, _db) = create_test_setup().await.expect("test setup");
         let rpc = ExtendedRpc::new(
             config.bitcoin_rpc_url.clone(),
             config.bitcoin_rpc_user.clone(),
@@ -188,9 +183,8 @@ mod tests {
     }
 
     #[tokio::test]
-    #[serial_test::serial]
     async fn prove_block_headers_second() {
-        let config = create_test_config_with_thread_name!(None);
+        let (config, _db) = create_test_setup().await.expect("test setup");
         let rpc = ExtendedRpc::new(
             config.bitcoin_rpc_url.clone(),
             config.bitcoin_rpc_user.clone(),
@@ -214,9 +208,8 @@ mod tests {
     }
 
     #[tokio::test]
-    #[serial_test::serial]
     async fn save_and_get_proof() {
-        let config = create_test_config_with_thread_name!(None);
+        let (config, _db) = create_test_setup().await.expect("test setup");
         let rpc = ExtendedRpc::new(
             config.bitcoin_rpc_url.clone(),
             config.bitcoin_rpc_user.clone(),

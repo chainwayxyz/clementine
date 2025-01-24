@@ -1,8 +1,5 @@
 //! # Common Utilities for Integration Tests
 
-#[path = "../../src/test_utils.rs"]
-mod test_utils;
-
 // use crate::{create_test_config_with_thread_name, initialize_database};
 // use bitcoin::consensus::encode::deserialize_hex;
 // use bitcoin::Address;
@@ -25,7 +22,7 @@ mod test_utils;
 // use std::{env, thread};
 
 // pub async fn run_multiple_deposits(test_config_name: &str) {
-//     let config = create_test_config_with_thread_name!(test_config_name, None);
+//     let config = create_test_config_with_thread_name(test_config_name, None);
 //     let rpc = ExtendedRpc::new(
 //         config.bitcoin_rpc_url.clone(),
 //         config.bitcoin_rpc_user.clone(),
@@ -257,7 +254,7 @@ mod test_utils;
 //     ),
 //     BridgeError,
 // > {
-//     let config = create_test_config_with_thread_name!(test_config_name, None);
+//     let config = create_test_config_with_thread_name(test_config_name, None);
 //     let rpc = ExtendedRpc::new(
 //         config.bitcoin_rpc_url.clone(),
 //         config.bitcoin_rpc_user.clone(),

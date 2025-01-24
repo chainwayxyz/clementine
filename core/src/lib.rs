@@ -27,8 +27,7 @@ pub mod utils;
 pub mod verifier;
 pub mod watchtower;
 
-#[cfg(test)]
-mod test_utils;
+pub mod testkit;
 
 macro_rules! impl_try_from_vec_u8 {
     ($name:ident, $size:expr) => {

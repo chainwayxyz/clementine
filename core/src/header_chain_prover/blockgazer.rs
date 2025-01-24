@@ -203,19 +203,15 @@ impl HeaderChainProver {
 #[cfg(test)]
 mod tests {
     use crate::{
-        config::BridgeConfig, database::Database, initialize_database, utils::initialize_logger,
-    };
-    use crate::{
-        create_test_config_with_thread_name,
         extended_rpc::ExtendedRpc,
         header_chain_prover::{
             blockgazer::{BlockFetchStatus, BATCH_DEEPNESS, BATCH_DEEPNESS_SAFETY_BARRIER},
             HeaderChainProver,
         },
+        testkit::create_test_setup,
     };
     use bitcoin::BlockHash;
     use bitcoincore_rpc::RpcApi;
-    use std::{env, thread};
 
     async fn mine_and_save_blocks(prover: &HeaderChainProver, height: u64) -> Vec<BlockHash> {
         let mut fork_block_hashes = Vec::new();
@@ -255,9 +251,8 @@ mod tests {
     }
 
     #[tokio::test]
-    #[serial_test::parallel]
     async fn check_for_new_blocks_uptodate() {
-        let config = create_test_config_with_thread_name!(None);
+        let (config, _db) = create_test_setup().await.expect("test setup");
         let rpc = ExtendedRpc::new(
             config.bitcoin_rpc_url.clone(),
             config.bitcoin_rpc_user.clone(),
@@ -289,9 +284,8 @@ mod tests {
     }
 
     #[tokio::test]
-    #[serial_test::serial]
     async fn check_for_new_blocks_fallen_behind_single() {
-        let config = create_test_config_with_thread_name!(None);
+        let (config, _db) = create_test_setup().await.expect("test setup");
         let rpc = ExtendedRpc::new(
             config.bitcoin_rpc_url.clone(),
             config.bitcoin_rpc_user.clone(),
@@ -330,9 +324,8 @@ mod tests {
     }
 
     #[tokio::test]
-    #[serial_test::serial]
     async fn check_for_new_blocks_fallen_behind_multiple() {
-        let config = create_test_config_with_thread_name!(None);
+        let (config, _db) = create_test_setup().await.expect("test setup");
         let rpc = ExtendedRpc::new(
             config.bitcoin_rpc_url.clone(),
             config.bitcoin_rpc_user.clone(),
@@ -361,9 +354,8 @@ mod tests {
     }
 
     #[tokio::test]
-    #[serial_test::serial]
     async fn check_for_new_blocks_fork_and_mine_new() {
-        let config = create_test_config_with_thread_name!(None);
+        let (config, _db) = create_test_setup().await.expect("test setup");
         let rpc = ExtendedRpc::new(
             config.bitcoin_rpc_url.clone(),
             config.bitcoin_rpc_user.clone(),
@@ -393,9 +385,8 @@ mod tests {
     }
 
     #[tokio::test]
-    #[serial_test::serial]
     async fn sync_blockchain_single_block() {
-        let config = create_test_config_with_thread_name!(None);
+        let (config, _db) = create_test_setup().await.expect("test setup");
         let rpc = ExtendedRpc::new(
             config.bitcoin_rpc_url.clone(),
             config.bitcoin_rpc_user.clone(),
@@ -427,9 +418,8 @@ mod tests {
     }
 
     #[tokio::test]
-    #[serial_test::serial]
     async fn sync_blockchain_multiple_blocks() {
-        let config = create_test_config_with_thread_name!(None);
+        let (config, _db) = create_test_setup().await.expect("test setup");
         let rpc = ExtendedRpc::new(
             config.bitcoin_rpc_url.clone(),
             config.bitcoin_rpc_user.clone(),
@@ -461,9 +451,8 @@ mod tests {
     }
 
     #[tokio::test]
-    #[serial_test::serial]
     async fn sync_blockchain_multiple_blocks_with_fork() {
-        let config = create_test_config_with_thread_name!(None);
+        let (config, _db) = create_test_setup().await.expect("test setup");
         let rpc = ExtendedRpc::new(
             config.bitcoin_rpc_url.clone(),
             config.bitcoin_rpc_user.clone(),

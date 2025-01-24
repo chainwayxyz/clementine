@@ -757,16 +757,13 @@ impl Operator {
 #[cfg(test)]
 mod tests {
     use crate::{
-        config::BridgeConfig, database::Database, initialize_database, utils::initialize_logger,
+        extended_rpc::ExtendedRpc, operator::Operator,
+        testkit::create_test_setup,
     };
-    use crate::{
-        create_test_config_with_thread_name, extended_rpc::ExtendedRpc, operator::Operator,
-    };
-    use std::{env, thread};
 
     // #[tokio::test]
     // async fn set_funding_utxo() {
-    //     let config = create_test_config_with_thread_name!(None);
+    //     let config = create_test_config_with_thread_name(None);
     //     let rpc = ExtendedRpc::new(
     //         config.bitcoin_rpc_url.clone(),
     //         config.bitcoin_rpc_user.clone(),
@@ -799,7 +796,7 @@ mod tests {
 
     // #[tokio::test]
     // async fn is_profitable() {
-    //     let mut config = create_test_config_with_thread_name!(None);
+    //     let mut config = create_test_config_with_thread_name(None);
     //     let rpc = ExtendedRpc::new(
     //         config.bitcoin_rpc_url.clone(),
     //         config.bitcoin_rpc_user.clone(),
@@ -836,7 +833,7 @@ mod tests {
     #[tokio::test]
     #[ignore = "Design changes in progress"]
     async fn get_winternitz_public_keys() {
-        let config = create_test_config_with_thread_name!(None);
+        let (config, _db) = create_test_setup().await.expect("test setup");
         let rpc = ExtendedRpc::new(
             config.bitcoin_rpc_url.clone(),
             config.bitcoin_rpc_user.clone(),
