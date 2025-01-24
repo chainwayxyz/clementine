@@ -663,7 +663,6 @@ impl ClementineVerifier for Verifier {
             self.config.bridge_amount_sats,
             self.config.network,
         ));
-
         let num_required_sigs = calculate_num_required_sigs(&self.config);
         let mut verified_sigs = Vec::with_capacity(num_required_sigs);
         let mut nonce_idx: usize = 0;
