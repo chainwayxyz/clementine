@@ -19,9 +19,15 @@ use bitcoin::{
     secp256k1::{schnorr, Message, PublicKey},
     ScriptBuf, XOnlyPublicKey,
 };
-use bitvm::signatures::{
-    signing_winternitz::{generate_winternitz_checksig_leave_variable, WinternitzPublicKey},
-    winternitz,
+use bitvm::{
+    chunker::{
+        assigner::BridgeAssigner, chunk_groth16_verifier::groth16_verify_to_segments,
+        disprove_execution::RawProof,
+    },
+    signatures::{
+        signing_winternitz::{generate_winternitz_checksig_leave_variable, WinternitzPublicKey},
+        winternitz,
+    },
 };
 
 use futures::StreamExt;
@@ -263,22 +269,22 @@ impl ClementineVerifier for Verifier {
 
             // TODO: Use correct verification key and along with a dummy proof.
             let scripts: Vec<ScriptBuf> = {
-                // let mut bridge_assigner = BridgeAssigner::new_watcher(commits_publickeys);
-                // let proof = RawProof::default();
-                // let segments = groth16_verify_to_segments(
-                //     &mut bridge_assigner,
-                //     &proof.public,
-                //     &proof.proof,
-                //     &proof.vk,
-                // );
+                let mut bridge_assigner = BridgeAssigner::new_watcher(_commits_publickeys);
+                let proof = RawProof::default();
+                let segments = groth16_verify_to_segments(
+                    &mut bridge_assigner,
+                    &proof.public,
+                    &proof.proof,
+                    &proof.vk,
+                );
 
-                // segments
-                //     .iter()
-                //     .map(|s| s.script.clone().compile())
-                //     .collect()
-                vec![bitcoin::script::Builder::new()
-                    .push_opcode(bitcoin::opcodes::all::OP_PUSHNUM_1)
-                    .into_script()]
+                segments
+                    .iter()
+                    .map(|s| s.script.clone().compile())
+                    .collect()
+                // vec![bitcoin::script::Builder::new()
+                //     .push_opcode(bitcoin::opcodes::all::OP_PUSHNUM_1)
+                //     .into_script()]
             };
 
             let taproot_builder = taproot_builder_with_scripts(&scripts);

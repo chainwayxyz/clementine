@@ -6,7 +6,7 @@ use bitcoin;
 use bitcoin::sighash::SighashCache;
 use bitcoin::taproot::LeafVersion;
 use bitcoin::XOnlyPublicKey;
-//use bitvm::chunker::assigner::BridgeAssigner;
+use bitvm::chunker::assigner::BridgeAssigner;
 use std::borrow::BorrowMut;
 use std::collections::BTreeMap;
 use std::process::exit;
@@ -40,26 +40,26 @@ lazy_static::lazy_static! {
     pub static ref NETWORK : bitcoin::Network = bitcoin::Network::Regtest;
 }
 
-// lazy_static::lazy_static! {
-//     pub static ref ALL_BITVM_INTERMEDIATE_VARIABLES: BTreeMap<String, usize> = BridgeAssigner::default().all_intermediate_variable();
-// }
-
 lazy_static::lazy_static! {
-    pub static ref ALL_BITVM_INTERMEDIATE_VARIABLES: BTreeMap<String, usize> = {
-        let mut map = BTreeMap::new();
-        map.insert("scalar_1".to_string(), 20);
-        map.insert("scalar_2".to_string(), 20);
-        map.insert("scalar_3".to_string(), 20);
-        map.insert("scalar_4".to_string(), 20);
-        map.insert("scalar_5".to_string(), 20);
-        map.insert("scalar_6".to_string(), 20);
-        map.insert("scalar_7".to_string(), 20);
-        map.insert("scalar_8".to_string(), 20);
-        map.insert("scalar_9".to_string(), 20);
-        map.insert("scalar_10".to_string(), 20);
-        map
-    };
+    pub static ref ALL_BITVM_INTERMEDIATE_VARIABLES: BTreeMap<String, usize> = BridgeAssigner::default().all_intermediate_variable();
 }
+
+// lazy_static::lazy_static! {
+//     pub static ref ALL_BITVM_INTERMEDIATE_VARIABLES: BTreeMap<String, usize> = {
+//         let mut map = BTreeMap::new();
+//         map.insert("scalar_1".to_string(), 20);
+//         map.insert("scalar_2".to_string(), 20);
+//         map.insert("scalar_3".to_string(), 20);
+//         map.insert("scalar_4".to_string(), 20);
+//         map.insert("scalar_5".to_string(), 20);
+//         map.insert("scalar_6".to_string(), 20);
+//         map.insert("scalar_7".to_string(), 20);
+//         map.insert("scalar_8".to_string(), 20);
+//         map.insert("scalar_9".to_string(), 20);
+//         map.insert("scalar_10".to_string(), 20);
+//         map
+//     };
+// }
 
 /// Gets configuration from CLI, for binaries. If there are any errors, print
 /// error to stderr and exit program.
