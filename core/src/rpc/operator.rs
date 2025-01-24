@@ -12,40 +12,7 @@ use std::pin::pin;
 use tokio::sync::mpsc;
 use tokio_stream::wrappers::ReceiverStream;
 use tonic::{async_trait, Request, Response, Status};
-
-fn unpack_deposit_params(
-    deposit_params: DepositParams,
-) -> Result<
-    (
-        bitcoin::OutPoint,
-        EVMAddress,
-        bitcoin::Address<NetworkUnchecked>,
-        u16,
-    ),
-    Status,
-> {
-    let deposit_outpoint: bitcoin::OutPoint = deposit_params
-        .deposit_outpoint
-        .ok_or(Status::invalid_argument("No deposit outpoint received"))?
-        .try_into()?;
-    let evm_address: EVMAddress = deposit_params.evm_address.try_into().unwrap();
-    let recovery_taproot_address = deposit_params
-        .recovery_taproot_address
-        .parse::<bitcoin::Address<_>>()
-        .map_err(|e| Status::internal(e.to_string()))?;
-    let user_takes_after = deposit_params.user_takes_after;
-    Ok((
-        deposit_outpoint,
-        evm_address,
-        recovery_taproot_address,
-        u16::try_from(user_takes_after).map_err(|e| {
-            Status::invalid_argument(format!(
-                "user_takes_after is too big, failed to convert: {}",
-                e
-            ))
-        })?,
-    ))
-}
+use crate::rpc::parsers;
 
 #[async_trait]
 impl ClementineOperator for Operator {
@@ -92,7 +59,7 @@ impl ClementineOperator for Operator {
         let deposit_sign_session = request.into_inner();
         let (deposit_outpoint, evm_address, recovery_taproot_address, user_takes_after) =
             match deposit_sign_session.deposit_params {
-                Some(deposit_params) => unpack_deposit_params(deposit_params)?,
+                Some(deposit_params) => parsers::parse_deposit_params(deposit_params)?,
                 _ => panic!("Expected Deposit Params"),
             };
         let (tx, rx) = mpsc::channel(1280);

@@ -26,6 +26,7 @@ use futures::{future::try_join_all, stream::BoxStream, FutureExt, Stream, Stream
 use secp256k1::musig::{MusigAggNonce, MusigPartialSignature, MusigPubNonce};
 use tokio::sync::mpsc::{channel, Receiver, Sender};
 use tonic::{async_trait, Request, Response, Status, Streaming};
+use crate::rpc::parsers;
 
 struct AggNonceQueueItem {
     agg_nonce: MusigAggNonce,
@@ -335,47 +336,6 @@ impl Aggregator {
         Ok(operator_sigs)
     }
 
-    fn parse_deposit_params(
-        deposit_params: DepositParams,
-    ) -> Result<
-        (
-            bitcoin::OutPoint,
-            EVMAddress,
-            bitcoin::Address<NetworkUnchecked>,
-            u16,
-        ),
-        BridgeError,
-    > {
-        // Parse deposit outpoint (the UTXO being deposited)
-        let deposit_outpoint: bitcoin::OutPoint = deposit_params
-            .deposit_outpoint
-            .ok_or(Status::internal("No deposit outpoint received"))?
-            .try_into()?;
-
-        // Parse user's EVM address
-        let evm_address: EVMAddress = deposit_params
-            .evm_address
-            .try_into()
-            .map_err(|e: &str| BridgeError::RPCParamMalformed("evm_address", e.to_string()))?;
-
-        // Parse user's recovery taproot address
-        let recovery_taproot_address = deposit_params
-            .recovery_taproot_address
-            .parse::<bitcoin::Address<_>>()
-            .map_err(|e| {
-                BridgeError::RPCParamMalformed("recovery_taproot_address", e.to_string())
-            })?;
-
-        let user_takes_after = u16::try_from(deposit_params.user_takes_after)
-            .map_err(|e| BridgeError::RPCParamMalformed("user_takes_after", e.to_string()))?;
-        Ok((
-            deposit_outpoint,
-            evm_address,
-            recovery_taproot_address,
-            user_takes_after,
-        ))
-    }
-
     fn create_movetx_check_sig(
         &self,
         partial_sigs: Vec<Vec<u8>>,
@@ -383,7 +343,7 @@ impl Aggregator {
         deposit_params: DepositParams,
     ) -> Result<RawSignedMoveTx, Status> {
         let (deposit_outpoint, evm_address, recovery_taproot_address, user_takes_after) =
-            Aggregator::parse_deposit_params(deposit_params)?;
+            parsers::parse_deposit_params(deposit_params)?;
         let musig_partial_sigs: Vec<MusigPartialSignature> = partial_sigs
             .iter()
             .map(|sig: &Vec<u8>| MusigPartialSignature::from_slice(sig))
@@ -538,7 +498,7 @@ impl ClementineAggregator for Aggregator {
         // Extract and validate deposit parameters
         let deposit_params = deposit_params_req.get_ref().clone();
         let (deposit_outpoint, evm_address, recovery_taproot_address, user_takes_after) =
-            Aggregator::parse_deposit_params(deposit_params.clone())?;
+            parsers::parse_deposit_params(deposit_params.clone())?;
         let verifiers_public_keys = self.config.verifiers_public_keys.clone();
 
         tracing::debug!("Parsed deposit params");
