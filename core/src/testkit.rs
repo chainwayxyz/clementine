@@ -36,7 +36,7 @@ pub async fn create_test_setup() -> Result<(BridgeConfig, PgTempDB), BridgeError
 }
 
 pub async fn init_db(config: &BridgeConfig) -> Result<(), BridgeError> {
-    let url = Database::get_postgresql_url(&config);
+    let url = Database::get_postgresql_url(config);
     let conn = sqlx::PgPool::connect(&url).await?;
 
     sqlx::query(&format!("DROP DATABASE IF EXISTS {}", &config.db_name))
