@@ -532,18 +532,7 @@ source = "git+https://github.com/BitVM/rust-bitcoin-script?branch=StructuredScri
 dependencies = [
  "bitcoin",
  "lazy_static",
- "script-macro 0.3.0 (git+https://github.com/BitVM/rust-bitcoin-script?branch=StructuredScript)",
- "stdext",
-]
-
-[[package]]
-name = "bitcoin-script"
-version = "0.3.0"
-source = "git+https://github.com/BitVM/rust-bitcoin-script?rev=bea92021800fb89bd1fc54d4cb45f3027129953c#bea92021800fb89bd1fc54d4cb45f3027129953c"
-dependencies = [
- "bitcoin",
- "lazy_static",
- "script-macro 0.3.0 (git+https://github.com/BitVM/rust-bitcoin-script?rev=bea92021800fb89bd1fc54d4cb45f3027129953c)",
+ "script-macro",
  "stdext",
 ]
 
@@ -553,7 +542,7 @@ version = "0.0.1"
 source = "git+https://github.com/BitVM/rust-bitcoin-script-stack?branch=bitvm#5a9aa6eb6616cb1ff1b822f8d6c38cf1063cc34f"
 dependencies = [
  "bitcoin",
- "bitcoin-script 0.3.0 (git+https://github.com/BitVM/rust-bitcoin-script?branch=StructuredScript)",
+ "bitcoin-script",
  "bitcoin-scriptexec",
  "hex",
 ]
@@ -655,7 +644,7 @@ dependencies = [
  "ark-serialize",
  "ark-std",
  "bitcoin",
- "bitcoin-script 0.3.0 (git+https://github.com/BitVM/rust-bitcoin-script?branch=StructuredScript)",
+ "bitcoin-script",
  "bitcoin-script-stack",
  "bitcoin-scriptexec",
  "blake3",
@@ -887,7 +876,7 @@ dependencies = [
  "async-stream",
  "async-trait",
  "bitcoin",
- "bitcoin-script 0.3.0 (git+https://github.com/BitVM/rust-bitcoin-script?rev=bea92021800fb89bd1fc54d4cb45f3027129953c)",
+ "bitcoin-script",
  "bitcoincore-rpc",
  "bitvm",
  "borsh",
@@ -3105,19 +3094,6 @@ checksum = "94143f37725109f92c262ed2cf5e59bce7498c01bcc1502d7b9afe439a4e9f49"
 name = "script-macro"
 version = "0.3.0"
 source = "git+https://github.com/BitVM/rust-bitcoin-script?branch=StructuredScript#bea92021800fb89bd1fc54d4cb45f3027129953c"
-dependencies = [
- "bitcoin",
- "hex",
- "lazy_static",
- "proc-macro-error",
- "proc-macro2",
- "quote",
-]
-
-[[package]]
-name = "script-macro"
-version = "0.3.0"
-source = "git+https://github.com/BitVM/rust-bitcoin-script?rev=bea92021800fb89bd1fc54d4cb45f3027129953c#bea92021800fb89bd1fc54d4cb45f3027129953c"
 dependencies = [
  "bitcoin",
  "hex",
