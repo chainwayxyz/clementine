@@ -12,7 +12,7 @@ use crate::constants::{
 use crate::errors::BridgeError;
 use crate::utils::SECP;
 use crate::{utils, EVMAddress};
-use bitcoin::address::NetworkUnchecked;
+use bitcoin::address::{NetworkChecked, NetworkUnchecked};
 use bitcoin::hashes::Hash;
 use bitcoin::opcodes::all::OP_CHECKSIG;
 use bitcoin::script::PushBytesBuf;
@@ -509,25 +509,19 @@ pub fn create_watchtower_challenge_kickoff_txhandler(
         }]
         .into(),
     );
-
-    let verifier =
-        winternitz::Winternitz::<winternitz::ListpickVerifier, winternitz::TabledConverter>::new();
-    let wots_params = winternitz::Parameters::new(240, 4);
+    // TODO: Remove address generation each time since these will be precalculated, we only need the addresses. Rather, the watchtowers will need TxHandlers
 
     let mut scripts: Vec<Vec<ScriptBuf>> = Vec::new();
     let mut spendinfos: Vec<Option<TaprootSpendInfo>> = Vec::new();
 
     let mut tx_outs = (0..num_watchtowers)
         .map(|i| {
-            let mut x = verifier.checksig_verify(
-                &wots_params,
-                &watchtower_challenge_winternitz_pks[i as usize],
-            );
-            x = x.push_x_only_key(&watchtower_xonly_pks[i as usize]);
-            x = x.push_opcode(OP_CHECKSIG); // TODO: Add checksig in the beginning
-            let x = x.compile();
-            let (watchtower_challenge_addr, watchtower_challenge_spend) =
-                builder::address::create_taproot_address(&[x.clone()], None, network);
+            let (watchtower_challenge_addr, watchtower_challenge_spend, x) =
+                builder::address::derive_challenge_address_from_xonlypk_and_wpk(
+                    &watchtower_xonly_pks[i as usize],
+                    &watchtower_challenge_winternitz_pks[i as usize],
+                    network,
+                );
             scripts.push(vec![x]);
             spendinfos.push(Some(watchtower_challenge_spend));
             TxOut {
@@ -552,6 +546,43 @@ pub fn create_watchtower_challenge_kickoff_txhandler(
         prev_taproot_spend_infos: vec![kickoff_tx_handler.out_taproot_spend_infos[0].clone()],
         out_scripts: scripts,
         out_taproot_spend_infos: spendinfos,
+    }
+}
+
+pub fn create_watchtower_challenge_kickoff_txhandler_simplified(
+    kickoff_tx_handler: &TxHandler,
+    num_watchtowers: u32,
+    watchtower_challenge_addresses: &[Address<NetworkChecked>],
+) -> TxHandler {
+    let tx_ins = create_tx_ins(
+        vec![OutPoint {
+            txid: kickoff_tx_handler.txid,
+            vout: 0,
+        }]
+        .into(),
+    );
+    let mut tx_outs = (0..num_watchtowers)
+        .map(|i| {
+            TxOut {
+                value: Amount::from_sat(2000), // TOOD: Hand calculate this
+                script_pubkey: watchtower_challenge_addresses[i as usize].script_pubkey(), // TODO: Add winternitz checks here
+            }
+        })
+        .collect::<Vec<_>>();
+
+    // add the anchor output
+    tx_outs.push(builder::script::anchor_output());
+
+    let wcptx = create_btc_tx(tx_ins, tx_outs);
+
+    TxHandler {
+        txid: wcptx.compute_txid(),
+        tx: wcptx,
+        prevouts: vec![kickoff_tx_handler.tx.output[0].clone()],
+        prev_scripts: vec![kickoff_tx_handler.out_scripts[0].clone()],
+        prev_taproot_spend_infos: vec![kickoff_tx_handler.out_taproot_spend_infos[0].clone()],
+        out_scripts: vec![],
+        out_taproot_spend_infos: vec![],
     }
 }
 

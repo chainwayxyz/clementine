@@ -7,7 +7,7 @@ use super::clementine::{
 use crate::{
     builder::{
         self,
-        address::taproot_builder_with_scripts,
+        address::{derive_challenge_address_from_xonlypk_and_wpk, taproot_builder_with_scripts},
         sighash::{calculate_num_required_sigs, create_nofn_sighash_stream},
         transaction::create_move_to_vault_txhandler,
     },
@@ -398,6 +398,7 @@ impl ClementineVerifier for Verifier {
             .map(Ok)
             .collect::<Result<Vec<_>, BridgeError>>()?;
 
+        // TODO: Put this logic somewhere else maybe?
         let required_number_of_pubkeys = self.config.num_operators
             * self.config.num_time_txs
             * self.config.num_kickoffs_per_timetx;
@@ -409,6 +410,9 @@ impl ClementineVerifier for Verifier {
             )));
         }
 
+        let watchtower_pks = self.db.get_all_watchtowers_xonly_pks(None).await?;
+
+        // TODO: After precalculating challenge addresses, maybe remove saving winternitz public keys to db
         for operator_idx in 0..self.config.num_operators {
             let index =
                 operator_idx * self.config.num_time_txs * self.config.num_kickoffs_per_timetx;
@@ -422,7 +426,34 @@ impl ClementineVerifier for Verifier {
                         .to_vec(),
                 )
                 .await?;
+
+            // For each saved winternitz public key, derive the challenge address
+            let mut watchtower_challenge_address_details_vec = Vec::new();
+            for (i, winternitz_pk) in watchtower_winternitz_public_keys
+                [index..index + self.config.num_time_txs * self.config.num_kickoffs_per_timetx]
+                .iter()
+                .enumerate()
+            {
+                let watchtower_challenge_address_details =
+                    derive_challenge_address_from_xonlypk_and_wpk(
+                        &watchtower_pks[operator_idx as usize],
+                        winternitz_pk,
+                        self.config.network,
+                    );
+                watchtower_challenge_address_details.push(watchtower_challenge_address_details);
+            }
+
+            self.db
+                .save_watchtower_challenge_addresses(
+                    None,
+                    watchtower_id,
+                    operator_idx as u32,
+                    watchtower_challenge_address_details_vec,
+                )
+                .await?;
         }
+
+        //
 
         let xonly_pk = in_stream
             .message()

@@ -21,6 +21,13 @@ pub struct Utxodb {
     pub txout_db: TxOutDB,
 }
 
+#[derive(Serialize, Deserialize, sqlx::FromRow)]
+pub struct WatchtowerChallengeAddressDetailsDB {
+    pub address_db: AddressDB,
+    pub spend_info_db: Vec<u8>,
+    pub script_buf_db: Vec<u8>,
+}
+
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct OutPointDB(pub OutPoint);
 
@@ -42,7 +49,7 @@ impl<'r> Decode<'r, Postgres> for OutPointDB {
     }
 }
 
-#[derive(Serialize, Debug, Clone)]
+#[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct AddressDB(pub Address<NetworkUnchecked>);
 
 impl sqlx::Type<sqlx::Postgres> for AddressDB {

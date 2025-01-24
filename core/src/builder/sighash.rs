@@ -70,7 +70,7 @@ pub fn create_nofn_sighash_stream(
         }
 
         // Get the X-Only Public Keys of all watchtowers. These are needed since they will be used inside the scripts.
-        let watchtower_pks = db.get_all_watchtowers_xonly_pks(None).await?;
+        let watchtower_xonly_pks = db.get_all_watchtowers_xonly_pks(None).await?;
 
         for (operator_idx, (operator_xonly_pk, operator_reimburse_address, collateral_funding_txid)) in
             operators.iter().enumerate()
@@ -169,14 +169,27 @@ pub fn create_nofn_sighash_stream(
                         .map(|i| watchtower_all_challenge_winternitz_pks[i][time_tx_idx * config.num_kickoffs_per_timetx + kickoff_idx].clone())
                         .collect::<Vec<_>>();
 
-                    // Creates the watchtower_challenge_kickoff_tx handler.
+                    let watchtower_challenge_addresses = (0..config.num_watchtowers)
+                        .map(|i| db.get_watchtower_challenge_addresses(None, i as u32, operator_idx as u32))
+                        .collect::<Vec<_>>();
+                    let watchtower_challenge_addresses = futures::future::try_join_all(watchtower_challenge_addresses).await?;
+                    let watchtower_challenge_addresses = watchtower_challenge_addresses.iter().map(|x| x.assume_checked()).collect::<Vec<_>>();
+
+                    // // Creates the watchtower_challenge_kickoff_tx handler.
+                    // let mut watchtower_challenge_kickoff_txhandler =
+                    //     builder::transaction::create_watchtower_challenge_kickoff_txhandler(
+                    //         &kickoff_txhandler,
+                    //         config.num_watchtowers as u32,
+                    //         &watchtower_pks,
+                    //         &watchtower_challenge_winternitz_pks,
+                    //         network,
+                    //     );
+
                     let mut watchtower_challenge_kickoff_txhandler =
-                        builder::transaction::create_watchtower_challenge_kickoff_txhandler(
+                        builder::transaction::create_watchtower_challenge_kickoff_txhandler_simplified(
                             &kickoff_txhandler,
                             config.num_watchtowers as u32,
-                            &watchtower_pks,
-                            &watchtower_challenge_winternitz_pks,
-                            network,
+                            &watchtower_challenge_addresses,
                         );
 
                     // Yields the sighash for the watchtower_challenge_kickoff_tx.input[0], which spends kickoff_tx.input[0].

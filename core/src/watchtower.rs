@@ -1,10 +1,12 @@
 use crate::{
     actor::{Actor, WinternitzDerivationPath},
+    builder,
     config::BridgeConfig,
     database::Database,
     errors::BridgeError,
     extended_rpc::ExtendedRpc,
 };
+use bitcoin::{opcodes::all::OP_CHECKSIG, taproot::TaprootSpendInfo, Address};
 use bitvm::signatures::winternitz;
 
 #[derive(Debug, Clone)]

@@ -6,10 +6,12 @@
 
 use super::wrapper::{
     AddressDB, EVMAddressDB, MessageDB, MusigAggNonceDB, MusigPubNonceDB, OutPointDB, PublicKeyDB,
-    SignatureDB, SignaturesDB, TxOutDB, TxidDB, Utxodb, XOnlyPublicKeyDB,
+    SignatureDB, SignaturesDB, TxOutDB, TxidDB, Utxodb, WatchtowerChallengeAddressDetailsDB,
+    XOnlyPublicKeyDB,
 };
 use super::wrapper::{BlockHashDB, BlockHeaderDB};
 use super::Database;
+use crate::builder::address::WatchtowerChallengeAddressDetails;
 use crate::errors::BridgeError;
 use crate::operator::PublicHash;
 use crate::{EVMAddress, UTXO};
@@ -1008,7 +1010,7 @@ impl Database {
         Ok(())
     }
 
-    /// Gets Winternitz public keys for every time_tx of an operator and a watchtower.
+    /// Gets Winternitz public keys for every sequential_collateral_tx of an operator and a watchtower.
     //#[tracing::instrument(skip(self, tx), err(level = tracing::Level::ERROR), ret(level = tracing::Level::TRACE))]
     pub async fn get_watchtower_winternitz_public_keys(
         &self,
@@ -1031,6 +1033,89 @@ impl Database {
             borsh::from_slice(&wpks.0).map_err(BridgeError::BorschError)?;
 
         Ok(watchtower_winternitz_public_keys)
+    }
+
+    /// Save challenge addresses for a specific watchtower.
+    ///
+    /// # Arguments
+    /// - `tx`: Optional transaction for database consistency.
+    /// - `watchtower_id`: The ID of the watchtower.
+    /// - `operator_id`: The operator ID (not used in this query, can be removed if irrelevant).
+    /// - `challenge_addresses`: A vector of `Address<NetworkUnchecked>` to be saved. TODO: Change this line
+    ///
+    /// # Returns
+    /// - `Result<(), BridgeError>`: `Ok` on success, `Err` on failure.
+    ///
+    /// # Behavior
+    /// Inserts challenge addresses as a JSON array into the database.
+    pub async fn save_watchtower_challenge_addresses(
+        &self,
+        tx: Option<&mut sqlx::Transaction<'_, Postgres>>,
+        watchtower_id: u32,
+        operator_id: u32,
+        watchtower_challenge_address_details_vec: Vec<WatchtowerChallengeAddressDetails>,
+    ) -> Result<(), BridgeError> {
+        let address_details: Vec<WatchtowerChallengeAddressDetailsDB> =
+            watchtower_challenge_address_details_vec
+                .into_iter()
+                .map(|x| WatchtowerChallengeAddressDetailsDB {
+                    address_db: AddressDB(*x.0.as_unchecked()),
+                    winternitz_pk_db: x.1.to_vec(),
+                })
+                .collect();
+        let query = sqlx::query(
+        "INSERT INTO watchtower_challenge_addresses (watchtower_id, operator_id challenge_addresses)
+         VALUES ($1, $2)
+         ON CONFLICT (watchtower_id) DO UPDATE
+         SET challenge_addresses = EXCLUDED.challenge_addresses;",
+    )
+    .bind(watchtower_id as i64)
+    .bind(operator_id as i64)
+    .bind(sqlx::types::Json(address_details));
+
+        if let Some(tx) = tx {
+            query.execute(&mut **tx).await?;
+        } else {
+            query.execute(&self.connection).await?;
+        }
+
+        Ok(())
+    }
+
+    /// Retrieve challenge addresses for a specific watchtower.
+    ///
+    /// # Arguments
+    /// - `tx`: Optional transaction for database consistency.
+    /// - `watchtower_id`: The ID of the watchtower.
+    ///
+    /// # Returns
+    /// - `Result<Vec<Address<NetworkUnchecked>>, BridgeError>`: A vector of challenge addresses on success, or an error.
+    ///
+    /// # Behavior
+    /// Fetches challenge addresses from the database and deserializes them.
+    pub async fn get_watchtower_challenge_addresses(
+        &self,
+        tx: Option<&mut sqlx::Transaction<'_, Postgres>>,
+        watchtower_id: u32,
+        operator_id: u32,
+    ) -> Result<Vec<Address<NetworkUnchecked>>, BridgeError> {
+        let query = sqlx::query_scalar(
+            "SELECT challenge_addresses 
+         FROM watchtower_challenge_addresses 
+         WHERE watchtower_id = $1 AND operator_id = $2;",
+        )
+        .bind(watchtower_id as i64)
+        .bind(operator_id as i64);
+
+        // Retrieve the JSON value as a single column
+        let challenge_addresses: sqlx::types::Json<Vec<AddressDB>> = if let Some(tx) = tx {
+            query.fetch_one(&mut **tx).await?
+        } else {
+            query.fetch_one(&self.connection).await?
+        };
+
+        // Map to Vec<Address<NetworkUnchecked>>
+        Ok(challenge_addresses.0.into_iter().map(|x| x.0).collect())
     }
 
     /// Sets Winternitz public keys for an operator.
