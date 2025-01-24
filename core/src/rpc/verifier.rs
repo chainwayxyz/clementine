@@ -13,7 +13,6 @@ use crate::{
     },
     errors::BridgeError,
     musig2::{self},
-    operator::PublicHash,
     utils,
     verifier::{NofN, NonceSession, Verifier},
     EVMAddress,
