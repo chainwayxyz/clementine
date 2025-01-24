@@ -198,18 +198,18 @@ pub fn create_nofn_sighash_stream(
                         0,
                         None,
                     )?;
-
+                    let public_hashes = db.get_operators_challenge_ack_hashes(None, operator_idx as i32, time_tx_idx as i32, kickoff_idx as i32).await?.ok_or(BridgeError::WatchtowerPublicHashesNotFound(operator_idx as i32, time_tx_idx as i32, kickoff_idx as i32))?;
                     // Each watchtower will sign their Groth16 proof of the header chain circuit. Then, the operator will either
                     // - acknowledge the challenge by sending the operator_challenge_ACK_tx, which will prevent the burning of the kickoff_tx.output[2],
                     // - or do nothing, which will cause one to send the operator_challenge_NACK_tx, which will burn the kickoff_tx.output[2]
                     // using watchtower_challenge_tx.output[0].
-                    for i in 0..config.num_watchtowers {
+                    for (watchtower_idx, public_hash) in public_hashes.iter().enumerate() {
                         // Creates the watchtower_challenge_tx handler.
                         let watchtower_challenge_txhandler =
                             builder::transaction::create_watchtower_challenge_txhandler(
                                 &watchtower_challenge_kickoff_txhandler,
-                                i,
-                                &[0u8; 20], // TODO: @ozankaymak real op unlock hash PUT THE HASHES OF THE PREIMAGES HERE
+                                watchtower_idx,
+                                public_hash,
                                 nofn_xonly_pk,
                                 *operator_xonly_pk,
                                 network,

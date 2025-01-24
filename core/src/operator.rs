@@ -14,6 +14,9 @@ use jsonrpsee::http_client::HttpClientBuilder;
 use jsonrpsee::rpc_params;
 use serde_json::json;
 
+pub type SecretPreimage = [u8; 20];
+pub type PublicHash = [u8; 20]; // TODO: Make sure these are 20 bytes and maybe do this a struct?
+
 #[derive(Debug, Clone)]
 pub struct Operator {
     _rpc: ExtendedRpc,
@@ -693,6 +696,7 @@ impl Operator {
     /// - [`Vec<Vec<winternitz::PublicKey>>`]: Winternitz public keys for
     ///   `watchtower index` row and `BitVM assert tx index` column.
     pub fn get_winternitz_public_keys(&self) -> Result<Vec<winternitz::PublicKey>, BridgeError> {
+        // TODO: Misleading name
         let mut winternitz_pubkeys = Vec::new();
 
         for time_tx in 0..self.config.num_time_txs as u32 {
@@ -720,6 +724,33 @@ impl Operator {
         }
 
         Ok(winternitz_pubkeys)
+    }
+
+    pub fn generate_challenge_ack_preimages_and_hashes(
+        &self,
+    ) -> Result<Vec<PublicHash>, BridgeError> {
+        let mut preimages = Vec::new();
+
+        for sequential_collateral_tx_idx in 0..self.config.num_time_txs as u32 {
+            for kickoff_idx in 0..self.config.num_kickoffs_per_timetx as u32 {
+                for watchtower_idx in 0..self.config.num_watchtowers {
+                    let path = WinternitzDerivationPath {
+                        message_length: 1,
+                        log_d: 1,
+                        tx_type: crate::actor::TxType::OperatorChallengeACK,
+                        index: None,
+                        operator_idx: Some(self.idx as u32), // TODO: Handle casting better
+                        watchtower_idx: Some(watchtower_idx as u32), // TODO: Handle casting better
+                        time_tx_idx: Some(sequential_collateral_tx_idx),
+                        kickoff_idx: Some(kickoff_idx),
+                        intermediate_step_name: None,
+                    };
+                    let hash = self.signer.generate_public_hash_from_path(path)?;
+                    preimages.push(hash); // Subject to change
+                }
+            }
+        }
+        Ok(preimages)
     }
 }
 
@@ -819,6 +850,27 @@ mod tests {
         assert_eq!(
             winternitz_public_key.len(),
             config.num_time_txs * config.num_kickoffs_per_timetx
+        );
+    }
+
+    #[tokio::test]
+    async fn test_generate_preimages_and_hashes() {
+        let config = create_test_config_with_thread_name!(None);
+        let rpc = ExtendedRpc::new(
+            config.bitcoin_rpc_url.clone(),
+            config.bitcoin_rpc_user.clone(),
+            config.bitcoin_rpc_password.clone(),
+        )
+        .await;
+
+        let operator = Operator::new(config.clone(), rpc).await.unwrap();
+
+        let preimages = operator
+            .generate_challenge_ack_preimages_and_hashes()
+            .unwrap();
+        assert_eq!(
+            preimages.len(),
+            config.num_time_txs * config.num_kickoffs_per_timetx * config.num_watchtowers
         );
     }
 }
