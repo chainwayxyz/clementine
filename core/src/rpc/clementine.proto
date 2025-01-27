@@ -82,7 +82,7 @@ message WithdrawalFinalizedParams {
 }
 
 // An operator is responsible for paying withdrawals. It has an unique ID and
-// chain of UTXOs named `time_txs`. An operator also runs a verifier. These are
+// chain of UTXOs named `sequential_collateral_txs`. An operator also runs a verifier. These are
 // connected to the same database and both have access to watchtowers'
 // winternitz pubkeys.
 service ClementineOperator {
@@ -107,8 +107,8 @@ service ClementineOperator {
   // - Operator burn Schnorr signature
   rpc DepositSign(DepositSignSession) returns (stream OperatorBurnSig) {}
 
-  // Prepares a withdrawal if it's profitable and previous time_tx's timelock
-  // has ended, by paying for the withdrawal and locking the current time_tx.
+  // Prepares a withdrawal if it's profitable and previous sequential_collateral_tx's timelock
+  // has ended, by paying for the withdrawal and locking the current sequential_collateral_tx.
   rpc NewWithdrawalSig(NewWithdrawalSigParams)
     returns (NewWithdrawalSigResponse) {}
 
@@ -135,7 +135,7 @@ message VerifierParams {
   uint32 num_verifiers = 3;
   uint32 num_watchtowers = 4;
   uint32 num_operators = 5;
-  uint32 num_time_txs = 6;
+  uint32 num_sequential_collateral_txs = 6;
 }
 
 message PartialSig {

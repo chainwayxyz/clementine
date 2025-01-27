@@ -20,10 +20,13 @@ impl ClementineOperator for Operator {
         &self,
         _request: Request<Empty>,
     ) -> Result<Response<Self::GetParamsStream>, Status> {
-        let time_txs = self.db.get_time_txs(None, self.idx as i32).await?;
+        let sequential_collateral_txs = self
+            .db
+            .get_sequential_collateral_txs(None, self.idx as i32)
+            .await?;
         let operator = self.clone();
 
-        if time_txs.is_empty() || time_txs[0].0 != 0 {
+        if sequential_collateral_txs.is_empty() || sequential_collateral_txs[0].0 != 0 {
             return Err(BridgeError::Error("Time txs not found".to_string()).into());
         }
 
@@ -31,7 +34,7 @@ impl ClementineOperator for Operator {
         tokio::spawn(async move {
             let operator_config = clementine::OperatorConfig {
                 operator_idx: operator.idx as u32,
-                collateral_funding_txid: time_txs[0].1.to_byte_array().to_vec(),
+                collateral_funding_txid: sequential_collateral_txs[0].1.to_byte_array().to_vec(),
                 xonly_pk: operator.signer.xonly_public_key.to_string(),
                 wallet_reimburse_address: operator.config.operator_wallet_addresses[operator.idx] // TODO: Fix this where the config will only have one address.
                     .clone()

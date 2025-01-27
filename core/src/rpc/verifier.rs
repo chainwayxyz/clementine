@@ -92,7 +92,7 @@ impl ClementineVerifier for Verifier {
             num_verifiers: self.config.num_verifiers as u32,
             num_watchtowers: self.config.num_watchtowers as u32,
             num_operators: self.config.num_operators as u32,
-            num_time_txs: self.config.num_sequential_collateral_txs as u32,
+            num_sequential_collateral_txs: self.config.num_sequential_collateral_txs as u32,
         };
 
         Ok(Response::new(params))
@@ -268,7 +268,8 @@ impl ClementineVerifier for Verifier {
 
         // iterate over the chunks and generate precalculated BitVM Setups
         for (chunk_idx, winternitz_public_keys) in winternitz_public_keys_chunks.enumerate() {
-            let time_tx_idx = chunk_idx / self.config.num_kickoffs_per_sequential_collateral_tx;
+            let sequential_collateral_tx_idx =
+                chunk_idx / self.config.num_kickoffs_per_sequential_collateral_tx;
             let kickoff_idx = chunk_idx % self.config.num_kickoffs_per_sequential_collateral_tx;
 
             let mut public_input_wots = vec![];
@@ -347,7 +348,7 @@ impl ClementineVerifier for Verifier {
                 .save_bitvm_setup(
                     None,
                     operator_config.operator_idx as i32,
-                    time_tx_idx as i32,
+                    sequential_collateral_tx_idx as i32,
                     kickoff_idx as i32,
                     assert_tx_addrs,
                     &root_hash_bytes,

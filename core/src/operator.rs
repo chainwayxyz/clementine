@@ -74,12 +74,14 @@ impl Operator {
 
         let mut tx = db.begin_transaction().await?;
         // check if there is any time tx from the current operator
-        let time_txs = db.get_time_txs(Some(&mut tx), idx as i32).await?;
-        if time_txs.is_empty() {
+        let sequential_collateral_txs = db
+            .get_sequential_collateral_txs(Some(&mut tx), idx as i32)
+            .await?;
+        if sequential_collateral_txs.is_empty() {
             let outpoint = _rpc
                 .send_to_address(&signer.address, Amount::from_sat(200_000_000))
                 .await?; // TODO: Is this OK to be a fixed value
-            db.set_time_tx(Some(&mut tx), idx as i32, 0, outpoint.txid, 0)
+            db.set_sequential_collateral_tx(Some(&mut tx), idx as i32, 0, outpoint.txid, 0)
                 .await?;
         }
         tx.commit().await?;
@@ -699,7 +701,7 @@ impl Operator {
         // TODO: Misleading name
         let mut winternitz_pubkeys = Vec::new();
 
-        for time_tx in 0..self.config.num_sequential_collateral_txs as u32 {
+        for sequential_collateral_tx in 0..self.config.num_sequential_collateral_txs as u32 {
             for kickoff_idx in 0..self.config.num_kickoffs_per_sequential_collateral_tx as u32 {
                 // ALL_BITVM_INTERMEDIATE_VARIABLES is a global variable that contains the intermediate variables for the BitVM in BTreeMap
                 for (intermediate_step, intermediate_step_size) in
@@ -713,7 +715,7 @@ impl Operator {
                         index: Some(self.idx as u32),
                         operator_idx: None,
                         watchtower_idx: None,
-                        time_tx_idx: Some(time_tx),
+                        sequential_collateral_tx_idx: Some(sequential_collateral_tx),
                         kickoff_idx: Some(kickoff_idx),
                         intermediate_step_name: Some(step_name),
                     };
@@ -741,7 +743,7 @@ impl Operator {
                         index: None,
                         operator_idx: Some(self.idx as u32), // TODO: Handle casting better
                         watchtower_idx: Some(watchtower_idx as u32), // TODO: Handle casting better
-                        time_tx_idx: Some(sequential_collateral_tx_idx),
+                        sequential_collateral_tx_idx: Some(sequential_collateral_tx_idx),
                         kickoff_idx: Some(kickoff_idx),
                         intermediate_step_name: None,
                     };

@@ -85,7 +85,7 @@ pub fn create_nofn_sighash_stream(
             let mut input_amount = collateral_funding_amount;
 
             // For each sequential_collateral_tx, we have multiple kickoff_utxos as the connectors.
-            for time_tx_idx in 0..config.num_sequential_collateral_txs {
+            for sequential_collateral_tx_idx in 0..config.num_sequential_collateral_txs {
                 // Create the sequential_collateral_tx handler.
                 let sequential_collateral_txhandler = builder::transaction::create_sequential_collateral_txhandler(
                     *operator_xonly_pk,
@@ -165,7 +165,7 @@ pub fn create_nofn_sighash_stream(
 
                     // Collect the challenge Winternitz pubkeys for this specific kickoff_utxo.
                     let watchtower_challenge_winternitz_pks = (0..config.num_watchtowers)
-                        .map(|i| watchtower_all_challenge_winternitz_pks[i][time_tx_idx * config.num_kickoffs_per_sequential_collateral_tx + kickoff_idx].clone())
+                        .map(|i| watchtower_all_challenge_winternitz_pks[i][sequential_collateral_tx_idx * config.num_kickoffs_per_sequential_collateral_tx + kickoff_idx].clone())
                         .collect::<Vec<_>>();
 
                     // Creates the watchtower_challenge_kickoff_tx handler.
@@ -197,7 +197,7 @@ pub fn create_nofn_sighash_stream(
                         0,
                         None,
                     )?;
-                    let public_hashes = db.get_operators_challenge_ack_hashes(None, operator_idx as i32, time_tx_idx as i32, kickoff_idx as i32).await?.ok_or(BridgeError::WatchtowerPublicHashesNotFound(operator_idx as i32, time_tx_idx as i32, kickoff_idx as i32))?;
+                    let public_hashes = db.get_operators_challenge_ack_hashes(None, operator_idx as i32, sequential_collateral_tx_idx as i32, kickoff_idx as i32).await?.ok_or(BridgeError::WatchtowerPublicHashesNotFound(operator_idx as i32, sequential_collateral_tx_idx as i32, kickoff_idx as i32))?;
                     // Each watchtower will sign their Groth16 proof of the header chain circuit. Then, the operator will either
                     // - acknowledge the challenge by sending the operator_challenge_ACK_tx, which will prevent the burning of the kickoff_tx.output[2],
                     // - or do nothing, which will cause one to send the operator_challenge_NACK_tx, which will burn the kickoff_tx.output[2]
@@ -235,7 +235,7 @@ pub fn create_nofn_sighash_stream(
                         )?;
                     }
 
-                    let (assert_tx_addrs, root_hash, public_input_wots) = db.get_bitvm_setup(None, operator_idx as i32, time_tx_idx as i32, kickoff_idx as i32).await?.ok_or(BridgeError::BitvmSetupNotFound(operator_idx as i32, time_tx_idx as i32, kickoff_idx as i32))?;
+                    let (assert_tx_addrs, root_hash, public_input_wots) = db.get_bitvm_setup(None, operator_idx as i32, sequential_collateral_tx_idx as i32, kickoff_idx as i32).await?.ok_or(BridgeError::BitvmSetupNotFound(operator_idx as i32, sequential_collateral_tx_idx as i32, kickoff_idx as i32))?;
 
                     // Creates the assert_begin_tx handler.
                     let assert_begin_txhandler = builder::transaction::create_assert_begin_txhandler(

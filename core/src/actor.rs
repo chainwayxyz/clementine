@@ -36,7 +36,7 @@ pub struct WinternitzDerivationPath<'a> {
     pub index: Option<u32>,
     pub operator_idx: Option<u32>,
     pub watchtower_idx: Option<u32>,
-    pub time_tx_idx: Option<u32>,
+    pub sequential_collateral_tx_idx: Option<u32>,
     pub kickoff_idx: Option<u32>,
     pub intermediate_step_name: Option<&'a str>,
 }
@@ -54,7 +54,7 @@ impl WinternitzDerivationPath<'_> {
             None => 0,
             Some(i) => i + 1,
         };
-        let time_tx_idx = match self.time_tx_idx {
+        let sequential_collateral_tx_idx = match self.sequential_collateral_tx_idx {
             None => 0,
             Some(i) => i + 1,
         };
@@ -73,7 +73,7 @@ impl WinternitzDerivationPath<'_> {
                 index.to_be_bytes(),
                 operator_idx.to_be_bytes(),
                 watchtower_idx.to_be_bytes(),
-                time_tx_idx.to_be_bytes(),
+                sequential_collateral_tx_idx.to_be_bytes(),
                 kickoff_idx.to_be_bytes(),
             ]
             .concat(),
@@ -91,7 +91,7 @@ impl Default for WinternitzDerivationPath<'_> {
             tx_type: TxType::SequentialCollateralTx,
             operator_idx: Default::default(),
             watchtower_idx: Default::default(),
-            time_tx_idx: Default::default(),
+            sequential_collateral_tx_idx: Default::default(),
             kickoff_idx: Default::default(),
             intermediate_step_name: Default::default(),
         }
@@ -528,7 +528,7 @@ mod tests {
             .concat()
         );
 
-        params.time_tx_idx = Some(3);
+        params.sequential_collateral_tx_idx = Some(3);
         assert_eq!(
             params.to_vec(),
             [

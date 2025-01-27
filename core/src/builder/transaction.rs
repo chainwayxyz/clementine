@@ -189,11 +189,11 @@ pub fn create_sequential_collateral_txhandler(
     out_scripts.push(vec![]);
     out_taproot_spend_infos.push(None);
 
-    let time_tx1 = create_btc_tx(tx_ins, tx_outs);
+    let sequential_collateral_tx1 = create_btc_tx(tx_ins, tx_outs);
 
     TxHandler {
-        txid: time_tx1.compute_txid(),
-        tx: time_tx1,
+        txid: sequential_collateral_tx1.compute_txid(),
+        tx: sequential_collateral_tx1,
         prevouts: vec![TxOut {
             script_pubkey: op_address.script_pubkey(),
             value: input_amount,
@@ -269,11 +269,11 @@ pub fn create_reimburse_generator_txhandler(
     out_scripts.push(vec![]);
     out_taproot_spend_infos.push(None);
 
-    let time_tx2 = create_btc_tx(tx_ins, tx_outs);
+    let reimburse_generator_tx = create_btc_tx(tx_ins, tx_outs);
 
     TxHandler {
-        txid: time_tx2.compute_txid(),
-        tx: time_tx2,
+        txid: reimburse_generator_tx.compute_txid(),
+        tx: reimburse_generator_tx,
         prevouts: vec![
             sequential_collateral_txhandler.tx.output[0].clone(),
             sequential_collateral_txhandler.tx.output[1].clone(),
