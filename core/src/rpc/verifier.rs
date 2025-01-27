@@ -673,6 +673,7 @@ impl ClementineVerifier for Verifier {
 
         let num_required_nofn_sigs = calculate_num_required_nofn_sigs(&self.config);
         let mut verified_sigs = Vec::with_capacity(num_required_nofn_sigs);
+
         let mut nonce_idx: usize = 0;
 
         while let Some(result) = in_stream.message().await.unwrap() {
