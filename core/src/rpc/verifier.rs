@@ -92,7 +92,7 @@ impl ClementineVerifier for Verifier {
             num_verifiers: self.config.num_verifiers as u32,
             num_watchtowers: self.config.num_watchtowers as u32,
             num_operators: self.config.num_operators as u32,
-            num_time_txs: self.config.num_time_txs as u32,
+            num_time_txs: self.config.num_sequential_collateral_txs as u32,
         };
 
         Ok(Response::new(params))
@@ -174,7 +174,7 @@ impl ClementineVerifier for Verifier {
 
         let mut operator_winternitz_public_keys = Vec::new();
         for _ in 0..self.config.num_kickoffs_per_timetx
-            * self.config.num_time_txs
+            * self.config.num_sequential_collateral_txs
             * utils::ALL_BITVM_INTERMEDIATE_VARIABLES.len()
         {
             let operator_params = in_stream
@@ -208,7 +208,7 @@ impl ClementineVerifier for Verifier {
             .await?;
 
         let mut operators_challenge_ack_public_hashes = Vec::new();
-        for _ in 0..self.config.num_time_txs
+        for _ in 0..self.config.num_sequential_collateral_txs
             * self.config.num_kickoffs_per_timetx
             * self.config.num_watchtowers
         {
@@ -242,7 +242,7 @@ impl ClementineVerifier for Verifier {
             }
         }
 
-        for i in 0..self.config.num_time_txs {
+        for i in 0..self.config.num_sequential_collateral_txs {
             for j in 0..self.config.num_kickoffs_per_timetx {
                 self.db
                     .save_public_hashes(
@@ -399,7 +399,7 @@ impl ClementineVerifier for Verifier {
             .collect::<Result<Vec<_>, BridgeError>>()?;
 
         let required_number_of_pubkeys = self.config.num_operators
-            * self.config.num_time_txs
+            * self.config.num_sequential_collateral_txs
             * self.config.num_kickoffs_per_timetx;
         if watchtower_winternitz_public_keys.len() != required_number_of_pubkeys {
             return Err(Status::invalid_argument(format!(
@@ -410,15 +410,18 @@ impl ClementineVerifier for Verifier {
         }
 
         for operator_idx in 0..self.config.num_operators {
-            let index =
-                operator_idx * self.config.num_time_txs * self.config.num_kickoffs_per_timetx;
+            let index = operator_idx
+                * self.config.num_sequential_collateral_txs
+                * self.config.num_kickoffs_per_timetx;
             self.db
                 .save_watchtower_winternitz_public_keys(
                     None,
                     watchtower_id,
                     operator_idx as u32,
                     watchtower_winternitz_public_keys[index
-                        ..index + self.config.num_time_txs * self.config.num_kickoffs_per_timetx]
+                        ..index
+                            + self.config.num_sequential_collateral_txs
+                                * self.config.num_kickoffs_per_timetx]
                         .to_vec(),
                 )
                 .await?;

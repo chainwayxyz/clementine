@@ -699,7 +699,7 @@ impl Operator {
         // TODO: Misleading name
         let mut winternitz_pubkeys = Vec::new();
 
-        for time_tx in 0..self.config.num_time_txs as u32 {
+        for time_tx in 0..self.config.num_sequential_collateral_txs as u32 {
             for kickoff_idx in 0..self.config.num_kickoffs_per_timetx as u32 {
                 // ALL_BITVM_INTERMEDIATE_VARIABLES is a global variable that contains the intermediate variables for the BitVM in BTreeMap
                 for (intermediate_step, intermediate_step_size) in
@@ -731,7 +731,7 @@ impl Operator {
     ) -> Result<Vec<PublicHash>, BridgeError> {
         let mut preimages = Vec::new();
 
-        for sequential_collateral_tx_idx in 0..self.config.num_time_txs as u32 {
+        for sequential_collateral_tx_idx in 0..self.config.num_sequential_collateral_txs as u32 {
             for kickoff_idx in 0..self.config.num_kickoffs_per_timetx as u32 {
                 for watchtower_idx in 0..self.config.num_watchtowers {
                     let path = WinternitzDerivationPath {
@@ -849,7 +849,7 @@ mod tests {
         let winternitz_public_key = operator.get_winternitz_public_keys().unwrap();
         assert_eq!(
             winternitz_public_key.len(),
-            config.num_time_txs * config.num_kickoffs_per_timetx
+            config.num_sequential_collateral_txs * config.num_kickoffs_per_timetx
         );
     }
 
@@ -870,7 +870,9 @@ mod tests {
             .unwrap();
         assert_eq!(
             preimages.len(),
-            config.num_time_txs * config.num_kickoffs_per_timetx * config.num_watchtowers
+            config.num_sequential_collateral_txs
+                * config.num_kickoffs_per_timetx
+                * config.num_watchtowers
         );
     }
 }

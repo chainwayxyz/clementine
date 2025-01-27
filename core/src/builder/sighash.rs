@@ -17,7 +17,7 @@ use futures_core::stream::Stream;
 /// Returns the number of required signatures for N-of-N signing session.
 pub fn calculate_num_required_sigs(config: &BridgeConfig) -> usize {
     config.num_operators
-        * config.num_time_txs
+        * config.num_sequential_collateral_txs
         * config.num_kickoffs_per_timetx
         * (10 + 2 * config.num_watchtowers)
 }
@@ -85,7 +85,7 @@ pub fn create_nofn_sighash_stream(
             let mut input_amount = collateral_funding_amount;
 
             // For each sequential_collateral_tx, we have multiple kickoff_utxos as the connectors.
-            for time_tx_idx in 0..config.num_time_txs {
+            for time_tx_idx in 0..config.num_sequential_collateral_txs {
                 // Create the sequential_collateral_tx handler.
                 let sequential_collateral_txhandler = builder::transaction::create_sequential_collateral_txhandler(
                     *operator_xonly_pk,
@@ -402,7 +402,7 @@ mod tests {
             }
         }
         for o in 0..config.num_operators {
-            for t in 0..config.num_time_txs {
+            for t in 0..config.num_sequential_collateral_txs {
                 for k in 0..config.num_kickoffs_per_timetx {
                     db.save_bitvm_setup(
                         None,
@@ -419,7 +419,7 @@ mod tests {
             }
         }
         for o in 0..config.num_operators {
-            for t in 0..config.num_time_txs {
+            for t in 0..config.num_sequential_collateral_txs {
                 for k in 0..config.num_kickoffs_per_timetx {
                     db.save_public_hashes(
                         None,
@@ -461,7 +461,7 @@ mod tests {
         let mut reimburse_sighashes = Vec::<TapSighash>::new();
 
         for _ in 0..config.num_operators {
-            for _ in 0..config.num_time_txs {
+            for _ in 0..config.num_sequential_collateral_txs {
                 for _ in 0..config.num_kickoffs_per_timetx {
                     challenge_tx_sighashes.push(nofn_stream.next().await.unwrap().unwrap());
                     start_happy_reimburse_sighashes

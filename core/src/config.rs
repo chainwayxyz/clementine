@@ -43,8 +43,8 @@ pub struct BridgeConfig {
     pub num_operators: usize,
     /// Number of watchtowers.
     pub num_watchtowers: usize,
-    /// Number of time txs
-    pub num_time_txs: usize,
+    /// Number of sequential collateral txs
+    pub num_sequential_collateral_txs: usize,
     /// number of kickoffs per time tx
     pub num_kickoffs_per_timetx: usize,
     /// Operator's fee for withdrawal, in satoshis.
@@ -179,7 +179,7 @@ impl Default for BridgeConfig {
 
             num_operators: 3,
             num_watchtowers: 4,
-            num_time_txs: 1,
+            num_sequential_collateral_txs: 1,
             num_kickoffs_per_timetx: 1, // TODO: increase after implementing stream for watchtower params
             operators_xonly_pks: vec![
                 XOnlyPublicKey::from_str(
