@@ -156,11 +156,11 @@ pub fn derive_challenge_address_from_xonlypk_and_wpk(
     let verifier =
         winternitz::Winternitz::<winternitz::ListpickVerifier, winternitz::TabledConverter>::new();
     let wots_params = winternitz::Parameters::new(240, 4);
-    let mut x = verifier.checksig_verify(&wots_params, winternitz_pk);
-    x = x.push_x_only_key(xonly_pk);
-    x = x.push_opcode(OP_CHECKSIG); // TODO: Add checksig in the beginning
-    let x = x.compile();
-    let (address, _) = create_taproot_address(&[x.clone()], None, network);
+    let mut script_builder = verifier.checksig_verify(&wots_params, winternitz_pk);
+    script_builder = script_builder.push_x_only_key(xonly_pk);
+    script_builder = script_builder.push_opcode(OP_CHECKSIG); // TODO: Add checksig in the beginning
+    let script_builder = script_builder.compile();
+    let (address, _) = create_taproot_address(&[script_builder.clone()], None, network);
     address
 }
 
