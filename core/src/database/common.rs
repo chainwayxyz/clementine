@@ -6,12 +6,10 @@
 
 use super::wrapper::{
     AddressDB, EVMAddressDB, MessageDB, MusigAggNonceDB, MusigPubNonceDB, OutPointDB, PublicKeyDB,
-    SignatureDB, SignaturesDB, TxOutDB, TxidDB, Utxodb, WatchtowerChallengeAddressDetailsDB,
-    XOnlyPublicKeyDB,
+    SignatureDB, SignaturesDB, TxOutDB, TxidDB, Utxodb, XOnlyPublicKeyDB,
 };
 use super::wrapper::{BlockHashDB, BlockHeaderDB};
 use super::Database;
-use crate::builder::address::WatchtowerChallengeAddressDetails;
 use crate::errors::BridgeError;
 use crate::operator::PublicHash;
 use crate::{EVMAddress, UTXO};
@@ -840,7 +838,7 @@ impl Database {
         hash: block::BlockHash,
         proof: Receipt,
     ) -> Result<(), BridgeError> {
-        let proof = borsh::to_vec(&proof).map_err(BridgeError::BorschError)?;
+        let proof = borsh::to_vec(&proof).map_err(BridgeError::BorshError)?;
 
         let query = sqlx::query("UPDATE header_chain_proofs SET proof = $1 WHERE block_hash = $2;")
             .bind(proof)
@@ -873,7 +871,7 @@ impl Database {
             None => return Ok(None),
         };
 
-        let receipt: Receipt = borsh::from_slice(&receipt).map_err(BridgeError::BorschError)?;
+        let receipt: Receipt = borsh::from_slice(&receipt).map_err(BridgeError::BorshError)?;
 
         Ok(Some(receipt))
     }
@@ -979,7 +977,7 @@ impl Database {
             None => query.fetch_one(&self.connection).await,
         }?;
 
-        let receipt: Receipt = borsh::from_slice(&result.3).map_err(BridgeError::BorschError)?;
+        let receipt: Receipt = borsh::from_slice(&result.3).map_err(BridgeError::BorshError)?;
 
         Ok((result.0 .0, result.1 .0, result.2, receipt))
     }
@@ -993,7 +991,7 @@ impl Database {
         operator_id: u32,
         winternitz_public_key: Vec<WinternitzPublicKey>,
     ) -> Result<(), BridgeError> {
-        let wpk = borsh::to_vec(&winternitz_public_key).map_err(BridgeError::BorschError)?;
+        let wpk = borsh::to_vec(&winternitz_public_key).map_err(BridgeError::BorshError)?;
 
         let query = sqlx::query(
             "INSERT INTO watchtower_winternitz_public_keys (watchtower_id, operator_id, winternitz_public_keys) VALUES ($1, $2, $3);",
@@ -1030,76 +1028,45 @@ impl Database {
         }?;
 
         let watchtower_winternitz_public_keys: Vec<winternitz::PublicKey> =
-            borsh::from_slice(&wpks.0).map_err(BridgeError::BorschError)?;
+            borsh::from_slice(&wpks.0).map_err(BridgeError::BorshError)?;
 
         Ok(watchtower_winternitz_public_keys)
     }
 
-    /// Save challenge addresses for a specific watchtower.
-    ///
-    /// # Arguments
-    /// - `tx`: Optional transaction for database consistency.
-    /// - `watchtower_id`: The ID of the watchtower.
-    /// - `operator_id`: The operator ID (not used in this query, can be removed if irrelevant).
-    /// - `challenge_addresses`: A vector of `Address<NetworkUnchecked>` to be saved. TODO: Change this line
-    ///
-    /// # Returns
-    /// - `Result<(), BridgeError>`: `Ok` on success, `Err` on failure.
-    ///
-    /// # Behavior
-    /// Inserts challenge addresses as a JSON array into the database.
+    // TODO: Document
     pub async fn save_watchtower_challenge_addresses(
         &self,
         tx: Option<&mut sqlx::Transaction<'_, Postgres>>,
         watchtower_id: u32,
         operator_id: u32,
-        watchtower_challenge_address_details_vec: Vec<WatchtowerChallengeAddressDetails>,
+        watchtower_challenge_addresses: impl AsRef<[ScriptBuf]>,
     ) -> Result<(), BridgeError> {
-        let address_details: Vec<WatchtowerChallengeAddressDetailsDB> =
-            watchtower_challenge_address_details_vec
-                .into_iter()
-                .map(|x| WatchtowerChallengeAddressDetailsDB {
-                    address_db: AddressDB(*x.0.as_unchecked()),
-                    winternitz_pk_db: x.1.to_vec(),
-                })
-                .collect();
         let query = sqlx::query(
-        "INSERT INTO watchtower_challenge_addresses (watchtower_id, operator_id challenge_addresses)
-         VALUES ($1, $2)
-         ON CONFLICT (watchtower_id) DO UPDATE
+        "INSERT INTO watchtower_challenge_addresses (watchtower_id, operator_id, challenge_addresses)
+         VALUES ($1, $2, $3)
+         ON CONFLICT (operator_id, sequential_collateral_tx_idx) DO UPDATE
          SET challenge_addresses = EXCLUDED.challenge_addresses;",
     )
     .bind(watchtower_id as i64)
     .bind(operator_id as i64)
-    .bind(sqlx::types::Json(address_details));
+    .bind(watchtower_challenge_addresses.as_ref().iter().map(|addr| addr.as_ref()).collect::<Vec<&[u8]>>());
 
-        if let Some(tx) = tx {
-            query.execute(&mut **tx).await?;
-        } else {
-            query.execute(&self.connection).await?;
-        }
+        match tx {
+            Some(tx) => query.execute(&mut **tx).await,
+            None => query.execute(&self.connection).await,
+        }?;
 
         Ok(())
     }
 
-    /// Retrieve challenge addresses for a specific watchtower.
-    ///
-    /// # Arguments
-    /// - `tx`: Optional transaction for database consistency.
-    /// - `watchtower_id`: The ID of the watchtower.
-    ///
-    /// # Returns
-    /// - `Result<Vec<Address<NetworkUnchecked>>, BridgeError>`: A vector of challenge addresses on success, or an error.
-    ///
-    /// # Behavior
-    /// Fetches challenge addresses from the database and deserializes them.
+    // TODO: Document
     pub async fn get_watchtower_challenge_addresses(
         &self,
         tx: Option<&mut sqlx::Transaction<'_, Postgres>>,
         watchtower_id: u32,
         operator_id: u32,
-    ) -> Result<Vec<Address<NetworkUnchecked>>, BridgeError> {
-        let query = sqlx::query_scalar(
+    ) -> Result<Vec<ScriptBuf>, BridgeError> {
+        let query = sqlx::query_as::<_, (Vec<Vec<u8>>,)>(
             "SELECT challenge_addresses 
          FROM watchtower_challenge_addresses 
          WHERE watchtower_id = $1 AND operator_id = $2;",
@@ -1107,15 +1074,24 @@ impl Database {
         .bind(watchtower_id as i64)
         .bind(operator_id as i64);
 
-        // Retrieve the JSON value as a single column
-        let challenge_addresses: sqlx::types::Json<Vec<AddressDB>> = if let Some(tx) = tx {
-            query.fetch_one(&mut **tx).await?
-        } else {
-            query.fetch_one(&self.connection).await?
+        let result = match tx {
+            Some(tx) => query.fetch_optional(&mut **tx).await?,
+            None => query.fetch_optional(&self.connection).await?,
         };
 
-        // Map to Vec<Address<NetworkUnchecked>>
-        Ok(challenge_addresses.0.into_iter().map(|x| x.0).collect())
+        match result {
+            Some((challenge_addresses,)) => {
+                let challenge_addresses: Vec<ScriptBuf> = challenge_addresses
+                    .into_iter()
+                    .map(|addr| addr.into())
+                    .collect();
+                Ok(challenge_addresses)
+            }
+            None => Err(BridgeError::WatchtowerChallengeAddressesNotFound(
+                watchtower_id,
+                operator_id,
+            )),
+        }
     }
 
     /// Sets Winternitz public keys for an operator.
@@ -1126,7 +1102,7 @@ impl Database {
         operator_id: u32,
         winternitz_public_key: Vec<WinternitzPublicKey>,
     ) -> Result<(), BridgeError> {
-        let wpk = borsh::to_vec(&winternitz_public_key).map_err(BridgeError::BorschError)?;
+        let wpk = borsh::to_vec(&winternitz_public_key).map_err(BridgeError::BorshError)?;
 
         let query = sqlx::query(
             "INSERT INTO operator_winternitz_public_keys (operator_id, winternitz_public_keys) VALUES ($1, $2);",
@@ -1161,7 +1137,7 @@ impl Database {
         }?;
 
         let watchtower_winternitz_public_keys: Vec<winternitz::PublicKey> =
-            borsh::from_slice(&wpks.0).map_err(BridgeError::BorschError)?;
+            borsh::from_slice(&wpks.0).map_err(BridgeError::BorshError)?;
 
         Ok(watchtower_winternitz_public_keys)
     }

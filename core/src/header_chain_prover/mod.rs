@@ -36,7 +36,7 @@ impl HeaderChainProver {
             let mut assumption = Vec::new();
             reader
                 .read_to_end(&mut assumption)
-                .map_err(BridgeError::BorschError)?; // TODO: Not borsch.
+                .map_err(BridgeError::BorshError)?; // TODO: Not borsh.
 
             let proof: Receipt =
                 borsh::from_slice(&assumption).map_err(BridgeError::ProverDeSerializationError)?;

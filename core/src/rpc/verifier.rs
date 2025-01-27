@@ -428,19 +428,18 @@ impl ClementineVerifier for Verifier {
                 .await?;
 
             // For each saved winternitz public key, derive the challenge address
-            let mut watchtower_challenge_address_details_vec = Vec::new();
-            for (i, winternitz_pk) in watchtower_winternitz_public_keys
+            let mut watchtower_challenge_addresses = Vec::new();
+            for winternitz_pk in watchtower_winternitz_public_keys
                 [index..index + self.config.num_time_txs * self.config.num_kickoffs_per_timetx]
                 .iter()
-                .enumerate()
             {
-                let watchtower_challenge_address_details =
-                    derive_challenge_address_from_xonlypk_and_wpk(
-                        &watchtower_pks[operator_idx as usize],
-                        winternitz_pk,
-                        self.config.network,
-                    );
-                watchtower_challenge_address_details.push(watchtower_challenge_address_details);
+                let challenge_address = derive_challenge_address_from_xonlypk_and_wpk(
+                    &watchtower_pks[watchtower_id as usize],
+                    winternitz_pk,
+                    self.config.network,
+                )
+                .script_pubkey();
+                watchtower_challenge_addresses.push(challenge_address);
             }
 
             self.db
@@ -448,7 +447,7 @@ impl ClementineVerifier for Verifier {
                     None,
                     watchtower_id,
                     operator_idx as u32,
-                    watchtower_challenge_address_details_vec,
+                    watchtower_challenge_addresses,
                 )
                 .await?;
         }

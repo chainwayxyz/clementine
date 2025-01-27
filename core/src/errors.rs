@@ -211,8 +211,8 @@ pub enum BridgeError {
     #[error("No root Winternitz secret key is provided in configuration file")]
     NoWinternitzSecretKey,
 
-    #[error("Can't encode/decode data using borsch: {0}")]
-    BorschError(std::io::Error),
+    #[error("Can't encode/decode data using borsh: {0}")]
+    BorshError(std::io::Error),
 
     #[error("No scripts in TxHandler for the TxIn with index {0}")]
     NoScriptsForTxIn(usize),
@@ -224,6 +224,9 @@ pub enum BridgeError {
 
     #[error("WatchtowerPublicHashesNotFound for operator {0}, time_tx {1}, kickoff {2}")]
     WatchtowerPublicHashesNotFound(i32, i32, i32),
+
+    #[error("WatchtowerChallengeAddressesNotFound for watchtower {0}, operator {1}")]
+    WatchtowerChallengeAddressesNotFound(u32, u32),
 }
 
 impl From<BridgeError> for ErrorObject<'static> {
