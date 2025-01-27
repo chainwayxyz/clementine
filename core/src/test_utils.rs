@@ -380,13 +380,13 @@ macro_rules! get_deposit_address {
 /// ## Unit Tests
 ///
 /// ```rust
-/// use crate::{actor::Actor, builder, user::WITHDRAWAL_EMPTY_UTXO_SATS, UTXO};
+/// use crate::{actor::Actor, builder, UTXO};
 /// ```
 ///
 /// ## Integration Tests And Binaries
 ///
 /// ```rust
-/// use clementine_core::{actor::Actor, builder, user::WITHDRAWAL_EMPTY_UTXO_SATS, UTXO};
+/// use clementine_core::{actor::Actor, builder, UTXO};
 /// ```
 #[macro_export]
 macro_rules! generate_withdrawal_transaction_and_signature {
@@ -396,6 +396,8 @@ macro_rules! generate_withdrawal_transaction_and_signature {
             $config.winternitz_secret_key,
             $config.network,
         );
+
+        const WITHDRAWAL_EMPTY_UTXO_SATS: bitcoin::Amount = bitcoin::Amount::from_sat(550);
 
         let dust_outpoint = $rpc
             .send_to_address(&signer.address, WITHDRAWAL_EMPTY_UTXO_SATS)
