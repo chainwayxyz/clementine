@@ -27,7 +27,9 @@ impl ClementineOperator for Operator {
         let operator = self.clone();
 
         if sequential_collateral_txs.is_empty() || sequential_collateral_txs[0].0 != 0 {
-            return Err(BridgeError::Error("Time txs not found".to_string()).into());
+            return Err(
+                BridgeError::Error("Sequential collateral txs not found".to_string()).into(),
+            );
         }
 
         let (tx, rx) = mpsc::channel(1280);

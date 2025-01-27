@@ -14,12 +14,12 @@ create table if not exists operators (
     collateral_funding_txid text not null check (collateral_funding_txid ~ '^[a-fA-F0-9]{64}')
 );
 
--- Time tx's of operators, Only Operator binaries can add entries to this table
+-- Sequential collateral tx's of operators, Only Operator binaries can add entries to this table
 create table if not exists operator_sequential_collateral_txs (
     operator_idx int, -- Index of the operator
-    idx int not null, -- Index of the time tx. 0 meaning initial funding tx where the 0th output will be used
+    idx int not null, -- Index of the sequential collateral tx. 0 meaning initial funding tx where the 0th output will be used
     sequential_collateral_txid text not null check (sequential_collateral_txid ~ '^[a-fA-F0-9]{64}'), -- Txid
-    block_height int not null, -- Block height of the time tx
+    block_height int not null, -- Block height of the sequential collateral tx
     primary key (operator_idx, idx)
 );
 

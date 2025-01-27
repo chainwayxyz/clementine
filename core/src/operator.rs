@@ -73,7 +73,7 @@ impl Operator {
         // tx.commit().await?;
 
         let mut tx = db.begin_transaction().await?;
-        // check if there is any time tx from the current operator
+        // check if there is any sequential collateral tx from the current operator
         let sequential_collateral_txs = db
             .get_sequential_collateral_txs(Some(&mut tx), idx as i32)
             .await?;
