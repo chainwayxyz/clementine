@@ -1,10 +1,12 @@
 use crate::{
     actor::{Actor, WinternitzDerivationPath},
+    builder::address::derive_challenge_address_from_xonlypk_and_wpk,
     config::BridgeConfig,
     database::Database,
     errors::BridgeError,
     extended_rpc::ExtendedRpc,
 };
+use bitcoin::ScriptBuf;
 use bitvm::signatures::winternitz;
 
 #[derive(Debug, Clone)]
@@ -71,6 +73,22 @@ impl Watchtower {
         }
 
         Ok(winternitz_pubkeys)
+    }
+
+    pub async fn get_watchtower_challenge_addresses(&self) -> Result<Vec<ScriptBuf>, BridgeError> {
+        let mut challenge_addresses = Vec::new();
+
+        let winternitz_pubkeys = self.get_watchtower_winternitz_public_keys().await?;
+        for winternitz_pubkey in winternitz_pubkeys {
+            let challenge_address = derive_challenge_address_from_xonlypk_and_wpk(
+                &self.actor.xonly_public_key,
+                &winternitz_pubkey,
+                self.config.network,
+            );
+            challenge_addresses.push(challenge_address.script_pubkey());
+        }
+
+        Ok(challenge_addresses)
     }
 }
 

@@ -645,6 +645,54 @@ pub fn create_watchtower_challenge_txhandler(
     }
 }
 
+// TODO: Reduce code duplication
+pub fn create_watchtower_challenge_txhandler_simplified(
+    wcp_txhandler: &TxHandler,
+    watchtower_idx: usize,
+    operator_unlock_hash: &[u8; 20],
+    nofn_xonly_pk: XOnlyPublicKey,
+    operator_xonly_pk: XOnlyPublicKey,
+    network: bitcoin::Network,
+) -> TxHandler {
+    let tx_ins = create_tx_ins(
+        vec![OutPoint {
+            txid: wcp_txhandler.txid,
+            vout: watchtower_idx as u32,
+        }]
+        .into(),
+    );
+
+    let nofn_halfweek =
+        builder::script::generate_relative_timelock_script(nofn_xonly_pk, 7 * 24 * 6 / 2); // 0.5 week
+    let operator_with_preimage =
+        builder::script::actor_with_preimage_script(operator_xonly_pk, operator_unlock_hash);
+    let (op_or_nofn_halfweek, op_or_nofn_halfweek_spend) = builder::address::create_taproot_address(
+        &[operator_with_preimage.clone(), nofn_halfweek.clone()],
+        None,
+        network,
+    );
+
+    let tx_outs = vec![
+        TxOut {
+            value: Amount::from_sat(1000), // TODO: Hand calculate this
+            script_pubkey: op_or_nofn_halfweek.script_pubkey(),
+        },
+        builder::script::anchor_output(),
+    ];
+
+    let wcptx2 = create_btc_tx(tx_ins, tx_outs);
+
+    TxHandler {
+        txid: wcptx2.compute_txid(),
+        tx: wcptx2,
+        prevouts: vec![],
+        prev_scripts: vec![],
+        prev_taproot_spend_infos: vec![],
+        out_scripts: vec![vec![operator_with_preimage, nofn_halfweek], vec![]],
+        out_taproot_spend_infos: vec![Some(op_or_nofn_halfweek_spend), None],
+    }
+}
+
 /// Creates a [`TxHandler`] for the `operator_challenge_NACK_tx`. This transaction will force
 /// the operator to reveal the preimage for the corresponding watchtower since if they do not
 /// reveal the preimage, the NofN will be able to spend the output after 0.5 week, which will

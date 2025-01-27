@@ -410,7 +410,21 @@ impl ClementineVerifier for Verifier {
             )));
         }
 
-        let watchtower_pks = self.db.get_all_watchtowers_xonly_pks(None).await?;
+        let xonly_pk = in_stream
+            .message()
+            .await?
+            .ok_or(Status::invalid_argument("No message is received"))?
+            .response
+            .ok_or(Status::invalid_argument("No message is received"))?;
+        let xonly_pk = if let watchtower_params::Response::XonlyPk(xonly_pk) = xonly_pk {
+            xonly_pk
+        } else {
+            return Err(Status::invalid_argument("Expected x-only-pk")); // TODO: tell whats returned too
+        };
+
+        let xonly_pk = XOnlyPublicKey::from_slice(&xonly_pk).map_err(|_| {
+            BridgeError::RPCParamMalformed("watchtower.xonly_pk", "Invalid xonly key".to_string())
+        })?;
 
         // TODO: After precalculating challenge addresses, maybe remove saving winternitz public keys to db
         for operator_idx in 0..self.config.num_operators {
@@ -434,7 +448,7 @@ impl ClementineVerifier for Verifier {
                 .iter()
             {
                 let challenge_address = derive_challenge_address_from_xonlypk_and_wpk(
-                    &watchtower_pks[watchtower_id as usize],
+                    &xonly_pk,
                     winternitz_pk,
                     self.config.network,
                 )
@@ -452,23 +466,6 @@ impl ClementineVerifier for Verifier {
                 .await?;
         }
 
-        //
-
-        let xonly_pk = in_stream
-            .message()
-            .await?
-            .ok_or(Status::invalid_argument("No message is received"))?
-            .response
-            .ok_or(Status::invalid_argument("No message is received"))?;
-        let xonly_pk = if let watchtower_params::Response::XonlyPk(xonly_pk) = xonly_pk {
-            xonly_pk
-        } else {
-            return Err(Status::invalid_argument("Expected x-only-pk")); // TODO: tell whats returned too
-        };
-
-        let xonly_pk = XOnlyPublicKey::from_slice(&xonly_pk).map_err(|_| {
-            BridgeError::RPCParamMalformed("watchtower.xonly_pk", "Invalid xonly key".to_string())
-        })?;
         self.db
             .save_watchtower_xonly_pk(None, watchtower_id, &xonly_pk)
             .await?;

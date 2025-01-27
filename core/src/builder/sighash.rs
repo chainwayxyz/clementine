@@ -203,7 +203,7 @@ pub fn create_nofn_sighash_stream(
                     for (watchtower_idx, public_hash) in public_hashes.iter().enumerate() {
                         // Creates the watchtower_challenge_tx handler.
                         let watchtower_challenge_txhandler =
-                            builder::transaction::create_watchtower_challenge_txhandler(
+                            builder::transaction::create_watchtower_challenge_txhandler_simplified(
                                 &watchtower_challenge_kickoff_txhandler,
                                 watchtower_idx,
                                 public_hash,
@@ -386,12 +386,12 @@ mod tests {
         }
         for i in 0..config.num_operators {
             for j in 0..config.num_watchtowers {
-                db.save_watchtower_winternitz_public_keys(
+                db.save_watchtower_challenge_addresses(
                     None,
                     j.try_into().unwrap(),
                     i.try_into().unwrap(),
                     watchtower
-                        .get_watchtower_winternitz_public_keys()
+                        .get_watchtower_challenge_addresses()
                         .await
                         .unwrap(),
                 )

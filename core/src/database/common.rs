@@ -1044,7 +1044,7 @@ impl Database {
         let query = sqlx::query(
         "INSERT INTO watchtower_challenge_addresses (watchtower_id, operator_id, challenge_addresses)
          VALUES ($1, $2, $3)
-         ON CONFLICT (operator_id, sequential_collateral_tx_idx) DO UPDATE
+         ON CONFLICT (watchtower_id, operator_id) DO UPDATE
          SET challenge_addresses = EXCLUDED.challenge_addresses;",
     )
     .bind(watchtower_id as i64)
