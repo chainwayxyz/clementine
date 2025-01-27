@@ -364,3 +364,70 @@ macro_rules! get_deposit_address {
         .0
     }};
 }
+
+/// Gets the the deposit address for the user.
+///
+/// # Returns
+///
+/// A tuple of:
+///
+/// - [`UTXO`]: Dust UTXO
+/// - [`TxOut`]: Txout of withdrawal
+/// - [`Signature`]: Signature of the withdrawal transaction
+///
+/// # Required Imports
+///
+/// ## Unit Tests
+///
+/// ```rust
+/// use crate::{actor::Actor, builder, user::WITHDRAWAL_EMPTY_UTXO_SATS, UTXO};
+/// ```
+///
+/// ## Integration Tests And Binaries
+///
+/// ```rust
+/// use clementine_core::{actor::Actor, builder, user::WITHDRAWAL_EMPTY_UTXO_SATS, UTXO};
+/// ```
+#[macro_export]
+macro_rules! generate_withdrawal_transaction_and_signature {
+    ($config:expr, $rpc:expr, $withdrawal_address:expr, $withdrawal_amount:expr) => {{
+        let signer = Actor::new(
+            $config.secret_key,
+            $config.winternitz_secret_key,
+            $config.network,
+        );
+
+        let dust_outpoint = $rpc
+            .send_to_address(&signer.address, WITHDRAWAL_EMPTY_UTXO_SATS)
+            .await
+            .unwrap();
+        let dust_utxo = UTXO {
+            outpoint: dust_outpoint,
+            txout: bitcoin::TxOut {
+                value: WITHDRAWAL_EMPTY_UTXO_SATS,
+                script_pubkey: signer.address.script_pubkey(),
+            },
+        };
+
+        let txins = builder::transaction::create_tx_ins(vec![dust_utxo.outpoint].into());
+        let txout = bitcoin::TxOut {
+            value: $withdrawal_amount,
+            script_pubkey: $withdrawal_address.script_pubkey(),
+        };
+        let txouts = vec![txout.clone()];
+
+        let mut tx = builder::transaction::create_btc_tx(txins, txouts.clone());
+        let prevouts = vec![dust_utxo.txout.clone()];
+
+        let sig = signer
+            .sign_taproot_pubkey_spend_tx_with_sighash(
+                &mut tx,
+                &prevouts,
+                0,
+                Some(bitcoin::TapSighashType::SinglePlusAnyoneCanPay),
+            )
+            .unwrap();
+
+        (dust_utxo, txout, sig)
+    }};
+}
