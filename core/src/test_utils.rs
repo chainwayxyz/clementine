@@ -365,14 +365,14 @@ macro_rules! get_deposit_address {
     }};
 }
 
-/// Gets the the deposit address for the user.
+/// Generates withdrawal transaction and signs it with `SinglePlusAnyoneCanPay`.
 ///
 /// # Returns
 ///
 /// A tuple of:
 ///
-/// - [`UTXO`]: Dust UTXO
-/// - [`TxOut`]: Txout of withdrawal
+/// - [`UTXO`]: Dust UTXO used as the input of the withdrawal transaction
+/// - [`TxOut`]: Txout of the withdrawal transaction
 /// - [`Signature`]: Signature of the withdrawal transaction
 ///
 /// # Required Imports
