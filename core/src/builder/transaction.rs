@@ -130,7 +130,7 @@ pub fn create_sequential_collateral_txhandler(
     input_amount: Amount,
     timeout_block_count: i64,
     max_withdrawal_time_block_count: u16,
-    num_kickoffs_per_timetx: usize,
+    num_kickoffs_per_sequential_collateral_tx: usize,
     network: bitcoin::Network,
 ) -> TxHandler {
     let tx_ins = create_tx_ins(
@@ -178,7 +178,7 @@ pub fn create_sequential_collateral_txhandler(
     ];
 
     // add kickoff utxos
-    for _ in 0..num_kickoffs_per_timetx {
+    for _ in 0..num_kickoffs_per_sequential_collateral_tx {
         tx_outs.push(kickoff_txout.clone());
         out_scripts.push(vec![timeout_block_count_locked_script.clone()]);
         out_taproot_spend_infos.push(Some(kickoff_utxo_spend.clone()));
@@ -218,7 +218,7 @@ pub fn create_sequential_collateral_txhandler(
 pub fn create_reimburse_generator_txhandler(
     sequential_collateral_txhandler: &TxHandler,
     operator_xonly_pk: XOnlyPublicKey,
-    num_kickoffs_per_timetx: usize,
+    num_kickoffs_per_sequential_collateral_tx: usize,
     max_withdrawal_time_block_count: u16,
     network: bitcoin::Network,
 ) -> TxHandler {
@@ -259,7 +259,7 @@ pub fn create_reimburse_generator_txhandler(
     }];
 
     // add reimburse utxos
-    for _ in 0..num_kickoffs_per_timetx {
+    for _ in 0..num_kickoffs_per_sequential_collateral_tx {
         tx_outs.push(reimburse_txout.clone());
         out_scripts.push(vec![]);
         out_taproot_spend_infos.push(Some(op_spend.clone()));

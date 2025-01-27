@@ -18,7 +18,7 @@ use futures_core::stream::Stream;
 pub fn calculate_num_required_sigs(config: &BridgeConfig) -> usize {
     config.num_operators
         * config.num_sequential_collateral_txs
-        * config.num_kickoffs_per_timetx
+        * config.num_kickoffs_per_sequential_collateral_tx
         * (10 + 2 * config.num_watchtowers)
 }
 
@@ -93,7 +93,7 @@ pub fn create_nofn_sighash_stream(
                     input_amount,
                     timeout_block_count,
                     max_withdrawal_time_block_count,
-                    config.num_kickoffs_per_timetx,
+                    config.num_kickoffs_per_sequential_collateral_tx,
                     network,
                 );
 
@@ -101,7 +101,7 @@ pub fn create_nofn_sighash_stream(
                 let reimburse_generator_txhandler = builder::transaction::create_reimburse_generator_txhandler(
                     &sequential_collateral_txhandler,
                     *operator_xonly_pk,
-                    config.num_kickoffs_per_timetx,
+                    config.num_kickoffs_per_sequential_collateral_tx,
                     max_withdrawal_time_block_count,
                     network,
                 );
@@ -112,7 +112,7 @@ pub fn create_nofn_sighash_stream(
                 // (assert_begin_tx -> assert_end_tx -> either disprove_timeout_tx or already_disproven_tx).
                 // If the operator is honest, the sequence will end with the operator being able to send the reimburse_tx.
                 // Otherwise, by using the disprove_tx, the operator's sequential_collateral_tx burn connector will be burned.
-                for kickoff_idx in 0..config.num_kickoffs_per_timetx {
+                for kickoff_idx in 0..config.num_kickoffs_per_sequential_collateral_tx {
                     let kickoff_txhandler = builder::transaction::create_kickoff_txhandler(
                         &sequential_collateral_txhandler,
                         kickoff_idx,
@@ -165,7 +165,7 @@ pub fn create_nofn_sighash_stream(
 
                     // Collect the challenge Winternitz pubkeys for this specific kickoff_utxo.
                     let watchtower_challenge_winternitz_pks = (0..config.num_watchtowers)
-                        .map(|i| watchtower_all_challenge_winternitz_pks[i][time_tx_idx * config.num_kickoffs_per_timetx + kickoff_idx].clone())
+                        .map(|i| watchtower_all_challenge_winternitz_pks[i][time_tx_idx * config.num_kickoffs_per_sequential_collateral_tx + kickoff_idx].clone())
                         .collect::<Vec<_>>();
 
                     // Creates the watchtower_challenge_kickoff_tx handler.
@@ -403,7 +403,7 @@ mod tests {
         }
         for o in 0..config.num_operators {
             for t in 0..config.num_sequential_collateral_txs {
-                for k in 0..config.num_kickoffs_per_timetx {
+                for k in 0..config.num_kickoffs_per_sequential_collateral_tx {
                     db.save_bitvm_setup(
                         None,
                         o.try_into().unwrap(),
@@ -420,7 +420,7 @@ mod tests {
         }
         for o in 0..config.num_operators {
             for t in 0..config.num_sequential_collateral_txs {
-                for k in 0..config.num_kickoffs_per_timetx {
+                for k in 0..config.num_kickoffs_per_sequential_collateral_tx {
                     db.save_public_hashes(
                         None,
                         o.try_into().unwrap(),
@@ -462,7 +462,7 @@ mod tests {
 
         for _ in 0..config.num_operators {
             for _ in 0..config.num_sequential_collateral_txs {
-                for _ in 0..config.num_kickoffs_per_timetx {
+                for _ in 0..config.num_kickoffs_per_sequential_collateral_tx {
                     challenge_tx_sighashes.push(nofn_stream.next().await.unwrap().unwrap());
                     start_happy_reimburse_sighashes
                         .push(nofn_stream.next().await.unwrap().unwrap());

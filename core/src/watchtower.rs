@@ -52,7 +52,7 @@ impl Watchtower {
 
         for operator in 0..self.config.num_operators as u32 {
             for time_tx in 0..self.config.num_sequential_collateral_txs as u32 {
-                for kickoff_idx in 0..self.config.num_kickoffs_per_timetx as u32 {
+                for kickoff_idx in 0..self.config.num_kickoffs_per_sequential_collateral_tx as u32 {
                     let path = WinternitzDerivationPath {
                         message_length: 480,
                         log_d: 4,
@@ -143,7 +143,7 @@ mod tests {
             watchtower_winternitz_public_keys.len(),
             config.num_operators
                 * config.num_sequential_collateral_txs
-                * config.num_kickoffs_per_timetx
+                * config.num_kickoffs_per_sequential_collateral_tx
         );
     }
 }

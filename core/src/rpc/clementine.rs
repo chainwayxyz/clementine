@@ -66,8 +66,9 @@ pub mod operator_params {
         #[prost(message, tag = "1")]
         OperatorDetails(super::OperatorConfig),
         /// Winternitz pubkeys for each watchtowers challenge + bitvm assert tx.
-        /// If there are 100 watchtowers and total of 1000 timetxs, it will take
-        /// 1000 * (100*240 + 600*20) ~= 1 GB of hash for every winternitz pubkey.
+        /// If there are 100 watchtowers and total of 1000 sequential collateral txs,
+        /// it will take 1000 * (100*240 + 600*20) ~= 1 GB of hash for every
+        /// winternitz pubkey.
         #[prost(message, tag = "2")]
         WinternitzPubkeys(super::WinternitzPubkey),
         /// Adaptor signatures for asserting a watchtower's challenge to zero.
@@ -209,7 +210,8 @@ pub mod watchtower_params {
     pub enum Response {
         #[prost(uint32, tag = "1")]
         WatchtowerId(u32),
-        /// Flattened list of Winternitz pubkeys for each operator's timetxs.
+        /// Flattened list of Winternitz pubkeys for each operator's sequential
+        /// collateral txs.
         #[prost(message, tag = "2")]
         WinternitzPubkeys(super::WinternitzPubkey),
         /// xonly public key serialized to bytes

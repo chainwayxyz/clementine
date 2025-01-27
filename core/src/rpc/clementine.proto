@@ -47,8 +47,9 @@ message OperatorParams {
     // Operator's configuration.
     OperatorConfig operator_details = 1;
     // Winternitz pubkeys for each watchtowers challenge + bitvm assert tx.
-    // If there are 100 watchtowers and total of 1000 timetxs, it will take
-    // 1000 * (100*240 + 600*20) ~= 1 GB of hash for every winternitz pubkey.
+    // If there are 100 watchtowers and total of 1000 sequential collateral txs,
+    // it will take 1000 * (100*240 + 600*20) ~= 1 GB of hash for every
+    // winternitz pubkey.
     WinternitzPubkey winternitz_pubkeys = 2;
     // Adaptor signatures for asserting a watchtower's challenge to zero.
     // Total of 1000*100 preimages. TODO: Change comments here
@@ -212,7 +213,8 @@ service ClementineVerifier {
 message WatchtowerParams {
   oneof response {
     uint32 watchtower_id = 1;
-    // Flattened list of Winternitz pubkeys for each operator's timetxs.
+    // Flattened list of Winternitz pubkeys for each operator's sequential
+    // collateral txs.
     WinternitzPubkey winternitz_pubkeys = 2;
     // xonly public key serialized to bytes
     bytes xonly_pk = 3;

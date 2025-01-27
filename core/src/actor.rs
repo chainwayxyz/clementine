@@ -19,7 +19,7 @@ use bitvm::signatures::winternitz::{
 /// Available transaction types for [`WinternitzDerivationPath`].
 #[derive(Clone, Copy, Debug)]
 pub enum TxType {
-    TimeTx,
+    SequentialCollateralTx,
     KickoffTx,
     BitVM,
     OperatorLongestChain,
@@ -88,7 +88,7 @@ impl Default for WinternitzDerivationPath<'_> {
             message_length: Default::default(),
             log_d: 4,
             index: Default::default(),
-            tx_type: TxType::TimeTx,
+            tx_type: TxType::SequentialCollateralTx,
             operator_idx: Default::default(),
             watchtower_idx: Default::default(),
             time_tx_idx: Default::default(),
