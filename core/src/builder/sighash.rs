@@ -566,6 +566,21 @@ mod tests {
                 }
             }
         }
+        for o in 0..config.num_operators {
+            for t in 0..config.num_time_txs {
+                for k in 0..config.num_kickoffs_per_timetx {
+                    db.save_public_hashes(
+                        None,
+                        o.try_into().unwrap(),
+                        t.try_into().unwrap(),
+                        k.try_into().unwrap(),
+                        vec![[0x45; 20]; config.num_watchtowers],
+                    )
+                    .await
+                    .unwrap();
+                }
+            }
+        }
 
         let mut nofn_stream = pin!(create_nofn_sighash_stream(
             db,
@@ -594,30 +609,33 @@ mod tests {
         let mut reimburse_sighashes = Vec::<TapSighash>::new();
 
         for _ in 0..config.num_operators {
-            for _ in 0..config.num_kickoffs_per_timetx {
-                challenge_tx_sighashes.push(nofn_stream.next().await.unwrap().unwrap());
-                start_happy_reimburse_sighashes.push(nofn_stream.next().await.unwrap().unwrap());
-                happy_reimburse_sighashes.push(nofn_stream.next().await.unwrap().unwrap());
-                watchtower_challenge_kickoff_sighashes
-                    .push(nofn_stream.next().await.unwrap().unwrap());
-                kickoff_timeout_sighashes.push(nofn_stream.next().await.unwrap().unwrap());
-
-                for _ in 0..config.num_watchtowers {
-                    // Script spend.
-                    operator_challenge_nack_sighashes
+            for _ in 0..config.num_time_txs {
+                for _ in 0..config.num_kickoffs_per_timetx {
+                    challenge_tx_sighashes.push(nofn_stream.next().await.unwrap().unwrap());
+                    start_happy_reimburse_sighashes
                         .push(nofn_stream.next().await.unwrap().unwrap());
+                    happy_reimburse_sighashes.push(nofn_stream.next().await.unwrap().unwrap());
+                    watchtower_challenge_kickoff_sighashes
+                        .push(nofn_stream.next().await.unwrap().unwrap());
+                    kickoff_timeout_sighashes.push(nofn_stream.next().await.unwrap().unwrap());
+
+                    for _ in 0..config.num_watchtowers {
+                        // Script spend.
+                        operator_challenge_nack_sighashes
+                            .push(nofn_stream.next().await.unwrap().unwrap());
+                        // Pubkey spend.
+                        operator_challenge_nack_sighashes
+                            .push(nofn_stream.next().await.unwrap().unwrap());
+                    }
+
+                    assert_end_sighashes.push(nofn_stream.next().await.unwrap().unwrap());
                     // Pubkey spend.
-                    operator_challenge_nack_sighashes
-                        .push(nofn_stream.next().await.unwrap().unwrap());
+                    disprove_timeout_sighashes.push(nofn_stream.next().await.unwrap().unwrap());
+                    // Script spend.
+                    disprove_timeout_sighashes.push(nofn_stream.next().await.unwrap().unwrap());
+                    already_disproved_sighashes.push(nofn_stream.next().await.unwrap().unwrap());
+                    reimburse_sighashes.push(nofn_stream.next().await.unwrap().unwrap());
                 }
-
-                assert_end_sighashes.push(nofn_stream.next().await.unwrap().unwrap());
-                // Pubkey spend.
-                disprove_timeout_sighashes.push(nofn_stream.next().await.unwrap().unwrap());
-                // Script spend.
-                disprove_timeout_sighashes.push(nofn_stream.next().await.unwrap().unwrap());
-                already_disproved_sighashes.push(nofn_stream.next().await.unwrap().unwrap());
-                reimburse_sighashes.push(nofn_stream.next().await.unwrap().unwrap());
             }
         }
         assert!(nofn_stream.next().await.is_none());
