@@ -8,7 +8,7 @@ use clementine_core::actor::Actor;
 use clementine_core::builder::transaction::TxHandler;
 use clementine_core::builder::{self};
 use clementine_core::extended_rpc::ExtendedRpc;
-use clementine_core::utils::{handle_taproot_witness_new, SECP};
+use clementine_core::utils::{set_p2tr_script_spend_witness, SECP};
 use clementine_core::{config::BridgeConfig, database::Database, utils::initialize_logger};
 use std::{env, thread};
 
@@ -83,7 +83,7 @@ async fn create_address_and_transaction_then_sign_transaction() {
     let sig = signer
         .sign_taproot_script_spend_tx_new_tweaked(&mut tx_details, 0, 0)
         .unwrap();
-    handle_taproot_witness_new(&mut tx_details, &[sig.as_ref()], 0, Some(0)).unwrap();
+    set_p2tr_script_spend_witness(&mut tx_details, &[sig.as_ref()], 0, 0).unwrap();
     rpc.mine_blocks(1).await.unwrap();
 
     // New transaction should be OK to send.
