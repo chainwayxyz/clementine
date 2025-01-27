@@ -22,7 +22,6 @@ pub mod musig2;
 pub mod operator;
 pub mod rpc;
 pub mod servers;
-pub mod user;
 pub mod utils;
 pub mod verifier;
 pub mod watchtower;
