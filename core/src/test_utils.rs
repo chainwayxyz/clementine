@@ -48,7 +48,7 @@ macro_rules! create_test_config_with_thread_name {
             + &suffix;
 
         // Use maximum log level for tests.
-        initialize_logger(5).unwrap();
+        initialize_logger(Some(::tracing::level_filters::LevelFilter::DEBUG)).unwrap();
 
         let mut config = BridgeConfig::default();
 
@@ -106,7 +106,12 @@ macro_rules! create_test_config_with_thread_name {
 macro_rules! initialize_database {
     ($config:expr) => {{
         let url = Database::get_postgresql_url(&$config);
-        let conn = sqlx::PgPool::connect(url.as_str()).await.unwrap();
+        let conn = sqlx::PgPool::connect(url.as_str())
+            .await
+            .expect(&format!(
+                "Failed to connect to database, please make sure a test Postgres DB is running at {}",
+                url
+            ));
 
         sqlx::query(&format!("DROP DATABASE IF EXISTS {}", &$config.db_name))
             .execute(&conn)

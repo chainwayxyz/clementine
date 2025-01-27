@@ -2,10 +2,10 @@ use crate::builder::transaction::TxHandler;
 use crate::cli::Args;
 use crate::config::BridgeConfig;
 use crate::errors::BridgeError;
-use bitcoin;
-use bitcoin::sighash::SighashCache;
-use bitcoin::taproot::LeafVersion;
+use bitcoin::taproot::{self, LeafVersion};
 use bitcoin::XOnlyPublicKey;
+use bitcoin::{self, Witness};
+use tracing::Level;
 //use bitvm::chunker::assigner::BridgeAssigner;
 use std::borrow::BorrowMut;
 use std::collections::BTreeMap;
@@ -87,7 +87,15 @@ pub fn get_configuration_for_binaries() -> (BridgeConfig, Args) {
             exit(1);
         }
     };
-    match crate::utils::initialize_logger(args.verbose) {
+
+    let level_filter = match args.verbose {
+        0 => None,
+        other => Some(LevelFilter::from_level(
+            Level::from_str(&other.to_string()).unwrap(),
+        )),
+    };
+
+    match crate::utils::initialize_logger(level_filter) {
         Ok(args) => args,
         Err(e) => {
             eprintln!("{e}");
@@ -115,32 +123,58 @@ pub fn usize_to_var_len_bytes(x: usize) -> Vec<u8> {
     op_idx_bytes.to_vec()
 }
 
-pub fn handle_taproot_witness_new<T: AsRef<[u8]>>(
+/// Constructs the witness for a script path spend of a transaction input.
+///
+/// # Arguments
+///
+/// - `tx`: The transaction to add the witness to.
+/// - `script_inputs`: The inputs to the tapscript
+/// - `txin_index`: The index of the transaction input to add the witness to.
+/// - `script_index`: The script index in the input UTXO's Taproot script tree. This is used to get the control block and script contents of the script being spent.
+pub fn set_p2tr_script_spend_witness<T: AsRef<[u8]>>(
     tx: &mut TxHandler,
-    witness_elements: &[T],
+    script_inputs: &[T],
     txin_index: usize,
-    script_index: Option<usize>,
+    script_index: usize,
 ) -> Result<(), BridgeError> {
-    let mut sighash_cache = SighashCache::new(tx.tx.borrow_mut());
-
-    let witness = sighash_cache
-        .witness_mut(txin_index)
+    let witness = tx
+        .tx
+        .input
+        .get_mut(txin_index)
+        .map(|input| &mut input.witness)
         .ok_or(BridgeError::TxInputNotFound)?;
 
-    witness_elements
+    witness.clear();
+    script_inputs
         .iter()
         .for_each(|element| witness.push(element));
-    if let Some(index) = script_index {
-        let script = &tx.prev_scripts[txin_index][index];
-        let spend_control_block = tx.prev_taproot_spend_infos[txin_index]
-            .clone()
-            .ok_or(BridgeError::TaprootScriptError)?
-            .control_block(&(script.clone(), LeafVersion::TapScript))
-            .ok_or(BridgeError::ControlBlockError)?;
 
-        witness.push(script.clone());
-        witness.push(spend_control_block.serialize());
-    }
+    let script = &tx.prev_scripts[txin_index][script_index];
+    let spend_control_block = tx.prev_taproot_spend_infos[txin_index]
+        .clone()
+        .ok_or(BridgeError::TaprootScriptError)?
+        .control_block(&(script.clone(), LeafVersion::TapScript))
+        .ok_or(BridgeError::ControlBlockError)?;
+
+    witness.push(script.clone());
+    witness.push(spend_control_block.serialize());
+    Ok(())
+}
+
+pub fn set_p2tr_key_spend_witness(
+    tx: &mut TxHandler,
+    signature: &taproot::Signature,
+    txin_index: usize,
+) -> Result<(), BridgeError> {
+    let witness = tx
+        .tx
+        .borrow_mut()
+        .input
+        .get_mut(txin_index)
+        .map(|input| &mut input.witness)
+        .ok_or(BridgeError::TxInputNotFound)?;
+
+    *witness = Witness::p2tr_key_spend(signature);
     Ok(())
 }
 
@@ -157,21 +191,7 @@ pub fn handle_taproot_witness_new<T: AsRef<[u8]>>(
 ///
 /// Returns `Err` if `tracing` can't be initialized. Multiple subscription error
 /// is emmitted and will return `Ok(())`.
-pub fn initialize_logger(level: u8) -> Result<(), BridgeError> {
-    let level = match level {
-        0 => None,
-        1 => Some(LevelFilter::ERROR),
-        2 => Some(LevelFilter::WARN),
-        3 => Some(LevelFilter::INFO),
-        4 => Some(LevelFilter::DEBUG),
-        5 => Some(LevelFilter::TRACE),
-        _ => {
-            return Err(BridgeError::ConfigError(format!(
-                "Verbosity level can only be between 0 and 5 (given {level})!"
-            )))
-        }
-    };
-
+pub fn initialize_logger(level: Option<LevelFilter>) -> Result<(), BridgeError> {
     // Standard layer that will output human readable logs.
     let layer = fmt::layer().with_test_writer();
     // JSON layer that will output JSON formatted logs.

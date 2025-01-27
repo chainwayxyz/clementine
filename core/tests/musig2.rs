@@ -8,7 +8,7 @@ use clementine_core::builder::transaction::TxHandler;
 use clementine_core::musig2::{
     aggregate_nonces, aggregate_partial_signatures, AggregateFromPublicKeys, Musig2Mode,
 };
-use clementine_core::utils::{handle_taproot_witness_new, SECP};
+use clementine_core::utils::{set_p2tr_key_spend_witness, set_p2tr_script_spend_witness, SECP};
 use clementine_core::{
     builder::{self},
     config::BridgeConfig,
@@ -347,12 +347,239 @@ async fn script_spend() {
         .unwrap();
 
     let witness_elements = vec![final_signature.as_ref()];
-    handle_taproot_witness_new(&mut tx_details, &witness_elements, 0, Some(0)).unwrap();
+    set_p2tr_script_spend_witness(&mut tx_details, &witness_elements, 0, 0).unwrap();
 
     rpc.mine_blocks(1).await.unwrap();
 
     rpc.client
         .send_raw_transaction(&tx_details.tx)
+        .await
+        .unwrap();
+}
+
+/// Tests spending both key and script paths of a single P2TR UTXO.
+///
+/// This test is designed to test the following, especially in the Musig2 case:
+/// - The script spend is valid
+/// - The key spend is valid with the tweaked aggregate public key
+#[tokio::test]
+#[serial_test::serial]
+async fn key_and_script_spend() {
+    use bitcoin::{Network::*, *};
+
+    // Arrange
+    let config = create_test_config_with_thread_name!(None);
+    let rpc = ExtendedRpc::new(
+        config.bitcoin_rpc_url.clone(),
+        config.bitcoin_rpc_user.clone(),
+        config.bitcoin_rpc_password.clone(),
+    )
+    .await;
+
+    // -- Musig2 Setup --
+    // Generate NofN keys
+    let (verifiers_secret_public_keys, _untweaked_xonly_pubkey, verifier_public_keys) =
+        get_verifiers_keys(&config);
+    // Generate NofN nonces (need two for key and script spend)
+    let (nonce_pairs, agg_nonce) = get_nonces(verifiers_secret_public_keys.clone());
+    let (nonce_pairs_2, agg_nonce_2) = get_nonces(verifiers_secret_public_keys.clone());
+
+    // Aggregate Pks
+    let agg_pk = XOnlyPublicKey::from_musig2_pks(verifier_public_keys.clone(), None).unwrap();
+
+    // -- Script Setup --
+    // Tapscript for script spending of NofN sig
+    let musig2_script = bitcoin::script::Builder::new()
+        .push_x_only_key(&agg_pk)
+        .push_opcode(OP_CHECKSIG)
+        .into_script();
+    let scripts: Vec<ScriptBuf> = vec![musig2_script];
+
+    // -- UTXO Setup --
+    // Both script and key spend in P2TR address
+    let (from_address, from_address_spend_info) =
+        builder::address::create_taproot_address(&scripts, Some(agg_pk), bitcoin::Network::Regtest);
+
+    // Merkle root hash of Tapscript tree
+    let merkle_root = from_address_spend_info.merkle_root().unwrap();
+    // Tweaked aggregate public key
+    let agg_pk_tweaked = XOnlyPublicKey::from_musig2_pks(
+        verifier_public_keys.clone(),
+        Some(Musig2Mode::KeySpendWithScript(merkle_root)),
+    )
+    .unwrap();
+
+    // Create UTXOs
+    let utxo_1 = rpc
+        .send_to_address(&from_address, Amount::from_sat(100_000_000))
+        .await
+        .unwrap();
+    let utxo_2 = rpc
+        .send_to_address(&from_address, Amount::from_sat(99_999_999))
+        .await
+        .unwrap();
+
+    // Get UTXOs
+    let prevout_1 = rpc.get_txout_from_outpoint(&utxo_1).await.unwrap();
+    let prevout_2 = rpc.get_txout_from_outpoint(&utxo_2).await.unwrap();
+
+    // TxIn of test TX
+    let tx_ins_1 = builder::transaction::create_tx_ins(vec![utxo_1].into());
+    let tx_ins_2 = builder::transaction::create_tx_ins(vec![utxo_2].into());
+
+    // BTC address to execute test transaction to
+    // Doesn't matter
+    let to_address = bitcoin::Address::p2pkh(
+        PublicKey::from(bitcoin::secp256k1::PublicKey::from_x_only_public_key(
+            *utils::UNSPENDABLE_XONLY_PUBKEY,
+            key::Parity::Even,
+        )),
+        Regtest,
+    );
+
+    // TxOut of test TX
+    let tx_outs = builder::transaction::create_tx_outs(vec![(
+        Amount::from_sat(99_000_000),
+        to_address.script_pubkey(),
+    )]);
+
+    // Test Transactions
+    let test_tx_1 = builder::transaction::create_btc_tx(tx_ins_1, tx_outs.clone());
+    let mut test_txhandler_1 = TxHandler {
+        txid: test_tx_1.compute_txid(),
+        tx: test_tx_1,
+        prevouts: vec![prevout_1],
+        prev_scripts: vec![scripts.clone()],
+        prev_taproot_spend_infos: vec![Some(from_address_spend_info.clone())],
+        out_scripts: vec![vec![]],
+        out_taproot_spend_infos: vec![None],
+    };
+    let test_tx_2 = builder::transaction::create_btc_tx(tx_ins_2, tx_outs);
+    let mut test_txhandler_2 = TxHandler {
+        txid: test_tx_2.compute_txid(),
+        tx: test_tx_2,
+        prevouts: vec![prevout_2],
+        prev_scripts: vec![scripts],
+        prev_taproot_spend_infos: vec![Some(from_address_spend_info.clone())],
+        out_scripts: vec![vec![]],
+        out_taproot_spend_infos: vec![None],
+    };
+
+    let sighash_1 = Message::from_digest(
+        test_txhandler_1
+            .calculate_script_spend_sighash(0, 0, None)
+            .unwrap()
+            .to_byte_array(),
+    );
+    let sighash_2 = Message::from_digest(
+        test_txhandler_2
+            .calculate_pubkey_spend_sighash(0, None)
+            .unwrap()
+            .to_byte_array(),
+    );
+
+    // Act
+
+    // Musig2 Partial Signatures
+    // Script Spend
+    let final_signature_1 = {
+        let partial_sigs: Vec<MusigPartialSignature> = verifiers_secret_public_keys
+            .iter()
+            .zip(nonce_pairs)
+            .map(|(kp, nonce_pair)| {
+                partial_sign(
+                    verifier_public_keys.clone(),
+                    None,
+                    nonce_pair.0,
+                    agg_nonce,
+                    *kp,
+                    sighash_1,
+                )
+                .unwrap()
+            })
+            .collect();
+
+        // Musig2 Aggregate
+        aggregate_partial_signatures(
+            &verifier_public_keys,
+            None,
+            agg_nonce,
+            &partial_sigs,
+            sighash_1,
+        )
+        .unwrap()
+    };
+
+    // Key spend
+    let final_signature_2 = {
+        let partial_sigs: Vec<MusigPartialSignature> = verifiers_secret_public_keys
+            .iter()
+            .zip(nonce_pairs_2)
+            .map(|(kp, nonce_pair)| {
+                partial_sign(
+                    verifier_public_keys.clone(),
+                    Some(Musig2Mode::KeySpendWithScript(merkle_root)),
+                    nonce_pair.0,
+                    agg_nonce_2,
+                    *kp,
+                    sighash_2,
+                )
+                .unwrap()
+            })
+            .collect();
+
+        aggregate_partial_signatures(
+            &verifier_public_keys,
+            Some(Musig2Mode::KeySpendWithScript(merkle_root)),
+            agg_nonce_2,
+            &partial_sigs,
+            sighash_2,
+        )
+        .unwrap()
+    };
+
+    // Assert
+
+    // -- Verify Script Spend --
+    // Verify signature for script spend
+    // The script will verify the aggregate public key with the signature of sighash_1
+    utils::SECP
+        .verify_schnorr(&final_signature_1, &sighash_1, &agg_pk)
+        .unwrap();
+
+    // Set up the witness for the script spend
+    let witness_elements = vec![final_signature_1.as_ref()];
+    set_p2tr_script_spend_witness(&mut test_txhandler_1, &witness_elements, 0, 0).unwrap();
+
+    // Mine a block to confirm previous transaction
+    rpc.mine_blocks(1).await.unwrap();
+
+    // Send the transaction
+    rpc.client
+        .send_raw_transaction(&test_txhandler_1.tx)
+        .await
+        .unwrap();
+
+    // -- Verify Key Spend --
+    // Verify signature for key spend
+    // The key will verify the aggregate public key with the signature of sighash_2
+    // The signature should be valid with the tweaked aggregate public key
+    utils::SECP
+        .verify_schnorr(&final_signature_2, &sighash_2, &agg_pk_tweaked)
+        .unwrap();
+
+    set_p2tr_key_spend_witness(
+        &mut test_txhandler_2,
+        &taproot::Signature::from_slice(final_signature_2.as_ref()).unwrap(),
+        0,
+    )
+    .unwrap();
+
+    rpc.mine_blocks(1).await.unwrap();
+
+    // Send the transaction
+    rpc.client
+        .send_raw_transaction(&test_txhandler_2.tx)
         .await
         .unwrap();
 }
