@@ -320,3 +320,47 @@ macro_rules! create_actors {
         )
     }};
 }
+
+/// Gets the the deposit address for the user.
+///
+/// # Returns
+///
+/// - [`Address`]: Deposit address of the user
+///
+/// # Required Imports
+///
+/// ## Unit Tests
+///
+/// ```rust
+/// use crate::{actor::Actor, builder, musig2::AggregateFromPublicKeys};
+/// ```
+///
+/// ## Integration Tests And Binaries
+///
+/// ```rust
+/// use clementine_core::{actor::Actor, builder, musig2::AggregateFromPublicKeys};
+/// ```
+#[macro_export]
+macro_rules! get_deposit_address {
+    ($config:expr, $evm_address:expr) => {{
+        let signer = Actor::new(
+            $config.secret_key,
+            $config.winternitz_secret_key,
+            $config.network,
+        );
+
+        let nofn_xonly_pk =
+            bitcoin::XOnlyPublicKey::from_musig2_pks($config.verifiers_public_keys.clone(), None)
+                .unwrap();
+
+        builder::address::generate_deposit_address(
+            nofn_xonly_pk,
+            signer.address.as_unchecked(),
+            $evm_address,
+            $config.bridge_amount_sats,
+            $config.network,
+            $config.user_takes_after,
+        )
+        .0
+    }};
+}
