@@ -56,7 +56,6 @@ macro_rules! impl_text_wrapper_base {
 /// - SQLx Type trait to indicate TEXT column type
 /// - SQLx Encode trait for converting to database format
 /// - SQLx Decode trait for converting from database format
-
 macro_rules! impl_text_wrapper_custom {
     // Default case (include serde)
     ($wrapper:ident, $inner:ty, $encode:expr, $decode:expr) => {
@@ -132,7 +131,6 @@ macro_rules! impl_bytea_wrapper_custom {
 /// - SQLx Type trait to indicate BYTEA column type
 /// - SQLx Encode trait for converting to database format
 /// - SQLx Decode trait for converting from database format
-
 macro_rules! impl_bytea_wrapper_default {
     ($wrapper:ident, $inner:ty) => {
         impl_bytea_wrapper_custom!(
@@ -145,6 +143,7 @@ macro_rules! impl_bytea_wrapper_default {
         );
     };
 }
+
 /// Macro for implementing text-based SQL wrapper types using standard string conversion
 ///
 /// This macro creates a wrapper type that uses the inner type's default string conversion
@@ -278,7 +277,7 @@ mod tests {
         Amount, BlockHash, CompactTarget, OutPoint, ScriptBuf, TxMerkleNode, TxOut, Txid,
     };
     use sqlx::{Executor, Type};
-    use std::{env, ops::Deref, thread};
+    use std::{env, thread};
 
     macro_rules! test_encode_decode_invariant {
         ($db_type:ty, $inner:ty, $db_wrapper:expr, $table_name:expr, $column_type:expr) => {
