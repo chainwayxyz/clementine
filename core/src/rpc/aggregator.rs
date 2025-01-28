@@ -691,22 +691,27 @@ mod tests {
         let verifier = Verifier::new(rpc, config.clone()).await.unwrap();
         let verifier_wpks = verifier
             .db
-            .get_watchtower_winternitz_public_keys(None, 0, 0)
+            .get_watchtower_winternitz_public_keys(None, 0, 0) // TODO: Change this, this index should not be 0 for the watchtower.
             .await
             .unwrap();
         tracing::info!("watchtower_wpks length: {:?}", watchtower_wpks.len());
         tracing::info!("verifier_wpks length: {:?}", verifier_wpks.len());
-        tracing::info!("config.num_time_txs: {:?}", config.num_time_txs);
+        tracing::info!(
+            "config.num_time_txs: {:?}",
+            config.num_sequential_collateral_txs
+        );
         tracing::info!(
             "config.num_kickoffs_per_timetx: {:?}",
-            config.num_kickoffs_per_timetx
+            config.num_kickoffs_per_sequential_collateral_tx
         );
         assert_eq!(
-            config.num_time_txs * config.num_kickoffs_per_timetx,
+            config.num_sequential_collateral_txs * config.num_kickoffs_per_sequential_collateral_tx,
             verifier_wpks.len()
         );
         assert!(
-            watchtower_wpks[0..config.num_time_txs * config.num_kickoffs_per_timetx].to_vec()
+            watchtower_wpks[0..config.num_sequential_collateral_txs
+                * config.num_kickoffs_per_sequential_collateral_tx]
+                .to_vec()
                 == verifier_wpks,
             "Winternitz keys of watchtower and verifier are not equal"
         );
@@ -777,17 +782,14 @@ mod tests {
             "verifier_challenge_addresses length: {:?}",
             verifier_challenge_addresses_0.len()
         );
-        tracing::info!("config.num_time_txs: {:?}", config.num_time_txs);
-        tracing::info!(
-            "config.num_kickoffs_per_timetx: {:?}",
-            config.num_kickoffs_per_timetx
-        );
         assert_eq!(
-            config.num_time_txs * config.num_kickoffs_per_timetx,
+            config.num_kickoffs_per_sequential_collateral_tx
+                * config.num_kickoffs_per_sequential_collateral_tx,
             verifier_wpks.len()
         );
         assert_eq!(
-            config.num_time_txs * config.num_kickoffs_per_timetx,
+            config.num_kickoffs_per_sequential_collateral_tx
+                * config.num_kickoffs_per_sequential_collateral_tx,
             verifier_challenge_addresses_0.len()
         );
         tracing::info!(
@@ -811,12 +813,15 @@ mod tests {
             verifier_challenge_addresses_3
         );
         assert!(
-            watchtower_wpks[0..config.num_time_txs * config.num_kickoffs_per_timetx].to_vec()
+            watchtower_wpks[0..config.num_kickoffs_per_sequential_collateral_tx
+                * config.num_kickoffs_per_sequential_collateral_tx]
+                .to_vec()
                 == verifier_wpks,
             "Winternitz keys of watchtower and verifier are not equal"
         );
         assert!(
-            watchtower_challenge_addresses[0..config.num_time_txs * config.num_kickoffs_per_timetx]
+            watchtower_challenge_addresses[0..config.num_kickoffs_per_sequential_collateral_tx
+                * config.num_kickoffs_per_sequential_collateral_tx]
                 .to_vec()
                 == verifier_challenge_addresses_2,
             "Challenge addresses of watchtower and verifier are not equal"

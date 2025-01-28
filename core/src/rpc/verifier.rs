@@ -92,7 +92,7 @@ impl ClementineVerifier for Verifier {
             num_verifiers: self.config.num_verifiers as u32,
             num_watchtowers: self.config.num_watchtowers as u32,
             num_operators: self.config.num_operators as u32,
-            num_time_txs: self.config.num_time_txs as u32,
+            num_sequential_collateral_txs: self.config.num_sequential_collateral_txs as u32,
         };
 
         Ok(Response::new(params))
@@ -173,8 +173,8 @@ impl ClementineVerifier for Verifier {
             .await?;
 
         let mut operator_winternitz_public_keys = Vec::new();
-        for _ in 0..self.config.num_kickoffs_per_timetx
-            * self.config.num_time_txs
+        for _ in 0..self.config.num_kickoffs_per_sequential_collateral_tx
+            * self.config.num_sequential_collateral_txs
             * utils::ALL_BITVM_INTERMEDIATE_VARIABLES.len()
         {
             let operator_params = in_stream
@@ -208,8 +208,8 @@ impl ClementineVerifier for Verifier {
             .await?;
 
         let mut operators_challenge_ack_public_hashes = Vec::new();
-        for _ in 0..self.config.num_time_txs
-            * self.config.num_kickoffs_per_timetx
+        for _ in 0..self.config.num_sequential_collateral_txs
+            * self.config.num_kickoffs_per_sequential_collateral_tx
             * self.config.num_watchtowers
         {
             let operator_params = in_stream
@@ -242,8 +242,8 @@ impl ClementineVerifier for Verifier {
             }
         }
 
-        for i in 0..self.config.num_time_txs {
-            for j in 0..self.config.num_kickoffs_per_timetx {
+        for i in 0..self.config.num_sequential_collateral_txs {
+            for j in 0..self.config.num_kickoffs_per_sequential_collateral_tx {
                 self.db
                     .save_public_hashes(
                         None,
@@ -251,9 +251,11 @@ impl ClementineVerifier for Verifier {
                         i as i32,
                         j as i32,
                         &operators_challenge_ack_public_hashes[self.config.num_watchtowers
-                            * (i * self.config.num_kickoffs_per_timetx + j)
+                            * (i * self.config.num_kickoffs_per_sequential_collateral_tx + j)
                             ..self.config.num_watchtowers
-                                * (i * self.config.num_kickoffs_per_timetx + j + 1)],
+                                * (i * self.config.num_kickoffs_per_sequential_collateral_tx
+                                    + j
+                                    + 1)],
                     )
                     .await?;
             }
@@ -266,8 +268,9 @@ impl ClementineVerifier for Verifier {
 
         // iterate over the chunks and generate precalculated BitVM Setups
         for (chunk_idx, winternitz_public_keys) in winternitz_public_keys_chunks.enumerate() {
-            let time_tx_idx = chunk_idx / self.config.num_kickoffs_per_timetx;
-            let kickoff_idx = chunk_idx % self.config.num_kickoffs_per_timetx;
+            let sequential_collateral_tx_idx =
+                chunk_idx / self.config.num_kickoffs_per_sequential_collateral_tx;
+            let kickoff_idx = chunk_idx % self.config.num_kickoffs_per_sequential_collateral_tx;
 
             let mut public_input_wots = vec![];
             // Generate precalculated BitVM Setups
@@ -345,7 +348,7 @@ impl ClementineVerifier for Verifier {
                 .save_bitvm_setup(
                     None,
                     operator_config.operator_idx as i32,
-                    time_tx_idx as i32,
+                    sequential_collateral_tx_idx as i32,
                     kickoff_idx as i32,
                     assert_tx_addrs,
                     &root_hash_bytes,
@@ -365,8 +368,8 @@ impl ClementineVerifier for Verifier {
     ) -> Result<Response<Empty>, Status> {
         let &crate::config::BridgeConfig {
             num_operators,
-            num_time_txs,
-            num_kickoffs_per_timetx,
+            num_sequential_collateral_txs,
+            num_kickoffs_per_sequential_collateral_tx,
             ..
         } = &self.config;
         let mut in_stream = request.into_inner();
@@ -404,7 +407,9 @@ impl ClementineVerifier for Verifier {
             .map(Ok)
             .collect::<Result<Vec<_>, BridgeError>>()?;
 
-        let required_number_of_pubkeys = num_operators * num_time_txs * num_kickoffs_per_timetx;
+        let required_number_of_pubkeys = num_operators
+            * num_sequential_collateral_txs
+            * num_kickoffs_per_sequential_collateral_tx;
         if watchtower_winternitz_public_keys.len() != required_number_of_pubkeys {
             return Err(Status::invalid_argument(format!(
                 "Request has {} Winternitz public keys but it needs to be {}!",
@@ -438,23 +443,28 @@ impl ClementineVerifier for Verifier {
         );
         tracing::info!("Verifier doing this for watchtower: {:?}", watchtower_id);
         for operator_idx in 0..self.config.num_operators {
-            let index =
-                operator_idx * self.config.num_time_txs * self.config.num_kickoffs_per_timetx;
+            let index = operator_idx
+                * num_sequential_collateral_txs
+                * num_kickoffs_per_sequential_collateral_tx;
             self.db
                 .save_watchtower_winternitz_public_keys(
                     None,
                     watchtower_id,
                     operator_idx as u32,
                     watchtower_winternitz_public_keys[index
-                        ..index + self.config.num_time_txs * self.config.num_kickoffs_per_timetx]
+                        ..index
+                            + num_sequential_collateral_txs
+                                * num_kickoffs_per_sequential_collateral_tx]
                         .to_vec(),
                 )
                 .await?;
 
             // For each saved winternitz public key, derive the challenge address
             let mut watchtower_challenge_addresses = Vec::new();
-            for winternitz_pk in watchtower_winternitz_public_keys
-                [index..index + self.config.num_time_txs * self.config.num_kickoffs_per_timetx]
+            for winternitz_pk in watchtower_winternitz_public_keys[index
+                ..index
+                    + self.config.num_sequential_collateral_txs
+                        * self.config.num_kickoffs_per_sequential_collateral_tx]
                 .iter()
             {
                 let challenge_address = derive_challenge_address_from_xonlypk_and_wpk(

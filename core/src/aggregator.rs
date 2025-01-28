@@ -12,7 +12,7 @@ use crate::{
             clementine_watchtower_client::ClementineWatchtowerClient,
         },
     },
-    utils::handle_taproot_witness_new,
+    utils::set_p2tr_script_spend_witness,
     EVMAddress,
 };
 use bitcoin::{
@@ -356,7 +356,7 @@ impl Aggregator {
             self.config.network,
         );
         let move_tx_witness_elements = vec![move_tx_sig.serialize().to_vec()];
-        handle_taproot_witness_new(&mut move_tx_handler, &move_tx_witness_elements, 0, Some(0))?;
+        set_p2tr_script_spend_witness(&mut move_tx_handler, &move_tx_witness_elements, 0, 0)?;
 
         let txid = move_tx_handler.txid;
         Ok((move_tx_handler.tx.raw_hex(), txid))

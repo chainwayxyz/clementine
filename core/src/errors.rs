@@ -219,10 +219,10 @@ pub enum BridgeError {
     #[error("No script in TxHandler for the index {0}")]
     NoScriptAtIndex(usize),
 
-    #[error("BitvmSetupNotFound for operator {0}, time_tx {1}, kickoff {2}")]
+    #[error("BitvmSetupNotFound for operator {0}, sequential_collateral_tx {1}, kickoff {2}")]
     BitvmSetupNotFound(i32, i32, i32),
 
-    #[error("WatchtowerPublicHashesNotFound for operator {0}, time_tx {1}, kickoff {2}")]
+    #[error("WatchtowerPublicHashesNotFound for operator {0}, sequential_collateral_tx {1}, kickoff {2}")]
     WatchtowerPublicHashesNotFound(i32, i32, i32),
 
     #[error("WatchtowerChallengeAddressesNotFound for watchtower {0}, operator {1}")]

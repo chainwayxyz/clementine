@@ -66,8 +66,9 @@ pub mod operator_params {
         #[prost(message, tag = "1")]
         OperatorDetails(super::OperatorConfig),
         /// Winternitz pubkeys for each watchtowers challenge + bitvm assert tx.
-        /// If there are 100 watchtowers and total of 1000 timetxs, it will take
-        /// 1000 * (100*240 + 600*20) ~= 1 GB of hash for every winternitz pubkey.
+        /// If there are 100 watchtowers and total of 1000 sequential collateral txs,
+        /// it will take 1000 * (100*240 + 600*20) ~= 1 GB of hash for every
+        /// winternitz pubkey.
         #[prost(message, tag = "2")]
         WinternitzPubkeys(super::WinternitzPubkey),
         /// Adaptor signatures for asserting a watchtower's challenge to zero.
@@ -125,7 +126,7 @@ pub struct VerifierParams {
     #[prost(uint32, tag = "5")]
     pub num_operators: u32,
     #[prost(uint32, tag = "6")]
-    pub num_time_txs: u32,
+    pub num_sequential_collateral_txs: u32,
 }
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct PartialSig {
@@ -209,7 +210,8 @@ pub mod watchtower_params {
     pub enum Response {
         #[prost(uint32, tag = "1")]
         WatchtowerId(u32),
-        /// Flattened list of Winternitz pubkeys for each operator's timetxs.
+        /// Flattened list of Winternitz pubkeys for each operator's sequential
+        /// collateral txs.
         #[prost(message, tag = "2")]
         WinternitzPubkeys(super::WinternitzPubkey),
         /// xonly public key serialized to bytes
@@ -234,7 +236,7 @@ pub mod clementine_operator_client {
     use tonic::codegen::*;
     use tonic::codegen::http::Uri;
     /// An operator is responsible for paying withdrawals. It has an unique ID and
-    /// chain of UTXOs named `time_txs`. An operator also runs a verifier. These are
+    /// chain of UTXOs named `sequential_collateral_txs`. An operator also runs a verifier. These are
     /// connected to the same database and both have access to watchtowers'
     /// winternitz pubkeys.
     #[derive(Debug, Clone)]
@@ -382,8 +384,8 @@ pub mod clementine_operator_client {
                 .insert(GrpcMethod::new("clementine.ClementineOperator", "DepositSign"));
             self.inner.server_streaming(req, path, codec).await
         }
-        /// Prepares a withdrawal if it's profitable and previous time_tx's timelock
-        /// has ended, by paying for the withdrawal and locking the current time_tx.
+        /// Prepares a withdrawal if it's profitable and previous sequential_collateral_tx's timelock
+        /// has ended, by paying for the withdrawal and locking the current sequential_collateral_tx.
         pub async fn new_withdrawal_sig(
             &mut self,
             request: impl tonic::IntoRequest<super::NewWithdrawalSigParams>,
@@ -1038,8 +1040,8 @@ pub mod clementine_operator_server {
             tonic::Response<Self::DepositSignStream>,
             tonic::Status,
         >;
-        /// Prepares a withdrawal if it's profitable and previous time_tx's timelock
-        /// has ended, by paying for the withdrawal and locking the current time_tx.
+        /// Prepares a withdrawal if it's profitable and previous sequential_collateral_tx's timelock
+        /// has ended, by paying for the withdrawal and locking the current sequential_collateral_tx.
         async fn new_withdrawal_sig(
             &self,
             request: tonic::Request<super::NewWithdrawalSigParams>,
@@ -1065,7 +1067,7 @@ pub mod clementine_operator_server {
         ) -> std::result::Result<tonic::Response<super::Empty>, tonic::Status>;
     }
     /// An operator is responsible for paying withdrawals. It has an unique ID and
-    /// chain of UTXOs named `time_txs`. An operator also runs a verifier. These are
+    /// chain of UTXOs named `sequential_collateral_txs`. An operator also runs a verifier. These are
     /// connected to the same database and both have access to watchtowers'
     /// winternitz pubkeys.
     #[derive(Debug)]

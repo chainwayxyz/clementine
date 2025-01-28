@@ -194,7 +194,7 @@ pub fn nonce_pair(
 }
 
 pub fn partial_sign(
-    pks: Vec<PublicKey>,
+    pks: impl AsRef<[PublicKey]>,
     // Aggregated tweak, if there is any. This is useful for
     // Taproot key-spends, since we might have script-spend conditions.
     tweak: Option<Musig2Mode>,

@@ -35,7 +35,6 @@ pub type AssertTxAddrs = Vec<ScriptBuf>;
 pub type BitvmSetup = (AssertTxAddrs, RootHash, PublicInputWots);
 
 impl Database {
-    /// Verifier: save the generated sec nonce and pub nonces
     #[tracing::instrument(skip(self), err(level = tracing::Level::ERROR), ret(level = tracing::Level::TRACE))]
     pub async fn save_verifier_public_keys(
         &self,
@@ -77,22 +76,21 @@ impl Database {
         }
     }
 
-    /// Verifier: save the generated sec nonce and pub nonces
     #[tracing::instrument(skip(self), err(level = tracing::Level::ERROR), ret(level = tracing::Level::TRACE))]
-    pub async fn set_time_tx(
+    pub async fn set_sequential_collateral_tx(
         &self,
         tx: Option<&mut sqlx::Transaction<'_, Postgres>>,
         operator_idx: i32,
         idx: i32,
-        time_txid: Txid,
+        sequential_collateral_txid: Txid,
         block_height: i32,
     ) -> Result<(), BridgeError> {
         let query = sqlx::query(
-            "INSERT INTO operator_time_txs (operator_idx, idx, time_txid, block_height) VALUES ($1, $2, $3, $4);",
+            "INSERT INTO operator_sequential_collateral_txs (operator_idx, idx, sequential_collateral_txid, block_height) VALUES ($1, $2, $3, $4);",
         )
         .bind(operator_idx)
         .bind(idx)
-        .bind(TxidDB(time_txid))
+        .bind(TxidDB(sequential_collateral_txid))
         .bind(block_height);
 
         match tx {
@@ -103,18 +101,18 @@ impl Database {
         Ok(())
     }
 
-    /// Fetches time txs for an operator.
+    /// Fetches sequential collateral txs for an operator.
     ///
     /// # Returns
     ///
-    /// - `Vec<(i32, Txid, i32)>`: A vector of tuples containing the index, TxId, and block height for a time_tx.
+    /// - `Vec<(i32, Txid, i32)>`: A vector of tuples containing the index, TxId, and block height for a sequential collateral tx.
     #[tracing::instrument(skip(self), err(level = tracing::Level::ERROR), ret(level = tracing::Level::TRACE))]
-    pub async fn get_time_txs(
+    pub async fn get_sequential_collateral_txs(
         &self,
         tx: Option<&mut sqlx::Transaction<'_, Postgres>>,
         operator_idx: i32,
     ) -> Result<Vec<(i32, Txid, i32)>, BridgeError> {
-        let query = sqlx::query_as("SELECT idx, time_txid, block_height FROM operator_time_txs WHERE operator_idx = $1 ORDER BY idx;").bind(operator_idx);
+        let query = sqlx::query_as("SELECT idx, sequential_collateral_txid, block_height FROM operator_sequential_collateral_txs WHERE operator_idx = $1 ORDER BY idx;").bind(operator_idx);
 
         let result: Result<Vec<(i32, TxidDB, i32)>, sqlx::Error> = match tx {
             Some(tx) => query.fetch_all(&mut **tx).await,
@@ -122,7 +120,7 @@ impl Database {
         };
 
         match result {
-            Ok(time_txs) => Ok(time_txs
+            Ok(sequential_collateral_txs) => Ok(sequential_collateral_txs
                 .into_iter()
                 .map(|(idx, txid_db, block_height)| (idx, txid_db.0, block_height))
                 .collect()),
@@ -1008,7 +1006,7 @@ impl Database {
         Ok(())
     }
 
-    /// Gets Winternitz public keys for every sequential_collateral_tx of an operator and a watchtower.
+    /// Gets Winternitz public keys for every sequential collateral tx of an operator and a watchtower.
     //#[tracing::instrument(skip(self, tx), err(level = tracing::Level::ERROR), ret(level = tracing::Level::TRACE))]
     pub async fn get_watchtower_winternitz_public_keys(
         &self,
@@ -1118,7 +1116,7 @@ impl Database {
         Ok(())
     }
 
-    /// Gets Winternitz public keys for every time_tx of an operator and a watchtower.
+    /// Gets Winternitz public keys for every sequential collateral tx of an operator and a watchtower.
     #[tracing::instrument(skip(self, tx), err(level = tracing::Level::ERROR), ret(level = tracing::Level::TRACE))]
     pub async fn get_operator_winternitz_public_keys(
         &self,
@@ -1234,13 +1232,13 @@ impl Database {
         Ok(())
     }
 
-    /// Saves BitVM setup data for a specific operator, time_tx and kickoff index combination
+    /// Saves BitVM setup data for a specific operator, sequential collateral tx and kickoff index combination
     // #[tracing::instrument(skip(self), err(level = tracing::Level::ERROR), ret(level = tracing::Level::TRACE))]
     pub async fn save_bitvm_setup(
         &self,
         tx: Option<&mut sqlx::Transaction<'_, Postgres>>,
         operator_idx: i32,
-        time_tx_idx: i32,
+        sequential_collateral_tx_idx: i32,
         kickoff_idx: i32,
         assert_tx_addrs: impl AsRef<[ScriptBuf]>,
         root_hash: &[u8; 32],
@@ -1254,15 +1252,15 @@ impl Database {
             .collect();
 
         let query = sqlx::query(
-            "INSERT INTO bitvm_setups (operator_idx, time_tx_idx, kickoff_idx, assert_tx_addrs, root_hash, public_input_wots)
+            "INSERT INTO bitvm_setups (operator_idx, sequential_collateral_tx_idx, kickoff_idx, assert_tx_addrs, root_hash, public_input_wots)
              VALUES ($1, $2, $3, $4, $5, $6)
-             ON CONFLICT (operator_idx, time_tx_idx, kickoff_idx) DO UPDATE
+             ON CONFLICT (operator_idx, sequential_collateral_tx_idx, kickoff_idx) DO UPDATE
              SET assert_tx_addrs = EXCLUDED.assert_tx_addrs,
                  root_hash = EXCLUDED.root_hash,
                  public_input_wots = EXCLUDED.public_input_wots;"
         )
         .bind(operator_idx)
-        .bind(time_tx_idx)
+        .bind(sequential_collateral_tx_idx)
         .bind(kickoff_idx)
         .bind(assert_tx_addrs.as_ref().iter().map(|addr| addr.as_ref()).collect::<Vec<&[u8]>>())
         .bind(root_hash.to_vec())
@@ -1305,22 +1303,22 @@ impl Database {
         }
     }
 
-    /// Retrieves BitVM setup data for a specific operator, time_tx and kickoff index combination
+    /// Retrieves BitVM setup data for a specific operator, sequential collateral tx and kickoff index combination
     #[tracing::instrument(skip(self), err(level = tracing::Level::ERROR), ret(level = tracing::Level::TRACE))]
     pub async fn get_bitvm_setup(
         &self,
         tx: Option<&mut sqlx::Transaction<'_, Postgres>>,
         operator_idx: i32,
-        time_tx_idx: i32,
+        sequential_collateral_tx_idx: i32,
         kickoff_idx: i32,
     ) -> Result<Option<BitvmSetup>, BridgeError> {
         let query = sqlx::query_as::<_, (Vec<Vec<u8>>, Vec<u8>, Vec<Vec<u8>>)>(
             "SELECT assert_tx_addrs, root_hash, public_input_wots
              FROM bitvm_setups
-             WHERE operator_idx = $1 AND time_tx_idx = $2 AND kickoff_idx = $3;",
+             WHERE operator_idx = $1 AND sequential_collateral_tx_idx = $2 AND kickoff_idx = $3;",
         )
         .bind(operator_idx)
-        .bind(time_tx_idx)
+        .bind(sequential_collateral_tx_idx)
         .bind(kickoff_idx);
 
         let result = match tx {
@@ -1360,7 +1358,7 @@ impl Database {
         }
     }
 
-    /// Saves public hashes for a specific operator, time_tx and kickoff index combination
+    /// Saves public hashes for a specific operator, sequential collateral tx and kickoff index combination
     // #[tracing::instrument(skip(self), err(level = tracing::Level::ERROR), ret(level = tracing::Level::TRACE))]
     pub async fn save_public_hashes(
         &self,
@@ -1395,7 +1393,7 @@ impl Database {
         Ok(())
     }
 
-    /// Retrieves public hashes for a specific operator, time_tx and kickoff index combination
+    /// Retrieves public hashes for a specific operator, sequential collateral tx and kickoff index combination
     #[tracing::instrument(skip(self), err(level = tracing::Level::ERROR), ret(level = tracing::Level::TRACE))]
     pub async fn get_operators_challenge_ack_hashes(
         &self,
@@ -2078,7 +2076,7 @@ mod tests {
         let config = create_test_config_with_thread_name!(None);
         let database = Database::new(&config).await.unwrap();
 
-        // Assuming there are 2 time_txs.
+        // Assuming there are 2 sequential collateral txs.
         let wpk0: winternitz::PublicKey = vec![[0x45; 20], [0x1F; 20]];
         let wpk1: winternitz::PublicKey = vec![[0x12; 20], [0x34; 20]];
         let watchtower_winternitz_public_keys = vec![wpk0.clone(), wpk1.clone()];
@@ -2176,7 +2174,7 @@ mod tests {
         let database = Database::new(&config).await.unwrap();
 
         let operator_idx = 0;
-        let time_tx_idx = 1;
+        let sequential_collateral_tx_idx = 1;
         let kickoff_idx = 2;
         let assert_tx_addrs = [vec![1u8; 34], vec![4u8; 34]];
         let root_hash = [42u8; 32];
@@ -2187,7 +2185,7 @@ mod tests {
             .save_bitvm_setup(
                 None,
                 operator_idx,
-                time_tx_idx,
+                sequential_collateral_tx_idx,
                 kickoff_idx,
                 assert_tx_addrs
                     .iter()
@@ -2201,7 +2199,12 @@ mod tests {
 
         // Retrieve and verify
         let result = database
-            .get_bitvm_setup(None, operator_idx, time_tx_idx, kickoff_idx)
+            .get_bitvm_setup(
+                None,
+                operator_idx,
+                sequential_collateral_tx_idx,
+                kickoff_idx,
+            )
             .await
             .unwrap()
             .unwrap();
@@ -2218,7 +2221,7 @@ mod tests {
 
         // Test non-existent entry
         let non_existent = database
-            .get_bitvm_setup(None, 999, time_tx_idx, kickoff_idx)
+            .get_bitvm_setup(None, 999, sequential_collateral_tx_idx, kickoff_idx)
             .await
             .unwrap();
         assert!(non_existent.is_none());
@@ -2230,7 +2233,7 @@ mod tests {
         let database = Database::new(&config).await.unwrap();
 
         let operator_idx = 0;
-        let time_tx_idx = 1;
+        let sequential_collateral_tx_idx = 1;
         let kickoff_idx = 2;
         let public_hashes = vec![[1u8; 20], [2u8; 20]];
 
@@ -2239,7 +2242,7 @@ mod tests {
             .save_public_hashes(
                 None,
                 operator_idx,
-                time_tx_idx,
+                sequential_collateral_tx_idx,
                 kickoff_idx,
                 public_hashes.clone(),
             )
@@ -2248,7 +2251,12 @@ mod tests {
 
         // Retrieve and verify
         let result = database
-            .get_operators_challenge_ack_hashes(None, operator_idx, time_tx_idx, kickoff_idx)
+            .get_operators_challenge_ack_hashes(
+                None,
+                operator_idx,
+                sequential_collateral_tx_idx,
+                kickoff_idx,
+            )
             .await
             .unwrap();
 
@@ -2256,7 +2264,12 @@ mod tests {
 
         // Test non-existent entry
         let non_existent = database
-            .get_operators_challenge_ack_hashes(None, 999, time_tx_idx, kickoff_idx)
+            .get_operators_challenge_ack_hashes(
+                None,
+                999,
+                sequential_collateral_tx_idx,
+                kickoff_idx,
+            )
             .await
             .unwrap();
         assert!(non_existent.is_none());
