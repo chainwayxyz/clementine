@@ -132,11 +132,7 @@ macro_rules! impl_bytea_wrapper_custom {
 /// - SQLx Type trait to indicate BYTEA column type
 /// - SQLx Encode trait for converting to database format
 /// - SQLx Decode trait for converting from database format
-///
-/// Example usage:
-/// ```rust
-/// impl_bytea_wrapper_default!(MyWrapper, schnorr::Signature);
-/// ```
+
 macro_rules! impl_bytea_wrapper_default {
     ($wrapper:ident, $inner:ty) => {
         impl_bytea_wrapper_custom!(
