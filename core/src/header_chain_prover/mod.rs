@@ -21,6 +21,7 @@ mod prover;
 pub struct HeaderChainProver {
     rpc: ExtendedRpc,
     db: Database,
+    network: bitcoin::Network,
 }
 
 impl HeaderChainProver {
@@ -62,7 +63,11 @@ impl HeaderChainProver {
             db.save_block_proof(None, block_hash, proof).await?;
         };
 
-        Ok(HeaderChainProver { rpc, db })
+        Ok(HeaderChainProver {
+            rpc,
+            db,
+            network: config.network,
+        })
     }
 
     /// Get the proof of a block.
