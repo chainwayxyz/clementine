@@ -10,7 +10,7 @@ use bitcoin::{
 use bitcoin::{TapNodeHash, Transaction, Txid};
 
 pub use crate::builder::transaction::txhandler::TxHandler;
-pub use crate::builder::transaction::util::*;
+pub use crate::builder::transaction::*;
 
 /// Creates a [`TxHandler`] for the `operator_challenge_ACK_tx`. This transaction will allow the operator
 /// to send the `assert_begin_tx` to basically respond to the challenge(s). This transaction will allow

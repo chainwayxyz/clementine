@@ -1,6 +1,6 @@
 use crate::builder::address::create_taproot_address;
 use crate::builder::transaction::txhandler::TxHandler;
-use crate::builder::transaction::util::{create_btc_tx, create_tx_ins, create_tx_outs};
+use crate::builder::transaction::{create_btc_tx, create_tx_ins, create_tx_outs};
 use crate::constants::MIN_TAPROOT_AMOUNT;
 use crate::{builder, utils};
 use bitcoin::hashes::Hash;

@@ -17,27 +17,30 @@ use bitcoin::{Amount, Network};
 use bitvm::signatures::winternitz;
 
 pub fn taproot_builder_with_scripts(scripts: &[ScriptBuf]) -> TaprootBuilder {
+    let builder = TaprootBuilder::new();
     let num_scripts = scripts.len();
 
-    if num_scripts == 0 {
-        TaprootBuilder::new()
-    } else if num_scripts > 1 {
-        let expected_depth: u8 = ((num_scripts - 1).ilog2() + 1) as u8;
-
-        let num_empty_nodes_in_final_depth = 2_usize.pow(expected_depth.into()) - num_scripts;
-        let num_nodes_in_final_depth = num_scripts - num_empty_nodes_in_final_depth;
-
-        (0..num_scripts).fold(TaprootBuilder::new(), |acc, i| {
-            let is_node_in_last_depth = (i >= num_nodes_in_final_depth) as u8;
-
-            acc.add_leaf(expected_depth - is_node_in_last_depth, scripts[i].clone())
-                .unwrap()
-        })
-    } else {
-        TaprootBuilder::new()
-            .add_leaf(0, scripts[0].clone())
-            .unwrap()
+    // Special return cases for n = 0 or n = 1
+    match num_scripts {
+        0 => return builder,
+        1 => return builder.add_leaf(0, scripts[0].clone()).unwrap(),
+        _ => {}
     }
+
+    let deepest_layer_depth: u8 = ((num_scripts - 1).ilog2() + 1) as u8;
+
+    let num_empty_nodes_in_final_depth = 2_usize.pow(deepest_layer_depth.into()) - num_scripts;
+    let num_nodes_in_final_depth = num_scripts - num_empty_nodes_in_final_depth;
+
+    (0..num_scripts).fold(builder, |acc, i| {
+        let is_node_in_last_minus_one_depth = (i >= num_nodes_in_final_depth) as u8;
+
+        acc.add_leaf(
+            deepest_layer_depth - is_node_in_last_minus_one_depth,
+            scripts[i].clone(),
+        )
+        .unwrap()
+    })
 }
 
 /// Creates a taproot address with either key path spend or script spend path
@@ -291,5 +294,20 @@ mod tests {
             deposit_address.0.to_string(),
             "bcrt1ptlz698wumzl7uyk6pgrvsx5ep29thtvngxftywnd4mwq24fuwkwsxasqf5" // TODO: check this later
         )
+    }
+
+    #[test]
+    pub fn test_taproot_builder_with_scripts() {
+        for i in [0, 1, 10, 50, 100, 1000].into_iter() {
+            let scripts = (0..i)
+                .map(|k| ScriptBuf::builder().push_int(k).into_script())
+                .collect::<Vec<_>>();
+            let builder = super::taproot_builder_with_scripts(&scripts);
+            let tree_info = builder
+                .finalize(&SECP, *utils::UNSPENDABLE_XONLY_PUBKEY)
+                .unwrap();
+
+            assert_eq!(tree_info.script_map().len(), i as usize);
+        }
     }
 }

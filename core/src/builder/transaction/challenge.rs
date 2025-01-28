@@ -1,6 +1,6 @@
 use crate::builder;
 use crate::builder::transaction::txhandler::TxHandler;
-use crate::builder::transaction::util::*;
+use crate::builder::transaction::*;
 use crate::constants::OPERATOR_CHALLENGE_AMOUNT;
 use bitcoin::opcodes::all::OP_CHECKSIG;
 use bitcoin::{taproot::TaprootSpendInfo, Amount, OutPoint, ScriptBuf, TxOut, XOnlyPublicKey};

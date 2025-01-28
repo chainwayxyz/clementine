@@ -15,7 +15,7 @@
 use crate::builder;
 use crate::builder::address::create_taproot_address;
 use crate::builder::transaction::txhandler::TxHandler;
-use crate::builder::transaction::util::*;
+use crate::builder::transaction::*;
 use crate::constants::MIN_TAPROOT_AMOUNT;
 use bitcoin::{Amount, OutPoint, TxOut, XOnlyPublicKey};
 use bitcoin::{Network, Txid};
