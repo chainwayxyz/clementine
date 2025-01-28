@@ -6,7 +6,7 @@
 
 use super::wrapper::{
     AddressDB, EVMAddressDB, MessageDB, MusigAggNonceDB, MusigPubNonceDB, OutPointDB, PublicKeyDB,
-    SignatureDB, SignaturesDB, TxOutDB, TxidDB, Utxodb, XOnlyPublicKeyDB,
+    SignatureDB, SignaturesDB, TxOutDB, TxidDB, UtxoDB, XOnlyPublicKeyDB,
 };
 use super::wrapper::{BlockHashDB, BlockHeaderDB};
 use super::Database;
@@ -257,7 +257,7 @@ impl Database {
         )
         .bind(OutPointDB(deposit_outpoint));
 
-        let result: Result<(sqlx::types::Json<Utxodb>,), sqlx::Error> = match tx {
+        let result: Result<(sqlx::types::Json<UtxoDB>,), sqlx::Error> = match tx {
             Some(tx) => query.fetch_one(&mut **tx).await,
             None => query.fetch_one(&self.connection).await,
         };
@@ -335,7 +335,7 @@ impl Database {
         let query =
             sqlx::query_as("SELECT funding_utxo FROM funding_utxos ORDER BY id DESC LIMIT 1;");
 
-        let result: Result<(sqlx::types::Json<Utxodb>,), sqlx::Error> = match tx {
+        let result: Result<(sqlx::types::Json<UtxoDB>,), sqlx::Error> = match tx {
             Some(tx) => query.fetch_one(&mut **tx).await,
             None => query.fetch_one(&self.connection).await,
         };
@@ -358,7 +358,7 @@ impl Database {
         funding_utxo: UTXO,
     ) -> Result<(), BridgeError> {
         let query = sqlx::query("INSERT INTO funding_utxos (funding_utxo) VALUES ($1);").bind(
-            sqlx::types::Json(Utxodb {
+            sqlx::types::Json(UtxoDB {
                 outpoint_db: OutPointDB(funding_utxo.outpoint),
                 txout_db: TxOutDB(funding_utxo.txout),
             }),
@@ -384,7 +384,7 @@ impl Database {
             "INSERT INTO operators_kickoff_utxo (deposit_outpoint, kickoff_utxo) VALUES ($1, $2);",
         )
         .bind(OutPointDB(deposit_outpoint))
-        .bind(sqlx::types::Json(Utxodb {
+        .bind(sqlx::types::Json(UtxoDB {
             outpoint_db: OutPointDB(kickoff_utxo.outpoint),
             txout_db: TxOutDB(kickoff_utxo.txout),
         }));
@@ -430,7 +430,7 @@ impl Database {
         &self,
         deposit_outpoint: OutPoint,
     ) -> Result<Option<Vec<UTXO>>, BridgeError> {
-        let qr: Vec<(sqlx::types::Json<Utxodb>,)> = sqlx::query_as(
+        let qr: Vec<(sqlx::types::Json<UtxoDB>,)> = sqlx::query_as(
             "SELECT kickoff_utxo FROM deposit_kickoff_utxos WHERE deposit_outpoint = $1 ORDER BY operator_idx ASC;",
         )
         .bind(OutPointDB(deposit_outpoint))
@@ -469,7 +469,7 @@ impl Database {
             |mut builder, (operator_idx, utxo)| {
                 builder
                     .push_bind(OutPointDB(deposit_outpoint)) // Bind deposit_outpoint
-                    .push_bind(sqlx::types::Json(Utxodb {
+                    .push_bind(sqlx::types::Json(UtxoDB {
                         // Bind JSON-serialized UTXO
                         outpoint_db: OutPointDB(utxo.outpoint),
                         txout_db: TxOutDB(utxo.txout.clone()),
@@ -712,7 +712,7 @@ impl Database {
              WHERE deposit_outpoint = $1 AND kickoff_utxo = $2;",
         )
         .bind(OutPointDB(deposit_outpoint))
-        .bind(sqlx::types::Json(Utxodb {
+        .bind(sqlx::types::Json(UtxoDB {
             outpoint_db: OutPointDB(kickoff_utxo.outpoint),
             txout_db: TxOutDB(kickoff_utxo.txout),
         }))
@@ -740,7 +740,7 @@ impl Database {
             kickoff_utxos_and_sigs,
             |mut builder, (kickoff_utxo, operator_take_sig)| {
                 builder
-                    .push_bind(sqlx::types::Json(Utxodb {
+                    .push_bind(sqlx::types::Json(UtxoDB {
                         outpoint_db: OutPointDB(kickoff_utxo.outpoint),
                         txout_db: TxOutDB(kickoff_utxo.txout),
                     }))
@@ -772,7 +772,7 @@ impl Database {
              WHERE deposit_outpoint = $1 AND kickoff_utxo = $2;",
         )
         .bind(OutPointDB(deposit_outpoint))
-        .bind(sqlx::types::Json(Utxodb {
+        .bind(sqlx::types::Json(UtxoDB {
             outpoint_db: OutPointDB(kickoff_utxo.outpoint),
             txout_db: TxOutDB(kickoff_utxo.txout),
         }))
