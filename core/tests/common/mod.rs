@@ -48,7 +48,7 @@ mod test_utils;
 //     let user = User::new(rpc.clone(), secret_key, config.clone());
 
 //     let evm_address = EVMAddress([1u8; 20]);
-//     let deposit_address = user.get_deposit_address(evm_address).unwrap();
+//     let deposit_address = user.get_deposit_address(evm_address).unwrap(); This line needs to be converted into get_deposit_address!
 //     let mut deposit_outpoints = Vec::new();
 //     for _ in 0..config.operator_num_kickoff_utxos_per_tx + 1 {
 //         let deposit_outpoint = rpc
@@ -176,7 +176,7 @@ mod test_utils;
 //             ),
 //         )
 //         .await
-//         .unwrap();
+//         .unwrap(); This line needs to be converted into generate_withdrawal_transaction_and_signature!
 //     let withdrawal_provide_txid = operators[0]
 //         .0
 //         .new_withdrawal_sig_rpc(0, user_sig, user_utxo, user_txout)
@@ -198,7 +198,7 @@ mod test_utils;
 //             ),
 //         )
 //         .await
-//         .unwrap();
+//         .unwrap(); This line needs to be converted into generate_withdrawal_transaction_and_signature!
 //     let withdrawal_provide_txid = operators[1]
 //         .0
 //         .new_withdrawal_sig_rpc(
@@ -228,7 +228,7 @@ mod test_utils;
 //             ),
 //         )
 //         .await
-//         .unwrap();
+//         .unwrap(); This line needs to be converted into generate_withdrawal_transaction_and_signature!
 //     let withdrawal_provide_txid = operators[0]
 //         .0
 //         .new_withdrawal_sig_rpc(2, user_sig, user_utxo, user_txout)
@@ -274,7 +274,7 @@ mod test_utils;
 //     let user = User::new(rpc.clone(), secret_key, config.clone());
 
 //     let evm_address = EVMAddress([1u8; 20]);
-//     let deposit_address = user.get_deposit_address(evm_address).unwrap();
+//     let deposit_address = user.get_deposit_address(evm_address).unwrap(); This line needs to be converted into get_deposit_address!
 
 //     let (verifiers, operators, aggregator) =
 //         create_verifiers_and_operators("test_config.toml").await;

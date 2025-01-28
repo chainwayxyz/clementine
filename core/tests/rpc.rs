@@ -35,7 +35,7 @@ mod common;
 //     );
 
 //     let (empty_utxo, withdrawal_tx_out, user_sig) = user
-//         .generate_withdrawal_transaction_and_signature(withdrawal_address, withdrawal_amount)
+//         .generate_withdrawal_transaction_and_signature(withdrawal_address, withdrawal_amount) This line needs to be converted into generate_withdrawal_transaction_and_signature!
 //         .await
 //         .unwrap();
 
@@ -110,7 +110,7 @@ mod common;
 //             Amount::from_sat(config.bridge_amount_sats.to_sat()),
 //         )
 //         .await
-//         .unwrap();
+//         .unwrap(); This line needs to be converted into generate_withdrawal_transaction_and_signature!
 
 //     // Operator will reject because it its not profitable.
 //     assert!(operators[0]

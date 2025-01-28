@@ -38,21 +38,21 @@ impl Watchtower {
         })
     }
 
-    /// Generates Winternitz public keys for every operator and time_tx pair and
+    /// Generates Winternitz public keys for every operator and sequential_collateral_tx pair and
     /// returns them.
     ///
     /// # Returns
     ///
     /// - [`Vec<Vec<winternitz::PublicKey>>`]: Winternitz public key for
-    ///   `operator index` row and `time_tx index` column.
+    ///   `operator index` row and `sequential_collateral_tx index` column.
     pub async fn get_watchtower_winternitz_public_keys(
         &self,
     ) -> Result<Vec<winternitz::PublicKey>, BridgeError> {
         let mut winternitz_pubkeys = Vec::new();
 
         for operator in 0..self.config.num_operators as u32 {
-            for time_tx in 0..self.config.num_time_txs as u32 {
-                for kickoff_idx in 0..self.config.num_kickoffs_per_timetx as u32 {
+            for sequential_collateral_tx in 0..self.config.num_sequential_collateral_txs as u32 {
+                for kickoff_idx in 0..self.config.num_kickoffs_per_sequential_collateral_tx as u32 {
                     let path = WinternitzDerivationPath {
                         message_length: 480,
                         log_d: 4,
@@ -60,7 +60,7 @@ impl Watchtower {
                         index: None,
                         operator_idx: Some(operator),
                         watchtower_idx: None,
-                        time_tx_idx: Some(time_tx),
+                        sequential_collateral_tx_idx: Some(sequential_collateral_tx),
                         kickoff_idx: Some(kickoff_idx),
                         intermediate_step_name: None,
                     };
@@ -141,7 +141,9 @@ mod tests {
 
         assert_eq!(
             watchtower_winternitz_public_keys.len(),
-            config.num_operators * config.num_time_txs * config.num_kickoffs_per_timetx
+            config.num_operators
+                * config.num_sequential_collateral_txs
+                * config.num_kickoffs_per_sequential_collateral_tx
         );
     }
 }

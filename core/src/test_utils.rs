@@ -48,7 +48,7 @@ macro_rules! create_test_config_with_thread_name {
             + &suffix;
 
         // Use maximum log level for tests.
-        initialize_logger(5).unwrap();
+        initialize_logger(Some(::tracing::level_filters::LevelFilter::DEBUG)).unwrap();
 
         let mut config = BridgeConfig::default();
 
@@ -106,7 +106,12 @@ macro_rules! create_test_config_with_thread_name {
 macro_rules! initialize_database {
     ($config:expr) => {{
         let url = Database::get_postgresql_url(&$config);
-        let conn = sqlx::PgPool::connect(url.as_str()).await.unwrap();
+        let conn = sqlx::PgPool::connect(url.as_str())
+            .await
+            .expect(&format!(
+                "Failed to connect to database, please make sure a test Postgres DB is running at {}",
+                url
+            ));
 
         sqlx::query(&format!("DROP DATABASE IF EXISTS {}", &$config.db_name))
             .execute(&conn)
@@ -318,5 +323,118 @@ macro_rules! create_actors {
             aggregator,
             watchtower_endpoints,
         )
+    }};
+}
+
+/// Gets the the deposit address for the user.
+///
+/// # Returns
+///
+/// - [`Address`]: Deposit address of the user
+///
+/// # Required Imports
+///
+/// ## Unit Tests
+///
+/// ```rust
+/// use crate::{actor::Actor, builder, musig2::AggregateFromPublicKeys};
+/// ```
+///
+/// ## Integration Tests And Binaries
+///
+/// ```rust
+/// use clementine_core::{actor::Actor, builder, musig2::AggregateFromPublicKeys};
+/// ```
+#[macro_export]
+macro_rules! get_deposit_address {
+    ($config:expr, $evm_address:expr) => {{
+        let signer = Actor::new(
+            $config.secret_key,
+            $config.winternitz_secret_key,
+            $config.network,
+        );
+
+        let nofn_xonly_pk =
+            bitcoin::XOnlyPublicKey::from_musig2_pks($config.verifiers_public_keys.clone(), None)
+                .unwrap();
+
+        builder::address::generate_deposit_address(
+            nofn_xonly_pk,
+            signer.address.as_unchecked(),
+            $evm_address,
+            $config.bridge_amount_sats,
+            $config.network,
+            $config.user_takes_after,
+        )
+        .0
+    }};
+}
+
+/// Generates withdrawal transaction and signs it with `SinglePlusAnyoneCanPay`.
+///
+/// # Returns
+///
+/// A tuple of:
+///
+/// - [`UTXO`]: Dust UTXO used as the input of the withdrawal transaction
+/// - [`TxOut`]: Txout of the withdrawal transaction
+/// - [`Signature`]: Signature of the withdrawal transaction
+///
+/// # Required Imports
+///
+/// ## Unit Tests
+///
+/// ```rust
+/// use crate::{actor::Actor, builder, UTXO};
+/// ```
+///
+/// ## Integration Tests And Binaries
+///
+/// ```rust
+/// use clementine_core::{actor::Actor, builder, UTXO};
+/// ```
+#[macro_export]
+macro_rules! generate_withdrawal_transaction_and_signature {
+    ($config:expr, $rpc:expr, $withdrawal_address:expr, $withdrawal_amount:expr) => {{
+        let signer = Actor::new(
+            $config.secret_key,
+            $config.winternitz_secret_key,
+            $config.network,
+        );
+
+        const WITHDRAWAL_EMPTY_UTXO_SATS: bitcoin::Amount = bitcoin::Amount::from_sat(550);
+
+        let dust_outpoint = $rpc
+            .send_to_address(&signer.address, WITHDRAWAL_EMPTY_UTXO_SATS)
+            .await
+            .unwrap();
+        let dust_utxo = UTXO {
+            outpoint: dust_outpoint,
+            txout: bitcoin::TxOut {
+                value: WITHDRAWAL_EMPTY_UTXO_SATS,
+                script_pubkey: signer.address.script_pubkey(),
+            },
+        };
+
+        let txins = builder::transaction::create_tx_ins(vec![dust_utxo.outpoint].into());
+        let txout = bitcoin::TxOut {
+            value: $withdrawal_amount,
+            script_pubkey: $withdrawal_address.script_pubkey(),
+        };
+        let txouts = vec![txout.clone()];
+
+        let mut tx = builder::transaction::create_btc_tx(txins, txouts.clone());
+        let prevouts = vec![dust_utxo.txout.clone()];
+
+        let sig = signer
+            .sign_taproot_pubkey_spend_tx_with_sighash(
+                &mut tx,
+                &prevouts,
+                0,
+                Some(bitcoin::TapSighashType::SinglePlusAnyoneCanPay),
+            )
+            .unwrap();
+
+        (dust_utxo, txout, sig)
     }};
 }

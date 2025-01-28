@@ -814,11 +814,13 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(
-            config.num_time_txs * config.num_kickoffs_per_timetx,
+            config.num_sequential_collateral_txs * config.num_kickoffs_per_sequential_collateral_tx,
             verifier_wpks.len()
         );
         assert!(
-            watchtower_wpks[0..config.num_time_txs * config.num_kickoffs_per_timetx].to_vec()
+            watchtower_wpks[0..config.num_sequential_collateral_txs
+                * config.num_kickoffs_per_sequential_collateral_tx]
+                .to_vec()
                 == verifier_wpks,
             "Winternitz keys of watchtower and verifier are not equal"
         );
