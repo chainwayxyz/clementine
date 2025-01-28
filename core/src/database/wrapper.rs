@@ -224,6 +224,11 @@ impl<'r> Decode<'r, Postgres> for TxOutDB {
 mod tests {
     use super::*;
     use crate::{
+        config::BridgeConfig,
+        create_test_config_with_thread_name,
+        database::Database,
+        initialize_database,
+        utils::initialize_logger,
         utils::{self, SECP},
         EVMAddress,
     };
@@ -233,49 +238,101 @@ mod tests {
         secp256k1::schnorr::Signature,
         Amount, BlockHash, CompactTarget, OutPoint, ScriptBuf, TxMerkleNode, TxOut, Txid,
     };
-    use sqlx::{encode::IsNull, postgres::PgArgumentBuffer, Encode, Type};
+    use sqlx::{Executor, Type};
+    use std::{env, thread};
 
-    macro_rules! test_encode {
-        ($db_type:expr) => {
-            let mut hex: PgArgumentBuffer = PgArgumentBuffer::default();
-            if let IsNull::Yes = $db_type.clone().encode(&mut hex) {
-                panic!("Couldn't write {:?} to the buffer!", $db_type);
-            }
+    macro_rules! test_encode_decode_invariant {
+        ($db_type:ident, $inner:ty, $test_value:expr, $table_name:expr, $column_type:expr) => {
+            let config = create_test_config_with_thread_name!(None);
+            let database = Database::new(&config).await.unwrap();
+
+            // Create table if it doesn't exist
+            database
+                .connection
+                .execute(sqlx::query(&format!(
+                    "CREATE TABLE IF NOT EXISTS {} ({} {} PRIMARY KEY)",
+                    $table_name, $table_name, $column_type
+                )))
+                .await
+                .unwrap();
+
+            let value: $inner = $test_value;
+            let db_wrapper = $db_type(value);
+
+            // Insert the value
+            database
+                .connection
+                .execute(
+                    sqlx::query(&format!(
+                        "INSERT INTO {} ({}) VALUES ($1)",
+                        $table_name, $table_name
+                    ))
+                    .bind(db_wrapper.clone()),
+                )
+                .await
+                .unwrap();
+
+            // Retrieve the value
+            let retrieved: $db_type = sqlx::query_scalar(&format!(
+                "SELECT {} FROM {} WHERE {} = $1",
+                $table_name, $table_name, $table_name
+            ))
+            .bind(db_wrapper.clone())
+            .fetch_one(&database.connection)
+            .await
+            .unwrap();
+
+            // Verify the retrieved value matches the original
+            assert_eq!(retrieved.0, db_wrapper.0);
+
+            // Clean up
+            database
+                .connection
+                .execute(sqlx::query(&format!("DROP TABLE {}", $table_name)))
+                .await
+                .unwrap();
         };
     }
-
-    #[test]
-    fn outpointdb() {
+    #[tokio::test]
+    async fn outpoint_encode_decode_invariant() {
         assert_eq!(
             OutPointDB::type_info(),
             sqlx::postgres::PgTypeInfo::with_name("TEXT")
         );
 
-        let outpoint = OutPoint {
-            txid: Txid::all_zeros(),
-            vout: 0x45,
-        };
-        let outpointdb = OutPointDB(outpoint);
-        test_encode!(outpointdb);
+        test_encode_decode_invariant!(
+            OutPointDB,
+            OutPoint,
+            OutPoint {
+                txid: Txid::all_zeros(),
+                vout: 0x45
+            },
+            "outpoint",
+            "TEXT"
+        );
     }
 
-    #[test]
-    fn txoutdb() {
+    #[tokio::test]
+    async fn txoutdb_encode_decode_invariant() {
         assert_eq!(
             TxOutDB::type_info(),
             sqlx::postgres::PgTypeInfo::with_name("TEXT")
         );
 
-        let txout = TxOut {
-            value: Amount::from_sat(0x45),
-            script_pubkey: ScriptBuf::new(),
-        };
-        let txoutdb = TxOutDB(txout);
-        test_encode!(txoutdb);
+        test_encode_decode_invariant!(
+            TxOutDB,
+            TxOut,
+            TxOut {
+                value: Amount::from_sat(0x45),
+                script_pubkey: ScriptBuf::new(),
+            },
+            "txout",
+            "TEXT"
+        );
     }
 
-    #[test]
-    fn addressdb() {
+    #[tokio::test]
+    async fn addressdb_encode_decode_invariant() {
         assert_eq!(
             AddressDB::type_info(),
             sqlx::postgres::PgTypeInfo::with_name("TEXT")
@@ -287,49 +344,52 @@ mod tests {
             None,
             bitcoin::Network::Regtest,
         );
-        let address = address.as_unchecked();
-        let addressdb = AddressDB(address.clone());
-        test_encode!(addressdb);
+        let address = address.as_unchecked().clone();
+
+        test_encode_decode_invariant!(
+            AddressDB,
+            Address<NetworkUnchecked>,
+            address,
+            "address",
+            "TEXT"
+        );
     }
 
-    #[test]
-    fn evmaddressdb() {
+    #[tokio::test]
+    async fn evmaddressdb_encode_decode_invariant() {
         assert_eq!(
             EVMAddressDB::type_info(),
             sqlx::postgres::PgTypeInfo::with_name("TEXT")
         );
 
         let evmaddress = EVMAddress([0x45u8; 20]);
-        let evmaddressdb = EVMAddressDB(evmaddress);
-        test_encode!(evmaddressdb);
+        test_encode_decode_invariant!(EVMAddressDB, EVMAddress, evmaddress, "evmaddress", "TEXT");
     }
 
-    #[test]
-    fn txiddb() {
+    #[tokio::test]
+    async fn txiddb_encode_decode_invariant() {
         assert_eq!(
             TxidDB::type_info(),
             sqlx::postgres::PgTypeInfo::with_name("TEXT")
         );
 
         let txid = Txid::all_zeros();
-        let txiddb = TxidDB(txid);
-        test_encode!(txiddb);
+        test_encode_decode_invariant!(TxidDB, Txid, txid, "txid", "TEXT");
     }
 
-    #[test]
-    fn signaturedb() {
+    #[tokio::test]
+    async fn signaturedb_encode_decode_invariant() {
         assert_eq!(
             SignatureDB::type_info(),
             sqlx::postgres::PgTypeInfo::with_name("BYTEA")
         );
 
         let signature = Signature::from_slice(&[0u8; 64]).unwrap();
-        let signaturedb = SignatureDB(signature);
-        test_encode!(signaturedb);
+        test_encode_decode_invariant!(SignatureDB, Signature, signature, "signature", "BYTEA");
     }
 
-    #[test]
-    fn signaturesdb() {
+    #[tokio::test]
+    async fn signaturesdb_encode_decode_invariant() {
         assert_eq!(
             SignaturesDB::type_info(),
             sqlx::postgres::PgTypeInfo::with_name("BYTEA")
@@ -339,25 +399,28 @@ mod tests {
             Signature::from_slice(&[0x1Fu8; 64]).unwrap(),
             Signature::from_slice(&[0x45u8; 64]).unwrap(),
         ];
-        let signaturesdb = SignaturesDB(signatures);
-
-        test_encode!(signaturesdb);
+        test_encode_decode_invariant!(
+            SignaturesDB,
+            Vec<Signature>,
+            signatures,
+            "signatures",
+            "BYTEA"
+        );
     }
 
-    #[test]
-    fn blockhashdb() {
+    #[tokio::test]
+    async fn blockhashdb_encode_decode_invariant() {
         assert_eq!(
             OutPointDB::type_info(),
             sqlx::postgres::PgTypeInfo::with_name("TEXT")
         );
 
         let blockhash = BlockHash::all_zeros();
-        let blockhashdb = BlockHashDB(blockhash);
-        test_encode!(blockhashdb);
+        test_encode_decode_invariant!(BlockHashDB, BlockHash, blockhash, "blockhash", "TEXT");
     }
 
-    #[test]
-    fn blockheaderdb() {
+    #[tokio::test]
+    async fn blockheaderdb_encode_decode_invariant() {
         assert_eq!(
             OutPointDB::type_info(),
             sqlx::postgres::PgTypeInfo::with_name("TEXT")
@@ -371,7 +434,12 @@ mod tests {
             bits: CompactTarget::default(),
             nonce: 0,
         };
-        let blockheaderdb = BlockHeaderDB(blockheader);
-        test_encode!(blockheaderdb);
+        test_encode_decode_invariant!(
+            BlockHeaderDB,
+            block::Header,
+            blockheader,
+            "blockheader",
+            "TEXT"
+        );
     }
 }
