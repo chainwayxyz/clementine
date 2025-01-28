@@ -823,7 +823,7 @@ mod tests {
             watchtower_challenge_addresses[0..config.num_kickoffs_per_sequential_collateral_tx
                 * config.num_kickoffs_per_sequential_collateral_tx]
                 .to_vec()
-                == verifier_challenge_addresses_2,
+                == verifier_challenge_addresses_2, // Caveat: https://github.com/chainwayxyz/clementine/issues/478
             "Challenge addresses of watchtower and verifier are not equal"
         );
     }
