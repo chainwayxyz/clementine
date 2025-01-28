@@ -10,6 +10,7 @@ use crate::{config::BridgeConfig, errors::BridgeError};
 use sqlx::{Pool, Postgres};
 
 mod common;
+mod verifier;
 mod wrapper;
 
 /// PostgreSQL database connection details.
