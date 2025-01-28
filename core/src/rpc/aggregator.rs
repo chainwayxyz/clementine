@@ -2,16 +2,23 @@ use super::clementine::{
     clementine_aggregator_server::ClementineAggregator, verifier_deposit_finalize_params,
     DepositParams, Empty, RawSignedMoveTx, VerifierDepositFinalizeParams,
 };
+use crate::builder::transaction::create_move_to_vault_txhandler;
+use crate::config::BridgeConfig;
+use crate::rpc::clementine::clementine_operator_client::ClementineOperatorClient;
 use crate::rpc::clementine::clementine_verifier_client::ClementineVerifierClient;
+use crate::rpc::parsers;
 use crate::{
     aggregator::Aggregator,
-    builder::sighash::{calculate_num_required_sigs, create_nofn_sighash_stream},
+    builder::sighash::{
+        calculate_num_required_nofn_sigs, calculate_num_required_operator_sigs,
+        create_nofn_sighash_stream,
+    },
     errors::BridgeError,
     musig2::aggregate_nonces,
     rpc::clementine::{self, DepositSignSession},
-    EVMAddress,
 };
 use bitcoin::hashes::Hash;
+use bitcoin::secp256k1::schnorr::Signature;
 use bitcoin::secp256k1::{Message, PublicKey};
 use bitcoin::{Amount, TapSighash};
 use futures::{future::try_join_all, stream::BoxStream, FutureExt, Stream, StreamExt};
@@ -146,7 +153,7 @@ async fn signature_aggregator(
             None,
             queue_item.agg_nonce,
             &partial_sigs,
-            Message::from_digest(queue_item.sighash.as_raw_hash().to_byte_array()),
+            Message::from_digest(queue_item.sighash.to_byte_array()),
         )?;
 
         final_sig_sender
@@ -282,6 +289,97 @@ impl Aggregator {
             )),
         }
     }
+
+    /// For a specific deposit, gets needed signatures from each operator and returns a Vec with signatures from each operator
+    async fn get_operator_sigs(
+        operator_clients: Vec<ClementineOperatorClient<tonic::transport::Channel>>,
+        config: BridgeConfig,
+        mut deposit_sign_session: DepositSignSession,
+    ) -> Result<Vec<Vec<Signature>>, BridgeError> {
+        deposit_sign_session.nonce_gen_first_responses = Vec::new(); // not needed for operators
+        let mut operator_sigs_streams =
+            // create deposit sign streams with each operator
+            try_join_all(operator_clients.into_iter().map(|mut operator_client| {
+                let sign_session = deposit_sign_session.clone();
+                async move {
+                    let stream = operator_client
+                        .deposit_sign(tonic::Request::new(sign_session))
+                        .await?;
+                    Ok::<_, Status>(stream.into_inner())
+                }
+            }))
+                .await?;
+        // calculate number of signatures needed from each operator
+        let needed_sigs = calculate_num_required_operator_sigs(&config);
+        // get signatures from each operator's signature streams
+        let operator_sigs = try_join_all(operator_sigs_streams.iter_mut().map(|stream| async {
+            let mut sigs: Vec<Signature> = Vec::with_capacity(needed_sigs);
+            while let Some(sig) = stream.message().await? {
+                sigs.push(Signature::from_slice(&sig.schnorr_sig)?);
+            }
+            Ok::<_, BridgeError>(sigs)
+        }))
+        .await?;
+        // check if all signatures are received
+        for (idx, sigs) in operator_sigs.iter().enumerate() {
+            if sigs.len() != needed_sigs {
+                return Err(BridgeError::Error(format!(
+                    "Not all operator sigs received from op: {}.\n Expected: {}, got: {}",
+                    idx,
+                    needed_sigs,
+                    sigs.len()
+                )));
+            }
+        }
+        Ok(operator_sigs)
+    }
+
+    fn create_movetx_check_sig(
+        &self,
+        partial_sigs: Vec<Vec<u8>>,
+        movetx_agg_nonce: MusigAggNonce,
+        deposit_params: DepositParams,
+    ) -> Result<RawSignedMoveTx, Status> {
+        let (deposit_outpoint, evm_address, recovery_taproot_address, user_takes_after) =
+            parsers::parse_deposit_params(deposit_params)?;
+        let musig_partial_sigs: Vec<MusigPartialSignature> = partial_sigs
+            .iter()
+            .map(|sig: &Vec<u8>| MusigPartialSignature::from_slice(sig))
+            .collect::<Result<Vec<_>, _>>()
+            .map_err(|e| {
+                BridgeError::RPCParamMalformed(
+                    "Partial sigs for movetx could not be parsed into MusigPartialSignature",
+                    e.to_string(),
+                )
+            })?;
+
+        // create move tx and calculate sighash
+        let mut move_txhandler = create_move_to_vault_txhandler(
+            deposit_outpoint,
+            evm_address,
+            &recovery_taproot_address,
+            self.nofn_xonly_pk,
+            user_takes_after,
+            self.config.bridge_amount_sats,
+            self.config.network,
+        );
+        let sighash = move_txhandler.calculate_script_spend_sighash(0, 0, None)?;
+
+        // aggregate partial signatures
+        let _final_sig = crate::musig2::aggregate_partial_signatures(
+            &self.config.verifiers_public_keys,
+            None,
+            movetx_agg_nonce,
+            &musig_partial_sigs,
+            Message::from_digest(sighash.to_byte_array()),
+        )
+        .map_err(|x| BridgeError::Error(format!("Aggregating MoveTx signatures failed {}", x)))?;
+
+        // everything is fine, return the signed move tx
+        let _move_tx = move_txhandler.tx;
+        // TODO: Sign the transaction correctly after we create taproot witness generation functions
+        Ok(RawSignedMoveTx { raw_tx: vec![1, 2] })
+    }
 }
 
 #[async_trait]
@@ -405,6 +503,7 @@ impl ClementineAggregator for Aggregator {
 
     /// Handles a new deposit request from a user. This function coordinates the signing process
     /// between verifiers to create a valid move transaction. It ensures a covenant using pre-signed NofN transactions.
+    /// It also collects signatures from operators to ensure that the operators can be slashed if they act maliciously.
     ///
     /// Overview:
     /// 1. Receive and parse deposit parameters from user
@@ -412,8 +511,9 @@ impl ClementineAggregator for Aggregator {
     ///    - Creates nonce streams with verifiers (get pub nonces for each transaction)
     ///    - Opens deposit signing streams with verifiers (sends aggnonces for each transaction, receives partial sigs)
     ///    - Opens deposit finalization streams with verifiers (sends final signatures, receives movetx signatures)
-    /// 3. Waits for all tasks to complete
-    /// 4. Returns signed move transaction
+    /// 3. Collects signatures from operators
+    /// 4. Waits for all tasks to complete
+    /// 5. Returns signed move transaction
     ///
     /// The following pipelines are used to coordinate the signing process, these move the data between the verifiers and the aggregator:
     ///    - Nonce aggregation
@@ -429,35 +529,14 @@ impl ClementineAggregator for Aggregator {
 
         // Extract and validate deposit parameters
         let deposit_params = deposit_params_req.get_ref().clone();
-
-        // Parse deposit outpoint (the UTXO being deposited)
-        let deposit_outpoint: bitcoin::OutPoint = deposit_params
-            .deposit_outpoint
-            .ok_or(Status::internal("No deposit outpoint received"))?
-            .try_into()?;
-
-        // Parse user's EVM address
-        let evm_address: EVMAddress = deposit_params
-            .evm_address
-            .try_into()
-            .map_err(|e: &str| BridgeError::RPCParamMalformed("evm_address", e.to_string()))?;
-
-        // Parse user's recovery taproot address
-        let recovery_taproot_address = deposit_params
-            .recovery_taproot_address
-            .parse::<bitcoin::Address<_>>()
-            .map_err(|e| {
-                BridgeError::RPCParamMalformed("recovery_taproot_address", e.to_string())
-            })?;
-
-        let user_takes_after = u16::try_from(deposit_params.user_takes_after)
-            .map_err(|e| BridgeError::RPCParamMalformed("user_takes_after", e.to_string()))?;
+        let (deposit_outpoint, evm_address, recovery_taproot_address, user_takes_after) =
+            parsers::parse_deposit_params(deposit_params.clone())?;
         let verifiers_public_keys = self.config.verifiers_public_keys.clone();
 
         tracing::debug!("Parsed deposit params");
 
         // Generate nonce streams for all verifiers.
-        let num_required_sigs = calculate_num_required_sigs(&self.config);
+        let num_required_sigs = calculate_num_required_nofn_sigs(&self.config);
         let (first_responses, nonce_streams) =
             create_nonce_streams(self.verifier_clients.clone(), num_required_sigs as u32 + 1)
                 .await?; // ask for +1 for the final movetx signature, but don't send it on deposit_sign stage
@@ -589,14 +668,53 @@ impl ClementineAggregator for Aggregator {
         // Start the deposit finalization pipe.
         let sig_dist_handle = tokio::spawn(signature_distributor(
             final_sig_receiver,
-            deposit_finalize_sender,
+            deposit_finalize_sender.clone(),
             movetx_agg_nonce,
         ));
 
+        tracing::debug!("Getting signatures from operators");
+        // Get sigs from each operator in background
+        let operator_sigs_fut = tokio::spawn(Aggregator::get_operator_sigs(
+            self.operator_clients.clone(),
+            self.config.clone(),
+            deposit_sign_session,
+        ));
+
+        tracing::debug!(
+            "Waiting for pipeline tasks to complete (nonce agg, sig agg, sig dist, operator sigs)"
+        );
         // Wait for all pipeline tasks to complete
         nonce_dist_handle.await.unwrap()?;
         sig_agg_handle.await.unwrap()?;
         sig_dist_handle.await.unwrap()?;
+        let operator_sigs = operator_sigs_fut.await.unwrap()?;
+
+        // send operators sigs to verifiers after all verifiers have signed
+        let send_operator_sigs: Vec<_> = deposit_finalize_sender
+            .iter()
+            .map(|tx| async {
+                for sigs in operator_sigs.iter() {
+                    for sig in sigs.iter() {
+                        tx.send(VerifierDepositFinalizeParams {
+                            params: Some(verifier_deposit_finalize_params::Params::SchnorrSig(
+                                sig.serialize().to_vec(),
+                            )),
+                        })
+                        .await
+                        .map_err(|e| {
+                            BridgeError::RPCStreamEndedUnexpectedly(format!(
+                                "Can't send operator sigs to verifier: {}",
+                                e
+                            ))
+                        })?;
+                    }
+                }
+                Ok::<(), BridgeError>(())
+            })
+            .collect();
+
+        // wait until all operator sigs are sent to every verifier
+        try_join_all(send_operator_sigs).await?;
 
         tracing::debug!("Waiting for deposit finalization");
 
@@ -610,8 +728,11 @@ impl ClementineAggregator for Aggregator {
         .map_err(|e| Status::internal(format!("Failed to finalize deposit: {:?}", e)))?;
 
         tracing::debug!("Received move tx partial sigs: {:?}", move_tx_partial_sigs);
+        // Create the final move transaction and check the signatures
+        let raw_signed_movetx =
+            self.create_movetx_check_sig(move_tx_partial_sigs, movetx_agg_nonce, deposit_params)?;
 
-        Ok(Response::new(RawSignedMoveTx { raw_tx: vec![1, 2] }))
+        Ok(Response::new(raw_signed_movetx))
     }
 }
 

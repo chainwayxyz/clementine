@@ -8,6 +8,7 @@ pub mod clementine;
 
 pub mod aggregator;
 pub mod operator;
+mod parsers;
 pub mod verifier;
 pub mod watchtower;
 mod wrapper;

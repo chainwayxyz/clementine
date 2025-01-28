@@ -8,7 +8,10 @@ use crate::{
     builder::{
         self,
         address::{derive_challenge_address_from_xonlypk_and_wpk, taproot_builder_with_scripts},
-        sighash::{calculate_num_required_sigs, create_nofn_sighash_stream},
+        sighash::{
+            calculate_num_required_nofn_sigs, calculate_num_required_operator_sigs,
+            create_nofn_sighash_stream, create_operator_sighash_stream,
+        },
         transaction::create_move_to_vault_txhandler,
     },
     errors::BridgeError,
@@ -17,7 +20,7 @@ use crate::{
     verifier::{NofN, NonceSession, Verifier},
     EVMAddress,
 };
-use bitcoin::{address::NetworkUnchecked, hashes::Hash, Amount, Txid};
+use bitcoin::{address::NetworkUnchecked, hashes::Hash, Amount, TapTweakHash, Txid};
 use bitcoin::{
     secp256k1::{schnorr, Message, PublicKey},
     ScriptBuf, XOnlyPublicKey,
@@ -27,6 +30,7 @@ use bitvm::signatures::{
     winternitz,
 };
 
+use crate::utils::SECP;
 use futures::StreamExt;
 use secp256k1::musig::{MusigAggNonce, MusigPubNonce, MusigSecNonce};
 use std::collections::BTreeMap;
@@ -616,7 +620,7 @@ impl ClementineVerifier for Verifier {
                 verifier.config.bridge_amount_sats,
                 verifier.config.network,
             ));
-            let num_required_sigs = calculate_num_required_sigs(&verifier.config);
+            let num_required_sigs = calculate_num_required_nofn_sigs(&verifier.config);
 
             assert!(
                 num_required_sigs + 1 == session.nonces.len(),
@@ -671,6 +675,9 @@ impl ClementineVerifier for Verifier {
         Ok(Response::new(out_stream))
     }
 
+    /// Function to finalize the deposit. Verifier will check the validity of the both nofn signatures and
+    /// operator signatures. It will receive data from the stream in this order -> nofn sigs, movetx agg nonce, operator sigs.
+    /// If everything is correct, it will partially sign the move tx and send it to aggregator.
     #[tracing::instrument(skip(self), err(level = tracing::Level::ERROR), ret(level = tracing::Level::TRACE))]
     #[allow(clippy::blocks_in_conditions)]
     async fn deposit_finalize(
@@ -711,16 +718,17 @@ impl ClementineVerifier for Verifier {
             self.config.bridge_amount_sats,
             self.config.network,
         ));
-        let num_required_sigs = calculate_num_required_sigs(&self.config);
-        let mut verified_sigs = Vec::with_capacity(num_required_sigs);
+
+        let num_required_nofn_sigs = calculate_num_required_nofn_sigs(&self.config);
+        let mut verified_sigs = Vec::with_capacity(num_required_nofn_sigs);
+
         let mut nonce_idx: usize = 0;
 
         while let Some(result) = in_stream.message().await.unwrap() {
             let sighash = sighash_stream.next().await.unwrap().unwrap();
             let final_sig = result
                 .params
-                .ok_or(Status::internal("No final sig received"))
-                .unwrap();
+                .ok_or(Status::internal("No final sig received"))?;
             let final_sig = match final_sig {
                 Params::SchnorrSig(final_sig) => {
                     schnorr::Signature::from_slice(&final_sig).unwrap()
@@ -731,28 +739,28 @@ impl ClementineVerifier for Verifier {
             tracing::debug!("Verifying Final Signature");
             utils::SECP
                 .verify_schnorr(&final_sig, &Message::from(sighash), &self.nofn_xonly_pk)
-                .unwrap();
+                .map_err(|x| {
+                    Status::internal(format!(
+                        "Nofn Signature {} Verification Failed: {}.",
+                        nonce_idx + 1,
+                        x
+                    ))
+                })?;
 
             verified_sigs.push(final_sig);
             tracing::debug!("Final Signature Verified");
 
             nonce_idx += 1;
-            if nonce_idx == num_required_sigs {
+            if nonce_idx == num_required_nofn_sigs {
                 break;
             }
         }
 
-        assert!(
-            verified_sigs.len() % self.config.num_operators == 0,
-            "Number of verified sigs is not divisible by number of operators"
-        );
-        for (i, window) in verified_sigs
-            .chunks_exact(verified_sigs.len() / self.config.num_operators)
-            .enumerate()
-        {
-            self.db
-                .save_deposit_signatures(None, deposit_outpoint, i as u32, window.to_vec())
-                .await?;
+        if nonce_idx != num_required_nofn_sigs {
+            return Err(Status::internal(format!(
+                "Not received enough nofn signatures. Needed: {}, received: {}",
+                num_required_nofn_sigs, nonce_idx
+            )));
         }
 
         // Generate partial signature for move transaction
@@ -783,6 +791,94 @@ impl ClementineVerifier for Verifier {
                 .ok_or_else(|| Status::internal("No move tx secnonce in session"))?
         };
 
+        let mut op_deposit_sigs: Vec<Vec<schnorr::Signature>> = verified_sigs
+            .chunks_exact(verified_sigs.len() / self.config.num_operators)
+            .map(|chunk| chunk.to_vec())
+            .collect();
+
+        let num_required_op_sigs = calculate_num_required_operator_sigs(&self.config);
+        let num_required_total_op_sigs = num_required_op_sigs * self.config.num_operators;
+        let mut total_op_sig_count = 0;
+
+        // get operator data
+        let operators_data: Vec<(XOnlyPublicKey, bitcoin::Address, Txid)> =
+            self.db.get_operators(None).await?;
+
+        // get signatures of operators and verify them
+        for (operator_idx, (op_xonly_pk, _, collateral_txid)) in operators_data.iter().enumerate() {
+            let mut op_sig_count = 0;
+            // tweak the operator xonly public key with None (because merkle root is empty as operator utxos have no scripts)
+            let scalar = TapTweakHash::from_key_and_tweak(*op_xonly_pk, None).to_scalar();
+            let tweaked_op_xonly_pk = op_xonly_pk
+                .add_tweak(&SECP, &scalar)
+                .map_err(|x| {
+                    Status::internal(format!("Failed to tweak operator xonly public key: {}", x))
+                })?
+                .0;
+            // generate the sighash stream for operator
+            let mut sighash_stream = pin!(create_operator_sighash_stream(
+                self.db.clone(),
+                operator_idx,
+                *collateral_txid,
+                *op_xonly_pk,
+                self.config.clone(),
+                deposit_outpoint,
+                evm_address,
+                recovery_taproot_address.clone(),
+                self.nofn_xonly_pk,
+                user_takes_after,
+                Amount::from_sat(200_000_000), // TODO: Fix this.
+                6,
+                100,
+                self.config.bridge_amount_sats,
+                self.config.network,
+            ));
+            while let Some(result) = in_stream.message().await? {
+                let sighash = sighash_stream.next().await.unwrap()?;
+                let operator_sig = result
+                    .params
+                    .ok_or(Status::internal("No operator sig received"))?;
+                let final_sig = match operator_sig {
+                    Params::SchnorrSig(final_sig) => {
+                        schnorr::Signature::from_slice(&final_sig).unwrap()
+                    }
+                    _ => {
+                        return Err(Status::internal(format!(
+                            "Expected Operator Sig, got: {:?}",
+                            operator_sig
+                        )))
+                    }
+                };
+
+                utils::SECP
+                    .verify_schnorr(&final_sig, &Message::from(sighash), &tweaked_op_xonly_pk)
+                    .map_err(|x| {
+                        Status::internal(format!(
+                            "Operator {} Signature {} Verification Failed: {}.",
+                            operator_idx,
+                            op_sig_count + 1,
+                            x
+                        ))
+                    })?;
+
+                op_deposit_sigs[operator_idx].push(final_sig);
+
+                op_sig_count += 1;
+                total_op_sig_count += 1;
+                if op_sig_count == num_required_op_sigs {
+                    break;
+                }
+            }
+        }
+
+        if total_op_sig_count != num_required_total_op_sigs {
+            return Err(Status::internal(format!(
+                "Not enough operator signatures. Needed: {}, received: {}",
+                num_required_total_op_sigs, total_op_sig_count
+            )));
+        }
+
+        // sign move tx and save everything to db if everything is correct
         let partial_sig = musig2::partial_sign(
             self.config.verifiers_public_keys.clone(),
             None,
@@ -791,6 +887,14 @@ impl ClementineVerifier for Verifier {
             self.signer.keypair,
             Message::from_digest(move_tx_sighash.to_byte_array()),
         )?;
+
+        // Deposit is not actually finalized here, its only finalized after the aggregator gets all the partial sigs and checks the aggregated sig
+        // TODO: It can create problems if the deposit fails at the end by some verifier not sending movetx partial sig, but we still added sigs to db
+        for (i, window) in op_deposit_sigs.into_iter().enumerate() {
+            self.db
+                .save_deposit_signatures(None, deposit_outpoint, i as u32, window)
+                .await?;
+        }
 
         tracing::info!("Deposit finalized, returning partial sig");
         Ok(Response::new(PartialSig {

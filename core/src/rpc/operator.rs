@@ -3,8 +3,12 @@ use super::clementine::{
     DepositSignSession, Empty, NewWithdrawalSigParams, NewWithdrawalSigResponse, OperatorBurnSig,
     OperatorParams, WinternitzPubkey, WithdrawalFinalizedParams,
 };
+use crate::builder::sighash::create_operator_sighash_stream;
+use crate::rpc::parsers;
 use crate::{errors::BridgeError, operator::Operator};
-use bitcoin::{hashes::Hash, OutPoint};
+use bitcoin::{hashes::Hash, Amount, OutPoint};
+use futures::StreamExt;
+use std::pin::pin;
 use tokio::sync::mpsc;
 use tokio_stream::wrappers::ReceiverStream;
 use tonic::{async_trait, Request, Response, Status};
@@ -20,23 +24,13 @@ impl ClementineOperator for Operator {
         &self,
         _request: Request<Empty>,
     ) -> Result<Response<Self::GetParamsStream>, Status> {
-        let sequential_collateral_txs = self
-            .db
-            .get_sequential_collateral_txs(None, self.idx as i32)
-            .await?;
         let operator = self.clone();
-
-        if sequential_collateral_txs.is_empty() || sequential_collateral_txs[0].0 != 0 {
-            return Err(
-                BridgeError::Error("Sequential collateral txs not found".to_string()).into(),
-            );
-        }
 
         let (tx, rx) = mpsc::channel(1280);
         tokio::spawn(async move {
             let operator_config = clementine::OperatorConfig {
                 operator_idx: operator.idx as u32,
-                collateral_funding_txid: sequential_collateral_txs[0].1.to_byte_array().to_vec(),
+                collateral_funding_txid: operator.collateral_funding_txid.to_byte_array().to_vec(),
                 xonly_pk: operator.signer.xonly_public_key.to_string(),
                 wallet_reimburse_address: operator.config.operator_wallet_addresses[operator.idx] // TODO: Fix this where the config will only have one address.
                     .clone()
@@ -89,9 +83,49 @@ impl ClementineOperator for Operator {
     #[allow(clippy::blocks_in_conditions)]
     async fn deposit_sign(
         &self,
-        _request: Request<DepositSignSession>,
+        request: Request<DepositSignSession>,
     ) -> Result<Response<Self::DepositSignStream>, Status> {
-        todo!()
+        let deposit_sign_session = request.into_inner();
+        let (deposit_outpoint, evm_address, recovery_taproot_address, user_takes_after) =
+            match deposit_sign_session.deposit_params {
+                Some(deposit_params) => parsers::parse_deposit_params(deposit_params)?,
+                _ => panic!("Expected Deposit Params"),
+            };
+        let (tx, rx) = mpsc::channel(1280);
+        let operator = self.clone();
+        tokio::spawn(async move {
+            let mut sighash_stream = pin!(create_operator_sighash_stream(
+                operator.db,
+                operator.idx,
+                operator.collateral_funding_txid,
+                operator.signer.xonly_public_key,
+                operator.config.clone(),
+                deposit_outpoint,
+                evm_address,
+                recovery_taproot_address,
+                operator.nofn_xonly_pk,
+                user_takes_after,
+                Amount::from_sat(200_000_000), // TODO: Fix this.
+                6,
+                100,
+                operator.config.bridge_amount_sats,
+                operator.config.network,
+            ));
+            while let Some(sighash_result) = sighash_stream.next().await {
+                let sighash = sighash_result?;
+                // None because utxos that operators need to sign do not have scripts
+                let sig = operator.signer.sign_with_tweak(sighash, None)?;
+
+                let operator_burn_sig = OperatorBurnSig {
+                    schnorr_sig: sig.serialize().to_vec(),
+                };
+                if tx.send(Ok(operator_burn_sig)).await.is_err() {
+                    break;
+                }
+            }
+            Ok::<_, BridgeError>(())
+        });
+        Ok(Response::new(ReceiverStream::new(rx)))
     }
 
     #[tracing::instrument(skip(self), err(level = tracing::Level::ERROR), ret(level = tracing::Level::TRACE))]
