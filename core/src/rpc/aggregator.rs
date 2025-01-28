@@ -503,6 +503,7 @@ impl ClementineAggregator for Aggregator {
 
     /// Handles a new deposit request from a user. This function coordinates the signing process
     /// between verifiers to create a valid move transaction. It ensures a covenant using pre-signed NofN transactions.
+    /// It also collects signatures from operators to ensure that the operators can be slashed if they act maliciously.
     ///
     /// Overview:
     /// 1. Receive and parse deposit parameters from user
@@ -510,8 +511,9 @@ impl ClementineAggregator for Aggregator {
     ///    - Creates nonce streams with verifiers (get pub nonces for each transaction)
     ///    - Opens deposit signing streams with verifiers (sends aggnonces for each transaction, receives partial sigs)
     ///    - Opens deposit finalization streams with verifiers (sends final signatures, receives movetx signatures)
-    /// 3. Waits for all tasks to complete
-    /// 4. Returns signed move transaction
+    /// 3. Collects signatures from operators
+    /// 4. Waits for all tasks to complete
+    /// 5. Returns signed move transaction
     ///
     /// The following pipelines are used to coordinate the signing process, these move the data between the verifiers and the aggregator:
     ///    - Nonce aggregation
