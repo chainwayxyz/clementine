@@ -78,7 +78,7 @@ impl Operator {
         let sequential_collateral_txs = db
             .get_sequential_collateral_txs(Some(&mut tx), idx as i32)
             .await?;
-        if sequential_collateral_txs.is_empty() {
+        let collateral_funding_txid = if sequential_collateral_txs.is_empty() {
             let outpoint = _rpc
                 .send_to_address(&signer.address, Amount::from_sat(200_000_000))
                 .await?; // TODO: Is this OK to be a fixed value
@@ -86,7 +86,7 @@ impl Operator {
                 .await?;
             outpoint.txid
         } else {
-            time_txs[0].1
+            sequential_collateral_txs[0].1
         };
         tx.commit().await?;
 

@@ -25,7 +25,7 @@ pub fn calculate_num_required_nofn_sigs(config: &BridgeConfig) -> usize {
 // WIP: For now, this is equal to the number of sighashes we yield in create_operator_sighash_stream.
 // This will change as we implement the system design.
 pub fn calculate_num_required_operator_sigs(config: &BridgeConfig) -> usize {
-    config.num_time_txs * config.num_kickoffs_per_timetx * 3
+    config.num_sequential_collateral_txs * config.num_kickoffs_per_sequential_collateral_tx * 3
 }
 
 /// Refer to bridge design diagram to see which NofN signatures are needed (the ones marked with blue arrows).
@@ -361,7 +361,7 @@ pub fn create_operator_sighash_stream(
         let mut input_amount = collateral_funding_amount;
 
         // For each sequential_collateral_tx, we have multiple kickoff_utxos as the connectors.
-        for time_tx_idx in 0..config.num_time_txs {
+        for time_tx_idx in 0..config.num_sequential_collateral_txs {
             // Create the sequential_collateral_tx handler.
             let sequential_collateral_txhandler = builder::transaction::create_sequential_collateral_txhandler(
                 operator_xonly_pk,
@@ -369,7 +369,7 @@ pub fn create_operator_sighash_stream(
                 input_amount,
                 timeout_block_count,
                 max_withdrawal_time_block_count,
-                config.num_kickoffs_per_timetx,
+                config.num_kickoffs_per_sequential_collateral_tx,
                 network,
             );
 
@@ -377,7 +377,7 @@ pub fn create_operator_sighash_stream(
             let reimburse_generator_txhandler = builder::transaction::create_reimburse_generator_txhandler(
                 &sequential_collateral_txhandler,
                 operator_xonly_pk,
-                config.num_kickoffs_per_timetx,
+                config.num_kickoffs_per_sequential_collateral_tx,
                 max_withdrawal_time_block_count,
                 network,
             );
@@ -388,7 +388,7 @@ pub fn create_operator_sighash_stream(
             // (assert_begin_tx -> assert_end_tx -> either disprove_timeout_tx or already_disproven_tx).
             // If the operator is honest, the sequence will end with the operator being able to send the reimburse_tx.
             // Otherwise, by using the disprove_tx, the operator's sequential_collateral_tx burn connector will be burned.
-            for kickoff_idx in 0..config.num_kickoffs_per_timetx {
+            for kickoff_idx in 0..config.num_kickoffs_per_sequential_collateral_tx {
                 let kickoff_txhandler = builder::transaction::create_kickoff_txhandler(
                     &sequential_collateral_txhandler,
                     kickoff_idx,
