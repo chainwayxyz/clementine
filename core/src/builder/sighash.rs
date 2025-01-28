@@ -74,18 +74,15 @@ pub fn create_nofn_sighash_stream(
             panic!("Not enough operators");
         }
 
-        // Get the X-Only Public Keys of all watchtowers. These are needed since they will be used inside the scripts.
-        let watchtower_pks = db.get_all_watchtowers_xonly_pks(None).await?;
-
         for (operator_idx, (operator_xonly_pk, operator_reimburse_address, collateral_funding_txid)) in
             operators.iter().enumerate()
         {
-            // Get all the watchtower Winternitz pubkeys for this operator. We have all of them here (for all the kickoff_utxos).
-            let watchtower_all_challenge_winternitz_pks = (0..config.num_watchtowers)
-                .map(|i| db.get_watchtower_winternitz_public_keys(None, i as u32, operator_idx as u32))
+            // Get all the watchtower challenge addresses for this operator. We have all of them here (for all the kickoff_utxos).
+            // TODO: Make this more efficient
+            let watchtower_all_challenge_addresses = (0..config.num_watchtowers)
+                .map(|i| db.get_watchtower_challenge_addresses(None, i as u32, operator_idx as u32))
                 .collect::<Vec<_>>();
-            let watchtower_all_challenge_winternitz_pks =
-                futures::future::try_join_all(watchtower_all_challenge_winternitz_pks).await?;
+            let watchtower_all_challenge_addresses = futures::future::try_join_all(watchtower_all_challenge_addresses).await?;
 
             let mut input_txid = *collateral_funding_txid;
             let mut input_amount = collateral_funding_amount;
@@ -170,18 +167,15 @@ pub fn create_nofn_sighash_stream(
                     )?;
 
                     // Collect the challenge Winternitz pubkeys for this specific kickoff_utxo.
-                    let watchtower_challenge_winternitz_pks = (0..config.num_watchtowers)
-                        .map(|i| watchtower_all_challenge_winternitz_pks[i][sequential_collateral_tx_idx * config.num_kickoffs_per_sequential_collateral_tx + kickoff_idx].clone())
+                    let watchtower_challenge_addresses = (0..config.num_watchtowers)
+                        .map(|i| watchtower_all_challenge_addresses[i][sequential_collateral_tx_idx * config.num_kickoffs_per_sequential_collateral_tx + kickoff_idx].clone())
                         .collect::<Vec<_>>();
 
-                    // Creates the watchtower_challenge_kickoff_tx handler.
                     let mut watchtower_challenge_kickoff_txhandler =
-                        builder::transaction::create_watchtower_challenge_kickoff_txhandler(
+                        builder::transaction::create_watchtower_challenge_kickoff_txhandler_simplified(
                             &kickoff_txhandler,
                             config.num_watchtowers as u32,
-                            &watchtower_pks,
-                            &watchtower_challenge_winternitz_pks,
-                            network,
+                            &watchtower_challenge_addresses,
                         );
 
                     // Yields the sighash for the watchtower_challenge_kickoff_tx.input[0], which spends kickoff_tx.input[0].
@@ -211,7 +205,7 @@ pub fn create_nofn_sighash_stream(
                     for (watchtower_idx, public_hash) in public_hashes.iter().enumerate() {
                         // Creates the watchtower_challenge_tx handler.
                         let watchtower_challenge_txhandler =
-                            builder::transaction::create_watchtower_challenge_txhandler(
+                            builder::transaction::create_watchtower_challenge_txhandler_simplified(
                                 &watchtower_challenge_kickoff_txhandler,
                                 watchtower_idx,
                                 public_hash,
@@ -536,12 +530,12 @@ mod tests {
         }
         for i in 0..config.num_operators {
             for j in 0..config.num_watchtowers {
-                db.save_watchtower_winternitz_public_keys(
+                db.save_watchtower_challenge_addresses(
                     None,
                     j.try_into().unwrap(),
                     i.try_into().unwrap(),
                     watchtower
-                        .get_watchtower_winternitz_public_keys()
+                        .get_watchtower_challenge_addresses()
                         .await
                         .unwrap(),
                 )

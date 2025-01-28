@@ -3,6 +3,7 @@
 //! Prover is responsible for preparing RiscZero header chain prover proofs.
 
 use crate::{errors::BridgeError, header_chain_prover::HeaderChainProver};
+use bitcoin::Network;
 use header_chain::header_chain::{
     BlockHeaderCircuitOutput, CircuitBlockHeader, HeaderChainCircuitInput, HeaderChainPrevProofType,
 };
@@ -12,9 +13,27 @@ use std::time::Duration;
 use tokio::time::sleep;
 
 // Prepare prover binary and calculate it's image id, before anything else.
-const ELF: &[u8; 195724] = include_bytes!("../../../scripts/header-chain-guest-regtest");
+const MAINNET_ELF: &[u8; 199812] = include_bytes!("../../../scripts/mainnet-header-chain-guest");
+const TESTNET4_ELF: &[u8; 200180] = include_bytes!("../../../scripts/testnet4-header-chain-guest");
+const SIGNET_ELF: &[u8; 199828] = include_bytes!("../../../scripts/signet-header-chain-guest");
+const REGTEST_ELF: &[u8; 194128] = include_bytes!("../../../scripts/regtest-header-chain-guest");
 lazy_static! {
-    static ref IMAGE_ID: [u32; 8] = compute_image_id(ELF)
+    static ref MAINNET_IMAGE_ID: [u32; 8] = compute_image_id(MAINNET_ELF)
+        .unwrap()
+        .as_words()
+        .try_into()
+        .unwrap();
+    static ref TESTNET4_IMAGE_ID: [u32; 8] = compute_image_id(TESTNET4_ELF)
+        .unwrap()
+        .as_words()
+        .try_into()
+        .unwrap();
+    static ref SIGNET_IMAGE_ID: [u32; 8] = compute_image_id(SIGNET_ELF)
+        .unwrap()
+        .as_words()
+        .try_into()
+        .unwrap();
+    static ref REGTEST_IMAGE_ID: [u32; 8] = compute_image_id(REGTEST_ELF)
         .unwrap()
         .as_words()
         .try_into()
@@ -47,7 +66,18 @@ impl HeaderChainProver {
 
                 (HeaderChainPrevProofType::PrevProof(prev_output), method_id)
             }
-            None => (HeaderChainPrevProofType::GenesisBlock, *IMAGE_ID),
+            None => {
+                let image_id = match self.network {
+                    Network::Bitcoin => *MAINNET_IMAGE_ID,
+                    Network::Testnet => *TESTNET4_IMAGE_ID,
+                    Network::Testnet4 => *TESTNET4_IMAGE_ID,
+                    Network::Signet => *SIGNET_IMAGE_ID,
+                    Network::Regtest => *REGTEST_IMAGE_ID,
+                    _ => return Err(BridgeError::ProverError("Unsupported network".to_string())),
+                };
+
+                (HeaderChainPrevProofType::GenesisBlock, image_id)
+            }
         };
         let input = HeaderChainCircuitInput {
             method_id,
@@ -57,7 +87,7 @@ impl HeaderChainProver {
 
         let mut env = ExecutorEnv::builder();
 
-        env.write_slice(&borsh::to_vec(&input).map_err(BridgeError::BorschError)?);
+        env.write_slice(&borsh::to_vec(&input).map_err(BridgeError::BorshError)?);
 
         if let Some(prev_receipt) = prev_receipt {
             env.add_assumption(prev_receipt);
@@ -69,9 +99,18 @@ impl HeaderChainProver {
 
         let prover = risc0_zkvm::default_prover();
 
+        let elf = match self.network {
+            Network::Bitcoin => MAINNET_ELF.as_ref(),
+            Network::Testnet => TESTNET4_ELF.as_ref(),
+            Network::Testnet4 => TESTNET4_ELF.as_ref(),
+            Network::Signet => SIGNET_ELF.as_ref(),
+            Network::Regtest => REGTEST_ELF.as_ref(),
+            _ => return Err(BridgeError::ProverError("Unsupported network".to_string())),
+        };
+
         tracing::trace!("Proving started for block");
         let receipt = prover
-            .prove(env, ELF)
+            .prove(env, elf)
             .map_err(|e| BridgeError::ProverError(format!("Error while running prover: {}", e)))?
             .receipt;
 

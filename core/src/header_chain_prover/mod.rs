@@ -21,6 +21,7 @@ mod prover;
 pub struct HeaderChainProver {
     rpc: ExtendedRpc,
     db: Database,
+    network: bitcoin::Network,
 }
 
 impl HeaderChainProver {
@@ -36,7 +37,7 @@ impl HeaderChainProver {
             let mut assumption = Vec::new();
             reader
                 .read_to_end(&mut assumption)
-                .map_err(BridgeError::BorschError)?; // TODO: Not borsch.
+                .map_err(BridgeError::BorshError)?; // TODO: Not borsh.
 
             let proof: Receipt =
                 borsh::from_slice(&assumption).map_err(BridgeError::ProverDeSerializationError)?;
@@ -62,7 +63,11 @@ impl HeaderChainProver {
             db.save_block_proof(None, block_hash, proof).await?;
         };
 
-        Ok(HeaderChainProver { rpc, db })
+        Ok(HeaderChainProver {
+            rpc,
+            db,
+            network: config.network,
+        })
     }
 
     /// Get the proof of a block.

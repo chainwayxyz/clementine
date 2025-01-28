@@ -42,8 +42,19 @@ impl ClementineWatchtower for Watchtower {
                 .await
                 .unwrap();
             }
-
+            tracing::info!(
+                "Watchtower gives watchtower xonly public key: {:?}",
+                watchtower.actor.xonly_public_key
+            );
+            tracing::info!(
+                "Watchtower gives watchtower index: {:?}",
+                watchtower.config.index
+            );
             let xonly_pk = watchtower.actor.xonly_public_key.serialize().to_vec();
+            tracing::info!(
+                "Watchtower gives watchtower xonly public key bytes: {:?}",
+                xonly_pk
+            );
             tx.send(Ok(WatchtowerParams {
                 response: Some(watchtower_params::Response::XonlyPk(xonly_pk)),
             }))

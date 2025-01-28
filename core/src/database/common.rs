@@ -6,7 +6,7 @@
 
 use super::wrapper::{
     AddressDB, EVMAddressDB, MessageDB, MusigAggNonceDB, MusigPubNonceDB, OutPointDB, PublicKeyDB,
-    SignatureDB, SignaturesDB, TxOutDB, TxidDB, Utxodb, XOnlyPublicKeyDB,
+    SignatureDB, SignaturesDB, TxOutDB, TxidDB, UtxoDB, XOnlyPublicKeyDB,
 };
 use super::wrapper::{BlockHashDB, BlockHeaderDB};
 use super::Database;
@@ -260,7 +260,7 @@ impl Database {
         )
         .bind(OutPointDB(deposit_outpoint));
 
-        let result: Result<(sqlx::types::Json<Utxodb>,), sqlx::Error> = match tx {
+        let result: Result<(sqlx::types::Json<UtxoDB>,), sqlx::Error> = match tx {
             Some(tx) => query.fetch_one(&mut **tx).await,
             None => query.fetch_one(&self.connection).await,
         };
@@ -338,7 +338,7 @@ impl Database {
         let query =
             sqlx::query_as("SELECT funding_utxo FROM funding_utxos ORDER BY id DESC LIMIT 1;");
 
-        let result: Result<(sqlx::types::Json<Utxodb>,), sqlx::Error> = match tx {
+        let result: Result<(sqlx::types::Json<UtxoDB>,), sqlx::Error> = match tx {
             Some(tx) => query.fetch_one(&mut **tx).await,
             None => query.fetch_one(&self.connection).await,
         };
@@ -361,7 +361,7 @@ impl Database {
         funding_utxo: UTXO,
     ) -> Result<(), BridgeError> {
         let query = sqlx::query("INSERT INTO funding_utxos (funding_utxo) VALUES ($1);").bind(
-            sqlx::types::Json(Utxodb {
+            sqlx::types::Json(UtxoDB {
                 outpoint_db: OutPointDB(funding_utxo.outpoint),
                 txout_db: TxOutDB(funding_utxo.txout),
             }),
@@ -387,7 +387,7 @@ impl Database {
             "INSERT INTO operators_kickoff_utxo (deposit_outpoint, kickoff_utxo) VALUES ($1, $2);",
         )
         .bind(OutPointDB(deposit_outpoint))
-        .bind(sqlx::types::Json(Utxodb {
+        .bind(sqlx::types::Json(UtxoDB {
             outpoint_db: OutPointDB(kickoff_utxo.outpoint),
             txout_db: TxOutDB(kickoff_utxo.txout),
         }));
@@ -433,7 +433,7 @@ impl Database {
         &self,
         deposit_outpoint: OutPoint,
     ) -> Result<Option<Vec<UTXO>>, BridgeError> {
-        let qr: Vec<(sqlx::types::Json<Utxodb>,)> = sqlx::query_as(
+        let qr: Vec<(sqlx::types::Json<UtxoDB>,)> = sqlx::query_as(
             "SELECT kickoff_utxo FROM deposit_kickoff_utxos WHERE deposit_outpoint = $1 ORDER BY operator_idx ASC;",
         )
         .bind(OutPointDB(deposit_outpoint))
@@ -472,7 +472,7 @@ impl Database {
             |mut builder, (operator_idx, utxo)| {
                 builder
                     .push_bind(OutPointDB(deposit_outpoint)) // Bind deposit_outpoint
-                    .push_bind(sqlx::types::Json(Utxodb {
+                    .push_bind(sqlx::types::Json(UtxoDB {
                         // Bind JSON-serialized UTXO
                         outpoint_db: OutPointDB(utxo.outpoint),
                         txout_db: TxOutDB(utxo.txout.clone()),
@@ -715,7 +715,7 @@ impl Database {
              WHERE deposit_outpoint = $1 AND kickoff_utxo = $2;",
         )
         .bind(OutPointDB(deposit_outpoint))
-        .bind(sqlx::types::Json(Utxodb {
+        .bind(sqlx::types::Json(UtxoDB {
             outpoint_db: OutPointDB(kickoff_utxo.outpoint),
             txout_db: TxOutDB(kickoff_utxo.txout),
         }))
@@ -743,7 +743,7 @@ impl Database {
             kickoff_utxos_and_sigs,
             |mut builder, (kickoff_utxo, operator_take_sig)| {
                 builder
-                    .push_bind(sqlx::types::Json(Utxodb {
+                    .push_bind(sqlx::types::Json(UtxoDB {
                         outpoint_db: OutPointDB(kickoff_utxo.outpoint),
                         txout_db: TxOutDB(kickoff_utxo.txout),
                     }))
@@ -775,7 +775,7 @@ impl Database {
              WHERE deposit_outpoint = $1 AND kickoff_utxo = $2;",
         )
         .bind(OutPointDB(deposit_outpoint))
-        .bind(sqlx::types::Json(Utxodb {
+        .bind(sqlx::types::Json(UtxoDB {
             outpoint_db: OutPointDB(kickoff_utxo.outpoint),
             txout_db: TxOutDB(kickoff_utxo.txout),
         }))
@@ -839,7 +839,7 @@ impl Database {
         hash: block::BlockHash,
         proof: Receipt,
     ) -> Result<(), BridgeError> {
-        let proof = borsh::to_vec(&proof).map_err(BridgeError::BorschError)?;
+        let proof = borsh::to_vec(&proof).map_err(BridgeError::BorshError)?;
 
         let query = sqlx::query("UPDATE header_chain_proofs SET proof = $1 WHERE block_hash = $2;")
             .bind(proof)
@@ -872,7 +872,7 @@ impl Database {
             None => return Ok(None),
         };
 
-        let receipt: Receipt = borsh::from_slice(&receipt).map_err(BridgeError::BorschError)?;
+        let receipt: Receipt = borsh::from_slice(&receipt).map_err(BridgeError::BorshError)?;
 
         Ok(Some(receipt))
     }
@@ -978,7 +978,7 @@ impl Database {
             None => query.fetch_one(&self.connection).await,
         }?;
 
-        let receipt: Receipt = borsh::from_slice(&result.3).map_err(BridgeError::BorschError)?;
+        let receipt: Receipt = borsh::from_slice(&result.3).map_err(BridgeError::BorshError)?;
 
         Ok((result.0 .0, result.1 .0, result.2, receipt))
     }
@@ -992,7 +992,7 @@ impl Database {
         operator_id: u32,
         winternitz_public_key: Vec<WinternitzPublicKey>,
     ) -> Result<(), BridgeError> {
-        let wpk = borsh::to_vec(&winternitz_public_key).map_err(BridgeError::BorschError)?;
+        let wpk = borsh::to_vec(&winternitz_public_key).map_err(BridgeError::BorshError)?;
 
         let query = sqlx::query(
             "INSERT INTO watchtower_winternitz_public_keys (watchtower_id, operator_id, winternitz_public_keys) VALUES ($1, $2, $3);",
@@ -1029,9 +1029,70 @@ impl Database {
         }?;
 
         let watchtower_winternitz_public_keys: Vec<winternitz::PublicKey> =
-            borsh::from_slice(&wpks.0).map_err(BridgeError::BorschError)?;
+            borsh::from_slice(&wpks.0).map_err(BridgeError::BorshError)?;
 
         Ok(watchtower_winternitz_public_keys)
+    }
+
+    // TODO: Document
+    pub async fn save_watchtower_challenge_addresses(
+        &self,
+        tx: Option<&mut sqlx::Transaction<'_, Postgres>>,
+        watchtower_id: u32,
+        operator_id: u32,
+        watchtower_challenge_addresses: impl AsRef<[ScriptBuf]>,
+    ) -> Result<(), BridgeError> {
+        let query = sqlx::query(
+        "INSERT INTO watchtower_challenge_addresses (watchtower_id, operator_id, challenge_addresses)
+         VALUES ($1, $2, $3)
+         ON CONFLICT (watchtower_id, operator_id) DO UPDATE
+         SET challenge_addresses = EXCLUDED.challenge_addresses;",
+    )
+    .bind(watchtower_id as i64)
+    .bind(operator_id as i64)
+    .bind(watchtower_challenge_addresses.as_ref().iter().map(|addr| addr.as_ref()).collect::<Vec<&[u8]>>());
+
+        match tx {
+            Some(tx) => query.execute(&mut **tx).await,
+            None => query.execute(&self.connection).await,
+        }?;
+
+        Ok(())
+    }
+
+    // TODO: Document
+    pub async fn get_watchtower_challenge_addresses(
+        &self,
+        tx: Option<&mut sqlx::Transaction<'_, Postgres>>,
+        watchtower_id: u32,
+        operator_id: u32,
+    ) -> Result<Vec<ScriptBuf>, BridgeError> {
+        let query = sqlx::query_as::<_, (Vec<Vec<u8>>,)>(
+            "SELECT challenge_addresses 
+         FROM watchtower_challenge_addresses 
+         WHERE watchtower_id = $1 AND operator_id = $2;",
+        )
+        .bind(watchtower_id as i64)
+        .bind(operator_id as i64);
+
+        let result = match tx {
+            Some(tx) => query.fetch_optional(&mut **tx).await?,
+            None => query.fetch_optional(&self.connection).await?,
+        };
+
+        match result {
+            Some((challenge_addresses,)) => {
+                let challenge_addresses: Vec<ScriptBuf> = challenge_addresses
+                    .into_iter()
+                    .map(|addr| addr.into())
+                    .collect();
+                Ok(challenge_addresses)
+            }
+            None => Err(BridgeError::WatchtowerChallengeAddressesNotFound(
+                watchtower_id,
+                operator_id,
+            )),
+        }
     }
 
     /// Sets Winternitz public keys for an operator.
@@ -1042,7 +1103,7 @@ impl Database {
         operator_id: u32,
         winternitz_public_key: Vec<WinternitzPublicKey>,
     ) -> Result<(), BridgeError> {
-        let wpk = borsh::to_vec(&winternitz_public_key).map_err(BridgeError::BorschError)?;
+        let wpk = borsh::to_vec(&winternitz_public_key).map_err(BridgeError::BorshError)?;
 
         let query = sqlx::query(
             "INSERT INTO operator_winternitz_public_keys (operator_id, winternitz_public_keys) VALUES ($1, $2);",
@@ -1077,7 +1138,7 @@ impl Database {
         }?;
 
         let watchtower_winternitz_public_keys: Vec<winternitz::PublicKey> =
-            borsh::from_slice(&wpks.0).map_err(BridgeError::BorschError)?;
+            borsh::from_slice(&wpks.0).map_err(BridgeError::BorshError)?;
 
         Ok(watchtower_winternitz_public_keys)
     }
@@ -2083,6 +2144,40 @@ mod tests {
         assert_eq!(wpk0, read_wpks[0]);
         assert_eq!(wpk1, read_wpks[1]);
     }
+
+    #[tokio::test]
+    async fn save_get_watchtower_challenge_address() {
+        let config = create_test_config_with_thread_name!(None);
+        let database = Database::new(&config).await.unwrap();
+
+        // Assuming there are 2 time_txs.
+        let address_0: ScriptBuf = ScriptBuf::from_bytes([0x45; 34].to_vec());
+        let address_1: ScriptBuf = ScriptBuf::from_bytes([0x12; 34].to_vec());
+        let watchtower_winternitz_public_keys = vec![address_0.clone(), address_1.clone()];
+
+        database
+            .save_watchtower_challenge_addresses(
+                None,
+                0x45,
+                0x1F,
+                watchtower_winternitz_public_keys.clone(),
+            )
+            .await
+            .unwrap();
+
+        let read_addresses = database
+            .get_watchtower_challenge_addresses(None, 0x45, 0x1F)
+            .await
+            .unwrap();
+
+        assert_eq!(
+            watchtower_winternitz_public_keys.len(),
+            read_addresses.len()
+        );
+        assert_eq!(address_0, read_addresses[0]);
+        assert_eq!(address_1, read_addresses[1]);
+    }
+
     #[tokio::test]
     async fn save_get_watchtower_xonly_pk() {
         let config = create_test_config_with_thread_name!(None);
