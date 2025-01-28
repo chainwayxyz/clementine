@@ -16,6 +16,10 @@ use sqlx::{
 };
 use std::str::FromStr;
 
+/// Macro to reduce boilerplate for [`impl_text_wrapper_custom`].
+///
+/// Implements the Type, Encode and Decode traits for a wrapper type.
+/// Assumes the type is declared.
 macro_rules! impl_text_wrapper_base {
     ($wrapper:ident, $inner:ty, $encode:expr, $decode:expr) => {
         impl sqlx::Type<sqlx::Postgres> for $wrapper {
@@ -39,6 +43,20 @@ macro_rules! impl_text_wrapper_base {
         }
     };
 }
+
+/// Macro for implementing text-based SQL wrapper types with custom encoding/decoding
+///
+/// # Parameters
+/// - `$wrapper`: The name of the wrapper type to create
+/// - `$inner`: The inner type being wrapped
+/// - `$encode`: Expression for converting inner type to string
+/// - `$decode`: Expression for converting string back to inner type
+///
+/// The macro creates a new type that wraps the inner type and implements:
+/// - SQLx Type trait to indicate TEXT column type
+/// - SQLx Encode trait for converting to database format
+/// - SQLx Decode trait for converting from database format
+
 macro_rules! impl_text_wrapper_custom {
     // Default case (include serde)
     ($wrapper:ident, $inner:ty, $encode:expr, $decode:expr) => {
@@ -47,7 +65,7 @@ macro_rules! impl_text_wrapper_custom {
 
     // true case - with serde
     ($wrapper:ident, $inner:ty, $encode:expr, $decode:expr, true) => {
-        #[derive(sqlx::FromRow, Debug, Clone, Serialize, Deserialize)]
+        #[derive(sqlx::FromRow, Debug, Clone, Serialize, Deserialize, PartialEq)]
         pub struct $wrapper(pub $inner);
 
         impl_text_wrapper_base!($wrapper, $inner, $encode, $decode);
@@ -55,17 +73,28 @@ macro_rules! impl_text_wrapper_custom {
 
     // false case - without serde
     ($wrapper:ident, $inner:ty, $encode:expr, $decode:expr, false) => {
-        #[derive(sqlx::FromRow, Debug, Clone)]
+        #[derive(sqlx::FromRow, Debug, Clone, PartialEq)]
         pub struct $wrapper(pub $inner);
 
         impl_text_wrapper_base!($wrapper, $inner, $encode, $decode);
     };
 }
 
-// For types that need custom byte serialization
+/// Macro for implementing BYTEA-based SQL wrapper types with custom encoding/decoding
+///
+/// # Parameters
+/// - `$wrapper`: The name of the wrapper type to create
+/// - `$inner`: The inner type being wrapped
+/// - `$encode`: Expression for converting inner type to bytes
+/// - `$decode`: Expression for converting bytes back to inner type
+///
+/// The macro creates a new type that wraps the inner type and implements:
+/// - SQLx Type trait to indicate BYTEA column type
+/// - SQLx Encode trait for converting to database format
+/// - SQLx Decode trait for converting from database format
 macro_rules! impl_bytea_wrapper_custom {
     ($wrapper:ident, $inner:ty, $encode:expr, $decode:expr) => {
-        #[derive(sqlx::FromRow, Debug, Clone)]
+        #[derive(sqlx::FromRow, Debug, Clone, PartialEq)]
         pub struct $wrapper(pub $inner);
 
         impl sqlx::Type<sqlx::Postgres> for $wrapper {
@@ -90,7 +119,24 @@ macro_rules! impl_bytea_wrapper_custom {
     };
 }
 
-// For types that use standard serialization
+/// Macro for implementing BYTEA-based SQL wrapper types using standard serialization
+///
+/// This macro creates a wrapper type that uses the inner type's default serialization
+/// methods (`serialize()` and `from_slice()`) for encoding/decoding to/from BYTEA columns.
+///
+/// # Parameters
+/// - `$wrapper`: The name of the wrapper type to create
+/// - `$inner`: The inner type being wrapped
+///
+/// The macro creates a new type that wraps the inner type and implements:
+/// - SQLx Type trait to indicate BYTEA column type
+/// - SQLx Encode trait for converting to database format
+/// - SQLx Decode trait for converting from database format
+///
+/// Example usage:
+/// ```rust
+/// impl_bytea_wrapper_default!(MyWrapper, schnorr::Signature);
+/// ```
 macro_rules! impl_bytea_wrapper_default {
     ($wrapper:ident, $inner:ty) => {
         impl_bytea_wrapper_custom!(
@@ -103,7 +149,19 @@ macro_rules! impl_bytea_wrapper_default {
         );
     };
 }
-
+/// Macro for implementing text-based SQL wrapper types using standard string conversion
+///
+/// This macro creates a wrapper type that uses the inner type's default string conversion
+/// methods (`to_string()` and `from_str()`) for encoding/decoding to/from TEXT columns.
+///
+/// # Parameters
+/// - `$wrapper`: The name of the wrapper type to create
+/// - `$inner`: The inner type being wrapped
+///
+/// The macro creates a new type that wraps the inner type and implements:
+/// - SQLx Type trait to indicate TEXT column type
+/// - SQLx Encode trait for converting to database format
+/// - SQLx Decode trait for converting from database format
 macro_rules! impl_text_wrapper_default {
     ($wrapper:ident, $inner:ty) => {
         impl_text_wrapper_custom!(
@@ -189,37 +247,22 @@ impl_text_wrapper_custom!(
     }
 );
 
-#[derive(Serialize, Deserialize, sqlx::FromRow)]
-pub struct Utxodb {
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, sqlx::FromRow)]
+pub struct UtxoDB {
     pub outpoint_db: OutPointDB,
     pub txout_db: TxOutDB,
 }
 
-#[derive(Serialize, Deserialize, Debug, Clone)]
-pub struct TxOutDB(pub TxOut);
-
-impl sqlx::Type<sqlx::Postgres> for TxOutDB {
-    fn type_info() -> sqlx::postgres::PgTypeInfo {
-        sqlx::postgres::PgTypeInfo::with_name("TEXT")
+impl_text_wrapper_custom!(
+    TxOutDB,
+    TxOut,
+    |txout: &TxOut| bitcoin::consensus::encode::serialize_hex(&txout),
+    |s: &str| -> Result<TxOut, BoxDynError> {
+        bitcoin::consensus::encode::deserialize_hex(s)
+            .map_err(|e| Box::new(e) as sqlx::error::BoxDynError)
     }
-}
+);
 
-impl Encode<'_, Postgres> for TxOutDB {
-    fn encode_by_ref(&self, buf: &mut PgArgumentBuffer) -> sqlx::encode::IsNull {
-        let s = bitcoin::consensus::encode::serialize_hex(&self.0);
-        <&str as Encode<Postgres>>::encode_by_ref(&s.as_str(), buf)
-    }
-}
-
-impl<'r> Decode<'r, Postgres> for TxOutDB {
-    fn decode(value: PgValueRef<'r>) -> Result<Self, sqlx::error::BoxDynError> {
-        let s = <&str as Decode<Postgres>>::decode(value)?;
-        let x: TxOut = bitcoin::consensus::encode::deserialize_hex(s)?;
-        Ok(TxOutDB(x))
-    }
-}
-// TODO: Improve these tests by checking conversions both ways. Note: I couldn't
-// find any ways to do this but it needs to be done.
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -239,10 +282,12 @@ mod tests {
         Amount, BlockHash, CompactTarget, OutPoint, ScriptBuf, TxMerkleNode, TxOut, Txid,
     };
     use sqlx::{Executor, Type};
-    use std::{env, thread};
+    use std::{env, ops::Deref, thread};
 
     macro_rules! test_encode_decode_invariant {
-        ($db_type:ident, $inner:ty, $test_value:expr, $table_name:expr, $column_type:expr) => {
+        ($db_type:ty, $inner:ty, $db_wrapper:expr, $table_name:expr, $column_type:expr) => {
+            let db_wrapper = $db_wrapper;
+
             let config = create_test_config_with_thread_name!(None);
             let database = Database::new(&config).await.unwrap();
 
@@ -255,9 +300,6 @@ mod tests {
                 )))
                 .await
                 .unwrap();
-
-            let value: $inner = $test_value;
-            let db_wrapper = $db_type(value);
 
             // Insert the value
             database
@@ -283,7 +325,7 @@ mod tests {
             .unwrap();
 
             // Verify the retrieved value matches the original
-            assert_eq!(retrieved.0, db_wrapper.0);
+            assert_eq!(retrieved, db_wrapper);
 
             // Clean up
             database
@@ -303,10 +345,10 @@ mod tests {
         test_encode_decode_invariant!(
             OutPointDB,
             OutPoint,
-            OutPoint {
+            OutPointDB(OutPoint {
                 txid: Txid::all_zeros(),
                 vout: 0x45
-            },
+            }),
             "outpoint",
             "TEXT"
         );
@@ -322,10 +364,10 @@ mod tests {
         test_encode_decode_invariant!(
             TxOutDB,
             TxOut,
-            TxOut {
+            TxOutDB(TxOut {
                 value: Amount::from_sat(0x45),
                 script_pubkey: ScriptBuf::new(),
-            },
+            }),
             "txout",
             "TEXT"
         );
@@ -344,7 +386,7 @@ mod tests {
             None,
             bitcoin::Network::Regtest,
         );
-        let address = address.as_unchecked().clone();
+        let address = AddressDB(address.as_unchecked().clone());
 
         test_encode_decode_invariant!(
             AddressDB,
@@ -362,7 +404,7 @@ mod tests {
             sqlx::postgres::PgTypeInfo::with_name("TEXT")
         );
 
-        let evmaddress = EVMAddress([0x45u8; 20]);
+        let evmaddress = EVMAddressDB(EVMAddress([0x45u8; 20]));
         test_encode_decode_invariant!(EVMAddressDB, EVMAddress, evmaddress, "evmaddress", "TEXT");
     }
 
@@ -373,7 +415,7 @@ mod tests {
             sqlx::postgres::PgTypeInfo::with_name("TEXT")
         );
 
-        let txid = Txid::all_zeros();
+        let txid = TxidDB(Txid::all_zeros());
         test_encode_decode_invariant!(TxidDB, Txid, txid, "txid", "TEXT");
     }
 
@@ -384,7 +426,7 @@ mod tests {
             sqlx::postgres::PgTypeInfo::with_name("BYTEA")
         );
 
-        let signature = Signature::from_slice(&[0u8; 64]).unwrap();
+        let signature = SignatureDB(Signature::from_slice(&[0u8; 64]).unwrap());
         test_encode_decode_invariant!(SignatureDB, Signature, signature, "signature", "BYTEA");
     }
 
@@ -402,10 +444,33 @@ mod tests {
         test_encode_decode_invariant!(
             SignaturesDB,
             Vec<Signature>,
-            signatures,
+            SignaturesDB(signatures),
             "signatures",
             "BYTEA"
         );
+    }
+
+    #[tokio::test]
+    async fn utxodb_json_encode_decode_invariant() {
+        use sqlx::types::Json;
+
+        assert_eq!(
+            Json::<UtxoDB>::type_info(),
+            sqlx::postgres::PgTypeInfo::with_name("JSONB")
+        );
+
+        let utxodb = UtxoDB {
+            outpoint_db: OutPointDB(OutPoint {
+                txid: Txid::all_zeros(),
+                vout: 0x45,
+            }),
+            txout_db: TxOutDB(TxOut {
+                value: Amount::from_sat(0x45),
+                script_pubkey: ScriptBuf::new(),
+            }),
+        };
+
+        test_encode_decode_invariant!(Json<UtxoDB>, Utxodb, Json(utxodb), "utxodb", "JSONB");
     }
 
     #[tokio::test]
@@ -415,7 +480,7 @@ mod tests {
             sqlx::postgres::PgTypeInfo::with_name("TEXT")
         );
 
-        let blockhash = BlockHash::all_zeros();
+        let blockhash = BlockHashDB(BlockHash::all_zeros());
         test_encode_decode_invariant!(BlockHashDB, BlockHash, blockhash, "blockhash", "TEXT");
     }
 
@@ -426,14 +491,14 @@ mod tests {
             sqlx::postgres::PgTypeInfo::with_name("TEXT")
         );
 
-        let blockheader = block::Header {
+        let blockheader = BlockHeaderDB(block::Header {
             version: Version::TWO,
             prev_blockhash: BlockHash::all_zeros(),
             merkle_root: TxMerkleNode::all_zeros(),
             time: 0,
             bits: CompactTarget::default(),
             nonce: 0,
-        };
+        });
         test_encode_decode_invariant!(
             BlockHeaderDB,
             block::Header,
