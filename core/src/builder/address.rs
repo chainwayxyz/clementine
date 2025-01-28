@@ -17,14 +17,20 @@ use bitcoin::{Amount, Network};
 use bitvm::signatures::winternitz;
 
 pub fn taproot_builder_with_scripts(scripts: &[ScriptBuf]) -> TaprootBuilder {
-    let n = scripts.len();
-    if n == 0 {
+    let num_scripts = scripts.len();
+
+    if num_scripts == 0 {
         TaprootBuilder::new()
-    } else if n > 1 {
-        let m: u8 = ((n - 1).ilog2() + 1) as u8; // m = ceil(log(n))
-        let k = 2_usize.pow(m.into()) - n;
-        (0..n).fold(TaprootBuilder::new(), |acc, i| {
-            acc.add_leaf(m - ((i >= n - k) as u8), scripts[i].clone())
+    } else if num_scripts > 1 {
+        let expected_depth: u8 = ((num_scripts - 1).ilog2() + 1) as u8;
+
+        let num_empty_nodes_in_final_depth = 2_usize.pow(expected_depth.into()) - num_scripts;
+        let num_nodes_in_final_depth = num_scripts - num_empty_nodes_in_final_depth;
+
+        (0..num_scripts).fold(TaprootBuilder::new(), |acc, i| {
+            let is_node_in_last_depth = (i >= num_nodes_in_final_depth) as u8;
+
+            acc.add_leaf(expected_depth - is_node_in_last_depth, scripts[i].clone())
                 .unwrap()
         })
     } else {
