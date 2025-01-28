@@ -1,6 +1,6 @@
 use crate::builder;
 use crate::builder::address::create_taproot_address;
-use crate::constants::{MIN_TAPROOT_AMOUNT, NUM_INTERMEDIATE_STEPS, PARALLEL_ASSERT_TX_CHAIN_SIZE};
+use crate::constants::{MIN_TAPROOT_AMOUNT, PARALLEL_ASSERT_TX_CHAIN_SIZE};
 use crate::utils::SECP;
 use bitcoin::hashes::Hash;
 use bitcoin::taproot::TaprootBuilder;
