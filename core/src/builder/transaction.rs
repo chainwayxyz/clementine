@@ -555,6 +555,46 @@ pub fn create_watchtower_challenge_kickoff_txhandler(
     }
 }
 
+/// Creates a "simplified "[`TxHandler`] for the `watchtower_challenge_kickoff_tx`. The purpose of the simplification
+/// is that when the verifiers are generating related sighashes, they only need to know the output addresses or the
+/// input UTXOs. They do not need to know output scripts or spendinfos.
+pub fn create_watchtower_challenge_kickoff_txhandler_simplified(
+    kickoff_tx_handler: &TxHandler,
+    num_watchtowers: u32,
+    watchtower_challenge_addresses: &[ScriptBuf],
+) -> TxHandler {
+    let tx_ins = create_tx_ins(
+        vec![OutPoint {
+            txid: kickoff_tx_handler.txid,
+            vout: 0,
+        }]
+        .into(),
+    );
+    let mut tx_outs = (0..num_watchtowers)
+        .map(|i| {
+            TxOut {
+                value: Amount::from_sat(2000), // TODO: Hand calculate this
+                script_pubkey: watchtower_challenge_addresses[i as usize].clone(),
+            }
+        })
+        .collect::<Vec<_>>();
+
+    // add the anchor output
+    tx_outs.push(builder::script::anchor_output());
+
+    let wcptx = create_btc_tx(tx_ins, tx_outs);
+
+    TxHandler {
+        txid: wcptx.compute_txid(),
+        tx: wcptx,
+        prevouts: vec![kickoff_tx_handler.tx.output[0].clone()],
+        prev_scripts: vec![kickoff_tx_handler.out_scripts[0].clone()],
+        prev_taproot_spend_infos: vec![kickoff_tx_handler.out_taproot_spend_infos[0].clone()],
+        out_scripts: vec![],
+        out_taproot_spend_infos: vec![],
+    }
+}
+
 /// Creates a [`TxHandler`] for the `watchtower_challenge_tx`. This transaction
 /// is sent by the watchtowers to reveal their Groth16 proofs with their public
 /// inputs for the longest chain proof, signed by the corresponding watchtowers
@@ -608,6 +648,54 @@ pub fn create_watchtower_challenge_txhandler(
         prev_taproot_spend_infos: vec![
             wcp_txhandler.out_taproot_spend_infos[watchtower_idx].clone()
         ],
+        out_scripts: vec![vec![operator_with_preimage, nofn_halfweek], vec![]],
+        out_taproot_spend_infos: vec![Some(op_or_nofn_halfweek_spend), None],
+    }
+}
+
+// TODO: Reduce code duplication
+pub fn create_watchtower_challenge_txhandler_simplified(
+    wcp_txhandler: &TxHandler,
+    watchtower_idx: usize,
+    operator_unlock_hash: &[u8; 20],
+    nofn_xonly_pk: XOnlyPublicKey,
+    operator_xonly_pk: XOnlyPublicKey,
+    network: bitcoin::Network,
+) -> TxHandler {
+    let tx_ins = create_tx_ins(
+        vec![OutPoint {
+            txid: wcp_txhandler.txid,
+            vout: watchtower_idx as u32,
+        }]
+        .into(),
+    );
+
+    let nofn_halfweek =
+        builder::script::generate_relative_timelock_script(nofn_xonly_pk, 7 * 24 * 6 / 2); // 0.5 week
+    let operator_with_preimage =
+        builder::script::actor_with_preimage_script(operator_xonly_pk, operator_unlock_hash);
+    let (op_or_nofn_halfweek, op_or_nofn_halfweek_spend) = builder::address::create_taproot_address(
+        &[operator_with_preimage.clone(), nofn_halfweek.clone()],
+        None,
+        network,
+    );
+
+    let tx_outs = vec![
+        TxOut {
+            value: Amount::from_sat(1000), // TODO: Hand calculate this
+            script_pubkey: op_or_nofn_halfweek.script_pubkey(),
+        },
+        builder::script::anchor_output(),
+    ];
+
+    let wcptx2 = create_btc_tx(tx_ins, tx_outs);
+
+    TxHandler {
+        txid: wcptx2.compute_txid(),
+        tx: wcptx2,
+        prevouts: vec![],
+        prev_scripts: vec![],
+        prev_taproot_spend_infos: vec![],
         out_scripts: vec![vec![operator_with_preimage, nofn_halfweek], vec![]],
         out_taproot_spend_infos: vec![Some(op_or_nofn_halfweek_spend), None],
     }

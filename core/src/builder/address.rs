@@ -7,12 +7,14 @@ use crate::builder;
 use crate::utils::SECP;
 use crate::{utils, EVMAddress};
 use bitcoin::address::NetworkUnchecked;
-use bitcoin::Amount;
+use bitcoin::opcodes::all::OP_CHECKSIG;
 use bitcoin::{
     secp256k1::XOnlyPublicKey,
     taproot::{TaprootBuilder, TaprootSpendInfo},
     Address, ScriptBuf,
 };
+use bitcoin::{Amount, Network};
+use bitvm::signatures::winternitz;
 
 pub fn taproot_builder_with_scripts(scripts: &[ScriptBuf]) -> TaprootBuilder {
     let n = scripts.len();
@@ -141,6 +143,22 @@ pub fn create_musig2_address(
     network: bitcoin::Network,
 ) -> (Address, TaprootSpendInfo) {
     create_taproot_address(&[], Some(nofn_xonly_pk), network)
+}
+
+pub fn derive_challenge_address_from_xonlypk_and_wpk(
+    xonly_pk: &XOnlyPublicKey,
+    winternitz_pk: &winternitz::PublicKey,
+    network: Network,
+) -> Address {
+    let verifier =
+        winternitz::Winternitz::<winternitz::ListpickVerifier, winternitz::TabledConverter>::new();
+    let wots_params = winternitz::Parameters::new(240, 4);
+    let mut script_builder = verifier.checksig_verify(&wots_params, winternitz_pk);
+    script_builder = script_builder.push_x_only_key(xonly_pk);
+    script_builder = script_builder.push_opcode(OP_CHECKSIG); // TODO: Add checksig in the beginning
+    let script_builder = script_builder.compile();
+    let (address, _) = create_taproot_address(&[script_builder.clone()], None, network);
+    address
 }
 
 #[cfg(test)]

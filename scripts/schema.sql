@@ -144,6 +144,14 @@ create table if not exists watchtower_winternitz_public_keys (
     primary key (watchtower_id, operator_id)
 );
 
+-- Verifier table of watchtower challenge addresses for every operator, sequential_collateral_tx_idx, and kickoff_idx
+create table if not exists watchtower_challenge_addresses (
+    watchtower_id int not null,
+    operator_id int not null,
+    challenge_addresses bytea[] not null,
+    primary key (watchtower_id, operator_id)
+);
+
 -- Verifier table of operators Winternitz public keys for every sequential collateral tx
 create table if not exists operator_winternitz_public_keys (
     operator_id int not null,
