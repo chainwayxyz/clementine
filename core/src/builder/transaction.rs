@@ -14,6 +14,7 @@ use crate::utils::SECP;
 use crate::{utils, EVMAddress};
 use bitcoin::address::NetworkUnchecked;
 use bitcoin::hashes::Hash;
+use bitcoin::opcodes::all::OP_CHECKSIG;
 use bitcoin::script::PushBytesBuf;
 use bitcoin::sighash::SighashCache;
 use bitcoin::taproot::LeafVersion;
@@ -23,6 +24,7 @@ use bitcoin::{
     Witness, XOnlyPublicKey,
 };
 use bitcoin::{Network, TapLeafHash, TapNodeHash, TapSighash, TapSighashType, Transaction, Txid};
+use bitvm::signatures::winternitz;
 
 /// Verbose information about a transaction.
 #[derive(Debug, Clone)]
@@ -490,66 +492,72 @@ pub fn create_kickoff_txhandler(
     }
 }
 
-// /// Creates a [`TxHandler`] for the `watchtower_challenge_kickoff_tx`. This transaction can be sent by anyone.
-// /// When spent, the outputs of this transaction will reveal the Groth16 proofs with their public inputs for the longest
-// /// chain proof, signed by the corresponding watchtowers using WOTS.
-// pub fn create_watchtower_challenge_kickoff_txhandler(
-//     kickoff_tx_handler: &TxHandler,
-//     num_watchtowers: u32,
-//     watchtower_xonly_pks: &[XOnlyPublicKey],
-//     watchtower_challenge_winternitz_pks: &[Vec<[u8; 20]>],
-//     network: bitcoin::Network,
-// ) -> TxHandler {
-//     let tx_ins = create_tx_ins(
-//         vec![OutPoint {
-//             txid: kickoff_tx_handler.txid,
-//             vout: 0,
-//         }]
-//         .into(),
-//     );
-//     // TODO: Remove address generation each time since these will be precalculated, we only need the addresses. Rather, the watchtowers will need TxHandlers
-
-//     let mut scripts: Vec<Vec<ScriptBuf>> = Vec::new();
-//     let mut spendinfos: Vec<Option<TaprootSpendInfo>> = Vec::new();
-
-//     let mut tx_outs = (0..num_watchtowers)
-//         .map(|i| {
-//             let (watchtower_challenge_addr, watchtower_challenge_spend, x) =
-//                 builder::address::derive_challenge_address_from_xonlypk_and_wpk(
-//                     &watchtower_xonly_pks[i as usize],
-//                     &watchtower_challenge_winternitz_pks[i as usize],
-//                     network,
-//                 );
-//             scripts.push(vec![x]);
-//             spendinfos.push(Some(watchtower_challenge_spend));
-//             TxOut {
-//                 value: Amount::from_sat(2000), // TOOD: Hand calculate this
-//                 script_pubkey: watchtower_challenge_addr.script_pubkey(), // TODO: Add winternitz checks here
-//             }
-//         })
-//         .collect::<Vec<_>>();
-
-//     // add the anchor output
-//     tx_outs.push(builder::script::anchor_output());
-//     scripts.push(vec![]);
-//     spendinfos.push(None);
-
-//     let wcptx = create_btc_tx(tx_ins, tx_outs);
-
-//     TxHandler {
-//         txid: wcptx.compute_txid(),
-//         tx: wcptx,
-//         prevouts: vec![kickoff_tx_handler.tx.output[0].clone()],
-//         prev_scripts: vec![kickoff_tx_handler.out_scripts[0].clone()],
-//         prev_taproot_spend_infos: vec![kickoff_tx_handler.out_taproot_spend_infos[0].clone()],
-//         out_scripts: scripts,
-//         out_taproot_spend_infos: spendinfos,
-//     }
-// }
-
 /// Creates a [`TxHandler`] for the `watchtower_challenge_kickoff_tx`. This transaction can be sent by anyone.
 /// When spent, the outputs of this transaction will reveal the Groth16 proofs with their public inputs for the longest
 /// chain proof, signed by the corresponding watchtowers using WOTS.
+pub fn create_watchtower_challenge_kickoff_txhandler(
+    kickoff_tx_handler: &TxHandler,
+    num_watchtowers: u32,
+    watchtower_xonly_pks: &[XOnlyPublicKey],
+    watchtower_challenge_winternitz_pks: &[Vec<[u8; 20]>],
+    network: bitcoin::Network,
+) -> TxHandler {
+    let tx_ins = create_tx_ins(
+        vec![OutPoint {
+            txid: kickoff_tx_handler.txid,
+            vout: 0,
+        }]
+        .into(),
+    );
+
+    let verifier =
+        winternitz::Winternitz::<winternitz::ListpickVerifier, winternitz::TabledConverter>::new();
+    let wots_params = winternitz::Parameters::new(240, 4);
+
+    let mut scripts: Vec<Vec<ScriptBuf>> = Vec::new();
+    let mut spendinfos: Vec<Option<TaprootSpendInfo>> = Vec::new();
+
+    let mut tx_outs = (0..num_watchtowers)
+        .map(|i| {
+            let mut x = verifier.checksig_verify(
+                &wots_params,
+                &watchtower_challenge_winternitz_pks[i as usize],
+            );
+            x = x.push_x_only_key(&watchtower_xonly_pks[i as usize]);
+            x = x.push_opcode(OP_CHECKSIG); // TODO: Add checksig in the beginning
+            let x = x.compile();
+            let (watchtower_challenge_addr, watchtower_challenge_spend) =
+                builder::address::create_taproot_address(&[x.clone()], None, network);
+            scripts.push(vec![x]);
+            spendinfos.push(Some(watchtower_challenge_spend));
+            TxOut {
+                value: Amount::from_sat(2000), // TOOD: Hand calculate this
+                script_pubkey: watchtower_challenge_addr.script_pubkey(), // TODO: Add winternitz checks here
+            }
+        })
+        .collect::<Vec<_>>();
+
+    // add the anchor output
+    tx_outs.push(builder::script::anchor_output());
+    scripts.push(vec![]);
+    spendinfos.push(None);
+
+    let wcptx = create_btc_tx(tx_ins, tx_outs);
+
+    TxHandler {
+        txid: wcptx.compute_txid(),
+        tx: wcptx,
+        prevouts: vec![kickoff_tx_handler.tx.output[0].clone()],
+        prev_scripts: vec![kickoff_tx_handler.out_scripts[0].clone()],
+        prev_taproot_spend_infos: vec![kickoff_tx_handler.out_taproot_spend_infos[0].clone()],
+        out_scripts: scripts,
+        out_taproot_spend_infos: spendinfos,
+    }
+}
+
+/// Creates a "simplified "[`TxHandler`] for the `watchtower_challenge_kickoff_tx`. The purpose of the simplification
+/// is that when the verifiers are generating related sighashes, they only need to know the output addresses or the
+/// input UTXOs. They do not need to know output scripts or spendinfos.
 pub fn create_watchtower_challenge_kickoff_txhandler_simplified(
     kickoff_tx_handler: &TxHandler,
     num_watchtowers: u32,

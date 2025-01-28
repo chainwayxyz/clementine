@@ -79,6 +79,14 @@ impl Watchtower {
         let mut challenge_addresses = Vec::new();
 
         let winternitz_pubkeys = self.get_watchtower_winternitz_public_keys().await?;
+        tracing::info!(
+            "get_watchtower_challenge_addresses watchtower xonly public key: {:?}",
+            self.actor.xonly_public_key
+        );
+        tracing::info!(
+            "get_watchtower_challenge_addresses watchtower taproot public key: {:?}",
+            self.actor.address.script_pubkey()
+        );
         for winternitz_pubkey in winternitz_pubkeys {
             let challenge_address = derive_challenge_address_from_xonlypk_and_wpk(
                 &self.actor.xonly_public_key,

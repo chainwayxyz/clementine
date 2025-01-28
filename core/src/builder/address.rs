@@ -16,8 +16,6 @@ use bitcoin::{
 use bitcoin::{Amount, Network};
 use bitvm::signatures::winternitz;
 
-// pub type WatchtowerChallengeAddressDetails = (Address, TaprootSpendInfo, ScriptBuf);
-
 pub fn taproot_builder_with_scripts(scripts: &[ScriptBuf]) -> TaprootBuilder {
     let n = scripts.len();
     if n == 0 {
@@ -152,7 +150,6 @@ pub fn derive_challenge_address_from_xonlypk_and_wpk(
     winternitz_pk: &winternitz::PublicKey,
     network: Network,
 ) -> Address {
-    // TODO: Check if this does not need Result
     let verifier =
         winternitz::Winternitz::<winternitz::ListpickVerifier, winternitz::TabledConverter>::new();
     let wots_params = winternitz::Parameters::new(240, 4);

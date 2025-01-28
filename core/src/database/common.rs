@@ -2102,6 +2102,40 @@ mod tests {
         assert_eq!(wpk0, read_wpks[0]);
         assert_eq!(wpk1, read_wpks[1]);
     }
+
+    #[tokio::test]
+    async fn save_get_watchtower_challenge_address() {
+        let config = create_test_config_with_thread_name!(None);
+        let database = Database::new(&config).await.unwrap();
+
+        // Assuming there are 2 time_txs.
+        let address_0: ScriptBuf = ScriptBuf::from_bytes([0x45; 34].to_vec());
+        let address_1: ScriptBuf = ScriptBuf::from_bytes([0x12; 34].to_vec());
+        let watchtower_winternitz_public_keys = vec![address_0.clone(), address_1.clone()];
+
+        database
+            .save_watchtower_challenge_addresses(
+                None,
+                0x45,
+                0x1F,
+                watchtower_winternitz_public_keys.clone(),
+            )
+            .await
+            .unwrap();
+
+        let read_addresses = database
+            .get_watchtower_challenge_addresses(None, 0x45, 0x1F)
+            .await
+            .unwrap();
+
+        assert_eq!(
+            watchtower_winternitz_public_keys.len(),
+            read_addresses.len()
+        );
+        assert_eq!(address_0, read_addresses[0]);
+        assert_eq!(address_1, read_addresses[1]);
+    }
+
     #[tokio::test]
     async fn save_get_watchtower_xonly_pk() {
         let config = create_test_config_with_thread_name!(None);

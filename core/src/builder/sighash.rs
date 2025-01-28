@@ -72,6 +72,7 @@ pub fn create_nofn_sighash_stream(
             operators.iter().enumerate()
         {
             // Get all the watchtower challenge addresses for this operator. We have all of them here (for all the kickoff_utxos).
+            // TODO: Make this more efficient
             let watchtower_all_challenge_addresses = (0..config.num_watchtowers)
                 .map(|i| db.get_watchtower_challenge_addresses(None, i as u32, operator_idx as u32))
                 .collect::<Vec<_>>();
