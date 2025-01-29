@@ -8,6 +8,7 @@ use bitcoin::script::PushBytesBuf;
 use bitcoin::{Network, TxOut, Txid};
 use bitcoin::{OutPoint, XOnlyPublicKey};
 
+/// Creates a [`TxHandler`] for the `kickoff_tx`. This transaction will be sent by the operator
 pub fn create_kickoff_txhandler(
     sequential_collateral_txhandler: &TxHandler,
     kickoff_idx: usize,
@@ -25,52 +26,57 @@ pub fn create_kickoff_txhandler(
         .into(),
     );
     let operator_1week =
-        builder::script::generate_relative_timelock_script(operator_xonly_pk, 7 * 24 * 6);
-    let operator_2_5_week =
-        builder::script::generate_relative_timelock_script(operator_xonly_pk, 7 * 24 * 6 / 2 * 5); // 2.5 weeks
+        builder::script::generate_checksig_relative_timelock_script(operator_xonly_pk, 7 * 24 * 6);
+    let operator_2_5_week = builder::script::generate_checksig_relative_timelock_script(
+        operator_xonly_pk,
+        7 * 24 * 6 / 2 * 5,
+    ); // 2.5 weeks
     let nofn_3week =
-        builder::script::generate_relative_timelock_script(nofn_xonly_pk, 3 * 7 * 24 * 6);
+        builder::script::generate_checksig_relative_timelock_script(nofn_xonly_pk, 3 * 7 * 24 * 6);
+
+    let nofn_script = builder::script::generate_checksig_script(nofn_xonly_pk);
 
     let (nofn_or_operator_1week, nofn_or_operator_1week_spend) =
         builder::address::create_taproot_address(
-            &[operator_1week.clone()],
-            Some(nofn_xonly_pk),
+            &[operator_1week.clone(), nofn_script.clone()],
+            None,
             network,
         );
 
     let (nofn_or_operator_2_5_week, nofn_or_operator_2_5_week_spend) =
         builder::address::create_taproot_address(
-            &[operator_2_5_week.clone()],
-            Some(nofn_xonly_pk),
+            &[operator_2_5_week.clone(), nofn_script.clone()],
+            None,
             network,
         );
 
     let (nofn_or_nofn_3week, nofn_or_nofn_3week_spend) = builder::address::create_taproot_address(
-        &[nofn_3week.clone()],
-        Some(nofn_xonly_pk),
+        &[nofn_3week.clone(), nofn_script.clone()],
+        None,
         network,
     );
 
     let (nofn_taproot_address, nofn_taproot_spend) =
-        builder::address::create_musig2_address(nofn_xonly_pk, network);
-
-    let mut tx_outs = create_tx_outs(vec![
-        (MIN_TAPROOT_AMOUNT, nofn_taproot_address.script_pubkey()),
-        (MIN_TAPROOT_AMOUNT, nofn_or_operator_1week.script_pubkey()),
-        (
-            MIN_TAPROOT_AMOUNT,
-            nofn_or_operator_2_5_week.script_pubkey(),
-        ),
-        (MIN_TAPROOT_AMOUNT, nofn_or_nofn_3week.script_pubkey()),
-    ]);
-    tx_outs.push(builder::script::anchor_output());
+        builder::address::create_checksig_address(nofn_xonly_pk, network);
 
     let mut op_return_script = move_txid.to_byte_array().to_vec();
     op_return_script.extend(utils::usize_to_var_len_bytes(operator_idx));
-    let mut push_bytes = PushBytesBuf::new();
-    push_bytes.extend_from_slice(&op_return_script).unwrap();
+
+    let push_bytes = PushBytesBuf::try_from(op_return_script)
+        .expect("Can't fail since the script is shorter than 4294967296 bytes");
+
     let op_return_txout = builder::script::op_return_txout(push_bytes);
-    tx_outs.push(op_return_txout);
+
+    let tx_outs = {
+        let mut tx_outs = create_tx_outs(vec![
+            (MIN_TAPROOT_AMOUNT, nofn_taproot_address.into()),
+            (MIN_TAPROOT_AMOUNT, nofn_or_operator_1week.into()),
+            (MIN_TAPROOT_AMOUNT, nofn_or_operator_2_5_week.into()),
+            (MIN_TAPROOT_AMOUNT, nofn_or_nofn_3week.into()),
+        ]);
+        tx_outs.extend_from_slice(&[builder::script::anchor_output(), op_return_txout]);
+        tx_outs
+    };
 
     let tx = create_btc_tx(tx_ins, tx_outs);
 
@@ -84,9 +90,9 @@ pub fn create_kickoff_txhandler(
             .clone()],
         out_scripts: vec![
             vec![],
-            vec![operator_1week],
-            vec![operator_2_5_week],
-            vec![nofn_3week],
+            vec![operator_1week, nofn_script.clone()],
+            vec![operator_2_5_week, nofn_script.clone()],
+            vec![nofn_3week, nofn_script.clone()],
             vec![],
             vec![],
         ],

@@ -93,15 +93,16 @@ pub fn create_mini_assert_tx(
 
 /// Creates a [`TxHandler`] for the `assert_end_tx`. When this transaction is sent,
 /// There are three scenarios:
-/// 1- If the operator is malicious and deliberately spends assert_end_tx.output[0]
-/// inside a transaction other than `disprove_tx`, then they cannot send the
-/// `disprove_timeout_tx` anymore. This means after 2 weeks, NofN can spend the
-/// `already_disproved_tx`. If the operator does not allow this by spending
-/// sequential_collateral_tx.output[0], then they cannot send the `reimburse_tx`.
-/// 2- If the operator is malicious and does not spend assert_end_tx.output[0], then
-/// their burn connector can be burned by using the `disprove_tx`.
-/// 3- If the operator is honest and there is a challenge, then eventually they will
-/// send the `disprove_timeout_tx` to be able to send the `reimburse_tx` later.
+///
+/// 1. If the operator is malicious and deliberately spends assert_end_tx.output[0]
+///    inside a transaction other than `disprove_tx`, then they cannot send the
+///    `disprove_timeout_tx` anymore. This means after 2 weeks, NofN can spend the
+///    `already_disproved_tx`. If the operator does not allow this by spending
+///    sequential_collateral_tx.output[0], then they cannot send the `reimburse_tx`.
+/// 2. If the operator is malicious and does not spend assert_end_tx.output[0], then
+///    their burn connector can be burned by using the `disprove_tx`.
+/// 3. If the operator is honest and there is a challenge, then eventually they will
+///    send the `disprove_timeout_tx` to be able to send the `reimburse_tx` later.
 pub fn create_assert_end_txhandler(
     kickoff_txhandler: &TxHandler,
     assert_begin_txhandler: &TxHandler,
@@ -144,9 +145,11 @@ pub fn create_assert_end_txhandler(
     });
 
     let disprove_taproot_spend_info = TaprootBuilder::new()
-        .add_hidden_node(0, TapNodeHash::from_slice(root_hash).unwrap())
+        .add_hidden_node(1, TapNodeHash::from_slice(root_hash).unwrap())
         .unwrap()
-        .finalize(&SECP, nofn_xonly_pk)
+        .add_leaf(1, builder::script::generate_checksig_script(nofn_xonly_pk))
+        .unwrap()
+        .finalize(&SECP, nofn_xonly_pk) // TODO: how would we put this in a script?
         .unwrap();
 
     let disprove_address = Address::p2tr(
@@ -156,9 +159,10 @@ pub fn create_assert_end_txhandler(
         network,
     );
 
-    let nofn_1week = builder::script::generate_relative_timelock_script(nofn_xonly_pk, 7 * 24 * 6);
+    let nofn_1week =
+        builder::script::generate_checksig_relative_timelock_script(nofn_xonly_pk, 7 * 24 * 6);
     let nofn_2week =
-        builder::script::generate_relative_timelock_script(nofn_xonly_pk, 2 * 7 * 24 * 6);
+        builder::script::generate_checksig_relative_timelock_script(nofn_xonly_pk, 2 * 7 * 24 * 6);
     let (connector_addr, connector_spend) = builder::address::create_taproot_address(
         &[nofn_1week.clone(), nofn_2week.clone()],
         None,
@@ -192,12 +196,12 @@ pub fn create_assert_end_txhandler(
     prevouts.push(kickoff_txhandler.tx.output[3].clone());
 
     let mut scripts = (0..PARALLEL_ASSERT_TX_CHAIN_SIZE)
-        .map(|_| vec![]) // Dummy empty scripts, not the actual script
+        .map(|_| vec![]) // TODO: Dummy empty scripts, not the actual script
         .collect::<Vec<_>>();
     scripts.push(kickoff_txhandler.out_scripts[3].clone());
 
     let mut prev_taproot_spend_infos = (0..PARALLEL_ASSERT_TX_CHAIN_SIZE)
-        .map(|_| None) // Dummy empty spendinfo, not the actual spendinfo
+        .map(|_| None) // TODO: Dummy empty spendinfo, not the actual spendinfo
         .collect::<Vec<_>>();
     prev_taproot_spend_infos.push(kickoff_txhandler.out_taproot_spend_infos[3].clone());
 
