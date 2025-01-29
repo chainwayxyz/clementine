@@ -21,6 +21,24 @@ pub struct Database {
     connection: Pool<Postgres>,
 }
 
+/// Executes a query with a transaction if it is provided.
+///
+/// # Parameters
+///
+/// - `$conn`: Database connection.
+/// - `$tx`: Database transation, wrapped in `Option`.
+/// - `$query`: Query to execute.
+/// - `$method`: Method to execute on the query.
+#[macro_export]
+macro_rules! execute_query_with_tx {
+    ($conn:expr, $tx:expr, $query:expr, $method:ident) => {
+        match $tx {
+            Some(tx) => $query.$method(&mut **tx).await,
+            None => $query.$method(&$conn).await,
+        }
+    };
+}
+
 impl Database {
     /// Establishes a new connection to a PostgreSQL database with given
     /// configuration.
