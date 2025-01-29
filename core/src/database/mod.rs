@@ -13,6 +13,7 @@ mod common;
 mod header_chain_prover;
 mod operator;
 mod verifier;
+mod watchtower;
 mod wrapper;
 
 /// PostgreSQL database connection details.
