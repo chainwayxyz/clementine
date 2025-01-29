@@ -1,3 +1,7 @@
+//! # Verifier Related Database Operations
+//!
+//! This module includes database functions which are mainly used by a verifier.
+
 use super::{
     wrapper::{
         AddressDB, EVMAddressDB, MessageDB, MusigAggNonceDB, MusigPubNonceDB, OutPointDB,

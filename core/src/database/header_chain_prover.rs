@@ -1,3 +1,8 @@
+//! # Header Chain Prover Related Database Operations
+//!
+//! This module includes database functions which are mainly used by the header
+//! chain prover.
+
 use super::{
     wrapper::{BlockHashDB, BlockHeaderDB},
     Database,

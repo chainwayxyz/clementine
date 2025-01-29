@@ -1,3 +1,7 @@
+//! # Operator Related Database Operations
+//!
+//! This module includes database functions which are mainly used by an operator.
+
 use super::{
     wrapper::{OutPointDB, SignatureDB, SignaturesDB, TxOutDB, TxidDB, UtxoDB, XOnlyPublicKeyDB},
     Database,

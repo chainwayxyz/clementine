@@ -1,3 +1,7 @@
+//! # Watchtower Related Database Operations
+//!
+//! This module includes database functions which are mainly used by a watchtower.
+
 use super::Database;
 use crate::errors::BridgeError;
 use bitcoin::{ScriptBuf, XOnlyPublicKey};
