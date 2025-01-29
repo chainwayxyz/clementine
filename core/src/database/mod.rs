@@ -26,7 +26,7 @@ pub struct Database {
 /// # Parameters
 ///
 /// - `$conn`: Database connection.
-/// - `$tx`: Database transation, wrapped in `Option`.
+/// - `$tx`: Optional database transaction
 /// - `$query`: Query to execute.
 /// - `$method`: Method to execute on the query.
 #[macro_export]
