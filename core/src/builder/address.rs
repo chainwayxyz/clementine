@@ -147,11 +147,11 @@ pub fn generate_deposit_address(
 /// - [`Address`]: Checksig taproot Bitcoin address
 /// - [`TaprootSpendInfo`]: Checksig address's taproot spending information
 pub fn create_checksig_address(
-    nofn_xonly_pk: XOnlyPublicKey,
+    xonly_pk: XOnlyPublicKey,
     network: bitcoin::Network,
 ) -> (Address, TaprootSpendInfo) {
-    let nofn_script = builder::script::generate_checksig_script(nofn_xonly_pk);
-    create_taproot_address(&[nofn_script], None, network)
+    let script = builder::script::generate_checksig_script(xonly_pk);
+    create_taproot_address(&[script], None, network)
 }
 
 pub fn derive_challenge_address_from_xonlypk_and_wpk(

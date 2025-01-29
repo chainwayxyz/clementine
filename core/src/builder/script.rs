@@ -133,8 +133,7 @@ pub fn actor_with_preimage_script(
 
 /// Generates a signature verification script.
 ///
-/// This script is a simple P2PKH script that pays to the signature generated from the
-/// given xonly pk.
+/// This is a simple P2PK script that pays to the given xonly pk.
 ///
 /// # Parameters
 ///
