@@ -20,6 +20,7 @@ pub type AssertTxAddrs = Vec<ScriptBuf>;
 pub type BitvmSetup = (AssertTxAddrs, RootHash, PublicInputWots);
 
 impl Database {
+    /// Sets a sequential collateral tx details for an operator.
     pub async fn set_sequential_collateral_tx(
         &self,
         tx: DatabaseTransaction<'_, '_>,
@@ -41,11 +42,12 @@ impl Database {
         Ok(())
     }
 
-    /// Fetches sequential collateral txs for an operator.
+    /// Fetches sequential collateral tx details for an operator.
     ///
     /// # Returns
     ///
-    /// - `Vec<(i32, Txid, i32)>`: A vector of tuples containing the index, TxId, and block height for a sequential collateral tx.
+    /// - `Vec<(i32, Txid, i32)>`: A vector of tuples containing the index,
+    ///   [`Txid`], and block height for a sequential collateral tx.
     pub async fn get_sequential_collateral_txs(
         &self,
         tx: DatabaseTransaction<'_, '_>,
@@ -120,7 +122,7 @@ impl Database {
         Ok(data)
     }
 
-    pub async fn save_timeout_tx_sigs(
+    pub async fn set_timeout_tx_sigs(
         &self,
         tx: DatabaseTransaction<'_, '_>,
         operator_idx: u32,
@@ -163,7 +165,28 @@ impl Database {
         Ok(())
     }
 
-    /// Operator: If operator already created a kickoff UTXO for this deposit UTXO, return it.
+    /// Set the kickoff UTXO for this deposit UTXO.
+    pub async fn set_kickoff_utxo(
+        &self,
+        tx: DatabaseTransaction<'_, '_>,
+        deposit_outpoint: OutPoint,
+        kickoff_utxo: UTXO,
+    ) -> Result<(), BridgeError> {
+        let query = sqlx::query(
+            "INSERT INTO operators_kickoff_utxo (deposit_outpoint, kickoff_utxo) VALUES ($1, $2);",
+        )
+        .bind(OutPointDB(deposit_outpoint))
+        .bind(sqlx::types::Json(UtxoDB {
+            outpoint_db: OutPointDB(kickoff_utxo.outpoint),
+            txout_db: TxOutDB(kickoff_utxo.txout),
+        }));
+
+        execute_query_with_tx!(self.connection, tx, query, execute)?;
+
+        Ok(())
+    }
+
+    /// If operator already created a kickoff UTXO for this deposit UTXO, return it.
     pub async fn get_kickoff_utxo(
         &self,
         tx: DatabaseTransaction<'_, '_>,
@@ -187,7 +210,7 @@ impl Database {
         }
     }
 
-    /// Operator: Get unused kickoff_utxo at ready if there are any.
+    /// Get unused kickoff_utxo at ready if there are any.
     pub async fn get_unused_kickoff_utxo_and_increase_idx(
         &self,
         tx: DatabaseTransaction<'_, '_>,
@@ -238,7 +261,25 @@ impl Database {
         }
     }
 
-    /// Operator: Gets the funding UTXO for kickoffs
+    /// Sets the funding UTXO for kickoffs.
+    pub async fn set_funding_utxo(
+        &self,
+        tx: DatabaseTransaction<'_, '_>,
+        funding_utxo: UTXO,
+    ) -> Result<(), BridgeError> {
+        let query = sqlx::query("INSERT INTO funding_utxos (funding_utxo) VALUES ($1);").bind(
+            sqlx::types::Json(UtxoDB {
+                outpoint_db: OutPointDB(funding_utxo.outpoint),
+                txout_db: TxOutDB(funding_utxo.txout),
+            }),
+        );
+
+        execute_query_with_tx!(self.connection, tx, query, execute)?;
+
+        Ok(())
+    }
+
+    /// Gets the funding UTXO for kickoffs
     pub async fn get_funding_utxo(
         &self,
         tx: DatabaseTransaction<'_, '_>,
@@ -259,69 +300,7 @@ impl Database {
         }
     }
 
-    /// Operator: Sets the funding UTXO for kickoffs
-    pub async fn set_funding_utxo(
-        &self,
-        tx: DatabaseTransaction<'_, '_>,
-        funding_utxo: UTXO,
-    ) -> Result<(), BridgeError> {
-        let query = sqlx::query("INSERT INTO funding_utxos (funding_utxo) VALUES ($1);").bind(
-            sqlx::types::Json(UtxoDB {
-                outpoint_db: OutPointDB(funding_utxo.outpoint),
-                txout_db: TxOutDB(funding_utxo.txout),
-            }),
-        );
-
-        execute_query_with_tx!(self.connection, tx, query, execute)?;
-
-        Ok(())
-    }
-
-    /// Operator: Save the kickoff UTXO for this deposit UTXO.
-    pub async fn save_kickoff_utxo(
-        &self,
-        tx: DatabaseTransaction<'_, '_>,
-        deposit_outpoint: OutPoint,
-        kickoff_utxo: UTXO,
-    ) -> Result<(), BridgeError> {
-        let query = sqlx::query(
-            "INSERT INTO operators_kickoff_utxo (deposit_outpoint, kickoff_utxo) VALUES ($1, $2);",
-        )
-        .bind(OutPointDB(deposit_outpoint))
-        .bind(sqlx::types::Json(UtxoDB {
-            outpoint_db: OutPointDB(kickoff_utxo.outpoint),
-            txout_db: TxOutDB(kickoff_utxo.txout),
-        }));
-
-        execute_query_with_tx!(self.connection, tx, query, execute)?;
-
-        Ok(())
-    }
-
-    /// Operator: Save the signed kickoff UTXO generator tx.
-    ///  Txid is the txid of the signed tx.
-    /// funding_txid is the txid of the input[0].
-    pub async fn add_deposit_kickoff_generator_tx(
-        &self,
-        tx: DatabaseTransaction<'_, '_>,
-        txid: Txid,
-        raw_hex: String,
-        num_kickoffs: usize,
-        funding_txid: Txid,
-    ) -> Result<(), BridgeError> {
-        let query = sqlx::query("INSERT INTO deposit_kickoff_generator_txs (txid, raw_signed_tx, num_kickoffs, cur_unused_kickoff_index, funding_txid) VALUES ($1, $2, $3, $4, $5);")
-            .bind(TxidDB(txid))
-            .bind(raw_hex)
-            .bind(num_kickoffs as i32)
-            .bind(1)
-            .bind(TxidDB(funding_txid));
-
-        execute_query_with_tx!(self.connection, tx, query, execute)?;
-
-        Ok(())
-    }
-
-    pub async fn save_operator_take_sigs(
+    pub async fn set_operator_take_sigs(
         &self,
         deposit_outpoint: OutPoint,
         kickoff_utxos_and_sigs: impl IntoIterator<Item = (UTXO, schnorr::Signature)>,
@@ -380,8 +359,7 @@ impl Database {
     }
 
     /// Sets Winternitz public keys for an operator.
-    /// TODO: no test
-    pub async fn save_operator_winternitz_public_keys(
+    pub async fn set_operator_winternitz_public_keys(
         &self,
         tx: DatabaseTransaction<'_, '_>,
         operator_id: u32,
@@ -400,12 +378,11 @@ impl Database {
         Ok(())
     }
 
-    /// Gets Winternitz public keys for every sequential collateral tx of an operator and a watchtower.
-    /// TODO: no test
+    /// Gets Winternitz public keys for every sequential collateral tx of an
+    /// operator and a watchtower.
     pub async fn get_operator_winternitz_public_keys(
         &self,
         tx: DatabaseTransaction<'_, '_>,
-        _watchtower_id: u32,
         operator_id: u32,
     ) -> Result<Vec<winternitz::PublicKey>, BridgeError> {
         let query = sqlx::query_as(
@@ -421,8 +398,10 @@ impl Database {
         Ok(watchtower_winternitz_public_keys)
     }
 
-    /// Saves public hashes for a specific operator, sequential collateral tx and kickoff index combination
-    pub async fn save_public_hashes(
+    /// Sets public hashes for a specific operator, sequential collateral tx and
+    /// kickoff index combination. If there is hashes for given indexes, they
+    /// will be overwritten by the new hashes.
+    pub async fn set_operator_challenge_ack_hashes(
         &self,
         tx: DatabaseTransaction<'_, '_>,
         operator_idx: i32,
@@ -452,7 +431,8 @@ impl Database {
         Ok(())
     }
 
-    /// Retrieves public hashes for a specific operator, sequential collateral tx and kickoff index combination
+    /// Retrieves public hashes for a specific operator, sequential collateral
+    /// tx and kickoff index combination.
     pub async fn get_operators_challenge_ack_hashes(
         &self,
         tx: DatabaseTransaction<'_, '_>,
@@ -491,7 +471,7 @@ impl Database {
         }
     }
 
-    pub async fn save_slash_or_take_sigs(
+    pub async fn set_slash_or_take_sigs(
         &self,
         deposit_outpoint: OutPoint,
         slash_or_take_sigs: impl IntoIterator<Item = schnorr::Signature>,
@@ -546,6 +526,32 @@ impl Database {
         }
     }
 
+    /// Sets the signed kickoff UTXO generator tx.
+    ///
+    /// # Parameters
+    ///
+    /// - txid: the txid of the signed tx.
+    /// - funding_txid: the txid of the input[0].
+    pub async fn add_deposit_kickoff_generator_tx(
+        &self,
+        tx: DatabaseTransaction<'_, '_>,
+        txid: Txid,
+        raw_hex: String,
+        num_kickoffs: usize,
+        funding_txid: Txid,
+    ) -> Result<(), BridgeError> {
+        let query = sqlx::query("INSERT INTO deposit_kickoff_generator_txs (txid, raw_signed_tx, num_kickoffs, cur_unused_kickoff_index, funding_txid) VALUES ($1, $2, $3, $4, $5);")
+            .bind(TxidDB(txid))
+            .bind(raw_hex)
+            .bind(num_kickoffs as i32)
+            .bind(1)
+            .bind(TxidDB(funding_txid));
+
+        execute_query_with_tx!(self.connection, tx, query, execute)?;
+
+        Ok(())
+    }
+
     pub async fn get_deposit_kickoff_generator_tx(
         &self,
         txid: Txid,
@@ -570,7 +576,7 @@ impl Database {
     /// The signatures array is identified by the deposit_outpoint and operator_idx.
     /// For the order of signatures, please check [`crate::builder::sighash::create_nofn_sighash_stream`]
     /// which determines the order of the sighashes that are signed.
-    pub async fn save_deposit_signatures(
+    pub async fn set_deposit_signatures(
         &self,
         tx: DatabaseTransaction<'_, '_>,
         deposit_outpoint: OutPoint,
@@ -589,8 +595,34 @@ impl Database {
         Ok(())
     }
 
+    /// Retrieves the deposit signatures for a single operator.
+    /// The signatures array is identified by the deposit_outpoint and operator_idx.
+    /// For the order of signatures, please check [`crate::builder::sighash::create_nofn_sighash_stream`]
+    /// which determines the order of the sighashes that are signed.
+    pub async fn get_deposit_signatures(
+        &self,
+        tx: DatabaseTransaction<'_, '_>,
+        deposit_outpoint: OutPoint,
+        operator_idx: u32,
+    ) -> Result<Option<Vec<schnorr::Signature>>, BridgeError> {
+        let query = sqlx::query_as(
+            "SELECT signatures FROM deposit_signatures WHERE deposit_outpoint = $1 AND operator_idx = $2;"
+        )
+        .bind(OutPointDB(deposit_outpoint))
+        .bind(operator_idx as i64);
+
+        let result: Result<(SignaturesDB,), sqlx::Error> =
+            execute_query_with_tx!(self.connection, tx, query, fetch_one);
+
+        match result {
+            Ok((SignaturesDB(signatures),)) => Ok(Some(signatures)),
+            Err(sqlx::Error::RowNotFound) => Ok(None),
+            Err(e) => Err(BridgeError::DatabaseError(e)),
+        }
+    }
+
     /// Saves BitVM setup data for a specific operator, sequential collateral tx and kickoff index combination
-    pub async fn save_bitvm_setup(
+    pub async fn set_bitvm_setup(
         &self,
         tx: DatabaseTransaction<'_, '_>,
         operator_idx: i32,
@@ -625,32 +657,6 @@ impl Database {
         execute_query_with_tx!(self.connection, tx, query, execute)?;
 
         Ok(())
-    }
-
-    /// Retrieves the deposit signatures for a single operator.
-    /// The signatures array is identified by the deposit_outpoint and operator_idx.
-    /// For the order of signatures, please check [`crate::builder::sighash::create_nofn_sighash_stream`]
-    /// which determines the order of the sighashes that are signed.
-    pub async fn get_deposit_signatures(
-        &self,
-        tx: DatabaseTransaction<'_, '_>,
-        deposit_outpoint: OutPoint,
-        operator_idx: u32,
-    ) -> Result<Option<Vec<schnorr::Signature>>, BridgeError> {
-        let query = sqlx::query_as(
-            "SELECT signatures FROM deposit_signatures WHERE deposit_outpoint = $1 AND operator_idx = $2;"
-        )
-        .bind(OutPointDB(deposit_outpoint))
-        .bind(operator_idx as i64);
-
-        let result: Result<(SignaturesDB,), sqlx::Error> =
-            execute_query_with_tx!(self.connection, tx, query, fetch_one);
-
-        match result {
-            Ok((SignaturesDB(signatures),)) => Ok(Some(signatures)),
-            Err(sqlx::Error::RowNotFound) => Ok(None),
-            Err(e) => Err(BridgeError::DatabaseError(e)),
-        }
     }
 
     /// Retrieves BitVM setup data for a specific operator, sequential collateral tx and kickoff index combination
@@ -712,6 +718,8 @@ mod tests {
     use bitcoin::secp256k1::schnorr;
     use bitcoin::{Amount, OutPoint, ScriptBuf, TxOut, Txid};
 
+    use crate::extended_rpc::ExtendedRpc;
+    use crate::operator::Operator;
     use crate::{
         config::BridgeConfig, database::Database, initialize_database, utils::initialize_logger,
     };
@@ -771,7 +779,7 @@ mod tests {
 
         // Save public hashes
         database
-            .save_public_hashes(
+            .set_operator_challenge_ack_hashes(
                 None,
                 operator_idx,
                 sequential_collateral_tx_idx,
@@ -832,7 +840,7 @@ mod tests {
             .unwrap();
 
         database
-            .save_operator_take_sigs(deposit_outpoint, [(kickoff_utxo.clone(), signature)])
+            .set_operator_take_sigs(deposit_outpoint, [(kickoff_utxo.clone(), signature)])
             .await
             .unwrap();
 
@@ -957,7 +965,7 @@ mod tests {
                 script_pubkey: ScriptBuf::from(vec![1u8]),
             },
         };
-        db.save_kickoff_utxo(None, outpoint, kickoff_utxo.clone())
+        db.set_kickoff_utxo(None, outpoint, kickoff_utxo.clone())
             .await
             .unwrap();
         let db_kickoff_utxo = db.get_kickoff_utxo(None, outpoint).await.unwrap().unwrap();
@@ -980,7 +988,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn save_get_timeout_tx_sigs() {
+    async fn set_get_timeout_tx_sigs() {
         let config = create_test_config_with_thread_name!(None);
         let database = Database::new(&config).await.unwrap();
 
@@ -989,7 +997,7 @@ mod tests {
             .collect();
 
         database
-            .save_timeout_tx_sigs(None, 0x45, signatures.clone())
+            .set_timeout_tx_sigs(None, 0x45, signatures.clone())
             .await
             .unwrap();
 
@@ -1064,7 +1072,7 @@ mod tests {
 
         // Save BitVM setup
         database
-            .save_bitvm_setup(
+            .set_bitvm_setup(
                 None,
                 operator_idx,
                 sequential_collateral_tx_idx,
@@ -1104,6 +1112,82 @@ mod tests {
         // Test non-existent entry
         let non_existent = database
             .get_bitvm_setup(None, 999, sequential_collateral_tx_idx, kickoff_idx)
+            .await
+            .unwrap();
+        assert!(non_existent.is_none());
+    }
+
+    #[tokio::test]
+    async fn set_get_operator_winternitz_public_keys() {
+        let config = create_test_config_with_thread_name!(None);
+        let database = Database::new(&config).await.unwrap();
+        let rpc = ExtendedRpc::new(
+            config.bitcoin_rpc_url.clone(),
+            config.bitcoin_rpc_user.clone(),
+            config.bitcoin_rpc_password.clone(),
+        )
+        .await;
+
+        let operator = Operator::new(config, rpc).await.unwrap();
+        let operator_idx = 0x45;
+        let wpks = operator.get_winternitz_public_keys().unwrap();
+
+        database
+            .set_operator_winternitz_public_keys(None, operator_idx, wpks.clone())
+            .await
+            .unwrap();
+
+        let result = database
+            .get_operator_winternitz_public_keys(None, operator_idx)
+            .await
+            .unwrap();
+        assert_eq!(result, wpks);
+
+        let non_existent = database
+            .get_operator_winternitz_public_keys(None, operator_idx + 1)
+            .await;
+        assert!(non_existent.is_err());
+    }
+
+    #[tokio::test]
+    async fn set_get_deposit_signatures() {
+        let config = create_test_config_with_thread_name!(None);
+        let database = Database::new(&config).await.unwrap();
+
+        let operator_idx = 0x45;
+        let deposit_outpoint = OutPoint {
+            txid: Txid::from_slice(&[0x45; 32]).unwrap(),
+            vout: 0x1F,
+        };
+        let signatures =
+            vec![schnorr::Signature::from_slice(&[0x1F; SCHNORR_SIGNATURE_SIZE]).unwrap(); 2];
+
+        database
+            .set_deposit_signatures(None, deposit_outpoint, operator_idx, signatures.clone())
+            .await
+            .unwrap();
+
+        let result = database
+            .get_deposit_signatures(None, deposit_outpoint, operator_idx)
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(result, signatures);
+
+        let non_existent = database
+            .get_deposit_signatures(None, deposit_outpoint, operator_idx + 1)
+            .await
+            .unwrap();
+        assert!(non_existent.is_none());
+
+        let non_existent = database
+            .get_deposit_signatures(None, OutPoint::null(), operator_idx)
+            .await
+            .unwrap();
+        assert!(non_existent.is_none());
+
+        let non_existent = database
+            .get_deposit_signatures(None, OutPoint::null(), operator_idx + 1)
             .await
             .unwrap();
         assert!(non_existent.is_none());
