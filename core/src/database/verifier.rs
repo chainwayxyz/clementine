@@ -7,7 +7,7 @@ use super::{
         AddressDB, EVMAddressDB, MessageDB, MusigAggNonceDB, MusigPubNonceDB, OutPointDB,
         PublicKeyDB, TxOutDB, UtxoDB,
     },
-    Database,
+    Database, DatabaseTransaction,
 };
 use crate::{errors::BridgeError, execute_query_with_tx, EVMAddress, UTXO};
 use bitcoin::{
@@ -16,12 +16,12 @@ use bitcoin::{
     Address, OutPoint,
 };
 use secp256k1::musig::{MusigAggNonce, MusigPubNonce};
-use sqlx::{Postgres, QueryBuilder};
+use sqlx::QueryBuilder;
 
 impl Database {
     pub async fn save_verifier_public_keys(
         &self,
-        tx: Option<&mut sqlx::Transaction<'_, Postgres>>,
+        tx: DatabaseTransaction<'_, '_>,
         public_keys: &[PublicKey],
     ) -> Result<(), BridgeError> {
         let mut query = QueryBuilder::new("INSERT INTO verifier_public_keys (idx, public_key) ");
@@ -39,7 +39,7 @@ impl Database {
 
     pub async fn get_verifier_public_keys(
         &self,
-        tx: Option<&mut sqlx::Transaction<'_, Postgres>>,
+        tx: DatabaseTransaction<'_, '_>,
     ) -> Result<Vec<PublicKey>, BridgeError> {
         let query = sqlx::query_as("SELECT * FROM verifier_public_keys ORDER BY idx;");
 
@@ -77,7 +77,7 @@ impl Database {
     /// Verifier: Save the kickoff UTXOs for this deposit UTXO.
     pub async fn save_kickoff_utxos(
         &self,
-        tx: Option<&mut sqlx::Transaction<'_, Postgres>>,
+        tx: DatabaseTransaction<'_, '_>,
         deposit_outpoint: OutPoint,
         kickoff_utxos: &[UTXO],
     ) -> Result<(), BridgeError> {
@@ -112,7 +112,7 @@ impl Database {
     /// Verifier: Get the public nonces for a deposit UTXO.
     pub async fn get_pub_nonces(
         &self,
-        tx: Option<&mut sqlx::Transaction<'_, Postgres>>,
+        tx: DatabaseTransaction<'_, '_>,
         deposit_outpoint: OutPoint,
     ) -> Result<Option<Vec<MusigPubNonce>>, BridgeError> {
         let query = sqlx::query_as(
@@ -134,7 +134,7 @@ impl Database {
     /// Saves the generated pub nonces for a verifier.
     pub async fn save_nonces(
         &self,
-        tx: Option<&mut sqlx::Transaction<'_, Postgres>>,
+        tx: DatabaseTransaction<'_, '_>,
         deposit_outpoint: OutPoint,
         pub_nonces: &[MusigPubNonce],
     ) -> Result<(), BridgeError> {
@@ -159,7 +159,7 @@ impl Database {
     /// Verifier: Save the deposit info to use later
     pub async fn save_deposit_info(
         &self,
-        tx: Option<&mut sqlx::Transaction<'_, Postgres>>,
+        tx: DatabaseTransaction<'_, '_>,
         deposit_outpoint: OutPoint,
         recovery_taproot_address: Address<NetworkUnchecked>,
         evm_address: EVMAddress,
@@ -192,7 +192,7 @@ impl Database {
     /// TODO: no test
     pub async fn save_sighashes_and_get_nonces(
         &self,
-        tx: Option<&mut sqlx::Transaction<'_, Postgres>>,
+        tx: DatabaseTransaction<'_, '_>,
         deposit_outpoint: OutPoint,
         index: usize,
         sighashes: &[Message],
@@ -240,7 +240,7 @@ impl Database {
     /// TODO: no test nor getter
     pub async fn save_agg_nonces(
         &self,
-        tx: Option<&mut sqlx::Transaction<'_, Postgres>>,
+        tx: DatabaseTransaction<'_, '_>,
         deposit_outpoint: OutPoint,
         agg_nonces: impl IntoIterator<Item = &MusigAggNonce>,
     ) -> Result<(), BridgeError> {

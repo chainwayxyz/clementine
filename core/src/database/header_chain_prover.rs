@@ -5,7 +5,7 @@
 
 use super::{
     wrapper::{BlockHashDB, BlockHeaderDB},
-    Database,
+    Database, DatabaseTransaction,
 };
 use crate::{errors::BridgeError, execute_query_with_tx};
 use bitcoin::{
@@ -14,13 +14,12 @@ use bitcoin::{
     BlockHash, CompactTarget, TxMerkleNode,
 };
 use risc0_zkvm::Receipt;
-use sqlx::Postgres;
 
 impl Database {
     /// Saves a new block to the database, later to be updated by a proof.
     pub async fn save_new_block(
         &self,
-        tx: Option<&mut sqlx::Transaction<'_, Postgres>>,
+        tx: DatabaseTransaction<'_, '_>,
         block_hash: block::BlockHash,
         block_header: block::Header,
         block_height: u64,
@@ -38,7 +37,7 @@ impl Database {
     /// Sets a block's proof by referring to it by it's hash.
     pub async fn save_block_proof(
         &self,
-        tx: Option<&mut sqlx::Transaction<'_, Postgres>>,
+        tx: DatabaseTransaction<'_, '_>,
         hash: block::BlockHash,
         proof: Receipt,
     ) -> Result<(), BridgeError> {
@@ -56,7 +55,7 @@ impl Database {
     /// Gets a block's proof by referring to it by it's hash.
     pub async fn get_block_proof_by_hash(
         &self,
-        tx: Option<&mut sqlx::Transaction<'_, Postgres>>,
+        tx: DatabaseTransaction<'_, '_>,
         hash: block::BlockHash,
     ) -> Result<Option<Receipt>, BridgeError> {
         let query = sqlx::query_as("SELECT proof FROM header_chain_proofs WHERE block_hash = $1;")
@@ -77,7 +76,7 @@ impl Database {
     /// Returns a block's hash and header, referring it to by it's height.
     pub async fn get_block_info_by_height(
         &self,
-        tx: Option<&mut sqlx::Transaction<'_, Postgres>>,
+        tx: DatabaseTransaction<'_, '_>,
         height: u64,
     ) -> Result<(block::BlockHash, block::Header), BridgeError> {
         let query = sqlx::query_as(
@@ -108,7 +107,7 @@ impl Database {
     /// Returns a block's hash and header, referring it to by it's height.
     pub async fn get_block_header(
         &self,
-        tx: Option<&mut sqlx::Transaction<'_, Postgres>>,
+        tx: DatabaseTransaction<'_, '_>,
         block_height: u64,
         block_hash: BlockHash,
     ) -> Result<Option<block::Header>, BridgeError> {
@@ -129,7 +128,7 @@ impl Database {
 
     pub async fn get_latest_block_info(
         &self,
-        tx: Option<&mut sqlx::Transaction<'_, Postgres>>,
+        tx: DatabaseTransaction<'_, '_>,
     ) -> Result<(u64, BlockHash), BridgeError> {
         let query = sqlx::query_as(
             "SELECT height, block_hash FROM header_chain_proofs ORDER BY height DESC;",
@@ -146,7 +145,7 @@ impl Database {
 
     pub async fn get_non_proven_block(
         &self,
-        tx: Option<&mut sqlx::Transaction<'_, Postgres>>,
+        tx: DatabaseTransaction<'_, '_>,
     ) -> Result<(BlockHash, Header, i32, Receipt), BridgeError> {
         let query = sqlx::query_as(
             "SELECT h1.block_hash,

@@ -2,19 +2,18 @@
 //!
 //! This module includes database functions which are mainly used by a watchtower.
 
-use super::Database;
+use super::{Database, DatabaseTransaction};
 use crate::errors::BridgeError;
 use crate::execute_query_with_tx;
 use bitcoin::{ScriptBuf, XOnlyPublicKey};
 use bitvm::signatures::winternitz;
 use bitvm::signatures::winternitz::PublicKey as WinternitzPublicKey;
-use sqlx::Postgres;
 
 impl Database {
     /// Sets Winternitz public keys for an operator.
     pub async fn save_watchtower_winternitz_public_keys(
         &self,
-        tx: Option<&mut sqlx::Transaction<'_, Postgres>>,
+        tx: DatabaseTransaction<'_, '_>,
         watchtower_id: u32,
         operator_id: u32,
         winternitz_public_key: Vec<WinternitzPublicKey>,
@@ -36,7 +35,7 @@ impl Database {
     /// Gets Winternitz public keys for every sequential collateral tx of an operator and a watchtower.
     pub async fn get_watchtower_winternitz_public_keys(
         &self,
-        tx: Option<&mut sqlx::Transaction<'_, Postgres>>,
+        tx: DatabaseTransaction<'_, '_>,
         watchtower_id: u32,
         operator_id: u32,
     ) -> Result<Vec<winternitz::PublicKey>, BridgeError> {
@@ -57,7 +56,7 @@ impl Database {
     // TODO: Document
     pub async fn save_watchtower_challenge_addresses(
         &self,
-        tx: Option<&mut sqlx::Transaction<'_, Postgres>>,
+        tx: DatabaseTransaction<'_, '_>,
         watchtower_id: u32,
         operator_id: u32,
         watchtower_challenge_addresses: impl AsRef<[ScriptBuf]>,
@@ -80,7 +79,7 @@ impl Database {
     // TODO: Document
     pub async fn get_watchtower_challenge_addresses(
         &self,
-        tx: Option<&mut sqlx::Transaction<'_, Postgres>>,
+        tx: DatabaseTransaction<'_, '_>,
         watchtower_id: u32,
         operator_id: u32,
     ) -> Result<Vec<ScriptBuf>, BridgeError> {
@@ -112,7 +111,7 @@ impl Database {
     /// Sets xonly public key of a watchtoer.
     pub async fn save_watchtower_xonly_pk(
         &self,
-        tx: Option<&mut sqlx::Transaction<'_, Postgres>>,
+        tx: DatabaseTransaction<'_, '_>,
         watchtower_id: u32,
         xonly_pk: &XOnlyPublicKey,
     ) -> Result<(), BridgeError> {
@@ -130,7 +129,7 @@ impl Database {
     /// Gets xonly public keys of all watchtowers.
     pub async fn get_all_watchtowers_xonly_pks(
         &self,
-        tx: Option<&mut sqlx::Transaction<'_, Postgres>>,
+        tx: DatabaseTransaction<'_, '_>,
     ) -> Result<Vec<XOnlyPublicKey>, BridgeError> {
         let query = sqlx::query_as(
             "SELECT xonly_pk FROM watchtower_xonly_public_keys ORDER BY watchtower_id;",
@@ -149,7 +148,7 @@ impl Database {
     /// Gets xonly public key of a single watchtower
     pub async fn get_watchtower_xonly_pk(
         &self,
-        tx: Option<&mut sqlx::Transaction<'_, Postgres>>,
+        tx: DatabaseTransaction<'_, '_>,
         watchtower_id: u32,
     ) -> Result<XOnlyPublicKey, BridgeError> {
         let query = sqlx::query_as(
