@@ -19,16 +19,16 @@ use secp256k1::musig::{MusigAggNonce, MusigPubNonce};
 use sqlx::QueryBuilder;
 
 impl Database {
-    pub async fn save_verifier_public_keys(
+    /// Sets the all verifiers' public keys. Given array **must** be in the same
+    /// order as the verifiers' indexes.
+    pub async fn set_verifiers_public_keys(
         &self,
         tx: DatabaseTransaction<'_, '_>,
         public_keys: &[PublicKey],
     ) -> Result<(), BridgeError> {
         let mut query = QueryBuilder::new("INSERT INTO verifier_public_keys (idx, public_key) ");
         query.push_values(public_keys.iter().enumerate(), |mut builder, (idx, pk)| {
-            builder
-                .push_bind(idx as i32) // Bind the index
-                .push_bind(PublicKeyDB(*pk)); // Bind public key
+            builder.push_bind(idx as i32).push_bind(PublicKeyDB(*pk));
         });
         let query = query.build();
 
@@ -37,7 +37,7 @@ impl Database {
         Ok(())
     }
 
-    pub async fn get_verifier_public_keys(
+    pub async fn get_verifiers_public_keys(
         &self,
         tx: DatabaseTransaction<'_, '_>,
     ) -> Result<Vec<PublicKey>, BridgeError> {
@@ -49,7 +49,40 @@ impl Database {
         Ok(pks.into_iter().map(|(_, pk)| pk.0).collect())
     }
 
-    /// Verifier: Get the verified kickoff UTXOs for a deposit UTXO.
+    /// Sets the kickoff UTXOs for this deposit UTXO. If a record already exists,
+    /// it does nothing.
+    pub async fn set_kickoff_utxos(
+        &self,
+        tx: DatabaseTransaction<'_, '_>,
+        deposit_outpoint: OutPoint,
+        kickoff_utxos: &[UTXO],
+    ) -> Result<(), BridgeError> {
+        let mut query_builder = QueryBuilder::new(
+            "INSERT INTO deposit_kickoff_utxos (deposit_outpoint, kickoff_utxo, operator_idx) ",
+        );
+
+        query_builder.push_values(
+            kickoff_utxos.iter().enumerate(),
+            |mut builder, (operator_idx, utxo)| {
+                builder
+                    .push_bind(OutPointDB(deposit_outpoint))
+                    .push_bind(sqlx::types::Json(UtxoDB {
+                        outpoint_db: OutPointDB(utxo.outpoint),
+                        txout_db: TxOutDB(utxo.txout.clone()),
+                    }))
+                    .push_bind(operator_idx as i32);
+            },
+        );
+
+        // Add the ON CONFLICT clause
+        query_builder.push(" ON CONFLICT (deposit_outpoint, operator_idx) DO NOTHING");
+
+        execute_query_with_tx!(self.connection, tx, query_builder.build(), execute)?;
+
+        Ok(())
+    }
+
+    /// Gets the verified kickoff UTXOs for a deposit UTXO.
     pub async fn get_kickoff_utxos(
         &self,
         deposit_outpoint: OutPoint,
@@ -74,65 +107,8 @@ impl Database {
         }
     }
 
-    /// Verifier: Save the kickoff UTXOs for this deposit UTXO.
-    pub async fn save_kickoff_utxos(
-        &self,
-        tx: DatabaseTransaction<'_, '_>,
-        deposit_outpoint: OutPoint,
-        kickoff_utxos: &[UTXO],
-    ) -> Result<(), BridgeError> {
-        // Use QueryBuilder to construct a batch insert query
-        let mut query_builder = QueryBuilder::new(
-            "INSERT INTO deposit_kickoff_utxos (deposit_outpoint, kickoff_utxo, operator_idx) ",
-        );
-
-        // Add values using push_values
-        query_builder.push_values(
-            kickoff_utxos.iter().enumerate(),
-            |mut builder, (operator_idx, utxo)| {
-                builder
-                    .push_bind(OutPointDB(deposit_outpoint)) // Bind deposit_outpoint
-                    .push_bind(sqlx::types::Json(UtxoDB {
-                        // Bind JSON-serialized UTXO
-                        outpoint_db: OutPointDB(utxo.outpoint),
-                        txout_db: TxOutDB(utxo.txout.clone()),
-                    }))
-                    .push_bind(operator_idx as i32); // Bind the operator_idx
-            },
-        );
-
-        // Add the ON CONFLICT clause
-        query_builder.push(" ON CONFLICT (deposit_outpoint, operator_idx) DO NOTHING");
-
-        execute_query_with_tx!(self.connection, tx, query_builder.build(), execute)?;
-
-        Ok(())
-    }
-
-    /// Verifier: Get the public nonces for a deposit UTXO.
-    pub async fn get_pub_nonces(
-        &self,
-        tx: DatabaseTransaction<'_, '_>,
-        deposit_outpoint: OutPoint,
-    ) -> Result<Option<Vec<MusigPubNonce>>, BridgeError> {
-        let query = sqlx::query_as(
-            "SELECT pub_nonce FROM nonces WHERE deposit_outpoint = $1 ORDER BY internal_idx;",
-        )
-        .bind(OutPointDB(deposit_outpoint));
-
-        let result: Vec<(MusigPubNonceDB,)> =
-            execute_query_with_tx!(self.connection, tx, query, fetch_all)?;
-
-        if result.is_empty() {
-            Ok(None)
-        } else {
-            let pub_nonces: Vec<MusigPubNonce> = result.into_iter().map(|(x,)| x.0).collect();
-            Ok(Some(pub_nonces))
-        }
-    }
-
-    /// Saves the generated pub nonces for a verifier.
-    pub async fn save_nonces(
+    /// Sets the generated pub nonces for a verifier.
+    pub async fn set_nonces(
         &self,
         tx: DatabaseTransaction<'_, '_>,
         deposit_outpoint: OutPoint,
@@ -156,8 +132,30 @@ impl Database {
         Ok(())
     }
 
-    /// Verifier: Save the deposit info to use later
-    pub async fn save_deposit_info(
+    /// Gets the public nonces for a deposit UTXO.
+    pub async fn get_pub_nonces(
+        &self,
+        tx: DatabaseTransaction<'_, '_>,
+        deposit_outpoint: OutPoint,
+    ) -> Result<Option<Vec<MusigPubNonce>>, BridgeError> {
+        let query = sqlx::query_as(
+            "SELECT pub_nonce FROM nonces WHERE deposit_outpoint = $1 ORDER BY internal_idx;",
+        )
+        .bind(OutPointDB(deposit_outpoint));
+
+        let result: Vec<(MusigPubNonceDB,)> =
+            execute_query_with_tx!(self.connection, tx, query, fetch_all)?;
+
+        if result.is_empty() {
+            Ok(None)
+        } else {
+            let pub_nonces: Vec<MusigPubNonce> = result.into_iter().map(|(x,)| x.0).collect();
+            Ok(Some(pub_nonces))
+        }
+    }
+
+    /// Sets the deposit info to use later.
+    pub async fn set_deposit_info(
         &self,
         tx: DatabaseTransaction<'_, '_>,
         deposit_outpoint: OutPoint,
@@ -174,7 +172,7 @@ impl Database {
         Ok(())
     }
 
-    /// Verifier: Get the deposit info to use later
+    /// Gets the deposit info to use later.
     pub async fn get_deposit_info(
         &self,
         deposit_outpoint: OutPoint,
@@ -190,7 +188,7 @@ impl Database {
     /// Saves the sighash and returns agg nonces for the verifier. If the
     /// sighash already exists and is different, returns error.
     /// TODO: no test
-    pub async fn save_sighashes_and_get_nonces(
+    pub async fn set_sighashes_and_get_nonces(
         &self,
         tx: DatabaseTransaction<'_, '_>,
         deposit_outpoint: OutPoint,
@@ -238,7 +236,7 @@ impl Database {
 
     /// Verifier: Save the agg nonces for signing
     /// TODO: no test nor getter
-    pub async fn save_agg_nonces(
+    pub async fn set_agg_nonces(
         &self,
         tx: DatabaseTransaction<'_, '_>,
         deposit_outpoint: OutPoint,
@@ -313,7 +311,7 @@ mod tests {
                 },
             },
         ];
-        db.save_kickoff_utxos(None, outpoint, &kickoff_utxos)
+        db.set_kickoff_utxos(None, outpoint, &kickoff_utxos)
             .await
             .unwrap();
         let db_kickoff_utxos = db.get_kickoff_utxos(outpoint).await.unwrap().unwrap();
@@ -360,7 +358,7 @@ mod tests {
             .into_iter()
             .map(|kp| nonce_pair(&kp, &mut OsRng).unwrap().1)
             .collect();
-        db.save_nonces(None, outpoint, &pub_nonces).await.unwrap();
+        db.set_nonces(None, outpoint, &pub_nonces).await.unwrap();
         let pub_nonces = db.get_pub_nonces(None, outpoint).await.unwrap().unwrap();
 
         // Sanity checks
@@ -397,7 +395,7 @@ mod tests {
         let taproot_address = Address::p2tr(&SECP, xonly_public_key, None, config.network);
         let evm_address = EVMAddress([1u8; 20]);
         database
-            .save_deposit_info(
+            .set_deposit_info(
                 None,
                 outpoint,
                 taproot_address.as_unchecked().clone(),

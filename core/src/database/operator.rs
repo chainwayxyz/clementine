@@ -827,7 +827,7 @@ mod tests {
         let signature = schnorr::Signature::from_slice(&[0u8; SCHNORR_SIGNATURE_SIZE]).unwrap();
 
         database
-            .save_kickoff_utxos(None, deposit_outpoint, &[kickoff_utxo.clone()])
+            .set_kickoff_utxos(None, deposit_outpoint, &[kickoff_utxo.clone()])
             .await
             .unwrap();
 

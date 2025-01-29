@@ -125,7 +125,7 @@ impl ClementineVerifier for Verifier {
 
         // Save verifiers public keys to db
         self.db
-            .save_verifier_public_keys(None, &verifiers_public_keys)
+            .set_verifiers_public_keys(None, &verifiers_public_keys)
             .await?;
 
         // Save the nofn to memory for fast access
