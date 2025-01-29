@@ -451,7 +451,7 @@ impl ClementineVerifier for Verifier {
                 * num_sequential_collateral_txs
                 * num_kickoffs_per_sequential_collateral_tx;
             self.db
-                .save_watchtower_winternitz_public_keys(
+                .set_watchtower_winternitz_public_keys(
                     None,
                     watchtower_id,
                     operator_idx as u32,
@@ -482,7 +482,7 @@ impl ClementineVerifier for Verifier {
 
             // TODO: After precalculating challenge addresses, maybe remove saving winternitz public keys to db
             self.db
-                .save_watchtower_challenge_addresses(
+                .set_watchtower_challenge_addresses(
                     None,
                     watchtower_id,
                     operator_idx as u32,
@@ -492,7 +492,7 @@ impl ClementineVerifier for Verifier {
         }
 
         self.db
-            .save_watchtower_xonly_pk(None, watchtower_id, &xonly_pk)
+            .set_watchtower_xonly_pk(None, watchtower_id, &xonly_pk)
             .await?;
 
         Ok(Response::new(Empty {}))

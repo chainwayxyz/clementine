@@ -515,7 +515,7 @@ mod tests {
             .unwrap();
         }
         for i in 0..config.num_watchtowers {
-            db.save_watchtower_xonly_pk(None, i.try_into().unwrap(), &watchtower_xonly_pk)
+            db.set_watchtower_xonly_pk(None, i.try_into().unwrap(), &watchtower_xonly_pk)
                 .await
                 .unwrap();
         }
@@ -530,7 +530,7 @@ mod tests {
         }
         for i in 0..config.num_operators {
             for j in 0..config.num_watchtowers {
-                db.save_watchtower_challenge_addresses(
+                db.set_watchtower_challenge_addresses(
                     None,
                     j.try_into().unwrap(),
                     i.try_into().unwrap(),

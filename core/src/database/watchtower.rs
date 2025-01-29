@@ -1,6 +1,7 @@
 //! # Watchtower Related Database Operations
 //!
-//! This module includes database functions which are mainly used by a watchtower.
+//! This module includes database functions which are mainly used by a
+//! watchtower.
 
 use super::{Database, DatabaseTransaction};
 use crate::errors::BridgeError;
@@ -10,8 +11,8 @@ use bitvm::signatures::winternitz;
 use bitvm::signatures::winternitz::PublicKey as WinternitzPublicKey;
 
 impl Database {
-    /// Sets Winternitz public keys for an operator.
-    pub async fn save_watchtower_winternitz_public_keys(
+    /// Sets winternitz public keys of a watchtower for an operator.
+    pub async fn set_watchtower_winternitz_public_keys(
         &self,
         tx: DatabaseTransaction<'_, '_>,
         watchtower_id: u32,
@@ -21,7 +22,9 @@ impl Database {
         let wpk = borsh::to_vec(&winternitz_public_key).map_err(BridgeError::BorshError)?;
 
         let query = sqlx::query(
-            "INSERT INTO watchtower_winternitz_public_keys (watchtower_id, operator_id, winternitz_public_keys) VALUES ($1, $2, $3);",
+            "INSERT INTO watchtower_winternitz_public_keys
+            (watchtower_id, operator_id, winternitz_public_keys)
+            VALUES ($1, $2, $3);",
         )
         .bind(watchtower_id as i64)
         .bind(operator_id as i64)
@@ -32,7 +35,8 @@ impl Database {
         Ok(())
     }
 
-    /// Gets Winternitz public keys for every sequential collateral tx of an operator and a watchtower.
+    /// Gets the winternitz public keys of a watchtower for every sequential
+    /// collateral tx and operator combination.
     pub async fn get_watchtower_winternitz_public_keys(
         &self,
         tx: DatabaseTransaction<'_, '_>,
@@ -53,8 +57,9 @@ impl Database {
         Ok(watchtower_winternitz_public_keys)
     }
 
-    // TODO: Document
-    pub async fn save_watchtower_challenge_addresses(
+    /// Sets challenge addresses of a watchtower for an operator. If there is an
+    /// existing entry, it overwrites it with the new addresses.
+    pub async fn set_watchtower_challenge_addresses(
         &self,
         tx: DatabaseTransaction<'_, '_>,
         watchtower_id: u32,
@@ -66,17 +71,17 @@ impl Database {
          VALUES ($1, $2, $3)
          ON CONFLICT (watchtower_id, operator_id) DO UPDATE
          SET challenge_addresses = EXCLUDED.challenge_addresses;",
-    )
-    .bind(watchtower_id as i64)
-    .bind(operator_id as i64)
-    .bind(watchtower_challenge_addresses.as_ref().iter().map(|addr| addr.as_ref()).collect::<Vec<&[u8]>>());
+        )
+        .bind(watchtower_id as i64)
+        .bind(operator_id as i64)
+        .bind(watchtower_challenge_addresses.as_ref().iter().map(|addr| addr.as_ref()).collect::<Vec<&[u8]>>());
 
         execute_query_with_tx!(self.connection, tx, query, execute)?;
 
         Ok(())
     }
 
-    // TODO: Document
+    /// Gets the challenge addresses of a watchtower for an operator.
     pub async fn get_watchtower_challenge_addresses(
         &self,
         tx: DatabaseTransaction<'_, '_>,
@@ -108,8 +113,8 @@ impl Database {
         }
     }
 
-    /// Sets xonly public key of a watchtoer.
-    pub async fn save_watchtower_xonly_pk(
+    /// Sets xonly public key of a watchtower.
+    pub async fn set_watchtower_xonly_pk(
         &self,
         tx: DatabaseTransaction<'_, '_>,
         watchtower_id: u32,
@@ -124,6 +129,22 @@ impl Database {
         execute_query_with_tx!(self.connection, tx, query, execute)?;
 
         Ok(())
+    }
+
+    /// Gets xonly public key of a watchtower.
+    pub async fn get_watchtower_xonly_pk(
+        &self,
+        tx: DatabaseTransaction<'_, '_>,
+        watchtower_id: u32,
+    ) -> Result<XOnlyPublicKey, BridgeError> {
+        let query = sqlx::query_as(
+            "SELECT xonly_pk FROM watchtower_xonly_public_keys WHERE watchtower_id = $1;",
+        )
+        .bind(watchtower_id as i64);
+
+        let xonly_key: (Vec<u8>,) = execute_query_with_tx!(self.connection, tx, query, fetch_one)?;
+
+        Ok(XOnlyPublicKey::from_slice(&xonly_key.0)?)
     }
 
     /// Gets xonly public keys of all watchtowers.
@@ -144,22 +165,6 @@ impl Database {
             })
             .collect()
     }
-
-    /// Gets xonly public key of a single watchtower
-    pub async fn get_watchtower_xonly_pk(
-        &self,
-        tx: DatabaseTransaction<'_, '_>,
-        watchtower_id: u32,
-    ) -> Result<XOnlyPublicKey, BridgeError> {
-        let query = sqlx::query_as(
-            "SELECT xonly_pk FROM watchtower_xonly_public_keys WHERE watchtower_id = $1;",
-        )
-        .bind(watchtower_id as i64);
-
-        let xonly_key: (Vec<u8>,) = execute_query_with_tx!(self.connection, tx, query, fetch_one)?;
-
-        Ok(XOnlyPublicKey::from_slice(&xonly_key.0)?)
-    }
 }
 
 #[cfg(test)]
@@ -174,7 +179,7 @@ mod tests {
     use std::{env, thread};
 
     #[tokio::test]
-    async fn save_get_winternitz_public_key() {
+    async fn set_get_winternitz_public_key() {
         let config = create_test_config_with_thread_name!(None);
         let database = Database::new(&config).await.unwrap();
 
@@ -184,7 +189,7 @@ mod tests {
         let watchtower_winternitz_public_keys = vec![wpk0.clone(), wpk1.clone()];
 
         database
-            .save_watchtower_winternitz_public_keys(
+            .set_watchtower_winternitz_public_keys(
                 None,
                 0x45,
                 0x1F,
@@ -204,7 +209,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn save_get_watchtower_challenge_address() {
+    async fn set_get_watchtower_challenge_address() {
         let config = create_test_config_with_thread_name!(None);
         let database = Database::new(&config).await.unwrap();
 
@@ -214,7 +219,7 @@ mod tests {
         let watchtower_winternitz_public_keys = vec![address_0.clone(), address_1.clone()];
 
         database
-            .save_watchtower_challenge_addresses(
+            .set_watchtower_challenge_addresses(
                 None,
                 0x45,
                 0x1F,
@@ -237,7 +242,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn save_get_watchtower_xonly_pk() {
+    async fn set_get_watchtower_xonly_pk() {
         let config = create_test_config_with_thread_name!(None);
         let database = Database::new(&config).await.unwrap();
 
@@ -252,7 +257,7 @@ mod tests {
 
         for (id, data) in w_data.iter().enumerate() {
             database
-                .save_watchtower_xonly_pk(None, id as u32, data)
+                .set_watchtower_xonly_pk(None, id as u32, data)
                 .await
                 .unwrap();
         }
