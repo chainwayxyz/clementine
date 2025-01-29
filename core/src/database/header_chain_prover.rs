@@ -7,7 +7,7 @@ use super::{
     wrapper::{BlockHashDB, BlockHeaderDB},
     Database,
 };
-use crate::errors::BridgeError;
+use crate::{errors::BridgeError, execute_query_with_tx};
 use bitcoin::{
     block::{self, Header, Version},
     hashes::Hash,
@@ -30,10 +30,7 @@ impl Database {
             )
             .bind(BlockHashDB(block_hash)).bind(BlockHeaderDB(block_header)).bind(BlockHashDB(block_header.prev_blockhash)).bind(block_height as i64);
 
-        match tx {
-            Some(tx) => query.execute(&mut **tx).await,
-            None => query.execute(&self.connection).await,
-        }?;
+        execute_query_with_tx!(self.connection, tx, query, execute)?;
 
         Ok(())
     }
@@ -51,10 +48,7 @@ impl Database {
             .bind(proof)
             .bind(BlockHashDB(hash));
 
-        match tx {
-            Some(tx) => query.execute(&mut **tx).await,
-            None => query.execute(&self.connection).await,
-        }?;
+        execute_query_with_tx!(self.connection, tx, query, execute)?;
 
         Ok(())
     }
@@ -68,10 +62,8 @@ impl Database {
         let query = sqlx::query_as("SELECT proof FROM header_chain_proofs WHERE block_hash = $1;")
             .bind(BlockHashDB(hash));
 
-        let receipt: (Option<Vec<u8>>,) = match tx {
-            Some(tx) => query.fetch_one(&mut **tx).await,
-            None => query.fetch_one(&self.connection).await,
-        }?;
+        let receipt: (Option<Vec<u8>>,) =
+            execute_query_with_tx!(self.connection, tx, query, fetch_one)?;
         let receipt = match receipt.0 {
             Some(r) => r,
             None => return Ok(None),
@@ -93,10 +85,8 @@ impl Database {
         )
         .bind(height as i64);
 
-        let result: (Option<BlockHashDB>, Option<BlockHeaderDB>) = match tx {
-            Some(tx) => query.fetch_one(&mut **tx).await,
-            None => query.fetch_one(&self.connection).await,
-        }?;
+        let result: (Option<BlockHashDB>, Option<BlockHeaderDB>) =
+            execute_query_with_tx!(self.connection, tx, query, fetch_one)?;
 
         match result {
             (Some(hash), Some(header)) => Ok((hash.0, header.0)),
@@ -128,10 +118,8 @@ impl Database {
         .bind(block_height as i64)
         .bind(BlockHashDB(block_hash));
 
-        let result: (Option<BlockHeaderDB>,) = match tx {
-            Some(tx) => query.fetch_one(&mut **tx).await,
-            None => query.fetch_one(&self.connection).await,
-        }?;
+        let result: (Option<BlockHeaderDB>,) =
+            execute_query_with_tx!(self.connection, tx, query, fetch_one)?;
 
         match result {
             (Some(block_header),) => Ok(Some(block_header.0)),
@@ -147,10 +135,8 @@ impl Database {
             "SELECT height, block_hash FROM header_chain_proofs ORDER BY height DESC;",
         );
 
-        let result: (Option<i32>, Option<BlockHashDB>) = match tx {
-            Some(tx) => query.fetch_one(&mut **tx).await,
-            None => query.fetch_one(&self.connection).await,
-        }?;
+        let result: (Option<i32>, Option<BlockHashDB>) =
+            execute_query_with_tx!(self.connection, tx, query, fetch_one)?;
 
         match result {
             (Some(height), Some(hash)) => Ok((height as u64, hash.0)),
@@ -174,10 +160,8 @@ impl Database {
                 LIMIT 1;",
         );
 
-        let result: (BlockHashDB, BlockHeaderDB, i32, Vec<u8>) = match tx {
-            Some(tx) => query.fetch_one(&mut **tx).await,
-            None => query.fetch_one(&self.connection).await,
-        }?;
+        let result: (BlockHashDB, BlockHeaderDB, i32, Vec<u8>) =
+            execute_query_with_tx!(self.connection, tx, query, fetch_one)?;
 
         let receipt: Receipt = borsh::from_slice(&result.3).map_err(BridgeError::BorshError)?;
 

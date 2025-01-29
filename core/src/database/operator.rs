@@ -6,7 +6,7 @@ use super::{
     wrapper::{OutPointDB, SignatureDB, SignaturesDB, TxOutDB, TxidDB, UtxoDB, XOnlyPublicKeyDB},
     Database,
 };
-use crate::{errors::BridgeError, operator::PublicHash, UTXO};
+use crate::{errors::BridgeError, execute_query_with_tx, operator::PublicHash, UTXO};
 use bitcoin::{secp256k1::schnorr, OutPoint, ScriptBuf, Txid, XOnlyPublicKey};
 use bitvm::signatures::winternitz;
 use bitvm::signatures::winternitz::PublicKey as WinternitzPublicKey;
@@ -36,10 +36,7 @@ impl Database {
         .bind(TxidDB(sequential_collateral_txid))
         .bind(block_height);
 
-        match tx {
-            Some(tx) => query.execute(&mut **tx).await?,
-            None => query.execute(&self.connection).await?,
-        };
+        execute_query_with_tx!(self.connection, tx, query, execute)?;
 
         Ok(())
     }
@@ -56,18 +53,13 @@ impl Database {
     ) -> Result<Vec<(i32, Txid, i32)>, BridgeError> {
         let query = sqlx::query_as("SELECT idx, sequential_collateral_txid, block_height FROM operator_sequential_collateral_txs WHERE operator_idx = $1 ORDER BY idx;").bind(operator_idx);
 
-        let result: Result<Vec<(i32, TxidDB, i32)>, sqlx::Error> = match tx {
-            Some(tx) => query.fetch_all(&mut **tx).await,
-            None => query.fetch_all(&self.connection).await,
-        };
+        let result: Vec<(i32, TxidDB, i32)> =
+            execute_query_with_tx!(self.connection, tx, query, fetch_all)?;
 
-        match result {
-            Ok(sequential_collateral_txs) => Ok(sequential_collateral_txs
-                .into_iter()
-                .map(|(idx, txid_db, block_height)| (idx, txid_db.0, block_height))
-                .collect()),
-            Err(e) => Err(BridgeError::DatabaseError(e)),
-        }
+        Ok(result
+            .into_iter()
+            .map(|(idx, txid_db, block_height)| (idx, txid_db.0, block_height))
+            .collect())
     }
 
     pub async fn set_operator(
@@ -86,10 +78,7 @@ impl Database {
         .bind(wallet_address)
         .bind(TxidDB(collateral_funding_txid));
 
-        match tx {
-            Some(tx) => query.execute(&mut **tx).await?,
-            None => query.execute(&self.connection).await?,
-        };
+        execute_query_with_tx!(self.connection, tx, query, execute)?;
 
         Ok(())
     }
@@ -102,41 +91,33 @@ impl Database {
             "SELECT operator_idx, xonly_pk, wallet_reimburse_address, collateral_funding_txid FROM operators ORDER BY operator_idx;"
         );
 
-        let result: Result<Vec<(i32, String, String, TxidDB)>, sqlx::Error> = match tx {
-            Some(tx) => query.fetch_all(&mut **tx).await,
-            None => query.fetch_all(&self.connection).await,
-        };
+        let operators: Vec<(i32, String, String, TxidDB)> =
+            execute_query_with_tx!(self.connection, tx, query, fetch_all)?;
 
-        match result {
-            Ok(operators) => {
-                // Check for missing indices
-                let indices: Vec<i32> = operators.iter().map(|(idx, _, _, _)| *idx).collect();
-                let expected_indices: Vec<i32> = (0..indices.len() as i32).collect();
+        // Check for missing indices
+        let indices: Vec<i32> = operators.iter().map(|(idx, _, _, _)| *idx).collect();
+        let expected_indices: Vec<i32> = (0..indices.len() as i32).collect();
 
-                if indices != expected_indices {
-                    return Err(BridgeError::Error(
-                        "Operator index is not sequential".to_string(),
-                    ));
-                }
-
-                // Convert the result to the desired format
-                let data = operators
-                    .into_iter()
-                    .map(|(_, pk, addr, txid_db)| {
-                        let xonly_pk = XOnlyPublicKey::from_str(&pk).map_err(|e| {
-                            BridgeError::Error(format!("Invalid XOnlyPublicKey: {}", e))
-                        })?;
-                        let addr = bitcoin::Address::from_str(&addr)
-                            .map_err(|e| BridgeError::Error(format!("Invalid Address: {}", e)))?
-                            .assume_checked();
-                        let txid = txid_db.0; // Extract the Txid from TxidDB
-                        Ok((xonly_pk, addr, txid))
-                    })
-                    .collect::<Result<Vec<_>, BridgeError>>()?;
-                Ok(data)
-            }
-            Err(e) => Err(BridgeError::DatabaseError(e)),
+        if indices != expected_indices {
+            return Err(BridgeError::Error(
+                "Operator index is not sequential".to_string(),
+            ));
         }
+
+        // Convert the result to the desired format
+        let data = operators
+            .into_iter()
+            .map(|(_, pk, addr, txid_db)| {
+                let xonly_pk = XOnlyPublicKey::from_str(&pk)
+                    .map_err(|e| BridgeError::Error(format!("Invalid XOnlyPublicKey: {}", e)))?;
+                let addr = bitcoin::Address::from_str(&addr)
+                    .map_err(|e| BridgeError::Error(format!("Invalid Address: {}", e)))?
+                    .assume_checked();
+                let txid = txid_db.0; // Extract the Txid from TxidDB
+                Ok((xonly_pk, addr, txid))
+            })
+            .collect::<Result<Vec<_>, BridgeError>>()?;
+        Ok(data)
     }
 
     pub async fn save_timeout_tx_sigs(
@@ -151,10 +132,7 @@ impl Database {
         .bind(operator_idx as i64)
         .bind(SignaturesDB(timeout_tx_sigs));
 
-        match tx {
-            Some(tx) => query.execute(&mut **tx).await?,
-            None => query.execute(&self.connection).await?,
-        };
+        execute_query_with_tx!(self.connection, tx, query, execute)?;
 
         Ok(())
     }
@@ -169,10 +147,8 @@ impl Database {
         )
         .bind(operator_idx as i64);
 
-        let signatures: (SignaturesDB,) = match tx {
-            Some(tx) => query.fetch_one(&mut **tx).await,
-            None => query.fetch_one(&self.connection).await,
-        }?;
+        let signatures: (SignaturesDB,) =
+            execute_query_with_tx!(self.connection, tx, query, fetch_one)?;
 
         Ok(signatures.0 .0)
     }
@@ -198,10 +174,8 @@ impl Database {
         )
         .bind(OutPointDB(deposit_outpoint));
 
-        let result: Result<(sqlx::types::Json<UtxoDB>,), sqlx::Error> = match tx {
-            Some(tx) => query.fetch_one(&mut **tx).await,
-            None => query.fetch_one(&self.connection).await,
-        };
+        let result: Result<(sqlx::types::Json<UtxoDB>,), sqlx::Error> =
+            execute_query_with_tx!(self.connection, tx, query, fetch_one);
 
         match result {
             Ok((utxo_db,)) => Ok(Some(UTXO {
@@ -232,10 +206,8 @@ impl Database {
                 RETURNING txid, raw_signed_tx, cur_unused_kickoff_index;", // This query returns the updated cur_unused_kickoff_index.
         );
 
-        let result: Result<(TxidDB, String, i32), sqlx::Error> = match tx {
-            Some(tx) => query.fetch_one(&mut **tx).await,
-            None => query.fetch_one(&self.connection).await,
-        };
+        let result: Result<(TxidDB, String, i32), sqlx::Error> =
+            execute_query_with_tx!(self.connection, tx, query, fetch_one);
 
         match result {
             Ok((txid, raw_signed_tx, cur_unused_kickoff_index)) => {
@@ -274,10 +246,8 @@ impl Database {
         let query =
             sqlx::query_as("SELECT funding_utxo FROM funding_utxos ORDER BY id DESC LIMIT 1;");
 
-        let result: Result<(sqlx::types::Json<UtxoDB>,), sqlx::Error> = match tx {
-            Some(tx) => query.fetch_one(&mut **tx).await,
-            None => query.fetch_one(&self.connection).await,
-        };
+        let result: Result<(sqlx::types::Json<UtxoDB>,), sqlx::Error> =
+            execute_query_with_tx!(self.connection, tx, query, fetch_one);
 
         match result {
             Ok((utxo_db,)) => Ok(Some(UTXO {
@@ -302,10 +272,7 @@ impl Database {
             }),
         );
 
-        match tx {
-            Some(tx) => query.execute(&mut **tx).await?,
-            None => query.execute(&self.connection).await?,
-        };
+        execute_query_with_tx!(self.connection, tx, query, execute)?;
 
         Ok(())
     }
@@ -326,10 +293,7 @@ impl Database {
             txout_db: TxOutDB(kickoff_utxo.txout),
         }));
 
-        match tx {
-            Some(tx) => query.execute(&mut **tx).await?,
-            None => query.execute(&self.connection).await?,
-        };
+        execute_query_with_tx!(self.connection, tx, query, execute)?;
 
         Ok(())
     }
@@ -352,10 +316,7 @@ impl Database {
             .bind(1)
             .bind(TxidDB(funding_txid));
 
-        match tx {
-            Some(tx) => query.execute(&mut **tx).await?,
-            None => query.execute(&self.connection).await?,
-        };
+        execute_query_with_tx!(self.connection, tx, query, execute)?;
 
         Ok(())
     }
@@ -434,10 +395,7 @@ impl Database {
             .bind(operator_id as i64)
             .bind(wpk);
 
-        match tx {
-            Some(tx) => query.execute(&mut **tx).await,
-            None => query.execute(&self.connection).await,
-        }?;
+        execute_query_with_tx!(self.connection, tx, query, execute)?;
 
         Ok(())
     }
@@ -455,10 +413,7 @@ impl Database {
             )
             .bind(operator_id as i64);
 
-        let wpks: (Vec<u8>,) = match tx {
-            Some(tx) => query.fetch_one(&mut **tx).await,
-            None => query.fetch_one(&self.connection).await,
-        }?;
+        let wpks: (Vec<u8>,) = execute_query_with_tx!(self.connection, tx, query, fetch_one)?;
 
         let watchtower_winternitz_public_keys: Vec<winternitz::PublicKey> =
             borsh::from_slice(&wpks.0).map_err(BridgeError::BorshError)?;
@@ -492,10 +447,7 @@ impl Database {
         .bind(kickoff_idx)
         .bind(&public_hashes);
 
-        match tx {
-            Some(tx) => query.execute(&mut **tx).await?,
-            None => query.execute(&self.connection).await?,
-        };
+        execute_query_with_tx!(self.connection, tx, query, execute)?;
 
         Ok(())
     }
@@ -517,10 +469,7 @@ impl Database {
         .bind(sequential_collateral_tx_idx)
         .bind(kickoff_idx);
 
-        let result = match tx {
-            Some(tx) => query.fetch_optional(&mut **tx).await?,
-            None => query.fetch_optional(&self.connection).await?,
-        };
+        let result = execute_query_with_tx!(self.connection, tx, query, fetch_optional)?;
 
         match result {
             Some((public_hashes,)) => {
@@ -635,10 +584,7 @@ impl Database {
         .bind(operator_idx as i64)
         .bind(SignaturesDB(signatures));
 
-        match tx {
-            Some(tx) => query.execute(&mut **tx).await?,
-            None => query.execute(&self.connection).await?,
-        };
+        execute_query_with_tx!(self.connection, tx, query, execute)?;
 
         Ok(())
     }
@@ -676,10 +622,7 @@ impl Database {
         .bind(root_hash.to_vec())
         .bind(&public_input_wots);
 
-        match tx {
-            Some(tx) => query.execute(&mut **tx).await?,
-            None => query.execute(&self.connection).await?,
-        };
+        execute_query_with_tx!(self.connection, tx, query, execute)?;
 
         Ok(())
     }
@@ -700,10 +643,8 @@ impl Database {
         .bind(OutPointDB(deposit_outpoint))
         .bind(operator_idx as i64);
 
-        let result: Result<(SignaturesDB,), sqlx::Error> = match tx {
-            Some(tx) => query.fetch_one(&mut **tx).await,
-            None => query.fetch_one(&self.connection).await,
-        };
+        let result: Result<(SignaturesDB,), sqlx::Error> =
+            execute_query_with_tx!(self.connection, tx, query, fetch_one);
 
         match result {
             Ok((SignaturesDB(signatures),)) => Ok(Some(signatures)),
@@ -729,10 +670,7 @@ impl Database {
         .bind(sequential_collateral_tx_idx)
         .bind(kickoff_idx);
 
-        let result = match tx {
-            Some(tx) => query.fetch_optional(&mut **tx).await?,
-            None => query.fetch_optional(&self.connection).await?,
-        };
+        let result = execute_query_with_tx!(self.connection, tx, query, fetch_optional)?;
 
         match result {
             Some((assert_tx_addrs, root_hash, public_input_wots)) => {

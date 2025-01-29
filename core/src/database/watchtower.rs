@@ -4,6 +4,7 @@
 
 use super::Database;
 use crate::errors::BridgeError;
+use crate::execute_query_with_tx;
 use bitcoin::{ScriptBuf, XOnlyPublicKey};
 use bitvm::signatures::winternitz;
 use bitvm::signatures::winternitz::PublicKey as WinternitzPublicKey;
@@ -27,10 +28,7 @@ impl Database {
         .bind(operator_id as i64)
         .bind(wpk);
 
-        match tx {
-            Some(tx) => query.execute(&mut **tx).await,
-            None => query.execute(&self.connection).await,
-        }?;
+        execute_query_with_tx!(self.connection, tx, query, execute)?;
 
         Ok(())
     }
@@ -48,10 +46,7 @@ impl Database {
         .bind(operator_id as i64)
         .bind(watchtower_id as i64);
 
-        let wpks: (Vec<u8>,) = match tx {
-            Some(tx) => query.fetch_one(&mut **tx).await,
-            None => query.fetch_one(&self.connection).await,
-        }?;
+        let wpks: (Vec<u8>,) = execute_query_with_tx!(self.connection, tx, query, fetch_one)?;
 
         let watchtower_winternitz_public_keys: Vec<winternitz::PublicKey> =
             borsh::from_slice(&wpks.0).map_err(BridgeError::BorshError)?;
@@ -77,10 +72,7 @@ impl Database {
     .bind(operator_id as i64)
     .bind(watchtower_challenge_addresses.as_ref().iter().map(|addr| addr.as_ref()).collect::<Vec<&[u8]>>());
 
-        match tx {
-            Some(tx) => query.execute(&mut **tx).await,
-            None => query.execute(&self.connection).await,
-        }?;
+        execute_query_with_tx!(self.connection, tx, query, execute)?;
 
         Ok(())
     }
@@ -100,10 +92,7 @@ impl Database {
         .bind(watchtower_id as i64)
         .bind(operator_id as i64);
 
-        let result = match tx {
-            Some(tx) => query.fetch_optional(&mut **tx).await?,
-            None => query.fetch_optional(&self.connection).await?,
-        };
+        let result = execute_query_with_tx!(self.connection, tx, query, fetch_optional)?;
 
         match result {
             Some((challenge_addresses,)) => {
@@ -133,10 +122,7 @@ impl Database {
         .bind(watchtower_id as i64)
         .bind(xonly_pk.serialize());
 
-        match tx {
-            Some(tx) => query.execute(&mut **tx).await,
-            None => query.execute(&self.connection).await,
-        }?;
+        execute_query_with_tx!(self.connection, tx, query, execute)?;
 
         Ok(())
     }
@@ -150,10 +136,7 @@ impl Database {
             "SELECT xonly_pk FROM watchtower_xonly_public_keys ORDER BY watchtower_id;",
         );
 
-        let rows: Vec<(Vec<u8>,)> = match tx {
-            Some(tx) => query.fetch_all(&mut **tx).await,
-            None => query.fetch_all(&self.connection).await,
-        }?;
+        let rows: Vec<(Vec<u8>,)> = execute_query_with_tx!(self.connection, tx, query, fetch_all)?;
 
         rows.into_iter()
             .map(|xonly_pk| {
@@ -174,10 +157,7 @@ impl Database {
         )
         .bind(watchtower_id as i64);
 
-        let xonly_key: (Vec<u8>,) = match tx {
-            Some(tx) => query.fetch_one(&mut **tx).await,
-            None => query.fetch_one(&self.connection).await,
-        }?;
+        let xonly_key: (Vec<u8>,) = execute_query_with_tx!(self.connection, tx, query, fetch_one)?;
 
         Ok(XOnlyPublicKey::from_slice(&xonly_key.0)?)
     }

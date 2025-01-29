@@ -9,7 +9,7 @@ use super::{
     },
     Database,
 };
-use crate::{errors::BridgeError, EVMAddress, UTXO};
+use crate::{errors::BridgeError, execute_query_with_tx, EVMAddress, UTXO};
 use bitcoin::{
     address::NetworkUnchecked,
     secp256k1::{Message, PublicKey},
@@ -32,11 +32,7 @@ impl Database {
         });
         let query = query.build();
 
-        // Now you can use the `query` variable in the match statement
-        match tx {
-            Some(tx) => query.execute(&mut **tx).await?,
-            None => query.execute(&self.connection).await?,
-        };
+        execute_query_with_tx!(self.connection, tx, query, execute)?;
 
         Ok(())
     }
@@ -47,15 +43,10 @@ impl Database {
     ) -> Result<Vec<PublicKey>, BridgeError> {
         let query = sqlx::query_as("SELECT * FROM verifier_public_keys ORDER BY idx;");
 
-        let result: Result<Vec<(i32, PublicKeyDB)>, sqlx::Error> = match tx {
-            Some(tx) => query.fetch_all(&mut **tx).await,
-            None => query.fetch_all(&self.connection).await,
-        };
+        let pks: Vec<(i32, PublicKeyDB)> =
+            execute_query_with_tx!(self.connection, tx, query, fetch_all)?;
 
-        match result {
-            Ok(pks) => Ok(pks.into_iter().map(|(_, pk)| pk.0).collect()),
-            Err(e) => Err(BridgeError::DatabaseError(e)),
-        }
+        Ok(pks.into_iter().map(|(_, pk)| pk.0).collect())
     }
 
     /// Verifier: Get the verified kickoff UTXOs for a deposit UTXO.
@@ -113,11 +104,7 @@ impl Database {
         // Add the ON CONFLICT clause
         query_builder.push(" ON CONFLICT (deposit_outpoint, operator_idx) DO NOTHING");
 
-        // Execute the batch insert query
-        match tx {
-            Some(tx) => query_builder.build().execute(&mut **tx).await?,
-            None => query_builder.build().execute(&self.connection).await?,
-        };
+        execute_query_with_tx!(self.connection, tx, query_builder.build(), execute)?;
 
         Ok(())
     }
@@ -133,10 +120,9 @@ impl Database {
         )
         .bind(OutPointDB(deposit_outpoint));
 
-        let result: Vec<(MusigPubNonceDB,)> = match tx {
-            Some(tx) => query.fetch_all(&mut **tx).await?,
-            None => query.fetch_all(&self.connection).await?,
-        };
+        let result: Vec<(MusigPubNonceDB,)> =
+            execute_query_with_tx!(self.connection, tx, query, fetch_all)?;
+
         if result.is_empty() {
             Ok(None)
         } else {
@@ -165,10 +151,7 @@ impl Database {
         );
         let query = query.build();
 
-        match tx {
-            Some(tx) => query.execute(&mut **tx).await?,
-            None => query.execute(&self.connection).await?,
-        };
+        execute_query_with_tx!(self.connection, tx, query, execute)?;
 
         Ok(())
     }
@@ -186,10 +169,7 @@ impl Database {
         .bind(AddressDB(recovery_taproot_address))
         .bind(EVMAddressDB(evm_address));
 
-        match tx {
-            Some(tx) => query.execute(&mut **tx).await?,
-            None => query.execute(&self.connection).await?,
-        };
+        execute_query_with_tx!(self.connection, tx, query, execute)?;
 
         Ok(())
     }
@@ -243,10 +223,8 @@ impl Database {
             )
             .build_query_as();
 
-        let result: Result<Vec<(MusigAggNonceDB,)>, sqlx::Error> = match tx {
-            Some(tx) => query.fetch_all(&mut **tx).await,
-            None => query.fetch_all(&self.connection).await,
-        };
+        let result: Result<Vec<(MusigAggNonceDB,)>, sqlx::Error> =
+            execute_query_with_tx!(self.connection, tx, query, fetch_all);
 
         match result {
             Ok(nonces) => {
@@ -289,10 +267,8 @@ impl Database {
             .push_bind(OutPointDB(deposit_outpoint))
             .build();
 
-        match tx {
-            Some(tx) => query.execute(&mut **tx).await?,
-            None => query.execute(&self.connection).await?,
-        };
+        execute_query_with_tx!(self.connection, tx, query, execute)?;
+
         Ok(())
     }
 }
