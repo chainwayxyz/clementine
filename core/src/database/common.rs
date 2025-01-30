@@ -303,8 +303,9 @@ impl Database {
         match result {
             Ok((txid, raw_signed_tx, cur_unused_kickoff_index)) => {
                 // Deserialize the transaction
-                let tx: bitcoin::Transaction =
-                    bitcoin::consensus::deserialize(&hex::decode(raw_signed_tx).unwrap())?;
+                let tx: bitcoin::Transaction = bitcoin::consensus::deserialize(
+                    &hex::decode(raw_signed_tx).map_err(|e| BridgeError::Error(e.to_string()))?,
+                )?;
 
                 // Create the outpoint and txout
                 let outpoint = OutPoint {
@@ -1068,8 +1069,8 @@ impl Database {
         operator_id: u32,
     ) -> Result<Vec<ScriptBuf>, BridgeError> {
         let query = sqlx::query_as::<_, (Vec<Vec<u8>>,)>(
-            "SELECT challenge_addresses 
-         FROM watchtower_challenge_addresses 
+            "SELECT challenge_addresses
+         FROM watchtower_challenge_addresses
          WHERE watchtower_id = $1 AND operator_id = $2;",
         )
         .bind(watchtower_id as i64)

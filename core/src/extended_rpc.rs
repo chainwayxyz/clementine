@@ -151,7 +151,7 @@ impl ExtendedRpc {
             amount_sats,
             network,
             user_takes_after,
-        );
+        )?;
 
         if !self
             .check_utxo_address_and_amount(

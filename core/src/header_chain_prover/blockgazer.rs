@@ -187,10 +187,9 @@ impl HeaderChainProver {
                 match status {
                     BlockFetchStatus::UpToDate => (),
                     BlockFetchStatus::FallenBehind(block_height, block_hashes) => {
-                        prover
-                            .sync_blockchain(block_height, block_hashes)
-                            .await
-                            .unwrap();
+                        if let Err(e) = prover.sync_blockchain(block_height, block_hashes).await {
+                            tracing::error!("Failed to sync blockchain: {e}");
+                        }
                     }
                 }
             };

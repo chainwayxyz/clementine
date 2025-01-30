@@ -204,7 +204,7 @@ impl_bytea_wrapper_custom!(
     MessageDB,
     Message,
     |msg: &Message| *msg, // Message is Copy, which requires this hack
-    |x: &[u8]| -> Result<Message, BoxDynError> { Ok(Message::from_digest(x.try_into().unwrap())) }
+    |x: &[u8]| -> Result<Message, BoxDynError> { Ok(Message::from_digest(x.try_into()?)) }
 );
 
 impl_bytea_wrapper_custom!(
@@ -217,13 +217,15 @@ impl_bytea_wrapper_custom!(
                 .map(|signature| signature.serialize().to_vec())
                 .collect::<Vec<_>>(),
         )
-        .unwrap()
+        .expect("signatures array too big (len() > 2^32) or ran out of memory")
     },
     |x: &[u8]| -> Result<Vec<schnorr::Signature>, BoxDynError> {
-        Ok(borsh::from_slice::<Vec<Vec<u8>>>(x)?
+        borsh::from_slice::<Vec<Vec<u8>>>(x)?
             .iter()
-            .map(|signature| schnorr::Signature::from_slice(signature).unwrap())
-            .collect())
+            .map(|signature| -> Result<schnorr::Signature, BoxDynError> {
+                schnorr::Signature::from_slice(signature).map_err(Into::into)
+            })
+            .collect::<Result<Vec<_>, BoxDynError>>()
     }
 );
 
@@ -232,13 +234,14 @@ impl_text_wrapper_custom!(
     block::Header,
     |header: &block::Header| {
         let mut bytes = Vec::new();
-        header.consensus_encode(&mut bytes).unwrap();
+        header
+            .consensus_encode(&mut bytes)
+            .expect("exceeded max Vec size or ran out of memory");
         bytes.to_hex_string(bitcoin::hex::Case::Lower)
     },
     |s: &str| -> Result<block::Header, BoxDynError> {
         let bytes = hex::decode(s)?;
-        block::Header::consensus_decode(&mut bytes.as_slice())
-            .map_err(|e| Box::new(e) as sqlx::error::BoxDynError)
+        block::Header::consensus_decode(&mut bytes.as_slice()).map_err(Into::into)
     }
 );
 

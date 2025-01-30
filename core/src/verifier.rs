@@ -349,7 +349,7 @@ impl Verifier {
             self.config.user_takes_after,
             self.config.bridge_amount_sats,
             self.config.network,
-        );
+        )?;
 
         let bridge_fund_outpoint = OutPoint {
             txid: move_tx_handler.tx.compute_txid(),

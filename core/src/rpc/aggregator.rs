@@ -363,7 +363,7 @@ impl Aggregator {
             user_takes_after,
             self.config.bridge_amount_sats,
             self.config.network,
-        );
+        )?;
         let sighash = move_txhandler.calculate_script_spend_sighash(0, 0, None)?;
 
         // aggregate partial signatures

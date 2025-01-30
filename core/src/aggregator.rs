@@ -228,7 +228,7 @@ impl Aggregator {
             self.config.user_takes_after,
             self.config.bridge_amount_sats,
             self.config.network,
-        );
+        )?;
         // println!("MOVE_TX: {:?}", tx);
         // println!("MOVE_TXID: {:?}", tx.tx.compute_txid());
         let message = Message::from_digest(
@@ -354,7 +354,7 @@ impl Aggregator {
             self.config.user_takes_after,
             self.config.bridge_amount_sats,
             self.config.network,
-        );
+        )?;
         let move_tx_witness_elements = vec![move_tx_sig.serialize().to_vec()];
         set_p2tr_script_spend_witness(&mut move_tx_handler, &move_tx_witness_elements, 0, 0)?;
 

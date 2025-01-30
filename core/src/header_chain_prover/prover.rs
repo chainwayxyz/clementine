@@ -19,25 +19,25 @@ const SIGNET_ELF: &[u8; 199828] = include_bytes!("../../../scripts/signet-header
 const REGTEST_ELF: &[u8; 194128] = include_bytes!("../../../scripts/regtest-header-chain-guest");
 lazy_static! {
     static ref MAINNET_IMAGE_ID: [u32; 8] = compute_image_id(MAINNET_ELF)
-        .unwrap()
+        .expect("hardcoded ELF is valid")
         .as_words()
         .try_into()
-        .unwrap();
+        .expect("hardcoded ELF is valid");
     static ref TESTNET4_IMAGE_ID: [u32; 8] = compute_image_id(TESTNET4_ELF)
-        .unwrap()
+        .expect("hardcoded ELF is valid")
         .as_words()
         .try_into()
-        .unwrap();
+        .expect("hardcoded ELF is valid");
     static ref SIGNET_IMAGE_ID: [u32; 8] = compute_image_id(SIGNET_ELF)
-        .unwrap()
+        .expect("hardcoded ELF is valid")
         .as_words()
         .try_into()
-        .unwrap();
+        .expect("hardcoded ELF is valid");
     static ref REGTEST_IMAGE_ID: [u32; 8] = compute_image_id(REGTEST_ELF)
-        .unwrap()
+        .expect("hardcoded ELF is valid")
         .as_words()
         .try_into()
-        .unwrap();
+        .expect("hardcoded ELF is valid");
 }
 
 impl HeaderChainProver {
@@ -147,11 +147,13 @@ impl HeaderChainProver {
 
                 match receipt {
                     Ok(receipt) => {
-                        prover
+                        if let Err(e) = prover
                             .db
                             .save_block_proof(None, current_block_hash, receipt)
                             .await
-                            .unwrap();
+                        {
+                            tracing::error!("Can't save proof for header {:?}: {}", header, e);
+                        }
                     }
                     Err(e) => {
                         tracing::error!("Can't prove for header {:?}: {}", header, e)

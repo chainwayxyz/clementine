@@ -4,6 +4,7 @@
 //! transactions.
 
 use crate::builder;
+use crate::errors::BridgeError;
 use crate::EVMAddress;
 use bitcoin::address::NetworkUnchecked;
 use bitcoin::Sequence;
@@ -119,7 +120,7 @@ pub fn create_move_to_vault_txhandler(
     user_takes_after: u16,
     bridge_amount_sats: Amount,
     network: bitcoin::Network,
-) -> TxHandler {
+) -> Result<TxHandler, BridgeError> {
     let (musig2_address, musig2_spendinfo) =
         builder::address::create_checksig_address(nofn_xonly_pk, network);
 
@@ -140,7 +141,7 @@ pub fn create_move_to_vault_txhandler(
         bridge_amount_sats,
         network,
         user_takes_after,
-    );
+    )?;
 
     let prevouts = vec![TxOut {
         script_pubkey: deposit_address.script_pubkey(),
@@ -153,7 +154,7 @@ pub fn create_move_to_vault_txhandler(
         bridge_amount_sats,
     )];
 
-    TxHandler {
+    Ok(TxHandler {
         txid: move_tx.compute_txid(),
         tx: move_tx,
         prevouts,
@@ -161,7 +162,7 @@ pub fn create_move_to_vault_txhandler(
         prev_taproot_spend_infos: vec![Some(deposit_taproot_spend_info)],
         out_scripts: vec![vec![], vec![]],
         out_taproot_spend_infos: vec![Some(musig2_spendinfo), None],
-    }
+    })
 }
 
 #[cfg(test)]
