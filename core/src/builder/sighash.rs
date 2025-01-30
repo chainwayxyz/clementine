@@ -515,12 +515,12 @@ mod tests {
             .unwrap();
         }
         for i in 0..config.num_watchtowers {
-            db.save_watchtower_xonly_pk(None, i.try_into().unwrap(), &watchtower_xonly_pk)
+            db.set_watchtower_xonly_pk(None, i.try_into().unwrap(), &watchtower_xonly_pk)
                 .await
                 .unwrap();
         }
         for i in 0..config.num_operators {
-            db.save_operator_winternitz_public_keys(
+            db.set_operator_winternitz_public_keys(
                 None,
                 i.try_into().unwrap(),
                 operator.get_winternitz_public_keys().unwrap(),
@@ -530,7 +530,7 @@ mod tests {
         }
         for i in 0..config.num_operators {
             for j in 0..config.num_watchtowers {
-                db.save_watchtower_challenge_addresses(
+                db.set_watchtower_challenge_addresses(
                     None,
                     j.try_into().unwrap(),
                     i.try_into().unwrap(),
@@ -546,7 +546,7 @@ mod tests {
         for o in 0..config.num_operators {
             for t in 0..config.num_sequential_collateral_txs {
                 for k in 0..config.num_kickoffs_per_sequential_collateral_tx {
-                    db.save_bitvm_setup(
+                    db.set_bitvm_setup(
                         None,
                         o.try_into().unwrap(),
                         t.try_into().unwrap(),
@@ -563,7 +563,7 @@ mod tests {
         for o in 0..config.num_operators {
             for t in 0..config.num_sequential_collateral_txs {
                 for k in 0..config.num_kickoffs_per_sequential_collateral_tx {
-                    db.save_public_hashes(
+                    db.set_operator_challenge_ack_hashes(
                         None,
                         o.try_into().unwrap(),
                         t.try_into().unwrap(),

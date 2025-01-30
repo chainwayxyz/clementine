@@ -51,7 +51,7 @@ impl HeaderChainProver {
             let block_header = rpc.client.get_block_header(&block_hash).await?;
             // Ignore error if block entry is in database already.
             let _ = db
-                .save_new_block(
+                .set_new_block(
                     None,
                     block_hash,
                     block_header,
@@ -60,7 +60,7 @@ impl HeaderChainProver {
                 .await;
 
             // Save proof receipt.
-            db.save_block_proof(None, block_hash, proof).await?;
+            db.set_block_proof(None, block_hash, proof).await?;
         };
 
         Ok(HeaderChainProver {
@@ -177,7 +177,7 @@ mod tests {
             Receipt::try_from_slice(include_bytes!("../../tests/data/first_1.bin")).unwrap();
         prover
             .db
-            .save_block_proof(None, BlockHash::all_zeros(), receipt.clone())
+            .set_block_proof(None, BlockHash::all_zeros(), receipt.clone())
             .await
             .unwrap();
 

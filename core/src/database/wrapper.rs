@@ -1,3 +1,7 @@
+//! # Type Wrappers for Parsing
+//!
+//! This module includes wrappers for easy parsing of the foreign types.
+
 use crate::{errors::BridgeError, EVMAddress};
 use bitcoin::{
     address::NetworkUnchecked,
