@@ -4,9 +4,9 @@
 //! transactions.
 
 use crate::builder;
-use crate::builder::address::create_taproot_address;
 use crate::EVMAddress;
 use bitcoin::address::NetworkUnchecked;
+use bitcoin::Sequence;
 use bitcoin::Transaction;
 use bitcoin::{
     absolute, Address, Amount, OutPoint, ScriptBuf, TxIn, TxOut, Witness, XOnlyPublicKey,
@@ -24,6 +24,8 @@ mod operator_collateral;
 mod operator_reimburse;
 mod txhandler;
 
+pub type BlockHeight = u16;
+
 /// Creates a Bitcoin V3 transaction with no locktime, using given inputs and
 /// outputs.
 pub fn create_btc_tx(tx_ins: Vec<TxIn>, tx_outs: Vec<TxOut>) -> bitcoin::Transaction {
@@ -35,7 +37,7 @@ pub fn create_btc_tx(tx_ins: Vec<TxIn>, tx_outs: Vec<TxOut>) -> bitcoin::Transac
     }
 }
 
-pub struct TxInArgs(pub Vec<(OutPoint, Option<u16>)>);
+pub struct TxInArgs(pub Vec<(OutPoint, Option<BlockHeight>)>);
 
 impl From<Vec<OutPoint>> for TxInArgs {
     fn from(outpoints: Vec<OutPoint>) -> TxInArgs {
@@ -48,8 +50,8 @@ impl From<Vec<OutPoint>> for TxInArgs {
     }
 }
 
-impl From<Vec<(OutPoint, Option<u16>)>> for TxInArgs {
-    fn from(value: Vec<(OutPoint, Option<u16>)>) -> TxInArgs {
+impl From<Vec<(OutPoint, Option<BlockHeight>)>> for TxInArgs {
+    fn from(value: Vec<(OutPoint, Option<BlockHeight>)>) -> TxInArgs {
         TxInArgs(value)
     }
 }
@@ -64,10 +66,9 @@ pub fn create_tx_ins(tx_in_args: TxInArgs) -> Vec<TxIn> {
         .into_iter()
         .map(|(outpoint, height)| TxIn {
             previous_output: outpoint,
-            sequence: match height {
-                Some(h) => bitcoin::transaction::Sequence::from_height(h),
-                None => bitcoin::transaction::Sequence::ENABLE_RBF_NO_LOCKTIME,
-            },
+            sequence: height
+                .map(Sequence::from_height)
+                .unwrap_or(Sequence::ENABLE_RBF_NO_LOCKTIME),
             script_sig: ScriptBuf::default(),
             witness: Witness::new(),
         })
@@ -94,7 +95,7 @@ pub fn create_move_to_vault_tx(
     bridge_amount_sats: Amount,
     network: bitcoin::Network,
 ) -> Transaction {
-    let (musig2_address, _) = builder::address::create_musig2_address(nofn_xonly_pk, network);
+    let (musig2_address, _) = builder::address::create_checksig_address(nofn_xonly_pk, network);
 
     let tx_ins = create_tx_ins(vec![deposit_outpoint].into());
 
@@ -120,7 +121,7 @@ pub fn create_move_to_vault_txhandler(
     network: bitcoin::Network,
 ) -> TxHandler {
     let (musig2_address, musig2_spendinfo) =
-        create_taproot_address(&[], Some(nofn_xonly_pk), network);
+        builder::address::create_checksig_address(nofn_xonly_pk, network);
 
     let tx_ins = create_tx_ins(vec![deposit_outpoint].into());
 
@@ -196,7 +197,7 @@ mod tests {
         );
         assert_eq!(
             move_tx.output.first().unwrap().script_pubkey,
-            builder::address::create_musig2_address(nofn_xonly_pk, network)
+            builder::address::create_checksig_address(nofn_xonly_pk, network)
                 .0
                 .script_pubkey()
         );

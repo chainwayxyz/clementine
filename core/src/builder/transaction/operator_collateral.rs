@@ -48,13 +48,14 @@ pub fn create_sequential_collateral_txhandler(
         }]
         .into(),
     );
-    let max_withdrawal_time_locked_script = builder::script::generate_relative_timelock_script(
-        operator_xonly_pk,
-        max_withdrawal_time_block_count,
-    );
+    let max_withdrawal_time_locked_script =
+        builder::script::generate_checksig_relative_timelock_script(
+            operator_xonly_pk,
+            max_withdrawal_time_block_count,
+        );
 
     let timeout_block_count_locked_script =
-        builder::script::generate_relative_timelock_script_no_key(timeout_block_count);
+        builder::script::generate_relative_timelock_script(timeout_block_count);
 
     let (op_address, op_spend) = create_taproot_address(&[], Some(operator_xonly_pk), network);
     let (reimburse_gen_connector, reimburse_gen_spend) =

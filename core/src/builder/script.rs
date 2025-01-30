@@ -67,6 +67,8 @@ pub fn create_deposit_script(
         .into_script()
 }
 
+/// Generates a relative timelock script with a given [`XOnlyPublicKey`] that CHECKSIG checks the signature against.
+///
 /// ATTENTION: If you want to spend a UTXO using timelock script, the
 /// condition is that (`# in the script`) ≤ (`# in the sequence of the tx`)
 /// ≤ (`# of blocks mined after UTXO appears on the chain`). However, this is not mandatory.
@@ -76,23 +78,37 @@ pub fn create_deposit_script(
 /// - [BIP-0068](https://github.com/bitcoin/bips/blob/master/bip-0068.mediawiki)
 /// - [BIP-0112](https://github.com/bitcoin/bips/blob/master/bip-0112.mediawiki)
 ///
-/// `actor_taproot_xonly_pk` is the tweaked XonlyPublicKey, which appears in the script_pubkey
-/// of the address. The tweaked signature will be given accordingly.
-pub fn generate_relative_timelock_script(
-    actor_taproot_xonly_pk: XOnlyPublicKey,
+/// # Parameters
+///
+/// - `xonly_pk`: The XonlyPublicKey that CHECKSIG checks the signature against.
+/// - `block_count`: The number of blocks after which the funds can be spent.
+///
+/// # Returns
+///
+/// - [`ScriptBuf`]: The relative timelock script with signature verification
+pub fn generate_checksig_relative_timelock_script(
+    xonly_pk: XOnlyPublicKey,
     block_count: u16,
 ) -> ScriptBuf {
     Builder::new()
         .push_int(i64::from(block_count))
         .push_opcode(OP_CSV)
         .push_opcode(OP_DROP)
-        .push_x_only_key(&actor_taproot_xonly_pk)
+        .push_x_only_key(&xonly_pk)
         .push_opcode(OP_CHECKSIG)
         .into_script()
 }
 
 /// Generates a relative timelock script without a key. This means after the specified block count, the funds can be spent by anyone.
-pub fn generate_relative_timelock_script_no_key(block_count: i64) -> ScriptBuf {
+///
+/// # Parameters
+///
+/// - `block_count`: The number of blocks after which the funds can be spent.
+///
+/// # Returns
+///
+/// - [`ScriptBuf`]: The relative timelock script without a key
+pub fn generate_relative_timelock_script(block_count: i64) -> ScriptBuf {
     Builder::new()
         .push_int(block_count)
         .push_opcode(OP_CSV)
@@ -116,9 +132,19 @@ pub fn actor_with_preimage_script(
 }
 
 /// Generates a signature verification script.
-pub fn checksig_script(actor_taproot_xonly_pk: XOnlyPublicKey) -> ScriptBuf {
+///
+/// This is a simple P2PK script that pays to the given xonly pk.
+///
+/// # Parameters
+///
+/// - `xonly_pk`: The x-only public key of the actor.
+///
+/// # Returns
+///
+/// - [`ScriptBuf`]: The script that unlocks with the given `xonly_pk`'s signature
+pub fn generate_checksig_script(xonly_pk: XOnlyPublicKey) -> ScriptBuf {
     Builder::new()
-        .push_x_only_key(&actor_taproot_xonly_pk)
+        .push_x_only_key(&xonly_pk)
         .push_opcode(OP_CHECKSIG)
         .into_script()
 }

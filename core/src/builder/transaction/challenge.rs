@@ -135,7 +135,7 @@ pub fn create_watchtower_challenge_txhandler(
     );
 
     let nofn_halfweek =
-        builder::script::generate_relative_timelock_script(nofn_xonly_pk, 7 * 24 * 6 / 2); // 0.5 week
+        builder::script::generate_checksig_relative_timelock_script(nofn_xonly_pk, 7 * 24 * 6 / 2); // 0.5 week
     let operator_with_preimage =
         builder::script::actor_with_preimage_script(operator_xonly_pk, operator_unlock_hash);
     let (op_or_nofn_halfweek, op_or_nofn_halfweek_spend) = builder::address::create_taproot_address(
@@ -185,7 +185,7 @@ pub fn create_watchtower_challenge_txhandler_simplified(
     );
 
     let nofn_halfweek =
-        builder::script::generate_relative_timelock_script(nofn_xonly_pk, 7 * 24 * 6 / 2); // 0.5 week
+        builder::script::generate_checksig_relative_timelock_script(nofn_xonly_pk, 7 * 24 * 6 / 2); // 0.5 week
     let operator_with_preimage =
         builder::script::actor_with_preimage_script(operator_xonly_pk, operator_unlock_hash);
     let (op_or_nofn_halfweek, op_or_nofn_halfweek_spend) = builder::address::create_taproot_address(

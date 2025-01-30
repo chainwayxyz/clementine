@@ -130,7 +130,7 @@ pub fn generate_deposit_address(
     let recovery_extracted_xonly_pk =
         XOnlyPublicKey::from_slice(&recovery_script_pubkey.as_bytes()[2..34]).unwrap();
 
-    let script_timelock = builder::script::generate_relative_timelock_script(
+    let script_timelock = builder::script::generate_checksig_relative_timelock_script(
         recovery_extracted_xonly_pk,
         user_takes_after,
     );
@@ -138,20 +138,20 @@ pub fn generate_deposit_address(
     create_taproot_address(&[deposit_script, script_timelock], None, network)
 }
 
-/// Shorthand function for creating a MuSig2 taproot address: No scripts and
-/// `nofn_xonly_pk` as the internal key.
+/// Shorthand function for creating a checksig taproot address: A single checksig script with the given xonly PK and no internal key.
 ///
 /// # Returns
 ///
 /// See [`create_taproot_address`].
 ///
-/// - [`Address`]: MuSig2 taproot Bitcoin address
-/// - [`TaprootSpendInfo`]: MuSig2 address's taproot spending information
-pub fn create_musig2_address(
-    nofn_xonly_pk: XOnlyPublicKey,
+/// - [`Address`]: Checksig taproot Bitcoin address
+/// - [`TaprootSpendInfo`]: Checksig address's taproot spending information
+pub fn create_checksig_address(
+    xonly_pk: XOnlyPublicKey,
     network: bitcoin::Network,
 ) -> (Address, TaprootSpendInfo) {
-    create_taproot_address(&[], Some(nofn_xonly_pk), network)
+    let script = builder::script::generate_checksig_script(xonly_pk);
+    create_taproot_address(&[script], None, network)
 }
 
 pub fn derive_challenge_address_from_xonlypk_and_wpk(
