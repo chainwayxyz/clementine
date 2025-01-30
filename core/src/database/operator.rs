@@ -23,7 +23,7 @@ impl Database {
     /// Sets a sequential collateral tx details for an operator.
     pub async fn set_sequential_collateral_tx(
         &self,
-        tx: DatabaseTransaction<'_, '_>,
+        tx: Option<DatabaseTransaction<'_, '_>>,
         operator_idx: i32,
         idx: i32,
         sequential_collateral_txid: Txid,
@@ -50,7 +50,7 @@ impl Database {
     ///   [`Txid`], and block height for a sequential collateral tx.
     pub async fn get_sequential_collateral_txs(
         &self,
-        tx: DatabaseTransaction<'_, '_>,
+        tx: Option<DatabaseTransaction<'_, '_>>,
         operator_idx: i32,
     ) -> Result<Vec<(i32, Txid, i32)>, BridgeError> {
         let query = sqlx::query_as("SELECT idx, sequential_collateral_txid, block_height FROM operator_sequential_collateral_txs WHERE operator_idx = $1 ORDER BY idx;").bind(operator_idx);
@@ -66,7 +66,7 @@ impl Database {
 
     pub async fn set_operator(
         &self,
-        tx: DatabaseTransaction<'_, '_>,
+        tx: Option<DatabaseTransaction<'_, '_>>,
         operator_idx: i32,
         xonly_pubkey: XOnlyPublicKey,
         wallet_address: String,
@@ -87,7 +87,7 @@ impl Database {
 
     pub async fn get_operators(
         &self,
-        tx: DatabaseTransaction<'_, '_>,
+        tx: Option<DatabaseTransaction<'_, '_>>,
     ) -> Result<Vec<(XOnlyPublicKey, bitcoin::Address, Txid)>, BridgeError> {
         let query = sqlx::query_as(
             "SELECT operator_idx, xonly_pk, wallet_reimburse_address, collateral_funding_txid FROM operators ORDER BY operator_idx;"
@@ -124,7 +124,7 @@ impl Database {
 
     pub async fn set_timeout_tx_sigs(
         &self,
-        tx: DatabaseTransaction<'_, '_>,
+        tx: Option<DatabaseTransaction<'_, '_>>,
         operator_idx: u32,
         timeout_tx_sigs: Vec<schnorr::Signature>,
     ) -> Result<(), BridgeError> {
@@ -141,7 +141,7 @@ impl Database {
 
     pub async fn get_timeout_tx_sigs(
         &self,
-        tx: DatabaseTransaction<'_, '_>,
+        tx: Option<DatabaseTransaction<'_, '_>>,
         operator_idx: u32,
     ) -> Result<Vec<schnorr::Signature>, BridgeError> {
         let query = sqlx::query_as(
@@ -168,7 +168,7 @@ impl Database {
     /// Set the kickoff UTXO for this deposit UTXO.
     pub async fn set_kickoff_utxo(
         &self,
-        tx: DatabaseTransaction<'_, '_>,
+        tx: Option<DatabaseTransaction<'_, '_>>,
         deposit_outpoint: OutPoint,
         kickoff_utxo: UTXO,
     ) -> Result<(), BridgeError> {
@@ -189,7 +189,7 @@ impl Database {
     /// If operator already created a kickoff UTXO for this deposit UTXO, return it.
     pub async fn get_kickoff_utxo(
         &self,
-        tx: DatabaseTransaction<'_, '_>,
+        tx: Option<DatabaseTransaction<'_, '_>>,
         deposit_outpoint: OutPoint,
     ) -> Result<Option<UTXO>, BridgeError> {
         let query = sqlx::query_as(
@@ -213,7 +213,7 @@ impl Database {
     /// Get unused kickoff_utxo at ready if there are any.
     pub async fn get_unused_kickoff_utxo_and_increase_idx(
         &self,
-        tx: DatabaseTransaction<'_, '_>,
+        tx: Option<DatabaseTransaction<'_, '_>>,
     ) -> Result<Option<UTXO>, BridgeError> {
         // Attempt to fetch the latest transaction details
         let query = sqlx::query_as(
@@ -264,7 +264,7 @@ impl Database {
     /// Sets the funding UTXO for kickoffs.
     pub async fn set_funding_utxo(
         &self,
-        tx: DatabaseTransaction<'_, '_>,
+        tx: Option<DatabaseTransaction<'_, '_>>,
         funding_utxo: UTXO,
     ) -> Result<(), BridgeError> {
         let query = sqlx::query("INSERT INTO funding_utxos (funding_utxo) VALUES ($1);").bind(
@@ -282,7 +282,7 @@ impl Database {
     /// Gets the funding UTXO for kickoffs
     pub async fn get_funding_utxo(
         &self,
-        tx: DatabaseTransaction<'_, '_>,
+        tx: Option<DatabaseTransaction<'_, '_>>,
     ) -> Result<Option<UTXO>, BridgeError> {
         let query =
             sqlx::query_as("SELECT funding_utxo FROM funding_utxos ORDER BY id DESC LIMIT 1;");
@@ -361,7 +361,7 @@ impl Database {
     /// Sets Winternitz public keys for an operator.
     pub async fn set_operator_winternitz_public_keys(
         &self,
-        tx: DatabaseTransaction<'_, '_>,
+        tx: Option<DatabaseTransaction<'_, '_>>,
         operator_id: u32,
         winternitz_public_key: Vec<WinternitzPublicKey>,
     ) -> Result<(), BridgeError> {
@@ -382,7 +382,7 @@ impl Database {
     /// operator and a watchtower.
     pub async fn get_operator_winternitz_public_keys(
         &self,
-        tx: DatabaseTransaction<'_, '_>,
+        tx: Option<DatabaseTransaction<'_, '_>>,
         operator_id: u32,
     ) -> Result<Vec<winternitz::PublicKey>, BridgeError> {
         let query = sqlx::query_as(
@@ -403,7 +403,7 @@ impl Database {
     /// will be overwritten by the new hashes.
     pub async fn set_operator_challenge_ack_hashes(
         &self,
-        tx: DatabaseTransaction<'_, '_>,
+        tx: Option<DatabaseTransaction<'_, '_>>,
         operator_idx: i32,
         sequential_collateral_tx_idx: i32,
         kickoff_idx: i32,
@@ -435,7 +435,7 @@ impl Database {
     /// tx and kickoff index combination.
     pub async fn get_operators_challenge_ack_hashes(
         &self,
-        tx: DatabaseTransaction<'_, '_>,
+        tx: Option<DatabaseTransaction<'_, '_>>,
         operator_idx: i32,
         sequential_collateral_tx_idx: i32,
         kickoff_idx: i32,
@@ -534,7 +534,7 @@ impl Database {
     /// - funding_txid: the txid of the input[0].
     pub async fn add_deposit_kickoff_generator_tx(
         &self,
-        tx: DatabaseTransaction<'_, '_>,
+        tx: Option<DatabaseTransaction<'_, '_>>,
         txid: Txid,
         raw_hex: String,
         num_kickoffs: usize,
@@ -578,7 +578,7 @@ impl Database {
     /// which determines the order of the sighashes that are signed.
     pub async fn set_deposit_signatures(
         &self,
-        tx: DatabaseTransaction<'_, '_>,
+        tx: Option<DatabaseTransaction<'_, '_>>,
         deposit_outpoint: OutPoint,
         operator_idx: u32,
         signatures: Vec<schnorr::Signature>,
@@ -601,7 +601,7 @@ impl Database {
     /// which determines the order of the sighashes that are signed.
     pub async fn get_deposit_signatures(
         &self,
-        tx: DatabaseTransaction<'_, '_>,
+        tx: Option<DatabaseTransaction<'_, '_>>,
         deposit_outpoint: OutPoint,
         operator_idx: u32,
     ) -> Result<Option<Vec<schnorr::Signature>>, BridgeError> {
@@ -624,7 +624,7 @@ impl Database {
     /// Saves BitVM setup data for a specific operator, sequential collateral tx and kickoff index combination
     pub async fn set_bitvm_setup(
         &self,
-        tx: DatabaseTransaction<'_, '_>,
+        tx: Option<DatabaseTransaction<'_, '_>>,
         operator_idx: i32,
         sequential_collateral_tx_idx: i32,
         kickoff_idx: i32,
@@ -662,7 +662,7 @@ impl Database {
     /// Retrieves BitVM setup data for a specific operator, sequential collateral tx and kickoff index combination
     pub async fn get_bitvm_setup(
         &self,
-        tx: DatabaseTransaction<'_, '_>,
+        tx: Option<DatabaseTransaction<'_, '_>>,
         operator_idx: i32,
         sequential_collateral_tx_idx: i32,
         kickoff_idx: i32,

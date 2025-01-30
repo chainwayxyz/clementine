@@ -14,7 +14,7 @@ impl Database {
     /// Sets winternitz public keys of a watchtower for an operator.
     pub async fn set_watchtower_winternitz_public_keys(
         &self,
-        tx: DatabaseTransaction<'_, '_>,
+        tx: Option<DatabaseTransaction<'_, '_>>,
         watchtower_id: u32,
         operator_id: u32,
         winternitz_public_key: Vec<WinternitzPublicKey>,
@@ -39,7 +39,7 @@ impl Database {
     /// collateral tx and operator combination.
     pub async fn get_watchtower_winternitz_public_keys(
         &self,
-        tx: DatabaseTransaction<'_, '_>,
+        tx: Option<DatabaseTransaction<'_, '_>>,
         watchtower_id: u32,
         operator_id: u32,
     ) -> Result<Vec<winternitz::PublicKey>, BridgeError> {
@@ -61,7 +61,7 @@ impl Database {
     /// existing entry, it overwrites it with the new addresses.
     pub async fn set_watchtower_challenge_addresses(
         &self,
-        tx: DatabaseTransaction<'_, '_>,
+        tx: Option<DatabaseTransaction<'_, '_>>,
         watchtower_id: u32,
         operator_id: u32,
         watchtower_challenge_addresses: impl AsRef<[ScriptBuf]>,
@@ -84,7 +84,7 @@ impl Database {
     /// Gets the challenge addresses of a watchtower for an operator.
     pub async fn get_watchtower_challenge_addresses(
         &self,
-        tx: DatabaseTransaction<'_, '_>,
+        tx: Option<DatabaseTransaction<'_, '_>>,
         watchtower_id: u32,
         operator_id: u32,
     ) -> Result<Vec<ScriptBuf>, BridgeError> {
@@ -116,7 +116,7 @@ impl Database {
     /// Sets xonly public key of a watchtower.
     pub async fn set_watchtower_xonly_pk(
         &self,
-        tx: DatabaseTransaction<'_, '_>,
+        tx: Option<DatabaseTransaction<'_, '_>>,
         watchtower_id: u32,
         xonly_pk: &XOnlyPublicKey,
     ) -> Result<(), BridgeError> {
@@ -134,7 +134,7 @@ impl Database {
     /// Gets xonly public key of a watchtower.
     pub async fn get_watchtower_xonly_pk(
         &self,
-        tx: DatabaseTransaction<'_, '_>,
+        tx: Option<DatabaseTransaction<'_, '_>>,
         watchtower_id: u32,
     ) -> Result<XOnlyPublicKey, BridgeError> {
         let query = sqlx::query_as(
@@ -150,7 +150,7 @@ impl Database {
     /// Gets xonly public keys of all watchtowers.
     pub async fn get_all_watchtowers_xonly_pks(
         &self,
-        tx: DatabaseTransaction<'_, '_>,
+        tx: Option<DatabaseTransaction<'_, '_>>,
     ) -> Result<Vec<XOnlyPublicKey>, BridgeError> {
         let query = sqlx::query_as(
             "SELECT xonly_pk FROM watchtower_xonly_public_keys ORDER BY watchtower_id;",

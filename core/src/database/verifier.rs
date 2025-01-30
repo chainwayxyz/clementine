@@ -23,7 +23,7 @@ impl Database {
     /// order as the verifiers' indexes.
     pub async fn set_verifiers_public_keys(
         &self,
-        tx: DatabaseTransaction<'_, '_>,
+        tx: Option<DatabaseTransaction<'_, '_>>,
         public_keys: &[PublicKey],
     ) -> Result<(), BridgeError> {
         let mut query = QueryBuilder::new("INSERT INTO verifier_public_keys (idx, public_key) ");
@@ -39,7 +39,7 @@ impl Database {
 
     pub async fn get_verifiers_public_keys(
         &self,
-        tx: DatabaseTransaction<'_, '_>,
+        tx: Option<DatabaseTransaction<'_, '_>>,
     ) -> Result<Vec<PublicKey>, BridgeError> {
         let query = sqlx::query_as("SELECT * FROM verifier_public_keys ORDER BY idx;");
 
@@ -53,7 +53,7 @@ impl Database {
     /// it does nothing.
     pub async fn set_kickoff_utxos(
         &self,
-        tx: DatabaseTransaction<'_, '_>,
+        tx: Option<DatabaseTransaction<'_, '_>>,
         deposit_outpoint: OutPoint,
         kickoff_utxos: &[UTXO],
     ) -> Result<(), BridgeError> {
@@ -110,7 +110,7 @@ impl Database {
     /// Sets the generated pub nonces for a verifier.
     pub async fn set_nonces(
         &self,
-        tx: DatabaseTransaction<'_, '_>,
+        tx: Option<DatabaseTransaction<'_, '_>>,
         deposit_outpoint: OutPoint,
         pub_nonces: &[MusigPubNonce],
     ) -> Result<(), BridgeError> {
@@ -135,7 +135,7 @@ impl Database {
     /// Gets the public nonces for a deposit UTXO.
     pub async fn get_pub_nonces(
         &self,
-        tx: DatabaseTransaction<'_, '_>,
+        tx: Option<DatabaseTransaction<'_, '_>>,
         deposit_outpoint: OutPoint,
     ) -> Result<Option<Vec<MusigPubNonce>>, BridgeError> {
         let query = sqlx::query_as(
@@ -157,7 +157,7 @@ impl Database {
     /// Sets the deposit info to use later.
     pub async fn set_deposit_info(
         &self,
-        tx: DatabaseTransaction<'_, '_>,
+        tx: Option<DatabaseTransaction<'_, '_>>,
         deposit_outpoint: OutPoint,
         recovery_taproot_address: Address<NetworkUnchecked>,
         evm_address: EVMAddress,
@@ -190,7 +190,7 @@ impl Database {
     /// TODO: no test
     pub async fn set_sighashes_and_get_nonces(
         &self,
-        tx: DatabaseTransaction<'_, '_>,
+        tx: Option<DatabaseTransaction<'_, '_>>,
         deposit_outpoint: OutPoint,
         index: usize,
         sighashes: &[Message],
@@ -238,7 +238,7 @@ impl Database {
     /// TODO: no test nor getter
     pub async fn set_agg_nonces(
         &self,
-        tx: DatabaseTransaction<'_, '_>,
+        tx: Option<DatabaseTransaction<'_, '_>>,
         deposit_outpoint: OutPoint,
         agg_nonces: impl IntoIterator<Item = &MusigAggNonce>,
     ) -> Result<(), BridgeError> {
