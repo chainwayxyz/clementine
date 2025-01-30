@@ -134,7 +134,7 @@ impl AggregateFromPublicKeys for XOnlyPublicKey {
         pks: Vec<PublicKey>,
         tweak: Option<Musig2Mode>,
     ) -> Result<XOnlyPublicKey, BridgeError> {
-        let musig_key_agg_cache = create_key_agg_cache(pks, tweak).unwrap();
+        let musig_key_agg_cache = create_key_agg_cache(pks, tweak)?;
 
         Ok(XOnlyPublicKey::from_slice(
             &musig_key_agg_cache.agg_pk().serialize(),

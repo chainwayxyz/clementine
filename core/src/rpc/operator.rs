@@ -1,7 +1,7 @@
 use super::clementine::{
     self, clementine_operator_server::ClementineOperator, operator_params, ChallengeAckDigest,
     DepositSignSession, Empty, NewWithdrawalSigParams, NewWithdrawalSigResponse, OperatorBurnSig,
-    OperatorParams, WinternitzPubkey, WithdrawalFinalizedParams,
+    OperatorParams, WithdrawalFinalizedParams,
 };
 use crate::builder::sighash::create_operator_sighash_stream;
 use crate::rpc::parsers;
@@ -46,7 +46,7 @@ impl ClementineOperator for Operator {
             let winternitz_pubkeys = operator.get_winternitz_public_keys().unwrap(); // TODO: Handle unwrap.
             let winternitz_pubkeys = winternitz_pubkeys
                 .into_iter()
-                .map(WinternitzPubkey::from_bitvm)
+                .map(From::from)
                 .collect::<Vec<_>>();
             for wpk in winternitz_pubkeys {
                 tx.send(Ok(OperatorParams {

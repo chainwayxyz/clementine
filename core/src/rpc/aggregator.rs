@@ -348,7 +348,8 @@ impl Aggregator {
             .collect::<Result<Vec<_>, _>>()
             .map_err(|e| {
                 BridgeError::RPCParamMalformed(
-                    "Partial sigs for movetx could not be parsed into MusigPartialSignature",
+                    "Partial sigs for movetx could not be parsed into MusigPartialSignature"
+                        .to_string(),
                     e.to_string(),
                 )
             })?;

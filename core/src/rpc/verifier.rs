@@ -121,7 +121,7 @@ impl ClementineVerifier for Verifier {
             .map(|pk| PublicKey::from_slice(pk).unwrap())
             .collect();
 
-        let nofn = NofN::new(self.signer.public_key, verifiers_public_keys.clone());
+        let nofn = NofN::new(self.signer.public_key, verifiers_public_keys.clone())?;
 
         // Save verifiers public keys to db
         self.db
@@ -193,7 +193,7 @@ impl ClementineVerifier for Verifier {
                 ))?;
 
             if let operator_params::Response::WinternitzPubkeys(wpk) = operator_params {
-                operator_winternitz_public_keys.push(wpk.to_bitvm());
+                operator_winternitz_public_keys.push(wpk.try_into()?);
             } else {
                 return Err(Status::invalid_argument("Expected WinternitzPubkeys"));
             }
@@ -401,7 +401,7 @@ impl ClementineVerifier for Verifier {
                 .ok_or(Status::invalid_argument("No message is received"))?;
 
             if let watchtower_params::Response::WinternitzPubkeys(wpk) = wpks {
-                watchtower_winternitz_public_keys.push(wpk.to_bitvm());
+                watchtower_winternitz_public_keys.push(wpk.try_into()?);
             } else {
                 return Err(Status::invalid_argument("Expected WinternitzPubkeys"));
             }
@@ -438,7 +438,10 @@ impl ClementineVerifier for Verifier {
             xonly_pk
         );
         let xonly_pk = XOnlyPublicKey::from_slice(&xonly_pk).map_err(|_| {
-            BridgeError::RPCParamMalformed("watchtower.xonly_pk", "Invalid xonly key".to_string())
+            BridgeError::RPCParamMalformed(
+                "watchtower.xonly_pk".to_string(),
+                "Invalid xonly key".to_string(),
+            )
         })?;
         tracing::info!("Verifier receives watchtower index: {:?}", watchtower_id);
         tracing::info!(
@@ -833,15 +836,20 @@ impl ClementineVerifier for Verifier {
                 self.config.bridge_amount_sats,
                 self.config.network,
             ));
-            while let Some(result) = in_stream.message().await? {
+            while let Some(in_msg) = in_stream.message().await? {
                 let sighash = sighash_stream.next().await.unwrap()?;
-                let operator_sig = result
+                let operator_sig = in_msg
                     .params
                     .ok_or(Status::internal("No operator sig received"))?;
+
                 let final_sig = match operator_sig {
-                    Params::SchnorrSig(final_sig) => {
-                        schnorr::Signature::from_slice(&final_sig).unwrap()
-                    }
+                    Params::SchnorrSig(final_sig) => schnorr::Signature::from_slice(&final_sig)
+                        .map_err(|_| {
+                            BridgeError::RPCParamMalformed(
+                                "Operator sig".to_string(),
+                                "Invalid signature length".to_string(),
+                            )
+                        })?,
                     _ => {
                         return Err(Status::internal(format!(
                             "Expected Operator Sig, got: {:?}",

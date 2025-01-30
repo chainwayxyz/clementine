@@ -28,8 +28,8 @@ clap = { workspace = true, features = ["derive"] }
 toml = { workspace = true }
 sqlx = { workspace = true, features = ["runtime-tokio", "postgres", "macros"] }
 header-chain = { workspace = true }
-borsh = { workspace = true}
-tonic = { workspace = true}
+borsh = { workspace = true }
+tonic = { workspace = true }
 prost = { workspace = true }
 tokio-stream = { workspace = true }
 async-stream = { workspace = true }
@@ -48,3 +48,6 @@ testing = []
 [[bin]]
 name = "server"
 path = "src/bin/server.rs"
+
+[lints.clippy]
+unwrap_used = { level = "deny", allow_in_tests = true }

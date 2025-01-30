@@ -32,15 +32,20 @@ pub struct NofN {
 }
 
 impl NofN {
-    pub fn new(self_pk: secp256k1::PublicKey, public_keys: Vec<secp256k1::PublicKey>) -> Self {
-        let idx = public_keys.iter().position(|pk| pk == &self_pk).unwrap();
-        let agg_xonly_pk =
-            secp256k1::XOnlyPublicKey::from_musig2_pks(public_keys.clone(), None).unwrap();
-        NofN {
+    pub fn new(
+        self_pk: secp256k1::PublicKey,
+        public_keys: Vec<secp256k1::PublicKey>,
+    ) -> Result<Self, BridgeError> {
+        let idx = public_keys
+            .iter()
+            .position(|pk| pk == &self_pk)
+            .ok_or(BridgeError::PublicKeyNotFound)?;
+        let agg_xonly_pk = secp256k1::XOnlyPublicKey::from_musig2_pks(public_keys.clone(), None)?;
+        Ok(NofN {
             public_keys,
             agg_xonly_pk,
             idx,
-        }
+        })
     }
 }
 
@@ -77,8 +82,7 @@ impl Verifier {
         let db = Database::new(&config).await?;
 
         let nofn_xonly_pk =
-            secp256k1::XOnlyPublicKey::from_musig2_pks(config.verifiers_public_keys.clone(), None)
-                .unwrap();
+            secp256k1::XOnlyPublicKey::from_musig2_pks(config.verifiers_public_keys.clone(), None)?;
 
         let operator_xonly_pks = config.operators_xonly_pks.clone();
 
@@ -91,7 +95,7 @@ impl Verifier {
 
         let nofn = if !verifiers_pks.is_empty() {
             tracing::debug!("Verifiers public keys found: {:?}", verifiers_pks);
-            let nofn = NofN::new(signer.public_key, verifiers_pks);
+            let nofn = NofN::new(signer.public_key, verifiers_pks)?;
             Some(nofn)
         } else {
             None
