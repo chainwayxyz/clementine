@@ -18,9 +18,10 @@ pub fn parse_deposit_params(
         .deposit_outpoint
         .ok_or(Status::invalid_argument("No deposit outpoint received"))?
         .try_into()?;
-    let evm_address: EVMAddress = deposit_params.evm_address.try_into().map_err(|_| {
-        Status::invalid_argument("Could not parse deposit outpoint EVM address")
-    })?;
+    let evm_address: EVMAddress = deposit_params
+        .evm_address
+        .try_into()
+        .map_err(|_| Status::invalid_argument("Could not parse deposit outpoint EVM address"))?;
     let recovery_taproot_address = deposit_params
         .recovery_taproot_address
         .parse::<bitcoin::Address<_>>()
