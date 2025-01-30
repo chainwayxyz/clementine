@@ -228,7 +228,7 @@ pub enum BridgeError {
     #[error("WatchtowerPublicHashesNotFound for operator {0}, sequential_collateral_tx {1}, kickoff {2}")]
     WatchtowerPublicHashesNotFound(i32, i32, i32),
 
-    #[error("WatchtowerChallengeAddressesNotFound for watchtower {0}, operator {1}")]
+    #[error("Challenge addresses of the watchtower {0} for the operator {1} not found")]
     WatchtowerChallengeAddressesNotFound(u32, u32),
 
     #[error("Invalid response from Citrea: {0}")]

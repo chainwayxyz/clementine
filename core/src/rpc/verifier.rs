@@ -138,7 +138,7 @@ impl ClementineVerifier for Verifier {
 
         // Save verifiers public keys to db
         self.db
-            .save_verifier_public_keys(None, &verifiers_public_keys)
+            .set_verifiers_public_keys(None, &verifiers_public_keys)
             .await?;
 
         // Save the nofn to memory for fast access
@@ -225,7 +225,7 @@ impl ClementineVerifier for Verifier {
             .collect::<Result<Vec<_>, BridgeError>>()?;
 
         self.db
-            .save_operator_winternitz_public_keys(
+            .set_operator_winternitz_public_keys(
                 None,
                 operator_details.operator_idx,
                 operator_winternitz_public_keys.clone(),
@@ -270,7 +270,7 @@ impl ClementineVerifier for Verifier {
         for i in 0..self.config.num_sequential_collateral_txs {
             for j in 0..self.config.num_kickoffs_per_sequential_collateral_tx {
                 self.db
-                    .save_public_hashes(
+                    .set_operator_challenge_ack_hashes(
                         None,
                         operator_details.operator_idx as i32,
                         i as i32,
@@ -373,7 +373,7 @@ impl ClementineVerifier for Verifier {
 
             // Save the public input wots to db along with the root hash
             self.db
-                .save_bitvm_setup(
+                .set_bitvm_setup(
                     None,
                     operator_details.operator_idx as i32,
                     sequential_collateral_tx_idx as i32,
@@ -478,7 +478,7 @@ impl ClementineVerifier for Verifier {
                 * num_sequential_collateral_txs
                 * num_kickoffs_per_sequential_collateral_tx;
             self.db
-                .save_watchtower_winternitz_public_keys(
+                .set_watchtower_winternitz_public_keys(
                     None,
                     watchtower_id,
                     operator_idx as u32,
@@ -509,7 +509,7 @@ impl ClementineVerifier for Verifier {
 
             // TODO: After precalculating challenge addresses, maybe remove saving winternitz public keys to db
             self.db
-                .save_watchtower_challenge_addresses(
+                .set_watchtower_challenge_addresses(
                     None,
                     watchtower_id,
                     operator_idx as u32,
@@ -519,7 +519,7 @@ impl ClementineVerifier for Verifier {
         }
 
         self.db
-            .save_watchtower_xonly_pk(None, watchtower_id, &xonly_pk)
+            .set_watchtower_xonly_pk(None, watchtower_id, &xonly_pk)
             .await?;
 
         Ok(Response::new(Empty {}))
@@ -967,7 +967,7 @@ impl ClementineVerifier for Verifier {
         // TODO: It can create problems if the deposit fails at the end by some verifier not sending movetx partial sig, but we still added sigs to db
         for (i, window) in op_deposit_sigs.into_iter().enumerate() {
             self.db
-                .save_deposit_signatures(None, deposit_outpoint, i as u32, window)
+                .set_deposit_signatures(None, deposit_outpoint, i as u32, window)
                 .await?;
         }
 

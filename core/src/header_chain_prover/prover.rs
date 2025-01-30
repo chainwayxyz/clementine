@@ -149,7 +149,7 @@ impl HeaderChainProver {
                     Ok(receipt) => {
                         if let Err(e) = prover
                             .db
-                            .save_block_proof(None, current_block_hash, receipt)
+                            .set_block_proof(None, current_block_hash, receipt)
                             .await
                         {
                             tracing::error!("Can't save proof for header {:?}: {}", header, e);
@@ -272,10 +272,10 @@ mod tests {
         let hash =
             BlockHash::from_raw_hash(Hash::from_slice(&block_headers[1].prev_block_hash).unwrap());
         let header: Header = block_headers[0].clone().into();
-        let _ = prover.db.save_new_block(None, hash, header, 0).await; // TODO: Unwrapping this causes errors.
+        let _ = prover.db.set_new_block(None, hash, header, 0).await; // TODO: Unwrapping this causes errors.
         prover
             .db
-            .save_block_proof(None, hash, receipt.clone())
+            .set_block_proof(None, hash, receipt.clone())
             .await
             .unwrap();
         let database_receipt = prover.get_header_chain_proof(hash).await.unwrap();
@@ -302,13 +302,13 @@ mod tests {
         };
         prover
             .db
-            .save_new_block(None, hash, header, 0)
+            .set_new_block(None, hash, header, 0)
             .await
             .unwrap();
 
         prover
             .db
-            .save_block_proof(None, hash, receipt.clone())
+            .set_block_proof(None, hash, receipt.clone())
             .await
             .unwrap();
         let database_receipt2 = prover.get_header_chain_proof(hash).await.unwrap();

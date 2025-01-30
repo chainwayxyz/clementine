@@ -9,13 +9,37 @@
 use crate::{config::BridgeConfig, errors::BridgeError};
 use sqlx::{Pool, Postgres};
 
-mod common;
+mod header_chain_prover;
+mod operator;
+mod verifier;
+mod watchtower;
 mod wrapper;
 
 /// PostgreSQL database connection details.
 #[derive(Clone, Debug)]
 pub struct Database {
     connection: Pool<Postgres>,
+}
+
+/// Database transaction for Postgres.
+pub type DatabaseTransaction<'a, 'b> = &'a mut sqlx::Transaction<'b, Postgres>;
+
+/// Executes a query with a transaction if it is provided.
+///
+/// # Parameters
+///
+/// - `$conn`: Database connection.
+/// - `$tx`: Optional database transaction
+/// - `$query`: Query to execute.
+/// - `$method`: Method to execute on the query.
+#[macro_export]
+macro_rules! execute_query_with_tx {
+    ($conn:expr, $tx:expr, $query:expr, $method:ident) => {
+        match $tx {
+            Some(tx) => $query.$method(&mut **tx).await,
+            None => $query.$method(&$conn).await,
+        }
+    };
 }
 
 impl Database {

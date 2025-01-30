@@ -162,7 +162,7 @@ impl HeaderChainProver {
 
         for (diff, block_hash) in block_hashes.iter().enumerate() {
             self.db
-                .save_new_block(
+                .set_new_block(
                     None,
                     *block_hash,
                     self.rpc.client.get_block_header(block_hash).await?,
@@ -238,7 +238,7 @@ mod tests {
 
             prover
                 .db
-                .save_new_block(
+                .set_new_block(
                     None,
                     current_tip_hash,
                     current_block_header,
@@ -273,7 +273,7 @@ mod tests {
         // Updating database with current block should return [`BlockFetchStatus::UpToDate`].
         prover
             .db
-            .save_new_block(
+            .set_new_block(
                 None,
                 current_tip_hash,
                 current_block.header,
