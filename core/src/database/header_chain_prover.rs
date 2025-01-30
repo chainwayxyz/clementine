@@ -16,8 +16,8 @@ use bitcoin::{
 use risc0_zkvm::Receipt;
 
 impl Database {
-    /// Saves a new block to the database, later to be updated by a proof.
-    pub async fn save_new_block(
+    /// Adds a new block to the database, later to be updated by a proof.
+    pub async fn set_new_block(
         &self,
         tx: Option<DatabaseTransaction<'_, '_>>,
         block_hash: block::BlockHash,
@@ -34,8 +34,81 @@ impl Database {
         Ok(())
     }
 
-    /// Sets a block's proof by referring to it by it's hash.
-    pub async fn save_block_proof(
+    /// Returns a block's hash and header, referring to it by it's height.
+    pub async fn get_block_info_by_height(
+        &self,
+        tx: Option<DatabaseTransaction<'_, '_>>,
+        height: u64,
+    ) -> Result<(block::BlockHash, block::Header), BridgeError> {
+        let query = sqlx::query_as(
+            "SELECT block_hash, block_header FROM header_chain_proofs WHERE height = $1;",
+        )
+        .bind(height as i64);
+
+        let result: (Option<BlockHashDB>, Option<BlockHeaderDB>) =
+            execute_query_with_tx!(self.connection, tx, query, fetch_one)?;
+
+        match result {
+            (Some(hash), Some(header)) => Ok((hash.0, header.0)),
+            _ => Ok((
+                // TODO: Do we need to return all zeroed values or an error?
+                BlockHash::all_zeros(),
+                Header {
+                    version: Version::TWO,
+                    prev_blockhash: BlockHash::all_zeros(),
+                    merkle_root: TxMerkleNode::all_zeros(),
+                    time: 0,
+                    bits: CompactTarget::default(),
+                    nonce: 0,
+                },
+            )),
+        }
+    }
+
+    /// Returns a block's header, referring to it by it's height and hash.
+    pub async fn get_block_header(
+        &self,
+        tx: Option<DatabaseTransaction<'_, '_>>,
+        block_height: u64,
+        block_hash: BlockHash,
+    ) -> Result<Option<block::Header>, BridgeError> {
+        let query = sqlx::query_as(
+            "SELECT block_header FROM header_chain_proofs WHERE height = $1 AND block_hash = $2;",
+        )
+        .bind(block_height as i64)
+        .bind(BlockHashDB(block_hash));
+
+        let result: (Option<BlockHeaderDB>,) =
+            execute_query_with_tx!(self.connection, tx, query, fetch_one)?;
+
+        match result {
+            (Some(block_header),) => Ok(Some(block_header.0)),
+            (None,) => Ok(None),
+        }
+    }
+
+    /// Gets the block info of the latest block that has been saved to the
+    /// database.
+    pub async fn get_latest_block_info(
+        &self,
+        tx: Option<DatabaseTransaction<'_, '_>>,
+    ) -> Result<(u64, BlockHash), BridgeError> {
+        let query = sqlx::query_as(
+            "SELECT height, block_hash FROM header_chain_proofs ORDER BY height DESC;",
+        );
+
+        let result: (Option<i32>, Option<BlockHashDB>) =
+            execute_query_with_tx!(self.connection, tx, query, fetch_one)?;
+
+        match result {
+            (Some(height), Some(hash)) => Ok((height as u64, hash.0)),
+            _ => Ok((0, BlockHash::all_zeros())),
+        }
+    }
+
+    /// Sets an existing block's (in database) proof by referring to it by it's
+    /// hash.
+    pub async fn set_block_proof(
         &self,
         tx: Option<DatabaseTransaction<'_, '_>>,
         hash: block::BlockHash,
@@ -73,76 +146,8 @@ impl Database {
         Ok(Some(receipt))
     }
 
-    /// Returns a block's hash and header, referring it to by it's height.
-    pub async fn get_block_info_by_height(
-        &self,
-        tx: Option<DatabaseTransaction<'_, '_>>,
-        height: u64,
-    ) -> Result<(block::BlockHash, block::Header), BridgeError> {
-        let query = sqlx::query_as(
-            "SELECT block_hash, block_header FROM header_chain_proofs WHERE height = $1;",
-        )
-        .bind(height as i64);
-
-        let result: (Option<BlockHashDB>, Option<BlockHeaderDB>) =
-            execute_query_with_tx!(self.connection, tx, query, fetch_one)?;
-
-        match result {
-            (Some(hash), Some(header)) => Ok((hash.0, header.0)),
-            _ => Ok((
-                // TODO: Do we need to return all zeroed values or an error?
-                BlockHash::all_zeros(),
-                Header {
-                    version: Version::TWO,
-                    prev_blockhash: BlockHash::all_zeros(),
-                    merkle_root: TxMerkleNode::all_zeros(),
-                    time: 0,
-                    bits: CompactTarget::default(),
-                    nonce: 0,
-                },
-            )),
-        }
-    }
-
-    /// Returns a block's hash and header, referring it to by it's height.
-    pub async fn get_block_header(
-        &self,
-        tx: Option<DatabaseTransaction<'_, '_>>,
-        block_height: u64,
-        block_hash: BlockHash,
-    ) -> Result<Option<block::Header>, BridgeError> {
-        let query = sqlx::query_as(
-            "SELECT block_header FROM header_chain_proofs WHERE height = $1 AND block_hash = $2;",
-        )
-        .bind(block_height as i64)
-        .bind(BlockHashDB(block_hash));
-
-        let result: (Option<BlockHeaderDB>,) =
-            execute_query_with_tx!(self.connection, tx, query, fetch_one)?;
-
-        match result {
-            (Some(block_header),) => Ok(Some(block_header.0)),
-            (None,) => Ok(None),
-        }
-    }
-
-    pub async fn get_latest_block_info(
-        &self,
-        tx: Option<DatabaseTransaction<'_, '_>>,
-    ) -> Result<(u64, BlockHash), BridgeError> {
-        let query = sqlx::query_as(
-            "SELECT height, block_hash FROM header_chain_proofs ORDER BY height DESC;",
-        );
-
-        let result: (Option<i32>, Option<BlockHashDB>) =
-            execute_query_with_tx!(self.connection, tx, query, fetch_one)?;
-
-        match result {
-            (Some(height), Some(hash)) => Ok((height as u64, hash.0)),
-            _ => Ok((0, BlockHash::all_zeros())),
-        }
-    }
-
+    /// Gets the newest block's info that it's previous block has proven before.
+    /// This block will be the candidate block for the prover.
     pub async fn get_non_proven_block(
         &self,
         tx: Option<DatabaseTransaction<'_, '_>>,
@@ -198,7 +203,7 @@ mod tests {
         let block_hash = block.block_hash();
         let height = 0x45;
 
-        db.save_new_block(None, block_hash, block.header, height)
+        db.set_new_block(None, block_hash, block.header, height)
             .await
             .unwrap();
 
@@ -233,7 +238,7 @@ mod tests {
             .await
             .is_err());
 
-        db.save_new_block(None, block_hash, block_header, block_height)
+        db.set_new_block(None, block_hash, block_header, block_height)
             .await
             .unwrap();
         assert_eq!(
@@ -267,7 +272,7 @@ mod tests {
         // Adding a new block should return a height.
         let height = 0x1F;
         let hash = block.block_hash();
-        db.save_new_block(None, hash, block.header, height)
+        db.set_new_block(None, hash, block.header, height)
             .await
             .unwrap();
         assert_eq!(
@@ -279,7 +284,7 @@ mod tests {
         // getting returned.
         let smaller_height = height - 1;
         block.header.time = 1; // To avoid same block hash.
-        db.save_new_block(None, block.block_hash(), block.header, smaller_height)
+        db.set_new_block(None, block.block_hash(), block.header, smaller_height)
             .await
             .unwrap();
         assert_eq!(
@@ -292,7 +297,7 @@ mod tests {
         let height = 0x45;
         block.header.time = 2; // To avoid same block hash.
         let hash = block.block_hash();
-        db.save_new_block(None, hash, block.header, height)
+        db.set_new_block(None, hash, block.header, height)
             .await
             .unwrap();
         assert_eq!(
@@ -320,7 +325,7 @@ mod tests {
         };
         let block_hash = block.block_hash();
         let height = 0x45;
-        db.save_new_block(None, block_hash, block.header, height)
+        db.set_new_block(None, block_hash, block.header, height)
             .await
             .unwrap();
 
@@ -332,7 +337,7 @@ mod tests {
         // Update it with a proof.
         let receipt =
             Receipt::try_from_slice(include_bytes!("../../tests/data/first_1.bin")).unwrap();
-        db.save_block_proof(None, block_hash, receipt.clone())
+        db.set_block_proof(None, block_hash, receipt.clone())
             .await
             .unwrap();
 
@@ -368,7 +373,7 @@ mod tests {
         };
         let block_hash = block.block_hash();
         let height = base_height;
-        db.save_new_block(None, block_hash, block.header, height)
+        db.set_new_block(None, block_hash, block.header, height)
             .await
             .unwrap();
         assert!(db.get_non_proven_block(None).await.is_err());
@@ -387,12 +392,12 @@ mod tests {
         };
         let block_hash1 = block.block_hash();
         let height1 = base_height + 1;
-        db.save_new_block(None, block_hash1, block.header, height1)
+        db.set_new_block(None, block_hash1, block.header, height1)
             .await
             .unwrap();
         let receipt =
             Receipt::try_from_slice(include_bytes!("../../tests/data/first_1.bin")).unwrap();
-        db.save_block_proof(None, block_hash1, receipt.clone())
+        db.set_block_proof(None, block_hash1, receipt.clone())
             .await
             .unwrap();
         assert!(db.get_non_proven_block(None).await.is_err());
@@ -411,7 +416,7 @@ mod tests {
         };
         let block_hash2 = block.block_hash();
         let height2 = base_height + 2;
-        db.save_new_block(None, block_hash2, block.header, height2)
+        db.set_new_block(None, block_hash2, block.header, height2)
             .await
             .unwrap();
 
