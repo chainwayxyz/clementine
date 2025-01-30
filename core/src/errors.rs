@@ -230,6 +230,9 @@ pub enum BridgeError {
 
     #[error("WatchtowerChallengeAddressesNotFound for watchtower {0}, operator {1}")]
     WatchtowerChallengeAddressesNotFound(u32, u32),
+
+    #[error("Invalid response from Citrea: {0}")]
+    InvalidCitreaResponse(String),
 }
 
 impl From<BridgeError> for ErrorObject<'static> {

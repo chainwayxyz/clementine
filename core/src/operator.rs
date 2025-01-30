@@ -91,11 +91,7 @@ impl Operator {
         tx.commit().await?;
 
         let citrea_client = if !config.citrea_rpc_url.is_empty() {
-            Some(
-                HttpClientBuilder::default()
-                    .build(config.citrea_rpc_url.clone())
-                    .unwrap(),
-            )
+            Some(HttpClientBuilder::default().build(config.citrea_rpc_url.clone())?)
         } else {
             None
         };
@@ -518,8 +514,17 @@ impl Operator {
             ];
             let response: String = citrea_client.request("eth_call", params).await?;
 
-            let operator_idx_as_vec = hex::decode(&response[58..66]).unwrap();
-            let operator_idx = u32::from_be_bytes(operator_idx_as_vec.try_into().unwrap());
+            let operator_idx_as_vec = hex::decode(&response[58..66]).map_err(|_| {
+                BridgeError::InvalidCitreaResponse(format!(
+                    "Failed to decode operator_idx hex from response: OperatorIdx = {}",
+                    &response[58..66]
+                ))
+            })?;
+            let operator_idx = u32::from_be_bytes(
+                operator_idx_as_vec
+                    .try_into()
+                    .expect("length statically known"),
+            );
 
             if operator_idx - 1 != self.idx as u32 {
                 return Err(BridgeError::InvalidOperatorIndex(
@@ -548,8 +553,17 @@ impl Operator {
             let response: String = citrea_client.request("eth_call", params).await?;
 
             let deposit_idx_response = &response[58..66];
-            let deposit_idx_as_vec = hex::decode(deposit_idx_response).unwrap();
-            let deposit_idx = u32::from_be_bytes(deposit_idx_as_vec.try_into().unwrap());
+            let deposit_idx_as_vec = hex::decode(deposit_idx_response).map_err(|_| {
+                BridgeError::InvalidCitreaResponse(format!(
+                    "Invalid deposit idx response from Citrea, deposit idx = {}",
+                    &response[58..66]
+                ))
+            })?;
+            let deposit_idx = u32::from_be_bytes(
+                deposit_idx_as_vec
+                    .try_into()
+                    .expect("length statically known"),
+            );
 
             if deposit_idx - 1 != withdrawal_idx {
                 return Err(BridgeError::InvalidDepositOutpointGiven(

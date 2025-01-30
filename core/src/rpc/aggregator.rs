@@ -6,6 +6,7 @@ use crate::builder::transaction::create_move_to_vault_txhandler;
 use crate::config::BridgeConfig;
 use crate::rpc::clementine::clementine_operator_client::ClementineOperatorClient;
 use crate::rpc::clementine::clementine_verifier_client::ClementineVerifierClient;
+use crate::rpc::error::output_stream_ended_prematurely;
 use crate::rpc::parsers;
 use crate::{
     aggregator::Aggregator,
@@ -182,9 +183,9 @@ async fn signature_distributor(
         };
 
         for tx in &deposit_finalize_sender {
-            tx.send(final_params.clone()).await.map_err(|e| {
-                BridgeError::RPCStreamEndedUnexpectedly(format!("Can't send final params: {}", e))
-            })?;
+            tx.send(final_params.clone())
+                .await
+                .map_err(|_| output_stream_ended_prematurely())?;
         }
     }
 
@@ -196,7 +197,7 @@ async fn signature_distributor(
             )),
         })
         .await
-        .unwrap();
+        .map_err(|_| output_stream_ended_prematurely())?
     }
 
     Ok(())
@@ -447,7 +448,9 @@ impl ClementineAggregator for Aggregator {
                         client.set_operator(tokio_stream::wrappers::ReceiverStream::new(rx));
 
                     for param in params {
-                        tx.send(param).await.unwrap();
+                        tx.send(param)
+                            .await
+                            .map_err(|_| output_stream_ended_prematurely())?;
                     }
 
                     future.await?; // TODO: This is dangerous: If channel size becomes not sufficient, this will block forever.
@@ -488,7 +491,9 @@ impl ClementineAggregator for Aggregator {
                     let future =
                         client.set_watchtower(tokio_stream::wrappers::ReceiverStream::new(rx));
                     for param in params {
-                        tx.send(param).await.unwrap();
+                        tx.send(param)
+                            .await
+                            .map_err(|_| output_stream_ended_prematurely())?;
                     }
 
                     future.await?; // TODO: This is dangerous: If channel size becomes not sufficient, this will block forever.
@@ -664,7 +669,9 @@ impl ClementineAggregator for Aggregator {
         ));
 
         // Join the nonce aggregation handle to get the movetx agg nonce.
-        let movetx_agg_nonce = nonce_agg_handle.await.unwrap()?;
+        let movetx_agg_nonce = nonce_agg_handle
+            .await
+            .expect("cancelled task or panic in task")?;
 
         // Start the deposit finalization pipe.
         let sig_dist_handle = tokio::spawn(signature_distributor(
@@ -685,10 +692,18 @@ impl ClementineAggregator for Aggregator {
             "Waiting for pipeline tasks to complete (nonce agg, sig agg, sig dist, operator sigs)"
         );
         // Wait for all pipeline tasks to complete
-        nonce_dist_handle.await.unwrap()?;
-        sig_agg_handle.await.unwrap()?;
-        sig_dist_handle.await.unwrap()?;
-        let operator_sigs = operator_sigs_fut.await.unwrap()?;
+        nonce_dist_handle
+            .await
+            .expect("cancelled task or panic in task")?;
+        sig_agg_handle
+            .await
+            .expect("cancelled task or panic in task")?;
+        sig_dist_handle
+            .await
+            .expect("cancelled task or panic in task")?;
+        let operator_sigs = operator_sigs_fut
+            .await
+            .expect("cancelled task or panic in task")?;
 
         // send operators sigs to verifiers after all verifiers have signed
         let send_operator_sigs: Vec<_> = deposit_finalize_sender
@@ -723,7 +738,7 @@ impl ClementineAggregator for Aggregator {
         let move_tx_partial_sigs = try_join_all(
             deposit_finalize_futures
                 .iter_mut()
-                .map(|f| async { Ok::<_, Status>(f.await.unwrap().into_inner().partial_sig) }),
+                .map(|fut| async { Ok::<_, Status>(fut.await?.into_inner().partial_sig) }),
         )
         .await
         .map_err(|e| Status::internal(format!("Failed to finalize deposit: {:?}", e)))?;

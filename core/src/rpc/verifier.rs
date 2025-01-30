@@ -30,45 +30,15 @@ use bitvm::signatures::{
     winternitz,
 };
 
+use super::error::*;
 use crate::utils::SECP;
 use futures::StreamExt;
 use secp256k1::musig::{MusigAggNonce, MusigPubNonce, MusigSecNonce};
-use std::{collections::BTreeMap, fmt::Display};
+use std::collections::BTreeMap;
 use std::{pin::pin, str::FromStr};
 use tokio::sync::mpsc::{self, error::SendError};
 use tokio_stream::wrappers::ReceiverStream;
 use tonic::{async_trait, Request, Response, Status, Streaming};
-
-fn expected_msg_got_error(msg: Status) -> Status {
-    Status::invalid_argument(format!("Expected message, got error: {msg}"))
-}
-
-fn expected_msg_got_none<'a>(msg: &'a str) -> impl (Fn() -> Status) + 'a {
-    move || Status::invalid_argument(format!("Expected {msg} but received None"))
-}
-
-fn stream_ended_prematurely(name: &str) -> Status {
-    Status::internal(format!("{name} stream ended prematurely"))
-}
-
-fn input_ended_prematurely() -> Status {
-    Status::invalid_argument("Input stream ended prematurely")
-}
-
-fn sighash_stream_ended_prematurely() -> Status {
-    Status::internal("Sighash stream ended prematurely")
-}
-
-fn sighash_stream_failed(msg: Status) -> Status {
-    Status::internal(format!("Sighash stream failed: {msg}"))
-}
-
-fn invalid_argument<'a, T: std::error::Error + Send + Sync + 'static + Display>(
-    field: &'a str,
-    msg: &'a str,
-) -> impl 'a + Fn(T) -> Status {
-    move |e| Status::invalid_argument(format!("Failed to parse {field}: {msg}\n{e}"))
-}
 
 fn get_deposit_params(
     deposit_sign_session: clementine::DepositSignSession,
@@ -876,7 +846,12 @@ impl ClementineVerifier for Verifier {
 
         let movetx_secnonce = {
             let mut session_map = self.nonces.lock().await;
-            let session = session_map.sessions.get_mut(&session_id).unwrap();
+            let session = session_map.sessions.get_mut(&session_id).ok_or_else(|| {
+                Status::internal(format!(
+                    "could not find session with id {} in session cache",
+                    session_id
+                ))
+            })?;
             session
                 .nonces
                 .pop()
@@ -926,10 +901,13 @@ impl ClementineVerifier for Verifier {
                 self.config.network,
             ));
             while let Some(in_msg) = in_stream.message().await? {
-                let sighash = sighash_stream.next().await.unwrap()?;
+                let sighash = sighash_stream
+                    .next()
+                    .await
+                    .ok_or_else(sighash_stream_ended_prematurely)??;
                 let operator_sig = in_msg
                     .params
-                    .ok_or(Status::internal("No operator sig received"))?;
+                    .ok_or_else(expected_msg_got_none("Operator Signature"))?;
 
                 let final_sig = match operator_sig {
                     Params::SchnorrSig(final_sig) => schnorr::Signature::from_slice(&final_sig)
@@ -951,7 +929,7 @@ impl ClementineVerifier for Verifier {
                     .verify_schnorr(&final_sig, &Message::from(sighash), &tweaked_op_xonly_pk)
                     .map_err(|x| {
                         Status::internal(format!(
-                            "Operator {} Signature {} Verification Failed: {}.",
+                            "Operator {} Signature {}: verification failed: {}.",
                             operator_idx,
                             op_sig_count + 1,
                             x
