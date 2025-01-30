@@ -87,7 +87,7 @@ impl Verifier {
             sessions: HashMap::new(),
         };
 
-        let verifiers_pks = db.get_verifier_public_keys(None).await?;
+        let verifiers_pks = db.get_verifiers_public_keys(None).await?;
 
         let nofn = if !verifiers_pks.is_empty() {
             tracing::debug!("Verifiers public keys found: {:?}", verifiers_pks);

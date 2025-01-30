@@ -21,6 +21,9 @@ pub struct Database {
     connection: Pool<Postgres>,
 }
 
+/// Database transaction for Postgres.
+pub type DatabaseTransaction<'a, 'b> = &'a mut sqlx::Transaction<'b, Postgres>;
+
 /// Executes a query with a transaction if it is provided.
 ///
 /// # Parameters
