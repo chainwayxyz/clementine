@@ -58,6 +58,8 @@ pub enum BridgeError {
     /// TxInputNotFound is returned when the input is not found in the transaction
     #[error("TxInputNotFound")]
     TxInputNotFound,
+    #[error("TxOutputNotFound")]
+    TxOutputNotFound,
     #[error("WitnessAlreadySet")]
     WitnessAlreadySet,
     /// PreimageNotFound is returned when the preimage is not found in the the connector tree or claim proof

@@ -12,7 +12,6 @@ use crate::{
             clementine_watchtower_client::ClementineWatchtowerClient,
         },
     },
-    utils::set_p2tr_script_spend_witness,
     EVMAddress,
 };
 use bitcoin::{
@@ -21,7 +20,6 @@ use bitcoin::{
     Address, OutPoint, XOnlyPublicKey,
 };
 use bitcoin::{hashes::Hash, Txid};
-use bitcoincore_rpc::RawTx;
 use secp256k1::musig::{MusigAggNonce, MusigPartialSignature};
 
 /// Aggregator struct.

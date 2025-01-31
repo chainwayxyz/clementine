@@ -8,8 +8,11 @@ use bitcoin::{
 };
 use std::marker::PhantomData;
 
+use super::input::{SpendableTxIn, SpentTxIn};
+use super::output::UnspentTxOut;
+
 #[derive(Debug, Clone)]
-pub struct TxHandler<T: State> {
+pub struct TxHandler<T: State = Unsigned> {
     txins: Vec<SpentTxIn>,
     txouts: Vec<UnspentTxOut>,
 
@@ -30,8 +33,82 @@ pub enum Unsigned {}
 impl State for Unsigned {}
 impl State for Signed {}
 
+impl<T: State> TxHandler<T> {
+    pub fn get_spendable_output(&self, idx: usize) -> Option<SpendableTxIn> {
+        let txout = self.txouts.get(idx)?;
+        Some(SpendableTxIn::from_checked(OutPoint {
+            txid: self.cached_txid,
+            vout: idx as u32,
+        }, txout.txout.clone(), txout.scripts.clone(), txout.spendinfo.clone()).unwrap()) // TODO: Can we get rid of clones?
+    }
+}
+
 impl TxHandler<Unsigned> {
-    fn get_txid(&self) -> &Txid {
+    /// Constructs the witness for a script path spend of a transaction input.
+    ///
+    /// # Arguments
+    ///
+    /// - `self`: The transaction to add the witness to.
+    /// - `script_inputs`: The inputs to the tapscript
+    /// - `txin_index`: The index of the transaction input to add the witness to.
+    /// - `script_index`: The script index in the input UTXO's Taproot script tree. This is used to get the control block and script contents of the script being spent.
+    pub fn set_p2tr_script_spend_witness<U: AsRef<[u8]>>(
+        &mut self,
+        txin_index: usize,
+        script_index: usize,
+        script_inputs: &[U],
+    ) -> Result<(), BridgeError> {
+        let txin = self
+            .txins
+            .get_mut(txin_index)
+            .ok_or(BridgeError::TxInputNotFound)?;
+
+        if txin.get_witness().is_some() {
+            return Err(BridgeError::WitnessAlreadySet);
+        }
+
+        let spendable = txin.get_spendable();
+        let script = spendable
+            .get_scripts()
+            .get(script_index)
+            .ok_or(BridgeError::TaprootScriptError)?;
+
+        let spend_control_block = spendable
+            .get_spend_info()
+            .control_block(&(script.clone(), LeafVersion::TapScript))
+            .ok_or(BridgeError::ControlBlockError)?;
+
+        let mut witness = Witness::new();
+        script_inputs
+            .iter()
+            .for_each(|element| witness.push(element));
+        witness.push(script.clone());
+        witness.push(spend_control_block.serialize());
+
+        txin.set_witness(witness);
+
+        Ok(())
+    }
+
+    pub fn set_p2tr_key_spend_witness(
+        &mut self,
+        signature: &taproot::Signature,
+        txin_index: usize,
+    ) -> Result<(), BridgeError> {
+        let txin = self
+            .txins
+            .get_mut(txin_index)
+            .ok_or(BridgeError::TxInputNotFound)?;
+
+        if txin.get_witness().is_none() {
+            txin.set_witness(Witness::p2tr_key_spend(signature));
+            Ok(())
+        } else {
+            Err(BridgeError::WitnessAlreadySet)
+        }
+    }
+
+    pub fn get_txid(&self) -> &Txid { // Not sure if this should be public
         &self.cached_txid
     }
 
@@ -40,7 +117,7 @@ impl TxHandler<Unsigned> {
         txin_index: usize,
         sighash_type: Option<TapSighashType>,
     ) -> Result<TapSighash, BridgeError> {
-        let prevouts_vec: Vec<_> = self.txins.iter().map(|s| &s.spendable.prevout).collect(); // TODO: Maybe there is a better way to do this
+        let prevouts_vec: Vec<&TxOut> = self.txins.iter().map(|s| s.get_spendable().get_prevout()).collect(); // TODO: Maybe there is a better way to do this
         let mut sighash_cache: SighashCache<&bitcoin::Transaction> =
             SighashCache::new(&self.cached_tx);
         let prevouts = &match sighash_type {
@@ -67,7 +144,7 @@ impl TxHandler<Unsigned> {
         spend_script: &Script,
         sighash_type: Option<TapSighashType>,
     ) -> Result<TapSighash, BridgeError> {
-        let prevouts_vec: Vec<_> = self.txins.iter().map(|s| &s.spendable.prevout).collect(); // TODO: Maybe there is a better way to do this
+        let prevouts_vec: Vec<&TxOut> = self.txins.iter().map(|s| s.get_spendable().get_prevout()).collect(); // TODO: Maybe there is a better way to do this
         let mut sighash_cache: SighashCache<&bitcoin::Transaction> =
             SighashCache::new(&self.cached_tx);
 
@@ -91,7 +168,7 @@ impl TxHandler<Unsigned> {
     }
 
     fn promote(self) -> Result<TxHandler<Signed>, BridgeError> {
-        if self.txins.iter().any(|s| s.witness.is_none()) {
+        if self.txins.iter().any(|s| s.get_witness().is_none()) {
             return Err(BridgeError::MissingWitnessData);
         }
 
@@ -119,7 +196,7 @@ pub struct TxHandlerBuilder {
 }
 
 impl TxHandlerBuilder {
-    fn new() -> TxHandlerBuilder {
+    pub fn new() -> TxHandlerBuilder {
         TxHandlerBuilder {
             version: Version::TWO,
             lock_time: absolute::LockTime::ZERO,
@@ -128,29 +205,25 @@ impl TxHandlerBuilder {
         }
     }
 
-    fn with_version(mut self, version: Version) -> Self {
+    pub fn with_version(mut self, version: Version) -> Self {
         self.version = version;
         self
     }
 
-    fn add_input(mut self, spendable: SpendableTxIn, sequence: Sequence) -> Self {
-        self.txins.push(SpentTxIn {
-            spendable,
-            sequence,
-            witness: None,
-        });
+    pub fn add_input(mut self, spendable: SpendableTxIn, sequence: Sequence, witness: Option<Witness>) -> Self {
+        self.txins.push(SpentTxIn::from_spendable(spendable, sequence, witness));
 
         self
     }
 
-    fn add_output(mut self, output: UnspentTxOut) -> Self {
+    pub fn add_output(mut self, output: UnspentTxOut) -> Self {
         self.txouts.push(output);
 
         self
     }
 
     /// TODO: output likely fallible
-    fn finalize(self) -> TxHandler<Unsigned> {
+    pub fn finalize(self) -> TxHandler<Unsigned> {
         // construct cached Transaction
         let tx = Transaction {
             version: self.version,
@@ -158,12 +231,7 @@ impl TxHandlerBuilder {
             input: self
                 .txins
                 .iter()
-                .map(|s| TxIn {
-                    previous_output: s.spendable.previous_output,
-                    script_sig: ScriptBuf::new(),
-                    sequence: Sequence::MAX,
-                    witness: Witness::default(),
-                })
+                .map(|s| s.to_txin())
                 .collect(),
             output: self.txouts.iter().map(|s| s.txout.clone()).collect(), // TODO: Get rid of .clone()
         };
@@ -175,137 +243,6 @@ impl TxHandlerBuilder {
             cached_txid: txid,
             phantom: PhantomData,
         }
-    }
-}
-
-impl SpendableTxIn {
-    // TODO: Find out what is needed here
-}
-
-#[derive(Debug, Clone)]
-struct SpendableTxIn {
-    /// The reference to the previous output that is being used as an input.
-    previous_output: OutPoint,
-    prevout: TxOut, // locking script (taproot => op_1 op_pushbytes_32 tweaked pk)
-
-    /// TODO: refactor later
-    scripts: Vec<ScriptBuf>,
-    spendinfo: TaprootSpendInfo,
-}
-
-impl SpendableTxIn {
-    fn new() -> SpendableTxIn {
-        todo!()
-    }
-}
-
-#[derive(Debug, Clone)]
-struct SpentTxIn {
-    spendable: SpendableTxIn,
-    /// The sequence number, which suggests to miners which of two
-    /// conflicting transactions should be preferred, or 0xFFFFFFFF
-    /// to ignore this feature. This is generally never used since
-    /// the miner behavior cannot be enforced.
-    sequence: Sequence,
-    /// Witness data: an array of byte-arrays.
-    /// Note that this field is *not* (de)serialized with the rest of the TxIn in
-    /// Encodable/Decodable, as it is (de)serialized at the end of the full
-    /// Transaction. It *is* (de)serialized with the rest of the TxIn in other
-    /// (de)serialization routines.
-    witness: Option<Witness>,
-}
-
-#[derive(Debug, Clone)]
-struct UnspentTxOut {
-    txout: TxOut,
-    scripts: Vec<ScriptBuf>, // TODO: Remove either scripts or spendinfo
-    spendinfo: TaprootSpendInfo,
-}
-
-impl UnspentTxOut {
-    fn new(txout: TxOut, scripts: Vec<ScriptBuf>, spendinfo: TaprootSpendInfo) -> UnspentTxOut {
-        UnspentTxOut {
-            txout,
-            scripts,
-            spendinfo,
-        }
-    }
-}
-
-impl TxHandler<Unsigned> {
-    fn get_output_as_spendable(&self, idx: usize) -> SpendableTxIn {
-        SpendableTxIn {
-            previous_output: OutPoint {
-                txid: self.cached_txid,
-                vout: idx as u32,
-            },
-            prevout: self.txouts[idx].txout.clone(),
-            scripts: self.txouts[idx].scripts.clone(),
-            spendinfo: self.txouts[idx].spendinfo.clone(),
-        }
-    }
-    /// Constructs the witness for a script path spend of a transaction input.
-    ///
-    /// # Arguments
-    ///
-    /// - `tx`: The transaction to add the witness to.
-    /// - `script_inputs`: The inputs to the tapscript
-    /// - `txin_index`: The index of the transaction input to add the witness to.
-    /// - `script_index`: The script index in the input UTXO's Taproot script tree. This is used to get the control block and script contents of the script being spent.
-    pub fn set_p2tr_script_spend_witness<T: AsRef<[u8]>>(
-        tx: &mut TxHandler<Unsigned>,
-        script_inputs: &[T],
-        txin_index: usize,
-        script_index: usize,
-    ) -> Result<(), BridgeError> {
-        let txin = tx
-            .txins
-            .get_mut(txin_index)
-            .ok_or(BridgeError::TxInputNotFound)?;
-
-        if txin.witness.is_some() {
-            return Err(BridgeError::WitnessAlreadySet);
-        }
-
-        let script = txin
-            .spendable
-            .scripts
-            .get(script_index)
-            .ok_or(BridgeError::TaprootScriptError)?;
-
-        let spend_control_block = txin
-            .spendable
-            .spendinfo
-            .control_block(&(script.clone(), LeafVersion::TapScript))
-            .ok_or(BridgeError::ControlBlockError)?;
-
-        let mut witness = Witness::new();
-        script_inputs
-            .iter()
-            .for_each(|element| witness.push(element));
-        witness.push(script.clone());
-        witness.push(spend_control_block.serialize());
-
-        txin.witness = Some(witness);
-
-        Ok(())
-    }
-
-    pub fn set_p2tr_key_spend_witness(
-        tx: &mut TxHandler<Unsigned>,
-        signature: &taproot::Signature,
-        txin_index: usize,
-    ) -> Result<(), BridgeError> {
-        let witness = &mut tx
-            .txins
-            .get_mut(txin_index)
-            .ok_or(BridgeError::TxInputNotFound)?
-            .witness;
-
-        witness
-            .is_none()
-            .then(|| *witness = Some(Witness::p2tr_key_spend(signature)))
-            .ok_or(BridgeError::WitnessAlreadySet)
     }
 }
 
@@ -323,7 +260,7 @@ impl TxHandler<Unsigned> {
 // }
 
 // fn in_the_chain(txhanlder: TxHandler<impl State>) {
-//     let our_tx = TxHandlerBuilder::new().add_input(txhanlder.get_output_as_spendable(0), Sequence::ENABLE_RBF_NO_LOCKTIME).define_output(UnspentTxOut::new(amount, taproot_spend_info))
+//     let our_tx = TxHandlerBuilder::new().add_input(txhanlder.get_spendable_output(0), Sequence::ENABLE_RBF_NO_LOCKTIME).define_output(UnspentTxOut::new(amount, taproot_spend_info))
 
 // }
 
@@ -379,98 +316,4 @@ impl TxHandler<Unsigned> {
 //         .collect::<Vec<_>>();
 
 //     ()
-// }
-
-// use crate::errors::BridgeError;
-// use bitcoin::sighash::SighashCache;
-// use bitcoin::taproot::LeafVersion;
-// use bitcoin::{
-//     taproot::TaprootSpendInfo, ScriptBuf, TapLeafHash, TapSighash, TapSighashType, TxOut, Txid,
-// };
-
-// /// Verbose information about a transaction.
-// #[derive(Debug, Clone)]
-// pub struct TxHandler {
-//     /// Transaction itself.
-//     pub tx: bitcoin::Transaction,
-//     /// Txid of the transaction, saved here to not repeatedly calculate it.
-//     pub txid: Txid,
-//     /// Previous outputs in [`TxOut`] format.
-//     pub prevouts: Vec<TxOut>,
-//     /// Taproot scripts for each previous output.
-//     pub prev_scripts: Vec<Vec<ScriptBuf>>,
-//     /// Taproot spend information for each previous output.
-//     pub prev_taproot_spend_infos: Vec<Option<TaprootSpendInfo>>,
-//     /// Taproot scripts for each tx output.
-//     pub out_scripts: Vec<Vec<ScriptBuf>>,
-//     /// Taproot spend information for each tx output.
-//     pub out_taproot_spend_infos: Vec<Option<TaprootSpendInfo>>,
-// }
-
-// impl TxHandler {
-//     /// Calculates the sighash for a given transaction input for key spend path.
-//     /// See [`bitcoin::sighash::SighashCache::taproot_key_spend_signature_hash`] for more details.
-//     #[tracing::instrument(err(level = tracing::Level::ERROR), ret(level = tracing::Level::TRACE))]
-//     pub fn calculate_pubkey_spend_sighash(
-//         &mut self,
-//         txin_index: usize,
-//         sighash_type: Option<TapSighashType>,
-//     ) -> Result<TapSighash, BridgeError> {
-//         let mut sighash_cache: SighashCache<&mut bitcoin::Transaction> =
-//             SighashCache::new(&mut self.tx);
-//         let prevouts = &match sighash_type {
-//             Some(TapSighashType::SinglePlusAnyoneCanPay)
-//             | Some(TapSighashType::AllPlusAnyoneCanPay)
-//             | Some(TapSighashType::NonePlusAnyoneCanPay) => {
-//                 bitcoin::sighash::Prevouts::One(txin_index, self.prevouts[txin_index].clone())
-//             }
-//             _ => bitcoin::sighash::Prevouts::All(&self.prevouts),
-//         };
-
-//         let sig_hash = sighash_cache.taproot_key_spend_signature_hash(
-//             txin_index,
-//             prevouts,
-//             sighash_type.unwrap_or(TapSighashType::Default),
-//         )?;
-
-//         Ok(sig_hash)
-//     }
-
-//     /// Calculates the sighash for a given transaction input for script spend path.
-//     /// See [`bitcoin::sighash::SighashCache::taproot_script_spend_signature_hash`] for more details.
-//     #[tracing::instrument(err(level = tracing::Level::ERROR), ret(level = tracing::Level::TRACE))]
-//     pub fn calculate_script_spend_sighash(
-//         &mut self,
-//         txin_index: usize,
-//         script_index: usize,
-//         sighash_type: Option<TapSighashType>,
-//     ) -> Result<TapSighash, BridgeError> {
-//         let mut sighash_cache: SighashCache<&mut bitcoin::Transaction> =
-//             SighashCache::new(&mut self.tx);
-
-//         let prevouts = &match sighash_type {
-//             Some(TapSighashType::SinglePlusAnyoneCanPay)
-//             | Some(TapSighashType::AllPlusAnyoneCanPay)
-//             | Some(TapSighashType::NonePlusAnyoneCanPay) => {
-//                 bitcoin::sighash::Prevouts::One(txin_index, self.prevouts[txin_index].clone())
-//             }
-//             _ => bitcoin::sighash::Prevouts::All(&self.prevouts),
-//         };
-//         let leaf_hash = TapLeafHash::from_script(
-//             self.prev_scripts
-//                 .get(txin_index)
-//                 .ok_or(BridgeError::NoScriptsForTxIn(txin_index))?
-//                 .get(script_index)
-//                 .ok_or(BridgeError::NoScriptAtIndex(script_index))?,
-//             LeafVersion::TapScript,
-//         );
-//         let sig_hash = sighash_cache.taproot_script_spend_signature_hash(
-//             txin_index,
-//             prevouts,
-//             leaf_hash,
-//             sighash_type.unwrap_or(TapSighashType::Default),
-//         )?;
-
-//         Ok(sig_hash)
-//     }
 // }

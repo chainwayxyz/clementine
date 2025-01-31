@@ -6,12 +6,13 @@
 use crate::builder;
 use crate::EVMAddress;
 use bitcoin::address::NetworkUnchecked;
-use bitcoin::Sequence;
 use bitcoin::Transaction;
 use bitcoin::{
-    absolute, Address, Amount, OutPoint, ScriptBuf, TxIn, TxOut, Witness, XOnlyPublicKey,
+    absolute, Address, Amount, OutPoint, TxIn, TxOut, XOnlyPublicKey,
 };
-use txhandler::Unsigned;
+use input::create_tx_ins;
+use txhandler::TxHandlerBuilder;
+pub use txhandler::Unsigned;
 
 pub use crate::builder::transaction::challenge::*;
 pub use crate::builder::transaction::operator_assert::*;
@@ -24,8 +25,8 @@ mod operator_assert;
 mod operator_collateral;
 mod operator_reimburse;
 mod txhandler;
-
-pub type BlockHeight = u16;
+pub mod input;
+pub mod output;
 
 /// Creates a Bitcoin V3 transaction with no locktime, using given inputs and
 /// outputs.
@@ -36,57 +37,6 @@ pub fn create_btc_tx(tx_ins: Vec<TxIn>, tx_outs: Vec<TxOut>) -> bitcoin::Transac
         input: tx_ins,
         output: tx_outs,
     }
-}
-
-pub struct TxInArgs(pub Vec<(OutPoint, Option<BlockHeight>)>);
-
-impl From<Vec<OutPoint>> for TxInArgs {
-    fn from(outpoints: Vec<OutPoint>) -> TxInArgs {
-        TxInArgs(
-            outpoints
-                .into_iter()
-                .map(|outpoint| (outpoint, None))
-                .collect(),
-        )
-    }
-}
-
-impl From<Vec<(OutPoint, Option<BlockHeight>)>> for TxInArgs {
-    fn from(value: Vec<(OutPoint, Option<BlockHeight>)>) -> TxInArgs {
-        TxInArgs(value)
-    }
-}
-
-/// Creates a Vec of TxIn from a TxInArgs (helper struct to represent args)
-/// If only a Vec of OutPoints are provided there are no relative locktimes
-/// If at least one TxIn requires a locktime, a Vec of (OutPoint, Option<u16>) is required
-/// Option represents Some(locktime) or None if there is no locktime for that TxIn
-pub fn create_tx_ins(tx_in_args: TxInArgs) -> Vec<TxIn> {
-    tx_in_args
-        .0
-        .into_iter()
-        .map(|(outpoint, height)| TxIn {
-            previous_output: outpoint,
-            sequence: height
-                .map(Sequence::from_height)
-                .unwrap_or(Sequence::ENABLE_RBF_NO_LOCKTIME),
-            script_sig: ScriptBuf::default(),
-            witness: Witness::new(),
-        })
-        .collect()
-}
-
-pub fn create_tx_outs(pairs: Vec<(Amount, ScriptBuf)>) -> Vec<TxOut> {
-    let mut tx_outs = Vec::new();
-
-    for pair in pairs {
-        tx_outs.push(TxOut {
-            value: pair.0,
-            script_pubkey: pair.1,
-        });
-    }
-
-    tx_outs
 }
 
 /// Creates the `move_to_vault_tx`.
@@ -124,6 +74,14 @@ pub fn create_move_to_vault_txhandler(
     let (musig2_address, musig2_spendinfo) =
         builder::address::create_checksig_address(nofn_xonly_pk, network);
 
+    let deposit_script = vec![builder::script::create_deposit_script(
+        nofn_xonly_pk,
+        user_evm_address,
+        bridge_amount_sats,
+    )];
+    // @ozankaymak burada hem scriptler hem de taproot spendinfo verelim bence. karmasik seyler yapacagimiz zmn Vec<Box<dyn TxInArgs>> gibi bir sey yapariz.
+    // create_tx_ins Vec<impl TxInArgs> alir. TxInArgs da her seyi veren bir trait olur.
+    // create_tx_ins icine mi?
     let tx_ins = create_tx_ins(vec![deposit_outpoint].into());
 
     let anchor_output = builder::script::anchor_output();
@@ -147,12 +105,11 @@ pub fn create_move_to_vault_txhandler(
         script_pubkey: deposit_address.script_pubkey(),
         value: bridge_amount_sats,
     }];
-
-    let deposit_script = vec![builder::script::create_deposit_script(
-        nofn_xonly_pk,
-        user_evm_address,
-        bridge_amount_sats,
-    )];
+  
+    let mut txhandler_builder = TxHandlerBuilder::new();
+    // TODO: Decide on how to use this, we can use it as a builder pattern put anything into TxHandler directly.
+    // txhandler_builder.add_input(SpendableTxin::from_txin(tx_ins[0], vec![deposit_script], deposit_taproot_spend_info));
+    // I came up with an idea to reduce extra allocations. Instead of making TxArgs a struct, we can turn it into a trait that returns default values based on usage patterns.
 
     TxHandler {
         txid: move_tx.compute_txid(),
