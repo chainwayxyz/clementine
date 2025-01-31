@@ -100,7 +100,7 @@ pub enum BridgeError {
     #[error("RPC function field {0} is required!")]
     RPCRequiredParam(&'static str),
     #[error("RPC function parameter {0} is malformed: {1}")]
-    RPCParamMalformed(&'static str, String),
+    RPCParamMalformed(String, String),
     #[error("RPC stream ended unexpectedly: {0}")]
     RPCStreamEndedUnexpectedly(String),
     #[error("Invalid response from an RPC endpoint: {0}")]
@@ -127,6 +127,9 @@ pub enum BridgeError {
     /// There was an error while creating a server.
     #[error("RPC server can't be created: {0}")]
     ServerError(std::io::Error),
+    /// Invalid binding address given in config file
+    #[error("Invalid server address: {0}")]
+    InvalidServerAddress(#[from] core::net::AddrParseError),
     /// When the operators funding utxo is not found
     #[error("OperatorFundingUtxoNotFound: Funding utxo not found, pls send some amount here: {0}, then call the set_operator_funding_utxo RPC")]
     OperatorFundingUtxoNotFound(bitcoin::Address),
@@ -227,6 +230,12 @@ pub enum BridgeError {
 
     #[error("Challenge addresses of the watchtower {0} for the operator {1} not found")]
     WatchtowerChallengeAddressesNotFound(u32, u32),
+
+    #[error("Invalid response from Citrea: {0}")]
+    InvalidCitreaResponse(String),
+
+    #[error("Not enough operators")]
+    NotEnoughOperators,
 }
 
 impl From<BridgeError> for ErrorObject<'static> {

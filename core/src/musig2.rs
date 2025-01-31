@@ -23,29 +23,30 @@ use sha2::{Digest, Sha256};
 pub type MuSigNoncePair = (MusigSecNonce, MusigPubNonce);
 
 pub fn from_secp_xonly(xpk: secp256k1::XOnlyPublicKey) -> XOnlyPublicKey {
-    XOnlyPublicKey::from_slice(&xpk.serialize()).unwrap()
+    XOnlyPublicKey::from_slice(&xpk.serialize()).expect("serialized pubkey is valid")
 }
 
 pub fn to_secp_pk(pk: PublicKey) -> secp256k1::PublicKey {
-    secp256k1::PublicKey::from_slice(&pk.serialize()).unwrap()
+    secp256k1::PublicKey::from_slice(&pk.serialize()).expect("serialized pubkey is valid")
 }
 pub fn from_secp_pk(pk: secp256k1::PublicKey) -> PublicKey {
-    PublicKey::from_slice(&pk.serialize()).unwrap()
+    PublicKey::from_slice(&pk.serialize()).expect("serialized pubkey is valid")
 }
 
 pub fn to_secp_sk(sk: SecretKey) -> secp256k1::SecretKey {
-    secp256k1::SecretKey::from_slice(&sk.secret_bytes()).unwrap()
+    secp256k1::SecretKey::from_slice(&sk.secret_bytes()).expect("serialized secret key is valid")
 }
 
 pub fn to_secp_kp(kp: &Keypair) -> secp256k1::Keypair {
-    secp256k1::Keypair::from_seckey_slice(SECP256K1, &kp.secret_bytes()).unwrap()
+    secp256k1::Keypair::from_seckey_slice(SECP256K1, &kp.secret_bytes())
+        .expect("serialized secret key is valid")
 }
 pub fn from_secp_kp(kp: &secp256k1::Keypair) -> Keypair {
-    Keypair::from_seckey_slice(&SECP, &kp.secret_bytes()).unwrap()
+    Keypair::from_seckey_slice(&SECP, &kp.secret_bytes()).expect("serialized secret key is valid")
 }
 
 pub fn from_secp_sig(sig: secp256k1::schnorr::Signature) -> schnorr::Signature {
-    schnorr::Signature::from_slice(&sig.to_byte_array()).unwrap()
+    schnorr::Signature::from_slice(&sig.to_byte_array()).expect("serialized signature is valid")
 }
 
 pub fn to_secp_msg(msg: &Message) -> secp256k1::Message {
@@ -134,7 +135,7 @@ impl AggregateFromPublicKeys for XOnlyPublicKey {
         pks: Vec<PublicKey>,
         tweak: Option<Musig2Mode>,
     ) -> Result<XOnlyPublicKey, BridgeError> {
-        let musig_key_agg_cache = create_key_agg_cache(pks, tweak).unwrap();
+        let musig_key_agg_cache = create_key_agg_cache(pks, tweak)?;
 
         Ok(XOnlyPublicKey::from_slice(
             &musig_key_agg_cache.agg_pk().serialize(),

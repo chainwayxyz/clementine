@@ -3,7 +3,7 @@ use super::clementine::{
     WinternitzPubkey,
 };
 use crate::watchtower::Watchtower;
-use tokio::sync::mpsc;
+use tokio::sync::mpsc::{self, error::SendError};
 use tokio_stream::wrappers::ReceiverStream;
 use tonic::{async_trait, Request, Response, Status};
 
@@ -21,7 +21,7 @@ impl ClementineWatchtower for Watchtower {
             .get_watchtower_winternitz_public_keys()
             .await?
             .into_iter()
-            .map(WinternitzPubkey::from_bitvm)
+            .map(From::from)
             .collect::<Vec<WinternitzPubkey>>();
         let watchtower = self.clone();
 
@@ -32,16 +32,15 @@ impl ClementineWatchtower for Watchtower {
                     watchtower.config.index,
                 )),
             }))
-            .await
-            .unwrap();
+            .await?;
 
             for wpk in winternitz_pubkeys {
                 tx.send(Ok(WatchtowerParams {
                     response: Some(watchtower_params::Response::WinternitzPubkeys(wpk)),
                 }))
-                .await
-                .unwrap();
+                .await?;
             }
+
             tracing::info!(
                 "Watchtower gives watchtower xonly public key: {:?}",
                 watchtower.actor.xonly_public_key
@@ -51,15 +50,18 @@ impl ClementineWatchtower for Watchtower {
                 watchtower.config.index
             );
             let xonly_pk = watchtower.actor.xonly_public_key.serialize().to_vec();
+
             tracing::info!(
                 "Watchtower gives watchtower xonly public key bytes: {:?}",
                 xonly_pk
             );
+
             tx.send(Ok(WatchtowerParams {
                 response: Some(watchtower_params::Response::XonlyPk(xonly_pk)),
             }))
-            .await
-            .unwrap();
+            .await?;
+
+            Ok::<(), SendError<_>>(())
         });
 
         let out_stream: Self::GetParamsStream = ReceiverStream::new(rx);

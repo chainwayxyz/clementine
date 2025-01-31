@@ -187,10 +187,9 @@ impl HeaderChainProver {
                 match status {
                     BlockFetchStatus::UpToDate => (),
                     BlockFetchStatus::FallenBehind(block_height, block_hashes) => {
-                        prover
-                            .sync_blockchain(block_height, block_hashes)
-                            .await
-                            .unwrap();
+                        if let Err(e) = prover.sync_blockchain(block_height, block_hashes).await {
+                            tracing::error!("Failed to sync blockchain: {e}");
+                        }
                     }
                 }
             };
@@ -258,13 +257,16 @@ mod tests {
     #[serial_test::parallel]
     async fn check_for_new_blocks_uptodate() {
         let config = create_test_config_with_thread_name!(None);
-        let rpc = ExtendedRpc::new(
+        let rpc = ExtendedRpc::connect(
             config.bitcoin_rpc_url.clone(),
             config.bitcoin_rpc_user.clone(),
             config.bitcoin_rpc_password.clone(),
         )
-        .await;
-        let prover = HeaderChainProver::new(&config, rpc.clone()).await.unwrap();
+        .await
+        .unwrap();
+        let prover = HeaderChainProver::new(&config, rpc.clone_inner().await.unwrap())
+            .await
+            .unwrap();
 
         // Save current blockchain tip.
         let current_tip_height = rpc.client.get_block_count().await.unwrap();
@@ -292,13 +294,16 @@ mod tests {
     #[serial_test::serial]
     async fn check_for_new_blocks_fallen_behind_single() {
         let config = create_test_config_with_thread_name!(None);
-        let rpc = ExtendedRpc::new(
+        let rpc = ExtendedRpc::connect(
             config.bitcoin_rpc_url.clone(),
             config.bitcoin_rpc_user.clone(),
             config.bitcoin_rpc_password.clone(),
         )
-        .await;
-        let prover = HeaderChainProver::new(&config, rpc.clone()).await.unwrap();
+        .await
+        .unwrap();
+        let prover = HeaderChainProver::new(&config, rpc.clone_inner().await.unwrap())
+            .await
+            .unwrap();
 
         // Mine initial block and save it to database.
         let block_hashes = mine_and_save_blocks(&prover, 1).await;
@@ -333,13 +338,16 @@ mod tests {
     #[serial_test::serial]
     async fn check_for_new_blocks_fallen_behind_multiple() {
         let config = create_test_config_with_thread_name!(None);
-        let rpc = ExtendedRpc::new(
+        let rpc = ExtendedRpc::connect(
             config.bitcoin_rpc_url.clone(),
             config.bitcoin_rpc_user.clone(),
             config.bitcoin_rpc_password.clone(),
         )
-        .await;
-        let prover = HeaderChainProver::new(&config, rpc.clone()).await.unwrap();
+        .await
+        .unwrap();
+        let prover = HeaderChainProver::new(&config, rpc.clone_inner().await.unwrap())
+            .await
+            .unwrap();
 
         // Mine initial block and save it to database.
         mine_and_save_blocks(&prover, 1).await;
@@ -364,13 +372,16 @@ mod tests {
     #[serial_test::serial]
     async fn check_for_new_blocks_fork_and_mine_new() {
         let config = create_test_config_with_thread_name!(None);
-        let rpc = ExtendedRpc::new(
+        let rpc = ExtendedRpc::connect(
             config.bitcoin_rpc_url.clone(),
             config.bitcoin_rpc_user.clone(),
             config.bitcoin_rpc_password.clone(),
         )
-        .await;
-        let prover = HeaderChainProver::new(&config, rpc.clone()).await.unwrap();
+        .await
+        .unwrap();
+        let prover = HeaderChainProver::new(&config, rpc.clone_inner().await.unwrap())
+            .await
+            .unwrap();
 
         // Save initial block.
         mine_and_save_blocks(&prover, 1).await;
@@ -396,13 +407,16 @@ mod tests {
     #[serial_test::serial]
     async fn sync_blockchain_single_block() {
         let config = create_test_config_with_thread_name!(None);
-        let rpc = ExtendedRpc::new(
+        let rpc = ExtendedRpc::connect(
             config.bitcoin_rpc_url.clone(),
             config.bitcoin_rpc_user.clone(),
             config.bitcoin_rpc_password.clone(),
         )
-        .await;
-        let prover = HeaderChainProver::new(&config, rpc.clone()).await.unwrap();
+        .await
+        .unwrap();
+        let prover = HeaderChainProver::new(&config, rpc.clone_inner().await.unwrap())
+            .await
+            .unwrap();
 
         // Save current blockchain tip.
         mine_and_save_blocks(&prover, 1).await;
@@ -430,13 +444,16 @@ mod tests {
     #[serial_test::serial]
     async fn sync_blockchain_multiple_blocks() {
         let config = create_test_config_with_thread_name!(None);
-        let rpc = ExtendedRpc::new(
+        let rpc = ExtendedRpc::connect(
             config.bitcoin_rpc_url.clone(),
             config.bitcoin_rpc_user.clone(),
             config.bitcoin_rpc_password.clone(),
         )
-        .await;
-        let prover = HeaderChainProver::new(&config, rpc.clone()).await.unwrap();
+        .await
+        .unwrap();
+        let prover = HeaderChainProver::new(&config, rpc.clone_inner().await.unwrap())
+            .await
+            .unwrap();
 
         // Save current blockchain tip.
         mine_and_save_blocks(&prover, 1).await;
@@ -464,13 +481,16 @@ mod tests {
     #[serial_test::serial]
     async fn sync_blockchain_multiple_blocks_with_fork() {
         let config = create_test_config_with_thread_name!(None);
-        let rpc = ExtendedRpc::new(
+        let rpc = ExtendedRpc::connect(
             config.bitcoin_rpc_url.clone(),
             config.bitcoin_rpc_user.clone(),
             config.bitcoin_rpc_password.clone(),
         )
-        .await;
-        let prover = HeaderChainProver::new(&config, rpc.clone()).await.unwrap();
+        .await
+        .unwrap();
+        let prover = HeaderChainProver::new(&config, rpc.clone_inner().await.unwrap())
+            .await
+            .unwrap();
 
         // Save current blockchain tip.
         mine_and_save_blocks(&prover, 1).await;

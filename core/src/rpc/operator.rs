@@ -1,8 +1,9 @@
 use super::clementine::{
     self, clementine_operator_server::ClementineOperator, operator_params, ChallengeAckDigest,
     DepositSignSession, Empty, NewWithdrawalSigParams, NewWithdrawalSigResponse, OperatorBurnSig,
-    OperatorParams, WinternitzPubkey, WithdrawalFinalizedParams,
+    OperatorParams, WithdrawalFinalizedParams,
 };
+use super::error::*;
 use crate::builder::sighash::create_operator_sighash_stream;
 use crate::rpc::parsers;
 use crate::{errors::BridgeError, operator::Operator};
@@ -41,24 +42,22 @@ impl ClementineOperator for Operator {
                 response: Some(operator_params::Response::OperatorDetails(operator_config)),
             }))
             .await
-            .unwrap();
+            .map_err(|_| output_stream_ended_prematurely())?;
 
-            let winternitz_pubkeys = operator.get_winternitz_public_keys().unwrap(); // TODO: Handle unwrap.
+            let winternitz_pubkeys = operator.get_winternitz_public_keys()?;
             let winternitz_pubkeys = winternitz_pubkeys
                 .into_iter()
-                .map(WinternitzPubkey::from_bitvm)
+                .map(From::from)
                 .collect::<Vec<_>>();
             for wpk in winternitz_pubkeys {
                 tx.send(Ok(OperatorParams {
                     response: Some(operator_params::Response::WinternitzPubkeys(wpk)),
                 }))
                 .await
-                .unwrap();
+                .map_err(|_| output_stream_ended_prematurely())?;
             }
 
-            let public_hashes = operator
-                .generate_challenge_ack_preimages_and_hashes()
-                .unwrap(); // TODO: Handle unwrap.
+            let public_hashes = operator.generate_challenge_ack_preimages_and_hashes()?;
             let public_hashes = public_hashes
                 .into_iter()
                 .map(|hash| ChallengeAckDigest {
@@ -71,8 +70,10 @@ impl ClementineOperator for Operator {
                     response: Some(operator_params::Response::ChallengeAckDigests(hash)),
                 }))
                 .await
-                .unwrap();
+                .map_err(|_| output_stream_ended_prematurely())?;
             }
+
+            Ok::<(), Status>(())
         });
 
         let out_stream: Self::GetParamsStream = ReceiverStream::new(rx);
@@ -89,7 +90,7 @@ impl ClementineOperator for Operator {
         let (deposit_outpoint, evm_address, recovery_taproot_address, user_takes_after) =
             match deposit_sign_session.deposit_params {
                 Some(deposit_params) => parsers::parse_deposit_params(deposit_params)?,
-                _ => panic!("Expected Deposit Params"),
+                _ => return Err(expected_msg_got_none("Deposit Params")()),
             };
         let (tx, rx) = mpsc::channel(1280);
         let operator = self.clone();

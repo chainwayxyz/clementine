@@ -29,20 +29,34 @@ impl From<OutPoint> for Outpoint {
     }
 }
 
-impl WinternitzPubkey {
-    pub fn to_bitvm(self) -> winternitz::PublicKey {
-        let inner = self.digit_pubkey;
+impl TryFrom<WinternitzPubkey> for winternitz::PublicKey {
+    type Error = BridgeError;
+
+    fn try_from(value: WinternitzPubkey) -> Result<Self, Self::Error> {
+        let inner = value.digit_pubkey;
 
         inner
             .into_iter()
-            .map(|inner_vec| inner_vec.try_into().unwrap())
-            .collect::<Vec<[u8; 20]>>()
+            .enumerate()
+            .map(|(i, inner_vec)| {
+                inner_vec.try_into().map_err(|e: Vec<u8>| {
+                    BridgeError::RPCParamMalformed(
+                        format!("digit_pubkey.[{}]", i),
+                        format!("Incorrect length {:?}, expected 20", e.len()),
+                    )
+                })
+            })
+            .collect::<Result<Vec<[u8; 20]>, BridgeError>>()
     }
+}
 
-    pub fn from_bitvm(pk: winternitz::PublicKey) -> Self {
-        let digit_pubkey = pk.into_iter().map(|inner| inner.to_vec()).collect();
+impl From<winternitz::PublicKey> for WinternitzPubkey {
+    fn from(value: winternitz::PublicKey) -> Self {
+        {
+            let digit_pubkey = value.into_iter().map(|inner| inner.to_vec()).collect();
 
-        WinternitzPubkey { digit_pubkey }
+            WinternitzPubkey { digit_pubkey }
+        }
     }
 }
 
@@ -50,6 +64,7 @@ impl WinternitzPubkey {
 mod tests {
     use crate::rpc::clementine::{Outpoint, WinternitzPubkey};
     use bitcoin::{hashes::Hash, OutPoint, Txid};
+    use bitvm::signatures::winternitz;
 
     #[test]
     fn from_bitcoin_outpoint_to_proto_outpoint() {
@@ -93,8 +108,9 @@ mod tests {
     fn from_proto_winternitz_public_key_to_bitvm() {
         let og_wpk = vec![[0x45u8; 20]];
 
-        let rpc_wpk = WinternitzPubkey::from_bitvm(og_wpk.clone());
-        let rpc_converted_wpk = rpc_wpk.to_bitvm();
+        let rpc_wpk: WinternitzPubkey = og_wpk.clone().into();
+        let rpc_converted_wpk: winternitz::PublicKey =
+            rpc_wpk.try_into().expect("encoded wpk has to be valid");
         assert_eq!(og_wpk, rpc_converted_wpk);
     }
 }

@@ -30,7 +30,7 @@ pub fn anyone_can_spend_txout() -> TxOut {
 pub fn anchor_output() -> TxOut {
     TxOut {
         value: ANCHOR_AMOUNT,
-        script_pubkey: ScriptBuf::from_hex("51024e73").unwrap(),
+        script_pubkey: ScriptBuf::from_hex("51024e73").expect("anchor script is valid"),
     }
 }
 
@@ -53,7 +53,7 @@ pub fn create_deposit_script(
     evm_address: EVMAddress,
     amount: Amount,
 ) -> ScriptBuf {
-    let citrea: [u8; 6] = "citrea".as_bytes().try_into().unwrap();
+    let citrea = b"citrea";
 
     Builder::new()
         .push_x_only_key(&nofn_xonly_pk)

@@ -4,6 +4,7 @@
 //! addresses.
 
 use crate::builder;
+use crate::errors::BridgeError;
 use crate::utils::SECP;
 use crate::{utils, EVMAddress};
 use bitcoin::address::NetworkUnchecked;
@@ -23,7 +24,11 @@ pub fn taproot_builder_with_scripts(scripts: &[ScriptBuf]) -> TaprootBuilder {
     // Special return cases for n = 0 or n = 1
     match num_scripts {
         0 => return builder,
-        1 => return builder.add_leaf(0, scripts[0].clone()).unwrap(),
+        1 => {
+            return builder
+                .add_leaf(0, scripts[0].clone())
+                .expect("one root leaf added on empty builder")
+        }
         _ => {}
     }
 
@@ -39,7 +44,7 @@ pub fn taproot_builder_with_scripts(scripts: &[ScriptBuf]) -> TaprootBuilder {
             deepest_layer_depth - is_node_in_last_minus_one_depth,
             scripts[i].clone(),
         )
-        .unwrap()
+        .expect("algorithm tested to be correct")
     })
 }
 
@@ -71,10 +76,12 @@ pub fn create_taproot_address(
     let taproot_builder = taproot_builder_with_scripts(scripts);
     // Finalize the tree
     let tree_info = match internal_key {
-        Some(xonly_pk) => taproot_builder.finalize(&SECP, xonly_pk).unwrap(),
+        Some(xonly_pk) => taproot_builder
+            .finalize(&SECP, xonly_pk)
+            .expect("builder return is finalizable"),
         None => taproot_builder
             .finalize(&SECP, *utils::UNSPENDABLE_XONLY_PUBKEY)
-            .unwrap(),
+            .expect("builder return is finalizable"),
     };
     // Create the address
     let taproot_address = match internal_key {
@@ -119,7 +126,7 @@ pub fn generate_deposit_address(
     amount: Amount,
     network: bitcoin::Network,
     user_takes_after: u16,
-) -> (Address, TaprootSpendInfo) {
+) -> Result<(Address, TaprootSpendInfo), BridgeError> {
     let deposit_script =
         builder::script::create_deposit_script(nofn_xonly_pk, user_evm_address, amount);
 
@@ -128,14 +135,18 @@ pub fn generate_deposit_address(
         .assume_checked()
         .script_pubkey();
     let recovery_extracted_xonly_pk =
-        XOnlyPublicKey::from_slice(&recovery_script_pubkey.as_bytes()[2..34]).unwrap();
+        XOnlyPublicKey::from_slice(&recovery_script_pubkey.as_bytes()[2..34])?;
 
     let script_timelock = builder::script::generate_checksig_relative_timelock_script(
         recovery_extracted_xonly_pk,
         user_takes_after,
     );
 
-    create_taproot_address(&[deposit_script, script_timelock], None, network)
+    Ok(create_taproot_address(
+        &[deposit_script, script_timelock],
+        None,
+        network,
+    ))
 }
 
 /// Shorthand function for creating a checksig taproot address: A single checksig script with the given xonly PK and no internal key.
@@ -287,7 +298,8 @@ mod tests {
             Amount::from_sat(100_000_000),
             bitcoin::Network::Regtest,
             200,
-        );
+        )
+        .unwrap();
 
         // Comparing it to the taproot address generated in bridge backend.
         assert_eq!(
