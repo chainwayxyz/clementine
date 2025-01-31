@@ -58,6 +58,8 @@ pub enum BridgeError {
     /// TxInputNotFound is returned when the input is not found in the transaction
     #[error("TxInputNotFound")]
     TxInputNotFound,
+    #[error("WitnessAlreadySet")]
+    WitnessAlreadySet,
     /// PreimageNotFound is returned when the preimage is not found in the the connector tree or claim proof
     #[error("PreimageNotFound")]
     PreimageNotFound,
@@ -227,6 +229,9 @@ pub enum BridgeError {
 
     #[error("Challenge addresses of the watchtower {0} for the operator {1} not found")]
     WatchtowerChallengeAddressesNotFound(u32, u32),
+
+    #[error("MissingWitnessData")]
+    MissingWitnessData,
 }
 
 impl From<BridgeError> for ErrorObject<'static> {

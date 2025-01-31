@@ -11,6 +11,7 @@ use bitcoin::Transaction;
 use bitcoin::{
     absolute, Address, Amount, OutPoint, ScriptBuf, TxIn, TxOut, Witness, XOnlyPublicKey,
 };
+use txhandler::Unsigned;
 
 pub use crate::builder::transaction::challenge::*;
 pub use crate::builder::transaction::operator_assert::*;
@@ -119,7 +120,7 @@ pub fn create_move_to_vault_txhandler(
     user_takes_after: u16,
     bridge_amount_sats: Amount,
     network: bitcoin::Network,
-) -> TxHandler {
+) -> TxHandler<Unsigned> {
     let (musig2_address, musig2_spendinfo) =
         builder::address::create_checksig_address(nofn_xonly_pk, network);
 

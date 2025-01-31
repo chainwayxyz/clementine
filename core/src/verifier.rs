@@ -319,7 +319,7 @@ impl Verifier {
     pub async fn create_deposit_details(
         &self,
         deposit_outpoint: OutPoint,
-    ) -> Result<(Vec<UTXO>, TxHandler, OutPoint), BridgeError> {
+    ) -> Result<(Vec<UTXO>, TxHandler<Unsigned>, OutPoint), BridgeError> {
         let kickoff_utxos = self
             .db
             .get_kickoff_utxos(deposit_outpoint)
