@@ -883,7 +883,8 @@ mod tests {
             config.bitcoin_rpc_user.clone(),
             config.bitcoin_rpc_password.clone(),
         )
-        .await.unwrap();
+        .await
+        .unwrap();
         config.db_name += "0"; // This modification is done by the create_actors_grpc function.
         let verifier = Verifier::new(rpc, config.clone()).await.unwrap();
         tracing::info!("verifier config: {:#?}", verifier.config);

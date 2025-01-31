@@ -1128,7 +1128,8 @@ mod tests {
             config.bitcoin_rpc_user.clone(),
             config.bitcoin_rpc_password.clone(),
         )
-        .await.unwrap();
+        .await
+        .unwrap();
 
         let operator = Operator::new(config, rpc).await.unwrap();
         let operator_idx = 0x45;
