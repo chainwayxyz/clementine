@@ -671,7 +671,7 @@ impl ClementineAggregator for Aggregator {
         // Join the nonce aggregation handle to get the movetx agg nonce.
         let movetx_agg_nonce = nonce_agg_handle
             .await
-            .expect("cancelled task or panic in task")?;
+            .map_err(|_| Status::internal("panic when aggregating nonces"))??;
 
         // Start the deposit finalization pipe.
         let sig_dist_handle = tokio::spawn(signature_distributor(
@@ -694,16 +694,16 @@ impl ClementineAggregator for Aggregator {
         // Wait for all pipeline tasks to complete
         nonce_dist_handle
             .await
-            .expect("cancelled task or panic in task")?;
+            .map_err(|_| Status::internal("panic when distributing nonces"))??;
         sig_agg_handle
             .await
-            .expect("cancelled task or panic in task")?;
+            .map_err(|_| Status::internal("panic when aggregating signatures"))??;
         sig_dist_handle
             .await
-            .expect("cancelled task or panic in task")?;
+            .map_err(|_| Status::internal("panic when aggregating nonces"))??;
         let operator_sigs = operator_sigs_fut
             .await
-            .expect("cancelled task or panic in task")?;
+            .map_err(|_| Status::internal("panic when collecting operator signatures"))??;
 
         // send operators sigs to verifiers after all verifiers have signed
         let send_operator_sigs: Vec<_> = deposit_finalize_sender
