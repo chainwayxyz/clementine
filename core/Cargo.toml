@@ -50,4 +50,4 @@ name = "server"
 path = "src/bin/server.rs"
 
 [lints.clippy]
-unwrap_used = { level = "deny", allow-unwrap-in-tests = true }
+unwrap_used = { level = "deny" }

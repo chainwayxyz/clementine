@@ -208,13 +208,16 @@ mod tests {
     #[serial_test::parallel]
     async fn prove_block_headers_genesis() {
         let config = create_test_config_with_thread_name!(None);
-        let rpc = ExtendedRpc::new(
+        let rpc = ExtendedRpc::connect(
             config.bitcoin_rpc_url.clone(),
             config.bitcoin_rpc_user.clone(),
             config.bitcoin_rpc_password.clone(),
         )
-        .await;
-        let prover = HeaderChainProver::new(&config, rpc.clone()).await.unwrap();
+        .await
+        .unwrap();
+        let prover = HeaderChainProver::new(&config, rpc.clone_inner().await.unwrap())
+            .await
+            .unwrap();
 
         let receipt = prover.prove_block_headers(None, vec![]).unwrap();
 
@@ -232,13 +235,16 @@ mod tests {
     #[serial_test::serial]
     async fn prove_block_headers_second() {
         let config = create_test_config_with_thread_name!(None);
-        let rpc = ExtendedRpc::new(
+        let rpc = ExtendedRpc::connect(
             config.bitcoin_rpc_url.clone(),
             config.bitcoin_rpc_user.clone(),
             config.bitcoin_rpc_password.clone(),
         )
-        .await;
-        let prover = HeaderChainProver::new(&config, rpc.clone()).await.unwrap();
+        .await
+        .unwrap();
+        let prover = HeaderChainProver::new(&config, rpc.clone_inner().await.unwrap())
+            .await
+            .unwrap();
 
         // Prove genesis block and get it's receipt.
         let receipt = prover.prove_block_headers(None, vec![]).unwrap();
@@ -258,13 +264,16 @@ mod tests {
     #[serial_test::serial]
     async fn save_and_get_proof() {
         let config = create_test_config_with_thread_name!(None);
-        let rpc = ExtendedRpc::new(
+        let rpc = ExtendedRpc::connect(
             config.bitcoin_rpc_url.clone(),
             config.bitcoin_rpc_user.clone(),
             config.bitcoin_rpc_password.clone(),
         )
-        .await;
-        let prover = HeaderChainProver::new(&config, rpc.clone()).await.unwrap();
+        .await
+        .unwrap();
+        let prover = HeaderChainProver::new(&config, rpc.clone_inner().await.unwrap())
+            .await
+            .unwrap();
         let block_headers = mine_and_get_first_n_block_headers(rpc, 3).await;
 
         // Prove genesis block.

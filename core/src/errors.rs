@@ -233,6 +233,9 @@ pub enum BridgeError {
 
     #[error("Invalid response from Citrea: {0}")]
     InvalidCitreaResponse(String),
+
+    #[error("Not enough operators")]
+    NotEnoughOperators,
 }
 
 impl From<BridgeError> for ErrorObject<'static> {

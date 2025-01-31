@@ -112,7 +112,6 @@ pub async fn create_aggregator_grpc_server(
     tokio::spawn(async move {
         if let Err(e) = handle.await {
             tracing::error!("gRPC server error: {:?}", e);
-            panic!("gRPC server error: {:?}", e);
         }
     });
 
@@ -141,7 +140,6 @@ pub async fn create_watchtower_grpc_server(
     tokio::spawn(async move {
         if let Err(e) = handle.await {
             tracing::error!("gRPC server error: {:?}", e);
-            panic!("gRPC server error: {:?}", e);
         }
     });
 

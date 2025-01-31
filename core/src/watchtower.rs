@@ -19,12 +19,13 @@ pub struct Watchtower {
 
 impl Watchtower {
     pub async fn new(config: BridgeConfig) -> Result<Self, BridgeError> {
-        let _erpc = ExtendedRpc::new(
+        let _erpc = ExtendedRpc::connect(
             config.bitcoin_rpc_url.clone(),
             config.bitcoin_rpc_user.clone(),
             config.bitcoin_rpc_password.clone(),
         )
-        .await;
+        .await?;
+
         let _db = Database::new(&config).await?;
         let actor = Actor::new(
             config.secret_key,

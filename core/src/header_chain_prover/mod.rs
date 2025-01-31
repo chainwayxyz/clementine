@@ -119,12 +119,13 @@ mod tests {
     #[tokio::test]
     async fn new() {
         let config = create_test_config_with_thread_name!(None);
-        let rpc = ExtendedRpc::new(
+        let rpc = ExtendedRpc::connect(
             config.bitcoin_rpc_url.clone(),
             config.bitcoin_rpc_user.clone(),
             config.bitcoin_rpc_password.clone(),
         )
-        .await;
+        .await
+        .unwrap();
 
         let _should_not_panic = HeaderChainProver::new(&config, rpc).await.unwrap();
     }
@@ -133,18 +134,21 @@ mod tests {
     #[serial_test::serial]
     async fn new_with_proof_assumption() {
         let config = create_test_config_with_thread_name!(None);
-        let rpc = ExtendedRpc::new(
+        let rpc = ExtendedRpc::connect(
             config.bitcoin_rpc_url.clone(),
             config.bitcoin_rpc_user.clone(),
             config.bitcoin_rpc_password.clone(),
         )
-        .await;
+        .await
+        .unwrap();
 
         // First block's assumption will be added to db: Make sure block exists
         // too.
         rpc.mine_blocks(1).await.unwrap();
 
-        let prover = HeaderChainProver::new(&config, rpc.clone()).await.unwrap();
+        let prover = HeaderChainProver::new(&config, rpc.clone_inner().await.unwrap())
+            .await
+            .unwrap();
 
         // Test assumption is for block 0.
         let hash = rpc.client.get_block_hash(0).await.unwrap();
@@ -160,13 +164,16 @@ mod tests {
     #[ignore = "This test is very host dependent and needs a human observer"]
     async fn start_header_chain_prover() {
         let config = create_test_config_with_thread_name!(None);
-        let rpc = ExtendedRpc::new(
+        let rpc = ExtendedRpc::connect(
             config.bitcoin_rpc_url.clone(),
             config.bitcoin_rpc_user.clone(),
             config.bitcoin_rpc_password.clone(),
         )
-        .await;
-        let prover = HeaderChainProver::new(&config, rpc.clone()).await.unwrap();
+        .await
+        .unwrap();
+        let prover = HeaderChainProver::new(&config, rpc.clone_inner().await.unwrap())
+            .await
+            .unwrap();
 
         prover.run();
         sleep(Duration::from_secs(1)).await;

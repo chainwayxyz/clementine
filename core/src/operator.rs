@@ -788,7 +788,7 @@ mod tests {
     // #[tokio::test]
     // async fn set_funding_utxo() {
     //     let config = create_test_config_with_thread_name!(None);
-    //     let rpc = ExtendedRpc::new(
+    //     let rpc = ExtendedRpc::connect(
     //         config.bitcoin_rpc_url.clone(),
     //         config.bitcoin_rpc_user.clone(),
     //         config.bitcoin_rpc_password.clone(),
@@ -821,7 +821,7 @@ mod tests {
     // #[tokio::test]
     // async fn is_profitable() {
     //     let mut config = create_test_config_with_thread_name!(None);
-    //     let rpc = ExtendedRpc::new(
+    //     let rpc = ExtendedRpc::connect(
     //         config.bitcoin_rpc_url.clone(),
     //         config.bitcoin_rpc_user.clone(),
     //         config.bitcoin_rpc_password.clone(),
@@ -858,12 +858,13 @@ mod tests {
     #[ignore = "Design changes in progress"]
     async fn get_winternitz_public_keys() {
         let config = create_test_config_with_thread_name!(None);
-        let rpc = ExtendedRpc::new(
+        let rpc = ExtendedRpc::connect(
             config.bitcoin_rpc_url.clone(),
             config.bitcoin_rpc_user.clone(),
             config.bitcoin_rpc_password.clone(),
         )
-        .await;
+        .await
+        .unwrap();
 
         let operator = Operator::new(config.clone(), rpc).await.unwrap();
 
@@ -877,12 +878,13 @@ mod tests {
     #[tokio::test]
     async fn test_generate_preimages_and_hashes() {
         let config = create_test_config_with_thread_name!(None);
-        let rpc = ExtendedRpc::new(
+        let rpc = ExtendedRpc::connect(
             config.bitcoin_rpc_url.clone(),
             config.bitcoin_rpc_user.clone(),
             config.bitcoin_rpc_password.clone(),
         )
-        .await;
+        .await
+        .unwrap();
 
         let operator = Operator::new(config.clone(), rpc).await.unwrap();
 

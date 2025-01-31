@@ -18,12 +18,13 @@ mod common;
 #[serial_test::serial]
 async fn create_address_and_transaction_then_sign_transaction() {
     let config = create_test_config_with_thread_name!(None);
-    let rpc = ExtendedRpc::new(
+    let rpc = ExtendedRpc::connect(
         config.bitcoin_rpc_url,
         config.bitcoin_rpc_user,
         config.bitcoin_rpc_password,
     )
-    .await;
+    .await
+    .unwrap();
 
     let (xonly_pk, _) = config.secret_key.public_key(&SECP).x_only_public_key();
     let address = Address::p2tr(&SECP, xonly_pk, None, config.network);

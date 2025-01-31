@@ -2,6 +2,8 @@
 //!
 //! This module provides helpful functions for Bitcoin RPC.
 
+use std::sync::Arc;
+
 use crate::builder;
 use crate::errors::BridgeError;
 use crate::EVMAddress;
@@ -17,31 +19,29 @@ use bitcoincore_rpc::Auth;
 use bitcoincore_rpc::Client;
 use bitcoincore_rpc::RpcApi;
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct ExtendedRpc {
     url: String,
     auth: Auth,
-    pub client: Client,
+    pub client: Arc<Client>,
 }
 
 impl ExtendedRpc {
     /// Connects to Bitcoin RPC and returns a new `ExtendedRpc`.
-    ///
-    /// # Panics
-    ///
-    /// Panics if it cannot connect to Bitcoin RPC.
-    pub async fn new(url: String, user: String, password: String) -> Self {
+    pub async fn connect(
+        url: String,
+        user: String,
+        password: String,
+    ) -> Result<Self, bitcoincore_rpc::Error> {
         let auth = Auth::UserPass(user, password);
 
-        let rpc = Client::new(&url, auth.clone())
-            .await
-            .unwrap_or_else(|e| panic!("Failed to connect to Bitcoin RPC: {}", e));
+        let rpc = Client::new(&url, auth.clone()).await?;
 
-        Self {
+        Ok(Self {
             url,
             auth,
-            client: rpc,
-        }
+            client: Arc::new(rpc),
+        })
     }
 
     #[tracing::instrument(skip(self), err(level = tracing::Level::ERROR), ret(level = tracing::Level::TRACE))]
@@ -170,17 +170,14 @@ impl ExtendedRpc {
 
         Ok(())
     }
-}
 
-impl Clone for ExtendedRpc {
-    fn clone(&self) -> Self {
-        let new_client = futures::executor::block_on(Client::new(&self.url, self.auth.clone()))
-            .unwrap_or_else(|e| panic!("Failed to clone Bitcoin RPC client: {}", e));
+    pub async fn clone_inner(&self) -> Result<Self, bitcoincore_rpc::Error> {
+        let new_client = Client::new(&self.url, self.auth.clone()).await?;
 
-        Self {
+        Ok(Self {
             url: self.url.clone(),
             auth: self.auth.clone(),
-            client: new_client,
-        }
+            client: Arc::new(new_client),
+        })
     }
 }

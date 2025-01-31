@@ -71,12 +71,13 @@ fn get_nonces(
 #[serial_test::serial]
 async fn key_spend() {
     let config = create_test_config_with_thread_name!(None);
-    let rpc = ExtendedRpc::new(
+    let rpc = ExtendedRpc::connect(
         config.bitcoin_rpc_url.clone(),
         config.bitcoin_rpc_user.clone(),
         config.bitcoin_rpc_password.clone(),
     )
-    .await;
+    .await
+    .unwrap();
 
     let (verifiers_secret_public_keys, untweaked_xonly_pubkey, verifier_public_keys) =
         get_verifiers_keys(&config);
@@ -166,12 +167,13 @@ async fn key_spend() {
 #[serial_test::serial]
 async fn key_spend_with_script() {
     let config = create_test_config_with_thread_name!(None);
-    let rpc = ExtendedRpc::new(
+    let rpc = ExtendedRpc::connect(
         config.bitcoin_rpc_url.clone(),
         config.bitcoin_rpc_user.clone(),
         config.bitcoin_rpc_password.clone(),
     )
-    .await;
+    .await
+    .unwrap();
 
     let (verifiers_secret_public_keys, untweaked_xonly_pubkey, verifier_public_keys) =
         get_verifiers_keys(&config);
@@ -266,12 +268,13 @@ async fn key_spend_with_script() {
 #[serial_test::serial]
 async fn script_spend() {
     let config = create_test_config_with_thread_name!(None);
-    let rpc = ExtendedRpc::new(
+    let rpc = ExtendedRpc::connect(
         config.bitcoin_rpc_url.clone(),
         config.bitcoin_rpc_user.clone(),
         config.bitcoin_rpc_password.clone(),
     )
-    .await;
+    .await
+    .unwrap();
 
     let (verifiers_secret_public_keys, _untweaked_xonly_pubkey, verifier_public_keys) =
         get_verifiers_keys(&config);
@@ -374,12 +377,13 @@ async fn key_and_script_spend() {
 
     // Arrange
     let config = create_test_config_with_thread_name!(None);
-    let rpc = ExtendedRpc::new(
+    let rpc = ExtendedRpc::connect(
         config.bitcoin_rpc_url.clone(),
         config.bitcoin_rpc_user.clone(),
         config.bitcoin_rpc_password.clone(),
     )
-    .await;
+    .await
+    .unwrap();
 
     // -- Musig2 Setup --
     // Generate NofN keys
