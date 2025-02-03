@@ -6,12 +6,12 @@ use super::{
         VerifierDepositFinalizeParams, VerifierDepositSignParams, VerifierParams,
         VerifierPublicKeys, WatchtowerParams,
     },
-    parsers::operator::{
+    parser::operator::{
         parse_operator_challenge_ack_public_hash, parse_operator_config,
         parse_operator_winternitz_public_keys,
     },
 };
-use crate::rpc::parsers::verifier::parse_deposit_finalize_param_agg_nonce;
+use crate::rpc::parser::verifier::parse_deposit_finalize_param_agg_nonce;
 use crate::utils::SECP;
 use crate::{
     builder::{
@@ -26,7 +26,7 @@ use crate::{
     errors::BridgeError,
     fetch_next_from_stream,
     musig2::{self},
-    rpc::parsers::{
+    rpc::parser::{
         self,
         verifier::parse_next_deposit_finalize_param_schnorr_sig,
         watchtower::{
@@ -61,24 +61,24 @@ impl ClementineVerifier for Verifier {
     #[tracing::instrument(skip(self), err(level = tracing::Level::ERROR), ret(level = tracing::Level::TRACE))]
     async fn get_params(&self, _: Request<Empty>) -> Result<Response<VerifierParams>, Status> {
         let params = VerifierParams {
-            id: parsers::convert_int_to_another("id", self.idx, u32::try_from)?,
+            id: parser::convert_int_to_another("id", self.idx, u32::try_from)?,
             public_key: self.signer.public_key.serialize().to_vec(),
-            num_verifiers: parsers::convert_int_to_another(
+            num_verifiers: parser::convert_int_to_another(
                 "num_verifiers",
                 self.config.num_verifiers,
                 u32::try_from,
             )?,
-            num_watchtowers: parsers::convert_int_to_another(
+            num_watchtowers: parser::convert_int_to_another(
                 "num_watchtowers",
                 self.config.num_watchtowers,
                 u32::try_from,
             )?,
-            num_operators: parsers::convert_int_to_another(
+            num_operators: parser::convert_int_to_another(
                 "num_operators",
                 self.config.num_operators,
                 u32::try_from,
             )?,
-            num_sequential_collateral_txs: parsers::convert_int_to_another(
+            num_sequential_collateral_txs: parser::convert_int_to_another(
                 "num_sequential_collateral_txs",
                 self.config.num_sequential_collateral_txs,
                 u32::try_from,
@@ -460,7 +460,7 @@ impl ClementineVerifier for Verifier {
             ) = match params {
                 clementine::verifier_deposit_sign_params::Params::DepositSignFirstParam(
                     deposit_sign_session,
-                ) => parsers::verifier::get_deposit_params(deposit_sign_session, verifier.idx)?,
+                ) => parser::verifier::get_deposit_params(deposit_sign_session, verifier.idx)?,
                 _ => return Err(Status::invalid_argument("Expected DepositOutpoint")),
             };
 
@@ -576,7 +576,7 @@ impl ClementineVerifier for Verifier {
         let (deposit_outpoint, evm_address, recovery_taproot_address, user_takes_after, session_id) =
             match params {
                 Params::DepositSignFirstParam(deposit_sign_session) => {
-                    parsers::verifier::get_deposit_params(deposit_sign_session, self.idx)?
+                    parser::verifier::get_deposit_params(deposit_sign_session, self.idx)?
                 }
                 _ => Err(Status::internal("Expected DepositOutpoint"))?,
             };

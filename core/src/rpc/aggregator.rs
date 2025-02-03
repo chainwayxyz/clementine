@@ -2,13 +2,13 @@ use super::clementine::{
     clementine_aggregator_server::ClementineAggregator, verifier_deposit_finalize_params,
     DepositParams, Empty, RawSignedMoveTx, VerifierDepositFinalizeParams,
 };
-use super::parsers::verifier::parse_nonce_gen_first_response;
+use super::parser::verifier::parse_nonce_gen_first_response;
 use crate::builder::transaction::create_move_to_vault_txhandler;
 use crate::config::BridgeConfig;
 use crate::rpc::clementine::clementine_operator_client::ClementineOperatorClient;
 use crate::rpc::clementine::clementine_verifier_client::ClementineVerifierClient;
 use crate::rpc::error::output_stream_ended_prematurely;
-use crate::rpc::parsers;
+use crate::rpc::parser;
 use crate::{
     aggregator::Aggregator,
     builder::sighash::{
@@ -324,8 +324,8 @@ impl Aggregator {
         deposit_params: DepositParams,
     ) -> Result<RawSignedMoveTx, Status> {
         let (deposit_outpoint, evm_address, recovery_taproot_address, user_takes_after) =
-            parsers::parse_deposit_params(deposit_params)?;
-        let musig_partial_sigs = parsers::verifier::parse_partial_sigs(partial_sigs)?;
+            parser::parse_deposit_params(deposit_params)?;
+        let musig_partial_sigs = parser::verifier::parse_partial_sigs(partial_sigs)?;
 
         // create move tx and calculate sighash
         let mut move_txhandler = create_move_to_vault_txhandler(
@@ -508,7 +508,7 @@ impl ClementineAggregator for Aggregator {
         // Extract and validate deposit parameters
         let deposit_params = deposit_params_req.get_ref().clone();
         let (deposit_outpoint, evm_address, recovery_taproot_address, user_takes_after) =
-            parsers::parse_deposit_params(deposit_params.clone())?;
+            parser::parse_deposit_params(deposit_params.clone())?;
         let verifiers_public_keys = self.config.verifiers_public_keys.clone();
 
         tracing::debug!("Parsed deposit params");

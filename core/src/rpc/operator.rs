@@ -5,7 +5,7 @@ use super::clementine::{
 };
 use super::error::*;
 use crate::builder::sighash::create_operator_sighash_stream;
-use crate::rpc::parsers;
+use crate::rpc::parser;
 use crate::{errors::BridgeError, operator::Operator};
 use bitcoin::{hashes::Hash, Amount, OutPoint};
 use futures::StreamExt;
@@ -87,7 +87,7 @@ impl ClementineOperator for Operator {
         let deposit_sign_session = request.into_inner();
         let (deposit_outpoint, evm_address, recovery_taproot_address, user_takes_after) =
             match deposit_sign_session.deposit_params {
-                Some(deposit_params) => parsers::parse_deposit_params(deposit_params)?,
+                Some(deposit_params) => parser::parse_deposit_params(deposit_params)?,
                 _ => return Err(expected_msg_got_none("Deposit Params")()),
             };
         let (tx, rx) = mpsc::channel(1280);
