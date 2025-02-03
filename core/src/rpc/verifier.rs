@@ -1,11 +1,14 @@
 use super::{
     clementine::{
-        self, clementine_verifier_server::ClementineVerifier, nonce_gen_response, operator_params,
-        Empty, NonceGenRequest, NonceGenResponse, OperatorParams, PartialSig,
+        self, clementine_verifier_server::ClementineVerifier, nonce_gen_response, Empty,
+        NonceGenRequest, NonceGenResponse, OperatorParams, PartialSig,
         VerifierDepositFinalizeParams, VerifierDepositSignParams, VerifierParams,
         VerifierPublicKeys, WatchtowerParams,
     },
-    parsers::operator::{parse_operator_challenge_ack_public_hash, parse_operator_config},
+    parsers::operator::{
+        parse_operator_challenge_ack_public_hash, parse_operator_config,
+        parse_operator_winternitz_public_keys,
+    },
 };
 use crate::{
     builder::{
@@ -116,15 +119,8 @@ impl ClementineVerifier for Verifier {
     ) -> Result<Response<Empty>, Status> {
         let mut in_stream = req.into_inner();
 
-        let operator_params = in_stream
-            .message()
-            .await
-            .map_err(expected_msg_got_error)?
-            .ok_or_else(input_ended_prematurely)?
-            .response
-            .ok_or_else(expected_msg_got_none("Response"))?;
         let (operator_idx, collateral_funding_txid, operator_xonly_pk, wallet_reimburse_address) =
-            parse_operator_config(operator_params)?;
+            parse_operator_config(&mut in_stream).await?;
 
         // Save the operator details to the db
         self.db
@@ -142,22 +138,8 @@ impl ClementineVerifier for Verifier {
             * self.config.num_sequential_collateral_txs
             * utils::ALL_BITVM_INTERMEDIATE_VARIABLES.len()
         {
-            let operator_params = in_stream
-                .message()
-                .await?
-                .ok_or(Status::invalid_argument(
-                    "Operator param stream ended early",
-                ))?
-                .response
-                .ok_or(Status::invalid_argument(
-                    "Operator param stream ended early",
-                ))?;
-
-            if let operator_params::Response::WinternitzPubkeys(wpk) = operator_params {
-                operator_winternitz_public_keys.push(wpk.try_into()?);
-            } else {
-                return Err(expected_msg_got_none("WinternitzPubkeys")());
-            }
+            operator_winternitz_public_keys
+                .push(parse_operator_winternitz_public_keys(&mut in_stream).await?);
         }
 
         self.db
@@ -173,19 +155,8 @@ impl ClementineVerifier for Verifier {
             * self.config.num_kickoffs_per_sequential_collateral_tx
             * self.config.num_watchtowers
         {
-            let operator_params = in_stream
-                .message()
-                .await?
-                .ok_or(Status::invalid_argument(
-                    "Operator param stream ended early",
-                ))?
-                .response
-                .ok_or(Status::invalid_argument(
-                    "Operator param stream ended early",
-                ))?;
-
             operators_challenge_ack_public_hashes
-                .push(parse_operator_challenge_ack_public_hash(operator_params)?);
+                .push(parse_operator_challenge_ack_public_hash(&mut in_stream).await?);
         }
 
         for i in 0..self.config.num_sequential_collateral_txs {
@@ -322,24 +293,12 @@ impl ClementineVerifier for Verifier {
         } = &self.config;
         let mut in_stream = request.into_inner();
 
-        let watchtower_id = in_stream
-            .message()
-            .await?
-            .ok_or(Status::invalid_argument("No message is received"))?
-            .response
-            .ok_or(Status::invalid_argument("No message is received"))?;
-        let watchtower_id = parse_watchtower_id(watchtower_id)?;
+        let watchtower_id = parse_watchtower_id(&mut in_stream).await?;
 
         let mut watchtower_winternitz_public_keys = Vec::new();
         for _ in 0..self.config.num_operators {
-            let wpks = in_stream
-                .message()
-                .await?
-                .ok_or(Status::invalid_argument("No message is received"))?
-                .response
-                .ok_or(Status::invalid_argument("No message is received"))?;
-
-            watchtower_winternitz_public_keys.push(parse_watchtower_winternitz_public_key(wpks)?);
+            watchtower_winternitz_public_keys
+                .push(parse_watchtower_winternitz_public_key(&mut in_stream).await?);
         }
 
         let required_number_of_pubkeys = num_operators
@@ -353,13 +312,7 @@ impl ClementineVerifier for Verifier {
             )));
         }
 
-        let xonly_pk = in_stream
-            .message()
-            .await?
-            .ok_or(Status::invalid_argument("No message is received"))?
-            .response
-            .ok_or(Status::invalid_argument("No message is received"))?;
-        let xonly_pk = parse_watchtower_xonly_pk(xonly_pk)?;
+        let xonly_pk = parse_watchtower_xonly_pk(&mut in_stream).await?;
 
         tracing::info!("Verifier receives watchtower index: {:?}", watchtower_id);
         tracing::info!(

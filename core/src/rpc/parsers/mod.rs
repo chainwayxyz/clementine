@@ -24,6 +24,18 @@ where
         .map_err(|e| error::invalid_argument(field_name, "Given number is out of bounds")(e))
 }
 
+#[macro_export]
+macro_rules! fetch_next_from_stream {
+    ($stream:expr) => {
+        $stream
+            .message()
+            .await?
+            .ok_or($crate::rpc::error::input_ended_prematurely())?
+            .response
+            .ok_or($crate::rpc::error::expected_msg_got_none("response")())
+    };
+}
+
 pub fn parse_deposit_params(
     deposit_params: DepositParams,
 ) -> Result<
