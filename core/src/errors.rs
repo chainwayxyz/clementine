@@ -3,6 +3,7 @@
 //! This module defines errors, returned by the library.
 
 use bitcoin::{consensus::encode::FromHexError, merkle_tree::MerkleBlockError, BlockHash, Txid};
+use clap::error;
 use core::fmt::Debug;
 use jsonrpsee::types::ErrorObject;
 use secp256k1::musig;
@@ -238,6 +239,9 @@ pub enum BridgeError {
     MissingWitnessData,
     #[error("MissingSpendInfo")]
     MissingSpendInfo,
+
+    #[error("InvalidAssertTxAddrs")]
+    InvalidAssertTxAddrs,
 }
 
 impl From<BridgeError> for ErrorObject<'static> {
