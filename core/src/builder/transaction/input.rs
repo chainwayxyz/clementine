@@ -1,8 +1,7 @@
 use bitcoin::{
     taproot::{LeafVersion, TaprootSpendInfo},
-    witness, Address, Network, OutPoint, ScriptBuf, Sequence, TxIn, TxOut, Witness, WitnessProgram,
+    OutPoint, ScriptBuf, Sequence, TxIn, TxOut, Witness, WitnessProgram,
 };
-use std::fmt::Display;
 use thiserror::Error;
 pub type BlockHeight = u16;
 

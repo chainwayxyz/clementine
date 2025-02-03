@@ -24,7 +24,7 @@ pub struct TxHandler<T: State = Unsigned> {
     phantom: PhantomData<T>,
 }
 
-trait State: Clone + std::fmt::Debug {}
+pub trait State: Clone + std::fmt::Debug {}
 
 // #[derive(Debug, Clone)]
 // pub struct PartialInputs;

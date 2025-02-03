@@ -18,7 +18,6 @@ use bitcoin::address::NetworkUnchecked;
 use bitcoin::Transaction;
 use bitcoin::{absolute, Address, Amount, OutPoint, TxIn, TxOut, XOnlyPublicKey};
 use input::create_tx_ins;
-use txhandler::TxHandlerBuilder;
 pub use txhandler::Unsigned;
 
 mod challenge;
