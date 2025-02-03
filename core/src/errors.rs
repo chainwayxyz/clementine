@@ -62,6 +62,8 @@ pub enum BridgeError {
     TxOutputNotFound,
     #[error("WitnessAlreadySet")]
     WitnessAlreadySet,
+    #[error("Script with index {0} not found for transaction")]
+    ScriptNotFound(usize),
     /// PreimageNotFound is returned when the preimage is not found in the the connector tree or claim proof
     #[error("PreimageNotFound")]
     PreimageNotFound,
