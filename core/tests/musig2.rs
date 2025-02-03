@@ -1,14 +1,16 @@
 use bitcoin::key::Keypair;
 use bitcoin::opcodes::all::OP_CHECKSIG;
 use bitcoin::secp256k1::{Message, PublicKey};
-use bitcoin::XOnlyPublicKey;
 use bitcoin::{hashes::Hash, script, Amount, ScriptBuf};
+use bitcoin::{taproot, Sequence, TxOut, XOnlyPublicKey};
 use bitcoincore_rpc::RpcApi;
-use clementine_core::builder::transaction::TxHandler;
+use clementine_core::builder::transaction::input::SpendableTxIn;
+use clementine_core::builder::transaction::output::UnspentTxOut;
+use clementine_core::builder::transaction::{TxHandler, TxHandlerBuilder};
 use clementine_core::musig2::{
     aggregate_nonces, aggregate_partial_signatures, AggregateFromPublicKeys, Musig2Mode,
 };
-use clementine_core::utils::{set_p2tr_key_spend_witness, set_p2tr_script_spend_witness, SECP};
+use clementine_core::utils::SECP;
 use clementine_core::{
     builder::{self},
     config::BridgeConfig,
@@ -88,21 +90,20 @@ async fn key_spend() {
         .unwrap();
     let prevout = rpc.get_txout_from_outpoint(&utxo).await.unwrap();
 
-    let tx_ins = builder::transaction::create_tx_ins(vec![utxo].into());
-    let tx_outs = builder::transaction::create_tx_outs(vec![(
-        Amount::from_sat(99_000_000),
-        to_address.script_pubkey(),
-    )]);
-    let dummy_tx = builder::transaction::create_btc_tx(tx_ins, tx_outs);
-    let mut tx_details = TxHandler {
-        txid: dummy_tx.compute_txid(),
-        tx: dummy_tx,
-        prevouts: vec![prevout],
-        prev_scripts: vec![vec![]],
-        prev_taproot_spend_infos: vec![Some(from_address_spend_info.clone())],
-        out_scripts: vec![vec![]],
-        out_taproot_spend_infos: vec![Some(to_address_spend.clone())],
-    };
+    let mut tx_details = TxHandlerBuilder::new()
+        .add_input(
+            SpendableTxIn::from(utxo, prevout, vec![], Some(from_address_spend_info.clone())),
+            Sequence::default(),
+        )
+        .add_output(UnspentTxOut::new(
+            TxOut {
+                value: Amount::from_sat(99_000_000),
+                script_pubkey: to_address.script_pubkey(),
+            },
+            vec![],
+            Some(to_address_spend.clone()),
+        ))
+        .finalize();
 
     let message = Message::from_digest(
         tx_details
@@ -148,11 +149,12 @@ async fn key_spend() {
 
     rpc.mine_blocks(1).await.unwrap();
 
-    tx_details.tx.input[0]
-        .witness
-        .push(final_signature.serialize());
+    tx_details.set_p2tr_key_spend_witness(
+        &taproot::Signature::from_slice(&final_signature.serialize()).unwrap(),
+        0,
+    );
     rpc.client
-        .send_raw_transaction(&tx_details.tx)
+        .send_raw_transaction(tx_details.get_cached_tx())
         .await
         .unwrap();
 }
@@ -188,22 +190,23 @@ async fn key_spend_with_script() {
         .await
         .unwrap();
     let prevout = rpc.get_txout_from_outpoint(&utxo).await.unwrap();
-    let tx_outs = builder::transaction::create_tx_outs(vec![(
-        Amount::from_sat(99_000_000),
-        to_address.script_pubkey(),
-    )]);
+    let mut builder = TxHandlerBuilder::new();
+    builder = builder
+        .add_input(
+            SpendableTxIn::from_unchecked(
+                utxo,
+                prevout.clone(),
+                scripts.clone(),
+                Some(from_address_spend_info.clone()),
+            ),
+            Sequence::ENABLE_RBF_NO_LOCKTIME,
+        )
+        .add_output(UnspentTxOut::from_partial(TxOut {
+            value: Amount::from_sat(99_000_000),
+            script_pubkey: to_address.script_pubkey(),
+        }));
 
-    let tx_ins = builder::transaction::create_tx_ins(vec![utxo].into());
-    let dummy_tx = builder::transaction::create_btc_tx(tx_ins, tx_outs);
-    let mut tx_details = TxHandler {
-        txid: dummy_tx.compute_txid(),
-        tx: dummy_tx,
-        prevouts: vec![prevout],
-        prev_scripts: vec![scripts],
-        prev_taproot_spend_infos: vec![Some(from_address_spend_info.clone())],
-        out_scripts: vec![vec![]],
-        out_taproot_spend_infos: vec![Some(to_address_spend.clone())],
-    };
+    let mut tx_details = builder.finalize();
     let message = Message::from_digest(
         tx_details
             .calculate_pubkey_spend_sighash(0, None)
@@ -248,11 +251,12 @@ async fn key_spend_with_script() {
 
     rpc.mine_blocks(1).await.unwrap();
 
-    tx_details.tx.input[0]
-        .witness
-        .push(final_signature.serialize());
+    tx_details.set_p2tr_key_spend_witness(
+        &taproot::Signature::from_slice(&final_signature.serialize()).unwrap(),
+        0,
+    );
     rpc.client
-        .send_raw_transaction(&tx_details.tx)
+        .send_raw_transaction(tx_details.get_cached_tx())
         .await
         .unwrap();
 }
@@ -295,25 +299,25 @@ async fn script_spend() {
         .await
         .unwrap();
     let prevout = rpc.get_txout_from_outpoint(&utxo).await.unwrap();
-    let tx_outs = builder::transaction::create_tx_outs(vec![(
-        Amount::from_sat(99_000_000),
-        to_address.script_pubkey(),
-    )]);
-
-    let tx_ins = builder::transaction::create_tx_ins(vec![utxo].into());
-    let dummy_tx = builder::transaction::create_btc_tx(tx_ins, tx_outs);
-    let mut tx_details = TxHandler {
-        txid: dummy_tx.compute_txid(),
-        tx: dummy_tx,
-        prevouts: vec![prevout],
-        prev_scripts: vec![scripts],
-        prev_taproot_spend_infos: vec![Some(from_address_spend_info.clone())],
-        out_scripts: vec![vec![]],
-        out_taproot_spend_infos: vec![None],
-    };
+    let mut tx_details = TxHandlerBuilder::new()
+        .add_input(
+            SpendableTxIn::from_checked(
+                utxo,
+                prevout.clone(),
+                scripts.clone(),
+                Some(from_address_spend_info.clone()),
+            )
+            .unwrap(),
+            Sequence::ENABLE_RBF_NO_LOCKTIME,
+        )
+        .add_output(UnspentTxOut::from_partial(TxOut {
+            value: Amount::from_sat(99_000_000),
+            script_pubkey: to_address.script_pubkey(),
+        }))
+        .finalize();
     let message = Message::from_digest(
         tx_details
-            .calculate_script_spend_sighash(0, 0, None)
+            .calculate_script_spend_sighash_indexed(0, 0, bitcoin::TapSighashType::Default)
             .unwrap()
             .to_byte_array(),
     );
@@ -347,12 +351,14 @@ async fn script_spend() {
         .unwrap();
 
     let witness_elements = vec![final_signature.as_ref()];
-    set_p2tr_script_spend_witness(&mut tx_details, &witness_elements, 0, 0).unwrap();
+    tx_details
+        .set_p2tr_script_spend_witness(&witness_elements, 0, 0)
+        .unwrap();
 
     rpc.mine_blocks(1).await.unwrap();
 
     rpc.client
-        .send_raw_transaction(&tx_details.tx)
+        .send_raw_transaction(tx_details.get_cached_tx())
         .await
         .unwrap();
 }
@@ -423,10 +429,6 @@ async fn key_and_script_spend() {
     let prevout_1 = rpc.get_txout_from_outpoint(&utxo_1).await.unwrap();
     let prevout_2 = rpc.get_txout_from_outpoint(&utxo_2).await.unwrap();
 
-    // TxIn of test TX
-    let tx_ins_1 = builder::transaction::create_tx_ins(vec![utxo_1].into());
-    let tx_ins_2 = builder::transaction::create_tx_ins(vec![utxo_2].into());
-
     // BTC address to execute test transaction to
     // Doesn't matter
     let to_address = bitcoin::Address::p2pkh(
@@ -437,37 +439,42 @@ async fn key_and_script_spend() {
         Regtest,
     );
 
-    // TxOut of test TX
-    let tx_outs = builder::transaction::create_tx_outs(vec![(
-        Amount::from_sat(99_000_000),
-        to_address.script_pubkey(),
-    )]);
-
     // Test Transactions
-    let test_tx_1 = builder::transaction::create_btc_tx(tx_ins_1, tx_outs.clone());
-    let mut test_txhandler_1 = TxHandler {
-        txid: test_tx_1.compute_txid(),
-        tx: test_tx_1,
-        prevouts: vec![prevout_1],
-        prev_scripts: vec![scripts.clone()],
-        prev_taproot_spend_infos: vec![Some(from_address_spend_info.clone())],
-        out_scripts: vec![vec![]],
-        out_taproot_spend_infos: vec![None],
-    };
-    let test_tx_2 = builder::transaction::create_btc_tx(tx_ins_2, tx_outs);
-    let mut test_txhandler_2 = TxHandler {
-        txid: test_tx_2.compute_txid(),
-        tx: test_tx_2,
-        prevouts: vec![prevout_2],
-        prev_scripts: vec![scripts],
-        prev_taproot_spend_infos: vec![Some(from_address_spend_info.clone())],
-        out_scripts: vec![vec![]],
-        out_taproot_spend_infos: vec![None],
-    };
+    let mut test_txhandler_1 = TxHandlerBuilder::new()
+        .add_input(
+            SpendableTxIn::from(
+                utxo_1,
+                prevout_1,
+                scripts.clone(),
+                Some(from_address_spend_info.clone()),
+            ),
+            Sequence::ENABLE_RBF_NO_LOCKTIME,
+        )
+        .add_output(UnspentTxOut::from_partial(TxOut {
+            value: Amount::from_sat(99_000_000),
+            script_pubkey: to_address.script_pubkey(),
+        }))
+        .finalize();
+
+    let mut test_txhandler_2 = TxHandlerBuilder::new()
+        .add_input(
+            SpendableTxIn::from(
+                utxo_2,
+                prevout_2,
+                scripts,
+                Some(from_address_spend_info.clone()),
+            ),
+            Sequence::ENABLE_RBF_NO_LOCKTIME,
+        )
+        .add_output(UnspentTxOut::from_partial(TxOut {
+            value: Amount::from_sat(99_000_000),
+            script_pubkey: to_address.script_pubkey(),
+        }))
+        .finalize();
 
     let sighash_1 = Message::from_digest(
         test_txhandler_1
-            .calculate_script_spend_sighash(0, 0, None)
+            .calculate_script_spend_sighash_indexed(0, 0, TapSighashType::Default)
             .unwrap()
             .to_byte_array(),
     );

@@ -11,15 +11,13 @@ pub use crate::builder::transaction::operator_assert::*;
 pub use crate::builder::transaction::operator_collateral::*;
 pub use crate::builder::transaction::operator_reimburse::*;
 use crate::builder::transaction::output::UnspentTxOut;
-pub use crate::builder::transaction::txhandler::TxHandler;
-use crate::builder::transaction::txhandler::DEFAULT_SEQUENCE;
+pub use crate::builder::transaction::txhandler::*;
 use crate::errors::BridgeError;
 use crate::EVMAddress;
 use bitcoin::address::NetworkUnchecked;
 use bitcoin::Transaction;
 use bitcoin::{absolute, Address, Amount, OutPoint, TxIn, TxOut, XOnlyPublicKey};
 use input::create_tx_ins;
-use txhandler::TxHandlerBuilder;
 pub use txhandler::Unsigned;
 
 mod challenge;
@@ -94,7 +92,7 @@ pub fn create_move_to_vault_txhandler(
                 value: bridge_amount_sats,
                 script_pubkey: deposit_address.script_pubkey(),
             },
-            deposit_scripts.to_vec(),
+            deposit_scripts.into(),
             Some(deposit_taproot_spend_info.clone()),
         ),
         DEFAULT_SEQUENCE,

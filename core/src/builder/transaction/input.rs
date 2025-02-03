@@ -191,8 +191,8 @@ impl SpentTxIn {
         &self.spendable
     }
 
-    pub fn get_witness(&self) -> Option<&Witness> {
-        self.witness.as_ref()
+    pub fn get_witness(&self) -> &Option<Witness> {
+        &self.witness
     }
 
     pub fn set_witness(&mut self, witness: Witness) {

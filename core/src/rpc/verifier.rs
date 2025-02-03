@@ -774,7 +774,11 @@ impl ClementineVerifier for Verifier {
             self.config.network,
         )?;
 
-        let move_tx_sighash = move_txhandler.calculate_script_spend_sighash(0, 0, None)?;
+        let move_tx_sighash = move_txhandler.calculate_script_spend_sighash_indexed(
+            0,
+            0,
+            bitcoin::TapSighashType::Default,
+        )?;
 
         let agg_nonce = match in_stream.message().await.unwrap().unwrap().params.unwrap() {
             Params::MoveTxAggNonce(aggnonce) => MusigAggNonce::from_slice(&aggnonce)

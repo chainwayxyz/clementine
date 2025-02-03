@@ -1,15 +1,10 @@
 use crate::errors::BridgeError;
-use crate::utils::{self, SECP};
-use bitcoin::hashes::Hash;
 use bitcoin::sighash::SighashCache;
 use bitcoin::taproot::{self, LeafVersion};
 use bitcoin::transaction::Version;
-use bitcoin::{
-    absolute, Amount, OutPoint, Script, Sequence, TapNodeHash, Transaction, TxIn, Witness,
-};
-use bitcoin::{
-    taproot::TaprootSpendInfo, ScriptBuf, TapLeafHash, TapSighash, TapSighashType, TxOut, Txid,
-};
+use bitcoin::{absolute, OutPoint, Script, Sequence, Transaction, Witness};
+use bitcoin::{TapLeafHash, TapSighash, TapSighashType, TxOut, Txid};
+use std::default;
 use std::marker::PhantomData;
 
 use super::input::{SpendableTxIn, SpentTxIn};
@@ -61,6 +56,10 @@ impl<T: State> TxHandler<T> {
 }
 
 impl TxHandler<Unsigned> {
+    pub fn get_cached_tx(&self) -> &Transaction {
+        &self.cached_tx
+    }
+
     pub fn get_txid(&self) -> &Txid {
         // Not sure if this should be public
         &self.cached_txid
@@ -164,17 +163,6 @@ impl TxHandler<Unsigned> {
 }
 
 impl TxHandler<Unsigned> {
-    pub fn get_output_as_spendable(&self, idx: usize) -> SpendableTxIn {
-        SpendableTxIn::from(
-            OutPoint {
-                txid: self.cached_txid,
-                vout: idx as u32,
-            },
-            self.txouts[idx].txout().clone(),
-            self.txouts[idx].scripts().clone(),
-            self.txouts[idx].spendinfo().clone(),
-        )
-    }
     /// Constructs the witness for a script path spend of a transaction input.
     ///
     /// # Arguments
@@ -220,6 +208,7 @@ impl TxHandler<Unsigned> {
         witness.push(spend_control_block.serialize());
 
         txin.set_witness(witness);
+        self.cached_tx.input[txin_index].witness = txin.get_witness().as_ref().unwrap().clone();
 
         Ok(())
     }
@@ -257,21 +246,23 @@ impl TxHandler<Unsigned> {
 
     //     txin.set_witness(witness);
 
+    //     self.cached_tx.input[txin_index].witness = txin.get_witness().as_ref().unwrap().clone();
     //     Ok(())
     // }
 
     pub fn set_p2tr_key_spend_witness(
-        tx: &mut TxHandler<Unsigned>,
+        &mut self,
         signature: &taproot::Signature,
         txin_index: usize,
     ) -> Result<(), BridgeError> {
-        let txin = tx
+        let txin = self
             .txins
             .get_mut(txin_index)
             .ok_or(BridgeError::TxInputNotFound)?;
 
         if txin.get_witness().is_none() {
             txin.set_witness(Witness::p2tr_key_spend(signature));
+            self.cached_tx.input[txin_index].witness = txin.get_witness().as_ref().unwrap().clone();
 
             Ok(())
         } else {
@@ -287,6 +278,12 @@ pub struct TxHandlerBuilder {
     lock_time: absolute::LockTime,
     txins: Vec<SpentTxIn>,
     txouts: Vec<UnspentTxOut>,
+}
+
+impl Default for TxHandlerBuilder {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl TxHandlerBuilder {

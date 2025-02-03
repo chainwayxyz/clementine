@@ -363,7 +363,11 @@ impl Aggregator {
             self.config.bridge_amount_sats,
             self.config.network,
         )?;
-        let sighash = move_txhandler.calculate_script_spend_sighash(0, 0, None)?;
+        let sighash = move_txhandler.calculate_script_spend_sighash_indexed(
+            0,
+            0,
+            bitcoin::TapSighashType::Default,
+        )?;
 
         // aggregate partial signatures
         let _final_sig = crate::musig2::aggregate_partial_signatures(
@@ -376,7 +380,7 @@ impl Aggregator {
         .map_err(|x| BridgeError::Error(format!("Aggregating MoveTx signatures failed {}", x)))?;
 
         // everything is fine, return the signed move tx
-        let _move_tx = move_txhandler.tx;
+        let _move_tx = move_txhandler.get_cached_tx();
         // TODO: Sign the transaction correctly after we create taproot witness generation functions
         Ok(RawSignedMoveTx { raw_tx: vec![1, 2] })
     }

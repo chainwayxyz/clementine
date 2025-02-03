@@ -119,7 +119,7 @@ pub fn generate_deposit_address(
     amount: Amount,
     network: bitcoin::Network,
     user_takes_after: u16,
-) -> (Address, TaprootSpendInfo, &[ScriptBuf]) {
+) -> (Address, TaprootSpendInfo, [ScriptBuf; 2]) {
     let deposit_script =
         builder::script::create_deposit_script(nofn_xonly_pk, user_evm_address, amount);
 
@@ -143,7 +143,7 @@ pub fn generate_deposit_address(
     (
         taproot_addr.0,
         taproot_addr.1,
-        &[deposit_script, script_timelock],
+        [deposit_script, script_timelock],
     )
 }
 
