@@ -45,7 +45,7 @@ where
 ///
 /// # Examples
 ///
-/// ```no_run
+/// ```text
 /// // A response enum, that includes possible stream elements. This will panic
 /// // if the stream has ended.
 /// let operator_param: operator_params::Response = fetch_next_from_stream!(stream, response, "response").unwrap();
