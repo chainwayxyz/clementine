@@ -1,9 +1,12 @@
-use crate::builder::script::Scripts;
 use crate::errors::BridgeError;
+use crate::utils::{self, SECP};
+use bitcoin::hashes::Hash;
 use bitcoin::sighash::SighashCache;
 use bitcoin::taproot::{self, LeafVersion};
 use bitcoin::transaction::Version;
-use bitcoin::{absolute, OutPoint, Script, Sequence, Transaction, TxIn, Witness};
+use bitcoin::{
+    absolute, Amount, OutPoint, Script, Sequence, TapNodeHash, Transaction, TxIn, Witness,
+};
 use bitcoin::{
     taproot::TaprootSpendInfo, ScriptBuf, TapLeafHash, TapSighash, TapSighashType, TxOut, Txid,
 };
@@ -11,6 +14,7 @@ use std::marker::PhantomData;
 
 use super::input::{SpendableTxIn, SpentTxIn};
 use super::output::UnspentTxOut;
+pub const DEFAULT_SEQUENCE: Sequence = Sequence::ENABLE_RBF_NO_LOCKTIME;
 
 #[derive(Debug, Clone)]
 pub struct TxHandler<T: State = Unsigned> {
@@ -26,14 +30,14 @@ pub struct TxHandler<T: State = Unsigned> {
 
 trait State: Clone + std::fmt::Debug {}
 
-#[derive(Debug, Clone)]
-pub struct PartialInputs;
+// #[derive(Debug, Clone)]
+// pub struct PartialInputs;
 #[derive(Debug, Clone)]
 pub struct Signed;
 #[derive(Debug, Clone)]
 pub struct Unsigned;
 
-impl State for PartialInputs {}
+// impl State for PartialInputs {}
 impl State for Unsigned {}
 impl State for Signed {}
 
@@ -143,7 +147,7 @@ impl TxHandler<Unsigned> {
         Ok(sig_hash)
     }
 
-    fn promote(self) -> Result<TxHandler<Signed>, BridgeError> {
+    pub fn promote(self) -> Result<TxHandler<Signed>, BridgeError> {
         if self.txins.iter().any(|s| s.get_witness().is_none()) {
             return Err(BridgeError::MissingWitnessData);
         }
@@ -159,7 +163,7 @@ impl TxHandler<Unsigned> {
 }
 
 impl TxHandler<Unsigned> {
-    fn get_output_as_spendable(&self, idx: usize) -> SpendableTxIn {
+    pub fn get_output_as_spendable(&self, idx: usize) -> SpendableTxIn {
         SpendableTxIn::from(
             OutPoint {
                 txid: self.cached_txid,
@@ -297,7 +301,7 @@ impl TxHandlerBuilder {
         self
     }
 
-    fn add_input_with_witness(
+    pub fn add_input_with_witness(
         mut self,
         spendable: SpendableTxIn,
         sequence: Sequence,
@@ -312,7 +316,7 @@ impl TxHandlerBuilder {
         self
     }
 
-    fn add_input(mut self, spendable: SpendableTxIn, sequence: Sequence) -> Self {
+    pub fn add_input(mut self, spendable: SpendableTxIn, sequence: Sequence) -> Self {
         self.txins
             .push(SpentTxIn::from_spendable(spendable, sequence, None));
 

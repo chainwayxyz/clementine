@@ -5,8 +5,11 @@ use crate::constants::MIN_TAPROOT_AMOUNT;
 use crate::{builder, utils};
 use bitcoin::hashes::Hash;
 use bitcoin::script::PushBytesBuf;
+use bitcoin::taproot::TaprootSpendInfo;
 use bitcoin::{Network, TxOut, Txid};
 use bitcoin::{OutPoint, XOnlyPublicKey};
+
+use super::txhandler::{TxHandlerBuilder, Unsigned, UnspentTxOut, DEFAULT_SEQUENCE};
 
 /// Creates a [`TxHandler`] for the `kickoff_tx`. This transaction will be sent by the operator
 pub fn create_kickoff_txhandler(
@@ -17,25 +20,30 @@ pub fn create_kickoff_txhandler(
     move_txid: Txid,
     operator_idx: usize,
     network: Network,
-) -> TxHandler {
-    let tx_ins = create_tx_ins(
-        vec![OutPoint {
-            txid: sequential_collateral_txhandler.txid,
-            vout: 2 + kickoff_idx as u32,
-        }]
-        .into(),
-    );
+) -> TxHandler<Unsigned> {
+    let mut builder = TxHandlerBuilder::new();
+
+    // Add input from sequential collateral
+    builder =
+        builder.add_input(sequential_collateral_txhandler.get_output_as_spendable(2 + kickoff_idx));
+
+    // NofN keyspend
+    let (nofn_taproot_address, nofn_taproot_spend) =
+        builder::address::create_checksig_address(nofn_xonly_pk, network);
+
+    builder = builder.add_output(UnspentTxOut::new(
+        TxOut {
+            value: MIN_TAPROOT_AMOUNT,
+            script_pubkey: nofn_taproot_address.script_pubkey(),
+        },
+        vec![],
+        nofn_taproot_spend,
+    ));
+
+    // NofN or Operator in 1 week
     let operator_1week =
         builder::script::generate_checksig_relative_timelock_script(operator_xonly_pk, 7 * 24 * 6);
-    let operator_2_5_week = builder::script::generate_checksig_relative_timelock_script(
-        operator_xonly_pk,
-        7 * 24 * 6 / 2 * 5,
-    ); // 2.5 weeks
-    let nofn_3week =
-        builder::script::generate_checksig_relative_timelock_script(nofn_xonly_pk, 3 * 7 * 24 * 6);
-
     let nofn_script = builder::script::generate_checksig_script(nofn_xonly_pk);
-
     let (nofn_or_operator_1week, nofn_or_operator_1week_spend) =
         builder::address::create_taproot_address(
             &[operator_1week.clone(), nofn_script.clone()],
@@ -43,68 +51,59 @@ pub fn create_kickoff_txhandler(
             network,
         );
 
-    let (nofn_or_operator_2_5_week, nofn_or_operator_2_5_week_spend) =
-        builder::address::create_taproot_address(
-            &[operator_2_5_week.clone(), nofn_script.clone()],
-            None,
-            network,
-        );
+    builder = builder.add_output(UnspentTxOut::new(
+        TxOut {
+            value: MIN_TAPROOT_AMOUNT,
+            script_pubkey: nofn_or_operator_1week.script_pubkey(),
+        },
+        vec![operator_1week, nofn_script.clone()],
+        nofn_or_operator_1week_spend,
+    ));
 
-    let (nofn_or_nofn_3week, nofn_or_nofn_3week_spend) = builder::address::create_taproot_address(
-        &[nofn_3week.clone(), nofn_script.clone()],
-        None,
-        network,
+    // Operator in 2.5 weeks
+    let operator_2_5_week = builder::script::generate_checksig_relative_timelock_script(
+        operator_xonly_pk,
+        7 * 24 * 6 / 2 * 5,
     );
+    let (operator_2_5_week_address, operator_2_5_week_spend) =
+        builder::address::create_taproot_address(&[operator_2_5_week.clone()], None, network);
 
-    let (nofn_taproot_address, nofn_taproot_spend) =
-        builder::address::create_checksig_address(nofn_xonly_pk, network);
+    builder = builder.add_output(UnspentTxOut::new(
+        TxOut {
+            value: MIN_TAPROOT_AMOUNT,
+            script_pubkey: operator_2_5_week_address.script_pubkey(),
+        },
+        vec![operator_2_5_week],
+        operator_2_5_week_spend,
+    ));
 
+    let nofn_3week =
+        builder::script::generate_checksig_relative_timelock_script(nofn_xonly_pk, 3 * 7 * 24 * 6);
+    let (nofn_3week_address, nofn_3week_spend) =
+        builder::address::create_taproot_address(&[nofn_3week.clone()], None, network);
+
+    builder = builder.add_output(UnspentTxOut::new(
+        TxOut {
+            value: MIN_TAPROOT_AMOUNT,
+            script_pubkey: nofn_3week_address.script_pubkey(),
+        },
+        vec![nofn_3week],
+        nofn_3week_spend,
+    ));
+
+    // Add OP_RETURN output
     let mut op_return_script = move_txid.to_byte_array().to_vec();
     op_return_script.extend(utils::usize_to_var_len_bytes(operator_idx));
-
     let push_bytes = PushBytesBuf::try_from(op_return_script)
         .expect("Can't fail since the script is shorter than 4294967296 bytes");
 
-    let op_return_txout = builder::script::op_return_txout(push_bytes);
+    builder = builder.add_output(UnspentTxOut::new_partial(builder::script::op_return_txout(
+        push_bytes,
+    )));
 
-    let tx_outs = {
-        let mut tx_outs = create_tx_outs(vec![
-            (MIN_TAPROOT_AMOUNT, nofn_taproot_address.into()),
-            (MIN_TAPROOT_AMOUNT, nofn_or_operator_1week.into()),
-            (MIN_TAPROOT_AMOUNT, nofn_or_operator_2_5_week.into()),
-            (MIN_TAPROOT_AMOUNT, nofn_or_nofn_3week.into()),
-        ]);
-        tx_outs.extend_from_slice(&[builder::script::anchor_output(), op_return_txout]);
-        tx_outs
-    };
+    builder = builder.add_output(UnspentTxOut::new_partial(builder::script::anchor_output()));
 
-    let tx = create_btc_tx(tx_ins, tx_outs);
-
-    TxHandler {
-        txid: tx.compute_txid(),
-        tx,
-        prevouts: vec![sequential_collateral_txhandler.tx.output[2 + kickoff_idx].clone()],
-        prev_scripts: vec![sequential_collateral_txhandler.out_scripts[2 + kickoff_idx].clone()],
-        prev_taproot_spend_infos: vec![sequential_collateral_txhandler.out_taproot_spend_infos
-            [2 + kickoff_idx]
-            .clone()],
-        out_scripts: vec![
-            vec![],
-            vec![operator_1week, nofn_script.clone()],
-            vec![operator_2_5_week, nofn_script.clone()],
-            vec![nofn_3week, nofn_script.clone()],
-            vec![],
-            vec![],
-        ],
-        out_taproot_spend_infos: vec![
-            Some(nofn_taproot_spend),
-            Some(nofn_or_operator_1week_spend),
-            Some(nofn_or_operator_2_5_week_spend),
-            Some(nofn_or_nofn_3week_spend),
-            None,
-            None,
-        ],
-    }
+    builder.finalize()
 }
 
 /// Creates a [`TxHandler`] for the `start_happy_reimburse_tx`. This transaction will be sent by the operator
@@ -175,57 +174,29 @@ pub fn create_happy_reimburse_txhandler(
     reimburse_generator_txhandler: &TxHandler,
     kickoff_idx: usize,
     operator_reimbursement_address: &bitcoin::Address,
-) -> TxHandler {
-    let tx_ins = create_tx_ins(
-        vec![
-            OutPoint {
-                txid: move_txhandler.txid,
-                vout: 0,
-            },
-            OutPoint {
-                txid: start_happy_reimburse_txhandler.txid,
-                vout: 0,
-            },
-            OutPoint {
-                txid: reimburse_generator_txhandler.txid,
-                vout: 1 + kickoff_idx as u32,
-            },
-        ]
-        .into(),
-    );
+) -> TxHandler<Unsigned> {
+    let mut builder = TxHandlerBuilder::new();
 
-    let anchor_txout = builder::script::anchor_output();
-    let tx_outs = vec![
-        TxOut {
-            value: move_txhandler.tx.output[0].value,
-            script_pubkey: operator_reimbursement_address.script_pubkey(),
-        },
-        anchor_txout.clone(),
-    ];
+    // Add move tx input
+    builder = builder.add_input(move_txhandler.get_output_as_spendable(0));
 
-    let happy_reimburse_tx = create_btc_tx(tx_ins, tx_outs);
+    // Add start happy reimburse input
+    builder = builder.add_input(start_happy_reimburse_txhandler.get_output_as_spendable(0));
 
-    TxHandler {
-        txid: happy_reimburse_tx.compute_txid(),
-        tx: happy_reimburse_tx,
-        prevouts: vec![
-            move_txhandler.tx.output[0].clone(),
-            start_happy_reimburse_txhandler.tx.output[0].clone(),
-            reimburse_generator_txhandler.tx.output[1 + kickoff_idx].clone(),
-        ],
-        prev_scripts: vec![
-            move_txhandler.out_scripts[0].clone(),
-            start_happy_reimburse_txhandler.out_scripts[0].clone(),
-            reimburse_generator_txhandler.out_scripts[1 + kickoff_idx].clone(),
-        ],
-        prev_taproot_spend_infos: vec![
-            move_txhandler.out_taproot_spend_infos[0].clone(),
-            start_happy_reimburse_txhandler.out_taproot_spend_infos[0].clone(),
-            reimburse_generator_txhandler.out_taproot_spend_infos[1 + kickoff_idx].clone(),
-        ],
-        out_scripts: vec![vec![], vec![]],
-        out_taproot_spend_infos: vec![None, None],
-    }
+    // Add reimburse generator input
+    builder =
+        builder.add_input(reimburse_generator_txhandler.get_output_as_spendable(1 + kickoff_idx));
+
+    // Add reimbursement output
+    builder = builder.add_output(UnspentTxOut::new_partial(TxOut {
+        value: move_txhandler.get_output_as_spendable(0).value(),
+        script_pubkey: operator_reimbursement_address.script_pubkey(),
+    }));
+
+    // Add anchor output
+    builder = builder.add_output(UnspentTxOut::new_partial(builder::script::anchor_output()));
+
+    builder.finalize()
 }
 
 /// Creates a [`TxHandler`] for the `reimburse_tx`. This transaction will be sent by the operator
