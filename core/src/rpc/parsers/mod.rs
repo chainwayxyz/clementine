@@ -8,6 +8,7 @@ use tonic::Status;
 
 pub mod operator;
 pub mod verifier;
+pub mod watchtower;
 
 /// Converts an integer type in to another integer type. This is needed because
 /// tonic defaults to wrong integer types for some parameters.

@@ -1,7 +1,7 @@
 use super::{
     clementine::{
         self, clementine_verifier_server::ClementineVerifier, nonce_gen_response, operator_params,
-        watchtower_params, Empty, NonceGenRequest, NonceGenResponse, OperatorParams, PartialSig,
+        Empty, NonceGenRequest, NonceGenResponse, OperatorParams, PartialSig,
         VerifierDepositFinalizeParams, VerifierDepositSignParams, VerifierParams,
         VerifierPublicKeys, WatchtowerParams,
     },
@@ -19,7 +19,12 @@ use crate::{
     },
     errors::BridgeError,
     musig2::{self},
-    rpc::parsers,
+    rpc::parsers::{
+        self,
+        watchtower::{
+            parse_watchtower_id, parse_watchtower_winternitz_public_key, parse_watchtower_xonly_pk,
+        },
+    },
     utils,
     verifier::{NofN, NonceSession, Verifier},
 };
@@ -305,7 +310,6 @@ impl ClementineVerifier for Verifier {
     }
 
     #[tracing::instrument(skip(self), err(level = tracing::Level::ERROR), ret(level = tracing::Level::TRACE))]
-    #[allow(clippy::blocks_in_conditions)]
     async fn set_watchtower(
         &self,
         request: Request<Streaming<WatchtowerParams>>,
@@ -324,12 +328,7 @@ impl ClementineVerifier for Verifier {
             .ok_or(Status::invalid_argument("No message is received"))?
             .response
             .ok_or(Status::invalid_argument("No message is received"))?;
-        let watchtower_id =
-            if let watchtower_params::Response::WatchtowerId(watchtower_id) = watchtower_id {
-                watchtower_id
-            } else {
-                return Err(Status::invalid_argument("Expected watchtower id"));
-            };
+        let watchtower_id = parse_watchtower_id(watchtower_id)?;
 
         let mut watchtower_winternitz_public_keys = Vec::new();
         for _ in 0..self.config.num_operators {
@@ -340,16 +339,8 @@ impl ClementineVerifier for Verifier {
                 .response
                 .ok_or(Status::invalid_argument("No message is received"))?;
 
-            if let watchtower_params::Response::WinternitzPubkeys(wpk) = wpks {
-                watchtower_winternitz_public_keys.push(wpk.try_into()?);
-            } else {
-                return Err(Status::invalid_argument("Expected WinternitzPubkeys"));
-            }
+            watchtower_winternitz_public_keys.push(parse_watchtower_winternitz_public_key(wpks)?);
         }
-        let watchtower_winternitz_public_keys = watchtower_winternitz_public_keys
-            .into_iter()
-            .map(Ok)
-            .collect::<Result<Vec<_>, BridgeError>>()?;
 
         let required_number_of_pubkeys = num_operators
             * num_sequential_collateral_txs
@@ -368,27 +359,13 @@ impl ClementineVerifier for Verifier {
             .ok_or(Status::invalid_argument("No message is received"))?
             .response
             .ok_or(Status::invalid_argument("No message is received"))?;
-        let xonly_pk = if let watchtower_params::Response::XonlyPk(xonly_pk) = xonly_pk {
-            xonly_pk
-        } else {
-            return Err(Status::invalid_argument("Expected x-only-pk")); // TODO: tell whats returned too
-        };
-        tracing::info!(
-            "Verifier receives watchtower xonly public key bytes: {:?}",
-            xonly_pk
-        );
-        let xonly_pk = XOnlyPublicKey::from_slice(&xonly_pk).map_err(|_| {
-            BridgeError::RPCParamMalformed(
-                "watchtower.xonly_pk".to_string(),
-                "Invalid xonly key".to_string(),
-            )
-        })?;
+        let xonly_pk = parse_watchtower_xonly_pk(xonly_pk)?;
+
         tracing::info!("Verifier receives watchtower index: {:?}", watchtower_id);
         tracing::info!(
             "Verifier receives watchtower xonly public key: {:?}",
             xonly_pk
         );
-        tracing::info!("Verifier doing this for watchtower: {:?}", watchtower_id);
         for operator_idx in 0..self.config.num_operators {
             let index = operator_idx
                 * num_sequential_collateral_txs
