@@ -16,11 +16,11 @@ use crate::{
     },
     errors::BridgeError,
     musig2::{self},
+    rpc::parsers,
     utils,
     verifier::{NofN, NonceSession, Verifier},
-    EVMAddress,
 };
-use bitcoin::{address::NetworkUnchecked, hashes::Hash, Amount, TapTweakHash, Txid};
+use bitcoin::{hashes::Hash, Amount, TapTweakHash, Txid};
 use bitcoin::{
     secp256k1::{schnorr, Message, PublicKey},
     ScriptBuf, XOnlyPublicKey,
@@ -40,52 +40,6 @@ use tokio::sync::mpsc::{self, error::SendError};
 use tokio_stream::wrappers::ReceiverStream;
 use tonic::{async_trait, Request, Response, Status, Streaming};
 
-fn get_deposit_params(
-    deposit_sign_session: clementine::DepositSignSession,
-    verifier_idx: usize,
-) -> Result<
-    (
-        bitcoin::OutPoint,
-        EVMAddress,
-        bitcoin::Address<NetworkUnchecked>,
-        u16,
-        u32,
-    ),
-    Status,
-> {
-    let deposit_params = deposit_sign_session
-        .deposit_params
-        .ok_or(Status::invalid_argument("No deposit outpoint received"))?;
-    let deposit_outpoint: bitcoin::OutPoint = deposit_params
-        .deposit_outpoint
-        .ok_or(Status::invalid_argument("No deposit outpoint received"))?
-        .try_into()?;
-    let evm_address: EVMAddress = deposit_params.evm_address.try_into().map_err(|e| {
-        Status::invalid_argument(format!(
-            "Failed to convert evm_address to EVMAddress: {}",
-            e
-        ))
-    })?;
-    let recovery_taproot_address = deposit_params
-        .recovery_taproot_address
-        .parse::<bitcoin::Address<_>>()
-        .map_err(|e| Status::internal(e.to_string()))?;
-    let user_takes_after = deposit_params.user_takes_after;
-
-    let session_id = deposit_sign_session.nonce_gen_first_responses[verifier_idx].id;
-    Ok((
-        deposit_outpoint,
-        evm_address,
-        recovery_taproot_address,
-        u16::try_from(user_takes_after).map_err(|e| {
-            Status::invalid_argument(format!(
-                "user_takes_after is too big, failed to convert: {}",
-                e
-            ))
-        })?,
-        session_id,
-    ))
-}
 #[async_trait]
 impl ClementineVerifier for Verifier {
     type NonceGenStream = ReceiverStream<Result<NonceGenResponse, Status>>;
@@ -621,7 +575,7 @@ impl ClementineVerifier for Verifier {
             ) = match params {
                 clementine::verifier_deposit_sign_params::Params::DepositSignFirstParam(
                     deposit_sign_session,
-                ) => get_deposit_params(deposit_sign_session, verifier.idx)?,
+                ) => parsers::verifier::get_deposit_params(deposit_sign_session, verifier.idx)?,
                 _ => return Err(Status::invalid_argument("Expected DepositOutpoint")),
             };
 
@@ -748,7 +702,7 @@ impl ClementineVerifier for Verifier {
                 .ok_or(Status::internal("No deposit outpoint received"))?
             {
                 Params::DepositSignFirstParam(deposit_sign_session) => {
-                    get_deposit_params(deposit_sign_session, self.idx)?
+                    parsers::verifier::get_deposit_params(deposit_sign_session, self.idx)?
                 }
                 _ => Err(Status::internal("Expected DepositOutpoint"))?,
             };
