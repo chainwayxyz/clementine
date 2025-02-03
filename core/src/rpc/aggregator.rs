@@ -2,7 +2,6 @@ use super::clementine::{
     clementine_aggregator_server::ClementineAggregator, verifier_deposit_finalize_params,
     DepositParams, Empty, RawSignedMoveTx, VerifierDepositFinalizeParams,
 };
-use super::parser::verifier::parse_nonce_gen_first_response;
 use crate::builder::transaction::create_move_to_vault_txhandler;
 use crate::config::BridgeConfig;
 use crate::rpc::clementine::clementine_operator_client::ClementineOperatorClient;
@@ -237,12 +236,11 @@ async fn create_nonce_streams(
     .await?;
 
     // Get the first responses from verifiers.
-    let first_responses: Vec<clementine::NonceGenFirstResponse> = try_join_all(
-        nonce_streams
-            .iter_mut()
-            .map(|stream| async { parse_nonce_gen_first_response(stream).await }),
-    )
-    .await?;
+    let first_responses: Vec<clementine::NonceGenFirstResponse> =
+        try_join_all(nonce_streams.iter_mut().map(|stream| async {
+            parser::verifier::parse_nonce_gen_first_response(stream).await
+        }))
+        .await?;
 
     let transformed_streams = nonce_streams
         .into_iter()

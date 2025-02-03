@@ -9,9 +9,7 @@ use bitcoin::XOnlyPublicKey;
 use bitvm::signatures::winternitz::PublicKey as WinternitzPublicKey;
 use tonic::Status;
 
-pub async fn parse_watchtower_id(
-    stream: &mut tonic::Streaming<WatchtowerParams>,
-) -> Result<u32, Status> {
+pub async fn parse_id(stream: &mut tonic::Streaming<WatchtowerParams>) -> Result<u32, Status> {
     let watchtower_param = fetch_next_message_from_stream!(stream, response, "response")?;
 
     if let watchtower_params::Response::WatchtowerId(watchtower_id) = watchtower_param {
@@ -21,7 +19,7 @@ pub async fn parse_watchtower_id(
     }
 }
 
-pub async fn parse_watchtower_winternitz_public_key(
+pub async fn parse_winternitz_public_key(
     stream: &mut tonic::Streaming<WatchtowerParams>,
 ) -> Result<WinternitzPublicKey, Status> {
     let watchtower_param = fetch_next_message_from_stream!(stream, response, "response")?;
@@ -33,7 +31,7 @@ pub async fn parse_watchtower_winternitz_public_key(
     }
 }
 
-pub async fn parse_watchtower_xonly_pk(
+pub async fn parse_xonly_pk(
     stream: &mut tonic::Streaming<WatchtowerParams>,
 ) -> Result<XOnlyPublicKey, Status> {
     let watchtower_param = fetch_next_message_from_stream!(stream, response, "response")?;

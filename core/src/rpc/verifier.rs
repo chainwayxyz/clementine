@@ -1,17 +1,9 @@
-use super::error::*;
-use super::{
-    clementine::{
-        self, clementine_verifier_server::ClementineVerifier, nonce_gen_response, Empty,
-        NonceGenRequest, NonceGenResponse, OperatorParams, PartialSig,
-        VerifierDepositFinalizeParams, VerifierDepositSignParams, VerifierParams,
-        VerifierPublicKeys, WatchtowerParams,
-    },
-    parser::operator::{
-        parse_operator_challenge_ack_public_hash, parse_operator_config,
-        parse_operator_winternitz_public_keys,
-    },
+use super::clementine::{
+    self, clementine_verifier_server::ClementineVerifier, nonce_gen_response, Empty,
+    NonceGenRequest, NonceGenResponse, OperatorParams, PartialSig, VerifierDepositFinalizeParams,
+    VerifierDepositSignParams, VerifierParams, VerifierPublicKeys, WatchtowerParams,
 };
-use crate::rpc::parser::verifier::parse_deposit_finalize_param_agg_nonce;
+use super::error::*;
 use crate::utils::SECP;
 use crate::{
     builder::{
@@ -26,13 +18,7 @@ use crate::{
     errors::BridgeError,
     fetch_next_message_from_stream,
     musig2::{self},
-    rpc::parser::{
-        self,
-        verifier::parse_next_deposit_finalize_param_schnorr_sig,
-        watchtower::{
-            parse_watchtower_id, parse_watchtower_winternitz_public_key, parse_watchtower_xonly_pk,
-        },
-    },
+    rpc::parser::{self},
     utils,
     verifier::{NofN, NonceSession, Verifier},
 };
@@ -122,7 +108,7 @@ impl ClementineVerifier for Verifier {
         let mut in_stream = req.into_inner();
 
         let (operator_idx, collateral_funding_txid, operator_xonly_pk, wallet_reimburse_address) =
-            parse_operator_config(&mut in_stream).await?;
+            parser::operator::parse_details(&mut in_stream).await?;
 
         // Save the operator details to the db
         self.db
@@ -141,7 +127,7 @@ impl ClementineVerifier for Verifier {
             * utils::ALL_BITVM_INTERMEDIATE_VARIABLES.len()
         {
             operator_winternitz_public_keys
-                .push(parse_operator_winternitz_public_keys(&mut in_stream).await?);
+                .push(parser::operator::parse_winternitz_public_keys(&mut in_stream).await?);
         }
 
         self.db
@@ -158,7 +144,7 @@ impl ClementineVerifier for Verifier {
             * self.config.num_watchtowers
         {
             operators_challenge_ack_public_hashes
-                .push(parse_operator_challenge_ack_public_hash(&mut in_stream).await?);
+                .push(parser::operator::parse_challenge_ack_public_hash(&mut in_stream).await?);
         }
 
         for i in 0..self.config.num_sequential_collateral_txs {
@@ -295,12 +281,12 @@ impl ClementineVerifier for Verifier {
         } = &self.config;
         let mut in_stream = request.into_inner();
 
-        let watchtower_id = parse_watchtower_id(&mut in_stream).await?;
+        let watchtower_id = parser::watchtower::parse_id(&mut in_stream).await?;
 
         let mut watchtower_winternitz_public_keys = Vec::new();
         for _ in 0..self.config.num_operators {
             watchtower_winternitz_public_keys
-                .push(parse_watchtower_winternitz_public_key(&mut in_stream).await?);
+                .push(parser::watchtower::parse_winternitz_public_key(&mut in_stream).await?);
         }
 
         let required_number_of_pubkeys = num_operators
@@ -314,7 +300,7 @@ impl ClementineVerifier for Verifier {
             )));
         }
 
-        let xonly_pk = parse_watchtower_xonly_pk(&mut in_stream).await?;
+        let xonly_pk = parser::watchtower::parse_xonly_pk(&mut in_stream).await?;
 
         tracing::info!("Verifier receives watchtower index: {:?}", watchtower_id);
         tracing::info!(
@@ -460,7 +446,7 @@ impl ClementineVerifier for Verifier {
             ) = match params {
                 clementine::verifier_deposit_sign_params::Params::DepositSignFirstParam(
                     deposit_sign_session,
-                ) => parser::verifier::get_deposit_params(deposit_sign_session, verifier.idx)?,
+                ) => parser::verifier::parse_deposit_params(deposit_sign_session, verifier.idx)?,
                 _ => return Err(Status::invalid_argument("Expected DepositOutpoint")),
             };
 
@@ -576,7 +562,7 @@ impl ClementineVerifier for Verifier {
         let (deposit_outpoint, evm_address, recovery_taproot_address, user_takes_after, session_id) =
             match params {
                 Params::DepositSignFirstParam(deposit_sign_session) => {
-                    parser::verifier::get_deposit_params(deposit_sign_session, self.idx)?
+                    parser::verifier::parse_deposit_params(deposit_sign_session, self.idx)?
                 }
                 _ => Err(Status::internal("Expected DepositOutpoint"))?,
             };
@@ -601,7 +587,9 @@ impl ClementineVerifier for Verifier {
 
         let mut nonce_idx: usize = 0;
 
-        while let Some(sig) = parse_next_deposit_finalize_param_schnorr_sig(&mut in_stream).await? {
+        while let Some(sig) =
+            parser::verifier::parse_next_deposit_finalize_param_schnorr_sig(&mut in_stream).await?
+        {
             let sighash = sighash_stream
                 .next()
                 .await
@@ -649,7 +637,8 @@ impl ClementineVerifier for Verifier {
 
         let move_tx_sighash = move_txhandler.calculate_script_spend_sighash(0, 0, None)?;
 
-        let agg_nonce = parse_deposit_finalize_param_agg_nonce(&mut in_stream).await?;
+        let agg_nonce =
+            parser::verifier::parse_deposit_finalize_param_agg_nonce(&mut in_stream).await?;
 
         let movetx_secnonce = {
             let mut session_map = self.nonces.lock().await;
@@ -708,7 +697,8 @@ impl ClementineVerifier for Verifier {
                 self.config.network,
             ));
             while let Some(operator_sig) =
-                parse_next_deposit_finalize_param_schnorr_sig(&mut in_stream).await?
+                parser::verifier::parse_next_deposit_finalize_param_schnorr_sig(&mut in_stream)
+                    .await?
             {
                 let sighash = sighash_stream
                     .next()

@@ -12,7 +12,7 @@ use bitcoin::{address::NetworkUnchecked, secp256k1::schnorr};
 use secp256k1::musig::{MusigAggNonce, MusigPartialSignature};
 use tonic::Status;
 
-pub fn get_deposit_params(
+pub fn parse_deposit_params(
     deposit_sign_session: clementine::DepositSignSession,
     verifier_idx: usize,
 ) -> Result<

@@ -20,7 +20,7 @@ use tonic::Status;
 /// - Collateral Funding txid
 /// - Operator's X-only public key
 /// - Wallet reimburse address
-pub async fn parse_operator_config(
+pub async fn parse_details(
     stream: &mut tonic::Streaming<OperatorParams>,
 ) -> Result<(u32, Txid, XOnlyPublicKey, Address), Status> {
     let operator_param = fetch_next_message_from_stream!(stream, response, "response")?;
@@ -61,7 +61,7 @@ pub async fn parse_operator_config(
     ))
 }
 
-pub async fn parse_operator_challenge_ack_public_hash(
+pub async fn parse_challenge_ack_public_hash(
     stream: &mut tonic::Streaming<OperatorParams>,
 ) -> Result<[u8; 20], Status> {
     let operator_param = fetch_next_message_from_stream!(stream, response, "response")?;
@@ -87,7 +87,7 @@ pub async fn parse_operator_challenge_ack_public_hash(
     Ok(public_hash)
 }
 
-pub async fn parse_operator_winternitz_public_keys(
+pub async fn parse_winternitz_public_keys(
     stream: &mut tonic::Streaming<OperatorParams>,
 ) -> Result<winternitz::PublicKey, Status> {
     let operator_param = fetch_next_message_from_stream!(stream, response, "response")?;
