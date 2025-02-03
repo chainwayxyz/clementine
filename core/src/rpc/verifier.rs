@@ -24,7 +24,7 @@ use crate::{
         transaction::create_move_to_vault_txhandler,
     },
     errors::BridgeError,
-    fetch_next_from_stream,
+    fetch_next_message_from_stream,
     musig2::{self},
     rpc::parser::{
         self,
@@ -449,7 +449,7 @@ impl ClementineVerifier for Verifier {
         let verifier = self.clone();
 
         let handle = tokio::spawn(async move {
-            let params = fetch_next_from_stream!(in_stream, params, "params")?;
+            let params = fetch_next_message_from_stream!(in_stream, params, "params")?;
 
             let (
                 deposit_outpoint,
@@ -493,7 +493,7 @@ impl ClementineVerifier for Verifier {
                 "Expected nonce count to be num_required_sigs + 1 (movetx)"
             );
 
-            while let Some(result) = fetch_next_from_stream!(&mut in_stream, params) {
+            while let Some(result) = fetch_next_message_from_stream!(&mut in_stream, params) {
                 let agg_nonce = match result {
                     clementine::verifier_deposit_sign_params::Params::AggNonce(agg_nonce) => {
                         MusigAggNonce::from_slice(agg_nonce.as_slice()).map_err(|e| {
@@ -571,7 +571,7 @@ impl ClementineVerifier for Verifier {
         use clementine::verifier_deposit_finalize_params::Params;
         let mut in_stream = req.into_inner();
 
-        let params = fetch_next_from_stream!(in_stream, params, "params")?;
+        let params = fetch_next_message_from_stream!(in_stream, params, "params")?;
 
         let (deposit_outpoint, evm_address, recovery_taproot_address, user_takes_after, session_id) =
             match params {

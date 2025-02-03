@@ -1,5 +1,5 @@
 use crate::{
-    fetch_next_from_stream,
+    fetch_next_message_from_stream,
     rpc::{
         clementine::{
             self, verifier_deposit_finalize_params, NonceGenResponse, VerifierDepositFinalizeParams,
@@ -75,7 +75,7 @@ pub fn parse_partial_sigs(
 pub async fn parse_next_deposit_finalize_param_schnorr_sig(
     stream: &mut tonic::Streaming<VerifierDepositFinalizeParams>,
 ) -> Result<Option<schnorr::Signature>, Status> {
-    let sig = match fetch_next_from_stream!(stream, params) {
+    let sig = match fetch_next_message_from_stream!(stream, params) {
         Some(sig) => sig,
         None => return Ok(None),
     };
@@ -94,7 +94,7 @@ pub async fn parse_next_deposit_finalize_param_schnorr_sig(
 pub async fn parse_deposit_finalize_param_agg_nonce(
     stream: &mut tonic::Streaming<VerifierDepositFinalizeParams>,
 ) -> Result<MusigAggNonce, Status> {
-    let sig = fetch_next_from_stream!(stream, params, "params")?;
+    let sig = fetch_next_message_from_stream!(stream, params, "params")?;
 
     match sig {
         verifier_deposit_finalize_params::Params::MoveTxAggNonce(aggnonce) => {
@@ -108,7 +108,7 @@ pub async fn parse_deposit_finalize_param_agg_nonce(
 pub async fn parse_nonce_gen_first_response(
     stream: &mut tonic::Streaming<NonceGenResponse>,
 ) -> Result<clementine::NonceGenFirstResponse, Status> {
-    let nonce_gen_response = fetch_next_from_stream!(stream, response, "response")?;
+    let nonce_gen_response = fetch_next_message_from_stream!(stream, response, "response")?;
 
     if let clementine::nonce_gen_response::Response::FirstResponse(nonce_gen_first_response) =
         nonce_gen_response

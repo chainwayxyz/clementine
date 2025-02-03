@@ -24,8 +24,38 @@ where
         .map_err(|e| error::invalid_argument(field_name, "Given number is out of bounds")(e))
 }
 
+/// Fetches next message from a stream. There are 2 ways to use this macro,
+/// depending on the next element:
+///
+/// 1. Next message **must** be present in the stream
+/// 2. There might not be a next element: Stream has ended
+///
+/// # Parameters
+///
+/// - stream: [`tonic::Streaming`] typed input stream
+/// - field: Input field ident (struct member) to look in the next message
+/// - field_str: [`str`] form of the `field`. If this field is omitted, second
+///   case will be in effect and an [`Option`] will be returned instead of a
+///   [`Result`]
+///
+/// # Returns
+///
+/// In the first usage, a [`Result`] will be returned by the macro. In the
+/// second usage however, an [`Option`] will be returned.
+///
+/// # Examples
+///
+/// ```no_run
+/// // A response enum, that includes possible stream elements. This will panic
+/// // if the stream has ended.
+/// let operator_param: operator_params::Response = fetch_next_from_stream!(stream, response, "response").unwrap();
+///
+/// // A response enum wrapped around by an [`Option`], that includes possible
+/// // stream elements. This won't panic if stream has ended.
+/// let operator_param: Option<operator_params::Response> = fetch_next_from_stream!(stream, response);
+/// ```
 #[macro_export]
-macro_rules! fetch_next_from_stream {
+macro_rules! fetch_next_message_from_stream {
     ($stream:expr, $field:ident) => {
         $stream
             .message()
@@ -35,7 +65,7 @@ macro_rules! fetch_next_from_stream {
     };
 
     ($stream:expr, $field:ident, $field_str:literal) => {
-        fetch_next_from_stream!($stream, $field)
+        fetch_next_message_from_stream!($stream, $field)
             .ok_or($crate::rpc::error::expected_msg_got_none($field_str)())
     };
 }
