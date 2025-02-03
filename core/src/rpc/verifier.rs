@@ -25,6 +25,7 @@ use crate::{
     musig2::{self},
     rpc::parsers::{
         self,
+        verifier::parse_next_deposit_finalize_param_schnorr_sig,
         watchtower::{
             parse_watchtower_id, parse_watchtower_winternitz_public_key, parse_watchtower_xonly_pk,
         },
@@ -605,7 +606,7 @@ impl ClementineVerifier for Verifier {
 
         let mut nonce_idx: usize = 0;
 
-        while let Some(result) = in_stream.message().await.map_err(expected_msg_got_error)? {
+        while let Some(sig) = parse_next_deposit_finalize_param_schnorr_sig(&mut in_stream).await? {
             let sighash = sighash_stream
                 .next()
                 .await
@@ -613,19 +614,9 @@ impl ClementineVerifier for Verifier {
                 .map_err(Into::into)
                 .map_err(sighash_stream_failed)?;
 
-            let final_sig = result
-                .params
-                .ok_or_else(expected_msg_got_none("FinalSig"))?;
-
-            let final_sig = match final_sig {
-                Params::SchnorrSig(final_sig) => schnorr::Signature::from_slice(&final_sig)
-                    .map_err(invalid_argument("FinalSig", "Invalid signature length"))?,
-                _ => return Err(Status::internal("Expected FinalSig")),
-            };
-
             tracing::debug!("Verifying Final Signature");
             utils::SECP
-                .verify_schnorr(&final_sig, &Message::from(sighash), &self.nofn_xonly_pk)
+                .verify_schnorr(&sig, &Message::from(sighash), &self.nofn_xonly_pk)
                 .map_err(|x| {
                     Status::internal(format!(
                         "Nofn Signature {} Verification Failed: {}.",
@@ -634,7 +625,7 @@ impl ClementineVerifier for Verifier {
                     ))
                 })?;
 
-            verified_sigs.push(final_sig);
+            verified_sigs.push(sig);
             tracing::debug!("Final Signature Verified");
 
             nonce_idx += 1;

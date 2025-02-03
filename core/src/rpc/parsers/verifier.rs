@@ -1,8 +1,12 @@
 use crate::{
-    rpc::{clementine, error},
+    fetch_next_from_stream,
+    rpc::{
+        clementine::{self, verifier_deposit_finalize_params, VerifierDepositFinalizeParams},
+        error::{self, invalid_argument},
+    },
     EVMAddress,
 };
-use bitcoin::address::NetworkUnchecked;
+use bitcoin::{address::NetworkUnchecked, secp256k1::schnorr};
 use secp256k1::musig::MusigPartialSignature;
 use tonic::Status;
 
@@ -64,4 +68,23 @@ pub fn parse_partial_sigs(
             })
         })
         .collect::<Result<Vec<_>, _>>()
+}
+
+pub async fn parse_next_deposit_finalize_param_schnorr_sig(
+    stream: &mut tonic::Streaming<VerifierDepositFinalizeParams>,
+) -> Result<Option<schnorr::Signature>, Status> {
+    let sig = match fetch_next_from_stream!(stream, params) {
+        Some(sig) => sig,
+        None => return Ok(None),
+    };
+
+    let final_sig = match sig {
+        verifier_deposit_finalize_params::Params::SchnorrSig(final_sig) => {
+            schnorr::Signature::from_slice(&final_sig)
+                .map_err(invalid_argument("FinalSig", "Invalid signature length"))?
+        }
+        _ => return Err(Status::internal("Expected FinalSig")),
+    };
+
+    Ok(Some(final_sig))
 }
