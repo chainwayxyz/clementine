@@ -46,24 +46,32 @@ impl ClementineVerifier for Verifier {
     type DepositSignStream = ReceiverStream<Result<PartialSig, Status>>;
 
     #[tracing::instrument(skip(self), err(level = tracing::Level::ERROR), ret(level = tracing::Level::TRACE))]
-    #[allow(clippy::blocks_in_conditions)]
     async fn get_params(&self, _: Request<Empty>) -> Result<Response<VerifierParams>, Status> {
-        let public_key = self.signer.public_key.serialize().to_vec();
-
         let params = VerifierParams {
-            id: self.idx as u32,
-            public_key,
-            num_verifiers: self.config.num_verifiers as u32,
-            num_watchtowers: self.config.num_watchtowers as u32,
-            num_operators: self.config.num_operators as u32,
-            num_sequential_collateral_txs: self.config.num_sequential_collateral_txs as u32,
+            id: parsers::convert_int_to_another(self.idx, u32::try_from)?,
+            public_key: self.signer.public_key.serialize().to_vec(),
+            num_verifiers: parsers::convert_int_to_another(
+                self.config.num_verifiers,
+                u32::try_from,
+            )?,
+            num_watchtowers: parsers::convert_int_to_another(
+                self.config.num_watchtowers,
+                u32::try_from,
+            )?,
+            num_operators: parsers::convert_int_to_another(
+                self.config.num_operators,
+                u32::try_from,
+            )?,
+            num_sequential_collateral_txs: parsers::convert_int_to_another(
+                self.config.num_sequential_collateral_txs,
+                u32::try_from,
+            )?,
         };
 
         Ok(Response::new(params))
     }
 
     #[tracing::instrument(skip(self), err(level = tracing::Level::ERROR), ret(level = tracing::Level::TRACE))]
-    #[allow(clippy::blocks_in_conditions)]
     async fn set_verifiers(
         &self,
         req: Request<VerifierPublicKeys>,

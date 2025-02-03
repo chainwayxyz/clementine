@@ -1,9 +1,28 @@
 use crate::rpc::clementine::DepositParams;
 use crate::EVMAddress;
 use bitcoin::address::NetworkUnchecked;
+use std::fmt::{Debug, Display};
+use std::num::TryFromIntError;
 use tonic::Status;
 
 pub mod verifier;
+
+/// Convers an integer type in to another. This is needed because tonic defaults
+/// to wrong integer types for some parameters.
+pub fn convert_int_to_another<SOURCE, TARGET>(
+    value: SOURCE,
+    try_from: fn(SOURCE) -> Result<TARGET, TryFromIntError>,
+) -> Result<TARGET, Status>
+where
+    SOURCE: Copy + Debug + Display,
+{
+    try_from(value).map_err(|e| {
+        Status::invalid_argument(format!(
+            "Failed to convert input value {}. Error: {}",
+            value, e
+        ))
+    })
+}
 
 pub fn parse_deposit_params(
     deposit_params: DepositParams,

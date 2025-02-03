@@ -40,12 +40,7 @@ pub fn get_deposit_params(
         deposit_outpoint,
         evm_address,
         recovery_taproot_address,
-        u16::try_from(user_takes_after).map_err(|e| {
-            Status::invalid_argument(format!(
-                "user_takes_after is too big, failed to convert: {}",
-                e
-            ))
-        })?,
+        super::convert_int_to_another(user_takes_after, u16::try_from)?,
         session_id,
     ))
 }
