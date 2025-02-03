@@ -51,9 +51,9 @@ impl<T: State> TxHandler<T> {
                     txid: self.cached_txid,
                     vout: idx as u32,
                 },
-                txout.txout.clone(),
-                txout.scripts.clone(),
-                txout.spendinfo.clone(),
+                txout.txout().clone(),
+                txout.scripts().clone(),
+                txout.spendinfo().clone(),
             )
             .unwrap(),
         ) // TODO: Can we get rid of clones?
@@ -170,9 +170,9 @@ impl TxHandler<Unsigned> {
                 txid: self.cached_txid,
                 vout: idx as u32,
             },
-            self.txouts[idx].txout.clone(),
-            self.txouts[idx].scripts.clone(),
-            self.txouts[idx].spendinfo.clone(),
+            self.txouts[idx].txout().clone(),
+            self.txouts[idx].scripts().clone(),
+            self.txouts[idx].spendinfo().clone(),
         )
     }
     /// Constructs the witness for a script path spend of a transaction input.
@@ -207,6 +207,8 @@ impl TxHandler<Unsigned> {
         let spend_control_block = txin
             .get_spendable()
             .get_spend_info()
+            .as_ref()
+            .ok_or(BridgeError::MissingSpendInfo)?
             .control_block(&(script.clone(), LeafVersion::TapScript))
             .ok_or(BridgeError::ControlBlockError)?;
 
@@ -337,7 +339,7 @@ impl TxHandlerBuilder {
             version: self.version,
             lock_time: self.lock_time,
             input: self.txins.iter().map(|s| s.to_txin()).collect(),
-            output: self.txouts.iter().map(|s| s.txout.clone()).collect(), // TODO: Get rid of .clone()
+            output: self.txouts.iter().map(|s| s.txout().clone()).collect(), // TODO: Get rid of .clone()
         };
         let txid = tx.compute_txid();
         TxHandler::<Unsigned> {

@@ -236,6 +236,8 @@ pub enum BridgeError {
 
     #[error("MissingWitnessData")]
     MissingWitnessData,
+    #[error("MissingSpendInfo")]
+    MissingSpendInfo,
 }
 
 impl From<BridgeError> for ErrorObject<'static> {

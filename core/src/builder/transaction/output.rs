@@ -2,9 +2,9 @@ use bitcoin::{taproot::TaprootSpendInfo, Amount, ScriptBuf, TxOut};
 
 #[derive(Debug, Clone)]
 pub struct UnspentTxOut {
-    pub txout: TxOut,
-    pub scripts: Vec<ScriptBuf>, // TODO: Remove either scripts or spendinfo
-    pub spendinfo: Option<TaprootSpendInfo>,
+    txout: TxOut,
+    scripts: Vec<ScriptBuf>, // TODO: Remove either scripts or spendinfo
+    spendinfo: Option<TaprootSpendInfo>,
 }
 
 impl UnspentTxOut {
@@ -18,6 +18,22 @@ impl UnspentTxOut {
             scripts,
             spendinfo,
         }
+    }
+
+    pub fn txout(&self) -> &TxOut {
+        &self.txout
+    }
+
+    pub fn scripts(&self) -> &Vec<ScriptBuf> {
+        &self.scripts
+    }
+
+    pub fn spendinfo(&self) -> &Option<TaprootSpendInfo> {
+        &self.spendinfo
+    }
+
+    pub fn set_spendinfo(&mut self, spendinfo: Option<TaprootSpendInfo>) {
+        self.spendinfo = spendinfo;
     }
 }
 

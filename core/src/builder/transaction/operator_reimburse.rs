@@ -1,14 +1,12 @@
 use crate::builder::address::create_taproot_address;
 use crate::builder::transaction::output::UnspentTxOut;
 use crate::builder::transaction::txhandler::{TxHandler, TxHandlerBuilder};
-use crate::builder::transaction::{create_btc_tx, create_tx_ins};
-use crate::constants::{BRIDGE_AMOUNT_SATS, MIN_TAPROOT_AMOUNT};
+use crate::constants::MIN_TAPROOT_AMOUNT;
 use crate::{builder, utils};
 use bitcoin::hashes::Hash;
 use bitcoin::script::PushBytesBuf;
-use bitcoin::taproot::TaprootSpendInfo;
+use bitcoin::XOnlyPublicKey;
 use bitcoin::{Network, Sequence, TxOut, Txid};
-use bitcoin::{OutPoint, XOnlyPublicKey};
 
 /// Creates a [`TxHandler`] for the `kickoff_tx`. This transaction will be sent by the operator
 pub fn create_kickoff_txhandler(
@@ -26,7 +24,6 @@ pub fn create_kickoff_txhandler(
             .get_spendable_output(2 + kickoff_idx)
             .unwrap(),
         Sequence::default(),
-        None,
     );
 
     let (nofn_taproot_address, nofn_taproot_spend) =
@@ -107,7 +104,11 @@ pub fn create_kickoff_txhandler(
     let op_return_txout = builder::script::op_return_txout(push_bytes);
 
     builder
-        .add_output(UnspentTxOut::new(op_return_txout.clone(), vec![op_return_txout.script_pubkey], None))
+        .add_output(UnspentTxOut::new(
+            op_return_txout.clone(),
+            vec![op_return_txout.script_pubkey],
+            None,
+        ))
         .add_output(UnspentTxOut::new(
             builder::script::anchor_output(),
             vec![],
@@ -128,12 +129,10 @@ pub fn create_start_happy_reimburse_txhandler(
     builder = builder.add_input(
         kickoff_txhandler.get_spendable_output(1).unwrap(),
         Sequence::from_height(7 * 24 * 6),
-        None,
     );
     builder = builder.add_input(
         kickoff_txhandler.get_spendable_output(3).unwrap(),
         Sequence::default(),
-        None,
     );
 
     let (op_address, op_spend) = create_taproot_address(&[], Some(operator_xonly_pk), network);
@@ -169,27 +168,28 @@ pub fn create_happy_reimburse_txhandler(
         .add_input(
             move_txhandler.get_spendable_output(0).unwrap(),
             Sequence::default(),
-            None,
         )
         .add_input(
             start_happy_reimburse_txhandler
                 .get_spendable_output(0)
                 .unwrap(),
             Sequence::default(),
-            None,
         )
         .add_input(
             reimburse_generator_txhandler
                 .get_spendable_output(1 + kickoff_idx)
                 .unwrap(),
             Sequence::default(),
-            None,
         );
 
     builder
         .add_output(UnspentTxOut::new(
             TxOut {
-                value: move_txhandler.get_spendable_output(0).unwrap().get_prevout().value,
+                value: move_txhandler
+                    .get_spendable_output(0)
+                    .unwrap()
+                    .get_prevout()
+                    .value,
                 script_pubkey: operator_reimbursement_address.script_pubkey(),
             },
             vec![],
@@ -212,24 +212,30 @@ pub fn create_reimburse_txhandler(
     kickoff_idx: usize,
     operator_reimbursement_address: &bitcoin::Address,
 ) -> TxHandler {
-    let mut builder = TxHandlerBuilder::new().add_input(
-        move_txhandler.get_spendable_output(0).unwrap(),
-        Sequence::default(),
-        None,
-    ).add_input(
-        disprove_timeout_txhandler.get_spendable_output(0).unwrap(),
-        Sequence::default(),
-        None,
-    ).add_input(
-        reimburse_generator_txhandler.get_spendable_output(1 + kickoff_idx).unwrap(),
-        Sequence::default(),
-        None,
-    );
+    let builder = TxHandlerBuilder::new()
+        .add_input(
+            move_txhandler.get_spendable_output(0).unwrap(),
+            Sequence::default(),
+        )
+        .add_input(
+            disprove_timeout_txhandler.get_spendable_output(0).unwrap(),
+            Sequence::default(),
+        )
+        .add_input(
+            reimburse_generator_txhandler
+                .get_spendable_output(1 + kickoff_idx)
+                .unwrap(),
+            Sequence::default(),
+        );
 
     builder
         .add_output(UnspentTxOut::new(
             TxOut {
-                value: move_txhandler.get_spendable_output(0).unwrap().get_prevout().value,
+                value: move_txhandler
+                    .get_spendable_output(0)
+                    .unwrap()
+                    .get_prevout()
+                    .value,
                 script_pubkey: operator_reimbursement_address.script_pubkey(),
             },
             vec![],

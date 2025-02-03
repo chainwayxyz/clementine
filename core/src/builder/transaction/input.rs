@@ -52,7 +52,7 @@ pub struct SpendableTxIn {
 
     /// TODO: refactor later, decide on what's needed and what's redundant
     scripts: Vec<ScriptBuf>,
-    spendinfo: TaprootSpendInfo,
+    spendinfo: Option<TaprootSpendInfo>,
 }
 
 #[derive(Clone, Debug, Error, PartialEq)]
@@ -82,7 +82,7 @@ impl SpendableTxIn {
         previous_output: OutPoint,
         prevout: TxOut,
         scripts: Vec<ScriptBuf>,
-        spendinfo: TaprootSpendInfo,
+        spendinfo: Option<TaprootSpendInfo>,
     ) -> SpendableTxIn {
         if cfg!(debug_assertions) {
             return Self::from_checked(previous_output, prevout, scripts, spendinfo).unwrap();
@@ -95,17 +95,20 @@ impl SpendableTxIn {
         &self.scripts
     }
 
-    pub fn get_spend_info(&self) -> &TaprootSpendInfo {
+    pub fn get_spend_info(&self) -> &Option<TaprootSpendInfo> {
         &self.spendinfo
     }
+    pub fn set_spend_info(&mut self, spendinfo: Option<TaprootSpendInfo>) {
+        self.spendinfo = spendinfo;
+    }
 
-    pub fn from_checked(
-        previous_output: OutPoint,
-        prevout: TxOut,
-        scripts: Vec<ScriptBuf>,
-        spendinfo: TaprootSpendInfo,
-    ) -> Result<SpendableTxIn, SpendableTxInError> {
+    fn check(&self) -> Result<(), SpendableTxInError> {
         use SpendableTxInError::*;
+        let Some(spendinfo) = self.spendinfo.as_ref() else {
+            return Ok(());
+        };
+
+        let (prevout, scripts) = (&self.prevout, &self.scripts);
 
         if ScriptBuf::new_witness_program(&WitnessProgram::p2tr_tweaked(spendinfo.output_key()))
             != prevout.script_pubkey
@@ -121,20 +124,25 @@ impl SpendableTxIn {
         }) {
             return Err(IncompleteMerkleProofMap);
         }
+        Ok(())
+    }
 
-        Ok(Self::from_unchecked(
-            previous_output,
-            prevout,
-            scripts,
-            spendinfo,
-        ))
+    pub fn from_checked(
+        previous_output: OutPoint,
+        prevout: TxOut,
+        scripts: Vec<ScriptBuf>,
+        spendinfo: Option<TaprootSpendInfo>,
+    ) -> Result<SpendableTxIn, SpendableTxInError> {
+        let this = Self::from_unchecked(previous_output, prevout, scripts, spendinfo);
+        this.check();
+        Ok(this)
     }
 
     pub fn from_unchecked(
         previous_outpoint: OutPoint,
         prevout: TxOut,
         scripts: Vec<ScriptBuf>,
-        spendinfo: TaprootSpendInfo,
+        spendinfo: Option<TaprootSpendInfo>,
     ) -> SpendableTxIn {
         SpendableTxIn {
             previous_outpoint: previous_outpoint,
