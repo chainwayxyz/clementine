@@ -9,7 +9,7 @@ use bitcoin::taproot::TaprootSpendInfo;
 use bitcoin::{Network, TxOut, Txid};
 use bitcoin::{OutPoint, XOnlyPublicKey};
 
-use super::txhandler::{TxHandlerBuilder, Unsigned, UnspentTxOut, DEFAULT_SEQUENCE};
+use super::txhandler::{TxHandlerBuilder, Unsigned, UnspentTxOut, DEFAULT_SEQUENCE as DEF_SEQ};
 
 /// Creates a [`TxHandler`] for the `kickoff_tx`. This transaction will be sent by the operator
 pub fn create_kickoff_txhandler(
@@ -24,8 +24,10 @@ pub fn create_kickoff_txhandler(
     let mut builder = TxHandlerBuilder::new();
 
     // Add input from sequential collateral
-    builder =
-        builder.add_input(sequential_collateral_txhandler.get_output_as_spendable(2 + kickoff_idx));
+    builder = builder.add_input(
+        sequential_collateral_txhandler.get_output_as_spendable(2 + kickoff_idx),
+        DEF_SEQ,
+    );
 
     // NofN keyspend
     let (nofn_taproot_address, nofn_taproot_spend) =
@@ -178,18 +180,26 @@ pub fn create_happy_reimburse_txhandler(
     let mut builder = TxHandlerBuilder::new();
 
     // Add move tx input
-    builder = builder.add_input(move_txhandler.get_output_as_spendable(0));
+    builder = builder.add_input(move_txhandler.get_output_as_spendable(0), DEF_SEQ);
 
     // Add start happy reimburse input
-    builder = builder.add_input(start_happy_reimburse_txhandler.get_output_as_spendable(0));
+    builder = builder.add_input(
+        start_happy_reimburse_txhandler.get_output_as_spendable(0),
+        DEF_SEQ,
+    );
 
     // Add reimburse generator input
-    builder =
-        builder.add_input(reimburse_generator_txhandler.get_output_as_spendable(1 + kickoff_idx));
+    builder = builder.add_input(
+        reimburse_generator_txhandler.get_output_as_spendable(1 + kickoff_idx),
+        DEF_SEQ,
+    );
 
     // Add reimbursement output
     builder = builder.add_output(UnspentTxOut::new_partial(TxOut {
-        value: move_txhandler.get_output_as_spendable(0).value(),
+        value: move_txhandler
+            .get_output_as_spendable(0)
+            .get_prevout()
+            .value,
         script_pubkey: operator_reimbursement_address.script_pubkey(),
     }));
 

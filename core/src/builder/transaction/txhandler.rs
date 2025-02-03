@@ -14,6 +14,7 @@ use std::marker::PhantomData;
 
 use super::input::{SpendableTxIn, SpentTxIn};
 use super::output::UnspentTxOut;
+
 pub const DEFAULT_SEQUENCE: Sequence = Sequence::ENABLE_RBF_NO_LOCKTIME;
 
 #[derive(Debug, Clone)]
