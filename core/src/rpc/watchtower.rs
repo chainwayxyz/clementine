@@ -12,7 +12,6 @@ impl ClementineWatchtower for Watchtower {
     type GetParamsStream = ReceiverStream<Result<WatchtowerParams, Status>>;
 
     #[tracing::instrument(skip(self), err(level = tracing::Level::ERROR), ret(level = tracing::Level::TRACE))]
-    #[allow(clippy::blocks_in_conditions)]
     async fn get_params(
         &self,
         _request: Request<Empty>,

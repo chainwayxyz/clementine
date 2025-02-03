@@ -1,7 +1,9 @@
 use crate::{
     fetch_next_from_stream,
     rpc::{
-        clementine::{self, verifier_deposit_finalize_params, VerifierDepositFinalizeParams},
+        clementine::{
+            self, verifier_deposit_finalize_params, NonceGenResponse, VerifierDepositFinalizeParams,
+        },
         error::{self, invalid_argument},
     },
     EVMAddress,
@@ -87,4 +89,18 @@ pub async fn parse_next_deposit_finalize_param_schnorr_sig(
     };
 
     Ok(Some(final_sig))
+}
+
+pub async fn parse_nonce_gen_first_response(
+    stream: &mut tonic::Streaming<NonceGenResponse>,
+) -> Result<clementine::NonceGenFirstResponse, Status> {
+    let nonce_gen_response = fetch_next_from_stream!(stream, response, "response")?;
+
+    if let clementine::nonce_gen_response::Response::FirstResponse(nonce_gen_first_response) =
+        nonce_gen_response
+    {
+        Ok(nonce_gen_first_response)
+    } else {
+        Err(Status::invalid_argument("Expected first_response"))
+    }
 }

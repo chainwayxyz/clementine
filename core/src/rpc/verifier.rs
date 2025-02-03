@@ -568,7 +568,6 @@ impl ClementineVerifier for Verifier {
     /// operator signatures. It will receive data from the stream in this order -> nofn sigs, movetx agg nonce, operator sigs.
     /// If everything is correct, it will partially sign the move tx and send it to aggregator.
     #[tracing::instrument(skip(self), err(level = tracing::Level::ERROR), ret(level = tracing::Level::TRACE))]
-    #[allow(clippy::blocks_in_conditions)]
     async fn deposit_finalize(
         &self,
         req: Request<Streaming<VerifierDepositFinalizeParams>>,

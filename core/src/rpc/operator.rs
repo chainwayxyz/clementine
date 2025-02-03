@@ -20,7 +20,6 @@ impl ClementineOperator for Operator {
     type GetParamsStream = ReceiverStream<Result<OperatorParams, Status>>;
 
     #[tracing::instrument(skip_all, err(level = tracing::Level::ERROR), ret(level = tracing::Level::TRACE))]
-    #[allow(clippy::blocks_in_conditions)]
     async fn get_params(
         &self,
         _request: Request<Empty>,
@@ -81,7 +80,6 @@ impl ClementineOperator for Operator {
     }
 
     #[tracing::instrument(skip(self), err(level = tracing::Level::ERROR), ret(level = tracing::Level::TRACE))]
-    #[allow(clippy::blocks_in_conditions)]
     async fn deposit_sign(
         &self,
         request: Request<DepositSignSession>,
@@ -130,7 +128,6 @@ impl ClementineOperator for Operator {
     }
 
     #[tracing::instrument(skip(self), err(level = tracing::Level::ERROR), ret(level = tracing::Level::TRACE))]
-    #[allow(clippy::blocks_in_conditions)]
     async fn new_withdrawal_sig(
         &self,
         _: Request<NewWithdrawalSigParams>,
@@ -139,7 +136,6 @@ impl ClementineOperator for Operator {
     }
 
     #[tracing::instrument(skip(self), err(level = tracing::Level::ERROR), ret(level = tracing::Level::TRACE))]
-    #[allow(clippy::blocks_in_conditions)]
     async fn withdrawal_finalized(
         &self,
         request: Request<WithdrawalFinalizedParams>,
