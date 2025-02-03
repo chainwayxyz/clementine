@@ -48,21 +48,25 @@ impl ClementineVerifier for Verifier {
     #[tracing::instrument(skip(self), err(level = tracing::Level::ERROR), ret(level = tracing::Level::TRACE))]
     async fn get_params(&self, _: Request<Empty>) -> Result<Response<VerifierParams>, Status> {
         let params = VerifierParams {
-            id: parsers::convert_int_to_another(self.idx, u32::try_from)?,
+            id: parsers::convert_int_to_another("id", self.idx, u32::try_from)?,
             public_key: self.signer.public_key.serialize().to_vec(),
             num_verifiers: parsers::convert_int_to_another(
+                "num_verifiers",
                 self.config.num_verifiers,
                 u32::try_from,
             )?,
             num_watchtowers: parsers::convert_int_to_another(
+                "num_watchtowers",
                 self.config.num_watchtowers,
                 u32::try_from,
             )?,
             num_operators: parsers::convert_int_to_another(
+                "num_operators",
                 self.config.num_operators,
                 u32::try_from,
             )?,
             num_sequential_collateral_txs: parsers::convert_int_to_another(
+                "num_sequential_collateral_txs",
                 self.config.num_sequential_collateral_txs,
                 u32::try_from,
             )?,

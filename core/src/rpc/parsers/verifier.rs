@@ -44,7 +44,7 @@ pub fn get_deposit_params(
         deposit_outpoint,
         evm_address,
         recovery_taproot_address,
-        super::convert_int_to_another(user_takes_after, u16::try_from)?,
+        super::convert_int_to_another("user_takes_after", user_takes_after, u16::try_from)?,
         session_id,
     ))
 }

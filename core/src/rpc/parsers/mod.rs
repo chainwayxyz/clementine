@@ -1,3 +1,4 @@
+use super::error;
 use crate::rpc::clementine::DepositParams;
 use crate::EVMAddress;
 use bitcoin::address::NetworkUnchecked;
@@ -7,21 +8,18 @@ use tonic::Status;
 
 pub mod verifier;
 
-/// Convers an integer type in to another. This is needed because tonic defaults
-/// to wrong integer types for some parameters.
+/// Converts an integer type in to another integer type. This is needed because
+/// tonic defaults to wrong integer types for some parameters.
 pub fn convert_int_to_another<SOURCE, TARGET>(
+    field_name: &str,
     value: SOURCE,
     try_from: fn(SOURCE) -> Result<TARGET, TryFromIntError>,
 ) -> Result<TARGET, Status>
 where
     SOURCE: Copy + Debug + Display,
 {
-    try_from(value).map_err(|e| {
-        Status::invalid_argument(format!(
-            "Failed to convert input value {}. Error: {}",
-            value, e
-        ))
-    })
+    try_from(value)
+        .map_err(|e| error::invalid_argument(field_name, "Given number is out of bounds")(e))
 }
 
 pub fn parse_deposit_params(
@@ -48,15 +46,11 @@ pub fn parse_deposit_params(
         .parse::<bitcoin::Address<_>>()
         .map_err(|e| Status::internal(e.to_string()))?;
     let user_takes_after = deposit_params.user_takes_after;
+
     Ok((
         deposit_outpoint,
         evm_address,
         recovery_taproot_address,
-        u16::try_from(user_takes_after).map_err(|e| {
-            Status::invalid_argument(format!(
-                "user_takes_after is too big, failed to convert: {}",
-                e
-            ))
-        })?,
+        convert_int_to_another("user_takes_after", user_takes_after, u16::try_from)?,
     ))
 }
