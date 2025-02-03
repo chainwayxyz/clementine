@@ -14,13 +14,16 @@
 
 use crate::builder;
 use crate::builder::address::create_taproot_address;
+use crate::builder::transaction::input::{SpendableTxIn};
+use crate::builder::transaction::output::UnspentTxOut;
 use crate::builder::transaction::txhandler::TxHandler;
 use crate::builder::transaction::*;
 use crate::constants::MIN_TAPROOT_AMOUNT;
+use crate::errors::BridgeError;
 use bitcoin::{Amount, OutPoint, TxOut, XOnlyPublicKey};
-use bitcoin::{Network, Txid, Sequence};
-use crate::builder::transaction::input::{SpentTxIn, SpendableTxIn};
-use crate::builder::transaction::output::UnspentTxOut;
+use bitcoin::{Network, Sequence, Txid};
+
+use super::txhandler::DEFAULT_SEQUENCE;
 
 /// Creates a [`TxHandler`] for `sequential_collateral_tx`. It will always use the first
 /// output of the  previous `reimburse_generator_tx` as the input. The flow is as follows:
@@ -57,7 +60,7 @@ pub fn create_sequential_collateral_txhandler(
             vec![],
             Some(op_spend.clone()),
         ),
-        Sequence::default(),
+        DEFAULT_SEQUENCE,
     );
 
     let max_withdrawal_time_locked_script =
@@ -82,21 +85,23 @@ pub fn create_sequential_collateral_txhandler(
         script_pubkey: kickoff_utxo.script_pubkey(),
     };
 
-    builder = builder.add_output(UnspentTxOut::new(
-        TxOut {
-            value: input_amount,
-            script_pubkey: op_address.script_pubkey(),
-        },
-        vec![],
-        Some(op_spend.clone()),
-    )).add_output(UnspentTxOut::new(
-        TxOut {
-            value: MIN_TAPROOT_AMOUNT,
-            script_pubkey: reimburse_gen_connector.script_pubkey(),
-        },
-        vec![max_withdrawal_time_locked_script],
-        Some(reimburse_gen_spend),
-    ));
+    builder = builder
+        .add_output(UnspentTxOut::new(
+            TxOut {
+                value: input_amount,
+                script_pubkey: op_address.script_pubkey(),
+            },
+            vec![],
+            Some(op_spend.clone()),
+        ))
+        .add_output(UnspentTxOut::new(
+            TxOut {
+                value: MIN_TAPROOT_AMOUNT,
+                script_pubkey: reimburse_gen_connector.script_pubkey(),
+            },
+            vec![max_withdrawal_time_locked_script],
+            Some(reimburse_gen_spend),
+        ));
 
     // add kickoff utxos
     for _ in 0..num_kickoffs_per_sequential_collateral_tx {
@@ -106,11 +111,13 @@ pub fn create_sequential_collateral_txhandler(
             Some(kickoff_utxo_spend.clone()),
         ));
     }
-    builder.add_output(UnspentTxOut::new(
-        builder::script::anchor_output(),
-        vec![],
-        None,
-    )).finalize()
+    builder
+        .add_output(UnspentTxOut::new(
+            builder::script::anchor_output(),
+            vec![],
+            None,
+        ))
+        .finalize()
 }
 
 /// Creates a [`TxHandler`] for `reimburse_generator_tx`. It will always use the first
@@ -129,14 +136,20 @@ pub fn create_reimburse_generator_txhandler(
     num_kickoffs_per_sequential_collateral_tx: usize,
     max_withdrawal_time_block_count: u16,
     network: bitcoin::Network,
-) -> TxHandler {
-    let mut builder = TxHandlerBuilder::new().add_input(
-        sequential_collateral_txhandler.get_spendable_output(0).unwrap(),
-        Sequence::default(),
-    ).add_input(
-        sequential_collateral_txhandler.get_spendable_output(1).unwrap(),
-        Sequence::from_height(max_withdrawal_time_block_count),
-    );
+) -> Result<TxHandler, BridgeError> {
+    let mut builder = TxHandlerBuilder::new()
+        .add_input(
+            sequential_collateral_txhandler
+                .get_spendable_output(0)
+                .ok_or(BridgeError::TxInputNotFound)?,
+            DEFAULT_SEQUENCE,
+        )
+        .add_input(
+            sequential_collateral_txhandler
+                .get_spendable_output(1)
+                .ok_or(BridgeError::TxInputNotFound)?,
+            Sequence::from_height(max_withdrawal_time_block_count),
+        );
 
     let (op_address, op_spend) = create_taproot_address(&[], Some(operator_xonly_pk), network);
 
@@ -163,11 +176,13 @@ pub fn create_reimburse_generator_txhandler(
         ));
     }
 
-    builder.add_output(UnspentTxOut::new(
-        builder::script::anchor_output(),
-        vec![],
-        None,
-    )).finalize()
+    Ok(builder
+        .add_output(UnspentTxOut::new(
+            builder::script::anchor_output(),
+            vec![],
+            None,
+        ))
+        .finalize())
 }
 
 /// Creates a [`TxHandler`] for the `kickoff_utxo_timeout_tx`. This transaction is sent when
@@ -176,18 +191,18 @@ pub fn create_reimburse_generator_txhandler(
 pub fn create_kickoff_utxo_timeout_txhandler(
     sequential_collateral_txhandler: &TxHandler,
     kickoff_idx: usize,
-) -> TxHandler {
-    let mut builder = TxHandlerBuilder::new().add_input(
-        sequential_collateral_txhandler.get_spendable_output(2 + kickoff_idx).unwrap(),
-        Sequence::default(),
+) -> Result<TxHandler, BridgeError> {
+    let builder = TxHandlerBuilder::new().add_input(
+        sequential_collateral_txhandler
+            .get_spendable_output(2 + kickoff_idx)
+            .ok_or(BridgeError::TxInputNotFound)?,
+        DEFAULT_SEQUENCE,
     );
 
     // TODO: send kickoff SATs to burner address
-    builder.add_output(UnspentTxOut::new(
-        builder::script::anchor_output(),
-        vec![],
-        None,
-    )).finalize()
+    Ok(builder
+        .add_output(UnspentTxOut::from_partial(builder::script::anchor_output()))
+        .finalize())
 }
 
 /// Creates a [`TxHandler`] for the `kickoff_timeout_tx`. This transaction will be sent by anyone
@@ -197,17 +212,25 @@ pub fn create_kickoff_timeout_txhandler(
     kickoff_tx_handler: &TxHandler,
     sequential_collateral_txhandler: &TxHandler,
     network: Network,
-) -> TxHandler {
-    let mut builder = TxHandlerBuilder::new().add_input(
-        kickoff_tx_handler.get_spendable_output(3).unwrap(),
-        Sequence::default(),
-    ).add_input(
-        sequential_collateral_txhandler.get_spendable_output(0).unwrap(),
-        Sequence::default(),
-    );
-    builder.add_output(UnspentTxOut::new(
-        builder::script::anchor_output(),
-        vec![],
-        None,
-    )).finalize()
+) -> Result<TxHandler, BridgeError> {
+    let builder = TxHandlerBuilder::new()
+        .add_input(
+            kickoff_tx_handler
+                .get_spendable_output(3)
+                .ok_or(BridgeError::TxInputNotFound)?,
+            DEFAULT_SEQUENCE,
+        )
+        .add_input(
+            sequential_collateral_txhandler
+                .get_spendable_output(0)
+                .ok_or(BridgeError::TxInputNotFound)?,
+            DEFAULT_SEQUENCE,
+        );
+    Ok(builder
+        .add_output(UnspentTxOut::new(
+            builder::script::anchor_output(),
+            vec![],
+            None,
+        ))
+        .finalize())
 }

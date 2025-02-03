@@ -8,6 +8,8 @@ use bitcoin::script::PushBytesBuf;
 use bitcoin::XOnlyPublicKey;
 use bitcoin::{Network, Sequence, TxOut, Txid};
 
+use super::txhandler::DEFAULT_SEQUENCE;
+
 /// Creates a [`TxHandler`] for the `kickoff_tx`. This transaction will be sent by the operator
 pub fn create_kickoff_txhandler(
     sequential_collateral_txhandler: &TxHandler,
@@ -23,7 +25,7 @@ pub fn create_kickoff_txhandler(
         sequential_collateral_txhandler
             .get_spendable_output(2 + kickoff_idx)
             .unwrap(),
-        Sequence::default(),
+        DEFAULT_SEQUENCE,
     );
 
     let (nofn_taproot_address, nofn_taproot_spend) =
@@ -132,7 +134,7 @@ pub fn create_start_happy_reimburse_txhandler(
     );
     builder = builder.add_input(
         kickoff_txhandler.get_spendable_output(3).unwrap(),
-        Sequence::default(),
+        DEFAULT_SEQUENCE,
     );
 
     let (op_address, op_spend) = create_taproot_address(&[], Some(operator_xonly_pk), network);
@@ -167,19 +169,19 @@ pub fn create_happy_reimburse_txhandler(
     builder = builder
         .add_input(
             move_txhandler.get_spendable_output(0).unwrap(),
-            Sequence::default(),
+            DEFAULT_SEQUENCE,
         )
         .add_input(
             start_happy_reimburse_txhandler
                 .get_spendable_output(0)
                 .unwrap(),
-            Sequence::default(),
+            DEFAULT_SEQUENCE,
         )
         .add_input(
             reimburse_generator_txhandler
                 .get_spendable_output(1 + kickoff_idx)
                 .unwrap(),
-            Sequence::default(),
+            DEFAULT_SEQUENCE,
         );
 
     builder
@@ -215,17 +217,17 @@ pub fn create_reimburse_txhandler(
     let builder = TxHandlerBuilder::new()
         .add_input(
             move_txhandler.get_spendable_output(0).unwrap(),
-            Sequence::default(),
+            DEFAULT_SEQUENCE,
         )
         .add_input(
             disprove_timeout_txhandler.get_spendable_output(0).unwrap(),
-            Sequence::default(),
+            DEFAULT_SEQUENCE,
         )
         .add_input(
             reimburse_generator_txhandler
                 .get_spendable_output(1 + kickoff_idx)
                 .unwrap(),
-            Sequence::default(),
+            DEFAULT_SEQUENCE,
         );
 
     builder

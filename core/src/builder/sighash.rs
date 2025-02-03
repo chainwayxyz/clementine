@@ -56,6 +56,7 @@ pub fn create_nofn_sighash_stream(
     bridge_amount_sats: Amount,
     network: bitcoin::Network,
 ) -> impl Stream<Item = Result<TapSighash, BridgeError>> {
+    use bitcoin::TapSighashType::All as SighashAll;
     try_stream! {
         // Create move_tx handler. This is unique for each deposit tx.
         let move_txhandler = builder::transaction::create_move_to_vault_txhandler(
@@ -107,7 +108,7 @@ pub fn create_nofn_sighash_stream(
                     config.num_kickoffs_per_sequential_collateral_tx,
                     max_withdrawal_time_block_count,
                     network,
-                );
+                )?;
 
                 // For each kickoff_utxo, it connnects to a kickoff_tx that results in
                 // either start_happy_reimburse_tx
@@ -121,7 +122,7 @@ pub fn create_nofn_sighash_stream(
                         kickoff_idx,
                         nofn_xonly_pk,
                         *operator_xonly_pk,
-                        move_txhandler.txid,
+                        *move_txhandler.get_txid(),
                         operator_idx,
                         network,
                     );
@@ -189,13 +190,13 @@ pub fn create_nofn_sighash_stream(
                         &kickoff_txhandler,
                         &sequential_collateral_txhandler,
                         network,
-                    );
+                    )?;
 
                     // Yields the sighash for the kickoff_timeout_tx.input[0], which spends kickoff_tx.output[3].
-                    yield kickoff_timeout_txhandler.calculate_script_spend_sighash(
+                    yield kickoff_timeout_txhandler.calculate_script_spend_sighash_indexed(
                         0,
                         0,
-                        None,
+                        SighashAll
                     )?;
                     let public_hashes = db.get_operators_challenge_ack_hashes(None, operator_idx as i32, sequential_collateral_tx_idx as i32, kickoff_idx as i32).await?.ok_or(BridgeError::WatchtowerPublicHashesNotFound(operator_idx as i32, sequential_collateral_tx_idx as i32, kickoff_idx as i32))?;
                     // Each watchtower will sign their Groth16 proof of the header chain circuit. Then, the operator will either
@@ -222,10 +223,10 @@ pub fn create_nofn_sighash_stream(
                             );
 
                         // Yields the sighash for the operator_challenge_NACK_tx.input[0], which spends watchtower_challenge_tx.output[0].
-                        yield operator_challenge_nack_txhandler.calculate_script_spend_sighash(
+                        yield operator_challenge_nack_txhandler.calculate_script_spend_sighash_indexed(
                             0,
                             1,
-                            None,
+                            SighashAll,
                         )?;
 
                         // Yields the sighash for the operator_challenge_NACK_tx.input[1], which spends kickoff_tx.output[2].
@@ -242,7 +243,7 @@ pub fn create_nofn_sighash_stream(
                         &kickoff_txhandler,
                         &assert_tx_addrs,
                         network,
-                    );
+                    )?;
 
                     // Creates the assert_end_tx handler.
                     let mut assert_end_txhandler = builder::transaction::create_assert_end_txhandler(
@@ -253,7 +254,7 @@ pub fn create_nofn_sighash_stream(
                         nofn_xonly_pk,
                         &public_input_wots,
                         network,
-                    );
+                    )?;
 
                     // Yields the sighash for the assert_end_tx, which spends kickoff_tx.output[3].
                     yield assert_end_txhandler.calculate_pubkey_spend_sighash(
@@ -266,7 +267,7 @@ pub fn create_nofn_sighash_stream(
                         &assert_end_txhandler,
                         *operator_xonly_pk,
                         network,
-                    );
+                    )?;
 
                     // Yields the sighash for the disprove_timeout_tx.input[0], which spends assert_end_tx.output[0].
                     yield disprove_timeout_txhandler.calculate_pubkey_spend_sighash(
@@ -275,10 +276,10 @@ pub fn create_nofn_sighash_stream(
                     )?;
 
                     // Yields the disprove_timeout_tx.input[1], which spends assert_end_tx.output[1].
-                    yield disprove_timeout_txhandler.calculate_script_spend_sighash(
+                    yield disprove_timeout_txhandler.calculate_script_spend_sighash_indexed(
                         1,
                         0,
-                        None,
+                        SighashAll,
                     )?;
 
                     // Creates the already_disproved_tx handler.
@@ -288,10 +289,10 @@ pub fn create_nofn_sighash_stream(
                     );
 
                     // Yields the sighash for the already_disproved_tx.input[0], which spends assert_end_tx.output[1].
-                    yield already_disproved_txhandler.calculate_script_spend_sighash(
+                    yield already_disproved_txhandler.calculate_script_spend_sighash_indexed(
                         0,
                         1,
-                        None,
+                        SighashAll,
                     )?;
 
                     // Creates the reimburse_tx handler.
@@ -307,8 +308,8 @@ pub fn create_nofn_sighash_stream(
                     yield reimburse_txhandler.calculate_pubkey_spend_sighash(0, None)?;
                 }
 
-                input_txid = reimburse_generator_txhandler.txid;
-                input_amount = reimburse_generator_txhandler.tx.output[0].value;
+                input_txid = *reimburse_generator_txhandler.get_txid();
+                input_amount = reimburse_generator_txhandler.get_spendable_output(0).ok_or(BridgeError::TxInputNotFound)?.get_prevout().value;
             }
         }
     }
@@ -374,7 +375,7 @@ pub fn create_operator_sighash_stream(
                 config.num_kickoffs_per_sequential_collateral_tx,
                 max_withdrawal_time_block_count,
                 network,
-            );
+            )?;
 
             // For each kickoff_utxo, it connnects to a kickoff_tx that results in
             // either start_happy_reimburse_tx
@@ -388,7 +389,7 @@ pub fn create_operator_sighash_stream(
                     kickoff_idx,
                     nofn_xonly_pk,
                     operator_xonly_pk,
-                    move_txhandler.txid,
+                    *move_txhandler.get_txid(),
                     operator_idx,
                     network,
                 );
@@ -398,7 +399,7 @@ pub fn create_operator_sighash_stream(
                     &kickoff_txhandler,
                     &sequential_collateral_txhandler,
                     network,
-                );
+                )?;
 
                 // Yields the sighash for the kickoff_timeout_tx.input[0], which spends kickoff_tx.output[3].
                 yield kickoff_timeout_txhandler.calculate_pubkey_spend_sighash(
@@ -413,7 +414,7 @@ pub fn create_operator_sighash_stream(
                     &kickoff_txhandler,
                     &assert_tx_addrs,
                     network,
-                );
+                )?;
 
                 // Creates the assert_end_tx handler.
                 let assert_end_txhandler = builder::transaction::create_assert_end_txhandler(
@@ -424,7 +425,7 @@ pub fn create_operator_sighash_stream(
                     nofn_xonly_pk,
                     &public_input_wots,
                     network,
-                );
+                )?;
 
                 // Creates the already_disproved_tx handler.
                 let mut already_disproved_txhandler = builder::transaction::create_already_disproved_txhandler(
@@ -450,8 +451,8 @@ pub fn create_operator_sighash_stream(
                 )?;
             }
 
-            input_txid = reimburse_generator_txhandler.txid;
-            input_amount = reimburse_generator_txhandler.tx.output[0].value;
+            input_txid = *reimburse_generator_txhandler.get_txid();
+            input_amount = reimburse_generator_txhandler.get_spendable_output(0).ok_or(BridgeError::TxInputNotFound)?.get_prevout().value;
         }
     }
 }
