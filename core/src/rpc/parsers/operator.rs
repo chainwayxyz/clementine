@@ -19,20 +19,20 @@ use tonic::Status;
 /// - Operator's X-only public key
 /// - Wallet reimburse address
 pub fn parse_operator_config(
-    config: clementine::operator_params::Response,
+    operator_param: clementine::operator_params::Response,
 ) -> Result<(u32, Txid, XOnlyPublicKey, Address), Status> {
-    let operator_details =
-        if let operator_params::Response::OperatorDetails(operator_config) = config {
+    let operator_config =
+        if let operator_params::Response::OperatorDetails(operator_config) = operator_param {
             operator_config
         } else {
             return Err(expected_msg_got_none("OperatorDetails")());
         };
 
-    let operator_xonly_pk = XOnlyPublicKey::from_str(&operator_details.xonly_pk)
+    let operator_xonly_pk = XOnlyPublicKey::from_str(&operator_config.xonly_pk)
         .map_err(|_| Status::invalid_argument("Invalid operator xonly public key".to_string()))?;
 
     let collateral_funding_txid = Txid::from_byte_array(
-        operator_details
+        operator_config
             .collateral_funding_txid
             .try_into()
             .map_err(|e| {
@@ -43,16 +43,43 @@ pub fn parse_operator_config(
             })?,
     );
 
-    let wallet_reimburse_address = Address::from_str(&operator_details.wallet_reimburse_address)
+    let wallet_reimburse_address = Address::from_str(&operator_config.wallet_reimburse_address)
         .map_err(|e| {
             Status::invalid_argument(format!("Failed to parse wallet reimburse address: {:?}", e))
         })?
         .assume_checked();
 
     Ok((
-        operator_details.operator_idx,
+        operator_config.operator_idx,
         collateral_funding_txid,
         operator_xonly_pk,
         wallet_reimburse_address,
     ))
+}
+
+/// Parses a [`clementine::operator_params::Response`] in to a tuple of operator
+/// configurations, if the struct has
+/// [`operator_params::Response::ChallengeAckDigests`] enum type.
+pub fn parse_operator_challenge_ack_public_hash(
+    operator_param: clementine::operator_params::Response,
+) -> Result<[u8; 20], Status> {
+    let digest = if let operator_params::Response::ChallengeAckDigests(digest) = operator_param {
+        digest
+    } else {
+        return Err(Status::invalid_argument("Expected ChallengeAckDigests"));
+    };
+
+    // Ensure `digest.hash` is exactly 20 bytes
+    if digest.hash.len() != 20 {
+        return Err(Status::invalid_argument(
+            "Digest hash length is not 20 bytes",
+        ));
+    }
+
+    let public_hash: [u8; 20] = digest
+        .hash
+        .try_into()
+        .map_err(|_| Status::invalid_argument("Failed to convert digest hash into PublicHash"))?;
+
+    Ok(public_hash)
 }

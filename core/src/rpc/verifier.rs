@@ -5,7 +5,7 @@ use super::{
         VerifierDepositFinalizeParams, VerifierDepositSignParams, VerifierParams,
         VerifierPublicKeys, WatchtowerParams,
     },
-    parsers::operator::parse_operator_config,
+    parsers::operator::{parse_operator_challenge_ack_public_hash, parse_operator_config},
 };
 use crate::{
     builder::{
@@ -154,10 +154,6 @@ impl ClementineVerifier for Verifier {
                 return Err(expected_msg_got_none("WinternitzPubkeys")());
             }
         }
-        let operator_winternitz_public_keys = operator_winternitz_public_keys
-            .into_iter()
-            .map(Ok)
-            .collect::<Result<Vec<_>, BridgeError>>()?;
 
         self.db
             .set_operator_winternitz_public_keys(
@@ -183,23 +179,8 @@ impl ClementineVerifier for Verifier {
                     "Operator param stream ended early",
                 ))?;
 
-            if let operator_params::Response::ChallengeAckDigests(digest) = operator_params {
-                // Ensure `digest.hash` is exactly 20 bytes
-                if digest.hash.len() != 20 {
-                    return Err(Status::invalid_argument(
-                        "Digest hash length is not 20 bytes",
-                    ));
-                }
-
-                // Convert the `Vec<u8>` into a `[u8; 20]`
-                let public_hash: [u8; 20] = digest.hash.try_into().map_err(|_| {
-                    Status::invalid_argument("Failed to convert digest hash into PublicHash")
-                })?;
-
-                operators_challenge_ack_public_hashes.push(public_hash);
-            } else {
-                return Err(Status::invalid_argument("Expected ChallengeAckDigests"));
-            }
+            operators_challenge_ack_public_hashes
+                .push(parse_operator_challenge_ack_public_hash(operator_params)?);
         }
 
         for i in 0..self.config.num_sequential_collateral_txs {
