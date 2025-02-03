@@ -1,5 +1,4 @@
 use std::fmt::Display;
-
 use tonic::Status;
 
 pub(crate) fn expected_msg_got_error(msg: Status) -> Status {

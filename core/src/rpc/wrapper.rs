@@ -1,8 +1,8 @@
 //! # Wrapper For Converting Proto Structures
 
-use super::clementine::{Outpoint, WinternitzPubkey};
+use super::clementine::{Outpoint, VerifierPublicKeys, WinternitzPubkey};
 use crate::errors::BridgeError;
-use bitcoin::{hashes::Hash, OutPoint, Txid};
+use bitcoin::{hashes::Hash, secp256k1::PublicKey, OutPoint, Txid};
 use bitvm::signatures::winternitz;
 
 impl TryFrom<Outpoint> for OutPoint {
@@ -55,6 +55,40 @@ impl From<winternitz::PublicKey> for WinternitzPubkey {
             let digit_pubkey = value.into_iter().map(|inner| inner.to_vec()).collect();
 
             WinternitzPubkey { digit_pubkey }
+        }
+    }
+}
+
+impl TryFrom<VerifierPublicKeys> for Vec<PublicKey> {
+    type Error = BridgeError;
+
+    fn try_from(value: VerifierPublicKeys) -> Result<Self, Self::Error> {
+        let inner = value.verifier_public_keys;
+
+        inner
+            .iter()
+            .map(|inner_vec| {
+                PublicKey::from_slice(inner_vec).map_err(|e| {
+                    BridgeError::RPCParamMalformed(
+                        "verifier_public_keys".to_string(),
+                        e.to_string(),
+                    )
+                })
+            })
+            .collect::<Result<Vec<PublicKey>, _>>()
+    }
+}
+impl From<Vec<PublicKey>> for VerifierPublicKeys {
+    fn from(value: Vec<PublicKey>) -> Self {
+        {
+            let verifier_public_keys: Vec<Vec<u8>> = value
+                .into_iter()
+                .map(|inner| inner.serialize().to_vec())
+                .collect();
+
+            VerifierPublicKeys {
+                verifier_public_keys,
+            }
         }
     }
 }

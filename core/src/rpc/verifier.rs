@@ -85,20 +85,7 @@ impl ClementineVerifier for Verifier {
             return Err(Status::internal("Verifiers already set"));
         }
 
-        // Extract the public keys from the request
-        let verifiers_public_keys = req
-            .into_inner()
-            .verifier_public_keys
-            .iter()
-            .map(|pk| {
-                PublicKey::from_slice(pk).map_err(|e| {
-                    BridgeError::RPCParamMalformed(
-                        "verifier_public_keys".to_string(),
-                        e.to_string(),
-                    )
-                })
-            })
-            .collect::<Result<Vec<_>, BridgeError>>()?;
+        let verifiers_public_keys: Vec<PublicKey> = req.into_inner().try_into()?;
 
         let nofn = NofN::new(self.signer.public_key, verifiers_public_keys.clone())?;
 
