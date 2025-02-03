@@ -9,7 +9,7 @@ use crate::{
     EVMAddress,
 };
 use bitcoin::{address::NetworkUnchecked, secp256k1::schnorr};
-use secp256k1::musig::MusigPartialSignature;
+use secp256k1::musig::{MusigAggNonce, MusigPartialSignature};
 use tonic::Status;
 
 pub fn get_deposit_params(
@@ -89,6 +89,20 @@ pub async fn parse_next_deposit_finalize_param_schnorr_sig(
     };
 
     Ok(Some(final_sig))
+}
+
+pub async fn parse_deposit_finalize_param_agg_nonce(
+    stream: &mut tonic::Streaming<VerifierDepositFinalizeParams>,
+) -> Result<MusigAggNonce, Status> {
+    let sig = fetch_next_from_stream!(stream, params, "params")?;
+
+    match sig {
+        verifier_deposit_finalize_params::Params::MoveTxAggNonce(aggnonce) => {
+            Ok(MusigAggNonce::from_slice(&aggnonce)
+                .map_err(invalid_argument("MusigAggNonce", "failed to parse"))?)
+        }
+        _ => Err(Status::internal("Expected FinalSig")),
+    }
 }
 
 pub async fn parse_nonce_gen_first_response(

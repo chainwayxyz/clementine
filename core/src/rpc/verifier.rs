@@ -1,3 +1,4 @@
+use super::error::*;
 use super::{
     clementine::{
         self, clementine_verifier_server::ClementineVerifier, nonce_gen_response, Empty,
@@ -10,6 +11,8 @@ use super::{
         parse_operator_winternitz_public_keys,
     },
 };
+use crate::rpc::parsers::verifier::parse_deposit_finalize_param_agg_nonce;
+use crate::utils::SECP;
 use crate::{
     builder::{
         self,
@@ -42,9 +45,6 @@ use bitvm::signatures::{
     signing_winternitz::{generate_winternitz_checksig_leave_variable, WinternitzPublicKey},
     winternitz,
 };
-
-use super::error::*;
-use crate::utils::SECP;
 use futures::StreamExt;
 use secp256k1::musig::{MusigAggNonce, MusigPubNonce, MusigSecNonce};
 use std::collections::BTreeMap;
@@ -197,7 +197,7 @@ impl ClementineVerifier for Verifier {
                 .iter()
                 .enumerate()
                 .map(|(idx, (intermediate_step, intermediate_step_size))| {
-                    let winternitz_pk: WinternitzPublicKey = WinternitzPublicKey {
+                    let winternitz_pk = WinternitzPublicKey {
                         public_key: winternitz_public_keys[idx].clone(),
                         parameters: winternitz::Parameters::new(
                             *intermediate_step_size as u32 * 2,
@@ -374,7 +374,6 @@ impl ClementineVerifier for Verifier {
     }
 
     #[tracing::instrument(skip(self), err(level = tracing::Level::ERROR), ret(level = tracing::Level::TRACE))]
-    #[allow(clippy::blocks_in_conditions)]
     async fn nonce_gen(
         &self,
         req: Request<NonceGenRequest>,
@@ -494,11 +493,8 @@ impl ClementineVerifier for Verifier {
                 "Expected nonce count to be num_required_sigs + 1 (movetx)"
             );
 
-            while let Some(result) = in_stream.message().await? {
-                let agg_nonce = match result
-                    .params
-                    .ok_or(Status::internal("No agg nonce received"))?
-                {
+            while let Some(result) = fetch_next_from_stream!(&mut in_stream, params) {
+                let agg_nonce = match result {
                     clementine::verifier_deposit_sign_params::Params::AggNonce(agg_nonce) => {
                         MusigAggNonce::from_slice(agg_nonce.as_slice()).map_err(|e| {
                             BridgeError::RPCParamMalformed("AggNonce".to_string(), e.to_string())
@@ -653,18 +649,7 @@ impl ClementineVerifier for Verifier {
 
         let move_tx_sighash = move_txhandler.calculate_script_spend_sighash(0, 0, None)?;
 
-        let agg_nonce = match in_stream
-            .message()
-            .await
-            .map_err(expected_msg_got_error)?
-            .ok_or_else(expected_msg_got_none("Params.MusigAggNonce"))?
-            .params
-            .ok_or_else(expected_msg_got_none("Params.MusigAggNonce"))?
-        {
-            Params::MoveTxAggNonce(aggnonce) => MusigAggNonce::from_slice(&aggnonce)
-                .map_err(invalid_argument("MusigAggNonce", "failed to parse"))?,
-            _ => Err(expected_msg_got_none("MusigAggNonce")())?,
-        };
+        let agg_nonce = parse_deposit_finalize_param_agg_nonce(&mut in_stream).await?;
 
         let movetx_secnonce = {
             let mut session_map = self.nonces.lock().await;
@@ -722,33 +707,16 @@ impl ClementineVerifier for Verifier {
                 self.config.bridge_amount_sats,
                 self.config.network,
             ));
-            while let Some(in_msg) = in_stream.message().await? {
+            while let Some(operator_sig) =
+                parse_next_deposit_finalize_param_schnorr_sig(&mut in_stream).await?
+            {
                 let sighash = sighash_stream
                     .next()
                     .await
                     .ok_or_else(sighash_stream_ended_prematurely)??;
-                let operator_sig = in_msg
-                    .params
-                    .ok_or_else(expected_msg_got_none("Operator Signature"))?;
-
-                let final_sig = match operator_sig {
-                    Params::SchnorrSig(final_sig) => schnorr::Signature::from_slice(&final_sig)
-                        .map_err(|_| {
-                            BridgeError::RPCParamMalformed(
-                                "Operator sig".to_string(),
-                                "Invalid signature length".to_string(),
-                            )
-                        })?,
-                    _ => {
-                        return Err(Status::internal(format!(
-                            "Expected Operator Sig, got: {:?}",
-                            operator_sig
-                        )))
-                    }
-                };
 
                 utils::SECP
-                    .verify_schnorr(&final_sig, &Message::from(sighash), &tweaked_op_xonly_pk)
+                    .verify_schnorr(&operator_sig, &Message::from(sighash), &tweaked_op_xonly_pk)
                     .map_err(|x| {
                         Status::internal(format!(
                             "Operator {} Signature {}: verification failed: {}.",
@@ -758,7 +726,7 @@ impl ClementineVerifier for Verifier {
                         ))
                     })?;
 
-                op_deposit_sigs[operator_idx].push(final_sig);
+                op_deposit_sigs[operator_idx].push(operator_sig);
 
                 op_sig_count += 1;
                 total_op_sig_count += 1;
