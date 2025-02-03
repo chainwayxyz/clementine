@@ -67,7 +67,7 @@ pub fn create_nofn_sighash_stream(
             _user_takes_after,
             bridge_amount_sats,
             network,
-        );
+        )?;
         // Get operator details (for each operator, (X-Only Public Key, Address, Collateral Funding Txid))
         let operators: Vec<(XOnlyPublicKey, bitcoin::Address, Txid)> =
             db.get_operators(None).await?;
@@ -350,7 +350,7 @@ pub fn create_operator_sighash_stream(
             _user_takes_after,
             bridge_amount_sats,
             network,
-        );
+        )?;
 
         let mut input_txid = collateral_funding_txid;
         let mut input_amount = collateral_funding_amount;

@@ -4,6 +4,16 @@
 //! transactions.
 
 use crate::builder;
+use crate::builder::address::create_taproot_address;
+pub use crate::builder::transaction::challenge::*;
+use crate::builder::transaction::input::SpendableTxIn;
+pub use crate::builder::transaction::operator_assert::*;
+pub use crate::builder::transaction::operator_collateral::*;
+pub use crate::builder::transaction::operator_reimburse::*;
+use crate::builder::transaction::output::UnspentTxOut;
+pub use crate::builder::transaction::txhandler::TxHandler;
+use crate::builder::transaction::txhandler::DEFAULT_SEQUENCE;
+use crate::errors::BridgeError;
 use crate::EVMAddress;
 use bitcoin::address::NetworkUnchecked;
 use bitcoin::Transaction;
@@ -11,12 +21,6 @@ use bitcoin::{absolute, Address, Amount, OutPoint, TxIn, TxOut, XOnlyPublicKey};
 use input::create_tx_ins;
 use txhandler::TxHandlerBuilder;
 pub use txhandler::Unsigned;
-
-pub use crate::builder::transaction::challenge::*;
-pub use crate::builder::transaction::operator_assert::*;
-pub use crate::builder::transaction::operator_collateral::*;
-pub use crate::builder::transaction::operator_reimburse::*;
-pub use crate::builder::transaction::txhandler::TxHandler;
 
 mod challenge;
 pub mod input;
@@ -68,56 +72,49 @@ pub fn create_move_to_vault_txhandler(
     user_takes_after: u16,
     bridge_amount_sats: Amount,
     network: bitcoin::Network,
-) -> TxHandler<Unsigned> {
+) -> Result<TxHandler<Unsigned>, BridgeError> {
+    let nofn_script = builder::script::generate_checksig_script(nofn_xonly_pk);
     let (musig2_address, musig2_spendinfo) =
-        builder::address::create_checksig_address(nofn_xonly_pk, network);
+        create_taproot_address(&[nofn_script.clone()], None, network);
 
-    let deposit_script = vec![builder::script::create_deposit_script(
-        nofn_xonly_pk,
-        user_evm_address,
-        bridge_amount_sats,
-    )];
-    // @ozankaymak burada hem scriptler hem de taproot spendinfo verelim bence. karmasik seyler yapacagimiz zmn Vec<Box<dyn TxInArgs>> gibi bir sey yapariz.
-    // create_tx_ins Vec<impl TxInArgs> alir. TxInArgs da her seyi veren bir trait olur.
-    // create_tx_ins icine mi?
-    let tx_ins = create_tx_ins(vec![deposit_outpoint].into());
+    let (deposit_address, deposit_taproot_spend_info, deposit_scripts) =
+        builder::address::generate_deposit_address(
+            nofn_xonly_pk,
+            recovery_taproot_address,
+            user_evm_address,
+            bridge_amount_sats,
+            network,
+            user_takes_after,
+        );
 
-    let anchor_output = builder::script::anchor_output();
-    let move_txout = TxOut {
-        value: bridge_amount_sats,
-        script_pubkey: musig2_address.script_pubkey(),
-    };
-
-    let move_tx = create_btc_tx(tx_ins, vec![move_txout, anchor_output]);
-
-    let (deposit_address, deposit_taproot_spend_info) = builder::address::generate_deposit_address(
-        nofn_xonly_pk,
-        recovery_taproot_address,
-        user_evm_address,
-        bridge_amount_sats,
-        network,
-        user_takes_after,
+    let builder = TxHandlerBuilder::new().add_input(
+        SpendableTxIn::from_unchecked(
+            deposit_outpoint,
+            TxOut {
+                value: bridge_amount_sats,
+                script_pubkey: deposit_address.script_pubkey(),
+            },
+            deposit_scripts.to_vec(),
+            Some(deposit_taproot_spend_info.clone()),
+        ),
+        DEFAULT_SEQUENCE,
     );
 
-    let prevouts = vec![TxOut {
-        script_pubkey: deposit_address.script_pubkey(),
-        value: bridge_amount_sats,
-    }];
-
-    let mut txhandler_builder = TxHandlerBuilder::new();
-    // TODO: Decide on how to use this, we can use it as a builder pattern put anything into TxHandler directly.
-    // txhandler_builder.add_input(SpendableTxin::from_txin(tx_ins[0], vec![deposit_script], deposit_taproot_spend_info));
-    // I came up with an idea to reduce extra allocations. Instead of making TxArgs a struct, we can turn it into a trait that returns default values based on usage patterns.
-
-    TxHandler {
-        txid: move_tx.compute_txid(),
-        tx: move_tx,
-        prevouts,
-        prev_scripts: vec![deposit_script],
-        prev_taproot_spend_infos: vec![Some(deposit_taproot_spend_info)],
-        out_scripts: vec![vec![], vec![]],
-        out_taproot_spend_infos: vec![Some(musig2_spendinfo), None],
-    }
+    Ok(builder
+        .add_output(UnspentTxOut::new(
+            TxOut {
+                value: bridge_amount_sats,
+                script_pubkey: musig2_address.script_pubkey(),
+            },
+            vec![nofn_script],
+            Some(musig2_spendinfo),
+        ))
+        .add_output(UnspentTxOut::new(
+            builder::script::anchor_output(),
+            vec![],
+            None,
+        ))
+        .finalize())
 }
 
 #[cfg(test)]

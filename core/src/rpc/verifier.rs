@@ -772,7 +772,7 @@ impl ClementineVerifier for Verifier {
             user_takes_after,
             self.config.bridge_amount_sats,
             self.config.network,
-        );
+        )?;
 
         let move_tx_sighash = move_txhandler.calculate_script_spend_sighash(0, 0, None)?;
 

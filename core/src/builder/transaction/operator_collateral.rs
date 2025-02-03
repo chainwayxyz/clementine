@@ -14,7 +14,7 @@
 
 use crate::builder;
 use crate::builder::address::create_taproot_address;
-use crate::builder::transaction::input::{SpendableTxIn};
+use crate::builder::transaction::input::SpendableTxIn;
 use crate::builder::transaction::output::UnspentTxOut;
 use crate::builder::transaction::txhandler::TxHandler;
 use crate::builder::transaction::*;
