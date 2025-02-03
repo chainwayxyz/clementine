@@ -18,6 +18,7 @@ use bitcoin::address::NetworkUnchecked;
 use bitcoin::Transaction;
 use bitcoin::{absolute, Address, Amount, OutPoint, TxIn, TxOut, XOnlyPublicKey};
 use input::create_tx_ins;
+use txhandler::TxHandlerBuilder;
 pub use txhandler::Unsigned;
 
 mod challenge;
@@ -92,7 +93,7 @@ pub fn create_move_to_vault_txhandler(
                 value: bridge_amount_sats,
                 script_pubkey: deposit_address.script_pubkey(),
             },
-            deposit_scripts.into(),
+            deposit_scripts.to_vec(),
             Some(deposit_taproot_spend_info.clone()),
         ),
         DEFAULT_SEQUENCE,
