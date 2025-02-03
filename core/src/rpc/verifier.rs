@@ -1,8 +1,11 @@
-use super::clementine::{
-    self, clementine_verifier_server::ClementineVerifier, nonce_gen_response, operator_params,
-    watchtower_params, Empty, NonceGenRequest, NonceGenResponse, OperatorParams, PartialSig,
-    VerifierDepositFinalizeParams, VerifierDepositSignParams, VerifierParams, VerifierPublicKeys,
-    WatchtowerParams,
+use super::{
+    clementine::{
+        self, clementine_verifier_server::ClementineVerifier, nonce_gen_response, operator_params,
+        watchtower_params, Empty, NonceGenRequest, NonceGenResponse, OperatorParams, PartialSig,
+        VerifierDepositFinalizeParams, VerifierDepositSignParams, VerifierParams,
+        VerifierPublicKeys, WatchtowerParams,
+    },
+    parsers::operator::parse_operator_config,
 };
 use crate::{
     builder::{
@@ -35,7 +38,7 @@ use crate::utils::SECP;
 use futures::StreamExt;
 use secp256k1::musig::{MusigAggNonce, MusigPubNonce, MusigSecNonce};
 use std::collections::BTreeMap;
-use std::{pin::pin, str::FromStr};
+use std::pin::pin;
 use tokio::sync::mpsc::{self, error::SendError};
 use tokio_stream::wrappers::ReceiverStream;
 use tonic::{async_trait, Request, Response, Status, Streaming};
@@ -75,6 +78,7 @@ impl ClementineVerifier for Verifier {
         Ok(Response::new(params))
     }
 
+    /// TODO: This function's contents can be fully moved in to core::verifier.
     #[tracing::instrument(skip(self), err(level = tracing::Level::ERROR), ret(level = tracing::Level::TRACE))]
     async fn set_verifiers(
         &self,
@@ -100,8 +104,7 @@ impl ClementineVerifier for Verifier {
         Ok(Response::new(Empty {}))
     }
 
-    // #[tracing::instrument(skip(self), err(level = tracing::Level::ERROR), ret(level = tracing::Level::TRACE))]
-    #[allow(clippy::blocks_in_conditions)]
+    #[tracing::instrument(skip(self), err(level = tracing::Level::ERROR), ret(level = tracing::Level::TRACE))]
     async fn set_operator(
         &self,
         req: Request<Streaming<OperatorParams>>,
@@ -115,38 +118,17 @@ impl ClementineVerifier for Verifier {
             .ok_or_else(input_ended_prematurely)?
             .response
             .ok_or_else(expected_msg_got_none("Response"))?;
-
-        let operator_details =
-            if let operator_params::Response::OperatorDetails(operator_config) = operator_params {
-                operator_config
-            } else {
-                return Err(expected_msg_got_none("OperatorDetails")());
-            };
-
-        let operator_xonly_pk =
-            XOnlyPublicKey::from_str(&operator_details.xonly_pk).map_err(|_| {
-                Status::invalid_argument("Invalid operator xonly public key".to_string())
-            })?;
+        let (operator_idx, collateral_funding_txid, operator_xonly_pk, wallet_reimburse_address) =
+            parse_operator_config(operator_params)?;
 
         // Save the operator details to the db
         self.db
             .set_operator(
                 None,
-                operator_details.operator_idx as i32,
+                operator_idx as i32,
                 operator_xonly_pk,
-                operator_details.wallet_reimburse_address,
-                Txid::from_byte_array(
-                    operator_details
-                        .collateral_funding_txid
-                        .clone()
-                        .try_into()
-                        .map_err(|e| {
-                            Status::invalid_argument(format!(
-                                "Failed to convert collateral funding txid to Txid: {:?}",
-                                e
-                            ))
-                        })?,
-                ),
+                wallet_reimburse_address.to_string(),
+                collateral_funding_txid,
             )
             .await?;
 
@@ -180,7 +162,7 @@ impl ClementineVerifier for Verifier {
         self.db
             .set_operator_winternitz_public_keys(
                 None,
-                operator_details.operator_idx,
+                operator_idx,
                 operator_winternitz_public_keys.clone(),
             )
             .await?;
@@ -225,7 +207,7 @@ impl ClementineVerifier for Verifier {
                 self.db
                     .set_operator_challenge_ack_hashes(
                         None,
-                        operator_details.operator_idx as i32,
+                        operator_idx as i32,
                         i as i32,
                         j as i32,
                         &operators_challenge_ack_public_hashes[self.config.num_watchtowers
@@ -328,7 +310,7 @@ impl ClementineVerifier for Verifier {
             self.db
                 .set_bitvm_setup(
                     None,
-                    operator_details.operator_idx as i32,
+                    operator_idx as i32,
                     sequential_collateral_tx_idx as i32,
                     kickoff_idx as i32,
                     assert_tx_addrs,

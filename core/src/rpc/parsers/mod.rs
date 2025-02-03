@@ -6,6 +6,7 @@ use std::fmt::{Debug, Display};
 use std::num::TryFromIntError;
 use tonic::Status;
 
+pub mod operator;
 pub mod verifier;
 
 /// Converts an integer type in to another integer type. This is needed because
