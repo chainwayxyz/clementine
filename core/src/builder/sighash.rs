@@ -205,7 +205,7 @@ pub fn create_nofn_sighash_stream(
                     for (watchtower_idx, public_hash) in public_hashes.iter().enumerate() {
                         // Creates the watchtower_challenge_tx handler.
                         let watchtower_challenge_txhandler =
-                            builder::transaction::create_watchtower_challenge_txhandler_simplified(
+                            builder::transaction::create_watchtower_challenge_txhandler(
                                 &watchtower_challenge_kickoff_txhandler,
                                 watchtower_idx,
                                 public_hash,
