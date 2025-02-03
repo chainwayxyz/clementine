@@ -21,6 +21,7 @@ use crate::{
         transaction::create_move_to_vault_txhandler,
     },
     errors::BridgeError,
+    fetch_next_from_stream,
     musig2::{self},
     rpc::parsers::{
         self,
@@ -448,15 +449,7 @@ impl ClementineVerifier for Verifier {
         let verifier = self.clone();
 
         let handle = tokio::spawn(async move {
-            let first_message = in_stream
-                .message()
-                .await?
-                .ok_or(Status::internal("No first message received"))?;
-
-            // Parse the first message
-            let params = first_message
-                .params
-                .ok_or(Status::internal("No deposit outpoint received"))?;
+            let params = fetch_next_from_stream!(in_stream, params, "params")?;
 
             let (
                 deposit_outpoint,
@@ -582,17 +575,10 @@ impl ClementineVerifier for Verifier {
         use clementine::verifier_deposit_finalize_params::Params;
         let mut in_stream = req.into_inner();
 
-        let first_message = in_stream
-            .message()
-            .await?
-            .ok_or(Status::internal("No first message received"))?;
+        let params = fetch_next_from_stream!(in_stream, params, "params")?;
 
-        // Parse the first message
         let (deposit_outpoint, evm_address, recovery_taproot_address, user_takes_after, session_id) =
-            match first_message
-                .params
-                .ok_or(Status::internal("No deposit outpoint received"))?
-            {
+            match params {
                 Params::DepositSignFirstParam(deposit_sign_session) => {
                     parsers::verifier::get_deposit_params(deposit_sign_session, self.idx)?
                 }

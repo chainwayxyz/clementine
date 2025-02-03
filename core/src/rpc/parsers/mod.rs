@@ -26,13 +26,13 @@ where
 
 #[macro_export]
 macro_rules! fetch_next_from_stream {
-    ($stream:expr) => {
+    ($stream:expr, $field:ident, $field_str:literal) => {
         $stream
             .message()
             .await?
             .ok_or($crate::rpc::error::input_ended_prematurely())?
-            .response
-            .ok_or($crate::rpc::error::expected_msg_got_none("response")())
+            .$field
+            .ok_or($crate::rpc::error::expected_msg_got_none($field_str)())
     };
 }
 
