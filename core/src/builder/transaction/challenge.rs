@@ -1,12 +1,12 @@
 use crate::builder;
+use crate::builder::transaction::output::UnspentTxOut;
 use crate::builder::transaction::txhandler::{TxHandler, DEFAULT_SEQUENCE};
 use crate::builder::transaction::*;
-use crate::builder::transaction::output::UnspentTxOut;
 use crate::constants::OPERATOR_CHALLENGE_AMOUNT;
-use bitcoin::opcodes::all::OP_CHECKSIG;
-use bitcoin::{Amount, ScriptBuf, TxOut, XOnlyPublicKey, Sequence};
-use bitvm::signatures::winternitz;
 use crate::errors::BridgeError;
+use bitcoin::opcodes::all::OP_CHECKSIG;
+use bitcoin::{Amount, ScriptBuf, Sequence, TxOut, XOnlyPublicKey};
+use bitvm::signatures::winternitz;
 
 /// Creates a [`TxHandler`] for the `watchtower_challenge_kickoff_tx`. This transaction can be sent by anyone.
 /// When spent, the outputs of this transaction will reveal the Groth16 proofs with their public inputs for the longest
@@ -19,7 +19,9 @@ pub fn create_watchtower_challenge_kickoff_txhandler(
     network: bitcoin::Network,
 ) -> Result<TxHandler, BridgeError> {
     let mut builder = TxHandlerBuilder::new().add_input(
-        kickoff_tx_handler.get_spendable_output(0).ok_or(BridgeError::TxInputNotFound)?,
+        kickoff_tx_handler
+            .get_spendable_output(0)
+            .ok_or(BridgeError::TxInputNotFound)?,
         DEFAULT_SEQUENCE,
     );
 
@@ -47,11 +49,13 @@ pub fn create_watchtower_challenge_kickoff_txhandler(
         ));
     }
 
-    Ok(builder.add_output(UnspentTxOut::new(
-        builder::script::anchor_output(),
-        vec![],
-        None,
-    )).finalize())
+    Ok(builder
+        .add_output(UnspentTxOut::new(
+            builder::script::anchor_output(),
+            vec![],
+            None,
+        ))
+        .finalize())
 }
 
 /// Creates a "simplified "[`TxHandler`] for the `watchtower_challenge_kickoff_tx`. The purpose of the simplification
@@ -63,7 +67,9 @@ pub fn create_watchtower_challenge_kickoff_txhandler_simplified(
     watchtower_challenge_addresses: &[ScriptBuf],
 ) -> Result<TxHandler, BridgeError> {
     let mut builder = TxHandlerBuilder::new().add_input(
-        kickoff_tx_handler.get_spendable_output(0).ok_or(BridgeError::TxInputNotFound)?,
+        kickoff_tx_handler
+            .get_spendable_output(0)
+            .ok_or(BridgeError::TxInputNotFound)?,
         DEFAULT_SEQUENCE,
     );
     for i in 0..num_watchtowers {
@@ -71,14 +77,18 @@ pub fn create_watchtower_challenge_kickoff_txhandler_simplified(
             TxOut {
                 value: Amount::from_sat(2000), // TODO: Hand calculate this
                 script_pubkey: watchtower_challenge_addresses[i as usize].clone(),
-            }, vec![], None
+            },
+            vec![],
+            None,
         ));
     }
-    Ok(builder.add_output(UnspentTxOut::new(
-        builder::script::anchor_output(),
-        vec![],
-        None,
-    )).finalize())
+    Ok(builder
+        .add_output(UnspentTxOut::new(
+            builder::script::anchor_output(),
+            vec![],
+            None,
+        ))
+        .finalize())
 }
 
 /// Creates a [`TxHandler`] for the `watchtower_challenge_tx`. This transaction
@@ -99,7 +109,9 @@ pub fn create_watchtower_challenge_txhandler(
     network: bitcoin::Network,
 ) -> Result<TxHandler, BridgeError> {
     let mut builder = TxHandlerBuilder::new().add_input(
-        wcp_txhandler.get_spendable_output(watchtower_idx).ok_or(BridgeError::TxInputNotFound)?,
+        wcp_txhandler
+            .get_spendable_output(watchtower_idx)
+            .ok_or(BridgeError::TxInputNotFound)?,
         DEFAULT_SEQUENCE,
     );
 
@@ -113,18 +125,21 @@ pub fn create_watchtower_challenge_txhandler(
         network,
     );
 
-    Ok(builder.add_output(UnspentTxOut::new(
-        TxOut {
-            value: Amount::from_sat(1000), // TODO: Hand calculate this
-            script_pubkey: op_or_nofn_halfweek.script_pubkey(),
-        },
-        vec![operator_with_preimage, nofn_halfweek],
-        Some(op_or_nofn_halfweek_spend),
-    )).add_output(UnspentTxOut::new(
-        builder::script::anchor_output(),
-        vec![],
-        None,
-    )).finalize())
+    Ok(builder
+        .add_output(UnspentTxOut::new(
+            TxOut {
+                value: Amount::from_sat(1000), // TODO: Hand calculate this
+                script_pubkey: op_or_nofn_halfweek.script_pubkey(),
+            },
+            vec![operator_with_preimage, nofn_halfweek],
+            Some(op_or_nofn_halfweek_spend),
+        ))
+        .add_output(UnspentTxOut::new(
+            builder::script::anchor_output(),
+            vec![],
+            None,
+        ))
+        .finalize())
 }
 
 /// Creates a [`TxHandler`] for the `operator_challenge_NACK_tx`. This transaction will force
@@ -135,17 +150,25 @@ pub fn create_operator_challenge_nack_txhandler(
     watchtower_challenge_txhandler: &TxHandler,
     kickoff_txhandler: &TxHandler,
 ) -> Result<TxHandler, BridgeError> {
-    Ok(TxHandlerBuilder::new().add_input(
-        watchtower_challenge_txhandler.get_spendable_output(0).ok_or(BridgeError::TxInputNotFound)?,
-        Sequence::from_height(7 * 24 * 6 / 2),
-    ).add_input(
-        kickoff_txhandler.get_spendable_output(2).ok_or(BridgeError::TxInputNotFound)?,
-        DEFAULT_SEQUENCE,
-    ).add_output(UnspentTxOut::new(
-        builder::script::anchor_output(),
-        vec![],
-        None,
-    )).finalize())
+    Ok(TxHandlerBuilder::new()
+        .add_input(
+            watchtower_challenge_txhandler
+                .get_spendable_output(0)
+                .ok_or(BridgeError::TxInputNotFound)?,
+            Sequence::from_height(7 * 24 * 6 / 2),
+        )
+        .add_input(
+            kickoff_txhandler
+                .get_spendable_output(2)
+                .ok_or(BridgeError::TxInputNotFound)?,
+            DEFAULT_SEQUENCE,
+        )
+        .add_output(UnspentTxOut::new(
+            builder::script::anchor_output(),
+            vec![],
+            None,
+        ))
+        .finalize())
 }
 
 /// Creates a [`TxHandler`] for the `already_disproved_tx`. This transaction will be sent by NofN, meaning
@@ -155,17 +178,25 @@ pub fn create_already_disproved_txhandler(
     assert_end_txhandler: &TxHandler,
     sequential_collateral_txhandler: &TxHandler,
 ) -> Result<TxHandler, BridgeError> {
-    Ok(TxHandlerBuilder::new().add_input(
-        assert_end_txhandler.get_spendable_output(1).ok_or(BridgeError::TxInputNotFound)?,
-        Sequence::from_height(7 * 24 * 6 * 2),
-    ).add_input(
-        sequential_collateral_txhandler.get_spendable_output(0).ok_or(BridgeError::TxInputNotFound)?,
-        DEFAULT_SEQUENCE,
-    ).add_output(UnspentTxOut::new(
-        builder::script::anchor_output(),
-        vec![],
-        None,
-    )).finalize())
+    Ok(TxHandlerBuilder::new()
+        .add_input(
+            assert_end_txhandler
+                .get_spendable_output(1)
+                .ok_or(BridgeError::TxInputNotFound)?,
+            Sequence::from_height(7 * 24 * 6 * 2),
+        )
+        .add_input(
+            sequential_collateral_txhandler
+                .get_spendable_output(0)
+                .ok_or(BridgeError::TxInputNotFound)?,
+            DEFAULT_SEQUENCE,
+        )
+        .add_output(UnspentTxOut::new(
+            builder::script::anchor_output(),
+            vec![],
+            None,
+        ))
+        .finalize())
 }
 
 /// Creates a [`TxHandler`] for the `disprove_tx`. This transaction will be sent by NofN, meaning
@@ -175,17 +206,25 @@ pub fn create_disprove_txhandler(
     assert_end_txhandler: &TxHandler,
     sequential_collateral_txhandler: &TxHandler,
 ) -> Result<TxHandler, BridgeError> {
-    Ok(TxHandlerBuilder::new().add_input(
-        assert_end_txhandler.get_spendable_output(0).ok_or(BridgeError::TxInputNotFound)?,
-        DEFAULT_SEQUENCE,
-    ).add_input(
-        sequential_collateral_txhandler.get_spendable_output(0).ok_or(BridgeError::TxInputNotFound)?,
-        DEFAULT_SEQUENCE,
-    ).add_output(UnspentTxOut::new(
-        builder::script::anchor_output(),
-        vec![],
-        None,
-    )).finalize())
+    Ok(TxHandlerBuilder::new()
+        .add_input(
+            assert_end_txhandler
+                .get_spendable_output(0)
+                .ok_or(BridgeError::TxInputNotFound)?,
+            DEFAULT_SEQUENCE,
+        )
+        .add_input(
+            sequential_collateral_txhandler
+                .get_spendable_output(0)
+                .ok_or(BridgeError::TxInputNotFound)?,
+            DEFAULT_SEQUENCE,
+        )
+        .add_output(UnspentTxOut::new(
+            builder::script::anchor_output(),
+            vec![],
+            None,
+        ))
+        .finalize())
 }
 
 /// Creates a [`TxHandler`] for the `challenge`. This transaction is for covering
@@ -195,15 +234,20 @@ pub fn create_challenge_txhandler(
     kickoff_txhandler: &TxHandler,
     operator_reimbursement_address: &bitcoin::Address,
 ) -> Result<TxHandler, BridgeError> {
-    Ok(TxHandlerBuilder::new().add_input(
-        kickoff_txhandler.get_spendable_output(1).ok_or(BridgeError::TxInputNotFound)?,
-        DEFAULT_SEQUENCE,
-    ).add_output(UnspentTxOut::new(
-        TxOut {
-            value: OPERATOR_CHALLENGE_AMOUNT,
-            script_pubkey: operator_reimbursement_address.script_pubkey(),
-        },
-        vec![],
-        None,
-    )).finalize())
+    Ok(TxHandlerBuilder::new()
+        .add_input(
+            kickoff_txhandler
+                .get_spendable_output(1)
+                .ok_or(BridgeError::TxInputNotFound)?,
+            DEFAULT_SEQUENCE,
+        )
+        .add_output(UnspentTxOut::new(
+            TxOut {
+                value: OPERATOR_CHALLENGE_AMOUNT,
+                script_pubkey: operator_reimbursement_address.script_pubkey(),
+            },
+            vec![],
+            None,
+        ))
+        .finalize())
 }

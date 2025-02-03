@@ -131,7 +131,7 @@ pub fn create_nofn_sighash_stream(
                     let mut challenge_tx = builder::transaction::create_challenge_txhandler(
                         &kickoff_txhandler,
                         operator_reimburse_address,
-                    );
+                    )?;
 
                     // Yields the sighash for the challenge_tx.input[0], which spends kickoff_tx.input[1] using SinglePlusAnyoneCanPay.
                     yield challenge_tx.calculate_pubkey_spend_sighash(
@@ -172,12 +172,12 @@ pub fn create_nofn_sighash_stream(
                         .map(|i| watchtower_all_challenge_addresses[i][sequential_collateral_tx_idx * config.num_kickoffs_per_sequential_collateral_tx + kickoff_idx].clone())
                         .collect::<Vec<_>>();
 
-                    let mut watchtower_challenge_kickoff_txhandler =
+                    let  watchtower_challenge_kickoff_txhandler =
                         builder::transaction::create_watchtower_challenge_kickoff_txhandler_simplified(
                             &kickoff_txhandler,
                             config.num_watchtowers as u32,
                             &watchtower_challenge_addresses,
-                        );
+                        )?;
 
                     // Yields the sighash for the watchtower_challenge_kickoff_tx.input[0], which spends kickoff_tx.input[0].
                     yield watchtower_challenge_kickoff_txhandler.calculate_pubkey_spend_sighash(
@@ -213,14 +213,14 @@ pub fn create_nofn_sighash_stream(
                                 nofn_xonly_pk,
                                 *operator_xonly_pk,
                                 network,
-                            );
+                            )?;
 
                         // Creates the operator_challenge_NACK_tx handler.
                         let mut operator_challenge_nack_txhandler =
                             builder::transaction::create_operator_challenge_nack_txhandler(
                                 &watchtower_challenge_txhandler,
                                 &kickoff_txhandler
-                            );
+                            )?;
 
                         // Yields the sighash for the operator_challenge_NACK_tx.input[0], which spends watchtower_challenge_tx.output[0].
                         yield operator_challenge_nack_txhandler.calculate_script_spend_sighash_indexed(
@@ -246,7 +246,7 @@ pub fn create_nofn_sighash_stream(
                     )?;
 
                     // Creates the assert_end_tx handler.
-                    let mut assert_end_txhandler = builder::transaction::create_assert_end_txhandler(
+                    let assert_end_txhandler = builder::transaction::create_assert_end_txhandler(
                         &kickoff_txhandler,
                         &assert_begin_txhandler,
                         &assert_tx_addrs,
@@ -286,7 +286,7 @@ pub fn create_nofn_sighash_stream(
                     let mut already_disproved_txhandler = builder::transaction::create_already_disproved_txhandler(
                         &assert_end_txhandler,
                         &sequential_collateral_txhandler,
-                    );
+                    )?;
 
                     // Yields the sighash for the already_disproved_tx.input[0], which spends assert_end_tx.output[1].
                     yield already_disproved_txhandler.calculate_script_spend_sighash_indexed(
@@ -431,7 +431,7 @@ pub fn create_operator_sighash_stream(
                 let mut already_disproved_txhandler = builder::transaction::create_already_disproved_txhandler(
                     &assert_end_txhandler,
                     &sequential_collateral_txhandler,
-                );
+                )?;
 
                 // Yields the sighash for the already_disproved_tx.input[0], which spends assert_end_tx.output[1].
                 yield already_disproved_txhandler.calculate_pubkey_spend_sighash(
@@ -442,7 +442,7 @@ pub fn create_operator_sighash_stream(
                 let mut disprove_txhandler = builder::transaction::create_disprove_txhandler(
                     &assert_end_txhandler,
                     &sequential_collateral_txhandler,
-                );
+                )?;
 
                 // Yields the sighash for the disprove_tx.input[1], which spends sequential_collateral_tx.output[0].
                 yield disprove_txhandler.calculate_pubkey_spend_sighash(

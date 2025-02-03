@@ -159,20 +159,13 @@ impl Actor {
         txin_index: usize,
         script_index: usize,
     ) -> Result<schnorr::Signature, BridgeError> {
-        let mut sighash_cache: SighashCache<&mut bitcoin::Transaction> =
-            SighashCache::new(&mut tx.tx);
-
-        let sig_hash = sighash_cache.taproot_script_spend_signature_hash(
+        let sighash = tx.calculate_script_spend_sighash_indexed(
             txin_index,
-            &bitcoin::sighash::Prevouts::All(&tx.prevouts),
-            TapLeafHash::from_script(
-                &tx.prev_scripts[txin_index][script_index],
-                LeafVersion::TapScript,
-            ),
-            bitcoin::sighash::TapSighashType::Default,
+            script_index,
+            TapSighashType::Default,
         )?;
 
-        Ok(self.sign(sig_hash))
+        Ok(self.sign(sighash))
     }
 
     #[tracing::instrument(skip(self), err(level = tracing::Level::ERROR), ret(level = tracing::Level::TRACE))]
@@ -182,19 +175,7 @@ impl Actor {
         input_index: usize,
         sighash_type: Option<TapSighashType>,
     ) -> Result<schnorr::Signature, BridgeError> {
-        let mut sighash_cache = SighashCache::new(&mut tx_handler.tx);
-
-        let sig_hash = sighash_cache.taproot_key_spend_signature_hash(
-            input_index,
-            &match sighash_type {
-                Some(TapSighashType::SinglePlusAnyoneCanPay) => bitcoin::sighash::Prevouts::One(
-                    input_index,
-                    tx_handler.prevouts[input_index].clone(),
-                ),
-                _ => bitcoin::sighash::Prevouts::All(&tx_handler.prevouts),
-            },
-            sighash_type.unwrap_or(TapSighashType::Default),
-        )?;
+        let sig_hash = tx_handler.calculate_pubkey_spend_sighash(input_index, sighash_type)?;
 
         self.sign_with_tweak(sig_hash, None)
     }
@@ -248,20 +229,13 @@ impl Actor {
         txin_index: usize,
         script_index: usize,
     ) -> Result<schnorr::Signature, BridgeError> {
-        let mut sighash_cache: SighashCache<&mut bitcoin::Transaction> =
-            SighashCache::new(&mut tx_handler.tx);
-
-        let sig_hash = sighash_cache.taproot_script_spend_signature_hash(
+        let sighash = tx_handler.calculate_script_spend_sighash_indexed(
             txin_index,
-            &bitcoin::sighash::Prevouts::All(&tx_handler.prevouts),
-            TapLeafHash::from_script(
-                &tx_handler.prev_scripts[txin_index][script_index],
-                LeafVersion::TapScript,
-            ),
-            bitcoin::sighash::TapSighashType::Default,
+            script_index,
+            TapSighashType::Default,
         )?;
 
-        self.sign_with_tweak(sig_hash, None)
+        self.sign_with_tweak(sighash, None)
     }
 
     /// Returns derivied Winternitz secret key from given path.
