@@ -7,9 +7,7 @@ use crate::builder;
 use crate::EVMAddress;
 use bitcoin::address::NetworkUnchecked;
 use bitcoin::Transaction;
-use bitcoin::{
-    absolute, Address, Amount, OutPoint, TxIn, TxOut, XOnlyPublicKey,
-};
+use bitcoin::{absolute, Address, Amount, OutPoint, TxIn, TxOut, XOnlyPublicKey};
 use input::create_tx_ins;
 use txhandler::TxHandlerBuilder;
 pub use txhandler::Unsigned;
@@ -21,12 +19,12 @@ pub use crate::builder::transaction::operator_reimburse::*;
 pub use crate::builder::transaction::txhandler::TxHandler;
 
 mod challenge;
+pub mod input;
 mod operator_assert;
 mod operator_collateral;
 mod operator_reimburse;
-mod txhandler;
-pub mod input;
 pub mod output;
+mod txhandler;
 
 /// Creates a Bitcoin V3 transaction with no locktime, using given inputs and
 /// outputs.
@@ -105,7 +103,7 @@ pub fn create_move_to_vault_txhandler(
         script_pubkey: deposit_address.script_pubkey(),
         value: bridge_amount_sats,
     }];
-  
+
     let mut txhandler_builder = TxHandlerBuilder::new();
     // TODO: Decide on how to use this, we can use it as a builder pattern put anything into TxHandler directly.
     // txhandler_builder.add_input(SpendableTxin::from_txin(tx_ins[0], vec![deposit_script], deposit_taproot_spend_info));

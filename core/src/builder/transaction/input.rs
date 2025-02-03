@@ -1,6 +1,9 @@
-use bitcoin::{taproot::{LeafVersion, TaprootSpendInfo}, witness, Address, Network, OutPoint, ScriptBuf, Sequence, TxIn, TxOut, Witness, WitnessProgram};
-use thiserror::{Error};
+use bitcoin::{
+    taproot::{LeafVersion, TaprootSpendInfo},
+    witness, Address, Network, OutPoint, ScriptBuf, Sequence, TxIn, TxOut, Witness, WitnessProgram,
+};
 use std::fmt::Display;
+use thiserror::Error;
 pub type BlockHeight = u16;
 
 pub struct TxInArgs(pub Vec<(OutPoint, Option<BlockHeight>)>);
@@ -52,16 +55,18 @@ pub struct SpendableTxIn {
     spendinfo: TaprootSpendInfo,
 }
 
-#[derive(Clone,Debug,Error,PartialEq) ]
+#[derive(Clone, Debug, Error, PartialEq)]
 pub enum SpendableTxInError {
-    #[error("The taproot spend info contains an incomplete merkle proof map. Some scripts are missing.")]
+    #[error(
+        "The taproot spend info contains an incomplete merkle proof map. Some scripts are missing."
+    )]
     IncompleteMerkleProofMap,
 
     #[error("The script_pubkey of the previous output does not match the expected script_pubkey for the taproot spending information.")]
     IncorrectScriptPubkey,
 
     #[error("Error creating a spendable txin: {0}")]
-    Error(String)
+    Error(String),
 }
 
 impl SpendableTxIn {
@@ -73,13 +78,17 @@ impl SpendableTxIn {
         &self.previous_outpoint
     }
 
-    pub fn from(previous_output: OutPoint, prevout: TxOut, scripts: Vec<ScriptBuf>, spendinfo: TaprootSpendInfo) -> SpendableTxIn {
+    pub fn from(
+        previous_output: OutPoint,
+        prevout: TxOut,
+        scripts: Vec<ScriptBuf>,
+        spendinfo: TaprootSpendInfo,
+    ) -> SpendableTxIn {
         if cfg!(debug_assertions) {
             return Self::from_checked(previous_output, prevout, scripts, spendinfo).unwrap();
         }
-        
+
         Self::from_unchecked(previous_output, prevout, scripts, spendinfo)
-        
     }
 
     pub fn get_scripts(&self) -> &Vec<ScriptBuf> {
@@ -90,21 +99,43 @@ impl SpendableTxIn {
         &self.spendinfo
     }
 
-    pub fn from_checked(previous_output: OutPoint, prevout: TxOut, scripts: Vec<ScriptBuf>, spendinfo: TaprootSpendInfo) -> Result<SpendableTxIn, SpendableTxInError> {
+    pub fn from_checked(
+        previous_output: OutPoint,
+        prevout: TxOut,
+        scripts: Vec<ScriptBuf>,
+        spendinfo: TaprootSpendInfo,
+    ) -> Result<SpendableTxIn, SpendableTxInError> {
         use SpendableTxInError::*;
-        
-        if  ScriptBuf::new_witness_program(&WitnessProgram::p2tr_tweaked(spendinfo.output_key())) != prevout.script_pubkey {
+
+        if ScriptBuf::new_witness_program(&WitnessProgram::p2tr_tweaked(spendinfo.output_key()))
+            != prevout.script_pubkey
+        {
             return Err(IncorrectScriptPubkey);
         }
 
-        if scripts.iter().any(|script| spendinfo.script_map().get(&(script.clone(), LeafVersion::TapScript)).is_none()) {
+        if scripts.iter().any(|script| {
+            spendinfo
+                .script_map()
+                .get(&(script.clone(), LeafVersion::TapScript))
+                .is_none()
+        }) {
             return Err(IncompleteMerkleProofMap);
         }
 
-        Ok(Self::from_unchecked(previous_output, prevout, scripts, spendinfo))
+        Ok(Self::from_unchecked(
+            previous_output,
+            prevout,
+            scripts,
+            spendinfo,
+        ))
     }
 
-    pub fn from_unchecked(previous_outpoint: OutPoint, prevout: TxOut, scripts: Vec<ScriptBuf>, spendinfo: TaprootSpendInfo) -> SpendableTxIn {
+    pub fn from_unchecked(
+        previous_outpoint: OutPoint,
+        prevout: TxOut,
+        scripts: Vec<ScriptBuf>,
+        spendinfo: TaprootSpendInfo,
+    ) -> SpendableTxIn {
         SpendableTxIn {
             previous_outpoint: previous_outpoint,
             prevout,
@@ -124,13 +155,17 @@ pub struct SpentTxIn {
     sequence: Sequence,
     /// Witness data used to spend this TxIn. Can be None if the
     /// transaction that this TxIn is in has not been signed yet.
-    /// 
+    ///
     /// Has to be Some(_) when the transaction is signed.
     witness: Option<Witness>,
 }
 
 impl SpentTxIn {
-    pub fn from_spendable(spendable: SpendableTxIn, sequence: Sequence, witness: Option<Witness>) -> SpentTxIn {
+    pub fn from_spendable(
+        spendable: SpendableTxIn,
+        sequence: Sequence,
+        witness: Option<Witness>,
+    ) -> SpentTxIn {
         SpentTxIn {
             spendable,
             sequence,

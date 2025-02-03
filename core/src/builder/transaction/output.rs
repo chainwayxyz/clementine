@@ -4,11 +4,15 @@ use bitcoin::{taproot::TaprootSpendInfo, Amount, ScriptBuf, TxOut};
 pub struct UnspentTxOut {
     pub txout: TxOut,
     pub scripts: Vec<ScriptBuf>, // TODO: Remove either scripts or spendinfo
-    pub spendinfo: TaprootSpendInfo,
+    pub spendinfo: Option<TaprootSpendInfo>,
 }
 
 impl UnspentTxOut {
-    pub fn new(txout: TxOut, scripts: Vec<ScriptBuf>, spendinfo: TaprootSpendInfo) -> UnspentTxOut {
+    pub fn new(
+        txout: TxOut,
+        scripts: Vec<ScriptBuf>,
+        spendinfo: Option<TaprootSpendInfo>,
+    ) -> UnspentTxOut {
         UnspentTxOut {
             txout,
             scripts,

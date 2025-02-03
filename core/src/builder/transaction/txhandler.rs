@@ -36,10 +36,18 @@ impl State for Signed {}
 impl<T: State> TxHandler<T> {
     pub fn get_spendable_output(&self, idx: usize) -> Option<SpendableTxIn> {
         let txout = self.txouts.get(idx)?;
-        Some(SpendableTxIn::from_checked(OutPoint {
-            txid: self.cached_txid,
-            vout: idx as u32,
-        }, txout.txout.clone(), txout.scripts.clone(), txout.spendinfo.clone()).unwrap()) // TODO: Can we get rid of clones?
+        Some(
+            SpendableTxIn::from_checked(
+                OutPoint {
+                    txid: self.cached_txid,
+                    vout: idx as u32,
+                },
+                txout.txout.clone(),
+                txout.scripts.clone(),
+                txout.spendinfo.clone(),
+            )
+            .unwrap(),
+        ) // TODO: Can we get rid of clones?
     }
 }
 
@@ -108,7 +116,8 @@ impl TxHandler<Unsigned> {
         }
     }
 
-    pub fn get_txid(&self) -> &Txid { // Not sure if this should be public
+    pub fn get_txid(&self) -> &Txid {
+        // Not sure if this should be public
         &self.cached_txid
     }
 
@@ -117,7 +126,11 @@ impl TxHandler<Unsigned> {
         txin_index: usize,
         sighash_type: Option<TapSighashType>,
     ) -> Result<TapSighash, BridgeError> {
-        let prevouts_vec: Vec<&TxOut> = self.txins.iter().map(|s| s.get_spendable().get_prevout()).collect(); // TODO: Maybe there is a better way to do this
+        let prevouts_vec: Vec<&TxOut> = self
+            .txins
+            .iter()
+            .map(|s| s.get_spendable().get_prevout())
+            .collect(); // TODO: Maybe there is a better way to do this
         let mut sighash_cache: SighashCache<&bitcoin::Transaction> =
             SighashCache::new(&self.cached_tx);
         let prevouts = &match sighash_type {
@@ -144,7 +157,11 @@ impl TxHandler<Unsigned> {
         spend_script: &Script,
         sighash_type: Option<TapSighashType>,
     ) -> Result<TapSighash, BridgeError> {
-        let prevouts_vec: Vec<&TxOut> = self.txins.iter().map(|s| s.get_spendable().get_prevout()).collect(); // TODO: Maybe there is a better way to do this
+        let prevouts_vec: Vec<&TxOut> = self
+            .txins
+            .iter()
+            .map(|s| s.get_spendable().get_prevout())
+            .collect(); // TODO: Maybe there is a better way to do this
         let mut sighash_cache: SighashCache<&bitcoin::Transaction> =
             SighashCache::new(&self.cached_tx);
 
@@ -210,8 +227,14 @@ impl TxHandlerBuilder {
         self
     }
 
-    pub fn add_input(mut self, spendable: SpendableTxIn, sequence: Sequence, witness: Option<Witness>) -> Self {
-        self.txins.push(SpentTxIn::from_spendable(spendable, sequence, witness));
+    pub fn add_input(
+        mut self,
+        spendable: SpendableTxIn,
+        sequence: Sequence,
+        witness: Option<Witness>,
+    ) -> Self {
+        self.txins
+            .push(SpentTxIn::from_spendable(spendable, sequence, witness));
 
         self
     }
@@ -228,11 +251,7 @@ impl TxHandlerBuilder {
         let tx = Transaction {
             version: self.version,
             lock_time: self.lock_time,
-            input: self
-                .txins
-                .iter()
-                .map(|s| s.to_txin())
-                .collect(),
+            input: self.txins.iter().map(|s| s.to_txin()).collect(),
             output: self.txouts.iter().map(|s| s.txout.clone()).collect(), // TODO: Get rid of .clone()
         };
         let txid = tx.compute_txid();
