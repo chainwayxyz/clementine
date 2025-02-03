@@ -78,6 +78,12 @@ impl SpendableTxIn {
         &self.previous_outpoint
     }
 
+    #[inline(always)]
+    pub fn from_partial(previous_output: OutPoint, prevout: TxOut) -> SpendableTxIn {
+        Self::from(previous_output, prevout, vec![], None)
+    }
+
+    #[inline(always)]
     pub fn from(
         previous_output: OutPoint,
         prevout: TxOut,

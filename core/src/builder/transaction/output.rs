@@ -8,6 +8,13 @@ pub struct UnspentTxOut {
 }
 
 impl UnspentTxOut {
+    pub fn from_partial(txout: TxOut) -> UnspentTxOut {
+        UnspentTxOut {
+            txout,
+            scripts: vec![],
+            spendinfo: None,
+        }
+    }
     pub fn new(
         txout: TxOut,
         scripts: Vec<ScriptBuf>,
