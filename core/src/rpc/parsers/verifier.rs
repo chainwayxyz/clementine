@@ -1,5 +1,9 @@
-use crate::{rpc::clementine, EVMAddress};
+use crate::{
+    rpc::{clementine, error},
+    EVMAddress,
+};
 use bitcoin::address::NetworkUnchecked;
+use secp256k1::musig::MusigPartialSignature;
 use tonic::Status;
 
 pub fn get_deposit_params(
@@ -43,4 +47,21 @@ pub fn get_deposit_params(
         super::convert_int_to_another(user_takes_after, u16::try_from)?,
         session_id,
     ))
+}
+
+pub fn parse_partial_sigs(
+    partial_sigs: Vec<Vec<u8>>,
+) -> Result<Vec<MusigPartialSignature>, Status> {
+    partial_sigs
+        .iter()
+        .enumerate()
+        .map(|(idx, sig)| {
+            MusigPartialSignature::from_slice(sig).map_err(|e| {
+                error::invalid_argument(
+                    "partial_sig",
+                    format!("Verifier {idx} returned an invalid partial signature").as_str(),
+                )(e)
+            })
+        })
+        .collect::<Result<Vec<_>, _>>()
 }

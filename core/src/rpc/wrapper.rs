@@ -49,7 +49,6 @@ impl TryFrom<WinternitzPubkey> for winternitz::PublicKey {
             .collect::<Result<Vec<[u8; 20]>, BridgeError>>()
     }
 }
-
 impl From<winternitz::PublicKey> for WinternitzPubkey {
     fn from(value: winternitz::PublicKey) -> Self {
         {

@@ -343,17 +343,7 @@ impl Aggregator {
     ) -> Result<RawSignedMoveTx, Status> {
         let (deposit_outpoint, evm_address, recovery_taproot_address, user_takes_after) =
             parsers::parse_deposit_params(deposit_params)?;
-        let musig_partial_sigs: Vec<MusigPartialSignature> = partial_sigs
-            .iter()
-            .map(|sig: &Vec<u8>| MusigPartialSignature::from_slice(sig))
-            .collect::<Result<Vec<_>, _>>()
-            .map_err(|e| {
-                BridgeError::RPCParamMalformed(
-                    "Partial sigs for movetx could not be parsed into MusigPartialSignature"
-                        .to_string(),
-                    e.to_string(),
-                )
-            })?;
+        let musig_partial_sigs = parsers::verifier::parse_partial_sigs(partial_sigs)?;
 
         // create move tx and calculate sighash
         let mut move_txhandler = create_move_to_vault_txhandler(
