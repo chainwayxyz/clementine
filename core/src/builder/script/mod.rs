@@ -2,9 +2,11 @@
 //!
 //! Script builder provides useful functions for building typical Bitcoin
 //! scripts.
+// Currently generate_witness functions are not yet used.
+#![allow(dead_code)]
 
 use crate::constants::ANCHOR_AMOUNT;
-use crate::{utils, EVMAddress};
+use crate::EVMAddress;
 use bitcoin::blockdata::opcodes::all::OP_PUSHNUM_1;
 use bitcoin::opcodes::OP_TRUE;
 use bitcoin::secp256k1::schnorr;
@@ -100,7 +102,7 @@ impl SpendableScript for WinternitzCommit {
         let pubkey = self.0.clone();
         let params = self.1.clone();
         let xonly_pubkey = self.2;
-        let mut verifier = winternitz::Winternitz::<
+        let verifier = winternitz::Winternitz::<
             winternitz::ListpickVerifier,
             winternitz::TabledConverter,
         >::new();
@@ -165,7 +167,7 @@ impl SpendableScript for PreimageRevealScript {
     fn to_script_buf(&self) -> ScriptBuf {
         Builder::new()
             .push_opcode(OP_HASH160)
-            .push_slice(&self.1)
+            .push_slice(self.1)
             .push_opcode(OP_EQUALVERIFY)
             .push_x_only_key(&self.0)
             .push_opcode(OP_CHECKSIG)
@@ -183,6 +185,7 @@ impl PreimageRevealScript {
     }
 }
 
+#[cfg(test)]
 fn get_script_from_arr<T: SpendableScript>(
     arr: &Vec<Box<dyn SpendableScript>>,
 ) -> Option<(usize, &T)> {
@@ -193,13 +196,14 @@ fn get_script_from_arr<T: SpendableScript>(
 
 #[test]
 fn test_dynamic_casting() {
+    use crate::utils;
     let scripts: Vec<Box<dyn SpendableScript>> = vec![
         Box::new(OtherSpendable(ScriptBuf::from_hex("51").expect(""))),
-        Box::new(CheckSig(utils::UNSPENDABLE_XONLY_PUBKEY.clone())),
+        Box::new(CheckSig(*utils::UNSPENDABLE_XONLY_PUBKEY)),
     ];
 
     let otherspendable = scripts
-        .get(0)
+        .first()
         .expect("")
         .as_any()
         .downcast_ref::<OtherSpendable>()
@@ -208,7 +212,6 @@ fn test_dynamic_casting() {
     let checksig = get_script_from_arr::<CheckSig>(&scripts).expect("");
     println!("{:?}", otherspendable);
     println!("{:?}", checksig);
-    ()
 }
 /// Creates a P2WSH output that anyone can spend. TODO: We will not need this in the future.
 pub fn anyone_can_spend_txout() -> TxOut {

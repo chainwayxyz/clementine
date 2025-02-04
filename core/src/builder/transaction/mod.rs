@@ -6,7 +6,6 @@
 use std::sync::Arc;
 
 use crate::builder;
-use crate::builder::address::create_taproot_address;
 use crate::builder::script::OtherSpendable;
 pub use crate::builder::transaction::challenge::*;
 use crate::builder::transaction::input::SpendableTxIn;
@@ -77,8 +76,6 @@ pub fn create_move_to_vault_txhandler(
     network: bitcoin::Network,
 ) -> Result<TxHandler<Unsigned>, BridgeError> {
     let nofn_script = builder::script::generate_checksig_script(nofn_xonly_pk);
-    let (musig2_address, musig2_spendinfo) =
-        create_taproot_address(&[nofn_script.to_script_buf()], None, network);
 
     let (deposit_address, deposit_taproot_spend_info, deposit_scripts) =
         builder::address::generate_deposit_address(

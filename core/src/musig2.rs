@@ -240,10 +240,9 @@ mod tests {
     use bitcoin::{
         hashes::Hash,
         key::Keypair,
-        opcodes::all::OP_CHECKSIG,
         script,
         secp256k1::{schnorr, Message, PublicKey},
-        Amount, OutPoint, ScriptBuf, TapNodeHash, TxOut, Txid, XOnlyPublicKey,
+        Amount, OutPoint, TapNodeHash, TxOut, Txid, XOnlyPublicKey,
     };
     use secp256k1::{musig::MusigPartialSignature, rand::Rng};
     use std::sync::Arc;

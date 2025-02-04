@@ -20,9 +20,7 @@ pub fn create_watchtower_challenge_kickoff_txhandler(
     network: bitcoin::Network,
 ) -> Result<TxHandler, BridgeError> {
     let mut builder = TxHandlerBuilder::new().add_input(
-        kickoff_tx_handler
-            .get_spendable_output(0)
-            .ok_or(BridgeError::TxInputNotFound)?,
+        kickoff_tx_handler.get_spendable_output(0)?,
         DEFAULT_SEQUENCE,
     );
 
@@ -30,11 +28,9 @@ pub fn create_watchtower_challenge_kickoff_txhandler(
 
     for i in 0..num_watchtowers {
         let winternitz_commit = Arc::new(WinternitzCommit::new(
-            watchtower_challenge_winternitz_pks[i as usize]
-                .clone()
-                .into(),
+            watchtower_challenge_winternitz_pks[i as usize].clone(),
             wots_params.clone(),
-            watchtower_xonly_pks[i as usize].clone(),
+            watchtower_xonly_pks[i as usize],
         ));
         builder = builder.add_output(UnspentTxOut::from_scripts(
             Amount::from_sat(2000), // TODO: Hand calculate this
@@ -62,9 +58,7 @@ pub fn create_watchtower_challenge_kickoff_txhandler_simplified(
     watchtower_challenge_addresses: &[ScriptBuf],
 ) -> Result<TxHandler, BridgeError> {
     let mut builder = TxHandlerBuilder::new().add_input(
-        kickoff_tx_handler
-            .get_spendable_output(0)
-            .ok_or(BridgeError::TxInputNotFound)?,
+        kickoff_tx_handler.get_spendable_output(0)?,
         DEFAULT_SEQUENCE,
     );
     for i in 0..num_watchtowers {
@@ -100,16 +94,14 @@ pub fn create_watchtower_challenge_txhandler(
     network: bitcoin::Network,
 ) -> Result<TxHandler, BridgeError> {
     let builder = TxHandlerBuilder::new().add_input(
-        wcp_txhandler
-            .get_spendable_output(watchtower_idx)
-            .ok_or(BridgeError::TxInputNotFound)?,
+        wcp_txhandler.get_spendable_output(watchtower_idx)?,
         DEFAULT_SEQUENCE,
     );
 
     let nofn_halfweek = Arc::new(TimelockScript::new(Some(nofn_xonly_pk), 7 * 24 * 6 / 2)); // 0.5 week
     let operator_with_preimage = Arc::new(PreimageRevealScript::new(
         operator_xonly_pk,
-        operator_unlock_hash.clone(),
+        *operator_unlock_hash,
     ));
 
     Ok(builder
@@ -133,17 +125,10 @@ pub fn create_operator_challenge_nack_txhandler(
 ) -> Result<TxHandler, BridgeError> {
     Ok(TxHandlerBuilder::new()
         .add_input(
-            watchtower_challenge_txhandler
-                .get_spendable_output(0)
-                .ok_or(BridgeError::TxInputNotFound)?,
+            watchtower_challenge_txhandler.get_spendable_output(0)?,
             Sequence::from_height(7 * 24 * 6 / 2),
         )
-        .add_input(
-            kickoff_txhandler
-                .get_spendable_output(2)
-                .ok_or(BridgeError::TxInputNotFound)?,
-            DEFAULT_SEQUENCE,
-        )
+        .add_input(kickoff_txhandler.get_spendable_output(2)?, DEFAULT_SEQUENCE)
         .add_output(UnspentTxOut::from_partial(builder::script::anchor_output()))
         .finalize())
 }
@@ -157,15 +142,11 @@ pub fn create_already_disproved_txhandler(
 ) -> Result<TxHandler, BridgeError> {
     Ok(TxHandlerBuilder::new()
         .add_input(
-            assert_end_txhandler
-                .get_spendable_output(1)
-                .ok_or(BridgeError::TxInputNotFound)?,
+            assert_end_txhandler.get_spendable_output(1)?,
             Sequence::from_height(7 * 24 * 6 * 2),
         )
         .add_input(
-            sequential_collateral_txhandler
-                .get_spendable_output(0)
-                .ok_or(BridgeError::TxInputNotFound)?,
+            sequential_collateral_txhandler.get_spendable_output(0)?,
             DEFAULT_SEQUENCE,
         )
         .add_output(UnspentTxOut::from_partial(builder::script::anchor_output()))
@@ -181,15 +162,11 @@ pub fn create_disprove_txhandler(
 ) -> Result<TxHandler, BridgeError> {
     Ok(TxHandlerBuilder::new()
         .add_input(
-            assert_end_txhandler
-                .get_spendable_output(0)
-                .ok_or(BridgeError::TxInputNotFound)?,
+            assert_end_txhandler.get_spendable_output(0)?,
             DEFAULT_SEQUENCE,
         )
         .add_input(
-            sequential_collateral_txhandler
-                .get_spendable_output(0)
-                .ok_or(BridgeError::TxInputNotFound)?,
+            sequential_collateral_txhandler.get_spendable_output(0)?,
             DEFAULT_SEQUENCE,
         )
         .add_output(UnspentTxOut::from_partial(builder::script::anchor_output()))
@@ -204,12 +181,7 @@ pub fn create_challenge_txhandler(
     operator_reimbursement_address: &bitcoin::Address,
 ) -> Result<TxHandler, BridgeError> {
     Ok(TxHandlerBuilder::new()
-        .add_input(
-            kickoff_txhandler
-                .get_spendable_output(1)
-                .ok_or(BridgeError::TxInputNotFound)?,
-            DEFAULT_SEQUENCE,
-        )
+        .add_input(kickoff_txhandler.get_spendable_output(1)?, DEFAULT_SEQUENCE)
         .add_output(UnspentTxOut::from_partial(TxOut {
             value: OPERATOR_CHALLENGE_AMOUNT,
             script_pubkey: operator_reimbursement_address.script_pubkey(),

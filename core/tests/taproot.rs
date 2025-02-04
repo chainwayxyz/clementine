@@ -1,8 +1,6 @@
 use bitcoin::hashes::{Hash, HashEngine};
-use bitcoin::opcodes::all::OP_CHECKSIG;
-use bitcoin::script::Builder;
 use bitcoin::secp256k1::Scalar;
-use bitcoin::{Address, Amount, TapTweakHash, TxOut, XOnlyPublicKey};
+use bitcoin::{Address, Amount, TapTweakHash, TxOut};
 use bitcoincore_rpc::RpcApi;
 use clementine_core::actor::Actor;
 use clementine_core::builder::script::{CheckSig, SpendableScript};

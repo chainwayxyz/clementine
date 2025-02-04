@@ -1,5 +1,5 @@
 use crate::builder;
-use crate::builder::script::{TimelockScript};
+use crate::builder::script::TimelockScript;
 pub use crate::builder::transaction::txhandler::TxHandler;
 pub use crate::builder::transaction::*;
 use crate::constants::{MIN_TAPROOT_AMOUNT, PARALLEL_ASSERT_TX_CHAIN_SIZE};
@@ -28,9 +28,7 @@ pub fn create_assert_begin_txhandler(
 
     // Add input from kickoff tx
     builder = builder.add_input(
-        kickoff_txhandler
-            .get_spendable_output(2)
-            .ok_or(BridgeError::TxInputNotFound)?,
+        kickoff_txhandler.get_spendable_output(2)?,
         Sequence::from_height(7 * 24 * 6 / 2 * 5),
     );
 
@@ -159,20 +157,10 @@ pub fn create_assert_end_txhandler(
     let mut builder = TxHandlerBuilder::new();
 
     for txhandler in mini_tx_handlers.into_iter() {
-        builder = builder.add_input(
-            txhandler
-                .get_spendable_output(0)
-                .ok_or(BridgeError::TxInputNotFound)?,
-            DEFAULT_SEQUENCE,
-        );
+        builder = builder.add_input(txhandler.get_spendable_output(0)?, DEFAULT_SEQUENCE);
     }
 
-    builder = builder.add_input(
-        kickoff_txhandler
-            .get_spendable_output(3)
-            .ok_or(BridgeError::TxInputNotFound)?,
-        DEFAULT_SEQUENCE,
-    );
+    builder = builder.add_input(kickoff_txhandler.get_spendable_output(3)?, DEFAULT_SEQUENCE);
 
     let disprove_taproot_spend_info = TaprootBuilder::new()
         .add_hidden_node(0, TapNodeHash::from_slice(root_hash)?)
@@ -222,15 +210,11 @@ pub fn create_disprove_timeout_txhandler(
     // Add inputs
     builder = builder
         .add_input(
-            assert_end_txhandler
-                .get_spendable_output(0)
-                .ok_or(BridgeError::TxInputNotFound)?,
+            assert_end_txhandler.get_spendable_output(0)?,
             DEFAULT_SEQUENCE,
         )
         .add_input(
-            assert_end_txhandler
-                .get_spendable_output(1)
-                .ok_or(BridgeError::TxInputNotFound)?,
+            assert_end_txhandler.get_spendable_output(1)?,
             Sequence::from_height(7 * 24 * 6),
         );
 

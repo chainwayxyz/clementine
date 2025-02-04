@@ -6,7 +6,6 @@ use bitcoin::{absolute, OutPoint, Script, Sequence, Transaction, Witness};
 use bitcoin::{TapLeafHash, TapSighash, TapSighashType, TxOut, Txid};
 use std::marker::PhantomData;
 
-use super::super::script::SpendableScript;
 use super::input::{SpendableTxIn, SpentTxIn};
 use super::output::UnspentTxOut;
 
@@ -38,9 +37,9 @@ impl State for Unsigned {}
 impl State for Signed {}
 
 impl<T: State> TxHandler<T> {
-    pub fn get_spendable_output(&self, idx: usize) -> Option<SpendableTxIn> {
-        let txout = self.txouts.get(idx)?;
-        Some(SpendableTxIn::new(
+    pub fn get_spendable_output(&self, idx: usize) -> Result<SpendableTxIn, BridgeError> {
+        let txout = self.txouts.get(idx).ok_or(BridgeError::TxOutputNotFound)?;
+        Ok(SpendableTxIn::new(
             OutPoint {
                 txid: self.cached_txid,
                 vout: idx as u32,
@@ -222,7 +221,7 @@ impl TxHandler<Unsigned> {
     //     let txin = self
     //         .txins
     //         .get_mut(txin_index)
-    //         .ok_or(BridgeError::TxInputNotFound)?;
+    //         ?;
 
     //     if txin.get_witness().is_some() {
     //         return Err(BridgeError::WitnessAlreadySet);

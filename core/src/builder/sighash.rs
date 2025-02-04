@@ -307,7 +307,7 @@ pub fn create_nofn_sighash_stream(
                 }
 
                 input_txid = *reimburse_generator_txhandler.get_txid();
-                input_amount = reimburse_generator_txhandler.get_spendable_output(0).ok_or(BridgeError::TxInputNotFound)?.get_prevout().value;
+                input_amount = reimburse_generator_txhandler.get_spendable_output(0)?.get_prevout().value;
             }
         }
     }
@@ -448,7 +448,7 @@ pub fn create_operator_sighash_stream(
             }
 
             input_txid = *reimburse_generator_txhandler.get_txid();
-            input_amount = reimburse_generator_txhandler.get_spendable_output(0).ok_or(BridgeError::TxInputNotFound)?.get_prevout().value;
+            input_amount = reimburse_generator_txhandler.get_spendable_output(0)?.get_prevout().value;
         }
     }
 }

@@ -121,15 +121,11 @@ pub fn create_reimburse_generator_txhandler(
 ) -> Result<TxHandler, BridgeError> {
     let mut builder = TxHandlerBuilder::new()
         .add_input(
-            sequential_collateral_txhandler
-                .get_spendable_output(0)
-                .ok_or(BridgeError::TxInputNotFound)?,
+            sequential_collateral_txhandler.get_spendable_output(0)?,
             DEFAULT_SEQUENCE,
         )
         .add_input(
-            sequential_collateral_txhandler
-                .get_spendable_output(1)
-                .ok_or(BridgeError::TxInputNotFound)?,
+            sequential_collateral_txhandler.get_spendable_output(1)?,
             Sequence::from_height(max_withdrawal_time_block_count),
         );
 
@@ -163,9 +159,7 @@ pub fn create_kickoff_utxo_timeout_txhandler(
     kickoff_idx: usize,
 ) -> Result<TxHandler, BridgeError> {
     let builder = TxHandlerBuilder::new().add_input(
-        sequential_collateral_txhandler
-            .get_spendable_output(2 + kickoff_idx)
-            .ok_or(BridgeError::TxInputNotFound)?,
+        sequential_collateral_txhandler.get_spendable_output(2 + kickoff_idx)?,
         DEFAULT_SEQUENCE,
     );
 
@@ -184,15 +178,11 @@ pub fn create_kickoff_timeout_txhandler(
 ) -> Result<TxHandler, BridgeError> {
     let builder = TxHandlerBuilder::new()
         .add_input(
-            kickoff_tx_handler
-                .get_spendable_output(3)
-                .ok_or(BridgeError::TxInputNotFound)?,
+            kickoff_tx_handler.get_spendable_output(3)?,
             DEFAULT_SEQUENCE,
         )
         .add_input(
-            sequential_collateral_txhandler
-                .get_spendable_output(0)
-                .ok_or(BridgeError::TxInputNotFound)?,
+            sequential_collateral_txhandler.get_spendable_output(0)?,
             DEFAULT_SEQUENCE,
         );
     Ok(builder

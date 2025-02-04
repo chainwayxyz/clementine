@@ -1,7 +1,6 @@
 use bitcoin::key::Keypair;
-use bitcoin::opcodes::all::OP_CHECKSIG;
 use bitcoin::secp256k1::{Message, PublicKey};
-use bitcoin::{hashes::Hash, script, Amount, ScriptBuf};
+use bitcoin::{hashes::Hash, script, Amount};
 use bitcoin::{taproot, Sequence, TxOut, XOnlyPublicKey};
 use bitcoincore_rpc::RpcApi;
 use clementine_core::builder::script::{CheckSig, OtherSpendable, SpendableScript};
