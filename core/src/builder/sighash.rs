@@ -404,7 +404,7 @@ pub fn create_operator_sighash_stream(
                     None,
                 )?;
 
-                let (assert_tx_addrs, root_hash, public_input_wots) = db.get_bitvm_setup(None, operator_idx as i32, time_tx_idx as i32, kickoff_idx as i32).await?.ok_or(BridgeError::BitvmSetupNotFound(operator_idx as i32, time_tx_idx as i32, kickoff_idx as i32))?;
+                let (assert_tx_addrs, root_hash, _public_input_wots) = db.get_bitvm_setup(None, operator_idx as i32, time_tx_idx as i32, kickoff_idx as i32).await?.ok_or(BridgeError::BitvmSetupNotFound(operator_idx as i32, time_tx_idx as i32, kickoff_idx as i32))?;
 
                 // Creates the assert_begin_tx handler.
                 let assert_begin_txhandler = builder::transaction::create_assert_begin_txhandler(

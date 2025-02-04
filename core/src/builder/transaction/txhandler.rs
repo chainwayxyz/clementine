@@ -104,7 +104,8 @@ impl TxHandler<Unsigned> {
             .get_spendable()
             .get_scripts()
             .get(spend_script_idx)
-            .ok_or(BridgeError::ScriptNotFound(spend_script_idx))?;
+            .ok_or(BridgeError::ScriptNotFound(spend_script_idx))?
+            .to_script_buf();
 
         // TODO: remove copy here
         self.calculate_script_spend_sighash(txin_index, &script.clone(), sighash_type)
@@ -186,7 +187,8 @@ impl TxHandler<Unsigned> {
             .get_spendable()
             .get_scripts()
             .get(script_index)
-            .ok_or(BridgeError::TaprootScriptError)?;
+            .ok_or(BridgeError::TaprootScriptError)?
+            .to_script_buf();
 
         let spend_control_block = txin
             .get_spendable()

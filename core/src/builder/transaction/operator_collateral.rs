@@ -71,7 +71,7 @@ pub fn create_sequential_collateral_txhandler(
     let timeout_block_count_locked_script = Arc::new(TimelockScript::new(
         None,
         u16::try_from(timeout_block_count)
-            .map_err(|e| BridgeError::Error("Timeout value is not u16".to_string()))?,
+            .map_err(|_| BridgeError::Error("Timeout value is not u16".to_string()))?,
     ));
 
     builder = builder

@@ -99,7 +99,6 @@ impl SpendableScript for WinternitzCommit {
     }
 
     fn to_script_buf(&self) -> ScriptBuf {
-        let mut builder = Builder::new();
         let pubkey = self.0.clone();
         let params = self.1.clone();
         let xonly_pubkey = self.2;

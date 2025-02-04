@@ -32,7 +32,7 @@ pub fn create_kickoff_txhandler(
     let nofn_script = Arc::new(CheckSig::new(nofn_xonly_pk));
     builder = builder.add_output(UnspentTxOut::from_scripts(
         MIN_TAPROOT_AMOUNT,
-        vec![nofn_script],
+        vec![nofn_script.clone()],
         None,
         network,
     ));
@@ -44,13 +44,13 @@ pub fn create_kickoff_txhandler(
     builder = builder
         .add_output(UnspentTxOut::from_scripts(
             MIN_TAPROOT_AMOUNT,
-            vec![operator_1week, nofn_script],
+            vec![operator_1week, nofn_script.clone()],
             None,
             network,
         ))
         .add_output(UnspentTxOut::from_scripts(
             MIN_TAPROOT_AMOUNT,
-            vec![operator_2_5_week, nofn_script],
+            vec![operator_2_5_week, nofn_script.clone()],
             None,
             network,
         ))
