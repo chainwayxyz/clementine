@@ -7,7 +7,7 @@
 
 #[tokio::main]
 async fn main() {
-    panic!("grpc switch in progress. please inform us if you get this error.")
+    println!("grpc switch in progress. please inform us if you get this error.")
     // let (mut config, args) = get_configuration_for_binaries();
 
     // if !args.verifier_server && !args.operator_server && !args.aggregator_server {
@@ -15,7 +15,7 @@ async fn main() {
     //     exit(1);
     // }
 
-    // let rpc = ExtendedRpc::new(
+    // let rpc = ExtendedRpc::connect(
     //     config.bitcoin_rpc_url.clone(),
     //     config.bitcoin_rpc_user.clone(),
     //     config.bitcoin_rpc_password.clone(),
@@ -28,7 +28,7 @@ async fn main() {
 
     // if args.verifier_server {
     //     handles.push(
-    //         create_verifier_server(config.clone(), rpc.clone())
+    //         create_verifier_server(config.clone(), rpc.clone_inner().await.unwrap())
     //             .await
     //             .unwrap()
     //             .1
@@ -41,7 +41,7 @@ async fn main() {
 
     // if args.operator_server {
     //     handles.push(
-    //         create_operator_server(config.clone(), rpc.clone())
+    //         create_operator_server(config.clone(), rpc.clone_inner().await.unwrap())
     //             .await
     //             .unwrap()
     //             .1

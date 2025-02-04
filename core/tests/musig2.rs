@@ -7,6 +7,7 @@ use clementine_core::builder::script::{CheckSig, OtherSpendable, SpendableScript
 use clementine_core::builder::transaction::input::SpendableTxIn;
 use clementine_core::builder::transaction::output::UnspentTxOut;
 use clementine_core::builder::transaction::{TxHandlerBuilder, DEFAULT_SEQUENCE};
+use clementine_core::errors::BridgeError;
 use clementine_core::musig2::{
     aggregate_nonces, aggregate_partial_signatures, AggregateFromPublicKeys, Musig2Mode,
 };
@@ -25,6 +26,7 @@ use std::{env, thread};
 
 mod common;
 
+#[cfg(test)]
 fn get_verifiers_keys(config: &BridgeConfig) -> (Vec<Keypair>, XOnlyPublicKey, Vec<PublicKey>) {
     let verifiers_secret_keys = config.all_verifiers_secret_keys.clone().unwrap();
 
@@ -48,11 +50,14 @@ fn get_verifiers_keys(config: &BridgeConfig) -> (Vec<Keypair>, XOnlyPublicKey, V
     )
 }
 
-fn get_nonces(verifiers_secret_public_keys: Vec<Keypair>) -> (Vec<MuSigNoncePair>, MusigAggNonce) {
+#[cfg(test)]
+fn get_nonces(
+    verifiers_secret_public_keys: Vec<Keypair>,
+) -> Result<(Vec<MuSigNoncePair>, MusigAggNonce), BridgeError> {
     let nonce_pairs: Vec<MuSigNoncePair> = verifiers_secret_public_keys
         .iter()
-        .map(|kp| nonce_pair(kp, &mut secp256k1::rand::thread_rng()).unwrap())
-        .collect();
+        .map(|kp| nonce_pair(kp, &mut secp256k1::rand::thread_rng()))
+        .collect::<Result<Vec<_>, _>>()?;
 
     let agg_nonce = aggregate_nonces(
         nonce_pairs
@@ -62,23 +67,24 @@ fn get_nonces(verifiers_secret_public_keys: Vec<Keypair>) -> (Vec<MuSigNoncePair
             .as_slice(),
     );
 
-    (nonce_pairs, agg_nonce)
+    Ok((nonce_pairs, agg_nonce))
 }
 
 #[tokio::test]
 #[serial_test::serial]
 async fn key_spend() {
     let config = create_test_config_with_thread_name!(None);
-    let rpc = ExtendedRpc::new(
+    let rpc = ExtendedRpc::connect(
         config.bitcoin_rpc_url.clone(),
         config.bitcoin_rpc_user.clone(),
         config.bitcoin_rpc_password.clone(),
     )
-    .await;
+    .await
+    .unwrap();
 
     let (verifiers_secret_public_keys, untweaked_xonly_pubkey, verifier_public_keys) =
         get_verifiers_keys(&config);
-    let (nonce_pairs, agg_nonce) = get_nonces(verifiers_secret_public_keys.clone());
+    let (nonce_pairs, agg_nonce) = get_nonces(verifiers_secret_public_keys.clone()).unwrap();
 
     let (to_address, to_address_spend) =
         builder::address::create_taproot_address(&[], None, config.network);
@@ -166,16 +172,17 @@ async fn key_spend() {
 #[serial_test::serial]
 async fn key_spend_with_script() {
     let config = create_test_config_with_thread_name!(None);
-    let rpc = ExtendedRpc::new(
+    let rpc = ExtendedRpc::connect(
         config.bitcoin_rpc_url.clone(),
         config.bitcoin_rpc_user.clone(),
         config.bitcoin_rpc_password.clone(),
     )
-    .await;
+    .await
+    .unwrap();
 
     let (verifiers_secret_public_keys, untweaked_xonly_pubkey, verifier_public_keys) =
         get_verifiers_keys(&config);
-    let (nonce_pairs, agg_nonce) = get_nonces(verifiers_secret_public_keys.clone());
+    let (nonce_pairs, agg_nonce) = get_nonces(verifiers_secret_public_keys.clone()).unwrap();
 
     let dummy_script = script::Builder::new().push_int(1).into_script();
     let scripts: Vec<Arc<dyn SpendableScript>> = vec![Arc::new(OtherSpendable::new(dummy_script))];
@@ -273,16 +280,17 @@ async fn key_spend_with_script() {
 #[serial_test::serial]
 async fn script_spend() {
     let config = create_test_config_with_thread_name!(None);
-    let rpc = ExtendedRpc::new(
+    let rpc = ExtendedRpc::connect(
         config.bitcoin_rpc_url.clone(),
         config.bitcoin_rpc_user.clone(),
         config.bitcoin_rpc_password.clone(),
     )
-    .await;
+    .await
+    .unwrap();
 
     let (verifiers_secret_public_keys, _untweaked_xonly_pubkey, verifier_public_keys) =
         get_verifiers_keys(&config);
-    let (nonce_pairs, agg_nonce) = get_nonces(verifiers_secret_public_keys.clone());
+    let (nonce_pairs, agg_nonce) = get_nonces(verifiers_secret_public_keys.clone()).unwrap();
 
     let agg_pk = XOnlyPublicKey::from_musig2_pks(verifier_public_keys.clone(), None).unwrap();
 
@@ -384,20 +392,21 @@ async fn key_and_script_spend() {
 
     // Arrange
     let config = create_test_config_with_thread_name!(None);
-    let rpc = ExtendedRpc::new(
+    let rpc = ExtendedRpc::connect(
         config.bitcoin_rpc_url.clone(),
         config.bitcoin_rpc_user.clone(),
         config.bitcoin_rpc_password.clone(),
     )
-    .await;
+    .await
+    .unwrap();
 
     // -- Musig2 Setup --
     // Generate NofN keys
     let (verifiers_secret_public_keys, _untweaked_xonly_pubkey, verifier_public_keys) =
         get_verifiers_keys(&config);
     // Generate NofN nonces (need two for key and script spend)
-    let (nonce_pairs, agg_nonce) = get_nonces(verifiers_secret_public_keys.clone());
-    let (nonce_pairs_2, agg_nonce_2) = get_nonces(verifiers_secret_public_keys.clone());
+    let (nonce_pairs, agg_nonce) = get_nonces(verifiers_secret_public_keys.clone()).unwrap();
+    let (nonce_pairs_2, agg_nonce_2) = get_nonces(verifiers_secret_public_keys.clone()).unwrap();
 
     // Aggregate Pks
     let agg_pk = XOnlyPublicKey::from_musig2_pks(verifier_public_keys.clone(), None).unwrap();

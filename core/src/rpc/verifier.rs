@@ -1,9 +1,11 @@
 use super::clementine::{
-    self, clementine_verifier_server::ClementineVerifier, nonce_gen_response, operator_params,
-    watchtower_params, Empty, NonceGenRequest, NonceGenResponse, OperatorParams, PartialSig,
-    VerifierDepositFinalizeParams, VerifierDepositSignParams, VerifierParams, VerifierPublicKeys,
-    WatchtowerParams,
+    self, clementine_verifier_server::ClementineVerifier, Empty, NonceGenRequest, NonceGenResponse,
+    OperatorParams, PartialSig, VerifierDepositFinalizeParams, VerifierDepositSignParams,
+    VerifierParams, VerifierPublicKeys, WatchtowerParams,
 };
+use super::error::*;
+use crate::fetch_next_optional_message_from_stream;
+use crate::utils::SECP;
 use crate::{
     builder::{
         self,
@@ -15,12 +17,13 @@ use crate::{
         transaction::create_move_to_vault_txhandler,
     },
     errors::BridgeError,
+    fetch_next_message_from_stream,
     musig2::{self},
+    rpc::parser::{self},
     utils,
     verifier::{NofN, NonceSession, Verifier},
-    EVMAddress,
 };
-use bitcoin::{address::NetworkUnchecked, hashes::Hash, Amount, TapTweakHash, Txid};
+use bitcoin::{hashes::Hash, Amount, TapTweakHash, Txid};
 use bitcoin::{
     secp256k1::{schnorr, Message, PublicKey},
     ScriptBuf, XOnlyPublicKey,
@@ -29,81 +32,28 @@ use bitvm::signatures::{
     signing_winternitz::{generate_winternitz_checksig_leave_variable, WinternitzPublicKey},
     winternitz,
 };
-
-use crate::utils::SECP;
 use futures::StreamExt;
 use secp256k1::musig::{MusigAggNonce, MusigPubNonce, MusigSecNonce};
 use std::collections::BTreeMap;
-use std::{pin::pin, str::FromStr};
-use tokio::sync::mpsc;
+use std::pin::pin;
+use tokio::sync::mpsc::{self, error::SendError};
 use tokio_stream::wrappers::ReceiverStream;
 use tonic::{async_trait, Request, Response, Status, Streaming};
 
-fn get_deposit_params(
-    deposit_sign_session: clementine::DepositSignSession,
-    verifier_idx: usize,
-) -> Result<
-    (
-        bitcoin::OutPoint,
-        EVMAddress,
-        bitcoin::Address<NetworkUnchecked>,
-        u16,
-        u32,
-    ),
-    Status,
-> {
-    let deposit_params = deposit_sign_session
-        .deposit_params
-        .ok_or(Status::invalid_argument("No deposit outpoint received"))?;
-    let deposit_outpoint: bitcoin::OutPoint = deposit_params
-        .deposit_outpoint
-        .ok_or(Status::invalid_argument("No deposit outpoint received"))?
-        .try_into()?;
-    let evm_address: EVMAddress = deposit_params.evm_address.try_into().unwrap();
-    let recovery_taproot_address = deposit_params
-        .recovery_taproot_address
-        .parse::<bitcoin::Address<_>>()
-        .map_err(|e| Status::internal(e.to_string()))?;
-    let user_takes_after = deposit_params.user_takes_after;
-
-    let session_id = deposit_sign_session.nonce_gen_first_responses[verifier_idx].id;
-    Ok((
-        deposit_outpoint,
-        evm_address,
-        recovery_taproot_address,
-        u16::try_from(user_takes_after).map_err(|e| {
-            Status::invalid_argument(format!(
-                "user_takes_after is too big, failed to convert: {}",
-                e
-            ))
-        })?,
-        session_id,
-    ))
-}
 #[async_trait]
 impl ClementineVerifier for Verifier {
     type NonceGenStream = ReceiverStream<Result<NonceGenResponse, Status>>;
     type DepositSignStream = ReceiverStream<Result<PartialSig, Status>>;
 
     #[tracing::instrument(skip(self), err(level = tracing::Level::ERROR), ret(level = tracing::Level::TRACE))]
-    #[allow(clippy::blocks_in_conditions)]
     async fn get_params(&self, _: Request<Empty>) -> Result<Response<VerifierParams>, Status> {
-        let public_key = self.signer.public_key.serialize().to_vec();
-
-        let params = VerifierParams {
-            id: self.idx as u32,
-            public_key,
-            num_verifiers: self.config.num_verifiers as u32,
-            num_watchtowers: self.config.num_watchtowers as u32,
-            num_operators: self.config.num_operators as u32,
-            num_sequential_collateral_txs: self.config.num_sequential_collateral_txs as u32,
-        };
+        let params: VerifierParams = self.try_into()?;
 
         Ok(Response::new(params))
     }
 
+    /// TODO: This function's contents can be fully moved in to core::verifier.
     #[tracing::instrument(skip(self), err(level = tracing::Level::ERROR), ret(level = tracing::Level::TRACE))]
-    #[allow(clippy::blocks_in_conditions)]
     async fn set_verifiers(
         &self,
         req: Request<VerifierPublicKeys>,
@@ -113,15 +63,9 @@ impl ClementineVerifier for Verifier {
             return Err(Status::internal("Verifiers already set"));
         }
 
-        // Extract the public keys from the request
-        let verifiers_public_keys: Vec<PublicKey> = req
-            .into_inner()
-            .verifier_public_keys
-            .iter()
-            .map(|pk| PublicKey::from_slice(pk).unwrap())
-            .collect();
+        let verifiers_public_keys: Vec<PublicKey> = req.into_inner().try_into()?;
 
-        let nofn = NofN::new(self.signer.public_key, verifiers_public_keys.clone());
+        let nofn = NofN::new(self.signer.public_key, verifiers_public_keys.clone())?;
 
         // Save verifiers public keys to db
         self.db
@@ -134,45 +78,24 @@ impl ClementineVerifier for Verifier {
         Ok(Response::new(Empty {}))
     }
 
-    // #[tracing::instrument(skip(self), err(level = tracing::Level::ERROR), ret(level = tracing::Level::TRACE))]
-    #[allow(clippy::blocks_in_conditions)]
+    #[tracing::instrument(skip(self), err(level = tracing::Level::ERROR), ret(level = tracing::Level::TRACE))]
     async fn set_operator(
         &self,
         req: Request<Streaming<OperatorParams>>,
     ) -> Result<Response<Empty>, Status> {
         let mut in_stream = req.into_inner();
 
-        let operator_params = in_stream
-            .message()
-            .await?
-            .ok_or(Status::invalid_argument("No message is received"))?
-            .response
-            .ok_or(Status::invalid_argument("No message is received"))?;
-
-        let operator_config =
-            if let operator_params::Response::OperatorDetails(operator_config) = operator_params {
-                operator_config
-            } else {
-                return Err(Status::invalid_argument("Expected OperatorDetails"));
-            };
-
-        let operator_xonly_pk = XOnlyPublicKey::from_str(&operator_config.xonly_pk)
-            .map_err(|_| BridgeError::Error("Invalid xonly public key".to_string()))?;
+        let (operator_idx, collateral_funding_txid, operator_xonly_pk, wallet_reimburse_address) =
+            parser::operator::parse_details(&mut in_stream).await?;
 
         // Save the operator details to the db
         self.db
             .set_operator(
                 None,
-                operator_config.operator_idx as i32,
+                operator_idx as i32,
                 operator_xonly_pk,
-                operator_config.wallet_reimburse_address,
-                Txid::from_byte_array(
-                    operator_config
-                        .collateral_funding_txid
-                        .clone()
-                        .try_into()
-                        .unwrap(),
-                ),
+                wallet_reimburse_address.to_string(),
+                collateral_funding_txid,
             )
             .await?;
 
@@ -181,32 +104,14 @@ impl ClementineVerifier for Verifier {
             * self.config.num_sequential_collateral_txs
             * utils::ALL_BITVM_INTERMEDIATE_VARIABLES.len()
         {
-            let operator_params = in_stream
-                .message()
-                .await?
-                .ok_or(Status::invalid_argument(
-                    "Operator param stream ended early",
-                ))?
-                .response
-                .ok_or(Status::invalid_argument(
-                    "Operator param stream ended early",
-                ))?;
-
-            if let operator_params::Response::WinternitzPubkeys(wpk) = operator_params {
-                operator_winternitz_public_keys.push(wpk.to_bitvm());
-            } else {
-                return Err(Status::invalid_argument("Expected WinternitzPubkeys"));
-            }
+            operator_winternitz_public_keys
+                .push(parser::operator::parse_winternitz_public_keys(&mut in_stream).await?);
         }
-        let operator_winternitz_public_keys = operator_winternitz_public_keys
-            .into_iter()
-            .map(Ok)
-            .collect::<Result<Vec<_>, BridgeError>>()?;
 
         self.db
             .set_operator_winternitz_public_keys(
                 None,
-                operator_config.operator_idx,
+                operator_idx,
                 operator_winternitz_public_keys.clone(),
             )
             .await?;
@@ -216,34 +121,8 @@ impl ClementineVerifier for Verifier {
             * self.config.num_kickoffs_per_sequential_collateral_tx
             * self.config.num_watchtowers
         {
-            let operator_params = in_stream
-                .message()
-                .await?
-                .ok_or(Status::invalid_argument(
-                    "Operator param stream ended early",
-                ))?
-                .response
-                .ok_or(Status::invalid_argument(
-                    "Operator param stream ended early",
-                ))?;
-
-            if let operator_params::Response::ChallengeAckDigests(digest) = operator_params {
-                // Ensure `digest.hash` is exactly 20 bytes
-                if digest.hash.len() != 20 {
-                    return Err(Status::invalid_argument(
-                        "Digest hash length is not 20 bytes",
-                    ));
-                }
-
-                // Convert the `Vec<u8>` into a `[u8; 20]`
-                let public_hash: [u8; 20] = digest.hash.try_into().map_err(|_| {
-                    Status::invalid_argument("Failed to convert digest hash into PublicHash")
-                })?;
-
-                operators_challenge_ack_public_hashes.push(public_hash);
-            } else {
-                return Err(Status::invalid_argument("Expected ChallengeAckDigests"));
-            }
+            operators_challenge_ack_public_hashes
+                .push(parser::operator::parse_challenge_ack_public_hash(&mut in_stream).await?);
         }
 
         for i in 0..self.config.num_sequential_collateral_txs {
@@ -251,7 +130,7 @@ impl ClementineVerifier for Verifier {
                 self.db
                     .set_operator_challenge_ack_hashes(
                         None,
-                        operator_config.operator_idx as i32,
+                        operator_idx as i32,
                         i as i32,
                         j as i32,
                         &operators_challenge_ack_public_hashes[self.config.num_watchtowers
@@ -282,7 +161,7 @@ impl ClementineVerifier for Verifier {
                 .iter()
                 .enumerate()
                 .map(|(idx, (intermediate_step, intermediate_step_size))| {
-                    let winternitz_pk: WinternitzPublicKey = WinternitzPublicKey {
+                    let winternitz_pk = WinternitzPublicKey {
                         public_key: winternitz_public_keys[idx].clone(),
                         parameters: winternitz::Parameters::new(
                             *intermediate_step_size as u32 * 2,
@@ -344,14 +223,17 @@ impl ClementineVerifier for Verifier {
             };
 
             let taproot_builder = taproot_builder_with_scripts(&scripts);
-            let root_hash = taproot_builder.try_into_taptree().unwrap().root_hash();
+            let root_hash = taproot_builder
+                .try_into_taptree()
+                .expect("taproot builder always builds a full taptree")
+                .root_hash();
             let root_hash_bytes = root_hash.to_raw_hash().to_byte_array();
 
             // Save the public input wots to db along with the root hash
             self.db
                 .set_bitvm_setup(
                     None,
-                    operator_config.operator_idx as i32,
+                    operator_idx as i32,
                     sequential_collateral_tx_idx as i32,
                     kickoff_idx as i32,
                     assert_tx_addrs,
@@ -365,7 +247,6 @@ impl ClementineVerifier for Verifier {
     }
 
     #[tracing::instrument(skip(self), err(level = tracing::Level::ERROR), ret(level = tracing::Level::TRACE))]
-    #[allow(clippy::blocks_in_conditions)]
     async fn set_watchtower(
         &self,
         request: Request<Streaming<WatchtowerParams>>,
@@ -378,38 +259,13 @@ impl ClementineVerifier for Verifier {
         } = &self.config;
         let mut in_stream = request.into_inner();
 
-        let watchtower_id = in_stream
-            .message()
-            .await?
-            .ok_or(Status::invalid_argument("No message is received"))?
-            .response
-            .ok_or(Status::invalid_argument("No message is received"))?;
-        let watchtower_id =
-            if let watchtower_params::Response::WatchtowerId(watchtower_id) = watchtower_id {
-                watchtower_id
-            } else {
-                return Err(Status::invalid_argument("Expected watchtower id"));
-            };
+        let watchtower_id = parser::watchtower::parse_id(&mut in_stream).await?;
 
         let mut watchtower_winternitz_public_keys = Vec::new();
         for _ in 0..self.config.num_operators {
-            let wpks = in_stream
-                .message()
-                .await?
-                .ok_or(Status::invalid_argument("No message is received"))?
-                .response
-                .ok_or(Status::invalid_argument("No message is received"))?;
-
-            if let watchtower_params::Response::WinternitzPubkeys(wpk) = wpks {
-                watchtower_winternitz_public_keys.push(wpk.to_bitvm());
-            } else {
-                return Err(Status::invalid_argument("Expected WinternitzPubkeys"));
-            }
+            watchtower_winternitz_public_keys
+                .push(parser::watchtower::parse_winternitz_public_key(&mut in_stream).await?);
         }
-        let watchtower_winternitz_public_keys = watchtower_winternitz_public_keys
-            .into_iter()
-            .map(Ok)
-            .collect::<Result<Vec<_>, BridgeError>>()?;
 
         let required_number_of_pubkeys = num_operators
             * num_sequential_collateral_txs
@@ -422,30 +278,13 @@ impl ClementineVerifier for Verifier {
             )));
         }
 
-        let xonly_pk = in_stream
-            .message()
-            .await?
-            .ok_or(Status::invalid_argument("No message is received"))?
-            .response
-            .ok_or(Status::invalid_argument("No message is received"))?;
-        let xonly_pk = if let watchtower_params::Response::XonlyPk(xonly_pk) = xonly_pk {
-            xonly_pk
-        } else {
-            return Err(Status::invalid_argument("Expected x-only-pk")); // TODO: tell whats returned too
-        };
-        tracing::info!(
-            "Verifier receives watchtower xonly public key bytes: {:?}",
-            xonly_pk
-        );
-        let xonly_pk = XOnlyPublicKey::from_slice(&xonly_pk).map_err(|_| {
-            BridgeError::RPCParamMalformed("watchtower.xonly_pk", "Invalid xonly key".to_string())
-        })?;
+        let xonly_pk = parser::watchtower::parse_xonly_pk(&mut in_stream).await?;
+
         tracing::info!("Verifier receives watchtower index: {:?}", watchtower_id);
         tracing::info!(
             "Verifier receives watchtower xonly public key: {:?}",
             xonly_pk
         );
-        tracing::info!("Verifier doing this for watchtower: {:?}", watchtower_id);
         for operator_idx in 0..self.config.num_operators {
             let index = operator_idx
                 * num_sequential_collateral_txs
@@ -499,7 +338,6 @@ impl ClementineVerifier for Verifier {
     }
 
     #[tracing::instrument(skip(self), err(level = tracing::Level::ERROR), ret(level = tracing::Level::TRACE))]
-    #[allow(clippy::blocks_in_conditions)]
     async fn nonce_gen(
         &self,
         req: Request<NonceGenRequest>,
@@ -511,11 +349,12 @@ impl ClementineVerifier for Verifier {
                 let (sec_nonce, pub_nonce) = musig2::nonce_pair(
                     &self.signer.keypair,
                     &mut bitcoin::secp256k1::rand::thread_rng(),
-                )
-                .unwrap();
-                (sec_nonce, pub_nonce)
+                )?;
+                Ok((sec_nonce, pub_nonce))
             })
-            .unzip();
+            .collect::<Result<Vec<(MusigSecNonce, MusigPubNonce)>, BridgeError>>()?
+            .into_iter()
+            .unzip(); // TODO: fix extra copies
 
         let session = NonceSession { nonces: sec_nonces };
 
@@ -533,27 +372,21 @@ impl ClementineVerifier for Verifier {
             num_nonces: num_nonces as u32,
         };
 
-        // now stream the nonces
-        let (tx, rx) = mpsc::channel(1280);
+        let (tx, rx) = mpsc::channel(pub_nonces.len() + 1);
         tokio::spawn(async move {
             // First send the session id
-            let response = NonceGenResponse {
-                response: Some(nonce_gen_response::Response::FirstResponse(
-                    nonce_gen_first_response,
-                )),
-            };
-            tx.send(Ok(response)).await.unwrap();
+            let session_id: NonceGenResponse = nonce_gen_first_response.into();
+            tx.send(Ok(session_id)).await?;
 
             // Then send the public nonces
             for pub_nonce in &pub_nonces[..] {
-                let response = NonceGenResponse {
-                    response: Some(nonce_gen_response::Response::PubNonce(
-                        pub_nonce.serialize().to_vec(),
-                    )),
-                };
-                tx.send(Ok(response)).await.unwrap();
+                let pub_nonce: NonceGenResponse = pub_nonce.into();
+                tx.send(Ok(pub_nonce)).await?;
             }
+
+            Ok::<(), SendError<_>>(())
         });
+
         Ok(Response::new(ReceiverStream::new(rx)))
     }
 
@@ -562,26 +395,13 @@ impl ClementineVerifier for Verifier {
         req: Request<Streaming<VerifierDepositSignParams>>,
     ) -> Result<Response<Self::DepositSignStream>, Status> {
         let mut in_stream = req.into_inner();
-
-        let (tx, rx) = mpsc::channel(1280);
-
-        tracing::info!("Received deposit sign request");
-
         let verifier = self.clone();
 
-        tokio::spawn(async move {
-            let first_message = in_stream
-                .message()
-                .await
-                .unwrap()
-                .ok_or(Status::internal("No first message received"))
-                .unwrap();
+        let (tx, rx) = mpsc::channel(1280);
+        let error_tx = tx.clone();
 
-            // Parse the first message
-            let params = first_message
-                .params
-                .ok_or(Status::internal("No deposit outpoint received"))
-                .unwrap();
+        let handle = tokio::spawn(async move {
+            let params = fetch_next_message_from_stream!(in_stream, params)?;
 
             let (
                 deposit_outpoint,
@@ -592,16 +412,14 @@ impl ClementineVerifier for Verifier {
             ) = match params {
                 clementine::verifier_deposit_sign_params::Params::DepositSignFirstParam(
                     deposit_sign_session,
-                ) => get_deposit_params(deposit_sign_session, verifier.idx).unwrap(),
-                _ => panic!("Expected DepositOutpoint"),
+                ) => parser::verifier::parse_deposit_params(deposit_sign_session, verifier.idx)?,
+                _ => return Err(Status::invalid_argument("Expected DepositOutpoint")),
             };
 
             let mut session_map = verifier.nonces.lock().await;
-            let session = session_map
-                .sessions
-                .get_mut(&session_id)
-                .ok_or_else(|| Status::internal(format!("Could not find session id {session_id}")))
-                .unwrap();
+            let session = session_map.sessions.get_mut(&session_id).ok_or_else(|| {
+                Status::internal(format!("Could not find session id {session_id}"))
+            })?;
             session.nonces.reverse();
 
             let mut nonce_idx: usize = 0;
@@ -627,19 +445,22 @@ impl ClementineVerifier for Verifier {
                 "Expected nonce count to be num_required_sigs + 1 (movetx)"
             );
 
-            while let Some(result) = in_stream.message().await.unwrap() {
-                let agg_nonce = match result
-                    .params
-                    .ok_or(Status::internal("No agg nonce received"))
-                    .unwrap()
-                {
+            while let Some(result) =
+                fetch_next_optional_message_from_stream!(&mut in_stream, params)
+            {
+                let agg_nonce = match result {
                     clementine::verifier_deposit_sign_params::Params::AggNonce(agg_nonce) => {
-                        MusigAggNonce::from_slice(agg_nonce.as_slice()).unwrap()
+                        MusigAggNonce::from_slice(agg_nonce.as_slice()).map_err(|e| {
+                            BridgeError::RPCParamMalformed("AggNonce".to_string(), e.to_string())
+                        })?
                     }
-                    _ => panic!("Expected AggNonce"),
+                    _ => return Err(Status::invalid_argument("Expected AggNonce")),
                 };
 
-                let sighash = sighash_stream.next().await.unwrap().unwrap();
+                let sighash = sighash_stream
+                    .next()
+                    .await
+                    .ok_or(Status::internal("No sighash received"))??;
                 tracing::debug!("Verifier {} found sighash: {:?}", verifier.idx, sighash);
 
                 let nonce = session.nonces.pop().expect("No nonce available");
@@ -650,14 +471,17 @@ impl ClementineVerifier for Verifier {
                     agg_nonce,
                     verifier.signer.keypair,
                     Message::from_digest(*sighash.as_byte_array()),
-                )
-                .unwrap();
+                )?;
 
                 tx.send(Ok(PartialSig {
                     partial_sig: partial_sig.serialize().to_vec(),
                 }))
                 .await
-                .unwrap();
+                .map_err(|e| {
+                    Status::aborted(format!(
+                        "Error sending partial sig, stream ended prematurely: {e}"
+                    ))
+                })?;
 
                 nonce_idx += 1;
                 if nonce_idx == num_required_sigs {
@@ -666,9 +490,24 @@ impl ClementineVerifier for Verifier {
             }
 
             // Drop all the nonces except the last one, to avoid reusing the nonces.
-            let last_nonce = session.nonces.pop().unwrap();
+            let last_nonce = session
+                .nonces
+                .pop()
+                .ok_or(Status::internal("No last nonce available"))?;
             session.nonces.clear();
             session.nonces.push(last_nonce);
+
+            Ok::<(), Status>(())
+        });
+
+        // Background task to handle the error case where the background task fails, notifies caller
+        tokio::spawn(async move {
+            if let Ok(Err(bg_err)) = handle.await {
+                let ret_res = error_tx.send(Err(bg_err)).await;
+                if let Err(SendError(Err(e))) = ret_res {
+                    tracing::error!("deposit_sign background task failed and the return stream ended prematurely:\n\n Background task error: {e}");
+                }
+            }
         });
 
         let out_stream: Self::DepositSignStream = ReceiverStream::new(rx);
@@ -679,7 +518,6 @@ impl ClementineVerifier for Verifier {
     /// operator signatures. It will receive data from the stream in this order -> nofn sigs, movetx agg nonce, operator sigs.
     /// If everything is correct, it will partially sign the move tx and send it to aggregator.
     #[tracing::instrument(skip(self), err(level = tracing::Level::ERROR), ret(level = tracing::Level::TRACE))]
-    #[allow(clippy::blocks_in_conditions)]
     async fn deposit_finalize(
         &self,
         req: Request<Streaming<VerifierDepositFinalizeParams>>,
@@ -687,19 +525,12 @@ impl ClementineVerifier for Verifier {
         use clementine::verifier_deposit_finalize_params::Params;
         let mut in_stream = req.into_inner();
 
-        let first_message = in_stream
-            .message()
-            .await?
-            .ok_or(Status::internal("No first message received"))?;
+        let params = fetch_next_message_from_stream!(in_stream, params)?;
 
-        // Parse the first message
         let (deposit_outpoint, evm_address, recovery_taproot_address, user_takes_after, session_id) =
-            match first_message
-                .params
-                .ok_or(Status::internal("No deposit outpoint received"))?
-            {
+            match params {
                 Params::DepositSignFirstParam(deposit_sign_session) => {
-                    get_deposit_params(deposit_sign_session, self.idx)?
+                    parser::verifier::parse_deposit_params(deposit_sign_session, self.idx)?
                 }
                 _ => Err(Status::internal("Expected DepositOutpoint"))?,
             };
@@ -724,21 +555,19 @@ impl ClementineVerifier for Verifier {
 
         let mut nonce_idx: usize = 0;
 
-        while let Some(result) = in_stream.message().await.unwrap() {
-            let sighash = sighash_stream.next().await.unwrap().unwrap();
-            let final_sig = result
-                .params
-                .ok_or(Status::internal("No final sig received"))?;
-            let final_sig = match final_sig {
-                Params::SchnorrSig(final_sig) => {
-                    schnorr::Signature::from_slice(&final_sig).unwrap()
-                }
-                _ => return Err(Status::internal("Expected FinalSig")),
-            };
+        while let Some(sig) =
+            parser::verifier::parse_next_deposit_finalize_param_schnorr_sig(&mut in_stream).await?
+        {
+            let sighash = sighash_stream
+                .next()
+                .await
+                .ok_or_else(sighash_stream_ended_prematurely)?
+                .map_err(Into::into)
+                .map_err(sighash_stream_failed)?;
 
             tracing::debug!("Verifying Final Signature");
             utils::SECP
-                .verify_schnorr(&final_sig, &Message::from(sighash), &self.nofn_xonly_pk)
+                .verify_schnorr(&sig, &Message::from(sighash), &self.nofn_xonly_pk)
                 .map_err(|x| {
                     Status::internal(format!(
                         "Nofn Signature {} Verification Failed: {}.",
@@ -747,7 +576,7 @@ impl ClementineVerifier for Verifier {
                     ))
                 })?;
 
-            verified_sigs.push(final_sig);
+            verified_sigs.push(sig);
             tracing::debug!("Final Signature Verified");
 
             nonce_idx += 1;
@@ -780,15 +609,17 @@ impl ClementineVerifier for Verifier {
             bitcoin::TapSighashType::Default,
         )?;
 
-        let agg_nonce = match in_stream.message().await.unwrap().unwrap().params.unwrap() {
-            Params::MoveTxAggNonce(aggnonce) => MusigAggNonce::from_slice(&aggnonce)
-                .map_err(|e| Status::internal(format!("Invalid aggregate nonce: {}", e)))?,
-            _ => Err(Status::internal("Expected MoveTxAggNonce"))?,
-        };
+        let agg_nonce =
+            parser::verifier::parse_deposit_finalize_param_agg_nonce(&mut in_stream).await?;
 
         let movetx_secnonce = {
             let mut session_map = self.nonces.lock().await;
-            let session = session_map.sessions.get_mut(&session_id).unwrap();
+            let session = session_map.sessions.get_mut(&session_id).ok_or_else(|| {
+                Status::internal(format!(
+                    "could not find session with id {} in session cache",
+                    session_id
+                ))
+            })?;
             session
                 .nonces
                 .pop()
@@ -837,35 +668,27 @@ impl ClementineVerifier for Verifier {
                 self.config.bridge_amount_sats,
                 self.config.network,
             ));
-            while let Some(result) = in_stream.message().await? {
-                let sighash = sighash_stream.next().await.unwrap()?;
-                let operator_sig = result
-                    .params
-                    .ok_or(Status::internal("No operator sig received"))?;
-                let final_sig = match operator_sig {
-                    Params::SchnorrSig(final_sig) => {
-                        schnorr::Signature::from_slice(&final_sig).unwrap()
-                    }
-                    _ => {
-                        return Err(Status::internal(format!(
-                            "Expected Operator Sig, got: {:?}",
-                            operator_sig
-                        )))
-                    }
-                };
+            while let Some(operator_sig) =
+                parser::verifier::parse_next_deposit_finalize_param_schnorr_sig(&mut in_stream)
+                    .await?
+            {
+                let sighash = sighash_stream
+                    .next()
+                    .await
+                    .ok_or_else(sighash_stream_ended_prematurely)??;
 
                 utils::SECP
-                    .verify_schnorr(&final_sig, &Message::from(sighash), &tweaked_op_xonly_pk)
+                    .verify_schnorr(&operator_sig, &Message::from(sighash), &tweaked_op_xonly_pk)
                     .map_err(|x| {
                         Status::internal(format!(
-                            "Operator {} Signature {} Verification Failed: {}.",
+                            "Operator {} Signature {}: verification failed: {}.",
                             operator_idx,
                             op_sig_count + 1,
                             x
                         ))
                     })?;
 
-                op_deposit_sigs[operator_idx].push(final_sig);
+                op_deposit_sigs[operator_idx].push(operator_sig);
 
                 op_sig_count += 1;
                 total_op_sig_count += 1;
@@ -883,14 +706,15 @@ impl ClementineVerifier for Verifier {
         }
 
         // sign move tx and save everything to db if everything is correct
-        let partial_sig = musig2::partial_sign(
+        let partial_sig: PartialSig = musig2::partial_sign(
             self.config.verifiers_public_keys.clone(),
             None,
             movetx_secnonce,
             agg_nonce,
             self.signer.keypair,
             Message::from_digest(move_tx_sighash.to_byte_array()),
-        )?;
+        )?
+        .into();
 
         // Deposit is not actually finalized here, its only finalized after the aggregator gets all the partial sigs and checks the aggregated sig
         // TODO: It can create problems if the deposit fails at the end by some verifier not sending movetx partial sig, but we still added sigs to db
@@ -900,9 +724,6 @@ impl ClementineVerifier for Verifier {
                 .await?;
         }
 
-        tracing::info!("Deposit finalized, returning partial sig");
-        Ok(Response::new(PartialSig {
-            partial_sig: partial_sig.serialize().to_vec(),
-        }))
+        Ok(Response::new(partial_sig))
     }
 }

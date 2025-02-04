@@ -32,15 +32,20 @@ pub struct NofN {
 }
 
 impl NofN {
-    pub fn new(self_pk: secp256k1::PublicKey, public_keys: Vec<secp256k1::PublicKey>) -> Self {
-        let idx = public_keys.iter().position(|pk| pk == &self_pk).unwrap();
-        let agg_xonly_pk =
-            secp256k1::XOnlyPublicKey::from_musig2_pks(public_keys.clone(), None).unwrap();
-        NofN {
+    pub fn new(
+        self_pk: secp256k1::PublicKey,
+        public_keys: Vec<secp256k1::PublicKey>,
+    ) -> Result<Self, BridgeError> {
+        let idx = public_keys
+            .iter()
+            .position(|pk| pk == &self_pk)
+            .ok_or(BridgeError::PublicKeyNotFound)?;
+        let agg_xonly_pk = secp256k1::XOnlyPublicKey::from_musig2_pks(public_keys.clone(), None)?;
+        Ok(NofN {
             public_keys,
             agg_xonly_pk,
             idx,
-        }
+        })
     }
 }
 
@@ -77,8 +82,7 @@ impl Verifier {
         let db = Database::new(&config).await?;
 
         let nofn_xonly_pk =
-            secp256k1::XOnlyPublicKey::from_musig2_pks(config.verifiers_public_keys.clone(), None)
-                .unwrap();
+            secp256k1::XOnlyPublicKey::from_musig2_pks(config.verifiers_public_keys.clone(), None)?;
 
         let operator_xonly_pks = config.operators_xonly_pks.clone();
 
@@ -91,7 +95,7 @@ impl Verifier {
 
         let nofn = if !verifiers_pks.is_empty() {
             tracing::debug!("Verifiers public keys found: {:?}", verifiers_pks);
-            let nofn = NofN::new(signer.public_key, verifiers_pks);
+            let nofn = NofN::new(signer.public_key, verifiers_pks)?;
             Some(nofn)
         } else {
             None
@@ -807,7 +811,7 @@ impl Verifier {
 // #[tokio::test]
 // async fn verifier_new_public_key_check() {
 //     let mut config = create_test_config_with_thread_name!(None);
-//     let rpc = ExtendedRpc::new(
+//     let rpc = ExtendedRpc::connect(
 //         config.bitcoin_rpc_url.clone(),
 //         config.bitcoin_rpc_user.clone(),
 //         config.bitcoin_rpc_password.clone(),
@@ -815,7 +819,7 @@ impl Verifier {
 //     .await;
 
 //     // Test config file has correct keys.
-//     Verifier::new(rpc.clone(), config.clone()).await.unwrap();
+//     Verifier::new(rpc.clone_inner().await.unwrap(), config.clone()).await.unwrap();
 
 //     // Clearing them should result in error.
 //     config.verifiers_public_keys.clear();
@@ -826,13 +830,13 @@ impl Verifier {
 // #[serial_test::serial]
 // async fn new_deposit_nonce_checks() {
 //     let config = create_test_config_with_thread_name!(None);
-//     let rpc = ExtendedRpc::new(
+//     let rpc = ExtendedRpc::connect(
 //         config.bitcoin_rpc_url.clone(),
 //         config.bitcoin_rpc_user.clone(),
 //         config.bitcoin_rpc_password.clone(),
 //     )
 //     .await;
-//     let verifier = Verifier::new(rpc.clone(), config.clone()).await.unwrap();
+//     let verifier = Verifier::new(rpc.clone_inner().await.unwrap(), config.clone()).await.unwrap();
 
 //     let evm_address = EVMAddress([1u8; 20]);
 //     let deposit_address = get_deposit_address(config, evm_address).unwrap(); This line needs to be converted into get_deposit_address!

@@ -32,7 +32,13 @@ fn compile_protobuf() {
 
     let proto_files: Vec<String> = protos
         .iter()
-        .map(|proto| proto_root.join(proto).to_str().unwrap().to_owned())
+        .map(|proto| {
+            proto_root
+                .join(proto)
+                .to_str()
+                .expect("proto_root is not a valid path")
+                .to_owned()
+        })
         .collect();
 
     // Tell Cargo that if a proto file changes, rerun this build script.
@@ -45,8 +51,11 @@ fn compile_protobuf() {
         .build_server(true)
         .build_client(true)
         .out_dir("./src/rpc")
-        .compile_protos(&proto_files, &[proto_root.to_str().unwrap()])
-        .unwrap();
+        .compile_protos(
+            &proto_files,
+            &[proto_root.to_str().expect("proto_root is not a valid path")],
+        )
+        .expect("Failed to compile protos");
 }
 
 fn main() {

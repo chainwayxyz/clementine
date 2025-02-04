@@ -23,9 +23,7 @@ pub fn create_kickoff_txhandler(
 ) -> Result<TxHandler, BridgeError> {
     let mut builder = TxHandlerBuilder::new();
     builder = builder.add_input(
-        sequential_collateral_txhandler
-            .get_spendable_output(2 + kickoff_idx)
-            .unwrap(),
+        sequential_collateral_txhandler.get_spendable_output(2 + kickoff_idx)?,
         DEFAULT_SEQUENCE,
     );
 
@@ -38,7 +36,10 @@ pub fn create_kickoff_txhandler(
     ));
 
     let operator_1week = Arc::new(TimelockScript::new(Some(operator_xonly_pk), 7 * 24 * 6));
-    let operator_2_5_week = Arc::new(TimelockScript::new(Some(operator_xonly_pk), 7 * 24 * 6 / 2 * 5));
+    let operator_2_5_week = Arc::new(TimelockScript::new(
+        Some(operator_xonly_pk),
+        7 * 24 * 6 / 2 * 5,
+    ));
     let nofn_3week = Arc::new(TimelockScript::new(Some(nofn_xonly_pk), 3 * 7 * 24 * 6));
 
     builder = builder
@@ -85,13 +86,10 @@ pub fn create_start_happy_reimburse_txhandler(
 ) -> Result<TxHandler, BridgeError> {
     let mut builder = TxHandlerBuilder::new();
     builder = builder.add_input(
-        kickoff_txhandler.get_spendable_output(1).unwrap(),
+        kickoff_txhandler.get_spendable_output(1)?,
         Sequence::from_height(7 * 24 * 6),
     );
-    builder = builder.add_input(
-        kickoff_txhandler.get_spendable_output(3).unwrap(),
-        DEFAULT_SEQUENCE,
-    );
+    builder = builder.add_input(kickoff_txhandler.get_spendable_output(3)?, DEFAULT_SEQUENCE);
 
     Ok(builder
         .add_output(UnspentTxOut::from_scripts(
@@ -115,30 +113,19 @@ pub fn create_happy_reimburse_txhandler(
 ) -> Result<TxHandler, BridgeError> {
     let mut builder = TxHandlerBuilder::new();
     builder = builder
+        .add_input(move_txhandler.get_spendable_output(0)?, DEFAULT_SEQUENCE)
         .add_input(
-            move_txhandler.get_spendable_output(0).unwrap(),
+            start_happy_reimburse_txhandler.get_spendable_output(0)?,
             DEFAULT_SEQUENCE,
         )
         .add_input(
-            start_happy_reimburse_txhandler
-                .get_spendable_output(0)
-                .unwrap(),
-            DEFAULT_SEQUENCE,
-        )
-        .add_input(
-            reimburse_generator_txhandler
-                .get_spendable_output(1 + kickoff_idx)
-                .unwrap(),
+            reimburse_generator_txhandler.get_spendable_output(1 + kickoff_idx)?,
             DEFAULT_SEQUENCE,
         );
 
     Ok(builder
         .add_output(UnspentTxOut::from_partial(TxOut {
-            value: move_txhandler
-                .get_spendable_output(0)
-                .unwrap()
-                .get_prevout()
-                .value,
+            value: move_txhandler.get_spendable_output(0)?.get_prevout().value,
             script_pubkey: operator_reimbursement_address.script_pubkey(),
         }))
         .add_output(UnspentTxOut::from_partial(builder::script::anchor_output()))
@@ -155,28 +142,19 @@ pub fn create_reimburse_txhandler(
     operator_reimbursement_address: &bitcoin::Address,
 ) -> Result<TxHandler, BridgeError> {
     let builder = TxHandlerBuilder::new()
+        .add_input(move_txhandler.get_spendable_output(0)?, DEFAULT_SEQUENCE)
         .add_input(
-            move_txhandler.get_spendable_output(0).unwrap(),
+            disprove_timeout_txhandler.get_spendable_output(0)?,
             DEFAULT_SEQUENCE,
         )
         .add_input(
-            disprove_timeout_txhandler.get_spendable_output(0).unwrap(),
-            DEFAULT_SEQUENCE,
-        )
-        .add_input(
-            reimburse_generator_txhandler
-                .get_spendable_output(1 + kickoff_idx)
-                .unwrap(),
+            reimburse_generator_txhandler.get_spendable_output(1 + kickoff_idx)?,
             DEFAULT_SEQUENCE,
         );
 
     Ok(builder
         .add_output(UnspentTxOut::from_partial(TxOut {
-            value: move_txhandler
-                .get_spendable_output(0)
-                .unwrap()
-                .get_prevout()
-                .value,
+            value: move_txhandler.get_spendable_output(0)?.get_prevout().value,
             script_pubkey: operator_reimbursement_address.script_pubkey(),
         }))
         .add_output(UnspentTxOut::from_partial(builder::script::anchor_output()))

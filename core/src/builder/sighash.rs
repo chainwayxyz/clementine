@@ -72,7 +72,7 @@ pub fn create_nofn_sighash_stream(
         let operators: Vec<(XOnlyPublicKey, bitcoin::Address, Txid)> =
             db.get_operators(None).await?;
         if operators.len() < config.num_operators {
-            panic!("Not enough operators");
+            Err(BridgeError::NotEnoughOperators)?;
         }
 
         for (operator_idx, (operator_xonly_pk, operator_reimburse_address, collateral_funding_txid)) in
@@ -473,12 +473,13 @@ mod tests {
     async fn calculate_num_required_nofn_sigs() {
         let config = create_test_config_with_thread_name!(None);
         let db = Database::new(&config).await.unwrap();
-        let rpc = ExtendedRpc::new(
+        let rpc = ExtendedRpc::connect(
             config.bitcoin_rpc_url.clone(),
             config.bitcoin_rpc_user.clone(),
             config.bitcoin_rpc_password.clone(),
         )
-        .await;
+        .await
+        .unwrap();
 
         let operator = Operator::new(config.clone(), rpc).await.unwrap();
         let watchtower = Watchtower::new(config.clone()).await.unwrap();

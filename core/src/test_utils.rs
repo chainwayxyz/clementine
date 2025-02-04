@@ -169,12 +169,13 @@ macro_rules! initialize_database {
 macro_rules! create_actors {
     ($config:expr) => {{
         let start_port = $config.port;
-        let rpc = ExtendedRpc::new(
+        let rpc = ExtendedRpc::connect(
             $config.bitcoin_rpc_url.clone(),
             $config.bitcoin_rpc_user.clone(),
             $config.bitcoin_rpc_password.clone(),
         )
-        .await;
+        .await
+        .unwrap();
         let all_verifiers_secret_keys =
             $config
                 .all_verifiers_secret_keys

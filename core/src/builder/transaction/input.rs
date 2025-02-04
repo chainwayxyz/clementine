@@ -9,44 +9,6 @@ use thiserror::Error;
 
 pub type BlockHeight = u16;
 
-pub struct TxInArgs(pub Vec<(OutPoint, Option<BlockHeight>)>);
-
-impl From<Vec<OutPoint>> for TxInArgs {
-    fn from(outpoints: Vec<OutPoint>) -> TxInArgs {
-        TxInArgs(
-            outpoints
-                .into_iter()
-                .map(|outpoint| (outpoint, None))
-                .collect(),
-        )
-    }
-}
-
-impl From<Vec<(OutPoint, Option<BlockHeight>)>> for TxInArgs {
-    fn from(value: Vec<(OutPoint, Option<BlockHeight>)>) -> TxInArgs {
-        TxInArgs(value)
-    }
-}
-
-/// Creates a Vec of TxIn from a TxInArgs (helper struct to represent args)
-/// If only a Vec of OutPoints are provided there are no relative locktimes
-/// If at least one TxIn requires a locktime, a Vec of (OutPoint, Option<u16>) is required
-/// Option represents Some(locktime) or None if there is no locktime for that TxIn
-pub fn create_tx_ins(tx_in_args: TxInArgs) -> Vec<TxIn> {
-    tx_in_args
-        .0
-        .into_iter()
-        .map(|(outpoint, height)| TxIn {
-            previous_output: outpoint,
-            sequence: height
-                .map(Sequence::from_height)
-                .unwrap_or(Sequence::ENABLE_RBF_NO_LOCKTIME),
-            script_sig: ScriptBuf::default(),
-            witness: Witness::new(),
-        })
-        .collect()
-}
-
 #[derive(Debug, Clone)]
 pub struct SpendableTxIn {
     /// The reference to the previous output that is being used as an input.
@@ -117,7 +79,8 @@ impl SpendableTxIn {
         spendinfo: Option<TaprootSpendInfo>,
     ) -> SpendableTxIn {
         if cfg!(debug_assertions) {
-            return Self::from_checked(previous_output, prevout, scripts, spendinfo).unwrap();
+            return Self::from_checked(previous_output, prevout, scripts, spendinfo)
+                .expect("failed to construct a spendabletxin in debug mode");
         }
 
         Self::from_unchecked(previous_output, prevout, scripts, spendinfo)
@@ -132,6 +95,8 @@ impl SpendableTxIn {
     }
     pub fn set_spend_info(&mut self, spendinfo: Option<TaprootSpendInfo>) {
         self.spendinfo = spendinfo;
+        #[cfg(debug_assertions)]
+        self.check().expect("spendinfo is invalid in debug mode");
     }
 
     fn check(&self) -> Result<(), SpendableTxInError> {

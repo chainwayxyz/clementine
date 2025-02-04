@@ -64,6 +64,7 @@ impl Database {
             .collect())
     }
 
+    /// TODO: wallet_address should have `Address` type.
     pub async fn set_operator(
         &self,
         tx: Option<DatabaseTransaction<'_, '_>>,
@@ -235,8 +236,10 @@ impl Database {
         match result {
             Ok((txid, raw_signed_tx, cur_unused_kickoff_index)) => {
                 // Deserialize the transaction
-                let tx: bitcoin::Transaction =
-                    bitcoin::consensus::deserialize(&hex::decode(raw_signed_tx).unwrap())?;
+                //
+                let tx: bitcoin::Transaction = bitcoin::consensus::deserialize(
+                    &hex::decode(raw_signed_tx).map_err(|e| BridgeError::Error(e.to_string()))?,
+                )?;
 
                 // Create the outpoint and txout
                 let outpoint = OutPoint {
@@ -1121,12 +1124,13 @@ mod tests {
     async fn set_get_operator_winternitz_public_keys() {
         let config = create_test_config_with_thread_name!(None);
         let database = Database::new(&config).await.unwrap();
-        let rpc = ExtendedRpc::new(
+        let rpc = ExtendedRpc::connect(
             config.bitcoin_rpc_url.clone(),
             config.bitcoin_rpc_user.clone(),
             config.bitcoin_rpc_password.clone(),
         )
-        .await;
+        .await
+        .unwrap();
 
         let operator = Operator::new(config, rpc).await.unwrap();
         let operator_idx = 0x45;
