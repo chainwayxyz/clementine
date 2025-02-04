@@ -1,6 +1,5 @@
 use super::clementine::{
     clementine_watchtower_server::ClementineWatchtower, watchtower_params, Empty, WatchtowerParams,
-    WinternitzPubkey,
 };
 use crate::watchtower::Watchtower;
 use tokio::sync::mpsc::{self, error::SendError};
@@ -16,15 +15,13 @@ impl ClementineWatchtower for Watchtower {
         &self,
         _request: Request<Empty>,
     ) -> Result<Response<Self::GetParamsStream>, Status> {
-        let winternitz_pubkeys = self
-            .get_watchtower_winternitz_public_keys()
-            .await?
-            .into_iter()
-            .map(From::from)
-            .collect::<Vec<WinternitzPubkey>>();
         let watchtower = self.clone();
+        let watchtower_winternitz_public_keys =
+            watchtower.get_watchtower_winternitz_public_keys().await?;
 
         let (tx, rx) = mpsc::channel(1280);
+        let out_stream: Self::GetParamsStream = ReceiverStream::new(rx);
+
         tokio::spawn(async move {
             tx.send(Ok(WatchtowerParams {
                 response: Some(watchtower_params::Response::WatchtowerId(
@@ -33,37 +30,23 @@ impl ClementineWatchtower for Watchtower {
             }))
             .await?;
 
-            for wpk in winternitz_pubkeys {
-                tx.send(Ok(WatchtowerParams {
-                    response: Some(watchtower_params::Response::WinternitzPubkeys(wpk)),
-                }))
-                .await?;
+            for wpk in watchtower_winternitz_public_keys {
+                let wpk: WatchtowerParams = wpk.into();
+                tx.send(Ok(wpk)).await?;
             }
 
             tracing::info!(
-                "Watchtower gives watchtower xonly public key: {:?}",
-                watchtower.actor.xonly_public_key
-            );
-            tracing::info!(
-                "Watchtower gives watchtower index: {:?}",
+                "Watchtower gives watchtower xonly public key {:?} for index {}",
+                watchtower.actor.xonly_public_key,
                 watchtower.config.index
             );
-            let xonly_pk = watchtower.actor.xonly_public_key.serialize().to_vec();
 
-            tracing::info!(
-                "Watchtower gives watchtower xonly public key bytes: {:?}",
-                xonly_pk
-            );
-
-            tx.send(Ok(WatchtowerParams {
-                response: Some(watchtower_params::Response::XonlyPk(xonly_pk)),
-            }))
-            .await?;
+            let xonly_pk: WatchtowerParams = watchtower.actor.xonly_public_key.into();
+            tx.send(Ok(xonly_pk)).await?;
 
             Ok::<(), SendError<_>>(())
         });
 
-        let out_stream: Self::GetParamsStream = ReceiverStream::new(rx);
         Ok(Response::new(out_stream))
     }
 }

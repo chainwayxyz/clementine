@@ -6,8 +6,28 @@ use crate::{
     },
 };
 use bitcoin::XOnlyPublicKey;
-use bitvm::signatures::winternitz::PublicKey as WinternitzPublicKey;
+use bitvm::signatures::winternitz::{self, PublicKey as WinternitzPublicKey};
 use tonic::Status;
+
+impl From<winternitz::PublicKey> for WatchtowerParams {
+    fn from(value: winternitz::PublicKey) -> Self {
+        let wpk = value.into();
+
+        WatchtowerParams {
+            response: Some(watchtower_params::Response::WinternitzPubkeys(wpk)),
+        }
+    }
+}
+
+impl From<XOnlyPublicKey> for WatchtowerParams {
+    fn from(value: XOnlyPublicKey) -> Self {
+        let xonly_pk = value.serialize().to_vec();
+
+        WatchtowerParams {
+            response: Some(watchtower_params::Response::XonlyPk(xonly_pk)),
+        }
+    }
+}
 
 pub async fn parse_id(stream: &mut tonic::Streaming<WatchtowerParams>) -> Result<u32, Status> {
     let watchtower_param = fetch_next_message_from_stream!(stream, response, "response")?;
