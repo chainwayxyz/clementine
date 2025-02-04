@@ -4,16 +4,94 @@
 //! scripts.
 
 use crate::constants::ANCHOR_AMOUNT;
-use crate::EVMAddress;
+use crate::musig2::to_secp_pk;
+use crate::{utils, EVMAddress};
 use bitcoin::blockdata::opcodes::all::OP_PUSHNUM_1;
 use bitcoin::opcodes::OP_TRUE;
-use bitcoin::Amount;
+use bitcoin::secp256k1::schnorr;
 use bitcoin::{
     opcodes::{all::*, OP_FALSE},
     script::Builder,
     ScriptBuf, TxOut, XOnlyPublicKey,
 };
+use bitcoin::{Amount, Witness};
+use std::any::Any;
 
+pub trait SpendableScript: Send + Sync + 'static + std::fmt::Debug + std::any::Any {
+    fn as_any(&self) -> &dyn Any;
+}
+
+#[derive(Debug, Clone)]
+struct OtherSpendable(ScriptBuf);
+
+impl SpendableScript for OtherSpendable {
+    fn as_any(&self) -> &dyn Any {
+        self
+    }
+}
+
+impl OtherSpendable {
+    fn into_script_buf(self) -> ScriptBuf {
+        self.0
+    }
+
+    fn as_script(&self) -> &ScriptBuf {
+        &self.0
+    }
+
+    fn get_witness(&self, witness: Witness) -> Witness {
+        witness
+    }
+}
+
+#[derive(Debug, Clone)]
+struct CheckSig(XOnlyPublicKey);
+impl SpendableScript for CheckSig {
+    fn as_any(&self) -> &dyn Any {
+        self
+    }
+}
+
+impl CheckSig {
+    fn into_script_buf(self) -> ScriptBuf {
+        Builder::new()
+            .push_x_only_key(&self.0)
+            .push_opcode(OP_CHECKSIG)
+            .into_script()
+    }
+
+    fn get_witness(&self, signature: schnorr::Signature) -> Witness {
+        Witness::from_slice(&[signature.serialize()])
+    }
+}
+
+fn get_script_from_arr<T: SpendableScript>(
+    arr: &Vec<Box<dyn SpendableScript>>,
+) -> Option<(usize, &T)> {
+    arr.iter()
+        .enumerate()
+        .find_map(|(i, x)| x.as_any().downcast_ref::<T>().map(|x| (i, x)))
+}
+
+#[test]
+fn test_dynamic_casting() {
+    let scripts: Vec<Box<dyn SpendableScript>> = vec![
+        Box::new(OtherSpendable(ScriptBuf::from_hex("51").expect(""))),
+        Box::new(CheckSig(utils::UNSPENDABLE_XONLY_PUBKEY.clone())),
+    ];
+
+    let otherspendable = scripts
+        .get(0)
+        .expect("")
+        .as_any()
+        .downcast_ref::<OtherSpendable>()
+        .expect("");
+
+    let checksig = get_script_from_arr::<CheckSig>(&scripts).expect("");
+    println!("{:?}", otherspendable);
+    println!("{:?}", checksig);
+    ()
+}
 /// Creates a P2WSH output that anyone can spend. TODO: We will not need this in the future.
 pub fn anyone_can_spend_txout() -> TxOut {
     let script = Builder::new().push_opcode(OP_PUSHNUM_1).into_script();

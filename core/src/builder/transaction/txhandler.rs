@@ -1,8 +1,16 @@
+use crate::builder::script::SpendableScript;
+use crate::database::Database;
 use crate::errors::BridgeError;
+use bitcoin::secp256k1::schnorr;
 use bitcoin::sighash::SighashCache;
+use bitcoin::taproot::LeafVersion;
 use bitcoin::taproot::{self, LeafVersion};
 use bitcoin::transaction::Version;
+use bitcoin::Witness;
 use bitcoin::{absolute, OutPoint, Script, Sequence, Transaction, Witness};
+use bitcoin::{
+    taproot::TaprootSpendInfo, ScriptBuf, TapLeafHash, TapSighash, TapSighashType, TxOut, Txid,
+};
 use bitcoin::{TapLeafHash, TapSighash, TapSighashType, TxOut, Txid};
 use std::marker::PhantomData;
 
@@ -347,4 +355,23 @@ impl TxHandlerBuilder {
     pub fn finalize_signed(self) -> Result<TxHandler<Signed>, BridgeError> {
         self.finalize().promote()
     }
+
+    // pub fn spend<U: SpendableScript, T: FnOnce(U) -> Witness>(
+    //     &mut self,
+    //     txin_index: usize,
+    //     script_index: usize,
+    //     witness_fn: T,
+    // ) -> Result<(), BridgeError> {
+    //     let spendable = self
+    //         .prev_scripts
+    //         .get(txin_index)
+    //         .ok_or(BridgeError::NoScriptsForTxIn(txin_index))?
+    //         .get(script_index)
+    //         .ok_or(BridgeError::NoScriptAtIndex(script_index))?
+    //         .downcast::<U>()
+    //         .map_err(|_| BridgeError::ScriptTypeMismatch)?;
+    //     let witness = witness_fn(spendable);
+    //     self.tx.input_mut(txin_index).witness = witness;
+    //     Ok(())
+    // }
 }
