@@ -90,7 +90,8 @@ impl SpendableTxIn {
         spendinfo: Option<TaprootSpendInfo>,
     ) -> SpendableTxIn {
         if cfg!(debug_assertions) {
-            return Self::from_checked(previous_output, prevout, scripts, spendinfo).unwrap();
+            return Self::from_checked(previous_output, prevout, scripts, spendinfo)
+                .expect("failed to construct a spendabletxin in debug mode");
         }
 
         Self::from_unchecked(previous_output, prevout, scripts, spendinfo)
@@ -106,7 +107,7 @@ impl SpendableTxIn {
     pub fn set_spend_info(&mut self, spendinfo: Option<TaprootSpendInfo>) {
         self.spendinfo = spendinfo;
         #[cfg(debug_assertions)]
-        self.check().unwrap();
+        self.check().expect("spendinfo is invalid in debug mode");
     }
 
     fn check(&self) -> Result<(), SpendableTxInError> {

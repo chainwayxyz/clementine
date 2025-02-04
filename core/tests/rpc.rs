@@ -10,7 +10,7 @@ mod common;
 // async fn honest_operator_takes_refund() {
 //     let (_verifiers, operators, config, deposit_outpoint) =
 //         run_single_deposit("test_config.toml").await.unwrap();
-//     let rpc = ExtendedRpc::new(
+//     let rpc = ExtendedRpc::connect(
 //         config.bitcoin_rpc_url.clone(),
 //         config.bitcoin_rpc_user.clone(),
 //         config.bitcoin_rpc_password.clone(),
@@ -18,7 +18,7 @@ mod common;
 //     .await;
 
 //     let user_sk = SecretKey::from_slice(&[13u8; 32]).unwrap();
-//     let user = User::new(rpc.clone(), user_sk, config.clone());
+//     let user = User::new(rpc.clone_inner().await.unwrap(), user_sk, config.clone());
 
 //     let withdrawal_address = Address::p2tr(
 //         &SECP,
@@ -86,7 +86,7 @@ mod common;
 // #[tokio::test]
 // async fn withdrawal_fee_too_low() {
 //     let (_verifiers, operators, config, _) = run_single_deposit("test_config.toml").await.unwrap();
-//     let rpc = ExtendedRpc::new(
+//     let rpc = ExtendedRpc::connect(
 //         config.bitcoin_rpc_url.clone(),
 //         config.bitcoin_rpc_user.clone(),
 //         config.bitcoin_rpc_password.clone(),
@@ -101,7 +101,7 @@ mod common;
 //         config.network,
 //     );
 
-//     let user = User::new(rpc.clone(), user_sk, config.clone());
+//     let user = User::new(rpc.clone_inner().await.unwrap(), user_sk, config.clone());
 
 //     // We are giving too much sats to the user so that operator won't pay it.
 //     let (empty_utxo, withdrawal_tx_out, user_sig) = user

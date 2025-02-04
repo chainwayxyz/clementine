@@ -19,25 +19,25 @@ const SIGNET_ELF: &[u8; 199828] = include_bytes!("../../../scripts/signet-header
 const REGTEST_ELF: &[u8; 194128] = include_bytes!("../../../scripts/regtest-header-chain-guest");
 lazy_static! {
     static ref MAINNET_IMAGE_ID: [u32; 8] = compute_image_id(MAINNET_ELF)
-        .unwrap()
+        .expect("hardcoded ELF is valid")
         .as_words()
         .try_into()
-        .unwrap();
+        .expect("hardcoded ELF is valid");
     static ref TESTNET4_IMAGE_ID: [u32; 8] = compute_image_id(TESTNET4_ELF)
-        .unwrap()
+        .expect("hardcoded ELF is valid")
         .as_words()
         .try_into()
-        .unwrap();
+        .expect("hardcoded ELF is valid");
     static ref SIGNET_IMAGE_ID: [u32; 8] = compute_image_id(SIGNET_ELF)
-        .unwrap()
+        .expect("hardcoded ELF is valid")
         .as_words()
         .try_into()
-        .unwrap();
+        .expect("hardcoded ELF is valid");
     static ref REGTEST_IMAGE_ID: [u32; 8] = compute_image_id(REGTEST_ELF)
-        .unwrap()
+        .expect("hardcoded ELF is valid")
         .as_words()
         .try_into()
-        .unwrap();
+        .expect("hardcoded ELF is valid");
 }
 
 impl HeaderChainProver {
@@ -147,11 +147,13 @@ impl HeaderChainProver {
 
                 match receipt {
                     Ok(receipt) => {
-                        prover
+                        if let Err(e) = prover
                             .db
                             .set_block_proof(None, current_block_hash, receipt)
                             .await
-                            .unwrap();
+                        {
+                            tracing::error!("Can't save proof for header {:?}: {}", header, e);
+                        }
                     }
                     Err(e) => {
                         tracing::error!("Can't prove for header {:?}: {}", header, e)
@@ -206,13 +208,16 @@ mod tests {
     #[serial_test::parallel]
     async fn prove_block_headers_genesis() {
         let config = create_test_config_with_thread_name!(None);
-        let rpc = ExtendedRpc::new(
+        let rpc = ExtendedRpc::connect(
             config.bitcoin_rpc_url.clone(),
             config.bitcoin_rpc_user.clone(),
             config.bitcoin_rpc_password.clone(),
         )
-        .await;
-        let prover = HeaderChainProver::new(&config, rpc.clone()).await.unwrap();
+        .await
+        .unwrap();
+        let prover = HeaderChainProver::new(&config, rpc.clone_inner().await.unwrap())
+            .await
+            .unwrap();
 
         let receipt = prover.prove_block_headers(None, vec![]).unwrap();
 
@@ -230,13 +235,16 @@ mod tests {
     #[serial_test::serial]
     async fn prove_block_headers_second() {
         let config = create_test_config_with_thread_name!(None);
-        let rpc = ExtendedRpc::new(
+        let rpc = ExtendedRpc::connect(
             config.bitcoin_rpc_url.clone(),
             config.bitcoin_rpc_user.clone(),
             config.bitcoin_rpc_password.clone(),
         )
-        .await;
-        let prover = HeaderChainProver::new(&config, rpc.clone()).await.unwrap();
+        .await
+        .unwrap();
+        let prover = HeaderChainProver::new(&config, rpc.clone_inner().await.unwrap())
+            .await
+            .unwrap();
 
         // Prove genesis block and get it's receipt.
         let receipt = prover.prove_block_headers(None, vec![]).unwrap();
@@ -256,13 +264,16 @@ mod tests {
     #[serial_test::serial]
     async fn save_and_get_proof() {
         let config = create_test_config_with_thread_name!(None);
-        let rpc = ExtendedRpc::new(
+        let rpc = ExtendedRpc::connect(
             config.bitcoin_rpc_url.clone(),
             config.bitcoin_rpc_user.clone(),
             config.bitcoin_rpc_password.clone(),
         )
-        .await;
-        let prover = HeaderChainProver::new(&config, rpc.clone()).await.unwrap();
+        .await
+        .unwrap();
+        let prover = HeaderChainProver::new(&config, rpc.clone_inner().await.unwrap())
+            .await
+            .unwrap();
         let block_headers = mine_and_get_first_n_block_headers(rpc, 3).await;
 
         // Prove genesis block.

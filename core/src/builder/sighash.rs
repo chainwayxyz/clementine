@@ -72,7 +72,7 @@ pub fn create_nofn_sighash_stream(
         let operators: Vec<(XOnlyPublicKey, bitcoin::Address, Txid)> =
             db.get_operators(None).await?;
         if operators.len() < config.num_operators {
-            panic!("Not enough operators");
+            Err(BridgeError::NotEnoughOperators)?;
         }
 
         for (operator_idx, (operator_xonly_pk, operator_reimburse_address, collateral_funding_txid)) in
@@ -125,7 +125,7 @@ pub fn create_nofn_sighash_stream(
                         *move_txhandler.get_txid(),
                         operator_idx,
                         network,
-                    );
+                    )?;
 
                     // Creates the challenge_tx handler.
                     let challenge_tx = builder::transaction::create_challenge_txhandler(
@@ -144,7 +144,7 @@ pub fn create_nofn_sighash_stream(
                         &kickoff_txhandler,
                         *operator_xonly_pk,
                         network
-                    );
+                    )?;
 
                     // Yields the sighash for the start_happy_reimburse_tx.input[1], which spends kickoff_tx.output[3].
                     yield start_happy_reimburse_txhandler.calculate_pubkey_spend_sighash(
@@ -159,7 +159,7 @@ pub fn create_nofn_sighash_stream(
                         &reimburse_generator_txhandler,
                         kickoff_idx,
                         operator_reimburse_address,
-                    );
+                    )?;
 
                     // Yields the sighash for the happy_reimburse_tx.input[0], which spends move_to_vault_tx.output[0].
                     yield happy_reimburse_txhandler.calculate_pubkey_spend_sighash(
@@ -301,7 +301,7 @@ pub fn create_nofn_sighash_stream(
                         &reimburse_generator_txhandler,
                         kickoff_idx,
                         operator_reimburse_address,
-                    );
+                    )?;
 
                     // Yields the sighash for the reimburse_tx.input[0], which spends move_to_vault_tx.output[0].
                     yield reimburse_txhandler.calculate_pubkey_spend_sighash(0, None)?;
@@ -391,7 +391,7 @@ pub fn create_operator_sighash_stream(
                     *move_txhandler.get_txid(),
                     operator_idx,
                     network,
-                );
+                )?;
 
                 // Creates the kickoff_timeout_tx handler.
                 let kickoff_timeout_txhandler = builder::transaction::create_kickoff_timeout_txhandler(
@@ -475,12 +475,13 @@ mod tests {
     async fn calculate_num_required_nofn_sigs() {
         let config = create_test_config_with_thread_name!(None);
         let db = Database::new(&config).await.unwrap();
-        let rpc = ExtendedRpc::new(
+        let rpc = ExtendedRpc::connect(
             config.bitcoin_rpc_url.clone(),
             config.bitcoin_rpc_user.clone(),
             config.bitcoin_rpc_password.clone(),
         )
-        .await;
+        .await
+        .unwrap();
 
         let operator = Operator::new(config.clone(), rpc).await.unwrap();
         let watchtower = Watchtower::new(config.clone()).await.unwrap();

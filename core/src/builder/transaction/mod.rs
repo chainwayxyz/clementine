@@ -5,6 +5,12 @@
 
 use crate::builder;
 use crate::builder::address::create_taproot_address;
+use crate::errors::BridgeError;
+use crate::EVMAddress;
+use bitcoin::address::NetworkUnchecked;
+use bitcoin::Transaction;
+use bitcoin::{absolute, Address, Amount, OutPoint, TxIn, TxOut, XOnlyPublicKey};
+
 pub use crate::builder::transaction::challenge::*;
 use crate::builder::transaction::input::SpendableTxIn;
 pub use crate::builder::transaction::operator_assert::*;
@@ -12,11 +18,6 @@ pub use crate::builder::transaction::operator_collateral::*;
 pub use crate::builder::transaction::operator_reimburse::*;
 use crate::builder::transaction::output::UnspentTxOut;
 pub use crate::builder::transaction::txhandler::*;
-use crate::errors::BridgeError;
-use crate::EVMAddress;
-use bitcoin::address::NetworkUnchecked;
-use bitcoin::Transaction;
-use bitcoin::{absolute, Address, Amount, OutPoint, TxIn, TxOut, XOnlyPublicKey};
 use input::create_tx_ins;
 pub use txhandler::Unsigned;
 
@@ -83,7 +84,7 @@ pub fn create_move_to_vault_txhandler(
             bridge_amount_sats,
             network,
             user_takes_after,
-        );
+        )?;
 
     let builder = TxHandlerBuilder::new().add_input(
         SpendableTxIn::from(

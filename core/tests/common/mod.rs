@@ -26,7 +26,7 @@ mod test_utils;
 
 // pub async fn run_multiple_deposits(test_config_name: &str) {
 //     let config = create_test_config_with_thread_name!(test_config_name, None);
-//     let rpc = ExtendedRpc::new(
+//     let rpc = ExtendedRpc::connect(
 //         config.bitcoin_rpc_url.clone(),
 //         config.bitcoin_rpc_user.clone(),
 //         config.bitcoin_rpc_password.clone(),
@@ -45,7 +45,7 @@ mod test_utils;
 //         .address
 //         .as_unchecked()
 //         .clone();
-//     let user = User::new(rpc.clone(), secret_key, config.clone());
+//     let user = User::new(rpc.clone_inner().await.unwrap(), secret_key, config.clone());
 
 //     let evm_address = EVMAddress([1u8; 20]);
 //     let deposit_address = user.get_deposit_address(evm_address).unwrap(); This line needs to be converted into get_deposit_address!
@@ -258,7 +258,7 @@ mod test_utils;
 //     BridgeError,
 // > {
 //     let config = create_test_config_with_thread_name!(test_config_name, None);
-//     let rpc = ExtendedRpc::new(
+//     let rpc = ExtendedRpc::connect(
 //         config.bitcoin_rpc_url.clone(),
 //         config.bitcoin_rpc_user.clone(),
 //         config.bitcoin_rpc_password.clone(),
@@ -271,7 +271,7 @@ mod test_utils;
 //         .as_unchecked()
 //         .clone();
 
-//     let user = User::new(rpc.clone(), secret_key, config.clone());
+//     let user = User::new(rpc.clone_inner().await.unwrap(), secret_key, config.clone());
 
 //     let evm_address = EVMAddress([1u8; 20]);
 //     let deposit_address = user.get_deposit_address(evm_address).unwrap(); This line needs to be converted into get_deposit_address!

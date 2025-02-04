@@ -203,8 +203,8 @@ impl TxHandler<Unsigned> {
         witness.push(script.clone());
         witness.push(spend_control_block.serialize());
 
+        self.cached_tx.input[txin_index].witness = witness.clone();
         txin.set_witness(witness);
-        self.cached_tx.input[txin_index].witness = txin.get_witness().as_ref().unwrap().clone();
 
         Ok(())
     }
@@ -257,8 +257,9 @@ impl TxHandler<Unsigned> {
             .ok_or(BridgeError::TxInputNotFound)?;
 
         if txin.get_witness().is_none() {
-            txin.set_witness(Witness::p2tr_key_spend(signature));
-            self.cached_tx.input[txin_index].witness = txin.get_witness().as_ref().unwrap().clone();
+            let witness = Witness::p2tr_key_spend(signature);
+            txin.set_witness(witness.clone());
+            self.cached_tx.input[txin_index].witness = witness;
 
             Ok(())
         } else {

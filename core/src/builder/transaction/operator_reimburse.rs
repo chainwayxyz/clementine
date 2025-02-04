@@ -2,6 +2,7 @@ use crate::builder::address::create_taproot_address;
 use crate::builder::transaction::output::UnspentTxOut;
 use crate::builder::transaction::txhandler::{TxHandler, TxHandlerBuilder};
 use crate::constants::MIN_TAPROOT_AMOUNT;
+use crate::errors::BridgeError;
 use crate::{builder, utils};
 use bitcoin::hashes::Hash;
 use bitcoin::script::PushBytesBuf;
@@ -19,12 +20,12 @@ pub fn create_kickoff_txhandler(
     move_txid: Txid,
     operator_idx: usize,
     network: Network,
-) -> TxHandler {
+) -> Result<TxHandler, BridgeError> {
     let mut builder = TxHandlerBuilder::new();
     builder = builder.add_input(
         sequential_collateral_txhandler
             .get_spendable_output(2 + kickoff_idx)
-            .unwrap(),
+            .ok_or(BridgeError::TxInputNotFound)?,
         DEFAULT_SEQUENCE,
     );
 
@@ -105,7 +106,7 @@ pub fn create_kickoff_txhandler(
 
     let op_return_txout = builder::script::op_return_txout(push_bytes);
 
-    builder
+    Ok(builder
         .add_output(UnspentTxOut::new(
             op_return_txout.clone(),
             vec![op_return_txout.script_pubkey],
@@ -116,7 +117,7 @@ pub fn create_kickoff_txhandler(
             vec![],
             None,
         ))
-        .finalize()
+        .finalize())
 }
 
 /// Creates a [`TxHandler`] for the `start_happy_reimburse_tx`. This transaction will be sent by the operator
@@ -126,20 +127,24 @@ pub fn create_start_happy_reimburse_txhandler(
     kickoff_txhandler: &TxHandler,
     operator_xonly_pk: XOnlyPublicKey,
     network: bitcoin::Network,
-) -> TxHandler {
+) -> Result<TxHandler, BridgeError> {
     let mut builder = TxHandlerBuilder::new();
     builder = builder.add_input(
-        kickoff_txhandler.get_spendable_output(1).unwrap(),
+        kickoff_txhandler
+            .get_spendable_output(1)
+            .ok_or(BridgeError::TxInputNotFound)?,
         Sequence::from_height(7 * 24 * 6),
     );
     builder = builder.add_input(
-        kickoff_txhandler.get_spendable_output(3).unwrap(),
+        kickoff_txhandler
+            .get_spendable_output(3)
+            .ok_or(BridgeError::TxInputNotFound)?,
         DEFAULT_SEQUENCE,
     );
 
     let (op_address, op_spend) = create_taproot_address(&[], Some(operator_xonly_pk), network);
 
-    builder
+    Ok(builder
         .add_output(UnspentTxOut::new(
             TxOut {
                 value: MIN_TAPROOT_AMOUNT,
@@ -153,7 +158,7 @@ pub fn create_start_happy_reimburse_txhandler(
             vec![],
             None,
         ))
-        .finalize()
+        .finalize())
 }
 
 /// Creates a [`TxHandler`] for the `happy_reimburse_tx`. This transaction will be sent by the operator
@@ -164,32 +169,34 @@ pub fn create_happy_reimburse_txhandler(
     reimburse_generator_txhandler: &TxHandler,
     kickoff_idx: usize,
     operator_reimbursement_address: &bitcoin::Address,
-) -> TxHandler {
+) -> Result<TxHandler, BridgeError> {
     let mut builder = TxHandlerBuilder::new();
     builder = builder
         .add_input(
-            move_txhandler.get_spendable_output(0).unwrap(),
+            move_txhandler
+                .get_spendable_output(0)
+                .ok_or(BridgeError::TxInputNotFound)?,
             DEFAULT_SEQUENCE,
         )
         .add_input(
             start_happy_reimburse_txhandler
                 .get_spendable_output(0)
-                .unwrap(),
+                .ok_or(BridgeError::TxInputNotFound)?,
             DEFAULT_SEQUENCE,
         )
         .add_input(
             reimburse_generator_txhandler
                 .get_spendable_output(1 + kickoff_idx)
-                .unwrap(),
+                .ok_or(BridgeError::TxInputNotFound)?,
             DEFAULT_SEQUENCE,
         );
 
-    builder
+    Ok(builder
         .add_output(UnspentTxOut::new(
             TxOut {
                 value: move_txhandler
                     .get_spendable_output(0)
-                    .unwrap()
+                    .ok_or(BridgeError::TxInputNotFound)?
                     .get_prevout()
                     .value,
                 script_pubkey: operator_reimbursement_address.script_pubkey(),
@@ -202,7 +209,7 @@ pub fn create_happy_reimburse_txhandler(
             vec![],
             None,
         ))
-        .finalize()
+        .finalize())
 }
 
 /// Creates a [`TxHandler`] for the `reimburse_tx`. This transaction will be sent by the operator
@@ -213,29 +220,33 @@ pub fn create_reimburse_txhandler(
     reimburse_generator_txhandler: &TxHandler,
     kickoff_idx: usize,
     operator_reimbursement_address: &bitcoin::Address,
-) -> TxHandler {
+) -> Result<TxHandler, BridgeError> {
     let builder = TxHandlerBuilder::new()
         .add_input(
-            move_txhandler.get_spendable_output(0).unwrap(),
+            move_txhandler
+                .get_spendable_output(0)
+                .ok_or(BridgeError::TxInputNotFound)?,
             DEFAULT_SEQUENCE,
         )
         .add_input(
-            disprove_timeout_txhandler.get_spendable_output(0).unwrap(),
+            disprove_timeout_txhandler
+                .get_spendable_output(0)
+                .ok_or(BridgeError::TxInputNotFound)?,
             DEFAULT_SEQUENCE,
         )
         .add_input(
             reimburse_generator_txhandler
                 .get_spendable_output(1 + kickoff_idx)
-                .unwrap(),
+                .ok_or(BridgeError::TxInputNotFound)?,
             DEFAULT_SEQUENCE,
         );
 
-    builder
+    Ok(builder
         .add_output(UnspentTxOut::new(
             TxOut {
                 value: move_txhandler
                     .get_spendable_output(0)
-                    .unwrap()
+                    .ok_or(BridgeError::TxInputNotFound)?
                     .get_prevout()
                     .value,
                 script_pubkey: operator_reimbursement_address.script_pubkey(),
@@ -248,5 +259,5 @@ pub fn create_reimburse_txhandler(
             vec![],
             None,
         ))
-        .finalize()
+        .finalize())
 }

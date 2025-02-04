@@ -7,6 +7,7 @@ use tonic::transport::Uri;
 pub mod clementine;
 
 pub mod aggregator;
+mod error;
 pub mod operator;
 mod parsers;
 pub mod verifier;

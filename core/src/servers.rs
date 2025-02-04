@@ -27,7 +27,7 @@ pub async fn create_verifier_grpc_server(
     config: BridgeConfig,
     rpc: ExtendedRpc,
 ) -> Result<(std::net::SocketAddr,), BridgeError> {
-    let addr = format!("{}:{}", config.host, config.port).parse().unwrap();
+    let addr = format!("{}:{}", config.host, config.port).parse()?;
     tracing::info!("Starting verifier gRPC server with address: {}", addr);
     let verifier = Verifier::new(rpc, config).await?;
     let svc = ClementineVerifierServer::new(verifier);
@@ -66,7 +66,7 @@ pub async fn create_operator_grpc_server(
         config.host,
         config.port
     );
-    let addr = format!("{}:{}", config.host, config.port).parse().unwrap();
+    let addr = format!("{}:{}", config.host, config.port).parse()?;
     tracing::info!("Starting operator gRPC server with address: {}", addr);
     let operator = Operator::new(config, rpc).await?;
     tracing::info!("Operator gRPC server created");
@@ -96,7 +96,7 @@ pub async fn create_operator_grpc_server(
 pub async fn create_aggregator_grpc_server(
     config: BridgeConfig,
 ) -> Result<(std::net::SocketAddr,), BridgeError> {
-    let addr = format!("{}:{}", config.host, config.port).parse().unwrap();
+    let addr = format!("{}:{}", config.host, config.port).parse()?;
     let aggregator = Aggregator::new(config).await?;
     let svc = ClementineAggregatorServer::new(aggregator);
 
@@ -112,7 +112,6 @@ pub async fn create_aggregator_grpc_server(
     tokio::spawn(async move {
         if let Err(e) = handle.await {
             tracing::error!("gRPC server error: {:?}", e);
-            panic!("gRPC server error: {:?}", e);
         }
     });
 
@@ -125,7 +124,7 @@ pub async fn create_aggregator_grpc_server(
 pub async fn create_watchtower_grpc_server(
     config: BridgeConfig,
 ) -> Result<(std::net::SocketAddr,), BridgeError> {
-    let addr = format!("{}:{}", config.host, config.port).parse().unwrap();
+    let addr = format!("{}:{}", config.host, config.port).parse()?;
     let watchtower = Watchtower::new(config).await?;
     let svc = ClementineWatchtowerServer::new(watchtower);
 
@@ -141,7 +140,6 @@ pub async fn create_watchtower_grpc_server(
     tokio::spawn(async move {
         if let Err(e) = handle.await {
             tracing::error!("gRPC server error: {:?}", e);
-            panic!("gRPC server error: {:?}", e);
         }
     });
 

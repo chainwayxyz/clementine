@@ -6,6 +6,7 @@ use crate::builder::transaction::create_move_to_vault_txhandler;
 use crate::config::BridgeConfig;
 use crate::rpc::clementine::clementine_operator_client::ClementineOperatorClient;
 use crate::rpc::clementine::clementine_verifier_client::ClementineVerifierClient;
+use crate::rpc::error::output_stream_ended_prematurely;
 use crate::rpc::parsers;
 use crate::{
     aggregator::Aggregator,
@@ -182,9 +183,9 @@ async fn signature_distributor(
         };
 
         for tx in &deposit_finalize_sender {
-            tx.send(final_params.clone()).await.map_err(|e| {
-                BridgeError::RPCStreamEndedUnexpectedly(format!("Can't send final params: {}", e))
-            })?;
+            tx.send(final_params.clone())
+                .await
+                .map_err(|_| output_stream_ended_prematurely())?;
         }
     }
 
@@ -196,7 +197,7 @@ async fn signature_distributor(
             )),
         })
         .await
-        .unwrap();
+        .map_err(|_| output_stream_ended_prematurely())?
     }
 
     Ok(())
@@ -348,7 +349,8 @@ impl Aggregator {
             .collect::<Result<Vec<_>, _>>()
             .map_err(|e| {
                 BridgeError::RPCParamMalformed(
-                    "Partial sigs for movetx could not be parsed into MusigPartialSignature",
+                    "Partial sigs for movetx could not be parsed into MusigPartialSignature"
+                        .to_string(),
                     e.to_string(),
                 )
             })?;
@@ -450,7 +452,9 @@ impl ClementineAggregator for Aggregator {
                         client.set_operator(tokio_stream::wrappers::ReceiverStream::new(rx));
 
                     for param in params {
-                        tx.send(param).await.unwrap();
+                        tx.send(param)
+                            .await
+                            .map_err(|_| output_stream_ended_prematurely())?;
                     }
 
                     future.await?; // TODO: This is dangerous: If channel size becomes not sufficient, this will block forever.
@@ -491,7 +495,9 @@ impl ClementineAggregator for Aggregator {
                     let future =
                         client.set_watchtower(tokio_stream::wrappers::ReceiverStream::new(rx));
                     for param in params {
-                        tx.send(param).await.unwrap();
+                        tx.send(param)
+                            .await
+                            .map_err(|_| output_stream_ended_prematurely())?;
                     }
 
                     future.await?; // TODO: This is dangerous: If channel size becomes not sufficient, this will block forever.
@@ -667,7 +673,9 @@ impl ClementineAggregator for Aggregator {
         ));
 
         // Join the nonce aggregation handle to get the movetx agg nonce.
-        let movetx_agg_nonce = nonce_agg_handle.await.unwrap()?;
+        let movetx_agg_nonce = nonce_agg_handle
+            .await
+            .map_err(|_| Status::internal("panic when aggregating nonces"))??;
 
         // Start the deposit finalization pipe.
         let sig_dist_handle = tokio::spawn(signature_distributor(
@@ -688,10 +696,18 @@ impl ClementineAggregator for Aggregator {
             "Waiting for pipeline tasks to complete (nonce agg, sig agg, sig dist, operator sigs)"
         );
         // Wait for all pipeline tasks to complete
-        nonce_dist_handle.await.unwrap()?;
-        sig_agg_handle.await.unwrap()?;
-        sig_dist_handle.await.unwrap()?;
-        let operator_sigs = operator_sigs_fut.await.unwrap()?;
+        nonce_dist_handle
+            .await
+            .map_err(|_| Status::internal("panic when distributing nonces"))??;
+        sig_agg_handle
+            .await
+            .map_err(|_| Status::internal("panic when aggregating signatures"))??;
+        sig_dist_handle
+            .await
+            .map_err(|_| Status::internal("panic when aggregating nonces"))??;
+        let operator_sigs = operator_sigs_fut
+            .await
+            .map_err(|_| Status::internal("panic when collecting operator signatures"))??;
 
         // send operators sigs to verifiers after all verifiers have signed
         let send_operator_sigs: Vec<_> = deposit_finalize_sender
@@ -726,7 +742,7 @@ impl ClementineAggregator for Aggregator {
         let move_tx_partial_sigs = try_join_all(
             deposit_finalize_futures
                 .iter_mut()
-                .map(|f| async { Ok::<_, Status>(f.await.unwrap().into_inner().partial_sig) }),
+                .map(|fut| async { Ok::<_, Status>(fut.await?.into_inner().partial_sig) }),
         )
         .await
         .map_err(|e| Status::internal(format!("Failed to finalize deposit: {:?}", e)))?;
@@ -806,12 +822,13 @@ mod tests {
             .get_watchtower_winternitz_public_keys()
             .await
             .unwrap();
-        let rpc = ExtendedRpc::new(
+        let rpc = ExtendedRpc::connect(
             config.bitcoin_rpc_url.clone(),
             config.bitcoin_rpc_user.clone(),
             config.bitcoin_rpc_password.clone(),
         )
-        .await;
+        .await
+        .unwrap();
         config.db_name += "0"; // This modification is done by the create_actors_grpc function.
         let verifier = Verifier::new(rpc, config.clone()).await.unwrap();
         let verifier_wpks = verifier
@@ -865,12 +882,13 @@ mod tests {
             .get_watchtower_challenge_addresses()
             .await
             .unwrap();
-        let rpc = ExtendedRpc::new(
+        let rpc = ExtendedRpc::connect(
             config.bitcoin_rpc_url.clone(),
             config.bitcoin_rpc_user.clone(),
             config.bitcoin_rpc_password.clone(),
         )
-        .await;
+        .await
+        .unwrap();
         config.db_name += "0"; // This modification is done by the create_actors_grpc function.
         let verifier = Verifier::new(rpc, config.clone()).await.unwrap();
         tracing::info!("verifier config: {:#?}", verifier.config);

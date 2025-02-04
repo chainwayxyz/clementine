@@ -22,7 +22,7 @@ lazy_static::lazy_static! {
     ///
     /// See https://github.com/bitcoin/bips/blob/master/bip-0341.mediawiki#constructing-and-spending-taproot-outputs
     pub static ref UNSPENDABLE_PUBKEY: bitcoin::secp256k1::PublicKey =
-        "93c7378d96518a75448821c4f7c8f4bae7ce60f804d03d1f0628dd5dd0f5de51".parse().unwrap();
+        "93c7378d96518a75448821c4f7c8f4bae7ce60f804d03d1f0628dd5dd0f5de51".parse().expect("this key is valid");
 }
 
 lazy_static::lazy_static! {
@@ -30,7 +30,7 @@ lazy_static::lazy_static! {
     ///
     /// See https://github.com/bitcoin/bips/blob/master/bip-0341.mediawiki#constructing-and-spending-taproot-outputs
     pub static ref UNSPENDABLE_XONLY_PUBKEY: bitcoin::secp256k1::XOnlyPublicKey =
-        XOnlyPublicKey::from_str("93c7378d96518a75448821c4f7c8f4bae7ce60f804d03d1f0628dd5dd0f5de51").unwrap();
+        XOnlyPublicKey::from_str("93c7378d96518a75448821c4f7c8f4bae7ce60f804d03d1f0628dd5dd0f5de51").expect("this key is valid");
 }
 
 lazy_static::lazy_static! {
@@ -88,7 +88,7 @@ pub fn get_configuration_for_binaries() -> (BridgeConfig, Args) {
     let level_filter = match args.verbose {
         0 => None,
         other => Some(LevelFilter::from_level(
-            Level::from_str(&other.to_string()).unwrap(),
+            Level::from_str(&other.to_string()).unwrap_or(Level::INFO),
         )),
     };
 

@@ -172,10 +172,10 @@ pub fn create_assert_end_txhandler(
     );
 
     let disprove_taproot_spend_info = TaprootBuilder::new()
-        .add_hidden_node(0, TapNodeHash::from_slice(root_hash)?)
-        .expect("statically correct taptree")
+        .add_hidden_node(0, TapNodeHash::from_byte_array(*root_hash))
+        .expect("empty taptree will accept a node at depth 0")
         .finalize(&SECP, nofn_xonly_pk) // TODO: we should convert this to script spend but we only have partial access to the taptree
-        .expect("statically correct taptree");
+        .expect("finalize always succeeds for taptree with single node at depth 0");
 
     let disprove_address = Address::p2tr(
         &SECP,
