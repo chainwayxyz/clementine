@@ -1,4 +1,4 @@
-use bitcoin::{taproot::TaprootSpendInfo, Amount, ScriptBuf, TxOut};
+use bitcoin::{taproot::TaprootSpendInfo, ScriptBuf, TxOut};
 
 #[derive(Debug, Clone)]
 pub struct UnspentTxOut {
@@ -42,17 +42,4 @@ impl UnspentTxOut {
     pub fn set_spendinfo(&mut self, spendinfo: Option<TaprootSpendInfo>) {
         self.spendinfo = spendinfo;
     }
-}
-
-pub fn create_tx_outs(pairs: Vec<(Amount, ScriptBuf)>) -> Vec<TxOut> {
-    let mut tx_outs = Vec::new();
-
-    for pair in pairs {
-        tx_outs.push(TxOut {
-            value: pair.0,
-            script_pubkey: pair.1,
-        });
-    }
-
-    tx_outs
 }

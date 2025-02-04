@@ -8,8 +8,7 @@ use crate::builder::address::create_taproot_address;
 use crate::errors::BridgeError;
 use crate::EVMAddress;
 use bitcoin::address::NetworkUnchecked;
-use bitcoin::Transaction;
-use bitcoin::{absolute, Address, Amount, OutPoint, TxIn, TxOut, XOnlyPublicKey};
+use bitcoin::{Address, Amount, OutPoint, TxOut, XOnlyPublicKey};
 
 pub use crate::builder::transaction::challenge::*;
 use crate::builder::transaction::input::SpendableTxIn;
@@ -18,7 +17,6 @@ pub use crate::builder::transaction::operator_collateral::*;
 pub use crate::builder::transaction::operator_reimburse::*;
 use crate::builder::transaction::output::UnspentTxOut;
 pub use crate::builder::transaction::txhandler::*;
-use input::create_tx_ins;
 pub use txhandler::Unsigned;
 
 mod challenge;
@@ -28,37 +26,6 @@ mod operator_collateral;
 mod operator_reimburse;
 pub mod output;
 mod txhandler;
-
-/// Creates a Bitcoin V3 transaction with no locktime, using given inputs and
-/// outputs.
-pub fn create_btc_tx(tx_ins: Vec<TxIn>, tx_outs: Vec<TxOut>) -> bitcoin::Transaction {
-    bitcoin::Transaction {
-        version: bitcoin::transaction::Version(3),
-        lock_time: absolute::LockTime::from_consensus(0),
-        input: tx_ins,
-        output: tx_outs,
-    }
-}
-
-/// Creates the `move_to_vault_tx`.
-pub fn create_move_to_vault_tx(
-    deposit_outpoint: OutPoint,
-    nofn_xonly_pk: XOnlyPublicKey,
-    bridge_amount_sats: Amount,
-    network: bitcoin::Network,
-) -> Transaction {
-    let (musig2_address, _) = builder::address::create_checksig_address(nofn_xonly_pk, network);
-
-    let tx_ins = create_tx_ins(vec![deposit_outpoint].into());
-
-    let anchor_output = builder::script::anchor_output();
-    let move_txout = TxOut {
-        value: bridge_amount_sats,
-        script_pubkey: musig2_address.script_pubkey(),
-    };
-
-    create_btc_tx(tx_ins, vec![move_txout, anchor_output])
-}
 
 /// Creates a [`TxHandler`] for the `move_to_vault_tx`. This transaction will move
 /// the funds to a NofN address from the deposit intent address, after all the signature
@@ -118,47 +85,6 @@ pub fn create_move_to_vault_txhandler(
 
 #[cfg(test)]
 mod tests {
-    use crate::{builder, utils::SECP};
-    use bitcoin::{
-        hashes::Hash, key::Keypair, secp256k1::SecretKey, Amount, OutPoint, Txid, XOnlyPublicKey,
-    };
-    use secp256k1::rand;
-
-    #[test]
-    fn create_move_to_vault_tx() {
-        let deposit_outpoint = OutPoint {
-            txid: Txid::all_zeros(),
-            vout: 0x45,
-        };
-        let secret_key = SecretKey::new(&mut rand::thread_rng());
-        let nofn_xonly_pk =
-            XOnlyPublicKey::from_keypair(&Keypair::from_secret_key(&SECP, &secret_key)).0;
-        let bridge_amount_sats = Amount::from_sat(0x1F45);
-        let network = bitcoin::Network::Regtest;
-
-        let move_tx = super::create_move_to_vault_tx(
-            deposit_outpoint,
-            nofn_xonly_pk,
-            bridge_amount_sats,
-            network,
-        );
-
-        assert_eq!(
-            move_tx.input.first().unwrap().previous_output,
-            deposit_outpoint
-        );
-        assert_eq!(
-            move_tx.output.first().unwrap().script_pubkey,
-            builder::address::create_checksig_address(nofn_xonly_pk, network)
-                .0
-                .script_pubkey()
-        );
-        assert_eq!(
-            *move_tx.output.get(1).unwrap(),
-            builder::script::anchor_output()
-        );
-    }
-
     // #[test]
     // fn create_watchtower_challenge_page_txhandler() {
     //     let network = bitcoin::Network::Regtest;
