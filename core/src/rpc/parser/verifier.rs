@@ -1,16 +1,53 @@
+use crate::errors::BridgeError;
 use crate::{
     fetch_next_message_from_stream,
     rpc::{
         clementine::{
-            self, verifier_deposit_finalize_params, NonceGenResponse, VerifierDepositFinalizeParams,
+            self, verifier_deposit_finalize_params, NonceGenResponse,
+            VerifierDepositFinalizeParams, VerifierPublicKeys,
         },
         error::{self, invalid_argument},
     },
     EVMAddress,
 };
+use bitcoin::secp256k1::PublicKey;
 use bitcoin::{address::NetworkUnchecked, secp256k1::schnorr};
 use secp256k1::musig::{MusigAggNonce, MusigPartialSignature};
 use tonic::Status;
+
+impl TryFrom<VerifierPublicKeys> for Vec<PublicKey> {
+    type Error = BridgeError;
+
+    fn try_from(value: VerifierPublicKeys) -> Result<Self, Self::Error> {
+        let inner = value.verifier_public_keys;
+
+        inner
+            .iter()
+            .map(|inner_vec| {
+                PublicKey::from_slice(inner_vec).map_err(|e| {
+                    BridgeError::RPCParamMalformed(
+                        "verifier_public_keys".to_string(),
+                        e.to_string(),
+                    )
+                })
+            })
+            .collect::<Result<Vec<PublicKey>, _>>()
+    }
+}
+impl From<Vec<PublicKey>> for VerifierPublicKeys {
+    fn from(value: Vec<PublicKey>) -> Self {
+        {
+            let verifier_public_keys: Vec<Vec<u8>> = value
+                .into_iter()
+                .map(|inner| inner.serialize().to_vec())
+                .collect();
+
+            VerifierPublicKeys {
+                verifier_public_keys,
+            }
+        }
+    }
+}
 
 pub fn parse_deposit_params(
     deposit_sign_session: clementine::DepositSignSession,

@@ -12,7 +12,6 @@ pub mod operator;
 mod parser;
 pub mod verifier;
 pub mod watchtower;
-mod wrapper;
 
 /// Returns gRPC clients.
 ///
