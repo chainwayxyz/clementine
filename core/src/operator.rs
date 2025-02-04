@@ -1,12 +1,10 @@
 use crate::actor::{Actor, WinternitzDerivationPath};
-use crate::builder::{self};
 use crate::config::BridgeConfig;
 use crate::database::Database;
 use crate::errors::BridgeError;
 use crate::extended_rpc::ExtendedRpc;
 use crate::musig2::AggregateFromPublicKeys;
 use crate::utils::ALL_BITVM_INTERMEDIATE_VARIABLES;
-use bitcoin::hashes::Hash;
 use bitcoin::{Amount, OutPoint, Txid, XOnlyPublicKey};
 use bitvm::signatures::winternitz;
 use jsonrpsee::core::client::ClientT;
@@ -493,7 +491,7 @@ impl Operator {
     pub async fn check_citrea_for_withdrawal(
         &self,
         withdrawal_idx: u32,
-        deposit_outpoint: OutPoint,
+        _deposit_outpoint: OutPoint,
     ) -> Result<(), BridgeError> {
         // Don't check anything if Citrea client is not specified.
         let citrea_client = match &self.citrea_client {
@@ -536,19 +534,20 @@ impl Operator {
 
         // Check for withdrawal idx.
         {
-            let move_txid = builder::transaction::create_move_to_vault_tx(
-                deposit_outpoint,
-                self.nofn_xonly_pk,
-                self.config.bridge_amount_sats,
-                self.config.network,
-            )
-            .compute_txid();
+            // let move_txid = builder::transaction::create_move_to_vault_tx(
+            //     deposit_outpoint,
+            //     self.nofn_xonly_pk,
+            //     self.config.bridge_amount_sats,
+            //     self.config.network,
+            // )
+            // .compute_txid();
 
             // See: https://gist.github.com/okkothejawa/a9379b02a16dada07a2b85cbbd3c1e80
             let params = rpc_params![json!({
                 "to": "0x3100000000000000000000000000000000000002",
                 "data": format!("0x11e53a01{}",
-                hex::encode(move_txid.to_byte_array())),
+                // hex::encode(move_txid.to_byte_array())),
+                hex::encode([0]))
             })];
             let response: String = citrea_client.request("eth_call", params).await?;
 

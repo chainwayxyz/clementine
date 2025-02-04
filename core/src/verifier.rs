@@ -1,5 +1,5 @@
 use crate::actor::Actor;
-use crate::builder::transaction::TxHandler;
+use crate::builder::transaction::{TxHandler, Unsigned};
 use crate::builder::{self};
 use crate::config::BridgeConfig;
 use crate::database::Database;
@@ -323,7 +323,7 @@ impl Verifier {
     pub async fn create_deposit_details(
         &self,
         deposit_outpoint: OutPoint,
-    ) -> Result<(Vec<UTXO>, TxHandler, OutPoint), BridgeError> {
+    ) -> Result<(Vec<UTXO>, TxHandler<Unsigned>, OutPoint), BridgeError> {
         let kickoff_utxos = self
             .db
             .get_kickoff_utxos(deposit_outpoint)
@@ -352,7 +352,7 @@ impl Verifier {
         )?;
 
         let bridge_fund_outpoint = OutPoint {
-            txid: move_tx_handler.tx.compute_txid(),
+            txid: *move_tx_handler.get_txid(),
             vout: 0,
         };
         Ok((kickoff_utxos, move_tx_handler, bridge_fund_outpoint))

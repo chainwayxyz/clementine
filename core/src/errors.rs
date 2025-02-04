@@ -58,6 +58,12 @@ pub enum BridgeError {
     /// TxInputNotFound is returned when the input is not found in the transaction
     #[error("TxInputNotFound")]
     TxInputNotFound,
+    #[error("TxOutputNotFound")]
+    TxOutputNotFound,
+    #[error("WitnessAlreadySet")]
+    WitnessAlreadySet,
+    #[error("Script with index {0} not found for transaction")]
+    ScriptNotFound(usize),
     /// PreimageNotFound is returned when the preimage is not found in the the connector tree or claim proof
     #[error("PreimageNotFound")]
     PreimageNotFound,
@@ -231,6 +237,13 @@ pub enum BridgeError {
     #[error("Challenge addresses of the watchtower {0} for the operator {1} not found")]
     WatchtowerChallengeAddressesNotFound(u32, u32),
 
+    #[error("MissingWitnessData")]
+    MissingWitnessData,
+    #[error("MissingSpendInfo")]
+    MissingSpendInfo,
+
+    #[error("InvalidAssertTxAddrs")]
+    InvalidAssertTxAddrs,
     #[error("Invalid response from Citrea: {0}")]
     InvalidCitreaResponse(String),
 

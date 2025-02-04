@@ -12,7 +12,6 @@ use crate::{
             clementine_watchtower_client::ClementineWatchtowerClient,
         },
     },
-    utils::set_p2tr_script_spend_witness,
     EVMAddress,
 };
 use bitcoin::{
@@ -232,7 +231,7 @@ impl Aggregator {
         // println!("MOVE_TX: {:?}", tx);
         // println!("MOVE_TXID: {:?}", tx.tx.compute_txid());
         let message = Message::from_digest(
-            tx.calculate_script_spend_sighash(0, 0, None)?
+            tx.calculate_script_spend_sighash_indexed(0, 0, bitcoin::TapSighashType::Default)?
                 .to_byte_array(),
         );
         let final_sig = aggregate_partial_signatures(
@@ -356,9 +355,9 @@ impl Aggregator {
             self.config.network,
         )?;
         let move_tx_witness_elements = vec![move_tx_sig.serialize().to_vec()];
-        set_p2tr_script_spend_witness(&mut move_tx_handler, &move_tx_witness_elements, 0, 0)?;
+        move_tx_handler.set_p2tr_script_spend_witness(&move_tx_witness_elements, 0, 0)?;
 
-        let txid = move_tx_handler.txid;
-        Ok((move_tx_handler.tx.raw_hex(), txid))
+        let txid = *move_tx_handler.get_txid();
+        Ok((move_tx_handler.get_cached_tx().raw_hex(), txid))
     }
 }

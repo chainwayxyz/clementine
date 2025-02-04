@@ -5,13 +5,12 @@ use crate::utils::{self, SECP};
 use bitcoin::hashes::hash160;
 use bitcoin::secp256k1::PublicKey;
 use bitcoin::sighash::SighashCache;
-use bitcoin::taproot::LeafVersion;
 use bitcoin::{
     hashes::Hash,
     secp256k1::{schnorr, Keypair, Message, SecretKey, XOnlyPublicKey},
     Address, TapSighash, TapTweakHash,
 };
-use bitcoin::{TapLeafHash, TapNodeHash, TapSighashType, TxOut, Witness};
+use bitcoin::{TapNodeHash, TapSighashType, TxOut, Witness};
 use bitvm::signatures::winternitz::{
     self, BinarysearchVerifier, StraightforwardConverter, Winternitz,
 };
@@ -159,20 +158,13 @@ impl Actor {
         txin_index: usize,
         script_index: usize,
     ) -> Result<schnorr::Signature, BridgeError> {
-        let mut sighash_cache: SighashCache<&mut bitcoin::Transaction> =
-            SighashCache::new(&mut tx.tx);
-
-        let sig_hash = sighash_cache.taproot_script_spend_signature_hash(
+        let sighash = tx.calculate_script_spend_sighash_indexed(
             txin_index,
-            &bitcoin::sighash::Prevouts::All(&tx.prevouts),
-            TapLeafHash::from_script(
-                &tx.prev_scripts[txin_index][script_index],
-                LeafVersion::TapScript,
-            ),
-            bitcoin::sighash::TapSighashType::Default,
+            script_index,
+            TapSighashType::Default,
         )?;
 
-        Ok(self.sign(sig_hash))
+        Ok(self.sign(sighash))
     }
 
     #[tracing::instrument(skip(self), err(level = tracing::Level::ERROR), ret(level = tracing::Level::TRACE))]
@@ -182,19 +174,7 @@ impl Actor {
         input_index: usize,
         sighash_type: Option<TapSighashType>,
     ) -> Result<schnorr::Signature, BridgeError> {
-        let mut sighash_cache = SighashCache::new(&mut tx_handler.tx);
-
-        let sig_hash = sighash_cache.taproot_key_spend_signature_hash(
-            input_index,
-            &match sighash_type {
-                Some(TapSighashType::SinglePlusAnyoneCanPay) => bitcoin::sighash::Prevouts::One(
-                    input_index,
-                    tx_handler.prevouts[input_index].clone(),
-                ),
-                _ => bitcoin::sighash::Prevouts::All(&tx_handler.prevouts),
-            },
-            sighash_type.unwrap_or(TapSighashType::Default),
-        )?;
+        let sig_hash = tx_handler.calculate_pubkey_spend_sighash(input_index, sighash_type)?;
 
         self.sign_with_tweak(sig_hash, None)
     }
@@ -248,20 +228,13 @@ impl Actor {
         txin_index: usize,
         script_index: usize,
     ) -> Result<schnorr::Signature, BridgeError> {
-        let mut sighash_cache: SighashCache<&mut bitcoin::Transaction> =
-            SighashCache::new(&mut tx_handler.tx);
-
-        let sig_hash = sighash_cache.taproot_script_spend_signature_hash(
+        let sighash = tx_handler.calculate_script_spend_sighash_indexed(
             txin_index,
-            &bitcoin::sighash::Prevouts::All(&tx_handler.prevouts),
-            TapLeafHash::from_script(
-                &tx_handler.prev_scripts[txin_index][script_index],
-                LeafVersion::TapScript,
-            ),
-            bitcoin::sighash::TapSighashType::Default,
+            script_index,
+            TapSighashType::Default,
         )?;
 
-        self.sign_with_tweak(sig_hash, None)
+        self.sign_with_tweak(sighash, None)
     }
 
     /// Returns derivied Winternitz secret key from given path.
@@ -320,6 +293,11 @@ impl Actor {
 #[cfg(test)]
 mod tests {
     use super::Actor;
+    use crate::builder::address::create_taproot_address;
+
+    use crate::builder::transaction::input::SpendableTxIn;
+    use crate::builder::transaction::output::UnspentTxOut;
+    use crate::builder::transaction::TxHandlerBuilder;
     use crate::config::BridgeConfig;
     use crate::utils::{initialize_logger, SECP};
     use crate::{
@@ -327,9 +305,8 @@ mod tests {
         create_test_config_with_thread_name, database::Database, initialize_database,
     };
     use bitcoin::secp256k1::SecretKey;
-    use bitcoin::{
-        absolute::Height, transaction::Version, Amount, Network, OutPoint, Transaction, TxIn, TxOut,
-    };
+    use bitcoin::Sequence;
+    use bitcoin::{Amount, Network, OutPoint, TxOut};
     use bitvm::{
         execute_script,
         signatures::winternitz::{
@@ -344,60 +321,30 @@ mod tests {
 
     /// Returns a valid [`TxHandler`].
     fn create_valid_mock_tx_handler(actor: &Actor) -> TxHandler {
-        let mut tx_handler = create_invalid_mock_tx_handler(actor);
-
-        let prev_tx: Transaction = Transaction {
-            version: Version(3),
-            lock_time: bitcoin::absolute::LockTime::Blocks(Height::ZERO),
-            input: vec![],
-            output: tx_handler.prevouts.clone(),
-        };
-
-        tx_handler.tx = Transaction {
-            version: prev_tx.version,
-            lock_time: prev_tx.lock_time,
-            input: vec![TxIn {
-                previous_output: OutPoint {
-                    txid: prev_tx.compute_txid(),
-                    vout: 0,
+        let (op_addr, op_spend) =
+            create_taproot_address(&[], Some(actor.xonly_public_key), Network::Regtest);
+        let builder = TxHandlerBuilder::new().add_input(
+            SpendableTxIn::from(
+                OutPoint::default(),
+                TxOut {
+                    value: Amount::from_sat(1000),
+                    script_pubkey: op_addr.script_pubkey(),
                 },
-                script_sig: actor.address.script_pubkey(),
-                ..Default::default()
-            }],
-            output: vec![TxOut {
-                value: Amount::from_sat(0x1F),
-                script_pubkey: actor.address.script_pubkey(),
-            }],
-        };
-
-        tx_handler
-    }
-    /// Returns an invalid [`TxHandler`]. Only the tx part is invalid.
-    fn create_invalid_mock_tx_handler(actor: &Actor) -> TxHandler {
-        let prevouts = vec![TxOut {
-            value: Amount::from_sat(0x45),
-            script_pubkey: actor.address.script_pubkey(),
-        }];
-
-        let tx = Transaction {
-            version: Version(3),
-            lock_time: bitcoin::absolute::LockTime::Blocks(Height::ZERO),
-            input: vec![],
-            output: vec![TxOut {
-                value: Amount::from_sat(0x1F),
-                script_pubkey: actor.address.script_pubkey(),
-            }],
-        };
-
-        TxHandler {
-            txid: tx.compute_txid(),
-            tx,
-            prevouts,
-            prev_scripts: vec![],
-            prev_taproot_spend_infos: vec![],
-            out_scripts: vec![],
-            out_taproot_spend_infos: vec![],
-        }
+                vec![],
+                Some(op_spend),
+            ),
+            Sequence::ENABLE_RBF_NO_LOCKTIME,
+        );
+        builder
+            .add_output(UnspentTxOut::new(
+                TxOut {
+                    value: Amount::from_sat(999),
+                    script_pubkey: actor.address.script_pubkey(),
+                },
+                vec![],
+                None,
+            ))
+            .finalize()
     }
 
     #[test]
@@ -418,19 +365,9 @@ mod tests {
         let network = Network::Regtest;
         let actor = Actor::new(sk, None, network);
 
-        // Trying to sign with an invalid transaction will result with an error.
-        let mut tx_handler = create_invalid_mock_tx_handler(&actor);
-        assert!(actor
-            .sign_taproot_pubkey_spend(
-                &mut tx_handler,
-                0,
-                Some(bitcoin::TapSighashType::SinglePlusAnyoneCanPay),
-            )
-            .is_err());
-
         // This transaction is matching with prevouts. Therefore signing will
         // be successful.
-        tx_handler = create_valid_mock_tx_handler(&actor);
+        let mut tx_handler = create_valid_mock_tx_handler(&actor);
         actor
             .sign_taproot_pubkey_spend(
                 &mut tx_handler,
@@ -446,28 +383,11 @@ mod tests {
         let network = Network::Regtest;
         let actor = Actor::new(sk, None, network);
 
-        // Trying to sign with an invalid transaction will result with an error.
-        let mut tx_handler = create_invalid_mock_tx_handler(&actor);
-        assert!(actor
-            .sign_taproot_pubkey_spend_tx_with_sighash(
-                &mut tx_handler.tx,
-                &tx_handler.prevouts,
-                0,
-                Some(bitcoin::TapSighashType::SinglePlusAnyoneCanPay),
-            )
-            .is_err());
-
         // This transaction is matching with prevouts. Therefore signing will
         // be successful.
-        tx_handler = create_valid_mock_tx_handler(&actor);
-        actor
-            .sign_taproot_pubkey_spend_tx_with_sighash(
-                &mut tx_handler.tx,
-                &tx_handler.prevouts,
-                0,
-                Some(bitcoin::TapSighashType::SinglePlusAnyoneCanPay),
-            )
-            .unwrap();
+        let tx_handler = create_valid_mock_tx_handler(&actor);
+        let x = tx_handler.calculate_pubkey_spend_sighash(0, None).unwrap();
+        actor.sign_with_tweak(x, None).unwrap();
     }
 
     #[test]

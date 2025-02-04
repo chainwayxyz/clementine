@@ -1,13 +1,10 @@
-use crate::builder::transaction::TxHandler;
 use crate::cli::Args;
 use crate::config::BridgeConfig;
 use crate::errors::BridgeError;
-use bitcoin::taproot::{self, LeafVersion};
 use bitcoin::XOnlyPublicKey;
-use bitcoin::{self, Witness};
+use bitcoin::{self};
 use tracing::Level;
 //use bitvm::chunker::assigner::BridgeAssigner;
-use std::borrow::BorrowMut;
 use std::collections::BTreeMap;
 use std::process::exit;
 use std::str::FromStr;
@@ -121,61 +118,6 @@ pub fn usize_to_var_len_bytes(x: usize) -> Vec<u8> {
     let op_idx_bytes = x.to_be_bytes();
     let op_idx_bytes = &op_idx_bytes[empty..];
     op_idx_bytes.to_vec()
-}
-
-/// Constructs the witness for a script path spend of a transaction input.
-///
-/// # Arguments
-///
-/// - `tx`: The transaction to add the witness to.
-/// - `script_inputs`: The inputs to the tapscript
-/// - `txin_index`: The index of the transaction input to add the witness to.
-/// - `script_index`: The script index in the input UTXO's Taproot script tree. This is used to get the control block and script contents of the script being spent.
-pub fn set_p2tr_script_spend_witness<T: AsRef<[u8]>>(
-    tx: &mut TxHandler,
-    script_inputs: &[T],
-    txin_index: usize,
-    script_index: usize,
-) -> Result<(), BridgeError> {
-    let witness = tx
-        .tx
-        .input
-        .get_mut(txin_index)
-        .map(|input| &mut input.witness)
-        .ok_or(BridgeError::TxInputNotFound)?;
-
-    witness.clear();
-    script_inputs
-        .iter()
-        .for_each(|element| witness.push(element));
-
-    let script = &tx.prev_scripts[txin_index][script_index];
-    let spend_control_block = tx.prev_taproot_spend_infos[txin_index]
-        .clone()
-        .ok_or(BridgeError::TaprootScriptError)?
-        .control_block(&(script.clone(), LeafVersion::TapScript))
-        .ok_or(BridgeError::ControlBlockError)?;
-
-    witness.push(script.clone());
-    witness.push(spend_control_block.serialize());
-    Ok(())
-}
-
-pub fn set_p2tr_key_spend_witness(
-    tx: &mut TxHandler,
-    signature: &taproot::Signature,
-    txin_index: usize,
-) -> Result<(), BridgeError> {
-    let witness = tx
-        .tx
-        .borrow_mut()
-        .input
-        .get_mut(txin_index)
-        .map(|input| &mut input.witness)
-        .ok_or(BridgeError::TxInputNotFound)?;
-
-    *witness = Witness::p2tr_key_spend(signature);
-    Ok(())
 }
 
 /// Initializes `tracing` as the logger.
