@@ -144,7 +144,7 @@ impl ExtendedRpc {
             return Err(BridgeError::DepositNotFinalized);
         }
 
-        let (deposit_address, _, _) = builder::address::generate_deposit_address(
+        let (deposit_address, _) = builder::address::generate_deposit_address(
             nofn_xonly_pk,
             recovery_taproot_address,
             evm_address,

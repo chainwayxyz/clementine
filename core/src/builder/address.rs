@@ -3,7 +3,6 @@
 //! Address builder provides useful functions for building typical Bitcoin
 //! addresses.
 
-use crate::builder;
 use crate::errors::BridgeError;
 use crate::utils::SECP;
 use crate::{utils, EVMAddress};
@@ -16,7 +15,6 @@ use bitcoin::{
 };
 use bitcoin::{Amount, Network};
 use bitvm::signatures::winternitz;
-use std::sync::Arc;
 
 use super::script::{CheckSig, DepositScript, SpendableScript, TimelockScript};
 
@@ -129,8 +127,9 @@ pub fn generate_deposit_address(
     amount: Amount,
     network: bitcoin::Network,
     user_takes_after: u16,
-) -> Result<(Address, TaprootSpendInfo, Vec<Arc<dyn SpendableScript>>), BridgeError> {
-    let deposit_script = Arc::new(DepositScript::new(nofn_xonly_pk, user_evm_address, amount));
+) -> Result<(Address, TaprootSpendInfo), BridgeError> {
+    let deposit_script =
+        DepositScript::new(nofn_xonly_pk, user_evm_address, amount).to_script_buf();
 
     let recovery_script_pubkey = recovery_taproot_address
         .clone()
@@ -140,15 +139,11 @@ pub fn generate_deposit_address(
     let recovery_extracted_xonly_pk =
         XOnlyPublicKey::from_slice(&recovery_script_pubkey.as_bytes()[2..34])?;
 
-    let script_timelock = Arc::new(TimelockScript::new(
-        Some(recovery_extracted_xonly_pk),
-        user_takes_after,
-    ));
+    let script_timelock =
+        TimelockScript::new(Some(recovery_extracted_xonly_pk), user_takes_after).to_script_buf();
 
-    let scripts: Vec<Arc<dyn SpendableScript>> = vec![deposit_script, script_timelock];
-    let script_bufs: Vec<ScriptBuf> = scripts.iter().map(|s| s.to_script_buf()).collect();
-    let (addr, spend) = create_taproot_address(&script_bufs, None, network);
-    Ok((addr, spend, scripts))
+    let (addr, spend) = create_taproot_address(&[deposit_script, script_timelock], None, network);
+    Ok((addr, spend))
 }
 
 /// Shorthand function for creating a checksig taproot address: A single checksig script with the given xonly PK and no internal key.

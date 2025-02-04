@@ -5,9 +5,7 @@
 
 use std::sync::Arc;
 
-use super::script::{CheckSig, SpendableScript};
-use crate::builder;
-use crate::builder::script::OtherSpendable;
+use super::script::{CheckSig, DepositScript, TimelockScript};
 pub use crate::builder::transaction::challenge::*;
 use crate::builder::transaction::input::SpendableTxIn;
 pub use crate::builder::transaction::operator_assert::*;
@@ -79,25 +77,32 @@ pub fn create_move_to_vault_txhandler(
 ) -> Result<TxHandler<Unsigned>, BridgeError> {
     let nofn_script = Arc::new(CheckSig::new(nofn_xonly_pk));
 
-    let (deposit_address, deposit_taproot_spend_info, deposit_scripts) =
-        builder::address::generate_deposit_address(
-            nofn_xonly_pk,
-            recovery_taproot_address,
-            user_evm_address,
-            bridge_amount_sats,
-            network,
-            user_takes_after,
-        )?;
+    let deposit_script = Arc::new(DepositScript::new(
+        nofn_xonly_pk,
+        user_evm_address,
+        bridge_amount_sats,
+    ));
+
+    let recovery_script_pubkey = recovery_taproot_address
+        .clone()
+        .assume_checked()
+        .script_pubkey();
+
+    let recovery_extracted_xonly_pk =
+        XOnlyPublicKey::from_slice(&recovery_script_pubkey.as_bytes()[2..34])?;
+
+    let script_timelock = Arc::new(TimelockScript::new(
+        Some(recovery_extracted_xonly_pk),
+        user_takes_after,
+    ));
 
     let builder = TxHandlerBuilder::new().add_input(
-        SpendableTxIn::new(
+        SpendableTxIn::from_scripts(
             deposit_outpoint,
-            TxOut {
-                value: bridge_amount_sats,
-                script_pubkey: deposit_address.script_pubkey(),
-            },
-            deposit_scripts,
-            Some(deposit_taproot_spend_info.clone()),
+            bridge_amount_sats,
+            vec![deposit_script, script_timelock],
+            None,
+            network,
         ),
         DEFAULT_SEQUENCE,
     );

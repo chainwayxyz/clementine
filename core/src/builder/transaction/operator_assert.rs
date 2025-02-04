@@ -54,7 +54,7 @@ pub fn create_mini_assert_tx(
     out_script: ScriptBuf,
     _network: bitcoin::Network,
 ) -> TxHandler<Unsigned> {
-    let mut builder = TxHandlerBuilder::new();
+    let builder = TxHandlerBuilder::new();
 
     builder
         .add_input(
