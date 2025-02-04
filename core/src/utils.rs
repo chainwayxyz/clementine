@@ -3,14 +3,23 @@ use crate::cli::Args;
 use crate::config::BridgeConfig;
 use crate::errors::BridgeError;
 use bitcoin::taproot::{self, LeafVersion};
-use bitcoin::XOnlyPublicKey;
 use bitcoin::{self, Witness};
+use bitcoin::{ScriptBuf, XOnlyPublicKey};
+use bitvm::chunker::assigner::BridgeAssigner;
+use bitvm::chunker::chunk_groth16_verifier::groth16_verify_to_segments;
+use bitvm::chunker::disprove_execution::RawProof;
+use bitvm::signatures::signing_winternitz::WinternitzPublicKey;
+use bitvm::signatures::winternitz;
 use tracing::Level;
 //use bitvm::chunker::assigner::BridgeAssigner;
+use ctor::ctor;
 use std::borrow::BorrowMut;
 use std::collections::BTreeMap;
+use std::collections::HashMap;
 use std::process::exit;
 use std::str::FromStr;
+use std::sync::OnceLock;
+use std::time::Instant;
 use tracing::level_filters::LevelFilter;
 use tracing_subscriber::layer::SubscriberExt;
 use tracing_subscriber::{fmt, EnvFilter, Registry};
@@ -43,6 +52,127 @@ lazy_static::lazy_static! {
 // lazy_static::lazy_static! {
 //     pub static ref ALL_BITVM_INTERMEDIATE_VARIABLES: BTreeMap<String, usize> = BridgeAssigner::default().all_intermediate_variable();
 // }
+
+static ALL_BITVM_INTERMEDIATE_VARIABLES_LOCK: OnceLock<BTreeMap<String, usize>> = OnceLock::new();
+static ALL_BITVM_DISPROVE_PROOF_LOCK: OnceLock<Vec<ScriptBuf>> = OnceLock::new();
+
+#[ctor]
+fn init_all_bitvm_intermediate_variables() {
+    let start = Instant::now();
+
+    let map = BridgeAssigner::default().all_intermediate_variables();
+    ALL_BITVM_INTERMEDIATE_VARIABLES_LOCK
+        .set(map.clone())
+        .unwrap();
+
+    // Now create a dummy winternitz with random parameters
+    let commits_publickeys = map
+        .iter()
+        .enumerate()
+        .map(|(idx, (intermediate_step, intermediate_step_size))| {
+            let mut dummy_pk = [31u8; 20];
+            dummy_pk[..8].copy_from_slice(&idx.to_le_bytes());
+            let parameters = winternitz::Parameters::new(*intermediate_step_size as u32 * 2, 4);
+
+            // Pre-allocate vector with correct capacity
+            let digit_count = parameters.total_digit_count() as usize;
+            let mut winternitz_pk = Vec::with_capacity(digit_count);
+
+            // Generate unique public keys for each digit
+            for i in 0..digit_count {
+                let mut new_pk = dummy_pk;
+                new_pk[12..20].copy_from_slice(&i.to_le_bytes()); // Use last 8 bytes for digit index
+                winternitz_pk.push(new_pk);
+            }
+
+            let winternitz_pk = WinternitzPublicKey {
+                public_key: winternitz_pk,
+                parameters,
+            };
+            Ok((intermediate_step.clone(), winternitz_pk))
+        })
+        .collect::<Result<BTreeMap<_, _>, BridgeError>>()
+        .unwrap();
+
+    let mut bridge_assigner = BridgeAssigner::new_watcher(commits_publickeys);
+    let proof = RawProof::default();
+    let segments =
+        groth16_verify_to_segments(&mut bridge_assigner, &proof.public, &proof.proof, &proof.vk);
+
+    let scripts = segments
+        .iter()
+        .map(|s| s.script.clone().compile())
+        .collect::<Vec<_>>();
+    ALL_BITVM_DISPROVE_PROOF_LOCK.set(scripts).unwrap();
+
+    println!("BitVM initialization took: {:?}", start.elapsed());
+}
+
+pub fn replace_disprove_scripts(winternitz_pk: &[Vec<[u8; 20]>]) -> Vec<ScriptBuf> {
+    let start = Instant::now();
+
+    // Get the initial scripts.
+    let mut disprove_scripts = ALL_BITVM_DISPROVE_PROOF_LOCK
+        .get()
+        .expect("failed to get disprove scripts")
+        .to_vec();
+    let all_bitvm_intermediate_variables = ALL_BITVM_INTERMEDIATE_VARIABLES_LOCK
+        .get()
+        .expect("failed to get intermediate variables");
+
+    // Process each intermediate variable one at a time.
+    for (idx, (_intermediate_step, intermediate_step_size)) in
+        all_bitvm_intermediate_variables.iter().enumerate()
+    {
+        // Build a dummy base public key.
+        // Start with 20 bytes set to 31, then overwrite the first 8 bytes with idx.
+        let mut dummy_base = [31u8; 20];
+        dummy_base[..8].copy_from_slice(&idx.to_le_bytes());
+
+        // Compute the parameters and determine the number of digits.
+        let parameters = winternitz::Parameters::new((*intermediate_step_size as u32) * 2, 4);
+        let digit_count = parameters.total_digit_count() as usize;
+
+        // Build a mapping of dummy key -> actual replacement key.
+        let mut mapping = HashMap::<[u8; 20], [u8; 20]>::with_capacity(digit_count);
+        for digit in 0..digit_count {
+            let mut dummy = dummy_base;
+            // Overwrite the last 8 bytes with the little-endian representation of the digit.
+            dummy[12..20].copy_from_slice(&digit.to_le_bytes());
+            // winternitz_pk[idx][digit] is the actual replacement value.
+            mapping.insert(dummy, winternitz_pk[idx][digit]);
+        }
+
+        // For each script, scan through the bytes and do a one‐pass replacement.
+        // At each position, if the next 20 bytes match a dummy key, replace them;
+        // otherwise, copy one byte.
+        for script in disprove_scripts.iter_mut() {
+            let script_bytes = script.as_bytes();
+            let mut new_bytes = Vec::with_capacity(script_bytes.len());
+            let mut pos = 0;
+            while pos < script_bytes.len() {
+                // If there are at least 20 bytes remaining, check for a dummy key.
+                if pos + 20 <= script_bytes.len() {
+                    // Convert the 20‐byte window into an array.
+                    if let Ok(candidate_arr) = <[u8; 20]>::try_from(&script_bytes[pos..pos + 20]) {
+                        if let Some(&replacement) = mapping.get(&candidate_arr) {
+                            new_bytes.extend_from_slice(&replacement);
+                            pos += 20;
+                            continue;
+                        }
+                    }
+                }
+                // Otherwise, just copy the byte.
+                new_bytes.push(script_bytes[pos]);
+                pos += 1;
+            }
+            *script = ScriptBuf::from_bytes(new_bytes);
+        }
+    }
+
+    println!("BitVM script replacement took: {:?}", start.elapsed());
+    disprove_scripts
+}
 
 lazy_static::lazy_static! {
     pub static ref ALL_BITVM_INTERMEDIATE_VARIABLES: BTreeMap<String, usize> = {
