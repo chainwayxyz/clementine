@@ -36,9 +36,9 @@ impl UnspentTxOut {
         key_path: Option<XOnlyPublicKey>,
         network: bitcoin::Network,
     ) -> UnspentTxOut {
-        let script_bufs = scripts
+        let script_bufs : Vec<ScriptBuf> = scripts
             .iter()
-            .map(|script| script.clone().into_script_buf())
+            .map(|script| script.clone().to_script_buf())
             .collect();
         let (addr, spend_info) = create_taproot_address(&script_bufs, key_path, network);
         Self::new(
@@ -47,7 +47,7 @@ impl UnspentTxOut {
                 script_pubkey: addr.script_pubkey(),
             },
             scripts,
-            spend_info,
+            Some(spend_info),
         )
     }
 

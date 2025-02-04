@@ -21,6 +21,14 @@ use std::fmt::Debug;
 
 pub trait SpendableScript: Send + Sync + 'static + std::any::Any {
     fn as_any(&self) -> &dyn Any;
+
+    fn to_script_buf(&self) -> ScriptBuf;
+}
+
+impl Debug for dyn SpendableScript {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "SpendableScript")
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -36,12 +44,13 @@ impl SpendableScript for OtherSpendable {
     fn as_any(&self) -> &dyn Any {
         self
     }
+
+    fn to_script_buf(&self) -> ScriptBuf {
+        self.0.clone()
+    }
 }
 
 impl OtherSpendable {
-    fn into_script_buf(self) -> ScriptBuf {
-        self.0
-    }
 
     fn as_script(&self) -> &ScriptBuf {
         &self.0
@@ -49,6 +58,10 @@ impl OtherSpendable {
 
     fn generate_witness(&self, witness: Witness) -> Witness {
         witness
+    }
+
+    pub fn new(script: ScriptBuf) -> Self {
+        Self(script)
     }
 }
 
@@ -58,18 +71,23 @@ impl SpendableScript for CheckSig {
     fn as_any(&self) -> &dyn Any {
         self
     }
-}
 
-impl CheckSig {
-    fn into_script_buf(self) -> ScriptBuf {
+    fn to_script_buf(&self) -> ScriptBuf {
         Builder::new()
             .push_x_only_key(&self.0)
             .push_opcode(OP_CHECKSIG)
             .into_script()
     }
+}
+
+impl CheckSig {
 
     fn generate_witness(&self, signature: schnorr::Signature) -> Witness {
         Witness::from_slice(&[signature.serialize()])
+    }
+
+    pub fn new(xonly_pk: XOnlyPublicKey) -> Self {
+        Self(xonly_pk)
     }
 }
 
@@ -79,13 +97,11 @@ impl SpendableScript for WinternitzCommit {
     fn as_any(&self) -> &dyn Any {
         self
     }
-}
 
-impl WinternitzCommit {
-    fn into_script_buf(self) -> ScriptBuf {
+    fn to_script_buf(&self) -> ScriptBuf {
         let mut builder = Builder::new();
-        let pubkey = self.0;
-        let params = self.1;
+        let pubkey = self.0.clone();
+        let params = self.1.clone();
         let xonly_pubkey = self.2;
         let mut verifier = winternitz::Winternitz::<
             winternitz::ListpickVerifier,
@@ -96,9 +112,16 @@ impl WinternitzCommit {
         let x = x.push_opcode(OP_CHECKSIG);
         x.compile()
     }
+}
+
+impl WinternitzCommit {
 
     fn generate_witness(&self, commit_data: &[u8], signature: schnorr::Signature) -> Witness {
         Witness::from_slice(&[commit_data, &signature.serialize()])
+    }
+
+    pub fn new(pubkey: PublicKey, params: Parameters, xonly_pubkey: XOnlyPublicKey) -> Self {
+        Self(pubkey, params, xonly_pubkey)
     }
 }
 
@@ -109,10 +132,8 @@ impl SpendableScript for TimelockScript {
     fn as_any(&self) -> &dyn Any {
         self
     }
-}
 
-impl TimelockScript {
-    fn into_script_buf(self) -> ScriptBuf {
+    fn to_script_buf(&self) -> ScriptBuf {
         let script_builder = Builder::new()
             .push_int(self.1 as i64)
             .push_opcode(OP_CSV)
@@ -126,9 +147,16 @@ impl TimelockScript {
             script_builder.push_opcode(OP_TRUE).into_script()
         }
     }
+}
+
+impl TimelockScript {
 
     fn generate_witness(&self, signature: schnorr::Signature) -> Witness {
         Witness::from_slice(&[signature.serialize()])
+    }
+
+    pub fn new(xonly_pk: Option<XOnlyPublicKey>, block_count: u16) -> Self {
+        Self(xonly_pk, block_count)
     }
 }
 
@@ -138,10 +166,8 @@ impl SpendableScript for PreimageRevealScript {
     fn as_any(&self) -> &dyn Any {
         self
     }
-}
 
-impl PreimageRevealScript {
-    fn into_script_buf(self) -> ScriptBuf {
+    fn to_script_buf(&self) -> ScriptBuf {
         Builder::new()
             .push_opcode(OP_HASH160)
             .push_slice(&self.1)
@@ -150,33 +176,16 @@ impl PreimageRevealScript {
             .push_opcode(OP_CHECKSIG)
             .into_script()
     }
-
-    fn generate_witness(&self, preimage: &[u8], signature: schnorr::Signature) -> Witness {
-        Witness::from_slice(&[preimage, &signature.serialize()])
-    }
-}
-
-pub struct DepositScript(XOnlyPublicKey, [u8; 20]);
-
-impl SpendableScript for PreimageRevealScript {
-    fn as_any(&self) -> &dyn Any {
-        self
-    }
 }
 
 impl PreimageRevealScript {
-    fn into_script_buf(self) -> ScriptBuf {
-        Builder::new()
-            .push_opcode(OP_HASH160)
-            .push_slice(&self.1)
-            .push_opcode(OP_EQUALVERIFY)
-            .push_x_only_key(&self.0)
-            .push_opcode(OP_CHECKSIG)
-            .into_script()
-    }
 
     fn generate_witness(&self, preimage: &[u8], signature: schnorr::Signature) -> Witness {
         Witness::from_slice(&[preimage, &signature.serialize()])
+    }
+
+    pub fn new(xonly_pk: XOnlyPublicKey, hash: [u8; 20]) -> Self {
+        Self(xonly_pk, hash)
     }
 }
 

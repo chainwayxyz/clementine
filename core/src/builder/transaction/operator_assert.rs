@@ -1,6 +1,5 @@
 use crate::builder;
-use crate::builder::address::create_taproot_address;
-use crate::builder::script::{CheckSig, TimelockScript};
+use crate::builder::script::{TimelockScript};
 pub use crate::builder::transaction::txhandler::TxHandler;
 pub use crate::builder::transaction::*;
 use crate::constants::{MIN_TAPROOT_AMOUNT, PARALLEL_ASSERT_TX_CHAIN_SIZE};
@@ -10,7 +9,6 @@ use bitcoin::hashes::Hash;
 use bitcoin::taproot::TaprootBuilder;
 use bitcoin::{Address, Amount, OutPoint, ScriptBuf, TxOut, XOnlyPublicKey};
 use bitcoin::{Sequence, TapNodeHash, Txid};
-use std::ops::Div;
 use std::sync::Arc;
 
 use self::input::SpendableTxIn;
@@ -189,8 +187,8 @@ pub fn create_assert_end_txhandler(
         network,
     );
 
-    let nofn_1week = Arc::new(TimelockScript(Some(nofn_xonly_pk), 7 * 24 * 6));
-    let nofn_2week = Arc::new(TimelockScript(Some(nofn_xonly_pk), 7 * 24 * 6 * 2));
+    let nofn_1week = Arc::new(TimelockScript::new(Some(nofn_xonly_pk), 7 * 24 * 6));
+    let nofn_2week = Arc::new(TimelockScript::new(Some(nofn_xonly_pk), 7 * 24 * 6 * 2));
 
     // Add outputs
     builder = builder

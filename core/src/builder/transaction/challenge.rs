@@ -5,7 +5,6 @@ use crate::builder::transaction::txhandler::{TxHandler, DEFAULT_SEQUENCE};
 use crate::builder::transaction::*;
 use crate::constants::OPERATOR_CHALLENGE_AMOUNT;
 use crate::errors::BridgeError;
-use bitcoin::opcodes::all::OP_CHECKSIG;
 use bitcoin::{Amount, ScriptBuf, Sequence, TxOut, XOnlyPublicKey};
 use bitvm::signatures::winternitz;
 use std::sync::Arc;
@@ -30,7 +29,7 @@ pub fn create_watchtower_challenge_kickoff_txhandler(
     let wots_params = winternitz::Parameters::new(240, 4);
 
     for i in 0..num_watchtowers {
-        let winternitz_commit = Arc::new(WinternitzCommit(
+        let winternitz_commit = Arc::new(WinternitzCommit::new(
             watchtower_challenge_winternitz_pks[i as usize]
                 .clone()
                 .into(),
@@ -107,8 +106,8 @@ pub fn create_watchtower_challenge_txhandler(
         DEFAULT_SEQUENCE,
     );
 
-    let nofn_halfweek = Arc::new(TimelockScript(Some(nofn_xonly_pk), 7 * 24 * 6 / 2)); // 0.5 week
-    let operator_with_preimage = Arc::new(PreimageRevealScript(
+    let nofn_halfweek = Arc::new(TimelockScript::new(Some(nofn_xonly_pk), 7 * 24 * 6 / 2)); // 0.5 week
+    let operator_with_preimage = Arc::new(PreimageRevealScript::new(
         operator_xonly_pk,
         operator_unlock_hash.clone(),
     ));

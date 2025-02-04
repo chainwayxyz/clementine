@@ -93,9 +93,9 @@ impl SpendableTxIn {
         key_path: Option<XOnlyPublicKey>,
         network: bitcoin::Network,
     ) -> SpendableTxIn {
-        let script_bufs = scripts
+        let script_bufs : Vec<ScriptBuf> = scripts
             .iter()
-            .map(|script| script.clone().into_script_buf())
+            .map(|script| script.clone().to_script_buf())
             .collect();
         let (addr, spend_info) = create_taproot_address(&script_bufs, key_path, network);
         Self::new(
@@ -105,7 +105,7 @@ impl SpendableTxIn {
                 script_pubkey: addr.script_pubkey(),
             },
             scripts,
-            spend_info,
+            Some(spend_info),
         )
     }
 
@@ -123,7 +123,7 @@ impl SpendableTxIn {
         Self::from_unchecked(previous_output, prevout, scripts, spendinfo)
     }
 
-    pub fn get_scripts(&self) -> &Vec<ScriptBuf> {
+    pub fn get_scripts(&self) -> &Vec<Arc<dyn SpendableScript>> {
         &self.scripts
     }
 
@@ -147,9 +147,9 @@ impl SpendableTxIn {
         {
             return Err(IncorrectScriptPubkey);
         }
-        let script_bufs = scripts
+        let script_bufs: Vec<ScriptBuf> = scripts
             .iter()
-            .map(|script| script.clone().into_script_buf())
+            .map(|script| script.clone().to_script_buf())
             .collect();
         if script_bufs.iter().any(|script| {
             spendinfo

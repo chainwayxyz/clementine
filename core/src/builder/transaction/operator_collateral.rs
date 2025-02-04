@@ -63,12 +63,12 @@ pub fn create_sequential_collateral_txhandler(
         ),
         DEFAULT_SEQUENCE,
     );
-    let max_withdrawal_time_locked_script = Arc::new(TimelockScript(
+    let max_withdrawal_time_locked_script = Arc::new(TimelockScript::new(
         Some(operator_xonly_pk),
         max_withdrawal_time_block_count,
     ));
 
-    let timeout_block_count_locked_script = Arc::new(TimelockScript(
+    let timeout_block_count_locked_script = Arc::new(TimelockScript::new(
         None,
         u16::try_from(timeout_block_count)
             .map_err(|e| BridgeError::Error("Timeout value is not u16".to_string()))?,
@@ -132,8 +132,6 @@ pub fn create_reimburse_generator_txhandler(
                 .ok_or(BridgeError::TxInputNotFound)?,
             Sequence::from_height(max_withdrawal_time_block_count),
         );
-
-    let (op_address, op_spend) = create_taproot_address(&[], Some(operator_xonly_pk), network);
 
     builder = builder.add_output(UnspentTxOut::from_scripts(
         MIN_TAPROOT_AMOUNT,

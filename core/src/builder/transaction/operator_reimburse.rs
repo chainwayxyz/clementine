@@ -1,5 +1,4 @@
 use super::txhandler::DEFAULT_SEQUENCE;
-use crate::builder::address::create_taproot_address;
 use crate::builder::script::{CheckSig, TimelockScript};
 use crate::builder::transaction::output::UnspentTxOut;
 use crate::builder::transaction::txhandler::{TxHandler, TxHandlerBuilder};
@@ -30,7 +29,7 @@ pub fn create_kickoff_txhandler(
         DEFAULT_SEQUENCE,
     );
 
-    let nofn_script = Arc::new(CheckSig(nofn_xonly_pk));
+    let nofn_script = Arc::new(CheckSig::new(nofn_xonly_pk));
     builder = builder.add_output(UnspentTxOut::from_scripts(
         MIN_TAPROOT_AMOUNT,
         vec![nofn_script],
@@ -38,9 +37,9 @@ pub fn create_kickoff_txhandler(
         network,
     ));
 
-    let operator_1week = Arc::new(TimelockScript(Some(operator_xonly_pk), 7 * 24 * 6));
-    let operator_2_5_week = Arc::new(TimelockScript(Some(operator_xonly_pk), 7 * 24 * 6 / 2 * 5));
-    let nofn_3week = Arc::new(TimelockScript(Some(nofn_xonly_pk), 3 * 7 * 24 * 6));
+    let operator_1week = Arc::new(TimelockScript::new(Some(operator_xonly_pk), 7 * 24 * 6));
+    let operator_2_5_week = Arc::new(TimelockScript::new(Some(operator_xonly_pk), 7 * 24 * 6 / 2 * 5));
+    let nofn_3week = Arc::new(TimelockScript::new(Some(nofn_xonly_pk), 3 * 7 * 24 * 6));
 
     builder = builder
         .add_output(UnspentTxOut::from_scripts(
