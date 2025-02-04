@@ -588,7 +588,7 @@ async fn key_and_script_spend() {
 
     // Send the transaction
     rpc.client
-        .send_raw_transaction(&test_txhandler_2.get_cached_tx())
+        .send_raw_transaction(test_txhandler_2.get_cached_tx())
         .await
         .unwrap();
 }
