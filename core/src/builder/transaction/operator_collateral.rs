@@ -98,7 +98,9 @@ pub fn create_sequential_collateral_txhandler(
         ));
     }
     Ok(builder
-        .add_output(UnspentTxOut::from_partial(builder::script::anchor_output()))
+        .add_output(UnspentTxOut::from_partial(
+            builder::transaction::anchor_output(),
+        ))
         .finalize())
 }
 
@@ -147,7 +149,9 @@ pub fn create_reimburse_generator_txhandler(
     }
 
     Ok(builder
-        .add_output(UnspentTxOut::from_partial(builder::script::anchor_output()))
+        .add_output(UnspentTxOut::from_partial(
+            builder::transaction::anchor_output(),
+        ))
         .finalize())
 }
 
@@ -165,7 +169,9 @@ pub fn create_kickoff_utxo_timeout_txhandler(
 
     // TODO: send kickoff SATs to burner address
     Ok(builder
-        .add_output(UnspentTxOut::from_partial(builder::script::anchor_output()))
+        .add_output(UnspentTxOut::from_partial(
+            builder::transaction::anchor_output(),
+        ))
         .finalize())
 }
 
@@ -186,6 +192,8 @@ pub fn create_kickoff_timeout_txhandler(
             DEFAULT_SEQUENCE,
         );
     Ok(builder
-        .add_output(UnspentTxOut::from_partial(builder::script::anchor_output()))
+        .add_output(UnspentTxOut::from_partial(
+            builder::transaction::anchor_output(),
+        ))
         .finalize())
 }

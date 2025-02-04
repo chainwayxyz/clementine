@@ -2,7 +2,7 @@ use crate::builder;
 use crate::builder::script::TimelockScript;
 pub use crate::builder::transaction::txhandler::TxHandler;
 pub use crate::builder::transaction::*;
-use crate::constants::{MIN_TAPROOT_AMOUNT, PARALLEL_ASSERT_TX_CHAIN_SIZE};
+use crate::constants::{BLOCKS_PER_WEEK, MIN_TAPROOT_AMOUNT, PARALLEL_ASSERT_TX_CHAIN_SIZE};
 use crate::errors::BridgeError;
 use crate::utils::SECP;
 use bitcoin::hashes::Hash;
@@ -29,7 +29,7 @@ pub fn create_assert_begin_txhandler(
     // Add input from kickoff tx
     builder = builder.add_input(
         kickoff_txhandler.get_spendable_output(2)?,
-        Sequence::from_height(7 * 24 * 6 / 2 * 5),
+        Sequence::from_height(BLOCKS_PER_WEEK / 2 * 5), // 2.5 weeks
     );
 
     // Add parallel assert outputs
@@ -40,10 +40,11 @@ pub fn create_assert_begin_txhandler(
         }));
     }
 
-    // Add anchor output
-    builder = builder.add_output(UnspentTxOut::from_partial(builder::script::anchor_output()));
-
-    Ok(builder.finalize())
+    Ok(builder
+        .add_output(UnspentTxOut::from_partial(
+            builder::transaction::anchor_output(),
+        ))
+        .finalize())
 }
 
 /// Creates the `mini_assert_tx` for `assert_begin_tx -> assert_end_tx` flow.
@@ -55,31 +56,28 @@ pub fn create_mini_assert_tx(
 ) -> TxHandler<Unsigned> {
     let mut builder = TxHandlerBuilder::new();
 
-    // Add input
-    builder = builder.add_input(
-        SpendableTxIn::new_partial(
-            OutPoint {
-                txid: prev_txid,
-                vout: prev_vout,
-            },
-            TxOut {
-                value: MIN_TAPROOT_AMOUNT,
-                script_pubkey: out_script.clone(),
-            },
-        ),
-        DEFAULT_SEQUENCE,
-    );
-
-    // Add main output
-    builder = builder.add_output(UnspentTxOut::from_partial(TxOut {
-        value: Amount::from_sat(330),
-        script_pubkey: out_script,
-    }));
-
-    // Add anchor output
-    builder = builder.add_output(UnspentTxOut::from_partial(builder::script::anchor_output()));
-
-    builder.finalize()
+    builder
+        .add_input(
+            SpendableTxIn::new_partial(
+                OutPoint {
+                    txid: prev_txid,
+                    vout: prev_vout,
+                },
+                TxOut {
+                    value: MIN_TAPROOT_AMOUNT,
+                    script_pubkey: out_script.clone(),
+                },
+            ),
+            DEFAULT_SEQUENCE,
+        )
+        .add_output(UnspentTxOut::from_partial(TxOut {
+            value: Amount::from_sat(330),
+            script_pubkey: out_script,
+        }))
+        .add_output(UnspentTxOut::from_partial(
+            builder::transaction::anchor_output(),
+        ))
+        .finalize()
 }
 
 /// Creates a [`TxHandler`] for the `assert_end_tx`. When this transaction is sent,
@@ -175,11 +173,14 @@ pub fn create_assert_end_txhandler(
         network,
     );
 
-    let nofn_1week = Arc::new(TimelockScript::new(Some(nofn_xonly_pk), 7 * 24 * 6));
-    let nofn_2week = Arc::new(TimelockScript::new(Some(nofn_xonly_pk), 7 * 24 * 6 * 2));
+    let nofn_1week = Arc::new(TimelockScript::new(Some(nofn_xonly_pk), BLOCKS_PER_WEEK));
+    let nofn_2week = Arc::new(TimelockScript::new(
+        Some(nofn_xonly_pk),
+        BLOCKS_PER_WEEK * 2,
+    ));
 
     // Add outputs
-    builder = builder
+    Ok(builder
         .add_output(UnspentTxOut::from_partial(TxOut {
             value: MIN_TAPROOT_AMOUNT,
             script_pubkey: disprove_address.script_pubkey().clone(),
@@ -191,12 +192,11 @@ pub fn create_assert_end_txhandler(
             network,
         ))
         .add_output(UnspentTxOut::new(
-            builder::script::anchor_output(),
+            builder::transaction::anchor_output(),
             vec![],
             None,
-        ));
-
-    Ok(builder.finalize())
+        ))
+        .finalize())
 }
 /// Creates a [`TxHandler`] for the `disprove_timeout_tx`. This transaction will be sent by the operator
 /// to be able to send `reimburse_tx` later.
@@ -205,26 +205,20 @@ pub fn create_disprove_timeout_txhandler(
     operator_xonly_pk: XOnlyPublicKey,
     network: bitcoin::Network,
 ) -> Result<TxHandler<Unsigned>, BridgeError> {
-    let mut builder = TxHandlerBuilder::new();
-
-    // Add inputs
-    builder = builder
+    Ok(TxHandlerBuilder::new()
         .add_input(
             assert_end_txhandler.get_spendable_output(0)?,
             DEFAULT_SEQUENCE,
         )
         .add_input(
             assert_end_txhandler.get_spendable_output(1)?,
-            Sequence::from_height(7 * 24 * 6),
-        );
-
-    // Add output
-    builder = builder.add_output(UnspentTxOut::from_scripts(
-        MIN_TAPROOT_AMOUNT,
-        vec![],
-        Some(operator_xonly_pk),
-        network,
-    ));
-
-    Ok(builder.finalize())
+            Sequence::from_height(BLOCKS_PER_WEEK),
+        )
+        .add_output(UnspentTxOut::from_scripts(
+            MIN_TAPROOT_AMOUNT,
+            vec![],
+            Some(operator_xonly_pk),
+            network,
+        ))
+        .finalize())
 }

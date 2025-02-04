@@ -16,8 +16,9 @@ use bitcoin::{
 };
 use bitcoin::{Amount, Network};
 use bitvm::signatures::winternitz;
+use std::sync::Arc;
 
-use super::script::SpendableScript;
+use super::script::{CheckSig, DepositScript, SpendableScript, TimelockScript};
 
 pub fn taproot_builder_with_scripts(scripts: &[ScriptBuf]) -> TaprootBuilder {
     let builder = TaprootBuilder::new();
@@ -128,24 +129,25 @@ pub fn generate_deposit_address(
     amount: Amount,
     network: bitcoin::Network,
     user_takes_after: u16,
-) -> Result<(Address, TaprootSpendInfo, [ScriptBuf; 2]), BridgeError> {
-    let deposit_script =
-        builder::script::create_deposit_script(nofn_xonly_pk, user_evm_address, amount);
+) -> Result<(Address, TaprootSpendInfo, Vec<Arc<dyn SpendableScript>>), BridgeError> {
+    let deposit_script = Arc::new(DepositScript::new(nofn_xonly_pk, user_evm_address, amount));
 
     let recovery_script_pubkey = recovery_taproot_address
         .clone()
         .assume_checked()
         .script_pubkey();
+
     let recovery_extracted_xonly_pk =
         XOnlyPublicKey::from_slice(&recovery_script_pubkey.as_bytes()[2..34])?;
 
-    let script_timelock = builder::script::generate_checksig_relative_timelock_script(
-        recovery_extracted_xonly_pk,
+    let script_timelock = Arc::new(TimelockScript::new(
+        Some(recovery_extracted_xonly_pk),
         user_takes_after,
-    );
+    ));
 
-    let scripts = [deposit_script, script_timelock];
-    let (addr, spend) = create_taproot_address(&scripts, None, network);
+    let scripts: Vec<Arc<dyn SpendableScript>> = vec![deposit_script, script_timelock];
+    let script_bufs: Vec<ScriptBuf> = scripts.iter().map(|s| s.to_script_buf()).collect();
+    let (addr, spend) = create_taproot_address(&script_bufs, None, network);
     Ok((addr, spend, scripts))
 }
 
@@ -161,7 +163,7 @@ pub fn create_checksig_address(
     xonly_pk: XOnlyPublicKey,
     network: bitcoin::Network,
 ) -> (Address, TaprootSpendInfo) {
-    let script = builder::script::generate_checksig_script(xonly_pk);
+    let script = CheckSig::new(xonly_pk);
     create_taproot_address(&[script.to_script_buf()], None, network)
 }
 

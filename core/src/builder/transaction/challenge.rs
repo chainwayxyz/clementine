@@ -3,7 +3,7 @@ use crate::builder::script::{PreimageRevealScript, TimelockScript, WinternitzCom
 use crate::builder::transaction::output::UnspentTxOut;
 use crate::builder::transaction::txhandler::{TxHandler, DEFAULT_SEQUENCE};
 use crate::builder::transaction::*;
-use crate::constants::OPERATOR_CHALLENGE_AMOUNT;
+use crate::constants::{BLOCKS_PER_WEEK, OPERATOR_CHALLENGE_AMOUNT};
 use crate::errors::BridgeError;
 use bitcoin::{Amount, ScriptBuf, Sequence, TxOut, XOnlyPublicKey};
 use bitvm::signatures::winternitz;
@@ -41,10 +41,8 @@ pub fn create_watchtower_challenge_kickoff_txhandler(
     }
 
     Ok(builder
-        .add_output(UnspentTxOut::new(
-            builder::script::anchor_output(),
-            vec![],
-            None,
+        .add_output(UnspentTxOut::from_partial(
+            builder::transaction::anchor_output(),
         ))
         .finalize())
 }
@@ -72,7 +70,9 @@ pub fn create_watchtower_challenge_kickoff_txhandler_simplified(
         ));
     }
     Ok(builder
-        .add_output(UnspentTxOut::from_partial(builder::script::anchor_output()))
+        .add_output(UnspentTxOut::from_partial(
+            builder::transaction::anchor_output(),
+        ))
         .finalize())
 }
 
@@ -98,7 +98,10 @@ pub fn create_watchtower_challenge_txhandler(
         DEFAULT_SEQUENCE,
     );
 
-    let nofn_halfweek = Arc::new(TimelockScript::new(Some(nofn_xonly_pk), 7 * 24 * 6 / 2)); // 0.5 week
+    let nofn_halfweek = Arc::new(TimelockScript::new(
+        Some(nofn_xonly_pk),
+        BLOCKS_PER_WEEK / 2,
+    )); // 0.5 week
     let operator_with_preimage = Arc::new(PreimageRevealScript::new(
         operator_xonly_pk,
         *operator_unlock_hash,
@@ -111,7 +114,9 @@ pub fn create_watchtower_challenge_txhandler(
             None,
             network,
         ))
-        .add_output(UnspentTxOut::from_partial(builder::script::anchor_output()))
+        .add_output(UnspentTxOut::from_partial(
+            builder::transaction::anchor_output(),
+        ))
         .finalize())
 }
 
@@ -126,10 +131,12 @@ pub fn create_operator_challenge_nack_txhandler(
     Ok(TxHandlerBuilder::new()
         .add_input(
             watchtower_challenge_txhandler.get_spendable_output(0)?,
-            Sequence::from_height(7 * 24 * 6 / 2),
+            Sequence::from_height(BLOCKS_PER_WEEK / 2),
         )
         .add_input(kickoff_txhandler.get_spendable_output(2)?, DEFAULT_SEQUENCE)
-        .add_output(UnspentTxOut::from_partial(builder::script::anchor_output()))
+        .add_output(UnspentTxOut::from_partial(
+            builder::transaction::anchor_output(),
+        ))
         .finalize())
 }
 
@@ -143,13 +150,15 @@ pub fn create_already_disproved_txhandler(
     Ok(TxHandlerBuilder::new()
         .add_input(
             assert_end_txhandler.get_spendable_output(1)?,
-            Sequence::from_height(7 * 24 * 6 * 2),
+            Sequence::from_height(BLOCKS_PER_WEEK * 2),
         )
         .add_input(
             sequential_collateral_txhandler.get_spendable_output(0)?,
             DEFAULT_SEQUENCE,
         )
-        .add_output(UnspentTxOut::from_partial(builder::script::anchor_output()))
+        .add_output(UnspentTxOut::from_partial(
+            builder::transaction::anchor_output(),
+        ))
         .finalize())
 }
 
@@ -169,7 +178,9 @@ pub fn create_disprove_txhandler(
             sequential_collateral_txhandler.get_spendable_output(0)?,
             DEFAULT_SEQUENCE,
         )
-        .add_output(UnspentTxOut::from_partial(builder::script::anchor_output()))
+        .add_output(UnspentTxOut::from_partial(
+            builder::transaction::anchor_output(),
+        ))
         .finalize())
 }
 

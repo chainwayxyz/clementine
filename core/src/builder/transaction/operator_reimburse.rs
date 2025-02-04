@@ -2,7 +2,7 @@ use super::txhandler::DEFAULT_SEQUENCE;
 use crate::builder::script::{CheckSig, TimelockScript};
 use crate::builder::transaction::output::UnspentTxOut;
 use crate::builder::transaction::txhandler::{TxHandler, TxHandlerBuilder};
-use crate::constants::MIN_TAPROOT_AMOUNT;
+use crate::constants::{BLOCKS_PER_WEEK, MIN_TAPROOT_AMOUNT};
 use crate::errors::BridgeError;
 use crate::{builder, utils};
 use bitcoin::hashes::Hash;
@@ -35,12 +35,18 @@ pub fn create_kickoff_txhandler(
         network,
     ));
 
-    let operator_1week = Arc::new(TimelockScript::new(Some(operator_xonly_pk), 7 * 24 * 6));
+    let operator_1week = Arc::new(TimelockScript::new(
+        Some(operator_xonly_pk),
+        BLOCKS_PER_WEEK,
+    ));
     let operator_2_5_week = Arc::new(TimelockScript::new(
         Some(operator_xonly_pk),
-        7 * 24 * 6 / 2 * 5,
+        BLOCKS_PER_WEEK / 2 * 5, // 2.5 weeks
     ));
-    let nofn_3week = Arc::new(TimelockScript::new(Some(nofn_xonly_pk), 3 * 7 * 24 * 6));
+    let nofn_3week = Arc::new(TimelockScript::new(
+        Some(nofn_xonly_pk),
+        3 * BLOCKS_PER_WEEK,
+    ));
 
     builder = builder
         .add_output(UnspentTxOut::from_scripts(
@@ -68,11 +74,13 @@ pub fn create_kickoff_txhandler(
     let push_bytes = PushBytesBuf::try_from(op_return_script)
         .expect("Can't fail since the script is shorter than 4294967296 bytes");
 
-    let op_return_txout = builder::script::op_return_txout(push_bytes);
+    let op_return_txout = builder::transaction::op_return_txout(push_bytes);
 
     Ok(builder
         .add_output(UnspentTxOut::from_partial(op_return_txout))
-        .add_output(UnspentTxOut::from_partial(builder::script::anchor_output()))
+        .add_output(UnspentTxOut::from_partial(
+            builder::transaction::anchor_output(),
+        ))
         .finalize())
 }
 
@@ -87,7 +95,7 @@ pub fn create_start_happy_reimburse_txhandler(
     let mut builder = TxHandlerBuilder::new();
     builder = builder.add_input(
         kickoff_txhandler.get_spendable_output(1)?,
-        Sequence::from_height(7 * 24 * 6),
+        Sequence::from_height(BLOCKS_PER_WEEK),
     );
     builder = builder.add_input(kickoff_txhandler.get_spendable_output(3)?, DEFAULT_SEQUENCE);
 
@@ -98,7 +106,9 @@ pub fn create_start_happy_reimburse_txhandler(
             Some(operator_xonly_pk),
             network,
         ))
-        .add_output(UnspentTxOut::from_partial(builder::script::anchor_output()))
+        .add_output(UnspentTxOut::from_partial(
+            builder::transaction::anchor_output(),
+        ))
         .finalize())
 }
 
@@ -128,7 +138,9 @@ pub fn create_happy_reimburse_txhandler(
             value: move_txhandler.get_spendable_output(0)?.get_prevout().value,
             script_pubkey: operator_reimbursement_address.script_pubkey(),
         }))
-        .add_output(UnspentTxOut::from_partial(builder::script::anchor_output()))
+        .add_output(UnspentTxOut::from_partial(
+            builder::transaction::anchor_output(),
+        ))
         .finalize())
 }
 
@@ -157,6 +169,8 @@ pub fn create_reimburse_txhandler(
             value: move_txhandler.get_spendable_output(0)?.get_prevout().value,
             script_pubkey: operator_reimbursement_address.script_pubkey(),
         }))
-        .add_output(UnspentTxOut::from_partial(builder::script::anchor_output()))
+        .add_output(UnspentTxOut::from_partial(
+            builder::transaction::anchor_output(),
+        ))
         .finalize())
 }
