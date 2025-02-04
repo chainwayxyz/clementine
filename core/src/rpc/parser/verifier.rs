@@ -1,4 +1,7 @@
 use crate::errors::BridgeError;
+use crate::rpc::clementine::{
+    verifier_deposit_sign_params, DepositSignSession, VerifierDepositSignParams,
+};
 use crate::{
     fetch_next_message_from_stream,
     rpc::{
@@ -10,6 +13,7 @@ use crate::{
     },
     EVMAddress,
 };
+use bitcoin::secp256k1::schnorr::Signature;
 use bitcoin::secp256k1::PublicKey;
 use bitcoin::{address::NetworkUnchecked, secp256k1::schnorr};
 use secp256k1::musig::{MusigAggNonce, MusigPartialSignature};
@@ -36,15 +40,43 @@ impl TryFrom<VerifierPublicKeys> for Vec<PublicKey> {
 }
 impl From<Vec<PublicKey>> for VerifierPublicKeys {
     fn from(value: Vec<PublicKey>) -> Self {
-        {
-            let verifier_public_keys: Vec<Vec<u8>> = value
-                .into_iter()
-                .map(|inner| inner.serialize().to_vec())
-                .collect();
+        let verifier_public_keys: Vec<Vec<u8>> = value
+            .into_iter()
+            .map(|inner| inner.serialize().to_vec())
+            .collect();
 
-            VerifierPublicKeys {
-                verifier_public_keys,
-            }
+        VerifierPublicKeys {
+            verifier_public_keys,
+        }
+    }
+}
+
+impl From<DepositSignSession> for VerifierDepositSignParams {
+    fn from(value: DepositSignSession) -> Self {
+        VerifierDepositSignParams {
+            params: Some(verifier_deposit_sign_params::Params::DepositSignFirstParam(
+                value,
+            )),
+        }
+    }
+}
+
+impl From<DepositSignSession> for VerifierDepositFinalizeParams {
+    fn from(value: DepositSignSession) -> Self {
+        VerifierDepositFinalizeParams {
+            params: Some(
+                verifier_deposit_finalize_params::Params::DepositSignFirstParam(value.clone()),
+            ),
+        }
+    }
+}
+
+impl From<&Signature> for VerifierDepositFinalizeParams {
+    fn from(value: &Signature) -> Self {
+        VerifierDepositFinalizeParams {
+            params: Some(verifier_deposit_finalize_params::Params::SchnorrSig(
+                value.serialize().to_vec(),
+            )),
         }
     }
 }

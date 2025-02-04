@@ -19,7 +19,7 @@ impl ClementineWatchtower for Watchtower {
         let watchtower_winternitz_public_keys =
             watchtower.get_watchtower_winternitz_public_keys().await?;
 
-        let (tx, rx) = mpsc::channel(1280);
+        let (tx, rx) = mpsc::channel(watchtower_winternitz_public_keys.len() + 2);
         let out_stream: Self::GetParamsStream = ReceiverStream::new(rx);
 
         tokio::spawn(async move {
