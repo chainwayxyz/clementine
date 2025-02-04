@@ -126,7 +126,7 @@ pub fn generate_deposit_address(
     amount: Amount,
     network: bitcoin::Network,
     user_takes_after: u16,
-) -> Result<(Address, TaprootSpendInfo), BridgeError> {
+) -> Result<(Address, TaprootSpendInfo, [ScriptBuf; 2]), BridgeError> {
     let deposit_script =
         builder::script::create_deposit_script(nofn_xonly_pk, user_evm_address, amount);
 
@@ -142,11 +142,9 @@ pub fn generate_deposit_address(
         user_takes_after,
     );
 
-    Ok(create_taproot_address(
-        &[deposit_script, script_timelock],
-        None,
-        network,
-    ))
+    let scripts = [deposit_script, script_timelock];
+    let (addr, spend) = create_taproot_address(&scripts, None, network);
+    Ok((addr, spend, scripts))
 }
 
 /// Shorthand function for creating a checksig taproot address: A single checksig script with the given xonly PK and no internal key.

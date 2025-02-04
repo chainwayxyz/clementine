@@ -224,8 +224,12 @@ pub fn partial_sign(
 #[cfg(test)]
 mod tests {
     use super::{nonce_pair, MuSigNoncePair, Musig2Mode};
+    use crate::builder::transaction::DEFAULT_SEQUENCE;
     use crate::{
-        builder::{self, transaction::TxHandler},
+        builder::{
+            self,
+            transaction::{input::SpendableTxIn, output::UnspentTxOut, TxHandlerBuilder},
+        },
         errors::BridgeError,
         musig2::{
             aggregate_nonces, aggregate_partial_signatures, create_key_agg_cache, from_secp_xonly,
@@ -515,21 +519,23 @@ mod tests {
             vout: 0,
         };
 
-        let tx_outs = builder::transaction::create_tx_outs(vec![(
-            Amount::from_sat(99_000_000),
-            receiving_address.script_pubkey(),
-        )]);
-        let tx_ins = builder::transaction::create_tx_ins(vec![utxo].into());
-        let dummy_tx = builder::transaction::create_btc_tx(tx_ins, tx_outs);
-        let mut tx_details = TxHandler {
-            txid: dummy_tx.compute_txid(),
-            tx: dummy_tx,
-            prevouts: vec![prevout],
-            prev_scripts: vec![scripts],
-            prev_taproot_spend_infos: vec![Some(sending_address_spend_info.clone())],
-            out_scripts: vec![vec![]],
-            out_taproot_spend_infos: vec![None],
-        };
+        let mut builder = TxHandlerBuilder::new();
+        builder = builder
+            .add_input(
+                SpendableTxIn::from(
+                    utxo,
+                    prevout.clone(),
+                    scripts.clone(),
+                    Some(sending_address_spend_info.clone()),
+                ),
+                DEFAULT_SEQUENCE,
+            )
+            .add_output(UnspentTxOut::from_partial(TxOut {
+                value: Amount::from_sat(99_000_000),
+                script_pubkey: receiving_address.script_pubkey(),
+            }));
+
+        let tx_details = builder.finalize();
 
         let message = Message::from_digest(
             tx_details
@@ -620,25 +626,25 @@ mod tests {
             vout: 0,
         };
 
-        let tx_outs = builder::transaction::create_tx_outs(vec![(
-            Amount::from_sat(99_000_000),
-            receiving_address.script_pubkey(),
-        )]);
-        let tx_ins = builder::transaction::create_tx_ins(vec![utxo].into());
-        let dummy_tx = builder::transaction::create_btc_tx(tx_ins, tx_outs);
-        let mut tx_details = TxHandler {
-            txid: dummy_tx.compute_txid(),
-            tx: dummy_tx,
-            prevouts: vec![prevout],
-            prev_scripts: vec![scripts],
-            prev_taproot_spend_infos: vec![Some(sending_address_spend_info.clone())],
-            out_scripts: vec![vec![]],
-            out_taproot_spend_infos: vec![None],
-        };
+        let mut tx_details = TxHandlerBuilder::new()
+            .add_input(
+                SpendableTxIn::from(
+                    utxo,
+                    prevout,
+                    scripts,
+                    Some(sending_address_spend_info.clone()),
+                ),
+                DEFAULT_SEQUENCE,
+            )
+            .add_output(UnspentTxOut::from_partial(TxOut {
+                value: Amount::from_sat(99_000_000),
+                script_pubkey: receiving_address.script_pubkey(),
+            }))
+            .finalize();
 
         let message = Message::from_digest(
             tx_details
-                .calculate_script_spend_sighash(0, 0, None)
+                .calculate_script_spend_sighash_indexed(0, 0, bitcoin::TapSighashType::Default)
                 .unwrap()
                 .to_byte_array(),
         );

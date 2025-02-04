@@ -1,16 +1,20 @@
+use std::ops::Div;
+
 use crate::builder;
 use crate::builder::address::create_taproot_address;
 use crate::constants::{MIN_TAPROOT_AMOUNT, PARALLEL_ASSERT_TX_CHAIN_SIZE};
+use crate::errors::BridgeError;
 use crate::utils::SECP;
 use bitcoin::hashes::Hash;
 use bitcoin::taproot::TaprootBuilder;
-use bitcoin::{
-    taproot::TaprootSpendInfo, Address, Amount, OutPoint, ScriptBuf, TxIn, TxOut, XOnlyPublicKey,
-};
-use bitcoin::{TapNodeHash, Transaction, Txid};
+use bitcoin::{Address, Amount, OutPoint, ScriptBuf, TxOut, XOnlyPublicKey};
+use bitcoin::{Sequence, TapNodeHash, Txid};
 
 pub use crate::builder::transaction::txhandler::TxHandler;
 pub use crate::builder::transaction::*;
+
+use self::input::SpendableTxIn;
+use self::output::UnspentTxOut;
 
 /// Creates a [`TxHandler`] for the `operator_challenge_ACK_tx`. This transaction will allow the operator
 /// to send the `assert_begin_tx` to basically respond to the challenge(s). This transaction will allow
@@ -21,48 +25,29 @@ pub fn create_assert_begin_txhandler(
     kickoff_txhandler: &TxHandler,
     assert_tx_addrs: &[ScriptBuf],
     _network: bitcoin::Network,
-) -> TxHandler {
-    let tx_ins: Vec<TxIn> = create_tx_ins(
-        vec![(
-            OutPoint {
-                txid: kickoff_txhandler.txid,
-                vout: 2,
-            },
-            Some(7 * 24 * 6 / 2 * 5),
-        )]
-        .into(),
+) -> Result<TxHandler<Unsigned>, BridgeError> {
+    let mut builder = TxHandlerBuilder::new();
+
+    // Add input from kickoff tx
+    builder = builder.add_input(
+        kickoff_txhandler
+            .get_spendable_output(2)
+            .ok_or(BridgeError::TxInputNotFound)?,
+        Sequence::from_height(7 * 24 * 6 / 2 * 5),
     );
 
-    let mut scripts: Vec<Vec<ScriptBuf>> = Vec::new();
-    let mut spendinfos: Vec<Option<TaprootSpendInfo>> = Vec::new();
-
-    let mut txouts = vec![];
-
-    txouts.extend(
-        assert_tx_addrs
-            .iter()
-            .take(PARALLEL_ASSERT_TX_CHAIN_SIZE)
-            .map(|addr| TxOut {
-                value: MIN_TAPROOT_AMOUNT, // Minimum amount for a taproot output
-                script_pubkey: addr.clone(),
-            }),
-    );
-
-    txouts.push(builder::script::anchor_output());
-    scripts.push(vec![]);
-    spendinfos.push(None);
-
-    let assert_begin_tx = create_btc_tx(tx_ins, txouts);
-
-    TxHandler {
-        txid: assert_begin_tx.compute_txid(),
-        tx: assert_begin_tx,
-        prevouts: vec![kickoff_txhandler.tx.output[2].clone()],
-        prev_scripts: vec![kickoff_txhandler.out_scripts[2].clone()],
-        prev_taproot_spend_infos: vec![kickoff_txhandler.out_taproot_spend_infos[2].clone()],
-        out_scripts: scripts,
-        out_taproot_spend_infos: spendinfos,
+    // Add parallel assert outputs
+    for addr in assert_tx_addrs.iter().take(PARALLEL_ASSERT_TX_CHAIN_SIZE) {
+        builder = builder.add_output(UnspentTxOut::from_partial(TxOut {
+            value: MIN_TAPROOT_AMOUNT,
+            script_pubkey: addr.clone(),
+        }));
     }
+
+    // Add anchor output
+    builder = builder.add_output(UnspentTxOut::from_partial(builder::script::anchor_output()));
+
+    Ok(builder.finalize())
 }
 
 /// Creates the `mini_assert_tx` for `assert_begin_tx -> assert_end_tx` flow.
@@ -71,24 +56,34 @@ pub fn create_mini_assert_tx(
     prev_vout: u32,
     out_script: ScriptBuf,
     _network: bitcoin::Network,
-) -> Transaction {
-    let tx_ins = create_tx_ins(
-        vec![OutPoint {
-            txid: prev_txid,
-            vout: prev_vout,
-        }]
-        .into(),
+) -> TxHandler<Unsigned> {
+    let mut builder = TxHandlerBuilder::new();
+
+    // Add input
+    builder = builder.add_input(
+        SpendableTxIn::from_partial(
+            OutPoint {
+                txid: prev_txid,
+                vout: prev_vout,
+            },
+            TxOut {
+                value: MIN_TAPROOT_AMOUNT,
+                script_pubkey: out_script.clone(),
+            },
+        ),
+        DEFAULT_SEQUENCE,
     );
 
-    let tx_outs = vec![
-        TxOut {
-            value: Amount::from_sat(330),
-            script_pubkey: out_script,
-        },
-        builder::script::anchor_output(),
-    ];
+    // Add main output
+    builder = builder.add_output(UnspentTxOut::from_partial(TxOut {
+        value: Amount::from_sat(330),
+        script_pubkey: out_script,
+    }));
 
-    create_btc_tx(tx_ins, tx_outs)
+    // Add anchor output
+    builder = builder.add_output(UnspentTxOut::from_partial(builder::script::anchor_output()));
+
+    builder.finalize()
 }
 
 /// Creates a [`TxHandler`] for the `assert_end_tx`. When this transaction is sent,
@@ -111,38 +106,70 @@ pub fn create_assert_end_txhandler(
     nofn_xonly_pk: XOnlyPublicKey,
     _public_input_wots: &[[u8; 20]],
     network: bitcoin::Network,
-) -> TxHandler {
-    let mut last_mini_assert_txid =
-        vec![assert_begin_txhandler.txid; PARALLEL_ASSERT_TX_CHAIN_SIZE];
+) -> Result<TxHandler, BridgeError> {
+    let mut mini_tx_handlers = Vec::with_capacity(PARALLEL_ASSERT_TX_CHAIN_SIZE);
 
-    for i in PARALLEL_ASSERT_TX_CHAIN_SIZE..assert_tx_addrs.len() {
-        let mini_assert_tx = create_mini_assert_tx(
-            last_mini_assert_txid[i % PARALLEL_ASSERT_TX_CHAIN_SIZE],
-            // if i - PARALLEL_ASSERT_TX_CHAIN_SIZE < PARALLEL_ASSERT_TX_CHAIN_SIZE, then i - PARALLEL_ASSERT_TX_CHAIN_SIZE, otherwise 0
-            if i - PARALLEL_ASSERT_TX_CHAIN_SIZE < PARALLEL_ASSERT_TX_CHAIN_SIZE {
-                i as u32 - PARALLEL_ASSERT_TX_CHAIN_SIZE as u32
-            } else {
-                0
-            },
-            assert_tx_addrs[i].clone(),
-            network,
-        );
-        last_mini_assert_txid[i % PARALLEL_ASSERT_TX_CHAIN_SIZE] = mini_assert_tx.compute_txid();
+    let mini_assert_layer_count = assert_tx_addrs.len().div(PARALLEL_ASSERT_TX_CHAIN_SIZE);
+    if assert_tx_addrs.len() < PARALLEL_ASSERT_TX_CHAIN_SIZE {
+        return Err(BridgeError::InvalidAssertTxAddrs);
     }
 
-    let mut txins = vec![];
+    // Create first layer of mini assert txs
+    for (i, addr) in assert_tx_addrs
+        .iter()
+        .take(PARALLEL_ASSERT_TX_CHAIN_SIZE)
+        .enumerate()
+    {
+        let mini_assert_tx = create_mini_assert_tx(
+            *assert_begin_txhandler.get_txid(),
+            i as u32,
+            addr.clone(),
+            network,
+        );
+        mini_tx_handlers.push(mini_assert_tx);
+    }
 
-    txins.extend(
-        last_mini_assert_txid
-            .into_iter()
-            .take(PARALLEL_ASSERT_TX_CHAIN_SIZE)
-            .map(|txid| OutPoint { txid, vout: 0 }),
+    for layer in 1..mini_assert_layer_count {
+        for i in 0..PARALLEL_ASSERT_TX_CHAIN_SIZE {
+            let assert_tx_idx = i + layer * PARALLEL_ASSERT_TX_CHAIN_SIZE;
+            if assert_tx_idx >= assert_tx_addrs.len() {
+                break;
+            }
+
+            let mini_assert_tx = create_mini_assert_tx(
+                *mini_tx_handlers
+                    .get(i)
+                    .expect("previous assertions ensure the size")
+                    .get_txid(),
+                0,
+                assert_tx_addrs
+                    .get(assert_tx_idx)
+                    .expect("checked before")
+                    .clone(),
+                network,
+            );
+
+            mini_tx_handlers[i] = mini_assert_tx;
+        }
+    }
+
+    let mut builder = TxHandlerBuilder::new();
+
+    for txhandler in mini_tx_handlers.into_iter() {
+        builder = builder.add_input(
+            txhandler
+                .get_spendable_output(0)
+                .ok_or(BridgeError::TxInputNotFound)?,
+            DEFAULT_SEQUENCE,
+        );
+    }
+
+    builder = builder.add_input(
+        kickoff_txhandler
+            .get_spendable_output(3)
+            .ok_or(BridgeError::TxInputNotFound)?,
+        DEFAULT_SEQUENCE,
     );
-
-    txins.push(OutPoint {
-        txid: kickoff_txhandler.txid,
-        vout: 3,
-    });
 
     let disprove_taproot_spend_info = TaprootBuilder::new()
         .add_hidden_node(0, TapNodeHash::from_byte_array(*root_hash))
@@ -166,110 +193,73 @@ pub fn create_assert_end_txhandler(
         None,
         network,
     );
-    let disprove_addr_pubkey = disprove_address.script_pubkey();
-    let tx_outs = vec![
-        TxOut {
-            value: MIN_TAPROOT_AMOUNT,
-            script_pubkey: disprove_addr_pubkey.clone(),
-        },
-        TxOut {
-            value: MIN_TAPROOT_AMOUNT,
-            script_pubkey: connector_addr.script_pubkey(),
-        },
-        builder::script::anchor_output(),
-    ];
 
-    let assert_end_tx = create_btc_tx(create_tx_ins(txins.into()), tx_outs);
+    // Add outputs
+    builder = builder
+        .add_output(UnspentTxOut::new(
+            TxOut {
+                value: MIN_TAPROOT_AMOUNT,
+                script_pubkey: disprove_address.script_pubkey().clone(),
+            },
+            vec![],
+            Some(disprove_taproot_spend_info),
+        ))
+        .add_output(UnspentTxOut::new(
+            TxOut {
+                value: MIN_TAPROOT_AMOUNT,
+                script_pubkey: connector_addr.script_pubkey(),
+            },
+            vec![nofn_1week, nofn_2week],
+            Some(connector_spend),
+        ))
+        .add_output(UnspentTxOut::new(
+            builder::script::anchor_output(),
+            vec![],
+            None,
+        ));
 
     // We do not create the scripts for Parallel assert txs, so that deposit process for verifiers is faster
     // Because of this we do not have scripts, spendinfos etc. for parallel asserts
     // For operator to create txs for parallel asserts and assert_end_txs, they need to create the scripts themselves
     // That's why prevout variables have dummy values here
-    let mut prevouts = (0..PARALLEL_ASSERT_TX_CHAIN_SIZE)
-        .map(|_| TxOut {
-            value: MIN_TAPROOT_AMOUNT,
-            script_pubkey: disprove_addr_pubkey.clone(), // Dummy random script pubkey, not the actual pubkey
-        })
-        .collect::<Vec<_>>();
-    prevouts.push(kickoff_txhandler.tx.output[3].clone());
-
-    let mut scripts = (0..PARALLEL_ASSERT_TX_CHAIN_SIZE)
-        .map(|_| vec![]) // TODO: Dummy empty scripts, not the actual script
-        .collect::<Vec<_>>();
-    scripts.push(kickoff_txhandler.out_scripts[3].clone());
-
-    let mut prev_taproot_spend_infos = (0..PARALLEL_ASSERT_TX_CHAIN_SIZE)
-        .map(|_| None) // TODO: Dummy empty spendinfo, not the actual spendinfo
-        .collect::<Vec<_>>();
-    prev_taproot_spend_infos.push(kickoff_txhandler.out_taproot_spend_infos[3].clone());
-
-    TxHandler {
-        txid: assert_end_tx.compute_txid(),
-        tx: assert_end_tx,
-        prevouts,
-        prev_scripts: scripts,
-        prev_taproot_spend_infos,
-        out_scripts: vec![vec![], vec![nofn_1week, nofn_2week], vec![]],
-        out_taproot_spend_infos: vec![
-            Some(disprove_taproot_spend_info),
-            Some(connector_spend),
-            None,
-        ],
-    }
+    Ok(builder.finalize())
 }
-
 /// Creates a [`TxHandler`] for the `disprove_timeout_tx`. This transaction will be sent by the operator
 /// to be able to send `reimburse_tx` later.
 pub fn create_disprove_timeout_txhandler(
     assert_end_txhandler: &TxHandler,
     operator_xonly_pk: XOnlyPublicKey,
     network: bitcoin::Network,
-) -> TxHandler {
-    let tx_ins = create_tx_ins(
-        vec![
-            (
-                OutPoint {
-                    txid: assert_end_txhandler.txid,
-                    vout: 0,
-                },
-                None,
-            ),
-            (
-                OutPoint {
-                    txid: assert_end_txhandler.txid,
-                    vout: 1,
-                },
-                Some(7 * 24 * 6),
-            ),
-        ]
-        .into(),
-    );
+) -> Result<TxHandler<Unsigned>, BridgeError> {
+    let mut builder = TxHandlerBuilder::new();
 
+    // Add inputs
+    builder = builder
+        .add_input(
+            assert_end_txhandler
+                .get_spendable_output(0)
+                .ok_or(BridgeError::TxInputNotFound)?,
+            DEFAULT_SEQUENCE,
+        )
+        .add_input(
+            assert_end_txhandler
+                .get_spendable_output(1)
+                .ok_or(BridgeError::TxInputNotFound)?,
+            Sequence::from_height(7 * 24 * 6),
+        );
+
+    // Create operator address
     let (op_address, op_spend) = create_taproot_address(&[], Some(operator_xonly_pk), network);
 
-    let tx_outs = vec![TxOut {
-        value: MIN_TAPROOT_AMOUNT,
-        script_pubkey: op_address.script_pubkey(),
-    }];
+    // Add output
+    builder = builder.add_output(UnspentTxOut::new(
+        TxOut {
+            value: MIN_TAPROOT_AMOUNT,
+            script_pubkey: op_address.script_pubkey(),
+        },
+        vec![],
+        Some(op_spend),
+    ));
 
-    let disprove_tx = create_btc_tx(tx_ins, tx_outs);
-
-    TxHandler {
-        txid: disprove_tx.compute_txid(),
-        tx: disprove_tx,
-        prevouts: vec![
-            assert_end_txhandler.tx.output[0].clone(),
-            assert_end_txhandler.tx.output[1].clone(),
-        ],
-        prev_scripts: vec![
-            assert_end_txhandler.out_scripts[0].clone(),
-            assert_end_txhandler.out_scripts[1].clone(),
-        ],
-        prev_taproot_spend_infos: vec![
-            assert_end_txhandler.out_taproot_spend_infos[0].clone(),
-            assert_end_txhandler.out_taproot_spend_infos[1].clone(),
-        ],
-        out_scripts: vec![vec![]],
-        out_taproot_spend_infos: vec![Some(op_spend)],
-    }
+    Ok(builder.finalize())
 }
