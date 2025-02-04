@@ -556,14 +556,16 @@ async fn key_and_script_spend() {
 
     // Set up the witness for the script spend
     let witness_elements = vec![final_signature_1.as_ref()];
-    set_p2tr_script_spend_witness(&mut test_txhandler_1, &witness_elements, 0, 0).unwrap();
+    (&mut test_txhandler_1)
+        .set_p2tr_script_spend_witness(&witness_elements, 0, 0)
+        .unwrap();
 
     // Mine a block to confirm previous transaction
     rpc.mine_blocks(1).await.unwrap();
 
     // Send the transaction
     rpc.client
-        .send_raw_transaction(&test_txhandler_1.tx)
+        .send_raw_transaction(test_txhandler_1.get_cached_tx())
         .await
         .unwrap();
 
@@ -575,18 +577,18 @@ async fn key_and_script_spend() {
         .verify_schnorr(&final_signature_2, &sighash_2, &agg_pk_tweaked)
         .unwrap();
 
-    set_p2tr_key_spend_witness(
-        &mut test_txhandler_2,
-        &taproot::Signature::from_slice(final_signature_2.as_ref()).unwrap(),
-        0,
-    )
-    .unwrap();
+    (test_txhandler_2)
+        .set_p2tr_key_spend_witness(
+            &taproot::Signature::from_slice(final_signature_2.as_ref()).unwrap(),
+            0,
+        )
+        .unwrap();
 
     rpc.mine_blocks(1).await.unwrap();
 
     // Send the transaction
     rpc.client
-        .send_raw_transaction(&test_txhandler_2.tx)
+        .send_raw_transaction(&test_txhandler_2.get_cached_tx())
         .await
         .unwrap();
 }

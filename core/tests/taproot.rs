@@ -2,13 +2,15 @@ use bitcoin::hashes::{Hash, HashEngine};
 use bitcoin::opcodes::all::OP_CHECKSIG;
 use bitcoin::script::Builder;
 use bitcoin::secp256k1::Scalar;
-use bitcoin::{Address, Amount, TapTweakHash, TxOut, XOnlyPublicKey};
+use bitcoin::{Address, Amount, Sequence, TapTweakHash, TxOut, XOnlyPublicKey};
 use bitcoincore_rpc::RpcApi;
 use clementine_core::actor::Actor;
-use clementine_core::builder::transaction::TxHandler;
+use clementine_core::builder::transaction::input::SpendableTxIn;
+use clementine_core::builder::transaction::output::UnspentTxOut;
+use clementine_core::builder::transaction::{TxHandler, TxHandlerBuilder};
 use clementine_core::builder::{self};
 use clementine_core::extended_rpc::ExtendedRpc;
-use clementine_core::utils::{set_p2tr_script_spend_witness, SECP};
+use clementine_core::utils::SECP;
 use clementine_core::{config::BridgeConfig, database::Database, utils::initialize_logger};
 use std::{env, thread};
 
@@ -54,25 +56,31 @@ async fn create_address_and_transaction_then_sign_transaction() {
         .send_to_address(&taproot_address, Amount::from_sat(1000))
         .await
         .unwrap();
-    let tx_ins = builder::transaction::create_tx_ins(vec![utxo].into());
-    let tx_outs = vec![TxOut {
-        value: Amount::from_sat(330),
-        script_pubkey: taproot_address.script_pubkey(),
-    }];
-    let prevouts = vec![TxOut {
-        value: Amount::from_sat(1000),
-        script_pubkey: taproot_address.script_pubkey(),
-    }];
-    let tx = builder::transaction::create_btc_tx(tx_ins, tx_outs.clone());
-    let mut tx_details = TxHandler {
-        txid: tx.compute_txid(),
-        tx: tx.clone(),
-        prevouts,
-        prev_scripts: vec![vec![to_pay_script.clone()]],
-        prev_taproot_spend_infos: vec![Some(taproot_spend_info.clone())],
-        out_scripts: vec![vec![to_pay_script]],
-        out_taproot_spend_infos: vec![Some(taproot_spend_info)],
-    };
+
+    let mut builder = TxHandlerBuilder::new();
+    builder = builder.add_input(
+        SpendableTxIn::from_unchecked(
+            utxo,
+            TxOut {
+                value: Amount::from_sat(1000),
+                script_pubkey: taproot_address.script_pubkey(),
+            },
+            vec![to_pay_script.clone()],
+            Some(taproot_spend_info.clone()),
+        ),
+        Sequence::ENABLE_RBF_NO_LOCKTIME,
+    );
+
+    builder = builder.add_output(UnspentTxOut::new(
+        TxOut {
+            value: Amount::from_sat(330),
+            script_pubkey: taproot_address.script_pubkey(),
+        },
+        vec![to_pay_script],
+        Some(taproot_spend_info),
+    ));
+
+    let mut tx_handler = builder.finalize();
 
     // Signer should be able to sign the new transaction.
     let signer = Actor::new(
@@ -81,14 +89,16 @@ async fn create_address_and_transaction_then_sign_transaction() {
         config.network,
     );
     let sig = signer
-        .sign_taproot_script_spend_tx_new_tweaked(&mut tx_details, 0, 0)
+        .sign_taproot_script_spend_tx_new_tweaked(&mut tx_handler, 0, 0)
         .unwrap();
-    set_p2tr_script_spend_witness(&mut tx_details, &[sig.as_ref()], 0, 0).unwrap();
+    tx_handler
+        .set_p2tr_script_spend_witness(&[sig.as_ref()], 0, 0)
+        .unwrap();
     rpc.mine_blocks(1).await.unwrap();
 
     // New transaction should be OK to send.
     rpc.client
-        .send_raw_transaction(&tx_details.tx)
+        .send_raw_transaction(tx_handler.get_cached_tx())
         .await
         .unwrap();
 }
