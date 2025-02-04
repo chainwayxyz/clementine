@@ -7,7 +7,7 @@ use bitcoincore_rpc::RpcApi;
 use clementine_core::actor::Actor;
 use clementine_core::builder::transaction::input::SpendableTxIn;
 use clementine_core::builder::transaction::output::UnspentTxOut;
-use clementine_core::builder::transaction::{TxHandler, TxHandlerBuilder};
+use clementine_core::builder::transaction::TxHandlerBuilder;
 use clementine_core::builder::{self};
 use clementine_core::extended_rpc::ExtendedRpc;
 use clementine_core::utils::SECP;

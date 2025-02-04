@@ -21,7 +21,7 @@ use crate::builder::transaction::*;
 use crate::constants::MIN_TAPROOT_AMOUNT;
 use crate::errors::BridgeError;
 use bitcoin::{Amount, OutPoint, TxOut, XOnlyPublicKey};
-use bitcoin::{Network, Sequence, Txid};
+use bitcoin::{Sequence, Txid};
 
 use super::txhandler::DEFAULT_SEQUENCE;
 
@@ -211,7 +211,6 @@ pub fn create_kickoff_utxo_timeout_txhandler(
 pub fn create_kickoff_timeout_txhandler(
     kickoff_tx_handler: &TxHandler,
     sequential_collateral_txhandler: &TxHandler,
-    network: Network,
 ) -> Result<TxHandler, BridgeError> {
     let builder = TxHandlerBuilder::new()
         .add_input(

@@ -114,12 +114,20 @@ pub fn create_assert_end_txhandler(
         return Err(BridgeError::InvalidAssertTxAddrs);
     }
 
+    if assert_tx_addrs.len() < PARALLEL_ASSERT_TX_CHAIN_SIZE {
+        return Err(BridgeError::InvalidAssertTxAddrs);
+    }
+
     // Create first layer of mini assert txs
-    for i in 0..PARALLEL_ASSERT_TX_CHAIN_SIZE {
+    for (i, addr) in assert_tx_addrs
+        .iter()
+        .take(PARALLEL_ASSERT_TX_CHAIN_SIZE)
+        .enumerate()
+    {
         let mini_assert_tx = create_mini_assert_tx(
             *assert_begin_txhandler.get_txid(),
             i as u32,
-            assert_tx_addrs[i].clone(),
+            addr.clone(),
             network,
         );
         mini_tx_handlers.push(mini_assert_tx);

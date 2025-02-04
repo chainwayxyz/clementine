@@ -128,7 +128,7 @@ pub fn create_nofn_sighash_stream(
                     );
 
                     // Creates the challenge_tx handler.
-                    let mut challenge_tx = builder::transaction::create_challenge_txhandler(
+                    let challenge_tx = builder::transaction::create_challenge_txhandler(
                         &kickoff_txhandler,
                         operator_reimburse_address,
                     )?;
@@ -140,7 +140,7 @@ pub fn create_nofn_sighash_stream(
                     )?;
 
                     // Creates the start_happy_reimburse_tx handler.
-                    let mut start_happy_reimburse_txhandler = builder::transaction::create_start_happy_reimburse_txhandler(
+                    let start_happy_reimburse_txhandler = builder::transaction::create_start_happy_reimburse_txhandler(
                         &kickoff_txhandler,
                         *operator_xonly_pk,
                         network
@@ -153,7 +153,7 @@ pub fn create_nofn_sighash_stream(
                     )?;
 
                     // Creates the happy_reimburse_tx handler.
-                    let mut happy_reimburse_txhandler = builder::transaction::create_happy_reimburse_txhandler(
+                    let happy_reimburse_txhandler = builder::transaction::create_happy_reimburse_txhandler(
                         &move_txhandler,
                         &start_happy_reimburse_txhandler,
                         &reimburse_generator_txhandler,
@@ -189,7 +189,6 @@ pub fn create_nofn_sighash_stream(
                     let mut kickoff_timeout_txhandler = builder::transaction::create_kickoff_timeout_txhandler(
                         &kickoff_txhandler,
                         &sequential_collateral_txhandler,
-                        network,
                     )?;
 
                     // Yields the sighash for the kickoff_timeout_tx.input[0], which spends kickoff_tx.output[3].
@@ -296,7 +295,7 @@ pub fn create_nofn_sighash_stream(
                     )?;
 
                     // Creates the reimburse_tx handler.
-                    let mut reimburse_txhandler = builder::transaction::create_reimburse_txhandler(
+                    let reimburse_txhandler = builder::transaction::create_reimburse_txhandler(
                         &move_txhandler,
                         &disprove_timeout_txhandler,
                         &reimburse_generator_txhandler,
@@ -395,10 +394,9 @@ pub fn create_operator_sighash_stream(
                 );
 
                 // Creates the kickoff_timeout_tx handler.
-                let mut kickoff_timeout_txhandler = builder::transaction::create_kickoff_timeout_txhandler(
+                let kickoff_timeout_txhandler = builder::transaction::create_kickoff_timeout_txhandler(
                     &kickoff_txhandler,
                     &sequential_collateral_txhandler,
-                    network,
                 )?;
 
                 // Yields the sighash for the kickoff_timeout_tx.input[0], which spends kickoff_tx.output[3].
@@ -428,7 +426,7 @@ pub fn create_operator_sighash_stream(
                 )?;
 
                 // Creates the already_disproved_tx handler.
-                let mut already_disproved_txhandler = builder::transaction::create_already_disproved_txhandler(
+                let already_disproved_txhandler = builder::transaction::create_already_disproved_txhandler(
                     &assert_end_txhandler,
                     &sequential_collateral_txhandler,
                 )?;
@@ -439,7 +437,7 @@ pub fn create_operator_sighash_stream(
                     None,
                 )?;
 
-                let mut disprove_txhandler = builder::transaction::create_disprove_txhandler(
+                let disprove_txhandler = builder::transaction::create_disprove_txhandler(
                     &assert_end_txhandler,
                     &sequential_collateral_txhandler,
                 )?;

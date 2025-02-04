@@ -226,9 +226,7 @@ mod tests {
     use crate::{
         builder::{
             self,
-            transaction::{
-                input::SpendableTxIn, output::UnspentTxOut, TxHandler, TxHandlerBuilder,
-            },
+            transaction::{input::SpendableTxIn, output::UnspentTxOut, TxHandlerBuilder},
         },
         errors::BridgeError,
         musig2::{
@@ -536,7 +534,7 @@ mod tests {
                 script_pubkey: receiving_address.script_pubkey(),
             }));
 
-        let mut tx_details = builder.finalize();
+        let tx_details = builder.finalize();
 
         let message = Message::from_digest(
             tx_details
@@ -627,12 +625,6 @@ mod tests {
             vout: 0,
         };
 
-        let tx_outs = builder::transaction::output::create_tx_outs(vec![(
-            Amount::from_sat(99_000_000),
-            receiving_address.script_pubkey(),
-        )]);
-        let tx_ins = builder::transaction::input::create_tx_ins(vec![utxo].into());
-        let dummy_tx = builder::transaction::create_btc_tx(tx_ins, tx_outs);
         let mut tx_details = TxHandlerBuilder::new()
             .add_input(
                 SpendableTxIn::from_checked(

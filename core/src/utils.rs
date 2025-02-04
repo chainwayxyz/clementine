@@ -1,13 +1,10 @@
-use crate::builder::transaction::TxHandler;
 use crate::cli::Args;
 use crate::config::BridgeConfig;
 use crate::errors::BridgeError;
-use bitcoin::taproot::{self, LeafVersion};
 use bitcoin::XOnlyPublicKey;
-use bitcoin::{self, Witness};
+use bitcoin::{self};
 use tracing::Level;
 //use bitvm::chunker::assigner::BridgeAssigner;
-use std::borrow::BorrowMut;
 use std::collections::BTreeMap;
 use std::process::exit;
 use std::str::FromStr;

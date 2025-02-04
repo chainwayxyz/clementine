@@ -4,7 +4,6 @@ use bitcoin::taproot::{self, LeafVersion};
 use bitcoin::transaction::Version;
 use bitcoin::{absolute, OutPoint, Script, Sequence, Transaction, Witness};
 use bitcoin::{TapLeafHash, TapSighash, TapSighashType, TxOut, Txid};
-use std::default;
 use std::marker::PhantomData;
 
 use super::input::{SpendableTxIn, SpentTxIn};
@@ -348,7 +347,7 @@ impl TxHandlerBuilder {
         }
     }
 
-    fn finalize_signed(self) -> Result<TxHandler<Signed>, BridgeError> {
+    pub fn finalize_signed(self) -> Result<TxHandler<Signed>, BridgeError> {
         self.finalize().promote()
     }
 }

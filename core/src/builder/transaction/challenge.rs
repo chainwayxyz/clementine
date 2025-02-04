@@ -108,7 +108,7 @@ pub fn create_watchtower_challenge_txhandler(
     operator_xonly_pk: XOnlyPublicKey,
     network: bitcoin::Network,
 ) -> Result<TxHandler, BridgeError> {
-    let mut builder = TxHandlerBuilder::new().add_input(
+    let builder = TxHandlerBuilder::new().add_input(
         wcp_txhandler
             .get_spendable_output(watchtower_idx)
             .ok_or(BridgeError::TxInputNotFound)?,

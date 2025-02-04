@@ -139,7 +139,7 @@ impl SpendableTxIn {
         spendinfo: Option<TaprootSpendInfo>,
     ) -> Result<SpendableTxIn, SpendableTxInError> {
         let this = Self::from_unchecked(previous_output, prevout, scripts, spendinfo);
-        this.check();
+        this.check()?;
         Ok(this)
     }
 
@@ -150,7 +150,7 @@ impl SpendableTxIn {
         spendinfo: Option<TaprootSpendInfo>,
     ) -> SpendableTxIn {
         SpendableTxIn {
-            previous_outpoint: previous_outpoint,
+            previous_outpoint,
             prevout,
             scripts,
             spendinfo,
@@ -211,7 +211,7 @@ impl SpentTxIn {
             previous_output: self.spendable.previous_outpoint,
             sequence: self.sequence,
             script_sig: ScriptBuf::default(),
-            witness: self.witness.clone().unwrap_or(Witness::new()),
+            witness: self.witness.clone().unwrap_or_default(),
         }
     }
 }

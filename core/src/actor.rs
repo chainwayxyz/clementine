@@ -294,7 +294,7 @@ impl Actor {
 mod tests {
     use super::Actor;
     use crate::builder::address::create_taproot_address;
-    use crate::builder::transaction::create_move_to_vault_txhandler;
+
     use crate::builder::transaction::input::SpendableTxIn;
     use crate::builder::transaction::output::UnspentTxOut;
     use crate::builder::transaction::TxHandlerBuilder;
@@ -302,13 +302,11 @@ mod tests {
     use crate::utils::{initialize_logger, SECP};
     use crate::{
         actor::WinternitzDerivationPath, builder::transaction::TxHandler,
-        create_test_config_with_thread_name, database::Database, initialize_database, EVMAddress,
+        create_test_config_with_thread_name, database::Database, initialize_database,
     };
     use bitcoin::secp256k1::SecretKey;
     use bitcoin::Sequence;
-    use bitcoin::{
-        absolute::Height, transaction::Version, Amount, Network, OutPoint, Transaction, TxIn, TxOut,
-    };
+    use bitcoin::{Amount, Network, OutPoint, TxOut};
     use bitvm::{
         execute_script,
         signatures::winternitz::{
@@ -325,7 +323,7 @@ mod tests {
     fn create_valid_mock_tx_handler(actor: &Actor) -> TxHandler {
         let (op_addr, op_spend) =
             create_taproot_address(&[], Some(actor.xonly_public_key), Network::Regtest);
-        let mut builder = TxHandlerBuilder::new().add_input(
+        let builder = TxHandlerBuilder::new().add_input(
             SpendableTxIn::from_unchecked(
                 OutPoint::default(),
                 TxOut {

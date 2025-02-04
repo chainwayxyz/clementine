@@ -6,7 +6,7 @@ use bitcoin::{taproot, Sequence, TxOut, XOnlyPublicKey};
 use bitcoincore_rpc::RpcApi;
 use clementine_core::builder::transaction::input::SpendableTxIn;
 use clementine_core::builder::transaction::output::UnspentTxOut;
-use clementine_core::builder::transaction::{TxHandler, TxHandlerBuilder};
+use clementine_core::builder::transaction::TxHandlerBuilder;
 use clementine_core::musig2::{
     aggregate_nonces, aggregate_partial_signatures, AggregateFromPublicKeys, Musig2Mode,
 };
@@ -149,10 +149,12 @@ async fn key_spend() {
 
     rpc.mine_blocks(1).await.unwrap();
 
-    tx_details.set_p2tr_key_spend_witness(
-        &taproot::Signature::from_slice(&final_signature.serialize()).unwrap(),
-        0,
-    );
+    tx_details
+        .set_p2tr_key_spend_witness(
+            &taproot::Signature::from_slice(&final_signature.serialize()).unwrap(),
+            0,
+        )
+        .unwrap();
     rpc.client
         .send_raw_transaction(tx_details.get_cached_tx())
         .await
@@ -177,7 +179,7 @@ async fn key_spend_with_script() {
     let dummy_script = script::Builder::new().push_int(1).into_script();
     let scripts: Vec<ScriptBuf> = vec![dummy_script];
 
-    let (to_address, to_address_spend) =
+    let (to_address, _to_address_spend) =
         builder::address::create_taproot_address(&[], None, config.network);
     let (from_address, from_address_spend_info) = builder::address::create_taproot_address(
         &scripts,
@@ -251,10 +253,12 @@ async fn key_spend_with_script() {
 
     rpc.mine_blocks(1).await.unwrap();
 
-    tx_details.set_p2tr_key_spend_witness(
-        &taproot::Signature::from_slice(&final_signature.serialize()).unwrap(),
-        0,
-    );
+    tx_details
+        .set_p2tr_key_spend_witness(
+            &taproot::Signature::from_slice(&final_signature.serialize()).unwrap(),
+            0,
+        )
+        .unwrap();
     rpc.client
         .send_raw_transaction(tx_details.get_cached_tx())
         .await
@@ -556,7 +560,7 @@ async fn key_and_script_spend() {
 
     // Set up the witness for the script spend
     let witness_elements = vec![final_signature_1.as_ref()];
-    (&mut test_txhandler_1)
+    test_txhandler_1
         .set_p2tr_script_spend_witness(&witness_elements, 0, 0)
         .unwrap();
 
