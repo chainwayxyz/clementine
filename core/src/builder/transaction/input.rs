@@ -93,7 +93,7 @@ impl SpendableTxIn {
         key_path: Option<XOnlyPublicKey>,
         network: bitcoin::Network,
     ) -> SpendableTxIn {
-        let script_bufs : Vec<ScriptBuf> = scripts
+        let script_bufs: Vec<ScriptBuf> = scripts
             .iter()
             .map(|script| script.clone().to_script_buf())
             .collect();

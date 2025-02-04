@@ -5,6 +5,7 @@ use bitcoin::secp256k1::Scalar;
 use bitcoin::{Address, Amount, TapTweakHash, TxOut, XOnlyPublicKey};
 use bitcoincore_rpc::RpcApi;
 use clementine_core::actor::Actor;
+use clementine_core::builder::script::{CheckSig, SpendableScript};
 use clementine_core::builder::transaction::input::SpendableTxIn;
 use clementine_core::builder::transaction::output::UnspentTxOut;
 use clementine_core::builder::transaction::{TxHandlerBuilder, DEFAULT_SEQUENCE};
@@ -12,6 +13,7 @@ use clementine_core::builder::{self};
 use clementine_core::extended_rpc::ExtendedRpc;
 use clementine_core::utils::SECP;
 use clementine_core::{config::BridgeConfig, database::Database, utils::initialize_logger};
+use std::sync::Arc;
 use std::{env, thread};
 
 mod common;
@@ -43,13 +45,18 @@ async fn create_address_and_transaction_then_sign_transaction() {
         .unwrap();
 
     // Prepare script and address.
-    let builder = Builder::new();
-    let to_pay_script = builder
-        .push_x_only_key(&XOnlyPublicKey::from_slice(&tweaked_pk_script).unwrap())
-        .push_opcode(OP_CHECKSIG)
-        .into_script();
-    let (taproot_address, taproot_spend_info) =
-        builder::address::create_taproot_address(&[to_pay_script.clone()], None, config.network);
+    let script = Arc::new(CheckSig::new(
+        bitcoin::XOnlyPublicKey::from_slice(&tweaked_pk_script).unwrap(),
+    ));
+    let scripts: Vec<Arc<dyn SpendableScript>> = vec![script.clone()];
+    let (taproot_address, taproot_spend_info) = builder::address::create_taproot_address(
+        &scripts
+            .iter()
+            .map(|s| s.to_script_buf())
+            .collect::<Vec<_>>(),
+        None,
+        config.network,
+    );
 
     // Create a new transaction.
     let utxo = rpc
@@ -65,7 +72,7 @@ async fn create_address_and_transaction_then_sign_transaction() {
                 value: Amount::from_sat(1000),
                 script_pubkey: taproot_address.script_pubkey(),
             },
-            vec![to_pay_script.clone()],
+            scripts.clone(),
             Some(taproot_spend_info.clone()),
         ),
         DEFAULT_SEQUENCE,
@@ -76,7 +83,7 @@ async fn create_address_and_transaction_then_sign_transaction() {
             value: Amount::from_sat(330),
             script_pubkey: taproot_address.script_pubkey(),
         },
-        vec![to_pay_script],
+        scripts,
         Some(taproot_spend_info),
     ));
 

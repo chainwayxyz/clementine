@@ -3,8 +3,11 @@
 //! Transaction builder provides useful functions for building typical Bitcoin
 //! transactions.
 
+use std::sync::Arc;
+
 use crate::builder;
 use crate::builder::address::create_taproot_address;
+use crate::builder::script::OtherSpendable;
 pub use crate::builder::transaction::challenge::*;
 use crate::builder::transaction::input::SpendableTxIn;
 pub use crate::builder::transaction::operator_assert::*;
@@ -19,6 +22,8 @@ use bitcoin::Transaction;
 use bitcoin::{absolute, Address, Amount, OutPoint, TxIn, TxOut, XOnlyPublicKey};
 use input::create_tx_ins;
 pub use txhandler::Unsigned;
+
+use super::script::SpendableScript;
 
 mod challenge;
 pub mod input;
@@ -73,7 +78,7 @@ pub fn create_move_to_vault_txhandler(
 ) -> Result<TxHandler<Unsigned>, BridgeError> {
     let nofn_script = builder::script::generate_checksig_script(nofn_xonly_pk);
     let (musig2_address, musig2_spendinfo) =
-        create_taproot_address(&[nofn_script.clone()], None, network);
+        create_taproot_address(&[nofn_script.to_script_buf()], None, network);
 
     let (deposit_address, deposit_taproot_spend_info, deposit_scripts) =
         builder::address::generate_deposit_address(
@@ -92,26 +97,23 @@ pub fn create_move_to_vault_txhandler(
                 value: bridge_amount_sats,
                 script_pubkey: deposit_address.script_pubkey(),
             },
-            deposit_scripts.to_vec(),
+            deposit_scripts
+                .map(Into::<OtherSpendable>::into)
+                .map(|a| Arc::new(a) as Arc<dyn SpendableScript>)
+                .to_vec(),
             Some(deposit_taproot_spend_info.clone()),
         ),
         DEFAULT_SEQUENCE,
     );
 
     Ok(builder
-        .add_output(UnspentTxOut::new(
-            TxOut {
-                value: bridge_amount_sats,
-                script_pubkey: musig2_address.script_pubkey(),
-            },
-            vec![nofn_script],
-            Some(musig2_spendinfo),
-        ))
-        .add_output(UnspentTxOut::new(
-            builder::script::anchor_output(),
-            vec![],
+        .add_output(UnspentTxOut::from_scripts(
+            bridge_amount_sats,
+            vec![Arc::new(nofn_script)],
             None,
+            network,
         ))
+        .add_output(UnspentTxOut::from_partial(builder::script::anchor_output()))
         .finalize())
 }
 

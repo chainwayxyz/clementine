@@ -4,6 +4,7 @@ use bitcoin::secp256k1::{Message, PublicKey};
 use bitcoin::{hashes::Hash, script, Amount, ScriptBuf};
 use bitcoin::{taproot, Sequence, TxOut, XOnlyPublicKey};
 use bitcoincore_rpc::RpcApi;
+use clementine_core::builder::script::{CheckSig, OtherSpendable, SpendableScript};
 use clementine_core::builder::transaction::input::SpendableTxIn;
 use clementine_core::builder::transaction::output::UnspentTxOut;
 use clementine_core::builder::transaction::{TxHandlerBuilder, DEFAULT_SEQUENCE};
@@ -20,6 +21,7 @@ use clementine_core::{
 };
 use clementine_core::{database::Database, utils::initialize_logger};
 use secp256k1::musig::{MusigAggNonce, MusigPartialSignature};
+use std::sync::Arc;
 use std::{env, thread};
 
 mod common;
@@ -177,12 +179,15 @@ async fn key_spend_with_script() {
     let (nonce_pairs, agg_nonce) = get_nonces(verifiers_secret_public_keys.clone());
 
     let dummy_script = script::Builder::new().push_int(1).into_script();
-    let scripts: Vec<ScriptBuf> = vec![dummy_script];
+    let scripts: Vec<Arc<dyn SpendableScript>> = vec![Arc::new(OtherSpendable::new(dummy_script))];
 
     let (to_address, _to_address_spend) =
         builder::address::create_taproot_address(&[], None, config.network);
     let (from_address, from_address_spend_info) = builder::address::create_taproot_address(
-        &scripts,
+        &scripts
+            .iter()
+            .map(|a| a.to_script_buf())
+            .collect::<Vec<_>>(),
         Some(untweaked_xonly_pubkey),
         config.network,
     );
@@ -283,11 +288,7 @@ async fn script_spend() {
     let agg_pk = XOnlyPublicKey::from_musig2_pks(verifier_public_keys.clone(), None).unwrap();
 
     let agg_xonly_pubkey = bitcoin::XOnlyPublicKey::from_slice(&agg_pk.serialize()).unwrap();
-    let musig2_script = bitcoin::script::Builder::new()
-        .push_x_only_key(&agg_xonly_pubkey)
-        .push_opcode(OP_CHECKSIG)
-        .into_script();
-    let scripts: Vec<ScriptBuf> = vec![musig2_script];
+    let scripts: Vec<Arc<dyn SpendableScript>> = vec![Arc::new(CheckSig::new(agg_xonly_pubkey))];
 
     let to_address = bitcoin::Address::p2tr(
         &SECP,
@@ -295,8 +296,14 @@ async fn script_spend() {
         None,
         bitcoin::Network::Regtest,
     );
-    let (from_address, from_address_spend_info) =
-        builder::address::create_taproot_address(&scripts, None, bitcoin::Network::Regtest);
+    let (from_address, from_address_spend_info) = builder::address::create_taproot_address(
+        &scripts
+            .iter()
+            .map(|s| s.to_script_buf())
+            .collect::<Vec<_>>(),
+        None,
+        bitcoin::Network::Regtest,
+    );
 
     let utxo = rpc
         .send_to_address(&from_address, Amount::from_sat(100_000_000))
@@ -308,7 +315,7 @@ async fn script_spend() {
             SpendableTxIn::new(
                 utxo,
                 prevout.clone(),
-                scripts.clone(),
+                scripts,
                 Some(from_address_spend_info.clone()),
             ),
             DEFAULT_SEQUENCE,
@@ -398,16 +405,19 @@ async fn key_and_script_spend() {
 
     // -- Script Setup --
     // Tapscript for script spending of NofN sig
-    let musig2_script = bitcoin::script::Builder::new()
-        .push_x_only_key(&agg_pk)
-        .push_opcode(OP_CHECKSIG)
-        .into_script();
-    let scripts: Vec<ScriptBuf> = vec![musig2_script];
+    let musig2_script = Arc::new(CheckSig::new(agg_pk));
+    let scripts: Vec<Arc<dyn SpendableScript>> = vec![musig2_script];
 
     // -- UTXO Setup --
     // Both script and key spend in P2TR address
-    let (from_address, from_address_spend_info) =
-        builder::address::create_taproot_address(&scripts, Some(agg_pk), bitcoin::Network::Regtest);
+    let (from_address, from_address_spend_info) = builder::address::create_taproot_address(
+        &scripts
+            .iter()
+            .map(|s| s.to_script_buf())
+            .collect::<Vec<_>>(),
+        Some(agg_pk),
+        bitcoin::Network::Regtest,
+    );
 
     // Merkle root hash of Tapscript tree
     let merkle_root = from_address_spend_info.merkle_root().unwrap();

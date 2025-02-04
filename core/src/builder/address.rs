@@ -16,6 +16,8 @@ use bitcoin::{
 use bitcoin::{Amount, Network};
 use bitvm::signatures::winternitz;
 
+use super::script::SpendableScript;
+
 pub fn taproot_builder_with_scripts(scripts: &[ScriptBuf]) -> TaprootBuilder {
     let builder = TaprootBuilder::new();
     let num_scripts = scripts.len();
@@ -160,7 +162,7 @@ pub fn create_checksig_address(
     network: bitcoin::Network,
 ) -> (Address, TaprootSpendInfo) {
     let script = builder::script::generate_checksig_script(xonly_pk);
-    create_taproot_address(&[script], None, network)
+    create_taproot_address(&[script.to_script_buf()], None, network)
 }
 
 pub fn derive_challenge_address_from_xonlypk_and_wpk(

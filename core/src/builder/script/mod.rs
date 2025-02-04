@@ -51,7 +51,6 @@ impl SpendableScript for OtherSpendable {
 }
 
 impl OtherSpendable {
-
     fn as_script(&self) -> &ScriptBuf {
         &self.0
     }
@@ -81,7 +80,6 @@ impl SpendableScript for CheckSig {
 }
 
 impl CheckSig {
-
     fn generate_witness(&self, signature: schnorr::Signature) -> Witness {
         Witness::from_slice(&[signature.serialize()])
     }
@@ -114,7 +112,6 @@ impl SpendableScript for WinternitzCommit {
 }
 
 impl WinternitzCommit {
-
     fn generate_witness(&self, commit_data: &[u8], signature: schnorr::Signature) -> Witness {
         Witness::from_slice(&[commit_data, &signature.serialize()])
     }
@@ -149,7 +146,6 @@ impl SpendableScript for TimelockScript {
 }
 
 impl TimelockScript {
-
     fn generate_witness(&self, signature: schnorr::Signature) -> Witness {
         Witness::from_slice(&[signature.serialize()])
     }
@@ -178,7 +174,6 @@ impl SpendableScript for PreimageRevealScript {
 }
 
 impl PreimageRevealScript {
-
     fn generate_witness(&self, preimage: &[u8], signature: schnorr::Signature) -> Witness {
         Witness::from_slice(&[preimage, &signature.serialize()])
     }
@@ -343,11 +338,8 @@ pub fn actor_with_preimage_script(
 /// # Returns
 ///
 /// - [`ScriptBuf`]: The script that unlocks with the given `xonly_pk`'s signature
-pub fn generate_checksig_script(xonly_pk: XOnlyPublicKey) -> ScriptBuf {
-    Builder::new()
-        .push_x_only_key(&xonly_pk)
-        .push_opcode(OP_CHECKSIG)
-        .into_script()
+pub fn generate_checksig_script(xonly_pk: XOnlyPublicKey) -> CheckSig {
+    CheckSig::new(xonly_pk)
 }
 
 /// WIP: This will be replaced by actual disprove scripts

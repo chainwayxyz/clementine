@@ -6,6 +6,7 @@ use bitcoin::{absolute, OutPoint, Script, Sequence, Transaction, Witness};
 use bitcoin::{TapLeafHash, TapSighash, TapSighashType, TxOut, Txid};
 use std::marker::PhantomData;
 
+use super::super::script::SpendableScript;
 use super::input::{SpendableTxIn, SpentTxIn};
 use super::output::UnspentTxOut;
 
