@@ -461,12 +461,12 @@ mod tests {
     use crate::extended_rpc::ExtendedRpc;
     use crate::operator::Operator;
     use crate::watchtower::Watchtower;
-    use crate::{builder, create_test_config_with_thread_name};
+    use crate::{builder, create_test_config_with_thread_name, utils};
     use crate::{
         config::BridgeConfig, database::Database, initialize_database, utils::initialize_logger,
     };
     use bitcoin::hashes::Hash;
-    use bitcoin::{Amount, OutPoint, TapSighash, Txid, XOnlyPublicKey};
+    use bitcoin::{Amount, OutPoint, ScriptBuf, TapSighash, Txid, XOnlyPublicKey};
     use futures::StreamExt;
     use std::pin::pin;
     use std::{env, thread};
@@ -542,6 +542,7 @@ mod tests {
                 .unwrap();
             }
         }
+        let assert_len = utils::ALL_BITVM_INTERMEDIATE_VARIABLES.len();
         for o in 0..config.num_operators {
             for t in 0..config.num_sequential_collateral_txs {
                 for k in 0..config.num_kickoffs_per_sequential_collateral_tx {
@@ -550,7 +551,7 @@ mod tests {
                         o.try_into().unwrap(),
                         t.try_into().unwrap(),
                         k.try_into().unwrap(),
-                        vec![],
+                        vec![ScriptBuf::default(); assert_len],
                         &[0x45; 32],
                         vec![],
                     )
