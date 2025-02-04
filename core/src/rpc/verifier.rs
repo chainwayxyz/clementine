@@ -1,7 +1,7 @@
 use super::clementine::{
-    self, clementine_verifier_server::ClementineVerifier, nonce_gen_response, Empty,
-    NonceGenRequest, NonceGenResponse, OperatorParams, PartialSig, VerifierDepositFinalizeParams,
-    VerifierDepositSignParams, VerifierParams, VerifierPublicKeys, WatchtowerParams,
+    self, clementine_verifier_server::ClementineVerifier, Empty, NonceGenRequest, NonceGenResponse,
+    OperatorParams, PartialSig, VerifierDepositFinalizeParams, VerifierDepositSignParams,
+    VerifierParams, VerifierPublicKeys, WatchtowerParams,
 };
 use super::error::*;
 use crate::utils::SECP;
@@ -46,30 +46,7 @@ impl ClementineVerifier for Verifier {
 
     #[tracing::instrument(skip(self), err(level = tracing::Level::ERROR), ret(level = tracing::Level::TRACE))]
     async fn get_params(&self, _: Request<Empty>) -> Result<Response<VerifierParams>, Status> {
-        let params = VerifierParams {
-            id: parser::convert_int_to_another("id", self.idx, u32::try_from)?,
-            public_key: self.signer.public_key.serialize().to_vec(),
-            num_verifiers: parser::convert_int_to_another(
-                "num_verifiers",
-                self.config.num_verifiers,
-                u32::try_from,
-            )?,
-            num_watchtowers: parser::convert_int_to_another(
-                "num_watchtowers",
-                self.config.num_watchtowers,
-                u32::try_from,
-            )?,
-            num_operators: parser::convert_int_to_another(
-                "num_operators",
-                self.config.num_operators,
-                u32::try_from,
-            )?,
-            num_sequential_collateral_txs: parser::convert_int_to_another(
-                "num_sequential_collateral_txs",
-                self.config.num_sequential_collateral_txs,
-                u32::try_from,
-            )?,
-        };
+        let params: VerifierParams = self.try_into()?;
 
         Ok(Response::new(params))
     }
@@ -394,29 +371,21 @@ impl ClementineVerifier for Verifier {
             num_nonces: num_nonces as u32,
         };
 
-        // now stream the nonces
-        let (tx, rx) = mpsc::channel(1280);
+        let (tx, rx) = mpsc::channel(pub_nonces.len() + 1);
         tokio::spawn(async move {
             // First send the session id
-            let response = NonceGenResponse {
-                response: Some(nonce_gen_response::Response::FirstResponse(
-                    nonce_gen_first_response,
-                )),
-            };
-            tx.send(Ok(response)).await?;
+            let session_id: NonceGenResponse = nonce_gen_first_response.into();
+            tx.send(Ok(session_id)).await?;
 
             // Then send the public nonces
             for pub_nonce in &pub_nonces[..] {
-                let response = NonceGenResponse {
-                    response: Some(nonce_gen_response::Response::PubNonce(
-                        pub_nonce.serialize().to_vec(),
-                    )),
-                };
-                tx.send(Ok(response)).await?;
+                let pub_nonce: NonceGenResponse = pub_nonce.into();
+                tx.send(Ok(pub_nonce)).await?;
             }
 
             Ok::<(), SendError<_>>(())
         });
+
         Ok(Response::new(ReceiverStream::new(rx)))
     }
 
@@ -425,14 +394,10 @@ impl ClementineVerifier for Verifier {
         req: Request<Streaming<VerifierDepositSignParams>>,
     ) -> Result<Response<Self::DepositSignStream>, Status> {
         let mut in_stream = req.into_inner();
+        let verifier = self.clone();
 
         let (tx, rx) = mpsc::channel(1280);
-
         let error_tx = tx.clone();
-
-        tracing::info!("Received deposit sign request");
-
-        let verifier = self.clone();
 
         let handle = tokio::spawn(async move {
             let params = fetch_next_message_from_stream!(in_stream, params, "params")?;
@@ -734,14 +699,15 @@ impl ClementineVerifier for Verifier {
         }
 
         // sign move tx and save everything to db if everything is correct
-        let partial_sig = musig2::partial_sign(
+        let partial_sig: PartialSig = musig2::partial_sign(
             self.config.verifiers_public_keys.clone(),
             None,
             movetx_secnonce,
             agg_nonce,
             self.signer.keypair,
             Message::from_digest(move_tx_sighash.to_byte_array()),
-        )?;
+        )?
+        .into();
 
         // Deposit is not actually finalized here, its only finalized after the aggregator gets all the partial sigs and checks the aggregated sig
         // TODO: It can create problems if the deposit fails at the end by some verifier not sending movetx partial sig, but we still added sigs to db
@@ -751,9 +717,6 @@ impl ClementineVerifier for Verifier {
                 .await?;
         }
 
-        tracing::info!("Deposit finalized, returning partial sig");
-        Ok(Response::new(PartialSig {
-            partial_sig: partial_sig.serialize().to_vec(),
-        }))
+        Ok(Response::new(partial_sig))
     }
 }

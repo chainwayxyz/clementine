@@ -1,7 +1,10 @@
+use super::convert_int_to_another;
 use crate::errors::BridgeError;
 use crate::rpc::clementine::{
-    verifier_deposit_sign_params, DepositSignSession, VerifierDepositSignParams,
+    nonce_gen_response, verifier_deposit_sign_params, DepositSignSession, NonceGenFirstResponse,
+    PartialSig, VerifierDepositSignParams, VerifierParams,
 };
+use crate::verifier::Verifier;
 use crate::{
     fetch_next_message_from_stream,
     rpc::{
@@ -16,8 +19,39 @@ use crate::{
 use bitcoin::secp256k1::schnorr::Signature;
 use bitcoin::secp256k1::PublicKey;
 use bitcoin::{address::NetworkUnchecked, secp256k1::schnorr};
-use secp256k1::musig::{MusigAggNonce, MusigPartialSignature};
+use secp256k1::musig::{MusigAggNonce, MusigPartialSignature, MusigPubNonce};
 use tonic::Status;
+
+impl TryFrom<&Verifier> for VerifierParams {
+    type Error = Status;
+
+    fn try_from(verifier: &Verifier) -> Result<Self, Self::Error> {
+        Ok(VerifierParams {
+            id: convert_int_to_another("id", verifier.idx, u32::try_from)?,
+            public_key: verifier.signer.public_key.serialize().to_vec(),
+            num_verifiers: convert_int_to_another(
+                "num_verifiers",
+                verifier.config.num_verifiers,
+                u32::try_from,
+            )?,
+            num_watchtowers: convert_int_to_another(
+                "num_watchtowers",
+                verifier.config.num_watchtowers,
+                u32::try_from,
+            )?,
+            num_operators: convert_int_to_another(
+                "num_operators",
+                verifier.config.num_operators,
+                u32::try_from,
+            )?,
+            num_sequential_collateral_txs: convert_int_to_another(
+                "num_sequential_collateral_txs",
+                verifier.config.num_sequential_collateral_txs,
+                u32::try_from,
+            )?,
+        })
+    }
+}
 
 impl TryFrom<VerifierPublicKeys> for Vec<PublicKey> {
     type Error = BridgeError;
@@ -77,6 +111,32 @@ impl From<&Signature> for VerifierDepositFinalizeParams {
             params: Some(verifier_deposit_finalize_params::Params::SchnorrSig(
                 value.serialize().to_vec(),
             )),
+        }
+    }
+}
+
+impl From<NonceGenFirstResponse> for NonceGenResponse {
+    fn from(value: NonceGenFirstResponse) -> Self {
+        NonceGenResponse {
+            response: Some(nonce_gen_response::Response::FirstResponse(value)),
+        }
+    }
+}
+
+impl From<&MusigPubNonce> for NonceGenResponse {
+    fn from(value: &MusigPubNonce) -> Self {
+        NonceGenResponse {
+            response: Some(nonce_gen_response::Response::PubNonce(
+                value.serialize().to_vec(),
+            )),
+        }
+    }
+}
+
+impl From<MusigPartialSignature> for PartialSig {
+    fn from(value: MusigPartialSignature) -> Self {
+        PartialSig {
+            partial_sig: value.serialize().to_vec(),
         }
     }
 }
