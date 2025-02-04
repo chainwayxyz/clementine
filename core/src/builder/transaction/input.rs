@@ -105,6 +105,8 @@ impl SpendableTxIn {
     }
     pub fn set_spend_info(&mut self, spendinfo: Option<TaprootSpendInfo>) {
         self.spendinfo = spendinfo;
+        #[cfg(debug_assertions)]
+        self.check().unwrap();
     }
 
     fn check(&self) -> Result<(), SpendableTxInError> {
