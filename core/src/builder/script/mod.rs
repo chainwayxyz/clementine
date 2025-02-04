@@ -136,14 +136,15 @@ impl SpendableScript for TimelockScript {
             .push_int(self.1 as i64)
             .push_opcode(OP_CSV)
             .push_opcode(OP_DROP);
+
         if let Some(xonly_pk) = self.0 {
             script_builder
                 .push_x_only_key(&xonly_pk)
                 .push_opcode(OP_CHECKSIG)
-                .into_script()
         } else {
-            script_builder.push_opcode(OP_TRUE).into_script()
+            script_builder.push_opcode(OP_TRUE)
         }
+        .into_script()
     }
 }
 
