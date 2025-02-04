@@ -12,8 +12,10 @@
 //! new collateral for the withdrawal.
 //!
 
+use super::txhandler::DEFAULT_SEQUENCE;
 use crate::builder;
 use crate::builder::address::create_taproot_address;
+use crate::builder::script::TimelockScript;
 use crate::builder::transaction::input::SpendableTxIn;
 use crate::builder::transaction::output::UnspentTxOut;
 use crate::builder::transaction::txhandler::TxHandler;
@@ -22,8 +24,7 @@ use crate::constants::MIN_TAPROOT_AMOUNT;
 use crate::errors::BridgeError;
 use bitcoin::{Amount, OutPoint, TxOut, XOnlyPublicKey};
 use bitcoin::{Sequence, Txid};
-
-use super::txhandler::DEFAULT_SEQUENCE;
+use std::sync::Arc;
 
 /// Creates a [`TxHandler`] for `sequential_collateral_tx`. It will always use the first
 /// output of the  previous `reimburse_generator_tx` as the input. The flow is as follows:
@@ -45,10 +46,10 @@ pub fn create_sequential_collateral_txhandler(
     max_withdrawal_time_block_count: u16,
     num_kickoffs_per_sequential_collateral_tx: usize,
     network: bitcoin::Network,
-) -> TxHandler {
+) -> Result<TxHandler, BridgeError> {
     let (op_address, op_spend) = create_taproot_address(&[], Some(operator_xonly_pk), network);
     let mut builder = TxHandlerBuilder::new().add_input(
-        SpendableTxIn::from(
+        SpendableTxIn::new(
             OutPoint {
                 txid: input_txid,
                 vout: 0,
@@ -62,62 +63,43 @@ pub fn create_sequential_collateral_txhandler(
         ),
         DEFAULT_SEQUENCE,
     );
-
-    let max_withdrawal_time_locked_script =
-        builder::script::generate_checksig_relative_timelock_script(
-            operator_xonly_pk,
-            max_withdrawal_time_block_count,
-        );
-
-    let timeout_block_count_locked_script =
-        builder::script::generate_relative_timelock_script(timeout_block_count);
-
-    let (reimburse_gen_connector, reimburse_gen_spend) =
-        create_taproot_address(&[max_withdrawal_time_locked_script.clone()], None, network);
-    let (kickoff_utxo, kickoff_utxo_spend) = create_taproot_address(
-        &[timeout_block_count_locked_script.clone()],
+    let max_withdrawal_time_locked_script = Arc::new(TimelockScript(
         Some(operator_xonly_pk),
-        network,
-    );
+        max_withdrawal_time_block_count,
+    ));
 
-    let kickoff_txout = TxOut {
-        value: MIN_TAPROOT_AMOUNT,
-        script_pubkey: kickoff_utxo.script_pubkey(),
-    };
+    let timeout_block_count_locked_script = Arc::new(TimelockScript(
+        None,
+        u16::try_from(timeout_block_count)
+            .map_err(|e| BridgeError::Error("Timeout value is not u16".to_string()))?,
+    ));
 
     builder = builder
-        .add_output(UnspentTxOut::new(
-            TxOut {
-                value: input_amount,
-                script_pubkey: op_address.script_pubkey(),
-            },
+        .add_output(UnspentTxOut::from_scripts(
+            input_amount,
             vec![],
-            Some(op_spend.clone()),
+            Some(operator_xonly_pk),
+            network,
         ))
-        .add_output(UnspentTxOut::new(
-            TxOut {
-                value: MIN_TAPROOT_AMOUNT,
-                script_pubkey: reimburse_gen_connector.script_pubkey(),
-            },
+        .add_output(UnspentTxOut::from_scripts(
+            MIN_TAPROOT_AMOUNT,
             vec![max_withdrawal_time_locked_script],
-            Some(reimburse_gen_spend),
+            None,
+            network,
         ));
 
     // add kickoff utxos
     for _ in 0..num_kickoffs_per_sequential_collateral_tx {
-        builder = builder.add_output(UnspentTxOut::new(
-            kickoff_txout.clone(),
+        builder = builder.add_output(UnspentTxOut::from_scripts(
+            MIN_TAPROOT_AMOUNT,
             vec![timeout_block_count_locked_script.clone()],
-            Some(kickoff_utxo_spend.clone()),
+            Some(operator_xonly_pk),
+            network,
         ));
     }
-    builder
-        .add_output(UnspentTxOut::new(
-            builder::script::anchor_output(),
-            vec![],
-            None,
-        ))
-        .finalize()
+    Ok(builder
+        .add_output(UnspentTxOut::from_partial(builder::script::anchor_output()))
+        .finalize())
 }
 
 /// Creates a [`TxHandler`] for `reimburse_generator_tx`. It will always use the first
@@ -153,35 +135,25 @@ pub fn create_reimburse_generator_txhandler(
 
     let (op_address, op_spend) = create_taproot_address(&[], Some(operator_xonly_pk), network);
 
-    let reimburse_txout = TxOut {
-        value: MIN_TAPROOT_AMOUNT,
-        script_pubkey: op_address.script_pubkey(),
-    };
-
-    builder = builder.add_output(UnspentTxOut::new(
-        TxOut {
-            value: MIN_TAPROOT_AMOUNT,
-            script_pubkey: op_address.script_pubkey(),
-        },
+    builder = builder.add_output(UnspentTxOut::from_scripts(
+        MIN_TAPROOT_AMOUNT,
         vec![],
-        Some(op_spend.clone()),
+        Some(operator_xonly_pk),
+        network,
     ));
 
     // add reimburse utxos
     for _ in 0..num_kickoffs_per_sequential_collateral_tx {
-        builder = builder.add_output(UnspentTxOut::new(
-            reimburse_txout.clone(),
+        builder = builder.add_output(UnspentTxOut::from_scripts(
+            MIN_TAPROOT_AMOUNT,
             vec![],
-            Some(op_spend.clone()),
+            Some(operator_xonly_pk),
+            network,
         ));
     }
 
     Ok(builder
-        .add_output(UnspentTxOut::new(
-            builder::script::anchor_output(),
-            vec![],
-            None,
-        ))
+        .add_output(UnspentTxOut::from_partial(builder::script::anchor_output()))
         .finalize())
 }
 
@@ -226,10 +198,6 @@ pub fn create_kickoff_timeout_txhandler(
             DEFAULT_SEQUENCE,
         );
     Ok(builder
-        .add_output(UnspentTxOut::new(
-            builder::script::anchor_output(),
-            vec![],
-            None,
-        ))
+        .add_output(UnspentTxOut::from_partial(builder::script::anchor_output()))
         .finalize())
 }

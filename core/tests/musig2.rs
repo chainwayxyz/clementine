@@ -92,7 +92,7 @@ async fn key_spend() {
 
     let mut tx_details = TxHandlerBuilder::new()
         .add_input(
-            SpendableTxIn::from(utxo, prevout, vec![], Some(from_address_spend_info.clone())),
+            SpendableTxIn::new(utxo, prevout, vec![], Some(from_address_spend_info.clone())),
             Sequence::default(),
         )
         .add_output(UnspentTxOut::new(
@@ -195,7 +195,7 @@ async fn key_spend_with_script() {
     let mut builder = TxHandlerBuilder::new();
     builder = builder
         .add_input(
-            SpendableTxIn::from(
+            SpendableTxIn::new(
                 utxo,
                 prevout.clone(),
                 scripts.clone(),
@@ -305,7 +305,7 @@ async fn script_spend() {
     let prevout = rpc.get_txout_from_outpoint(&utxo).await.unwrap();
     let mut tx_details = TxHandlerBuilder::new()
         .add_input(
-            SpendableTxIn::from(
+            SpendableTxIn::new(
                 utxo,
                 prevout.clone(),
                 scripts.clone(),
@@ -445,7 +445,7 @@ async fn key_and_script_spend() {
     // Test Transactions
     let mut test_txhandler_1 = TxHandlerBuilder::new()
         .add_input(
-            SpendableTxIn::from(
+            SpendableTxIn::new(
                 utxo_1,
                 prevout_1,
                 scripts.clone(),
@@ -461,7 +461,7 @@ async fn key_and_script_spend() {
 
     let mut test_txhandler_2 = TxHandlerBuilder::new()
         .add_input(
-            SpendableTxIn::from(
+            SpendableTxIn::new(
                 utxo_2,
                 prevout_2,
                 scripts,

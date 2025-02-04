@@ -59,7 +59,7 @@ async fn create_address_and_transaction_then_sign_transaction() {
 
     let mut builder = TxHandlerBuilder::new();
     builder = builder.add_input(
-        SpendableTxIn::from(
+        SpendableTxIn::new(
             utxo,
             TxOut {
                 value: Amount::from_sat(1000),

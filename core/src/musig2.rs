@@ -521,7 +521,7 @@ mod tests {
         let mut builder = TxHandlerBuilder::new();
         builder = builder
             .add_input(
-                SpendableTxIn::from(
+                SpendableTxIn::new(
                     utxo,
                     prevout.clone(),
                     scripts.clone(),
@@ -627,7 +627,7 @@ mod tests {
 
         let mut tx_details = TxHandlerBuilder::new()
             .add_input(
-                SpendableTxIn::from(
+                SpendableTxIn::new(
                     utxo,
                     prevout,
                     scripts,

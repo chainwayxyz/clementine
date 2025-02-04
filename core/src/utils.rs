@@ -2,7 +2,6 @@ use crate::cli::Args;
 use crate::config::BridgeConfig;
 use crate::errors::BridgeError;
 use bitcoin::key::Parity;
-use bitcoin::taproot::{self, LeafVersion};
 use bitcoin::XOnlyPublicKey;
 use bitcoin::{self};
 use tracing::Level;

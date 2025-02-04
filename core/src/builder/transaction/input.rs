@@ -1,8 +1,12 @@
+use crate::builder::address::create_taproot_address;
+use crate::builder::script::SpendableScript;
 use bitcoin::{
     taproot::{LeafVersion, TaprootSpendInfo},
-    OutPoint, ScriptBuf, Sequence, TxIn, TxOut, Witness, WitnessProgram,
+    Amount, OutPoint, ScriptBuf, Sequence, TxIn, TxOut, Witness, WitnessProgram, XOnlyPublicKey,
 };
+use std::sync::Arc;
 use thiserror::Error;
+
 pub type BlockHeight = u16;
 
 pub struct TxInArgs(pub Vec<(OutPoint, Option<BlockHeight>)>);
@@ -50,7 +54,7 @@ pub struct SpendableTxIn {
     prevout: TxOut, // locking script (taproot => op_1 op_pushbytes_32 tweaked pk)
 
     /// TODO: refactor later, decide on what's needed and what's redundant
-    scripts: Vec<ScriptBuf>,
+    scripts: Vec<Arc<dyn SpendableScript>>,
     spendinfo: Option<TaprootSpendInfo>,
 }
 
@@ -78,15 +82,38 @@ impl SpendableTxIn {
     }
 
     #[inline(always)]
-    pub fn from_partial(previous_output: OutPoint, prevout: TxOut) -> SpendableTxIn {
-        Self::from(previous_output, prevout, vec![], None)
+    pub fn new_partial(previous_output: OutPoint, prevout: TxOut) -> SpendableTxIn {
+        Self::new(previous_output, prevout, vec![], None)
+    }
+
+    pub fn from_scripts(
+        previous_output: OutPoint,
+        value: Amount,
+        scripts: Vec<Arc<dyn SpendableScript>>,
+        key_path: Option<XOnlyPublicKey>,
+        network: bitcoin::Network,
+    ) -> SpendableTxIn {
+        let script_bufs = scripts
+            .iter()
+            .map(|script| script.clone().into_script_buf())
+            .collect();
+        let (addr, spend_info) = create_taproot_address(&script_bufs, key_path, network);
+        Self::new(
+            previous_output,
+            TxOut {
+                value,
+                script_pubkey: addr.script_pubkey(),
+            },
+            scripts,
+            spend_info,
+        )
     }
 
     #[inline(always)]
-    pub fn from(
+    pub fn new(
         previous_output: OutPoint,
         prevout: TxOut,
-        scripts: Vec<ScriptBuf>,
+        scripts: Vec<Arc<dyn SpendableScript>>,
         spendinfo: Option<TaprootSpendInfo>,
     ) -> SpendableTxIn {
         if cfg!(debug_assertions) {
@@ -120,8 +147,11 @@ impl SpendableTxIn {
         {
             return Err(IncorrectScriptPubkey);
         }
-
-        if scripts.iter().any(|script| {
+        let script_bufs = scripts
+            .iter()
+            .map(|script| script.clone().into_script_buf())
+            .collect();
+        if script_bufs.iter().any(|script| {
             spendinfo
                 .script_map()
                 .get(&(script.clone(), LeafVersion::TapScript))
@@ -135,7 +165,7 @@ impl SpendableTxIn {
     fn from_checked(
         previous_output: OutPoint,
         prevout: TxOut,
-        scripts: Vec<ScriptBuf>,
+        scripts: Vec<Arc<dyn SpendableScript>>,
         spendinfo: Option<TaprootSpendInfo>,
     ) -> Result<SpendableTxIn, SpendableTxInError> {
         let this = Self::from_unchecked(previous_output, prevout, scripts, spendinfo);
@@ -146,7 +176,7 @@ impl SpendableTxIn {
     fn from_unchecked(
         previous_outpoint: OutPoint,
         prevout: TxOut,
-        scripts: Vec<ScriptBuf>,
+        scripts: Vec<Arc<dyn SpendableScript>>,
         spendinfo: Option<TaprootSpendInfo>,
     ) -> SpendableTxIn {
         SpendableTxIn {

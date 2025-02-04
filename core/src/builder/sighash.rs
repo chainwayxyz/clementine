@@ -251,7 +251,6 @@ pub fn create_nofn_sighash_stream(
                         &assert_tx_addrs,
                         &root_hash,
                         nofn_xonly_pk,
-                        &public_input_wots,
                         network,
                     )?;
 
@@ -421,7 +420,6 @@ pub fn create_operator_sighash_stream(
                     &assert_tx_addrs,
                     &root_hash,
                     nofn_xonly_pk,
-                    &public_input_wots,
                     network,
                 )?;
 

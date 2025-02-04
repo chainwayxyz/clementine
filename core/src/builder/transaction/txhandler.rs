@@ -1,16 +1,8 @@
-use crate::builder::script::SpendableScript;
-use crate::database::Database;
 use crate::errors::BridgeError;
-use bitcoin::secp256k1::schnorr;
 use bitcoin::sighash::SighashCache;
-use bitcoin::taproot::LeafVersion;
 use bitcoin::taproot::{self, LeafVersion};
 use bitcoin::transaction::Version;
-use bitcoin::Witness;
 use bitcoin::{absolute, OutPoint, Script, Sequence, Transaction, Witness};
-use bitcoin::{
-    taproot::TaprootSpendInfo, ScriptBuf, TapLeafHash, TapSighash, TapSighashType, TxOut, Txid,
-};
 use bitcoin::{TapLeafHash, TapSighash, TapSighashType, TxOut, Txid};
 use std::marker::PhantomData;
 
@@ -47,7 +39,7 @@ impl State for Signed {}
 impl<T: State> TxHandler<T> {
     pub fn get_spendable_output(&self, idx: usize) -> Option<SpendableTxIn> {
         let txout = self.txouts.get(idx)?;
-        Some(SpendableTxIn::from(
+        Some(SpendableTxIn::new(
             OutPoint {
                 txid: self.cached_txid,
                 vout: idx as u32,

@@ -1,7 +1,8 @@
-use std::ops::Div;
-
 use crate::builder;
 use crate::builder::address::create_taproot_address;
+use crate::builder::script::{CheckSig, TimelockScript};
+pub use crate::builder::transaction::txhandler::TxHandler;
+pub use crate::builder::transaction::*;
 use crate::constants::{MIN_TAPROOT_AMOUNT, PARALLEL_ASSERT_TX_CHAIN_SIZE};
 use crate::errors::BridgeError;
 use crate::utils::SECP;
@@ -9,9 +10,8 @@ use bitcoin::hashes::Hash;
 use bitcoin::taproot::TaprootBuilder;
 use bitcoin::{Address, Amount, OutPoint, ScriptBuf, TxOut, XOnlyPublicKey};
 use bitcoin::{Sequence, TapNodeHash, Txid};
-
-pub use crate::builder::transaction::txhandler::TxHandler;
-pub use crate::builder::transaction::*;
+use std::ops::Div;
+use std::sync::Arc;
 
 use self::input::SpendableTxIn;
 use self::output::UnspentTxOut;
@@ -61,7 +61,7 @@ pub fn create_mini_assert_tx(
 
     // Add input
     builder = builder.add_input(
-        SpendableTxIn::from_partial(
+        SpendableTxIn::new_partial(
             OutPoint {
                 txid: prev_txid,
                 vout: prev_vout,
@@ -104,15 +104,20 @@ pub fn create_assert_end_txhandler(
     assert_tx_addrs: &[ScriptBuf],
     root_hash: &[u8; 32],
     nofn_xonly_pk: XOnlyPublicKey,
-    _public_input_wots: &[[u8; 20]],
     network: bitcoin::Network,
 ) -> Result<TxHandler, BridgeError> {
     let mut mini_tx_handlers = Vec::with_capacity(PARALLEL_ASSERT_TX_CHAIN_SIZE);
 
-    let mini_assert_layer_count = assert_tx_addrs.len().div(PARALLEL_ASSERT_TX_CHAIN_SIZE);
+    let mini_assert_layer_count = assert_tx_addrs
+        .len()
+        .div_ceil(PARALLEL_ASSERT_TX_CHAIN_SIZE);
     if assert_tx_addrs.len() < PARALLEL_ASSERT_TX_CHAIN_SIZE {
         return Err(BridgeError::InvalidAssertTxAddrs);
     }
+
+    // We do not create the scripts for Parallel assert txs, so that deposit process for verifiers is faster
+    // Because of this we do not have scripts, spendinfos etc. for parallel asserts
+    // For operator to create txs for parallel asserts and assert_end_txs, they need to create the scripts themselves
 
     // Create first layer of mini assert txs
     for (i, addr) in assert_tx_addrs
@@ -184,33 +189,20 @@ pub fn create_assert_end_txhandler(
         network,
     );
 
-    let nofn_1week =
-        builder::script::generate_checksig_relative_timelock_script(nofn_xonly_pk, 7 * 24 * 6);
-    let nofn_2week =
-        builder::script::generate_checksig_relative_timelock_script(nofn_xonly_pk, 2 * 7 * 24 * 6);
-    let (connector_addr, connector_spend) = builder::address::create_taproot_address(
-        &[nofn_1week.clone(), nofn_2week.clone()],
-        None,
-        network,
-    );
+    let nofn_1week = Arc::new(TimelockScript(Some(nofn_xonly_pk), 7 * 24 * 6));
+    let nofn_2week = Arc::new(TimelockScript(Some(nofn_xonly_pk), 7 * 24 * 6 * 2));
 
     // Add outputs
     builder = builder
-        .add_output(UnspentTxOut::new(
-            TxOut {
-                value: MIN_TAPROOT_AMOUNT,
-                script_pubkey: disprove_address.script_pubkey().clone(),
-            },
-            vec![],
-            Some(disprove_taproot_spend_info),
-        ))
-        .add_output(UnspentTxOut::new(
-            TxOut {
-                value: MIN_TAPROOT_AMOUNT,
-                script_pubkey: connector_addr.script_pubkey(),
-            },
+        .add_output(UnspentTxOut::from_partial(TxOut {
+            value: MIN_TAPROOT_AMOUNT,
+            script_pubkey: disprove_address.script_pubkey().clone(),
+        }))
+        .add_output(UnspentTxOut::from_scripts(
+            MIN_TAPROOT_AMOUNT,
             vec![nofn_1week, nofn_2week],
-            Some(connector_spend),
+            None,
+            network,
         ))
         .add_output(UnspentTxOut::new(
             builder::script::anchor_output(),
@@ -218,10 +210,6 @@ pub fn create_assert_end_txhandler(
             None,
         ));
 
-    // We do not create the scripts for Parallel assert txs, so that deposit process for verifiers is faster
-    // Because of this we do not have scripts, spendinfos etc. for parallel asserts
-    // For operator to create txs for parallel asserts and assert_end_txs, they need to create the scripts themselves
-    // That's why prevout variables have dummy values here
     Ok(builder.finalize())
 }
 /// Creates a [`TxHandler`] for the `disprove_timeout_tx`. This transaction will be sent by the operator
@@ -248,17 +236,12 @@ pub fn create_disprove_timeout_txhandler(
             Sequence::from_height(7 * 24 * 6),
         );
 
-    // Create operator address
-    let (op_address, op_spend) = create_taproot_address(&[], Some(operator_xonly_pk), network);
-
     // Add output
-    builder = builder.add_output(UnspentTxOut::new(
-        TxOut {
-            value: MIN_TAPROOT_AMOUNT,
-            script_pubkey: op_address.script_pubkey(),
-        },
+    builder = builder.add_output(UnspentTxOut::from_scripts(
+        MIN_TAPROOT_AMOUNT,
         vec![],
-        Some(op_spend),
+        Some(operator_xonly_pk),
+        network,
     ));
 
     Ok(builder.finalize())

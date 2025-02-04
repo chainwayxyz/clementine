@@ -86,7 +86,7 @@ pub fn create_move_to_vault_txhandler(
         );
 
     let builder = TxHandlerBuilder::new().add_input(
-        SpendableTxIn::from(
+        SpendableTxIn::new(
             deposit_outpoint,
             TxOut {
                 value: bridge_amount_sats,
