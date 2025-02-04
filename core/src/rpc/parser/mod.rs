@@ -1,9 +1,76 @@
-//! # Wrapper For Converting Proto Structures
-
 use super::clementine::{Outpoint, WinternitzPubkey};
+use super::error;
 use crate::errors::BridgeError;
-use bitcoin::{hashes::Hash, OutPoint, Txid};
+use crate::rpc::clementine::DepositParams;
+use crate::EVMAddress;
+use bitcoin::address::NetworkUnchecked;
+use bitcoin::hashes::Hash;
+use bitcoin::{OutPoint, Txid};
 use bitvm::signatures::winternitz;
+use std::fmt::{Debug, Display};
+use std::num::TryFromIntError;
+use tonic::Status;
+
+pub mod operator;
+pub mod verifier;
+pub mod watchtower;
+
+/// Converts an integer type in to another integer type. This is needed because
+/// tonic defaults to wrong integer types for some parameters.
+pub fn convert_int_to_another<SOURCE, TARGET>(
+    field_name: &str,
+    value: SOURCE,
+    try_from: fn(SOURCE) -> Result<TARGET, TryFromIntError>,
+) -> Result<TARGET, Status>
+where
+    SOURCE: Copy + Debug + Display,
+{
+    try_from(value)
+        .map_err(|e| error::invalid_argument(field_name, "Given number is out of bounds")(e))
+}
+
+/// Fetches the next message from a stream which is unwrapped and encapsulated
+/// by a [`Result`].
+///
+/// # Parameters
+///
+/// - stream: [`tonic::Streaming`] typed input stream
+/// - field: Input field ident (struct member) to look in the next message
+///
+/// # Returns
+///
+/// A [`Result`] containing the next message. Will return an [`Err`] variant if
+/// stream has exhausted.
+#[macro_export]
+macro_rules! fetch_next_message_from_stream {
+    ($stream:expr, $field:ident) => {
+        $crate::fetch_next_optional_message_from_stream!($stream, $field).ok_or(
+            $crate::rpc::error::expected_msg_got_none(stringify!($field))(),
+        )
+    };
+}
+
+/// Fetches next message from a stream.
+///
+/// # Parameters
+///
+/// - stream: [`tonic::Streaming`] typed input stream
+/// - field: Input field ident (struct member) to look in the next message
+///
+/// # Returns
+///
+/// An [`Option`] containing the next message. Will return a [`None`] variant if
+/// stream has exhausted.
+#[macro_export]
+macro_rules! fetch_next_optional_message_from_stream {
+    ($stream:expr, $field:ident) => {
+        $stream
+            .message()
+            .await?
+            .ok_or($crate::rpc::error::input_ended_prematurely())?
+            .$field
+    };
+}
 
 impl TryFrom<Outpoint> for OutPoint {
     type Error = BridgeError;
@@ -49,7 +116,6 @@ impl TryFrom<WinternitzPubkey> for winternitz::PublicKey {
             .collect::<Result<Vec<[u8; 20]>, BridgeError>>()
     }
 }
-
 impl From<winternitz::PublicKey> for WinternitzPubkey {
     fn from(value: winternitz::PublicKey) -> Self {
         {
@@ -58,6 +124,39 @@ impl From<winternitz::PublicKey> for WinternitzPubkey {
             WinternitzPubkey { digit_pubkey }
         }
     }
+}
+
+pub fn parse_deposit_params(
+    deposit_params: DepositParams,
+) -> Result<
+    (
+        bitcoin::OutPoint,
+        EVMAddress,
+        bitcoin::Address<NetworkUnchecked>,
+        u16,
+    ),
+    Status,
+> {
+    let deposit_outpoint: bitcoin::OutPoint = deposit_params
+        .deposit_outpoint
+        .ok_or(Status::invalid_argument("No deposit outpoint received"))?
+        .try_into()?;
+    let evm_address: EVMAddress = deposit_params
+        .evm_address
+        .try_into()
+        .map_err(|_| Status::invalid_argument("Could not parse deposit outpoint EVM address"))?;
+    let recovery_taproot_address = deposit_params
+        .recovery_taproot_address
+        .parse::<bitcoin::Address<_>>()
+        .map_err(|e| Status::internal(e.to_string()))?;
+    let user_takes_after = deposit_params.user_takes_after;
+
+    Ok((
+        deposit_outpoint,
+        evm_address,
+        recovery_taproot_address,
+        convert_int_to_another("user_takes_after", user_takes_after, u16::try_from)?,
+    ))
 }
 
 #[cfg(test)]

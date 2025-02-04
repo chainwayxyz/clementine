@@ -64,6 +64,7 @@ impl Database {
             .collect())
     }
 
+    /// TODO: wallet_address should have `Address` type.
     pub async fn set_operator(
         &self,
         tx: Option<DatabaseTransaction<'_, '_>>,

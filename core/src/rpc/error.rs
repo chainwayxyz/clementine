@@ -1,8 +1,7 @@
 use std::fmt::Display;
-
 use tonic::Status;
 
-pub(crate) fn expected_msg_got_error(msg: Status) -> Status {
+pub(crate) fn _expected_msg_got_error(msg: Status) -> Status {
     Status::invalid_argument(format!("Expected message, got error: {msg}"))
 }
 
