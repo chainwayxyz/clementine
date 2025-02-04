@@ -1,4 +1,4 @@
-use std::ops::{Div, Rem};
+use std::ops::Div;
 
 use crate::builder;
 use crate::builder::address::create_taproot_address;
