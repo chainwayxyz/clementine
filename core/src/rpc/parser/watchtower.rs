@@ -30,7 +30,7 @@ impl From<XOnlyPublicKey> for WatchtowerParams {
 }
 
 pub async fn parse_id(stream: &mut tonic::Streaming<WatchtowerParams>) -> Result<u32, Status> {
-    let watchtower_param = fetch_next_message_from_stream!(stream, response, "response")?;
+    let watchtower_param = fetch_next_message_from_stream!(stream, response)?;
 
     if let watchtower_params::Response::WatchtowerId(watchtower_id) = watchtower_param {
         Ok(watchtower_id)
@@ -42,7 +42,7 @@ pub async fn parse_id(stream: &mut tonic::Streaming<WatchtowerParams>) -> Result
 pub async fn parse_winternitz_public_key(
     stream: &mut tonic::Streaming<WatchtowerParams>,
 ) -> Result<WinternitzPublicKey, Status> {
-    let watchtower_param = fetch_next_message_from_stream!(stream, response, "response")?;
+    let watchtower_param = fetch_next_message_from_stream!(stream, response)?;
 
     if let watchtower_params::Response::WinternitzPubkeys(wpk) = watchtower_param {
         Ok(wpk.try_into()?)
@@ -54,7 +54,7 @@ pub async fn parse_winternitz_public_key(
 pub async fn parse_xonly_pk(
     stream: &mut tonic::Streaming<WatchtowerParams>,
 ) -> Result<XOnlyPublicKey, Status> {
-    let watchtower_param = fetch_next_message_from_stream!(stream, response, "response")?;
+    let watchtower_param = fetch_next_message_from_stream!(stream, response)?;
 
     if let watchtower_params::Response::XonlyPk(xonly_pk) = watchtower_param {
         let xonly_pk = XOnlyPublicKey::from_slice(&xonly_pk).map_err(|e| {

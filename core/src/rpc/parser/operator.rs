@@ -78,7 +78,7 @@ impl TryFrom<DepositSignSession> for DepositParams {
 pub async fn parse_details(
     stream: &mut tonic::Streaming<OperatorParams>,
 ) -> Result<(u32, Txid, XOnlyPublicKey, Address), Status> {
-    let operator_param = fetch_next_message_from_stream!(stream, response, "response")?;
+    let operator_param = fetch_next_message_from_stream!(stream, response)?;
 
     let operator_config =
         if let operator_params::Response::OperatorDetails(operator_config) = operator_param {
@@ -119,7 +119,7 @@ pub async fn parse_details(
 pub async fn parse_challenge_ack_public_hash(
     stream: &mut tonic::Streaming<OperatorParams>,
 ) -> Result<[u8; 20], Status> {
-    let operator_param = fetch_next_message_from_stream!(stream, response, "response")?;
+    let operator_param = fetch_next_message_from_stream!(stream, response)?;
 
     let digest = if let operator_params::Response::ChallengeAckDigests(digest) = operator_param {
         digest
@@ -145,7 +145,7 @@ pub async fn parse_challenge_ack_public_hash(
 pub async fn parse_winternitz_public_keys(
     stream: &mut tonic::Streaming<OperatorParams>,
 ) -> Result<winternitz::PublicKey, Status> {
-    let operator_param = fetch_next_message_from_stream!(stream, response, "response")?;
+    let operator_param = fetch_next_message_from_stream!(stream, response)?;
 
     if let operator_params::Response::WinternitzPubkeys(wpk) = operator_param {
         Ok(wpk.try_into()?)
