@@ -2,12 +2,12 @@ use bitcoin::hashes::{Hash, HashEngine};
 use bitcoin::opcodes::all::OP_CHECKSIG;
 use bitcoin::script::Builder;
 use bitcoin::secp256k1::Scalar;
-use bitcoin::{Address, Amount, Sequence, TapTweakHash, TxOut, XOnlyPublicKey};
+use bitcoin::{Address, Amount, TapTweakHash, TxOut, XOnlyPublicKey};
 use bitcoincore_rpc::RpcApi;
 use clementine_core::actor::Actor;
 use clementine_core::builder::transaction::input::SpendableTxIn;
 use clementine_core::builder::transaction::output::UnspentTxOut;
-use clementine_core::builder::transaction::TxHandlerBuilder;
+use clementine_core::builder::transaction::{TxHandlerBuilder, DEFAULT_SEQUENCE};
 use clementine_core::builder::{self};
 use clementine_core::extended_rpc::ExtendedRpc;
 use clementine_core::utils::SECP;
@@ -59,7 +59,7 @@ async fn create_address_and_transaction_then_sign_transaction() {
 
     let mut builder = TxHandlerBuilder::new();
     builder = builder.add_input(
-        SpendableTxIn::from_unchecked(
+        SpendableTxIn::from(
             utxo,
             TxOut {
                 value: Amount::from_sat(1000),
@@ -68,7 +68,7 @@ async fn create_address_and_transaction_then_sign_transaction() {
             vec![to_pay_script.clone()],
             Some(taproot_spend_info.clone()),
         ),
-        Sequence::ENABLE_RBF_NO_LOCKTIME,
+        DEFAULT_SEQUENCE,
     );
 
     builder = builder.add_output(UnspentTxOut::new(

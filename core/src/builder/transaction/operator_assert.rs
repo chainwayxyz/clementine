@@ -71,7 +71,7 @@ pub fn create_mini_assert_tx(
                 script_pubkey: out_script.clone(),
             },
         ),
-        Sequence::ENABLE_RBF_NO_LOCKTIME,
+        DEFAULT_SEQUENCE,
     );
 
     // Add main output
@@ -160,7 +160,7 @@ pub fn create_assert_end_txhandler(
             txhandler
                 .get_spendable_output(0)
                 .ok_or(BridgeError::TxInputNotFound)?,
-            Sequence::ENABLE_RBF_NO_LOCKTIME,
+            DEFAULT_SEQUENCE,
         );
     }
 
@@ -168,7 +168,7 @@ pub fn create_assert_end_txhandler(
         kickoff_txhandler
             .get_spendable_output(3)
             .ok_or(BridgeError::TxInputNotFound)?,
-        Sequence::ENABLE_RBF_NO_LOCKTIME,
+        DEFAULT_SEQUENCE,
     );
 
     let disprove_taproot_spend_info = TaprootBuilder::new()
@@ -239,7 +239,7 @@ pub fn create_disprove_timeout_txhandler(
             assert_end_txhandler
                 .get_spendable_output(0)
                 .ok_or(BridgeError::TxInputNotFound)?,
-            Sequence::ENABLE_RBF_NO_LOCKTIME,
+            DEFAULT_SEQUENCE,
         )
         .add_input(
             assert_end_txhandler

@@ -324,7 +324,7 @@ mod tests {
         let (op_addr, op_spend) =
             create_taproot_address(&[], Some(actor.xonly_public_key), Network::Regtest);
         let builder = TxHandlerBuilder::new().add_input(
-            SpendableTxIn::from_unchecked(
+            SpendableTxIn::from(
                 OutPoint::default(),
                 TxOut {
                     value: Amount::from_sat(1000),

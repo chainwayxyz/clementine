@@ -39,18 +39,15 @@ impl State for Signed {}
 impl<T: State> TxHandler<T> {
     pub fn get_spendable_output(&self, idx: usize) -> Option<SpendableTxIn> {
         let txout = self.txouts.get(idx)?;
-        Some(
-            SpendableTxIn::from_checked(
-                OutPoint {
-                    txid: self.cached_txid,
-                    vout: idx as u32,
-                },
-                txout.txout().clone(),
-                txout.scripts().clone(),
-                txout.spendinfo().clone(),
-            )
-            .unwrap(),
-        ) // TODO: Can we get rid of clones?
+        Some(SpendableTxIn::from(
+            OutPoint {
+                txid: self.cached_txid,
+                vout: idx as u32,
+            },
+            txout.txout().clone(),
+            txout.scripts().clone(),
+            txout.spendinfo().clone(),
+        )) // TODO: Can we get rid of clones?
     }
 }
 

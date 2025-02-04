@@ -132,7 +132,7 @@ impl SpendableTxIn {
         Ok(())
     }
 
-    pub fn from_checked(
+    fn from_checked(
         previous_output: OutPoint,
         prevout: TxOut,
         scripts: Vec<ScriptBuf>,
@@ -143,7 +143,7 @@ impl SpendableTxIn {
         Ok(this)
     }
 
-    pub fn from_unchecked(
+    fn from_unchecked(
         previous_outpoint: OutPoint,
         prevout: TxOut,
         scripts: Vec<ScriptBuf>,

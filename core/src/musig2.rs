@@ -223,6 +223,7 @@ pub fn partial_sign(
 #[cfg(test)]
 mod tests {
     use super::{nonce_pair, MuSigNoncePair, Musig2Mode};
+    use crate::builder::transaction::DEFAULT_SEQUENCE;
     use crate::{
         builder::{
             self,
@@ -241,7 +242,7 @@ mod tests {
         opcodes::all::OP_CHECKSIG,
         script,
         secp256k1::{schnorr, Message, PublicKey},
-        Amount, OutPoint, ScriptBuf, Sequence, TapNodeHash, TxOut, Txid, XOnlyPublicKey,
+        Amount, OutPoint, ScriptBuf, TapNodeHash, TxOut, Txid, XOnlyPublicKey,
     };
     use secp256k1::{musig::MusigPartialSignature, rand::Rng};
     use std::vec;
@@ -520,14 +521,13 @@ mod tests {
         let mut builder = TxHandlerBuilder::new();
         builder = builder
             .add_input(
-                SpendableTxIn::from_checked(
+                SpendableTxIn::from(
                     utxo,
                     prevout.clone(),
                     scripts.clone(),
                     Some(sending_address_spend_info.clone()),
-                )
-                .unwrap(),
-                Sequence::ENABLE_RBF_NO_LOCKTIME,
+                ),
+                DEFAULT_SEQUENCE,
             )
             .add_output(UnspentTxOut::from_partial(TxOut {
                 value: Amount::from_sat(99_000_000),
@@ -627,14 +627,13 @@ mod tests {
 
         let mut tx_details = TxHandlerBuilder::new()
             .add_input(
-                SpendableTxIn::from_checked(
+                SpendableTxIn::from(
                     utxo,
                     prevout,
                     scripts,
                     Some(sending_address_spend_info.clone()),
-                )
-                .unwrap(),
-                Sequence::ENABLE_RBF_NO_LOCKTIME,
+                ),
+                DEFAULT_SEQUENCE,
             )
             .add_output(UnspentTxOut::from_partial(TxOut {
                 value: Amount::from_sat(99_000_000),

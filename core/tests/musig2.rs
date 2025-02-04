@@ -6,7 +6,7 @@ use bitcoin::{taproot, Sequence, TxOut, XOnlyPublicKey};
 use bitcoincore_rpc::RpcApi;
 use clementine_core::builder::transaction::input::SpendableTxIn;
 use clementine_core::builder::transaction::output::UnspentTxOut;
-use clementine_core::builder::transaction::TxHandlerBuilder;
+use clementine_core::builder::transaction::{TxHandlerBuilder, DEFAULT_SEQUENCE};
 use clementine_core::musig2::{
     aggregate_nonces, aggregate_partial_signatures, AggregateFromPublicKeys, Musig2Mode,
 };
@@ -195,13 +195,13 @@ async fn key_spend_with_script() {
     let mut builder = TxHandlerBuilder::new();
     builder = builder
         .add_input(
-            SpendableTxIn::from_unchecked(
+            SpendableTxIn::from(
                 utxo,
                 prevout.clone(),
                 scripts.clone(),
                 Some(from_address_spend_info.clone()),
             ),
-            Sequence::ENABLE_RBF_NO_LOCKTIME,
+            DEFAULT_SEQUENCE,
         )
         .add_output(UnspentTxOut::from_partial(TxOut {
             value: Amount::from_sat(99_000_000),
@@ -305,14 +305,13 @@ async fn script_spend() {
     let prevout = rpc.get_txout_from_outpoint(&utxo).await.unwrap();
     let mut tx_details = TxHandlerBuilder::new()
         .add_input(
-            SpendableTxIn::from_checked(
+            SpendableTxIn::from(
                 utxo,
                 prevout.clone(),
                 scripts.clone(),
                 Some(from_address_spend_info.clone()),
-            )
-            .unwrap(),
-            Sequence::ENABLE_RBF_NO_LOCKTIME,
+            ),
+            DEFAULT_SEQUENCE,
         )
         .add_output(UnspentTxOut::from_partial(TxOut {
             value: Amount::from_sat(99_000_000),
@@ -452,7 +451,7 @@ async fn key_and_script_spend() {
                 scripts.clone(),
                 Some(from_address_spend_info.clone()),
             ),
-            Sequence::ENABLE_RBF_NO_LOCKTIME,
+            DEFAULT_SEQUENCE,
         )
         .add_output(UnspentTxOut::from_partial(TxOut {
             value: Amount::from_sat(99_000_000),
@@ -468,7 +467,7 @@ async fn key_and_script_spend() {
                 scripts,
                 Some(from_address_spend_info.clone()),
             ),
-            Sequence::ENABLE_RBF_NO_LOCKTIME,
+            DEFAULT_SEQUENCE,
         )
         .add_output(UnspentTxOut::from_partial(TxOut {
             value: Amount::from_sat(99_000_000),

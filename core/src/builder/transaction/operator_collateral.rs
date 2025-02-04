@@ -48,7 +48,7 @@ pub fn create_sequential_collateral_txhandler(
 ) -> TxHandler {
     let (op_address, op_spend) = create_taproot_address(&[], Some(operator_xonly_pk), network);
     let mut builder = TxHandlerBuilder::new().add_input(
-        SpendableTxIn::from_unchecked(
+        SpendableTxIn::from(
             OutPoint {
                 txid: input_txid,
                 vout: 0,
