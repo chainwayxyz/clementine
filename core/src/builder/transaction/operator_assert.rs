@@ -110,10 +110,6 @@ pub fn create_assert_end_txhandler(
     let mut mini_tx_handlers = Vec::with_capacity(PARALLEL_ASSERT_TX_CHAIN_SIZE);
 
     let mini_assert_layer_count = assert_tx_addrs.len().div(PARALLEL_ASSERT_TX_CHAIN_SIZE);
-    if assert_tx_addrs.len().rem(PARALLEL_ASSERT_TX_CHAIN_SIZE) != 0 {
-        return Err(BridgeError::InvalidAssertTxAddrs);
-    }
-
     if assert_tx_addrs.len() < PARALLEL_ASSERT_TX_CHAIN_SIZE {
         return Err(BridgeError::InvalidAssertTxAddrs);
     }
@@ -135,10 +131,21 @@ pub fn create_assert_end_txhandler(
 
     for layer in 1..mini_assert_layer_count {
         for i in 0..PARALLEL_ASSERT_TX_CHAIN_SIZE {
+            let assert_tx_idx = i + layer * PARALLEL_ASSERT_TX_CHAIN_SIZE;
+            if assert_tx_idx >= assert_tx_addrs.len() {
+                break;
+            }
+
             let mini_assert_tx = create_mini_assert_tx(
-                *mini_tx_handlers[i].get_txid(),
+                *mini_tx_handlers
+                    .get(i)
+                    .expect("previous assertions ensure the size")
+                    .get_txid(),
                 0,
-                assert_tx_addrs[i + layer * PARALLEL_ASSERT_TX_CHAIN_SIZE].clone(),
+                assert_tx_addrs
+                    .get(assert_tx_idx)
+                    .expect("checked before")
+                    .clone(),
                 network,
             );
 
