@@ -16,7 +16,7 @@ use crate::{
     },
     errors::BridgeError,
     musig2::{self},
-    utils,
+    utils::{self, BITVM_CACHE_LOCK},
     verifier::{NofN, NonceSession, Verifier},
     EVMAddress,
 };
@@ -200,7 +200,7 @@ impl ClementineVerifier for Verifier {
         let mut operator_winternitz_public_keys = Vec::new();
         for _ in 0..self.config.num_kickoffs_per_sequential_collateral_tx
             * self.config.num_sequential_collateral_txs
-            * utils::ALL_BITVM_INTERMEDIATE_VARIABLES.len()
+            * BITVM_CACHE_LOCK.get().unwrap().intermediate_variables.len()
         {
             let operator_params = in_stream
                 .message()
@@ -287,7 +287,7 @@ impl ClementineVerifier for Verifier {
         }
         // Split the winternitz public keys into chunks for every sequential collateral tx and kickoff index.
         // This is done because we need to generate a separate BitVM setup for each collateral tx and kickoff index.
-        let chunk_size = utils::ALL_BITVM_INTERMEDIATE_VARIABLES.len();
+        let chunk_size = BITVM_CACHE_LOCK.get().unwrap().intermediate_variables.len();
         let winternitz_public_keys_chunks =
             operator_winternitz_public_keys.chunks_exact(chunk_size);
 
@@ -297,7 +297,10 @@ impl ClementineVerifier for Verifier {
                 chunk_idx / self.config.num_kickoffs_per_sequential_collateral_tx;
             let kickoff_idx = chunk_idx % self.config.num_kickoffs_per_sequential_collateral_tx;
 
-            let assert_tx_addrs = utils::ALL_BITVM_INTERMEDIATE_VARIABLES
+            let assert_tx_addrs = BITVM_CACHE_LOCK
+                .get()
+                .unwrap()
+                .intermediate_variables
                 .iter()
                 .enumerate()
                 .map(|(idx, (_intermediate_step, intermediate_step_size))| {

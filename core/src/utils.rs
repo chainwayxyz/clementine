@@ -8,11 +8,14 @@ use bitvm::chunker::chunk_groth16_verifier::groth16_verify_to_segments;
 use bitvm::chunker::disprove_execution::RawProof;
 use bitvm::signatures::signing_winternitz::WinternitzPublicKey;
 use bitvm::signatures::winternitz;
+use sha2::digest::consts::U8;
 use tracing::Level;
 //use bitvm::chunker::assigner::BridgeAssigner;
+use borsh::{BorshDeserialize, BorshSerialize};
 use ctor::ctor;
 use std::collections::BTreeMap;
 use std::collections::HashMap;
+use std::fs;
 use std::process::exit;
 use std::str::FromStr;
 use std::sync::OnceLock;
@@ -50,19 +53,73 @@ lazy_static::lazy_static! {
 //     pub static ref ALL_BITVM_INTERMEDIATE_VARIABLES: BTreeMap<String, usize> = BridgeAssigner::default().all_intermediate_variable();
 // }
 
-static ALL_BITVM_INTERMEDIATE_VARIABLES_LOCK: OnceLock<BTreeMap<String, usize>> = OnceLock::new();
-static ALL_BITVM_DISPROVE_PROOF_LOCK: OnceLock<Vec<ScriptBuf>> = OnceLock::new();
+pub static BITVM_CACHE_LOCK: OnceLock<BitvmCache> = OnceLock::new();
+
+#[derive(BorshSerialize, BorshDeserialize, Debug)]
+pub struct BitvmCache {
+    pub intermediate_variables: BTreeMap<String, usize>,
+    pub disprove_scripts: Vec<Vec<u8>>,
+}
+
+impl BitvmCache {
+    fn save_to_file(&self, path: &str) -> bool {
+        match borsh::to_vec(self) {
+            Ok(serialized) => match fs::write(path, serialized) {
+                Ok(_) => {
+                    println!("Saved BitVM cache to file");
+                    true
+                }
+                Err(e) => {
+                    println!("Failed to save BitVM cache: {}", e);
+                    false
+                }
+            },
+            Err(e) => {
+                println!("Failed to serialize BitVM cache: {}", e);
+                false
+            }
+        }
+    }
+
+    fn load_from_file(path: &str) -> Option<Self> {
+        match fs::read(path) {
+            Ok(bytes) => match Self::try_from_slice(&bytes) {
+                Ok(cache) => {
+                    println!("Loaded BitVM cache from file");
+                    Some(cache)
+                }
+                Err(e) => {
+                    println!("Failed to deserialize BitVM cache: {}", e);
+                    None
+                }
+            },
+            Err(_) => {
+                println!("No BitVM cache found");
+                None
+            }
+        }
+    }
+}
 
 #[ctor]
 fn init_all_bitvm_intermediate_variables() {
     let start = Instant::now();
+    let cache_path = "bitvm_cache.bin";
 
+    let bitvm_cache = BitvmCache::load_from_file(cache_path).unwrap_or_else(|| {
+        let fresh_data = generate_fresh_data();
+        fresh_data.save_to_file(cache_path);
+        fresh_data
+    });
+
+    BITVM_CACHE_LOCK.set(bitvm_cache).unwrap();
+    println!("BitVM initialization took: {:?}", start.elapsed());
+}
+
+fn generate_fresh_data() -> BitvmCache {
+    println!("Generating fresh BitVM data...");
     let map = BridgeAssigner::default().all_intermediate_variables();
-    ALL_BITVM_INTERMEDIATE_VARIABLES_LOCK
-        .set(map.clone())
-        .unwrap();
 
-    // Now create a dummy winternitz with random parameters
     let commits_publickeys = map
         .iter()
         .enumerate()
@@ -71,14 +128,12 @@ fn init_all_bitvm_intermediate_variables() {
             dummy_pk[..8].copy_from_slice(&idx.to_le_bytes());
             let parameters = winternitz::Parameters::new(*intermediate_step_size as u32 * 2, 4);
 
-            // Pre-allocate vector with correct capacity
             let digit_count = parameters.total_digit_count() as usize;
             let mut winternitz_pk = Vec::with_capacity(digit_count);
 
-            // Generate unique public keys for each digit
             for i in 0..digit_count {
                 let mut new_pk = dummy_pk;
-                new_pk[12..20].copy_from_slice(&i.to_le_bytes()); // Use last 8 bytes for digit index
+                new_pk[12..20].copy_from_slice(&i.to_le_bytes());
                 winternitz_pk.push(new_pk);
             }
 
@@ -98,31 +153,35 @@ fn init_all_bitvm_intermediate_variables() {
 
     let scripts = segments
         .iter()
-        .map(|s| s.script.clone().compile())
-        .collect::<Vec<_>>();
-    ALL_BITVM_DISPROVE_PROOF_LOCK.set(scripts).unwrap();
+        .map(|s| s.script.clone().compile().to_bytes())
+        .collect();
 
-    println!("BitVM initialization took: {:?}", start.elapsed());
+    BitvmCache {
+        intermediate_variables: map,
+        disprove_scripts: scripts,
+    }
 }
 
 pub fn replace_disprove_scripts(winternitz_pk: &[Vec<[u8; 20]>]) -> Vec<ScriptBuf> {
     let start = Instant::now();
 
     // Get the initial scripts.
-    let mut disprove_scripts = ALL_BITVM_DISPROVE_PROOF_LOCK
-        .get()
-        .expect("failed to get disprove scripts")
-        .to_vec();
-    let all_bitvm_intermediate_variables = ALL_BITVM_INTERMEDIATE_VARIABLES_LOCK
-        .get()
-        .expect("failed to get intermediate variables");
-
+    let cache = BITVM_CACHE_LOCK.get().expect("BitVM cache not initialized");
+    let mut disprove_scripts = cache.disprove_scripts.clone();
     // Process each intermediate variable one at a time.
     for (idx, (_intermediate_step, intermediate_step_size)) in
-        all_bitvm_intermediate_variables.iter().enumerate()
+        cache.intermediate_variables.iter().enumerate()
     {
+        if idx >= winternitz_pk.len() {
+            panic!(
+                "idx out of bounds, this should never happen, winternitz_pk.len() = {}, idx = {}",
+                winternitz_pk.len(),
+                idx
+            );
+            break;
+        }
+
         // Build a dummy base public key.
-        // Start with 20 bytes set to 31, then overwrite the first 8 bytes with idx.
         let mut dummy_base = [31u8; 20];
         dummy_base[..8].copy_from_slice(&idx.to_le_bytes());
 
@@ -133,25 +192,22 @@ pub fn replace_disprove_scripts(winternitz_pk: &[Vec<[u8; 20]>]) -> Vec<ScriptBu
         // Build a mapping of dummy key -> actual replacement key.
         let mut mapping = HashMap::<[u8; 20], [u8; 20]>::with_capacity(digit_count);
         for digit in 0..digit_count {
+            if digit >= winternitz_pk[idx].len() {
+                panic!("digit out of bounds, this should never happen, winternitz_pk[idx].len() = {}, digit = {}", winternitz_pk[idx].len(), digit);
+                break;
+            }
             let mut dummy = dummy_base;
-            // Overwrite the last 8 bytes with the little-endian representation of the digit.
             dummy[12..20].copy_from_slice(&digit.to_le_bytes());
-            // winternitz_pk[idx][digit] is the actual replacement value.
             mapping.insert(dummy, winternitz_pk[idx][digit]);
         }
 
         // For each script, scan through the bytes and do a one‐pass replacement.
-        // At each position, if the next 20 bytes match a dummy key, replace them;
-        // otherwise, copy one byte.
         for script in disprove_scripts.iter_mut() {
-            let script_bytes = script.as_bytes();
-            let mut new_bytes = Vec::with_capacity(script_bytes.len());
+            let mut new_bytes = Vec::with_capacity(script.len());
             let mut pos = 0;
-            while pos < script_bytes.len() {
-                // If there are at least 20 bytes remaining, check for a dummy key.
-                if pos + 20 <= script_bytes.len() {
-                    // Convert the 20‐byte window into an array.
-                    if let Ok(candidate_arr) = <[u8; 20]>::try_from(&script_bytes[pos..pos + 20]) {
+            while pos < script.len() {
+                if pos + 20 <= script.len() {
+                    if let Ok(candidate_arr) = <[u8; 20]>::try_from(&script[pos..pos + 20]) {
                         if let Some(&replacement) = mapping.get(&candidate_arr) {
                             new_bytes.extend_from_slice(&replacement);
                             pos += 20;
@@ -159,33 +215,18 @@ pub fn replace_disprove_scripts(winternitz_pk: &[Vec<[u8; 20]>]) -> Vec<ScriptBu
                         }
                     }
                 }
-                // Otherwise, just copy the byte.
-                new_bytes.push(script_bytes[pos]);
+                new_bytes.push(script[pos]);
                 pos += 1;
             }
-            *script = ScriptBuf::from_bytes(new_bytes);
+            *script = new_bytes
         }
     }
-
     println!("BitVM script replacement took: {:?}", start.elapsed());
-    disprove_scripts
-}
-
-lazy_static::lazy_static! {
-    pub static ref ALL_BITVM_INTERMEDIATE_VARIABLES: BTreeMap<String, usize> = {
-        let mut map = BTreeMap::new();
-        map.insert("scalar_1".to_string(), 20);
-        map.insert("scalar_2".to_string(), 20);
-        map.insert("scalar_3".to_string(), 20);
-        map.insert("scalar_4".to_string(), 20);
-        map.insert("scalar_5".to_string(), 20);
-        map.insert("scalar_6".to_string(), 20);
-        map.insert("scalar_7".to_string(), 20);
-        map.insert("scalar_8".to_string(), 20);
-        map.insert("scalar_9".to_string(), 20);
-        map.insert("scalar_10".to_string(), 20);
-        map
-    };
+    let mut new_disprove_scripts = Vec::with_capacity(disprove_scripts.len());
+    for script in disprove_scripts {
+        new_disprove_scripts.push(ScriptBuf::from_bytes(script));
+    }
+    new_disprove_scripts
 }
 
 /// Gets configuration from CLI, for binaries. If there are any errors, print
