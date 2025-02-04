@@ -1,7 +1,11 @@
 use crate::{
     fetch_next_message_from_stream,
+    operator::{Operator, PublicHash},
     rpc::{
-        clementine::{operator_params, OperatorParams},
+        clementine::{
+            self, operator_params, ChallengeAckDigest, DepositParams, DepositSignSession,
+            OperatorParams,
+        },
         error::expected_msg_got_none,
     },
 };
@@ -9,6 +13,57 @@ use bitcoin::{hashes::Hash, Address, Txid, XOnlyPublicKey};
 use bitvm::signatures::winternitz;
 use std::str::FromStr;
 use tonic::Status;
+
+impl From<Operator> for OperatorParams {
+    fn from(operator: Operator) -> Self {
+        let operator_config = clementine::OperatorConfig {
+            operator_idx: operator.idx as u32,
+            collateral_funding_txid: operator.collateral_funding_txid.to_byte_array().to_vec(),
+            xonly_pk: operator.signer.xonly_public_key.to_string(),
+            wallet_reimburse_address: operator.config.operator_wallet_addresses[operator.idx] // TODO: Fix this where the config will only have one address.
+                .clone()
+                .assume_checked()
+                .to_string(),
+        };
+
+        OperatorParams {
+            response: Some(operator_params::Response::OperatorDetails(operator_config)),
+        }
+    }
+}
+
+impl From<winternitz::PublicKey> for OperatorParams {
+    fn from(winternitz_pubkey: winternitz::PublicKey) -> Self {
+        OperatorParams {
+            response: Some(operator_params::Response::WinternitzPubkeys(
+                winternitz_pubkey.into(),
+            )),
+        }
+    }
+}
+
+impl From<PublicHash> for OperatorParams {
+    fn from(public_hash: PublicHash) -> Self {
+        let hash = ChallengeAckDigest {
+            hash: public_hash.to_vec(),
+        };
+
+        OperatorParams {
+            response: Some(operator_params::Response::ChallengeAckDigests(hash)),
+        }
+    }
+}
+
+impl TryFrom<DepositSignSession> for DepositParams {
+    type Error = Status;
+
+    fn try_from(deposit_sign_session: DepositSignSession) -> Result<Self, Self::Error> {
+        match deposit_sign_session.deposit_params {
+            Some(deposit_params) => Ok(deposit_params),
+            None => Err(expected_msg_got_none("Deposit Params")()),
+        }
+    }
+}
 
 /// Parses operator configuration from a given stream.
 ///
