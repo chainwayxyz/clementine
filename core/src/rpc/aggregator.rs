@@ -945,7 +945,6 @@ mod tests {
             .await
             .unwrap();
 
-
         tracing::info!("Setup completed in {:?}", start.elapsed());
         tracing::info!("Depositing");
         let deposit_start = std::time::Instant::now();
