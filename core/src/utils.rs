@@ -104,16 +104,16 @@ impl BitvmCache {
         match borsh::to_vec(self) {
             Ok(serialized) => match fs::write(path, serialized) {
                 Ok(_) => {
-                    println!("Saved BitVM cache to file");
+                    tracing::info!("Saved BitVM cache to file");
                     true
                 }
                 Err(e) => {
-                    println!("Failed to save BitVM cache: {}", e);
+                    tracing::error!("Failed to save BitVM cache: {}", e);
                     false
                 }
             },
             Err(e) => {
-                println!("Failed to serialize BitVM cache: {}", e);
+                tracing::error!("Failed to serialize BitVM cache: {}", e);
                 false
             }
         }
@@ -123,16 +123,16 @@ impl BitvmCache {
         match fs::read(path) {
             Ok(bytes) => match Self::try_from_slice(&bytes) {
                 Ok(cache) => {
-                    println!("Loaded BitVM cache from file");
+                    tracing::info!("Loaded BitVM cache from file");
                     Some(cache)
                 }
                 Err(e) => {
-                    println!("Failed to deserialize BitVM cache: {}", e);
+                    tracing::error!("Failed to deserialize BitVM cache: {}", e);
                     None
                 }
             },
             Err(_) => {
-                println!("No BitVM cache found");
+                tracing::error!("No BitVM cache found");
                 None
             }
         }
@@ -140,7 +140,6 @@ impl BitvmCache {
 }
 
 fn generate_fresh_data() -> BitvmCache {
-    println!("Generating fresh BitVM data...");
     let intermediate_variables = BridgeAssigner::default().all_intermediate_variables();
 
     let commits_publickeys = intermediate_variables
@@ -212,11 +211,6 @@ fn generate_fresh_data() -> BitvmCache {
         }
     }
 
-    println!(
-        "Found {} unique replacement patterns",
-        replacement_places.len()
-    );
-
     BitvmCache {
         intermediate_variables,
         disprove_scripts: scripts,
@@ -257,7 +251,6 @@ pub fn replace_disprove_scripts(winternitz_pk: &[Vec<[u8; 20]>]) -> Vec<ScriptBu
 
     let elapsed = start.elapsed();
     tracing::info!("Script replacement completed in {:?}", elapsed);
-    println!("Script replacement completed in {:?}", elapsed);
 
     result
 }

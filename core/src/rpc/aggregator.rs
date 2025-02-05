@@ -929,7 +929,6 @@ mod tests {
     #[tokio::test]
     #[serial_test::serial]
     async fn aggregator_setup_and_deposit() {
-        println!("Starting test");
         let config = create_test_config_with_thread_name!(None);
 
         let aggregator = create_actors!(config).2;
@@ -939,7 +938,6 @@ mod tests {
                 .unwrap();
 
         tracing::info!("Setting up aggregator");
-        println!("Setting up aggregator");
         let start = std::time::Instant::now();
 
         aggregator_client
@@ -947,29 +945,29 @@ mod tests {
             .await
             .unwrap();
 
-        println!("Setup completed in {:?}", start.elapsed());
 
-        // tracing::info!("Depositing");
-        // println!("Depositing");
-
-        // aggregator_client
-        //     .new_deposit(DepositParams {
-        //         deposit_outpoint: Some(
-        //             bitcoin::OutPoint {
-        //                 txid: Txid::from_str(
-        //                     "17e3fc7aae1035e77a91e96d1ba27f91a40a912cf669b367eb32c13a8f82bb02",
-        //                 )
-        //                 .unwrap(),
-        //                 vout: 0,
-        //             }
-        //             .into(),
-        //         ),
-        //         evm_address: [1u8; 20].to_vec(),
-        //         recovery_taproot_address:
-        //             "tb1pk8vus63mx5zwlmmmglq554kwu0zm9uhswqskxg99k66h8m3arguqfrvywa".to_string(),
-        //         user_takes_after: 5,
-        //     })
-        //     .await
-        //     .unwrap();
+        tracing::info!("Setup completed in {:?}", start.elapsed());
+        tracing::info!("Depositing");
+        let deposit_start = std::time::Instant::now();
+        aggregator_client
+            .new_deposit(DepositParams {
+                deposit_outpoint: Some(
+                    bitcoin::OutPoint {
+                        txid: Txid::from_str(
+                            "17e3fc7aae1035e77a91e96d1ba27f91a40a912cf669b367eb32c13a8f82bb02",
+                        )
+                        .unwrap(),
+                        vout: 0,
+                    }
+                    .into(),
+                ),
+                evm_address: [1u8; 20].to_vec(),
+                recovery_taproot_address:
+                    "tb1pk8vus63mx5zwlmmmglq554kwu0zm9uhswqskxg99k66h8m3arguqfrvywa".to_string(),
+                user_takes_after: 5,
+            })
+            .await
+            .unwrap();
+        tracing::info!("Deposit completed in {:?}", deposit_start.elapsed());
     }
 }
