@@ -18,3 +18,5 @@ pub const ANCHOR_AMOUNT: Amount = Amount::from_sat(240); // TODO: This will chan
 
 /// The amount that should be paid to the operator to challenge them.
 pub const OPERATOR_CHALLENGE_AMOUNT: Amount = Amount::from_sat(200_000_000);
+
+pub const BLOCKS_PER_WEEK: u16 = 6 * 24 * 7;

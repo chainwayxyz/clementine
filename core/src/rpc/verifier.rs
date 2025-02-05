@@ -262,7 +262,10 @@ impl ClementineVerifier for Verifier {
         let watchtower_id = parser::watchtower::parse_id(&mut in_stream).await?;
 
         let mut watchtower_winternitz_public_keys = Vec::new();
-        for _ in 0..self.config.num_operators {
+        for _ in 0..self.config.num_operators
+            * self.config.num_sequential_collateral_txs
+            * self.config.num_kickoffs_per_sequential_collateral_tx
+        {
             watchtower_winternitz_public_keys
                 .push(parser::watchtower::parse_winternitz_public_key(&mut in_stream).await?);
         }
@@ -484,11 +487,16 @@ impl ClementineVerifier for Verifier {
                 })?;
 
                 nonce_idx += 1;
+                tracing::info!(
+                    "Verifier {} signed sighash {} of {}",
+                    verifier.idx,
+                    nonce_idx,
+                    num_required_sigs
+                );
                 if nonce_idx == num_required_sigs {
                     break;
                 }
             }
-
             // Drop all the nonces except the last one, to avoid reusing the nonces.
             let last_nonce = session
                 .nonces

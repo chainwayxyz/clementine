@@ -179,8 +179,8 @@ impl Default for BridgeConfig {
 
             num_operators: 3,
             num_watchtowers: 4,
-            num_sequential_collateral_txs: 1,
-            num_kickoffs_per_sequential_collateral_tx: 1, // TODO: increase after implementing stream for watchtower params
+            num_sequential_collateral_txs: 2,
+            num_kickoffs_per_sequential_collateral_tx: 2,
             operators_xonly_pks: vec![
                 XOnlyPublicKey::from_str(
                     "4f355bdcb7cc0af728ef3cceb9615d90684bb5b2ca5f859ab0f0b704075871aa",

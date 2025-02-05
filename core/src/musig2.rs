@@ -224,6 +224,7 @@ pub fn partial_sign(
 #[cfg(test)]
 mod tests {
     use super::{nonce_pair, MuSigNoncePair, Musig2Mode};
+    use crate::builder::script::{CheckSig, OtherSpendable, SpendableScript};
     use crate::builder::transaction::DEFAULT_SEQUENCE;
     use crate::{
         builder::{
@@ -240,12 +241,12 @@ mod tests {
     use bitcoin::{
         hashes::Hash,
         key::Keypair,
-        opcodes::all::OP_CHECKSIG,
         script,
         secp256k1::{schnorr, Message, PublicKey},
-        Amount, OutPoint, ScriptBuf, TapNodeHash, TxOut, Txid, XOnlyPublicKey,
+        Amount, OutPoint, TapNodeHash, TxOut, Txid, XOnlyPublicKey,
     };
     use secp256k1::{musig::MusigPartialSignature, rand::Rng};
+    use std::sync::Arc;
     use std::vec;
 
     /// Generates random key and nonce pairs for a given number of signers.
@@ -496,7 +497,8 @@ mod tests {
         );
 
         let dummy_script = script::Builder::new().push_int(1).into_script();
-        let scripts: Vec<ScriptBuf> = vec![dummy_script];
+        let scripts: Vec<Arc<dyn SpendableScript>> =
+            vec![Arc::new(OtherSpendable::new(dummy_script))];
         let receiving_address = bitcoin::Address::p2tr(
             &SECP,
             *utils::UNSPENDABLE_XONLY_PUBKEY,
@@ -505,7 +507,10 @@ mod tests {
         );
         let (sending_address, sending_address_spend_info) =
             builder::address::create_taproot_address(
-                &scripts.clone(),
+                &scripts
+                    .iter()
+                    .map(|a| a.to_script_buf())
+                    .collect::<Vec<_>>(),
                 Some(untweaked_xonly_pubkey),
                 bitcoin::Network::Regtest,
             );
@@ -522,7 +527,7 @@ mod tests {
         let mut builder = TxHandlerBuilder::new();
         builder = builder
             .add_input(
-                SpendableTxIn::from(
+                SpendableTxIn::new(
                     utxo,
                     prevout.clone(),
                     scripts.clone(),
@@ -598,11 +603,8 @@ mod tests {
         let musig_agg_xonly_pubkey_wrapped =
             XOnlyPublicKey::from_musig2_pks(public_keys.clone(), None).unwrap();
 
-        let musig2_script = bitcoin::script::Builder::new()
-            .push_x_only_key(&musig_agg_xonly_pubkey_wrapped)
-            .push_opcode(OP_CHECKSIG)
-            .into_script();
-        let scripts: Vec<ScriptBuf> = vec![musig2_script];
+        let scripts: Vec<Arc<dyn SpendableScript>> =
+            vec![Arc::new(CheckSig::new(musig_agg_xonly_pubkey_wrapped))];
 
         let receiving_address = bitcoin::Address::p2tr(
             &SECP,
@@ -612,7 +614,10 @@ mod tests {
         );
         let (sending_address, sending_address_spend_info) =
             builder::address::create_taproot_address(
-                &scripts.clone(),
+                &scripts
+                    .iter()
+                    .map(|a| a.to_script_buf())
+                    .collect::<Vec<_>>(),
                 None,
                 bitcoin::Network::Regtest,
             );
@@ -628,7 +633,7 @@ mod tests {
 
         let mut tx_details = TxHandlerBuilder::new()
             .add_input(
-                SpendableTxIn::from(
+                SpendableTxIn::new(
                     utxo,
                     prevout,
                     scripts,

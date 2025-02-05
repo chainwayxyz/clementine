@@ -37,9 +37,9 @@ impl State for Unsigned {}
 impl State for Signed {}
 
 impl<T: State> TxHandler<T> {
-    pub fn get_spendable_output(&self, idx: usize) -> Option<SpendableTxIn> {
-        let txout = self.txouts.get(idx)?;
-        Some(SpendableTxIn::from(
+    pub fn get_spendable_output(&self, idx: usize) -> Result<SpendableTxIn, BridgeError> {
+        let txout = self.txouts.get(idx).ok_or(BridgeError::TxOutputNotFound)?;
+        Ok(SpendableTxIn::new(
             OutPoint {
                 txid: self.cached_txid,
                 vout: idx as u32,
@@ -104,7 +104,8 @@ impl TxHandler<Unsigned> {
             .get_spendable()
             .get_scripts()
             .get(spend_script_idx)
-            .ok_or(BridgeError::ScriptNotFound(spend_script_idx))?;
+            .ok_or(BridgeError::ScriptNotFound(spend_script_idx))?
+            .to_script_buf();
 
         // TODO: remove copy here
         self.calculate_script_spend_sighash(txin_index, &script.clone(), sighash_type)
@@ -186,7 +187,8 @@ impl TxHandler<Unsigned> {
             .get_spendable()
             .get_scripts()
             .get(script_index)
-            .ok_or(BridgeError::TaprootScriptError)?;
+            .ok_or(BridgeError::TaprootScriptError)?
+            .to_script_buf();
 
         let spend_control_block = txin
             .get_spendable()
@@ -219,7 +221,7 @@ impl TxHandler<Unsigned> {
     //     let txin = self
     //         .txins
     //         .get_mut(txin_index)
-    //         .ok_or(BridgeError::TxInputNotFound)?;
+    //         ?;
 
     //     if txin.get_witness().is_some() {
     //         return Err(BridgeError::WitnessAlreadySet);
@@ -348,4 +350,23 @@ impl TxHandlerBuilder {
     pub fn finalize_signed(self) -> Result<TxHandler<Signed>, BridgeError> {
         self.finalize().promote()
     }
+
+    // pub fn spend<U: SpendableScript, T: FnOnce(U) -> Witness>(
+    //     &mut self,
+    //     txin_index: usize,
+    //     script_index: usize,
+    //     witness_fn: T,
+    // ) -> Result<(), BridgeError> {
+    //     let spendable = self
+    //         .prev_scripts
+    //         .get(txin_index)
+    //         .ok_or(BridgeError::NoScriptsForTxIn(txin_index))?
+    //         .get(script_index)
+    //         .ok_or(BridgeError::NoScriptAtIndex(script_index))?
+    //         .downcast::<U>()
+    //         .map_err(|_| BridgeError::ScriptTypeMismatch)?;
+    //     let witness = witness_fn(spendable);
+    //     self.tx.input_mut(txin_index).witness = witness;
+    //     Ok(())
+    // }
 }
