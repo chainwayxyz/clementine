@@ -182,7 +182,7 @@ impl ClementineVerifier for Verifier {
             // TODO: Use correct verification key and along with a dummy proof.
             let scripts: Vec<ScriptBuf> = {
                 tracing::info!("Replacing disprove scripts");
-                utils::replace_disprove_scripts(&winternitz_public_keys)
+                utils::replace_disprove_scripts(winternitz_public_keys)
                 // let mut bridge_assigner = BridgeAssigner::new_watcher(commits_publickeys);
                 // let proof = RawProof::default();
                 // let segments = groth16_verify_to_segments(

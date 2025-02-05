@@ -249,27 +249,18 @@ pub fn replace_disprove_scripts(winternitz_pk: &[Vec<[u8; 20]>]) -> Vec<ScriptBu
     );
 
     let cache = &*BITVM_CACHE;
-
-    // Clone scripts first as we'll modify them
     let mut result: Vec<Vec<u8>> = cache.disprove_scripts.clone();
 
-    // For each intermediate variable and its digits
-    for idx in 0..winternitz_pk.len() {
-        for digit in 0..winternitz_pk[idx].len() {
-            // Get all places where this (idx, digit) pattern needs to be replaced
+    winternitz_pk.iter().enumerate().for_each(|(idx, digits)| {
+        digits.iter().enumerate().for_each(|(digit, replacement)| {
             if let Some(places) = cache.replacement_places.get(&(idx, digit)) {
-                let replacement = &winternitz_pk[idx][digit];
-
-                // For each occurrence of this pattern
                 for &(script_idx, pos) in places {
-                    // Replace the pattern with the actual Winternitz key
                     result[script_idx][pos..pos + 20].copy_from_slice(replacement);
                 }
             }
-        }
-    }
+        });
+    });
 
-    // Convert all scripts to ScriptBuf
     let result: Vec<ScriptBuf> = result.into_iter().map(ScriptBuf::from_bytes).collect();
 
     let elapsed = start.elapsed();
