@@ -65,7 +65,7 @@ lazy_static::lazy_static! {
             // Create minimal dummy data for faster development
             BitvmCache {
                 intermediate_variables: {
-                    let mut map = BTreeMap::new();
+        let mut map = BTreeMap::new();
                     map.insert("dummy_var_1".to_string(), 4);
                     map.insert("dummy_var_2".to_string(), 4);
                     map.insert("dummy_var_3".to_string(), 4);
@@ -101,11 +101,17 @@ lazy_static::lazy_static! {
         #[cfg(not(debug_assertions))]
         let bitvm_cache = {
             let cache_path = "bitvm_cache.bin";
-            BitvmCache::load_from_file(cache_path).unwrap_or_else(|| {
-                let fresh_data = generate_fresh_data();
-                fresh_data.save_to_file(cache_path);
-                fresh_data
-            })
+            match BitvmCache::load_from_file(cache_path) {
+                Ok(cache) => {
+                    tracing::info!("Loaded BitVM cache from file");
+                    cache
+                }
+                Err(_) => {
+                    let fresh_data = generate_fresh_data();
+                    fresh_data.save_to_file(cache_path);
+                    fresh_data
+                }
+            }
         };
 
         println!("BitVM initialization took: {:?}", start.elapsed());
@@ -122,42 +128,28 @@ pub struct BitvmCache {
 
 #[cfg(not(debug_assertions))]
 impl BitvmCache {
-    fn save_to_file(&self, path: &str) -> bool {
-        match borsh::to_vec(self) {
-            Ok(serialized) => match fs::write(path, serialized) {
-                Ok(_) => {
-                    tracing::info!("Saved BitVM cache to file");
-                    true
-                }
-                Err(e) => {
-                    tracing::error!("Failed to save BitVM cache: {}", e);
-                    false
-                }
-            },
-            Err(e) => {
-                tracing::error!("Failed to serialize BitVM cache: {}", e);
-                false
-            }
-        }
+    fn save_to_file(&self, path: &str) -> Result<(), BridgeError> {
+        let serialized = borsh::to_vec(self).map_err(|e| {
+            tracing::error!("Failed to serialize BitVM cache: {}", e);
+            BridgeError::ConfigError("Failed to serialize BitVM cache".to_string())
+        })?;
+
+        fs::write(path, serialized).map_err(|e| {
+            tracing::error!("Failed to save BitVM cache: {}", e);
+            BridgeError::ConfigError("Failed to save BitVM cache".to_string())
+        })
     }
 
-    fn load_from_file(path: &str) -> Option<Self> {
-        match fs::read(path) {
-            Ok(bytes) => match Self::try_from_slice(&bytes) {
-                Ok(cache) => {
-                    tracing::info!("Loaded BitVM cache from file");
-                    Some(cache)
-                }
-                Err(e) => {
-                    tracing::error!("Failed to deserialize BitVM cache: {}", e);
-                    None
-                }
-            },
-            Err(_) => {
-                tracing::error!("No BitVM cache found");
-                None
-            }
-        }
+    fn load_from_file(path: &str) -> Result<Self, BridgeError> {
+        let bytes = fs::read(path).map_err(|e| {
+            tracing::error!("Failed to read BitVM cache: {}", e);
+            BridgeError::ConfigError("No BitVM cache found".to_string())
+        })?;
+
+        Self::try_from_slice(&bytes).map_err(|e| {
+            tracing::error!("Failed to deserialize BitVM cache: {}", e);
+            BridgeError::ConfigError("Failed to deserialize BitVM cache".to_string())
+        })
     }
 }
 
@@ -186,10 +178,9 @@ fn generate_fresh_data() -> BitvmCache {
                 public_key: winternitz_pk,
                 parameters,
             };
-            Ok((intermediate_step.clone(), winternitz_pk))
+            (intermediate_step.clone(), winternitz_pk)
         })
-        .collect::<Result<BTreeMap<_, _>, BridgeError>>()
-        .unwrap();
+        .collect::<BTreeMap<_, _>, BridgeError>();
 
     let mut bridge_assigner = BridgeAssigner::new_watcher(commits_publickeys);
     let proof = RawProof::default();
