@@ -604,9 +604,9 @@ impl ClementineAggregator for Aggregator {
         ));
 
         // Create channels for pipeline communication
-        let (agg_nonce_sender, agg_nonce_receiver) = channel(32);
-        let (partial_sig_sender, partial_sig_receiver) = channel(32);
-        let (final_sig_sender, final_sig_receiver) = channel(32);
+        let (agg_nonce_sender, agg_nonce_receiver) = channel(3200);
+        let (partial_sig_sender, partial_sig_receiver) = channel(3200);
+        let (final_sig_sender, final_sig_receiver) = channel(3200);
 
         // Start the nonce aggregation pipe.
         let nonce_agg_handle = tokio::spawn(nonce_aggregator(
