@@ -3,13 +3,9 @@
 //! Transaction builder provides useful functions for building typical Bitcoin
 //! transactions.
 
-use crate::builder;
-use crate::builder::address::create_taproot_address;
-use crate::errors::BridgeError;
-use crate::EVMAddress;
-use bitcoin::address::NetworkUnchecked;
-use bitcoin::{Address, Amount, OutPoint, TxOut, XOnlyPublicKey};
+use std::sync::Arc;
 
+use super::script::{CheckSig, DepositScript, TimelockScript};
 pub use crate::builder::transaction::challenge::*;
 use crate::builder::transaction::input::SpendableTxIn;
 pub use crate::builder::transaction::operator_assert::*;
@@ -17,6 +13,13 @@ pub use crate::builder::transaction::operator_collateral::*;
 pub use crate::builder::transaction::operator_reimburse::*;
 use crate::builder::transaction::output::UnspentTxOut;
 pub use crate::builder::transaction::txhandler::*;
+use crate::constants::ANCHOR_AMOUNT;
+use crate::errors::BridgeError;
+use crate::EVMAddress;
+use bitcoin::address::NetworkUnchecked;
+use bitcoin::opcodes::all::{OP_PUSHNUM_1, OP_RETURN};
+use bitcoin::script::Builder;
+use bitcoin::{Address, Amount, OutPoint, ScriptBuf, TxOut, XOnlyPublicKey};
 pub use txhandler::Unsigned;
 
 mod challenge;
@@ -26,6 +29,39 @@ mod operator_collateral;
 mod operator_reimburse;
 pub mod output;
 mod txhandler;
+
+/// Creates a P2WSH output that anyone can spend. TODO: We will not need this in the future.
+pub fn anyone_can_spend_txout() -> TxOut {
+    let script = Builder::new().push_opcode(OP_PUSHNUM_1).into_script();
+    let script_pubkey = script.to_p2wsh();
+    let value = script_pubkey.minimal_non_dust();
+
+    TxOut {
+        script_pubkey,
+        value,
+    }
+}
+
+/// Creates a P2A output for CPFP.
+pub fn anchor_output() -> TxOut {
+    TxOut {
+        value: ANCHOR_AMOUNT,
+        script_pubkey: ScriptBuf::from_hex("51024e73").expect("statically valid script"),
+    }
+}
+
+/// Creates a OP_RETURN output.
+pub fn op_return_txout<S: AsRef<bitcoin::script::PushBytes>>(slice: S) -> TxOut {
+    let script = Builder::new()
+        .push_opcode(OP_RETURN)
+        .push_slice(slice)
+        .into_script();
+
+    TxOut {
+        value: Amount::from_sat(0),
+        script_pubkey: script,
+    }
+}
 
 /// Creates a [`TxHandler`] for the `move_to_vault_tx`. This transaction will move
 /// the funds to a NofN address from the deposit intent address, after all the signature
@@ -39,47 +75,46 @@ pub fn create_move_to_vault_txhandler(
     bridge_amount_sats: Amount,
     network: bitcoin::Network,
 ) -> Result<TxHandler<Unsigned>, BridgeError> {
-    let nofn_script = builder::script::generate_checksig_script(nofn_xonly_pk);
-    let (musig2_address, musig2_spendinfo) =
-        create_taproot_address(&[nofn_script.clone()], None, network);
+    let nofn_script = Arc::new(CheckSig::new(nofn_xonly_pk));
 
-    let (deposit_address, deposit_taproot_spend_info, deposit_scripts) =
-        builder::address::generate_deposit_address(
-            nofn_xonly_pk,
-            recovery_taproot_address,
-            user_evm_address,
-            bridge_amount_sats,
-            network,
-            user_takes_after,
-        )?;
+    let deposit_script = Arc::new(DepositScript::new(
+        nofn_xonly_pk,
+        user_evm_address,
+        bridge_amount_sats,
+    ));
+
+    let recovery_script_pubkey = recovery_taproot_address
+        .clone()
+        .assume_checked()
+        .script_pubkey();
+
+    let recovery_extracted_xonly_pk =
+        XOnlyPublicKey::from_slice(&recovery_script_pubkey.as_bytes()[2..34])?;
+
+    let script_timelock = Arc::new(TimelockScript::new(
+        Some(recovery_extracted_xonly_pk),
+        user_takes_after,
+    ));
 
     let builder = TxHandlerBuilder::new().add_input(
-        SpendableTxIn::from(
+        SpendableTxIn::from_scripts(
             deposit_outpoint,
-            TxOut {
-                value: bridge_amount_sats,
-                script_pubkey: deposit_address.script_pubkey(),
-            },
-            deposit_scripts.to_vec(),
-            Some(deposit_taproot_spend_info.clone()),
+            bridge_amount_sats,
+            vec![deposit_script, script_timelock],
+            None,
+            network,
         ),
         DEFAULT_SEQUENCE,
     );
 
     Ok(builder
-        .add_output(UnspentTxOut::new(
-            TxOut {
-                value: bridge_amount_sats,
-                script_pubkey: musig2_address.script_pubkey(),
-            },
+        .add_output(UnspentTxOut::from_scripts(
+            bridge_amount_sats,
             vec![nofn_script],
-            Some(musig2_spendinfo),
-        ))
-        .add_output(UnspentTxOut::new(
-            builder::script::anchor_output(),
-            vec![],
             None,
+            network,
         ))
+        .add_output(UnspentTxOut::from_partial(anchor_output()))
         .finalize())
 }
 

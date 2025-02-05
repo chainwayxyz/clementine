@@ -99,7 +99,7 @@ pub fn create_nofn_sighash_stream(
                     max_withdrawal_time_block_count,
                     config.num_kickoffs_per_sequential_collateral_tx,
                     network,
-                );
+                )?;
 
                 // Create the reimburse_generator_tx handler.
                 let reimburse_generator_txhandler = builder::transaction::create_reimburse_generator_txhandler(
@@ -235,7 +235,7 @@ pub fn create_nofn_sighash_stream(
                         )?;
                     }
 
-                    let (assert_tx_addrs, root_hash, public_input_wots) = db.get_bitvm_setup(None, operator_idx as i32, sequential_collateral_tx_idx as i32, kickoff_idx as i32).await?.ok_or(BridgeError::BitvmSetupNotFound(operator_idx as i32, sequential_collateral_tx_idx as i32, kickoff_idx as i32))?;
+                    let (assert_tx_addrs, root_hash, _public_input_wots) = db.get_bitvm_setup(None, operator_idx as i32, sequential_collateral_tx_idx as i32, kickoff_idx as i32).await?.ok_or(BridgeError::BitvmSetupNotFound(operator_idx as i32, sequential_collateral_tx_idx as i32, kickoff_idx as i32))?;
 
                     // Creates the assert_begin_tx handler.
                     let assert_begin_txhandler = builder::transaction::create_assert_begin_txhandler(
@@ -251,7 +251,6 @@ pub fn create_nofn_sighash_stream(
                         &assert_tx_addrs,
                         &root_hash,
                         nofn_xonly_pk,
-                        &public_input_wots,
                         network,
                     )?;
 
@@ -308,7 +307,7 @@ pub fn create_nofn_sighash_stream(
                 }
 
                 input_txid = *reimburse_generator_txhandler.get_txid();
-                input_amount = reimburse_generator_txhandler.get_spendable_output(0).ok_or(BridgeError::TxInputNotFound)?.get_prevout().value;
+                input_amount = reimburse_generator_txhandler.get_spendable_output(0)?.get_prevout().value;
             }
         }
     }
@@ -365,7 +364,7 @@ pub fn create_operator_sighash_stream(
                 max_withdrawal_time_block_count,
                 config.num_kickoffs_per_sequential_collateral_tx,
                 network,
-            );
+            )?;
 
             // Create the reimburse_generator_tx handler.
             let reimburse_generator_txhandler = builder::transaction::create_reimburse_generator_txhandler(
@@ -405,7 +404,7 @@ pub fn create_operator_sighash_stream(
                     None,
                 )?;
 
-                let (assert_tx_addrs, root_hash, public_input_wots) = db.get_bitvm_setup(None, operator_idx as i32, time_tx_idx as i32, kickoff_idx as i32).await?.ok_or(BridgeError::BitvmSetupNotFound(operator_idx as i32, time_tx_idx as i32, kickoff_idx as i32))?;
+                let (assert_tx_addrs, root_hash, _public_input_wots) = db.get_bitvm_setup(None, operator_idx as i32, time_tx_idx as i32, kickoff_idx as i32).await?.ok_or(BridgeError::BitvmSetupNotFound(operator_idx as i32, time_tx_idx as i32, kickoff_idx as i32))?;
 
                 // Creates the assert_begin_tx handler.
                 let assert_begin_txhandler = builder::transaction::create_assert_begin_txhandler(
@@ -421,7 +420,6 @@ pub fn create_operator_sighash_stream(
                     &assert_tx_addrs,
                     &root_hash,
                     nofn_xonly_pk,
-                    &public_input_wots,
                     network,
                 )?;
 
@@ -450,7 +448,7 @@ pub fn create_operator_sighash_stream(
             }
 
             input_txid = *reimburse_generator_txhandler.get_txid();
-            input_amount = reimburse_generator_txhandler.get_spendable_output(0).ok_or(BridgeError::TxInputNotFound)?.get_prevout().value;
+            input_amount = reimburse_generator_txhandler.get_spendable_output(0)?.get_prevout().value;
         }
     }
 }

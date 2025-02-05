@@ -1,6 +1,7 @@
 use crate::cli::Args;
 use crate::config::BridgeConfig;
 use crate::errors::BridgeError;
+use bitcoin::key::Parity;
 use bitcoin::{self};
 use bitcoin::{ScriptBuf, XOnlyPublicKey};
 use bitvm::chunker::assigner::BridgeAssigner;
@@ -31,7 +32,7 @@ lazy_static::lazy_static! {
     ///
     /// See https://github.com/bitcoin/bips/blob/master/bip-0341.mediawiki#constructing-and-spending-taproot-outputs
     pub static ref UNSPENDABLE_PUBKEY: bitcoin::secp256k1::PublicKey =
-        "93c7378d96518a75448821c4f7c8f4bae7ce60f804d03d1f0628dd5dd0f5de51".parse().expect("this key is valid");
+        "93c7378d96518a75448821c4f7c8f4bae7ce60f804d03d1f0628dd5dd0f5de51".parse::<bitcoin::secp256k1::XOnlyPublicKey>().expect("this key is valid").public_key(Parity::Even);
 }
 
 lazy_static::lazy_static! {
