@@ -460,7 +460,7 @@ mod tests {
     use crate::operator::Operator;
     use crate::utils::BITVM_CACHE;
     use crate::watchtower::Watchtower;
-    use crate::{builder, create_test_config_with_thread_name, utils};
+    use crate::{builder, create_test_config_with_thread_name};
     use crate::{
         config::BridgeConfig, database::Database, initialize_database, utils::initialize_logger,
     };

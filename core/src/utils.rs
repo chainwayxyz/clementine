@@ -4,16 +4,21 @@ use crate::errors::BridgeError;
 use bitcoin::key::Parity;
 use bitcoin::{self};
 use bitcoin::{ScriptBuf, XOnlyPublicKey};
-use bitvm::chunker::assigner::BridgeAssigner;
-use bitvm::chunker::chunk_groth16_verifier::groth16_verify_to_segments;
-use bitvm::chunker::disprove_execution::RawProof;
-use bitvm::signatures::signing_winternitz::WinternitzPublicKey;
-use bitvm::signatures::winternitz;
+
 use tracing::Level;
 //use bitvm::chunker::assigner::BridgeAssigner;
+#[cfg(not(debug_assertions))]
+use bitvm::{
+    chunker::{
+        assigner::BridgeAssigner, chunk_groth16_verifier::groth16_verify_to_segments,
+        disprove_execution::RawProof,
+    },
+    signatures::{signing_winternitz::WinternitzPublicKey, winternitz},
+};
 use borsh::{BorshDeserialize, BorshSerialize};
 use std::collections::BTreeMap;
 use std::collections::HashMap;
+#[cfg(not(debug_assertions))]
 use std::fs;
 use std::process::exit;
 use std::str::FromStr;
@@ -53,7 +58,6 @@ lazy_static::lazy_static! {
 lazy_static::lazy_static! {
     pub static ref BITVM_CACHE: BitvmCache = {
         let start = Instant::now();
-        let cache_path = "bitvm_cache.bin";
 
         #[cfg(debug_assertions)]
         let bitvm_cache = {
@@ -64,6 +68,20 @@ lazy_static::lazy_static! {
                     let mut map = BTreeMap::new();
                     map.insert("dummy_var_1".to_string(), 4);
                     map.insert("dummy_var_2".to_string(), 4);
+                    map.insert("dummy_var_3".to_string(), 4);
+                    map.insert("dummy_var_4".to_string(), 4);
+                    map.insert("dummy_var_5".to_string(), 4);
+                    map.insert("dummy_var_6".to_string(), 4);
+                    map.insert("dummy_var_7".to_string(), 4);
+                    map.insert("dummy_var_8".to_string(), 4);
+                    map.insert("dummy_var_9".to_string(), 4);
+                    map.insert("dummy_var_10".to_string(), 4);
+                    map.insert("dummy_var_11".to_string(), 4);
+                    map.insert("dummy_var_12".to_string(), 4);
+                    map.insert("dummy_var_13".to_string(), 4);
+                    map.insert("dummy_var_14".to_string(), 4);
+                    map.insert("dummy_var_15".to_string(), 4);
+                    map.insert("dummy_var_16".to_string(), 4);
                     map
                 },
                 disprove_scripts: vec![
@@ -81,11 +99,14 @@ lazy_static::lazy_static! {
         };
 
         #[cfg(not(debug_assertions))]
-        let bitvm_cache = BitvmCache::load_from_file(cache_path).unwrap_or_else(|| {
-            let fresh_data = generate_fresh_data();
-            fresh_data.save_to_file(cache_path);
-            fresh_data
-        });
+        let bitvm_cache = {
+            let cache_path = "bitvm_cache.bin";
+            BitvmCache::load_from_file(cache_path).unwrap_or_else(|| {
+                let fresh_data = generate_fresh_data();
+                fresh_data.save_to_file(cache_path);
+                fresh_data
+            })
+        };
 
         println!("BitVM initialization took: {:?}", start.elapsed());
         bitvm_cache
@@ -99,6 +120,7 @@ pub struct BitvmCache {
     pub replacement_places: HashMap<(usize, usize), Vec<(usize, usize)>>,
 }
 
+#[cfg(not(debug_assertions))]
 impl BitvmCache {
     fn save_to_file(&self, path: &str) -> bool {
         match borsh::to_vec(self) {
@@ -139,6 +161,7 @@ impl BitvmCache {
     }
 }
 
+#[cfg(not(debug_assertions))]
 fn generate_fresh_data() -> BitvmCache {
     let intermediate_variables = BridgeAssigner::default().all_intermediate_variables();
 
