@@ -108,7 +108,9 @@ lazy_static::lazy_static! {
                 }
                 Err(_) => {
                     let fresh_data = generate_fresh_data();
-                    fresh_data.save_to_file(cache_path);
+                    if let Err(e) = fresh_data.save_to_file(cache_path) {
+                        tracing::error!("Failed to save BitVM cache to file: {}", e);
+                    }
                     fresh_data
                 }
             }
@@ -180,7 +182,7 @@ fn generate_fresh_data() -> BitvmCache {
             };
             (intermediate_step.clone(), winternitz_pk)
         })
-        .collect::<BTreeMap<_, _>, BridgeError>();
+        .collect::<BTreeMap<_, _>>();
 
     let mut bridge_assigner = BridgeAssigner::new_watcher(commits_publickeys);
     let proof = RawProof::default();
