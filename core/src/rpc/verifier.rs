@@ -487,7 +487,12 @@ impl ClementineVerifier for Verifier {
                 })?;
 
                 nonce_idx += 1;
-                tracing::info!("Verifier {} signed sighash {} of {}", verifier.idx, nonce_idx, num_required_sigs);
+                tracing::info!(
+                    "Verifier {} signed sighash {} of {}",
+                    verifier.idx,
+                    nonce_idx,
+                    num_required_sigs
+                );
                 if nonce_idx == num_required_sigs {
                     break;
                 }
