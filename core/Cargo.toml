@@ -36,7 +36,6 @@ async-stream = { workspace = true }
 futures-util = { workspace = true }
 futures-core = { workspace = true }
 bitvm = { workspace = true }
-ctor = { workspace = true }
 
 [dev-dependencies]
 serial_test = { workspace = true }
