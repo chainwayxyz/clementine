@@ -397,12 +397,6 @@ impl ClementineAggregator for Aggregator {
         }))
         .await?;
 
-        #[derive(Clone)]
-        enum StreamControl<T: Clone> {
-            Data(T),
-            Done,
-        }
-
         // Propagate Operators configurations to all verifier clients
         const CHANNEL_CAPACITY: usize = 1024 * 16;
         let (operator_params_tx, _) = tokio::sync::broadcast::channel(CHANNEL_CAPACITY);
@@ -424,14 +418,14 @@ impl ClementineAggregator for Aggregator {
                     while let Some(param) = stream.message().await? {
                         params.push(param);
                     }
-                    tx.send(StreamControl::Data(params)).map_err(|e| {
+                    tx.send(Some(params)).map_err(|e| {
                         BridgeError::Error(format!("failed to forward operator params: {e}"))
                     })?;
                     Ok::<_, Status>(())
                 }
             }))
             .await?;
-            tx.send(StreamControl::Done).map_err(|e| {
+            tx.send(None).map_err(|e| {
                 BridgeError::Error(format!("failed to close operator params stream: {e}"))
             })?;
             Ok::<_, Status>(())
@@ -447,7 +441,7 @@ impl ClementineAggregator for Aggregator {
                 async move {
                     loop {
                         match operator_params_rx.try_recv() {
-                            Ok(StreamControl::Data(params)) => {
+                            Ok(Some(params)) => {
                                 let (tx, rx) = channel(CHANNEL_CAPACITY);
                                 let stream = client.set_operator(ReceiverStream::new(rx));
                                 for param in params {
@@ -459,7 +453,7 @@ impl ClementineAggregator for Aggregator {
                                 }
                                 let _empty = stream.await?;
                             }
-                            Ok(StreamControl::Done) => break Ok(()),
+                            Ok(None) => break Ok(()),
                             Err(tokio::sync::broadcast::error::TryRecvError::Empty) => {
                                 // avoid race condition when producers did not yet produce anything
                                 tokio::time::sleep(std::time::Duration::from_millis(100)).await;
@@ -498,14 +492,14 @@ impl ClementineAggregator for Aggregator {
                     while let Some(param) = stream.message().await? {
                         params.push(param);
                     }
-                    tx.send(StreamControl::Data(params)).map_err(|e| {
+                    tx.send(Some(params)).map_err(|e| {
                         BridgeError::Error(format!("failed to read watchtower params: {e}"))
                     })?;
                     Ok::<_, Status>(())
                 }
             }))
             .await?;
-            tx.send(StreamControl::Done).map_err(|e| {
+            tx.send(None).map_err(|e| {
                 BridgeError::Error(format!("failed to close operator params stream: {e}"))
             })?;
             Ok::<_, Status>(())
@@ -521,7 +515,7 @@ impl ClementineAggregator for Aggregator {
                 async move {
                     loop {
                         match watchtower_params_rx.try_recv() {
-                            Ok(StreamControl::Data(params)) => {
+                            Ok(Some(params)) => {
                                 let (tx, rx) = channel(CHANNEL_CAPACITY);
                                 let stream = client.set_watchtower(ReceiverStream::new(rx));
                                 for param in params {
@@ -533,7 +527,7 @@ impl ClementineAggregator for Aggregator {
                                 }
                                 let _empty = stream.await?;
                             }
-                            Ok(StreamControl::Done) => break Ok(()),
+                            Ok(None) => break Ok(()),
                             Err(tokio::sync::broadcast::error::TryRecvError::Empty) => {
                                 // avoid race condition when producers did not yet produce anything
                                 tokio::time::sleep(std::time::Duration::from_millis(100)).await;
