@@ -19,8 +19,8 @@ use crate::{
     errors::BridgeError,
     fetch_next_message_from_stream,
     musig2::{self},
-    utils::{self, BITVM_CACHE},
     rpc::parser::{self},
+    utils::{self, BITVM_CACHE},
     verifier::{NofN, NonceSession, Verifier},
 };
 use bitcoin::{hashes::Hash, Amount, TapTweakHash, Txid};
