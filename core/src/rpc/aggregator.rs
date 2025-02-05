@@ -25,11 +25,13 @@ use bitcoin::hashes::Hash;
 use bitcoin::secp256k1::schnorr::Signature;
 use bitcoin::secp256k1::{Message, PublicKey};
 use bitcoin::{Amount, TapSighash};
-use futures::TryFutureExt;
-use futures::{future::try_join_all, stream::BoxStream, FutureExt, Stream, StreamExt};
+use futures::{
+    future::try_join_all,
+    stream::{BoxStream, TryStreamExt},
+    FutureExt, Stream, StreamExt, TryFutureExt,
+};
 use secp256k1::musig::{MusigAggNonce, MusigPartialSignature, MusigPubNonce};
 use tokio::sync::mpsc::{channel, Receiver, Sender};
-use tokio_stream::wrappers::ReceiverStream;
 use tonic::{async_trait, Request, Response, Status, Streaming};
 
 struct AggNonceQueueItem {
@@ -399,70 +401,52 @@ impl ClementineAggregator for Aggregator {
 
         // Propagate Operators configurations to all verifier clients
         const CHANNEL_CAPACITY: usize = 1024 * 16;
-        let (operator_params_tx, _) = tokio::sync::broadcast::channel(CHANNEL_CAPACITY);
+        let (operator_params_tx, operator_params_rx) =
+            tokio::sync::broadcast::channel(CHANNEL_CAPACITY);
 
         let tx = operator_params_tx.clone();
-        let clients = self.operator_clients.clone();
-        let get_operator_params_handle = tokio::spawn(async move {
-            tracing::info!(clients = clients.len(), "Collecting operator details...");
-            try_join_all(clients.iter().map(|client| {
-                let mut client = client.clone();
+        let operators = self.operator_clients.clone();
+        let get_operator_params_chunked_handle = tokio::spawn(async move {
+            tracing::info!(clients = operators.len(), "Collecting operator details...");
+            try_join_all(operators.iter().map(|operator| {
+                let mut operator = operator.clone();
                 let tx = tx.clone();
                 async move {
-                    let mut stream = client
+                    let stream = operator
                         .get_params(Request::new(Empty {}))
                         .await?
                         .into_inner();
-
-                    let mut params = Vec::new();
-                    while let Some(param) = stream.message().await? {
-                        params.push(param);
-                    }
-                    tx.send(Some(params)).map_err(|e| {
-                        BridgeError::Error(format!("failed to forward operator params: {e}"))
-                    })?;
+                    tx.send(stream.try_collect::<Vec<_>>().await?)
+                        .map_err(|e| {
+                            BridgeError::Error(format!("failed to read operator params: {e}"))
+                        })?;
                     Ok::<_, Status>(())
                 }
             }))
             .await?;
-            tx.send(None).map_err(|e| {
-                BridgeError::Error(format!("failed to close operator params stream: {e}"))
-            })?;
             Ok::<_, Status>(())
         });
 
-        let tx = operator_params_tx.clone();
-        let clients = self.verifier_clients.clone();
+        drop(operator_params_tx);
+        let verifiers = self.verifier_clients.clone();
         let set_operator_params_handle = tokio::spawn(async move {
             tracing::info!("Informing verifiers for existing operators...");
-            try_join_all(clients.iter().map(|client| {
-                let mut client = client.clone();
-                let mut operator_params_rx = tx.subscribe();
+            try_join_all(verifiers.iter().map(|verifier| {
+                let mut verifier = verifier.clone();
+                let operator_params_rx = &operator_params_rx;
                 async move {
+                    let mut operator_params_rx = operator_params_rx.resubscribe();
                     loop {
-                        match operator_params_rx.try_recv() {
-                            Ok(Some(params)) => {
-                                let (tx, rx) = channel(CHANNEL_CAPACITY);
-                                let stream = client.set_operator(ReceiverStream::new(rx));
-                                for param in params {
-                                    tx.send(param).await.map_err(|e| {
-                                        BridgeError::RPCStreamEndedUnexpectedly(format!(
-                                            "failed to propagate operator params: {e}"
-                                        ))
-                                    })?;
-                                }
-                                let _empty = stream.await?;
+                        match operator_params_rx.recv().await {
+                            Ok(params) => {
+                                verifier.set_operator(futures::stream::iter(params)).await?;
                             }
-                            Ok(None) => break Ok(()),
-                            Err(tokio::sync::broadcast::error::TryRecvError::Empty) => {
-                                // avoid race condition when producers did not yet produce anything
-                                tokio::time::sleep(std::time::Duration::from_millis(100)).await;
-                            }
-                            Err(e) => {
+                            Err(tokio::sync::broadcast::error::RecvError::Lagged(n)) => {
                                 break Err(BridgeError::RPCStreamEndedUnexpectedly(format!(
-                                    "failed to receive operator params: {e}"
-                                )))
+                                    "lost {n} operator params batches due to lagging receiver"
+                                )));
                             }
+                            Err(tokio::sync::broadcast::error::RecvError::Closed) => break Ok(()),
                         }
                     }?;
                     Ok::<_, Status>(())
@@ -474,69 +458,54 @@ impl ClementineAggregator for Aggregator {
 
         // Propagate Watchtowers configuration to all verifier clients
 
-        let (watchtower_params_tx, _) = tokio::sync::broadcast::channel(CHANNEL_CAPACITY);
+        let (watchtower_params_tx, watchtower_params_rx) =
+            tokio::sync::broadcast::channel(CHANNEL_CAPACITY);
 
         let tx = watchtower_params_tx.clone();
-        let clients = self.watchtower_clients.clone();
-        let get_watchtower_params_handle = tokio::spawn(async move {
+        let watchtowers = self.watchtower_clients.clone();
+        let get_watchtower_params_chunked_handle = tokio::spawn(async move {
             tracing::info!("Collecting Winternitz public keys from watchtowers...");
-            try_join_all(clients.iter().map(|client| {
-                let mut client = client.clone();
+            try_join_all(watchtowers.iter().map(|watchtower| {
+                let mut watchtower = watchtower.clone();
                 let tx = tx.clone();
                 async move {
-                    let mut stream = client
+                    let stream = watchtower
                         .get_params(Request::new(Empty {}))
                         .await?
                         .into_inner();
-                    let mut params = Vec::new();
-                    while let Some(param) = stream.message().await? {
-                        params.push(param);
-                    }
-                    tx.send(Some(params)).map_err(|e| {
-                        BridgeError::Error(format!("failed to read watchtower params: {e}"))
-                    })?;
+                    tx.send(stream.try_collect::<Vec<_>>().await?)
+                        .map_err(|e| {
+                            BridgeError::Error(format!("failed to read watchtower params: {e}"))
+                        })?;
                     Ok::<_, Status>(())
                 }
             }))
             .await?;
-            tx.send(None).map_err(|e| {
-                BridgeError::Error(format!("failed to close operator params stream: {e}"))
-            })?;
             Ok::<_, Status>(())
         });
 
-        let tx = watchtower_params_tx.clone();
-        let clients = self.verifier_clients.clone();
+        drop(watchtower_params_tx);
+        let verifiers = self.verifier_clients.clone();
         let set_watchtower_params_handle = tokio::spawn(async move {
             tracing::info!("Sending Winternitz public keys to verifiers...");
-            try_join_all(clients.iter().map(|client| {
-                let mut client = client.clone();
-                let mut watchtower_params_rx = tx.subscribe();
+            try_join_all(verifiers.iter().map(|verifier| {
+                let mut verifier = verifier.clone();
+                let watchtower_params_rx = &watchtower_params_rx;
                 async move {
+                    let mut watchtower_params_rx = watchtower_params_rx.resubscribe();
                     loop {
-                        match watchtower_params_rx.try_recv() {
-                            Ok(Some(params)) => {
-                                let (tx, rx) = channel(CHANNEL_CAPACITY);
-                                let stream = client.set_watchtower(ReceiverStream::new(rx));
-                                for param in params {
-                                    tx.send(param).await.map_err(|e| {
-                                        BridgeError::RPCStreamEndedUnexpectedly(format!(
-                                            "failed to propagate watchtower params: {e}"
-                                        ))
-                                    })?;
-                                }
-                                let _empty = stream.await?;
+                        match watchtower_params_rx.recv().await {
+                            Ok(params) => {
+                                verifier
+                                    .set_watchtower(futures::stream::iter(params))
+                                    .await?;
                             }
-                            Ok(None) => break Ok(()),
-                            Err(tokio::sync::broadcast::error::TryRecvError::Empty) => {
-                                // avoid race condition when producers did not yet produce anything
-                                tokio::time::sleep(std::time::Duration::from_millis(100)).await;
-                            }
-                            Err(e) => {
+                            Err(tokio::sync::broadcast::error::RecvError::Lagged(n)) => {
                                 break Err(BridgeError::RPCStreamEndedUnexpectedly(format!(
-                                    "failed to receive watchtower params: {e}"
-                                )))
+                                    "lost {n} watchtower params batches due to lagging receiver"
+                                )));
                             }
+                            Err(tokio::sync::broadcast::error::RecvError::Closed) => break Ok(()),
                         }
                     }?;
                     Ok::<_, Status>(())
@@ -546,12 +515,10 @@ impl ClementineAggregator for Aggregator {
             Ok::<_, Status>(())
         });
 
-        drop(operator_params_tx);
-        drop(watchtower_params_tx);
         try_join_all([
-            get_operator_params_handle,
+            get_operator_params_chunked_handle,
             set_operator_params_handle,
-            get_watchtower_params_handle,
+            get_watchtower_params_chunked_handle,
             set_watchtower_params_handle,
         ])
         .await
