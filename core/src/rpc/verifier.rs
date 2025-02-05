@@ -34,7 +34,6 @@ use bitvm::signatures::{
 };
 use futures::StreamExt;
 use secp256k1::musig::{MusigAggNonce, MusigPubNonce, MusigSecNonce};
-use std::collections::BTreeMap;
 use std::pin::pin;
 use tokio::sync::mpsc::{self, error::SendError};
 use tokio_stream::wrappers::ReceiverStream;
@@ -102,7 +101,7 @@ impl ClementineVerifier for Verifier {
         let mut operator_winternitz_public_keys = Vec::new();
         for _ in 0..self.config.num_kickoffs_per_sequential_collateral_tx
             * self.config.num_sequential_collateral_txs
-            * BITVM_CACHE.len()
+            * BITVM_CACHE.intermediate_variables.len()
         {
             operator_winternitz_public_keys
                 .push(parser::operator::parse_winternitz_public_keys(&mut in_stream).await?);
