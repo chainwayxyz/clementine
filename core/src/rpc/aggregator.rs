@@ -985,11 +985,14 @@ mod tests {
 
         tracing::info!("Setting up aggregator");
         println!("Setting up aggregator");
+        let start = std::time::Instant::now();
 
         aggregator_client
             .setup(tonic::Request::new(clementine::Empty {}))
             .await
             .unwrap();
+
+        println!("Setup completed in {:?}", start.elapsed());
 
         // tracing::info!("Depositing");
         // println!("Depositing");

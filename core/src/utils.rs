@@ -54,6 +54,32 @@ lazy_static::lazy_static! {
         let start = Instant::now();
         let cache_path = "bitvm_cache.bin";
 
+        #[cfg(debug_assertions)]
+        let bitvm_cache = {
+            println!("Debug mode: Using dummy BitVM cache");
+            // Create minimal dummy data for faster development
+            BitvmCache {
+                intermediate_variables: {
+                    let mut map = BTreeMap::new();
+                    map.insert("dummy_var_1".to_string(), 4);
+                    map.insert("dummy_var_2".to_string(), 4);
+                    map
+                },
+                disprove_scripts: vec![
+                    vec![31u8; 1000], // Dummy script 1
+                    vec![31u8; 1000], // Dummy script 2
+                ],
+                replacement_places: {
+                    let mut map = HashMap::new();
+                    // Add some dummy replacement places
+                    map.insert((0, 0), vec![(0, 0)]);
+                    map.insert((0, 1), vec![(1, 0)]);
+                    map
+                },
+            }
+        };
+
+        #[cfg(not(debug_assertions))]
         let bitvm_cache = BitvmCache::load_from_file(cache_path).unwrap_or_else(|| {
             let fresh_data = generate_fresh_data();
             fresh_data.save_to_file(cache_path);
@@ -69,6 +95,7 @@ lazy_static::lazy_static! {
 pub struct BitvmCache {
     pub intermediate_variables: BTreeMap<String, usize>,
     pub disprove_scripts: Vec<Vec<u8>>,
+    pub replacement_places: HashMap<(usize, usize), Vec<(usize, usize)>>,
 }
 
 impl BitvmCache {
@@ -113,9 +140,9 @@ impl BitvmCache {
 
 fn generate_fresh_data() -> BitvmCache {
     println!("Generating fresh BitVM data...");
-    let map = BridgeAssigner::default().all_intermediate_variables();
+    let intermediate_variables = BridgeAssigner::default().all_intermediate_variables();
 
-    let commits_publickeys = map
+    let commits_publickeys = intermediate_variables
         .iter()
         .enumerate()
         .map(|(idx, (intermediate_step, intermediate_step_size))| {
@@ -146,78 +173,91 @@ fn generate_fresh_data() -> BitvmCache {
     let segments =
         groth16_verify_to_segments(&mut bridge_assigner, &proof.public, &proof.proof, &proof.vk);
 
-    let scripts = segments
+    let scripts: Vec<Vec<u8>> = segments
         .iter()
         .map(|s| s.script.clone().compile().to_bytes())
         .collect();
 
+    // Build mapping of dummy keys to their positions
+    let mut replacement_places: HashMap<(usize, usize), Vec<(usize, usize)>> = HashMap::new();
+
+    // For each script
+    for (script_idx, script) in scripts.iter().enumerate() {
+        let mut pos = 0;
+        while pos + 20 <= script.len() {
+            // Check if this window matches our pattern (31u8 in middle bytes)
+            if &script[pos + 8..pos + 12] == &[31u8; 4] {
+                // Try to extract the index and digit from the window
+                let window = &script[pos..pos + 20];
+                if let Ok(window_arr) = <[u8; 20]>::try_from(window) {
+                    // Extract idx from first 8 bytes
+                    let mut idx_bytes = [0u8; 8];
+                    idx_bytes.copy_from_slice(&window_arr[..8]);
+                    let idx = usize::from_le_bytes(idx_bytes);
+
+                    // Extract digit from last 8 bytes
+                    let mut digit_bytes = [0u8; 8];
+                    digit_bytes.copy_from_slice(&window_arr[12..20]);
+                    let digit = usize::from_le_bytes(digit_bytes);
+
+                    // If this is a valid index for our intermediate variables
+                    if idx < intermediate_variables.len() {
+                        let entry = replacement_places.entry((idx, digit)).or_default();
+                        entry.push((script_idx, pos));
+                    }
+                }
+            }
+            pos += 1;
+        }
+    }
+
+    println!(
+        "Found {} unique replacement patterns",
+        replacement_places.len()
+    );
+
     BitvmCache {
-        intermediate_variables: map,
+        intermediate_variables,
         disprove_scripts: scripts,
+        replacement_places,
     }
 }
 
 pub fn replace_disprove_scripts(winternitz_pk: &[Vec<[u8; 20]>]) -> Vec<ScriptBuf> {
     let start = Instant::now();
-    tracing::info!("Starting script replacement with {} keys", winternitz_pk.len());
+    tracing::info!(
+        "Starting script replacement with {} keys",
+        winternitz_pk.len()
+    );
 
     let cache = &*BITVM_CACHE;
-    let mut result = Vec::with_capacity(cache.disprove_scripts.len());
 
-    // Pre-build all mappings at once
-    let mut all_mappings = Vec::with_capacity(cache.intermediate_variables.len());
-    for (idx, (_step, size)) in cache.intermediate_variables.iter().enumerate() {
-        if idx >= winternitz_pk.len() {
-            break;
-        }
+    // Clone scripts first as we'll modify them
+    let mut result: Vec<Vec<u8>> = cache.disprove_scripts.clone();
 
-        let mut mapping = HashMap::with_capacity(winternitz_pk[idx].len());
-        let mut dummy_base = [31u8; 20];
-        dummy_base[..8].copy_from_slice(&idx.to_le_bytes());
+    // For each intermediate variable and its digits
+    for idx in 0..winternitz_pk.len() {
+        for digit in 0..winternitz_pk[idx].len() {
+            // Get all places where this (idx, digit) pattern needs to be replaced
+            if let Some(places) = cache.replacement_places.get(&(idx, digit)) {
+                let replacement = &winternitz_pk[idx][digit];
 
-        for (digit, &real_key) in winternitz_pk[idx].iter().enumerate() {
-            let mut dummy = dummy_base;
-            dummy[12..20].copy_from_slice(&digit.to_le_bytes());
-            mapping.insert(dummy, real_key);
-        }
-        all_mappings.push(mapping);
-    }
-
-    tracing::info!("Built {} key mappings", all_mappings.len());
-
-    // Process each script
-    for (script_idx, script) in cache.disprove_scripts.iter().enumerate() {
-        if script_idx % 100 == 0 {
-            tracing::info!("Processing script {}/{}", script_idx + 1, cache.disprove_scripts.len());
-        }
-
-        let mut new_script = Vec::with_capacity(script.len());
-        let mut pos = 0;
-
-        'outer: while pos < script.len() {
-            if pos + 20 <= script.len() {
-                if let Ok(window) = <[u8; 20]>::try_from(&script[pos..pos + 20]) {
-                    // Try each mapping
-                    for mapping in &all_mappings {
-                        if let Some(&replacement) = mapping.get(&window) {
-                            new_script.extend_from_slice(&replacement);
-                            pos += 20;
-                            continue 'outer;
-                        }
-                    }
+                // For each occurrence of this pattern
+                for &(script_idx, pos) in places {
+                    // Replace the pattern with the actual Winternitz key
+                    result[script_idx][pos..pos + 20].copy_from_slice(replacement);
                 }
             }
-            new_script.push(script[pos]);
-            pos += 1;
         }
-
-        result.push(ScriptBuf::from_bytes(new_script));
     }
+
+    // Convert all scripts to ScriptBuf
+    let result: Vec<ScriptBuf> = result.into_iter().map(ScriptBuf::from_bytes).collect();
 
     let elapsed = start.elapsed();
     tracing::info!("Script replacement completed in {:?}", elapsed);
     println!("Script replacement completed in {:?}", elapsed);
-    
+
     result
 }
 
