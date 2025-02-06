@@ -1,6 +1,6 @@
 [workspace]
 resolver = "2"
-members = ["core"] # TODO: Add "circuits" back later
+members = ["core", "circuits-lib"] # Add "risc0-circuits/operator", "risc0-circuits/watchtower" later
 
 [workspace.dependencies]
 hex = "0.4.3"
