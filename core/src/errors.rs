@@ -250,6 +250,12 @@ pub enum BridgeError {
 
     #[error("Not enough operators")]
     NotEnoughOperators,
+
+    #[error("Bitcoin RPC signing error: {0:?}")]
+    BitcoinRPCSigningError(Vec<String>),
+
+    #[error("Fee estimation error: {0:?}")]
+    FeeEstimationError(Vec<String>),
 }
 
 impl From<BridgeError> for ErrorObject<'static> {
