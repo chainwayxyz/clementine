@@ -155,6 +155,10 @@ macro_rules! initialize_database {
 ///         create_verifier_grpc_server, create_watchtower_grpc_server,
 ///     },
 /// };
+/// use crate::rpc::clementine::clementine_aggregator_client::ClementineAggregatorClient;
+/// use crate::rpc::clementine::clementine_operator_client::ClementineOperatorClient;
+/// use crate::rpc::clementine::clementine_verifier_client::ClementineVerifierClient;
+/// use crate::rpc::clementine::clementine_watchtower_client::ClementineWatchtowerClient;
 /// ```
 ///
 /// ## Integration Tests And Binaries
@@ -164,6 +168,10 @@ macro_rules! initialize_database {
 ///     create_aggregator_grpc_server, create_operator_grpc_server, create_verifier_grpc_server,
 ///     create_watchtower_grpc_server,
 /// };
+/// use clementine_core::rpc::clementine::clementine_aggregator_client::ClementineAggregatorClient;
+/// use clementine_core::rpc::clementine::clementine_operator_client::ClementineOperatorClient;
+/// use clementine_core::rpc::clementine::clementine_verifier_client::ClementineVerifierClient;
+/// use clementine_core::rpc::clementine::clementine_watchtower_client::ClementineWatchtowerClient;
 /// ```
 #[macro_export]
 macro_rules! create_actors {
@@ -318,12 +326,33 @@ macro_rules! create_actors {
         .await
         .unwrap();
 
-        (
-            verifier_endpoints,
-            operator_endpoints,
-            aggregator,
-            watchtower_endpoints,
-        )
+        let verifiers =
+            futures_util::future::join_all(verifier_endpoints.iter().map(|verifier| async move {
+                ClementineVerifierClient::connect(format!("http://{}", verifier.0))
+                    .await
+                    .unwrap()
+            }))
+            .await;
+        let operators =
+            futures_util::future::join_all(operator_endpoints.iter().map(|operator| async move {
+                ClementineOperatorClient::connect(format!("http://{}", operator.0))
+                    .await
+                    .unwrap()
+            }))
+            .await;
+        let aggregator = ClementineAggregatorClient::connect(format!("http://{}", aggregator.0))
+            .await
+            .unwrap();
+        let watchtowers = futures_util::future::join_all(watchtower_endpoints.iter().map(
+            |watchtower| async move {
+                ClementineWatchtowerClient::connect(format!("http://{}", watchtower.0))
+                    .await
+                    .unwrap()
+            },
+        ))
+        .await;
+
+        (verifiers, operators, aggregator, watchtowers)
     }};
 }
 

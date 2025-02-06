@@ -714,6 +714,9 @@ impl ClementineAggregator for Aggregator {
 
 #[cfg(test)]
 mod tests {
+    use crate::rpc::clementine::clementine_operator_client::ClementineOperatorClient;
+    use crate::rpc::clementine::clementine_verifier_client::ClementineVerifierClient;
+    use crate::rpc::clementine::clementine_watchtower_client::ClementineWatchtowerClient;
     use crate::{
         config::BridgeConfig,
         create_test_config_with_thread_name,
@@ -742,18 +745,14 @@ mod tests {
     async fn aggregator_double_setup_fail() {
         let config = create_test_config_with_thread_name!(None);
 
-        let (_, _, aggregator, _) = create_actors!(config);
-        let mut aggregator_client =
-            ClementineAggregatorClient::connect(format!("http://{}", aggregator.0))
-                .await
-                .unwrap();
+        let (_, _, mut aggregator, _) = create_actors!(config);
 
-        aggregator_client
+        aggregator
             .setup(tonic::Request::new(clementine::Empty {}))
             .await
             .unwrap();
 
-        assert!(aggregator_client
+        assert!(aggregator
             .setup(tonic::Request::new(clementine::Empty {}))
             .await
             .is_err());
@@ -763,12 +762,9 @@ mod tests {
     #[serial_test::serial]
     async fn aggregator_setup_watchtower_winternitz_public_keys() {
         let mut config = create_test_config_with_thread_name!(None);
-        let (_verifiers, _operators, aggregator, _watchtowers) = create_actors!(config.clone());
-        let mut aggregator_client =
-            ClementineAggregatorClient::connect(format!("http://{}", aggregator.0))
-                .await
-                .unwrap();
-        aggregator_client
+        let (_verifiers, _operators, mut aggregator, _watchtowers) = create_actors!(config.clone());
+
+        aggregator
             .setup(tonic::Request::new(clementine::Empty {}))
             .await
             .unwrap();
@@ -818,12 +814,8 @@ mod tests {
     #[serial_test::serial]
     async fn aggregator_setup_watchtower_challenge_addresses() {
         let mut config = create_test_config_with_thread_name!(None);
-        let (_verifiers, _operators, aggregator, _watchtowers) = create_actors!(config.clone());
-        let mut aggregator_client =
-            ClementineAggregatorClient::connect(format!("http://{}", aggregator.0))
-                .await
-                .unwrap();
-        aggregator_client
+        let (_verifiers, _operators, mut aggregator, _watchtowers) = create_actors!(config.clone());
+        aggregator
             .setup(tonic::Request::new(clementine::Empty {}))
             .await
             .unwrap();
@@ -931,18 +923,14 @@ mod tests {
     async fn aggregator_setup_and_deposit() {
         let config = create_test_config_with_thread_name!(None);
 
-        let aggregator = create_actors!(config).2;
-        let mut aggregator_client =
-            ClementineAggregatorClient::connect(format!("http://{}", aggregator.0))
-                .await
-                .unwrap();
+        let mut aggregator = create_actors!(config).2;
 
-        aggregator_client
+        aggregator
             .setup(tonic::Request::new(clementine::Empty {}))
             .await
             .unwrap();
 
-        aggregator_client
+        aggregator
             .new_deposit(DepositParams {
                 deposit_outpoint: Some(
                     bitcoin::OutPoint {

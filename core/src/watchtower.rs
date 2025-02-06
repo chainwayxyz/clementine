@@ -103,62 +103,22 @@ impl Watchtower {
 
 #[cfg(test)]
 mod tests {
+    use crate::create_test_config_with_thread_name;
     use crate::utils::initialize_logger;
     use crate::watchtower::Watchtower;
-    use crate::{
-        config::BridgeConfig,
-        database::Database,
-        errors::BridgeError,
-        extended_rpc::ExtendedRpc,
-        initialize_database,
-        servers::{
-            create_aggregator_grpc_server, create_operator_grpc_server,
-            create_verifier_grpc_server, create_watchtower_grpc_server,
-        },
-    };
-    use crate::{create_actors, create_test_config_with_thread_name};
+    use crate::{config::BridgeConfig, database::Database, initialize_database};
     use std::{env, thread};
 
     #[tokio::test]
-    #[serial_test::serial]
     async fn new_watchtower() {
-        let mut config = create_test_config_with_thread_name!(None);
-        let (verifiers, operators, _, _should_not_panic) = create_actors!(config.clone());
-
-        config.verifier_endpoints = Some(
-            verifiers
-                .iter()
-                .map(|v| format!("http://{}", v.0))
-                .collect(),
-        );
-        config.operator_endpoints = Some(
-            operators
-                .iter()
-                .map(|o| format!("http://{}", o.0))
-                .collect(),
-        );
+        let config = create_test_config_with_thread_name!(None);
 
         let _should_not_panic = Watchtower::new(config.clone()).await.unwrap();
     }
 
     #[tokio::test]
-    #[serial_test::serial]
     async fn get_watchtower_winternitz_public_keys() {
-        let mut config = create_test_config_with_thread_name!(None);
-        let (verifiers, operators, _, _watchtowers) = create_actors!(config.clone());
-
-        config.verifier_endpoints = Some(
-            verifiers
-                .iter()
-                .map(|v| format!("http://{}", v.0))
-                .collect(),
-        );
-        config.operator_endpoints = Some(
-            operators
-                .iter()
-                .map(|o| format!("http://{}", o.0))
-                .collect(),
-        );
+        let config = create_test_config_with_thread_name!(None);
 
         let watchtower = Watchtower::new(config.clone()).await.unwrap();
         let watchtower_winternitz_public_keys = watchtower

@@ -22,7 +22,6 @@ use clementine_core::servers::{
 };
 use clementine_core::EVMAddress;
 use clementine_core::{builder, musig2::AggregateFromPublicKeys};
-use futures::future::join_all;
 use tonic::transport::Channel;
 use tonic::Request;
 
@@ -271,28 +270,28 @@ pub async fn run_single_deposit(
     let evm_address = EVMAddress([1u8; 20]);
     let (deposit_address, _) = get_deposit_address!(config, evm_address).unwrap();
 
-    let (verifiers, operators, aggregator, watchtowers) = create_actors!(config);
-    let verifiers = join_all(verifiers.iter().map(|verifier| async move {
-        ClementineVerifierClient::connect(format!("http://{}", verifier.0))
-            .await
-            .unwrap()
-    }))
-    .await;
-    let operators = join_all(operators.iter().map(|operator| async move {
-        ClementineOperatorClient::connect(format!("http://{}", operator.0))
-            .await
-            .unwrap()
-    }))
-    .await;
-    let mut aggregator = ClementineAggregatorClient::connect(format!("http://{}", aggregator.0))
-        .await
-        .unwrap();
-    let watchtowers = join_all(watchtowers.iter().map(|watchtower| async move {
-        ClementineWatchtowerClient::connect(format!("http://{}", watchtower.0))
-            .await
-            .unwrap()
-    }))
-    .await;
+    let (verifiers, operators, mut aggregator, watchtowers) = create_actors!(config);
+    // let verifiers = join_all(verifiers.iter().map(|verifier| async move {
+    //     ClementineVerifierClient::connect(format!("http://{}", verifier.0))
+    //         .await
+    //         .unwrap()
+    // }))
+    // .await;
+    // let operators = join_all(operators.iter().map(|operator| async move {
+    //     ClementineOperatorClient::connect(format!("http://{}", operator.0))
+    //         .await
+    //         .unwrap()
+    // }))
+    // .await;
+    // let mut aggregator = ClementineAggregatorClient::connect(format!("http://{}", aggregator.0))
+    //     .await
+    //     .unwrap();
+    // let watchtowers = join_all(watchtowers.iter().map(|watchtower| async move {
+    //     ClementineWatchtowerClient::connect(format!("http://{}", watchtower.0))
+    //         .await
+    //         .unwrap()
+    // }))
+    // .await;
 
     aggregator.setup(Request::new(Empty {})).await.unwrap();
 
