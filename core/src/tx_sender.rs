@@ -92,56 +92,57 @@ impl TxSender {
         address: &Address,
         amount_sats: Amount,
     ) -> Result<OutPoint, BridgeError> {
-        let mut outputs = HashMap::new();
-        outputs.insert(address.to_string(), amount_sats);
+        self.rpc.send_to_address(address, amount_sats).await
+        // let mut outputs = HashMap::new();
+        // outputs.insert(address.to_string(), amount_sats);
 
-        let raw_tx = self
-            .rpc
-            .client
-            .create_raw_transaction(&[], &outputs, None, None)
-            .await?;
+        // let raw_tx = self
+        //     .rpc
+        //     .client
+        //     .create_raw_transaction(&[], &outputs, None, None)
+        //     .await?;
 
-        let fee_rate = self.get_fee_rate().await?;
+        // let fee_rate = self.get_fee_rate().await?;
 
-        let options = FundRawTransactionOptions {
-            change_position: Some(1),
-            lock_unspents: Some(true),
-            fee_rate: Some(fee_rate),
-            replaceable: Some(true),
-            ..Default::default()
-        };
+        // let options = FundRawTransactionOptions {
+        //     change_position: Some(1),
+        //     lock_unspents: Some(true),
+        //     fee_rate: Some(fee_rate),
+        //     replaceable: Some(true),
+        //     ..Default::default()
+        // };
 
-        let funded_tx = self
-            .rpc
-            .client
-            .fund_raw_transaction(&raw_tx, Some(&options), Some(true))
-            .await?;
+        // let funded_tx = self
+        //     .rpc
+        //     .client
+        //     .fund_raw_transaction(&raw_tx, Some(&options), Some(true))
+        //     .await?;
 
-        // Sign the funded tx
-        let signed_tx = self
-            .rpc
-            .client
-            .sign_raw_transaction_with_wallet(funded_tx.hex.as_ref() as &[u8], None, None)
-            .await?;
+        // // Sign the funded tx
+        // let signed_tx = self
+        //     .rpc
+        //     .client
+        //     .sign_raw_transaction_with_wallet(funded_tx.hex.as_ref() as &[u8], None, None)
+        //     .await?;
 
-        if signed_tx.complete {
-            let txid = self
-                .rpc
-                .client
-                .send_raw_transaction(signed_tx.hex.as_ref() as &[u8])
-                .await?;
+        // if signed_tx.complete {
+        //     let txid = self
+        //         .rpc
+        //         .client
+        //         .send_raw_transaction(signed_tx.hex.as_ref() as &[u8])
+        //         .await?;
 
-            Ok(OutPoint { txid, vout: 0 })
-        } else {
-            Err(BridgeError::BitcoinRPCSigningError(
-                signed_tx
-                    .errors
-                    .expect("Signing errors should be present when incomplete")
-                    .iter()
-                    .map(|e| e.error.clone())
-                    .collect(),
-            ))
-        }
+        //     Ok(OutPoint { txid, vout: 0 })
+        // } else {
+        //     Err(BridgeError::BitcoinRPCSigningError(
+        //         signed_tx
+        //             .errors
+        //             .expect("Signing errors should be present when incomplete")
+        //             .iter()
+        //             .map(|e| e.error.clone())
+        //             .collect(),
+        //     ))
+        // }
     }
 
     pub async fn create_fee_payer_tx(
@@ -254,6 +255,7 @@ mod tests {
     use std::env;
     use std::thread;
 
+    use bitcoin::consensus::encode::deserialize_hex;
     use bitcoin::secp256k1::SecretKey;
     use secp256k1::rand;
 
@@ -283,19 +285,6 @@ mod tests {
     #[tokio::test]
     async fn test_create_fee_payer_tx() {
         let (tx_sender, rpc, _db) = create_test_tx_sender().await;
-
-        let mut outputs = HashMap::new();
-        outputs.insert(
-            "bcrt1qytffvlfa4a9jhffs9pddcr2w42940h6tc6fm9l".to_string(),
-            Amount::from_sat(100000000),
-        );
-
-        let raw_tx = rpc
-            .client
-            .create_raw_transaction(&vec![], &outputs, None, None)
-            .await.unwrap();
-
-        tracing::info!("Raw tx: {:?}", raw_tx);
 
         let outpoint = tx_sender
             .create_fee_payer_tx(Txid::all_zeros(), 300000)
