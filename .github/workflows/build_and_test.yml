@@ -16,6 +16,7 @@ jobs:
 
     steps:
     - uses: actions/checkout@v4
+    - uses: ./.github/actions/install-risc0
     - uses: ./.github/actions/build-prerequisites
 
     - name: Save build artifacts
@@ -32,6 +33,7 @@ jobs:
 
     steps:
     - uses: actions/checkout@v4
+    - uses: ./.github/actions/install-risc0
     - uses: ./.github/actions/build-prerequisites
 
     - name: Save build artifacts
@@ -65,6 +67,7 @@ jobs:
 
     steps:
     - uses: actions/checkout@v4
+    - uses: ./.github/actions/install-risc0
     - uses: ./.github/actions/build-prerequisites
     - uses: ./.github/actions/test-prerequisites
 
@@ -98,6 +101,7 @@ jobs:
 
     steps:
     - uses: actions/checkout@v4
+    - uses: ./.github/actions/install-risc0
     - uses: ./.github/actions/build-prerequisites
     - uses: ./.github/actions/test-prerequisites
 
