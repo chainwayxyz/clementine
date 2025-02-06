@@ -785,7 +785,6 @@ mod tests {
     use crate::{
         create_test_config_with_thread_name, extended_rpc::ExtendedRpc, operator::Operator,
     };
-    use std::{env, thread};
 
     // #[tokio::test]
     // async fn set_funding_utxo() {

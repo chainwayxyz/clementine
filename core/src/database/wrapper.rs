@@ -284,7 +284,6 @@ mod tests {
         Amount, BlockHash, CompactTarget, OutPoint, ScriptBuf, TxMerkleNode, TxOut, Txid,
     };
     use sqlx::{Executor, Type};
-    use std::{env, thread};
 
     macro_rules! test_encode_decode_invariant {
         ($db_type:ty, $inner:ty, $db_wrapper:expr, $table_name:expr, $column_type:expr) => {

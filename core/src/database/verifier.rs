@@ -284,7 +284,6 @@ mod tests {
     };
     use crypto_bigint::rand_core::OsRng;
     use secp256k1::musig::MusigPubNonce;
-    use std::{env, thread};
 
     #[tokio::test]
     async fn test_verifiers_kickoff_utxos_1() {

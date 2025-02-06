@@ -24,21 +24,19 @@
 /// use crate::{
 ///     config::BridgeConfig, database::Database, initialize_database, utils::initialize_logger,
 /// };
-/// use std::{env, thread};
 /// ```
 ///
 /// ## Integration Tests And Binaries
 ///
 /// ```rust
 /// use clementine_core::{config::BridgeConfig, database::Database, utils::initialize_logger};
-/// use std::{env, thread};
 /// ```
 #[macro_export]
 macro_rules! create_test_config_with_thread_name {
     ($suffix:expr) => {{
         let suffix = $suffix.unwrap_or(&String::default()).to_string();
 
-        let handle = thread::current()
+        let handle = std::thread::current()
             .name()
             .unwrap()
             .split(':')
@@ -53,12 +51,12 @@ macro_rules! create_test_config_with_thread_name {
         let mut config = BridgeConfig::default();
 
         // Check environment for an overwrite config. TODO: Convert this to env vars.
-        let env_config: Option<BridgeConfig> = if let Ok(config_file_path) = env::var("TEST_CONFIG")
-        {
-            Some(BridgeConfig::try_parse_file(config_file_path.into()).unwrap())
-        } else {
-            None
-        };
+        let env_config: Option<BridgeConfig> =
+            if let Ok(config_file_path) = std::env::var("TEST_CONFIG") {
+                Some(BridgeConfig::try_parse_file(config_file_path.into()).unwrap())
+            } else {
+                None
+            };
 
         config.db_name = handle.to_string();
 
@@ -445,14 +443,23 @@ macro_rules! generate_withdrawal_transaction_and_signature {
             },
         };
 
-        let txins = builder::transaction::create_tx_ins(vec![dust_utxo.outpoint].into());
+        let txin = builder::transaction::input::SpendableTxIn::new(
+            dust_utxo.outpoint,
+            dust_utxo.txout.clone(),
+            vec![],
+            None,
+        );
         let txout = bitcoin::TxOut {
             value: $withdrawal_amount,
             script_pubkey: $withdrawal_address.script_pubkey(),
         };
-        let txouts = vec![txout.clone()];
+        let txout = builder::transaction::output::UnspentTxOut::new(txout.clone(), vec![], None);
 
-        let mut tx = builder::transaction::create_btc_tx(txins, txouts.clone());
+        let tx = builder::transaction::TxHandlerBuilder::new()
+            .add_input(txin, builder::transaction::DEFAULT_SEQUENCE)
+            .add_output(txout.clone())
+            .finalize();
+        let mut tx = tx.get_cached_tx().clone();
         let prevouts = vec![dust_utxo.txout.clone()];
 
         let sig = signer

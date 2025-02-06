@@ -12,7 +12,6 @@ use clementine_core::extended_rpc::ExtendedRpc;
 use clementine_core::utils::SECP;
 use clementine_core::{config::BridgeConfig, database::Database, utils::initialize_logger};
 use std::sync::Arc;
-use std::{env, thread};
 
 mod common;
 

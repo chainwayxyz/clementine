@@ -738,7 +738,7 @@ mod tests {
         watchtower::Watchtower,
     };
     use bitcoin::Txid;
-    use std::{env, str::FromStr, thread};
+    use std::str::FromStr;
 
     #[tokio::test]
     #[serial_test::serial]

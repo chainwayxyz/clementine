@@ -107,7 +107,6 @@ mod tests {
     use crate::utils::initialize_logger;
     use crate::watchtower::Watchtower;
     use crate::{config::BridgeConfig, database::Database, initialize_database};
-    use std::{env, thread};
 
     #[tokio::test]
     async fn new_watchtower() {
