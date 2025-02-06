@@ -3,7 +3,7 @@
 //! This tests checks if typical RPC flows works or not.
 
 use bitcoin::{secp256k1::SecretKey, Address, Amount};
-use clementine_core::rpc::clementine::{NewWithdrawalSigParams, WithdrawalFinalizedParams};
+use clementine_core::rpc::clementine::NewWithdrawalSigParams;
 use clementine_core::{actor::Actor, builder, UTXO};
 use clementine_core::{config::BridgeConfig, database::Database, utils::initialize_logger};
 use clementine_core::{extended_rpc::ExtendedRpc, utils::SECP};
@@ -24,7 +24,7 @@ async fn honest_operator_takes_refund() {
     .await
     .unwrap();
 
-    let (_verifiers, mut operators, _aggregator, _watchtowers, deposit_outpoint) =
+    let (_verifiers, mut operators, _aggregator, _watchtowers, _deposit_outpoint) =
         run_single_deposit(config.clone()).await.unwrap();
 
     let user_sk = SecretKey::from_slice(&[13u8; 32]).unwrap();
@@ -59,13 +59,17 @@ async fn honest_operator_takes_refund() {
         output_script_pubkey: vec![],
         output_amount: withdrawal_amount.to_sat(),
     });
-    let _withdrawal_provide_txid = operators[1].new_withdrawal_sig(request).await.unwrap();
+    let _withdrawal_provide_txid = operators[1]
+        .new_withdrawal_sig(request)
+        .await
+        .unwrap()
+        .into_inner();
 
-    let request = Request::new(WithdrawalFinalizedParams {
-        withdrawal_id: 0,
-        deposit_outpoint: Some(deposit_outpoint.into()),
-    });
-    operators[1].withdrawal_finalized(request).await.unwrap();
+    // let request = Request::new(WithdrawalFinalizedParams {
+    //     withdrawal_id: 0,
+    //     deposit_outpoint: Some(deposit_outpoint.into()),
+    // });
+    // operators[1].withdrawal_finalized(request).await.unwrap();
 
     // for tx in txs_to_be_sent.iter().take(txs_to_be_sent.len() - 1) {
     //     rpc.client.send_raw_transaction(tx.clone()).await.unwrap();

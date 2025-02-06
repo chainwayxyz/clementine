@@ -34,10 +34,7 @@ pub struct Operator {
 
 impl Operator {
     /// Creates a new `Operator`.
-    // #[tracing::instrument(skip_all, err(level = tracing::Level::ERROR))]
-    pub async fn new(config: BridgeConfig, _rpc: ExtendedRpc) -> Result<Self, BridgeError> {
-        // let num_verifiers = config.verifiers_public_keys.len();
-
+    pub async fn new(config: BridgeConfig, rpc: ExtendedRpc) -> Result<Self, BridgeError> {
         let signer = Actor::new(
             config.secret_key,
             config.winternitz_secret_key,
@@ -82,7 +79,7 @@ impl Operator {
             .get_sequential_collateral_txs(Some(&mut tx), idx as i32)
             .await?;
         let collateral_funding_txid = if sequential_collateral_txs.is_empty() {
-            let outpoint = _rpc
+            let outpoint = rpc
                 .send_to_address(&signer.address, Amount::from_sat(200_000_000))
                 .await?; // TODO: Is this OK to be a fixed value
             db.set_sequential_collateral_tx(Some(&mut tx), idx as i32, 0, outpoint.txid, 0)
@@ -106,7 +103,7 @@ impl Operator {
         );
 
         Ok(Self {
-            rpc: _rpc,
+            rpc,
             db,
             signer,
             config,
