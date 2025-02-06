@@ -8,29 +8,60 @@
 use crate::config::BridgeConfig;
 use crate::constants::PARALLEL_ASSERT_TX_CHAIN_SIZE;
 use crate::errors::BridgeError;
+use crate::rpc::clementine::tagged_signature::SignatureId;
 use crate::{builder, database::Database, EVMAddress};
 use async_stream::try_stream;
 use bitcoin::{address::NetworkUnchecked, Address, Amount, OutPoint};
 use bitcoin::{TapSighash, Txid, XOnlyPublicKey};
 use futures_core::stream::Stream;
-use crate::rpc::clementine::signature::SignatureId;
-
-use super::transaction::TxHandler;
 
 /// Returns the number of required signatures for N-of-N signing session.
 pub fn calculate_num_required_nofn_sigs(config: &BridgeConfig) -> usize {
-    config.num_operators
-        * config.num_sequential_collateral_txs
-        * config.num_kickoffs_per_sequential_collateral_tx
-        * (10 + 2 * config.num_watchtowers)
+    let &BridgeConfig {
+        num_operators,
+        num_sequential_collateral_txs,
+        num_kickoffs_per_sequential_collateral_tx,
+        ..
+    } = config;
+    num_operators
+        * num_sequential_collateral_txs
+        * num_kickoffs_per_sequential_collateral_tx
+        * calculate_num_required_nofn_sigs_per_kickoff(config)
 }
 
 // WIP: For now, this is equal to the number of sighashes we yield in create_operator_sighash_stream.
 // This will change as we implement the system design.
 pub fn calculate_num_required_operator_sigs(config: &BridgeConfig) -> usize {
-    config.num_sequential_collateral_txs * config.num_kickoffs_per_sequential_collateral_tx * 3
+    let &BridgeConfig {
+        num_sequential_collateral_txs,
+        num_kickoffs_per_sequential_collateral_tx,
+        ..
+    } = config;
+    num_sequential_collateral_txs
+        * num_kickoffs_per_sequential_collateral_tx
+        * calculate_num_required_operator_sigs_per_kickoff()
 }
 
+pub fn calculate_num_required_nofn_sigs_per_kickoff(
+    &BridgeConfig {
+        num_watchtowers, ..
+    }: &BridgeConfig,
+) -> usize {
+    10 + 2 * num_watchtowers
+}
+
+pub fn calculate_num_required_operator_sigs_per_kickoff() -> usize {
+    3
+}
+
+#[derive(Copy, Clone, Debug)]
+pub struct PartialSignatureInfo {
+    pub operator_idx: usize,
+    pub sequential_collateral_idx: usize,
+    pub kickoff_utxo_idx: usize,
+}
+
+#[derive(Copy, Clone, Debug)]
 pub struct SignatureInfo {
     pub operator_idx: usize,
     pub sequential_collateral_idx: usize,
@@ -38,10 +69,27 @@ pub struct SignatureInfo {
     pub signature_id: SignatureId,
 }
 
-pub fn calculate_pubkey_sighash_get_signature_info(txhandler: &TxHandler, input_idx: usize) {
-    
+impl PartialSignatureInfo {
+    pub fn new(
+        operator_idx: usize,
+        sequential_collateral_idx: usize,
+        kickoff_utxo_idx: usize,
+    ) -> PartialSignatureInfo {
+        PartialSignatureInfo {
+            operator_idx,
+            sequential_collateral_idx,
+            kickoff_utxo_idx,
+        }
+    }
+    pub fn complete(&self, signature_id: SignatureId) -> SignatureInfo {
+        SignatureInfo {
+            operator_idx: self.operator_idx,
+            sequential_collateral_idx: self.sequential_collateral_idx,
+            kickoff_utxo_idx: self.kickoff_utxo_idx,
+            signature_id,
+        }
+    }
 }
-
 
 /// Refer to bridge design diagram to see which NofN signatures are needed (the ones marked with blue arrows).
 /// These sighashes are needed in order to create the message to be signed later for MuSig2 of NofN.
@@ -132,6 +180,8 @@ pub fn create_nofn_sighash_stream(
                 // If the operator is honest, the sequence will end with the operator being able to send the reimburse_tx.
                 // Otherwise, by using the disprove_tx, the operator's sequential_collateral_tx burn connector will be burned.
                 for kickoff_idx in 0..config.num_kickoffs_per_sequential_collateral_tx {
+                    let partial = PartialSignatureInfo::new(operator_idx, sequential_collateral_tx_idx, kickoff_idx);
+
                     let kickoff_txhandler = builder::transaction::create_kickoff_txhandler(
                         &sequential_collateral_txhandler,
                         kickoff_idx,
@@ -149,10 +199,10 @@ pub fn create_nofn_sighash_stream(
                     )?;
 
                     // Yields the sighash for the challenge_tx.input[0], which spends kickoff_tx.input[1] using SinglePlusAnyoneCanPay.
-                    yield challenge_tx.calculate_pubkey_spend_sighash(
+                    yield (challenge_tx.calculate_pubkey_spend_sighash(
                         0,
                         Some(bitcoin::sighash::TapSighashType::SinglePlusAnyoneCanPay)
-                    )?;
+                    )?, partial.complete(challenge_tx.get_signature_id(0)?));
 
                     // Creates the start_happy_reimburse_tx handler.
                     let start_happy_reimburse_txhandler = builder::transaction::create_start_happy_reimburse_txhandler(
@@ -160,12 +210,11 @@ pub fn create_nofn_sighash_stream(
                         *operator_xonly_pk,
                         network
                     )?;
-
                     // Yields the sighash for the start_happy_reimburse_tx.input[1], which spends kickoff_tx.output[3].
-                    yield start_happy_reimburse_txhandler.calculate_pubkey_spend_sighash(
+                    yield (start_happy_reimburse_txhandler.calculate_pubkey_spend_sighash(
                         1,
                         None
-                    )?;
+                    )?, partial.complete(start_happy_reimburse_txhandler.get_signature_id(1)?));
 
                     // Creates the happy_reimburse_tx handler.
                     let happy_reimburse_txhandler = builder::transaction::create_happy_reimburse_txhandler(
@@ -177,17 +226,17 @@ pub fn create_nofn_sighash_stream(
                     )?;
 
                     // Yields the sighash for the happy_reimburse_tx.input[0], which spends move_to_vault_tx.output[0].
-                    yield happy_reimburse_txhandler.calculate_pubkey_spend_sighash(
+                    yield (happy_reimburse_txhandler.calculate_pubkey_spend_sighash(
                         0,
                         None
-                    )?;
+                    )?, partial.complete(happy_reimburse_txhandler.get_signature_id(0)?));
 
                     // Collect the challenge Winternitz pubkeys for this specific kickoff_utxo.
                     let watchtower_challenge_addresses = (0..config.num_watchtowers)
                         .map(|i| watchtower_all_challenge_addresses[i][sequential_collateral_tx_idx * config.num_kickoffs_per_sequential_collateral_tx + kickoff_idx].clone())
                         .collect::<Vec<_>>();
 
-                    let  watchtower_challenge_kickoff_txhandler =
+                    let watchtower_challenge_kickoff_txhandler =
                         builder::transaction::create_watchtower_challenge_kickoff_txhandler_simplified(
                             &kickoff_txhandler,
                             config.num_watchtowers as u32,
@@ -195,23 +244,24 @@ pub fn create_nofn_sighash_stream(
                         )?;
 
                     // Yields the sighash for the watchtower_challenge_kickoff_tx.input[0], which spends kickoff_tx.input[0].
-                    yield watchtower_challenge_kickoff_txhandler.calculate_pubkey_spend_sighash(
+                    yield (watchtower_challenge_kickoff_txhandler.calculate_pubkey_spend_sighash(
                         0,
                         None,
-                    )?;
+                    )?, partial.complete(watchtower_challenge_kickoff_txhandler.get_signature_id(0)?));
 
                     // Creates the kickoff_timeout_tx handler.
-                    let mut kickoff_timeout_txhandler = builder::transaction::create_kickoff_timeout_txhandler(
+                    let kickoff_timeout_txhandler = builder::transaction::create_kickoff_timeout_txhandler(
                         &kickoff_txhandler,
                         &sequential_collateral_txhandler,
                     )?;
 
                     // Yields the sighash for the kickoff_timeout_tx.input[0], which spends kickoff_tx.output[3].
-                    yield kickoff_timeout_txhandler.calculate_script_spend_sighash_indexed(
+                    yield (kickoff_timeout_txhandler.calculate_script_spend_sighash_indexed(
                         0,
                         0,
                         SighashAll
-                    )?;
+                    )?, partial.complete(kickoff_timeout_txhandler.get_signature_id(0)?));
+
                     let public_hashes = db.get_operators_challenge_ack_hashes(None, operator_idx as i32, sequential_collateral_tx_idx as i32, kickoff_idx as i32).await?.ok_or(BridgeError::WatchtowerPublicHashesNotFound(operator_idx as i32, sequential_collateral_tx_idx as i32, kickoff_idx as i32))?;
                     // Each watchtower will sign their Groth16 proof of the header chain circuit. Then, the operator will either
                     // - acknowledge the challenge by sending the operator_challenge_ACK_tx, which will prevent the burning of the kickoff_tx.output[2],
@@ -230,7 +280,7 @@ pub fn create_nofn_sighash_stream(
                             )?;
 
                         // Creates the operator_challenge_NACK_tx handler.
-                        let mut operator_challenge_nack_txhandler =
+                        let operator_challenge_nack_txhandler =
                             builder::transaction::create_operator_challenge_nack_txhandler(
                                 &watchtower_challenge_txhandler,
                                 watchtower_idx,
@@ -238,17 +288,17 @@ pub fn create_nofn_sighash_stream(
                             )?;
 
                         // Yields the sighash for the operator_challenge_NACK_tx.input[0], which spends watchtower_challenge_tx.output[0].
-                        yield operator_challenge_nack_txhandler.calculate_script_spend_sighash_indexed(
+                        yield (operator_challenge_nack_txhandler.calculate_script_spend_sighash_indexed(
                             0,
                             1,
                             SighashAll,
-                        )?;
+                        )?, partial.complete(operator_challenge_nack_txhandler.get_signature_id(0)?));
 
                         // Yields the sighash for the operator_challenge_NACK_tx.input[1], which spends kickoff_tx.output[2].
-                        yield operator_challenge_nack_txhandler.calculate_pubkey_spend_sighash(
+                        yield (operator_challenge_nack_txhandler.calculate_pubkey_spend_sighash(
                             1,
                             None,
-                        )?;
+                        )?, partial.complete(operator_challenge_nack_txhandler.get_signature_id(1)?));
                     }
 
                     let (assert_tx_addrs, root_hash, _public_input_wots) = db.get_bitvm_setup(None, operator_idx as i32, sequential_collateral_tx_idx as i32, kickoff_idx as i32).await?.ok_or(BridgeError::BitvmSetupNotFound(operator_idx as i32, sequential_collateral_tx_idx as i32, kickoff_idx as i32))?;
@@ -271,43 +321,43 @@ pub fn create_nofn_sighash_stream(
                     )?;
 
                     // Yields the sighash for the assert_end_tx, which spends kickoff_tx.output[3].
-                    yield assert_end_txhandler.calculate_pubkey_spend_sighash(
+                    yield (assert_end_txhandler.calculate_pubkey_spend_sighash(
                         PARALLEL_ASSERT_TX_CHAIN_SIZE,
                         None,
-                    )?;
+                    )?, partial.complete(assert_end_txhandler.get_signature_id(PARALLEL_ASSERT_TX_CHAIN_SIZE)?));
 
                     // Creates the disprove_timeout_tx handler.
-                    let mut disprove_timeout_txhandler = builder::transaction::create_disprove_timeout_txhandler(
+                    let  disprove_timeout_txhandler = builder::transaction::create_disprove_timeout_txhandler(
                         &assert_end_txhandler,
                         *operator_xonly_pk,
                         network,
                     )?;
 
                     // Yields the sighash for the disprove_timeout_tx.input[0], which spends assert_end_tx.output[0].
-                    yield disprove_timeout_txhandler.calculate_pubkey_spend_sighash(
+                    yield (disprove_timeout_txhandler.calculate_pubkey_spend_sighash(
                         0,
                         None,
-                    )?;
+                    )?, partial.complete(disprove_timeout_txhandler.get_signature_id(0)?));
 
                     // Yields the disprove_timeout_tx.input[1], which spends assert_end_tx.output[1].
-                    yield disprove_timeout_txhandler.calculate_script_spend_sighash_indexed(
+                    yield (disprove_timeout_txhandler.calculate_script_spend_sighash_indexed(
                         1,
                         0,
                         SighashAll,
-                    )?;
+                    )?, partial.complete(disprove_timeout_txhandler.get_signature_id(1)?));
 
                     // Creates the already_disproved_tx handler.
-                    let mut already_disproved_txhandler = builder::transaction::create_already_disproved_txhandler(
+                    let already_disproved_txhandler = builder::transaction::create_already_disproved_txhandler(
                         &assert_end_txhandler,
                         &sequential_collateral_txhandler,
                     )?;
 
                     // Yields the sighash for the already_disproved_tx.input[0], which spends assert_end_tx.output[1].
-                    yield already_disproved_txhandler.calculate_script_spend_sighash_indexed(
+                    yield (already_disproved_txhandler.calculate_script_spend_sighash_indexed(
                         0,
                         1,
                         SighashAll,
-                    )?;
+                    )?, partial.complete(already_disproved_txhandler.get_signature_id(0)?));
 
                     // Creates the reimburse_tx handler.
                     let reimburse_txhandler = builder::transaction::create_reimburse_txhandler(
@@ -319,7 +369,7 @@ pub fn create_nofn_sighash_stream(
                     )?;
 
                     // Yields the sighash for the reimburse_tx.input[0], which spends move_to_vault_tx.output[0].
-                    yield reimburse_txhandler.calculate_pubkey_spend_sighash(0, None)?;
+                    yield (reimburse_txhandler.calculate_pubkey_spend_sighash(0, None)?, partial.complete(reimburse_txhandler.get_signature_id(0)?));
                 }
 
                 input_txid = *reimburse_generator_txhandler.get_txid();
@@ -328,8 +378,6 @@ pub fn create_nofn_sighash_stream(
         }
     }
 }
-
-/// Refer to bridge design diagram to see which Operator signatures are needed (the ones marked with red arrows).
 /// These operator sighashes are needed so that each operator can share the signatures with each verifier, so that
 /// verifiers have the ability to burn the burn connector of operators.
 /// WIP: Update if the design changes.
@@ -353,7 +401,7 @@ pub fn create_operator_sighash_stream(
     max_withdrawal_time_block_count: u16,
     bridge_amount_sats: Amount,
     network: bitcoin::Network,
-) -> impl Stream<Item = Result<TapSighash, BridgeError>> {
+) -> impl Stream<Item = Result<(TapSighash, SignatureInfo), BridgeError>> {
     try_stream! {
         // Create move_tx handler. This is unique for each deposit tx.
         let move_txhandler = builder::transaction::create_move_to_vault_txhandler(
@@ -370,7 +418,7 @@ pub fn create_operator_sighash_stream(
         let mut input_amount = collateral_funding_amount;
 
         // For each sequential_collateral_tx, we have multiple kickoff_utxos as the connectors.
-        for time_tx_idx in 0..config.num_sequential_collateral_txs {
+        for sequential_collateral_idx in 0..config.num_sequential_collateral_txs {
             // Create the sequential_collateral_tx handler.
             let sequential_collateral_txhandler = builder::transaction::create_sequential_collateral_txhandler(
                 operator_xonly_pk,
@@ -397,10 +445,12 @@ pub fn create_operator_sighash_stream(
             // (assert_begin_tx -> assert_end_tx -> either disprove_timeout_tx or already_disproven_tx).
             // If the operator is honest, the sequence will end with the operator being able to send the reimburse_tx.
             // Otherwise, by using the disprove_tx, the operator's sequential_collateral_tx burn connector will be burned.
-            for kickoff_idx in 0..config.num_kickoffs_per_sequential_collateral_tx {
+            for kickoff_utxo_idx in 0..config.num_kickoffs_per_sequential_collateral_tx {
+                let partial = PartialSignatureInfo::new(operator_idx, sequential_collateral_idx, kickoff_utxo_idx);
+
                 let kickoff_txhandler = builder::transaction::create_kickoff_txhandler(
                     &sequential_collateral_txhandler,
-                    kickoff_idx,
+                    kickoff_utxo_idx,
                     nofn_xonly_pk,
                     operator_xonly_pk,
                     *move_txhandler.get_txid(),
@@ -415,12 +465,12 @@ pub fn create_operator_sighash_stream(
                 )?;
 
                 // Yields the sighash for the kickoff_timeout_tx.input[0], which spends kickoff_tx.output[3].
-                yield kickoff_timeout_txhandler.calculate_pubkey_spend_sighash(
+                yield (kickoff_timeout_txhandler.calculate_pubkey_spend_sighash(
                     1,
                     None,
-                )?;
+                )?, partial.complete(kickoff_timeout_txhandler.get_signature_id(1)?));
 
-                let (assert_tx_addrs, root_hash, _public_input_wots) = db.get_bitvm_setup(None, operator_idx as i32, time_tx_idx as i32, kickoff_idx as i32).await?.ok_or(BridgeError::BitvmSetupNotFound(operator_idx as i32, time_tx_idx as i32, kickoff_idx as i32))?;
+                let (assert_tx_addrs, root_hash, _public_input_wots) = db.get_bitvm_setup(None, operator_idx as i32, sequential_collateral_idx as i32, kickoff_utxo_idx as i32).await?.ok_or(BridgeError::BitvmSetupNotFound(operator_idx as i32, sequential_collateral_idx as i32, kickoff_utxo_idx as i32))?;
 
                 // Creates the assert_begin_tx handler.
                 let assert_begin_txhandler = builder::transaction::create_assert_begin_txhandler(
@@ -446,10 +496,10 @@ pub fn create_operator_sighash_stream(
                 )?;
 
                 // Yields the sighash for the already_disproved_tx.input[0], which spends assert_end_tx.output[1].
-                yield already_disproved_txhandler.calculate_pubkey_spend_sighash(
+                yield (already_disproved_txhandler.calculate_pubkey_spend_sighash(
                     1,
                     None,
-                )?;
+                )?, partial.complete(already_disproved_txhandler.get_signature_id(1)?));
 
                 let disprove_txhandler = builder::transaction::create_disprove_txhandler(
                     &assert_end_txhandler,
@@ -457,10 +507,10 @@ pub fn create_operator_sighash_stream(
                 )?;
 
                 // Yields the sighash for the disprove_tx.input[1], which spends sequential_collateral_tx.output[0].
-                yield disprove_txhandler.calculate_pubkey_spend_sighash(
+                yield (disprove_txhandler.calculate_pubkey_spend_sighash(
                     1,
                     None,
-                )?;
+                )?, partial.complete(disprove_txhandler.get_signature_id(1)?));
             }
 
             input_txid = *reimburse_generator_txhandler.get_txid();
@@ -620,30 +670,30 @@ mod tests {
         for _ in 0..config.num_operators {
             for _ in 0..config.num_sequential_collateral_txs {
                 for _ in 0..config.num_kickoffs_per_sequential_collateral_tx {
-                    challenge_tx_sighashes.push(nofn_stream.next().await.unwrap().unwrap());
+                    challenge_tx_sighashes.push(nofn_stream.next().await.unwrap().unwrap().0);
                     start_happy_reimburse_sighashes
-                        .push(nofn_stream.next().await.unwrap().unwrap());
-                    happy_reimburse_sighashes.push(nofn_stream.next().await.unwrap().unwrap());
+                        .push(nofn_stream.next().await.unwrap().unwrap().0);
+                    happy_reimburse_sighashes.push(nofn_stream.next().await.unwrap().unwrap().0);
                     watchtower_challenge_kickoff_sighashes
-                        .push(nofn_stream.next().await.unwrap().unwrap());
-                    kickoff_timeout_sighashes.push(nofn_stream.next().await.unwrap().unwrap());
+                        .push(nofn_stream.next().await.unwrap().unwrap().0);
+                    kickoff_timeout_sighashes.push(nofn_stream.next().await.unwrap().unwrap().0);
 
                     for _ in 0..config.num_watchtowers {
                         // Script spend.
                         operator_challenge_nack_sighashes
-                            .push(nofn_stream.next().await.unwrap().unwrap());
+                            .push(nofn_stream.next().await.unwrap().unwrap().0);
                         // Pubkey spend.
                         operator_challenge_nack_sighashes
-                            .push(nofn_stream.next().await.unwrap().unwrap());
+                            .push(nofn_stream.next().await.unwrap().unwrap().0);
                     }
 
-                    assert_end_sighashes.push(nofn_stream.next().await.unwrap().unwrap());
+                    assert_end_sighashes.push(nofn_stream.next().await.unwrap().unwrap().0);
                     // Pubkey spend.
-                    disprove_timeout_sighashes.push(nofn_stream.next().await.unwrap().unwrap());
+                    disprove_timeout_sighashes.push(nofn_stream.next().await.unwrap().unwrap().0);
                     // Script spend.
-                    disprove_timeout_sighashes.push(nofn_stream.next().await.unwrap().unwrap());
-                    already_disproved_sighashes.push(nofn_stream.next().await.unwrap().unwrap());
-                    reimburse_sighashes.push(nofn_stream.next().await.unwrap().unwrap());
+                    disprove_timeout_sighashes.push(nofn_stream.next().await.unwrap().unwrap().0);
+                    already_disproved_sighashes.push(nofn_stream.next().await.unwrap().unwrap().0);
+                    reimburse_sighashes.push(nofn_stream.next().await.unwrap().unwrap().0);
                 }
             }
         }

@@ -11,6 +11,7 @@ use bitcoin::{
     secp256k1::{schnorr, Message, PublicKey},
     Address, OutPoint, TxOut, Txid, XOnlyPublicKey,
 };
+use prost::Message as _;
 use secp256k1::musig;
 use serde::{Deserialize, Serialize};
 use sqlx::{
@@ -211,25 +212,13 @@ impl_bytea_wrapper_custom!(
     |x: &[u8]| -> Result<Message, BoxDynError> { Ok(Message::from_digest(x.try_into()?)) }
 );
 
+use crate::rpc::clementine::DepositSignatures;
 impl_bytea_wrapper_custom!(
     SignaturesDB,
-    Vec<schnorr::Signature>,
-    |signatures: &Vec<schnorr::Signature>| -> Vec<u8> {
-        borsh::to_vec(
-            &signatures
-                .iter()
-                .map(|signature| signature.serialize().to_vec())
-                .collect::<Vec<_>>(),
-        )
-        .expect("signatures array too big (len() > 2^32) or ran out of memory")
-    },
-    |x: &[u8]| -> Result<Vec<schnorr::Signature>, BoxDynError> {
-        borsh::from_slice::<Vec<Vec<u8>>>(x)?
-            .iter()
-            .map(|signature| -> Result<schnorr::Signature, BoxDynError> {
-                schnorr::Signature::from_slice(signature).map_err(Into::into)
-            })
-            .collect::<Result<Vec<_>, BoxDynError>>()
+    DepositSignatures,
+    |signatures: &DepositSignatures| { signatures.encode_to_vec() },
+    |x: &[u8]| -> Result<DepositSignatures, BoxDynError> {
+        DepositSignatures::decode(x).map_err(Into::into)
     }
 );
 
@@ -273,8 +262,8 @@ mod tests {
         create_test_config_with_thread_name,
         database::Database,
         initialize_database,
-        utils::initialize_logger,
-        utils::{self, SECP},
+        rpc::clementine::TaggedSignature,
+        utils::{self, initialize_logger, SECP},
         EVMAddress,
     };
     use bitcoin::{
@@ -439,13 +428,24 @@ mod tests {
             sqlx::postgres::PgTypeInfo::with_name("BYTEA")
         );
 
-        let signatures = vec![
-            Signature::from_slice(&[0x1Fu8; 64]).unwrap(),
-            Signature::from_slice(&[0x45u8; 64]).unwrap(),
-        ];
+        use crate::rpc::clementine::{
+            DepositSignatures, NormalSignatureKind, WatchtowerSignatureKind,
+        };
+        let signatures = DepositSignatures {
+            signatures: vec![
+                TaggedSignature {
+                    signature: vec![0x1Fu8; 64],
+                    signature_id: Some(NormalSignatureKind::HappyReimburse1.into()),
+                },
+                TaggedSignature {
+                    signature: vec![0x45u8; 64],
+                    signature_id: Some((WatchtowerSignatureKind::OperatorChallengeNack2, 1).into()),
+                },
+            ],
+        };
         test_encode_decode_invariant!(
             SignaturesDB,
-            Vec<Signature>,
+            DepositSignatures,
             SignaturesDB(signatures),
             "signatures",
             "BYTEA"

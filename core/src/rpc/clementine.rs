@@ -20,15 +20,17 @@ pub struct WatchtowerSignatureId {
     #[prost(int32, tag = "2")]
     pub watchtower_idx: i32,
 }
+/// A tagged signature struct that identifies the transaction-input that the signature is for.
+/// The id is left as NotStored for signatures that are created on the fly by the operator (they're also not stored).
 #[derive(Clone, PartialEq, ::prost::Message)]
-pub struct Signature {
+pub struct TaggedSignature {
     #[prost(bytes = "vec", tag = "3")]
     pub signature: ::prost::alloc::vec::Vec<u8>,
-    #[prost(oneof = "signature::SignatureId", tags = "1, 2")]
-    pub signature_id: ::core::option::Option<signature::SignatureId>,
+    #[prost(oneof = "tagged_signature::SignatureId", tags = "1, 2")]
+    pub signature_id: ::core::option::Option<tagged_signature::SignatureId>,
 }
-/// Nested message and enum types in `Signature`.
-pub mod signature {
+/// Nested message and enum types in `TaggedSignature`.
+pub mod tagged_signature {
     #[derive(Clone, Copy, PartialEq, ::prost::Oneof)]
     pub enum SignatureId {
         #[prost(message, tag = "1")]
@@ -40,7 +42,7 @@ pub mod signature {
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct DepositSignatures {
     #[prost(message, repeated, tag = "1")]
-    pub signatures: ::prost::alloc::vec::Vec<Signature>,
+    pub signatures: ::prost::alloc::vec::Vec<TaggedSignature>,
 }
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct ChallengeAckDigest {

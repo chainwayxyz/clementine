@@ -23,12 +23,6 @@ create table if not exists operator_sequential_collateral_txs (
     primary key (operator_idx, idx)
 );
 
--- Timeout tx signatures. Verifiers needs to store these data and use it when needed
-create table if not exists operator_timeout_tx_sigs (
-    operator_idx int primary key, -- Index of the operator
-    timeout_tx_sigs bytea not null -- Serialized Timeout tx signatures
-);
-
 -- Verifier table for deposit details
 /* This table holds the information related to a deposit. */
 create table if not exists deposit_infos (
@@ -159,12 +153,19 @@ create table if not exists operator_winternitz_public_keys (
     primary key (operator_id)
 );
 
+create table if not exists deposits (
+    deposit_id serial primary key,
+    deposit_outpoint text unique not null check (deposit_outpoint ~ '^[a-fA-F0-9]{64}:(0|[1-9][0-9]{0,9})$')
+);
+
 -- Deposit signatures
 create table if not exists deposit_signatures (
-    deposit_outpoint text not null check (deposit_outpoint ~ '^[a-fA-F0-9]{64}:(0|[1-9][0-9]{0,9})$'),
+    deposit_id int not null,
     operator_idx int not null,
+    sequential_collateral_idx int not null,
+    kickoff_idx int not null,
     signatures bytea not null,
-    primary key (deposit_outpoint, operator_idx)
+    primary key (deposit_id, operator_idx, sequential_collateral_idx, kickoff_idx)
 );
 
 -- Verifier table for BitVM setup data

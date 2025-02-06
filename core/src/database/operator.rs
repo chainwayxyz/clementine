@@ -6,7 +6,13 @@ use super::{
     wrapper::{OutPointDB, SignatureDB, SignaturesDB, TxOutDB, TxidDB, UtxoDB, XOnlyPublicKeyDB},
     Database, DatabaseTransaction,
 };
-use crate::{errors::BridgeError, execute_query_with_tx, operator::PublicHash, UTXO};
+use crate::{
+    errors::BridgeError,
+    execute_query_with_tx,
+    operator::PublicHash,
+    rpc::clementine::{DepositSignatures, TaggedSignature},
+    UTXO,
+};
 use bitcoin::{secp256k1::schnorr, OutPoint, ScriptBuf, Txid, XOnlyPublicKey};
 use bitvm::signatures::winternitz;
 use bitvm::signatures::winternitz::PublicKey as WinternitzPublicKey;
@@ -121,39 +127,6 @@ impl Database {
             })
             .collect::<Result<Vec<_>, BridgeError>>()?;
         Ok(data)
-    }
-
-    pub async fn set_timeout_tx_sigs(
-        &self,
-        tx: Option<DatabaseTransaction<'_, '_>>,
-        operator_idx: u32,
-        timeout_tx_sigs: Vec<schnorr::Signature>,
-    ) -> Result<(), BridgeError> {
-        let query = sqlx::query(
-            "INSERT INTO operator_timeout_tx_sigs (operator_idx, timeout_tx_sigs) VALUES ($1, $2);",
-        )
-        .bind(operator_idx as i64)
-        .bind(SignaturesDB(timeout_tx_sigs));
-
-        execute_query_with_tx!(self.connection, tx, query, execute)?;
-
-        Ok(())
-    }
-
-    pub async fn get_timeout_tx_sigs(
-        &self,
-        tx: Option<DatabaseTransaction<'_, '_>>,
-        operator_idx: u32,
-    ) -> Result<Vec<schnorr::Signature>, BridgeError> {
-        let query = sqlx::query_as(
-            "SELECT timeout_tx_sigs FROM operator_timeout_tx_sigs WHERE operator_idx = $1;",
-        )
-        .bind(operator_idx as i64);
-
-        let signatures: (SignaturesDB,) =
-            execute_query_with_tx!(self.connection, tx, query, fetch_one)?;
-
-        Ok(signatures.0 .0)
     }
 
     pub async fn lock_operators_kickoff_utxo_table(
@@ -583,18 +556,31 @@ impl Database {
         &self,
         tx: Option<DatabaseTransaction<'_, '_>>,
         deposit_outpoint: OutPoint,
-        operator_idx: u32,
-        signatures: Vec<schnorr::Signature>,
+        operator_idx: usize,
+        sequential_collateral_idx: usize,
+        kickoff_idx: usize,
+        signatures: Vec<TaggedSignature>,
     ) -> Result<(), BridgeError> {
         let query = sqlx::query(
-            "INSERT INTO deposit_signatures (deposit_outpoint, operator_idx, signatures) VALUES ($1, $2, $3);"
+            "WITH deposit AS (
+            INSERT INTO deposits (deposit_outpoint) 
+            VALUES ($1) 
+            ON CONFLICT DO NOTHING 
+            RETURNING deposit_id
+            )
+            INSERT INTO deposit_signatures (deposit_id, operator_idx, sequential_collateral_idx, kickoff_idx, signatures)
+            VALUES (
+            (SELECT deposit_id FROM deposit UNION SELECT deposit_id FROM deposits WHERE deposit_outpoint = $1), 
+            $2, $3, $4, $5
+            );"
         )
         .bind(OutPointDB(deposit_outpoint))
-        .bind(operator_idx as i64)
-        .bind(SignaturesDB(signatures));
+        .bind(operator_idx as i32)
+        .bind(sequential_collateral_idx as i32)
+        .bind(kickoff_idx as i32)
+        .bind(SignaturesDB(DepositSignatures{signatures}));
 
         execute_query_with_tx!(self.connection, tx, query, execute)?;
-
         Ok(())
     }
 
@@ -606,19 +592,28 @@ impl Database {
         &self,
         tx: Option<DatabaseTransaction<'_, '_>>,
         deposit_outpoint: OutPoint,
-        operator_idx: u32,
-    ) -> Result<Option<Vec<schnorr::Signature>>, BridgeError> {
-        let query = sqlx::query_as(
-            "SELECT signatures FROM deposit_signatures WHERE deposit_outpoint = $1 AND operator_idx = $2;"
+        operator_idx: usize,
+        sequential_collateral_idx: usize,
+        kickoff_idx: usize,
+    ) -> Result<Option<Vec<TaggedSignature>>, BridgeError> {
+        let query = sqlx::query_as::<_, (SignaturesDB,)>(
+            "SELECT ds.signatures FROM deposit_signatures ds
+                    INNER JOIN deposits d ON d.deposit_id = ds.deposit_id
+                 WHERE d.deposit_outpoint = $1
+                 AND ds.operator_idx = $2
+                 AND ds.sequential_collateral_idx = $3
+                 AND ds.kickoff_idx = $4;",
         )
         .bind(OutPointDB(deposit_outpoint))
-        .bind(operator_idx as i64);
+        .bind(operator_idx as i32)
+        .bind(sequential_collateral_idx as i32)
+        .bind(kickoff_idx as i32);
 
         let result: Result<(SignaturesDB,), sqlx::Error> =
             execute_query_with_tx!(self.connection, tx, query, fetch_one);
 
         match result {
-            Ok((SignaturesDB(signatures),)) => Ok(Some(signatures)),
+            Ok((SignaturesDB(signatures),)) => Ok(Some(signatures.signatures)),
             Err(sqlx::Error::RowNotFound) => Ok(None),
             Err(e) => Err(BridgeError::DatabaseError(e)),
         }
@@ -723,6 +718,9 @@ mod tests {
 
     use crate::extended_rpc::ExtendedRpc;
     use crate::operator::Operator;
+    use crate::rpc::clementine::{
+        DepositSignatures, NormalSignatureKind, TaggedSignature, WatchtowerSignatureKind,
+    };
     use crate::{
         config::BridgeConfig, database::Database, initialize_database, utils::initialize_logger,
     };
@@ -991,25 +989,6 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn set_get_timeout_tx_sigs() {
-        let config = create_test_config_with_thread_name!(None);
-        let database = Database::new(&config).await.unwrap();
-
-        let signatures: Vec<schnorr::Signature> = (0..0x45)
-            .map(|i| schnorr::Signature::from_slice(&[i; SCHNORR_SIGNATURE_SIZE]).unwrap())
-            .collect();
-
-        database
-            .set_timeout_tx_sigs(None, 0x45, signatures.clone())
-            .await
-            .unwrap();
-
-        let read_signatures = database.get_timeout_tx_sigs(None, 0x45).await.unwrap();
-
-        assert_eq!(signatures, read_signatures);
-    }
-
-    #[tokio::test]
     async fn test_operators_funding_utxo_1() {
         let config = create_test_config_with_thread_name!(None);
         let db = Database::new(&config).await.unwrap();
@@ -1163,35 +1142,78 @@ mod tests {
             txid: Txid::from_slice(&[0x45; 32]).unwrap(),
             vout: 0x1F,
         };
-        let signatures =
-            vec![schnorr::Signature::from_slice(&[0x1F; SCHNORR_SIGNATURE_SIZE]).unwrap(); 2];
+        let sequential_coll_idx = 1;
+        let kickoff_idx = 1;
+        let signatures = DepositSignatures {
+            signatures: vec![
+                TaggedSignature {
+                    signature_id: Some(NormalSignatureKind::HappyReimburse1.into()),
+                    signature: vec![0x1F; SCHNORR_SIGNATURE_SIZE],
+                },
+                TaggedSignature {
+                    signature_id: Some((WatchtowerSignatureKind::OperatorChallengeNack1, 1).into()),
+                    signature: (vec![0x2F; SCHNORR_SIGNATURE_SIZE]),
+                },
+            ],
+        };
 
         database
-            .set_deposit_signatures(None, deposit_outpoint, operator_idx, signatures.clone())
+            .set_deposit_signatures(
+                None,
+                deposit_outpoint,
+                operator_idx,
+                sequential_coll_idx,
+                kickoff_idx,
+                signatures.signatures.clone(),
+            )
             .await
             .unwrap();
 
         let result = database
-            .get_deposit_signatures(None, deposit_outpoint, operator_idx)
+            .get_deposit_signatures(
+                None,
+                deposit_outpoint,
+                operator_idx,
+                sequential_coll_idx,
+                kickoff_idx,
+            )
             .await
             .unwrap()
             .unwrap();
-        assert_eq!(result, signatures);
+        assert_eq!(result, signatures.signatures);
 
         let non_existent = database
-            .get_deposit_signatures(None, deposit_outpoint, operator_idx + 1)
+            .get_deposit_signatures(
+                None,
+                deposit_outpoint,
+                operator_idx + 1,
+                sequential_coll_idx + 1,
+                kickoff_idx + 1,
+            )
             .await
             .unwrap();
         assert!(non_existent.is_none());
 
         let non_existent = database
-            .get_deposit_signatures(None, OutPoint::null(), operator_idx)
+            .get_deposit_signatures(
+                None,
+                OutPoint::null(),
+                operator_idx,
+                sequential_coll_idx,
+                kickoff_idx,
+            )
             .await
             .unwrap();
         assert!(non_existent.is_none());
 
         let non_existent = database
-            .get_deposit_signatures(None, OutPoint::null(), operator_idx + 1)
+            .get_deposit_signatures(
+                None,
+                OutPoint::null(),
+                operator_idx + 1,
+                sequential_coll_idx,
+                kickoff_idx,
+            )
             .await
             .unwrap();
         assert!(non_existent.is_none());

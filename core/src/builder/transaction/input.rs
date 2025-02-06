@@ -1,6 +1,6 @@
 use crate::builder::script::SpendableScript;
 use crate::builder::{address::create_taproot_address, script::SpendPath};
-use crate::rpc::clementine::signature::SignatureId;
+use crate::rpc::clementine::tagged_signature::SignatureId;
 use bitcoin::{
     taproot::{LeafVersion, TaprootSpendInfo},
     Amount, OutPoint, ScriptBuf, Sequence, TxIn, TxOut, Witness, WitnessProgram, XOnlyPublicKey,
@@ -195,6 +195,10 @@ impl SpentTxIn {
 
     pub fn get_witness(&self) -> &Option<Witness> {
         &self.witness
+    }
+
+    pub fn get_signature_id(&self) -> SignatureId {
+        self.input_id
     }
 
     pub fn set_witness(&mut self, witness: Witness) {

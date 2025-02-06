@@ -46,7 +46,9 @@ message WatchtowerSignatureId {
   int32 watchtower_idx = 2;
 }
 
-message Signature {
+// A tagged signature struct that identifies the transaction-input that the signature is for.
+// The id is left as NotStored for signatures that are created on the fly by the operator (they're also not stored).
+message TaggedSignature {
   oneof signature_id {
     NormalSignatureId normal_signature = 1;
     WatchtowerSignatureId watchtower_signature = 2;
@@ -54,7 +56,7 @@ message Signature {
   bytes signature = 3;
 }
 
-message DepositSignatures { repeated Signature signatures = 1; }
+message DepositSignatures { repeated TaggedSignature signatures = 1; }
 
 message ChallengeACKDigest {
   bytes hash = 1;

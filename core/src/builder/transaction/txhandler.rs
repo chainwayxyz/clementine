@@ -1,6 +1,6 @@
 use crate::builder::script::SpendPath;
 use crate::errors::BridgeError;
-use crate::rpc::clementine::signature::SignatureId;
+use crate::rpc::clementine::tagged_signature::SignatureId;
 use bitcoin::sighash::SighashCache;
 use bitcoin::taproot::{self, LeafVersion};
 use bitcoin::transaction::Version;
@@ -51,6 +51,10 @@ impl<T: State> TxHandler<T> {
             txout.spendinfo().clone(),
         )) // TODO: Can we get rid of clones?
     }
+    pub fn get_signature_id(&self, idx: usize) -> Result<SignatureId, BridgeError> {
+        let txin = self.txins.get(idx).ok_or(BridgeError::TxInputNotFound)?;
+        Ok(txin.get_signature_id())
+    }
 }
 
 impl TxHandler<Unsigned> {
@@ -94,7 +98,7 @@ impl TxHandler<Unsigned> {
     }
 
     pub fn calculate_script_spend_sighash_indexed(
-        &mut self,
+        &self,
         txin_index: usize,
         spend_script_idx: usize,
         sighash_type: TapSighashType,
@@ -114,7 +118,7 @@ impl TxHandler<Unsigned> {
     }
 
     pub fn calculate_script_spend_sighash(
-        &mut self,
+        &self,
         txin_index: usize,
         spend_script: &Script,
         sighash_type: TapSighashType,

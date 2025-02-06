@@ -634,7 +634,7 @@ mod tests {
             vout: 0,
         };
 
-        let mut tx_details = TxHandlerBuilder::new()
+        let tx_details = TxHandlerBuilder::new()
             .add_input(
                 NormalSignatureKind::NotStored,
                 SpendableTxIn::new(

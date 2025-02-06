@@ -86,7 +86,7 @@ impl ClementineOperator for Operator {
             ));
 
             while let Some(sighash) = sighash_stream.next().await {
-                let sighash = sighash?;
+                let sighash = sighash?.0;
 
                 // None because utxos that operators need to sign do not have scripts
                 let sig = operator.signer.sign_with_tweak(sighash, None)?;

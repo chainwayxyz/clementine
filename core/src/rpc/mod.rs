@@ -1,7 +1,7 @@
 use crate::errors::BridgeError;
 use clementine::*;
-use signature::SignatureId;
 use std::future::Future;
+use tagged_signature::SignatureId;
 use tonic::transport::Uri;
 
 #[allow(clippy::all)]

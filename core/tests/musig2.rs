@@ -11,7 +11,7 @@ use clementine_core::errors::BridgeError;
 use clementine_core::musig2::{
     aggregate_nonces, aggregate_partial_signatures, AggregateFromPublicKeys, Musig2Mode,
 };
-use clementine_core::rpc::clementine::{NormalSignatureId, NormalSignatureKind};
+use clementine_core::rpc::clementine::NormalSignatureKind;
 use clementine_core::utils::SECP;
 use clementine_core::{
     builder::{self},

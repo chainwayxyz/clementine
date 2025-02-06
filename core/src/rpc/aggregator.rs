@@ -4,6 +4,7 @@ use super::clementine::{
     clementine_aggregator_server::ClementineAggregator, verifier_deposit_finalize_params,
     DepositParams, Empty, RawSignedMoveTx, VerifierDepositFinalizeParams,
 };
+use crate::builder::sighash::SignatureInfo;
 use crate::builder::transaction::create_move_to_vault_txhandler;
 use crate::config::BridgeConfig;
 use crate::rpc::clementine::clementine_operator_client::ClementineOperatorClient;
@@ -45,16 +46,21 @@ async fn nonce_aggregator(
     mut nonce_streams: Vec<
         impl Stream<Item = Result<MusigPubNonce, BridgeError>> + Unpin + Send + 'static,
     >,
-    mut sighash_stream: impl Stream<Item = Result<TapSighash, BridgeError>> + Unpin + Send + 'static,
+    mut sighash_stream: impl Stream<Item = Result<(TapSighash, SignatureInfo), BridgeError>>
+        + Unpin
+        + Send
+        + 'static,
     agg_nonce_sender: Sender<AggNonceQueueItem>,
 ) -> Result<MusigAggNonce, BridgeError> {
     let mut total_sigs = 0;
     tracing::info!("Starting nonce aggregation");
     while let Some(msg) = sighash_stream.next().await {
-        let sighash = msg.map_err(|e| {
-            tracing::error!("Error when reading from sighash stream: {}", e);
-            BridgeError::RPCStreamEndedUnexpectedly("Sighash stream ended unexpectedly".into())
-        })?;
+        let sighash = msg
+            .map_err(|e| {
+                tracing::error!("Error when reading from sighash stream: {}", e);
+                BridgeError::RPCStreamEndedUnexpectedly("Sighash stream ended unexpectedly".into())
+            })?
+            .0;
 
         let pub_nonces = try_join_all(nonce_streams.iter_mut().enumerate().map(
             |(i, s)| async move {
@@ -331,7 +337,7 @@ impl Aggregator {
         let musig_partial_sigs = parser::verifier::parse_partial_sigs(partial_sigs)?;
 
         // create move tx and calculate sighash
-        let mut move_txhandler = create_move_to_vault_txhandler(
+        let move_txhandler = create_move_to_vault_txhandler(
             deposit_outpoint,
             evm_address,
             &recovery_taproot_address,
