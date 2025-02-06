@@ -13,6 +13,9 @@ use async_stream::try_stream;
 use bitcoin::{address::NetworkUnchecked, Address, Amount, OutPoint};
 use bitcoin::{TapSighash, Txid, XOnlyPublicKey};
 use futures_core::stream::Stream;
+use crate::rpc::clementine::signature::SignatureId;
+
+use super::transaction::TxHandler;
 
 /// Returns the number of required signatures for N-of-N signing session.
 pub fn calculate_num_required_nofn_sigs(config: &BridgeConfig) -> usize {
@@ -27,6 +30,18 @@ pub fn calculate_num_required_nofn_sigs(config: &BridgeConfig) -> usize {
 pub fn calculate_num_required_operator_sigs(config: &BridgeConfig) -> usize {
     config.num_sequential_collateral_txs * config.num_kickoffs_per_sequential_collateral_tx * 3
 }
+
+pub struct SignatureInfo {
+    pub operator_idx: usize,
+    pub sequential_collateral_idx: usize,
+    pub kickoff_utxo_idx: usize,
+    pub signature_id: SignatureId,
+}
+
+pub fn calculate_pubkey_sighash_get_signature_info(txhandler: &TxHandler, input_idx: usize) {
+    
+}
+
 
 /// Refer to bridge design diagram to see which NofN signatures are needed (the ones marked with blue arrows).
 /// These sighashes are needed in order to create the message to be signed later for MuSig2 of NofN.
@@ -55,7 +70,7 @@ pub fn create_nofn_sighash_stream(
     max_withdrawal_time_block_count: u16,
     bridge_amount_sats: Amount,
     network: bitcoin::Network,
-) -> impl Stream<Item = Result<TapSighash, BridgeError>> {
+) -> impl Stream<Item = Result<(TapSighash, SignatureInfo), BridgeError>> {
     use bitcoin::TapSighashType::All as SighashAll;
     try_stream! {
         // Create move_tx handler. This is unique for each deposit tx.
