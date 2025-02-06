@@ -4,12 +4,15 @@ use crate::{
     rpc::{
         clementine::{
             self, operator_params, ChallengeAckDigest, DepositParams, DepositSignSession,
-            OperatorParams,
+            NewWithdrawalSigParams, OperatorParams,
         },
-        error::expected_msg_got_none,
+        error::{self, expected_msg_got_none},
     },
 };
-use bitcoin::{hashes::Hash, Address, Txid, XOnlyPublicKey};
+use bitcoin::{
+    hashes::Hash, secp256k1::schnorr::Signature, Address, Amount, OutPoint, ScriptBuf, Txid,
+    XOnlyPublicKey,
+};
 use bitvm::signatures::winternitz;
 use std::str::FromStr;
 use tonic::Status;
@@ -152,4 +155,27 @@ pub async fn parse_winternitz_public_keys(
     } else {
         Err(expected_msg_got_none("WinternitzPubkeys")())
     }
+}
+
+pub async fn parse_withdrawal_sig_params(
+    params: NewWithdrawalSigParams,
+) -> Result<(u32, Signature, Option<OutPoint>, ScriptBuf, Amount), Status> {
+    let user_sig = Signature::from_slice(&params.user_sig)
+        .map_err(|e| error::invalid_argument("user_sig", "Can't convert input to Signature")(e))?;
+
+    let users_intent_outpoint: Option<OutPoint> = if let Some(o) = params.users_intent_outpoint {
+        Some(o.try_into()?)
+    } else {
+        None
+    };
+
+    let users_intent_script_pubkey = ScriptBuf::from_bytes(params.users_intent_script_pubkey);
+
+    Ok((
+        params.withdrawal_id,
+        user_sig,
+        users_intent_outpoint,
+        users_intent_script_pubkey,
+        Amount::from_sat(params.users_intent_amount),
+    ))
 }

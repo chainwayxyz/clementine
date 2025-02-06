@@ -22,7 +22,7 @@ pub type PublicHash = [u8; 20]; // TODO: Make sure these are 20 bytes and maybe 
 
 #[derive(Debug, Clone)]
 pub struct Operator {
-    rpc: ExtendedRpc,
+    pub rpc: ExtendedRpc,
     pub db: Database,
     pub(crate) signer: Actor,
     pub(crate) config: BridgeConfig,
