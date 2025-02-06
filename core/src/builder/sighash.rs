@@ -458,8 +458,9 @@ mod tests {
     use crate::builder::sighash::create_nofn_sighash_stream;
     use crate::extended_rpc::ExtendedRpc;
     use crate::operator::Operator;
+    use crate::utils::BITVM_CACHE;
     use crate::watchtower::Watchtower;
-    use crate::{builder, create_test_config_with_thread_name, utils};
+    use crate::{builder, create_test_config_with_thread_name};
     use crate::{
         config::BridgeConfig, database::Database, initialize_database, utils::initialize_logger,
     };
@@ -541,7 +542,7 @@ mod tests {
                 .unwrap();
             }
         }
-        let assert_len = utils::ALL_BITVM_INTERMEDIATE_VARIABLES.len();
+        let assert_len = BITVM_CACHE.intermediate_variables.len();
         for o in 0..config.num_operators {
             for t in 0..config.num_sequential_collateral_txs {
                 for k in 0..config.num_kickoffs_per_sequential_collateral_tx {

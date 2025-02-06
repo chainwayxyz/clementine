@@ -937,11 +937,17 @@ mod tests {
                 .await
                 .unwrap();
 
+        tracing::info!("Setting up aggregator");
+        let start = std::time::Instant::now();
+
         aggregator_client
             .setup(tonic::Request::new(clementine::Empty {}))
             .await
             .unwrap();
 
+        tracing::info!("Setup completed in {:?}", start.elapsed());
+        tracing::info!("Depositing");
+        let deposit_start = std::time::Instant::now();
         aggregator_client
             .new_deposit(DepositParams {
                 deposit_outpoint: Some(
@@ -961,5 +967,6 @@ mod tests {
             })
             .await
             .unwrap();
+        tracing::info!("Deposit completed in {:?}", deposit_start.elapsed());
     }
 }

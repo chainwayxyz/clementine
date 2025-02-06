@@ -4,7 +4,6 @@ use crate::database::Database;
 use crate::errors::BridgeError;
 use crate::extended_rpc::ExtendedRpc;
 use crate::musig2::AggregateFromPublicKeys;
-use crate::utils::ALL_BITVM_INTERMEDIATE_VARIABLES;
 use bitcoin::{Amount, OutPoint, Txid, XOnlyPublicKey};
 use bitvm::signatures::winternitz;
 use jsonrpsee::core::client::ClientT;
@@ -723,7 +722,7 @@ impl Operator {
             for kickoff_idx in 0..self.config.num_kickoffs_per_sequential_collateral_tx as u32 {
                 // ALL_BITVM_INTERMEDIATE_VARIABLES is a global variable that contains the intermediate variables for the BitVM in BTreeMap
                 for (intermediate_step, intermediate_step_size) in
-                    ALL_BITVM_INTERMEDIATE_VARIABLES.iter()
+                    crate::utils::BITVM_CACHE.intermediate_variables.iter()
                 {
                     let step_name = intermediate_step.as_str();
                     let path = WinternitzDerivationPath {
