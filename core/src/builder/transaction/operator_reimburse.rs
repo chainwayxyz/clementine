@@ -1,10 +1,11 @@
+use super::input::SpendableTxIn;
 use super::txhandler::DEFAULT_SEQUENCE;
 use crate::builder::script::{CheckSig, TimelockScript};
 use crate::builder::transaction::output::UnspentTxOut;
 use crate::builder::transaction::txhandler::{TxHandler, TxHandlerBuilder};
 use crate::constants::{BLOCKS_PER_WEEK, MIN_TAPROOT_AMOUNT};
 use crate::errors::BridgeError;
-use crate::{builder, utils};
+use crate::{builder, utils, UTXO};
 use bitcoin::hashes::Hash;
 use bitcoin::script::PushBytesBuf;
 use bitcoin::XOnlyPublicKey;
@@ -172,5 +173,36 @@ pub fn create_reimburse_txhandler(
         .add_output(UnspentTxOut::from_partial(
             builder::transaction::anchor_output(),
         ))
+        .finalize())
+}
+
+/// Creates a [`TxHandler`] for the `payout_tx`. This transaction will be sent by the operator
+/// for withdrawals.
+pub fn create_payout_txhandler(
+    input_utxo: UTXO,
+    output_txout: TxOut,
+    operator_idx: usize,
+) -> Result<TxHandler, BridgeError> {
+    // let user_sig_wrapped = bitcoin::taproot::Signature {
+    //     signature: user_sig,
+    //     sighash_type: bitcoin::sighash::TapSighashType::SinglePlusAnyoneCanPay,
+    // };
+    // tx.input[0].witness.push(user_sig_wrapped.serialize());
+    let txin = SpendableTxIn::new(input_utxo.outpoint, input_utxo.txout, vec![], None);
+
+    let output_txout = UnspentTxOut::new(output_txout.clone(), vec![], None);
+    let mut push_bytes = PushBytesBuf::new();
+    push_bytes
+        .extend_from_slice(&utils::usize_to_var_len_bytes(operator_idx))
+        .expect("Not possible to panic while converting index to slice");
+    let op_return_txout = builder::transaction::op_return_txout(push_bytes);
+    let op_return_txout = UnspentTxOut::from_partial(op_return_txout);
+
+    let builder = TxHandlerBuilder::new();
+
+    Ok(builder
+        .add_input(txin, Sequence::from_height(0))
+        .add_output(output_txout)
+        .add_output(op_return_txout)
         .finalize())
 }

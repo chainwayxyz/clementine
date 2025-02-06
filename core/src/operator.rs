@@ -1,19 +1,15 @@
 use crate::actor::{Actor, WinternitzDerivationPath};
-use crate::builder::transaction::input::SpendableTxIn;
-use crate::builder::transaction::output::UnspentTxOut;
-use crate::builder::transaction::TxHandlerBuilder;
 use crate::config::BridgeConfig;
 use crate::database::Database;
 use crate::errors::BridgeError;
 use crate::extended_rpc::ExtendedRpc;
 use crate::musig2::AggregateFromPublicKeys;
-use crate::utils::{self, ALL_BITVM_INTERMEDIATE_VARIABLES, SECP};
+use crate::utils::{ALL_BITVM_INTERMEDIATE_VARIABLES, SECP};
 use crate::{builder, UTXO};
 use bitcoin::consensus::deserialize;
 use bitcoin::hashes::Hash;
-use bitcoin::script::PushBytesBuf;
 use bitcoin::secp256k1::{schnorr, Message};
-use bitcoin::{Amount, OutPoint, Sequence, Transaction, TxOut, Txid, XOnlyPublicKey};
+use bitcoin::{Amount, OutPoint, Transaction, TxOut, Txid, XOnlyPublicKey};
 use bitcoincore_rpc::RpcApi;
 use bitvm::signatures::winternitz;
 use jsonrpsee::core::client::ClientT;
@@ -436,33 +432,10 @@ impl Operator {
         let user_xonly_pk =
             XOnlyPublicKey::from_slice(&input_utxo.txout.script_pubkey.as_bytes()[2..34])?;
 
-        // let user_sig_wrapped = bitcoin::taproot::Signature {
-        //     signature: user_sig,
-        //     sighash_type: bitcoin::sighash::TapSighashType::SinglePlusAnyoneCanPay,
-        // };
-        // tx.input[0].witness.push(user_sig_wrapped.serialize());
+        let payout_txhandler =
+            builder::transaction::create_payout_txhandler(input_utxo, output_txout, self.idx)?;
 
-        let prevout = self
-            .rpc
-            .get_txout_from_outpoint(&input_utxo.outpoint)
-            .await?;
-        let txin = SpendableTxIn::new(input_utxo.outpoint, prevout, vec![], None);
-
-        let txout = UnspentTxOut::new(output_txout.clone(), vec![], None);
-        let mut push_bytes = PushBytesBuf::new();
-        push_bytes
-            .extend_from_slice(&utils::usize_to_var_len_bytes(self.idx))
-            .expect("Not possible to panic while converting index to slice");
-        let op_return_txout = builder::transaction::op_return_txout(push_bytes);
-        let op_return_txout = UnspentTxOut::from_partial(op_return_txout);
-
-        let tx_handler_builder = TxHandlerBuilder::new()
-            .add_input(txin, Sequence::from_height(0))
-            .add_output(txout)
-            .add_output(op_return_txout)
-            .finalize();
-
-        let sighash = tx_handler_builder.calculate_pubkey_spend_sighash(
+        let sighash = payout_txhandler.calculate_pubkey_spend_sighash(
             0,
             Some(bitcoin::sighash::TapSighashType::SinglePlusAnyoneCanPay),
         )?;
@@ -477,7 +450,7 @@ impl Operator {
             .rpc
             .client
             .fund_raw_transaction(
-                tx_handler_builder.get_cached_tx(),
+                payout_txhandler.get_cached_tx(),
                 Some(&bitcoincore_rpc::json::FundRawTransactionOptions {
                     add_inputs: Some(true),
                     change_address: None,
