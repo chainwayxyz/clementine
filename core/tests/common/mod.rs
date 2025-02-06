@@ -264,42 +264,19 @@ pub async fn run_single_deposit(
         config.bitcoin_rpc_user.clone(),
         config.bitcoin_rpc_password.clone(),
     )
-    .await
-    .unwrap();
+    .await?;
 
     let evm_address = EVMAddress([1u8; 20]);
-    let (deposit_address, _) = get_deposit_address!(config, evm_address).unwrap();
+    let (deposit_address, _) = get_deposit_address!(config, evm_address)?;
 
     let (verifiers, operators, mut aggregator, watchtowers) = create_actors!(config);
-    // let verifiers = join_all(verifiers.iter().map(|verifier| async move {
-    //     ClementineVerifierClient::connect(format!("http://{}", verifier.0))
-    //         .await
-    //         .unwrap()
-    // }))
-    // .await;
-    // let operators = join_all(operators.iter().map(|operator| async move {
-    //     ClementineOperatorClient::connect(format!("http://{}", operator.0))
-    //         .await
-    //         .unwrap()
-    // }))
-    // .await;
-    // let mut aggregator = ClementineAggregatorClient::connect(format!("http://{}", aggregator.0))
-    //     .await
-    //     .unwrap();
-    // let watchtowers = join_all(watchtowers.iter().map(|watchtower| async move {
-    //     ClementineWatchtowerClient::connect(format!("http://{}", watchtower.0))
-    //         .await
-    //         .unwrap()
-    // }))
-    // .await;
 
-    aggregator.setup(Request::new(Empty {})).await.unwrap();
+    aggregator.setup(Request::new(Empty {})).await?;
 
     let deposit_outpoint = rpc
         .send_to_address(&deposit_address, config.bridge_amount_sats)
-        .await
-        .unwrap();
-    rpc.mine_blocks(18).await.unwrap();
+        .await?;
+    rpc.mine_blocks(18).await?;
 
     let _move_tx = aggregator
         .new_deposit(DepositParams {
@@ -309,13 +286,12 @@ pub async fn run_single_deposit(
                 "tb1pk8vus63mx5zwlmmmglq554kwu0zm9uhswqskxg99k66h8m3arguqfrvywa".to_string(),
             user_takes_after: config.user_takes_after as u32,
         })
-        .await
-        .unwrap()
+        .await?
         .into_inner();
 
     // let move_tx: Transaction =
-    //     Transaction::consensus_decode(&mut move_tx.raw_tx.as_slice()).unwrap();
-    // let move_txid = rpc.client.send_raw_transaction(&move_tx).await.unwrap();
+    //     Transaction::consensus_decode(&mut move_tx.raw_tx.as_slice())?;
+    // let move_txid = rpc.client.send_raw_transaction(&move_tx).await?;
     // println!("Move txid: {:?}", move_txid);
     // println!("Move tx weight: {:?}", move_tx.weight());
 
