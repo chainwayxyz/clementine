@@ -34,6 +34,12 @@ impl Risc0Guest {
     }
 }
 
+impl Default for Risc0Guest {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl ZkvmGuest for Risc0Guest {
     fn read_from_host<T: borsh::BorshDeserialize>(&self) -> T {
         let mut reader = env::stdin();
