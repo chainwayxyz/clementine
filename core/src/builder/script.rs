@@ -5,8 +5,9 @@
 // Currently generate_witness functions are not yet used.
 #![allow(dead_code)]
 
-use crate::EVMAddress;
+use crate::{utils, EVMAddress};
 use bitcoin::opcodes::OP_TRUE;
+use bitcoin::script::PushBytesBuf;
 use bitcoin::secp256k1::schnorr;
 use bitcoin::{
     opcodes::{all::*, OP_FALSE},
@@ -231,6 +232,37 @@ impl DepositScript {
 
     pub fn new(xonly_pk: XOnlyPublicKey, evm_address: EVMAddress, amount: Amount) -> Self {
         Self(xonly_pk, evm_address, amount)
+    }
+}
+
+/// Struct for withdrawal script.
+pub struct WithdrawalScript(usize);
+
+impl SpendableScript for WithdrawalScript {
+    fn as_any(&self) -> &dyn Any {
+        self
+    }
+
+    fn to_script_buf(&self) -> ScriptBuf {
+        let mut push_bytes = PushBytesBuf::new();
+        push_bytes
+            .extend_from_slice(&utils::usize_to_var_len_bytes(self.0))
+            .expect("Not possible to panic while converting index to slice");
+
+        Builder::new()
+            .push_opcode(OP_RETURN)
+            .push_slice(push_bytes)
+            .into_script()
+    }
+}
+
+impl WithdrawalScript {
+    fn generate_witness(&self, signature: schnorr::Signature) -> Witness {
+        Witness::from_slice(&[signature.serialize()])
+    }
+
+    pub fn new(index: usize) -> Self {
+        Self(index)
     }
 }
 
