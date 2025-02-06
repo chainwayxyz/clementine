@@ -205,5 +205,8 @@ pub fn create_payout_txhandler(
         .add_input_with_witness(txin, Sequence::from_height(0), witness)
         .add_output(output_txout)
         .add_output(op_return_txout)
+        .add_output(UnspentTxOut::from_partial(
+            builder::transaction::anchor_output(),
+        ))
         .finalize())
 }
