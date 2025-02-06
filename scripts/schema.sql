@@ -192,4 +192,17 @@ create table if not exists operators_challenge_ack_hashes (
     primary key (operator_idx, sequential_collateral_tx_idx, kickoff_idx)
 );
 
+-- Table to store fee payer UTXOs
+create table if not exists fee_payer_utxos (
+    id serial primary key,
+    bumped_txid text not null check (bumped_txid ~ '^[a-fA-F0-9]{64}'),
+    fee_payer_txid text not null check (fee_payer_txid ~ '^[a-fA-F0-9]{64}'),
+    vout int not null,
+    script_pubkey text not null,
+    amount bigint not null,
+    is_confirmed boolean not null default false,
+    confirmed_blockhash text check (confirmed_blockhash ~ '^[a-fA-F0-9]{64}'),
+    created_at timestamp not null default now()
+);
+
 COMMIT;

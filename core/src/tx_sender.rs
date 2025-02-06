@@ -1,6 +1,8 @@
 use std::collections::HashMap;
 
-use bitcoin::{hashes::Hash, Address, Amount, OutPoint, Transaction, TxOut, Txid};
+use bitcoin::{
+    hashes::Hash, transaction::Version, Address, Amount, OutPoint, Transaction, TxOut, Txid, Weight,
+};
 use bitcoincore_rpc::{
     json::{EstimateMode, FundRawTransactionOptions},
     RpcApi,
@@ -79,10 +81,10 @@ impl TxSender {
     /// We want to allocate more than the required amount to be able to bump fees.
     pub fn calculate_required_amount_for_fee_payer(
         &self,
-        bumped_tx_size: u64,
+        bumped_tx_size: Weight,
         fee_rate: Amount,
     ) -> Result<Amount, BridgeError> {
-        let required_amount = fee_rate * 3 * bumped_tx_size;
+        let required_amount = fee_rate * 3 * bumped_tx_size.to_wu();
         Ok(required_amount)
     }
 
@@ -92,6 +94,7 @@ impl TxSender {
         address: &Address,
         amount_sats: Amount,
     ) -> Result<OutPoint, BridgeError> {
+        // TODO: Fix the issue with create_raw_transaction and use the code below.
         self.rpc.send_to_address(address, amount_sats).await
         // let mut outputs = HashMap::new();
         // outputs.insert(address.to_string(), amount_sats);
@@ -148,7 +151,7 @@ impl TxSender {
     pub async fn create_fee_payer_tx(
         &self,
         bumped_txid: Txid,
-        bumped_tx_size: u64,
+        bumped_tx_size: Weight,
     ) -> Result<OutPoint, BridgeError> {
         let fee_rate = self.get_fee_rate().await?;
         tracing::info!("Fee rate: {}", fee_rate);
@@ -162,7 +165,22 @@ impl TxSender {
             .await?;
 
         // save the db
-        // self.db.save_fee_payer_tx(bumped_txid, outpoint.txid, outpoint.vout, self.signer.address.script_pubkey(), required_amount)?;
+        self.db
+            .save_fee_payer_tx(
+                None,
+                bumped_txid,
+                outpoint.txid,
+                outpoint.vout,
+                self.signer.address.script_pubkey(),
+                required_amount,
+            )
+            .await?;
+
+        tracing::info!(
+            "Fee payer tx saved to db with bumped txid: {} and script pubkey: {}",
+            bumped_txid,
+            self.signer.address.script_pubkey()
+        );
 
         Ok(outpoint)
     }
@@ -175,7 +193,7 @@ impl TxSender {
         p2a_anchor: OutPoint,
         fee_payer_outpoint: OutPoint,
         fee_payer_amount: Amount,
-        parent_tx_size: Amount,
+        parent_tx_size: Weight,
         fee_rate: Amount,
     ) -> Result<Transaction, BridgeError> {
         let (address, spend_info) = builder::address::create_taproot_address(
@@ -185,9 +203,10 @@ impl TxSender {
         );
 
         let child_tx_size = Amount::from_sat(300); // TODO: Fix this.
-        let required_fee = fee_rate * (child_tx_size + parent_tx_size).to_sat();
+        let required_fee = fee_rate * (child_tx_size.to_sat() + parent_tx_size.to_wu() as u64);
 
         let mut builder = TxHandlerBuilder::new()
+            .with_version(Version::non_standard(3))
             .add_input(
                 SpendableTxIn::new_partial(p2a_anchor, builder::transaction::anchor_output()),
                 DEFAULT_SEQUENCE,
@@ -225,22 +244,76 @@ impl TxSender {
         Ok(builder.get_cached_tx().clone())
     }
 
+    fn find_p2a_anchor(&self, tx: &Transaction) -> Result<OutPoint, BridgeError> {
+        let p2a_anchor = tx
+            .output
+            .iter()
+            .enumerate()
+            .find(|(_, output)| output.value == builder::transaction::anchor_output().value);
+        if let Some((vout, _)) = p2a_anchor {
+            Ok(OutPoint::new(tx.compute_txid(), vout as u32))
+        } else {
+            Err(BridgeError::P2AAnchorNotFound)
+        }
+    }
+
     /// This will just persist the raw tx to the db
     pub async fn send_tx_with_cpfp(&self, tx: Transaction) -> Result<(), BridgeError> {
         let bumped_txid = tx.compute_txid();
-        // let (
-        //     fee_payer_txid,
-        //     fee_payer_vout,
-        //     fee_payer_scriptpubkey,
-        //     fee_payer_amount,
-        //     is_confirmed,
-        // ) = self
-        //     .db
-        //     .get_fee_payer_tx(bumped_txid, self.signer.address.script_pubkey())?;
+        tracing::info!(
+            "Bumped txid: {} and script pubkey: {}",
+            bumped_txid,
+            self.signer.address.script_pubkey()
+        );
+        let fee_payer_txs = self
+            .db
+            .get_fee_payer_tx(None, bumped_txid, self.signer.address.script_pubkey())
+            .await?;
+
+        if fee_payer_txs.is_empty() {
+            return Err(BridgeError::FeePayerTxNotFound);
+        }
+
+        // get confirmed fee payer tx
+        let (fee_payer_txid, fee_payer_vout, fee_payer_amount, _) = fee_payer_txs
+            .iter()
+            .find(|(_, _, _, is_confirmed)| *is_confirmed)
+            .ok_or(BridgeError::ConfirmedFeePayerTxNotFound)?;
+
+        let p2a_anchor = self.find_p2a_anchor(&tx)?;
+        let fee_rate = self.get_fee_rate().await?;
 
         // Now create the raw tx.
+        let child_tx = self.create_child_tx(
+            p2a_anchor,
+            OutPoint {
+                txid: *fee_payer_txid,
+                vout: *fee_payer_vout,
+            },
+            *fee_payer_amount,
+            tx.weight(),
+            fee_rate,
+        )?;
 
-        // let txid = self.rpc.client.submit_package(tx).await?;
+        println!(
+            "bqr submitpackage '[\"{}\", \"{}\"]'",
+            hex::encode(bitcoin::consensus::serialize(&tx)),
+            hex::encode(bitcoin::consensus::serialize(&child_tx))
+        );
+        let submit_package_result = self.rpc.client.submit_package(vec![&tx, &child_tx]).await?;
+        tracing::info!("Submit package result: {:?}", submit_package_result);
+        Ok(())
+    }
+
+    pub async fn apply_block(&self, blockhash: &bitcoin::BlockHash) -> Result<(), BridgeError> {
+        let block = self.rpc.client.get_block(blockhash).await?;
+        println!("Transactions in block: {:?}", block.txdata.len());
+
+        for tx in block.txdata {
+            let txid = tx.compute_txid();
+            self.db.confirm_fee_payer_tx(None, txid, *blockhash).await?;
+        }
+
         Ok(())
     }
 }
@@ -255,13 +328,13 @@ mod tests {
     use std::env;
     use std::thread;
 
-    use bitcoin::consensus::encode::deserialize_hex;
     use bitcoin::secp256k1::SecretKey;
+    use bitcoin::transaction::Version;
     use secp256k1::rand;
 
     use super::*;
 
-    async fn create_test_tx_sender() -> (TxSender, ExtendedRpc, Database) {
+    async fn create_test_tx_sender() -> (TxSender, ExtendedRpc, Database, Actor, bitcoin::Network) {
         let sk = SecretKey::new(&mut rand::thread_rng());
         let network = bitcoin::Network::Regtest;
         let actor = Actor::new(sk, None, network);
@@ -277,26 +350,85 @@ mod tests {
 
         let db = Database::new(&config).await.unwrap();
 
-        let tx_sender = TxSender::new(actor, rpc.clone(), db.clone(), network);
+        let tx_sender = TxSender::new(actor.clone(), rpc.clone(), db.clone(), network);
 
-        (tx_sender, rpc, db)
+        (tx_sender, rpc, db, actor, network)
+    }
+
+    async fn create_bumpable_tx(
+        rpc: &ExtendedRpc,
+        signer: Actor,
+        network: bitcoin::Network,
+    ) -> Result<Transaction, BridgeError> {
+        let (address, spend_info) =
+            builder::address::create_taproot_address(&[], Some(signer.xonly_public_key), network);
+
+        let amount = Amount::from_sat(100000);
+        let outpoint = rpc.send_to_address(&address, amount).await?;
+        rpc.mine_blocks(1).await?;
+
+        let mut builder = TxHandlerBuilder::new()
+            .with_version(Version::non_standard(3))
+            .add_input(
+                SpendableTxIn::new(
+                    outpoint,
+                    TxOut {
+                        value: amount,
+                        script_pubkey: address.script_pubkey(),
+                    },
+                    vec![],
+                    Some(spend_info),
+                ),
+                DEFAULT_SEQUENCE,
+            )
+            .add_output(UnspentTxOut::from_partial(TxOut {
+                value: amount - builder::transaction::anchor_output().value,
+                script_pubkey: address.script_pubkey(), // TODO: This should be the wallet address, not the signer address
+            }))
+            .add_output(UnspentTxOut::from_partial(
+                builder::transaction::anchor_output(),
+            ))
+            .finalize();
+
+        let signature = signer.sign_taproot_pubkey_spend(&mut builder, 0, None)?;
+        builder.set_p2tr_key_spend_witness(
+            &bitcoin::taproot::Signature {
+                signature,
+                sighash_type: bitcoin::TapSighashType::All,
+            },
+            0,
+        )?;
+
+        let tx = builder.get_cached_tx().clone();
+        Ok(tx)
     }
 
     #[tokio::test]
     async fn test_create_fee_payer_tx() {
-        let (tx_sender, rpc, _db) = create_test_tx_sender().await;
+        let (tx_sender, rpc, _db, signer, network) = create_test_tx_sender().await;
+
+        let tx = create_bumpable_tx(&rpc, signer, network).await.unwrap();
 
         let outpoint = tx_sender
-            .create_fee_payer_tx(Txid::all_zeros(), 300000)
+            .create_fee_payer_tx(tx.compute_txid(), tx.weight())
             .await
             .unwrap();
 
-        let tx = rpc
+        let fee_payer_tx = rpc
             .client
             .get_raw_transaction(&outpoint.txid, None)
             .await
             .unwrap();
 
-        println!("tx: {:#?}", tx);
+        // println!("tx: {:#?}", tx.output[outpoint.vout as usize]);
+
+        assert!(fee_payer_tx.output[outpoint.vout as usize].value.to_sat() > tx.weight().to_wu());
+
+        rpc.mine_blocks(1).await.unwrap();
+
+        let blockhash = rpc.client.get_best_block_hash().await.unwrap();
+        tx_sender.apply_block(&blockhash).await.unwrap();
+
+        tx_sender.send_tx_with_cpfp(tx).await.unwrap();
     }
 }

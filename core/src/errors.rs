@@ -256,6 +256,15 @@ pub enum BridgeError {
 
     #[error("Fee estimation error: {0:?}")]
     FeeEstimationError(Vec<String>),
+
+    #[error("Fee payer transaction not found")]
+    FeePayerTxNotFound,
+
+    #[error("No confirmed fee payer transaction found")]
+    ConfirmedFeePayerTxNotFound,
+
+    #[error("P2A anchor output not found in transaction")]
+    P2AAnchorNotFound,
 }
 
 impl From<BridgeError> for ErrorObject<'static> {
