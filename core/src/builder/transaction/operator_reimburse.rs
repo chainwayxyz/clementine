@@ -202,7 +202,7 @@ pub fn create_payout_txhandler(
     let op_return_txout = UnspentTxOut::from_partial(op_return_txout);
 
     Ok(TxHandlerBuilder::new()
-        .add_input_with_witness(txin, Sequence::from_height(0), witness)
+        .add_input_with_witness(txin, DEFAULT_SEQUENCE, witness)
         .add_output(output_txout)
         .add_output(op_return_txout)
         .add_output(UnspentTxOut::from_partial(

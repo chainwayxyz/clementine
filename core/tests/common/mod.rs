@@ -282,8 +282,7 @@ pub async fn run_single_deposit(
         .new_deposit(DepositParams {
             deposit_outpoint: Some(deposit_outpoint.into()),
             evm_address: evm_address.0.to_vec(),
-            recovery_taproot_address:
-                "tb1pk8vus63mx5zwlmmmglq554kwu0zm9uhswqskxg99k66h8m3arguqfrvywa".to_string(),
+            recovery_taproot_address: deposit_address.to_string(),
             user_takes_after: config.user_takes_after as u32,
         })
         .await?
@@ -311,9 +310,9 @@ mod tests {
     use crate::initialize_database;
     use clementine_core::database::Database;
     use clementine_core::{config::BridgeConfig, utils::initialize_logger};
-    use std::{env, thread};
 
     #[tokio::test]
+    #[serial_test::serial]
     async fn test_deposit() {
         let config = create_test_config_with_thread_name!(None);
         run_single_deposit(config).await.unwrap();
