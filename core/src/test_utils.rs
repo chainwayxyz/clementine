@@ -367,7 +367,6 @@ macro_rules! get_deposit_address {
             $config.network,
             $config.user_takes_after,
         )
-        .0
     }};
 }
 
