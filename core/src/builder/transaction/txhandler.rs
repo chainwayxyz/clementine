@@ -68,6 +68,22 @@ impl TxHandler<Unsigned> {
         &self.cached_txid
     }
 
+    pub fn sign_txins(
+        &mut self,
+        mut signer: impl FnMut(usize, &SpentTxIn) -> Result<Option<Witness>, BridgeError>,
+    ) -> Result<(), BridgeError> {
+        for (idx, txin) in self.txins.iter_mut().enumerate() {
+            if txin.get_witness().is_some() {
+                continue;
+            }
+
+            if let Some(witness) = signer(idx, &txin)? {
+                txin.set_witness(witness);
+            }
+        }
+        Ok(())
+    }
+
     pub fn calculate_pubkey_spend_sighash(
         &self,
         txin_index: usize,

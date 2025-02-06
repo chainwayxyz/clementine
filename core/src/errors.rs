@@ -227,6 +227,12 @@ pub enum BridgeError {
     NoScriptsForTxIn(usize),
     #[error("No script in TxHandler for the index {0}")]
     NoScriptAtIndex(usize),
+    #[error("Spend Path in SpentTxIn in TxHandler not specified")]
+    SpendPathNotSpecified,
+    #[error("Actor does not own the key needed in P2TR keypath")]
+    NonOwnedKeyPath,
+    #[error("Couldn't find needed signature from database")]
+    SignatureNotFound,
 
     #[error("BitvmSetupNotFound for operator {0}, sequential_collateral_tx {1}, kickoff {2}")]
     BitvmSetupNotFound(i32, i32, i32),

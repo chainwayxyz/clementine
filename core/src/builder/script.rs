@@ -14,12 +14,12 @@ use bitcoin::{
     ScriptBuf, XOnlyPublicKey,
 };
 use bitcoin::{Amount, Witness};
-use bitvm::signatures::winternitz;
+use bitvm::signatures::winternitz::{self, SecretKey};
 use bitvm::signatures::winternitz::{Parameters, PublicKey};
 use std::any::Any;
 use std::fmt::Debug;
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Copy, Clone)]
 pub enum SpendPath {
     ScriptSpend(usize),
     KeySpend,
@@ -74,7 +74,7 @@ impl OtherSpendable {
 
 /// Struct for scripts that only includes a CHECKSIG
 #[derive(Debug, Clone)]
-pub struct CheckSig(XOnlyPublicKey);
+pub struct CheckSig(pub(crate) XOnlyPublicKey);
 impl SpendableScript for CheckSig {
     fn as_any(&self) -> &dyn Any {
         self
@@ -89,7 +89,7 @@ impl SpendableScript for CheckSig {
 }
 
 impl CheckSig {
-    fn generate_witness(&self, signature: schnorr::Signature) -> Witness {
+    pub fn generate_witness(&self, signature: &schnorr::Signature) -> Witness {
         Witness::from_slice(&[signature.serialize()])
     }
 
@@ -107,7 +107,7 @@ impl SpendableScript for WinternitzCommit {
     }
 
     fn to_script_buf(&self) -> ScriptBuf {
-        let pubkey = self.0.clone();
+        let winternitz_pubkey = self.0.clone();
         let params = self.1.clone();
         let xonly_pubkey = self.2;
         let verifier = winternitz::Winternitz::<
@@ -115,7 +115,7 @@ impl SpendableScript for WinternitzCommit {
             winternitz::TabledConverter,
         >::new();
         verifier
-            .checksig_verify(&params, &pubkey)
+            .checksig_verify(&params, &winternitz_pubkey)
             .push_x_only_key(&xonly_pubkey)
             .push_opcode(OP_CHECKSIG)
             .compile()
@@ -123,8 +123,19 @@ impl SpendableScript for WinternitzCommit {
 }
 
 impl WinternitzCommit {
-    fn generate_witness(&self, commit_data: &[u8], signature: schnorr::Signature) -> Witness {
-        Witness::from_slice(&[commit_data, &signature.serialize()])
+    pub fn generate_witness(
+        &self,
+        commit_data: &Vec<u8>,
+        secret_key: &SecretKey,
+        signature: &schnorr::Signature,
+    ) -> Witness {
+        let verifier = winternitz::Winternitz::<
+            winternitz::ListpickVerifier,
+            winternitz::TabledConverter,
+        >::new();
+        let mut witness = verifier.sign(&self.1, secret_key, &commit_data);
+        witness.push(signature.serialize());
+        witness
     }
 
     pub fn new(pubkey: PublicKey, params: Parameters, xonly_pubkey: XOnlyPublicKey) -> Self {
@@ -144,7 +155,7 @@ impl WinternitzCommit {
 /// - [BIP-0068](https://github.com/bitcoin/bips/blob/master/bip-0068.mediawiki)
 /// - [BIP-0112](https://github.com/bitcoin/bips/blob/master/bip-0112.mediawiki)
 #[derive(Debug, Clone)]
-pub struct TimelockScript(Option<XOnlyPublicKey>, u16);
+pub struct TimelockScript(pub(crate) Option<XOnlyPublicKey>, u16);
 
 impl SpendableScript for TimelockScript {
     fn as_any(&self) -> &dyn Any {
@@ -169,8 +180,11 @@ impl SpendableScript for TimelockScript {
 }
 
 impl TimelockScript {
-    fn generate_witness(&self, signature: schnorr::Signature) -> Witness {
-        Witness::from_slice(&[signature.serialize()])
+    pub fn generate_witness(&self, signature: &Option<schnorr::Signature>) -> Witness {
+        match signature {
+            Some(sig) => Witness::from_slice(&[sig.serialize()]),
+            None => Witness::default(),
+        }
     }
 
     pub fn new(xonly_pk: Option<XOnlyPublicKey>, block_count: u16) -> Self {
@@ -198,7 +212,7 @@ impl SpendableScript for PreimageRevealScript {
 }
 
 impl PreimageRevealScript {
-    fn generate_witness(&self, preimage: &[u8], signature: schnorr::Signature) -> Witness {
+    pub fn generate_witness(&self, preimage: &[u8], signature: &schnorr::Signature) -> Witness {
         Witness::from_slice(&[preimage, &signature.serialize()])
     }
 
@@ -208,7 +222,7 @@ impl PreimageRevealScript {
 }
 
 /// Struct for deposit script that commits Citrea address to be deposited into onchain.
-pub struct DepositScript(XOnlyPublicKey, EVMAddress, Amount);
+pub struct DepositScript(pub(crate) XOnlyPublicKey, EVMAddress, Amount);
 
 impl SpendableScript for DepositScript {
     fn as_any(&self) -> &dyn Any {
@@ -232,7 +246,7 @@ impl SpendableScript for DepositScript {
 }
 
 impl DepositScript {
-    fn generate_witness(&self, signature: schnorr::Signature) -> Witness {
+    pub fn generate_witness(&self, signature: &schnorr::Signature) -> Witness {
         Witness::from_slice(&[signature.serialize()])
     }
 
