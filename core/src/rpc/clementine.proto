@@ -8,6 +8,54 @@ message Outpoint {
   uint32 vout = 2;
 }
 
+enum NormalSignatureKind {
+  NormalSignatureUnknown = 0;
+  // Used for TxHandlers that verifiers don't care. These will have signatures created
+  // by the operator on the fly.
+  NotStored = 1;
+  KickoffTimeout1 = 2;
+  KickoffTimeout2 = 3;
+  Challenge = 4;
+  WatchtowerChallengeKickoff = 5;
+  StartHappyReimburse2 = 6;
+  HappyReimburse1 = 7;
+  AssertEndLast = 8;
+  DisproveTimeout1 = 9;
+  DisproveTimeout2 = 10;
+  AlreadyDisproved1 = 11;
+  AlreadyDisproved2 = 12;
+  Disprove2 = 13;
+  Reimburse1 = 14;
+}
+
+enum WatchtowerSignatureKind {
+  WatchtowerSignatureUnknown = 0;
+  // Used for TxHandlers that verifiers don't care. These will have signatures created
+  // by the operator on the fly.
+  WatchtowerNotStored = 1;
+  OperatorChallengeNack1 = 2;
+  OperatorChallengeNack2 = 3;
+}
+
+message NormalSignatureId {
+  NormalSignatureKind signature_kind = 1;
+}
+
+message WatchtowerSignatureId {
+  WatchtowerSignatureKind signature_kind = 1;
+  int32 watchtower_idx = 2;
+}
+
+message Signature {
+  oneof signature_id {
+    NormalSignatureId normal_signature = 1;
+    WatchtowerSignatureId watchtower_signature = 2;
+  }
+  bytes signature = 3;
+}
+
+message DepositSignatures { repeated Signature signatures = 1; }
+
 message ChallengeACKDigest {
   bytes hash = 1;
 }

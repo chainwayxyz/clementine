@@ -19,6 +19,13 @@ use bitvm::signatures::winternitz::{Parameters, PublicKey};
 use std::any::Any;
 use std::fmt::Debug;
 
+#[derive(Debug, Clone)]
+pub enum SpendPath {
+    ScriptSpend(usize),
+    KeySpend,
+    Unknown,
+}
+
 pub trait SpendableScript: Send + Sync + 'static + std::any::Any {
     fn as_any(&self) -> &dyn Any;
 

@@ -49,6 +49,7 @@ pub fn create_sequential_collateral_txhandler(
 ) -> Result<TxHandler, BridgeError> {
     let (op_address, op_spend) = create_taproot_address(&[], Some(operator_xonly_pk), network);
     let mut builder = TxHandlerBuilder::new().add_input(
+        NormalSignatureKind::NotStored,
         SpendableTxIn::new(
             OutPoint {
                 txid: input_txid,
@@ -61,6 +62,7 @@ pub fn create_sequential_collateral_txhandler(
             vec![],
             Some(op_spend.clone()),
         ),
+        SpendPath::KeySpend,
         DEFAULT_SEQUENCE,
     );
     let max_withdrawal_time_locked_script = Arc::new(TimelockScript::new(
@@ -123,11 +125,15 @@ pub fn create_reimburse_generator_txhandler(
 ) -> Result<TxHandler, BridgeError> {
     let mut builder = TxHandlerBuilder::new()
         .add_input(
+            NormalSignatureKind::NotStored,
             sequential_collateral_txhandler.get_spendable_output(0)?,
+            SpendPath::KeySpend,
             DEFAULT_SEQUENCE,
         )
         .add_input(
+            NormalSignatureKind::NotStored,
             sequential_collateral_txhandler.get_spendable_output(1)?,
+            SpendPath::ScriptSpend(0),
             Sequence::from_height(max_withdrawal_time_block_count),
         );
 
@@ -163,7 +169,9 @@ pub fn create_kickoff_utxo_timeout_txhandler(
     kickoff_idx: usize,
 ) -> Result<TxHandler, BridgeError> {
     let builder = TxHandlerBuilder::new().add_input(
+        NormalSignatureKind::NotStored,
         sequential_collateral_txhandler.get_spendable_output(2 + kickoff_idx)?,
+        SpendPath::ScriptSpend(1),
         DEFAULT_SEQUENCE,
     );
 
@@ -184,11 +192,15 @@ pub fn create_kickoff_timeout_txhandler(
 ) -> Result<TxHandler, BridgeError> {
     let builder = TxHandlerBuilder::new()
         .add_input(
+            NormalSignatureKind::KickoffTimeout1,
             kickoff_tx_handler.get_spendable_output(3)?,
+            SpendPath::ScriptSpend(1),
             DEFAULT_SEQUENCE,
         )
         .add_input(
+            NormalSignatureKind::KickoffTimeout2,
             sequential_collateral_txhandler.get_spendable_output(0)?,
+            SpendPath::KeySpend,
             DEFAULT_SEQUENCE,
         );
     Ok(builder

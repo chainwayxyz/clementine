@@ -1,4 +1,6 @@
+use crate::builder::script::SpendPath;
 use crate::errors::BridgeError;
+use crate::rpc::clementine::signature::SignatureId;
 use bitcoin::sighash::SighashCache;
 use bitcoin::taproot::{self, LeafVersion};
 use bitcoin::transaction::Version;
@@ -300,24 +302,20 @@ impl TxHandlerBuilder {
         self
     }
 
-    pub fn add_input_with_witness(
+    pub fn add_input(
         mut self,
+        input_id: impl Into<SignatureId>,
         spendable: SpendableTxIn,
+        spend_path: SpendPath,
         sequence: Sequence,
-        witness: Witness,
     ) -> Self {
         self.txins.push(SpentTxIn::from_spendable(
+            input_id.into(),
             spendable,
+            spend_path,
             sequence,
-            Some(witness),
+            None,
         ));
-
-        self
-    }
-
-    pub fn add_input(mut self, spendable: SpendableTxIn, sequence: Sequence) -> Self {
-        self.txins
-            .push(SpentTxIn::from_spendable(spendable, sequence, None));
 
         self
     }

@@ -1,4 +1,6 @@
 use crate::errors::BridgeError;
+use clementine::*;
+use signature::SignatureId;
 use std::future::Future;
 use tonic::transport::Uri;
 
@@ -12,6 +14,23 @@ pub mod operator;
 mod parser;
 pub mod verifier;
 pub mod watchtower;
+
+impl From<NormalSignatureKind> for SignatureId {
+    fn from(value: NormalSignatureKind) -> Self {
+        SignatureId::NormalSignature(NormalSignatureId {
+            signature_kind: value as i32,
+        })
+    }
+}
+
+impl From<(WatchtowerSignatureKind, i32)> for SignatureId {
+    fn from(value: (WatchtowerSignatureKind, i32)) -> Self {
+        SignatureId::WatchtowerSignature(WatchtowerSignatureId {
+            signature_kind: value.0 as i32,
+            watchtower_idx: value.1,
+        })
+    }
+}
 
 /// Returns gRPC clients.
 ///

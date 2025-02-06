@@ -226,6 +226,7 @@ mod tests {
     use super::{nonce_pair, MuSigNoncePair, Musig2Mode};
     use crate::builder::script::{CheckSig, OtherSpendable, SpendableScript};
     use crate::builder::transaction::DEFAULT_SEQUENCE;
+    use crate::rpc::clementine::NormalSignatureKind;
     use crate::{
         builder::{
             self,
@@ -527,12 +528,14 @@ mod tests {
         let mut builder = TxHandlerBuilder::new();
         builder = builder
             .add_input(
+                NormalSignatureKind::NotStored,
                 SpendableTxIn::new(
                     utxo,
                     prevout.clone(),
                     scripts.clone(),
                     Some(sending_address_spend_info.clone()),
                 ),
+                builder::script::SpendPath::Unknown,
                 DEFAULT_SEQUENCE,
             )
             .add_output(UnspentTxOut::from_partial(TxOut {
@@ -633,12 +636,14 @@ mod tests {
 
         let mut tx_details = TxHandlerBuilder::new()
             .add_input(
+                NormalSignatureKind::NotStored,
                 SpendableTxIn::new(
                     utxo,
                     prevout,
                     scripts,
                     Some(sending_address_spend_info.clone()),
                 ),
+                builder::script::SpendPath::Unknown,
                 DEFAULT_SEQUENCE,
             )
             .add_output(UnspentTxOut::from_partial(TxOut {

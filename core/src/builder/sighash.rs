@@ -218,6 +218,7 @@ pub fn create_nofn_sighash_stream(
                         let mut operator_challenge_nack_txhandler =
                             builder::transaction::create_operator_challenge_nack_txhandler(
                                 &watchtower_challenge_txhandler,
+                                watchtower_idx,
                                 &kickoff_txhandler
                             )?;
 
