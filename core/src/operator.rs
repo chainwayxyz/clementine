@@ -432,8 +432,12 @@ impl Operator {
         let user_xonly_pk =
             XOnlyPublicKey::from_slice(&input_utxo.txout.script_pubkey.as_bytes()[2..34])?;
 
-        let payout_txhandler =
-            builder::transaction::create_payout_txhandler(input_utxo, output_txout, self.idx)?;
+        let payout_txhandler = builder::transaction::create_payout_txhandler(
+            input_utxo,
+            output_txout,
+            self.idx,
+            user_sig,
+        )?;
 
         let sighash = payout_txhandler.calculate_pubkey_spend_sighash(
             0,
