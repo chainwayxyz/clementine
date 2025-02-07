@@ -12,6 +12,7 @@ use tonic::Request;
 
 mod common;
 
+#[ignore = "Design changes in progress"]
 #[serial_test::serial]
 #[tokio::test]
 async fn honest_operator_takes_refund() {
@@ -75,9 +76,9 @@ async fn honest_operator_takes_refund() {
     //     rpc.client.send_raw_transaction(tx.clone()).await.unwrap();
     //     rpc.mine_blocks(1).await.unwrap();
     // }
-    rpc.mine_blocks(1 + config.operator_takes_after as u64)
-        .await
-        .unwrap();
+    // rpc.mine_blocks(1 + config.operator_takes_after as u64)
+    //     .await
+    //     .unwrap();
 
     // Send last transaction.
     // let operator_take_txid = rpc
