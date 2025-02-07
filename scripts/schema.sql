@@ -205,4 +205,9 @@ create table if not exists fee_payer_utxos (
     created_at timestamp not null default now()
 );
 
+create table if not exists tx_sender_block_info (
+    block_hash text not null primary key,
+    height bigint not null
+);
+
 COMMIT;

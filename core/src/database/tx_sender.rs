@@ -4,8 +4,8 @@
 
 use super::{Database, DatabaseTransaction};
 use crate::{errors::BridgeError, execute_query_with_tx};
-use bitcoin::{Amount, ScriptBuf, Txid};
-use std::str::FromStr;
+use bitcoin::{Amount, BlockHash, ScriptBuf, Txid};
+use std::{ops::DerefMut, str::FromStr};
 
 impl Database {
     /// Saves a fee payer transaction to the database.
@@ -126,6 +126,38 @@ impl Database {
 
     //     Ok(txs)
     // }
+
+    pub async fn set_tx_sender_chain_head(
+        &self,
+        tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+        block_hash: BlockHash,
+        height: u64,
+    ) -> Result<(BlockHash, u64), BridgeError> {
+        sqlx::query("DELETE FROM tx_sender_block_info")
+            .execute(tx.deref_mut())
+            .await?;
+        sqlx::query("INSERT INTO tx_sender_block_info (block_hash, height) VALUES ($1, $2)")
+            .bind(block_hash.to_string())
+            .bind(height as i64)
+            .execute(tx.deref_mut())
+            .await?;
+        Ok((block_hash, height))
+    }
+
+    pub async fn get_tx_sender_chain_head(&self) -> Result<Option<(BlockHash, u64)>, BridgeError> {
+        let mut tx = self.begin_transaction().await?;
+        let ret: Option<(String, i64)> =
+            sqlx::query_as("SELECT block_hash, height FROM tx_sender_block_info LIMIT 1")
+                .fetch_optional(tx.deref_mut())
+                .await?;
+        if let Some((block_hash, height)) = ret {
+            let block_hash = BlockHash::from_str(&block_hash)?;
+            let height = height as u64;
+            Ok(Some((block_hash, height)))
+        } else {
+            Ok(None)
+        }
+    }
 }
 
 #[cfg(test)]

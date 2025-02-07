@@ -22,10 +22,10 @@ pub mod musig2;
 pub mod operator;
 pub mod rpc;
 pub mod servers;
+pub mod tx_sender;
 pub mod utils;
 pub mod verifier;
 pub mod watchtower;
-pub mod tx_sender;
 
 #[cfg(test)]
 mod test_utils;
