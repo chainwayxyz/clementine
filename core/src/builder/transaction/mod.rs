@@ -5,6 +5,7 @@
 
 use std::sync::Arc;
 
+use super::script::SpendPath;
 use super::script::{CheckSig, DepositScript, TimelockScript};
 pub use crate::builder::transaction::challenge::*;
 use crate::builder::transaction::input::SpendableTxIn;
@@ -15,6 +16,7 @@ use crate::builder::transaction::output::UnspentTxOut;
 pub use crate::builder::transaction::txhandler::*;
 use crate::constants::ANCHOR_AMOUNT;
 use crate::errors::BridgeError;
+use crate::rpc::clementine::NormalSignatureKind;
 use crate::EVMAddress;
 use bitcoin::address::NetworkUnchecked;
 use bitcoin::opcodes::all::{OP_PUSHNUM_1, OP_RETURN};
@@ -97,6 +99,7 @@ pub fn create_move_to_vault_txhandler(
     ));
 
     let builder = TxHandlerBuilder::new().add_input(
+        NormalSignatureKind::NotStored,
         SpendableTxIn::from_scripts(
             deposit_outpoint,
             bridge_amount_sats,
@@ -104,6 +107,7 @@ pub fn create_move_to_vault_txhandler(
             None,
             network,
         ),
+        SpendPath::ScriptSpend(0),
         DEFAULT_SEQUENCE,
     );
 
