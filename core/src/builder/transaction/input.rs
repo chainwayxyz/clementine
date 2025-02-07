@@ -1,5 +1,6 @@
-use crate::builder::address::create_taproot_address;
 use crate::builder::script::SpendableScript;
+use crate::builder::{address::create_taproot_address, script::SpendPath};
+use crate::rpc::clementine::tagged_signature::SignatureId;
 use bitcoin::{
     taproot::{LeafVersion, TaprootSpendInfo},
     Amount, OutPoint, ScriptBuf, Sequence, TxIn, TxOut, Witness, WitnessProgram, XOnlyPublicKey,
@@ -153,6 +154,7 @@ impl SpendableTxIn {
     }
 }
 
+#[allow(dead_code)]
 #[derive(Debug, Clone)]
 pub struct SpentTxIn {
     spendable: SpendableTxIn,
@@ -166,11 +168,15 @@ pub struct SpentTxIn {
     ///
     /// Has to be Some(_) when the transaction is signed.
     witness: Option<Witness>,
+    spend_path: SpendPath,
+    input_id: SignatureId,
 }
 
 impl SpentTxIn {
     pub fn from_spendable(
+        input_id: SignatureId,
         spendable: SpendableTxIn,
+        spend_path: SpendPath,
         sequence: Sequence,
         witness: Option<Witness>,
     ) -> SpentTxIn {
@@ -178,6 +184,8 @@ impl SpentTxIn {
             spendable,
             sequence,
             witness,
+            spend_path,
+            input_id,
         }
     }
 
@@ -187,6 +195,10 @@ impl SpentTxIn {
 
     pub fn get_witness(&self) -> &Option<Witness> {
         &self.witness
+    }
+
+    pub fn get_signature_id(&self) -> SignatureId {
+        self.input_id
     }
 
     pub fn set_witness(&mut self, witness: Witness) {

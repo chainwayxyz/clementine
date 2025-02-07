@@ -4,6 +4,7 @@ pub use crate::builder::transaction::txhandler::TxHandler;
 pub use crate::builder::transaction::*;
 use crate::constants::{BLOCKS_PER_WEEK, MIN_TAPROOT_AMOUNT, PARALLEL_ASSERT_TX_CHAIN_SIZE};
 use crate::errors::BridgeError;
+use crate::rpc::clementine::NormalSignatureKind;
 use crate::utils::SECP;
 use bitcoin::hashes::Hash;
 use bitcoin::taproot::TaprootBuilder;
@@ -28,7 +29,9 @@ pub fn create_assert_begin_txhandler(
 
     // Add input from kickoff tx
     builder = builder.add_input(
+        NormalSignatureKind::NotStored,
         kickoff_txhandler.get_spendable_output(2)?,
+        builder::script::SpendPath::ScriptSpend(1),
         Sequence::from_height(BLOCKS_PER_WEEK / 2 * 5), // 2.5 weeks
     );
 
@@ -58,6 +61,7 @@ pub fn create_mini_assert_tx(
 
     builder
         .add_input(
+            NormalSignatureKind::NotStored,
             SpendableTxIn::new_partial(
                 OutPoint {
                     txid: prev_txid,
@@ -68,6 +72,7 @@ pub fn create_mini_assert_tx(
                     script_pubkey: out_script.clone(),
                 },
             ),
+            builder::script::SpendPath::ScriptSpend(0),
             DEFAULT_SEQUENCE,
         )
         .add_output(UnspentTxOut::from_partial(TxOut {
@@ -155,10 +160,20 @@ pub fn create_assert_end_txhandler(
     let mut builder = TxHandlerBuilder::new();
 
     for txhandler in mini_tx_handlers.into_iter() {
-        builder = builder.add_input(txhandler.get_spendable_output(0)?, DEFAULT_SEQUENCE);
+        builder = builder.add_input(
+            NormalSignatureKind::NotStored,
+            txhandler.get_spendable_output(0)?,
+            builder::script::SpendPath::ScriptSpend(0),
+            DEFAULT_SEQUENCE,
+        );
     }
 
-    builder = builder.add_input(kickoff_txhandler.get_spendable_output(3)?, DEFAULT_SEQUENCE);
+    builder = builder.add_input(
+        NormalSignatureKind::AssertEndLast,
+        kickoff_txhandler.get_spendable_output(3)?,
+        builder::script::SpendPath::ScriptSpend(0),
+        DEFAULT_SEQUENCE,
+    );
 
     let disprove_taproot_spend_info = TaprootBuilder::new()
         .add_hidden_node(0, TapNodeHash::from_byte_array(*root_hash))
@@ -207,11 +222,15 @@ pub fn create_disprove_timeout_txhandler(
 ) -> Result<TxHandler<Unsigned>, BridgeError> {
     Ok(TxHandlerBuilder::new()
         .add_input(
+            NormalSignatureKind::DisproveTimeout1,
             assert_end_txhandler.get_spendable_output(0)?,
+            builder::script::SpendPath::ScriptSpend(0),
             DEFAULT_SEQUENCE,
         )
         .add_input(
+            NormalSignatureKind::DisproveTimeout2,
             assert_end_txhandler.get_spendable_output(1)?,
+            builder::script::SpendPath::ScriptSpend(0),
             Sequence::from_height(BLOCKS_PER_WEEK),
         )
         .add_output(UnspentTxOut::from_scripts(

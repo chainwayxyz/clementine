@@ -8,6 +8,42 @@ pub struct Outpoint {
     #[prost(uint32, tag = "2")]
     pub vout: u32,
 }
+#[derive(Clone, Copy, PartialEq, ::prost::Message)]
+pub struct NormalSignatureId {
+    #[prost(enumeration = "NormalSignatureKind", tag = "1")]
+    pub signature_kind: i32,
+}
+#[derive(Clone, Copy, PartialEq, ::prost::Message)]
+pub struct WatchtowerSignatureId {
+    #[prost(enumeration = "WatchtowerSignatureKind", tag = "1")]
+    pub signature_kind: i32,
+    #[prost(int32, tag = "2")]
+    pub watchtower_idx: i32,
+}
+/// A tagged signature struct that identifies the transaction-input that the signature is for.
+/// The id is left as NotStored for signatures that are created on the fly by the operator (they're also not stored).
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct TaggedSignature {
+    #[prost(bytes = "vec", tag = "3")]
+    pub signature: ::prost::alloc::vec::Vec<u8>,
+    #[prost(oneof = "tagged_signature::SignatureId", tags = "1, 2")]
+    pub signature_id: ::core::option::Option<tagged_signature::SignatureId>,
+}
+/// Nested message and enum types in `TaggedSignature`.
+pub mod tagged_signature {
+    #[derive(Clone, Copy, PartialEq, ::prost::Oneof)]
+    pub enum SignatureId {
+        #[prost(message, tag = "1")]
+        NormalSignature(super::NormalSignatureId),
+        #[prost(message, tag = "2")]
+        WatchtowerSignature(super::WatchtowerSignatureId),
+    }
+}
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct DepositSignatures {
+    #[prost(message, repeated, tag = "1")]
+    pub signatures: ::prost::alloc::vec::Vec<TaggedSignature>,
+}
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct ChallengeAckDigest {
     #[prost(bytes = "vec", tag = "1")]
@@ -223,6 +259,107 @@ pub mod watchtower_params {
 pub struct RawSignedMoveTx {
     #[prost(bytes = "vec", tag = "1")]
     pub raw_tx: ::prost::alloc::vec::Vec<u8>,
+}
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, ::prost::Enumeration)]
+#[repr(i32)]
+pub enum NormalSignatureKind {
+    NormalSignatureUnknown = 0,
+    /// Used for TxHandlers that verifiers don't care. These will have signatures created
+    /// by the operator on the fly.
+    NotStored = 1,
+    KickoffTimeout1 = 2,
+    KickoffTimeout2 = 3,
+    Challenge = 4,
+    WatchtowerChallengeKickoff = 5,
+    StartHappyReimburse2 = 6,
+    HappyReimburse1 = 7,
+    AssertEndLast = 8,
+    DisproveTimeout1 = 9,
+    DisproveTimeout2 = 10,
+    AlreadyDisproved1 = 11,
+    AlreadyDisproved2 = 12,
+    Disprove2 = 13,
+    Reimburse1 = 14,
+}
+impl NormalSignatureKind {
+    /// String value of the enum field names used in the ProtoBuf definition.
+    ///
+    /// The values are not transformed in any way and thus are considered stable
+    /// (if the ProtoBuf definition does not change) and safe for programmatic use.
+    pub fn as_str_name(&self) -> &'static str {
+        match self {
+            Self::NormalSignatureUnknown => "NormalSignatureUnknown",
+            Self::NotStored => "NotStored",
+            Self::KickoffTimeout1 => "KickoffTimeout1",
+            Self::KickoffTimeout2 => "KickoffTimeout2",
+            Self::Challenge => "Challenge",
+            Self::WatchtowerChallengeKickoff => "WatchtowerChallengeKickoff",
+            Self::StartHappyReimburse2 => "StartHappyReimburse2",
+            Self::HappyReimburse1 => "HappyReimburse1",
+            Self::AssertEndLast => "AssertEndLast",
+            Self::DisproveTimeout1 => "DisproveTimeout1",
+            Self::DisproveTimeout2 => "DisproveTimeout2",
+            Self::AlreadyDisproved1 => "AlreadyDisproved1",
+            Self::AlreadyDisproved2 => "AlreadyDisproved2",
+            Self::Disprove2 => "Disprove2",
+            Self::Reimburse1 => "Reimburse1",
+        }
+    }
+    /// Creates an enum from field names used in the ProtoBuf definition.
+    pub fn from_str_name(value: &str) -> ::core::option::Option<Self> {
+        match value {
+            "NormalSignatureUnknown" => Some(Self::NormalSignatureUnknown),
+            "NotStored" => Some(Self::NotStored),
+            "KickoffTimeout1" => Some(Self::KickoffTimeout1),
+            "KickoffTimeout2" => Some(Self::KickoffTimeout2),
+            "Challenge" => Some(Self::Challenge),
+            "WatchtowerChallengeKickoff" => Some(Self::WatchtowerChallengeKickoff),
+            "StartHappyReimburse2" => Some(Self::StartHappyReimburse2),
+            "HappyReimburse1" => Some(Self::HappyReimburse1),
+            "AssertEndLast" => Some(Self::AssertEndLast),
+            "DisproveTimeout1" => Some(Self::DisproveTimeout1),
+            "DisproveTimeout2" => Some(Self::DisproveTimeout2),
+            "AlreadyDisproved1" => Some(Self::AlreadyDisproved1),
+            "AlreadyDisproved2" => Some(Self::AlreadyDisproved2),
+            "Disprove2" => Some(Self::Disprove2),
+            "Reimburse1" => Some(Self::Reimburse1),
+            _ => None,
+        }
+    }
+}
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, ::prost::Enumeration)]
+#[repr(i32)]
+pub enum WatchtowerSignatureKind {
+    WatchtowerSignatureUnknown = 0,
+    /// Used for TxHandlers that verifiers don't care. These will have signatures created
+    /// by the operator on the fly.
+    WatchtowerNotStored = 1,
+    OperatorChallengeNack1 = 2,
+    OperatorChallengeNack2 = 3,
+}
+impl WatchtowerSignatureKind {
+    /// String value of the enum field names used in the ProtoBuf definition.
+    ///
+    /// The values are not transformed in any way and thus are considered stable
+    /// (if the ProtoBuf definition does not change) and safe for programmatic use.
+    pub fn as_str_name(&self) -> &'static str {
+        match self {
+            Self::WatchtowerSignatureUnknown => "WatchtowerSignatureUnknown",
+            Self::WatchtowerNotStored => "WatchtowerNotStored",
+            Self::OperatorChallengeNack1 => "OperatorChallengeNack1",
+            Self::OperatorChallengeNack2 => "OperatorChallengeNack2",
+        }
+    }
+    /// Creates an enum from field names used in the ProtoBuf definition.
+    pub fn from_str_name(value: &str) -> ::core::option::Option<Self> {
+        match value {
+            "WatchtowerSignatureUnknown" => Some(Self::WatchtowerSignatureUnknown),
+            "WatchtowerNotStored" => Some(Self::WatchtowerNotStored),
+            "OperatorChallengeNack1" => Some(Self::OperatorChallengeNack1),
+            "OperatorChallengeNack2" => Some(Self::OperatorChallengeNack2),
+            _ => None,
+        }
+    }
 }
 /// Generated client implementations.
 pub mod clementine_operator_client {

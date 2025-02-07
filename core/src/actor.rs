@@ -299,6 +299,7 @@ mod tests {
     use crate::builder::transaction::output::UnspentTxOut;
     use crate::builder::transaction::TxHandlerBuilder;
     use crate::config::BridgeConfig;
+    use crate::rpc::clementine::NormalSignatureKind;
     use crate::utils::{initialize_logger, SECP};
     use crate::{
         actor::WinternitzDerivationPath, builder::transaction::TxHandler,
@@ -322,6 +323,7 @@ mod tests {
         let (op_addr, op_spend) =
             create_taproot_address(&[], Some(actor.xonly_public_key), Network::Regtest);
         let builder = TxHandlerBuilder::new().add_input(
+            NormalSignatureKind::AlreadyDisproved1,
             SpendableTxIn::new(
                 OutPoint::default(),
                 TxOut {
@@ -331,6 +333,7 @@ mod tests {
                 vec![],
                 Some(op_spend),
             ),
+            crate::builder::script::SpendPath::Unknown,
             Sequence::ENABLE_RBF_NO_LOCKTIME,
         );
         builder
