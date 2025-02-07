@@ -106,9 +106,9 @@ version = "0.4.0"
 source = "git+https://github.com/chainwayxyz/algebra/?branch=new-ate-loop#ac23fde284ca4d7ede298018f7866ce8ce64467f"
 dependencies = [
  "ark-ec",
- "ark-ff",
+ "ark-ff 0.4.2",
  "ark-r1cs-std",
- "ark-std",
+ "ark-std 0.4.0",
 ]
 
 [[package]]
@@ -119,11 +119,11 @@ dependencies = [
  "ahash",
  "ark-crypto-primitives-macros",
  "ark-ec",
- "ark-ff",
- "ark-relations",
- "ark-serialize",
+ "ark-ff 0.4.2",
+ "ark-relations 0.4.0",
+ "ark-serialize 0.4.2",
  "ark-snark",
- "ark-std",
+ "ark-std 0.4.0",
  "blake2",
  "derivative",
  "digest",
@@ -149,10 +149,10 @@ version = "0.4.2"
 source = "git+https://github.com/chainwayxyz/algebra/?branch=new-ate-loop#ac23fde284ca4d7ede298018f7866ce8ce64467f"
 dependencies = [
  "ahash",
- "ark-ff",
- "ark-poly",
- "ark-serialize",
- "ark-std",
+ "ark-ff 0.4.2",
+ "ark-poly 0.4.2",
+ "ark-serialize 0.4.2",
+ "ark-std 0.4.0",
  "educe",
  "fnv",
  "hashbrown 0.15.2",
@@ -169,10 +169,10 @@ name = "ark-ff"
 version = "0.4.2"
 source = "git+https://github.com/chainwayxyz/algebra/?branch=new-ate-loop#ac23fde284ca4d7ede298018f7866ce8ce64467f"
 dependencies = [
- "ark-ff-asm",
- "ark-ff-macros",
- "ark-serialize",
- "ark-std",
+ "ark-ff-asm 0.4.2",
+ "ark-ff-macros 0.4.2",
+ "ark-serialize 0.4.2",
+ "ark-std 0.4.0",
  "arrayvec",
  "digest",
  "educe",
@@ -185,9 +185,39 @@ dependencies = [
 ]
 
 [[package]]
+name = "ark-ff"
+version = "0.5.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "a177aba0ed1e0fbb62aa9f6d0502e9b46dad8c2eab04c14258a1212d2557ea70"
+dependencies = [
+ "ark-ff-asm 0.5.0",
+ "ark-ff-macros 0.5.0",
+ "ark-serialize 0.5.0",
+ "ark-std 0.5.0",
+ "arrayvec",
+ "digest",
+ "educe",
+ "itertools",
+ "num-bigint",
+ "num-traits",
+ "paste",
+ "zeroize",
+]
+
+[[package]]
 name = "ark-ff-asm"
 version = "0.4.2"
 source = "git+https://github.com/chainwayxyz/algebra/?branch=new-ate-loop#ac23fde284ca4d7ede298018f7866ce8ce64467f"
+dependencies = [
+ "quote",
+ "syn 2.0.94",
+]
+
+[[package]]
+name = "ark-ff-asm"
+version = "0.5.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "62945a2f7e6de02a31fe400aa489f0e0f5b2502e69f95f853adb82a96c7a6b60"
 dependencies = [
  "quote",
  "syn 2.0.94",
@@ -206,17 +236,30 @@ dependencies = [
 ]
 
 [[package]]
+name = "ark-ff-macros"
+version = "0.5.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "09be120733ee33f7693ceaa202ca41accd5653b779563608f1234f78ae07c4b3"
+dependencies = [
+ "num-bigint",
+ "num-traits",
+ "proc-macro2",
+ "quote",
+ "syn 2.0.94",
+]
+
+[[package]]
 name = "ark-groth16"
 version = "0.4.0"
 source = "git+https://github.com/arkworks-rs/groth16#16ac1dd387fe5dc89b6fc1a1cf87c9fdcfd8493f"
 dependencies = [
  "ark-crypto-primitives",
  "ark-ec",
- "ark-ff",
- "ark-poly",
- "ark-relations",
- "ark-serialize",
- "ark-std",
+ "ark-ff 0.4.2",
+ "ark-poly 0.4.2",
+ "ark-relations 0.4.0",
+ "ark-serialize 0.4.2",
+ "ark-std 0.4.0",
  "rayon",
 ]
 
@@ -226,13 +269,28 @@ version = "0.4.2"
 source = "git+https://github.com/chainwayxyz/algebra/?branch=new-ate-loop#ac23fde284ca4d7ede298018f7866ce8ce64467f"
 dependencies = [
  "ahash",
- "ark-ff",
- "ark-serialize",
- "ark-std",
+ "ark-ff 0.4.2",
+ "ark-serialize 0.4.2",
+ "ark-std 0.4.0",
  "educe",
  "fnv",
  "hashbrown 0.15.2",
  "rayon",
+]
+
+[[package]]
+name = "ark-poly"
+version = "0.5.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "579305839da207f02b89cd1679e50e67b4331e2f9294a57693e5051b7703fe27"
+dependencies = [
+ "ahash",
+ "ark-ff 0.5.0",
+ "ark-serialize 0.5.0",
+ "ark-std 0.5.0",
+ "educe",
+ "fnv",
+ "hashbrown 0.15.2",
 ]
 
 [[package]]
@@ -241,9 +299,9 @@ version = "0.4.0"
 source = "git+https://github.com/arkworks-rs/r1cs-std/#dfdad2b729ebc7e8104931b683f3799246252adc"
 dependencies = [
  "ark-ec",
- "ark-ff",
- "ark-relations",
- "ark-std",
+ "ark-ff 0.4.2",
+ "ark-relations 0.4.0",
+ "ark-std 0.4.0",
  "educe",
  "num-bigint",
  "num-integer",
@@ -254,12 +312,25 @@ dependencies = [
 [[package]]
 name = "ark-relations"
 version = "0.4.0"
-source = "git+https://github.com/arkworks-rs/snark/#748c0ba24a824fced676b634f9b9189be6efa790"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "00796b6efc05a3f48225e59cb6a2cda78881e7c390872d5786aaf112f31fb4f0"
 dependencies = [
- "ark-ff",
- "ark-std",
+ "ark-ff 0.4.2",
+ "ark-std 0.4.0",
  "tracing",
  "tracing-subscriber 0.2.25",
+]
+
+[[package]]
+name = "ark-relations"
+version = "0.5.1"
+source = "git+https://github.com/arkworks-rs/snark/#9c528529763f1a0a2e0cba83528f93d32247d621"
+dependencies = [
+ "ark-ff 0.5.0",
+ "ark-poly 0.5.0",
+ "ark-serialize 0.5.0",
+ "ark-std 0.5.0",
+ "tracing",
 ]
 
 [[package]]
@@ -267,12 +338,25 @@ name = "ark-serialize"
 version = "0.4.2"
 source = "git+https://github.com/chainwayxyz/algebra/?branch=new-ate-loop#ac23fde284ca4d7ede298018f7866ce8ce64467f"
 dependencies = [
- "ark-serialize-derive",
- "ark-std",
+ "ark-serialize-derive 0.4.2",
+ "ark-std 0.4.0",
  "arrayvec",
  "digest",
  "num-bigint",
  "rayon",
+]
+
+[[package]]
+name = "ark-serialize"
+version = "0.5.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "3f4d068aaf107ebcd7dfb52bc748f8030e0fc930ac8e360146ca54c1203088f7"
+dependencies = [
+ "ark-serialize-derive 0.5.0",
+ "ark-std 0.5.0",
+ "arrayvec",
+ "digest",
+ "num-bigint",
 ]
 
 [[package]]
@@ -286,14 +370,26 @@ dependencies = [
 ]
 
 [[package]]
+name = "ark-serialize-derive"
+version = "0.5.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "213888f660fddcca0d257e88e54ac05bca01885f258ccdf695bafd77031bb69d"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "syn 2.0.94",
+]
+
+[[package]]
 name = "ark-snark"
 version = "0.4.0"
-source = "git+https://github.com/arkworks-rs/snark/#202b9e02b808d1d15823298b8ac16f5c54ae4ef6"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "84d3cc6833a335bb8a600241889ead68ee89a3cf8448081fb7694c0fe503da63"
 dependencies = [
- "ark-ff",
- "ark-relations",
- "ark-serialize",
- "ark-std",
+ "ark-ff 0.4.2",
+ "ark-relations 0.4.0",
+ "ark-serialize 0.4.2",
+ "ark-std 0.4.0",
 ]
 
 [[package]]
@@ -306,6 +402,16 @@ dependencies = [
  "num-traits",
  "rand",
  "rayon",
+]
+
+[[package]]
+name = "ark-std"
+version = "0.5.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "246a225cc6131e9ee4f24619af0f19d67761fff15d7ccc22e42b80846e69449a"
+dependencies = [
+ "num-traits",
+ "rand",
 ]
 
 [[package]]
@@ -528,7 +634,7 @@ checksum = "0b47c4ab7a93edb0c7198c5535ed9b52b63095f4e9b45279c6736cec4b856baf"
 [[package]]
 name = "bitcoin-script"
 version = "0.3.0"
-source = "git+https://github.com/BitVM/rust-bitcoin-script?branch=StructuredScript#bea92021800fb89bd1fc54d4cb45f3027129953c"
+source = "git+https://github.com/BitVM/rust-bitcoin-script#a057e1408fa9e291383ca545c2f0a0b5be2b4aa6"
 dependencies = [
  "bitcoin",
  "lazy_static",
@@ -539,7 +645,7 @@ dependencies = [
 [[package]]
 name = "bitcoin-script-stack"
 version = "0.0.1"
-source = "git+https://github.com/BitVM/rust-bitcoin-script-stack?branch=bitvm#5a9aa6eb6616cb1ff1b822f8d6c38cf1063cc34f"
+source = "git+https://github.com/BitVM/rust-bitcoin-script-stack#bb397b6023b149aa2031306620b079f9b70adc92"
 dependencies = [
  "bitcoin",
  "bitcoin-script",
@@ -633,16 +739,16 @@ checksum = "b048fb63fd8b5923fc5aa7b340d8e156aec7ec02f0c78fa8a6ddc2613f6f71de"
 [[package]]
 name = "bitvm"
 version = "0.1.0"
-source = "git+https://github.com/BitVM/BitVM?rev=02157f6#02157f615d00691be53671ca52636aafdb029f33"
+source = "git+https://github.com/BitVM/BitVM?rev=89558b3a50e7d08a5eb42aa7de266e7912df3f98#89558b3a50e7d08a5eb42aa7de266e7912df3f98"
 dependencies = [
  "ark-bn254",
  "ark-crypto-primitives",
  "ark-ec",
- "ark-ff",
+ "ark-ff 0.4.2",
  "ark-groth16",
- "ark-relations",
- "ark-serialize",
- "ark-std",
+ "ark-relations 0.5.1",
+ "ark-serialize 0.4.2",
+ "ark-std 0.4.0",
  "bitcoin",
  "bitcoin-script",
  "bitcoin-script-stack",
@@ -828,6 +934,18 @@ name = "cfg_aliases"
 version = "0.2.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "613afe47fcd5fac7ccf1db93babcb082c5994d996f20b8b159f2ad1658eb5724"
+
+[[package]]
+name = "circuits-lib"
+version = "0.1.0"
+dependencies = [
+ "borsh",
+ "lazy_static",
+ "risc0-zkvm",
+ "serde",
+ "sha2",
+ "tracing",
+]
 
 [[package]]
 name = "clap"
@@ -2851,7 +2969,7 @@ dependencies = [
  "ark-bn254",
  "ark-ec",
  "ark-groth16",
- "ark-serialize",
+ "ark-serialize 0.4.2",
  "bytemuck",
  "hex",
  "num-bigint",
@@ -3093,7 +3211,7 @@ checksum = "94143f37725109f92c262ed2cf5e59bce7498c01bcc1502d7b9afe439a4e9f49"
 [[package]]
 name = "script-macro"
 version = "0.3.0"
-source = "git+https://github.com/BitVM/rust-bitcoin-script?branch=StructuredScript#bea92021800fb89bd1fc54d4cb45f3027129953c"
+source = "git+https://github.com/BitVM/rust-bitcoin-script#a057e1408fa9e291383ca545c2f0a0b5be2b4aa6"
 dependencies = [
  "bitcoin",
  "hex",
@@ -4550,3 +4668,8 @@ dependencies = [
  "quote",
  "syn 2.0.94",
 ]
+
+[[patch.unused]]
+name = "ark-snark"
+version = "0.5.1"
+source = "git+https://github.com/arkworks-rs/snark/#9c528529763f1a0a2e0cba83528f93d32247d621"

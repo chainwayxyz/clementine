@@ -1,6 +1,6 @@
 [package]
-name = "verifier-circuit"
-version = "0.0.0"
+name = "watchtower-circuit"
+version = "0.1.0"
 edition = "2021"
 
 [build-dependencies]
