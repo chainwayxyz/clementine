@@ -32,7 +32,7 @@ pub enum SpendPath {
 /// generate a witness, the trait object can be used to generate the script_buf.
 ///
 /// We store [`Arc<dyn SpendableScript>`]s inside a [`super::transaction::TxHandler`] input, and we cast them into a [`ScriptKind`] when signing.
-/// 
+///
 /// When creating a new Script, make sure you add it to the [`ScriptKind`] enum and add a test for it below.
 /// Otherwise, it will not be spendable.
 pub trait SpendableScript: Send + Sync + 'static + std::any::Any {

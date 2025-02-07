@@ -119,7 +119,7 @@ pub fn create_nofn_sighash_stream(
     bridge_amount_sats: Amount,
     network: bitcoin::Network,
 ) -> impl Stream<Item = Result<(TapSighash, SignatureInfo), BridgeError>> {
-    use bitcoin::TapSighashType::All as SighashAll;
+    use bitcoin::TapSighashType::Default as SighashAll;
     try_stream! {
         // Create move_tx handler. This is unique for each deposit tx.
         let move_txhandler = builder::transaction::create_move_to_vault_txhandler(

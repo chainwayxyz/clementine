@@ -1,6 +1,4 @@
-use bitcoin::hashes::{Hash, HashEngine};
-use bitcoin::secp256k1::Scalar;
-use bitcoin::{Address, Amount, TapTweakHash, TxOut};
+use bitcoin::{Amount, TxOut};
 use bitcoincore_rpc::RpcApi;
 use clementine_core::actor::Actor;
 use clementine_core::builder::script::{CheckSig, SpendPath, SpendableScript};
@@ -30,23 +28,11 @@ async fn create_address_and_transaction_then_sign_transaction() {
     .unwrap();
 
     let (xonly_pk, _) = config.secret_key.public_key(&SECP).x_only_public_key();
-    let address = Address::p2tr(&SECP, xonly_pk, None, config.network);
-    let script = address.script_pubkey();
-    let tweaked_pk_script: [u8; 32] = script.as_bytes()[2..].try_into().unwrap();
-
-    // Calculate tweaked public key.
-    let mut hasher = TapTweakHash::engine();
-    hasher.input(&xonly_pk.serialize());
-    xonly_pk
-        .add_tweak(
-            &SECP,
-            &Scalar::from_be_bytes(TapTweakHash::from_engine(hasher).to_byte_array()).unwrap(),
-        )
-        .unwrap();
 
     // Prepare script and address.
     let script = Arc::new(CheckSig::new(
-        bitcoin::XOnlyPublicKey::from_slice(&tweaked_pk_script).unwrap(),
+        // bitcoin::XOnlyPublicKey::from_slice(&tweaked_pk_script).unwrap(),
+        xonly_pk,
     ));
     let scripts: Vec<Arc<dyn SpendableScript>> = vec![script.clone()];
     let (taproot_address, taproot_spend_info) = builder::address::create_taproot_address(
@@ -66,7 +52,7 @@ async fn create_address_and_transaction_then_sign_transaction() {
 
     let mut builder = TxHandlerBuilder::new();
     builder = builder.add_input(
-        NormalSignatureKind::NormalSignatureUnknown,
+        NormalSignatureKind::NotStored,
         SpendableTxIn::new(
             utxo,
             TxOut {
@@ -76,7 +62,7 @@ async fn create_address_and_transaction_then_sign_transaction() {
             scripts.clone(),
             Some(taproot_spend_info.clone()),
         ),
-        SpendPath::Unknown,
+        SpendPath::ScriptSpend(0),
         DEFAULT_SEQUENCE,
     );
 
@@ -97,6 +83,7 @@ async fn create_address_and_transaction_then_sign_transaction() {
         config.winternitz_secret_key,
         config.network,
     );
+
     signer
         .partial_sign(&mut tx_handler, &[])
         .expect("failed to sign transaction");

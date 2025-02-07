@@ -75,12 +75,12 @@ impl TxHandler<Unsigned> {
         move || -> Result<TapSighash, BridgeError> {
             match self.txins[idx].get_spend_path() {
                 SpendPath::KeySpend => {
-                    self.calculate_pubkey_spend_sighash(idx, Some(TapSighashType::All))
+                    self.calculate_pubkey_spend_sighash(idx, Some(TapSighashType::Default))
                 }
                 SpendPath::ScriptSpend(script_idx) => self.calculate_script_spend_sighash_indexed(
                     idx,
                     script_idx,
-                    TapSighashType::All,
+                    TapSighashType::Default,
                 ),
                 SpendPath::Unknown => Err(BridgeError::SpendPathNotSpecified),
             }
@@ -167,7 +167,7 @@ impl TxHandler<Unsigned> {
             .to_script_buf();
 
         // TODO: remove copy here
-        self.calculate_script_spend_sighash(txin_index, &script.clone(), sighash_type)
+        self.calculate_script_spend_sighash(txin_index, &script, sighash_type)
     }
 
     pub fn calculate_script_spend_sighash(

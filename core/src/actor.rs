@@ -422,7 +422,7 @@ mod tests {
     use crate::builder::address::create_taproot_address;
 
     use super::*;
-    use crate::builder::script::{CheckSig, ScriptKind, SpendPath, SpendableScript};
+    use crate::builder::script::{CheckSig, SpendPath, SpendableScript};
     use crate::builder::transaction::input::SpendableTxIn;
     use crate::builder::transaction::output::UnspentTxOut;
     use crate::builder::transaction::{TxHandler, TxHandlerBuilder};
@@ -434,11 +434,11 @@ mod tests {
         initialize_database,
     };
     use bitcoin::secp256k1::{schnorr, Message, SecretKey};
-    use bitcoin::sighash::SighashCache;
-    use bitcoin::sighash::{Prevouts, TapSighashType};
+
+    use bitcoin::sighash::TapSighashType;
     use bitcoin::transaction::Transaction;
-    use bitcoin::Sequence;
-    use bitcoin::{Amount, Network, OutPoint, ScriptBuf};
+
+    use bitcoin::{Amount, Network, OutPoint};
     use bitvm::{
         execute_script,
         signatures::winternitz::{
@@ -447,7 +447,7 @@ mod tests {
         treepp::script,
     };
     use rand::thread_rng;
-    use secp256k1::{rand, SECP256K1};
+    use secp256k1::rand;
     use std::env;
     use std::str::FromStr;
     use std::sync::Arc;
@@ -583,7 +583,7 @@ mod tests {
     fn test_actor_script_spend_sig_valid() {
         let sk = SecretKey::new(&mut thread_rng());
         let actor = Actor::new(sk, None, Network::Regtest);
-        let (prevutxo, mut txhandler) = create_script_spend_tx_handler(&actor);
+        let (_, mut txhandler) = create_script_spend_tx_handler(&actor);
 
         // Actor performs a partial sign for script spend.
         // Using an empty signature slice since our dummy CheckSig uses actor signature.
@@ -604,7 +604,7 @@ mod tests {
 
         // Compute the sighash expected for a pubkey spend (similar to key spend).
         let sighash = txhandler
-            .calculate_script_spend_sighash_indexed(0, 0, TapSighashType::All)
+            .calculate_script_spend_sighash_indexed(0, 0, TapSighashType::Default)
             .expect("Sighash computed");
 
         let message = Message::from_digest(*sighash.as_byte_array());
@@ -656,7 +656,7 @@ mod tests {
 
         // This transaction is matching with prevouts. Therefore signing will
         // be successful.
-        let mut tx_handler = create_key_spend_tx_handler(&actor).1;
+        let tx_handler = create_key_spend_tx_handler(&actor).1;
         let sighash = tx_handler
             .calculate_pubkey_spend_sighash(0, Some(bitcoin::TapSighashType::Default))
             .expect("calculating pubkey spend sighash");
