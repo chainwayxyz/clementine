@@ -7,6 +7,7 @@ use bitcoincore_rpc::{
     json::{EstimateMode, FundRawTransactionOptions},
     RpcApi,
 };
+use tokio::sync::broadcast::Receiver;
 
 use crate::{
     actor::Actor,
@@ -20,6 +21,8 @@ use crate::{
     errors::BridgeError,
     extended_rpc::ExtendedRpc,
 };
+
+use self::chain_head::ChainHeadEvent;
 
 /// Operator needs to bump fees of txs:
 /// These txs should be sent fast:
@@ -39,15 +42,23 @@ struct TxSender {
     pub(crate) rpc: ExtendedRpc,
     pub(crate) db: Database,
     pub(crate) network: bitcoin::Network,
+    pub(crate) receiver: Receiver<ChainHeadEvent>,
 }
 
 impl TxSender {
-    pub fn new(signer: Actor, rpc: ExtendedRpc, db: Database, network: bitcoin::Network) -> Self {
+    pub fn new(
+        signer: Actor,
+        rpc: ExtendedRpc,
+        db: Database,
+        receiver: Receiver<ChainHeadEvent>,
+        network: bitcoin::Network,
+    ) -> Self {
         Self {
             signer,
             rpc,
             db,
             network,
+            receiver,
         }
     }
 
@@ -431,7 +442,12 @@ mod tests {
 
         let db = Database::new(&config).await.unwrap();
 
-        let tx_sender = TxSender::new(actor.clone(), rpc.clone(), db.clone(), network);
+        let (tx, handle) =
+            chain_head::start_polling(db.clone(), rpc.clone(), Duration::from_secs(1)).unwrap();
+
+        let x: tokio::sync::broadcast::Receiver<chain_head::ChainHeadEvent> = tx.subscribe();
+
+        let tx_sender = TxSender::new(actor.clone(), rpc.clone(), db.clone(), x, network);
 
         (tx_sender, rpc, db, actor, network)
     }
