@@ -100,7 +100,7 @@ impl CheckSig {
 
 /// Struct for scripts that commit to a message using Winternitz keys
 #[derive(Clone)]
-pub struct WinternitzCommit(PublicKey, Parameters, XOnlyPublicKey);
+pub struct WinternitzCommit(PublicKey, Parameters, pub(crate) XOnlyPublicKey);
 impl SpendableScript for WinternitzCommit {
     fn as_any(&self) -> &dyn Any {
         self
@@ -193,7 +193,7 @@ impl TimelockScript {
 }
 
 /// Struct for scripts that reveal a preimage and verify it against a hash.
-pub struct PreimageRevealScript(XOnlyPublicKey, [u8; 20]);
+pub struct PreimageRevealScript(pub(crate) XOnlyPublicKey, [u8; 20]);
 
 impl SpendableScript for PreimageRevealScript {
     fn as_any(&self) -> &dyn Any {
@@ -212,8 +212,14 @@ impl SpendableScript for PreimageRevealScript {
 }
 
 impl PreimageRevealScript {
-    pub fn generate_script_inputs(&self, preimage: &[u8], signature: &schnorr::Signature) -> Witness {
-        Witness::from_slice(&[preimage, &signature.serialize()])
+    pub fn generate_script_inputs(
+        &self,
+        preimage: impl AsRef<[u8]>,
+        signature: &schnorr::Signature,
+    ) -> Witness {
+        let mut witness = Witness::from_slice(&[preimage]);
+        witness.push(signature.serialize());
+        witness
     }
 
     pub fn new(xonly_pk: XOnlyPublicKey, hash: [u8; 20]) -> Self {

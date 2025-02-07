@@ -230,7 +230,9 @@ pub enum BridgeError {
     #[error("Spend Path in SpentTxIn in TxHandler not specified")]
     SpendPathNotSpecified,
     #[error("Actor does not own the key needed in P2TR keypath")]
-    NonOwnedKeyPath,
+    NotOwnKeyPath,
+    #[error("public key of Checksig in script is not owned by Actor")]
+    NotOwnedScriptPath,
     #[error("Couldn't find needed signature from database")]
     SignatureNotFound,
 

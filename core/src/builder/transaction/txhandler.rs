@@ -84,7 +84,6 @@ impl TxHandler<Unsigned> {
                 test_closure();
                 self.txins[idx].set_witness(witness);
             }
-
         }
         Ok(())
     }
