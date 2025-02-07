@@ -234,7 +234,7 @@ impl TxSender {
         builder.set_p2tr_key_spend_witness(
             &bitcoin::taproot::Signature {
                 signature,
-                sighash_type: bitcoin::TapSighashType::All,
+                sighash_type: bitcoin::TapSighashType::Default,
             },
             1,
         )?;
@@ -394,7 +394,7 @@ mod tests {
         builder.set_p2tr_key_spend_witness(
             &bitcoin::taproot::Signature {
                 signature,
-                sighash_type: bitcoin::TapSighashType::All,
+                sighash_type: bitcoin::TapSighashType::Default,
             },
             0,
         )?;
