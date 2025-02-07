@@ -11,10 +11,10 @@ use sqlx::{Pool, Postgres};
 
 mod header_chain_prover;
 mod operator;
+mod tx_sender;
 mod verifier;
 mod watchtower;
 mod wrapper;
-mod tx_sender;
 
 /// PostgreSQL database connection details.
 #[derive(Clone, Debug)]

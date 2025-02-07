@@ -318,6 +318,41 @@ impl TxSender {
     }
 }
 
+pub mod chain_head {
+    use std::time::Duration;
+
+    use bitcoincore_rpc::RpcApi;
+    use tokio::{task::JoinHandle, time::sleep};
+
+    use crate::{database::Database, errors::BridgeError, extended_rpc::ExtendedRpc};
+
+    pub fn start_polling(
+        db: Database,
+        rpc: ExtendedRpc,
+        poll_delay: Duration,
+    ) -> JoinHandle<Result<(), BridgeError>> {
+        tokio::spawn(async move {
+            loop {
+                if let Err(e) = poll_and_save(&db, &rpc).await {
+                    tracing::error!("Failed to poll chain head: {e}");
+                }
+                sleep(poll_delay).await;
+            }
+        })
+    }
+
+    async fn poll_and_save(db: &Database, rpc: &ExtendedRpc) -> Result<(), BridgeError> {
+        let info = rpc.client.get_blockchain_info().await?;
+        let (block_hash, height) = (info.best_block_hash, info.blocks);
+
+        let mut tx = db.begin_transaction().await?;
+        db.set_tx_sender_chain_head(&mut tx, block_hash, height)
+            .await?;
+        tx.commit().await?;
+        Ok(())
+    }
+}
+
 #[cfg(test)]
 mod tests {
 
@@ -327,10 +362,12 @@ mod tests {
     use crate::{create_test_config_with_thread_name, database::Database, initialize_database};
     use std::env;
     use std::thread;
+    use std::time::Duration;
 
     use bitcoin::secp256k1::SecretKey;
     use bitcoin::transaction::Version;
     use secp256k1::rand;
+    use tokio::time::sleep;
 
     use super::*;
 
@@ -405,7 +442,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_create_fee_payer_tx() {
-        let (tx_sender, rpc, _db, signer, network) = create_test_tx_sender().await;
+        let (tx_sender, rpc, db, signer, network) = create_test_tx_sender().await;
 
         let tx = create_bumpable_tx(&rpc, signer, network).await.unwrap();
 
@@ -426,9 +463,23 @@ mod tests {
 
         rpc.mine_blocks(1).await.unwrap();
 
-        let blockhash = rpc.client.get_best_block_hash().await.unwrap();
+        let poll_delay = Duration::from_secs(5 * 60);
+        let chain_head_job_handle = chain_head::start_polling(db.clone(), rpc.clone(), poll_delay);
+        while db
+            .get_tx_sender_chain_head()
+            .await
+            .unwrap().is_none() {
+                sleep(Duration::from_millis(200)).await;
+        }
+
+        let (blockhash, _) = db
+            .get_tx_sender_chain_head()
+            .await
+            .unwrap() // result
+            .expect("chain head saved"); // option
         tx_sender.apply_block(&blockhash).await.unwrap();
 
         tx_sender.send_tx_with_cpfp(tx).await.unwrap();
+        chain_head_job_handle.await.unwrap().unwrap();
     }
 }

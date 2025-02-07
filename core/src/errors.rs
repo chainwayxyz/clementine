@@ -19,6 +19,8 @@ pub enum BridgeError {
     /// Returned when the bitcoin crate returns an error in the sighash taproot module
     #[error("BitcoinSighashTaprootError: {0}")]
     BitcoinSighashTaprootError(#[from] bitcoin::sighash::TaprootError),
+    #[error("Invalid bitcoin block hash: {0}")]
+    BitcoinBlockHashInvalid(#[from] bitcoin::hex::HexToArrayError),
 
     #[error("Secp256k1 returned an error: {0}")]
     Secp256k1Error(#[from] secp256k1::Error),
