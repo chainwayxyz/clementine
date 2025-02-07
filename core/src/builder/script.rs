@@ -63,7 +63,7 @@ impl OtherSpendable {
         &self.0
     }
 
-    fn generate_witness(&self, witness: Witness) -> Witness {
+    fn generate_script_inputs(&self, witness: Witness) -> Witness {
         witness
     }
 
@@ -89,7 +89,7 @@ impl SpendableScript for CheckSig {
 }
 
 impl CheckSig {
-    pub fn generate_witness(&self, signature: &schnorr::Signature) -> Witness {
+    pub fn generate_script_inputs(&self, signature: &schnorr::Signature) -> Witness {
         Witness::from_slice(&[signature.serialize()])
     }
 
@@ -123,7 +123,7 @@ impl SpendableScript for WinternitzCommit {
 }
 
 impl WinternitzCommit {
-    pub fn generate_witness(
+    pub fn generate_script_inputs(
         &self,
         commit_data: &Vec<u8>,
         secret_key: &SecretKey,
@@ -180,7 +180,7 @@ impl SpendableScript for TimelockScript {
 }
 
 impl TimelockScript {
-    pub fn generate_witness(&self, signature: &Option<schnorr::Signature>) -> Witness {
+    pub fn generate_script_inputs(&self, signature: &Option<schnorr::Signature>) -> Witness {
         match signature {
             Some(sig) => Witness::from_slice(&[sig.serialize()]),
             None => Witness::default(),
@@ -212,7 +212,7 @@ impl SpendableScript for PreimageRevealScript {
 }
 
 impl PreimageRevealScript {
-    pub fn generate_witness(&self, preimage: &[u8], signature: &schnorr::Signature) -> Witness {
+    pub fn generate_script_inputs(&self, preimage: &[u8], signature: &schnorr::Signature) -> Witness {
         Witness::from_slice(&[preimage, &signature.serialize()])
     }
 
@@ -246,7 +246,7 @@ impl SpendableScript for DepositScript {
 }
 
 impl DepositScript {
-    pub fn generate_witness(&self, signature: &schnorr::Signature) -> Witness {
+    pub fn generate_script_inputs(&self, signature: &schnorr::Signature) -> Witness {
         Witness::from_slice(&[signature.serialize()])
     }
 

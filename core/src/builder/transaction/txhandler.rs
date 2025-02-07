@@ -72,14 +72,19 @@ impl TxHandler<Unsigned> {
         &mut self,
         mut signer: impl FnMut(usize, &SpentTxIn) -> Result<Option<Witness>, BridgeError>,
     ) -> Result<(), BridgeError> {
-        for (idx, txin) in self.txins.iter_mut().enumerate() {
-            if txin.get_witness().is_some() {
+        for (idx) in 0..self.txins.len() {
+            let test_closure = || {
+                println!("{self:?}");
+            };
+            if self.txins[idx].get_witness().is_some() {
                 continue;
             }
 
-            if let Some(witness) = signer(idx, &txin)? {
-                txin.set_witness(witness);
+            if let Some(witness) = signer(idx, &self.txins[idx])? {
+                test_closure();
+                self.txins[idx].set_witness(witness);
             }
+
         }
         Ok(())
     }

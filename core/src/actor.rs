@@ -1,5 +1,3 @@
-use std::collections::HashMap;
-
 use crate::builder::script::{
     CheckSig, DepositScript, OtherSpendable, PreimageRevealScript, SpendPath, TimelockScript,
     WinternitzCommit,
@@ -15,12 +13,9 @@ use crate::utils::{self, SECP};
 use bitcoin::hashes::hash160;
 use bitcoin::secp256k1::PublicKey;
 use bitcoin::sighash::{self, SighashCache};
-use bitcoin::{
-    hashes::Hash,
-    secp256k1::{schnorr, Keypair, Message, SecretKey, XOnlyPublicKey},
-    Address, TapSighash, TapTweakHash,
-};
+use bitcoin::{hashes::Hash, secp256k1::{schnorr, Keypair, Message, SecretKey, XOnlyPublicKey}, Address, ScriptBuf, TapSighash, TapTweakHash};
 use bitcoin::{TapNodeHash, TapSighashType, TxOut, Witness};
+use bitcoin::taproot::{LeafVersion, TaprootSpendInfo};
 use bitvm::signatures::winternitz::{
     self, BinarysearchVerifier, StraightforwardConverter, Winternitz,
 };
@@ -166,7 +161,7 @@ impl Actor {
     #[tracing::instrument(skip(self), err(level = tracing::Level::ERROR), ret(level = tracing::Level::TRACE))]
     pub fn sign_taproot_script_spend_tx(
         &self,
-        tx: &mut TxHandler,
+        tx: &TxHandler,
         txin_index: usize,
         script_index: usize,
     ) -> Result<schnorr::Signature, BridgeError> {
@@ -182,7 +177,7 @@ impl Actor {
     #[tracing::instrument(skip(self), err(level = tracing::Level::ERROR), ret(level = tracing::Level::TRACE))]
     pub fn sign_taproot_pubkey_spend(
         &self,
-        tx_handler: &mut TxHandler,
+        tx_handler: &TxHandler,
         input_index: usize,
         sighash_type: Option<TapSighashType>,
     ) -> Result<schnorr::Signature, BridgeError> {
@@ -236,7 +231,7 @@ impl Actor {
     #[tracing::instrument(skip(self), err(level = tracing::Level::ERROR), ret(level = tracing::Level::TRACE))]
     pub fn sign_taproot_script_spend_tx_new_tweaked(
         &self,
-        tx_handler: &mut TxHandler,
+        tx_handler: &TxHandler,
         txin_index: usize,
         script_index: usize,
     ) -> Result<schnorr::Signature, BridgeError> {
@@ -301,28 +296,42 @@ impl Actor {
         Ok(hash.to_byte_array())
     }
 
-    fn get_signature(
+    fn get_saved_signature(
         signature_id: SignatureId,
         signatures: &Vec<TaggedSignature>,
-    ) -> Option<Signature> {
-        let sig = signatures
+    ) -> Option<schnorr::Signature> {
+        signatures
             .iter()
-            .find(|sig| sig.signature_id.unwrap() == signature_id);
-        match sig {
-            None => None,
-            Some(sig) => match Signature::from_slice(sig.signature.as_ref()) {
-                Ok(sig) => Some(sig),
-                Err(_) => None,
-            },
-        }
+            .find(|sig| sig.signature_id.map(|id| id == signature_id).unwrap_or(false))
+            .and_then(|sig| schnorr::Signature::from_slice(sig.signature.as_ref()).ok())
     }
 
-    pub fn partial_sign(
+    fn add_script_path_to_witness(
+        witness: &mut Witness,
+        script: &ScriptBuf,
+        spend_info: &TaprootSpendInfo
+    ) -> Result<(), BridgeError> {
+        let spend_control_block = spend_info
+            .control_block(&(script.clone(), LeafVersion::TapScript))
+            .ok_or(BridgeError::ControlBlockError)?;
+        witness.push(script.clone());
+        witness.push(spend_control_block.serialize());
+        Ok(())
+    }
+
+    pub fn partial_sign_winternitz_or_preimagereveal(
         &self,
         txhandler: &mut TxHandler,
         signatures: &Vec<TaggedSignature>,
+        data: &[u8],
     ) -> Result<(), BridgeError> {
+        let txhandlerclone = txhandler.clone();
         let signer = |idx: usize, spt: &SpentTxIn| -> Result<Option<Witness>, BridgeError> {
+            let spendinfo = spt
+                .get_spendable()
+                .get_spend_info()
+                .as_ref()
+                .ok_or_else(|| BridgeError::MissingSpendInfo)?;
             match spt.get_spend_path() {
                 SpendPath::ScriptSpend(script_idx) => {
                     let script = spt
@@ -330,7 +339,70 @@ impl Actor {
                         .get_scripts()
                         .get(script_idx)
                         .ok_or_else(|| BridgeError::NoScriptAtIndex(script_idx))?;
-                    let sig = Self::get_signature(spt.get_signature_id(), &signatures);
+                    let mut witness = Witness::default();
+
+                    if let Some(script) = script.as_any().downcast_ref::<OtherSpendable>() {
+                        return Ok(None)
+                    } else if let Some(script) = script.as_any().downcast_ref::<DepositScript>() {
+                        return Ok(None)
+                    } else if let Some(script) = script.as_any().downcast_ref::<PreimageRevealScript>() {
+                        return Ok(None)
+                    } else if let Some(script) = script.as_any().downcast_ref::<TimelockScript>() {
+                        return Ok(None)
+                    } else if let Some(script) = script.as_any().downcast_ref::<WinternitzCommit>() {
+                        return Ok(None)
+                    } else if let Some(script) = script.as_any().downcast_ref::<CheckSig>() {
+                        return Ok(None)
+                    }
+                    else {
+                        return Err(BridgeError::Error("Not handled script type".to_string()))
+                    }
+                    Self::add_script_path_to_witness(&mut witness, &script.to_script_buf(), &spendinfo)?;
+                    return Ok(Some(witness))
+                }
+                SpendPath::KeySpend => {
+                    let xonly_public_key = spendinfo.internal_key();
+                    if xonly_public_key == self.xonly_public_key {
+                        let sighash = txhandlerclone
+                            .calculate_pubkey_spend_sighash(idx, Some(TapSighashType::All))?;
+                        // TODO: get Schnorr sigs, not Vec<TaggedSignature>, pref in HashMap
+                        let sig = Self::get_saved_signature(spt.get_signature_id(), &signatures);
+                        let sig = match sig {
+                            Some(sig) => sig,
+                            None => self.sign_with_tweak(sighash, spendinfo.merkle_root())?,
+                        };
+                        return Ok(Some(Witness::from_slice(&[&sig.serialize()])));
+                    }
+                    Err(NonOwnedKeyPath)
+                }
+                SpendPath::Unknown => Err(BridgeError::SpendPathNotSpecified),
+            }
+        };
+        txhandler.sign_txins(signer)?;
+        Ok(())
+    }
+
+    pub fn partial_sign(
+        &self,
+        txhandler: &mut TxHandler,
+        signatures: &Vec<TaggedSignature>,
+    ) -> Result<(), BridgeError> {
+        let txhandlerclone = txhandler.clone();
+        let signer = |idx: usize, spt: &SpentTxIn| -> Result<Option<Witness>, BridgeError> {
+            let spendinfo = spt
+                .get_spendable()
+                .get_spend_info()
+                .as_ref()
+                .ok_or_else(|| BridgeError::MissingSpendInfo)?;
+            match spt.get_spend_path() {
+                SpendPath::ScriptSpend(script_idx) => {
+                    let script = spt
+                        .get_spendable()
+                        .get_scripts()
+                        .get(script_idx)
+                        .ok_or_else(|| BridgeError::NoScriptAtIndex(script_idx))?;
+                    let sig = Self::get_saved_signature(spt.get_signature_id(), &signatures);
+                    let mut witness = Witness::default();
 
                     if let Some(script) = script.as_any().downcast_ref::<OtherSpendable>() {
                         return Ok(None)
@@ -338,14 +410,14 @@ impl Actor {
                         match sig {
                             None => {
                                 if script.0 == self.xonly_public_key {
-                                    return Ok(Some(script.generate_witness(
-                                        self.sign_taproot_script_spend_tx(txhandler, idx, script_idx),
-                                    )))
+                                    witness = script.generate_script_inputs(
+                                        &self.sign_taproot_script_spend_tx(&txhandlerclone, idx, script_idx)?,
+                                    )
                                 } else {
                                     return Err(BridgeError::SignatureNotFound)
                                 }
                             }
-                            Some(sig) => return Ok(Some(script.generate_witness(&sig))),
+                            Some(sig) => witness = script.generate_script_inputs(&sig),
                         }
                     } else if let Some(script) = script.as_any().downcast_ref::<PreimageRevealScript>() {
                         return Ok(None)
@@ -354,17 +426,17 @@ impl Actor {
                             match sig {
                                 None => {
                                     if xonly_key == self.xonly_public_key {
-                                        return Ok(Some(script.generate_witness(
-                                            Some(self.sign_taproot_script_spend_tx(txhandler, idx, script_idx)?.as_ref()),
-                                        )))
+                                        witness = script.generate_script_inputs(
+                                            &Some(self.sign_taproot_script_spend_tx(&txhandlerclone, idx, script_idx)?),
+                                        )
                                     } else {
-                                       return Err(BridgeError::SignatureNotFound)
+                                        return Err(BridgeError::SignatureNotFound)
                                     }
                                 }
-                                Some(sig) => return Ok(Some(script.generate_witness(&sig))),
+                                Some(sig) => witness = script.generate_script_inputs(&Some(sig)),
                             }
                         } else {
-                            return Ok(Some(Witness::new()))
+                            witness = Witness::new()
                         }
                     } else if let Some(script) = script.as_any().downcast_ref::<WinternitzCommit>() {
                         return Ok(None)
@@ -372,35 +444,34 @@ impl Actor {
                         match sig {
                             None => {
                                 if script.0 == self.xonly_public_key {
-                                    return Ok(Some(script.generate_witness(
-                                        self.sign_taproot_script_spend_tx(txhandler, idx, script_idx)?.as_ref(),
-                                    )))
+                                    witness = script.generate_script_inputs(
+                                        &self.sign_taproot_script_spend_tx(&txhandlerclone, idx, script_idx)?,
+                                    )
                                 } else {
                                     return Err(BridgeError::SignatureNotFound)
                                 }
                             }
-                            Some(sig) => return Ok(Some(script.generate_witness(&sig))),
+                            Some(sig) => witness = script.generate_script_inputs(&sig),
                         }
                     }
-                    Err(BridgeError::Error("Not handled script type".to_string()))
+                    else {
+                        return Err(BridgeError::Error("Not handled script type".to_string()))
+                    }
+                    Self::add_script_path_to_witness(&mut witness, &script.to_script_buf(), &spendinfo)?;
+                    return Ok(Some(witness))
                 }
                 SpendPath::KeySpend => {
-                    let spendinfo = spt
-                        .get_spendable()
-                        .get_spend_info()
-                        .as_ref()
-                        .ok_or_else(|| BridgeError::MissingSpendInfo)?;
                     let xonly_public_key = spendinfo.internal_key();
                     if xonly_public_key == self.xonly_public_key {
-                        let sighash = txhandler
+                        let sighash = txhandlerclone
                             .calculate_pubkey_spend_sighash(idx, Some(TapSighashType::All))?;
                         // TODO: get Schnorr sigs, not Vec<TaggedSignature>, pref in HashMap
-                        let sig = Self::get_signature(spt.get_signature_id(), &signatures);
+                        let sig = Self::get_saved_signature(spt.get_signature_id(), &signatures);
                         let sig = match sig {
                             Some(sig) => sig,
                             None => self.sign_with_tweak(sighash, spendinfo.merkle_root())?,
                         };
-                        return Ok(Some(Witness::p2tr_key_spend(sig)));
+                        return Ok(Some(Witness::from_slice(&[&sig.serialize()])));
                     }
                     Err(NonOwnedKeyPath)
                 }
