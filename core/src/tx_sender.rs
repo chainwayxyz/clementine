@@ -321,35 +321,79 @@ impl TxSender {
 pub mod chain_head {
     use std::time::Duration;
 
+    use bitcoin::BlockHash;
     use bitcoincore_rpc::RpcApi;
-    use tokio::{task::JoinHandle, time::sleep};
+    use tokio::{sync::broadcast, task::JoinHandle, time::sleep};
 
     use crate::{database::Database, errors::BridgeError, extended_rpc::ExtendedRpc};
+
+    #[derive(Clone, Debug)]
+    pub enum ChainHeadEvent {
+        NewBlock(Vec<BlockHash>),
+        Reorg(Vec<BlockHash>),
+    }
 
     pub fn start_polling(
         db: Database,
         rpc: ExtendedRpc,
         poll_delay: Duration,
-    ) -> JoinHandle<Result<(), BridgeError>> {
-        tokio::spawn(async move {
+    ) -> Result<
+        (
+            broadcast::Sender<ChainHeadEvent>,
+            JoinHandle<Result<(), BridgeError>>,
+        ),
+        BridgeError,
+    > {
+        let (tx, _) = broadcast::channel(100);
+        let returned_tx = tx.clone();
+
+        let handle = tokio::spawn(async move {
             loop {
-                if let Err(e) = poll_and_save(&db, &rpc).await {
-                    tracing::error!("Failed to poll chain head: {e}");
+                let mut block_height = rpc.client.get_block_count().await?;
+                let mut block_hash = rpc.client.get_block_hash(block_height).await?;
+                let mut block_header = rpc.client.get_block_header(&block_hash).await?;
+
+                let mut new_blocks = Vec::new();
+                while true {
+                    // if the block is in the db, do nothing
+                    let height = db.get_height_from_block_hash(None, block_hash).await?;
+                    if height.is_some() {
+                        break;
+                    }
+
+                    new_blocks.push((block_hash, block_height, block_header.prev_blockhash));
+                    block_hash = block_header.prev_blockhash;
+                    block_header = rpc.client.get_block_header(&block_hash).await?;
+                    block_height -= 1;
                 }
+
+                // check the reorg blocks
+                let reorg_blocks = db.delete_chain_head_from_height(None, block_height).await?;
+
+                if !reorg_blocks.is_empty() {
+                    tx.send(ChainHeadEvent::Reorg(reorg_blocks))?;
+                }
+
+                let block_hashes: Vec<BlockHash> = new_blocks
+                    .iter()
+                    .map(|(block_hash, _, _)| *block_hash)
+                    .collect();
+
+                let mut dbtx = db.begin_transaction().await?;
+                for (block_hash, block_height, prev_block_hash) in new_blocks {
+                    db.set_chain_head(Some(&mut dbtx), block_hash, prev_block_hash, block_height)
+                        .await?;
+                }
+                dbtx.commit().await?;
+
+                if !block_hashes.is_empty() {
+                    tx.send(ChainHeadEvent::NewBlock(block_hashes))?;
+                }
+
                 sleep(poll_delay).await;
             }
-        })
-    }
-
-    async fn poll_and_save(db: &Database, rpc: &ExtendedRpc) -> Result<(), BridgeError> {
-        let info = rpc.client.get_blockchain_info().await?;
-        let (block_hash, height) = (info.best_block_hash, info.blocks);
-
-        let mut tx = db.begin_transaction().await?;
-        db.set_tx_sender_chain_head(&mut tx, block_hash, height)
-            .await?;
-        tx.commit().await?;
-        Ok(())
+        });
+        Ok((returned_tx, handle))
     }
 }
 
@@ -463,23 +507,11 @@ mod tests {
 
         rpc.mine_blocks(1).await.unwrap();
 
-        let poll_delay = Duration::from_secs(5 * 60);
-        let chain_head_job_handle = chain_head::start_polling(db.clone(), rpc.clone(), poll_delay);
-        while db
-            .get_tx_sender_chain_head()
-            .await
-            .unwrap().is_none() {
-                sleep(Duration::from_millis(200)).await;
-        }
+        let blockhash = rpc.client.get_best_block_hash().await.unwrap();
 
-        let (blockhash, _) = db
-            .get_tx_sender_chain_head()
-            .await
-            .unwrap() // result
-            .expect("chain head saved"); // option
         tx_sender.apply_block(&blockhash).await.unwrap();
 
         tx_sender.send_tx_with_cpfp(tx).await.unwrap();
-        chain_head_job_handle.await.unwrap().unwrap();
+        // chain_head_job_handle.await.unwrap().unwrap();
     }
 }

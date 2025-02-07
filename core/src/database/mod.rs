@@ -15,6 +15,7 @@ mod tx_sender;
 mod verifier;
 mod watchtower;
 mod wrapper;
+mod chain_sycner;
 
 /// PostgreSQL database connection details.
 #[derive(Clone, Debug)]

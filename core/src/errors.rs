@@ -113,8 +113,10 @@ pub enum BridgeError {
     RPCStreamEndedUnexpectedly(String),
     #[error("Invalid response from an RPC endpoint: {0}")]
     RPCInvalidResponse(String),
-    #[error("RPC broadcast receiver failed: {0}")]
+    #[error("RPCBroadcastRecvError: {0}")]
     RPCBroadcastRecvError(#[from] tokio::sync::broadcast::error::RecvError),
+    #[error("RPCBroadcastSendError: {0}")]
+    RPCBroadcastSendError(String),
     /// ConfigError is returned when the configuration is invalid
     #[error("ConfigError: {0}")]
     ConfigError(String),
@@ -278,5 +280,11 @@ impl From<BridgeError> for ErrorObject<'static> {
 impl From<BridgeError> for tonic::Status {
     fn from(val: BridgeError) -> Self {
         tonic::Status::from_error(Box::new(val))
+    }
+}
+
+impl<T> From<tokio::sync::broadcast::error::SendError<T>> for BridgeError {
+    fn from(e: tokio::sync::broadcast::error::SendError<T>) -> Self {
+        BridgeError::RPCBroadcastSendError(e.to_string())
     }
 }

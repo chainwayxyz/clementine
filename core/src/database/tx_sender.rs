@@ -99,65 +99,6 @@ impl Database {
         Ok(txs)
     }
 
-    // /// Gets all unconfirmed fee payer transactions.
-    // pub async fn get_unconfirmed_fee_payer_txs(
-    //     &self,
-    //     tx: Option<DatabaseTransaction<'_, '_>>,
-    // ) -> Result<Vec<(Txid, Txid, u32, ScriptBuf, u64)>, BridgeError> {
-    //     let query = sqlx::query_as(
-    //         "SELECT bumped_txid, fee_payer_txid, vout, script_pubkey, amount
-    //          FROM fee_payer_utxos
-    //          WHERE is_confirmed = false",
-    //     );
-
-    //     let results: Vec<(String, String, i32, String, i64)> =
-    //         execute_query_with_tx!(self.connection, tx, query, fetch_all)?;
-
-    //     let mut txs = Vec::new();
-    //     for (bumped_txid, fee_payer_txid, vout, script_pubkey, amount) in results {
-    //         txs.push((
-    //             Txid::from_str(&bumped_txid)?,
-    //             Txid::from_str(&fee_payer_txid)?,
-    //             vout as u32,
-    //             ScriptBuf::from_str(&script_pubkey)?,
-    //             amount as u64,
-    //         ));
-    //     }
-
-    //     Ok(txs)
-    // }
-
-    pub async fn set_tx_sender_chain_head(
-        &self,
-        tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
-        block_hash: BlockHash,
-        height: u64,
-    ) -> Result<(BlockHash, u64), BridgeError> {
-        sqlx::query("DELETE FROM tx_sender_block_info")
-            .execute(tx.deref_mut())
-            .await?;
-        sqlx::query("INSERT INTO tx_sender_block_info (block_hash, height) VALUES ($1, $2)")
-            .bind(block_hash.to_string())
-            .bind(height as i64)
-            .execute(tx.deref_mut())
-            .await?;
-        Ok((block_hash, height))
-    }
-
-    pub async fn get_tx_sender_chain_head(&self) -> Result<Option<(BlockHash, u64)>, BridgeError> {
-        let mut tx = self.begin_transaction().await?;
-        let ret: Option<(String, i64)> =
-            sqlx::query_as("SELECT block_hash, height FROM tx_sender_block_info LIMIT 1")
-                .fetch_optional(tx.deref_mut())
-                .await?;
-        if let Some((block_hash, height)) = ret {
-            let block_hash = BlockHash::from_str(&block_hash)?;
-            let height = height as u64;
-            Ok(Some((block_hash, height)))
-        } else {
-            Ok(None)
-        }
-    }
 }
 
 #[cfg(test)]

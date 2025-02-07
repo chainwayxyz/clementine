@@ -207,6 +207,7 @@ create table if not exists fee_payer_utxos (
 
 create table if not exists tx_sender_block_info (
     block_hash text not null primary key,
+    prev_block_hash text not null,
     height bigint not null
 );
 
