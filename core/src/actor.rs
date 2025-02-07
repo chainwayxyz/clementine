@@ -236,7 +236,7 @@ impl Actor {
     }
 
     //
-    pub fn partial_sign_winternitz_or_preimagereveal(
+    pub fn partial_sign_commit(
         &self,
         txhandler: &mut TxHandler,
         signatures: &[TaggedSignature],
