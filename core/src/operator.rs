@@ -4,7 +4,7 @@ use crate::database::Database;
 use crate::errors::BridgeError;
 use crate::extended_rpc::ExtendedRpc;
 use crate::musig2::AggregateFromPublicKeys;
-use crate::utils::{ALL_BITVM_INTERMEDIATE_VARIABLES, SECP};
+use crate::utils::SECP;
 use crate::{builder, UTXO};
 use bitcoin::consensus::deserialize;
 use bitcoin::hashes::Hash;
