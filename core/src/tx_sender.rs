@@ -37,28 +37,21 @@ use self::chain_head::ChainHeadEvent;
 /// Payout Tx
 /// Operator Challenge ACK Tx
 ///
+#[derive(Clone)]
 struct TxSender {
     pub(crate) signer: Actor,
     pub(crate) rpc: ExtendedRpc,
     pub(crate) db: Database,
     pub(crate) network: bitcoin::Network,
-    pub(crate) receiver: Receiver<ChainHeadEvent>,
 }
 
 impl TxSender {
-    pub fn new(
-        signer: Actor,
-        rpc: ExtendedRpc,
-        db: Database,
-        receiver: Receiver<ChainHeadEvent>,
-        network: bitcoin::Network,
-    ) -> Self {
+    pub fn new(signer: Actor, rpc: ExtendedRpc, db: Database, network: bitcoin::Network) -> Self {
         Self {
             signer,
             rpc,
             db,
             network,
-            receiver,
         }
     }
 
@@ -327,6 +320,32 @@ impl TxSender {
 
         Ok(())
     }
+
+    pub async fn apply_reorg(&self, reorg_block: &bitcoin::BlockHash) -> Result<(), BridgeError> {
+        // self.apply_block(&reorg_block).await?;
+        Ok(())
+    }
+
+    pub async fn apply_new_chain_event(
+        &self,
+        receiver: &mut Receiver<ChainHeadEvent>,
+    ) -> Result<(), BridgeError> {
+        loop {
+            let event = receiver.recv().await?;
+            match event {
+                ChainHeadEvent::NewBlock(block_hashes) => {
+                    for block in block_hashes {
+                        self.apply_block(&block).await?;
+                    }
+                }
+                ChainHeadEvent::Reorg(block_hashes) => {
+                    for block in block_hashes {
+                        self.apply_reorg(&block).await?;
+                    }
+                }
+            }
+        }
+    }
 }
 
 pub mod chain_head {
@@ -355,11 +374,14 @@ pub mod chain_head {
         ),
         BridgeError,
     > {
+        tracing::info!("Starting chain head polling");
+        println!("Starting chain head polling");
         let (tx, _) = broadcast::channel(100);
         let returned_tx = tx.clone();
 
         let handle = tokio::spawn(async move {
             loop {
+                tracing::info!("Polling for new blocks");
                 let mut block_height = rpc.client.get_block_count().await?;
                 let mut block_hash = rpc.client.get_block_hash(block_height).await?;
                 let mut block_header = rpc.client.get_block_header(&block_hash).await?;
@@ -398,6 +420,7 @@ pub mod chain_head {
                 dbtx.commit().await?;
 
                 if !block_hashes.is_empty() {
+                    println!("New block hashes: {:?}", block_hashes);
                     tx.send(ChainHeadEvent::NewBlock(block_hashes))?;
                 }
 
@@ -426,7 +449,14 @@ mod tests {
 
     use super::*;
 
-    async fn create_test_tx_sender() -> (TxSender, ExtendedRpc, Database, Actor, bitcoin::Network) {
+    async fn create_test_tx_sender() -> (
+        TxSender,
+        ExtendedRpc,
+        Database,
+        Actor,
+        Receiver<ChainHeadEvent>,
+        bitcoin::Network,
+    ) {
         let sk = SecretKey::new(&mut rand::thread_rng());
         let network = bitcoin::Network::Regtest;
         let actor = Actor::new(sk, None, network);
@@ -445,11 +475,11 @@ mod tests {
         let (tx, handle) =
             chain_head::start_polling(db.clone(), rpc.clone(), Duration::from_secs(1)).unwrap();
 
-        let x: tokio::sync::broadcast::Receiver<chain_head::ChainHeadEvent> = tx.subscribe();
+        let receiver = tx.subscribe();
 
-        let tx_sender = TxSender::new(actor.clone(), rpc.clone(), db.clone(), x, network);
+        let tx_sender = TxSender::new(actor.clone(), rpc.clone(), db.clone(), network);
 
-        (tx_sender, rpc, db, actor, network)
+        (tx_sender, rpc, db, actor, receiver, network)
     }
 
     async fn create_bumpable_tx(
@@ -502,7 +532,18 @@ mod tests {
 
     #[tokio::test]
     async fn test_create_fee_payer_tx() {
-        let (tx_sender, rpc, db, signer, network) = create_test_tx_sender().await;
+        println!("BEFORE xyz");
+
+        let (tx_sender, rpc, _db, signer, mut receiver, network) = create_test_tx_sender().await;
+
+        let tx_sender_clone = tx_sender.clone();
+
+        tokio::spawn(async move {
+            tx_sender_clone
+                .apply_new_chain_event(&mut receiver)
+                .await
+                .unwrap();
+        });
 
         let tx = create_bumpable_tx(&rpc, signer, network).await.unwrap();
 
@@ -523,9 +564,11 @@ mod tests {
 
         rpc.mine_blocks(1).await.unwrap();
 
-        let blockhash = rpc.client.get_best_block_hash().await.unwrap();
+        // let blockhash = rpc.client.get_best_block_hash().await.unwrap();
 
-        tx_sender.apply_block(&blockhash).await.unwrap();
+        // tx_sender.apply_block(&blockhash).await.unwrap();
+
+        tokio::time::sleep(std::time::Duration::from_secs(2)).await;
 
         tx_sender.send_tx_with_cpfp(tx).await.unwrap();
         // chain_head_job_handle.await.unwrap().unwrap();
