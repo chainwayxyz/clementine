@@ -434,6 +434,7 @@ impl Operator {
             output_txout,
             self.idx,
             user_sig,
+            self.config.network,
         )?;
 
         let sighash = payout_txhandler.calculate_pubkey_spend_sighash(

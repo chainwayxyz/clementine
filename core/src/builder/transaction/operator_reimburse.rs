@@ -1,6 +1,6 @@
 use super::input::SpendableTxIn;
 use super::txhandler::DEFAULT_SEQUENCE;
-use crate::builder::script::{CheckSig, TimelockScript};
+use crate::builder::script::{CheckSig, SpendableScript, TimelockScript, WithdrawalScript};
 use crate::builder::transaction::output::UnspentTxOut;
 use crate::builder::transaction::txhandler::{TxHandler, TxHandlerBuilder};
 use crate::constants::{BLOCKS_PER_WEEK, MIN_TAPROOT_AMOUNT};
@@ -9,7 +9,7 @@ use crate::{builder, utils, UTXO};
 use bitcoin::hashes::Hash;
 use bitcoin::script::PushBytesBuf;
 use bitcoin::secp256k1::schnorr::Signature;
-use bitcoin::{Network, Sequence, TxOut, Txid};
+use bitcoin::{Amount, Network, Sequence, TxOut, Txid};
 use bitcoin::{Witness, XOnlyPublicKey};
 use std::sync::Arc;
 
@@ -184,6 +184,7 @@ pub fn create_payout_txhandler(
     output_txout: TxOut,
     operator_idx: usize,
     user_sig: Signature,
+    network: bitcoin::Network,
 ) -> Result<TxHandler, BridgeError> {
     let user_sig_wrapped = bitcoin::taproot::Signature {
         signature: user_sig,
@@ -194,12 +195,9 @@ pub fn create_payout_txhandler(
 
     let output_txout = UnspentTxOut::new(output_txout.clone(), vec![], None);
 
-    let mut push_bytes = PushBytesBuf::new();
-    push_bytes
-        .extend_from_slice(&utils::usize_to_var_len_bytes(operator_idx))
-        .expect("Not possible to panic while converting index to slice");
-    let op_return_txout = builder::transaction::op_return_txout(push_bytes);
-    let op_return_txout = UnspentTxOut::from_partial(op_return_txout);
+    let scripts: Vec<Arc<dyn SpendableScript>> =
+        vec![Arc::new(WithdrawalScript::new(operator_idx))];
+    let op_return_txout = UnspentTxOut::from_scripts(Amount::from_sat(0), scripts, None, network);
 
     Ok(TxHandlerBuilder::new()
         .add_input_with_witness(txin, DEFAULT_SEQUENCE, witness)
