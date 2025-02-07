@@ -257,6 +257,9 @@ pub enum BridgeError {
 
     #[error("Not enough operators")]
     NotEnoughOperators,
+
+    #[error("Encountered multiple winternitz scripts when attempting to commit to only one.")]
+    MultipleWinternitzScripts,
 }
 
 impl From<BridgeError> for ErrorObject<'static> {

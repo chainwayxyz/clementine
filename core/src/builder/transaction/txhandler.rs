@@ -68,20 +68,51 @@ impl TxHandler<Unsigned> {
         &self.cached_txid
     }
 
+    fn get_sighash_calculator(
+        &self,
+        idx: usize,
+    ) -> impl FnOnce() -> Result<TapSighash, BridgeError> + '_ {
+        move || -> Result<TapSighash, BridgeError> {
+            match self.txins[idx].get_spend_path() {
+                SpendPath::KeySpend => {
+                    self.calculate_pubkey_spend_sighash(idx, Some(TapSighashType::All))
+                }
+                SpendPath::ScriptSpend(script_idx) => self.calculate_script_spend_sighash_indexed(
+                    idx,
+                    script_idx,
+                    TapSighashType::All,
+                ),
+                SpendPath::Unknown => Err(BridgeError::SpendPathNotSpecified),
+            }
+        }
+    }
+
+    /// Signs all **unsigned** transaction inputs using the provided signer function.
+    ///
+    /// This function will skip all transaction inputs that already have a witness.
+    ///
+    /// # Parameters
+    /// * `signer` - A function that returns an optional witness for transaction inputs or returns an error
+    ///   if the signing fails. The function takes the input idx, input object, and a sighash calculator closure.
+    ///
+    /// # Returns
+    /// * `Ok(())` if signing is successful
+    /// * `Err(BridgeError)` if signing fails
     pub fn sign_txins(
         &mut self,
-        mut signer: impl FnMut(usize, &SpentTxIn) -> Result<Option<Witness>, BridgeError>,
+        mut signer: impl for<'a> FnMut(
+            usize,
+            &'a SpentTxIn,
+            Box<dyn FnOnce() -> Result<TapSighash, BridgeError> + 'a>,
+        ) -> Result<Option<Witness>, BridgeError>,
     ) -> Result<(), BridgeError> {
-        for (idx) in 0..self.txins.len() {
-            let test_closure = || {
-                println!("{self:?}");
-            };
+        for idx in 0..self.txins.len() {
+            let calc_sighash = Box::new(self.get_sighash_calculator(idx));
             if self.txins[idx].get_witness().is_some() {
                 continue;
             }
 
-            if let Some(witness) = signer(idx, &self.txins[idx])? {
-                test_closure();
+            if let Some(witness) = signer(idx, &self.txins[idx], calc_sighash)? {
                 self.txins[idx].set_witness(witness);
             }
         }

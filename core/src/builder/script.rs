@@ -27,6 +27,14 @@ pub enum SpendPath {
     Unknown,
 }
 
+/// A trait that marks all script types. Each script has a `generate_script_inputs` (eg. [`WinternitzCommit::generate_script_inputs`]) function that
+/// generates the witness for the script using various arguments. A `dyn SpendableScript` is cast into a concrete [`ScriptKind`] to
+/// generate a witness, the trait object can be used to generate the script_buf.
+///
+/// We store [`Arc<dyn SpendableScript>`]s inside a [`super::transaction::TxHandler`] input, and we cast them into a [`ScriptKind`] when signing.
+/// 
+/// When creating a new Script, make sure you add it to the [`ScriptKind`] enum and add a test for it below.
+/// Otherwise, it will not be spendable.
 pub trait SpendableScript: Send + Sync + 'static + std::any::Any {
     fn as_any(&self) -> &dyn Any;
 
@@ -134,7 +142,7 @@ impl WinternitzCommit {
             winternitz::ListpickVerifier,
             winternitz::TabledConverter,
         >::new();
-        let mut witness = verifier.sign(&self.1, secret_key, &commit_data);
+        let mut witness = verifier.sign(&self.1, secret_key, commit_data);
         witness.push(signature.serialize());
         witness
     }
@@ -229,6 +237,7 @@ impl PreimageRevealScript {
 }
 
 /// Struct for deposit script that commits Citrea address to be deposited into onchain.
+#[derive(Debug, Clone)]
 pub struct DepositScript(pub(crate) XOnlyPublicKey, EVMAddress, Amount);
 
 impl SpendableScript for DepositScript {
@@ -300,23 +309,143 @@ fn get_script_from_arr<T: SpendableScript>(
         .enumerate()
         .find_map(|(i, x)| x.as_any().downcast_ref::<T>().map(|x| (i, x)))
 }
-
-#[test]
-fn test_dynamic_casting() {
+#[cfg(test)]
+mod tests {
     use crate::utils;
-    let scripts: Vec<Box<dyn SpendableScript>> = vec![
-        Box::new(OtherSpendable(ScriptBuf::from_hex("51").expect(""))),
-        Box::new(CheckSig(*utils::UNSPENDABLE_XONLY_PUBKEY)),
-    ];
 
-    let otherspendable = scripts
-        .first()
-        .expect("")
-        .as_any()
-        .downcast_ref::<OtherSpendable>()
-        .expect("");
+    use super::*;
 
-    let checksig = get_script_from_arr::<CheckSig>(&scripts).expect("");
-    println!("{:?}", otherspendable);
-    println!("{:?}", checksig);
+    use bitcoin::secp256k1::PublicKey;
+    // Create some dummy values for testing.
+    // Note: These values are not cryptographically secure and are only used for tests.
+    fn dummy_xonly() -> XOnlyPublicKey {
+        // 32 bytes array filled with 0x03.
+        *utils::UNSPENDABLE_XONLY_PUBKEY
+    }
+
+    fn dummy_scriptbuf() -> ScriptBuf {
+        ScriptBuf::from_hex("51").expect("valid hex")
+    }
+
+    fn dummy_pubkey() -> PublicKey {
+        *utils::UNSPENDABLE_PUBKEY
+    }
+
+    fn dummy_params() -> Parameters {
+        Parameters::new(32, 4)
+    }
+
+    fn dummy_evm_address() -> EVMAddress {
+        // For testing purposes, we use a dummy 20-byte array.
+        EVMAddress([0u8; 20])
+    }
+
+    #[test]
+    fn test_dynamic_casting_extended() {
+        // Build a collection of SpendableScript implementations.
+        let scripts: Vec<Box<dyn SpendableScript>> = vec![
+            Box::new(OtherSpendable::new(dummy_scriptbuf())),
+            Box::new(CheckSig::new(dummy_xonly())),
+            Box::new(WinternitzCommit::new(
+                vec![[0u8; 20]; 32],
+                dummy_params(),
+                dummy_xonly(),
+            )),
+            Box::new(TimelockScript::new(Some(dummy_xonly()), 10)),
+            Box::new(PreimageRevealScript::new(dummy_xonly(), [0; 20])),
+            Box::new(DepositScript::new(
+                dummy_xonly(),
+                dummy_evm_address(),
+                Amount::from_sat(100),
+            )),
+        ];
+
+        // helper closures that return Option<(usize, &T)> using get_script_from_arr.
+        let checksig = get_script_from_arr::<CheckSig>(&scripts);
+        let winternitz = get_script_from_arr::<WinternitzCommit>(&scripts);
+        let timelock = get_script_from_arr::<TimelockScript>(&scripts);
+        let preimage = get_script_from_arr::<PreimageRevealScript>(&scripts);
+        let deposit = get_script_from_arr::<DepositScript>(&scripts);
+        let others = get_script_from_arr::<OtherSpendable>(&scripts);
+
+        assert!(checksig.is_some(), "CheckSig not found");
+        assert!(winternitz.is_some(), "WinternitzCommit not found");
+        assert!(timelock.is_some(), "TimelockScript not found");
+        assert!(preimage.is_some(), "PreimageRevealScript not found");
+        assert!(deposit.is_some(), "DepositScript not found");
+        assert!(others.is_some(), "OtherSpendable not found");
+
+        // Print found items.
+        println!("CheckSig: {:?}", checksig.unwrap().1);
+        // println!("WinternitzCommit: {:?}", winternitz.unwrap().1);
+        println!("TimelockScript: {:?}", timelock.unwrap().1);
+        // println!("PreimageRevealScript: {:?}", preimage.unwrap().1);
+        // println!("DepositScript: {:?}", deposit.unwrap().1);
+        println!("OtherSpendable: {:?}", others.unwrap().1);
+    }
+
+    #[test]
+    fn test_dynamic_casting() {
+        use crate::utils;
+        let scripts: Vec<Box<dyn SpendableScript>> = vec![
+            Box::new(OtherSpendable(ScriptBuf::from_hex("51").expect(""))),
+            Box::new(CheckSig(*utils::UNSPENDABLE_XONLY_PUBKEY)),
+        ];
+
+        let otherspendable = scripts
+            .first()
+            .expect("")
+            .as_any()
+            .downcast_ref::<OtherSpendable>()
+            .expect("");
+
+        let checksig = get_script_from_arr::<CheckSig>(&scripts).expect("");
+        println!("{:?}", otherspendable);
+        println!("{:?}", checksig);
+    }
+
+    #[test]
+    fn test_scriptkind_completeness() {
+        let script_variants: Vec<(&str, Arc<dyn SpendableScript>)> = vec![
+            ("CheckSig", Arc::new(CheckSig::new(dummy_xonly()))),
+            (
+                "WinternitzCommit",
+                Arc::new(WinternitzCommit::new(
+                    vec![[0u8; 20]; 32],
+                    dummy_params(),
+                    dummy_xonly(),
+                )),
+            ),
+            (
+                "TimelockScript",
+                Arc::new(TimelockScript::new(Some(dummy_xonly()), 15)),
+            ),
+            (
+                "PreimageRevealScript",
+                Arc::new(PreimageRevealScript::new(dummy_xonly(), [1; 20])),
+            ),
+            (
+                "DepositScript",
+                Arc::new(DepositScript::new(
+                    dummy_xonly(),
+                    dummy_evm_address(),
+                    Amount::from_sat(50),
+                )),
+            ),
+            ("Other", Arc::new(OtherSpendable::new(dummy_scriptbuf()))),
+        ];
+
+        for (expected, script) in script_variants {
+            let kind = ScriptKind::from(&script);
+            match (expected, kind) {
+                ("CheckSig", ScriptKind::CheckSig(_)) => (),
+                ("WinternitzCommit", ScriptKind::WinternitzCommit(_)) => (),
+                ("TimelockScript", ScriptKind::TimelockScript(_)) => (),
+                ("PreimageRevealScript", ScriptKind::PreimageRevealScript(_)) => (),
+                ("DepositScript", ScriptKind::DepositScript(_)) => (),
+                ("Other", ScriptKind::Other(_)) => (),
+                (s, _) => panic!("ScriptKind conversion not comprehensive for variant: {}", s),
+            }
+        }
+    }
 }
