@@ -9,14 +9,13 @@ use crate::rpc::clementine::TaggedSignature;
 use crate::utils::{self, SECP};
 use bitcoin::hashes::hash160;
 use bitcoin::secp256k1::PublicKey;
-use bitcoin::sighash::SighashCache;
 use bitcoin::taproot::{LeafVersion, TaprootSpendInfo};
 use bitcoin::{
     hashes::Hash,
     secp256k1::{schnorr, Keypair, Message, SecretKey, XOnlyPublicKey},
     Address, ScriptBuf, TapSighash, TapTweakHash,
 };
-use bitcoin::{TapNodeHash, TapSighashType, TxOut, Witness};
+use bitcoin::{TapNodeHash, Witness};
 use bitvm::signatures::winternitz::{
     self, BinarysearchVerifier, StraightforwardConverter, Winternitz,
 };
@@ -157,92 +156,6 @@ impl Actor {
         )
     }
 
-    #[tracing::instrument(skip(self), err(level = tracing::Level::ERROR), ret(level = tracing::Level::TRACE))]
-    pub fn sign_taproot_script_spend_tx(
-        &self,
-        tx: &TxHandler,
-        txin_index: usize,
-        script_index: usize,
-    ) -> Result<schnorr::Signature, BridgeError> {
-        let sighash = tx.calculate_script_spend_sighash_indexed(
-            txin_index,
-            script_index,
-            TapSighashType::Default,
-        )?;
-
-        Ok(self.sign(sighash))
-    }
-
-    #[tracing::instrument(skip(self), err(level = tracing::Level::ERROR), ret(level = tracing::Level::TRACE))]
-    pub fn sign_taproot_pubkey_spend(
-        &self,
-        tx_handler: &TxHandler,
-        input_index: usize,
-        sighash_type: Option<TapSighashType>,
-    ) -> Result<schnorr::Signature, BridgeError> {
-        let sig_hash = tx_handler.calculate_pubkey_spend_sighash(input_index, sighash_type)?;
-
-        self.sign_with_tweak(sig_hash, None)
-    }
-
-    #[tracing::instrument(skip(self), err(level = tracing::Level::ERROR), ret(level = tracing::Level::TRACE))]
-    pub fn sign_taproot_pubkey_spend_tx(
-        &self,
-        tx: &mut bitcoin::Transaction,
-        prevouts: &[TxOut],
-        input_index: usize,
-    ) -> Result<schnorr::Signature, BridgeError> {
-        let mut sighash_cache = SighashCache::new(tx);
-
-        let sig_hash = sighash_cache.taproot_key_spend_signature_hash(
-            input_index,
-            &bitcoin::sighash::Prevouts::All(prevouts),
-            bitcoin::sighash::TapSighashType::Default,
-        )?;
-
-        self.sign_with_tweak(sig_hash, None)
-    }
-
-    #[tracing::instrument(skip(self), err(level = tracing::Level::ERROR), ret(level = tracing::Level::TRACE))]
-    pub fn sign_taproot_pubkey_spend_tx_with_sighash(
-        &self,
-        tx: &mut bitcoin::Transaction,
-        prevouts: &[TxOut],
-        input_index: usize,
-        sighash_type: Option<TapSighashType>,
-    ) -> Result<schnorr::Signature, BridgeError> {
-        let mut sighash_cache = SighashCache::new(tx);
-
-        let sig_hash = sighash_cache.taproot_key_spend_signature_hash(
-            input_index,
-            &match sighash_type {
-                Some(TapSighashType::SinglePlusAnyoneCanPay) => {
-                    bitcoin::sighash::Prevouts::One(input_index, prevouts[input_index].clone())
-                }
-                _ => bitcoin::sighash::Prevouts::All(prevouts),
-            },
-            sighash_type.unwrap_or(TapSighashType::Default),
-        )?;
-
-        self.sign_with_tweak(sig_hash, None)
-    }
-
-    #[tracing::instrument(skip(self), err(level = tracing::Level::ERROR), ret(level = tracing::Level::TRACE))]
-    pub fn sign_taproot_script_spend_tx_new_tweaked(
-        &self,
-        tx_handler: &TxHandler,
-        txin_index: usize,
-        script_index: usize,
-    ) -> Result<schnorr::Signature, BridgeError> {
-        let sighash = tx_handler.calculate_script_spend_sighash_indexed(
-            txin_index,
-            script_index,
-            TapSighashType::Default,
-        )?;
-
-        self.sign_with_tweak(sighash, None)
-    }
-
     /// Returns derivied Winternitz secret key from given path.
     fn get_derived_winternitz_sk(
         &self,
@@ -381,7 +294,7 @@ impl Actor {
                         if signed_winternitz {
                             return Err(BridgeError::MultipleWinternitzScripts);
                         }
-                        
+
                         signed_winternitz = true;
 
                         Self::add_script_path_to_witness(
@@ -508,20 +421,24 @@ mod tests {
     use super::Actor;
     use crate::builder::address::create_taproot_address;
 
-    use crate::builder::script::ScriptKind as Kind;
+    use super::*;
+    use crate::builder::script::{CheckSig, ScriptKind, SpendPath, SpendableScript};
     use crate::builder::transaction::input::SpendableTxIn;
     use crate::builder::transaction::output::UnspentTxOut;
-    use crate::builder::transaction::TxHandlerBuilder;
+    use crate::builder::transaction::{TxHandler, TxHandlerBuilder};
     use crate::config::BridgeConfig;
     use crate::rpc::clementine::NormalSignatureKind;
     use crate::utils::{initialize_logger, SECP};
     use crate::{
-        actor::WinternitzDerivationPath, builder::transaction::TxHandler,
-        create_test_config_with_thread_name, database::Database, initialize_database,
+        actor::WinternitzDerivationPath, create_test_config_with_thread_name, database::Database,
+        initialize_database,
     };
-    use bitcoin::secp256k1::SecretKey;
+    use bitcoin::secp256k1::{schnorr, Message, SecretKey};
+    use bitcoin::sighash::SighashCache;
+    use bitcoin::sighash::{Prevouts, TapSighashType};
+    use bitcoin::transaction::Transaction;
     use bitcoin::Sequence;
-    use bitcoin::{Amount, Network, OutPoint, TxOut};
+    use bitcoin::{Amount, Network, OutPoint, ScriptBuf};
     use bitvm::{
         execute_script,
         signatures::winternitz::{
@@ -529,40 +446,195 @@ mod tests {
         },
         treepp::script,
     };
-    use secp256k1::rand;
+    use rand::thread_rng;
+    use secp256k1::{rand, SECP256K1};
     use std::env;
     use std::str::FromStr;
+    use std::sync::Arc;
     use std::thread;
 
-    /// Returns a valid [`TxHandler`].
-    fn create_valid_mock_tx_handler(actor: &Actor) -> TxHandler {
-        let (op_addr, op_spend) =
+    // Helper: create a TxHandler with a single key spend input.
+    fn create_key_spend_tx_handler(actor: &Actor) -> (bitcoin::TxOut, TxHandler) {
+        let (tap_addr, spend_info) =
             create_taproot_address(&[], Some(actor.xonly_public_key), Network::Regtest);
+        // Build a transaction with one input that expects a key spend signature.
+        let prevtxo = bitcoin::TxOut {
+            value: Amount::from_sat(1000),
+            script_pubkey: tap_addr.script_pubkey(),
+        };
         let builder = TxHandlerBuilder::new().add_input(
             NormalSignatureKind::AlreadyDisproved1,
             SpendableTxIn::new(
                 OutPoint::default(),
-                TxOut {
-                    value: Amount::from_sat(1000),
-                    script_pubkey: op_addr.script_pubkey(),
-                },
+                prevtxo.clone(),
                 vec![],
-                Some(op_spend),
+                Some(spend_info),
             ),
-            crate::builder::script::SpendPath::Unknown,
-            Sequence::ENABLE_RBF_NO_LOCKTIME,
+            SpendPath::KeySpend,
+            bitcoin::Sequence::ENABLE_RBF_NO_LOCKTIME,
         );
-        builder
-            .add_output(UnspentTxOut::new(
-                TxOut {
-                    value: Amount::from_sat(999),
-                    script_pubkey: actor.address.script_pubkey(),
-                },
-                vec![],
-                None,
-            ))
-            .finalize()
+
+        (
+            prevtxo,
+            builder
+                .add_output(UnspentTxOut::new(
+                    bitcoin::TxOut {
+                        value: Amount::from_sat(999),
+                        script_pubkey: actor.address.script_pubkey(),
+                    },
+                    vec![],
+                    None,
+                ))
+                .finalize(),
+        )
     }
+
+    // Helper: create a dummy CheckSig script for script spend.
+    fn create_dummy_checksig_script(actor: &Actor) -> CheckSig {
+        // Use a trivial script that is expected to be spent via a signature.
+        // In production this would be a proper P2TR script.
+        CheckSig(actor.xonly_public_key)
+    }
+
+    // Helper: create a TxHandler with a single script spend input using CheckSig.
+    fn create_script_spend_tx_handler(actor: &Actor) -> (bitcoin::TxOut, TxHandler) {
+        // Create a dummy spendable input that carries a script.
+        // Here we simulate that the spendable has one script: a CheckSig script.
+        let script = create_dummy_checksig_script(actor);
+
+        let (tap_addr, spend_info) = create_taproot_address(
+            &[script.to_script_buf()],
+            Some(actor.xonly_public_key),
+            Network::Regtest,
+        );
+
+        let prevutxo = bitcoin::TxOut {
+            value: Amount::from_sat(1000),
+            script_pubkey: tap_addr.script_pubkey(),
+        };
+        let spendable_input = SpendableTxIn::new(
+            OutPoint::default(),
+            prevutxo.clone(),
+            vec![Arc::new(script)],
+            Some(spend_info),
+        );
+
+        let builder = TxHandlerBuilder::new().add_input(
+            NormalSignatureKind::AlreadyDisproved1,
+            spendable_input,
+            SpendPath::ScriptSpend(0),
+            bitcoin::Sequence::ENABLE_RBF_NO_LOCKTIME,
+        );
+
+        (
+            prevutxo,
+            builder
+                .add_output(UnspentTxOut::new(
+                    bitcoin::TxOut {
+                        value: Amount::from_sat(999),
+                        script_pubkey: actor.address.script_pubkey(),
+                    },
+                    vec![],
+                    None,
+                ))
+                .finalize(),
+        )
+    }
+
+    #[test]
+    fn test_actor_key_spend_verification() {
+        let sk = SecretKey::new(&mut thread_rng());
+        let actor = Actor::new(sk, None, Network::Regtest);
+        let (utxo, mut txhandler) = create_key_spend_tx_handler(&actor);
+
+        // Actor signs the key spend input.
+        actor
+            .partial_sign(&mut txhandler, &[])
+            .expect("Key spend signature should succeed");
+
+        // Retrieve the cached transaction from the txhandler.
+        let tx: &Transaction = txhandler.get_cached_tx();
+
+        tx.verify(|_| Some(utxo.clone()))
+            .expect("Expected valid signature for key spend");
+    }
+
+    #[test]
+    fn test_actor_script_spend_tx_valid() {
+        let sk = SecretKey::new(&mut thread_rng());
+        let actor = Actor::new(sk, None, Network::Regtest);
+        let (prevutxo, mut txhandler) = create_script_spend_tx_handler(&actor);
+
+        // Actor performs a partial sign for script spend.
+        // Using an empty signature slice since our dummy CheckSig uses actor signature.
+        let signatures: Vec<_> = vec![];
+        actor
+            .partial_sign(&mut txhandler, &signatures)
+            .expect("Script spend partial sign should succeed");
+
+        // Retrieve the cached transaction.
+        let tx: &Transaction = txhandler.get_cached_tx();
+
+        tx.verify(|_| Some(prevutxo.clone()))
+            .expect("Invalid transaction");
+    }
+
+    #[test]
+    fn test_actor_script_spend_sig_valid() {
+        let sk = SecretKey::new(&mut thread_rng());
+        let actor = Actor::new(sk, None, Network::Regtest);
+        let (prevutxo, mut txhandler) = create_script_spend_tx_handler(&actor);
+
+        // Actor performs a partial sign for script spend.
+        // Using an empty signature slice since our dummy CheckSig uses actor signature.
+        let signatures: Vec<_> = vec![];
+        actor
+            .partial_sign(&mut txhandler, &signatures)
+            .expect("Script spend partial sign should succeed");
+
+        // Retrieve the cached transaction.
+        let tx: &Transaction = txhandler.get_cached_tx();
+
+        // For script spend, we extract the witness from the corresponding input.
+        // Our dummy witness is expected to contain the signature.
+        let witness = &tx.input[0].witness;
+        assert!(!witness.is_empty(), "Witness should not be empty");
+        let sig = schnorr::Signature::from_slice(&witness[0])
+            .expect("Failed to parse Schnorr signature from witness");
+
+        // Compute the sighash expected for a pubkey spend (similar to key spend).
+        let sighash = txhandler
+            .calculate_script_spend_sighash_indexed(0, 0, TapSighashType::All)
+            .expect("Sighash computed");
+
+        let message = Message::from_digest(*sighash.as_byte_array());
+        SECP.verify_schnorr(&sig, &message, &actor.xonly_public_key)
+            .expect("Script spend signature verification failed");
+    }
+
+    // #[test]
+    // fn verify_cached_tx() {
+    //     let sk = SecretKey::new(&mut rand::thread_rng());
+    //     let network = Network::Regtest;
+    //     let actor = Actor::new(sk, None, network);
+
+    //     let mut txhandler = create_valid_mock_tx_handler(&actor);
+
+    //     // Sign the transaction
+    //     actor
+    //         .sign_taproot_pubkey_spend(&mut txhandler, 0, None)
+    //         .unwrap();
+
+    //     // Add witness to the transaction
+    //     let sig = actor
+    //         .sign_taproot_pubkey_spend(&mut txhandler, 0, None)
+    //         .unwrap();
+    //     txhandler.get_cached_tx().input[0].witness = Witness::p2tr_key_spend(&sig);
+
+    //     // Verify the cached transaction
+    //     let cached_tx = txhandler.get_cached_tx();
+    //     cached_tx.verify().expect("Transaction verification failed");
+    // }
 
     #[test]
     fn actor_new() {
@@ -584,14 +656,16 @@ mod tests {
 
         // This transaction is matching with prevouts. Therefore signing will
         // be successful.
-        let mut tx_handler = create_valid_mock_tx_handler(&actor);
-        actor
-            .sign_taproot_pubkey_spend(
-                &mut tx_handler,
-                0,
-                Some(bitcoin::TapSighashType::SinglePlusAnyoneCanPay),
-            )
-            .unwrap();
+        let mut tx_handler = create_key_spend_tx_handler(&actor).1;
+        let sighash = tx_handler
+            .calculate_pubkey_spend_sighash(0, Some(bitcoin::TapSighashType::Default))
+            .expect("calculating pubkey spend sighash");
+
+        let signature = actor.sign(sighash);
+
+        let message = Message::from_digest(*sighash.as_byte_array());
+        SECP.verify_schnorr(&signature, &message, &actor.xonly_public_key)
+            .expect("invalid signature");
     }
 
     #[test]
@@ -602,7 +676,7 @@ mod tests {
 
         // This transaction is matching with prevouts. Therefore signing will
         // be successful.
-        let tx_handler = create_valid_mock_tx_handler(&actor);
+        let tx_handler = create_key_spend_tx_handler(&actor).1;
         let x = tx_handler.calculate_pubkey_spend_sighash(0, None).unwrap();
         actor.sign_with_tweak(x, None).unwrap();
     }

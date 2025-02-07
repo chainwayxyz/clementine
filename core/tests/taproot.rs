@@ -97,12 +97,10 @@ async fn create_address_and_transaction_then_sign_transaction() {
         config.winternitz_secret_key,
         config.network,
     );
-    let sig = signer
-        .sign_taproot_script_spend_tx_new_tweaked(&mut tx_handler, 0, 0)
-        .unwrap();
-    tx_handler
-        .set_p2tr_script_spend_witness(&[sig.as_ref()], 0, 0)
-        .unwrap();
+    signer
+        .partial_sign(&mut tx_handler, &[])
+        .expect("failed to sign transaction");
+
     rpc.mine_blocks(1).await.unwrap();
 
     // New transaction should be OK to send.

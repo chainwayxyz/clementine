@@ -113,6 +113,7 @@ impl TxHandler<Unsigned> {
             }
 
             if let Some(witness) = signer(idx, &self.txins[idx], calc_sighash)? {
+                self.cached_tx.input[idx].witness = witness.clone();
                 self.txins[idx].set_witness(witness);
             }
         }
@@ -269,43 +270,6 @@ impl TxHandler<Unsigned> {
         Ok(())
     }
 
-    // Candidate refactoring
-    // pub fn set_p2tr_script_spend_witness_find<T: AsRef<[u8]>>(
-    //     &mut self,
-    //     txin_index: usize,
-    //     script_finder: impl Fn(&&Scripts) -> bool,
-    //     script_spender: impl FnOnce(&Scripts) -> Witness,
-    // ) -> Result<(), BridgeError> {
-    //     let txin = self
-    //         .txins
-    //         .get_mut(txin_index)
-    //         ?;
-
-    //     if txin.get_witness().is_some() {
-    //         return Err(BridgeError::WitnessAlreadySet);
-    //     }
-
-    //     let script = txin
-    //         .get_witness()
-    //         .get_scripts()
-    //         .iter()
-    //         .find(script_finder)
-    //         .ok_or(BridgeError::TaprootScriptError)?;
-
-    //     let spend_control_block = txin
-    //         .get_spendable()
-    //         .get_spend_info()
-    //         .control_block(&((*script).to_script_buf(), LeafVersion::TapScript))
-    //         .ok_or(BridgeError::ControlBlockError)?;
-
-    //     let witness = script_spender(script);
-
-    //     txin.set_witness(witness);
-
-    //     self.cached_tx.input[txin_index].witness = txin.get_witness().as_ref().unwrap().clone();
-    //     Ok(())
-    // }
-
     pub fn set_p2tr_key_spend_witness(
         &mut self,
         signature: &taproot::Signature,
@@ -421,23 +385,4 @@ impl TxHandlerBuilder {
     pub fn finalize_signed(self) -> Result<TxHandler<Signed>, BridgeError> {
         self.finalize().promote()
     }
-
-    // pub fn spend<U: SpendableScript, T: FnOnce(U) -> Witness>(
-    //     &mut self,
-    //     txin_index: usize,
-    //     script_index: usize,
-    //     witness_fn: T,
-    // ) -> Result<(), BridgeError> {
-    //     let spendable = self
-    //         .prev_scripts
-    //         .get(txin_index)
-    //         .ok_or(BridgeError::NoScriptsForTxIn(txin_index))?
-    //         .get(script_index)
-    //         .ok_or(BridgeError::NoScriptAtIndex(script_index))?
-    //         .downcast::<U>()
-    //         .map_err(|_| BridgeError::ScriptTypeMismatch)?;
-    //     let witness = witness_fn(spendable);
-    //     self.tx.input_mut(txin_index).witness = witness;
-    //     Ok(())
-    // }
 }
