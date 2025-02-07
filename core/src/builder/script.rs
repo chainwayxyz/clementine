@@ -18,6 +18,7 @@ use bitvm::signatures::winternitz::{self, SecretKey};
 use bitvm::signatures::winternitz::{Parameters, PublicKey};
 use std::any::Any;
 use std::fmt::Debug;
+use std::sync::Arc;
 
 #[derive(Debug, Copy, Clone)]
 pub enum SpendPath {
@@ -258,6 +259,36 @@ impl DepositScript {
 
     pub fn new(xonly_pk: XOnlyPublicKey, evm_address: EVMAddress, amount: Amount) -> Self {
         Self(xonly_pk, evm_address, amount)
+    }
+}
+
+#[derive(Clone)]
+pub enum ScriptKind<'a> {
+    CheckSig(&'a CheckSig),
+    WinternitzCommit(&'a WinternitzCommit),
+    TimelockScript(&'a TimelockScript),
+    PreimageRevealScript(&'a PreimageRevealScript),
+    DepositScript(&'a DepositScript),
+    Other(&'a OtherSpendable),
+}
+
+impl<'a> From<&'a Arc<dyn SpendableScript>> for ScriptKind<'a> {
+    fn from(script: &'a Arc<dyn SpendableScript>) -> ScriptKind<'a> {
+        let type_id = script.as_any().type_id();
+
+        if type_id == std::any::TypeId::of::<CheckSig>() {
+            Self::CheckSig(script.as_any().downcast_ref().expect("just checked"))
+        } else if type_id == std::any::TypeId::of::<WinternitzCommit>() {
+            Self::WinternitzCommit(script.as_any().downcast_ref().expect("just checked"))
+        } else if type_id == std::any::TypeId::of::<TimelockScript>() {
+            Self::TimelockScript(script.as_any().downcast_ref().expect("just checked"))
+        } else if type_id == std::any::TypeId::of::<PreimageRevealScript>() {
+            Self::PreimageRevealScript(script.as_any().downcast_ref().expect("just checked"))
+        } else if type_id == std::any::TypeId::of::<DepositScript>() {
+            Self::DepositScript(script.as_any().downcast_ref().expect("just checked"))
+        } else {
+            Self::Other(script.as_any().downcast_ref().expect("just checked"))
+        }
     }
 }
 
