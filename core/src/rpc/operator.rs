@@ -122,10 +122,10 @@ impl ClementineOperator for Operator {
 
         let input_prevout = self
             .rpc
-            .get_txout_from_outpoint(&users_intent_outpoint.expect("TODO"))
+            .get_txout_from_outpoint(&users_intent_outpoint)
             .await?;
         let input_utxo = UTXO {
-            outpoint: users_intent_outpoint.expect("TODO"),
+            outpoint: users_intent_outpoint,
             txout: input_prevout,
         };
         let output_txout = TxOut {

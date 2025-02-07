@@ -159,14 +159,14 @@ pub async fn parse_winternitz_public_keys(
 
 pub async fn parse_withdrawal_sig_params(
     params: NewWithdrawalSigParams,
-) -> Result<(u32, Signature, Option<OutPoint>, ScriptBuf, Amount), Status> {
+) -> Result<(u32, Signature, OutPoint, ScriptBuf, Amount), Status> {
     let user_sig = Signature::from_slice(&params.user_sig)
         .map_err(|e| error::invalid_argument("user_sig", "Can't convert input to Signature")(e))?;
 
-    let users_intent_outpoint: Option<OutPoint> = if let Some(o) = params.users_intent_outpoint {
-        Some(o.try_into()?)
+    let users_intent_outpoint: OutPoint = if let Some(o) = params.users_intent_outpoint {
+        o.try_into()?
     } else {
-        None
+        return Err(error::input_ended_prematurely());
     };
 
     let users_intent_script_pubkey = ScriptBuf::from_bytes(params.users_intent_script_pubkey);
