@@ -257,10 +257,6 @@ impl SpendableScript for WithdrawalScript {
 }
 
 impl WithdrawalScript {
-    fn generate_witness(&self, signature: schnorr::Signature) -> Witness {
-        Witness::from_slice(&[signature.serialize()])
-    }
-
     pub fn new(index: usize) -> Self {
         Self(index)
     }
