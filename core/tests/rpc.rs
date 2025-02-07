@@ -3,7 +3,9 @@
 //! This tests checks if typical RPC flows works or not.
 
 use bitcoin::{secp256k1::SecretKey, Address, Amount};
+use clementine_core::builder::script::SpendPath;
 use clementine_core::rpc::clementine::NewWithdrawalSigParams;
+use clementine_core::rpc::clementine::NormalSignatureKind;
 use clementine_core::{actor::Actor, builder, UTXO};
 use clementine_core::{config::BridgeConfig, database::Database, utils::initialize_logger};
 use clementine_core::{extended_rpc::ExtendedRpc, utils::SECP};
@@ -13,7 +15,6 @@ use tonic::Request;
 mod common;
 
 #[ignore = "Design changes in progress"]
-#[serial_test::serial]
 #[tokio::test]
 async fn honest_operator_takes_refund() {
     let config = create_test_config_with_thread_name!(None);

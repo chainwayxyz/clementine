@@ -413,12 +413,16 @@ macro_rules! get_deposit_address {
 ///
 /// ```rust
 /// use crate::{actor::Actor, builder, UTXO};
+/// use crate::builder::script::SpendPath;
+/// use crate::rpc::clementine::NormalSignatureKind;
 /// ```
 ///
 /// ## Integration Tests And Binaries
 ///
 /// ```rust
 /// use clementine_core::{actor::Actor, builder, UTXO};
+/// use clementine_core::builder::script::SpendPath;
+/// use clementine_core::rpc::clementine::NormalSignatureKind;
 /// ```
 #[macro_export]
 macro_rules! generate_withdrawal_transaction_and_signature {
@@ -456,7 +460,12 @@ macro_rules! generate_withdrawal_transaction_and_signature {
         let txout = builder::transaction::output::UnspentTxOut::new(txout.clone(), vec![], None);
 
         let tx = builder::transaction::TxHandlerBuilder::new()
-            .add_input(txin, builder::transaction::DEFAULT_SEQUENCE)
+            .add_input(
+                NormalSignatureKind::NotStored,
+                txin,
+                SpendPath::Unknown,
+                builder::transaction::DEFAULT_SEQUENCE,
+            )
             .add_output(txout.clone())
             .finalize();
         let mut tx = tx.get_cached_tx().clone();
