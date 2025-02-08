@@ -23,7 +23,6 @@ use clementine_core::{
 use clementine_core::{database::Database, utils::initialize_logger};
 use secp256k1::musig::{MusigAggNonce, MusigPartialSignature};
 use std::sync::Arc;
-use std::{env, thread};
 
 mod common;
 

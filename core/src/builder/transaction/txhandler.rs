@@ -56,9 +56,7 @@ impl<T: State> TxHandler<T> {
         let txin = self.txins.get(idx).ok_or(BridgeError::TxInputNotFound)?;
         Ok(txin.get_signature_id())
     }
-}
 
-impl TxHandler<Unsigned> {
     pub fn get_cached_tx(&self) -> &Transaction {
         &self.cached_tx
     }
@@ -202,7 +200,9 @@ impl TxHandler<Unsigned> {
 
         Ok(sig_hash)
     }
+}
 
+impl TxHandler<Unsigned> {
     pub fn promote(self) -> Result<TxHandler<Signed>, BridgeError> {
         if self.txins.iter().any(|s| s.get_witness().is_none()) {
             return Err(BridgeError::MissingWitnessData);
@@ -216,9 +216,7 @@ impl TxHandler<Unsigned> {
             phantom: PhantomData::<Signed>,
         })
     }
-}
 
-impl TxHandler<Unsigned> {
     /// Constructs the witness for a script path spend of a transaction input.
     ///
     /// # Arguments

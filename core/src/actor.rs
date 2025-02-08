@@ -448,7 +448,6 @@ mod tests {
     };
     use rand::thread_rng;
     use secp256k1::rand;
-    use std::env;
     use std::str::FromStr;
     use std::sync::Arc;
     use std::thread;

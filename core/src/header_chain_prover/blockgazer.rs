@@ -214,7 +214,6 @@ mod tests {
     };
     use bitcoin::BlockHash;
     use bitcoincore_rpc::RpcApi;
-    use std::{env, thread};
 
     async fn mine_and_save_blocks(prover: &HeaderChainProver, height: u64) -> Vec<BlockHash> {
         let mut fork_block_hashes = Vec::new();

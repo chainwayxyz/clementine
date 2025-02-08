@@ -111,7 +111,8 @@ pub enum BridgeError {
     RPCStreamEndedUnexpectedly(String),
     #[error("Invalid response from an RPC endpoint: {0}")]
     RPCInvalidResponse(String),
-
+    #[error("RPC broadcast receiver failed: {0}")]
+    RPCBroadcastRecvError(#[from] tokio::sync::broadcast::error::RecvError),
     /// ConfigError is returned when the configuration is invalid
     #[error("ConfigError: {0}")]
     ConfigError(String),

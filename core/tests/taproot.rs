@@ -11,7 +11,6 @@ use clementine_core::rpc::clementine::NormalSignatureKind;
 use clementine_core::utils::SECP;
 use clementine_core::{config::BridgeConfig, database::Database, utils::initialize_logger};
 use std::sync::Arc;
-use std::{env, thread};
 
 mod common;
 

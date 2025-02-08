@@ -176,7 +176,6 @@ mod tests {
     use bitcoin::{ScriptBuf, XOnlyPublicKey};
     use bitvm::signatures::winternitz::{self};
     use secp256k1::rand;
-    use std::{env, thread};
 
     #[tokio::test]
     async fn set_get_winternitz_public_key() {
