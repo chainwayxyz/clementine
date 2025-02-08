@@ -316,9 +316,7 @@ mod tests {
         treepp::script,
     };
     use secp256k1::rand;
-    use std::env;
     use std::str::FromStr;
-    use std::thread;
 
     /// Returns a valid [`TxHandler`].
     fn create_valid_mock_tx_handler(actor: &Actor) -> TxHandler {

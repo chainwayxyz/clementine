@@ -534,7 +534,6 @@ mod tests {
     use bitcoin::{Amount, OutPoint, ScriptBuf, TapSighash, Txid, XOnlyPublicKey};
     use futures::StreamExt;
     use std::pin::pin;
-    use std::{env, thread};
 
     #[tokio::test]
     async fn calculate_num_required_nofn_sigs() {

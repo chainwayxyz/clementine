@@ -182,7 +182,6 @@ mod tests {
     };
     use bitcoincore_rpc::RpcApi;
     use header_chain::header_chain::{BlockHeaderCircuitOutput, CircuitBlockHeader};
-    use std::{env, thread};
 
     async fn mine_and_get_first_n_block_headers(
         rpc: ExtendedRpc,

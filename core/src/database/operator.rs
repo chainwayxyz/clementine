@@ -726,7 +726,6 @@ mod tests {
     };
     use crate::{create_test_config_with_thread_name, UTXO};
     use std::str::FromStr;
-    use std::{env, thread};
 
     #[tokio::test]
     async fn save_get_operators() {

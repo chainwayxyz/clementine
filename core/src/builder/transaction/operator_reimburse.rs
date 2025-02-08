@@ -1,15 +1,18 @@
+use super::input::SpendableTxIn;
 use super::txhandler::DEFAULT_SEQUENCE;
-use crate::builder::script::{CheckSig, TimelockScript};
+use super::Signed;
+use crate::builder::script::{CheckSig, SpendableScript, TimelockScript, WithdrawalScript};
 use crate::builder::transaction::output::UnspentTxOut;
 use crate::builder::transaction::txhandler::{TxHandler, TxHandlerBuilder};
 use crate::constants::{BLOCKS_PER_WEEK, MIN_TAPROOT_AMOUNT};
 use crate::errors::BridgeError;
 use crate::rpc::clementine::NormalSignatureKind;
-use crate::{builder, utils};
+use crate::{builder, utils, UTXO};
 use bitcoin::hashes::Hash;
 use bitcoin::script::PushBytesBuf;
-use bitcoin::XOnlyPublicKey;
-use bitcoin::{Network, Sequence, TxOut, Txid};
+use bitcoin::secp256k1::schnorr::Signature;
+use bitcoin::{Amount, Network, Sequence, TxOut, Txid};
+use bitcoin::{Witness, XOnlyPublicKey};
 use std::sync::Arc;
 
 /// Creates a [`TxHandler`] for the `kickoff_tx`. This transaction will be sent by the operator
@@ -201,4 +204,33 @@ pub fn create_reimburse_txhandler(
             builder::transaction::anchor_output(),
         ))
         .finalize())
+}
+
+/// Creates a [`TxHandler`] for the `payout_tx`. This transaction will be sent by the operator
+/// for withdrawals.
+pub fn create_payout_txhandler(
+    input_utxo: UTXO,
+    output_txout: TxOut,
+    operator_idx: usize,
+    user_sig: Signature,
+    network: bitcoin::Network,
+) -> Result<TxHandler<Signed>, BridgeError> {
+    let user_sig_wrapped = bitcoin::taproot::Signature {
+        signature: user_sig,
+        sighash_type: bitcoin::sighash::TapSighashType::SinglePlusAnyoneCanPay,
+    };
+    let witness = Witness::p2tr_key_spend(&user_sig_wrapped);
+    let txin = SpendableTxIn::new_partial(input_utxo.outpoint, input_utxo.txout);
+
+    let output_txout = UnspentTxOut::from_partial(output_txout.clone());
+
+    let scripts: Vec<Arc<dyn SpendableScript>> =
+        vec![Arc::new(WithdrawalScript::new(operator_idx))];
+    let op_return_txout = UnspentTxOut::from_scripts(Amount::from_sat(0), scripts, None, network);
+
+    TxHandlerBuilder::new()
+        .add_input_with_witness(txin, DEFAULT_SEQUENCE, witness)
+        .add_output(output_txout)
+        .add_output(op_return_txout)
+        .finalize_signed()
 }
