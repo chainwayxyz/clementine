@@ -24,19 +24,6 @@ use crate::{
 
 use self::chain_head::ChainHeadEvent;
 
-/// Operator needs to bump fees of txs:
-/// These txs should be sent fast:
-/// Kickoff Tx (this depends on the number of kickoff connectors per sequential collateral tx.)
-/// Start Happy Reimburse Tx
-/// Assert Txs
-/// Disprove Timeout
-/// Reimburse Tx
-/// Happy Reimburse Tx
-///
-/// Operator also can send these txs with RBF:
-/// Payout Tx
-/// Operator Challenge ACK Tx
-///
 #[derive(Clone)]
 struct TxSender {
     pub(crate) signer: Actor,
@@ -331,7 +318,10 @@ impl TxSender {
         receiver: &mut Receiver<ChainHeadEvent>,
     ) -> Result<(), BridgeError> {
         loop {
+            println!("BEFORE recv");
             let event = receiver.recv().await?;
+            println!("AFTER recv");
+            println!("Event: {:?}", event);
             match event {
                 ChainHeadEvent::NewBlock(block_hashes) => {
                     for block in block_hashes {
@@ -357,6 +347,11 @@ pub mod chain_head {
 
     use crate::{database::Database, errors::BridgeError, extended_rpc::ExtendedRpc};
 
+    type ChainHeadPollingResult = (
+        broadcast::Sender<ChainHeadEvent>,
+        JoinHandle<Result<(), BridgeError>>,
+    );
+
     #[derive(Clone, Debug)]
     pub enum ChainHeadEvent {
         NewBlock(Vec<BlockHash>),
@@ -367,27 +362,18 @@ pub mod chain_head {
         db: Database,
         rpc: ExtendedRpc,
         poll_delay: Duration,
-    ) -> Result<
-        (
-            broadcast::Sender<ChainHeadEvent>,
-            JoinHandle<Result<(), BridgeError>>,
-        ),
-        BridgeError,
-    > {
-        tracing::info!("Starting chain head polling");
-        println!("Starting chain head polling");
+    ) -> Result<ChainHeadPollingResult, BridgeError> {
         let (tx, _) = broadcast::channel(100);
         let returned_tx = tx.clone();
 
         let handle = tokio::spawn(async move {
             loop {
-                tracing::info!("Polling for new blocks");
                 let mut block_height = rpc.client.get_block_count().await?;
                 let mut block_hash = rpc.client.get_block_hash(block_height).await?;
                 let mut block_header = rpc.client.get_block_header(&block_hash).await?;
 
                 let mut new_blocks = Vec::new();
-                while true {
+                for _ in 0..100 {
                     // if the block is in the db, do nothing
                     let height = db.get_height_from_block_hash(None, block_hash).await?;
                     if height.is_some() {
@@ -398,6 +384,11 @@ pub mod chain_head {
                     block_hash = block_header.prev_blockhash;
                     block_header = rpc.client.get_block_header(&block_hash).await?;
                     block_height -= 1;
+                }
+
+                // If we haven't found a match after 100 blocks, the database is too far out of sync
+                if new_blocks.len() == 100 {
+                    return Err(BridgeError::BlockgazerTooDeep(block_height));
                 }
 
                 // check the reorg blocks
@@ -445,18 +436,10 @@ mod tests {
     use bitcoin::secp256k1::SecretKey;
     use bitcoin::transaction::Version;
     use secp256k1::rand;
-    use tokio::time::sleep;
 
     use super::*;
 
-    async fn create_test_tx_sender() -> (
-        TxSender,
-        ExtendedRpc,
-        Database,
-        Actor,
-        Receiver<ChainHeadEvent>,
-        bitcoin::Network,
-    ) {
+    async fn create_test_tx_sender() -> (TxSender, ExtendedRpc, Database, Actor, bitcoin::Network) {
         let sk = SecretKey::new(&mut rand::thread_rng());
         let network = bitcoin::Network::Regtest;
         let actor = Actor::new(sk, None, network);
@@ -472,14 +455,9 @@ mod tests {
 
         let db = Database::new(&config).await.unwrap();
 
-        let (tx, handle) =
-            chain_head::start_polling(db.clone(), rpc.clone(), Duration::from_secs(1)).unwrap();
-
-        let receiver = tx.subscribe();
-
         let tx_sender = TxSender::new(actor.clone(), rpc.clone(), db.clone(), network);
 
-        (tx_sender, rpc, db, actor, receiver, network)
+        (tx_sender, rpc, db, actor, network)
     }
 
     async fn create_bumpable_tx(
@@ -529,16 +507,35 @@ mod tests {
         let tx = builder.get_cached_tx().clone();
         Ok(tx)
     }
-
     #[tokio::test]
     async fn test_create_fee_payer_tx() {
-        println!("BEFORE xyz");
+        let (tx_sender, rpc, db, signer, network) = create_test_tx_sender().await;
 
-        let (tx_sender, rpc, _db, signer, mut receiver, network) = create_test_tx_sender().await;
+        // Save the current block height and block hash
+        let current_height = rpc.client.get_block_count().await.unwrap();
+        let current_block_hash = rpc.client.get_block_hash(current_height).await.unwrap();
+        let current_block_header = rpc
+            .client
+            .get_block_header(&current_block_hash)
+            .await
+            .unwrap();
+        db.set_chain_head(
+            None,
+            current_block_hash,
+            current_block_header.prev_blockhash,
+            current_height,
+        )
+        .await
+        .unwrap();
+
+        // Store sender in a variable to keep it alive
+        let (sender, _handle) =
+            chain_head::start_polling(db.clone(), rpc.clone(), Duration::from_secs(1)).unwrap();
+
+        let mut receiver = sender.subscribe();
 
         let tx_sender_clone = tx_sender.clone();
-
-        tokio::spawn(async move {
+        let _chain_event_handle = tokio::spawn(async move {
             tx_sender_clone
                 .apply_new_chain_event(&mut receiver)
                 .await
@@ -558,19 +555,18 @@ mod tests {
             .await
             .unwrap();
 
-        // println!("tx: {:#?}", tx.output[outpoint.vout as usize]);
-
         assert!(fee_payer_tx.output[outpoint.vout as usize].value.to_sat() > tx.weight().to_wu());
 
+        // Mine a block and wait for confirmation
         rpc.mine_blocks(1).await.unwrap();
 
-        // let blockhash = rpc.client.get_best_block_hash().await.unwrap();
+        // Give enough time for the block to be processed and event to be handled
+        tokio::time::sleep(Duration::from_secs(2)).await;
 
-        // tx_sender.apply_block(&blockhash).await.unwrap();
-
-        tokio::time::sleep(std::time::Duration::from_secs(2)).await;
-
+        // Send the CPFP transaction
         tx_sender.send_tx_with_cpfp(tx).await.unwrap();
-        // chain_head_job_handle.await.unwrap().unwrap();
+
+        // Clean shutdown of background tasks
+        drop(sender); // This will cause the receiver loop to exit
     }
 }
