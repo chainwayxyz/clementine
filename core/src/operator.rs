@@ -396,6 +396,7 @@ impl Operator {
         input_utxo: UTXO,
         output_txout: TxOut,
     ) -> Result<Txid, BridgeError> {
+        // Check Citrea for the withdrawal state.
         if let Some(citrea_client) = &self.citrea_client {
             // See: https://gist.github.com/okkothejawa/a9379b02a16dada07a2b85cbbd3c1e80
             let params = rpc_params![
