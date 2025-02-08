@@ -9,13 +9,13 @@
 use crate::{config::BridgeConfig, errors::BridgeError};
 use sqlx::{Pool, Postgres};
 
+mod chain_sycner;
 mod header_chain_prover;
 mod operator;
 mod tx_sender;
 mod verifier;
 mod watchtower;
 mod wrapper;
-mod chain_sycner;
 
 /// PostgreSQL database connection details.
 #[derive(Clone, Debug)]

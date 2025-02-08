@@ -1,12 +1,5 @@
-use std::collections::HashMap;
-
-use bitcoin::{
-    hashes::Hash, transaction::Version, Address, Amount, OutPoint, Transaction, TxOut, Txid, Weight,
-};
-use bitcoincore_rpc::{
-    json::{EstimateMode, FundRawTransactionOptions},
-    RpcApi,
-};
+use bitcoin::{transaction::Version, Address, Amount, OutPoint, Transaction, TxOut, Txid, Weight};
+use bitcoincore_rpc::{json::EstimateMode, RpcApi};
 use tokio::sync::broadcast::Receiver;
 
 use crate::{
@@ -25,11 +18,11 @@ use crate::{
 use self::chain_head::ChainHeadEvent;
 
 #[derive(Clone)]
-struct TxSender {
-    pub(crate) signer: Actor,
-    pub(crate) rpc: ExtendedRpc,
-    pub(crate) db: Database,
-    pub(crate) network: bitcoin::Network,
+pub struct TxSender {
+    pub signer: Actor,
+    pub rpc: ExtendedRpc,
+    pub db: Database,
+    pub network: bitcoin::Network,
 }
 
 impl TxSender {
@@ -56,7 +49,7 @@ impl TxSender {
         let fee_rate = fee_rate?;
         if fee_rate.errors.is_some() {
             tracing::error!("Fee estimation errors: {:?}", fee_rate.errors);
-            return Ok(Amount::from_sat(1));
+            Ok(Amount::from_sat(1))
             // Err(BridgeError::FeeEstimationError(
             //     fee_rate
             //         .errors
@@ -194,7 +187,7 @@ impl TxSender {
         );
 
         let child_tx_size = Amount::from_sat(300); // TODO: Fix this.
-        let required_fee = fee_rate * (child_tx_size.to_sat() + parent_tx_size.to_wu() as u64);
+        let required_fee = fee_rate * (child_tx_size.to_sat() + parent_tx_size.to_wu());
 
         let mut builder = TxHandlerBuilder::new()
             .with_version(Version::non_standard(3))
@@ -286,7 +279,7 @@ impl TxSender {
             fee_rate,
         )?;
 
-        println!(
+        tracing::info!(
             "bqr submitpackage '[\"{}\", \"{}\"]'",
             hex::encode(bitcoin::consensus::serialize(&tx)),
             hex::encode(bitcoin::consensus::serialize(&child_tx))
@@ -298,7 +291,6 @@ impl TxSender {
 
     pub async fn apply_block(&self, blockhash: &bitcoin::BlockHash) -> Result<(), BridgeError> {
         let block = self.rpc.client.get_block(blockhash).await?;
-        println!("Transactions in block: {:?}", block.txdata.len());
 
         for tx in block.txdata {
             let txid = tx.compute_txid();
@@ -308,7 +300,7 @@ impl TxSender {
         Ok(())
     }
 
-    pub async fn apply_reorg(&self, reorg_block: &bitcoin::BlockHash) -> Result<(), BridgeError> {
+    pub async fn apply_reorg(&self, _reorg_block: &bitcoin::BlockHash) -> Result<(), BridgeError> {
         // self.apply_block(&reorg_block).await?;
         Ok(())
     }
@@ -318,10 +310,7 @@ impl TxSender {
         receiver: &mut Receiver<ChainHeadEvent>,
     ) -> Result<(), BridgeError> {
         loop {
-            println!("BEFORE recv");
             let event = receiver.recv().await?;
-            println!("AFTER recv");
-            println!("Event: {:?}", event);
             match event {
                 ChainHeadEvent::NewBlock(block_hashes) => {
                     for block in block_hashes {
@@ -411,7 +400,7 @@ pub mod chain_head {
                 dbtx.commit().await?;
 
                 if !block_hashes.is_empty() {
-                    println!("New block hashes: {:?}", block_hashes);
+                    tracing::info!("New block hashes: {:?}", block_hashes);
                     tx.send(ChainHeadEvent::NewBlock(block_hashes))?;
                 }
 

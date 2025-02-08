@@ -4,8 +4,8 @@
 
 use super::{Database, DatabaseTransaction};
 use crate::{errors::BridgeError, execute_query_with_tx};
-use bitcoin::{Amount, BlockHash, ScriptBuf, Txid};
-use std::{ops::DerefMut, str::FromStr};
+use bitcoin::{Amount, ScriptBuf, Txid};
+use std::str::FromStr;
 
 impl Database {
     /// Saves a fee payer transaction to the database.
@@ -98,7 +98,6 @@ impl Database {
 
         Ok(txs)
     }
-
 }
 
 #[cfg(test)]
@@ -220,12 +219,10 @@ mod tests {
 
         // Test non-existent tx
         let non_existent = Txid::hash(&[0xff; 32]);
-        assert!(
-            db.get_fee_payer_tx(None, non_existent, script_pubkey)
-                .await
-                .unwrap()
-                .len()
-                == 0
-        );
+        assert!(db
+            .get_fee_payer_tx(None, non_existent, script_pubkey)
+            .await
+            .unwrap()
+            .is_empty());
     }
 }

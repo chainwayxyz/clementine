@@ -64,10 +64,10 @@ impl Database {
         let query = sqlx::query_as("SELECT height FROM tx_sender_block_info WHERE block_hash = $1")
             .bind(block_hash.to_string());
 
-        let height: Option<(i64,)> = execute_query_with_tx!(self.connection, tx, query, fetch_optional)?;
+        let height: Option<(i64,)> =
+            execute_query_with_tx!(self.connection, tx, query, fetch_optional)?;
         Ok(height.map(|(h,)| h as u64))
     }
-
 
     /// Gets the block hashes that have height bigger then the given height and deletes them.
     pub async fn delete_chain_head_from_height(
@@ -80,15 +80,15 @@ impl Database {
                 DELETE FROM tx_sender_block_info 
                 WHERE height > $1 
                 RETURNING block_hash
-            ) SELECT block_hash FROM deleted"
+            ) SELECT block_hash FROM deleted",
         )
         .bind(height as i64);
 
-        let block_hashes: Vec<(String,)> = execute_query_with_tx!(self.connection, tx, query, fetch_all)?;
+        let block_hashes: Vec<(String,)> =
+            execute_query_with_tx!(self.connection, tx, query, fetch_all)?;
         Ok(block_hashes
             .into_iter()
             .map(|(hash,)| BlockHash::from_str(&hash))
             .collect::<Result<Vec<_>, _>>()?)
     }
-    
 }
