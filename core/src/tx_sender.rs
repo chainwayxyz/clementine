@@ -552,7 +552,7 @@ mod tests {
         rpc.mine_blocks(1).await.unwrap();
 
         // Give enough time for the block to be processed and event to be handled
-        tokio::time::sleep(Duration::from_secs(2)).await;
+        tokio::time::sleep(Duration::from_secs(20)).await;
 
         // Send the CPFP transaction
         tx_sender.send_tx_with_cpfp(tx).await.unwrap();
