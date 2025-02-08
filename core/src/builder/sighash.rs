@@ -119,7 +119,6 @@ pub fn create_nofn_sighash_stream(
     bridge_amount_sats: Amount,
     network: bitcoin::Network,
 ) -> impl Stream<Item = Result<(TapSighash, SignatureInfo), BridgeError>> {
-    use bitcoin::TapSighashType::Default as SighashAll;
     try_stream! {
         // Create move_tx handler. This is unique for each deposit tx.
         let move_txhandler = builder::transaction::create_move_to_vault_txhandler(
@@ -237,7 +236,7 @@ pub fn create_nofn_sighash_stream(
                         .collect::<Vec<_>>();
 
                     let watchtower_challenge_kickoff_txhandler =
-                        builder::transaction::create_watchtower_challenge_kickoff_txhandler_simplified(
+                        builder::transaction::create_watchtower_challenge_kickoff_txhandler_from_db(
                             &kickoff_txhandler,
                             config.num_watchtowers as u32,
                             &watchtower_challenge_addresses,
@@ -259,7 +258,7 @@ pub fn create_nofn_sighash_stream(
                     yield (kickoff_timeout_txhandler.calculate_script_spend_sighash_indexed(
                         0,
                         0,
-                        SighashAll
+                        bitcoin::TapSighashType::Default
                     )?, partial.complete(kickoff_timeout_txhandler.get_signature_id(0)?));
 
                     let public_hashes = db.get_operators_challenge_ack_hashes(None, operator_idx as i32, sequential_collateral_tx_idx as i32, kickoff_idx as i32).await?.ok_or(BridgeError::WatchtowerPublicHashesNotFound(operator_idx as i32, sequential_collateral_tx_idx as i32, kickoff_idx as i32))?;
@@ -270,7 +269,7 @@ pub fn create_nofn_sighash_stream(
                     for (watchtower_idx, public_hash) in public_hashes.iter().enumerate() {
                         // Creates the watchtower_challenge_tx handler.
                         let watchtower_challenge_txhandler =
-                            builder::transaction::create_watchtower_challenge_txhandler(
+                            builder::transaction::create_watchtower_challenge_txhandler_from_db(
                                 &watchtower_challenge_kickoff_txhandler,
                                 watchtower_idx,
                                 public_hash,
@@ -291,7 +290,7 @@ pub fn create_nofn_sighash_stream(
                         yield (operator_challenge_nack_txhandler.calculate_script_spend_sighash_indexed(
                             0,
                             1,
-                            SighashAll,
+                            bitcoin::TapSighashType::Default,
                         )?, partial.complete(operator_challenge_nack_txhandler.get_signature_id(0)?));
 
                         // Yields the sighash for the operator_challenge_NACK_tx.input[1], which spends kickoff_tx.output[2].
@@ -343,7 +342,7 @@ pub fn create_nofn_sighash_stream(
                     yield (disprove_timeout_txhandler.calculate_script_spend_sighash_indexed(
                         1,
                         0,
-                        SighashAll,
+                        bitcoin::TapSighashType::Default,
                     )?, partial.complete(disprove_timeout_txhandler.get_signature_id(1)?));
 
                     // Creates the already_disproved_tx handler.
@@ -356,7 +355,7 @@ pub fn create_nofn_sighash_stream(
                     yield (already_disproved_txhandler.calculate_script_spend_sighash_indexed(
                         0,
                         1,
-                        SighashAll,
+                        bitcoin::TapSighashType::Default,
                     )?, partial.complete(already_disproved_txhandler.get_signature_id(0)?));
 
                     // Creates the reimburse_tx handler.

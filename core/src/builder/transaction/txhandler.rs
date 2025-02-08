@@ -57,6 +57,10 @@ impl<T: State> TxHandler<T> {
         let txin = self.txins.get(idx).ok_or(BridgeError::TxInputNotFound)?;
         Ok(txin.get_signature_id())
     }
+
+    pub fn get_transaction_type(&self) -> TransactionType {
+        self.transaction_type
+    }
 }
 
 impl TxHandler<Unsigned> {

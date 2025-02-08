@@ -25,6 +25,7 @@ use bitcoin::{Address, Amount, OutPoint, ScriptBuf, TxOut, XOnlyPublicKey};
 pub use txhandler::Unsigned;
 
 mod challenge;
+mod creator;
 pub mod input;
 mod operator_assert;
 mod operator_collateral;

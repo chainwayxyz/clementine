@@ -7,53 +7,12 @@ use crate::constants::{BLOCKS_PER_WEEK, OPERATOR_CHALLENGE_AMOUNT};
 use crate::errors::BridgeError;
 use crate::rpc::clementine::{NormalSignatureKind, WatchtowerSignatureKind};
 use bitcoin::{Amount, ScriptBuf, Sequence, TxOut, XOnlyPublicKey};
-use bitvm::signatures::winternitz;
 use std::sync::Arc;
-
-/// Creates a [`TxHandler`] for the `watchtower_challenge_kickoff_tx`. This transaction can be sent by anyone.
-/// When spent, the outputs of this transaction will reveal the Groth16 proofs with their public inputs for the longest
-/// chain proof, signed by the corresponding watchtowers using WOTS.
-pub fn create_watchtower_challenge_kickoff_txhandler(
-    kickoff_tx_handler: &TxHandler,
-    num_watchtowers: u32,
-    watchtower_xonly_pks: &[XOnlyPublicKey],
-    watchtower_challenge_winternitz_pks: &[Vec<[u8; 20]>],
-    network: bitcoin::Network,
-) -> Result<TxHandler, BridgeError> {
-    let mut builder = TxHandlerBuilder::new(TransactionType::WatchtowerChallengeKickoff).add_input(
-        NormalSignatureKind::WatchtowerChallengeKickoff,
-        kickoff_tx_handler.get_spendable_output(0)?,
-        SpendPath::ScriptSpend(0),
-        DEFAULT_SEQUENCE,
-    );
-
-    let wots_params = winternitz::Parameters::new(240, 4);
-
-    for i in 0..num_watchtowers {
-        let winternitz_commit = Arc::new(WinternitzCommit::new(
-            watchtower_challenge_winternitz_pks[i as usize].clone(),
-            wots_params.clone(),
-            watchtower_xonly_pks[i as usize],
-        ));
-        builder = builder.add_output(UnspentTxOut::from_scripts(
-            Amount::from_sat(2000), // TODO: Hand calculate this
-            vec![winternitz_commit],
-            None,
-            network,
-        ));
-    }
-
-    Ok(builder
-        .add_output(UnspentTxOut::from_partial(
-            builder::transaction::anchor_output(),
-        ))
-        .finalize())
-}
 
 /// Creates a "simplified "[`TxHandler`] for the `watchtower_challenge_kickoff_tx`. The purpose of the simplification
 /// is that when the verifiers are generating related sighashes, they only need to know the output addresses or the
 /// input UTXOs. They do not need to know output scripts or spendinfos.
-pub fn create_watchtower_challenge_kickoff_txhandler_simplified(
+pub fn create_watchtower_challenge_kickoff_txhandler_from_db(
     kickoff_tx_handler: &TxHandler,
     num_watchtowers: u32,
     watchtower_challenge_addresses: &[ScriptBuf],
@@ -90,7 +49,7 @@ pub fn create_watchtower_challenge_kickoff_txhandler_simplified(
 /// the operator from sending `assert_begin_tx`.
 /// The revealed preimage will later be used to send `disprove_tx` if the operator
 /// claims that the corresponding watchtower did not challenge them.
-pub fn create_watchtower_challenge_txhandler(
+pub fn create_watchtower_challenge_txhandler_from_db(
     wcp_txhandler: &TxHandler,
     watchtower_idx: usize,
     operator_unlock_hash: &[u8; 20],
@@ -105,6 +64,56 @@ pub fn create_watchtower_challenge_txhandler(
                 watchtower_idx as i32,
             ),
             wcp_txhandler.get_spendable_output(watchtower_idx)?,
+            SpendPath::ScriptSpend(0),
+            DEFAULT_SEQUENCE,
+        );
+
+    let nofn_halfweek = Arc::new(TimelockScript::new(
+        Some(nofn_xonly_pk),
+        BLOCKS_PER_WEEK / 2,
+    )); // 0.5 week
+    let operator_with_preimage = Arc::new(PreimageRevealScript::new(
+        operator_xonly_pk,
+        *operator_unlock_hash,
+    ));
+
+    Ok(builder
+        .add_output(UnspentTxOut::from_scripts(
+            Amount::from_sat(1000), // TODO: Hand calculate this
+            vec![operator_with_preimage, nofn_halfweek],
+            None,
+            network,
+        ))
+        .add_output(UnspentTxOut::from_partial(
+            builder::transaction::anchor_output(),
+        ))
+        .finalize())
+}
+
+pub fn create_watchtower_challenge_txhandler_from_script(
+    wcp_txhandler: &TxHandler,
+    watchtower_idx: usize,
+    operator_unlock_hash: &[u8; 20],
+    script: Arc<WinternitzCommit>,
+    nofn_xonly_pk: XOnlyPublicKey,
+    operator_xonly_pk: XOnlyPublicKey,
+    network: bitcoin::Network,
+) -> Result<TxHandler, BridgeError> {
+    let prevout = wcp_txhandler.get_spendable_output(watchtower_idx)?;
+    let builder = TxHandlerBuilder::new(TransactionType::WatchtowerChallenge(watchtower_idx))
+        .add_input(
+            (
+                WatchtowerSignatureKind::WatchtowerNotStored,
+                watchtower_idx as i32,
+            ),
+            // generate with script instead of spendable output of wcp_txhandler
+            SpendableTxIn::from_scripts(
+                *prevout.get_prev_outpoint(),
+                prevout.get_prevout().value,
+                vec![script],
+                None,
+                network,
+            ),
             SpendPath::ScriptSpend(0),
             DEFAULT_SEQUENCE,
         );
@@ -157,6 +166,32 @@ pub fn create_operator_challenge_nack_txhandler(
                     watchtower_idx as i32,
                 ),
                 kickoff_txhandler.get_spendable_output(2)?,
+                SpendPath::ScriptSpend(0),
+                DEFAULT_SEQUENCE,
+            )
+            .add_output(UnspentTxOut::from_partial(
+                builder::transaction::anchor_output(),
+            ))
+            .finalize(),
+    )
+}
+
+/// Creates a [`TxHandler`] for the `operator_challenge_ACK_tx`. This transaction will is used so that
+/// the operator can acknowledge the challenge and reveal the preimage for the corresponding watchtower.
+/// If the operator does not reveal the preimage, the NofN will be able to spend the output after 0.5 week using
+/// `operator_challenge_NACK_tx`.
+pub fn create_operator_challenge_ack_txhandler(
+    watchtower_challenge_txhandler: &TxHandler,
+    watchtower_idx: usize,
+) -> Result<TxHandler, BridgeError> {
+    Ok(
+        TxHandlerBuilder::new(TransactionType::OperatorChallengeACK(watchtower_idx))
+            .add_input(
+                (
+                    WatchtowerSignatureKind::WatchtowerNotStored,
+                    watchtower_idx as i32,
+                ),
+                watchtower_challenge_txhandler.get_spendable_output(0)?,
                 SpendPath::ScriptSpend(0),
                 DEFAULT_SEQUENCE,
             )

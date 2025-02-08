@@ -129,6 +129,28 @@ impl Database {
         Ok(data)
     }
 
+    pub async fn get_operator(
+        &self,
+        tx: Option<DatabaseTransaction<'_, '_>>,
+        operator_idx: i32,
+    ) -> Result<(XOnlyPublicKey, bitcoin::Address, Txid), BridgeError> {
+        let query = sqlx::query_as(
+            "SELECT operator_idx, xonly_pk, wallet_reimburse_address, collateral_funding_txid FROM operators WHERE operator_idx = $1;"
+        ).bind(operator_idx);
+
+        let (_, pk, addr, txid_db): (i32, String, String, TxidDB) =
+            execute_query_with_tx!(self.connection, tx, query, fetch_one)?;
+
+        // Convert the result to the desired format
+        let xonly_pk = XOnlyPublicKey::from_str(&pk)
+            .map_err(|e| BridgeError::Error(format!("Invalid XOnlyPublicKey: {}", e)))?;
+        let addr = bitcoin::Address::from_str(&addr)
+            .map_err(|e| BridgeError::Error(format!("Invalid Address: {}", e)))?
+            .assume_checked();
+        let txid = txid_db.0; // Extract the Txid from TxidDB
+        Ok((xonly_pk, addr, txid))
+    }
+
     pub async fn lock_operators_kickoff_utxo_table(
         &self,
         tx: &mut sqlx::Transaction<'_, Postgres>,
@@ -707,6 +729,36 @@ impl Database {
             None => Ok(None),
         }
     }
+
+    /// Retrieves BitVM disprove scripts root hash data for a specific operator, sequential collateral tx and kickoff index combination
+    pub async fn get_bitvm_root_hash(
+        &self,
+        tx: Option<DatabaseTransaction<'_, '_>>,
+        operator_idx: i32,
+        sequential_collateral_tx_idx: i32,
+        kickoff_idx: i32,
+    ) -> Result<Option<RootHash>, BridgeError> {
+        let query = sqlx::query_as::<_, (Vec<u8>,)>(
+            "SELECT root_hash
+             FROM bitvm_setups
+             WHERE operator_idx = $1 AND sequential_collateral_tx_idx = $2 AND kickoff_idx = $3;",
+        )
+        .bind(operator_idx)
+        .bind(sequential_collateral_tx_idx)
+        .bind(kickoff_idx);
+
+        let result = execute_query_with_tx!(self.connection, tx, query, fetch_optional)?;
+
+        match result {
+            Some((root_hash,)) => {
+                // Convert root_hash Vec<u8> back to [u8; 32]
+                let mut root_hash_array = [0u8; 32];
+                root_hash_array.copy_from_slice(&root_hash);
+                Ok(Some(root_hash_array))
+            }
+            None => Ok(None),
+        }
+    }
 }
 
 #[cfg(test)]
@@ -766,6 +818,11 @@ mod tests {
             assert_eq!(res[i].1, ops[i].2.clone().assume_checked());
             assert_eq!(res[i].2, ops[i].3);
         }
+
+        let res_single = database.get_operator(None, 1).await.unwrap();
+        assert_eq!(res_single.0, ops[1].1);
+        assert_eq!(res_single.1, ops[1].2.clone().assume_checked());
+        assert_eq!(res_single.2, ops[1].3);
     }
 
     #[tokio::test]

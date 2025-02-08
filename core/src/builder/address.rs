@@ -3,6 +3,8 @@
 //! Address builder provides useful functions for building typical Bitcoin
 //! addresses.
 
+use super::script::{CheckSig, DepositScript, SpendableScript, TimelockScript};
+use crate::constants::{WATCHTOWER_CHALLENGE_MESSAGE_LENGTH, WINTERNITZ_LOG_D};
 use crate::errors::BridgeError;
 use crate::utils::SECP;
 use crate::{utils, EVMAddress};
@@ -15,8 +17,6 @@ use bitcoin::{
 };
 use bitcoin::{Amount, Network};
 use bitvm::signatures::winternitz;
-
-use super::script::{CheckSig, DepositScript, SpendableScript, TimelockScript};
 
 pub fn taproot_builder_with_scripts(scripts: &[ScriptBuf]) -> TaprootBuilder {
     let builder = TaprootBuilder::new();
@@ -169,7 +169,8 @@ pub fn derive_challenge_address_from_xonlypk_and_wpk(
 ) -> Address {
     let verifier =
         winternitz::Winternitz::<winternitz::ListpickVerifier, winternitz::TabledConverter>::new();
-    let wots_params = winternitz::Parameters::new(240, 4);
+    let wots_params =
+        winternitz::Parameters::new(WATCHTOWER_CHALLENGE_MESSAGE_LENGTH, WINTERNITZ_LOG_D);
     let mut script_builder = verifier.checksig_verify(&wots_params, winternitz_pk);
     script_builder = script_builder.push_x_only_key(xonly_pk);
     script_builder = script_builder.push_opcode(OP_CHECKSIG); // TODO: Add checksig in the beginning

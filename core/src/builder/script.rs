@@ -14,8 +14,8 @@ use bitcoin::{
     ScriptBuf, XOnlyPublicKey,
 };
 use bitcoin::{Amount, Witness};
-use bitvm::signatures::winternitz::{self, SecretKey};
-use bitvm::signatures::winternitz::{Parameters, PublicKey};
+use bitvm::signatures::winternitz::{Parameters, PublicKey, SecretKey};
+use bitvm::signatures::winternitz_hash::WINTERNITZ_VARIABLE_VERIFIER;
 use std::any::Any;
 use std::fmt::Debug;
 use std::sync::Arc;
@@ -116,14 +116,11 @@ impl SpendableScript for WinternitzCommit {
     }
 
     fn to_script_buf(&self) -> ScriptBuf {
+        // TODO: check generate_winternitz_checksig_leave_variable()
         let winternitz_pubkey = self.0.clone();
         let params = self.1.clone();
         let xonly_pubkey = self.2;
-        let verifier = winternitz::Winternitz::<
-            winternitz::ListpickVerifier,
-            winternitz::TabledConverter,
-        >::new();
-        verifier
+        WINTERNITZ_VARIABLE_VERIFIER
             .checksig_verify(&params, &winternitz_pubkey)
             .push_x_only_key(&xonly_pubkey)
             .push_opcode(OP_CHECKSIG)
@@ -138,11 +135,7 @@ impl WinternitzCommit {
         secret_key: &SecretKey,
         signature: &schnorr::Signature,
     ) -> Witness {
-        let verifier = winternitz::Winternitz::<
-            winternitz::ListpickVerifier,
-            winternitz::TabledConverter,
-        >::new();
-        let mut witness = verifier.sign(&self.1, secret_key, commit_data);
+        let mut witness = WINTERNITZ_VARIABLE_VERIFIER.sign(&self.1, secret_key, commit_data);
         witness.push(signature.serialize());
         witness
     }

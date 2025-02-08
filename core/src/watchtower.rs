@@ -1,3 +1,4 @@
+use crate::constants::{WATCHTOWER_CHALLENGE_MESSAGE_LENGTH, WINTERNITZ_LOG_D};
 use crate::{
     actor::{Actor, WinternitzDerivationPath},
     builder::address::derive_challenge_address_from_xonlypk_and_wpk,
@@ -57,8 +58,8 @@ impl Watchtower {
             for sequential_collateral_tx in 0..self.config.num_sequential_collateral_txs as u32 {
                 for kickoff_idx in 0..self.config.num_kickoffs_per_sequential_collateral_tx as u32 {
                     let path = WinternitzDerivationPath {
-                        message_length: 480,
-                        log_d: 4,
+                        message_length: WATCHTOWER_CHALLENGE_MESSAGE_LENGTH,
+                        log_d: WINTERNITZ_LOG_D,
                         tx_type: crate::actor::TxType::WatchtowerChallenge,
                         index: None,
                         operator_idx: Some(operator),

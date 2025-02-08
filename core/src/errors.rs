@@ -235,6 +235,8 @@ pub enum BridgeError {
     NotOwnedScriptPath,
     #[error("Couldn't find needed signature from database")]
     SignatureNotFound,
+    #[error("Couldn't find needed txhandler during creation")]
+    TxHandlerNotFound,
 
     #[error("BitvmSetupNotFound for operator {0}, sequential_collateral_tx {1}, kickoff {2}")]
     BitvmSetupNotFound(i32, i32, i32),
