@@ -219,9 +219,9 @@ pub fn create_payout_txhandler(
         sighash_type: bitcoin::sighash::TapSighashType::SinglePlusAnyoneCanPay,
     };
     let witness = Witness::p2tr_key_spend(&user_sig_wrapped);
-    let txin = SpendableTxIn::new(input_utxo.outpoint, input_utxo.txout, vec![], None);
+    let txin = SpendableTxIn::new_partial(input_utxo.outpoint, input_utxo.txout);
 
-    let output_txout = UnspentTxOut::new(output_txout.clone(), vec![], None);
+    let output_txout = UnspentTxOut::from_partial(output_txout.clone());
 
     let scripts: Vec<Arc<dyn SpendableScript>> =
         vec![Arc::new(WithdrawalScript::new(operator_idx))];
