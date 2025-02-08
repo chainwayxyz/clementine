@@ -463,7 +463,7 @@ macro_rules! generate_withdrawal_transaction_and_signature {
             .add_input(
                 NormalSignatureKind::NotStored,
                 txin,
-                SpendPath::Unknown,
+                SpendPath::KeySpend,
                 builder::transaction::DEFAULT_SEQUENCE,
             )
             .add_output(txout.clone())
