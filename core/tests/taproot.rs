@@ -4,7 +4,7 @@ use clementine_core::actor::Actor;
 use clementine_core::builder::script::{CheckSig, SpendPath, SpendableScript};
 use clementine_core::builder::transaction::input::SpendableTxIn;
 use clementine_core::builder::transaction::output::UnspentTxOut;
-use clementine_core::builder::transaction::{TxHandlerBuilder, DEFAULT_SEQUENCE};
+use clementine_core::builder::transaction::{TransactionType, TxHandlerBuilder, DEFAULT_SEQUENCE};
 use clementine_core::builder::{self};
 use clementine_core::extended_rpc::ExtendedRpc;
 use clementine_core::rpc::clementine::NormalSignatureKind;
@@ -50,7 +50,7 @@ async fn create_address_and_transaction_then_sign_transaction() {
         .await
         .unwrap();
 
-    let mut builder = TxHandlerBuilder::new();
+    let mut builder = TxHandlerBuilder::new(TransactionType::Dummy);
     builder = builder.add_input(
         NormalSignatureKind::NotStored,
         SpendableTxIn::new(

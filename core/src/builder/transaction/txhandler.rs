@@ -1,4 +1,7 @@
+use super::input::{SpendableTxIn, SpentTxIn};
+use super::output::UnspentTxOut;
 use crate::builder::script::SpendPath;
+use crate::builder::transaction::TransactionType;
 use crate::errors::BridgeError;
 use crate::rpc::clementine::tagged_signature::SignatureId;
 use crate::rpc::clementine::NormalSignatureKind;
@@ -9,13 +12,11 @@ use bitcoin::{absolute, OutPoint, Script, Sequence, Transaction, Witness};
 use bitcoin::{TapLeafHash, TapSighash, TapSighashType, TxOut, Txid};
 use std::marker::PhantomData;
 
-use super::input::{SpendableTxIn, SpentTxIn};
-use super::output::UnspentTxOut;
-
 pub const DEFAULT_SEQUENCE: Sequence = Sequence::ENABLE_RBF_NO_LOCKTIME;
 
 #[derive(Debug, Clone)]
 pub struct TxHandler<T: State = Unsigned> {
+    transaction_type: TransactionType,
     txins: Vec<SpentTxIn>,
     txouts: Vec<UnspentTxOut>,
 
@@ -209,6 +210,7 @@ impl TxHandler<Unsigned> {
         }
 
         Ok(TxHandler {
+            transaction_type: self.transaction_type,
             txins: self.txins,
             txouts: self.txouts,
             cached_tx: self.cached_tx,
@@ -295,21 +297,17 @@ impl TxHandler<Unsigned> {
 #[derive(Debug, Clone)]
 pub struct TxHandlerBuilder {
     /// TODO: Document
+    transaction_type: TransactionType,
     version: Version,
     lock_time: absolute::LockTime,
     txins: Vec<SpentTxIn>,
     txouts: Vec<UnspentTxOut>,
 }
 
-impl Default for TxHandlerBuilder {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
 impl TxHandlerBuilder {
-    pub fn new() -> TxHandlerBuilder {
+    pub fn new(transaction_type: TransactionType) -> TxHandlerBuilder {
         TxHandlerBuilder {
+            transaction_type,
             version: Version::TWO,
             lock_time: absolute::LockTime::ZERO,
             txins: vec![],
@@ -374,6 +372,7 @@ impl TxHandlerBuilder {
         };
         let txid = tx.compute_txid();
         TxHandler::<Unsigned> {
+            transaction_type: self.transaction_type,
             txins: self.txins,
             txouts: self.txouts,
             cached_tx: tx,

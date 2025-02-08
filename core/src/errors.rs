@@ -252,6 +252,8 @@ pub enum BridgeError {
 
     #[error("InvalidAssertTxAddrs")]
     InvalidAssertTxAddrs,
+    #[error("Not enough assert tx scripts given")]
+    InvalidAssertTxScripts,
     #[error("Invalid response from Citrea: {0}")]
     InvalidCitreaResponse(String),
 

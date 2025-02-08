@@ -425,7 +425,7 @@ mod tests {
     use crate::builder::script::{CheckSig, SpendPath, SpendableScript};
     use crate::builder::transaction::input::SpendableTxIn;
     use crate::builder::transaction::output::UnspentTxOut;
-    use crate::builder::transaction::{TxHandler, TxHandlerBuilder};
+    use crate::builder::transaction::{TransactionType, TxHandler, TxHandlerBuilder};
     use crate::config::BridgeConfig;
     use crate::rpc::clementine::NormalSignatureKind;
     use crate::utils::{initialize_logger, SECP};
@@ -462,7 +462,7 @@ mod tests {
             value: Amount::from_sat(1000),
             script_pubkey: tap_addr.script_pubkey(),
         };
-        let builder = TxHandlerBuilder::new().add_input(
+        let builder = TxHandlerBuilder::new(TransactionType::Dummy).add_input(
             NormalSignatureKind::AlreadyDisproved1,
             SpendableTxIn::new(
                 OutPoint::default(),
@@ -519,7 +519,7 @@ mod tests {
             Some(spend_info),
         );
 
-        let builder = TxHandlerBuilder::new().add_input(
+        let builder = TxHandlerBuilder::new(TransactionType::Dummy).add_input(
             NormalSignatureKind::AlreadyDisproved1,
             spendable_input,
             SpendPath::ScriptSpend(0),

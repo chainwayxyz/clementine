@@ -109,8 +109,8 @@ pub fn create_nofn_sighash_stream(
     db: Database,
     config: BridgeConfig,
     deposit_outpoint: OutPoint,
-    _evm_address: EVMAddress,
-    _recovery_taproot_address: Address<NetworkUnchecked>,
+    evm_address: EVMAddress,
+    recovery_taproot_address: Address<NetworkUnchecked>,
     nofn_xonly_pk: XOnlyPublicKey,
     _user_takes_after: u16,
     collateral_funding_amount: Amount,
@@ -124,8 +124,8 @@ pub fn create_nofn_sighash_stream(
         // Create move_tx handler. This is unique for each deposit tx.
         let move_txhandler = builder::transaction::create_move_to_vault_txhandler(
             deposit_outpoint,
-            _evm_address,
-            &_recovery_taproot_address,
+            evm_address,
+            &recovery_taproot_address,
             nofn_xonly_pk,
             _user_takes_after,
             bridge_amount_sats,

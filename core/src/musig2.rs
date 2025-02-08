@@ -225,7 +225,7 @@ pub fn partial_sign(
 mod tests {
     use super::{nonce_pair, MuSigNoncePair, Musig2Mode};
     use crate::builder::script::{CheckSig, OtherSpendable, SpendableScript};
-    use crate::builder::transaction::DEFAULT_SEQUENCE;
+    use crate::builder::transaction::{TransactionType, DEFAULT_SEQUENCE};
     use crate::rpc::clementine::NormalSignatureKind;
     use crate::{
         builder::{
@@ -524,8 +524,7 @@ mod tests {
             txid: Txid::from_byte_array([0u8; 32]),
             vout: 0,
         };
-
-        let mut builder = TxHandlerBuilder::new();
+        let mut builder = TxHandlerBuilder::new(TransactionType::Dummy);
         builder = builder
             .add_input(
                 NormalSignatureKind::NotStored,
@@ -634,7 +633,7 @@ mod tests {
             vout: 0,
         };
 
-        let tx_details = TxHandlerBuilder::new()
+        let tx_details = TxHandlerBuilder::new(TransactionType::Dummy)
             .add_input(
                 NormalSignatureKind::NotStored,
                 SpendableTxIn::new(

@@ -1,5 +1,5 @@
 use crate::builder;
-use crate::builder::script::TimelockScript;
+use crate::builder::script::{TimelockScript, WinternitzCommit};
 pub use crate::builder::transaction::txhandler::TxHandler;
 pub use crate::builder::transaction::*;
 use crate::constants::{BLOCKS_PER_WEEK, MIN_TAPROOT_AMOUNT, PARALLEL_ASSERT_TX_CHAIN_SIZE};
@@ -25,7 +25,7 @@ pub fn create_assert_begin_txhandler(
     assert_tx_addrs: &[ScriptBuf],
     _network: bitcoin::Network,
 ) -> Result<TxHandler<Unsigned>, BridgeError> {
-    let mut builder = TxHandlerBuilder::new();
+    let mut builder = TxHandlerBuilder::new(TransactionType::AssertBegin);
 
     // Add input from kickoff tx
     builder = builder.add_input(
@@ -50,14 +50,52 @@ pub fn create_assert_begin_txhandler(
         .finalize())
 }
 
+/// Creates a [`TxHandler`] for the `assert_begin_tx` that has actual winternitz scripts in the output.
+pub fn create_assert_begin_txhandler_from_scripts(
+    kickoff_txhandler: &TxHandler,
+    assert_tx_scripts: &[Arc<WinternitzCommit>],
+    network: bitcoin::Network,
+) -> Result<TxHandler<Unsigned>, BridgeError> {
+    if assert_tx_scripts.len() < PARALLEL_ASSERT_TX_CHAIN_SIZE {
+        return Err(BridgeError::InvalidAssertTxScripts);
+    }
+
+    let mut builder = TxHandlerBuilder::new(TransactionType::AssertBegin);
+
+    // Add input from kickoff tx
+    builder = builder.add_input(
+        NormalSignatureKind::NotStored,
+        kickoff_txhandler.get_spendable_output(2)?,
+        builder::script::SpendPath::ScriptSpend(1),
+        Sequence::from_height(BLOCKS_PER_WEEK / 2 * 5), // 2.5 weeks
+    );
+
+    // Add parallel assert outputs
+    for addr in assert_tx_scripts.iter().take(PARALLEL_ASSERT_TX_CHAIN_SIZE) {
+        builder = builder.add_output(UnspentTxOut::from_scripts(
+            MIN_TAPROOT_AMOUNT,
+            vec![addr.clone()],
+            None,
+            network,
+        ));
+    }
+
+    Ok(builder
+        .add_output(UnspentTxOut::from_partial(
+            builder::transaction::anchor_output(),
+        ))
+        .finalize())
+}
+
 /// Creates the `mini_assert_tx` for `assert_begin_tx -> assert_end_tx` flow.
-pub fn create_mini_assert_tx(
+pub fn create_mini_assert_txhandler(
     prev_txid: Txid,
     prev_vout: u32,
+    index: usize,
     out_script: ScriptBuf,
     _network: bitcoin::Network,
 ) -> TxHandler<Unsigned> {
-    let builder = TxHandlerBuilder::new();
+    let builder = TxHandlerBuilder::new(TransactionType::MiniAssert(index));
 
     builder
         .add_input(
@@ -124,9 +162,10 @@ pub fn create_assert_end_txhandler(
         .take(PARALLEL_ASSERT_TX_CHAIN_SIZE)
         .enumerate()
     {
-        let mini_assert_tx = create_mini_assert_tx(
+        let mini_assert_tx = create_mini_assert_txhandler(
             *assert_begin_txhandler.get_txid(),
             i as u32,
+            i,
             addr.clone(),
             network,
         );
@@ -140,12 +179,13 @@ pub fn create_assert_end_txhandler(
                 break;
             }
 
-            let mini_assert_tx = create_mini_assert_tx(
+            let mini_assert_tx = create_mini_assert_txhandler(
                 *mini_tx_handlers
                     .get(i)
                     .expect("previous assertions ensure the size")
                     .get_txid(),
                 0,
+                assert_tx_idx,
                 assert_tx_addrs
                     .get(assert_tx_idx)
                     .expect("checked before")
@@ -157,7 +197,7 @@ pub fn create_assert_end_txhandler(
         }
     }
 
-    let mut builder = TxHandlerBuilder::new();
+    let mut builder = TxHandlerBuilder::new(TransactionType::AssertEnd);
 
     for txhandler in mini_tx_handlers.into_iter() {
         builder = builder.add_input(
@@ -213,6 +253,161 @@ pub fn create_assert_end_txhandler(
         ))
         .finalize())
 }
+
+/// Creates the `mini_assert_tx` for `assert_begin_tx -> assert_end_tx` flow.
+pub fn create_mini_assert_txhandler_from_scripts(
+    prev_txhandler: &TxHandler,
+    prev_vout: usize,
+    index: usize,
+    out_script: Arc<WinternitzCommit>,
+    network: bitcoin::Network,
+) -> Result<TxHandler<Unsigned>, BridgeError> {
+    Ok(TxHandlerBuilder::new(TransactionType::MiniAssert(index))
+        .add_input(
+            NormalSignatureKind::NotStored,
+            prev_txhandler.get_spendable_output(prev_vout)?,
+            builder::script::SpendPath::ScriptSpend(0),
+            DEFAULT_SEQUENCE,
+        )
+        .add_output(UnspentTxOut::from_scripts(
+            MIN_TAPROOT_AMOUNT,
+            vec![out_script],
+            None,
+            network,
+        ))
+        .add_output(UnspentTxOut::from_partial(
+            builder::transaction::anchor_output(),
+        ))
+        .finalize())
+}
+
+/// Creates a [`TxHandler`] for all `mini_assert_tx` and one `assert_end_tx`. This function will be called
+/// only for the operator that wants to commit data so needs to create the assert_tx's with scripts instead
+/// of only the ScriptBufs.
+pub fn create_mini_asserts_and_assert_end_from_scripts(
+    kickoff_txhandler: &TxHandler,
+    assert_begin_txhandler: &TxHandler,
+    assert_tx_scripts: &[Arc<WinternitzCommit>],
+    root_hash: &[u8; 32],
+    nofn_xonly_pk: XOnlyPublicKey,
+    network: bitcoin::Network,
+) -> Result<Vec<TxHandler>, BridgeError> {
+    let mut all_tx_handlers: Vec<TxHandler> =
+        Vec::with_capacity(assert_tx_scripts.iter().len() + 1);
+
+    let mini_assert_layer_count = assert_tx_scripts
+        .len()
+        .div_ceil(PARALLEL_ASSERT_TX_CHAIN_SIZE);
+    if assert_tx_scripts.len() < PARALLEL_ASSERT_TX_CHAIN_SIZE {
+        return Err(BridgeError::InvalidAssertTxScripts);
+    }
+
+    // We do not create the scripts for Parallel assert txs, so that deposit process for verifiers is faster
+    // Because of this we do not have scripts, spendinfos etc. for parallel asserts
+    // For operator to create txs for parallel asserts and assert_end_txs, they need to create the scripts themselves
+
+    // Create first layer of mini assert txs
+    for (i, addr) in assert_tx_scripts
+        .iter()
+        .take(PARALLEL_ASSERT_TX_CHAIN_SIZE)
+        .enumerate()
+    {
+        let mini_assert_tx = create_mini_assert_txhandler_from_scripts(
+            assert_begin_txhandler,
+            i,
+            i,
+            addr.clone(),
+            network,
+        )?;
+        all_tx_handlers.push(mini_assert_tx);
+    }
+
+    for layer in 1..mini_assert_layer_count {
+        for i in 0..PARALLEL_ASSERT_TX_CHAIN_SIZE {
+            let assert_tx_idx = i + layer * PARALLEL_ASSERT_TX_CHAIN_SIZE;
+            if assert_tx_idx >= assert_tx_scripts.len() {
+                break;
+            }
+
+            let mini_assert_tx = create_mini_assert_txhandler_from_scripts(
+                all_tx_handlers
+                    .iter()
+                    .rev()
+                    .nth(PARALLEL_ASSERT_TX_CHAIN_SIZE - 1)
+                    .expect("previous push ensure the size"),
+                0,
+                assert_tx_idx,
+                assert_tx_scripts
+                    .get(assert_tx_idx)
+                    .expect("checked before")
+                    .clone(),
+                network,
+            )?;
+
+            all_tx_handlers.push(mini_assert_tx);
+        }
+    }
+
+    let mut builder = TxHandlerBuilder::new(TransactionType::AssertEnd);
+
+    for i in (0..PARALLEL_ASSERT_TX_CHAIN_SIZE).rev() {
+        builder = builder.add_input(
+            NormalSignatureKind::NotStored,
+            all_tx_handlers[all_tx_handlers.len() - i].get_spendable_output(0)?,
+            builder::script::SpendPath::ScriptSpend(0),
+            DEFAULT_SEQUENCE,
+        );
+    }
+
+    builder = builder.add_input(
+        NormalSignatureKind::AssertEndLast,
+        kickoff_txhandler.get_spendable_output(3)?,
+        builder::script::SpendPath::ScriptSpend(0),
+        DEFAULT_SEQUENCE,
+    );
+
+    let disprove_taproot_spend_info = TaprootBuilder::new()
+        .add_hidden_node(0, TapNodeHash::from_byte_array(*root_hash))
+        .expect("empty taptree will accept a node at depth 0")
+        .finalize(&SECP, nofn_xonly_pk) // TODO: we should convert this to script spend but we only have partial access to the taptree
+        .expect("finalize always succeeds for taptree with single node at depth 0");
+
+    let disprove_address = Address::p2tr(
+        &SECP,
+        nofn_xonly_pk,
+        disprove_taproot_spend_info.merkle_root(),
+        network,
+    );
+
+    let nofn_1week = Arc::new(TimelockScript::new(Some(nofn_xonly_pk), BLOCKS_PER_WEEK));
+    let nofn_2week = Arc::new(TimelockScript::new(
+        Some(nofn_xonly_pk),
+        BLOCKS_PER_WEEK * 2,
+    ));
+
+    // Add outputs
+    all_tx_handlers.push(
+        builder
+            .add_output(UnspentTxOut::from_partial(TxOut {
+                value: MIN_TAPROOT_AMOUNT,
+                script_pubkey: disprove_address.script_pubkey().clone(),
+            }))
+            .add_output(UnspentTxOut::from_scripts(
+                MIN_TAPROOT_AMOUNT,
+                vec![nofn_1week, nofn_2week],
+                None,
+                network,
+            ))
+            .add_output(UnspentTxOut::new(
+                builder::transaction::anchor_output(),
+                vec![],
+                None,
+            ))
+            .finalize(),
+    );
+    Ok(all_tx_handlers)
+}
+
 /// Creates a [`TxHandler`] for the `disprove_timeout_tx`. This transaction will be sent by the operator
 /// to be able to send `reimburse_tx` later.
 pub fn create_disprove_timeout_txhandler(
@@ -220,7 +415,7 @@ pub fn create_disprove_timeout_txhandler(
     operator_xonly_pk: XOnlyPublicKey,
     network: bitcoin::Network,
 ) -> Result<TxHandler<Unsigned>, BridgeError> {
-    Ok(TxHandlerBuilder::new()
+    Ok(TxHandlerBuilder::new(TransactionType::DisproveTimeout)
         .add_input(
             NormalSignatureKind::DisproveTimeout1,
             assert_end_txhandler.get_spendable_output(0)?,

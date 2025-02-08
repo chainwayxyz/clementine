@@ -20,7 +20,7 @@ pub fn create_watchtower_challenge_kickoff_txhandler(
     watchtower_challenge_winternitz_pks: &[Vec<[u8; 20]>],
     network: bitcoin::Network,
 ) -> Result<TxHandler, BridgeError> {
-    let mut builder = TxHandlerBuilder::new().add_input(
+    let mut builder = TxHandlerBuilder::new(TransactionType::WatchtowerChallengeKickoff).add_input(
         NormalSignatureKind::WatchtowerChallengeKickoff,
         kickoff_tx_handler.get_spendable_output(0)?,
         SpendPath::ScriptSpend(0),
@@ -58,7 +58,7 @@ pub fn create_watchtower_challenge_kickoff_txhandler_simplified(
     num_watchtowers: u32,
     watchtower_challenge_addresses: &[ScriptBuf],
 ) -> Result<TxHandler, BridgeError> {
-    let mut builder = TxHandlerBuilder::new().add_input(
+    let mut builder = TxHandlerBuilder::new(TransactionType::WatchtowerChallengeKickoff).add_input(
         NormalSignatureKind::WatchtowerChallengeKickoff,
         kickoff_tx_handler.get_spendable_output(0)?,
         SpendPath::ScriptSpend(0),
@@ -98,15 +98,16 @@ pub fn create_watchtower_challenge_txhandler(
     operator_xonly_pk: XOnlyPublicKey,
     network: bitcoin::Network,
 ) -> Result<TxHandler, BridgeError> {
-    let builder = TxHandlerBuilder::new().add_input(
-        (
-            WatchtowerSignatureKind::WatchtowerNotStored,
-            watchtower_idx as i32,
-        ),
-        wcp_txhandler.get_spendable_output(watchtower_idx)?,
-        SpendPath::ScriptSpend(0),
-        DEFAULT_SEQUENCE,
-    );
+    let builder = TxHandlerBuilder::new(TransactionType::WatchtowerChallenge(watchtower_idx))
+        .add_input(
+            (
+                WatchtowerSignatureKind::WatchtowerNotStored,
+                watchtower_idx as i32,
+            ),
+            wcp_txhandler.get_spendable_output(watchtower_idx)?,
+            SpendPath::ScriptSpend(0),
+            DEFAULT_SEQUENCE,
+        );
 
     let nofn_halfweek = Arc::new(TimelockScript::new(
         Some(nofn_xonly_pk),
@@ -139,29 +140,31 @@ pub fn create_operator_challenge_nack_txhandler(
     watchtower_idx: usize,
     kickoff_txhandler: &TxHandler,
 ) -> Result<TxHandler, BridgeError> {
-    Ok(TxHandlerBuilder::new()
-        .add_input(
-            (
-                WatchtowerSignatureKind::OperatorChallengeNack1,
-                watchtower_idx as i32,
-            ),
-            watchtower_challenge_txhandler.get_spendable_output(0)?,
-            SpendPath::ScriptSpend(1),
-            Sequence::from_height(BLOCKS_PER_WEEK / 2),
-        )
-        .add_input(
-            (
-                WatchtowerSignatureKind::OperatorChallengeNack2,
-                watchtower_idx as i32,
-            ),
-            kickoff_txhandler.get_spendable_output(2)?,
-            SpendPath::ScriptSpend(0),
-            DEFAULT_SEQUENCE,
-        )
-        .add_output(UnspentTxOut::from_partial(
-            builder::transaction::anchor_output(),
-        ))
-        .finalize())
+    Ok(
+        TxHandlerBuilder::new(TransactionType::OperatorChallengeNACK(watchtower_idx))
+            .add_input(
+                (
+                    WatchtowerSignatureKind::OperatorChallengeNack1,
+                    watchtower_idx as i32,
+                ),
+                watchtower_challenge_txhandler.get_spendable_output(0)?,
+                SpendPath::ScriptSpend(1),
+                Sequence::from_height(BLOCKS_PER_WEEK / 2),
+            )
+            .add_input(
+                (
+                    WatchtowerSignatureKind::OperatorChallengeNack2,
+                    watchtower_idx as i32,
+                ),
+                kickoff_txhandler.get_spendable_output(2)?,
+                SpendPath::ScriptSpend(0),
+                DEFAULT_SEQUENCE,
+            )
+            .add_output(UnspentTxOut::from_partial(
+                builder::transaction::anchor_output(),
+            ))
+            .finalize(),
+    )
 }
 
 /// Creates a [`TxHandler`] for the `already_disproved_tx`. This transaction will be sent by NofN, meaning
@@ -171,7 +174,7 @@ pub fn create_already_disproved_txhandler(
     assert_end_txhandler: &TxHandler,
     sequential_collateral_txhandler: &TxHandler,
 ) -> Result<TxHandler, BridgeError> {
-    Ok(TxHandlerBuilder::new()
+    Ok(TxHandlerBuilder::new(TransactionType::AlreadyDisproved)
         .add_input(
             NormalSignatureKind::AlreadyDisproved1,
             assert_end_txhandler.get_spendable_output(1)?,
@@ -197,7 +200,7 @@ pub fn create_disprove_txhandler(
     assert_end_txhandler: &TxHandler,
     sequential_collateral_txhandler: &TxHandler,
 ) -> Result<TxHandler, BridgeError> {
-    Ok(TxHandlerBuilder::new()
+    Ok(TxHandlerBuilder::new(TransactionType::Disprove)
         .add_input(
             NormalSignatureKind::NotStored,
             assert_end_txhandler.get_spendable_output(0)?,
@@ -223,7 +226,7 @@ pub fn create_challenge_txhandler(
     kickoff_txhandler: &TxHandler,
     operator_reimbursement_address: &bitcoin::Address,
 ) -> Result<TxHandler, BridgeError> {
-    Ok(TxHandlerBuilder::new()
+    Ok(TxHandlerBuilder::new(TransactionType::Challenge)
         .add_input(
             NormalSignatureKind::Challenge,
             kickoff_txhandler.get_spendable_output(1)?,

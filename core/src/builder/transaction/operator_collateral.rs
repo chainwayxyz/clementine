@@ -48,7 +48,7 @@ pub fn create_sequential_collateral_txhandler(
     network: bitcoin::Network,
 ) -> Result<TxHandler, BridgeError> {
     let (op_address, op_spend) = create_taproot_address(&[], Some(operator_xonly_pk), network);
-    let mut builder = TxHandlerBuilder::new().add_input(
+    let mut builder = TxHandlerBuilder::new(TransactionType::SequentialCollateral).add_input(
         NormalSignatureKind::NotStored,
         SpendableTxIn::new(
             OutPoint {
@@ -123,7 +123,7 @@ pub fn create_reimburse_generator_txhandler(
     max_withdrawal_time_block_count: u16,
     network: bitcoin::Network,
 ) -> Result<TxHandler, BridgeError> {
-    let mut builder = TxHandlerBuilder::new()
+    let mut builder = TxHandlerBuilder::new(TransactionType::ReimburseGenerator)
         .add_input(
             NormalSignatureKind::NotStored,
             sequential_collateral_txhandler.get_spendable_output(0)?,
@@ -168,7 +168,7 @@ pub fn create_kickoff_utxo_timeout_txhandler(
     sequential_collateral_txhandler: &TxHandler,
     kickoff_idx: usize,
 ) -> Result<TxHandler, BridgeError> {
-    let builder = TxHandlerBuilder::new().add_input(
+    let builder = TxHandlerBuilder::new(TransactionType::KickoffUTXOTimeout).add_input(
         NormalSignatureKind::NotStored,
         sequential_collateral_txhandler.get_spendable_output(2 + kickoff_idx)?,
         SpendPath::ScriptSpend(1),
@@ -190,7 +190,7 @@ pub fn create_kickoff_timeout_txhandler(
     kickoff_tx_handler: &TxHandler,
     sequential_collateral_txhandler: &TxHandler,
 ) -> Result<TxHandler, BridgeError> {
-    let builder = TxHandlerBuilder::new()
+    let builder = TxHandlerBuilder::new(TransactionType::KickoffTimeout)
         .add_input(
             NormalSignatureKind::KickoffTimeout1,
             kickoff_tx_handler.get_spendable_output(3)?,
@@ -208,4 +208,56 @@ pub fn create_kickoff_timeout_txhandler(
             builder::transaction::anchor_output(),
         ))
         .finalize())
+}
+
+/// Creates the nth (0-indexed) `sequential_collateral_txhandler` and `reimburse_generator_txhandler` pair
+/// for a sspecific operator.
+pub fn create_seq_collat_reimburse_gen_nth_txhandler(
+    operator_xonly_pk: XOnlyPublicKey,
+    input_txid: Txid,
+    input_amount: Amount,
+    timeout_block_count: i64,
+    num_kickoffs_per_sequential_collateral_tx: usize,
+    max_withdrawal_time_block_count: u16,
+    network: bitcoin::Network,
+    index: usize,
+) -> Result<(TxHandler, TxHandler), BridgeError> {
+    let mut seq_collat_txhandler = create_sequential_collateral_txhandler(
+        operator_xonly_pk,
+        input_txid,
+        input_amount,
+        timeout_block_count,
+        max_withdrawal_time_block_count,
+        num_kickoffs_per_sequential_collateral_tx,
+        network,
+    )?;
+    let mut reimburse_gen_txhandler = create_reimburse_generator_txhandler(
+        &seq_collat_txhandler,
+        operator_xonly_pk,
+        num_kickoffs_per_sequential_collateral_tx,
+        max_withdrawal_time_block_count,
+        network,
+    )?;
+    for _ in 0..index {
+        seq_collat_txhandler = create_sequential_collateral_txhandler(
+            operator_xonly_pk,
+            *reimburse_gen_txhandler.get_txid(),
+            reimburse_gen_txhandler
+                .get_spendable_output(0)?
+                .get_prevout()
+                .value,
+            timeout_block_count,
+            max_withdrawal_time_block_count,
+            num_kickoffs_per_sequential_collateral_tx,
+            network,
+        )?;
+        reimburse_gen_txhandler = create_reimburse_generator_txhandler(
+            &seq_collat_txhandler,
+            operator_xonly_pk,
+            num_kickoffs_per_sequential_collateral_tx,
+            max_withdrawal_time_block_count,
+            network,
+        )?;
+    }
+    Ok((seq_collat_txhandler, reimburse_gen_txhandler))
 }

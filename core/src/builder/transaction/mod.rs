@@ -32,6 +32,36 @@ mod operator_reimburse;
 pub mod output;
 mod txhandler;
 
+/// Types of all transactions that can be created. Some transactions have an (usize) to as they are created
+/// multiple times per kickoff.
+#[derive(Debug, Clone, Copy, Hash, PartialEq, Eq)]
+pub enum TransactionType {
+    SequentialCollateral,
+    ReimburseGenerator,
+    Kickoff,
+    MoveToVault,
+    Payout,
+    Challenge,
+    KickoffTimeout,
+    KickoffUTXOTimeout,
+    WatchtowerChallengeKickoff,
+    StartHappyReimburse,
+    HappyReimburse,
+    WatchtowerChallenge(usize),
+    OperatorChallengeNACK(usize),
+    OperatorChallengeACK(usize),
+    AssertBegin,
+    MiniAssert(usize),
+    AssertEnd,
+    Disprove,
+    DisproveTimeout,
+    AlreadyDisproved,
+    Reimburse,
+    AllNeededForDeposit, // this will include all tx's that is needed for a deposit
+    All, // this will also include tx's not needed for a deposit, for example OperatorChallengeACK
+    Dummy, // for tests
+}
+
 /// Creates a P2WSH output that anyone can spend. TODO: We will not need this in the future.
 pub fn anyone_can_spend_txout() -> TxOut {
     let script = Builder::new().push_opcode(OP_PUSHNUM_1).into_script();
@@ -98,7 +128,7 @@ pub fn create_move_to_vault_txhandler(
         user_takes_after,
     ));
 
-    let builder = TxHandlerBuilder::new().add_input(
+    let builder = TxHandlerBuilder::new(TransactionType::MoveToVault).add_input(
         NormalSignatureKind::NotStored,
         SpendableTxIn::from_scripts(
             deposit_outpoint,
