@@ -18,7 +18,6 @@ use bitvm::signatures::winternitz::{self, SecretKey};
 use bitvm::signatures::winternitz::{Parameters, PublicKey};
 use std::any::Any;
 use std::fmt::Debug;
-use std::sync::Arc;
 
 #[derive(Debug, Copy, Clone)]
 pub enum SpendPath {
@@ -37,6 +36,8 @@ pub enum SpendPath {
 /// Otherwise, it will not be spendable.
 pub trait SpendableScript: Send + Sync + 'static + std::any::Any {
     fn as_any(&self) -> &dyn Any;
+
+    fn kind(&self) -> ScriptKind;
 
     fn to_script_buf(&self) -> ScriptBuf;
 }
@@ -60,6 +61,10 @@ impl From<ScriptBuf> for OtherSpendable {
 impl SpendableScript for OtherSpendable {
     fn as_any(&self) -> &dyn Any {
         self
+    }
+
+    fn kind(&self) -> ScriptKind {
+        ScriptKind::Other(self)
     }
 
     fn to_script_buf(&self) -> ScriptBuf {
@@ -89,6 +94,10 @@ impl SpendableScript for CheckSig {
         self
     }
 
+    fn kind(&self) -> ScriptKind {
+        ScriptKind::CheckSig(self)
+    }
+
     fn to_script_buf(&self) -> ScriptBuf {
         Builder::new()
             .push_x_only_key(&self.0)
@@ -113,6 +122,10 @@ pub struct WinternitzCommit(PublicKey, Parameters, pub(crate) XOnlyPublicKey);
 impl SpendableScript for WinternitzCommit {
     fn as_any(&self) -> &dyn Any {
         self
+    }
+
+    fn kind(&self) -> ScriptKind {
+        ScriptKind::WinternitzCommit(self)
     }
 
     fn to_script_buf(&self) -> ScriptBuf {
@@ -171,6 +184,10 @@ impl SpendableScript for TimelockScript {
         self
     }
 
+    fn kind(&self) -> ScriptKind {
+        ScriptKind::TimelockScript(self)
+    }
+
     fn to_script_buf(&self) -> ScriptBuf {
         let script_builder = Builder::new()
             .push_int(self.1 as i64)
@@ -209,6 +226,10 @@ impl SpendableScript for PreimageRevealScript {
         self
     }
 
+    fn kind(&self) -> ScriptKind {
+        ScriptKind::PreimageRevealScript(self)
+    }
+
     fn to_script_buf(&self) -> ScriptBuf {
         Builder::new()
             .push_opcode(OP_HASH160)
@@ -243,6 +264,10 @@ pub struct DepositScript(pub(crate) XOnlyPublicKey, EVMAddress, Amount);
 impl SpendableScript for DepositScript {
     fn as_any(&self) -> &dyn Any {
         self
+    }
+
+    fn kind(&self) -> ScriptKind {
+        ScriptKind::DepositScript(self)
     }
 
     fn to_script_buf(&self) -> ScriptBuf {
@@ -281,26 +306,6 @@ pub enum ScriptKind<'a> {
     Other(&'a OtherSpendable),
 }
 
-impl<'a> From<&'a Arc<dyn SpendableScript>> for ScriptKind<'a> {
-    fn from(script: &'a Arc<dyn SpendableScript>) -> ScriptKind<'a> {
-        let type_id = script.as_any().type_id();
-
-        if type_id == std::any::TypeId::of::<CheckSig>() {
-            Self::CheckSig(script.as_any().downcast_ref().expect("just checked"))
-        } else if type_id == std::any::TypeId::of::<WinternitzCommit>() {
-            Self::WinternitzCommit(script.as_any().downcast_ref().expect("just checked"))
-        } else if type_id == std::any::TypeId::of::<TimelockScript>() {
-            Self::TimelockScript(script.as_any().downcast_ref().expect("just checked"))
-        } else if type_id == std::any::TypeId::of::<PreimageRevealScript>() {
-            Self::PreimageRevealScript(script.as_any().downcast_ref().expect("just checked"))
-        } else if type_id == std::any::TypeId::of::<DepositScript>() {
-            Self::DepositScript(script.as_any().downcast_ref().expect("just checked"))
-        } else {
-            Self::Other(script.as_any().downcast_ref().expect("just checked"))
-        }
-    }
-}
-
 #[cfg(test)]
 fn get_script_from_arr<T: SpendableScript>(
     arr: &Vec<Box<dyn SpendableScript>>,
@@ -312,6 +317,7 @@ fn get_script_from_arr<T: SpendableScript>(
 #[cfg(test)]
 mod tests {
     use crate::utils;
+    use std::sync::Arc;
 
     use super::*;
 
@@ -436,7 +442,7 @@ mod tests {
         ];
 
         for (expected, script) in script_variants {
-            let kind = ScriptKind::from(&script);
+            let kind = script.kind();
             match (expected, kind) {
                 ("CheckSig", ScriptKind::CheckSig(_)) => (),
                 ("WinternitzCommit", ScriptKind::WinternitzCommit(_)) => (),
