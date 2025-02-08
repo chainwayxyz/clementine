@@ -264,7 +264,7 @@ impl Actor {
 
                         use crate::builder::script::ScriptKind as Kind;
 
-                        let mut witness = match script.into() {
+                        let mut witness = match script.kind() {
                             Kind::PreimageRevealScript(script) => {
                                 if script.0 != self.xonly_public_key {
                                     return Err(BridgeError::NotOwnedScriptPath);
@@ -354,7 +354,7 @@ impl Actor {
                     use crate::builder::script::ScriptKind as Kind;
 
                     // Set the script inputs of the witness
-                    let mut witness: Witness = match script.into() {
+                    let mut witness: Witness = match script.kind() {
                         Kind::DepositScript(script) => {
                             match (sig, script.0 == self.xonly_public_key) {
                                 (Some(sig), _) => script.generate_script_inputs(&sig),
