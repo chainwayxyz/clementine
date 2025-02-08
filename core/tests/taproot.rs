@@ -3,16 +3,16 @@ use bitcoin::secp256k1::Scalar;
 use bitcoin::{Address, Amount, TapTweakHash, TxOut};
 use bitcoincore_rpc::RpcApi;
 use clementine_core::actor::Actor;
-use clementine_core::builder::script::{CheckSig, SpendableScript};
+use clementine_core::builder::script::{CheckSig, SpendPath, SpendableScript};
 use clementine_core::builder::transaction::input::SpendableTxIn;
 use clementine_core::builder::transaction::output::UnspentTxOut;
 use clementine_core::builder::transaction::{TxHandlerBuilder, DEFAULT_SEQUENCE};
 use clementine_core::builder::{self};
 use clementine_core::extended_rpc::ExtendedRpc;
+use clementine_core::rpc::clementine::NormalSignatureKind;
 use clementine_core::utils::SECP;
 use clementine_core::{config::BridgeConfig, database::Database, utils::initialize_logger};
 use std::sync::Arc;
-use std::{env, thread};
 
 mod common;
 
@@ -65,6 +65,7 @@ async fn create_address_and_transaction_then_sign_transaction() {
 
     let mut builder = TxHandlerBuilder::new();
     builder = builder.add_input(
+        NormalSignatureKind::NormalSignatureUnknown,
         SpendableTxIn::new(
             utxo,
             TxOut {
@@ -74,6 +75,7 @@ async fn create_address_and_transaction_then_sign_transaction() {
             scripts.clone(),
             Some(taproot_spend_info.clone()),
         ),
+        SpendPath::Unknown,
         DEFAULT_SEQUENCE,
     );
 

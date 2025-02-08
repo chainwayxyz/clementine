@@ -6,14 +6,13 @@ use crate::{
     actor::Actor,
     bitcoin_syncer::BitcoinSyncerEvent,
     builder::{
-        self,
-        transaction::{
+        self, script::SpendPath, transaction::{
             input::SpendableTxIn, output::UnspentTxOut, TxHandlerBuilder, DEFAULT_SEQUENCE,
-        },
+        }
     },
     database::Database,
     errors::BridgeError,
-    extended_rpc::ExtendedRpc,
+    extended_rpc::ExtendedRpc, rpc::clementine::{NormalSignatureId, NormalSignatureKind},
 };
 
 #[derive(Clone, Debug)]
@@ -191,10 +190,13 @@ impl TxSender {
         let mut builder = TxHandlerBuilder::new()
             .with_version(Version::non_standard(3))
             .add_input(
+                NormalSignatureKind::NotStored,
                 SpendableTxIn::new_partial(p2a_anchor, builder::transaction::anchor_output()),
+                SpendPath::Unknown,
                 DEFAULT_SEQUENCE,
             )
             .add_input(
+                NormalSignatureKind::NotStored,
                 SpendableTxIn::new(
                     fee_payer_outpoint,
                     TxOut {
@@ -204,6 +206,7 @@ impl TxSender {
                     vec![],
                     Some(spend_info),
                 ),
+                SpendPath::KeySpend,
                 DEFAULT_SEQUENCE,
             )
             .add_output(UnspentTxOut::from_partial(TxOut {
@@ -385,6 +388,7 @@ mod tests {
         let mut builder = TxHandlerBuilder::new()
             .with_version(Version::non_standard(3))
             .add_input(
+                NormalSignatureKind::NotStored,
                 SpendableTxIn::new(
                     outpoint,
                     TxOut {
@@ -394,6 +398,7 @@ mod tests {
                     vec![],
                     Some(spend_info),
                 ),
+                SpendPath::KeySpend,
                 DEFAULT_SEQUENCE,
             )
             .add_output(UnspentTxOut::from_partial(TxOut {

@@ -4,6 +4,7 @@ use super::clementine::{
     clementine_aggregator_server::ClementineAggregator, verifier_deposit_finalize_params,
     DepositParams, Empty, RawSignedMoveTx, VerifierDepositFinalizeParams,
 };
+use crate::builder::sighash::SignatureInfo;
 use crate::builder::transaction::create_move_to_vault_txhandler;
 use crate::config::BridgeConfig;
 use crate::rpc::clementine::clementine_operator_client::ClementineOperatorClient;
@@ -48,16 +49,21 @@ async fn nonce_aggregator(
     mut nonce_streams: Vec<
         impl Stream<Item = Result<MusigPubNonce, BridgeError>> + Unpin + Send + 'static,
     >,
-    mut sighash_stream: impl Stream<Item = Result<TapSighash, BridgeError>> + Unpin + Send + 'static,
+    mut sighash_stream: impl Stream<Item = Result<(TapSighash, SignatureInfo), BridgeError>>
+        + Unpin
+        + Send
+        + 'static,
     agg_nonce_sender: Sender<AggNonceQueueItem>,
 ) -> Result<MusigAggNonce, BridgeError> {
     let mut total_sigs = 0;
     tracing::info!("Starting nonce aggregation");
     while let Some(msg) = sighash_stream.next().await {
-        let sighash = msg.map_err(|e| {
-            tracing::error!("Error when reading from sighash stream: {}", e);
-            BridgeError::RPCStreamEndedUnexpectedly("Sighash stream ended unexpectedly".into())
-        })?;
+        let sighash = msg
+            .map_err(|e| {
+                tracing::error!("Error when reading from sighash stream: {}", e);
+                BridgeError::RPCStreamEndedUnexpectedly("Sighash stream ended unexpectedly".into())
+            })?
+            .0;
 
         let pub_nonces = try_join_all(nonce_streams.iter_mut().enumerate().map(
             |(i, s)| async move {
@@ -364,7 +370,7 @@ impl Aggregator {
         let musig_partial_sigs = parser::verifier::parse_partial_sigs(partial_sigs)?;
 
         // create move tx and calculate sighash
-        let mut move_txhandler = create_move_to_vault_txhandler(
+        let move_txhandler = create_move_to_vault_txhandler(
             deposit_outpoint,
             evm_address,
             &recovery_taproot_address,
@@ -763,6 +769,9 @@ impl ClementineAggregator for Aggregator {
 
 #[cfg(test)]
 mod tests {
+    use crate::rpc::clementine::clementine_operator_client::ClementineOperatorClient;
+    use crate::rpc::clementine::clementine_verifier_client::ClementineVerifierClient;
+    use crate::rpc::clementine::clementine_watchtower_client::ClementineWatchtowerClient;
     use crate::{
         config::BridgeConfig,
         create_test_config_with_thread_name,
@@ -784,24 +793,21 @@ mod tests {
         watchtower::Watchtower,
     };
     use bitcoin::Txid;
-    use std::{env, str::FromStr, thread};
+    use std::str::FromStr;
 
     #[tokio::test]
     #[serial_test::serial]
     async fn aggregator_double_setup_fail() {
         let config = create_test_config_with_thread_name!(None);
 
-        let (_, _, aggregator, _) = create_actors!(config);
-        let mut aggregator_client =
-            ClementineAggregatorClient::connect(format!("http://{}", aggregator.0))
-                .await
-                .unwrap();
-        aggregator_client
+        let (_, _, mut aggregator, _) = create_actors!(config);
+
+        aggregator
             .setup(tonic::Request::new(clementine::Empty {}))
             .await
             .unwrap();
 
-        assert!(aggregator_client
+        assert!(aggregator
             .setup(tonic::Request::new(clementine::Empty {}))
             .await
             .is_err());
@@ -811,12 +817,9 @@ mod tests {
     #[serial_test::serial]
     async fn aggregator_setup_watchtower_winternitz_public_keys() {
         let mut config = create_test_config_with_thread_name!(None);
-        let (_verifiers, _operators, aggregator, _watchtowers) = create_actors!(config.clone());
-        let mut aggregator_client =
-            ClementineAggregatorClient::connect(format!("http://{}", aggregator.0))
-                .await
-                .unwrap();
-        aggregator_client
+        let (_verifiers, _operators, mut aggregator, _watchtowers) = create_actors!(config.clone());
+
+        aggregator
             .setup(tonic::Request::new(clementine::Empty {}))
             .await
             .unwrap();
@@ -866,12 +869,8 @@ mod tests {
     #[serial_test::serial]
     async fn aggregator_setup_watchtower_challenge_addresses() {
         let mut config = create_test_config_with_thread_name!(None);
-        let (_verifiers, _operators, aggregator, _watchtowers) = create_actors!(config.clone());
-        let mut aggregator_client =
-            ClementineAggregatorClient::connect(format!("http://{}", aggregator.0))
-                .await
-                .unwrap();
-        aggregator_client
+        let (_verifiers, _operators, mut aggregator, _watchtowers) = create_actors!(config.clone());
+        aggregator
             .setup(tonic::Request::new(clementine::Empty {}))
             .await
             .unwrap();
@@ -979,16 +978,12 @@ mod tests {
     async fn aggregator_setup_and_deposit() {
         let config = create_test_config_with_thread_name!(None);
 
-        let aggregator = create_actors!(config).2;
-        let mut aggregator_client =
-            ClementineAggregatorClient::connect(format!("http://{}", aggregator.0))
-                .await
-                .unwrap();
+        let mut aggregator = create_actors!(config).2;
 
         tracing::info!("Setting up aggregator");
         let start = std::time::Instant::now();
 
-        aggregator_client
+        aggregator
             .setup(tonic::Request::new(clementine::Empty {}))
             .await
             .unwrap();
@@ -996,7 +991,7 @@ mod tests {
         tracing::info!("Setup completed in {:?}", start.elapsed());
         tracing::info!("Depositing");
         let deposit_start = std::time::Instant::now();
-        aggregator_client
+        aggregator
             .new_deposit(DepositParams {
                 deposit_outpoint: Some(
                     bitcoin::OutPoint {

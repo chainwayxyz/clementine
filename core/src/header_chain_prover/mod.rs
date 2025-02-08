@@ -113,7 +113,6 @@ mod tests {
     use borsh::BorshDeserialize;
     use risc0_zkvm::Receipt;
     use std::time::Duration;
-    use std::{env, thread};
     use tokio::time::sleep;
 
     #[tokio::test]

@@ -4,14 +4,18 @@ use super::clementine::{
     VerifierParams, VerifierPublicKeys, WatchtowerParams,
 };
 use super::error::*;
+use crate::builder::sighash::SignatureInfo;
+use crate::config::BridgeConfig;
 use crate::fetch_next_optional_message_from_stream;
+use crate::rpc::clementine::TaggedSignature;
 use crate::utils::SECP;
 use crate::{
     builder::{
         self,
         address::{derive_challenge_address_from_xonlypk_and_wpk, taproot_builder_with_scripts},
         sighash::{
-            calculate_num_required_nofn_sigs, calculate_num_required_operator_sigs,
+            calculate_num_required_nofn_sigs, calculate_num_required_nofn_sigs_per_kickoff,
+            calculate_num_required_operator_sigs, calculate_num_required_operator_sigs_per_kickoff,
             create_nofn_sighash_stream, create_operator_sighash_stream,
         },
         transaction::create_move_to_vault_txhandler,
@@ -25,7 +29,7 @@ use crate::{
 };
 use bitcoin::{hashes::Hash, Amount, TapTweakHash, Txid};
 use bitcoin::{
-    secp256k1::{schnorr, Message, PublicKey},
+    secp256k1::{Message, PublicKey},
     ScriptBuf, XOnlyPublicKey,
 };
 use bitvm::signatures::{
@@ -452,7 +456,7 @@ impl ClementineVerifier for Verifier {
                     nonce,
                     agg_nonce,
                     verifier.signer.keypair,
-                    Message::from_digest(*sighash.as_byte_array()),
+                    Message::from_digest(*sighash.0.as_byte_array()),
                 )?;
 
                 tx.send(Ok(PartialSig {
@@ -538,7 +542,28 @@ impl ClementineVerifier for Verifier {
         ));
 
         let num_required_nofn_sigs = calculate_num_required_nofn_sigs(&self.config);
-        let mut verified_sigs = Vec::with_capacity(num_required_nofn_sigs);
+        let num_required_nofn_sigs_per_kickoff =
+            calculate_num_required_nofn_sigs_per_kickoff(&self.config);
+        let num_required_op_sigs = calculate_num_required_operator_sigs(&self.config);
+        let num_required_op_sigs_per_kickoff = calculate_num_required_operator_sigs_per_kickoff();
+        let &BridgeConfig {
+            num_operators,
+            num_sequential_collateral_txs,
+            num_kickoffs_per_sequential_collateral_tx,
+            ..
+        } = &self.config;
+        let mut verified_sigs = vec![
+            vec![
+                vec![
+                    Vec::<TaggedSignature>::with_capacity(
+                        num_required_nofn_sigs_per_kickoff + num_required_op_sigs_per_kickoff
+                    );
+                    num_kickoffs_per_sequential_collateral_tx
+                ];
+                num_sequential_collateral_txs
+            ];
+            num_operators
+        ];
 
         let mut nonce_idx: usize = 0;
 
@@ -554,7 +579,7 @@ impl ClementineVerifier for Verifier {
 
             tracing::debug!("Verifying Final Signature");
             utils::SECP
-                .verify_schnorr(&sig, &Message::from(sighash), &self.nofn_xonly_pk)
+                .verify_schnorr(&sig, &Message::from(sighash.0), &self.nofn_xonly_pk)
                 .map_err(|x| {
                     Status::internal(format!(
                         "Nofn Signature {} Verification Failed: {}.",
@@ -562,8 +587,18 @@ impl ClementineVerifier for Verifier {
                         x
                     ))
                 })?;
-
-            verified_sigs.push(sig);
+            let &SignatureInfo {
+                operator_idx,
+                sequential_collateral_idx,
+                kickoff_utxo_idx,
+                signature_id,
+            } = &sighash.1;
+            let tagged_sig = TaggedSignature {
+                signature: sig.serialize().to_vec(),
+                signature_id: Some(signature_id),
+            };
+            verified_sigs[operator_idx][sequential_collateral_idx][kickoff_utxo_idx]
+                .push(tagged_sig);
             tracing::debug!("Final Signature Verified");
 
             nonce_idx += 1;
@@ -580,7 +615,7 @@ impl ClementineVerifier for Verifier {
         }
 
         // Generate partial signature for move transaction
-        let mut move_txhandler = create_move_to_vault_txhandler(
+        let move_txhandler = create_move_to_vault_txhandler(
             deposit_outpoint,
             evm_address,
             &recovery_taproot_address,
@@ -613,12 +648,6 @@ impl ClementineVerifier for Verifier {
                 .ok_or_else(|| Status::internal("No move tx secnonce in session"))?
         };
 
-        let mut op_deposit_sigs: Vec<Vec<schnorr::Signature>> = verified_sigs
-            .chunks_exact(verified_sigs.len() / self.config.num_operators)
-            .map(|chunk| chunk.to_vec())
-            .collect();
-
-        let num_required_op_sigs = calculate_num_required_operator_sigs(&self.config);
         let num_required_total_op_sigs = num_required_op_sigs * self.config.num_operators;
         let mut total_op_sig_count = 0;
 
@@ -665,7 +694,11 @@ impl ClementineVerifier for Verifier {
                     .ok_or_else(sighash_stream_ended_prematurely)??;
 
                 utils::SECP
-                    .verify_schnorr(&operator_sig, &Message::from(sighash), &tweaked_op_xonly_pk)
+                    .verify_schnorr(
+                        &operator_sig,
+                        &Message::from(sighash.0),
+                        &tweaked_op_xonly_pk,
+                    )
                     .map_err(|x| {
                         Status::internal(format!(
                             "Operator {} Signature {}: verification failed: {}.",
@@ -675,7 +708,18 @@ impl ClementineVerifier for Verifier {
                         ))
                     })?;
 
-                op_deposit_sigs[operator_idx].push(operator_sig);
+                let &SignatureInfo {
+                    operator_idx,
+                    sequential_collateral_idx,
+                    kickoff_utxo_idx,
+                    signature_id,
+                } = &sighash.1;
+                let tagged_sig = TaggedSignature {
+                    signature: operator_sig.serialize().to_vec(),
+                    signature_id: Some(signature_id),
+                };
+                verified_sigs[operator_idx][sequential_collateral_idx][kickoff_utxo_idx]
+                    .push(tagged_sig);
 
                 op_sig_count += 1;
                 total_op_sig_count += 1;
@@ -705,10 +749,21 @@ impl ClementineVerifier for Verifier {
 
         // Deposit is not actually finalized here, its only finalized after the aggregator gets all the partial sigs and checks the aggregated sig
         // TODO: It can create problems if the deposit fails at the end by some verifier not sending movetx partial sig, but we still added sigs to db
-        for (i, window) in op_deposit_sigs.into_iter().enumerate() {
-            self.db
-                .set_deposit_signatures(None, deposit_outpoint, i as u32, window)
-                .await?;
+        for (operator_idx, operator_sigs) in verified_sigs.into_iter().enumerate() {
+            for (seq_idx, op_sequential_sigs) in operator_sigs.into_iter().enumerate() {
+                for (kickoff_idx, kickoff_sigs) in op_sequential_sigs.into_iter().enumerate() {
+                    self.db
+                        .set_deposit_signatures(
+                            None,
+                            deposit_outpoint,
+                            operator_idx,
+                            seq_idx,
+                            kickoff_idx,
+                            kickoff_sigs,
+                        )
+                        .await?;
+                }
+            }
         }
 
         Ok(Response::new(partial_sig))

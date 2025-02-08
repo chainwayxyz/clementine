@@ -3,7 +3,7 @@ use bitcoin::secp256k1::{Message, PublicKey};
 use bitcoin::{hashes::Hash, script, Amount};
 use bitcoin::{taproot, Sequence, TxOut, XOnlyPublicKey};
 use bitcoincore_rpc::RpcApi;
-use clementine_core::builder::script::{CheckSig, OtherSpendable, SpendableScript};
+use clementine_core::builder::script::{CheckSig, OtherSpendable, SpendPath, SpendableScript};
 use clementine_core::builder::transaction::input::SpendableTxIn;
 use clementine_core::builder::transaction::output::UnspentTxOut;
 use clementine_core::builder::transaction::{TxHandlerBuilder, DEFAULT_SEQUENCE};
@@ -11,6 +11,7 @@ use clementine_core::errors::BridgeError;
 use clementine_core::musig2::{
     aggregate_nonces, aggregate_partial_signatures, AggregateFromPublicKeys, Musig2Mode,
 };
+use clementine_core::rpc::clementine::NormalSignatureKind;
 use clementine_core::utils::SECP;
 use clementine_core::{
     builder::{self},
@@ -22,7 +23,6 @@ use clementine_core::{
 use clementine_core::{database::Database, utils::initialize_logger};
 use secp256k1::musig::{MusigAggNonce, MusigPartialSignature};
 use std::sync::Arc;
-use std::{env, thread};
 
 mod common;
 
@@ -99,7 +99,9 @@ async fn key_spend() {
 
     let mut tx_details = TxHandlerBuilder::new()
         .add_input(
+            NormalSignatureKind::NormalSignatureUnknown,
             SpendableTxIn::new(utxo, prevout, vec![], Some(from_address_spend_info.clone())),
+            SpendPath::Unknown,
             Sequence::default(),
         )
         .add_output(UnspentTxOut::new(
@@ -206,12 +208,14 @@ async fn key_spend_with_script() {
     let mut builder = TxHandlerBuilder::new();
     builder = builder
         .add_input(
+            NormalSignatureKind::NormalSignatureUnknown,
             SpendableTxIn::new(
                 utxo,
                 prevout.clone(),
                 scripts.clone(),
                 Some(from_address_spend_info.clone()),
             ),
+            SpendPath::Unknown,
             DEFAULT_SEQUENCE,
         )
         .add_output(UnspentTxOut::from_partial(TxOut {
@@ -319,12 +323,14 @@ async fn script_spend() {
     let prevout = rpc.get_txout_from_outpoint(&utxo).await.unwrap();
     let mut tx_details = TxHandlerBuilder::new()
         .add_input(
+            NormalSignatureKind::NormalSignatureUnknown,
             SpendableTxIn::new(
                 utxo,
                 prevout.clone(),
                 scripts,
                 Some(from_address_spend_info.clone()),
             ),
+            SpendPath::Unknown,
             DEFAULT_SEQUENCE,
         )
         .add_output(UnspentTxOut::from_partial(TxOut {
@@ -463,12 +469,14 @@ async fn key_and_script_spend() {
     // Test Transactions
     let mut test_txhandler_1 = TxHandlerBuilder::new()
         .add_input(
+            NormalSignatureKind::NormalSignatureUnknown,
             SpendableTxIn::new(
                 utxo_1,
                 prevout_1,
                 scripts.clone(),
                 Some(from_address_spend_info.clone()),
             ),
+            SpendPath::Unknown,
             DEFAULT_SEQUENCE,
         )
         .add_output(UnspentTxOut::from_partial(TxOut {
@@ -479,12 +487,14 @@ async fn key_and_script_spend() {
 
     let mut test_txhandler_2 = TxHandlerBuilder::new()
         .add_input(
+            NormalSignatureKind::NormalSignatureUnknown,
             SpendableTxIn::new(
                 utxo_2,
                 prevout_2,
                 scripts,
                 Some(from_address_spend_info.clone()),
             ),
+            SpendPath::Unknown,
             DEFAULT_SEQUENCE,
         )
         .add_output(UnspentTxOut::from_partial(TxOut {

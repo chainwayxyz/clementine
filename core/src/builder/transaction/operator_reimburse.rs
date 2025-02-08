@@ -1,14 +1,18 @@
+use super::input::SpendableTxIn;
 use super::txhandler::DEFAULT_SEQUENCE;
-use crate::builder::script::{CheckSig, TimelockScript};
+use super::Signed;
+use crate::builder::script::{CheckSig, SpendableScript, TimelockScript, WithdrawalScript};
 use crate::builder::transaction::output::UnspentTxOut;
 use crate::builder::transaction::txhandler::{TxHandler, TxHandlerBuilder};
 use crate::constants::{BLOCKS_PER_WEEK, MIN_TAPROOT_AMOUNT};
 use crate::errors::BridgeError;
-use crate::{builder, utils};
+use crate::rpc::clementine::NormalSignatureKind;
+use crate::{builder, utils, UTXO};
 use bitcoin::hashes::Hash;
 use bitcoin::script::PushBytesBuf;
-use bitcoin::XOnlyPublicKey;
-use bitcoin::{Network, Sequence, TxOut, Txid};
+use bitcoin::secp256k1::schnorr::Signature;
+use bitcoin::{Amount, Network, Sequence, TxOut, Txid};
+use bitcoin::{Witness, XOnlyPublicKey};
 use std::sync::Arc;
 
 /// Creates a [`TxHandler`] for the `kickoff_tx`. This transaction will be sent by the operator
@@ -23,7 +27,9 @@ pub fn create_kickoff_txhandler(
 ) -> Result<TxHandler, BridgeError> {
     let mut builder = TxHandlerBuilder::new();
     builder = builder.add_input(
+        NormalSignatureKind::NotStored,
         sequential_collateral_txhandler.get_spendable_output(2 + kickoff_idx)?,
+        builder::script::SpendPath::ScriptSpend(0),
         DEFAULT_SEQUENCE,
     );
 
@@ -94,10 +100,17 @@ pub fn create_start_happy_reimburse_txhandler(
 ) -> Result<TxHandler, BridgeError> {
     let mut builder = TxHandlerBuilder::new();
     builder = builder.add_input(
+        NormalSignatureKind::NotStored,
         kickoff_txhandler.get_spendable_output(1)?,
+        builder::script::SpendPath::ScriptSpend(1),
         Sequence::from_height(BLOCKS_PER_WEEK),
     );
-    builder = builder.add_input(kickoff_txhandler.get_spendable_output(3)?, DEFAULT_SEQUENCE);
+    builder = builder.add_input(
+        NormalSignatureKind::StartHappyReimburse2,
+        kickoff_txhandler.get_spendable_output(3)?,
+        builder::script::SpendPath::ScriptSpend(0),
+        DEFAULT_SEQUENCE,
+    );
 
     Ok(builder
         .add_output(UnspentTxOut::from_scripts(
@@ -123,13 +136,22 @@ pub fn create_happy_reimburse_txhandler(
 ) -> Result<TxHandler, BridgeError> {
     let mut builder = TxHandlerBuilder::new();
     builder = builder
-        .add_input(move_txhandler.get_spendable_output(0)?, DEFAULT_SEQUENCE)
         .add_input(
-            start_happy_reimburse_txhandler.get_spendable_output(0)?,
+            NormalSignatureKind::HappyReimburse1,
+            move_txhandler.get_spendable_output(0)?,
+            builder::script::SpendPath::ScriptSpend(0),
             DEFAULT_SEQUENCE,
         )
         .add_input(
+            NormalSignatureKind::NotStored,
+            start_happy_reimburse_txhandler.get_spendable_output(0)?,
+            builder::script::SpendPath::KeySpend,
+            DEFAULT_SEQUENCE,
+        )
+        .add_input(
+            NormalSignatureKind::NotStored,
             reimburse_generator_txhandler.get_spendable_output(1 + kickoff_idx)?,
+            builder::script::SpendPath::KeySpend,
             DEFAULT_SEQUENCE,
         );
 
@@ -154,13 +176,22 @@ pub fn create_reimburse_txhandler(
     operator_reimbursement_address: &bitcoin::Address,
 ) -> Result<TxHandler, BridgeError> {
     let builder = TxHandlerBuilder::new()
-        .add_input(move_txhandler.get_spendable_output(0)?, DEFAULT_SEQUENCE)
         .add_input(
-            disprove_timeout_txhandler.get_spendable_output(0)?,
+            NormalSignatureKind::Reimburse1,
+            move_txhandler.get_spendable_output(0)?,
+            builder::script::SpendPath::ScriptSpend(0),
             DEFAULT_SEQUENCE,
         )
         .add_input(
+            NormalSignatureKind::NotStored,
+            disprove_timeout_txhandler.get_spendable_output(0)?,
+            builder::script::SpendPath::KeySpend,
+            DEFAULT_SEQUENCE,
+        )
+        .add_input(
+            NormalSignatureKind::NotStored,
             reimburse_generator_txhandler.get_spendable_output(1 + kickoff_idx)?,
+            builder::script::SpendPath::KeySpend,
             DEFAULT_SEQUENCE,
         );
 
@@ -173,4 +204,33 @@ pub fn create_reimburse_txhandler(
             builder::transaction::anchor_output(),
         ))
         .finalize())
+}
+
+/// Creates a [`TxHandler`] for the `payout_tx`. This transaction will be sent by the operator
+/// for withdrawals.
+pub fn create_payout_txhandler(
+    input_utxo: UTXO,
+    output_txout: TxOut,
+    operator_idx: usize,
+    user_sig: Signature,
+    network: bitcoin::Network,
+) -> Result<TxHandler<Signed>, BridgeError> {
+    let user_sig_wrapped = bitcoin::taproot::Signature {
+        signature: user_sig,
+        sighash_type: bitcoin::sighash::TapSighashType::SinglePlusAnyoneCanPay,
+    };
+    let witness = Witness::p2tr_key_spend(&user_sig_wrapped);
+    let txin = SpendableTxIn::new_partial(input_utxo.outpoint, input_utxo.txout);
+
+    let output_txout = UnspentTxOut::from_partial(output_txout.clone());
+
+    let scripts: Vec<Arc<dyn SpendableScript>> =
+        vec![Arc::new(WithdrawalScript::new(operator_idx))];
+    let op_return_txout = UnspentTxOut::from_scripts(Amount::from_sat(0), scripts, None, network);
+
+    TxHandlerBuilder::new()
+        .add_input_with_witness(txin, DEFAULT_SEQUENCE, witness)
+        .add_output(output_txout)
+        .add_output(op_return_txout)
+        .finalize_signed()
 }

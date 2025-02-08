@@ -5,8 +5,9 @@
 // Currently generate_witness functions are not yet used.
 #![allow(dead_code)]
 
-use crate::EVMAddress;
+use crate::{utils, EVMAddress};
 use bitcoin::opcodes::OP_TRUE;
+use bitcoin::script::PushBytesBuf;
 use bitcoin::secp256k1::schnorr;
 use bitcoin::{
     opcodes::{all::*, OP_FALSE},
@@ -18,6 +19,13 @@ use bitvm::signatures::winternitz;
 use bitvm::signatures::winternitz::{Parameters, PublicKey};
 use std::any::Any;
 use std::fmt::Debug;
+
+#[derive(Debug, Clone)]
+pub enum SpendPath {
+    ScriptSpend(usize),
+    KeySpend,
+    Unknown,
+}
 
 pub trait SpendableScript: Send + Sync + 'static + std::any::Any {
     fn as_any(&self) -> &dyn Any;
@@ -231,6 +239,33 @@ impl DepositScript {
 
     pub fn new(xonly_pk: XOnlyPublicKey, evm_address: EVMAddress, amount: Amount) -> Self {
         Self(xonly_pk, evm_address, amount)
+    }
+}
+
+/// Struct for withdrawal script.
+pub struct WithdrawalScript(usize);
+
+impl SpendableScript for WithdrawalScript {
+    fn as_any(&self) -> &dyn Any {
+        self
+    }
+
+    fn to_script_buf(&self) -> ScriptBuf {
+        let mut push_bytes = PushBytesBuf::new();
+        push_bytes
+            .extend_from_slice(&utils::usize_to_var_len_bytes(self.0))
+            .expect("Not possible to panic while adding a 4 to 8 bytes of slice");
+
+        Builder::new()
+            .push_opcode(OP_RETURN)
+            .push_slice(push_bytes)
+            .into_script()
+    }
+}
+
+impl WithdrawalScript {
+    pub fn new(index: usize) -> Self {
+        Self(index)
     }
 }
 

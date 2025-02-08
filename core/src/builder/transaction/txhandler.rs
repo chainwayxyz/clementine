@@ -1,4 +1,7 @@
+use crate::builder::script::SpendPath;
 use crate::errors::BridgeError;
+use crate::rpc::clementine::tagged_signature::SignatureId;
+use crate::rpc::clementine::NormalSignatureKind;
 use bitcoin::sighash::SighashCache;
 use bitcoin::taproot::{self, LeafVersion};
 use bitcoin::transaction::Version;
@@ -49,9 +52,11 @@ impl<T: State> TxHandler<T> {
             txout.spendinfo().clone(),
         )) // TODO: Can we get rid of clones?
     }
-}
+    pub fn get_signature_id(&self, idx: usize) -> Result<SignatureId, BridgeError> {
+        let txin = self.txins.get(idx).ok_or(BridgeError::TxInputNotFound)?;
+        Ok(txin.get_signature_id())
+    }
 
-impl TxHandler<Unsigned> {
     pub fn get_cached_tx(&self) -> &Transaction {
         &self.cached_tx
     }
@@ -92,7 +97,7 @@ impl TxHandler<Unsigned> {
     }
 
     pub fn calculate_script_spend_sighash_indexed(
-        &mut self,
+        &self,
         txin_index: usize,
         spend_script_idx: usize,
         sighash_type: TapSighashType,
@@ -112,7 +117,7 @@ impl TxHandler<Unsigned> {
     }
 
     pub fn calculate_script_spend_sighash(
-        &mut self,
+        &self,
         txin_index: usize,
         spend_script: &Script,
         sighash_type: TapSighashType,
@@ -143,7 +148,9 @@ impl TxHandler<Unsigned> {
 
         Ok(sig_hash)
     }
+}
 
+impl TxHandler<Unsigned> {
     pub fn promote(self) -> Result<TxHandler<Signed>, BridgeError> {
         if self.txins.iter().any(|s| s.get_witness().is_none()) {
             return Err(BridgeError::MissingWitnessData);
@@ -157,9 +164,7 @@ impl TxHandler<Unsigned> {
             phantom: PhantomData::<Signed>,
         })
     }
-}
 
-impl TxHandler<Unsigned> {
     /// Constructs the witness for a script path spend of a transaction input.
     ///
     /// # Arguments
@@ -300,6 +305,24 @@ impl TxHandlerBuilder {
         self
     }
 
+    pub fn add_input(
+        mut self,
+        input_id: impl Into<SignatureId>,
+        spendable: SpendableTxIn,
+        spend_path: SpendPath,
+        sequence: Sequence,
+    ) -> Self {
+        self.txins.push(SpentTxIn::from_spendable(
+            input_id.into(),
+            spendable,
+            spend_path,
+            sequence,
+            None,
+        ));
+
+        self
+    }
+
     pub fn add_input_with_witness(
         mut self,
         spendable: SpendableTxIn,
@@ -307,17 +330,12 @@ impl TxHandlerBuilder {
         witness: Witness,
     ) -> Self {
         self.txins.push(SpentTxIn::from_spendable(
+            NormalSignatureKind::NormalSignatureUnknown.into(),
             spendable,
+            SpendPath::Unknown,
             sequence,
             Some(witness),
         ));
-
-        self
-    }
-
-    pub fn add_input(mut self, spendable: SpendableTxIn, sequence: Sequence) -> Self {
-        self.txins
-            .push(SpentTxIn::from_spendable(spendable, sequence, None));
 
         self
     }

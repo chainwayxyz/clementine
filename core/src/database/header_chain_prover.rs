@@ -182,7 +182,6 @@ mod tests {
     use bitcoin::{BlockHash, CompactTarget, TxMerkleNode};
     use borsh::BorshDeserialize;
     use risc0_zkvm::Receipt;
-    use std::{env, thread};
 
     #[tokio::test]
     async fn save_get_new_block() {
