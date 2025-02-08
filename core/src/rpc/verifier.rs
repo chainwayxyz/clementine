@@ -4,8 +4,10 @@ use super::clementine::{
     VerifierParams, VerifierPublicKeys, WatchtowerParams,
 };
 use super::error::*;
+use crate::builder::script::{SpendableScript, WinternitzCommit};
 use crate::builder::sighash::SignatureInfo;
 use crate::config::BridgeConfig;
+use crate::constants::WINTERNITZ_LOG_D;
 use crate::fetch_next_optional_message_from_stream;
 use crate::rpc::clementine::TaggedSignature;
 use crate::utils::SECP;
@@ -27,15 +29,12 @@ use crate::{
     utils,
     verifier::{NofN, NonceSession, Verifier},
 };
-use bitcoin::{hashes::Hash, Amount, TapTweakHash, Txid};
+use bitcoin::{hashes::Hash, TapTweakHash, Txid};
 use bitcoin::{
     secp256k1::{Message, PublicKey},
     ScriptBuf, XOnlyPublicKey,
 };
-use bitvm::signatures::{
-    signing_winternitz::{generate_winternitz_checksig_leave_variable, WinternitzPublicKey},
-    winternitz,
-};
+use bitvm::signatures::{signing_winternitz::WinternitzPublicKey, winternitz};
 use futures::StreamExt;
 use secp256k1::musig::{MusigAggNonce, MusigPubNonce, MusigSecNonce};
 use std::collections::BTreeMap;
@@ -186,19 +185,17 @@ impl ClementineVerifier for Verifier {
                 .iter()
                 .enumerate()
                 .map(|(idx, (_intermediate_step, intermediate_step_size))| {
-                    let script = generate_winternitz_checksig_leave_variable(
-                        &WinternitzPublicKey {
-                            public_key: winternitz_public_keys[idx].clone(),
-                            parameters: winternitz::Parameters::new(
-                                *intermediate_step_size as u32 * 2,
-                                4,
-                            ),
-                        },
-                        *intermediate_step_size,
-                    )
-                    .compile();
+                    let params = winternitz::Parameters::new(
+                        *intermediate_step_size as u32 * 2,
+                        WINTERNITZ_LOG_D,
+                    );
+                    let winternitz_commit = WinternitzCommit::new(
+                        winternitz_public_keys[idx].clone(),
+                        params,
+                        operator_xonly_pk,
+                    );
                     let (assert_tx_addr, _) = builder::address::create_taproot_address(
-                        &[script.clone()],
+                        &[winternitz_commit.to_script_buf()],
                         None,
                         self.config.network,
                     );
@@ -414,7 +411,7 @@ impl ClementineVerifier for Verifier {
                 deposit_outpoint,
                 evm_address,
                 recovery_taproot_address,
-                user_takes_after,
+                _user_takes_after,
                 session_id,
             ) = match params {
                 clementine::verifier_deposit_sign_params::Params::DepositSignFirstParam(
@@ -438,12 +435,6 @@ impl ClementineVerifier for Verifier {
                 evm_address,
                 recovery_taproot_address,
                 verifier.nofn_xonly_pk,
-                user_takes_after,
-                Amount::from_sat(200_000_000), // TODO: Fix this.
-                6,
-                100,
-                verifier.config.bridge_amount_sats,
-                verifier.config.network,
             ));
             let num_required_sigs = calculate_num_required_nofn_sigs(&verifier.config);
 
@@ -554,12 +545,6 @@ impl ClementineVerifier for Verifier {
             evm_address,
             recovery_taproot_address.clone(),
             self.nofn_xonly_pk,
-            user_takes_after,
-            Amount::from_sat(200_000_000), // TODO: Fix this.
-            6,
-            100,
-            self.config.bridge_amount_sats,
-            self.config.network,
         ));
 
         let num_required_nofn_sigs = calculate_num_required_nofn_sigs(&self.config);
@@ -698,12 +683,6 @@ impl ClementineVerifier for Verifier {
                 evm_address,
                 recovery_taproot_address.clone(),
                 self.nofn_xonly_pk,
-                user_takes_after,
-                Amount::from_sat(200_000_000), // TODO: Fix this.
-                6,
-                100,
-                self.config.bridge_amount_sats,
-                self.config.network,
             ));
             while let Some(operator_sig) =
                 parser::verifier::parse_next_deposit_finalize_param_schnorr_sig(&mut in_stream)

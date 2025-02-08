@@ -11,7 +11,7 @@ use crate::errors::BridgeError;
 use crate::rpc::clementine::tagged_signature::SignatureId;
 use crate::{builder, database::Database, EVMAddress};
 use async_stream::try_stream;
-use bitcoin::{address::NetworkUnchecked, Address, Amount, OutPoint};
+use bitcoin::{address::NetworkUnchecked, Address, OutPoint};
 use bitcoin::{TapSighash, Txid, XOnlyPublicKey};
 use futures_core::stream::Stream;
 
@@ -112,12 +112,6 @@ pub fn create_nofn_sighash_stream(
     evm_address: EVMAddress,
     recovery_taproot_address: Address<NetworkUnchecked>,
     nofn_xonly_pk: XOnlyPublicKey,
-    _user_takes_after: u16,
-    collateral_funding_amount: Amount,
-    timeout_block_count: i64,
-    max_withdrawal_time_block_count: u16,
-    bridge_amount_sats: Amount,
-    network: bitcoin::Network,
 ) -> impl Stream<Item = Result<(TapSighash, SignatureInfo), BridgeError>> {
     try_stream! {
         // Create move_tx handler. This is unique for each deposit tx.
@@ -126,9 +120,9 @@ pub fn create_nofn_sighash_stream(
             evm_address,
             &recovery_taproot_address,
             nofn_xonly_pk,
-            _user_takes_after,
-            bridge_amount_sats,
-            network,
+            config.user_takes_after,
+            config.bridge_amount_sats,
+            config.network,
         )?;
         // Get operator details (for each operator, (X-Only Public Key, Address, Collateral Funding Txid))
         let operators: Vec<(XOnlyPublicKey, bitcoin::Address, Txid)> =
@@ -148,7 +142,7 @@ pub fn create_nofn_sighash_stream(
             let watchtower_all_challenge_addresses = futures::future::try_join_all(watchtower_all_challenge_addresses).await?;
 
             let mut input_txid = *collateral_funding_txid;
-            let mut input_amount = collateral_funding_amount;
+            let mut input_amount = config.collateral_funding_amount;
 
             // For each sequential_collateral_tx, we have multiple kickoff_utxos as the connectors.
             for sequential_collateral_tx_idx in 0..config.num_sequential_collateral_txs {
@@ -157,10 +151,10 @@ pub fn create_nofn_sighash_stream(
                     *operator_xonly_pk,
                     input_txid,
                     input_amount,
-                    timeout_block_count,
-                    max_withdrawal_time_block_count,
+                    config.timeout_block_count,
+                    config.max_withdrawal_time_block_count,
                     config.num_kickoffs_per_sequential_collateral_tx,
-                    network,
+                    config.network,
                 )?;
 
                 // Create the reimburse_generator_tx handler.
@@ -168,8 +162,8 @@ pub fn create_nofn_sighash_stream(
                     &sequential_collateral_txhandler,
                     *operator_xonly_pk,
                     config.num_kickoffs_per_sequential_collateral_tx,
-                    max_withdrawal_time_block_count,
-                    network,
+                    config.max_withdrawal_time_block_count,
+                    config.network,
                 )?;
 
                 // For each kickoff_utxo, it connnects to a kickoff_tx that results in
@@ -188,7 +182,7 @@ pub fn create_nofn_sighash_stream(
                         *operator_xonly_pk,
                         *move_txhandler.get_txid(),
                         operator_idx,
-                        network,
+                        config.network,
                     )?;
 
                     // Creates the challenge_tx handler.
@@ -207,7 +201,7 @@ pub fn create_nofn_sighash_stream(
                     let start_happy_reimburse_txhandler = builder::transaction::create_start_happy_reimburse_txhandler(
                         &kickoff_txhandler,
                         *operator_xonly_pk,
-                        network
+                        config.network
                     )?;
                     // Yields the sighash for the start_happy_reimburse_tx.input[1], which spends kickoff_tx.output[3].
                     yield (start_happy_reimburse_txhandler.calculate_pubkey_spend_sighash(
@@ -275,7 +269,7 @@ pub fn create_nofn_sighash_stream(
                                 public_hash,
                                 nofn_xonly_pk,
                                 *operator_xonly_pk,
-                                network,
+                                config.network,
                             )?;
 
                         // Creates the operator_challenge_NACK_tx handler.
@@ -306,7 +300,7 @@ pub fn create_nofn_sighash_stream(
                     let assert_begin_txhandler = builder::transaction::create_assert_begin_txhandler(
                         &kickoff_txhandler,
                         &assert_tx_addrs,
-                        network,
+                        config.network,
                     )?;
 
                     // Creates the assert_end_tx handler.
@@ -316,7 +310,7 @@ pub fn create_nofn_sighash_stream(
                         &assert_tx_addrs,
                         &root_hash,
                         nofn_xonly_pk,
-                        network,
+                        config.network,
                     )?;
 
                     // Yields the sighash for the assert_end_tx, which spends kickoff_tx.output[3].
@@ -329,7 +323,7 @@ pub fn create_nofn_sighash_stream(
                     let  disprove_timeout_txhandler = builder::transaction::create_disprove_timeout_txhandler(
                         &assert_end_txhandler,
                         *operator_xonly_pk,
-                        network,
+                        config.network,
                     )?;
 
                     // Yields the sighash for the disprove_timeout_tx.input[0], which spends assert_end_tx.output[0].
@@ -394,12 +388,6 @@ pub fn create_operator_sighash_stream(
     _evm_address: EVMAddress,
     _recovery_taproot_address: Address<NetworkUnchecked>,
     nofn_xonly_pk: XOnlyPublicKey,
-    _user_takes_after: u16,
-    collateral_funding_amount: Amount,
-    timeout_block_count: i64,
-    max_withdrawal_time_block_count: u16,
-    bridge_amount_sats: Amount,
-    network: bitcoin::Network,
 ) -> impl Stream<Item = Result<(TapSighash, SignatureInfo), BridgeError>> {
     try_stream! {
         // Create move_tx handler. This is unique for each deposit tx.
@@ -408,13 +396,13 @@ pub fn create_operator_sighash_stream(
             _evm_address,
             &_recovery_taproot_address,
             nofn_xonly_pk,
-            _user_takes_after,
-            bridge_amount_sats,
-            network,
+            config.user_takes_after,
+            config.bridge_amount_sats,
+            config.network,
         )?;
 
         let mut input_txid = collateral_funding_txid;
-        let mut input_amount = collateral_funding_amount;
+        let mut input_amount = config.collateral_funding_amount;
 
         // For each sequential_collateral_tx, we have multiple kickoff_utxos as the connectors.
         for sequential_collateral_idx in 0..config.num_sequential_collateral_txs {
@@ -423,10 +411,10 @@ pub fn create_operator_sighash_stream(
                 operator_xonly_pk,
                 input_txid,
                 input_amount,
-                timeout_block_count,
-                max_withdrawal_time_block_count,
+                config.timeout_block_count,
+                config.max_withdrawal_time_block_count,
                 config.num_kickoffs_per_sequential_collateral_tx,
-                network,
+                config.network,
             )?;
 
             // Create the reimburse_generator_tx handler.
@@ -434,8 +422,8 @@ pub fn create_operator_sighash_stream(
                 &sequential_collateral_txhandler,
                 operator_xonly_pk,
                 config.num_kickoffs_per_sequential_collateral_tx,
-                max_withdrawal_time_block_count,
-                network,
+                config.max_withdrawal_time_block_count,
+                config.network,
             )?;
 
             // For each kickoff_utxo, it connnects to a kickoff_tx that results in
@@ -454,7 +442,7 @@ pub fn create_operator_sighash_stream(
                     operator_xonly_pk,
                     *move_txhandler.get_txid(),
                     operator_idx,
-                    network,
+                    config.network,
                 )?;
 
                 // Creates the kickoff_timeout_tx handler.
@@ -475,7 +463,7 @@ pub fn create_operator_sighash_stream(
                 let assert_begin_txhandler = builder::transaction::create_assert_begin_txhandler(
                     &kickoff_txhandler,
                     &assert_tx_addrs,
-                    network,
+                    config.network,
                 )?;
 
                 // Creates the assert_end_tx handler.
@@ -485,7 +473,7 @@ pub fn create_operator_sighash_stream(
                     &assert_tx_addrs,
                     &root_hash,
                     nofn_xonly_pk,
-                    network,
+                    config.network,
                 )?;
 
                 // Creates the already_disproved_tx handler.
@@ -529,7 +517,7 @@ mod tests {
         config::BridgeConfig, database::Database, initialize_database, utils::initialize_logger,
     };
     use bitcoin::hashes::Hash;
-    use bitcoin::{Amount, OutPoint, ScriptBuf, TapSighash, Txid, XOnlyPublicKey};
+    use bitcoin::{OutPoint, ScriptBuf, TapSighash, Txid, XOnlyPublicKey};
     use futures::StreamExt;
     use std::pin::pin;
     use std::{env, thread};
@@ -558,10 +546,6 @@ mod tests {
         let recovery_taproot_address =
             builder::address::create_taproot_address(&[], None, bitcoin::Network::Regtest).0;
         let nofn_xonly_pk = XOnlyPublicKey::from_slice(&[0x45; 32]).unwrap();
-        let collateral_funding_amount = Amount::from_sat(0x1F);
-        let timeout_block_count = 0x1F;
-        let max_withdrawal_time_block_count = 100 - 0x1F;
-        let bridge_amount_sats = Amount::from_sat(100 - 0x45);
 
         // Initialize database.
         let operator_xonly_pk = XOnlyPublicKey::from_slice(&[0x45; 32]).unwrap();
@@ -647,12 +631,6 @@ mod tests {
             evm_address,
             recovery_taproot_address.as_unchecked().clone(),
             nofn_xonly_pk,
-            config.user_takes_after,
-            collateral_funding_amount,
-            timeout_block_count,
-            max_withdrawal_time_block_count,
-            bridge_amount_sats,
-            bitcoin::Network::Regtest,
         ));
 
         let mut challenge_tx_sighashes = Vec::<TapSighash>::new();

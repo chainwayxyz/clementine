@@ -7,7 +7,7 @@ use super::error::*;
 use crate::builder::sighash::create_operator_sighash_stream;
 use crate::rpc::parser;
 use crate::{errors::BridgeError, operator::Operator};
-use bitcoin::{Amount, OutPoint};
+use bitcoin::OutPoint;
 use futures::StreamExt;
 use std::pin::pin;
 use tokio::sync::mpsc;
@@ -63,7 +63,7 @@ impl ClementineOperator for Operator {
         let (tx, rx) = mpsc::channel(1280);
         let deposit_sign_session = request.into_inner();
 
-        let (deposit_outpoint, evm_address, recovery_taproot_address, user_takes_after) =
+        let (deposit_outpoint, evm_address, recovery_taproot_address, _user_takes_after) =
             parser::parse_deposit_params(deposit_sign_session.try_into()?)?;
 
         tokio::spawn(async move {
@@ -77,12 +77,6 @@ impl ClementineOperator for Operator {
                 evm_address,
                 recovery_taproot_address,
                 operator.nofn_xonly_pk,
-                user_takes_after,
-                Amount::from_sat(200_000_000), // TODO: Fix this.
-                6,
-                100,
-                operator.config.bridge_amount_sats,
-                operator.config.network,
             ));
 
             while let Some(sighash) = sighash_stream.next().await {

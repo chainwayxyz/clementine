@@ -1148,6 +1148,18 @@ mod tests {
         assert_eq!(result.1, root_hash);
         assert_eq!(result.2, public_input_wots);
 
+        let hash = database
+            .get_bitvm_root_hash(
+                None,
+                operator_idx,
+                sequential_collateral_tx_idx,
+                kickoff_idx,
+            )
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(hash, root_hash);
+
         // Test non-existent entry
         let non_existent = database
             .get_bitvm_setup(None, 999, sequential_collateral_tx_idx, kickoff_idx)

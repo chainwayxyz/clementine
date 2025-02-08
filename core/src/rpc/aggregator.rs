@@ -25,7 +25,7 @@ use crate::{
 use bitcoin::hashes::Hash;
 use bitcoin::secp256k1::schnorr::Signature;
 use bitcoin::secp256k1::{Message, PublicKey};
-use bitcoin::{Amount, TapSighash};
+use bitcoin::TapSighash;
 use futures::TryFutureExt;
 use futures::{future::try_join_all, stream::BoxStream, FutureExt, Stream, StreamExt};
 use secp256k1::musig::{MusigAggNonce, MusigPartialSignature, MusigPubNonce};
@@ -526,7 +526,7 @@ impl ClementineAggregator for Aggregator {
     ) -> Result<Response<RawSignedMoveTx>, Status> {
         let deposit_params = request.into_inner();
 
-        let (deposit_outpoint, evm_address, recovery_taproot_address, user_takes_after) =
+        let (deposit_outpoint, evm_address, recovery_taproot_address, _user_takes_after) =
             parser::parse_deposit_params(deposit_params.clone())?;
 
         // Generate nonce streams for all verifiers.
@@ -605,12 +605,6 @@ impl ClementineAggregator for Aggregator {
             evm_address,
             recovery_taproot_address,
             self.nofn_xonly_pk,
-            user_takes_after,
-            Amount::from_sat(200_000_000), // TODO: Fix this.
-            6,
-            100,
-            self.config.bridge_amount_sats,
-            self.config.network,
         ));
 
         // Create channels for pipeline communication

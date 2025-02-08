@@ -7,6 +7,7 @@
 
 use crate::EVMAddress;
 use bitcoin::opcodes::OP_TRUE;
+use bitcoin::script::PushBytesBuf;
 use bitcoin::secp256k1::schnorr;
 use bitcoin::{
     opcodes::{all::*, OP_FALSE},
@@ -15,7 +16,7 @@ use bitcoin::{
 };
 use bitcoin::{Amount, Witness};
 use bitvm::signatures::winternitz::{Parameters, PublicKey, SecretKey};
-use bitvm::signatures::winternitz_hash::WINTERNITZ_VARIABLE_VERIFIER;
+use bitvm::signatures::winternitz_hash::WINTERNITZ_MESSAGE_VERIFIER;
 use std::any::Any;
 use std::fmt::Debug;
 use std::sync::Arc;
@@ -116,15 +117,20 @@ impl SpendableScript for WinternitzCommit {
     }
 
     fn to_script_buf(&self) -> ScriptBuf {
-        // TODO: check generate_winternitz_checksig_leave_variable()
         let winternitz_pubkey = self.0.clone();
         let params = self.1.clone();
         let xonly_pubkey = self.2;
-        WINTERNITZ_VARIABLE_VERIFIER
-            .checksig_verify(&params, &winternitz_pubkey)
+        let mut script = Builder::new()
             .push_x_only_key(&xonly_pubkey)
             .push_opcode(OP_CHECKSIG)
-            .compile()
+            .into_script();
+        let x = WINTERNITZ_MESSAGE_VERIFIER
+            .checksig_verify(&params, &winternitz_pubkey)
+            .compile();
+        // TODO: I dont know if this is correct
+        let push_bytes = PushBytesBuf::try_from(x.into_bytes()).expect("Invalid push bytes");
+        script.push_slice(push_bytes);
+        script
     }
 }
 
@@ -135,8 +141,13 @@ impl WinternitzCommit {
         secret_key: &SecretKey,
         signature: &schnorr::Signature,
     ) -> Witness {
-        let mut witness = WINTERNITZ_VARIABLE_VERIFIER.sign(&self.1, secret_key, commit_data);
+        let mut witness = Witness::new();
+        // TODO: I dont know if this is correct
         witness.push(signature.serialize());
+        let to_add = WINTERNITZ_MESSAGE_VERIFIER.sign(&self.1, secret_key, commit_data);
+        for i in 0..to_add.len() {
+            witness.push(to_add.nth(i).expect("Already checked index"));
+        }
         witness
     }
 

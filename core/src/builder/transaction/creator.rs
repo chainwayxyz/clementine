@@ -2,14 +2,12 @@ use crate::actor::{Actor, WinternitzDerivationPath};
 use crate::builder::script::WinternitzCommit;
 use crate::builder::transaction::{TransactionType, TxHandler};
 use crate::config::BridgeConfig;
-use crate::constants::{
-    WATCHTOWER_CHALLENGE_MESSAGE_LENGTH, WINTERNITZ_LOG_D,
-};
+use crate::constants::{WATCHTOWER_CHALLENGE_MESSAGE_LENGTH, WINTERNITZ_LOG_D};
 use crate::database::Database;
 use crate::errors::BridgeError;
 use crate::{builder, utils, EVMAddress};
 use bitcoin::address::NetworkUnchecked;
-use bitcoin::{Address, Amount, OutPoint, XOnlyPublicKey};
+use bitcoin::{Address, OutPoint, XOnlyPublicKey};
 use bitvm::signatures::winternitz;
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -21,16 +19,10 @@ pub async fn create_txhandlers(
     evm_address: EVMAddress,
     recovery_taproot_address: Address<NetworkUnchecked>,
     nofn_xonly_pk: XOnlyPublicKey,
-    _user_takes_after: u16,
-    collateral_funding_amount: Amount,
-    timeout_block_count: i64,
-    max_withdrawal_time_block_count: u16,
-    bridge_amount_sats: Amount,
     transaction_type: TransactionType,
     operator_idx: usize,
     sequential_collateral_tx_idx: usize,
     kickoff_idx: usize,
-    network: bitcoin::Network,
 ) -> Result<HashMap<TransactionType, TxHandler>, BridgeError> {
     let mut txhandlers = HashMap::new();
     // Create move_tx handler. This is unique for each deposit tx.
@@ -39,9 +31,9 @@ pub async fn create_txhandlers(
         evm_address,
         &recovery_taproot_address,
         nofn_xonly_pk,
-        _user_takes_after,
-        bridge_amount_sats,
-        network,
+        config.user_takes_after,
+        config.bridge_amount_sats,
+        config.network,
     )?;
     txhandlers.insert(move_txhandler.get_transaction_type(), move_txhandler);
     // Get operator details (for each operator, (X-Only Public Key, Address, Collateral Funding Txid))
@@ -53,11 +45,11 @@ pub async fn create_txhandlers(
         builder::transaction::create_seq_collat_reimburse_gen_nth_txhandler(
             operator_xonly_pk,
             collateral_funding_txid,
-            collateral_funding_amount,
-            timeout_block_count,
+            config.collateral_funding_amount,
+            config.timeout_block_count,
             config.num_kickoffs_per_sequential_collateral_tx,
-            max_withdrawal_time_block_count,
-            network,
+            config.max_withdrawal_time_block_count,
+            config.network,
             sequential_collateral_tx_idx,
         )?;
     txhandlers.insert(
@@ -81,7 +73,7 @@ pub async fn create_txhandlers(
             .ok_or(BridgeError::TxHandlerNotFound)?
             .get_txid(),
         operator_idx,
-        network,
+        config.network,
     )?;
     txhandlers.insert(kickoff_txhandler.get_transaction_type(), kickoff_txhandler);
 
@@ -123,7 +115,7 @@ pub async fn create_txhandlers(
                     .get(&TransactionType::Kickoff)
                     .ok_or(BridgeError::TxHandlerNotFound)?,
                 operator_xonly_pk,
-                network,
+                config.network,
             )?;
         txhandlers.insert(
             start_happy_reimburse_txhandler.get_transaction_type(),
@@ -175,7 +167,7 @@ pub async fn create_txhandlers(
             };
 
         // Get all the watchtower challenge addresses for this operator. We have all of them here (for all the kickoff_utxos).
-        // TODO: Make this only return for a specific kickoff
+        // TODO: Optimize: Make this only return for a specific kickoff
         let watchtower_all_challenge_addresses = (0..config.num_watchtowers)
             .map(|i| db.get_watchtower_challenge_addresses(None, i as u32, operator_idx as u32))
             .collect::<Vec<_>>();
@@ -233,7 +225,7 @@ pub async fn create_txhandlers(
                     public_hash,
                     nofn_xonly_pk,
                     operator_xonly_pk,
-                    network,
+                    config.network,
                 )?
             } else {
                 // generate with actual scripts if we want to specifically create a watchtower challenge tx
@@ -272,7 +264,7 @@ pub async fn create_txhandlers(
                     )),
                     nofn_xonly_pk,
                     operator_xonly_pk,
-                    network,
+                    config.network,
                 )?
             };
             txhandlers.insert(
@@ -355,7 +347,7 @@ pub async fn create_txhandlers(
                     .get(&TransactionType::Kickoff)
                     .ok_or(BridgeError::TxHandlerNotFound)?,
                 &assert_scripts,
-                network,
+                config.network,
             )?;
 
         txhandlers.insert(
@@ -363,16 +355,19 @@ pub async fn create_txhandlers(
             assert_begin_txhandler,
         );
 
-        let root_hash = db.get_bitvm_root_hash(
-            None,
-            operator_idx as i32,
-            sequential_collateral_tx_idx as i32,
-            kickoff_idx as i32,
-        ).await?.ok_or(BridgeError::BitvmSetupNotFound(
-            operator_idx as i32,
-            sequential_collateral_tx_idx as i32,
-            kickoff_idx as i32,
-        ))?;
+        let root_hash = db
+            .get_bitvm_root_hash(
+                None,
+                operator_idx as i32,
+                sequential_collateral_tx_idx as i32,
+                kickoff_idx as i32,
+            )
+            .await?
+            .ok_or(BridgeError::BitvmSetupNotFound(
+                operator_idx as i32,
+                sequential_collateral_tx_idx as i32,
+                kickoff_idx as i32,
+            ))?;
 
         // Creates the assert_end_tx handler.
         let mini_asserts_and_assert_end_txhandlers =
@@ -386,7 +381,7 @@ pub async fn create_txhandlers(
                 &assert_scripts,
                 &root_hash,
                 nofn_xonly_pk,
-                network,
+                config.network,
             )?;
         for txhandler in mini_asserts_and_assert_end_txhandlers {
             txhandlers.insert(txhandler.get_transaction_type(), txhandler);
@@ -413,7 +408,7 @@ pub async fn create_txhandlers(
                 .get(&TransactionType::Kickoff)
                 .ok_or(BridgeError::TxHandlerNotFound)?,
             &assert_tx_addrs,
-            network,
+            config.network,
         )?;
 
         txhandlers.insert(
@@ -432,7 +427,7 @@ pub async fn create_txhandlers(
             &assert_tx_addrs,
             &root_hash,
             nofn_xonly_pk,
-            network,
+            config.network,
         )?;
 
         txhandlers.insert(
@@ -447,7 +442,7 @@ pub async fn create_txhandlers(
             .get(&TransactionType::AssertEnd)
             .ok_or(BridgeError::TxHandlerNotFound)?,
         operator_xonly_pk,
-        network,
+        config.network,
     )?;
 
     txhandlers.insert(
@@ -496,9 +491,4 @@ pub async fn create_txhandlers(
 }
 
 #[cfg(test)]
-mod tests {
-
-    async fn test_deposit_then_sign() {
-
-    }
-}
+mod tests {}
