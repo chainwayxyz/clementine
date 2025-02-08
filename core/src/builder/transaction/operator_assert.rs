@@ -196,20 +196,22 @@ pub fn create_assert_end_txhandler(
 
     // Add outputs
     Ok(builder
-        .add_output(UnspentTxOut::from_partial(TxOut {
-            value: MIN_TAPROOT_AMOUNT,
-            script_pubkey: disprove_address.script_pubkey().clone(),
-        }))
+        .add_output(UnspentTxOut::new(
+            TxOut {
+                value: MIN_TAPROOT_AMOUNT,
+                script_pubkey: disprove_address.script_pubkey().clone(),
+            },
+            vec![Arc::new(CheckSig::new(nofn_xonly_pk))],
+            None, // not disprove_taproot_spend_info as it will cause check to fail because we do not store all scripts
+        ))
         .add_output(UnspentTxOut::from_scripts(
             MIN_TAPROOT_AMOUNT,
             vec![nofn_1week, nofn_2week],
             None,
             network,
         ))
-        .add_output(UnspentTxOut::new(
+        .add_output(UnspentTxOut::from_partial(
             builder::transaction::anchor_output(),
-            vec![],
-            None,
         ))
         .finalize())
 }

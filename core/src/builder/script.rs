@@ -305,6 +305,10 @@ impl SpendableScript for WithdrawalScript {
         self
     }
 
+    fn kind(&self) -> ScriptKind {
+        ScriptKind::WithdrawalScript(self)
+    }
+
     fn to_script_buf(&self) -> ScriptBuf {
         let mut push_bytes = PushBytesBuf::new();
         push_bytes
@@ -331,6 +335,7 @@ pub enum ScriptKind<'a> {
     TimelockScript(&'a TimelockScript),
     PreimageRevealScript(&'a PreimageRevealScript),
     DepositScript(&'a DepositScript),
+    WithdrawalScript(&'a WithdrawalScript),
     Other(&'a OtherSpendable),
 }
 

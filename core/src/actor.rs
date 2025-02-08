@@ -288,7 +288,8 @@ impl Actor {
                             Kind::CheckSig(_)
                             | Kind::Other(_)
                             | Kind::DepositScript(_)
-                            | Kind::TimelockScript(_) => return Ok(None),
+                            | Kind::TimelockScript(_)
+                            | Kind::WithdrawalScript(_) => return Ok(None),
                         };
 
                         if signed_winternitz {
@@ -381,7 +382,8 @@ impl Actor {
                         },
                         Kind::WinternitzCommit(_)
                         | Kind::PreimageRevealScript(_)
-                        | Kind::Other(_) => return Ok(None),
+                        | Kind::Other(_)
+                        | Kind::WithdrawalScript(_) => return Ok(None),
                     };
 
                     // Add P2TR elements (control block and script) to the witness
@@ -450,7 +452,6 @@ mod tests {
     use secp256k1::rand;
     use std::str::FromStr;
     use std::sync::Arc;
-    use std::thread;
 
     // Helper: create a TxHandler with a single key spend input.
     fn create_key_spend_tx_handler(actor: &Actor) -> (bitcoin::TxOut, TxHandler) {
@@ -657,7 +658,7 @@ mod tests {
         // be successful.
         let tx_handler = create_key_spend_tx_handler(&actor).1;
         let sighash = tx_handler
-            .calculate_pubkey_spend_sighash(0, Some(bitcoin::TapSighashType::Default))
+            .calculate_pubkey_spend_sighash(0, bitcoin::TapSighashType::Default)
             .expect("calculating pubkey spend sighash");
 
         let signature = actor.sign(sighash);
@@ -676,7 +677,9 @@ mod tests {
         // This transaction is matching with prevouts. Therefore signing will
         // be successful.
         let tx_handler = create_key_spend_tx_handler(&actor).1;
-        let x = tx_handler.calculate_pubkey_spend_sighash(0, None).unwrap();
+        let x = tx_handler
+            .calculate_pubkey_spend_sighash(0, TapSighashType::Default)
+            .unwrap();
         actor.sign_with_tweak(x, None).unwrap();
     }
 

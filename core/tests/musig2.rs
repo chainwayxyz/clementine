@@ -1,6 +1,6 @@
 use bitcoin::key::Keypair;
 use bitcoin::secp256k1::{Message, PublicKey};
-use bitcoin::{hashes::Hash, script, Amount};
+use bitcoin::{hashes::Hash, script, Amount, TapSighashType};
 use bitcoin::{taproot, Sequence, TxOut, XOnlyPublicKey};
 use bitcoincore_rpc::RpcApi;
 use clementine_core::builder::script::{CheckSig, OtherSpendable, SpendPath, SpendableScript};
@@ -116,7 +116,7 @@ async fn key_spend() {
 
     let message = Message::from_digest(
         tx_details
-            .calculate_pubkey_spend_sighash(0, None)
+            .calculate_pubkey_spend_sighash(0, TapSighashType::Default)
             .unwrap()
             .to_byte_array(),
     );
@@ -226,7 +226,7 @@ async fn key_spend_with_script() {
     let mut tx_details = builder.finalize();
     let message = Message::from_digest(
         tx_details
-            .calculate_pubkey_spend_sighash(0, None)
+            .calculate_pubkey_spend_sighash(0, TapSighashType::Default)
             .unwrap()
             .to_byte_array(),
     );
@@ -511,7 +511,7 @@ async fn key_and_script_spend() {
     );
     let sighash_2 = Message::from_digest(
         test_txhandler_2
-            .calculate_pubkey_spend_sighash(0, None)
+            .calculate_pubkey_spend_sighash(0, TapSighashType::Default)
             .unwrap()
             .to_byte_array(),
     );

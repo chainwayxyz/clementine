@@ -11,7 +11,7 @@ use crate::errors::BridgeError;
 use crate::rpc::clementine::tagged_signature::SignatureId;
 use crate::{builder, database::Database, EVMAddress};
 use async_stream::try_stream;
-use bitcoin::{address::NetworkUnchecked, Address, Amount, OutPoint};
+use bitcoin::{address::NetworkUnchecked, Address, Amount, OutPoint, TapSighashType};
 use bitcoin::{TapSighash, Txid, XOnlyPublicKey};
 use futures_core::stream::Stream;
 
@@ -119,7 +119,6 @@ pub fn create_nofn_sighash_stream(
     bridge_amount_sats: Amount,
     network: bitcoin::Network,
 ) -> impl Stream<Item = Result<(TapSighash, SignatureInfo), BridgeError>> {
-    use bitcoin::TapSighashType::Default as SighashAll;
     try_stream! {
         // Create move_tx handler. This is unique for each deposit tx.
         let move_txhandler = builder::transaction::create_move_to_vault_txhandler(
@@ -199,9 +198,9 @@ pub fn create_nofn_sighash_stream(
                     )?;
 
                     // Yields the sighash for the challenge_tx.input[0], which spends kickoff_tx.input[1] using SinglePlusAnyoneCanPay.
-                    yield (challenge_tx.calculate_pubkey_spend_sighash(
+                    yield (challenge_tx.calculate_sighash(
                         0,
-                        Some(bitcoin::sighash::TapSighashType::SinglePlusAnyoneCanPay)
+                        bitcoin::sighash::TapSighashType::SinglePlusAnyoneCanPay
                     )?, partial.complete(challenge_tx.get_signature_id(0)?));
 
                     // Creates the start_happy_reimburse_tx handler.
@@ -211,9 +210,9 @@ pub fn create_nofn_sighash_stream(
                         network
                     )?;
                     // Yields the sighash for the start_happy_reimburse_tx.input[1], which spends kickoff_tx.output[3].
-                    yield (start_happy_reimburse_txhandler.calculate_pubkey_spend_sighash(
+                    yield (start_happy_reimburse_txhandler.calculate_sighash(
                         1,
-                        None
+                        TapSighashType::Default
                     )?, partial.complete(start_happy_reimburse_txhandler.get_signature_id(1)?));
 
                     // Creates the happy_reimburse_tx handler.
@@ -226,9 +225,9 @@ pub fn create_nofn_sighash_stream(
                     )?;
 
                     // Yields the sighash for the happy_reimburse_tx.input[0], which spends move_to_vault_tx.output[0].
-                    yield (happy_reimburse_txhandler.calculate_pubkey_spend_sighash(
+                    yield (happy_reimburse_txhandler.calculate_sighash(
                         0,
-                        None
+                        TapSighashType::Default
                     )?, partial.complete(happy_reimburse_txhandler.get_signature_id(0)?));
 
                     // Collect the challenge Winternitz pubkeys for this specific kickoff_utxo.
@@ -244,9 +243,9 @@ pub fn create_nofn_sighash_stream(
                         )?;
 
                     // Yields the sighash for the watchtower_challenge_kickoff_tx.input[0], which spends kickoff_tx.input[0].
-                    yield (watchtower_challenge_kickoff_txhandler.calculate_pubkey_spend_sighash(
+                    yield (watchtower_challenge_kickoff_txhandler.calculate_sighash(
                         0,
-                        None,
+                        TapSighashType::Default,
                     )?, partial.complete(watchtower_challenge_kickoff_txhandler.get_signature_id(0)?));
 
                     // Creates the kickoff_timeout_tx handler.
@@ -256,10 +255,9 @@ pub fn create_nofn_sighash_stream(
                     )?;
 
                     // Yields the sighash for the kickoff_timeout_tx.input[0], which spends kickoff_tx.output[3].
-                    yield (kickoff_timeout_txhandler.calculate_script_spend_sighash_indexed(
+                    yield (kickoff_timeout_txhandler.calculate_sighash(
                         0,
-                        0,
-                        SighashAll
+                        TapSighashType::Default
                     )?, partial.complete(kickoff_timeout_txhandler.get_signature_id(0)?));
 
                     let public_hashes = db.get_operators_challenge_ack_hashes(None, operator_idx as i32, sequential_collateral_tx_idx as i32, kickoff_idx as i32).await?.ok_or(BridgeError::WatchtowerPublicHashesNotFound(operator_idx as i32, sequential_collateral_tx_idx as i32, kickoff_idx as i32))?;
@@ -288,16 +286,15 @@ pub fn create_nofn_sighash_stream(
                             )?;
 
                         // Yields the sighash for the operator_challenge_NACK_tx.input[0], which spends watchtower_challenge_tx.output[0].
-                        yield (operator_challenge_nack_txhandler.calculate_script_spend_sighash_indexed(
+                        yield (operator_challenge_nack_txhandler.calculate_sighash(
                             0,
-                            1,
-                            SighashAll,
+                            TapSighashType::Default,
                         )?, partial.complete(operator_challenge_nack_txhandler.get_signature_id(0)?));
 
                         // Yields the sighash for the operator_challenge_NACK_tx.input[1], which spends kickoff_tx.output[2].
-                        yield (operator_challenge_nack_txhandler.calculate_pubkey_spend_sighash(
+                        yield (operator_challenge_nack_txhandler.calculate_sighash(
                             1,
-                            None,
+                            TapSighashType::Default
                         )?, partial.complete(operator_challenge_nack_txhandler.get_signature_id(1)?));
                     }
 
@@ -321,9 +318,9 @@ pub fn create_nofn_sighash_stream(
                     )?;
 
                     // Yields the sighash for the assert_end_tx, which spends kickoff_tx.output[3].
-                    yield (assert_end_txhandler.calculate_pubkey_spend_sighash(
+                    yield (assert_end_txhandler.calculate_sighash(
                         PARALLEL_ASSERT_TX_CHAIN_SIZE,
-                        None,
+                        TapSighashType::Default,
                     )?, partial.complete(assert_end_txhandler.get_signature_id(PARALLEL_ASSERT_TX_CHAIN_SIZE)?));
 
                     // Creates the disprove_timeout_tx handler.
@@ -334,16 +331,15 @@ pub fn create_nofn_sighash_stream(
                     )?;
 
                     // Yields the sighash for the disprove_timeout_tx.input[0], which spends assert_end_tx.output[0].
-                    yield (disprove_timeout_txhandler.calculate_pubkey_spend_sighash(
+                    yield (disprove_timeout_txhandler.calculate_sighash(
                         0,
-                        None,
+                        TapSighashType::Default
                     )?, partial.complete(disprove_timeout_txhandler.get_signature_id(0)?));
 
                     // Yields the disprove_timeout_tx.input[1], which spends assert_end_tx.output[1].
-                    yield (disprove_timeout_txhandler.calculate_script_spend_sighash_indexed(
+                    yield (disprove_timeout_txhandler.calculate_sighash(
                         1,
-                        0,
-                        SighashAll,
+                        TapSighashType::Default,
                     )?, partial.complete(disprove_timeout_txhandler.get_signature_id(1)?));
 
                     // Creates the already_disproved_tx handler.
@@ -353,10 +349,9 @@ pub fn create_nofn_sighash_stream(
                     )?;
 
                     // Yields the sighash for the already_disproved_tx.input[0], which spends assert_end_tx.output[1].
-                    yield (already_disproved_txhandler.calculate_script_spend_sighash_indexed(
+                    yield (already_disproved_txhandler.calculate_sighash(
                         0,
-                        1,
-                        SighashAll,
+                        TapSighashType::Default,
                     )?, partial.complete(already_disproved_txhandler.get_signature_id(0)?));
 
                     // Creates the reimburse_tx handler.
@@ -369,7 +364,7 @@ pub fn create_nofn_sighash_stream(
                     )?;
 
                     // Yields the sighash for the reimburse_tx.input[0], which spends move_to_vault_tx.output[0].
-                    yield (reimburse_txhandler.calculate_pubkey_spend_sighash(0, None)?, partial.complete(reimburse_txhandler.get_signature_id(0)?));
+                    yield (reimburse_txhandler.calculate_sighash(0, TapSighashType::Default)?, partial.complete(reimburse_txhandler.get_signature_id(0)?));
                 }
 
                 input_txid = *reimburse_generator_txhandler.get_txid();
@@ -465,9 +460,9 @@ pub fn create_operator_sighash_stream(
                 )?;
 
                 // Yields the sighash for the kickoff_timeout_tx.input[0], which spends kickoff_tx.output[3].
-                yield (kickoff_timeout_txhandler.calculate_pubkey_spend_sighash(
+                yield (kickoff_timeout_txhandler.calculate_sighash(
                     1,
-                    None,
+                    TapSighashType::Default,
                 )?, partial.complete(kickoff_timeout_txhandler.get_signature_id(1)?));
 
                 let (assert_tx_addrs, root_hash, _public_input_wots) = db.get_bitvm_setup(None, operator_idx as i32, sequential_collateral_idx as i32, kickoff_utxo_idx as i32).await?.ok_or(BridgeError::BitvmSetupNotFound(operator_idx as i32, sequential_collateral_idx as i32, kickoff_utxo_idx as i32))?;
@@ -496,9 +491,9 @@ pub fn create_operator_sighash_stream(
                 )?;
 
                 // Yields the sighash for the already_disproved_tx.input[0], which spends assert_end_tx.output[1].
-                yield (already_disproved_txhandler.calculate_pubkey_spend_sighash(
+                yield (already_disproved_txhandler.calculate_sighash(
                     1,
-                    None,
+                    TapSighashType::Default,
                 )?, partial.complete(already_disproved_txhandler.get_signature_id(1)?));
 
                 let disprove_txhandler = builder::transaction::create_disprove_txhandler(
@@ -507,9 +502,9 @@ pub fn create_operator_sighash_stream(
                 )?;
 
                 // Yields the sighash for the disprove_tx.input[1], which spends sequential_collateral_tx.output[0].
-                yield (disprove_txhandler.calculate_pubkey_spend_sighash(
+                yield (disprove_txhandler.calculate_sighash(
                     1,
-                    None,
+                    TapSighashType::Default,
                 )?, partial.complete(disprove_txhandler.get_signature_id(1)?));
             }
 
