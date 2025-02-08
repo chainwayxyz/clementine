@@ -538,6 +538,8 @@ mod tests {
             .await
             .unwrap();
 
+        tokio::time::sleep(Duration::from_millis(100)).await;
+
         let fee_payer_tx = rpc
             .client
             .get_raw_transaction(&outpoint.txid, None)
