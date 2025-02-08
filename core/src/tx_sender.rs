@@ -6,13 +6,16 @@ use crate::{
     actor::Actor,
     bitcoin_syncer::BitcoinSyncerEvent,
     builder::{
-        self, script::SpendPath, transaction::{
+        self,
+        script::SpendPath,
+        transaction::{
             input::SpendableTxIn, output::UnspentTxOut, TxHandlerBuilder, DEFAULT_SEQUENCE,
-        }
+        },
     },
     database::Database,
     errors::BridgeError,
-    extended_rpc::ExtendedRpc, rpc::clementine::{NormalSignatureId, NormalSignatureKind},
+    extended_rpc::ExtendedRpc,
+    rpc::clementine::{NormalSignatureId, NormalSignatureKind},
 };
 
 #[derive(Clone, Debug)]
