@@ -206,8 +206,8 @@ create table if not exists fee_payer_utxos (
 );
 
 create table if not exists bitcoin_syncer (
-    blockhash bytea not null primary key,
-    prev_blockhash bytea not null,
+    blockhash text not null primary key check (blockhash ~ '^[a-fA-F0-9]{64}'),
+    prev_blockhash text not null check (prev_blockhash ~ '^[a-fA-F0-9]{64}'),
     height bigint not null
 );
 
