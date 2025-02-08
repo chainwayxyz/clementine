@@ -1,5 +1,6 @@
 use super::input::SpendableTxIn;
 use super::txhandler::DEFAULT_SEQUENCE;
+use super::Signed;
 use crate::builder::script::{CheckSig, SpendableScript, TimelockScript, WithdrawalScript};
 use crate::builder::transaction::output::UnspentTxOut;
 use crate::builder::transaction::txhandler::{TxHandler, TxHandlerBuilder};
@@ -213,7 +214,7 @@ pub fn create_payout_txhandler(
     operator_idx: usize,
     user_sig: Signature,
     network: bitcoin::Network,
-) -> Result<TxHandler, BridgeError> {
+) -> Result<TxHandler<Signed>, BridgeError> {
     let user_sig_wrapped = bitcoin::taproot::Signature {
         signature: user_sig,
         sighash_type: bitcoin::sighash::TapSighashType::SinglePlusAnyoneCanPay,
@@ -227,12 +228,9 @@ pub fn create_payout_txhandler(
         vec![Arc::new(WithdrawalScript::new(operator_idx))];
     let op_return_txout = UnspentTxOut::from_scripts(Amount::from_sat(0), scripts, None, network);
 
-    Ok(TxHandlerBuilder::new()
+    TxHandlerBuilder::new()
         .add_input_with_witness(txin, DEFAULT_SEQUENCE, witness)
         .add_output(output_txout)
         .add_output(op_return_txout)
-        .add_output(UnspentTxOut::from_partial(
-            builder::transaction::anchor_output(),
-        ))
-        .finalize())
+        .finalize_signed()
 }
