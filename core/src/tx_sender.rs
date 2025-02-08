@@ -17,7 +17,7 @@ use crate::{
 
 use self::chain_head::ChainHeadEvent;
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct TxSender {
     pub signer: Actor,
     pub rpc: ExtendedRpc,

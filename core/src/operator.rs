@@ -1,10 +1,15 @@
+use std::time::Duration;
+
 use crate::actor::{Actor, WinternitzDerivationPath};
 use crate::config::BridgeConfig;
 use crate::database::Database;
 use crate::errors::BridgeError;
 use crate::extended_rpc::ExtendedRpc;
 use crate::musig2::AggregateFromPublicKeys;
+use crate::tx_sender::chain_head::{self};
+use crate::tx_sender::TxSender;
 use bitcoin::{Amount, OutPoint, Txid, XOnlyPublicKey};
+use bitcoincore_rpc::RpcApi;
 use bitvm::signatures::winternitz;
 use jsonrpsee::core::client::ClientT;
 use jsonrpsee::http_client::HttpClientBuilder;
@@ -16,20 +21,21 @@ pub type PublicHash = [u8; 20]; // TODO: Make sure these are 20 bytes and maybe 
 
 #[derive(Debug, Clone)]
 pub struct Operator {
-    _rpc: ExtendedRpc,
+    pub rpc: ExtendedRpc,
     pub db: Database,
-    pub(crate) signer: Actor,
-    pub(crate) config: BridgeConfig,
-    pub(crate) nofn_xonly_pk: XOnlyPublicKey,
-    pub(crate) collateral_funding_txid: Txid,
-    pub(crate) idx: usize,
-    citrea_client: Option<jsonrpsee::http_client::HttpClient>,
+    pub signer: Actor,
+    pub config: BridgeConfig,
+    pub nofn_xonly_pk: XOnlyPublicKey,
+    pub collateral_funding_txid: Txid,
+    pub idx: usize,
+    pub tx_sender: TxSender,
+    pub citrea_client: Option<jsonrpsee::http_client::HttpClient>,
 }
 
 impl Operator {
     /// Creates a new `Operator`.
     // #[tracing::instrument(skip_all, err(level = tracing::Level::ERROR))]
-    pub async fn new(config: BridgeConfig, _rpc: ExtendedRpc) -> Result<Self, BridgeError> {
+    pub async fn new(config: BridgeConfig, rpc: ExtendedRpc) -> Result<Self, BridgeError> {
         // let num_verifiers = config.verifiers_public_keys.len();
 
         let signer = Actor::new(
@@ -39,6 +45,33 @@ impl Operator {
         );
 
         let db = Database::new(&config).await?;
+
+        let current_height = rpc.client.get_block_count().await?;
+        let current_block_hash = rpc.client.get_block_hash(current_height).await?;
+        let current_block_header = rpc.client.get_block_header(&current_block_hash).await?;
+        db.set_chain_head(
+            None,
+            current_block_hash,
+            current_block_header.prev_blockhash,
+            current_height,
+        )
+        .await?;
+
+        // Store sender in a variable to keep it alive
+        let (sender, _handle) =
+            chain_head::start_polling(db.clone(), rpc.clone(), Duration::from_secs(1))?;
+
+        let mut receiver = sender.subscribe();
+
+        let tx_sender = TxSender::new(signer.clone(), rpc.clone(), db.clone(), config.network);
+
+        let tx_sender_clone = tx_sender.clone();
+        tokio::spawn(async move {
+            tx_sender_clone
+                .apply_new_chain_event(&mut receiver)
+                .await
+                .expect("Failed to apply new chain event");
+        });
 
         let nofn_xonly_pk =
             XOnlyPublicKey::from_musig2_pks(config.verifiers_public_keys.clone(), None)?;
@@ -76,7 +109,7 @@ impl Operator {
             .get_sequential_collateral_txs(Some(&mut tx), idx as i32)
             .await?;
         let collateral_funding_txid = if sequential_collateral_txs.is_empty() {
-            let outpoint = _rpc
+            let outpoint = rpc
                 .send_to_address(&signer.address, Amount::from_sat(200_000_000))
                 .await?; // TODO: Is this OK to be a fixed value
             db.set_sequential_collateral_tx(Some(&mut tx), idx as i32, 0, outpoint.txid, 0)
@@ -100,13 +133,14 @@ impl Operator {
         );
 
         Ok(Self {
-            _rpc,
+            rpc,
             db,
             signer,
             config,
             nofn_xonly_pk,
             idx,
             collateral_funding_txid,
+            tx_sender,
             citrea_client,
         })
     }
@@ -775,6 +809,7 @@ impl Operator {
 
 #[cfg(test)]
 mod tests {
+
     use crate::{
         config::BridgeConfig, database::Database, initialize_database, utils::initialize_logger,
     };
