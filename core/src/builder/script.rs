@@ -206,7 +206,7 @@ impl SpendableScript for TimelockScript {
 }
 
 impl TimelockScript {
-    pub fn generate_script_inputs(&self, signature: &Option<schnorr::Signature>) -> Witness {
+    pub fn generate_script_inputs(&self, signature: Option<&schnorr::Signature>) -> Witness {
         match signature {
             Some(sig) => Witness::from_slice(&[sig.serialize()]),
             None => Witness::default(),

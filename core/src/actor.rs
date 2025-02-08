@@ -365,9 +365,9 @@ impl Actor {
                             }
                         }
                         Kind::TimelockScript(script) => match (sig, script.0) {
-                            (Some(sig), Some(_)) => script.generate_script_inputs(&Some(sig)),
+                            (Some(sig), Some(_)) => script.generate_script_inputs(Some(&sig)),
                             (None, Some(xonly_key)) if xonly_key == self.xonly_public_key => {
-                                script.generate_script_inputs(&Some(self.sign(calc_sighash()?)))
+                                script.generate_script_inputs(Some(&self.sign(calc_sighash()?)))
                             }
                             (None, Some(_)) => return Err(BridgeError::SignatureNotFound),
                             (_, None) => Witness::new(),
