@@ -163,11 +163,10 @@ pub async fn parse_withdrawal_sig_params(
     let user_sig = Signature::from_slice(&params.user_sig)
         .map_err(|e| error::invalid_argument("user_sig", "Can't convert input to Signature")(e))?;
 
-    let users_intent_outpoint: OutPoint = if let Some(o) = params.users_intent_outpoint {
-        o.try_into()?
-    } else {
-        return Err(error::input_ended_prematurely());
-    };
+    let users_intent_outpoint: OutPoint = params
+        .users_intent_outpoint
+        .ok_or_else(error::input_ended_prematurely)?
+        .try_into()?;
 
     let users_intent_script_pubkey = ScriptBuf::from_bytes(params.users_intent_script_pubkey);
 
