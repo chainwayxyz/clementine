@@ -26,6 +26,7 @@ pub mod tx_sender;
 pub mod utils;
 pub mod verifier;
 pub mod watchtower;
+pub mod bitcoin_syncer;
 
 #[cfg(test)]
 mod test_utils;

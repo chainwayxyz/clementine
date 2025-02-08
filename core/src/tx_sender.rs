@@ -4,6 +4,7 @@ use tokio::sync::broadcast::Receiver;
 
 use crate::{
     actor::Actor,
+    bitcoin_syncer::BitcoinSyncerEvent,
     builder::{
         self,
         transaction::{
@@ -14,8 +15,6 @@ use crate::{
     errors::BridgeError,
     extended_rpc::ExtendedRpc,
 };
-
-use self::chain_head::ChainHeadEvent;
 
 #[derive(Clone, Debug)]
 pub struct TxSender {
@@ -305,19 +304,25 @@ impl TxSender {
         Ok(())
     }
 
-    pub async fn apply_new_chain_event(
+    pub async fn bitcoin_syncer_event_handler(
         &self,
-        receiver: &mut Receiver<ChainHeadEvent>,
+        bitcoin_syncer_receiver: &mut Receiver<BitcoinSyncerEvent>,
     ) -> Result<(), BridgeError> {
         loop {
-            let event = receiver.recv().await?;
+            let event = bitcoin_syncer_receiver.recv().await?;
             match event {
-                ChainHeadEvent::NewBlock(block_hashes) => {
+                BitcoinSyncerEvent::NewBlocks(block_hashes) => {
                     for block in block_hashes {
-                        self.apply_block(&block).await?;
+                        self.apply_block(&block.block_hash).await?;
                     }
                 }
-                ChainHeadEvent::Reorg(block_hashes) => {
+                BitcoinSyncerEvent::NewBlocksWithTxs(_) => {
+                    // panic
+                    return Err(BridgeError::Error(
+                        "New blocks with txs not implemented".to_string(),
+                    ));
+                }
+                BitcoinSyncerEvent::ReorgedBlocks(block_hashes) => {
                     for block in block_hashes {
                         self.apply_reorg(&block).await?;
                     }
@@ -327,93 +332,14 @@ impl TxSender {
     }
 }
 
-pub mod chain_head {
-    use std::time::Duration;
-
-    use bitcoin::BlockHash;
-    use bitcoincore_rpc::RpcApi;
-    use tokio::{sync::broadcast, task::JoinHandle, time::sleep};
-
-    use crate::{database::Database, errors::BridgeError, extended_rpc::ExtendedRpc};
-
-    type ChainHeadPollingResult = (
-        broadcast::Sender<ChainHeadEvent>,
-        JoinHandle<Result<(), BridgeError>>,
-    );
-
-    #[derive(Clone, Debug)]
-    pub enum ChainHeadEvent {
-        NewBlock(Vec<BlockHash>),
-        Reorg(Vec<BlockHash>),
-    }
-
-    pub fn start_polling(
-        db: Database,
-        rpc: ExtendedRpc,
-        poll_delay: Duration,
-    ) -> Result<ChainHeadPollingResult, BridgeError> {
-        let (tx, _) = broadcast::channel(100);
-        let returned_tx = tx.clone();
-
-        let handle = tokio::spawn(async move {
-            loop {
-                let mut block_height = rpc.client.get_block_count().await?;
-                let mut block_hash = rpc.client.get_block_hash(block_height).await?;
-                let mut block_header = rpc.client.get_block_header(&block_hash).await?;
-
-                let mut new_blocks = Vec::new();
-                for _ in 0..100 {
-                    // if the block is in the db, do nothing
-                    let height = db.get_height_from_block_hash(None, block_hash).await?;
-                    if height.is_some() {
-                        break;
-                    }
-
-                    new_blocks.push((block_hash, block_height, block_header.prev_blockhash));
-                    block_hash = block_header.prev_blockhash;
-                    block_header = rpc.client.get_block_header(&block_hash).await?;
-                    block_height -= 1;
-                }
-
-                // If we haven't found a match after 100 blocks, the database is too far out of sync
-                if new_blocks.len() == 100 {
-                    return Err(BridgeError::BlockgazerTooDeep(block_height));
-                }
-
-                // check the reorg blocks
-                let reorg_blocks = db.delete_chain_head_from_height(None, block_height).await?;
-
-                if !reorg_blocks.is_empty() {
-                    tx.send(ChainHeadEvent::Reorg(reorg_blocks))?;
-                }
-
-                let block_hashes: Vec<BlockHash> = new_blocks
-                    .iter()
-                    .map(|(block_hash, _, _)| *block_hash)
-                    .collect();
-
-                let mut dbtx = db.begin_transaction().await?;
-                for (block_hash, block_height, prev_block_hash) in new_blocks {
-                    db.set_chain_head(Some(&mut dbtx), block_hash, prev_block_hash, block_height)
-                        .await?;
-                }
-                dbtx.commit().await?;
-
-                if !block_hashes.is_empty() {
-                    tracing::info!("New block hashes: {:?}", block_hashes);
-                    tx.send(ChainHeadEvent::NewBlock(block_hashes))?;
-                }
-
-                sleep(poll_delay).await;
-            }
-        });
-        Ok((returned_tx, handle))
-    }
-}
+pub mod chain_head {}
 
 #[cfg(test)]
 mod tests {
 
+    use crate::bitcoin_syncer::{
+        get_block_info_from_height, start_bitcoin_syncer, BitcoinSyncerPollingMode,
+    };
     // Imports required for create_test_config_with_thread_name macro.
     use crate::config::BridgeConfig;
     use crate::utils::initialize_logger;
@@ -501,32 +427,30 @@ mod tests {
         let (tx_sender, rpc, db, signer, network) = create_test_tx_sender().await;
 
         // Save the current block height and block hash
-        let current_height = rpc.client.get_block_count().await.unwrap();
-        let current_block_hash = rpc.client.get_block_hash(current_height).await.unwrap();
-        let current_block_header = rpc
-            .client
-            .get_block_header(&current_block_hash)
-            .await
-            .unwrap();
-        db.set_chain_head(
-            None,
-            current_block_hash,
-            current_block_header.prev_blockhash,
-            current_height,
+        if db.get_max_height(None).await.unwrap().is_none() {
+            let current_height = rpc.client.get_block_count().await.unwrap();
+            let current_block_info = get_block_info_from_height(&rpc, current_height)
+                .await
+                .unwrap();
+            db.set_chain_head(None, &current_block_info).await.unwrap();
+        }
+
+        // Start the bitcoin syncer
+        let (sender, _handle) = start_bitcoin_syncer(
+            db.clone(),
+            rpc.clone(),
+            Duration::from_secs(1),
+            BitcoinSyncerPollingMode::SyncOnly,
         )
         .await
         .unwrap();
-
-        // Store sender in a variable to keep it alive
-        let (sender, _handle) =
-            chain_head::start_polling(db.clone(), rpc.clone(), Duration::from_secs(1)).unwrap();
 
         let mut receiver = sender.subscribe();
 
         let tx_sender_clone = tx_sender.clone();
         let _chain_event_handle = tokio::spawn(async move {
             tx_sender_clone
-                .apply_new_chain_event(&mut receiver)
+                .bitcoin_syncer_event_handler(&mut receiver)
                 .await
                 .unwrap();
         });

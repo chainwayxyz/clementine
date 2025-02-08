@@ -1,12 +1,12 @@
 use std::time::Duration;
 
 use crate::actor::{Actor, WinternitzDerivationPath};
+use crate::bitcoin_syncer::{self, get_block_info_from_height, BitcoinSyncerPollingMode};
 use crate::config::BridgeConfig;
 use crate::database::Database;
 use crate::errors::BridgeError;
 use crate::extended_rpc::ExtendedRpc;
 use crate::musig2::AggregateFromPublicKeys;
-use crate::tx_sender::chain_head::{self};
 use crate::tx_sender::TxSender;
 use bitcoin::{Amount, OutPoint, Txid, XOnlyPublicKey};
 use bitcoincore_rpc::RpcApi;
@@ -46,20 +46,20 @@ impl Operator {
 
         let db = Database::new(&config).await?;
 
-        let current_height = rpc.client.get_block_count().await?;
-        let current_block_hash = rpc.client.get_block_hash(current_height).await?;
-        let current_block_header = rpc.client.get_block_header(&current_block_hash).await?;
-        db.set_chain_head(
-            None,
-            current_block_hash,
-            current_block_header.prev_blockhash,
-            current_height,
-        )
-        .await?;
+        if db.get_max_height(None).await?.is_none() {
+            let current_height = rpc.client.get_block_count().await?;
+            let current_block_info = get_block_info_from_height(&rpc, current_height).await?;
+            db.set_chain_head(None, &current_block_info).await?;
+        }
 
         // Store sender in a variable to keep it alive
-        let (sender, _handle) =
-            chain_head::start_polling(db.clone(), rpc.clone(), Duration::from_secs(1))?;
+        let (sender, _handle) = bitcoin_syncer::start_bitcoin_syncer(
+            db.clone(),
+            rpc.clone(),
+            Duration::from_secs(1),
+            BitcoinSyncerPollingMode::SyncOnly,
+        )
+        .await?;
 
         let mut receiver = sender.subscribe();
 
@@ -68,7 +68,7 @@ impl Operator {
         let tx_sender_clone = tx_sender.clone();
         tokio::spawn(async move {
             tx_sender_clone
-                .apply_new_chain_event(&mut receiver)
+                .bitcoin_syncer_event_handler(&mut receiver)
                 .await
                 .expect("Failed to apply new chain event");
         });
@@ -87,21 +87,6 @@ impl Operator {
         if config.operator_withdrawal_fee_sats.is_none() {
             return Err(BridgeError::OperatorWithdrawalFeeNotSet);
         }
-
-        // let mut tx = db.begin_transaction().await?;
-        // // check if funding utxo is already set
-        // if db.get_funding_utxo(Some(&mut tx)).await?.is_none() {
-        //     let outpoint = rpc.send_to_address(&signer.address, Amount::from_sat(200_000_000))?; // TODO: Is this OK to be a fixed value
-        //     let funding_utxo = UTXO {
-        //         outpoint,
-        //         txout: TxOut {
-        //             value: bitcoin::Amount::from_sat(200_000_000),
-        //             script_pubkey: signer.address.script_pubkey(),
-        //         },
-        //     };
-        //     db.set_funding_utxo(Some(&mut tx), funding_utxo).await?;
-        // }
-        // tx.commit().await?;
 
         let mut tx = db.begin_transaction().await?;
         // check if there is any sequential collateral tx from the current operator

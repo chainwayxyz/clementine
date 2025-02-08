@@ -205,9 +205,9 @@ create table if not exists fee_payer_utxos (
     created_at timestamp not null default now()
 );
 
-create table if not exists tx_sender_block_info (
-    block_hash text not null primary key,
-    prev_block_hash text not null,
+create table if not exists bitcoin_syncer (
+    blockhash bytea not null primary key,
+    prev_blockhash bytea not null,
     height bigint not null
 );
 

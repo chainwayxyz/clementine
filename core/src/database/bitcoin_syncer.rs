@@ -1,58 +1,35 @@
-use super::{Database, DatabaseTransaction};
-use crate::{errors::BridgeError, execute_query_with_tx};
+use super::{wrapper::BlockHashDB, Database, DatabaseTransaction};
+use crate::{bitcoin_syncer::BlockInfo, errors::BridgeError, execute_query_with_tx};
 use bitcoin::BlockHash;
 use std::str::FromStr;
-
-// pub async fn set_tx_sender_chain_head(
-//     &self,
-//     tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
-//     block_hash: BlockHash,
-//     height: u64,
-// ) -> Result<(BlockHash, u64), BridgeError> {
-//     sqlx::query("DELETE FROM tx_sender_block_info")
-//         .execute(tx.deref_mut())
-//         .await?;
-//     sqlx::query("INSERT INTO tx_sender_block_info (block_hash, height) VALUES ($1, $2)")
-//         .bind(block_hash.to_string())
-//         .bind(height as i64)
-//         .execute(tx.deref_mut())
-//         .await?;
-//     Ok((block_hash, height))
-// }
-
-// pub async fn get_tx_sender_chain_head(&self) -> Result<Option<(BlockHash, u64)>, BridgeError> {
-//     let mut tx = self.begin_transaction().await?;
-//     let ret: Option<(String, i64)> =
-//         sqlx::query_as("SELECT block_hash, height FROM tx_sender_block_info LIMIT 1")
-//             .fetch_optional(tx.deref_mut())
-//             .await?;
-//     if let Some((block_hash, height)) = ret {
-//         let block_hash = BlockHash::from_str(&block_hash)?;
-//         let height = height as u64;
-//         Ok(Some((block_hash, height)))
-//     } else {
-//         Ok(None)
-//     }
-// }
 
 impl Database {
     pub async fn set_chain_head(
         &self,
         tx: Option<DatabaseTransaction<'_, '_>>,
-        block_hash: BlockHash,
-        prev_block_hash: BlockHash,
-        height: u64,
+        block_info: &BlockInfo,
     ) -> Result<(), BridgeError> {
         let query = sqlx::query(
-            "INSERT INTO tx_sender_block_info (block_hash, prev_block_hash, height) VALUES ($1, $2, $3)",
+            "INSERT INTO bitcoin_syncer (blockhash, prev_blockhash, height) VALUES ($1, $2, $3)",
         )
-        .bind(block_hash.to_string())
-        .bind(prev_block_hash.to_string())
-        .bind(height as i64);
+        .bind(BlockHashDB(block_info.block_hash))
+        .bind(BlockHashDB(block_info.block_header.prev_blockhash))
+        .bind(block_info.block_height as i64);
 
         execute_query_with_tx!(self.connection, tx, query, execute)?;
 
         Ok(())
+    }
+
+    pub async fn get_max_height(
+        &self,
+        tx: Option<DatabaseTransaction<'_, '_>>,
+    ) -> Result<Option<u64>, BridgeError> {
+        let query =
+            sqlx::query_as("SELECT height FROM bitcoin_syncer ORDER BY height DESC LIMIT 1");
+        let result: Option<(i64,)> =
+            execute_query_with_tx!(self.connection, tx, query, fetch_optional)?;
+        Ok(result.map(|(height,)| height as u64))
     }
 
     /// Gets the height from the block hash.
