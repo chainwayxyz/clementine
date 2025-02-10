@@ -1,4 +1,7 @@
 use crate::actor::Actor;
+use crate::builder::address::{
+    derive_challenge_address_from_xonlypk_and_wpk, taproot_builder_with_scripts,
+};
 use crate::builder::transaction::{TxHandler, Unsigned};
 use crate::builder::{self};
 use crate::config::BridgeConfig;
@@ -6,9 +9,19 @@ use crate::database::Database;
 use crate::errors::BridgeError;
 use crate::extended_rpc::ExtendedRpc;
 use crate::musig2::AggregateFromPublicKeys;
+use crate::utils::{self, BITVM_CACHE};
 use crate::UTXO;
 use ::secp256k1::musig::MusigSecNonce;
-use bitcoin::{secp256k1, OutPoint};
+use bitcoin::hashes::Hash;
+use bitcoin::{
+    secp256k1::{self, PublicKey},
+    OutPoint,
+};
+use bitcoin::{Address, ScriptBuf, Txid, XOnlyPublicKey};
+use bitvm::signatures::signing_winternitz::{
+    generate_winternitz_checksig_leave_variable, WinternitzPublicKey,
+};
+use bitvm::signatures::winternitz;
 use std::collections::HashMap;
 use std::sync::Arc;
 
@@ -112,6 +125,237 @@ impl Verifier {
             nonces: Arc::new(tokio::sync::Mutex::new(all_sessions)),
             idx,
         })
+    }
+
+    pub async fn set_verifiers(
+        &self,
+        verifiers_public_keys: Vec<PublicKey>,
+    ) -> Result<(), BridgeError> {
+        // Check if verifiers are already set
+        if self.nofn.read().await.clone().is_some() {
+            return Err(BridgeError::AlreadyInitialized);
+        }
+
+        // Save verifiers public keys to db
+        self.db
+            .set_verifiers_public_keys(None, &verifiers_public_keys)
+            .await?;
+
+        // Save the nofn to memory for fast access
+        let nofn = NofN::new(self.signer.public_key, verifiers_public_keys.clone())?;
+        self.nofn.write().await.replace(nofn);
+
+        Ok(())
+    }
+
+    pub async fn set_operator(
+        &self,
+        operator_index: u32,
+        collateral_funding_txid: Txid,
+        operator_xonly_pk: XOnlyPublicKey,
+        wallet_reimburse_address: Address,
+        operator_winternitz_public_keys: Vec<winternitz::PublicKey>,
+        operators_challenge_ack_public_hashes: Vec<[u8; 20]>,
+    ) -> Result<(), BridgeError> {
+        // Save the operator details to the db
+        self.db
+            .set_operator(
+                None,
+                operator_index as i32,
+                operator_xonly_pk,
+                wallet_reimburse_address.to_string(),
+                collateral_funding_txid,
+            )
+            .await?;
+
+        self.db
+            .set_operator_winternitz_public_keys(
+                None,
+                operator_index,
+                operator_winternitz_public_keys.clone(),
+            )
+            .await?;
+
+        for i in 0..self.config.num_sequential_collateral_txs {
+            for j in 0..self.config.num_kickoffs_per_sequential_collateral_tx {
+                self.db
+                    .set_operator_challenge_ack_hashes(
+                        None,
+                        operator_index as i32,
+                        i as i32,
+                        j as i32,
+                        &operators_challenge_ack_public_hashes[self.config.num_watchtowers
+                            * (i * self.config.num_kickoffs_per_sequential_collateral_tx + j)
+                            ..self.config.num_watchtowers
+                                * (i * self.config.num_kickoffs_per_sequential_collateral_tx
+                                    + j
+                                    + 1)],
+                    )
+                    .await?;
+            }
+        }
+
+        // Split the winternitz public keys into chunks for every sequential collateral tx and kickoff index.
+        // This is done because we need to generate a separate BitVM setup for each collateral tx and kickoff index.
+        let chunk_size = BITVM_CACHE.intermediate_variables.len();
+        let winternitz_public_keys_chunks =
+            operator_winternitz_public_keys.chunks_exact(chunk_size);
+
+        // iterate over the chunks and generate precalculated BitVM Setups
+        for (chunk_idx, winternitz_public_keys) in winternitz_public_keys_chunks.enumerate() {
+            let sequential_collateral_tx_idx =
+                chunk_idx / self.config.num_kickoffs_per_sequential_collateral_tx;
+            let kickoff_idx = chunk_idx % self.config.num_kickoffs_per_sequential_collateral_tx;
+
+            let assert_tx_addrs = BITVM_CACHE
+                .intermediate_variables
+                .iter()
+                .enumerate()
+                .map(|(idx, (_intermediate_step, intermediate_step_size))| {
+                    let script = generate_winternitz_checksig_leave_variable(
+                        &WinternitzPublicKey {
+                            public_key: winternitz_public_keys[idx].clone(),
+                            parameters: winternitz::Parameters::new(
+                                *intermediate_step_size as u32 * 2,
+                                4,
+                            ),
+                        },
+                        *intermediate_step_size,
+                    )
+                    .compile();
+                    let (assert_tx_addr, _) = builder::address::create_taproot_address(
+                        &[script.clone()],
+                        None,
+                        self.config.network,
+                    );
+                    assert_tx_addr.script_pubkey()
+                })
+                .collect::<Vec<_>>();
+
+            // TODO: Use correct verification key and along with a dummy proof.
+            let scripts: Vec<ScriptBuf> = {
+                tracing::info!("Replacing disprove scripts");
+                utils::replace_disprove_scripts(winternitz_public_keys)
+                // let mut bridge_assigner = BridgeAssigner::new_watcher(commits_publickeys);
+                // let proof = RawProof::default();
+                // let segments = groth16_verify_to_segments(
+                //     &mut bridge_assigner,
+                //     &proof.public,
+                //     &proof.proof,
+                //     &proof.vk,
+                // );
+
+                // segments
+                //     .iter()
+                //     .map(|s| s.script.clone().compile())
+                //     .collect()
+                // vec![bitcoin::script::Builder::new()
+                //     .push_opcode(bitcoin::opcodes::all::OP_PUSHNUM_1)
+                //     .into_script()]
+            };
+
+            let taproot_builder = taproot_builder_with_scripts(&scripts);
+            let root_hash = taproot_builder
+                .try_into_taptree()
+                .expect("taproot builder always builds a full taptree")
+                .root_hash();
+            let root_hash_bytes = root_hash.to_raw_hash().to_byte_array();
+
+            // Save the public input wots to db along with the root hash
+            self.db
+                .set_bitvm_setup(
+                    None,
+                    operator_index as i32,
+                    sequential_collateral_tx_idx as i32,
+                    kickoff_idx as i32,
+                    assert_tx_addrs,
+                    &root_hash_bytes,
+                    vec![],
+                )
+                .await?;
+        }
+
+        Ok(())
+    }
+
+    pub async fn set_watchtower(
+        &self,
+        id: u32,
+        watchtower_winternitz_public_keys: Vec<winternitz::PublicKey>,
+        xonly_pk: XOnlyPublicKey,
+    ) -> Result<(), BridgeError> {
+        let &crate::config::BridgeConfig {
+            num_operators,
+            num_sequential_collateral_txs,
+            num_kickoffs_per_sequential_collateral_tx,
+            ..
+        } = &self.config;
+
+        let required_number_of_pubkeys = num_operators
+            * num_sequential_collateral_txs
+            * num_kickoffs_per_sequential_collateral_tx;
+        if watchtower_winternitz_public_keys.len() != required_number_of_pubkeys {
+            return Err(BridgeError::Error(format!(
+                "{} Winternitz public keys are required but only {} given!",
+                required_number_of_pubkeys,
+                watchtower_winternitz_public_keys.len(),
+            )));
+        }
+
+        tracing::info!("Verifier receives watchtower index: {:?}", id);
+        tracing::info!(
+            "Verifier receives watchtower xonly public key: {:?}",
+            xonly_pk
+        );
+
+        for operator_idx in 0..num_operators {
+            let index = operator_idx
+                * num_sequential_collateral_txs
+                * num_kickoffs_per_sequential_collateral_tx;
+            self.db
+                .set_watchtower_winternitz_public_keys(
+                    None,
+                    id,
+                    operator_idx as u32,
+                    watchtower_winternitz_public_keys[index
+                        ..index
+                            + num_sequential_collateral_txs
+                                * num_kickoffs_per_sequential_collateral_tx]
+                        .to_vec(),
+                )
+                .await?;
+
+            // For each saved winternitz public key, derive the challenge address
+            let mut watchtower_challenge_addresses = Vec::new();
+            for winternitz_pk in watchtower_winternitz_public_keys[index
+                ..index
+                    + self.config.num_sequential_collateral_txs
+                        * self.config.num_kickoffs_per_sequential_collateral_tx]
+                .iter()
+            {
+                let challenge_address = derive_challenge_address_from_xonlypk_and_wpk(
+                    &xonly_pk,
+                    winternitz_pk,
+                    self.config.network,
+                )
+                .script_pubkey();
+                watchtower_challenge_addresses.push(challenge_address);
+            }
+
+            // TODO: After precalculating challenge addresses, maybe remove saving winternitz public keys to db
+            self.db
+                .set_watchtower_challenge_addresses(
+                    None,
+                    id,
+                    operator_idx as u32,
+                    watchtower_challenge_addresses,
+                )
+                .await?;
+        }
+
+        self.db.set_watchtower_xonly_pk(None, id, &xonly_pk).await?;
+
+        Ok(())
     }
 
     // / Inform verifiers about the new deposit request

@@ -11,8 +11,6 @@ use crate::rpc::clementine::TaggedSignature;
 use crate::utils::SECP;
 use crate::{
     builder::{
-        self,
-        address::{derive_challenge_address_from_xonlypk_and_wpk, taproot_builder_with_scripts},
         sighash::{
             calculate_num_required_nofn_sigs, calculate_num_required_nofn_sigs_per_kickoff,
             calculate_num_required_operator_sigs, calculate_num_required_operator_sigs_per_kickoff,
@@ -25,16 +23,12 @@ use crate::{
     musig2::{self},
     rpc::parser::{self},
     utils::{self, BITVM_CACHE},
-    verifier::{NofN, NonceSession, Verifier},
+    verifier::{NonceSession, Verifier},
 };
 use bitcoin::{hashes::Hash, Amount, TapTweakHash, Txid};
 use bitcoin::{
     secp256k1::{Message, PublicKey},
-    ScriptBuf, XOnlyPublicKey,
-};
-use bitvm::signatures::{
-    signing_winternitz::{generate_winternitz_checksig_leave_variable, WinternitzPublicKey},
-    winternitz,
+    XOnlyPublicKey,
 };
 use futures::StreamExt;
 use secp256k1::musig::{MusigAggNonce, MusigPubNonce, MusigSecNonce};
@@ -55,28 +49,14 @@ impl ClementineVerifier for Verifier {
         Ok(Response::new(params))
     }
 
-    /// TODO: This function's contents can be fully moved in to core::verifier.
     #[tracing::instrument(skip(self), err(level = tracing::Level::ERROR), ret(level = tracing::Level::TRACE))]
     async fn set_verifiers(
         &self,
-        req: Request<VerifierPublicKeys>,
+        request: Request<VerifierPublicKeys>,
     ) -> Result<Response<Empty>, Status> {
-        // Check if verifiers are already set
-        if self.nofn.read().await.clone().is_some() {
-            return Err(Status::internal("Verifiers already set"));
-        }
+        let verifiers_public_keys: Vec<PublicKey> = request.into_inner().try_into()?;
 
-        let verifiers_public_keys: Vec<PublicKey> = req.into_inner().try_into()?;
-
-        let nofn = NofN::new(self.signer.public_key, verifiers_public_keys.clone())?;
-
-        // Save verifiers public keys to db
-        self.db
-            .set_verifiers_public_keys(None, &verifiers_public_keys)
-            .await?;
-
-        // Save the nofn to memory for fast access
-        self.nofn.write().await.replace(nofn);
+        self.set_verifiers(verifiers_public_keys).await?;
 
         Ok(Response::new(Empty {}))
     }
@@ -88,19 +68,8 @@ impl ClementineVerifier for Verifier {
     ) -> Result<Response<Empty>, Status> {
         let mut in_stream = req.into_inner();
 
-        let (operator_idx, collateral_funding_txid, operator_xonly_pk, wallet_reimburse_address) =
+        let (operator_index, collateral_funding_txid, operator_xonly_pk, wallet_reimburse_address) =
             parser::operator::parse_details(&mut in_stream).await?;
-
-        // Save the operator details to the db
-        self.db
-            .set_operator(
-                None,
-                operator_idx as i32,
-                operator_xonly_pk,
-                wallet_reimburse_address.to_string(),
-                collateral_funding_txid,
-            )
-            .await?;
 
         let mut operator_winternitz_public_keys = Vec::new();
         for _ in 0..self.config.num_kickoffs_per_sequential_collateral_tx
@@ -111,14 +80,6 @@ impl ClementineVerifier for Verifier {
                 .push(parser::operator::parse_winternitz_public_keys(&mut in_stream).await?);
         }
 
-        self.db
-            .set_operator_winternitz_public_keys(
-                None,
-                operator_idx,
-                operator_winternitz_public_keys.clone(),
-            )
-            .await?;
-
         let mut operators_challenge_ack_public_hashes = Vec::new();
         for _ in 0..self.config.num_sequential_collateral_txs
             * self.config.num_kickoffs_per_sequential_collateral_tx
@@ -128,103 +89,15 @@ impl ClementineVerifier for Verifier {
                 .push(parser::operator::parse_challenge_ack_public_hash(&mut in_stream).await?);
         }
 
-        for i in 0..self.config.num_sequential_collateral_txs {
-            for j in 0..self.config.num_kickoffs_per_sequential_collateral_tx {
-                self.db
-                    .set_operator_challenge_ack_hashes(
-                        None,
-                        operator_idx as i32,
-                        i as i32,
-                        j as i32,
-                        &operators_challenge_ack_public_hashes[self.config.num_watchtowers
-                            * (i * self.config.num_kickoffs_per_sequential_collateral_tx + j)
-                            ..self.config.num_watchtowers
-                                * (i * self.config.num_kickoffs_per_sequential_collateral_tx
-                                    + j
-                                    + 1)],
-                    )
-                    .await?;
-            }
-        }
-        // Split the winternitz public keys into chunks for every sequential collateral tx and kickoff index.
-        // This is done because we need to generate a separate BitVM setup for each collateral tx and kickoff index.
-        let chunk_size = BITVM_CACHE.intermediate_variables.len();
-        let winternitz_public_keys_chunks =
-            operator_winternitz_public_keys.chunks_exact(chunk_size);
-
-        // iterate over the chunks and generate precalculated BitVM Setups
-        for (chunk_idx, winternitz_public_keys) in winternitz_public_keys_chunks.enumerate() {
-            let sequential_collateral_tx_idx =
-                chunk_idx / self.config.num_kickoffs_per_sequential_collateral_tx;
-            let kickoff_idx = chunk_idx % self.config.num_kickoffs_per_sequential_collateral_tx;
-
-            let assert_tx_addrs = BITVM_CACHE
-                .intermediate_variables
-                .iter()
-                .enumerate()
-                .map(|(idx, (_intermediate_step, intermediate_step_size))| {
-                    let script = generate_winternitz_checksig_leave_variable(
-                        &WinternitzPublicKey {
-                            public_key: winternitz_public_keys[idx].clone(),
-                            parameters: winternitz::Parameters::new(
-                                *intermediate_step_size as u32 * 2,
-                                4,
-                            ),
-                        },
-                        *intermediate_step_size,
-                    )
-                    .compile();
-                    let (assert_tx_addr, _) = builder::address::create_taproot_address(
-                        &[script.clone()],
-                        None,
-                        self.config.network,
-                    );
-                    assert_tx_addr.script_pubkey()
-                })
-                .collect::<Vec<_>>();
-
-            // TODO: Use correct verification key and along with a dummy proof.
-            let scripts: Vec<ScriptBuf> = {
-                tracing::info!("Replacing disprove scripts");
-                utils::replace_disprove_scripts(winternitz_public_keys)
-                // let mut bridge_assigner = BridgeAssigner::new_watcher(commits_publickeys);
-                // let proof = RawProof::default();
-                // let segments = groth16_verify_to_segments(
-                //     &mut bridge_assigner,
-                //     &proof.public,
-                //     &proof.proof,
-                //     &proof.vk,
-                // );
-
-                // segments
-                //     .iter()
-                //     .map(|s| s.script.clone().compile())
-                //     .collect()
-                // vec![bitcoin::script::Builder::new()
-                //     .push_opcode(bitcoin::opcodes::all::OP_PUSHNUM_1)
-                //     .into_script()]
-            };
-
-            let taproot_builder = taproot_builder_with_scripts(&scripts);
-            let root_hash = taproot_builder
-                .try_into_taptree()
-                .expect("taproot builder always builds a full taptree")
-                .root_hash();
-            let root_hash_bytes = root_hash.to_raw_hash().to_byte_array();
-
-            // Save the public input wots to db along with the root hash
-            self.db
-                .set_bitvm_setup(
-                    None,
-                    operator_idx as i32,
-                    sequential_collateral_tx_idx as i32,
-                    kickoff_idx as i32,
-                    assert_tx_addrs,
-                    &root_hash_bytes,
-                    vec![],
-                )
-                .await?;
-        }
+        self.set_operator(
+            operator_index,
+            collateral_funding_txid,
+            operator_xonly_pk,
+            wallet_reimburse_address,
+            operator_winternitz_public_keys,
+            operators_challenge_ack_public_hashes,
+        )
+        .await?;
 
         Ok(Response::new(Empty {}))
     }
@@ -234,12 +107,6 @@ impl ClementineVerifier for Verifier {
         &self,
         request: Request<Streaming<WatchtowerParams>>,
     ) -> Result<Response<Empty>, Status> {
-        let &crate::config::BridgeConfig {
-            num_operators,
-            num_sequential_collateral_txs,
-            num_kickoffs_per_sequential_collateral_tx,
-            ..
-        } = &self.config;
         let mut in_stream = request.into_inner();
 
         let watchtower_id = parser::watchtower::parse_id(&mut in_stream).await?;
@@ -253,71 +120,9 @@ impl ClementineVerifier for Verifier {
                 .push(parser::watchtower::parse_winternitz_public_key(&mut in_stream).await?);
         }
 
-        let required_number_of_pubkeys = num_operators
-            * num_sequential_collateral_txs
-            * num_kickoffs_per_sequential_collateral_tx;
-        if watchtower_winternitz_public_keys.len() != required_number_of_pubkeys {
-            return Err(Status::invalid_argument(format!(
-                "Request has {} Winternitz public keys but it needs to be {}!",
-                watchtower_winternitz_public_keys.len(),
-                required_number_of_pubkeys
-            )));
-        }
-
         let xonly_pk = parser::watchtower::parse_xonly_pk(&mut in_stream).await?;
 
-        tracing::info!("Verifier receives watchtower index: {:?}", watchtower_id);
-        tracing::info!(
-            "Verifier receives watchtower xonly public key: {:?}",
-            xonly_pk
-        );
-        for operator_idx in 0..self.config.num_operators {
-            let index = operator_idx
-                * num_sequential_collateral_txs
-                * num_kickoffs_per_sequential_collateral_tx;
-            self.db
-                .set_watchtower_winternitz_public_keys(
-                    None,
-                    watchtower_id,
-                    operator_idx as u32,
-                    watchtower_winternitz_public_keys[index
-                        ..index
-                            + num_sequential_collateral_txs
-                                * num_kickoffs_per_sequential_collateral_tx]
-                        .to_vec(),
-                )
-                .await?;
-
-            // For each saved winternitz public key, derive the challenge address
-            let mut watchtower_challenge_addresses = Vec::new();
-            for winternitz_pk in watchtower_winternitz_public_keys[index
-                ..index
-                    + self.config.num_sequential_collateral_txs
-                        * self.config.num_kickoffs_per_sequential_collateral_tx]
-                .iter()
-            {
-                let challenge_address = derive_challenge_address_from_xonlypk_and_wpk(
-                    &xonly_pk,
-                    winternitz_pk,
-                    self.config.network,
-                )
-                .script_pubkey();
-                watchtower_challenge_addresses.push(challenge_address);
-            }
-
-            // TODO: After precalculating challenge addresses, maybe remove saving winternitz public keys to db
-            self.db
-                .set_watchtower_challenge_addresses(
-                    None,
-                    watchtower_id,
-                    operator_idx as u32,
-                    watchtower_challenge_addresses,
-                )
-                .await?;
-        }
-
-        self.db
-            .set_watchtower_xonly_pk(None, watchtower_id, &xonly_pk)
+        self.set_watchtower(watchtower_id, watchtower_winternitz_public_keys, xonly_pk)
             .await?;
 
         Ok(Response::new(Empty {}))
