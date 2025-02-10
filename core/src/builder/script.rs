@@ -764,7 +764,7 @@ mod tests {
         );
 
         signer
-            .tx_sign_preimage(&mut tx, preimage.to_vec())
+            .tx_sign_preimage(&mut tx, preimage)
             .expect("failed to sign preimage reveal");
 
         let final_tx = tx
