@@ -426,6 +426,7 @@ mod tests {
         Ok(tx)
     }
     #[tokio::test]
+    #[serial_test::serial]
     async fn test_create_fee_payer_tx() {
         let (tx_sender, rpc, _db, signer, network) = create_test_tx_sender().await;
 
