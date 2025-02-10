@@ -399,5 +399,4 @@ impl TxHandlerBuilder {
     pub fn finalize_signed(self) -> Result<TxHandler<Signed>, BridgeError> {
         self.finalize().promote()
     }
-
 }
