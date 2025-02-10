@@ -13,16 +13,8 @@ pub(crate) fn input_ended_prematurely() -> Status {
     Status::invalid_argument("Input stream ended prematurely")
 }
 
-pub(crate) fn _sighash_stream_ended_prematurely() -> Status {
-    Status::internal("Sighash stream ended prematurely")
-}
-
 pub(crate) fn output_stream_ended_prematurely() -> Status {
     Status::internal("Output stream ended prematurely".to_string())
-}
-
-pub(crate) fn _sighash_stream_failed(msg: Status) -> Status {
-    Status::internal(format!("Sighash stream failed: {msg}"))
 }
 
 pub(crate) fn invalid_argument<'a, T: std::error::Error + Send + Sync + 'static + Display>(
