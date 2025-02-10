@@ -2,7 +2,10 @@
 //!
 //! This module includes database functions which are mainly used by the transaction sender.
 
-use super::{Database, DatabaseTransaction};
+use super::{
+    wrapper::{ScriptBufDB, TxidDB},
+    Database, DatabaseTransaction,
+};
 use crate::{errors::BridgeError, execute_query_with_tx};
 use bitcoin::{Amount, ScriptBuf, Txid};
 use std::str::FromStr;
@@ -58,6 +61,45 @@ impl Database {
         execute_query_with_tx!(self.connection, tx, query, execute)?;
 
         Ok(())
+    }
+
+    /// Some fee payer txs may not hit onchain, so we need to bump fees of them.
+    /// These txs should not be confirmed and should not be replaced by other txs.
+    /// Replaced means that the tx was bumped and the replacement tx is in the database.
+    pub async fn get_bumpable_fee_payer_txs(
+        &self,
+        tx: Option<DatabaseTransaction<'_, '_>>,
+        bumped_txid: Txid,
+    ) -> Result<Vec<(Txid, u32, Amount, ScriptBuf)>, BridgeError> {
+        let query = sqlx::query_as::<_, (TxidDB, i32, i64, ScriptBufDB)>(
+            "
+            SELECT fee_payer_txid, vout, amount, script_pubkey
+            FROM fee_payer_utxos fpu
+            WHERE fpu.bumped_txid = $1
+              AND fpu.is_confirmed = false
+              AND NOT EXISTS (
+                  SELECT 1
+                  FROM fee_payer_utxos replacement
+                  WHERE replacement.replacement_of_id = fpu.id
+              )
+            ",
+        )
+        .bind(super::wrapper::TxidDB(bumped_txid));
+
+        let results: Vec<(TxidDB, i32, i64, ScriptBufDB)> =
+            execute_query_with_tx!(self.connection, tx, query, fetch_all)?;
+
+        Ok(results
+            .iter()
+            .map(|(fee_payer_txid, vout, amount, script_pubkey)| {
+                (
+                    fee_payer_txid.0,
+                    *vout as u32,
+                    Amount::from_sat(*amount as u64),
+                    script_pubkey.0.clone(),
+                )
+            })
+            .collect())
     }
 
     /// Gets the fee payer transaction details by bumped_txid and script_pubkey.

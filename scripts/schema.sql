@@ -196,6 +196,7 @@ create table if not exists operators_challenge_ack_hashes (
 -- Table to store fee payer UTXOs
 create table if not exists fee_payer_utxos (
     id serial primary key,
+    replacement_of_id int references fee_payer_utxos(id),
     bumped_txid text not null check (bumped_txid ~ '^[a-fA-F0-9]{64}'),
     fee_payer_txid text not null check (fee_payer_txid ~ '^[a-fA-F0-9]{64}'),
     vout int not null,

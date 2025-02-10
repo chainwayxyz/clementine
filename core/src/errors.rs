@@ -269,6 +269,12 @@ pub enum BridgeError {
 
     #[error("P2A anchor output not found in transaction")]
     P2AAnchorNotFound,
+
+    #[error("Arithmetic overflow")]
+    Overflow,
+
+    #[error("Insufficient fee payer amount")]
+    InsufficientFeePayerAmount,
 }
 
 impl From<BridgeError> for ErrorObject<'static> {

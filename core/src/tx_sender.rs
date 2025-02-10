@@ -1,4 +1,6 @@
-use bitcoin::{transaction::Version, Address, Amount, OutPoint, Transaction, TxOut, Txid, Weight};
+use bitcoin::{
+    transaction::Version, Address, Amount, FeeRate, OutPoint, Transaction, TxOut, Txid, Weight,
+};
 use bitcoincore_rpc::{json::EstimateMode, RpcApi};
 use tokio::sync::broadcast::Receiver;
 
@@ -36,7 +38,7 @@ impl TxSender {
         }
     }
 
-    pub async fn get_fee_rate(&self) -> Result<Amount, BridgeError> {
+    pub async fn get_fee_rate(&self) -> Result<FeeRate, BridgeError> {
         let fee_rate = self
             .rpc
             .client
@@ -44,14 +46,14 @@ impl TxSender {
             .await;
 
         if fee_rate.is_err() {
-            return Ok(Amount::from_sat(1));
+            return Ok(FeeRate::from_sat_per_vb_unchecked(1));
         }
 
         let fee_rate = fee_rate?;
         if fee_rate.errors.is_some() {
             if self.network == bitcoin::Network::Regtest {
                 tracing::error!("Fee estimation errors: {:?}", fee_rate.errors);
-                Ok(Amount::from_sat(1))
+                Ok(FeeRate::from_sat_per_vb_unchecked(1))
             } else {
                 Err(BridgeError::FeeEstimationError(
                     fee_rate
@@ -60,9 +62,12 @@ impl TxSender {
                 ))
             }
         } else {
-            Ok(fee_rate
-                .fee_rate
-                .expect("Fee rate should be present when no errors"))
+            Ok(FeeRate::from_sat_per_kwu(
+                fee_rate
+                    .fee_rate
+                    .expect("Fee rate should be present when no errors")
+                    .to_sat(),
+            ))
         }
     }
 
@@ -70,10 +75,12 @@ impl TxSender {
     pub fn calculate_required_amount_for_fee_payer(
         &self,
         bumped_tx_size: Weight,
-        fee_rate: Amount,
+        fee_rate: FeeRate,
     ) -> Result<Amount, BridgeError> {
-        let required_amount = fee_rate * 3 * bumped_tx_size.to_wu();
-        Ok(required_amount)
+        let required_fee = fee_rate
+            .checked_mul_by_weight(bumped_tx_size)
+            .ok_or(BridgeError::Overflow)?;
+        Ok(required_fee * 3)
     }
 
     /// Uses trick in https://bitcoin.stackexchange.com/a/106204
@@ -179,19 +186,27 @@ impl TxSender {
     fn create_child_tx(
         &self,
         p2a_anchor: OutPoint,
-        fee_payer_outpoint: OutPoint,
-        fee_payer_amount: Amount,
+        fee_payer_utxos: Vec<SpendableTxIn>,
         parent_tx_size: Weight,
-        fee_rate: Amount,
+        fee_rate: FeeRate,
+        change_address: Address,
     ) -> Result<Transaction, BridgeError> {
-        let (address, spend_info) = builder::address::create_taproot_address(
-            &[],
-            Some(self.signer.xonly_public_key),
-            self.network,
-        );
+        let child_tx_size = Weight::from_wu_usize(230 * fee_payer_utxos.len() + 200); // TODO: Fix this 200 constant, it should be p2a anchor size + change output size.
+        let total_weight = child_tx_size + parent_tx_size;
+        let required_fee = fee_rate
+            .checked_mul_by_weight(total_weight)
+            .ok_or(BridgeError::Overflow)?;
 
-        let child_tx_size = Amount::from_sat(300); // TODO: Fix this.
-        let required_fee = fee_rate * (child_tx_size.to_sat() + parent_tx_size.to_wu());
+        let total_fee_payer_amount = fee_payer_utxos
+            .iter()
+            .map(|utxo| utxo.get_prevout().value)
+            .sum::<Amount>()
+            + builder::transaction::anchor_output().value; // We add the anchor output value to the total amount.
+
+        if change_address.script_pubkey().minimal_non_dust() + required_fee > total_fee_payer_amount
+        {
+            return Err(BridgeError::InsufficientFeePayerAmount);
+        }
 
         let mut builder = TxHandlerBuilder::new()
             .with_version(Version::non_standard(3))
@@ -200,50 +215,50 @@ impl TxSender {
                 SpendableTxIn::new_partial(p2a_anchor, builder::transaction::anchor_output()),
                 SpendPath::Unknown,
                 DEFAULT_SEQUENCE,
-            )
-            .add_input(
+            );
+
+        for fee_payer_utxo in fee_payer_utxos {
+            builder = builder.add_input(
                 NormalSignatureKind::NotStored,
-                SpendableTxIn::new(
-                    fee_payer_outpoint,
-                    TxOut {
-                        value: fee_payer_amount,
-                        script_pubkey: address.script_pubkey(),
-                    },
-                    vec![],
-                    Some(spend_info),
-                ),
+                fee_payer_utxo,
                 SpendPath::KeySpend,
                 DEFAULT_SEQUENCE,
-            )
-            .add_output(UnspentTxOut::from_partial(TxOut {
-                value: fee_payer_amount - required_fee,
-                script_pubkey: address.script_pubkey(), // TODO: This should be the wallet address, not the signer address
-            }))
-            .finalize();
+            );
+        }
 
-        let sighash = builder.calculate_pubkey_spend_sighash(1, None)?;
+        builder = builder.add_output(UnspentTxOut::from_partial(TxOut {
+            value: total_fee_payer_amount - required_fee,
+            script_pubkey: change_address.script_pubkey(),
+        }));
+
+        let mut tx_handler = builder.finalize();
+
+        let sighash = tx_handler.calculate_pubkey_spend_sighash(1, None)?;
         let signature = self.signer.sign_with_tweak(sighash, None)?;
-        builder.set_p2tr_key_spend_witness(
+        tx_handler.set_p2tr_key_spend_witness(
             &bitcoin::taproot::Signature {
                 signature,
                 sighash_type: bitcoin::TapSighashType::Default,
             },
             1,
         )?;
-        let child_tx = builder.get_cached_tx().clone();
-        let child_tx_size = child_tx.weight().to_wu();
-        tracing::info!("Child tx size: {}", child_tx_size);
-        Ok(builder.get_cached_tx().clone())
+        let child_tx = tx_handler.get_cached_tx().clone();
+        Ok(child_tx)
     }
 
-    fn find_p2a_anchor(&self, tx: &Transaction) -> Result<OutPoint, BridgeError> {
+    fn is_p2a_anchor(&self, output: &TxOut) -> bool {
+        output.value == builder::transaction::anchor_output().value
+            && output.script_pubkey == builder::transaction::anchor_output().script_pubkey
+    }
+
+    fn find_p2a_vout(&self, tx: &Transaction) -> Result<usize, BridgeError> {
         let p2a_anchor = tx
             .output
             .iter()
             .enumerate()
-            .find(|(_, output)| output.value == builder::transaction::anchor_output().value);
+            .find(|(_, output)| self.is_p2a_anchor(output));
         if let Some((vout, _)) = p2a_anchor {
-            Ok(OutPoint::new(tx.compute_txid(), vout as u32))
+            Ok(vout)
         } else {
             Err(BridgeError::P2AAnchorNotFound)
         }
@@ -252,6 +267,7 @@ impl TxSender {
     /// This will just persist the raw tx to the db
     pub async fn send_tx_with_cpfp(&self, tx: Transaction) -> Result<(), BridgeError> {
         let bumped_txid = tx.compute_txid();
+        let p2a_vout = self.find_p2a_vout(&tx)?;
         tracing::info!(
             "Bumped txid: {} and script pubkey: {}",
             bumped_txid,
@@ -266,25 +282,45 @@ impl TxSender {
             return Err(BridgeError::FeePayerTxNotFound);
         }
 
+        // Persist the tx to the db
+        // self.db.save_tx(None, bumped_txid, tx).await?;
+
         // get confirmed fee payer tx
         let (fee_payer_txid, fee_payer_vout, fee_payer_amount, _) = fee_payer_txs
             .iter()
             .find(|(_, _, _, is_confirmed)| *is_confirmed)
             .ok_or(BridgeError::ConfirmedFeePayerTxNotFound)?;
 
-        let p2a_anchor = self.find_p2a_anchor(&tx)?;
         let fee_rate = self.get_fee_rate().await?;
 
         // Now create the raw tx.
         let child_tx = self.create_child_tx(
-            p2a_anchor,
             OutPoint {
-                txid: *fee_payer_txid,
-                vout: *fee_payer_vout,
+                txid: bumped_txid,
+                vout: p2a_vout as u32,
             },
-            *fee_payer_amount,
+            vec![SpendableTxIn::new(
+                OutPoint {
+                    txid: *fee_payer_txid,
+                    vout: *fee_payer_vout,
+                },
+                TxOut {
+                    value: *fee_payer_amount,
+                    script_pubkey: self.signer.address.script_pubkey(),
+                },
+                vec![],
+                Some(
+                    builder::address::create_taproot_address(
+                        &[],
+                        Some(self.signer.xonly_public_key),
+                        self.network,
+                    )
+                    .1,
+                ),
+            )],
             tx.weight(),
             fee_rate,
+            self.signer.address.clone(),
         )?;
 
         tracing::info!(
@@ -294,6 +330,36 @@ impl TxSender {
         );
         let submit_package_result = self.rpc.client.submit_package(vec![&tx, &child_tx]).await?;
         tracing::info!("Submit package result: {:?}", submit_package_result);
+        Ok(())
+    }
+
+    pub async fn bump_fees_of_fee_payer_txs(
+        &self,
+        bumped_txid: Txid,
+        fee_rate: FeeRate,
+    ) -> Result<(), BridgeError> {
+        let bumpable_fee_payer_txs = self
+            .db
+            .get_bumpable_fee_payer_txs(None, bumped_txid)
+            .await?;
+
+        for (fee_payer_txid, vout, amount, script_pubkey) in bumpable_fee_payer_txs {
+            let new_txid = self.rpc
+                .client
+                .bump_fee(
+                    &fee_payer_txid,
+                    Some(&bitcoincore_rpc::json::BumpFeeOptions {
+                        fee_rate: Some(bitcoincore_rpc::json::FeeRate::per_vbyte(
+                            Amount::from_sat(fee_rate.to_sat_per_vb_ceil()),
+                        )),
+                        ..Default::default()
+                    }),
+                )
+                .await?;
+
+            // TODO: Save the new txid to the db
+        }
+
         Ok(())
     }
 
