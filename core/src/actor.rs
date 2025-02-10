@@ -235,7 +235,7 @@ impl Actor {
         Ok(())
     }
 
-    pub fn sign_one_preimage_reveal(
+    pub fn tx_sign_preimage(
         &self,
         txhandler: &mut TxHandler,
         data: impl AsRef<[u8]>,
@@ -300,7 +300,7 @@ impl Actor {
         txhandler.sign_txins(signer)?;
         Ok(())
     }
-    pub fn sign_one_winternitz(
+    pub fn tx_sign_winternitz(
         &self,
         txhandler: &mut TxHandler,
         data: &Vec<u8>,
@@ -329,12 +329,6 @@ impl Actor {
                         use crate::builder::script::ScriptKind as Kind;
 
                         let mut witness = match script.kind() {
-                            Kind::PreimageRevealScript(script) => {
-                                if script.0 != self.xonly_public_key {
-                                    return Err(BridgeError::NotOwnedScriptPath);
-                                }
-                                script.generate_script_inputs(data, &self.sign(calc_sighash()?))
-                            }
                             Kind::WinternitzCommit(script) => {
                                 if script.1 != self.xonly_public_key {
                                     return Err(BridgeError::NotOwnedScriptPath);
@@ -345,7 +339,8 @@ impl Actor {
                                     &self.sign(calc_sighash()?),
                                 )
                             }
-                            Kind::CheckSig(_)
+                            Kind::PreimageRevealScript(_)
+                            | Kind::CheckSig(_)
                             | Kind::Other(_)
                             | Kind::DepositScript(_)
                             | Kind::TimelockScript(_)
@@ -375,7 +370,7 @@ impl Actor {
         Ok(())
     }
 
-    pub fn partial_sign(
+    pub fn tx_sign_and_fill_sigs(
         &self,
         txhandler: &mut TxHandler,
         signatures: &[TaggedSignature],
@@ -597,7 +592,7 @@ mod tests {
 
         // Actor signs the key spend input.
         actor
-            .partial_sign(&mut txhandler, &[])
+            .tx_sign_and_fill_sigs(&mut txhandler, &[])
             .expect("Key spend signature should succeed");
 
         // Retrieve the cached transaction from the txhandler.
@@ -617,7 +612,7 @@ mod tests {
         // Using an empty signature slice since our dummy CheckSig uses actor signature.
         let signatures: Vec<_> = vec![];
         actor
-            .partial_sign(&mut txhandler, &signatures)
+            .tx_sign_and_fill_sigs(&mut txhandler, &signatures)
             .expect("Script spend partial sign should succeed");
 
         // Retrieve the cached transaction.
@@ -637,7 +632,7 @@ mod tests {
         // Using an empty signature slice since our dummy CheckSig uses actor signature.
         let signatures: Vec<_> = vec![];
         actor
-            .partial_sign(&mut txhandler, &signatures)
+            .tx_sign_and_fill_sigs(&mut txhandler, &signatures)
             .expect("Script spend partial sign should succeed");
 
         // Retrieve the cached transaction.

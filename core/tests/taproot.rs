@@ -84,7 +84,7 @@ async fn create_address_and_transaction_then_sign_transaction() {
     );
 
     signer
-        .partial_sign(&mut tx_handler, &[])
+        .tx_sign_and_fill_sigs(&mut tx_handler, &[])
         .expect("failed to sign transaction");
 
     rpc.mine_blocks(1).await.unwrap();

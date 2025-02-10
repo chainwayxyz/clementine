@@ -603,7 +603,7 @@ mod tests {
         );
 
         signer
-            .partial_sign(&mut tx, &[])
+            .tx_sign_and_fill_sigs(&mut tx, &[])
             .expect("should be able to sign checksig");
         let tx = tx
             .promote()
@@ -666,7 +666,7 @@ mod tests {
         let mut tx = builder.finalize();
 
         signer
-            .sign_one_winternitz(&mut tx, &vec![0; 32], derivation)
+            .tx_sign_winternitz(&mut tx, &vec![0; 32], derivation)
             .expect("failed to partially sign commitments");
 
         let tx = tx
@@ -713,7 +713,7 @@ mod tests {
         );
 
         signer
-            .partial_sign(&mut tx, &[])
+            .tx_sign_and_fill_sigs(&mut tx, &[])
             .expect("should be able to sign timelock");
 
         rpc.client
@@ -764,7 +764,7 @@ mod tests {
         );
 
         signer
-            .sign_one_preimage_reveal(&mut tx, preimage.to_vec())
+            .tx_sign_preimage(&mut tx, preimage.to_vec())
             .expect("failed to sign preimage reveal");
 
         let final_tx = tx
@@ -814,7 +814,7 @@ mod tests {
         );
 
         signer
-            .partial_sign(&mut tx, &[])
+            .tx_sign_and_fill_sigs(&mut tx, &[])
             .expect("should be able to sign deposit");
 
         rpc.client
