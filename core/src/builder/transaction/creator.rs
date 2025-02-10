@@ -23,35 +23,81 @@ pub async fn create_txhandlers(
     operator_idx: usize,
     sequential_collateral_tx_idx: usize,
     kickoff_idx: usize,
+    prev_reimburse_generator: Option<&TxHandler>,
+    move_to_vault: Option<&TxHandler>, // to not generate them if they were already generated
 ) -> Result<HashMap<TransactionType, TxHandler>, BridgeError> {
     let mut txhandlers = HashMap::new();
     // Create move_tx handler. This is unique for each deposit tx.
-    let move_txhandler = builder::transaction::create_move_to_vault_txhandler(
-        deposit_outpoint,
-        evm_address,
-        &recovery_taproot_address,
-        nofn_xonly_pk,
-        config.user_takes_after,
-        config.bridge_amount_sats,
-        config.network,
-    )?;
+    let move_txhandler = match move_to_vault {
+        // TODO: do not clone
+        Some(move_to_vault) => move_to_vault.clone(),
+        None => builder::transaction::create_move_to_vault_txhandler(
+            deposit_outpoint,
+            evm_address,
+            &recovery_taproot_address,
+            nofn_xonly_pk,
+            config.user_takes_after,
+            config.bridge_amount_sats,
+            config.network,
+        )?,
+    };
     txhandlers.insert(move_txhandler.get_transaction_type(), move_txhandler);
+
     // Get operator details (for each operator, (X-Only Public Key, Address, Collateral Funding Txid))
     let (operator_xonly_pk, operator_reimburse_address, collateral_funding_txid) =
         db.get_operator(None, operator_idx as i32).await?;
 
-    // create nth sequential collateral tx and reimburse generator tx for the operator
     let (sequential_collateral_txhandler, reimburse_generator_txhandler) =
-        builder::transaction::create_seq_collat_reimburse_gen_nth_txhandler(
-            operator_xonly_pk,
-            collateral_funding_txid,
-            config.collateral_funding_amount,
-            config.timeout_block_count,
-            config.num_kickoffs_per_sequential_collateral_tx,
-            config.max_withdrawal_time_block_count,
-            config.network,
-            sequential_collateral_tx_idx,
-        )?;
+        match prev_reimburse_generator {
+            Some(prev_reimburse_generator) => {
+                let sequential_collateral_txhandler =
+                    builder::transaction::create_sequential_collateral_txhandler(
+                        operator_xonly_pk,
+                        *prev_reimburse_generator.get_txid(),
+                        prev_reimburse_generator
+                            .get_spendable_output(0)?
+                            .get_prevout()
+                            .value,
+                        config.timeout_block_count,
+                        config.max_withdrawal_time_block_count,
+                        config.num_kickoffs_per_sequential_collateral_tx,
+                        config.network,
+                    )?;
+
+                // Create the reimburse_generator_tx handler.
+                let reimburse_generator_txhandler =
+                    builder::transaction::create_reimburse_generator_txhandler(
+                        &sequential_collateral_txhandler,
+                        operator_xonly_pk,
+                        config.num_kickoffs_per_sequential_collateral_tx,
+                        config.max_withdrawal_time_block_count,
+                        config.network,
+                    )?;
+                (
+                    sequential_collateral_txhandler,
+                    reimburse_generator_txhandler,
+                )
+            }
+            None => {
+                // create nth sequential collateral tx and reimburse generator tx for the operator
+                let (sequential_collateral_txhandler, reimburse_generator_txhandler) =
+                    builder::transaction::create_seq_collat_reimburse_gen_nth_txhandler(
+                        operator_xonly_pk,
+                        collateral_funding_txid,
+                        config.collateral_funding_amount,
+                        config.timeout_block_count,
+                        config.num_kickoffs_per_sequential_collateral_tx,
+                        config.max_withdrawal_time_block_count,
+                        config.network,
+                        sequential_collateral_tx_idx,
+                    )?;
+                (
+                    sequential_collateral_txhandler,
+                    reimburse_generator_txhandler,
+                )
+            }
+        };
+
     txhandlers.insert(
         sequential_collateral_txhandler.get_transaction_type(),
         sequential_collateral_txhandler,
@@ -105,8 +151,7 @@ pub async fn create_txhandlers(
         transaction_type,
         TransactionType::StartHappyReimburse
             | TransactionType::Reimburse
-            | TransactionType::All
-            | TransactionType::AllNeededForDeposit
+            | TransactionType::AllNeededForVerifierDeposit
     ) {
         // Creates the start_happy_reimburse_tx handler.
         let start_happy_reimburse_txhandler =
@@ -142,7 +187,8 @@ pub async fn create_txhandlers(
         );
         if !matches!(
             transaction_type,
-            TransactionType::All | TransactionType::AllNeededForDeposit
+            TransactionType::AllNeededForOperatorDeposit
+                | TransactionType::AllNeededForVerifierDeposit
         ) {
             // We do not need other txhandlers, exit early
             return Ok(txhandlers);
@@ -152,8 +198,7 @@ pub async fn create_txhandlers(
     // Generate watchtower challenges (addresses from db) if all txs are needed
     if matches!(
         transaction_type,
-        TransactionType::AllNeededForDeposit
-            | TransactionType::All
+        TransactionType::AllNeededForVerifierDeposit
             | TransactionType::WatchtowerChallengeKickoff
             | TransactionType::WatchtowerChallenge(_)
             | TransactionType::OperatorChallengeNACK(_)
@@ -167,7 +212,7 @@ pub async fn create_txhandlers(
             };
 
         // Get all the watchtower challenge addresses for this operator. We have all of them here (for all the kickoff_utxos).
-        // TODO: Optimize: Make this only return for a specific kickoff
+        // Optimize: Make this only return for a specific kickoff, but its only 40mb (33bytes * 60000 (kickoff per op?) * 20 (watchtower count)
         let watchtower_all_challenge_addresses = (0..config.num_watchtowers)
             .map(|i| db.get_watchtower_challenge_addresses(None, i as u32, operator_idx as u32))
             .collect::<Vec<_>>();
@@ -287,26 +332,32 @@ pub async fn create_txhandlers(
                 operator_challenge_nack_txhandler,
             );
 
-            let operator_challenge_ack_txhandler =
-                builder::transaction::create_operator_challenge_ack_txhandler(
-                    txhandlers
-                        .get(&TransactionType::WatchtowerChallenge(watchtower_idx))
-                        .ok_or(BridgeError::TxHandlerNotFound)?,
-                    watchtower_idx,
-                )?;
-            txhandlers.insert(
-                operator_challenge_ack_txhandler.get_transaction_type(),
-                operator_challenge_ack_txhandler,
-            );
+            if let TransactionType::OperatorChallengeACK(index) = transaction_type {
+                // only create this if we specifically want to generate the Operator Challenge ACK tx
+                if index == watchtower_idx {
+                    let operator_challenge_ack_txhandler =
+                        builder::transaction::create_operator_challenge_ack_txhandler(
+                            txhandlers
+                                .get(&TransactionType::WatchtowerChallenge(watchtower_idx))
+                                .ok_or(BridgeError::TxHandlerNotFound)?,
+                            watchtower_idx,
+                        )?;
+
+                    txhandlers.insert(
+                        operator_challenge_ack_txhandler.get_transaction_type(),
+                        operator_challenge_ack_txhandler,
+                    );
+                }
+            }
         }
-        if !matches!(
-            transaction_type,
-            TransactionType::All | TransactionType::AllNeededForDeposit
-        ) {
+        if transaction_type != TransactionType::AllNeededForVerifierDeposit {
             // We do not need other txhandlers, exit early
             return Ok(txhandlers);
         }
     }
+
+    // If we didn't return until this part, generate remaining assert/disprove tx's
+
     if matches!(
         transaction_type,
         TransactionType::AssertBegin | TransactionType::AssertEnd | TransactionType::MiniAssert(_)
@@ -485,10 +536,26 @@ pub async fn create_txhandlers(
         reimburse_txhandler,
     );
 
-    // TODO: Disprove TX is not included rn (We need actual disprove script we will use for Disprove TX)
+    match transaction_type {
+        TransactionType::AllNeededForOperatorDeposit => {
+            let disprove_txhandler = builder::transaction::create_disprove_txhandler(
+                txhandlers
+                    .get(&TransactionType::AssertEnd)
+                    .ok_or(BridgeError::TxHandlerNotFound)?,
+                txhandlers
+                    .get(&TransactionType::SequentialCollateral)
+                    .ok_or(BridgeError::TxHandlerNotFound)?,
+            )?;
+            txhandlers.insert(
+                disprove_txhandler.get_transaction_type(),
+                disprove_txhandler,
+            );
+        }
+        TransactionType::Disprove => {
+            // TODO: if transactiontype::disprove, we need to add the actual disprove script here because requester wants to disprove the withdrawal
+        }
+        _ => {}
+    }
 
     Ok(txhandlers)
 }
-
-#[cfg(test)]
-mod tests {}

@@ -58,9 +58,9 @@ pub enum TransactionType {
     DisproveTimeout,
     AlreadyDisproved,
     Reimburse,
-    AllNeededForDeposit, // this will include all tx's that is needed for a deposit
-    All, // this will also include tx's not needed for a deposit, for example OperatorChallengeACK
-    Dummy, // for tests
+    AllNeededForVerifierDeposit, // this will include all tx's that is to be signed for a deposit for verifiers
+    AllNeededForOperatorDeposit, // this will include all tx's that is to be signed for a deposit for operators
+    Dummy,                       // for tests
 }
 
 /// Creates a P2WSH output that anyone can spend. TODO: We will not need this in the future.
