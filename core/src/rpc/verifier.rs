@@ -34,7 +34,7 @@ use bitcoin::{
     secp256k1::{Message, PublicKey},
     ScriptBuf, XOnlyPublicKey,
 };
-use bitvm::signatures::{signing_winternitz::WinternitzPublicKey, winternitz};
+use bitvm::signatures::winternitz;
 use futures::StreamExt;
 use secp256k1::musig::{MusigAggNonce, MusigPubNonce, MusigSecNonce};
 use std::pin::pin;

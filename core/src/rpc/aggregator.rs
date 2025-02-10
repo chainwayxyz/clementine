@@ -25,7 +25,7 @@ use crate::{
 use bitcoin::hashes::Hash;
 use bitcoin::secp256k1::schnorr::Signature;
 use bitcoin::secp256k1::{Message, PublicKey};
-use bitcoin::{Amount, TapSighash};
+use bitcoin::TapSighash;
 use futures::{
     future::try_join_all,
     stream::{BoxStream, TryStreamExt},

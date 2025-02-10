@@ -1,5 +1,5 @@
 use crate::builder;
-use crate::builder::script::{TimelockScript, WinternitzCommit};
+use crate::builder::script::{SpendableScript, TimelockScript, WinternitzCommit};
 pub use crate::builder::transaction::txhandler::TxHandler;
 pub use crate::builder::transaction::*;
 use crate::constants::{BLOCKS_PER_WEEK, MIN_TAPROOT_AMOUNT, PARALLEL_ASSERT_TX_CHAIN_SIZE};

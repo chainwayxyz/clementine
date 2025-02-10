@@ -459,7 +459,7 @@ macro_rules! generate_withdrawal_transaction_and_signature {
         };
         let txout = builder::transaction::output::UnspentTxOut::from_partial(txout.clone());
 
-        let tx = builder::transaction::TxHandlerBuilder::new()
+        let tx = builder::transaction::TxHandlerBuilder::new(TransactionType::Payout)
             .add_input(
                 NormalSignatureKind::NotStored,
                 txin,

@@ -1,7 +1,7 @@
 use super::input::SpendableTxIn;
 use super::txhandler::DEFAULT_SEQUENCE;
-use super::TransactionType;
 use super::Signed;
+use super::TransactionType;
 use crate::builder::script::{CheckSig, SpendableScript, TimelockScript, WithdrawalScript};
 use crate::builder::transaction::output::UnspentTxOut;
 use crate::builder::transaction::txhandler::{TxHandler, TxHandlerBuilder};
@@ -229,7 +229,7 @@ pub fn create_payout_txhandler(
         vec![Arc::new(WithdrawalScript::new(operator_idx))];
     let op_return_txout = UnspentTxOut::from_scripts(Amount::from_sat(0), scripts, None, network);
 
-    TxHandlerBuilder::new()
+    TxHandlerBuilder::new(TransactionType::Payout)
         .add_input_with_witness(txin, DEFAULT_SEQUENCE, witness)
         .add_output(output_txout)
         .add_output(op_return_txout)

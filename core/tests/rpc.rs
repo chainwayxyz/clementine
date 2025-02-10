@@ -4,6 +4,7 @@
 
 use bitcoin::{secp256k1::SecretKey, Address, Amount};
 use clementine_core::builder::script::SpendPath;
+use clementine_core::builder::transaction::TransactionType;
 use clementine_core::rpc::clementine::NewWithdrawalSigParams;
 use clementine_core::rpc::clementine::NormalSignatureKind;
 use clementine_core::{actor::Actor, builder, UTXO};

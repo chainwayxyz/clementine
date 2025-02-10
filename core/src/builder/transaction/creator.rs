@@ -368,9 +368,10 @@ pub async fn create_txhandlers(
             config.winternitz_secret_key,
             config.network,
         );
-        let mut assert_scripts = Vec::with_capacity(utils::ALL_BITVM_INTERMEDIATE_VARIABLES.len());
+        let mut assert_scripts =
+            Vec::with_capacity(utils::BITVM_CACHE.intermediate_variables.len());
         for (intermediate_step, intermediate_step_size) in
-            utils::ALL_BITVM_INTERMEDIATE_VARIABLES.iter()
+            utils::BITVM_CACHE.intermediate_variables.iter()
         {
             let params = winternitz::Parameters::new(*intermediate_step_size as u32 * 2, 4);
             let path = WinternitzDerivationPath {

@@ -61,7 +61,6 @@ impl<T: State> TxHandler<T> {
     pub fn get_transaction_type(&self) -> TransactionType {
         self.transaction_type
     }
-}
 
     pub fn get_cached_tx(&self) -> &Transaction {
         &self.cached_tx
