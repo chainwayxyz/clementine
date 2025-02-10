@@ -66,10 +66,62 @@ impl<T: State> TxHandler<T> {
         &self.cached_txid
     }
 
+    fn get_sighash_calculator(
+        &self,
+        idx: usize,
+    ) -> impl FnOnce() -> Result<TapSighash, BridgeError> + '_ {
+        move || -> Result<TapSighash, BridgeError> {
+            match self.txins[idx].get_spend_path() {
+                SpendPath::KeySpend => {
+                    self.calculate_pubkey_spend_sighash(idx, TapSighashType::Default)
+                }
+                SpendPath::ScriptSpend(script_idx) => self.calculate_script_spend_sighash_indexed(
+                    idx,
+                    script_idx,
+                    TapSighashType::Default,
+                ),
+                SpendPath::Unknown => Err(BridgeError::SpendPathNotSpecified),
+            }
+        }
+    }
+
+    /// Signs all **unsigned** transaction inputs using the provided signer function.
+    ///
+    /// This function will skip all transaction inputs that already have a witness.
+    ///
+    /// # Parameters
+    /// * `signer` - A function that returns an optional witness for transaction inputs or returns an error
+    ///   if the signing fails. The function takes the input idx, input object, and a sighash calculator closure.
+    ///
+    /// # Returns
+    /// * `Ok(())` if signing is successful
+    /// * `Err(BridgeError)` if signing fails
+    pub fn sign_txins(
+        &mut self,
+        mut signer: impl for<'a> FnMut(
+            usize,
+            &'a SpentTxIn,
+            Box<dyn FnOnce() -> Result<TapSighash, BridgeError> + 'a>,
+        ) -> Result<Option<Witness>, BridgeError>,
+    ) -> Result<(), BridgeError> {
+        for idx in 0..self.txins.len() {
+            let calc_sighash = Box::new(self.get_sighash_calculator(idx));
+            if self.txins[idx].get_witness().is_some() {
+                continue;
+            }
+
+            if let Some(witness) = signer(idx, &self.txins[idx], calc_sighash)? {
+                self.cached_tx.input[idx].witness = witness.clone();
+                self.txins[idx].set_witness(witness);
+            }
+        }
+        Ok(())
+    }
+
     pub fn calculate_pubkey_spend_sighash(
         &self,
         txin_index: usize,
-        sighash_type: Option<TapSighashType>,
+        sighash_type: TapSighashType,
     ) -> Result<TapSighash, BridgeError> {
         let prevouts_vec: Vec<&TxOut> = self
             .txins
@@ -78,20 +130,17 @@ impl<T: State> TxHandler<T> {
             .collect(); // TODO: Maybe there is a better way to do this
         let mut sighash_cache: SighashCache<&bitcoin::Transaction> =
             SighashCache::new(&self.cached_tx);
-        let prevouts = &match sighash_type {
-            Some(TapSighashType::SinglePlusAnyoneCanPay)
-            | Some(TapSighashType::AllPlusAnyoneCanPay)
-            | Some(TapSighashType::NonePlusAnyoneCanPay) => {
+        let prevouts = match sighash_type {
+            TapSighashType::SinglePlusAnyoneCanPay
+            | TapSighashType::AllPlusAnyoneCanPay
+            | TapSighashType::NonePlusAnyoneCanPay => {
                 bitcoin::sighash::Prevouts::One(txin_index, prevouts_vec[txin_index])
             }
             _ => bitcoin::sighash::Prevouts::All(&prevouts_vec),
         };
 
-        let sig_hash = sighash_cache.taproot_key_spend_signature_hash(
-            txin_index,
-            prevouts,
-            sighash_type.unwrap_or(TapSighashType::Default),
-        )?;
+        let sig_hash =
+            sighash_cache.taproot_key_spend_signature_hash(txin_index, &prevouts, sighash_type)?;
 
         Ok(sig_hash)
     }
@@ -113,7 +162,7 @@ impl<T: State> TxHandler<T> {
             .to_script_buf();
 
         // TODO: remove copy here
-        self.calculate_script_spend_sighash(txin_index, &script.clone(), sighash_type)
+        self.calculate_script_spend_sighash(txin_index, &script, sighash_type)
     }
 
     pub fn calculate_script_spend_sighash(
@@ -147,6 +196,25 @@ impl<T: State> TxHandler<T> {
         )?;
 
         Ok(sig_hash)
+    }
+
+    pub fn calculate_sighash(
+        &self,
+        txin_index: usize,
+        sighash_type: TapSighashType,
+    ) -> Result<TapSighash, BridgeError> {
+        match self.txins[txin_index].get_spend_path() {
+            SpendPath::ScriptSpend(idx) => {
+                self.calculate_script_spend_sighash_indexed(txin_index, idx, sighash_type)
+            }
+            SpendPath::KeySpend => self.calculate_pubkey_spend_sighash(txin_index, sighash_type),
+            SpendPath::Unknown => Err(BridgeError::MissingSpendInfo),
+        }
+    }
+
+    #[cfg(test)]
+    pub fn get_input_txout(&self, input_idx: usize) -> &TxOut {
+        self.txins[input_idx].get_spendable().get_prevout()
     }
 }
 
@@ -215,43 +283,6 @@ impl TxHandler<Unsigned> {
 
         Ok(())
     }
-
-    // Candidate refactoring
-    // pub fn set_p2tr_script_spend_witness_find<T: AsRef<[u8]>>(
-    //     &mut self,
-    //     txin_index: usize,
-    //     script_finder: impl Fn(&&Scripts) -> bool,
-    //     script_spender: impl FnOnce(&Scripts) -> Witness,
-    // ) -> Result<(), BridgeError> {
-    //     let txin = self
-    //         .txins
-    //         .get_mut(txin_index)
-    //         ?;
-
-    //     if txin.get_witness().is_some() {
-    //         return Err(BridgeError::WitnessAlreadySet);
-    //     }
-
-    //     let script = txin
-    //         .get_witness()
-    //         .get_scripts()
-    //         .iter()
-    //         .find(script_finder)
-    //         .ok_or(BridgeError::TaprootScriptError)?;
-
-    //     let spend_control_block = txin
-    //         .get_spendable()
-    //         .get_spend_info()
-    //         .control_block(&((*script).to_script_buf(), LeafVersion::TapScript))
-    //         .ok_or(BridgeError::ControlBlockError)?;
-
-    //     let witness = script_spender(script);
-
-    //     txin.set_witness(witness);
-
-    //     self.cached_tx.input[txin_index].witness = txin.get_witness().as_ref().unwrap().clone();
-    //     Ok(())
-    // }
 
     pub fn set_p2tr_key_spend_witness(
         &mut self,
@@ -368,23 +399,4 @@ impl TxHandlerBuilder {
     pub fn finalize_signed(self) -> Result<TxHandler<Signed>, BridgeError> {
         self.finalize().promote()
     }
-
-    // pub fn spend<U: SpendableScript, T: FnOnce(U) -> Witness>(
-    //     &mut self,
-    //     txin_index: usize,
-    //     script_index: usize,
-    //     witness_fn: T,
-    // ) -> Result<(), BridgeError> {
-    //     let spendable = self
-    //         .prev_scripts
-    //         .get(txin_index)
-    //         .ok_or(BridgeError::NoScriptsForTxIn(txin_index))?
-    //         .get(script_index)
-    //         .ok_or(BridgeError::NoScriptAtIndex(script_index))?
-    //         .downcast::<U>()
-    //         .map_err(|_| BridgeError::ScriptTypeMismatch)?;
-    //     let witness = witness_fn(spendable);
-    //     self.tx.input_mut(txin_index).witness = witness;
-    //     Ok(())
-    // }
 }
