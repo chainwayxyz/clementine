@@ -163,7 +163,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn get_params() {
+    async fn watchtower_get_params() {
         let config = create_test_config_with_thread_name!(None);
         let watchtower = Watchtower::new(config.clone()).await.unwrap();
 

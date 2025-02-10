@@ -986,4 +986,32 @@ mod tests {
                 * config.num_watchtowers
         );
     }
+
+    #[tokio::test]
+    async fn operator_get_params() {
+        let config = create_test_config_with_thread_name!(None);
+        let rpc = ExtendedRpc::connect(
+            config.bitcoin_rpc_url.clone(),
+            config.bitcoin_rpc_user.clone(),
+            config.bitcoin_rpc_password.clone(),
+        )
+        .await
+        .unwrap();
+
+        let operator = Operator::new(config.clone(), rpc).await.unwrap();
+        let actual_wpks = operator.get_winternitz_public_keys().unwrap();
+        let actual_hashes = operator
+            .generate_challenge_ack_preimages_and_hashes()
+            .unwrap();
+
+        let (mut wpk_rx, mut hashes_rx) = operator.get_params().await.unwrap();
+
+        for (i, wpk) in wpk_rx.recv().await.into_iter().enumerate() {
+            assert_eq!(actual_wpks[i], wpk);
+        }
+
+        for (i, hash) in hashes_rx.recv().await.into_iter().enumerate() {
+            assert_eq!(actual_hashes[i], hash);
+        }
+    }
 }
