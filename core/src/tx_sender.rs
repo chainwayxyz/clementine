@@ -15,7 +15,7 @@ use crate::{
     database::Database,
     errors::BridgeError,
     extended_rpc::ExtendedRpc,
-    rpc::clementine::{NormalSignatureId, NormalSignatureKind},
+    rpc::clementine::NormalSignatureKind,
 };
 
 #[derive(Clone, Debug)]
@@ -346,8 +346,6 @@ mod tests {
     use crate::config::BridgeConfig;
     use crate::utils::initialize_logger;
     use crate::{create_test_config_with_thread_name, database::Database, initialize_database};
-    use std::env;
-    use std::thread;
 
     use bitcoin::secp256k1::SecretKey;
     use bitcoin::transaction::Version;

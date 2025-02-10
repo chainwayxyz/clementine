@@ -106,8 +106,6 @@ mod tests {
     use crate::config::BridgeConfig;
     use crate::utils::initialize_logger;
     use crate::{create_test_config_with_thread_name, database::Database, initialize_database};
-    use std::env;
-    use std::thread;
 
     use super::*;
     use bitcoin::hashes::Hash;
