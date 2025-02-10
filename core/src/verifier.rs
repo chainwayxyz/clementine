@@ -2,6 +2,7 @@ use crate::actor::Actor;
 use crate::builder::address::{
     derive_challenge_address_from_xonlypk_and_wpk, taproot_builder_with_scripts,
 };
+use crate::builder::sighash::{calculate_num_required_nofn_sigs, create_nofn_sighash_stream};
 use crate::builder::transaction::{TxHandler, Unsigned};
 use crate::builder::{self};
 use crate::config::BridgeConfig;
@@ -10,17 +11,21 @@ use crate::errors::BridgeError;
 use crate::extended_rpc::ExtendedRpc;
 use crate::musig2::{self, AggregateFromPublicKeys};
 use crate::utils::{self, BITVM_CACHE};
-use crate::UTXO;
+use crate::{EVMAddress, UTXO};
+use bitcoin::address::NetworkUnchecked;
 use bitcoin::hashes::Hash;
+use bitcoin::secp256k1::Message;
 use bitcoin::{secp256k1::PublicKey, OutPoint};
-use bitcoin::{Address, ScriptBuf, Txid, XOnlyPublicKey};
+use bitcoin::{Address, Amount, ScriptBuf, Txid, XOnlyPublicKey};
 use bitvm::signatures::signing_winternitz::{
     generate_winternitz_checksig_leave_variable, WinternitzPublicKey,
 };
 use bitvm::signatures::winternitz;
-use secp256k1::musig::{MusigPubNonce, MusigSecNonce};
+use secp256k1::musig::{MusigAggNonce, MusigPartialSignature, MusigPubNonce, MusigSecNonce};
 use std::collections::HashMap;
 use std::sync::Arc;
+use tokio::sync::mpsc;
+use tokio_stream::StreamExt;
 
 #[derive(Debug)]
 pub struct NonceSession {
@@ -387,6 +392,97 @@ impl Verifier {
         };
 
         Ok((session_id, pub_nonces))
+    }
+
+    pub async fn deposit_sign(
+        &self,
+        deposit_outpoint: OutPoint,
+        evm_address: EVMAddress,
+        recovery_taproot_address: Address<NetworkUnchecked>,
+        user_takes_after: u16,
+        session_id: u32,
+        mut agg_nonce_rx: mpsc::Receiver<MusigAggNonce>,
+    ) -> Result<mpsc::Receiver<MusigPartialSignature>, BridgeError> {
+        let verifier = self.clone();
+        let (partial_sig_tx, partial_sig_rx) = mpsc::channel(1280);
+
+        tokio::spawn(async move {
+            let mut session_map = verifier.nonces.lock().await;
+            let session = session_map
+                .sessions
+                .get_mut(&session_id)
+                .ok_or_else(|| {
+                    BridgeError::Error(format!("Could not find session id {session_id}"))
+                })
+                .expect("TODO");
+            session.nonces.reverse();
+
+            let mut nonce_idx: usize = 0;
+
+            let mut sighash_stream = Box::pin(create_nofn_sighash_stream(
+                verifier.db.clone(),
+                verifier.config.clone(),
+                deposit_outpoint,
+                evm_address,
+                recovery_taproot_address,
+                verifier.nofn_xonly_pk,
+                user_takes_after,
+                Amount::from_sat(200_000_000), // TODO: Fix this.
+                6,
+                100,
+                verifier.config.bridge_amount_sats,
+                verifier.config.network,
+            ));
+            let num_required_sigs = calculate_num_required_nofn_sigs(&verifier.config);
+
+            assert!(
+                num_required_sigs + 1 == session.nonces.len(),
+                "Expected nonce count to be num_required_sigs + 1 (movetx)"
+            );
+
+            while let Some(agg_nonce) = agg_nonce_rx.recv().await {
+                let sighash = sighash_stream
+                    .next()
+                    .await
+                    .ok_or(BridgeError::Error("No sighash received".to_string()))
+                    .expect("TODO")
+                    .expect("TODO");
+                tracing::debug!("Verifier {} found sighash: {:?}", verifier.idx, sighash);
+
+                let nonce = session.nonces.pop().expect("No nonce available");
+                let partial_sig = musig2::partial_sign(
+                    verifier.config.verifiers_public_keys.clone(),
+                    None,
+                    nonce,
+                    agg_nonce,
+                    verifier.signer.keypair,
+                    Message::from_digest(*sighash.0.as_byte_array()),
+                )
+                .expect("TODO");
+                partial_sig_tx.send(partial_sig).await.expect("TODO");
+
+                nonce_idx += 1;
+                tracing::info!(
+                    "Verifier {} signed sighash {} of {}",
+                    verifier.idx,
+                    nonce_idx,
+                    num_required_sigs
+                );
+                if nonce_idx == num_required_sigs {
+                    break;
+                }
+            }
+
+            let last_nonce = session
+                .nonces
+                .pop()
+                .ok_or(BridgeError::Error("No last nonce available".to_string()))
+                .expect("TODO");
+            session.nonces.clear();
+            session.nonces.push(last_nonce);
+        });
+
+        Ok(partial_sig_rx)
     }
 
     // / Inform verifiers about the new deposit request

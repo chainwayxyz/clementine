@@ -166,11 +166,14 @@ impl ClementineVerifier for Verifier {
         let verifier = self.clone();
 
         let (tx, rx) = mpsc::channel(1280);
-        let error_tx = tx.clone();
+        let out_stream: Self::DepositSignStream = ReceiverStream::new(rx);
 
-        let handle = tokio::spawn(async move {
+        let (param_tx, mut param_rx) = mpsc::channel(1);
+        let (agg_nonce_tx, agg_nonce_rx) = mpsc::channel(1280);
+
+        // Send incoming data to deposit sign job.
+        tokio::spawn(async move {
             let params = fetch_next_message_from_stream!(in_stream, params)?;
-
             let (
                 deposit_outpoint,
                 evm_address,
@@ -183,35 +186,16 @@ impl ClementineVerifier for Verifier {
                 ) => parser::verifier::parse_deposit_params(deposit_sign_session, verifier.idx)?,
                 _ => return Err(Status::invalid_argument("Expected DepositOutpoint")),
             };
-
-            let mut session_map = verifier.nonces.lock().await;
-            let session = session_map.sessions.get_mut(&session_id).ok_or_else(|| {
-                Status::internal(format!("Could not find session id {session_id}"))
-            })?;
-            session.nonces.reverse();
-
-            let mut nonce_idx: usize = 0;
-
-            let mut sighash_stream = pin!(create_nofn_sighash_stream(
-                verifier.db,
-                verifier.config.clone(),
-                deposit_outpoint,
-                evm_address,
-                recovery_taproot_address,
-                verifier.nofn_xonly_pk,
-                user_takes_after,
-                Amount::from_sat(200_000_000), // TODO: Fix this.
-                6,
-                100,
-                verifier.config.bridge_amount_sats,
-                verifier.config.network,
-            ));
-            let num_required_sigs = calculate_num_required_nofn_sigs(&verifier.config);
-
-            assert!(
-                num_required_sigs + 1 == session.nonces.len(),
-                "Expected nonce count to be num_required_sigs + 1 (movetx)"
-            );
+            param_tx
+                .send((
+                    deposit_outpoint,
+                    evm_address,
+                    recovery_taproot_address,
+                    user_takes_after,
+                    session_id,
+                ))
+                .await
+                .expect("TODO");
 
             while let Some(result) =
                 fetch_next_optional_message_from_stream!(&mut in_stream, params)
@@ -225,22 +209,33 @@ impl ClementineVerifier for Verifier {
                     _ => return Err(Status::invalid_argument("Expected AggNonce")),
                 };
 
-                let sighash = sighash_stream
-                    .next()
-                    .await
-                    .ok_or(Status::internal("No sighash received"))??;
-                tracing::debug!("Verifier {} found sighash: {:?}", verifier.idx, sighash);
+                agg_nonce_tx.send(agg_nonce).await.expect("TODO");
+            }
+            Ok(())
+        });
 
-                let nonce = session.nonces.pop().expect("No nonce available");
-                let partial_sig = musig2::partial_sign(
-                    verifier.config.verifiers_public_keys.clone(),
-                    None,
-                    nonce,
-                    agg_nonce,
-                    verifier.signer.keypair,
-                    Message::from_digest(*sighash.0.as_byte_array()),
-                )?;
+        // Start partial sig job and return partial sig responses.
+        tokio::spawn(async move {
+            let (
+                deposit_outpoint,
+                evm_address,
+                recovery_taproot_address,
+                user_takes_after,
+                session_id,
+            ) = param_rx.recv().await.expect("TODO");
 
+            let mut partial_sig_receiver = verifier
+                .deposit_sign(
+                    deposit_outpoint,
+                    evm_address,
+                    recovery_taproot_address,
+                    user_takes_after,
+                    session_id,
+                    agg_nonce_rx,
+                )
+                .await?;
+
+            while let Some(partial_sig) = partial_sig_receiver.recv().await {
                 tx.send(Ok(PartialSig {
                     partial_sig: partial_sig.serialize().to_vec(),
                 }))
@@ -250,40 +245,11 @@ impl ClementineVerifier for Verifier {
                         "Error sending partial sig, stream ended prematurely: {e}"
                     ))
                 })?;
-
-                nonce_idx += 1;
-                tracing::info!(
-                    "Verifier {} signed sighash {} of {}",
-                    verifier.idx,
-                    nonce_idx,
-                    num_required_sigs
-                );
-                if nonce_idx == num_required_sigs {
-                    break;
-                }
             }
-            // Drop all the nonces except the last one, to avoid reusing the nonces.
-            let last_nonce = session
-                .nonces
-                .pop()
-                .ok_or(Status::internal("No last nonce available"))?;
-            session.nonces.clear();
-            session.nonces.push(last_nonce);
 
             Ok::<(), Status>(())
         });
 
-        // Background task to handle the error case where the background task fails, notifies caller
-        tokio::spawn(async move {
-            if let Ok(Err(bg_err)) = handle.await {
-                let ret_res = error_tx.send(Err(bg_err)).await;
-                if let Err(SendError(Err(e))) = ret_res {
-                    tracing::error!("deposit_sign background task failed and the return stream ended prematurely:\n\n Background task error: {e}");
-                }
-            }
-        });
-
-        let out_stream: Self::DepositSignStream = ReceiverStream::new(rx);
         Ok(Response::new(out_stream))
     }
 
