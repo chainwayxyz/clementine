@@ -308,7 +308,6 @@ impl Actor {
     ) -> Result<(), BridgeError> {
         let mut signed_winternitz = false;
 
-        let data = data.as_ref();
         let signer =
             move |_: usize,
                   spt: &SpentTxIn,
