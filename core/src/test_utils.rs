@@ -24,21 +24,19 @@
 /// use crate::{
 ///     config::BridgeConfig, database::Database, initialize_database, utils::initialize_logger,
 /// };
-/// use std::{env, thread};
 /// ```
 ///
 /// ## Integration Tests And Binaries
 ///
 /// ```rust
 /// use clementine_core::{config::BridgeConfig, database::Database, utils::initialize_logger};
-/// use std::{env, thread};
 /// ```
 #[macro_export]
 macro_rules! create_test_config_with_thread_name {
     ($suffix:expr) => {{
         let suffix = $suffix.unwrap_or(&String::default()).to_string();
 
-        let handle = thread::current()
+        let handle = std::thread::current()
             .name()
             .unwrap()
             .split(':')
@@ -53,12 +51,12 @@ macro_rules! create_test_config_with_thread_name {
         let mut config = BridgeConfig::default();
 
         // Check environment for an overwrite config. TODO: Convert this to env vars.
-        let env_config: Option<BridgeConfig> = if let Ok(config_file_path) = env::var("TEST_CONFIG")
-        {
-            Some(BridgeConfig::try_parse_file(config_file_path.into()).unwrap())
-        } else {
-            None
-        };
+        let env_config: Option<BridgeConfig> =
+            if let Ok(config_file_path) = std::env::var("TEST_CONFIG") {
+                Some(BridgeConfig::try_parse_file(config_file_path.into()).unwrap())
+            } else {
+                None
+            };
 
         config.db_name = handle.to_string();
 
@@ -155,6 +153,10 @@ macro_rules! initialize_database {
 ///         create_verifier_grpc_server, create_watchtower_grpc_server,
 ///     },
 /// };
+/// use crate::rpc::clementine::clementine_aggregator_client::ClementineAggregatorClient;
+/// use crate::rpc::clementine::clementine_operator_client::ClementineOperatorClient;
+/// use crate::rpc::clementine::clementine_verifier_client::ClementineVerifierClient;
+/// use crate::rpc::clementine::clementine_watchtower_client::ClementineWatchtowerClient;
 /// ```
 ///
 /// ## Integration Tests And Binaries
@@ -164,6 +166,10 @@ macro_rules! initialize_database {
 ///     create_aggregator_grpc_server, create_operator_grpc_server, create_verifier_grpc_server,
 ///     create_watchtower_grpc_server,
 /// };
+/// use clementine_core::rpc::clementine::clementine_aggregator_client::ClementineAggregatorClient;
+/// use clementine_core::rpc::clementine::clementine_operator_client::ClementineOperatorClient;
+/// use clementine_core::rpc::clementine::clementine_verifier_client::ClementineVerifierClient;
+/// use clementine_core::rpc::clementine::clementine_watchtower_client::ClementineWatchtowerClient;
 /// ```
 #[macro_export]
 macro_rules! create_actors {
@@ -318,12 +324,33 @@ macro_rules! create_actors {
         .await
         .unwrap();
 
-        (
-            verifier_endpoints,
-            operator_endpoints,
-            aggregator,
-            watchtower_endpoints,
-        )
+        let verifiers =
+            futures_util::future::join_all(verifier_endpoints.iter().map(|verifier| async move {
+                ClementineVerifierClient::connect(format!("http://{}", verifier.0))
+                    .await
+                    .unwrap()
+            }))
+            .await;
+        let operators =
+            futures_util::future::join_all(operator_endpoints.iter().map(|operator| async move {
+                ClementineOperatorClient::connect(format!("http://{}", operator.0))
+                    .await
+                    .unwrap()
+            }))
+            .await;
+        let aggregator = ClementineAggregatorClient::connect(format!("http://{}", aggregator.0))
+            .await
+            .unwrap();
+        let watchtowers = futures_util::future::join_all(watchtower_endpoints.iter().map(
+            |watchtower| async move {
+                ClementineWatchtowerClient::connect(format!("http://{}", watchtower.0))
+                    .await
+                    .unwrap()
+            },
+        ))
+        .await;
+
+        (verifiers, operators, aggregator, watchtowers)
     }};
 }
 
@@ -367,7 +394,6 @@ macro_rules! get_deposit_address {
             $config.network,
             $config.user_takes_after,
         )
-        .0
     }};
 }
 
@@ -387,12 +413,16 @@ macro_rules! get_deposit_address {
 ///
 /// ```rust
 /// use crate::{actor::Actor, builder, UTXO};
+/// use crate::builder::script::SpendPath;
+/// use crate::rpc::clementine::NormalSignatureKind;
 /// ```
 ///
 /// ## Integration Tests And Binaries
 ///
 /// ```rust
 /// use clementine_core::{actor::Actor, builder, UTXO};
+/// use clementine_core::builder::script::SpendPath;
+/// use clementine_core::rpc::clementine::NormalSignatureKind;
 /// ```
 #[macro_export]
 macro_rules! generate_withdrawal_transaction_and_signature {
@@ -417,24 +447,33 @@ macro_rules! generate_withdrawal_transaction_and_signature {
             },
         };
 
-        let txins = builder::transaction::create_tx_ins(vec![dust_utxo.outpoint].into());
+        let txin = builder::transaction::input::SpendableTxIn::new(
+            dust_utxo.outpoint,
+            dust_utxo.txout.clone(),
+            vec![],
+            None,
+        );
         let txout = bitcoin::TxOut {
             value: $withdrawal_amount,
             script_pubkey: $withdrawal_address.script_pubkey(),
         };
-        let txouts = vec![txout.clone()];
+        let txout = builder::transaction::output::UnspentTxOut::from_partial(txout.clone());
 
-        let mut tx = builder::transaction::create_btc_tx(txins, txouts.clone());
-        let prevouts = vec![dust_utxo.txout.clone()];
-
-        let sig = signer
-            .sign_taproot_pubkey_spend_tx_with_sighash(
-                &mut tx,
-                &prevouts,
-                0,
-                Some(bitcoin::TapSighashType::SinglePlusAnyoneCanPay),
+        let tx = builder::transaction::TxHandlerBuilder::new()
+            .add_input(
+                NormalSignatureKind::NotStored,
+                txin,
+                SpendPath::KeySpend,
+                builder::transaction::DEFAULT_SEQUENCE,
             )
+            .add_output(txout.clone())
+            .finalize();
+
+        let sighash = tx
+            .calculate_sighash(0, bitcoin::sighash::TapSighashType::SinglePlusAnyoneCanPay)
             .unwrap();
+
+        let sig = signer.sign_with_tweak(sighash, None).unwrap();
 
         (dust_utxo, txout, sig)
     }};

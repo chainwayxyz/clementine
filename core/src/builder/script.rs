@@ -5,7 +5,7 @@
 // Currently generate_witness functions are not yet used.
 #![allow(dead_code)]
 
-use crate::EVMAddress;
+use crate::{utils, EVMAddress};
 use bitcoin::opcodes::OP_TRUE;
 use bitcoin::script::PushBytesBuf;
 use bitcoin::secp256k1::schnorr;
@@ -19,7 +19,6 @@ use bitvm::signatures::winternitz::{Parameters, PublicKey, SecretKey};
 use bitvm::signatures::winternitz_hash::WINTERNITZ_MESSAGE_VERIFIER;
 use std::any::Any;
 use std::fmt::Debug;
-use std::sync::Arc;
 
 #[derive(Debug, Copy, Clone)]
 pub enum SpendPath {
@@ -38,6 +37,8 @@ pub enum SpendPath {
 /// Otherwise, it will not be spendable.
 pub trait SpendableScript: Send + Sync + 'static + std::any::Any {
     fn as_any(&self) -> &dyn Any;
+
+    fn kind(&self) -> ScriptKind;
 
     fn to_script_buf(&self) -> ScriptBuf;
 }
@@ -61,6 +62,10 @@ impl From<ScriptBuf> for OtherSpendable {
 impl SpendableScript for OtherSpendable {
     fn as_any(&self) -> &dyn Any {
         self
+    }
+
+    fn kind(&self) -> ScriptKind {
+        ScriptKind::Other(self)
     }
 
     fn to_script_buf(&self) -> ScriptBuf {
@@ -90,6 +95,10 @@ impl SpendableScript for CheckSig {
         self
     }
 
+    fn kind(&self) -> ScriptKind {
+        ScriptKind::CheckSig(self)
+    }
+
     fn to_script_buf(&self) -> ScriptBuf {
         Builder::new()
             .push_x_only_key(&self.0)
@@ -114,6 +123,10 @@ pub struct WinternitzCommit(PublicKey, Parameters, pub(crate) XOnlyPublicKey);
 impl SpendableScript for WinternitzCommit {
     fn as_any(&self) -> &dyn Any {
         self
+    }
+
+    fn kind(&self) -> ScriptKind {
+        ScriptKind::WinternitzCommit(self)
     }
 
     fn to_script_buf(&self) -> ScriptBuf {
@@ -175,6 +188,10 @@ impl SpendableScript for TimelockScript {
         self
     }
 
+    fn kind(&self) -> ScriptKind {
+        ScriptKind::TimelockScript(self)
+    }
+
     fn to_script_buf(&self) -> ScriptBuf {
         let script_builder = Builder::new()
             .push_int(self.1 as i64)
@@ -193,7 +210,7 @@ impl SpendableScript for TimelockScript {
 }
 
 impl TimelockScript {
-    pub fn generate_script_inputs(&self, signature: &Option<schnorr::Signature>) -> Witness {
+    pub fn generate_script_inputs(&self, signature: Option<&schnorr::Signature>) -> Witness {
         match signature {
             Some(sig) => Witness::from_slice(&[sig.serialize()]),
             None => Witness::default(),
@@ -211,6 +228,10 @@ pub struct PreimageRevealScript(pub(crate) XOnlyPublicKey, [u8; 20]);
 impl SpendableScript for PreimageRevealScript {
     fn as_any(&self) -> &dyn Any {
         self
+    }
+
+    fn kind(&self) -> ScriptKind {
+        ScriptKind::PreimageRevealScript(self)
     }
 
     fn to_script_buf(&self) -> ScriptBuf {
@@ -249,6 +270,10 @@ impl SpendableScript for DepositScript {
         self
     }
 
+    fn kind(&self) -> ScriptKind {
+        ScriptKind::DepositScript(self)
+    }
+
     fn to_script_buf(&self) -> ScriptBuf {
         let citrea: [u8; 6] = "citrea".as_bytes().try_into().expect("length == 6");
 
@@ -275,6 +300,37 @@ impl DepositScript {
     }
 }
 
+/// Struct for withdrawal script.
+pub struct WithdrawalScript(usize);
+
+impl SpendableScript for WithdrawalScript {
+    fn as_any(&self) -> &dyn Any {
+        self
+    }
+
+    fn kind(&self) -> ScriptKind {
+        ScriptKind::WithdrawalScript(self)
+    }
+
+    fn to_script_buf(&self) -> ScriptBuf {
+        let mut push_bytes = PushBytesBuf::new();
+        push_bytes
+            .extend_from_slice(&utils::usize_to_var_len_bytes(self.0))
+            .expect("Not possible to panic while adding a 4 to 8 bytes of slice");
+
+        Builder::new()
+            .push_opcode(OP_RETURN)
+            .push_slice(push_bytes)
+            .into_script()
+    }
+}
+
+impl WithdrawalScript {
+    pub fn new(index: usize) -> Self {
+        Self(index)
+    }
+}
+
 #[derive(Clone)]
 pub enum ScriptKind<'a> {
     CheckSig(&'a CheckSig),
@@ -282,27 +338,8 @@ pub enum ScriptKind<'a> {
     TimelockScript(&'a TimelockScript),
     PreimageRevealScript(&'a PreimageRevealScript),
     DepositScript(&'a DepositScript),
+    WithdrawalScript(&'a WithdrawalScript),
     Other(&'a OtherSpendable),
-}
-
-impl<'a> From<&'a Arc<dyn SpendableScript>> for ScriptKind<'a> {
-    fn from(script: &'a Arc<dyn SpendableScript>) -> ScriptKind<'a> {
-        let type_id = script.as_any().type_id();
-
-        if type_id == std::any::TypeId::of::<CheckSig>() {
-            Self::CheckSig(script.as_any().downcast_ref().expect("just checked"))
-        } else if type_id == std::any::TypeId::of::<WinternitzCommit>() {
-            Self::WinternitzCommit(script.as_any().downcast_ref().expect("just checked"))
-        } else if type_id == std::any::TypeId::of::<TimelockScript>() {
-            Self::TimelockScript(script.as_any().downcast_ref().expect("just checked"))
-        } else if type_id == std::any::TypeId::of::<PreimageRevealScript>() {
-            Self::PreimageRevealScript(script.as_any().downcast_ref().expect("just checked"))
-        } else if type_id == std::any::TypeId::of::<DepositScript>() {
-            Self::DepositScript(script.as_any().downcast_ref().expect("just checked"))
-        } else {
-            Self::Other(script.as_any().downcast_ref().expect("just checked"))
-        }
-    }
 }
 
 #[cfg(test)]
@@ -316,6 +353,7 @@ fn get_script_from_arr<T: SpendableScript>(
 #[cfg(test)]
 mod tests {
     use crate::utils;
+    use std::sync::Arc;
 
     use super::*;
 
@@ -440,7 +478,7 @@ mod tests {
         ];
 
         for (expected, script) in script_variants {
-            let kind = ScriptKind::from(&script);
+            let kind = script.kind();
             match (expected, kind) {
                 ("CheckSig", ScriptKind::CheckSig(_)) => (),
                 ("WinternitzCommit", ScriptKind::WinternitzCommit(_)) => (),

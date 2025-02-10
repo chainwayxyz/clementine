@@ -264,7 +264,7 @@ impl Actor {
 
                         use crate::builder::script::ScriptKind as Kind;
 
-                        let mut witness = match script.into() {
+                        let mut witness = match script.kind() {
                             Kind::PreimageRevealScript(script) => {
                                 if script.0 != self.xonly_public_key {
                                     return Err(BridgeError::NotOwnedScriptPath);
@@ -288,7 +288,8 @@ impl Actor {
                             Kind::CheckSig(_)
                             | Kind::Other(_)
                             | Kind::DepositScript(_)
-                            | Kind::TimelockScript(_) => return Ok(None),
+                            | Kind::TimelockScript(_)
+                            | Kind::WithdrawalScript(_) => return Ok(None),
                         };
 
                         if signed_winternitz {
@@ -354,7 +355,7 @@ impl Actor {
                     use crate::builder::script::ScriptKind as Kind;
 
                     // Set the script inputs of the witness
-                    let mut witness: Witness = match script.into() {
+                    let mut witness: Witness = match script.kind() {
                         Kind::DepositScript(script) => {
                             match (sig, script.0 == self.xonly_public_key) {
                                 (Some(sig), _) => script.generate_script_inputs(&sig),
@@ -365,9 +366,9 @@ impl Actor {
                             }
                         }
                         Kind::TimelockScript(script) => match (sig, script.0) {
-                            (Some(sig), Some(_)) => script.generate_script_inputs(&Some(sig)),
+                            (Some(sig), Some(_)) => script.generate_script_inputs(Some(&sig)),
                             (None, Some(xonly_key)) if xonly_key == self.xonly_public_key => {
-                                script.generate_script_inputs(&Some(self.sign(calc_sighash()?)))
+                                script.generate_script_inputs(Some(&self.sign(calc_sighash()?)))
                             }
                             (None, Some(_)) => return Err(BridgeError::SignatureNotFound),
                             (_, None) => Witness::new(),
@@ -381,7 +382,8 @@ impl Actor {
                         },
                         Kind::WinternitzCommit(_)
                         | Kind::PreimageRevealScript(_)
-                        | Kind::Other(_) => return Ok(None),
+                        | Kind::Other(_)
+                        | Kind::WithdrawalScript(_) => return Ok(None),
                     };
 
                     // Add P2TR elements (control block and script) to the witness
@@ -448,10 +450,8 @@ mod tests {
     };
     use rand::thread_rng;
     use secp256k1::rand;
-    use std::env;
     use std::str::FromStr;
     use std::sync::Arc;
-    use std::thread;
 
     // Helper: create a TxHandler with a single key spend input.
     fn create_key_spend_tx_handler(actor: &Actor) -> (bitcoin::TxOut, TxHandler) {
@@ -658,7 +658,7 @@ mod tests {
         // be successful.
         let tx_handler = create_key_spend_tx_handler(&actor).1;
         let sighash = tx_handler
-            .calculate_pubkey_spend_sighash(0, Some(bitcoin::TapSighashType::Default))
+            .calculate_pubkey_spend_sighash(0, bitcoin::TapSighashType::Default)
             .expect("calculating pubkey spend sighash");
 
         let signature = actor.sign(sighash);
@@ -677,7 +677,9 @@ mod tests {
         // This transaction is matching with prevouts. Therefore signing will
         // be successful.
         let tx_handler = create_key_spend_tx_handler(&actor).1;
-        let x = tx_handler.calculate_pubkey_spend_sighash(0, None).unwrap();
+        let x = tx_handler
+            .calculate_pubkey_spend_sighash(0, TapSighashType::Default)
+            .unwrap();
         actor.sign_with_tweak(x, None).unwrap();
     }
 

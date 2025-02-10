@@ -25,9 +25,12 @@ use crate::{
 use bitcoin::hashes::Hash;
 use bitcoin::secp256k1::schnorr::Signature;
 use bitcoin::secp256k1::{Message, PublicKey};
-use bitcoin::TapSighash;
-use futures::TryFutureExt;
-use futures::{future::try_join_all, stream::BoxStream, FutureExt, Stream, StreamExt};
+use bitcoin::{Amount, TapSighash};
+use futures::{
+    future::try_join_all,
+    stream::{BoxStream, TryStreamExt},
+    FutureExt, Stream, StreamExt, TryFutureExt,
+};
 use secp256k1::musig::{MusigAggNonce, MusigPartialSignature, MusigPubNonce};
 use tokio::sync::mpsc::{channel, Receiver, Sender};
 use tonic::{async_trait, Request, Response, Status, Streaming};
@@ -265,6 +268,36 @@ async fn create_nonce_streams(
     Ok((first_responses, transformed_streams))
 }
 
+/// Use items collected from the broadcast receiver for an async function call.
+///
+/// Handles the boilerplate of managing a receiver of a broadcast channel.
+/// If receiver is lagged at any time (data is lost) an error is returned.
+async fn collect_and_call<R, T, F, Fut>(
+    rx: &mut tokio::sync::broadcast::Receiver<Vec<T>>,
+    f: F,
+) -> Result<R, Status>
+where
+    R: Default,
+    T: Clone,
+    F: Fn(Vec<T>) -> Fut,
+    Fut: Future<Output = Result<R, Status>>,
+{
+    loop {
+        match rx.recv().await {
+            Ok(params) => {
+                f(params).await?;
+            }
+            Err(tokio::sync::broadcast::error::RecvError::Lagged(n)) => {
+                break Err(BridgeError::RPCStreamEndedUnexpectedly(format!(
+                    "lost {n} items due to lagging receiver"
+                ))
+                .into());
+            }
+            Err(tokio::sync::broadcast::error::RecvError::Closed) => break Ok(R::default()),
+        }
+    }
+}
+
 impl Aggregator {
     // Extracts pub_nonce from given stream.
     fn extract_pub_nonce(
@@ -376,15 +409,12 @@ impl ClementineAggregator for Aggregator {
         tracing::info!("Collecting verifier public keys...");
         let verifier_public_keys = try_join_all(self.verifier_clients.iter().map(|client| {
             let mut client = client.clone();
-
             async move {
                 let verifier_params = client
                     .get_params(Request::new(Empty {}))
                     .await?
                     .into_inner();
-                let verifier_public_key = verifier_params.public_key;
-
-                Ok::<_, Status>(verifier_public_key)
+                Ok::<_, Status>(verifier_params.public_key)
             }
         }))
         .await?;
@@ -396,106 +426,125 @@ impl ClementineAggregator for Aggregator {
             let verifier_public_keys = clementine::VerifierPublicKeys {
                 verifier_public_keys: verifier_public_keys.clone(),
             };
-
             async move {
                 client
                     .set_verifiers(Request::new(verifier_public_keys))
                     .await?;
-
                 Ok::<_, Status>(())
             }
         }))
         .await?;
 
-        tracing::info!("Collecting operator details...");
-        let operator_params = try_join_all(self.operator_clients.iter().map(|client| {
-            let mut client = client.clone();
+        // Propagate Operators configurations to all verifier clients
+        const CHANNEL_CAPACITY: usize = 1024 * 16;
+        let (operator_params_tx, operator_params_rx) =
+            tokio::sync::broadcast::channel(CHANNEL_CAPACITY);
 
-            async move {
-                let mut responses = Vec::new();
-
-                let mut params_stream = client
-                    .get_params(Request::new(Empty {}))
-                    .await?
-                    .into_inner();
-                while let Some(response) = params_stream.message().await? {
-                    responses.push(response);
+        let operators = self.operator_clients.clone();
+        let get_operator_params_chunked_handle = tokio::spawn(async move {
+            tracing::info!(clients = operators.len(), "Collecting operator details...");
+            try_join_all(operators.iter().map(|operator| {
+                let mut operator = operator.clone();
+                let tx = operator_params_tx.clone();
+                async move {
+                    let stream = operator
+                        .get_params(Request::new(Empty {}))
+                        .await?
+                        .into_inner();
+                    tx.send(stream.try_collect::<Vec<_>>().await?)
+                        .map_err(|e| {
+                            BridgeError::Error(format!("failed to read operator params: {e}"))
+                        })?;
+                    Ok::<_, Status>(())
                 }
+            }))
+            .await?;
+            Ok::<_, Status>(())
+        });
 
-                Ok::<_, Status>(responses)
-            }
-        }))
-        .await?;
-
-        tracing::info!("Informing verifiers about existing operators...");
-        try_join_all(self.verifier_clients.iter().map(|client| {
-            let mut client = client.clone();
-            let operator_params = operator_params.clone();
-
-            async move {
-                for params in operator_params {
-                    let (tx, rx) = tokio::sync::mpsc::channel(params.len());
-
-                    for param in params {
-                        tx.send(param)
-                            .await
-                            .map_err(|_| output_stream_ended_prematurely())?;
-                    }
-
-                    client
-                        .set_operator(tokio_stream::wrappers::ReceiverStream::new(rx))
-                        .await?;
+        let verifiers = self.verifier_clients.clone();
+        let set_operator_params_handle = tokio::spawn(async move {
+            tracing::info!("Informing verifiers for existing operators...");
+            try_join_all(verifiers.iter().map(|verifier| {
+                let verifier = verifier.clone();
+                let rx = &operator_params_rx;
+                async move {
+                    let mut rx = rx.resubscribe();
+                    collect_and_call(&mut rx, |params| {
+                        let mut verifier = verifier.clone();
+                        async move {
+                            verifier.set_operator(futures::stream::iter(params)).await?;
+                            Ok::<_, Status>(())
+                        }
+                    })
+                    .await?;
+                    Ok::<_, Status>(())
                 }
+            }))
+            .await?;
+            Ok::<_, Status>(())
+        });
 
-                Ok::<_, tonic::Status>(())
-            }
-        }))
-        .await?;
+        // Propagate Watchtowers configuration to all verifier clients
 
-        tracing::info!("Collecting Winternitz public keys from watchtowers...");
-        let watchtower_params = try_join_all(self.watchtower_clients.iter().map(|client| {
-            let mut client = client.clone();
+        let (watchtower_params_tx, watchtower_params_rx) =
+            tokio::sync::broadcast::channel(CHANNEL_CAPACITY);
 
-            async move {
-                let mut responses = Vec::new();
-
-                let mut params_stream = client
-                    .get_params(Request::new(Empty {}))
-                    .await?
-                    .into_inner();
-                while let Some(response) = params_stream.message().await? {
-                    responses.push(response);
+        let watchtowers = self.watchtower_clients.clone();
+        let get_watchtower_params_chunked_handle = tokio::spawn(async move {
+            tracing::info!("Collecting Winternitz public keys from watchtowers...");
+            try_join_all(watchtowers.iter().map(|watchtower| {
+                let mut watchtower = watchtower.clone();
+                let tx = watchtower_params_tx.clone();
+                async move {
+                    let stream = watchtower
+                        .get_params(Request::new(Empty {}))
+                        .await?
+                        .into_inner();
+                    tx.send(stream.try_collect::<Vec<_>>().await?)
+                        .map_err(|e| {
+                            BridgeError::Error(format!("failed to read watchtower params: {e}"))
+                        })?;
+                    Ok::<_, Status>(())
                 }
+            }))
+            .await?;
+            Ok::<_, Status>(())
+        });
 
-                Ok::<_, Status>(responses)
-            }
-        }))
-        .await?;
-
-        tracing::info!("Sending Winternitz public keys to verifiers...");
-        try_join_all(self.verifier_clients.iter().map(|client| {
-            let mut client = client.clone();
-            let watchtower_params = watchtower_params.clone();
-
-            async move {
-                for params in watchtower_params {
-                    let (tx, rx) = tokio::sync::mpsc::channel(params.len());
-
-                    for param in params {
-                        tx.send(param)
-                            .await
-                            .map_err(|_| output_stream_ended_prematurely())?;
-                    }
-
-                    client
-                        .set_watchtower(tokio_stream::wrappers::ReceiverStream::new(rx))
-                        .await?;
+        let verifiers = self.verifier_clients.clone();
+        let set_watchtower_params_handle = tokio::spawn(async move {
+            tracing::info!("Sending Winternitz public keys to verifiers...");
+            try_join_all(verifiers.iter().map(|verifier| {
+                let verifier = verifier.clone();
+                let rx = &watchtower_params_rx;
+                async move {
+                    let mut rx = rx.resubscribe();
+                    collect_and_call(&mut rx, |params| {
+                        let mut verifier = verifier.clone();
+                        async move {
+                            verifier
+                                .set_watchtower(futures::stream::iter(params))
+                                .await?;
+                            Ok::<_, Status>(())
+                        }
+                    })
+                    .await?;
+                    Ok::<_, Status>(())
                 }
+            }))
+            .await?;
+            Ok::<_, Status>(())
+        });
 
-                Ok::<_, tonic::Status>(())
-            }
-        }))
-        .await?;
+        try_join_all([
+            get_operator_params_chunked_handle,
+            set_operator_params_handle,
+            get_watchtower_params_chunked_handle,
+            set_watchtower_params_handle,
+        ])
+        .await
+        .map_err(|e| BridgeError::Error(format!("aggregator setup failed: {e}")))?;
 
         Ok(Response::new(Empty {}))
     }
@@ -714,6 +763,9 @@ impl ClementineAggregator for Aggregator {
 
 #[cfg(test)]
 mod tests {
+    use crate::rpc::clementine::clementine_operator_client::ClementineOperatorClient;
+    use crate::rpc::clementine::clementine_verifier_client::ClementineVerifierClient;
+    use crate::rpc::clementine::clementine_watchtower_client::ClementineWatchtowerClient;
     use crate::{
         config::BridgeConfig,
         create_test_config_with_thread_name,
@@ -735,25 +787,21 @@ mod tests {
         watchtower::Watchtower,
     };
     use bitcoin::Txid;
-    use std::{env, str::FromStr, thread};
+    use std::str::FromStr;
 
     #[tokio::test]
     #[serial_test::serial]
     async fn aggregator_double_setup_fail() {
         let config = create_test_config_with_thread_name!(None);
 
-        let (_, _, aggregator, _) = create_actors!(config);
-        let mut aggregator_client =
-            ClementineAggregatorClient::connect(format!("http://{}", aggregator.0))
-                .await
-                .unwrap();
+        let (_, _, mut aggregator, _) = create_actors!(config);
 
-        aggregator_client
+        aggregator
             .setup(tonic::Request::new(clementine::Empty {}))
             .await
             .unwrap();
 
-        assert!(aggregator_client
+        assert!(aggregator
             .setup(tonic::Request::new(clementine::Empty {}))
             .await
             .is_err());
@@ -763,12 +811,9 @@ mod tests {
     #[serial_test::serial]
     async fn aggregator_setup_watchtower_winternitz_public_keys() {
         let mut config = create_test_config_with_thread_name!(None);
-        let (_verifiers, _operators, aggregator, _watchtowers) = create_actors!(config.clone());
-        let mut aggregator_client =
-            ClementineAggregatorClient::connect(format!("http://{}", aggregator.0))
-                .await
-                .unwrap();
-        aggregator_client
+        let (_verifiers, _operators, mut aggregator, _watchtowers) = create_actors!(config.clone());
+
+        aggregator
             .setup(tonic::Request::new(clementine::Empty {}))
             .await
             .unwrap();
@@ -818,12 +863,8 @@ mod tests {
     #[serial_test::serial]
     async fn aggregator_setup_watchtower_challenge_addresses() {
         let mut config = create_test_config_with_thread_name!(None);
-        let (_verifiers, _operators, aggregator, _watchtowers) = create_actors!(config.clone());
-        let mut aggregator_client =
-            ClementineAggregatorClient::connect(format!("http://{}", aggregator.0))
-                .await
-                .unwrap();
-        aggregator_client
+        let (_verifiers, _operators, mut aggregator, _watchtowers) = create_actors!(config.clone());
+        aggregator
             .setup(tonic::Request::new(clementine::Empty {}))
             .await
             .unwrap();
@@ -931,18 +972,20 @@ mod tests {
     async fn aggregator_setup_and_deposit() {
         let config = create_test_config_with_thread_name!(None);
 
-        let aggregator = create_actors!(config).2;
-        let mut aggregator_client =
-            ClementineAggregatorClient::connect(format!("http://{}", aggregator.0))
-                .await
-                .unwrap();
+        let mut aggregator = create_actors!(config).2;
 
-        aggregator_client
+        tracing::info!("Setting up aggregator");
+        let start = std::time::Instant::now();
+
+        aggregator
             .setup(tonic::Request::new(clementine::Empty {}))
             .await
             .unwrap();
 
-        aggregator_client
+        tracing::info!("Setup completed in {:?}", start.elapsed());
+        tracing::info!("Depositing");
+        let deposit_start = std::time::Instant::now();
+        aggregator
             .new_deposit(DepositParams {
                 deposit_outpoint: Some(
                     bitcoin::OutPoint {
@@ -961,5 +1004,6 @@ mod tests {
             })
             .await
             .unwrap();
+        tracing::info!("Deposit completed in {:?}", deposit_start.elapsed());
     }
 }

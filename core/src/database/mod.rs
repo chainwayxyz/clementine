@@ -119,7 +119,6 @@ mod tests {
     use crate::create_test_config_with_thread_name;
     use crate::{config::BridgeConfig, database::Database};
     use crate::{initialize_database, utils::initialize_logger};
-    use std::{env, thread};
 
     #[tokio::test]
     async fn valid_database_connection() {

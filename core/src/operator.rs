@@ -4,8 +4,13 @@ use crate::database::Database;
 use crate::errors::BridgeError;
 use crate::extended_rpc::ExtendedRpc;
 use crate::musig2::AggregateFromPublicKeys;
-use crate::utils::ALL_BITVM_INTERMEDIATE_VARIABLES;
-use bitcoin::{Amount, OutPoint, Txid, XOnlyPublicKey};
+use crate::utils::SECP;
+use crate::{builder, UTXO};
+use bitcoin::consensus::deserialize;
+use bitcoin::hashes::Hash;
+use bitcoin::secp256k1::{schnorr, Message};
+use bitcoin::{Amount, OutPoint, Transaction, TxOut, Txid, XOnlyPublicKey};
+use bitcoincore_rpc::RpcApi;
 use bitvm::signatures::winternitz;
 use jsonrpsee::core::client::ClientT;
 use jsonrpsee::http_client::HttpClientBuilder;
@@ -17,7 +22,7 @@ pub type PublicHash = [u8; 20]; // TODO: Make sure these are 20 bytes and maybe 
 
 #[derive(Debug, Clone)]
 pub struct Operator {
-    _rpc: ExtendedRpc,
+    pub rpc: ExtendedRpc,
     pub db: Database,
     pub(crate) signer: Actor,
     pub(crate) config: BridgeConfig,
@@ -29,10 +34,7 @@ pub struct Operator {
 
 impl Operator {
     /// Creates a new `Operator`.
-    // #[tracing::instrument(skip_all, err(level = tracing::Level::ERROR))]
-    pub async fn new(config: BridgeConfig, _rpc: ExtendedRpc) -> Result<Self, BridgeError> {
-        // let num_verifiers = config.verifiers_public_keys.len();
-
+    pub async fn new(config: BridgeConfig, rpc: ExtendedRpc) -> Result<Self, BridgeError> {
         let signer = Actor::new(
             config.secret_key,
             config.winternitz_secret_key,
@@ -77,7 +79,7 @@ impl Operator {
             .get_sequential_collateral_txs(Some(&mut tx), idx as i32)
             .await?;
         let collateral_funding_txid = if sequential_collateral_txs.is_empty() {
-            let outpoint = _rpc
+            let outpoint = rpc
                 .send_to_address(&signer.address, Amount::from_sat(200_000_000))
                 .await?; // TODO: Is this OK to be a fixed value
             db.set_sequential_collateral_tx(Some(&mut tx), idx as i32, 0, outpoint.txid, 0)
@@ -101,7 +103,7 @@ impl Operator {
         );
 
         Ok(Self {
-            _rpc,
+            rpc,
             db,
             signer,
             config,
@@ -339,148 +341,148 @@ impl Operator {
     //     self.db.set_funding_utxo(None, funding_utxo).await
     // }
 
-    // /// Checks if the withdrawal amount is within the acceptable range.
-    // ///
-    // /// # Parameters
-    // ///
-    // /// - `input_amount`:
-    // /// - `withdrawal_amount`:
-    // fn is_profitable(&self, input_amount: Amount, withdrawal_amount: Amount) -> bool {
-    //     if withdrawal_amount
-    //         .to_sat()
-    //         .wrapping_sub(input_amount.to_sat())
-    //         > self.config.bridge_amount_sats.to_sat()
-    //     {
-    //         return false;
-    //     }
+    /// Checks if the withdrawal amount is within the acceptable range.
+    ///
+    /// # Parameters
+    ///
+    /// - `input_amount`:
+    /// - `withdrawal_amount`:
+    fn is_profitable(
+        &self,
+        input_amount: Amount,
+        withdrawal_amount: Amount,
+    ) -> Result<bool, BridgeError> {
+        if withdrawal_amount
+            .to_sat()
+            .wrapping_sub(input_amount.to_sat())
+            > self.config.bridge_amount_sats.to_sat()
+        {
+            return Ok(false);
+        }
 
-    //     // Calculate net profit after the withdrawal.
-    //     let net_profit = self.config.bridge_amount_sats - withdrawal_amount;
+        // Calculate net profit after the withdrawal.
+        let net_profit = self.config.bridge_amount_sats - withdrawal_amount;
 
-    //     // Net profit must be bigger than withdrawal fee.
-    //     net_profit > self.config.operator_withdrawal_fee_sats.unwrap()
-    // }
+        // Net profit must be bigger than withdrawal fee.
+        Ok(net_profit
+            > self
+                .config
+                .operator_withdrawal_fee_sats
+                .ok_or(BridgeError::ConfigError(
+                    "Operator withdrawal fee sats is not specified in configuration file"
+                        .to_string(),
+                ))?)
+    }
 
-    // /// Checks of the withdrawal has been made on Citrea, verifies a given
-    // /// [`bitcoin::sighash::TapSighashType::SinglePlusAnyoneCanPay`] signature,
-    // /// checks if it is profitable and finally, funds the withdrawal.
-    // ///
-    // /// # Parameters
-    // ///
-    // /// - `withdrawal_idx`: Citrea withdrawal UTXO index
-    // /// - `user_sig`: User's signature that is going to be used for signing withdrawal transaction input
-    // /// - `input_utxo`:
-    // /// - `output_txout`:
-    // ///
-    // /// # Returns
-    // ///
-    // /// Withdrawal transaction's transaction id.
-    // #[tracing::instrument(skip(self), err(level = tracing::Level::ERROR), ret(level = tracing::Level::TRACE))]
-    // async fn new_withdrawal_sig(
-    //     &self,
-    //     withdrawal_idx: u32,
-    //     user_sig: schnorr::Signature,
-    //     input_utxo: UTXO,
-    //     output_txout: TxOut,
-    // ) -> Result<Txid, BridgeError> {
-    //     if let Some(citrea_client) = &self.citrea_client {
-    //         // See: https://gist.github.com/okkothejawa/a9379b02a16dada07a2b85cbbd3c1e80
-    //         let params = rpc_params![
-    //             json!({
-    //                 "to": "0x3100000000000000000000000000000000000002",
-    //                 "data": format!("0x471ba1e300000000000000000000000000000000000000000000000000000000{}",
-    //                 hex::encode(withdrawal_idx.to_be_bytes())),
-    //             }),
-    //             "latest"
-    //         ];
-    //         let response: String = citrea_client.request("eth_call", params).await?;
+    /// Checks of the withdrawal has been made on Citrea, verifies a given
+    /// [`bitcoin::sighash::TapSighashType::SinglePlusAnyoneCanPay`] signature,
+    /// checks if it is profitable and finally, funds the withdrawal.
+    ///
+    /// # Parameters
+    ///
+    /// - `withdrawal_idx`: Citrea withdrawal UTXO index
+    /// - `user_sig`: User's signature that is going to be used for signing withdrawal transaction input
+    /// - `input_utxo`:
+    /// - `output_txout`:
+    ///
+    /// # Returns
+    ///
+    /// Withdrawal transaction's transaction id.
+    #[tracing::instrument(skip(self), err(level = tracing::Level::ERROR), ret(level = tracing::Level::TRACE))]
+    pub async fn new_withdrawal_sig(
+        &self,
+        withdrawal_idx: u32,
+        user_sig: schnorr::Signature,
+        input_utxo: UTXO,
+        output_txout: TxOut,
+    ) -> Result<Txid, BridgeError> {
+        // Check Citrea for the withdrawal state.
+        if let Some(citrea_client) = &self.citrea_client {
+            // See: https://gist.github.com/okkothejawa/a9379b02a16dada07a2b85cbbd3c1e80
+            let params = rpc_params![
+                json!({
+                    "to": "0x3100000000000000000000000000000000000002",
+                    "data": format!("0x471ba1e300000000000000000000000000000000000000000000000000000000{}",
+                    hex::encode(withdrawal_idx.to_be_bytes())),
+                }),
+                "latest"
+            ];
+            let response: String = citrea_client.request("eth_call", params).await?;
 
-    //         let txid_response = &response[2..66];
-    //         let txid = hex::decode(txid_response).unwrap();
-    //         // txid.reverse(); // TODO: we should need to reverse this, test this with declareWithdrawalFiller
+            let txid_response = &response[2..66];
+            let txid = hex::decode(txid_response).map_err(|e| BridgeError::Error(e.to_string()))?;
+            // txid.reverse(); // TODO: we should need to reverse this, test this with declareWithdrawalFiller
 
-    //         let txid = Txid::from_slice(&txid).unwrap();
-    //         if txid != input_utxo.outpoint.txid || 0 != input_utxo.outpoint.vout {
-    //             // TODO: Fix this, vout can be different from 0 as well
-    //             return Err(BridgeError::InvalidInputUTXO(
-    //                 txid,
-    //                 input_utxo.outpoint.txid,
-    //             ));
-    //         }
-    //     }
+            let txid = Txid::from_slice(&txid)?;
+            if txid != input_utxo.outpoint.txid || 0 != input_utxo.outpoint.vout {
+                // TODO: Fix this, vout can be different from 0 as well
+                return Err(BridgeError::InvalidInputUTXO(
+                    txid,
+                    input_utxo.outpoint.txid,
+                ));
+            }
+        }
 
-    //     if !self.is_profitable(input_utxo.txout.value, output_txout.value) {
-    //         return Err(BridgeError::NotEnoughFeeForOperator);
-    //     }
+        if !self.is_profitable(input_utxo.txout.value, output_txout.value)? {
+            return Err(BridgeError::NotEnoughFeeForOperator);
+        }
 
-    //     let user_xonly_pk =
-    //         XOnlyPublicKey::from_slice(&input_utxo.txout.script_pubkey.as_bytes()[2..34])?;
+        let user_xonly_pk =
+            XOnlyPublicKey::from_slice(&input_utxo.txout.script_pubkey.as_bytes()[2..34])?;
 
-    // let tx_ins = builder::transaction::create_tx_ins(vec![input_utxo.outpoint].into());
-    // let tx_outs = vec![output_txout.clone()];
-    // let mut tx = builder::transaction::create_btc_tx(tx_ins, tx_outs);
+        let payout_txhandler = builder::transaction::create_payout_txhandler(
+            input_utxo,
+            output_txout,
+            self.idx,
+            user_sig,
+            self.config.network,
+        )?;
 
-    //     let mut sighash_cache = SighashCache::new(&tx);
-    //     let sighash = sighash_cache.taproot_key_spend_signature_hash(
-    //         0,
-    //         &bitcoin::sighash::Prevouts::One(0, &input_utxo.txout),
-    //         bitcoin::sighash::TapSighashType::SinglePlusAnyoneCanPay,
-    //     )?;
+        let sighash = payout_txhandler.calculate_pubkey_spend_sighash(
+            0,
+            bitcoin::sighash::TapSighashType::SinglePlusAnyoneCanPay,
+        )?;
 
-    //     let user_sig_wrapped = bitcoin::taproot::Signature {
-    //         signature: user_sig,
-    //         sighash_type: bitcoin::sighash::TapSighashType::SinglePlusAnyoneCanPay,
-    //     };
-    //     tx.input[0].witness.push(user_sig_wrapped.serialize());
+        SECP.verify_schnorr(
+            &user_sig,
+            &Message::from_digest(*sighash.as_byte_array()),
+            &user_xonly_pk,
+        )?;
 
-    //     SECP.verify_schnorr(
-    //         &user_sig,
-    //         &Message::from_digest(*sighash.as_byte_array()),
-    //         &user_xonly_pk,
-    //     )?;
+        let funded_tx = self
+            .rpc
+            .client
+            .fund_raw_transaction(
+                payout_txhandler.get_cached_tx(),
+                Some(&bitcoincore_rpc::json::FundRawTransactionOptions {
+                    add_inputs: Some(true),
+                    change_address: None,
+                    change_position: Some(1),
+                    change_type: None,
+                    include_watching: None,
+                    lock_unspents: None,
+                    fee_rate: None,
+                    subtract_fee_from_outputs: None,
+                    replaceable: None,
+                    conf_target: None,
+                    estimate_mode: None,
+                }),
+                None,
+            )
+            .await?
+            .hex;
 
-    //     let mut push_bytes = PushBytesBuf::new();
-    //     push_bytes
-    //         .extend_from_slice(&utils::usize_to_var_len_bytes(self.idx))
-    //         .unwrap();
-    //     let op_return_txout = builder::script::op_return_txout(push_bytes);
+        let signed_tx: Transaction = deserialize(
+            &self
+                .rpc
+                .client
+                .sign_raw_transaction_with_wallet(&funded_tx, None, None)
+                .await?
+                .hex,
+        )?;
 
-    //     tx.output.push(op_return_txout.clone());
-
-    //     let funded_tx = self
-    //         .rpc
-    //         .client
-    //         .fund_raw_transaction(
-    //             &tx,
-    //             Some(&bitcoincore_rpc::json::FundRawTransactionOptions {
-    //                 add_inputs: Some(true),
-    //                 change_address: None,
-    //                 change_position: Some(1),
-    //                 change_type: None,
-    //                 include_watching: None,
-    //                 lock_unspents: None,
-    //                 fee_rate: None,
-    //                 subtract_fee_from_outputs: None,
-    //                 replaceable: None,
-    //                 conf_target: None,
-    //                 estimate_mode: None,
-    //             }),
-    //             None,
-    //         )
-    //         .await?
-    //         .hex;
-
-    //     let signed_tx: Transaction = deserialize(
-    //         &self
-    //             .rpc
-    //             .client
-    //             .sign_raw_transaction_with_wallet(&funded_tx, None, None)
-    //             .await?
-    //             .hex,
-    //     )?;
-
-    //     Ok(self.rpc.client.send_raw_transaction(&signed_tx).await?)
-    // }
+        Ok(self.rpc.client.send_raw_transaction(&signed_tx).await?)
+    }
 
     /// Checks Citrea if a withdrawal is finalized.
     ///
@@ -723,7 +725,7 @@ impl Operator {
             for kickoff_idx in 0..self.config.num_kickoffs_per_sequential_collateral_tx as u32 {
                 // ALL_BITVM_INTERMEDIATE_VARIABLES is a global variable that contains the intermediate variables for the BitVM in BTreeMap
                 for (intermediate_step, intermediate_step_size) in
-                    ALL_BITVM_INTERMEDIATE_VARIABLES.iter()
+                    crate::utils::BITVM_CACHE.intermediate_variables.iter()
                 {
                     let step_name = intermediate_step.as_str();
                     let path = WinternitzDerivationPath {
@@ -782,7 +784,6 @@ mod tests {
     use crate::{
         create_test_config_with_thread_name, extended_rpc::ExtendedRpc, operator::Operator,
     };
-    use std::{env, thread};
 
     // #[tokio::test]
     // async fn set_funding_utxo() {

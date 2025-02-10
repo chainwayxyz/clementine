@@ -6,8 +6,10 @@ use super::clementine::{
 use super::error::*;
 use crate::builder::sighash::create_operator_sighash_stream;
 use crate::rpc::parser;
+use crate::UTXO;
 use crate::{errors::BridgeError, operator::Operator};
-use bitcoin::OutPoint;
+use bitcoin::hashes::Hash;
+use bitcoin::{OutPoint, TxOut};
 use futures::StreamExt;
 use std::pin::pin;
 use tokio::sync::mpsc;
@@ -102,9 +104,35 @@ impl ClementineOperator for Operator {
     #[tracing::instrument(skip(self), err(level = tracing::Level::ERROR), ret(level = tracing::Level::TRACE))]
     async fn new_withdrawal_sig(
         &self,
-        _: Request<NewWithdrawalSigParams>,
+        request: Request<NewWithdrawalSigParams>,
     ) -> Result<Response<NewWithdrawalSigResponse>, Status> {
-        todo!()
+        let (
+            withdrawal_id,
+            user_sig,
+            users_intent_outpoint,
+            users_intent_script_pubkey,
+            users_intent_amount,
+        ) = parser::operator::parse_withdrawal_sig_params(request.into_inner()).await?;
+
+        let input_prevout = self
+            .rpc
+            .get_txout_from_outpoint(&users_intent_outpoint)
+            .await?;
+        let input_utxo = UTXO {
+            outpoint: users_intent_outpoint,
+            txout: input_prevout,
+        };
+        let output_txout = TxOut {
+            value: users_intent_amount,
+            script_pubkey: users_intent_script_pubkey,
+        };
+        let withdrawal_txid = self
+            .new_withdrawal_sig(withdrawal_id, user_sig, input_utxo, output_txout)
+            .await?;
+
+        Ok(Response::new(NewWithdrawalSigResponse {
+            txid: withdrawal_txid.as_raw_hash().to_byte_array().to_vec(),
+        }))
     }
 
     #[tracing::instrument(skip(self), err(level = tracing::Level::ERROR), ret(level = tracing::Level::TRACE))]

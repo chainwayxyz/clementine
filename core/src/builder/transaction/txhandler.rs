@@ -63,7 +63,6 @@ impl<T: State> TxHandler<T> {
     }
 }
 
-impl TxHandler<Unsigned> {
     pub fn get_cached_tx(&self) -> &Transaction {
         &self.cached_tx
     }
@@ -80,7 +79,7 @@ impl TxHandler<Unsigned> {
         move || -> Result<TapSighash, BridgeError> {
             match self.txins[idx].get_spend_path() {
                 SpendPath::KeySpend => {
-                    self.calculate_pubkey_spend_sighash(idx, Some(TapSighashType::Default))
+                    self.calculate_pubkey_spend_sighash(idx, TapSighashType::Default)
                 }
                 SpendPath::ScriptSpend(script_idx) => self.calculate_script_spend_sighash_indexed(
                     idx,
@@ -128,7 +127,7 @@ impl TxHandler<Unsigned> {
     pub fn calculate_pubkey_spend_sighash(
         &self,
         txin_index: usize,
-        sighash_type: Option<TapSighashType>,
+        sighash_type: TapSighashType,
     ) -> Result<TapSighash, BridgeError> {
         let prevouts_vec: Vec<&TxOut> = self
             .txins
@@ -137,20 +136,17 @@ impl TxHandler<Unsigned> {
             .collect(); // TODO: Maybe there is a better way to do this
         let mut sighash_cache: SighashCache<&bitcoin::Transaction> =
             SighashCache::new(&self.cached_tx);
-        let prevouts = &match sighash_type {
-            Some(TapSighashType::SinglePlusAnyoneCanPay)
-            | Some(TapSighashType::AllPlusAnyoneCanPay)
-            | Some(TapSighashType::NonePlusAnyoneCanPay) => {
+        let prevouts = match sighash_type {
+            TapSighashType::SinglePlusAnyoneCanPay
+            | TapSighashType::AllPlusAnyoneCanPay
+            | TapSighashType::NonePlusAnyoneCanPay => {
                 bitcoin::sighash::Prevouts::One(txin_index, prevouts_vec[txin_index])
             }
             _ => bitcoin::sighash::Prevouts::All(&prevouts_vec),
         };
 
-        let sig_hash = sighash_cache.taproot_key_spend_signature_hash(
-            txin_index,
-            prevouts,
-            sighash_type.unwrap_or(TapSighashType::Default),
-        )?;
+        let sig_hash =
+            sighash_cache.taproot_key_spend_signature_hash(txin_index, &prevouts, sighash_type)?;
 
         Ok(sig_hash)
     }
@@ -208,6 +204,22 @@ impl TxHandler<Unsigned> {
         Ok(sig_hash)
     }
 
+    pub fn calculate_sighash(
+        &self,
+        txin_index: usize,
+        sighash_type: TapSighashType,
+    ) -> Result<TapSighash, BridgeError> {
+        match self.txins[txin_index].get_spend_path() {
+            SpendPath::ScriptSpend(idx) => {
+                self.calculate_script_spend_sighash_indexed(txin_index, idx, sighash_type)
+            }
+            SpendPath::KeySpend => self.calculate_pubkey_spend_sighash(txin_index, sighash_type),
+            SpendPath::Unknown => Err(BridgeError::MissingSpendInfo),
+        }
+    }
+}
+
+impl TxHandler<Unsigned> {
     pub fn promote(self) -> Result<TxHandler<Signed>, BridgeError> {
         if self.txins.iter().any(|s| s.get_witness().is_none()) {
             return Err(BridgeError::MissingWitnessData);
@@ -222,9 +234,7 @@ impl TxHandler<Unsigned> {
             phantom: PhantomData::<Signed>,
         })
     }
-}
 
-impl TxHandler<Unsigned> {
     /// Constructs the witness for a script path spend of a transaction input.
     ///
     /// # Arguments
