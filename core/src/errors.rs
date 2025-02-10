@@ -263,6 +263,12 @@ pub enum BridgeError {
     MultipleWinternitzScripts,
     #[error("Encountered multiple preimage reveal scripts when attempting to commit to only one.")]
     MultiplePreimageRevealScripts,
+
+    #[error("Sighash stream ended prematurely")]
+    SighashStreamEndedPrematurely,
+
+    #[error("{0} input channel for {1} ended prematurely")]
+    ChannelEndedPrematurely(&'static str, &'static str),
 }
 
 impl From<BridgeError> for ErrorObject<'static> {

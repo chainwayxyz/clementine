@@ -545,7 +545,10 @@ impl Verifier {
         let mut nonce_idx: usize = 0;
 
         while let Some(sig) = sig_receiver.recv().await {
-            let sighash = sighash_stream.next().await.expect("TODO")?;
+            let sighash = sighash_stream
+                .next()
+                .await
+                .ok_or(BridgeError::SighashStreamEndedPrematurely)??;
 
             tracing::debug!("Verifying Final Signature");
             utils::SECP
@@ -601,7 +604,14 @@ impl Verifier {
             bitcoin::TapSighashType::Default,
         )?;
 
-        let agg_nonce = agg_nonce_receiver.recv().await.expect("TODO");
+        let agg_nonce =
+            agg_nonce_receiver
+                .recv()
+                .await
+                .ok_or(BridgeError::ChannelEndedPrematurely(
+                    "verifier::deposit_finalize",
+                    "aggregated nonces",
+                ))?;
 
         let movetx_secnonce = {
             let mut session_map = self.nonces.lock().await;
@@ -654,7 +664,10 @@ impl Verifier {
                 self.config.network,
             ));
             while let Some(operator_sig) = operator_sig_receiver.recv().await {
-                let sighash = sighash_stream.next().await.expect("TODO")?;
+                let sighash = sighash_stream
+                    .next()
+                    .await
+                    .ok_or(BridgeError::SighashStreamEndedPrematurely)??;
 
                 utils::SECP
                     .verify_schnorr(
