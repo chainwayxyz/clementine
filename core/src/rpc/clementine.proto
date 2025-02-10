@@ -74,8 +74,62 @@ message DepositParams {
   bytes evm_address = 2;
   // User's recovery taproot address.
   string recovery_taproot_address = 3;
-  // User can take back funds after this amount of blocks.
-  uint32 user_takes_after = 4;
+}
+
+enum NormalTransactionId {
+    UNSPECIFIED_TRANSACTION_TYPE = 0;
+    SEQUENTIAL_COLLATERAL = 1;
+    REIMBURSE_GENERATOR = 2;
+    KICKOFF = 3;
+    MOVE_TO_VAULT = 4;
+    PAYOUT = 5;
+    CHALLENGE = 6;
+    KICKOFF_TIMEOUT = 7;
+    KICKOFF_UTXO_TIMEOUT = 8;
+    WATCHTOWER_CHALLENGE_KICKOFF = 9;
+    START_HAPPY_REIMBURSE = 10;
+    HAPPY_REIMBURSE = 11;
+    ASSERT_BEGIN = 12;
+    ASSERT_END = 13;
+    DISPROVE = 14;
+    DISPROVE_TIMEOUT = 15;
+    ALREADY_DISPROVED = 16;
+    REIMBURSE = 17;
+    ALL_NEEDED_FOR_VERIFIER_DEPOSIT = 18;
+    ALL_NEEDED_FOR_OPERATOR_DEPOSIT = 19;
+    DUMMY = 20;
+}
+
+enum WatchtowerTransactionType {
+    UNSPECIFIED_INDEXED_TRANSACTION_TYPE = 0;
+    WATCHTOWER_CHALLENGE = 1;
+    OPERATOR_CHALLENGE_NACK = 2;
+    OPERATOR_CHALLENGE_ACK = 3;
+    MINI_ASSERT = 4;
+}
+
+message WatchtowerTransactionId {
+  WatchtowerTransactionType transaction_type = 1;
+  int32 index = 2;
+}
+
+message TransactionId {
+  oneof transaction_id {
+    NormalTransactionId normal_transaction = 1;
+    WatchtowerTransactionId watchtower_transaction = 2;
+  }
+}
+
+message KickoffId {
+  uint32 operator_idx = 1;
+  uint32 sequential_collateral_idx = 2;
+  uint32 kickoff_idx = 3;
+}
+
+message TransactionRequest {
+  DepositParams deposit_params = 1;
+  TransactionId transaction_type = 2;
+  KickoffId kickoff_id = 3;
 }
 
 // Includes the deposit params and the nonce gen initial responses (pubkeys and their signatures from all verifiers)
@@ -92,6 +146,7 @@ message OperatorConfig {
   string xonly_pk = 3;
   string wallet_reimburse_address = 4;
 }
+
 message OperatorParams {
   oneof response {
     // Operator's configuration.
@@ -122,6 +177,7 @@ message NewWithdrawalSigParams {
   bytes output_script_pubkey = 6;
   uint64 output_amount = 7;
 }
+
 message NewWithdrawalSigResponse {
   bytes txid = 1;
 }
@@ -136,6 +192,17 @@ message WithdrawalFinalizedParams {
 // connected to the same database and both have access to watchtowers'
 // winternitz pubkeys.
 service ClementineOperator {
+  // Creates a transaction denoted by the deposit and operator_idx, sequential_collateral_idx, and kickoff_idx.
+  // It will create the transaction and sign it with the operator's private key and/or saved nofn signatures.
+  //
+  // # Parameters
+  // - deposit_params: User's deposit information
+  // - transaction_type: Requested Transaction type
+  // - kickoff_id: Operator's kickoff ID
+  //
+  // # Returns
+  // - Raw signed transaction
+  rpc CreateSignedTx(TransactionRequest) returns (RawSignedTx) {}
   // Returns an operator's parameters. It will be called once, by the
   // aggregator, to set all the public keys.
   //
@@ -281,7 +348,7 @@ service ClementineWatchtower {
 
 // Aggregator ------------------------------------------------------------------
 
-message RawSignedMoveTx {
+message RawSignedTx {
   bytes raw_tx = 1;
 }
 
@@ -293,5 +360,5 @@ service ClementineAggregator {
   // this will also call the operator to get their signatures and send it to
   // DepositFinalize then it will collect the partial sigs and create the move
   // tx.
-  rpc NewDeposit(DepositParams) returns (RawSignedMoveTx) {}
+  rpc NewDeposit(DepositParams) returns (RawSignedTx) {}
 }

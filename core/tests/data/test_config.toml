@@ -62,7 +62,7 @@ db_user = "clementine"
 db_password = "clementine"
 db_name = "clementine"
 
-bridge_amount_sats = 10000000000
+bridge_amount_sats = 1000000000
 
 confirmation_threshold = 1
 

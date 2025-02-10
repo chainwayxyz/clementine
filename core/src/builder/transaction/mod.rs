@@ -8,6 +8,7 @@ use std::sync::Arc;
 use super::script::SpendPath;
 use super::script::{CheckSig, DepositScript, TimelockScript};
 pub use crate::builder::transaction::challenge::*;
+pub use crate::builder::transaction::creator::create_txhandlers;
 use crate::builder::transaction::input::SpendableTxIn;
 pub use crate::builder::transaction::operator_assert::*;
 pub use crate::builder::transaction::operator_collateral::*;
@@ -44,7 +45,7 @@ pub enum TransactionType {
     Payout,
     Challenge,
     KickoffTimeout,
-    KickoffUTXOTimeout,
+    KickoffUtxoTimeout,
     WatchtowerChallengeKickoff,
     StartHappyReimburse,
     HappyReimburse,

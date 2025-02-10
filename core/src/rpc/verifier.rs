@@ -386,13 +386,8 @@ impl ClementineVerifier for Verifier {
         let handle = tokio::spawn(async move {
             let params = fetch_next_message_from_stream!(in_stream, params)?;
 
-            let (
-                deposit_outpoint,
-                evm_address,
-                recovery_taproot_address,
-                _user_takes_after,
-                session_id,
-            ) = match params {
+            let (deposit_outpoint, evm_address, recovery_taproot_address, session_id) = match params
+            {
                 clementine::verifier_deposit_sign_params::Params::DepositSignFirstParam(
                     deposit_sign_session,
                 ) => parser::verifier::parse_deposit_params(deposit_sign_session, verifier.idx)?,
@@ -509,13 +504,12 @@ impl ClementineVerifier for Verifier {
 
         let params = fetch_next_message_from_stream!(in_stream, params)?;
 
-        let (deposit_outpoint, evm_address, recovery_taproot_address, user_takes_after, session_id) =
-            match params {
-                Params::DepositSignFirstParam(deposit_sign_session) => {
-                    parser::verifier::parse_deposit_params(deposit_sign_session, self.idx)?
-                }
-                _ => Err(Status::internal("Expected DepositOutpoint"))?,
-            };
+        let (deposit_outpoint, evm_address, recovery_taproot_address, session_id) = match params {
+            Params::DepositSignFirstParam(deposit_sign_session) => {
+                parser::verifier::parse_deposit_params(deposit_sign_session, self.idx)?
+            }
+            _ => Err(Status::internal("Expected DepositOutpoint"))?,
+        };
 
         let mut sighash_stream = pin!(create_nofn_sighash_stream(
             self.db.clone(),
@@ -605,7 +599,7 @@ impl ClementineVerifier for Verifier {
             evm_address,
             &recovery_taproot_address,
             self.nofn_xonly_pk,
-            user_takes_after,
+            self.config.user_takes_after,
             self.config.bridge_amount_sats,
             self.config.network,
         )?;

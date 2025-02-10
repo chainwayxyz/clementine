@@ -1,5 +1,6 @@
-use super::clementine::{Outpoint, WinternitzPubkey};
+use super::clementine::{Outpoint, TransactionRequest, WinternitzPubkey};
 use super::error;
+use crate::builder::transaction::TransactionType;
 use crate::errors::BridgeError;
 use crate::rpc::clementine::DepositParams;
 use crate::EVMAddress;
@@ -133,7 +134,6 @@ pub fn parse_deposit_params(
         bitcoin::OutPoint,
         EVMAddress,
         bitcoin::Address<NetworkUnchecked>,
-        u16,
     ),
     Status,
 > {
@@ -149,14 +149,45 @@ pub fn parse_deposit_params(
         .recovery_taproot_address
         .parse::<bitcoin::Address<_>>()
         .map_err(|e| Status::internal(e.to_string()))?;
-    let user_takes_after = deposit_params.user_takes_after;
 
-    Ok((
+    Ok((deposit_outpoint, evm_address, recovery_taproot_address))
+}
+
+struct TransactionRequestData {
+    pub deposit_outpoint: bitcoin::OutPoint,
+    pub evm_address: EVMAddress,
+    pub recovery_taproot_address: bitcoin::Address<NetworkUnchecked>,
+    pub transaction_type: TransactionType,
+    pub operator_idx: usize,
+    pub sequential_collateral_idx: usize,
+    pub kickoff_idx: usize,
+}
+
+pub fn parse_transaction_request(
+    request: TransactionRequest,
+) -> Result<TransactionRequestData, Status> {
+    let (deposit_outpoint, evm_address, recovery_taproot_address) = parse_deposit_params(
+        request
+            .deposit_params
+            .ok_or(Status::invalid_argument("No deposit params received"))?,
+    )?;
+    let transaction_type_proto = request
+        .transaction_type
+        .ok_or(Status::invalid_argument("No transaction type received"))?;
+    let transaction_type: TransactionType = transaction_type_proto.into();
+    let kickoff_id = request
+        .kickoff_id
+        .ok_or(Status::invalid_argument("No kickoff params received"))?;
+
+    Ok(TransactionRequestData {
         deposit_outpoint,
         evm_address,
         recovery_taproot_address,
-        convert_int_to_another("user_takes_after", user_takes_after, u16::try_from)?,
-    ))
+        transaction_type,
+        operator_idx: kickoff_id.operator_idx as usize,
+        sequential_collateral_idx: kickoff_id.sequential_collateral_idx as usize,
+        kickoff_idx: kickoff_id.kickoff_idx as usize,
+    })
 }
 
 #[cfg(test)]

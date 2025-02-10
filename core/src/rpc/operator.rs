@@ -1,12 +1,13 @@
 use super::clementine::{
     clementine_operator_server::ClementineOperator, DepositSignSession, Empty,
-    NewWithdrawalSigParams, NewWithdrawalSigResponse, OperatorBurnSig, OperatorParams,
-    WithdrawalFinalizedParams,
+    NewWithdrawalSigParams, NewWithdrawalSigResponse, OperatorBurnSig, OperatorParams, RawSignedTx,
+    TransactionRequest, WithdrawalFinalizedParams,
 };
 use super::error::*;
 use crate::builder::sighash::create_operator_sighash_stream;
 use crate::rpc::parser;
-use crate::UTXO;
+use crate::rpc::parser::parse_transaction_request;
+use crate::{builder, UTXO};
 use crate::{errors::BridgeError, operator::Operator};
 use bitcoin::hashes::Hash;
 use bitcoin::{OutPoint, TxOut};
@@ -65,7 +66,7 @@ impl ClementineOperator for Operator {
         let (tx, rx) = mpsc::channel(1280);
         let deposit_sign_session = request.into_inner();
 
-        let (deposit_outpoint, evm_address, recovery_taproot_address, _user_takes_after) =
+        let (deposit_outpoint, evm_address, recovery_taproot_address) =
             parser::parse_deposit_params(deposit_sign_session.try_into()?)?;
 
         tokio::spawn(async move {
@@ -153,5 +154,53 @@ impl ClementineOperator for Operator {
         //     .await?; // TODO: Reuse this in the new design.
 
         Ok(Response::new(Empty {}))
+    }
+
+    #[tracing::instrument(skip(self), err(level = tracing::Level::ERROR), ret(level = tracing::Level::TRACE))]
+    async fn create_signed_tx(
+        &self,
+        request: Request<TransactionRequest>,
+    ) -> Result<Response<RawSignedTx>, Status> {
+        let transaction_request = request.into_inner();
+        let transaction_data = parse_transaction_request(transaction_request)?;
+
+        let mut txhandlers = builder::transaction::create_txhandlers(
+            self.db.clone(),
+            self.config.clone(),
+            transaction_data.deposit_outpoint,
+            transaction_data.evm_address,
+            transaction_data.recovery_taproot_address,
+            self.nofn_xonly_pk,
+            transaction_data.transaction_type,
+            transaction_data.operator_idx,
+            transaction_data.sequential_collateral_idx,
+            transaction_data.kickoff_idx,
+            None,
+            None,
+        )
+        .await?;
+
+        let sig_query = self
+            .db
+            .get_deposit_signatures(
+                None,
+                transaction_data.deposit_outpoint,
+                transaction_data.operator_idx,
+                transaction_data.sequential_collateral_idx,
+                transaction_data.kickoff_idx,
+            )
+            .await?;
+        let signatures = sig_query.unwrap_or_default();
+
+        let mut requested_txhandler = txhandlers
+            .remove(&transaction_data.transaction_type)
+            .ok_or(BridgeError::TxHandlerNotFound)?;
+        self.signer
+            .partial_sign(&mut requested_txhandler, &signatures)?;
+        let checked_txhandler = requested_txhandler.promote()?;
+
+        Ok(Response::new(RawSignedTx {
+            raw_tx: bitcoin::consensus::encode::serialize(checked_txhandler.get_cached_tx()),
+        }))
     }
 }

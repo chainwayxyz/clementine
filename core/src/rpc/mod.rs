@@ -32,6 +32,21 @@ impl From<(WatchtowerSignatureKind, i32)> for SignatureId {
     }
 }
 
+impl From<NormalTransactionId> for transaction_id::TransactionId {
+    fn from(value: NormalTransactionId) -> Self {
+        transaction_id::TransactionId::NormalTransaction(value as i32)
+    }
+}
+
+impl From<(WatchtowerTransactionType, i32)> for transaction_id::TransactionId {
+    fn from(value: (WatchtowerTransactionType, i32)) -> Self {
+        transaction_id::TransactionId::WatchtowerTransaction(WatchtowerTransactionId {
+            transaction_type: value.0 as i32,
+            index: value.1,
+        })
+    }
+}
+
 /// Returns gRPC clients.
 ///
 /// # Parameters

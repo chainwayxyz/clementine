@@ -168,7 +168,7 @@ pub fn create_kickoff_utxo_timeout_txhandler(
     sequential_collateral_txhandler: &TxHandler,
     kickoff_idx: usize,
 ) -> Result<TxHandler, BridgeError> {
-    let builder = TxHandlerBuilder::new(TransactionType::KickoffUTXOTimeout).add_input(
+    let builder = TxHandlerBuilder::new(TransactionType::KickoffUtxoTimeout).add_input(
         NormalSignatureKind::NotStored,
         sequential_collateral_txhandler.get_spendable_output(2 + kickoff_idx)?,
         SpendPath::ScriptSpend(1),

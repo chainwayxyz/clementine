@@ -560,3 +560,74 @@ pub async fn create_txhandlers(
 
     Ok(txhandlers)
 }
+
+#[cfg(test)]
+mod tests {
+    use crate::rpc::clementine::clementine_operator_client::ClementineOperatorClient;
+    use crate::rpc::clementine::clementine_verifier_client::ClementineVerifierClient;
+    use crate::rpc::clementine::clementine_watchtower_client::ClementineWatchtowerClient;
+    use crate::{
+        config::BridgeConfig,
+        create_test_config_with_thread_name,
+        database::Database,
+        errors::BridgeError,
+        initialize_database,
+        rpc::clementine::DepositParams,
+        servers::{
+            create_aggregator_grpc_server, create_operator_grpc_server,
+            create_verifier_grpc_server, create_watchtower_grpc_server,
+        },
+        utils::initialize_logger,
+        EVMAddress,
+    };
+    use crate::{
+        create_actors,
+        extended_rpc::ExtendedRpc,
+        rpc::clementine::{self, clementine_aggregator_client::ClementineAggregatorClient},
+    };
+    use bitcoin::Txid;
+
+    use std::str::FromStr;
+
+    #[tokio::test]
+    #[serial_test::serial]
+    async fn test_deposit_and_sign_withdrawal() {
+        let config = create_test_config_with_thread_name!(None);
+
+        let (verifiers, operators, mut aggregator, watchtowers) = create_actors!(config);
+
+        tracing::info!("Setting up aggregator");
+        let start = std::time::Instant::now();
+
+        aggregator
+            .setup(tonic::Request::new(clementine::Empty {}))
+            .await
+            .unwrap();
+
+        tracing::info!("Setup completed in {:?}", start.elapsed());
+        tracing::info!("Depositing");
+        let deposit_start = std::time::Instant::now();
+        let deposit_outpoint = bitcoin::OutPoint {
+            txid: Txid::from_str(
+                "17e3fc7aae1035e77a91e96d1ba27f91a40a912cf669b367eb32c13a8f82bb02",
+            )
+            .unwrap(),
+            vout: 0,
+        };
+        let recovery_taproot_address = bitcoin::Address::from_str(
+            "tb1pk8vus63mx5zwlmmmglq554kwu0zm9uhswqskxg99k66h8m3arguqfrvywa",
+        )
+        .unwrap();
+        let recovery_addr_checked = recovery_taproot_address.assume_checked();
+        let evm_address = EVMAddress([1u8; 20]);
+        aggregator
+            .new_deposit(DepositParams {
+                deposit_outpoint: Some(deposit_outpoint.clone().into()),
+                evm_address: evm_address.0.to_vec(),
+                recovery_taproot_address: recovery_addr_checked.to_string(),
+            })
+            .await
+            .unwrap();
+        tracing::info!("Deposit completed in {:?}", deposit_start.elapsed());
+    }
+}
