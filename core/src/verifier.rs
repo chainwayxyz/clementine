@@ -8,20 +8,17 @@ use crate::config::BridgeConfig;
 use crate::database::Database;
 use crate::errors::BridgeError;
 use crate::extended_rpc::ExtendedRpc;
-use crate::musig2::AggregateFromPublicKeys;
+use crate::musig2::{self, AggregateFromPublicKeys};
 use crate::utils::{self, BITVM_CACHE};
 use crate::UTXO;
-use ::secp256k1::musig::MusigSecNonce;
 use bitcoin::hashes::Hash;
-use bitcoin::{
-    secp256k1::{self, PublicKey},
-    OutPoint,
-};
+use bitcoin::{secp256k1::PublicKey, OutPoint};
 use bitcoin::{Address, ScriptBuf, Txid, XOnlyPublicKey};
 use bitvm::signatures::signing_winternitz::{
     generate_winternitz_checksig_leave_variable, WinternitzPublicKey,
 };
 use bitvm::signatures::winternitz;
+use secp256k1::musig::{MusigPubNonce, MusigSecNonce};
 use std::collections::HashMap;
 use std::sync::Arc;
 
@@ -39,21 +36,22 @@ pub struct AllSessions {
 
 #[derive(Debug, Clone)]
 pub struct NofN {
-    pub public_keys: Vec<secp256k1::PublicKey>,
-    pub agg_xonly_pk: secp256k1::XOnlyPublicKey,
+    pub public_keys: Vec<bitcoin::secp256k1::PublicKey>,
+    pub agg_xonly_pk: bitcoin::secp256k1::XOnlyPublicKey,
     pub idx: usize,
 }
 
 impl NofN {
     pub fn new(
-        self_pk: secp256k1::PublicKey,
-        public_keys: Vec<secp256k1::PublicKey>,
+        self_pk: bitcoin::secp256k1::PublicKey,
+        public_keys: Vec<bitcoin::secp256k1::PublicKey>,
     ) -> Result<Self, BridgeError> {
         let idx = public_keys
             .iter()
             .position(|pk| pk == &self_pk)
             .ok_or(BridgeError::PublicKeyNotFound)?;
-        let agg_xonly_pk = secp256k1::XOnlyPublicKey::from_musig2_pks(public_keys.clone(), None)?;
+        let agg_xonly_pk =
+            bitcoin::secp256k1::XOnlyPublicKey::from_musig2_pks(public_keys.clone(), None)?;
         Ok(NofN {
             public_keys,
             agg_xonly_pk,
@@ -68,9 +66,9 @@ pub struct Verifier {
     pub(crate) signer: Actor,
     pub(crate) db: Database,
     pub(crate) config: BridgeConfig,
-    pub(crate) nofn_xonly_pk: secp256k1::XOnlyPublicKey,
+    pub(crate) nofn_xonly_pk: bitcoin::secp256k1::XOnlyPublicKey,
     pub(crate) nofn: Arc<tokio::sync::RwLock<Option<NofN>>>,
-    _operator_xonly_pks: Vec<secp256k1::XOnlyPublicKey>,
+    _operator_xonly_pks: Vec<bitcoin::secp256k1::XOnlyPublicKey>,
     pub(crate) nonces: Arc<tokio::sync::Mutex<AllSessions>>,
     pub idx: usize,
 }
@@ -83,7 +81,7 @@ impl Verifier {
             config.network,
         );
 
-        // let pk: secp256k1::PublicKey = config.secret_key.public_key(&utils::SECP);
+        // let pk: bitcoin::secp256k1:: PublicKey = config.secret_key.public_key(&utils::SECP);
 
         // TODO: In the future, we won't get verifiers public keys from config files, rather in set_verifiers rpc call.
         let idx = config
@@ -94,8 +92,10 @@ impl Verifier {
 
         let db = Database::new(&config).await?;
 
-        let nofn_xonly_pk =
-            secp256k1::XOnlyPublicKey::from_musig2_pks(config.verifiers_public_keys.clone(), None)?;
+        let nofn_xonly_pk = bitcoin::secp256k1::XOnlyPublicKey::from_musig2_pks(
+            config.verifiers_public_keys.clone(),
+            None,
+        )?;
 
         let operator_xonly_pks = config.operators_xonly_pks.clone();
 
@@ -358,6 +358,37 @@ impl Verifier {
         Ok(())
     }
 
+    pub async fn nonce_gen(
+        &self,
+        num_nonces: u32,
+    ) -> Result<(u32, Vec<MusigPubNonce>), BridgeError> {
+        let (sec_nonces, pub_nonces): (Vec<MusigSecNonce>, Vec<MusigPubNonce>) = (0..num_nonces)
+            .map(|_| {
+                // nonce pair needs keypair and a rng
+                let (sec_nonce, pub_nonce) = musig2::nonce_pair(
+                    &self.signer.keypair,
+                    &mut bitcoin::secp256k1::rand::thread_rng(),
+                )?;
+                Ok((sec_nonce, pub_nonce))
+            })
+            .collect::<Result<Vec<(MusigSecNonce, MusigPubNonce)>, BridgeError>>()?
+            .into_iter()
+            .unzip(); // TODO: fix extra copies
+
+        let session = NonceSession { nonces: sec_nonces };
+
+        // save the session
+        let session_id = {
+            let all_sessions = &mut *self.nonces.lock().await;
+            let session_id = all_sessions.cur_id;
+            all_sessions.sessions.insert(session_id, session);
+            all_sessions.cur_id += 1;
+            session_id
+        };
+
+        Ok((session_id, pub_nonces))
+    }
+
     // / Inform verifiers about the new deposit request
     // /
     // / 1. Check if the deposit UTXO is valid, finalized (6 blocks confirmation) and not spent
@@ -440,7 +471,7 @@ impl Verifier {
     //     &self,
     //     deposit_outpoint: OutPoint,
     //     kickoff_utxos: Vec<UTXO>,
-    //     operators_kickoff_sigs: Vec<secp256k1::schnorr::Signature>, // These are not transaction signatures, rather, they are to verify the operator's identity.
+    //     operators_kickoff_sigs: Vec<bitcoin::secp256k1:: schnorr::Signature>, // These are not transaction signatures, rather, they are to verify the operator's identity.
     //     agg_nonces: Vec<MusigAggNonce>, // This includes all the agg_nonces for the bridge operations.
     // ) -> Result<(Vec<MusigPartialSignature>, Vec<MusigPartialSignature>), BridgeError> {
     //     tracing::debug!(
@@ -473,7 +504,7 @@ impl Verifier {
     //         // Check if they are really the operators that sent these kickoff_utxos
     //         utils::SECP.verify_schnorr(
     //             &operators_kickoff_sigs[i],
-    //             &secp256k1::Message::from_digest(kickoff_sig_hash),
+    //             &bitcoin::secp256k1:: Message::from_digest(kickoff_sig_hash),
     //             &self.config.operators_xonly_pks[i],
     //         )?;
 
@@ -638,7 +669,7 @@ impl Verifier {
     //             utils::SECP
     //                 .verify_schnorr(
     //                     &slash_or_take_sigs[index],
-    //                     &secp256k1::Message::from_digest(slash_or_take_sighash.to_byte_array()),
+    //                     &bitcoin::secp256k1:: Message::from_digest(slash_or_take_sighash.to_byte_array()),
     //                     &self.nofn_xonly_pk,
     //                 )
     //                 .unwrap();
@@ -711,7 +742,7 @@ impl Verifier {
     //     // println!("Operator take signed: {:?}", operator_take_sigs);
     //     let (kickoff_utxos, mut move_tx_handler, bridge_fund_outpoint) =
     //         self.create_deposit_details(deposit_outpoint).await?;
-    //     let nofn_taproot_xonly_pk = secp256k1::XOnlyPublicKey::from_slice(
+    //     let nofn_taproot_xonly_pk = bitcoin::secp256k1:: XOnlyPublicKey::from_slice(
     //         &Address::p2tr(&utils::SECP, self.nofn_xonly_pk, None, self.config.network)
     //             .script_pubkey()
     //             .as_bytes()[2..34],
@@ -761,7 +792,7 @@ impl Verifier {
     //             utils::SECP
     //                 .verify_schnorr(
     //                     &operator_take_sigs[index],
-    //                     &secp256k1::Message::from_digest(sig_hash.to_byte_array()),
+    //                     &bitcoin::secp256k1:: Message::from_digest(sig_hash.to_byte_array()),
     //                     &nofn_taproot_xonly_pk,
     //                 )
     //                 .unwrap();
@@ -855,7 +886,7 @@ impl Verifier {
     //             &SECP
     //                 .verify_schnorr(
     //                     &slash_or_take_sigs[index],
-    //                     &secp256k1::Message::from_digest(slash_or_take_sighash.to_byte_array()),
+    //                     &bitcoin::secp256k1:: Message::from_digest(slash_or_take_sighash.to_byte_array()),
     //                     &self.nofn_xonly_pk,
     //                 )
     //                 .unwrap();
@@ -928,7 +959,7 @@ impl Verifier {
     //     // println!("Operator take signed: {:?}", operator_take_sigs);
     //     let (kickoff_utxos, mut move_tx_handler, bridge_fund_outpoint) =
     //         self.create_deposit_details(deposit_outpoint).await?;
-    //     let nofn_taproot_xonly_pk = secp256k1::XOnlyPublicKey::from_slice(
+    //     let nofn_taproot_xonly_pk = bitcoin::secp256k1:: XOnlyPublicKey::from_slice(
     //         &Address::p2tr(&SECP, self.nofn_xonly_pk, None, self.config.network)
     //             .script_pubkey()
     //             .as_bytes()[2..34],
@@ -978,7 +1009,7 @@ impl Verifier {
     //             &SECP
     //                 .verify_schnorr(
     //                     &operator_take_sigs[index],
-    //                     &secp256k1::Message::from_digest(sig_hash.to_byte_array()),
+    //                     &bitcoin::secp256k1:: Message::from_digest(sig_hash.to_byte_array()),
     //                     &nofn_taproot_xonly_pk,
     //                 )
     //                 .unwrap();
@@ -1049,7 +1080,7 @@ impl Verifier {
 // use crate::{
 //     config::BridgeConfig, database::Database, initialize_database, utils::initialize_logger,
 // };
-// use secp256k1::rand;
+// use bitcoin::secp256k1:: rand;
 // use std::{env, thread};
 
 // #[tokio::test]

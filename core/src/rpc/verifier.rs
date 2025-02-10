@@ -23,7 +23,7 @@ use crate::{
     musig2::{self},
     rpc::parser::{self},
     utils::{self, BITVM_CACHE},
-    verifier::{NonceSession, Verifier},
+    verifier::Verifier,
 };
 use bitcoin::{hashes::Hash, Amount, TapTweakHash, Txid};
 use bitcoin::{
@@ -31,7 +31,7 @@ use bitcoin::{
     XOnlyPublicKey,
 };
 use futures::StreamExt;
-use secp256k1::musig::{MusigAggNonce, MusigPubNonce, MusigSecNonce};
+use secp256k1::musig::MusigAggNonce;
 use std::pin::pin;
 use tokio::sync::mpsc::{self, error::SendError};
 use tokio_stream::wrappers::ReceiverStream;
@@ -133,44 +133,21 @@ impl ClementineVerifier for Verifier {
         &self,
         req: Request<NonceGenRequest>,
     ) -> Result<Response<Self::NonceGenStream>, Status> {
-        let num_nonces = req.into_inner().num_nonces as usize;
-        let (sec_nonces, pub_nonces): (Vec<MusigSecNonce>, Vec<MusigPubNonce>) = (0..num_nonces)
-            .map(|_| {
-                // nonce pair needs keypair and a rng
-                let (sec_nonce, pub_nonce) = musig2::nonce_pair(
-                    &self.signer.keypair,
-                    &mut bitcoin::secp256k1::rand::thread_rng(),
-                )?;
-                Ok((sec_nonce, pub_nonce))
-            })
-            .collect::<Result<Vec<(MusigSecNonce, MusigPubNonce)>, BridgeError>>()?
-            .into_iter()
-            .unzip(); // TODO: fix extra copies
+        let num_nonces = req.into_inner().num_nonces;
 
-        let session = NonceSession { nonces: sec_nonces };
-
-        // save the session
-        let session_id = {
-            let all_sessions = &mut *self.nonces.lock().await;
-            let session_id = all_sessions.cur_id;
-            all_sessions.sessions.insert(session_id, session);
-            all_sessions.cur_id += 1;
-            session_id
-        };
-
-        let nonce_gen_first_response = clementine::NonceGenFirstResponse {
-            id: session_id,
-            num_nonces: num_nonces as u32,
-        };
+        let (session_id, pub_nonces) = self.nonce_gen(num_nonces).await?;
 
         let (tx, rx) = mpsc::channel(pub_nonces.len() + 1);
+
         tokio::spawn(async move {
-            // First send the session id
+            let nonce_gen_first_response = clementine::NonceGenFirstResponse {
+                id: session_id,
+                num_nonces,
+            };
             let session_id: NonceGenResponse = nonce_gen_first_response.into();
             tx.send(Ok(session_id)).await?;
 
-            // Then send the public nonces
-            for pub_nonce in &pub_nonces[..] {
+            for pub_nonce in &pub_nonces {
                 let pub_nonce: NonceGenResponse = pub_nonce.into();
                 tx.send(Ok(pub_nonce)).await?;
             }
