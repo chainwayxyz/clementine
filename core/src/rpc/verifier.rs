@@ -3,36 +3,20 @@ use super::clementine::{
     OperatorParams, PartialSig, VerifierDepositFinalizeParams, VerifierDepositSignParams,
     VerifierParams, VerifierPublicKeys, WatchtowerParams,
 };
-use super::error::*;
-use crate::builder::sighash::SignatureInfo;
-use crate::config::BridgeConfig;
+use crate::builder::sighash::{
+    calculate_num_required_nofn_sigs, calculate_num_required_operator_sigs,
+};
 use crate::fetch_next_optional_message_from_stream;
-use crate::rpc::clementine::TaggedSignature;
-use crate::utils::SECP;
 use crate::{
-    builder::{
-        sighash::{
-            calculate_num_required_nofn_sigs, calculate_num_required_nofn_sigs_per_kickoff,
-            calculate_num_required_operator_sigs, calculate_num_required_operator_sigs_per_kickoff,
-            create_nofn_sighash_stream, create_operator_sighash_stream,
-        },
-        transaction::create_move_to_vault_txhandler,
-    },
     errors::BridgeError,
     fetch_next_message_from_stream,
-    musig2::{self},
     rpc::parser::{self},
-    utils::{self, BITVM_CACHE},
+    utils::BITVM_CACHE,
     verifier::Verifier,
 };
-use bitcoin::{hashes::Hash, Amount, TapTweakHash, Txid};
-use bitcoin::{
-    secp256k1::{Message, PublicKey},
-    XOnlyPublicKey,
-};
-use futures::StreamExt;
+use bitcoin::secp256k1::PublicKey;
+use clementine::verifier_deposit_finalize_params::Params;
 use secp256k1::musig::MusigAggNonce;
-use std::pin::pin;
 use tokio::sync::mpsc::{self, error::SendError};
 use tokio_stream::wrappers::ReceiverStream;
 use tonic::{async_trait, Request, Response, Status, Streaming};
@@ -261,11 +245,13 @@ impl ClementineVerifier for Verifier {
         &self,
         req: Request<Streaming<VerifierDepositFinalizeParams>>,
     ) -> Result<Response<PartialSig>, Status> {
-        use clementine::verifier_deposit_finalize_params::Params;
         let mut in_stream = req.into_inner();
 
-        let params = fetch_next_message_from_stream!(in_stream, params)?;
+        let (sig_tx, sig_rx) = mpsc::channel(1280);
+        let (agg_nonce_tx, agg_nonce_rx) = mpsc::channel(1);
+        let (operator_sig_tx, operator_sig_rx) = mpsc::channel(1280);
 
+        let params = fetch_next_message_from_stream!(in_stream, params)?;
         let (deposit_outpoint, evm_address, recovery_taproot_address, user_takes_after, session_id) =
             match params {
                 Params::DepositSignFirstParam(deposit_sign_session) => {
@@ -274,246 +260,85 @@ impl ClementineVerifier for Verifier {
                 _ => Err(Status::internal("Expected DepositOutpoint"))?,
             };
 
-        let mut sighash_stream = pin!(create_nofn_sighash_stream(
-            self.db.clone(),
-            self.config.clone(),
-            deposit_outpoint,
-            evm_address,
-            recovery_taproot_address.clone(),
-            self.nofn_xonly_pk,
-            user_takes_after,
-            Amount::from_sat(200_000_000), // TODO: Fix this.
-            6,
-            100,
-            self.config.bridge_amount_sats,
-            self.config.network,
-        ));
-
-        let num_required_nofn_sigs = calculate_num_required_nofn_sigs(&self.config);
-        let num_required_nofn_sigs_per_kickoff =
-            calculate_num_required_nofn_sigs_per_kickoff(&self.config);
-        let num_required_op_sigs = calculate_num_required_operator_sigs(&self.config);
-        let num_required_op_sigs_per_kickoff = calculate_num_required_operator_sigs_per_kickoff();
-        let &BridgeConfig {
-            num_operators,
-            num_sequential_collateral_txs,
-            num_kickoffs_per_sequential_collateral_tx,
-            ..
-        } = &self.config;
-        let mut verified_sigs = vec![
-            vec![
-                vec![
-                    Vec::<TaggedSignature>::with_capacity(
-                        num_required_nofn_sigs_per_kickoff + num_required_op_sigs_per_kickoff
-                    );
-                    num_kickoffs_per_sequential_collateral_tx
-                ];
-                num_sequential_collateral_txs
-            ];
-            num_operators
-        ];
-
-        let mut nonce_idx: usize = 0;
-
-        while let Some(sig) =
-            parser::verifier::parse_next_deposit_finalize_param_schnorr_sig(&mut in_stream).await?
-        {
-            let sighash = sighash_stream
-                .next()
+        // Start deposit finalize job.
+        let verifier = self.clone();
+        let deposit_finalize_handle = tokio::spawn(async move {
+            verifier
+                .deposit_finalize(
+                    deposit_outpoint,
+                    evm_address,
+                    recovery_taproot_address,
+                    user_takes_after,
+                    session_id,
+                    sig_rx,
+                    agg_nonce_rx,
+                    operator_sig_rx,
+                )
                 .await
-                .ok_or_else(sighash_stream_ended_prematurely)?
-                .map_err(Into::into)
-                .map_err(sighash_stream_failed)?;
+        });
 
-            tracing::debug!("Verifying Final Signature");
-            utils::SECP
-                .verify_schnorr(&sig, &Message::from(sighash.0), &self.nofn_xonly_pk)
-                .map_err(|x| {
-                    Status::internal(format!(
-                        "Nofn Signature {} Verification Failed: {}.",
-                        nonce_idx + 1,
-                        x
-                    ))
-                })?;
-            let &SignatureInfo {
-                operator_idx,
-                sequential_collateral_idx,
-                kickoff_utxo_idx,
-                signature_id,
-            } = &sighash.1;
-            let tagged_sig = TaggedSignature {
-                signature: sig.serialize().to_vec(),
-                signature_id: Some(signature_id),
-            };
-            verified_sigs[operator_idx][sequential_collateral_idx][kickoff_utxo_idx]
-                .push(tagged_sig);
-            tracing::debug!("Final Signature Verified");
-
-            nonce_idx += 1;
-            if nonce_idx == num_required_nofn_sigs {
-                break;
-            }
-        }
-
-        if nonce_idx != num_required_nofn_sigs {
-            return Err(Status::internal(format!(
-                "Not received enough nofn signatures. Needed: {}, received: {}",
-                num_required_nofn_sigs, nonce_idx
-            )));
-        }
-
-        // Generate partial signature for move transaction
-        let move_txhandler = create_move_to_vault_txhandler(
-            deposit_outpoint,
-            evm_address,
-            &recovery_taproot_address,
-            self.nofn_xonly_pk,
-            user_takes_after,
-            self.config.bridge_amount_sats,
-            self.config.network,
-        )?;
-
-        let move_tx_sighash = move_txhandler.calculate_script_spend_sighash_indexed(
-            0,
-            0,
-            bitcoin::TapSighashType::Default,
-        )?;
-
-        let agg_nonce =
-            parser::verifier::parse_deposit_finalize_param_agg_nonce(&mut in_stream).await?;
-
-        let movetx_secnonce = {
-            let mut session_map = self.nonces.lock().await;
-            let session = session_map.sessions.get_mut(&session_id).ok_or_else(|| {
-                Status::internal(format!(
-                    "could not find session with id {} in session cache",
-                    session_id
-                ))
-            })?;
-            session
-                .nonces
-                .pop()
-                .ok_or_else(|| Status::internal("No move tx secnonce in session"))?
-        };
-
-        let num_required_total_op_sigs = num_required_op_sigs * self.config.num_operators;
-        let mut total_op_sig_count = 0;
-
-        // get operator data
-        let operators_data: Vec<(XOnlyPublicKey, bitcoin::Address, Txid)> =
-            self.db.get_operators(None).await?;
-
-        // get signatures of operators and verify them
-        for (operator_idx, (op_xonly_pk, _, collateral_txid)) in operators_data.iter().enumerate() {
-            let mut op_sig_count = 0;
-            // tweak the operator xonly public key with None (because merkle root is empty as operator utxos have no scripts)
-            let scalar = TapTweakHash::from_key_and_tweak(*op_xonly_pk, None).to_scalar();
-            let tweaked_op_xonly_pk = op_xonly_pk
-                .add_tweak(&SECP, &scalar)
-                .map_err(|x| {
-                    Status::internal(format!("Failed to tweak operator xonly public key: {}", x))
-                })?
-                .0;
-            // generate the sighash stream for operator
-            let mut sighash_stream = pin!(create_operator_sighash_stream(
-                self.db.clone(),
-                operator_idx,
-                *collateral_txid,
-                *op_xonly_pk,
-                self.config.clone(),
-                deposit_outpoint,
-                evm_address,
-                recovery_taproot_address.clone(),
-                self.nofn_xonly_pk,
-                user_takes_after,
-                Amount::from_sat(200_000_000), // TODO: Fix this.
-                6,
-                100,
-                self.config.bridge_amount_sats,
-                self.config.network,
-            ));
-            while let Some(operator_sig) =
+        // Start parsing inputs and send them to deposit finalize job.
+        let verifier = self.clone();
+        tokio::spawn(async move {
+            let num_required_nofn_sigs = calculate_num_required_nofn_sigs(&verifier.config);
+            let mut nonce_idx = 0;
+            while let Some(sig) =
                 parser::verifier::parse_next_deposit_finalize_param_schnorr_sig(&mut in_stream)
-                    .await?
-            {
-                let sighash = sighash_stream
-                    .next()
                     .await
-                    .ok_or_else(sighash_stream_ended_prematurely)??;
+                    .expect("TODO")
+            {
+                sig_tx.send(sig).await.expect("TODO");
 
-                utils::SECP
-                    .verify_schnorr(
-                        &operator_sig,
-                        &Message::from(sighash.0),
-                        &tweaked_op_xonly_pk,
-                    )
-                    .map_err(|x| {
-                        Status::internal(format!(
-                            "Operator {} Signature {}: verification failed: {}.",
-                            operator_idx,
-                            op_sig_count + 1,
-                            x
-                        ))
-                    })?;
-
-                let &SignatureInfo {
-                    operator_idx,
-                    sequential_collateral_idx,
-                    kickoff_utxo_idx,
-                    signature_id,
-                } = &sighash.1;
-                let tagged_sig = TaggedSignature {
-                    signature: operator_sig.serialize().to_vec(),
-                    signature_id: Some(signature_id),
-                };
-                verified_sigs[operator_idx][sequential_collateral_idx][kickoff_utxo_idx]
-                    .push(tagged_sig);
-
-                op_sig_count += 1;
-                total_op_sig_count += 1;
-                if op_sig_count == num_required_op_sigs {
+                nonce_idx += 1;
+                if nonce_idx == num_required_nofn_sigs {
                     break;
                 }
             }
-        }
+            if nonce_idx < num_required_nofn_sigs {
+                panic!(
+                    "Expected more nofn sigs {} < {}",
+                    nonce_idx, num_required_nofn_sigs
+                )
+            }
 
-        if total_op_sig_count != num_required_total_op_sigs {
-            return Err(Status::internal(format!(
-                "Not enough operator signatures. Needed: {}, received: {}",
-                num_required_total_op_sigs, total_op_sig_count
-            )));
-        }
+            let agg_nonce =
+                parser::verifier::parse_deposit_finalize_param_agg_nonce(&mut in_stream)
+                    .await
+                    .expect("TODO");
+            agg_nonce_tx.send(agg_nonce).await.expect("TODO");
 
-        // sign move tx and save everything to db if everything is correct
-        let partial_sig: PartialSig = musig2::partial_sign(
-            self.config.verifiers_public_keys.clone(),
-            None,
-            movetx_secnonce,
-            agg_nonce,
-            self.signer.keypair,
-            Message::from_digest(move_tx_sighash.to_byte_array()),
-        )?
-        .into();
+            let num_required_op_sigs = calculate_num_required_operator_sigs(&verifier.config);
+            let num_required_total_op_sigs = num_required_op_sigs * verifier.config.num_operators;
+            let mut total_op_sig_count = 0;
+            let num_operators = verifier.db.get_operators(None).await.expect("TODO").len();
+            for _ in 0..num_operators {
+                let mut op_sig_count = 0;
 
-        // Deposit is not actually finalized here, its only finalized after the aggregator gets all the partial sigs and checks the aggregated sig
-        // TODO: It can create problems if the deposit fails at the end by some verifier not sending movetx partial sig, but we still added sigs to db
-        for (operator_idx, operator_sigs) in verified_sigs.into_iter().enumerate() {
-            for (seq_idx, op_sequential_sigs) in operator_sigs.into_iter().enumerate() {
-                for (kickoff_idx, kickoff_sigs) in op_sequential_sigs.into_iter().enumerate() {
-                    self.db
-                        .set_deposit_signatures(
-                            None,
-                            deposit_outpoint,
-                            operator_idx,
-                            seq_idx,
-                            kickoff_idx,
-                            kickoff_sigs,
-                        )
-                        .await?;
+                while let Some(operator_sig) =
+                    parser::verifier::parse_next_deposit_finalize_param_schnorr_sig(&mut in_stream)
+                        .await
+                        .expect("TODO")
+                {
+                    operator_sig_tx.send(operator_sig).await.expect("TODO");
+
+                    op_sig_count += 1;
+                    total_op_sig_count += 1;
+                    if op_sig_count == num_required_op_sigs {
+                        break;
+                    }
                 }
             }
-        }
 
-        Ok(Response::new(partial_sig))
+            if total_op_sig_count < num_required_total_op_sigs {
+                panic!(
+                    "Not enough operator signatures. Needed: {}, received: {}",
+                    num_required_total_op_sigs, total_op_sig_count
+                );
+            }
+        });
+
+        let partial_sig = deposit_finalize_handle.await.expect("Thread failed")?;
+
+        Ok(Response::new(partial_sig.into()))
     }
 }

@@ -2,27 +2,34 @@ use crate::actor::Actor;
 use crate::builder::address::{
     derive_challenge_address_from_xonlypk_and_wpk, taproot_builder_with_scripts,
 };
-use crate::builder::sighash::{calculate_num_required_nofn_sigs, create_nofn_sighash_stream};
-use crate::builder::transaction::{TxHandler, Unsigned};
+use crate::builder::sighash::{
+    calculate_num_required_nofn_sigs, calculate_num_required_nofn_sigs_per_kickoff,
+    calculate_num_required_operator_sigs, calculate_num_required_operator_sigs_per_kickoff,
+    create_nofn_sighash_stream, create_operator_sighash_stream, SignatureInfo,
+};
+use crate::builder::transaction::{create_move_to_vault_txhandler, TxHandler, Unsigned};
 use crate::builder::{self};
 use crate::config::BridgeConfig;
 use crate::database::Database;
 use crate::errors::BridgeError;
 use crate::extended_rpc::ExtendedRpc;
 use crate::musig2::{self, AggregateFromPublicKeys};
-use crate::utils::{self, BITVM_CACHE};
+use crate::rpc::clementine::TaggedSignature;
+use crate::utils::{self, BITVM_CACHE, SECP};
 use crate::{EVMAddress, UTXO};
 use bitcoin::address::NetworkUnchecked;
 use bitcoin::hashes::Hash;
+use bitcoin::secp256k1::schnorr::Signature;
 use bitcoin::secp256k1::Message;
 use bitcoin::{secp256k1::PublicKey, OutPoint};
-use bitcoin::{Address, Amount, ScriptBuf, Txid, XOnlyPublicKey};
+use bitcoin::{Address, Amount, ScriptBuf, TapTweakHash, Txid, XOnlyPublicKey};
 use bitvm::signatures::signing_winternitz::{
     generate_winternitz_checksig_leave_variable, WinternitzPublicKey,
 };
 use bitvm::signatures::winternitz;
 use secp256k1::musig::{MusigAggNonce, MusigPartialSignature, MusigPubNonce, MusigSecNonce};
 use std::collections::HashMap;
+use std::pin::pin;
 use std::sync::Arc;
 use tokio::sync::mpsc;
 use tokio_stream::StreamExt;
@@ -483,6 +490,245 @@ impl Verifier {
         });
 
         Ok(partial_sig_rx)
+    }
+
+    pub async fn deposit_finalize(
+        &self,
+        deposit_outpoint: OutPoint,
+        evm_address: EVMAddress,
+        recovery_taproot_address: Address<NetworkUnchecked>,
+        user_takes_after: u16,
+        session_id: u32,
+        mut sig_receiver: mpsc::Receiver<Signature>,
+        mut agg_nonce_receiver: mpsc::Receiver<MusigAggNonce>,
+        mut operator_sig_receiver: mpsc::Receiver<Signature>,
+    ) -> Result<MusigPartialSignature, BridgeError> {
+        let mut sighash_stream = pin!(create_nofn_sighash_stream(
+            self.db.clone(),
+            self.config.clone(),
+            deposit_outpoint,
+            evm_address,
+            recovery_taproot_address.clone(),
+            self.nofn_xonly_pk,
+            user_takes_after,
+            Amount::from_sat(200_000_000), // TODO: Fix this.
+            6,
+            100,
+            self.config.bridge_amount_sats,
+            self.config.network,
+        ));
+
+        let num_required_nofn_sigs = calculate_num_required_nofn_sigs(&self.config);
+        let num_required_nofn_sigs_per_kickoff =
+            calculate_num_required_nofn_sigs_per_kickoff(&self.config);
+        let num_required_op_sigs = calculate_num_required_operator_sigs(&self.config);
+        let num_required_op_sigs_per_kickoff = calculate_num_required_operator_sigs_per_kickoff();
+        let &BridgeConfig {
+            num_operators,
+            num_sequential_collateral_txs,
+            num_kickoffs_per_sequential_collateral_tx,
+            ..
+        } = &self.config;
+        let mut verified_sigs = vec![
+            vec![
+                vec![
+                    Vec::<TaggedSignature>::with_capacity(
+                        num_required_nofn_sigs_per_kickoff + num_required_op_sigs_per_kickoff
+                    );
+                    num_kickoffs_per_sequential_collateral_tx
+                ];
+                num_sequential_collateral_txs
+            ];
+            num_operators
+        ];
+
+        let mut nonce_idx: usize = 0;
+
+        while let Some(sig) = sig_receiver.recv().await {
+            let sighash = sighash_stream.next().await.expect("TODO")?;
+
+            tracing::debug!("Verifying Final Signature");
+            utils::SECP
+                .verify_schnorr(&sig, &Message::from(sighash.0), &self.nofn_xonly_pk)
+                .map_err(|x| {
+                    BridgeError::Error(format!(
+                        "Nofn Signature {} Verification Failed: {}.",
+                        nonce_idx + 1,
+                        x
+                    ))
+                })?;
+            let &SignatureInfo {
+                operator_idx,
+                sequential_collateral_idx,
+                kickoff_utxo_idx,
+                signature_id,
+            } = &sighash.1;
+            let tagged_sig = TaggedSignature {
+                signature: sig.serialize().to_vec(),
+                signature_id: Some(signature_id),
+            };
+            verified_sigs[operator_idx][sequential_collateral_idx][kickoff_utxo_idx]
+                .push(tagged_sig);
+            tracing::debug!("Final Signature Verified");
+
+            nonce_idx += 1;
+            if nonce_idx == num_required_nofn_sigs {
+                break;
+            }
+        }
+
+        if nonce_idx != num_required_nofn_sigs {
+            return Err(BridgeError::Error(format!(
+                "Not received enough nofn signatures. Needed: {}, received: {}",
+                num_required_nofn_sigs, nonce_idx
+            )));
+        }
+
+        // Generate partial signature for move transaction
+        let move_txhandler = create_move_to_vault_txhandler(
+            deposit_outpoint,
+            evm_address,
+            &recovery_taproot_address,
+            self.nofn_xonly_pk,
+            user_takes_after,
+            self.config.bridge_amount_sats,
+            self.config.network,
+        )?;
+
+        let move_tx_sighash = move_txhandler.calculate_script_spend_sighash_indexed(
+            0,
+            0,
+            bitcoin::TapSighashType::Default,
+        )?;
+
+        let agg_nonce = agg_nonce_receiver.recv().await.expect("TODO");
+
+        let movetx_secnonce = {
+            let mut session_map = self.nonces.lock().await;
+            let session = session_map.sessions.get_mut(&session_id).ok_or_else(|| {
+                BridgeError::Error(format!(
+                    "could not find session with id {} in session cache",
+                    session_id
+                ))
+            })?;
+            session
+                .nonces
+                .pop()
+                .ok_or_else(|| BridgeError::Error("No move tx secnonce in session".to_string()))?
+        };
+
+        let num_required_total_op_sigs = num_required_op_sigs * self.config.num_operators;
+        let mut total_op_sig_count = 0;
+
+        // get operator data
+        let operators_data: Vec<(XOnlyPublicKey, bitcoin::Address, Txid)> =
+            self.db.get_operators(None).await?;
+
+        // get signatures of operators and verify them
+        for (operator_idx, (op_xonly_pk, _, collateral_txid)) in operators_data.iter().enumerate() {
+            let mut op_sig_count = 0;
+            // tweak the operator xonly public key with None (because merkle root is empty as operator utxos have no scripts)
+            let scalar = TapTweakHash::from_key_and_tweak(*op_xonly_pk, None).to_scalar();
+            let tweaked_op_xonly_pk = op_xonly_pk
+                .add_tweak(&SECP, &scalar)
+                .map_err(|x| {
+                    BridgeError::Error(format!("Failed to tweak operator xonly public key: {}", x))
+                })?
+                .0;
+            // generate the sighash stream for operator
+            let mut sighash_stream = pin!(create_operator_sighash_stream(
+                self.db.clone(),
+                operator_idx,
+                *collateral_txid,
+                *op_xonly_pk,
+                self.config.clone(),
+                deposit_outpoint,
+                evm_address,
+                recovery_taproot_address.clone(),
+                self.nofn_xonly_pk,
+                user_takes_after,
+                Amount::from_sat(200_000_000), // TODO: Fix this.
+                6,
+                100,
+                self.config.bridge_amount_sats,
+                self.config.network,
+            ));
+            while let Some(operator_sig) = operator_sig_receiver.recv().await {
+                let sighash = sighash_stream.next().await.expect("TODO")?;
+
+                utils::SECP
+                    .verify_schnorr(
+                        &operator_sig,
+                        &Message::from(sighash.0),
+                        &tweaked_op_xonly_pk,
+                    )
+                    .map_err(|x| {
+                        BridgeError::Error(format!(
+                            "Operator {} Signature {}: verification failed: {}.",
+                            operator_idx,
+                            op_sig_count + 1,
+                            x
+                        ))
+                    })?;
+
+                let &SignatureInfo {
+                    operator_idx,
+                    sequential_collateral_idx,
+                    kickoff_utxo_idx,
+                    signature_id,
+                } = &sighash.1;
+                let tagged_sig = TaggedSignature {
+                    signature: operator_sig.serialize().to_vec(),
+                    signature_id: Some(signature_id),
+                };
+                verified_sigs[operator_idx][sequential_collateral_idx][kickoff_utxo_idx]
+                    .push(tagged_sig);
+
+                op_sig_count += 1;
+                total_op_sig_count += 1;
+                if op_sig_count == num_required_op_sigs {
+                    break;
+                }
+            }
+        }
+
+        if total_op_sig_count != num_required_total_op_sigs {
+            return Err(BridgeError::Error(format!(
+                "Not enough operator signatures. Needed: {}, received: {}",
+                num_required_total_op_sigs, total_op_sig_count
+            )));
+        }
+
+        // sign move tx and save everything to db if everything is correct
+        let partial_sig = musig2::partial_sign(
+            self.config.verifiers_public_keys.clone(),
+            None,
+            movetx_secnonce,
+            agg_nonce,
+            self.signer.keypair,
+            Message::from_digest(move_tx_sighash.to_byte_array()),
+        )?;
+
+        // Deposit is not actually finalized here, its only finalized after the aggregator gets all the partial sigs and checks the aggregated sig
+        // TODO: It can create problems if the deposit fails at the end by some verifier not sending movetx partial sig, but we still added sigs to db
+        for (operator_idx, operator_sigs) in verified_sigs.into_iter().enumerate() {
+            for (seq_idx, op_sequential_sigs) in operator_sigs.into_iter().enumerate() {
+                for (kickoff_idx, kickoff_sigs) in op_sequential_sigs.into_iter().enumerate() {
+                    self.db
+                        .set_deposit_signatures(
+                            None,
+                            deposit_outpoint,
+                            operator_idx,
+                            seq_idx,
+                            kickoff_idx,
+                            kickoff_sigs,
+                        )
+                        .await?;
+                }
+            }
+        }
+
+        Ok(partial_sig)
     }
 
     // / Inform verifiers about the new deposit request
