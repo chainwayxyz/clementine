@@ -4,14 +4,11 @@ use super::clementine::{
     WithdrawalFinalizedParams,
 };
 use super::error::*;
-use crate::builder::sighash::create_operator_sighash_stream;
 use crate::rpc::parser;
 use crate::UTXO;
 use crate::{errors::BridgeError, operator::Operator};
 use bitcoin::hashes::Hash;
-use bitcoin::{Amount, OutPoint, TxOut};
-use futures::StreamExt;
-use std::pin::pin;
+use bitcoin::{OutPoint, TxOut};
 use tokio::sync::mpsc;
 use tokio_stream::wrappers::ReceiverStream;
 use tonic::{async_trait, Request, Response, Status};
@@ -61,48 +58,30 @@ impl ClementineOperator for Operator {
         &self,
         request: Request<DepositSignSession>,
     ) -> Result<Response<Self::DepositSignStream>, Status> {
-        let operator = self.clone();
         let (tx, rx) = mpsc::channel(1280);
         let deposit_sign_session = request.into_inner();
 
         let (deposit_outpoint, evm_address, recovery_taproot_address, user_takes_after) =
             parser::parse_deposit_params(deposit_sign_session.try_into()?)?;
 
-        tokio::spawn(async move {
-            let mut sighash_stream = pin!(create_operator_sighash_stream(
-                operator.db,
-                operator.idx,
-                operator.collateral_funding_txid,
-                operator.signer.xonly_public_key,
-                operator.config.clone(),
+        let mut deposit_signatures_channel = self
+            .deposit_sign(
                 deposit_outpoint,
                 evm_address,
                 recovery_taproot_address,
-                operator.nofn_xonly_pk,
                 user_takes_after,
-                Amount::from_sat(200_000_000), // TODO: Fix this.
-                6,
-                100,
-                operator.config.bridge_amount_sats,
-                operator.config.network,
-            ));
+            )
+            .await?;
 
-            while let Some(sighash) = sighash_stream.next().await {
-                let sighash = sighash?.0;
+        while let Some(sig) = deposit_signatures_channel.recv().await {
+            let operator_burn_sig = OperatorBurnSig {
+                schnorr_sig: sig.serialize().to_vec(),
+            };
 
-                // None because utxos that operators need to sign do not have scripts
-                let sig = operator.signer.sign_with_tweak(sighash, None)?;
-                let operator_burn_sig = OperatorBurnSig {
-                    schnorr_sig: sig.serialize().to_vec(),
-                };
-
-                if tx.send(Ok(operator_burn_sig)).await.is_err() {
-                    break;
-                }
+            if tx.send(Ok(operator_burn_sig)).await.is_err() {
+                break;
             }
-
-            Ok::<_, BridgeError>(())
-        });
+        }
 
         Ok(Response::new(ReceiverStream::new(rx)))
     }

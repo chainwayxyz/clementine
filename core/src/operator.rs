@@ -1,21 +1,25 @@
 use crate::actor::{Actor, WinternitzDerivationPath};
+use crate::builder::sighash::create_operator_sighash_stream;
 use crate::config::BridgeConfig;
 use crate::database::Database;
 use crate::errors::BridgeError;
 use crate::extended_rpc::ExtendedRpc;
 use crate::musig2::AggregateFromPublicKeys;
 use crate::utils::SECP;
-use crate::{builder, UTXO};
+use crate::{builder, EVMAddress, UTXO};
+use bitcoin::address::NetworkUnchecked;
 use bitcoin::consensus::deserialize;
 use bitcoin::hashes::Hash;
 use bitcoin::secp256k1::{schnorr, Message};
-use bitcoin::{Amount, OutPoint, Transaction, TxOut, Txid, XOnlyPublicKey};
+use bitcoin::{Address, Amount, OutPoint, Transaction, TxOut, Txid, XOnlyPublicKey};
 use bitcoincore_rpc::RpcApi;
 use bitvm::signatures::winternitz;
 use jsonrpsee::core::client::ClientT;
 use jsonrpsee::http_client::HttpClientBuilder;
 use jsonrpsee::rpc_params;
 use serde_json::json;
+use tokio::sync::mpsc;
+use tokio_stream::StreamExt;
 
 pub type SecretPreimage = [u8; 20];
 pub type PublicHash = [u8; 20]; // TODO: Make sure these are 20 bytes and maybe do this a struct?
@@ -112,6 +116,51 @@ impl Operator {
             collateral_funding_txid,
             citrea_client,
         })
+    }
+
+    pub async fn deposit_sign(
+        &self,
+        deposit_outpoint: OutPoint,
+        evm_address: EVMAddress,
+        recovery_taproot_address: Address<NetworkUnchecked>,
+        user_takes_after: u16,
+    ) -> Result<mpsc::Receiver<schnorr::Signature>, BridgeError> {
+        let (sig_tx, sig_rx) = mpsc::channel(1280);
+
+        let mut sighash_stream = Box::pin(create_operator_sighash_stream(
+            self.db.clone(),
+            self.idx,
+            self.collateral_funding_txid,
+            self.signer.xonly_public_key,
+            self.config.clone(),
+            deposit_outpoint,
+            evm_address,
+            recovery_taproot_address,
+            self.nofn_xonly_pk,
+            user_takes_after,
+            Amount::from_sat(200_000_000), // TODO: Fix this.
+            6,
+            100,
+            self.config.bridge_amount_sats,
+            self.config.network,
+        ));
+
+        let operator = self.clone();
+        tokio::spawn(async move {
+            while let Some(sighash) = sighash_stream.next().await {
+                // None because utxos that operators need to sign do not have scripts
+                let sig = operator
+                    .signer
+                    .sign_with_tweak(sighash.expect("Expected sig").0, None)
+                    .expect("Error while sigbing with tweak");
+
+                if sig_tx.send(sig).await.is_err() {
+                    break;
+                }
+            }
+        });
+
+        Ok(sig_rx)
     }
 
     // /// Public endpoint for every depositor to call.
