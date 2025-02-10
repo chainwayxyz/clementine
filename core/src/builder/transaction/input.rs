@@ -193,6 +193,10 @@ impl SpentTxIn {
         &self.spendable
     }
 
+    pub fn get_spend_path(&self) -> SpendPath {
+        self.spend_path
+    }
+
     pub fn get_witness(&self) -> &Option<Witness> {
         &self.witness
     }

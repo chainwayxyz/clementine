@@ -229,6 +229,17 @@ impl ClementineVerifier for Verifier {
                         "Error sending partial sig, stream ended prematurely: {e}"
                     ))
                 })?;
+
+                nonce_idx += 1;
+                tracing::debug!(
+                    "Verifier {} signed sighash {} of {}",
+                    verifier.idx,
+                    nonce_idx,
+                    num_required_sigs
+                );
+                if nonce_idx == num_required_sigs {
+                    break;
+                }
             }
 
             Ok::<(), Status>(())

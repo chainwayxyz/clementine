@@ -549,7 +549,7 @@ impl Operator {
 
         let sighash = payout_txhandler.calculate_pubkey_spend_sighash(
             0,
-            Some(bitcoin::sighash::TapSighashType::SinglePlusAnyoneCanPay),
+            bitcoin::sighash::TapSighashType::SinglePlusAnyoneCanPay,
         )?;
 
         SECP.verify_schnorr(
