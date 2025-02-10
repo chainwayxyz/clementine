@@ -27,20 +27,22 @@ impl ClementineOperator for Operator {
         let (tx, rx) = mpsc::channel(1280);
         let out_stream: Self::GetParamsStream = ReceiverStream::new(rx);
 
+        let (mut wpk_receiver, mut hash_receiver) = operator.get_params().await?;
+
         tokio::spawn(async move {
             let operator_config: OperatorParams = operator.clone().into();
             tx.send(Ok(operator_config))
                 .await
                 .map_err(|_| output_stream_ended_prematurely())?;
 
-            for winternitz_public_key in operator.get_winternitz_public_keys()? {
+            while let Some(winternitz_public_key) = wpk_receiver.recv().await {
                 let operator_winternitz_pubkey: OperatorParams = winternitz_public_key.into();
                 tx.send(Ok(operator_winternitz_pubkey))
                     .await
                     .map_err(|_| output_stream_ended_prematurely())?;
             }
 
-            for hash in operator.generate_challenge_ack_preimages_and_hashes()? {
+            while let Some(hash) = hash_receiver.recv().await {
                 let hash: OperatorParams = hash.into();
                 tx.send(Ok(hash))
                     .await

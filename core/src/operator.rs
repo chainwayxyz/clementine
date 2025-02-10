@@ -118,6 +118,45 @@ impl Operator {
         })
     }
 
+    /// Returns an operator's winternitz public keys and challenge ackpreimages
+    /// & hashes.
+    ///
+    /// # Returns
+    ///
+    /// - [`mpsc::Receiver`]: A [`tokio`] data channel with a type of
+    ///   [`winternitz::PublicKey`] and size of operator's winternitz public
+    ///   keys count
+    /// - [`mpsc::Receiver`]: A [`tokio`] data channel with a type of
+    ///   [`PublicHash`] and size of operator's challenge ack preimages & hashes
+    ///   count
+    pub async fn get_params(
+        &self,
+    ) -> Result<
+        (
+            mpsc::Receiver<winternitz::PublicKey>,
+            mpsc::Receiver<PublicHash>,
+        ),
+        BridgeError,
+    > {
+        let wpks = self.get_winternitz_public_keys()?;
+        let wpk_channel = mpsc::channel(wpks.len());
+
+        let hashes = self.generate_challenge_ack_preimages_and_hashes()?;
+        let hashes_channel = mpsc::channel(hashes.len());
+
+        tokio::spawn(async move {
+            for wpk in wpks {
+                wpk_channel.0.send(wpk).await.expect("Can't send wpk"); // TODO: Will be handled
+            }
+
+            for hash in hashes {
+                hashes_channel.0.send(hash).await.expect("Can't send hash"); // TODO: Will be handled
+            }
+        });
+
+        Ok((wpk_channel.1, hashes_channel.1))
+    }
+
     pub async fn deposit_sign(
         &self,
         deposit_outpoint: OutPoint,
