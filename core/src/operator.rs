@@ -11,7 +11,7 @@ use bitcoin::address::NetworkUnchecked;
 use bitcoin::consensus::deserialize;
 use bitcoin::hashes::Hash;
 use bitcoin::secp256k1::{schnorr, Message};
-use bitcoin::{Address, Amount, OutPoint, Transaction, TxOut, Txid, XOnlyPublicKey};
+use bitcoin::{Address, Amount, OutPoint, ScriptBuf, Transaction, TxOut, Txid, XOnlyPublicKey};
 use bitcoincore_rpc::RpcApi;
 use bitvm::signatures::winternitz;
 use jsonrpsee::core::client::ClientT;
@@ -430,60 +430,69 @@ impl Operator {
     // }
 
     /// Checks if the withdrawal amount is within the acceptable range.
-    ///
-    /// # Parameters
-    ///
-    /// - `input_amount`:
-    /// - `withdrawal_amount`:
     fn is_profitable(
-        &self,
         input_amount: Amount,
         withdrawal_amount: Amount,
-    ) -> Result<bool, BridgeError> {
+        bridge_amount_sats: Amount,
+        operator_withdrawal_fee_sats: Amount,
+    ) -> bool {
         if withdrawal_amount
             .to_sat()
             .wrapping_sub(input_amount.to_sat())
-            > self.config.bridge_amount_sats.to_sat()
+            > bridge_amount_sats.to_sat()
         {
-            return Ok(false);
+            return false;
         }
 
         // Calculate net profit after the withdrawal.
-        let net_profit = self.config.bridge_amount_sats - withdrawal_amount;
+        let net_profit = bridge_amount_sats - withdrawal_amount;
 
         // Net profit must be bigger than withdrawal fee.
-        Ok(net_profit
-            > self
-                .config
-                .operator_withdrawal_fee_sats
-                .ok_or(BridgeError::ConfigError(
-                    "Operator withdrawal fee sats is not specified in configuration file"
-                        .to_string(),
-                ))?)
+        net_profit > operator_withdrawal_fee_sats
     }
 
-    /// Checks of the withdrawal has been made on Citrea, verifies a given
-    /// [`bitcoin::sighash::TapSighashType::SinglePlusAnyoneCanPay`] signature,
-    /// checks if it is profitable and finally, funds the withdrawal.
+    /// Prepares a withdrawal by:
+    ///
+    /// 1. Checking if the withdrawal has been made on Citrea
+    /// 2. Verifying the given signature
+    /// 3. Checking if the withdrawal is profitable or not
+    /// 4. Funding the witdhrawal transaction
     ///
     /// # Parameters
     ///
     /// - `withdrawal_idx`: Citrea withdrawal UTXO index
-    /// - `user_sig`: User's signature that is going to be used for signing withdrawal transaction input
-    /// - `input_utxo`:
-    /// - `output_txout`:
+    /// - `user_sig`: User's signature that is going to be used for signing
+    ///   withdrawal transaction input
+    /// - `users_intent_outpoint`: User's input for the payout transaction
+    /// - `users_intent_script_pubkey`: User's script pubkey which will be used
+    ///   in the payout transaction's output
+    /// - `users_intent_amount`: Payout transaction output's value
     ///
     /// # Returns
     ///
-    /// Withdrawal transaction's transaction id.
-    #[tracing::instrument(skip(self), err(level = tracing::Level::ERROR), ret(level = tracing::Level::TRACE))]
+    /// - [`Txid`]: Payout transaction's txid
     pub async fn new_withdrawal_sig(
         &self,
-        withdrawal_idx: u32,
-        user_sig: schnorr::Signature,
-        input_utxo: UTXO,
-        output_txout: TxOut,
+        withdrawal_index: u32,
+        user_signature: schnorr::Signature,
+        users_intent_outpoint: OutPoint,
+        users_intent_script_pubkey: ScriptBuf,
+        users_intent_amount: Amount,
     ) -> Result<Txid, BridgeError> {
+        // Prepare input and output of the payout transaction.
+        let input_prevout = self
+            .rpc
+            .get_txout_from_outpoint(&users_intent_outpoint)
+            .await?;
+        let input_utxo = UTXO {
+            outpoint: users_intent_outpoint,
+            txout: input_prevout,
+        };
+        let output_txout = TxOut {
+            value: users_intent_amount,
+            script_pubkey: users_intent_script_pubkey,
+        };
+
         // Check Citrea for the withdrawal state.
         if let Some(citrea_client) = &self.citrea_client {
             // See: https://gist.github.com/okkothejawa/a9379b02a16dada07a2b85cbbd3c1e80
@@ -491,7 +500,7 @@ impl Operator {
                 json!({
                     "to": "0x3100000000000000000000000000000000000002",
                     "data": format!("0x471ba1e300000000000000000000000000000000000000000000000000000000{}",
-                    hex::encode(withdrawal_idx.to_be_bytes())),
+                    hex::encode(withdrawal_index.to_be_bytes())),
                 }),
                 "latest"
             ];
@@ -511,7 +520,19 @@ impl Operator {
             }
         }
 
-        if !self.is_profitable(input_utxo.txout.value, output_txout.value)? {
+        let operator_withdrawal_fee_sats =
+            self.config
+                .operator_withdrawal_fee_sats
+                .ok_or(BridgeError::ConfigError(
+                    "Operator withdrawal fee sats is not specified in configuration file"
+                        .to_string(),
+                ))?;
+        if !Self::is_profitable(
+            input_utxo.txout.value,
+            output_txout.value,
+            self.config.bridge_amount_sats,
+            operator_withdrawal_fee_sats,
+        ) {
             return Err(BridgeError::NotEnoughFeeForOperator);
         }
 
@@ -522,7 +543,7 @@ impl Operator {
             input_utxo,
             output_txout,
             self.idx,
-            user_sig,
+            user_signature,
             self.config.network,
         )?;
 
@@ -532,7 +553,7 @@ impl Operator {
         )?;
 
         SECP.verify_schnorr(
-            &user_sig,
+            &user_signature,
             &Message::from_digest(*sighash.as_byte_array()),
             &user_xonly_pk,
         )?;

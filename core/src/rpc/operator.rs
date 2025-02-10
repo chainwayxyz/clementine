@@ -5,10 +5,9 @@ use super::clementine::{
 };
 use super::error::*;
 use crate::rpc::parser;
-use crate::UTXO;
 use crate::{errors::BridgeError, operator::Operator};
 use bitcoin::hashes::Hash;
-use bitcoin::{OutPoint, TxOut};
+use bitcoin::OutPoint;
 use tokio::sync::mpsc;
 use tokio_stream::wrappers::ReceiverStream;
 use tonic::{async_trait, Request, Response, Status};
@@ -66,7 +65,7 @@ impl ClementineOperator for Operator {
         let (deposit_outpoint, evm_address, recovery_taproot_address, user_takes_after) =
             parser::parse_deposit_params(deposit_sign_session.try_into()?)?;
 
-        let mut deposit_signatures_channel = self
+        let mut deposit_signatures_rx = self
             .deposit_sign(
                 deposit_outpoint,
                 evm_address,
@@ -75,7 +74,7 @@ impl ClementineOperator for Operator {
             )
             .await?;
 
-        while let Some(sig) = deposit_signatures_channel.recv().await {
+        while let Some(sig) = deposit_signatures_rx.recv().await {
             let operator_burn_sig = OperatorBurnSig {
                 schnorr_sig: sig.serialize().to_vec(),
             };
@@ -101,20 +100,14 @@ impl ClementineOperator for Operator {
             users_intent_amount,
         ) = parser::operator::parse_withdrawal_sig_params(request.into_inner()).await?;
 
-        let input_prevout = self
-            .rpc
-            .get_txout_from_outpoint(&users_intent_outpoint)
-            .await?;
-        let input_utxo = UTXO {
-            outpoint: users_intent_outpoint,
-            txout: input_prevout,
-        };
-        let output_txout = TxOut {
-            value: users_intent_amount,
-            script_pubkey: users_intent_script_pubkey,
-        };
         let withdrawal_txid = self
-            .new_withdrawal_sig(withdrawal_id, user_sig, input_utxo, output_txout)
+            .new_withdrawal_sig(
+                withdrawal_id,
+                user_sig,
+                users_intent_outpoint,
+                users_intent_script_pubkey,
+                users_intent_amount,
+            )
             .await?;
 
         Ok(Response::new(NewWithdrawalSigResponse {
