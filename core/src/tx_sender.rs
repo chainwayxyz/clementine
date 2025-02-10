@@ -49,13 +49,16 @@ impl TxSender {
 
         let fee_rate = fee_rate?;
         if fee_rate.errors.is_some() {
-            tracing::error!("Fee estimation errors: {:?}", fee_rate.errors);
-            Ok(Amount::from_sat(1))
-            // Err(BridgeError::FeeEstimationError(
-            //     fee_rate
-            //         .errors
-            //         .expect("Fee estimation errors should be present"),
-            // ))
+            if self.network == bitcoin::Network::Regtest {
+                tracing::error!("Fee estimation errors: {:?}", fee_rate.errors);
+                Ok(Amount::from_sat(1))
+            } else {
+                Err(BridgeError::FeeEstimationError(
+                    fee_rate
+                        .errors
+                        .expect("Fee estimation errors should be present"),
+                ))
+            }
         } else {
             Ok(fee_rate
                 .fee_rate
@@ -338,8 +341,6 @@ impl TxSender {
     }
 }
 
-pub mod chain_head {}
-
 #[cfg(test)]
 mod tests {
     // Imports required for create_test_config_with_thread_name macro.
@@ -427,35 +428,6 @@ mod tests {
     #[serial_test::serial]
     async fn test_create_fee_payer_tx() {
         let (tx_sender, rpc, _db, signer, network) = create_test_tx_sender().await;
-
-        // // Save the current block height and block hash
-        // if db.get_max_height(None).await.unwrap().is_none() {
-        //     let current_height = rpc.client.get_block_count().await.unwrap();
-        //     let current_block_info = get_block_info_from_height(&rpc, current_height)
-        //         .await
-        //         .unwrap();
-        //     db.set_chain_head(None, &current_block_info).await.unwrap();
-        // }
-
-        // // Start the bitcoin syncer
-        // let (sender, _handle) = start_bitcoin_syncer(
-        //     db.clone(),
-        //     rpc.clone(),
-        //     Duration::from_secs(1),
-        //     BitcoinSyncerPollingMode::SyncOnly,
-        // )
-        // .await
-        // .unwrap();
-
-        // let mut receiver = sender.subscribe();
-
-        // let tx_sender_clone = tx_sender.clone();
-        // let _chain_event_handle = tokio::spawn(async move {
-        //     tx_sender_clone
-        //         .bitcoin_syncer_event_handler(&mut receiver)
-        //         .await
-        //         .unwrap();
-        // });
 
         let tx = create_bumpable_tx(&rpc, signer, network).await.unwrap();
 
