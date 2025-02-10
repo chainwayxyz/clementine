@@ -219,6 +219,8 @@ impl ClementineVerifier for Verifier {
                 )
                 .await?;
 
+            let mut nonce_idx = 0;
+            let num_required_sigs = calculate_num_required_nofn_sigs(&verifier.config);
             while let Some(partial_sig) = partial_sig_receiver.recv().await {
                 tx.send(Ok(PartialSig {
                     partial_sig: partial_sig.serialize().to_vec(),
