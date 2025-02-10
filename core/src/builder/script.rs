@@ -5,6 +5,7 @@
 // Currently generate_witness functions are not yet used.
 #![allow(dead_code)]
 
+use crate::constants::WINTERNITZ_LOG_D;
 use crate::{utils, EVMAddress};
 use bitcoin::opcodes::OP_TRUE;
 use bitcoin::script::PushBytesBuf;
@@ -15,7 +16,7 @@ use bitcoin::{
     ScriptBuf, XOnlyPublicKey,
 };
 use bitcoin::{Amount, Witness};
-use bitvm::signatures::winternitz::{self, SecretKey};
+use bitvm::signatures::winternitz::SecretKey;
 use bitvm::signatures::winternitz::{Parameters, PublicKey};
 use std::any::Any;
 use std::fmt::Debug;
@@ -118,8 +119,9 @@ impl CheckSig {
 }
 
 /// Struct for scripts that commit to a message using Winternitz keys
+/// Contains the Winternitz PK, CheckSig PK, message length respectively
 #[derive(Clone)]
-pub struct WinternitzCommit(PublicKey, Parameters, pub(crate) XOnlyPublicKey);
+pub struct WinternitzCommit(PublicKey, pub(crate) XOnlyPublicKey, u32);
 impl SpendableScript for WinternitzCommit {
     fn as_any(&self) -> &dyn Any {
         self
@@ -131,38 +133,43 @@ impl SpendableScript for WinternitzCommit {
 
     fn to_script_buf(&self) -> ScriptBuf {
         let winternitz_pubkey = self.0.clone();
-        let params = self.1.clone();
-        let xonly_pubkey = self.2;
-        let verifier = winternitz::Winternitz::<
-            winternitz::ListpickVerifier,
-            winternitz::TabledConverter,
-        >::new();
-        verifier
-            .checksig_verify(&params, &winternitz_pubkey)
-            .push_x_only_key(&xonly_pubkey)
+        let params = self.get_params();
+        let xonly_pubkey = self.1;
+
+        let mut a = bitvm::signatures::winternitz_hash::WINTERNITZ_MESSAGE_VERIFIER
+            .checksig_verify(&params, &winternitz_pubkey);
+
+        for _ in 0..self.2 {
+            a = a.push_opcode(OP_DROP)
+        }
+
+        a.push_x_only_key(&xonly_pubkey)
             .push_opcode(OP_CHECKSIG)
             .compile()
     }
 }
 
 impl WinternitzCommit {
+    pub fn get_params(&self) -> Parameters {
+        Parameters::new(self.2, WINTERNITZ_LOG_D)
+    }
     pub fn generate_script_inputs(
         &self,
         commit_data: &Vec<u8>,
         secret_key: &SecretKey,
         signature: &schnorr::Signature,
     ) -> Witness {
-        let verifier = winternitz::Winternitz::<
-            winternitz::ListpickVerifier,
-            winternitz::TabledConverter,
-        >::new();
-        let mut witness = verifier.sign(&self.1, secret_key, commit_data);
+        let mut witness = Witness::new();
         witness.push(signature.serialize());
+        bitvm::signatures::winternitz_hash::WINTERNITZ_MESSAGE_VERIFIER
+            .sign(&self.get_params(), secret_key, commit_data)
+            .into_iter()
+            .for_each(|x| witness.push(x));
         witness
     }
 
-    pub fn new(pubkey: PublicKey, params: Parameters, xonly_pubkey: XOnlyPublicKey) -> Self {
-        Self(pubkey, params, xonly_pubkey)
+    pub fn new(pubkey: PublicKey, xonly_pubkey: XOnlyPublicKey, msg_len: u32) -> Self {
+        Self(pubkey, xonly_pubkey, msg_len)
     }
 }
 
@@ -248,8 +255,9 @@ impl PreimageRevealScript {
         preimage: impl AsRef<[u8]>,
         signature: &schnorr::Signature,
     ) -> Witness {
-        let mut witness = Witness::from_slice(&[preimage]);
+        let mut witness = Witness::new();
         witness.push(signature.serialize());
+        witness.push(preimage.as_ref());
         witness
     }
 
@@ -292,8 +300,8 @@ impl DepositScript {
         Witness::from_slice(&[signature.serialize()])
     }
 
-    pub fn new(xonly_pk: XOnlyPublicKey, evm_address: EVMAddress, amount: Amount) -> Self {
-        Self(xonly_pk, evm_address, amount)
+    pub fn new(nofn_xonly_pk: XOnlyPublicKey, evm_address: EVMAddress, amount: Amount) -> Self {
+        Self(nofn_xonly_pk, evm_address, amount)
     }
 }
 
@@ -349,12 +357,17 @@ fn get_script_from_arr<T: SpendableScript>(
 }
 #[cfg(test)]
 mod tests {
-    use crate::utils;
+    use crate::actor::{Actor, TxType, WinternitzDerivationPath};
+    use crate::extended_rpc::ExtendedRpc;
+    use crate::{create_test_config_with_thread_name, utils};
     use std::sync::Arc;
 
     use super::*;
 
+    use bitcoin::hashes::Hash;
     use bitcoin::secp256k1::PublicKey;
+    use bitcoincore_rpc::RpcApi;
+    use secp256k1::rand;
     // Create some dummy values for testing.
     // Note: These values are not cryptographically secure and are only used for tests.
     fn dummy_xonly() -> XOnlyPublicKey {
@@ -387,8 +400,8 @@ mod tests {
             Box::new(CheckSig::new(dummy_xonly())),
             Box::new(WinternitzCommit::new(
                 vec![[0u8; 20]; 32],
-                dummy_params(),
                 dummy_xonly(),
+                32,
             )),
             Box::new(TimelockScript::new(Some(dummy_xonly()), 10)),
             Box::new(PreimageRevealScript::new(dummy_xonly(), [0; 20])),
@@ -451,8 +464,8 @@ mod tests {
                 "WinternitzCommit",
                 Arc::new(WinternitzCommit::new(
                     vec![[0u8; 20]; 32],
-                    dummy_params(),
                     dummy_xonly(),
+                    32,
                 )),
             ),
             (
@@ -486,5 +499,327 @@ mod tests {
                 (s, _) => panic!("ScriptKind conversion not comprehensive for variant: {}", s),
             }
         }
+    }
+    // Tests for the spendability of all scripts
+    use crate::builder;
+    use crate::builder::transaction::input::SpendableTxIn;
+    use crate::builder::transaction::output::UnspentTxOut;
+    use crate::builder::transaction::{TxHandlerBuilder, DEFAULT_SEQUENCE};
+    use crate::utils::SECP;
+    use bitcoin::{Amount, Sequence, TxOut};
+
+    async fn create_taproot_test_tx(
+        rpc: &ExtendedRpc,
+        scripts: Vec<Arc<dyn SpendableScript>>,
+        spend_path: SpendPath,
+        amount: Amount,
+    ) -> (TxHandlerBuilder, bitcoin::Address) {
+        let (address, taproot_spend_info) = builder::address::create_taproot_address(
+            &scripts
+                .iter()
+                .map(|s| s.to_script_buf())
+                .collect::<Vec<_>>(),
+            None,
+            bitcoin::Network::Regtest,
+        );
+
+        let outpoint = rpc.send_to_address(&address, amount).await.unwrap();
+        let sequence = if let SpendPath::ScriptSpend(idx) = spend_path {
+            if let Some(script) = scripts.get(idx) {
+                match script.kind() {
+                    ScriptKind::TimelockScript(&TimelockScript(_, seq)) => {
+                        Sequence::from_height(seq)
+                    }
+                    _ => DEFAULT_SEQUENCE,
+                }
+            } else {
+                DEFAULT_SEQUENCE
+            }
+        } else {
+            DEFAULT_SEQUENCE
+        };
+        let mut builder = TxHandlerBuilder::new();
+        builder = builder.add_input(
+            crate::rpc::clementine::NormalSignatureKind::NotStored,
+            SpendableTxIn::new(
+                outpoint,
+                TxOut {
+                    value: amount,
+                    script_pubkey: address.script_pubkey(),
+                },
+                scripts.clone(),
+                Some(taproot_spend_info.clone()),
+            ),
+            spend_path,
+            sequence,
+        );
+
+        builder = builder.add_output(UnspentTxOut::new(
+            TxOut {
+                value: amount - Amount::from_sat(5000), // Subtract fee
+                script_pubkey: address.script_pubkey(),
+            },
+            scripts,
+            Some(taproot_spend_info),
+        ));
+
+        (builder, address)
+    }
+
+    use crate::{
+        config::BridgeConfig, database::Database, initialize_database, utils::initialize_logger,
+    };
+
+    #[tokio::test]
+    #[serial_test::serial]
+    async fn test_checksig_spendable() {
+        let config = create_test_config_with_thread_name!(None);
+        let rpc = ExtendedRpc::connect(
+            config.bitcoin_rpc_url.clone(),
+            config.bitcoin_rpc_user.clone(),
+            config.bitcoin_rpc_password.clone(),
+        )
+        .await
+        .unwrap();
+
+        let kp = bitcoin::secp256k1::Keypair::new(&SECP, &mut rand::thread_rng());
+        let xonly_pk = kp.public_key().x_only_public_key().0;
+
+        let scripts: Vec<Arc<dyn SpendableScript>> = vec![Arc::new(CheckSig::new(xonly_pk))];
+        let (builder, _) = create_taproot_test_tx(
+            &rpc,
+            scripts,
+            SpendPath::ScriptSpend(0),
+            Amount::from_sat(10_000),
+        )
+        .await;
+        let mut tx = builder.finalize();
+
+        // Should be able to sign with the key
+        let signer = Actor::new(
+            kp.secret_key(),
+            Some(bitcoin::secp256k1::SecretKey::new(&mut rand::thread_rng())),
+            bitcoin::Network::Regtest,
+        );
+
+        signer
+            .partial_sign(&mut tx, &[])
+            .expect("should be able to sign checksig");
+        let tx = tx
+            .promote()
+            .expect("the transaction should be fully signed");
+
+        rpc.client
+            .send_raw_transaction(tx.get_cached_tx())
+            .await
+            .expect("bitcoin RPC did not accept transaction");
+    }
+
+    #[tokio::test]
+    #[serial_test::serial]
+    async fn test_winternitz_commit_spendable() {
+        let config = create_test_config_with_thread_name!(None);
+        let rpc = ExtendedRpc::connect(
+            config.bitcoin_rpc_url.clone(),
+            config.bitcoin_rpc_user.clone(),
+            config.bitcoin_rpc_password.clone(),
+        )
+        .await
+        .unwrap();
+
+        let kp = bitcoin::secp256k1::Keypair::new(&SECP, &mut rand::thread_rng());
+        let xonly_pk = kp.public_key().x_only_public_key().0;
+
+        let derivation = WinternitzDerivationPath {
+            message_length: 64,
+            log_d: 4,
+            tx_type: TxType::BitVM,
+            index: Default::default(),
+            operator_idx: Default::default(),
+            watchtower_idx: Default::default(),
+            sequential_collateral_tx_idx: Some(0),
+            kickoff_idx: Some(0),
+            intermediate_step_name: None,
+        };
+        let signer = Actor::new(
+            kp.secret_key(),
+            Some(kp.secret_key()),
+            bitcoin::Network::Regtest,
+        );
+
+        let script: Arc<dyn SpendableScript> = Arc::new(WinternitzCommit::new(
+            signer
+                .derive_winternitz_pk(derivation)
+                .expect("failed to derive Winternitz public key"),
+            xonly_pk,
+            64,
+        ));
+
+        let scripts = vec![script];
+        let (builder, _) = create_taproot_test_tx(
+            &rpc,
+            scripts,
+            SpendPath::ScriptSpend(0),
+            Amount::from_sat(10_000),
+        )
+        .await;
+        let mut tx = builder.finalize();
+
+        signer
+            .sign_one_winternitz(&mut tx, &vec![0; 32], derivation)
+            .expect("failed to partially sign commitments");
+
+        let tx = tx
+            .promote()
+            .expect("the transaction should be fully signed");
+
+        rpc.client
+            .send_raw_transaction(tx.get_cached_tx())
+            .await
+            .expect("bitcoin RPC did not accept transaction");
+    }
+
+    #[tokio::test]
+    #[serial_test::serial]
+    async fn test_timelock_script_spendable() {
+        let config = create_test_config_with_thread_name!(None);
+        let rpc = ExtendedRpc::connect(
+            config.bitcoin_rpc_url.clone(),
+            config.bitcoin_rpc_user.clone(),
+            config.bitcoin_rpc_password.clone(),
+        )
+        .await
+        .unwrap();
+
+        let kp = bitcoin::secp256k1::Keypair::new(&SECP, &mut rand::thread_rng());
+        let xonly_pk = kp.public_key().x_only_public_key().0;
+
+        let scripts: Vec<Arc<dyn SpendableScript>> =
+            vec![Arc::new(TimelockScript::new(Some(xonly_pk), 15))];
+        let (builder, _) = create_taproot_test_tx(
+            &rpc,
+            scripts,
+            SpendPath::ScriptSpend(0),
+            Amount::from_sat(10_000),
+        )
+        .await;
+
+        let mut tx = builder.finalize();
+
+        let signer = Actor::new(
+            kp.secret_key(),
+            Some(bitcoin::secp256k1::SecretKey::new(&mut rand::thread_rng())),
+            bitcoin::Network::Regtest,
+        );
+
+        signer
+            .partial_sign(&mut tx, &[])
+            .expect("should be able to sign timelock");
+
+        rpc.client
+            .send_raw_transaction(tx.get_cached_tx())
+            .await
+            .expect_err("should not pass without 15 blocks");
+
+        rpc.mine_blocks(15).await.expect("failed to mine blocks");
+
+        rpc.client
+            .send_raw_transaction(tx.get_cached_tx())
+            .await
+            .expect("should pass after 15 blocks");
+    }
+
+    #[tokio::test]
+    #[serial_test::serial]
+    async fn test_preimage_reveal_script_spendable() {
+        let config = create_test_config_with_thread_name!(None);
+        let rpc = ExtendedRpc::connect(
+            config.bitcoin_rpc_url.clone(),
+            config.bitcoin_rpc_user.clone(),
+            config.bitcoin_rpc_password.clone(),
+        )
+        .await
+        .unwrap();
+        let kp = bitcoin::secp256k1::Keypair::new(&SECP, &mut rand::thread_rng());
+        let xonly_pk = kp.public_key().x_only_public_key().0;
+
+        let preimage = [1; 20];
+        let hash = bitcoin::hashes::hash160::Hash::hash(&preimage);
+        let script: Arc<dyn SpendableScript> =
+            Arc::new(PreimageRevealScript::new(xonly_pk, hash.to_byte_array()));
+        let scripts = vec![script];
+        let (builder, _) = create_taproot_test_tx(
+            &rpc,
+            scripts,
+            SpendPath::ScriptSpend(0),
+            Amount::from_sat(10_000),
+        )
+        .await;
+        let mut tx = builder.finalize();
+
+        let signer = Actor::new(
+            kp.secret_key(),
+            Some(bitcoin::secp256k1::SecretKey::new(&mut rand::thread_rng())),
+            bitcoin::Network::Regtest,
+        );
+
+        signer
+            .sign_one_preimage_reveal(&mut tx, preimage.to_vec())
+            .expect("failed to sign preimage reveal");
+
+        let final_tx = tx
+            .promote()
+            .expect("the transaction should be fully signed");
+
+        rpc.client
+            .send_raw_transaction(final_tx.get_cached_tx())
+            .await
+            .expect("bitcoin RPC did not accept transaction");
+    }
+
+    #[tokio::test]
+    #[serial_test::serial]
+    async fn test_deposit_script_spendable() {
+        let config = create_test_config_with_thread_name!(None);
+        let rpc = ExtendedRpc::connect(
+            config.bitcoin_rpc_url.clone(),
+            config.bitcoin_rpc_user.clone(),
+            config.bitcoin_rpc_password.clone(),
+        )
+        .await
+        .unwrap();
+
+        let kp = bitcoin::secp256k1::Keypair::new(&SECP, &mut rand::thread_rng());
+        let xonly_pk = kp.public_key().x_only_public_key().0;
+
+        let script: Arc<dyn SpendableScript> = Arc::new(DepositScript::new(
+            xonly_pk,
+            EVMAddress([2; 20]),
+            Amount::from_sat(50),
+        ));
+        let scripts = vec![script];
+        let (builder, _) = create_taproot_test_tx(
+            &rpc,
+            scripts,
+            SpendPath::ScriptSpend(0),
+            Amount::from_sat(10_000),
+        )
+        .await;
+        let mut tx = builder.finalize();
+
+        let signer = Actor::new(
+            kp.secret_key(),
+            Some(bitcoin::secp256k1::SecretKey::new(&mut rand::thread_rng())),
+            bitcoin::Network::Regtest,
+        );
+
+        signer
+            .partial_sign(&mut tx, &[])
+            .expect("should be able to sign deposit");
+
+        rpc.client
+            .send_raw_transaction(tx.get_cached_tx())
+            .await
+            .expect("bitcoin RPC did not accept transaction");
     }
 }

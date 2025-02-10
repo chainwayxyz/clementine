@@ -261,6 +261,8 @@ pub enum BridgeError {
 
     #[error("Encountered multiple winternitz scripts when attempting to commit to only one.")]
     MultipleWinternitzScripts,
+    #[error("Encountered multiple preimage reveal scripts when attempting to commit to only one.")]
+    MultiplePreimageRevealScripts,
 }
 
 impl From<BridgeError> for ErrorObject<'static> {

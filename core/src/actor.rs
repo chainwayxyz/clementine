@@ -235,15 +235,14 @@ impl Actor {
         Ok(())
     }
 
-    //
-    pub fn partial_sign_commit(
+    pub fn sign_one_preimage_reveal(
         &self,
         txhandler: &mut TxHandler,
-        signatures: &[TaggedSignature],
-        data: &Vec<u8>,
+        data: impl AsRef<[u8]>,
     ) -> Result<(), BridgeError> {
-        let mut signed_winternitz = false;
+        let mut signed_preimage = false;
 
+        let data = data.as_ref();
         let signer =
             move |_: usize,
                   spt: &SpentTxIn,
@@ -253,14 +252,80 @@ impl Actor {
                     .get_spendable()
                     .get_spend_info()
                     .as_ref()
-                    .ok_or_else(|| BridgeError::MissingSpendInfo)?;
+                    .ok_or(BridgeError::MissingSpendInfo)?;
                 match spt.get_spend_path() {
                     SpendPath::ScriptSpend(script_idx) => {
                         let script = spt
                             .get_spendable()
                             .get_scripts()
                             .get(script_idx)
-                            .ok_or_else(|| BridgeError::NoScriptAtIndex(script_idx))?;
+                            .ok_or(BridgeError::NoScriptAtIndex(script_idx))?;
+
+                        use crate::builder::script::ScriptKind as Kind;
+
+                        let mut witness = match script.kind() {
+                            Kind::PreimageRevealScript(script) => {
+                                if script.0 != self.xonly_public_key {
+                                    return Err(BridgeError::NotOwnedScriptPath);
+                                }
+                                script.generate_script_inputs(data, &self.sign(calc_sighash()?))
+                            }
+                            Kind::WinternitzCommit(_)
+                            | Kind::CheckSig(_)
+                            | Kind::Other(_)
+                            | Kind::DepositScript(_)
+                            | Kind::TimelockScript(_)
+                            | Kind::WithdrawalScript(_) => return Ok(None),
+                        };
+
+                        if signed_preimage {
+                            return Err(BridgeError::MultiplePreimageRevealScripts);
+                        }
+
+                        signed_preimage = true;
+
+                        Self::add_script_path_to_witness(
+                            &mut witness,
+                            &script.to_script_buf(),
+                            spendinfo,
+                        )?;
+
+                        Ok(Some(witness))
+                    }
+                    SpendPath::KeySpend => Ok(None),
+                    SpendPath::Unknown => Err(BridgeError::SpendPathNotSpecified),
+                }
+            };
+
+        txhandler.sign_txins(signer)?;
+        Ok(())
+    }
+    pub fn sign_one_winternitz(
+        &self,
+        txhandler: &mut TxHandler,
+        data: &Vec<u8>,
+        path: WinternitzDerivationPath,
+    ) -> Result<(), BridgeError> {
+        let mut signed_winternitz = false;
+
+        let data = data.as_ref();
+        let signer =
+            move |_: usize,
+                  spt: &SpentTxIn,
+                  calc_sighash: Box<dyn FnOnce() -> Result<TapSighash, BridgeError> + '_>|
+                  -> Result<Option<Witness>, BridgeError> {
+                let spendinfo = spt
+                    .get_spendable()
+                    .get_spend_info()
+                    .as_ref()
+                    .ok_or(BridgeError::MissingSpendInfo)?;
+                match spt.get_spend_path() {
+                    SpendPath::ScriptSpend(script_idx) => {
+                        let script = spt
+                            .get_spendable()
+                            .get_scripts()
+                            .get(script_idx)
+                            .ok_or(BridgeError::NoScriptAtIndex(script_idx))?;
 
                         use crate::builder::script::ScriptKind as Kind;
 
@@ -272,16 +337,12 @@ impl Actor {
                                 script.generate_script_inputs(data, &self.sign(calc_sighash()?))
                             }
                             Kind::WinternitzCommit(script) => {
-                                if script.2 != self.xonly_public_key {
+                                if script.1 != self.xonly_public_key {
                                     return Err(BridgeError::NotOwnedScriptPath);
                                 }
                                 script.generate_script_inputs(
                                     data,
-                                    &self
-                                        .winternitz_secret_key
-                                        .ok_or(BridgeError::NoWinternitzSecretKey)?
-                                        .as_ref()
-                                        .to_vec(),
+                                    &self.get_derived_winternitz_sk(path)?,
                                     &self.sign(calc_sighash()?),
                                 )
                             }
@@ -303,22 +364,10 @@ impl Actor {
                             &script.to_script_buf(),
                             spendinfo,
                         )?;
+
                         Ok(Some(witness))
                     }
-                    SpendPath::KeySpend => {
-                        let xonly_public_key = spendinfo.internal_key();
-                        if xonly_public_key == self.xonly_public_key {
-                            let sighash = calc_sighash()?;
-                            // TODO: get Schnorr sigs, not Vec<TaggedSignature>, pref in HashMap
-                            let sig = Self::get_saved_signature(spt.get_signature_id(), signatures);
-                            let sig = match sig {
-                                Some(sig) => sig,
-                                None => self.sign_with_tweak(sighash, spendinfo.merkle_root())?,
-                            };
-                            return Ok(Some(Witness::from_slice(&[&sig.serialize()])));
-                        }
-                        Err(NotOwnKeyPath)
-                    }
+                    SpendPath::KeySpend => Ok(None),
                     SpendPath::Unknown => Err(BridgeError::SpendPathNotSpecified),
                 }
             };
