@@ -1,5 +1,5 @@
 use crate::builder;
-use crate::builder::script::TimelockScript;
+use crate::builder::script::{SpendableScript, TimelockScript};
 pub use crate::builder::transaction::txhandler::TxHandler;
 pub use crate::builder::transaction::*;
 use crate::constants::{BLOCKS_PER_WEEK, MIN_TAPROOT_AMOUNT, PARALLEL_ASSERT_TX_CHAIN_SIZE};
@@ -176,8 +176,10 @@ pub fn create_assert_end_txhandler(
     );
 
     let disprove_taproot_spend_info = TaprootBuilder::new()
-        .add_hidden_node(0, TapNodeHash::from_byte_array(*root_hash))
-        .expect("empty taptree will accept a node at depth 0")
+        .add_hidden_node(1, TapNodeHash::from_byte_array(*root_hash))
+        .expect("empty taptree will accept a node at depth 1")
+        .add_leaf(1, CheckSig(nofn_xonly_pk).to_script_buf())
+        .expect("taptree with one node at depth 1 will accept a script node")
         .finalize(&SECP, nofn_xonly_pk) // TODO: we should convert this to script spend but we only have partial access to the taptree
         .expect("finalize always succeeds for taptree with single node at depth 0");
 
@@ -202,7 +204,7 @@ pub fn create_assert_end_txhandler(
                 script_pubkey: disprove_address.script_pubkey().clone(),
             },
             vec![Arc::new(CheckSig::new(nofn_xonly_pk))],
-            None, // not disprove_taproot_spend_info as it will cause check to fail because we do not store all scripts
+            Some(disprove_taproot_spend_info), // not disprove_taproot_spend_info as it will cause check to fail because we do not store all scripts
         ))
         .add_output(UnspentTxOut::from_scripts(
             MIN_TAPROOT_AMOUNT,
