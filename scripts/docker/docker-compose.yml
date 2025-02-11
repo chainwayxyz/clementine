@@ -20,7 +20,7 @@ services:
       - clementine-network
 
   bitcoin_testnet4:
-    image: bitcoin/bitcoin:28.0rc1
+    image: bitcoin/bitcoin:28.1
     container_name: bitcoin_testnet4
     ports:
       - "18443:18443"

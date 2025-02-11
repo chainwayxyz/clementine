@@ -194,7 +194,7 @@ impl TxSender {
         fee_rate: FeeRate,
         change_address: Address,
     ) -> Result<Transaction, BridgeError> {
-        let child_tx_size = Weight::from_wu_usize(230 * fee_payer_utxos.len() + 200); // TODO: Fix this 200 constant, it should be p2a anchor size + change output size.
+        let child_tx_size = Weight::from_wu_usize(230 * fee_payer_utxos.len() + 1000); // TODO: Fix this 200 constant, it should be p2a anchor size + change output size.
         let total_weight = child_tx_size + parent_tx_size;
         let required_fee = fee_rate
             .checked_mul_by_weight(total_weight)
