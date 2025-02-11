@@ -265,14 +265,71 @@ impl TxSender {
         }
     }
 
-    pub async fn send_tx_with_cpfp(&self, _txid: Txid) -> Result<f64, BridgeError> {
-        Ok(0.0)
+    pub async fn send_tx_with_cpfp(
+        &self,
+        txid: Txid,
+        fee_rate: FeeRate,
+    ) -> Result<f64, BridgeError> {
+        let tx = self.db.get_tx(None, txid).await?;
+
+        let fee_payer_utxos = self.db.get_confirmed_fee_payer_utxos(None, txid).await?;
+
+        let fee_payer_utxos: Vec<SpendableTxIn> = fee_payer_utxos
+            .iter()
+            .map(|(txid, vout, amount, script_pubkey)| {
+                SpendableTxIn::new(
+                    OutPoint {
+                        txid: *txid,
+                        vout: *vout,
+                    },
+                    TxOut {
+                        value: *amount,
+                        script_pubkey: script_pubkey.clone(),
+                    },
+                    vec![],
+                    Some(
+                        builder::address::create_taproot_address(
+                            &[],
+                            Some(self.signer.xonly_public_key),
+                            self.network,
+                        )
+                        .1,
+                    ),
+                )
+            })
+            .collect();
+
+        let p2a_vout = self.find_p2a_vout(&tx)?;
+
+        let child_tx = self.create_child_tx(
+            OutPoint {
+                txid,
+                vout: p2a_vout as u32,
+            },
+            fee_payer_utxos,
+            tx.weight(),
+            fee_rate,
+            self.signer.address.clone(),
+        )?;
+
+        let submit_package_result = self.rpc.client.submit_package(vec![&tx, &child_tx]).await?;
+        tracing::info!("Submit package result: {:?}", submit_package_result);
+        // effective fee_rates
+        let effective_fee_rates: Vec<_> = submit_package_result
+            .tx_results
+            .iter()
+            .map(|(txid, result)| (txid.clone(), result.fees.effective_feerate))
+            .collect();
+
+        let effective_fee_rate = effective_fee_rates[0]
+            .1
+            .expect("Effective fee rate should be present");
+        Ok(effective_fee_rate)
     }
 
     /// This will just persist the raw tx to the db
-    pub async fn save_tx(&self, tx: Transaction) -> Result<f64, BridgeError> {
+    pub async fn save_tx(&self, tx: Transaction) -> Result<(), BridgeError> {
         let bumped_txid = tx.compute_txid();
-        let p2a_vout = self.find_p2a_vout(&tx)?;
         tracing::info!(
             "Bumped txid: {} and script pubkey: {}",
             bumped_txid,
@@ -288,66 +345,9 @@ impl TxSender {
         }
 
         // Persist the tx to the db
-        // self.db.save_tx(None, bumped_txid, tx).await?;
+        self.db.save_tx(None, bumped_txid, tx).await?;
 
-        // get confirmed fee payer tx
-        let (fee_payer_txid, fee_payer_vout, fee_payer_amount, _) = fee_payer_txs
-            .iter()
-            .find(|(_, _, _, is_confirmed)| *is_confirmed)
-            .ok_or(BridgeError::ConfirmedFeePayerTxNotFound)?;
-
-        let fee_rate = self.get_fee_rate().await?;
-
-        // Now create the raw tx.
-        let child_tx = self.create_child_tx(
-            OutPoint {
-                txid: bumped_txid,
-                vout: p2a_vout as u32,
-            },
-            vec![SpendableTxIn::new(
-                OutPoint {
-                    txid: *fee_payer_txid,
-                    vout: *fee_payer_vout,
-                },
-                TxOut {
-                    value: *fee_payer_amount,
-                    script_pubkey: self.signer.address.script_pubkey(),
-                },
-                vec![],
-                Some(
-                    builder::address::create_taproot_address(
-                        &[],
-                        Some(self.signer.xonly_public_key),
-                        self.network,
-                    )
-                    .1,
-                ),
-            )],
-            tx.weight(),
-            fee_rate,
-            self.signer.address.clone(),
-        )?;
-
-        tracing::info!(
-            "bqr submitpackage '[\"{}\", \"{}\"]'",
-            hex::encode(bitcoin::consensus::serialize(&tx)),
-            hex::encode(bitcoin::consensus::serialize(&child_tx))
-        );
-        let submit_package_result = self.rpc.client.submit_package(vec![&tx, &child_tx]).await?;
-        tracing::info!("Submit package result: {:?}", submit_package_result);
-        // effective fee_rates
-        let effective_fee_rates: Vec<_> = submit_package_result
-            .tx_results
-            .iter()
-            .map(|(txid, result)| (txid.clone(), result.fees.effective_feerate))
-            .collect();
-
-        let effective_fee_rate = effective_fee_rates[0]
-            .1
-            .expect("Effective fee rate should be present");
-
-        tracing::info!("Effective fee rates: {:?}", effective_fee_rates);
-        Ok(effective_fee_rate)
+        Ok(())
     }
 
     pub async fn bump_fees_of_fee_payer_txs(
@@ -399,12 +399,12 @@ impl TxSender {
         &self,
         new_effective_fee_rate: FeeRate,
     ) -> Result<(), BridgeError> {
-        let txs = self
+        let txids = self
             .db
-            .get_unconfirmed_txs(None, new_effective_fee_rate)
+            .get_unconfirmed_bumpable_txs(None, new_effective_fee_rate)
             .await?;
-        for (txid, _tx) in txs {
-            self.send_tx_with_cpfp(txid).await?;
+        for txid in txids {
+            self.send_tx_with_cpfp(txid, new_effective_fee_rate).await?;
         }
         Ok(())
     }

@@ -7,7 +7,7 @@ use super::{
     Database, DatabaseTransaction,
 };
 use crate::{errors::BridgeError, execute_query_with_tx};
-use bitcoin::{consensus::deserialize, Amount, FeeRate, ScriptBuf, Transaction, Txid};
+use bitcoin::{consensus::{deserialize, serialize}, Amount, FeeRate, ScriptBuf, Transaction, Txid};
 use std::str::FromStr;
 
 impl Database {
@@ -161,30 +161,80 @@ impl Database {
         Ok(txs)
     }
 
-    pub async fn get_unconfirmed_txs(
+    pub async fn get_confirmed_fee_payer_utxos(
+        &self,
+        tx: Option<DatabaseTransaction<'_, '_>>,
+        bumped_txid: Txid,
+    ) -> Result<Vec<(Txid, u32, Amount, ScriptBuf)>, BridgeError> {
+        let query = sqlx::query_as::<_, (TxidDB, i32, i64, ScriptBufDB)>(
+            "SELECT fee_payer_txid, vout, amount, script_pubkey 
+             FROM tx_sender_fee_payer_utxos fpu
+             WHERE fpu.bumped_txid = $1 AND fpu.is_confirmed = true",
+        )
+        .bind(super::wrapper::TxidDB(bumped_txid));
+
+        let results: Vec<(TxidDB, i32, i64, ScriptBufDB)> =
+            execute_query_with_tx!(self.connection, tx, query, fetch_all)?;
+
+        Ok(results
+            .iter()
+            .map(|(fee_payer_txid, vout, amount, script_pubkey)| {
+                (
+                    fee_payer_txid.0,
+                    *vout as u32,
+                    Amount::from_sat(*amount as u64),
+                    script_pubkey.0.clone(),
+                )
+            })
+            .collect())
+    }
+
+    /// Gets txids of txs that are unconfirmed and have a lower effective fee rate than the given fee rate.
+    pub async fn get_unconfirmed_bumpable_txs(
         &self,
         tx: Option<DatabaseTransaction<'_, '_>>,
         new_effective_fee_rate: FeeRate,
-    ) -> Result<Vec<(Txid, Transaction)>, BridgeError> {
-        let query = sqlx::query_as(
-            "SELECT txid, raw_tx 
+    ) -> Result<Vec<Txid>, BridgeError> {
+        let query = sqlx::query_as::<_, (TxidDB,)>(
+            "SELECT txid 
              FROM tx_sender_txs 
              WHERE is_confirmed = false AND (effective_fee_rate IS NULL OR effective_fee_rate < $1)",
         )
         .bind(new_effective_fee_rate.to_sat_per_vb_ceil() as i64);
 
-        let results: Vec<(TxidDB, Vec<u8>)> =
-            execute_query_with_tx!(self.connection, tx, query, fetch_all)?;
+        let results = execute_query_with_tx!(self.connection, tx, query, fetch_all)?;
+        Ok(results.into_iter().map(|(txid,)| txid.0).collect())
+    }
 
-        Ok(results
-            .iter()
-            .map(|(txid, raw_tx)| {
-                (
-                    txid.0,
-                    deserialize(raw_tx).expect("Failed to deserialize tx"),
-                )
-            })
-            .collect())
+    pub async fn save_tx(
+        &self,
+        tx: Option<DatabaseTransaction<'_, '_>>,
+        txid: Txid,
+        raw_tx: Transaction,
+    ) -> Result<(), BridgeError> {
+        let query = sqlx::query("INSERT INTO tx_sender_txs (txid, raw_tx) VALUES ($1, $2)")
+            .bind(TxidDB(txid))
+            .bind(serialize(&raw_tx));
+
+        execute_query_with_tx!(self.connection, tx, query, execute)?;
+
+        Ok(())
+    }
+
+    pub async fn get_tx(
+        &self,
+        tx: Option<DatabaseTransaction<'_, '_>>,
+        txid: Txid,
+    ) -> Result<Transaction, BridgeError> {
+        let query = sqlx::query_as::<_, (Vec<u8>,)>(
+            "SELECT raw_tx 
+             FROM tx_sender_txs 
+             WHERE txid = $1 LIMIT 1",
+        )
+        .bind(TxidDB(txid));
+
+        let result = execute_query_with_tx!(self.connection, tx, query, fetch_one)?;
+        Ok(deserialize(&result.0).expect("Failed to deserialize tx"))
     }
 }
 
