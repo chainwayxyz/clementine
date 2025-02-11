@@ -219,20 +219,25 @@ create table if not exists tx_sender_txs (
 );
 
 create table if not exists bitcoin_syncer (
-    blockhash text not null primary key check (blockhash ~ '^[a-fA-F0-9]{64}'),
-    prev_blockhash text not null check (prev_blockhash ~ '^[a-fA-F0-9]{64}'),
+    id serial primary key,
+    blockhash text not null unique,
+    prev_blockhash text not null,
     height bigint not null
 );
 
-crate table if not exists bitcoin_syncer_txs (
-    blockhash text REFERENCES bitcoin_syncer ( blockhash ),
-    txid text not null check (txid ~ '^[a-fA-F0-9]{64}'),
+create table if not exists bitcoin_syncer_txs (
+    block_id int not null references bitcoin_syncer (id),
+    txid text not null,
+    primary key (block_id, txid)
 );
 
-crate table if not exists bitcoin_syncer_utxos (
-    spending_txid text REFERENCES bitcoin_syncer_txs ( txid ),
-    txid text REFERENCES bitcoin_syncer_txs ( txid ),
+create table if not exists bitcoin_syncer_utxos (
+    block_id int not null references bitcoin_syncer (id),
+    spending_txid text not null,
+    txid text not null,
     vout int not null,
+    primary key (block_id, spending_txid, txid, vout),
+    foreign key (block_id, spending_txid) references bitcoin_syncer_txs (block_id, txid)
 );
 
 COMMIT;

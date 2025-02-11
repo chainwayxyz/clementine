@@ -72,7 +72,7 @@ pub async fn process_block(
     .await?;
 
     for tx in &block.txdata {
-        process_tx(&db, &mut dbtx, tx, &block_hash).await?;
+        process_tx(db, &mut dbtx, tx, &block_hash).await?;
     }
 
     dbtx.commit().await?;

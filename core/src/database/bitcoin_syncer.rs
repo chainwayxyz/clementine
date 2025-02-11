@@ -14,8 +14,8 @@ impl Database {
         let query = sqlx::query(
             "INSERT INTO bitcoin_syncer (blockhash, prev_blockhash, height) VALUES ($1, $2, $3)",
         )
-        .bind(BlockHashDB(block_hash.clone()))
-        .bind(BlockHashDB(prev_block_hash.clone()))
+        .bind(BlockHashDB(*block_hash))
+        .bind(BlockHashDB(*prev_block_hash))
         .bind(block_height);
 
         execute_query_with_tx!(self.connection, tx, query, execute)?;
@@ -78,8 +78,8 @@ impl Database {
         txid: &bitcoin::Txid,
     ) -> Result<(), BridgeError> {
         sqlx::query("INSERT INTO bitcoin_syncer_txs (blockhash, txid) VALUES ($1, $2)")
-            .bind(super::wrapper::BlockHashDB(block_hash.clone()))
-            .bind(super::wrapper::TxidDB(txid.clone()))
+            .bind(super::wrapper::BlockHashDB(*block_hash))
+            .bind(super::wrapper::TxidDB(*txid))
             .execute(tx.deref_mut())
             .await?;
         Ok(())
@@ -92,7 +92,7 @@ impl Database {
     ) -> Result<Option<bitcoin::BlockHash>, BridgeError> {
         let ret: Option<(super::wrapper::BlockHashDB,)> =
             sqlx::query_as("SELECT blockhash FROM bitcoin_syncer_txs WHERE txid = $1")
-                .bind(super::wrapper::TxidDB(txid.clone()))
+                .bind(super::wrapper::TxidDB(*txid))
                 .fetch_optional(tx.deref_mut())
                 .await?;
         Ok(ret.map(|ret| ret.0 .0))
@@ -105,7 +105,7 @@ impl Database {
     ) -> Result<Vec<bitcoin::Txid>, BridgeError> {
         let ret: Vec<(super::wrapper::TxidDB,)> =
             sqlx::query_as("SELECT txid FROM bitcoin_syncer_txs WHERE blockhash = $1")
-                .bind(super::wrapper::BlockHashDB(block_hash.clone()))
+                .bind(super::wrapper::BlockHashDB(*block_hash))
                 .fetch_all(tx.deref_mut())
                 .await?;
         Ok(ret.into_iter().map(|ret| ret.0 .0).collect())
@@ -121,8 +121,8 @@ impl Database {
         sqlx::query(
             "INSERT INTO bitcoin_syncer_utxos (spending_txid, txid, vout) VALUES ($1, $2, $3)",
         )
-        .bind(super::wrapper::TxidDB(spending_txid.clone()))
-        .bind(super::wrapper::TxidDB(txid.clone()))
+        .bind(super::wrapper::TxidDB(*spending_txid))
+        .bind(super::wrapper::TxidDB(*txid))
         .bind(vout)
         .execute(tx.deref_mut())
         .await?;
