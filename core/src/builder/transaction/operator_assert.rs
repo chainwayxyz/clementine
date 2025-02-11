@@ -1,6 +1,6 @@
 use std::collections::VecDeque;
 use crate::builder;
-use crate::builder::script::{SpendableScript, TimelockScript, WinternitzCommit};
+use crate::builder::script::{SpendableScript, TimelockScript};
 pub use crate::builder::transaction::txhandler::TxHandler;
 pub use crate::builder::transaction::*;
 use crate::constants::{BLOCKS_PER_WEEK, MIN_TAPROOT_AMOUNT, PARALLEL_ASSERT_TX_CHAIN_SIZE};
@@ -371,8 +371,10 @@ pub fn create_mini_asserts_and_assert_end_from_scripts(
     );
 
     let disprove_taproot_spend_info = TaprootBuilder::new()
-        .add_hidden_node(0, TapNodeHash::from_byte_array(*root_hash))
-        .expect("empty taptree will accept a node at depth 0")
+        .add_hidden_node(1, TapNodeHash::from_byte_array(*root_hash))
+        .expect("empty taptree will accept a node at depth 1")
+        .add_leaf(1, CheckSig(nofn_xonly_pk).to_script_buf())
+        .expect("taptree with one node at depth 1 will accept a script node")
         .finalize(&SECP, nofn_xonly_pk) // TODO: we should convert this to script spend but we only have partial access to the taptree
         .expect("finalize always succeeds for taptree with single node at depth 0");
 
@@ -392,20 +394,21 @@ pub fn create_mini_asserts_and_assert_end_from_scripts(
     // Add outputs
     all_tx_handlers.push(
         builder
-            .add_output(UnspentTxOut::from_partial(TxOut {
+            .add_output(UnspentTxOut::new(TxOut {
                 value: MIN_TAPROOT_AMOUNT,
                 script_pubkey: disprove_address.script_pubkey().clone(),
-            }))
+            },
+
+                                          vec![Arc::new(CheckSig::new(nofn_xonly_pk))],
+                                          Some(disprove_taproot_spend_info),))
             .add_output(UnspentTxOut::from_scripts(
                 MIN_TAPROOT_AMOUNT,
                 vec![nofn_1week, nofn_2week],
                 None,
                 network,
             ))
-            .add_output(UnspentTxOut::new(
+            .add_output(UnspentTxOut::from_partial(
                 builder::transaction::anchor_output(),
-                vec![],
-                None,
             ))
             .finalize(),
     );

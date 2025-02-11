@@ -11,7 +11,7 @@ use crate::errors::BridgeError;
 use crate::rpc::clementine::tagged_signature::SignatureId;
 use crate::{builder, database::Database, EVMAddress};
 use async_stream::try_stream;
-use bitcoin::{address::NetworkUnchecked, Address, OutPoint, TapSighashType};
+use bitcoin::{address::NetworkUnchecked, Address, Amount, OutPoint, TapSighashType};
 use bitcoin::{TapSighash, Txid, XOnlyPublicKey};
 use futures_core::stream::Stream;
 

@@ -235,12 +235,76 @@ impl Actor {
         Ok(())
     }
 
-    //
-    pub fn partial_sign_commit(
+    pub fn tx_sign_preimage(
         &self,
         txhandler: &mut TxHandler,
-        signatures: &[TaggedSignature],
+        data: impl AsRef<[u8]>,
+    ) -> Result<(), BridgeError> {
+        let mut signed_preimage = false;
+
+        let data = data.as_ref();
+        let signer =
+            move |_: usize,
+                  spt: &SpentTxIn,
+                  calc_sighash: Box<dyn FnOnce() -> Result<TapSighash, BridgeError> + '_>|
+                  -> Result<Option<Witness>, BridgeError> {
+                let spendinfo = spt
+                    .get_spendable()
+                    .get_spend_info()
+                    .as_ref()
+                    .ok_or(BridgeError::MissingSpendInfo)?;
+                match spt.get_spend_path() {
+                    SpendPath::ScriptSpend(script_idx) => {
+                        let script = spt
+                            .get_spendable()
+                            .get_scripts()
+                            .get(script_idx)
+                            .ok_or(BridgeError::NoScriptAtIndex(script_idx))?;
+
+                        use crate::builder::script::ScriptKind as Kind;
+
+                        let mut witness = match script.kind() {
+                            Kind::PreimageRevealScript(script) => {
+                                if script.0 != self.xonly_public_key {
+                                    return Err(BridgeError::NotOwnedScriptPath);
+                                }
+                                script.generate_script_inputs(data, &self.sign(calc_sighash()?))
+                            }
+                            Kind::WinternitzCommit(_)
+                            | Kind::CheckSig(_)
+                            | Kind::Other(_)
+                            | Kind::DepositScript(_)
+                            | Kind::TimelockScript(_)
+                            | Kind::WithdrawalScript(_) => return Ok(None),
+                        };
+
+                        if signed_preimage {
+                            return Err(BridgeError::MultiplePreimageRevealScripts);
+                        }
+
+                        signed_preimage = true;
+
+                        Self::add_script_path_to_witness(
+                            &mut witness,
+                            &script.to_script_buf(),
+                            spendinfo,
+                        )?;
+
+                        Ok(Some(witness))
+                    }
+                    SpendPath::KeySpend => Ok(None),
+                    SpendPath::Unknown => Err(BridgeError::SpendPathNotSpecified),
+                }
+            };
+
+        txhandler.sign_txins(signer)?;
+        Ok(())
+    }
+    pub fn tx_sign_winternitz(
+        &self,
+        txhandler: &mut TxHandler,
         data: &Vec<u8>,
+        path: WinternitzDerivationPath,
     ) -> Result<(), BridgeError> {
         let mut signed_winternitz = false;
 
@@ -253,39 +317,30 @@ impl Actor {
                     .get_spendable()
                     .get_spend_info()
                     .as_ref()
-                    .ok_or_else(|| BridgeError::MissingSpendInfo)?;
+                    .ok_or(BridgeError::MissingSpendInfo)?;
                 match spt.get_spend_path() {
                     SpendPath::ScriptSpend(script_idx) => {
                         let script = spt
                             .get_spendable()
                             .get_scripts()
                             .get(script_idx)
-                            .ok_or_else(|| BridgeError::NoScriptAtIndex(script_idx))?;
+                            .ok_or(BridgeError::NoScriptAtIndex(script_idx))?;
 
                         use crate::builder::script::ScriptKind as Kind;
 
                         let mut witness = match script.kind() {
-                            Kind::PreimageRevealScript(script) => {
-                                if script.0 != self.xonly_public_key {
-                                    return Err(BridgeError::NotOwnedScriptPath);
-                                }
-                                script.generate_script_inputs(data, &self.sign(calc_sighash()?))
-                            }
                             Kind::WinternitzCommit(script) => {
-                                if script.2 != self.xonly_public_key {
+                                if script.1 != self.xonly_public_key {
                                     return Err(BridgeError::NotOwnedScriptPath);
                                 }
                                 script.generate_script_inputs(
                                     data,
-                                    &self
-                                        .winternitz_secret_key
-                                        .ok_or(BridgeError::NoWinternitzSecretKey)?
-                                        .as_ref()
-                                        .to_vec(),
+                                    &self.get_derived_winternitz_sk(path)?,
                                     &self.sign(calc_sighash()?),
                                 )
                             }
-                            Kind::CheckSig(_)
+                            Kind::PreimageRevealScript(_)
+                            | Kind::CheckSig(_)
                             | Kind::Other(_)
                             | Kind::DepositScript(_)
                             | Kind::TimelockScript(_)
@@ -303,22 +358,10 @@ impl Actor {
                             &script.to_script_buf(),
                             spendinfo,
                         )?;
+
                         Ok(Some(witness))
                     }
-                    SpendPath::KeySpend => {
-                        let xonly_public_key = spendinfo.internal_key();
-                        if xonly_public_key == self.xonly_public_key {
-                            let sighash = calc_sighash()?;
-                            // TODO: get Schnorr sigs, not Vec<TaggedSignature>, pref in HashMap
-                            let sig = Self::get_saved_signature(spt.get_signature_id(), signatures);
-                            let sig = match sig {
-                                Some(sig) => sig,
-                                None => self.sign_with_tweak(sighash, spendinfo.merkle_root())?,
-                            };
-                            return Ok(Some(Witness::from_slice(&[&sig.serialize()])));
-                        }
-                        Err(NotOwnKeyPath)
-                    }
+                    SpendPath::KeySpend => Ok(None),
                     SpendPath::Unknown => Err(BridgeError::SpendPathNotSpecified),
                 }
             };
@@ -327,12 +370,11 @@ impl Actor {
         Ok(())
     }
 
-    pub fn partial_sign(
+    pub fn tx_sign_and_fill_sigs(
         &self,
         txhandler: &mut TxHandler,
         signatures: &[TaggedSignature],
     ) -> Result<(), BridgeError> {
-        let tx_type = txhandler.get_transaction_type();
         let signer = move |_,
                            spt: &SpentTxIn,
                            calc_sighash: Box<
@@ -363,7 +405,7 @@ impl Actor {
                                 (None, true) => {
                                     script.generate_script_inputs(&self.sign(calc_sighash()?))
                                 }
-                                (None, false) => return Err(BridgeError::SignatureNotFound(tx_type)),
+                                (None, false) => return Err(BridgeError::SignatureNotFound),
                             }
                         }
                         Kind::TimelockScript(script) => match (sig, script.0) {
@@ -371,7 +413,7 @@ impl Actor {
                             (None, Some(xonly_key)) if xonly_key == self.xonly_public_key => {
                                 script.generate_script_inputs(Some(&self.sign(calc_sighash()?)))
                             }
-                            (None, Some(_)) => return Err(BridgeError::SignatureNotFound(tx_type)),
+                            (None, Some(_)) => return Err(BridgeError::SignatureNotFound),
                             (_, None) => Witness::new(),
                         },
                         Kind::CheckSig(script) => match (sig, script.0 == self.xonly_public_key) {
@@ -379,7 +421,7 @@ impl Actor {
                             (None, true) => {
                                 script.generate_script_inputs(&self.sign(calc_sighash()?))
                             }
-                            (None, false) => return Err(BridgeError::SignatureNotFound(tx_type)),
+                            (None, false) => return Err(BridgeError::SignatureNotFound),
                         },
                         Kind::WinternitzCommit(_)
                         | Kind::PreimageRevealScript(_)
@@ -550,7 +592,7 @@ mod tests {
 
         // Actor signs the key spend input.
         actor
-            .partial_sign(&mut txhandler, &[])
+            .tx_sign_and_fill_sigs(&mut txhandler, &[])
             .expect("Key spend signature should succeed");
 
         // Retrieve the cached transaction from the txhandler.
@@ -570,7 +612,7 @@ mod tests {
         // Using an empty signature slice since our dummy CheckSig uses actor signature.
         let signatures: Vec<_> = vec![];
         actor
-            .partial_sign(&mut txhandler, &signatures)
+            .tx_sign_and_fill_sigs(&mut txhandler, &signatures)
             .expect("Script spend partial sign should succeed");
 
         // Retrieve the cached transaction.
@@ -590,7 +632,7 @@ mod tests {
         // Using an empty signature slice since our dummy CheckSig uses actor signature.
         let signatures: Vec<_> = vec![];
         actor
-            .partial_sign(&mut txhandler, &signatures)
+            .tx_sign_and_fill_sigs(&mut txhandler, &signatures)
             .expect("Script spend partial sign should succeed");
 
         // Retrieve the cached transaction.

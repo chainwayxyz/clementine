@@ -216,6 +216,11 @@ impl<T: State> TxHandler<T> {
             SpendPath::Unknown => Err(BridgeError::MissingSpendInfo),
         }
     }
+
+    #[cfg(test)]
+    pub fn get_input_txout(&self, input_idx: usize) -> &TxOut {
+        self.txins[input_idx].get_spendable().get_prevout()
+    }
 }
 
 impl TxHandler<Unsigned> {
