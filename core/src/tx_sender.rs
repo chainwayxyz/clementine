@@ -265,8 +265,12 @@ impl TxSender {
         }
     }
 
+    pub async fn send_tx_with_cpfp(&self, _txid: Txid) -> Result<f64, BridgeError> {
+        Ok(0.0)
+    }
+
     /// This will just persist the raw tx to the db
-    pub async fn send_tx_with_cpfp(&self, tx: Transaction) -> Result<(), BridgeError> {
+    pub async fn save_tx(&self, tx: Transaction) -> Result<f64, BridgeError> {
         let bumped_txid = tx.compute_txid();
         let p2a_vout = self.find_p2a_vout(&tx)?;
         tracing::info!(
@@ -274,7 +278,7 @@ impl TxSender {
             bumped_txid,
             self.signer.address.script_pubkey()
         );
-        let fee_payer_txs = self
+        let fee_payer_txs: Vec<(Txid, u32, Amount, bool)> = self
             .db
             .get_fee_payer_tx(None, bumped_txid, self.signer.address.script_pubkey())
             .await?;
@@ -331,7 +335,19 @@ impl TxSender {
         );
         let submit_package_result = self.rpc.client.submit_package(vec![&tx, &child_tx]).await?;
         tracing::info!("Submit package result: {:?}", submit_package_result);
-        Ok(())
+        // effective fee_rates
+        let effective_fee_rates: Vec<_> = submit_package_result
+            .tx_results
+            .iter()
+            .map(|(txid, result)| (txid.clone(), result.fees.effective_feerate))
+            .collect();
+
+        let effective_fee_rate = effective_fee_rates[0]
+            .1
+            .expect("Effective fee rate should be present");
+
+        tracing::info!("Effective fee rates: {:?}", effective_fee_rates);
+        Ok(effective_fee_rate)
     }
 
     pub async fn bump_fees_of_fee_payer_txs(
@@ -375,6 +391,21 @@ impl TxSender {
             }
         }
 
+        Ok(())
+    }
+
+    /// Tries to send unconfirmed txs that have a new effective fee rate.
+    pub async fn try_to_send_unconfirmed_txs(
+        &self,
+        new_effective_fee_rate: FeeRate,
+    ) -> Result<(), BridgeError> {
+        let txs = self
+            .db
+            .get_unconfirmed_txs(None, new_effective_fee_rate)
+            .await?;
+        for (txid, _tx) in txs {
+            self.send_tx_with_cpfp(txid).await?;
+        }
         Ok(())
     }
 
@@ -552,7 +583,7 @@ mod tests {
         tx_sender.apply_block(&latest_block_hash).await.unwrap();
 
         // Send the CPFP transaction
-        tx_sender.send_tx_with_cpfp(tx).await.unwrap();
+        tx_sender.save_tx(tx).await.unwrap();
 
         // Clean shutdown of background tasks
         // drop(sender); // This will cause the receiver loop to exit

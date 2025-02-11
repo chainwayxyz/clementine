@@ -194,14 +194,25 @@ create table if not exists operators_challenge_ack_hashes (
 );
 
 -- Table to store fee payer UTXOs
-create table if not exists fee_payer_utxos (
+create table if not exists tx_sender_fee_payer_utxos (
     id serial primary key,
-    replacement_of_id int references fee_payer_utxos(id),
+    replacement_of_id int references tx_sender_fee_payer_utxos(id),
     bumped_txid text not null check (bumped_txid ~ '^[a-fA-F0-9]{64}'),
     fee_payer_txid text not null check (fee_payer_txid ~ '^[a-fA-F0-9]{64}'),
     vout int not null,
     script_pubkey bytea not null,
     amount bigint not null,
+    is_confirmed boolean not null default false,
+    confirmed_blockhash text check (confirmed_blockhash ~ '^[a-fA-F0-9]{64}'),
+    created_at timestamp not null default now()
+);
+
+-- Table to store txs that needs to be fee bumped
+create table if not exists tx_sender_txs (
+    txid text not null check (txid ~ '^[a-fA-F0-9]{64}'),
+    raw_tx bytea not null,
+    child_txid text check (child_txid ~ '^[a-fA-F0-9]{64}'),
+    effective_fee_rate bigint,
     is_confirmed boolean not null default false,
     confirmed_blockhash text check (confirmed_blockhash ~ '^[a-fA-F0-9]{64}'),
     created_at timestamp not null default now()

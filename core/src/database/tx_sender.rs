@@ -7,7 +7,7 @@ use super::{
     Database, DatabaseTransaction,
 };
 use crate::{errors::BridgeError, execute_query_with_tx};
-use bitcoin::{Amount, ScriptBuf, Txid};
+use bitcoin::{consensus::deserialize, Amount, FeeRate, ScriptBuf, Transaction, Txid};
 use std::str::FromStr;
 
 impl Database {
@@ -30,7 +30,7 @@ impl Database {
         replacement_of_id: Option<i32>,
     ) -> Result<(), BridgeError> {
         let query = sqlx::query(
-            "INSERT INTO fee_payer_utxos (bumped_txid, fee_payer_txid, vout, script_pubkey, amount, replacement_of_id) 
+            "INSERT INTO tx_sender_fee_payer_utxos (bumped_txid, fee_payer_txid, vout, script_pubkey, amount, replacement_of_id) 
              VALUES ($1, $2, $3, $4, $5, $6)",
         )
         .bind(TxidDB(bumped_txid))
@@ -53,7 +53,7 @@ impl Database {
         blockhash: bitcoin::BlockHash,
     ) -> Result<(), BridgeError> {
         let query = sqlx::query(
-            "UPDATE fee_payer_utxos 
+            "UPDATE tx_sender_fee_payer_utxos 
              SET is_confirmed = true, confirmed_blockhash = $1 
              WHERE fee_payer_txid = $2",
         )
@@ -93,12 +93,12 @@ impl Database {
         let query = sqlx::query_as::<_, (i32, TxidDB, i32, i64, ScriptBufDB)>(
             "
             SELECT fpu.id, fpu.fee_payer_txid, fpu.vout, fpu.amount, fpu.script_pubkey
-            FROM fee_payer_utxos fpu
+            FROM tx_sender_fee_payer_utxos fpu
             WHERE fpu.bumped_txid = $1
               AND fpu.is_confirmed = false
               AND NOT EXISTS (
                   SELECT 1
-                  FROM fee_payer_utxos replacement
+                  FROM tx_sender_fee_payer_utxos replacement
                   WHERE replacement.replacement_of_id = fpu.id
               )
             ",
@@ -139,7 +139,7 @@ impl Database {
     ) -> Result<Vec<(Txid, u32, Amount, bool)>, BridgeError> {
         let query = sqlx::query_as(
             "SELECT fee_payer_txid, vout, amount, is_confirmed 
-             FROM fee_payer_utxos 
+             FROM tx_sender_fee_payer_utxos 
              WHERE bumped_txid = $1 AND script_pubkey = $2",
         )
         .bind(super::wrapper::TxidDB(bumped_txid))
@@ -159,6 +159,32 @@ impl Database {
         }
 
         Ok(txs)
+    }
+
+    pub async fn get_unconfirmed_txs(
+        &self,
+        tx: Option<DatabaseTransaction<'_, '_>>,
+        new_effective_fee_rate: FeeRate,
+    ) -> Result<Vec<(Txid, Transaction)>, BridgeError> {
+        let query = sqlx::query_as(
+            "SELECT txid, raw_tx 
+             FROM tx_sender_txs 
+             WHERE is_confirmed = false AND (effective_fee_rate IS NULL OR effective_fee_rate < $1)",
+        )
+        .bind(new_effective_fee_rate.to_sat_per_vb_ceil() as i64);
+
+        let results: Vec<(TxidDB, Vec<u8>)> =
+            execute_query_with_tx!(self.connection, tx, query, fetch_all)?;
+
+        Ok(results
+            .iter()
+            .map(|(txid, raw_tx)| {
+                (
+                    txid.0,
+                    deserialize(raw_tx).expect("Failed to deserialize tx"),
+                )
+            })
+            .collect())
     }
 }
 
