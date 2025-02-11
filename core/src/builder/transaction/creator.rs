@@ -564,7 +564,7 @@ mod tests {
             config.bitcoin_rpc_password.clone(),
         );
 
-        let (verifiers, mut operators, mut aggregator, mut watchtowers) = create_actors!(config);
+        let (mut verifiers, mut operators, mut aggregator, mut watchtowers) = create_actors!(config);
 
         tracing::info!("Setting up aggregator");
         let start = std::time::Instant::now();
@@ -614,14 +614,16 @@ mod tests {
             TransactionType::StartHappyReimburse,
             TransactionType::HappyReimburse,
             TransactionType::AssertBegin,
+            TransactionType::AssertEnd,
             //TransactionType::Disprove,
             TransactionType::DisproveTimeout,
             TransactionType::AlreadyDisproved,
             TransactionType::Reimburse,
-            TransactionType::AssertEnd,
         ];
         txs_operator_can_sign
             .extend((0..config.num_watchtowers).map(|i| TransactionType::OperatorChallengeNack(i)));
+        txs_operator_can_sign
+            .extend((0..config.num_watchtowers).map(|i| TransactionType::OperatorChallengeAck(i)));
         txs_operator_can_sign.extend(
             (0..utils::BITVM_CACHE.intermediate_variables.len())
                 .map(|i| TransactionType::MiniAssert(i)),
@@ -660,8 +662,6 @@ mod tests {
                             })
                             .await
                             .unwrap();
-
-                        tracing::info!("Raw signed tx received for {:?}", tx_type);
                     }
                 }
             }
@@ -695,11 +695,50 @@ mod tests {
                             })
                             .await
                             .unwrap();
-
-                        tracing::info!("Raw signed tx received for WatchtowerChallenge");
                     }
                 }
             }
         }
+
+        let mut txs_verifier_can_sign = vec![
+            TransactionType::Challenge,
+            TransactionType::KickoffTimeout,
+            TransactionType::KickoffUtxoTimeout,
+            TransactionType::WatchtowerChallengeKickoff,
+            //TransactionType::Disprove,
+            TransactionType::DisproveTimeout,
+            TransactionType::AlreadyDisproved,
+        ];
+        txs_verifier_can_sign
+            .extend((0..config.num_watchtowers).map(|i| TransactionType::OperatorChallengeNack(i)));
+
+        // try to sign everything for all verifiers
+        for verifier_idx in 0..config.num_verifiers {
+            for operator_idx in 0..config.num_operators {
+                for sequential_collateral_idx in 0..config.num_sequential_collateral_txs {
+                    for kickoff_idx in 0..config.num_kickoffs_per_sequential_collateral_tx {
+                        let kickoff_id = KickoffId {
+                            operator_idx: operator_idx as u32,
+                            sequential_collateral_idx: sequential_collateral_idx as u32,
+                            kickoff_idx: kickoff_idx as u32,
+                        };
+                        for tx_type in &txs_verifier_can_sign {
+                            let raw_tx = verifiers[verifier_idx]
+                                .create_signed_tx(TransactionRequest {
+                                    deposit_params: deposit_params.clone().into(),
+                                    transaction_type: Some(GrpcTransactionId {
+                                        id: Some((*tx_type).into()),
+                                    }),
+                                    kickoff_id: Some(kickoff_id),
+                                    commit_data: vec![]
+                                })
+                                .await
+                                .unwrap();
+                        }
+                    }
+                }
+            }
+        }
+
     }
 }

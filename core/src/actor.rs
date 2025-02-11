@@ -451,17 +451,20 @@ impl Actor {
                 SpendPath::KeySpend => {
                     let xonly_public_key = spendinfo.internal_key();
 
-                    if xonly_public_key == self.xonly_public_key {
-                        let sighash = calc_sighash()?;
-                        // TODO: get Schnorr sigs, not Vec<TaggedSignature>, pref in HashMap
-                        let sig = Self::get_saved_signature(spt.get_signature_id(), signatures);
-                        let sig = match sig {
-                            Some(sig) => sig,
-                            None => self.sign_with_tweak(sighash, spendinfo.merkle_root())?,
-                        };
-                        return Ok(Some(Witness::from_slice(&[&sig.serialize()])));
-                    }
-                    Err(NotOwnKeyPath)
+                    let sighash = calc_sighash()?;
+                    let sig = Self::get_saved_signature(spt.get_signature_id(), signatures);
+                    let sig = match sig {
+                        Some(sig) => sig,
+                        None => {
+                            if xonly_public_key == self.xonly_public_key {
+                                self.sign_with_tweak(sighash, spendinfo.merkle_root())?
+                            }
+                            else {
+                                return Err(NotOwnKeyPath);
+                            }
+                        },
+                    };
+                    Ok(Some(Witness::from_slice(&[&sig.serialize()])))
                 }
                 SpendPath::Unknown => Err(BridgeError::SpendPathNotSpecified),
             }
