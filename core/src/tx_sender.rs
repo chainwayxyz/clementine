@@ -607,7 +607,7 @@ mod tests {
         //     .get_raw_transaction(&outpoint.txid, None)
         //     .await
         //     .unwrap();
-        rpc.mine_blocks(1).await.unwrap();
+        rpc.mine_blocks(3).await.unwrap();
 
         tx_sender.save_tx(&tx).await.unwrap();
 
@@ -615,6 +615,8 @@ mod tests {
         rpc.mine_blocks(1).await.unwrap();
 
         // Give enough time for the block to be processed and event to be handled
+        tokio::time::sleep(Duration::from_secs(3)).await;
+        rpc.mine_blocks(3).await.unwrap();
         tokio::time::sleep(Duration::from_secs(3)).await;
 
         // get the tx from the rpc
