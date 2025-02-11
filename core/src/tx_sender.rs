@@ -389,8 +389,14 @@ impl TxSender {
         Ok(())
     }
 
-    pub async fn apply_reorg(&self, _reorg_block: &bitcoin::BlockHash) -> Result<(), BridgeError> {
-        // self.apply_block(&reorg_block).await?;
+    pub async fn apply_reorg(&self, blockhash: &bitcoin::BlockHash) -> Result<(), BridgeError> {
+        let block = self.rpc.client.get_block(blockhash).await?;
+
+        for tx in block.txdata {
+            let txid = tx.compute_txid();
+            self.db.reset_fee_payer_tx(None, txid).await?;
+        }
+
         Ok(())
     }
 
@@ -413,8 +419,13 @@ impl TxSender {
                     ));
                 }
                 BitcoinSyncerEvent::ReorgedBlocks(block_hashes) => {
-                    for block in block_hashes {
+                    let (old_blocks, new_blocks): (Vec<_>, Vec<_>) =
+                        block_hashes.into_iter().unzip();
+                    for block in old_blocks {
                         self.apply_reorg(&block).await?;
+                    }
+                    for block in new_blocks {
+                        self.apply_block(&block).await?
                     }
                 }
             }

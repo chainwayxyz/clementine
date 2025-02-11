@@ -5,7 +5,11 @@ use bitcoincore_rpc::RpcApi;
 use futures::future::try_join_all;
 use tokio::{sync::broadcast, task::JoinHandle, time::sleep};
 
-use crate::{database::Database, errors::BridgeError, extended_rpc::ExtendedRpc};
+use crate::{
+    database::{Database, DatabaseTransaction},
+    errors::BridgeError,
+    extended_rpc::ExtendedRpc,
+};
 
 type ChainHeadPollingResult = (
     broadcast::Sender<BitcoinSyncerEvent>,
@@ -29,7 +33,7 @@ pub struct BlockInfoWithTxs {
 pub enum BitcoinSyncerEvent {
     NewBlocks(Vec<BlockInfo>),
     NewBlocksWithTxs(Vec<BlockInfoWithTxs>),
-    ReorgedBlocks(Vec<BlockHash>),
+    ReorgedBlocks(Vec<(BlockHash, BlockHash)>),
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -49,6 +53,52 @@ pub async fn get_block_info_from_height(
         block_header,
         block_height: height,
     })
+}
+
+pub async fn process_block(
+    db: &Database,
+    block: &bitcoin::Block,
+    block_height: i64,
+) -> Result<(), BridgeError> {
+    let mut dbtx = db.begin_transaction().await?;
+    let block_hash = block.header.block_hash();
+
+    db.set_chain_head(
+        Some(&mut dbtx),
+        &block_hash,
+        &block.header.prev_blockhash,
+        block_height,
+    )
+    .await?;
+
+    for tx in &block.txdata {
+        process_tx(&db, &mut dbtx, tx, &block_hash).await?;
+    }
+
+    dbtx.commit().await?;
+    Ok::<(), BridgeError>(())
+}
+
+pub async fn process_tx(
+    db: &Database,
+    dbtx: DatabaseTransaction<'_, '_>,
+    tx: &bitcoin::Transaction,
+    block_hash: &bitcoin::BlockHash,
+) -> Result<(), BridgeError> {
+    let txid = tx.compute_txid();
+    db.insert_tx(dbtx, block_hash, &txid).await?;
+
+    for input in &tx.input {
+        db.insert_utxo(
+            dbtx,
+            &txid,
+            &input.previous_output.txid,
+            input.previous_output.vout as i64,
+        )
+        .await?;
+    }
+
+    Ok::<(), BridgeError>(())
 }
 
 pub async fn start_bitcoin_syncer(
@@ -110,12 +160,22 @@ pub async fn start_bitcoin_syncer(
             let reorg_blocks = db.delete_chain_head_from_height(None, block_height).await?;
 
             if !reorg_blocks.is_empty() {
+                let reorg_blocks = reorg_blocks
+                    .into_iter()
+                    .zip(new_blocks.clone().into_iter().map(|info| info.block_hash))
+                    .collect::<Vec<_>>();
                 tx.send(BitcoinSyncerEvent::ReorgedBlocks(reorg_blocks))?;
             }
 
             let mut dbtx = db.begin_transaction().await?;
             for block_info in new_blocks.iter() {
-                db.set_chain_head(Some(&mut dbtx), block_info).await?;
+                db.set_chain_head(
+                    Some(&mut dbtx),
+                    &block_info.block_hash,
+                    &block_info.block_header.prev_blockhash,
+                    block_height as i64,
+                )
+                .await?;
             }
             dbtx.commit().await?;
 

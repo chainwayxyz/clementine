@@ -1,20 +1,22 @@
 use super::{wrapper::BlockHashDB, Database, DatabaseTransaction};
-use crate::{bitcoin_syncer::BlockInfo, errors::BridgeError, execute_query_with_tx};
+use crate::{errors::BridgeError, execute_query_with_tx};
 use bitcoin::BlockHash;
-use std::str::FromStr;
+use std::{ops::DerefMut, str::FromStr};
 
 impl Database {
     pub async fn set_chain_head(
         &self,
         tx: Option<DatabaseTransaction<'_, '_>>,
-        block_info: &BlockInfo,
+        block_hash: &BlockHash,
+        prev_block_hash: &BlockHash,
+        block_height: i64,
     ) -> Result<(), BridgeError> {
         let query = sqlx::query(
             "INSERT INTO bitcoin_syncer (blockhash, prev_blockhash, height) VALUES ($1, $2, $3)",
         )
-        .bind(BlockHashDB(block_info.block_hash))
-        .bind(BlockHashDB(block_info.block_header.prev_blockhash))
-        .bind(block_info.block_height as i64);
+        .bind(BlockHashDB(block_hash.clone()))
+        .bind(BlockHashDB(prev_block_hash.clone()))
+        .bind(block_height);
 
         execute_query_with_tx!(self.connection, tx, query, execute)?;
 
@@ -67,5 +69,63 @@ impl Database {
             .into_iter()
             .map(|(hash,)| BlockHash::from_str(&hash))
             .collect::<Result<Vec<_>, _>>()?)
+    }
+
+    pub async fn insert_tx(
+        &self,
+        tx: DatabaseTransaction<'_, '_>,
+        block_hash: &bitcoin::BlockHash,
+        txid: &bitcoin::Txid,
+    ) -> Result<(), BridgeError> {
+        sqlx::query("INSERT INTO bitcoin_syncer_txs (blockhash, txid) VALUES ($1, $2)")
+            .bind(super::wrapper::BlockHashDB(block_hash.clone()))
+            .bind(super::wrapper::TxidDB(txid.clone()))
+            .execute(tx.deref_mut())
+            .await?;
+        Ok(())
+    }
+
+    pub async fn select_one_tx(
+        &self,
+        tx: DatabaseTransaction<'_, '_>,
+        txid: &bitcoin::Txid,
+    ) -> Result<Option<bitcoin::BlockHash>, BridgeError> {
+        let ret: Option<(super::wrapper::BlockHashDB,)> =
+            sqlx::query_as("SELECT blockhash FROM bitcoin_syncer_txs WHERE txid = $1")
+                .bind(super::wrapper::TxidDB(txid.clone()))
+                .fetch_optional(tx.deref_mut())
+                .await?;
+        Ok(ret.map(|ret| ret.0 .0))
+    }
+
+    pub async fn select_all_txs(
+        &self,
+        tx: DatabaseTransaction<'_, '_>,
+        block_hash: &bitcoin::BlockHash,
+    ) -> Result<Vec<bitcoin::Txid>, BridgeError> {
+        let ret: Vec<(super::wrapper::TxidDB,)> =
+            sqlx::query_as("SELECT txid FROM bitcoin_syncer_txs WHERE blockhash = $1")
+                .bind(super::wrapper::BlockHashDB(block_hash.clone()))
+                .fetch_all(tx.deref_mut())
+                .await?;
+        Ok(ret.into_iter().map(|ret| ret.0 .0).collect())
+    }
+
+    pub async fn insert_utxo(
+        &self,
+        tx: DatabaseTransaction<'_, '_>,
+        spending_txid: &bitcoin::Txid,
+        txid: &bitcoin::Txid,
+        vout: i64,
+    ) -> Result<(), BridgeError> {
+        sqlx::query(
+            "INSERT INTO bitcoin_syncer_utxos (spending_txid, txid, vout) VALUES ($1, $2, $3)",
+        )
+        .bind(super::wrapper::TxidDB(spending_txid.clone()))
+        .bind(super::wrapper::TxidDB(txid.clone()))
+        .bind(vout)
+        .execute(tx.deref_mut())
+        .await?;
+        Ok(())
     }
 }

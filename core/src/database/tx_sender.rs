@@ -65,6 +65,23 @@ impl Database {
         Ok(())
     }
 
+    pub async fn reset_fee_payer_tx(
+        &self,
+        tx: Option<DatabaseTransaction<'_, '_>>,
+        fee_payer_txid: Txid,
+    ) -> Result<(), BridgeError> {
+        let query = sqlx::query(
+            "UPDATE fee_payer_utxos 
+             SET is_confirmed = false, confirmed_blockhash = NULL 
+             WHERE fee_payer_txid = $1",
+        )
+        .bind(fee_payer_txid.to_string());
+
+        execute_query_with_tx!(self.connection, tx, query, execute)?;
+
+        Ok(())
+    }
+
     /// Some fee payer txs may not hit onchain, so we need to bump fees of them.
     /// These txs should not be confirmed and should not be replaced by other txs.
     /// Replaced means that the tx was bumped and the replacement tx is in the database.

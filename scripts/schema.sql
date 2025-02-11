@@ -213,4 +213,15 @@ create table if not exists bitcoin_syncer (
     height bigint not null
 );
 
+crate table if not exists bitcoin_syncer_txs (
+    blockhash text REFERENCES bitcoin_syncer ( blockhash ),
+    txid text not null check (txid ~ '^[a-fA-F0-9]{64}'),
+);
+
+crate table if not exists bitcoin_syncer_utxos (
+    spending_txid text REFERENCES bitcoin_syncer_txs ( txid ),
+    txid text REFERENCES bitcoin_syncer_txs ( txid ),
+    vout int not null,
+);
+
 COMMIT;

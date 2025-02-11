@@ -51,7 +51,14 @@ impl Operator {
         if db.get_max_height(None).await?.is_none() {
             let current_height = rpc.client.get_block_count().await?;
             let current_block_info = get_block_info_from_height(&rpc, current_height).await?;
-            db.set_chain_head(None, &current_block_info).await?;
+
+            db.set_chain_head(
+                None,
+                &current_block_info.block_hash,
+                &current_block_info.block_header.prev_blockhash,
+                current_height as i64,
+            )
+            .await?;
         }
 
         // Store sender in a variable to keep it alive
