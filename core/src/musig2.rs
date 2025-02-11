@@ -244,7 +244,7 @@ mod tests {
         key::Keypair,
         script,
         secp256k1::{schnorr, Message, PublicKey},
-        Amount, OutPoint, TapNodeHash, TxOut, Txid, XOnlyPublicKey,
+        Amount, OutPoint, TapNodeHash, TapSighashType, TxOut, Txid, XOnlyPublicKey,
     };
     use secp256k1::{musig::MusigPartialSignature, rand::Rng};
     use std::sync::Arc;
@@ -547,7 +547,7 @@ mod tests {
 
         let message = Message::from_digest(
             tx_details
-                .calculate_pubkey_spend_sighash(0, None)
+                .calculate_pubkey_spend_sighash(0, TapSighashType::Default)
                 .unwrap()
                 .to_byte_array(),
         );

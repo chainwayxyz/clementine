@@ -457,7 +457,7 @@ macro_rules! generate_withdrawal_transaction_and_signature {
             value: $withdrawal_amount,
             script_pubkey: $withdrawal_address.script_pubkey(),
         };
-        let txout = builder::transaction::output::UnspentTxOut::new(txout.clone(), vec![], None);
+        let txout = builder::transaction::output::UnspentTxOut::from_partial(txout.clone());
 
         let tx = builder::transaction::TxHandlerBuilder::new()
             .add_input(
@@ -468,17 +468,12 @@ macro_rules! generate_withdrawal_transaction_and_signature {
             )
             .add_output(txout.clone())
             .finalize();
-        let mut tx = tx.get_cached_tx().clone();
-        let prevouts = vec![dust_utxo.txout.clone()];
 
-        let sig = signer
-            .sign_taproot_pubkey_spend_tx_with_sighash(
-                &mut tx,
-                &prevouts,
-                0,
-                Some(bitcoin::TapSighashType::SinglePlusAnyoneCanPay),
-            )
+        let sighash = tx
+            .calculate_sighash(0, bitcoin::sighash::TapSighashType::SinglePlusAnyoneCanPay)
             .unwrap();
+
+        let sig = signer.sign_with_tweak(sighash, None).unwrap();
 
         (dust_utxo, txout, sig)
     }};

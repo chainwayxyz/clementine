@@ -7,7 +7,6 @@ use crate::constants::{BLOCKS_PER_WEEK, OPERATOR_CHALLENGE_AMOUNT};
 use crate::errors::BridgeError;
 use crate::rpc::clementine::{NormalSignatureKind, WatchtowerSignatureKind};
 use bitcoin::{Amount, ScriptBuf, Sequence, TxOut, XOnlyPublicKey};
-use bitvm::signatures::winternitz;
 use std::sync::Arc;
 
 /// Creates a [`TxHandler`] for the `watchtower_challenge_kickoff_tx`. This transaction can be sent by anyone.
@@ -27,13 +26,11 @@ pub fn create_watchtower_challenge_kickoff_txhandler(
         DEFAULT_SEQUENCE,
     );
 
-    let wots_params = winternitz::Parameters::new(240, 4);
-
     for i in 0..num_watchtowers {
         let winternitz_commit = Arc::new(WinternitzCommit::new(
             watchtower_challenge_winternitz_pks[i as usize].clone(),
-            wots_params.clone(),
             watchtower_xonly_pks[i as usize],
+            240,
         ));
         builder = builder.add_output(UnspentTxOut::from_scripts(
             Amount::from_sat(2000), // TODO: Hand calculate this

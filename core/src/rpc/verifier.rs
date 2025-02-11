@@ -470,7 +470,7 @@ impl ClementineVerifier for Verifier {
                 })?;
 
                 nonce_idx += 1;
-                tracing::info!(
+                tracing::debug!(
                     "Verifier {} signed sighash {} of {}",
                     verifier.idx,
                     nonce_idx,
