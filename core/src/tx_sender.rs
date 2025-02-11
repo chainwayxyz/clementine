@@ -40,6 +40,9 @@ impl TxSender {
         }
     }
 
+    /// Gets the current fee rate.
+    /// If the fee rate is not estimable, it will return a fee rate of 1 sat/vb for regtest.
+    /// TODO: Use more sophisticated fee estimation, like the on in mempool.space
     pub async fn get_fee_rate(&self) -> Result<FeeRate, BridgeError> {
         let fee_rate = self
             .rpc
@@ -54,7 +57,6 @@ impl TxSender {
         let fee_rate = fee_rate?;
         if fee_rate.errors.is_some() {
             if self.network == bitcoin::Network::Regtest {
-                tracing::error!("Fee estimation errors: {:?}", fee_rate.errors);
                 Ok(FeeRate::from_sat_per_vb_unchecked(1))
             } else {
                 Err(BridgeError::FeeEstimationError(
@@ -74,7 +76,7 @@ impl TxSender {
     }
 
     /// We want to allocate more than the required amount to be able to bump fees.
-    pub fn calculate_required_amount_for_fee_payer(
+    fn calculate_required_amount_for_fee_payer(
         &self,
         bumped_tx_size: Weight,
         fee_rate: FeeRate,
@@ -83,66 +85,6 @@ impl TxSender {
             .checked_mul_by_weight(bumped_tx_size)
             .ok_or(BridgeError::Overflow)?;
         Ok(required_fee * 3 + Amount::from_sat(10000))
-    }
-
-    /// Uses trick in https://bitcoin.stackexchange.com/a/106204
-    async fn custom_send_to_address(
-        &self,
-        address: &Address,
-        amount_sats: Amount,
-    ) -> Result<OutPoint, BridgeError> {
-        // TODO: Fix the issue with create_raw_transaction and use the code below.
-        self.rpc.send_to_address(address, amount_sats).await
-        // let mut outputs = HashMap::new();
-        // outputs.insert(address.to_string(), amount_sats);
-
-        // let raw_tx = self
-        //     .rpc
-        //     .client
-        //     .create_raw_transaction(&[], &outputs, None, None)
-        //     .await?;
-
-        // let fee_rate = self.get_fee_rate().await?;
-
-        // let options = FundRawTransactionOptions {
-        //     change_position: Some(1),
-        //     lock_unspents: Some(true),
-        //     fee_rate: Some(fee_rate),
-        //     replaceable: Some(true),
-        //     ..Default::default()
-        // };
-
-        // let funded_tx = self
-        //     .rpc
-        //     .client
-        //     .fund_raw_transaction(&raw_tx, Some(&options), Some(true))
-        //     .await?;
-
-        // // Sign the funded tx
-        // let signed_tx = self
-        //     .rpc
-        //     .client
-        //     .sign_raw_transaction_with_wallet(funded_tx.hex.as_ref() as &[u8], None, None)
-        //     .await?;
-
-        // if signed_tx.complete {
-        //     let txid = self
-        //         .rpc
-        //         .client
-        //         .send_raw_transaction(signed_tx.hex.as_ref() as &[u8])
-        //         .await?;
-
-        //     Ok(OutPoint { txid, vout: 0 })
-        // } else {
-        //     Err(BridgeError::BitcoinRPCSigningError(
-        //         signed_tx
-        //             .errors
-        //             .expect("Signing errors should be present when incomplete")
-        //             .iter()
-        //             .map(|e| e.error.clone())
-        //             .collect(),
-        //     ))
-        // }
     }
 
     pub async fn create_fee_payer_tx(
@@ -158,7 +100,8 @@ impl TxSender {
         tracing::info!("Required amount: {}", required_amount);
 
         let outpoint = self
-            .custom_send_to_address(&self.signer.address, required_amount)
+            .rpc
+            .send_to_address(&self.signer.address, required_amount)
             .await?;
 
         // save the db
@@ -183,9 +126,9 @@ impl TxSender {
         Ok(outpoint)
     }
 
-    /// Creates a child tx that spends the p2a anchor using the fee payer tx.
+    /// Creates a child tx that spends the p2a anchor using the fee payer utxos.
     /// It assumes the parent tx pays 0 fees.
-    /// It also assumes the fee payer tx is signable by the self.signer.
+    /// It also assumes the fee payer utxos are signable by the self.signer.
     fn create_child_tx(
         &self,
         p2a_anchor: OutPoint,
@@ -194,8 +137,13 @@ impl TxSender {
         fee_rate: FeeRate,
         change_address: Address,
     ) -> Result<Transaction, BridgeError> {
-        let child_tx_size = Weight::from_wu_usize(230 * fee_payer_utxos.len() + 1000); // TODO: Fix this 200 constant, it should be p2a anchor size + change output size.
-        let total_weight = child_tx_size + parent_tx_size;
+        // https://bitcoin.stackexchange.com/a/116959
+        // Each additional p2tr input adds 230 WU and each additional p2tr output adds 172 WU to the transaction.
+        let child_tx_size = Weight::from_wu_usize(230 * fee_payer_utxos.len() + 207 + 172);
+        // When effective fee rate is calculated, it calculates vBytes of the tx not the total weight.
+        let total_weight = Weight::from_vb_unchecked(
+            child_tx_size.to_vbytes_ceil() + parent_tx_size.to_vbytes_ceil(),
+        );
         let required_fee = fee_rate
             .checked_mul_by_weight(total_weight)
             .ok_or(BridgeError::Overflow)?;
@@ -268,6 +216,12 @@ impl TxSender {
         }
     }
 
+    /// Submit package returns the effective fee rate in btc/kvb.
+    /// This function converts the btc/kvb to a fee rate in sat/vb.
+    fn btc_per_kvb_to_fee_rate(btc_per_kvb: f64) -> FeeRate {
+        FeeRate::from_sat_per_vb_unchecked((btc_per_kvb * 100000.0) as u64)
+    }
+
     /// Sends a tx with CPFP.
     /// Returns the effective fee rate of the tx.
     /// If the effective fee rate is lower than the required fee rate, it will return an error.
@@ -276,7 +230,7 @@ impl TxSender {
         &self,
         txid: Txid,
         fee_rate: FeeRate,
-    ) -> Result<FeeRate, BridgeError> {
+    ) -> Result<(), BridgeError> {
         let tx = self.db.get_tx(None, txid).await?;
 
         let fee_payer_utxos = self.db.get_confirmed_fee_payer_utxos(None, txid).await?;
@@ -324,29 +278,36 @@ impl TxSender {
         )?;
 
         let submit_package_result = self.rpc.client.submit_package(vec![&tx, &child_tx]).await?;
-        tracing::info!("Submit package result: {:?}", submit_package_result);
-        // effective fee_rates
-        let effective_fee_rates: Vec<_> = submit_package_result
+
+        tracing::debug!("Submit package result: {:?}", submit_package_result);
+
+        // If tx_results is empty, it means the txs were already accepted by the network.
+        if submit_package_result.tx_results.is_empty() {
+            return Ok(());
+        }
+        // Get the effective fee rate from the first transaction result
+        let effective_fee_rate_btc_per_kvb = submit_package_result
             .tx_results
             .iter()
-            .map(|(txid, result)| (txid.clone(), result.fees.effective_feerate))
-            .collect();
-
-        let effective_fee_rate = effective_fee_rates[0]
-            .1
+            .next()
+            .map(|(_, result)| result.fees.effective_feerate)
+            .expect("Effective fee rate should be present")
             .expect("Effective fee rate should be present");
-        let effective_fee_rate = FeeRate::from_sat_per_vb_unchecked(effective_fee_rate as u64);
 
-        // Save the effective fee rate and child txid to the db
+        let effective_fee_rate = Self::btc_per_kvb_to_fee_rate(effective_fee_rate_btc_per_kvb);
+        // Save the effective fee rate to the db
         self.db
             .update_effective_fee_rate(None, txid, effective_fee_rate)
             .await?;
 
-        if effective_fee_rate < fee_rate {
-            return Err(BridgeError::EffectiveFeeRateLowerThanRequired);
-        }
+        // Sanity check to make sure the fee rate is equal to the required fee rate
+        assert_eq!(
+            effective_fee_rate, fee_rate,
+            "Effective fee rate is not equal to the required fee rate: {:?} to {:?} != {:?}",
+            effective_fee_rate_btc_per_kvb, effective_fee_rate, fee_rate
+        );
 
-        Ok(effective_fee_rate)
+        Ok(())
     }
 
     /// This will just persist the raw tx to the db
