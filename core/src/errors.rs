@@ -8,6 +8,7 @@ use jsonrpsee::types::ErrorObject;
 use secp256k1::musig;
 use std::path::PathBuf;
 use thiserror::Error;
+use crate::builder::transaction::TransactionType;
 
 /// Errors returned by the bridge.
 #[derive(Debug, Error)]
@@ -234,10 +235,10 @@ pub enum BridgeError {
     NotOwnKeyPath,
     #[error("public key of Checksig in script is not owned by Actor")]
     NotOwnedScriptPath,
-    #[error("Couldn't find needed signature from database")]
-    SignatureNotFound,
-    #[error("Couldn't find needed txhandler during creation")]
-    TxHandlerNotFound,
+    #[error("Couldn't find needed signature from database for tx: {:?}", _0)]
+    SignatureNotFound(TransactionType),
+    #[error("Couldn't find needed txhandler during creation for tx: {:?}", _0)]
+    TxHandlerNotFound(TransactionType),
 
     #[error("BitvmSetupNotFound for operator {0}, sequential_collateral_tx {1}, kickoff {2}")]
     BitvmSetupNotFound(i32, i32, i32),

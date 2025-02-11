@@ -1,6 +1,6 @@
-use super::clementine::{Outpoint, TransactionRequest, WinternitzPubkey};
+use super::clementine::{KickoffId, NormalTransactionId, Outpoint, TransactionRequest, WatchtowerTransactionId, WatchtowerTransactionType, WinternitzPubkey};
 use super::error;
-use crate::builder::transaction::TransactionType;
+use crate::builder::transaction::{DepositId, TransactionType};
 use crate::errors::BridgeError;
 use crate::rpc::clementine::DepositParams;
 use crate::EVMAddress;
@@ -11,6 +11,7 @@ use bitvm::signatures::winternitz;
 use std::fmt::{Debug, Display};
 use std::num::TryFromIntError;
 use tonic::Status;
+use crate::rpc::clementine::grpc_transaction_id::Id;
 
 pub mod operator;
 pub mod verifier;
@@ -153,14 +154,10 @@ pub fn parse_deposit_params(
     Ok((deposit_outpoint, evm_address, recovery_taproot_address))
 }
 
-struct TransactionRequestData {
-    pub deposit_outpoint: bitcoin::OutPoint,
-    pub evm_address: EVMAddress,
-    pub recovery_taproot_address: bitcoin::Address<NetworkUnchecked>,
+pub struct TransactionRequestData {
+    pub deposit_id: DepositId,
     pub transaction_type: TransactionType,
-    pub operator_idx: usize,
-    pub sequential_collateral_idx: usize,
-    pub kickoff_idx: usize,
+    pub kickoff_id: KickoffId,
 }
 
 pub fn parse_transaction_request(
@@ -174,19 +171,27 @@ pub fn parse_transaction_request(
     let transaction_type_proto = request
         .transaction_type
         .ok_or(Status::invalid_argument("No transaction type received"))?;
-    let transaction_type: TransactionType = transaction_type_proto.into();
+    let transaction_type_inner = transaction_type_proto.id.ok_or_else(|| {
+        Status::invalid_argument("No transaction type received")
+    })?;
+    let transaction_type: TransactionType = transaction_type_inner.try_into().map_err(|_| {
+        Status::invalid_argument(format!(
+            "Could not parse transaction type: {:?}",
+            transaction_type_proto
+        ))
+    })?;
     let kickoff_id = request
         .kickoff_id
         .ok_or(Status::invalid_argument("No kickoff params received"))?;
 
     Ok(TransactionRequestData {
-        deposit_outpoint,
-        evm_address,
-        recovery_taproot_address,
+        deposit_id: DepositId {
+            deposit_outpoint,
+            evm_address,
+            recovery_taproot_address,
+        },
         transaction_type,
-        operator_idx: kickoff_id.operator_idx as usize,
-        sequential_collateral_idx: kickoff_id.sequential_collateral_idx as usize,
-        kickoff_idx: kickoff_id.kickoff_idx as usize,
+        kickoff_id,
     })
 }
 

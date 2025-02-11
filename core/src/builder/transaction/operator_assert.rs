@@ -1,3 +1,4 @@
+use std::collections::VecDeque;
 use crate::builder;
 use crate::builder::script::{SpendableScript, TimelockScript, WinternitzCommit};
 pub use crate::builder::transaction::txhandler::TxHandler;
@@ -298,6 +299,7 @@ pub fn create_mini_asserts_and_assert_end_from_scripts(
 ) -> Result<Vec<TxHandler>, BridgeError> {
     let mut all_tx_handlers: Vec<TxHandler> =
         Vec::with_capacity(assert_tx_scripts.iter().len() + 1);
+    let mut last_mini_tx_handlers: VecDeque<TxHandler> = VecDeque::with_capacity(PARALLEL_ASSERT_TX_CHAIN_SIZE);
 
     let mini_assert_layer_count = assert_tx_scripts
         .len()
@@ -323,7 +325,7 @@ pub fn create_mini_asserts_and_assert_end_from_scripts(
             addr.clone(),
             network,
         )?;
-        all_tx_handlers.push(mini_assert_tx);
+        last_mini_tx_handlers.push_back(mini_assert_tx);
     }
 
     for layer in 1..mini_assert_layer_count {
@@ -332,13 +334,10 @@ pub fn create_mini_asserts_and_assert_end_from_scripts(
             if assert_tx_idx >= assert_tx_scripts.len() {
                 break;
             }
+            let prev_txhandler = last_mini_tx_handlers.pop_front().expect("previous push ensure the size");
 
             let mini_assert_tx = create_mini_assert_txhandler_from_scripts(
-                all_tx_handlers
-                    .iter()
-                    .rev()
-                    .nth(PARALLEL_ASSERT_TX_CHAIN_SIZE - 1)
-                    .expect("previous push ensure the size"),
+                &prev_txhandler,
                 0,
                 assert_tx_idx,
                 assert_tx_scripts
@@ -347,20 +346,21 @@ pub fn create_mini_asserts_and_assert_end_from_scripts(
                     .clone(),
                 network,
             )?;
-
-            all_tx_handlers.push(mini_assert_tx);
+            all_tx_handlers.push(prev_txhandler);
+            last_mini_tx_handlers.push_back(mini_assert_tx);
         }
     }
 
     let mut builder = TxHandlerBuilder::new(TransactionType::AssertEnd);
 
-    for i in (0..PARALLEL_ASSERT_TX_CHAIN_SIZE).rev() {
+    for i in (0..PARALLEL_ASSERT_TX_CHAIN_SIZE) {
         builder = builder.add_input(
             NormalSignatureKind::NotStored,
-            all_tx_handlers[all_tx_handlers.len() - i].get_spendable_output(0)?,
+            last_mini_tx_handlers.front().expect("in mini txhandlers").get_spendable_output(0)?,
             builder::script::SpendPath::ScriptSpend(0),
             DEFAULT_SEQUENCE,
         );
+        all_tx_handlers.push(last_mini_tx_handlers.pop_front().expect("previous push ensure the size"));
     }
 
     builder = builder.add_input(

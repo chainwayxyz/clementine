@@ -167,14 +167,10 @@ impl ClementineOperator for Operator {
         let mut txhandlers = builder::transaction::create_txhandlers(
             self.db.clone(),
             self.config.clone(),
-            transaction_data.deposit_outpoint,
-            transaction_data.evm_address,
-            transaction_data.recovery_taproot_address,
+            transaction_data.deposit_id.clone(),
             self.nofn_xonly_pk,
             transaction_data.transaction_type,
-            transaction_data.operator_idx,
-            transaction_data.sequential_collateral_idx,
-            transaction_data.kickoff_idx,
+            transaction_data.kickoff_id,
             None,
             None,
         )
@@ -184,17 +180,18 @@ impl ClementineOperator for Operator {
             .db
             .get_deposit_signatures(
                 None,
-                transaction_data.deposit_outpoint,
-                transaction_data.operator_idx,
-                transaction_data.sequential_collateral_idx,
-                transaction_data.kickoff_idx,
+                transaction_data.deposit_id.deposit_outpoint,
+                transaction_data.kickoff_id.operator_idx as usize,
+                transaction_data.kickoff_id.sequential_collateral_idx as usize,
+                transaction_data.kickoff_id.kickoff_idx as usize,
             )
             .await?;
         let signatures = sig_query.unwrap_or_default();
 
         let mut requested_txhandler = txhandlers
             .remove(&transaction_data.transaction_type)
-            .ok_or(BridgeError::TxHandlerNotFound)?;
+            .ok_or(BridgeError::TxHandlerNotFound(transaction_data.transaction_type))?;
+
         self.signer
             .partial_sign(&mut requested_txhandler, &signatures)?;
         let checked_txhandler = requested_txhandler.promote()?;

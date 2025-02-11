@@ -332,6 +332,7 @@ impl Actor {
         txhandler: &mut TxHandler,
         signatures: &[TaggedSignature],
     ) -> Result<(), BridgeError> {
+        let tx_type = txhandler.get_transaction_type();
         let signer = move |_,
                            spt: &SpentTxIn,
                            calc_sighash: Box<
@@ -362,7 +363,7 @@ impl Actor {
                                 (None, true) => {
                                     script.generate_script_inputs(&self.sign(calc_sighash()?))
                                 }
-                                (None, false) => return Err(BridgeError::SignatureNotFound),
+                                (None, false) => return Err(BridgeError::SignatureNotFound(tx_type)),
                             }
                         }
                         Kind::TimelockScript(script) => match (sig, script.0) {
@@ -370,7 +371,7 @@ impl Actor {
                             (None, Some(xonly_key)) if xonly_key == self.xonly_public_key => {
                                 script.generate_script_inputs(Some(&self.sign(calc_sighash()?)))
                             }
-                            (None, Some(_)) => return Err(BridgeError::SignatureNotFound),
+                            (None, Some(_)) => return Err(BridgeError::SignatureNotFound(tx_type)),
                             (_, None) => Witness::new(),
                         },
                         Kind::CheckSig(script) => match (sig, script.0 == self.xonly_public_key) {
@@ -378,7 +379,7 @@ impl Actor {
                             (None, true) => {
                                 script.generate_script_inputs(&self.sign(calc_sighash()?))
                             }
-                            (None, false) => return Err(BridgeError::SignatureNotFound),
+                            (None, false) => return Err(BridgeError::SignatureNotFound(tx_type)),
                         },
                         Kind::WinternitzCommit(_)
                         | Kind::PreimageRevealScript(_)

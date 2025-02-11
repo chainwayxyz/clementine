@@ -171,7 +171,7 @@ pub fn create_kickoff_utxo_timeout_txhandler(
     let builder = TxHandlerBuilder::new(TransactionType::KickoffUtxoTimeout).add_input(
         NormalSignatureKind::NotStored,
         sequential_collateral_txhandler.get_spendable_output(2 + kickoff_idx)?,
-        SpendPath::ScriptSpend(1),
+        SpendPath::ScriptSpend(0),
         DEFAULT_SEQUENCE,
     );
 

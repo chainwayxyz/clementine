@@ -283,7 +283,6 @@ pub async fn run_single_deposit(
             deposit_outpoint: Some(deposit_outpoint.into()),
             evm_address: evm_address.0.to_vec(),
             recovery_taproot_address: deposit_address.to_string(),
-            user_takes_after: config.user_takes_after as u32,
         })
         .await?
         .into_inner();

@@ -150,7 +150,7 @@ pub fn create_operator_challenge_nack_txhandler(
     kickoff_txhandler: &TxHandler,
 ) -> Result<TxHandler, BridgeError> {
     Ok(
-        TxHandlerBuilder::new(TransactionType::OperatorChallengeNACK(watchtower_idx))
+        TxHandlerBuilder::new(TransactionType::OperatorChallengeNack(watchtower_idx))
             .add_input(
                 (
                     WatchtowerSignatureKind::OperatorChallengeNack1,
@@ -185,7 +185,7 @@ pub fn create_operator_challenge_ack_txhandler(
     watchtower_idx: usize,
 ) -> Result<TxHandler, BridgeError> {
     Ok(
-        TxHandlerBuilder::new(TransactionType::OperatorChallengeACK(watchtower_idx))
+        TxHandlerBuilder::new(TransactionType::OperatorChallengeAck(watchtower_idx))
             .add_input(
                 (
                     WatchtowerSignatureKind::WatchtowerNotStored,

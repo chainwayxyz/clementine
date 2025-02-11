@@ -75,14 +75,14 @@ pub struct WatchtowerTransactionId {
     pub index: i32,
 }
 #[derive(Clone, Copy, PartialEq, ::prost::Message)]
-pub struct TransactionId {
-    #[prost(oneof = "transaction_id::TransactionId", tags = "1, 2")]
-    pub transaction_id: ::core::option::Option<transaction_id::TransactionId>,
+pub struct GrpcTransactionId {
+    #[prost(oneof = "grpc_transaction_id::Id", tags = "1, 2")]
+    pub id: ::core::option::Option<grpc_transaction_id::Id>,
 }
-/// Nested message and enum types in `TransactionId`.
-pub mod transaction_id {
+/// Nested message and enum types in `GrpcTransactionId`.
+pub mod grpc_transaction_id {
     #[derive(Clone, Copy, PartialEq, ::prost::Oneof)]
-    pub enum TransactionId {
+    pub enum Id {
         #[prost(enumeration = "super::NormalTransactionId", tag = "1")]
         NormalTransaction(i32),
         #[prost(message, tag = "2")]
@@ -103,7 +103,7 @@ pub struct TransactionRequest {
     #[prost(message, optional, tag = "1")]
     pub deposit_params: ::core::option::Option<DepositParams>,
     #[prost(message, optional, tag = "2")]
-    pub transaction_type: ::core::option::Option<TransactionId>,
+    pub transaction_type: ::core::option::Option<GrpcTransactionId>,
     #[prost(message, optional, tag = "3")]
     pub kickoff_id: ::core::option::Option<KickoffId>,
 }

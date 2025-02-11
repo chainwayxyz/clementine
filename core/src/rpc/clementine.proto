@@ -113,8 +113,8 @@ message WatchtowerTransactionId {
   int32 index = 2;
 }
 
-message TransactionId {
-  oneof transaction_id {
+message GrpcTransactionId {
+  oneof id {
     NormalTransactionId normal_transaction = 1;
     WatchtowerTransactionId watchtower_transaction = 2;
   }
@@ -128,7 +128,7 @@ message KickoffId {
 
 message TransactionRequest {
   DepositParams deposit_params = 1;
-  TransactionId transaction_type = 2;
+  GrpcTransactionId transaction_type = 2;
   KickoffId kickoff_id = 3;
 }
 
