@@ -3,6 +3,7 @@ use super::clementine::{
     OperatorParams, PartialSig, VerifierDepositFinalizeParams, VerifierDepositSignParams,
     VerifierParams, VerifierPublicKeys, WatchtowerParams,
 };
+use super::error;
 use crate::builder::sighash::{
     calculate_num_required_nofn_sigs, calculate_num_required_operator_sigs,
 };
@@ -179,7 +180,7 @@ impl ClementineVerifier for Verifier {
                     session_id,
                 ))
                 .await
-                .expect("TODO");
+                .map_err(error::output_stream_ended_prematurely)?;
 
             while let Some(result) =
                 fetch_next_optional_message_from_stream!(&mut in_stream, params)
@@ -193,7 +194,10 @@ impl ClementineVerifier for Verifier {
                     _ => return Err(Status::invalid_argument("Expected AggNonce")),
                 };
 
-                agg_nonce_tx.send(agg_nonce).await.expect("TODO");
+                agg_nonce_tx
+                    .send(agg_nonce)
+                    .await
+                    .map_err(error::output_stream_ended_prematurely)?;
             }
             Ok(())
         });
@@ -206,7 +210,10 @@ impl ClementineVerifier for Verifier {
                 recovery_taproot_address,
                 user_takes_after,
                 session_id,
-            ) = param_rx.recv().await.expect("TODO");
+            ) = param_rx
+                .recv()
+                .await
+                .ok_or(error::expected_msg_got_none("parameters")())?;
 
             let mut partial_sig_receiver = verifier
                 .deposit_sign(
@@ -297,10 +304,12 @@ impl ClementineVerifier for Verifier {
             let mut nonce_idx = 0;
             while let Some(sig) =
                 parser::verifier::parse_next_deposit_finalize_param_schnorr_sig(&mut in_stream)
-                    .await
-                    .expect("TODO")
+                    .await?
             {
-                sig_tx.send(sig).await.expect("TODO");
+                sig_tx
+                    .send(sig)
+                    .await
+                    .map_err(error::output_stream_ended_prematurely)?;
 
                 nonce_idx += 1;
                 if nonce_idx == num_required_nofn_sigs {
@@ -315,24 +324,27 @@ impl ClementineVerifier for Verifier {
             }
 
             let agg_nonce =
-                parser::verifier::parse_deposit_finalize_param_agg_nonce(&mut in_stream)
-                    .await
-                    .expect("TODO");
-            agg_nonce_tx.send(agg_nonce).await.expect("TODO");
+                parser::verifier::parse_deposit_finalize_param_agg_nonce(&mut in_stream).await?;
+            agg_nonce_tx
+                .send(agg_nonce)
+                .await
+                .map_err(error::output_stream_ended_prematurely)?;
 
             let num_required_op_sigs = calculate_num_required_operator_sigs(&verifier.config);
             let num_required_total_op_sigs = num_required_op_sigs * verifier.config.num_operators;
             let mut total_op_sig_count = 0;
-            let num_operators = verifier.db.get_operators(None).await.expect("TODO").len();
+            let num_operators = verifier.db.get_operators(None).await?.len();
             for _ in 0..num_operators {
                 let mut op_sig_count = 0;
 
                 while let Some(operator_sig) =
                     parser::verifier::parse_next_deposit_finalize_param_schnorr_sig(&mut in_stream)
-                        .await
-                        .expect("TODO")
+                        .await?
                 {
-                    operator_sig_tx.send(operator_sig).await.expect("TODO");
+                    operator_sig_tx
+                        .send(operator_sig)
+                        .await
+                        .map_err(error::output_stream_ended_prematurely)?;
 
                     op_sig_count += 1;
                     total_op_sig_count += 1;
@@ -348,9 +360,13 @@ impl ClementineVerifier for Verifier {
                     num_required_total_op_sigs, total_op_sig_count
                 );
             }
+
+            Ok::<(), Status>(())
         });
 
-        let partial_sig = deposit_finalize_handle.await.expect("Thread failed")?;
+        let partial_sig = deposit_finalize_handle.await.map_err(|e| {
+            Status::internal(format!("Deposit finalize thread failed to finish: {}", e).as_str())
+        })??;
 
         Ok(Response::new(partial_sig.into()))
     }

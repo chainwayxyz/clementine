@@ -415,13 +415,9 @@ impl Verifier {
 
         tokio::spawn(async move {
             let mut session_map = verifier.nonces.lock().await;
-            let session = session_map
-                .sessions
-                .get_mut(&session_id)
-                .ok_or_else(|| {
-                    BridgeError::Error(format!("Could not find session id {session_id}"))
-                })
-                .expect("TODO");
+            let session = session_map.sessions.get_mut(&session_id).ok_or_else(|| {
+                BridgeError::Error(format!("Could not find session id {session_id}"))
+            })?;
             session.nonces.reverse();
 
             let mut nonce_idx: usize = 0;
@@ -451,12 +447,13 @@ impl Verifier {
                 let sighash = sighash_stream
                     .next()
                     .await
-                    .ok_or(BridgeError::Error("No sighash received".to_string()))
-                    .expect("TODO")
-                    .expect("TODO");
+                    .ok_or(BridgeError::Error("No sighash received".to_string()))??;
                 tracing::debug!("Verifier {} found sighash: {:?}", verifier.idx, sighash);
 
-                let nonce = session.nonces.pop().expect("No nonce available");
+                let nonce = session
+                    .nonces
+                    .pop()
+                    .ok_or(BridgeError::Error("No nonce available".to_string()))?;
                 let partial_sig = musig2::partial_sign(
                     verifier.config.verifiers_public_keys.clone(),
                     None,
@@ -464,9 +461,11 @@ impl Verifier {
                     agg_nonce,
                     verifier.signer.keypair,
                     Message::from_digest(*sighash.0.as_byte_array()),
-                )
-                .expect("TODO");
-                partial_sig_tx.send(partial_sig).await.expect("TODO");
+                )?;
+                partial_sig_tx
+                    .send(partial_sig)
+                    .await
+                    .map_err(|e| BridgeError::SendError("partial signature", e.to_string()))?;
 
                 nonce_idx += 1;
                 tracing::info!(
@@ -483,10 +482,11 @@ impl Verifier {
             let last_nonce = session
                 .nonces
                 .pop()
-                .ok_or(BridgeError::Error("No last nonce available".to_string()))
-                .expect("TODO");
+                .ok_or(BridgeError::Error("No last nonce available".to_string()))?;
             session.nonces.clear();
             session.nonces.push(last_nonce);
+
+            Ok::<(), BridgeError>(())
         });
 
         Ok(partial_sig_rx)

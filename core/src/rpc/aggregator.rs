@@ -198,7 +198,7 @@ async fn signature_distributor(
         for tx in &deposit_finalize_sender {
             tx.send(final_params.clone())
                 .await
-                .map_err(|_| output_stream_ended_prematurely())?;
+                .map_err(output_stream_ended_prematurely)?;
         }
     }
 
@@ -211,7 +211,7 @@ async fn signature_distributor(
             )),
         })
         .await
-        .map_err(|_| output_stream_ended_prematurely())?
+        .map_err(output_stream_ended_prematurely)?
     }
 
     Ok(())

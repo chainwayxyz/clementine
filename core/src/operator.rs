@@ -146,12 +146,20 @@ impl Operator {
 
         tokio::spawn(async move {
             for wpk in wpks {
-                wpk_channel.0.send(wpk).await.expect("Can't send wpk"); // TODO: Will be handled
+                wpk_channel
+                    .0
+                    .send(wpk)
+                    .await
+                    .map_err(|e| BridgeError::SendError("winternitz public key", e.to_string()))?;
             }
 
             for hash in hashes {
-                hashes_channel.0.send(hash).await.expect("Can't send hash"); // TODO: Will be handled
+                hashes_channel.0.send(hash).await.map_err(|e| {
+                    BridgeError::SendError("challenge_ack_preimages_and_hashes", e.to_string())
+                })?;
             }
+
+            Ok::<(), BridgeError>(())
         });
 
         Ok((wpk_channel.1, hashes_channel.1))
@@ -188,15 +196,14 @@ impl Operator {
         tokio::spawn(async move {
             while let Some(sighash) = sighash_stream.next().await {
                 // None because utxos that operators need to sign do not have scripts
-                let sig = operator
-                    .signer
-                    .sign_with_tweak(sighash.expect("Expected sig").0, None)
-                    .expect("Error while sigbing with tweak");
+                let sig = operator.signer.sign_with_tweak(sighash?.0, None)?;
 
                 if sig_tx.send(sig).await.is_err() {
                     break;
                 }
             }
+
+            Ok::<(), BridgeError>(())
         });
 
         Ok(sig_rx)

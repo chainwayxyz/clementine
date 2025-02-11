@@ -32,20 +32,20 @@ impl ClementineOperator for Operator {
             let operator_config: OperatorParams = operator.clone().into();
             tx.send(Ok(operator_config))
                 .await
-                .map_err(|_| output_stream_ended_prematurely())?;
+                .map_err(output_stream_ended_prematurely)?;
 
             while let Some(winternitz_public_key) = wpk_receiver.recv().await {
                 let operator_winternitz_pubkey: OperatorParams = winternitz_public_key.into();
                 tx.send(Ok(operator_winternitz_pubkey))
                     .await
-                    .map_err(|_| output_stream_ended_prematurely())?;
+                    .map_err(output_stream_ended_prematurely)?;
             }
 
             while let Some(hash) = hash_receiver.recv().await {
                 let hash: OperatorParams = hash.into();
                 tx.send(Ok(hash))
                     .await
-                    .map_err(|_| output_stream_ended_prematurely())?;
+                    .map_err(output_stream_ended_prematurely)?;
             }
 
             Ok::<(), Status>(())

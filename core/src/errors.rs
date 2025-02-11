@@ -269,6 +269,11 @@ pub enum BridgeError {
 
     #[error("{0} input channel for {1} ended prematurely")]
     ChannelEndedPrematurely(&'static str, &'static str),
+
+    // TODO: Couldn't put `from[SendError<T>]` because of generics, find a way
+    /// 0: Data name, 1: Error message
+    #[error("Error while sending {0} data: {1}")]
+    SendError(&'static str, String),
 }
 
 impl From<BridgeError> for ErrorObject<'static> {

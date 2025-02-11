@@ -1,4 +1,5 @@
 use std::fmt::Display;
+use tokio::sync::mpsc::error::SendError;
 use tonic::Status;
 
 pub(crate) fn _expected_msg_got_error(msg: Status) -> Status {
@@ -13,8 +14,8 @@ pub(crate) fn input_ended_prematurely() -> Status {
     Status::invalid_argument("Input stream ended prematurely")
 }
 
-pub(crate) fn output_stream_ended_prematurely() -> Status {
-    Status::internal("Output stream ended prematurely".to_string())
+pub(crate) fn output_stream_ended_prematurely<T>(e: SendError<T>) -> Status {
+    Status::internal(format!("Output stream ended prematurely: {}", e))
 }
 
 pub(crate) fn invalid_argument<'a, T: std::error::Error + Send + Sync + 'static + Display>(
