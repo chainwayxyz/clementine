@@ -168,6 +168,7 @@ impl TxSender {
                 outpoint.vout,
                 self.signer.address.script_pubkey(),
                 required_amount,
+                None,
             )
             .await?;
 
@@ -343,8 +344,9 @@ impl TxSender {
             .get_bumpable_fee_payer_txs(None, bumped_txid)
             .await?;
 
-        for (fee_payer_txid, vout, amount, script_pubkey) in bumpable_fee_payer_txs {
-            let new_txid = self.rpc
+        for (id, fee_payer_txid, vout, amount, script_pubkey) in bumpable_fee_payer_txs {
+            let bump_fee_result = self
+                .rpc
                 .client
                 .bump_fee(
                     &fee_payer_txid,
@@ -352,12 +354,25 @@ impl TxSender {
                         fee_rate: Some(bitcoincore_rpc::json::FeeRate::per_vbyte(
                             Amount::from_sat(fee_rate.to_sat_per_vb_ceil()),
                         )),
+                        replaceable: Some(true),
                         ..Default::default()
                     }),
                 )
                 .await?;
 
-            // TODO: Save the new txid to the db
+            if let Some(new_txid) = bump_fee_result.txid {
+                self.db
+                    .save_fee_payer_tx(
+                        None,
+                        bumped_txid,
+                        new_txid,
+                        vout,
+                        script_pubkey,
+                        amount,
+                        Some(id),
+                    )
+                    .await?;
+            }
         }
 
         Ok(())
@@ -507,6 +522,11 @@ mod tests {
         let fee_payer_tx = rpc
             .client
             .get_raw_transaction(&outpoint.txid, None)
+            .await
+            .unwrap();
+
+        tx_sender
+            .bump_fees_of_fee_payer_txs(tx.compute_txid(), FeeRate::from_sat_per_vb_unchecked(2))
             .await
             .unwrap();
 

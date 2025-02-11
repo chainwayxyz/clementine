@@ -27,16 +27,18 @@ impl Database {
         vout: u32,
         script_pubkey: ScriptBuf,
         amount: Amount,
+        replacement_of_id: Option<i32>,
     ) -> Result<(), BridgeError> {
         let query = sqlx::query(
-            "INSERT INTO fee_payer_utxos (bumped_txid, fee_payer_txid, vout, script_pubkey, amount) 
-             VALUES ($1, $2, $3, $4, $5)",
+            "INSERT INTO fee_payer_utxos (bumped_txid, fee_payer_txid, vout, script_pubkey, amount, replacement_of_id) 
+             VALUES ($1, $2, $3, $4, $5, $6)",
         )
-        .bind(bumped_txid.to_string())
-        .bind(fee_payer_txid.to_string())
+        .bind(TxidDB(bumped_txid))
+        .bind(TxidDB(fee_payer_txid))
         .bind(vout as i32)
-        .bind(script_pubkey.to_string())
-        .bind(amount.to_sat() as i64);
+        .bind(ScriptBufDB(script_pubkey))
+        .bind(amount.to_sat() as i64)
+        .bind(replacement_of_id);
 
         execute_query_with_tx!(self.connection, tx, query, execute)?;
 
@@ -70,10 +72,10 @@ impl Database {
         &self,
         tx: Option<DatabaseTransaction<'_, '_>>,
         bumped_txid: Txid,
-    ) -> Result<Vec<(Txid, u32, Amount, ScriptBuf)>, BridgeError> {
-        let query = sqlx::query_as::<_, (TxidDB, i32, i64, ScriptBufDB)>(
+    ) -> Result<Vec<(i32, Txid, u32, Amount, ScriptBuf)>, BridgeError> {
+        let query = sqlx::query_as::<_, (i32, TxidDB, i32, i64, ScriptBufDB)>(
             "
-            SELECT fee_payer_txid, vout, amount, script_pubkey
+            SELECT fpu.id, fpu.fee_payer_txid, fpu.vout, fpu.amount, fpu.script_pubkey
             FROM fee_payer_utxos fpu
             WHERE fpu.bumped_txid = $1
               AND fpu.is_confirmed = false
@@ -86,13 +88,14 @@ impl Database {
         )
         .bind(super::wrapper::TxidDB(bumped_txid));
 
-        let results: Vec<(TxidDB, i32, i64, ScriptBufDB)> =
+        let results: Vec<(i32, TxidDB, i32, i64, ScriptBufDB)> =
             execute_query_with_tx!(self.connection, tx, query, fetch_all)?;
 
         Ok(results
             .iter()
-            .map(|(fee_payer_txid, vout, amount, script_pubkey)| {
+            .map(|(id, fee_payer_txid, vout, amount, script_pubkey)| {
                 (
+                    *id,
                     fee_payer_txid.0,
                     *vout as u32,
                     Amount::from_sat(*amount as u64),
@@ -122,8 +125,8 @@ impl Database {
              FROM fee_payer_utxos 
              WHERE bumped_txid = $1 AND script_pubkey = $2",
         )
-        .bind(bumped_txid.to_string())
-        .bind(script_pubkey.to_string());
+        .bind(super::wrapper::TxidDB(bumped_txid))
+        .bind(ScriptBufDB(script_pubkey));
 
         let results: Vec<(String, i32, i64, bool)> =
             execute_query_with_tx!(self.connection, tx, query, fetch_all)?;
@@ -171,6 +174,7 @@ mod tests {
             vout,
             script_pubkey.clone(),
             Amount::from_sat(amount),
+            None,
         )
         .await
         .unwrap();
@@ -225,6 +229,7 @@ mod tests {
             vout,
             script_pubkey.clone(),
             Amount::from_sat(amount),
+            None,
         )
         .await
         .unwrap();
