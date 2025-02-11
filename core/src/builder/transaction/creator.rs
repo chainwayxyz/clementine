@@ -1,16 +1,16 @@
 use crate::actor::{Actor, WinternitzDerivationPath};
-use crate::builder::script::WinternitzCommit;
+use crate::builder::script::{SpendableScript, WinternitzCommit};
 use crate::builder::transaction::{DepositId, TransactionType, TxHandler};
 use crate::config::BridgeConfig;
 use crate::constants::{WATCHTOWER_CHALLENGE_MESSAGE_LENGTH, WINTERNITZ_LOG_D};
 use crate::database::Database;
 use crate::errors::BridgeError;
+use crate::rpc::clementine::KickoffId;
 use crate::{builder, utils};
 use bitcoin::XOnlyPublicKey;
 use bitvm::signatures::winternitz;
 use std::collections::HashMap;
 use std::sync::Arc;
-use crate::rpc::clementine::KickoffId;
 
 fn get_txhandler<'a>(
     txhandlers: &'a HashMap<TransactionType, TxHandler>,
@@ -48,8 +48,9 @@ pub async fn create_txhandlers(
     txhandlers.insert(move_txhandler.get_transaction_type(), move_txhandler);
 
     // Get operator details (for each operator, (X-Only Public Key, Address, Collateral Funding Txid))
-    let (operator_xonly_pk, operator_reimburse_address, collateral_funding_txid) =
-        db.get_operator(None, kickoff_id.operator_idx as i32).await?;
+    let (operator_xonly_pk, operator_reimburse_address, collateral_funding_txid) = db
+        .get_operator(None, kickoff_id.operator_idx as i32)
+        .await?;
 
     let (sequential_collateral_txhandler, reimburse_generator_txhandler) =
         match prev_reimburse_generator {
@@ -122,10 +123,11 @@ pub async fn create_txhandlers(
     )?;
     txhandlers.insert(kickoff_txhandler.get_transaction_type(), kickoff_txhandler);
 
-    let kickoff_utxo_timeout_txhandler = builder::transaction::create_kickoff_utxo_timeout_txhandler(
-        get_txhandler(&txhandlers, TransactionType::SequentialCollateral)?,
-        kickoff_id.kickoff_idx as usize,
-    )?;
+    let kickoff_utxo_timeout_txhandler =
+        builder::transaction::create_kickoff_utxo_timeout_txhandler(
+            get_txhandler(&txhandlers, TransactionType::SequentialCollateral)?,
+            kickoff_id.kickoff_idx as usize,
+        )?;
     txhandlers.insert(
         kickoff_utxo_timeout_txhandler.get_transaction_type(),
         kickoff_utxo_timeout_txhandler,
@@ -282,10 +284,6 @@ pub async fn create_txhandlers(
                     config.network,
                 );
                 let public_key = actor.derive_winternitz_pk(path)?;
-                let winternitz_params = winternitz::Parameters::new(
-                    WATCHTOWER_CHALLENGE_MESSAGE_LENGTH,
-                    WINTERNITZ_LOG_D,
-                );
 
                 builder::transaction::create_watchtower_challenge_txhandler_from_script(
                     get_txhandler(&txhandlers, TransactionType::WatchtowerChallengeKickoff)?,
@@ -293,8 +291,8 @@ pub async fn create_txhandlers(
                     public_hash,
                     Arc::new(WinternitzCommit::new(
                         public_key,
-                        winternitz_params,
                         actor.xonly_public_key,
+                        WATCHTOWER_CHALLENGE_MESSAGE_LENGTH,
                     )),
                     nofn_xonly_pk,
                     operator_xonly_pk,
@@ -308,7 +306,10 @@ pub async fn create_txhandlers(
             // Creates the operator_challenge_NACK_tx handler.
             let operator_challenge_nack_txhandler =
                 builder::transaction::create_operator_challenge_nack_txhandler(
-                    get_txhandler(&txhandlers, TransactionType::WatchtowerChallenge(watchtower_idx))?,
+                    get_txhandler(
+                        &txhandlers,
+                        TransactionType::WatchtowerChallenge(watchtower_idx),
+                    )?,
                     watchtower_idx,
                     get_txhandler(&txhandlers, TransactionType::Kickoff)?,
                 )?;
@@ -322,7 +323,10 @@ pub async fn create_txhandlers(
                 if index == watchtower_idx {
                     let operator_challenge_ack_txhandler =
                         builder::transaction::create_operator_challenge_ack_txhandler(
-                            get_txhandler(&txhandlers, TransactionType::WatchtowerChallenge(watchtower_idx))?,
+                            get_txhandler(
+                                &txhandlers,
+                                TransactionType::WatchtowerChallenge(watchtower_idx),
+                            )?,
                             watchtower_idx,
                         )?;
 
@@ -351,7 +355,7 @@ pub async fn create_txhandlers(
             config.winternitz_secret_key,
             config.network,
         );
-        let mut assert_scripts =
+        let mut assert_scripts: Vec<Arc<dyn SpendableScript>> =
             Vec::with_capacity(utils::BITVM_CACHE.intermediate_variables.len());
         for (intermediate_step, intermediate_step_size) in
             utils::BITVM_CACHE.intermediate_variables.iter()
@@ -371,8 +375,8 @@ pub async fn create_txhandlers(
             let pk = actor.derive_winternitz_pk(path)?;
             assert_scripts.push(Arc::new(WinternitzCommit::new(
                 pk,
-                params,
                 operator_xonly_pk,
+                path.message_length,
             )));
         }
         // Creates the assert_begin_tx handler.
@@ -410,6 +414,7 @@ pub async fn create_txhandlers(
                 &assert_scripts,
                 &root_hash,
                 nofn_xonly_pk,
+                operator_xonly_pk,
                 config.network,
             )?;
         for txhandler in mini_asserts_and_assert_end_txhandlers {
@@ -450,6 +455,7 @@ pub async fn create_txhandlers(
             &assert_tx_addrs,
             &root_hash,
             nofn_xonly_pk,
+            operator_xonly_pk,
             config.network,
         )?;
 
@@ -532,6 +538,7 @@ mod tests {
             create_aggregator_grpc_server, create_operator_grpc_server,
             create_verifier_grpc_server, create_watchtower_grpc_server,
         },
+        utils,
         utils::initialize_logger,
         EVMAddress,
     };
@@ -542,16 +549,22 @@ mod tests {
     };
     use bitcoin::Txid;
 
-    use std::str::FromStr;
     use crate::builder::transaction::{DepositId, TransactionType};
-    use crate::rpc::clementine::{KickoffId, GrpcTransactionId, TransactionRequest};
+    use crate::constants::{WATCHTOWER_CHALLENGE_MESSAGE_LENGTH, WINTERNITZ_LOG_D};
+    use crate::rpc::clementine::{GrpcTransactionId, KickoffId, TransactionRequest};
+    use std::str::FromStr;
 
     #[tokio::test]
     #[serial_test::serial]
     async fn test_deposit_and_sign_txs() {
         let config = create_test_config_with_thread_name!(None);
+        let rpc = ExtendedRpc::connect(
+            config.bitcoin_rpc_url.clone(),
+            config.bitcoin_rpc_user.clone(),
+            config.bitcoin_rpc_password.clone(),
+        );
 
-        let (verifiers, mut operators, mut aggregator, watchtowers) = create_actors!(config);
+        let (verifiers, mut operators, mut aggregator, mut watchtowers) = create_actors!(config);
 
         tracing::info!("Setting up aggregator");
         let start = std::time::Instant::now();
@@ -590,40 +603,103 @@ mod tests {
             .unwrap();
         tracing::info!("Deposit completed in {:?}", deposit_start.elapsed());
 
-        let kickoff_id = KickoffId  {
-            operator_idx: 0,
-            sequential_collateral_idx: 0,
-            kickoff_idx: 0,
-        };
+        let mut txs_operator_can_sign = vec![
+            TransactionType::SequentialCollateral,
+            TransactionType::ReimburseGenerator,
+            TransactionType::Kickoff,
+            TransactionType::Challenge,
+            TransactionType::KickoffTimeout,
+            TransactionType::KickoffUtxoTimeout,
+            TransactionType::WatchtowerChallengeKickoff,
+            TransactionType::StartHappyReimburse,
+            TransactionType::HappyReimburse,
+            TransactionType::AssertBegin,
+            //TransactionType::Disprove,
+            TransactionType::DisproveTimeout,
+            TransactionType::AlreadyDisproved,
+            TransactionType::Reimburse,
+            TransactionType::AssertEnd,
+        ];
+        txs_operator_can_sign
+            .extend((0..config.num_watchtowers).map(|i| TransactionType::OperatorChallengeNack(i)));
+        txs_operator_can_sign.extend(
+            (0..utils::BITVM_CACHE.intermediate_variables.len())
+                .map(|i| TransactionType::MiniAssert(i)),
+        );
 
-        let txs_operator_can_sign = vec![TransactionType::SequentialCollateral,
-                                         TransactionType::ReimburseGenerator,
-                                         TransactionType::Kickoff,
-                                         TransactionType::Challenge,
-                                         TransactionType::KickoffTimeout,
-                                         TransactionType::KickoffUtxoTimeout,
-                                         TransactionType::WatchtowerChallengeKickoff,
-                                         TransactionType::StartHappyReimburse,
-                                         TransactionType::HappyReimburse,
-                                         TransactionType::OperatorChallengeNack(0),
-                                         TransactionType::AssertBegin,
-                                         //TransactionType::Disprove,
-                                         TransactionType::DisproveTimeout,
-                                         TransactionType::AlreadyDisproved,
-                                         TransactionType::Reimburse,
-                                         TransactionType::OperatorChallengeAck(0),
-                                         TransactionType::MiniAssert(0),
-                                         TransactionType::AssertEnd];
+        let assert_tx_lens = utils::BITVM_CACHE
+            .intermediate_variables
+            .iter()
+            .map(|((_, len))| *len * WINTERNITZ_LOG_D as usize / 8)
+            .collect::<Vec<_>>();
 
-        for tx_type in txs_operator_can_sign {
-            tracing::info!("Raw signed tx received for {:?}: {:?}", tx_type, operators[0].create_signed_tx(TransactionRequest {
-                deposit_params: deposit_params.clone().into(),
-                transaction_type: Some(GrpcTransactionId {
-                    id: Some(tx_type.into()),
-                }),
-                kickoff_id: Some(kickoff_id),
-            }).await.unwrap());
+        // try to sign everything for all operators
+        for operator_idx in 0..config.num_operators {
+            for sequential_collateral_idx in 0..config.num_sequential_collateral_txs {
+                for kickoff_idx in 0..config.num_kickoffs_per_sequential_collateral_tx {
+                    let kickoff_id = KickoffId {
+                        operator_idx: operator_idx as u32,
+                        sequential_collateral_idx: sequential_collateral_idx as u32,
+                        kickoff_idx: kickoff_idx as u32,
+                    };
+                    for tx_type in &txs_operator_can_sign {
+                        let raw_tx = operators[operator_idx]
+                            .create_signed_tx(TransactionRequest {
+                                deposit_params: deposit_params.clone().into(),
+                                transaction_type: Some(GrpcTransactionId {
+                                    id: Some((*tx_type).into()),
+                                }),
+                                kickoff_id: Some(kickoff_id),
+                                commit_data: if let TransactionType::MiniAssert(assert_idx) =
+                                    tx_type
+                                {
+                                    vec![1u8; assert_tx_lens[*assert_idx]]
+                                } else {
+                                    vec![]
+                                },
+                            })
+                            .await
+                            .unwrap();
+
+                        tracing::info!("Raw signed tx received for {:?}", tx_type);
+                    }
+                }
+            }
         }
 
+        // try signing watchtower challenges for all watchtowers
+        for watchtower_idx in 0..config.num_watchtowers {
+            for operator_idx in 0..config.num_operators {
+                for sequential_collateral_idx in 0..config.num_sequential_collateral_txs {
+                    for kickoff_idx in 0..config.num_kickoffs_per_sequential_collateral_tx {
+                        let kickoff_id = KickoffId {
+                            operator_idx: operator_idx as u32,
+                            sequential_collateral_idx: sequential_collateral_idx as u32,
+                            kickoff_idx: kickoff_idx as u32,
+                        };
+                        let raw_tx = watchtowers[watchtower_idx]
+                            .create_signed_tx(TransactionRequest {
+                                deposit_params: deposit_params.clone().into(),
+                                transaction_type: Some(GrpcTransactionId {
+                                    id: Some(
+                                        TransactionType::WatchtowerChallenge(watchtower_idx).into(),
+                                    ),
+                                }),
+                                kickoff_id: Some(kickoff_id),
+                                commit_data: vec![
+                                    1u8;
+                                    WATCHTOWER_CHALLENGE_MESSAGE_LENGTH as usize
+                                        * WINTERNITZ_LOG_D as usize
+                                        / 8
+                                ],
+                            })
+                            .await
+                            .unwrap();
+
+                        tracing::info!("Raw signed tx received for WatchtowerChallenge");
+                    }
+                }
+            }
+        }
     }
 }

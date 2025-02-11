@@ -130,6 +130,7 @@ message TransactionRequest {
   DepositParams deposit_params = 1;
   GrpcTransactionId transaction_type = 2;
   KickoffId kickoff_id = 3;
+  bytes commit_data = 4;
 }
 
 // Includes the deposit params and the nonce gen initial responses (pubkeys and their signatures from all verifiers)
@@ -296,6 +297,17 @@ message VerifierPublicKeys {
 }
 
 service ClementineVerifier {
+  // Creates a transaction denoted by the deposit and operator_idx, sequential_collateral_idx, and kickoff_idx.
+  // It will create the transaction and sign it with saved nofn signatures.
+  //
+  // # Parameters
+  // - deposit_params: User's deposit information
+  // - transaction_type: Requested Transaction type
+  // - kickoff_id: Operator's kickoff ID
+  //
+  // # Returns
+  // - Raw signed transaction
+  rpc CreateSignedTx(TransactionRequest) returns (RawSignedTx) {}
   // Returns verifiers' metadata. Needs to be called once per setup.
   rpc GetParams(Empty) returns (VerifierParams) {}
 
@@ -342,6 +354,17 @@ message WatchtowerParams {
 // Each watchtower also runs a verifier server connected to the same db. Thus,
 // they will have the operator's winternitz pubkeys.
 service ClementineWatchtower {
+  // Creates a transaction denoted by the deposit and operator_idx, sequential_collateral_idx, and kickoff_idx.
+  // It will create the transaction(needs to only sign Watchtower Challenge TX) and sign it with watchtowers's winternitzk keys.
+  //
+  // # Parameters
+  // - deposit_params: User's deposit information
+  // - transaction_type: Requested Transaction type
+  // - kickoff_id: Operator's kickoff ID
+  //
+  // # Returns
+  // - Raw signed transaction
+  rpc CreateSignedTx(TransactionRequest) returns (RawSignedTx) {}
   // Returns every operator's winternitz public keys.
   rpc GetParams(Empty) returns (stream WatchtowerParams) {}
 }

@@ -1,15 +1,17 @@
 use super::clementine::{
     self, clementine_verifier_server::ClementineVerifier, Empty, NonceGenRequest, NonceGenResponse,
-    OperatorParams, PartialSig, VerifierDepositFinalizeParams, VerifierDepositSignParams,
-    VerifierParams, VerifierPublicKeys, WatchtowerParams,
+    OperatorParams, PartialSig, RawSignedTx, TransactionRequest, VerifierDepositFinalizeParams,
+    VerifierDepositSignParams, VerifierParams, VerifierPublicKeys, WatchtowerParams,
 };
 use super::error::*;
 use crate::builder::script::{SpendableScript, WinternitzCommit};
 use crate::builder::sighash::SignatureInfo;
+use crate::builder::transaction::sign::create_and_sign_tx;
 use crate::config::BridgeConfig;
 use crate::constants::WINTERNITZ_LOG_D;
 use crate::fetch_next_optional_message_from_stream;
 use crate::rpc::clementine::TaggedSignature;
+use crate::rpc::parser::parse_transaction_request;
 use crate::utils::SECP;
 use crate::{
     builder::{
@@ -168,8 +170,8 @@ impl ClementineVerifier for Verifier {
                     );
                     let winternitz_commit = WinternitzCommit::new(
                         winternitz_public_keys[idx].clone(),
-                        params,
                         operator_xonly_pk,
+                        *intermediate_step_size as u32 * 2,
                     );
                     let (assert_tx_addr, _) = builder::address::create_taproot_address(
                         &[winternitz_commit.to_script_buf()],
@@ -740,5 +742,25 @@ impl ClementineVerifier for Verifier {
         }
 
         Ok(Response::new(partial_sig))
+    }
+
+    #[tracing::instrument(skip(self), err(level = tracing::Level::ERROR), ret(level = tracing::Level::TRACE))]
+    async fn create_signed_tx(
+        &self,
+        request: Request<TransactionRequest>,
+    ) -> Result<Response<RawSignedTx>, Status> {
+        let transaction_request = request.into_inner();
+        let transaction_data = parse_transaction_request(transaction_request)?;
+
+        let raw_tx = create_and_sign_tx(
+            self.db.clone(),
+            &self.signer,
+            self.config.clone(),
+            self.nofn_xonly_pk,
+            transaction_data,
+        )
+        .await?;
+
+        Ok(Response::new(raw_tx))
     }
 }

@@ -2,13 +2,13 @@
 //!
 //! This module defines errors, returned by the library.
 
+use crate::builder::transaction::TransactionType;
 use bitcoin::{consensus::encode::FromHexError, merkle_tree::MerkleBlockError, BlockHash, Txid};
 use core::fmt::Debug;
 use jsonrpsee::types::ErrorObject;
 use secp256k1::musig;
 use std::path::PathBuf;
 use thiserror::Error;
-use crate::builder::transaction::TransactionType;
 
 /// Errors returned by the bridge.
 #[derive(Debug, Error)]

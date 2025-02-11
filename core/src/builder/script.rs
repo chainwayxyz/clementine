@@ -145,14 +145,7 @@ impl SpendableScript for WinternitzCommit {
 
         a.push_x_only_key(&xonly_pubkey)
             .push_opcode(OP_CHECKSIG)
-            .into_script();
-        let x = WINTERNITZ_MESSAGE_VERIFIER
-            .checksig_verify(&params, &winternitz_pubkey)
-            .compile();
-        // TODO: I dont know if this is correct
-        let push_bytes = PushBytesBuf::try_from(x.into_bytes()).expect("Invalid push bytes");
-        script.push_slice(push_bytes);
-        script
+            .compile()
     }
 }
 
@@ -511,7 +504,7 @@ mod tests {
     use crate::builder;
     use crate::builder::transaction::input::SpendableTxIn;
     use crate::builder::transaction::output::UnspentTxOut;
-    use crate::builder::transaction::{TxHandlerBuilder, DEFAULT_SEQUENCE};
+    use crate::builder::transaction::{TransactionType, TxHandlerBuilder, DEFAULT_SEQUENCE};
     use crate::utils::SECP;
     use bitcoin::{Amount, Sequence, TxOut};
 
@@ -545,7 +538,7 @@ mod tests {
         } else {
             DEFAULT_SEQUENCE
         };
-        let mut builder = TxHandlerBuilder::new();
+        let mut builder = TxHandlerBuilder::new(TransactionType::Dummy);
         builder = builder.add_input(
             crate::rpc::clementine::NormalSignatureKind::NotStored,
             SpendableTxIn::new(

@@ -4,12 +4,16 @@ use super::clementine::{
     TransactionRequest, WithdrawalFinalizedParams,
 };
 use super::error::*;
+use crate::actor::WinternitzDerivationPath;
 use crate::builder::sighash::create_operator_sighash_stream;
+use crate::builder::transaction::sign::create_and_sign_tx;
+use crate::builder::transaction::TransactionType;
+use crate::constants::WINTERNITZ_LOG_D;
 use crate::rpc::parser;
 use crate::rpc::parser::parse_transaction_request;
-use crate::{builder, UTXO};
+use crate::{builder, utils, UTXO};
 use crate::{errors::BridgeError, operator::Operator};
-use bitcoin::hashes::Hash;
+use bitcoin::hashes::{hash160, Hash};
 use bitcoin::{OutPoint, TxOut};
 use futures::StreamExt;
 use std::pin::pin;
@@ -164,40 +168,15 @@ impl ClementineOperator for Operator {
         let transaction_request = request.into_inner();
         let transaction_data = parse_transaction_request(transaction_request)?;
 
-        let mut txhandlers = builder::transaction::create_txhandlers(
+        let raw_tx = create_and_sign_tx(
             self.db.clone(),
+            &self.signer,
             self.config.clone(),
-            transaction_data.deposit_id.clone(),
             self.nofn_xonly_pk,
-            transaction_data.transaction_type,
-            transaction_data.kickoff_id,
-            None,
-            None,
+            transaction_data,
         )
         .await?;
 
-        let sig_query = self
-            .db
-            .get_deposit_signatures(
-                None,
-                transaction_data.deposit_id.deposit_outpoint,
-                transaction_data.kickoff_id.operator_idx as usize,
-                transaction_data.kickoff_id.sequential_collateral_idx as usize,
-                transaction_data.kickoff_id.kickoff_idx as usize,
-            )
-            .await?;
-        let signatures = sig_query.unwrap_or_default();
-
-        let mut requested_txhandler = txhandlers
-            .remove(&transaction_data.transaction_type)
-            .ok_or(BridgeError::TxHandlerNotFound(transaction_data.transaction_type))?;
-
-        self.signer
-            .partial_sign(&mut requested_txhandler, &signatures)?;
-        let checked_txhandler = requested_txhandler.promote()?;
-
-        Ok(Response::new(RawSignedTx {
-            raw_tx: bitcoin::consensus::encode::serialize(checked_txhandler.get_cached_tx()),
-        }))
+        Ok(Response::new(raw_tx))
     }
 }

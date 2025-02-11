@@ -751,7 +751,7 @@ impl Operator {
     pub fn generate_challenge_ack_preimages_and_hashes(
         &self,
     ) -> Result<Vec<PublicHash>, BridgeError> {
-        let mut preimages = Vec::new();
+        let mut hashes = Vec::new();
 
         for sequential_collateral_tx_idx in 0..self.config.num_sequential_collateral_txs as u32 {
             for kickoff_idx in 0..self.config.num_kickoffs_per_sequential_collateral_tx as u32 {
@@ -768,11 +768,12 @@ impl Operator {
                         intermediate_step_name: None,
                     };
                     let hash = self.signer.generate_public_hash_from_path(path)?;
-                    preimages.push(hash); // Subject to change
+                    hashes.push(hash); // Subject to change
                 }
             }
         }
-        Ok(preimages)
+        tracing::info!("Public hashes len: {:?}", hashes.len());
+        Ok(hashes)
     }
 }
 

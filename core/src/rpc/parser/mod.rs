@@ -1,5 +1,6 @@
-use super::clementine::{KickoffId, NormalTransactionId, Outpoint, TransactionRequest, WatchtowerTransactionId, WatchtowerTransactionType, WinternitzPubkey};
+use super::clementine::{Outpoint, TransactionRequest, WinternitzPubkey};
 use super::error;
+use crate::builder::transaction::sign::TransactionRequestData;
 use crate::builder::transaction::{DepositId, TransactionType};
 use crate::errors::BridgeError;
 use crate::rpc::clementine::DepositParams;
@@ -11,7 +12,6 @@ use bitvm::signatures::winternitz;
 use std::fmt::{Debug, Display};
 use std::num::TryFromIntError;
 use tonic::Status;
-use crate::rpc::clementine::grpc_transaction_id::Id;
 
 pub mod operator;
 pub mod verifier;
@@ -154,12 +154,6 @@ pub fn parse_deposit_params(
     Ok((deposit_outpoint, evm_address, recovery_taproot_address))
 }
 
-pub struct TransactionRequestData {
-    pub deposit_id: DepositId,
-    pub transaction_type: TransactionType,
-    pub kickoff_id: KickoffId,
-}
-
 pub fn parse_transaction_request(
     request: TransactionRequest,
 ) -> Result<TransactionRequestData, Status> {
@@ -171,9 +165,9 @@ pub fn parse_transaction_request(
     let transaction_type_proto = request
         .transaction_type
         .ok_or(Status::invalid_argument("No transaction type received"))?;
-    let transaction_type_inner = transaction_type_proto.id.ok_or_else(|| {
-        Status::invalid_argument("No transaction type received")
-    })?;
+    let transaction_type_inner = transaction_type_proto
+        .id
+        .ok_or_else(|| Status::invalid_argument("No transaction type received"))?;
     let transaction_type: TransactionType = transaction_type_inner.try_into().map_err(|_| {
         Status::invalid_argument(format!(
             "Could not parse transaction type: {:?}",
@@ -192,6 +186,7 @@ pub fn parse_transaction_request(
         },
         transaction_type,
         kickoff_id,
+        commit_data: request.commit_data,
     })
 }
 

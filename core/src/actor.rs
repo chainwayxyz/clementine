@@ -196,15 +196,23 @@ impl Actor {
         Ok(witness)
     }
 
+    pub fn generate_preimage_from_path(
+        &self,
+        path: WinternitzDerivationPath<'_>,
+    ) -> Result<PublicHash, BridgeError> {
+        let first_preimage = self.get_derived_winternitz_sk(path)?;
+        let second_preimage = hash160::Hash::hash(&first_preimage);
+        Ok(second_preimage.to_byte_array())
+    }
+
     /// Generates the hashes from the preimages. Preimages are constructed using
     /// the Winternitz derivation path and the secret key.
     pub fn generate_public_hash_from_path(
         &self,
         path: WinternitzDerivationPath<'_>,
     ) -> Result<PublicHash, BridgeError> {
-        let mut preimage = path.to_vec();
-        preimage.extend_from_slice(&self.get_derived_winternitz_sk(path)?);
-        let hash = hash160::Hash::hash(&preimage);
+        let preimage = self.generate_preimage_from_path(path)?;
+        let mut hash = hash160::Hash::hash(&preimage);
         Ok(hash.to_byte_array())
     }
 
@@ -375,6 +383,7 @@ impl Actor {
         txhandler: &mut TxHandler,
         signatures: &[TaggedSignature],
     ) -> Result<(), BridgeError> {
+        let tx_type = txhandler.get_transaction_type();
         let signer = move |_,
                            spt: &SpentTxIn,
                            calc_sighash: Box<
@@ -405,7 +414,9 @@ impl Actor {
                                 (None, true) => {
                                     script.generate_script_inputs(&self.sign(calc_sighash()?))
                                 }
-                                (None, false) => return Err(BridgeError::SignatureNotFound),
+                                (None, false) => {
+                                    return Err(BridgeError::SignatureNotFound(tx_type))
+                                }
                             }
                         }
                         Kind::TimelockScript(script) => match (sig, script.0) {
@@ -413,7 +424,7 @@ impl Actor {
                             (None, Some(xonly_key)) if xonly_key == self.xonly_public_key => {
                                 script.generate_script_inputs(Some(&self.sign(calc_sighash()?)))
                             }
-                            (None, Some(_)) => return Err(BridgeError::SignatureNotFound),
+                            (None, Some(_)) => return Err(BridgeError::SignatureNotFound(tx_type)),
                             (_, None) => Witness::new(),
                         },
                         Kind::CheckSig(script) => match (sig, script.0 == self.xonly_public_key) {
@@ -421,7 +432,7 @@ impl Actor {
                             (None, true) => {
                                 script.generate_script_inputs(&self.sign(calc_sighash()?))
                             }
-                            (None, false) => return Err(BridgeError::SignatureNotFound),
+                            (None, false) => return Err(BridgeError::SignatureNotFound(tx_type)),
                         },
                         Kind::WinternitzCommit(_)
                         | Kind::PreimageRevealScript(_)

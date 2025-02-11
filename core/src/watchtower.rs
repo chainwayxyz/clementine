@@ -1,4 +1,5 @@
 use crate::constants::{WATCHTOWER_CHALLENGE_MESSAGE_LENGTH, WINTERNITZ_LOG_D};
+use crate::musig2::AggregateFromPublicKeys;
 use crate::{
     actor::{Actor, WinternitzDerivationPath},
     builder::address::derive_challenge_address_from_xonlypk_and_wpk,
@@ -7,38 +8,43 @@ use crate::{
     errors::BridgeError,
     extended_rpc::ExtendedRpc,
 };
-use bitcoin::ScriptBuf;
+use bitcoin::{ScriptBuf, XOnlyPublicKey};
 use bitvm::signatures::winternitz;
 
 #[derive(Debug, Clone)]
 pub struct Watchtower {
-    _erpc: ExtendedRpc,
-    _db: Database,
-    pub actor: Actor,
+    erpc: ExtendedRpc,
+    pub(crate) db: Database,
+    pub signer: Actor,
     pub config: BridgeConfig,
+    pub nofn_xonly_pk: XOnlyPublicKey,
 }
 
 impl Watchtower {
     pub async fn new(config: BridgeConfig) -> Result<Self, BridgeError> {
-        let _erpc = ExtendedRpc::connect(
+        let erpc = ExtendedRpc::connect(
             config.bitcoin_rpc_url.clone(),
             config.bitcoin_rpc_user.clone(),
             config.bitcoin_rpc_password.clone(),
         )
         .await?;
 
-        let _db = Database::new(&config).await?;
-        let actor = Actor::new(
+        let nofn_xonly_pk =
+            XOnlyPublicKey::from_musig2_pks(config.verifiers_public_keys.clone(), None)?;
+
+        let db = Database::new(&config).await?;
+        let signer = Actor::new(
             config.secret_key,
             config.winternitz_secret_key,
             config.network,
         );
 
         Ok(Self {
-            _erpc,
-            _db,
-            actor,
+            erpc,
+            db,
+            signer,
             config,
+            nofn_xonly_pk,
         })
     }
 
@@ -69,7 +75,7 @@ impl Watchtower {
                         intermediate_step_name: None,
                     };
 
-                    winternitz_pubkeys.push(self.actor.derive_winternitz_pk(path)?);
+                    winternitz_pubkeys.push(self.signer.derive_winternitz_pk(path)?);
                 }
             }
         }
@@ -83,15 +89,15 @@ impl Watchtower {
         let winternitz_pubkeys = self.get_watchtower_winternitz_public_keys().await?;
         tracing::info!(
             "get_watchtower_challenge_addresses watchtower xonly public key: {:?}",
-            self.actor.xonly_public_key
+            self.signer.xonly_public_key
         );
         tracing::info!(
             "get_watchtower_challenge_addresses watchtower taproot public key: {:?}",
-            self.actor.address.script_pubkey()
+            self.signer.address.script_pubkey()
         );
         for winternitz_pubkey in winternitz_pubkeys {
             let challenge_address = derive_challenge_address_from_xonlypk_and_wpk(
-                &self.actor.xonly_public_key,
+                &self.signer.xonly_public_key,
                 &winternitz_pubkey,
                 self.config.network,
             );
