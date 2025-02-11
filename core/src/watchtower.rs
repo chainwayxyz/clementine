@@ -8,7 +8,6 @@ use crate::{
 };
 use bitcoin::{ScriptBuf, XOnlyPublicKey};
 use bitvm::signatures::winternitz;
-use tokio::sync::mpsc::{self, error::SendError};
 
 #[derive(Debug, Clone)]
 pub struct Watchtower {
@@ -111,22 +110,12 @@ impl Watchtower {
     /// - [`XOnlyPublicKey`]: X-only public key of the current watchtower
     pub async fn get_params(
         &self,
-    ) -> Result<(u32, mpsc::Receiver<winternitz::PublicKey>, XOnlyPublicKey), BridgeError> {
+    ) -> Result<(u32, Vec<winternitz::PublicKey>, XOnlyPublicKey), BridgeError> {
         let watchtower_id = self.config.index;
         let winternitz_public_keys = self.get_watchtower_winternitz_public_keys().await?;
         let xonly_pk = self.actor.xonly_public_key;
 
-        let (wpk_channel_tx, wpk_channel_rx) = mpsc::channel(winternitz_public_keys.len());
-
-        tokio::spawn(async move {
-            for wpk in winternitz_public_keys {
-                wpk_channel_tx.send(wpk).await?;
-            }
-
-            Ok::<(), SendError<_>>(())
-        });
-
-        Ok((watchtower_id, wpk_channel_rx, xonly_pk))
+        Ok((watchtower_id, winternitz_public_keys, xonly_pk))
     }
 }
 
@@ -167,18 +156,17 @@ mod tests {
         let config = create_test_config_with_thread_name!(None);
         let watchtower = Watchtower::new(config.clone()).await.unwrap();
 
-        let (watchtower_id, mut winternitz_public_keys, xonly_pk) =
+        let (watchtower_id, winternitz_public_keys, xonly_pk) =
             watchtower.get_params().await.unwrap();
 
         assert_eq!(watchtower_id, watchtower.config.index);
         assert_eq!(xonly_pk, watchtower.actor.xonly_public_key);
-
-        let actual_wpks = watchtower
-            .get_watchtower_winternitz_public_keys()
-            .await
-            .unwrap();
-        for (idx, wpk) in winternitz_public_keys.recv().await.into_iter().enumerate() {
-            assert_eq!(actual_wpks[idx], wpk);
-        }
+        assert_eq!(
+            winternitz_public_keys,
+            watchtower
+                .get_watchtower_winternitz_public_keys()
+                .await
+                .unwrap()
+        );
     }
 }

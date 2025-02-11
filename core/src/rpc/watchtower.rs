@@ -15,9 +15,9 @@ impl ClementineWatchtower for Watchtower {
         &self,
         _request: Request<Empty>,
     ) -> Result<Response<Self::GetParamsStream>, Status> {
-        let (watchtower_id, mut winternitz_public_keys, xonly_pk) = self.get_params().await?;
+        let (watchtower_id, winternitz_public_keys, xonly_pk) = self.get_params().await?;
 
-        let (tx, rx) = mpsc::channel(winternitz_public_keys.max_capacity() + 2);
+        let (tx, rx) = mpsc::channel(winternitz_public_keys.len() + 2);
         let out_stream: Self::GetParamsStream = ReceiverStream::new(rx);
 
         tracing::info!(
@@ -32,7 +32,7 @@ impl ClementineWatchtower for Watchtower {
             }))
             .await?;
 
-            while let Some(wpk) = winternitz_public_keys.recv().await {
+            for wpk in winternitz_public_keys {
                 let wpk: WatchtowerParams = wpk.into();
                 tx.send(Ok(wpk)).await?;
             }
