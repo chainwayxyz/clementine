@@ -1,8 +1,10 @@
+use std::time::Duration;
+
 use bitcoin::{
     transaction::Version, Address, Amount, FeeRate, OutPoint, Transaction, TxOut, Txid, Weight,
 };
 use bitcoincore_rpc::{json::EstimateMode, RpcApi};
-use tokio::sync::broadcast::Receiver;
+use tokio::{sync::broadcast::Receiver, task::JoinHandle};
 
 use crate::{
     actor::Actor,
@@ -266,11 +268,15 @@ impl TxSender {
         }
     }
 
+    /// Sends a tx with CPFP.
+    /// Returns the effective fee rate of the tx.
+    /// If the effective fee rate is lower than the required fee rate, it will return an error.
+    /// If the tx is not confirmed, it will return an error.
     pub async fn send_tx_with_cpfp(
         &self,
         txid: Txid,
         fee_rate: FeeRate,
-    ) -> Result<f64, BridgeError> {
+    ) -> Result<FeeRate, BridgeError> {
         let tx = self.db.get_tx(None, txid).await?;
 
         let fee_payer_utxos = self.db.get_confirmed_fee_payer_utxos(None, txid).await?;
@@ -325,11 +331,22 @@ impl TxSender {
         let effective_fee_rate = effective_fee_rates[0]
             .1
             .expect("Effective fee rate should be present");
+        let effective_fee_rate = FeeRate::from_sat_per_vb_unchecked(effective_fee_rate as u64);
+
+        // Save the effective fee rate and child txid to the db
+        self.db
+            .update_effective_fee_rate(None, txid, effective_fee_rate)
+            .await?;
+
+        if effective_fee_rate < fee_rate {
+            return Err(BridgeError::EffectiveFeeRateLowerThanRequired);
+        }
+
         Ok(effective_fee_rate)
     }
 
     /// This will just persist the raw tx to the db
-    pub async fn save_tx(&self, tx: Transaction) -> Result<(), BridgeError> {
+    pub async fn save_tx(&self, tx: &Transaction) -> Result<(), BridgeError> {
         let bumped_txid = tx.compute_txid();
         tracing::info!(
             "Bumped txid: {} and script pubkey: {}",
@@ -346,7 +363,7 @@ impl TxSender {
         }
 
         // Persist the tx to the db
-        self.db.save_tx(None, bumped_txid, tx).await?;
+        self.db.save_tx(None, bumped_txid, tx.clone()).await?;
 
         Ok(())
     }
@@ -396,6 +413,7 @@ impl TxSender {
     }
 
     /// Tries to send unconfirmed txs that have a new effective fee rate.
+    /// Tries to bump fees of fee payer UTXOs with RBF
     pub async fn try_to_send_unconfirmed_txs(
         &self,
         new_effective_fee_rate: FeeRate,
@@ -405,68 +423,64 @@ impl TxSender {
             .get_unconfirmed_bumpable_txs(None, new_effective_fee_rate)
             .await?;
         for txid in txids {
+            self.bump_fees_of_fee_payer_txs(txid, new_effective_fee_rate)
+                .await?;
             self.send_tx_with_cpfp(txid, new_effective_fee_rate).await?;
         }
-        Ok(())
-    }
-
-    pub async fn apply_block(&self, blockhash: &bitcoin::BlockHash) -> Result<(), BridgeError> {
-        let block = self.rpc.client.get_block(blockhash).await?;
-
-        for tx in block.txdata {
-            let txid = tx.compute_txid();
-            self.db.confirm_fee_payer_tx(None, txid, *blockhash).await?;
-        }
 
         Ok(())
     }
 
-    pub async fn apply_reorg(&self, blockhash: &bitcoin::BlockHash) -> Result<(), BridgeError> {
-        let block = self.rpc.client.get_block(blockhash).await?;
-
-        for tx in block.txdata {
-            let txid = tx.compute_txid();
-            self.db.reset_fee_payer_tx(None, txid).await?;
-        }
-
-        Ok(())
-    }
-
-    pub async fn bitcoin_syncer_event_handler(
+    pub async fn run(
         &self,
-        bitcoin_syncer_receiver: &mut Receiver<BitcoinSyncerEvent>,
-    ) -> Result<(), BridgeError> {
-        loop {
-            let event = bitcoin_syncer_receiver.recv().await?;
-            match event {
-                BitcoinSyncerEvent::NewBlocks(block_hashes) => {
-                    for block in block_hashes {
-                        self.apply_block(&block.block_hash).await?;
+        consumer_handle: &str,
+        poll_delay: Duration,
+    ) -> Result<JoinHandle<Result<(), BridgeError>>, BridgeError> {
+        // Clone the required fields for the async task
+        let db = self.db.clone();
+        let consumer_handle = consumer_handle.to_string();
+        let this = self.clone();
+
+        let handle = tokio::spawn(async move {
+            loop {
+                let result: Result<(), BridgeError> = async {
+                    let mut dbtx = db.begin_transaction().await?;
+                    let event = db.get_event_and_update(&mut dbtx, &consumer_handle).await?;
+
+                    if let Some(event) = event {
+                        match event {
+                            BitcoinSyncerEvent::NewBlock(block_hash) => {
+                                db.confirm_transactions(&mut dbtx, &block_hash).await?;
+                            }
+                            BitcoinSyncerEvent::ReorgedBlock(block_hash) => {
+                                db.unconfirm_transactions(&mut dbtx, &block_hash).await?;
+                            }
+                        }
                     }
+                    dbtx.commit().await?;
+
+                    let fee_rate = this.get_fee_rate().await?;
+                    this.try_to_send_unconfirmed_txs(fee_rate).await?;
+
+                    Ok(())
                 }
-                BitcoinSyncerEvent::NewBlocksWithTxs(_) => {
-                    // panic
-                    return Err(BridgeError::Error(
-                        "New blocks with txs not implemented".to_string(),
-                    ));
+                .await;
+
+                if let Err(e) = result {
+                    tracing::error!("Error in tx_sender background task: {}", e);
                 }
-                BitcoinSyncerEvent::ReorgedBlocks(block_hashes) => {
-                    let (old_blocks, new_blocks): (Vec<_>, Vec<_>) =
-                        block_hashes.into_iter().unzip();
-                    for block in old_blocks {
-                        self.apply_reorg(&block).await?;
-                    }
-                    for block in new_blocks {
-                        self.apply_block(&block).await?
-                    }
-                }
+
+                tokio::time::sleep(poll_delay).await;
             }
-        }
+        });
+
+        Ok(handle)
     }
 }
 
 #[cfg(test)]
 mod tests {
+    use crate::bitcoin_syncer;
     // Imports required for create_test_config_with_thread_name macro.
     use crate::config::BridgeConfig;
     use crate::utils::initialize_logger;
@@ -553,7 +567,16 @@ mod tests {
     #[tokio::test]
     #[serial_test::serial]
     async fn test_create_fee_payer_tx() {
-        let (tx_sender, rpc, _db, signer, network) = create_test_tx_sender().await;
+        let (tx_sender, rpc, db, signer, network) = create_test_tx_sender().await;
+
+        let tx_sender_handle = tx_sender
+            .run("tx_sender", Duration::from_secs(1))
+            .await
+            .unwrap();
+        let bitcoin_syncer_handle =
+            bitcoin_syncer::start_bitcoin_syncer(db, rpc.clone(), Duration::from_secs(1))
+                .await
+                .unwrap();
 
         let tx = create_bumpable_tx(&rpc, signer, network).await.unwrap();
 
@@ -570,23 +593,25 @@ mod tests {
             .await
             .unwrap();
 
-        tx_sender
-            .bump_fees_of_fee_payer_txs(tx.compute_txid(), FeeRate::from_sat_per_vb_unchecked(2))
-            .await
-            .unwrap();
-
-        assert!(fee_payer_tx.output[outpoint.vout as usize].value.to_sat() > tx.weight().to_wu());
+        tx_sender.save_tx(&tx).await.unwrap();
 
         // Mine a block and wait for confirmation
         rpc.mine_blocks(1).await.unwrap();
 
         // Give enough time for the block to be processed and event to be handled
-        // tokio::time::sleep(Duration::from_secs(20)).await;
-        let latest_block_hash = rpc.client.get_best_block_hash().await.unwrap();
-        tx_sender.apply_block(&latest_block_hash).await.unwrap();
+        tokio::time::sleep(Duration::from_secs(5)).await;
 
-        // Send the CPFP transaction
-        tx_sender.save_tx(tx).await.unwrap();
+        // get the tx from the rpc
+        let get_raw_transaction_result = rpc
+            .client
+            .get_raw_transaction_info(&tx.compute_txid(), None)
+            .await
+            .unwrap();
+
+        tracing::info!(
+            "Get raw transaction result: {:?}",
+            get_raw_transaction_result
+        );
 
         // Clean shutdown of background tasks
         // drop(sender); // This will cause the receiver loop to exit

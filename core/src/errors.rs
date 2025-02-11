@@ -284,6 +284,9 @@ pub enum BridgeError {
     #[error("Insufficient fee payer amount")]
     InsufficientFeePayerAmount,
 
+    #[error("Effective fee rate is lower than required")]
+    EffectiveFeeRateLowerThanRequired,
+
     #[error("Encountered multiple winternitz scripts when attempting to commit to only one.")]
     MultipleWinternitzScripts,
     #[error("Encountered multiple preimage reveal scripts when attempting to commit to only one.")]

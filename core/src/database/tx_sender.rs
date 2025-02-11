@@ -224,6 +224,21 @@ impl Database {
         Ok(())
     }
 
+    pub async fn update_effective_fee_rate(
+        &self,
+        tx: Option<DatabaseTransaction<'_, '_>>,
+        txid: Txid,
+        effective_fee_rate: FeeRate,
+    ) -> Result<(), BridgeError> {
+        let query = sqlx::query("UPDATE tx_sender_txs SET effective_fee_rate = $1 WHERE txid = $2")
+            .bind(effective_fee_rate.to_sat_per_vb_ceil() as i64)
+            .bind(TxidDB(txid));
+
+        execute_query_with_tx!(self.connection, tx, query, execute)?;
+
+        Ok(())
+    }
+
     pub async fn get_tx(
         &self,
         tx: Option<DatabaseTransaction<'_, '_>>,

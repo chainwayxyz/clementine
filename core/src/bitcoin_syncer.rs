@@ -11,11 +11,6 @@ use crate::{
     extended_rpc::ExtendedRpc,
 };
 
-type ChainHeadPollingResult = (
-    broadcast::Sender<BitcoinSyncerEvent>,
-    JoinHandle<Result<(), BridgeError>>,
-);
-
 #[derive(Clone, Debug)]
 pub struct BlockInfo {
     pub block_hash: BlockHash,
@@ -24,22 +19,9 @@ pub struct BlockInfo {
 }
 
 #[derive(Clone, Debug)]
-pub struct BlockInfoWithTxs {
-    pub block_info: BlockInfo,
-    pub txs: Vec<Transaction>,
-}
-
-#[derive(Clone, Debug)]
 pub enum BitcoinSyncerEvent {
-    NewBlocks(Vec<BlockInfo>),
-    NewBlocksWithTxs(Vec<BlockInfoWithTxs>),
-    ReorgedBlocks(Vec<(BlockHash, BlockHash)>),
-}
-
-#[derive(Clone, Debug, PartialEq)]
-pub enum BitcoinSyncerPollingMode {
-    SyncOnly,
-    SyncAndPollTxs,
+    NewBlock(BlockHash),
+    ReorgedBlock(BlockHash),
 }
 
 pub async fn get_block_info_from_height(
@@ -57,25 +39,24 @@ pub async fn get_block_info_from_height(
 
 pub async fn process_block(
     db: &Database,
+    dbtx: DatabaseTransaction<'_, '_>,
     block: &bitcoin::Block,
     block_height: i64,
 ) -> Result<(), BridgeError> {
-    let mut dbtx = db.begin_transaction().await?;
     let block_hash = block.header.block_hash();
 
-    db.set_chain_head(
-        Some(&mut dbtx),
-        &block_hash,
-        &block.header.prev_blockhash,
-        block_height,
-    )
-    .await?;
+    let block_id = db
+        .add_block_info(
+            Some(dbtx),
+            &block_hash,
+            &block.header.prev_blockhash,
+            block_height,
+        )
+        .await?;
 
     for tx in &block.txdata {
-        process_tx(db, &mut dbtx, tx, &block_hash).await?;
+        process_tx(db, dbtx, tx, block_id).await?;
     }
-
-    dbtx.commit().await?;
     Ok::<(), BridgeError>(())
 }
 
@@ -83,14 +64,15 @@ pub async fn process_tx(
     db: &Database,
     dbtx: DatabaseTransaction<'_, '_>,
     tx: &bitcoin::Transaction,
-    block_hash: &bitcoin::BlockHash,
+    block_id: i64,
 ) -> Result<(), BridgeError> {
     let txid = tx.compute_txid();
-    db.insert_tx(dbtx, block_hash, &txid).await?;
+    db.insert_tx(dbtx, block_id, &txid).await?;
 
     for input in &tx.input {
-        db.insert_utxo(
+        db.insert_spent_utxo(
             dbtx,
+            block_id,
             &txid,
             &input.previous_output.txid,
             input.previous_output.vout as i64,
@@ -101,15 +83,30 @@ pub async fn process_tx(
     Ok::<(), BridgeError>(())
 }
 
+pub async fn set_initial_block_info(db: &Database, rpc: &ExtendedRpc) -> Result<(), BridgeError> {
+    // if the block info is already set, do nothing
+    if db.get_max_height(None).await?.is_some() {
+        return Ok(());
+    }
+
+    let current_height = rpc.client.get_block_count().await?;
+    let current_block_info = get_block_info_from_height(rpc, current_height).await?;
+    db.add_block_info(
+        None,
+        &current_block_info.block_hash,
+        &current_block_info.block_header.prev_blockhash,
+        current_height as i64,
+    )
+    .await?;
+    Ok(())
+}
+
 pub async fn start_bitcoin_syncer(
     db: Database,
     rpc: ExtendedRpc,
     poll_delay: Duration,
-    mode: BitcoinSyncerPollingMode,
-) -> Result<ChainHeadPollingResult, BridgeError> {
-    let (tx, _) = broadcast::channel(100);
-
-    let returned_tx = tx.clone();
+) -> Result<JoinHandle<Result<(), BridgeError>>, BridgeError> {
+    set_initial_block_info(&db, &rpc).await?;
 
     let mut block_height = db
         .get_max_height(None)
@@ -156,50 +153,41 @@ pub async fn start_bitcoin_syncer(
                 return Err(BridgeError::BlockgazerTooDeep(block_height));
             }
 
+            let mut dbtx = db.begin_transaction().await?;
             // check the reorg blocks
-            let reorg_blocks = db.delete_chain_head_from_height(None, block_height).await?;
+            let reorg_blocks = db
+                .set_non_canonical_block_hashes(Some(&mut dbtx), block_height)
+                .await?;
 
             if !reorg_blocks.is_empty() {
-                let reorg_blocks = reorg_blocks
-                    .into_iter()
-                    .zip(new_blocks.clone().into_iter().map(|info| info.block_hash))
-                    .collect::<Vec<_>>();
-                tx.send(BitcoinSyncerEvent::ReorgedBlocks(reorg_blocks))?;
-            }
-
-            let mut dbtx = db.begin_transaction().await?;
-            for block_info in new_blocks.iter() {
-                db.set_chain_head(
-                    Some(&mut dbtx),
-                    &block_info.block_hash,
-                    &block_info.block_header.prev_blockhash,
-                    block_height as i64,
-                )
-                .await?;
-            }
-            dbtx.commit().await?;
-
-            if !new_blocks.is_empty() {
-                match mode {
-                    BitcoinSyncerPollingMode::SyncOnly => {
-                        tx.send(BitcoinSyncerEvent::NewBlocks(new_blocks))?;
-                    }
-                    BitcoinSyncerPollingMode::SyncAndPollTxs => {
-                        let block_futures = new_blocks.iter().map(|block_info| async {
-                            let block = rpc.client.get_block(&block_info.block_hash).await?;
-                            Ok::<_, BridgeError>(BlockInfoWithTxs {
-                                block_info: block_info.clone(),
-                                txs: block.txdata,
-                            })
-                        });
-                        let block_info_with_txs = try_join_all(block_futures).await?;
-                        tx.send(BitcoinSyncerEvent::NewBlocksWithTxs(block_info_with_txs))?;
-                    }
+                for block_hash in reorg_blocks {
+                    db.add_event(
+                        Some(&mut dbtx),
+                        BitcoinSyncerEvent::ReorgedBlock(block_hash),
+                    )
+                    .await?;
                 }
             }
+
+            for block_info in new_blocks.iter() {
+                let block = rpc.client.get_block(&block_info.block_hash).await?;
+                process_block(&db, &mut dbtx, &block, block_height as i64).await?;
+            }
+
+            if !new_blocks.is_empty() {
+                for block_info in new_blocks.iter() {
+                    db.add_event(
+                        Some(&mut dbtx),
+                        BitcoinSyncerEvent::NewBlock(block_info.block_hash),
+                    )
+                    .await?;
+                }
+            }
+
+            dbtx.commit().await?;
 
             sleep(poll_delay).await;
         }
     });
-    Ok((returned_tx, handle))
+    Ok(handle)
 }
