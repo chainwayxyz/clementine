@@ -16,6 +16,7 @@ use crate::{
             input::SpendableTxIn, output::UnspentTxOut, TxHandlerBuilder, DEFAULT_SEQUENCE,
         },
     },
+    constants::MIN_TAPROOT_AMOUNT,
     database::Database,
     errors::BridgeError,
     extended_rpc::ExtendedRpc,
@@ -40,10 +41,129 @@ impl TxSender {
         }
     }
 
+    /// Runs the tx sender.
+    /// It will start a background task that will listen for new blocks and confirm transactions.
+    /// It will also listen for reorged blocks and unconfirm transactions.
+    /// It will also periodically bump fees of both the package and the fee payer txs.
+    /// consumer_handle is the name of the consumer that will be used to listen for events, it should be unique for each tx sender.
+    pub async fn run(
+        &self,
+        consumer_handle: &str,
+        poll_delay: Duration,
+    ) -> Result<JoinHandle<Result<(), BridgeError>>, BridgeError> {
+        // Clone the required fields for the async task
+        let db = self.db.clone();
+        let consumer_handle = consumer_handle.to_string();
+        let this = self.clone();
+
+        let handle = tokio::spawn(async move {
+            loop {
+                let result: Result<(), BridgeError> = async {
+                    let mut dbtx = db.begin_transaction().await?;
+                    let event = db.get_event_and_update(&mut dbtx, &consumer_handle).await?;
+                    if let Some(event) = event {
+                        match event {
+                            BitcoinSyncerEvent::NewBlock(block_hash) => {
+                                db.confirm_transactions(&mut dbtx, &block_hash).await?;
+                            }
+                            BitcoinSyncerEvent::ReorgedBlock(block_hash) => {
+                                db.unconfirm_transactions(&mut dbtx, &block_hash).await?;
+                            }
+                        }
+                    }
+                    dbtx.commit().await?;
+
+                    let fee_rate = this.get_fee_rate().await?;
+                    this.try_to_send_unconfirmed_txs(fee_rate).await?;
+
+                    Ok(())
+                }
+                .await;
+
+                if let Err(e) = result {
+                    tracing::error!("Error in tx_sender background task: {}", e);
+                }
+
+                tokio::time::sleep(poll_delay).await;
+            }
+        });
+
+        Ok(handle)
+    }
+
+    /// - Creates a fee payer UTXO for a parent tx.
+    /// - Returns the outpoint of the fee payer UTXO.
+    /// - This function should be called before the parent tx is sent to the network.
+    /// - This is to make sure the client has enough funds to bump fees.
+    /// - The fee payer UTXO is used to bump fees of the parent tx.
+    /// - The fee payer UTXO should be confirmed before the parent tx is sent to the network.
+    pub async fn create_fee_payer_tx(
+        &self,
+        parent_txid: Txid,
+        parent_tx_size: Weight,
+    ) -> Result<OutPoint, BridgeError> {
+        let fee_rate = self.get_fee_rate().await?;
+        tracing::info!("Fee rate: {}", fee_rate);
+        let required_amount =
+            Self::calculate_required_amount_for_fee_payer_utxo(parent_tx_size, fee_rate)?;
+
+        tracing::info!("Required amount: {}", required_amount);
+
+        let outpoint = self
+            .rpc
+            .send_to_address(&self.signer.address, required_amount)
+            .await?;
+
+        // save the db
+        self.db
+            .save_fee_payer_tx(
+                None,
+                parent_txid,
+                outpoint.txid,
+                outpoint.vout,
+                self.signer.address.script_pubkey(),
+                required_amount,
+                None,
+            )
+            .await?;
+
+        tracing::info!(
+            "Fee payer tx saved to db with parent txid: {} and script pubkey: {}",
+            parent_txid,
+            self.signer.address.script_pubkey()
+        );
+
+        Ok(outpoint)
+    }
+
+    /// This will save the tx to the db.
+    /// It will also check if the tx has a fee payer UTXO already in the db.
+    pub async fn save_tx(&self, tx: &Transaction) -> Result<(), BridgeError> {
+        let bumped_txid = tx.compute_txid();
+        tracing::info!(
+            "Bumped txid: {} and script pubkey: {}",
+            bumped_txid,
+            self.signer.address.script_pubkey()
+        );
+        let fee_payer_txs: Vec<(Txid, u32, Amount, bool)> = self
+            .db
+            .get_fee_payer_tx(None, bumped_txid, self.signer.address.script_pubkey())
+            .await?;
+
+        if fee_payer_txs.is_empty() {
+            return Err(BridgeError::FeePayerTxNotFound);
+        }
+
+        // Persist the tx to the db
+        self.db.save_tx(None, bumped_txid, tx.clone()).await?;
+
+        Ok(())
+    }
+
     /// Gets the current fee rate.
     /// If the fee rate is not estimable, it will return a fee rate of 1 sat/vb for regtest.
     /// TODO: Use more sophisticated fee estimation, like the on in mempool.space
-    pub async fn get_fee_rate(&self) -> Result<FeeRate, BridgeError> {
+    async fn get_fee_rate(&self) -> Result<FeeRate, BridgeError> {
         let fee_rate = self
             .rpc
             .client
@@ -75,55 +195,39 @@ impl TxSender {
         }
     }
 
-    /// We want to allocate more than the required amount to be able to bump fees.
-    fn calculate_required_amount_for_fee_payer(
-        &self,
-        bumped_tx_size: Weight,
-        fee_rate: FeeRate,
-    ) -> Result<Amount, BridgeError> {
-        let required_fee = fee_rate
-            .checked_mul_by_weight(bumped_tx_size)
-            .ok_or(BridgeError::Overflow)?;
-        Ok(required_fee * 3 + Amount::from_sat(10000))
+    /// https://bitcoin.stackexchange.com/a/116959
+    /// Each additional p2tr input adds 230 WU and each additional p2tr output adds 172 WU to the transaction.
+    fn calculate_child_tx_size(num_fee_payer_utxos: usize) -> Weight {
+        Weight::from_wu_usize(230 * num_fee_payer_utxos + 207 + 172)
     }
 
-    pub async fn create_fee_payer_tx(
-        &self,
-        bumped_txid: Txid,
-        bumped_tx_size: Weight,
-    ) -> Result<OutPoint, BridgeError> {
-        let fee_rate = self.get_fee_rate().await?;
-        tracing::info!("Fee rate: {}", fee_rate);
-        let required_amount =
-            self.calculate_required_amount_for_fee_payer(bumped_tx_size, fee_rate)?;
-
-        tracing::info!("Required amount: {}", required_amount);
-
-        let outpoint = self
-            .rpc
-            .send_to_address(&self.signer.address, required_amount)
-            .await?;
-
-        // save the db
-        self.db
-            .save_fee_payer_tx(
-                None,
-                bumped_txid,
-                outpoint.txid,
-                outpoint.vout,
-                self.signer.address.script_pubkey(),
-                required_amount,
-                None,
-            )
-            .await?;
-
-        tracing::info!(
-            "Fee payer tx saved to db with bumped txid: {} and script pubkey: {}",
-            bumped_txid,
-            self.signer.address.script_pubkey()
+    /// Calculates the required total fee of a CPFP child tx.
+    fn calculate_required_fee(
+        parent_tx_size: Weight,
+        num_fee_payer_utxos: usize,
+        fee_rate: FeeRate,
+    ) -> Result<Amount, BridgeError> {
+        let child_tx_size = Self::calculate_child_tx_size(num_fee_payer_utxos);
+        // When effective fee rate is calculated, it calculates vBytes of the tx not the total weight.
+        let total_weight = Weight::from_vb_unchecked(
+            child_tx_size.to_vbytes_ceil() + parent_tx_size.to_vbytes_ceil(),
         );
 
-        Ok(outpoint)
+        let required_fee = fee_rate
+            .checked_mul_by_weight(total_weight)
+            .ok_or(BridgeError::Overflow)?;
+        Ok(required_fee)
+    }
+
+    /// We want to allocate more than the required amount to be able to bump fees.
+    /// This assumes the child tx has 1 p2a anchor input, 1 fee payer utxo input and 1 change output.
+    fn calculate_required_amount_for_fee_payer_utxo(
+        parent_tx_size: Weight,
+        fee_rate: FeeRate,
+    ) -> Result<Amount, BridgeError> {
+        let required_fee = Self::calculate_required_fee(parent_tx_size, 1, fee_rate)?;
+        let required_amount = required_fee * 3 + MIN_TAPROOT_AMOUNT;
+        Ok(required_amount)
     }
 
     /// Creates a child tx that spends the p2a anchor using the fee payer utxos.
@@ -137,16 +241,8 @@ impl TxSender {
         fee_rate: FeeRate,
         change_address: Address,
     ) -> Result<Transaction, BridgeError> {
-        // https://bitcoin.stackexchange.com/a/116959
-        // Each additional p2tr input adds 230 WU and each additional p2tr output adds 172 WU to the transaction.
-        let child_tx_size = Weight::from_wu_usize(230 * fee_payer_utxos.len() + 207 + 172);
-        // When effective fee rate is calculated, it calculates vBytes of the tx not the total weight.
-        let total_weight = Weight::from_vb_unchecked(
-            child_tx_size.to_vbytes_ceil() + parent_tx_size.to_vbytes_ceil(),
-        );
-        let required_fee = fee_rate
-            .checked_mul_by_weight(total_weight)
-            .ok_or(BridgeError::Overflow)?;
+        let required_fee =
+            Self::calculate_required_fee(parent_tx_size, fee_payer_utxos.len(), fee_rate)?;
 
         let total_fee_payer_amount = fee_payer_utxos
             .iter()
@@ -226,11 +322,7 @@ impl TxSender {
     /// Returns the effective fee rate of the tx.
     /// If the effective fee rate is lower than the required fee rate, it will return an error.
     /// If the tx is not confirmed, it will return an error.
-    pub async fn send_tx_with_cpfp(
-        &self,
-        txid: Txid,
-        fee_rate: FeeRate,
-    ) -> Result<(), BridgeError> {
+    async fn send_tx_with_cpfp(&self, txid: Txid, fee_rate: FeeRate) -> Result<(), BridgeError> {
         let tx = self.db.get_tx(None, txid).await?;
 
         let fee_payer_utxos = self.db.get_confirmed_fee_payer_utxos(None, txid).await?;
@@ -310,30 +402,7 @@ impl TxSender {
         Ok(())
     }
 
-    /// This will just persist the raw tx to the db
-    pub async fn save_tx(&self, tx: &Transaction) -> Result<(), BridgeError> {
-        let bumped_txid = tx.compute_txid();
-        tracing::info!(
-            "Bumped txid: {} and script pubkey: {}",
-            bumped_txid,
-            self.signer.address.script_pubkey()
-        );
-        let fee_payer_txs: Vec<(Txid, u32, Amount, bool)> = self
-            .db
-            .get_fee_payer_tx(None, bumped_txid, self.signer.address.script_pubkey())
-            .await?;
-
-        if fee_payer_txs.is_empty() {
-            return Err(BridgeError::FeePayerTxNotFound);
-        }
-
-        // Persist the tx to the db
-        self.db.save_tx(None, bumped_txid, tx.clone()).await?;
-
-        Ok(())
-    }
-
-    pub async fn bump_fees_of_fee_payer_txs(
+    async fn bump_fees_of_fee_payer_txs(
         &self,
         bumped_txid: Txid,
         fee_rate: FeeRate,
@@ -385,7 +454,7 @@ impl TxSender {
 
     /// Tries to send unconfirmed txs that have a new effective fee rate.
     /// Tries to bump fees of fee payer UTXOs with RBF
-    pub async fn try_to_send_unconfirmed_txs(
+    async fn try_to_send_unconfirmed_txs(
         &self,
         new_effective_fee_rate: FeeRate,
     ) -> Result<(), BridgeError> {
@@ -400,51 +469,6 @@ impl TxSender {
         }
 
         Ok(())
-    }
-
-    pub async fn run(
-        &self,
-        consumer_handle: &str,
-        poll_delay: Duration,
-    ) -> Result<JoinHandle<Result<(), BridgeError>>, BridgeError> {
-        // Clone the required fields for the async task
-        let db = self.db.clone();
-        let consumer_handle = consumer_handle.to_string();
-        let this = self.clone();
-
-        let handle = tokio::spawn(async move {
-            loop {
-                let result: Result<(), BridgeError> = async {
-                    let mut dbtx = db.begin_transaction().await?;
-                    let event = db.get_event_and_update(&mut dbtx, &consumer_handle).await?;
-                    if let Some(event) = event {
-                        match event {
-                            BitcoinSyncerEvent::NewBlock(block_hash) => {
-                                db.confirm_transactions(&mut dbtx, &block_hash).await?;
-                            }
-                            BitcoinSyncerEvent::ReorgedBlock(block_hash) => {
-                                db.unconfirm_transactions(&mut dbtx, &block_hash).await?;
-                            }
-                        }
-                    }
-                    dbtx.commit().await?;
-
-                    let fee_rate = this.get_fee_rate().await?;
-                    this.try_to_send_unconfirmed_txs(fee_rate).await?;
-
-                    Ok(())
-                }
-                .await;
-
-                if let Err(e) = result {
-                    tracing::error!("Error in tx_sender background task: {}", e);
-                }
-
-                tokio::time::sleep(poll_delay).await;
-            }
-        });
-
-        Ok(handle)
     }
 }
 
