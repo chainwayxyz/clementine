@@ -7,7 +7,10 @@ use super::{
     Database, DatabaseTransaction,
 };
 use crate::{errors::BridgeError, execute_query_with_tx};
-use bitcoin::{consensus::{deserialize, serialize}, Amount, FeeRate, ScriptBuf, Transaction, Txid};
+use bitcoin::{
+    consensus::{deserialize, serialize},
+    Amount, FeeRate, ScriptBuf, Transaction, Txid,
+};
 use std::str::FromStr;
 
 impl Database {
