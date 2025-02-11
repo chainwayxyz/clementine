@@ -82,7 +82,7 @@ impl TxSender {
         let required_fee = fee_rate
             .checked_mul_by_weight(bumped_tx_size)
             .ok_or(BridgeError::Overflow)?;
-        Ok(required_fee * 3)
+        Ok(required_fee * 3 + Amount::from_sat(10000))
     }
 
     /// Uses trick in https://bitcoin.stackexchange.com/a/106204
