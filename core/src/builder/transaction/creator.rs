@@ -8,14 +8,13 @@ use crate::errors::BridgeError;
 use crate::rpc::clementine::KickoffId;
 use crate::{builder, utils};
 use bitcoin::XOnlyPublicKey;
-use bitvm::signatures::winternitz;
 use std::collections::HashMap;
 use std::sync::Arc;
 
-fn get_txhandler<'a>(
-    txhandlers: &'a HashMap<TransactionType, TxHandler>,
+fn get_txhandler(
+    txhandlers: &HashMap<TransactionType, TxHandler>,
     tx_type: TransactionType,
-) -> Result<&'a TxHandler, BridgeError> {
+) -> Result<&TxHandler, BridgeError> {
     txhandlers
         .get(&tx_type)
         .ok_or(BridgeError::TxHandlerNotFound(tx_type))
@@ -360,7 +359,6 @@ pub async fn create_txhandlers(
         for (intermediate_step, intermediate_step_size) in
             utils::BITVM_CACHE.intermediate_variables.iter()
         {
-            let params = winternitz::Parameters::new(*intermediate_step_size as u32 * 2, 4);
             let path = WinternitzDerivationPath {
                 message_length: *intermediate_step_size as u32 * 2,
                 log_d: 4,
@@ -549,22 +547,18 @@ mod tests {
     };
     use bitcoin::Txid;
 
-    use crate::builder::transaction::{DepositId, TransactionType};
+    use crate::builder::transaction::TransactionType;
     use crate::constants::{WATCHTOWER_CHALLENGE_MESSAGE_LENGTH, WINTERNITZ_LOG_D};
-    use crate::rpc::clementine::{GrpcTransactionId, KickoffId, TransactionRequest};
+    use crate::rpc::clementine::{KickoffId, TransactionRequest};
     use std::str::FromStr;
 
     #[tokio::test]
     #[serial_test::serial]
     async fn test_deposit_and_sign_txs() {
         let config = create_test_config_with_thread_name!(None);
-        let rpc = ExtendedRpc::connect(
-            config.bitcoin_rpc_url.clone(),
-            config.bitcoin_rpc_user.clone(),
-            config.bitcoin_rpc_password.clone(),
-        );
 
-        let (mut verifiers, mut operators, mut aggregator, mut watchtowers) = create_actors!(config);
+        let (mut verifiers, mut operators, mut aggregator, mut watchtowers) =
+            create_actors!(config);
 
         tracing::info!("Setting up aggregator");
         let start = std::time::Instant::now();
@@ -592,7 +586,7 @@ mod tests {
         let evm_address = EVMAddress([1u8; 20]);
 
         let deposit_params = DepositParams {
-            deposit_outpoint: Some(deposit_outpoint.clone().into()),
+            deposit_outpoint: Some(deposit_outpoint.into()),
             evm_address: evm_address.0.to_vec(),
             recovery_taproot_address: recovery_addr_checked.to_string(),
         };
@@ -621,22 +615,21 @@ mod tests {
             TransactionType::Reimburse,
         ];
         txs_operator_can_sign
-            .extend((0..config.num_watchtowers).map(|i| TransactionType::OperatorChallengeNack(i)));
+            .extend((0..config.num_watchtowers).map(TransactionType::OperatorChallengeNack));
         txs_operator_can_sign
-            .extend((0..config.num_watchtowers).map(|i| TransactionType::OperatorChallengeAck(i)));
+            .extend((0..config.num_watchtowers).map(TransactionType::OperatorChallengeAck));
         txs_operator_can_sign.extend(
-            (0..utils::BITVM_CACHE.intermediate_variables.len())
-                .map(|i| TransactionType::MiniAssert(i)),
+            (0..utils::BITVM_CACHE.intermediate_variables.len()).map(TransactionType::MiniAssert),
         );
 
         let assert_tx_lens = utils::BITVM_CACHE
             .intermediate_variables
-            .iter()
-            .map(|((_, len))| *len * WINTERNITZ_LOG_D as usize / 8)
+            .values()
+            .map(|len| *len * WINTERNITZ_LOG_D as usize / 8)
             .collect::<Vec<_>>();
 
         // try to sign everything for all operators
-        for operator_idx in 0..config.num_operators {
+        for (operator_idx, operator_rpc) in operators.iter_mut().enumerate() {
             for sequential_collateral_idx in 0..config.num_sequential_collateral_txs {
                 for kickoff_idx in 0..config.num_kickoffs_per_sequential_collateral_tx {
                     let kickoff_id = KickoffId {
@@ -645,12 +638,10 @@ mod tests {
                         kickoff_idx: kickoff_idx as u32,
                     };
                     for tx_type in &txs_operator_can_sign {
-                        let raw_tx = operators[operator_idx]
+                        let _raw_tx = operator_rpc
                             .create_signed_tx(TransactionRequest {
                                 deposit_params: deposit_params.clone().into(),
-                                transaction_type: Some(GrpcTransactionId {
-                                    id: Some((*tx_type).into()),
-                                }),
+                                transaction_type: Some((*tx_type).into()),
                                 kickoff_id: Some(kickoff_id),
                                 commit_data: if let TransactionType::MiniAssert(assert_idx) =
                                     tx_type
@@ -668,7 +659,7 @@ mod tests {
         }
 
         // try signing watchtower challenges for all watchtowers
-        for watchtower_idx in 0..config.num_watchtowers {
+        for (watchtower_idx, watchtower_rpc) in watchtowers.iter_mut().enumerate() {
             for operator_idx in 0..config.num_operators {
                 for sequential_collateral_idx in 0..config.num_sequential_collateral_txs {
                     for kickoff_idx in 0..config.num_kickoffs_per_sequential_collateral_tx {
@@ -677,14 +668,12 @@ mod tests {
                             sequential_collateral_idx: sequential_collateral_idx as u32,
                             kickoff_idx: kickoff_idx as u32,
                         };
-                        let raw_tx = watchtowers[watchtower_idx]
+                        let _raw_tx = watchtower_rpc
                             .create_signed_tx(TransactionRequest {
                                 deposit_params: deposit_params.clone().into(),
-                                transaction_type: Some(GrpcTransactionId {
-                                    id: Some(
-                                        TransactionType::WatchtowerChallenge(watchtower_idx).into(),
-                                    ),
-                                }),
+                                transaction_type: Some(
+                                    TransactionType::WatchtowerChallenge(watchtower_idx).into(),
+                                ),
                                 kickoff_id: Some(kickoff_id),
                                 commit_data: vec![
                                     1u8;
@@ -710,10 +699,10 @@ mod tests {
             TransactionType::AlreadyDisproved,
         ];
         txs_verifier_can_sign
-            .extend((0..config.num_watchtowers).map(|i| TransactionType::OperatorChallengeNack(i)));
+            .extend((0..config.num_watchtowers).map(TransactionType::OperatorChallengeNack));
 
         // try to sign everything for all verifiers
-        for verifier_idx in 0..config.num_verifiers {
+        for verifier_rpc in verifiers.iter_mut() {
             for operator_idx in 0..config.num_operators {
                 for sequential_collateral_idx in 0..config.num_sequential_collateral_txs {
                     for kickoff_idx in 0..config.num_kickoffs_per_sequential_collateral_tx {
@@ -723,14 +712,12 @@ mod tests {
                             kickoff_idx: kickoff_idx as u32,
                         };
                         for tx_type in &txs_verifier_can_sign {
-                            let raw_tx = verifiers[verifier_idx]
+                            let _raw_tx = verifier_rpc
                                 .create_signed_tx(TransactionRequest {
                                     deposit_params: deposit_params.clone().into(),
-                                    transaction_type: Some(GrpcTransactionId {
-                                        id: Some((*tx_type).into()),
-                                    }),
+                                    transaction_type: Some((*tx_type).into()),
                                     kickoff_id: Some(kickoff_id),
-                                    commit_data: vec![]
+                                    commit_data: vec![],
                                 })
                                 .await
                                 .unwrap();
@@ -739,6 +726,5 @@ mod tests {
                 }
             }
         }
-
     }
 }

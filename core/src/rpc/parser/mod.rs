@@ -165,10 +165,7 @@ pub fn parse_transaction_request(
     let transaction_type_proto = request
         .transaction_type
         .ok_or(Status::invalid_argument("No transaction type received"))?;
-    let transaction_type_inner = transaction_type_proto
-        .id
-        .ok_or_else(|| Status::invalid_argument("No transaction type received"))?;
-    let transaction_type: TransactionType = transaction_type_inner.try_into().map_err(|_| {
+    let transaction_type: TransactionType = transaction_type_proto.try_into().map_err(|_| {
         Status::invalid_argument(format!(
             "Could not parse transaction type: {:?}",
             transaction_type_proto

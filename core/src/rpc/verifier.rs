@@ -8,7 +8,6 @@ use crate::builder::script::{SpendableScript, WinternitzCommit};
 use crate::builder::sighash::SignatureInfo;
 use crate::builder::transaction::sign::create_and_sign_tx;
 use crate::config::BridgeConfig;
-use crate::constants::WINTERNITZ_LOG_D;
 use crate::fetch_next_optional_message_from_stream;
 use crate::rpc::clementine::TaggedSignature;
 use crate::rpc::parser::parse_transaction_request;
@@ -36,7 +35,6 @@ use bitcoin::{
     secp256k1::{Message, PublicKey},
     ScriptBuf, XOnlyPublicKey,
 };
-use bitvm::signatures::winternitz;
 use futures::StreamExt;
 use secp256k1::musig::{MusigAggNonce, MusigPubNonce, MusigSecNonce};
 use std::pin::pin;
@@ -164,10 +162,6 @@ impl ClementineVerifier for Verifier {
                 .iter()
                 .enumerate()
                 .map(|(idx, (_intermediate_step, intermediate_step_size))| {
-                    let params = winternitz::Parameters::new(
-                        *intermediate_step_size as u32 * 2,
-                        WINTERNITZ_LOG_D,
-                    );
                     let winternitz_commit = WinternitzCommit::new(
                         winternitz_public_keys[idx].clone(),
                         operator_xonly_pk,

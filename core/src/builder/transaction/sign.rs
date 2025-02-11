@@ -7,7 +7,7 @@ use crate::errors::BridgeError;
 use crate::rpc::clementine::{KickoffId, RawSignedTx};
 use crate::{builder, utils};
 use bitcoin::XOnlyPublicKey;
-use tonic::{Response, Status};
+use tonic::Status;
 pub struct TransactionRequestData {
     pub deposit_id: DepositId,
     pub transaction_type: TransactionType,
@@ -103,8 +103,7 @@ pub async fn create_and_sign_tx(
             path,
         )?;
     }
-    if let TransactionType::WatchtowerChallenge(watchtower_idx) = transaction_data.transaction_type
-    {
+    if let TransactionType::WatchtowerChallenge(_) = transaction_data.transaction_type {
         // same path as get_watchtower_winternitz_public_keys()
         let path = WinternitzDerivationPath {
             message_length: WATCHTOWER_CHALLENGE_MESSAGE_LENGTH,

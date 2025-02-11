@@ -13,7 +13,7 @@ use bitvm::signatures::winternitz;
 
 #[derive(Debug, Clone)]
 pub struct Watchtower {
-    erpc: ExtendedRpc,
+    _erpc: ExtendedRpc,
     pub(crate) db: Database,
     pub signer: Actor,
     pub config: BridgeConfig,
@@ -22,7 +22,7 @@ pub struct Watchtower {
 
 impl Watchtower {
     pub async fn new(config: BridgeConfig) -> Result<Self, BridgeError> {
-        let erpc = ExtendedRpc::connect(
+        let _erpc = ExtendedRpc::connect(
             config.bitcoin_rpc_url.clone(),
             config.bitcoin_rpc_user.clone(),
             config.bitcoin_rpc_password.clone(),
@@ -40,7 +40,7 @@ impl Watchtower {
         );
 
         Ok(Self {
-            erpc,
+            _erpc,
             db,
             signer,
             config,

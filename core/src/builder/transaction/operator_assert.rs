@@ -2,7 +2,7 @@ use self::input::SpendableTxIn;
 use self::output::UnspentTxOut;
 use crate::builder;
 use crate::builder::address::create_taproot_address;
-use crate::builder::script::{SpendableScript, TimelockScript, WinternitzCommit};
+use crate::builder::script::{SpendableScript, TimelockScript};
 pub use crate::builder::transaction::txhandler::TxHandler;
 pub use crate::builder::transaction::*;
 use crate::constants::{BLOCKS_PER_WEEK, MIN_TAPROOT_AMOUNT, PARALLEL_ASSERT_TX_CHAIN_SIZE};
@@ -372,7 +372,7 @@ pub fn create_mini_asserts_and_assert_end_from_scripts(
 
     let mut builder = TxHandlerBuilder::new(TransactionType::AssertEnd);
 
-    for i in (0..PARALLEL_ASSERT_TX_CHAIN_SIZE) {
+    for _ in 0..PARALLEL_ASSERT_TX_CHAIN_SIZE {
         builder = builder.add_input(
             NormalSignatureKind::NotStored,
             last_mini_tx_handlers

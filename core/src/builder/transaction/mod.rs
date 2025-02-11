@@ -17,10 +17,10 @@ use crate::builder::transaction::output::UnspentTxOut;
 pub use crate::builder::transaction::txhandler::*;
 use crate::constants::ANCHOR_AMOUNT;
 use crate::errors::BridgeError;
-use crate::rpc::clementine::grpc_transaction_id::Id as GrpcTransactionId;
+use crate::rpc::clementine::grpc_transaction_id;
+use crate::rpc::clementine::GrpcTransactionId;
 use crate::rpc::clementine::{
-    grpc_transaction_id, NormalSignatureKind, NormalTransactionId, Outpoint,
-    WatchtowerTransactionId, WatchtowerTransactionType,
+    NormalSignatureKind, NormalTransactionId, WatchtowerTransactionId, WatchtowerTransactionType,
 };
 use crate::EVMAddress;
 use bitcoin::address::NetworkUnchecked;
@@ -84,8 +84,10 @@ pub enum TransactionType {
 impl TryFrom<GrpcTransactionId> for TransactionType {
     type Error = ::prost::UnknownEnumValue;
     fn try_from(value: GrpcTransactionId) -> Result<Self, Self::Error> {
-        match value {
-            GrpcTransactionId::NormalTransaction(idx) => {
+        // return err if id is None
+        let inner_id = value.id.ok_or(::prost::UnknownEnumValue(0))?;
+        match inner_id {
+            grpc_transaction_id::Id::NormalTransaction(idx) => {
                 let tx_type = NormalTransactionId::try_from(idx)?;
                 match tx_type {
                     NormalTransactionId::SequentialCollateral => Ok(Self::SequentialCollateral),
@@ -119,7 +121,7 @@ impl TryFrom<GrpcTransactionId> for TransactionType {
                     }
                 }
             }
-            GrpcTransactionId::WatchtowerTransaction(watchtower_tx) => {
+            grpc_transaction_id::Id::WatchtowerTransaction(watchtower_tx) => {
                 let tx_type = WatchtowerTransactionType::try_from(watchtower_tx.transaction_type)?;
                 match tx_type {
                     WatchtowerTransactionType::WatchtowerChallenge => {
@@ -145,91 +147,101 @@ impl TryFrom<GrpcTransactionId> for TransactionType {
 
 impl From<TransactionType> for GrpcTransactionId {
     fn from(value: TransactionType) -> Self {
-        match value {
-            TransactionType::SequentialCollateral => GrpcTransactionId::NormalTransaction(
-                NormalTransactionId::SequentialCollateral as i32,
-            ),
-            TransactionType::ReimburseGenerator => {
-                GrpcTransactionId::NormalTransaction(NormalTransactionId::ReimburseGenerator as i32)
-            }
-            TransactionType::Kickoff => {
-                GrpcTransactionId::NormalTransaction(NormalTransactionId::Kickoff as i32)
-            }
-            TransactionType::MoveToVault => {
-                GrpcTransactionId::NormalTransaction(NormalTransactionId::MoveToVault as i32)
-            }
-            TransactionType::Payout => {
-                GrpcTransactionId::NormalTransaction(NormalTransactionId::Payout as i32)
-            }
-            TransactionType::Challenge => {
-                GrpcTransactionId::NormalTransaction(NormalTransactionId::Challenge as i32)
-            }
-            TransactionType::KickoffTimeout => {
-                GrpcTransactionId::NormalTransaction(NormalTransactionId::KickoffTimeout as i32)
-            }
-            TransactionType::KickoffUtxoTimeout => {
-                GrpcTransactionId::NormalTransaction(NormalTransactionId::KickoffUtxoTimeout as i32)
-            }
-            TransactionType::WatchtowerChallengeKickoff => GrpcTransactionId::NormalTransaction(
-                NormalTransactionId::WatchtowerChallengeKickoff as i32,
-            ),
-            TransactionType::StartHappyReimburse => GrpcTransactionId::NormalTransaction(
-                NormalTransactionId::StartHappyReimburse as i32,
-            ),
-            TransactionType::HappyReimburse => {
-                GrpcTransactionId::NormalTransaction(NormalTransactionId::HappyReimburse as i32)
-            }
-            TransactionType::AssertBegin => {
-                GrpcTransactionId::NormalTransaction(NormalTransactionId::AssertBegin as i32)
-            }
-            TransactionType::AssertEnd => {
-                GrpcTransactionId::NormalTransaction(NormalTransactionId::AssertEnd as i32)
-            }
-            TransactionType::Disprove => {
-                GrpcTransactionId::NormalTransaction(NormalTransactionId::Disprove as i32)
-            }
-            TransactionType::DisproveTimeout => {
-                GrpcTransactionId::NormalTransaction(NormalTransactionId::DisproveTimeout as i32)
-            }
-            TransactionType::AlreadyDisproved => {
-                GrpcTransactionId::NormalTransaction(NormalTransactionId::AlreadyDisproved as i32)
-            }
-            TransactionType::Reimburse => {
-                GrpcTransactionId::NormalTransaction(NormalTransactionId::Reimburse as i32)
-            }
-            TransactionType::AllNeededForVerifierDeposit => GrpcTransactionId::NormalTransaction(
-                NormalTransactionId::AllNeededForVerifierDeposit as i32,
-            ),
-            TransactionType::AllNeededForOperatorDeposit => GrpcTransactionId::NormalTransaction(
-                NormalTransactionId::AllNeededForOperatorDeposit as i32,
-            ),
-            TransactionType::Dummy => {
-                GrpcTransactionId::NormalTransaction(NormalTransactionId::Dummy as i32)
-            }
-            TransactionType::WatchtowerChallenge(index) => {
-                GrpcTransactionId::WatchtowerTransaction(WatchtowerTransactionId {
-                    transaction_type: WatchtowerTransactionType::WatchtowerChallenge as i32,
-                    index: index as i32,
-                })
-            }
-            TransactionType::OperatorChallengeNack(index) => {
-                GrpcTransactionId::WatchtowerTransaction(WatchtowerTransactionId {
-                    transaction_type: WatchtowerTransactionType::OperatorChallengeNack as i32,
-                    index: index as i32,
-                })
-            }
-            TransactionType::OperatorChallengeAck(index) => {
-                GrpcTransactionId::WatchtowerTransaction(WatchtowerTransactionId {
-                    transaction_type: WatchtowerTransactionType::OperatorChallengeAck as i32,
-                    index: index as i32,
-                })
-            }
-            TransactionType::MiniAssert(index) => {
-                GrpcTransactionId::WatchtowerTransaction(WatchtowerTransactionId {
-                    transaction_type: WatchtowerTransactionType::MiniAssert as i32,
-                    index: index as i32,
-                })
-            }
+        GrpcTransactionId {
+            id: Some(match value {
+                TransactionType::SequentialCollateral => {
+                    grpc_transaction_id::Id::NormalTransaction(
+                        NormalTransactionId::SequentialCollateral as i32,
+                    )
+                }
+                TransactionType::ReimburseGenerator => grpc_transaction_id::Id::NormalTransaction(
+                    NormalTransactionId::ReimburseGenerator as i32,
+                ),
+                TransactionType::Kickoff => {
+                    grpc_transaction_id::Id::NormalTransaction(NormalTransactionId::Kickoff as i32)
+                }
+                TransactionType::MoveToVault => grpc_transaction_id::Id::NormalTransaction(
+                    NormalTransactionId::MoveToVault as i32,
+                ),
+                TransactionType::Payout => {
+                    grpc_transaction_id::Id::NormalTransaction(NormalTransactionId::Payout as i32)
+                }
+                TransactionType::Challenge => grpc_transaction_id::Id::NormalTransaction(
+                    NormalTransactionId::Challenge as i32,
+                ),
+                TransactionType::KickoffTimeout => grpc_transaction_id::Id::NormalTransaction(
+                    NormalTransactionId::KickoffTimeout as i32,
+                ),
+                TransactionType::KickoffUtxoTimeout => grpc_transaction_id::Id::NormalTransaction(
+                    NormalTransactionId::KickoffUtxoTimeout as i32,
+                ),
+                TransactionType::WatchtowerChallengeKickoff => {
+                    grpc_transaction_id::Id::NormalTransaction(
+                        NormalTransactionId::WatchtowerChallengeKickoff as i32,
+                    )
+                }
+                TransactionType::StartHappyReimburse => grpc_transaction_id::Id::NormalTransaction(
+                    NormalTransactionId::StartHappyReimburse as i32,
+                ),
+                TransactionType::HappyReimburse => grpc_transaction_id::Id::NormalTransaction(
+                    NormalTransactionId::HappyReimburse as i32,
+                ),
+                TransactionType::AssertBegin => grpc_transaction_id::Id::NormalTransaction(
+                    NormalTransactionId::AssertBegin as i32,
+                ),
+                TransactionType::AssertEnd => grpc_transaction_id::Id::NormalTransaction(
+                    NormalTransactionId::AssertEnd as i32,
+                ),
+                TransactionType::Disprove => {
+                    grpc_transaction_id::Id::NormalTransaction(NormalTransactionId::Disprove as i32)
+                }
+                TransactionType::DisproveTimeout => grpc_transaction_id::Id::NormalTransaction(
+                    NormalTransactionId::DisproveTimeout as i32,
+                ),
+                TransactionType::AlreadyDisproved => grpc_transaction_id::Id::NormalTransaction(
+                    NormalTransactionId::AlreadyDisproved as i32,
+                ),
+                TransactionType::Reimburse => grpc_transaction_id::Id::NormalTransaction(
+                    NormalTransactionId::Reimburse as i32,
+                ),
+                TransactionType::AllNeededForVerifierDeposit => {
+                    grpc_transaction_id::Id::NormalTransaction(
+                        NormalTransactionId::AllNeededForVerifierDeposit as i32,
+                    )
+                }
+                TransactionType::AllNeededForOperatorDeposit => {
+                    grpc_transaction_id::Id::NormalTransaction(
+                        NormalTransactionId::AllNeededForOperatorDeposit as i32,
+                    )
+                }
+                TransactionType::Dummy => {
+                    grpc_transaction_id::Id::NormalTransaction(NormalTransactionId::Dummy as i32)
+                }
+                TransactionType::WatchtowerChallenge(index) => {
+                    grpc_transaction_id::Id::WatchtowerTransaction(WatchtowerTransactionId {
+                        transaction_type: WatchtowerTransactionType::WatchtowerChallenge as i32,
+                        index: index as i32,
+                    })
+                }
+                TransactionType::OperatorChallengeNack(index) => {
+                    grpc_transaction_id::Id::WatchtowerTransaction(WatchtowerTransactionId {
+                        transaction_type: WatchtowerTransactionType::OperatorChallengeNack as i32,
+                        index: index as i32,
+                    })
+                }
+                TransactionType::OperatorChallengeAck(index) => {
+                    grpc_transaction_id::Id::WatchtowerTransaction(WatchtowerTransactionId {
+                        transaction_type: WatchtowerTransactionType::OperatorChallengeAck as i32,
+                        index: index as i32,
+                    })
+                }
+                TransactionType::MiniAssert(index) => {
+                    grpc_transaction_id::Id::WatchtowerTransaction(WatchtowerTransactionId {
+                        transaction_type: WatchtowerTransactionType::MiniAssert as i32,
+                        index: index as i32,
+                    })
+                }
+            }),
         }
     }
 }

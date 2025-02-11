@@ -212,7 +212,7 @@ impl Actor {
         path: WinternitzDerivationPath<'_>,
     ) -> Result<PublicHash, BridgeError> {
         let preimage = self.generate_preimage_from_path(path)?;
-        let mut hash = hash160::Hash::hash(&preimage);
+        let hash = hash160::Hash::hash(&preimage);
         Ok(hash.to_byte_array())
     }
 
@@ -458,11 +458,10 @@ impl Actor {
                         None => {
                             if xonly_public_key == self.xonly_public_key {
                                 self.sign_with_tweak(sighash, spendinfo.merkle_root())?
-                            }
-                            else {
+                            } else {
                                 return Err(NotOwnKeyPath);
                             }
-                        },
+                        }
                     };
                     Ok(Some(Witness::from_slice(&[&sig.serialize()])))
                 }

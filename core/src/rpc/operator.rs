@@ -4,16 +4,13 @@ use super::clementine::{
     TransactionRequest, WithdrawalFinalizedParams,
 };
 use super::error::*;
-use crate::actor::WinternitzDerivationPath;
 use crate::builder::sighash::create_operator_sighash_stream;
 use crate::builder::transaction::sign::create_and_sign_tx;
-use crate::builder::transaction::TransactionType;
-use crate::constants::WINTERNITZ_LOG_D;
 use crate::rpc::parser;
 use crate::rpc::parser::parse_transaction_request;
-use crate::{builder, utils, UTXO};
+use crate::UTXO;
 use crate::{errors::BridgeError, operator::Operator};
-use bitcoin::hashes::{hash160, Hash};
+use bitcoin::hashes::Hash;
 use bitcoin::{OutPoint, TxOut};
 use futures::StreamExt;
 use std::pin::pin;
