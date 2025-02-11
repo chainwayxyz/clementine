@@ -1,6 +1,8 @@
 use super::input::{SpendableTxIn, SpentTxIn};
 use super::output::UnspentTxOut;
 use crate::builder::script::SpendPath;
+use crate::builder::sighash::{PartialSignatureInfo, SignatureInfo};
+use crate::builder::transaction::deposit_signature_owner::{DepositSigKeyOwner, EntityType};
 use crate::builder::transaction::TransactionType;
 use crate::errors::BridgeError;
 use crate::rpc::clementine::tagged_signature::SignatureId;
@@ -203,7 +205,7 @@ impl<T: State> TxHandler<T> {
         Ok(sig_hash)
     }
 
-    pub fn calculate_sighash(
+    pub fn calculate_sighash_txin(
         &self,
         txin_index: usize,
         sighash_type: TapSighashType,
@@ -215,6 +217,38 @@ impl<T: State> TxHandler<T> {
             SpendPath::KeySpend => self.calculate_pubkey_spend_sighash(txin_index, sighash_type),
             SpendPath::Unknown => Err(BridgeError::MissingSpendInfo),
         }
+    }
+
+    pub fn calculate_all_txins_sighash(
+        &self,
+        needed_entity: EntityType,
+        partial_signature_info: PartialSignatureInfo,
+    ) -> Result<Vec<(TapSighash, SignatureInfo)>, BridgeError> {
+        let mut sighashes = Vec::with_capacity(self.txins.len());
+        for idx in 0..self.txins.len() {
+            let sig_id = self.txins[idx].get_signature_id();
+            let sig_owner = sig_id.get_deposit_sig_owner()?;
+            match sig_owner {
+                DepositSigKeyOwner::Operator(sighash_type) => {
+                    if needed_entity == EntityType::Operator {
+                        sighashes.push((
+                            self.calculate_sighash_txin(idx, sighash_type)?,
+                            partial_signature_info.complete(sig_id),
+                        ));
+                    }
+                }
+                DepositSigKeyOwner::NofN(sighash_type) => {
+                    if needed_entity == EntityType::Verifier {
+                        sighashes.push((
+                            self.calculate_sighash_txin(idx, sighash_type)?,
+                            partial_signature_info.complete(sig_id),
+                        ));
+                    }
+                }
+                DepositSigKeyOwner::NotOwned => {}
+            }
+        }
+        Ok(sighashes)
     }
 
     #[cfg(test)]

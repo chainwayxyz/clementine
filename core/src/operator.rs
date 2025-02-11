@@ -9,7 +9,7 @@ use crate::{builder, UTXO};
 use bitcoin::consensus::deserialize;
 use bitcoin::hashes::Hash;
 use bitcoin::secp256k1::{schnorr, Message};
-use bitcoin::{Amount, OutPoint, Transaction, TxOut, Txid, XOnlyPublicKey};
+use bitcoin::{Address, Amount, OutPoint, Transaction, TxOut, Txid, XOnlyPublicKey};
 use bitcoincore_rpc::RpcApi;
 use bitvm::signatures::winternitz;
 use jsonrpsee::core::client::ClientT;
@@ -29,6 +29,7 @@ pub struct Operator {
     pub(crate) nofn_xonly_pk: XOnlyPublicKey,
     pub(crate) collateral_funding_txid: Txid,
     pub(crate) idx: usize,
+    pub(crate) reimburse_addr: Address,
     citrea_client: Option<jsonrpsee::http_client::HttpClient>,
 }
 
@@ -57,6 +58,11 @@ impl Operator {
         if config.operator_withdrawal_fee_sats.is_none() {
             return Err(BridgeError::OperatorWithdrawalFeeNotSet);
         }
+
+        // TODO: Fix this where the config will only have one address. also check??
+        let reimburse_addr = config.operator_wallet_addresses[idx]
+            .clone()
+            .assume_checked();
 
         // let mut tx = db.begin_transaction().await?;
         // // check if funding utxo is already set
@@ -111,6 +117,7 @@ impl Operator {
             idx,
             collateral_funding_txid,
             citrea_client,
+            reimburse_addr,
         })
     }
 

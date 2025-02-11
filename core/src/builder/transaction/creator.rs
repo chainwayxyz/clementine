@@ -1,19 +1,19 @@
 use crate::actor::{Actor, WinternitzDerivationPath};
 use crate::builder::script::{SpendableScript, WinternitzCommit};
-use crate::builder::transaction::{DepositId, TransactionType, TxHandler};
+use crate::builder::transaction::{DepositId, OperatorData, TransactionType, TxHandler};
 use crate::config::BridgeConfig;
 use crate::constants::{WATCHTOWER_CHALLENGE_MESSAGE_LENGTH, WINTERNITZ_LOG_D};
 use crate::database::Database;
 use crate::errors::BridgeError;
 use crate::rpc::clementine::KickoffId;
 use crate::{builder, utils};
-use bitcoin::XOnlyPublicKey;
-use std::collections::HashMap;
+use bitcoin::{ScriptBuf, XOnlyPublicKey};
+use std::collections::BTreeMap;
 use std::sync::Arc;
 
 // helper function to get a txhandler from a hashmap
 fn get_txhandler(
-    txhandlers: &HashMap<TransactionType, TxHandler>,
+    txhandlers: &BTreeMap<TransactionType, TxHandler>,
     tx_type: TransactionType,
 ) -> Result<&TxHandler, BridgeError> {
     txhandlers
@@ -28,36 +28,31 @@ pub async fn create_txhandlers(
     nofn_xonly_pk: XOnlyPublicKey,
     transaction_type: TransactionType,
     kickoff_id: KickoffId,
-    prev_reimburse_generator: Option<&TxHandler>,
-    move_to_vault: Option<TxHandler>, // to not generate them if they were already generated
-) -> Result<HashMap<TransactionType, TxHandler>, BridgeError> {
-    let mut txhandlers = HashMap::new();
-    // Create move_tx handler. This is unique for each deposit tx.
-    let move_txhandler = match move_to_vault {
-        Some(move_to_vault) => move_to_vault,
-        None => builder::transaction::create_move_to_vault_txhandler(
-            deposit.deposit_outpoint,
-            deposit.evm_address,
-            &deposit.recovery_taproot_address,
-            nofn_xonly_pk,
-            config.user_takes_after,
-            config.bridge_amount_sats,
-            config.network,
-        )?,
-    };
-    txhandlers.insert(move_txhandler.get_transaction_type(), move_txhandler);
+    operator_data: OperatorData,
+    watchtower_challenge_addr: Option<&[ScriptBuf]>,
+    prev_reimburse_generator: Option<TxHandler>,
+) -> Result<BTreeMap<TransactionType, TxHandler>, BridgeError> {
+    let mut txhandlers = BTreeMap::new();
 
-    // Get operator details (for each operator, (X-Only Public Key, Address, Collateral Funding Txid))
-    let (operator_xonly_pk, operator_reimburse_address, collateral_funding_txid) = db
-        .get_operator(None, kickoff_id.operator_idx as i32)
-        .await?;
+    // Create move_tx handler. This is unique for each deposit tx.
+    // Technically this can be also given as a parameter because it is calculated repeatedly in streams
+    let move_txhandler = builder::transaction::create_move_to_vault_txhandler(
+        deposit.deposit_outpoint,
+        deposit.evm_address,
+        &deposit.recovery_taproot_address,
+        nofn_xonly_pk,
+        config.user_takes_after,
+        config.bridge_amount_sats,
+        config.network,
+    )?;
+    txhandlers.insert(move_txhandler.get_transaction_type(), move_txhandler);
 
     let (sequential_collateral_txhandler, reimburse_generator_txhandler) =
         match prev_reimburse_generator {
             Some(prev_reimburse_generator) => {
                 let sequential_collateral_txhandler =
                     builder::transaction::create_sequential_collateral_txhandler(
-                        operator_xonly_pk,
+                        operator_data.xonly_pk,
                         *prev_reimburse_generator.get_txid(),
                         prev_reimburse_generator
                             .get_spendable_output(0)?
@@ -73,7 +68,7 @@ pub async fn create_txhandlers(
                 let reimburse_generator_txhandler =
                     builder::transaction::create_reimburse_generator_txhandler(
                         &sequential_collateral_txhandler,
-                        operator_xonly_pk,
+                        operator_data.xonly_pk,
                         config.num_kickoffs_per_sequential_collateral_tx,
                         config.max_withdrawal_time_block_count,
                         config.network,
@@ -87,8 +82,8 @@ pub async fn create_txhandlers(
                 // create nth sequential collateral tx and reimburse generator tx for the operator
                 let (sequential_collateral_txhandler, reimburse_generator_txhandler) =
                     builder::transaction::create_seq_collat_reimburse_gen_nth_txhandler(
-                        operator_xonly_pk,
-                        collateral_funding_txid,
+                        operator_data.xonly_pk,
+                        operator_data.collateral_funding_txid,
                         config.collateral_funding_amount,
                         config.timeout_block_count,
                         config.num_kickoffs_per_sequential_collateral_tx,
@@ -116,7 +111,7 @@ pub async fn create_txhandlers(
         get_txhandler(&txhandlers, TransactionType::SequentialCollateral)?,
         kickoff_id.kickoff_idx as usize,
         nofn_xonly_pk,
-        operator_xonly_pk,
+        operator_data.xonly_pk,
         *get_txhandler(&txhandlers, TransactionType::MoveToVault)?.get_txid(),
         kickoff_id.operator_idx as usize,
         config.network,
@@ -146,7 +141,7 @@ pub async fn create_txhandlers(
     // Creates the challenge_tx handler.
     let challenge_tx = builder::transaction::create_challenge_txhandler(
         get_txhandler(&txhandlers, TransactionType::Kickoff)?,
-        &operator_reimburse_address,
+        &operator_data.reimburse_addr,
     )?;
     txhandlers.insert(challenge_tx.get_transaction_type(), challenge_tx);
 
@@ -161,7 +156,7 @@ pub async fn create_txhandlers(
         let start_happy_reimburse_txhandler =
             builder::transaction::create_start_happy_reimburse_txhandler(
                 get_txhandler(&txhandlers, TransactionType::Kickoff)?,
-                operator_xonly_pk,
+                operator_data.xonly_pk,
                 config.network,
             )?;
         txhandlers.insert(
@@ -175,7 +170,7 @@ pub async fn create_txhandlers(
             get_txhandler(&txhandlers, TransactionType::StartHappyReimburse)?,
             get_txhandler(&txhandlers, TransactionType::ReimburseGenerator)?,
             kickoff_id.kickoff_idx as usize,
-            &operator_reimburse_address,
+            &operator_data.reimburse_addr,
         )?;
         txhandlers.insert(
             happy_reimburse_txhandler.get_transaction_type(),
@@ -208,29 +203,18 @@ pub async fn create_txhandlers(
                 -1
             };
 
-        // Get all the watchtower challenge addresses for this operator. We have all of them here (for all the kickoff_utxos).
-        // Optimize: Make this only return for a specific kickoff, but its only 40mb (33bytes * 60000 (kickoff per op?) * 20 (watchtower count)
-        let watchtower_all_challenge_addresses = (0..config.num_watchtowers)
-            .map(|i| db.get_watchtower_challenge_addresses(None, i as u32, kickoff_id.operator_idx))
-            .collect::<Vec<_>>();
-        let watchtower_all_challenge_addresses =
-            futures::future::try_join_all(watchtower_all_challenge_addresses).await?;
-
-        // Collect the challenge Winternitz pubkeys for this specific kickoff_utxo.
-        let watchtower_challenge_addresses = (0..config.num_watchtowers)
-            .map(|i| {
-                watchtower_all_challenge_addresses[i][kickoff_id.sequential_collateral_idx as usize
-                    * config.num_kickoffs_per_sequential_collateral_tx
-                    + kickoff_id.kickoff_idx as usize]
-                    .clone()
-            })
-            .collect::<Vec<_>>();
+        // Each watchtower will sign their Groth16 proof of the header chain circuit. Then, the operator will either
+        // - acknowledge the challenge by sending the operator_challenge_ACK_tx, which will prevent the burning of the kickoff_tx.output[2],
+        // - or do nothing, which will cause one to send the operator_challenge_NACK_tx, which will burn the kickoff_tx.output[2]
+        // using watchtower_challenge_tx.output[0].
 
         let watchtower_challenge_kickoff_txhandler =
             builder::transaction::create_watchtower_challenge_kickoff_txhandler_from_db(
                 get_txhandler(&txhandlers, TransactionType::Kickoff)?,
                 config.num_watchtowers as u32,
-                &watchtower_challenge_addresses,
+                watchtower_challenge_addr.ok_or(BridgeError::Error(
+                    "Watchtower challenge data from db not given to create_txhandlers".to_string(),
+                ))?,
             )?;
         txhandlers.insert(
             watchtower_challenge_kickoff_txhandler.get_transaction_type(),
@@ -262,7 +246,7 @@ pub async fn create_txhandlers(
                     watchtower_idx,
                     public_hash,
                     nofn_xonly_pk,
-                    operator_xonly_pk,
+                    operator_data.xonly_pk,
                     config.network,
                 )?
             } else {
@@ -295,7 +279,7 @@ pub async fn create_txhandlers(
                         WATCHTOWER_CHALLENGE_MESSAGE_LENGTH,
                     )),
                     nofn_xonly_pk,
-                    operator_xonly_pk,
+                    operator_data.xonly_pk,
                     config.network,
                 )?
             };
@@ -374,7 +358,7 @@ pub async fn create_txhandlers(
             let pk = actor.derive_winternitz_pk(path)?;
             assert_scripts.push(Arc::new(WinternitzCommit::new(
                 pk,
-                operator_xonly_pk,
+                operator_data.xonly_pk,
                 path.message_length,
             )));
         }
@@ -413,7 +397,7 @@ pub async fn create_txhandlers(
                 &assert_scripts,
                 &root_hash,
                 nofn_xonly_pk,
-                operator_xonly_pk,
+                operator_data.xonly_pk,
                 config.network,
             )?;
         for txhandler in mini_asserts_and_assert_end_txhandlers {
@@ -454,7 +438,7 @@ pub async fn create_txhandlers(
             &assert_tx_addrs,
             &root_hash,
             nofn_xonly_pk,
-            operator_xonly_pk,
+            operator_data.xonly_pk,
             config.network,
         )?;
 
@@ -467,7 +451,7 @@ pub async fn create_txhandlers(
     // Creates the disprove_timeout_tx handler.
     let disprove_timeout_txhandler = builder::transaction::create_disprove_timeout_txhandler(
         get_txhandler(&txhandlers, TransactionType::AssertEnd)?,
-        operator_xonly_pk,
+        operator_data.xonly_pk,
         config.network,
     )?;
 
@@ -493,7 +477,7 @@ pub async fn create_txhandlers(
         get_txhandler(&txhandlers, TransactionType::DisproveTimeout)?,
         get_txhandler(&txhandlers, TransactionType::ReimburseGenerator)?,
         kickoff_id.kickoff_idx as usize,
-        &operator_reimburse_address,
+        &operator_data.reimburse_addr,
     )?;
 
     txhandlers.insert(
@@ -513,7 +497,7 @@ pub async fn create_txhandlers(
             );
         }
         TransactionType::Disprove => {
-            // TODO: if transactiontype::disprove, we need to add the actual disprove script here because requester wants to disprove the withdrawal
+            // TODO: if TransactionType::Disprove, we need to add the actual disprove script here because requester wants to disprove the withdrawal
         }
         _ => {}
     }
@@ -610,7 +594,7 @@ mod tests {
             TransactionType::HappyReimburse,
             TransactionType::AssertBegin,
             TransactionType::AssertEnd,
-            //TransactionType::Disprove,
+            //TransactionType::Disprove, TODO: add when we add actual disprove scripts
             TransactionType::DisproveTimeout,
             TransactionType::AlreadyDisproved,
             TransactionType::Reimburse,
@@ -619,9 +603,9 @@ mod tests {
             .extend((0..config.num_watchtowers).map(TransactionType::OperatorChallengeNack));
         txs_operator_can_sign
             .extend((0..config.num_watchtowers).map(TransactionType::OperatorChallengeAck));
-        txs_operator_can_sign.extend(
-            (0..utils::BITVM_CACHE.intermediate_variables.len()).map(TransactionType::MiniAssert),
-        );
+        // txs_operator_can_sign.extend(
+        //     (0..utils::BITVM_CACHE.intermediate_variables.len()).map(TransactionType::MiniAssert),
+        // );
 
         let assert_tx_lens = utils::BITVM_CACHE
             .intermediate_variables
@@ -654,6 +638,7 @@ mod tests {
                             })
                             .await
                             .unwrap();
+                        tracing::info!("Operator Signed tx: {:?}", tx_type);
                     }
                 }
             }
@@ -685,6 +670,10 @@ mod tests {
                             })
                             .await
                             .unwrap();
+                        tracing::info!(
+                            "Watchtower Signed tx: {:?}",
+                            TransactionType::WatchtowerChallenge(watchtower_idx)
+                        );
                     }
                 }
             }
@@ -722,6 +711,7 @@ mod tests {
                                 })
                                 .await
                                 .unwrap();
+                            tracing::info!("Verifier Signed tx: {:?}", tx_type);
                         }
                     }
                 }

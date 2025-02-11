@@ -75,6 +75,7 @@ impl ClementineOperator for Operator {
                 operator.db,
                 operator.idx,
                 operator.collateral_funding_txid,
+                operator.reimburse_addr.clone(),
                 operator.signer.xonly_public_key,
                 operator.config.clone(),
                 deposit_outpoint,

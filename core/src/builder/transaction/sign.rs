@@ -22,6 +22,38 @@ pub async fn create_and_sign_tx(
     nofn_xonly_pk: XOnlyPublicKey,
     transaction_data: TransactionRequestData,
 ) -> Result<RawSignedTx, BridgeError> {
+    // Get all the watchtower challenge addresses for this operator. We have all of them here (for all the kickoff_utxos).
+    // Optimize: Make this only return for a specific kickoff, but its only 40mb (33bytes * 60000 (kickoff per op?) * 20 (watchtower count)
+    let watchtower_all_challenge_addresses = (0..config.num_watchtowers)
+        .map(|i| {
+            db.get_watchtower_challenge_addresses(
+                None,
+                i as u32,
+                transaction_data.kickoff_id.operator_idx,
+            )
+        })
+        .collect::<Vec<_>>();
+    let watchtower_all_challenge_addresses =
+        futures::future::try_join_all(watchtower_all_challenge_addresses).await?;
+
+    // Collect the challenge Winternitz pubkeys for this specific kickoff_utxo.
+    let watchtower_challenge_addresses = (0..config.num_watchtowers)
+        .map(|i| {
+            watchtower_all_challenge_addresses[i][transaction_data
+                .kickoff_id
+                .sequential_collateral_idx
+                as usize
+                * config.num_kickoffs_per_sequential_collateral_tx
+                + transaction_data.kickoff_id.kickoff_idx as usize]
+                .clone()
+        })
+        .collect::<Vec<_>>();
+
+    // get operator data
+    let operator_data = db
+        .get_operator(None, transaction_data.kickoff_id.operator_idx as i32)
+        .await?;
+
     let mut txhandlers = builder::transaction::create_txhandlers(
         db.clone(),
         config.clone(),
@@ -29,7 +61,8 @@ pub async fn create_and_sign_tx(
         nofn_xonly_pk,
         transaction_data.transaction_type,
         transaction_data.kickoff_id,
-        None,
+        operator_data,
+        Some(&watchtower_challenge_addresses),
         None,
     )
     .await?;

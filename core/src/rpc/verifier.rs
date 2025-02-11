@@ -631,7 +631,9 @@ impl ClementineVerifier for Verifier {
             self.db.get_operators(None).await?;
 
         // get signatures of operators and verify them
-        for (operator_idx, (op_xonly_pk, _, collateral_txid)) in operators_data.iter().enumerate() {
+        for (operator_idx, (op_xonly_pk, reimburse_addr, collateral_txid)) in
+            operators_data.iter().enumerate()
+        {
             let mut op_sig_count = 0;
             // tweak the operator xonly public key with None (because merkle root is empty as operator utxos have no scripts)
             let scalar = TapTweakHash::from_key_and_tweak(*op_xonly_pk, None).to_scalar();
@@ -646,6 +648,7 @@ impl ClementineVerifier for Verifier {
                 self.db.clone(),
                 operator_idx,
                 *collateral_txid,
+                reimburse_addr.clone(),
                 *op_xonly_pk,
                 self.config.clone(),
                 deposit_outpoint,

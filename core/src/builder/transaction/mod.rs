@@ -26,11 +26,12 @@ use crate::EVMAddress;
 use bitcoin::address::NetworkUnchecked;
 use bitcoin::opcodes::all::{OP_PUSHNUM_1, OP_RETURN};
 use bitcoin::script::Builder;
-use bitcoin::{Address, Amount, OutPoint, ScriptBuf, TxOut, XOnlyPublicKey};
+use bitcoin::{Address, Amount, OutPoint, ScriptBuf, TxOut, Txid, XOnlyPublicKey};
 pub use txhandler::Unsigned;
 
 mod challenge;
 mod creator;
+pub mod deposit_signature_owner;
 pub mod input;
 mod operator_assert;
 mod operator_collateral;
@@ -50,9 +51,16 @@ pub struct DepositId {
     pub recovery_taproot_address: bitcoin::Address<NetworkUnchecked>,
 }
 
+#[derive(Debug, Clone)]
+pub struct OperatorData {
+    pub xonly_pk: XOnlyPublicKey,
+    pub reimburse_addr: Address,
+    pub collateral_funding_txid: Txid,
+}
+
 /// Types of all transactions that can be created. Some transactions have an (usize) to as they are created
 /// multiple times per kickoff.
-#[derive(Debug, Clone, Copy, Hash, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, Hash, PartialEq, Eq, Ord, PartialOrd)]
 pub enum TransactionType {
     SequentialCollateral,
     ReimburseGenerator,

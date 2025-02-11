@@ -470,7 +470,7 @@ macro_rules! generate_withdrawal_transaction_and_signature {
             .finalize();
 
         let sighash = tx
-            .calculate_sighash(0, bitcoin::sighash::TapSighashType::SinglePlusAnyoneCanPay)
+            .calculate_sighash_txin(0, bitcoin::sighash::TapSighashType::SinglePlusAnyoneCanPay)
             .unwrap();
 
         let sig = signer.sign_with_tweak(sighash, None).unwrap();

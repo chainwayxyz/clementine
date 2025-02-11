@@ -6,6 +6,7 @@ use super::{
     wrapper::{OutPointDB, SignatureDB, SignaturesDB, TxOutDB, TxidDB, UtxoDB, XOnlyPublicKeyDB},
     Database, DatabaseTransaction,
 };
+use crate::builder::transaction::OperatorData;
 use crate::{
     errors::BridgeError,
     execute_query_with_tx,
@@ -133,7 +134,7 @@ impl Database {
         &self,
         tx: Option<DatabaseTransaction<'_, '_>>,
         operator_idx: i32,
-    ) -> Result<(XOnlyPublicKey, bitcoin::Address, Txid), BridgeError> {
+    ) -> Result<OperatorData, BridgeError> {
         let query = sqlx::query_as(
             "SELECT operator_idx, xonly_pk, wallet_reimburse_address, collateral_funding_txid FROM operators WHERE operator_idx = $1;"
         ).bind(operator_idx);
@@ -148,7 +149,11 @@ impl Database {
             .map_err(|e| BridgeError::Error(format!("Invalid Address: {}", e)))?
             .assume_checked();
         let txid = txid_db.0; // Extract the Txid from TxidDB
-        Ok((xonly_pk, addr, txid))
+        Ok(OperatorData {
+            xonly_pk,
+            reimburse_addr: addr,
+            collateral_funding_txid: txid,
+        })
     }
 
     pub async fn lock_operators_kickoff_utxo_table(
@@ -819,9 +824,9 @@ mod tests {
         }
 
         let res_single = database.get_operator(None, 1).await.unwrap();
-        assert_eq!(res_single.0, ops[1].1);
-        assert_eq!(res_single.1, ops[1].2.clone().assume_checked());
-        assert_eq!(res_single.2, ops[1].3);
+        assert_eq!(res_single.xonly_pk, ops[1].1);
+        assert_eq!(res_single.reimburse_addr, ops[1].2.clone().assume_checked());
+        assert_eq!(res_single.collateral_funding_txid, ops[1].3);
     }
 
     #[tokio::test]

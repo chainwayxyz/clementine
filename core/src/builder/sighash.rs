@@ -5,13 +5,17 @@
 //! under which conditions the input is signed. For more, see:
 //! https://developer.bitcoin.org/devguide/transactions.html?highlight=sighash#signature-hash-types
 
+use crate::builder::transaction::deposit_signature_owner::EntityType;
+use crate::builder::transaction::{
+    create_txhandlers, DepositId, OperatorData, TransactionType, TxHandler,
+};
 use crate::config::BridgeConfig;
-use crate::constants::PARALLEL_ASSERT_TX_CHAIN_SIZE;
 use crate::errors::BridgeError;
 use crate::rpc::clementine::tagged_signature::SignatureId;
-use crate::{builder, database::Database, EVMAddress};
+use crate::rpc::clementine::KickoffId;
+use crate::{database::Database, EVMAddress};
 use async_stream::try_stream;
-use bitcoin::{address::NetworkUnchecked, Address, OutPoint, TapSighashType};
+use bitcoin::{address::NetworkUnchecked, Address, OutPoint};
 use bitcoin::{TapSighash, Txid, XOnlyPublicKey};
 use futures_core::stream::Stream;
 
@@ -114,58 +118,37 @@ pub fn create_nofn_sighash_stream(
     nofn_xonly_pk: XOnlyPublicKey,
 ) -> impl Stream<Item = Result<(TapSighash, SignatureInfo), BridgeError>> {
     try_stream! {
-        // Create move_tx handler. This is unique for each deposit tx.
-        let move_txhandler = builder::transaction::create_move_to_vault_txhandler(
-            deposit_outpoint,
-            evm_address,
-            &recovery_taproot_address,
-            nofn_xonly_pk,
-            config.user_takes_after,
-            config.bridge_amount_sats,
-            config.network,
-        )?;
         // Get operator details (for each operator, (X-Only Public Key, Address, Collateral Funding Txid))
         let operators: Vec<(XOnlyPublicKey, bitcoin::Address, Txid)> =
             db.get_operators(None).await?;
         if operators.len() < config.num_operators {
             Err(BridgeError::NotEnoughOperators)?;
         }
+        let deposit_data = DepositId {
+            deposit_outpoint,
+            evm_address,
+            recovery_taproot_address,
+        };
 
         for (operator_idx, (operator_xonly_pk, operator_reimburse_address, collateral_funding_txid)) in
             operators.iter().enumerate()
         {
             // Get all the watchtower challenge addresses for this operator. We have all of them here (for all the kickoff_utxos).
-            // TODO: Make this more efficient
             let watchtower_all_challenge_addresses = (0..config.num_watchtowers)
                 .map(|i| db.get_watchtower_challenge_addresses(None, i as u32, operator_idx as u32))
                 .collect::<Vec<_>>();
             let watchtower_all_challenge_addresses = futures::future::try_join_all(watchtower_all_challenge_addresses).await?;
 
-            let mut input_txid = *collateral_funding_txid;
-            let mut input_amount = config.collateral_funding_amount;
+            let mut last_reimburse_generator: Option<TxHandler> = None;
+
+            let operator_data = OperatorData {
+                xonly_pk: *operator_xonly_pk,
+                reimburse_addr: operator_reimburse_address.clone(),
+                collateral_funding_txid: *collateral_funding_txid,
+            };
 
             // For each sequential_collateral_tx, we have multiple kickoff_utxos as the connectors.
             for sequential_collateral_tx_idx in 0..config.num_sequential_collateral_txs {
-                // Create the sequential_collateral_tx handler.
-                let sequential_collateral_txhandler = builder::transaction::create_sequential_collateral_txhandler(
-                    *operator_xonly_pk,
-                    input_txid,
-                    input_amount,
-                    config.timeout_block_count,
-                    config.max_withdrawal_time_block_count,
-                    config.num_kickoffs_per_sequential_collateral_tx,
-                    config.network,
-                )?;
-
-                // Create the reimburse_generator_tx handler.
-                let reimburse_generator_txhandler = builder::transaction::create_reimburse_generator_txhandler(
-                    &sequential_collateral_txhandler,
-                    *operator_xonly_pk,
-                    config.num_kickoffs_per_sequential_collateral_tx,
-                    config.max_withdrawal_time_block_count,
-                    config.network,
-                )?;
-
                 // For each kickoff_utxo, it connnects to a kickoff_tx that results in
                 // either start_happy_reimburse_tx
                 // or challenge_tx, which forces the operator to initiate BitVM sequence
@@ -175,195 +158,40 @@ pub fn create_nofn_sighash_stream(
                 for kickoff_idx in 0..config.num_kickoffs_per_sequential_collateral_tx {
                     let partial = PartialSignatureInfo::new(operator_idx, sequential_collateral_tx_idx, kickoff_idx);
 
-                    let kickoff_txhandler = builder::transaction::create_kickoff_txhandler(
-                        &sequential_collateral_txhandler,
-                        kickoff_idx,
-                        nofn_xonly_pk,
-                        *operator_xonly_pk,
-                        *move_txhandler.get_txid(),
-                        operator_idx,
-                        config.network,
-                    )?;
-
-                    // Creates the challenge_tx handler.
-                    let challenge_tx = builder::transaction::create_challenge_txhandler(
-                        &kickoff_txhandler,
-                        operator_reimburse_address,
-                    )?;
-
-                    // Yields the sighash for the challenge_tx.input[0], which spends kickoff_tx.input[1] using SinglePlusAnyoneCanPay.
-                    yield (challenge_tx.calculate_sighash(
-                        0,
-                        bitcoin::sighash::TapSighashType::SinglePlusAnyoneCanPay
-                    )?, partial.complete(challenge_tx.get_signature_id(0)?));
-
-                    // Creates the start_happy_reimburse_tx handler.
-                    let start_happy_reimburse_txhandler = builder::transaction::create_start_happy_reimburse_txhandler(
-                        &kickoff_txhandler,
-                        *operator_xonly_pk,
-                        config.network
-                    )?;
-                    // Yields the sighash for the start_happy_reimburse_tx.input[1], which spends kickoff_tx.output[3].
-                    yield (start_happy_reimburse_txhandler.calculate_sighash(
-                        1,
-                        TapSighashType::Default
-                    )?, partial.complete(start_happy_reimburse_txhandler.get_signature_id(1)?));
-
-                    // Creates the happy_reimburse_tx handler.
-                    let happy_reimburse_txhandler = builder::transaction::create_happy_reimburse_txhandler(
-                        &move_txhandler,
-                        &start_happy_reimburse_txhandler,
-                        &reimburse_generator_txhandler,
-                        kickoff_idx,
-                        operator_reimburse_address,
-                    )?;
-
-                    // Yields the sighash for the happy_reimburse_tx.input[0], which spends move_to_vault_tx.output[0].
-                    yield (happy_reimburse_txhandler.calculate_sighash(
-                        0,
-                        TapSighashType::Default
-                    )?, partial.complete(happy_reimburse_txhandler.get_signature_id(0)?));
-
                     // Collect the challenge Winternitz pubkeys for this specific kickoff_utxo.
                     let watchtower_challenge_addresses = (0..config.num_watchtowers)
-                        .map(|i| watchtower_all_challenge_addresses[i][sequential_collateral_tx_idx * config.num_kickoffs_per_sequential_collateral_tx + kickoff_idx].clone())
-                        .collect::<Vec<_>>();
+                    .map(|i| watchtower_all_challenge_addresses[i][sequential_collateral_tx_idx * config.num_kickoffs_per_sequential_collateral_tx + kickoff_idx].clone())
+                    .collect::<Vec<_>>();
 
-                    let watchtower_challenge_kickoff_txhandler =
-                        builder::transaction::create_watchtower_challenge_kickoff_txhandler_from_db(
-                            &kickoff_txhandler,
-                            config.num_watchtowers as u32,
-                            &watchtower_challenge_addresses,
-                        )?;
-
-                    // Yields the sighash for the watchtower_challenge_kickoff_tx.input[0], which spends kickoff_tx.input[0].
-                    yield (watchtower_challenge_kickoff_txhandler.calculate_sighash(
-                        0,
-                        TapSighashType::Default,
-                    )?, partial.complete(watchtower_challenge_kickoff_txhandler.get_signature_id(0)?));
-
-                    // Creates the kickoff_timeout_tx handler.
-                    let kickoff_timeout_txhandler = builder::transaction::create_kickoff_timeout_txhandler(
-                        &kickoff_txhandler,
-                        &sequential_collateral_txhandler,
-                    )?;
-
-                    // Yields the sighash for the kickoff_timeout_tx.input[0], which spends kickoff_tx.output[3].
-                    yield (kickoff_timeout_txhandler.calculate_sighash(
-                        0,
-                        TapSighashType::Default
-                    )?, partial.complete(kickoff_timeout_txhandler.get_signature_id(0)?));
-
-                    let public_hashes = db.get_operators_challenge_ack_hashes(None, operator_idx as i32, sequential_collateral_tx_idx as i32, kickoff_idx as i32).await?.ok_or(BridgeError::WatchtowerPublicHashesNotFound(operator_idx as i32, sequential_collateral_tx_idx as i32, kickoff_idx as i32))?;
-                    // Each watchtower will sign their Groth16 proof of the header chain circuit. Then, the operator will either
-                    // - acknowledge the challenge by sending the operator_challenge_ACK_tx, which will prevent the burning of the kickoff_tx.output[2],
-                    // - or do nothing, which will cause one to send the operator_challenge_NACK_tx, which will burn the kickoff_tx.output[2]
-                    // using watchtower_challenge_tx.output[0].
-                    for (watchtower_idx, public_hash) in public_hashes.iter().enumerate() {
-                        // Creates the watchtower_challenge_tx handler.
-                        let watchtower_challenge_txhandler =
-                            builder::transaction::create_watchtower_challenge_txhandler_from_db(
-                                &watchtower_challenge_kickoff_txhandler,
-                                watchtower_idx,
-                                public_hash,
-                                nofn_xonly_pk,
-                                *operator_xonly_pk,
-                                config.network,
-                            )?;
-
-                        // Creates the operator_challenge_NACK_tx handler.
-                        let operator_challenge_nack_txhandler =
-                            builder::transaction::create_operator_challenge_nack_txhandler(
-                                &watchtower_challenge_txhandler,
-                                watchtower_idx,
-                                &kickoff_txhandler
-                            )?;
-
-                        // Yields the sighash for the operator_challenge_NACK_tx.input[0], which spends watchtower_challenge_tx.output[0].
-                        yield (operator_challenge_nack_txhandler.calculate_sighash(
-                            0,
-                            TapSighashType::Default,
-                        )?, partial.complete(operator_challenge_nack_txhandler.get_signature_id(0)?));
-
-                        // Yields the sighash for the operator_challenge_NACK_tx.input[1], which spends kickoff_tx.output[2].
-                        yield (operator_challenge_nack_txhandler.calculate_sighash(
-                            1,
-                            TapSighashType::Default
-                        )?, partial.complete(operator_challenge_nack_txhandler.get_signature_id(1)?));
-                    }
-
-                    let (assert_tx_addrs, root_hash, _public_input_wots) = db.get_bitvm_setup(None, operator_idx as i32, sequential_collateral_tx_idx as i32, kickoff_idx as i32).await?.ok_or(BridgeError::BitvmSetupNotFound(operator_idx as i32, sequential_collateral_tx_idx as i32, kickoff_idx as i32))?;
-
-                    // Creates the assert_begin_tx handler.
-                    let assert_begin_txhandler = builder::transaction::create_assert_begin_txhandler(
-                        &kickoff_txhandler,
-                        &assert_tx_addrs,
-                        config.network,
-                    )?;
-
-                    // Creates the assert_end_tx handler.
-                    let assert_end_txhandler = builder::transaction::create_assert_end_txhandler(
-                        &kickoff_txhandler,
-                        &assert_begin_txhandler,
-                        &assert_tx_addrs,
-                        &root_hash,
+                    let mut txhandlers = create_txhandlers(
+                        db.clone(),
+                        config.clone(),
+                        deposit_data.clone(),
                         nofn_xonly_pk,
-                        *operator_xonly_pk,
-                        config.network,
-                    )?;
+                        TransactionType::AllNeededForVerifierDeposit,
+                        KickoffId {
+                            operator_idx: operator_idx as u32,
+                            sequential_collateral_idx: sequential_collateral_tx_idx as u32,
+                            kickoff_idx: kickoff_idx as u32,
+                        },
+                        operator_data.clone(),
+                        Some(&watchtower_challenge_addresses),
+                        last_reimburse_generator,
+                    ).await?;
 
-                    // Yields the sighash for the assert_end_tx, which spends kickoff_tx.output[3].
-                    yield (assert_end_txhandler.calculate_sighash(
-                        PARALLEL_ASSERT_TX_CHAIN_SIZE,
-                        TapSighashType::Default,
-                    )?, partial.complete(assert_end_txhandler.get_signature_id(PARALLEL_ASSERT_TX_CHAIN_SIZE)?));
-
-                    // Creates the disprove_timeout_tx handler.
-                    let  disprove_timeout_txhandler = builder::transaction::create_disprove_timeout_txhandler(
-                        &assert_end_txhandler,
-                        *operator_xonly_pk,
-                        config.network,
-                    )?;
-
-                    // Yields the sighash for the disprove_timeout_tx.input[0], which spends assert_end_tx.output[0].
-                    yield (disprove_timeout_txhandler.calculate_sighash(
-                        0,
-                        TapSighashType::Default
-                    )?, partial.complete(disprove_timeout_txhandler.get_signature_id(0)?));
-
-                    // Yields the disprove_timeout_tx.input[1], which spends assert_end_tx.output[1].
-                    yield (disprove_timeout_txhandler.calculate_sighash(
-                        1,
-                        TapSighashType::Default,
-                    )?, partial.complete(disprove_timeout_txhandler.get_signature_id(1)?));
-
-                    // Creates the already_disproved_tx handler.
-                    let already_disproved_txhandler = builder::transaction::create_already_disproved_txhandler(
-                        &assert_end_txhandler,
-                        &sequential_collateral_txhandler,
-                    )?;
-
-                    // Yields the sighash for the already_disproved_tx.input[0], which spends assert_end_tx.output[1].
-                    yield (already_disproved_txhandler.calculate_sighash(
-                        0,
-                        TapSighashType::Default,
-                    )?, partial.complete(already_disproved_txhandler.get_signature_id(0)?));
-
-                    // Creates the reimburse_tx handler.
-                    let reimburse_txhandler = builder::transaction::create_reimburse_txhandler(
-                        &move_txhandler,
-                        &disprove_timeout_txhandler,
-                        &reimburse_generator_txhandler,
-                        kickoff_idx,
-                        operator_reimburse_address,
-                    )?;
-
-                    // Yields the sighash for the reimburse_tx.input[0], which spends move_to_vault_tx.output[0].
-                    yield (reimburse_txhandler.calculate_sighash(0, TapSighashType::Default)?, partial.complete(reimburse_txhandler.get_signature_id(0)?));
+                    let mut sum = 0;
+                    for (_, txhandler) in txhandlers.iter() {
+                        let sighashes = txhandler.calculate_all_txins_sighash(EntityType::Verifier, partial)?;
+                        sum += sighashes.len();
+                        for sighash in sighashes {
+                            yield sighash;
+                        }
+                    }
+                    if sum != calculate_num_required_nofn_sigs_per_kickoff(&config) {
+                        Err(BridgeError::Error("Not enough nofn sighashes".to_string()))?;
+                    }
+                    last_reimburse_generator = txhandlers.remove(&TransactionType::Reimburse);
                 }
-
-                input_txid = *reimburse_generator_txhandler.get_txid();
-                input_amount = reimburse_generator_txhandler.get_spendable_output(0)?.get_prevout().value;
             }
         }
     }
@@ -379,127 +207,75 @@ pub fn create_operator_sighash_stream(
     db: Database,
     operator_idx: usize,
     collateral_funding_txid: Txid,
+    operator_reimburse_addr: Address,
     operator_xonly_pk: XOnlyPublicKey,
     config: BridgeConfig,
     deposit_outpoint: OutPoint,
-    _evm_address: EVMAddress,
-    _recovery_taproot_address: Address<NetworkUnchecked>,
+    evm_address: EVMAddress,
+    recovery_taproot_address: Address<NetworkUnchecked>,
     nofn_xonly_pk: XOnlyPublicKey,
 ) -> impl Stream<Item = Result<(TapSighash, SignatureInfo), BridgeError>> {
     try_stream! {
-        // Create move_tx handler. This is unique for each deposit tx.
-        let move_txhandler = builder::transaction::create_move_to_vault_txhandler(
-            deposit_outpoint,
-            _evm_address,
-            &_recovery_taproot_address,
-            nofn_xonly_pk,
-            config.user_takes_after,
-            config.bridge_amount_sats,
-            config.network,
-        )?;
 
-        let mut input_txid = collateral_funding_txid;
-        let mut input_amount = config.collateral_funding_amount;
+        let deposit_data = DepositId {
+            deposit_outpoint,
+            evm_address,
+            recovery_taproot_address,
+        };
+
+        let operator_data = OperatorData {
+            xonly_pk: operator_xonly_pk,
+            reimburse_addr: operator_reimburse_addr,
+            collateral_funding_txid,
+        };
+
+        // Get all the watchtower challenge addresses for this operator. We have all of them here (for all the kickoff_utxos).
+        let watchtower_all_challenge_addresses = (0..config.num_watchtowers)
+            .map(|i| db.get_watchtower_challenge_addresses(None, i as u32, operator_idx as u32))
+            .collect::<Vec<_>>();
+        let watchtower_all_challenge_addresses = futures::future::try_join_all(watchtower_all_challenge_addresses).await?;
+
+        let mut last_reimburse_generator: Option<TxHandler> = None;
 
         // For each sequential_collateral_tx, we have multiple kickoff_utxos as the connectors.
-        for sequential_collateral_idx in 0..config.num_sequential_collateral_txs {
-            // Create the sequential_collateral_tx handler.
-            let sequential_collateral_txhandler = builder::transaction::create_sequential_collateral_txhandler(
-                operator_xonly_pk,
-                input_txid,
-                input_amount,
-                config.timeout_block_count,
-                config.max_withdrawal_time_block_count,
-                config.num_kickoffs_per_sequential_collateral_tx,
-                config.network,
-            )?;
+        for sequential_collateral_tx_idx in 0..config.num_sequential_collateral_txs {
+            for kickoff_idx in 0..config.num_kickoffs_per_sequential_collateral_tx {
+                let partial = PartialSignatureInfo::new(operator_idx, sequential_collateral_tx_idx, kickoff_idx);
 
-            // Create the reimburse_generator_tx handler.
-            let reimburse_generator_txhandler = builder::transaction::create_reimburse_generator_txhandler(
-                &sequential_collateral_txhandler,
-                operator_xonly_pk,
-                config.num_kickoffs_per_sequential_collateral_tx,
-                config.max_withdrawal_time_block_count,
-                config.network,
-            )?;
+                // Collect the challenge Winternitz pubkeys for this specific kickoff_utxo.
+                let watchtower_challenge_addresses = (0..config.num_watchtowers)
+                .map(|i| watchtower_all_challenge_addresses[i][sequential_collateral_tx_idx * config.num_kickoffs_per_sequential_collateral_tx + kickoff_idx].clone())
+                .collect::<Vec<_>>();
 
-            // For each kickoff_utxo, it connnects to a kickoff_tx that results in
-            // either start_happy_reimburse_tx
-            // or challenge_tx, which forces the operator to initiate BitVM sequence
-            // (assert_begin_tx -> assert_end_tx -> either disprove_timeout_tx or already_disproven_tx).
-            // If the operator is honest, the sequence will end with the operator being able to send the reimburse_tx.
-            // Otherwise, by using the disprove_tx, the operator's sequential_collateral_tx burn connector will be burned.
-            for kickoff_utxo_idx in 0..config.num_kickoffs_per_sequential_collateral_tx {
-                let partial = PartialSignatureInfo::new(operator_idx, sequential_collateral_idx, kickoff_utxo_idx);
-
-                let kickoff_txhandler = builder::transaction::create_kickoff_txhandler(
-                    &sequential_collateral_txhandler,
-                    kickoff_utxo_idx,
+                let mut txhandlers = create_txhandlers(
+                    db.clone(),
+                    config.clone(),
+                    deposit_data.clone(),
                     nofn_xonly_pk,
-                    operator_xonly_pk,
-                    *move_txhandler.get_txid(),
-                    operator_idx,
-                    config.network,
-                )?;
+                    TransactionType::AllNeededForOperatorDeposit,
+                    KickoffId {
+                        operator_idx: operator_idx as u32,
+                        sequential_collateral_idx: sequential_collateral_tx_idx as u32,
+                        kickoff_idx: kickoff_idx as u32,
+                    },
+                    operator_data.clone(),
+                    Some(&watchtower_challenge_addresses),
+                    last_reimburse_generator,
+                ).await?;
 
-                // Creates the kickoff_timeout_tx handler.
-                let kickoff_timeout_txhandler = builder::transaction::create_kickoff_timeout_txhandler(
-                    &kickoff_txhandler,
-                    &sequential_collateral_txhandler,
-                )?;
-
-                // Yields the sighash for the kickoff_timeout_tx.input[0], which spends kickoff_tx.output[3].
-                yield (kickoff_timeout_txhandler.calculate_sighash(
-                    1,
-                    TapSighashType::Default,
-                )?, partial.complete(kickoff_timeout_txhandler.get_signature_id(1)?));
-
-                let (assert_tx_addrs, root_hash, _public_input_wots) = db.get_bitvm_setup(None, operator_idx as i32, sequential_collateral_idx as i32, kickoff_utxo_idx as i32).await?.ok_or(BridgeError::BitvmSetupNotFound(operator_idx as i32, sequential_collateral_idx as i32, kickoff_utxo_idx as i32))?;
-
-                // Creates the assert_begin_tx handler.
-                let assert_begin_txhandler = builder::transaction::create_assert_begin_txhandler(
-                    &kickoff_txhandler,
-                    &assert_tx_addrs,
-                    config.network,
-                )?;
-
-                // Creates the assert_end_tx handler.
-                let assert_end_txhandler = builder::transaction::create_assert_end_txhandler(
-                    &kickoff_txhandler,
-                    &assert_begin_txhandler,
-                    &assert_tx_addrs,
-                    &root_hash,
-                    nofn_xonly_pk,
-                    operator_xonly_pk,
-                    config.network,
-                )?;
-
-                // Creates the already_disproved_tx handler.
-                let already_disproved_txhandler = builder::transaction::create_already_disproved_txhandler(
-                    &assert_end_txhandler,
-                    &sequential_collateral_txhandler,
-                )?;
-
-                // Yields the sighash for the already_disproved_tx.input[0], which spends assert_end_tx.output[1].
-                yield (already_disproved_txhandler.calculate_sighash(
-                    1,
-                    TapSighashType::Default,
-                )?, partial.complete(already_disproved_txhandler.get_signature_id(1)?));
-
-                let disprove_txhandler = builder::transaction::create_disprove_txhandler(
-                    &assert_end_txhandler,
-                    &sequential_collateral_txhandler,
-                )?;
-
-                // Yields the sighash for the disprove_tx.input[1], which spends sequential_collateral_tx.output[0].
-                yield (disprove_txhandler.calculate_sighash(
-                    1,
-                    TapSighashType::Default,
-                )?, partial.complete(disprove_txhandler.get_signature_id(1)?));
+                let mut sum = 0;
+                for (_, txhandler) in txhandlers.iter() {
+                    let sighashes = txhandler.calculate_all_txins_sighash(EntityType::Operator, partial)?;
+                    sum += sighashes.len();
+                    for sighash in sighashes {
+                        yield sighash;
+                    }
+                }
+                if sum != calculate_num_required_operator_sigs_per_kickoff() {
+                    Err(BridgeError::Error("Not enough operator sighashes".to_string()))?;
+                }
+                last_reimburse_generator = txhandlers.remove(&TransactionType::Reimburse);
             }
-
-            input_txid = *reimburse_generator_txhandler.get_txid();
-            input_amount = reimburse_generator_txhandler.get_spendable_output(0)?.get_prevout().value;
         }
     }
 }
