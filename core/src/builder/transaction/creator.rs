@@ -11,6 +11,7 @@ use bitcoin::XOnlyPublicKey;
 use std::collections::HashMap;
 use std::sync::Arc;
 
+// helper function to get a txhandler from a hashmap
 fn get_txhandler(
     txhandlers: &HashMap<TransactionType, TxHandler>,
     tx_type: TransactionType,
