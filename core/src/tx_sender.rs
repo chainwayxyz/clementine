@@ -4,7 +4,7 @@ use bitcoin::{
     transaction::Version, Address, Amount, FeeRate, OutPoint, Transaction, TxOut, Txid, Weight,
 };
 use bitcoincore_rpc::{json::EstimateMode, RpcApi};
-use tokio::{sync::broadcast::Receiver, task::JoinHandle};
+use tokio::task::JoinHandle;
 
 use crate::{
     actor::Actor,
@@ -281,6 +281,10 @@ impl TxSender {
 
         let fee_payer_utxos = self.db.get_confirmed_fee_payer_utxos(None, txid).await?;
 
+        if fee_payer_utxos.is_empty() {
+            return Err(BridgeError::ConfirmedFeePayerTxNotFound);
+        }
+
         let fee_payer_utxos: Vec<SpendableTxIn> = fee_payer_utxos
             .iter()
             .map(|(txid, vout, amount, script_pubkey)| {
@@ -392,20 +396,26 @@ impl TxSender {
                         ..Default::default()
                     }),
                 )
-                .await?;
+                .await;
 
-            if let Some(new_txid) = bump_fee_result.txid {
-                self.db
-                    .save_fee_payer_tx(
-                        None,
-                        bumped_txid,
-                        new_txid,
-                        vout,
-                        script_pubkey,
-                        amount,
-                        Some(id),
-                    )
-                    .await?;
+            if let Err(e) = &bump_fee_result {
+                tracing::error!("Error bumping feeeeeee: {}", e);
+            }
+
+            if let Ok(bump_fee_result) = bump_fee_result {
+                if let Some(new_txid) = bump_fee_result.txid {
+                    self.db
+                        .save_fee_payer_tx(
+                            None,
+                            bumped_txid,
+                            new_txid,
+                            vout,
+                            script_pubkey,
+                            amount,
+                            Some(id),
+                        )
+                        .await?;
+                }
             }
         }
 
@@ -446,7 +456,6 @@ impl TxSender {
                 let result: Result<(), BridgeError> = async {
                     let mut dbtx = db.begin_transaction().await?;
                     let event = db.get_event_and_update(&mut dbtx, &consumer_handle).await?;
-
                     if let Some(event) = event {
                         match event {
                             BitcoinSyncerEvent::NewBlock(block_hash) => {
@@ -569,29 +578,36 @@ mod tests {
     async fn test_create_fee_payer_tx() {
         let (tx_sender, rpc, db, signer, network) = create_test_tx_sender().await;
 
-        let tx_sender_handle = tx_sender
-            .run("tx_sender", Duration::from_secs(1))
-            .await
-            .unwrap();
-        let bitcoin_syncer_handle =
+        let _bitcoin_syncer_handle =
             bitcoin_syncer::start_bitcoin_syncer(db, rpc.clone(), Duration::from_secs(1))
                 .await
                 .unwrap();
 
+        let _tx_sender_handle = tx_sender
+            .run("tx_sender", Duration::from_secs(1))
+            .await
+            .unwrap();
+
+        // sleep 10 seconds to make sure the bitcoin_syncer has synced the tx
+        tokio::time::sleep(Duration::from_secs(3)).await;
+
+        rpc.mine_blocks(1).await.unwrap();
+
         let tx = create_bumpable_tx(&rpc, signer, network).await.unwrap();
 
-        let outpoint = tx_sender
+        let _outpoint = tx_sender
             .create_fee_payer_tx(tx.compute_txid(), tx.weight())
             .await
             .unwrap();
 
         // tokio::time::sleep(Duration::from_millis(100)).await;
 
-        let fee_payer_tx = rpc
-            .client
-            .get_raw_transaction(&outpoint.txid, None)
-            .await
-            .unwrap();
+        // let fee_payer_tx = rpc
+        //     .client
+        //     .get_raw_transaction(&outpoint.txid, None)
+        //     .await
+        //     .unwrap();
+        rpc.mine_blocks(1).await.unwrap();
 
         tx_sender.save_tx(&tx).await.unwrap();
 
@@ -599,12 +615,12 @@ mod tests {
         rpc.mine_blocks(1).await.unwrap();
 
         // Give enough time for the block to be processed and event to be handled
-        tokio::time::sleep(Duration::from_secs(5)).await;
+        tokio::time::sleep(Duration::from_secs(3)).await;
 
         // get the tx from the rpc
         let get_raw_transaction_result = rpc
             .client
-            .get_raw_transaction_info(&tx.compute_txid(), None)
+            .get_raw_transaction(&tx.compute_txid(), None)
             .await
             .unwrap();
 

@@ -10,7 +10,7 @@ impl Database {
         block_hash: &BlockHash,
         prev_block_hash: &BlockHash,
         block_height: i64,
-    ) -> Result<i64, BridgeError> {
+    ) -> Result<i32, BridgeError> {
         let query = sqlx::query_scalar(
             "INSERT INTO bitcoin_syncer (blockhash, prev_blockhash, height) VALUES ($1, $2, $3) RETURNING id",
         )
@@ -77,7 +77,7 @@ impl Database {
     pub async fn insert_tx(
         &self,
         tx: DatabaseTransaction<'_, '_>,
-        block_id: i64,
+        block_id: i32,
         txid: &bitcoin::Txid,
     ) -> Result<(), BridgeError> {
         sqlx::query("INSERT INTO bitcoin_syncer_txs (block_id, txid) VALUES ($1, $2)")
@@ -91,7 +91,7 @@ impl Database {
     pub async fn insert_spent_utxo(
         &self,
         tx: DatabaseTransaction<'_, '_>,
-        block_id: i64,
+        block_id: i32,
         spending_txid: &bitcoin::Txid,
         txid: &bitcoin::Txid,
         vout: i64,
@@ -114,15 +114,13 @@ impl Database {
     ) -> Result<(), BridgeError> {
         let query = match event_type {
             BitcoinSyncerEvent::NewBlock(block_hash) => sqlx::query(
-                "INSERT INTO bitcoin_syncer_events (blockhash, event_type) VALUES ($1, $2)",
+                "INSERT INTO bitcoin_syncer_events (blockhash, event_type) VALUES ($1, 'new_block'::bitcoin_syncer_event_type)",
             )
-            .bind(BlockHashDB(block_hash))
-            .bind("new_block"),
+            .bind(BlockHashDB(block_hash)),
             BitcoinSyncerEvent::ReorgedBlock(block_hash) => sqlx::query(
-                "INSERT INTO bitcoin_syncer_events (blockhash, event_type) VALUES ($1, $2)",
+                "INSERT INTO bitcoin_syncer_events (blockhash, event_type) VALUES ($1, 'reorged_block'::bitcoin_syncer_event_type)",
             )
-            .bind(BlockHashDB(block_hash))
-            .bind("reorged_block"),
+            .bind(BlockHashDB(block_hash)),
         };
         execute_query_with_tx!(self.connection, tx, query, execute)?;
         Ok(())
@@ -242,7 +240,7 @@ impl Database {
         // Step 3: Retrieve the next event that hasn't been processed yet
         let event = sqlx::query_as::<_, (i32, BlockHashDB, String)>(
             r#"
-            SELECT id, blockhash, event_type
+            SELECT id, blockhash, event_type::text
             FROM bitcoin_syncer_events
             WHERE id > $1
             ORDER BY id ASC
@@ -257,13 +255,14 @@ impl Database {
             return Ok(None);
         }
 
-        let event = event.expect("Event should exist since we checked is_none()");
+        let event = event.expect("should exist since we checked is_none()");
         let event_type = match event.2.as_str() {
             "new_block" => BitcoinSyncerEvent::NewBlock(event.1 .0),
             "reorged_block" => BitcoinSyncerEvent::ReorgedBlock(event.1 .0),
             _ => return Err(BridgeError::Error("Invalid event type".to_string())),
         };
         let event_id = event.0;
+
         // Step 5: Update last_processed_event_id for this consumer
         sqlx::query(
             r#"

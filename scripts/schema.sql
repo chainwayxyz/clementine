@@ -233,10 +233,10 @@ create table if not exists bitcoin_syncer_txs (
 );
 
 create table if not exists bitcoin_syncer_spent_utxos (
-    block_id int not null references bitcoin_syncer (id),
+    block_id bigint not null references bitcoin_syncer (id),
     spending_txid text not null,
     txid text not null,
-    vout int not null,
+    vout bigint not null,
     primary key (block_id, spending_txid, txid, vout),
     foreign key (block_id, spending_txid) references bitcoin_syncer_txs (block_id, txid)
 );
@@ -253,7 +253,7 @@ create table if not exists bitcoin_syncer_events (
 
 create table if not exists bitcoin_syncer_event_handlers (
     consumer_handle text not null,
-    last_processed_event_id int not null references bitcoin_syncer_events (id),
+    last_processed_event_id int not null,
     created_at timestamp not null default now(),
     primary key (consumer_handle)
 );

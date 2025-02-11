@@ -48,15 +48,15 @@ impl Operator {
 
         let db = Database::new(&config).await?;
 
-        bitcoin_syncer::set_initial_block_info(&db, &rpc).await?;
+        bitcoin_syncer::set_initial_block_info_if_not_exists(&db, &rpc).await?;
         // Store sender in a variable to keep it alive
-        let handle =
+        let _handle =
             bitcoin_syncer::start_bitcoin_syncer(db.clone(), rpc.clone(), Duration::from_secs(1))
                 .await?;
 
         let tx_sender = TxSender::new(signer.clone(), rpc.clone(), db.clone(), config.network);
 
-        let operator_handle = tx_sender.run("operator", Duration::from_secs(1)).await?; // TODO: Make this a unique handle
+        let _operator_handle = tx_sender.run("operator", Duration::from_secs(1)).await?; // TODO: Make this a unique handle
 
         let nofn_xonly_pk =
             XOnlyPublicKey::from_musig2_pks(config.verifiers_public_keys.clone(), None)?;
