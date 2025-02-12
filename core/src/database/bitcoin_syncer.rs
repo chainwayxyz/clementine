@@ -4,6 +4,9 @@ use bitcoin::BlockHash;
 use std::{ops::DerefMut, str::FromStr};
 
 impl Database {
+    /// # Returns
+    /// 
+    /// - [`u32`]: Database entry id, later to be used while referring block
     pub async fn add_block_info(
         &self,
         tx: Option<DatabaseTransaction<'_, '_>>,
@@ -21,6 +24,24 @@ impl Database {
         let id: i32 = execute_query_with_tx!(self.connection, tx, query, fetch_one)?;
 
         Ok(id as u32)
+    }
+    /// # Returns
+    /// 
+    /// - [`BlockHash`]: Previous block hash
+    /// - [`u32`]: Height of the block
+    pub async fn get_block_info_from_hash(
+        &self,
+        tx: Option<DatabaseTransaction<'_, '_>>,
+        block_hash: &BlockHash,
+    ) -> Result<(BlockHash, u32), BridgeError> {
+        let query = sqlx::query_as(
+            "SELECT prev_blockhash, height FROM bitcoin_syncer WHERE blockhash = $1",
+        ).bind(BlockHashDB(*block_hash));
+
+        let (prev_block_hash, height): (BlockHashDB, i64) =
+        execute_query_with_tx!(self.connection, tx, query, fetch_one)?;
+
+        Ok((prev_block_hash.0, height as u32))
     }
 
     pub async fn get_max_height(
@@ -107,7 +128,7 @@ impl Database {
         .await?;
         Ok(())
     }
-
+    
     pub async fn add_event(
         &self,
         tx: Option<DatabaseTransaction<'_, '_>>,
@@ -278,5 +299,32 @@ impl Database {
         .await?;
 
         Ok(Some(event_type))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use bitcoin::hashes::Hash;
+    use bitcoin::BlockHash;
+    use crate::{create_test_config_with_thread_name, database::Database};
+    use crate::{
+        config::BridgeConfig, initialize_database, utils::initialize_logger,
+    };
+
+    #[tokio::test]
+    async fn add_get_block_info() {
+        let config = create_test_config_with_thread_name!(None);
+        let db = Database::new(&config).await.unwrap();
+
+        let prev_block_hash = BlockHash::from_raw_hash(Hash::from_byte_array([0x1F; 32]));
+        let block_hash = BlockHash::from_raw_hash(Hash::from_byte_array([0x45; 32]));
+        let height = 0x45;
+
+        assert!(db.get_block_info_from_hash(None, &block_hash).await.is_err());
+
+        db.add_block_info(None, &block_hash, &prev_block_hash, height).await.unwrap();
+        let block_info = db.get_block_info_from_hash(None, &block_hash).await.unwrap();
+        assert_eq!(block_info.0, prev_block_hash);
+        assert_eq!(block_info.1, height as u32);
     }
 }
