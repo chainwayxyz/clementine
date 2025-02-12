@@ -43,8 +43,7 @@ async fn get_block_info_from_height(
     })
 }
 
-/// Saves a Bitcoin block's [`BlockInfo`] and it's transactions into the
-/// database.
+/// Saves a Bitcoin block's metadata and it's transactions into the database.
 async fn save_block(
     db: &Database,
     dbtx: DatabaseTransaction<'_, '_>,
@@ -87,7 +86,7 @@ async fn save_transaction(
     block_id: u32,
 ) -> Result<(), BridgeError> {
     let txid = tx.compute_txid();
-    db.insert_tx(dbtx, block_id, &txid).await?;
+    db.add_txid_to_block(dbtx, block_id, &txid).await?;
 
     for input in &tx.input {
         db.insert_spent_utxo(
@@ -158,7 +157,7 @@ async fn fetch_new_blocks(
 
     // Walk backwards until the parent is found in the database.
     while db
-        .get_height_from_block_hash(None, block_header.prev_blockhash)
+        .get_block_info_from_hash(None, block_header.prev_blockhash)
         .await?
         .is_none()
     {
@@ -264,12 +263,12 @@ pub async fn start_bitcoin_syncer(
 
 #[cfg(test)]
 mod tests {
-    use bitcoincore_rpc::RpcApi;
     use crate::create_test_config_with_thread_name;
     use crate::extended_rpc::ExtendedRpc;
     use crate::{
         config::BridgeConfig, database::Database, initialize_database, utils::initialize_logger,
     };
+    use bitcoincore_rpc::RpcApi;
 
     #[tokio::test]
     #[serial_test::serial]
@@ -288,7 +287,9 @@ mod tests {
         let hash = rpc.client.get_block_hash(height).await.unwrap();
         let header = rpc.client.get_block_header(&hash).await.unwrap();
 
-        let block_info = super::get_block_info_from_height(&rpc, height).await.unwrap();
+        let block_info = super::get_block_info_from_height(&rpc, height)
+            .await
+            .unwrap();
         assert_eq!(block_info._header, header);
         assert_eq!(block_info.hash, hash);
         assert_eq!(block_info.height, height);
@@ -296,9 +297,38 @@ mod tests {
         rpc.mine_blocks(1).await.unwrap();
         let height = rpc.client.get_block_count().await.unwrap();
 
-        let block_info = super::get_block_info_from_height(&rpc, height).await.unwrap();
+        let block_info = super::get_block_info_from_height(&rpc, height)
+            .await
+            .unwrap();
         assert_ne!(block_info._header, header);
         assert_ne!(block_info.hash, hash);
         assert_eq!(block_info.height, height);
+    }
+
+    #[tokio::test]
+    #[serial_test::serial]
+    async fn save_get_block() {
+        let config = create_test_config_with_thread_name!(None);
+        let db = Database::new(&config).await.unwrap();
+        let rpc = ExtendedRpc::connect(
+            config.bitcoin_rpc_url.clone(),
+            config.bitcoin_rpc_user.clone(),
+            config.bitcoin_rpc_password.clone(),
+        )
+        .await
+        .unwrap();
+
+        rpc.mine_blocks(1).await.unwrap();
+        let height = rpc.client.get_block_count().await.unwrap();
+        let hash = rpc.client.get_block_hash(height).await.unwrap();
+        let block = rpc.client.get_block(&hash).await.unwrap();
+
+        let mut dbtx = db.begin_transaction().await.unwrap();
+
+        super::save_block(&db, &mut dbtx, &block, height as i64)
+            .await
+            .unwrap();
+
+        dbtx.commit().await.unwrap();
     }
 }

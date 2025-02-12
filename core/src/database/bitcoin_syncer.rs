@@ -5,7 +5,7 @@ use std::{ops::DerefMut, str::FromStr};
 
 impl Database {
     /// # Returns
-    /// 
+    ///
     /// - [`u32`]: Database entry id, later to be used while referring block
     pub async fn add_block_info(
         &self,
@@ -26,24 +26,26 @@ impl Database {
         Ok(id as u32)
     }
     /// # Returns
-    /// 
+    ///
+    /// [`Some`] if the block exists in the database, [`None`] otherwise:
+    ///
     /// - [`BlockHash`]: Previous block hash
     /// - [`u32`]: Height of the block
     pub async fn get_block_info_from_hash(
         &self,
         tx: Option<DatabaseTransaction<'_, '_>>,
-        block_hash: &BlockHash,
-    ) -> Result<(BlockHash, u32), BridgeError> {
+        block_hash: BlockHash,
+    ) -> Result<Option<(BlockHash, u32)>, BridgeError> {
         let query = sqlx::query_as(
             "SELECT prev_blockhash, height FROM bitcoin_syncer WHERE blockhash = $1",
-        ).bind(BlockHashDB(*block_hash));
+        )
+        .bind(BlockHashDB(block_hash));
 
-        let (prev_block_hash, height): (BlockHashDB, i64) =
-        execute_query_with_tx!(self.connection, tx, query, fetch_one)?;
+        let ret: Option<(BlockHashDB, i64)> =
+            execute_query_with_tx!(self.connection, tx, query, fetch_optional)?;
 
-        Ok((prev_block_hash.0, height as u32))
+        Ok(ret.map(|(prev_hash, height)| (prev_hash.0, height as u32)))
     }
-
     pub async fn get_max_height(
         &self,
         tx: Option<DatabaseTransaction<'_, '_>>,
@@ -52,23 +54,8 @@ impl Database {
             sqlx::query_as("SELECT height FROM bitcoin_syncer WHERE is_canonical = true ORDER BY height DESC LIMIT 1");
         let result: Option<(i64,)> =
             execute_query_with_tx!(self.connection, tx, query, fetch_optional)?;
+
         Ok(result.map(|(height,)| height as u64))
-    }
-
-    /// Gets the height from the block hash.
-    pub async fn get_height_from_block_hash(
-        &self,
-        tx: Option<DatabaseTransaction<'_, '_>>,
-        block_hash: BlockHash,
-    ) -> Result<Option<u64>, BridgeError> {
-        let query = sqlx::query_as(
-            "SELECT height FROM bitcoin_syncer WHERE blockhash = $1 AND is_canonical = true",
-        )
-        .bind(block_hash.to_string());
-
-        let height: Option<(i64,)> =
-            execute_query_with_tx!(self.connection, tx, query, fetch_optional)?;
-        Ok(height.map(|(h,)| h as u64))
     }
 
     /// Gets the block hashes that have height bigger then the given height and deletes them.
@@ -95,7 +82,7 @@ impl Database {
             .collect::<Result<Vec<_>, _>>()?)
     }
 
-    pub async fn insert_tx(
+    pub async fn add_txid_to_block(
         &self,
         tx: DatabaseTransaction<'_, '_>,
         block_id: u32,
@@ -128,7 +115,7 @@ impl Database {
         .await?;
         Ok(())
     }
-    
+
     pub async fn add_event(
         &self,
         tx: Option<DatabaseTransaction<'_, '_>>,
@@ -304,12 +291,10 @@ impl Database {
 
 #[cfg(test)]
 mod tests {
+    use crate::{config::BridgeConfig, initialize_database, utils::initialize_logger};
+    use crate::{create_test_config_with_thread_name, database::Database};
     use bitcoin::hashes::Hash;
     use bitcoin::BlockHash;
-    use crate::{create_test_config_with_thread_name, database::Database};
-    use crate::{
-        config::BridgeConfig, initialize_database, utils::initialize_logger,
-    };
 
     #[tokio::test]
     async fn add_get_block_info() {
@@ -320,10 +305,20 @@ mod tests {
         let block_hash = BlockHash::from_raw_hash(Hash::from_byte_array([0x45; 32]));
         let height = 0x45;
 
-        assert!(db.get_block_info_from_hash(None, &block_hash).await.is_err());
+        assert!(db
+            .get_block_info_from_hash(None, block_hash)
+            .await
+            .unwrap()
+            .is_none());
 
-        db.add_block_info(None, &block_hash, &prev_block_hash, height).await.unwrap();
-        let block_info = db.get_block_info_from_hash(None, &block_hash).await.unwrap();
+        db.add_block_info(None, &block_hash, &prev_block_hash, height)
+            .await
+            .unwrap();
+        let block_info = db
+            .get_block_info_from_hash(None, block_hash)
+            .await
+            .unwrap()
+            .unwrap();
         assert_eq!(block_info.0, prev_block_hash);
         assert_eq!(block_info.1, height as u32);
     }
