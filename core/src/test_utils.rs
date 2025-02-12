@@ -253,6 +253,8 @@ macro_rules! initialize_database {
 
 /// Starts operators, verifiers, aggregator and watchtower servers.
 ///
+/// Depends on create_regtest_rpc! and get_available_port! for dynamic port allocation.
+///
 /// # Returns
 ///
 /// Returns a tuple of vectors of clients, handles, and addresses for the
@@ -458,7 +460,7 @@ macro_rules! create_actors {
         ))
         .await;
 
-        (verifiers, operators, aggregator, watchtowers)
+        (verifiers, operators, aggregator, watchtowers, regtest)
     }};
 }
 

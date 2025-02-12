@@ -793,11 +793,10 @@ mod tests {
     use std::str::FromStr;
 
     #[tokio::test]
-
     async fn aggregator_double_setup_fail() {
         let config = create_test_config_with_thread_name!(None);
 
-        let (_, _, mut aggregator, _) = create_actors!(config);
+        let (_, _, mut aggregator, _, _regtest) = create_actors!(config);
 
         aggregator
             .setup(tonic::Request::new(clementine::Empty {}))
@@ -811,10 +810,10 @@ mod tests {
     }
 
     #[tokio::test]
-
     async fn aggregator_setup_watchtower_winternitz_public_keys() {
         let mut config = create_test_config_with_thread_name!(None);
-        let (_verifiers, _operators, mut aggregator, _watchtowers) = create_actors!(config.clone());
+        let (_verifiers, _operators, mut aggregator, _watchtowers, _regtest) =
+            create_actors!(config.clone());
 
         aggregator
             .setup(tonic::Request::new(clementine::Empty {}))
@@ -858,10 +857,10 @@ mod tests {
     }
 
     #[tokio::test]
-
     async fn aggregator_setup_watchtower_challenge_addresses() {
         let mut config = create_test_config_with_thread_name!(None);
-        let (_verifiers, _operators, mut aggregator, _watchtowers) = create_actors!(config.clone());
+        let (_verifiers, _operators, mut aggregator, _watchtowers, _regtest) =
+            create_actors!(config.clone());
         aggregator
             .setup(tonic::Request::new(clementine::Empty {}))
             .await
@@ -965,7 +964,7 @@ mod tests {
     async fn aggregator_setup_and_deposit() {
         let config = create_test_config_with_thread_name!(None);
 
-        let mut aggregator = create_actors!(config).2;
+        let (_, _, mut aggregator, _, _regtest) = create_actors!(config);
 
         tracing::info!("Setting up aggregator");
         let start = std::time::Instant::now();
