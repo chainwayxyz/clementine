@@ -90,7 +90,7 @@ async fn _get_block_info_from_hash(
         .ok_or(BridgeError::BlockNotFound)?
         .1;
 
-    let mut block_utxos = vec![vec![]];
+    let mut block_utxos: Vec<Vec<OutPoint>> = Vec::new();
     for tx in &block.txdata {
         let txid = tx.compute_txid();
         let spent_utxos = _get_transaction_spent_utxos(db, dbtx, txid).await?;
@@ -436,17 +436,17 @@ mod tests {
             .await
             .unwrap();
 
-        let (block_info, _utxos) = super::_get_block_info_from_hash(&db, &mut dbtx, rpc, hash)
+        let (block_info, utxos) = super::_get_block_info_from_hash(&db, &mut dbtx, rpc, hash)
             .await
             .unwrap();
         assert_eq!(block_info._header, block.header);
         assert_eq!(block_info.hash, hash);
         assert_eq!(block_info.height, height);
-        // for (tx_index, tx) in block.txdata.iter().enumerate() {
-        //     for (txin_index, txin) in tx.input.iter().enumerate() {
-        //         assert_eq!(txin.previous_output, utxos[tx_index][txin_index]);
-        //     }
-        // }
+        for (tx_index, tx) in block.txdata.iter().enumerate() {
+            for (txin_index, txin) in tx.input.iter().enumerate() {
+                assert_eq!(txin.previous_output, utxos[tx_index][txin_index]);
+            }
+        }
 
         dbtx.commit().await.unwrap();
     }
