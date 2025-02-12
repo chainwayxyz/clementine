@@ -1,6 +1,9 @@
-use super::{wrapper::BlockHashDB, Database, DatabaseTransaction};
+use super::{
+    wrapper::{BlockHashDB, TxidDB},
+    Database, DatabaseTransaction,
+};
 use crate::{bitcoin_syncer::BitcoinSyncerEvent, errors::BridgeError, execute_query_with_tx};
-use bitcoin::BlockHash;
+use bitcoin::{BlockHash, Txid};
 use std::{ops::DerefMut, str::FromStr};
 
 impl Database {
@@ -88,12 +91,25 @@ impl Database {
         block_id: u32,
         txid: &bitcoin::Txid,
     ) -> Result<(), BridgeError> {
-        sqlx::query("INSERT INTO bitcoin_syncer_txs (block_id, txid) VALUES ($1, $2)")
+        let query = sqlx::query("INSERT INTO bitcoin_syncer_txs (block_id, txid) VALUES ($1, $2)")
             .bind(block_id as i32)
-            .bind(super::wrapper::TxidDB(*txid))
-            .execute(tx.deref_mut())
-            .await?;
+            .bind(super::wrapper::TxidDB(*txid));
+
+        execute_query_with_tx!(self.connection, Some(tx), query, execute)?;
+
         Ok(())
+    }
+    pub async fn get_block_txids(
+        &self,
+        tx: Option<DatabaseTransaction<'_, '_>>,
+        block_id: u32,
+    ) -> Result<Vec<Txid>, BridgeError> {
+        let query = sqlx::query_as("SELECT txid FROM bitcoin_syncer_txs WHERE block_id = $1")
+            .bind(block_id as i32);
+
+        let txids: Vec<(TxidDB,)> = execute_query_with_tx!(self.connection, tx, query, fetch_all)?;
+
+        Ok(txids.into_iter().map(|(txid,)| txid.0).collect())
     }
 
     pub async fn insert_spent_utxo(
@@ -294,7 +310,7 @@ mod tests {
     use crate::{config::BridgeConfig, initialize_database, utils::initialize_logger};
     use crate::{create_test_config_with_thread_name, database::Database};
     use bitcoin::hashes::Hash;
-    use bitcoin::BlockHash;
+    use bitcoin::{BlockHash, Txid};
 
     #[tokio::test]
     async fn add_get_block_info() {
@@ -346,5 +362,48 @@ mod tests {
         let max_height = db.get_max_height(None).await.unwrap().unwrap();
         assert_ne!(max_height, height as u64);
         assert_eq!(max_height, height as u64 + 1);
+    }
+
+    #[tokio::test]
+    async fn add_and_get_txids_from_block() {
+        let config = create_test_config_with_thread_name!(None);
+        let db = Database::new(&config).await.unwrap();
+        let mut dbtx = db.begin_transaction().await.unwrap();
+
+        assert!(db
+            .add_txid_to_block(&mut dbtx, 0, &Txid::all_zeros())
+            .await
+            .is_err());
+        let mut dbtx = db.begin_transaction().await.unwrap();
+
+        let prev_block_hash = BlockHash::from_raw_hash(Hash::from_byte_array([0x1F; 32]));
+        let block_hash = BlockHash::from_raw_hash(Hash::from_byte_array([0x45; 32]));
+        let height = 0x45;
+        let block_id = db
+            .add_block_info(Some(&mut dbtx), &block_hash, &prev_block_hash, height)
+            .await
+            .unwrap();
+
+        let txids = vec![
+            Txid::from_raw_hash(Hash::from_byte_array([0x1; 32])),
+            Txid::from_raw_hash(Hash::from_byte_array([0x2; 32])),
+            Txid::from_raw_hash(Hash::from_byte_array([0x3; 32])),
+        ];
+        for txid in &txids {
+            db.add_txid_to_block(&mut dbtx, block_id, txid)
+                .await
+                .unwrap();
+        }
+
+        let txids_from_db = db.get_block_txids(Some(&mut dbtx), block_id).await.unwrap();
+        assert_eq!(txids_from_db, txids);
+
+        assert!(db
+            .get_block_txids(Some(&mut dbtx), block_id + 1)
+            .await
+            .unwrap()
+            .is_empty());
+
+        dbtx.commit().await.unwrap();
     }
 }
