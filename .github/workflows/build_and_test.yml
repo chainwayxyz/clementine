@@ -77,7 +77,7 @@ jobs:
         shared-key: "debug-build"
 
     - name: Run tests
-      run: cargo test
+      run: PATH=$PATH:./bitcoin-28.0/bin cargo test
 
   release_build_test:
     name: Test code with release build
@@ -111,4 +111,4 @@ jobs:
         shared-key: "release-build"
 
     - name: Run tests
-      run: cargo test --release
+      run: PATH=$PATH:./bitcoin-28.0/bin cargo test --release
