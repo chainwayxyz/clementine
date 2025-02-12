@@ -170,5 +170,5 @@ impl ClementineOperator for Operator {
         .await?;
 
         Ok(Response::new(raw_txs))
-    }
+}
 }

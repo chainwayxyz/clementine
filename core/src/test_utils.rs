@@ -4,6 +4,126 @@
 //! in binaries. There will be multiple prerequisites that these macros require.
 //! Please check comments of each for more information.
 
+/// Creates a Bitcoin regtest node for testing, waits for it to start and returns an RPC.
+///
+/// Requires an import of `ExtendedRpc` and `BridgeConfig`.
+///
+/// # Required Imports
+///
+/// ## Unit Tests
+/// ```rust
+/// use crate::rpc::ExtendedRpc;
+/// ```
+///
+/// ## Integration Tests And Binaries
+/// ```rust
+/// use clementine_core::rpc::ExtendedRpc;
+/// ```
+#[macro_export]
+macro_rules! create_regtest_rpc {
+    ($config:expr) => {{
+        use tempfile::TempDir;
+
+        // Create temporary directory for bitcoin data
+        let data_dir = TempDir::new()
+            .expect("Failed to create temporary directory")
+            .into_path();
+
+        // Get available ports for RPC
+        let rpc_port = {
+            let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+            listener.local_addr().unwrap().port()
+        };
+
+        // Bitcoin node configuration
+
+        // Construct args for bitcoind
+        let args = vec![
+            "-regtest".to_string(),
+            format!("-datadir={}", data_dir.display()),
+            "-listen=0".to_string(),
+            format!("-rpcport={}", rpc_port),
+            format!("-rpcuser={}", $config.bitcoin_rpc_user),
+            format!("-rpcpassword={}", $config.bitcoin_rpc_password),
+            "-wallet=admin".to_string(),
+            "-txindex=1".to_string(),
+            "-fallbackfee=0.00001".to_string(),
+            "-rpcallowip=0.0.0.0/0".to_string(),
+        ];
+
+        // Create log file in temp directory
+        let log_file = data_dir.join("debug.log");
+        let log_file_path = log_file.to_str().unwrap();
+
+        // Start bitcoind process with log redirection
+        let process = std::process::Command::new("bitcoind")
+            .args(&args)
+            .arg(format!("-debuglogfile={}", log_file_path))
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null())
+            .spawn()
+            .expect("Failed to start bitcoind");
+
+        struct WithProcessCleanup(pub std::process::Child, ExtendedRpc, std::path::PathBuf);
+        impl WithProcessCleanup {
+            pub fn rpc(&self) -> &ExtendedRpc {
+                &self.1
+            }
+        }
+
+        impl Drop for WithProcessCleanup {
+            fn drop(&mut self) {
+                tracing::info!(
+                    "Test bitcoin regtest logs can be found at: {}",
+                    self.2.display()
+                );
+                let _ = self.0.kill();
+            }
+        }
+
+        // Create RPC client
+        let rpc_url = format!("http://127.0.0.1:{}", rpc_port);
+
+        let client = ExtendedRpc::connect(
+            rpc_url,
+            $config.bitcoin_rpc_user.clone(),
+            $config.bitcoin_rpc_password.clone(),
+        )
+        .await
+        .expect("Failed to create RPC client");
+
+        // Wait for node to be ready
+        let mut attempts = 0;
+        while attempts < 5 {
+            if client.client.get_blockchain_info().await.is_ok() {
+                break;
+            }
+            tokio::time::sleep(std::time::Duration::from_secs(1)).await;
+            attempts += 1;
+        }
+        if attempts == 5 {
+            panic!("Bitcoin node failed to start in 5 seconds");
+        }
+
+        // Create wallet
+        client
+            .client
+            .create_wallet("admin", None, None, None, None)
+            .await
+            .unwrap();
+
+        // Generate blocks
+        let address = client.client.get_new_address(None, None).await.unwrap();
+        client
+            .client
+            .generate_to_address(101, &address.assume_checked_ref())
+            .await
+            .expect("Failed to generate blocks");
+
+        WithProcessCleanup(process, client.clone(), log_file)
+    }};
+}
+
 /// Creates a temporary database for testing, using current thread's name as the
 /// database name.
 ///
