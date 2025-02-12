@@ -212,7 +212,7 @@ pub async fn parse_next_deposit_finalize_param_schnorr_sig(
             schnorr::Signature::from_slice(&final_sig)
                 .map_err(invalid_argument("FinalSig", "Invalid signature length"))?
         }
-        _ => return Err(Status::internal("Expected FinalSig")),
+        _ => return Err(Status::internal("Expected FinalSig 1")),
     };
 
     Ok(Some(final_sig))
@@ -228,7 +228,7 @@ pub async fn parse_deposit_finalize_param_agg_nonce(
             Ok(MusigAggNonce::from_slice(&aggnonce)
                 .map_err(invalid_argument("MusigAggNonce", "failed to parse"))?)
         }
-        _ => Err(Status::internal("Expected FinalSig")),
+        _ => Err(Status::internal("Expected FinalSig 2")),
     }
 }
 

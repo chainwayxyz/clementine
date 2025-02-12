@@ -1,16 +1,38 @@
 use crate::actor::Actor;
-use crate::builder::transaction::{TxHandler, Unsigned};
+use crate::builder::address::{
+    derive_challenge_address_from_xonlypk_and_wpk, taproot_builder_with_scripts,
+};
+use crate::builder::sighash::{
+    calculate_num_required_nofn_sigs, calculate_num_required_nofn_sigs_per_kickoff,
+    calculate_num_required_operator_sigs, calculate_num_required_operator_sigs_per_kickoff,
+    create_nofn_sighash_stream, create_operator_sighash_stream, SignatureInfo,
+};
+use crate::builder::transaction::{create_move_to_vault_txhandler, TxHandler, Unsigned};
 use crate::builder::{self};
 use crate::config::BridgeConfig;
 use crate::database::Database;
 use crate::errors::BridgeError;
 use crate::extended_rpc::ExtendedRpc;
-use crate::musig2::AggregateFromPublicKeys;
-use crate::UTXO;
-use ::secp256k1::musig::MusigSecNonce;
-use bitcoin::{secp256k1, OutPoint};
+use crate::musig2::{self, AggregateFromPublicKeys};
+use crate::rpc::clementine::TaggedSignature;
+use crate::utils::{self, BITVM_CACHE, SECP};
+use crate::{EVMAddress, UTXO};
+use bitcoin::address::NetworkUnchecked;
+use bitcoin::hashes::Hash;
+use bitcoin::secp256k1::schnorr::Signature;
+use bitcoin::secp256k1::Message;
+use bitcoin::{secp256k1::PublicKey, OutPoint};
+use bitcoin::{Address, Amount, ScriptBuf, TapTweakHash, Txid, XOnlyPublicKey};
+use bitvm::signatures::signing_winternitz::{
+    generate_winternitz_checksig_leave_variable, WinternitzPublicKey,
+};
+use bitvm::signatures::winternitz;
+use secp256k1::musig::{MusigAggNonce, MusigPartialSignature, MusigPubNonce, MusigSecNonce};
 use std::collections::HashMap;
+use std::pin::pin;
 use std::sync::Arc;
+use tokio::sync::mpsc;
+use tokio_stream::StreamExt;
 
 #[derive(Debug)]
 pub struct NonceSession {
@@ -26,21 +48,22 @@ pub struct AllSessions {
 
 #[derive(Debug, Clone)]
 pub struct NofN {
-    pub public_keys: Vec<secp256k1::PublicKey>,
-    pub agg_xonly_pk: secp256k1::XOnlyPublicKey,
+    pub public_keys: Vec<bitcoin::secp256k1::PublicKey>,
+    pub agg_xonly_pk: bitcoin::secp256k1::XOnlyPublicKey,
     pub idx: usize,
 }
 
 impl NofN {
     pub fn new(
-        self_pk: secp256k1::PublicKey,
-        public_keys: Vec<secp256k1::PublicKey>,
+        self_pk: bitcoin::secp256k1::PublicKey,
+        public_keys: Vec<bitcoin::secp256k1::PublicKey>,
     ) -> Result<Self, BridgeError> {
         let idx = public_keys
             .iter()
             .position(|pk| pk == &self_pk)
             .ok_or(BridgeError::PublicKeyNotFound)?;
-        let agg_xonly_pk = secp256k1::XOnlyPublicKey::from_musig2_pks(public_keys.clone(), None)?;
+        let agg_xonly_pk =
+            bitcoin::secp256k1::XOnlyPublicKey::from_musig2_pks(public_keys.clone(), None)?;
         Ok(NofN {
             public_keys,
             agg_xonly_pk,
@@ -55,9 +78,9 @@ pub struct Verifier {
     pub(crate) signer: Actor,
     pub(crate) db: Database,
     pub(crate) config: BridgeConfig,
-    pub(crate) nofn_xonly_pk: secp256k1::XOnlyPublicKey,
+    pub(crate) nofn_xonly_pk: bitcoin::secp256k1::XOnlyPublicKey,
     pub(crate) nofn: Arc<tokio::sync::RwLock<Option<NofN>>>,
-    _operator_xonly_pks: Vec<secp256k1::XOnlyPublicKey>,
+    _operator_xonly_pks: Vec<bitcoin::secp256k1::XOnlyPublicKey>,
     pub(crate) nonces: Arc<tokio::sync::Mutex<AllSessions>>,
     pub idx: usize,
 }
@@ -70,7 +93,7 @@ impl Verifier {
             config.network,
         );
 
-        // let pk: secp256k1::PublicKey = config.secret_key.public_key(&utils::SECP);
+        // let pk: bitcoin::secp256k1:: PublicKey = config.secret_key.public_key(&utils::SECP);
 
         // TODO: In the future, we won't get verifiers public keys from config files, rather in set_verifiers rpc call.
         let idx = config
@@ -81,8 +104,10 @@ impl Verifier {
 
         let db = Database::new(&config).await?;
 
-        let nofn_xonly_pk =
-            secp256k1::XOnlyPublicKey::from_musig2_pks(config.verifiers_public_keys.clone(), None)?;
+        let nofn_xonly_pk = bitcoin::secp256k1::XOnlyPublicKey::from_musig2_pks(
+            config.verifiers_public_keys.clone(),
+            None,
+        )?;
 
         let operator_xonly_pks = config.operators_xonly_pks.clone();
 
@@ -112,6 +137,611 @@ impl Verifier {
             nonces: Arc::new(tokio::sync::Mutex::new(all_sessions)),
             idx,
         })
+    }
+
+    pub async fn set_verifiers(
+        &self,
+        verifiers_public_keys: Vec<PublicKey>,
+    ) -> Result<(), BridgeError> {
+        // Check if verifiers are already set
+        if self.nofn.read().await.clone().is_some() {
+            return Err(BridgeError::AlreadyInitialized);
+        }
+
+        // Save verifiers public keys to db
+        self.db
+            .set_verifiers_public_keys(None, &verifiers_public_keys)
+            .await?;
+
+        // Save the nofn to memory for fast access
+        let nofn = NofN::new(self.signer.public_key, verifiers_public_keys.clone())?;
+        self.nofn.write().await.replace(nofn);
+
+        Ok(())
+    }
+
+    pub async fn set_operator(
+        &self,
+        operator_index: u32,
+        collateral_funding_txid: Txid,
+        operator_xonly_pk: XOnlyPublicKey,
+        wallet_reimburse_address: Address,
+        operator_winternitz_public_keys: Vec<winternitz::PublicKey>,
+        operators_challenge_ack_public_hashes: Vec<[u8; 20]>,
+    ) -> Result<(), BridgeError> {
+        // Save the operator details to the db
+        self.db
+            .set_operator(
+                None,
+                operator_index as i32,
+                operator_xonly_pk,
+                wallet_reimburse_address.to_string(),
+                collateral_funding_txid,
+            )
+            .await?;
+
+        self.db
+            .set_operator_winternitz_public_keys(
+                None,
+                operator_index,
+                operator_winternitz_public_keys.clone(),
+            )
+            .await?;
+
+        for i in 0..self.config.num_sequential_collateral_txs {
+            for j in 0..self.config.num_kickoffs_per_sequential_collateral_tx {
+                self.db
+                    .set_operator_challenge_ack_hashes(
+                        None,
+                        operator_index as i32,
+                        i as i32,
+                        j as i32,
+                        &operators_challenge_ack_public_hashes[self.config.num_watchtowers
+                            * (i * self.config.num_kickoffs_per_sequential_collateral_tx + j)
+                            ..self.config.num_watchtowers
+                                * (i * self.config.num_kickoffs_per_sequential_collateral_tx
+                                    + j
+                                    + 1)],
+                    )
+                    .await?;
+            }
+        }
+
+        // Split the winternitz public keys into chunks for every sequential collateral tx and kickoff index.
+        // This is done because we need to generate a separate BitVM setup for each collateral tx and kickoff index.
+        let chunk_size = BITVM_CACHE.intermediate_variables.len();
+        let winternitz_public_keys_chunks =
+            operator_winternitz_public_keys.chunks_exact(chunk_size);
+
+        // iterate over the chunks and generate precalculated BitVM Setups
+        for (chunk_idx, winternitz_public_keys) in winternitz_public_keys_chunks.enumerate() {
+            let sequential_collateral_tx_idx =
+                chunk_idx / self.config.num_kickoffs_per_sequential_collateral_tx;
+            let kickoff_idx = chunk_idx % self.config.num_kickoffs_per_sequential_collateral_tx;
+
+            let assert_tx_addrs = BITVM_CACHE
+                .intermediate_variables
+                .iter()
+                .enumerate()
+                .map(|(idx, (_intermediate_step, intermediate_step_size))| {
+                    let script = generate_winternitz_checksig_leave_variable(
+                        &WinternitzPublicKey {
+                            public_key: winternitz_public_keys[idx].clone(),
+                            parameters: winternitz::Parameters::new(
+                                *intermediate_step_size as u32 * 2,
+                                4,
+                            ),
+                        },
+                        *intermediate_step_size,
+                    )
+                    .compile();
+                    let (assert_tx_addr, _) = builder::address::create_taproot_address(
+                        &[script.clone()],
+                        None,
+                        self.config.network,
+                    );
+                    assert_tx_addr.script_pubkey()
+                })
+                .collect::<Vec<_>>();
+
+            // TODO: Use correct verification key and along with a dummy proof.
+            let scripts: Vec<ScriptBuf> = {
+                tracing::info!("Replacing disprove scripts");
+                utils::replace_disprove_scripts(winternitz_public_keys)
+                // let mut bridge_assigner = BridgeAssigner::new_watcher(commits_publickeys);
+                // let proof = RawProof::default();
+                // let segments = groth16_verify_to_segments(
+                //     &mut bridge_assigner,
+                //     &proof.public,
+                //     &proof.proof,
+                //     &proof.vk,
+                // );
+
+                // segments
+                //     .iter()
+                //     .map(|s| s.script.clone().compile())
+                //     .collect()
+                // vec![bitcoin::script::Builder::new()
+                //     .push_opcode(bitcoin::opcodes::all::OP_PUSHNUM_1)
+                //     .into_script()]
+            };
+
+            let taproot_builder = taproot_builder_with_scripts(&scripts);
+            let root_hash = taproot_builder
+                .try_into_taptree()
+                .expect("taproot builder always builds a full taptree")
+                .root_hash();
+            let root_hash_bytes = root_hash.to_raw_hash().to_byte_array();
+
+            // Save the public input wots to db along with the root hash
+            self.db
+                .set_bitvm_setup(
+                    None,
+                    operator_index as i32,
+                    sequential_collateral_tx_idx as i32,
+                    kickoff_idx as i32,
+                    assert_tx_addrs,
+                    &root_hash_bytes,
+                    vec![],
+                )
+                .await?;
+        }
+
+        Ok(())
+    }
+
+    pub async fn set_watchtower(
+        &self,
+        id: u32,
+        watchtower_winternitz_public_keys: Vec<winternitz::PublicKey>,
+        xonly_pk: XOnlyPublicKey,
+    ) -> Result<(), BridgeError> {
+        let &crate::config::BridgeConfig {
+            num_operators,
+            num_sequential_collateral_txs,
+            num_kickoffs_per_sequential_collateral_tx,
+            ..
+        } = &self.config;
+
+        let required_number_of_pubkeys = num_operators
+            * num_sequential_collateral_txs
+            * num_kickoffs_per_sequential_collateral_tx;
+        if watchtower_winternitz_public_keys.len() != required_number_of_pubkeys {
+            return Err(BridgeError::Error(format!(
+                "{} Winternitz public keys are required but only {} given!",
+                required_number_of_pubkeys,
+                watchtower_winternitz_public_keys.len(),
+            )));
+        }
+
+        tracing::info!("Verifier receives watchtower index: {:?}", id);
+        tracing::info!(
+            "Verifier receives watchtower xonly public key: {:?}",
+            xonly_pk
+        );
+
+        for operator_idx in 0..num_operators {
+            let index = operator_idx
+                * num_sequential_collateral_txs
+                * num_kickoffs_per_sequential_collateral_tx;
+            self.db
+                .set_watchtower_winternitz_public_keys(
+                    None,
+                    id,
+                    operator_idx as u32,
+                    watchtower_winternitz_public_keys[index
+                        ..index
+                            + num_sequential_collateral_txs
+                                * num_kickoffs_per_sequential_collateral_tx]
+                        .to_vec(),
+                )
+                .await?;
+
+            // For each saved winternitz public key, derive the challenge address
+            let mut watchtower_challenge_addresses = Vec::new();
+            for winternitz_pk in watchtower_winternitz_public_keys[index
+                ..index
+                    + self.config.num_sequential_collateral_txs
+                        * self.config.num_kickoffs_per_sequential_collateral_tx]
+                .iter()
+            {
+                let challenge_address = derive_challenge_address_from_xonlypk_and_wpk(
+                    &xonly_pk,
+                    winternitz_pk,
+                    self.config.network,
+                )
+                .script_pubkey();
+                watchtower_challenge_addresses.push(challenge_address);
+            }
+
+            // TODO: After precalculating challenge addresses, maybe remove saving winternitz public keys to db
+            self.db
+                .set_watchtower_challenge_addresses(
+                    None,
+                    id,
+                    operator_idx as u32,
+                    watchtower_challenge_addresses,
+                )
+                .await?;
+        }
+
+        self.db.set_watchtower_xonly_pk(None, id, &xonly_pk).await?;
+
+        Ok(())
+    }
+
+    pub async fn nonce_gen(
+        &self,
+        num_nonces: u32,
+    ) -> Result<(u32, Vec<MusigPubNonce>), BridgeError> {
+        let (sec_nonces, pub_nonces): (Vec<MusigSecNonce>, Vec<MusigPubNonce>) = (0..num_nonces)
+            .map(|_| {
+                // nonce pair needs keypair and a rng
+                let (sec_nonce, pub_nonce) = musig2::nonce_pair(
+                    &self.signer.keypair,
+                    &mut bitcoin::secp256k1::rand::thread_rng(),
+                )?;
+                Ok((sec_nonce, pub_nonce))
+            })
+            .collect::<Result<Vec<(MusigSecNonce, MusigPubNonce)>, BridgeError>>()?
+            .into_iter()
+            .unzip(); // TODO: fix extra copies
+
+        let session = NonceSession { nonces: sec_nonces };
+
+        // save the session
+        let session_id = {
+            let all_sessions = &mut *self.nonces.lock().await;
+            let session_id = all_sessions.cur_id;
+            all_sessions.sessions.insert(session_id, session);
+            all_sessions.cur_id += 1;
+            session_id
+        };
+
+        Ok((session_id, pub_nonces))
+    }
+
+    pub async fn deposit_sign(
+        &self,
+        deposit_outpoint: OutPoint,
+        evm_address: EVMAddress,
+        recovery_taproot_address: Address<NetworkUnchecked>,
+        user_takes_after: u16,
+        session_id: u32,
+        mut agg_nonce_rx: mpsc::Receiver<MusigAggNonce>,
+    ) -> Result<mpsc::Receiver<MusigPartialSignature>, BridgeError> {
+        let verifier = self.clone();
+        let (partial_sig_tx, partial_sig_rx) = mpsc::channel(1280);
+
+        tokio::spawn(async move {
+            let mut session_map = verifier.nonces.lock().await;
+            let session = session_map.sessions.get_mut(&session_id).ok_or_else(|| {
+                BridgeError::Error(format!("Could not find session id {session_id}"))
+            })?;
+            session.nonces.reverse();
+
+            let mut nonce_idx: usize = 0;
+
+            let mut sighash_stream = Box::pin(create_nofn_sighash_stream(
+                verifier.db.clone(),
+                verifier.config.clone(),
+                deposit_outpoint,
+                evm_address,
+                recovery_taproot_address,
+                verifier.nofn_xonly_pk,
+                user_takes_after,
+                Amount::from_sat(200_000_000), // TODO: Fix this.
+                6,
+                100,
+                verifier.config.bridge_amount_sats,
+                verifier.config.network,
+            ));
+            let num_required_sigs = calculate_num_required_nofn_sigs(&verifier.config);
+
+            assert!(
+                num_required_sigs + 1 == session.nonces.len(),
+                "Expected nonce count to be num_required_sigs + 1 (movetx)"
+            );
+
+            while let Some(agg_nonce) = agg_nonce_rx.recv().await {
+                let sighash = sighash_stream
+                    .next()
+                    .await
+                    .ok_or(BridgeError::Error("No sighash received".to_string()))??;
+                tracing::debug!("Verifier {} found sighash: {:?}", verifier.idx, sighash);
+
+                let nonce = session
+                    .nonces
+                    .pop()
+                    .ok_or(BridgeError::Error("No nonce available".to_string()))?;
+                let partial_sig = musig2::partial_sign(
+                    verifier.config.verifiers_public_keys.clone(),
+                    None,
+                    nonce,
+                    agg_nonce,
+                    verifier.signer.keypair,
+                    Message::from_digest(*sighash.0.as_byte_array()),
+                )?;
+                partial_sig_tx
+                    .send(partial_sig)
+                    .await
+                    .map_err(|e| BridgeError::SendError("partial signature", e.to_string()))?;
+
+                nonce_idx += 1;
+                tracing::info!(
+                    "Verifier {} signed sighash {} of {}",
+                    verifier.idx,
+                    nonce_idx,
+                    num_required_sigs
+                );
+                if nonce_idx == num_required_sigs {
+                    break;
+                }
+            }
+
+            let last_nonce = session
+                .nonces
+                .pop()
+                .ok_or(BridgeError::Error("No last nonce available".to_string()))?;
+            session.nonces.clear();
+            session.nonces.push(last_nonce);
+
+            Ok::<(), BridgeError>(())
+        });
+
+        Ok(partial_sig_rx)
+    }
+
+    pub async fn deposit_finalize(
+        &self,
+        deposit_outpoint: OutPoint,
+        evm_address: EVMAddress,
+        recovery_taproot_address: Address<NetworkUnchecked>,
+        user_takes_after: u16,
+        session_id: u32,
+        mut sig_receiver: mpsc::Receiver<Signature>,
+        mut agg_nonce_receiver: mpsc::Receiver<MusigAggNonce>,
+        mut operator_sig_receiver: mpsc::Receiver<Signature>,
+    ) -> Result<MusigPartialSignature, BridgeError> {
+        let mut sighash_stream = pin!(create_nofn_sighash_stream(
+            self.db.clone(),
+            self.config.clone(),
+            deposit_outpoint,
+            evm_address,
+            recovery_taproot_address.clone(),
+            self.nofn_xonly_pk,
+            user_takes_after,
+            Amount::from_sat(200_000_000), // TODO: Fix this.
+            6,
+            100,
+            self.config.bridge_amount_sats,
+            self.config.network,
+        ));
+
+        let num_required_nofn_sigs = calculate_num_required_nofn_sigs(&self.config);
+        let num_required_nofn_sigs_per_kickoff =
+            calculate_num_required_nofn_sigs_per_kickoff(&self.config);
+        let num_required_op_sigs = calculate_num_required_operator_sigs(&self.config);
+        let num_required_op_sigs_per_kickoff = calculate_num_required_operator_sigs_per_kickoff();
+        let &BridgeConfig {
+            num_operators,
+            num_sequential_collateral_txs,
+            num_kickoffs_per_sequential_collateral_tx,
+            ..
+        } = &self.config;
+        let mut verified_sigs = vec![
+            vec![
+                vec![
+                    Vec::<TaggedSignature>::with_capacity(
+                        num_required_nofn_sigs_per_kickoff + num_required_op_sigs_per_kickoff
+                    );
+                    num_kickoffs_per_sequential_collateral_tx
+                ];
+                num_sequential_collateral_txs
+            ];
+            num_operators
+        ];
+
+        let mut nonce_idx: usize = 0;
+
+        while let Some(sig) = sig_receiver.recv().await {
+            let sighash = sighash_stream
+                .next()
+                .await
+                .ok_or(BridgeError::SighashStreamEndedPrematurely)??;
+
+            tracing::debug!("Verifying Final Signature");
+            utils::SECP
+                .verify_schnorr(&sig, &Message::from(sighash.0), &self.nofn_xonly_pk)
+                .map_err(|x| {
+                    BridgeError::Error(format!(
+                        "Nofn Signature {} Verification Failed: {}.",
+                        nonce_idx + 1,
+                        x
+                    ))
+                })?;
+            let &SignatureInfo {
+                operator_idx,
+                sequential_collateral_idx,
+                kickoff_utxo_idx,
+                signature_id,
+            } = &sighash.1;
+            let tagged_sig = TaggedSignature {
+                signature: sig.serialize().to_vec(),
+                signature_id: Some(signature_id),
+            };
+            verified_sigs[operator_idx][sequential_collateral_idx][kickoff_utxo_idx]
+                .push(tagged_sig);
+            tracing::debug!("Final Signature Verified");
+
+            nonce_idx += 1;
+            if nonce_idx == num_required_nofn_sigs {
+                break;
+            }
+        }
+
+        if nonce_idx != num_required_nofn_sigs {
+            return Err(BridgeError::Error(format!(
+                "Not received enough nofn signatures. Needed: {}, received: {}",
+                num_required_nofn_sigs, nonce_idx
+            )));
+        }
+
+        // Generate partial signature for move transaction
+        let move_txhandler = create_move_to_vault_txhandler(
+            deposit_outpoint,
+            evm_address,
+            &recovery_taproot_address,
+            self.nofn_xonly_pk,
+            user_takes_after,
+            self.config.bridge_amount_sats,
+            self.config.network,
+        )?;
+
+        let move_tx_sighash = move_txhandler.calculate_script_spend_sighash_indexed(
+            0,
+            0,
+            bitcoin::TapSighashType::Default,
+        )?;
+
+        let agg_nonce =
+            agg_nonce_receiver
+                .recv()
+                .await
+                .ok_or(BridgeError::ChannelEndedPrematurely(
+                    "verifier::deposit_finalize",
+                    "aggregated nonces",
+                ))?;
+
+        let movetx_secnonce = {
+            let mut session_map = self.nonces.lock().await;
+            let session = session_map.sessions.get_mut(&session_id).ok_or_else(|| {
+                BridgeError::Error(format!(
+                    "could not find session with id {} in session cache",
+                    session_id
+                ))
+            })?;
+            session
+                .nonces
+                .pop()
+                .ok_or_else(|| BridgeError::Error("No move tx secnonce in session".to_string()))?
+        };
+
+        let num_required_total_op_sigs = num_required_op_sigs * self.config.num_operators;
+        let mut total_op_sig_count = 0;
+
+        // get operator data
+        let operators_data: Vec<(XOnlyPublicKey, bitcoin::Address, Txid)> =
+            self.db.get_operators(None).await?;
+
+        // get signatures of operators and verify them
+        for (operator_idx, (op_xonly_pk, _, collateral_txid)) in operators_data.iter().enumerate() {
+            let mut op_sig_count = 0;
+            // tweak the operator xonly public key with None (because merkle root is empty as operator utxos have no scripts)
+            let scalar = TapTweakHash::from_key_and_tweak(*op_xonly_pk, None).to_scalar();
+            let tweaked_op_xonly_pk = op_xonly_pk
+                .add_tweak(&SECP, &scalar)
+                .map_err(|x| {
+                    BridgeError::Error(format!("Failed to tweak operator xonly public key: {}", x))
+                })?
+                .0;
+            // generate the sighash stream for operator
+            let mut sighash_stream = pin!(create_operator_sighash_stream(
+                self.db.clone(),
+                operator_idx,
+                *collateral_txid,
+                *op_xonly_pk,
+                self.config.clone(),
+                deposit_outpoint,
+                evm_address,
+                recovery_taproot_address.clone(),
+                self.nofn_xonly_pk,
+                user_takes_after,
+                Amount::from_sat(200_000_000), // TODO: Fix this.
+                6,
+                100,
+                self.config.bridge_amount_sats,
+                self.config.network,
+            ));
+            while let Some(operator_sig) = operator_sig_receiver.recv().await {
+                let sighash = sighash_stream
+                    .next()
+                    .await
+                    .ok_or(BridgeError::SighashStreamEndedPrematurely)??;
+
+                utils::SECP
+                    .verify_schnorr(
+                        &operator_sig,
+                        &Message::from(sighash.0),
+                        &tweaked_op_xonly_pk,
+                    )
+                    .map_err(|x| {
+                        BridgeError::Error(format!(
+                            "Operator {} Signature {}: verification failed: {}.",
+                            operator_idx,
+                            op_sig_count + 1,
+                            x
+                        ))
+                    })?;
+
+                let &SignatureInfo {
+                    operator_idx,
+                    sequential_collateral_idx,
+                    kickoff_utxo_idx,
+                    signature_id,
+                } = &sighash.1;
+                let tagged_sig = TaggedSignature {
+                    signature: operator_sig.serialize().to_vec(),
+                    signature_id: Some(signature_id),
+                };
+                verified_sigs[operator_idx][sequential_collateral_idx][kickoff_utxo_idx]
+                    .push(tagged_sig);
+
+                op_sig_count += 1;
+                total_op_sig_count += 1;
+                if op_sig_count == num_required_op_sigs {
+                    break;
+                }
+            }
+        }
+
+        if total_op_sig_count != num_required_total_op_sigs {
+            return Err(BridgeError::Error(format!(
+                "Not enough operator signatures. Needed: {}, received: {}",
+                num_required_total_op_sigs, total_op_sig_count
+            )));
+        }
+
+        // sign move tx and save everything to db if everything is correct
+        let partial_sig = musig2::partial_sign(
+            self.config.verifiers_public_keys.clone(),
+            None,
+            movetx_secnonce,
+            agg_nonce,
+            self.signer.keypair,
+            Message::from_digest(move_tx_sighash.to_byte_array()),
+        )?;
+
+        // Deposit is not actually finalized here, its only finalized after the aggregator gets all the partial sigs and checks the aggregated sig
+        // TODO: It can create problems if the deposit fails at the end by some verifier not sending movetx partial sig, but we still added sigs to db
+        for (operator_idx, operator_sigs) in verified_sigs.into_iter().enumerate() {
+            for (seq_idx, op_sequential_sigs) in operator_sigs.into_iter().enumerate() {
+                for (kickoff_idx, kickoff_sigs) in op_sequential_sigs.into_iter().enumerate() {
+                    self.db
+                        .set_deposit_signatures(
+                            None,
+                            deposit_outpoint,
+                            operator_idx,
+                            seq_idx,
+                            kickoff_idx,
+                            kickoff_sigs,
+                        )
+                        .await?;
+                }
+            }
+        }
+
+        Ok(partial_sig)
     }
 
     // / Inform verifiers about the new deposit request
@@ -196,7 +826,7 @@ impl Verifier {
     //     &self,
     //     deposit_outpoint: OutPoint,
     //     kickoff_utxos: Vec<UTXO>,
-    //     operators_kickoff_sigs: Vec<secp256k1::schnorr::Signature>, // These are not transaction signatures, rather, they are to verify the operator's identity.
+    //     operators_kickoff_sigs: Vec<bitcoin::secp256k1:: schnorr::Signature>, // These are not transaction signatures, rather, they are to verify the operator's identity.
     //     agg_nonces: Vec<MusigAggNonce>, // This includes all the agg_nonces for the bridge operations.
     // ) -> Result<(Vec<MusigPartialSignature>, Vec<MusigPartialSignature>), BridgeError> {
     //     tracing::debug!(
@@ -229,7 +859,7 @@ impl Verifier {
     //         // Check if they are really the operators that sent these kickoff_utxos
     //         utils::SECP.verify_schnorr(
     //             &operators_kickoff_sigs[i],
-    //             &secp256k1::Message::from_digest(kickoff_sig_hash),
+    //             &bitcoin::secp256k1:: Message::from_digest(kickoff_sig_hash),
     //             &self.config.operators_xonly_pks[i],
     //         )?;
 
@@ -394,7 +1024,7 @@ impl Verifier {
     //             utils::SECP
     //                 .verify_schnorr(
     //                     &slash_or_take_sigs[index],
-    //                     &secp256k1::Message::from_digest(slash_or_take_sighash.to_byte_array()),
+    //                     &bitcoin::secp256k1:: Message::from_digest(slash_or_take_sighash.to_byte_array()),
     //                     &self.nofn_xonly_pk,
     //                 )
     //                 .unwrap();
@@ -467,7 +1097,7 @@ impl Verifier {
     //     // println!("Operator take signed: {:?}", operator_take_sigs);
     //     let (kickoff_utxos, mut move_tx_handler, bridge_fund_outpoint) =
     //         self.create_deposit_details(deposit_outpoint).await?;
-    //     let nofn_taproot_xonly_pk = secp256k1::XOnlyPublicKey::from_slice(
+    //     let nofn_taproot_xonly_pk = bitcoin::secp256k1:: XOnlyPublicKey::from_slice(
     //         &Address::p2tr(&utils::SECP, self.nofn_xonly_pk, None, self.config.network)
     //             .script_pubkey()
     //             .as_bytes()[2..34],
@@ -517,7 +1147,7 @@ impl Verifier {
     //             utils::SECP
     //                 .verify_schnorr(
     //                     &operator_take_sigs[index],
-    //                     &secp256k1::Message::from_digest(sig_hash.to_byte_array()),
+    //                     &bitcoin::secp256k1:: Message::from_digest(sig_hash.to_byte_array()),
     //                     &nofn_taproot_xonly_pk,
     //                 )
     //                 .unwrap();
@@ -611,7 +1241,7 @@ impl Verifier {
     //             &SECP
     //                 .verify_schnorr(
     //                     &slash_or_take_sigs[index],
-    //                     &secp256k1::Message::from_digest(slash_or_take_sighash.to_byte_array()),
+    //                     &bitcoin::secp256k1:: Message::from_digest(slash_or_take_sighash.to_byte_array()),
     //                     &self.nofn_xonly_pk,
     //                 )
     //                 .unwrap();
@@ -684,7 +1314,7 @@ impl Verifier {
     //     // println!("Operator take signed: {:?}", operator_take_sigs);
     //     let (kickoff_utxos, mut move_tx_handler, bridge_fund_outpoint) =
     //         self.create_deposit_details(deposit_outpoint).await?;
-    //     let nofn_taproot_xonly_pk = secp256k1::XOnlyPublicKey::from_slice(
+    //     let nofn_taproot_xonly_pk = bitcoin::secp256k1:: XOnlyPublicKey::from_slice(
     //         &Address::p2tr(&SECP, self.nofn_xonly_pk, None, self.config.network)
     //             .script_pubkey()
     //             .as_bytes()[2..34],
@@ -734,7 +1364,7 @@ impl Verifier {
     //             &SECP
     //                 .verify_schnorr(
     //                     &operator_take_sigs[index],
-    //                     &secp256k1::Message::from_digest(sig_hash.to_byte_array()),
+    //                     &bitcoin::secp256k1:: Message::from_digest(sig_hash.to_byte_array()),
     //                     &nofn_taproot_xonly_pk,
     //                 )
     //                 .unwrap();
@@ -805,7 +1435,7 @@ impl Verifier {
 // use crate::{
 //     config::BridgeConfig, database::Database, initialize_database, utils::initialize_logger,
 // };
-// use secp256k1::rand;
+// use bitcoin::secp256k1:: rand;
 // use std::{env, thread};
 
 // #[tokio::test]
