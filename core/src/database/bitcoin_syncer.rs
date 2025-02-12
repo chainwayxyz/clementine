@@ -10,7 +10,7 @@ impl Database {
         block_hash: &BlockHash,
         prev_block_hash: &BlockHash,
         block_height: i64,
-    ) -> Result<i32, BridgeError> {
+    ) -> Result<u32, BridgeError> {
         let query = sqlx::query_scalar(
             "INSERT INTO bitcoin_syncer (blockhash, prev_blockhash, height) VALUES ($1, $2, $3) RETURNING id",
         )
@@ -18,9 +18,9 @@ impl Database {
         .bind(BlockHashDB(*prev_block_hash))
         .bind(block_height);
 
-        let id = execute_query_with_tx!(self.connection, tx, query, fetch_one)?;
+        let id: i32 = execute_query_with_tx!(self.connection, tx, query, fetch_one)?;
 
-        Ok(id)
+        Ok(id as u32)
     }
 
     pub async fn get_max_height(
@@ -77,11 +77,11 @@ impl Database {
     pub async fn insert_tx(
         &self,
         tx: DatabaseTransaction<'_, '_>,
-        block_id: i32,
+        block_id: u32,
         txid: &bitcoin::Txid,
     ) -> Result<(), BridgeError> {
         sqlx::query("INSERT INTO bitcoin_syncer_txs (block_id, txid) VALUES ($1, $2)")
-            .bind(block_id)
+            .bind(block_id as i32)
             .bind(super::wrapper::TxidDB(*txid))
             .execute(tx.deref_mut())
             .await?;
@@ -91,7 +91,7 @@ impl Database {
     pub async fn insert_spent_utxo(
         &self,
         tx: DatabaseTransaction<'_, '_>,
-        block_id: i32,
+        block_id: u32,
         spending_txid: &bitcoin::Txid,
         txid: &bitcoin::Txid,
         vout: i64,
@@ -99,7 +99,7 @@ impl Database {
         sqlx::query(
             "INSERT INTO bitcoin_syncer_spent_utxos (block_id, spending_txid, txid, vout) VALUES ($1, $2, $3, $4)",
         )
-        .bind(block_id)
+        .bind(block_id as i32)
         .bind(super::wrapper::TxidDB(*spending_txid))
         .bind(super::wrapper::TxidDB(*txid))
         .bind(vout)
@@ -107,6 +107,7 @@ impl Database {
         .await?;
         Ok(())
     }
+
     pub async fn add_event(
         &self,
         tx: Option<DatabaseTransaction<'_, '_>>,
