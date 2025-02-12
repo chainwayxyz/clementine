@@ -228,7 +228,7 @@ pub enum BridgeError {
     NoScriptsForTxIn(usize),
     #[error("No script in TxHandler for the index {0}")]
     NoScriptAtIndex(usize),
-    #[error("Spend Path in SpentTxIn in TxHandler not specified")]
+    #[error("Spend Path in SpentTxIn in TxHandler not specified when signing")]
     SpendPathNotSpecified,
     #[error("Actor does not own the key needed in P2TR keypath")]
     NotOwnKeyPath,
