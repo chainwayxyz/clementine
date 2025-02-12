@@ -209,7 +209,7 @@ service ClementineOperator {
   //
   // # Returns
   // - Raw signed transaction
-  rpc CreateSignedTx(TransactionRequest) returns (RawSignedTx) {}
+  rpc InternalCreateSignedTx(TransactionRequest) returns (RawSignedTx) {}
 
   // Creates all assert transactions (AssertBegin, MiniAsserts, AssertEnd), signs them, and returns the raw txs
   // in the same order.
@@ -220,7 +220,7 @@ service ClementineOperator {
   //
   // # Returns
   // - Raw signed assert transactions
-  rpc CreateAssertCommitmentTxs(AssertRequest) returns (RawSignedTxs) {}
+  rpc InternalCreateAssertCommitmentTxs(AssertRequest) returns (RawSignedTxs) {}
   // Returns an operator's parameters. It will be called once, by the
   // aggregator, to set all the public keys.
   //
@@ -324,7 +324,7 @@ service ClementineVerifier {
   //
   // # Returns
   // - Raw signed transaction
-  rpc CreateSignedTx(TransactionRequest) returns (RawSignedTx) {}
+  rpc InternalCreateSignedTx(TransactionRequest) returns (RawSignedTx) {}
   // Returns verifiers' metadata. Needs to be called once per setup.
   rpc GetParams(Empty) returns (VerifierParams) {}
 
@@ -381,7 +381,7 @@ service ClementineWatchtower {
   //
   // # Returns
   // - Raw signed transaction
-  rpc CreateSignedTx(TransactionRequest) returns (RawSignedTx) {}
+  rpc InternalCreateSignedTx(TransactionRequest) returns (RawSignedTx) {}
   // Returns every operator's winternitz public keys.
   rpc GetParams(Empty) returns (stream WatchtowerParams) {}
 }

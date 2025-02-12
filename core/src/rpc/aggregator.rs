@@ -5,7 +5,7 @@ use super::clementine::{
     DepositParams, Empty, RawSignedTx, VerifierDepositFinalizeParams,
 };
 use crate::builder::sighash::SignatureInfo;
-use crate::builder::transaction::create_move_to_vault_txhandler;
+use crate::builder::transaction::{create_move_to_vault_txhandler, DepositId};
 use crate::config::BridgeConfig;
 use crate::rpc::clementine::clementine_operator_client::ClementineOperatorClient;
 use crate::rpc::clementine::clementine_verifier_client::ClementineVerifierClient;
@@ -650,9 +650,11 @@ impl ClementineAggregator for Aggregator {
         let sighash_stream = Box::pin(create_nofn_sighash_stream(
             self.db.clone(),
             self.config.clone(),
-            deposit_outpoint,
-            evm_address,
-            recovery_taproot_address,
+            DepositId {
+                deposit_outpoint,
+                evm_address,
+                recovery_taproot_address,
+            },
             self.nofn_xonly_pk,
         ));
 

@@ -641,7 +641,7 @@ pub mod clementine_operator_client {
         ///
         /// # Returns
         /// - Raw signed transaction
-        pub async fn create_signed_tx(
+        pub async fn internal_create_signed_tx(
             &mut self,
             request: impl tonic::IntoRequest<super::TransactionRequest>,
         ) -> std::result::Result<tonic::Response<super::RawSignedTx>, tonic::Status> {
@@ -655,12 +655,15 @@ pub mod clementine_operator_client {
                 })?;
             let codec = tonic::codec::ProstCodec::default();
             let path = http::uri::PathAndQuery::from_static(
-                "/clementine.ClementineOperator/CreateSignedTx",
+                "/clementine.ClementineOperator/InternalCreateSignedTx",
             );
             let mut req = request.into_request();
             req.extensions_mut()
                 .insert(
-                    GrpcMethod::new("clementine.ClementineOperator", "CreateSignedTx"),
+                    GrpcMethod::new(
+                        "clementine.ClementineOperator",
+                        "InternalCreateSignedTx",
+                    ),
                 );
             self.inner.unary(req, path, codec).await
         }
@@ -673,7 +676,7 @@ pub mod clementine_operator_client {
         ///
         /// # Returns
         /// - Raw signed assert transactions
-        pub async fn create_assert_commitment_txs(
+        pub async fn internal_create_assert_commitment_txs(
             &mut self,
             request: impl tonic::IntoRequest<super::AssertRequest>,
         ) -> std::result::Result<tonic::Response<super::RawSignedTxs>, tonic::Status> {
@@ -687,14 +690,14 @@ pub mod clementine_operator_client {
                 })?;
             let codec = tonic::codec::ProstCodec::default();
             let path = http::uri::PathAndQuery::from_static(
-                "/clementine.ClementineOperator/CreateAssertCommitmentTxs",
+                "/clementine.ClementineOperator/InternalCreateAssertCommitmentTxs",
             );
             let mut req = request.into_request();
             req.extensions_mut()
                 .insert(
                     GrpcMethod::new(
                         "clementine.ClementineOperator",
-                        "CreateAssertCommitmentTxs",
+                        "InternalCreateAssertCommitmentTxs",
                     ),
                 );
             self.inner.unary(req, path, codec).await
@@ -933,7 +936,7 @@ pub mod clementine_verifier_client {
         ///
         /// # Returns
         /// - Raw signed transaction
-        pub async fn create_signed_tx(
+        pub async fn internal_create_signed_tx(
             &mut self,
             request: impl tonic::IntoRequest<super::TransactionRequest>,
         ) -> std::result::Result<tonic::Response<super::RawSignedTx>, tonic::Status> {
@@ -947,12 +950,15 @@ pub mod clementine_verifier_client {
                 })?;
             let codec = tonic::codec::ProstCodec::default();
             let path = http::uri::PathAndQuery::from_static(
-                "/clementine.ClementineVerifier/CreateSignedTx",
+                "/clementine.ClementineVerifier/InternalCreateSignedTx",
             );
             let mut req = request.into_request();
             req.extensions_mut()
                 .insert(
-                    GrpcMethod::new("clementine.ClementineVerifier", "CreateSignedTx"),
+                    GrpcMethod::new(
+                        "clementine.ClementineVerifier",
+                        "InternalCreateSignedTx",
+                    ),
                 );
             self.inner.unary(req, path, codec).await
         }
@@ -1237,7 +1243,7 @@ pub mod clementine_watchtower_client {
         ///
         /// # Returns
         /// - Raw signed transaction
-        pub async fn create_signed_tx(
+        pub async fn internal_create_signed_tx(
             &mut self,
             request: impl tonic::IntoRequest<super::TransactionRequest>,
         ) -> std::result::Result<tonic::Response<super::RawSignedTx>, tonic::Status> {
@@ -1251,12 +1257,15 @@ pub mod clementine_watchtower_client {
                 })?;
             let codec = tonic::codec::ProstCodec::default();
             let path = http::uri::PathAndQuery::from_static(
-                "/clementine.ClementineWatchtower/CreateSignedTx",
+                "/clementine.ClementineWatchtower/InternalCreateSignedTx",
             );
             let mut req = request.into_request();
             req.extensions_mut()
                 .insert(
-                    GrpcMethod::new("clementine.ClementineWatchtower", "CreateSignedTx"),
+                    GrpcMethod::new(
+                        "clementine.ClementineWatchtower",
+                        "InternalCreateSignedTx",
+                    ),
                 );
             self.inner.unary(req, path, codec).await
         }
@@ -1453,7 +1462,7 @@ pub mod clementine_operator_server {
         ///
         /// # Returns
         /// - Raw signed transaction
-        async fn create_signed_tx(
+        async fn internal_create_signed_tx(
             &self,
             request: tonic::Request<super::TransactionRequest>,
         ) -> std::result::Result<tonic::Response<super::RawSignedTx>, tonic::Status>;
@@ -1466,7 +1475,7 @@ pub mod clementine_operator_server {
         ///
         /// # Returns
         /// - Raw signed assert transactions
-        async fn create_assert_commitment_txs(
+        async fn internal_create_assert_commitment_txs(
             &self,
             request: tonic::Request<super::AssertRequest>,
         ) -> std::result::Result<tonic::Response<super::RawSignedTxs>, tonic::Status>;
@@ -1616,13 +1625,13 @@ pub mod clementine_operator_server {
         }
         fn call(&mut self, req: http::Request<B>) -> Self::Future {
             match req.uri().path() {
-                "/clementine.ClementineOperator/CreateSignedTx" => {
+                "/clementine.ClementineOperator/InternalCreateSignedTx" => {
                     #[allow(non_camel_case_types)]
-                    struct CreateSignedTxSvc<T: ClementineOperator>(pub Arc<T>);
+                    struct InternalCreateSignedTxSvc<T: ClementineOperator>(pub Arc<T>);
                     impl<
                         T: ClementineOperator,
                     > tonic::server::UnaryService<super::TransactionRequest>
-                    for CreateSignedTxSvc<T> {
+                    for InternalCreateSignedTxSvc<T> {
                         type Response = super::RawSignedTx;
                         type Future = BoxFuture<
                             tonic::Response<Self::Response>,
@@ -1634,7 +1643,10 @@ pub mod clementine_operator_server {
                         ) -> Self::Future {
                             let inner = Arc::clone(&self.0);
                             let fut = async move {
-                                <T as ClementineOperator>::create_signed_tx(&inner, request)
+                                <T as ClementineOperator>::internal_create_signed_tx(
+                                        &inner,
+                                        request,
+                                    )
                                     .await
                             };
                             Box::pin(fut)
@@ -1646,7 +1658,7 @@ pub mod clementine_operator_server {
                     let max_encoding_message_size = self.max_encoding_message_size;
                     let inner = self.inner.clone();
                     let fut = async move {
-                        let method = CreateSignedTxSvc(inner);
+                        let method = InternalCreateSignedTxSvc(inner);
                         let codec = tonic::codec::ProstCodec::default();
                         let mut grpc = tonic::server::Grpc::new(codec)
                             .apply_compression_config(
@@ -1662,15 +1674,15 @@ pub mod clementine_operator_server {
                     };
                     Box::pin(fut)
                 }
-                "/clementine.ClementineOperator/CreateAssertCommitmentTxs" => {
+                "/clementine.ClementineOperator/InternalCreateAssertCommitmentTxs" => {
                     #[allow(non_camel_case_types)]
-                    struct CreateAssertCommitmentTxsSvc<T: ClementineOperator>(
+                    struct InternalCreateAssertCommitmentTxsSvc<T: ClementineOperator>(
                         pub Arc<T>,
                     );
                     impl<
                         T: ClementineOperator,
                     > tonic::server::UnaryService<super::AssertRequest>
-                    for CreateAssertCommitmentTxsSvc<T> {
+                    for InternalCreateAssertCommitmentTxsSvc<T> {
                         type Response = super::RawSignedTxs;
                         type Future = BoxFuture<
                             tonic::Response<Self::Response>,
@@ -1682,7 +1694,7 @@ pub mod clementine_operator_server {
                         ) -> Self::Future {
                             let inner = Arc::clone(&self.0);
                             let fut = async move {
-                                <T as ClementineOperator>::create_assert_commitment_txs(
+                                <T as ClementineOperator>::internal_create_assert_commitment_txs(
                                         &inner,
                                         request,
                                     )
@@ -1697,7 +1709,7 @@ pub mod clementine_operator_server {
                     let max_encoding_message_size = self.max_encoding_message_size;
                     let inner = self.inner.clone();
                     let fut = async move {
-                        let method = CreateAssertCommitmentTxsSvc(inner);
+                        let method = InternalCreateAssertCommitmentTxsSvc(inner);
                         let codec = tonic::codec::ProstCodec::default();
                         let mut grpc = tonic::server::Grpc::new(codec)
                             .apply_compression_config(
@@ -1965,7 +1977,7 @@ pub mod clementine_verifier_server {
         ///
         /// # Returns
         /// - Raw signed transaction
-        async fn create_signed_tx(
+        async fn internal_create_signed_tx(
             &self,
             request: tonic::Request<super::TransactionRequest>,
         ) -> std::result::Result<tonic::Response<super::RawSignedTx>, tonic::Status>;
@@ -2103,13 +2115,13 @@ pub mod clementine_verifier_server {
         }
         fn call(&mut self, req: http::Request<B>) -> Self::Future {
             match req.uri().path() {
-                "/clementine.ClementineVerifier/CreateSignedTx" => {
+                "/clementine.ClementineVerifier/InternalCreateSignedTx" => {
                     #[allow(non_camel_case_types)]
-                    struct CreateSignedTxSvc<T: ClementineVerifier>(pub Arc<T>);
+                    struct InternalCreateSignedTxSvc<T: ClementineVerifier>(pub Arc<T>);
                     impl<
                         T: ClementineVerifier,
                     > tonic::server::UnaryService<super::TransactionRequest>
-                    for CreateSignedTxSvc<T> {
+                    for InternalCreateSignedTxSvc<T> {
                         type Response = super::RawSignedTx;
                         type Future = BoxFuture<
                             tonic::Response<Self::Response>,
@@ -2121,7 +2133,10 @@ pub mod clementine_verifier_server {
                         ) -> Self::Future {
                             let inner = Arc::clone(&self.0);
                             let fut = async move {
-                                <T as ClementineVerifier>::create_signed_tx(&inner, request)
+                                <T as ClementineVerifier>::internal_create_signed_tx(
+                                        &inner,
+                                        request,
+                                    )
                                     .await
                             };
                             Box::pin(fut)
@@ -2133,7 +2148,7 @@ pub mod clementine_verifier_server {
                     let max_encoding_message_size = self.max_encoding_message_size;
                     let inner = self.inner.clone();
                     let fut = async move {
-                        let method = CreateSignedTxSvc(inner);
+                        let method = InternalCreateSignedTxSvc(inner);
                         let codec = tonic::codec::ProstCodec::default();
                         let mut grpc = tonic::server::Grpc::new(codec)
                             .apply_compression_config(
@@ -2539,7 +2554,7 @@ pub mod clementine_watchtower_server {
         ///
         /// # Returns
         /// - Raw signed transaction
-        async fn create_signed_tx(
+        async fn internal_create_signed_tx(
             &self,
             request: tonic::Request<super::TransactionRequest>,
         ) -> std::result::Result<tonic::Response<super::RawSignedTx>, tonic::Status>;
@@ -2635,13 +2650,15 @@ pub mod clementine_watchtower_server {
         }
         fn call(&mut self, req: http::Request<B>) -> Self::Future {
             match req.uri().path() {
-                "/clementine.ClementineWatchtower/CreateSignedTx" => {
+                "/clementine.ClementineWatchtower/InternalCreateSignedTx" => {
                     #[allow(non_camel_case_types)]
-                    struct CreateSignedTxSvc<T: ClementineWatchtower>(pub Arc<T>);
+                    struct InternalCreateSignedTxSvc<T: ClementineWatchtower>(
+                        pub Arc<T>,
+                    );
                     impl<
                         T: ClementineWatchtower,
                     > tonic::server::UnaryService<super::TransactionRequest>
-                    for CreateSignedTxSvc<T> {
+                    for InternalCreateSignedTxSvc<T> {
                         type Response = super::RawSignedTx;
                         type Future = BoxFuture<
                             tonic::Response<Self::Response>,
@@ -2653,7 +2670,7 @@ pub mod clementine_watchtower_server {
                         ) -> Self::Future {
                             let inner = Arc::clone(&self.0);
                             let fut = async move {
-                                <T as ClementineWatchtower>::create_signed_tx(
+                                <T as ClementineWatchtower>::internal_create_signed_tx(
                                         &inner,
                                         request,
                                     )
@@ -2668,7 +2685,7 @@ pub mod clementine_watchtower_server {
                     let max_encoding_message_size = self.max_encoding_message_size;
                     let inner = self.inner.clone();
                     let fut = async move {
-                        let method = CreateSignedTxSvc(inner);
+                        let method = InternalCreateSignedTxSvc(inner);
                         let codec = tonic::codec::ProstCodec::default();
                         let mut grpc = tonic::server::Grpc::new(codec)
                             .apply_compression_config(

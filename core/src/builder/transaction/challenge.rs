@@ -12,7 +12,7 @@ use std::sync::Arc;
 /// Creates a "simplified "[`TxHandler`] for the `watchtower_challenge_kickoff_tx`. The purpose of the simplification
 /// is that when the verifiers are generating related sighashes, they only need to know the output addresses or the
 /// input UTXOs. They do not need to know output scripts or spendinfos.
-pub fn create_watchtower_challenge_kickoff_txhandler_from_db(
+pub fn create_watchtower_challenge_kickoff_txhandler(
     kickoff_tx_handler: &TxHandler,
     num_watchtowers: u32,
     watchtower_challenge_addresses: &[ScriptBuf],
@@ -49,55 +49,14 @@ pub fn create_watchtower_challenge_kickoff_txhandler_from_db(
 /// the operator from sending `assert_begin_tx`.
 /// The revealed preimage will later be used to send `disprove_tx` if the operator
 /// claims that the corresponding watchtower did not challenge them.
-pub fn create_watchtower_challenge_txhandler_from_db(
+pub fn create_watchtower_challenge_txhandler(
     wcp_txhandler: &TxHandler,
     watchtower_idx: usize,
     operator_unlock_hash: &[u8; 20],
     nofn_xonly_pk: XOnlyPublicKey,
     operator_xonly_pk: XOnlyPublicKey,
     network: bitcoin::Network,
-) -> Result<TxHandler, BridgeError> {
-    let builder = TxHandlerBuilder::new(TransactionType::WatchtowerChallenge(watchtower_idx))
-        .add_input(
-            (
-                WatchtowerSignatureKind::WatchtowerNotStored,
-                watchtower_idx as i32,
-            ),
-            wcp_txhandler.get_spendable_output(watchtower_idx)?,
-            SpendPath::ScriptSpend(0),
-            DEFAULT_SEQUENCE,
-        );
-
-    let nofn_halfweek = Arc::new(TimelockScript::new(
-        Some(nofn_xonly_pk),
-        BLOCKS_PER_WEEK / 2,
-    )); // 0.5 week
-    let operator_with_preimage = Arc::new(PreimageRevealScript::new(
-        operator_xonly_pk,
-        *operator_unlock_hash,
-    ));
-
-    Ok(builder
-        .add_output(UnspentTxOut::from_scripts(
-            Amount::from_sat(1000), // TODO: Hand calculate this
-            vec![operator_with_preimage, nofn_halfweek],
-            None,
-            network,
-        ))
-        .add_output(UnspentTxOut::from_partial(
-            builder::transaction::anchor_output(),
-        ))
-        .finalize())
-}
-
-pub fn create_watchtower_challenge_txhandler_from_script(
-    wcp_txhandler: &TxHandler,
-    watchtower_idx: usize,
-    operator_unlock_hash: &[u8; 20],
-    script: Arc<WinternitzCommit>,
-    nofn_xonly_pk: XOnlyPublicKey,
-    operator_xonly_pk: XOnlyPublicKey,
-    network: bitcoin::Network,
+    script: Option<Arc<WinternitzCommit>>,
 ) -> Result<TxHandler, BridgeError> {
     let prevout = wcp_txhandler.get_spendable_output(watchtower_idx)?;
     let builder = TxHandlerBuilder::new(TransactionType::WatchtowerChallenge(watchtower_idx))
@@ -106,14 +65,23 @@ pub fn create_watchtower_challenge_txhandler_from_script(
                 WatchtowerSignatureKind::WatchtowerNotStored,
                 watchtower_idx as i32,
             ),
-            // generate with script instead of spendable output of wcp_txhandler
-            SpendableTxIn::from_scripts(
-                *prevout.get_prev_outpoint(),
-                prevout.get_prevout().value,
-                vec![script],
-                None,
-                network,
-            ),
+            // if a script is not provided, that means this tx will not be signed so there doesn't need
+            // to be actual script and spendinfo inside the txin
+            // If we want to sign it we need to add the script inside the SpendableTxIn
+            match script {
+                None => {
+                    prevout
+                }
+                Some(commit_script) => {
+                    SpendableTxIn::from_scripts(
+                        *prevout.get_prev_outpoint(),
+                        prevout.get_prevout().value,
+                        vec![commit_script],
+                        None,
+                        network,
+                    )
+                }
+            },
             SpendPath::ScriptSpend(0),
             DEFAULT_SEQUENCE,
         );

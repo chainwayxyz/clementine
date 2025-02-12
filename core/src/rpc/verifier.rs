@@ -41,6 +41,7 @@ use std::pin::pin;
 use tokio::sync::mpsc::{self, error::SendError};
 use tokio_stream::wrappers::ReceiverStream;
 use tonic::{async_trait, Request, Response, Status, Streaming};
+use crate::builder::transaction::DepositId;
 
 #[async_trait]
 impl ClementineVerifier for Verifier {
@@ -401,9 +402,11 @@ impl ClementineVerifier for Verifier {
             let mut sighash_stream = pin!(create_nofn_sighash_stream(
                 verifier.db,
                 verifier.config.clone(),
-                deposit_outpoint,
-                evm_address,
-                recovery_taproot_address,
+                DepositId {
+                    deposit_outpoint,
+                    evm_address,
+                    recovery_taproot_address,
+                },
                 verifier.nofn_xonly_pk,
             ));
             let num_required_sigs = calculate_num_required_nofn_sigs(&verifier.config);
@@ -510,9 +513,11 @@ impl ClementineVerifier for Verifier {
         let mut sighash_stream = pin!(create_nofn_sighash_stream(
             self.db.clone(),
             self.config.clone(),
-            deposit_outpoint,
-            evm_address,
-            recovery_taproot_address.clone(),
+            DepositId {
+                deposit_outpoint,
+                evm_address,
+                recovery_taproot_address: recovery_taproot_address.clone(),
+            },
             self.nofn_xonly_pk,
         ));
 
@@ -651,9 +656,11 @@ impl ClementineVerifier for Verifier {
                 reimburse_addr.clone(),
                 *op_xonly_pk,
                 self.config.clone(),
-                deposit_outpoint,
-                evm_address,
-                recovery_taproot_address.clone(),
+                DepositId {
+                    deposit_outpoint,
+                    evm_address,
+                    recovery_taproot_address: recovery_taproot_address.clone(),
+                },
                 self.nofn_xonly_pk,
             ));
             while let Some(operator_sig) =
@@ -742,7 +749,7 @@ impl ClementineVerifier for Verifier {
     }
 
     #[tracing::instrument(skip(self), err(level = tracing::Level::ERROR), ret(level = tracing::Level::TRACE))]
-    async fn create_signed_tx(
+    async fn internal_create_signed_tx(
         &self,
         request: Request<TransactionRequest>,
     ) -> Result<Response<RawSignedTx>, Status> {

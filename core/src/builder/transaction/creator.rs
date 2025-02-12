@@ -209,7 +209,7 @@ pub async fn create_txhandlers(
         // using watchtower_challenge_tx.output[0].
 
         let watchtower_challenge_kickoff_txhandler =
-            builder::transaction::create_watchtower_challenge_kickoff_txhandler_from_db(
+            builder::transaction::create_watchtower_challenge_kickoff_txhandler(
                 get_txhandler(&txhandlers, TransactionType::Kickoff)?,
                 config.num_watchtowers as u32,
                 watchtower_challenge_addr.ok_or(BridgeError::Error(
@@ -241,13 +241,14 @@ pub async fn create_txhandlers(
         for (watchtower_idx, public_hash) in public_hashes.iter().enumerate() {
             let watchtower_challenge_txhandler = if watchtower_idx as i32 != needed_watchtower_idx {
                 // create it with db if we don't need actual winternitz script
-                builder::transaction::create_watchtower_challenge_txhandler_from_db(
+                builder::transaction::create_watchtower_challenge_txhandler(
                     get_txhandler(&txhandlers, TransactionType::WatchtowerChallengeKickoff)?,
                     watchtower_idx,
                     public_hash,
                     nofn_xonly_pk,
                     operator_data.xonly_pk,
                     config.network,
+                    None,
                 )?
             } else {
                 // generate with actual scripts if we want to specifically create a watchtower challenge tx
@@ -269,18 +270,18 @@ pub async fn create_txhandlers(
                 );
                 let public_key = actor.derive_winternitz_pk(path)?;
 
-                builder::transaction::create_watchtower_challenge_txhandler_from_script(
+                builder::transaction::create_watchtower_challenge_txhandler(
                     get_txhandler(&txhandlers, TransactionType::WatchtowerChallengeKickoff)?,
                     watchtower_idx,
                     public_hash,
-                    Arc::new(WinternitzCommit::new(
-                        public_key,
-                        actor.xonly_public_key,
-                        WATCHTOWER_CHALLENGE_MESSAGE_LENGTH,
-                    )),
                     nofn_xonly_pk,
                     operator_data.xonly_pk,
                     config.network,
+                    Some(Arc::new(WinternitzCommit::new(
+                        public_key,
+                        actor.xonly_public_key,
+                        WATCHTOWER_CHALLENGE_MESSAGE_LENGTH,
+                    ))),
                 )?
             };
             txhandlers.insert(
@@ -622,7 +623,7 @@ mod tests {
                     };
                     for tx_type in &txs_operator_can_sign {
                         let _raw_tx = operator_rpc
-                            .create_signed_tx(TransactionRequest {
+                            .internal_create_signed_tx(TransactionRequest {
                                 deposit_params: deposit_params.clone().into(),
                                 transaction_type: Some((*tx_type).into()),
                                 kickoff_id: Some(kickoff_id),
@@ -642,7 +643,7 @@ mod tests {
                     #[cfg(debug_assertions)]
                     {
                         let _raw_assert_txs = operator_rpc
-                            .create_assert_commitment_txs(AssertRequest {
+                            .internal_create_assert_commitment_txs(AssertRequest {
                                 deposit_params: deposit_params.clone().into(),
                                 kickoff_id: Some(kickoff_id),
                                 commit_data: full_commit_data.clone(),
@@ -671,7 +672,7 @@ mod tests {
                             kickoff_idx: kickoff_idx as u32,
                         };
                         let _raw_tx = watchtower_rpc
-                            .create_signed_tx(TransactionRequest {
+                            .internal_create_signed_tx(TransactionRequest {
                                 deposit_params: deposit_params.clone().into(),
                                 transaction_type: Some(
                                     TransactionType::WatchtowerChallenge(watchtower_idx).into(),
@@ -719,7 +720,7 @@ mod tests {
                         };
                         for tx_type in &txs_verifier_can_sign {
                             let _raw_tx = verifier_rpc
-                                .create_signed_tx(TransactionRequest {
+                                .internal_create_signed_tx(TransactionRequest {
                                     deposit_params: deposit_params.clone().into(),
                                     transaction_type: Some((*tx_type).into()),
                                     kickoff_id: Some(kickoff_id),

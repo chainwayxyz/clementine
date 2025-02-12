@@ -13,10 +13,9 @@ use crate::config::BridgeConfig;
 use crate::errors::BridgeError;
 use crate::rpc::clementine::tagged_signature::SignatureId;
 use crate::rpc::clementine::KickoffId;
-use crate::{database::Database, EVMAddress};
+use crate::{database::Database};
 use async_stream::try_stream;
-use bitcoin::{address::NetworkUnchecked, Address, OutPoint};
-use bitcoin::{TapSighash, Txid, XOnlyPublicKey};
+use bitcoin::{TapSighash, Txid, XOnlyPublicKey, Address};
 use futures_core::stream::Stream;
 
 /// Returns the number of required signatures for N-of-N signing session.
@@ -112,9 +111,7 @@ impl PartialSignatureInfo {
 pub fn create_nofn_sighash_stream(
     db: Database,
     config: BridgeConfig,
-    deposit_outpoint: OutPoint,
-    evm_address: EVMAddress,
-    recovery_taproot_address: Address<NetworkUnchecked>,
+    deposit_data: DepositId,
     nofn_xonly_pk: XOnlyPublicKey,
 ) -> impl Stream<Item = Result<(TapSighash, SignatureInfo), BridgeError>> {
     try_stream! {
@@ -124,11 +121,6 @@ pub fn create_nofn_sighash_stream(
         if operators.len() < config.num_operators {
             Err(BridgeError::NotEnoughOperators)?;
         }
-        let deposit_data = DepositId {
-            deposit_outpoint,
-            evm_address,
-            recovery_taproot_address,
-        };
 
         for (operator_idx, (operator_xonly_pk, operator_reimburse_address, collateral_funding_txid)) in
             operators.iter().enumerate()
@@ -210,19 +202,10 @@ pub fn create_operator_sighash_stream(
     operator_reimburse_addr: Address,
     operator_xonly_pk: XOnlyPublicKey,
     config: BridgeConfig,
-    deposit_outpoint: OutPoint,
-    evm_address: EVMAddress,
-    recovery_taproot_address: Address<NetworkUnchecked>,
+    deposit_data: DepositId,
     nofn_xonly_pk: XOnlyPublicKey,
 ) -> impl Stream<Item = Result<(TapSighash, SignatureInfo), BridgeError>> {
     try_stream! {
-
-        let deposit_data = DepositId {
-            deposit_outpoint,
-            evm_address,
-            recovery_taproot_address,
-        };
-
         let operator_data = OperatorData {
             xonly_pk: operator_xonly_pk,
             reimburse_addr: operator_reimburse_addr,
@@ -283,6 +266,7 @@ pub fn create_operator_sighash_stream(
 #[cfg(test)]
 mod tests {
     use crate::builder::sighash::create_nofn_sighash_stream;
+    use crate::builder::transaction::DepositId;
     use crate::extended_rpc::ExtendedRpc;
     use crate::operator::Operator;
     use crate::utils::BITVM_CACHE;
@@ -401,9 +385,11 @@ mod tests {
         let mut nofn_stream = pin!(create_nofn_sighash_stream(
             db,
             config.clone(),
-            deposit_outpoint,
-            evm_address,
-            recovery_taproot_address.as_unchecked().clone(),
+            DepositId {
+                deposit_outpoint,
+                evm_address,
+                recovery_taproot_address: recovery_taproot_address.as_unchecked().clone(),
+            },
             nofn_xonly_pk,
         ));
 

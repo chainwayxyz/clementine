@@ -17,6 +17,7 @@ use std::pin::pin;
 use tokio::sync::mpsc;
 use tokio_stream::wrappers::ReceiverStream;
 use tonic::{async_trait, Request, Response, Status};
+use crate::builder::transaction::DepositId;
 
 #[async_trait]
 impl ClementineOperator for Operator {
@@ -78,9 +79,11 @@ impl ClementineOperator for Operator {
                 operator.reimburse_addr.clone(),
                 operator.signer.xonly_public_key,
                 operator.config.clone(),
-                deposit_outpoint,
-                evm_address,
-                recovery_taproot_address,
+                DepositId {
+                    deposit_outpoint,
+                    evm_address,
+                    recovery_taproot_address,
+                },
                 operator.nofn_xonly_pk,
             ));
 
@@ -159,7 +162,7 @@ impl ClementineOperator for Operator {
     }
 
     #[tracing::instrument(skip(self), err(level = tracing::Level::ERROR), ret(level = tracing::Level::TRACE))]
-    async fn create_signed_tx(
+    async fn internal_create_signed_tx(
         &self,
         request: Request<TransactionRequest>,
     ) -> Result<Response<RawSignedTx>, Status> {
@@ -179,7 +182,7 @@ impl ClementineOperator for Operator {
     }
 
     #[tracing::instrument(skip(self), err(level = tracing::Level::ERROR), ret(level = tracing::Level::TRACE))]
-    async fn create_assert_commitment_txs(
+    async fn internal_create_assert_commitment_txs(
         &self,
         request: Request<AssertRequest>,
     ) -> Result<Response<RawSignedTxs>, Status> {

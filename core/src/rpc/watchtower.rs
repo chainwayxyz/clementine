@@ -54,7 +54,7 @@ impl ClementineWatchtower for Watchtower {
     }
 
     #[tracing::instrument(skip(self), err(level = tracing::Level::ERROR), ret(level = tracing::Level::TRACE))]
-    async fn create_signed_tx(
+    async fn internal_create_signed_tx(
         &self,
         request: Request<TransactionRequest>,
     ) -> Result<Response<RawSignedTx>, Status> {
