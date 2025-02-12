@@ -4,17 +4,12 @@ use super::clementine::{
     RawSignedTxs, TransactionRequest, WithdrawalFinalizedParams,
 };
 use super::error::*;
-use crate::builder::sighash::create_operator_sighash_stream;
 use crate::builder::transaction::sign::{create_and_sign_tx, create_assert_commitment_txs};
-use crate::builder::transaction::DepositId;
 use crate::rpc::parser;
 use crate::rpc::parser::{parse_assert_request, parse_transaction_request};
-use crate::UTXO;
 use crate::{errors::BridgeError, operator::Operator};
 use bitcoin::hashes::Hash;
-use bitcoin::{OutPoint, TxOut};
-use futures::StreamExt;
-use std::pin::pin;
+use bitcoin::OutPoint;
 use tokio::sync::mpsc;
 use tokio_stream::wrappers::ReceiverStream;
 use tonic::{async_trait, Request, Response, Status};

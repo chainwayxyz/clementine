@@ -4,35 +4,22 @@ use super::clementine::{
     VerifierDepositSignParams, VerifierParams, VerifierPublicKeys, WatchtowerParams,
 };
 use super::error;
-use super::error::*;
-use crate::builder::script::{SpendableScript, WinternitzCommit};
-use crate::builder::sighash::SignatureInfo;
 use crate::builder::sighash::{
     calculate_num_required_nofn_sigs, calculate_num_required_operator_sigs,
 };
 use crate::builder::transaction::sign::create_and_sign_tx;
-use crate::builder::transaction::DepositId;
-use crate::config::BridgeConfig;
 use crate::fetch_next_optional_message_from_stream;
-use crate::rpc::clementine::TaggedSignature;
 use crate::rpc::parser::parse_transaction_request;
-use crate::utils::SECP;
 use crate::{
     errors::BridgeError,
     fetch_next_message_from_stream,
     rpc::parser::{self},
-    utils::{self, BITVM_CACHE},
-    verifier::{NofN, NonceSession, Verifier},
+    utils::BITVM_CACHE,
+    verifier::Verifier,
 };
-use bitcoin::{hashes::Hash, TapTweakHash, Txid};
-use bitcoin::{
-    secp256k1::{Message, PublicKey},
-    ScriptBuf, XOnlyPublicKey,
-};
+use bitcoin::secp256k1::PublicKey;
 use clementine::verifier_deposit_finalize_params::Params;
-use futures::StreamExt;
-use secp256k1::musig::{MusigAggNonce, MusigPubNonce, MusigSecNonce};
-use std::pin::pin;
+use secp256k1::musig::MusigAggNonce;
 use tokio::sync::mpsc::{self, error::SendError};
 use tokio_stream::wrappers::ReceiverStream;
 use tonic::{async_trait, Request, Response, Status, Streaming};

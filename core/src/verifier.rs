@@ -22,7 +22,7 @@ use bitcoin::hashes::Hash;
 use bitcoin::secp256k1::schnorr::Signature;
 use bitcoin::secp256k1::Message;
 use bitcoin::{secp256k1::PublicKey, OutPoint};
-use bitcoin::{Address, Amount, ScriptBuf, TapTweakHash, Txid, XOnlyPublicKey};
+use bitcoin::{Address, ScriptBuf, TapTweakHash, Txid, XOnlyPublicKey};
 use bitvm::signatures::signing_winternitz::{
     generate_winternitz_checksig_leave_variable, WinternitzPublicKey,
 };
