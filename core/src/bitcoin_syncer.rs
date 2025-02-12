@@ -8,7 +8,7 @@ use crate::{
     errors::BridgeError,
     extended_rpc::ExtendedRpc,
 };
-use bitcoin::{block::Header, BlockHash};
+use bitcoin::{block::Header, BlockHash, OutPoint};
 use bitcoincore_rpc::RpcApi;
 use std::time::Duration;
 use tokio::{task::JoinHandle, time::sleep};
@@ -29,7 +29,7 @@ pub enum BitcoinSyncerEvent {
 }
 
 /// Fetches the [`BlockInfo`] for a given height from Bitcoin.
-async fn get_block_info_from_height(
+async fn fetch_block_info_from_height(
     rpc: &ExtendedRpc,
     height: u64,
 ) -> Result<BlockInfo, BridgeError> {
@@ -49,8 +49,8 @@ async fn save_block(
     dbtx: DatabaseTransaction<'_, '_>,
     block: &bitcoin::Block,
     block_height: i64,
-) -> Result<(), BridgeError> {
-    let block_hash = block.header.block_hash();
+) -> Result<u32, BridgeError> {
+    let block_hash = block.block_hash();
     tracing::debug!(
         "Saving a block with hash of {} and height of {}",
         block_hash,
@@ -72,14 +72,42 @@ async fn save_block(
         block_hash
     );
     for tx in &block.txdata {
-        save_transaction(db, dbtx, tx, block_id).await?;
+        save_transaction_spent_utxos(db, dbtx, tx, block_id).await?;
     }
 
-    Ok(())
+    Ok(block_id)
+}
+async fn _get_block_info_from_hash(
+    db: &Database,
+    dbtx: DatabaseTransaction<'_, '_>,
+    rpc: ExtendedRpc,
+    hash: BlockHash,
+) -> Result<(BlockInfo, Vec<Vec<OutPoint>>), BridgeError> {
+    let block = rpc.client.get_block(&hash).await?;
+    let block_height = db
+        .get_block_info_from_hash(Some(dbtx), hash)
+        .await?
+        .ok_or(BridgeError::BlockNotFound)?
+        .1;
+
+    let mut block_utxos = vec![vec![]];
+    for tx in &block.txdata {
+        let txid = tx.compute_txid();
+        let spent_utxos = _get_transaction_spent_utxos(db, dbtx, txid).await?;
+        block_utxos.push(spent_utxos);
+    }
+
+    let block_info = BlockInfo {
+        hash,
+        _header: block.header,
+        height: block_height as u64,
+    };
+
+    Ok((block_info, block_utxos))
 }
 
 /// Saves a Bitcoin transaction and its spent UTXOs to the database.
-async fn save_transaction(
+async fn save_transaction_spent_utxos(
     db: &Database,
     dbtx: DatabaseTransaction<'_, '_>,
     tx: &bitcoin::Transaction,
@@ -101,6 +129,16 @@ async fn save_transaction(
 
     Ok(())
 }
+async fn _get_transaction_spent_utxos(
+    db: &Database,
+    dbtx: DatabaseTransaction<'_, '_>,
+    txid: bitcoin::Txid,
+) -> Result<Vec<OutPoint>, BridgeError> {
+    let utxos = db.get_spent_utxos_for_txid(Some(dbtx), txid).await?;
+    let utxos = utxos.into_iter().map(|utxo| utxo.1).collect::<Vec<_>>();
+
+    Ok(utxos)
+}
 
 /// If no block info exists in the DB, fetches the current block from the RPC and initializes the DB.
 pub async fn set_initial_block_info_if_not_exists(
@@ -112,7 +150,7 @@ pub async fn set_initial_block_info_if_not_exists(
     }
 
     let current_height = rpc.client.get_block_count().await?;
-    let block_info = get_block_info_from_height(rpc, current_height).await?;
+    let block_info = fetch_block_info_from_height(rpc, current_height).await?;
     let block = rpc.client.get_block(&block_info.hash).await?;
 
     let mut dbtx = db.begin_transaction().await?;
@@ -258,16 +296,22 @@ pub async fn start_bitcoin_syncer(
             sleep(poll_delay).await;
         }
     });
+
     Ok(handle)
 }
 
 #[cfg(test)]
 mod tests {
+    use crate::builder::transaction::DEFAULT_SEQUENCE;
     use crate::create_test_config_with_thread_name;
     use crate::extended_rpc::ExtendedRpc;
     use crate::{
         config::BridgeConfig, database::Database, initialize_database, utils::initialize_logger,
     };
+    use bitcoin::absolute::Height;
+    use bitcoin::hashes::Hash;
+    use bitcoin::transaction::Version;
+    use bitcoin::{OutPoint, ScriptBuf, Transaction, TxIn, Witness};
     use bitcoincore_rpc::RpcApi;
 
     #[tokio::test]
@@ -287,7 +331,7 @@ mod tests {
         let hash = rpc.client.get_block_hash(height).await.unwrap();
         let header = rpc.client.get_block_header(&hash).await.unwrap();
 
-        let block_info = super::get_block_info_from_height(&rpc, height)
+        let block_info = super::fetch_block_info_from_height(&rpc, height)
             .await
             .unwrap();
         assert_eq!(block_info._header, header);
@@ -297,12 +341,75 @@ mod tests {
         rpc.mine_blocks(1).await.unwrap();
         let height = rpc.client.get_block_count().await.unwrap();
 
-        let block_info = super::get_block_info_from_height(&rpc, height)
+        let block_info = super::fetch_block_info_from_height(&rpc, height)
             .await
             .unwrap();
         assert_ne!(block_info._header, header);
         assert_ne!(block_info.hash, hash);
         assert_eq!(block_info.height, height);
+    }
+
+    #[tokio::test]
+    async fn save_get_transaction_spent_utxos() {
+        let config = create_test_config_with_thread_name!(None);
+        let db = Database::new(&config).await.unwrap();
+        let rpc = ExtendedRpc::connect(
+            config.bitcoin_rpc_url.clone(),
+            config.bitcoin_rpc_user.clone(),
+            config.bitcoin_rpc_password.clone(),
+        )
+        .await
+        .unwrap();
+
+        let mut dbtx = db.begin_transaction().await.unwrap();
+
+        rpc.mine_blocks(1).await.unwrap();
+        let height = rpc.client.get_block_count().await.unwrap();
+        let hash = rpc.client.get_block_hash(height).await.unwrap();
+        let block = rpc.client.get_block(&hash).await.unwrap();
+        let block_id = super::save_block(&db, &mut dbtx, &block, height as i64)
+            .await
+            .unwrap();
+
+        let inputs = vec![
+            TxIn {
+                previous_output: OutPoint {
+                    txid: bitcoin::Txid::all_zeros(),
+                    vout: 0,
+                },
+                script_sig: ScriptBuf::default(),
+                sequence: DEFAULT_SEQUENCE,
+                witness: Witness::default(),
+            },
+            TxIn {
+                previous_output: OutPoint {
+                    txid: bitcoin::Txid::all_zeros(),
+                    vout: 1,
+                },
+                script_sig: ScriptBuf::default(),
+                sequence: DEFAULT_SEQUENCE,
+                witness: Witness::default(),
+            },
+        ];
+        let tx = Transaction {
+            version: Version::TWO,
+            lock_time: bitcoin::absolute::LockTime::Blocks(Height::ZERO),
+            input: inputs.clone(),
+            output: vec![],
+        };
+        super::save_transaction_spent_utxos(&db, &mut dbtx, &tx, block_id)
+            .await
+            .unwrap();
+
+        let utxos = super::_get_transaction_spent_utxos(&db, &mut dbtx, tx.compute_txid())
+            .await
+            .unwrap();
+
+        for (index, input) in inputs.iter().enumerate() {
+            assert_eq!(input.previous_output, utxos[index]);
+        }
+
+        dbtx.commit().await.unwrap();
     }
 
     #[tokio::test]
@@ -318,16 +425,28 @@ mod tests {
         .await
         .unwrap();
 
+        let mut dbtx = db.begin_transaction().await.unwrap();
+
         rpc.mine_blocks(1).await.unwrap();
         let height = rpc.client.get_block_count().await.unwrap();
         let hash = rpc.client.get_block_hash(height).await.unwrap();
         let block = rpc.client.get_block(&hash).await.unwrap();
 
-        let mut dbtx = db.begin_transaction().await.unwrap();
-
         super::save_block(&db, &mut dbtx, &block, height as i64)
             .await
             .unwrap();
+
+        let (block_info, _utxos) = super::_get_block_info_from_hash(&db, &mut dbtx, rpc, hash)
+            .await
+            .unwrap();
+        assert_eq!(block_info._header, block.header);
+        assert_eq!(block_info.hash, hash);
+        assert_eq!(block_info.height, height);
+        // for (tx_index, tx) in block.txdata.iter().enumerate() {
+        //     for (txin_index, txin) in tx.input.iter().enumerate() {
+        //         assert_eq!(txin.previous_output, utxos[tx_index][txin_index]);
+        //     }
+        // }
 
         dbtx.commit().await.unwrap();
     }
