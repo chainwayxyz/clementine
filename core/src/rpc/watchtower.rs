@@ -25,7 +25,7 @@ impl ClementineWatchtower for Watchtower {
 
         tracing::info!(
             "Watchtower gives watchtower xonly public key {:?} for index {}",
-            self.actor.xonly_public_key,
+            self.signer.xonly_public_key,
             self.config.index
         );
 

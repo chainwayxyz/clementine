@@ -69,18 +69,14 @@ pub fn create_watchtower_challenge_txhandler(
             // to be actual script and spendinfo inside the txin
             // If we want to sign it we need to add the script inside the SpendableTxIn
             match script {
-                None => {
-                    prevout
-                }
-                Some(commit_script) => {
-                    SpendableTxIn::from_scripts(
-                        *prevout.get_prev_outpoint(),
-                        prevout.get_prevout().value,
-                        vec![commit_script],
-                        None,
-                        network,
-                    )
-                }
+                None => prevout,
+                Some(commit_script) => SpendableTxIn::from_scripts(
+                    *prevout.get_prev_outpoint(),
+                    prevout.get_prevout().value,
+                    vec![commit_script],
+                    None,
+                    network,
+                ),
             },
             SpendPath::ScriptSpend(0),
             DEFAULT_SEQUENCE,

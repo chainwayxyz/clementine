@@ -155,13 +155,17 @@ impl From<TransactionType> for GrpcTransactionId {
                 TransactionType::SequentialCollateral => {
                     NormalTransaction(Normal::SequentialCollateral as i32)
                 }
-                TransactionType::ReimburseGenerator => NormalTransaction(Normal::ReimburseGenerator as i32),
+                TransactionType::ReimburseGenerator => {
+                    NormalTransaction(Normal::ReimburseGenerator as i32)
+                }
                 TransactionType::Kickoff => NormalTransaction(Normal::Kickoff as i32),
                 TransactionType::MoveToVault => NormalTransaction(Normal::MoveToVault as i32),
                 TransactionType::Payout => NormalTransaction(Normal::Payout as i32),
                 TransactionType::Challenge => NormalTransaction(Normal::Challenge as i32),
                 TransactionType::KickoffTimeout => NormalTransaction(Normal::KickoffTimeout as i32),
-                TransactionType::KickoffUtxoTimeout => NormalTransaction(Normal::KickoffUtxoTimeout as i32),
+                TransactionType::KickoffUtxoTimeout => {
+                    NormalTransaction(Normal::KickoffUtxoTimeout as i32)
+                }
                 TransactionType::WatchtowerChallengeKickoff => {
                     NormalTransaction(Normal::WatchtowerChallengeKickoff as i32)
                 }
@@ -172,8 +176,12 @@ impl From<TransactionType> for GrpcTransactionId {
                 TransactionType::AssertBegin => NormalTransaction(Normal::AssertBegin as i32),
                 TransactionType::AssertEnd => NormalTransaction(Normal::AssertEnd as i32),
                 TransactionType::Disprove => NormalTransaction(Normal::Disprove as i32),
-                TransactionType::DisproveTimeout => NormalTransaction(Normal::DisproveTimeout as i32),
-                TransactionType::AlreadyDisproved => NormalTransaction(Normal::AlreadyDisproved as i32),
+                TransactionType::DisproveTimeout => {
+                    NormalTransaction(Normal::DisproveTimeout as i32)
+                }
+                TransactionType::AlreadyDisproved => {
+                    NormalTransaction(Normal::AlreadyDisproved as i32)
+                }
                 TransactionType::Reimburse => NormalTransaction(Normal::Reimburse as i32),
                 TransactionType::AllNeededForVerifierDeposit => {
                     NormalTransaction(Normal::AllNeededForVerifierDeposit as i32)

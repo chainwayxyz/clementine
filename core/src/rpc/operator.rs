@@ -6,6 +6,7 @@ use super::clementine::{
 use super::error::*;
 use crate::builder::sighash::create_operator_sighash_stream;
 use crate::builder::transaction::sign::{create_and_sign_tx, create_assert_commitment_txs};
+use crate::builder::transaction::DepositId;
 use crate::rpc::parser;
 use crate::rpc::parser::{parse_assert_request, parse_transaction_request};
 use crate::UTXO;
@@ -17,7 +18,6 @@ use std::pin::pin;
 use tokio::sync::mpsc;
 use tokio_stream::wrappers::ReceiverStream;
 use tonic::{async_trait, Request, Response, Status};
-use crate::builder::transaction::DepositId;
 
 #[async_trait]
 impl ClementineOperator for Operator {
@@ -73,11 +73,7 @@ impl ClementineOperator for Operator {
             parser::parse_deposit_params(deposit_sign_session.try_into()?)?;
 
         let mut deposit_signatures_rx = self
-            .deposit_sign(
-                deposit_outpoint,
-                evm_address,
-                recovery_taproot_address,
-            )
+            .deposit_sign(deposit_outpoint, evm_address, recovery_taproot_address)
             .await?;
 
         while let Some(sig) = deposit_signatures_rx.recv().await {

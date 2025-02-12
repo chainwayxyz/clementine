@@ -10,12 +10,12 @@ use crate::builder::transaction::{
     create_txhandlers, DepositId, OperatorData, TransactionType, TxHandler,
 };
 use crate::config::BridgeConfig;
+use crate::database::Database;
 use crate::errors::BridgeError;
 use crate::rpc::clementine::tagged_signature::SignatureId;
 use crate::rpc::clementine::KickoffId;
-use crate::{database::Database};
 use async_stream::try_stream;
-use bitcoin::{TapSighash, Txid, XOnlyPublicKey, Address};
+use bitcoin::{Address, TapSighash, Txid, XOnlyPublicKey};
 use futures_core::stream::Stream;
 
 /// Returns the number of required signatures for N-of-N signing session.

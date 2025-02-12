@@ -120,7 +120,7 @@ impl Watchtower {
     ) -> Result<(u32, Vec<winternitz::PublicKey>, XOnlyPublicKey), BridgeError> {
         let watchtower_id = self.config.index;
         let winternitz_public_keys = self.get_watchtower_winternitz_public_keys().await?;
-        let xonly_pk = self.actor.xonly_public_key;
+        let xonly_pk = self.signer.xonly_public_key;
 
         Ok((watchtower_id, winternitz_public_keys, xonly_pk))
     }
@@ -167,7 +167,7 @@ mod tests {
             watchtower.get_params().await.unwrap();
 
         assert_eq!(watchtower_id, watchtower.config.index);
-        assert_eq!(xonly_pk, watchtower.actor.xonly_public_key);
+        assert_eq!(xonly_pk, watchtower.signer.xonly_public_key);
         assert_eq!(
             winternitz_public_keys,
             watchtower
