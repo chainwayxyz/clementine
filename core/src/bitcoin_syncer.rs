@@ -167,11 +167,16 @@ pub async fn set_initial_block_info_if_not_exists(
     Ok(())
 }
 
-/// Fetches new blocks from Bitcoin, starting from given height.
+/// Fetches the next block from Bitcoin, if it exists. Will also fetch previous
+/// blocks if the parent is missing, up to 100 blocks.
 ///
-/// It first tries to fetch the block at the next height. If its parent is missing
-/// from the database, it walks backward (up to 100 blocks) to retrieve the entire new chain.
-/// Returns `Ok(Some(new_blocks))` if new blocks are found or `Ok(None)` if no new block is available.
+/// # Parameters
+///
+/// - `current_height`: The height of the current tip **in the database**.
+///
+/// # Returns
+///
+/// `Ok(Some(new_blocks))` if new blocks are found or `Ok(None)` if no new block is available.
 async fn fetch_new_blocks(
     db: &Database,
     rpc: &ExtendedRpc,
@@ -489,5 +494,100 @@ mod tests {
                 assert_eq!(txin.previous_output, utxos[tx_index][txin_index]);
             }
         }
+    }
+
+    #[tokio::test]
+    #[serial_test::serial]
+    async fn fetch_new_blocks_forward() {
+        let config = create_test_config_with_thread_name!(None);
+        let db = Database::new(&config).await.unwrap();
+        let rpc = ExtendedRpc::connect(
+            config.bitcoin_rpc_url.clone(),
+            config.bitcoin_rpc_user.clone(),
+            config.bitcoin_rpc_password.clone(),
+        )
+        .await
+        .unwrap();
+
+        let mut dbtx = db.begin_transaction().await.unwrap();
+
+        rpc.mine_blocks(1).await.unwrap();
+        let height = rpc.client.get_block_count().await.unwrap();
+        let hash = rpc.client.get_block_hash(height).await.unwrap();
+        let block = rpc.client.get_block(&hash).await.unwrap();
+        super::save_block(&db, &mut dbtx, &block, height as i64)
+            .await
+            .unwrap();
+        dbtx.commit().await.unwrap();
+
+        let new_blocks = super::fetch_new_blocks(&db, &rpc, height).await.unwrap();
+        assert!(new_blocks.is_none());
+
+        let new_block_hashes = rpc.mine_blocks(1).await.unwrap();
+        let new_height = rpc.client.get_block_count().await.unwrap();
+        let new_blocks = super::fetch_new_blocks(&db, &rpc, height)
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(new_blocks.len(), 1);
+        assert_eq!(new_blocks.first().unwrap().height, new_height);
+        assert_eq!(
+            new_blocks.first().unwrap().hash,
+            *new_block_hashes.first().unwrap()
+        );
+    }
+
+    #[tokio::test]
+    #[serial_test::serial]
+    async fn fetch_new_blocks_backwards() {
+        let config = create_test_config_with_thread_name!(None);
+        let db = Database::new(&config).await.unwrap();
+        let rpc = ExtendedRpc::connect(
+            config.bitcoin_rpc_url.clone(),
+            config.bitcoin_rpc_user.clone(),
+            config.bitcoin_rpc_password.clone(),
+        )
+        .await
+        .unwrap();
+
+        // Prepare chain.
+        rpc.mine_blocks(1).await.unwrap();
+        let height = rpc.client.get_block_count().await.unwrap();
+        let hash = rpc.client.get_block_hash(height).await.unwrap();
+        let block = rpc.client.get_block(&hash).await.unwrap();
+
+        // Save the tip.
+        let mut dbtx = db.begin_transaction().await.unwrap();
+        super::save_block(&db, &mut dbtx, &block, height as i64)
+            .await
+            .unwrap();
+        dbtx.commit().await.unwrap();
+
+        let new_blocks = super::fetch_new_blocks(&db, &rpc, height).await.unwrap();
+        assert!(new_blocks.is_none());
+
+        // Mine new blocks without saving them.
+        let mine_count = 12;
+        let new_block_hashes = rpc.mine_blocks(mine_count).await.unwrap();
+        let new_height = rpc.client.get_block_count().await.unwrap();
+
+        let new_blocks = super::fetch_new_blocks(&db, &rpc, new_height - 1)
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(new_blocks.len() as u64, mine_count);
+        for (index, block) in new_blocks.iter().enumerate() {
+            assert_eq!(block.height, new_height - mine_count + index as u64 + 1);
+            assert_eq!(block.hash, new_block_hashes[index]);
+        }
+
+        // Mine too many blocks.
+        let mine_count = 101;
+        rpc.mine_blocks(mine_count).await.unwrap();
+        let new_height = rpc.client.get_block_count().await.unwrap();
+
+        assert!(super::fetch_new_blocks(&db, &rpc, new_height - 1)
+            .await
+            .is_err());
     }
 }
