@@ -1,13 +1,13 @@
 use super::clementine::{
-    clementine_operator_server::ClementineOperator, DepositSignSession, Empty,
+    clementine_operator_server::ClementineOperator, AssertRequest, DepositSignSession, Empty,
     NewWithdrawalSigParams, NewWithdrawalSigResponse, OperatorBurnSig, OperatorParams, RawSignedTx,
-    TransactionRequest, WithdrawalFinalizedParams,
+    RawSignedTxs, TransactionRequest, WithdrawalFinalizedParams,
 };
 use super::error::*;
 use crate::builder::sighash::create_operator_sighash_stream;
-use crate::builder::transaction::sign::create_and_sign_tx;
+use crate::builder::transaction::sign::{create_and_sign_tx, create_assert_commitment_txs};
 use crate::rpc::parser;
-use crate::rpc::parser::parse_transaction_request;
+use crate::rpc::parser::{parse_assert_request, parse_transaction_request};
 use crate::UTXO;
 use crate::{errors::BridgeError, operator::Operator};
 use bitcoin::hashes::Hash;
@@ -176,5 +176,25 @@ impl ClementineOperator for Operator {
         .await?;
 
         Ok(Response::new(raw_tx))
+    }
+
+    #[tracing::instrument(skip(self), err(level = tracing::Level::ERROR), ret(level = tracing::Level::TRACE))]
+    async fn create_assert_commitment_txs(
+        &self,
+        request: Request<AssertRequest>,
+    ) -> Result<Response<RawSignedTxs>, Status> {
+        let assert_request = request.into_inner();
+        let assert_data = parse_assert_request(assert_request)?;
+
+        let raw_txs = create_assert_commitment_txs(
+            self.db.clone(),
+            &self.signer,
+            self.config.clone(),
+            self.nofn_xonly_pk,
+            assert_data,
+        )
+        .await?;
+
+        Ok(Response::new(raw_txs))
     }
 }

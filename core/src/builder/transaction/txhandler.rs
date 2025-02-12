@@ -6,7 +6,7 @@ use crate::builder::transaction::deposit_signature_owner::{DepositSigKeyOwner, E
 use crate::builder::transaction::TransactionType;
 use crate::errors::BridgeError;
 use crate::rpc::clementine::tagged_signature::SignatureId;
-use crate::rpc::clementine::NormalSignatureKind;
+use crate::rpc::clementine::{NormalSignatureKind, RawSignedTx};
 use bitcoin::sighash::SighashCache;
 use bitcoin::taproot::{self, LeafVersion};
 use bitcoin::transaction::Version;
@@ -254,6 +254,14 @@ impl<T: State> TxHandler<T> {
     #[cfg(test)]
     pub fn get_input_txout(&self, input_idx: usize) -> &TxOut {
         self.txins[input_idx].get_spendable().get_prevout()
+    }
+}
+
+impl TxHandler<Signed> {
+    pub fn encode_tx(&self) -> RawSignedTx {
+        RawSignedTx {
+            raw_tx: bitcoin::consensus::encode::serialize(self.get_cached_tx()),
+        }
     }
 }
 

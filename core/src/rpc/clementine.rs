@@ -109,6 +109,15 @@ pub struct TransactionRequest {
     #[prost(bytes = "vec", tag = "4")]
     pub commit_data: ::prost::alloc::vec::Vec<u8>,
 }
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct AssertRequest {
+    #[prost(message, optional, tag = "1")]
+    pub deposit_params: ::core::option::Option<DepositParams>,
+    #[prost(message, optional, tag = "2")]
+    pub kickoff_id: ::core::option::Option<KickoffId>,
+    #[prost(bytes = "vec", repeated, tag = "3")]
+    pub commit_data: ::prost::alloc::vec::Vec<::prost::alloc::vec::Vec<u8>>,
+}
 /// Includes the deposit params and the nonce gen initial responses (pubkeys and their signatures from all verifiers)
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct DepositSignSession {
@@ -298,6 +307,11 @@ pub mod watchtower_params {
 pub struct RawSignedTx {
     #[prost(bytes = "vec", tag = "1")]
     pub raw_tx: ::prost::alloc::vec::Vec<u8>,
+}
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct RawSignedTxs {
+    #[prost(message, repeated, tag = "1")]
+    pub raw_txs: ::prost::alloc::vec::Vec<RawSignedTx>,
 }
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, ::prost::Enumeration)]
 #[repr(i32)]
@@ -647,6 +661,41 @@ pub mod clementine_operator_client {
             req.extensions_mut()
                 .insert(
                     GrpcMethod::new("clementine.ClementineOperator", "CreateSignedTx"),
+                );
+            self.inner.unary(req, path, codec).await
+        }
+        /// Creates all assert transactions (AssertBegin, MiniAsserts, AssertEnd), signs them, and returns the raw txs
+        /// in the same order.
+        /// # Parameters
+        /// - deposit_params: User's deposit information
+        /// - kickoff_id: Operator's kickoff ID
+        /// - commit_data: Commitment data for each MiniAssert tx's
+        ///
+        /// # Returns
+        /// - Raw signed assert transactions
+        pub async fn create_assert_commitment_txs(
+            &mut self,
+            request: impl tonic::IntoRequest<super::AssertRequest>,
+        ) -> std::result::Result<tonic::Response<super::RawSignedTxs>, tonic::Status> {
+            self.inner
+                .ready()
+                .await
+                .map_err(|e| {
+                    tonic::Status::unknown(
+                        format!("Service was not ready: {}", e.into()),
+                    )
+                })?;
+            let codec = tonic::codec::ProstCodec::default();
+            let path = http::uri::PathAndQuery::from_static(
+                "/clementine.ClementineOperator/CreateAssertCommitmentTxs",
+            );
+            let mut req = request.into_request();
+            req.extensions_mut()
+                .insert(
+                    GrpcMethod::new(
+                        "clementine.ClementineOperator",
+                        "CreateAssertCommitmentTxs",
+                    ),
                 );
             self.inner.unary(req, path, codec).await
         }
@@ -1408,6 +1457,19 @@ pub mod clementine_operator_server {
             &self,
             request: tonic::Request<super::TransactionRequest>,
         ) -> std::result::Result<tonic::Response<super::RawSignedTx>, tonic::Status>;
+        /// Creates all assert transactions (AssertBegin, MiniAsserts, AssertEnd), signs them, and returns the raw txs
+        /// in the same order.
+        /// # Parameters
+        /// - deposit_params: User's deposit information
+        /// - kickoff_id: Operator's kickoff ID
+        /// - commit_data: Commitment data for each MiniAssert tx's
+        ///
+        /// # Returns
+        /// - Raw signed assert transactions
+        async fn create_assert_commitment_txs(
+            &self,
+            request: tonic::Request<super::AssertRequest>,
+        ) -> std::result::Result<tonic::Response<super::RawSignedTxs>, tonic::Status>;
         /// Server streaming response type for the GetParams method.
         type GetParamsStream: tonic::codegen::tokio_stream::Stream<
                 Item = std::result::Result<super::OperatorParams, tonic::Status>,
@@ -1585,6 +1647,57 @@ pub mod clementine_operator_server {
                     let inner = self.inner.clone();
                     let fut = async move {
                         let method = CreateSignedTxSvc(inner);
+                        let codec = tonic::codec::ProstCodec::default();
+                        let mut grpc = tonic::server::Grpc::new(codec)
+                            .apply_compression_config(
+                                accept_compression_encodings,
+                                send_compression_encodings,
+                            )
+                            .apply_max_message_size_config(
+                                max_decoding_message_size,
+                                max_encoding_message_size,
+                            );
+                        let res = grpc.unary(method, req).await;
+                        Ok(res)
+                    };
+                    Box::pin(fut)
+                }
+                "/clementine.ClementineOperator/CreateAssertCommitmentTxs" => {
+                    #[allow(non_camel_case_types)]
+                    struct CreateAssertCommitmentTxsSvc<T: ClementineOperator>(
+                        pub Arc<T>,
+                    );
+                    impl<
+                        T: ClementineOperator,
+                    > tonic::server::UnaryService<super::AssertRequest>
+                    for CreateAssertCommitmentTxsSvc<T> {
+                        type Response = super::RawSignedTxs;
+                        type Future = BoxFuture<
+                            tonic::Response<Self::Response>,
+                            tonic::Status,
+                        >;
+                        fn call(
+                            &mut self,
+                            request: tonic::Request<super::AssertRequest>,
+                        ) -> Self::Future {
+                            let inner = Arc::clone(&self.0);
+                            let fut = async move {
+                                <T as ClementineOperator>::create_assert_commitment_txs(
+                                        &inner,
+                                        request,
+                                    )
+                                    .await
+                            };
+                            Box::pin(fut)
+                        }
+                    }
+                    let accept_compression_encodings = self.accept_compression_encodings;
+                    let send_compression_encodings = self.send_compression_encodings;
+                    let max_decoding_message_size = self.max_decoding_message_size;
+                    let max_encoding_message_size = self.max_encoding_message_size;
+                    let inner = self.inner.clone();
+                    let fut = async move {
+                        let method = CreateAssertCommitmentTxsSvc(inner);
                         let codec = tonic::codec::ProstCodec::default();
                         let mut grpc = tonic::server::Grpc::new(codec)
                             .apply_compression_config(

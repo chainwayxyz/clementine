@@ -188,7 +188,7 @@ pub fn create_nofn_sighash_stream(
                         }
                     }
                     if sum != calculate_num_required_nofn_sigs_per_kickoff(&config) {
-                        Err(BridgeError::Error("Not enough nofn sighashes".to_string()))?;
+                        Err(BridgeError::Error("NofN sighash count does not match expected count.".to_string()))?;
                     }
                     last_reimburse_generator = txhandlers.remove(&TransactionType::Reimburse);
                 }
@@ -272,7 +272,7 @@ pub fn create_operator_sighash_stream(
                     }
                 }
                 if sum != calculate_num_required_operator_sigs_per_kickoff() {
-                    Err(BridgeError::Error("Not enough operator sighashes".to_string()))?;
+                    Err(BridgeError::Error("Operator sighash count does not match expected count.".to_string()))?;
                 }
                 last_reimburse_generator = txhandlers.remove(&TransactionType::Reimburse);
             }

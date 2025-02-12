@@ -1,5 +1,6 @@
 use crate::actor::{Actor, WinternitzDerivationPath};
 use crate::config::BridgeConfig;
+use crate::constants::WINTERNITZ_LOG_D;
 use crate::database::Database;
 use crate::errors::BridgeError;
 use crate::extended_rpc::ExtendedRpc;
@@ -737,7 +738,7 @@ impl Operator {
                     let step_name = intermediate_step.as_str();
                     let path = WinternitzDerivationPath {
                         message_length: *intermediate_step_size as u32 * 2,
-                        log_d: 4,
+                        log_d: WINTERNITZ_LOG_D,
                         tx_type: crate::actor::TxType::BitVM,
                         index: Some(self.idx as u32),
                         operator_idx: None,

@@ -133,6 +133,12 @@ message TransactionRequest {
   bytes commit_data = 4;
 }
 
+message AssertRequest {
+  DepositParams deposit_params = 1;
+  KickoffId kickoff_id = 2;
+  repeated bytes commit_data = 3;
+}
+
 // Includes the deposit params and the nonce gen initial responses (pubkeys and their signatures from all verifiers)
 message DepositSignSession {
   DepositParams deposit_params = 1;
@@ -204,6 +210,17 @@ service ClementineOperator {
   // # Returns
   // - Raw signed transaction
   rpc CreateSignedTx(TransactionRequest) returns (RawSignedTx) {}
+
+  // Creates all assert transactions (AssertBegin, MiniAsserts, AssertEnd), signs them, and returns the raw txs
+  // in the same order.
+  // # Parameters
+  // - deposit_params: User's deposit information
+  // - kickoff_id: Operator's kickoff ID
+  // - commit_data: Commitment data for each MiniAssert tx's
+  //
+  // # Returns
+  // - Raw signed assert transactions
+  rpc CreateAssertCommitmentTxs(AssertRequest) returns (RawSignedTxs) {}
   // Returns an operator's parameters. It will be called once, by the
   // aggregator, to set all the public keys.
   //
@@ -373,6 +390,10 @@ service ClementineWatchtower {
 
 message RawSignedTx {
   bytes raw_tx = 1;
+}
+
+message RawSignedTxs {
+  repeated RawSignedTx raw_txs = 1;
 }
 
 service ClementineAggregator {

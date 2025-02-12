@@ -1,6 +1,6 @@
-use super::clementine::{Outpoint, TransactionRequest, WinternitzPubkey};
+use super::clementine::{AssertRequest, Outpoint, TransactionRequest, WinternitzPubkey};
 use super::error;
-use crate::builder::transaction::sign::TransactionRequestData;
+use crate::builder::transaction::sign::{AssertRequestData, TransactionRequestData};
 use crate::builder::transaction::{DepositId, TransactionType};
 use crate::errors::BridgeError;
 use crate::rpc::clementine::DepositParams;
@@ -182,6 +182,27 @@ pub fn parse_transaction_request(
             recovery_taproot_address,
         },
         transaction_type,
+        kickoff_id,
+        commit_data: request.commit_data,
+    })
+}
+
+pub fn parse_assert_request(request: AssertRequest) -> Result<AssertRequestData, Status> {
+    let (deposit_outpoint, evm_address, recovery_taproot_address) = parse_deposit_params(
+        request
+            .deposit_params
+            .ok_or(Status::invalid_argument("No deposit params received"))?,
+    )?;
+    let kickoff_id = request
+        .kickoff_id
+        .ok_or(Status::invalid_argument("No kickoff params received"))?;
+
+    Ok(AssertRequestData {
+        deposit_id: DepositId {
+            deposit_outpoint,
+            evm_address,
+            recovery_taproot_address,
+        },
         kickoff_id,
         commit_data: request.commit_data,
     })

@@ -534,7 +534,7 @@ mod tests {
 
     use crate::builder::transaction::TransactionType;
     use crate::constants::{WATCHTOWER_CHALLENGE_MESSAGE_LENGTH, WINTERNITZ_LOG_D};
-    use crate::rpc::clementine::{KickoffId, TransactionRequest};
+    use crate::rpc::clementine::{AssertRequest, KickoffId, TransactionRequest};
     use std::str::FromStr;
 
     #[tokio::test]
@@ -598,6 +598,7 @@ mod tests {
             TransactionType::DisproveTimeout,
             TransactionType::AlreadyDisproved,
             TransactionType::Reimburse,
+            TransactionType::MiniAssert(0),
         ];
         txs_operator_can_sign
             .extend((0..config.num_watchtowers).map(TransactionType::OperatorChallengeNack));
@@ -605,12 +606,12 @@ mod tests {
             .extend((0..config.num_watchtowers).map(TransactionType::OperatorChallengeAck));
         // txs_operator_can_sign.extend(
         //     (0..utils::BITVM_CACHE.intermediate_variables.len()).map(TransactionType::MiniAssert),
-        // );
+        // );  // This takes too long with actual disprove scripts
 
-        let assert_tx_lens = utils::BITVM_CACHE
+        let full_commit_data = utils::BITVM_CACHE
             .intermediate_variables
             .values()
-            .map(|len| *len * WINTERNITZ_LOG_D as usize / 8)
+            .map(|len| vec![1u8; *len])
             .collect::<Vec<_>>();
 
         // try to sign everything for all operators
@@ -631,7 +632,7 @@ mod tests {
                                 commit_data: if let TransactionType::MiniAssert(assert_idx) =
                                     tx_type
                                 {
-                                    vec![1u8; assert_tx_lens[*assert_idx]]
+                                    full_commit_data[*assert_idx].clone()
                                 } else {
                                     vec![]
                                 },
@@ -640,6 +641,20 @@ mod tests {
                             .unwrap();
                         tracing::info!("Operator Signed tx: {:?}", tx_type);
                     }
+                    let _raw_assert_txs = operator_rpc
+                        .create_assert_commitment_txs(AssertRequest {
+                            deposit_params: deposit_params.clone().into(),
+                            kickoff_id: Some(kickoff_id),
+                            commit_data: full_commit_data.clone(),
+                        })
+                        .await
+                        .unwrap()
+                        .into_inner()
+                        .raw_txs;
+                    tracing::info!(
+                        "Operator Signed Assert txs of size: {}",
+                        _raw_assert_txs.len()
+                    );
                 }
             }
         }
