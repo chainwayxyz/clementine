@@ -15,33 +15,29 @@ impl ClementineWatchtower for Watchtower {
         &self,
         _request: Request<Empty>,
     ) -> Result<Response<Self::GetParamsStream>, Status> {
-        let watchtower = self.clone();
-        let watchtower_winternitz_public_keys =
-            watchtower.get_watchtower_winternitz_public_keys().await?;
+        let (watchtower_id, winternitz_public_keys, xonly_pk) = self.get_params().await?;
 
-        let (tx, rx) = mpsc::channel(watchtower_winternitz_public_keys.len() + 2);
+        let (tx, rx) = mpsc::channel(winternitz_public_keys.len() + 2);
         let out_stream: Self::GetParamsStream = ReceiverStream::new(rx);
+
+        tracing::info!(
+            "Watchtower gives watchtower xonly public key {:?} for index {}",
+            self.actor.xonly_public_key,
+            self.config.index
+        );
 
         tokio::spawn(async move {
             tx.send(Ok(WatchtowerParams {
-                response: Some(watchtower_params::Response::WatchtowerId(
-                    watchtower.config.index,
-                )),
+                response: Some(watchtower_params::Response::WatchtowerId(watchtower_id)),
             }))
             .await?;
 
-            for wpk in watchtower_winternitz_public_keys {
+            for wpk in winternitz_public_keys {
                 let wpk: WatchtowerParams = wpk.into();
                 tx.send(Ok(wpk)).await?;
             }
 
-            tracing::info!(
-                "Watchtower gives watchtower xonly public key {:?} for index {}",
-                watchtower.actor.xonly_public_key,
-                watchtower.config.index
-            );
-
-            let xonly_pk: WatchtowerParams = watchtower.actor.xonly_public_key.into();
+            let xonly_pk: WatchtowerParams = xonly_pk.into();
             tx.send(Ok(xonly_pk)).await?;
 
             Ok::<(), SendError<_>>(())

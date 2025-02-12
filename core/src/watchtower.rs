@@ -6,7 +6,7 @@ use crate::{
     errors::BridgeError,
     extended_rpc::ExtendedRpc,
 };
-use bitcoin::ScriptBuf;
+use bitcoin::{ScriptBuf, XOnlyPublicKey};
 use bitvm::signatures::winternitz;
 
 #[derive(Debug, Clone)]
@@ -99,6 +99,24 @@ impl Watchtower {
 
         Ok(challenge_addresses)
     }
+
+    /// Returns id, winteritz public keys and x-only public key of a watchtower.
+    ///
+    /// # Returns
+    ///
+    /// - [`u32`]: Id of the current watchtower
+    /// - [`mpsc::Receiver`]: Winternitz public keys of the watchtower, in a
+    ///   [`tokio`] channel
+    /// - [`XOnlyPublicKey`]: X-only public key of the current watchtower
+    pub async fn get_params(
+        &self,
+    ) -> Result<(u32, Vec<winternitz::PublicKey>, XOnlyPublicKey), BridgeError> {
+        let watchtower_id = self.config.index;
+        let winternitz_public_keys = self.get_watchtower_winternitz_public_keys().await?;
+        let xonly_pk = self.actor.xonly_public_key;
+
+        Ok((watchtower_id, winternitz_public_keys, xonly_pk))
+    }
 }
 
 #[cfg(test)]
@@ -130,6 +148,25 @@ mod tests {
             config.num_operators
                 * config.num_sequential_collateral_txs
                 * config.num_kickoffs_per_sequential_collateral_tx
+        );
+    }
+
+    #[tokio::test]
+    async fn watchtower_get_params() {
+        let config = create_test_config_with_thread_name!(None);
+        let watchtower = Watchtower::new(config.clone()).await.unwrap();
+
+        let (watchtower_id, winternitz_public_keys, xonly_pk) =
+            watchtower.get_params().await.unwrap();
+
+        assert_eq!(watchtower_id, watchtower.config.index);
+        assert_eq!(xonly_pk, watchtower.actor.xonly_public_key);
+        assert_eq!(
+            winternitz_public_keys,
+            watchtower
+                .get_watchtower_winternitz_public_keys()
+                .await
+                .unwrap()
         );
     }
 }
