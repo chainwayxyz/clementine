@@ -782,8 +782,9 @@ mod tests {
         utils::initialize_logger,
     };
     use crate::{
-        create_actors,
+        create_actors, create_regtest_rpc,
         extended_rpc::ExtendedRpc,
+        get_available_port,
         rpc::clementine::{self, clementine_aggregator_client::ClementineAggregatorClient},
         verifier::Verifier,
         watchtower::Watchtower,
@@ -792,7 +793,7 @@ mod tests {
     use std::str::FromStr;
 
     #[tokio::test]
-    #[serial_test::serial]
+
     async fn aggregator_double_setup_fail() {
         let config = create_test_config_with_thread_name!(None);
 
@@ -810,7 +811,7 @@ mod tests {
     }
 
     #[tokio::test]
-    #[serial_test::serial]
+
     async fn aggregator_setup_watchtower_winternitz_public_keys() {
         let mut config = create_test_config_with_thread_name!(None);
         let (_verifiers, _operators, mut aggregator, _watchtowers) = create_actors!(config.clone());
@@ -824,13 +825,8 @@ mod tests {
             .get_watchtower_winternitz_public_keys()
             .await
             .unwrap();
-        let rpc = ExtendedRpc::connect(
-            config.bitcoin_rpc_url.clone(),
-            config.bitcoin_rpc_user.clone(),
-            config.bitcoin_rpc_password.clone(),
-        )
-        .await
-        .unwrap();
+        let regtest = create_regtest_rpc!(config);
+        let rpc = regtest.rpc().clone();
         config.db_name += "0"; // This modification is done by the create_actors_grpc function.
         let verifier = Verifier::new(rpc, config.clone()).await.unwrap();
         let verifier_wpks = verifier
@@ -862,7 +858,7 @@ mod tests {
     }
 
     #[tokio::test]
-    #[serial_test::serial]
+
     async fn aggregator_setup_watchtower_challenge_addresses() {
         let mut config = create_test_config_with_thread_name!(None);
         let (_verifiers, _operators, mut aggregator, _watchtowers) = create_actors!(config.clone());
@@ -880,13 +876,8 @@ mod tests {
             .get_watchtower_challenge_addresses()
             .await
             .unwrap();
-        let rpc = ExtendedRpc::connect(
-            config.bitcoin_rpc_url.clone(),
-            config.bitcoin_rpc_user.clone(),
-            config.bitcoin_rpc_password.clone(),
-        )
-        .await
-        .unwrap();
+        let regtest = create_regtest_rpc!(config);
+        let rpc = regtest.rpc().clone();
         config.db_name += "0"; // This modification is done by the create_actors_grpc function.
         let verifier = Verifier::new(rpc, config.clone()).await.unwrap();
         tracing::info!("verifier config: {:#?}", verifier.config);
@@ -970,7 +961,6 @@ mod tests {
     }
 
     #[tokio::test]
-    #[serial_test::serial]
     #[ignore = "This test is also done during the deposit phase of test_deposit_and_sign_txs test"]
     async fn aggregator_setup_and_deposit() {
         let config = create_test_config_with_thread_name!(None);

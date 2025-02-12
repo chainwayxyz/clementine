@@ -168,6 +168,7 @@ impl HeaderChainProver {
 
 #[cfg(test)]
 mod tests {
+    use crate::create_regtest_rpc;
     use crate::{
         config::BridgeConfig, database::Database, initialize_database, utils::initialize_logger,
     };
@@ -207,13 +208,8 @@ mod tests {
     #[serial_test::parallel]
     async fn prove_block_headers_genesis() {
         let config = create_test_config_with_thread_name!(None);
-        let rpc = ExtendedRpc::connect(
-            config.bitcoin_rpc_url.clone(),
-            config.bitcoin_rpc_user.clone(),
-            config.bitcoin_rpc_password.clone(),
-        )
-        .await
-        .unwrap();
+        let regtest = create_regtest_rpc!(config);
+        let rpc = regtest.rpc().clone();
         let prover = HeaderChainProver::new(&config, rpc.clone_inner().await.unwrap())
             .await
             .unwrap();
@@ -231,16 +227,11 @@ mod tests {
     }
 
     #[tokio::test]
-    #[serial_test::serial]
+    
     async fn prove_block_headers_second() {
         let config = create_test_config_with_thread_name!(None);
-        let rpc = ExtendedRpc::connect(
-            config.bitcoin_rpc_url.clone(),
-            config.bitcoin_rpc_user.clone(),
-            config.bitcoin_rpc_password.clone(),
-        )
-        .await
-        .unwrap();
+        let regtest = create_regtest_rpc!(config);
+        let rpc = regtest.rpc().clone();
         let prover = HeaderChainProver::new(&config, rpc.clone_inner().await.unwrap())
             .await
             .unwrap();
@@ -260,16 +251,11 @@ mod tests {
     }
 
     #[tokio::test]
-    #[serial_test::serial]
+    
     async fn save_and_get_proof() {
         let config = create_test_config_with_thread_name!(None);
-        let rpc = ExtendedRpc::connect(
-            config.bitcoin_rpc_url.clone(),
-            config.bitcoin_rpc_user.clone(),
-            config.bitcoin_rpc_password.clone(),
-        )
-        .await
-        .unwrap();
+        let regtest = create_regtest_rpc!(config);
+        let rpc = regtest.rpc().clone();
         let prover = HeaderChainProver::new(&config, rpc.clone_inner().await.unwrap())
             .await
             .unwrap();

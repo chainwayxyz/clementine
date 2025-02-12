@@ -19,13 +19,8 @@ mod common;
 #[tokio::test]
 async fn honest_operator_takes_refund() {
     let config = create_test_config_with_thread_name!(None);
-    let rpc = ExtendedRpc::connect(
-        config.bitcoin_rpc_url.clone(),
-        config.bitcoin_rpc_user.clone(),
-        config.bitcoin_rpc_password.clone(),
-    )
-    .await
-    .unwrap();
+    let regtest = create_regtest_rpc!(config);
+    let rpc = regtest.rpc().clone();
 
     let (_verifiers, mut operators, _aggregator, _watchtowers, _deposit_outpoint) =
         run_single_deposit(config.clone()).await.unwrap();

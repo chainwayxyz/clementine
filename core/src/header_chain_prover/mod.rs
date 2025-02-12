@@ -101,6 +101,7 @@ impl HeaderChainProver {
 
 #[cfg(test)]
 mod tests {
+    use crate::create_regtest_rpc;
     use crate::{
         config::BridgeConfig, database::Database, initialize_database, utils::initialize_logger,
     };
@@ -118,28 +119,18 @@ mod tests {
     #[tokio::test]
     async fn new() {
         let config = create_test_config_with_thread_name!(None);
-        let rpc = ExtendedRpc::connect(
-            config.bitcoin_rpc_url.clone(),
-            config.bitcoin_rpc_user.clone(),
-            config.bitcoin_rpc_password.clone(),
-        )
-        .await
-        .unwrap();
+        let regtest = create_regtest_rpc!(config);
+        let rpc = regtest.rpc().clone();
 
         let _should_not_panic = HeaderChainProver::new(&config, rpc).await.unwrap();
     }
 
     #[tokio::test]
-    #[serial_test::serial]
+    
     async fn new_with_proof_assumption() {
         let config = create_test_config_with_thread_name!(None);
-        let rpc = ExtendedRpc::connect(
-            config.bitcoin_rpc_url.clone(),
-            config.bitcoin_rpc_user.clone(),
-            config.bitcoin_rpc_password.clone(),
-        )
-        .await
-        .unwrap();
+        let regtest = create_regtest_rpc!(config);
+        let rpc = regtest.rpc().clone();
 
         // First block's assumption will be added to db: Make sure block exists
         // too.
@@ -159,17 +150,12 @@ mod tests {
     }
 
     #[tokio::test]
-    #[serial_test::serial]
+    
     #[ignore = "This test is very host dependent and needs a human observer"]
     async fn start_header_chain_prover() {
         let config = create_test_config_with_thread_name!(None);
-        let rpc = ExtendedRpc::connect(
-            config.bitcoin_rpc_url.clone(),
-            config.bitcoin_rpc_user.clone(),
-            config.bitcoin_rpc_password.clone(),
-        )
-        .await
-        .unwrap();
+        let regtest = create_regtest_rpc!(config);
+        let rpc = regtest.rpc().clone();
         let prover = HeaderChainProver::new(&config, rpc.clone_inner().await.unwrap())
             .await
             .unwrap();

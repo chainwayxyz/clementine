@@ -22,6 +22,7 @@
 #[macro_export]
 macro_rules! create_regtest_rpc {
     ($config:expr) => {{
+        use bitcoincore_rpc::RpcApi;
         use tempfile::TempDir;
 
         // Create temporary directory for bitcoin data
@@ -294,14 +295,8 @@ macro_rules! initialize_database {
 #[macro_export]
 macro_rules! create_actors {
     ($config:expr) => {{
-        let start_port = $config.port;
-        let rpc = ExtendedRpc::connect(
-            $config.bitcoin_rpc_url.clone(),
-            $config.bitcoin_rpc_user.clone(),
-            $config.bitcoin_rpc_password.clone(),
-        )
-        .await
-        .unwrap();
+        let regtest = create_regtest_rpc!($config);
+        let rpc = regtest.rpc();
         let all_verifiers_secret_keys =
             $config
                 .all_verifiers_secret_keys
@@ -319,7 +314,7 @@ macro_rules! create_actors {
             .iter()
             .enumerate()
             .map(|(i, sk)| {
-                let port = start_port + i as u16;
+                let port = get_available_port!();
                 // println!("Port: {}", port);
                 let i = i.to_string();
                 let rpc = rpc.clone();
@@ -366,7 +361,7 @@ macro_rules! create_actors {
             .iter()
             .enumerate()
             .map(|(i, sk)| {
-                let port = start_port + i as u16 + all_verifiers_secret_keys.len() as u16;
+                let port = get_available_port!();
                 let rpc = rpc.clone();
                 let verifier_config = verifier_configs[i].clone();
                 async move {
@@ -388,10 +383,7 @@ macro_rules! create_actors {
             .await
             .unwrap();
 
-        let port = start_port
-            + all_verifiers_secret_keys.len() as u16
-            + all_operators_secret_keys.len() as u16
-            + 1;
+        let port = get_available_port!();
         println!("Watchtower start port: {}", port);
         let verifier_configs = verifier_configs.clone();
 
@@ -402,7 +394,7 @@ macro_rules! create_actors {
                 create_watchtower_grpc_server(BridgeConfig {
                     index: i as u32,
                     secret_key: *sk,
-                    port: port + i as u16,
+                    port: get_available_port!(),
                     ..verifier_configs[i].clone()
                 })
             })
@@ -412,11 +404,7 @@ macro_rules! create_actors {
             .await
             .unwrap();
 
-        let port = start_port
-            + all_verifiers_secret_keys.len() as u16
-            + all_operators_secret_keys.len() as u16
-            + all_watchtowers_secret_keys.len() as u16
-            + 1;
+        let port = get_available_port!();
         println!("Aggregator port: {}", port);
         // + all_operators_secret_keys.len() as u16;
         let aggregator = create_aggregator_grpc_server(BridgeConfig {
@@ -596,5 +584,18 @@ macro_rules! generate_withdrawal_transaction_and_signature {
         let sig = signer.sign_with_tweak(sighash, None).unwrap();
 
         (dust_utxo, txout, sig)
+    }};
+}
+
+/// Helper macro to get a dynamically assigned free port.
+#[macro_export]
+macro_rules! get_available_port {
+    () => {{
+        use std::net::TcpListener;
+        TcpListener::bind("127.0.0.1:0")
+            .expect("Could not bind to an available port")
+            .local_addr()
+            .expect("Could not get local address")
+            .port()
     }};
 }

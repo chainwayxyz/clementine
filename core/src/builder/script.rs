@@ -571,16 +571,11 @@ mod tests {
     };
 
     #[tokio::test]
-    #[serial_test::serial]
+    
     async fn test_checksig_spendable() {
         let config = create_test_config_with_thread_name!(None);
-        let rpc = ExtendedRpc::connect(
-            config.bitcoin_rpc_url.clone(),
-            config.bitcoin_rpc_user.clone(),
-            config.bitcoin_rpc_password.clone(),
-        )
-        .await
-        .unwrap();
+        let regtest = create_regtest_rpc!(config);
+        let rpc = regtest.rpc().clone();
 
         let kp = bitcoin::secp256k1::Keypair::new(&SECP, &mut rand::thread_rng());
         let xonly_pk = kp.public_key().x_only_public_key().0;
@@ -651,7 +646,7 @@ mod tests {
 
         let scripts = vec![script];
         let (builder, _) = create_taproot_test_tx(
-            &rpc,
+            rpc,
             scripts,
             SpendPath::ScriptSpend(0),
             Amount::from_sat(10_000),
@@ -718,16 +713,11 @@ mod tests {
     }
 
     #[tokio::test]
-    #[serial_test::serial]
+    
     async fn test_preimage_reveal_script_spendable() {
         let config = create_test_config_with_thread_name!(None);
-        let rpc = ExtendedRpc::connect(
-            config.bitcoin_rpc_url.clone(),
-            config.bitcoin_rpc_user.clone(),
-            config.bitcoin_rpc_password.clone(),
-        )
-        .await
-        .unwrap();
+        let regtest = create_regtest_rpc!(config);
+        let rpc = regtest.rpc().clone();
         let kp = bitcoin::secp256k1::Keypair::new(&SECP, &mut rand::thread_rng());
         let xonly_pk = kp.public_key().x_only_public_key().0;
 
@@ -766,16 +756,11 @@ mod tests {
     }
 
     #[tokio::test]
-    #[serial_test::serial]
+    
     async fn test_deposit_script_spendable() {
         let config = create_test_config_with_thread_name!(None);
-        let rpc = ExtendedRpc::connect(
-            config.bitcoin_rpc_url.clone(),
-            config.bitcoin_rpc_user.clone(),
-            config.bitcoin_rpc_password.clone(),
-        )
-        .await
-        .unwrap();
+        let regtest = create_regtest_rpc!(config);
+        let rpc = regtest.rpc().clone();
 
         let kp = bitcoin::secp256k1::Keypair::new(&SECP, &mut rand::thread_rng());
         let xonly_pk = kp.public_key().x_only_public_key().0;

@@ -527,8 +527,9 @@ mod tests {
         EVMAddress,
     };
     use crate::{
-        create_actors,
+        create_actors, create_regtest_rpc,
         extended_rpc::ExtendedRpc,
+        get_available_port,
         rpc::clementine::{self, clementine_aggregator_client::ClementineAggregatorClient},
     };
     use bitcoin::Txid;
@@ -539,7 +540,7 @@ mod tests {
     use std::str::FromStr;
 
     #[tokio::test]
-    #[serial_test::serial]
+
     async fn test_deposit_and_sign_txs() {
         let config = create_test_config_with_thread_name!(None);
 

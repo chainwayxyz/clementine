@@ -1446,7 +1446,7 @@ impl Verifier {
 // }
 
 // #[tokio::test]
-// #[serial_test::serial]
+// 
 // async fn new_deposit_nonce_checks() {
 //     let config = create_test_config_with_thread_name!(None);
 //     let rpc = ExtendedRpc::connect(

@@ -14,7 +14,7 @@
 
 // #[ignore = "We are switching to gRPC"]
 // #[tokio::test]
-// #[serial_test::serial]
+//
 // async fn deposit_with_retry_checks() {
 // let config = create_test_config_with_thread_name!(None);
 // let rpc = ExtendedRpc::connect(
