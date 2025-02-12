@@ -604,9 +604,6 @@ mod tests {
             .extend((0..config.num_watchtowers).map(TransactionType::OperatorChallengeNack));
         txs_operator_can_sign
             .extend((0..config.num_watchtowers).map(TransactionType::OperatorChallengeAck));
-        // txs_operator_can_sign.extend(
-        //     (0..utils::BITVM_CACHE.intermediate_variables.len()).map(TransactionType::MiniAssert),
-        // );  // This takes too long with actual disprove scripts
 
         let full_commit_data = utils::BITVM_CACHE
             .intermediate_variables
@@ -641,20 +638,24 @@ mod tests {
                             .unwrap();
                         tracing::info!("Operator Signed tx: {:?}", tx_type);
                     }
-                    let _raw_assert_txs = operator_rpc
-                        .create_assert_commitment_txs(AssertRequest {
-                            deposit_params: deposit_params.clone().into(),
-                            kickoff_id: Some(kickoff_id),
-                            commit_data: full_commit_data.clone(),
-                        })
-                        .await
-                        .unwrap()
-                        .into_inner()
-                        .raw_txs;
-                    tracing::info!(
-                        "Operator Signed Assert txs of size: {}",
-                        _raw_assert_txs.len()
-                    );
+                    // TODO: run with release after bitvm optimization? all raw tx's don't fit 4mb (grpc limit) for now
+                    #[cfg(debug_assertions)]
+                    {
+                        let _raw_assert_txs = operator_rpc
+                            .create_assert_commitment_txs(AssertRequest {
+                                deposit_params: deposit_params.clone().into(),
+                                kickoff_id: Some(kickoff_id),
+                                commit_data: full_commit_data.clone(),
+                            })
+                            .await
+                            .unwrap()
+                            .into_inner()
+                            .raw_txs;
+                        tracing::info!(
+                            "Operator Signed Assert txs of size: {}",
+                            _raw_assert_txs.len()
+                        );
+                    }
                 }
             }
         }
