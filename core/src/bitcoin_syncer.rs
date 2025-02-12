@@ -80,7 +80,7 @@ async fn save_block(
 async fn _get_block_info_from_hash(
     db: &Database,
     dbtx: DatabaseTransaction<'_, '_>,
-    rpc: ExtendedRpc,
+    rpc: &ExtendedRpc,
     hash: BlockHash,
 ) -> Result<(BlockInfo, Vec<Vec<OutPoint>>), BridgeError> {
     let block = rpc.client.get_block(&hash).await?;
@@ -436,7 +436,7 @@ mod tests {
             .await
             .unwrap();
 
-        let (block_info, utxos) = super::_get_block_info_from_hash(&db, &mut dbtx, rpc, hash)
+        let (block_info, utxos) = super::_get_block_info_from_hash(&db, &mut dbtx, &rpc, hash)
             .await
             .unwrap();
         assert_eq!(block_info._header, block.header);
@@ -449,5 +449,45 @@ mod tests {
         }
 
         dbtx.commit().await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn set_initial_block_info_if_not_exists() {
+        let config = create_test_config_with_thread_name!(None);
+        let db = Database::new(&config).await.unwrap();
+        let rpc = ExtendedRpc::connect(
+            config.bitcoin_rpc_url.clone(),
+            config.bitcoin_rpc_user.clone(),
+            config.bitcoin_rpc_password.clone(),
+        )
+        .await
+        .unwrap();
+
+        let mut dbtx = db.begin_transaction().await.unwrap();
+
+        rpc.mine_blocks(1).await.unwrap();
+        let height = rpc.client.get_block_count().await.unwrap();
+        let hash = rpc.client.get_block_hash(height).await.unwrap();
+        let block = rpc.client.get_block(&hash).await.unwrap();
+
+        assert!(super::_get_block_info_from_hash(&db, &mut dbtx, &rpc, hash)
+            .await
+            .is_err());
+
+        super::set_initial_block_info_if_not_exists(&db, &rpc)
+            .await
+            .unwrap();
+
+        let (block_info, utxos) = super::_get_block_info_from_hash(&db, &mut dbtx, &rpc, hash)
+            .await
+            .unwrap();
+        assert_eq!(block_info.hash, hash);
+        assert_eq!(block_info.height, height);
+
+        for (tx_index, tx) in block.txdata.iter().enumerate() {
+            for (txin_index, txin) in tx.input.iter().enumerate() {
+                assert_eq!(txin.previous_output, utxos[tx_index][txin_index]);
+            }
+        }
     }
 }
