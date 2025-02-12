@@ -228,24 +228,15 @@ impl<T: State> TxHandler<T> {
         for idx in 0..self.txins.len() {
             let sig_id = self.txins[idx].get_signature_id();
             let sig_owner = sig_id.get_deposit_sig_owner()?;
-            match sig_owner {
-                DepositSigKeyOwner::Operator(sighash_type) => {
-                    if needed_entity == EntityType::Operator {
-                        sighashes.push((
-                            self.calculate_sighash_txin(idx, sighash_type)?,
-                            partial_signature_info.complete(sig_id),
-                        ));
-                    }
+            match (sig_owner, needed_entity) {
+                (DepositSigKeyOwner::Operator(sighash_type), EntityType::Operator) |
+                (DepositSigKeyOwner::NofN(sighash_type), EntityType::Verifier) => {
+                    sighashes.push((
+                        self.calculate_sighash_txin(idx, sighash_type)?,
+                        partial_signature_info.complete(sig_id),
+                    ));
                 }
-                DepositSigKeyOwner::NofN(sighash_type) => {
-                    if needed_entity == EntityType::Verifier {
-                        sighashes.push((
-                            self.calculate_sighash_txin(idx, sighash_type)?,
-                            partial_signature_info.complete(sig_id),
-                        ));
-                    }
-                }
-                DepositSigKeyOwner::NotOwned => {}
+                _ => {}
             }
         }
         Ok(sighashes)
