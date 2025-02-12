@@ -3,7 +3,7 @@ use super::{
     Database, DatabaseTransaction,
 };
 use crate::{bitcoin_syncer::BitcoinSyncerEvent, errors::BridgeError, execute_query_with_tx};
-use bitcoin::{BlockHash, Txid};
+use bitcoin::{BlockHash, OutPoint, Txid};
 use std::{ops::DerefMut, str::FromStr};
 
 impl Database {
@@ -130,6 +130,32 @@ impl Database {
         .execute(tx.deref_mut())
         .await?;
         Ok(())
+    }
+    pub async fn get_spent_utxos_for_txid(
+        &self,
+        tx: Option<DatabaseTransaction<'_, '_>>,
+        txid: Txid,
+    ) -> Result<Vec<(i64, OutPoint)>, BridgeError> {
+        let query = sqlx::query_as(
+            "SELECT block_id, txid, vout FROM bitcoin_syncer_spent_utxos WHERE spending_txid = $1",
+        )
+        .bind(TxidDB(txid));
+
+        let spent_utxos: Vec<(i64, TxidDB, i64)> =
+            execute_query_with_tx!(self.connection, tx, query, fetch_all)?;
+
+        Ok(spent_utxos
+            .into_iter()
+            .map(|(block_id, txid, vout)| {
+                (
+                    block_id,
+                    OutPoint {
+                        txid: txid.0,
+                        vout: vout as u32,
+                    },
+                )
+            })
+            .collect())
     }
 
     pub async fn add_event(
@@ -403,6 +429,56 @@ mod tests {
             .await
             .unwrap()
             .is_empty());
+
+        dbtx.commit().await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn insert_get_spent_utxos() {
+        let config = create_test_config_with_thread_name!(None);
+        let db = Database::new(&config).await.unwrap();
+        let mut dbtx = db.begin_transaction().await.unwrap();
+
+        let prev_block_hash = BlockHash::from_raw_hash(Hash::from_byte_array([0x1F; 32]));
+        let block_hash = BlockHash::from_raw_hash(Hash::from_byte_array([0x45; 32]));
+        let height = 0x45;
+        let block_id = db
+            .add_block_info(Some(&mut dbtx), &block_hash, &prev_block_hash, height)
+            .await
+            .unwrap();
+
+        let spending_txid = Txid::from_raw_hash(Hash::from_byte_array([0x2; 32]));
+        let txid = Txid::from_raw_hash(Hash::from_byte_array([0x1; 32]));
+        let vout = 0;
+        db.add_txid_to_block(&mut dbtx, block_id, &spending_txid)
+            .await
+            .unwrap();
+
+        assert_eq!(
+            db.get_spent_utxos_for_txid(Some(&mut dbtx), txid)
+                .await
+                .unwrap()
+                .len(),
+            0
+        );
+
+        db.insert_spent_utxo(&mut dbtx, block_id, &spending_txid, &txid, vout)
+            .await
+            .unwrap();
+
+        let spent_utxos = db
+            .get_spent_utxos_for_txid(Some(&mut dbtx), spending_txid)
+            .await
+            .unwrap();
+        assert_eq!(spent_utxos.len(), 1);
+        assert_eq!(spent_utxos[0].0, block_id as i64);
+        assert_eq!(
+            spent_utxos[0].1,
+            bitcoin::OutPoint {
+                txid,
+                vout: vout as u32,
+            }
+        );
 
         dbtx.commit().await.unwrap();
     }
