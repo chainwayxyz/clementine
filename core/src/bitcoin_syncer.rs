@@ -28,7 +28,7 @@ pub enum BitcoinSyncerEvent {
     ReorgedBlock(BlockHash),
 }
 
-/// Fetches the [`BlockInfo`] for a given height.
+/// Fetches the [`BlockInfo`] for a given height from Bitcoin.
 async fn get_block_info_from_height(
     rpc: &ExtendedRpc,
     height: u64,
@@ -263,4 +263,42 @@ pub async fn start_bitcoin_syncer(
 }
 
 #[cfg(test)]
-mod tests {}
+mod tests {
+    use bitcoincore_rpc::RpcApi;
+    use crate::create_test_config_with_thread_name;
+    use crate::extended_rpc::ExtendedRpc;
+    use crate::{
+        config::BridgeConfig, database::Database, initialize_database, utils::initialize_logger,
+    };
+
+    #[tokio::test]
+    #[serial_test::serial]
+    async fn get_block_info_from_height() {
+        let config = create_test_config_with_thread_name!(None);
+        let rpc = ExtendedRpc::connect(
+            config.bitcoin_rpc_url.clone(),
+            config.bitcoin_rpc_user.clone(),
+            config.bitcoin_rpc_password.clone(),
+        )
+        .await
+        .unwrap();
+
+        rpc.mine_blocks(1).await.unwrap();
+        let height = rpc.client.get_block_count().await.unwrap();
+        let hash = rpc.client.get_block_hash(height).await.unwrap();
+        let header = rpc.client.get_block_header(&hash).await.unwrap();
+
+        let block_info = super::get_block_info_from_height(&rpc, height).await.unwrap();
+        assert_eq!(block_info._header, header);
+        assert_eq!(block_info.hash, hash);
+        assert_eq!(block_info.height, height);
+
+        rpc.mine_blocks(1).await.unwrap();
+        let height = rpc.client.get_block_count().await.unwrap();
+
+        let block_info = super::get_block_info_from_height(&rpc, height).await.unwrap();
+        assert_ne!(block_info._header, header);
+        assert_ne!(block_info.hash, hash);
+        assert_eq!(block_info.height, height);
+    }
+}
