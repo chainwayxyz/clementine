@@ -319,7 +319,32 @@ mod tests {
             .await
             .unwrap()
             .unwrap();
+        let max_height = db.get_max_height(None).await.unwrap().unwrap();
         assert_eq!(block_info.0, prev_block_hash);
         assert_eq!(block_info.1, height as u32);
+        assert_eq!(max_height, height as u64);
+
+        db.add_block_info(
+            None,
+            &BlockHash::from_raw_hash(Hash::from_byte_array([0x1; 32])),
+            &prev_block_hash,
+            height - 1,
+        )
+        .await
+        .unwrap();
+        let max_height = db.get_max_height(None).await.unwrap().unwrap();
+        assert_eq!(max_height, height as u64);
+
+        db.add_block_info(
+            None,
+            &BlockHash::from_raw_hash(Hash::from_byte_array([0x2; 32])),
+            &prev_block_hash,
+            height + 1,
+        )
+        .await
+        .unwrap();
+        let max_height = db.get_max_height(None).await.unwrap().unwrap();
+        assert_ne!(max_height, height as u64);
+        assert_eq!(max_height, height as u64 + 1);
     }
 }
