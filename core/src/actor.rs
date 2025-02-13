@@ -10,11 +10,7 @@ use crate::utils::{self, SECP};
 use bitcoin::hashes::hash160;
 use bitcoin::secp256k1::PublicKey;
 use bitcoin::taproot::{LeafVersion, TaprootSpendInfo};
-use bitcoin::{
-    hashes::Hash,
-    secp256k1::{schnorr, Keypair, Message, SecretKey, XOnlyPublicKey},
-    Address, ScriptBuf, TapSighash, TapTweakHash,
-};
+use bitcoin::{hashes::Hash, secp256k1::{schnorr, Keypair, Message, SecretKey, XOnlyPublicKey}, Address, ScriptBuf, TapSighash, TapTweakHash, Txid};
 use bitcoin::{TapNodeHash, Witness};
 use bitvm::signatures::winternitz::{
     self, BinarysearchVerifier, StraightforwardConverter, Winternitz,
@@ -37,19 +33,15 @@ pub struct WinternitzDerivationPath<'a> {
     pub message_length: u32,
     pub log_d: u32,
     pub tx_type: TxType,
-    pub index: Option<u32>,
     pub operator_idx: Option<u32>,
     pub watchtower_idx: Option<u32>,
     pub sequential_collateral_tx_idx: Option<u32>,
     pub kickoff_idx: Option<u32>,
     pub intermediate_step_name: Option<&'a str>,
+    pub deposit_txid: Option<Txid>,
 }
 impl WinternitzDerivationPath<'_> {
     fn to_vec(self) -> Vec<u8> {
-        let index = match self.index {
-            None => 0,
-            Some(i) => i + 1,
-        };
         let operator_idx = match self.operator_idx {
             None => 0,
             Some(i) => i + 1,
@@ -70,11 +62,14 @@ impl WinternitzDerivationPath<'_> {
             None => vec![],
             Some(name) => name.as_bytes().to_vec(),
         };
+        let deposit_txid = match self.deposit_txid {
+            None => vec![],
+            Some(txid) => txid.to_byte_array().to_vec(),
+        };
 
         [
             vec![self.tx_type as u8],
             [
-                index.to_be_bytes(),
                 operator_idx.to_be_bytes(),
                 watchtower_idx.to_be_bytes(),
                 sequential_collateral_tx_idx.to_be_bytes(),
@@ -82,6 +77,7 @@ impl WinternitzDerivationPath<'_> {
             ]
             .concat(),
             intermediate_step_name,
+            deposit_txid,
         ]
         .concat()
     }
@@ -91,13 +87,13 @@ impl Default for WinternitzDerivationPath<'_> {
         Self {
             message_length: Default::default(),
             log_d: 4,
-            index: Default::default(),
             tx_type: TxType::SequentialCollateralTx,
             operator_idx: Default::default(),
             watchtower_idx: Default::default(),
             sequential_collateral_tx_idx: Default::default(),
             kickoff_idx: Default::default(),
             intermediate_step_name: Default::default(),
+            deposit_txid: Default::default(),
         }
     }
 }
@@ -750,21 +746,6 @@ mod tests {
                 vec![0; 4],
                 vec![0; 4],
                 vec![0; 4],
-                vec![0; 4],
-            ]
-            .concat()
-        );
-
-        params.index = Some(0);
-        assert_eq!(
-            params.to_vec(),
-            [
-                vec![0],
-                1u32.to_be_bytes().to_vec(),
-                vec![0; 4],
-                vec![0; 4],
-                vec![0; 4],
-                vec![0; 4],
             ]
             .concat()
         );
@@ -774,7 +755,6 @@ mod tests {
             params.to_vec(),
             [
                 vec![0],
-                1u32.to_be_bytes().to_vec(),
                 2u32.to_be_bytes().to_vec(),
                 vec![0; 4],
                 vec![0; 4],
@@ -788,7 +768,6 @@ mod tests {
             params.to_vec(),
             [
                 vec![0],
-                1u32.to_be_bytes().to_vec(),
                 2u32.to_be_bytes().to_vec(),
                 3u32.to_be_bytes().to_vec(),
                 vec![0; 4],
@@ -802,7 +781,6 @@ mod tests {
             params.to_vec(),
             [
                 vec![0],
-                1u32.to_be_bytes().to_vec(),
                 2u32.to_be_bytes().to_vec(),
                 3u32.to_be_bytes().to_vec(),
                 4u32.to_be_bytes().to_vec(),
@@ -816,7 +794,6 @@ mod tests {
             params.to_vec(),
             [
                 vec![0],
-                1u32.to_be_bytes().to_vec(),
                 2u32.to_be_bytes().to_vec(),
                 3u32.to_be_bytes().to_vec(),
                 4u32.to_be_bytes().to_vec(),
@@ -830,7 +807,6 @@ mod tests {
             params.to_vec(),
             [
                 vec![0],
-                1u32.to_be_bytes().to_vec(),
                 2u32.to_be_bytes().to_vec(),
                 3u32.to_be_bytes().to_vec(),
                 4u32.to_be_bytes().to_vec(),

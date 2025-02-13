@@ -634,12 +634,12 @@ mod tests {
             message_length: 64,
             log_d: 4,
             tx_type: TxType::BitVM,
-            index: Default::default(),
             operator_idx: Default::default(),
             watchtower_idx: Default::default(),
             sequential_collateral_tx_idx: Some(0),
             kickoff_idx: Some(0),
             intermediate_step_name: None,
+            deposit_txid: None,
         };
         let signer = Actor::new(
             kp.secret_key(),

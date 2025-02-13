@@ -285,12 +285,12 @@ pub async fn create_txhandlers(
                     message_length: WATCHTOWER_CHALLENGE_MESSAGE_LENGTH,
                     log_d: WINTERNITZ_LOG_D,
                     tx_type: crate::actor::TxType::WatchtowerChallenge,
-                    index: None,
                     operator_idx: Some(kickoff_id.operator_idx),
                     watchtower_idx: None,
                     sequential_collateral_tx_idx: Some(kickoff_id.sequential_collateral_idx),
                     kickoff_idx: Some(kickoff_id.kickoff_idx),
                     intermediate_step_name: None,
+                    deposit_txid: None,
                 };
                 let actor = Actor::new(
                     config.secret_key,
@@ -376,14 +376,14 @@ pub async fn create_txhandlers(
         {
             let path = WinternitzDerivationPath {
                 message_length: *intermediate_step_size as u32 * 2,
-                log_d: 4,
+                log_d: WINTERNITZ_LOG_D,
                 tx_type: crate::actor::TxType::BitVM,
-                index: Some(kickoff_id.operator_idx), // same as in operator get_params, idk why its not operator_idx
-                operator_idx: None,
+                operator_idx: Some(kickoff_id.operator_idx),
                 watchtower_idx: None,
-                sequential_collateral_tx_idx: Some(kickoff_id.sequential_collateral_idx),
-                kickoff_idx: Some(kickoff_id.kickoff_idx),
+                sequential_collateral_tx_idx: None,
+                kickoff_idx: None,
                 intermediate_step_name: Some(intermediate_step),
+                deposit_txid: Some(deposit.deposit_outpoint.txid),
             };
             let pk = actor.derive_winternitz_pk(path)?;
             assert_scripts.push(Arc::new(WinternitzCommit::new(

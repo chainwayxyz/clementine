@@ -67,12 +67,12 @@ impl Watchtower {
                         message_length: WATCHTOWER_CHALLENGE_MESSAGE_LENGTH,
                         log_d: WINTERNITZ_LOG_D,
                         tx_type: crate::actor::TxType::WatchtowerChallenge,
-                        index: None,
                         operator_idx: Some(operator),
                         watchtower_idx: None,
                         sequential_collateral_tx_idx: Some(sequential_collateral_tx),
                         kickoff_idx: Some(kickoff_idx),
                         intermediate_step_name: None,
+                        deposit_txid: None,
                     };
 
                     winternitz_pubkeys.push(self.signer.derive_winternitz_pk(path)?);

@@ -99,14 +99,12 @@ pub async fn create_and_sign_tx(
             message_length: 1,
             log_d: 1,
             tx_type: crate::actor::TxType::OperatorChallengeACK,
-            index: None,
             operator_idx: Some(transaction_data.kickoff_id.operator_idx),
             watchtower_idx: Some(watchtower_idx as u32),
-            sequential_collateral_tx_idx: Some(
-                transaction_data.kickoff_id.sequential_collateral_idx,
-            ),
-            kickoff_idx: Some(transaction_data.kickoff_id.kickoff_idx),
+            sequential_collateral_tx_idx: None,
+            kickoff_idx: None,
             intermediate_step_name: None,
+            deposit_txid: Some(transaction_data.deposit_id.deposit_outpoint.txid),
         };
         let preimage = signer.generate_preimage_from_path(path)?;
         signer.tx_sign_preimage(&mut requested_txhandler, preimage)?;
@@ -122,13 +120,10 @@ pub async fn create_and_sign_tx(
                 * 2,
             log_d: WINTERNITZ_LOG_D,
             tx_type: crate::actor::TxType::BitVM,
-            index: Some(transaction_data.kickoff_id.operator_idx),
-            operator_idx: None,
+            operator_idx: Some(transaction_data.kickoff_id.operator_idx),
             watchtower_idx: None,
-            sequential_collateral_tx_idx: Some(
-                transaction_data.kickoff_id.sequential_collateral_idx,
-            ),
-            kickoff_idx: Some(transaction_data.kickoff_id.kickoff_idx),
+            sequential_collateral_tx_idx: None,
+            kickoff_idx: None,
             intermediate_step_name: Some(
                 utils::BITVM_CACHE
                     .intermediate_variables
@@ -137,6 +132,7 @@ pub async fn create_and_sign_tx(
                     .ok_or_else(|| Status::invalid_argument("Mini Assert Index is too big"))?
                     .0,
             ),
+            deposit_txid: Some(transaction_data.deposit_id.deposit_outpoint.txid),
         };
         signer.tx_sign_winternitz(
             &mut requested_txhandler,
@@ -150,7 +146,6 @@ pub async fn create_and_sign_tx(
             message_length: WATCHTOWER_CHALLENGE_MESSAGE_LENGTH,
             log_d: WINTERNITZ_LOG_D,
             tx_type: crate::actor::TxType::WatchtowerChallenge,
-            index: None,
             operator_idx: Some(transaction_data.kickoff_id.operator_idx),
             watchtower_idx: None,
             sequential_collateral_tx_idx: Some(
@@ -158,6 +153,7 @@ pub async fn create_and_sign_tx(
             ),
             kickoff_idx: Some(transaction_data.kickoff_id.kickoff_idx),
             intermediate_step_name: None,
+            deposit_txid: None,
         };
         signer.tx_sign_winternitz(
             &mut requested_txhandler,
@@ -234,12 +230,12 @@ pub async fn create_assert_commitment_txs(
             message_length: step_size as u32 * 2,
             log_d: WINTERNITZ_LOG_D,
             tx_type: crate::actor::TxType::BitVM,
-            index: Some(assert_data.kickoff_id.operator_idx),
-            operator_idx: None,
+            operator_idx: Some(assert_data.kickoff_id.operator_idx),
             watchtower_idx: None,
-            sequential_collateral_tx_idx: Some(assert_data.kickoff_id.sequential_collateral_idx),
-            kickoff_idx: Some(assert_data.kickoff_id.kickoff_idx),
+            sequential_collateral_tx_idx: None,
+            kickoff_idx: None,
             intermediate_step_name: Some(step_name),
+            deposit_txid: Some(assert_data.deposit_id.deposit_outpoint.txid),
         };
         let mut mini_assert_txhandler =
             txhandlers.remove(&TransactionType::MiniAssert(idx)).ok_or(

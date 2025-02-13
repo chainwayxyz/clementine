@@ -329,7 +329,7 @@ mod tests {
             db.set_operator_winternitz_public_keys(
                 None,
                 i.try_into().unwrap(),
-                operator.get_winternitz_public_keys().unwrap(),
+                operator.get_winternitz_public_keys(Txid::all_zeros()).unwrap(),
             )
             .await
             .unwrap();
