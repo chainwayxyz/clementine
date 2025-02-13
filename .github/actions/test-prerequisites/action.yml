@@ -12,9 +12,12 @@ runs:
   using: "composite"
 
   steps:
+  - name: Download bitvm cache bin
+    shell: bash
+    run: wget https://static.testnet.citrea.xyz/common/bitvm_cache.bin -O core/bitvm_cache.bin
   - name: Download Bitcoin
     shell: bash
-    run: wget https://static.testnet.citrea.xyz/bitcoin-28.0-x86_64-linux-gnu.tar.gz
+    run: wget https://static.testnet.citrea.xyz/common/bitcoin-28.0-x86_64-linux-gnu.tar.gz
   - name: Unpack Bitcoin
     shell: bash
     run: tar -xzvf bitcoin-28.0-x86_64-linux-gnu.tar.gz
