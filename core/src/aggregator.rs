@@ -1,8 +1,10 @@
 use crate::{
+    actor::Actor,
     builder::{self},
     config::BridgeConfig,
     database::Database,
     errors::BridgeError,
+    extended_rpc::ExtendedRpc,
     musig2::{aggregate_partial_signatures, AggregateFromPublicKeys},
     rpc::{
         self,
@@ -12,6 +14,7 @@ use crate::{
             clementine_watchtower_client::ClementineWatchtowerClient,
         },
     },
+    tx_sender::TxSender,
     EVMAddress,
 };
 use bitcoin::{
@@ -36,6 +39,7 @@ pub struct Aggregator {
     pub(crate) db: Database,
     pub(crate) config: BridgeConfig,
     pub(crate) nofn_xonly_pk: XOnlyPublicKey,
+    pub(crate) tx_sender: TxSender,
     pub(crate) verifier_clients: Vec<ClementineVerifierClient<tonic::transport::Channel>>,
     pub(crate) operator_clients: Vec<ClementineOperatorClient<tonic::transport::Channel>>,
     pub(crate) watchtower_clients: Vec<ClementineWatchtowerClient<tonic::transport::Channel>>,
@@ -80,10 +84,20 @@ impl Aggregator {
         let watchtower_clients =
             rpc::get_clients(watchtower_endpoints, ClementineWatchtowerClient::connect).await?;
 
+        let signer = Actor::new(config.secret_key, None, config.network);
+        let rpc = ExtendedRpc::connect(
+            config.bitcoin_rpc_url.clone(),
+            config.bitcoin_rpc_user.clone(),
+            config.bitcoin_rpc_password.clone(),
+        )
+        .await?;
+        let tx_sender = TxSender::new(signer.clone(), rpc, db.clone(), config.network);
+
         Ok(Aggregator {
             db,
             config,
             nofn_xonly_pk,
+            tx_sender,
             verifier_clients,
             operator_clients,
             watchtower_clients,
