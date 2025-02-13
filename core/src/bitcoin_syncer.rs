@@ -233,6 +233,7 @@ async fn handle_reorg_events(
     let reorg_blocks = db
         .set_non_canonical_block_hashes(Some(dbtx), common_ancestor_height)
         .await?;
+
     for reorg_hash in reorg_blocks {
         db.add_event(Some(dbtx), BitcoinSyncerEvent::ReorgedBlock(reorg_hash))
             .await?;
@@ -591,5 +592,56 @@ mod tests {
         assert!(super::fetch_new_blocks(&db, &rpc, new_height - 1)
             .await
             .is_err());
+    }
+
+    #[tokio::test]
+    #[serial_test::serial]
+    async fn set_non_canonical_block_hashes() {
+        let config = create_test_config_with_thread_name!(None);
+        let db = Database::new(&config).await.unwrap();
+        let rpc = ExtendedRpc::connect(
+            config.bitcoin_rpc_url.clone(),
+            config.bitcoin_rpc_user.clone(),
+            config.bitcoin_rpc_password.clone(),
+        )
+        .await
+        .unwrap();
+
+        let hashes = rpc.mine_blocks(4).await.unwrap();
+        let height = rpc.client.get_block_count().await.unwrap();
+
+        super::set_initial_block_info_if_not_exists(&db, &rpc)
+            .await
+            .unwrap();
+
+        rpc.client
+            .invalidate_block(hashes.get(3).unwrap())
+            .await
+            .unwrap();
+        rpc.client
+            .invalidate_block(hashes.get(2).unwrap())
+            .await
+            .unwrap();
+
+        let mut dbtx = db.begin_transaction().await.unwrap();
+
+        let last_db_block =
+            super::_get_block_info_from_hash(&db, &mut dbtx, &rpc, *hashes.get(3).unwrap())
+                .await
+                .unwrap();
+        assert_eq!(last_db_block.0.height, height);
+        assert_eq!(last_db_block.0.hash, *hashes.get(3).unwrap());
+
+        super::handle_reorg_events(&db, &mut dbtx, height - 2)
+            .await
+            .unwrap();
+
+        assert!(
+            super::_get_block_info_from_hash(&db, &mut dbtx, &rpc, *hashes.get(3).unwrap())
+                .await
+                .is_err()
+        );
+
+        dbtx.commit().await.unwrap();
     }
 }

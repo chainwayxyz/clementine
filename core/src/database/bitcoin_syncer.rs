@@ -40,7 +40,7 @@ impl Database {
         block_hash: BlockHash,
     ) -> Result<Option<(BlockHash, u32)>, BridgeError> {
         let query = sqlx::query_as(
-            "SELECT prev_blockhash, height FROM bitcoin_syncer WHERE blockhash = $1",
+            "SELECT prev_blockhash, height FROM bitcoin_syncer WHERE blockhash = $1 AND is_canonical = true",
         )
         .bind(BlockHashDB(block_hash));
 
