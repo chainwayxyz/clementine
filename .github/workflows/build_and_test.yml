@@ -12,7 +12,7 @@ jobs:
 # Build ------------------------------------------------------------------------
   debug_build:
     name: Compile code with debug profile
-    runs-on: ubicloud-standard-30
+    runs-on: ubicloud-standard-16
 
     steps:
     - uses: actions/checkout@v4
@@ -29,7 +29,7 @@ jobs:
 
   release_build:
     name: Compile code with release profile
-    runs-on: ubicloud-standard-30
+    runs-on: ubicloud-standard-16
 
     steps:
     - uses: actions/checkout@v4
@@ -47,7 +47,7 @@ jobs:
 # Tests ------------------------------------------------------------------------
   debug_build_test:
     name: Test code with debug build
-    runs-on: ubicloud-standard-30
+    runs-on: ubicloud-standard-16
     needs: debug_build
 
     services:
@@ -82,7 +82,7 @@ jobs:
 
   release_build_test:
     name: Test code with release build
-    runs-on: ubicloud-standard-30
+    runs-on: ubicloud-standard-16
     needs: release_build
 
     services:
