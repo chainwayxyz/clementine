@@ -480,7 +480,10 @@ mod tests {
     // Imports required for create_test_config_with_thread_name macro.
     use crate::config::BridgeConfig;
     use crate::utils::initialize_logger;
-    use crate::{create_test_config_with_thread_name, database::Database, initialize_database};
+    use crate::{
+        create_regtest_rpc, create_test_config_with_thread_name, database::Database,
+        initialize_database,
+    };
 
     use bitcoin::secp256k1::SecretKey;
     use bitcoin::transaction::Version;
@@ -494,13 +497,8 @@ mod tests {
         let actor = Actor::new(sk, None, network);
 
         let config = create_test_config_with_thread_name!(None);
-        let rpc = ExtendedRpc::connect(
-            config.bitcoin_rpc_url.clone(),
-            config.bitcoin_rpc_user.clone(),
-            config.bitcoin_rpc_password.clone(),
-        )
-        .await
-        .unwrap();
+        let regtest = create_regtest_rpc!(config);
+        let rpc = regtest.rpc().clone();
 
         let db = Database::new(&config).await.unwrap();
 
