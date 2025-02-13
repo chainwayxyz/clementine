@@ -193,4 +193,69 @@ create table if not exists operators_challenge_ack_hashes (
     primary key (operator_idx, sequential_collateral_tx_idx, kickoff_idx)
 );
 
+-- Table to store fee payer UTXOs
+create table if not exists tx_sender_fee_payer_utxos (
+    id serial primary key,
+    replacement_of_id int references tx_sender_fee_payer_utxos(id),
+    bumped_txid text not null check (bumped_txid ~ '^[a-fA-F0-9]{64}'),
+    fee_payer_txid text not null check (fee_payer_txid ~ '^[a-fA-F0-9]{64}'),
+    vout int not null,
+    script_pubkey bytea not null,
+    amount bigint not null,
+    is_confirmed boolean not null default false,
+    confirmed_blockhash text check (confirmed_blockhash ~ '^[a-fA-F0-9]{64}'),
+    created_at timestamp not null default now()
+);
+
+-- Table to store txs that needs to be fee bumped
+create table if not exists tx_sender_txs (
+    txid text not null check (txid ~ '^[a-fA-F0-9]{64}'),
+    raw_tx bytea not null,
+    child_txid text check (child_txid ~ '^[a-fA-F0-9]{64}'),
+    effective_fee_rate bigint,
+    is_confirmed boolean not null default false,
+    confirmed_blockhash text check (confirmed_blockhash ~ '^[a-fA-F0-9]{64}'),
+    created_at timestamp not null default now()
+);
+
+create table if not exists bitcoin_syncer (
+    id serial primary key,
+    blockhash text not null unique,
+    prev_blockhash text not null,
+    height bigint not null,
+    is_canonical boolean not null default true
+);
+
+create table if not exists bitcoin_syncer_txs (
+    block_id int not null references bitcoin_syncer (id),
+    txid text not null,
+    primary key (block_id, txid)
+);
+
+create table if not exists bitcoin_syncer_spent_utxos (
+    block_id bigint not null references bitcoin_syncer (id),
+    spending_txid text not null,
+    txid text not null,
+    vout bigint not null,
+    primary key (block_id, spending_txid, txid, vout),
+    foreign key (block_id, spending_txid) references bitcoin_syncer_txs (block_id, txid)
+);
+
+-- enum for bitcoin_syncer_events
+create type bitcoin_syncer_event_type as enum ('new_block', 'reorged_block');
+
+create table if not exists bitcoin_syncer_events (
+    id serial primary key,
+    blockhash text not null,
+    event_type bitcoin_syncer_event_type not null,
+    created_at timestamp not null default now()
+);
+
+create table if not exists bitcoin_syncer_event_handlers (
+    consumer_handle text not null,
+    last_processed_event_id int not null,
+    created_at timestamp not null default now(),
+    primary key (consumer_handle)
+);
+
 COMMIT;
