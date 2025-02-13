@@ -278,6 +278,8 @@ pub async fn start_bitcoin_syncer(
         loop {
             // Try to fetch new blocks (if any) from the RPC.
             let maybe_new_blocks = fetch_new_blocks(&db, &rpc, current_height).await?;
+
+            // If there are no new blocks, wait for a while and continue.
             let new_blocks = match maybe_new_blocks {
                 Some(blocks) if !blocks.is_empty() => blocks,
                 _ => {
@@ -287,18 +289,19 @@ pub async fn start_bitcoin_syncer(
             };
 
             // The common ancestor is the block preceding the first new block.
-            let common_ancestor_height =
-                new_blocks.first().expect("new_blocks is empty").height - 1;
+            let common_ancestor_height = new_blocks[0].height - 1;
             let mut dbtx = db.begin_transaction().await?;
 
             // Mark reorg blocks (if any) as non-canonical.
             handle_reorg_events(&db, &mut dbtx, common_ancestor_height).await?;
             // Process and insert the new blocks.
             process_new_blocks(&db, &rpc, &mut dbtx, &new_blocks).await?;
+
             dbtx.commit().await?;
 
             // Update the current height to the tip of the new chain.
-            current_height = new_blocks.last().expect("new_blocks is empty").height;
+            current_height = new_blocks.last().expect("new_blocks is not empty").height;
+
             sleep(poll_delay).await;
         }
     });
@@ -319,6 +322,7 @@ mod tests {
     use bitcoin::transaction::Version;
     use bitcoin::{OutPoint, ScriptBuf, Transaction, TxIn, Witness};
     use bitcoincore_rpc::RpcApi;
+    use std::time::Duration;
 
     #[tokio::test]
     #[serial_test::serial]
@@ -643,5 +647,46 @@ mod tests {
         );
 
         dbtx.commit().await.unwrap();
+    }
+
+    #[tokio::test]
+    #[serial_test::serial]
+    async fn start_bitcoin_syncer_new_block_mined() {
+        let config = create_test_config_with_thread_name!(None);
+        let db = Database::new(&config).await.unwrap();
+        let rpc = ExtendedRpc::connect(
+            config.bitcoin_rpc_url.clone(),
+            config.bitcoin_rpc_user.clone(),
+            config.bitcoin_rpc_password.clone(),
+        )
+        .await
+        .unwrap();
+
+        rpc.mine_blocks(1).await.unwrap();
+        let height = rpc.client.get_block_count().await.unwrap();
+        let hash = rpc.client.get_block_hash(height).await.unwrap();
+
+        super::start_bitcoin_syncer(db.clone(), rpc.clone(), Duration::from_secs(0))
+            .await
+            .unwrap();
+
+        loop {
+            let mut dbtx = db.begin_transaction().await.unwrap();
+
+            let last_db_block =
+                match super::_get_block_info_from_hash(&db, &mut dbtx, &rpc, hash).await {
+                    Ok(block) => block,
+                    Err(_) => {
+                        dbtx.commit().await.unwrap();
+                        continue;
+                    }
+                };
+
+            assert_eq!(last_db_block.0.height, height);
+            assert_eq!(last_db_block.0.hash, hash);
+
+            dbtx.commit().await.unwrap();
+            break;
+        }
     }
 }
