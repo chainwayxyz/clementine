@@ -560,7 +560,7 @@ impl ClementineAggregator for Aggregator {
         .await
         .map_err(|e| BridgeError::Error(format!("aggregator setup failed: {e}")))?
         .into_iter()
-        .collect::<Result<_, _>>()?;
+        .collect::<Result<Vec<_>, Status>>()?;
 
         Ok(Response::new(Empty {}))
     }
