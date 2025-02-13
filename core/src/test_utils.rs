@@ -385,18 +385,18 @@ macro_rules! create_actors {
             .await
             .unwrap();
 
-        let port = get_available_port!();
-        println!("Watchtower start port: {}", port);
         let verifier_configs = verifier_configs.clone();
 
         let watchtower_futures = all_watchtowers_secret_keys
             .iter()
             .enumerate()
             .map(|(i, sk)| {
+                let port = get_available_port!();
+                println!("Watchtower {i} start port: {port}");
                 create_watchtower_grpc_server(BridgeConfig {
                     index: i as u32,
                     secret_key: *sk,
-                    port: get_available_port!(),
+                    port,
                     ..verifier_configs[i].clone()
                 })
             })

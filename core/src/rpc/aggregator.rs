@@ -274,12 +274,12 @@ async fn create_nonce_streams(
 /// If receiver is lagged at any time (data is lost) an error is returned.
 async fn collect_and_call<R, T, F, Fut>(
     rx: &mut tokio::sync::broadcast::Receiver<Vec<T>>,
-    f: F,
+    mut f: F,
 ) -> Result<R, Status>
 where
     R: Default,
     T: Clone,
-    F: Fn(Vec<T>) -> Fut,
+    F: FnMut(Vec<T>) -> Fut,
     Fut: Future<Output = Result<R, Status>>,
 {
     loop {
@@ -417,23 +417,30 @@ impl ClementineAggregator for Aggregator {
                 Ok::<_, Status>(verifier_params.public_key)
             }
         }))
-        .await?;
+        .shared(); // share this future so all the spawned threads can poll on it.
+
         tracing::debug!("Verifier public keys: {:?}", verifier_public_keys);
 
-        tracing::info!("Setting up verifiers...");
-        try_join_all(self.verifier_clients.iter().map(|client| {
-            let mut client = client.clone();
-            let verifier_public_keys = clementine::VerifierPublicKeys {
-                verifier_public_keys: verifier_public_keys.clone(),
-            };
+        let set_verifier_keys_handle = tokio::spawn({
+            let verifier_clients = self.verifier_clients.clone();
             async move {
-                client
-                    .set_verifiers(Request::new(verifier_public_keys))
-                    .await?;
+                tracing::info!("Setting up verifiers...");
+                try_join_all(verifier_clients.into_iter().map(|mut verifier| {
+                    let verifier_public_keys = verifier_public_keys.clone();
+                    async move {
+                        let verifier_public_keys = clementine::VerifierPublicKeys {
+                            verifier_public_keys: verifier_public_keys.await?.clone(),
+                        };
+                        verifier
+                            .set_verifiers(Request::new(verifier_public_keys))
+                            .await?;
+                        Ok::<_, Status>(())
+                    }
+                }))
+                .await?;
                 Ok::<_, Status>(())
             }
-        }))
-        .await?;
+        });
 
         // Propagate Operators configurations to all verifier clients
         const CHANNEL_CAPACITY: usize = 1024 * 16;
@@ -464,12 +471,11 @@ impl ClementineAggregator for Aggregator {
 
         let verifiers = self.verifier_clients.clone();
         let set_operator_params_handle = tokio::spawn(async move {
-            tracing::info!("Informing verifiers for existing operators...");
+            tracing::info!("Informing verifiers of existing operators...");
             try_join_all(verifiers.iter().map(|verifier| {
                 let verifier = verifier.clone();
-                let rx = &operator_params_rx;
+                let mut rx = operator_params_rx.resubscribe();
                 async move {
-                    let mut rx = rx.resubscribe();
                     collect_and_call(&mut rx, |params| {
                         let mut verifier = verifier.clone();
                         async move {
@@ -490,61 +496,71 @@ impl ClementineAggregator for Aggregator {
         let (watchtower_params_tx, watchtower_params_rx) =
             tokio::sync::broadcast::channel(CHANNEL_CAPACITY);
 
-        let watchtowers = self.watchtower_clients.clone();
-        let get_watchtower_params_chunked_handle = tokio::spawn(async move {
-            tracing::info!("Collecting Winternitz public keys from watchtowers...");
-            try_join_all(watchtowers.iter().map(|watchtower| {
-                let mut watchtower = watchtower.clone();
-                let tx = watchtower_params_tx.clone();
-                async move {
-                    let stream = watchtower
-                        .get_params(Request::new(Empty {}))
-                        .await?
-                        .into_inner();
-                    tx.send(stream.try_collect::<Vec<_>>().await?)
-                        .map_err(|e| {
-                            BridgeError::Error(format!("failed to read watchtower params: {e}"))
-                        })?;
-                    Ok::<_, Status>(())
-                }
-            }))
-            .await?;
-            Ok::<_, Status>(())
+        let get_watchtower_params_chunked_handle = tokio::spawn({
+            let watchtowers = self.watchtower_clients.clone();
+            async move {
+                tracing::info!("Collecting Winternitz public keys from watchtowers...");
+                try_join_all(watchtowers.iter().map(|watchtower| {
+                    let mut watchtower = watchtower.clone();
+                    let tx = watchtower_params_tx.clone();
+                    async move {
+                        let stream = watchtower
+                            .get_params(Request::new(Empty {}))
+                            .await?
+                            .into_inner();
+                        tx.send(stream.try_collect::<Vec<_>>().await?)
+                            .map_err(|e| {
+                                BridgeError::Error(format!("failed to read watchtower params: {e}"))
+                            })?;
+                        Ok::<_, Status>(())
+                    }
+                }))
+                .await?;
+                Ok::<_, Status>(())
+            }
         });
 
-        let verifiers = self.verifier_clients.clone();
-        let set_watchtower_params_handle = tokio::spawn(async move {
-            tracing::info!("Sending Winternitz public keys to verifiers...");
-            try_join_all(verifiers.iter().map(|verifier| {
-                let verifier = verifier.clone();
-                let rx = &watchtower_params_rx;
-                async move {
-                    let mut rx = rx.resubscribe();
-                    collect_and_call(&mut rx, |params| {
-                        let mut verifier = verifier.clone();
-                        async move {
-                            verifier
-                                .set_watchtower(futures::stream::iter(params))
+        let set_watchtower_params_handle = tokio::spawn({
+            let verifiers = self.verifier_clients.clone();
+            async move {
+                tracing::info!("Sending Winternitz public keys to verifiers...");
+                try_join_all(
+                    verifiers
+                        .iter()
+                        .map(|v| (v, watchtower_params_rx.resubscribe()))
+                        .map(|(verifier, mut rx)| {
+                            let verifier = verifier.clone();
+                            async move {
+                                collect_and_call(&mut rx, |params| {
+                                    let mut verifier = verifier.clone();
+                                    async move {
+                                        verifier
+                                            .set_watchtower(futures::stream::iter(params))
+                                            .await?;
+                                        Ok::<_, Status>(())
+                                    }
+                                })
                                 .await?;
-                            Ok::<_, Status>(())
-                        }
-                    })
-                    .await?;
-                    Ok::<_, Status>(())
-                }
-            }))
-            .await?;
-            Ok::<_, Status>(())
+                                Ok::<_, Status>(())
+                            }
+                        }),
+                )
+                .await?;
+                Ok::<_, Status>(())
+            }
         });
 
         try_join_all([
+            set_verifier_keys_handle,
             get_operator_params_chunked_handle,
             set_operator_params_handle,
             get_watchtower_params_chunked_handle,
             set_watchtower_params_handle,
         ])
         .await
-        .map_err(|e| BridgeError::Error(format!("aggregator setup failed: {e}")))?;
+        .map_err(|e| BridgeError::Error(format!("aggregator setup failed: {e}")))?
+        .into_iter()
+        .collect::<Result<_, _>>()?;
 
         Ok(Response::new(Empty {}))
     }
@@ -812,7 +828,7 @@ mod tests {
     #[tokio::test]
     async fn aggregator_setup_watchtower_winternitz_public_keys() {
         let mut config = create_test_config_with_thread_name!(None);
-        let (_verifiers, _operators, mut aggregator, _watchtowers, _regtest) =
+        let (_verifiers, _operators, mut aggregator, _watchtowers, regtest) =
             create_actors!(config.clone());
 
         aggregator
@@ -824,7 +840,6 @@ mod tests {
             .get_watchtower_winternitz_public_keys()
             .await
             .unwrap();
-        let regtest = create_regtest_rpc!(config);
         let rpc = regtest.rpc().clone();
         config.db_name += "0"; // This modification is done by the create_actors_grpc function.
         let verifier = Verifier::new(rpc, config.clone()).await.unwrap();
@@ -858,8 +873,8 @@ mod tests {
 
     #[tokio::test]
     async fn aggregator_setup_watchtower_challenge_addresses() {
-        let mut config = create_test_config_with_thread_name!(None);
-        let (_verifiers, _operators, mut aggregator, _watchtowers, _regtest) =
+        let config = create_test_config_with_thread_name!(None);
+        let (_verifiers, _operators, mut aggregator, _watchtowers, regtest) =
             create_actors!(config.clone());
         aggregator
             .setup(tonic::Request::new(clementine::Empty {}))
@@ -875,32 +890,36 @@ mod tests {
             .get_watchtower_challenge_addresses()
             .await
             .unwrap();
-        let regtest = create_regtest_rpc!(config);
         let rpc = regtest.rpc().clone();
-        config.db_name += "0"; // This modification is done by the create_actors_grpc function.
-        let verifier = Verifier::new(rpc, config.clone()).await.unwrap();
-        tracing::info!("verifier config: {:#?}", verifier.config);
-        let verifier_wpks = verifier
+        let verifier0 = {
+            let mut config = config.clone();
+            config.db_name += "0"; // This modification is done by the create_actors_grpc function.
+            Verifier::new(rpc, config).await.unwrap()
+        };
+
+        tracing::info!("verifier config: {:#?}", verifier0.config);
+
+        let verifier_wpks = verifier0
             .db
             .get_watchtower_winternitz_public_keys(None, 0, 0)
             .await
             .unwrap();
-        let verifier_challenge_addresses_0 = verifier
+        let verifier_challenge_addresses_0 = verifier0
             .db
             .get_watchtower_challenge_addresses(None, 0, 0)
             .await
             .unwrap();
-        let verifier_challenge_addresses_1 = verifier
+        let verifier_challenge_addresses_1 = verifier0
             .db
             .get_watchtower_challenge_addresses(None, 1, 0)
             .await
             .unwrap();
-        let verifier_challenge_addresses_2 = verifier
+        let verifier_challenge_addresses_2 = verifier0
             .db
             .get_watchtower_challenge_addresses(None, 2, 0)
             .await
             .unwrap();
-        let verifier_challenge_addresses_3 = verifier
+        let verifier_challenge_addresses_3 = verifier0
             .db
             .get_watchtower_challenge_addresses(None, 3, 0)
             .await
