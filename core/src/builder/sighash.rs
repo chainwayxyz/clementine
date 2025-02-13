@@ -50,11 +50,11 @@ pub fn calculate_num_required_nofn_sigs_per_kickoff(
         num_watchtowers, ..
     }: &BridgeConfig,
 ) -> usize {
-    10 + 2 * num_watchtowers
+    13 + 2 * num_watchtowers
 }
 
 pub fn calculate_num_required_operator_sigs_per_kickoff() -> usize {
-    3
+    4
 }
 
 #[derive(Copy, Clone, Debug)]
@@ -180,7 +180,7 @@ pub fn create_nofn_sighash_stream(
                         }
                     }
                     if sum != calculate_num_required_nofn_sigs_per_kickoff(&config) {
-                        Err(BridgeError::Error("NofN sighash count does not match expected count.".to_string()))?;
+                        Err(BridgeError::NofNSighashMismatch(calculate_num_required_nofn_sigs_per_kickoff(&config), sum))?;
                     }
                     last_reimburse_generator = txhandlers.remove(&TransactionType::Reimburse);
                 }
@@ -255,7 +255,7 @@ pub fn create_operator_sighash_stream(
                     }
                 }
                 if sum != calculate_num_required_operator_sigs_per_kickoff() {
-                    Err(BridgeError::Error("Operator sighash count does not match expected count.".to_string()))?;
+                    Err(BridgeError::OperatorSighashMismatch(calculate_num_required_operator_sigs_per_kickoff(), sum))?;
                 }
                 last_reimburse_generator = txhandlers.remove(&TransactionType::Reimburse);
             }
@@ -281,6 +281,7 @@ mod tests {
     use std::pin::pin;
 
     #[tokio::test]
+    #[ignore = "Not needed because checks are already done in stream functions now"]
     async fn calculate_num_required_nofn_sigs() {
         let config = create_test_config_with_thread_name!(None);
         let db = Database::new(&config).await.unwrap();

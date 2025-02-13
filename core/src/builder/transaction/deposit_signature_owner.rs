@@ -37,8 +37,8 @@ impl SignatureId {
                     NormalSignatureUnknown => Ok(NotOwned),
                     WatchtowerChallengeKickoff => Ok(NofN(SighashDefault)),
                     Challenge => Ok(NofN(SinglePlusAnyoneCanPay)),
-                    KickoffTimeout1 => Ok(NofN(SighashDefault)),
-                    KickoffTimeout2 => Ok(Operator(SighashDefault)),
+                    AssertTimeout1 => Ok(NofN(SighashDefault)),
+                    AssertTimeout2 => Ok(Operator(SighashDefault)),
                     StartHappyReimburse2 => Ok(NofN(SighashDefault)),
                     HappyReimburse1 => Ok(NofN(SighashDefault)),
                     AssertEndLast => Ok(NofN(SighashDefault)),
@@ -48,6 +48,10 @@ impl SignatureId {
                     AlreadyDisproved2 => Ok(Operator(SighashDefault)),
                     Disprove2 => Ok(Operator(SighashNone)),
                     Reimburse1 => Ok(NofN(SighashDefault)),
+                    StartHappyReimburse3 => Ok(NofN(SighashDefault)),
+                    DisproveTimeout3 => Ok(NofN(SighashDefault)),
+                    KickoffNotFinalized1 => Ok(NofN(SighashDefault)),
+                    KickoffNotFinalized2 => Ok(Operator(SighashDefault)),
                 }
             }
             SignatureId::WatchtowerSignature(watchtower_sig) => {
