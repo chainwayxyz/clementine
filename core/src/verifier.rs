@@ -16,7 +16,7 @@ use crate::extended_rpc::ExtendedRpc;
 use crate::musig2::{self, AggregateFromPublicKeys};
 use crate::rpc::clementine::TaggedSignature;
 use crate::utils::{self, BITVM_CACHE, SECP};
-use crate::{EVMAddress, UTXO};
+use crate::{bitcoin_syncer, EVMAddress, UTXO};
 use bitcoin::address::NetworkUnchecked;
 use bitcoin::hashes::Hash;
 use bitcoin::secp256k1::schnorr::Signature;
@@ -31,6 +31,7 @@ use secp256k1::musig::{MusigAggNonce, MusigPartialSignature, MusigPubNonce, Musi
 use std::collections::HashMap;
 use std::pin::pin;
 use std::sync::Arc;
+use std::time::Duration;
 use tokio::sync::mpsc;
 use tokio_stream::StreamExt;
 
@@ -125,6 +126,12 @@ impl Verifier {
         } else {
             None
         };
+
+        bitcoin_syncer::set_initial_block_info_if_not_exists(&db, &rpc).await?;
+        // Store sender in a variable to keep it alive
+        let _handle =
+            bitcoin_syncer::start_bitcoin_syncer(db.clone(), rpc.clone(), Duration::from_secs(1))
+                .await?;
 
         Ok(Verifier {
             _rpc: rpc,
