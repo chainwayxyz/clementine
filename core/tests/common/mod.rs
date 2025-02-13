@@ -4,7 +4,7 @@
 mod test_utils;
 
 use crate::initialize_database;
-use crate::{create_actors, create_regtest_rpc, get_deposit_address, get_available_port};
+use crate::{create_actors, create_regtest_rpc, get_available_port, get_deposit_address};
 use bitcoin::OutPoint;
 use clementine_core::actor::Actor;
 use clementine_core::config::BridgeConfig;

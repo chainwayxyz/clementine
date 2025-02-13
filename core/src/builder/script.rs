@@ -571,7 +571,7 @@ mod tests {
     };
 
     #[tokio::test]
-    
+
     async fn test_checksig_spendable() {
         let config = create_test_config_with_thread_name!(None);
         let regtest = create_regtest_rpc!(config);
@@ -713,7 +713,7 @@ mod tests {
     }
 
     #[tokio::test]
-    
+
     async fn test_preimage_reveal_script_spendable() {
         let config = create_test_config_with_thread_name!(None);
         let regtest = create_regtest_rpc!(config);
@@ -756,7 +756,7 @@ mod tests {
     }
 
     #[tokio::test]
-    
+
     async fn test_deposit_script_spendable() {
         let config = create_test_config_with_thread_name!(None);
         let regtest = create_regtest_rpc!(config);

@@ -126,7 +126,7 @@ mod tests {
     }
 
     #[tokio::test]
-    
+
     async fn new_with_proof_assumption() {
         let config = create_test_config_with_thread_name!(None);
         let regtest = create_regtest_rpc!(config);
@@ -150,7 +150,6 @@ mod tests {
     }
 
     #[tokio::test]
-    
     #[ignore = "This test is very host dependent and needs a human observer"]
     async fn start_header_chain_prover() {
         let config = create_test_config_with_thread_name!(None);
