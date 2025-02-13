@@ -6,7 +6,7 @@ use crate::errors::BridgeError;
 use crate::rpc::clementine::DepositParams;
 use crate::EVMAddress;
 use bitcoin::address::NetworkUnchecked;
-use bitcoin::hashes::Hash;
+use bitcoin::hashes::{sha256d, FromSliceError, Hash};
 use bitcoin::{OutPoint, Txid};
 use bitvm::signatures::winternitz;
 use std::fmt::{Debug, Display};
@@ -137,6 +137,17 @@ impl From<Txid> for clementine::Txid {
         }
     }
 }
+impl TryFrom<clementine::Txid> for Txid {
+    type Error = FromSliceError;
+
+    fn try_from(value: clementine::Txid) -> Result<Self, Self::Error> {
+        {
+            let txid = value.txid;
+
+            Ok(Txid::from_raw_hash(sha256d::Hash::from_slice(&txid)?))
+        }
+    }
+}
 
 pub fn parse_deposit_params(
     deposit_params: DepositParams,
@@ -220,7 +231,7 @@ pub fn parse_assert_request(request: AssertRequest) -> Result<AssertRequestData,
 
 #[cfg(test)]
 mod tests {
-    use crate::rpc::clementine::{Outpoint, WinternitzPubkey};
+    use crate::rpc::clementine::{self, Outpoint, WinternitzPubkey};
     use bitcoin::{hashes::Hash, OutPoint, Txid};
     use bitvm::signatures::winternitz;
 
@@ -270,5 +281,14 @@ mod tests {
         let rpc_converted_wpk: winternitz::PublicKey =
             rpc_wpk.try_into().expect("encoded wpk has to be valid");
         assert_eq!(og_wpk, rpc_converted_wpk);
+    }
+
+    #[test]
+    fn from_txid_to_proto_txid() {
+        let og_txid = Txid::from_raw_hash(Hash::from_slice(&[0x1F; 32]).unwrap());
+
+        let rpc_txid: clementine::Txid = og_txid.clone().into();
+        let rpc_converted_txid: Txid = rpc_txid.try_into().unwrap();
+        assert_eq!(og_txid, rpc_converted_txid);
     }
 }

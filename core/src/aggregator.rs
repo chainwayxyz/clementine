@@ -91,7 +91,7 @@ impl Aggregator {
             config.bitcoin_rpc_password.clone(),
         )
         .await?;
-        let tx_sender = TxSender::new(signer.clone(), rpc, db.clone(), config.network);
+        let tx_sender = TxSender::new(signer, rpc, db.clone(), config.network);
 
         Ok(Aggregator {
             db,
