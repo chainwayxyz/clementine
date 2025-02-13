@@ -19,6 +19,14 @@ runs:
     shell: bash
     run: tar -xzvf bitcoin-28.0-x86_64-linux-gnu.tar.gz
 
+  - name: Set executable permissions
+    shell: bash
+    run: chmod +x bitcoin-28.0/bin/*
+
+  - name: Add bitcoin to path
+    shell: bash
+    run: echo "$PWD/bitcoin-28.0/bin" >> $GITHUB_PATH
+
   - name: Start Bitcoind
     shell: bash
     run: bitcoin-28.0/bin/bitcoind -regtest -rpcuser=admin -rpcpassword=admin -rpcport=18443 -fallbackfee=0.00001 -wallet=admin -txindex=1 &

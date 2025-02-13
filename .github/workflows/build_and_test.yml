@@ -111,4 +111,4 @@ jobs:
         shared-key: "release-build"
 
     - name: Run tests
-      run: PATH=$PATH:./bitcoin-28.0/bin cargo test --release
+      run: cargo test --release
