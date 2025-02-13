@@ -95,15 +95,16 @@ macro_rules! create_regtest_rpc {
 
         // Wait for node to be ready
         let mut attempts = 0;
-        while attempts < 5 {
+        let retry_count = 30;
+        while attempts < retry_count {
             if client.client.get_blockchain_info().await.is_ok() {
                 break;
             }
             tokio::time::sleep(std::time::Duration::from_secs(1)).await;
             attempts += 1;
         }
-        if attempts == 5 {
-            panic!("Bitcoin node failed to start in 5 seconds");
+        if attempts == retry_count {
+            panic!("Bitcoin node failed to start in {} seconds", retry_count);
         }
 
         // Create wallet
