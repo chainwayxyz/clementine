@@ -10,6 +10,7 @@
 //! Configuration options can be read from a TOML file. File contents are
 //! described in `BridgeConfig` struct.
 
+use crate::constants::BLOCKS_PER_WEEK;
 use crate::errors::BridgeError;
 use bitcoin::secp256k1::{PublicKey, SecretKey};
 use bitcoin::{address::NetworkUnchecked, Amount};
@@ -95,6 +96,12 @@ pub struct BridgeConfig {
     pub header_chain_proof_path: Option<PathBuf>,
     /// Additional secret key that will be used for creating Winternitz one time signature.
     pub winternitz_secret_key: Option<SecretKey>,
+    /// Collateral funding amount for operators.
+    pub collateral_funding_amount: Amount,
+    /// Timeout block count for each kickoff UTXO
+    pub timeout_block_count: i64,
+    /// Max withdrawal(also called reimburse) time block count
+    pub max_withdrawal_time_block_count: u16,
 }
 
 impl BridgeConfig {
@@ -229,7 +236,7 @@ impl Default for BridgeConfig {
             db_password: "clementine".to_string(),
             db_name: "clementine".to_string(),
 
-            bridge_amount_sats: Amount::from_sat(100_000_000),
+            bridge_amount_sats: Amount::from_sat(1_000_000_000),
 
             confirmation_threshold: 1,
 
@@ -313,6 +320,9 @@ impl Default for BridgeConfig {
             verifier_endpoints: None,
             operator_endpoints: None,
             watchtower_endpoints: None,
+            collateral_funding_amount: Amount::from_sat(200_000_000),
+            timeout_block_count: 6,
+            max_withdrawal_time_block_count: BLOCKS_PER_WEEK * 4,
         }
     }
 }

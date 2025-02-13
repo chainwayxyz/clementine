@@ -253,7 +253,7 @@ mod tests {
     }
 
     #[tokio::test]
-    #[serial_test::parallel]
+    #[serial_test::serial]
     async fn check_for_new_blocks_uptodate() {
         let config = create_test_config_with_thread_name!(None);
         let rpc = ExtendedRpc::connect(

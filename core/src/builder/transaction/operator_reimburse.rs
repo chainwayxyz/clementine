@@ -1,6 +1,7 @@
 use super::input::SpendableTxIn;
 use super::txhandler::DEFAULT_SEQUENCE;
 use super::Signed;
+use super::TransactionType;
 use crate::builder::script::{CheckSig, SpendableScript, TimelockScript, WithdrawalScript};
 use crate::builder::transaction::output::UnspentTxOut;
 use crate::builder::transaction::txhandler::{TxHandler, TxHandlerBuilder};
@@ -25,7 +26,7 @@ pub fn create_kickoff_txhandler(
     operator_idx: usize,
     network: Network,
 ) -> Result<TxHandler, BridgeError> {
-    let mut builder = TxHandlerBuilder::new();
+    let mut builder = TxHandlerBuilder::new(TransactionType::Kickoff);
     builder = builder.add_input(
         NormalSignatureKind::NotStored,
         sequential_collateral_txhandler.get_spendable_output(2 + kickoff_idx)?,
@@ -34,12 +35,6 @@ pub fn create_kickoff_txhandler(
     );
 
     let nofn_script = Arc::new(CheckSig::new(nofn_xonly_pk));
-    builder = builder.add_output(UnspentTxOut::from_scripts(
-        MIN_TAPROOT_AMOUNT,
-        vec![nofn_script.clone()],
-        None,
-        network,
-    ));
 
     let operator_1week = Arc::new(TimelockScript::new(
         Some(operator_xonly_pk),
@@ -57,19 +52,25 @@ pub fn create_kickoff_txhandler(
     builder = builder
         .add_output(UnspentTxOut::from_scripts(
             MIN_TAPROOT_AMOUNT,
-            vec![operator_1week, nofn_script.clone()],
+            vec![nofn_script.clone()],
             None,
             network,
         ))
         .add_output(UnspentTxOut::from_scripts(
             MIN_TAPROOT_AMOUNT,
-            vec![operator_2_5_week, nofn_script.clone()],
+            vec![nofn_script.clone(), operator_1week],
             None,
             network,
         ))
         .add_output(UnspentTxOut::from_scripts(
             MIN_TAPROOT_AMOUNT,
-            vec![nofn_3week, nofn_script],
+            vec![nofn_script.clone(), operator_2_5_week],
+            None,
+            network,
+        ))
+        .add_output(UnspentTxOut::from_scripts(
+            MIN_TAPROOT_AMOUNT,
+            vec![nofn_script, nofn_3week],
             None,
             network,
         ));
@@ -98,7 +99,7 @@ pub fn create_start_happy_reimburse_txhandler(
     operator_xonly_pk: XOnlyPublicKey,
     network: bitcoin::Network,
 ) -> Result<TxHandler, BridgeError> {
-    let mut builder = TxHandlerBuilder::new();
+    let mut builder = TxHandlerBuilder::new(TransactionType::StartHappyReimburse);
     builder = builder.add_input(
         NormalSignatureKind::NotStored,
         kickoff_txhandler.get_spendable_output(1)?,
@@ -134,7 +135,7 @@ pub fn create_happy_reimburse_txhandler(
     kickoff_idx: usize,
     operator_reimbursement_address: &bitcoin::Address,
 ) -> Result<TxHandler, BridgeError> {
-    let mut builder = TxHandlerBuilder::new();
+    let mut builder = TxHandlerBuilder::new(TransactionType::HappyReimburse);
     builder = builder
         .add_input(
             NormalSignatureKind::HappyReimburse1,
@@ -175,7 +176,7 @@ pub fn create_reimburse_txhandler(
     kickoff_idx: usize,
     operator_reimbursement_address: &bitcoin::Address,
 ) -> Result<TxHandler, BridgeError> {
-    let builder = TxHandlerBuilder::new()
+    let builder = TxHandlerBuilder::new(TransactionType::Reimburse)
         .add_input(
             NormalSignatureKind::Reimburse1,
             move_txhandler.get_spendable_output(0)?,
@@ -228,7 +229,7 @@ pub fn create_payout_txhandler(
         vec![Arc::new(WithdrawalScript::new(operator_idx))];
     let op_return_txout = UnspentTxOut::from_scripts(Amount::from_sat(0), scripts, None, network);
 
-    TxHandlerBuilder::new()
+    TxHandlerBuilder::new(TransactionType::Payout)
         .add_input_with_witness(txin, DEFAULT_SEQUENCE, witness)
         .add_output(output_txout)
         .add_output(op_return_txout)

@@ -23,10 +23,7 @@ impl From<Operator> for OperatorParams {
             operator_idx: operator.idx as u32,
             collateral_funding_txid: operator.collateral_funding_txid.to_byte_array().to_vec(),
             xonly_pk: operator.signer.xonly_public_key.to_string(),
-            wallet_reimburse_address: operator.config.operator_wallet_addresses[operator.idx] // TODO: Fix this where the config will only have one address.
-                .clone()
-                .assume_checked()
-                .to_string(),
+            wallet_reimburse_address: operator.reimburse_addr.to_string(),
         };
 
         OperatorParams {

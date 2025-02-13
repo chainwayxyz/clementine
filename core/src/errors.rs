@@ -2,6 +2,7 @@
 //!
 //! This module defines errors, returned by the library.
 
+use crate::builder::transaction::TransactionType;
 use bitcoin::{consensus::encode::FromHexError, merkle_tree::MerkleBlockError, BlockHash, Txid};
 use core::fmt::Debug;
 use jsonrpsee::types::ErrorObject;
@@ -238,8 +239,17 @@ pub enum BridgeError {
     NotOwnKeyPath,
     #[error("public key of Checksig in script is not owned by Actor")]
     NotOwnedScriptPath,
-    #[error("Couldn't find needed signature from database")]
-    SignatureNotFound,
+    #[error("Couldn't find needed signature from database for tx: {:?}", _0)]
+    SignatureNotFound(TransactionType),
+    #[error("Couldn't find needed txhandler during creation for tx: {:?}", _0)]
+    TxHandlerNotFound(TransactionType),
+
+    #[error("The length of full assert commit data does not match the number of steps")]
+    InvalidCommitData,
+    #[error(
+        "The size of commit data of step {0} does not match the needed size. Expected {1}, got {2}"
+    )]
+    InvalidStepCommitData(usize, usize, usize),
 
     #[error("BitvmSetupNotFound for operator {0}, sequential_collateral_tx {1}, kickoff {2}")]
     BitvmSetupNotFound(i32, i32, i32),
@@ -257,6 +267,8 @@ pub enum BridgeError {
 
     #[error("InvalidAssertTxAddrs")]
     InvalidAssertTxAddrs,
+    #[error("Not enough assert tx scripts given")]
+    InvalidAssertTxScripts,
     #[error("Invalid response from Citrea: {0}")]
     InvalidCitreaResponse(String),
 
