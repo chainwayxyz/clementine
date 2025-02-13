@@ -491,14 +491,14 @@ mod tests {
 
     use super::*;
 
-    async fn create_test_tx_sender() -> (TxSender, ExtendedRpc, Database, Actor, bitcoin::Network) {
+    async fn create_test_tx_sender(
+        rpc: ExtendedRpc,
+    ) -> (TxSender, ExtendedRpc, Database, Actor, bitcoin::Network) {
         let sk = SecretKey::new(&mut rand::thread_rng());
         let network = bitcoin::Network::Regtest;
         let actor = Actor::new(sk, None, network);
 
         let config = create_test_config_with_thread_name!(None);
-        let regtest = create_regtest_rpc!(config);
-        let rpc = regtest.rpc().clone();
 
         let db = Database::new(&config).await.unwrap();
 
@@ -561,7 +561,11 @@ mod tests {
     #[tokio::test]
     #[serial_test::serial]
     async fn test_create_fee_payer_tx() {
-        let (tx_sender, rpc, db, signer, network) = create_test_tx_sender().await;
+        let config = create_test_config_with_thread_name!(None);
+        let regtest = create_regtest_rpc!(config);
+        let rpc = regtest.rpc().clone();
+
+        let (tx_sender, rpc, db, signer, network) = create_test_tx_sender(rpc).await;
 
         let _bitcoin_syncer_handle =
             bitcoin_syncer::start_bitcoin_syncer(db, rpc.clone(), Duration::from_secs(1))
