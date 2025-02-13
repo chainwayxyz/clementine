@@ -205,7 +205,7 @@ mod tests {
     }
 
     #[tokio::test]
-    #[serial_test::parallel]
+    #[serial_test::serial]
     async fn prove_block_headers_genesis() {
         let config = create_test_config_with_thread_name!(None);
         let regtest = create_regtest_rpc!(config);
@@ -227,7 +227,7 @@ mod tests {
     }
 
     #[tokio::test]
-
+    #[serial_test::serial]
     async fn prove_block_headers_second() {
         let config = create_test_config_with_thread_name!(None);
         let regtest = create_regtest_rpc!(config);
@@ -251,6 +251,7 @@ mod tests {
     }
 
     #[tokio::test]
+    #[serial_test::serial]
 
     async fn save_and_get_proof() {
         let config = create_test_config_with_thread_name!(None);
