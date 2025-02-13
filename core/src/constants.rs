@@ -21,6 +21,8 @@ pub const OPERATOR_CHALLENGE_AMOUNT: Amount = Amount::from_sat(200_000_000);
 
 pub const BLOCKS_PER_WEEK: u16 = 6 * 24 * 7;
 
+pub const BLOCKS_PER_DAY: u16 = 6 * 24;
+
 pub const WATCHTOWER_CHALLENGE_MESSAGE_LENGTH: u32 = 480;
 
 pub const WINTERNITZ_LOG_D: u32 = 4;

@@ -47,60 +47,76 @@ pub async fn create_txhandlers(
     )?;
     txhandlers.insert(move_txhandler.get_transaction_type(), move_txhandler);
 
-    let (sequential_collateral_txhandler, reimburse_generator_txhandler) =
-        match prev_reimburse_generator {
-            Some(prev_reimburse_generator) => {
-                let sequential_collateral_txhandler =
-                    builder::transaction::create_sequential_collateral_txhandler(
-                        operator_data.xonly_pk,
-                        *prev_reimburse_generator.get_txid(),
-                        prev_reimburse_generator
-                            .get_spendable_output(0)?
-                            .get_prevout()
-                            .value,
-                        config.timeout_block_count,
-                        config.max_withdrawal_time_block_count,
-                        config.num_kickoffs_per_sequential_collateral_tx,
-                        config.network,
-                    )?;
+    let (
+        sequential_collateral_txhandler,
+        ready_to_reimburse_txhandler,
+        reimburse_generator_txhandler,
+    ) = match prev_reimburse_generator {
+        Some(prev_reimburse_generator) => {
+            let sequential_collateral_txhandler =
+                builder::transaction::create_sequential_collateral_txhandler(
+                    operator_data.xonly_pk,
+                    *prev_reimburse_generator.get_txid(),
+                    prev_reimburse_generator
+                        .get_spendable_output(0)?
+                        .get_prevout()
+                        .value,
+                    config.timeout_block_count,
+                    config.num_kickoffs_per_sequential_collateral_tx,
+                    config.network,
+                )?;
 
-                // Create the reimburse_generator_tx handler.
-                let reimburse_generator_txhandler =
-                    builder::transaction::create_reimburse_generator_txhandler(
-                        &sequential_collateral_txhandler,
-                        operator_data.xonly_pk,
-                        config.num_kickoffs_per_sequential_collateral_tx,
-                        config.max_withdrawal_time_block_count,
-                        config.network,
-                    )?;
-                (
-                    sequential_collateral_txhandler,
-                    reimburse_generator_txhandler,
-                )
-            }
-            None => {
-                // create nth sequential collateral tx and reimburse generator tx for the operator
-                let (sequential_collateral_txhandler, reimburse_generator_txhandler) =
-                    builder::transaction::create_seq_collat_reimburse_gen_nth_txhandler(
-                        operator_data.xonly_pk,
-                        operator_data.collateral_funding_txid,
-                        config.collateral_funding_amount,
-                        config.timeout_block_count,
-                        config.num_kickoffs_per_sequential_collateral_tx,
-                        config.max_withdrawal_time_block_count,
-                        config.network,
-                        kickoff_id.sequential_collateral_idx as usize,
-                    )?;
-                (
-                    sequential_collateral_txhandler,
-                    reimburse_generator_txhandler,
-                )
-            }
-        };
+            let ready_to_reimburse_txhandler =
+                builder::transaction::create_ready_to_reimburse_txhandler(
+                    &sequential_collateral_txhandler,
+                    operator_data.xonly_pk,
+                    config.network,
+                )?;
+
+            // Create the reimburse_generator_tx handler.
+            let reimburse_generator_txhandler =
+                builder::transaction::create_reimburse_generator_txhandler(
+                    &ready_to_reimburse_txhandler,
+                    operator_data.xonly_pk,
+                    config.num_kickoffs_per_sequential_collateral_tx,
+                    config.network,
+                )?;
+            (
+                sequential_collateral_txhandler,
+                ready_to_reimburse_txhandler,
+                reimburse_generator_txhandler,
+            )
+        }
+        None => {
+            // create nth sequential collateral tx and reimburse generator tx for the operator
+            let (
+                sequential_collateral_txhandler,
+                ready_to_reimburse_txhandler,
+                reimburse_generator_txhandler,
+            ) = builder::transaction::create_seq_collat_reimburse_gen_nth_txhandler(
+                operator_data.xonly_pk,
+                operator_data.collateral_funding_txid,
+                config.collateral_funding_amount,
+                config.timeout_block_count,
+                config.num_kickoffs_per_sequential_collateral_tx,
+                config.network,
+                kickoff_id.sequential_collateral_idx as usize,
+            )?;
+            (
+                sequential_collateral_txhandler,
+                ready_to_reimburse_txhandler,
+                reimburse_generator_txhandler,
+            )
+        }
+    };
 
     txhandlers.insert(
         sequential_collateral_txhandler.get_transaction_type(),
         sequential_collateral_txhandler,
+    );
+    txhandlers.insert(
+        ready_to_reimburse_txhandler.get_transaction_type(),
+        ready_to_reimburse_txhandler,
     );
     txhandlers.insert(
         reimburse_generator_txhandler.get_transaction_type(),
@@ -129,7 +145,7 @@ pub async fn create_txhandlers(
     );
 
     // Creates the kickoff_timeout_tx handler.
-    let kickoff_timeout_txhandler = builder::transaction::create_kickoff_timeout_txhandler(
+    let kickoff_timeout_txhandler = builder::transaction::create_assert_timeout_txhandler(
         get_txhandler(&txhandlers, TransactionType::Kickoff)?,
         get_txhandler(&txhandlers, TransactionType::SequentialCollateral)?,
     )?;
@@ -139,11 +155,24 @@ pub async fn create_txhandlers(
     );
 
     // Creates the challenge_tx handler.
-    let challenge_tx = builder::transaction::create_challenge_txhandler(
+    let challenge_txhandler = builder::transaction::create_challenge_txhandler(
         get_txhandler(&txhandlers, TransactionType::Kickoff)?,
         &operator_data.reimburse_addr,
     )?;
-    txhandlers.insert(challenge_tx.get_transaction_type(), challenge_tx);
+    txhandlers.insert(
+        challenge_txhandler.get_transaction_type(),
+        challenge_txhandler,
+    );
+
+    let kickoff_not_finalized_txhandler =
+        builder::transaction::create_kickoff_not_finalized_txhandler(
+            get_txhandler(&txhandlers, TransactionType::Kickoff)?,
+            get_txhandler(&txhandlers, TransactionType::SequentialCollateral)?,
+        )?;
+    txhandlers.insert(
+        kickoff_not_finalized_txhandler.get_transaction_type(),
+        kickoff_not_finalized_txhandler,
+    );
 
     // Generate Happy reimburse txs conditionally
     if matches!(
@@ -452,6 +481,7 @@ pub async fn create_txhandlers(
     // Creates the disprove_timeout_tx handler.
     let disprove_timeout_txhandler = builder::transaction::create_disprove_timeout_txhandler(
         get_txhandler(&txhandlers, TransactionType::AssertEnd)?,
+        get_txhandler(&txhandlers, TransactionType::Kickoff)?,
         operator_data.xonly_pk,
         config.network,
     )?;
@@ -585,10 +615,12 @@ mod tests {
 
         let mut txs_operator_can_sign = vec![
             TransactionType::SequentialCollateral,
+            TransactionType::ReadyToReimburse,
             TransactionType::ReimburseGenerator,
             TransactionType::Kickoff,
+            TransactionType::KickoffNotFinalized,
             TransactionType::Challenge,
-            TransactionType::KickoffTimeout,
+            TransactionType::AssertTimeout,
             TransactionType::KickoffUtxoTimeout,
             TransactionType::WatchtowerChallengeKickoff,
             TransactionType::StartHappyReimburse,
@@ -698,8 +730,9 @@ mod tests {
 
         let mut txs_verifier_can_sign = vec![
             TransactionType::Challenge,
-            TransactionType::KickoffTimeout,
+            TransactionType::AssertTimeout,
             TransactionType::KickoffUtxoTimeout,
+            TransactionType::KickoffNotFinalized,
             TransactionType::WatchtowerChallengeKickoff,
             //TransactionType::Disprove,
             TransactionType::DisproveTimeout,
