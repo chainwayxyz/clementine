@@ -13,7 +13,7 @@ use crate::{
         self,
         script::SpendPath,
         transaction::{
-            input::SpendableTxIn, output::UnspentTxOut, TxHandlerBuilder, DEFAULT_SEQUENCE,
+            input::SpendableTxIn, output::UnspentTxOut, TransactionType, TxHandlerBuilder, DEFAULT_SEQUENCE
         },
     },
     constants::MIN_TAPROOT_AMOUNT,
@@ -255,7 +255,7 @@ impl TxSender {
             return Err(BridgeError::InsufficientFeePayerAmount);
         }
 
-        let mut builder = TxHandlerBuilder::new()
+        let mut builder = TxHandlerBuilder::new(TransactionType::Dummy)
             .with_version(Version::non_standard(3))
             .add_input(
                 NormalSignatureKind::NotStored,
@@ -475,6 +475,7 @@ impl TxSender {
 #[cfg(test)]
 mod tests {
     use crate::bitcoin_syncer;
+    use crate::builder::transaction::TransactionType;
     // Imports required for create_test_config_with_thread_name macro.
     use crate::config::BridgeConfig;
     use crate::utils::initialize_logger;
@@ -519,7 +520,7 @@ mod tests {
         let outpoint = rpc.send_to_address(&address, amount).await?;
         rpc.mine_blocks(1).await?;
 
-        let mut builder = TxHandlerBuilder::new()
+        let mut builder = TxHandlerBuilder::new(TransactionType::Dummy)
             .with_version(Version::non_standard(3))
             .add_input(
                 NormalSignatureKind::NotStored,
