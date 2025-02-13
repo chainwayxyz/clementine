@@ -14,7 +14,7 @@ runs:
   steps:
   - name: Download Bitcoin
     shell: bash
-    run: wget https://bitcoincore.org/bin/bitcoin-core-28.0/bitcoin-28.0-x86_64-linux-gnu.tar.gz
+    run: wget https://static.testnet.citrea.xyz/bitcoin-28.0-x86_64-linux-gnu.tar.gz
   - name: Unpack Bitcoin
     shell: bash
     run: tar -xzvf bitcoin-28.0-x86_64-linux-gnu.tar.gz
