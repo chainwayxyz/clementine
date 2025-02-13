@@ -355,6 +355,7 @@ mod tests {
     }
 
     #[tokio::test]
+    #[serial_test::serial]
     async fn save_get_transaction_spent_utxos() {
         let config = create_test_config_with_thread_name!(None);
         let db = Database::new(&config).await.unwrap();
@@ -457,6 +458,7 @@ mod tests {
     }
 
     #[tokio::test]
+    #[serial_test::serial]
     async fn set_initial_block_info_if_not_exists() {
         let config = create_test_config_with_thread_name!(None);
         let db = Database::new(&config).await.unwrap();
