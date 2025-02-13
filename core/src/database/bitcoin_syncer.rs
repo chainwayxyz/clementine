@@ -1,16 +1,22 @@
-use super::{wrapper::BlockHashDB, Database, DatabaseTransaction};
+use super::{
+    wrapper::{BlockHashDB, TxidDB},
+    Database, DatabaseTransaction,
+};
 use crate::{bitcoin_syncer::BitcoinSyncerEvent, errors::BridgeError, execute_query_with_tx};
-use bitcoin::BlockHash;
+use bitcoin::{BlockHash, OutPoint, Txid};
 use std::{ops::DerefMut, str::FromStr};
 
 impl Database {
+    /// # Returns
+    ///
+    /// - [`u32`]: Database entry id, later to be used while referring block
     pub async fn add_block_info(
         &self,
         tx: Option<DatabaseTransaction<'_, '_>>,
         block_hash: &BlockHash,
         prev_block_hash: &BlockHash,
         block_height: i64,
-    ) -> Result<i32, BridgeError> {
+    ) -> Result<u32, BridgeError> {
         let query = sqlx::query_scalar(
             "INSERT INTO bitcoin_syncer (blockhash, prev_blockhash, height) VALUES ($1, $2, $3) RETURNING id",
         )
@@ -18,11 +24,31 @@ impl Database {
         .bind(BlockHashDB(*prev_block_hash))
         .bind(block_height);
 
-        let id = execute_query_with_tx!(self.connection, tx, query, fetch_one)?;
+        let id: i32 = execute_query_with_tx!(self.connection, tx, query, fetch_one)?;
 
-        Ok(id)
+        Ok(id as u32)
     }
+    /// # Returns
+    ///
+    /// [`Some`] if the block exists in the database, [`None`] otherwise:
+    ///
+    /// - [`BlockHash`]: Previous block hash
+    /// - [`u32`]: Height of the block
+    pub async fn get_block_info_from_hash(
+        &self,
+        tx: Option<DatabaseTransaction<'_, '_>>,
+        block_hash: BlockHash,
+    ) -> Result<Option<(BlockHash, u32)>, BridgeError> {
+        let query = sqlx::query_as(
+            "SELECT prev_blockhash, height FROM bitcoin_syncer WHERE blockhash = $1 AND is_canonical = true",
+        )
+        .bind(BlockHashDB(block_hash));
 
+        let ret: Option<(BlockHashDB, i64)> =
+            execute_query_with_tx!(self.connection, tx, query, fetch_optional)?;
+
+        Ok(ret.map(|(prev_hash, height)| (prev_hash.0, height as u32)))
+    }
     pub async fn get_max_height(
         &self,
         tx: Option<DatabaseTransaction<'_, '_>>,
@@ -31,23 +57,8 @@ impl Database {
             sqlx::query_as("SELECT height FROM bitcoin_syncer WHERE is_canonical = true ORDER BY height DESC LIMIT 1");
         let result: Option<(i64,)> =
             execute_query_with_tx!(self.connection, tx, query, fetch_optional)?;
+
         Ok(result.map(|(height,)| height as u64))
-    }
-
-    /// Gets the height from the block hash.
-    pub async fn get_height_from_block_hash(
-        &self,
-        tx: Option<DatabaseTransaction<'_, '_>>,
-        block_hash: BlockHash,
-    ) -> Result<Option<u64>, BridgeError> {
-        let query = sqlx::query_as(
-            "SELECT height FROM bitcoin_syncer WHERE blockhash = $1 AND is_canonical = true",
-        )
-        .bind(block_hash.to_string());
-
-        let height: Option<(i64,)> =
-            execute_query_with_tx!(self.connection, tx, query, fetch_optional)?;
-        Ok(height.map(|(h,)| h as u64))
     }
 
     /// Gets the block hashes that have height bigger then the given height and deletes them.
@@ -74,24 +85,37 @@ impl Database {
             .collect::<Result<Vec<_>, _>>()?)
     }
 
-    pub async fn insert_tx(
+    pub async fn add_txid_to_block(
         &self,
         tx: DatabaseTransaction<'_, '_>,
-        block_id: i32,
+        block_id: u32,
         txid: &bitcoin::Txid,
     ) -> Result<(), BridgeError> {
-        sqlx::query("INSERT INTO bitcoin_syncer_txs (block_id, txid) VALUES ($1, $2)")
-            .bind(block_id)
-            .bind(super::wrapper::TxidDB(*txid))
-            .execute(tx.deref_mut())
-            .await?;
+        let query = sqlx::query("INSERT INTO bitcoin_syncer_txs (block_id, txid) VALUES ($1, $2)")
+            .bind(block_id as i32)
+            .bind(super::wrapper::TxidDB(*txid));
+
+        execute_query_with_tx!(self.connection, Some(tx), query, execute)?;
+
         Ok(())
+    }
+    pub async fn get_block_txids(
+        &self,
+        tx: Option<DatabaseTransaction<'_, '_>>,
+        block_id: u32,
+    ) -> Result<Vec<Txid>, BridgeError> {
+        let query = sqlx::query_as("SELECT txid FROM bitcoin_syncer_txs WHERE block_id = $1")
+            .bind(block_id as i32);
+
+        let txids: Vec<(TxidDB,)> = execute_query_with_tx!(self.connection, tx, query, fetch_all)?;
+
+        Ok(txids.into_iter().map(|(txid,)| txid.0).collect())
     }
 
     pub async fn insert_spent_utxo(
         &self,
         tx: DatabaseTransaction<'_, '_>,
-        block_id: i32,
+        block_id: u32,
         spending_txid: &bitcoin::Txid,
         txid: &bitcoin::Txid,
         vout: i64,
@@ -99,7 +123,7 @@ impl Database {
         sqlx::query(
             "INSERT INTO bitcoin_syncer_spent_utxos (block_id, spending_txid, txid, vout) VALUES ($1, $2, $3, $4)",
         )
-        .bind(block_id)
+        .bind(block_id as i32)
         .bind(super::wrapper::TxidDB(*spending_txid))
         .bind(super::wrapper::TxidDB(*txid))
         .bind(vout)
@@ -107,6 +131,33 @@ impl Database {
         .await?;
         Ok(())
     }
+    pub async fn get_spent_utxos_for_txid(
+        &self,
+        tx: Option<DatabaseTransaction<'_, '_>>,
+        txid: Txid,
+    ) -> Result<Vec<(i64, OutPoint)>, BridgeError> {
+        let query = sqlx::query_as(
+            "SELECT block_id, txid, vout FROM bitcoin_syncer_spent_utxos WHERE spending_txid = $1",
+        )
+        .bind(TxidDB(txid));
+
+        let spent_utxos: Vec<(i64, TxidDB, i64)> =
+            execute_query_with_tx!(self.connection, tx, query, fetch_all)?;
+
+        Ok(spent_utxos
+            .into_iter()
+            .map(|(block_id, txid, vout)| {
+                (
+                    block_id,
+                    OutPoint {
+                        txid: txid.0,
+                        vout: vout as u32,
+                    },
+                )
+            })
+            .collect())
+    }
+
     pub async fn add_event(
         &self,
         tx: Option<DatabaseTransaction<'_, '_>>,
@@ -277,5 +328,158 @@ impl Database {
         .await?;
 
         Ok(Some(event_type))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::{config::BridgeConfig, initialize_database, utils::initialize_logger};
+    use crate::{create_test_config_with_thread_name, database::Database};
+    use bitcoin::hashes::Hash;
+    use bitcoin::{BlockHash, Txid};
+
+    #[tokio::test]
+    async fn add_get_block_info() {
+        let config = create_test_config_with_thread_name!(None);
+        let db = Database::new(&config).await.unwrap();
+
+        let prev_block_hash = BlockHash::from_raw_hash(Hash::from_byte_array([0x1F; 32]));
+        let block_hash = BlockHash::from_raw_hash(Hash::from_byte_array([0x45; 32]));
+        let height = 0x45;
+
+        assert!(db
+            .get_block_info_from_hash(None, block_hash)
+            .await
+            .unwrap()
+            .is_none());
+
+        db.add_block_info(None, &block_hash, &prev_block_hash, height)
+            .await
+            .unwrap();
+        let block_info = db
+            .get_block_info_from_hash(None, block_hash)
+            .await
+            .unwrap()
+            .unwrap();
+        let max_height = db.get_max_height(None).await.unwrap().unwrap();
+        assert_eq!(block_info.0, prev_block_hash);
+        assert_eq!(block_info.1, height as u32);
+        assert_eq!(max_height, height as u64);
+
+        db.add_block_info(
+            None,
+            &BlockHash::from_raw_hash(Hash::from_byte_array([0x1; 32])),
+            &prev_block_hash,
+            height - 1,
+        )
+        .await
+        .unwrap();
+        let max_height = db.get_max_height(None).await.unwrap().unwrap();
+        assert_eq!(max_height, height as u64);
+
+        db.add_block_info(
+            None,
+            &BlockHash::from_raw_hash(Hash::from_byte_array([0x2; 32])),
+            &prev_block_hash,
+            height + 1,
+        )
+        .await
+        .unwrap();
+        let max_height = db.get_max_height(None).await.unwrap().unwrap();
+        assert_ne!(max_height, height as u64);
+        assert_eq!(max_height, height as u64 + 1);
+    }
+
+    #[tokio::test]
+    async fn add_and_get_txids_from_block() {
+        let config = create_test_config_with_thread_name!(None);
+        let db = Database::new(&config).await.unwrap();
+        let mut dbtx = db.begin_transaction().await.unwrap();
+
+        assert!(db
+            .add_txid_to_block(&mut dbtx, 0, &Txid::all_zeros())
+            .await
+            .is_err());
+        let mut dbtx = db.begin_transaction().await.unwrap();
+
+        let prev_block_hash = BlockHash::from_raw_hash(Hash::from_byte_array([0x1F; 32]));
+        let block_hash = BlockHash::from_raw_hash(Hash::from_byte_array([0x45; 32]));
+        let height = 0x45;
+        let block_id = db
+            .add_block_info(Some(&mut dbtx), &block_hash, &prev_block_hash, height)
+            .await
+            .unwrap();
+
+        let txids = vec![
+            Txid::from_raw_hash(Hash::from_byte_array([0x1; 32])),
+            Txid::from_raw_hash(Hash::from_byte_array([0x2; 32])),
+            Txid::from_raw_hash(Hash::from_byte_array([0x3; 32])),
+        ];
+        for txid in &txids {
+            db.add_txid_to_block(&mut dbtx, block_id, txid)
+                .await
+                .unwrap();
+        }
+
+        let txids_from_db = db.get_block_txids(Some(&mut dbtx), block_id).await.unwrap();
+        assert_eq!(txids_from_db, txids);
+
+        assert!(db
+            .get_block_txids(Some(&mut dbtx), block_id + 1)
+            .await
+            .unwrap()
+            .is_empty());
+
+        dbtx.commit().await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn insert_get_spent_utxos() {
+        let config = create_test_config_with_thread_name!(None);
+        let db = Database::new(&config).await.unwrap();
+        let mut dbtx = db.begin_transaction().await.unwrap();
+
+        let prev_block_hash = BlockHash::from_raw_hash(Hash::from_byte_array([0x1F; 32]));
+        let block_hash = BlockHash::from_raw_hash(Hash::from_byte_array([0x45; 32]));
+        let height = 0x45;
+        let block_id = db
+            .add_block_info(Some(&mut dbtx), &block_hash, &prev_block_hash, height)
+            .await
+            .unwrap();
+
+        let spending_txid = Txid::from_raw_hash(Hash::from_byte_array([0x2; 32]));
+        let txid = Txid::from_raw_hash(Hash::from_byte_array([0x1; 32]));
+        let vout = 0;
+        db.add_txid_to_block(&mut dbtx, block_id, &spending_txid)
+            .await
+            .unwrap();
+
+        assert_eq!(
+            db.get_spent_utxos_for_txid(Some(&mut dbtx), txid)
+                .await
+                .unwrap()
+                .len(),
+            0
+        );
+
+        db.insert_spent_utxo(&mut dbtx, block_id, &spending_txid, &txid, vout)
+            .await
+            .unwrap();
+
+        let spent_utxos = db
+            .get_spent_utxos_for_txid(Some(&mut dbtx), spending_txid)
+            .await
+            .unwrap();
+        assert_eq!(spent_utxos.len(), 1);
+        assert_eq!(spent_utxos[0].0, block_id as i64);
+        assert_eq!(
+            spent_utxos[0].1,
+            bitcoin::OutPoint {
+                txid,
+                vout: vout as u32,
+            }
+        );
+
+        dbtx.commit().await.unwrap();
     }
 }
