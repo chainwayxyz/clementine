@@ -226,7 +226,7 @@ impl Default for BridgeConfig {
             user_takes_after: 200,
 
             network: Network::Regtest,
-            bitcoin_rpc_url: "http://127.0.0.1:18443".to_string(),
+            bitcoin_rpc_url: "http://127.0.0.1:18443/wallet/admin".to_string(),
             bitcoin_rpc_user: "admin".to_string(),
             bitcoin_rpc_password: "admin".to_string(),
 

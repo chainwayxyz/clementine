@@ -9,8 +9,10 @@
 use crate::{config::BridgeConfig, errors::BridgeError};
 use sqlx::{Pool, Postgres};
 
+mod bitcoin_syncer;
 mod header_chain_prover;
 mod operator;
+mod tx_sender;
 mod verifier;
 mod watchtower;
 mod wrapper;

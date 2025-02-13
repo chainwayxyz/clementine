@@ -20,6 +20,8 @@ pub enum BridgeError {
     /// Returned when the bitcoin crate returns an error in the sighash taproot module
     #[error("BitcoinSighashTaprootError: {0}")]
     BitcoinSighashTaprootError(#[from] bitcoin::sighash::TaprootError),
+    #[error("Invalid bitcoin block hash: {0}")]
+    BitcoinBlockHashInvalid(#[from] bitcoin::hex::HexToArrayError),
 
     #[error("Secp256k1 returned an error: {0}")]
     Secp256k1Error(#[from] secp256k1::Error),
@@ -112,8 +114,10 @@ pub enum BridgeError {
     RPCStreamEndedUnexpectedly(String),
     #[error("Invalid response from an RPC endpoint: {0}")]
     RPCInvalidResponse(String),
-    #[error("RPC broadcast receiver failed: {0}")]
+    #[error("RPCBroadcastRecvError: {0}")]
     RPCBroadcastRecvError(#[from] tokio::sync::broadcast::error::RecvError),
+    #[error("RPCBroadcastSendError: {0}")]
+    RPCBroadcastSendError(String),
     /// ConfigError is returned when the configuration is invalid
     #[error("ConfigError: {0}")]
     ConfigError(String),
@@ -271,6 +275,30 @@ pub enum BridgeError {
     #[error("Not enough operators")]
     NotEnoughOperators,
 
+    #[error("Bitcoin RPC signing error: {0:?}")]
+    BitcoinRPCSigningError(Vec<String>),
+
+    #[error("Fee estimation error: {0:?}")]
+    FeeEstimationError(Vec<String>),
+
+    #[error("Fee payer transaction not found")]
+    FeePayerTxNotFound,
+
+    #[error("No confirmed fee payer transaction found")]
+    ConfirmedFeePayerTxNotFound,
+
+    #[error("P2A anchor output not found in transaction")]
+    P2AAnchorNotFound,
+
+    #[error("Arithmetic overflow")]
+    Overflow,
+
+    #[error("Insufficient fee payer amount")]
+    InsufficientFeePayerAmount,
+
+    #[error("Effective fee rate is lower than required")]
+    EffectiveFeeRateLowerThanRequired,
+
     #[error("Encountered multiple winternitz scripts when attempting to commit to only one.")]
     MultipleWinternitzScripts,
     #[error("Encountered multiple preimage reveal scripts when attempting to commit to only one.")]
@@ -297,5 +325,11 @@ impl From<BridgeError> for ErrorObject<'static> {
 impl From<BridgeError> for tonic::Status {
     fn from(val: BridgeError) -> Self {
         tonic::Status::from_error(Box::new(val))
+    }
+}
+
+impl<T> From<tokio::sync::broadcast::error::SendError<T>> for BridgeError {
+    fn from(e: tokio::sync::broadcast::error::SendError<T>) -> Self {
+        BridgeError::RPCBroadcastSendError(e.to_string())
     }
 }
