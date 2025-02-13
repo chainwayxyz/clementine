@@ -1,4 +1,4 @@
-use super::clementine::{AssertRequest, Outpoint, TransactionRequest, WinternitzPubkey};
+use super::clementine::{self, AssertRequest, Outpoint, TransactionRequest, WinternitzPubkey};
 use super::error;
 use crate::builder::transaction::sign::{AssertRequestData, TransactionRequestData};
 use crate::builder::transaction::{DepositId, TransactionType};
@@ -124,6 +124,16 @@ impl From<winternitz::PublicKey> for WinternitzPubkey {
             let digit_pubkey = value.into_iter().map(|inner| inner.to_vec()).collect();
 
             WinternitzPubkey { digit_pubkey }
+        }
+    }
+}
+
+impl From<Txid> for clementine::Txid {
+    fn from(value: Txid) -> Self {
+        {
+            let txid = value.to_byte_array().to_vec();
+
+            clementine::Txid { txid }
         }
     }
 }

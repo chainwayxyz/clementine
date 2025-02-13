@@ -98,7 +98,7 @@ impl TxSender {
     /// - This is to make sure the client has enough funds to bump fees.
     /// - The fee payer UTXO is used to bump fees of the parent tx.
     /// - The fee payer UTXO should be confirmed before the parent tx is sent to the network.
-    pub async fn create_fee_payer_tx(
+    pub async fn create_fee_payer_utxo(
         &self,
         parent_txid: Txid,
         parent_tx_size: Weight,
@@ -562,7 +562,7 @@ mod tests {
     }
     #[tokio::test]
     #[serial_test::serial]
-    async fn test_create_fee_payer_tx() {
+    async fn create_fee_payer_utxo() {
         let (tx_sender, rpc, db, signer, network) = create_test_tx_sender().await;
 
         let _bitcoin_syncer_handle =
@@ -583,7 +583,7 @@ mod tests {
         let tx = create_bumpable_tx(&rpc, signer, network).await.unwrap();
 
         let _outpoint = tx_sender
-            .create_fee_payer_tx(tx.compute_txid(), tx.weight())
+            .create_fee_payer_utxo(tx.compute_txid(), tx.weight())
             .await
             .unwrap();
 

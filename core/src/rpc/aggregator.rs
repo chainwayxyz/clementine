@@ -1,11 +1,9 @@
-use std::future::Future;
-
 use super::clementine::{
     clementine_aggregator_server::ClementineAggregator, verifier_deposit_finalize_params,
-    DepositParams, Empty, RawSignedTx, VerifierDepositFinalizeParams,
+    DepositParams, Empty, VerifierDepositFinalizeParams,
 };
 use crate::builder::sighash::SignatureInfo;
-use crate::builder::transaction::{create_move_to_vault_txhandler, DepositId};
+use crate::builder::transaction::{create_move_to_vault_txhandler, DepositId, TxHandler};
 use crate::config::BridgeConfig;
 use crate::rpc::clementine::clementine_operator_client::ClementineOperatorClient;
 use crate::rpc::clementine::clementine_verifier_client::ClementineVerifierClient;
@@ -32,6 +30,7 @@ use futures::{
     FutureExt, Stream, StreamExt, TryFutureExt,
 };
 use secp256k1::musig::{MusigAggNonce, MusigPartialSignature, MusigPubNonce};
+use std::future::Future;
 use tokio::sync::mpsc::{channel, Receiver, Sender};
 use tonic::{async_trait, Request, Response, Status, Streaming};
 
@@ -359,12 +358,12 @@ impl Aggregator {
         Ok(operator_sigs)
     }
 
-    fn create_movetx_check_sig(
+    async fn create_movetx_check_sig(
         &self,
         partial_sigs: Vec<Vec<u8>>,
         movetx_agg_nonce: MusigAggNonce,
         deposit_params: DepositParams,
-    ) -> Result<RawSignedTx, Status> {
+    ) -> Result<TxHandler, Status> {
         let (deposit_outpoint, evm_address, recovery_taproot_address) =
             parser::parse_deposit_params(deposit_params)?;
         let musig_partial_sigs = parser::verifier::parse_partial_sigs(partial_sigs)?;
@@ -396,9 +395,17 @@ impl Aggregator {
         .map_err(|x| BridgeError::Error(format!("Aggregating MoveTx signatures failed {}", x)))?;
 
         // everything is fine, return the signed move tx
-        let _move_tx = move_txhandler.get_cached_tx();
+        let move_tx = move_txhandler.get_cached_tx();
+
+        let _fee_payer_utxo = self
+            .tx_sender
+            .create_fee_payer_utxo(*move_txhandler.get_txid(), move_tx.weight())
+            .await?;
+
+        self.tx_sender.save_tx(move_tx).await?;
+
         // TODO: Sign the transaction correctly after we create taproot witness generation functions
-        Ok(RawSignedTx { raw_tx: vec![1, 2] })
+        Ok(move_txhandler)
     }
 }
 
@@ -572,7 +579,7 @@ impl ClementineAggregator for Aggregator {
     async fn new_deposit(
         &self,
         request: Request<DepositParams>,
-    ) -> Result<Response<RawSignedTx>, Status> {
+    ) -> Result<Response<clementine::Txid>, Status> {
         let deposit_params = request.into_inner();
 
         let (deposit_outpoint, evm_address, recovery_taproot_address) =
@@ -756,10 +763,12 @@ impl ClementineAggregator for Aggregator {
 
         // Create the final move transaction and check the signatures
         let movetx_agg_nonce = nonce_agg_handle.await?;
-        let raw_signed_movetx =
-            self.create_movetx_check_sig(move_tx_partial_sigs, movetx_agg_nonce, deposit_params)?;
+        let signed_movetx_handler = self
+            .create_movetx_check_sig(move_tx_partial_sigs, movetx_agg_nonce, deposit_params)
+            .await?;
+        let txid = *signed_movetx_handler.get_txid();
 
-        Ok(Response::new(raw_signed_movetx))
+        Ok(Response::new(txid.into()))
     }
 }
 
