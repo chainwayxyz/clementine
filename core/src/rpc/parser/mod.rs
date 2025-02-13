@@ -287,7 +287,7 @@ mod tests {
     fn from_txid_to_proto_txid() {
         let og_txid = Txid::from_raw_hash(Hash::from_slice(&[0x1F; 32]).unwrap());
 
-        let rpc_txid: clementine::Txid = og_txid.clone().into();
+        let rpc_txid: clementine::Txid = og_txid.into();
         let rpc_converted_txid: Txid = rpc_txid.try_into().unwrap();
         assert_eq!(og_txid, rpc_converted_txid);
     }

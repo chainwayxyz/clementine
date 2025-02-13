@@ -798,6 +798,7 @@ mod tests {
         watchtower::Watchtower,
     };
     use bitcoin::Txid;
+    use bitcoincore_rpc::RpcApi;
     use std::str::FromStr;
 
     #[tokio::test]
@@ -1016,5 +1017,70 @@ mod tests {
             .await
             .unwrap();
         tracing::info!("Deposit completed in {:?}", deposit_start.elapsed());
+    }
+
+    #[tokio::test]
+    #[serial_test::serial]
+    #[ignore = "movetx not on chain"]
+    async fn aggregator_deposit_movetx_lands_onchain() {
+        let config = create_test_config_with_thread_name!(None);
+        let rpc = ExtendedRpc::connect(
+            config.bitcoin_rpc_url.clone(),
+            config.bitcoin_rpc_user.clone(),
+            config.bitcoin_rpc_password.clone(),
+        )
+        .await
+        .unwrap();
+        let mut aggregator = create_actors!(config).2;
+
+        aggregator
+            .setup(tonic::Request::new(clementine::Empty {}))
+            .await
+            .unwrap();
+
+        let movetx_txid: Txid = aggregator
+            .new_deposit(DepositParams {
+                deposit_outpoint: Some(
+                    bitcoin::OutPoint {
+                        txid: Txid::from_str(
+                            "17e3fc7aae1035e77a91e96d1ba27f91a40a912cf669b367eb32c13a8f82bb02",
+                        )
+                        .unwrap(),
+                        vout: 0,
+                    }
+                    .into(),
+                ),
+                evm_address: [1u8; 20].to_vec(),
+                recovery_taproot_address:
+                    "tb1pk8vus63mx5zwlmmmglq554kwu0zm9uhswqskxg99k66h8m3arguqfrvywa".to_string(),
+            })
+            .await
+            .unwrap()
+            .into_inner()
+            .try_into()
+            .unwrap();
+
+        let start = std::time::Instant::now();
+        loop {
+            rpc.mine_blocks(1).await.unwrap();
+            let tx_result = rpc.client.get_transaction(&movetx_txid, None).await;
+
+            let tx_result = match tx_result {
+                Ok(tx) => tx,
+                Err(e) => {
+                    tracing::error!("Error getting transaction: {:?}", e);
+                    tokio::time::sleep(std::time::Duration::from_secs(1)).await;
+                    continue;
+                }
+            };
+
+            if tx_result.info.confirmations > 0 {
+                break;
+            }
+
+            if start.elapsed() > std::time::Duration::from_secs(60) {
+                panic!("MoveTx did not land onchain within 60 seconds");
+            }
+        }
     }
 }

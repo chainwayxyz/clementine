@@ -25,6 +25,7 @@ use bitcoin::{
 use bitcoin::{hashes::Hash, Txid};
 use bitcoincore_rpc::RawTx;
 use secp256k1::musig::{MusigAggNonce, MusigPartialSignature};
+use std::time::Duration;
 
 /// Aggregator struct.
 /// This struct is responsible for aggregating partial signatures from the verifiers.
@@ -92,6 +93,7 @@ impl Aggregator {
         )
         .await?;
         let tx_sender = TxSender::new(signer, rpc, db.clone(), config.network);
+        let _handle = tx_sender.run("aggregator", Duration::from_secs(1)).await?;
 
         Ok(Aggregator {
             db,
