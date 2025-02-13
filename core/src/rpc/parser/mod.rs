@@ -1,5 +1,7 @@
-use super::clementine::{Outpoint, WinternitzPubkey};
+use super::clementine::{AssertRequest, Outpoint, TransactionRequest, WinternitzPubkey};
 use super::error;
+use crate::builder::transaction::sign::{AssertRequestData, TransactionRequestData};
+use crate::builder::transaction::{DepositId, TransactionType};
 use crate::errors::BridgeError;
 use crate::rpc::clementine::DepositParams;
 use crate::EVMAddress;
@@ -133,7 +135,6 @@ pub fn parse_deposit_params(
         bitcoin::OutPoint,
         EVMAddress,
         bitcoin::Address<NetworkUnchecked>,
-        u16,
     ),
     Status,
 > {
@@ -149,14 +150,62 @@ pub fn parse_deposit_params(
         .recovery_taproot_address
         .parse::<bitcoin::Address<_>>()
         .map_err(|e| Status::internal(e.to_string()))?;
-    let user_takes_after = deposit_params.user_takes_after;
 
-    Ok((
-        deposit_outpoint,
-        evm_address,
-        recovery_taproot_address,
-        convert_int_to_another("user_takes_after", user_takes_after, u16::try_from)?,
-    ))
+    Ok((deposit_outpoint, evm_address, recovery_taproot_address))
+}
+
+pub fn parse_transaction_request(
+    request: TransactionRequest,
+) -> Result<TransactionRequestData, Status> {
+    let (deposit_outpoint, evm_address, recovery_taproot_address) = parse_deposit_params(
+        request
+            .deposit_params
+            .ok_or(Status::invalid_argument("No deposit params received"))?,
+    )?;
+    let transaction_type_proto = request
+        .transaction_type
+        .ok_or(Status::invalid_argument("No transaction type received"))?;
+    let transaction_type: TransactionType = transaction_type_proto.try_into().map_err(|_| {
+        Status::invalid_argument(format!(
+            "Could not parse transaction type: {:?}",
+            transaction_type_proto
+        ))
+    })?;
+    let kickoff_id = request
+        .kickoff_id
+        .ok_or(Status::invalid_argument("No kickoff params received"))?;
+
+    Ok(TransactionRequestData {
+        deposit_id: DepositId {
+            deposit_outpoint,
+            evm_address,
+            recovery_taproot_address,
+        },
+        transaction_type,
+        kickoff_id,
+        commit_data: request.commit_data,
+    })
+}
+
+pub fn parse_assert_request(request: AssertRequest) -> Result<AssertRequestData, Status> {
+    let (deposit_outpoint, evm_address, recovery_taproot_address) = parse_deposit_params(
+        request
+            .deposit_params
+            .ok_or(Status::invalid_argument("No deposit params received"))?,
+    )?;
+    let kickoff_id = request
+        .kickoff_id
+        .ok_or(Status::invalid_argument("No kickoff params received"))?;
+
+    Ok(AssertRequestData {
+        deposit_id: DepositId {
+            deposit_outpoint,
+            evm_address,
+            recovery_taproot_address,
+        },
+        kickoff_id,
+        commit_data: request.commit_data,
+    })
 }
 
 #[cfg(test)]

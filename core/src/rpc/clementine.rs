@@ -66,9 +66,57 @@ pub struct DepositParams {
     /// User's recovery taproot address.
     #[prost(string, tag = "3")]
     pub recovery_taproot_address: ::prost::alloc::string::String,
-    /// User can take back funds after this amount of blocks.
-    #[prost(uint32, tag = "4")]
-    pub user_takes_after: u32,
+}
+#[derive(Clone, Copy, PartialEq, ::prost::Message)]
+pub struct WatchtowerTransactionId {
+    #[prost(enumeration = "WatchtowerTransactionType", tag = "1")]
+    pub transaction_type: i32,
+    #[prost(int32, tag = "2")]
+    pub index: i32,
+}
+#[derive(Clone, Copy, PartialEq, ::prost::Message)]
+pub struct GrpcTransactionId {
+    #[prost(oneof = "grpc_transaction_id::Id", tags = "1, 2")]
+    pub id: ::core::option::Option<grpc_transaction_id::Id>,
+}
+/// Nested message and enum types in `GrpcTransactionId`.
+pub mod grpc_transaction_id {
+    #[derive(Clone, Copy, PartialEq, ::prost::Oneof)]
+    pub enum Id {
+        #[prost(enumeration = "super::NormalTransactionId", tag = "1")]
+        NormalTransaction(i32),
+        #[prost(message, tag = "2")]
+        WatchtowerTransaction(super::WatchtowerTransactionId),
+    }
+}
+#[derive(Clone, Copy, PartialEq, ::prost::Message)]
+pub struct KickoffId {
+    #[prost(uint32, tag = "1")]
+    pub operator_idx: u32,
+    #[prost(uint32, tag = "2")]
+    pub sequential_collateral_idx: u32,
+    #[prost(uint32, tag = "3")]
+    pub kickoff_idx: u32,
+}
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct TransactionRequest {
+    #[prost(message, optional, tag = "1")]
+    pub deposit_params: ::core::option::Option<DepositParams>,
+    #[prost(message, optional, tag = "2")]
+    pub transaction_type: ::core::option::Option<GrpcTransactionId>,
+    #[prost(message, optional, tag = "3")]
+    pub kickoff_id: ::core::option::Option<KickoffId>,
+    #[prost(bytes = "vec", tag = "4")]
+    pub commit_data: ::prost::alloc::vec::Vec<u8>,
+}
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct AssertRequest {
+    #[prost(message, optional, tag = "1")]
+    pub deposit_params: ::core::option::Option<DepositParams>,
+    #[prost(message, optional, tag = "2")]
+    pub kickoff_id: ::core::option::Option<KickoffId>,
+    #[prost(bytes = "vec", repeated, tag = "3")]
+    pub commit_data: ::prost::alloc::vec::Vec<::prost::alloc::vec::Vec<u8>>,
 }
 /// Includes the deposit params and the nonce gen initial responses (pubkeys and their signatures from all verifiers)
 #[derive(Clone, PartialEq, ::prost::Message)]
@@ -256,9 +304,14 @@ pub mod watchtower_params {
     }
 }
 #[derive(Clone, PartialEq, ::prost::Message)]
-pub struct RawSignedMoveTx {
+pub struct RawSignedTx {
     #[prost(bytes = "vec", tag = "1")]
     pub raw_tx: ::prost::alloc::vec::Vec<u8>,
+}
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct RawSignedTxs {
+    #[prost(message, repeated, tag = "1")]
+    pub raw_txs: ::prost::alloc::vec::Vec<RawSignedTx>,
 }
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, ::prost::Enumeration)]
 #[repr(i32)]
@@ -361,6 +414,128 @@ impl WatchtowerSignatureKind {
         }
     }
 }
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, ::prost::Enumeration)]
+#[repr(i32)]
+pub enum NormalTransactionId {
+    UnspecifiedTransactionType = 0,
+    SequentialCollateral = 1,
+    ReimburseGenerator = 2,
+    Kickoff = 3,
+    MoveToVault = 4,
+    Payout = 5,
+    Challenge = 6,
+    KickoffTimeout = 7,
+    KickoffUtxoTimeout = 8,
+    WatchtowerChallengeKickoff = 9,
+    StartHappyReimburse = 10,
+    HappyReimburse = 11,
+    AssertBegin = 12,
+    AssertEnd = 13,
+    Disprove = 14,
+    DisproveTimeout = 15,
+    AlreadyDisproved = 16,
+    Reimburse = 17,
+    AllNeededForVerifierDeposit = 18,
+    AllNeededForOperatorDeposit = 19,
+    Dummy = 20,
+}
+impl NormalTransactionId {
+    /// String value of the enum field names used in the ProtoBuf definition.
+    ///
+    /// The values are not transformed in any way and thus are considered stable
+    /// (if the ProtoBuf definition does not change) and safe for programmatic use.
+    pub fn as_str_name(&self) -> &'static str {
+        match self {
+            Self::UnspecifiedTransactionType => "UNSPECIFIED_TRANSACTION_TYPE",
+            Self::SequentialCollateral => "SEQUENTIAL_COLLATERAL",
+            Self::ReimburseGenerator => "REIMBURSE_GENERATOR",
+            Self::Kickoff => "KICKOFF",
+            Self::MoveToVault => "MOVE_TO_VAULT",
+            Self::Payout => "PAYOUT",
+            Self::Challenge => "CHALLENGE",
+            Self::KickoffTimeout => "KICKOFF_TIMEOUT",
+            Self::KickoffUtxoTimeout => "KICKOFF_UTXO_TIMEOUT",
+            Self::WatchtowerChallengeKickoff => "WATCHTOWER_CHALLENGE_KICKOFF",
+            Self::StartHappyReimburse => "START_HAPPY_REIMBURSE",
+            Self::HappyReimburse => "HAPPY_REIMBURSE",
+            Self::AssertBegin => "ASSERT_BEGIN",
+            Self::AssertEnd => "ASSERT_END",
+            Self::Disprove => "DISPROVE",
+            Self::DisproveTimeout => "DISPROVE_TIMEOUT",
+            Self::AlreadyDisproved => "ALREADY_DISPROVED",
+            Self::Reimburse => "REIMBURSE",
+            Self::AllNeededForVerifierDeposit => "ALL_NEEDED_FOR_VERIFIER_DEPOSIT",
+            Self::AllNeededForOperatorDeposit => "ALL_NEEDED_FOR_OPERATOR_DEPOSIT",
+            Self::Dummy => "DUMMY",
+        }
+    }
+    /// Creates an enum from field names used in the ProtoBuf definition.
+    pub fn from_str_name(value: &str) -> ::core::option::Option<Self> {
+        match value {
+            "UNSPECIFIED_TRANSACTION_TYPE" => Some(Self::UnspecifiedTransactionType),
+            "SEQUENTIAL_COLLATERAL" => Some(Self::SequentialCollateral),
+            "REIMBURSE_GENERATOR" => Some(Self::ReimburseGenerator),
+            "KICKOFF" => Some(Self::Kickoff),
+            "MOVE_TO_VAULT" => Some(Self::MoveToVault),
+            "PAYOUT" => Some(Self::Payout),
+            "CHALLENGE" => Some(Self::Challenge),
+            "KICKOFF_TIMEOUT" => Some(Self::KickoffTimeout),
+            "KICKOFF_UTXO_TIMEOUT" => Some(Self::KickoffUtxoTimeout),
+            "WATCHTOWER_CHALLENGE_KICKOFF" => Some(Self::WatchtowerChallengeKickoff),
+            "START_HAPPY_REIMBURSE" => Some(Self::StartHappyReimburse),
+            "HAPPY_REIMBURSE" => Some(Self::HappyReimburse),
+            "ASSERT_BEGIN" => Some(Self::AssertBegin),
+            "ASSERT_END" => Some(Self::AssertEnd),
+            "DISPROVE" => Some(Self::Disprove),
+            "DISPROVE_TIMEOUT" => Some(Self::DisproveTimeout),
+            "ALREADY_DISPROVED" => Some(Self::AlreadyDisproved),
+            "REIMBURSE" => Some(Self::Reimburse),
+            "ALL_NEEDED_FOR_VERIFIER_DEPOSIT" => Some(Self::AllNeededForVerifierDeposit),
+            "ALL_NEEDED_FOR_OPERATOR_DEPOSIT" => Some(Self::AllNeededForOperatorDeposit),
+            "DUMMY" => Some(Self::Dummy),
+            _ => None,
+        }
+    }
+}
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, ::prost::Enumeration)]
+#[repr(i32)]
+pub enum WatchtowerTransactionType {
+    UnspecifiedIndexedTransactionType = 0,
+    WatchtowerChallenge = 1,
+    OperatorChallengeNack = 2,
+    OperatorChallengeAck = 3,
+    MiniAssert = 4,
+}
+impl WatchtowerTransactionType {
+    /// String value of the enum field names used in the ProtoBuf definition.
+    ///
+    /// The values are not transformed in any way and thus are considered stable
+    /// (if the ProtoBuf definition does not change) and safe for programmatic use.
+    pub fn as_str_name(&self) -> &'static str {
+        match self {
+            Self::UnspecifiedIndexedTransactionType => {
+                "UNSPECIFIED_INDEXED_TRANSACTION_TYPE"
+            }
+            Self::WatchtowerChallenge => "WATCHTOWER_CHALLENGE",
+            Self::OperatorChallengeNack => "OPERATOR_CHALLENGE_NACK",
+            Self::OperatorChallengeAck => "OPERATOR_CHALLENGE_ACK",
+            Self::MiniAssert => "MINI_ASSERT",
+        }
+    }
+    /// Creates an enum from field names used in the ProtoBuf definition.
+    pub fn from_str_name(value: &str) -> ::core::option::Option<Self> {
+        match value {
+            "UNSPECIFIED_INDEXED_TRANSACTION_TYPE" => {
+                Some(Self::UnspecifiedIndexedTransactionType)
+            }
+            "WATCHTOWER_CHALLENGE" => Some(Self::WatchtowerChallenge),
+            "OPERATOR_CHALLENGE_NACK" => Some(Self::OperatorChallengeNack),
+            "OPERATOR_CHALLENGE_ACK" => Some(Self::OperatorChallengeAck),
+            "MINI_ASSERT" => Some(Self::MiniAssert),
+            _ => None,
+        }
+    }
+}
 /// Generated client implementations.
 pub mod clementine_operator_client {
     #![allow(
@@ -455,6 +630,77 @@ pub mod clementine_operator_client {
         pub fn max_encoding_message_size(mut self, limit: usize) -> Self {
             self.inner = self.inner.max_encoding_message_size(limit);
             self
+        }
+        /// Creates a transaction denoted by the deposit and operator_idx, sequential_collateral_idx, and kickoff_idx.
+        /// It will create the transaction and sign it with the operator's private key and/or saved nofn signatures.
+        ///
+        /// # Parameters
+        /// - deposit_params: User's deposit information
+        /// - transaction_type: Requested Transaction type
+        /// - kickoff_id: Operator's kickoff ID
+        ///
+        /// # Returns
+        /// - Raw signed transaction
+        pub async fn internal_create_signed_tx(
+            &mut self,
+            request: impl tonic::IntoRequest<super::TransactionRequest>,
+        ) -> std::result::Result<tonic::Response<super::RawSignedTx>, tonic::Status> {
+            self.inner
+                .ready()
+                .await
+                .map_err(|e| {
+                    tonic::Status::unknown(
+                        format!("Service was not ready: {}", e.into()),
+                    )
+                })?;
+            let codec = tonic::codec::ProstCodec::default();
+            let path = http::uri::PathAndQuery::from_static(
+                "/clementine.ClementineOperator/InternalCreateSignedTx",
+            );
+            let mut req = request.into_request();
+            req.extensions_mut()
+                .insert(
+                    GrpcMethod::new(
+                        "clementine.ClementineOperator",
+                        "InternalCreateSignedTx",
+                    ),
+                );
+            self.inner.unary(req, path, codec).await
+        }
+        /// Creates all assert transactions (AssertBegin, MiniAsserts, AssertEnd), signs them, and returns the raw txs
+        /// in the same order.
+        /// # Parameters
+        /// - deposit_params: User's deposit information
+        /// - kickoff_id: Operator's kickoff ID
+        /// - commit_data: Commitment data for each MiniAssert tx's
+        ///
+        /// # Returns
+        /// - Raw signed assert transactions
+        pub async fn internal_create_assert_commitment_txs(
+            &mut self,
+            request: impl tonic::IntoRequest<super::AssertRequest>,
+        ) -> std::result::Result<tonic::Response<super::RawSignedTxs>, tonic::Status> {
+            self.inner
+                .ready()
+                .await
+                .map_err(|e| {
+                    tonic::Status::unknown(
+                        format!("Service was not ready: {}", e.into()),
+                    )
+                })?;
+            let codec = tonic::codec::ProstCodec::default();
+            let path = http::uri::PathAndQuery::from_static(
+                "/clementine.ClementineOperator/InternalCreateAssertCommitmentTxs",
+            );
+            let mut req = request.into_request();
+            req.extensions_mut()
+                .insert(
+                    GrpcMethod::new(
+                        "clementine.ClementineOperator",
+                        "InternalCreateAssertCommitmentTxs",
+                    ),
+                );
+            self.inner.unary(req, path, codec).await
         }
         /// Returns an operator's parameters. It will be called once, by the
         /// aggregator, to set all the public keys.
@@ -679,6 +925,42 @@ pub mod clementine_verifier_client {
         pub fn max_encoding_message_size(mut self, limit: usize) -> Self {
             self.inner = self.inner.max_encoding_message_size(limit);
             self
+        }
+        /// Creates a transaction denoted by the deposit and operator_idx, sequential_collateral_idx, and kickoff_idx.
+        /// It will create the transaction and sign it with saved nofn signatures.
+        ///
+        /// # Parameters
+        /// - deposit_params: User's deposit information
+        /// - transaction_type: Requested Transaction type
+        /// - kickoff_id: Operator's kickoff ID
+        ///
+        /// # Returns
+        /// - Raw signed transaction
+        pub async fn internal_create_signed_tx(
+            &mut self,
+            request: impl tonic::IntoRequest<super::TransactionRequest>,
+        ) -> std::result::Result<tonic::Response<super::RawSignedTx>, tonic::Status> {
+            self.inner
+                .ready()
+                .await
+                .map_err(|e| {
+                    tonic::Status::unknown(
+                        format!("Service was not ready: {}", e.into()),
+                    )
+                })?;
+            let codec = tonic::codec::ProstCodec::default();
+            let path = http::uri::PathAndQuery::from_static(
+                "/clementine.ClementineVerifier/InternalCreateSignedTx",
+            );
+            let mut req = request.into_request();
+            req.extensions_mut()
+                .insert(
+                    GrpcMethod::new(
+                        "clementine.ClementineVerifier",
+                        "InternalCreateSignedTx",
+                    ),
+                );
+            self.inner.unary(req, path, codec).await
         }
         /// Returns verifiers' metadata. Needs to be called once per setup.
         pub async fn get_params(
@@ -951,6 +1233,42 @@ pub mod clementine_watchtower_client {
             self.inner = self.inner.max_encoding_message_size(limit);
             self
         }
+        /// Creates a transaction denoted by the deposit and operator_idx, sequential_collateral_idx, and kickoff_idx.
+        /// It will create the transaction(needs to only sign Watchtower Challenge TX) and sign it with watchtowers's winternitzk keys.
+        ///
+        /// # Parameters
+        /// - deposit_params: User's deposit information
+        /// - transaction_type: Requested Transaction type
+        /// - kickoff_id: Operator's kickoff ID
+        ///
+        /// # Returns
+        /// - Raw signed transaction
+        pub async fn internal_create_signed_tx(
+            &mut self,
+            request: impl tonic::IntoRequest<super::TransactionRequest>,
+        ) -> std::result::Result<tonic::Response<super::RawSignedTx>, tonic::Status> {
+            self.inner
+                .ready()
+                .await
+                .map_err(|e| {
+                    tonic::Status::unknown(
+                        format!("Service was not ready: {}", e.into()),
+                    )
+                })?;
+            let codec = tonic::codec::ProstCodec::default();
+            let path = http::uri::PathAndQuery::from_static(
+                "/clementine.ClementineWatchtower/InternalCreateSignedTx",
+            );
+            let mut req = request.into_request();
+            req.extensions_mut()
+                .insert(
+                    GrpcMethod::new(
+                        "clementine.ClementineWatchtower",
+                        "InternalCreateSignedTx",
+                    ),
+                );
+            self.inner.unary(req, path, codec).await
+        }
         /// Returns every operator's winternitz public keys.
         pub async fn get_params(
             &mut self,
@@ -1099,10 +1417,7 @@ pub mod clementine_aggregator_client {
         pub async fn new_deposit(
             &mut self,
             request: impl tonic::IntoRequest<super::DepositParams>,
-        ) -> std::result::Result<
-            tonic::Response<super::RawSignedMoveTx>,
-            tonic::Status,
-        > {
+        ) -> std::result::Result<tonic::Response<super::RawSignedTx>, tonic::Status> {
             self.inner
                 .ready()
                 .await
@@ -1137,6 +1452,33 @@ pub mod clementine_operator_server {
     /// Generated trait containing gRPC methods that should be implemented for use with ClementineOperatorServer.
     #[async_trait]
     pub trait ClementineOperator: std::marker::Send + std::marker::Sync + 'static {
+        /// Creates a transaction denoted by the deposit and operator_idx, sequential_collateral_idx, and kickoff_idx.
+        /// It will create the transaction and sign it with the operator's private key and/or saved nofn signatures.
+        ///
+        /// # Parameters
+        /// - deposit_params: User's deposit information
+        /// - transaction_type: Requested Transaction type
+        /// - kickoff_id: Operator's kickoff ID
+        ///
+        /// # Returns
+        /// - Raw signed transaction
+        async fn internal_create_signed_tx(
+            &self,
+            request: tonic::Request<super::TransactionRequest>,
+        ) -> std::result::Result<tonic::Response<super::RawSignedTx>, tonic::Status>;
+        /// Creates all assert transactions (AssertBegin, MiniAsserts, AssertEnd), signs them, and returns the raw txs
+        /// in the same order.
+        /// # Parameters
+        /// - deposit_params: User's deposit information
+        /// - kickoff_id: Operator's kickoff ID
+        /// - commit_data: Commitment data for each MiniAssert tx's
+        ///
+        /// # Returns
+        /// - Raw signed assert transactions
+        async fn internal_create_assert_commitment_txs(
+            &self,
+            request: tonic::Request<super::AssertRequest>,
+        ) -> std::result::Result<tonic::Response<super::RawSignedTxs>, tonic::Status>;
         /// Server streaming response type for the GetParams method.
         type GetParamsStream: tonic::codegen::tokio_stream::Stream<
                 Item = std::result::Result<super::OperatorParams, tonic::Status>,
@@ -1283,6 +1625,106 @@ pub mod clementine_operator_server {
         }
         fn call(&mut self, req: http::Request<B>) -> Self::Future {
             match req.uri().path() {
+                "/clementine.ClementineOperator/InternalCreateSignedTx" => {
+                    #[allow(non_camel_case_types)]
+                    struct InternalCreateSignedTxSvc<T: ClementineOperator>(pub Arc<T>);
+                    impl<
+                        T: ClementineOperator,
+                    > tonic::server::UnaryService<super::TransactionRequest>
+                    for InternalCreateSignedTxSvc<T> {
+                        type Response = super::RawSignedTx;
+                        type Future = BoxFuture<
+                            tonic::Response<Self::Response>,
+                            tonic::Status,
+                        >;
+                        fn call(
+                            &mut self,
+                            request: tonic::Request<super::TransactionRequest>,
+                        ) -> Self::Future {
+                            let inner = Arc::clone(&self.0);
+                            let fut = async move {
+                                <T as ClementineOperator>::internal_create_signed_tx(
+                                        &inner,
+                                        request,
+                                    )
+                                    .await
+                            };
+                            Box::pin(fut)
+                        }
+                    }
+                    let accept_compression_encodings = self.accept_compression_encodings;
+                    let send_compression_encodings = self.send_compression_encodings;
+                    let max_decoding_message_size = self.max_decoding_message_size;
+                    let max_encoding_message_size = self.max_encoding_message_size;
+                    let inner = self.inner.clone();
+                    let fut = async move {
+                        let method = InternalCreateSignedTxSvc(inner);
+                        let codec = tonic::codec::ProstCodec::default();
+                        let mut grpc = tonic::server::Grpc::new(codec)
+                            .apply_compression_config(
+                                accept_compression_encodings,
+                                send_compression_encodings,
+                            )
+                            .apply_max_message_size_config(
+                                max_decoding_message_size,
+                                max_encoding_message_size,
+                            );
+                        let res = grpc.unary(method, req).await;
+                        Ok(res)
+                    };
+                    Box::pin(fut)
+                }
+                "/clementine.ClementineOperator/InternalCreateAssertCommitmentTxs" => {
+                    #[allow(non_camel_case_types)]
+                    struct InternalCreateAssertCommitmentTxsSvc<T: ClementineOperator>(
+                        pub Arc<T>,
+                    );
+                    impl<
+                        T: ClementineOperator,
+                    > tonic::server::UnaryService<super::AssertRequest>
+                    for InternalCreateAssertCommitmentTxsSvc<T> {
+                        type Response = super::RawSignedTxs;
+                        type Future = BoxFuture<
+                            tonic::Response<Self::Response>,
+                            tonic::Status,
+                        >;
+                        fn call(
+                            &mut self,
+                            request: tonic::Request<super::AssertRequest>,
+                        ) -> Self::Future {
+                            let inner = Arc::clone(&self.0);
+                            let fut = async move {
+                                <T as ClementineOperator>::internal_create_assert_commitment_txs(
+                                        &inner,
+                                        request,
+                                    )
+                                    .await
+                            };
+                            Box::pin(fut)
+                        }
+                    }
+                    let accept_compression_encodings = self.accept_compression_encodings;
+                    let send_compression_encodings = self.send_compression_encodings;
+                    let max_decoding_message_size = self.max_decoding_message_size;
+                    let max_encoding_message_size = self.max_encoding_message_size;
+                    let inner = self.inner.clone();
+                    let fut = async move {
+                        let method = InternalCreateAssertCommitmentTxsSvc(inner);
+                        let codec = tonic::codec::ProstCodec::default();
+                        let mut grpc = tonic::server::Grpc::new(codec)
+                            .apply_compression_config(
+                                accept_compression_encodings,
+                                send_compression_encodings,
+                            )
+                            .apply_max_message_size_config(
+                                max_decoding_message_size,
+                                max_encoding_message_size,
+                            );
+                        let res = grpc.unary(method, req).await;
+                        Ok(res)
+                    };
+                    Box::pin(fut)
+                }
                 "/clementine.ClementineOperator/GetParams" => {
                     #[allow(non_camel_case_types)]
                     struct GetParamsSvc<T: ClementineOperator>(pub Arc<T>);
@@ -1525,6 +1967,20 @@ pub mod clementine_verifier_server {
     /// Generated trait containing gRPC methods that should be implemented for use with ClementineVerifierServer.
     #[async_trait]
     pub trait ClementineVerifier: std::marker::Send + std::marker::Sync + 'static {
+        /// Creates a transaction denoted by the deposit and operator_idx, sequential_collateral_idx, and kickoff_idx.
+        /// It will create the transaction and sign it with saved nofn signatures.
+        ///
+        /// # Parameters
+        /// - deposit_params: User's deposit information
+        /// - transaction_type: Requested Transaction type
+        /// - kickoff_id: Operator's kickoff ID
+        ///
+        /// # Returns
+        /// - Raw signed transaction
+        async fn internal_create_signed_tx(
+            &self,
+            request: tonic::Request<super::TransactionRequest>,
+        ) -> std::result::Result<tonic::Response<super::RawSignedTx>, tonic::Status>;
         /// Returns verifiers' metadata. Needs to be called once per setup.
         async fn get_params(
             &self,
@@ -1659,6 +2115,55 @@ pub mod clementine_verifier_server {
         }
         fn call(&mut self, req: http::Request<B>) -> Self::Future {
             match req.uri().path() {
+                "/clementine.ClementineVerifier/InternalCreateSignedTx" => {
+                    #[allow(non_camel_case_types)]
+                    struct InternalCreateSignedTxSvc<T: ClementineVerifier>(pub Arc<T>);
+                    impl<
+                        T: ClementineVerifier,
+                    > tonic::server::UnaryService<super::TransactionRequest>
+                    for InternalCreateSignedTxSvc<T> {
+                        type Response = super::RawSignedTx;
+                        type Future = BoxFuture<
+                            tonic::Response<Self::Response>,
+                            tonic::Status,
+                        >;
+                        fn call(
+                            &mut self,
+                            request: tonic::Request<super::TransactionRequest>,
+                        ) -> Self::Future {
+                            let inner = Arc::clone(&self.0);
+                            let fut = async move {
+                                <T as ClementineVerifier>::internal_create_signed_tx(
+                                        &inner,
+                                        request,
+                                    )
+                                    .await
+                            };
+                            Box::pin(fut)
+                        }
+                    }
+                    let accept_compression_encodings = self.accept_compression_encodings;
+                    let send_compression_encodings = self.send_compression_encodings;
+                    let max_decoding_message_size = self.max_decoding_message_size;
+                    let max_encoding_message_size = self.max_encoding_message_size;
+                    let inner = self.inner.clone();
+                    let fut = async move {
+                        let method = InternalCreateSignedTxSvc(inner);
+                        let codec = tonic::codec::ProstCodec::default();
+                        let mut grpc = tonic::server::Grpc::new(codec)
+                            .apply_compression_config(
+                                accept_compression_encodings,
+                                send_compression_encodings,
+                            )
+                            .apply_max_message_size_config(
+                                max_decoding_message_size,
+                                max_encoding_message_size,
+                            );
+                        let res = grpc.unary(method, req).await;
+                        Ok(res)
+                    };
+                    Box::pin(fut)
+                }
                 "/clementine.ClementineVerifier/GetParams" => {
                     #[allow(non_camel_case_types)]
                     struct GetParamsSvc<T: ClementineVerifier>(pub Arc<T>);
@@ -2039,6 +2544,20 @@ pub mod clementine_watchtower_server {
     /// Generated trait containing gRPC methods that should be implemented for use with ClementineWatchtowerServer.
     #[async_trait]
     pub trait ClementineWatchtower: std::marker::Send + std::marker::Sync + 'static {
+        /// Creates a transaction denoted by the deposit and operator_idx, sequential_collateral_idx, and kickoff_idx.
+        /// It will create the transaction(needs to only sign Watchtower Challenge TX) and sign it with watchtowers's winternitzk keys.
+        ///
+        /// # Parameters
+        /// - deposit_params: User's deposit information
+        /// - transaction_type: Requested Transaction type
+        /// - kickoff_id: Operator's kickoff ID
+        ///
+        /// # Returns
+        /// - Raw signed transaction
+        async fn internal_create_signed_tx(
+            &self,
+            request: tonic::Request<super::TransactionRequest>,
+        ) -> std::result::Result<tonic::Response<super::RawSignedTx>, tonic::Status>;
         /// Server streaming response type for the GetParams method.
         type GetParamsStream: tonic::codegen::tokio_stream::Stream<
                 Item = std::result::Result<super::WatchtowerParams, tonic::Status>,
@@ -2131,6 +2650,57 @@ pub mod clementine_watchtower_server {
         }
         fn call(&mut self, req: http::Request<B>) -> Self::Future {
             match req.uri().path() {
+                "/clementine.ClementineWatchtower/InternalCreateSignedTx" => {
+                    #[allow(non_camel_case_types)]
+                    struct InternalCreateSignedTxSvc<T: ClementineWatchtower>(
+                        pub Arc<T>,
+                    );
+                    impl<
+                        T: ClementineWatchtower,
+                    > tonic::server::UnaryService<super::TransactionRequest>
+                    for InternalCreateSignedTxSvc<T> {
+                        type Response = super::RawSignedTx;
+                        type Future = BoxFuture<
+                            tonic::Response<Self::Response>,
+                            tonic::Status,
+                        >;
+                        fn call(
+                            &mut self,
+                            request: tonic::Request<super::TransactionRequest>,
+                        ) -> Self::Future {
+                            let inner = Arc::clone(&self.0);
+                            let fut = async move {
+                                <T as ClementineWatchtower>::internal_create_signed_tx(
+                                        &inner,
+                                        request,
+                                    )
+                                    .await
+                            };
+                            Box::pin(fut)
+                        }
+                    }
+                    let accept_compression_encodings = self.accept_compression_encodings;
+                    let send_compression_encodings = self.send_compression_encodings;
+                    let max_decoding_message_size = self.max_decoding_message_size;
+                    let max_encoding_message_size = self.max_encoding_message_size;
+                    let inner = self.inner.clone();
+                    let fut = async move {
+                        let method = InternalCreateSignedTxSvc(inner);
+                        let codec = tonic::codec::ProstCodec::default();
+                        let mut grpc = tonic::server::Grpc::new(codec)
+                            .apply_compression_config(
+                                accept_compression_encodings,
+                                send_compression_encodings,
+                            )
+                            .apply_max_message_size_config(
+                                max_decoding_message_size,
+                                max_encoding_message_size,
+                            );
+                        let res = grpc.unary(method, req).await;
+                        Ok(res)
+                    };
+                    Box::pin(fut)
+                }
                 "/clementine.ClementineWatchtower/GetParams" => {
                     #[allow(non_camel_case_types)]
                     struct GetParamsSvc<T: ClementineWatchtower>(pub Arc<T>);
@@ -2242,7 +2812,7 @@ pub mod clementine_aggregator_server {
         async fn new_deposit(
             &self,
             request: tonic::Request<super::DepositParams>,
-        ) -> std::result::Result<tonic::Response<super::RawSignedMoveTx>, tonic::Status>;
+        ) -> std::result::Result<tonic::Response<super::RawSignedTx>, tonic::Status>;
     }
     #[derive(Debug)]
     pub struct ClementineAggregatorServer<T> {
@@ -2372,7 +2942,7 @@ pub mod clementine_aggregator_server {
                         T: ClementineAggregator,
                     > tonic::server::UnaryService<super::DepositParams>
                     for NewDepositSvc<T> {
-                        type Response = super::RawSignedMoveTx;
+                        type Response = super::RawSignedTx;
                         type Future = BoxFuture<
                             tonic::Response<Self::Response>,
                             tonic::Status,

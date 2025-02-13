@@ -2,10 +2,10 @@ use std::future::Future;
 
 use super::clementine::{
     clementine_aggregator_server::ClementineAggregator, verifier_deposit_finalize_params,
-    DepositParams, Empty, RawSignedMoveTx, VerifierDepositFinalizeParams,
+    DepositParams, Empty, RawSignedTx, VerifierDepositFinalizeParams,
 };
 use crate::builder::sighash::SignatureInfo;
-use crate::builder::transaction::create_move_to_vault_txhandler;
+use crate::builder::transaction::{create_move_to_vault_txhandler, DepositId};
 use crate::config::BridgeConfig;
 use crate::rpc::clementine::clementine_operator_client::ClementineOperatorClient;
 use crate::rpc::clementine::clementine_verifier_client::ClementineVerifierClient;
@@ -25,7 +25,7 @@ use crate::{
 use bitcoin::hashes::Hash;
 use bitcoin::secp256k1::schnorr::Signature;
 use bitcoin::secp256k1::{Message, PublicKey};
-use bitcoin::{Amount, TapSighash};
+use bitcoin::TapSighash;
 use futures::{
     future::try_join_all,
     stream::{BoxStream, TryStreamExt},
@@ -364,8 +364,8 @@ impl Aggregator {
         partial_sigs: Vec<Vec<u8>>,
         movetx_agg_nonce: MusigAggNonce,
         deposit_params: DepositParams,
-    ) -> Result<RawSignedMoveTx, Status> {
-        let (deposit_outpoint, evm_address, recovery_taproot_address, user_takes_after) =
+    ) -> Result<RawSignedTx, Status> {
+        let (deposit_outpoint, evm_address, recovery_taproot_address) =
             parser::parse_deposit_params(deposit_params)?;
         let musig_partial_sigs = parser::verifier::parse_partial_sigs(partial_sigs)?;
 
@@ -375,7 +375,7 @@ impl Aggregator {
             evm_address,
             &recovery_taproot_address,
             self.nofn_xonly_pk,
-            user_takes_after,
+            self.config.user_takes_after,
             self.config.bridge_amount_sats,
             self.config.network,
         )?;
@@ -398,7 +398,7 @@ impl Aggregator {
         // everything is fine, return the signed move tx
         let _move_tx = move_txhandler.get_cached_tx();
         // TODO: Sign the transaction correctly after we create taproot witness generation functions
-        Ok(RawSignedMoveTx { raw_tx: vec![1, 2] })
+        Ok(RawSignedTx { raw_tx: vec![1, 2] })
     }
 }
 
@@ -572,10 +572,10 @@ impl ClementineAggregator for Aggregator {
     async fn new_deposit(
         &self,
         request: Request<DepositParams>,
-    ) -> Result<Response<RawSignedMoveTx>, Status> {
+    ) -> Result<Response<RawSignedTx>, Status> {
         let deposit_params = request.into_inner();
 
-        let (deposit_outpoint, evm_address, recovery_taproot_address, user_takes_after) =
+        let (deposit_outpoint, evm_address, recovery_taproot_address) =
             parser::parse_deposit_params(deposit_params.clone())?;
 
         // Generate nonce streams for all verifiers.
@@ -650,16 +650,12 @@ impl ClementineAggregator for Aggregator {
         let sighash_stream = Box::pin(create_nofn_sighash_stream(
             self.db.clone(),
             self.config.clone(),
-            deposit_outpoint,
-            evm_address,
-            recovery_taproot_address,
+            DepositId {
+                deposit_outpoint,
+                evm_address,
+                recovery_taproot_address,
+            },
             self.nofn_xonly_pk,
-            user_takes_after,
-            Amount::from_sat(200_000_000), // TODO: Fix this.
-            6,
-            100,
-            self.config.bridge_amount_sats,
-            self.config.network,
         ));
 
         // Create channels for pipeline communication
@@ -975,6 +971,7 @@ mod tests {
 
     #[tokio::test]
     #[serial_test::serial]
+    #[ignore = "This test is also done during the deposit phase of test_deposit_and_sign_txs test"]
     async fn aggregator_setup_and_deposit() {
         let config = create_test_config_with_thread_name!(None);
 
@@ -1006,7 +1003,6 @@ mod tests {
                 evm_address: [1u8; 20].to_vec(),
                 recovery_taproot_address:
                     "tb1pk8vus63mx5zwlmmmglq554kwu0zm9uhswqskxg99k66h8m3arguqfrvywa".to_string(),
-                user_takes_after: 5,
             })
             .await
             .unwrap();

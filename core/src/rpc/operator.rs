@@ -1,10 +1,12 @@
 use super::clementine::{
-    clementine_operator_server::ClementineOperator, DepositSignSession, Empty,
-    NewWithdrawalSigParams, NewWithdrawalSigResponse, OperatorBurnSig, OperatorParams,
-    WithdrawalFinalizedParams,
+    clementine_operator_server::ClementineOperator, AssertRequest, DepositSignSession, Empty,
+    NewWithdrawalSigParams, NewWithdrawalSigResponse, OperatorBurnSig, OperatorParams, RawSignedTx,
+    RawSignedTxs, TransactionRequest, WithdrawalFinalizedParams,
 };
 use super::error::*;
+use crate::builder::transaction::sign::{create_and_sign_tx, create_assert_commitment_txs};
 use crate::rpc::parser;
+use crate::rpc::parser::{parse_assert_request, parse_transaction_request};
 use crate::{errors::BridgeError, operator::Operator};
 use bitcoin::hashes::Hash;
 use bitcoin::OutPoint;
@@ -62,16 +64,11 @@ impl ClementineOperator for Operator {
         let (tx, rx) = mpsc::channel(1280);
         let deposit_sign_session = request.into_inner();
 
-        let (deposit_outpoint, evm_address, recovery_taproot_address, user_takes_after) =
+        let (deposit_outpoint, evm_address, recovery_taproot_address) =
             parser::parse_deposit_params(deposit_sign_session.try_into()?)?;
 
         let mut deposit_signatures_rx = self
-            .deposit_sign(
-                deposit_outpoint,
-                evm_address,
-                recovery_taproot_address,
-                user_takes_after,
-            )
+            .deposit_sign(deposit_outpoint, evm_address, recovery_taproot_address)
             .await?;
 
         while let Some(sig) = deposit_signatures_rx.recv().await {
@@ -133,5 +130,45 @@ impl ClementineOperator for Operator {
         //     .await?; // TODO: Reuse this in the new design.
 
         Ok(Response::new(Empty {}))
+    }
+
+    #[tracing::instrument(skip(self), err(level = tracing::Level::ERROR), ret(level = tracing::Level::TRACE))]
+    async fn internal_create_signed_tx(
+        &self,
+        request: Request<TransactionRequest>,
+    ) -> Result<Response<RawSignedTx>, Status> {
+        let transaction_request = request.into_inner();
+        let transaction_data = parse_transaction_request(transaction_request)?;
+
+        let raw_tx = create_and_sign_tx(
+            self.db.clone(),
+            &self.signer,
+            self.config.clone(),
+            self.nofn_xonly_pk,
+            transaction_data,
+        )
+        .await?;
+
+        Ok(Response::new(raw_tx))
+    }
+
+    #[tracing::instrument(skip(self), err(level = tracing::Level::ERROR), ret(level = tracing::Level::TRACE))]
+    async fn internal_create_assert_commitment_txs(
+        &self,
+        request: Request<AssertRequest>,
+    ) -> Result<Response<RawSignedTxs>, Status> {
+        let assert_request = request.into_inner();
+        let assert_data = parse_assert_request(assert_request)?;
+
+        let raw_txs = create_assert_commitment_txs(
+            self.db.clone(),
+            &self.signer,
+            self.config.clone(),
+            self.nofn_xonly_pk,
+            assert_data,
+        )
+        .await?;
+
+        Ok(Response::new(raw_txs))
     }
 }

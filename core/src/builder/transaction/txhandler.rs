@@ -1,7 +1,12 @@
+use super::input::{SpendableTxIn, SpentTxIn};
+use super::output::UnspentTxOut;
 use crate::builder::script::SpendPath;
+use crate::builder::sighash::{PartialSignatureInfo, SignatureInfo};
+use crate::builder::transaction::deposit_signature_owner::{DepositSigKeyOwner, EntityType};
+use crate::builder::transaction::TransactionType;
 use crate::errors::BridgeError;
 use crate::rpc::clementine::tagged_signature::SignatureId;
-use crate::rpc::clementine::NormalSignatureKind;
+use crate::rpc::clementine::{NormalSignatureKind, RawSignedTx};
 use bitcoin::sighash::SighashCache;
 use bitcoin::taproot::{self, LeafVersion};
 use bitcoin::transaction::Version;
@@ -9,13 +14,11 @@ use bitcoin::{absolute, OutPoint, Script, Sequence, Transaction, Witness};
 use bitcoin::{TapLeafHash, TapSighash, TapSighashType, TxOut, Txid};
 use std::marker::PhantomData;
 
-use super::input::{SpendableTxIn, SpentTxIn};
-use super::output::UnspentTxOut;
-
 pub const DEFAULT_SEQUENCE: Sequence = Sequence::ENABLE_RBF_NO_LOCKTIME;
 
 #[derive(Debug, Clone)]
 pub struct TxHandler<T: State = Unsigned> {
+    transaction_type: TransactionType,
     txins: Vec<SpentTxIn>,
     txouts: Vec<UnspentTxOut>,
 
@@ -55,6 +58,10 @@ impl<T: State> TxHandler<T> {
     pub fn get_signature_id(&self, idx: usize) -> Result<SignatureId, BridgeError> {
         let txin = self.txins.get(idx).ok_or(BridgeError::TxInputNotFound)?;
         Ok(txin.get_signature_id())
+    }
+
+    pub fn get_transaction_type(&self) -> TransactionType {
+        self.transaction_type
     }
 
     pub fn get_cached_tx(&self) -> &Transaction {
@@ -198,7 +205,7 @@ impl<T: State> TxHandler<T> {
         Ok(sig_hash)
     }
 
-    pub fn calculate_sighash(
+    pub fn calculate_sighash_txin(
         &self,
         txin_index: usize,
         sighash_type: TapSighashType,
@@ -212,9 +219,40 @@ impl<T: State> TxHandler<T> {
         }
     }
 
+    pub fn calculate_all_txins_sighash(
+        &self,
+        needed_entity: EntityType,
+        partial_signature_info: PartialSignatureInfo,
+    ) -> Result<Vec<(TapSighash, SignatureInfo)>, BridgeError> {
+        let mut sighashes = Vec::with_capacity(self.txins.len());
+        for idx in 0..self.txins.len() {
+            let sig_id = self.txins[idx].get_signature_id();
+            let sig_owner = sig_id.get_deposit_sig_owner()?;
+            match (sig_owner, needed_entity) {
+                (DepositSigKeyOwner::Operator(sighash_type), EntityType::Operator)
+                | (DepositSigKeyOwner::NofN(sighash_type), EntityType::Verifier) => {
+                    sighashes.push((
+                        self.calculate_sighash_txin(idx, sighash_type)?,
+                        partial_signature_info.complete(sig_id),
+                    ));
+                }
+                _ => {}
+            }
+        }
+        Ok(sighashes)
+    }
+
     #[cfg(test)]
     pub fn get_input_txout(&self, input_idx: usize) -> &TxOut {
         self.txins[input_idx].get_spendable().get_prevout()
+    }
+}
+
+impl TxHandler<Signed> {
+    pub fn encode_tx(&self) -> RawSignedTx {
+        RawSignedTx {
+            raw_tx: bitcoin::consensus::encode::serialize(self.get_cached_tx()),
+        }
     }
 }
 
@@ -225,6 +263,7 @@ impl TxHandler<Unsigned> {
         }
 
         Ok(TxHandler {
+            transaction_type: self.transaction_type,
             txins: self.txins,
             txouts: self.txouts,
             cached_tx: self.cached_tx,
@@ -309,21 +348,17 @@ impl TxHandler<Unsigned> {
 #[derive(Debug, Clone)]
 pub struct TxHandlerBuilder {
     /// TODO: Document
+    transaction_type: TransactionType,
     version: Version,
     lock_time: absolute::LockTime,
     txins: Vec<SpentTxIn>,
     txouts: Vec<UnspentTxOut>,
 }
 
-impl Default for TxHandlerBuilder {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
 impl TxHandlerBuilder {
-    pub fn new() -> TxHandlerBuilder {
+    pub fn new(transaction_type: TransactionType) -> TxHandlerBuilder {
         TxHandlerBuilder {
+            transaction_type,
             version: Version::TWO,
             lock_time: absolute::LockTime::ZERO,
             txins: vec![],
@@ -388,6 +423,7 @@ impl TxHandlerBuilder {
         };
         let txid = tx.compute_txid();
         TxHandler::<Unsigned> {
+            transaction_type: self.transaction_type,
             txins: self.txins,
             txouts: self.txouts,
             cached_tx: tx,

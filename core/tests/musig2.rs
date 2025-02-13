@@ -6,7 +6,7 @@ use bitcoincore_rpc::RpcApi;
 use clementine_core::builder::script::{CheckSig, OtherSpendable, SpendPath, SpendableScript};
 use clementine_core::builder::transaction::input::SpendableTxIn;
 use clementine_core::builder::transaction::output::UnspentTxOut;
-use clementine_core::builder::transaction::{TxHandlerBuilder, DEFAULT_SEQUENCE};
+use clementine_core::builder::transaction::{TransactionType, TxHandlerBuilder, DEFAULT_SEQUENCE};
 use clementine_core::errors::BridgeError;
 use clementine_core::musig2::{
     aggregate_nonces, aggregate_partial_signatures, AggregateFromPublicKeys, Musig2Mode,
@@ -97,7 +97,7 @@ async fn key_spend() {
         .unwrap();
     let prevout = rpc.get_txout_from_outpoint(&utxo).await.unwrap();
 
-    let mut tx_details = TxHandlerBuilder::new()
+    let mut tx_details = TxHandlerBuilder::new(TransactionType::Dummy)
         .add_input(
             NormalSignatureKind::NormalSignatureUnknown,
             SpendableTxIn::new(utxo, prevout, vec![], Some(from_address_spend_info.clone())),
@@ -205,7 +205,7 @@ async fn key_spend_with_script() {
         .await
         .unwrap();
     let prevout = rpc.get_txout_from_outpoint(&utxo).await.unwrap();
-    let mut builder = TxHandlerBuilder::new();
+    let mut builder = TxHandlerBuilder::new(TransactionType::Dummy);
     builder = builder
         .add_input(
             NormalSignatureKind::NormalSignatureUnknown,
@@ -321,7 +321,7 @@ async fn script_spend() {
         .await
         .unwrap();
     let prevout = rpc.get_txout_from_outpoint(&utxo).await.unwrap();
-    let mut tx_details = TxHandlerBuilder::new()
+    let mut tx_details = TxHandlerBuilder::new(TransactionType::Dummy)
         .add_input(
             NormalSignatureKind::NormalSignatureUnknown,
             SpendableTxIn::new(
@@ -467,7 +467,7 @@ async fn key_and_script_spend() {
     );
 
     // Test Transactions
-    let mut test_txhandler_1 = TxHandlerBuilder::new()
+    let mut test_txhandler_1 = TxHandlerBuilder::new(TransactionType::Dummy)
         .add_input(
             NormalSignatureKind::NormalSignatureUnknown,
             SpendableTxIn::new(
@@ -485,7 +485,7 @@ async fn key_and_script_spend() {
         }))
         .finalize();
 
-    let mut test_txhandler_2 = TxHandlerBuilder::new()
+    let mut test_txhandler_2 = TxHandlerBuilder::new(TransactionType::Dummy)
         .add_input(
             NormalSignatureKind::NormalSignatureUnknown,
             SpendableTxIn::new(

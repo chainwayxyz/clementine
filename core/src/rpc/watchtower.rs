@@ -1,6 +1,9 @@
 use super::clementine::{
-    clementine_watchtower_server::ClementineWatchtower, watchtower_params, Empty, WatchtowerParams,
+    clementine_watchtower_server::ClementineWatchtower, watchtower_params, Empty, RawSignedTx,
+    TransactionRequest, WatchtowerParams,
 };
+use crate::builder::transaction::sign::create_and_sign_tx;
+use crate::rpc::parser::parse_transaction_request;
 use crate::watchtower::Watchtower;
 use tokio::sync::mpsc::{self, error::SendError};
 use tokio_stream::wrappers::ReceiverStream;
@@ -22,7 +25,7 @@ impl ClementineWatchtower for Watchtower {
 
         tracing::info!(
             "Watchtower gives watchtower xonly public key {:?} for index {}",
-            self.actor.xonly_public_key,
+            self.signer.xonly_public_key,
             self.config.index
         );
 
@@ -44,5 +47,25 @@ impl ClementineWatchtower for Watchtower {
         });
 
         Ok(Response::new(out_stream))
+    }
+
+    #[tracing::instrument(skip(self), err(level = tracing::Level::ERROR), ret(level = tracing::Level::TRACE))]
+    async fn internal_create_signed_tx(
+        &self,
+        request: Request<TransactionRequest>,
+    ) -> Result<Response<RawSignedTx>, Status> {
+        let transaction_request = request.into_inner();
+        let transaction_data = parse_transaction_request(transaction_request)?;
+
+        let raw_tx = create_and_sign_tx(
+            self.db.clone(),
+            &self.signer,
+            self.config.clone(),
+            self.nofn_xonly_pk,
+            transaction_data,
+        )
+        .await?;
+
+        Ok(Response::new(raw_tx))
     }
 }

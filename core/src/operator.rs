@@ -1,6 +1,8 @@
 use crate::actor::{Actor, WinternitzDerivationPath};
 use crate::builder::sighash::create_operator_sighash_stream;
+use crate::builder::transaction::DepositId;
 use crate::config::BridgeConfig;
+use crate::constants::WINTERNITZ_LOG_D;
 use crate::database::Database;
 use crate::errors::BridgeError;
 use crate::extended_rpc::ExtendedRpc;
@@ -33,6 +35,7 @@ pub struct Operator {
     pub(crate) nofn_xonly_pk: XOnlyPublicKey,
     pub(crate) collateral_funding_txid: Txid,
     pub(crate) idx: usize,
+    pub(crate) reimburse_addr: Address,
     citrea_client: Option<jsonrpsee::http_client::HttpClient>,
 }
 
@@ -61,6 +64,11 @@ impl Operator {
         if config.operator_withdrawal_fee_sats.is_none() {
             return Err(BridgeError::OperatorWithdrawalFeeNotSet);
         }
+
+        // TODO: Fix this where the config will only have one address. also check??
+        let reimburse_addr = config.operator_wallet_addresses[idx]
+            .clone()
+            .assume_checked();
 
         // let mut tx = db.begin_transaction().await?;
         // // check if funding utxo is already set
@@ -115,6 +123,7 @@ impl Operator {
             idx,
             collateral_funding_txid,
             citrea_client,
+            reimburse_addr,
         })
     }
 
@@ -170,7 +179,6 @@ impl Operator {
         deposit_outpoint: OutPoint,
         evm_address: EVMAddress,
         recovery_taproot_address: Address<NetworkUnchecked>,
-        user_takes_after: u16,
     ) -> Result<mpsc::Receiver<schnorr::Signature>, BridgeError> {
         let (sig_tx, sig_rx) = mpsc::channel(1280);
 
@@ -178,18 +186,15 @@ impl Operator {
             self.db.clone(),
             self.idx,
             self.collateral_funding_txid,
+            self.reimburse_addr.clone(),
             self.signer.xonly_public_key,
             self.config.clone(),
-            deposit_outpoint,
-            evm_address,
-            recovery_taproot_address,
+            DepositId {
+                deposit_outpoint,
+                evm_address,
+                recovery_taproot_address,
+            },
             self.nofn_xonly_pk,
-            user_takes_after,
-            Amount::from_sat(200_000_000), // TODO: Fix this.
-            6,
-            100,
-            self.config.bridge_amount_sats,
-            self.config.network,
         ));
 
         let operator = self.clone();
@@ -846,7 +851,7 @@ impl Operator {
                     let step_name = intermediate_step.as_str();
                     let path = WinternitzDerivationPath {
                         message_length: *intermediate_step_size as u32 * 2,
-                        log_d: 4,
+                        log_d: WINTERNITZ_LOG_D,
                         tx_type: crate::actor::TxType::BitVM,
                         index: Some(self.idx as u32),
                         operator_idx: None,
@@ -867,7 +872,7 @@ impl Operator {
     pub fn generate_challenge_ack_preimages_and_hashes(
         &self,
     ) -> Result<Vec<PublicHash>, BridgeError> {
-        let mut preimages = Vec::new();
+        let mut hashes = Vec::new();
 
         for sequential_collateral_tx_idx in 0..self.config.num_sequential_collateral_txs as u32 {
             for kickoff_idx in 0..self.config.num_kickoffs_per_sequential_collateral_tx as u32 {
@@ -884,11 +889,12 @@ impl Operator {
                         intermediate_step_name: None,
                     };
                     let hash = self.signer.generate_public_hash_from_path(path)?;
-                    preimages.push(hash); // Subject to change
+                    hashes.push(hash); // Subject to change
                 }
             }
         }
-        Ok(preimages)
+        tracing::info!("Public hashes len: {:?}", hashes.len());
+        Ok(hashes)
     }
 }
 

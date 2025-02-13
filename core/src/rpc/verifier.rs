@@ -1,13 +1,15 @@
 use super::clementine::{
     self, clementine_verifier_server::ClementineVerifier, Empty, NonceGenRequest, NonceGenResponse,
-    OperatorParams, PartialSig, VerifierDepositFinalizeParams, VerifierDepositSignParams,
-    VerifierParams, VerifierPublicKeys, WatchtowerParams,
+    OperatorParams, PartialSig, RawSignedTx, TransactionRequest, VerifierDepositFinalizeParams,
+    VerifierDepositSignParams, VerifierParams, VerifierPublicKeys, WatchtowerParams,
 };
 use super::error;
 use crate::builder::sighash::{
     calculate_num_required_nofn_sigs, calculate_num_required_operator_sigs,
 };
+use crate::builder::transaction::sign::create_and_sign_tx;
 use crate::fetch_next_optional_message_from_stream;
+use crate::rpc::parser::parse_transaction_request;
 use crate::{
     errors::BridgeError,
     fetch_next_message_from_stream,
@@ -159,13 +161,8 @@ impl ClementineVerifier for Verifier {
         // Send incoming data to deposit sign job.
         tokio::spawn(async move {
             let params = fetch_next_message_from_stream!(in_stream, params)?;
-            let (
-                deposit_outpoint,
-                evm_address,
-                recovery_taproot_address,
-                user_takes_after,
-                session_id,
-            ) = match params {
+            let (deposit_outpoint, evm_address, recovery_taproot_address, session_id) = match params
+            {
                 clementine::verifier_deposit_sign_params::Params::DepositSignFirstParam(
                     deposit_sign_session,
                 ) => parser::verifier::parse_deposit_params(deposit_sign_session, verifier.idx)?,
@@ -176,7 +173,6 @@ impl ClementineVerifier for Verifier {
                     deposit_outpoint,
                     evm_address,
                     recovery_taproot_address,
-                    user_takes_after,
                     session_id,
                 ))
                 .await
@@ -204,13 +200,7 @@ impl ClementineVerifier for Verifier {
 
         // Start partial sig job and return partial sig responses.
         tokio::spawn(async move {
-            let (
-                deposit_outpoint,
-                evm_address,
-                recovery_taproot_address,
-                user_takes_after,
-                session_id,
-            ) = param_rx
+            let (deposit_outpoint, evm_address, recovery_taproot_address, session_id) = param_rx
                 .recv()
                 .await
                 .ok_or(error::expected_msg_got_none("parameters")())?;
@@ -220,7 +210,6 @@ impl ClementineVerifier for Verifier {
                     deposit_outpoint,
                     evm_address,
                     recovery_taproot_address,
-                    user_takes_after,
                     session_id,
                     agg_nonce_rx,
                 )
@@ -272,13 +261,12 @@ impl ClementineVerifier for Verifier {
         let (operator_sig_tx, operator_sig_rx) = mpsc::channel(1280);
 
         let params = fetch_next_message_from_stream!(in_stream, params)?;
-        let (deposit_outpoint, evm_address, recovery_taproot_address, user_takes_after, session_id) =
-            match params {
-                Params::DepositSignFirstParam(deposit_sign_session) => {
-                    parser::verifier::parse_deposit_params(deposit_sign_session, self.idx)?
-                }
-                _ => Err(Status::internal("Expected DepositOutpoint"))?,
-            };
+        let (deposit_outpoint, evm_address, recovery_taproot_address, session_id) = match params {
+            Params::DepositSignFirstParam(deposit_sign_session) => {
+                parser::verifier::parse_deposit_params(deposit_sign_session, self.idx)?
+            }
+            _ => Err(Status::internal("Expected DepositOutpoint"))?,
+        };
 
         // Start deposit finalize job.
         let verifier = self.clone();
@@ -288,7 +276,6 @@ impl ClementineVerifier for Verifier {
                     deposit_outpoint,
                     evm_address,
                     recovery_taproot_address,
-                    user_takes_after,
                     session_id,
                     sig_rx,
                     agg_nonce_rx,
@@ -369,5 +356,25 @@ impl ClementineVerifier for Verifier {
         })??;
 
         Ok(Response::new(partial_sig.into()))
+    }
+
+    #[tracing::instrument(skip(self), err(level = tracing::Level::ERROR), ret(level = tracing::Level::TRACE))]
+    async fn internal_create_signed_tx(
+        &self,
+        request: Request<TransactionRequest>,
+    ) -> Result<Response<RawSignedTx>, Status> {
+        let transaction_request = request.into_inner();
+        let transaction_data = parse_transaction_request(transaction_request)?;
+
+        let raw_tx = create_and_sign_tx(
+            self.db.clone(),
+            &self.signer,
+            self.config.clone(),
+            self.nofn_xonly_pk,
+            transaction_data,
+        )
+        .await?;
+
+        Ok(Response::new(raw_tx))
     }
 }

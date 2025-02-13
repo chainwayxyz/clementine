@@ -7,7 +7,7 @@ use crate::builder::sighash::{
     calculate_num_required_operator_sigs, calculate_num_required_operator_sigs_per_kickoff,
     create_nofn_sighash_stream, create_operator_sighash_stream, SignatureInfo,
 };
-use crate::builder::transaction::{create_move_to_vault_txhandler, TxHandler, Unsigned};
+use crate::builder::transaction::{create_move_to_vault_txhandler, DepositId, TxHandler, Unsigned};
 use crate::builder::{self};
 use crate::config::BridgeConfig;
 use crate::database::Database;
@@ -22,7 +22,7 @@ use bitcoin::hashes::Hash;
 use bitcoin::secp256k1::schnorr::Signature;
 use bitcoin::secp256k1::Message;
 use bitcoin::{secp256k1::PublicKey, OutPoint};
-use bitcoin::{Address, Amount, ScriptBuf, TapTweakHash, Txid, XOnlyPublicKey};
+use bitcoin::{Address, ScriptBuf, TapTweakHash, Txid, XOnlyPublicKey};
 use bitvm::signatures::signing_winternitz::{
     generate_winternitz_checksig_leave_variable, WinternitzPublicKey,
 };
@@ -406,7 +406,6 @@ impl Verifier {
         deposit_outpoint: OutPoint,
         evm_address: EVMAddress,
         recovery_taproot_address: Address<NetworkUnchecked>,
-        user_takes_after: u16,
         session_id: u32,
         mut agg_nonce_rx: mpsc::Receiver<MusigAggNonce>,
     ) -> Result<mpsc::Receiver<MusigPartialSignature>, BridgeError> {
@@ -425,16 +424,12 @@ impl Verifier {
             let mut sighash_stream = Box::pin(create_nofn_sighash_stream(
                 verifier.db.clone(),
                 verifier.config.clone(),
-                deposit_outpoint,
-                evm_address,
-                recovery_taproot_address,
+                DepositId {
+                    deposit_outpoint,
+                    evm_address,
+                    recovery_taproot_address,
+                },
                 verifier.nofn_xonly_pk,
-                user_takes_after,
-                Amount::from_sat(200_000_000), // TODO: Fix this.
-                6,
-                100,
-                verifier.config.bridge_amount_sats,
-                verifier.config.network,
             ));
             let num_required_sigs = calculate_num_required_nofn_sigs(&verifier.config);
 
@@ -468,7 +463,7 @@ impl Verifier {
                     .map_err(|e| BridgeError::SendError("partial signature", e.to_string()))?;
 
                 nonce_idx += 1;
-                tracing::info!(
+                tracing::debug!(
                     "Verifier {} signed sighash {} of {}",
                     verifier.idx,
                     nonce_idx,
@@ -497,7 +492,6 @@ impl Verifier {
         deposit_outpoint: OutPoint,
         evm_address: EVMAddress,
         recovery_taproot_address: Address<NetworkUnchecked>,
-        user_takes_after: u16,
         session_id: u32,
         mut sig_receiver: mpsc::Receiver<Signature>,
         mut agg_nonce_receiver: mpsc::Receiver<MusigAggNonce>,
@@ -506,16 +500,12 @@ impl Verifier {
         let mut sighash_stream = pin!(create_nofn_sighash_stream(
             self.db.clone(),
             self.config.clone(),
-            deposit_outpoint,
-            evm_address,
-            recovery_taproot_address.clone(),
+            DepositId {
+                deposit_outpoint,
+                evm_address,
+                recovery_taproot_address: recovery_taproot_address.clone(),
+            },
             self.nofn_xonly_pk,
-            user_takes_after,
-            Amount::from_sat(200_000_000), // TODO: Fix this.
-            6,
-            100,
-            self.config.bridge_amount_sats,
-            self.config.network,
         ));
 
         let num_required_nofn_sigs = calculate_num_required_nofn_sigs(&self.config);
@@ -593,7 +583,7 @@ impl Verifier {
             evm_address,
             &recovery_taproot_address,
             self.nofn_xonly_pk,
-            user_takes_after,
+            self.config.user_takes_after,
             self.config.bridge_amount_sats,
             self.config.network,
         )?;
@@ -635,7 +625,9 @@ impl Verifier {
             self.db.get_operators(None).await?;
 
         // get signatures of operators and verify them
-        for (operator_idx, (op_xonly_pk, _, collateral_txid)) in operators_data.iter().enumerate() {
+        for (operator_idx, (op_xonly_pk, reimburse_addr, collateral_txid)) in
+            operators_data.iter().enumerate()
+        {
             let mut op_sig_count = 0;
             // tweak the operator xonly public key with None (because merkle root is empty as operator utxos have no scripts)
             let scalar = TapTweakHash::from_key_and_tweak(*op_xonly_pk, None).to_scalar();
@@ -650,18 +642,15 @@ impl Verifier {
                 self.db.clone(),
                 operator_idx,
                 *collateral_txid,
+                reimburse_addr.clone(),
                 *op_xonly_pk,
                 self.config.clone(),
-                deposit_outpoint,
-                evm_address,
-                recovery_taproot_address.clone(),
+                DepositId {
+                    deposit_outpoint,
+                    evm_address,
+                    recovery_taproot_address: recovery_taproot_address.clone(),
+                },
                 self.nofn_xonly_pk,
-                user_takes_after,
-                Amount::from_sat(200_000_000), // TODO: Fix this.
-                6,
-                100,
-                self.config.bridge_amount_sats,
-                self.config.network,
             ));
             while let Some(operator_sig) = operator_sig_receiver.recv().await {
                 let sighash = sighash_stream

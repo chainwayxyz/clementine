@@ -504,7 +504,7 @@ mod tests {
     use crate::builder;
     use crate::builder::transaction::input::SpendableTxIn;
     use crate::builder::transaction::output::UnspentTxOut;
-    use crate::builder::transaction::{TxHandlerBuilder, DEFAULT_SEQUENCE};
+    use crate::builder::transaction::{TransactionType, TxHandlerBuilder, DEFAULT_SEQUENCE};
     use crate::utils::SECP;
     use bitcoin::{Amount, Sequence, TxOut};
 
@@ -538,7 +538,7 @@ mod tests {
         } else {
             DEFAULT_SEQUENCE
         };
-        let mut builder = TxHandlerBuilder::new();
+        let mut builder = TxHandlerBuilder::new(TransactionType::Dummy);
         builder = builder.add_input(
             crate::rpc::clementine::NormalSignatureKind::NotStored,
             SpendableTxIn::new(

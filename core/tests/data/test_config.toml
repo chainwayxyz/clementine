@@ -3,6 +3,10 @@ host = "127.0.0.1"
 port = 17000
 index = 0
 
+collateral_funding_amount = 200000000
+timeout_block_count = 6
+max_withdrawal_time_block_count = 4032
+
 # Secret key of the current actor (operator or verifier)
 secret_key = "3333333333333333333333333333333333333333333333333333333333333333"
 
@@ -58,7 +62,7 @@ db_user = "clementine"
 db_password = "clementine"
 db_name = "clementine"
 
-bridge_amount_sats = 100000000
+bridge_amount_sats = 1000000000
 
 confirmation_threshold = 1
 
