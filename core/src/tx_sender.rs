@@ -13,7 +13,8 @@ use crate::{
         self,
         script::SpendPath,
         transaction::{
-            input::SpendableTxIn, output::UnspentTxOut, TransactionType, TxHandlerBuilder, DEFAULT_SEQUENCE
+            input::SpendableTxIn, output::UnspentTxOut, TransactionType, TxHandlerBuilder,
+            DEFAULT_SEQUENCE,
         },
     },
     constants::MIN_TAPROOT_AMOUNT,
