@@ -139,7 +139,7 @@ pub struct OperatorConfig {
 }
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct OperatorParams {
-    #[prost(oneof = "operator_params::Response", tags = "1, 2, 3")]
+    #[prost(oneof = "operator_params::Response", tags = "1, 2")]
     pub response: ::core::option::Option<operator_params::Response>,
 }
 /// Nested message and enum types in `OperatorParams`.
@@ -149,17 +149,19 @@ pub mod operator_params {
         /// Operator's configuration.
         #[prost(message, tag = "1")]
         OperatorDetails(super::OperatorConfig),
-        /// Winternitz pubkeys for each watchtowers challenge + bitvm assert tx.
-        /// If there are 100 watchtowers and total of 1000 sequential collateral txs,
-        /// it will take 1000 * (100*240 + 600*20) ~= 1 GB of hash for every
-        /// winternitz pubkey.
+        /// Winternitz pubkeys for each kickoff utxo (to commit blockhash).
         #[prost(message, tag = "2")]
         WinternitzPubkeys(super::WinternitzPubkey),
-        /// Adaptor signatures for asserting a watchtower's challenge to zero.
-        /// Total of 1000*100 preimages. TODO: Change comments here
-        #[prost(message, tag = "3")]
-        ChallengeAckDigests(super::ChallengeAckDigest),
     }
+}
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct OperatorDepositKeys {
+    /// Winternitz pubkeys for each bitvm assert tx.
+    #[prost(message, repeated, tag = "1")]
+    pub winternitz_pubkeys: ::prost::alloc::vec::Vec<WinternitzPubkey>,
+    /// Hashes of preimages that will be used to ACK watchtower challenges.
+    #[prost(message, repeated, tag = "2")]
+    pub challenge_ack_digests: ::prost::alloc::vec::Vec<ChallengeAckDigest>,
 }
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct OperatorBurnSig {
