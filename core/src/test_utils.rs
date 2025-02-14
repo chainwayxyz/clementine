@@ -374,12 +374,9 @@ macro_rules! create_actors {
             .collect::<Vec<_>>();
 
         let all_operators_secret_keys =
-            config
-                .all_operators_secret_keys
-                .clone()
-                .unwrap_or_else(|| {
-                    panic!("All secret keys of the operators are required for testing");
-                });
+            config.all_operators_secret_keys.clone().unwrap_or_else(|| {
+                panic!("All secret keys of the operators are required for testing");
+            });
 
         // Create futures for operator gRPC servers
         let operator_futures = all_operators_secret_keys

@@ -112,7 +112,7 @@ impl ExtendedRpc {
             .await?;
 
         let tx_result = self.client.get_transaction(&txid, None).await?;
-        let vout = tx_result.details[0].vout;
+        let vout = tx_result.details[0].vout; // TODO: this might be incorrect
 
         Ok(OutPoint { txid, vout })
     }

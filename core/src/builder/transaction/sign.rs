@@ -99,6 +99,8 @@ pub async fn create_and_sign_tx(
             transaction_data.transaction_type,
         ))?;
 
+    tracing::debug!(txhandler = ?requested_txhandler, "txhandler");
+
     signer.tx_sign_and_fill_sigs(&mut requested_txhandler, &signatures)?;
 
     if let TransactionType::OperatorChallengeAck(watchtower_idx) = transaction_data.transaction_type

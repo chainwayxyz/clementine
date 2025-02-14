@@ -117,7 +117,6 @@ pub async fn run_happy_path(config: BridgeConfig) -> Result<()> {
         .await?;
 
     // 5. Send Kickoff Transaction
-    tracing::info!("Sending kickoff transaction");
     let base_tx_req = TransactionRequest {
         transaction_type: Some(TransactionType::AllNeededForOperatorDeposit.into()),
         kickoff_id: Some(KickoffId {
@@ -129,6 +128,7 @@ pub async fn run_happy_path(config: BridgeConfig) -> Result<()> {
         ..Default::default()
     };
 
+    tracing::info!("Sending sequential collateral transaction");
     let op_seq_collat = operators[0]
         .internal_create_signed_tx(TransactionRequest {
             transaction_type: Some(TransactionType::SequentialCollateral.into()),
@@ -140,6 +140,7 @@ pub async fn run_happy_path(config: BridgeConfig) -> Result<()> {
         .send_raw_transaction(&op_seq_collat.raw_tx)
         .await?;
 
+    tracing::info!("Sending kickoff transaction");
     let kickoff_tx = operators[0]
         .internal_create_signed_tx(TransactionRequest {
             transaction_type: Some(TransactionType::Kickoff.into()),
@@ -148,6 +149,7 @@ pub async fn run_happy_path(config: BridgeConfig) -> Result<()> {
         .await?
         .into_inner();
     rpc.client.send_raw_transaction(&kickoff_tx.raw_tx).await?;
+    rpc.mine_blocks(69).await?;
 
     // 6. Send Start Happy Reimburse Transaction
     tracing::info!("Sending start happy reimburse transaction");
@@ -175,7 +177,6 @@ pub async fn run_happy_path(config: BridgeConfig) -> Result<()> {
         .send_raw_transaction(&happy_reimburse_tx.raw_tx)
         .await?;
 
-
     tracing::info!("Happy reimburse transaction sent successfully");
     tracing::info!("Happy path test completed successfully");
     Ok(())
@@ -186,7 +187,7 @@ mod tests {
     use super::*;
     use crate::create_test_config_with_thread_name;
 
-    #[tokio::test]
+    #[tokio::test(flavor = "multi_thread")]
     async fn test_happy_path() {
         let config = create_test_config_with_thread_name!(None);
         run_happy_path(config).await.unwrap();

@@ -75,7 +75,9 @@ pub fn create_sequential_collateral_txhandler(
     ));
 
     builder = builder.add_output(UnspentTxOut::from_scripts(
-        input_amount - KICKOFF_AMOUNT * (num_kickoffs_per_sequential_collateral_tx as u64),
+        input_amount
+            - KICKOFF_AMOUNT * (num_kickoffs_per_sequential_collateral_tx as u64)
+            - ANCHOR_AMOUNT,
         vec![],
         Some(operator_xonly_pk),
         network,
