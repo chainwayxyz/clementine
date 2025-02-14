@@ -1043,7 +1043,9 @@ mod tests {
         let rpc = regtest.rpc();
 
         let operator = Operator::new(config.clone()).await.unwrap();
-        let actual_wpks = operator.get_winternitz_public_keys_for_kickoff_utxo();
+        let actual_wpks = operator
+            .get_winternitz_public_keys_for_kickoff_utxo()
+            .unwrap();
 
         let mut wpk_rx = operator.get_params().await.unwrap();
         let mut idx = 0;
