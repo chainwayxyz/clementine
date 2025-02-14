@@ -185,7 +185,7 @@ mod tests {
 
     #[tokio::test]
     async fn save_get_new_block() {
-        let config = create_test_config_with_thread_name!(None);
+        let mut config = create_test_config_with_thread_name!(None);
         let db = Database::new(&config).await.unwrap();
 
         let block = block::Block {
@@ -214,7 +214,7 @@ mod tests {
 
     #[tokio::test]
     async fn get_block_header() {
-        let config = create_test_config_with_thread_name!(None);
+        let mut config = create_test_config_with_thread_name!(None);
         let db = Database::new(&config).await.unwrap();
 
         let block = block::Block {
@@ -252,7 +252,7 @@ mod tests {
     #[tokio::test]
     #[serial_test::serial]
     pub async fn get_latest_chain_proof_height() {
-        let config = create_test_config_with_thread_name!(None);
+        let mut config = create_test_config_with_thread_name!(None);
         let db = Database::new(&config).await.unwrap();
 
         let mut block = block::Block {
@@ -309,7 +309,7 @@ mod tests {
     #[tokio::test]
     #[serial_test::serial]
     pub async fn save_get_block_proof() {
-        let config = create_test_config_with_thread_name!(None);
+        let mut config = create_test_config_with_thread_name!(None);
         let db = Database::new(&config).await.unwrap();
 
         // Save dummy block.
@@ -354,7 +354,7 @@ mod tests {
     #[tokio::test]
     #[serial_test::serial]
     pub async fn get_non_proven_block() {
-        let config = create_test_config_with_thread_name!(None);
+        let mut config = create_test_config_with_thread_name!(None);
         let db = Database::new(&config).await.unwrap();
 
         assert!(db.get_non_proven_block(None).await.is_err());

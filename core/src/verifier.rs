@@ -1457,7 +1457,7 @@ impl Verifier {
 // #[tokio::test]
 //
 // async fn new_deposit_nonce_checks() {
-//     let config = create_test_config_with_thread_name!(None);
+//     let mut config = create_test_config_with_thread_name!(None);
 //     let rpc = ExtendedRpc::connect(
 //         config.bitcoin_rpc_url.clone(),
 //         config.bitcoin_rpc_user.clone(),

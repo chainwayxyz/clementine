@@ -573,7 +573,7 @@ mod tests {
     #[tokio::test]
 
     async fn test_checksig_spendable() {
-        let config = create_test_config_with_thread_name!(None);
+        let mut config = create_test_config_with_thread_name!(None);
         let regtest = create_regtest_rpc!(config);
         let rpc = regtest.rpc().clone();
 
@@ -612,7 +612,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_winternitz_commit_spendable() {
-        let config = create_test_config_with_thread_name!(None);
+        let mut config = create_test_config_with_thread_name!(None);
         let regtest = create_regtest_rpc!(config);
         let rpc = regtest.rpc();
 
@@ -670,7 +670,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_timelock_script_spendable() {
-        let config = create_test_config_with_thread_name!(None);
+        let mut config = create_test_config_with_thread_name!(None);
         let regtest = create_regtest_rpc!(config);
         let rpc = regtest.rpc();
 
@@ -715,7 +715,7 @@ mod tests {
     #[tokio::test]
 
     async fn test_preimage_reveal_script_spendable() {
-        let config = create_test_config_with_thread_name!(None);
+        let mut config = create_test_config_with_thread_name!(None);
         let regtest = create_regtest_rpc!(config);
         let rpc = regtest.rpc().clone();
         let kp = bitcoin::secp256k1::Keypair::new(&SECP, &mut rand::thread_rng());
@@ -758,7 +758,7 @@ mod tests {
     #[tokio::test]
 
     async fn test_deposit_script_spendable() {
-        let config = create_test_config_with_thread_name!(None);
+        let mut config = create_test_config_with_thread_name!(None);
         let regtest = create_regtest_rpc!(config);
         let rpc = regtest.rpc().clone();
 

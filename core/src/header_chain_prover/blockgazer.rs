@@ -256,7 +256,7 @@ mod tests {
     #[tokio::test]
 
     async fn check_for_new_blocks_uptodate() {
-        let config = create_test_config_with_thread_name!(None);
+        let mut config = create_test_config_with_thread_name!(None);
         let regtest = create_regtest_rpc!(config);
         let rpc = regtest.rpc().clone();
         let prover = HeaderChainProver::new(&config, rpc.clone_inner().await.unwrap())
@@ -288,7 +288,7 @@ mod tests {
     #[tokio::test]
 
     async fn check_for_new_blocks_fallen_behind_single() {
-        let config = create_test_config_with_thread_name!(None);
+        let mut config = create_test_config_with_thread_name!(None);
         let regtest = create_regtest_rpc!(config);
         let rpc = regtest.rpc().clone();
         let prover = HeaderChainProver::new(&config, rpc.clone_inner().await.unwrap())
@@ -327,7 +327,7 @@ mod tests {
     #[tokio::test]
 
     async fn check_for_new_blocks_fallen_behind_multiple() {
-        let config = create_test_config_with_thread_name!(None);
+        let mut config = create_test_config_with_thread_name!(None);
         let regtest = create_regtest_rpc!(config);
         let rpc = regtest.rpc().clone();
         let prover = HeaderChainProver::new(&config, rpc.clone_inner().await.unwrap())
@@ -356,7 +356,7 @@ mod tests {
     #[tokio::test]
 
     async fn check_for_new_blocks_fork_and_mine_new() {
-        let config = create_test_config_with_thread_name!(None);
+        let mut config = create_test_config_with_thread_name!(None);
         let regtest = create_regtest_rpc!(config);
         let rpc = regtest.rpc().clone();
         let prover = HeaderChainProver::new(&config, rpc.clone_inner().await.unwrap())
@@ -386,7 +386,7 @@ mod tests {
     #[tokio::test]
 
     async fn sync_blockchain_single_block() {
-        let config = create_test_config_with_thread_name!(None);
+        let mut config = create_test_config_with_thread_name!(None);
         let regtest = create_regtest_rpc!(config);
         let rpc = regtest.rpc().clone();
         let prover = HeaderChainProver::new(&config, rpc.clone_inner().await.unwrap())
@@ -418,7 +418,7 @@ mod tests {
     #[tokio::test]
 
     async fn sync_blockchain_multiple_blocks() {
-        let config = create_test_config_with_thread_name!(None);
+        let mut config = create_test_config_with_thread_name!(None);
         let regtest = create_regtest_rpc!(config);
         let rpc = regtest.rpc().clone();
         let prover = HeaderChainProver::new(&config, rpc.clone_inner().await.unwrap())
@@ -450,7 +450,7 @@ mod tests {
     #[tokio::test]
 
     async fn sync_blockchain_multiple_blocks_with_fork() {
-        let config = create_test_config_with_thread_name!(None);
+        let mut config = create_test_config_with_thread_name!(None);
         let regtest = create_regtest_rpc!(config);
         let rpc = regtest.rpc().clone();
         let prover = HeaderChainProver::new(&config, rpc.clone_inner().await.unwrap())

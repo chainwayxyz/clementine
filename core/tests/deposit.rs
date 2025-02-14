@@ -16,7 +16,7 @@
 // #[tokio::test]
 //
 // async fn deposit_with_retry_checks() {
-// let config = create_test_config_with_thread_name!(None);
+// let mut config = create_test_config_with_thread_name!(None);
 // let rpc = ExtendedRpc::connect(
 //     config.bitcoin_rpc_url.clone(),
 //     config.bitcoin_rpc_user.clone(),

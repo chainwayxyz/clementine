@@ -35,6 +35,7 @@ macro_rules! create_regtest_rpc {
             let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
             listener.local_addr().unwrap().port()
         };
+        $config.bitcoin_rpc_url = format!("http://127.0.0.1:{}/wallet/admin", rpc_port);
 
         // Bitcoin node configuration
 

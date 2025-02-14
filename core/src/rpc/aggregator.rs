@@ -819,7 +819,7 @@ mod tests {
 
     #[tokio::test]
     async fn aggregator_double_setup_fail() {
-        let config = create_test_config_with_thread_name!(None);
+        let mut config = create_test_config_with_thread_name!(None);
 
         let (_, _, mut aggregator, _, _regtest) = create_actors!(config);
 
@@ -882,7 +882,7 @@ mod tests {
 
     #[tokio::test]
     async fn aggregator_setup_watchtower_challenge_addresses() {
-        let config = create_test_config_with_thread_name!(None);
+        let mut config = create_test_config_with_thread_name!(None);
         let (_verifiers, _operators, mut aggregator, _watchtowers, regtest) =
             create_actors!(config.clone());
         aggregator
@@ -990,7 +990,7 @@ mod tests {
     #[tokio::test]
     #[ignore = "This test is also done during the deposit phase of test_deposit_and_sign_txs test"]
     async fn aggregator_setup_and_deposit() {
-        let config = create_test_config_with_thread_name!(None);
+        let mut config = create_test_config_with_thread_name!(None);
 
         let (_, _, mut aggregator, _, _regtest) = create_actors!(config);
 
@@ -1029,7 +1029,8 @@ mod tests {
     #[tokio::test]
     #[serial_test::serial]
     async fn aggregator_deposit_movetx_lands_onchain() {
-        let config = create_test_config_with_thread_name!(None);
+        let mut config = create_test_config_with_thread_name!(None);
+        let mut aggregator = create_actors!(config).2;
         let rpc = ExtendedRpc::connect(
             config.bitcoin_rpc_url.clone(),
             config.bitcoin_rpc_user.clone(),
@@ -1037,7 +1038,6 @@ mod tests {
         )
         .await
         .unwrap();
-        let mut aggregator = create_actors!(config).2;
 
         aggregator
             .setup(tonic::Request::new(clementine::Empty {}))

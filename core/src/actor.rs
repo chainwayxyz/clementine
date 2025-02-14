@@ -843,7 +843,7 @@ mod tests {
 
     #[tokio::test]
     async fn derive_winternitz_pk_uniqueness() {
-        let config = create_test_config_with_thread_name!(None);
+        let mut config = create_test_config_with_thread_name!(None);
         let actor = Actor::new(
             config.secret_key,
             config.winternitz_secret_key,
@@ -862,7 +862,7 @@ mod tests {
 
     #[tokio::test]
     async fn derive_winternitz_pk_fixed_pk() {
-        let config = create_test_config_with_thread_name!(None);
+        let mut config = create_test_config_with_thread_name!(None);
         let actor = Actor::new(
             config.secret_key,
             Some(
@@ -884,7 +884,7 @@ mod tests {
 
     #[tokio::test]
     async fn sign_winternitz_signature() {
-        let config = create_test_config_with_thread_name!(None);
+        let mut config = create_test_config_with_thread_name!(None);
         let actor = Actor::new(
             config.secret_key,
             Some(

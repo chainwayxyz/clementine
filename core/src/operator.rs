@@ -919,7 +919,7 @@ mod tests {
 
     // #[tokio::test]
     // async fn set_funding_utxo() {
-    //     let config = create_test_config_with_thread_name!(None);
+    //     let mut config = create_test_config_with_thread_name!(None);
     //     let rpc = ExtendedRpc::connect(
     //         config.bitcoin_rpc_url.clone(),
     //         config.bitcoin_rpc_user.clone(),
@@ -989,7 +989,7 @@ mod tests {
     #[tokio::test]
     #[ignore = "Design changes in progress"]
     async fn get_winternitz_public_keys() {
-        let config = create_test_config_with_thread_name!(None);
+        let mut config = create_test_config_with_thread_name!(None);
         let regtest = create_regtest_rpc!(config);
         let rpc = regtest.rpc();
 
@@ -1004,7 +1004,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_generate_preimages_and_hashes() {
-        let config = create_test_config_with_thread_name!(None);
+        let mut config = create_test_config_with_thread_name!(None);
         let regtest = create_regtest_rpc!(config);
         let rpc = regtest.rpc();
 
@@ -1023,7 +1023,7 @@ mod tests {
 
     #[tokio::test]
     async fn operator_get_params() {
-        let config = create_test_config_with_thread_name!(None);
+        let mut config = create_test_config_with_thread_name!(None);
         let regtest = create_regtest_rpc!(config);
         let rpc = regtest.rpc();
 

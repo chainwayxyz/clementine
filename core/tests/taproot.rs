@@ -17,7 +17,7 @@ mod common;
 #[tokio::test]
 
 async fn create_address_and_transaction_then_sign_transaction() {
-    let config = create_test_config_with_thread_name!(None);
+    let mut config = create_test_config_with_thread_name!(None);
     let regtest = create_regtest_rpc!(config);
     let rpc = regtest.rpc().clone();
 
