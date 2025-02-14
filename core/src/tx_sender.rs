@@ -484,11 +484,9 @@ mod tests {
         create_regtest_rpc, create_test_config_with_thread_name, database::Database,
         initialize_database,
     };
-
     use bitcoin::secp256k1::SecretKey;
     use bitcoin::transaction::Version;
     use secp256k1::rand;
-    use super::*;
 
     async fn create_test_tx_sender(
         rpc: ExtendedRpc,
@@ -564,6 +562,7 @@ mod tests {
         let config = create_test_config_with_thread_name!(None);
         let regtest = create_regtest_rpc!(config);
         let rpc = regtest.rpc().clone();
+        rpc.mine_blocks(1).await.unwrap();
 
         let (tx_sender, rpc, db, signer, network) = create_test_tx_sender(rpc).await;
 
@@ -573,14 +572,11 @@ mod tests {
                 .unwrap();
 
         let _tx_sender_handle = tx_sender
-            .run("tx_sender", Duration::from_secs(1))
+            .run("tx_sender", Duration::from_secs(0))
             .await
             .unwrap();
 
-        // sleep 10 seconds to make sure the bitcoin_syncer has synced the tx
         tokio::time::sleep(Duration::from_secs(3)).await;
-
-        rpc.mine_blocks(1).await.unwrap();
 
         let tx = create_bumpable_tx(&rpc, signer, network).await.unwrap();
 
@@ -588,24 +584,10 @@ mod tests {
             .create_fee_payer_utxo(tx.compute_txid(), tx.weight())
             .await
             .unwrap();
-
-        // tokio::time::sleep(Duration::from_millis(100)).await;
-
-        // let fee_payer_tx = rpc
-        //     .client
-        //     .get_raw_transaction(&outpoint.txid, None)
-        //     .await
-        //     .unwrap();
-        rpc.mine_blocks(3).await.unwrap();
-
         tx_sender.save_tx(&tx).await.unwrap();
 
         // Mine a block and wait for confirmation
         rpc.mine_blocks(1).await.unwrap();
-
-        // Give enough time for the block to be processed and event to be handled
-        tokio::time::sleep(Duration::from_secs(3)).await;
-        rpc.mine_blocks(3).await.unwrap();
         tokio::time::sleep(Duration::from_secs(3)).await;
 
         // get the tx from the rpc
@@ -619,8 +601,5 @@ mod tests {
             "Get raw transaction result: {:?}",
             get_raw_transaction_result
         );
-
-        // Clean shutdown of background tasks
-        // drop(sender); // This will cause the receiver loop to exit
     }
 }
