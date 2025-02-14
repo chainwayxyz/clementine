@@ -3,7 +3,7 @@
 //! Address builder provides useful functions for building typical Bitcoin
 //! addresses.
 
-use super::script::{CheckSig, DepositScript, SpendableScript, TimelockScript};
+use super::script::{CheckSig, DepositScript, SpendableScript, TimelockScript, WinternitzCommit};
 use crate::constants::{WATCHTOWER_CHALLENGE_MESSAGE_LENGTH, WINTERNITZ_LOG_D};
 use crate::errors::BridgeError;
 use crate::utils::SECP;
@@ -167,15 +167,12 @@ pub fn derive_challenge_address_from_xonlypk_and_wpk(
     winternitz_pk: &winternitz::PublicKey,
     network: Network,
 ) -> Address {
-    let verifier =
-        winternitz::Winternitz::<winternitz::ListpickVerifier, winternitz::TabledConverter>::new();
-    let wots_params =
-        winternitz::Parameters::new(WATCHTOWER_CHALLENGE_MESSAGE_LENGTH, WINTERNITZ_LOG_D);
-    let mut script_builder = verifier.checksig_verify(&wots_params, winternitz_pk);
-    script_builder = script_builder.push_x_only_key(xonly_pk);
-    script_builder = script_builder.push_opcode(OP_CHECKSIG); // TODO: Add checksig in the beginning
-    let script_builder = script_builder.compile();
-    let (address, _) = create_taproot_address(&[script_builder.clone()], None, network);
+    let winternitz_commit = WinternitzCommit::new(
+        winternitz_pk.clone(),
+        *xonly_pk,
+        WATCHTOWER_CHALLENGE_MESSAGE_LENGTH,
+    );
+    let (address, _) = create_taproot_address(&[winternitz_commit.to_script_buf()], None, network);
     address
 }
 

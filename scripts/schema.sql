@@ -172,13 +172,12 @@ create table if not exists deposit_signatures (
 /* This table holds the BitVM setup data for each operator and sequential collateral tx pair. */
 create table if not exists bitvm_setups (
     operator_idx int not null,
-    sequential_collateral_tx_idx int not null,
-    kickoff_idx int not null,
+    deposit_id int not null,
     assert_tx_addrs bytea[] not null,
     root_hash bytea not null check (length(root_hash) = 32),
-    public_input_wots bytea[] not null,
+    --public_input_wots bytea[] not null,
     created_at timestamp not null default now(),
-    primary key (operator_idx, sequential_collateral_tx_idx, kickoff_idx)
+    primary key (operator_idx, deposit_id)
 );
 
 -- Verifier table for the operators public digests to acknowledge watchtower challenges.
@@ -186,11 +185,10 @@ create table if not exists bitvm_setups (
 challenges for each (operator_idx, sequential_collateral_tx_idx, kickoff_idx, watchtower_idx) tuple. */
 create table if not exists operators_challenge_ack_hashes (
     operator_idx int not null,
-    sequential_collateral_tx_idx int not null,
-    kickoff_idx int not null,
+    deposit_id int not null,
     public_hashes bytea[] not null,
     created_at timestamp not null default now(),
-    primary key (operator_idx, sequential_collateral_tx_idx, kickoff_idx)
+    primary key (operator_idx, deposit_id)
 );
 
 COMMIT;

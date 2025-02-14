@@ -11,9 +11,9 @@ use crate::utils::SECP;
 use crate::{builder, EVMAddress, UTXO};
 use bitcoin::address::NetworkUnchecked;
 use bitcoin::consensus::deserialize;
+use bitcoin::hashes::Hash;
 use bitcoin::secp256k1::{schnorr, Message};
 use bitcoin::{Address, Amount, OutPoint, ScriptBuf, Transaction, TxOut, Txid, XOnlyPublicKey};
-use bitcoin::hashes::Hash;
 use bitcoincore_rpc::RpcApi;
 use bitvm::signatures::winternitz;
 use jsonrpsee::core::client::ClientT;
@@ -139,12 +139,7 @@ impl Operator {
     ///   [`PublicHash`] and size of operator's challenge ack preimages & hashes
     ///   count
     ///
-    pub async fn get_params(
-        &self,
-    ) -> Result<
-        mpsc::Receiver<winternitz::PublicKey>,
-        BridgeError,
-    > {
+    pub async fn get_params(&self) -> Result<mpsc::Receiver<winternitz::PublicKey>, BridgeError> {
         let wpks = self.get_winternitz_public_keys_for_kickoff_utxo()?;
         let wpk_channel = mpsc::channel(wpks.len());
 
@@ -924,14 +919,14 @@ impl Operator {
 
 #[cfg(test)]
 mod tests {
-    use bitcoin::hashes::Hash;
-    use bitcoin::Txid;
     use crate::{
         config::BridgeConfig, database::Database, initialize_database, utils::initialize_logger,
     };
     use crate::{
         create_test_config_with_thread_name, extended_rpc::ExtendedRpc, operator::Operator,
     };
+    use bitcoin::hashes::Hash;
+    use bitcoin::Txid;
 
     // #[tokio::test]
     // async fn set_funding_utxo() {
@@ -1016,7 +1011,9 @@ mod tests {
 
         let operator = Operator::new(config.clone(), rpc).await.unwrap();
 
-        let winternitz_public_key = operator.get_winternitz_public_keys(Txid::all_zeros()).unwrap();
+        let winternitz_public_key = operator
+            .get_winternitz_public_keys(Txid::all_zeros())
+            .unwrap();
         assert_eq!(
             winternitz_public_key.len(),
             config.num_sequential_collateral_txs * config.num_kickoffs_per_sequential_collateral_tx
@@ -1039,10 +1036,7 @@ mod tests {
         let preimages = operator
             .generate_challenge_ack_preimages_and_hashes(Txid::all_zeros())
             .unwrap();
-        assert_eq!(
-            preimages.len(),
-            config.num_watchtowers
-        );
+        assert_eq!(preimages.len(), config.num_watchtowers);
     }
 
     #[tokio::test]
@@ -1057,7 +1051,9 @@ mod tests {
         .unwrap();
 
         let operator = Operator::new(config.clone(), rpc).await.unwrap();
-        let actual_wpks = operator.get_winternitz_public_keys(Txid::all_zeros()).unwrap();
+        let actual_wpks = operator
+            .get_winternitz_public_keys(Txid::all_zeros())
+            .unwrap();
         let actual_hashes = operator
             .generate_challenge_ack_preimages_and_hashes(Txid::all_zeros())
             .unwrap();
@@ -1067,6 +1063,5 @@ mod tests {
         for (i, wpk) in wpk_rx.recv().await.into_iter().enumerate() {
             assert_eq!(actual_wpks[i], wpk);
         }
-
     }
 }

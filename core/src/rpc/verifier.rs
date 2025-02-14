@@ -58,22 +58,12 @@ impl ClementineVerifier for Verifier {
         let (operator_index, collateral_funding_txid, operator_xonly_pk, wallet_reimburse_address) =
             parser::operator::parse_details(&mut in_stream).await?;
 
-        let mut operator_winternitz_public_keys = Vec::new();
+        let mut operator_kickoff_winternitz_public_keys = Vec::new();
         for _ in 0..self.config.num_kickoffs_per_sequential_collateral_tx
             * self.config.num_sequential_collateral_txs
-            * BITVM_CACHE.intermediate_variables.len()
         {
-            operator_winternitz_public_keys
+            operator_kickoff_winternitz_public_keys
                 .push(parser::operator::parse_winternitz_public_keys(&mut in_stream).await?);
-        }
-
-        let mut operators_challenge_ack_public_hashes = Vec::new();
-        for _ in 0..self.config.num_sequential_collateral_txs
-            * self.config.num_kickoffs_per_sequential_collateral_tx
-            * self.config.num_watchtowers
-        {
-            operators_challenge_ack_public_hashes
-                .push(parser::operator::parse_challenge_ack_public_hash(&mut in_stream).await?);
         }
 
         self.set_operator(
@@ -81,8 +71,7 @@ impl ClementineVerifier for Verifier {
             collateral_funding_txid,
             operator_xonly_pk,
             wallet_reimburse_address,
-            operator_winternitz_public_keys,
-            operators_challenge_ack_public_hashes,
+            operator_kickoff_winternitz_public_keys,
         )
         .await?;
 
@@ -165,7 +154,10 @@ impl ClementineVerifier for Verifier {
             {
                 clementine::verifier_deposit_sign_params::Params::DepositSignFirstParam(
                     deposit_sign_session,
-                ) => parser::verifier::parse_deposit_params(deposit_sign_session, verifier.idx)?,
+                ) => parser::verifier::parse_deposit_sign_session(
+                    deposit_sign_session,
+                    verifier.idx,
+                )?,
                 _ => return Err(Status::invalid_argument("Expected DepositOutpoint")),
             };
             param_tx
@@ -263,7 +255,7 @@ impl ClementineVerifier for Verifier {
         let params = fetch_next_message_from_stream!(in_stream, params)?;
         let (deposit_outpoint, evm_address, recovery_taproot_address, session_id) = match params {
             Params::DepositSignFirstParam(deposit_sign_session) => {
-                parser::verifier::parse_deposit_params(deposit_sign_session, self.idx)?
+                parser::verifier::parse_deposit_sign_session(deposit_sign_session, self.idx)?
             }
             _ => Err(Status::internal("Expected DepositOutpoint"))?,
         };
@@ -376,5 +368,16 @@ impl ClementineVerifier for Verifier {
         .await?;
 
         Ok(Response::new(raw_tx))
+    }
+
+    #[tracing::instrument(skip(self), err(level = tracing::Level::ERROR), ret(level = tracing::Level::TRACE))]
+    async fn set_operator_keys(
+        &self,
+        request: tonic::Request<super::VerifierOpDepositKeys>,
+    ) -> std::result::Result<tonic::Response<super::Empty>, tonic::Status> {
+        let data = request.into_inner();
+        let (deposit_params, op_keys) = parser::verifier::parse_verifier_op_deposit_keys(data)?;
+        self.set_operator_keys(deposit_params, op_keys).await?;
+        Ok(Response::new(Empty {}))
     }
 }

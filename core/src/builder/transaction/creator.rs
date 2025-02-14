@@ -254,14 +254,12 @@ pub async fn create_txhandlers(
             .get_operators_challenge_ack_hashes(
                 None,
                 kickoff_id.operator_idx as i32,
-                kickoff_id.sequential_collateral_idx as i32,
-                kickoff_id.kickoff_idx as i32,
+                deposit.deposit_outpoint,
             )
             .await?
             .ok_or(BridgeError::WatchtowerPublicHashesNotFound(
                 kickoff_id.operator_idx as i32,
-                kickoff_id.sequential_collateral_idx as i32,
-                kickoff_id.kickoff_idx as i32,
+                deposit.deposit_outpoint.txid,
             ))?;
         // Each watchtower will sign their Groth16 proof of the header chain circuit. Then, the operator will either
         // - acknowledge the challenge by sending the operator_challenge_ACK_tx, which will prevent the burning of the kickoff_tx.output[2],
@@ -409,14 +407,12 @@ pub async fn create_txhandlers(
             .get_bitvm_root_hash(
                 None,
                 kickoff_id.operator_idx as i32,
-                kickoff_id.sequential_collateral_idx as i32,
-                kickoff_id.kickoff_idx as i32,
+                deposit.deposit_outpoint,
             )
             .await?
             .ok_or(BridgeError::BitvmSetupNotFound(
                 kickoff_id.operator_idx as i32,
-                kickoff_id.sequential_collateral_idx as i32,
-                kickoff_id.kickoff_idx as i32,
+                deposit.deposit_outpoint.txid,
             ))?;
 
         // Creates the assert_end_tx handler.
@@ -435,18 +431,16 @@ pub async fn create_txhandlers(
         }
     } else {
         // Get the bitvm setup for this operator, sequential collateral tx, and kickoff idx.
-        let (assert_tx_addrs, root_hash, _public_input_wots) = db
+        let (assert_tx_addrs, root_hash) = db
             .get_bitvm_setup(
                 None,
                 kickoff_id.operator_idx as i32,
-                kickoff_id.sequential_collateral_idx as i32,
-                kickoff_id.kickoff_idx as i32,
+                deposit.deposit_outpoint,
             )
             .await?
             .ok_or(BridgeError::BitvmSetupNotFound(
                 kickoff_id.operator_idx as i32,
-                kickoff_id.sequential_collateral_idx as i32,
-                kickoff_id.kickoff_idx as i32,
+                deposit.deposit_outpoint.txid,
             ))?;
 
         // Creates the assert_begin_tx handler.

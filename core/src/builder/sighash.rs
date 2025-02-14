@@ -329,7 +329,9 @@ mod tests {
             db.set_operator_winternitz_public_keys(
                 None,
                 i.try_into().unwrap(),
-                operator.get_winternitz_public_keys(Txid::all_zeros()).unwrap(),
+                operator
+                    .get_winternitz_public_keys(Txid::all_zeros())
+                    .unwrap(),
             )
             .await
             .unwrap();
@@ -356,11 +358,9 @@ mod tests {
                     db.set_bitvm_setup(
                         None,
                         o.try_into().unwrap(),
-                        t.try_into().unwrap(),
-                        k.try_into().unwrap(),
+                        deposit_outpoint,
                         vec![ScriptBuf::default(); assert_len],
                         &[0x45; 32],
-                        vec![],
                     )
                     .await
                     .unwrap();
@@ -373,9 +373,8 @@ mod tests {
                     db.set_operator_challenge_ack_hashes(
                         None,
                         o.try_into().unwrap(),
-                        t.try_into().unwrap(),
-                        k.try_into().unwrap(),
-                        vec![[0x45; 20]; config.num_watchtowers],
+                        deposit_outpoint,
+                        &vec![[0x45; 20]; config.num_watchtowers],
                     )
                     .await
                     .unwrap();

@@ -10,7 +10,11 @@ use crate::utils::{self, SECP};
 use bitcoin::hashes::hash160;
 use bitcoin::secp256k1::PublicKey;
 use bitcoin::taproot::{LeafVersion, TaprootSpendInfo};
-use bitcoin::{hashes::Hash, secp256k1::{schnorr, Keypair, Message, SecretKey, XOnlyPublicKey}, Address, ScriptBuf, TapSighash, TapTweakHash, Txid};
+use bitcoin::{
+    hashes::Hash,
+    secp256k1::{schnorr, Keypair, Message, SecretKey, XOnlyPublicKey},
+    Address, ScriptBuf, TapSighash, TapTweakHash, Txid,
+};
 use bitcoin::{TapNodeHash, Witness};
 use bitvm::signatures::winternitz::{
     self, BinarysearchVerifier, StraightforwardConverter, Winternitz,
@@ -740,14 +744,7 @@ mod tests {
         let mut params = WinternitzDerivationPath::default();
         assert_eq!(
             params.to_vec(),
-            [
-                vec![0],
-                vec![0; 4],
-                vec![0; 4],
-                vec![0; 4],
-                vec![0; 4],
-            ]
-            .concat()
+            [vec![0], vec![0; 4], vec![0; 4], vec![0; 4], vec![0; 4],].concat()
         );
 
         params.operator_idx = Some(1);

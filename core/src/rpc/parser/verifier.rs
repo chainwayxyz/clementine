@@ -1,9 +1,11 @@
 use super::convert_int_to_another;
+use crate::builder::transaction::DepositId;
 use crate::errors::BridgeError;
 use crate::fetch_next_optional_message_from_stream;
 use crate::rpc::clementine::{
-    nonce_gen_response, verifier_deposit_sign_params, DepositSignSession, NonceGenFirstResponse,
-    PartialSig, VerifierDepositSignParams, VerifierParams,
+    nonce_gen_response, verifier_deposit_sign_params, DepositParams, DepositSignSession,
+    NonceGenFirstResponse, OperatorDepositKeys, PartialSig, VerifierDepositSignParams,
+    VerifierOpDepositKeys, VerifierParams,
 };
 use crate::verifier::Verifier;
 use crate::{
@@ -143,6 +145,31 @@ impl From<MusigPartialSignature> for PartialSig {
 }
 
 pub fn parse_deposit_params(
+    deposit_params: clementine::DepositParams,
+) -> Result<DepositId, Status> {
+    let deposit_outpoint: bitcoin::OutPoint = deposit_params
+        .deposit_outpoint
+        .ok_or(Status::invalid_argument("No deposit outpoint received"))?
+        .try_into()?;
+    let evm_address: EVMAddress = deposit_params.evm_address.try_into().map_err(|e| {
+        Status::invalid_argument(format!(
+            "Failed to convert evm_address to EVMAddress: {}",
+            e
+        ))
+    })?;
+    let recovery_taproot_address = deposit_params
+        .recovery_taproot_address
+        .parse::<bitcoin::Address<_>>()
+        .map_err(|e| Status::internal(e.to_string()))?;
+
+    Ok(DepositId {
+        deposit_outpoint,
+        evm_address,
+        recovery_taproot_address,
+    })
+}
+
+pub fn parse_deposit_sign_session(
     deposit_sign_session: clementine::DepositSignSession,
     verifier_idx: usize,
 ) -> Result<
@@ -197,6 +224,19 @@ pub fn parse_partial_sigs(
             })
         })
         .collect::<Result<Vec<_>, _>>()
+}
+
+pub fn parse_verifier_op_deposit_keys(
+    data: VerifierOpDepositKeys,
+) -> Result<(DepositId, OperatorDepositKeys), Status> {
+    let deposit_params = data
+        .deposit_params
+        .ok_or(Status::invalid_argument("deposit_params is empty"))?;
+    let deposit_id = parse_deposit_params(deposit_params)?;
+
+    let op_keys = data.operator_deposit_keys.ok_or(Status::invalid_argument("OperatorDepositKeys is empty"))?;
+
+    Ok((deposit_id, op_keys))
 }
 
 pub async fn parse_next_deposit_finalize_param_schnorr_sig(

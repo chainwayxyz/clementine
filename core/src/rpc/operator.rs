@@ -1,12 +1,13 @@
 use super::clementine::{
-    clementine_operator_server::ClementineOperator, AssertRequest, DepositSignSession, Empty,
-    NewWithdrawalSigParams, NewWithdrawalSigResponse, OperatorBurnSig, OperatorParams, RawSignedTx,
-    RawSignedTxs, TransactionRequest, WithdrawalFinalizedParams,
+    clementine_operator_server::ClementineOperator, AssertRequest, ChallengeAckDigest,
+    DepositParams, DepositSignSession, Empty, NewWithdrawalSigParams, NewWithdrawalSigResponse,
+    OperatorBurnSig, OperatorDepositKeys, OperatorParams, RawSignedTx, RawSignedTxs,
+    TransactionRequest, WinternitzPubkey, WithdrawalFinalizedParams,
 };
 use super::error::*;
 use crate::builder::transaction::sign::{create_and_sign_tx, create_assert_commitment_txs};
 use crate::rpc::parser;
-use crate::rpc::parser::{parse_assert_request, parse_transaction_request};
+use crate::rpc::parser::{parse_assert_request, parse_deposit_params, parse_transaction_request};
 use crate::{errors::BridgeError, operator::Operator};
 use bitcoin::hashes::Hash;
 use bitcoin::OutPoint;
@@ -163,5 +164,29 @@ impl ClementineOperator for Operator {
         .await?;
 
         Ok(Response::new(raw_txs))
+    }
+
+    #[tracing::instrument(skip(self), err(level = tracing::Level::ERROR), ret(level = tracing::Level::TRACE))]
+    async fn get_deposit_keys(
+        &self,
+        request: Request<DepositParams>,
+    ) -> Result<Response<OperatorDepositKeys>, Status> {
+        let deposit_req = request.into_inner();
+        let (deposit_outpoint, _, _) = parse_deposit_params(deposit_req)?;
+
+        let winternitz_keys = self.get_winternitz_public_keys(deposit_outpoint.txid)?;
+        let hashes = self.generate_challenge_ack_preimages_and_hashes(deposit_outpoint.txid)?;
+
+        Ok(Response::new(OperatorDepositKeys {
+            winternitz_pubkeys: winternitz_keys
+                .into_iter()
+                .map(|pubkey| pubkey.into())
+                .collect(),
+            challenge_ack_digests: hashes
+                .into_iter()
+                .map(|hash| ChallengeAckDigest { hash: hash.into() })
+                .collect(),
+            operator_idx: self.idx as i32,
+        }))
     }
 }

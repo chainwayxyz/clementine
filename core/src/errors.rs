@@ -251,11 +251,11 @@ pub enum BridgeError {
     )]
     InvalidStepCommitData(usize, usize, usize),
 
-    #[error("BitvmSetupNotFound for operator {0}, sequential_collateral_tx {1}, kickoff {2}")]
-    BitvmSetupNotFound(i32, i32, i32),
+    #[error("BitvmSetupNotFound for operator {0}, deposit_txid {1}")]
+    BitvmSetupNotFound(i32, Txid),
 
-    #[error("WatchtowerPublicHashesNotFound for operator {0}, sequential_collateral_tx {1}, kickoff {2}")]
-    WatchtowerPublicHashesNotFound(i32, i32, i32),
+    #[error("WatchtowerPublicHashesNotFound for operator {0}, deposit_txid {1}")]
+    WatchtowerPublicHashesNotFound(i32, Txid),
 
     #[error("Challenge addresses of the watchtower {0} for the operator {1} not found")]
     WatchtowerChallengeAddressesNotFound(u32, u32),

@@ -169,11 +169,17 @@ message OperatorParams {
   }
 }
 
+message VerifierOpDepositKeys {
+  OperatorDepositKeys operator_deposit_keys = 1;
+  DepositParams deposit_params = 2;
+}
+
 message OperatorDepositKeys {
   // Winternitz pubkeys for each bitvm assert tx.
   repeated WinternitzPubkey winternitz_pubkeys = 1;
   // Hashes of preimages that will be used to ACK watchtower challenges.
   repeated ChallengeACKDigest challenge_ack_digests = 2;
+  int32 operator_idx = 3;
 }
 
 message OperatorBurnSig {
@@ -206,6 +212,9 @@ message WithdrawalFinalizedParams {
 // connected to the same database and both have access to watchtowers'
 // winternitz pubkeys.
 service ClementineOperator {
+  // Returns an operator's deposit keys.
+  // Deposit keys inclued Assert BitVM winternitz keys, and challenge ACK hashes.
+  rpc GetDepositKeys(DepositParams) returns (OperatorDepositKeys) {}
   // Creates a transaction denoted by the deposit and operator_idx, sequential_collateral_idx, and kickoff_idx.
   // It will create the transaction and sign it with the operator's private key and/or saved nofn signatures.
   //
@@ -321,6 +330,8 @@ message VerifierPublicKeys {
 }
 
 service ClementineVerifier {
+  // Sets the operator's winternitz keys and challenge ACK hashes and saves them into the db.
+  rpc SetOperatorKeys(VerifierOpDepositKeys)  returns (Empty) {}
   // Creates a transaction denoted by the deposit and operator_idx, sequential_collateral_idx, and kickoff_idx.
   // It will create the transaction and sign it with saved nofn signatures.
   //

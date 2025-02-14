@@ -2,6 +2,7 @@ use crate::actor::Actor;
 use crate::builder::address::{
     derive_challenge_address_from_xonlypk_and_wpk, taproot_builder_with_scripts,
 };
+use crate::builder::script::{SpendableScript, WinternitzCommit};
 use crate::builder::sighash::{
     calculate_num_required_nofn_sigs, calculate_num_required_nofn_sigs_per_kickoff,
     calculate_num_required_operator_sigs, calculate_num_required_operator_sigs_per_kickoff,
@@ -14,7 +15,7 @@ use crate::database::Database;
 use crate::errors::BridgeError;
 use crate::extended_rpc::ExtendedRpc;
 use crate::musig2::{self, AggregateFromPublicKeys};
-use crate::rpc::clementine::TaggedSignature;
+use crate::rpc::clementine::{OperatorDepositKeys, TaggedSignature};
 use crate::utils::{self, BITVM_CACHE, SECP};
 use crate::{EVMAddress, UTXO};
 use bitcoin::address::NetworkUnchecked;
@@ -23,9 +24,6 @@ use bitcoin::secp256k1::schnorr::Signature;
 use bitcoin::secp256k1::Message;
 use bitcoin::{secp256k1::PublicKey, OutPoint};
 use bitcoin::{Address, ScriptBuf, TapTweakHash, Txid, XOnlyPublicKey};
-use bitvm::signatures::signing_winternitz::{
-    generate_winternitz_checksig_leave_variable, WinternitzPublicKey,
-};
 use bitvm::signatures::winternitz;
 use secp256k1::musig::{MusigAggNonce, MusigPartialSignature, MusigPubNonce, MusigSecNonce};
 use std::collections::HashMap;
@@ -167,7 +165,6 @@ impl Verifier {
         operator_xonly_pk: XOnlyPublicKey,
         wallet_reimburse_address: Address,
         operator_winternitz_public_keys: Vec<winternitz::PublicKey>,
-        operators_challenge_ack_public_hashes: Vec<[u8; 20]>,
     ) -> Result<(), BridgeError> {
         // Save the operator details to the db
         self.db
@@ -184,108 +181,108 @@ impl Verifier {
             .set_operator_winternitz_public_keys(
                 None,
                 operator_index,
-                operator_winternitz_public_keys.clone(),
+                operator_winternitz_public_keys,
             )
             .await?;
 
-        for i in 0..self.config.num_sequential_collateral_txs {
-            for j in 0..self.config.num_kickoffs_per_sequential_collateral_tx {
-                self.db
-                    .set_operator_challenge_ack_hashes(
-                        None,
-                        operator_index as i32,
-                        i as i32,
-                        j as i32,
-                        &operators_challenge_ack_public_hashes[self.config.num_watchtowers
-                            * (i * self.config.num_kickoffs_per_sequential_collateral_tx + j)
-                            ..self.config.num_watchtowers
-                                * (i * self.config.num_kickoffs_per_sequential_collateral_tx
-                                    + j
-                                    + 1)],
-                    )
-                    .await?;
-            }
-        }
+        // for i in 0..self.config.num_sequential_collateral_txs {
+        //     for j in 0..self.config.num_kickoffs_per_sequential_collateral_tx {
+        //         self.db
+        //             .set_operator_challenge_ack_hashes(
+        //                 None,
+        //                 operator_index as i32,
+        //                 i as i32,
+        //                 j as i32,
+        //                 &operators_challenge_ack_public_hashes[self.config.num_watchtowers
+        //                     * (i * self.config.num_kickoffs_per_sequential_collateral_tx + j)
+        //                     ..self.config.num_watchtowers
+        //                         * (i * self.config.num_kickoffs_per_sequential_collateral_tx
+        //                             + j
+        //                             + 1)],
+        //             )
+        //             .await?;
+        //     }
+        // }
 
-        // Split the winternitz public keys into chunks for every sequential collateral tx and kickoff index.
-        // This is done because we need to generate a separate BitVM setup for each collateral tx and kickoff index.
-        let chunk_size = BITVM_CACHE.intermediate_variables.len();
-        let winternitz_public_keys_chunks =
-            operator_winternitz_public_keys.chunks_exact(chunk_size);
-
-        // iterate over the chunks and generate precalculated BitVM Setups
-        for (chunk_idx, winternitz_public_keys) in winternitz_public_keys_chunks.enumerate() {
-            let sequential_collateral_tx_idx =
-                chunk_idx / self.config.num_kickoffs_per_sequential_collateral_tx;
-            let kickoff_idx = chunk_idx % self.config.num_kickoffs_per_sequential_collateral_tx;
-
-            let assert_tx_addrs = BITVM_CACHE
-                .intermediate_variables
-                .iter()
-                .enumerate()
-                .map(|(idx, (_intermediate_step, intermediate_step_size))| {
-                    let script = generate_winternitz_checksig_leave_variable(
-                        &WinternitzPublicKey {
-                            public_key: winternitz_public_keys[idx].clone(),
-                            parameters: winternitz::Parameters::new(
-                                *intermediate_step_size as u32 * 2,
-                                4,
-                            ),
-                        },
-                        *intermediate_step_size,
-                    )
-                    .compile();
-                    let (assert_tx_addr, _) = builder::address::create_taproot_address(
-                        &[script.clone()],
-                        None,
-                        self.config.network,
-                    );
-                    assert_tx_addr.script_pubkey()
-                })
-                .collect::<Vec<_>>();
-
-            // TODO: Use correct verification key and along with a dummy proof.
-            let scripts: Vec<ScriptBuf> = {
-                tracing::info!("Replacing disprove scripts");
-                utils::replace_disprove_scripts(winternitz_public_keys)
-                // let mut bridge_assigner = BridgeAssigner::new_watcher(commits_publickeys);
-                // let proof = RawProof::default();
-                // let segments = groth16_verify_to_segments(
-                //     &mut bridge_assigner,
-                //     &proof.public,
-                //     &proof.proof,
-                //     &proof.vk,
-                // );
-
-                // segments
-                //     .iter()
-                //     .map(|s| s.script.clone().compile())
-                //     .collect()
-                // vec![bitcoin::script::Builder::new()
-                //     .push_opcode(bitcoin::opcodes::all::OP_PUSHNUM_1)
-                //     .into_script()]
-            };
-
-            let taproot_builder = taproot_builder_with_scripts(&scripts);
-            let root_hash = taproot_builder
-                .try_into_taptree()
-                .expect("taproot builder always builds a full taptree")
-                .root_hash();
-            let root_hash_bytes = root_hash.to_raw_hash().to_byte_array();
-
-            // Save the public input wots to db along with the root hash
-            self.db
-                .set_bitvm_setup(
-                    None,
-                    operator_index as i32,
-                    sequential_collateral_tx_idx as i32,
-                    kickoff_idx as i32,
-                    assert_tx_addrs,
-                    &root_hash_bytes,
-                    vec![],
-                )
-                .await?;
-        }
+        // // Split the winternitz public keys into chunks for every sequential collateral tx and kickoff index.
+        // // This is done because we need to generate a separate BitVM setup for each collateral tx and kickoff index.
+        // let chunk_size = BITVM_CACHE.intermediate_variables.len();
+        // let winternitz_public_keys_chunks =
+        //     operator_winternitz_public_keys.chunks_exact(chunk_size);
+        //
+        // // iterate over the chunks and generate precalculated BitVM Setups
+        // for (chunk_idx, winternitz_public_keys) in winternitz_public_keys_chunks.enumerate() {
+        //     let sequential_collateral_tx_idx =
+        //         chunk_idx / self.config.num_kickoffs_per_sequential_collateral_tx;
+        //     let kickoff_idx = chunk_idx % self.config.num_kickoffs_per_sequential_collateral_tx;
+        //
+        //     let assert_tx_addrs = BITVM_CACHE
+        //         .intermediate_variables
+        //         .iter()
+        //         .enumerate()
+        //         .map(|(idx, (_intermediate_step, intermediate_step_size))| {
+        //             let script = generate_winternitz_checksig_leave_variable(
+        //                 &WinternitzPublicKey {
+        //                     public_key: winternitz_public_keys[idx].clone(),
+        //                     parameters: winternitz::Parameters::new(
+        //                         *intermediate_step_size as u32 * 2,
+        //                         4,
+        //                     ),
+        //                 },
+        //                 *intermediate_step_size,
+        //             )
+        //             .compile();
+        //             let (assert_tx_addr, _) = builder::address::create_taproot_address(
+        //                 &[script.clone()],
+        //                 None,
+        //                 self.config.network,
+        //             );
+        //             assert_tx_addr.script_pubkey()
+        //         })
+        //         .collect::<Vec<_>>();
+        //
+        //     // TODO: Use correct verification key and along with a dummy proof.
+        //     let scripts: Vec<ScriptBuf> = {
+        //         tracing::info!("Replacing disprove scripts");
+        //         utils::replace_disprove_scripts(winternitz_public_keys)
+        //         // let mut bridge_assigner = BridgeAssigner::new_watcher(commits_publickeys);
+        //         // let proof = RawProof::default();
+        //         // let segments = groth16_verify_to_segments(
+        //         //     &mut bridge_assigner,
+        //         //     &proof.public,
+        //         //     &proof.proof,
+        //         //     &proof.vk,
+        //         // );
+        //
+        //         // segments
+        //         //     .iter()
+        //         //     .map(|s| s.script.clone().compile())
+        //         //     .collect()
+        //         // vec![bitcoin::script::Builder::new()
+        //         //     .push_opcode(bitcoin::opcodes::all::OP_PUSHNUM_1)
+        //         //     .into_script()]
+        //     };
+        //
+        //     let taproot_builder = taproot_builder_with_scripts(&scripts);
+        //     let root_hash = taproot_builder
+        //         .try_into_taptree()
+        //         .expect("taproot builder always builds a full taptree")
+        //         .root_hash();
+        //     let root_hash_bytes = root_hash.to_raw_hash().to_byte_array();
+        //
+        //     // Save the public input wots to db along with the root hash
+        //     self.db
+        //         .set_bitvm_setup(
+        //             None,
+        //             operator_index as i32,
+        //             sequential_collateral_tx_idx as i32,
+        //             kickoff_idx as i32,
+        //             assert_tx_addrs,
+        //             &root_hash_bytes,
+        //             vec![],
+        //         )
+        //         .await?;
+        // }
 
         Ok(())
     }
@@ -975,6 +972,102 @@ impl Verifier {
             vout: 0,
         };
         Ok((kickoff_utxos, move_tx_handler, bridge_fund_outpoint))
+    }
+
+    pub async fn set_operator_keys(
+        &self,
+        deposit_id: DepositId,
+        keys: OperatorDepositKeys,
+    ) -> Result<(), BridgeError> {
+        let hashes: Vec<[u8; 20]> = keys
+            .challenge_ack_digests
+            .into_iter()
+            .map(|x| x.hash.try_into().map_err(|_| BridgeError::Error("Invalid hash length".to_string())))
+            .collect::<Result<Vec<[u8; 20]>, BridgeError>>()?;
+        if hashes.len() != self.config.num_watchtowers {
+            return Err(BridgeError::Error(
+                "Invalid number of challenge ack hashes".to_string(),
+            ));
+        }
+        let operator_idx = keys.operator_idx;
+        let operator_data = self.db.get_operator(None, operator_idx).await?;
+
+        self.db
+            .set_operator_challenge_ack_hashes(
+                None,
+                operator_idx,
+                deposit_id.deposit_outpoint,
+                &hashes,
+            )
+            .await?;
+
+        let winternitz_keys: Vec<Vec<[u8; 20]>> = keys
+            .winternitz_pubkeys
+            .into_iter()
+            .map(|x| {
+                x.digit_pubkey
+                    .into_iter()
+                    .map(|y| {
+                        y.try_into().map_err(|v: Vec<u8>| {
+                            BridgeError::Error(format!(
+                                "Expected 20 bytes winternitz pubkey, got {}",
+                                v.len()
+                            ))
+                        })
+                    })
+                    .collect::<Result<Vec<[u8; 20]>, BridgeError>>()
+            })
+            .collect::<Result<Vec<Vec<[u8; 20]>>, BridgeError>>()?;
+        // let winternitz_keys: Vec<Vec<Vec<u8>>> = keys
+        //     .winternitz_pubkeys
+        //     .into_iter()
+        //     .map(|x| x.digit_pubkey)
+        //     .collect();
+
+        let assert_tx_addrs = BITVM_CACHE
+            .intermediate_variables
+            .iter()
+            .enumerate()
+            .map(|(idx, (_intermediate_step, intermediate_step_size))| {
+                let script = WinternitzCommit::new(
+                    winternitz_keys[idx].clone(),
+                    operator_data.xonly_pk,
+                    *intermediate_step_size as u32 * 2,
+                );
+                let (assert_tx_addr, _) = builder::address::create_taproot_address(
+                    &[script.to_script_buf()],
+                    None,
+                    self.config.network,
+                );
+                assert_tx_addr.script_pubkey()
+            })
+            .collect::<Vec<_>>();
+
+        // TODO: Use correct verification key and along with a dummy proof.
+        let scripts: Vec<ScriptBuf> = {
+            tracing::info!("Replacing disprove scripts");
+            utils::replace_disprove_scripts(&winternitz_keys)
+        };
+
+        let taproot_builder = taproot_builder_with_scripts(&scripts);
+        let root_hash = taproot_builder
+            .try_into_taptree()
+            .expect("taproot builder always builds a full taptree")
+            .root_hash();
+        let root_hash_bytes = root_hash.to_raw_hash().to_byte_array();
+
+        // Save the public input wots to db along with the root hash
+        self.db
+            .set_bitvm_setup(
+                None,
+                operator_idx,
+                deposit_id.deposit_outpoint,
+                assert_tx_addrs,
+                &root_hash_bytes,
+            )
+            .await?;
+
+        Ok(())
     }
 
     // / verify burn txs are signed by verifiers
