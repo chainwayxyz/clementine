@@ -4,7 +4,6 @@ use super::clementine::{
     clementine_aggregator_server::ClementineAggregator, verifier_deposit_finalize_params,
     DepositParams, Empty, RawSignedTx, VerifierDepositFinalizeParams, VerifierOpDepositKeys,
 };
-use crate::builder::script::SpendPath;
 use crate::builder::sighash::SignatureInfo;
 use crate::builder::transaction::{create_move_to_vault_txhandler, DepositId};
 use crate::config::BridgeConfig;
@@ -23,7 +22,6 @@ use crate::{
     musig2::aggregate_nonces,
     rpc::clementine::{self, DepositSignSession},
 };
-use bitcoin::consensus::Encodable;
 use bitcoin::hashes::Hash;
 use bitcoin::secp256k1::schnorr::Signature;
 use bitcoin::secp256k1::{Message, PublicKey};
@@ -881,7 +879,6 @@ mod tests {
             .get_watchtower_winternitz_public_keys()
             .await
             .unwrap();
-        let rpc = regtest.rpc().clone();
         config.db_name += "0"; // This modification is done by the create_actors_grpc function.
         let verifier = Verifier::new(config.clone()).await.unwrap();
         let verifier_wpks = verifier
@@ -931,7 +928,6 @@ mod tests {
             .get_watchtower_challenge_addresses()
             .await
             .unwrap();
-        let rpc = regtest.rpc().clone();
         let verifier0 = {
             let mut config = config.clone();
             config.db_name += "0"; // This modification is done by the create_actors_grpc function.

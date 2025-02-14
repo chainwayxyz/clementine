@@ -72,7 +72,7 @@ impl NofN {
 
 #[derive(Debug, Clone)]
 pub struct Verifier {
-    rpc: ExtendedRpc,
+    _rpc: ExtendedRpc,
     pub(crate) signer: Actor,
     pub(crate) db: Database,
     pub(crate) config: BridgeConfig,
@@ -131,7 +131,7 @@ impl Verifier {
         };
 
         Ok(Verifier {
-            rpc,
+            _rpc: rpc,
             signer,
             db,
             config,

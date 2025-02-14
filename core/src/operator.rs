@@ -1011,7 +1011,6 @@ mod tests {
     async fn get_winternitz_public_keys() {
         let config = create_test_config_with_thread_name!(None);
         let regtest = create_regtest_rpc!(config);
-        let rpc = regtest.rpc();
 
         let operator = Operator::new(config.clone()).await.unwrap();
 
@@ -1028,7 +1027,6 @@ mod tests {
     async fn test_generate_preimages_and_hashes() {
         let config = create_test_config_with_thread_name!(None);
         let regtest = create_regtest_rpc!(config);
-        let rpc = regtest.rpc();
 
         let operator = Operator::new(config.clone()).await.unwrap();
 

@@ -8,7 +8,7 @@ use crate::rpc::clementine::clementine_verifier_server::ClementineVerifierServer
 use crate::rpc::clementine::clementine_watchtower_server::ClementineWatchtowerServer;
 use crate::watchtower::Watchtower;
 use crate::{
-    config::BridgeConfig, errors, extended_rpc::ExtendedRpc, operator, verifier::Verifier,
+    config::BridgeConfig, errors, operator, verifier::Verifier,
 };
 use errors::BridgeError;
 use operator::Operator;

@@ -25,7 +25,6 @@ use crate::constants::KICKOFF_AMOUNT;
 use crate::errors::BridgeError;
 use bitcoin::{Amount, OutPoint, TxOut, XOnlyPublicKey};
 use bitcoin::{Sequence, Txid};
-use std::f32::MIN;
 use std::sync::Arc;
 
 /// Creates a [`TxHandler`] for `sequential_collateral_tx`. It will always use the first

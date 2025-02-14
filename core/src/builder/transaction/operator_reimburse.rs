@@ -4,7 +4,7 @@ use super::txhandler::DEFAULT_SEQUENCE;
 use super::Signed;
 use super::TransactionType;
 use crate::builder::script::SpendPath;
-use crate::builder::script::{CheckSig, SpendableScript, TimelockScript, WithdrawalScript};
+use crate::builder::script::{CheckSig, TimelockScript};
 use crate::builder::transaction::output::UnspentTxOut;
 use crate::builder::transaction::txhandler::{TxHandler, TxHandlerBuilder};
 use crate::constants::{BLOCKS_PER_WEEK, MIN_TAPROOT_AMOUNT};
@@ -15,8 +15,8 @@ use crate::{builder, utils, UTXO};
 use bitcoin::hashes::Hash;
 use bitcoin::script::PushBytesBuf;
 use bitcoin::secp256k1::schnorr::Signature;
-use bitcoin::{Amount, Network, Sequence, TxOut, Txid};
-use bitcoin::{Witness, XOnlyPublicKey};
+use bitcoin::{Network, Sequence, TxOut, Txid};
+use bitcoin::XOnlyPublicKey;
 use std::sync::Arc;
 
 /// Creates a [`TxHandler`] for the `kickoff_tx`. This transaction will be sent by the operator
@@ -254,7 +254,7 @@ pub fn create_payout_txhandler(
     output_txout: TxOut,
     operator_idx: usize,
     user_sig: Signature,
-    network: bitcoin::Network,
+    _network: bitcoin::Network,
 ) -> Result<TxHandler<Signed>, BridgeError> {
     let user_sig_wrapped = bitcoin::taproot::Signature {
         signature: user_sig,

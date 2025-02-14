@@ -50,18 +50,12 @@ async fn honest_operator_takes_refund() {
 
     let request = Request::new(WithdrawParams {
         withdrawal_id: 0,
-        user_sig: user_sig.serialize().to_vec(),
+        input_signature: user_sig.serialize().to_vec(),
         input_outpoint: Some(empty_utxo.outpoint.into()),
-        users_intent_script_pubkey: _withdrawal_tx_out.txout().script_pubkey.clone().into(),
-        users_intent_amount: withdrawal_amount.to_sat(),
-        output_script_pubkey: vec![],
+        output_script_pubkey: _withdrawal_tx_out.txout().script_pubkey.clone().into(),
         output_amount: withdrawal_amount.to_sat(),
     });
-    let _withdrawal_provide_txid = operators[1]
-        .new_withdrawal_sig(request)
-        .await
-        .unwrap()
-        .into_inner();
+    let _withdrawal_provide_txid = operators[1].withdraw(request).await.unwrap().into_inner();
 
     // let request = Request::new(WithdrawalFinalizedParams {
     //     withdrawal_id: 0,

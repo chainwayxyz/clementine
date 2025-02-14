@@ -296,7 +296,6 @@ mod tests {
         let config = create_test_config_with_thread_name!(None);
         let db = Database::new(&config).await.unwrap();
         let regtest = create_regtest_rpc!(config);
-        let rpc = regtest.rpc().clone();
 
         let operator = Operator::new(config.clone()).await.unwrap();
         let watchtower = Watchtower::new(config.clone()).await.unwrap();
