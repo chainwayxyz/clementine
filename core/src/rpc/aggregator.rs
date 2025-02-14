@@ -1065,7 +1065,7 @@ mod tests {
             if start.elapsed() > std::time::Duration::from_secs(10) {
                 panic!("MoveTx did not land onchain within 10 seconds");
             }
-            // rpc.mine_blocks(1).await.unwrap();
+            rpc.mine_blocks(1).await.unwrap();
 
             let tx_result = rpc.client.get_raw_transaction(&movetx_txid, None).await;
 

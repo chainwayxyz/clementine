@@ -56,7 +56,7 @@ impl Operator {
 
         let tx_sender = TxSender::new(signer.clone(), rpc.clone(), db.clone(), config.network);
 
-        let _operator_handle = tx_sender.run("operator", Duration::from_secs(1)).await?; // TODO: Make this a unique handle
+        // let _operator_handle = tx_sender.run("operator", Duration::from_secs(1)).await?; // TODO: Make this a unique handle
 
         let nofn_xonly_pk =
             XOnlyPublicKey::from_musig2_pks(config.verifiers_public_keys.clone(), None)?;

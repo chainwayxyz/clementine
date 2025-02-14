@@ -62,6 +62,8 @@ impl TxSender {
                 let result: Result<(), BridgeError> = async {
                     let mut dbtx = db.begin_transaction().await?;
                     let event = db.get_event_and_update(&mut dbtx, &consumer_handle).await?;
+                    // let number_of_events = db.get_number_of_events(&mut dbtx).await?;
+                    tracing::info!("NEWWWWW Event: {:?}", event);
                     if let Some(event) = event {
                         match event {
                             BitcoinSyncerEvent::NewBlock(block_hash) => {
@@ -75,7 +77,10 @@ impl TxSender {
                     dbtx.commit().await?;
 
                     let fee_rate = this.get_fee_rate().await?;
-                    this.try_to_send_unconfirmed_txs(fee_rate).await?;
+                    tracing::error!("WWWWW Fee rate: {}", fee_rate);
+                    let x = this.try_to_send_unconfirmed_txs(fee_rate).await;
+                    tracing::error!("WWWWW Fee rate: {:?}", x);
+                    x?;
 
                     Ok(())
                 }
@@ -370,9 +375,15 @@ impl TxSender {
             self.signer.address.clone(),
         )?;
 
-        let submit_package_result = self.rpc.client.submit_package(vec![&tx, &child_tx]).await?;
+        tracing::error!("Sending child tx: {:?}", child_tx);
+        tracing::error!("Sending tx: {:?}", tx);
+        tracing::error!("Fee rate: {:?}", fee_rate);
+        tracing::error!("Sending PACKAGE");
+
+        let submit_package_result = self.rpc.client.submit_package(vec![&tx, &child_tx]).await;
 
         tracing::debug!("Submit package result: {:?}", submit_package_result);
+        let submit_package_result = submit_package_result?;
 
         // If tx_results is empty, it means the txs were already accepted by the network.
         if submit_package_result.tx_results.is_empty() {
@@ -465,8 +476,8 @@ impl TxSender {
             .await?;
         for txid in txids {
             self.bump_fees_of_fee_payer_txs(txid, new_effective_fee_rate)
-                .await?;
-            self.send_tx_with_cpfp(txid, new_effective_fee_rate).await?;
+                .await;
+            self.send_tx_with_cpfp(txid, new_effective_fee_rate).await;
         }
 
         Ok(())
