@@ -25,11 +25,10 @@ fn is_test_env() -> bool {
 
 pub async fn create_verifier_grpc_server(
     config: BridgeConfig,
-    rpc: ExtendedRpc,
 ) -> Result<(std::net::SocketAddr,), BridgeError> {
     let addr = format!("{}:{}", config.host, config.port).parse()?;
     tracing::info!("Starting verifier gRPC server with address: {}", addr);
-    let verifier = Verifier::new(rpc, config).await?;
+    let verifier = Verifier::new(config).await?;
     let svc = ClementineVerifierServer::new(verifier);
 
     // Create a channel to signal when the server is ready
@@ -59,7 +58,6 @@ pub async fn create_verifier_grpc_server(
 
 pub async fn create_operator_grpc_server(
     config: BridgeConfig,
-    rpc: ExtendedRpc,
 ) -> Result<(std::net::SocketAddr,), BridgeError> {
     tracing::info!(
         "config host and port are: {} and {}",
@@ -68,7 +66,7 @@ pub async fn create_operator_grpc_server(
     );
     let addr = format!("{}:{}", config.host, config.port).parse()?;
     tracing::info!("Starting operator gRPC server with address: {}", addr);
-    let operator = Operator::new(config, rpc).await?;
+    let operator = Operator::new(config).await?;
     tracing::info!("Operator gRPC server created");
     let svc = ClementineOperatorServer::new(operator);
 

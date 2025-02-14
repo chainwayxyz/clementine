@@ -4,6 +4,7 @@ use super::clementine::{
     clementine_aggregator_server::ClementineAggregator, verifier_deposit_finalize_params,
     DepositParams, Empty, RawSignedTx, VerifierDepositFinalizeParams, VerifierOpDepositKeys,
 };
+use crate::builder::script::SpendPath;
 use crate::builder::sighash::SignatureInfo;
 use crate::builder::transaction::{create_move_to_vault_txhandler, DepositId};
 use crate::config::BridgeConfig;
@@ -22,6 +23,7 @@ use crate::{
     musig2::aggregate_nonces,
     rpc::clementine::{self, DepositSignSession},
 };
+use bitcoin::consensus::Encodable;
 use bitcoin::hashes::Hash;
 use bitcoin::secp256k1::schnorr::Signature;
 use bitcoin::secp256k1::{Message, PublicKey};
@@ -370,7 +372,7 @@ impl Aggregator {
         let musig_partial_sigs = parser::verifier::parse_partial_sigs(partial_sigs)?;
 
         // create move tx and calculate sighash
-        let move_txhandler = create_move_to_vault_txhandler(
+        let mut move_txhandler = create_move_to_vault_txhandler(
             deposit_outpoint,
             evm_address,
             &recovery_taproot_address,
@@ -379,6 +381,7 @@ impl Aggregator {
             self.config.bridge_amount_sats,
             self.config.network,
         )?;
+
         let sighash = move_txhandler.calculate_script_spend_sighash_indexed(
             0,
             0,
@@ -386,7 +389,7 @@ impl Aggregator {
         )?;
 
         // aggregate partial signatures
-        let _final_sig = crate::musig2::aggregate_partial_signatures(
+        let final_sig = crate::musig2::aggregate_partial_signatures(
             &self.config.verifiers_public_keys,
             None,
             movetx_agg_nonce,
@@ -396,9 +399,10 @@ impl Aggregator {
         .map_err(|x| BridgeError::Error(format!("Aggregating MoveTx signatures failed {}", x)))?;
 
         // everything is fine, return the signed move tx
-        let _move_tx = move_txhandler.get_cached_tx();
+        move_txhandler.set_p2tr_script_spend_witness(&[final_sig.serialize()], 0, 0)?;
+
         // TODO: Sign the transaction correctly after we create taproot witness generation functions
-        Ok(RawSignedTx { raw_tx: vec![1, 2] })
+        Ok(move_txhandler.promote()?.encode_tx())
     }
 }
 
@@ -879,7 +883,7 @@ mod tests {
             .unwrap();
         let rpc = regtest.rpc().clone();
         config.db_name += "0"; // This modification is done by the create_actors_grpc function.
-        let verifier = Verifier::new(rpc, config.clone()).await.unwrap();
+        let verifier = Verifier::new(config.clone()).await.unwrap();
         let verifier_wpks = verifier
             .db
             .get_watchtower_winternitz_public_keys(None, 0, 0) // TODO: Change this, this index should not be 0 for the watchtower.
@@ -931,7 +935,7 @@ mod tests {
         let verifier0 = {
             let mut config = config.clone();
             config.db_name += "0"; // This modification is done by the create_actors_grpc function.
-            Verifier::new(rpc, config).await.unwrap()
+            Verifier::new(config).await.unwrap()
         };
 
         tracing::info!("verifier config: {:#?}", verifier0.config);

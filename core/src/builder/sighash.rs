@@ -298,7 +298,7 @@ mod tests {
         let regtest = create_regtest_rpc!(config);
         let rpc = regtest.rpc().clone();
 
-        let operator = Operator::new(config.clone(), rpc).await.unwrap();
+        let operator = Operator::new(config.clone()).await.unwrap();
         let watchtower = Watchtower::new(config.clone()).await.unwrap();
 
         // Dummy inputs for nofn_stream.

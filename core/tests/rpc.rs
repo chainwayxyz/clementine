@@ -5,8 +5,8 @@
 use bitcoin::{secp256k1::SecretKey, Address, Amount};
 use clementine_core::builder::script::SpendPath;
 use clementine_core::builder::transaction::TransactionType;
-use clementine_core::rpc::clementine::NewWithdrawalSigParams;
 use clementine_core::rpc::clementine::NormalSignatureKind;
+use clementine_core::rpc::clementine::WithdrawParams;
 use clementine_core::{actor::Actor, builder, UTXO};
 use clementine_core::{config::BridgeConfig, database::Database, utils::initialize_logger};
 use clementine_core::{extended_rpc::ExtendedRpc, utils::SECP};
@@ -48,10 +48,10 @@ async fn honest_operator_takes_refund() {
         withdrawal_amount
     );
 
-    let request = Request::new(NewWithdrawalSigParams {
+    let request = Request::new(WithdrawParams {
         withdrawal_id: 0,
         user_sig: user_sig.serialize().to_vec(),
-        users_intent_outpoint: Some(empty_utxo.outpoint.into()),
+        input_outpoint: Some(empty_utxo.outpoint.into()),
         users_intent_script_pubkey: _withdrawal_tx_out.txout().script_pubkey.clone().into(),
         users_intent_amount: withdrawal_amount.to_sat(),
         output_script_pubkey: vec![],

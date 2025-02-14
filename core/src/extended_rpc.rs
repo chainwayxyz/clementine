@@ -180,4 +180,8 @@ impl ExtendedRpc {
             client: Arc::new(new_client),
         })
     }
+
+    pub fn url(&self) -> &str {
+        &self.url
+    }
 }

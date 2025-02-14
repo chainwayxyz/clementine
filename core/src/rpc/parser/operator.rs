@@ -1,11 +1,9 @@
+use crate::rpc::clementine::{OperatorConfig, WithdrawParams};
 use crate::{
     fetch_next_message_from_stream,
     operator::Operator,
     rpc::{
-        clementine::{
-            self, operator_params, DepositParams, DepositSignSession, NewWithdrawalSigParams,
-            OperatorParams,
-        },
+        clementine::{operator_params, DepositParams, DepositSignSession, OperatorParams},
         error::{self, expected_msg_got_none},
     },
 };
@@ -19,7 +17,7 @@ use tonic::Status;
 
 impl From<Operator> for OperatorParams {
     fn from(operator: Operator) -> Self {
-        let operator_config = clementine::OperatorConfig {
+        let operator_config = OperatorConfig {
             operator_idx: operator.idx as u32,
             collateral_funding_txid: operator.collateral_funding_txid.to_byte_array().to_vec(),
             xonly_pk: operator.signer.xonly_public_key.to_string(),
@@ -117,23 +115,23 @@ pub async fn parse_winternitz_public_keys(
 }
 
 pub async fn parse_withdrawal_sig_params(
-    params: NewWithdrawalSigParams,
+    params: WithdrawParams,
 ) -> Result<(u32, Signature, OutPoint, ScriptBuf, Amount), Status> {
-    let user_sig = Signature::from_slice(&params.user_sig)
+    let input_signature = Signature::from_slice(&params.input_signature)
         .map_err(|e| error::invalid_argument("user_sig", "Can't convert input to Signature")(e))?;
 
-    let users_intent_outpoint: OutPoint = params
-        .users_intent_outpoint
+    let input_outpoint: OutPoint = params
+        .input_outpoint
         .ok_or_else(error::input_ended_prematurely)?
         .try_into()?;
 
-    let users_intent_script_pubkey = ScriptBuf::from_bytes(params.users_intent_script_pubkey);
+    let users_intent_script_pubkey = ScriptBuf::from_bytes(params.output_script_pubkey);
 
     Ok((
         params.withdrawal_id,
-        user_sig,
-        users_intent_outpoint,
+        input_signature,
+        input_outpoint,
         users_intent_script_pubkey,
-        Amount::from_sat(params.users_intent_amount),
+        Amount::from_sat(params.output_amount),
     ))
 }

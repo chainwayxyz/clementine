@@ -50,11 +50,37 @@ macro_rules! create_regtest_rpc {
             "-txindex=1".to_string(),
             "-fallbackfee=0.00001".to_string(),
             "-rpcallowip=0.0.0.0/0".to_string(),
+            "-minrelaytxfee=0".to_string(), // TODO: remove for authentic fee testing
         ];
 
         // Create log file in temp directory
         let log_file = data_dir.join("debug.log");
         let log_file_path = log_file.to_str().unwrap();
+        // Check bitcoind version
+        let version_output = std::process::Command::new("bitcoind")
+            .arg("--version")
+            .output()
+            .expect("Failed to check bitcoind version");
+
+        let version_str = String::from_utf8_lossy(&version_output.stdout);
+        let first_line = version_str.lines().next().unwrap_or_default();
+
+        // Extract major version number
+        if let Some(version) = first_line
+            .trim_start_matches("Bitcoin Core version v")
+            .split('.')
+            .next()
+            .and_then(|v| v.parse::<u32>().ok())
+        {
+            if version < 28 {
+                panic!(
+                    "Bitcoin Core version >= 28.0 is required, found: {}",
+                    first_line
+                );
+            }
+        } else {
+            panic!("Could not determine Bitcoin Core version");
+        }
 
         // Start bitcoind process with log redirection
         let process = std::process::Command::new("bitcoind")
@@ -300,14 +326,14 @@ macro_rules! create_actors {
     ($config:expr) => {{
         let regtest = create_regtest_rpc!($config);
         let rpc = regtest.rpc();
+        let mut config = $config.clone();
+        config.bitcoin_rpc_url = rpc.url().to_string();
+
         let all_verifiers_secret_keys =
-            $config
-                .all_verifiers_secret_keys
-                .clone()
-                .unwrap_or_else(|| {
-                    panic!("All secret keys of the verifiers are required for testing");
-                });
-        let all_watchtowers_secret_keys = $config
+            config.all_verifiers_secret_keys.clone().unwrap_or_else(|| {
+                panic!("All secret keys of the verifiers are required for testing");
+            });
+        let all_watchtowers_secret_keys = config
             .all_watchtowers_secret_keys
             .clone()
             .unwrap_or_else(|| {
@@ -320,20 +346,16 @@ macro_rules! create_actors {
                 let port = get_available_port!();
                 // println!("Port: {}", port);
                 let i = i.to_string();
-                let rpc = rpc.clone();
-                let mut config_with_new_db = $config.clone();
+                let mut config_with_new_db = config.clone();
                 async move {
                     config_with_new_db.db_name += &i;
                     initialize_database!(&config_with_new_db);
 
-                    let verifier = create_verifier_grpc_server(
-                        BridgeConfig {
-                            secret_key: *sk,
-                            port,
-                            ..config_with_new_db.clone()
-                        },
-                        rpc,
-                    )
+                    let verifier = create_verifier_grpc_server(BridgeConfig {
+                        secret_key: *sk,
+                        port,
+                        ..config_with_new_db.clone()
+                    })
                     .await?;
                     Ok::<((std::net::SocketAddr,), BridgeConfig), BridgeError>((
                         verifier,
@@ -352,7 +374,7 @@ macro_rules! create_actors {
             .collect::<Vec<_>>();
 
         let all_operators_secret_keys =
-            $config
+            config
                 .all_operators_secret_keys
                 .clone()
                 .unwrap_or_else(|| {
@@ -365,17 +387,13 @@ macro_rules! create_actors {
             .enumerate()
             .map(|(i, sk)| {
                 let port = get_available_port!();
-                let rpc = rpc.clone();
                 let verifier_config = verifier_configs[i].clone();
                 async move {
-                    let socket_addr = create_operator_grpc_server(
-                        BridgeConfig {
-                            secret_key: *sk,
-                            port,
-                            ..verifier_config
-                        },
-                        rpc,
-                    )
+                    let socket_addr = create_operator_grpc_server(BridgeConfig {
+                        secret_key: *sk,
+                        port,
+                        ..verifier_config
+                    })
                     .await?;
                     Ok::<(std::net::SocketAddr,), BridgeError>(socket_addr)
                 }

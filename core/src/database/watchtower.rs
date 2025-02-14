@@ -59,6 +59,7 @@ impl Database {
 
     /// Sets challenge addresses of a watchtower for an operator. If there is an
     /// existing entry, it overwrites it with the new addresses.
+    #[tracing::instrument(skip(self, tx, watchtower_challenge_addresses))]
     pub async fn set_watchtower_challenge_addresses(
         &self,
         tx: Option<DatabaseTransaction<'_, '_>>,
@@ -82,6 +83,7 @@ impl Database {
     }
 
     /// Gets the challenge addresses of a watchtower for an operator.
+    #[tracing::instrument(skip(self, tx), ret)]
     pub async fn get_watchtower_challenge_addresses(
         &self,
         tx: Option<DatabaseTransaction<'_, '_>>,

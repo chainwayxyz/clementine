@@ -21,6 +21,7 @@ fn get_txhandler(
         .ok_or(BridgeError::TxHandlerNotFound(tx_type))
 }
 
+#[tracing::instrument(skip(db, config, nofn_xonly_pk), err)]
 pub async fn create_txhandlers(
     db: Database,
     config: BridgeConfig,
@@ -564,7 +565,7 @@ mod tests {
     };
     use bitcoin::Txid;
     use futures::future::try_join_all;
-    use std::panic;
+    use tonic::Request;
 
     use crate::builder::transaction::TransactionType;
     use crate::constants::{
@@ -574,7 +575,6 @@ mod tests {
     use std::str::FromStr;
 
     #[tokio::test(flavor = "multi_thread")]
-
     async fn test_deposit_and_sign_txs() {
         let config = create_test_config_with_thread_name!(None);
 

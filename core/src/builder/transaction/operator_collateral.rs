@@ -21,9 +21,11 @@ use crate::builder::transaction::output::UnspentTxOut;
 use crate::builder::transaction::txhandler::TxHandler;
 use crate::builder::transaction::*;
 use crate::constants::{BLOCKS_PER_DAY, KICKOFF_BLOCKHASH_COMMIT_LENGTH, MIN_TAPROOT_AMOUNT};
+use crate::constants::KICKOFF_AMOUNT;
 use crate::errors::BridgeError;
 use bitcoin::{Amount, OutPoint, TxOut, XOnlyPublicKey};
 use bitcoin::{Sequence, Txid};
+use std::f32::MIN;
 use std::sync::Arc;
 
 /// Creates a [`TxHandler`] for `sequential_collateral_tx`. It will always use the first
@@ -73,7 +75,7 @@ pub fn create_sequential_collateral_txhandler(
     ));
 
     builder = builder.add_output(UnspentTxOut::from_scripts(
-        input_amount, // TODO: - num_kickoffs_per_sequential_collateral_tx * kickoff_sats,
+        input_amount - KICKOFF_AMOUNT * (num_kickoffs_per_sequential_collateral_tx as u64),
         vec![],
         Some(operator_xonly_pk),
         network,
@@ -90,7 +92,7 @@ pub fn create_sequential_collateral_txhandler(
             KICKOFF_BLOCKHASH_COMMIT_LENGTH,
         ));
         builder = builder.add_output(UnspentTxOut::from_scripts(
-            MIN_TAPROOT_AMOUNT,
+            KICKOFF_AMOUNT,
             vec![blockhash_commit, timeout_block_count_locked_script.clone()],
             None,
             network,

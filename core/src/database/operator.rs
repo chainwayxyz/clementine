@@ -1149,7 +1149,7 @@ mod tests {
         let regtest = create_regtest_rpc!(config);
         let rpc = regtest.rpc().clone();
 
-        let operator = Operator::new(config, rpc).await.unwrap();
+        let operator = Operator::new(config).await.unwrap();
         let operator_idx = 0x45;
         let wpks = operator
             .get_winternitz_public_keys(Txid::all_zeros())

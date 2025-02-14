@@ -1,13 +1,16 @@
 use super::input::SpendableTxIn;
+use super::op_return_txout;
 use super::txhandler::DEFAULT_SEQUENCE;
 use super::Signed;
 use super::TransactionType;
+use crate::builder::script::SpendPath;
 use crate::builder::script::{CheckSig, SpendableScript, TimelockScript, WithdrawalScript};
 use crate::builder::transaction::output::UnspentTxOut;
 use crate::builder::transaction::txhandler::{TxHandler, TxHandlerBuilder};
 use crate::constants::{BLOCKS_PER_WEEK, MIN_TAPROOT_AMOUNT};
 use crate::errors::BridgeError;
 use crate::rpc::clementine::NormalSignatureKind;
+use crate::utils::usize_to_var_len_bytes;
 use crate::{builder, utils, UTXO};
 use bitcoin::hashes::Hash;
 use bitcoin::script::PushBytesBuf;
@@ -257,18 +260,25 @@ pub fn create_payout_txhandler(
         signature: user_sig,
         sighash_type: bitcoin::sighash::TapSighashType::SinglePlusAnyoneCanPay,
     };
-    let witness = Witness::p2tr_key_spend(&user_sig_wrapped);
     let txin = SpendableTxIn::new_partial(input_utxo.outpoint, input_utxo.txout);
 
     let output_txout = UnspentTxOut::from_partial(output_txout.clone());
 
-    let scripts: Vec<Arc<dyn SpendableScript>> =
-        vec![Arc::new(WithdrawalScript::new(operator_idx))];
-    let op_return_txout = UnspentTxOut::from_scripts(Amount::from_sat(0), scripts, None, network);
+    let op_return_txout = op_return_txout(
+        PushBytesBuf::try_from(usize_to_var_len_bytes(operator_idx))
+            .expect("operator idx size < 8 bytes"),
+    );
 
-    TxHandlerBuilder::new(TransactionType::Payout)
-        .add_input_with_witness(txin, DEFAULT_SEQUENCE, witness)
+    let mut txhandler = TxHandlerBuilder::new(TransactionType::Payout)
+        .add_input(
+            NormalSignatureKind::NotStored,
+            txin,
+            SpendPath::KeySpend,
+            DEFAULT_SEQUENCE,
+        )
         .add_output(output_txout)
-        .add_output(op_return_txout)
-        .finalize_signed()
+        .add_output(UnspentTxOut::from_partial(op_return_txout))
+        .finalize();
+    txhandler.set_p2tr_key_spend_witness(&user_sig_wrapped, 0)?;
+    txhandler.promote()
 }
