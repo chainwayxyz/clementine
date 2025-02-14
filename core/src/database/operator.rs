@@ -361,8 +361,8 @@ impl Database {
         }
     }
 
-    /// Sets Winternitz public keys for an operator.
-    pub async fn set_operator_winternitz_public_keys(
+    /// Sets Winternitz public keys (only for kickoff blockhash commit) for an operator.
+    pub async fn set_operator_kickoff_winternitz_public_keys(
         &self,
         tx: Option<DatabaseTransaction<'_, '_>>,
         operator_id: u32,
@@ -383,7 +383,7 @@ impl Database {
 
     /// Gets Winternitz public keys for every sequential collateral tx of an
     /// operator and a watchtower.
-    pub async fn get_operator_winternitz_public_keys(
+    pub async fn get_operator_kickoff_winternitz_public_keys(
         &self,
         tx: Option<DatabaseTransaction<'_, '_>>,
         operator_id: u32,
@@ -1156,18 +1156,18 @@ mod tests {
             .unwrap();
 
         database
-            .set_operator_winternitz_public_keys(None, operator_idx, wpks.clone())
+            .set_operator_kickoff_winternitz_public_keys(None, operator_idx, wpks.clone())
             .await
             .unwrap();
 
         let result = database
-            .get_operator_winternitz_public_keys(None, operator_idx)
+            .get_operator_kickoff_winternitz_public_keys(None, operator_idx)
             .await
             .unwrap();
         assert_eq!(result, wpks);
 
         let non_existent = database
-            .get_operator_winternitz_public_keys(None, operator_idx + 1)
+            .get_operator_kickoff_winternitz_public_keys(None, operator_idx + 1)
             .await;
         assert!(non_existent.is_err());
     }

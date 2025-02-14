@@ -31,6 +31,7 @@ pub async fn create_txhandlers(
     operator_data: OperatorData,
     watchtower_challenge_addr: Option<&[ScriptBuf]>,
     prev_reimburse_generator: Option<TxHandler>,
+    kickoff_winternitz_keys: &[bitvm::signatures::winternitz::PublicKey],
 ) -> Result<BTreeMap<TransactionType, TxHandler>, BridgeError> {
     let mut txhandlers = BTreeMap::new();
 
@@ -64,6 +65,10 @@ pub async fn create_txhandlers(
                     config.timeout_block_count,
                     config.num_kickoffs_per_sequential_collateral_tx,
                     config.network,
+                    &kickoff_winternitz_keys[kickoff_id.sequential_collateral_idx as usize
+                        * config.num_kickoffs_per_sequential_collateral_tx
+                        ..(kickoff_id.sequential_collateral_idx + 1) as usize
+                            * config.num_kickoffs_per_sequential_collateral_tx],
                 )?;
 
             let ready_to_reimburse_txhandler =
@@ -101,6 +106,7 @@ pub async fn create_txhandlers(
                 config.num_kickoffs_per_sequential_collateral_tx,
                 config.network,
                 kickoff_id.sequential_collateral_idx as usize,
+                kickoff_winternitz_keys,
             )?;
             (
                 sequential_collateral_txhandler,
@@ -558,9 +564,12 @@ mod tests {
     };
     use bitcoin::Txid;
     use futures::future::try_join_all;
+    use std::panic;
 
     use crate::builder::transaction::TransactionType;
-    use crate::constants::{WATCHTOWER_CHALLENGE_MESSAGE_LENGTH, WINTERNITZ_LOG_D};
+    use crate::constants::{
+        KICKOFF_BLOCKHASH_COMMIT_LENGTH, WATCHTOWER_CHALLENGE_MESSAGE_LENGTH, WINTERNITZ_LOG_D,
+    };
     use crate::rpc::clementine::{AssertRequest, KickoffId, TransactionRequest};
     use std::str::FromStr;
 
@@ -668,6 +677,13 @@ mod tests {
                                         ) = tx_type
                                         {
                                             full_commit_data[*assert_idx].clone()
+                                        } else if *tx_type == TransactionType::Kickoff {
+                                            vec![
+                                                1u8;
+                                                KICKOFF_BLOCKHASH_COMMIT_LENGTH as usize
+                                                    * WINTERNITZ_LOG_D as usize
+                                                    / 8
+                                            ]
                                         } else {
                                             vec![]
                                         },

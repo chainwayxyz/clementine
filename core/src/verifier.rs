@@ -178,111 +178,12 @@ impl Verifier {
             .await?;
 
         self.db
-            .set_operator_winternitz_public_keys(
+            .set_operator_kickoff_winternitz_public_keys(
                 None,
                 operator_index,
                 operator_winternitz_public_keys,
             )
             .await?;
-
-        // for i in 0..self.config.num_sequential_collateral_txs {
-        //     for j in 0..self.config.num_kickoffs_per_sequential_collateral_tx {
-        //         self.db
-        //             .set_operator_challenge_ack_hashes(
-        //                 None,
-        //                 operator_index as i32,
-        //                 i as i32,
-        //                 j as i32,
-        //                 &operators_challenge_ack_public_hashes[self.config.num_watchtowers
-        //                     * (i * self.config.num_kickoffs_per_sequential_collateral_tx + j)
-        //                     ..self.config.num_watchtowers
-        //                         * (i * self.config.num_kickoffs_per_sequential_collateral_tx
-        //                             + j
-        //                             + 1)],
-        //             )
-        //             .await?;
-        //     }
-        // }
-
-        // // Split the winternitz public keys into chunks for every sequential collateral tx and kickoff index.
-        // // This is done because we need to generate a separate BitVM setup for each collateral tx and kickoff index.
-        // let chunk_size = BITVM_CACHE.intermediate_variables.len();
-        // let winternitz_public_keys_chunks =
-        //     operator_winternitz_public_keys.chunks_exact(chunk_size);
-        //
-        // // iterate over the chunks and generate precalculated BitVM Setups
-        // for (chunk_idx, winternitz_public_keys) in winternitz_public_keys_chunks.enumerate() {
-        //     let sequential_collateral_tx_idx =
-        //         chunk_idx / self.config.num_kickoffs_per_sequential_collateral_tx;
-        //     let kickoff_idx = chunk_idx % self.config.num_kickoffs_per_sequential_collateral_tx;
-        //
-        //     let assert_tx_addrs = BITVM_CACHE
-        //         .intermediate_variables
-        //         .iter()
-        //         .enumerate()
-        //         .map(|(idx, (_intermediate_step, intermediate_step_size))| {
-        //             let script = generate_winternitz_checksig_leave_variable(
-        //                 &WinternitzPublicKey {
-        //                     public_key: winternitz_public_keys[idx].clone(),
-        //                     parameters: winternitz::Parameters::new(
-        //                         *intermediate_step_size as u32 * 2,
-        //                         4,
-        //                     ),
-        //                 },
-        //                 *intermediate_step_size,
-        //             )
-        //             .compile();
-        //             let (assert_tx_addr, _) = builder::address::create_taproot_address(
-        //                 &[script.clone()],
-        //                 None,
-        //                 self.config.network,
-        //             );
-        //             assert_tx_addr.script_pubkey()
-        //         })
-        //         .collect::<Vec<_>>();
-        //
-        //     // TODO: Use correct verification key and along with a dummy proof.
-        //     let scripts: Vec<ScriptBuf> = {
-        //         tracing::info!("Replacing disprove scripts");
-        //         utils::replace_disprove_scripts(winternitz_public_keys)
-        //         // let mut bridge_assigner = BridgeAssigner::new_watcher(commits_publickeys);
-        //         // let proof = RawProof::default();
-        //         // let segments = groth16_verify_to_segments(
-        //         //     &mut bridge_assigner,
-        //         //     &proof.public,
-        //         //     &proof.proof,
-        //         //     &proof.vk,
-        //         // );
-        //
-        //         // segments
-        //         //     .iter()
-        //         //     .map(|s| s.script.clone().compile())
-        //         //     .collect()
-        //         // vec![bitcoin::script::Builder::new()
-        //         //     .push_opcode(bitcoin::opcodes::all::OP_PUSHNUM_1)
-        //         //     .into_script()]
-        //     };
-        //
-        //     let taproot_builder = taproot_builder_with_scripts(&scripts);
-        //     let root_hash = taproot_builder
-        //         .try_into_taptree()
-        //         .expect("taproot builder always builds a full taptree")
-        //         .root_hash();
-        //     let root_hash_bytes = root_hash.to_raw_hash().to_byte_array();
-        //
-        //     // Save the public input wots to db along with the root hash
-        //     self.db
-        //         .set_bitvm_setup(
-        //             None,
-        //             operator_index as i32,
-        //             sequential_collateral_tx_idx as i32,
-        //             kickoff_idx as i32,
-        //             assert_tx_addrs,
-        //             &root_hash_bytes,
-        //             vec![],
-        //         )
-        //         .await?;
-        // }
 
         Ok(())
     }

@@ -139,6 +139,9 @@ pub fn create_nofn_sighash_stream(
                 collateral_funding_txid: *collateral_funding_txid,
             };
 
+            // get kickoff winternitz keys for this operator
+            let kickoff_winternitz_pubkeys = db.get_operator_kickoff_winternitz_public_keys(None, operator_idx as u32).await?;
+
             // For each sequential_collateral_tx, we have multiple kickoff_utxos as the connectors.
             for sequential_collateral_tx_idx in 0..config.num_sequential_collateral_txs {
                 // For each kickoff_utxo, it connnects to a kickoff_tx that results in
@@ -155,6 +158,8 @@ pub fn create_nofn_sighash_stream(
                     .map(|i| watchtower_all_challenge_addresses[i][sequential_collateral_tx_idx * config.num_kickoffs_per_sequential_collateral_tx + kickoff_idx].clone())
                     .collect::<Vec<_>>();
 
+
+
                     let mut txhandlers = create_txhandlers(
                         db.clone(),
                         config.clone(),
@@ -169,6 +174,7 @@ pub fn create_nofn_sighash_stream(
                         operator_data.clone(),
                         Some(&watchtower_challenge_addresses),
                         last_reimburse_generator,
+                        &kickoff_winternitz_pubkeys,
                     ).await?;
 
                     let mut sum = 0;
@@ -218,6 +224,9 @@ pub fn create_operator_sighash_stream(
             .collect::<Vec<_>>();
         let watchtower_all_challenge_addresses = futures::future::try_join_all(watchtower_all_challenge_addresses).await?;
 
+        // get kickoff winternitz keys for this operator
+        let kickoff_winternitz_pubkeys = db.get_operator_kickoff_winternitz_public_keys(None, operator_idx as u32).await?;
+
         let mut last_reimburse_generator: Option<TxHandler> = None;
 
         // For each sequential_collateral_tx, we have multiple kickoff_utxos as the connectors.
@@ -244,6 +253,7 @@ pub fn create_operator_sighash_stream(
                     operator_data.clone(),
                     Some(&watchtower_challenge_addresses),
                     last_reimburse_generator,
+                    &kickoff_winternitz_pubkeys,
                 ).await?;
 
                 let mut sum = 0;
@@ -321,7 +331,7 @@ mod tests {
                 .unwrap();
         }
         for i in 0..config.num_operators {
-            db.set_operator_winternitz_public_keys(
+            db.set_operator_kickoff_winternitz_public_keys(
                 None,
                 i.try_into().unwrap(),
                 operator

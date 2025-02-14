@@ -15,12 +15,12 @@
 use super::txhandler::DEFAULT_SEQUENCE;
 use crate::builder;
 use crate::builder::address::create_taproot_address;
-use crate::builder::script::TimelockScript;
+use crate::builder::script::{TimelockScript, WinternitzCommit};
 use crate::builder::transaction::input::SpendableTxIn;
 use crate::builder::transaction::output::UnspentTxOut;
 use crate::builder::transaction::txhandler::TxHandler;
 use crate::builder::transaction::*;
-use crate::constants::{BLOCKS_PER_DAY, MIN_TAPROOT_AMOUNT};
+use crate::constants::{BLOCKS_PER_DAY, KICKOFF_BLOCKHASH_COMMIT_LENGTH, MIN_TAPROOT_AMOUNT};
 use crate::errors::BridgeError;
 use bitcoin::{Amount, OutPoint, TxOut, XOnlyPublicKey};
 use bitcoin::{Sequence, Txid};
@@ -45,6 +45,7 @@ pub fn create_sequential_collateral_txhandler(
     timeout_block_count: i64,
     num_kickoffs_per_sequential_collateral_tx: usize,
     network: bitcoin::Network,
+    pubkeys: &[bitvm::signatures::winternitz::PublicKey],
 ) -> Result<TxHandler, BridgeError> {
     let (op_address, op_spend) = create_taproot_address(&[], Some(operator_xonly_pk), network);
     let mut builder = TxHandlerBuilder::new(TransactionType::SequentialCollateral).add_input(
@@ -79,11 +80,19 @@ pub fn create_sequential_collateral_txhandler(
     ));
 
     // add kickoff utxos
-    for _ in 0..num_kickoffs_per_sequential_collateral_tx {
+    for pubkey in pubkeys
+        .iter()
+        .take(num_kickoffs_per_sequential_collateral_tx)
+    {
+        let blockhash_commit = Arc::new(WinternitzCommit::new(
+            pubkey.clone(),
+            operator_xonly_pk,
+            KICKOFF_BLOCKHASH_COMMIT_LENGTH,
+        ));
         builder = builder.add_output(UnspentTxOut::from_scripts(
             MIN_TAPROOT_AMOUNT,
-            vec![timeout_block_count_locked_script.clone()],
-            Some(operator_xonly_pk),
+            vec![blockhash_commit, timeout_block_count_locked_script.clone()],
+            None,
             network,
         ));
     }
@@ -153,7 +162,7 @@ pub fn create_kickoff_utxo_timeout_txhandler(
     let builder = TxHandlerBuilder::new(TransactionType::KickoffUtxoTimeout).add_input(
         NormalSignatureKind::NotStored,
         sequential_collateral_txhandler.get_spendable_output(1 + kickoff_idx)?,
-        SpendPath::ScriptSpend(0),
+        SpendPath::ScriptSpend(1),
         DEFAULT_SEQUENCE,
     );
 
@@ -202,6 +211,7 @@ pub fn create_seq_collat_reimburse_gen_nth_txhandler(
     num_kickoffs_per_sequential_collateral_tx: usize,
     network: bitcoin::Network,
     index: usize,
+    pubkeys: &[bitvm::signatures::winternitz::PublicKey],
 ) -> Result<(TxHandler, TxHandler, TxHandler), BridgeError> {
     let mut seq_collat_txhandler = create_sequential_collateral_txhandler(
         operator_xonly_pk,
@@ -210,6 +220,7 @@ pub fn create_seq_collat_reimburse_gen_nth_txhandler(
         timeout_block_count,
         num_kickoffs_per_sequential_collateral_tx,
         network,
+        &pubkeys[0..num_kickoffs_per_sequential_collateral_tx],
     )?;
     let mut ready_to_reimburse_txhandler =
         create_ready_to_reimburse_txhandler(&seq_collat_txhandler, operator_xonly_pk, network)?;
@@ -219,7 +230,7 @@ pub fn create_seq_collat_reimburse_gen_nth_txhandler(
         num_kickoffs_per_sequential_collateral_tx,
         network,
     )?;
-    for _ in 0..index {
+    for idx in 1..index + 1 {
         seq_collat_txhandler = create_sequential_collateral_txhandler(
             operator_xonly_pk,
             *reimburse_gen_txhandler.get_txid(),
@@ -230,6 +241,8 @@ pub fn create_seq_collat_reimburse_gen_nth_txhandler(
             timeout_block_count,
             num_kickoffs_per_sequential_collateral_tx,
             network,
+            &pubkeys[idx * num_kickoffs_per_sequential_collateral_tx
+                ..(idx + 1) * num_kickoffs_per_sequential_collateral_tx],
         )?;
         ready_to_reimburse_txhandler =
             create_ready_to_reimburse_txhandler(&seq_collat_txhandler, operator_xonly_pk, network)?;

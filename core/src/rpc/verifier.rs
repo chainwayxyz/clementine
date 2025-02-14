@@ -369,7 +369,6 @@ impl ClementineVerifier for Verifier {
         Ok(Response::new(raw_tx))
     }
 
-    #[tracing::instrument(skip(self), err(level = tracing::Level::ERROR), ret(level = tracing::Level::TRACE))]
     async fn set_operator_keys(
         &self,
         request: tonic::Request<super::VerifierOpDepositKeys>,

@@ -1,7 +1,9 @@
 use crate::actor::{Actor, WinternitzDerivationPath};
 use crate::builder::transaction::{DepositId, TransactionType};
 use crate::config::BridgeConfig;
-use crate::constants::{WATCHTOWER_CHALLENGE_MESSAGE_LENGTH, WINTERNITZ_LOG_D};
+use crate::constants::{
+    KICKOFF_BLOCKHASH_COMMIT_LENGTH, WATCHTOWER_CHALLENGE_MESSAGE_LENGTH, WINTERNITZ_LOG_D,
+};
 use crate::database::Database;
 use crate::errors::BridgeError;
 use crate::rpc::clementine::{KickoffId, RawSignedTx, RawSignedTxs};
@@ -61,6 +63,11 @@ pub async fn create_and_sign_tx(
         .get_operator(None, transaction_data.kickoff_id.operator_idx as i32)
         .await?;
 
+    // get kickoff winternitz keys for this operator
+    let kickoff_winternitz_pubkeys = db
+        .get_operator_kickoff_winternitz_public_keys(None, transaction_data.kickoff_id.operator_idx)
+        .await?;
+
     let mut txhandlers = builder::transaction::create_txhandlers(
         db.clone(),
         config.clone(),
@@ -71,6 +78,7 @@ pub async fn create_and_sign_tx(
         operator_data,
         Some(&watchtower_challenge_addresses),
         None,
+        &kickoff_winternitz_pubkeys,
     )
     .await?;
 
@@ -161,6 +169,27 @@ pub async fn create_and_sign_tx(
             path,
         )?;
     }
+    if let TransactionType::Kickoff = transaction_data.transaction_type {
+        // need to commit blockhash to start kickoff
+        let path = WinternitzDerivationPath {
+            message_length: KICKOFF_BLOCKHASH_COMMIT_LENGTH,
+            log_d: WINTERNITZ_LOG_D,
+            tx_type: crate::actor::TxType::BitVM,
+            operator_idx: Some(transaction_data.kickoff_id.operator_idx),
+            watchtower_idx: None,
+            sequential_collateral_tx_idx: Some(
+                transaction_data.kickoff_id.sequential_collateral_idx,
+            ),
+            kickoff_idx: Some(transaction_data.kickoff_id.kickoff_idx),
+            intermediate_step_name: None,
+            deposit_txid: None,
+        };
+        signer.tx_sign_winternitz(
+            &mut requested_txhandler,
+            &transaction_data.commit_data,
+            path,
+        )?;
+    }
 
     let checked_txhandler = requested_txhandler.promote()?;
 
@@ -183,6 +212,11 @@ pub async fn create_assert_commitment_txs(
         return Err(BridgeError::InvalidCommitData);
     }
 
+    // get kickoff winternitz keys for this operator
+    let kickoff_winternitz_pubkeys = db
+        .get_operator_kickoff_winternitz_public_keys(None, assert_data.kickoff_id.operator_idx)
+        .await?;
+
     let mut txhandlers = builder::transaction::create_txhandlers(
         db.clone(),
         config.clone(),
@@ -193,6 +227,7 @@ pub async fn create_assert_commitment_txs(
         operator_data,
         None,
         None,
+        &kickoff_winternitz_pubkeys,
     )
     .await?;
 

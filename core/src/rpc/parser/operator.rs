@@ -104,32 +104,6 @@ pub async fn parse_details(
     ))
 }
 
-// pub async fn parse_challenge_ack_public_hash(
-//     stream: &mut tonic::Streaming<OperatorParams>,
-// ) -> Result<[u8; 20], Status> {
-//     let operator_param = fetch_next_message_from_stream!(stream, response)?;
-//
-//     let digest = if let operator_params::Response::ChallengeAckDigests(digest) = operator_param {
-//         digest
-//     } else {
-//         return Err(Status::invalid_argument("Expected ChallengeAckDigests"));
-//     };
-//
-//     // Ensure `digest.hash` is exactly 20 bytes
-//     if digest.hash.len() != 20 {
-//         return Err(Status::invalid_argument(
-//             "Digest hash length is not 20 bytes",
-//         ));
-//     }
-//
-//     let public_hash: [u8; 20] = digest
-//         .hash
-//         .try_into()
-//         .map_err(|_| Status::invalid_argument("Failed to convert digest hash into PublicHash"))?;
-//
-//     Ok(public_hash)
-// }
-
 pub async fn parse_winternitz_public_keys(
     stream: &mut tonic::Streaming<OperatorParams>,
 ) -> Result<winternitz::PublicKey, Status> {
