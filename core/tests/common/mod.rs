@@ -309,7 +309,7 @@ mod tests {
     #[tokio::test]
 
     async fn test_deposit() {
-        let mut config = create_test_config_with_thread_name!(None);
+        let config = create_test_config_with_thread_name!(None);
         run_single_deposit(config).await.unwrap();
     }
 

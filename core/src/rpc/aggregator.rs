@@ -882,7 +882,7 @@ mod tests {
 
     #[tokio::test]
     async fn aggregator_setup_watchtower_challenge_addresses() {
-        let mut config = create_test_config_with_thread_name!(None);
+        let config = create_test_config_with_thread_name!(None);
         let (_verifiers, _operators, mut aggregator, _watchtowers, regtest) =
             create_actors!(config.clone());
         aggregator

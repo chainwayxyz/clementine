@@ -287,7 +287,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_verifiers_kickoff_utxos_1() {
-        let mut config = create_test_config_with_thread_name!(None);
+        let config = create_test_config_with_thread_name!(None);
         let db = Database::new(&config).await.unwrap();
 
         let outpoint = OutPoint {
@@ -324,7 +324,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_verifiers_kickoff_utxos_2() {
-        let mut config = create_test_config_with_thread_name!(None);
+        let config = create_test_config_with_thread_name!(None);
         let db = Database::new(&config).await.unwrap();
 
         let outpoint = OutPoint {
@@ -337,7 +337,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_get_pub_nonces_1() {
-        let mut config = create_test_config_with_thread_name!(None);
+        let config = create_test_config_with_thread_name!(None);
         let db = Database::new(&config).await.unwrap();
 
         let outpoint = OutPoint {
@@ -369,7 +369,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_get_pub_nonces_2() {
-        let mut config = create_test_config_with_thread_name!(None);
+        let config = create_test_config_with_thread_name!(None);
         let db = Database::new(&config).await.unwrap();
         let outpoint = OutPoint {
             txid: Txid::from_byte_array([1u8; 32]),
@@ -381,7 +381,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_save_and_get_deposit_info() {
-        let mut config = create_test_config_with_thread_name!(None);
+        let config = create_test_config_with_thread_name!(None);
         let database = Database::new(&config).await.unwrap();
 
         let xonly_public_key = XOnlyPublicKey::from_slice(&[

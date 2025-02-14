@@ -495,7 +495,7 @@ mod tests {
         let network = bitcoin::Network::Regtest;
         let actor = Actor::new(sk, None, network);
 
-        let mut config = create_test_config_with_thread_name!(None);
+        let config = create_test_config_with_thread_name!(None);
 
         let db = Database::new(&config).await.unwrap();
 

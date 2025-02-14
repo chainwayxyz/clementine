@@ -268,7 +268,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_fee_payer_tx_operations() {
-        let mut config = create_test_config_with_thread_name!(None);
+        let config = create_test_config_with_thread_name!(None);
         let db = Database::new(&config).await.unwrap();
 
         let bumped_txid = Txid::hash(&[1u8; 32]);
@@ -323,7 +323,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_get_fee_payer_tx() {
-        let mut config = create_test_config_with_thread_name!(None);
+        let config = create_test_config_with_thread_name!(None);
         let db = Database::new(&config).await.unwrap();
 
         let bumped_txid = Txid::hash(&[1u8; 32]);
