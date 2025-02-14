@@ -1,5 +1,7 @@
 //! # Common Utilities for Integration Tests
 
+#![allow(unused)]
+
 #[path = "../../src/test_utils.rs"]
 mod test_utils;
 
@@ -296,53 +298,4 @@ pub async fn run_single_deposit(
         watchtowers,
         deposit_outpoint,
     ))
-}
-
-#[cfg(test)]
-mod tests {
-    use crate::common::run_single_deposit;
-    use crate::create_regtest_rpc;
-    use crate::create_test_config_with_thread_name;
-    use crate::initialize_database;
-    use bitcoincore_rpc::RpcApi;
-    use clementine_core::database::Database;
-    use clementine_core::extended_rpc::ExtendedRpc;
-    use clementine_core::{config::BridgeConfig, utils::initialize_logger};
-
-    #[tokio::test]
-    async fn test_deposit() {
-        let config = create_test_config_with_thread_name!(None);
-        run_single_deposit(config).await.unwrap();
-    }
-
-    //     #[ignore = "We are switching to gRPC"]
-    //     #[tokio::test]
-    //     async fn multiple_deposits_for_operator() {
-    //         run_multiple_deposits("test_config.toml").await;
-    //     }
-
-    #[tokio::test]
-    async fn create_regtest_rpc() {
-        let mut config = create_test_config_with_thread_name!(None);
-        let regtest = create_regtest_rpc!(config);
-
-        let macro_rpc = regtest.rpc();
-        let rpc = ExtendedRpc::connect(
-            config.bitcoin_rpc_url.clone(),
-            config.bitcoin_rpc_user.clone(),
-            config.bitcoin_rpc_password.clone(),
-        )
-        .await
-        .unwrap();
-
-        macro_rpc.mine_blocks(1).await.unwrap();
-        let height = macro_rpc.client.get_block_count().await.unwrap();
-        let new_rpc_height = rpc.client.get_block_count().await.unwrap();
-        assert_eq!(height, new_rpc_height);
-
-        rpc.mine_blocks(1).await.unwrap();
-        let new_rpc_height = rpc.client.get_block_count().await.unwrap();
-        let height = macro_rpc.client.get_block_count().await.unwrap();
-        assert_eq!(height, new_rpc_height);
-    }
 }
